@@ -1,0 +1,32 @@
+name: Chiudi le pull request esterne
+
+# Il repository e' pubblicato in sola lettura: il codice si legge e si forka,
+# ma le modifiche non passano da qui. GitHub non permette di disattivare le
+# pull request, quindi si chiudono appena arrivano, con una risposta cortese.
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+# Il token predefinito del repository e' in sola lettura: il permesso di
+# scrivere sulle pull request va chiesto qui, ed e' l'unico concesso.
+permissions:
+  pull-requests: write
+
+jobs:
+  chiudi:
+    # Le pull request aperte dal proprietario restano aperte.
+    if: github.event.pull_request.author_association != 'OWNER'
+    runs-on: ubuntu-latest
+    steps:
+      # Nessun checkout del codice della pull request: il job gira nel contesto
+      # del repository di base e non esegue niente che arrivi da fuori.
+      - name: Commenta e chiudi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMERO: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$NUMERO" --repo "$REPO" --body \
+            "Grazie per l'interesse, ma questo repository non accetta pull request: e' pubblicato in sola lettura ed e' un progetto personale. Il codice e' sotto licenza MIT, quindi il fork che hai gia' fatto e' tuo a tutti gli effetti: portalo dove vuoi."
+          gh pr close "$NUMERO" --repo "$REPO"

@@ -42,6 +42,12 @@ convenzioni di codice) sono in [AGENTS.md](AGENTS.md).
 
 [VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
 
+## Contributi
+
+Nessuno: è un progetto personale, pubblicato in sola lettura. Le pull request
+vengono chiuse in automatico. Il codice è MIT, quindi il fork è la strada giusta —
+prendilo e portalo dove vuoi.
+
 ## Licenza
 
 [MIT](LICENSE).
