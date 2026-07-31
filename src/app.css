@@ -1,0 +1,145 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+
+:root {
+  /* Superfici — croma 0.000 per non alterare i colori ANSI adiacenti */
+  --bg-sunken:   oklch(0.155 0 0);
+  --bg-base:     oklch(0.185 0 0);
+  --bg-raised:   oklch(0.215 0 0);
+  --bg-overlay:  oklch(0.250 0 0);
+  --bg-hover:    oklch(0.285 0 0);
+  --bg-active:   oklch(0.325 0 0);
+  --line:        oklch(0.295 0 0);
+  --line-strong: oklch(0.400 0 0);
+
+  /* Testo */
+  --ink:         oklch(0.970 0 0);
+  --ink-muted:   oklch(0.760 0 0);
+  --ink-faint:   oklch(0.655 0 0);
+
+  /* Accento — brand non è mai colore di testo */
+  --brand:       oklch(0.620 0.190 355);
+  --brand-ink:   oklch(0.720 0.170 355);
+  --brand-dim:   oklch(0.440 0.140 355);
+
+  /* Attenzione */
+  --warn:        oklch(0.780 0.150 75);
+  --warn-dim:    oklch(0.560 0.120 75);
+
+  /* Identità progetto: L/C fissi, tinta dall'hash del path */
+  --proj-l-idle: 0.42;  --proj-c-idle: 0.130;
+  --proj-l-hover: 0.50; --proj-c-hover: 0.145;
+  --proj-l-active: 0.68; --proj-c-active: 0.160;
+
+  /* Tipografia */
+  --font-ui:   "Inter Variable", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrainsMono Nerd Font", "JetBrains Mono NF", "JetBrainsMonoNerdFont", "CaskaydiaCove Nerd Font", "CaskaydiaMono Nerd Font", "CaskaydiaCove NF", "Cascadia Code NF", "CascadiaMono NF", "Symbols Nerd Font Mono", "Symbols Nerd Font", "FiraCode Nerd Font", "MesloLGS NF", "Hack Nerd Font", "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  --text-xs: 11px; --text-sm: 12px; --text-base: 13px;
+  --text-md: 14px; --text-lg: 16px; --text-xl: 20px;
+
+  /* Spazio */
+  --space-1: 4px; --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-8: 48px;
+
+  /* Raggi */
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 10px; --radius-full: 999px;
+
+  /* Ombra */
+  --shadow-overlay: 0 8px 24px -8px oklch(0 0 0 / 0.7),
+                    0 2px  6px -2px oklch(0 0 0 / 0.5);
+
+  /* Movimento */
+  --dur-instant: 0ms; --dur-fast: 120ms; --dur-base: 180ms;
+  --dur-slow: 240ms;  --dur-pulse: 1800ms;
+  --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.30, 1);
+  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Z-index semantico */
+  --z-base: 0;     --z-splitter: 10; --z-sticky: 20; --z-topbar: 30;
+  --z-backdrop: 40; --z-overlay: 50; --z-dialog: 60; --z-toast: 70; --z-tooltip: 80;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg-base);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  user-select: none;
+}
+
+input, textarea, button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Scrollbar restyling for webkit */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid var(--bg-base);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line-strong);
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+/* Git Diff Gutter Decorations in Monaco */
+.git-gutter-added {
+  background: #4caf50 !important;
+  width: 4px !important;
+  margin-left: 2px;
+  border-radius: 1px;
+}
+
+.git-gutter-modified {
+  background: #0288d1 !important;
+  width: 4px !important;
+  margin-left: 2px;
+  border-radius: 1px;
+}
+
+.git-gutter-deleted {
+  border-left: 4px solid #ef5350 !important;
+  margin-left: 2px;
+}
+
+/* Git status variables for file tree and indicators */
+:root {
+  --git-modified:  #e5a93c;
+  --git-added:     #4caf50;
+  --git-untracked: #73c991;
+  --git-deleted:   #ef5350;
+  --git-renamed:   #64b5f6;
+  --git-conflict:  #ef5350;
+}
