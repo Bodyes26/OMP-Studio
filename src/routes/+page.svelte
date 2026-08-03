@@ -525,7 +525,7 @@
 		padding: 1px 5px;
 		border-radius: 99px;
 		background: var(--brand);
-		color: var(--bg-sunken);
+		color: var(--on-brand);
 		font-weight: 600;
 	}
 
@@ -642,7 +642,7 @@
 
 	.btn-primary {
 		background: var(--brand);
-		color: var(--bg-sunken);
+		color: var(--on-brand);
 	}
 	.btn-primary:hover {
 		filter: brightness(1.1);

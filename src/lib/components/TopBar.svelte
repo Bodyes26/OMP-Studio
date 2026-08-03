@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { projectStore, PRESET_HUES } from '$lib/stores/projects.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEMES, swatchesFor } from '$lib/theme';
+	import { THEME_GROUPS, THEMES, swatchesFor } from '$lib/theme';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
@@ -18,10 +18,15 @@
 	let themeOpen = $state(false);
 	let themeFilter = $state('');
 
-	const themeList = $derived(
-		themeStore.names
-			.filter((n) => n.includes(themeFilter.trim().toLowerCase()))
-			.map((name) => ({ name, ...swatchesFor(THEMES[name]) }))
+	const themeGroups = $derived(
+		THEME_GROUPS
+			.map((group) => ({
+				...group,
+				themes: group.names
+					.filter((n) => n.includes(themeFilter.trim().toLowerCase()))
+					.map((name) => ({ name, ...swatchesFor(THEMES[name]) }))
+			}))
+			.filter((group) => group.themes.length > 0)
 	);
 
 	function pickTheme(name: string) {
@@ -296,18 +301,31 @@
 			onkeydown={(e) => { if (e.key === 'Escape') themeOpen = false; }}
 		/>
 		<div class="theme-list">
-			{#each themeList as t (t.name)}
-				<button
-					class="theme-row"
-					class:selected={t.name === themeStore.current}
-					onclick={() => pickTheme(t.name)}
-				>
-					<span class="theme-preview" style="background: {t.bg};">
-						<span class="dot" style="background: {t.accent};"></span>
-						<span class="dot" style="background: {t.text};"></span>
-					</span>
-					<span class="theme-name">{t.name}</span>
-				</button>
+			{#each themeGroups as group (group.mode)}
+				<section class="theme-group" aria-labelledby={'theme-group-' + group.mode}>
+					<div class="theme-group-label" id={'theme-group-' + group.mode} role="heading" aria-level="3">
+						<span>{group.label}</span>
+						<span class="theme-group-count">{group.themes.length}</span>
+					</div>
+					<div class="theme-group-items">
+						{#each group.themes as t (t.name)}
+							<button
+								class="theme-row"
+								class:selected={t.name === themeStore.current}
+								aria-pressed={t.name === themeStore.current}
+								onclick={() => pickTheme(t.name)}
+							>
+								<span class="theme-preview" style="background: {t.bg};">
+									<span class="dot" style="background: {t.accent};"></span>
+									<span class="dot" style="background: {t.text};"></span>
+								</span>
+								<span class="theme-name">{t.name}</span>
+							</button>
+						{/each}
+					</div>
+				</section>
+			{:else}
+				<div class="theme-empty">Nessun tema trovato</div>
 			{/each}
 		</div>
 		<div class="theme-note">
@@ -434,7 +452,7 @@
 
 	.tab.active {
 		background-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
-		color: var(--bg-sunken);
+		color: var(--on-project);
 		font-weight: 700;
 	}
 
@@ -733,6 +751,46 @@
 		max-height: 320px;
 		overflow-y: auto;
 	}
+	.theme-group {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.theme-group + .theme-group {
+		border-top: 1px solid var(--line);
+		margin-top: var(--space-2);
+		padding-top: var(--space-2);
+	}
+
+	.theme-group-label {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		color: var(--ink-faint);
+		font-size: var(--text-xs);
+		font-weight: 650;
+		padding: 0 var(--space-2) var(--space-1);
+	}
+
+	.theme-group-count {
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 500;
+	}
+
+	.theme-group-items {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.theme-empty {
+		color: var(--ink-faint);
+		font-size: var(--text-sm);
+		padding: var(--space-3) var(--space-2);
+		text-align: center;
+	}
+
 
 	.theme-row {
 		display: flex;

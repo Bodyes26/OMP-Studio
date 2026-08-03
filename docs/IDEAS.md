@@ -27,9 +27,9 @@ Costo stimato: 1 giorno.
 Dipende da: Fase 5. `omp --export <file>` produce già HTML, quindi la strada esiste.
 
 ### Tema chiaro
-Problema reale che risolve: nessuno noto. La scena in `DESIGN.md` §1 dice che il tema scuro è una conseguenza funzionale del terminale, non una preferenza.
-Costo stimato: 2-3 giorni, più il raddoppio di ogni verifica di contrasto.
-Dipende da: niente. Da rivalutare solo se cambia l'ambiente di lavoro.
+Completato: il selettore include anche i temi chiari builtin di `omp`, con una
+rampa di contrasto dedicata per guscio, editor e terminale. Le sezioni dello
+switcher distinguono i temi chiari da quelli scuri in base alla luminanza reale.
 
 ### Colore identità del progetto scelto a mano
 Problema reale che risolve: l'hash del path può assegnare due tinte vicine a due progetti aperti insieme.
@@ -114,10 +114,10 @@ countdown a `resetsAt`.
 
 ### ~~Il terminale usa il tema di `omp`~~ → fatta il 2026-07-31, rovesciata
 Non "Studio legge il tema di `omp`" ma "un tema solo per entrambi": il selettore in
-barra sceglie fra i 52 temi scuri builtin (copiati in `src/lib/themes/omp/`, perché
-nel binario non sono leggibili), ne scrive uno in `~/.omp/agent/themes/omp-studio.json`
-e lo impone alle sole sessioni di Studio via overlay. Vedi `DECISIONS.md` gate R9 e
-`DESIGN.md` §2.9.
+barra sceglie fra i 100 temi builtin (copiati in `src/lib/themes/omp/`, perché
+nel binario non sono leggibili), li divide per luminanza, ne scrive uno in
+`~/.omp/agent/themes/omp-studio.json` e lo impone alle sole sessioni di Studio
+via overlay. Vedi `DECISIONS.md` gate R9 e `DESIGN.md` §2.9.
 
 ### ~~Ctrl+click su un percorso apre il file nell'editor~~ → fatta il 2026-07-31, senza estensione
 Non serviva l'estensione-ponte: con `tui.hyperlinks: always` nell'overlay `omp`

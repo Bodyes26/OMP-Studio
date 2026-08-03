@@ -75,8 +75,9 @@ pub fn studio_theme_file() -> Option<PathBuf> {
 }
 
 /// Scrive il tema selezionato come tema custom di `omp`. Le sessioni lanciate
-/// da Studio hanno `theme.dark: omp-studio` nell'overlay, quindi il watcher di
-/// `omp` osserva proprio questo file: riscriverlo ricolora le TUI gia' aperte.
+/// da Studio hanno `theme.dark` e `theme.light` puntati al tema scritto da
+/// `theme_apply` nell'overlay, quindi ogni modalita' della TUI usa la stessa
+/// scelta.
 #[command]
 pub async fn theme_apply(theme: serde_json::Value) -> Result<(), String> {
     let path = studio_theme_file().ok_or("Impossibile risolvere ~/.omp/agent")?;
@@ -94,8 +95,8 @@ pub async fn theme_apply(theme: serde_json::Value) -> Result<(), String> {
 
 /// Il tema attivo nella configurazione dell'utente (`theme.dark` di
 /// `config.yml`), letto per far partire Studio con l'aspetto che l'utente ha
-/// gia' scelto in `omp`. Lettura riga per riga: una dipendenza YAML per due
-/// chiavi non si giustifica.
+/// gia' scelto in `omp`. Se `theme.dark` non e' presente, usa `theme.light`
+/// come fallback.
 #[command]
 pub async fn omp_user_theme() -> Result<Option<String>, String> {
     let mut path = agent_dir().ok_or("Impossibile risolvere ~/.omp/agent")?;
@@ -105,19 +106,29 @@ pub async fn omp_user_theme() -> Result<Option<String>, String> {
     };
 
     let mut in_theme = false;
+    let mut dark = None;
+    let mut light = None;
     for line in text.lines() {
         if !line.starts_with([' ', '\t']) {
             in_theme = line.trim_end() == "theme:";
             continue;
         }
-        if in_theme {
-            if let Some(value) = line.trim().strip_prefix("dark:") {
-                let name = value.trim().trim_matches(['"', '\'']).to_string();
-                return Ok(if name.is_empty() { None } else { Some(name) });
+        if !in_theme {
+            continue;
+        }
+        if let Some(value) = line.trim().strip_prefix("dark:") {
+            let name = value.trim().trim_matches(['"', '\'']).to_string();
+            if !name.is_empty() {
+                dark = Some(name);
+            }
+        } else if let Some(value) = line.trim().strip_prefix("light:") {
+            let name = value.trim().trim_matches(['"', '\'']).to_string();
+            if !name.is_empty() {
+                light = Some(name);
             }
         }
     }
-    Ok(None)
+    Ok(dark.or(light))
 }
 
 #[derive(Serialize)]

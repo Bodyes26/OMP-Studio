@@ -78,8 +78,9 @@ silenzioso, preciso**.
 - **AI slop 2025-2026.** Glassmorphism decorativo, gradient text, card con bordo sottile
   e ombra larga, angoli da 24-32px, eyebrow uppercase sopra ogni sezione, marcatori
   `01 / 02 / 03`, sfondi a griglia, illustrazioni SVG "sketchy".
-- **Il tema chiaro.** Bandito per ragioni funzionali, non estetiche: un guscio chiaro
-  attorno a un terminale scuro crea uno stacco di luminanza che si paga dopo otto ore.
+- **Tema incoerente.** Temi chiari e scuri sono ammessi, ma guscio e TUI devono
+  sempre cambiare insieme: nessuna superficie chiara attorno a un terminale scuro
+  o tema manuale diverso tra Studio e `omp`.
 - **Il terminale "abbellito".** Nessun padding decorativo dentro la viewport, nessun
   font proporzionale, nessuna reinterpretazione dei sedici colori ANSI. Il terminale è
   sacro: pixel-perfect e veloce.

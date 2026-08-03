@@ -9,6 +9,17 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-03
+
+### Added
+
+- Aggiunge i 48 temi chiari builtin di `omp` e li separa dai 52 temi scuri nello
+  switcher; la scelta aggiorna insieme guscio, editor, terminale e sessioni `omp`.
+
+### Changed
+
+- All'avvio riconosce anche `theme.light` quando `theme.dark` non è impostato.
+
 ## [0.2.0] - 2026-08-03
 
 ### Added

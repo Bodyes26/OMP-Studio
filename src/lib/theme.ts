@@ -1,16 +1,15 @@
 /**
  * Ponte fra il tema di `omp` e quello di Studio.
  *
- * Il catalogo e' la copia dei temi scuri builtin di `omp` 17.2.1: sono
+ * Il catalogo e' la copia dei temi builtin di `omp` 17.2.1: sono
  * compilati dentro il binario (`modes/theme/theme.ts` li importa con
  * `with { type: "json" }`), quindi sulla macchina utente non esistono su disco
- * e l'unico modo di conoscerne i colori e' averli qui. I 49 temi chiari sono
- * esclusi: il tema chiaro e' bandito da PRODUCT.md.
+ * e l'unico modo di conoscere i colori e' averli qui. Include sia il tema
+ * builtin sia i temi scuri e chiari del catalogo.
  *
- * Un tema contribuisce al guscio **sei** valori: le due superfici ancora e la
- * tinta/croma di accento e attenzione. Tutto il resto resta derivato in
- * `app.css`, quindi la rampa di luminanza di DESIGN.md §2.3-2.5 - e i suoi
- * rapporti di contrasto - vale per ogni tema per costruzione.
+ * Le due superfici ancora e la tinta/croma di accento e attenzione arrivano dal
+ * tema. Testo, stati e superfici derivate restano in `app.css`, con una rampa
+ * distinta per tema scuro e chiaro per conservare il contrasto del guscio.
  *
  * Monaco e xterm non leggono il CSS: vogliono stringhe esadecimali. Invece di
  * duplicare i valori si interroga il CSS stesso (`tokenHex`), cosi' la sorgente
@@ -83,11 +82,17 @@ export interface ThemeAnchors {
 	brandC: number;
 	warnH: number;
 	warnC: number;
+	isLight: boolean;
 }
 
 /** Croma massima dell'accento in DESIGN.md §2.4: oltre, il guscio urlerebbe. */
 const BRAND_C_MAX = 0.19;
 const WARN_C_MAX = 0.15;
+
+function modeFor(theme: OmpTheme): ThemeMode {
+	const page = resolveColor(theme, theme.export.pageBg) ?? '#131313';
+	return luminance(page) > 0.5 ? 'light' : 'dark';
+}
 
 export function anchorsFor(theme: OmpTheme): ThemeAnchors {
 	const page = resolveColor(theme, theme.export.pageBg) ?? '#131313';
@@ -105,7 +110,8 @@ export function anchorsFor(theme: OmpTheme): ThemeAnchors {
 		// della rampa inventerebbe una saturazione che il tema non ha.
 		brandC: Math.min(BRAND_C_MAX, accent.c),
 		warnH: Math.round(warning.h),
-		warnC: Math.min(WARN_C_MAX, warning.c)
+		warnC: Math.min(WARN_C_MAX, warning.c),
+		isLight: modeFor(theme) === 'light'
 	};
 }
 
@@ -121,6 +127,26 @@ export function swatchesFor(theme: OmpTheme): { bg: string; accent: string; text
 export const THEMES: Record<string, OmpTheme> = CATALOG;
 export const THEME_NAMES = Object.keys(CATALOG).sort();
 
+export type ThemeMode = 'dark' | 'light';
+
+export interface ThemeGroup {
+	mode: ThemeMode;
+	label: string;
+	names: string[];
+}
+
+export const THEME_GROUPS: ThemeGroup[] = [
+	{
+		mode: 'dark',
+		label: 'Temi scuri',
+		names: THEME_NAMES.filter((name) => modeFor(THEMES[name]) === 'dark')
+	},
+	{
+		mode: 'light',
+		label: 'Temi chiari',
+		names: THEME_NAMES.filter((name) => modeFor(THEMES[name]) === 'light')
+	}
+];
 let probe: HTMLElement | null = null;
 let surface: CanvasRenderingContext2D | null = null;
 
@@ -169,6 +195,7 @@ export interface CanvasColors {
 	ink: string;
 	inkMuted: string;
 	inkFaint: string;
+	isLight: boolean;
 }
 
 /**
@@ -184,7 +211,8 @@ export function canvasColors(): CanvasColors {
 		lineStrong: tokenHex('--line-strong'),
 		ink: tokenHex('--ink'),
 		inkMuted: tokenHex('--ink-muted'),
-		inkFaint: tokenHex('--ink-faint')
+		inkFaint: tokenHex('--ink-faint'),
+		isLight: currentAnchors.isLight
 	};
 }
 
@@ -196,7 +224,8 @@ let currentAnchors: ThemeAnchors = {
 	brandH: 355,
 	brandC: 0.19,
 	warnH: 75,
-	warnC: 0.15
+	warnC: 0.15,
+	isLight: false
 };
 
 const listeners = new Set<() => void>();
@@ -216,6 +245,18 @@ export function applyAnchors(anchors: ThemeAnchors) {
 	root.setProperty('--brand-c', String(anchors.brandC));
 	root.setProperty('--warn-h', String(anchors.warnH));
 	root.setProperty('--warn-c', String(anchors.warnC));
+	root.setProperty('--ink', anchors.isLight ? 'oklch(0.240 0 0)' : 'oklch(0.970 0 0)');
+	root.setProperty('--ink-muted', anchors.isLight ? 'oklch(0.430 0 0)' : 'oklch(0.760 0 0)');
+	root.setProperty('--ink-faint', anchors.isLight ? 'oklch(0.520 0 0)' : 'oklch(0.655 0 0)');
+	root.setProperty('--brand-ink-l', anchors.isLight ? '0.430' : '0.720');
+	root.setProperty('--brand-dim-l', anchors.isLight ? '0.500' : '0.440');
+	root.setProperty('--warn-l', anchors.isLight ? '0.560' : '0.780');
+	root.setProperty('--warn-dim-l', anchors.isLight ? '0.460' : '0.560');
+	root.setProperty('--on-brand', anchors.isLight ? 'var(--ink)' : 'var(--bg-sunken)');
+	root.setProperty('--on-project', anchors.isLight ? 'var(--ink)' : 'var(--bg-sunken)');
+	root.setProperty('--proj-l-ink', anchors.isLight ? '0.430' : '0.780');
+	root.setProperty('--proj-l-fill', anchors.isLight ? '0.600' : '0.620');
+	root.setProperty('color-scheme', anchors.isLight ? 'light' : 'dark');
 	for (const fn of listeners) fn();
 }
 

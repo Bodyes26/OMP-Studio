@@ -10,7 +10,10 @@ Sistema di design completo e verificato. Ogni valore di colore in questo documen
 
 Questa scena obbliga tre decisioni, in quest'ordine:
 
-1. **Tema scuro.** Non per estetica: la viewport dominante è un terminale, che è scuro per natura. Un guscio chiaro attorno a un terminale scuro produce uno stacco di luminanza che l'occhio paga per ore. Il tema è scuro perché il contenuto è scuro.
+1. **Tema coerente con la TUI.** Il tema puo' essere scuro o chiaro: la
+   superficie della cornice, l'editor e il terminale seguono sempre lo stesso
+   tema di `omp`. La scelta non e' una modalita' cosmetica, ma una sola scena di
+   lavoro che resta leggibile per tutta la giornata.
 
 2. **Neutri a croma esattamente 0.000.** Qualsiasi tinta nel guscio sposta la percezione dei 16 colori ANSI adiacenti. Un grigio caldo fa sembrare il rosso ANSI più spento e il ciano più sporco. Il guscio è cromaticamente muto per una ragione funzionale.
 
@@ -55,6 +58,11 @@ La croma resta 0.000 in entrambi i casi: si mescola grigio in grigio.
 | `--ink-faint` | `oklch(0.655 0 0)` | `#909090` | **5.04:1** | Metadati, timestamp, path, hint di shortcut. |
 
 Tutti e tre superano 4.5:1 su `sunken`, `base`, `raised` e `overlay`. Non esiste un quarto livello più tenue: sotto `--ink-faint` si scende sotto la soglia e il grigio "elegante" illeggibile è il difetto numero uno delle UI generate.
+Per i temi chiari `applyAnchors` sostituisce la rampa con
+`--ink: oklch(0.240 0 0)`, `--ink-muted: oklch(0.430 0 0)` e
+`--ink-faint: oklch(0.520 0 0)`: il guscio mantiene testo scuro e rapporti
+leggibili anche quando le superfici arrivano da `export.pageBg` e
+`export.cardBg` di `omp`.
 
 ### 2.4 Accento — cremisi
 
@@ -107,9 +115,12 @@ L e C sono fissi per tinta-stato, così tutte le tessere hanno lo stesso peso vi
 **Colore della lettera sulla tessera:**
 
 - idle e hover → lettera `--ink`. Contrasto minimo misurato: **6.77:1** (idle), **4.76:1** (hover). La tessera è volutamente in secondo piano: è la lettera a identificarla.
-- attivo → lettera `--bg-sunken` (`#0C0C0C`) su riempimento chiaro. Contrasto minimo **6.26:1**, e la tessera stacca dalla barra a **5.61:1** minimo.
+- attivo → lettera `--on-project`: `--bg-sunken` sui temi scuri e `--ink` sui
+  temi chiari. Il riempimento della tessera resta sempre leggibile senza
+  affidarsi alla sola differenza di colore.
 
-L'inversione della lettera sull'attivazione è intenzionale: la tessera "si accende". È anche l'unico modo per tenere il contrasto sopra soglia in entrambi gli stati, verificato su tutte le 8 tinte.
+L'inversione della lettera sull'attivazione è intenzionale: la tessera "si accende".
+Il token `--on-project` evita testo chiaro su riempimenti chiari.
 
 ### 2.8 Il terminale non è nel sistema di colore
 
@@ -118,28 +129,29 @@ La palette ANSI dentro la viewport appartiene al tema di `omp`. OMP Studio impos
 ### 2.9 Il tema arriva da `omp`
 
 I valori fissi delle §2.2–2.5 sono il **default**, non l'unica possibilità: il
-selettore in barra sostituisce sei numeri, e tutto il resto continua a derivare
-da quelli.
+selettore in barra sostituisce le ancore del tema, e tutto il resto continua a
+derivare da quelle.
 
 | Token | Origine nel tema di `omp` |
 |---|---|
-| `--bg-base` | `export.pageBg` (la più chiara delle due superfici) |
-| `--bg-sunken` | `export.cardBg` (la più scura: è il pozzo) |
+| `--bg-base` | la superficie con luminanza maggiore fra `export.pageBg` e `export.cardBg` |
+| `--bg-sunken` | la superficie con luminanza minore fra `export.pageBg` e `export.cardBg` |
 | `--brand-h` / `--brand-c` | tinta e croma di `colors.accent` |
 | `--warn-h` / `--warn-c` | tinta e croma di `colors.warning` |
+| modo chiaro/scuro | luminanza di `export.pageBg` |
 
 Tre conseguenze volute:
 
-- **La rampa di luminanza non si tocca.** L, e quindi i rapporti di contrasto
-  misurati nelle §2.3–2.5, restano quelli: un tema può cambiare tinta e
-  superficie, non può rendere illeggibile il guscio.
+- **La rampa di testo segue la luminanza.** I temi scuri usano testo chiaro e
+  i temi chiari testo scuro; `--on-brand` e `--on-project` cambiano insieme per
+  non mettere testo chiaro su una superficie chiara.
 - **La croma si taglia, non si inventa.** `--brand-c` è il minimo fra la croma
   dell'accento del tema e 0.190: un tema monocromatico resta monocromatico.
 - **I 16 colori ANSI restano di `omp`** (§2.8). Il guscio e la TUI combaciano
   perché usano lo *stesso* tema, non perché il guscio ridipinga il contenuto.
-
-Sono esclusi i 49 temi chiari del catalogo: il tema chiaro è bandito in
-`PRODUCT.md` e la §1 spiega perché.
+- **Il catalogo è diviso per luminanza, non per prefisso.** I 100 temi builtin
+  incorporati (52 scuri e 48 chiari) finiscono nella sezione corrispondente anche
+  quando il nome del tema non contiene `dark` o `light`.
 
 ---
 

@@ -6,15 +6,14 @@ import { DEFAULT_THEME, THEMES, THEME_NAMES, anchorsFor, applyAnchors } from '$l
  * Un tema solo per Studio e per la TUI.
  *
  * All'avvio il guscio prende il tema che l'utente ha gia' scelto in `omp`
- * (`theme.dark` di `config.yml`, letto in sola lettura) e non scrive niente:
- * finche' non si sceglie un tema qui dentro, `omp` resta padrone del proprio
- * aspetto.
+ * (`theme.dark`, o `theme.light` se il primo manca, letto in sola lettura) e
+ * non scrive niente: finche' non si sceglie un tema qui dentro, `omp` resta
+ * padrone del proprio aspetto.
  *
  * Alla prima scelta Studio scrive `~/.omp/agent/themes/omp-studio.json` - il
  * solo file che tocca dentro `~/.omp`, vedi docs/DECISIONS.md - e le sessioni
- * lanciate da quel momento partono con `theme.dark: omp-studio` nell'overlay.
- * Da li' in poi ogni cambio di tema riscrive quel file e il watcher di `omp`
- * ricolora a caldo le TUI gia' aperte.
+ * lanciate da quel momento partono con `theme.dark` e `theme.light` puntati a
+ * `omp-studio` nell'overlay.
  */
 class ThemeStore {
 	current = $state<string>(DEFAULT_THEME);

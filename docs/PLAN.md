@@ -253,6 +253,6 @@ Le fasi 4 e 5 sono indipendenti: toccano colonne diverse e fonti dati diverse. S
 
 ## Cosa NON entra in questo piano
 
-Da `PRODUCT.md`: nessuna integrazione git, nessun build o debug, nessun sistema di estensioni, nessun supporto multipiattaforma, nessuna sostituzione della TUI via ACP o `--mode rpc`, nessun tema chiaro, nessuna command palette generica.
+Da `PRODUCT.md`: nessuna integrazione git, nessun build o debug, nessun sistema di estensioni, nessun supporto multipiattaforma, nessuna sostituzione della TUI via ACP o `--mode rpc`, nessuna command palette generica.
 
 Ogni idea che arriva durante il lavoro va in `IDEAS.md` e si valuta dopo la Fase 6. È l'unica difesa contro il rischio che ha ucciso più progetti simili di qualsiasi problema tecnico.

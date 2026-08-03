@@ -405,13 +405,13 @@
 
 	.action-btn.active {
 		background: var(--brand);
-		color: var(--bg-sunken);
+		color: var(--on-brand);
 		border-color: var(--brand);
 	}
 
 	.action-btn.save-btn {
 		background: var(--brand);
-		color: var(--bg-sunken);
+		color: var(--on-brand);
 		border-color: var(--brand);
 		font-weight: 600;
 	}

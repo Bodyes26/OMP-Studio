@@ -6,10 +6,16 @@
   /* --- Ancore -------------------------------------------------------------
      Due sole superfici sono scelte a mano: il pozzo (terminale, editor) e la
      base dell'app. Tutto il resto e' derivato mescolando --ink nell'ancora.
-     Croma 0.000: qualsiasi tinta nel guscio sposterebbe la percezione dei 16
-     colori ANSI adiacenti. */
+     La rampa di testo cambia con la luminanza del tema per tenere lo stesso
+     contrasto sia sui temi scuri sia su quelli chiari. */
   --bg-sunken:   oklch(0.155 0 0);
   --bg-base:     oklch(0.185 0 0);
+
+  /* Testo: i valori chiari sono il default scuro; `applyAnchors` sostituisce
+     la rampa con una scura quando il tema scelto ha superfici chiare. */
+  --ink:         oklch(0.970 0 0);
+  --ink-muted:   oklch(0.760 0 0);
+  --ink-faint:   oklch(0.655 0 0);
 
   /* Superfici opache: elevazione = luminanza, mai ombra. */
   --bg-raised:   color-mix(in oklab, var(--bg-base) 96%, var(--ink));
@@ -17,40 +23,39 @@
 
   /* Stati e bordi: traslucidi, non opachi. La stessa riga deve funzionare
      sopra --bg-base, --bg-sunken e --bg-overlay senza un valore per
-     superficie. Le percentuali sono tarate per riprodurre esattamente
-     #2A2A2A / #343434 / #2C2C2C / #484848 sopra --bg-base. */
+     superficie. */
   --bg-hover:    color-mix(in srgb, var(--ink) 10%, transparent);
   --bg-active:   color-mix(in srgb, var(--ink) 15%, transparent);
   --line:        color-mix(in srgb, var(--ink) 11%, transparent);
   --line-strong: color-mix(in srgb, var(--ink) 23%, transparent);
 
-  /* Testo */
-  --ink:         oklch(0.970 0 0);
-  --ink-muted:   oklch(0.760 0 0);
-  --ink-faint:   oklch(0.655 0 0);
-
   /* Accento — brand non è mai colore di testo.
-     Tinta e croma arrivano dal tema di omp (`lib/theme.ts`); la rampa di
-     luminanza resta quella di DESIGN.md §2.4, così i rapporti di contrasto
-     valgono per costruzione con qualunque tema. I fattori di croma fra i tre
-     gradini sono quelli del cremisi originale: 0.170/0.190 e 0.140/0.190. */
-  --brand-h: 355;
-  --brand-c: 0.190;
+     Tinta e croma arrivano dal tema di omp (`lib/theme.ts`). La luminanza
+     cambia per il testo accentato e per le superfici quando il tema è chiaro. */
+  --brand-h:     355;
+  --brand-c:     0.190;
   --brand:       oklch(0.620 var(--brand-c) var(--brand-h));
-  --brand-ink:   oklch(0.720 calc(var(--brand-c) * 0.895) var(--brand-h));
-  --brand-dim:   oklch(0.440 calc(var(--brand-c) * 0.737) var(--brand-h));
+  --brand-ink-l: 0.720;
+  --brand-ink:   oklch(var(--brand-ink-l) calc(var(--brand-c) * 0.895) var(--brand-h));
+  --brand-dim-l: 0.440;
+  --brand-dim:   oklch(var(--brand-dim-l) calc(var(--brand-c) * 0.737) var(--brand-h));
+  --on-brand:    var(--bg-sunken);
+  --on-project:  var(--bg-sunken);
 
   /* Attenzione */
-  --warn-h: 75;
-  --warn-c: 0.150;
-  --warn:        oklch(0.780 var(--warn-c) var(--warn-h));
-  --warn-dim:    oklch(0.560 calc(var(--warn-c) * 0.800) var(--warn-h));
+  --warn-h:      75;
+  --warn-c:      0.150;
+  --warn-l:      0.780;
+  --warn:        oklch(var(--warn-l) var(--warn-c) var(--warn-h));
+  --warn-dim-l:  0.560;
+  --warn-dim:    oklch(var(--warn-dim-l) calc(var(--warn-c) * 0.800) var(--warn-h));
 
   /* Identità progetto: tinta dall'hash del path. Due soli usi: la lettera
      della tessera a riposo, il riempimento della tessera attiva. Un solo
      progetto per volta e' colorato pieno, gli altri sono neutri. */
   --proj-l-ink: 0.78;  --proj-c-ink: 0.115;
   --proj-l-fill: 0.62; --proj-c-fill: 0.160;
+
 
   /* Tipografia */
   --font-ui:   "Inter Variable", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;

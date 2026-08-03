@@ -32,8 +32,8 @@ export function initMonaco() {
 
 function applyMonacoTheme() {
 	const c = canvasColors();
-	monaco.editor.defineTheme('omp-studio-dark', {
-		base: 'vs-dark',
+	monaco.editor.defineTheme('omp-studio', {
+		base: c.isLight ? 'vs' : 'vs-dark',
 		inherit: true,
 		rules: [
 			{ background: c.bgSunken.slice(1), token: '' },
@@ -49,7 +49,7 @@ function applyMonacoTheme() {
 			'editorIndentGuide.activeBackground': c.lineStrong,
 		}
 	});
-	monaco.editor.setTheme('omp-studio-dark');
+	monaco.editor.setTheme('omp-studio');
 }
 
 let editorInstance: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -65,7 +65,7 @@ export function getEditorInstance(container: HTMLElement) {
 	if (!editorInstance) {
 		initMonaco();
 		editorInstance = monaco.editor.create(container, {
-			theme: 'omp-studio-dark',
+			theme: 'omp-studio',
 			fontFamily: MONO_FONT,
 			fontSize: 14,
 			lineHeight: 1.2,
@@ -91,7 +91,7 @@ export function getEditorInstance(container: HTMLElement) {
 		editorInstance.dispose();
 		editorInstance = monaco.editor.create(container, {
 			model: currentModel,
-			theme: 'omp-studio-dark',
+			theme: 'omp-studio',
 			fontFamily: MONO_FONT,
 			fontSize: 14,
 			lineHeight: 1.2,
@@ -144,7 +144,7 @@ export function getCurrentFileContent(absPath: string): string | null {
 }
 export function createDiffEditorInstance(container: HTMLElement, originalContent: string, modifiedContent: string, language: string) {
 	const diffEditor = monaco.editor.createDiffEditor(container, {
-		theme: 'omp-studio-dark',
+		theme: 'omp-studio',
 		fontFamily: MONO_FONT,
 		fontSize: 14,
 		lineHeight: 1.2,
