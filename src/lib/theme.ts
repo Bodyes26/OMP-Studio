@@ -73,6 +73,30 @@ function hexToOklch(hex: string): { c: number; h: number } {
 	return { c: Math.hypot(a, bb), h: hue < 0 ? hue + 360 : hue };
 }
 
+const PROJECT_COLOR_KEYS = [
+	'accent',
+	'warning',
+	'success',
+	'error',
+	'syntaxKeyword',
+	'syntaxFunction',
+	'syntaxString',
+	'syntaxNumber',
+	'syntaxType',
+	'syntaxVariable',
+	'mdHeading',
+	'mdLink',
+	'bashMode',
+	'pythonMode'
+];
+const FALLBACK_PROJECT_HUES = [355, 25, 60, 135, 175, 220, 265, 305];
+const projectPaletteCache = new WeakMap<OmpTheme, number[]>();
+
+function hueDistance(left: number, right: number): number {
+	const distance = Math.abs(left - right);
+	return Math.min(distance, 360 - distance);
+}
+
 export interface ThemeAnchors {
 	/** Superficie dell'app: la piu' chiara delle due del tema. */
 	bgBase: string;
@@ -122,6 +146,55 @@ export function swatchesFor(theme: OmpTheme): { bg: string; accent: string; text
 		accent: resolveColor(theme, theme.colors.accent) ?? '#febc38',
 		text: resolveColor(theme, theme.colors.syntaxVariable) ?? resolveColor(theme, theme.colors.muted) ?? '#b1b1b1'
 	};
+}
+
+/**
+ * Colori identitari automatici: estratti dal tema attivo, non da una rampa
+ * fissa. I temi quasi monocromatici mantengono la rampa storica per non
+ * assegnare lo stesso colore a ogni progetto.
+ */
+function projectPaletteFor(theme: OmpTheme): number[] {
+	const cached = projectPaletteCache.get(theme);
+	if (cached) return cached;
+
+	const hues: number[] = [];
+	for (const key of PROJECT_COLOR_KEYS) {
+		const hex = resolveColor(theme, theme.colors[key]);
+		if (!hex) continue;
+		const { c, h } = hexToOklch(hex);
+		if (c >= 0.04 && hues.every((existing) => hueDistance(existing, h) >= 18)) {
+			hues.push(Math.round(h));
+		}
+	}
+
+	if (hues.length < 2) {
+		projectPaletteCache.set(theme, FALLBACK_PROJECT_HUES);
+		return FALLBACK_PROJECT_HUES;
+	}
+
+	// Le tinte mancanti restano legate agli accenti del tema, senza introdurre
+	// una seconda palette estranea quando il tema ne definisce poche.
+	const seeds = [...hues];
+	const offsets = [32, -32, 64, -64, 96, -96, 128, -128];
+	for (let index = 0; hues.length < 8; index++) {
+		const candidate = (seeds[index % seeds.length] + offsets[Math.floor(index / seeds.length) % offsets.length] + 360) % 360;
+		if (hues.every((existing) => hueDistance(existing, candidate) >= 18)) {
+			hues.push(Math.round(candidate));
+		}
+	}
+
+	projectPaletteCache.set(theme, hues);
+	return hues;
+}
+
+/** Tinta stabile per un progetto che segue il tema attivo. */
+export function automaticProjectHue(theme: OmpTheme, path: string): number {
+	const hues = projectPaletteFor(theme);
+	let hash = 0;
+	for (let index = 0; index < path.length; index++) {
+		hash = path.charCodeAt(index) + ((hash << 5) - hash);
+	}
+	return hues[Math.abs(hash) % hues.length] ?? FALLBACK_PROJECT_HUES[0];
 }
 
 export const THEMES: Record<string, OmpTheme> = CATALOG;

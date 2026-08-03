@@ -122,12 +122,20 @@ export function openFileModel(absPath: string, content: string, language?: strin
 	if (!model) {
 		model = monaco.editor.createModel(content, language, monaco.Uri.file(absPath));
 		models.set(absPath, model);
-	} else {
-		model.setValue(content);
 	}
 	if (editorInstance) {
 		editorInstance.setModel(model);
 	}
+}
+
+/** Rilascia il testo non salvato quando il relativo tab viene chiuso. */
+export function disposeFileModel(absPath: string) {
+	const model = models.get(absPath);
+	if (!model) return;
+	if (editorInstance?.getModel() === model) editorInstance.setModel(null);
+	model.dispose();
+	models.delete(absPath);
+	if (activePath === absPath) activePath = null;
 }
 
 export function revealLineInEditor(line: number) {

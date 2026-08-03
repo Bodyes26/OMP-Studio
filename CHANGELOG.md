@@ -9,6 +9,18 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-03
+
+### Added
+
+- Apri più file nello stesso progetto come schede dell'editor, con diff e chiusura su ogni scheda; `Ctrl+W` e `Ctrl+F4` chiudono il file attivo.
+- Rinomina un progetto e imposta una sigla personale di più caratteri dal suo riquadro.
+
+### Changed
+
+- Il selettore temi separa chiari e scuri in due tab, riapre sull'ultima tab usata e mostra il nome del tema applicato accanto al colore.
+- I colori automatici dei progetti seguono ora la palette e la luminanza del tema attivo; le scelte manuali restano invariate.
+- Il percorso nel riquadro di un progetto viene ellissato senza uscire dal bordo.
 ## [0.2.1] - 2026-08-03
 
 ### Added

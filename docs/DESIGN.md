@@ -97,9 +97,9 @@ L'accento del brand come allarme di quota esaurita è l'unico momento in cui l'a
 
 ### 2.7 Identità di progetto — rampa a 8 tinte
 
-Colore funzionale: serve a riconoscere un progetto a colpo d'occhio, non a decorare. Tinta assegnata deterministicamente dall'hash del path del progetto, sovrascrivibile dall'utente.
+Colore funzionale: serve a riconoscere un progetto a colpo d'occhio, non a decorare. La tinta automatica nasce deterministicamente dall'hash del path, ma usa le tinte semantiche del tema `omp` attivo. La scelta manuale resta fissa finche' l'utente non ripristina la palette del tema.
 
-L e C sono fissi per tinta-stato, così tutte le tessere hanno lo stesso peso visivo.
+L e C sono fissi per tinta-stato e cambiano con la luminanza del tema, cosi' tutte le tessere hanno lo stesso peso visivo sia sui temi chiari sia su quelli scuri.
 
 | Nome | Tinta | Idle `oklch(0.42 0.13 h)` | Hover `oklch(0.50 0.145 h)` | Attivo `oklch(0.68 0.16 h)` |
 |---|---|---|---|---|
@@ -111,6 +111,8 @@ L e C sono fissi per tinta-stato, così tutte le tessere hanno lo stesso peso vi
 | azure | 220 | `#005A7D` | — | `#00ADDC` |
 | indigo | 265 | `#294793` | — | `#6793FA` |
 | violet | 305 | `#5E3685` | — | `#B07BE6` |
+
+La rampa qui sopra e' il fallback per i temi quasi monocromatici e la palette esplicita del selettore manuale. Per gli altri temi, Studio estrae accento, avviso, stati e colori sintattici: se non bastano a distinguere i progetti, completa la rampa ruotando le tinte gia' presenti senza introdurre una palette estranea.
 
 **Colore della lettera sulla tessera:**
 
@@ -149,8 +151,8 @@ Tre conseguenze volute:
   dell'accento del tema e 0.190: un tema monocromatico resta monocromatico.
 - **I 16 colori ANSI restano di `omp`** (§2.8). Il guscio e la TUI combaciano
   perché usano lo *stesso* tema, non perché il guscio ridipinga il contenuto.
-- **Il catalogo è diviso per luminanza, non per prefisso.** I 100 temi builtin
-  incorporati (52 scuri e 48 chiari) finiscono nella sezione corrispondente anche
+- **Il catalogo e' diviso in due tab persistenti per luminanza, non per prefisso.** I 100 temi builtin
+  incorporati (52 scuri e 48 chiari) finiscono nella tab corrispondente anche
   quando il nome del tema non contiene `dark` o `light`.
 
 ---
@@ -340,7 +342,7 @@ Larghezza default 260px, min 180px, max 480px. Due sezioni con header sticky, co
 
 ### 7.4 Colonna centrale — editor
 
-`--bg-sunken`. Header: path troncato al centro, indicatore di modifica, pulsante chiudi. Monaco con tema derivato dai token qui sopra. Nessuna minimap per default (larghezza sprecata a questa densità), nessun breadcrumb, nessuna barra strumenti.
+`--bg-sunken`. I file aperti vivono in tab per progetto: ciascuno espone nome, indicatore di modifica, diff e chiusura; il modello Monaco resta vivo finche' la tab non viene chiusa. Il salvataggio resta nel solo file attivo. Nessuna minimap per default (larghezza sprecata a questa densita'), nessun breadcrumb, nessuna barra strumenti.
 
 Stato vuoto: nessuna illustrazione. Una riga in `--ink-faint` centrata e il set di scorciatoie disponibili.
 
@@ -368,7 +370,7 @@ Vale per tutta l'app: **nessun bordo verticale nel corpo**, e nessun bordo sotto
 
 `--brand` su `--bg-base` misura 4.63:1, oltre il minimo di 3:1 per indicatori non testuali. Nessun elemento interattivo senza stato di fuoco visibile. Nessun `outline: none` senza sostituto.
 
-Il set di scorciatoie dell'app è deliberatamente minimo e vive su `Ctrl+Alt`, che la TUI di `omp` non usa; ogni combinazione che `omp` intercetta va al terminale senza eccezioni.
+Le scorciatoie globali vivono su `Ctrl+Alt`, che la TUI di `omp` non usa. Nell'editor Monaco, `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` agiscono solo quando il fuoco e' nel codice; il terminale continua a ricevere senza eccezioni le proprie combinazioni.
 
 ---
 

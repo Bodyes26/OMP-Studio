@@ -25,6 +25,7 @@ export function joinProjectPath(projectPath: string, rel: string): string {
 }
 
 export type AgentState = 'idle' | 'working' | 'attention' | 'finished' | 'unknown';
+export type ProjectColorMode = 'auto' | 'custom';
 
 export interface ProjectLayout {
 	left: number;
@@ -36,11 +37,14 @@ export interface ProjectLayout {
 export interface Project {
 	id: string;
 	name: string;
+	label: string | null;
 	path: string;
 	hue: number;
+	colorMode: ProjectColorMode;
 	ptyId?: number;
 	agentState: AgentState;
-	/** File aperto nell'editor per questo progetto. Stato di sessione: non persistito. */
+	/** File aperti nell'editor per questo progetto. Stato di sessione: non persistito. */
+	openFiles: string[];
 	activeFile: string | null;
 	layout: ProjectLayout;
 	lastOpened: number;
@@ -89,8 +93,13 @@ class ProjectStore {
 				this.projects.push({
 					...p,
 					path,
+					label: typeof p.label === 'string' && p.label.trim() ? p.label.trim() : null,
 					hue: typeof p.hue === 'number' ? p.hue : getProjectHue(path),
+					// Le versioni precedenti non salvavano l'origine. Se la tinta
+					// coincide con quella deterministica, puo' seguire il tema.
+					colorMode: p.colorMode === 'custom' || (typeof p.hue === 'number' && p.hue !== getProjectHue(path)) ? 'custom' : 'auto',
 					agentState: 'unknown',
+					openFiles: [],
 					activeFile: null
 				});
 			}
@@ -117,8 +126,10 @@ class ProjectStore {
 		const toSave = this.projects.filter(p => p.path !== '').map(p => ({
 			id: p.id,
 			name: p.name,
+			label: p.label,
 			path: p.path,
 			hue: p.hue,
+			colorMode: p.colorMode,
 			layout: $state.snapshot(p.layout),
 			lastOpened: p.lastOpened
 		}));
@@ -151,9 +162,12 @@ class ProjectStore {
 		const newProj: Project = {
 			id,
 			name,
+			label: null,
 			path: canonical,
 			hue: getProjectHue(canonical),
+			colorMode: 'auto',
 			agentState: 'unknown',
+			openFiles: [],
 			activeFile: null,
 			layout: {
 				left: 260,
@@ -174,9 +188,12 @@ class ProjectStore {
 		const scratchpadProj: Project = {
 			id,
 			name: 'Scratchpad',
+			label: null,
 			path: '', // empty path signifies scratchpad
 			hue: 0,
+			colorMode: 'auto',
 			agentState: 'unknown',
+			openFiles: [],
 			activeFile: null,
 			layout: {
 				left: 260,
@@ -215,10 +232,23 @@ class ProjectStore {
 		this.save();
 	}
 
-	setActiveFile(id: string, file: string | null) {
+	openFile(id: string, file: string) {
 		const p = this.projects.find(p => p.id === id);
-		// Nessun save(): il file aperto e' stato di sessione, non configurazione.
-		if (p) p.activeFile = file;
+		if (!p || !file) return;
+		// Nessun save(): i tab sono stato di sessione, non configurazione.
+		if (!p.openFiles.includes(file)) p.openFiles.push(file);
+		p.activeFile = file;
+	}
+
+	closeFile(id: string, file: string) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p) return;
+		const index = p.openFiles.indexOf(file);
+		if (index === -1) return;
+		p.openFiles.splice(index, 1);
+		if (p.activeFile === file) {
+			p.activeFile = p.openFiles[index] ?? p.openFiles[index - 1] ?? null;
+		}
 	}
 
 	setPtyId(id: string, ptyId: number) {
@@ -242,8 +272,32 @@ class ProjectStore {
 		const p = this.projects.find(p => p.id === id);
 		if (p) {
 			p.hue = hue;
+			p.colorMode = 'custom';
 			this.save();
 		}
+	}
+
+	useAutomaticProjectColor(id: string) {
+		const p = this.projects.find(p => p.id === id);
+		if (p) {
+			p.colorMode = 'auto';
+			this.save();
+		}
+	}
+
+	renameProject(id: string, name: string) {
+		const p = this.projects.find(p => p.id === id);
+		const normalized = name.trim();
+		if (!p || !normalized) return;
+		p.name = normalized;
+		this.save();
+	}
+
+	setProjectLabel(id: string, label: string) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p) return;
+		p.label = label.trim() || null;
+		this.save();
 	}
 
 	updateLayout(id: string, layoutFn: (l: ProjectLayout) => void) {

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { load, type Store } from '@tauri-apps/plugin-store';
-import { DEFAULT_THEME, THEMES, THEME_NAMES, anchorsFor, applyAnchors } from '$lib/theme';
+import { DEFAULT_THEME, THEMES, THEME_NAMES, anchorsFor, applyAnchors, type ThemeMode } from '$lib/theme';
 
 /**
  * Un tema solo per Studio e per la TUI.
@@ -23,6 +23,8 @@ class ThemeStore {
 	private store: Store | null = null;
 
 	names = THEME_NAMES;
+	pickerMode = $state<ThemeMode>('dark');
+
 
 	async init() {
 		// Il colore del guscio non puo' dipendere dal fatto che le impostazioni
@@ -30,6 +32,10 @@ class ThemeStore {
 		try {
 			this.store = await load('settings.json', { autoSave: false });
 			const stored = (await this.store.get('theme')) as string | null;
+			const storedPickerMode = (await this.store.get('themePickerMode')) as ThemeMode | null;
+			if (storedPickerMode === 'dark' || storedPickerMode === 'light') {
+				this.pickerMode = storedPickerMode;
+			}
 			if (stored && THEMES[stored]) {
 				this.current = stored;
 				this.bridged = true;
@@ -67,6 +73,12 @@ class ThemeStore {
 		}
 
 		await this.store?.set('theme', name);
+		await this.store?.save();
+	}
+
+	async setPickerMode(mode: ThemeMode) {
+		this.pickerMode = mode;
+		await this.store?.set('themePickerMode', mode);
 		await this.store?.save();
 	}
 }

@@ -1,8 +1,8 @@
 # Scorciatoie da tastiera
 
-OMP Studio delega l'intero blocco di tasti e scorciatoie convenzionali (incluse quelle con `Ctrl` e `Alt`) al terminale PTY, in modo che la TUI di `omp` non perda nessuna combinazione e continui a funzionare esattamente come nel prompt di Windows.
+OMP Studio delega l'intero blocco di tasti e scorciatoie convenzionali (incluse quelle con `Ctrl` e `Alt`) al terminale PTY, tranne quando il fuoco e' nell'editor Monaco. In quel caso le scorciatoie di gestione file agiscono solo sul file attivo, senza intercettare input del terminale.
 
-Le uniche scorciatoie catturate dall'app vivono dietro il modificatore **`Ctrl+Alt`**, che non collide con le combinazioni primarie di `omp`.
+Le uniche scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+Alt`**, che non collide con le combinazioni primarie di `omp`.
 
 | Scorciatoia | Contesto | Azione |
 |---|---|---|
@@ -12,6 +12,8 @@ Le uniche scorciatoie catturate dall'app vivono dietro il modificatore **`Ctrl+A
 | `Ctrl+Alt+Freccia Destra` | Globale | Passa al progetto aperto successivo |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Passa al progetto aperto precedente |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
+| `Ctrl+W` | Editor | Chiude il file corrente |
+| `Ctrl+F4` | Editor | Chiude il file corrente |
 | `Esc` | Popover / Dialog | Chiude la finestra modale aperta |
 
-*Nota: all'interno del terminale `Ctrl+S` non salva il file dell'editor, ma viene inviato all'agente se supportato, o congelato dal controllo di flusso del terminale nativo.*
+*Nota: all'interno del terminale `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` non gestiscono i file dell'editor: vengono inviati all'agente se supportati, o restano soggetti al comportamento del terminale nativo.*

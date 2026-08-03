@@ -24,7 +24,7 @@
 
 	function handleTerminalOpenFile(projectId: string, filePath: string, line: number | null) {
 		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
-		projectStore.setActiveFile(projectId, filePath);
+		projectStore.openFile(projectId, filePath);
 		terminalOpenRequest = {
 			projectId,
 			filePath,
@@ -224,7 +224,7 @@
 							<FileTree
 								projectPath={proj.path}
 								name={proj.name}
-								onFileSelect={(f) => projectStore.setActiveFile(proj.id, f)}
+								onFileSelect={(file) => projectStore.openFile(proj.id, file)}
 							/>
 						{/key}
 					{:else}
@@ -251,6 +251,7 @@
 				{#if projectStore.activeProject}
 					<Editor
 						projectPath={projectStore.activeProject.path}
+						filePaths={projectStore.activeProject.openFiles}
 						filePath={projectStore.activeProject.activeFile}
 						openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
 						onFileSaved={() => {

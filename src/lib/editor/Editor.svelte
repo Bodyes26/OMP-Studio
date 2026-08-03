@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import {
+		disposeFileModel,
+		getCurrentFileContent,
 		getEditorInstance,
 		openFileModel,
 		revealLineInEditor,
-		getCurrentFileContent,
 		createDiffEditorInstance,
 		updateGutterDecorations
 	} from './monaco';
@@ -12,50 +13,185 @@
 	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 
-	let { projectPath, filePath, onFileSaved, openFileRequest } = $props<{
+	let { projectPath, filePaths, filePath, onFileSaved, openFileRequest } = $props<{
 		projectPath: string;
+		filePaths: string[];
 		filePath: string | null;
 		onFileSaved?: () => void;
 		openFileRequest?: { filePath: string; line: number | null; id: number } | null;
 	}>();
 
+	interface FileState {
+		initialContent: string;
+		gitHeadContent: string | null;
+		currentText: string;
+		decorationIds: string[];
+	}
+
+	const fileStates = new Map<string, FileState>();
+	const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'bmp', 'ico'];
+
 	let container = $state<HTMLElement>();
 	let diffContainer = $state<HTMLElement>();
 	let splitContainer = $state<HTMLElement>();
-
+	let dirtyFiles = $state<Record<string, boolean>>({});
 	let loadedKey: string | null = null;
+	let requestedKey: string | null = null;
 	let handledOpenFileRequest = 0;
+	let pendingDiffFile: string | null = null;
 	let loading = $state(false);
-	let isDirty = $state(false);
 	let showDiff = $state(false);
 
-	let initialContent = $state('');
-	let gitHeadContent = $state<string | null>(null);
+	let initialContent = '';
+	let gitHeadContent: string | null = null;
 	let currentText = $state('');
-
-	let decorationIds: string[] = [];
 	let diffEditorInstance: any = null;
 	let editor: any = null;
 
 	let splitPercent = $state(50);
 	let isResizing = $state(false);
 
-	const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'bmp', 'ico'];
-
-	let isImage = $derived(
-		filePath ? IMAGE_EXTS.includes(filePath.split('.').pop()?.toLowerCase() || '') : false
-	);
-	let isSvg = $derived(
-		filePath ? filePath.split('.').pop()?.toLowerCase() === 'svg' : false
-	);
-	let isMarkdown = $derived(
-		filePath ? ['md', 'markdown'].includes(filePath.split('.').pop()?.toLowerCase() || '') : false
-	);
+	let isDirty = $derived(filePath ? dirtyFiles[fileKey(projectPath, filePath)] === true : false);
+	let isImage = $derived(filePath ? isImageFile(filePath) : false);
+	let isSvg = $derived(filePath ? filePath.split('.').pop()?.toLowerCase() === 'svg' : false);
+	let isMarkdown = $derived(filePath ? ['md', 'markdown'].includes(filePath.split('.').pop()?.toLowerCase() || '') : false);
 
 	// Il div host non esiste al mount (senza file aperto si mostra l'empty
-	// state) e cambia nodo quando si passa da/verso la vista split md/svg:
-	// l'editor va quindi (ri)agganciato ogni volta che `container` cambia.
+	// state) e cambia nodo quando si passa da/verso la vista split md/svg.
 	let wiredContainer: HTMLElement | null = null;
+
+	function fileKey(project: string, path: string): string {
+		return `${project}\u0000${path}`;
+	}
+
+	function isImageFile(path: string): boolean {
+		return IMAGE_EXTS.includes(path.split('.').pop()?.toLowerCase() || '');
+	}
+
+	function fileName(path: string): string {
+		return path.split(/[\\/]/).pop() || path;
+	}
+
+	function languageFor(path: string): string {
+		const ext = path.split('.').pop()?.toLowerCase();
+		if (ext === 'ts' || ext === 'tsx') return 'typescript';
+		if (ext === 'js' || ext === 'jsx') return 'javascript';
+		if (ext === 'json' || ext === 'jsonc') return 'json';
+		if (ext === 'css') return 'css';
+		if (ext === 'html' || ext === 'aspx' || ext === 'svg') return 'html';
+		if (ext === 'vb') return 'vb';
+		if (ext === 'cs') return 'csharp';
+		if (ext === 'md' || ext === 'markdown') return 'markdown';
+		if (ext === 'rs') return 'rust';
+		return 'plaintext';
+	}
+
+	function setDirty(key: string, value: boolean) {
+		if (dirtyFiles[key] === value) return;
+		dirtyFiles = { ...dirtyFiles, [key]: value };
+	}
+
+	function clearDirty(key: string) {
+		if (!(key in dirtyFiles)) return;
+		const { [key]: _, ...remaining } = dirtyFiles;
+		dirtyFiles = remaining;
+	}
+
+	function disposeDiff() {
+		if (!diffEditorInstance) return;
+		const models = diffEditorInstance.getModel?.();
+		diffEditorInstance.dispose();
+		models?.original?.dispose();
+		models?.modified?.dispose();
+		diffEditorInstance = null;
+	}
+
+	function activateLoadedFile(project: string, path: string, key: string, state: FileState) {
+		loadedKey = key;
+		initialContent = state.initialContent;
+		gitHeadContent = state.gitHeadContent;
+		openFileModel(joinProjectPath(project, path), state.initialContent, languageFor(path));
+
+		const content = getCurrentFileContent(joinProjectPath(project, path)) ?? state.currentText;
+		state.currentText = content;
+		currentText = content;
+		setDirty(key, content !== state.initialContent);
+
+		if (editor) {
+			state.decorationIds = updateGutterDecorations(
+				editor,
+				state.gitHeadContent,
+				content,
+				state.decorationIds
+			);
+			setTimeout(() => editor?.layout(), 10);
+		}
+
+		if (pendingDiffFile === path) {
+			pendingDiffFile = null;
+			toggleGitDiff();
+		}
+	}
+
+	async function load(project: string, path: string, key: string) {
+		const cached = fileStates.get(key);
+		if (cached) {
+			activateLoadedFile(project, path, key, cached);
+			return;
+		}
+
+		loading = true;
+		try {
+			const res: { content: string } = await invoke('file_read', { projectPath: project, rel: path });
+			let headContent: string | null = null;
+			try {
+				const gitRes: { content: string; exists: boolean } = await invoke('file_git_head', {
+					projectPath: project,
+					rel: path
+				});
+				headContent = gitRes.exists ? gitRes.content : null;
+			} catch {
+				// Un file fuori da Git non ha un originale per diff e gutter.
+			}
+
+			const state: FileState = {
+				initialContent: res.content,
+				gitHeadContent: headContent,
+				currentText: res.content,
+				decorationIds: []
+			};
+			fileStates.set(key, state);
+			if (requestedKey === key) activateLoadedFile(project, path, key, state);
+		} catch (error) {
+			console.error('Failed to load file', error);
+		} finally {
+			if (requestedKey === key) loading = false;
+		}
+	}
+
+	$effect(() => {
+		const path = filePath;
+		const project = projectPath;
+		disposeDiff();
+		showDiff = false;
+
+		if (!path || !project) {
+			loadedKey = null;
+			requestedKey = null;
+			loading = false;
+			return;
+		}
+
+		const key = fileKey(project, path);
+		requestedKey = key;
+		if (isImageFile(path)) {
+			loadedKey = key;
+			loading = false;
+			return;
+		}
+
+		void load(project, path, key);
+	});
 
 	$effect(() => {
 		const host = container;
@@ -64,39 +200,33 @@
 
 		editor = getEditorInstance(host);
 		editor.addCommand(2048 | 49 /* Ctrl | S */, () => {
-			saveCurrentFile();
+			void saveCurrentFile();
+		});
+		editor.addCommand(2048 | 53 /* Ctrl | W */, () => {
+			closeFile();
+		});
+		editor.addCommand(2048 | 62 /* Ctrl | F4 */, () => {
+			closeFile();
 		});
 
-		// Aggiorna dirty state e marker git nel gutter a ogni modifica.
 		editor.onDidChangeModelContent(() => {
-			if (!filePath || !projectPath) return;
+			if (!filePath || !projectPath || !loadedKey) return;
+			const state = fileStates.get(loadedKey);
+			if (!state) return;
 			const abs = joinProjectPath(projectPath, filePath);
-			const val = getCurrentFileContent(abs) || '';
-			currentText = val;
-			isDirty = val !== initialContent;
-			decorationIds = updateGutterDecorations(editor, gitHeadContent, val, decorationIds);
+			const value = getCurrentFileContent(abs) ?? '';
+			state.currentText = value;
+			currentText = value;
+			setDirty(loadedKey, value !== state.initialContent);
+			state.decorationIds = updateGutterDecorations(
+				editor,
+				state.gitHeadContent,
+				value,
+				state.decorationIds
+			);
 		});
 
 		editor.layout();
-	});
-
-	onDestroy(() => {
-		if (diffEditorInstance) {
-			diffEditorInstance.dispose();
-			diffEditorInstance = null;
-		}
-	});
-
-	$effect(() => {
-		if (!filePath || !projectPath) {
-			loadedKey = null;
-			return;
-		}
-		const key = `${projectPath}\u0000${filePath}`;
-		if (key !== loadedKey) {
-			showDiff = false;
-			load(projectPath, filePath, key);
-		}
 	});
 
 	// Il modello arriva dal filesystem in asincrono: il cursore va mosso solo
@@ -119,125 +249,105 @@
 			return;
 		}
 
-		const key = `${projectPath}\u0000${filePath}`;
+		const key = fileKey(projectPath, filePath);
 		if (loading || loadedKey !== key || !container) return;
 		if (request.line !== null && !revealLineInEditor(request.line)) return;
 		handledOpenFileRequest = request.id;
 	});
 
-	async function load(project: string, path: string, key: string) {
-		if (IMAGE_EXTS.includes(path.split('.').pop()?.toLowerCase() || '')) {
-			loadedKey = key;
-			loading = false;
-			return;
-		}
-
-		loading = true;
-		isDirty = false;
-		try {
-			const res: { content: string } = await invoke('file_read', { projectPath: project, rel: path });
-			initialContent = res.content;
-			currentText = res.content;
-
-			// Fetch Git HEAD content for diff & gutter margin markers
-			try {
-				const gitRes: { content: string, exists: boolean } = await invoke('file_git_head', { projectPath: project, rel: path });
-				gitHeadContent = gitRes.exists ? gitRes.content : null;
-			} catch (e) {
-				gitHeadContent = null;
-			}
-
-			// Simple language detection
-			let ext = path.split('.').pop()?.toLowerCase();
-			let lang = 'plaintext';
-			if (ext === 'ts' || ext === 'tsx') lang = 'typescript';
-			if (ext === 'js' || ext === 'jsx') lang = 'javascript';
-			if (ext === 'json' || ext === 'jsonc') lang = 'json';
-			if (ext === 'css') lang = 'css';
-			if (ext === 'html' || ext === 'aspx') lang = 'html';
-			if (ext === 'svg') lang = 'html';
-			if (ext === 'vb') lang = 'vb';
-			if (ext === 'cs') lang = 'csharp';
-			if (ext === 'md') lang = 'markdown';
-			if (ext === 'rs') lang = 'rust';
-
-			openFileModel(joinProjectPath(project, path), res.content, lang);
-			loadedKey = key;
-
-			if (editor) {
-				decorationIds = updateGutterDecorations(editor, gitHeadContent, res.content, decorationIds);
-				setTimeout(() => editor.layout(), 10);
-			}
-		} catch (e) {
-			console.error("Failed to load file", e);
-		} finally {
-			loading = false;
-		}
-	}
+	onDestroy(() => {
+		disposeDiff();
+		stopResize();
+	});
 
 	async function saveCurrentFile() {
-		if (!loadedKey || !filePath || !projectPath) return;
+		if (!loadedKey || !filePath || !projectPath || isImage) return;
 		const abs = joinProjectPath(projectPath, filePath);
 		const content = getCurrentFileContent(abs);
-		if (content === null) return;
+		const state = fileStates.get(loadedKey);
+		if (content === null || !state) return;
 		try {
 			await invoke('file_write', { projectPath, rel: filePath, content });
+			state.initialContent = content;
+			state.currentText = content;
 			initialContent = content;
-			isDirty = false;
+			currentText = content;
+			setDirty(loadedKey, false);
 			if (editor) {
-				decorationIds = updateGutterDecorations(editor, gitHeadContent, content, decorationIds);
+				state.decorationIds = updateGutterDecorations(
+					editor,
+					state.gitHeadContent,
+					content,
+					state.decorationIds
+				);
 			}
-			if (onFileSaved) onFileSaved();
-		} catch (e) {
-			console.error("Save failed", e);
+			onFileSaved?.();
+		} catch (error) {
+			console.error('Save failed', error);
 		}
 	}
 
-	function closeFile() {
-		if (projectStore.activeId) {
-			projectStore.setActiveFile(projectStore.activeId, null);
+	function selectFile(path: string) {
+		if (projectStore.activeId) projectStore.openFile(projectStore.activeId, path);
+	}
+
+	function closeFile(path = filePath) {
+		if (!path || !projectPath || !projectStore.activeId) return;
+		const key = fileKey(projectPath, path);
+		if (path === filePath) {
+			disposeDiff();
+			showDiff = false;
 		}
+		fileStates.delete(key);
+		clearDirty(key);
+		disposeFileModel(joinProjectPath(projectPath, path));
+		projectStore.closeFile(projectStore.activeId, path);
+	}
+
+	function openDiff(path: string) {
+		if (isImageFile(path)) return;
+		if (path === filePath) {
+			toggleGitDiff();
+			return;
+		}
+		pendingDiffFile = path;
+		selectFile(path);
 	}
 
 	function toggleGitDiff() {
+		if (isImage || !filePath) return;
 		showDiff = !showDiff;
-		if (showDiff) {
-			setTimeout(() => {
-				if (!diffContainer) return;
-				if (diffEditorInstance) diffEditorInstance.dispose();
-				let ext = filePath?.split('.').pop()?.toLowerCase() || '';
-				let lang = 'plaintext';
-				if (ext === 'ts' || ext === 'tsx') lang = 'typescript';
-				if (ext === 'js' || ext === 'jsx') lang = 'javascript';
-				if (ext === 'json') lang = 'json';
-				if (ext === 'css') lang = 'css';
-				if (ext === 'html' || ext === 'aspx' || ext === 'svg') lang = 'html';
-				if (ext === 'cs') lang = 'csharp';
-
-				diffEditorInstance = createDiffEditorInstance(
-					diffContainer,
-					gitHeadContent ?? '',
-					currentText,
-					lang
-				);
-			}, 20);
+		if (!showDiff) {
+			disposeDiff();
+			return;
 		}
+
+		setTimeout(() => {
+			if (!diffContainer) return;
+			disposeDiff();
+			diffEditorInstance = createDiffEditorInstance(
+				diffContainer,
+				gitHeadContent ?? '',
+				currentText,
+				languageFor(filePath!)
+			);
+		}, 20);
 	}
 
-	function startResize(e: MouseEvent) {
-		e.preventDefault();
+	function startResize(event: MouseEvent) {
+		event.preventDefault();
 		isResizing = true;
 		window.addEventListener('mousemove', handleResize);
 		window.addEventListener('mouseup', stopResize);
 	}
 
-	function handleResize(e: MouseEvent) {
+	function handleResize(event: MouseEvent) {
 		if (!isResizing || !splitContainer) return;
 		const rect = splitContainer.getBoundingClientRect();
-		const relativeY = e.clientY - rect.top;
+		const relativeY = event.clientY - rect.top;
 		const newPercent = (relativeY / rect.height) * 100;
 		splitPercent = Math.max(20, Math.min(80, newPercent));
-		if (editor) editor.layout();
+		editor?.layout();
 	}
 
 	function stopResize() {
@@ -262,29 +372,46 @@
 </script>
 
 <div class="editor-wrapper">
-	{#if filePath}
+	{#if filePaths.length > 0}
 		<div class="editor-header">
-			<div class="header-left">
-				<span class="file-path" title={filePath}>{filePath}</span>
-				{#if isDirty}
-					<span class="dirty-dot" title="Modifiche non salvate">•</span>
-				{/if}
+			<div class="editor-tabs" role="group" aria-label="File aperti">
+				{#each filePaths as path (path)}
+					{@const isActive = path === filePath}
+					<div class="editor-tab" class:active={isActive}>
+						<button
+							class="editor-tab-file"
+							aria-pressed={isActive}
+							title={path}
+							onclick={() => selectFile(path)}
+						>
+							<span>{fileName(path)}</span>
+							{#if dirtyFiles[fileKey(projectPath, path)]}
+								<span class="dirty-dot" title="Modifiche non salvate">•</span>
+							{/if}
+						</button>
+						{#if !isImageFile(path)}
+							<button
+								class="editor-tab-action"
+								class:active={isActive && showDiff}
+								onclick={(event) => { event.stopPropagation(); openDiff(path); }}
+								title="Visualizza Git Diff"
+								aria-label="Visualizza Git Diff di {fileName(path)}"
+							>Diff</button>
+						{/if}
+						<button
+							class="editor-tab-action close-tab"
+							onclick={(event) => { event.stopPropagation(); closeFile(path); }}
+							title="Chiudi file (Ctrl+W o Ctrl+F4)"
+							aria-label="Chiudi {fileName(path)}"
+						>×</button>
+					</div>
+				{/each}
 			</div>
-			<div class="header-actions">
-				{#if isDirty && !isImage}
-					<button class="action-btn save-btn" onclick={saveCurrentFile} title="Salva modifiche (Ctrl+S)">
-						💾 Salva
-					</button>
-				{/if}
-				{#if !isImage}
-					<button class="action-btn" class:active={showDiff} onclick={toggleGitDiff} title="Visualizza Git Diff">
-						🔀 Diff
-					</button>
-				{/if}
-				<button class="action-btn close-btn" onclick={closeFile} title="Chiudi file">
-					✕
+			{#if isDirty && !isImage}
+				<button class="action-btn save-btn" onclick={() => void saveCurrentFile()} title="Salva modifiche (Ctrl+S)">
+					Salva
 				</button>
-			</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -296,7 +423,7 @@
 		{#if !filePath}
 			<div class="empty-state">
 				<div class="empty-text">Seleziona un file dall'albero per modificarlo</div>
-				<div class="empty-hint">Ctrl+S per salvare le modifiche</div>
+				<div class="empty-hint">Ctrl+S salva · Ctrl+W o Ctrl+F4 chiude il file</div>
 			</div>
 		{:else if isImage}
 			<ImageViewer projectPath={projectPath} filePath={filePath} />
@@ -342,47 +469,98 @@
 	}
 
 	.editor-header {
-		height: 34px;
+		min-height: 34px;
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--line);
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0 var(--space-3);
+		align-items: stretch;
+		gap: var(--space-1);
+		padding: 0 var(--space-1);
 		font-size: var(--text-xs);
-		z-index: 10;
+		z-index: var(--z-sticky);
 		flex-shrink: 0;
 	}
 
-	.header-left {
+	.editor-tabs {
 		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		overflow: hidden;
+		align-items: stretch;
+		min-width: 0;
+		flex: 1;
+		overflow-x: auto;
+		overflow-y: hidden;
 	}
 
-	.file-path {
-		font-family: var(--font-mono);
+	.editor-tab {
+		display: flex;
+		align-items: center;
+		min-width: 0;
+		color: var(--ink-muted);
+	}
+
+	.editor-tab.active {
+		background: var(--bg-sunken);
 		color: var(--ink);
+	}
+
+	.editor-tab-file {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		min-width: 0;
+		max-width: 180px;
+		height: 100%;
+		padding: 0 var(--space-2);
+		background: transparent;
+		border: none;
+		color: inherit;
+		cursor: pointer;
+		font: inherit;
+		overflow: hidden;
 		white-space: nowrap;
+	}
+
+	.editor-tab-file > span:first-child {
 		overflow: hidden;
 		text-overflow: ellipsis;
-		font-weight: 500;
+	}
+
+	.editor-tab-file:hover,
+	.editor-tab-action:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
 	}
 
 	.dirty-dot {
 		color: var(--warn);
+		font-size: 14px;
+		line-height: 1;
+		flex: none;
+	}
+
+	.editor-tab-action {
+		height: 22px;
+		padding: 0 var(--space-1);
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		color: inherit;
+		cursor: pointer;
+		font: inherit;
+		font-size: var(--text-xs);
+	}
+
+	.editor-tab-action.active {
+		background: var(--bg-active);
+		color: var(--ink);
+	}
+
+	.close-tab {
 		font-size: 16px;
 		line-height: 1;
 	}
 
-	.header-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
 	.action-btn {
+		align-self: center;
 		background: transparent;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
@@ -391,10 +569,10 @@
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
 		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		transition: all 0.15s ease;
+		flex: none;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.action-btn:hover {
@@ -403,23 +581,11 @@
 		border-color: var(--line-strong);
 	}
 
-	.action-btn.active {
-		background: var(--brand);
-		color: var(--on-brand);
-		border-color: var(--brand);
-	}
-
 	.action-btn.save-btn {
 		background: var(--brand);
 		color: var(--on-brand);
 		border-color: var(--brand);
 		font-weight: 600;
-	}
-
-	.action-btn.close-btn:hover {
-		background: oklch(0.45 0.18 25);
-		color: white;
-		border-color: oklch(0.45 0.18 25);
 	}
 
 	.editor-body {

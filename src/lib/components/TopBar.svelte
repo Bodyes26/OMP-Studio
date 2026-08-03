@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { projectStore, PRESET_HUES } from '$lib/stores/projects.svelte';
+	import { projectStore, PRESET_HUES, type Project } from '$lib/stores/projects.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEME_GROUPS, THEMES, swatchesFor } from '$lib/theme';
+	import { automaticProjectHue, THEME_GROUPS, THEMES, swatchesFor, type ThemeMode } from '$lib/theme';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
@@ -17,22 +17,61 @@
 	let colorInputEl = $state<HTMLInputElement | null>(null);
 	let themeOpen = $state(false);
 	let themeFilter = $state('');
+	let editingProjectId = $state<string | null>(null);
+	let projectNameDraft = $state('');
+	let projectLabelDraft = $state('');
 
-	const themeGroups = $derived(
-		THEME_GROUPS
-			.map((group) => ({
-				...group,
-				themes: group.names
-					.filter((n) => n.includes(themeFilter.trim().toLowerCase()))
-					.map((name) => ({ name, ...swatchesFor(THEMES[name]) }))
-			}))
-			.filter((group) => group.themes.length > 0)
+
+	const activeThemeGroup = $derived(THEME_GROUPS.find((group) => group.mode === themeStore.pickerMode)!);
+	const filteredThemes = $derived(
+		activeThemeGroup.names
+			.filter((name) => name.includes(themeFilter.trim().toLowerCase()))
+			.map((name) => ({ name, ...swatchesFor(THEMES[name]) }))
 	);
 
 	function pickTheme(name: string) {
 		themeStore.select(name);
 		themeOpen = false;
 		themeFilter = '';
+	}
+
+	function setThemePickerMode(mode: ThemeMode) {
+		void themeStore.setPickerMode(mode);
+	}
+
+	function projectHue(project: Project): number {
+		if (!project.path || project.colorMode === 'custom') return project.hue;
+		return automaticProjectHue(THEMES[themeStore.current], project.path);
+	}
+
+	function projectLabel(project: Project): string {
+		return project.label ?? getInitials(project.name);
+	}
+
+	function startProjectEdit(project: Project) {
+		editingProjectId = project.id;
+		projectNameDraft = project.name;
+		projectLabelDraft = project.label ?? '';
+	}
+
+	function saveProjectEdit(project: Project) {
+		projectStore.renameProject(project.id, projectNameDraft);
+		projectStore.setProjectLabel(project.id, projectLabelDraft);
+		editingProjectId = null;
+	}
+
+	function cancelProjectEdit() {
+		editingProjectId = null;
+	}
+
+	function handleProjectEditKeydown(event: KeyboardEvent, project: Project) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			saveProjectEdit(project);
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			cancelProjectEdit();
+		}
 	}
 
 	function hexToHue(hex: string): number {
@@ -155,14 +194,14 @@
 				onmouseenter={() => handleTabMouseEnter(p.id)}
 				onmouseleave={handleTabMouseLeave}
 			>
-				<button 
+				<button
 					class="tab"
 					class:active={projectStore.activeId === p.id}
 					class:working={p.agentState === 'working'}
 					class:attention={p.agentState === 'attention'}
 					class:finished={p.agentState === 'finished'}
 					class:scratchpad={!p.path}
-					style="--proj-hue: {p.hue}"
+					style="--proj-hue: {projectHue(p)}"
 					onclick={() => projectStore.setActive(p.id)}
 					title={p.name}
 				>
@@ -171,7 +210,7 @@
 							<path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 3 3 4-4 4 4 3-3V10a8 8 0 0 0-8-8z"/>
 						</svg>
 					{:else}
-						{getInitials(p.name)}
+						{projectLabel(p)}
 					{/if}
 
 					{#if p.agentState === 'attention'}
@@ -184,21 +223,39 @@
 				{#if hoveredTabId === p.id}
 					<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div 
+					<div
 						class="tab-popover"
 						onmouseenter={handlePopoverMouseEnter}
 						onmouseleave={handlePopoverMouseLeave}
 					>
-						<div class="popover-header">
-							<div class="popover-titles">
-								<div class="popover-name">{p.name}</div>
-								{#if p.path}
-									<div class="popover-path" title={p.path}>{truncateMiddle(p.path)}</div>
-								{:else}
-									<div class="popover-path">Chat temporanea</div>
-								{/if}
+						{#if editingProjectId === p.id}
+							<form class="project-identity-form" onsubmit={(event) => { event.preventDefault(); saveProjectEdit(p); }}>
+								<label>
+									<span>Nome</span>
+									<input bind:value={projectNameDraft} onkeydown={(event) => handleProjectEditKeydown(event, p)} />
+								</label>
+								<label>
+									<span>Sigla</span>
+									<input bind:value={projectLabelDraft} placeholder={getInitials(p.name)} onkeydown={(event) => handleProjectEditKeydown(event, p)} />
+								</label>
+								<div class="project-identity-actions">
+									<button type="submit" class="identity-save">Salva</button>
+									<button type="button" class="identity-cancel" onclick={cancelProjectEdit}>Annulla</button>
+								</div>
+							</form>
+						{:else}
+							<div class="popover-header">
+								<div class="popover-titles">
+									<div class="popover-name">{p.name}</div>
+									{#if p.path}
+										<div class="popover-path" title={p.path}>{truncateMiddle(p.path)}</div>
+									{:else}
+										<div class="popover-path">Chat temporanea</div>
+									{/if}
+								</div>
+								<button class="popover-edit" onclick={() => startProjectEdit(p)}>Modifica</button>
 							</div>
-						</div>
+						{/if}
 
 						<div class="popover-actions">
 							{#if projectStore.activeId !== p.id}
@@ -213,10 +270,20 @@
 								<div class="popover-divider"></div>
 								<div class="popover-section-label">Colore scheda</div>
 								<div class="color-picker-grid">
+									<button
+										class="color-mode"
+										class:selected={p.colorMode === 'auto'}
+										style="--auto-hue: {projectHue(p)}"
+										onclick={() => projectStore.useAutomaticProjectColor(p.id)}
+										title="Segui la palette del tema"
+									>
+										<span class="color-mode-preview"></span>
+										<span>Temi</span>
+									</button>
 									{#each PRESET_HUES as hue}
-										<button 
+										<button
 											class="color-swatch"
-											class:selected={p.hue === hue}
+											class:selected={p.colorMode === 'custom' && p.hue === hue}
 											style="--swatch-hue: {hue};"
 											onclick={() => projectStore.setProjectHue(p.id, hue)}
 											title="Cambia colore"
@@ -224,7 +291,7 @@
 									{/each}
 									<button
 										class="color-swatch custom-rainbow"
-										class:selected={!PRESET_HUES.includes(p.hue)}
+										class:selected={p.colorMode === 'custom' && !PRESET_HUES.includes(p.hue)}
 										onclick={() => colorInputEl?.click()}
 										title="Colore personalizzato (color picker)"
 									></button>
@@ -232,7 +299,7 @@
 										type="color"
 										bind:this={colorInputEl}
 										class="hidden-color-input"
-										onchange={(e) => handleCustomColorChange(p.id, e.currentTarget.value)}
+										onchange={(event) => handleCustomColorChange(p.id, event.currentTarget.value)}
 									/>
 								</div>
 							{/if}
@@ -256,11 +323,14 @@
 
 	<div class="controls">
 		<button
-			class="theme-chip"
-			onclick={(e) => { e.stopPropagation(); themeOpen = !themeOpen; }}
+			class="theme-badge"
+			onclick={(event) => { event.stopPropagation(); themeOpen = !themeOpen; }}
 			title="Tema: {themeStore.current}"
-			aria-label="Cambia tema"
-		></button>
+			aria-label="Cambia tema: {themeStore.current}"
+		>
+			<span class="theme-badge-color"></span>
+			<span class="theme-badge-name">{themeStore.current}</span>
+		</button>
 
 		<button class="usage-chip" onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }} title="Quota (Ctrl+Alt+U)">⚡ Quota</button>
 
@@ -293,39 +363,40 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="theme-backdrop" onclick={() => themeOpen = false}></div>
 	<div class="theme-popover">
+		<div class="theme-tabs" role="group" aria-label="Categoria temi">
+			{#each THEME_GROUPS as group (group.mode)}
+				<button
+					class:active={themeStore.pickerMode === group.mode}
+					aria-pressed={themeStore.pickerMode === group.mode}
+					onclick={() => setThemePickerMode(group.mode)}
+				>
+					{group.label} <span>{group.names.length}</span>
+				</button>
+			{/each}
+		</div>
 		<input
 			class="theme-filter"
 			type="text"
-			placeholder="Filtra {themeStore.names.length} temi"
+			placeholder="Filtra {activeThemeGroup.names.length} temi"
 			bind:value={themeFilter}
-			onkeydown={(e) => { if (e.key === 'Escape') themeOpen = false; }}
+			onkeydown={(event) => { if (event.key === 'Escape') themeOpen = false; }}
 		/>
 		<div class="theme-list">
-			{#each themeGroups as group (group.mode)}
-				<section class="theme-group" aria-labelledby={'theme-group-' + group.mode}>
-					<div class="theme-group-label" id={'theme-group-' + group.mode} role="heading" aria-level="3">
-						<span>{group.label}</span>
-						<span class="theme-group-count">{group.themes.length}</span>
-					</div>
-					<div class="theme-group-items">
-						{#each group.themes as t (t.name)}
-							<button
-								class="theme-row"
-								class:selected={t.name === themeStore.current}
-								aria-pressed={t.name === themeStore.current}
-								onclick={() => pickTheme(t.name)}
-							>
-								<span class="theme-preview" style="background: {t.bg};">
-									<span class="dot" style="background: {t.accent};"></span>
-									<span class="dot" style="background: {t.text};"></span>
-								</span>
-								<span class="theme-name">{t.name}</span>
-							</button>
-						{/each}
-					</div>
-				</section>
+			{#each filteredThemes as theme (theme.name)}
+				<button
+					class="theme-row"
+					class:selected={theme.name === themeStore.current}
+					aria-pressed={theme.name === themeStore.current}
+					onclick={() => pickTheme(theme.name)}
+				>
+					<span class="theme-preview" style="background: {theme.bg};">
+						<span class="dot" style="background: {theme.accent};"></span>
+						<span class="dot" style="background: {theme.text};"></span>
+					</span>
+					<span class="theme-name">{theme.name}</span>
+				</button>
 			{:else}
-				<div class="theme-empty">Nessun tema trovato</div>
+				<div class="theme-empty">Nessun tema {themeStore.pickerMode === 'dark' ? 'scuro' : 'chiaro'} trovato</div>
 			{/each}
 		</div>
 		<div class="theme-note">
@@ -385,8 +456,8 @@
 		align-items: center;
 	}
 
-	.tab, .tab-add {
-		width: 30px;
+	.tab,
+	.tab-add {
 		height: 30px;
 		border-radius: var(--radius-md);
 		border: none;
@@ -400,6 +471,19 @@
 		padding: 0;
 		transition: background-color var(--dur-fast) var(--ease-out),
 		            color var(--dur-fast) var(--ease-out);
+	}
+
+	.tab {
+		min-width: 30px;
+		max-width: 96px;
+		padding: 0 var(--space-2);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.tab-add {
+		width: 30px;
 	}
 
 	/* Tessera: neutra a riposo, con la sola lettera tinta del progetto.
@@ -506,7 +590,8 @@
 		position: absolute;
 		top: calc(100% + 6px);
 		left: 0;
-		width: 240px;
+		width: min(280px, calc(100vw - 16px));
+		box-sizing: border-box;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
@@ -533,16 +618,16 @@
 
 	.popover-header {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
+		justify-content: space-between;
 		gap: var(--space-2);
 	}
-
 
 	.popover-titles {
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
-		width: 100%;
+		flex: 1;
 	}
 
 	.popover-name {
@@ -555,10 +640,70 @@
 	}
 
 	.popover-path {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		font-size: var(--text-xs);
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
 		white-space: nowrap;
+	}
+
+	.popover-edit,
+	.identity-save,
+	.identity-cancel {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		cursor: pointer;
+		font: inherit;
+		font-size: var(--text-xs);
+		padding: var(--space-1) var(--space-2);
+	}
+
+	.popover-edit:hover,
+	.identity-cancel:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.project-identity-form {
+		display: grid;
+		gap: var(--space-2);
+	}
+
+	.project-identity-form label {
+		display: grid;
+		gap: var(--space-1);
+		color: var(--ink-faint);
+		font-size: var(--text-xs);
+	}
+
+	.project-identity-form input {
+		min-width: 0;
+		box-sizing: border-box;
+		width: 100%;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--text-sm);
+		padding: var(--space-1) var(--space-2);
+	}
+
+	.project-identity-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: var(--space-2);
+	}
+
+	.identity-save {
+		background: var(--brand);
+		border-color: var(--brand);
+		color: var(--on-brand);
 	}
 
 
@@ -590,6 +735,35 @@
 		gap: 6px;
 		padding: 4px 8px;
 		flex-wrap: wrap;
+	}
+
+	.color-mode {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		height: 22px;
+		padding: 0 var(--space-1);
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		color: var(--ink-faint);
+		cursor: pointer;
+		font: inherit;
+		font-size: var(--text-xs);
+	}
+
+	.color-mode:hover,
+	.color-mode.selected {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
+		color: var(--ink);
+	}
+
+	.color-mode-preview {
+		width: 12px;
+		height: 12px;
+		border-radius: var(--radius-full);
+		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--auto-hue));
 	}
 
 	.color-swatch {
@@ -695,22 +869,43 @@
 		background: var(--bg-hover);
 	}
 
-	/* Selettore di tema: la pastiglia mostra l'accento del tema corrente,
-	   che e' l'unica cosa del tema che il guscio adotta oltre alle superfici. */
-	.theme-chip {
-		width: 14px;
-		height: 14px;
-		padding: 0;
+	/* Il badge conserva il colore del tema, ma rende leggibile anche il suo nome. */
+	.theme-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		height: 24px;
+		max-width: 160px;
+		padding: 0 var(--space-2);
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		color: var(--ink-muted);
+		cursor: pointer;
+		font: inherit;
+		font-size: var(--text-xs);
+		margin-right: var(--space-3);
+	}
+
+	.theme-badge:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
+		color: var(--ink);
+	}
+
+	.theme-badge-color {
+		width: 10px;
+		height: 10px;
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-full);
 		background: var(--brand);
-		cursor: pointer;
-		margin-right: var(--space-3);
-		transition: border-color var(--dur-fast) var(--ease-out);
+		flex: none;
 	}
 
-	.theme-chip:hover {
-		border-color: var(--ink-muted);
+	.theme-badge-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.theme-backdrop {
@@ -751,37 +946,41 @@
 		max-height: 320px;
 		overflow-y: auto;
 	}
-	.theme-group {
-		display: flex;
-		flex-direction: column;
+	.theme-tabs {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--space-1);
+		padding-bottom: var(--space-1);
+		border-bottom: 1px solid var(--line);
 	}
 
-	.theme-group + .theme-group {
-		border-top: 1px solid var(--line);
-		margin-top: var(--space-2);
-		padding-top: var(--space-2);
-	}
-
-	.theme-group-label {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
+	.theme-tabs button {
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
 		color: var(--ink-faint);
+		cursor: pointer;
+		font: inherit;
 		font-size: var(--text-xs);
-		font-weight: 650;
-		padding: 0 var(--space-2) var(--space-1);
+		padding: var(--space-1) var(--space-2);
 	}
 
-	.theme-group-count {
+	.theme-tabs button:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.theme-tabs button.active {
+		background: var(--bg-active);
+		color: var(--ink);
+		font-weight: 600;
+	}
+
+	.theme-tabs span {
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
 		font-size: 10px;
 		font-weight: 500;
-	}
-
-	.theme-group-items {
-		display: flex;
-		flex-direction: column;
 	}
 
 	.theme-empty {
