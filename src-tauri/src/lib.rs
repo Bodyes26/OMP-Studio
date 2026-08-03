@@ -3,7 +3,7 @@ use pty::{PtyManager, pty_open, pty_write, pty_resize, pty_close};
 mod projects;
 use projects::{tree_read, file_read, file_write, file_git_head, project_git_status};
 mod omp_ops;
-use omp_ops::{usage_snapshot, sessions_list, sessions_search, get_omp_version, check_omp_update, run_omp_update};
+use omp_ops::{usage_snapshot, sessions_list, sessions_search, get_omp_version, check_omp_update, run_omp_update, theme_apply, omp_user_theme, provider_hosts};
 
 
 
@@ -46,7 +46,10 @@ pub fn run() {
             sessions_search,
             get_omp_version,
             check_omp_update,
-            run_omp_update
+            run_omp_update,
+            theme_apply,
+            omp_user_theme,
+            provider_hosts
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

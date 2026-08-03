@@ -3,34 +3,54 @@
 
 
 :root {
-  /* Superfici — croma 0.000 per non alterare i colori ANSI adiacenti */
+  /* --- Ancore -------------------------------------------------------------
+     Due sole superfici sono scelte a mano: il pozzo (terminale, editor) e la
+     base dell'app. Tutto il resto e' derivato mescolando --ink nell'ancora.
+     Croma 0.000: qualsiasi tinta nel guscio sposterebbe la percezione dei 16
+     colori ANSI adiacenti. */
   --bg-sunken:   oklch(0.155 0 0);
   --bg-base:     oklch(0.185 0 0);
-  --bg-raised:   oklch(0.215 0 0);
-  --bg-overlay:  oklch(0.250 0 0);
-  --bg-hover:    oklch(0.285 0 0);
-  --bg-active:   oklch(0.325 0 0);
-  --line:        oklch(0.295 0 0);
-  --line-strong: oklch(0.400 0 0);
+
+  /* Superfici opache: elevazione = luminanza, mai ombra. */
+  --bg-raised:   color-mix(in oklab, var(--bg-base) 96%, var(--ink));
+  --bg-overlay:  color-mix(in oklab, var(--bg-base) 92%, var(--ink));
+
+  /* Stati e bordi: traslucidi, non opachi. La stessa riga deve funzionare
+     sopra --bg-base, --bg-sunken e --bg-overlay senza un valore per
+     superficie. Le percentuali sono tarate per riprodurre esattamente
+     #2A2A2A / #343434 / #2C2C2C / #484848 sopra --bg-base. */
+  --bg-hover:    color-mix(in srgb, var(--ink) 10%, transparent);
+  --bg-active:   color-mix(in srgb, var(--ink) 15%, transparent);
+  --line:        color-mix(in srgb, var(--ink) 11%, transparent);
+  --line-strong: color-mix(in srgb, var(--ink) 23%, transparent);
 
   /* Testo */
   --ink:         oklch(0.970 0 0);
   --ink-muted:   oklch(0.760 0 0);
   --ink-faint:   oklch(0.655 0 0);
 
-  /* Accento — brand non è mai colore di testo */
-  --brand:       oklch(0.620 0.190 355);
-  --brand-ink:   oklch(0.720 0.170 355);
-  --brand-dim:   oklch(0.440 0.140 355);
+  /* Accento — brand non è mai colore di testo.
+     Tinta e croma arrivano dal tema di omp (`lib/theme.ts`); la rampa di
+     luminanza resta quella di DESIGN.md §2.4, così i rapporti di contrasto
+     valgono per costruzione con qualunque tema. I fattori di croma fra i tre
+     gradini sono quelli del cremisi originale: 0.170/0.190 e 0.140/0.190. */
+  --brand-h: 355;
+  --brand-c: 0.190;
+  --brand:       oklch(0.620 var(--brand-c) var(--brand-h));
+  --brand-ink:   oklch(0.720 calc(var(--brand-c) * 0.895) var(--brand-h));
+  --brand-dim:   oklch(0.440 calc(var(--brand-c) * 0.737) var(--brand-h));
 
   /* Attenzione */
-  --warn:        oklch(0.780 0.150 75);
-  --warn-dim:    oklch(0.560 0.120 75);
+  --warn-h: 75;
+  --warn-c: 0.150;
+  --warn:        oklch(0.780 var(--warn-c) var(--warn-h));
+  --warn-dim:    oklch(0.560 calc(var(--warn-c) * 0.800) var(--warn-h));
 
-  /* Identità progetto: L/C fissi, tinta dall'hash del path */
-  --proj-l-idle: 0.42;  --proj-c-idle: 0.130;
-  --proj-l-hover: 0.50; --proj-c-hover: 0.145;
-  --proj-l-active: 0.68; --proj-c-active: 0.160;
+  /* Identità progetto: tinta dall'hash del path. Due soli usi: la lettera
+     della tessera a riposo, il riempimento della tessera attiva. Un solo
+     progetto per volta e' colorato pieno, gli altri sono neutri. */
+  --proj-l-ink: 0.78;  --proj-c-ink: 0.115;
+  --proj-l-fill: 0.62; --proj-c-fill: 0.160;
 
   /* Tipografia */
   --font-ui:   "Inter Variable", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -42,12 +62,17 @@
   --space-1: 4px; --space-2: 8px;  --space-3: 12px; --space-4: 16px;
   --space-5: 24px; --space-6: 32px; --space-8: 48px;
 
-  /* Raggi */
-  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 10px; --radius-full: 999px;
+  /* Raggi: una sola costante, il resto derivato. Tetto assoluto 10px. */
+  --radius:    10px;
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-full: 999px;
 
-  /* Ombra */
+  /* Ombra: una sola, e solo per superfici che galleggiano davvero */
   --shadow-overlay: 0 8px 24px -8px oklch(0 0 0 / 0.7),
                     0 2px  6px -2px oklch(0 0 0 / 0.5);
+  --backdrop: oklch(0 0 0 / 0.55);
 
   /* Movimento */
   --dur-instant: 0ms; --dur-fast: 120ms; --dur-base: 180ms;
@@ -67,6 +92,15 @@
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
+}
+
+/* Unico movimento persistente dell'app: il respiro dello stato "al lavoro".
+   Duty-cycle con steps(): il compositor aggiorna 12 frame discreti per ciclo
+   invece di uno per vsync. Su GPU integrata la differenza e' misurabile. */
+@keyframes state-pulse {
+  0%, 38%   { opacity: 1;    animation-timing-function: steps(6); }
+  50%, 88%  { opacity: 0.35; animation-timing-function: steps(6); }
+  100%      { opacity: 1; }
 }
 
 *, *::before, *::after {
@@ -101,12 +135,16 @@ input, textarea, button {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border: 3px solid var(--bg-base);
-  border-radius: 5px;
+  /* Il pollice e' traslucido: la traccia resta trasparente e la barra
+     funziona sopra qualsiasi colonna senza un valore per superficie. */
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-sm);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--line-strong);
+  background: var(--ink-faint);
+  background-clip: padding-box;
 }
 
 :focus-visible {
@@ -114,32 +152,53 @@ input, textarea, button {
   outline-offset: 2px;
   border-radius: inherit;
 }
-/* Git Diff Gutter Decorations in Monaco */
+/* Decorazioni di gutter git in Monaco: elementi DOM, quindi i token valgono. */
 .git-gutter-added {
-  background: #4caf50 !important;
+  background: var(--git-added) !important;
   width: 4px !important;
   margin-left: 2px;
   border-radius: 1px;
 }
 
 .git-gutter-modified {
-  background: #0288d1 !important;
+  background: var(--git-modified) !important;
   width: 4px !important;
   margin-left: 2px;
   border-radius: 1px;
 }
 
 .git-gutter-deleted {
-  border-left: 4px solid #ef5350 !important;
+  border-left: 4px solid var(--git-deleted) !important;
   margin-left: 2px;
 }
 
-/* Git status variables for file tree and indicators */
+/* --- Colori di contenuto -------------------------------------------------
+   Stato git e tipo di file non appartengono al guscio: sono semantica del
+   contenuto, come i 16 colori ANSI dentro il terminale. Restano colorati, ma
+   su L/C fissi come la rampa dei progetti, cosi' hanno tutti lo stesso peso
+   visivo e nessuno urla piu' degli altri. */
 :root {
-  --git-modified:  #e5a93c;
-  --git-added:     #4caf50;
-  --git-untracked: #73c991;
-  --git-deleted:   #ef5350;
-  --git-renamed:   #64b5f6;
-  --git-conflict:  #ef5350;
+  --git-added:     oklch(0.68 0.16 145);
+  --git-untracked: oklch(0.72 0.12 145);
+  --git-modified:  var(--warn);
+  --git-deleted:   oklch(0.62 0.19 25);
+  --git-renamed:   oklch(0.68 0.16 240);
+  --git-conflict:  oklch(0.62 0.19 25);
+
+  --icon-folder:  oklch(0.72 0.14 75);
+  --icon-md:      oklch(0.72 0.14 250);
+  --icon-json:    oklch(0.72 0.14 90);
+  --icon-vb:      oklch(0.72 0.14 305);
+  --icon-aspx:    oklch(0.72 0.14 45);
+  --icon-cs:      oklch(0.72 0.14 145);
+  --icon-svg:     oklch(0.72 0.14 350);
+  --icon-js:      oklch(0.78 0.14 100);
+  --icon-ts:      oklch(0.72 0.14 235);
+  --icon-html:    oklch(0.68 0.16 30);
+  --icon-css:     oklch(0.72 0.14 200);
+  --icon-sql:     oklch(0.72 0.14 180);
+  --icon-xml:     oklch(0.66 0.06 60);
+  --icon-image:   oklch(0.74 0.13 130);
+  --icon-archive: oklch(0.74 0.14 70);
+  --icon-pdf:     oklch(0.68 0.16 25);
 }

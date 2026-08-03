@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { 
-		getEditorInstance, 
-		openFileModel, 
+	import {
+		getEditorInstance,
+		openFileModel,
+		revealLineInEditor,
 		getCurrentFileContent,
 		createDiffEditorInstance,
 		updateGutterDecorations
@@ -11,10 +12,11 @@
 	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 
-	let { projectPath, filePath, onFileSaved } = $props<{
+	let { projectPath, filePath, onFileSaved, openFileRequest } = $props<{
 		projectPath: string;
 		filePath: string | null;
 		onFileSaved?: () => void;
+		openFileRequest?: { filePath: string; line: number | null; id: number } | null;
 	}>();
 
 	let container = $state<HTMLElement>();
@@ -22,6 +24,7 @@
 	let splitContainer = $state<HTMLElement>();
 
 	let loadedKey: string | null = null;
+	let handledOpenFileRequest = 0;
 	let loading = $state(false);
 	let isDirty = $state(false);
 	let showDiff = $state(false);
@@ -94,6 +97,32 @@
 			showDiff = false;
 			load(projectPath, filePath, key);
 		}
+	});
+
+	// Il modello arriva dal filesystem in asincrono: il cursore va mosso solo
+	// dopo il suo caricamento, anche quando il file era gia aperto.
+	$effect(() => {
+		const request = openFileRequest;
+		if (
+			!request ||
+			request.id === handledOpenFileRequest ||
+			request.filePath !== filePath ||
+			!projectPath
+		) return;
+
+		if (showDiff) {
+			showDiff = false;
+			return;
+		}
+		if (isImage) {
+			handledOpenFileRequest = request.id;
+			return;
+		}
+
+		const key = `${projectPath}\u0000${filePath}`;
+		if (loading || loadedKey !== key || !container) return;
+		if (request.line !== null && !revealLineInEditor(request.line)) return;
+		handledOpenFileRequest = request.id;
 	});
 
 	async function load(project: string, path: string, key: string) {
@@ -342,7 +371,7 @@
 	}
 
 	.dirty-dot {
-		color: var(--warn, #f59e0b);
+		color: var(--warn);
 		font-size: 16px;
 		line-height: 1;
 	}
@@ -350,7 +379,7 @@
 	.header-actions {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1.5);
+		gap: var(--space-1);
 	}
 
 	.action-btn {
@@ -470,12 +499,15 @@
 		justify-content: center;
 		padding: var(--space-4);
 		overflow: auto;
-		background-color: #121212;
-		background-image: 
-			linear-gradient(45deg, #1e1e1e 25%, transparent 25%), 
-			linear-gradient(-45deg, #1e1e1e 25%, transparent 25%), 
-			linear-gradient(45deg, transparent 75%, #1e1e1e 75%), 
-			linear-gradient(-45deg, transparent 75%, #1e1e1e 75%);
+		/* Scacchiera di trasparenza: quadri traslucidi sopra il pozzo, cosi'
+		   seguono la superficie invece di essere due grigi fissi. */
+		--checker: color-mix(in srgb, var(--ink) 5%, transparent);
+		background-color: var(--bg-sunken);
+		background-image:
+			linear-gradient(45deg, var(--checker) 25%, transparent 25%),
+			linear-gradient(-45deg, var(--checker) 25%, transparent 25%),
+			linear-gradient(45deg, transparent 75%, var(--checker) 75%),
+			linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
 		background-size: 16px 16px;
 	}
 

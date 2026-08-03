@@ -3,19 +3,23 @@
 	import { TerminalSession } from './terminal';
 	import '@xterm/xterm/css/xterm.css';
 
-	let { cwd = '.', visible = true, onStateChange } = $props<{
+	let { cwd = '.', visible = true, onStateChange, onOpenFile } = $props<{
 		cwd?: string,
 		visible?: boolean,
-		onStateChange?: (s: string) => void
+		onStateChange?: (s: string) => void,
+		onOpenFile?: (relPath: string, line: number | null) => void
 	}>();
 
 	let container: HTMLElement;
 	let session: TerminalSession;
 
 	onMount(() => {
-		session = new TerminalSession(container, cwd, (s) => {
-			if (onStateChange) onStateChange(s);
-		});
+		session = new TerminalSession(
+			container,
+			cwd,
+			(s) => onStateChange?.(s),
+			(relPath, line) => onOpenFile?.(relPath, line)
+		);
 	});
 
 	onDestroy(() => {

@@ -18,6 +18,43 @@ fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
+/// Prefisso dell'id di terminale che Studio si assegna. `omp` deriva l'id da
+/// `WT_SESSION` (packages/tui/src/ttyid.ts) e scrive il breadcrumb
+/// `~/.omp/agent/terminal-sessions/wt-<id>` con cwd e file di sessione: e' il
+/// solo modo deterministico di sapere quale sessione gira in quale scheda.
+/// Fingersi Windows Terminal abilita anche truecolor e gli hyperlink OSC 8.
+pub const TERMINAL_ID_PREFIX: &str = "0MP57UD10";
+
+/// Id di terminale per un PTY: stabile dentro l'esecuzione, riconoscibile
+/// come nostro, mai in collisione con un UUID vero di Windows Terminal.
+pub fn terminal_id(pty_id: u64) -> String {
+    format!("{}-{:016}", TERMINAL_ID_PREFIX, pty_id)
+}
+
+/// Overlay di configurazione passato con `--config`: non tocca la config
+/// dell'utente e vale solo per le sessioni lanciate da Studio.
+/// `theme.dark`/`theme.light` puntano al tema scritto da `theme_apply`, e solo
+/// se quel file esiste: un nome di tema inesistente farebbe ripiegare `omp`
+/// sul tema builtin `dark`, cambiando l'aspetto della TUI dell'utente.
+fn write_overlay() -> std::path::PathBuf {
+    let mut overlay_path = std::env::temp_dir();
+    overlay_path.push("omp-studio-overlay.yml");
+
+    let mut yml = String::from("tui:\n  titleState: true\n  hyperlinks: always\n");
+    if crate::omp_ops::studio_theme_file().is_some_and(|p| p.exists()) {
+        yml.push_str("theme:\n  dark: ");
+        yml.push_str(crate::omp_ops::STUDIO_THEME_NAME);
+        yml.push_str("\n  light: ");
+        yml.push_str(crate::omp_ops::STUDIO_THEME_NAME);
+        yml.push('\n');
+    }
+
+    if let Ok(mut f) = std::fs::File::create(&overlay_path) {
+        let _ = f.write_all(yml.as_bytes());
+    }
+    overlay_path
+}
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<u64, PtySession>>,
     next_id: Mutex<u64>,
@@ -57,19 +94,25 @@ pub async fn pty_open(
         "omp.exe".to_string()
     };
 
+    let pty_id = {
+        let mut id_guard = manager.next_id.lock();
+        let id = *id_guard;
+        *id_guard += 1;
+        id
+    };
+
     let mut cmd = CommandBuilder::new("powershell.exe");
     
-    // Genera l'overlay per abilitare il titleState senza toccare la configurazione utente
-    let mut overlay_path = std::env::temp_dir();
-    overlay_path.push("omp-studio-overlay.yml");
-    if let Ok(mut f) = std::fs::File::create(&overlay_path) {
-        let _ = f.write_all(b"tui:\n  titleState: true\n");
-    }
+    let overlay_path = write_overlay();
 
     cmd.cwd(&cwd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("OMP_STUDIO", "1");
+    // Identifica il terminale per `omp`: senza, niente breadcrumb e nessun
+    // modo di sapere quale sessione appartiene a questa scheda.
+    cmd.env("WT_SESSION", terminal_id(pty_id));
+    cmd.env("PI_FORCE_HYPERLINKS", "1");
     
     // omp gira dentro una shell interattiva (-NoExit): all'uscita di omp
     // l'utente resta su un prompt vero invece che su un PTY morto.
@@ -95,13 +138,6 @@ pub async fn pty_open(
 
     let master_arc = Arc::new(Mutex::new(master_pty));
     let writer_arc = Arc::new(Mutex::new(writer));
-
-    let pty_id = {
-        let mut id_guard = manager.next_id.lock();
-        let id = *id_guard;
-        *id_guard += 1;
-        id
-    };
 
     let session = PtySession {
         master: master_arc.clone(),

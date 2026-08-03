@@ -175,12 +175,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background-color: #121212;
-		background-image: 
-			linear-gradient(45deg, #1e1e1e 25%, transparent 25%), 
-			linear-gradient(-45deg, #1e1e1e 25%, transparent 25%), 
-			linear-gradient(45deg, transparent 75%, #1e1e1e 75%), 
-			linear-gradient(-45deg, transparent 75%, #1e1e1e 75%);
+		--checker: color-mix(in srgb, var(--ink) 5%, transparent);
+		background-color: var(--bg-sunken);
+		background-image:
+			linear-gradient(45deg, var(--checker) 25%, transparent 25%),
+			linear-gradient(-45deg, var(--checker) 25%, transparent 25%),
+			linear-gradient(45deg, transparent 75%, var(--checker) 75%),
+			linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
 		background-size: 20px 20px;
 		background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
 	}
@@ -195,7 +196,7 @@
 		max-width: 80vw;
 		max-height: 70vh;
 		object-fit: contain;
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-		border-radius: 4px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
 	}
 </style>

@@ -165,12 +165,12 @@
 			<span class="arrow-icon" class:expanded={expanded}>▸</span>
 			<span class="type-icon folder">
 				{#if expanded}
-					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-						<path d="M1.5 3.5h4l1.5 2h7.5v2.5h-11.5v5.5l-1.5-6z" fill="#E5A93C" fill-opacity="0.3" stroke="#E5A93C"/>
+					<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
+						<path d="M1.5 3.5h4l1.5 2h7.5v2.5h-11.5v5.5l-1.5-6z" fill-opacity="0.3"/>
 					</svg>
 				{:else}
-					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-						<path d="M1.5 3.5h4l1.5 2h7.5v8h-13z" fill="#E5A93C" fill-opacity="0.2" stroke="#E5A93C"/>
+					<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
+						<path d="M1.5 3.5h4l1.5 2h7.5v8h-13z" fill-opacity="0.2"/>
 					</svg>
 				{/if}
 			</span>
@@ -179,77 +179,77 @@
 			<span class="type-icon file {fileType}">
 				{#if fileType === 'md'}
 					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-						<rect x="2" y="2" width="12" height="12" rx="2" stroke="#42a5f5" fill="#42a5f5" fill-opacity="0.15"/>
-						<path d="M4 11V5l2.5 3L9 5v6M12 9l-1.5 2L9 9" stroke="#42a5f5" stroke-linecap="round" stroke-linejoin="round"/>
+						<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.15"/>
+						<path d="M4 11V5l2.5 3L9 5v6M12 9l-1.5 2L9 9" stroke-linecap="round" stroke-linejoin="round"/>
 					</svg>
 				{:else if fileType === 'json'}
-					<svg viewBox="0 0 16 16" fill="none" stroke="#fbc02d" stroke-width="1.3">
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
 						<path d="M5 3c-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5 1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5M11 3c1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5" stroke-linecap="round"/>
 					</svg>
 				{:else if fileType === 'vb'}
 					<svg viewBox="0 0 16 16" fill="none">
-						<rect x="2" y="2" width="12" height="12" rx="2" fill="#7b1fa2" fill-opacity="0.2" stroke="#ab47bc" stroke-width="1.2"/>
-						<text x="3.5" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="#e1bee7">VB</text>
+						<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
+						<text x="3.5" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">VB</text>
 					</svg>
 				{:else if fileType === 'aspx'}
-					<svg viewBox="0 0 16 16" fill="none">
-						<rect x="2" y="2" width="12" height="12" rx="2" fill="#e65100" fill-opacity="0.2" stroke="#ff7043" stroke-width="1.2"/>
-						<path d="M5 6l-2 2 2 2M11 6l2 2-2 2M9 5l-2 6" stroke="#ff8a65" stroke-width="1.1" stroke-linecap="round"/>
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+						<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke-width="1.2"/>
+						<path d="M5 6l-2 2 2 2M11 6l2 2-2 2M9 5l-2 6" stroke-width="1.1" stroke-linecap="round"/>
 					</svg>
 				{:else if fileType === 'cs'}
-					<svg viewBox="0 0 16 16" fill="none">
-						<rect x="2" y="2" width="12" height="12" rx="2" fill="#1b5e20" fill-opacity="0.25" stroke="#66bb6a" stroke-width="1.2"/>
-						<path d="M5.5 6.5C5 6 4 6.5 4 8s1 2 1.5 1.5M9 6v4M11 6v4M8 7.5h4M8 9.5h4" stroke="#81c784" stroke-width="1.1" stroke-linecap="round"/>
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+						<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke-width="1.2"/>
+						<path d="M5.5 6.5C5 6 4 6.5 4 8s1 2 1.5 1.5M9 6v4M11 6v4M8 7.5h4M8 9.5h4" stroke-width="1.1" stroke-linecap="round"/>
 					</svg>
 				{:else if fileType === 'svg'}
-					<svg viewBox="0 0 16 16" fill="none" stroke="#ff4081" stroke-width="1.2">
-						<circle cx="4" cy="12" r="1.5" fill="#ff4081"/>
-						<circle cx="12" cy="4" r="1.5" fill="#ff4081"/>
-						<path d="M4 12C4 7 12 9 12 4" stroke-linecap="round"/>
+					<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
+						<circle cx="4" cy="12" r="1.5"/>
+						<circle cx="12" cy="4" r="1.5"/>
+						<path d="M4 12C4 7 12 9 12 4" fill="none" stroke-linecap="round"/>
 					</svg>
 				{:else if fileType === 'js'}
 					<svg viewBox="0 0 16 16" fill="none">
-						<rect x="2" y="2" width="12" height="12" rx="2" fill="#f57f17" fill-opacity="0.25" stroke="#ffee58" stroke-width="1.2"/>
-						<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="#fff59d">JS</text>
+						<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
+						<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">JS</text>
 					</svg>
 				{:else if fileType === 'ts'}
 					<svg viewBox="0 0 16 16" fill="none">
-						<rect x="2" y="2" width="12" height="12" rx="2" fill="#0277bd" fill-opacity="0.25" stroke="#29b6f6" stroke-width="1.2"/>
-						<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="#81d4fa">TS</text>
+						<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
+						<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">TS</text>
 					</svg>
 				{:else if fileType === 'html'}
-					<svg viewBox="0 0 16 16" fill="none" stroke="#ef5350" stroke-width="1.3" stroke-linecap="round">
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
 						<path d="M5.5 5L3 8l2.5 3M10.5 5l2.5 3-2.5 3M9 4l-2 8"/>
 					</svg>
 				{:else if fileType === 'css'}
-					<svg viewBox="0 0 16 16" fill="none" stroke="#26c6da" stroke-width="1.3" stroke-linecap="round">
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
 						<path d="M4 6h8M4 10h8M6.5 3.5l-1 9M10.5 3.5l-1 9"/>
 					</svg>
 				{:else if fileType === 'sql'}
-					<svg viewBox="0 0 16 16" fill="none" stroke="#26a69a" stroke-width="1.2">
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
 						<ellipse cx="8" cy="4" rx="5" ry="2"/>
 						<path d="M3 4v4c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8v4c0 1.1 2.2 2 5 2s5-.9 5-2V8"/>
 					</svg>
 				{:else if fileType === 'xml'}
-					<svg viewBox="0 0 16 16" fill="none" stroke="#8d6e63" stroke-width="1.2" stroke-linecap="round">
-						<rect x="3" y="2" width="10" height="12" rx="1.5" fill="#8d6e63" fill-opacity="0.15"/>
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+						<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.15"/>
 						<path d="M6 6l-1.5 2L6 10M10 6l1.5 2-1.5 2"/>
 					</svg>
 				{:else if fileType === 'image'}
-					<svg viewBox="0 0 16 16" fill="none" stroke="#9ccc65" stroke-width="1.2">
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
 						<rect x="2" y="3" width="12" height="10" rx="1.5"/>
-						<circle cx="5.5" cy="6" r="1" fill="#9ccc65"/>
+						<circle cx="5.5" cy="6" r="1" fill="currentColor"/>
 						<path d="M14 11l-3.5-3.5-4 4-2-2L2 11.5" stroke-linecap="round"/>
 					</svg>
 				{:else if fileType === 'archive'}
-					<svg viewBox="0 0 16 16" fill="none" stroke="#ffa726" stroke-width="1.2">
-						<path d="M3 4h10v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" fill="#ffa726" fill-opacity="0.15"/>
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+						<path d="M3 4h10v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" fill="currentColor" fill-opacity="0.15"/>
 						<path d="M2 2h12v2H2zM8 6v3M6.5 7.5h3"/>
 					</svg>
 				{:else if fileType === 'pdf'}
 					<svg viewBox="0 0 16 16" fill="none">
-						<rect x="3" y="2" width="10" height="12" rx="1.5" fill="#b71c1c" fill-opacity="0.2" stroke="#ef5350" stroke-width="1.2"/>
-						<text x="3.5" y="10.5" font-family="sans-serif" font-weight="bold" font-size="6.5" fill="#ef9a9a">PDF</text>
+						<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
+						<text x="3.5" y="10.5" font-family="sans-serif" font-weight="bold" font-size="6.5" fill="currentColor">PDF</text>
 					</svg>
 				{:else}
 					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.6">
@@ -357,6 +357,26 @@
 		height: 14px;
 	}
 
+	/* Il colore dell'icona vive nel foglio di stile, non nell'SVG: un solo
+	   token per tipo, stessa L/C per tutti. */
+	.type-icon { color: var(--ink-faint); }
+	.type-icon.folder  { color: var(--icon-folder); }
+	.type-icon.md      { color: var(--icon-md); }
+	.type-icon.json    { color: var(--icon-json); }
+	.type-icon.vb      { color: var(--icon-vb); }
+	.type-icon.aspx    { color: var(--icon-aspx); }
+	.type-icon.cs      { color: var(--icon-cs); }
+	.type-icon.svg     { color: var(--icon-svg); }
+	.type-icon.js      { color: var(--icon-js); }
+	.type-icon.ts      { color: var(--icon-ts); }
+	.type-icon.html    { color: var(--icon-html); }
+	.type-icon.css     { color: var(--icon-css); }
+	.type-icon.sql     { color: var(--icon-sql); }
+	.type-icon.xml     { color: var(--icon-xml); }
+	.type-icon.image   { color: var(--icon-image); }
+	.type-icon.archive { color: var(--icon-archive); }
+	.type-icon.pdf     { color: var(--icon-pdf); }
+
 	.name {
 		flex: 1;
 		overflow: hidden;
@@ -370,7 +390,7 @@
 		font-weight: 700;
 		line-height: 1;
 		padding: 1px 3px;
-		border-radius: 3px;
+		border-radius: var(--radius-sm);
 		margin-left: auto;
 		flex-shrink: 0;
 		display: inline-flex;
@@ -384,23 +404,23 @@
 	}
 
 	.tree-row.git-m .name, .git-badge.status-M {
-		color: var(--git-modified, #e5a93c);
+		color: var(--git-modified);
 	}
 	.tree-row.git-a .name, .git-badge.status-A {
-		color: var(--git-added, #4caf50);
+		color: var(--git-added);
 	}
 	.tree-row.git-u .name, .git-badge.status-U {
-		color: var(--git-untracked, #73c991);
+		color: var(--git-untracked);
 	}
 	.tree-row.git-d .name, .git-badge.status-D {
-		color: var(--git-deleted, #ef5350);
+		color: var(--git-deleted);
 		text-decoration: line-through;
 	}
 	.tree-row.git-r .name, .git-badge.status-R {
-		color: var(--git-renamed, #64b5f6);
+		color: var(--git-renamed);
 	}
 	.tree-row.git-c .name, .git-badge.status-C {
-		color: var(--git-conflict, #ef5350);
+		color: var(--git-conflict);
 	}
 
 	.empty, .loading {

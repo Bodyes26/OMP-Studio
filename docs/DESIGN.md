@@ -39,6 +39,13 @@ Seed: `oklch(0.470 0.173 354.8)` — cremisi/magenta. La tinta 355° è l'ancora
 
 Gerarchia di elevazione: `sunken → base → raised → overlay`. Ogni salto è percepibile (ratio adiacenti da 1.05 a 1.15) senza creare bande visibili. **Nessuna ombra viene usata per l'elevazione**: solo luminanza e un bordo `--line` da 1px. Vietato l'accoppiamento `border: 1px` + `box-shadow` largo.
 
+**Come sono definiti.** Solo `--bg-sunken` e `--bg-base` sono valori scelti a mano: sono le due ancore. Tutto il resto è derivato in `src/app.css` mescolando `--ink` nell'ancora, e i valori esadecimali della tabella sono ciò che la mescolanza produce sopra `--bg-base`.
+
+- `--bg-raised` e `--bg-overlay` sono **opachi** (`color-mix(in oklab, var(--bg-base) N%, var(--ink))`): sono superfici, e una superficie deve coprire.
+- `--bg-hover`, `--bg-active`, `--line` e `--line-strong` sono **traslucidi** (`color-mix(in srgb, var(--ink) N%, transparent)`): sono stati e separatori, e devono funzionare identici sopra `base`, `sunken` e `overlay` senza un valore per superficie. È il motivo per cui una riga selezionata nell'albero e una riga selezionata dentro un popover non richiedono due token diversi.
+
+La croma resta 0.000 in entrambi i casi: si mescola grigio in grigio.
+
 ### 2.3 Testo
 
 | Token | OKLCH | Hex | Contrasto min. sulle 4 superfici | Uso |
@@ -108,6 +115,32 @@ L'inversione della lettera sull'attivazione è intenzionale: la tessera "si acce
 
 La palette ANSI dentro la viewport appartiene al tema di `omp`. OMP Studio imposta solo `background` (`--bg-sunken`) e `foreground` (`--ink`) del terminale, e non tocca i 16 colori. Nessun tema del guscio può riscrivere i colori del contenuto.
 
+### 2.9 Il tema arriva da `omp`
+
+I valori fissi delle §2.2–2.5 sono il **default**, non l'unica possibilità: il
+selettore in barra sostituisce sei numeri, e tutto il resto continua a derivare
+da quelli.
+
+| Token | Origine nel tema di `omp` |
+|---|---|
+| `--bg-base` | `export.pageBg` (la più chiara delle due superfici) |
+| `--bg-sunken` | `export.cardBg` (la più scura: è il pozzo) |
+| `--brand-h` / `--brand-c` | tinta e croma di `colors.accent` |
+| `--warn-h` / `--warn-c` | tinta e croma di `colors.warning` |
+
+Tre conseguenze volute:
+
+- **La rampa di luminanza non si tocca.** L, e quindi i rapporti di contrasto
+  misurati nelle §2.3–2.5, restano quelli: un tema può cambiare tinta e
+  superficie, non può rendere illeggibile il guscio.
+- **La croma si taglia, non si inventa.** `--brand-c` è il minimo fra la croma
+  dell'accento del tema e 0.190: un tema monocromatico resta monocromatico.
+- **I 16 colori ANSI restano di `omp`** (§2.8). Il guscio e la TUI combaciano
+  perché usano lo *stesso* tema, non perché il guscio ridipinga il contenuto.
+
+Sono esclusi i 49 temi chiari del catalogo: il tema chiaro è bandito in
+`PRODUCT.md` e la §1 spiega perché.
+
 ---
 
 ## 3. Tipografia
@@ -159,6 +192,8 @@ Ritmo, non uniformità: padding di riga `4px 8px`, padding di pannello `12px`, p
 ### Raggi
 
 `--radius-sm: 4px` (controlli, badge) · `--radius-md: 6px` (tessera progetto, bottone, input) · `--radius-lg: 10px` (popover, dialog, pannello) · `--radius-full: 999px` (solo tag e pill di conteggio)
+
+Definiti da una sola costante: `--radius: 10px`, e `sm`/`md` derivati con `calc()`. Cambiare il carattere dei bordi dell'app è una riga sola.
 
 Tetto assoluto: **10px**. Un raggio a 16px+ su un pannello di uno strumento tecnico è un difetto, non uno stile.
 
@@ -218,7 +253,9 @@ Nessun bounce, nessun elastic, nessun overshoot.
 
 2. **Il terminale non è mai il soggetto di un'animazione.** Niente fade in ingresso, niente slide, niente scale. La viewport appare già disegnata. Animarla causa reflow su un canvas che sta ridisegnando testo.
 
-3. **Un solo movimento persistente in tutta l'app**: il respiro della tessera "agente al lavoro". Opacità `1 → 0.45 → 1` su un anello da 2px in `--brand`, 1800ms, `--ease-in-out`, infinito. È l'unica animazione in loop consentita, perché è l'unica informazione continua che l'app deve trasmettere.
+3. **Un solo movimento persistente in tutta l'app**: il respiro della tessera "agente al lavoro". Opacità `1 → 0.35 → 1` su un anello da 2px in `--brand`, 1800ms, `--ease-in-out`, infinito. È l'unica animazione in loop consentita, perché è l'unica informazione continua che l'app deve trasmettere.
+
+Il respiro è a **duty-cycle**: due plateau (opacità 1 e 0.35) collegati da rampe `steps(6)`. Il compositor aggiorna 12 frame discreti per ciclo invece di uno per vsync — su GPU integrata è la differenza tra un'animazione gratuita e un costo fisso a riposo. Il keyframe è `state-pulse`, globale in `src/app.css`, ed è l'unico dell'app.
 
 ### Reduced motion — obbligatorio
 
@@ -242,7 +279,7 @@ Nessuna animazione deve essere l'unico veicolo di un'informazione. Lo stato "al 
 
 ### 7.1 Barra progetti (top bar)
 
-Altezza 40px, sfondo `--bg-raised`, bordo inferiore 1px `--line`.
+Altezza 48px, sfondo `--bg-raised`. Nessun bordo inferiore: la separazione dal corpo è la differenza di luminanza con `--bg-base`.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -251,12 +288,15 @@ Altezza 40px, sfondo `--bg-raised`, bordo inferiore 1px `--line`.
   tessere      nuovo    progetto attivo (centro)   usage    profilo
 ```
 
-- **Tessere**: 26×26px, `--radius-md`, lettera iniziale in mono 12px/600. Ordine = ordine di apertura, riordinabili per trascinamento.
+- **Tessere**: 30×30px, `--radius-md`, iniziale in mono 13px/600. Ordine = ordine di apertura, riordinabili per trascinamento. **Una sola tessera colorata per volta**: l'attiva è piena nel colore del progetto con la lettera nel pozzo, le altre sono neutre (`ink` all'8%) con la sola lettera tinta. N progetti aperti non devono produrre N blocchi saturi in cima allo schermo.
 - **Indicatore attivo**: barra da 2px in `--brand` sul bordo *inferiore* della barra, larga come la tessera, che trasla tra le tessere. Un solo elemento animato, non uno per tessera.
-- **Stato sulla tessera** (leggibile anche per progetti non a schermo):
+- **Stato sulla tessera** (leggibile anche per progetti non a schermo). Due soli colori, entrambi già nella palette; nessun verde, nessun blu:
   - `idle` — riempimento idle, nessun segno.
-  - `running` — anello 2px `--brand` che respira.
-  - `attention` — punto 6px `--brand` in alto a destra, fisso, più anello statico 1px.
+  - `working` — anello 2px `--brand` che respira. Nessun punto: l'anello che si muove è il segnale.
+  - `attention` — anello statico 1px `--warn` più punto 6px `--warn` in alto a destra. Ambra = l'agente aspetta te.
+  - `finished` — anello statico 1px `--brand` più punto 6px `--brand`. Cremisi fermo = ha finito, nessuna urgenza.
+
+  Il punto è staccato dalla tessera con `outline: 2px solid var(--bg-raised)`, un knockout, non un'ombra.
 - **Nome del progetto attivo**: centrato, `--text-md`, `--ink`. Il path completo è nel tooltip.
 - **Pulsante `+`**: apre il selettore progetto (recenti + sfoglia + crea).
 - **Chip usage**: mostra solo il numero peggiore tra tutte le quote (`min(remainingFraction)`) e la sua icona. Click → popover. Colore per severità (§2.6). È l'unico elemento della barra che può essere colorato di ambra o cremisi.
@@ -300,7 +340,9 @@ Stato vuoto: nessuna illustrazione. Una riga in `--ink-faint` centrata e il set 
 
 ### 7.6 Splitter di colonna
 
-Maniglia da 1px visibile (`--line`), area di presa da 8px, `cursor: col-resize`. Hover → `--line-strong`. Trascinamento → `--brand`, larghezza 2px. Doppio click → ripristina la larghezza di default. Le larghezze sono per-progetto e persistono.
+Nessuna maniglia visibile a riposo: le colonne si separano per luminanza (`--bg-base` a sinistra, `--bg-sunken` al centro e a destra), non per riga. Area di presa da 6px, `cursor: col-resize`. Hover e trascinamento → una linea da 1px in `--brand` al centro dell'area. Doppio click → ripristina la larghezza di default. Le larghezze sono per-progetto e persistono.
+
+Vale per tutta l'app: **nessun bordo verticale nel corpo**, e nessun bordo sotto gli header di colonna. Il contenuto scorrevole è mascherato in cima (`mask-image`, 10px) così le righe svaniscono passando sotto l'header invece di essere tagliate da una linea.
 
 ### 7.7 Fuoco e tastiera
 

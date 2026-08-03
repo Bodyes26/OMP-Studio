@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
@@ -11,11 +11,25 @@
 	let now = $state(Date.now());
 	let timer: any = null;
 
+	type ProviderHost = {
+		provider: string;
+		model: string;
+		host: string;
+		project: string;
+		last_active_ms: number;
+	};
+
+	let providerHosts = $state<ProviderHost[]>([]);
+
 	async function fetchUsage(force = false) {
 		loading = true;
 		try {
-			const res: any = await invoke('usage_snapshot', { force });
-			usageData = res.raw_json;
+			const [usage, hosts] = await Promise.all([
+				invoke<any>('usage_snapshot', { force }),
+				invoke<ProviderHost[]>('provider_hosts')
+			]);
+			usageData = usage.raw_json;
+			providerHosts = hosts;
 		} catch (e) {
 			console.error("Usage fetch failed", e);
 		} finally {
@@ -98,6 +112,9 @@
 			{:else if usageData && usageData.reports}
 				{#each usageData.reports as report, i}
 					{#if report.limits && report.limits.length > 0}
+						{@const hostLabels = [...new Set(providerHosts
+							.filter((host) => host.provider === report.provider)
+							.map((host) => host.project ? `${host.host} · ${host.project}` : host.host))]}
 						<div class="provider-section" style="animation-delay: {i * 0.08}s;">
 							<h4>{report.provider} <span class="meta">{report.metadata?.email || ''}</span></h4>
 							{#each report.limits as limit}
@@ -120,6 +137,9 @@
 									<div class="limit-bar" title="Consumato: {usedPercent}% | Rimanente: {remainingPercent}%">
 										<div class="limit-fill" style="--target-width: {usedPercent}%; background: {colorVar}; --bar-delay: {i * 0.08}s;"></div>
 									</div>
+									{#if hostLabels.length > 0}
+										<div class="host-usage">In uso da: {hostLabels.join(', ')}</div>
+									{/if}
 								</div>
 							{/each}
 						</div>
@@ -325,6 +345,12 @@
 		background: var(--bg-sunken);
 		border-radius: var(--radius-full);
 		overflow: hidden;
+	}
+
+	.host-usage {
+		margin-top: var(--space-1);
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
 	}
 
 	.limit-fill {

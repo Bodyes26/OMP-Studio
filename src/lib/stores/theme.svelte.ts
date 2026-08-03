@@ -1,0 +1,75 @@
+import { invoke } from '@tauri-apps/api/core';
+import { load, type Store } from '@tauri-apps/plugin-store';
+import { DEFAULT_THEME, THEMES, THEME_NAMES, anchorsFor, applyAnchors } from '$lib/theme';
+
+/**
+ * Un tema solo per Studio e per la TUI.
+ *
+ * All'avvio il guscio prende il tema che l'utente ha gia' scelto in `omp`
+ * (`theme.dark` di `config.yml`, letto in sola lettura) e non scrive niente:
+ * finche' non si sceglie un tema qui dentro, `omp` resta padrone del proprio
+ * aspetto.
+ *
+ * Alla prima scelta Studio scrive `~/.omp/agent/themes/omp-studio.json` - il
+ * solo file che tocca dentro `~/.omp`, vedi docs/DECISIONS.md - e le sessioni
+ * lanciate da quel momento partono con `theme.dark: omp-studio` nell'overlay.
+ * Da li' in poi ogni cambio di tema riscrive quel file e il watcher di `omp`
+ * ricolora a caldo le TUI gia' aperte.
+ */
+class ThemeStore {
+	current = $state<string>(DEFAULT_THEME);
+	/** Vero da quando il tema di `omp` e' pilotato da Studio. */
+	bridged = $state(false);
+
+	private store: Store | null = null;
+
+	names = THEME_NAMES;
+
+	async init() {
+		// Il colore del guscio non puo' dipendere dal fatto che le impostazioni
+		// o `omp` rispondano: in caso di guasto si parte comunque dal default.
+		try {
+			this.store = await load('settings.json', { autoSave: false });
+			const stored = (await this.store.get('theme')) as string | null;
+			if (stored && THEMES[stored]) {
+				this.current = stored;
+				this.bridged = true;
+			}
+		} catch {
+			this.store = null;
+		}
+
+		if (!this.bridged) {
+			try {
+				const userTheme = (await invoke('omp_user_theme')) as string | null;
+				if (userTheme && THEMES[userTheme]) this.current = userTheme;
+			} catch {
+				// `omp` non raggiungibile: resta il default.
+			}
+		}
+
+		applyAnchors(anchorsFor(THEMES[this.current]));
+	}
+
+	async select(name: string) {
+		const theme = THEMES[name];
+		if (!theme) return;
+
+		this.current = name;
+		applyAnchors(anchorsFor(theme));
+
+		// Se `omp` non e' scrivibile il guscio ha comunque cambiato colore: la
+		// scelta va ricordata lo stesso, il ponte si ritentera' al prossimo giro.
+		try {
+			await invoke('theme_apply', { theme });
+			this.bridged = true;
+		} catch (e) {
+			console.error('Tema non propagato a omp', e);
+		}
+
+		await this.store?.set('theme', name);
+		await this.store?.save();
+	}
+}
+
+export const themeStore = new ThemeStore();

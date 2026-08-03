@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { projectStore, PRESET_HUES } from '$lib/stores/projects.svelte';
+	import { themeStore } from '$lib/stores/theme.svelte';
+	import { THEMES, swatchesFor } from '$lib/theme';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
@@ -13,6 +15,20 @@
 	let hoverTimer: any = null;
 	let mouseInsidePopover = false;
 	let colorInputEl = $state<HTMLInputElement | null>(null);
+	let themeOpen = $state(false);
+	let themeFilter = $state('');
+
+	const themeList = $derived(
+		themeStore.names
+			.filter((n) => n.includes(themeFilter.trim().toLowerCase()))
+			.map((name) => ({ name, ...swatchesFor(THEMES[name]) }))
+	);
+
+	function pickTheme(name: string) {
+		themeStore.select(name);
+		themeOpen = false;
+		themeFilter = '';
+	}
 
 	function hexToHue(hex: string): number {
 		let c = hex.replace('#', '');
@@ -61,6 +77,14 @@
 
 	function getInitials(name: string) {
 		return name.slice(0, 2).toUpperCase();
+	}
+
+	// Il path si tronca al centro: la coda e' la parte informativa.
+	function truncateMiddle(path: string, max = 38) {
+		if (path.length <= max) return path;
+		const head = Math.ceil((max - 1) / 2);
+		const tail = Math.floor((max - 1) / 2);
+		return path.slice(0, head) + '…' + path.slice(path.length - tail);
 	}
 
 	function handleTabMouseEnter(id: string) {
@@ -146,9 +170,9 @@
 					{/if}
 
 					{#if p.agentState === 'attention'}
-						<span class="status-badge attention" title="L'agente richiede un intervento">!</span>
+						<span class="status-dot attention" title="L'agente richiede un intervento"></span>
 					{:else if p.agentState === 'finished'}
-						<span class="status-badge finished" title="L'agente ha completato il lavoro">✓</span>
+						<span class="status-dot finished" title="L'agente ha completato il lavoro"></span>
 					{/if}
 				</button>
 
@@ -164,9 +188,7 @@
 							<div class="popover-titles">
 								<div class="popover-name">{p.name}</div>
 								{#if p.path}
-									<div class="popover-path-container">
-										<div class="popover-path marquee" title={p.path}>{p.path}</div>
-									</div>
+									<div class="popover-path" title={p.path}>{truncateMiddle(p.path)}</div>
 								{:else}
 									<div class="popover-path">Chat temporanea</div>
 								{/if}
@@ -228,7 +250,14 @@
 	</div>
 
 	<div class="controls">
-		<button class="usage-chip" onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }}>⚡ Quota</button>
+		<button
+			class="theme-chip"
+			onclick={(e) => { e.stopPropagation(); themeOpen = !themeOpen; }}
+			title="Tema: {themeStore.current}"
+			aria-label="Cambia tema"
+		></button>
+
+		<button class="usage-chip" onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }} title="Quota (Ctrl+Alt+U)">⚡ Quota</button>
 
 		<div class="window-controls">
 			<button class="win-btn" onclick={handleMinimize} title="Riduci a icona">
@@ -254,23 +283,55 @@
 	</div>
 </header>
 
+{#if themeOpen}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="theme-backdrop" onclick={() => themeOpen = false}></div>
+	<div class="theme-popover">
+		<input
+			class="theme-filter"
+			type="text"
+			placeholder="Filtra {themeStore.names.length} temi"
+			bind:value={themeFilter}
+			onkeydown={(e) => { if (e.key === 'Escape') themeOpen = false; }}
+		/>
+		<div class="theme-list">
+			{#each themeList as t (t.name)}
+				<button
+					class="theme-row"
+					class:selected={t.name === themeStore.current}
+					onclick={() => pickTheme(t.name)}
+				>
+					<span class="theme-preview" style="background: {t.bg};">
+						<span class="dot" style="background: {t.accent};"></span>
+						<span class="dot" style="background: {t.text};"></span>
+					</span>
+					<span class="theme-name">{t.name}</span>
+				</button>
+			{/each}
+		</div>
+		<div class="theme-note">
+			{#if themeStore.bridged}
+				Lo usano anche le sessioni <code>omp</code> aperte da Studio.
+			{:else}
+				Alla prima scelta il tema passa anche a <code>omp</code>: le sessioni già
+				aperte restano come sono.
+			{/if}
+		</div>
+	</div>
+{/if}
+
 <style>
 	.topbar {
-		height: 38px;
+		height: 48px;
 		background-color: var(--bg-raised);
-		border-bottom: 1px solid var(--line);
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		padding: 0 0 0 var(--space-2);
 		z-index: var(--z-topbar);
 		user-select: none;
-		transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 		position: relative;
-	}
-
-	.topbar:hover {
-		height: 60px;
 	}
 
 	.brand-section {
@@ -284,18 +345,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		height: 26px;
+		height: 30px;
 	}
 
 	.brand-logo-img {
-		height: 22px;
+		height: 26px;
 		width: auto;
 		object-fit: contain;
-		transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-	}
-
-	.topbar:hover .brand-logo-img {
-		height: 28px;
 	}
 
 	.tabs {
@@ -303,11 +359,6 @@
 		align-items: center;
 		gap: var(--space-2);
 		z-index: 2;
-		transition: gap 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-	}
-
-	.topbar:hover .tabs {
-		gap: 14px;
 	}
 
 	.tab-container {
@@ -317,8 +368,8 @@
 	}
 
 	.tab, .tab-add {
-		width: 26px;
-		height: 26px;
+		width: 30px;
+		height: 30px;
 		border-radius: var(--radius-md);
 		border: none;
 		display: flex;
@@ -329,40 +380,28 @@
 		font-family: var(--font-mono);
 		cursor: pointer;
 		padding: 0;
-		transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+		transition: background-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out);
 	}
 
-	.topbar:hover .tab,
-	.topbar:hover .tab-add {
-		width: 36px;
-		height: 36px;
-		font-size: 13px;
-		border-radius: var(--radius-md);
-	}
-
+	/* Tessera: neutra a riposo, con la sola lettera tinta del progetto.
+	   Il riempimento pieno e' riservato al progetto attivo: un solo blocco
+	   saturo per schermata invece di uno per progetto aperto. */
 	.tab {
-		background-color: var(--bg-sunken);
-		border: 1.5px solid oklch(0.65 0.15 var(--proj-hue));
-		color: oklch(0.85 0.12 var(--proj-hue));
+		background-color: color-mix(in srgb, var(--ink) 8%, transparent);
+		border: 1px solid transparent;
+		color: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--proj-hue));
 		position: relative;
 	}
 
-	.topbar:hover .tab:not(.active):not(.scratchpad) {
-		background-color: oklch(0.25 0.05 var(--proj-hue));
-		border: 1.5px solid oklch(0.55 0.12 var(--proj-hue));
-		color: oklch(0.88 0.12 var(--proj-hue));
-	}
-
 	.tab:hover {
-		background-color: oklch(0.28 0.07 var(--proj-hue));
-		border-color: oklch(0.75 0.18 var(--proj-hue));
-		transform: translateY(-1px);
+		background-color: var(--bg-active);
 	}
 
 	.tab.scratchpad {
-		background-color: var(--bg-sunken);
-		color: var(--ink-muted);
-		border: 1.5px dashed var(--line-strong, rgba(255, 255, 255, 0.4));
+		background-color: transparent;
+		color: var(--ink-faint);
+		border: 1px dashed var(--line-strong);
 	}
 
 	.tab.scratchpad:hover {
@@ -372,22 +411,16 @@
 	}
 
 	.tab.scratchpad.active {
-		background-color: var(--bg-hover);
-		color: #ffffff;
-		border: 1.5px dashed #a0a0a0;
-		box-shadow: 0 0 8px rgba(255, 255, 255, 0.15);
+		background-color: var(--bg-active);
+		border-style: solid;
+		border-color: var(--ink-faint);
+		color: var(--ink);
 	}
 
 
 	.ghost-icon {
 		width: 14px;
 		height: 14px;
-		transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-	}
-
-	.topbar:hover .ghost-icon {
-		width: 18px;
-		height: 18px;
 	}
 
 	.tab-add {
@@ -400,81 +433,54 @@
 	}
 
 	.tab.active {
-		background-color: oklch(var(--proj-l-active) var(--proj-c-active) var(--proj-hue));
-		border: 1.5px solid oklch(var(--proj-l-active) var(--proj-c-active) var(--proj-hue));
-		color: #0b0c10;
+		background-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
+		color: var(--bg-sunken);
 		font-weight: 700;
-		box-shadow: 0 0 8px oklch(var(--proj-l-active) 0.12 var(--proj-hue) / 0.35);
 	}
 
-	.tab.working {
-		animation: workingPulse 1.6s ease-in-out infinite alternate;
-	}
-
-	.tab.working::after {
+	/* Stato: un anello, mai un alone. Solo "working" respira. */
+	.tab.working::after,
+	.tab.attention::after,
+	.tab.finished::after {
 		content: '';
 		position: absolute;
 		inset: -2px;
 		border-radius: var(--radius-md);
-		border: 2px solid oklch(0.75 0.22 var(--proj-hue));
-		animation: workingPulseBorder 1.2s ease-in-out infinite alternate;
+		pointer-events: none;
 	}
 
-	@keyframes workingPulse {
-		0% { box-shadow: 0 0 4px oklch(0.7 0.18 var(--proj-hue) / 0.4); }
-		100% { box-shadow: 0 0 14px oklch(0.75 0.22 var(--proj-hue) / 0.85); }
+	.tab.working::after {
+		border: 2px solid var(--brand);
+		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 
-	@keyframes workingPulseBorder {
-		0% { opacity: 0.3; transform: scale(0.96); }
-		100% { opacity: 1; transform: scale(1.04); }
+	.tab.attention::after {
+		border: 1px solid var(--warn);
 	}
 
-	.tab.attention {
-		border-color: #f59e0b !important;
-		animation: attentionFlash 0.8s ease-in-out infinite alternate;
+	.tab.finished::after {
+		border: 1px solid var(--brand);
 	}
 
-	@keyframes attentionFlash {
-		0% { box-shadow: 0 0 2px #f59e0b; background-color: oklch(0.35 0.12 50); }
-		100% { box-shadow: 0 0 12px #f59e0b; background-color: oklch(0.55 0.22 50); }
-	}
-
-	.tab.finished {
-		border-color: #10b981 !important;
-		animation: finishedGlow 1.8s ease-in-out infinite alternate;
-	}
-
-	@keyframes finishedGlow {
-		0% { box-shadow: 0 0 3px #10b981; }
-		100% { box-shadow: 0 0 10px #10b981; }
-	}
-
-	.status-badge {
+	.status-dot {
 		position: absolute;
-		top: -4px;
-		right: -4px;
-		width: 12px;
-		height: 12px;
+		top: -2px;
+		right: -2px;
+		width: 6px;
+		height: 6px;
 		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 8px;
-		font-weight: 800;
-		line-height: 1;
+		/* Knockout sul colore della barra: separa il punto dalla tessera
+		   senza usare un'ombra. */
+		outline: 2px solid var(--bg-raised);
 		z-index: 3;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 	}
 
-	.status-badge.attention {
-		background-color: #f59e0b;
-		color: #000000;
+	.status-dot.attention {
+		background-color: var(--warn);
 	}
 
-	.status-badge.finished {
-		background-color: #10b981;
-		color: #ffffff;
+	.status-dot.finished {
+		background-color: var(--brand);
 	}
 
 	/* Tab Popover Card */
@@ -492,7 +498,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
-		animation: popoverFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+		animation: popoverFadeIn var(--dur-slow) var(--ease-out-expo);
 		transform-origin: top left;
 	}
 
@@ -510,7 +516,7 @@
 	.popover-header {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2.5);
+		gap: var(--space-2);
 	}
 
 
@@ -530,30 +536,14 @@
 		text-overflow: ellipsis;
 	}
 
-	.popover-path-container {
-		width: 100%;
-		overflow: hidden;
-		position: relative;
-	}
-
 	.popover-path {
 		font-size: var(--text-xs);
+		font-family: var(--font-mono);
 		color: var(--ink-faint);
 		white-space: nowrap;
-		display: inline-block;
-		transition: transform 0.3s ease;
 	}
 
-	.popover-path-container:hover .popover-path.marquee {
-		animation: pathMarquee 7s ease-in-out infinite alternate;
-	}
 
-	@keyframes pathMarquee {
-		0% { transform: translateX(0); }
-		15% { transform: translateX(0); }
-		85% { transform: translateX(min(0px, calc(230px - 100%))); }
-		100% { transform: translateX(min(0px, calc(230px - 100%))); }
-	}
 	.popover-actions {
 		display: flex;
 		flex-direction: column;
@@ -592,7 +582,7 @@
 		background-color: oklch(0.68 0.16 var(--swatch-hue));
 		cursor: pointer;
 		padding: 0;
-		transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+		transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.color-swatch:hover {
@@ -600,12 +590,14 @@
 	}
 
 	.color-swatch.selected {
-		border-color: #ffffff;
+		border-color: var(--ink);
 		transform: scale(1.2);
-		box-shadow: 0 0 6px oklch(0.68 0.16 var(--swatch-hue));
 	}
 	.color-swatch.custom-rainbow {
-		background: conic-gradient(from 0deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000);
+		background: conic-gradient(from 0deg in oklch,
+			oklch(0.68 0.16 0), oklch(0.68 0.16 60), oklch(0.68 0.16 135),
+			oklch(0.68 0.16 175), oklch(0.68 0.16 220), oklch(0.68 0.16 265),
+			oklch(0.68 0.16 305), oklch(0.68 0.16 0));
 	}
 
 	.hidden-color-input {
@@ -637,8 +629,8 @@
 	}
 
 	.popover-btn.danger:hover {
-		background: rgba(239, 68, 68, 0.15);
-		color: var(--brand);
+		background: var(--bg-hover);
+		color: var(--brand-ink);
 	}
 
 	.btn-icon {
@@ -685,6 +677,122 @@
 		background: var(--bg-hover);
 	}
 
+	/* Selettore di tema: la pastiglia mostra l'accento del tema corrente,
+	   che e' l'unica cosa del tema che il guscio adotta oltre alle superfici. */
+	.theme-chip {
+		width: 14px;
+		height: 14px;
+		padding: 0;
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-full);
+		background: var(--brand);
+		cursor: pointer;
+		margin-right: var(--space-3);
+		transition: border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.theme-chip:hover {
+		border-color: var(--ink-muted);
+	}
+
+	.theme-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: var(--z-backdrop);
+	}
+
+	.theme-popover {
+		position: fixed;
+		top: 54px;
+		right: 140px;
+		width: 260px;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
+		padding: var(--space-2);
+		z-index: var(--z-dialog);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.theme-filter {
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		padding: var(--space-1) var(--space-2);
+	}
+
+	.theme-list {
+		display: flex;
+		flex-direction: column;
+		max-height: 320px;
+		overflow-y: auto;
+	}
+
+	.theme-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		cursor: pointer;
+		font-size: var(--text-sm);
+		padding: var(--space-1) var(--space-2);
+		text-align: left;
+	}
+
+	.theme-row:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.theme-row.selected {
+		background: var(--bg-active);
+		color: var(--ink);
+	}
+
+	.theme-preview {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 2px;
+		width: 34px;
+		height: 18px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		flex: none;
+	}
+
+	.theme-preview .dot {
+		width: 6px;
+		height: 6px;
+		border-radius: var(--radius-full);
+	}
+
+	.theme-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.theme-note {
+		color: var(--ink-faint);
+		font-size: var(--text-xs);
+		line-height: 1.4;
+		padding: 0 var(--space-2) var(--space-1);
+	}
+
+	.theme-note code {
+		font-family: var(--font-mono);
+	}
+
 	/* Native Window Controls */
 	.window-controls {
 		display: flex;
@@ -711,7 +819,7 @@
 	}
 
 	.win-btn.close:hover {
-		background-color: #e81123;
-		color: #ffffff;
+		background-color: var(--brand-dim);
+		color: var(--ink);
 	}
 </style>

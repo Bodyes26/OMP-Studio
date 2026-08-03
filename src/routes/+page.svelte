@@ -14,6 +14,25 @@
 	let usageOpen = $state(false);
 	let pickerOpen = $state(false);
 
+	let terminalOpenRequest = $state<{
+		projectId: string;
+		filePath: string;
+		line: number | null;
+		id: number;
+	} | null>(null);
+	let terminalOpenRequestId = 0;
+
+	function handleTerminalOpenFile(projectId: string, filePath: string, line: number | null) {
+		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		projectStore.setActiveFile(projectId, filePath);
+		terminalOpenRequest = {
+			projectId,
+			filePath,
+			line,
+			id: ++terminalOpenRequestId
+		};
+	}
+
 	let ompVersion = $state<string | null>(null);
 	let isCheckingUpdate = $state(false);
 	let updateMessage = $state<string | null>(null);
@@ -164,6 +183,9 @@
 			} else if (e.key.toLowerCase() === 'n') {
 				e.preventDefault();
 				pickerOpen = true;
+			} else if (e.key.toLowerCase() === 'u') {
+				e.preventDefault();
+				usageOpen = !usageOpen;
 			} else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
 				e.preventDefault();
 				const projects = projectStore.projects;
@@ -230,6 +252,7 @@
 					<Editor
 						projectPath={projectStore.activeProject.path}
 						filePath={projectStore.activeProject.activeFile}
+						openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
 						onFileSaved={() => {
 							window.dispatchEvent(new CustomEvent('git-status-refresh'));
 						}}
@@ -255,6 +278,7 @@
 						cwd={p.path} 
 						visible={p.id === projectStore.activeId} 
 						onStateChange={(s) => projectStore.setAgentState(p.id, s as any)} 
+						onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
 					/>
 				{/each}
 			</div>
@@ -356,10 +380,14 @@
 		overflow: hidden;
 	}
 
+	/* Le colonne si separano per luminanza, non per riga: il pozzo scuro di
+	   terminale ed editor contro la base della colonna file. Nessun bordo
+	   verticale nel corpo dell'app. */
 	.col-center,
 	.col-right {
 		display: flex;
 		flex-direction: column;
+		background: var(--bg-sunken);
 		min-width: 0;
 		overflow: hidden;
 	}
@@ -372,8 +400,7 @@
 		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--ink-faint);
-		background: var(--bg-base);
-		border-bottom: 1px solid var(--line);
+		background: transparent;
 		letter-spacing: 0.05em;
 		z-index: var(--z-sticky);
 	}
@@ -410,18 +437,24 @@
 		min-height: 0;
 		min-width: 0;
 		overflow-y: auto;
+		/* Le righe svaniscono passando sotto l'header invece di essere
+		   tagliate da una linea. */
+		-webkit-mask-image: linear-gradient(to bottom, transparent 0, black 10px);
+		mask-image: linear-gradient(to bottom, transparent 0, black 10px);
 	}
 
 	/* Editor e terminale gestiscono il proprio scroll: uno scroll esterno
 	   falserebbe le misure di fit/layout. */
 	.col-content.fill {
 		overflow: hidden;
+		-webkit-mask-image: none;
+		mask-image: none;
 	}
 
 	.splitter {
-		/* La larghezza reale (6px) e' definita dal grid-template inline. */
-		background-color: var(--bg-base);
-		border-left: 1px solid var(--line);
+		/* La larghezza reale (6px) e' definita dal grid-template inline.
+		   Invisibile a riposo: separano le superfici, non una riga. */
+		background-color: transparent;
 		cursor: col-resize;
 		touch-action: none;
 		z-index: var(--z-splitter);
@@ -429,13 +462,16 @@
 
 	.splitter:hover,
 	.columns.dragging .splitter:active {
-		border-left-color: var(--brand);
+		background-image: linear-gradient(var(--brand), var(--brand));
+		background-size: 1px 100%;
+		background-position: center;
+		background-repeat: no-repeat;
 	}
 
 	.statusbar {
 		height: 26px;
 		background-color: var(--bg-raised);
-		border-top: 1px solid var(--line);
+		/* Separata per luminanza dal pozzo, come la topbar. */
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -502,51 +538,30 @@
 	}
 
 	.status-led {
-		width: 8px;
-		height: 8px;
+		width: 6px;
+		height: 6px;
 		border-radius: 50%;
 		display: inline-block;
-		background-color: #6b7280;
-		transition: all 0.25s ease;
-	}
-
-	.status-led.idle {
-		background-color: #6b7280;
-		box-shadow: 0 0 2px #6b7280;
+		background-color: var(--ink-faint);
 	}
 
 	.status-led.working {
-		background-color: #3b82f6;
-		box-shadow: 0 0 8px #3b82f6;
-		animation: ledPulse 1.2s ease-in-out infinite alternate;
-	}
-
-	@keyframes ledPulse {
-		0% { transform: scale(0.9); opacity: 0.7; box-shadow: 0 0 3px #3b82f6; }
-		100% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 10px #3b82f6; }
+		background-color: var(--brand);
+		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 
 	.status-led.attention {
-		background-color: #f59e0b;
-		box-shadow: 0 0 8px #f59e0b;
-		animation: ledFlash 0.7s ease-in-out infinite alternate;
-	}
-
-	@keyframes ledFlash {
-		0% { opacity: 0.4; }
-		100% { opacity: 1; box-shadow: 0 0 12px #f59e0b; }
+		background-color: var(--warn);
 	}
 
 	.status-led.finished {
-		background-color: #10b981;
-		box-shadow: 0 0 8px #10b981;
+		background-color: var(--brand);
 	}
 
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.55);
-		backdrop-filter: blur(2px);
+		background: var(--backdrop);
 		z-index: var(--z-backdrop);
 	}
 
@@ -561,7 +576,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
-		z-index: var(--z-overlay);
+		z-index: var(--z-dialog);
 		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;

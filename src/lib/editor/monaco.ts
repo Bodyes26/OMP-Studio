@@ -4,6 +4,7 @@ import JsonWorker from 'monaco-editor/language/json/json.worker?worker';
 import CssWorker from 'monaco-editor/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/language/html/html.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
+import { canvasColors, onThemeChange } from '$lib/theme';
 
 export function initMonaco() {
 	self.MonacoEnvironment = {
@@ -23,23 +24,32 @@ export function initMonaco() {
 			return new EditorWorker();
 		}
 	};
+	applyMonacoTheme();
+	// Il tema cambia raramente: ridefinirlo e riapplicarlo e' piu' semplice
+	// che tenere in vita due copie dei colori.
+	onThemeChange(applyMonacoTheme);
+}
+
+function applyMonacoTheme() {
+	const c = canvasColors();
 	monaco.editor.defineTheme('omp-studio-dark', {
 		base: 'vs-dark',
 		inherit: true,
 		rules: [
-			{ background: '0C0C0C', token: '' },
+			{ background: c.bgSunken.slice(1), token: '' },
 		],
 		colors: {
-			'editor.background': '#0C0C0C',
-			'editor.foreground': '#F5F5F5',
-			'editor.lineHighlightBackground': '#131313',
-			'editorLineNumber.foreground': '#909090',
-			'editorLineNumber.activeForeground': '#B1B1B1',
-			'editor.selectionBackground': '#2A2A2A',
-			'editorIndentGuide.background': '#2C2C2C',
-			'editorIndentGuide.activeBackground': '#484848',
+			'editor.background': c.bgSunken,
+			'editor.foreground': c.ink,
+			'editor.lineHighlightBackground': c.bgBase,
+			'editorLineNumber.foreground': c.inkFaint,
+			'editorLineNumber.activeForeground': c.inkMuted,
+			'editor.selectionBackground': c.bgHover,
+			'editorIndentGuide.background': c.line,
+			'editorIndentGuide.activeBackground': c.lineStrong,
 		}
 	});
+	monaco.editor.setTheme('omp-studio-dark');
 }
 
 let editorInstance: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -118,6 +128,14 @@ export function openFileModel(absPath: string, content: string, language?: strin
 	if (editorInstance) {
 		editorInstance.setModel(model);
 	}
+}
+
+export function revealLineInEditor(line: number) {
+	if (!editorInstance || !editorInstance.getModel()) return false;
+	editorInstance.revealLineInCenter(line);
+	editorInstance.setPosition({ lineNumber: line, column: 1 });
+	editorInstance.focus();
+	return true;
 }
 
 export function getCurrentFileContent(absPath: string): string | null {

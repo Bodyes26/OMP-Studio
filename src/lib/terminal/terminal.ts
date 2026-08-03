@@ -7,6 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { invoke, Channel } from '@tauri-apps/api/core';
+import { canvasColors, onThemeChange } from '$lib/theme';
 
 const TITLE_STATE_REGEX = /^\u03c0 ([>:!])(?: |$)/;
 
@@ -19,16 +20,26 @@ export class TerminalSession {
 	private term: Terminal;
 	private fitAddon: FitAddon;
 	private container: HTMLElement;
+	private cwd: string;
 	private ptyId: number | null = null;
 	private resizeObserver: ResizeObserver;
 	private resizeTimeout: number | null = null;
 	private disposed = false;
+	private unsubscribeTheme: () => void;
 
 	public onStateChange: (state: 'idle' | 'working' | 'attention' | 'unknown') => void = () => {};
+	public onOpenFile: (relPath: string, line: number | null) => void = () => {};
 
-	constructor(container: HTMLElement, cwd: string, onStateChange: (state: 'idle' | 'working' | 'attention' | 'unknown') => void) {
+	constructor(
+		container: HTMLElement,
+		cwd: string,
+		onStateChange: (state: 'idle' | 'working' | 'attention' | 'unknown') => void,
+		onOpenFile: (relPath: string, line: number | null) => void
+	) {
 		this.container = container;
+		this.cwd = cwd;
 		this.onStateChange = onStateChange;
+		this.onOpenFile = onOpenFile;
 
 		this.term = new Terminal({
 			allowProposedApi: true,
@@ -37,9 +48,15 @@ export class TerminalSession {
 			lineHeight: 1.2,
 			cursorBlink: true,
 			scrollback: 10000,
+			/* Solo background e foreground: i 16 colori ANSI appartengono al
+			   tema di omp, il guscio non li tocca (docs/DESIGN.md §2.8). */
 			theme: {
-				background: '#0C0C0C',
-				foreground: '#F5F5F5',
+				background: canvasColors().bgSunken,
+				foreground: canvasColors().ink,
+			},
+			linkHandler: {
+				allowNonHttpProtocols: true,
+				activate: (event, text) => this.openFileLink(event, text)
 			}
 		});
 
@@ -55,6 +72,14 @@ export class TerminalSession {
 		this.term.open(container);
 
 		this.term.loadAddon(new LigaturesAddon());
+
+		// Il tema del guscio e quello della TUI cambiano insieme: qui tocca
+		// solo la cornice, i 16 colori ANSI restano di omp.
+		this.unsubscribeTheme = onThemeChange(() => {
+			if (this.disposed) return;
+			const c = canvasColors();
+			this.term.options.theme = { background: c.bgSunken, foreground: c.ink };
+		});
 
 		// I webfont vengono caricati in modo asincrono: xterm misura la cella
 		// prima che siano pronti, quindi va rimisurata quando lo sono.
@@ -91,6 +116,45 @@ export class TerminalSession {
 		this.resizeObserver.observe(container);
 		
 		this.startPty(cwd);
+	}
+
+	private openFileLink(event: MouseEvent, text: string) {
+		if (!event.ctrlKey || !text.startsWith('file://')) return;
+
+		let url: URL;
+		try {
+			url = new URL(text);
+		} catch {
+			return;
+		}
+		if (url.protocol !== 'file:') return;
+
+		let filePath: string;
+		try {
+			filePath = decodeURIComponent(url.pathname);
+		} catch {
+			return;
+		}
+		if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1);
+		filePath = this.normalizeWindowsPath(filePath);
+		const projectPath = this.normalizeWindowsPath(this.cwd);
+		if (!filePath || !projectPath || filePath.includes('\0')) return;
+
+		const projectPrefix = projectPath.endsWith('\\') ? projectPath : `${projectPath}\\`;
+		if (!filePath.toLowerCase().startsWith(projectPrefix.toLowerCase())) return;
+
+		const relativePath = filePath.slice(projectPrefix.length);
+		if (!relativePath || relativePath.split('\\').some((part) => part === '.' || part === '..')) return;
+
+		const requestedLine = Number(url.searchParams.get('line'));
+		const line = Number.isInteger(requestedLine) && requestedLine > 0 ? requestedLine : null;
+		this.onOpenFile(relativePath.replace(/\\/g, '/'), line);
+	}
+
+	private normalizeWindowsPath(path: string) {
+		let normalized = path.replace(/\//g, '\\').replace(/\\+$/, '');
+		if (/^[A-Za-z]:$/.test(normalized)) normalized += '\\';
+		return normalized;
 	}
 
 	private async startPty(cwd: string) {
@@ -144,6 +208,7 @@ export class TerminalSession {
 	public destroy() {
 		this.disposed = true;
 		this.resizeObserver.disconnect();
+		this.unsubscribeTheme();
 		clearTimeout(this.resizeTimeout ?? undefined);
 		if (this.ptyId !== null) {
 			invoke('pty_close', { ptyId: this.ptyId }).catch(() => {});

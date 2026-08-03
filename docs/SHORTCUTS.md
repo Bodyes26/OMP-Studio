@@ -8,6 +8,7 @@ Le uniche scorciatoie catturate dall'app vivono dietro il modificatore **`Ctrl+A
 |---|---|---|
 | `Ctrl+Alt+N` | Globale | Nuovo progetto (apre selettore cartella) |
 | `Ctrl+Alt+S` | Globale | Apre una chat Scratchpad (temporanea, `--no-session`) |
+| `Ctrl+Alt+U` | Globale | Apre e chiude il pannello consumi (quote) |
 | `Ctrl+Alt+Freccia Destra` | Globale | Passa al progetto aperto successivo |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Passa al progetto aperto precedente |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
