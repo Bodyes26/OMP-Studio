@@ -62,7 +62,11 @@ export class TerminalSession {
 
 		this.fitAddon = new FitAddon();
 		this.term.loadAddon(this.fitAddon);
-		this.term.loadAddon(new CanvasAddon());
+		try {
+			this.term.loadAddon(new CanvasAddon());
+		} catch (e) {
+			console.warn('CanvasAddon non caricato:', e);
+		}
 		this.term.loadAddon(new Unicode11Addon());
 		this.term.unicode.activeVersion = '11';
 		this.term.loadAddon(new WebLinksAddon());
@@ -71,7 +75,11 @@ export class TerminalSession {
 
 		this.term.open(container);
 
-		this.term.loadAddon(new LigaturesAddon());
+		try {
+			this.term.loadAddon(new LigaturesAddon());
+		} catch (e) {
+			console.warn('LigaturesAddon non caricato:', e);
+		}
 
 		// Il tema del guscio e quello della TUI cambiano insieme: qui tocca
 		// solo la cornice, i 16 colori ANSI restano di omp.
@@ -162,8 +170,24 @@ export class TerminalSession {
 
 	private async startPty(cwd: string) {
 		const onOutput = new Channel<Uint8Array>();
-		onOutput.onmessage = (message) => {
-			this.term.write(new Uint8Array(message));
+		onOutput.onmessage = (message: any) => {
+			try {
+				if (message instanceof Uint8Array) {
+					this.term.write(message);
+				} else if (message instanceof ArrayBuffer) {
+					this.term.write(new Uint8Array(message));
+				} else if (Array.isArray(message)) {
+					this.term.write(new Uint8Array(message));
+				} else if (message && typeof message === 'object' && 'data' in message) {
+					this.term.write(new Uint8Array(message.data));
+				} else if (typeof message === 'string') {
+					this.term.write(message);
+				} else {
+					this.term.write(new Uint8Array(message));
+				}
+			} catch (err) {
+				console.error("Error writing PTY output to xterm:", err, message);
+			}
 		};
 
 		const isScratchpad = cwd === '';

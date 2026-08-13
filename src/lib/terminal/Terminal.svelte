@@ -39,7 +39,9 @@
 	bind:this={container} 
 	class="terminal-container" 
 	style:visibility={visible ? 'visible' : 'hidden'}
-	style:position={visible ? 'relative' : 'absolute'}
+	style:pointer-events={visible ? 'auto' : 'none'}
+	style:position="absolute"
+	style:inset="0"
 ></div>
 
 <style>

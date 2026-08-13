@@ -95,7 +95,7 @@ pub async fn pty_open(
     }).map_err(|e| e.to_string())?;
 
     let omp_path = crate::omp_ops::get_omp_binary();
-
+    println!("[PTY] pty_open called: cwd={:?}, omp_path={:?}, args={:?}, cols={}, rows={}", cwd, omp_path, args, cols, rows);
     let pty_id = {
         let mut id_guard = manager.next_id.lock();
         let id = *id_guard;
@@ -126,17 +126,12 @@ pub async fn pty_open(
 
     #[cfg(not(target_os = "windows"))]
     let mut cmd = {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let mut c = CommandBuilder::new(&shell);
-        let mut launch = format!("{} --config {}", sh_quote(&omp_path), sh_quote(&overlay_path.to_string_lossy()));
+        let mut c = CommandBuilder::new(&omp_path);
+        c.arg("--config");
+        c.arg(overlay_path.to_string_lossy().as_ref());
         for arg in &args {
-            launch.push(' ');
-            launch.push_str(&sh_quote(arg));
+            c.arg(arg);
         }
-        launch.push_str(&format!("; exec {}", sh_quote(&shell)));
-
-        c.arg("-c");
-        c.arg(&launch);
         c
     };
 
@@ -160,7 +155,16 @@ pub async fn pty_open(
             cmd.env("PATH", extra_paths);
         }
     }
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let child = match pair.slave.spawn_command(cmd) {
+        Ok(c) => {
+            println!("[PTY] spawn_command succeeded for pty_id {}", pty_id);
+            c
+        }
+        Err(e) => {
+            eprintln!("[PTY] spawn_command failed: {}", e);
+            return Err(format!("spawn_command failed: {}", e));
+        }
+    };
 
     let master_pty = pair.master;
     let reader = master_pty.try_clone_reader().map_err(|e| e.to_string())?;
@@ -193,7 +197,6 @@ pub async fn pty_open(
             }
         }
     });
-
     Ok(pty_id)
 }
 
@@ -207,6 +210,7 @@ pub async fn pty_write(
     if let Some(session) = sessions.get(&pty_id) {
         let mut writer = session.writer.lock();
         let _ = writer.write_all(&data);
+        let _ = writer.flush();
     }
     Ok(())
 }
