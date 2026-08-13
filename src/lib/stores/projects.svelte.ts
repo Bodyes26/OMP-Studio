@@ -2,26 +2,34 @@ import { load } from '@tauri-apps/plugin-store';
 import { homeDir, join } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
 
-// Il path canonico e' quello nativo Windows con i backslash: `history.db` di omp
-// registra `cwd` in quella forma, quindi con gli slash la lista sessioni non
-// combacia mai. Il dialog nativo restituisce gia' i backslash.
+const isWindows = typeof navigator !== 'undefined' && /win/i.test((navigator.userAgent || navigator.platform || '').toLowerCase());
+
 export function normalizeProjectPath(p: string): string {
 	if (!p) return '';
-	let out = p.replace(/\//g, '\\').replace(/\\+$/, '');
-	// La radice di un disco resta `C:\`: senza separatore `C:` significa
-	// "directory corrente del disco C", non la sua radice.
-	if (/^[A-Za-z]:$/.test(out)) out += '\\';
-	return out;
+	if (isWindows) {
+		let out = p.replace(/\//g, '\\').replace(/\\+$/, '');
+		if (/^[A-Za-z]:$/.test(out)) out += '\\';
+		return out;
+	} else {
+		let out = p.replace(/\\/g, '/').replace(/\/+$/, '');
+		if (out === '') return '/';
+		return out;
+	}
 }
 
-// Chiave di confronto: NTFS e' case-insensitive, `c:\repos\x` e `C:\Repos\X`
-// sono lo stesso progetto e non devono generare due tab.
 function pathKey(p: string): string {
 	return normalizeProjectPath(p).toLowerCase();
 }
 
 export function joinProjectPath(projectPath: string, rel: string): string {
-	return `${projectPath}\\${rel.replace(/\//g, '\\')}`;
+	if (!rel) return projectPath;
+	if (isWindows) {
+		return `${projectPath}\\${rel.replace(/\//g, '\\')}`;
+	} else {
+		const base = projectPath.endsWith('/') ? projectPath.slice(0, -1) : projectPath;
+		const child = rel.startsWith('/') ? rel.slice(1) : rel;
+		return `${base}/${child.replace(/\\/g, '/')}`;
+	}
 }
 
 export type AgentState = 'idle' | 'working' | 'attention' | 'finished' | 'unknown';
@@ -77,9 +85,13 @@ class ProjectStore {
 		const storedProjects = await this.store.get('projects') as Project[] | null;
 		const storedActiveId = await this.store.get('activeProjectId') as string | null;
 		const storedRoot = await this.store.get('projectRoot') as string | null;
-		this.projectRoot = normalizeProjectPath(
-			storedRoot || await join(await homeDir(), 'source', 'repos')
-		);
+		let defaultRoot = await homeDir();
+		if (isWindows) {
+			defaultRoot = await join(defaultRoot, 'source', 'repos');
+		} else {
+			defaultRoot = await join(defaultRoot, 'dev');
+		}
+		this.projectRoot = normalizeProjectPath(storedRoot || defaultRoot);
 
 		if (storedProjects) {
 			const seen = new Set<string>();

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import { projectStore, normalizeProjectPath } from '$lib/stores/projects.svelte';
+	import { projectStore, normalizeProjectPath, joinProjectPath } from '$lib/stores/projects.svelte';
 
 	let { open = false, onClose } = $props<{ open?: boolean; onClose?: () => void }>();
 
@@ -44,7 +44,7 @@
 				.filter(e => e.is_dir && !e.name.startsWith('.'))
 				.map(e => ({
 					name: e.name,
-					path: normalizeProjectPath(`${projectStore.projectRoot}\\${e.name}`)
+					path: joinProjectPath(projectStore.projectRoot, e.name)
 				}));
 		} catch (e) {
 			candidates = [];

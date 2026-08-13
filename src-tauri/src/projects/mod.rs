@@ -31,15 +31,23 @@ pub struct FileGitStatus {
 }
 
 fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
-    // La radice va canonicalizzata per prima: e' il metro di paragone di tutto il resto.
-    let base = Path::new(project_path)
+    #[cfg(not(target_os = "windows"))]
+    let clean_project_path = project_path.replace('\\', "/");
+    #[cfg(target_os = "windows")]
+    let clean_project_path = project_path.to_string();
+
+    let clean_rel_path = rel_path.replace('\\', "/");
+
+    let base = Path::new(&clean_project_path)
         .canonicalize()
-        .map_err(|e| format!("Radice del progetto non valida: {}", e))?;
+        .map_err(|e| format!("Radice del progetto non valida ({}): {}", clean_project_path, e))?;
 
-    let target = base.join(rel_path);
+    let target = if clean_rel_path.is_empty() {
+        base.clone()
+    } else {
+        base.join(&clean_rel_path)
+    };
 
-    // Un file in scrittura puo' non esistere ancora: in quel caso si canonicalizza la
-    // cartella padre e le si riattacca il nome, cosi' il confronto resta su percorsi reali.
     let resolved = match target.canonicalize() {
         Ok(path) => path,
         Err(_) => {
@@ -52,8 +60,6 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
         }
     };
 
-    // Confronto sui percorsi risolti: intercetta `..`, link simbolici e junction che
-    // puntano fuori dalla radice, cosa che il solo conteggio dei componenti non vede.
     if !resolved.starts_with(&base) {
         return Err("Il percorso esce dalla cartella del progetto".to_string());
     }
