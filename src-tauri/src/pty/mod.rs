@@ -126,12 +126,21 @@ pub async fn pty_open(
 
     #[cfg(not(target_os = "windows"))]
     let mut cmd = {
-        let mut c = CommandBuilder::new(&omp_path);
-        c.arg("--config");
-        c.arg(overlay_path.to_string_lossy().as_ref());
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let mut c = CommandBuilder::new(&shell);
+        let mut launch = if std::path::Path::new(&omp_path).exists() {
+            format!("{} --config {}", sh_quote(&omp_path), sh_quote(&overlay_path.to_string_lossy()))
+        } else {
+            format!("exec {} -l", sh_quote(&shell))
+        };
         for arg in &args {
-            c.arg(arg);
+            launch.push(' ');
+            launch.push_str(&sh_quote(arg));
         }
+        launch.push_str(&format!("; exec {} -l", sh_quote(&shell)));
+
+        c.arg("-c");
+        c.arg(&launch);
         c
     };
 
@@ -154,6 +163,7 @@ pub async fn pty_open(
             );
             cmd.env("PATH", extra_paths);
         }
+        cmd.env("FIG_DISABLE", "1");
     }
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => {
