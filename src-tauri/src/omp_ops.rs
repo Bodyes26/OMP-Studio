@@ -10,8 +10,22 @@ use std::process::Command;
 use tauri::command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+fn get_user_home() -> Option<String> {
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            return Some(home);
+        }
+    }
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        if !home.is_empty() {
+            return Some(home);
+        }
+    }
+    None
+}
+
 fn get_db_path(db_name: &str) -> PathBuf {
-    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    let home = get_user_home().unwrap_or_default();
     let mut path = PathBuf::from(home);
     path.push(".omp");
     if db_name != "stats.db" && db_name != "autoqa.db" {
@@ -34,12 +48,36 @@ fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
     Ok(conn)
 }
 
-fn get_omp_binary() -> String {
-    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    if !local_app_data.is_empty() {
-        format!("{}\\omp\\omp.exe", local_app_data)
-    } else {
+pub fn get_omp_binary() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        if !local_app_data.is_empty() {
+            let win_path = format!("{}\\omp\\omp.exe", local_app_data);
+            if Path::new(&win_path).exists() {
+                return win_path;
+            }
+        }
         "omp.exe".to_string()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let candidate_paths = [
+                format!("{}/.bun/bin/omp", home),
+                format!("{}/.omp/bin/omp", home),
+                format!("{}/.local/bin/omp", home),
+                format!("{}/.cargo/bin/omp", home),
+                "/usr/local/bin/omp".to_string(),
+                "/opt/homebrew/bin/omp".to_string(),
+            ];
+            for path in candidate_paths {
+                if Path::new(&path).exists() {
+                    return path;
+                }
+            }
+        }
+        "omp".to_string()
     }
 }
 
@@ -56,10 +94,7 @@ pub fn agent_dir() -> Option<PathBuf> {
             return Some(PathBuf::from(dir));
         }
     }
-    let home = std::env::var("USERPROFILE").ok()?;
-    if home.is_empty() {
-        return None;
-    }
+    let home = get_user_home()?;
     let mut path = PathBuf::from(home);
     path.push(".omp");
     path.push("agent");
@@ -138,12 +173,7 @@ pub struct UsageReport {
 
 #[command]
 pub async fn usage_snapshot(_force: bool) -> Result<UsageReport, String> {
-    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    let omp_path = if !local_app_data.is_empty() {
-        format!("{}\\omp\\omp.exe", local_app_data)
-    } else {
-        "omp.exe".to_string()
-    };
+    let omp_path = get_omp_binary();
 
     let mut cmd = Command::new(&omp_path);
     cmd.arg("usage").arg("--json");

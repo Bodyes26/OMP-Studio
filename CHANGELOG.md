@@ -9,6 +9,17 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-13
+
+### Added
+
+- Supporto completo cross-platform per macOS (Apple Silicon e Intel): shell PTY nativa ($SHELL zsh/bash), risoluzione automatica del binario `omp`, scorciatoie da tastiera con `Cmd` (⌘) e gestione percorsi POSIX.
+- Iniezione automatica dei percorsi binari utente (`~/.bun/bin`, `~/.cargo/bin`, `/opt/homebrew/bin`, ecc.) nella variabile `$PATH` per le sessioni PTY su macOS.
+
+### Fixed
+
+- Corretto errore di compilazione `libsqlite3-sys` con versioni recenti del compilatore Rust.
+- Risolto limite di memoria V8 durante la build frontend di Monaco Editor.
 ## [0.3.0] - 2026-08-03
 
 ### Added

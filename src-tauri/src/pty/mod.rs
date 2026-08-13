@@ -14,8 +14,15 @@ pub struct PtySession {
 }
 
 /// Cita un argomento per la riga di comando di PowerShell (single-quoted).
+#[allow(dead_code)]
 fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Cita un argomento per la riga di comando POSIX shell (single-quoted).
+#[allow(dead_code)]
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 /// Prefisso dell'id di terminale che Studio si assegna. `omp` deriva l'id da
@@ -87,12 +94,7 @@ pub async fn pty_open(
         pixel_height: 0,
     }).map_err(|e| e.to_string())?;
 
-    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    let omp_path = if !local_app_data.is_empty() {
-        format!("{}\\omp\\omp.exe", local_app_data)
-    } else {
-        "omp.exe".to_string()
-    };
+    let omp_path = crate::omp_ops::get_omp_binary();
 
     let pty_id = {
         let mut id_guard = manager.next_id.lock();
@@ -101,9 +103,42 @@ pub async fn pty_open(
         id
     };
 
-    let mut cmd = CommandBuilder::new("powershell.exe");
-    
     let overlay_path = write_overlay();
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = CommandBuilder::new("powershell.exe");
+        let mut launch = format!("& {}", ps_quote(&omp_path));
+        launch.push_str(" --config ");
+        launch.push_str(&ps_quote(&overlay_path.to_string_lossy()));
+        for arg in &args {
+            launch.push(' ');
+            launch.push_str(&ps_quote(arg));
+        }
+
+        c.arg("-NoLogo");
+        c.arg("-NoProfile");
+        c.arg("-NoExit");
+        c.arg("-Command");
+        c.arg(&launch);
+        c
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let mut c = CommandBuilder::new(&shell);
+        let mut launch = format!("{} --config {}", sh_quote(&omp_path), sh_quote(&overlay_path.to_string_lossy()));
+        for arg in &args {
+            launch.push(' ');
+            launch.push_str(&sh_quote(arg));
+        }
+        launch.push_str(&format!("; exec {}", sh_quote(&shell)));
+
+        c.arg("-c");
+        c.arg(&launch);
+        c
+    };
 
     cmd.cwd(&cwd);
     cmd.env("TERM", "xterm-256color");
@@ -113,23 +148,18 @@ pub async fn pty_open(
     // modo di sapere quale sessione appartiene a questa scheda.
     cmd.env("WT_SESSION", terminal_id(pty_id));
     cmd.env("PI_FORCE_HYPERLINKS", "1");
-    
-    // omp gira dentro una shell interattiva (-NoExit): all'uscita di omp
-    // l'utente resta su un prompt vero invece che su un PTY morto.
-    let mut launch = format!("& {}", ps_quote(&omp_path));
-    launch.push_str(" --config ");
-    launch.push_str(&ps_quote(&overlay_path.to_string_lossy()));
-    for arg in &args {
-        launch.push(' ');
-        launch.push_str(&ps_quote(arg));
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        if let Ok(home) = std::env::var("HOME") {
+            let extra_paths = format!(
+                "{}/.bun/bin:{}/.cargo/bin:{}/.local/bin:/opt/homebrew/bin:/usr/local/bin:{}",
+                home, home, home, current_path
+            );
+            cmd.env("PATH", extra_paths);
+        }
     }
-
-    cmd.arg("-NoLogo");
-    cmd.arg("-NoProfile");
-    cmd.arg("-NoExit");
-    cmd.arg("-Command");
-    cmd.arg(&launch);
-
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
 
     let master_pty = pair.master;

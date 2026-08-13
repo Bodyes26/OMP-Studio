@@ -176,7 +176,7 @@
 	});
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.ctrlKey && e.altKey) {
+		if ((e.ctrlKey || e.metaKey) && e.altKey) {
 			if (e.key.toLowerCase() === 's') {
 				e.preventDefault();
 				projectStore.openScratchpad();

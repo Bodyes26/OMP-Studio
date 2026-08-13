@@ -119,7 +119,7 @@ export class TerminalSession {
 	}
 
 	private openFileLink(event: MouseEvent, text: string) {
-		if (!event.ctrlKey || !text.startsWith('file://')) return;
+		if ((!event.ctrlKey && !event.metaKey) || !text.startsWith('file://')) return;
 
 		let url: URL;
 		try {
@@ -136,25 +136,28 @@ export class TerminalSession {
 			return;
 		}
 		if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1);
-		filePath = this.normalizeWindowsPath(filePath);
-		const projectPath = this.normalizeWindowsPath(this.cwd);
-		if (!filePath || !projectPath || filePath.includes('\0')) return;
 
-		const projectPrefix = projectPath.endsWith('\\') ? projectPath : `${projectPath}\\`;
-		if (!filePath.toLowerCase().startsWith(projectPrefix.toLowerCase())) return;
+		const normFilePath = this.normalizePath(filePath);
+		const normProjectPath = this.normalizePath(this.cwd);
+		if (!normFilePath || !normProjectPath || normFilePath.includes('\0')) return;
 
-		const relativePath = filePath.slice(projectPrefix.length);
-		if (!relativePath || relativePath.split('\\').some((part) => part === '.' || part === '..')) return;
+		const projectPrefix = normProjectPath.endsWith('/') ? normProjectPath : `${normProjectPath}/`;
+		const isWindows = normFilePath.includes(':');
+		const fileCmp = isWindows ? normFilePath.toLowerCase() : normFilePath;
+		const projCmp = isWindows ? projectPrefix.toLowerCase() : projectPrefix;
+
+		if (!fileCmp.startsWith(projCmp)) return;
+
+		const relativePath = normFilePath.slice(projectPrefix.length);
+		if (!relativePath || relativePath.split('/').some((part) => part === '.' || part === '..')) return;
 
 		const requestedLine = Number(url.searchParams.get('line'));
 		const line = Number.isInteger(requestedLine) && requestedLine > 0 ? requestedLine : null;
-		this.onOpenFile(relativePath.replace(/\\/g, '/'), line);
+		this.onOpenFile(relativePath, line);
 	}
 
-	private normalizeWindowsPath(path: string) {
-		let normalized = path.replace(/\//g, '\\').replace(/\\+$/, '');
-		if (/^[A-Za-z]:$/.test(normalized)) normalized += '\\';
-		return normalized;
+	private normalizePath(path: string) {
+		return path.replace(/\\/g, '/').replace(/\/+$/, '');
 	}
 
 	private async startPty(cwd: string) {
