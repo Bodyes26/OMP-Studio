@@ -4,6 +4,11 @@ mod projects;
 use projects::{tree_read, file_read, file_write, file_git_head, project_git_status};
 mod omp_ops;
 use omp_ops::{usage_snapshot, sessions_list, sessions_search, get_omp_version, check_omp_update, run_omp_update, theme_apply, omp_user_theme, provider_hosts};
+mod studio_updater;
+use studio_updater::{
+    get_studio_version, check_studio_update, start_studio_update_download,
+    cancel_studio_update_download, install_studio_update_and_restart, StudioUpdaterState,
+};
 
 
 
@@ -19,6 +24,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .manage(PtyManager::new())
+        .manage(StudioUpdaterState::new())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = app.get_webview_window("main").expect("no main window").set_focus();
         }))
@@ -49,7 +55,12 @@ pub fn run() {
             run_omp_update,
             theme_apply,
             omp_user_theme,
-            provider_hosts
+            provider_hosts,
+            get_studio_version,
+            check_studio_update,
+            start_studio_update_download,
+            cancel_studio_update_download,
+            install_studio_update_and_restart
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

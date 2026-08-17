@@ -112,9 +112,10 @@
 			{:else if usageData && usageData.reports}
 				{#each usageData.reports as report, i}
 					{#if report.limits && report.limits.length > 0}
-						{@const hostLabels = [...new Set(providerHosts
+						{@const projectLabels = [...new Set(providerHosts
 							.filter((host) => host.provider === report.provider)
-							.map((host) => host.project ? `${host.host} · ${host.project}` : host.host))]}
+							.map((host) => host.project)
+							.filter((project) => project))]}
 						<div class="provider-section" style="animation-delay: {i * 0.08}s;">
 							<h4>{report.provider} <span class="meta">{report.metadata?.email || ''}</span></h4>
 							{#each report.limits as limit}
@@ -137,8 +138,8 @@
 									<div class="limit-bar" title="Consumato: {usedPercent}% | Rimanente: {remainingPercent}%">
 										<div class="limit-fill" style="--target-width: {usedPercent}%; background: {colorVar}; --bar-delay: {i * 0.08}s;"></div>
 									</div>
-									{#if hostLabels.length > 0}
-										<div class="host-usage">In uso da: {hostLabels.join(', ')}</div>
+									{#if projectLabels.length > 0}
+										<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
 									{/if}
 								</div>
 							{/each}

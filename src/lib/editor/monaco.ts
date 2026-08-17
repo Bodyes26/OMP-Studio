@@ -76,7 +76,7 @@ export function getEditorInstance(container: HTMLElement) {
 				horizontalScrollbarSize: 10
 			},
 			padding: { top: 12, bottom: 12 },
-			wordWrap: 'on',
+			wordWrap: 'off',
 			cursorSmoothCaretAnimation: 'on',
 			cursorBlinking: 'smooth',
 			smoothScrolling: true,
@@ -102,7 +102,7 @@ export function getEditorInstance(container: HTMLElement) {
 				horizontalScrollbarSize: 10
 			},
 			padding: { top: 12, bottom: 12 },
-			wordWrap: 'on',
+			wordWrap: 'off',
 			cursorSmoothCaretAnimation: 'on',
 			cursorBlinking: 'smooth',
 			smoothScrolling: true,
@@ -160,7 +160,7 @@ export function createDiffEditorInstance(container: HTMLElement, originalContent
 		readOnly: false,
 		originalEditable: false,
 		renderSideBySide: true,
-		wordWrap: 'on',
+		wordWrap: 'off',
 		smoothScrolling: true
 	});
 

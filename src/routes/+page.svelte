@@ -6,6 +6,9 @@
 	import SessionList from '$lib/components/SessionList.svelte';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
+	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
+	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
+	import { onDestroy } from 'svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { onMount } from 'svelte';
@@ -52,6 +55,11 @@
 
 	onMount(() => {
 		fetchOmpVersion();
+		studioUpdaterStore.init();
+	});
+
+	onDestroy(() => {
+		studioUpdaterStore.destroy();
 	});
 
 	async function handleCheckUpdate() {
@@ -294,6 +302,30 @@
 		<div class="statusbar-right">
 			<button 
 				class="version-btn"
+				class:spinning={studioUpdaterStore.isChecking || studioUpdaterStore.isDownloading}
+				onclick={() => {
+					if (studioUpdaterStore.hasUpdate) {
+						studioUpdaterStore.openModal();
+					} else {
+						studioUpdaterStore.checkUpdate(true);
+					}
+				}}
+				title="Clicca per verificare aggiornamenti OMP Studio"
+			>
+				{studioUpdaterStore.currentVersion ? `Studio v${studioUpdaterStore.currentVersion}` : 'Studio'}
+				{#if studioUpdaterStore.updateBadge}
+					<span 
+						class="update-chip" 
+						class:warn={studioUpdaterStore.badgeType === 'warn'} 
+						class:success={studioUpdaterStore.badgeType === 'success'} 
+						class:error={studioUpdaterStore.badgeType === 'error'}
+					>
+						{studioUpdaterStore.updateBadge}
+					</span>
+				{/if}
+			</button>
+			<button 
+				class="version-btn"
 				class:spinning={isCheckingUpdate || isInstallingUpdate}
 				onclick={handleCheckUpdate}
 				title="Clicca per verificare aggiornamenti OMP CLI"
@@ -350,6 +382,8 @@
 			</div>
 		</div>
 	{/if}
+
+	<StudioUpdateModal />
 </div>
 
 <style>
@@ -528,6 +562,21 @@
 		background: var(--brand);
 		color: var(--on-brand);
 		font-weight: 600;
+	}
+
+	.update-chip.warn {
+		background: var(--warn, #f59e0b);
+		color: #000;
+	}
+
+	.update-chip.success {
+		background: var(--brand);
+		color: var(--on-brand);
+	}
+
+	.update-chip.error {
+		background: var(--danger, #ef4444);
+		color: #fff;
 	}
 
 	.status-indicator {

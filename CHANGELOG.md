@@ -9,6 +9,17 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-17
+
+### Added
+
+- Controllo e installazione degli aggiornamenti di OMP Studio direttamente in app dalla barra inferiore, con verifica da GitHub Releases, download tracciato in percentuale e velocità, visualizzazione note di rilascio e riavvio per l'installazione.
+
+### Changed
+
+- Nell'editor le righe lunghe non vanno più a capo: scorrono in orizzontale mantenendo visibili i numeri di riga.
+- Nel pannello consumi l'indicazione dei progetti che usano un provider mostra solo i nomi dei progetti.
+
 ## [0.3.1] - 2026-08-13
 
 ### Added
