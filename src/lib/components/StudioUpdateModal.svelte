@@ -41,16 +41,28 @@
 						{studioUpdaterStore.hasUpdate ? 'Aggiornamento OMP Studio' : 'OMP Studio è aggiornato'}
 					</h3>
 				</div>
-				{#if !studioUpdaterStore.isDownloading}
-					<button
-						class="close-btn"
-						onclick={() => studioUpdaterStore.closeModal()}
-						title="Chiudi"
-						aria-label="Chiudi"
-					>
-						✕
-					</button>
-				{/if}
+				<div class="header-actions">
+					{#if !studioUpdaterStore.isDownloading}
+						<button
+							class="refresh-icon-btn"
+							class:spinning={studioUpdaterStore.isChecking}
+							disabled={studioUpdaterStore.isChecking}
+							onclick={() => studioUpdaterStore.checkUpdate(true)}
+							title="Verifica se ci sono versioni più recenti su GitHub"
+							aria-label="Verifica aggiornamenti"
+						>
+							<span class="refresh-symbol" class:spinning={studioUpdaterStore.isChecking}>↻</span>
+						</button>
+						<button
+							class="close-btn"
+							onclick={() => studioUpdaterStore.closeModal()}
+							title="Chiudi"
+							aria-label="Chiudi"
+						>
+							✕
+						</button>
+					{/if}
+				</div>
 			</div>
 
 			<div class="modal-body">
@@ -181,6 +193,15 @@
 							{/if}
 						</button>
 					{:else if studioUpdaterStore.hasUpdate && studioUpdaterStore.updateInfo?.asset}
+						<button
+							class="btn btn-secondary"
+							onclick={() => studioUpdaterStore.checkUpdate(true)}
+							disabled={studioUpdaterStore.isChecking}
+							title="Controlla se è uscita una versione ancora più recente su GitHub"
+						>
+							<span class="refresh-symbol" class:spinning={studioUpdaterStore.isChecking}>↻</span>
+							{studioUpdaterStore.isChecking ? 'Verifica...' : 'Ricontrolla'}
+						</button>
 						<button class="btn btn-secondary" onclick={() => studioUpdaterStore.closeModal()}>
 							Annulla
 						</button>
@@ -193,6 +214,7 @@
 							onclick={() => studioUpdaterStore.checkUpdate(true)}
 							disabled={studioUpdaterStore.isChecking}
 						>
+							<span class="refresh-symbol" class:spinning={studioUpdaterStore.isChecking}>↻</span>
 							{#if studioUpdaterStore.isChecking}
 								Verifica in corso...
 							{:else}
@@ -257,6 +279,51 @@
 		font-size: var(--text-md);
 		font-weight: 600;
 		color: var(--ink);
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.refresh-icon-btn {
+		background: transparent;
+		border: 1px solid var(--line);
+		color: var(--ink-faint);
+		cursor: pointer;
+		padding: 4px 8px;
+		border-radius: var(--radius-sm);
+		font-size: var(--text-sm);
+		transition: all 0.15s ease;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.refresh-icon-btn:hover:not(:disabled) {
+		color: var(--ink);
+		border-color: var(--brand);
+		background: var(--bg-hover);
+	}
+
+	.refresh-icon-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.refresh-symbol {
+		display: inline-block;
+		line-height: 1;
+	}
+
+	.refresh-symbol.spinning {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 
 	.close-btn {

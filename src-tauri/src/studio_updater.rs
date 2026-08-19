@@ -232,6 +232,8 @@ pub async fn check_studio_update() -> Result<StudioUpdateInfo, String> {
         .get(&url)
         .header("User-Agent", format!("omp-studio-app/{}", current_version_raw))
         .header("Accept", "application/vnd.github.v3+json")
+        .header("Cache-Control", "no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
         .send()
         .await;
 
@@ -246,6 +248,8 @@ pub async fn check_studio_update() -> Result<StudioUpdateInfo, String> {
                 .get(&list_url)
                 .header("User-Agent", format!("omp-studio-app/{}", current_version_raw))
                 .header("Accept", "application/vnd.github.v3+json")
+                .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                .header("Pragma", "no-cache")
                 .send()
                 .await
                 .map_err(|e| format!("Errore nella connessione a GitHub: {}", e))?;
