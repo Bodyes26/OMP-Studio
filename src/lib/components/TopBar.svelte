@@ -210,15 +210,15 @@
 							<path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 3 3 4-4 4 4 3-3V10a8 8 0 0 0-8-8z"/>
 						</svg>
 					{:else}
-						{projectLabel(p)}
-					{/if}
-
-					{#if p.agentState === 'attention'}
-						<span class="status-dot attention" title="L'agente richiede un intervento"></span>
-					{:else if p.agentState === 'finished'}
-						<span class="status-dot finished" title="L'agente ha completato il lavoro"></span>
+						<span class="tab-label">{projectLabel(p)}</span>
 					{/if}
 				</button>
+
+				{#if p.agentState === 'attention'}
+					<span class="status-dot attention" title="L'agente richiede un intervento"></span>
+				{:else if p.agentState === 'finished'}
+					<span class="status-dot finished" title="L'agente ha completato il lavoro"></span>
+				{/if}
 
 				{#if hoveredTabId === p.id}
 					<!-- svelte-ignore a11y_mouse_events_have_key_events -->
@@ -477,9 +477,15 @@
 		min-width: 30px;
 		max-width: 96px;
 		padding: 0 var(--space-2);
+		white-space: nowrap;
+	}
+
+	.tab-label {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		display: block;
+		max-width: 100%;
 	}
 
 	.tab-add {
@@ -575,6 +581,7 @@
 		   senza usare un'ombra. */
 		outline: 2px solid var(--bg-raised);
 		z-index: 3;
+		pointer-events: none;
 	}
 
 	.status-dot.attention {

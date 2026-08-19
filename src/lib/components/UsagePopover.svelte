@@ -48,6 +48,24 @@
 		return `${diffHours}h fa`;
 	}
 
+	function formatReset(resetsAt: number | undefined) {
+		if (!resetsAt) return '';
+		const diffMs = resetsAt - now;
+		if (diffMs <= 0) return 'reset ora';
+		const diffSec = Math.floor(diffMs / 1000);
+		if (diffSec < 60) return `tra ${diffSec}s`;
+		const diffMin = Math.floor(diffSec / 60);
+		if (diffMin < 60) return `tra ${diffMin}m`;
+		const diffHours = Math.floor(diffMin / 60);
+		const remMin = diffMin % 60;
+		if (diffHours < 24) {
+			return remMin > 0 ? `tra ${diffHours}h ${remMin}m` : `tra ${diffHours}h`;
+		}
+		const diffDays = Math.floor(diffHours / 24);
+		const remHours = diffHours % 24;
+		return remHours > 0 ? `tra ${diffDays}g ${remHours}h` : `tra ${diffDays}g`;
+	}
+
 	$effect(() => {
 		if (open) {
 			fetchUsage();
@@ -90,12 +108,11 @@
 			<div class="actions">
 				<button
 					class="icon-btn refresh-btn"
-					class:spinning={loading}
 					onclick={() => fetchUsage(true)}
 					title="Aggiorna dati"
 					disabled={loading}
 				>
-					↻
+					<span class="refresh-icon" class:spinning={loading}>↻</span>
 				</button>
 				<button class="close-btn" onclick={onClose}>×</button>
 			</div>
@@ -118,15 +135,26 @@
 							.filter((project) => project))]}
 						<div class="provider-section" style="animation-delay: {i * 0.08}s;">
 							<h4>{report.provider} <span class="meta">{report.metadata?.email || ''}</span></h4>
+							{#if projectLabels.length > 0}
+								<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
+							{/if}
 							{#each report.limits as limit}
 								{@const usedFrac = limit.amount?.usedFraction ?? (1 - (limit.amount?.remainingFraction ?? 1))}
 								{@const remainingFrac = limit.amount?.remainingFraction ?? (1 - usedFrac)}
 								{@const remainingPercent = Math.round(remainingFrac * 100)}
 								{@const usedPercent = Math.round(usedFrac * 100)}
 								{@const colorVar = usedFrac >= 0.9 ? 'var(--brand)' : usedFrac >= 0.75 ? 'var(--warn)' : 'var(--ink-muted)'}
+								{@const resetsAt = limit.window?.resetsAt ?? limit.resetsAt ?? limit.window?.resets_at}
+								{@const resetCountdown = formatReset(resetsAt)}
+								{@const resetExact = resetsAt ? new Date(resetsAt).toLocaleString() : ''}
 								<div class="limit-item">
 									<div class="limit-label">
-										<span>{limit.label}</span>
+										<span class="limit-title">
+											<span class="limit-name">{limit.label}</span>
+											{#if resetCountdown}
+												<span class="reset-time" title={resetExact ? `Reset: ${resetExact}` : undefined}>· {resetCountdown}</span>
+											{/if}
+										</span>
 										<span class="value">
 											{#if limit.amount?.unit === 'usd'}
 												{remainingPercent}% (${limit.amount?.remaining?.toFixed(2)} / ${limit.amount?.limit?.toFixed(2)})
@@ -135,12 +163,9 @@
 											{/if}
 										</span>
 									</div>
-									<div class="limit-bar" title="Consumato: {usedPercent}% | Rimanente: {remainingPercent}%">
+									<div class="limit-bar" title="Consumato: {usedPercent}% | Rimanente: {remainingPercent}%{resetCountdown ? ` | Reset: ${resetCountdown}${resetExact ? ` (${resetExact})` : ''}` : ''}">
 										<div class="limit-fill" style="--target-width: {usedPercent}%; background: {colorVar}; --bar-delay: {i * 0.08}s;"></div>
 									</div>
-									{#if projectLabels.length > 0}
-										<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
-									{/if}
 								</div>
 							{/each}
 						</div>
@@ -233,7 +258,14 @@
 		background: var(--bg-hover);
 	}
 
-	.refresh-btn.spinning {
+	.refresh-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		line-height: 1;
+	}
+
+	.refresh-icon.spinning {
 		animation: spin 1s linear infinite;
 	}
 
@@ -332,8 +364,31 @@
 	.limit-label {
 		display: flex;
 		justify-content: space-between;
+		align-items: baseline;
+		gap: var(--space-2);
 		font-size: var(--text-sm);
 		color: var(--ink-muted);
+	}
+
+	.limit-title {
+		display: flex;
+		align-items: baseline;
+		gap: 4px;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.limit-name {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.reset-time {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
 	.value {
@@ -349,7 +404,7 @@
 	}
 
 	.host-usage {
-		margin-top: var(--space-1);
+		margin-top: calc(-1 * var(--space-1));
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
