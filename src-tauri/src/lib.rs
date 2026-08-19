@@ -1,7 +1,7 @@
 mod pty;
 use pty::{PtyManager, pty_open, pty_write, pty_resize, pty_close};
 mod projects;
-use projects::{tree_read, file_read, file_write, file_git_head, project_git_status};
+use projects::{tree_read, file_read, file_write, file_git_head, project_git_status, resolve_project_file};
 mod omp_ops;
 use omp_ops::{usage_snapshot, sessions_list, sessions_search, get_omp_version, check_omp_update, run_omp_update, theme_apply, omp_user_theme, provider_hosts};
 mod studio_updater;
@@ -47,6 +47,7 @@ pub fn run() {
             file_write,
             file_git_head,
             project_git_status,
+            resolve_project_file,
             usage_snapshot,
             sessions_list,
             sessions_search,

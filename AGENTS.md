@@ -67,11 +67,15 @@ rilasciato si annota lì subito, con la sua voce.
    (`Added`, `Changed`, `Fixed`, `Removed`).
 3. **Chiedi all'utente cosa fare della versione**, proponendo:
    - **A — Rilascia ora**: bump della versione indicata (per un fix: patch, es. `0.1.0 → 0.1.1`).
+     Quando l'utente sceglie l'opzione di rilascio, **l'agente esegue autonomamente TUTTI i passaggi**:
+     bump, compilazione dei binari con Tauri (`npx tauri build`), commit, tag annotato, push e
+     creazione della release su GitHub con allegati tutti gli installer generati (.exe, .msi, .dmg),
+     in modo che la release sia immediatamente scaricabile e installabile tramite l'updater in-app.
    - **B — Parcheggia**: resta in `[Unreleased]`, si rilascia insieme al lavoro successivo.
-   - **C — Versione specifica**: l'utente indica il numero (es. `0.2.0` per un blocco di lavori).
+   - **C — Versione specifica**: l'utente indica il numero (es. `0.2.0` per un blocco di lavori). Anche qui,
+     alla conferma l'agente esegue l'intera pipeline di rilascio (bump, build, commit, tag, push, gh release con allegati).
    Includi sempre la proposta di default e la bozza della voce di changelog.
 4. Non fare mai il bump di iniziativa propria: senza risposta, il default è **B (parcheggia)**.
-
 ### Criteri di numerazione (pre-1.0)
 
 | Tipo di lavoro | Bump |
@@ -90,19 +94,29 @@ npm run release -- 0.2.0            # bump dei 4 file + chiude [Unreleased] con 
 node scripts/release.mjs --notes    # note dell'ultima versione rilasciata
 ```
 
-Il comando **non** committa e **non** tagga: stampa i comandi git da eseguire, così
-l'utente decide. Sequenza tipica per una release su GitHub:
+Quando l'utente richiede o conferma il rilascio, l'agente esegue l'intera pipeline automatica:
 
-```
+```powershell
+# 1. Bump versioni e chiusura changelog
 npm run release -- 0.2.0
+
+# 2. Estrazione note di release
 { echo v0.2.0; echo; node scripts/release.mjs --notes; } > .release-notes.md
+
+# 3. Commit e tag
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
 git commit -m "release: v0.2.0"
 git tag -a v0.2.0 -F .release-notes.md
 git push --follow-tags
-gh release create v0.2.0 --title "v0.2.0" --notes-file .release-notes.md
+
+# 4. Compilazione installer bundle con Tauri (NSIS/MSI su Windows, DMG su macOS)
+npx tauri build
+
+# 5. Creazione della release su GitHub con allegati i binari/installer compilati
+gh release create v0.2.0 "src-tauri/target/release/bundle/nsis/OMP Studio_0.2.0_x64-setup.exe" "src-tauri/target/release/bundle/msi/OMP Studio_0.2.0_x64_en-US.msi" --title "v0.2.0" --notes-file .release-notes.md
 ```
 
+*(Nota: se la release è già stata creata su GitHub senza binari, usare `gh release upload v0.2.0 <files> --clobber` per caricare gli installer)*
 Le note si estraggono con `node scripts/release.mjs --notes`, **non** con
 `npm run release -- --notes`: npm aggiunge il proprio banner allo stdout e finirebbe
 dentro il messaggio del tag.

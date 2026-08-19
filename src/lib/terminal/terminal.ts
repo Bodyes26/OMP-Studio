@@ -1,4 +1,4 @@
-import { Terminal } from '@xterm/xterm';
+import { Terminal, type ILinkProvider, type ILink } from '@xterm/xterm';
 import { CanvasAddon } from '@xterm/addon-canvas';
 import { FitAddon } from '@xterm/addon-fit';
 import { LigaturesAddon } from '@xterm/addon-ligatures';
@@ -7,8 +7,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { invoke, Channel } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { canvasColors, onThemeChange } from '$lib/theme';
-
 const TITLE_STATE_REGEX = /^\u03c0 ([>:!])(?: |$)/;
 
 // Deve essere uno stack di font letterale: xterm/Monaco lo usano anche per
@@ -56,7 +56,13 @@ export class TerminalSession {
 			},
 			linkHandler: {
 				allowNonHttpProtocols: true,
-				activate: (event, text) => this.openFileLink(event, text)
+				activate: (_event, text) => {
+					if (text.startsWith('http://') || text.startsWith('https://')) {
+						void openUrl(text);
+						return;
+					}
+					void this.activateFileCandidate(text);
+				}
 			}
 		});
 
@@ -69,7 +75,12 @@ export class TerminalSession {
 		}
 		this.term.loadAddon(new Unicode11Addon());
 		this.term.unicode.activeVersion = '11';
-		this.term.loadAddon(new WebLinksAddon());
+		this.term.loadAddon(new WebLinksAddon((_event, uri) => {
+			void openUrl(uri);
+		}));
+		this.term.registerLinkProvider(new FileLinkProvider(this.term, (text) => {
+			void this.activateFileCandidate(text);
+		}));
 		this.term.loadAddon(new SearchAddon());
 		this.term.loadAddon(new ClipboardAddon());
 
@@ -126,47 +137,21 @@ export class TerminalSession {
 		this.startPty(cwd);
 	}
 
-	private openFileLink(event: MouseEvent, text: string) {
-		if ((!event.ctrlKey && !event.metaKey) || !text.startsWith('file://')) return;
-
-		let url: URL;
+	private async activateFileCandidate(candidate: string) {
+		if (!this.cwd) return;
 		try {
-			url = new URL(text);
-		} catch {
-			return;
+			const res: { rel_path: string; line: number | null } | null = await invoke('resolve_project_file', {
+				projectPath: this.cwd,
+				candidate
+			});
+			if (res && res.rel_path) {
+				this.onOpenFile(res.rel_path, res.line ?? null);
+			}
+		} catch (err) {
+			console.error('Failed to resolve project file candidate:', candidate, err);
 		}
-		if (url.protocol !== 'file:') return;
-
-		let filePath: string;
-		try {
-			filePath = decodeURIComponent(url.pathname);
-		} catch {
-			return;
-		}
-		if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1);
-
-		const normFilePath = this.normalizePath(filePath);
-		const normProjectPath = this.normalizePath(this.cwd);
-		if (!normFilePath || !normProjectPath || normFilePath.includes('\0')) return;
-
-		const projectPrefix = normProjectPath.endsWith('/') ? normProjectPath : `${normProjectPath}/`;
-		const isWindows = normFilePath.includes(':');
-		const fileCmp = isWindows ? normFilePath.toLowerCase() : normFilePath;
-		const projCmp = isWindows ? projectPrefix.toLowerCase() : projectPrefix;
-
-		if (!fileCmp.startsWith(projCmp)) return;
-
-		const relativePath = normFilePath.slice(projectPrefix.length);
-		if (!relativePath || relativePath.split('/').some((part) => part === '.' || part === '..')) return;
-
-		const requestedLine = Number(url.searchParams.get('line'));
-		const line = Number.isInteger(requestedLine) && requestedLine > 0 ? requestedLine : null;
-		this.onOpenFile(relativePath, line);
 	}
 
-	private normalizePath(path: string) {
-		return path.replace(/\\/g, '/').replace(/\/+$/, '');
-	}
 
 	private async startPty(cwd: string) {
 		const onOutput = new Channel<Uint8Array>();
@@ -242,5 +227,162 @@ export class TerminalSession {
 			this.ptyId = null;
 		}
 		this.term.dispose();
+	}
+}
+
+const FILE_TOKEN_REGEX = /(?:\[([^\s\]\r\n]+(?:#[0-9A-Fa-f]+|:[0-9]+(?:-[0-9]+)?))\]|`([^`\r\n]+)`|'([^'\r\n]+)'|"([^"\r\n]+)"|(file:\/\/\/[^\s\r\n()\[\]'"]+|file:\/\/[^\s\r\n()\[\]'"]+|[a-zA-Z]:[\\/][^\s\r\n()\[\]'"]+|\.{1,2}[\\/][^\s\r\n()\[\]'"]+|[a-zA-Z0-9_+\-.]+[\\/][^\s\r\n()\[\]'"]+|[a-zA-Z0-9_+\-.]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|jsonc|svelte|vue|html|htm|css|scss|sass|less|md|markdown|txt|rs|toml|yaml|yml|sql|cs|vb|aspx|ascx|ashx|config|xml|xaml|props|targets|resx|sh|bash|ps1|psm1|bat|cmd|py|go|cpp|c|h|hpp|java|png|jpg|jpeg|gif|svg|webp|ico|lock)(?::[0-9]+(?::[0-9]+)?)?|\.(?:gitignore|gitattributes|env[a-zA-Z0-9_.\-]*|editorconfig|npmrc)|Dockerfile|Makefile|Cargo\.lock|package-lock\.json))/g;
+
+class FileLinkProvider implements ILinkProvider {
+	constructor(
+		private readonly term: Terminal,
+		private readonly onActivate: (text: string) => void
+	) {}
+
+	public provideLinks(y: number, callback: (links: ILink[] | undefined) => void): void {
+		const links = this.computeLinks(y);
+		callback(links.length > 0 ? links : undefined);
+	}
+
+	private computeLinks(y: number): ILink[] {
+		const [lines, startLineIndex] = this.getWindowedLineStrings(y - 1);
+		const line = lines.join('');
+		if (!line.trim()) return [];
+
+		const results: ILink[] = [];
+		const regex = new RegExp(FILE_TOKEN_REGEX.source, 'g');
+		let match: RegExpExecArray | null;
+
+		while ((match = regex.exec(line)) !== null) {
+			const raw = match[0];
+			let matchIdx = match.index;
+			let matchLen = raw.length;
+			let text = raw;
+
+			if (match[1] !== undefined) {
+				matchIdx += 1;
+				matchLen = match[1].length;
+				text = match[1];
+			} else if (match[2] !== undefined) {
+				matchIdx += 1;
+				matchLen = match[2].length;
+				text = match[2];
+			} else if (match[3] !== undefined) {
+				matchIdx += 1;
+				matchLen = match[3].length;
+				text = match[3];
+			} else if (match[4] !== undefined) {
+				matchIdx += 1;
+				matchLen = match[4].length;
+				text = match[4];
+			}
+
+			const trailingPunct = /([.,;:!?)]+)$/.exec(text);
+			if (trailingPunct) {
+				matchLen -= trailingPunct[1].length;
+				text = text.slice(0, -trailingPunct[1].length);
+			}
+
+			if ((/^[a-zA-Z]+:\/\//.test(text) || text.includes('://')) && !text.startsWith('file:')) {
+				continue;
+			}
+
+			if (!text.trim()) continue;
+
+			const [startY, startX] = this.mapStrIdx(startLineIndex, 0, matchIdx);
+			const [endY, endX] = this.mapStrIdx(startY, startX, matchLen);
+
+			if (startY === -1 || startX === -1 || endY === -1 || endX === -1) {
+				continue;
+			}
+
+			const range = {
+				start: { x: startX + 1, y: startY + 1 },
+				end: { x: endX, y: endY + 1 }
+			};
+
+			const targetText = text;
+			results.push({
+				range,
+				text: targetText,
+				activate: () => {
+					this.onActivate(targetText);
+				}
+			});
+		}
+
+		return results;
+	}
+
+	private getWindowedLineStrings(lineIndex: number): [string[], number] {
+		const buf = this.term.buffer.active;
+		let line = buf.getLine(lineIndex);
+		let topIdx = lineIndex;
+		let bottomIdx = lineIndex;
+		let length = 0;
+		let content = '';
+		const lines: string[] = [];
+
+		if (line) {
+			const currentContent = line.translateToString(true);
+
+			if (line.isWrapped && currentContent[0] !== ' ') {
+				length = 0;
+				while (--topIdx >= 0 && (line = buf.getLine(topIdx)) && length < 2048) {
+					content = line.translateToString(true);
+					length += content.length;
+					lines.push(content);
+					if (!line.isWrapped || content.indexOf(' ') !== -1) {
+						break;
+					}
+				}
+				lines.reverse();
+			}
+
+			lines.push(currentContent);
+
+			length = 0;
+			while (++bottomIdx < buf.length && (line = buf.getLine(bottomIdx)) && line.isWrapped && length < 2048) {
+				content = line.translateToString(true);
+				length += content.length;
+				lines.push(content);
+				if (content.indexOf(' ') !== -1) {
+					break;
+				}
+			}
+		}
+		return [lines, topIdx];
+	}
+
+	private mapStrIdx(lineIndex: number, rowIndex: number, stringIndex: number): [number, number] {
+		const buf = this.term.buffer.active;
+		const cell = buf.getNullCell();
+		let start = rowIndex;
+		while (stringIndex > 0) {
+			const line = buf.getLine(lineIndex);
+			if (!line) return [-1, -1];
+			for (let i = start; i < line.length; ++i) {
+				line.getCell(i, cell);
+				const chars = cell.getChars();
+				const width = cell.getWidth();
+				if (width) {
+					stringIndex -= chars.length || 1;
+					if (i === line.length - 1 && chars === '') {
+						const nextLine = buf.getLine(lineIndex + 1);
+						if (nextLine && nextLine.isWrapped) {
+							nextLine.getCell(0, cell);
+							if (cell.getWidth() === 2) {
+								stringIndex += 1;
+							}
+						}
+					}
+				}
+				if (stringIndex <= 0) {
+					return [lineIndex, i + 1];
+				}
+			}
+			lineIndex++;
+			start = 0;
+		}
+		return [lineIndex, start];
 	}
 }

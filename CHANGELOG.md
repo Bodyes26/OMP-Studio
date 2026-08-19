@@ -9,6 +9,16 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-19
+
+### Added
+
+- Evidenziazione della sintassi per i file SQL e formati di configurazione/script (.sql, .xml, .config, .csproj, .vbproj, .props, .targets, .resx, .py, .yaml, .toml, .ini, .sh, .ps1, .bat) nell'editor Monaco.
+- Riconoscimento automatico e clic diretto sui percorsi di file e nomi menzionati nel terminale (es. "agents.md", percorsi relativi/assoluti, diff Git, tag snapshot `[file#tag:riga]` e numeri di riga `:riga:col`) per aprirli direttamente nell'editor.
+
+### Fixed
+
+- Apertura corretta dei link web cliccati nel terminale nel browser di sistema predefinito tramite il plugin opener.
 ## [0.5.0] - 2026-08-19
 
 ### Added

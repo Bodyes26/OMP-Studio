@@ -104,11 +104,11 @@ console.log(`
 Note di release:
 ${pending.split('\n').map((l) => `  ${l}`).join('\n')}
 
-Comandi da eseguire (le note vanno estratte con node, non con npm run: npm
-aggiungerebbe il proprio banner allo stdout):
+Comandi da eseguire:
   { echo v${version}; echo; node scripts/release.mjs --notes; } > .release-notes.md
   git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
   git commit -m "release: v${version}"
   git tag -a v${version} -F .release-notes.md
   git push --follow-tags
-  gh release create v${version} --title "v${version}" --notes-file .release-notes.md`);
+  npx tauri build
+  gh release create v${version} "src-tauri/target/release/bundle/nsis/OMP Studio_${version}_x64-setup.exe" "src-tauri/target/release/bundle/msi/OMP Studio_${version}_x64_en-US.msi" --title "v${version}" --notes-file .release-notes.md`);
