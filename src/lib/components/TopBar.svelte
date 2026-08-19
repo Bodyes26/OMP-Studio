@@ -6,7 +6,11 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
 
-	let { onUsageClick, onNewProject } = $props<{ onUsageClick?: () => void; onNewProject?: () => void }>();
+	let { onUsageClick, onNewProject, onModelsClick } = $props<{
+		onUsageClick?: () => void;
+		onNewProject?: () => void;
+		onModelsClick?: () => void;
+	}>();
 
 	const appWindow = getCurrentWindow();
 
@@ -323,6 +327,14 @@
 
 	<div class="controls">
 		<button
+			class="models-chip"
+			onclick={(e) => { e.stopPropagation(); onModelsClick?.(); }}
+			title="Gestione Modelli e Ruoli OMP (Ctrl+Alt+M)"
+		>
+			⚙️ Modelli
+		</button>
+
+		<button
 			class="theme-badge"
 			onclick={(event) => { event.stopPropagation(); themeOpen = !themeOpen; }}
 			title="Tema: {themeStore.current}"
@@ -333,7 +345,6 @@
 		</button>
 
 		<button class="usage-chip" onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }} title="Quota (Ctrl+Alt+U)">⚡ Quota</button>
-
 		<div class="window-controls">
 			<button class="win-btn" onclick={handleMinimize} title="Riduci a icona">
 				<svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
@@ -856,6 +867,26 @@
 		align-items: center;
 		height: 100%;
 		z-index: 2;
+	}
+	.models-chip {
+		background: transparent;
+		border: 1px solid var(--line);
+		color: var(--ink-muted);
+		padding: 3px 10px;
+		font-size: var(--text-xs);
+		border-radius: var(--radius-full);
+		cursor: pointer;
+		margin-right: var(--space-2);
+		transition: all 0.15s ease;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.models-chip:hover {
+		color: var(--ink);
+		border-color: var(--brand);
+		background: var(--bg-hover);
 	}
 
 	.usage-chip {

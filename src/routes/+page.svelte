@@ -7,7 +7,9 @@
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
+	import ModelSettingsModal from '$lib/components/models/ModelSettingsModal.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
+	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { onDestroy } from 'svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
@@ -194,6 +196,9 @@
 			} else if (e.key.toLowerCase() === 'u') {
 				e.preventDefault();
 				usageOpen = !usageOpen;
+			} else if (e.key.toLowerCase() === 'm' || e.key === ',') {
+				e.preventDefault();
+				modelSettingsStore.openModal();
 			} else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
 				e.preventDefault();
 				const projects = projectStore.projects;
@@ -210,9 +215,14 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="app-layout">
-	<TopBar onUsageClick={() => usageOpen = !usageOpen} onNewProject={() => pickerOpen = true} />
+	<TopBar
+		onUsageClick={() => usageOpen = !usageOpen}
+		onNewProject={() => pickerOpen = true}
+		onModelsClick={() => modelSettingsStore.openModal()}
+	/>
 	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
+	<ModelSettingsModal />
 
 	<main class="columns" class:dragging bind:this={columnsEl} style:grid-template-columns={gridTemplate}>
 		<aside class="col-left">

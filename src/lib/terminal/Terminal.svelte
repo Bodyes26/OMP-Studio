@@ -20,6 +20,20 @@
 			(s) => onStateChange?.(s),
 			(relPath, line) => onOpenFile?.(relPath, line)
 		);
+
+		const handleRestart = (e: any) => {
+			const targetCwd = e.detail?.targetCwd;
+			if (!targetCwd || targetCwd === cwd) {
+				session?.restart();
+			}
+		};
+
+		window.addEventListener('omp-terminals-restart', handleRestart);
+
+		return () => {
+			window.removeEventListener('omp-terminals-restart', handleRestart);
+			if (session) session.destroy();
+		};
 	});
 
 	onDestroy(() => {

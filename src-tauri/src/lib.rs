@@ -9,6 +9,12 @@ use studio_updater::{
     get_studio_version, check_studio_update, start_studio_update_download,
     cancel_studio_update_download, install_studio_update_and_restart, StudioUpdaterState,
 };
+mod models_ops;
+use models_ops::{
+    get_model_config, save_model_config, get_models_catalog, refresh_models_catalog,
+    get_custom_providers, save_custom_providers, get_auth_providers_summary,
+    check_model_upgrades, apply_model_upgrades,
+};
 
 
 
@@ -61,7 +67,16 @@ pub fn run() {
             check_studio_update,
             start_studio_update_download,
             cancel_studio_update_download,
-            install_studio_update_and_restart
+            install_studio_update_and_restart,
+            get_model_config,
+            save_model_config,
+            get_models_catalog,
+            refresh_models_catalog,
+            get_custom_providers,
+            save_custom_providers,
+            get_auth_providers_summary,
+            check_model_upgrades,
+            apply_model_upgrades
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

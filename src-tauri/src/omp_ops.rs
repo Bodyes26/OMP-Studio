@@ -212,28 +212,62 @@ fn read_session_tail(path: &Path, length: u64) -> std::io::Result<(String, bool)
     Ok((String::from_utf8_lossy(&bytes).into_owned(), tail_start > 0))
 }
 
-fn assistant_provider_model(jsonl_tail: &str, starts_mid_line: bool) -> Option<(String, String)> {
+fn assistant_providers_in_tail(jsonl_tail: &str, starts_mid_line: bool) -> Vec<(String, String)> {
     let mut lines = jsonl_tail.lines();
     if starts_mid_line {
         lines.next();
     }
 
-    lines.rev().find_map(|line| {
-        let value: serde_json::Value = serde_json::from_str(line).ok()?;
-        if value.get("type")?.as_str()? != "message" {
-            return None;
+    let mut results = Vec::new();
+    let mut seen_providers = std::collections::HashSet::new();
+
+    for line in lines.rev() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(|t| t.as_str()) != Some("message") {
+            continue;
         }
 
-        let message = value.get("message")?;
-        if message.get("role")?.as_str()? != "assistant" {
-            return None;
+        let Some(message) = value.get("message") else {
+            continue;
+        };
+        if message.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            continue;
         }
 
-        Some((
-            message.get("provider")?.as_str()?.to_string(),
-            message.get("model")?.as_str()?.to_string(),
-        ))
-    })
+        let Some(provider) = message.get("provider").and_then(|p| p.as_str()) else {
+            continue;
+        };
+        let Some(model) = message.get("model").and_then(|m| m.as_str()) else {
+            continue;
+        };
+
+        if seen_providers.insert(provider.to_string()) {
+            results.push((provider.to_string(), model.to_string()));
+        }
+    }
+
+    results
+}
+
+fn collect_subagent_sessions(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    if depth > 4 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+                out.push(path);
+            }
+        } else if path.is_dir() {
+            collect_subagent_sessions(&path, depth + 1, out);
+        }
+    }
 }
 
 fn provider_host(breadcrumb_name: &str) -> &'static str {
@@ -294,7 +328,7 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
         Err(error) => return Err(format!("Lettura sessioni terminale: {}", error)),
     };
 
-    let mut hosts = HashMap::<PathBuf, ProviderHost>::new();
+    let mut hosts = HashMap::<(String, String), ProviderHost>::new();
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
@@ -328,56 +362,63 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
         }
 
         let session_path = PathBuf::from(jsonl_path.trim_end_matches('\r'));
-        let metadata = match std::fs::metadata(&session_path) {
-            Ok(metadata) => metadata,
-            Err(_) => continue,
-        };
-        let modified = match metadata.modified() {
-            Ok(modified) => modified,
-            Err(_) => continue,
-        };
-
-        // Una sessione ferma oltre 30 minuti non consuma quota adesso.
-        let age = match SystemTime::now().duration_since(modified) {
-            Ok(age) => age,
-            Err(_) => Duration::ZERO,
-        };
-        if age > ACTIVE_SESSION_MAX_AGE {
-            continue;
+        let mut session_files = vec![session_path.clone()];
+        let subagents_dir = session_path.with_extension("");
+        if subagents_dir.is_dir() {
+            collect_subagent_sessions(&subagents_dir, 0, &mut session_files);
         }
-        let last_active_ms = match modified.duration_since(UNIX_EPOCH) {
-            Ok(duration) => duration.as_millis().min(i64::MAX as u128) as i64,
-            Err(_) => continue,
-        };
 
-        let (tail, starts_mid_line) = match read_session_tail(&session_path, metadata.len()) {
-            Ok(tail) => tail,
-            Err(_) => continue,
-        };
-        let Some((provider, model)) = assistant_provider_model(&tail, starts_mid_line) else {
-            continue;
-        };
+        let project_name = project_from_cwd(cwd.trim_end_matches('\r'));
+        let host_name = provider_host(&breadcrumb_name).to_string();
 
-        let dedupe_key = match std::fs::canonicalize(&session_path) {
-            Ok(path) => path,
-            Err(_) => session_path.clone(),
-        };
-        let candidate = ProviderHost {
-            provider,
-            model,
-            host: provider_host(&breadcrumb_name).to_string(),
-            project: project_from_cwd(cwd.trim_end_matches('\r')),
-            last_active_ms,
-        };
+        for file_path in session_files {
+            let metadata = match std::fs::metadata(&file_path) {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            let modified = match metadata.modified() {
+                Ok(modified) => modified,
+                Err(_) => continue,
+            };
 
-        if let Some(existing) = hosts.get(&dedupe_key) {
-            if existing.last_active_ms >= candidate.last_active_ms {
+            // Una sessione ferma oltre 30 minuti non consuma quota adesso.
+            let age = match SystemTime::now().duration_since(modified) {
+                Ok(age) => age,
+                Err(_) => Duration::ZERO,
+            };
+            if age > ACTIVE_SESSION_MAX_AGE {
                 continue;
             }
-        }
-        hosts.insert(dedupe_key, candidate);
-    }
+            let last_active_ms = match modified.duration_since(UNIX_EPOCH) {
+                Ok(duration) => duration.as_millis().min(i64::MAX as u128) as i64,
+                Err(_) => continue,
+            };
 
+            let (tail, starts_mid_line) = match read_session_tail(&file_path, metadata.len()) {
+                Ok(tail) => tail,
+                Err(_) => continue,
+            };
+
+            let providers = assistant_providers_in_tail(&tail, starts_mid_line);
+            for (provider, model) in providers {
+                let dedupe_key = (project_name.clone(), provider.clone());
+                let candidate = ProviderHost {
+                    provider,
+                    model,
+                    host: host_name.clone(),
+                    project: project_name.clone(),
+                    last_active_ms,
+                };
+
+                if let Some(existing) = hosts.get(&dedupe_key) {
+                    if existing.last_active_ms >= candidate.last_active_ms {
+                        continue;
+                    }
+                }
+                hosts.insert(dedupe_key, candidate);
+            }
+        }
+    }
     let mut hosts = hosts.into_values().collect::<Vec<_>>();
     hosts.sort_by(|left, right| right.last_active_ms.cmp(&left.last_active_ms));
     Ok(hosts)
@@ -550,5 +591,24 @@ pub async fn run_omp_update() -> Result<String, String> {
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(stderr.trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn estrae_provider_multipli_dalla_coda() {
+        let tail = r#"
+{"type":"message","message":{"role":"assistant","provider":"openai-codex","model":"gpt-5.6-terra"}}
+{"type":"message","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-4-8"}}
+{"type":"message","message":{"role":"assistant","provider":"google-antigravity","model":"gemini-3.7-flash"}}
+"#;
+        let providers = assistant_providers_in_tail(tail, false);
+        assert_eq!(providers.len(), 3);
+        assert_eq!(providers[0].0, "google-antigravity");
+        assert_eq!(providers[1].0, "anthropic");
+        assert_eq!(providers[2].0, "openai-codex");
     }
 }
