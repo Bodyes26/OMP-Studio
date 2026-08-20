@@ -13,7 +13,7 @@ mod models_ops;
 use models_ops::{
     get_model_config, save_model_config, get_models_catalog, refresh_models_catalog,
     get_custom_providers, save_custom_providers, get_auth_providers_summary,
-    check_model_upgrades, apply_model_upgrades,
+    check_model_upgrades, apply_model_upgrades, get_role_suggestions,
 };
 
 
@@ -76,7 +76,8 @@ pub fn run() {
             save_custom_providers,
             get_auth_providers_summary,
             check_model_upgrades,
-            apply_model_upgrades
+            apply_model_upgrades,
+            get_role_suggestions
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

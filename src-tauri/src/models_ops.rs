@@ -732,6 +732,314 @@ pub async fn apply_model_upgrades(updates: Vec<UpgradeApplyItem>) -> Result<(), 
     save_model_config(config).await
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestedModelItem {
+    pub selector: String,
+    pub reason: String,
+    pub badge: Option<String>,
+    pub recommended_thinking: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleSuggestionsResponse {
+    pub role_id: String,
+    pub primary: Vec<SuggestedModelItem>,
+    pub fallback: Vec<SuggestedModelItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawLlmSuggestedItem {
+    pub selector: Option<String>,
+    pub reason: Option<String>,
+    pub badge: Option<String>,
+    #[serde(rename = "recommendedThinking")]
+    pub recommended_thinking: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawLlmSuggestions {
+    pub primary: Option<Vec<RawLlmSuggestedItem>>,
+    pub fallback: Option<Vec<RawLlmSuggestedItem>>,
+}
+
+fn find_matching_catalog_selector<'a>(raw_sel: &str, catalog: &'a [ModelDto]) -> Option<&'a ModelDto> {
+    let clean = raw_sel.trim();
+    if clean.is_empty() {
+        return None;
+    }
+    // 1. Exact match
+    if let Some(m) = catalog.iter().find(|m| m.selector == clean || m.id == clean) {
+        return Some(m);
+    }
+    // 2. Case insensitive exact match
+    let clean_lower = clean.to_lowercase();
+    if let Some(m) = catalog.iter().find(|m| m.selector.to_lowercase() == clean_lower || m.id.to_lowercase() == clean_lower) {
+        return Some(m);
+    }
+    // 3. Substring match
+    if let Some(m) = catalog.iter().find(|m| m.selector.to_lowercase().contains(&clean_lower) || clean_lower.contains(&m.selector.to_lowercase())) {
+        return Some(m);
+    }
+    None
+}
+
+#[command]
+pub async fn get_role_suggestions(
+    role_id: String,
+    current_primary: Option<String>,
+    current_fallbacks: Vec<String>,
+) -> Result<RoleSuggestionsResponse, String> {
+    let config = get_model_config().await?;
+    let catalog = get_models_catalog().await?;
+    let auth_summary = get_auth_providers_summary().await?;
+
+    // 1. Individua provider attivi e abilitati
+    let active_providers: Vec<String> = auth_summary
+        .into_iter()
+        .filter(|a| a.has_credential && !config.disabled_providers.contains(&a.provider))
+        .map(|a| a.provider)
+        .collect();
+
+    if active_providers.is_empty() {
+        return Ok(RoleSuggestionsResponse {
+            role_id,
+            primary: Vec::new(),
+            fallback: Vec::new(),
+        });
+    }
+
+    // 2. Filtra catalogo per provider attivi e requisiti minimi di ruolo
+    let candidate_models: Vec<ModelDto> = catalog
+        .iter()
+        .filter(|m| active_providers.contains(&m.provider))
+        .filter(|m| {
+            if role_id == "vision" {
+                m.input.as_ref().map(|i| i.iter().any(|v| v == "image")).unwrap_or(false)
+            } else {
+                true
+            }
+        })
+        .cloned()
+        .collect();
+
+    if candidate_models.is_empty() {
+        return Ok(RoleSuggestionsResponse {
+            role_id,
+            primary: Vec::new(),
+            fallback: Vec::new(),
+        });
+    }
+
+    // 3. Deduplicazione versioni per mantenere solo le piu recenti per famiglia
+    let mut deduplicated: Vec<ModelDto> = Vec::new();
+    for m in &candidate_models {
+        let (tpl_cur, ver_cur, date_cur) = parse_model_signature(&m.id);
+        let mut has_newer = false;
+        for other in &candidate_models {
+            if other.provider == m.provider && other.id != m.id {
+                let (tpl_other, ver_other, date_other) = parse_model_signature(&other.id);
+                if tpl_other == tpl_cur && is_version_newer(&ver_cur, date_cur, &ver_other, date_other) {
+                    has_newer = true;
+                    break;
+                }
+            }
+        }
+        if !has_newer {
+            deduplicated.push(m.clone());
+        }
+    }
+
+    // 4. Limita a max 12 modelli per provider per mantenere compatto il prompt
+    let mut grouped_by_prov: HashMap<String, Vec<ModelDto>> = HashMap::new();
+    for m in deduplicated {
+        grouped_by_prov.entry(m.provider.clone()).or_default().push(m);
+    }
+
+    let mut final_candidates: Vec<ModelDto> = Vec::new();
+    for (_, mut list) in grouped_by_prov {
+        if list.len() > 12 {
+            list.truncate(12);
+        }
+        final_candidates.extend(list);
+    }
+
+    // 5. Costruzione del sommario dei modelli disponibili
+    let mut models_summary = String::new();
+    for m in &final_candidates {
+        let mut tags: Vec<String> = Vec::new();
+        if let Some(ctx) = m.context_window {
+            if ctx >= 1_000_000 {
+                tags.push(format!("{}M ctx", ctx / 1_000_000));
+            } else if ctx >= 1_000 {
+                tags.push(format!("{}k ctx", ctx / 1_000));
+            }
+        }
+        if m.reasoning.unwrap_or(false) {
+            tags.push("reasoning".to_string());
+        }
+        if m.selector.ends_with(":free") {
+            tags.push("FREE".to_string());
+        }
+        let tags_str = if tags.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", tags.join(", "))
+        };
+        models_summary.push_str(&format!(
+            "- {} (nome: \"{}\", provider: {}){}\n",
+            m.selector, m.name, m.provider, tags_str
+        ));
+    }
+
+    let role_desc = match role_id.as_str() {
+        "default" => "Conversazione generale, coding principale e tool use. Richiede alta intelligenza ed equilibrio velocita/costo.",
+        "plan" => "Pianificazione architetturale, analisi requisiti e decomposizione task. Richiede reasoning profondo e contesto ampio.",
+        "smol" => "Scouting rapido, ispezione file leggeri e compiti atomici. Richiede massima velocita e costo minimo.",
+        "slow" => "Ragionamento complesso, deduzione logica e debug difficile. Richiede modelli ad alto reasoning computazionale.",
+        "vision" => "Comprensione immagini, screenshot UI, diagrammi ed OCR. Richiede supporto nativo per input visivo.",
+        "task" => "Esecuzione di subagenti paralleli. Richiede affidabilita con i tool e velocita di esecuzione.",
+        "commit" => "Generazione messaggi di commit e note di changelog. Richiede sintesi, brevita e costo basso.",
+        "advisor" => "Revisione passiva e controllo qualita/sicurezza del codice. Richiede precisione analitica e prospettiva neutrale.",
+        _ => "Ruolo operativo per agenti OMP.",
+    };
+
+    let primary_info = current_primary.as_deref().unwrap_or("non configurato");
+    let fallbacks_info = if current_fallbacks.is_empty() {
+        "nessuna riserva".to_string()
+    } else {
+        current_fallbacks.join(", ")
+    };
+
+    let user_prompt = format!(
+        "Sei l'assistente esperto di configurazione modelli per OMP Studio.\n\
+Ruolo target: \"{role_id}\"\n\
+Scopo del ruolo: {role_desc}\n\
+Modello primario attualmente scelto: {primary_info}\n\
+Riserve attuali: {fallbacks_info}\n\n\
+Modelli disponibili dai provider autenticati dell'utente:\n\
+{models_summary}\n\
+OBIETTIVO:\n\
+1. Suggerisci 2-3 modelli PRIMARI per questo ruolo (es. Top Quality, Miglior Velocita/Costo, Free se disponibile).\n\
+2. Suggerisci 2-3 modelli di RISERVA (FALLBACK).\n\
+REGOLA FONDAMENTALE SUI FALLBACK:\n\
+I modelli di fallback DEVONO appartenere a un PROVIDER DIVERSO da quello del modello primario \"{primary_info}\" per garantire continuita operativa in caso di rate-limit (429) o disservizio.\n\n\
+Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
+{{\n\
+  \"primary\": [\n\
+    {{\n\
+      \"selector\": \"selettore-esatto-dalla-lista\",\n\
+      \"reason\": \"Breve spiegazione in italiano (max 10 parole)\",\n\
+      \"badge\": \"Consigliato\",\n\
+      \"recommendedThinking\": \"auto\"\n\
+    }}\n\
+  ],\n\
+  \"fallback\": [\n\
+    {{\n\
+      \"selector\": \"selettore-esatto-da-provider-diverso\",\n\
+      \"reason\": \"Breve spiegazione in italiano del perche come riserva\",\n\
+      \"badge\": \"Riserva Google\"\n\
+    }}\n\
+  ]\n\
+}}"
+    );
+
+    let omp_path = crate::omp_ops::get_omp_binary();
+    let mut cmd = Command::new(&omp_path);
+    cmd.arg("-p")
+        .arg("--no-tools")
+        .arg("--no-session")
+        .arg("--system-prompt")
+        .arg("Sei un assistente per la selezione ottimale dei modelli AI. Restituisci SOLO un JSON valido, senza blocchi di codice markdown o testo aggiuntivo.")
+        .arg(&user_prompt);
+
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("Errore esecuzione omp per suggerimenti: {}", e);
+            return Ok(RoleSuggestionsResponse {
+                role_id,
+                primary: Vec::new(),
+                fallback: Vec::new(),
+            });
+        }
+    };
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+    let trimmed = stdout_str.trim();
+
+    // Estrai JSON valido se ci sono wrapper markdown
+    let json_candidate = if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
+        if end >= start {
+            &trimmed[start..=end]
+        } else {
+            trimmed
+        }
+    } else {
+        trimmed
+    };
+
+    let parsed: RawLlmSuggestions = match serde_json::from_str(json_candidate) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Impossibile deserializzare suggerimenti LLM: {}. Raw: {}", e, trimmed);
+            return Ok(RoleSuggestionsResponse {
+                role_id,
+                primary: Vec::new(),
+                fallback: Vec::new(),
+            });
+        }
+    };
+
+    let mut validated_primary: Vec<SuggestedModelItem> = Vec::new();
+    if let Some(items) = parsed.primary {
+        for it in items {
+            if let Some(raw_sel) = it.selector {
+                if let Some(matched_model) = find_matching_catalog_selector(&raw_sel, &catalog) {
+                    if !validated_primary.iter().any(|p| p.selector == matched_model.selector) {
+                        validated_primary.push(SuggestedModelItem {
+                            selector: matched_model.selector.clone(),
+                            reason: it.reason.unwrap_or_else(|| "Modello consigliato per questo ruolo".to_string()),
+                            badge: it.badge,
+                            recommended_thinking: it.recommended_thinking,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let mut validated_fallback: Vec<SuggestedModelItem> = Vec::new();
+    if let Some(items) = parsed.fallback {
+        for it in items {
+            if let Some(raw_sel) = it.selector {
+                if let Some(matched_model) = find_matching_catalog_selector(&raw_sel, &catalog) {
+                    if !validated_fallback.iter().any(|f| f.selector == matched_model.selector) {
+                        validated_fallback.push(SuggestedModelItem {
+                            selector: matched_model.selector.clone(),
+                            reason: it.reason.unwrap_or_else(|| "Riserva consigliata su rate-limit".to_string()),
+                            badge: it.badge,
+                            recommended_thinking: it.recommended_thinking,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(RoleSuggestionsResponse {
+        role_id,
+        primary: validated_primary,
+        fallback: validated_fallback,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

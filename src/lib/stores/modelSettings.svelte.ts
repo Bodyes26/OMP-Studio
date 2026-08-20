@@ -97,90 +97,18 @@ export const THINKING_LEVELS = [
 	{ id: 'max', label: 'Max', budget: '64k', desc: 'Massimo consentito' }
 ] as const;
 
-export interface RoleSuggestion {
-	pattern: string;
+export interface SuggestedModelItem {
+	selector: string;
 	reason: string;
 	badge?: string;
+	recommendedThinking?: string;
 }
 
-export const ROLE_SUGGESTIONS: Record<string, { primary: RoleSuggestion[]; fallback: RoleSuggestion[] }> = {
-	default: {
-		primary: [
-			{ pattern: 'claude-3-7-sonnet', reason: 'Miglior equilibrio qualita/costo in chat', badge: 'consigliato' },
-			{ pattern: 'gemini-2-5-pro', reason: 'Contesto esteso 1M per sessioni lunghe' }
-		],
-		fallback: [
-			{ pattern: 'gpt-4o-mini', reason: 'Provider alternativo, raro rate-limit' },
-			{ pattern: 'deepseek-v3', reason: 'Costo minimo come riserva' }
-		]
-	},
-	plan: {
-		primary: [
-			{ pattern: 'o3', reason: 'Reasoning profondo su architetture e mappe', badge: 'consigliato' },
-			{ pattern: 'claude-opus', reason: 'Ottimo su system design complessi' }
-		],
-		fallback: [
-			{ pattern: 'deepseek-r1', reason: 'Reasoning ad alto budget alternativo' },
-			{ pattern: 'claude-3-7-sonnet', reason: 'Fallback affidabile' }
-		]
-	},
-	smol: {
-		primary: [
-			{ pattern: 'gemini-2-5-flash', reason: 'Ultra-rapido ed economico per scouting', badge: 'consigliato' },
-			{ pattern: 'claude-3-5-haiku', reason: 'Veloce con ottima precisione di sintassi' }
-		],
-		fallback: [
-			{ pattern: 'gpt-4o-mini', reason: 'Reserva veloce a basso costo' },
-			{ pattern: 'qwen', reason: 'Modello locale offline' }
-		]
-	},
-	slow: {
-		primary: [
-			{ pattern: 'deepseek-r1', reason: 'Reasoning logico e matematico avanzato', badge: 'consigliato' },
-			{ pattern: 'o3-mini', reason: 'Ottima capacita deduttiva e coding' }
-		],
-		fallback: [
-			{ pattern: 'claude-3-7-sonnet', reason: 'Thinking esteso affidabile' }
-		]
-	},
-	vision: {
-		primary: [
-			{ pattern: 'gemini-2-5-pro', reason: 'Comprensione visiva e OCR eccellente', badge: 'consigliato' },
-			{ pattern: 'claude-3-7-sonnet', reason: 'Ispezione screenshot e UI accurata' }
-		],
-		fallback: [
-			{ pattern: 'gpt-4o', reason: 'Vision alternativa affidabile' }
-		]
-	},
-	task: {
-		primary: [
-			{ pattern: 'claude-3-5-haiku', reason: 'Esecuzione subagenti rapida e precisa', badge: 'consigliato' },
-			{ pattern: 'gemini-2-5-flash', reason: 'Costo minimo per tool calling intensivo' }
-		],
-		fallback: [
-			{ pattern: 'deepseek-v3', reason: 'Riserva ad alto throughput' }
-		]
-	},
-	commit: {
-		primary: [
-			{ pattern: 'claude-3-5-haiku', reason: 'Messaggi chiari e sintetici', badge: 'consigliato' },
-			{ pattern: 'gpt-4o-mini', reason: 'Generazione changelog veloce' }
-		],
-		fallback: [
-			{ pattern: 'gemini-2-5-flash', reason: 'Fallback veloce' }
-		]
-	},
-	advisor: {
-		primary: [
-			{ pattern: 'claude-3-7-sonnet', reason: 'Revisione passiva di alta qualita', badge: 'consigliato' },
-			{ pattern: 'deepseek-r1', reason: 'Analisi approfondita di sicurezza ed edge cases' }
-		],
-		fallback: [
-			{ pattern: 'claude-3-5-sonnet', reason: 'Controllo di qualita solido' }
-		]
-	}
-};
-
+export interface RoleSuggestionsResponse {
+	roleId: string;
+	primary: SuggestedModelItem[];
+	fallback: SuggestedModelItem[];
+}
 
 class ModelSettingsStore {
 	isOpen = $state(false);
@@ -202,6 +130,9 @@ class ModelSettingsStore {
 	upgradeModalOpen = $state(false);
 	lastUpgradeCheckMessage = $state<string | null>(null);
 	statusToast = $state<string | null>(null);
+
+	suggestionsCache = new Map<string, RoleSuggestionsResponse>();
+	loadingSuggestionsRole = $state<string | null>(null);
 
 	hasUnsavedChanges = $derived.by(() => {
 		if (!this.config || !this.draftConfig) return false;
@@ -274,7 +205,7 @@ class ModelSettingsStore {
 				const cat = await invoke<ModelDto[]>('refresh_models_catalog');
 				this.catalog = cat;
 			}
-
+			this.clearSuggestionsCache();
 			this.showToast('Configurazione modelli salvata');
 			return true;
 		} catch (e) {
@@ -291,6 +222,7 @@ class ModelSettingsStore {
 		try {
 			const cat = await invoke<ModelDto[]>('refresh_models_catalog');
 			this.catalog = cat;
+			this.clearSuggestionsCache();
 			this.showToast(`Catalogo aggiornato (${cat.length} modelli)`);
 		} catch (e) {
 			console.error('Failed to refresh models catalog:', e);
@@ -373,7 +305,7 @@ class ModelSettingsStore {
 
 			await invoke('apply_model_upgrades', { updates });
 			await this.loadAll();
-			this.upgradeModalOpen = false;
+			this.clearSuggestionsCache();
 			this.showToast(`Aggiornati ${updates.length} ruoli alla versione suggerita`);
 		} catch (e) {
 			console.error('Failed to apply model upgrades:', e);
@@ -510,6 +442,40 @@ class ModelSettingsStore {
 			this.draftCustomProviders = JSON.parse(JSON.stringify(this.customProviders));
 		}
 	}
-}
+	clearSuggestionsCache() {
+		this.suggestionsCache.clear();
+	}
 
+	async getRoleSuggestions(
+		roleId: string,
+		currentPrimary?: string,
+		currentFallbacks: string[] = [],
+		forceRefresh = false
+	): Promise<RoleSuggestionsResponse | null> {
+		const primaryRaw = currentPrimary?.split(':')[0] || '';
+		const cacheKey = `${roleId}:${primaryRaw}`;
+
+		if (!forceRefresh && this.suggestionsCache.has(cacheKey)) {
+			return this.suggestionsCache.get(cacheKey)!;
+		}
+
+		this.loadingSuggestionsRole = roleId;
+		try {
+			const res = await invoke<RoleSuggestionsResponse>('get_role_suggestions', {
+				roleId,
+				currentPrimary: primaryRaw || null,
+				currentFallbacks
+			});
+			this.suggestionsCache.set(cacheKey, res);
+			return res;
+		} catch (e) {
+			console.error('Failed to fetch role suggestions:', e);
+			return null;
+		} finally {
+			if (this.loadingSuggestionsRole === roleId) {
+				this.loadingSuggestionsRole = null;
+			}
+		}
+	}
+}
 export const modelSettingsStore = new ModelSettingsStore();

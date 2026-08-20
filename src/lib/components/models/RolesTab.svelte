@@ -2,9 +2,9 @@
 	import {
 		modelSettingsStore,
 		STANDARD_ROLES,
-		ROLE_SUGGESTIONS,
 		type ModelDto,
-		type RoleSuggestion
+		type RoleSuggestionsResponse,
+		type SuggestedModelItem
 	} from '$lib/stores/modelSettings.svelte';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import ReasoningSlider from './ReasoningSlider.svelte';
@@ -14,6 +14,9 @@
 	let roleFilterQuery = $state('');
 	let cycleDrawerOpen = $state(false);
 	let isAddingFallback = $state(false);
+
+	let currentSuggestions = $state<RoleSuggestionsResponse | null>(null);
+	let isFetchingSuggestions = $state(false);
 
 	const selectedRole = $derived(
 		STANDARD_ROLES.find((r) => r.id === selectedRoleId) || STANDARD_ROLES[0]
@@ -50,7 +53,6 @@
 		STANDARD_ROLES.filter((r) => !!getRoleSelector(r.id)).length
 	);
 
-
 	function getFallbacks(roleId: string): string[] {
 		return modelSettingsStore.draftConfig?.fallbackChains[roleId] || [];
 	}
@@ -65,34 +67,49 @@
 	const selectedRoleThinking = $derived(getRoleThinking(selectedRole.id));
 	const selectedRoleFallbacks = $derived(getFallbacks(selectedRole.id));
 
-	// Suggerimenti intelligenti basati sul catalogo reale
-	function getSuggestions(roleId: string, type: 'primary' | 'fallback') {
-		const roleDef = ROLE_SUGGESTIONS[roleId];
-		if (!roleDef) return [];
-		const patterns: RoleSuggestion[] = roleDef[type] || [];
-		const results: { model: ModelDto; reason: string; badge?: string }[] = [];
+	// Caricamento dinamico dei suggerimenti con OMP e caching
+	$effect(() => {
+		const roleId = selectedRole.id;
+		const primaryRaw = selectedRoleModelRaw;
+		const fallbacks = selectedRoleFallbacks;
 
-		for (const item of patterns) {
-			const found = modelSettingsStore.catalog.find(
-				(m) =>
-					m.selector.toLowerCase().includes(item.pattern.toLowerCase()) ||
-					m.id.toLowerCase().includes(item.pattern.toLowerCase()) ||
-					m.name.toLowerCase().includes(item.pattern.toLowerCase())
-			);
-			if (found && !results.some((r) => r.model.selector === found.selector)) {
-				results.push({
-					model: found,
-					reason: item.reason,
-					badge: item.badge
-				});
-			}
-		}
-		return results;
+		let cancelled = false;
+		isFetchingSuggestions = true;
+
+		void modelSettingsStore
+			.getRoleSuggestions(roleId, primaryRaw, fallbacks)
+			.then((res) => {
+				if (!cancelled) {
+					currentSuggestions = res;
+					isFetchingSuggestions = false;
+				}
+			})
+			.catch(() => {
+				if (!cancelled) {
+					isFetchingSuggestions = false;
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	function handleRefreshSuggestions() {
+		isFetchingSuggestions = true;
+		void modelSettingsStore
+			.getRoleSuggestions(selectedRole.id, selectedRoleModelRaw, selectedRoleFallbacks, true)
+			.then((res) => {
+				currentSuggestions = res;
+			})
+			.finally(() => {
+				isFetchingSuggestions = false;
+			});
 	}
 
-	const primarySuggestions = $derived(getSuggestions(selectedRole.id, 'primary'));
-	const fallbackSuggestions = $derived(getSuggestions(selectedRole.id, 'fallback'));
-
+	function handleApplyPrimarySuggestion(sug: SuggestedModelItem) {
+		modelSettingsStore.setRoleModel(selectedRole.id, sug.selector, sug.recommendedThinking);
+	}
 	function handleModelChange(roleId: string, selector: string) {
 		modelSettingsStore.setRoleModel(roleId, selector);
 	}
@@ -301,26 +318,47 @@
 				{/if}
 
 				<!-- Suggerimenti Intelligenti Primari -->
-				{#if primarySuggestions.length > 0}
+				{#if isFetchingSuggestions && (!currentSuggestions || currentSuggestions.roleId !== selectedRole.id)}
+					<div class="suggestions-loading">
+						<span class="sug-spinner"></span>
+						<span>Analisi modelli ottimali con AI in corso...</span>
+					</div>
+				{:else if currentSuggestions && currentSuggestions.primary.length > 0}
 					<div class="suggestions-row">
-						<span class="suggestions-label">
-							<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4">
-								<path d="M8 1.5a4.5 4.5 0 0 0-2.5 8.2v1.8h5V9.7A4.5 4.5 0 0 0 8 1.5zM6.5 14.5h3" stroke-linecap="round" />
-							</svg>
-							Suggeriti
-						</span>
+						<div class="suggestions-header">
+							<span class="suggestions-label">
+								<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4">
+									<path d="M8 1.5a4.5 4.5 0 0 0-2.5 8.2v1.8h5V9.7A4.5 4.5 0 0 0 8 1.5zM6.5 14.5h3" stroke-linecap="round" />
+								</svg>
+								Suggeriti AI
+							</span>
+							<button
+								type="button"
+								class="btn-refresh-sug"
+								class:spinning={isFetchingSuggestions}
+								disabled={isFetchingSuggestions}
+								onclick={handleRefreshSuggestions}
+								title="Rianalizza raccomandazioni per questo ruolo"
+							>
+								<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4">
+									<path d="M2 8a6 6 0 1 1 1.8 4.2M2 8V4.5M2 8h3.5" stroke-linecap="round" stroke-linejoin="round" />
+								</svg>
+								<span>Rianalizza</span>
+							</button>
+						</div>
 						<div class="suggestions-chips">
-							{#each primarySuggestions as sug (sug.model.selector)}
-								{@const isAlreadySelected = selectedRoleModelRaw === sug.model.selector}
+							{#each currentSuggestions.primary as sug (sug.selector)}
+								{@const modelDto = getModelDto(sug.selector)}
+								{@const isAlreadySelected = selectedRoleModelRaw === sug.selector}
 								<button
 									type="button"
 									class="suggestion-chip"
 									class:active-choice={isAlreadySelected}
-									onclick={() => handleModelChange(selectedRole.id, sug.model.selector)}
-									title="{sug.reason} ({sug.model.selector})"
+									onclick={() => handleApplyPrimarySuggestion(sug)}
+									title="{sug.reason} ({sug.selector})"
 								>
-									<span class="sug-provider">{sug.model.provider}</span>
-									<span class="sug-name">{sug.model.name}</span>
+									<span class="sug-provider">{modelDto?.provider || sug.selector.split('/')[0] || ''}</span>
+									<span class="sug-name">{modelDto?.name || sug.selector.split('/')[1] || sug.selector}</span>
 									{#if sug.badge}
 										<span class="sug-badge">{sug.badge}</span>
 									{/if}
@@ -451,21 +489,27 @@
 				</div>
 
 				<!-- Fallback Suggestions -->
-				{#if fallbackSuggestions.length > 0}
+				{#if currentSuggestions && currentSuggestions.fallback.length > 0}
 					<div class="suggestions-row mt-2">
-						<span class="suggestions-label">Riserve consigliate</span>
+						<div class="suggestions-header">
+							<span class="suggestions-label">Riserve consigliate AI (Cross-Provider)</span>
+						</div>
 						<div class="suggestions-chips">
-							{#each fallbackSuggestions as sug (sug.model.selector)}
-								{@const alreadyInFallback = selectedRoleFallbacks.includes(sug.model.selector)}
-								{#if !alreadyInFallback && sug.model.selector !== selectedRoleModelRaw}
+							{#each currentSuggestions.fallback as sug (sug.selector)}
+								{@const fbModel = getModelDto(sug.selector)}
+								{@const alreadyInFallback = selectedRoleFallbacks.includes(sug.selector)}
+								{#if !alreadyInFallback && sug.selector !== selectedRoleModelRaw}
 									<button
 										type="button"
 										class="suggestion-chip"
-										onclick={() => handleAddFallback(selectedRole.id, sug.model.selector)}
-										title="{sug.reason} ({sug.model.selector})"
+										onclick={() => handleAddFallback(selectedRole.id, sug.selector)}
+										title="{sug.reason} ({sug.selector})"
 									>
-										<span class="sug-provider">{sug.model.provider}</span>
-										<span class="sug-name">{sug.model.name}</span>
+										<span class="sug-provider">{fbModel?.provider || sug.selector.split('/')[0] || ''}</span>
+										<span class="sug-name">{fbModel?.name || sug.selector.split('/')[1] || sug.selector}</span>
+										{#if sug.badge}
+											<span class="sug-badge">{sug.badge}</span>
+										{/if}
 									</button>
 								{/if}
 							{/each}
@@ -921,6 +965,59 @@
 		flex-direction: column;
 		gap: 6px;
 		margin-top: 4px;
+	}
+
+	.suggestions-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.btn-refresh-sug {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		background: transparent;
+		border: none;
+		color: var(--ink-faint);
+		font-size: 10px;
+		cursor: pointer;
+		padding: 2px 4px;
+		border-radius: var(--radius-sm);
+		transition: color 120ms ease;
+	}
+
+	.btn-refresh-sug:hover:not(:disabled) {
+		color: var(--brand-ink);
+	}
+
+	.btn-refresh-sug.spinning svg,
+	.sug-spinner {
+		animation: spin 1s linear infinite;
+	}
+
+	.suggestions-loading {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		color: var(--ink-faint);
+		padding: 4px 0;
+	}
+
+	.sug-spinner {
+		width: 11px;
+		height: 11px;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 
 	.suggestions-label {
