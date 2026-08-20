@@ -350,17 +350,18 @@
 							{#each currentSuggestions.primary as sug (sug.selector)}
 								{@const modelDto = getModelDto(sug.selector)}
 								{@const isAlreadySelected = selectedRoleModelRaw === sug.selector}
+								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? ` • Velocità: ${Math.round(sug.tokensPerSec)} tok/s` : ''} (${sug.selector})`}
 								<button
 									type="button"
 									class="suggestion-chip"
 									class:active-choice={isAlreadySelected}
 									onclick={() => handleApplyPrimarySuggestion(sug)}
-									title="{sug.reason} ({sug.selector})"
+									title={tooltipText}
 								>
 									<span class="sug-provider">{modelDto?.provider || sug.selector.split('/')[0] || ''}</span>
 									<span class="sug-name">{modelDto?.name || sug.selector.split('/')[1] || sug.selector}</span>
 									{#if sug.badge}
-										<span class="sug-badge">{sug.badge}</span>
+										<span class="sug-badge" class:elo-badge={sug.badge.includes('ELO')} class:speed-badge={sug.badge.includes('tok/s')}>{sug.badge}</span>
 									{/if}
 								</button>
 							{/each}
@@ -498,17 +499,18 @@
 							{#each currentSuggestions.fallback as sug (sug.selector)}
 								{@const fbModel = getModelDto(sug.selector)}
 								{@const alreadyInFallback = selectedRoleFallbacks.includes(sug.selector)}
+								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? ` • Velocità: ${Math.round(sug.tokensPerSec)} tok/s` : ''} (${sug.selector})`}
 								{#if !alreadyInFallback && sug.selector !== selectedRoleModelRaw}
 									<button
 										type="button"
 										class="suggestion-chip"
 										onclick={() => handleAddFallback(selectedRole.id, sug.selector)}
-										title="{sug.reason} ({sug.selector})"
+										title={tooltipText}
 									>
 										<span class="sug-provider">{fbModel?.provider || sug.selector.split('/')[0] || ''}</span>
 										<span class="sug-name">{fbModel?.name || sug.selector.split('/')[1] || sug.selector}</span>
 										{#if sug.badge}
-											<span class="sug-badge">{sug.badge}</span>
+											<span class="sug-badge fallback-badge" class:free-badge={sug.badge.includes('Zero-Cost') || sug.isFree}>{sug.badge}</span>
 										{/if}
 									</button>
 								{/if}
@@ -1077,13 +1079,29 @@
 
 	.sug-badge {
 		font-size: 9px;
-		padding: 0 4px;
+		padding: 1px 5px;
 		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--brand) 20%, transparent);
+		background: color-mix(in srgb, var(--brand) 16%, transparent);
 		color: var(--brand-ink);
 		font-weight: 600;
+		letter-spacing: 0.02em;
 	}
 
+	.sug-badge.elo-badge {
+		background: color-mix(in srgb, var(--brand) 22%, transparent);
+		border: 1px solid color-mix(in srgb, var(--brand-ink) 25%, transparent);
+	}
+
+	.sug-badge.speed-badge {
+		background: color-mix(in srgb, var(--ink-muted) 14%, transparent);
+		color: var(--ink);
+	}
+
+	.sug-badge.fallback-badge.free-badge {
+		background: color-mix(in srgb, var(--ink-faint) 18%, transparent);
+		color: var(--ink-muted);
+		border: 1px dashed var(--line-strong);
+	}
 	/* Fallbacks */
 	.fallbacks-list {
 		display: flex;

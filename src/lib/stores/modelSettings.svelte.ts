@@ -102,8 +102,11 @@ export interface SuggestedModelItem {
 	reason: string;
 	badge?: string;
 	recommendedThinking?: string;
+	arenaElo?: number;
+	tokensPerSec?: number;
+	isSubscription?: boolean;
+	isFree?: boolean;
 }
-
 export interface RoleSuggestionsResponse {
 	roleId: string;
 	primary: SuggestedModelItem[];

@@ -2476,7 +2476,7 @@ dependencies = [
 
 [[package]]
 name = "omp-studio-app"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "futures-util",
  "notify",
