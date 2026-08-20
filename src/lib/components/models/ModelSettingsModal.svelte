@@ -7,8 +7,24 @@
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
-	function handleClose() {
+	let showDiscardConfirm = $state(false);
+
+	function requestClose() {
+		if (modelSettingsStore.hasUnsavedChanges) {
+			showDiscardConfirm = true;
+		} else {
+			forceClose();
+		}
+	}
+
+	function forceClose() {
+		showDiscardConfirm = false;
+		modelSettingsStore.resetDraft();
 		modelSettingsStore.closeModal();
+	}
+
+	function cancelDiscard() {
+		showDiscardConfirm = false;
 	}
 
 	async function handleSave() {
@@ -24,8 +40,15 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && modelSettingsStore.isOpen && !modelSettingsStore.upgradeModalOpen) {
-			handleClose();
+		if (!modelSettingsStore.isOpen) return;
+
+		if (e.key === 'Escape') {
+			if (modelSettingsStore.upgradeModalOpen) return;
+			if (showDiscardConfirm) {
+				showDiscardConfirm = false;
+			} else {
+				requestClose();
+			}
 		}
 	}
 </script>
@@ -35,16 +58,25 @@
 {#if modelSettingsStore.isOpen}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="modal-backdrop" onclick={handleClose} transition:fade={{ duration: 150 }}></div>
-	<div class="modal-window" transition:fly={{ y: -16, duration: 220, easing: cubicOut }}>
+	<div class="modal-backdrop" onclick={requestClose} transition:fade={{ duration: 150 }}></div>
+
+	<div
+		class="modal-window"
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="model-settings-title"
+		transition:fly={{ y: -16, duration: 220, easing: cubicOut }}
+	>
 		<!-- Header -->
 		<div class="modal-header">
 			<div class="header-main">
-				<div class="title-row">
-					<span class="header-icon">⚙️</span>
-					<h3>Modelli e Ruoli OMP</h3>
-				</div>
-				<span class="header-desc">Configurazione dei ruoli operativi, catene di fallback, catalogo e provider</span>
+				<h3 id="model-settings-title" class="title-row">
+					<svg class="header-icon" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3">
+						<circle cx="8" cy="8" r="2.5" />
+						<path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
+					</svg>
+					<span>Modelli e Ruoli OMP</span>
+				</h3>
 			</div>
 
 			<div class="header-actions">
@@ -53,49 +85,68 @@
 					class:spinning={modelSettingsStore.isCheckingUpgrades}
 					disabled={modelSettingsStore.isCheckingUpgrades}
 					onclick={handleCheckUpgrades}
-					title="Verifica se sono disponibili nuove versioni dei modelli per i ruoli utilizzati"
+					title="Verifica se sono disponibili nuove versioni per i modelli configurati"
 				>
-					<span>{modelSettingsStore.isCheckingUpgrades ? 'Verifica...' : '🔍 Controlla Nuove Versioni'}</span>
+					<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">
+						<circle cx="7" cy="7" r="4.5" />
+						<path d="M10.5 10.5L14 14" stroke-linecap="round" />
+					</svg>
+					<span>{modelSettingsStore.isCheckingUpgrades ? 'Verifica...' : 'Verifica Versioni'}</span>
 				</button>
 
 				<button
 					class="btn-header-action restart-action"
 					onclick={handleRestart}
-					title="Riavvia le sessioni OMP nei progetti aperti per applicare le modifiche ai ruoli"
+					title="Riavvia le sessioni OMP aperte per applicare le configurazioni"
 				>
-					<span>⚡ Riavvia OMP</span>
+					<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">
+						<path d="M2 8a6 6 0 1 1 1.8 4.2M2 8V4.5M2 8h3.5" stroke-linecap="round" stroke-linejoin="round" />
+					</svg>
+					<span>Riavvia OMP</span>
 				</button>
 
-				<button class="btn-close" onclick={handleClose}>×</button>
+				<button class="btn-close" onclick={requestClose} aria-label="Chiudi finestra">×</button>
 			</div>
 		</div>
 
 		<!-- Nav Tabs -->
-		<div class="modal-nav">
+		<div class="modal-nav" role="tablist" aria-label="Sezioni impostazioni modelli">
 			<button
 				class="nav-tab"
+				role="tab"
+				aria-selected={modelSettingsStore.activeTab === 'roles'}
+				aria-controls="panel-roles"
+				id="tab-roles"
 				class:active={modelSettingsStore.activeTab === 'roles'}
 				onclick={() => modelSettingsStore.activeTab = 'roles'}
 			>
-				<span>🎯</span> Ruoli & Fallback
+				Ruoli & Fallback
 			</button>
 			<button
 				class="nav-tab"
+				role="tab"
+				aria-selected={modelSettingsStore.activeTab === 'catalog'}
+				aria-controls="panel-catalog"
+				id="tab-catalog"
 				class:active={modelSettingsStore.activeTab === 'catalog'}
 				onclick={() => modelSettingsStore.activeTab = 'catalog'}
 			>
-				<span>📚</span> Catalogo ({modelSettingsStore.catalog.length})
+				Catalogo ({modelSettingsStore.catalog.length})
 			</button>
 			<button
 				class="nav-tab"
+				role="tab"
+				aria-selected={modelSettingsStore.activeTab === 'providers'}
+				aria-controls="panel-providers"
+				id="tab-providers"
 				class:active={modelSettingsStore.activeTab === 'providers'}
 				onclick={() => modelSettingsStore.activeTab = 'providers'}
 			>
-				<span>🔌</span> Provider & Custom
+				Provider & Custom
 			</button>
 		</div>
 
-		<!-- Content -->
+		<!-- Content Body -->
 		<div class="modal-body">
 			{#if modelSettingsStore.loading}
 				<div class="loading-state">
@@ -103,11 +154,17 @@
 					<span>Caricamento configurazione modelli OMP...</span>
 				</div>
 			{:else if modelSettingsStore.activeTab === 'roles'}
-				<RolesTab />
+				<div id="panel-roles" role="tabpanel" aria-labelledby="tab-roles" class="tab-panel">
+					<RolesTab />
+				</div>
 			{:else if modelSettingsStore.activeTab === 'catalog'}
-				<CatalogTab />
+				<div id="panel-catalog" role="tabpanel" aria-labelledby="tab-catalog" class="tab-panel">
+					<CatalogTab />
+				</div>
 			{:else if modelSettingsStore.activeTab === 'providers'}
-				<ProvidersTab />
+				<div id="panel-providers" role="tabpanel" aria-labelledby="tab-providers" class="tab-panel">
+					<ProvidersTab />
+				</div>
 			{/if}
 		</div>
 
@@ -120,7 +177,8 @@
 					</span>
 				{:else if modelSettingsStore.hasUnsavedChanges}
 					<span class="unsaved-badge">
-						● Modifiche non salvate
+						<span class="unsaved-dot"></span>
+						<span>Modifiche non salvate</span>
 					</span>
 				{/if}
 			</div>
@@ -135,7 +193,7 @@
 						Reimposta
 					</button>
 				{/if}
-				<button class="btn btn-secondary" onclick={handleClose}>Chiudi</button>
+				<button class="btn btn-secondary" onclick={requestClose}>Chiudi</button>
 				<button
 					class="btn btn-primary"
 					disabled={!modelSettingsStore.hasUnsavedChanges || modelSettingsStore.saving}
@@ -149,6 +207,20 @@
 				</button>
 			</div>
 		</div>
+
+		<!-- Dialog di conferma scarto modifiche -->
+		{#if showDiscardConfirm}
+			<div class="confirm-overlay" transition:fade={{ duration: 100 }}>
+				<div class="confirm-box" transition:fly={{ y: -8, duration: 150 }}>
+					<h4>Scartare le modifiche non salvate?</h4>
+					<p>Hai apportato modifiche alla configurazione che andranno perse se chiudi ora.</p>
+					<div class="confirm-actions">
+						<button class="btn btn-secondary" onclick={cancelDiscard}>Continua a modificare</button>
+						<button class="btn btn-primary" onclick={forceClose}>Scarta e chiudi</button>
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Modal secondario per approvazione version bump -->
@@ -159,7 +231,8 @@
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: var(--backdrop);
+		background: color-mix(in srgb, var(--bg-base) 80%, black);
+		opacity: 0.75;
 		z-index: var(--z-dialog);
 	}
 
@@ -171,10 +244,10 @@
 		width: 900px;
 		max-width: 95vw;
 		height: 85vh;
-		max-height: 720px;
+		max-height: 740px;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-xl);
+		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		z-index: calc(var(--z-dialog) + 1);
 		display: flex;
@@ -186,84 +259,59 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-3) var(--space-4);
+		padding: var(--space-2) var(--space-4);
 		border-bottom: 1px solid var(--line);
 		background: var(--bg-raised);
 		gap: var(--space-3);
+		min-height: 48px;
 	}
 
 	.header-main {
 		display: flex;
-		flex-direction: column;
-		gap: 2px;
+		align-items: center;
 		min-width: 0;
 	}
 
 	.title-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-	}
-
-	.header-icon {
-		font-size: 16px;
-	}
-
-	.title-row h3 {
+		gap: var(--space-2);
 		margin: 0;
 		font-size: var(--text-md);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
-	.header-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+	.header-icon {
+		color: var(--ink-muted);
+		flex-shrink: 0;
 	}
 
 	.header-actions {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		flex-shrink: 0;
 	}
 
 	.btn-header-action {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-weight: 500;
-		padding: 5px 10px;
-		cursor: pointer;
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		transition: all 0.15s ease;
+		gap: 6px;
+		padding: 4px 10px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		background: var(--bg-base);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		cursor: pointer;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.btn-header-action:hover:not(:disabled) {
-		border-color: var(--line-strong);
 		background: var(--bg-hover);
-	}
-
-	.btn-header-action.upgrade-action {
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
-		color: var(--brand-ink);
-	}
-
-	.btn-header-action.upgrade-action:hover:not(:disabled) {
-		border-color: var(--brand);
-		background: var(--brand-dim);
-	}
-
-	.btn-header-action.restart-action:hover {
-		border-color: var(--warn, #f59e0b);
-		color: var(--warn, #f59e0b);
+		color: var(--ink);
+		border-color: var(--line-strong);
 	}
 
 	.btn-header-action:disabled {
@@ -271,61 +319,88 @@
 		cursor: not-allowed;
 	}
 
+	.btn-header-action.spinning svg {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
 	.btn-close {
+		width: 28px;
+		height: 28px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		background: transparent;
 		border: none;
-		font-size: 20px;
-		color: var(--ink-faint);
-		cursor: pointer;
+		color: var(--ink-muted);
+		font-size: 18px;
 		line-height: 1;
-		padding: 4px 6px;
 		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: background var(--dur-fast), color var(--dur-fast);
 	}
 
 	.btn-close:hover {
-		color: var(--ink);
 		background: var(--bg-hover);
+		color: var(--ink);
 	}
 
 	.modal-nav {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
 		padding: 0 var(--space-4);
 		border-bottom: 1px solid var(--line);
 		background: var(--bg-raised);
+		gap: var(--space-1);
 	}
 
 	.nav-tab {
-		background: transparent;
-		border: none;
-		border-bottom: 2px solid transparent;
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		padding: 8px var(--space-3);
-		cursor: pointer;
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 6px;
-		transition: color 0.15s ease, border-color 0.15s ease;
+		padding: var(--space-2) var(--space-3);
+		border: none;
+		background: transparent;
+		color: var(--ink-muted);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		font-family: var(--font-ui);
+		cursor: pointer;
+		position: relative;
+		transition: color var(--dur-fast);
 	}
 
 	.nav-tab:hover {
-		color: var(--ink-muted);
+		color: var(--ink);
 	}
 
 	.nav-tab.active {
 		color: var(--ink);
-		border-bottom-color: var(--brand);
+		font-weight: 600;
+	}
+
+	.nav-tab.active::after {
+		content: '';
+		position: absolute;
+		bottom: -1px;
+		left: var(--space-3);
+		right: var(--space-3);
+		height: 2px;
+		background: var(--brand);
 	}
 
 	.modal-body {
 		flex: 1;
-		min-height: 0;
 		overflow-y: auto;
-		padding: 0 var(--space-4);
-		background: var(--bg-overlay);
+		background: var(--bg-base);
+		position: relative;
+	}
+
+	.tab-panel {
+		height: 100%;
 	}
 
 	.loading-state {
@@ -334,56 +409,37 @@
 		align-items: center;
 		justify-content: center;
 		gap: var(--space-3);
-		padding: var(--space-8) 0;
-		color: var(--ink-faint);
+		height: 100%;
+		min-height: 240px;
+		color: var(--ink-muted);
 		font-size: var(--text-sm);
 	}
 
 	.spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid var(--line);
+		width: 22px;
+		height: 22px;
+		border: 2px solid var(--line-strong);
 		border-top-color: var(--brand);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
 	}
 
 	.modal-footer {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-3) var(--space-4);
+		padding: var(--space-2) var(--space-4);
 		border-top: 1px solid var(--line);
 		background: var(--bg-raised);
+		min-height: 48px;
 		gap: var(--space-3);
 	}
 
 	.footer-left {
 		display: flex;
 		align-items: center;
+		gap: var(--space-2);
 		min-width: 0;
-		flex: 1;
-	}
-
-	.status-toast {
-		font-size: var(--text-xs);
-		font-weight: 500;
-		color: var(--brand-ink);
-		background: var(--brand-dim);
-		padding: 3px 8px;
-		border-radius: var(--radius-sm);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
-	}
-
-	.unsaved-badge {
-		font-size: var(--text-xs);
-		color: var(--warn, #f59e0b);
-		font-weight: 500;
 	}
 
 	.footer-right {
@@ -393,38 +449,110 @@
 		flex-shrink: 0;
 	}
 
+	.unsaved-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+	}
+
+	.unsaved-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--brand);
+	}
+
+	.status-toast {
+		font-size: var(--text-xs);
+		color: var(--ink);
+		background: var(--bg-hover);
+		padding: 3px 8px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+	}
+
 	.btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		padding: 6px 14px;
 		border-radius: var(--radius-md);
 		font-size: var(--text-sm);
 		font-weight: 500;
+		font-family: var(--font-ui);
 		cursor: pointer;
 		border: 1px solid transparent;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+	}
+
+	.btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.btn-secondary {
-		background: var(--bg-sunken);
-		border-color: var(--line);
+		background: var(--bg-hover);
 		color: var(--ink);
+		border-color: var(--line);
 	}
 
 	.btn-secondary:hover:not(:disabled) {
-		background: var(--bg-hover);
+		background: var(--bg-active);
 		border-color: var(--line-strong);
 	}
 
 	.btn-primary {
 		background: var(--brand);
-		color: var(--on-brand);
+		color: var(--on-project, #ffffff);
 	}
 
 	.btn-primary:hover:not(:disabled) {
-		filter: brightness(1.1);
+		filter: brightness(1.08);
 	}
 
-	.btn:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
+	.confirm-overlay {
+		position: absolute;
+		inset: 0;
+		background: color-mix(in srgb, var(--bg-base) 85%, black);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 50;
+	}
+
+	.confirm-box {
+		width: 400px;
+		max-width: 90%;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg);
+		padding: var(--space-4);
+		box-shadow: var(--shadow-overlay);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+	}
+
+	.confirm-box h4 {
+		margin: 0;
+		font-size: var(--text-md);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.confirm-box p {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--ink-muted);
+		line-height: 1.4;
+	}
+
+	.confirm-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: var(--space-2);
+		margin-top: var(--space-1);
 	}
 </style>

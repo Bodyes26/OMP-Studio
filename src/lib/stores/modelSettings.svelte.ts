@@ -76,24 +76,24 @@ export interface ModelUpgradeCandidate {
 }
 
 export const STANDARD_ROLES = [
-	{ id: 'default', label: 'Default / Chat', desc: 'Modello principale per la conversazione e le attività standard', icon: '🎯' },
-	{ id: 'plan', label: 'Architectural Plan', desc: 'Modello per la pianificazione e analisi prima dell\'esecuzione', icon: '📋' },
-	{ id: 'smol', label: 'Smol (Fast)', desc: 'Modello ultra-veloce ed economico per task leggeri e prewalk', icon: '⚡' },
-	{ id: 'slow', label: 'Slow (Reasoning)', desc: 'Modello per ragionamenti complessi e analisi architetturali profonde', icon: '🧠' },
-	{ id: 'vision', label: 'Vision / Images', desc: 'Modello con supporto visivo usato dal tool inspect_image', icon: '👁️' },
-	{ id: 'task', label: 'Task Subagents', desc: 'Modello predefinito per subagenti delegati in parallelo', icon: '🤖' },
-	{ id: 'commit', label: 'Git Commit', desc: 'Modello per la scrittura automatica di commit e changelog', icon: '📝' },
-	{ id: 'advisor', label: 'Advisor (Reviewer)', desc: 'Modello revisore passivo affiancato durante la sessione (opzionale)', icon: '🦉' }
+	{ id: 'default', label: 'Default / Chat', desc: 'Modello principale per conversazione e attivita generali' },
+	{ id: 'plan', label: 'Architectural Plan', desc: 'Modello per pianificazione e analisi architetturale' },
+	{ id: 'smol', label: 'Smol (Fast)', desc: 'Modello ultra-rapido per compiti leggeri, esplorazione e scouting' },
+	{ id: 'slow', label: 'Slow (Reasoning)', desc: 'Modello per ragionamenti complessi e deduzioni approfondite' },
+	{ id: 'vision', label: 'Vision / Images', desc: 'Modello multimodale per ispezione e comprensione immagini' },
+	{ id: 'task', label: 'Task Subagents', desc: 'Modello delegato per subagenti ed esecuzioni parallele' },
+	{ id: 'commit', label: 'Git Commit', desc: 'Modello per generazione messaggi di commit e changelog' },
+	{ id: 'advisor', label: 'Advisor (Reviewer)', desc: 'Modello di revisione e controllo passivo di qualita' }
 ] as const;
 
 export const THINKING_LEVELS = [
-	{ id: 'auto', label: 'Auto (Consigliato)' },
+	{ id: 'auto', label: 'Auto (Predefinito)' },
 	{ id: 'minimal', label: 'Minimal (1k)' },
 	{ id: 'low', label: 'Low (2k)' },
 	{ id: 'medium', label: 'Medium (8k)' },
 	{ id: 'high', label: 'High (16k)' },
 	{ id: 'xhigh', label: 'Extra High (32k)' },
-	{ id: 'max', label: 'Max (Massimo consentito)' },
+	{ id: 'max', label: 'Max (Consentito)' },
 	{ id: 'off', label: 'Off (Disabilitato)' }
 ] as const;
 
@@ -110,6 +110,7 @@ class ModelSettingsStore {
 	draftConfig = $state<ModelConfigDto | null>(null);
 	catalog = $state<ModelDto[]>([]);
 	customProviders = $state<Record<string, CustomProviderDef>>({});
+	draftCustomProviders = $state<Record<string, CustomProviderDef>>({});
 	authProviders = $state<AuthProviderSummary[]>([]);
 	
 	upgradeCandidates = $state<ModelUpgradeCandidate[]>([]);
@@ -119,13 +120,15 @@ class ModelSettingsStore {
 
 	hasUnsavedChanges = $derived.by(() => {
 		if (!this.config || !this.draftConfig) return false;
-		return JSON.stringify(this.config) !== JSON.stringify(this.draftConfig);
+		const cfgChanged = JSON.stringify(this.config) !== JSON.stringify(this.draftConfig);
+		const customChanged = JSON.stringify(this.customProviders) !== JSON.stringify(this.draftCustomProviders);
+		return cfgChanged || customChanged;
 	});
 
 	openModal(tab: 'roles' | 'catalog' | 'providers' = 'roles') {
 		this.activeTab = tab;
 		this.isOpen = true;
-		this.loadAll();
+		void this.loadAll();
 	}
 
 	closeModal() {
@@ -155,6 +158,7 @@ class ModelSettingsStore {
 			this.draftConfig = JSON.parse(JSON.stringify(cfg));
 			this.catalog = cat;
 			this.customProviders = custom.providers || {};
+			this.draftCustomProviders = JSON.parse(JSON.stringify(custom.providers || {}));
 			this.authProviders = auth;
 		} catch (e) {
 			console.error('Failed to load model settings:', e);
@@ -168,9 +172,25 @@ class ModelSettingsStore {
 		if (!this.draftConfig) return false;
 		this.saving = true;
 		try {
-			await invoke('save_model_config', { config: this.draftConfig });
-			this.config = JSON.parse(JSON.stringify(this.draftConfig));
-			this.showToast('Configurazione modelli salvata con successo ✓');
+			const cfgChanged = JSON.stringify(this.config) !== JSON.stringify(this.draftConfig);
+			const customChanged = JSON.stringify(this.customProviders) !== JSON.stringify(this.draftCustomProviders);
+
+			if (cfgChanged) {
+				await invoke('save_model_config', { config: this.draftConfig });
+				this.config = JSON.parse(JSON.stringify(this.draftConfig));
+			}
+
+			if (customChanged) {
+				await invoke('save_custom_providers', { data: { providers: this.draftCustomProviders } });
+				this.customProviders = JSON.parse(JSON.stringify(this.draftCustomProviders));
+			}
+
+			if (customChanged || cfgChanged) {
+				const cat = await invoke<ModelDto[]>('refresh_models_catalog');
+				this.catalog = cat;
+			}
+
+			this.showToast('Configurazione modelli salvata');
 			return true;
 		} catch (e) {
 			console.error('Failed to save model config:', e);
@@ -186,7 +206,7 @@ class ModelSettingsStore {
 		try {
 			const cat = await invoke<ModelDto[]>('refresh_models_catalog');
 			this.catalog = cat;
-			this.showToast(`Catalogo aggiornato con ${cat.length} modelli disponibili ✓`);
+			this.showToast(`Catalogo aggiornato (${cat.length} modelli)`);
 		} catch (e) {
 			console.error('Failed to refresh models catalog:', e);
 			this.showToast(`Errore aggiornamento catalogo: ${e}`);
@@ -195,18 +215,45 @@ class ModelSettingsStore {
 		}
 	}
 
-	async saveCustomProviders(providers: Record<string, CustomProviderDef>) {
-		try {
-			await invoke('save_custom_providers', { data: { providers } });
-			this.customProviders = providers;
-			await this.refreshCatalog();
-			this.showToast('Provider personalizzati salvati ✓');
-			return true;
-		} catch (e) {
-			console.error('Failed to save custom providers:', e);
-			this.showToast(`Errore: ${e}`);
-			return false;
-		}
+	// Metodi per modificare draftCustomProviders
+	setDraftCustomProvider(name: string, def: CustomProviderDef) {
+		this.draftCustomProviders = {
+			...this.draftCustomProviders,
+			[name]: JSON.parse(JSON.stringify(def))
+		};
+	}
+
+	deleteDraftCustomProvider(name: string) {
+		const updated = { ...this.draftCustomProviders };
+		delete updated[name];
+		this.draftCustomProviders = updated;
+	}
+
+	addDraftCustomModel(providerName: string, model: CustomModelDef) {
+		const prov = this.draftCustomProviders[providerName];
+		if (!prov) return;
+		const updatedModels = [...prov.models, { ...model }];
+		this.draftCustomProviders = {
+			...this.draftCustomProviders,
+			[providerName]: {
+				...prov,
+				models: updatedModels
+			}
+		};
+	}
+
+	deleteDraftCustomModel(providerName: string, modelIndex: number) {
+		const prov = this.draftCustomProviders[providerName];
+		if (!prov) return;
+		const updatedModels = [...prov.models];
+		updatedModels.splice(modelIndex, 1);
+		this.draftCustomProviders = {
+			...this.draftCustomProviders,
+			[providerName]: {
+				...prov,
+				models: updatedModels
+			}
+		};
 	}
 
 	async checkUpgrades() {
@@ -218,12 +265,12 @@ class ModelSettingsStore {
 			if (candidates.length > 0) {
 				this.upgradeModalOpen = true;
 			} else {
-				this.showToast('Tutti i modelli utilizzati sono già aggiornati all\'ultima versione ✓');
+				this.showToast('I modelli utilizzati sono aggiornati alla versione piu recente');
 			}
 			return candidates;
 		} catch (e) {
 			console.error('Failed to check model upgrades:', e);
-			this.showToast(`Errore verifica aggiornamenti: ${e}`);
+			this.showToast(`Errore verifica versioni: ${e}`);
 			return [];
 		} finally {
 			this.isCheckingUpgrades = false;
@@ -242,7 +289,7 @@ class ModelSettingsStore {
 			await invoke('apply_model_upgrades', { updates });
 			await this.loadAll();
 			this.upgradeModalOpen = false;
-			this.showToast(`Aggiornati ${updates.length} ruoli alla versione più recente ✓`);
+			this.showToast(`Aggiornati ${updates.length} ruoli alla versione suggerita`);
 		} catch (e) {
 			console.error('Failed to apply model upgrades:', e);
 			this.showToast(`Errore applicazione aggiornamenti: ${e}`);
@@ -253,7 +300,7 @@ class ModelSettingsStore {
 
 	restartOmpSessions(targetCwd?: string) {
 		restartOmpTerminals(targetCwd);
-		this.showToast('Processi OMP riavviati con le nuove configurazioni ✓');
+		this.showToast('Sessioni OMP riavviate');
 	}
 
 	// Utility di modifica draftConfig
@@ -349,6 +396,9 @@ class ModelSettingsStore {
 	resetDraft() {
 		if (this.config) {
 			this.draftConfig = JSON.parse(JSON.stringify(this.config));
+		}
+		if (this.customProviders) {
+			this.draftCustomProviders = JSON.parse(JSON.stringify(this.customProviders));
 		}
 	}
 }

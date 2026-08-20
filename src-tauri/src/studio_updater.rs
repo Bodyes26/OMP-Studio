@@ -594,25 +594,39 @@ pub async fn install_studio_update_and_restart(
         use std::process::Command;
         use std::os::windows::process::CommandExt;
 
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         const DETACHED_PROCESS: u32 = 0x00000008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
-        let mut cmd = Command::new(&installer_path);
-        // Eseguiamo l'installer in modo completamente indipendente e distaccato dal processo genitore
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        let current_exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("OMP Studio.exe"));
 
-        // Se l'installer e' un MSI
-        if installer_path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("msi")).unwrap_or(false) {
-            let mut msi_cmd = Command::new("msiexec.exe");
-            msi_cmd.arg("/i").arg(&installer_path);
-            msi_cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-            msi_cmd.spawn().map_err(|e| format!("Impossibile avviare msiexec: {}", e))?;
+        let is_msi = installer_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("msi"))
+            .unwrap_or(false);
+
+        let cmd_string = if is_msi {
+            format!(
+                "msiexec.exe /i \"{}\" /passive /norestart & start \"\" \"{}\"",
+                installer_path.display(),
+                current_exe.display()
+            )
         } else {
-            // Esegui l'installer EXE (NSIS di Tauri)
-            cmd.spawn().map_err(|e| format!("Impossibile avviare l'installer: {}", e))?;
-        }
+            // NSIS setup EXE: /S esegue l'installazione in modalita' silenziosa senza wizard
+            format!(
+                "start \"\" /wait \"{}\" /S & start \"\" \"{}\"",
+                installer_path.display(),
+                current_exe.display()
+            )
+        };
 
-        // Breve pausa per essere certi che il processo installer sia stato creato
+        let mut cmd = Command::new("cmd.exe");
+        cmd.raw_arg(format!("/C \"{}\"", cmd_string));
+        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        cmd.spawn().map_err(|e| format!("Impossibile avviare il processo di aggiornamento: {}", e))?;
+
+        // Breve pausa per essere certi che il processo installer sia stato avviato
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Chiude l'applicazione per rilasciare i file lock di OMP Studio.exe

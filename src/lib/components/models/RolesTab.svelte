@@ -2,8 +2,7 @@
 	import {
 		modelSettingsStore,
 		STANDARD_ROLES,
-		THINKING_LEVELS,
-		type ModelDto
+		THINKING_LEVELS
 	} from '$lib/stores/modelSettings.svelte';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import { slide } from 'svelte/transition';
@@ -57,16 +56,23 @@
 		order.splice(toIndex, 0, item);
 		modelSettingsStore.setCycleOrder(order);
 	}
+
+	function getRoleAbbr(id: string): string {
+		switch (id) {
+			case 'default': return 'CH';
+			case 'plan': return 'PL';
+			case 'smol': return 'SM';
+			case 'slow': return 'SL';
+			case 'vision': return 'VI';
+			case 'task': return 'TS';
+			case 'commit': return 'CM';
+			case 'advisor': return 'AD';
+			default: return id.slice(0, 2).toUpperCase();
+		}
+	}
 </script>
 
 <div class="roles-tab">
-	<div class="section-intro">
-		<div class="intro-text">
-			<h4>Assegnazione Ruoli e Fallback</h4>
-			<p>Configura il modello primario, il livello di reasoning e la catena di emergenza per ciascun ruolo operativo di OMP.</p>
-		</div>
-	</div>
-
 	<div class="roles-grid">
 		{#each STANDARD_ROLES as role (role.id)}
 			{@const currentSelector = getRoleSelector(role.id)}
@@ -74,22 +80,22 @@
 			{@const currentThinking = getRoleThinking(role.id)}
 			{@const fallbacks = getFallbacks(role.id)}
 			{@const isExpanded = expandedFallbacks[role.id]}
-			{@const modelObj = modelSettingsStore.catalog.find(m => m.selector === rawModel)}
 
 			<div class="role-card" class:unconfigured={!currentSelector}>
 				<div class="role-header">
 					<div class="role-info">
-						<span class="role-icon">{role.icon}</span>
+						<span class="role-badge">{getRoleAbbr(role.id)}</span>
 						<div class="role-titles">
 							<div class="role-name-row">
 								<span class="role-name">{role.label}</span>
-								<span class="role-id-badge">role: {role.id}</span>
+								<span class="role-id-badge">{role.id}</span>
 							</div>
 							<span class="role-desc">{role.desc}</span>
 						</div>
 					</div>
 					{#if currentSelector}
 						<button
+							type="button"
 							class="clear-role-btn"
 							onclick={() => modelSettingsStore.removeRole(role.id)}
 							title="Rimuovi configurazione per questo ruolo"
@@ -102,7 +108,7 @@
 				<div class="role-body">
 					<div class="control-row">
 						<div class="picker-wrapper">
-							<span class="control-label">Modello Principale</span>
+							<label class="control-label" for="picker-{role.id}">Modello Principale</label>
 							<ModelPickerDropdown
 								catalog={modelSettingsStore.catalog}
 								value={rawModel}
@@ -112,8 +118,9 @@
 						</div>
 
 						<div class="thinking-wrapper">
-							<span class="control-label">Reasoning / Thinking</span>
+							<label class="control-label" for="thinking-{role.id}">Reasoning</label>
 							<select
+								id="thinking-{role.id}"
 								class="thinking-select"
 								value={currentThinking}
 								onchange={(e) => handleThinkingChange(role.id, e.currentTarget.value)}
@@ -132,10 +139,23 @@
 							class="fallback-toggle-btn"
 							onclick={() => toggleFallbackExpand(role.id)}
 						>
-							<span class="fb-toggle-icon" class:rotated={isExpanded}>▶</span>
+							<svg
+								class="fb-toggle-icon"
+								class:rotated={isExpanded}
+								viewBox="0 0 16 16"
+								width="11"
+								height="11"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.6"
+							>
+								<path d="M6 3.5l4.5 4.5-4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
+							</svg>
 							<span class="fb-toggle-label">
 								Catena di Fallback
-								<span class="fb-count-badge">{fallbacks.length}</span>
+								{#if fallbacks.length > 0}
+									<span class="fb-count-badge">{fallbacks.length}</span>
+								{/if}
 							</span>
 							{#if fallbacks.length > 0 && !isExpanded}
 								<span class="fb-preview-chips">
@@ -150,7 +170,7 @@
 						</button>
 
 						{#if isExpanded}
-							<div class="fallback-content" transition:slide={{ duration: 180 }}>
+							<div class="fallback-content" transition:slide={{ duration: 160 }}>
 								{#if fallbacks.length > 0}
 									<div class="fallback-list">
 										{#each fallbacks as fb, idx (fb + idx)}
@@ -162,27 +182,36 @@
 												</div>
 												<div class="fb-actions">
 													<button
+														type="button"
 														class="fb-action-btn"
 														disabled={idx === 0}
 														onclick={() => modelSettingsStore.moveFallback(role.id, idx, idx - 1)}
 														title="Sposta prima"
 													>
-														▲
+														<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+															<path d="M3.5 10L8 5.5l4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
+														</svg>
 													</button>
 													<button
+														type="button"
 														class="fb-action-btn"
 														disabled={idx === fallbacks.length - 1}
 														onclick={() => modelSettingsStore.moveFallback(role.id, idx, idx + 1)}
 														title="Sposta dopo"
 													>
-														▼
+														<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+															<path d="M3.5 6L8 10.5l4.5-4.5" stroke-linecap="round" stroke-linejoin="round" />
+														</svg>
 													</button>
 													<button
+														type="button"
 														class="fb-action-btn delete"
 														onclick={() => modelSettingsStore.removeFallback(role.id, idx)}
 														title="Elimina fallback"
 													>
-														✕
+														<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+															<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
+														</svg>
 													</button>
 												</div>
 											</div>
@@ -190,7 +219,7 @@
 									</div>
 								{:else}
 									<div class="empty-fallback-hint">
-										Nessun modello di riserva configurato. Se il provider principale va in rate-limit, la richiesta fallirà.
+										Nessun modello di riserva. Se il provider principale va in rate-limit, la richiesta fallirà.
 									</div>
 								{/if}
 
@@ -202,7 +231,7 @@
 												placeholder="Scegli modello di riserva..."
 												onSelect={(sel) => handleAddFallbackSelect(role.id, sel)}
 											/>
-											<button class="btn-cancel-add" onclick={() => addingFallbackForRole = null}>Annulla</button>
+											<button type="button" class="btn-cancel-add" onclick={() => addingFallbackForRole = null}>Annulla</button>
 										</div>
 									{:else}
 										<button
@@ -226,32 +255,44 @@
 	{#if modelSettingsStore.draftConfig?.cycleOrder}
 		<div class="cycle-order-card">
 			<div class="cycle-header">
-				<span class="cycle-title">🔄 Sequenza di Ciclo Rapido (Ctrl+P)</span>
-				<span class="cycle-subtitle">Ordine con cui OMP alterna i ruoli alla pressione di Ctrl+P nel terminale</span>
+				<div class="cycle-title-row">
+					<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
+						<path d="M2 8a6 6 0 0 1 10.2-4.2M14 8a6 6 0 0 1-10.2 4.2" stroke-linecap="round" />
+						<path d="M12.5 1v3h-3M3.5 15v-3h3" stroke-linecap="round" stroke-linejoin="round" />
+					</svg>
+					<span class="cycle-title">Sequenza Ciclo Rapido (Ctrl+P)</span>
+				</div>
+				<span class="cycle-subtitle">Ordine di alternanza dei ruoli nel terminale</span>
 			</div>
 			<div class="cycle-list">
 				{#each modelSettingsStore.draftConfig.cycleOrder as roleName, idx (roleName)}
 					{@const roleMeta = STANDARD_ROLES.find(r => r.id === roleName)}
 					<div class="cycle-item">
 						<span class="cycle-num">{idx + 1}</span>
-						<span class="cycle-icon">{roleMeta?.icon || '•'}</span>
+						<span class="cycle-badge">{getRoleAbbr(roleName)}</span>
 						<span class="cycle-name">{roleMeta?.label || roleName}</span>
 						<div class="cycle-arrows">
 							<button
+								type="button"
 								class="cycle-btn"
 								disabled={idx === 0}
 								onclick={() => moveCycleItem(idx, idx - 1)}
 								title="Sposta prima"
 							>
-								◀
+								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+									<path d="M10 3.5L5.5 8l4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
+								</svg>
 							</button>
 							<button
+								type="button"
 								class="cycle-btn"
 								disabled={idx === (modelSettingsStore.draftConfig?.cycleOrder.length || 0) - 1}
 								onclick={() => moveCycleItem(idx, idx + 1)}
 								title="Sposta dopo"
 							>
-								▶
+								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+									<path d="M6 3.5L10.5 8 6 12.5" stroke-linecap="round" stroke-linejoin="round" />
+								</svg>
 							</button>
 						</div>
 					</div>
@@ -266,28 +307,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
-		padding: var(--space-2) 0;
-	}
-
-	.section-intro {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		border-bottom: 1px solid var(--line);
-		padding-bottom: var(--space-3);
-	}
-
-	.intro-text h4 {
-		margin: 0 0 2px 0;
-		font-size: var(--text-md);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.intro-text p {
-		margin: 0;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		padding: var(--space-3) var(--space-4);
 	}
 
 	.roles-grid {
@@ -304,7 +324,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
-		transition: border-color 0.15s ease;
+		transition: border-color var(--dur-fast);
 	}
 
 	.role-card:hover {
@@ -313,7 +333,6 @@
 
 	.role-card.unconfigured {
 		opacity: 0.85;
-		border-style: dashed;
 	}
 
 	.role-header {
@@ -328,24 +347,36 @@
 		align-items: flex-start;
 		gap: var(--space-2);
 		min-width: 0;
-		flex: 1;
 	}
 
-	.role-icon {
-		font-size: 18px;
-		line-height: 1.2;
+	.role-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		border-radius: var(--radius-sm);
+		background: var(--bg-hover);
+		border: 1px solid var(--line);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink);
+		flex-shrink: 0;
 	}
 
 	.role-titles {
 		display: flex;
 		flex-direction: column;
+		gap: 2px;
 		min-width: 0;
 	}
 
 	.role-name-row {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-2);
+		flex-wrap: wrap;
 	}
 
 	.role-name {
@@ -355,35 +386,37 @@
 	}
 
 	.role-id-badge {
-		font-size: 10px;
 		font-family: var(--font-mono);
-		padding: 0 4px;
+		font-size: 10px;
+		padding: 1px 5px;
 		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
+		background: var(--bg-hover);
 		color: var(--ink-faint);
+		border: 1px solid var(--line);
 	}
 
 	.role-desc {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		line-height: 1.35;
 	}
 
 	.clear-role-btn {
 		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		font-size: 11px;
-		cursor: pointer;
-		padding: 2px 6px;
+		border: 1px solid var(--line);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		padding: 2px 7px;
 		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.clear-role-btn:hover {
-		color: var(--danger, #ef4444);
 		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line-strong);
 	}
 
 	.role-body {
@@ -395,44 +428,46 @@
 	.control-row {
 		display: flex;
 		gap: var(--space-2);
+		align-items: flex-end;
 	}
 
 	.picker-wrapper {
 		flex: 1;
-		min-width: 0;
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
+		min-width: 0;
 	}
 
 	.thinking-wrapper {
 		width: 140px;
-		flex-shrink: 0;
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
+		flex-shrink: 0;
 	}
 
 	.control-label {
-		font-size: 10px;
-		font-weight: 600;
+		font-size: 11px;
+		font-weight: 500;
+		color: var(--ink-muted);
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--ink-faint);
+		letter-spacing: 0.04em;
 	}
 
 	.thinking-select {
 		width: 100%;
-		height: 33px;
-		background: var(--bg-sunken);
+		height: 32px;
+		padding: 0 var(--space-2);
+		background: var(--bg-hover);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		padding: 4px 8px;
-		font-family: inherit;
-		font-size: var(--text-xs);
 		color: var(--ink);
-		outline: none;
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
 		cursor: pointer;
+		outline: none;
+		transition: border-color var(--dur-fast);
 	}
 
 	.thinking-select:focus {
@@ -440,36 +475,37 @@
 	}
 
 	.fallback-section {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		border-top: 1px solid var(--line);
+		padding-top: var(--space-2);
+		margin-top: 2px;
 	}
 
 	.fallback-toggle-btn {
-		width: 100%;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: 6px 10px;
 		background: transparent;
 		border: none;
-		color: var(--ink);
-		cursor: pointer;
-		font-family: inherit;
+		padding: 4px 0;
+		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		font-weight: 500;
+		font-family: var(--font-ui);
+		cursor: pointer;
 		text-align: left;
+		transition: color var(--dur-fast);
 	}
 
 	.fallback-toggle-btn:hover {
-		background: var(--bg-hover);
+		color: var(--ink);
 	}
 
 	.fb-toggle-icon {
-		font-size: 9px;
+		transition: transform var(--dur-fast);
 		color: var(--ink-faint);
-		transition: transform 0.15s ease;
+		flex-shrink: 0;
 	}
 
 	.fb-toggle-icon.rotated {
@@ -483,13 +519,13 @@
 	}
 
 	.fb-count-badge {
-		font-size: 10px;
 		font-family: var(--font-mono);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
+		font-size: 10px;
+		background: var(--bg-hover);
 		padding: 0 5px;
-		border-radius: 99px;
-		color: var(--ink-muted);
+		border-radius: var(--radius-full);
+		border: 1px solid var(--line);
+		color: var(--ink);
 	}
 
 	.fb-preview-chips {
@@ -497,23 +533,28 @@
 		align-items: center;
 		gap: 4px;
 		margin-left: auto;
+		overflow: hidden;
 	}
 
 	.fb-preview-chip {
-		font-size: 10px;
 		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--ink-faint);
+		background: var(--bg-hover);
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
-		background: var(--bg-base);
-		color: var(--ink-faint);
+		border: 1px solid var(--line);
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		overflow: hidden;
+		max-width: 110px;
 	}
 
 	.fallback-content {
-		padding: var(--space-2) var(--space-3) var(--space-3) var(--space-3);
-		border-top: 1px solid var(--line);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+		padding-top: var(--space-2);
 	}
 
 	.fallback-list {
@@ -525,67 +566,76 @@
 	.fallback-row {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
 		gap: var(--space-2);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
+		background: var(--bg-hover);
 		padding: 4px 8px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		font-size: var(--text-xs);
 	}
 
 	.fb-order {
-		font-size: 10px;
 		font-family: var(--font-mono);
+		font-size: 10px;
 		color: var(--ink-faint);
-		font-weight: 600;
+		width: 18px;
+		flex-shrink: 0;
 	}
 
 	.fb-model-badge {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		min-width: 0;
 		flex: 1;
+		min-width: 0;
+		overflow: hidden;
 	}
 
 	.fb-provider {
-		font-size: 9px;
 		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--ink-faint);
+		background: var(--bg-base);
 		padding: 1px 4px;
 		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		color: var(--ink-faint);
-		text-transform: lowercase;
+		border: 1px solid var(--line);
+		flex-shrink: 0;
 	}
 
 	.fb-name {
+		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		font-weight: 500;
 		color: var(--ink);
 		white-space: nowrap;
-		overflow: hidden;
 		text-overflow: ellipsis;
+		overflow: hidden;
 	}
 
 	.fb-actions {
 		display: flex;
 		align-items: center;
 		gap: 2px;
+		flex-shrink: 0;
 	}
 
 	.fb-action-btn {
+		width: 20px;
+		height: 20px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		cursor: pointer;
-		font-size: 10px;
-		padding: 3px 5px;
+		border: 1px solid transparent;
+		color: var(--ink-muted);
 		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: background var(--dur-fast), color var(--dur-fast);
 	}
 
 	.fb-action-btn:hover:not(:disabled) {
+		background: var(--bg-active);
 		color: var(--ink);
-		background: var(--bg-hover);
+		border-color: var(--line);
 	}
 
 	.fb-action-btn:disabled {
@@ -594,13 +644,15 @@
 	}
 
 	.fb-action-btn.delete:hover {
-		color: var(--danger, #ef4444);
+		background: var(--bg-active);
+		color: var(--brand-ink);
+		border-color: var(--line-strong);
 	}
 
 	.empty-fallback-hint {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		font-style: italic;
+		line-height: 1.4;
 		padding: 4px 0;
 	}
 
@@ -610,20 +662,21 @@
 
 	.btn-add-fallback {
 		width: 100%;
+		padding: 5px;
 		background: transparent;
 		border: 1px dashed var(--line);
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
-		padding: 5px;
+		font-family: var(--font-ui);
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.btn-add-fallback:hover {
-		border-color: var(--brand);
-		color: var(--ink);
 		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line-strong);
 	}
 
 	.inline-picker-box {
@@ -635,12 +688,11 @@
 	.btn-cancel-add {
 		background: transparent;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		color: var(--ink-faint);
+		color: var(--ink-muted);
+		padding: 4px 8px;
+		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
-		padding: 6px 10px;
 		cursor: pointer;
-		white-space: nowrap;
 	}
 
 	.cycle-order-card {
@@ -650,20 +702,27 @@
 		padding: var(--space-3);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
-		margin-top: var(--space-2);
+		gap: var(--space-2);
 	}
 
 	.cycle-header {
 		display: flex;
-		flex-direction: column;
-		gap: 2px;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+	}
+
+	.cycle-title-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--ink);
 	}
 
 	.cycle-title {
 		font-size: var(--text-sm);
 		font-weight: 600;
-		color: var(--ink);
 	}
 
 	.cycle-subtitle {
@@ -673,62 +732,72 @@
 
 	.cycle-list {
 		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		flex-wrap: wrap;
+		flex-direction: column;
+		gap: 4px;
 	}
 
 	.cycle-item {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
+		gap: var(--space-2);
+		background: var(--bg-hover);
 		padding: 4px 8px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
 		font-size: var(--text-xs);
 	}
 
 	.cycle-num {
 		font-family: var(--font-mono);
-		font-weight: 600;
-		color: var(--ink-faint);
 		font-size: 10px;
+		color: var(--ink-faint);
+		width: 14px;
 	}
 
-	.cycle-icon {
-		font-size: 13px;
+	.cycle-badge {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		color: var(--ink);
+		background: var(--bg-base);
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
 	}
 
 	.cycle-name {
-		font-weight: 500;
+		font-size: var(--text-xs);
 		color: var(--ink);
+		flex: 1;
 	}
 
 	.cycle-arrows {
 		display: flex;
 		align-items: center;
-		gap: 1px;
-		margin-left: 4px;
+		gap: 2px;
 	}
 
 	.cycle-btn {
+		width: 20px;
+		height: 20px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		font-size: 9px;
-		padding: 2px 4px;
+		border: 1px solid transparent;
+		color: var(--ink-muted);
 		border-radius: var(--radius-sm);
 		cursor: pointer;
 	}
 
 	.cycle-btn:hover:not(:disabled) {
+		background: var(--bg-active);
 		color: var(--ink);
-		background: var(--bg-hover);
+		border-color: var(--line);
 	}
 
 	.cycle-btn:disabled {
-		opacity: 0.2;
+		opacity: 0.3;
 		cursor: not-allowed;
 	}
 </style>

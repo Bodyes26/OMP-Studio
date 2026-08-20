@@ -111,4 +111,4 @@ Comandi da eseguire:
   git tag -a v${version} -F .release-notes.md
   git push --follow-tags
   npx tauri build
-  gh release create v${version} "src-tauri/target/release/bundle/nsis/OMP Studio_${version}_x64-setup.exe" "src-tauri/target/release/bundle/msi/OMP Studio_${version}_x64_en-US.msi" --title "v${version}" --notes-file .release-notes.md`);
+  gh release create v${version} "src-tauri/target/release/bundle/nsis/OMP Studio_${version}_x64-setup.exe" --title "v${version}" --notes-file .release-notes.md`);

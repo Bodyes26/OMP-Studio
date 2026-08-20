@@ -1,42 +1,35 @@
 <script lang="ts">
 	import {
 		modelSettingsStore,
-		type CustomProviderDef,
-		type CustomModelDef
+		type CustomProviderDef
 	} from '$lib/stores/modelSettings.svelte';
-	import { slide } from 'svelte/transition';
+	import { slide, fade } from 'svelte/transition';
 
 	const KNOWN_BUILTIN_PROVIDERS = [
-		{ id: 'anthropic', name: 'Anthropic Claude', desc: 'Claude Opus, Sonnet, Haiku', icon: '🟠' },
-		{ id: 'openai-codex', name: 'OpenAI Codex (OAuth)', desc: 'GPT-5.6 Terra, Sol, Luna (ChatGPT Pro/Plus/Team)', icon: '🟢' },
-		{ id: 'google-antigravity', name: 'Google Antigravity', desc: 'Gemini 3.1 Pro, 3.6/3.7 Flash Tiered', icon: '🔵' },
-		{ id: 'opencode-go', name: 'OpenCode Go', desc: 'DeepSeek V4, Kimi K2.7, GLM-5', icon: '🟣' },
-		{ id: 'opencode-zen', name: 'OpenCode Zen', desc: 'Modelli Free e ad alto rendimento', icon: '🟣' },
-		{ id: 'perplexity', name: 'Perplexity Search', desc: 'Sonar reasoning e web grounding', icon: '🌐' },
-		{ id: 'cerebras', name: 'Cerebras', desc: 'Llama 3.3 70B ultra-fast inference', icon: '⚡' },
-		{ id: 'tavily', name: 'Tavily Search', desc: 'Web search engine per subagenti', icon: '🔍' },
-		{ id: 'ollama-cloud', name: 'Ollama Cloud', desc: 'Ollama cloud-hosted models', icon: '🦙' },
-		{ id: 'openrouter', name: 'OpenRouter', desc: 'Gateway multi-provider unificato', icon: '🔀' },
-		{ id: 'cursor', name: 'Cursor AI', desc: 'Modelli Cursor account', icon: '🖱️' },
-		{ id: 'devin', name: 'Devin AI', desc: 'Cognition models', icon: '🤖' },
-		{ id: 'groq', name: 'Groq LPU', desc: 'LPU high-speed inference', icon: '⚡' },
-		{ id: 'mistral', name: 'Mistral AI', desc: 'Mistral Large, Codestral, Pixtral', icon: '🌪️' },
-		{ id: 'xai', name: 'xAI Grok', desc: 'Grok 3, Grok Vision', icon: '✖️' },
-		{ id: 'zai', name: 'Zhipu AI (GLM)', desc: 'GLM-4 e GLM-5 models', icon: '🇨🇳' },
-		{ id: 'llama.cpp', name: 'llama.cpp (Local)', desc: 'Server locale llama.cpp', icon: '💻' },
-		{ id: 'lm-studio', name: 'LM Studio (Local)', desc: 'Server locale LM Studio', icon: '💻' }
+		{ id: 'anthropic', name: 'Anthropic Claude', desc: 'Claude Opus, Sonnet, Haiku', abbr: 'CL' },
+		{ id: 'openai-codex', name: 'OpenAI Codex (OAuth)', desc: 'GPT-5.6 Terra, Sol, Luna (ChatGPT Pro/Plus/Team)', abbr: 'OA' },
+		{ id: 'google-antigravity', name: 'Google Antigravity', desc: 'Gemini 3.1 Pro, 3.6/3.7 Flash Tiered', abbr: 'GO' },
+		{ id: 'opencode-go', name: 'OpenCode Go', desc: 'DeepSeek V4, Kimi K2.7, GLM-5', abbr: 'OG' },
+		{ id: 'opencode-zen', name: 'OpenCode Zen', desc: 'Modelli Free e ad alto rendimento', abbr: 'OZ' },
+		{ id: 'perplexity', name: 'Perplexity Search', desc: 'Sonar reasoning e web grounding', abbr: 'PX' },
+		{ id: 'cerebras', name: 'Cerebras', desc: 'Llama 3.3 70B ultra-fast inference', abbr: 'CB' },
+		{ id: 'tavily', name: 'Tavily Search', desc: 'Web search engine per subagenti', abbr: 'TV' },
+		{ id: 'ollama-cloud', name: 'Ollama Cloud', desc: 'Ollama cloud-hosted models', abbr: 'OL' },
+		{ id: 'openrouter', name: 'OpenRouter', desc: 'Gateway multi-provider unificato', abbr: 'OR' },
+		{ id: 'cursor', name: 'Cursor AI', desc: 'Modelli Cursor account', abbr: 'CU' },
+		{ id: 'devin', name: 'Devin AI', desc: 'Cognition models', abbr: 'DV' },
+		{ id: 'groq', name: 'Groq LPU', desc: 'LPU high-speed inference', abbr: 'GQ' },
+		{ id: 'mistral', name: 'Mistral AI', desc: 'Mistral Large, Codestral, Pixtral', abbr: 'MS' },
+		{ id: 'xai', name: 'xAI Grok', desc: 'Grok 3, Grok Vision', abbr: 'XA' },
+		{ id: 'zai', name: 'Zhipu AI (GLM)', desc: 'GLM-4 e GLM-5 models', abbr: 'ZA' },
+		{ id: 'llama.cpp', name: 'llama.cpp (Local)', desc: 'Server locale llama.cpp', abbr: 'LC' },
+		{ id: 'lm-studio', name: 'LM Studio (Local)', desc: 'Server locale LM Studio', abbr: 'LM' }
 	];
 
-	// Stato locale per l'editor dei provider custom
-	let customDraft = $state<Record<string, CustomProviderDef>>({});
 	let editingProviderName = $state<string | null>(null);
 	let newProviderName = $state('');
 	let showNewProviderForm = $state(false);
-
-	$effect(() => {
-		// Sincronizza lo stato con lo store quando cambia
-		customDraft = JSON.parse(JSON.stringify(modelSettingsStore.customProviders));
-	});
+	let providerToDelete = $state<string | null>(null);
 
 	function isProviderDisabled(id: string): boolean {
 		return modelSettingsStore.draftConfig?.disabledProviders.includes(id) || false;
@@ -58,12 +51,12 @@
 	function handleCreateProvider() {
 		const name = newProviderName.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
 		if (!name) return;
-		if (customDraft[name]) {
-			modelSettingsStore.showToast('Un provider con questo nome esiste già');
+		if (modelSettingsStore.draftCustomProviders[name]) {
+			modelSettingsStore.showToast('Un provider con questo identificativo esiste già');
 			return;
 		}
 
-		customDraft[name] = {
+		modelSettingsStore.setDraftCustomProvider(name, {
 			baseUrl: 'http://127.0.0.1:11434/v1',
 			apiKey: '',
 			api: 'openai-completions',
@@ -77,24 +70,34 @@
 					input: ['text']
 				}
 			]
-		};
+		});
 
 		editingProviderName = name;
 		showNewProviderForm = false;
 	}
 
-	function handleDeleteCustomProvider(name: string) {
-		const updated = { ...customDraft };
-		delete updated[name];
-		customDraft = updated;
-		if (editingProviderName === name) editingProviderName = null;
-		void modelSettingsStore.saveCustomProviders(customDraft);
+	function confirmDeleteCustomProvider(name: string) {
+		providerToDelete = name;
+	}
+
+	function executeDeleteCustomProvider() {
+		if (!providerToDelete) return;
+		modelSettingsStore.deleteDraftCustomProvider(providerToDelete);
+		if (editingProviderName === providerToDelete) {
+			editingProviderName = null;
+		}
+		providerToDelete = null;
+		modelSettingsStore.showToast('Provider rimosso dalla bozza');
+	}
+
+	function cancelDeleteCustomProvider() {
+		providerToDelete = null;
 	}
 
 	function handleAddCustomModel(providerName: string) {
-		const prov = customDraft[providerName];
+		const prov = modelSettingsStore.draftCustomProviders[providerName];
 		if (!prov) return;
-		prov.models.push({
+		modelSettingsStore.addDraftCustomModel(providerName, {
 			id: `model-${prov.models.length + 1}`,
 			name: `Custom Model ${prov.models.length + 1}`,
 			contextWindow: 128000,
@@ -102,29 +105,20 @@
 			reasoning: false,
 			input: ['text']
 		});
-		customDraft[providerName] = { ...prov };
 	}
 
 	function handleDeleteCustomModel(providerName: string, modelIndex: number) {
-		const prov = customDraft[providerName];
-		if (!prov) return;
-		prov.models.splice(modelIndex, 1);
-		customDraft[providerName] = { ...prov };
-	}
-
-	async function handleSaveCustomChanges() {
-		await modelSettingsStore.saveCustomProviders(customDraft);
-		editingProviderName = null;
+		modelSettingsStore.deleteDraftCustomModel(providerName, modelIndex);
 	}
 </script>
 
 <div class="providers-tab">
 	<!-- Sezione 1: Provider Built-in & Autenticazione -->
-	<div class="section-card">
+	<div class="section-group">
 		<div class="section-header">
 			<div class="section-title-group">
-				<h4>Provider Supportati e Stato Autenticazione</h4>
-				<p>Abilita o disabilita i provider per la ricerca dei modelli e verifica quali account risultano autenticati in OMP.</p>
+				<h4 class="section-title">Provider Supportati e Stato Autenticazione</h4>
+				<span class="section-desc">Abilita o disabilita i provider per la ricerca e controlla le credenziali attive.</span>
 			</div>
 		</div>
 
@@ -132,11 +126,10 @@
 			{#each KNOWN_BUILTIN_PROVIDERS as p (p.id)}
 				{@const disabled = isProviderDisabled(p.id)}
 				{@const authList = getAuthSummary(p.id)}
-				{@const isAuthed = authList.some(a => !a.disabledCause)}
 
 				<div class="provider-row-card" class:disabled>
 					<div class="provider-left">
-						<span class="p-icon">{p.icon}</span>
+						<span class="p-abbr-badge">{p.abbr}</span>
 						<div class="p-info">
 							<div class="p-name-row">
 								<span class="p-name">{p.name}</span>
@@ -146,15 +139,9 @@
 							{#if authList.length > 0}
 								<div class="p-auth-badges">
 									{#each authList as auth}
-										{#if auth.disabledCause}
-											<span class="auth-chip error" title={auth.disabledCause}>
-												⚠️ {auth.identityKey?.replace('email:', '') || auth.credentialType} (Non valido)
-											</span>
-										{:else}
-											<span class="auth-chip success">
-												✓ {auth.identityKey?.replace('email:', '') || (auth.credentialType === 'oauth' ? 'OAuth collegato' : 'API Key attiva')}
-											</span>
-										{/if}
+										<span class="auth-chip" class:invalid={!!auth.disabledCause} title={auth.disabledCause || 'Credenziale verificata'}>
+											{auth.disabledCause ? 'Non valido' : 'Attivo'} · {auth.identityKey?.replace('email:', '') || auth.credentialType}
+										</span>
 									{/each}
 								</div>
 							{/if}
@@ -162,10 +149,12 @@
 					</div>
 
 					<div class="provider-right">
-						<label class="switch" title={disabled ? 'Abilita provider' : 'Disabilita provider'}>
+						<label class="switch" for="switch-{p.id}">
 							<input
+								id="switch-{p.id}"
 								type="checkbox"
 								checked={!disabled}
+								aria-label="Abilita provider {p.name}"
 								onchange={() => toggleProvider(p.id)}
 							/>
 							<span class="slider"></span>
@@ -177,13 +166,13 @@
 	</div>
 
 	<!-- Sezione 2: Custom Providers (models.json) -->
-	<div class="section-card">
+	<div class="section-group">
 		<div class="section-header">
 			<div class="section-title-group">
-				<h4>🔌 Provider Custom & Endpoint Locali</h4>
-				<p>Configura proxy compatibili OpenAI/Anthropic, endpoint Ollama locali o gateway aziendali memorizzati in <code>~/.omp/agent/models.json</code>.</p>
+				<h4 class="section-title">Provider Custom & Endpoint Locali</h4>
+				<span class="section-desc">Configura proxy OpenAI-compatibili, Ollama locali o gateway configurati su <code>models.json</code>.</span>
 			</div>
-			<button class="btn btn-secondary" onclick={handleStartNewProvider}>
+			<button type="button" class="btn btn-secondary" onclick={handleStartNewProvider}>
 				+ Aggiungi Provider Custom
 			</button>
 		</div>
@@ -195,130 +184,153 @@
 					<input
 						type="text"
 						bind:value={newProviderName}
-						placeholder="Identificativo provider (es. my-ollama, local-llm, xkiro)..."
+						placeholder="Identificativo provider (es. my-ollama, local-llm)..."
+						aria-label="Identificativo nuovo provider"
 						onkeydown={(e) => { if (e.key === 'Enter') handleCreateProvider(); }}
 					/>
-					<button class="btn btn-primary" onclick={handleCreateProvider}>Crea</button>
-					<button class="btn btn-secondary" onclick={() => showNewProviderForm = false}>Annulla</button>
+					<button type="button" class="btn btn-primary" onclick={handleCreateProvider}>Crea</button>
+					<button type="button" class="btn btn-secondary" onclick={() => showNewProviderForm = false}>Annulla</button>
 				</div>
 			</div>
 		{/if}
 
 		<div class="custom-providers-list">
-			{#each Object.entries(customDraft) as [pName, pDef] (pName)}
-				{@const isEditing = editingProviderName === pName}
-
-				<div class="custom-provider-card">
-					<div class="cp-header">
-						<div class="cp-titles">
-							<span class="cp-name">{pName}</span>
-							<span class="cp-url">{pDef.baseUrl}</span>
-							<span class="cp-count">{pDef.models.length} modelli definiti</span>
-						</div>
-						<div class="cp-actions">
-							<button
-								class="btn btn-sm btn-secondary"
-								onclick={() => editingProviderName = isEditing ? null : pName}
-							>
-								{isEditing ? 'Comprimi' : 'Modifica'}
-							</button>
-							<button
-								class="btn btn-sm btn-danger"
-								onclick={() => handleDeleteCustomProvider(pName)}
-							>
-								Elimina
-							</button>
-						</div>
-					</div>
-
-					{#if isEditing}
-						<div class="cp-editor" transition:slide={{ duration: 180 }}>
-							<div class="form-grid">
-								<label class="form-field">
-									<span>Base URL</span>
-									<input type="text" bind:value={pDef.baseUrl} placeholder="https://api.openai.com/v1" />
-								</label>
-
-								<label class="form-field">
-									<span>API Key (Opzionale)</span>
-									<input type="password" bind:value={pDef.apiKey} placeholder="sk-..." />
-								</label>
-
-								<label class="form-field">
-									<span>Formato API</span>
-									<select bind:value={pDef.api}>
-										<option value="openai-completions">openai-completions (Standard)</option>
-										<option value="openai-responses">openai-responses (OpenAI Codex)</option>
-										<option value="anthropic-messages">anthropic-messages (Claude)</option>
-									</select>
-								</label>
-							</div>
-
-							<!-- Modelli del provider custom -->
-							<div class="custom-models-section">
-								<div class="cm-header">
-									<span>Modelli Definiti per {pName}</span>
-									<button class="btn btn-sm btn-secondary" onclick={() => handleAddCustomModel(pName)}>
-										+ Aggiungi Modello
-									</button>
-								</div>
-
-								<div class="models-list">
-									{#each pDef.models as model, mIdx (mIdx)}
-										<div class="model-edit-row">
-											<input
-												type="text"
-												class="inp-id"
-												bind:value={model.id}
-												placeholder="ID Modello (es. qwen2.5-coder)"
-											/>
-											<input
-												type="text"
-												class="inp-name"
-												bind:value={model.name}
-												placeholder="Nome visualizzato"
-											/>
-											<input
-												type="number"
-												class="inp-num"
-												bind:value={model.contextWindow}
-												placeholder="Context (128000)"
-											/>
-											<input
-												type="number"
-												class="inp-num"
-												bind:value={model.maxTokens}
-												placeholder="Max tokens (8192)"
-											/>
-											<label class="chk-cap" title="Supporta Reasoning / Thinking">
-												<input type="checkbox" bind:checked={model.reasoning} />
-												<span>🧠</span>
-											</label>
-											<button
-												class="btn-del-model"
-												onclick={() => handleDeleteCustomModel(pName, mIdx)}
-												title="Elimina modello"
-											>
-												✕
-											</button>
-										</div>
-									{/each}
-								</div>
-							</div>
-
-							<div class="cp-footer">
-								<button class="btn btn-primary" onclick={handleSaveCustomChanges}>Salva Provider</button>
-							</div>
-						</div>
-					{/if}
+			{#if Object.keys(modelSettingsStore.draftCustomProviders).length === 0}
+				<div class="empty-custom">
+					Nessun provider personalizzato configurato. Clicca "+ Aggiungi Provider Custom" per configurare endpoint OpenAI-compatibili o server locali.
 				</div>
 			{:else}
-				<div class="empty-custom">
-					Nessun provider personalizzato configurato. Clicca "+ Aggiungi Provider Custom" per configurare endpoint OpenAI-compatibili o Ollama locali.
-				</div>
-			{/each}
+				{#each Object.entries(modelSettingsStore.draftCustomProviders) as [pName, pDef] (pName)}
+					{@const isEditing = editingProviderName === pName}
+
+					<div class="custom-provider-card">
+						<div class="cp-header">
+							<div class="cp-titles">
+								<span class="cp-name">{pName}</span>
+								<span class="cp-url">{pDef.baseUrl}</span>
+								<span class="cp-count">{pDef.models.length} modelli</span>
+							</div>
+							<div class="cp-actions">
+								<button
+									type="button"
+									class="btn btn-sm btn-secondary"
+									onclick={() => editingProviderName = isEditing ? null : pName}
+								>
+									{isEditing ? 'Comprimi' : 'Modifica'}
+								</button>
+								<button
+									type="button"
+									class="btn btn-sm btn-secondary"
+									onclick={() => confirmDeleteCustomProvider(pName)}
+								>
+									Elimina
+								</button>
+							</div>
+						</div>
+
+						{#if isEditing}
+							<div class="cp-editor" transition:slide={{ duration: 160 }}>
+								<div class="form-grid">
+									<label class="form-field">
+										<span class="field-label">Base URL</span>
+										<input type="text" bind:value={pDef.baseUrl} placeholder="https://api.openai.com/v1" />
+									</label>
+
+									<label class="form-field">
+										<span class="field-label">API Key (Opzionale)</span>
+										<input type="password" bind:value={pDef.apiKey} placeholder="sk-..." />
+									</label>
+
+									<label class="form-field">
+										<span class="field-label">Formato API</span>
+										<select bind:value={pDef.api}>
+											<option value="openai-completions">openai-completions (Standard)</option>
+											<option value="openai-responses">openai-responses (Codex)</option>
+											<option value="anthropic-messages">anthropic-messages (Claude)</option>
+										</select>
+									</label>
+								</div>
+
+								<!-- Modelli del provider custom -->
+								<div class="custom-models-section">
+									<div class="cm-header">
+										<span class="cm-title">Modelli Definiti</span>
+										<button type="button" class="btn btn-sm btn-secondary" onclick={() => handleAddCustomModel(pName)}>
+											+ Aggiungi Modello
+										</button>
+									</div>
+
+									<div class="models-list">
+										{#each pDef.models as model, mIdx (mIdx)}
+											<div class="model-edit-row">
+												<input
+													type="text"
+													class="inp-id"
+													bind:value={model.id}
+													placeholder="ID Modello (es. qwen2.5-coder)"
+													aria-label="ID Modello"
+												/>
+												<input
+													type="text"
+													class="inp-name"
+													bind:value={model.name}
+													placeholder="Nome visualizzato"
+													aria-label="Nome visualizzato modello"
+												/>
+												<input
+													type="number"
+													class="inp-num"
+													bind:value={model.contextWindow}
+													placeholder="Context (128000)"
+													aria-label="Finestra di contesto"
+												/>
+												<input
+													type="number"
+													class="inp-num"
+													bind:value={model.maxTokens}
+													placeholder="Max tokens (8192)"
+													aria-label="Max output tokens"
+												/>
+												<label class="chk-cap" title="Supporta Reasoning / Thinking">
+													<input type="checkbox" bind:checked={model.reasoning} />
+													<span class="chk-label">Reasoning</span>
+												</label>
+												<button
+													type="button"
+													class="btn-del-model"
+													onclick={() => handleDeleteCustomModel(pName, mIdx)}
+													title="Elimina modello"
+													aria-label="Elimina modello"
+												>
+													<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+														<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
+													</svg>
+												</button>
+											</div>
+										{/each}
+									</div>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			{/if}
 		</div>
 	</div>
+
+	<!-- Dialog di conferma eliminazione custom provider -->
+	{#if providerToDelete}
+		<div class="confirm-overlay" transition:fade={{ duration: 100 }}>
+			<div class="confirm-box" transition:slide={{ duration: 150 }}>
+				<h4>Eliminare il provider personalizzato "{providerToDelete}"?</h4>
+				<p>Il provider e i suoi modelli definiti verranno rimossi dalla bozza.</p>
+				<div class="confirm-actions">
+					<button type="button" class="btn btn-secondary" onclick={cancelDeleteCustomProvider}>Annulla</button>
+					<button type="button" class="btn btn-primary" onclick={executeDeleteCustomProvider}>Elimina</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -326,14 +338,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
-		padding: var(--space-2) 0;
+		padding: var(--space-3) var(--space-4);
+		position: relative;
 	}
 
-	.section-card {
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-lg);
-		padding: var(--space-4);
+	.section-group {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
@@ -345,23 +354,28 @@
 		justify-content: space-between;
 		gap: var(--space-2);
 		border-bottom: 1px solid var(--line);
-		padding-bottom: var(--space-3);
+		padding-bottom: var(--space-2);
 	}
 
-	.section-title-group h4 {
-		margin: 0 0 2px 0;
-		font-size: var(--text-md);
+	.section-title-group {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.section-title {
+		margin: 0;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
-	.section-title-group p {
-		margin: 0;
+	.section-desc {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
 
-	.section-title-group code {
+	.section-desc code {
 		font-family: var(--font-mono);
 	}
 
@@ -376,11 +390,15 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
-		padding: var(--space-3);
-		background: var(--bg-sunken);
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		transition: opacity 0.15s ease, border-color 0.15s ease;
+		transition: opacity var(--dur-fast), border-color var(--dur-fast);
+	}
+
+	.provider-row-card:hover {
+		border-color: var(--line-strong);
 	}
 
 	.provider-row-card.disabled {
@@ -395,9 +413,20 @@
 		flex: 1;
 	}
 
-	.p-icon {
-		font-size: 16px;
-		line-height: 1.2;
+	.p-abbr-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		border-radius: var(--radius-sm);
+		background: var(--bg-hover);
+		border: 1px solid var(--line);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		color: var(--ink);
+		flex-shrink: 0;
 	}
 
 	.p-info {
@@ -414,7 +443,7 @@
 	}
 
 	.p-name {
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--ink);
 	}
@@ -446,25 +475,26 @@
 		font-family: var(--font-mono);
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
+		background: var(--bg-hover);
+		border: 1px solid var(--line);
+		color: var(--ink-muted);
 	}
 
-	.auth-chip.success {
-		background: rgba(16, 163, 127, 0.12);
-		color: #10a37f;
+	.auth-chip.invalid {
+		color: var(--brand-ink);
+		border-color: var(--brand-dim);
 	}
 
-	.auth-chip.error {
-		background: rgba(239, 68, 68, 0.12);
-		color: #ef4444;
+	.provider-right {
+		flex-shrink: 0;
 	}
 
-	/* Switch component */
 	.switch {
 		position: relative;
 		display: inline-block;
-		width: 36px;
-		height: 20px;
-		flex-shrink: 0;
+		width: 32px;
+		height: 18px;
+		cursor: pointer;
 	}
 
 	.switch input {
@@ -475,64 +505,33 @@
 
 	.slider {
 		position: absolute;
-		cursor: pointer;
-		top: 0; left: 0; right: 0; bottom: 0;
-		background-color: var(--line-strong);
-		transition: 0.2s;
-		border-radius: 20px;
+		inset: 0;
+		background: var(--bg-hover);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		transition: background var(--dur-fast), border-color var(--dur-fast);
 	}
 
-	.slider:before {
+	.slider::before {
 		position: absolute;
 		content: "";
-		height: 14px;
-		width: 14px;
-		left: 3px;
-		bottom: 3px;
-		background-color: white;
-		transition: 0.2s;
+		height: 12px;
+		width: 12px;
+		left: 2px;
+		bottom: 2px;
+		background: var(--ink-muted);
 		border-radius: 50%;
+		transition: transform var(--dur-fast), background var(--dur-fast);
 	}
 
 	input:checked + .slider {
-		background-color: var(--brand);
+		background: var(--brand);
+		border-color: var(--brand);
 	}
 
-	input:checked + .slider:before {
-		transform: translateX(16px);
-	}
-
-	.new-provider-box {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-3);
-		background: var(--bg-sunken);
-		border: 1px solid var(--brand);
-		border-radius: var(--radius-md);
-	}
-
-	.box-title {
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.new-provider-inputs {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.new-provider-inputs input {
-		flex: 1;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 6px 10px;
-		font-family: inherit;
-		font-size: var(--text-sm);
-		color: var(--ink);
+	input:checked + .slider::before {
+		transform: translateX(14px);
+		background: var(--on-project, #ffffff);
 	}
 
 	.custom-providers-list {
@@ -542,17 +541,19 @@
 	}
 
 	.custom-provider-card {
-		background: var(--bg-sunken);
+		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		overflow: hidden;
+		padding: var(--space-3);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
 	}
 
 	.cp-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-3);
 		gap: var(--space-2);
 	}
 
@@ -564,39 +565,40 @@
 	}
 
 	.cp-name {
-		font-size: var(--text-sm);
-		font-weight: 600;
 		font-family: var(--font-mono);
-		color: var(--brand-ink);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink);
 	}
 
 	.cp-url {
-		font-size: 11px;
 		font-family: var(--font-mono);
+		font-size: 11px;
 		color: var(--ink-faint);
 	}
 
 	.cp-count {
-		font-size: 10px;
+		font-size: 11px;
+		color: var(--ink-faint);
+		background: var(--bg-hover);
 		padding: 1px 6px;
-		border-radius: 99px;
-		background: var(--bg-base);
-		color: var(--ink-muted);
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
 	}
 
 	.cp-actions {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-1);
 	}
 
 	.cp-editor {
-		padding: var(--space-3);
-		border-top: 1px solid var(--line);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
-		background: var(--bg-base);
+		border-top: 1px solid var(--line);
+		padding-top: var(--space-2);
+		margin-top: 2px;
 	}
 
 	.form-grid {
@@ -608,40 +610,58 @@
 	.form-field {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 3px;
+	}
+
+	.field-label {
 		font-size: 10px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		font-weight: 500;
 		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
 	}
 
 	.form-field input,
 	.form-field select {
+		height: 30px;
+		padding: 0 var(--space-2);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 6px 8px;
-		font-family: inherit;
-		font-size: var(--text-xs);
+		border-radius: var(--radius-sm);
 		color: var(--ink);
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
 		outline: none;
+		transition: border-color var(--dur-fast);
+	}
+
+	.form-field input:focus,
+	.form-field select:focus {
+		border-color: var(--brand);
 	}
 
 	.custom-models-section {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		margin-top: var(--space-1);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2);
 	}
 
 	.cm-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		font-size: var(--text-xs);
+	}
+
+	.cm-title {
+		font-size: 11px;
 		font-weight: 600;
 		color: var(--ink-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
 	}
 
 	.models-list {
@@ -657,61 +677,110 @@
 	}
 
 	.model-edit-row input {
-		background: var(--bg-sunken);
+		height: 28px;
+		padding: 0 6px;
+		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		padding: 5px 8px;
-		font-size: var(--text-xs);
-		font-family: inherit;
 		color: var(--ink);
+		font-size: 11px;
+		font-family: var(--font-mono);
+		outline: none;
 	}
 
-	.inp-id { flex: 2; font-family: var(--font-mono) !important; }
-	.inp-name { flex: 2; }
-	.inp-num { width: 90px; }
+	.model-edit-row input:focus {
+		border-color: var(--brand);
+	}
+
+	.inp-id { flex: 2; min-width: 0; }
+	.inp-name { flex: 2; min-width: 0; }
+	.inp-num { width: 90px; flex-shrink: 0; }
 
 	.chk-cap {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 2px;
-		font-size: 12px;
+		gap: 4px;
 		cursor: pointer;
+		font-size: 10px;
+		color: var(--ink-muted);
+		padding: 0 4px;
 	}
 
 	.btn-del-model {
+		width: 24px;
+		height: 24px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		background: transparent;
-		border: none;
-		color: var(--ink-faint);
+		border: 1px solid transparent;
+		color: var(--ink-muted);
+		border-radius: var(--radius-sm);
 		cursor: pointer;
-		font-size: 12px;
-		padding: 4px 6px;
 	}
 
 	.btn-del-model:hover {
-		color: var(--danger, #ef4444);
+		background: var(--bg-hover);
+		color: var(--brand-ink);
+		border-color: var(--line);
 	}
 
-	.cp-footer {
+	.new-provider-box {
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		padding: var(--space-3);
 		display: flex;
-		justify-content: flex-end;
-		margin-top: var(--space-2);
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.box-title {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.new-provider-inputs {
+		display: flex;
+		gap: var(--space-2);
+	}
+
+	.new-provider-inputs input {
+		flex: 1;
+		height: 32px;
+		padding: 0 var(--space-2);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		font-size: var(--text-xs);
+		outline: none;
+	}
+
+	.new-provider-inputs input:focus {
+		border-color: var(--brand);
 	}
 
 	.empty-custom {
-		padding: var(--space-4);
-		text-align: center;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		font-size: var(--text-sm);
+		padding: var(--space-4) 0;
+		text-align: center;
 	}
 
 	.btn {
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 5px 12px;
+		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
 		font-weight: 500;
+		font-family: var(--font-ui);
 		cursor: pointer;
 		border: 1px solid transparent;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.btn-sm {
@@ -720,32 +789,66 @@
 	}
 
 	.btn-secondary {
-		background: var(--bg-sunken);
-		border-color: var(--line);
+		background: var(--bg-hover);
 		color: var(--ink);
+		border-color: var(--line);
 	}
 
 	.btn-secondary:hover {
-		background: var(--bg-hover);
+		background: var(--bg-active);
 		border-color: var(--line-strong);
-	}
-
-	.btn-danger {
-		background: transparent;
-		border-color: transparent;
-		color: var(--danger, #ef4444);
-	}
-
-	.btn-danger:hover {
-		background: rgba(239, 68, 68, 0.1);
 	}
 
 	.btn-primary {
 		background: var(--brand);
-		color: var(--on-brand);
+		color: var(--on-project, #ffffff);
 	}
 
 	.btn-primary:hover {
-		filter: brightness(1.1);
+		filter: brightness(1.08);
+	}
+
+	.confirm-overlay {
+		position: absolute;
+		inset: 0;
+		background: color-mix(in srgb, var(--bg-base) 85%, black);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 50;
+	}
+
+	.confirm-box {
+		width: 380px;
+		max-width: 90%;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-md);
+		padding: var(--space-3) var(--space-4);
+		box-shadow: var(--shadow-overlay);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.confirm-box h4 {
+		margin: 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.confirm-box p {
+		margin: 0;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		line-height: 1.4;
+	}
+
+	.confirm-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: var(--space-2);
+		margin-top: var(--space-1);
 	}
 </style>

@@ -18,7 +18,9 @@
 
 	let isOpen = $state(false);
 	let filterQuery = $state('');
+	let highlightedIndex = $state(0);
 	let dropdownRef = $state<HTMLDivElement | null>(null);
+	let triggerRef = $state<HTMLButtonElement | null>(null);
 	let inputRef = $state<HTMLInputElement | null>(null);
 
 	// Estrai il selector pulito (senza :thinkingLevel)
@@ -40,7 +42,7 @@
 		);
 	});
 
-	// Raggruppa per provider per una navigazione ordinata
+	// Raggruppa per provider
 	const groupedModels = $derived.by(() => {
 		const map: Record<string, ModelDto[]> = {};
 		for (const m of filteredModels) {
@@ -55,12 +57,20 @@
 		isOpen = !isOpen;
 		if (isOpen) {
 			filterQuery = '';
+			highlightedIndex = 0;
 			setTimeout(() => inputRef?.focus(), 50);
 		}
 	}
 
-	function handleSelect(m: ModelDto) {
+	function closeDropdown(restoreFocus = true) {
 		isOpen = false;
+		if (restoreFocus) {
+			setTimeout(() => triggerRef?.focus(), 20);
+		}
+	}
+
+	function handleSelect(m: ModelDto) {
+		closeDropdown(true);
 		onSelect?.(m.selector, m);
 	}
 
@@ -71,9 +81,48 @@
 		return `${tokens} ctx`;
 	}
 
+	function handleKeydown(e: KeyboardEvent) {
+		if (!isOpen) {
+			if (e.key === 'ArrowDown' || e.key === 'Enter') {
+				e.preventDefault();
+				toggleOpen();
+			}
+			return;
+		}
+
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			closeDropdown(true);
+			return;
+		}
+
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (filteredModels.length > 0) {
+				highlightedIndex = (highlightedIndex + 1) % filteredModels.length;
+			}
+			return;
+		}
+
+		if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			if (filteredModels.length > 0) {
+				highlightedIndex = (highlightedIndex - 1 + filteredModels.length) % filteredModels.length;
+			}
+			return;
+		}
+
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			if (filteredModels.length > 0 && highlightedIndex < filteredModels.length) {
+				handleSelect(filteredModels[highlightedIndex]);
+			}
+		}
+	}
+
 	function handleDocClick(e: MouseEvent) {
 		if (dropdownRef && !dropdownRef.contains(e.target as Node)) {
-			isOpen = false;
+			closeDropdown(false);
 		}
 	}
 </script>
@@ -83,99 +132,125 @@
 <div class="picker-container" bind:this={dropdownRef}>
 	<button
 		type="button"
+		bind:this={triggerRef}
 		class="picker-trigger"
 		class:active={isOpen}
 		class:has-value={!!selectedModel}
 		{disabled}
+		aria-haspopup="listbox"
+		aria-expanded={isOpen}
 		onclick={(e) => { e.stopPropagation(); toggleOpen(); }}
+		onkeydown={handleKeydown}
 	>
 		{#if selectedModel}
 			<span class="trigger-content">
-				<span class="provider-badge" data-provider={selectedModel.provider}>{selectedModel.provider}</span>
+				<span class="provider-tag">{selectedModel.provider}</span>
 				<span class="model-name" title={selectedModel.selector}>{selectedModel.name}</span>
 				{#if selectedModel.contextWindow}
 					<span class="ctx-chip">{formatContext(selectedModel.contextWindow)}</span>
 				{/if}
 				{#if selectedModel.input?.includes('image')}
-					<span class="cap-icon" title="Supporto Vision / Immagini">👁️</span>
+					<span class="cap-chip">Vision</span>
 				{/if}
 				{#if selectedModel.reasoning}
-					<span class="cap-icon" title="Supporto Reasoning / Thinking">🧠</span>
+					<span class="cap-chip">Reasoning</span>
 				{/if}
 			</span>
 		{:else if cleanSelector}
 			<span class="trigger-content">
-				<span class="provider-badge">custom</span>
+				<span class="provider-tag">custom</span>
 				<span class="model-name">{cleanSelector}</span>
 			</span>
 		{:else}
 			<span class="placeholder">{placeholder}</span>
 		{/if}
-		<span class="chevron" class:rotated={isOpen}>▾</span>
+		<svg
+			class="chevron"
+			class:rotated={isOpen}
+			viewBox="0 0 16 16"
+			width="11"
+			height="11"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.6"
+		>
+			<path d="M4 6l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
+		</svg>
 	</button>
 
 	{#if isOpen}
 		<div class="picker-dropdown" transition:fade={{ duration: 120 }}>
 			<div class="search-box">
+				<svg class="search-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4">
+					<circle cx="7" cy="7" r="4.5" />
+					<path d="M10.5 10.5L14 14" stroke-linecap="round" />
+				</svg>
 				<input
 					type="text"
 					bind:this={inputRef}
 					bind:value={filterQuery}
 					placeholder="Cerca modello o provider..."
+					aria-label="Filtra modelli disponibili"
 					onclick={(e) => e.stopPropagation()}
-					onkeydown={(e) => {
-						if (e.key === 'Escape') {
-							isOpen = false;
-						}
-					}}
+					onkeydown={handleKeydown}
 				/>
 				{#if filterQuery}
-					<button class="clear-btn" onclick={() => filterQuery = ''}>✕</button>
+					<button type="button" class="clear-btn" aria-label="Cancella testo" onclick={() => filterQuery = ''}>
+						<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+							<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
+						</svg>
+					</button>
 				{/if}
 			</div>
 
-			<div class="results-list">
-				{#each groupedModels as [provider, models] (provider)}
-					<div class="provider-group">
-						<div class="group-header">
-							<span class="provider-badge" data-provider={provider}>{provider}</span>
-							<span class="group-count">{models.length}</span>
-						</div>
-						<div class="group-items">
-							{#each models as m (m.selector)}
-								<button
-									type="button"
-									class="model-option"
-									class:selected={m.selector === cleanSelector}
-									onclick={() => handleSelect(m)}
-								>
-									<div class="option-main">
-										<span class="option-name">{m.name}</span>
-										<span class="option-id">{m.id}</span>
-									</div>
-									<div class="option-badges">
-										{#if m.contextWindow}
-											<span class="ctx-chip">{formatContext(m.contextWindow)}</span>
-										{/if}
-										{#if m.input?.includes('image')}
-											<span class="cap-icon" title="Vision">👁️</span>
-										{/if}
-										{#if m.reasoning}
-											<span class="cap-icon" title="Reasoning">🧠</span>
-										{/if}
-										{#if m.isCustom}
-											<span class="custom-chip">Custom</span>
-										{/if}
-									</div>
-								</button>
-							{/each}
-						</div>
-					</div>
-				{:else}
+			<div class="results-list" role="listbox" id="picker-listbox" aria-label="Elenco modelli disponibili">
+				{#if filteredModels.length === 0}
 					<div class="empty-results">
 						Nessun modello trovato per "{filterQuery}"
 					</div>
-				{/each}
+				{:else}
+					{#each groupedModels as [provider, models] (provider)}
+						<div class="provider-group">
+							<div class="group-header">
+								<span class="group-provider-name">{provider}</span>
+								<span class="group-count">{models.length}</span>
+							</div>
+							<div class="group-items">
+								{#each models as m (m.selector)}
+									{@const isHighlighted = filteredModels[highlightedIndex]?.selector === m.selector}
+									<button
+										type="button"
+										role="option"
+										aria-selected={m.selector === cleanSelector}
+										class="model-option"
+										class:selected={m.selector === cleanSelector}
+										class:highlighted={isHighlighted}
+										onclick={() => handleSelect(m)}
+									>
+										<div class="option-main">
+											<span class="option-name">{m.name}</span>
+											<span class="option-id">{m.id}</span>
+										</div>
+										<div class="option-badges">
+											{#if m.contextWindow}
+												<span class="ctx-chip">{formatContext(m.contextWindow)}</span>
+											{/if}
+											{#if m.input?.includes('image')}
+												<span class="cap-chip">Vision</span>
+											{/if}
+											{#if m.reasoning}
+												<span class="cap-chip">Reasoning</span>
+											{/if}
+											{#if m.isCustom}
+												<span class="custom-chip">Custom</span>
+											{/if}
+										</div>
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/each}
+				{/if}
 			</div>
 		</div>
 	{/if}
@@ -197,13 +272,14 @@
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		padding: 6px 10px;
+		padding: 5px 8px;
 		font-family: inherit;
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
 		color: var(--ink);
 		cursor: pointer;
-		text-align: left;
-		transition: all 0.15s ease;
+		outline: none;
+		min-height: 32px;
+		transition: border-color var(--dur-fast), background var(--dur-fast);
 	}
 
 	.picker-trigger:hover:not(:disabled) {
@@ -213,11 +289,10 @@
 
 	.picker-trigger.active {
 		border-color: var(--brand);
-		box-shadow: 0 0 0 1px var(--brand);
 	}
 
 	.picker-trigger:disabled {
-		opacity: 0.6;
+		opacity: 0.5;
 		cursor: not-allowed;
 	}
 
@@ -227,91 +302,40 @@
 		gap: 6px;
 		min-width: 0;
 		overflow: hidden;
-		flex: 1;
 	}
 
-	.placeholder {
+	.provider-tag {
+		font-family: var(--font-mono);
+		font-size: 10px;
 		color: var(--ink-faint);
-		font-size: var(--text-sm);
+		background: var(--bg-hover);
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		flex-shrink: 0;
 	}
 
 	.model-name {
+		font-size: var(--text-xs);
 		font-weight: 500;
+		color: var(--ink);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		color: var(--ink);
 	}
 
-	.provider-badge {
-		font-size: 10px;
-		font-family: var(--font-mono);
-		font-weight: 600;
-		padding: 1px 5px;
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--ink) 10%, transparent);
-		color: var(--ink-muted);
-		text-transform: lowercase;
-		flex-shrink: 0;
-	}
-
-	.provider-badge[data-provider="anthropic"] {
-		background: rgba(217, 119, 87, 0.15);
-		color: #e07a5f;
-	}
-
-	.provider-badge[data-provider="openai-codex"],
-	.provider-badge[data-provider="openai"] {
-		background: rgba(16, 163, 127, 0.15);
-		color: #10a37f;
-	}
-
-	.provider-badge[data-provider="google-antigravity"],
-	.provider-badge[data-provider="google-vertex"],
-	.provider-badge[data-provider="google"] {
-		background: rgba(66, 133, 244, 0.15);
-		color: #4285f4;
-	}
-
-	.provider-badge[data-provider="opencode-go"],
-	.provider-badge[data-provider="opencode-zen"] {
-		background: rgba(139, 92, 246, 0.15);
-		color: #8b5cf6;
-	}
-
-	.ctx-chip {
-		font-size: 10px;
-		font-family: var(--font-mono);
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
+	.placeholder {
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		flex-shrink: 0;
-	}
-
-	.custom-chip {
-		font-size: 9px;
-		font-weight: 600;
-		text-transform: uppercase;
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		background: var(--brand-dim);
-		color: var(--brand);
-		flex-shrink: 0;
-	}
-
-	.cap-icon {
-		font-size: 11px;
-		opacity: 0.8;
-		flex-shrink: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.chevron {
-		font-size: 12px;
 		color: var(--ink-faint);
-		transition: transform 0.15s ease;
 		flex-shrink: 0;
+		transition: transform var(--dur-fast);
 	}
 
 	.chevron.rotated {
@@ -323,34 +347,41 @@
 		top: calc(100% + 4px);
 		left: 0;
 		right: 0;
-		max-height: 360px;
+		max-height: 320px;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
+		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
-		z-index: var(--z-dialog);
+		z-index: 100;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 	}
 
 	.search-box {
-		padding: var(--space-2);
-		border-bottom: 1px solid var(--line);
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		background: var(--bg-raised);
+		position: relative;
+		padding: var(--space-2);
+		border-bottom: 1px solid var(--line);
+		background: var(--bg-base);
+	}
+
+	.search-icon {
+		position: absolute;
+		left: 14px;
+		color: var(--ink-faint);
+		pointer-events: none;
 	}
 
 	.search-box input {
 		width: 100%;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 6px 10px;
+		border-radius: var(--radius-sm);
+		padding: 4px 24px 4px 26px;
 		font-family: inherit;
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
 		color: var(--ink);
 		outline: none;
 	}
@@ -360,26 +391,25 @@
 	}
 
 	.clear-btn {
+		position: absolute;
+		right: 12px;
 		background: transparent;
 		border: none;
 		color: var(--ink-faint);
 		cursor: pointer;
-		font-size: 12px;
-		padding: 4px;
-	}
-
-	.clear-btn:hover {
-		color: var(--ink);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 2px;
 	}
 
 	.results-list {
 		flex: 1;
 		overflow-y: auto;
-		max-height: 300px;
-		padding: var(--space-1);
+		padding: 4px;
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 4px;
 	}
 
 	.provider-group {
@@ -392,15 +422,12 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 4px 8px;
-		border-bottom: 1px solid var(--line);
-		margin-bottom: 2px;
-	}
-
-	.group-count {
+		padding: 3px 6px;
 		font-size: 10px;
-		font-family: var(--font-mono);
+		font-weight: 600;
 		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 
 	.group-items {
@@ -414,33 +441,37 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-2);
-		padding: 6px 8px;
-		border-radius: var(--radius-md);
-		border: none;
+		padding: 5px 8px;
 		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
 		color: var(--ink);
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
 		cursor: pointer;
 		text-align: left;
-		transition: background 0.1s ease;
+		transition: background var(--dur-fast), border-color var(--dur-fast);
 	}
 
-	.model-option:hover {
+	.model-option:hover,
+	.model-option.highlighted {
 		background: var(--bg-hover);
+		border-color: var(--line);
 	}
 
 	.model-option.selected {
 		background: var(--bg-active);
+		border-color: var(--brand);
 	}
 
 	.option-main {
 		display: flex;
 		flex-direction: column;
+		gap: 1px;
 		min-width: 0;
-		flex: 1;
 	}
 
 	.option-name {
-		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--ink);
 		white-space: nowrap;
@@ -449,8 +480,8 @@
 	}
 
 	.option-id {
-		font-size: 10px;
 		font-family: var(--font-mono);
+		font-size: 10px;
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -464,10 +495,41 @@
 		flex-shrink: 0;
 	}
 
+	.ctx-chip {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--ink-faint);
+		background: var(--bg-base);
+		padding: 1px 4px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+	}
+
+	.cap-chip {
+		font-size: 9px;
+		font-weight: 500;
+		color: var(--ink-muted);
+		background: var(--bg-base);
+		padding: 1px 4px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+	}
+
+	.custom-chip {
+		font-family: var(--font-mono);
+		font-size: 9px;
+		font-weight: 600;
+		color: var(--brand-ink);
+		background: var(--bg-base);
+		padding: 1px 4px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+	}
+
 	.empty-results {
-		padding: var(--space-4);
+		padding: var(--space-4) var(--space-2);
 		text-align: center;
 		color: var(--ink-faint);
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
 	}
 </style>

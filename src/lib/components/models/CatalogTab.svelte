@@ -64,17 +64,31 @@
 	function handleAssignToRole(roleId: string, model: ModelDto) {
 		modelSettingsStore.setRoleModel(roleId, model.selector);
 		openAssignMenuFor = null;
-		modelSettingsStore.showToast(`Modello assegnato al ruolo ${roleId.toUpperCase()} ✓`);
+		modelSettingsStore.showToast(`Modello assegnato al ruolo ${roleId}`);
 	}
 
 	function handleAddAsFallback(roleId: string, model: ModelDto) {
 		modelSettingsStore.addFallback(roleId, model.selector);
 		openAssignMenuFor = null;
-		modelSettingsStore.showToast(`Aggiunto come fallback a ${roleId.toUpperCase()} ✓`);
+		modelSettingsStore.showToast(`Aggiunto come fallback a ${roleId}`);
 	}
 
 	function handleDocClick() {
 		openAssignMenuFor = null;
+	}
+
+	function getRoleAbbr(id: string): string {
+		switch (id) {
+			case 'default': return 'CH';
+			case 'plan': return 'PL';
+			case 'smol': return 'SM';
+			case 'slow': return 'SL';
+			case 'vision': return 'VI';
+			case 'task': return 'TS';
+			case 'commit': return 'CM';
+			case 'advisor': return 'AD';
+			default: return id.slice(0, 2).toUpperCase();
+		}
 	}
 </script>
 
@@ -84,15 +98,23 @@
 	<!-- Top Controls -->
 	<div class="filter-header">
 		<div class="search-input-wrapper">
-			<span class="search-icon">🔍</span>
+			<svg class="search-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4">
+				<circle cx="7" cy="7" r="4.5" />
+				<path d="M10.5 10.5L14 14" stroke-linecap="round" />
+			</svg>
 			<input
 				type="text"
 				bind:value={searchQuery}
 				placeholder="Cerca per nome, ID o provider..."
+				aria-label="Cerca nel catalogo modelli"
 				onclick={(e) => e.stopPropagation()}
 			/>
 			{#if searchQuery}
-				<button class="btn-clear" onclick={() => searchQuery = ''}>✕</button>
+				<button type="button" class="btn-clear" aria-label="Cancella ricerca" onclick={() => searchQuery = ''}>
+					<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+						<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
+					</svg>
+				</button>
 			{/if}
 		</div>
 
@@ -103,7 +125,7 @@
 				class:active={filterVision}
 				onclick={() => filterVision = !filterVision}
 			>
-				👁️ Vision
+				Vision
 			</button>
 			<button
 				type="button"
@@ -111,17 +133,29 @@
 				class:active={filterReasoning}
 				onclick={() => filterReasoning = !filterReasoning}
 			>
-				🧠 Reasoning
+				Reasoning
 			</button>
 			<button
 				type="button"
 				class="refresh-catalog-btn"
 				disabled={modelSettingsStore.isRefreshingCatalog}
 				onclick={() => modelSettingsStore.refreshCatalog()}
-				title="Forza il refresh dei cataloghi da tutti i provider OMP"
+				title="Aggiorna catalogo da tutti i provider attivi"
 			>
-				<span class:spinning={modelSettingsStore.isRefreshingCatalog}>↻</span>
-				{modelSettingsStore.isRefreshingCatalog ? 'Aggiornamento...' : 'Ricarica Catalogo'}
+				<svg
+					class="refresh-icon"
+					class:spinning={modelSettingsStore.isRefreshingCatalog}
+					viewBox="0 0 16 16"
+					width="12"
+					height="12"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.4"
+				>
+					<path d="M2 8a6 6 0 0 1 10.2-4.2M14 8a6 6 0 0 1-10.2 4.2" stroke-linecap="round" />
+					<path d="M12.5 1v3h-3M3.5 15v-3h3" stroke-linecap="round" stroke-linejoin="round" />
+				</svg>
+				<span>{modelSettingsStore.isRefreshingCatalog ? 'Aggiornamento...' : 'Ricarica Catalogo'}</span>
 			</button>
 		</div>
 	</div>
@@ -129,6 +163,7 @@
 	<!-- Provider Pills -->
 	<div class="provider-pills">
 		<button
+			type="button"
 			class="pill"
 			class:active={selectedProvider === 'all'}
 			onclick={() => selectedProvider = 'all'}
@@ -138,6 +173,7 @@
 		{#each providersList as p (p)}
 			{@const count = modelSettingsStore.catalog.filter(m => m.provider === p).length}
 			<button
+				type="button"
 				class="pill"
 				class:active={selectedProvider === p}
 				onclick={() => selectedProvider = p}
@@ -147,99 +183,122 @@
 		{/each}
 	</div>
 
-	<!-- Stats & Count -->
+	<!-- Stats Bar -->
 	<div class="catalog-stats">
-		<span>Visualizzati <strong>{filteredCatalog.length}</strong> modelli di {modelSettingsStore.catalog.length} totali</span>
+		<span>Visualizzati <strong>{filteredCatalog.length}</strong> modelli su {modelSettingsStore.catalog.length} totali</span>
 	</div>
 
 	<!-- Catalog List / Table -->
 	<div class="catalog-list">
-		{#each filteredCatalog as m (m.selector)}
-			<div class="model-row">
-				<div class="model-meta-cell">
-					<div class="name-row">
-						<span class="m-provider">{m.provider}</span>
-						<span class="m-name">{m.name}</span>
-						{#if m.isCustom}
-							<span class="m-custom-badge">Custom</span>
-						{/if}
-					</div>
-					<div class="m-id-row">
-						<span class="m-id">{m.id}</span>
-					</div>
-				</div>
-
-				<div class="specs-cell">
-					<div class="spec-item" title="Finestra di contesto massima">
-						<span class="spec-label">Context</span>
-						<span class="spec-val">{formatCtx(m.contextWindow)}</span>
-					</div>
-					<div class="spec-item" title="Max output tokens">
-						<span class="spec-label">Max Out</span>
-						<span class="spec-val">{formatCtx(m.maxTokens)}</span>
-					</div>
-					{#if m.cost?.input !== undefined && m.cost?.output !== undefined}
-						<div class="spec-item" title="Costo per milione di token (Input / Output)">
-							<span class="spec-label">$/1M in/out</span>
-							<span class="spec-val">{formatCost(m.cost.input)} / {formatCost(m.cost.output)}</span>
-						</div>
-					{/if}
-				</div>
-
-				<div class="badges-cell">
-					{#if m.input?.includes('image')}
-						<span class="cap-badge vision" title="Supporta input immagini / vision">👁️ Vision</span>
-					{/if}
-					{#if m.reasoning}
-						<span class="cap-badge reasoning" title="Supporta modalità reasoning / thinking">🧠 Thinking</span>
-					{/if}
-				</div>
-
-				<div class="action-cell">
-					<button
-						type="button"
-						class="btn-assign-dropdown"
-						onclick={(e) => {
-							e.stopPropagation();
-							openAssignMenuFor = openAssignMenuFor === m.selector ? null : m.selector;
-						}}
-					>
-						Assegna ▾
-					</button>
-
-					{#if openAssignMenuFor === m.selector}
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<div class="assign-popover" onclick={(e) => e.stopPropagation()}>
-							<div class="assign-section-title">Imposta come Ruolo:</div>
-							{#each STANDARD_ROLES as r}
-								<button
-									class="assign-opt"
-									onclick={() => handleAssignToRole(r.id, m)}
-								>
-									<span>{r.icon}</span>
-									<span>{r.label}</span>
-								</button>
-							{/each}
-							<div class="assign-divider"></div>
-							<div class="assign-section-title">Aggiungi come Fallback:</div>
-							{#each STANDARD_ROLES.slice(0, 4) as r}
-								<button
-									class="assign-opt fallback"
-									onclick={() => handleAddAsFallback(r.id, m)}
-								>
-									<span>+ Fallback {r.id}</span>
-								</button>
-							{/each}
-						</div>
-					{/if}
-				</div>
+		{#if modelSettingsStore.catalog.length === 0 && !modelSettingsStore.loading}
+			<div class="empty-state">
+				<p>Nessun modello trovato nel catalogo.</p>
+				<button type="button" class="btn-retry" onclick={() => modelSettingsStore.refreshCatalog()}>
+					Ricarica catalogo provider
+				</button>
+			</div>
+		{:else if filteredCatalog.length === 0}
+			<div class="empty-state">
+				<p>Nessun modello corrisponde ai criteri di ricerca impostati.</p>
 			</div>
 		{:else}
-			<div class="empty-state">
-				Nessun modello trovato corrispondente ai filtri impostati.
-			</div>
-		{/each}
+			{#each filteredCatalog as m (m.selector)}
+				<div class="model-row">
+					<div class="model-meta-cell">
+						<div class="name-row">
+							<span class="m-provider">{m.provider}</span>
+							<span class="m-name">{m.name}</span>
+							{#if m.isCustom}
+								<span class="m-custom-badge">Custom</span>
+							{/if}
+						</div>
+						<div class="m-id-row">
+							<span class="m-id">{m.id}</span>
+						</div>
+					</div>
+
+					<div class="specs-cell">
+						<div class="spec-item" title="Finestra di contesto massima">
+							<span class="spec-label">Contesto</span>
+							<span class="spec-val">{formatCtx(m.contextWindow)}</span>
+						</div>
+						<div class="spec-item" title="Max output tokens">
+							<span class="spec-label">Max Out</span>
+							<span class="spec-val">{formatCtx(m.maxTokens)}</span>
+						</div>
+						{#if m.cost?.input !== undefined && m.cost?.output !== undefined}
+							<div class="spec-item" title="Costo stimato per 1M token (Input / Output)">
+								<span class="spec-label">Costo 1M</span>
+								<span class="spec-val">{formatCost(m.cost.input)} / {formatCost(m.cost.output)}</span>
+							</div>
+						{/if}
+					</div>
+
+					<div class="badges-cell">
+						{#if m.input?.includes('image')}
+							<span class="cap-badge vision" title="Supporto input immagini / vision">Vision</span>
+						{/if}
+						{#if m.reasoning}
+							<span class="cap-badge reasoning" title="Supporto reasoning / thinking">Reasoning</span>
+						{/if}
+					</div>
+
+					<div class="action-cell">
+						<button
+							type="button"
+							class="btn-assign-dropdown"
+							aria-haspopup="menu"
+							aria-expanded={openAssignMenuFor === m.selector}
+							onclick={(e) => {
+								e.stopPropagation();
+								openAssignMenuFor = openAssignMenuFor === m.selector ? null : m.selector;
+							}}
+						>
+							<span>Assegna</span>
+							<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+								<path d="M4 6l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
+							</svg>
+						</button>
+
+						{#if openAssignMenuFor === m.selector}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div class="assign-popover" onclick={(e) => e.stopPropagation()}>
+								<div class="assign-section-title">Imposta come Ruolo Primario</div>
+								<div class="assign-grid">
+									{#each STANDARD_ROLES as r}
+										<button
+											type="button"
+											class="assign-opt"
+											onclick={() => handleAssignToRole(r.id, m)}
+										>
+											<span class="opt-badge">{getRoleAbbr(r.id)}</span>
+											<span class="opt-label">{r.label}</span>
+										</button>
+									{/each}
+								</div>
+
+								<div class="assign-divider"></div>
+
+								<div class="assign-section-title">Aggiungi a Catena Fallback</div>
+								<div class="assign-grid">
+									{#each STANDARD_ROLES as r}
+										<button
+											type="button"
+											class="assign-opt fallback"
+											onclick={() => handleAddAsFallback(r.id, m)}
+										>
+											<span class="opt-badge">{getRoleAbbr(r.id)}</span>
+											<span class="opt-label">+ Fallback {r.id}</span>
+										</button>
+									{/each}
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/each}
+		{/if}
 	</div>
 </div>
 
@@ -248,7 +307,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
-		padding: var(--space-2) 0;
+		padding: var(--space-3) var(--space-4);
 	}
 
 	.filter-header {
@@ -270,7 +329,6 @@
 	.search-icon {
 		position: absolute;
 		left: 10px;
-		font-size: 13px;
 		color: var(--ink-faint);
 		pointer-events: none;
 	}
@@ -280,11 +338,12 @@
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		padding: 7px 28px 7px 32px;
+		padding: 6px 28px 6px 30px;
 		font-family: inherit;
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
 		color: var(--ink);
 		outline: none;
+		transition: border-color var(--dur-fast);
 	}
 
 	.search-input-wrapper input:focus {
@@ -298,68 +357,76 @@
 		border: none;
 		color: var(--ink-faint);
 		cursor: pointer;
-		font-size: 11px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 2px;
+	}
+
+	.btn-clear:hover {
+		color: var(--ink);
 	}
 
 	.quick-toggles {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-2);
 	}
 
 	.filter-toggle-chip {
-		background: var(--bg-sunken);
+		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-sm);
+		padding: 5px 10px;
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
-		padding: 6px 10px;
+		font-family: var(--font-ui);
+		font-weight: 500;
 		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.filter-toggle-chip:hover {
-		border-color: var(--line-strong);
+		background: var(--bg-hover);
 		color: var(--ink);
+		border-color: var(--line-strong);
 	}
 
 	.filter-toggle-chip.active {
-		background: var(--brand-dim);
+		background: var(--bg-active);
+		color: var(--ink);
 		border-color: var(--brand);
-		color: var(--brand-ink);
 		font-weight: 600;
 	}
 
 	.refresh-catalog-btn {
-		background: transparent;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-sm);
+		padding: 5px 10px;
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
-		padding: 6px 10px;
+		font-family: var(--font-ui);
 		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.refresh-catalog-btn:hover:not(:disabled) {
-		border-color: var(--line-strong);
-		color: var(--ink);
 		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line-strong);
 	}
 
 	.refresh-catalog-btn:disabled {
-		opacity: 0.6;
+		opacity: 0.5;
 		cursor: not-allowed;
 	}
 
-	.spinning {
-		animation: spin 1s linear infinite;
+	.refresh-icon.spinning {
+		animation: spin 0.8s linear infinite;
 	}
 
 	@keyframes spin {
@@ -372,31 +439,32 @@
 		align-items: center;
 		gap: 6px;
 		overflow-x: auto;
-		padding-bottom: 4px;
+		padding-bottom: 2px;
 	}
 
 	.pill {
-		background: var(--bg-sunken);
+		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: 99px;
-		color: var(--ink-faint);
-		font-size: 11px;
-		font-family: var(--font-mono);
+		border-radius: var(--radius-full);
 		padding: 3px 10px;
+		font-size: 11px;
+		font-family: var(--font-ui);
+		color: var(--ink-muted);
 		cursor: pointer;
 		white-space: nowrap;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.pill:hover {
+		background: var(--bg-hover);
 		color: var(--ink);
 		border-color: var(--line-strong);
 	}
 
 	.pill.active {
-		background: var(--brand);
+		background: var(--bg-hover);
+		color: var(--ink);
 		border-color: var(--brand);
-		color: var(--on-brand);
 		font-weight: 600;
 	}
 
@@ -405,30 +473,30 @@
 		color: var(--ink-faint);
 	}
 
+	.catalog-stats strong {
+		color: var(--ink);
+		font-weight: 600;
+	}
+
 	.catalog-list {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		max-height: 480px;
-		overflow-y: auto;
-		padding-right: 2px;
+		gap: 6px;
 	}
 
 	.model-row {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
 		gap: var(--space-3);
-		padding: 8px 12px;
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		transition: border-color 0.15s ease;
+		padding: var(--space-2) var(--space-3);
+		transition: border-color var(--dur-fast);
 	}
 
 	.model-row:hover {
 		border-color: var(--line-strong);
-		background: var(--bg-hover);
 	}
 
 	.model-meta-cell {
@@ -443,17 +511,17 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		flex-wrap: wrap;
 	}
 
 	.m-provider {
-		font-size: 10px;
 		font-family: var(--font-mono);
-		font-weight: 600;
+		font-size: 10px;
+		color: var(--ink-faint);
+		background: var(--bg-hover);
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		color: var(--ink-muted);
-		text-transform: lowercase;
+		border: 1px solid var(--line);
 	}
 
 	.m-name {
@@ -466,13 +534,14 @@
 	}
 
 	.m-custom-badge {
-		font-size: 9px;
+		font-family: var(--font-mono);
+		font-size: 10px;
 		font-weight: 600;
-		text-transform: uppercase;
-		padding: 1px 4px;
+		color: var(--brand-ink);
+		background: var(--bg-hover);
+		padding: 1px 5px;
 		border-radius: var(--radius-sm);
-		background: var(--brand-dim);
-		color: var(--brand);
+		border: 1px solid var(--line);
 	}
 
 	.m-id-row {
@@ -481,8 +550,8 @@
 	}
 
 	.m-id {
-		font-size: 11px;
 		font-family: var(--font-mono);
+		font-size: 11px;
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -490,7 +559,7 @@
 	}
 
 	.specs-cell {
-		flex: 1.5;
+		flex: 2;
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
@@ -503,129 +572,168 @@
 	}
 
 	.spec-label {
-		font-size: 9px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		font-size: 10px;
 		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
 	}
 
 	.spec-val {
-		font-size: var(--text-xs);
 		font-family: var(--font-mono);
-		color: var(--ink-muted);
-		font-weight: 500;
+		font-size: 11px;
+		color: var(--ink);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.badges-cell {
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		min-width: 120px;
+		width: 140px;
+		flex-shrink: 0;
 	}
 
 	.cap-badge {
 		font-size: 10px;
+		font-weight: 500;
 		padding: 2px 6px;
 		border-radius: var(--radius-sm);
+		background: var(--bg-hover);
 		border: 1px solid var(--line);
 		color: var(--ink-muted);
-	}
-
-	.cap-badge.vision {
-		background: rgba(66, 133, 244, 0.08);
-		border-color: rgba(66, 133, 244, 0.25);
-		color: #4285f4;
-	}
-
-	.cap-badge.reasoning {
-		background: rgba(139, 92, 246, 0.08);
-		border-color: rgba(139, 92, 246, 0.25);
-		color: #8b5cf6;
 	}
 
 	.action-cell {
 		position: relative;
+		flex-shrink: 0;
 	}
 
 	.btn-assign-dropdown {
-		background: var(--bg-sunken);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px 10px;
+		background: var(--bg-hover);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		color: var(--ink-muted);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
 		font-size: var(--text-xs);
+		font-family: var(--font-ui);
 		font-weight: 500;
-		padding: 5px 10px;
 		cursor: pointer;
-		white-space: nowrap;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.btn-assign-dropdown:hover {
-		border-color: var(--brand);
-		color: var(--ink);
-		background: var(--bg-hover);
+		background: var(--bg-active);
+		border-color: var(--line-strong);
 	}
 
 	.assign-popover {
 		position: absolute;
 		top: calc(100% + 4px);
 		right: 0;
-		width: 190px;
+		width: 280px;
+		max-height: 380px;
+		overflow-y: auto;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
+		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
 		padding: var(--space-2);
-		z-index: var(--z-dialog);
+		z-index: 100;
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: var(--space-1);
 	}
 
 	.assign-section-title {
 		font-size: 10px;
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
 		color: var(--ink-faint);
-		padding: 4px 6px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 2px 4px;
 	}
 
-	.assign-divider {
-		height: 1px;
-		background: var(--line);
-		margin: 4px 0;
+	.assign-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 2px;
 	}
 
 	.assign-opt {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		width: 100%;
-		padding: 5px 8px;
+		padding: 4px 6px;
 		background: transparent;
 		border: none;
 		border-radius: var(--radius-sm);
 		color: var(--ink);
 		font-size: var(--text-xs);
+		font-family: var(--font-ui);
 		cursor: pointer;
 		text-align: left;
+		transition: background var(--dur-fast);
 	}
 
 	.assign-opt:hover {
 		background: var(--bg-hover);
 	}
 
-	.assign-opt.fallback {
-		color: var(--ink-muted);
+	.opt-badge {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: 10px;
+		font-weight: 600;
+		color: var(--ink-muted);
+		background: var(--bg-base);
+		padding: 1px 4px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		flex-shrink: 0;
+		width: 22px;
+		text-align: center;
+	}
+
+	.opt-label {
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.assign-divider {
+		height: 1px;
+		background: var(--line);
+		margin: var(--space-1) 0;
 	}
 
 	.empty-state {
-		padding: var(--space-6);
-		text-align: center;
-		color: var(--ink-faint);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-6) var(--space-4);
+		color: var(--ink-muted);
 		font-size: var(--text-sm);
+		gap: var(--space-3);
+		text-align: center;
+	}
+
+	.btn-retry {
+		padding: 6px 14px;
+		background: var(--bg-hover);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		cursor: pointer;
+	}
+
+	.btn-retry:hover {
+		background: var(--bg-active);
+		border-color: var(--line-strong);
 	}
 </style>

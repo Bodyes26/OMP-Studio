@@ -1,8 +1,7 @@
 <script lang="ts">
 	import {
 		modelSettingsStore,
-		STANDARD_ROLES,
-		type ModelUpgradeCandidate
+		STANDARD_ROLES
 	} from '$lib/stores/modelSettings.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -41,26 +40,56 @@
 		modelSettingsStore.upgradeModalOpen = false;
 	}
 
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && modelSettingsStore.upgradeModalOpen) {
+			e.stopPropagation();
+			handleClose();
+		}
+	}
+
+	function getRoleAbbr(id: string): string {
+		switch (id) {
+			case 'default': return 'CH';
+			case 'plan': return 'PL';
+			case 'smol': return 'SM';
+			case 'slow': return 'SL';
+			case 'vision': return 'VI';
+			case 'task': return 'TS';
+			case 'commit': return 'CM';
+			case 'advisor': return 'AD';
+			default: return id.slice(0, 2).toUpperCase();
+		}
+	}
+
 	function getRoleMeta(roleId: string) {
 		return STANDARD_ROLES.find(r => r.id === roleId) || {
 			id: roleId,
 			label: roleId,
-			icon: '⚙️'
+			desc: ''
 		};
 	}
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 {#if modelSettingsStore.upgradeModalOpen}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="modal-backdrop" onclick={handleClose} transition:fade={{ duration: 150 }}></div>
-	<div class="upgrade-dialog" transition:fly={{ y: -16, duration: 220, easing: cubicOut }}>
+
+	<div
+		class="upgrade-dialog"
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="upgrade-dialog-title"
+		transition:fly={{ y: -16, duration: 220, easing: cubicOut }}
+	>
 		<div class="dialog-header">
 			<div class="header-titles">
-				<h3>🚀 Nuove Versioni Modelli Disponibili</h3>
-				<p>OMP ha confrontato i ruoli configurati con il catalogo più recente e ha trovato versioni aggiornate.</p>
+				<h3 id="upgrade-dialog-title">Nuove Versioni Modelli Disponibili</h3>
+				<p>OMP ha individuato versioni aggiornate per i modelli assegnati ai ruoli operativi.</p>
 			</div>
-			<button class="btn-close" onclick={handleClose}>×</button>
+			<button class="btn-close" aria-label="Chiudi finestra" onclick={handleClose}>×</button>
 		</div>
 
 		<div class="dialog-body">
@@ -92,6 +121,7 @@
 							<input
 								type="checkbox"
 								checked={isSelected}
+								aria-label="Aggiorna modello per ruolo {roleMeta.label}"
 								onclick={(e) => e.stopPropagation()}
 								onchange={() => toggleSelect(index)}
 							/>
@@ -99,7 +129,7 @@
 
 						<div class="card-content">
 							<div class="role-badge-row">
-								<span class="role-icon">{roleMeta.icon}</span>
+								<span class="role-abbr-badge">{getRoleAbbr(cand.role)}</span>
 								<span class="role-name">{roleMeta.label}</span>
 								<span class="provider-tag">{cand.currentProvider}</span>
 							</div>
@@ -113,10 +143,10 @@
 									{/if}
 								</div>
 
-								<span class="diff-arrow">➔</span>
+								<span class="diff-arrow">→</span>
 
 								<div class="model-box new">
-									<span class="box-label">Nuova Versione</span>
+									<span class="box-label">Suggerito</span>
 									<span class="box-val">{cand.suggestedModelId}</span>
 									{#if cand.currentThinking}
 										<span class="thinking-tag">:{cand.currentThinking}</span>
@@ -124,9 +154,11 @@
 								</div>
 							</div>
 
-							<div class="reason-note">
-								{cand.reason}
-							</div>
+							{#if cand.reason}
+								<div class="reason-note">
+									{cand.reason}
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/each}
@@ -135,7 +167,7 @@
 
 		<div class="dialog-footer">
 			<div class="footer-hint">
-				I livelli di thinking e i ruoli operativi rimarranno invariati.
+				I livelli di reasoning e la catena di fallback rimarranno invariati.
 			</div>
 			<div class="footer-actions">
 				<button class="btn btn-secondary" onclick={handleClose}>Annulla</button>
@@ -159,7 +191,8 @@
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: var(--backdrop);
+		background: color-mix(in srgb, var(--bg-base) 80%, black);
+		opacity: 0.75;
 		z-index: calc(var(--z-dialog) + 10);
 	}
 
@@ -173,7 +206,7 @@
 		max-height: 85vh;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-xl);
+		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		z-index: calc(var(--z-dialog) + 11);
 		display: flex;
@@ -185,14 +218,14 @@
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
-		padding: var(--space-4);
+		padding: var(--space-3) var(--space-4);
 		border-bottom: 1px solid var(--line);
 		background: var(--bg-raised);
 	}
 
 	.header-titles h3 {
-		margin: 0 0 4px 0;
-		font-size: var(--text-md);
+		margin: 0 0 2px 0;
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--ink);
 	}
@@ -204,26 +237,34 @@
 	}
 
 	.btn-close {
+		width: 24px;
+		height: 24px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		background: transparent;
 		border: none;
-		font-size: 20px;
-		color: var(--ink-faint);
+		font-size: 18px;
+		color: var(--ink-muted);
 		cursor: pointer;
 		line-height: 1;
-		padding: 4px;
+		border-radius: var(--radius-sm);
+		transition: background var(--dur-fast), color var(--dur-fast);
 	}
 
 	.btn-close:hover {
+		background: var(--bg-hover);
 		color: var(--ink);
 	}
 
 	.dialog-body {
-		padding: var(--space-4);
+		padding: var(--space-3) var(--space-4);
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
 		flex: 1;
+		background: var(--bg-base);
 	}
 
 	.selection-bar {
@@ -253,21 +294,20 @@
 		align-items: flex-start;
 		gap: var(--space-3);
 		padding: var(--space-3);
-		background: var(--bg-base);
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-lg);
+		border-radius: var(--radius-md);
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition: border-color var(--dur-fast), background var(--dur-fast);
 	}
 
 	.candidate-card:hover {
 		border-color: var(--line-strong);
-		background: var(--bg-hover);
 	}
 
 	.candidate-card.selected {
 		border-color: var(--brand);
-		background: color-mix(in srgb, var(--brand) 5%, var(--bg-base));
+		background: var(--bg-base);
 	}
 
 	.card-left {
@@ -288,24 +328,31 @@
 		gap: 6px;
 	}
 
-	.role-icon {
-		font-size: 14px;
+	.role-abbr-badge {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		color: var(--ink);
+		background: var(--bg-hover);
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
 	}
 
 	.role-name {
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.provider-tag {
-		font-size: 10px;
 		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--ink-faint);
+		background: var(--bg-hover);
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		color: var(--ink-faint);
-		text-transform: lowercase;
+		border: 1px solid var(--line);
 	}
 
 	.diff-row {
@@ -318,66 +365,66 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		background: var(--bg-sunken);
+		gap: 1px;
+		padding: 4px 8px;
+		border-radius: var(--radius-sm);
+		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 6px 8px;
 		min-width: 0;
 	}
 
-	.model-box.old {
-		opacity: 0.8;
-	}
-
 	.model-box.new {
-		border-color: var(--brand);
-		background: color-mix(in srgb, var(--brand) 8%, var(--bg-sunken));
+		border-color: var(--brand-dim);
 	}
 
 	.box-label {
 		font-size: 9px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		font-weight: 500;
 		color: var(--ink-faint);
-		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 
 	.box-val {
-		font-size: var(--text-xs);
-		font-weight: 500;
 		font-family: var(--font-mono);
+		font-size: 11px;
 		color: var(--ink);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 
-	.thinking-tag {
-		font-size: 10px;
-		font-family: var(--font-mono);
-		color: var(--brand);
+	.model-box.new .box-val {
+		color: var(--brand-ink);
 		font-weight: 600;
 	}
 
+	.thinking-tag {
+		color: var(--ink-faint);
+		font-size: 10px;
+	}
+
 	.diff-arrow {
-		color: var(--brand);
-		font-size: 14px;
+		color: var(--ink-faint);
+		font-size: 13px;
 		flex-shrink: 0;
 	}
 
 	.reason-note {
 		font-size: 11px;
-		color: var(--ink-muted);
+		color: var(--ink-faint);
+		line-height: 1.35;
 	}
 
 	.dialog-footer {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-3) var(--space-4);
+		padding: var(--space-2) var(--space-4);
 		border-top: 1px solid var(--line);
 		background: var(--bg-raised);
+		gap: var(--space-3);
+		min-height: 48px;
 	}
 
 	.footer-hint {
@@ -389,38 +436,44 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		flex-shrink: 0;
 	}
 
 	.btn {
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
-		font-size: var(--text-sm);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 5px 12px;
+		border-radius: var(--radius-sm);
+		font-size: var(--text-xs);
 		font-weight: 500;
+		font-family: var(--font-ui);
 		cursor: pointer;
 		border: 1px solid transparent;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.btn-secondary {
-		background: transparent;
-		border-color: var(--line);
+		background: var(--bg-hover);
 		color: var(--ink);
+		border-color: var(--line);
 	}
 
 	.btn-secondary:hover {
-		background: var(--bg-hover);
+		background: var(--bg-active);
+		border-color: var(--line-strong);
 	}
 
 	.btn-primary {
 		background: var(--brand);
-		color: var(--on-brand);
+		color: var(--on-project, #ffffff);
 	}
 
 	.btn-primary:hover:not(:disabled) {
-		filter: brightness(1.1);
+		filter: brightness(1.08);
 	}
 
-	.btn:disabled {
+	.btn-primary:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
