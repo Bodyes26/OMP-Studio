@@ -76,26 +76,111 @@ export interface ModelUpgradeCandidate {
 }
 
 export const STANDARD_ROLES = [
-	{ id: 'default', label: 'Default / Chat', desc: 'Modello principale per conversazione e attivita generali' },
-	{ id: 'plan', label: 'Architectural Plan', desc: 'Modello per pianificazione e analisi architetturale' },
-	{ id: 'smol', label: 'Smol (Fast)', desc: 'Modello ultra-rapido per compiti leggeri, esplorazione e scouting' },
-	{ id: 'slow', label: 'Slow (Reasoning)', desc: 'Modello per ragionamenti complessi e deduzioni approfondite' },
-	{ id: 'vision', label: 'Vision / Images', desc: 'Modello multimodale per ispezione e comprensione immagini' },
-	{ id: 'task', label: 'Task Subagents', desc: 'Modello delegato per subagenti ed esecuzioni parallele' },
-	{ id: 'commit', label: 'Git Commit', desc: 'Modello per generazione messaggi di commit e changelog' },
-	{ id: 'advisor', label: 'Advisor (Reviewer)', desc: 'Modello di revisione e controllo passivo di qualita' }
+	{ id: 'default', label: 'Default / Chat', glyph: '⌘', abbr: 'CH', desc: 'Modello principale per conversazione e attivita generali' },
+	{ id: 'plan', label: 'Architectural Plan', glyph: '◆', abbr: 'PL', desc: 'Modello per pianificazione e analisi architetturale' },
+	{ id: 'smol', label: 'Smol (Fast)', glyph: '⚡', abbr: 'SM', desc: 'Modello ultra-rapido per compiti leggeri, esplorazione e scouting' },
+	{ id: 'slow', label: 'Slow (Reasoning)', glyph: '∞', abbr: 'SL', desc: 'Modello per ragionamenti complessi e deduzioni approfondite' },
+	{ id: 'vision', label: 'Vision / Images', glyph: '◉', abbr: 'VI', desc: 'Modello multimodale per ispezione e comprensione immagini' },
+	{ id: 'task', label: 'Task Subagents', glyph: '⇉', abbr: 'TS', desc: 'Modello delegato per subagenti ed esecuzioni parallele' },
+	{ id: 'commit', label: 'Git Commit', glyph: '⌥', abbr: 'CM', desc: 'Modello per generazione messaggi di commit e changelog' },
+	{ id: 'advisor', label: 'Advisor (Reviewer)', glyph: '◇', abbr: 'AD', desc: 'Modello di revisione e controllo passivo di qualita' }
 ] as const;
 
 export const THINKING_LEVELS = [
-	{ id: 'auto', label: 'Auto (Predefinito)' },
-	{ id: 'minimal', label: 'Minimal (1k)' },
-	{ id: 'low', label: 'Low (2k)' },
-	{ id: 'medium', label: 'Medium (8k)' },
-	{ id: 'high', label: 'High (16k)' },
-	{ id: 'xhigh', label: 'Extra High (32k)' },
-	{ id: 'max', label: 'Max (Consentito)' },
-	{ id: 'off', label: 'Off (Disabilitato)' }
+	{ id: 'auto', label: 'Auto', budget: 'adattivo', desc: 'Deciso dal modello' },
+	{ id: 'off', label: 'Off', budget: '0', desc: 'Disabilitato' },
+	{ id: 'minimal', label: 'Minimal', budget: '1k', desc: '1.024 token' },
+	{ id: 'low', label: 'Low', budget: '2k', desc: '2.048 token' },
+	{ id: 'medium', label: 'Medium', budget: '8k', desc: '8.192 token' },
+	{ id: 'high', label: 'High', budget: '16k', desc: '16.384 token' },
+	{ id: 'xhigh', label: 'Extra High', budget: '32k', desc: '32.768 token' },
+	{ id: 'max', label: 'Max', budget: '64k', desc: 'Massimo consentito' }
 ] as const;
+
+export interface RoleSuggestion {
+	pattern: string;
+	reason: string;
+	badge?: string;
+}
+
+export const ROLE_SUGGESTIONS: Record<string, { primary: RoleSuggestion[]; fallback: RoleSuggestion[] }> = {
+	default: {
+		primary: [
+			{ pattern: 'claude-3-7-sonnet', reason: 'Miglior equilibrio qualita/costo in chat', badge: 'consigliato' },
+			{ pattern: 'gemini-2-5-pro', reason: 'Contesto esteso 1M per sessioni lunghe' }
+		],
+		fallback: [
+			{ pattern: 'gpt-4o-mini', reason: 'Provider alternativo, raro rate-limit' },
+			{ pattern: 'deepseek-v3', reason: 'Costo minimo come riserva' }
+		]
+	},
+	plan: {
+		primary: [
+			{ pattern: 'o3', reason: 'Reasoning profondo su architetture e mappe', badge: 'consigliato' },
+			{ pattern: 'claude-opus', reason: 'Ottimo su system design complessi' }
+		],
+		fallback: [
+			{ pattern: 'deepseek-r1', reason: 'Reasoning ad alto budget alternativo' },
+			{ pattern: 'claude-3-7-sonnet', reason: 'Fallback affidabile' }
+		]
+	},
+	smol: {
+		primary: [
+			{ pattern: 'gemini-2-5-flash', reason: 'Ultra-rapido ed economico per scouting', badge: 'consigliato' },
+			{ pattern: 'claude-3-5-haiku', reason: 'Veloce con ottima precisione di sintassi' }
+		],
+		fallback: [
+			{ pattern: 'gpt-4o-mini', reason: 'Reserva veloce a basso costo' },
+			{ pattern: 'qwen', reason: 'Modello locale offline' }
+		]
+	},
+	slow: {
+		primary: [
+			{ pattern: 'deepseek-r1', reason: 'Reasoning logico e matematico avanzato', badge: 'consigliato' },
+			{ pattern: 'o3-mini', reason: 'Ottima capacita deduttiva e coding' }
+		],
+		fallback: [
+			{ pattern: 'claude-3-7-sonnet', reason: 'Thinking esteso affidabile' }
+		]
+	},
+	vision: {
+		primary: [
+			{ pattern: 'gemini-2-5-pro', reason: 'Comprensione visiva e OCR eccellente', badge: 'consigliato' },
+			{ pattern: 'claude-3-7-sonnet', reason: 'Ispezione screenshot e UI accurata' }
+		],
+		fallback: [
+			{ pattern: 'gpt-4o', reason: 'Vision alternativa affidabile' }
+		]
+	},
+	task: {
+		primary: [
+			{ pattern: 'claude-3-5-haiku', reason: 'Esecuzione subagenti rapida e precisa', badge: 'consigliato' },
+			{ pattern: 'gemini-2-5-flash', reason: 'Costo minimo per tool calling intensivo' }
+		],
+		fallback: [
+			{ pattern: 'deepseek-v3', reason: 'Riserva ad alto throughput' }
+		]
+	},
+	commit: {
+		primary: [
+			{ pattern: 'claude-3-5-haiku', reason: 'Messaggi chiari e sintetici', badge: 'consigliato' },
+			{ pattern: 'gpt-4o-mini', reason: 'Generazione changelog veloce' }
+		],
+		fallback: [
+			{ pattern: 'gemini-2-5-flash', reason: 'Fallback veloce' }
+		]
+	},
+	advisor: {
+		primary: [
+			{ pattern: 'claude-3-7-sonnet', reason: 'Revisione passiva di alta qualita', badge: 'consigliato' },
+			{ pattern: 'deepseek-r1', reason: 'Analisi approfondita di sicurezza ed edge cases' }
+		],
+		fallback: [
+			{ pattern: 'claude-3-5-sonnet', reason: 'Controllo di qualita solido' }
+		]
+	}
+};
+
 
 class ModelSettingsStore {
 	isOpen = $state(false);
@@ -390,6 +475,30 @@ class ModelSettingsStore {
 
 	setCycleOrder(order: string[]) {
 		if (!this.draftConfig) return;
+		this.draftConfig.cycleOrder = order;
+	}
+	addToCycle(selector: string) {
+		if (!this.draftConfig) return;
+		const current = [...(this.draftConfig.cycleOrder || [])];
+		if (!current.includes(selector)) {
+			current.push(selector);
+			this.draftConfig.cycleOrder = current;
+		}
+	}
+
+	removeFromCycle(index: number) {
+		if (!this.draftConfig || !this.draftConfig.cycleOrder) return;
+		const current = [...this.draftConfig.cycleOrder];
+		current.splice(index, 1);
+		this.draftConfig.cycleOrder = current;
+	}
+
+	moveCycleItem(fromIndex: number, toIndex: number) {
+		if (!this.draftConfig || !this.draftConfig.cycleOrder) return;
+		const order = [...this.draftConfig.cycleOrder];
+		if (toIndex < 0 || toIndex >= order.length) return;
+		const [item] = order.splice(fromIndex, 1);
+		order.splice(toIndex, 0, item);
 		this.draftConfig.cycleOrder = order;
 	}
 

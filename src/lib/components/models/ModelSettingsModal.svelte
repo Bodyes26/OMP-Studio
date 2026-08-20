@@ -241,10 +241,10 @@
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		width: 900px;
-		max-width: 95vw;
-		height: 85vh;
-		max-height: 740px;
+		width: 980px;
+		max-width: 96vw;
+		height: 86vh;
+		max-height: 760px;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
