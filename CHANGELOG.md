@@ -9,6 +9,13 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-21
+
+### Fixed
+
+- Il tool `studio_diagram` per la whiteboard dei diagrammi è ora caricato
+  automaticamente in ogni sessione `omp` avviata da Studio: non serve più
+  passare l'estensione a mano con `-e`.
 ## [0.7.0] - 2026-08-21
 
 ### Added

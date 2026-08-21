@@ -62,6 +62,37 @@ fn write_overlay() -> std::path::PathBuf {
     overlay_path
 }
 
+/// Sorgente dell'estensione-ponte (tool `studio_diagram`). Inclusa nel
+/// binario con `include_str!` dal repo: una sola verita', nessuna risorsa
+/// Tauri da configurare.
+const DIAGRAM_EXTENSION_TS: &str = include_str!("../../../extensions/studio-diagram.ts");
+/// Estrae l'estensione in %LOCALAPPDATA%/omp-studio/extensions/ e ritorna
+/// il percorso da passare a omp con `-e`. Riscrive il file se il sorgente
+/// nel binario e' piu' nuovo della copia su disco: aggiornando Studio si
+/// aggiorna anche l'estensione. None = impossibile scrivere: le sessioni
+/// partono comunque, solo senza il tool dei diagrammi.
+fn write_diagram_extension() -> Option<String> {
+    let base = if cfg!(target_os = "windows") {
+        std::env::var("LOCALAPPDATA").ok()?
+    } else {
+        std::env::var("HOME").ok()?
+    };
+    let dir = std::path::Path::new(&base)
+        .join(if cfg!(target_os = "windows") { "omp-studio" } else { ".omp-studio" })
+        .join("extensions");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("studio-diagram.ts");
+
+    let stale = match std::fs::read_to_string(&path) {
+        Ok(existing) => existing != DIAGRAM_EXTENSION_TS,
+        Err(_) => true,
+    };
+    if stale {
+        std::fs::write(&path, DIAGRAM_EXTENSION_TS).ok()?;
+    }
+    Some(path.to_string_lossy().to_string())
+}
+
 pub struct PtyManager {
     sessions: Mutex<HashMap<u64, PtySession>>,
     next_id: Mutex<u64>,
@@ -105,12 +136,22 @@ pub async fn pty_open(
 
     let overlay_path = write_overlay();
 
+    // Estensione-ponte per la whiteboard dei diagrammi: vive nel repo di
+    // Studio (risorsa inclusa nel binario, scritta accanto all'exe alla
+    // prima apertura). Se il file non esiste ancora lo si estrae: nessuna
+    // scrittura in ~/.omp, la copia sta in %LOCALAPPDATA%/omp-studio.
+    let extension_arg = write_diagram_extension();
+
     #[cfg(target_os = "windows")]
     let mut cmd = {
         let mut c = CommandBuilder::new("powershell.exe");
         let mut launch = format!("& {}", ps_quote(&omp_path));
         launch.push_str(" --config ");
         launch.push_str(&ps_quote(&overlay_path.to_string_lossy()));
+        if let Some(ext) = &extension_arg {
+            launch.push_str(" -e ");
+            launch.push_str(&ps_quote(ext));
+        }
         for arg in &args {
             launch.push(' ');
             launch.push_str(&ps_quote(arg));
@@ -133,6 +174,10 @@ pub async fn pty_open(
         } else {
             format!("exec {} -l", sh_quote(&shell))
         };
+        if let Some(ext) = &extension_arg {
+            launch.push_str(" -e ");
+            launch.push_str(&sh_quote(ext));
+        }
         for arg in &args {
             launch.push(' ');
             launch.push_str(&sh_quote(arg));
@@ -143,7 +188,6 @@ pub async fn pty_open(
         c.arg(&launch);
         c
     };
-
     cmd.cwd(&cwd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
