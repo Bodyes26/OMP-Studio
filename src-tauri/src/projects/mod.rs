@@ -200,6 +200,344 @@ pub async fn project_git_status(project_path: String) -> Result<FileGitStatus, S
 
     Ok(FileGitStatus { statuses })
 }
+
+// ---------- Storico git ----------
+//
+// L'agente spesso committa al termine del lavoro: lo stato "pulito" di
+// `git status` nasconde cosa e' appena cambiato. Questi comandi espongono
+// l'ultimo commit e lo storico recente cosi' il pannello GIT puo' offrire
+// il diff anche di quanto gia' committato, senza terminale esterno.
+
+#[derive(Serialize)]
+pub struct CommitFileEntry {
+    pub path: String,
+    pub status: String,
+    pub insertions: Option<u32>,
+    pub deletions: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub struct CommitInfo {
+    pub hash: String,
+    pub short: String,
+    pub author: String,
+    /// Unix seconds: `stats.db` usa millisecondi, git no. Restare in secondi.
+    pub time: i64,
+    pub subject: String,
+    pub files: Vec<CommitFileEntry>,
+}
+
+#[derive(Serialize)]
+pub struct NumStat {
+    pub insertions: Option<u32>,
+    pub deletions: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub struct GitRevContent {
+    pub content: String,
+    pub exists: bool,
+}
+
+/// Git con finestra nascosta su Windows. Ritorna None se git manca, la
+/// cartella non e' un repository o il comando fallisce: il pannello degrada
+/// a vuoto senza errori, come fa `project_git_status`.
+fn run_git(project_path: &str, args: &[&str]) -> Option<Vec<u8>> {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(project_path);
+    cmd.args(args);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(out.stdout)
+}
+
+/// Unisce `--name-status` e `--numstat` sulla stessa lista di path.
+/// Le rinomine ("R100\tvecchio\tnuovo") vengono attribuite al nuovo nome.
+fn merge_name_status_numstat(status_out: &[u8], numstat_out: &[u8]) -> Vec<CommitFileEntry> {
+    use std::collections::BTreeMap;
+    let mut files: BTreeMap<String, (String, Option<u32>, Option<u32>)> = BTreeMap::new();
+
+    for line in String::from_utf8_lossy(status_out).lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(3, '\t');
+        let raw_status = parts.next().unwrap_or("M");
+        let status = raw_status.chars().next().unwrap_or('M').to_string();
+        let path = match (parts.next(), parts.next()) {
+            (_, Some(new_path)) => new_path,
+            (Some(old_only), None) => old_only,
+            _ => continue,
+        };
+        files.insert(path.replace('\\', "/"), (status, None, None));
+    }
+
+    for line in String::from_utf8_lossy(numstat_out).lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (ins, del, path) = (parts.next(), parts.next(), parts.next());
+        if let Some(p) = path {
+            if let Some(entry) = files.get_mut(&p.replace('\\', "/")) {
+                entry.1 = ins.and_then(|s| s.parse().ok());
+                entry.2 = del.and_then(|s| s.parse().ok());
+            }
+        }
+    }
+
+    files
+        .into_iter()
+        .map(|(path, (status, insertions, deletions))| CommitFileEntry {
+            path,
+            status,
+            insertions,
+            deletions,
+        })
+        .collect()
+}
+
+#[command]
+pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>, String> {
+    let sep = '\u{1f}';
+    let fmt = format!("%H{sep}%h{sep}%an{sep}%at{sep}%s");
+    let Some(out) = run_git(&project_path, &["log", "-1", &format!("--pretty=format:{fmt}")]) else {
+        return Ok(None);
+    };
+    let text = String::from_utf8_lossy(&out).to_string();
+    let parts: Vec<&str> = text.split(sep).collect();
+    if parts.len() < 5 || parts[0].is_empty() {
+        return Ok(None);
+    }
+    let hash = parts[0].to_string();
+    let status = run_git(
+        &project_path,
+        &["diff-tree", "--no-commit-id", "--name-status", "-r", "-M", &hash],
+    )
+    .unwrap_or_default();
+    let numstat = run_git(
+        &project_path,
+        &["diff-tree", "--no-commit-id", "--numstat", "-r", "-M", &hash],
+    )
+    .unwrap_or_default();
+    Ok(Some(CommitInfo {
+        short: parts[1].to_string(),
+        author: parts[2].to_string(),
+        time: parts[3].parse().unwrap_or(0),
+        subject: parts[4].to_string(),
+        files: merge_name_status_numstat(&status, &numstat),
+        hash,
+    }))
+}
+
+#[command]
+pub async fn git_recent_commits(project_path: String, limit: Option<u32>) -> Result<Vec<CommitInfo>, String> {
+    let n = limit.unwrap_or(10).clamp(1, 50);
+    let sep = '\u{1f}';
+    let rec = '\u{1e}';
+    let fmt = format!("{rec}%H{sep}%h{sep}%an{sep}%at{sep}%s");
+    let Some(out) = run_git(
+        &project_path,
+        &["log", &format!("-n{n}"), &format!("--pretty=format:{fmt}"), "--name-status", "-M"],
+    ) else {
+        return Ok(Vec::new());
+    };
+
+    let mut commits = Vec::new();
+    for record in String::from_utf8_lossy(&out).split(rec) {
+        if record.trim().is_empty() {
+            continue;
+        }
+        let mut lines = record.lines();
+        let header = lines.next().unwrap_or("");
+        let hp: Vec<&str> = header.split(sep).collect();
+        if hp.len() < 5 || hp[0].is_empty() {
+            continue;
+        }
+        let mut files = Vec::new();
+        for line in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let mut parts = line.splitn(3, '\t');
+            let raw_status = parts.next().unwrap_or("M");
+            let status = raw_status.chars().next().unwrap_or('M').to_string();
+            let path = match (parts.next(), parts.next()) {
+                (_, Some(new_path)) => new_path,
+                (Some(old_only), None) => old_only,
+                _ => continue,
+            };
+            files.push(CommitFileEntry {
+                path: path.replace('\\', "/"),
+                status,
+                insertions: None,
+                deletions: None,
+            });
+        }
+        commits.push(CommitInfo {
+            hash: hp[0].to_string(),
+            short: hp[1].to_string(),
+            author: hp[2].to_string(),
+            time: hp[3].parse().unwrap_or(0),
+            subject: hp[4].to_string(),
+            files,
+        });
+    }
+    Ok(commits)
+}
+
+#[command]
+pub async fn git_current_branch(project_path: String) -> Result<String, String> {
+    Ok(run_git(&project_path, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .map(|b| String::from_utf8_lossy(&b).trim().to_string())
+        .unwrap_or_default())
+}
+
+#[command]
+pub async fn git_working_numstat(project_path: String) -> Result<HashMap<String, NumStat>, String> {
+    let Some(out) = run_git(&project_path, &["diff", "HEAD", "--numstat", "-M"]) else {
+        return Ok(HashMap::new());
+    };
+    let mut map = HashMap::new();
+    for line in String::from_utf8_lossy(&out).lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (ins, del, path) = (parts.next(), parts.next(), parts.next());
+        if let Some(p) = path {
+            map.insert(
+                p.replace('\\', "/"),
+                NumStat {
+                    insertions: ins.and_then(|s| s.parse().ok()),
+                    deletions: del.and_then(|s| s.parse().ok()),
+                },
+            );
+        }
+    }
+    Ok(map)
+}
+
+/// Contenuto di un file a una revisione arbitraria ("HEAD~1", hash, ...).
+/// Serve al diff dei commit: l'originale e' `<hash>~1`, il modificato e'
+/// `<hash>`. Il blocco `..` e' una difesa in piu' rispetto a `file_git_head`.
+#[command]
+pub async fn file_git_rev(project_path: String, rel: String, rev: String) -> Result<GitRevContent, String> {
+    if rel.split(['/', '\\']).any(|seg| seg == "..") {
+        return Err("Percorso non valido".to_string());
+    }
+    let rel_norm = rel.replace('\\', "/");
+    let spec = format!("{rev}:{rel_norm}");
+    let mut cmd = Command::new("git");
+    cmd.current_dir(&project_path);
+    cmd.args(["show", &spec]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    match cmd.output() {
+        Ok(output) if output.status.success() => Ok(GitRevContent {
+            content: String::from_utf8_lossy(&output.stdout).to_string(),
+            exists: true,
+        }),
+        _ => Ok(GitRevContent {
+            content: String::new(),
+            exists: false,
+        }),
+    }
+}
+
+#[derive(Serialize)]
+pub struct GitBranch {
+    pub name: String,
+    pub current: bool,
+}
+
+/// Elenco dei branch locali. `current` marca quello attivo.
+#[command]
+pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, String> {
+    let Some(out) = run_git(&project_path, &["branch", "--list", "--format=%(HEAD)%00%(refname:short)"]) else {
+        return Ok(Vec::new());
+    };
+    let mut branches = Vec::new();
+    for line in String::from_utf8_lossy(&out).lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(2, '\u{0}');
+        let head = parts.next().unwrap_or(" ");
+        let name = parts.next().unwrap_or("").trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        branches.push(GitBranch {
+            current: head == "*",
+            name,
+        });
+    }
+    Ok(branches)
+}
+
+/// Checkout di un branch esistente. Rifiuta se ci sono modifiche non
+/// committate: l'agente potrebbe stare lavorando e un checkout le
+/// mescolerebbe con il branch di destinazione.
+#[command]
+pub async fn git_branch_checkout(project_path: String, name: String) -> Result<(), String> {
+    let status = project_git_status(project_path.clone()).await?;
+    if !status.statuses.is_empty() {
+        return Err("Ci sono modifiche non committate: committale o scartale prima di cambiare branch".to_string());
+    }
+    let mut cmd = Command::new("git");
+    cmd.current_dir(&project_path);
+    cmd.args(["checkout", &name]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    let out = cmd.output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Crea un branch e ci si sposta sopra (`git checkout -b`).
+#[command]
+pub async fn git_branch_create(project_path: String, name: String) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.contains("..") || trimmed.starts_with('-') {
+        return Err("Nome di branch non valido".to_string());
+    }
+    let mut cmd = Command::new("git");
+    cmd.current_dir(&project_path);
+    cmd.args(["checkout", "-b", trimmed]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    let out = cmd.output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Unisce `name` nel branch corrente (`git merge --no-ff`). Nessun rebase:
+/// il merge commit preserva la storia del lavoro dell'agente.
+#[command]
+pub async fn git_branch_merge(project_path: String, name: String) -> Result<String, String> {
+    let status = project_git_status(project_path.clone()).await?;
+    if !status.statuses.is_empty() {
+        return Err("Ci sono modifiche non committate: committale prima di fare merge".to_string());
+    }
+    let mut cmd = Command::new("git");
+    cmd.current_dir(&project_path);
+    cmd.args(["merge", "--no-ff", &name]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    let out = cmd.output().map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        // Conflitto: git lascia il repo in merge parziale. L'utente risolve
+        // a mano; qui si segnala senza nascondere nulla.
+        return Err(if stderr.is_empty() { stdout } else { stderr });
+    }
+    Ok(stdout)
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedFile {
     pub rel_path: String,
@@ -302,6 +640,25 @@ fn parse_candidate(raw: &str) -> (String, Option<usize>) {
     }
 
     (path_part, line)
+}
+
+/// Contenuto di un file del progetto per l'anteprima nella sandbox.
+/// Il frontend lo inietta in un iframe sandbox via `srcdoc`: nessun server
+/// locale, nessuna porta aperta, il file non lascia la macchina.
+#[command]
+pub async fn preview_file(project_path: String, rel: String) -> Result<GitRevContent, String> {
+    let resolved = resolve_path(&project_path, &rel)?;
+    if !resolved.is_file() {
+        return Ok(GitRevContent {
+            content: String::new(),
+            exists: false,
+        });
+    }
+    let bytes = fs::read(&resolved).map_err(|e| e.to_string())?;
+    Ok(GitRevContent {
+        content: String::from_utf8_lossy(&bytes).to_string(),
+        exists: true,
+    })
 }
 
 fn find_file_in_dir(dir: &Path, target_name: &str, depth: usize) -> Option<PathBuf> {
@@ -435,8 +792,7 @@ pub async fn resolve_project_file(project_path: String, candidate: String) -> Re
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_path;
-    use super::resolve_project_file_sync;
+    use super::{resolve_path, resolve_project_file_sync, merge_name_status_numstat, git_last_commit, git_recent_commits, file_git_rev};
     use std::fs;
     #[cfg(windows)]
     use std::process::Command;
@@ -553,5 +909,83 @@ mod tests {
         // Con virgolette o backtick
         let r9 = resolve_project_file_sync(root_str, "`AGENTS.md`").unwrap().unwrap();
         assert_eq!(r9.rel_path, "AGENTS.md");
+    }
+
+    #[test]
+    fn unisce_name_status_e_numstat_sugli_stessi_path() {
+        let status = b"M\tsrc/a.rs\nA\tsrc/b.rs\nR90\told.txt\tnew.txt\n";
+        let numstat = b"12\t3\tsrc/a.rs\n0\t0\tsrc/b.rs\n5\t1\tnew.txt\n";
+
+        let files = merge_name_status_numstat(status, numstat);
+
+        assert_eq!(files.len(), 3);
+        let a = files.iter().find(|f| f.path == "src/a.rs").unwrap();
+        assert_eq!(a.status, "M");
+        assert_eq!(a.insertions, Some(12));
+        assert_eq!(a.deletions, Some(3));
+        let r = files.iter().find(|f| f.path == "new.txt").unwrap();
+        assert_eq!(r.status, "R");
+        assert_eq!(r.insertions, Some(5));
+    }
+
+    #[test]
+    fn numstat_binario_restata_none() {
+        let status = b"M\tbin.dat\n";
+        let numstat = b"-\t-\tbin.dat\n";
+
+        let files = merge_name_status_numstat(status, numstat);
+
+        assert_eq!(files[0].insertions, None);
+        assert_eq!(files[0].deletions, None);
+    }
+
+    /// Il pannello GIT vive di questi comandi: su un repository reale
+    /// (questo) devono restituire l'ultimo commit e i file toccati.
+    #[test]
+    fn last_commit_su_repository_reale() {
+        let repo = env!("CARGO_MANIFEST_DIR");
+        let commit = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(git_last_commit(repo.to_string()))
+            .unwrap();
+        let c = commit.expect("il repository ha almeno un commit");
+        assert_eq!(c.hash.len(), 40);
+        assert!(!c.subject.is_empty());
+        // L'ultimo commit e' una release: tocca CHANGELOG e i file versione.
+        assert!(!c.files.is_empty());
+    }
+
+    #[test]
+    fn recent_commits_limita_e_ordina() {
+        let repo = env!("CARGO_MANIFEST_DIR");
+        let commits = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(git_recent_commits(repo.to_string(), Some(3)))
+            .unwrap();
+        assert!(commits.len() <= 3);
+        for w in commits.windows(2) {
+            assert!(w[0].time >= w[1].time, "i commit non sono in ordine");
+        }
+    }
+
+    #[test]
+    fn file_git_rev_legge_head_e_rifiuta_traversal() {
+        let repo = env!("CARGO_MANIFEST_DIR");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let ok = rt.block_on(file_git_rev(
+            repo.to_string(),
+            "src-tauri/Cargo.toml".to_string(),
+            "HEAD".to_string(),
+        ))
+        .unwrap();
+        assert!(ok.exists);
+        assert!(ok.content.contains("[package]"));
+
+        let bad = rt.block_on(file_git_rev(
+            repo.to_string(),
+            "../fuori.toml".to_string(),
+            "HEAD".to_string(),
+        ));
+        assert!(bad.is_err());
     }
 }

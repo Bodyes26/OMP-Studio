@@ -6,6 +6,9 @@
 	import SessionList from '$lib/components/SessionList.svelte';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
+	import GitPanel from '$lib/components/GitPanel.svelte';
+	import DiagramViewer from '$lib/components/DiagramViewer.svelte';
+	import PreviewViewer from '$lib/components/PreviewViewer.svelte';
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
 	import ModelSettingsModal from '$lib/components/models/ModelSettingsModal.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
@@ -14,10 +17,46 @@
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { onMount } from 'svelte';
+	let leftSection = $state<'files' | 'sessions' | 'git'>('files');
+	// Quando un diagramma arriva, la colonna centrale mostra la whiteboard
+	// al posto dell'editor; si torna all'editor chiudendo la whiteboard.
+	let diagramOpen = $state(false);
+	// Anteprima sandbox di un file HTML del progetto (vibecoding).
+	let previewFile = $state<string | null>(null);
 
-	let leftSection = $state<'files' | 'sessions'>('files');
+	// Un diagramma e' arrivato dal watcher Rust: la whiteboard si apre da
+	// sola (il filtro per progetto attivo e' dentro DiagramViewer).
+	window.addEventListener('diagram://new', () => {
+		diagramOpen = true;
+	});
+
 	let usageOpen = $state(false);
 	let pickerOpen = $state(false);
+
+	// Richiesta di apertura diff proveniente dal pannello GIT: porta il file
+	// nell'editor gia' in modalita' diff, con la revisione giusta.
+	let editorDiffRequest = $state<{
+		filePath: string;
+		mode: 'working' | 'commit';
+		hash?: string;
+		id: number;
+	} | null>(null);
+	let editorDiffRequestId = 0;
+
+	// Sessioni terminale per progetto: servono a riprendere una sessione
+	// storica con `--resume` senza toccare il PTY degli altri progetti.
+	const terminalSessions = new Map<string, import('$lib/terminal/terminal').TerminalSession>();
+
+	function handleResumeSession(projectId: string, sessionId: string) {
+		const term = terminalSessions.get(projectId);
+		if (term) void term.resumeSession(sessionId);
+	}
+
+	function handleGitPanelDiff(filePath: string, mode: 'working' | 'commit', hash?: string) {
+		if (!projectStore.activeId) return;
+		projectStore.openFile(projectStore.activeId, filePath);
+		editorDiffRequest = { filePath, mode, hash, id: ++editorDiffRequestId };
+	}
 
 	let terminalOpenRequest = $state<{
 		projectId: string;
@@ -228,6 +267,7 @@
 		<aside class="col-left">
 			<div class="col-header tabs-header">
 				<button class:active={leftSection === 'files'} onclick={() => leftSection = 'files'}>FILE</button>
+				<button class:active={leftSection === 'git'} onclick={() => leftSection = 'git'}>GIT</button>
 				<button class:active={leftSection === 'sessions'} onclick={() => leftSection = 'sessions'}>SESSIONI</button>
 			</div>
 			<div class="col-content">
@@ -245,11 +285,17 @@
 								onFileSelect={(file) => projectStore.openFile(proj.id, file)}
 							/>
 						{/key}
+					{:else if leftSection === 'git'}
+						<GitPanel
+							projectPath={proj.path}
+							agentState={proj.agentState}
+							onOpenWorkingDiff={(p) => handleGitPanelDiff(p, 'working')}
+							onOpenCommitDiff={(p, hash) => handleGitPanelDiff(p, 'commit', hash)}
+							onResumeSession={(sid) => handleResumeSession(proj.id, sid)}
+						/>
 					{:else}
 						<SessionList projectPath={proj.path} />
 					{/if}
-				{:else}
-					<div style="padding: var(--space-2); color: var(--ink-faint);">No project open</div>
 				{/if}
 			</div>
 		</aside>
@@ -264,18 +310,33 @@
 		></div>
 
 		<section class="col-center">
-			<div class="col-header">EDITOR</div>
+			<div class="col-header">{diagramOpen ? 'DIAGRAMMA' : previewFile ? 'ANTEPRIMA' : 'EDITOR'}</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#if projectStore.activeProject}
-					<Editor
-						projectPath={projectStore.activeProject.path}
-						filePaths={projectStore.activeProject.openFiles}
-						filePath={projectStore.activeProject.activeFile}
-						openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
-						onFileSaved={() => {
-							window.dispatchEvent(new CustomEvent('git-status-refresh'));
-						}}
-					/>
+					{#if diagramOpen}
+						<DiagramViewer
+							projectPath={projectStore.activeProject.path}
+							onClose={() => (diagramOpen = false)}
+						/>
+					{:else if previewFile}
+						<PreviewViewer
+							projectPath={projectStore.activeProject.path}
+							filePath={previewFile}
+							onClose={() => (previewFile = null)}
+						/>
+					{:else}
+						<Editor
+							projectPath={projectStore.activeProject.path}
+							filePaths={projectStore.activeProject.openFiles}
+							filePath={projectStore.activeProject.activeFile}
+							openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
+							editorDiffRequest={editorDiffRequest}
+							onPreviewRequest={(fp) => (previewFile = fp)}
+							onFileSaved={() => {
+								window.dispatchEvent(new CustomEvent('git-status-refresh'));
+							}}
+						/>
+					{/if}
 				{/if}
 			</div>
 		</section>
@@ -293,10 +354,14 @@
 			<div class="col-header">TERMINAL</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#each projectStore.projects as p (p.id)}
-					<Terminal 
-						cwd={p.path} 
-						visible={p.id === projectStore.activeId} 
-						onStateChange={(s) => projectStore.setAgentState(p.id, s as any)} 
+					<Terminal
+						cwd={p.path}
+						visible={p.id === projectStore.activeId}
+						sessionRef={(s) => {
+							if (s) terminalSessions.set(p.id, s);
+							else terminalSessions.delete(p.id);
+						}}
+						onStateChange={(s) => projectStore.setAgentState(p.id, s as any)}
 						onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
 					/>
 				{/each}

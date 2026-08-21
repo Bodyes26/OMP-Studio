@@ -153,7 +153,7 @@ export class TerminalSession {
 	}
 
 
-	private async startPty(cwd: string) {
+	private async startPty(cwd: string, extraArg?: string) {
 		const onOutput = new Channel<Uint8Array>();
 		onOutput.onmessage = (message: any) => {
 			try {
@@ -176,7 +176,7 @@ export class TerminalSession {
 		};
 
 		const isScratchpad = cwd === '';
-		const args = isScratchpad ? ['--no-session'] : [];
+		const args = isScratchpad ? ['--no-session'] : extraArg ? [extraArg] : [];
 		const launchCwd = isScratchpad ? '.' : cwd;
 
 		try {
@@ -216,7 +216,7 @@ export class TerminalSession {
 			console.error("Fit error", e);
 		}
 	}
-	public async restart() {
+	public async restart(resumeSessionId?: string) {
 		if (this.disposed) return;
 		if (this.ptyId !== null) {
 			try {
@@ -228,7 +228,15 @@ export class TerminalSession {
 		}
 		this.term.reset();
 		this.onStateChange('idle');
-		await this.startPty(this.cwd);
+		await this.startPty(this.cwd, resumeSessionId);
+	}
+
+	/// Riprende una sessione `omp` esistente: riavvia il PTY passando
+	/// `--resume <id>` come argomento extra (stesso meccanismo dello
+	/// scratchpad con `--no-session`).
+	public async resumeSession(sessionId: string) {
+		if (this.disposed || !sessionId) return;
+		await this.restart(`--resume=${sessionId}`);
 	}
 
 	public destroy() {

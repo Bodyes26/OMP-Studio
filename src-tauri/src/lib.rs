@@ -1,7 +1,8 @@
+mod diagrams;
 mod pty;
 use pty::{PtyManager, pty_open, pty_write, pty_resize, pty_close};
 mod projects;
-use projects::{tree_read, file_read, file_write, file_git_head, project_git_status, resolve_project_file};
+use projects::{tree_read, file_read, file_write, file_git_head, project_git_status, resolve_project_file, git_last_commit, git_recent_commits, git_current_branch, git_working_numstat, file_git_rev, git_branch_list, git_branch_checkout, git_branch_create, git_branch_merge, preview_file};
 mod omp_ops;
 use omp_ops::{usage_snapshot, sessions_list, sessions_search, get_omp_version, check_omp_update, run_omp_update, theme_apply, omp_user_theme, provider_hosts};
 mod studio_updater;
@@ -31,6 +32,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(PtyManager::new())
         .manage(StudioUpdaterState::new())
+        .manage(diagrams::DiagramWatcherState::new())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = app.get_webview_window("main").expect("no main window").set_focus();
         }))
@@ -53,6 +55,16 @@ pub fn run() {
             file_write,
             file_git_head,
             project_git_status,
+            git_last_commit,
+            git_recent_commits,
+            git_current_branch,
+            git_working_numstat,
+            file_git_rev,
+            git_branch_list,
+            git_branch_checkout,
+            git_branch_create,
+            git_branch_merge,
+            preview_file,
             resolve_project_file,
             usage_snapshot,
             sessions_list,
@@ -79,6 +91,13 @@ pub fn run() {
             apply_model_upgrades,
             get_role_suggestions
         ])
+        .setup(|app| {
+            // Il watcher dei diagrammi parte subito dopo il setup: ascolta
+            // la cartella di scambio e notifica il frontend via
+            // `diagram://new`.
+            diagrams::spawn_watcher(app.handle().clone());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

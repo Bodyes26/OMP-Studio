@@ -13,13 +13,24 @@
 	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 
-	let { projectPath, filePaths, filePath, onFileSaved, openFileRequest } = $props<{
+	let { projectPath, filePaths, filePath, onFileSaved, openFileRequest, editorDiffRequest, onPreviewRequest } = $props<{
 		projectPath: string;
 		filePaths: string[];
 		filePath: string | null;
 		onFileSaved?: () => void;
 		openFileRequest?: { filePath: string; line: number | null; id: number } | null;
+		editorDiffRequest?: {
+			filePath: string;
+			mode: 'working' | 'commit';
+			hash?: string;
+			id: number;
+		} | null;
+		onPreviewRequest?: (filePath: string) => void;
 	}>();
+
+	function isHtmlFile(path: string): boolean {
+		return ['html', 'htm'].includes(path.split('.').pop()?.toLowerCase() || '');
+	}
 
 	interface FileState {
 		initialContent: string;
@@ -39,6 +50,11 @@
 	let requestedKey: string | null = null;
 	let handledOpenFileRequest = 0;
 	let pendingDiffFile: string | null = null;
+	let handledEditorDiffRequest = 0;
+	// Contenuto "prima" e "dopo" del diff attivo: working = HEAD vs disco,
+	// commit = hash~1 vs hash. Null quando il diff non e' di tipo commit.
+	let diffOriginalOverride: string | null = null;
+	let diffModifiedOverride: string | null = null;
 	let loading = $state(false);
 	let showDiff = $state(false);
 
@@ -178,6 +194,44 @@
 			if (requestedKey === key) loading = false;
 		}
 	}
+
+	async function openCommitDiff(path: string, hash: string) {
+		pendingDiffFile = path;
+		if (path !== filePath) selectFile(path);
+		try {
+			const rev = (r: string) =>
+				invoke<{ content: string; exists: boolean }>('file_git_rev', { projectPath, rel: path, rev: r });
+			const [oldRes, newRes] = await Promise.all([rev(`${hash}~1`), rev(hash)]);
+			diffOriginalOverride = oldRes.exists ? oldRes.content : '';
+			diffModifiedOverride = newRes.exists ? newRes.content : '';
+			if (pendingDiffFile === path && path === filePath) {
+				pendingDiffFile = null;
+				showDiff = true;
+			}
+		} catch (e) {
+			console.error('Failed to load commit diff', e);
+			pendingDiffFile = null;
+		}
+	}
+
+	// Il pannello GIT chiede un diff: working usa HEAD vs disco (override a
+	// null), commit usa le due revisioni scaricate da git.
+	$effect(() => {
+		const req = editorDiffRequest;
+		if (!req || req.id === handledEditorDiffRequest || !projectPath) return;
+		handledEditorDiffRequest = req.id;
+		if (req.mode === 'commit' && req.hash) {
+			void openCommitDiff(req.filePath, req.hash);
+		} else {
+			diffOriginalOverride = null;
+			diffModifiedOverride = null;
+			pendingDiffFile = req.filePath;
+			if (req.filePath === filePath) {
+				pendingDiffFile = null;
+				showDiff = true;
+			}
+		}
+	});
 
 	$effect(() => {
 		const path = filePath;
@@ -332,16 +386,18 @@
 			return;
 		}
 
-		setTimeout(() => {
-			if (!diffContainer) return;
-			disposeDiff();
-			diffEditorInstance = createDiffEditorInstance(
-				diffContainer,
-				gitHeadContent ?? '',
-				currentText,
-				languageFor(filePath!)
-			);
-		}, 20);
+	setTimeout(() => {
+		if (!diffContainer) return;
+		disposeDiff();
+		const original = diffOriginalOverride ?? gitHeadContent ?? '';
+		const modified = diffModifiedOverride ?? currentText;
+		diffEditorInstance = createDiffEditorInstance(
+			diffContainer,
+			original,
+			modified,
+			languageFor(filePath!)
+		);
+	}, 20);
 	}
 
 	function startResize(event: MouseEvent) {
@@ -417,6 +473,15 @@
 					</div>
 				{/each}
 			</div>
+			{#if filePath && isHtmlFile(filePath)}
+				<button
+					class="action-btn"
+					onclick={() => onPreviewRequest?.(filePath)}
+					title="Apri anteprima live in sandbox"
+				>
+					Anteprima
+				</button>
+			{/if}
 			{#if isDirty && !isImage}
 				<button class="action-btn save-btn" onclick={() => void saveCurrentFile()} title="Salva modifiche (Ctrl+S)">
 					Salva

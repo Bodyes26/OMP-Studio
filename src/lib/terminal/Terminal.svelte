@@ -3,23 +3,25 @@
 	import { TerminalSession } from './terminal';
 	import '@xterm/xterm/css/xterm.css';
 
-	let { cwd = '.', visible = true, onStateChange, onOpenFile } = $props<{
+	let { cwd = '.', visible = true, onStateChange, onOpenFile, sessionRef } = $props<{
 		cwd?: string,
 		visible?: boolean,
 		onStateChange?: (s: string) => void,
-		onOpenFile?: (relPath: string, line: number | null) => void
+		onOpenFile?: (relPath: string, line: number | null) => void,
+		sessionRef?: (session: TerminalSession | null) => void
 	}>();
 
 	let container: HTMLElement;
 	let session: TerminalSession;
-
 	onMount(() => {
+
 		session = new TerminalSession(
 			container,
 			cwd,
 			(s) => onStateChange?.(s),
 			(relPath, line) => onOpenFile?.(relPath, line)
 		);
+		sessionRef?.(session);
 
 		const handleRestart = (e: any) => {
 			const targetCwd = e.detail?.targetCwd;
@@ -32,6 +34,7 @@
 
 		return () => {
 			window.removeEventListener('omp-terminals-restart', handleRestart);
+			sessionRef?.(null);
 			if (session) session.destroy();
 		};
 	});

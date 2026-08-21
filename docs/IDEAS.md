@@ -162,6 +162,54 @@ l'estensione aggiunge il *contenuto* della domanda, non il fatto che ce ne sia u
 Precedente utile: l'utente ha già una propria estensione
 (`~/.omp/agent/extensions/live-usage.ts`), quindi il meccanismo è noto.
 
+
+## Evoluzione "Studio Pro" — 2026-08-21
+
+Ricognizione sulle GUI degli harness AI (ChatGPT Desktop/Codex, T3 Code, Claude
+Desktop, Cursor, Windsurf) e scelte di roadmap condivise con l'utente.
+
+### Implementato (in `[Unreleased]`, rilascio da decidere)
+
+- **Pannello GIT** (`GitPanel.svelte`): branch, working tree con numstat,
+  ultimo commit e storico; diff Monaco per working tree *e* commit già
+  effettuati (`git_last_commit`, `git_recent_commits`, `file_git_rev`).
+- **Timeline unificata**: sessioni recenti nel pannello GIT, ripresa in un
+  click via `--resume` (`TerminalSession.resumeSession`); branch switcher
+  con gate su albero sporco (`git_branch_list/checkout/create/merge`).
+- **Whiteboard diagrammi**: estensione `extensions/studio-diagram.ts`
+  (tool `studio_diagram` via `pi.registerTool` + `pi.typebox`) che scrive in
+  `%LOCALAPPDATA%/omp-studio/diagrams`; watcher Rust (`diagrams.rs`) emette
+  `diagram://new`; `DiagramViewer.svelte` renderizza Mermaid con pan/zoom.
+- **Sandbox prototipi**: `preview_file` + `PreviewViewer.svelte` — iframe
+  sandbox (`allow-scripts`, senza same-origin) con viewport desktop/tablet/
+  mobile; template `src/lib/prototype/template.ts` (React+Tailwind+Lucide
+  da CDN) come punto partenza per i prototipi generati dall'agente.
+
+### Parcheggiate esplicitamente dall'utente
+
+- **Task HUD esterno** (Modulo 2): la TUI ha già il suo tracker todo;
+  si rivaluta solo con una eventuale GUI completa dell'agente.
+- **Multi-thread / worktree per progetto** (Modulo 3): rifiutato. I progetti
+  restano single-threaded per decisione dell'utente.
+- **Quick Switcher / Context Gauge** (Modulo 6): non richiesto.
+
+### Note tecniche verificate sul binario omp 17.x
+
+- `pi.registerTool({ name, label, description, parameters, approval, execute })`;
+  schema TypeBox esposto come `pi.typebox` (e `pi.zod`, `pi.arktype`).
+- `execute(toolCallId, params, signal?, onUpdate?, ctx?) -> { output, details? }`.
+- Eventi: `tool_call`/`tool_result` (con `toolName`, `toolCallId`, `input`,
+  `content`, `details`, `isError`), `tool_approval_requested/resolved`,
+  `agent_start/end`, `turn_start/end`, `session_start`,
+  `session_before_switch` (reason: new/fork/resume), `session_tree`,
+  `session_before_compact`, `user_bash`, `input`.
+- `ctx.sessionManager.getCwd()/getSessionId()/getSessionFile()`;
+  `pi.appendEntry(customType, data)` scrive entry custom persistita;
+  `pi.sendMessage(msg, { deliverAs: "steer" | ... , triggerTurn })`.
+- Caricamento estensioni: `-e/--extension <file>`, disattivabili con
+  `--no-extensions`. L'estensione-ponte resta caricabile a costo zero di
+  scritture in `~/.omp`.
+
 ---
 
 ## Scartate, con la ragione

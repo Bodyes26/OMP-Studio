@@ -9,6 +9,25 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-21
+
+### Added
+
+- Nuovo pannello GIT nella colonna sinistra: mostra il branch corrente, i file con
+  modifiche non committate (con righe aggiunte/rimosse), l'ultimo commit dell'agente
+  e lo storico recente. Un click su un file apre il confronto affiancato nell'editor,
+  anche per le modifiche già committate — non serve più cercare a mano cosa ha
+  toccato l'agente quando il suo lavoro finisce con un commit.
+- Cambio branch e creazione di un nuovo branch direttamente dal pannello GIT,
+  con blocco automatico quando ci sono modifiche non committate.
+- Le sessioni recenti dell'agente compaiono nella timeline del pannello GIT:
+  un click le riprende nel terminale del progetto con `--resume`.
+- Whiteboard dei diagrammi: l'agente può usare il tool `studio_diagram` per
+  disegnare un diagramma Mermaid che compare renderizzato e ingrandibile
+  nella colonna centrale, al posto dell'ASCII art nel terminale.
+- Anteprima live in sandbox per i file HTML: il pulsante "Anteprima"
+  nell'editor apre il prototipo interattivo (desktop/tablet/mobile) senza
+  uscire dall'app, isolato dal resto del sistema.
 ## [0.6.5] - 2026-08-20
 
 ### Changed
