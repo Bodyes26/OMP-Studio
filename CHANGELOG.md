@@ -9,6 +9,19 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-21
+
+### Changed
+
+- Il terminale su macOS tratta Option come Meta: le scorciatoie Alt di `omp`
+  (es. Option+P per il selettore modelli) funzionano invece di inserire i
+  caratteri speciali della mappatura italiana.
+
+### Fixed
+
+- Il terminale su macOS mostra di nuovo le icone Nerd Font: Studio include ora
+  il proprio font monospazio con glifi Nerd e non dipende più dal font matching
+  di sistema di WebKit, che su macOS 27 disegna i glifi privati come quadretti.
 ## [0.8.0] - 2026-08-21
 
 ### Added

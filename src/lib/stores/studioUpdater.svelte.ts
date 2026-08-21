@@ -115,7 +115,7 @@ class StudioUpdaterStore {
 		this.updateBadge = text;
 		this.badgeType = type;
 		if (text && autoClearMs > 0) {
-			this.badgeTimeout = setTimeout(() => {
+			this.badgeTimeout = window.setTimeout(() => {
 				if (!this.hasUpdate) {
 					this.updateBadge = null;
 				} else {

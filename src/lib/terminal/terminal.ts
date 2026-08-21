@@ -14,7 +14,14 @@ const TITLE_STATE_REGEX = /^\u03c0 ([>:!])(?: |$)/;
 // Deve essere uno stack di font letterale: xterm/Monaco lo usano anche per
 // `ctx.font` su canvas, dove `var(--font-mono)` e' invalido e provoca il
 // fallback a un font proporzionale (glifi sfalsati e larghezze errate).
-const MONO_FONT = '"BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "Symbols Nerd Font Mono", "Symbols Nerd Font", "Cascadia Mono", Consolas, monospace';
+// 'Studio Mono NF' e' il Nerd bundlato via @font-face (vedi app.css): su
+// macOS WebKit non disegna i glifi Private Use dei font di sistema nel
+// canvas, quindi va primo; altrove resta un fallback dopo i Nerd locali.
+const BUNDLED_NF = '"Studio Mono NF"';
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
+const MONO_FONT = IS_MAC
+	? `${BUNDLED_NF}, "BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font Mono", "FiraCode Nerd Font", "Hack Nerd Font Mono", "Hack Nerd Font", "MesloLGS NF", "Symbols Nerd Font Mono", "Symbols Nerd Font", Menlo, monospace`
+	: `"BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "Symbols Nerd Font Mono", "Symbols Nerd Font", "Cascadia Mono", Consolas, ${BUNDLED_NF}, monospace`;
 
 export class TerminalSession {
 	private term: Terminal;
@@ -47,6 +54,10 @@ export class TerminalSession {
 			fontSize: 14,
 			lineHeight: 1.2,
 			cursorBlink: true,
+			// Su macOS Option compone caratteri (Option+P = pi greco): cosi'
+			// le scorciatoie Alt di omp (es. selettore modelli) non arrivano.
+			// Option diventa Meta (prefisso ESC), come in iTerm2/VS Code.
+			macOptionIsMeta: true,
 			scrollback: 10000,
 			/* Solo background e foreground: i 16 colori ANSI appartengono al
 			   tema di omp, il guscio non li tocca (docs/DESIGN.md §2.8). */

@@ -1,6 +1,18 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 
+/* Font Nerd bundlato per il terminale: WebKit 27 non risolve i glifi
+   Private Use dai font di sistema dentro il canvas (li disegna come tofu).
+   Un webfont con nome dedicato aggira del tutto il font matching di sistema
+   e rende le icone identiche su ogni macchina, con o senza font installati. */
+@font-face {
+  font-family: 'Studio Mono NF';
+  src: url('/fonts/StudioMonoNF-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 
 :root {
   /* --- Ancore -------------------------------------------------------------
