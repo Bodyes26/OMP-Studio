@@ -1,4 +1,5 @@
 mod diagrams;
+mod previews;
 mod pty;
 use pty::{PtyManager, pty_open, pty_write, pty_resize, pty_close};
 mod projects;
@@ -96,6 +97,7 @@ pub fn run() {
             // la cartella di scambio e notifica il frontend via
             // `diagram://new`.
             diagrams::spawn_watcher(app.handle().clone());
+            previews::spawn_watcher(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

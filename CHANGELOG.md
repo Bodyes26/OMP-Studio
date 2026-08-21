@@ -9,6 +9,17 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-21
+
+### Added
+
+- Nuovo tool `studio_preview` per l'agente: permette a `omp` di creare prototipi di
+  componenti UI (React, Tailwind CSS, Lucide) e aprirli istantaneamente nella
+  sandbox interattiva al centro dell'app durante il vibecoding.
+- Salvataggio automatico dei prototipi generati nella cartella `proto/` del progetto,
+  con aggiunta automatica a `.gitignore` per evitare di sporcare il working tree.
+- Supporto per rendering e compilazione a caldo di componenti TSX/JSX, visualizzatore
+  del codice sorgente con pulsante di copia rapida e switch del viewport (Desktop, Tablet, Mobile).
 ## [0.7.1] - 2026-08-21
 
 ### Fixed

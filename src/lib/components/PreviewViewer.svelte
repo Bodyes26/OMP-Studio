@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
+	import { wrapPrototypeCode } from '$lib/prototype/wrapper';
 
 	let {
 		projectPath,
@@ -11,9 +12,12 @@
 		onClose?: () => void;
 	} = $props();
 
-	let html = $state('');
+	let rawContent = $state('');
+	let htmlDoc = $state('');
 	let loading = $state(true);
 	let missing = $state(false);
+	let copied = $state(false);
+	let viewMode = $state<'preview' | 'code'>('preview');
 
 	// Viewport responsive per testare il prototipo a larghezze diverse.
 	type Device = 'desktop' | 'tablet' | 'mobile';
@@ -34,16 +38,33 @@
 			});
 			if (!res.exists) {
 				missing = true;
-				html = '';
+				rawContent = '';
+				htmlDoc = '';
 			} else {
-				html = res.content;
+				rawContent = res.content;
+				const title = filePath.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Prototipo';
+				htmlDoc = wrapPrototypeCode(title, res.content);
 			}
 		} catch (e) {
 			console.error('preview_file failed', e);
 			missing = true;
-			html = '';
+			rawContent = '';
+			htmlDoc = '';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function copyCode() {
+		if (!rawContent) return;
+		try {
+			await navigator.clipboard.writeText(rawContent);
+			copied = true;
+			setTimeout(() => {
+				copied = false;
+			}, 1800);
+		} catch (e) {
+			console.error('Failed to copy', e);
 		}
 	}
 
@@ -60,36 +81,66 @@
 
 <div class="preview-viewer">
 	<div class="preview-toolbar">
-		<span class="preview-title" title={filePath}>{filePath.split('/').pop()}</span>
-		<div class="device-group" role="group" aria-label="Larghezza viewport">
-			<button
-				class="device-btn"
-				class:active={device === 'desktop'}
-				onclick={() => (device = 'desktop')}
-				title="Desktop"
-			>Desktop</button>
-			<button
-				class="device-btn"
-				class:active={device === 'tablet'}
-				onclick={() => (device = 'tablet')}
-				title="Tablet"
-			>Tablet</button>
-			<button
-				class="device-btn"
-				class:active={device === 'mobile'}
-				onclick={() => (device = 'mobile')}
-				title="Mobile"
-			>Mobile</button>
+		<div class="title-wrap">
+			<span class="preview-badge">PROTO</span>
+			<span class="preview-title" title={filePath}>{filePath.split('/').pop()}</span>
 		</div>
+
+		<div class="view-mode-group" role="group" aria-label="Modalita visualizzazione">
+			<button
+				class="mode-btn"
+				class:active={viewMode === 'preview'}
+				onclick={() => (viewMode = 'preview')}
+				title="Anteprima interattiva live"
+			>Anteprima</button>
+			<button
+				class="mode-btn"
+				class:active={viewMode === 'code'}
+				onclick={() => (viewMode = 'code')}
+				title="Ispeziona codice sorgente"
+			>Codice</button>
+		</div>
+
+		{#if viewMode === 'preview'}
+			<div class="device-group" role="group" aria-label="Larghezza viewport">
+				<button
+					class="device-btn"
+					class:active={device === 'desktop'}
+					onclick={() => (device = 'desktop')}
+					title="Desktop (100%)"
+				>Desktop</button>
+				<button
+					class="device-btn"
+					class:active={device === 'tablet'}
+					onclick={() => (device = 'tablet')}
+					title="Tablet (768px)"
+				>Tablet</button>
+				<button
+					class="device-btn"
+					class:active={device === 'mobile'}
+					onclick={() => (device = 'mobile')}
+					title="Mobile (390px)"
+				>Mobile</button>
+			</div>
+		{/if}
+
 		<span class="toolbar-spacer"></span>
-		<button class="tool-btn" onclick={() => void load()} title="Ricarica il prototipo">Ricarica</button>
+
+		<button class="tool-btn" onclick={copyCode} title="Copia il codice sorgente negli appunti">
+			{copied ? '✓ Copiato!' : 'Copia'}
+		</button>
+		<button class="tool-btn" onclick={() => void load()} title="Ricarica il file">Ricarica</button>
 		<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)">×</button>
 	</div>
 
 	{#if loading}
-		<div class="center-note">Caricamento...</div>
+		<div class="center-note">Caricamento prototipo...</div>
 	{:else if missing}
 		<div class="center-note">File non trovato: {filePath}</div>
+	{:else if viewMode === 'code'}
+		<div class="code-view-container">
+			<pre class="code-block"><code>{rawContent}</code></pre>
+		</div>
 	{:else}
 		<div class="preview-stage">
 			<!-- sandbox senza allow-same-origin: il prototipo gira isolato, non
@@ -99,7 +150,7 @@
 				style:width={DEVICE_WIDTHS[device]}
 				sandbox="allow-scripts"
 				title="Anteprima {filePath}"
-				srcdoc={html}
+				srcdoc={htmlDoc}
 			></iframe>
 		</div>
 	{/if}
@@ -120,27 +171,53 @@
 		gap: var(--space-2);
 		padding: var(--space-1) var(--space-3);
 		background: var(--bg-raised);
-		min-height: 30px;
+		border-bottom: 1px solid var(--line);
+		min-height: 32px;
+		flex-shrink: 0;
+	}
+
+	.title-wrap {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
+		margin-right: var(--space-1);
+	}
+
+	.preview-badge {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		background: var(--brand-glow, rgba(99, 102, 241, 0.15));
+		color: var(--brand);
+		border: 1px solid var(--brand-line, rgba(99, 102, 241, 0.3));
 		flex-shrink: 0;
 	}
 
 	.preview-title {
 		color: var(--ink);
 		font-size: var(--text-sm);
+		font-weight: 500;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		max-width: 30ch;
+		max-width: 25ch;
 	}
 
+	.view-mode-group,
 	.device-group {
 		display: flex;
 		gap: 2px;
 		background: var(--bg-base);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		padding: 2px;
 	}
 
+	.mode-btn,
 	.device-btn {
 		background: transparent;
 		border: none;
@@ -150,11 +227,19 @@
 		padding: 2px 8px;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
+		transition: background 0.12s ease, color 0.12s ease;
 	}
 
+	.mode-btn:hover,
+	.device-btn:hover {
+		color: var(--ink);
+	}
+
+	.mode-btn.active,
 	.device-btn.active {
 		background: var(--bg-active);
 		color: var(--ink);
+		font-weight: 500;
 	}
 
 	.toolbar-spacer {
@@ -166,10 +251,11 @@
 		border: none;
 		color: var(--ink-muted);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
-		padding: 2px 8px;
+		font-size: var(--text-xs);
+		padding: 3px 8px;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
+		transition: background 0.12s ease, color 0.12s ease;
 	}
 
 	.tool-btn:hover {
@@ -180,6 +266,7 @@
 	.tool-btn.close {
 		font-size: var(--text-md);
 		line-height: 1;
+		padding: 0 6px;
 	}
 
 	.preview-stage {
@@ -195,7 +282,26 @@
 		height: 100%;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		background: #ffffff;
+		background: #09090b;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+		transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.code-view-container {
+		flex: 1;
+		overflow: auto;
+		padding: var(--space-4);
+		background: var(--bg-sunken);
+	}
+
+	.code-block {
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: 1.6;
+		color: var(--ink);
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	.center-note {

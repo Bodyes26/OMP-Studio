@@ -16,6 +16,7 @@
 	import { onDestroy } from 'svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
+	import { listen } from '@tauri-apps/api/event';
 	import { onMount } from 'svelte';
 	let leftSection = $state<'files' | 'sessions' | 'git'>('files');
 	// Quando un diagramma arriva, la colonna centrale mostra la whiteboard
@@ -24,12 +25,29 @@
 	// Anteprima sandbox di un file HTML del progetto (vibecoding).
 	let previewFile = $state<string | null>(null);
 
-	// Un diagramma e' arrivato dal watcher Rust: la whiteboard si apre da
-	// sola (il filtro per progetto attivo e' dentro DiagramViewer).
-	window.addEventListener('diagram://new', () => {
-		diagramOpen = true;
-	});
+	onMount(() => {
+		const unlistenDiagram = listen<{ cwd?: string }>('diagram://new', (e) => {
+			const targetCwd = e.payload?.cwd;
+			if (!targetCwd || !projectStore.activeProject || targetCwd.toLowerCase() === projectStore.activeProject.path.toLowerCase()) {
+				diagramOpen = true;
+			}
+		});
 
+		const unlistenPreview = listen<{ cwd?: string; file_path?: string }>('preview://new', (e) => {
+			const targetCwd = e.payload?.cwd;
+			if (!targetCwd || !projectStore.activeProject || targetCwd.toLowerCase() === projectStore.activeProject.path.toLowerCase()) {
+				if (e.payload?.file_path) {
+					previewFile = e.payload.file_path;
+					diagramOpen = false;
+				}
+			}
+		});
+
+		return () => {
+			void unlistenDiagram.then((un) => un());
+			void unlistenPreview.then((un) => un());
+		};
+	});
 	let usageOpen = $state(false);
 	let pickerOpen = $state(false);
 

@@ -1,21 +1,36 @@
-// Template di riferimento per i prototipi UI (vibecoding) generati da omp o dall'utente.
+// Harness per la compilazione e rendering dei prototipi UI in sandbox isolata.
 //
-// Un prototipo e' un singolo file .html autonomo salvato in `proto/` (es. `proto/quota-card.html`).
-// Nessun build step, nessun server locale:
-// - React 18 + ReactDOM (UMD)
-// - Babel standalone per TSX/JSX inline (data-presets="react,typescript")
-// - Tailwind CSS (Play CDN con dark mode e palette stile shadcn/zinc)
-// - Lucide Icons (SVG proxy + lucide.createIcons)
-// - Error boundary e cattura runtime
-//
-// L'agente puo' generarlo direttamente usando il tool `studio_preview` o creando il file in `proto/`.
+// Accetta codice HTML completo o snippet TSX/JSX (React 18 + Tailwind + Lucide)
+// e restituisce un documento HTML completo pronto per srcdoc in iframe.
 
-const TEMPLATE = `<!DOCTYPE html>
+export function wrapPrototypeCode(title: string, code: string): string {
+	const raw = code.trim();
+	if (raw.startsWith('<!DOCTYPE') || raw.startsWith('<html') || (raw.includes('<head') && raw.includes('<body'))) {
+		return code;
+	}
+
+	let cleanedCode = code
+		.replace(/^import\s+.*?;\s*$/gm, '')
+		.replace(/^import\s+[\s\S]*?from\s+['"].*?['"];?\s*$/gm, '')
+		.replace(/export\s+default\s+function\s+([A-Za-z0-9_]+)/g, 'function $1')
+		.replace(/export\s+default\s+/g, 'const App = ')
+		.replace(/export\s+(const|let|var|function|class)\s+/g, '$1 ');
+
+	let compName = 'App';
+	const funcMatch = cleanedCode.match(/function\s+([A-Z][A-Za-z0-9_]*)/);
+	const constMatch = cleanedCode.match(/(?:const|let|var)\s+([A-Z][A-Za-z0-9_]*)\s*=/);
+	if (funcMatch && funcMatch[1]) {
+		compName = funcMatch[1];
+	} else if (constMatch && constMatch[1]) {
+		compName = constMatch[1];
+	}
+
+	return `<!DOCTYPE html>
 <html lang="it" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prototipo UI</title>
+  <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -30,8 +45,6 @@ const TEMPLATE = `<!DOCTYPE html>
             "muted-foreground": "hsl(240 5% 64.9%)",
             card: "hsl(240 10% 3.9%)",
             "card-foreground": "hsl(0 0% 98%)",
-            popover: "hsl(240 10% 3.9%)",
-            "popover-foreground": "hsl(0 0% 98%)",
             primary: "hsl(0 0% 98%)",
             "primary-foreground": "hsl(240 5.9% 10%)",
             secondary: "hsl(240 3.7% 15.9%)",
@@ -45,10 +58,10 @@ const TEMPLATE = `<!DOCTYPE html>
       }
     }
   </script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"><\/script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"><\/script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <style>
     body {
       font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -68,7 +81,6 @@ const TEMPLATE = `<!DOCTYPE html>
   <script type="text/babel" data-presets="react,typescript">
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-    // Proxy Lucide per usare icone come <LucideReact.Sparkles size={18} /> o estrarre const { Check } = LucideReact;
     const LucideReact = new Proxy({}, {
       get: (_, iconName) => {
         return (props) => {
@@ -106,41 +118,26 @@ const TEMPLATE = `<!DOCTYPE html>
 
     setTimeout(() => { if (window.lucide?.createIcons) window.lucide.createIcons(); }, 100);
 
-    function App() {
-      const [count, setCount] = useState(0);
-      return (
-        <div className="w-full max-w-md rounded-2xl bg-zinc-900/90 border border-zinc-800 p-6 shadow-2xl backdrop-blur-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400">
-              <LucideReact.Sparkles size={20} />
-            </div>
-            <div>
-              <h1 className="text-base font-semibold text-zinc-100">Prototipo Interattivo</h1>
-              <p className="text-xs text-zinc-400">Pronto per vibecoding e test UI</p>
-            </div>
-          </div>
-          
-          <p className="text-sm text-zinc-300 leading-relaxed mb-6">
-            Sostituisci questo componente con la tua card, dashboard o flusso.
-          </p>
+    try {
+      ${cleanedCode}
 
-          <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
-            <span className="text-xs text-zinc-400">Interazioni: <strong className="text-zinc-200">{count}</strong></span>
-            <button
-              onClick={() => setCount((c) => c + 1)}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg bg-zinc-100 text-zinc-900 hover:bg-white active:scale-95 transition-all shadow-sm"
-            >
-              <span>Testa click</span>
-              <LucideReact.ArrowRight size={14} />
-            </button>
-          </div>
-        </div>
+      const rootEl = document.getElementById('root');
+      const Comp = typeof App !== 'undefined' ? App : (
+        typeof ${compName} !== 'undefined' ? ${compName} : (
+          typeof Prototype !== 'undefined' ? Prototype : null
+        )
       );
+      if (Comp) {
+        ReactDOM.createRoot(rootEl).render(<Comp />);
+      }
+    } catch (err) {
+      const eb = document.getElementById('error-boundary');
+      if (eb) {
+        eb.classList.remove('hidden');
+        eb.textContent = 'Errore di inizializzazione: ' + (err.message || String(err));
+      }
     }
-
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-  <\/script>
+  </script>
 </body>
 </html>`;
-
-export default TEMPLATE;
+}
