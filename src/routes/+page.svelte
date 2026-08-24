@@ -515,7 +515,7 @@
 			'/git, /settings, /usage, /switch, /terminal — pannelli del guscio'
 		];
 		if (session.availableCommands.length > 0) {
-			lines.push(`Gli altri ${session.availableCommands.length} comandi di omp vivono nella scheda TERMINAL.`);
+			lines.push(`Altri ${session.availableCommands.length} comandi registrati da omp ed estensioni.`);
 		}
 		return lines.join('\n');
 	}

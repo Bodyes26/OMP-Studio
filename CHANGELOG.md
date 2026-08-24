@@ -9,6 +9,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+
+- La palette dei comandi slash (`/`) include i comandi nativi del guscio Studio
+  (`/new`, `/clear`, `/resume`, `/compact`, `/thinking`, ecc.) con badge di origine
+  visibile, sottocomandi interattivi e anteprima dettagliata.
+
 ### Changed
 
 - La chat GUI presenta le risposte con una cadenza continua anche quando il

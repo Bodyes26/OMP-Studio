@@ -60,6 +60,18 @@
 		};
 	});
 
+	function isStudio(source?: string): boolean {
+		return source === 'studio';
+	}
+
+	function sourceLabel(source?: string): string {
+		if (source === 'studio') return 'Studio';
+		if (source === 'extension') return 'Estensione';
+		if (source === 'skill') return 'Skill';
+		if (source === 'custom') return 'Personalizzato';
+		return 'omp';
+	}
+
 	function rank(value: string, description: string | undefined, aliases: string[] | undefined, needle: string): number {
 		const name = value.toLowerCase();
 		if (!needle || name.startsWith(needle)) return 0;
@@ -83,7 +95,7 @@
 						command: parent,
 						subcommand,
 						keepsOpen: false,
-						submitImmediately: false
+						submitImmediately: true
 					},
 					order,
 					rank: rank(subcommand.name, subcommand.description, undefined, parsed.subQuery)
@@ -177,7 +189,12 @@
 							onclick={() => choose(option)}
 							onmouseenter={() => (selectedIndex = index)}
 						>
-							<span class="cmd-name">{option.label}</span>
+							<div class="cmd-header">
+								<span class="cmd-name">{option.label}</span>
+								<span class="source-badge" class:studio={isStudio(option.command.source)} class:omp={!isStudio(option.command.source)}>
+									{sourceLabel(option.command.source)}
+								</span>
+							</div>
 							{#if option.description}
 								<span class="cmd-desc">{option.description}</span>
 							{/if}
@@ -193,7 +210,18 @@
 
 			{#if activeOption}
 				<aside class="command-preview" aria-live="polite">
-					<div class="preview-title">{activeOption.label}</div>
+					<div class="preview-header">
+						<div class="preview-title">{activeOption.label}</div>
+						<span class="source-badge" class:studio={isStudio(activeOption.command.source)} class:omp={!isStudio(activeOption.command.source)}>
+							{sourceLabel(activeOption.command.source)}
+						</span>
+					</div>
+					<div class="preview-row">
+						<span class="preview-label">Origine</span>
+						<span class="preview-source-desc">
+							{isStudio(activeOption.command.source) ? 'Guscio GUI (azione locale di Studio)' : 'Agente / omp (inviato via RPC)'}
+						</span>
+					</div>
 					{#if activeOption.command.aliases?.length}
 						<div class="preview-row">
 							<span class="preview-label">Alias</span>
@@ -284,13 +312,43 @@
 		background: var(--bg-hover);
 	}
 
+	.cmd-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		gap: var(--space-2);
+	}
+
+	.source-badge {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		line-height: 1;
+		padding: 2px 5px;
+		border-radius: var(--radius-sm);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		flex-shrink: 0;
+	}
+
+	.source-badge.studio {
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand-ink);
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+	}
+
+	.source-badge.omp {
+		background: var(--bg-sunken);
+		color: var(--ink-faint);
+		border: 1px solid var(--line);
+	}
+
 	.cmd-name,
 	code {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--brand-ink);
 	}
-
 	.cmd-desc {
 		font-size: var(--text-xs);
 		line-height: 1.35;
@@ -303,12 +361,29 @@
 		background: var(--bg-sunken);
 	}
 
+	.preview-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
+	}
+
+	.preview-header .preview-title {
+		margin-bottom: 0;
+	}
+
 	.preview-title {
 		font-family: var(--font-mono);
 		font-size: var(--text-base);
 		font-weight: 650;
 		color: var(--ink);
 		margin-bottom: var(--space-3);
+	}
+
+	.preview-source-desc {
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
 	}
 
 	.preview-row {

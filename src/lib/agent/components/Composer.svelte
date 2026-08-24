@@ -19,6 +19,7 @@
 	import { prepareImage } from '../images';
 	import QueueChips from './QueueChips.svelte';
 	import CommandPalette from './CommandPalette.svelte';
+	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '../commands';
 
 	let {
 		session,
@@ -52,13 +53,15 @@
 
 	const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
+	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session.availableCommands));
+
 	function shouldOpenPalette(value: string): boolean {
 		if (!value.startsWith('/')) return false;
 		const body = value.slice(1);
 		const space = body.search(/\s/);
 		if (space === -1) return true;
 		const token = body.slice(0, space).toLowerCase();
-		const command = session.availableCommands.find(
+		const command = allCommands.find(
 			(candidate: AvailableCommand) =>
 				candidate.name.toLowerCase() === token
 				|| candidate.aliases?.some((alias: string) => alias.toLowerCase() === token)
@@ -375,7 +378,7 @@
 	<!-- Palette comandi slash -->
 	<CommandPalette
 		open={visible && paletteOpen}
-		commands={session.availableCommands}
+		commands={allCommands}
 		query={text}
 		onPick={handlePalettePick}
 		onClose={() => (paletteOpen = false)}
