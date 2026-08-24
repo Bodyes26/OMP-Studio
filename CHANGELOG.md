@@ -9,6 +9,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-24
+
+### Fixed
+
+- La scheda GUI resta utilizzabile quando la sessione da riprendere non esiste
+  più: apre automaticamente una nuova chat invece di lasciare `omp` terminato.
 ## [1.0.0] - 2026-08-24
 
 ### Added

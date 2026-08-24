@@ -202,6 +202,9 @@ export class AgentSession {
 	private readonly toolEntries = new Map<string, ToolEntry>();
 	private readonly cwd: string;
 	private stateRefresh: Promise<void> | null = null;
+	private opening: Promise<void> | null = null;
+	private requestedResume: string | null = null;
+	private recoveredResume: string | null = null;
 
 	constructor(cwd: string) {
 		this.cwd = cwd;
@@ -224,10 +227,28 @@ export class AgentSession {
 	/* ------------------------------------------------------------ apertura */
 
 	async open(resume?: string | null) {
-		this.exited = false;
-		await this.client.open(this.cwd, resume ?? null);
-		// `attach` parte dal frame `ready`: prima di quello `get_state`
-		// risponderebbe su una sessione non ancora insediata.
+		if (this.client.isOpen) return;
+		if (this.opening) return this.opening;
+
+		const requestedResume = resume ?? null;
+		const opening = (async () => {
+			this.exited = false;
+			this.requestedResume = requestedResume;
+			try {
+				await this.client.open(this.cwd, requestedResume);
+			} catch (error) {
+				if (this.requestedResume === requestedResume) this.requestedResume = null;
+				throw error;
+			}
+			// `attach` parte dal frame `ready`: prima di quello `get_state`
+			// risponderebbe su una sessione non ancora insediata.
+		})();
+		this.opening = opening;
+		try {
+			await opening;
+		} finally {
+			if (this.opening === opening) this.opening = null;
+		}
 	}
 
 	async close() {
@@ -252,7 +273,16 @@ export class AgentSession {
 		} catch (error) {
 			this.pushNotice('error', `Insediamento della sessione non completato: ${this.reason(error)}`);
 		}
+		const recoveredResume = this.recoveredResume;
+		if (recoveredResume) {
+			this.recoveredResume = null;
+			this.pushNotice(
+				'warning',
+				`La sessione ${recoveredResume} non è più disponibile. È stata avviata una nuova chat.`
+			);
+		}
 	}
+
 
 	async refreshState() {
 		const state = await this.client.send<RpcSessionState>({ type: 'get_state' });
@@ -431,6 +461,7 @@ export class AgentSession {
 	private reduce(event: AgentSessionEvent) {
 		switch (event.type) {
 			case 'ready':
+				this.requestedResume = null;
 				this.isReady = true;
 				void this.attach();
 				return;
@@ -641,6 +672,10 @@ export class AgentSession {
 				const stderr = Array.isArray(event.stderr)
 					? event.stderr.filter((line): line is string => typeof line === 'string')
 					: [];
+				const requestedResume = this.requestedResume;
+				const resumeMissing =
+					requestedResume !== null
+					&& stderr.some((line) => line.includes(`Session "${requestedResume}" not found.`));
 				this.isStreaming = false;
 				this.exited = true;
 				this.isReady = false;
@@ -648,6 +683,15 @@ export class AgentSession {
 				this.agentState = 'idle';
 				this.pendingUi = null;
 				this.client.markExited();
+
+				if (resumeMissing) {
+					this.requestedResume = null;
+					this.recoveredResume = requestedResume;
+					void this.recoverMissingResume();
+					return;
+				}
+
+				this.requestedResume = null;
 				this.push({
 					id: this.nextEntryId++,
 					kind: 'notice',
@@ -662,8 +706,25 @@ export class AgentSession {
 				return;
 			}
 
+
 			default:
 				return;
+		}
+	}
+	private async recoverMissingResume() {
+		const opening = this.opening;
+		if (opening) {
+			try {
+				await opening;
+			} catch {
+				// L'errore utile e' gia' nello stderr del processo terminato.
+			}
+		}
+		try {
+			await this.open();
+		} catch (error) {
+			this.recoveredResume = null;
+			this.pushNotice('error', `Nuova chat non avviata: ${this.reason(error)}`, undefined, true);
 		}
 	}
 

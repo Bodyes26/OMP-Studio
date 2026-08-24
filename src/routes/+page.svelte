@@ -250,6 +250,10 @@
 				}
 				await session.close();
 			}
+		} else {
+			// Il PTY deve aver rilasciato la sessione prima che rpc-ui la riprenda.
+			// Affidarsi al cleanup del componente crea una gara tra close e --resume.
+			await terminalSessions.get(projectId)?.close();
 		}
 
 		projectStore.updateLayout(projectId, (l) => {

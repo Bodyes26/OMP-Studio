@@ -375,16 +375,26 @@ export class TerminalSession {
 		await this.startPty(this.cwd);
 	}
 
-	public destroy() {
+	public async close() {
+		if (this.disposed) return;
 		this.disposed = true;
 		this.resizeObserver.disconnect();
 		this.unsubscribeTheme();
 		clearTimeout(this.resizeTimeout ?? undefined);
-		if (this.ptyId !== null) {
-			invoke('pty_close', { ptyId: this.ptyId }).catch(() => {});
-			this.ptyId = null;
+		const ptyId = this.ptyId;
+		this.ptyId = null;
+		if (ptyId !== null) {
+			try {
+				await invoke('pty_close', { ptyId });
+			} catch {
+				// Il processo puo' essere gia' terminato: la chiusura resta idempotente.
+			}
 		}
 		this.term.dispose();
+	}
+
+	public destroy() {
+		void this.close();
 	}
 }
 

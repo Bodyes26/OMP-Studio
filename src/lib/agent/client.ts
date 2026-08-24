@@ -89,13 +89,21 @@ export class OmpRpcClient {
 	async open(cwd: string, resume?: string | null): Promise<number> {
 		const channel = new Channel<string>();
 		channel.onmessage = (line) => this.receive(line);
-		this.rpcId = await invoke<number>('rpc_open', {
+		this.rpcId = null;
+		this.closed = false;
+		const rpcId = await invoke<number>('rpc_open', {
 			cwd,
 			resume: resume ?? null,
 			onEvent: channel
 		});
-		this.closed = false;
-		return this.rpcId;
+		// Un processo che fallisce in avvio puo' emettere `studio_exit` prima
+		// che la Promise di `rpc_open` venga risolta. Non rianimare quell'id.
+		if (this.closed) {
+			void invoke('rpc_close', { rpcId }).catch(() => {});
+			return rpcId;
+		}
+		this.rpcId = rpcId;
+		return rpcId;
 	}
 
 	/**
