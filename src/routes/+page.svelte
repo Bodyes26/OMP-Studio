@@ -2,6 +2,7 @@
 	import Terminal from '$lib/terminal/Terminal.svelte';
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
+	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FileTree from '$lib/components/FileTree.svelte';
@@ -73,6 +74,10 @@
 	const agentSessions = new Map<string, AgentSession>();
 	let terminalMeta = $state<Record<string, { inputPending: boolean; sessionId: string | null }>>({});
 	let terminalBusy = $state<Record<string, boolean>>({});
+	let switchingSurface = $state<Record<string, boolean>>({});
+	const activeSwitching = $derived(
+		projectStore.activeId ? switchingSurface[projectStore.activeId] === true : false
+	);
 	let agentErrors = $state<Record<string, string | null>>({});
 	let viewingImage = $state<{ data: string; mimeType: string } | null>(null);
 	let taskEditorId = $state<string | null>(null);
@@ -85,41 +90,62 @@
 			: undefined
 	);
 
-	function getOrCreateAgentSession(p: Project): AgentSession {
+	/**
+	 * Crea la sessione se manca, senza aprirla. Il markup puo' chiamarla
+	 * durante il rendering: l'apertura del processo omp e' un effetto
+	 * collaterale e vive nell'`$effect` qui sotto, non nel disegno.
+	 */
+	function agentSessionFor(p: Project): AgentSession {
 		let session = agentSessions.get(p.id);
 		if (!session) {
 			session = new AgentSession(p.path);
 			agentSessions.set(p.id, session);
-			if (p.layout.rightSection === 'gui') {
-				void session.open(terminalMeta[p.id]?.sessionId ?? null);
-			}
 		}
 		return session;
 	}
 
-	// Sincronizza lo stato dell'agente e la sessione dalle sessioni GUI
+	/** Come sopra, ma garantisce anche che il processo sia avviato. */
+	function getOrCreateAgentSession(p: Project): AgentSession {
+		const session = agentSessionFor(p);
+		if (!session.client.isOpen) {
+			void session.open(terminalMeta[p.id]?.sessionId ?? null);
+		}
+		return session;
+	}
+
+	// Apre i processi delle superfici GUI e ne rispecchia stato e sessione.
+	// Ogni scrittura qui dentro deve convergere: `setAgentState` non riassegna
+	// un valore uguale e `updateTerminalMeta` scrive solo se qualcosa cambia.
 	$effect(() => {
 		for (const p of projectStore.projects) {
-			if (p.layout.rightSection === 'gui') {
-				const session = agentSessions.get(p.id);
-				if (session) {
-					if (session.agentState !== 'unknown') {
-						projectStore.setAgentState(p.id, session.agentState);
-					}
-					if (session.sessionId) {
-						updateTerminalMeta(p.id, { sessionId: session.sessionId });
-					}
-				}
+			if (p.layout.rightSection !== 'gui') continue;
+			const session = agentSessions.get(p.id);
+			if (!session) continue;
+			if (!session.client.isOpen && !session.exited) {
+				void session.open(terminalMeta[p.id]?.sessionId ?? null);
+			}
+			if (session.agentState !== 'unknown') {
+				projectStore.setAgentState(p.id, session.agentState);
+			}
+			if (session.sessionId) {
+				updateTerminalMeta(p.id, { sessionId: session.sessionId });
 			}
 		}
 	});
 
+	/**
+	 * Scrive solo se qualcosa cambia davvero. La versione precedente
+	 * assegnava un oggetto nuovo a ogni chiamata: dentro l'`$effect` qui sopra
+	 * quella scrittura riattivava l'effetto che l'aveva prodotta, Svelte
+	 * alzava `effect_update_depth_exceeded` e abbandonava il ciclo di
+	 * aggiornamento dell'intera applicazione.
+	 */
 	function updateTerminalMeta(projectId: string, patch: Partial<{ inputPending: boolean; sessionId: string | null }>) {
-		terminalMeta[projectId] = {
-			inputPending: terminalMeta[projectId]?.inputPending ?? false,
-			sessionId: terminalMeta[projectId]?.sessionId ?? null,
-			...patch
-		};
+		const current = terminalMeta[projectId];
+		const inputPending = patch.inputPending ?? current?.inputPending ?? false;
+		const sessionId = patch.sessionId !== undefined ? patch.sessionId : (current?.sessionId ?? null);
+		if (current && current.inputPending === inputPending && current.sessionId === sessionId) return;
+		terminalMeta[projectId] = { inputPending, sessionId };
 	}
 
 	function automationReason(projectId: string) {
@@ -234,39 +260,64 @@
 
 	/**
 	 * Handoff tra TERMINAL e GUI: un solo processo omp attivo per progetto.
-	 * Il passaggio conserva la stessa sessione tramite --resume <sessionId>.
+	 * La sessione passa da una superficie all'altra con `--resume <sessionId>`
+	 * in entrambi i versi: verso la GUI lo riceve `rpc_open`, verso il
+	 * terminale lo riceve il PTY tramite la prop `resumeSessionId`.
 	 */
 	async function switchSurface(projectId: string, target: 'terminal' | 'gui') {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		if (!project || project.layout.rightSection === target) return;
+		// Il cambio smonta un processo e ne avvia un altro: due clic ravvicinati
+		// lascerebbero una sessione zombie senza nessuno che la chiude.
+		if (switchingSurface[projectId]) return;
+		switchingSurface[projectId] = true;
 
-		const currentSessionId = terminalMeta[projectId]?.sessionId ?? agentSessions.get(projectId)?.sessionId ?? null;
+		try {
+			const currentSessionId = terminalMeta[projectId]?.sessionId ?? agentSessions.get(projectId)?.sessionId ?? null;
 
-		if (project.layout.rightSection === 'gui') {
-			const session = agentSessions.get(projectId);
-			if (session) {
-				if (session.isStreaming) {
-					await session.abort();
+			if (project.layout.rightSection === 'gui') {
+				const session = agentSessions.get(projectId);
+				if (session) {
+					if (session.isStreaming) {
+						await session.abort();
+					}
+					await session.close();
 				}
-				await session.close();
+			} else {
+				// Il PTY deve aver rilasciato la sessione prima che rpc-ui la riprenda.
+				// Affidarsi al cleanup del componente crea una gara tra release e --resume.
+				await terminalSessions.get(projectId)?.release();
 			}
-		} else {
-			// Il PTY deve aver rilasciato la sessione prima che rpc-ui la riprenda.
-			// Affidarsi al cleanup del componente crea una gara tra close e --resume.
-			await terminalSessions.get(projectId)?.close();
-		}
 
-		projectStore.updateLayout(projectId, (l) => {
-			l.rightSection = target;
-		});
+			// Il terminale legge `resumeSessionId` al montaggio: il valore deve
+			// essere gia' scritto quando il layout cambia.
+			updateTerminalMeta(projectId, { sessionId: currentSessionId });
 
-		if (target === 'gui') {
-			const session = getOrCreateAgentSession(project);
-			await session.open(currentSessionId);
+			projectStore.updateLayout(projectId, (l) => {
+				l.rightSection = target;
+			});
+
+			if (target === 'gui') {
+				const session = agentSessionFor(project);
+				await session.open(currentSessionId);
+			}
+		} catch (error) {
+			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
+		} finally {
+			switchingSurface[projectId] = false;
 		}
 	}
 
-	/** Intercettazione comandi slash nella chat GUI */
+	/**
+	 * Intercettazione dei comandi slash nella chat GUI.
+	 *
+	 * Regola di fondo: un comando slash non deve **mai** finire in `prompt`.
+	 * `omp --mode rpc-ui` non li interpreta — verificato sul binario: il
+	 * comando entra nel transcript come messaggio dell'utente e l'assistente
+	 * risponde vuoto. Chi non trova qui una risposta riceve un avviso, non un
+	 * silenzio. Un testo che inizia per `/` ma non nomina un comando conosciuto
+	 * (un percorso assoluto, per esempio) resta un prompt normale.
+	 */
 	function handleGuiSlashCommand(projectId: string, raw: string): boolean {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		const session = agentSessions.get(projectId);
@@ -275,19 +326,16 @@
 		const trimmed = raw.trim();
 		const [cmd, ...rest] = trimmed.split(/\s+/);
 		const lowerCmd = cmd.toLowerCase();
+		const argument = rest.join(' ').trim();
 
-		if (lowerCmd === '/new') {
-			void session.newSession();
-			return true;
-		}
-		if (lowerCmd === '/clear') {
+		// --- comandi del guscio: li serve Studio, non omp ---------------------
+		if (lowerCmd === '/new' || lowerCmd === '/clear') {
 			void session.newSession();
 			return true;
 		}
 		if (lowerCmd === '/resume') {
-			const targetId = rest[0];
-			if (targetId) {
-				void handleResumeSession(projectId, targetId);
+			if (argument) {
+				void handleResumeSession(projectId, argument);
 			} else {
 				leftSection = 'agent';
 				taskStore.setView(project.path, 'sessions');
@@ -302,12 +350,83 @@
 			leftSection = 'git';
 			return true;
 		}
-		if (lowerCmd === '/settings' || lowerCmd === '/setup') {
+		if (lowerCmd === '/settings' || lowerCmd === '/setup' || lowerCmd === '/models') {
 			modelSettingsStore.openModal();
 			return true;
 		}
+		if (lowerCmd === '/usage' || lowerCmd === '/quota') {
+			usageOpen = true;
+			return true;
+		}
+		if (lowerCmd === '/terminal') {
+			void switchSurface(projectId, 'terminal');
+			return true;
+		}
+		if (lowerCmd === '/help') {
+			session.pushNotice('info', guiHelpText(session), 'studio');
+			return true;
+		}
 
-		// Comandi solo-TUI: mostrano l'avviso con il bottone verso TERMINAL
+		// --- comandi con una RPC corrispondente -------------------------------
+		if (lowerCmd === '/compact') {
+			void runSessionCommand(session, 'Compattazione richiesta', {
+				type: 'compact',
+				customInstructions: argument || undefined
+			});
+			return true;
+		}
+		if (lowerCmd === '/handoff') {
+			void runSessionCommand(session, 'Handoff richiesto', {
+				type: 'handoff',
+				customInstructions: argument || undefined
+			});
+			return true;
+		}
+		if (lowerCmd === '/thinking' || lowerCmd === '/reasoning') {
+			const level = argument.toLowerCase();
+			if (!THINKING_LEVELS.includes(level as ThinkingLevel)) {
+				session.pushNotice('warning', `Livelli di thinking: ${THINKING_LEVELS.join(', ')}`, 'studio');
+				return true;
+			}
+			void runSessionCommand(session, `Thinking impostato su ${level}`, {
+				type: 'set_thinking_level',
+				level: level as ThinkingLevel
+			});
+			return true;
+		}
+		if (lowerCmd === '/model') {
+			if (!argument) {
+				modelSettingsStore.openModal();
+				return true;
+			}
+			if (argument.toLowerCase() === 'next' || argument.toLowerCase() === 'cycle') {
+				void runSessionCommand(session, 'Modello successivo', { type: 'cycle_model' });
+				return true;
+			}
+			session.pushNotice(
+				'info',
+				'Per scegliere un modello preciso usa il chip «modello» sotto il campo di scrittura, oppure /model next per ciclare.',
+				'studio'
+			);
+			return true;
+		}
+		if (lowerCmd === '/name' || lowerCmd === '/rename') {
+			if (!argument) {
+				session.pushNotice('warning', 'Uso: /name <titolo della sessione>', 'studio');
+				return true;
+			}
+			void runSessionCommand(session, `Sessione rinominata in «${argument}»`, {
+				type: 'set_session_name',
+				name: argument
+			});
+			return true;
+		}
+		if (lowerCmd === '/cost' || lowerCmd === '/stats' || lowerCmd === '/status') {
+			void reportSessionStats(session);
+			return true;
+		}
+
+		// --- comandi che vivono solo nella TUI --------------------------------
 		const TUI_ONLY = [
 			'/fork', '/tree', '/drop', '/login', '/logout', '/plan', '/plan-review',
 			'/vibe', '/goal', '/guided-goal', '/loop', '/extensions', '/agents',
@@ -323,8 +442,100 @@
 			return true;
 		}
 
+		// --- rete di sicurezza -------------------------------------------------
+		// Se omp conosce questo comando ma Studio non sa eseguirlo, l'inoltro
+		// come prompt produrrebbe una risposta vuota: meglio dirlo.
+		const known = session.availableCommands.some(
+			(candidate) =>
+				`/${candidate.name.toLowerCase()}` === lowerCmd
+				|| candidate.aliases?.some((alias) => `/${alias.toLowerCase()}` === lowerCmd)
+		);
+		if (known) {
+			session.pushNotice(
+				'info',
+				`${cmd} non e' ancora disponibile nella superficie GUI. Passa alla scheda TERMINAL per usarlo.`,
+				undefined,
+				true
+			);
+			return true;
+		}
+
+		// Non e' un comando: e' testo che inizia per `/`. Va all'agente.
 		return false;
 	}
+
+	const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+	/** Manda una RPC e riporta l'esito nel transcript, buono o cattivo. */
+	async function runSessionCommand(session: AgentSession, done: string, command: RpcCommand) {
+		try {
+			await session.client.send(command);
+			await session.refreshState();
+			session.pushNotice('info', done, 'studio');
+		} catch (error) {
+			session.pushNotice(
+				'error',
+				`Comando non eseguito: ${error instanceof Error ? error.message : String(error)}`,
+				'studio'
+			);
+		}
+	}
+
+	async function reportSessionStats(session: AgentSession) {
+		try {
+			const stats = await session.client.send<Record<string, unknown>>({ type: 'get_session_stats' });
+			const cost = typeof stats?.cost === 'number' ? `$${stats.cost.toFixed(4)}` : 'non disponibile';
+			const messages = typeof stats?.totalMessages === 'number' ? stats.totalMessages : '?';
+			const tools = typeof stats?.toolCalls === 'number' ? stats.toolCalls : '?';
+			session.pushNotice(
+				'info',
+				`Sessione ${session.sessionName ?? session.sessionId ?? ''} — ${messages} messaggi, ${tools} chiamate a strumenti, costo ${cost}.`,
+				'studio'
+			);
+		} catch (error) {
+			session.pushNotice(
+				'error',
+				`Statistiche non disponibili: ${error instanceof Error ? error.message : String(error)}`,
+				'studio'
+			);
+		}
+	}
+
+	function guiHelpText(session: AgentSession): string {
+		const lines = [
+			'Comandi disponibili nella superficie GUI:',
+			'/new, /clear — avvia una nuova sessione',
+			'/resume [id] — riprende una sessione, o apre lo storico',
+			'/compact [istruzioni] — compatta il contesto',
+			'/handoff [istruzioni] — passa il testimone a una sessione nuova',
+			'/thinking <off|minimal|low|medium|high|xhigh|max>',
+			'/model [next] — apre le impostazioni modelli o cicla',
+			'/name <titolo> — rinomina la sessione',
+			'/cost, /stats, /status — riepilogo della sessione',
+			'/git, /settings, /usage, /switch, /terminal — pannelli del guscio'
+		];
+		if (session.availableCommands.length > 0) {
+			lines.push(`Gli altri ${session.availableCommands.length} comandi di omp vivono nella scheda TERMINAL.`);
+		}
+		return lines.join('\n');
+	}
+
+	/** Il processo omp muore con la scheda: senza questo resta orfano. */
+	function disposeAgentSession(projectId: string) {
+		const session = agentSessions.get(projectId);
+		if (!session) return;
+		agentSessions.delete(projectId);
+		void session.close();
+	}
+
+	onMount(() => {
+		const onProjectClosed = (event: Event) => {
+			const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
+			if (projectId) disposeAgentSession(projectId);
+		};
+		window.addEventListener('studio-project-closed', onProjectClosed);
+		return () => window.removeEventListener('studio-project-closed', onProjectClosed);
+	});
 
 	onDestroy(() => {
 		for (const session of agentSessions.values()) {
@@ -506,33 +717,59 @@
 	});
 
 	function handleKeydown(e: KeyboardEvent) {
-		if ((e.ctrlKey || e.metaKey) && e.altKey) {
-			if (e.key.toLowerCase() === 's') {
+		// Esc chiude il dialogo piu' esterno, dal piu' recente al piu' vecchio.
+		if (e.key === 'Escape') {
+			if (showRestartModal) {
 				e.preventDefault();
-				projectStore.openScratchpad();
-			} else if (e.key.toLowerCase() === 'n') {
+				showRestartModal = false;
+				return;
+			}
+			if (showUpdatePromptModal) {
 				e.preventDefault();
-				pickerOpen = true;
-			} else if (e.key.toLowerCase() === 'u') {
-				e.preventDefault();
-				usageOpen = !usageOpen;
-			} else if (e.key.toLowerCase() === 'm' || e.key === ',') {
-				e.preventDefault();
-				modelSettingsStore.openModal();
-			} else if (e.key.toLowerCase() === 'a') {
-				e.preventDefault();
-				if (projectStore.activeProject) {
-					const next = projectStore.activeProject.layout.rightSection === 'gui' ? 'terminal' : 'gui';
-					void switchSurface(projectStore.activeProject.id, next);
-				}
-			} else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-				e.preventDefault();
-				const projects = projectStore.projects;
-				const idx = projects.findIndex(p => p.id === projectStore.activeId);
-				if (idx !== -1 && projects.length > 1) {
-					let nextIdx = e.key === 'ArrowRight' ? (idx + 1) % projects.length : (idx - 1 + projects.length) % projects.length;
-					projectStore.setActive(projects[nextIdx].id);
-				}
+				showUpdatePromptModal = false;
+				return;
+			}
+			return;
+		}
+
+		if (!(e.ctrlKey || e.metaKey) || !e.altKey) return;
+		// Su tastiere internazionali AltGr alza sia ctrlKey sia altKey: senza
+		// questa guardia scrivere una parentesi graffa in un campo di testo
+		// aprirebbe un pannello. Nei campi le scorciatoie del guscio tacciono.
+		const target = e.target;
+		if (
+			target instanceof HTMLInputElement
+			|| target instanceof HTMLTextAreaElement
+			|| (target instanceof HTMLElement && target.isContentEditable)
+		) {
+			return;
+		}
+
+		if (e.key.toLowerCase() === 's') {
+			e.preventDefault();
+			projectStore.openScratchpad();
+		} else if (e.key.toLowerCase() === 'n') {
+			e.preventDefault();
+			pickerOpen = true;
+		} else if (e.key.toLowerCase() === 'u') {
+			e.preventDefault();
+			usageOpen = !usageOpen;
+		} else if (e.key.toLowerCase() === 'm' || e.key === ',') {
+			e.preventDefault();
+			modelSettingsStore.openModal();
+		} else if (e.key.toLowerCase() === 'a') {
+			e.preventDefault();
+			if (projectStore.activeProject) {
+				const next = projectStore.activeProject.layout.rightSection === 'gui' ? 'terminal' : 'gui';
+				void switchSurface(projectStore.activeProject.id, next);
+			}
+		} else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+			e.preventDefault();
+			const projects = projectStore.projects;
+			const idx = projects.findIndex(p => p.id === projectStore.activeId);
+			if (idx !== -1 && projects.length > 1) {
+				const nextIdx = e.key === 'ArrowRight' ? (idx + 1) % projects.length : (idx - 1 + projects.length) % projects.length;
+				projectStore.setActive(projects[nextIdx].id);
 			}
 		}
 	}
@@ -656,11 +893,15 @@
 				<button
 					type="button"
 					class:active={projectStore.activeProject?.layout.rightSection !== 'gui'}
+					disabled={activeSwitching}
+					title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie terminale (Ctrl+Alt+A)'}
 					onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
 				>TERMINAL</button>
 				<button
 					type="button"
 					class:active={projectStore.activeProject?.layout.rightSection === 'gui'}
+					disabled={activeSwitching}
+					title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie grafica (Ctrl+Alt+A)'}
 					onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
 				>GUI</button>
 			</div>
@@ -668,7 +909,7 @@
 				{#each projectStore.projects as p (p.id)}
 					{#if p.layout.rightSection === 'gui'}
 						<Chat
-							session={getOrCreateAgentSession(p)}
+							session={agentSessionFor(p)}
 							visible={p.id === projectStore.activeId}
 							onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
 							onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
@@ -679,6 +920,7 @@
 						<Terminal
 							cwd={p.path}
 							visible={p.id === projectStore.activeId}
+							resumeSessionId={terminalMeta[p.id]?.sessionId ?? null}
 							sessionRef={(s) => {
 								if (s) terminalSessions.set(p.id, s);
 								else terminalSessions.delete(p.id);
@@ -746,9 +988,9 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="modal-backdrop" onclick={() => showUpdatePromptModal = false}></div>
-		<div class="modal-dialog">
+		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-update-title">
 			<div class="modal-header">
-				<h3>🚀 Aggiornamento OMP Disponibile</h3>
+				<h3 id="omp-update-title">Aggiornamento OMP disponibile</h3>
 			</div>
 			<div class="modal-body">
 				<p>È disponibile una nuova versione di OMP CLI.</p>
@@ -759,7 +1001,8 @@
 			</div>
 			<div class="modal-footer">
 				<button class="btn btn-secondary" onclick={() => showUpdatePromptModal = false}>Annulla</button>
-				<button class="btn btn-primary" onclick={handlePerformUpdate}>Scarica e Aggiorna</button>
+				<!-- svelte-ignore a11y_autofocus -->
+				<button class="btn btn-primary" autofocus onclick={handlePerformUpdate}>Scarica e aggiorna</button>
 			</div>
 		</div>
 	{/if}
@@ -768,9 +1011,9 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="modal-backdrop" onclick={() => showRestartModal = false}></div>
-		<div class="modal-dialog">
+		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-restart-title">
 			<div class="modal-header">
-				<h3>✅ Aggiornamento Completato!</h3>
+				<h3 id="omp-restart-title">Aggiornamento completato</h3>
 			</div>
 			<div class="modal-body">
 				<p>L'aggiornamento di OMP è stato installato con successo.</p>
@@ -778,7 +1021,8 @@
 			</div>
 			<div class="modal-footer">
 				<button class="btn btn-secondary" onclick={() => showRestartModal = false}>Chiudi</button>
-				<button class="btn btn-primary" onclick={handleRestartApp}>Riavvia Applicazione</button>
+				<!-- svelte-ignore a11y_autofocus -->
+				<button class="btn btn-primary" autofocus onclick={handleRestartApp}>Riavvia applicazione</button>
 			</div>
 		</div>
 	{/if}
@@ -970,16 +1214,16 @@
 
 	.update-chip {
 		font-size: 10px;
-		padding: 1px 5px;
-		border-radius: 99px;
+		padding: 1px var(--space-1);
+		border-radius: var(--radius-full);
 		background: var(--brand);
 		color: var(--on-brand);
 		font-weight: 600;
 	}
 
 	.update-chip.warn {
-		background: var(--warn, #f59e0b);
-		color: #000;
+		background: var(--warn);
+		color: var(--bg-sunken);
 	}
 
 	.update-chip.success {
@@ -988,8 +1232,8 @@
 	}
 
 	.update-chip.error {
-		background: var(--danger, #ef4444);
-		color: #fff;
+		background: var(--danger);
+		color: var(--on-danger);
 	}
 
 	.status-indicator {

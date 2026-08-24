@@ -33,6 +33,9 @@
 		>
 			<span class="state" aria-hidden="true"></span>
 			<span class="name">{entry.toolName}</span>
+			{#if isError}
+				<span class="failed-tag">fallito</span>
+			{/if}
 		</button>
 		<span class="summary">
 			<renderer.component
@@ -76,7 +79,7 @@
 	}
 
 	.card.error {
-		border-left-color: var(--brand);
+		border-left-color: var(--danger);
 	}
 
 	.head {
@@ -118,7 +121,17 @@
 	}
 
 	.error .state {
-		background: var(--brand);
+		background: var(--danger);
+	}
+
+	.failed-tag {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--danger);
+		background: var(--danger-dim);
+		padding: 0 var(--space-1);
+		border-radius: var(--radius-sm);
+		line-height: 1.4;
 	}
 
 	.name {

@@ -4,7 +4,7 @@
 	// Autoscroll ancorato in basso: se l'utente scrolla in su di piu' di 40px,
 	// l'autoscroll si sospende e compare un pulsante «↓ In fondo».
 	// Unico punto di innesto per i ganci verso il guscio (`setAgentUiHooks`).
-	import { onDestroy, onMount } from 'svelte';
+
 	import type { AgentSession } from '../session.svelte';
 	import type { StreamingBehavior } from '../wire';
 	import { setAgentUiHooks } from '../ui-context';
@@ -64,25 +64,41 @@
 		userScrolledUp = false;
 	}
 
-	// Autoscroll quando arrivano nuove entry, se l'utente non e' salito.
+	// Autoscroll ancorato in fondo tramite ResizeObserver e MutationObserver:
+	// segue lo streaming del testo e l'arrivo di nuove entry senza scatti o timeout non gestiti.
 	$effect(() => {
-		// Lettura di `entries.length` per registrare la dipendenza reattiva.
-		const _len = session.entries.length;
-		const _stream = session.isStreaming;
-		if (!userScrolledUp && scrollEl) {
-			// Timeout minimo per far completare il rendering del DOM Svelte.
-			setTimeout(() => {
-				if (!userScrolledUp && scrollEl) {
-					scrollEl.scrollTop = scrollEl.scrollHeight;
-				}
-			}, 10);
-		}
-	});
+		if (!scrollEl || !visible) return;
 
-	$effect(() => {
-		if (visible && !userScrolledUp && scrollEl) {
-			setTimeout(scrollToBottom, 10);
+		if (!userScrolledUp) {
+			scrollEl.scrollTop = scrollEl.scrollHeight;
 		}
+
+		const resizeObserver = new ResizeObserver(() => {
+			if (!userScrolledUp && scrollEl) {
+				scrollEl.scrollTop = scrollEl.scrollHeight;
+			}
+		});
+
+		for (const child of scrollEl.children) {
+			resizeObserver.observe(child);
+		}
+
+		const mutationObserver = new MutationObserver(() => {
+			if (!scrollEl) return;
+			for (const child of scrollEl.children) {
+				resizeObserver.observe(child);
+			}
+			if (!userScrolledUp) {
+				scrollEl.scrollTop = scrollEl.scrollHeight;
+			}
+		});
+
+		mutationObserver.observe(scrollEl, { childList: true, subtree: true });
+
+		return () => {
+			resizeObserver.disconnect();
+			mutationObserver.disconnect();
+		};
 	});
 </script>
 
@@ -125,6 +141,7 @@
 		<Composer
 			{session}
 			{behavior}
+			{visible}
 			onBehaviorChange={(b) => (behavior = b)}
 			onSlashCommand={(cmd) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 		/>

@@ -160,8 +160,9 @@ export interface ContentBlock {
 }
 
 export interface AgentMessage {
-	role: 'user' | 'assistant' | 'toolResult' | 'developer' | string;
-	content?: ContentBlock[];
+	role: 'user' | 'assistant' | 'toolResult' | 'developer' | 'custom' | string;
+	/** I messaggi `custom` portano una stringa, non blocchi. */
+	content?: ContentBlock[] | string;
 	model?: string;
 	usage?: MessageUsage;
 	stopReason?: string;
@@ -176,8 +177,22 @@ export interface AgentMessage {
 	steering?: boolean;
 }
 
-/** Statistiche di sessione: le chiavi variano per versione, tutte opzionali. */
+/**
+ * Statistiche di sessione, verificate su omp 17.2.1: `cost` e' un numero al
+ * primo livello. Le chiavi restano opzionali perche' cambiano per versione e
+ * il chip del costo non e' un invariante.
+ */
 export interface SessionStats {
+	sessionId?: string;
+	sessionFile?: string;
+	totalMessages?: number;
+	userMessages?: number;
+	assistantMessages?: number;
+	toolCalls?: number;
+	toolResults?: number;
+	premiumRequests?: number;
+	tokens?: Record<string, number>;
+	contextUsage?: ContextUsage;
 	totalCost?: number;
 	cost?: number | UsageCost;
 	usage?: MessageUsage;
@@ -196,6 +211,8 @@ export interface AssistantMessageEvent {
 	contentIndex?: number;
 	/** Presente sui frame `*_end`: e' il testo autorevole del blocco. */
 	content?: string;
+	/** Presente su `image_end`: il tipo reale, non sempre PNG. */
+	mimeType?: string;
 	toolCall?: { id: string; name: string; arguments?: Record<string, unknown> };
 }
 
@@ -218,6 +235,9 @@ export interface AgentProgress {
 	tokens?: number;
 	cost?: number;
 	durationMs?: number;
+	/** Radice del payload, non di `progress`: serve al cassetto per leggere. */
+	sessionFile?: string;
+	parentToolCallId?: string;
 }
 
 export interface SubagentLifecyclePayload {

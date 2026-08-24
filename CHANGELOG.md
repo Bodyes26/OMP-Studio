@@ -9,6 +9,40 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-24
+
+### Added
+
+- La chat GUI mostra uno stato iniziale utile e una palette slash completa di
+  firma, alias, descrizione e sottocomandi.
+- I pannelli FILE, GIT, quote e anteprima mostrano gli errori reali e consentono
+  di riprovare, invece di restare vuoti o su «Caricamento».
+- Gli aggiornamenti possono seguire il canale stabile oppure Nightly, che riceve
+  automaticamente le build più recenti senza esporle agli utenti stabili.
+
+### Changed
+
+- Le risposte, il ragionamento e i risultati degli strumenti si aggiornano
+  progressivamente in Markdown mantenendo la vista agganciata in fondo.
+- Le card degli strumenti mostrano già durante l'esecuzione percorsi, opzioni,
+  task e dati strutturati; gli errori hanno uno stato visivo distinto.
+- Dialoghi, menu e scorciatoie rispettano il fuoco attivo, si chiudono con
+  `Esc` e usano i livelli e i colori semantici dell'interfaccia.
+
+### Fixed
+
+- La superficie GUI non si congela più appena omp pubblica l'identificativo
+  della sessione: invio, transcript e menu restano reattivi.
+- I messaggi dell'assistente, i delta di streaming e i risultati dei tool
+  compaiono nel transcript invece di restare invisibili o perennemente attivi.
+- I comandi slash vengono eseguiti una volta sola con `Invio`; quelli non
+  disponibili nella GUI indirizzano esplicitamente alla scheda TERMINAL.
+- `Invio` nel composer non approva più accidentalmente una chiamata a uno
+  strumento mentre è visibile una richiesta di conferma.
+- Il passaggio tra GUI e TERMINAL conserva la stessa sessione in entrambi i
+  versi e la chiusura di un progetto termina il relativo processo omp.
+- Le sessioni lunghe non perdono richieste RPC valide per risposte senza
+  identificativo e i comandi shell dispongono del timeout esteso.
 ## [1.0.1] - 2026-08-24
 
 ### Fixed

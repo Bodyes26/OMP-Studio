@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import {
 		modelSettingsStore,
 		STANDARD_ROLES
@@ -10,8 +11,9 @@
 
 	$effect(() => {
 		if (modelSettingsStore.upgradeModalOpen) {
-			// Seleziona tutti per default
-			selectedIndices = modelSettingsStore.upgradeCandidates.map((_, i) => i);
+			// Seleziona tutti per default solo all'apertura del modale
+			const candidates = untrack(() => modelSettingsStore.upgradeCandidates);
+			selectedIndices = candidates.map((_, i) => i);
 		}
 	});
 
@@ -45,6 +47,48 @@
 			e.stopPropagation();
 			handleClose();
 		}
+	}
+
+	// Azione per intrappolare e gestire il fuoco dentro il dialogo modale
+	function trapFocus(node: HTMLElement) {
+		const previouslyFocused = document.activeElement as HTMLElement | null;
+		const focusableSelector = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+		const first = node.querySelector<HTMLElement>(focusableSelector);
+		if (first) {
+			first.focus();
+		}
+
+		function onKeydown(e: KeyboardEvent) {
+			if (e.key !== 'Tab') return;
+			const focusables = Array.from(node.querySelectorAll<HTMLElement>(focusableSelector));
+			if (focusables.length === 0) return;
+			const firstEl = focusables[0];
+			const lastEl = focusables[focusables.length - 1];
+
+			if (e.shiftKey) {
+				if (document.activeElement === firstEl) {
+					e.preventDefault();
+					lastEl.focus();
+				}
+			} else {
+				if (document.activeElement === lastEl) {
+					e.preventDefault();
+					firstEl.focus();
+				}
+			}
+		}
+
+		node.addEventListener('keydown', onKeydown);
+
+		return {
+			destroy() {
+				node.removeEventListener('keydown', onKeydown);
+				if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+					previouslyFocused.focus();
+				}
+			}
+		};
 	}
 
 	function getRoleAbbr(id: string): string {
@@ -82,6 +126,7 @@
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="upgrade-dialog-title"
+		use:trapFocus
 		transition:fly={{ y: -16, duration: 220, easing: cubicOut }}
 	>
 		<div class="dialog-header">
@@ -193,7 +238,7 @@
 		inset: 0;
 		background: color-mix(in srgb, var(--bg-base) 80%, black);
 		opacity: 0.75;
-		z-index: calc(var(--z-dialog) + 10);
+		z-index: var(--z-toast);
 	}
 
 	.upgrade-dialog {
@@ -208,7 +253,7 @@
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
-		z-index: calc(var(--z-dialog) + 11);
+		z-index: var(--z-tooltip);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
@@ -466,7 +511,7 @@
 
 	.btn-primary {
 		background: var(--brand);
-		color: var(--on-project, #ffffff);
+		color: var(--on-brand);
 	}
 
 	.btn-primary:hover:not(:disabled) {

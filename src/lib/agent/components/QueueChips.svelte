@@ -34,7 +34,7 @@
 			</div>
 		{/each}
 
-		{#if serverCount !== queued.length}
+		{#if serverCount > 0 && serverCount !== queued.length}
 			<div
 				class="chip server-count"
 				title="omp non espone la cancellazione dalla coda"

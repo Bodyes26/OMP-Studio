@@ -82,6 +82,9 @@
 				{omitted} righe omesse — mostra tutto
 			</button>
 			{#each tail as row, index (index)}
+				{#if gapBefore(tail, index)}
+					<div class="gap"></div>
+				{/if}
 				<div class="row {row.sign === '+' ? 'add' : row.sign === '-' ? 'del' : 'ctx'}">
 					<span class="num">{row.line ?? ''}</span>
 					<span class="sign">{row.sign === ' ' ? '' : row.sign}</span>

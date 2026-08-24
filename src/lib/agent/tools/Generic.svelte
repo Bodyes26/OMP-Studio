@@ -12,12 +12,31 @@
 	const text = $derived(resultText(result));
 	const images = $derived(resultImages(result));
 	const firstLine = $derived(text.split('\n', 1)[0] ?? '');
+
+	// Mentre il tool e' in corso `result` e' assente: senza questa sintesi il
+	// sommario resterebbe vuoto proprio nel momento in cui l'utente guarda.
+	function previewValue(value: unknown): string {
+		if (typeof value === 'string') return value;
+		if (value === null || value === undefined) return String(value);
+		if (Array.isArray(value)) return `[${value.length}]`;
+		if (typeof value === 'object') return '{…}';
+		return String(value);
+	}
+
+	const argsPreview = $derived(
+		Object.entries(args)
+			.map(([key, value]) => `${key}: ${previewValue(value)}`)
+			.join(', ')
+	);
+
+	const summaryLine = $derived(firstLine || argsPreview);
 </script>
 
 {#if view === 'summary'}
-	<span class="one-line">{firstLine}</span>
+	<span class="one-line">{summaryLine}</span>
 {:else}
 	<JsonBlock value={args} />
+	<JsonBlock value={result?.details} label="dettagli" />
 	<OutputBlock {text} />
 	<ImageBlock {images} />
 {/if}

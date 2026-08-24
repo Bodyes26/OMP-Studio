@@ -303,6 +303,7 @@ Monaco invece è **un'istanza sola** per tutta l'app, con un `ITextModel` per fi
   "window": { /* gestito da tauri-plugin-window-state */ },
   "usage": { "pollSeconds": 60, "redactAccounts": false },
   "startup": { "checkOmpUpdate": true, "reopenLastProjects": true },
+  "studioUpdateChannel": "stable",
   "terminal": { "fontFamily": "JetBrainsMono Nerd Font", "fontSize": 14, "ligatures": true, "scrollback": 10000 }
 }
 ```
@@ -315,6 +316,24 @@ Le code task vivono in `tasks.json`, separate dalla configurazione dei progetti.
 chiave è il path normalizzato, quindi chiudere e riaprire un progetto non perde la
 coda. Dopo l'avvio resta soltanto il mapping tra session ID e task necessario al badge
 `TASK`; i file di sessione e `history.db` restano di proprietà di `omp`.
+
+### 7.1 Canali di aggiornamento di Studio
+
+Il canale `stable`, predefinito, legge esclusivamente `/releases/latest`: GitHub
+esclude le prerelease e impedisce che una build sperimentale raggiunga chi non ha
+scelto Nightly. Il canale `nightly` confronta invece l'ultima stabile con la
+prerelease associata al tag mobile `nightly` e propone la versione SemVer maggiore.
+
+`.github/workflows/nightly.yml` ricompila Windows x64 e macOS universal a ogni push
+di codice su `main`. Nel checkout del runner `scripts/nightly-version.mjs` trasforma
+temporaneamente, per esempio, `1.0.1` in `1.0.2-nightly.<run_id>` senza committare il
+bump e senza chiudere `[Unreleased]`. La prerelease viene sostituita integralmente e
+contiene `nightly.json`, manifest strutturato con versione, commit e data. Una release
+stabile finale (`1.0.2` o superiore) prevale sempre sulle prerelease dello stesso ciclo.
+
+Il frontend persiste `studioUpdateChannel` in `settings.json`. Tornando a Stabile da
+una nightly più recente non viene eseguito alcun downgrade: l'app attende la prima
+release stabile con versione superiore.
 
 ---
 

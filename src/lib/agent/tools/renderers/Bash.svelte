@@ -63,6 +63,8 @@
 			<OutputBlock {text} label="output bash" />
 		{:else if running}
 			<div class="running-indicator">Esecuzione in corso...</div>
+		{:else}
+			<div class="empty-output">(nessun output)</div>
 		{/if}
 		{#if metaRows.length > 0}
 			<KeyValue rows={metaRows} />
@@ -90,6 +92,12 @@
 	}
 
 	.running-indicator {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		font-style: italic;
+	}
+
+	.empty-output {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		font-style: italic;

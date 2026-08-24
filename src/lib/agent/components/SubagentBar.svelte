@@ -92,7 +92,7 @@
 	}
 
 	.count-failed {
-		color: var(--brand-ink);
+		color: var(--danger);
 	}
 
 	.arrow {

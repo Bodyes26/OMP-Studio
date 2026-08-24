@@ -10,8 +10,24 @@
 		onClose: () => void;
 	}>();
 
+	// Blocca lo scorrimento del documento mentre la modale e' aperta.
+	$effect(() => {
+		const originalOverflow = document.body.style.overflow;
+		document.body.style.overflow = 'hidden';
+		return () => {
+			document.body.style.overflow = originalOverflow;
+		};
+	});
+
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') onClose();
+		const target = e.target as HTMLElement | null;
+		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			return;
+		}
+		if (e.key === 'Escape') {
+			e.stopPropagation();
+			onClose();
+		}
 	}
 </script>
 
@@ -19,7 +35,14 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="image-backdrop" onclick={onClose}>
+<div
+	class="image-backdrop"
+	role="dialog"
+	aria-modal="true"
+	aria-label="Anteprima immagine"
+	tabindex="-1"
+	onclick={onClose}
+>
 	<div class="image-container" onclick={(e) => e.stopPropagation()}>
 		<img src={`data:${mimeType};base64,${data}`} alt="Anteprima immagine" />
 		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi">×</button>

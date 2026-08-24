@@ -52,6 +52,50 @@
 			}
 		}
 	}
+
+	// Azione per intrappolare e gestire il fuoco dentro il dialogo modale
+	function trapFocus(node: HTMLElement) {
+		const previouslyFocused = document.activeElement as HTMLElement | null;
+		const focusableSelector = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+		// Sposta il fuoco sul primo elemento interattivo appena montato
+		const first = node.querySelector<HTMLElement>(focusableSelector);
+		if (first) {
+			first.focus();
+		}
+
+		function onKeydown(e: KeyboardEvent) {
+			if (e.key !== 'Tab') return;
+			const focusables = Array.from(node.querySelectorAll<HTMLElement>(focusableSelector));
+			if (focusables.length === 0) return;
+			const firstEl = focusables[0];
+			const lastEl = focusables[focusables.length - 1];
+
+			if (e.shiftKey) {
+				if (document.activeElement === firstEl) {
+					e.preventDefault();
+					lastEl.focus();
+				}
+			} else {
+				if (document.activeElement === lastEl) {
+					e.preventDefault();
+					firstEl.focus();
+				}
+			}
+		}
+
+		node.addEventListener('keydown', onKeydown);
+
+		return {
+			destroy() {
+				node.removeEventListener('keydown', onKeydown);
+				// Ripristina il fuoco all'elemento che aveva aperto il modale
+				if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+					previouslyFocused.focus();
+				}
+			}
+		};
+	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -66,6 +110,7 @@
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="model-settings-title"
+		use:trapFocus
 		transition:fly={{ y: -16, duration: 220, easing: cubicOut }}
 	>
 		<!-- Header -->
@@ -249,7 +294,7 @@
 		inset: 0;
 		background: color-mix(in srgb, var(--bg-base) 80%, black);
 		opacity: 0.75;
-		z-index: var(--z-dialog);
+		z-index: var(--z-backdrop);
 	}
 
 	.modal-window {
@@ -265,7 +310,7 @@
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
-		z-index: calc(var(--z-dialog) + 1);
+		z-index: var(--z-dialog);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
@@ -521,7 +566,7 @@
 
 	.btn-primary {
 		background: var(--brand);
-		color: var(--on-project, #ffffff);
+		color: var(--on-brand);
 	}
 
 	.btn-primary:hover:not(:disabled) {
@@ -535,7 +580,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 50;
+		z-index: var(--z-overlay);
 	}
 
 	.confirm-box {

@@ -236,6 +236,11 @@ class ProjectStore {
 		return id;
 	}
 
+	/**
+	 * Chiudere una scheda deve chiudere anche il processo omp che le sta
+	 * dietro: lo store non conosce le sessioni, quindi lo annuncia e chi le
+	 * possiede (`routes/+page.svelte`) le dispone.
+	 */
 	closeProject(id: string) {
 		const idx = this.projects.findIndex(p => p.id === id);
 		if (idx === -1) return;
@@ -244,6 +249,7 @@ class ProjectStore {
 			this.activeId = this.projects.length > 0 ? this.projects[this.projects.length - 1].id : null;
 		}
 		this.save();
+		window.dispatchEvent(new CustomEvent('studio-project-closed', { detail: { projectId: id } }));
 	}
 
 	setActive(id: string) {

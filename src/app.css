@@ -62,6 +62,13 @@
   --warn-dim-l:  0.560;
   --warn-dim:    oklch(var(--warn-dim-l) calc(var(--warn-c) * 0.800) var(--warn-h));
 
+  /* Errore — distinto da `--warn`: l'attenzione avverte, l'errore dice che
+     qualcosa non e' avvenuto. Tinta rossa fissa, indipendente dal tema di
+     omp: il brand puo' essere rosso o verde, un errore no. */
+  --danger:      oklch(0.680 0.185 27);
+  --danger-dim:  oklch(0.480 0.150 27);
+  --on-danger:   var(--bg-sunken);
+
   /* Identità progetto: tinta dall'hash del path. Due soli usi: la lettera
      della tessera a riposo, il riempimento della tessera attiva. Un solo
      progetto per volta e' colorato pieno, gli altri sono neutri. */

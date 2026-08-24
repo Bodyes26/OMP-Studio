@@ -1,78 +1,161 @@
 <script lang="ts">
-	// Riquadro compatto dei comandi slash disponibili sopra il composer.
-	//
-	// Mostra i comandi censiti da omp (`get_available_commands`) filtrati per
-	// sottostringa su nome, alias e descrizione. Navigabile con frecce, Enter
-	// ed Esc.
+	// Palette dei comandi censiti da omp. Il dato autorevole contiene nome,
+	// alias, firma degli argomenti e sottocomandi: la GUI non inventa un
+	// catalogo parallelo e non inoltra i comandi come prompt.
 	import type { AvailableCommand } from '../wire';
 
-	let { open, commands = [], query = '', onPick, onClose } = $props<{
+	interface PaletteOption {
+		key: string;
+		value: string;
+		label: string;
+		description?: string;
+		command: AvailableCommand;
+		subcommand?: { name: string; description?: string };
+		keepsOpen: boolean;
+		submitImmediately: boolean;
+	}
+
+	interface ScoredOption {
+		option: PaletteOption;
+		order: number;
+		rank: number;
+	}
+
+	let {
+		open,
+		commands = [],
+		query = '',
+		onPick,
+		onClose,
+		onSubmitFallback
+	} = $props<{
 		open: boolean;
 		commands: AvailableCommand[];
 		query: string;
-		onPick: (name: string) => void;
+		onPick: (value: string, keepsOpen: boolean, submitImmediately: boolean) => void;
 		onClose: () => void;
+		onSubmitFallback: () => void;
 	}>();
 
 	let selectedIndex = $state(0);
 	let listEl = $state<HTMLElement | null>(null);
 
-	const cleanQuery = $derived.by(() => {
-		let q = query.trim().toLowerCase();
-		if (q.startsWith('/')) q = q.slice(1).trim();
-		return q;
-	});
-
-	const filteredCommands = $derived.by((): AvailableCommand[] => {
-		if (!cleanQuery) return commands;
-		return commands.filter((cmd: AvailableCommand) => {
-			if (cmd.name.toLowerCase().includes(cleanQuery)) return true;
-			if (cmd.description && cmd.description.toLowerCase().includes(cleanQuery)) return true;
-			if (cmd.aliases && cmd.aliases.some((alias: string) => alias.toLowerCase().includes(cleanQuery))) return true;
-			return false;
-		});
-	});
-
-	// Mantiene la selezione entro i limiti quando l'elenco filtrato cambia
-	$effect(() => {
-		if (filteredCommands.length === 0) {
-			selectedIndex = 0;
-		} else if (selectedIndex >= filteredCommands.length) {
-			selectedIndex = filteredCommands.length - 1;
+	const parsed = $derived.by(() => {
+		const raw = query.trimStart().replace(/^\//, '');
+		const space = raw.search(/\s/);
+		if (space === -1) {
+			return { commandQuery: raw.trim().toLowerCase(), subQuery: '', parent: null as AvailableCommand | null };
 		}
+		const token = raw.slice(0, space).toLowerCase();
+		const parent =
+			commands.find(
+				(command: AvailableCommand) =>
+					command.name.toLowerCase() === token
+					|| command.aliases?.some((alias: string) => alias.toLowerCase() === token)
+			) ?? null;
+		return {
+			commandQuery: token,
+			subQuery: raw.slice(space + 1).trim().toLowerCase(),
+			parent
+		};
 	});
 
-	// Autoscroll della voce selezionata
-	$effect(() => {
-		if (open && listEl && selectedIndex >= 0 && selectedIndex < filteredCommands.length) {
-			const item = listEl.children[selectedIndex] as HTMLElement | undefined;
-			if (item) {
-				item.scrollIntoView({ block: 'nearest' });
-			}
+	function rank(value: string, description: string | undefined, aliases: string[] | undefined, needle: string): number {
+		const name = value.toLowerCase();
+		if (!needle || name.startsWith(needle)) return 0;
+		if (name.includes(needle)) return 1;
+		if (aliases?.some((alias) => alias.toLowerCase().startsWith(needle))) return 2;
+		if (aliases?.some((alias) => alias.toLowerCase().includes(needle))) return 3;
+		if (description?.toLowerCase().includes(needle)) return 4;
+		return Number.POSITIVE_INFINITY;
+	}
+
+	const options = $derived.by((): PaletteOption[] => {
+		const parent = parsed.parent;
+		if (parent?.subcommands?.length) {
+			return parent.subcommands
+				.map((subcommand: { name: string; description?: string }, order: number): ScoredOption => ({
+					option: {
+						key: `${parent.name}:${subcommand.name}`,
+						value: `${parent.name} ${subcommand.name}`,
+						label: `/${parent.name} ${subcommand.name}`,
+						description: subcommand.description,
+						command: parent,
+						subcommand,
+						keepsOpen: false,
+						submitImmediately: false
+					},
+					order,
+					rank: rank(subcommand.name, subcommand.description, undefined, parsed.subQuery)
+				}))
+				.filter((entry: ScoredOption) => Number.isFinite(entry.rank))
+				.sort((left: ScoredOption, right: ScoredOption) => left.rank - right.rank || left.order - right.order)
+				.map((entry: ScoredOption) => entry.option);
 		}
+
+		return commands
+			.map((command: AvailableCommand, order: number): ScoredOption => ({
+				option: {
+					key: command.name,
+					value: command.name,
+					label: `/${command.name}`,
+					description: command.description,
+					command,
+					keepsOpen: Boolean(command.subcommands?.length),
+					submitImmediately: !command.subcommands?.length && !command.input?.hint
+				},
+				order,
+				rank: rank(command.name, command.description, command.aliases, parsed.commandQuery)
+			}))
+			.filter((entry: ScoredOption) => Number.isFinite(entry.rank))
+			.sort((left: ScoredOption, right: ScoredOption) => left.rank - right.rank || left.order - right.order)
+			.map((entry: ScoredOption) => entry.option);
 	});
+
+	const activeIndex = $derived(options.length > 0 ? Math.min(selectedIndex, options.length - 1) : 0);
+	const activeOption = $derived(options[activeIndex] ?? null);
+
+	// Una nuova query riparte dalla prima voce. L'effetto legge solo `query`:
+	// non rilegge lo stato che scrive e non puo' autoalimentarsi.
+	$effect(() => {
+		void query;
+		selectedIndex = 0;
+	});
+
+	$effect(() => {
+		if (!open || !listEl || options.length === 0) return;
+		const item = listEl.children[activeIndex] as HTMLElement | undefined;
+		item?.scrollIntoView({ block: 'nearest' });
+	});
+
+	function choose(option: PaletteOption) {
+		onPick(option.value, option.keepsOpen, option.submitImmediately);
+	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (!open || filteredCommands.length === 0) return;
-
-		if (event.key === 'ArrowDown') {
-			event.preventDefault();
-			event.stopPropagation();
-			selectedIndex = (selectedIndex + 1) % filteredCommands.length;
-		} else if (event.key === 'ArrowUp') {
-			event.preventDefault();
-			event.stopPropagation();
-			selectedIndex = (selectedIndex - 1 + filteredCommands.length) % filteredCommands.length;
-		} else if (event.key === 'Enter' || event.key === 'Tab') {
-			if (filteredCommands[selectedIndex]) {
-				event.preventDefault();
-				event.stopPropagation();
-				onPick(filteredCommands[selectedIndex].name);
-			}
-		} else if (event.key === 'Escape') {
+		if (!open) return;
+		if (event.key === 'Escape') {
 			event.preventDefault();
 			event.stopPropagation();
 			onClose();
+			return;
+		}
+		if (event.key === 'Enter' || event.key === 'Tab') {
+			event.preventDefault();
+			event.stopPropagation();
+			if (activeOption) choose(activeOption);
+			else onSubmitFallback();
+			return;
+		}
+		if (options.length === 0) return;
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			event.stopPropagation();
+			selectedIndex = (activeIndex + 1) % options.length;
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			event.stopPropagation();
+			selectedIndex = (activeIndex - 1 + options.length) % options.length;
 		}
 	}
 </script>
@@ -80,37 +163,71 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-	<div class="palette-container" role="dialog" aria-label="Tavolozza comandi">
-		{#if filteredCommands.length > 0}
-			<div class="palette-list" bind:this={listEl} role="listbox">
-				{#each filteredCommands as cmd, index (cmd.name)}
-					<button
-						type="button"
-						class="palette-item"
-						class:selected={index === selectedIndex}
-						role="option"
-						aria-selected={index === selectedIndex}
-						onclick={() => onPick(cmd.name)}
-						onmouseenter={() => (selectedIndex = index)}
-					>
-						<div class="item-header">
-							<span class="cmd-name">/{cmd.name}</span>
-							{#if cmd.input?.hint}
-								<span class="cmd-hint">{cmd.input.hint}</span>
+	<div class="palette-container" role="dialog" tabindex="-1" aria-label="Comandi disponibili">
+		<div class="palette-main">
+			{#if options.length > 0}
+				<div class="palette-list" bind:this={listEl} role="listbox" aria-label="Comandi">
+					{#each options as option, index (option.key)}
+						<button
+							type="button"
+							class="palette-item"
+							class:selected={index === activeIndex}
+							role="option"
+							aria-selected={index === activeIndex}
+							onclick={() => choose(option)}
+							onmouseenter={() => (selectedIndex = index)}
+						>
+							<span class="cmd-name">{option.label}</span>
+							{#if option.description}
+								<span class="cmd-desc">{option.description}</span>
 							{/if}
-							{#if cmd.aliases && cmd.aliases.length > 0}
-								<span class="cmd-aliases">({cmd.aliases.map((a: string) => '/' + a).join(', ')})</span>
-							{/if}
+						</button>
+					{/each}
+				</div>
+			{:else}
+				<div class="palette-empty">
+					<strong>Nessuna corrispondenza</strong>
+					<span>Premi Invio per mandare comunque il testo.</span>
+				</div>
+			{/if}
+
+			{#if activeOption}
+				<aside class="command-preview" aria-live="polite">
+					<div class="preview-title">{activeOption.label}</div>
+					{#if activeOption.command.aliases?.length}
+						<div class="preview-row">
+							<span class="preview-label">Alias</span>
+							<code>{activeOption.command.aliases.map((alias) => `/${alias}`).join(', ')}</code>
 						</div>
-						{#if cmd.description}
-							<div class="cmd-desc">{cmd.description}</div>
-						{/if}
-					</button>
-				{/each}
-			</div>
-		{:else}
-			<div class="palette-empty">Nessun comando corrispondente a &ldquo;{query}&rdquo;</div>
-		{/if}
+					{/if}
+					{#if activeOption.command.input?.hint}
+						<div class="preview-row">
+							<span class="preview-label">Uso</span>
+							<code>/{activeOption.command.name} {activeOption.command.input.hint}</code>
+						</div>
+					{/if}
+					{#if activeOption.description}
+						<p class="preview-description">{activeOption.description}</p>
+					{/if}
+					{#if !activeOption.subcommand && activeOption.command.subcommands?.length}
+						<div class="subcommands">
+							<div class="preview-label">Sottocomandi</div>
+							{#each activeOption.command.subcommands as subcommand (subcommand.name)}
+								<div class="subcommand-row">
+									<code>{subcommand.name}</code>
+									{#if subcommand.description}<span>{subcommand.description}</span>{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</aside>
+			{/if}
+		</div>
+		<div class="palette-help">
+			<span>↑↓ naviga</span>
+			<span>Invio seleziona</span>
+			<span>Esc chiude</span>
+		</div>
 	</div>
 {/if}
 
@@ -118,34 +235,41 @@
 	.palette-container {
 		position: absolute;
 		bottom: 100%;
-		left: 0;
-		right: 0;
+		left: var(--space-3);
+		right: var(--space-3);
 		margin-bottom: var(--space-1);
+		max-width: calc(100vw - 2 * var(--space-4));
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);
 		overflow: hidden;
-		max-width: 100%;
+	}
+
+	.palette-main {
+		display: grid;
+		grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.1fr);
+		min-height: 150px;
+		max-height: 380px;
 	}
 
 	.palette-list {
-		max-height: 320px;
 		overflow-y: auto;
 		padding: var(--space-1);
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+		border-right: 1px solid var(--line);
 	}
 
 	.palette-item {
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		gap: 2px;
+		gap: 3px;
 		width: 100%;
-		padding: var(--space-1) var(--space-2);
+		padding: var(--space-2);
 		background: transparent;
 		border: none;
 		border-radius: var(--radius-sm);
@@ -153,8 +277,6 @@
 		cursor: pointer;
 		color: var(--ink);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
-		line-height: 1.3;
 	}
 
 	.palette-item:hover,
@@ -162,56 +284,109 @@
 		background: var(--bg-hover);
 	}
 
-	.palette-item.selected {
-		color: var(--ink);
-	}
-
-	.item-header {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-		width: 100%;
-		overflow: hidden;
-	}
-
-	.cmd-name {
+	.cmd-name,
+	code {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		font-weight: 600;
 		color: var(--brand-ink);
-		white-space: nowrap;
-	}
-
-	.cmd-hint {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.cmd-aliases {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--ink-faint);
-		white-space: nowrap;
-		margin-left: auto;
 	}
 
 	.cmd-desc {
 		font-size: var(--text-xs);
+		line-height: 1.35;
 		color: var(--ink-muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		width: 100%;
+	}
+
+	.command-preview {
+		overflow-y: auto;
+		padding: var(--space-3);
+		background: var(--bg-sunken);
+	}
+
+	.preview-title {
+		font-family: var(--font-mono);
+		font-size: var(--text-base);
+		font-weight: 650;
+		color: var(--ink);
+		margin-bottom: var(--space-3);
+	}
+
+	.preview-row {
+		display: grid;
+		grid-template-columns: 64px 1fr;
+		gap: var(--space-2);
+		align-items: baseline;
+		margin-bottom: var(--space-2);
+	}
+
+	.preview-label {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--ink-faint);
+	}
+
+	.preview-description {
+		margin: var(--space-3) 0;
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		line-height: 1.5;
+	}
+
+	.subcommands {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-top: var(--space-3);
+	}
+
+	.subcommand-row {
+		display: grid;
+		grid-template-columns: minmax(80px, auto) 1fr;
+		gap: var(--space-2);
+		align-items: baseline;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
 	}
 
 	.palette-empty {
-		padding: var(--space-3) var(--space-4);
-		font-size: var(--text-xs);
+		grid-column: 1 / -1;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-4);
 		color: var(--ink-faint);
+		font-size: var(--text-xs);
 		text-align: center;
+	}
+
+	.palette-empty strong {
+		color: var(--ink-muted);
+	}
+
+	.palette-help {
+		display: flex;
+		gap: var(--space-3);
+		padding: var(--space-1) var(--space-2);
+		border-top: 1px solid var(--line);
+		background: var(--bg-raised);
+		color: var(--ink-faint);
+		font-size: 10px;
+	}
+
+	@media (max-width: 720px) {
+		.palette-main {
+			grid-template-columns: 1fr;
+		}
+
+		.command-preview {
+			display: none;
+		}
+
+		.palette-list {
+			border-right: none;
+		}
 	}
 </style>

@@ -16,13 +16,25 @@
 		onOpenDrawer: (id: string) => void;
 		onClose: () => void;
 	}>();
+
+	function handleKeydown(e: KeyboardEvent) {
+		const target = e.target as HTMLElement | null;
+		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			return;
+		}
+		if (e.key === 'Escape') {
+			e.stopPropagation();
+			onClose();
+		}
+	}
 </script>
 
+<svelte:window onkeydown={handleKeydown} />
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="panel-backdrop" onclick={onClose}></div>
 
-<div class="subagent-panel" role="dialog" aria-label="Elenco subagent">
+<div class="subagent-panel" role="dialog" aria-modal="true" aria-label="Elenco subagent">
 	<div class="panel-head">
 		<span class="title">Subagent del progetto ({subagents.length})</span>
 		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi">×</button>

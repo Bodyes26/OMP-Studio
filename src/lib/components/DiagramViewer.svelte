@@ -29,6 +29,8 @@
 
 	let viewportEl = $state<HTMLElement>();
 	let svgHost = $state<HTMLElement>();
+	let containerEl = $state<HTMLElement>();
+	let pointerOver = $state(false);
 
 	let unlisten: UnlistenFn | null = null;
 
@@ -137,7 +139,21 @@
 		dragging = false;
 	}
 
+	function isTextEntryTarget(target: EventTarget | null): boolean {
+		return (
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement ||
+			(target instanceof HTMLElement && target.isContentEditable)
+		);
+	}
+
+	// Scorciatoia confinata al pannello: senza questi controlli Ctrl+0 ed Esc
+	// venivano rubati anche quando l'utente lavorava altrove nell'app (es.
+	// nel composer), impedendo lo zoom-reset globale dell'applicazione.
 	function handleKeydown(e: KeyboardEvent) {
+		if (isTextEntryTarget(e.target)) return;
+		const hasFocus = containerEl?.contains(document.activeElement) ?? false;
+		if (!hasFocus && !pointerOver) return;
 		if (e.key === 'Escape') onClose?.();
 		if (e.key === '0' && (e.ctrlKey || e.metaKey)) {
 			e.preventDefault();
@@ -169,7 +185,14 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="diagram-viewer">
+<div
+	class="diagram-viewer"
+	bind:this={containerEl}
+	role="region"
+	aria-label="Visualizzatore diagramma"
+	onpointerenter={() => (pointerOver = true)}
+	onpointerleave={() => (pointerOver = false)}
+>
 	{#if diagram}
 		<div class="diagram-toolbar">
 			<span class="diagram-title" title={diagram.title}>{diagram.title}</span>

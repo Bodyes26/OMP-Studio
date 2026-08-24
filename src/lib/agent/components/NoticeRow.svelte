@@ -90,7 +90,7 @@
 	}
 
 	.notice-row.error .message {
-		color: var(--brand-ink);
+		color: var(--danger);
 	}
 
 	.notice-row.warning .message {
@@ -138,8 +138,8 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		white-space: pre-wrap;
-		word-break: break-all;
-		max-height: 240px;
+		overflow-wrap: anywhere;
+		word-break: normal;
 		overflow-y: auto;
 		user-select: text;
 	}

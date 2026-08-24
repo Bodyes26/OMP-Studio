@@ -481,8 +481,8 @@
 	}
 
 	.auth-chip.invalid {
-		color: var(--brand-ink);
-		border-color: var(--brand-dim);
+		color: var(--danger);
+		border-color: var(--danger-dim);
 	}
 
 	.provider-right {
@@ -531,7 +531,7 @@
 
 	input:checked + .slider::before {
 		transform: translateX(14px);
-		background: var(--on-project, #ffffff);
+		background: var(--on-brand);
 	}
 
 	.custom-providers-list {
@@ -801,7 +801,7 @@
 
 	.btn-primary {
 		background: var(--brand);
-		color: var(--on-project, #ffffff);
+		color: var(--on-brand);
 	}
 
 	.btn-primary:hover {
@@ -815,7 +815,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 50;
+		z-index: var(--z-overlay);
 	}
 
 	.confirm-box {

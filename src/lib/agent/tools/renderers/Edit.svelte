@@ -15,10 +15,18 @@
 	import PathChip from '../parts/PathChip.svelte';
 	import { asRecord, num, resultText, str, type ToolRenderProps } from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result, running = false, view }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
-	const filePath = $derived(str(details?.path) ?? str(args.path) ?? str(args.file) ?? '');
+	// Mentre e' in corso omp non manda ancora `path`/`file`: solo `args.input`
+	// nella forma `[percorso#tag]...` (intestazione del blocco letto). E' l'unico
+	// indizio disponibile del file toccato finche' il risultato non arriva.
+	const inputPath = $derived.by(() => {
+		const input = str(args.input);
+		if (!input) return undefined;
+		return /^\[([^#\]]+)/.exec(input)?.[1];
+	});
+	const filePath = $derived(str(details?.path) ?? str(args.path) ?? str(args.file) ?? inputPath ?? '');
 	const diffText = $derived(str(details?.diff));
 	const op = $derived(str(details?.op));
 	const firstChangedLine = $derived(num(details?.firstChangedLine));
@@ -62,6 +70,8 @@
 	<div class="edit-body">
 		{#if diffText}
 			<Diff diff={diffText} />
+		{:else if running}
+			<div class="running-indicator">Modifica in corso...</div>
 		{:else}
 			<JsonBlock value={args} label="argomenti edit" />
 			{#if fallbackText}
@@ -90,5 +100,11 @@
 		flex-direction: column;
 		gap: var(--space-2);
 		min-width: 0;
+	}
+
+	.running-indicator {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		font-style: italic;
 	}
 </style>

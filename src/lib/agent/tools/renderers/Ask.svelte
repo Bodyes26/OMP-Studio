@@ -24,6 +24,13 @@
 
 	const details = $derived(asRecord(result?.details));
 
+	// `args.questions` e' la forma multi-domanda: la prima (unica finora nell'uso
+	// reale) porta sia il testo sia le proprie opzioni, non condivise con `args.options`.
+	const firstQuestion = $derived.by(() => {
+		if (!Array.isArray(args.questions)) return null;
+		return asRecord(args.questions[0]);
+	});
+
 	const question = $derived.by(() => {
 		const fromDetails = str(details?.question);
 		if (fromDetails) return fromDetails;
@@ -32,8 +39,7 @@
 		if (Array.isArray(args.questions)) {
 			const first = args.questions[0];
 			if (typeof first === 'string') return first;
-			const rec = asRecord(first);
-			return str(rec?.question) ?? str(rec?.prompt) ?? '';
+			return str(firstQuestion?.question) ?? str(firstQuestion?.prompt) ?? '';
 		}
 		return '';
 	});
@@ -48,7 +54,7 @@
 	}
 
 	const options = $derived.by<OptionItem[]>(() => {
-		const rawOptions = details?.options ?? args.options;
+		const rawOptions = details?.options ?? args.options ?? firstQuestion?.options;
 		const rawDetails = recordList(details?.optionDetails ?? args.optionDetails);
 
 		if (Array.isArray(rawOptions)) {

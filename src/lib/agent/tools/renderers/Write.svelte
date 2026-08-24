@@ -27,7 +27,9 @@
 			if (match) return match[0];
 		}
 		if (content) {
-			const byteLen = new TextEncoder().encode(content).length;
+			// `Blob` conta i byte senza allocare un buffer copia grande quanto il
+			// file ad ogni ricalcolo reattivo, a differenza di `TextEncoder.encode`.
+			const byteLen = new Blob([content]).size;
 			if (byteLen < 1024) return `${byteLen} B`;
 			if (byteLen < 1024 * 1024) return `${(byteLen / 1024).toFixed(1)} KB`;
 			return `${(byteLen / (1024 * 1024)).toFixed(1)} MB`;

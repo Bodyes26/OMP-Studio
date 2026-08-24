@@ -41,6 +41,9 @@
 	const message = $derived(str(args.message));
 	const name = $derived(str(args.name));
 	const ids = $derived(strList(args.ids));
+	const stdinText = $derived(str(args.text));
+	const signal = $derived(str(args.signal));
+	const keys = $derived(strList(args.keys));
 
 	const STATUS_GLYPH: Record<string, string> = {
 		pending: '○',
@@ -86,6 +89,9 @@
 		if (name) rows.push({ key: 'Processo', value: name });
 		if (ids.length > 0) rows.push({ key: 'Job IDs', value: ids.join(', ') });
 		if (message) rows.push({ key: 'Messaggio', value: message });
+		if (stdinText) rows.push({ key: 'Testo stdin', value: stdinText });
+		if (signal) rows.push({ key: 'Segnale', value: signal });
+		if (keys.length > 0) rows.push({ key: 'Tasti', value: keys.join(', ') });
 		return rows;
 	});
 </script>

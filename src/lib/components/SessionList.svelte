@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
-
 	interface SessionEntry {
 		id: string;
 		title: string;
@@ -29,8 +28,8 @@
 	let loading = $state(false);
 	let loadError = $state<string | null>(null);
 	let reconciliationTimer: number | null = null;
+	let searchTimer: number | null = null;
 	let reconciliationAttempts = 0;
-
 	const displaySessions = $derived.by(() => {
 		const known = new Set(sessions.map((session) => session.id));
 		const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -66,12 +65,13 @@
 		}, delay);
 	}
 
-	async function loadSessions() {
+	async function loadSessions(customQuery?: string) {
 		loading = true;
 		loadError = null;
+		const q = customQuery !== undefined ? customQuery : untrack(() => query);
 		try {
-			sessions = query.trim()
-				? await invoke<SessionEntry[]>('sessions_search', { query: query.trim(), projectPath })
+			sessions = q.trim()
+				? await invoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath })
 				: await invoke<SessionEntry[]>('sessions_list', { projectPath });
 			scheduleReconciliation();
 		} catch (error) {
@@ -90,8 +90,22 @@
 		return new Date(seconds * 1000).toLocaleDateString();
 	}
 
+	function handleQueryInput(event: Event) {
+		const val = (event.target as HTMLInputElement).value;
+		query = val;
+		if (searchTimer !== null) window.clearTimeout(searchTimer);
+		searchTimer = window.setTimeout(() => {
+			searchTimer = null;
+			void loadSessions(val);
+		}, 280);
+	}
+
 	function handleSearch(event: SubmitEvent) {
 		event.preventDefault();
+		if (searchTimer !== null) {
+			window.clearTimeout(searchTimer);
+			searchTimer = null;
+		}
 		void loadSessions();
 	}
 
@@ -100,7 +114,12 @@
 		reconciliationAttempts = 0;
 		if (reconciliationTimer !== null) window.clearTimeout(reconciliationTimer);
 		reconciliationTimer = null;
-		void loadSessions();
+		if (searchTimer !== null) window.clearTimeout(searchTimer);
+		searchTimer = null;
+		// untrack evita che la lettura di query renda l'effetto dipendente da ogni battuta di tasto
+		untrack(() => {
+			void loadSessions();
+		});
 	});
 
 	onMount(() => {
@@ -111,12 +130,14 @@
 				void loadSessions();
 			}
 		};
-		window.addEventListener('focus', loadSessions);
+		const onFocus = () => void loadSessions();
+		window.addEventListener('focus', onFocus);
 		window.addEventListener('studio-sessions-refresh', refresh);
 		return () => {
-			window.removeEventListener('focus', loadSessions);
+			window.removeEventListener('focus', onFocus);
 			window.removeEventListener('studio-sessions-refresh', refresh);
 			if (reconciliationTimer !== null) window.clearTimeout(reconciliationTimer);
+			if (searchTimer !== null) window.clearTimeout(searchTimer);
 		};
 	});
 </script>
@@ -129,7 +150,13 @@
 				<circle cx="7" cy="7" r="4.5" />
 				<path d="m10.5 10.5 3.5 3.5" />
 			</svg>
-			<input id="session-search" type="search" bind:value={query} placeholder="Cerca nello storico..." />
+			<input
+				id="session-search"
+				type="search"
+				value={query}
+				oninput={handleQueryInput}
+				placeholder="Cerca nello storico..."
+			/>
 		</div>
 	</form>
 

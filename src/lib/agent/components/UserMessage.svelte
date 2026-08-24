@@ -1,8 +1,11 @@
 <script lang="ts">
 	// Messaggio dell'utente nel transcript.
 	// Allineato a sinistra: nessuna bolla di chat, nessun avatar.
+	// Usa MarkdownInline per rendere percorsi e frammenti di codice leggibili.
 	import { agentUiHooks } from '../ui-context';
+	import { lexMarkdownInline } from '../markdown';
 	import type { UserEntry } from '../session.svelte';
+	import MarkdownInline from './MarkdownInline.svelte';
 
 	let { entry }: { entry: UserEntry } = $props();
 
@@ -10,6 +13,7 @@
 	const isNonStandardAttribution = $derived(
 		Boolean(entry.attribution && entry.attribution !== 'user')
 	);
+	const inlineTokens = $derived(entry.content ? lexMarkdownInline(entry.content) : []);
 </script>
 
 <div class="user-message">
@@ -35,7 +39,9 @@
 	{/if}
 
 	{#if entry.content}
-		<div class="content">{entry.content}</div>
+		<div class="content">
+			<MarkdownInline tokens={inlineTokens} />
+		</div>
 	{/if}
 </div>
 

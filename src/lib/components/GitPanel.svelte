@@ -45,15 +45,17 @@
 	let branch = $state('');
 	let branches = $state<{ name: string; current: boolean }[]>([]);
 	let branchMenuOpen = $state(false);
+	let branchBtnEl = $state<HTMLButtonElement | null>(null);
+	let branchMenuEl = $state<HTMLDivElement | null>(null);
 	let newBranchName = $state('');
 	let workingFiles = $state<WorkingFile[]>([]);
 	let lastCommit = $state<CommitInfo | null>(null);
 	let commits = $state<CommitInfo[]>([]);
 	let expandedCommit = $state<string | null>(null);
-	let failed = $state(false);
+	let notRepo = $state(false);
+	let refreshError = $state<string | null>(null);
 	let sessions = $state<{ id: string; title: string; created_at: number }[]>([]);
 	let actionError = $state<string | null>(null);
-
 	function baseName(p: string): string {
 		return p.split('/').pop() || p;
 	}
@@ -76,17 +78,40 @@
 	}
 
 	async function refresh() {
+		const targetPath = projectPath;
+		if (!targetPath) return;
+		refreshError = null;
+
 		try {
 			const [branchRes, statusRes, numstatRes, lastRes, recentRes] = await Promise.all([
-				invoke('git_current_branch', { projectPath }),
-				invoke('project_git_status', { projectPath }),
-				invoke('git_working_numstat', { projectPath }),
-				invoke('git_last_commit', { projectPath }),
-				invoke('git_recent_commits', { projectPath, limit: 10 })
+				invoke('git_current_branch', { projectPath: targetPath }),
+				invoke('project_git_status', { projectPath: targetPath }),
+				invoke('git_working_numstat', { projectPath: targetPath }),
+				invoke('git_last_commit', { projectPath: targetPath }),
+				invoke('git_recent_commits', { projectPath: targetPath, limit: 10 })
 			]);
-			branch = branchRes as string;
-			const statuses = ((statusRes as { statuses: Record<string, string> }).statuses) || {};
+
+			// Scarta i risultati se nel frattempo e' stato selezionato un altro progetto
+			if (projectPath !== targetPath) return;
+
+			const b = (branchRes as string) || '';
+			const statuses = ((statusRes as { statuses: Record<string, string> })?.statuses) || {};
 			const nums = (numstatRes ?? {}) as Record<string, { insertions: number | null; deletions: number | null }>;
+			const last = (lastRes as CommitInfo | null) ?? null;
+			const rec = (recentRes as CommitInfo[]) ?? [];
+
+			// Se non c'e' branch e non ci sono commit ne' modifiche, la cartella non e' un repository
+			if (!b && Object.keys(statuses).length === 0 && !last && rec.length === 0) {
+				notRepo = true;
+				branch = '';
+				workingFiles = [];
+				lastCommit = null;
+				commits = [];
+				return;
+			}
+
+			notRepo = false;
+			branch = b;
 			workingFiles = Object.entries(statuses)
 				.map(([p, st]) => ({
 					path: p,
@@ -95,12 +120,18 @@
 					deletions: nums[p]?.deletions ?? null
 				}))
 				.sort((a, b) => a.path.localeCompare(b.path));
-			lastCommit = (lastRes as CommitInfo | null) ?? null;
-			commits = (recentRes as CommitInfo[]) ?? [];
-			failed = false;
-		} catch {
-			// Repository assente o git non disponibile: il pannello resta vuoto.
-			failed = true;
+			lastCommit = last;
+			commits = rec;
+		} catch (e) {
+			if (projectPath !== targetPath) return;
+			const msg = String(e);
+			if (msg.toLowerCase().includes('not a git repository') || msg.toLowerCase().includes('non e\' un repository')) {
+				notRepo = true;
+				refreshError = null;
+			} else {
+				notRepo = false;
+				refreshError = msg;
+			}
 		}
 	}
 
@@ -130,22 +161,64 @@
 	}
 
 	async function loadBranches() {
+		const targetPath = projectPath;
+		if (!targetPath) return;
 		try {
-			branches = await invoke('git_branch_list', { projectPath });
+			const res = await invoke<{ name: string; current: boolean }[]>('git_branch_list', { projectPath: targetPath });
+			if (projectPath !== targetPath) return;
+			branches = res;
 			const cur = branches.find((b) => b.current);
 			if (cur) branch = cur.name;
 		} catch {
+			// Se il branch list fallisce o non e' git, svuotiamo la lista
+			if (projectPath !== targetPath) return;
 			branches = [];
 		}
 	}
 
 	async function loadSessions() {
+		const targetPath = projectPath;
+		if (!targetPath) return;
 		try {
-			sessions = await invoke('sessions_list', { projectPath });
+			const res = await invoke<{ id: string; title: string; created_at: number }[]>('sessions_list', { projectPath: targetPath });
+			if (projectPath !== targetPath) return;
+			sessions = res;
 		} catch {
+			// Se la lista sessioni fallisce, degrada a vuoto
+			if (projectPath !== targetPath) return;
 			sessions = [];
 		}
 	}
+
+	function handleWindowKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && branchMenuOpen) {
+			const t = e.target as HTMLElement | null;
+			if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+				if (!branchMenuEl?.contains(t)) return;
+			}
+			branchMenuOpen = false;
+			branchBtnEl?.focus();
+		}
+	}
+
+	function handleWindowPointerDown(e: MouseEvent) {
+		if (!branchMenuOpen) return;
+		const target = e.target as Node | null;
+		if (target && !branchMenuEl?.contains(target) && !branchBtnEl?.contains(target)) {
+			branchMenuOpen = false;
+		}
+	}
+
+	$effect(() => {
+		if (branchMenuOpen) {
+			window.addEventListener('pointerdown', handleWindowPointerDown);
+			window.addEventListener('keydown', handleWindowKeydown);
+			return () => {
+				window.removeEventListener('pointerdown', handleWindowPointerDown);
+				window.removeEventListener('keydown', handleWindowKeydown);
+			};
+		}
+	});
 
 	async function checkout(name: string) {
 		actionError = null;
@@ -174,11 +247,23 @@
 </script>
 
 <div class="git-panel">
-	{#if failed}
+	{#if notRepo}
 		<div class="empty">Nessun repository git in questo progetto</div>
+	{:else if refreshError}
+		<div class="git-error" role="alert">
+			<span class="git-error-text" title={refreshError}>Errore git: {refreshError}</span>
+			<button type="button" class="retry-btn" onclick={() => void refresh()}>Riprova</button>
+		</div>
 	{:else}
 		<div class="branch-row" title="Branch corrente">
-			<button class="branch-btn" onclick={() => (branchMenuOpen = !branchMenuOpen)} title="Cambia branch">
+			<button
+				bind:this={branchBtnEl}
+				class="branch-btn"
+				onclick={() => (branchMenuOpen = !branchMenuOpen)}
+				title="Cambia branch"
+				aria-haspopup="menu"
+				aria-expanded={branchMenuOpen}
+			>
 				<span class="branch-icon" aria-hidden="true">⑂</span>
 				<span class="branch-name">{branch || '—'}</span>
 				<span class="branch-caret" aria-hidden="true">▾</span>
@@ -228,7 +313,7 @@
 			{/each}
 		{/if}
 		{#if branchMenuOpen}
-			<div class="branch-menu">
+			<div class="branch-menu" bind:this={branchMenuEl} role="menu">
 				{#each branches as b (b.name)}
 					<button
 						class="branch-item"
@@ -236,6 +321,7 @@
 						onclick={() => checkout(b.name)}
 						disabled={b.current}
 						title={b.current ? 'Branch attivo' : `Passa a ${b.name}`}
+						role="menuitem"
 					>
 						<span class="branch-check">{b.current ? '●' : ''}</span>
 						{b.name}
@@ -609,5 +695,41 @@
 		padding: 2px var(--space-3);
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
+	}
+
+	.git-error {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin: var(--space-1) var(--space-2);
+		padding: var(--space-2);
+		background: var(--bg-overlay);
+		border-radius: var(--radius-sm);
+		color: var(--danger);
+		font-size: var(--text-xs);
+	}
+
+	.git-error-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.git-error .retry-btn {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		padding: 1px 6px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.git-error .retry-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
 	}
 </style>

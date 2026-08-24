@@ -17,6 +17,13 @@ pub struct StudioReleaseAsset {
     pub content_type: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StudioUpdateChannel {
+    Stable,
+    Nightly,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StudioUpdateInfo {
     pub current_version: String,
@@ -28,6 +35,8 @@ pub struct StudioUpdateInfo {
     pub html_url: String,
     pub has_update: bool,
     pub asset: Option<StudioReleaseAsset>,
+    pub release_channel: StudioUpdateChannel,
+    pub ahead_of_channel: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,10 +65,24 @@ struct GithubRelease {
     body: Option<String>,
     published_at: Option<String>,
     html_url: String,
-    #[allow(dead_code)]
     pub prerelease: bool,
     draft: bool,
     assets: Vec<GithubAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NightlyManifest {
+    version: String,
+    #[allow(dead_code)]
+    commit: String,
+    published_at: Option<String>,
+}
+
+struct StudioReleaseCandidate {
+    release: GithubRelease,
+    version: String,
+    channel: StudioUpdateChannel,
+    published_at: Option<String>,
 }
 
 pub struct StudioUpdaterState {
@@ -236,123 +259,236 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
     pick_best_asset_for(assets, std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// Verifica se e' disponibile un aggiornamento di OMP Studio interrogando GitHub Releases API.
-#[tauri::command]
-pub async fn check_studio_update() -> Result<StudioUpdateInfo, String> {
-    let current_version_raw = env!("CARGO_PKG_VERSION");
-    let current_ver_norm = normalize_version(current_version_raw);
+fn github_get(
+    client: &reqwest::Client,
+    url: &str,
+    current_version: &str,
+) -> reqwest::RequestBuilder {
+    client
+        .get(url)
+        .header("User-Agent", format!("omp-studio-app/{}", current_version))
+        .header("Accept", "application/vnd.github.v3+json")
+        .header("Cache-Control", "no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+}
 
+async fn fetch_latest_stable_release(
+    client: &reqwest::Client,
+    current_version: &str,
+) -> Result<Option<GithubRelease>, String> {
+    let url = format!(
+        "https://api.github.com/repos/{}/releases/latest",
+        GITHUB_REPO
+    );
+    let response = github_get(client, &url, current_version)
+        .send()
+        .await
+        .map_err(|e| format!("Impossibile contattare GitHub per la verifica: {}", e))?;
+
+    if response.status().is_success() {
+        return response
+            .json::<GithubRelease>()
+            .await
+            .map(Some)
+            .map_err(|e| format!("Errore nel parsing della release da GitHub: {}", e));
+    }
+
+    if response.status().as_u16() != 404 {
+        return Err(format!(
+            "GitHub API ha risposto con errore HTTP {}",
+            response.status()
+        ));
+    }
+
+    // Se non esiste una "latest", la lista resta il fallback. Le prerelease
+    // non devono mai entrare nel canale stabile.
+    let list_url = format!("https://api.github.com/repos/{}/releases", GITHUB_REPO);
+    let list_response = github_get(client, &list_url, current_version)
+        .send()
+        .await
+        .map_err(|e| format!("Errore nella connessione a GitHub: {}", e))?;
+
+    if !list_response.status().is_success() {
+        return Err(format!(
+            "GitHub API ha risposto con codice {}",
+            list_response.status()
+        ));
+    }
+
+    let releases = list_response
+        .json::<Vec<GithubRelease>>()
+        .await
+        .map_err(|e| format!("Errore nel parsing dell'elenco releases: {}", e))?;
+
+    Ok(releases
+        .into_iter()
+        .find(|release| !release.draft && !release.prerelease))
+}
+
+async fn fetch_nightly_release(
+    client: &reqwest::Client,
+    current_version: &str,
+) -> Result<Option<StudioReleaseCandidate>, String> {
+    let url = format!(
+        "https://api.github.com/repos/{}/releases/tags/nightly",
+        GITHUB_REPO
+    );
+    let response = github_get(client, &url, current_version)
+        .send()
+        .await
+        .map_err(|e| format!("Impossibile contattare GitHub per la nightly: {}", e))?;
+
+    if response.status().as_u16() == 404 {
+        return Ok(None);
+    }
+    if !response.status().is_success() {
+        return Err(format!(
+            "GitHub API ha risposto con errore HTTP {} per il canale nightly",
+            response.status()
+        ));
+    }
+
+    let release = response
+        .json::<GithubRelease>()
+        .await
+        .map_err(|e| format!("Errore nel parsing della release nightly: {}", e))?;
+    if release.draft {
+        return Ok(None);
+    }
+    if !release.prerelease {
+        return Err("La release nightly non e' marcata come prerelease".to_string());
+    }
+
+    let manifest_asset = release
+        .assets
+        .iter()
+        .find(|asset| asset.name.eq_ignore_ascii_case("nightly.json"))
+        .ok_or_else(|| "La release nightly non contiene nightly.json".to_string())?;
+    let manifest_response = github_get(
+        client,
+        &manifest_asset.browser_download_url,
+        current_version,
+    )
+    .send()
+    .await
+    .map_err(|e| format!("Impossibile scaricare il manifest nightly: {}", e))?;
+
+    if !manifest_response.status().is_success() {
+        return Err(format!(
+            "Download del manifest nightly fallito con HTTP {}",
+            manifest_response.status()
+        ));
+    }
+
+    let manifest = manifest_response
+        .json::<NightlyManifest>()
+        .await
+        .map_err(|e| format!("Manifest nightly non valido: {}", e))?;
+    let version = normalize_version(&manifest.version).to_string();
+    let parsed_version = semver::Version::parse(&version)
+        .map_err(|e| format!("Versione nightly non valida '{}': {}", version, e))?;
+    if parsed_version.pre.is_empty() {
+        return Err(format!(
+            "La versione nightly '{}' non contiene un identificatore prerelease",
+            version
+        ));
+    }
+
+    let published_at = manifest
+        .published_at
+        .or_else(|| release.published_at.clone());
+    Ok(Some(StudioReleaseCandidate {
+        release,
+        version,
+        channel: StudioUpdateChannel::Nightly,
+        published_at,
+    }))
+}
+
+fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    let left = semver::Version::parse(normalize_version(left)).ok()?;
+    let right = semver::Version::parse(normalize_version(right)).ok()?;
+    Some(left.cmp(&right))
+}
+
+fn no_release_info(current_version: &str, channel: StudioUpdateChannel) -> StudioUpdateInfo {
+    StudioUpdateInfo {
+        current_version: current_version.to_string(),
+        latest_version: current_version.to_string(),
+        tag_name: format!("v{}", current_version),
+        release_name: "Nessuna release trovata".to_string(),
+        release_notes: String::new(),
+        published_at: None,
+        html_url: format!("https://github.com/{}/releases", GITHUB_REPO),
+        has_update: false,
+        asset: None,
+        release_channel: channel,
+        ahead_of_channel: false,
+    }
+}
+
+/// Verifica gli aggiornamenti stabili oppure la piu' recente fra stabile e nightly.
+#[tauri::command]
+pub async fn check_studio_update(channel: StudioUpdateChannel) -> Result<StudioUpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(12))
         .build()
         .map_err(|e| format!("Impossibile inizializzare client HTTP: {}", e))?;
 
-    let url = format!(
-        "https://api.github.com/repos/{}/releases/latest",
-        GITHUB_REPO
-    );
-    let resp = client
-        .get(&url)
-        .header(
-            "User-Agent",
-            format!("omp-studio-app/{}", current_version_raw),
-        )
-        .header("Accept", "application/vnd.github.v3+json")
-        .header("Cache-Control", "no-cache, no-store, must-revalidate")
-        .header("Pragma", "no-cache")
-        .send()
-        .await;
+    let stable = fetch_latest_stable_release(&client, current_version)
+        .await?
+        .map(|release| StudioReleaseCandidate {
+            version: normalize_version(&release.tag_name).to_string(),
+            published_at: release.published_at.clone(),
+            release,
+            channel: StudioUpdateChannel::Stable,
+        });
 
-    let release: GithubRelease = match resp {
-        Ok(r) if r.status().is_success() => r
-            .json::<GithubRelease>()
-            .await
-            .map_err(|e| format!("Errore nel parsing della release da GitHub: {}", e))?,
-        Ok(r) if r.status().as_u16() == 404 => {
-            // Se /releases/latest da 404 (es. non c'e' ancora una release marcata come latest), prendiamo la lista releases
-            let list_url = format!("https://api.github.com/repos/{}/releases", GITHUB_REPO);
-            let list_resp = client
-                .get(&list_url)
-                .header(
-                    "User-Agent",
-                    format!("omp-studio-app/{}", current_version_raw),
-                )
-                .header("Accept", "application/vnd.github.v3+json")
-                .header("Cache-Control", "no-cache, no-store, must-revalidate")
-                .header("Pragma", "no-cache")
-                .send()
-                .await
-                .map_err(|e| format!("Errore nella connessione a GitHub: {}", e))?;
-
-            if !list_resp.status().is_success() {
-                return Err(format!(
-                    "GitHub API ha risposto con codice {}",
-                    list_resp.status()
-                ));
-            }
-
-            let mut releases = list_resp
-                .json::<Vec<GithubRelease>>()
-                .await
-                .map_err(|e| format!("Errore nel parsing dell'elenco releases: {}", e))?;
-
-            // Rimuoviamo draft
-            releases.retain(|rel| !rel.draft);
-            if releases.is_empty() {
-                return Ok(StudioUpdateInfo {
-                    current_version: current_version_raw.to_string(),
-                    latest_version: current_version_raw.to_string(),
-                    tag_name: format!("v{}", current_version_raw),
-                    release_name: "Nessuna release trovata".to_string(),
-                    release_notes: "".to_string(),
-                    published_at: None,
-                    html_url: format!("https://github.com/{}/releases", GITHUB_REPO),
-                    has_update: false,
-                    asset: None,
-                });
-            }
-            releases.remove(0)
-        }
-        Ok(r) => {
-            return Err(format!(
-                "GitHub API ha risposto con errore HTTP {}",
-                r.status()
-            ));
-        }
-        Err(e) => {
-            return Err(format!(
-                "Impossibile contattare GitHub per la verifica: {}",
-                e
-            ));
-        }
+    let nightly = if channel == StudioUpdateChannel::Nightly {
+        fetch_nightly_release(&client, current_version).await?
+    } else {
+        None
     };
 
-    let latest_ver_norm = normalize_version(&release.tag_name);
-
-    // Confronto semantico delle versioni
-    let has_update = match (
-        semver::Version::parse(current_ver_norm),
-        semver::Version::parse(latest_ver_norm),
-    ) {
-        (Ok(cur), Ok(lat)) => lat > cur,
-        _ => {
-            // Fallback se una delle stringhe non e' puro SemVer
-            latest_ver_norm != current_ver_norm && !latest_ver_norm.is_empty()
+    let candidate = match (stable, nightly) {
+        (Some(stable), Some(nightly))
+            if compare_versions(&nightly.version, &stable.version)
+                == Some(std::cmp::Ordering::Greater) =>
+        {
+            nightly
         }
+        (Some(stable), _) => stable,
+        (None, Some(nightly)) => nightly,
+        (None, None) => return Ok(no_release_info(current_version, channel)),
     };
 
-    let best_asset = pick_best_asset(&release.assets);
+    let relation = compare_versions(&candidate.version, current_version);
+    let has_update = match relation {
+        Some(std::cmp::Ordering::Greater) => true,
+        Some(_) => false,
+        None => candidate.version != normalize_version(current_version),
+    };
+    let ahead_of_channel = relation == Some(std::cmp::Ordering::Less);
+    let best_asset = pick_best_asset(&candidate.release.assets);
+    let release_name = candidate
+        .release
+        .name
+        .clone()
+        .unwrap_or_else(|| candidate.release.tag_name.clone());
 
     Ok(StudioUpdateInfo {
-        current_version: current_version_raw.to_string(),
-        latest_version: latest_ver_norm.to_string(),
-        tag_name: release.tag_name.clone(),
-        release_name: release.name.unwrap_or_else(|| release.tag_name.clone()),
-        release_notes: release.body.unwrap_or_default(),
-        published_at: release.published_at,
-        html_url: release.html_url,
+        current_version: current_version.to_string(),
+        latest_version: candidate.version,
+        tag_name: candidate.release.tag_name,
+        release_name,
+        release_notes: candidate.release.body.unwrap_or_default(),
+        published_at: candidate.published_at,
+        html_url: candidate.release.html_url,
         has_update,
         asset: best_asset,
+        release_channel: candidate.channel,
+        ahead_of_channel,
     })
 }
 
@@ -799,6 +935,26 @@ mod tests {
 
         let lat_same = semver::Version::parse(normalize_version("0.3.0")).unwrap();
         assert!(!(lat_same > cur));
+    }
+
+    #[test]
+    fn test_nightly_version_ordering() {
+        assert_eq!(
+            compare_versions("1.0.2-nightly.743", "1.0.1"),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_versions("1.0.2-nightly.743", "1.0.2-nightly.742"),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_versions("1.0.2", "1.0.2-nightly.743"),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_versions("1.1.0", "1.0.2-nightly.743"),
+            Some(std::cmp::Ordering::Greater)
+        );
     }
 
     #[test]

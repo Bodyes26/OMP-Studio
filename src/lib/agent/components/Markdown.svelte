@@ -3,39 +3,59 @@
 	// L'HTML non e' mai interpretato: viene reso come testo grezzo in <pre>.
 	// L'unico {@html} ammesso in tutto il progetto e' il risultato di
 	// `colorizeCode`, che produce markup generato da Monaco.
+	import { untrack } from 'svelte';
 	import { colorizeCode, type Token, type Tokens } from '../markdown';
 	import Markdown from './Markdown.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
 
 	let { tokens = [] }: { tokens?: Token[] } = $props();
 
-	let colorized = $state<Record<number, string>>({});
-	let copied = $state<Record<number, boolean>>({});
+	let colorized = $state<Record<string, string>>({});
+	let copied = $state<Record<string, boolean>>({});
 
-	// Evidenziazione asincrona dei blocchi di codice con Monaco.
+	function codeKey(lang: string | undefined, text: string): string {
+		return `${lang ?? ''}:${text}`;
+	}
+
+	// Evidenziazione asincrona dei blocchi di codice con Monaco indicizzata per contenuto.
 	$effect(() => {
-		for (let i = 0; i < tokens.length; i++) {
-			const tok = tokens[i];
+		const currentKeys = new Set<string>();
+
+		for (const tok of tokens) {
 			if (tok.type === 'code') {
 				const codeToken = tok as Tokens.Code;
-				const idx = i;
-				colorizeCode(codeToken.text, codeToken.lang)
-					.then((html) => {
-						if (html) {
-							colorized[idx] = html;
-						}
-					})
-					.catch(() => {});
+				const key = codeKey(codeToken.lang, codeToken.text);
+				currentKeys.add(key);
+
+				const isAlreadyColorized = untrack(() => Boolean(colorized[key]));
+				if (!isAlreadyColorized) {
+					colorizeCode(codeToken.text, codeToken.lang)
+						.then((html) => {
+							if (html) {
+								colorized[key] = html;
+							}
+						})
+						.catch(() => {});
+				}
 			}
 		}
+
+		// Scarta i risultati di blocchi non piu' presenti nei token correnti
+		untrack(() => {
+			for (const key of Object.keys(colorized)) {
+				if (!currentKeys.has(key)) {
+					delete colorized[key];
+				}
+			}
+		});
 	});
 
-	async function copyCode(index: number, text: string) {
+	async function copyCode(key: string, text: string) {
 		try {
 			await navigator.clipboard.writeText(text);
-			copied[index] = true;
+			copied[key] = true;
 			setTimeout(() => {
-				copied[index] = false;
+				copied[key] = false;
 			}, 1500);
 		} catch {
 			// Clipboard non accessibile nel contesto corrente
@@ -61,20 +81,21 @@
 	{:else if token.type === 'paragraph'}
 		<p class="paragraph"><MarkdownInline tokens={token.tokens} /></p>
 	{:else if token.type === 'code'}
+		{@const key = codeKey(token.lang, token.text)}
 		<div class="code-block">
 			<div class="code-header">
 				<span class="code-lang">{token.lang || 'testo'}</span>
 				<button
 					type="button"
 					class="copy-btn"
-					onclick={() => copyCode(i, token.text)}
+					onclick={() => copyCode(key, token.text)}
 					title="Copia codice negli appunti"
 				>
-					{copied[i] ? 'Copiato!' : 'Copia'}
+					{copied[key] ? 'Copiato!' : 'Copia'}
 				</button>
 			</div>
-			{#if colorized[i]}
-				<pre class="code-pre colorized">{@html colorized[i]}</pre>
+			{#if colorized[key]}
+				<pre class="code-pre colorized">{@html colorized[key]}</pre>
 			{:else}
 				<pre class="code-pre">{token.text}</pre>
 			{/if}

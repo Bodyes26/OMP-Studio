@@ -180,7 +180,7 @@
 	}
 
 	.cell-card.has-error {
-		border-color: var(--brand);
+		border-color: var(--danger);
 	}
 
 	.cell-head {
@@ -204,15 +204,22 @@
 	}
 
 	.cell-status {
-		color: var(--brand-ink);
 		font-weight: 500;
+		color: var(--ink-faint);
+	}
+
+	.cell-status.status-running {
+		color: var(--warn);
+	}
+
+	.cell-status.status-error {
+		color: var(--danger);
 	}
 
 	.exit-code {
 		font-family: var(--font-mono);
-		color: var(--brand-ink);
+		color: var(--danger);
 	}
-
 	.cell-dur {
 		font-family: var(--font-mono);
 		color: var(--ink-faint);

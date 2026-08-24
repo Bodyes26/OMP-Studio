@@ -4,14 +4,14 @@
 
 	let { task, onClose }: { task: StudioTask; onClose: () => void } = $props();
 	let prompt = $state('');
-	let loadedTaskId = $state('');
+	let lastTaskId = '';
 	let deleteArmed = $state(false);
 	let deleteTimer: number | null = null;
 	const title = $derived(prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task');
 
 	$effect(() => {
-		if (task.id !== loadedTaskId) {
-			loadedTaskId = task.id;
+		if (task.id !== lastTaskId) {
+			lastTaskId = task.id;
 			prompt = task.prompt;
 			deleteArmed = false;
 		}
@@ -24,6 +24,12 @@
 	function closeEditor() {
 		if (!prompt.trim()) taskStore.deleteTask(task.id);
 		onClose();
+	}
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.stopPropagation();
+			closeEditor();
+		}
 	}
 
 	function requestDelete() {
@@ -42,7 +48,8 @@
 	});
 </script>
 
-<div class="task-editor">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="task-editor" onkeydown={handleKeydown}>
 	<header class="task-toolbar">
 		<div class="task-heading">
 			<span class="task-title" title={title}>{title}</span>

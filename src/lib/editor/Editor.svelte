@@ -72,9 +72,7 @@
 	let isSvg = $derived(filePath ? filePath.split('.').pop()?.toLowerCase() === 'svg' : false);
 	let isMarkdown = $derived(filePath ? ['md', 'markdown'].includes(filePath.split('.').pop()?.toLowerCase() || '') : false);
 
-	// Il div host non esiste al mount (senza file aperto si mostra l'empty
-	// state) e cambia nodo quando si passa da/verso la vista split md/svg.
-	let wiredContainer: HTMLElement | null = null;
+	let commandsBound = false;
 
 	function fileKey(project: string, path: string): string {
 		return `${project}\u0000${path}`;
@@ -259,21 +257,25 @@
 
 	$effect(() => {
 		const host = container;
-		if (!host || host === wiredContainer) return;
-		wiredContainer = host;
+		if (!host) return;
 
 		editor = getEditorInstance(host);
-		editor.addCommand(2048 | 49 /* Ctrl | S */, () => {
-			void saveCurrentFile();
-		});
-		editor.addCommand(2048 | 53 /* Ctrl | W */, () => {
-			closeFile();
-		});
-		editor.addCommand(2048 | 62 /* Ctrl | F4 */, () => {
-			closeFile();
-		});
+		const disposables: { dispose: () => void }[] = [];
 
-		editor.onDidChangeModelContent(() => {
+		if (!commandsBound) {
+			commandsBound = true;
+			editor.addCommand(2048 | 49 /* Ctrl | S */, () => {
+				void saveCurrentFile();
+			});
+			editor.addCommand(2048 | 53 /* Ctrl | W */, () => {
+				closeFile();
+			});
+			editor.addCommand(2048 | 62 /* Ctrl | F4 */, () => {
+				closeFile();
+			});
+		}
+
+		const changeListener = editor.onDidChangeModelContent(() => {
 			if (!filePath || !projectPath || !loadedKey) return;
 			const state = fileStates.get(loadedKey);
 			if (!state) return;
@@ -289,8 +291,17 @@
 				state.decorationIds
 			);
 		});
+		if (changeListener && typeof changeListener.dispose === 'function') {
+			disposables.push(changeListener);
+		}
 
 		editor.layout();
+
+		return () => {
+			for (const d of disposables) {
+				d.dispose();
+			}
+		};
 	});
 
 	// Il modello arriva dal filesystem in asincrono: il cursore va mosso solo
@@ -697,7 +708,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 5;
+		z-index: var(--z-splitter);
 		flex-shrink: 0;
 	}
 
@@ -788,7 +799,7 @@
 		align-items: center;
 		justify-content: center;
 		background: var(--bg-sunken);
-		z-index: 10;
+		z-index: var(--z-splitter);
 	}
 
 	.empty-text {

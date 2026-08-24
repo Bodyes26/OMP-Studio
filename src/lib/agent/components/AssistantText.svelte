@@ -19,9 +19,10 @@
 
 	const hooks = agentUiHooks();
 
-	// Stato debounce per lo streaming dell'ultimo blocco di testo.
-	let debouncedTokens = $state<Token[] | null>(null);
-	let debouncedText = $state<string>('');
+	// Stato throttle per lo streaming dell'ultimo blocco di testo.
+	let throttledTokens = $state<Token[] | null>(null);
+	let throttledText = $state<string>('');
+	let lastParseTime = 0;
 
 	const lastBlockIndex = $derived(entry.blocks.length - 1);
 	const lastBlock = $derived(entry.blocks[lastBlockIndex] as Block | undefined);
@@ -29,21 +30,38 @@
 		streaming && lastBlock !== undefined && lastBlock.type === 'text'
 	);
 
+	// Throttle a intervallo fisso (~120ms): aggiorna i token progressivamente
+	// durante lo streaming senza azzerare il timer a ogni singolo token.
 	$effect(() => {
 		if (!isStreamingLastText || !lastBlock || lastBlock.type !== 'text') {
-			debouncedTokens = null;
-			debouncedText = '';
+			throttledTokens = null;
+			throttledText = '';
+			lastParseTime = 0;
 			return;
 		}
 
 		const currentText = lastBlock.text;
-		const timer = setTimeout(() => {
-			debouncedTokens = lexMarkdown(currentText);
-			debouncedText = currentText;
-		}, 120);
+		const now = Date.now();
+		const elapsed = now - lastParseTime;
+
+		let timer: number | null = null;
+
+		if (elapsed >= 120 || !throttledTokens) {
+			throttledTokens = lexMarkdown(currentText);
+			throttledText = currentText;
+			lastParseTime = now;
+		} else {
+			timer = window.setTimeout(() => {
+				throttledTokens = lexMarkdown(currentText);
+				throttledText = currentText;
+				lastParseTime = Date.now();
+			}, 120 - elapsed);
+		}
 
 		return () => {
-			clearTimeout(timer);
+			if (timer !== null) {
+				clearTimeout(timer);
+			}
 		};
 	});
 
@@ -58,12 +76,12 @@
 
 <div class="assistant-entry">
 	<div class="blocks">
-		{#each entry.blocks as block, i (i)}
+		{#each entry.blocks as block, i (`${block.type}-${i}`)}
 			{#if block.type === 'text'}
 				{#if isStreamingLastText && i === lastBlockIndex}
-					{#if debouncedTokens && debouncedText === block.text}
+					{#if throttledTokens}
 						<div class="markdown-wrap">
-							<Markdown tokens={debouncedTokens} />
+							<Markdown tokens={throttledTokens} />
 						</div>
 					{:else}
 						<pre class="streaming">{block.text}</pre>
@@ -74,7 +92,10 @@
 					</div>
 				{/if}
 			{:else if block.type === 'thinking'}
-				<ThinkingBlock text={block.text} />
+				<ThinkingBlock
+					text={block.text}
+					streaming={streaming && i === lastBlockIndex}
+				/>
 			{:else if block.type === 'image'}
 				<div class="image-wrap">
 					<button

@@ -11,6 +11,7 @@
 	let editorValue = $state('');
 	let inputEl = $state<HTMLInputElement | null>(null);
 	let editorEl = $state<HTMLTextAreaElement | null>(null);
+	let cardEl = $state<HTMLElement | null>(null);
 
 	// Scadenza con countdown
 	let now = $state(Date.now());
@@ -49,7 +50,9 @@
 	const options = $derived(pending.options ?? []);
 	const optionDetails = $derived(pending.optionDetails ?? []);
 
-	// Reset dello stato quando cambia la richiesta
+	// Reset dello stato quando cambia la richiesta: il fuoco va sul campo di
+	// testo per input/editor, altrimenti sulla card stessa (select/confirm)
+	// cosi' le scorciatoie sotto restano scoperte da onkeydown solo qui.
 	$effect(() => {
 		const _req = pending.requestId;
 		selectedIndex = 0;
@@ -60,43 +63,43 @@
 			inputEl.focus();
 		} else if (pending.method === 'editor' && editorEl) {
 			editorEl.focus();
+		} else {
+			cardEl?.focus();
 		}
 	});
 
-	// Navigazione globale da tastiera per select e confirm
-	$effect(() => {
-		function onKeydown(e: KeyboardEvent) {
-			if (pending.method === 'select') {
-				if (options.length === 0) return;
-				if (e.key === 'ArrowDown') {
-					e.preventDefault();
-					selectedIndex = (selectedIndex + 1) % options.length;
-				} else if (e.key === 'ArrowUp') {
-					e.preventDefault();
-					selectedIndex = (selectedIndex - 1 + options.length) % options.length;
-				} else if (e.key === 'Enter') {
-					e.preventDefault();
-					const opt = options[selectedIndex];
-					if (opt !== undefined) {
-						session.answerSelect(opt);
-					}
-				} else if (e.key === 'Escape') {
-					e.preventDefault();
-					session.cancelPendingUi();
+	// Navigazione da tastiera per select e confirm: gestita sul contenitore
+	// (mai su window), altrimenti Invio/Esc/frecce digitate altrove nell'app
+	// (es. nel composer) risponderebbero a questa richiesta al posto loro.
+	function onCardKeydown(e: KeyboardEvent) {
+		if (pending.method === 'select') {
+			if (options.length === 0) return;
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				selectedIndex = (selectedIndex + 1) % options.length;
+			} else if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				selectedIndex = (selectedIndex - 1 + options.length) % options.length;
+			} else if (e.key === 'Enter') {
+				e.preventDefault();
+				const opt = options[selectedIndex];
+				if (opt !== undefined) {
+					session.answerSelect(opt);
 				}
-			} else if (pending.method === 'confirm') {
-				if (e.key === 'Enter') {
-					e.preventDefault();
-					session.answerConfirm(true);
-				} else if (e.key === 'Escape') {
-					e.preventDefault();
-					session.answerConfirm(false);
-				}
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				session.cancelPendingUi();
+			}
+		} else if (pending.method === 'confirm') {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				session.answerConfirm(true);
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				session.answerConfirm(false);
 			}
 		}
-		window.addEventListener('keydown', onKeydown);
-		return () => window.removeEventListener('keydown', onKeydown);
-	});
+	}
 
 	function handleInputKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') {
@@ -119,7 +122,15 @@
 	}
 </script>
 
-<div class="ask-card" role="dialog" aria-labelledby="ask-title">
+<div
+	class="ask-card"
+	role="dialog"
+	aria-modal="true"
+	aria-labelledby="ask-title"
+	tabindex="-1"
+	bind:this={cardEl}
+	onkeydown={onCardKeydown}
+>
 	<div class="header">
 		<div class="title-row">
 			{#if parsedTitle.counter}
@@ -252,6 +263,7 @@
 		border-radius: var(--radius-md);
 		padding: var(--space-3);
 		min-width: 0;
+		outline: none;
 	}
 
 	.header {

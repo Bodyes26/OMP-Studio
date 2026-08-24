@@ -20,7 +20,6 @@
 		asRecord,
 		countLabel,
 		num,
-		recordList,
 		resultText,
 		str,
 		type ToolRenderProps
@@ -33,7 +32,9 @@
 		context?: string;
 	}
 
-	const rawItems = $derived(recordList(args.items));
+	// `recordList` scarta le stringhe (non sono record): `args.items` puo'
+	// contenere sia oggetti `{content}` sia semplici stringhe di fatto.
+	const rawItems = $derived(Array.isArray(args.items) ? args.items : []);
 	const singleContent = $derived(str(args.content));
 	const tag = $derived(str(args.tag) ?? str(args.category));
 	const text = $derived(resultText(result));
@@ -42,9 +43,14 @@
 	const items = $derived.by<RetainItem[]>(() => {
 		const list: RetainItem[] = [];
 		for (const raw of rawItems) {
-			const c = str(raw.content) ?? str(raw.text);
+			if (typeof raw === 'string') {
+				if (raw) list.push({ content: raw });
+				continue;
+			}
+			const rec = asRecord(raw);
+			const c = str(rec?.content) ?? str(rec?.text);
 			if (c) {
-				list.push({ content: c, context: str(raw.context) });
+				list.push({ content: c, context: str(rec?.context) });
 			}
 		}
 		if (list.length === 0 && singleContent) {

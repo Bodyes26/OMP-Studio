@@ -6,6 +6,7 @@
 	let {
 		cwd = '.',
 		visible = true,
+		resumeSessionId = null,
 		onStateChange,
 		onOpenFile,
 		onInputPendingChange,
@@ -14,6 +15,8 @@
 	} = $props<{
 		cwd?: string;
 		visible?: boolean;
+		/** Sessione da riprendere all'avvio: la porta il passaggio da GUI. */
+		resumeSessionId?: string | null;
 		onStateChange?: (state: TerminalAgentState) => void;
 		onOpenFile?: (relPath: string, line: number | null) => void;
 		onInputPendingChange?: (pending: boolean) => void;
@@ -22,7 +25,9 @@
 	}>();
 
 	let container: HTMLElement;
-	let session: TerminalSession;
+	// Reattiva: l'`$effect` sulla visibilita' legge `session`, e con un `let`
+	// semplice non si sarebbe mai riattivato dopo l'assegnazione in `onMount`.
+	let session = $state<TerminalSession | null>(null);
 	onMount(() => {
 
 		session = new TerminalSession(
@@ -31,7 +36,8 @@
 			(state) => onStateChange?.(state),
 			(relPath, line) => onOpenFile?.(relPath, line),
 			(pending) => onInputPendingChange?.(pending),
-			(info) => onSessionChange?.(info)
+			(info) => onSessionChange?.(info),
+			resumeSessionId
 		);
 		sessionRef?.(session);
 
@@ -55,12 +61,14 @@
 		if (session) session.destroy();
 	});
 
-	// React to visibility changes
+	// Il riadattamento va rimandato di un tick: alla comparsa il contenitore
+	// non ha ancora le dimensioni finali. Il timer va annullato, o un cambio
+	// rapido di scheda lascerebbe un `fit` in volo su un terminale distrutto.
 	$effect(() => {
-		if (visible && session) {
-			// Small timeout to allow DOM to render before fitting
-			setTimeout(() => session.fit(), 10);
-		}
+		if (!visible || !session) return;
+		const current = session;
+		const timer = window.setTimeout(() => current.fit(), 10);
+		return () => window.clearTimeout(timer);
 	});
 </script>
 

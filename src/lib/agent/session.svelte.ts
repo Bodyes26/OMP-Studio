@@ -140,16 +140,20 @@ const RENDER_WINDOW = 300;
 /** Tentativi di ricostruzione del transcript prima di arrendersi. */
 const REBUILD_ATTEMPTS = 3;
 
-function textOf(blocks: ContentBlock[] | undefined): string {
+function textOf(blocks: ContentBlock[] | string | undefined): string {
 	if (!blocks) return '';
+	// I messaggi `custom` di omp portano `content` come stringa: senza questo
+	// ramo `.filter` esploderebbe su un frame perfettamente legittimo.
+	if (typeof blocks === 'string') return blocks;
+	if (!Array.isArray(blocks)) return '';
 	return blocks
 		.filter((block) => block.type === 'text' && typeof block.text === 'string')
 		.map((block) => block.text ?? '')
 		.join('\n');
 }
 
-function imagesOf(blocks: ContentBlock[] | undefined): { data: string; mimeType: string }[] {
-	if (!blocks) return [];
+function imagesOf(blocks: ContentBlock[] | string | undefined): { data: string; mimeType: string }[] {
+	if (!blocks || !Array.isArray(blocks)) return [];
 	const images: { data: string; mimeType: string }[] = [];
 	for (const block of blocks) {
 		if (block.type !== 'image' || typeof block.data !== 'string') continue;
@@ -205,6 +209,12 @@ export class AgentSession {
 	private opening: Promise<void> | null = null;
 	private requestedResume: string | null = null;
 	private recoveredResume: string | null = null;
+	/**
+	 * Messaggio dell'utente gia' disegnato in attesa dell'eco di omp. Senza,
+	 * il testo sparisce dal campo di scrittura e riappare solo al ritorno del
+	 * frame `message_start`: mezzo secondo in cui la chat sembra ferma.
+	 */
+	private optimisticUser: UserEntry | null = null;
 
 	constructor(cwd: string) {
 		this.cwd = cwd;
@@ -360,6 +370,13 @@ export class AgentSession {
 
 			if (failed === null) {
 				this.entries = this.mapHistory(collected);
+				// Le card ricostruite devono restare aggiornabili dalla diretta:
+				// nella mappa vanno le istanze reattive, prese dopo l'assegnazione.
+				this.toolEntries.clear();
+				for (const entry of this.entries) {
+					if (entry.kind === 'tool' && !entry.result) this.toolEntries.set(entry.toolCallId, entry);
+				}
+				this.optimisticUser = null;
 				this.visibleCount = RENDER_WINDOW;
 				return;
 			}
@@ -388,10 +405,26 @@ export class AgentSession {
 				});
 				continue;
 			}
+			if (message.role === 'custom' || message.role === 'developer') {
+				// Esiti dei job in background e promemoria dei todo: nello
+				// storico valgono quanto in diretta, altrimenti riprendendo una
+				// sessione sparirebbero.
+				const text = textOf(message.content);
+				if (text) {
+					entries.push({
+						id: this.nextEntryId++,
+						kind: 'notice',
+						level: 'info',
+						message: text,
+						source: message.role === 'custom' ? 'sistema' : 'promemoria'
+					});
+				}
+				continue;
+			}
 			if (message.role === 'assistant') {
 				const blocks: Block[] = [];
 				const calls: ToolEntry[] = [];
-				for (const block of message.content ?? []) {
+				for (const block of Array.isArray(message.content) ? message.content : []) {
 					if (block.type === 'text' && typeof block.text === 'string') {
 						blocks.push({ type: 'text', text: block.text });
 					} else if (block.type === 'thinking' && typeof block.thinking === 'string') {
@@ -429,7 +462,7 @@ export class AgentSession {
 			if (message.role === 'toolResult' && typeof message.toolCallId === 'string') {
 				const entry = tools.get(message.toolCallId);
 				const result: AgentToolResult = {
-					content: message.content,
+					content: Array.isArray(message.content) ? message.content : undefined,
 					details: message.details,
 					isError: message.isError === true
 				};
@@ -475,17 +508,37 @@ export class AgentSession {
 				if (!message) return;
 				if (message.role === 'user') {
 					this.assistantEntry = null;
+					const content = textOf(message.content);
+					const pending = this.optimisticUser;
+					this.optimisticUser = null;
+					// L'eco del messaggio appena spedito non va disegnata due
+					// volte: si completa quella gia' a schermo.
+					if (pending && pending.content === content) {
+						pending.images = imagesOf(message.content);
+						pending.attribution = message.attribution;
+						return;
+					}
 					this.push({
 						id: this.nextEntryId++,
 						kind: 'user',
-						content: textOf(message.content),
+						content,
 						images: imagesOf(message.content),
 						attribution: message.attribution
 					});
 				} else if (message.role === 'assistant') {
-					const entry: AssistantEntry = { id: this.nextEntryId++, kind: 'assistant', blocks: [] };
-					this.assistantEntry = entry;
-					this.push(entry);
+					// `push` restituisce l'istanza dentro l'array reattivo: tenere
+					// l'oggetto grezzo significherebbe mutarlo fuori dal proxy di
+					// Svelte e non far mai comparire il testo in streaming.
+					this.assistantEntry = this.push({
+						id: this.nextEntryId++,
+						kind: 'assistant',
+						blocks: []
+					}) as AssistantEntry;
+				} else if (message.role === 'custom' || message.role === 'developer') {
+					// Esiti dei job in background e promemoria: senza questo ramo
+					// il completamento di un subagent non lascia traccia.
+					const text = textOf(message.content);
+					if (text) this.pushNotice('info', text, message.role === 'custom' ? 'sistema' : 'promemoria');
 				}
 				return;
 			}
@@ -516,8 +569,9 @@ export class AgentSession {
 					running: true,
 					startedAt: Date.now()
 				};
-				this.toolEntries.set(event.toolCallId, entry);
-				this.push(entry);
+				// Stessa ragione dell'entry assistant: nella mappa va l'istanza
+				// reattiva, non quella grezza appena costruita.
+				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
 				return;
 			}
 
@@ -550,6 +604,11 @@ export class AgentSession {
 				this.assistantEntry = null;
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				void this.reconcile();
+				return;
+
+			case 'turn_start':
+				// Nessuno stato da toccare: `agent_start` ha gia' acceso lo
+				// streaming. Esplicito per non finire nel ramo predefinito.
 				return;
 
 			case 'turn_end':
@@ -759,7 +818,7 @@ export class AgentSession {
 			return;
 		}
 		if (inner.type === 'image_end' && typeof inner.content === 'string') {
-			this.setBlock(index, { type: 'image', data: inner.content, mimeType: 'image/png' });
+			this.setBlock(index, { type: 'image', data: inner.content, mimeType: inner.mimeType ?? 'image/png' });
 			return;
 		}
 		// `toolcall_end` non produce niente sul transcript: la card nasce da
@@ -782,10 +841,12 @@ export class AgentSession {
 
 	private ensureAssistant(): AssistantEntry {
 		if (this.assistantEntry) return this.assistantEntry;
-		const entry: AssistantEntry = { id: this.nextEntryId++, kind: 'assistant', blocks: [] };
-		this.assistantEntry = entry;
-		this.push(entry);
-		return entry;
+		this.assistantEntry = this.push({
+			id: this.nextEntryId++,
+			kind: 'assistant',
+			blocks: []
+		}) as AssistantEntry;
+		return this.assistantEntry;
 	}
 
 	private setBlock(index: number, block: Block) {
@@ -797,19 +858,29 @@ export class AgentSession {
 	private applySubagent(event: AgentSessionEvent) {
 		const payload = event.payload;
 		if (!payload) return;
-		const progress: AgentProgress = payload.progress ?? {
+		// `sessionFile` e `parentToolCallId` stanno alla radice del payload, non
+		// dentro `progress`: prendere solo `progress` li perdeva, e senza
+		// `sessionFile` il cassetto del subagent non sa cosa leggere.
+		const base: Partial<AgentProgress> = {
 			index: payload.index,
 			id: payload.id,
 			agent: payload.agent,
 			agentSource: payload.agentSource,
 			description: payload.description,
-			status:
-				payload.status === 'started'
-					? 'running'
-					: payload.status === 'completed' || payload.status === 'failed' || payload.status === 'aborted'
-						? payload.status
-						: 'pending'
+			sessionFile: payload.sessionFile,
+			parentToolCallId: payload.parentToolCallId
 		};
+		const progress: AgentProgress = payload.progress
+			? { ...base, ...payload.progress }
+			: {
+					...base,
+					status:
+						payload.status === 'started'
+							? 'running'
+							: payload.status === 'completed' || payload.status === 'failed' || payload.status === 'aborted'
+								? payload.status
+								: 'pending'
+				};
 		const key = progress.id ?? payload.id;
 		if (!key) return;
 		const existing = this.subagents.findIndex((candidate) => candidate.id === key);
@@ -929,6 +1000,16 @@ export class AgentSession {
 		const streaming = this.isStreaming;
 		if (streaming) {
 			this.queued.push({ id: this.nextQueueId++, text: trimmed, behavior });
+		} else {
+			// Fuori dallo streaming il messaggio compare subito: l'eco di omp
+			// lo completera' invece di duplicarlo. Durante lo streaming il
+			// posto del messaggio e' il chip della coda, non il transcript.
+			this.optimisticUser = this.push({
+				id: this.nextEntryId++,
+				kind: 'user',
+				content: trimmed,
+				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType }))
+			}) as UserEntry;
 		}
 		try {
 			await this.client.send({
@@ -939,10 +1020,20 @@ export class AgentSession {
 			});
 		} catch (error) {
 			if (streaming) this.queued = this.queued.filter((entry) => entry.text !== trimmed);
+			this.dropOptimisticUser();
 			this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
 			return;
 		}
 		if (streaming) void this.reconcile();
+	}
+
+	/** Toglie il messaggio disegnato in anticipo quando l'invio fallisce. */
+	private dropOptimisticUser() {
+		const pending = this.optimisticUser;
+		if (!pending) return;
+		this.optimisticUser = null;
+		const index = this.entries.indexOf(pending);
+		if (index !== -1) this.entries.splice(index, 1);
 	}
 
 	async abort() {
@@ -958,6 +1049,7 @@ export class AgentSession {
 		this.entries = [];
 		this.toolEntries.clear();
 		this.assistantEntry = null;
+		this.optimisticUser = null;
 		this.subagents = [];
 		this.todoPhases = [];
 		this.queued = [];
@@ -986,8 +1078,15 @@ export class AgentSession {
 		this.push({ id: this.nextEntryId++, kind: 'notice', level, message, source, offerTerminal });
 	}
 
-	private push(entry: TranscriptEntry) {
+	/**
+	 * Restituisce l'istanza **dentro** l'array reattivo, non quella passata:
+	 * `$state` avvolge in un proxy cio' che entra nell'array, e mutare
+	 * l'oggetto originale non emette alcun segnale. Chi deve aggiornare una
+	 * entry piu' tardi (streaming, risultato di un tool) tiene questa.
+	 */
+	private push<T extends TranscriptEntry>(entry: T): T {
 		this.entries.push(entry);
+		return this.entries[this.entries.length - 1] as T;
 	}
 
 	private lastOfKind(kind: 'compaction'): CompactionEntry | null {

@@ -438,6 +438,6 @@
 	}
 
 	.error-badge {
-		color: var(--brand-ink);
+		color: var(--danger);
 	}
 </style>

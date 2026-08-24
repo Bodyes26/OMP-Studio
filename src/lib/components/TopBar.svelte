@@ -161,6 +161,11 @@
 		hoveredTabId = null;
 	}
 
+	function revealProject(path: string) {
+		hoveredTabId = null;
+		void revealItemInDir(path);
+	}
+
 	function handleMinimize(e: MouseEvent) {
 		e.stopPropagation();
 		appWindow.minimize().catch(err => console.error("Minimize error:", err));
@@ -268,7 +273,7 @@
 								</button>
 							{/if}
 							{#if p.path}
-								<button class="popover-btn" onclick={() => { revealItemInDir(p.path); hoveredTabId = null; }}>
+								<button class="popover-btn" onclick={() => revealProject(p.path)}>
 									<span class="btn-icon">📁</span> Mostra nella cartella
 								</button>
 								<div class="popover-divider"></div>
@@ -615,7 +620,7 @@
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		padding: var(--space-3);
-		z-index: var(--z-dialog);
+		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
@@ -962,7 +967,7 @@
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		padding: var(--space-2);
-		z-index: var(--z-dialog);
+		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);

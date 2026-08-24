@@ -21,13 +21,8 @@
 		return q ? candidates.filter(c => c.name.toLowerCase().includes(q)) : candidates;
 	});
 
-	// L'ultima riga selezionabile e' «Sfoglia cartella…», quindi l'estremo
-	// superiore dell'indice e' incluso. Il clamp vive in un effetto: scrivere
-	// stato dentro un $derived e' vietato in Svelte 5.
-	$effect(() => {
-		if (index > filtered.length) index = filtered.length;
-		else if (index < 0) index = 0;
-	});
+	// L'indice effettivo e' calcolato come valore derivato per evitare loop di reattivita' in $effect
+	const selectedIndex = $derived(Math.max(0, Math.min(index, filtered.length)));
 
 	const openKeys = $derived(
 		new Set(projectStore.projects.filter(p => p.path).map(p => p.path.toLowerCase()))
@@ -81,13 +76,13 @@
 		const last = filtered.length; // indice della voce «Sfoglia cartella…»
 		if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			index = index >= last ? 0 : index + 1;
+			index = selectedIndex >= last ? 0 : selectedIndex + 1;
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			index = index <= 0 ? last : index - 1;
+			index = selectedIndex <= 0 ? last : selectedIndex - 1;
 		} else if (e.key === 'Enter') {
 			e.preventDefault();
-			pick(index);
+			pick(selectedIndex);
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			onClose?.();
@@ -114,7 +109,7 @@
 			{#each filtered as c, i (c.path)}
 				<button
 					class="row"
-					class:sel={i === index}
+					class:sel={i === selectedIndex}
 					onmouseenter={() => index = i}
 					onclick={() => pick(i)}
 				>
@@ -127,7 +122,7 @@
 			{/each}
 			<button
 				class="row browse"
-				class:sel={index === filtered.length}
+				class:sel={selectedIndex === filtered.length}
 				onmouseenter={() => index = filtered.length}
 				onclick={() => browse()}
 			>

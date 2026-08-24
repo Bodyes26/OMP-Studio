@@ -29,6 +29,18 @@ export function lexMarkdown(source: string): Token[] {
 	}
 }
 
+/**
+ * Tokenizza testo inline per messaggi utente o frammenti brevi.
+ */
+export function lexMarkdownInline(source: string): Token[] {
+	if (!source) return [];
+	try {
+		return marked.Lexer.lexInline(source, { gfm: true, breaks: true });
+	} catch {
+		return [{ type: 'text', raw: source, text: source } as Tokens.Text];
+	}
+}
+
 /** Alias dei linguaggi verso gli id che Monaco conosce. */
 const LANGUAGE_ALIASES: Record<string, string> = {
 	ts: 'typescript',

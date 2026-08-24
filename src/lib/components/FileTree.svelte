@@ -14,6 +14,7 @@
 
 	let expanded = $state(false);
 	let loaded = $state(false);
+	let loadError = $state<string | null>(null);
 	let entries = $state<{name: string, path: string, is_dir: boolean}[]>([]);
 
 	const NOISY_DIRS = ['bin', 'obj', '.vs', 'packages', 'node_modules'];
@@ -21,35 +22,44 @@
 
 	let rootGitStatuses = $state<Record<string, string>>({});
 
-	if (level === 0) {
-		setContext('gitStatusesCtx', () => rootGitStatuses);
-	}
-	const getGitStatuses = getContext<() => Record<string, string>>('gitStatusesCtx');
-	let gitStatuses = $derived(level === 0 ? rootGitStatuses : (getGitStatuses ? getGitStatuses() : {}));
+	const parentGitStatuses = getContext<() => Record<string, string>>('gitStatusesCtx');
+	// Il contesto va installato in modo sincrono, ma il valore della prop
+	// `level` resta reattivo dentro la closure: leggerlo qui una sola volta
+	// congelerebbe il ruolo root/nodo segnalato da Svelte.
+	const getGitStatuses = () =>
+		level === 0 ? rootGitStatuses : (parentGitStatuses ? parentGitStatuses() : {});
+	setContext('gitStatusesCtx', getGitStatuses);
+	let gitStatuses = $derived(getGitStatuses());
 
 	async function loadGitStatus() {
 		if (!projectPath) return;
 		try {
 			const res: { statuses: Record<string, string> } = await invoke('project_git_status', { projectPath });
 			rootGitStatuses = res.statuses || {};
-		} catch (e) {
-			console.error("Failed to fetch git status", e);
+		} catch {
+			// Progetto non git o comando fallito: lo stato git degrada a vuoto
+			rootGitStatuses = {};
 		}
 	}
 
-	let initialized = false;
+	let lastLoadedPath = '';
 
 	$effect(() => {
 		if (level === 0 && projectPath) {
-			if (!initialized && !isNoisy) {
-				initialized = true;
-				expanded = true;
-				loadEntries();
+			if (lastLoadedPath !== projectPath) {
+				lastLoadedPath = projectPath;
+				loaded = false;
+				loadError = null;
+				entries = [];
+				if (!isNoisy) {
+					expanded = true;
+					void loadEntries();
+				}
 			}
-			loadGitStatus();
+			void loadGitStatus();
 
 			const handleRefresh = () => {
-				loadGitStatus();
+				void loadGitStatus();
 			};
 
 			window.addEventListener('git-status-refresh', handleRefresh);
@@ -107,11 +117,13 @@
 
 	async function loadEntries() {
 		if (loaded) return;
+		loadError = null;
 		try {
 			entries = await invoke('tree_read', { projectPath, rel: relPath });
 			loaded = true;
 		} catch (e) {
-			console.error("Failed to load directory", e);
+			// Conserviamo l'errore reale per mostrare il messaggio all'utente con pulsante di riprova
+			loadError = String(e);
 		}
 	}
 
@@ -122,7 +134,7 @@
 		}
 
 		expanded = !expanded;
-		if (expanded && !loaded) {
+		if (expanded && (!loaded || loadError)) {
 			await loadEntries();
 		}
 	}
@@ -275,8 +287,8 @@
 		<div class="children" transition:slide={{ duration: 180 }}>
 			{#if loaded}
 				{#each entries as entry}
-					<FileTree 
-						projectPath={projectPath} 
+					<FileTree
+						projectPath={projectPath}
 						relPath={entry.path}
 						name={entry.name}
 						isDir={entry.is_dir}
@@ -287,6 +299,11 @@
 				{#if entries.length === 0}
 					<div class="empty" style="padding-left: {(level + 1) * 12 + 24}px;">(empty)</div>
 				{/if}
+			{:else if loadError}
+				<div class="load-error" style="padding-left: {(level + 1) * 12 + 24}px;">
+					<span class="error-text" title={loadError}>{loadError}</span>
+					<button type="button" class="retry-btn" onclick={() => void loadEntries()}>Riprova</button>
+				</div>
 			{:else}
 				<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">Loading...</div>
 			{/if}
@@ -429,5 +446,39 @@
 		align-items: center;
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
+	}
+
+	.load-error {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding-right: var(--space-2);
+		min-height: 22px;
+		color: var(--danger);
+		font-size: var(--text-xs);
+	}
+
+	.load-error .error-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.load-error .retry-btn {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		padding: 1px 6px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.load-error .retry-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
 	}
 </style>

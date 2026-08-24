@@ -23,11 +23,13 @@
 	let {
 		session,
 		behavior,
+		visible = true,
 		onBehaviorChange,
 		onSlashCommand
 	} = $props<{
 		session: AgentSession;
 		behavior: StreamingBehavior;
+		visible?: boolean;
 		onBehaviorChange: (b: StreamingBehavior) => void;
 		onSlashCommand: (raw: string) => boolean;
 	}>();
@@ -35,6 +37,7 @@
 	let text = $state('');
 	let attachedImages = $state<ImageContent[]>([]);
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
+	let composerEl = $state<HTMLElement | null>(null);
 	let paletteOpen = $state(false);
 
 	// Menu a comparsa per i chip di stato
@@ -49,17 +52,32 @@
 
 	const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-	// Quando il testo inizia con `/`, apre automaticamente la palette se ci sono comandi
-	$effect(() => {
-		if (text.startsWith('/')) {
-			paletteOpen = true;
-			if (session.availableCommands.length === 0) {
-				void loadAvailableCommands();
-			}
-		} else {
-			paletteOpen = false;
-		}
-	});
+	function shouldOpenPalette(value: string): boolean {
+		if (!value.startsWith('/')) return false;
+		const body = value.slice(1);
+		const space = body.search(/\s/);
+		if (space === -1) return true;
+		const token = body.slice(0, space).toLowerCase();
+		const command = session.availableCommands.find(
+			(candidate: AvailableCommand) =>
+				candidate.name.toLowerCase() === token
+				|| candidate.aliases?.some((alias: string) => alias.toLowerCase() === token)
+		);
+		// Dopo lo spazio la palette serve solo a scegliere un sottocomando.
+		return Boolean(command?.subcommands?.length);
+	}
+
+	function handleComposerInput() {
+		adjustTextareaHeight();
+		const current = text;
+		paletteOpen = shouldOpenPalette(current);
+		if (!current.startsWith('/') || session.availableCommands.length > 0) return;
+		void loadAvailableCommands().then(() => {
+			// L'utente puo' aver continuato a scrivere mentre la richiesta era
+			// in volo: una risposta vecchia non deve riaprire la palette.
+			if (text === current && visible) paletteOpen = shouldOpenPalette(current);
+		});
+	}
 
 	// Auto-dimensionamento della textarea fino a circa 12 righe (~240px)
 	function adjustTextareaHeight() {
@@ -201,7 +219,17 @@
 		}
 	}
 
-	function closeMenus() {
+	function closeMenus(event: MouseEvent) {
+		if (!visible || (!activeMenu && !paletteOpen)) return;
+		const target = event.target;
+		if (target instanceof Element && target.closest('.dropdown-menu, .palette-container')) return;
+		activeMenu = null;
+		paletteOpen = false;
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (!visible || event.key !== 'Escape' || !activeMenu) return;
+		event.preventDefault();
 		activeMenu = null;
 	}
 
@@ -307,12 +335,12 @@
 			void handleSubmit();
 		}
 	}
-
-	function handlePalettePick(cmdName: string) {
-		text = `/${cmdName} `;
-		paletteOpen = false;
+	function handlePalettePick(value: string, keepsOpen: boolean, submitImmediately: boolean) {
+		text = `/${value} `;
+		paletteOpen = keepsOpen;
 		textareaEl?.focus();
 		adjustTextareaHeight();
+		if (submitImmediately) void handleSubmit();
 	}
 
 	function formatTokens(count?: number): string {
@@ -338,19 +366,20 @@
 	});
 </script>
 
-<svelte:window onclick={closeMenus} />
+<svelte:window onclick={closeMenus} onkeydown={handleWindowKeydown} />
 
-<div class="composer-container">
+<div class="composer-container" bind:this={composerEl}>
 	<!-- Chip dei messaggi in coda -->
 	<QueueChips queued={session.queued} serverCount={session.queuedMessageCount} />
 
 	<!-- Palette comandi slash -->
 	<CommandPalette
-		open={paletteOpen}
+		open={visible && paletteOpen}
 		commands={session.availableCommands}
 		query={text}
 		onPick={handlePalettePick}
 		onClose={() => (paletteOpen = false)}
+		onSubmitFallback={() => void handleSubmit()}
 	/>
 
 	<!-- Miniature delle immagini allegate -->
@@ -387,7 +416,7 @@
 		<textarea
 			bind:this={textareaEl}
 			bind:value={text}
-			oninput={adjustTextareaHeight}
+			oninput={handleComposerInput}
 			onkeydown={handleKeydown}
 			onpaste={handlePaste}
 			placeholder="Scrivi un prompt, incolla un'immagine, digita / per i comandi..."
@@ -448,13 +477,15 @@
 	</div>
 
 	<!-- Barra dei chip di stato sotto la textarea -->
-	<div class="status-bar" role="toolbar" aria-label="Stato della sessione">
+	<div class="status-bar" aria-label="Stato della sessione">
 		<!-- Chip Modello -->
 		<div class="status-item-wrap">
 			<button
 				type="button"
 				class="status-chip"
 				title="Modello corrente (Ctrl+P per passare al successivo)"
+				aria-haspopup="dialog"
+				aria-expanded={activeMenu === 'model'}
 				onclick={(e) => {
 					e.stopPropagation();
 					toggleMenu('model');
@@ -465,7 +496,7 @@
 			</button>
 
 			{#if activeMenu === 'model'}
-				<div class="dropdown-menu model-menu" role="dialog" aria-label="Modelli disponibili">
+				<div class="dropdown-menu model-menu" role="dialog" tabindex="-1" aria-label="Modelli disponibili">
 					<div class="menu-header">
 						<span>Modelli disponibili</span>
 						<button type="button" class="menu-cycle-btn" onclick={handleCycleModel} title="Passa al successivo">
@@ -503,6 +534,8 @@
 				type="button"
 				class="status-chip"
 				title="Livello di thinking"
+				aria-haspopup="dialog"
+				aria-expanded={activeMenu === 'thinking'}
 				onclick={(e) => {
 					e.stopPropagation();
 					toggleMenu('thinking');
@@ -513,7 +546,7 @@
 			</button>
 
 			{#if activeMenu === 'thinking'}
-				<div class="dropdown-menu thinking-menu" role="dialog" aria-label="Livello di thinking">
+				<div class="dropdown-menu thinking-menu" role="dialog" tabindex="-1" aria-label="Livello di thinking">
 					<div class="menu-header">Livello di thinking</div>
 					<div class="menu-body">
 						{#each THINKING_LEVELS as lvl (lvl)}
@@ -533,7 +566,8 @@
 
 		<!-- Chip Gauge del contesto -->
 		<div
-			class="status-chip context-chip"
+			class="status-readout context-chip"
+			role="status"
 			title="Utilizzo del contesto: {session.contextUsage?.tokens ?? 0} su {session.contextUsage?.contextWindow ?? 0} token ({contextPercent.toFixed(1)}%)"
 		>
 			<span class="chip-label">ctx:</span>
@@ -546,7 +580,7 @@
 		</div>
 
 		<!-- Chip Costo -->
-		<div class="status-chip cost-chip" title="Costo stimato della sessione">
+		<div class="status-readout cost-chip" role="status" title="Costo stimato della sessione">
 			<span class="chip-label">costo:</span>
 			<span class="chip-val">{formatCost(session.sessionCost)}</span>
 		</div>
@@ -557,6 +591,8 @@
 				type="button"
 				class="status-chip queue-btn"
 				title="Impostazioni di accodamento e interruzione"
+				aria-haspopup="dialog"
+				aria-expanded={activeMenu === 'queue'}
 				onclick={(e) => {
 					e.stopPropagation();
 					toggleMenu('queue');
@@ -566,7 +602,7 @@
 			</button>
 
 			{#if activeMenu === 'queue'}
-				<div class="dropdown-menu queue-menu" role="dialog" aria-label="Impostazioni coda">
+				<div class="dropdown-menu queue-menu" role="dialog" tabindex="-1" aria-label="Impostazioni coda">
 					<div class="menu-header">Impostazioni coda omp</div>
 					<div class="menu-section">
 						<div class="section-title">Modalità steering</div>
@@ -840,6 +876,16 @@
 		border-color: var(--line);
 		color: var(--ink);
 	}
+	.status-readout {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 2px 0;
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		line-height: 1;
+	}
 
 	.chip-label {
 		color: var(--ink-faint);
@@ -915,6 +961,7 @@
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);
 		min-width: 180px;
+		max-width: calc(100vw - 2 * var(--space-4));
 		overflow: hidden;
 	}
 

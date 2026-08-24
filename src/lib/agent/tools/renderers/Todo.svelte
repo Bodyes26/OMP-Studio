@@ -35,7 +35,9 @@
 	}
 
 	const phases = $derived.by<PhaseItem[]>(() => {
-		const rawPhases = recordList(details?.phases);
+		// Durante `init` il risultato non e' ancora arrivato: le fasi proposte
+		// viaggiano in `args.list`, nella stessa forma di `details.phases`.
+		const rawPhases = recordList(details?.phases ?? args.list);
 		const out: PhaseItem[] = [];
 		for (const p of rawPhases) {
 			const phaseName = str(p.name) ?? 'Fase';

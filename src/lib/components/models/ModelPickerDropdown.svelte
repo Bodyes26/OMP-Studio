@@ -192,10 +192,11 @@
 					placeholder="Cerca modello o provider..."
 					aria-label="Filtra modelli disponibili"
 					onclick={(e) => e.stopPropagation()}
+					oninput={() => highlightedIndex = 0}
 					onkeydown={handleKeydown}
 				/>
 				{#if filterQuery}
-					<button type="button" class="clear-btn" aria-label="Cancella testo" onclick={() => filterQuery = ''}>
+					<button type="button" class="clear-btn" aria-label="Cancella testo" onclick={() => { filterQuery = ''; highlightedIndex = 0; }}>
 						<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
 							<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
 						</svg>
@@ -352,7 +353,7 @@
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
-		z-index: 100;
+		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;

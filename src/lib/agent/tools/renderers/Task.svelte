@@ -81,9 +81,18 @@
 
 	const summaryBadge = $derived.by(() => {
 		if (stats.total === 0) {
-			const rawTasks = Array.isArray(args.tasks) ? args.tasks.length : undefined;
-			if (rawTasks !== undefined) {
-				return countLabel(rawTasks, 'subagent assegnato', 'subagent assegnati');
+			// `args.tasks` e' la forma normale, ma il tool accetta anche `args.subagents`
+			// e la forma singola `args.task`/`args.agent` senza wrapper array.
+			const rawList = Array.isArray(args.tasks)
+				? args.tasks
+				: Array.isArray(args.subagents)
+					? args.subagents
+					: undefined;
+			if (rawList !== undefined) {
+				return countLabel(rawList.length, 'subagent assegnato', 'subagent assegnati');
+			}
+			if (str(args.task) || str(args.agent)) {
+				return countLabel(1, 'subagent assegnato', 'subagent assegnati');
 			}
 			return undefined;
 		}

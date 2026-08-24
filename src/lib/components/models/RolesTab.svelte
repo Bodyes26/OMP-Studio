@@ -14,7 +14,7 @@
 	let roleFilterQuery = $state('');
 	let cycleDrawerOpen = $state(false);
 	let isAddingFallback = $state(false);
-
+	let rootEl = $state<HTMLDivElement | null>(null);
 	let currentSuggestions = $state<RoleSuggestionsResponse | null>(null);
 	let isFetchingSuggestions = $state(false);
 
@@ -138,9 +138,26 @@
 		return `${tokens} ctx`;
 	}
 
-	// Scorciatoia Ctrl+P per togglare il pannello ciclo rapido
+	// Scorciatoia Ctrl+P per togglare il pannello ciclo rapido.
+	// Confinata al modale aperto e con il fuoco al suo interno, ignora i campi testo esterni.
 	function handleKeydown(e: KeyboardEvent) {
+		if (!modelSettingsStore.isOpen) return;
 		if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+			const target = e.target as HTMLElement | null;
+			if (target) {
+				const isField =
+					target instanceof HTMLInputElement ||
+					target instanceof HTMLTextAreaElement ||
+					target.isContentEditable;
+				// Se il campo non appartiene a questo pannello (es. composer chat), non intercettare
+				if (isField && (!rootEl || !rootEl.contains(target))) {
+					return;
+				}
+			}
+			// Se il fuoco e' del tutto fuori dal contenitore di RolesTab, non interferire col composer
+			if (rootEl && document.activeElement && !rootEl.contains(document.activeElement)) {
+				return;
+			}
 			e.preventDefault();
 			cycleDrawerOpen = !cycleDrawerOpen;
 		}
@@ -149,7 +166,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="master-detail-container">
+<div class="master-detail-container" bind:this={rootEl}>
 	<!-- Left Sidebar: Lista Ruoli -->
 	<aside class="roles-sidebar">
 		<div class="sidebar-header">

@@ -15,6 +15,8 @@
 	// `resultText(result)` tramite `OutputBlock`, senza sollevare errori.
 
 	import { openUrl } from '@tauri-apps/plugin-opener';
+	import MarkdownInline from '../../components/MarkdownInline.svelte';
+	import { lexMarkdownInline } from '../../markdown';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -34,6 +36,7 @@
 	const resp = $derived(asRecord(details?.response));
 
 	const answer = $derived(str(resp?.answer) ?? str(details?.answer));
+	const answerTokens = $derived(answer ? lexMarkdownInline(answer) : []);
 	const provider = $derived(str(resp?.provider) ?? str(details?.provider));
 
 	interface SearchSource {
@@ -106,7 +109,9 @@
 		{#if answer}
 			<div class="answer-box">
 				<span class="answer-label">Risposta diretta</span>
-				<p class="answer-text">{answer}</p>
+				<div class="answer-text">
+					<MarkdownInline tokens={answerTokens} />
+				</div>
 			</div>
 		{/if}
 

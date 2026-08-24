@@ -96,6 +96,7 @@ const ALIASES: Record<string, string> = {
 	memory_reflect: 'reflect',
 	'memory-retain': 'retain',
 	memory_retain: 'retain',
+	propose: 'resolve',
 	reject: 'resolve'
 };
 

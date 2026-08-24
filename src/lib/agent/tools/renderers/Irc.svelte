@@ -16,6 +16,7 @@
 	import {
 		asRecord,
 		bool,
+		formatDuration,
 		num,
 		resultText,
 		str,
@@ -42,7 +43,8 @@
 			rows.push({ key: 'Attesa risposta', value: awaitReply ? 'sì' : 'no' });
 		}
 		if (timeoutMs !== undefined) {
-			rows.push({ key: 'Timeout', value: `${timeoutMs}ms` });
+			const dur = formatDuration(timeoutMs);
+			if (dur) rows.push({ key: 'Timeout', value: dur });
 		}
 		return rows;
 	});

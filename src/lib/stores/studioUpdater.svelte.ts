@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { load, type Store } from '@tauri-apps/plugin-store';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 export interface StudioReleaseAsset {
@@ -8,6 +9,8 @@ export interface StudioReleaseAsset {
 	download_url: string;
 	content_type?: string;
 }
+
+export type StudioUpdateChannel = 'stable' | 'nightly';
 
 export interface StudioUpdateInfo {
 	current_version: string;
@@ -19,6 +22,8 @@ export interface StudioUpdateInfo {
 	html_url: string;
 	has_update: boolean;
 	asset?: StudioReleaseAsset | null;
+	release_channel: StudioUpdateChannel;
+	ahead_of_channel: boolean;
 }
 
 export interface StudioDownloadProgress {
@@ -53,6 +58,7 @@ function extractErrorMessage(error: unknown): string {
 }
 
 class StudioUpdaterStore {
+	channel = $state<StudioUpdateChannel>('stable');
 	currentVersion = $state<string | null>(null);
 	isChecking = $state<boolean>(false);
 	isDownloading = $state<boolean>(false);
@@ -68,10 +74,22 @@ class StudioUpdaterStore {
 	private unlistenProgress: UnlistenFn | null = null;
 	private initialized = false;
 	private badgeTimeout: number | null = null;
+	private settingsStore: Store | null = null;
 
 	async init() {
 		if (this.initialized) return;
 		this.initialized = true;
+
+		try {
+			this.settingsStore = await load('settings.json', { autoSave: false });
+			const storedChannel = await this.settingsStore.get<unknown>('studioUpdateChannel');
+			if (storedChannel === 'stable' || storedChannel === 'nightly') {
+				this.channel = storedChannel;
+			}
+		} catch (e) {
+			this.settingsStore = null;
+			console.error('Impossibile caricare il canale aggiornamenti', e);
+		}
 
 		try {
 			const ver = await invoke<string>('get_studio_version');
@@ -126,6 +144,32 @@ class StudioUpdaterStore {
 		}
 	}
 
+
+	get channelChangeDisabled(): boolean {
+		return this.isChecking
+			|| this.isDownloading
+			|| this.isInstalling
+			|| this.downloadProgress?.status === 'finished';
+	}
+
+	async setChannel(channel: StudioUpdateChannel) {
+		if (channel === this.channel || this.channelChangeDisabled) return;
+
+		this.channel = channel;
+		this.updateInfo = null;
+		this.hasUpdate = false;
+		this.errorMessage = null;
+		this.setBadge(null);
+
+		try {
+			await this.settingsStore?.set('studioUpdateChannel', channel);
+			await this.settingsStore?.save();
+		} catch (e) {
+			console.error('Impossibile salvare il canale aggiornamenti', e);
+		}
+
+		await this.checkUpdate(true);
+	}
 	async checkUpdate(manual = true) {
 		if (this.isChecking || this.isDownloading) return;
 		this.isChecking = true;
@@ -136,7 +180,7 @@ class StudioUpdaterStore {
 		}
 
 		try {
-			const info = await invoke<StudioUpdateInfo>('check_studio_update');
+			const info = await invoke<StudioUpdateInfo>('check_studio_update', { channel: this.channel });
 			this.updateInfo = info;
 			this.currentVersion = info.current_version;
 			this.hasUpdate = info.has_update;

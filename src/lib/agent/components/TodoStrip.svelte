@@ -15,7 +15,7 @@
 		allTasks.filter((t: TodoItem) => t.status === 'completed' || t.status === 'abandoned').length
 	);
 	const totalCount = $derived(allTasks.length);
-
+	const hasBlocked = $derived(allTasks.some((t: TodoItem) => t.status === 'blocked'));
 	// Fase corrente: la prima con almeno un task non completato/abbandonato.
 	const currentPhase = $derived(
 		phases.find((p: TodoPhase) => (p.tasks ?? []).some((t: TodoItem) => t.status !== 'completed' && t.status !== 'abandoned')) ??
@@ -41,9 +41,11 @@
 		>
 			<span class="chevron">{expanded ? '▾' : '▸'}</span>
 			<span class="phase-name">{currentPhase?.name ?? 'Todo'}</span>
+			{#if hasBlocked}
+				<span class="blocked-badge" title="Ci sono task bloccati">!</span>
+			{/if}
 			<span class="tally">{completedCount}/{totalCount}</span>
 		</button>
-
 		{#if expanded}
 			<div class="phases-list">
 				{#each phases as phase, phaseIdx (phase.id ?? phaseIdx)}
@@ -106,6 +108,17 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.blocked-badge {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		color: var(--warn);
+		background: var(--warn-dim);
+		padding: 0 4px;
+		border-radius: var(--radius-sm);
+		line-height: 1.2;
 	}
 
 	.tally {

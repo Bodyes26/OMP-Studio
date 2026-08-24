@@ -77,6 +77,13 @@
 		openAssignMenuFor = null;
 	}
 
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && openAssignMenuFor) {
+			e.stopPropagation();
+			openAssignMenuFor = null;
+		}
+	}
+
 	function getRoleAbbr(id: string): string {
 		switch (id) {
 			case 'default': return 'CH';
@@ -92,7 +99,7 @@
 	}
 </script>
 
-<svelte:window onclick={handleDocClick} />
+<svelte:window onclick={handleDocClick} onkeydown={handleKeydown} />
 
 <div class="catalog-tab">
 	<!-- Top Controls -->
@@ -641,7 +648,7 @@
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
 		padding: var(--space-2);
-		z-index: 100;
+		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);

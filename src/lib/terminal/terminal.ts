@@ -45,6 +45,9 @@ export class TerminalSession {
 	private currentState: TerminalAgentState = 'unknown';
 	private pendingInputLength = 0;
 	private currentSession: TerminalSessionInfo | null = null;
+	/** Sessione da riprendere al primo avvio, consumata una volta sola: un
+	 *  riavvio successivo deve ripartire da quella corrente, non da questa. */
+	private pendingResume: string | null;
 
 	public onStateChange: (state: TerminalAgentState) => void = () => {};
 	public onOpenFile: (relPath: string, line: number | null) => void = () => {};
@@ -57,8 +60,10 @@ export class TerminalSession {
 		onStateChange: (state: TerminalAgentState) => void,
 		onOpenFile: (relPath: string, line: number | null) => void,
 		onInputPendingChange: (pending: boolean) => void,
-		onSessionChange: (session: TerminalSessionInfo | null) => void
+		onSessionChange: (session: TerminalSessionInfo | null) => void,
+		resumeSessionId: string | null = null
 	) {
+		this.pendingResume = resumeSessionId;
 		this.container = container;
 		this.cwd = cwd;
 		this.onStateChange = onStateChange;
@@ -319,6 +324,15 @@ export class TerminalSession {
 		const args = isScratchpad ? ['--no-session'] : [];
 		const launchCwd = isScratchpad ? '.' : cwd;
 
+		// Il passaggio da GUI a TERMINAL deve continuare la stessa sessione:
+		// senza questo `--resume` la scheda si apriva su una chat vuota e il
+		// lavoro appena fatto in GUI sembrava perduto.
+		const resume = this.pendingResume;
+		this.pendingResume = null;
+		if (!isScratchpad && resume && /^[A-Za-z0-9._-]+$/.test(resume)) {
+			args.push('--resume', resume);
+		}
+
 		try {
 			this.fit();
 			const cols = this.term.cols || 80;
@@ -375,22 +389,38 @@ export class TerminalSession {
 		await this.startPty(this.cwd);
 	}
 
+	/**
+	 * Rilascia soltanto il processo omp. Serve all'handoff: la superficie
+	 * resta montata fino al cambio di layout, quindi disporre xterm qui
+	 * attiverebbe callback degli addon su un terminale gia' distrutto.
+	 */
+	public async release() {
+		if (this.disposed) return;
+		const ptyId = this.ptyId;
+		this.ptyId = null;
+		if (ptyId === null) return;
+		try {
+			await invoke('pty_close', { ptyId });
+		} catch {
+			// Il processo puo' essere gia' terminato: il rilascio resta idempotente.
+		}
+	}
+
 	public async close() {
 		if (this.disposed) return;
+		await this.release();
 		this.disposed = true;
 		this.resizeObserver.disconnect();
 		this.unsubscribeTheme();
 		clearTimeout(this.resizeTimeout ?? undefined);
-		const ptyId = this.ptyId;
-		this.ptyId = null;
-		if (ptyId !== null) {
-			try {
-				await invoke('pty_close', { ptyId });
-			} catch {
-				// Il processo puo' essere gia' terminato: la chiusura resta idempotente.
-			}
+		// Alcuni addon di xterm possono lanciare durante la disposizione se
+		// WebView2 ha gia' rimosso i relativi listener. Il processo e' comunque
+		// chiuso: la pulizia della vista non deve bloccare un handoff.
+		try {
+			this.term.dispose();
+		} catch (error) {
+			console.warn("Terminale gia' disposto:", error);
 		}
-		this.term.dispose();
 	}
 
 	public destroy() {

@@ -86,7 +86,7 @@
 				<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
 				Nuovo task
 			</button>
-			{#if !canAutomate && tasks.length > 0}
+			{#if !canAutomate && automationReason}
 				<span class="automation-state" title={automationReason}>{automationReason}</span>
 			{/if}
 		</div>

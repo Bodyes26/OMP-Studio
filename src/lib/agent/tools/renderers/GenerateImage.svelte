@@ -15,6 +15,7 @@
 	import ImageBlock from '../parts/ImageBlock.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
+	import PathChip from '../parts/PathChip.svelte';
 	import {
 		asRecord,
 		countLabel,
@@ -22,6 +23,7 @@
 		resultImages,
 		resultText,
 		str,
+		strList,
 		type ToolRenderProps
 	} from '../types';
 
@@ -40,7 +42,10 @@
 	const lighting = $derived(str(args.lighting));
 
 	const images = $derived(resultImages(result));
-	const count = $derived(images.length > 0 ? images.length : num(details?.imageCount));
+	const imagePaths = $derived(strList(details?.imagePaths));
+	const count = $derived(
+		images.length > 0 ? images.length : (num(details?.imageCount) ?? (imagePaths.length || undefined))
+	);
 	const countBadgeLabel = $derived(
 		count !== undefined && count > 0 ? countLabel(count, 'immagine', 'immagini') : undefined
 	);
@@ -74,6 +79,14 @@
 		{#if images.length > 0}
 			<div class="images-container">
 				<ImageBlock {images} />
+			</div>
+		{/if}
+
+		{#if imagePaths.length > 0}
+			<div class="paths-container">
+				{#each imagePaths as path (path)}
+					<PathChip {path} />
+				{/each}
 			</div>
 		{/if}
 
@@ -123,5 +136,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
+	}
+
+	.paths-container {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
 	}
 </style>

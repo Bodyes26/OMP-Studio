@@ -44,7 +44,26 @@
 		return width !== undefined && height !== undefined ? `${width}x${height}` : undefined;
 	});
 
-	const images = $derived(resultImages(result));
+	// Gli screenshot presi con `tab.screenshot()` durante lo script finiscono in
+	// `details.screenshots`, separati dagli eventuali blocchi immagine del
+	// risultato: senza unirli si perdono proprio gli screenshot presi a meta' run.
+	const detailScreenshots = $derived.by(() => {
+		const raw = details?.screenshots;
+		if (!Array.isArray(raw)) return [];
+		const out: { data: string; mimeType: string }[] = [];
+		for (const entry of raw) {
+			if (typeof entry === 'string') {
+				out.push({ data: entry, mimeType: 'image/png' });
+				continue;
+			}
+			const rec = asRecord(entry);
+			const data = str(rec?.data) ?? str(rec?.base64);
+			if (!data) continue;
+			out.push({ data, mimeType: str(rec?.mimeType) ?? 'image/png' });
+		}
+		return out;
+	});
+	const images = $derived([...resultImages(result), ...detailScreenshots]);
 	const text = $derived(str(details?.result) ?? resultText(result));
 
 	const targetLabel = $derived(url ?? (name !== 'main' ? `scheda "${name}"` : 'scheda principale'));

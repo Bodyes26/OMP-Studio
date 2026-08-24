@@ -2,11 +2,63 @@
 	import { studioUpdaterStore, formatBytes, formatSpeed } from '$lib/stores/studioUpdater.svelte';
 	import { fade, fly } from 'svelte/transition';
 
+	let dialogEl = $state<HTMLDivElement | null>(null);
+	let previousActiveElement: HTMLElement | null = null;
+
 	function handleBackdropClick(e: MouseEvent) {
 		if (e.target === e.currentTarget && !studioUpdaterStore.isDownloading) {
 			studioUpdaterStore.closeModal();
 		}
 	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (!studioUpdaterStore.showModal) return;
+
+		if (e.key === 'Escape') {
+			if (!studioUpdaterStore.isDownloading) {
+				studioUpdaterStore.closeModal();
+			}
+			return;
+		}
+
+		if (e.key === 'Tab' && dialogEl) {
+			const focusableElements = dialogEl.querySelectorAll<HTMLElement>(
+				'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+			);
+			if (focusableElements.length === 0) return;
+			const firstElement = focusableElements[0];
+			const lastElement = focusableElements[focusableElements.length - 1];
+
+			if (e.shiftKey) {
+				if (document.activeElement === firstElement) {
+					e.preventDefault();
+					lastElement.focus();
+				}
+			} else {
+				if (document.activeElement === lastElement) {
+					e.preventDefault();
+					firstElement.focus();
+				}
+			}
+		}
+	}
+
+	$effect(() => {
+		if (studioUpdaterStore.showModal) {
+			previousActiveElement = document.activeElement as HTMLElement | null;
+			// Spostiamo il focus nel dialogo al momento dell'apertura
+			setTimeout(() => {
+				if (dialogEl) {
+					const firstFocusable = dialogEl.querySelector<HTMLElement>('button:not([disabled]), [tabindex="0"]');
+					firstFocusable?.focus();
+				}
+			}, 20);
+
+			return () => {
+				previousActiveElement?.focus();
+			};
+		}
+	});
 
 	function formatDate(dateStr?: string): string {
 		if (!dateStr) return '';
@@ -22,12 +74,14 @@
 		}
 	}
 </script>
+<svelte:window onkeydown={handleKeydown} />
 
 {#if studioUpdaterStore.showModal}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="modal-backdrop" onclick={handleBackdropClick} transition:fade={{ duration: 150 }}>
 		<div
+			bind:this={dialogEl}
 			class="modal-dialog"
 			role="dialog"
 			aria-modal="true"
@@ -66,11 +120,46 @@
 			</div>
 
 			<div class="modal-body">
+				<fieldset class="channel-picker" disabled={studioUpdaterStore.channelChangeDisabled}>
+					<legend>Canale aggiornamenti</legend>
+					<div class="channel-options">
+						<label class:checked={studioUpdaterStore.channel === 'stable'} class="channel-option">
+							<input
+								type="radio"
+								name="studio-update-channel"
+								value="stable"
+								checked={studioUpdaterStore.channel === 'stable'}
+								onchange={() => void studioUpdaterStore.setChannel('stable')}
+							/>
+							<span class="channel-copy">
+								<strong>Stabile</strong>
+								<small>Release ufficiali verificate</small>
+							</span>
+						</label>
+						<label class:checked={studioUpdaterStore.channel === 'nightly'} class="channel-option">
+							<input
+								type="radio"
+								name="studio-update-channel"
+								value="nightly"
+								checked={studioUpdaterStore.channel === 'nightly'}
+								onchange={() => void studioUpdaterStore.setChannel('nightly')}
+							/>
+							<span class="channel-copy">
+								<strong>Nightly</strong>
+								<small>Ultima build, può essere instabile</small>
+							</span>
+						</label>
+					</div>
+				</fieldset>
+
 				<!-- Versione Corrente e Nuova -->
 				<div class="version-banner">
 					<div class="version-item">
 						<span class="v-label">Installata</span>
 						<span class="v-badge current">v{studioUpdaterStore.currentVersion || '...'}</span>
+						{#if studioUpdaterStore.currentVersion?.includes('-nightly.')}
+							<span class="channel-tag">Nightly</span>
+						{/if}
 					</div>
 					{#if studioUpdaterStore.hasUpdate && studioUpdaterStore.updateInfo}
 						<span class="v-arrow">→</span>
@@ -83,11 +172,22 @@
 					{/if}
 				</div>
 
+				{#if studioUpdaterStore.updateInfo?.ahead_of_channel && studioUpdaterStore.channel === 'stable'}
+					<div class="channel-waiting">
+						La build installata è più recente dell’ultima stabile. Riceverai il prossimo rilascio stabile disponibile.
+					</div>
+				{/if}
+
 				<!-- Dettagli Release -->
 				{#if studioUpdaterStore.updateInfo}
 					<div class="release-meta">
 						<div class="meta-row">
-							<span class="release-title">{studioUpdaterStore.updateInfo.release_name}</span>
+							<span class="release-identity">
+								<span class="release-title">{studioUpdaterStore.updateInfo.release_name}</span>
+								{#if studioUpdaterStore.updateInfo.release_channel === 'nightly'}
+									<span class="channel-tag">Nightly</span>
+								{/if}
+							</span>
 							{#if studioUpdaterStore.updateInfo.published_at}
 								<span class="release-date">{formatDate(studioUpdaterStore.updateInfo.published_at)}</span>
 							{/if}
@@ -353,6 +453,88 @@
 		min-height: 0;
 	}
 
+	.channel-picker {
+		margin: 0;
+		padding: 0;
+		border: 0;
+		min-width: 0;
+	}
+
+	.channel-picker legend {
+		margin-bottom: var(--space-1);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink-muted);
+	}
+
+	.channel-options {
+		display: flex;
+		overflow: hidden;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-sunken);
+	}
+
+	.channel-option {
+		display: flex;
+		flex: 1;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
+		padding: var(--space-2) var(--space-3);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out);
+	}
+
+	.channel-option + .channel-option {
+		border-left: 1px solid var(--line);
+	}
+
+	.channel-option:hover {
+		background: var(--bg-hover);
+	}
+
+	.channel-option.checked {
+		background: var(--bg-active);
+	}
+
+	.channel-option input {
+		margin: 0;
+		accent-color: var(--brand);
+	}
+
+	.channel-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		min-width: 0;
+	}
+
+	.channel-copy strong {
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.channel-copy small {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		line-height: 1.3;
+	}
+
+	.channel-picker:disabled .channel-option {
+		cursor: not-allowed;
+		opacity: 0.65;
+	}
+
+	.channel-picker:disabled .channel-option:hover {
+		background: transparent;
+	}
+
+	.channel-picker:disabled .channel-option.checked:hover {
+		background: var(--bg-active);
+	}
+
 	.version-banner {
 		display: flex;
 		align-items: center;
@@ -404,6 +586,29 @@
 		margin-left: auto;
 	}
 
+	.channel-tag {
+		display: inline-flex;
+		align-items: center;
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--warn) 14%, transparent);
+		color: var(--warn);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		line-height: 1.4;
+	}
+
+	.channel-waiting {
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-sunken);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		line-height: 1.4;
+	}
+
 	.release-meta {
 		display: flex;
 		flex-direction: column;
@@ -415,6 +620,13 @@
 		align-items: baseline;
 		justify-content: space-between;
 		gap: var(--space-2);
+	}
+
+	.release-identity {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
 	}
 
 	.release-title {
@@ -590,7 +802,7 @@
 		align-items: center;
 		gap: var(--space-2);
 		background: var(--bg-sunken);
-		border-left: 3px solid var(--danger, #e53935);
+		border-left: 3px solid var(--danger);
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
@@ -602,7 +814,7 @@
 	}
 
 	.error-text {
-		color: var(--danger, #e53935);
+		color: var(--danger);
 		word-break: break-word;
 	}
 

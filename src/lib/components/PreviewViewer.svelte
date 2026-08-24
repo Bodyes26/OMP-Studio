@@ -16,9 +16,9 @@
 	let htmlDoc = $state('');
 	let loading = $state(true);
 	let missing = $state(false);
+	let loadError = $state<string | null>(null);
 	let copied = $state(false);
 	let viewMode = $state<'preview' | 'code'>('preview');
-
 	// Viewport responsive per testare il prototipo a larghezze diverse.
 	type Device = 'desktop' | 'tablet' | 'mobile';
 	const DEVICE_WIDTHS: Record<Device, string> = {
@@ -31,6 +31,7 @@
 	async function load() {
 		loading = true;
 		missing = false;
+		loadError = null;
 		try {
 			const res: { content: string; exists: boolean } = await invoke('preview_file', {
 				projectPath,
@@ -46,8 +47,8 @@
 				htmlDoc = wrapPrototypeCode(title, res.content);
 			}
 		} catch (e) {
-			console.error('preview_file failed', e);
-			missing = true;
+			// Conserviamo l'errore reale per non confondere errori di I/O con file mancante
+			loadError = `Errore durante il caricamento del file: ${String(e)}`;
 			rawContent = '';
 			htmlDoc = '';
 		} finally {
@@ -63,15 +64,20 @@
 			setTimeout(() => {
 				copied = false;
 			}, 1800);
-		} catch (e) {
-			console.error('Failed to copy', e);
+		} catch {
+			// Accesso agli appunti non consentito o non disponibile
 		}
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') onClose?.();
+		if (e.key === 'Escape') {
+			const t = e.target as HTMLElement | null;
+			if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+				return;
+			}
+			onClose?.();
+		}
 	}
-
 	$effect(() => {
 		if (projectPath && filePath) void load();
 	});
@@ -137,6 +143,11 @@
 		<div class="center-note">Caricamento prototipo...</div>
 	{:else if missing}
 		<div class="center-note">File non trovato: {filePath}</div>
+	{:else if loadError}
+		<div class="center-note error" role="alert">
+			<span>{loadError}</span>
+			<button type="button" class="retry-btn" onclick={() => void load()}>Riprova</button>
+		</div>
 	{:else if viewMode === 'code'}
 		<div class="code-view-container">
 			<pre class="code-block"><code>{rawContent}</code></pre>
@@ -191,9 +202,9 @@
 		letter-spacing: 0.05em;
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
-		background: var(--brand-glow, rgba(99, 102, 241, 0.15));
-		color: var(--brand);
-		border: 1px solid var(--brand-line, rgba(99, 102, 241, 0.3));
+		background: var(--brand-dim);
+		color: var(--brand-ink);
+		border: 1px solid var(--line);
 		flex-shrink: 0;
 	}
 
@@ -282,8 +293,8 @@
 		height: 100%;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		background: #09090b;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+		background: var(--bg-base);
+		box-shadow: var(--shadow-overlay);
 		transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
@@ -311,5 +322,26 @@
 		justify-content: center;
 		color: var(--ink-muted);
 		font-size: var(--text-sm);
+	}
+
+	.center-note.error {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		color: var(--danger);
+	}
+
+	.center-note .retry-btn {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		font-size: var(--text-xs);
+		padding: 2px 10px;
+		cursor: pointer;
+	}
+
+	.center-note .retry-btn:hover {
+		background: var(--bg-hover);
 	}
 </style>

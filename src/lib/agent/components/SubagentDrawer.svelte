@@ -8,7 +8,6 @@
 	// All'apertura alza la sottoscrizione a `events`, alla chiusura la riporta
 	// a `progress`: `events` inoltra ogni evento annidato di ogni subagent ed e'
 	// costoso durante un fan-out a 32 worker.
-	import { onDestroy, onMount } from 'svelte';
 	import type { AgentSession } from '../session.svelte';
 	import type { AgentMessage } from '../wire';
 
@@ -31,56 +30,82 @@
 	}
 
 	let messages = $state<AgentMessage[]>([]);
-	let fromByte = 0;
-	let pollTimer: number | null = null;
 	let errorText = $state<string | null>(null);
 
-	async function poll() {
-		try {
-			const res: SubagentMessagesResponse = await session.client.send({
-				type: 'get_subagent_messages',
-				subagentId,
-				fromByte
-			});
-			if (res.reset) {
-				messages = [];
-				fromByte = 0;
-			}
-			if (Array.isArray(res.messages) && res.messages.length > 0) {
-				messages = [...messages, ...res.messages];
-			}
-			if (typeof res.nextByte === 'number') {
-				fromByte = res.nextByte;
-			}
-			errorText = null;
-		} catch (error) {
-			errorText = error instanceof Error ? error.message : String(error);
-		}
-	}
+	// Polling con guardia di concorrenza, reset al cambio di subagentId e pulizia al dismount.
+	$effect(() => {
+		const currentId = subagentId;
+		let fromByte = 0;
+		let isPolling = false;
+		let destroyed = false;
 
-	onMount(() => {
+		// Reset stato locale all'avvio o al cambio di id
+		messages = [];
+		errorText = null;
+
 		// Alza sottoscrizione a `events` durante l'ispezione
 		void session.client.send({ type: 'set_subagent_subscription', level: 'events' });
+
+		async function poll() {
+			if (destroyed || isPolling) return;
+			isPolling = true;
+			try {
+				const res: SubagentMessagesResponse = await session.client.send({
+					type: 'get_subagent_messages',
+					subagentId: currentId,
+					fromByte
+				});
+				if (destroyed) return;
+				if (res.reset) {
+					messages = [];
+					fromByte = 0;
+				}
+				if (Array.isArray(res.messages) && res.messages.length > 0) {
+					messages = [...messages, ...res.messages];
+				}
+				if (typeof res.nextByte === 'number') {
+					fromByte = res.nextByte;
+				}
+				errorText = null;
+			} catch (error) {
+				if (!destroyed) {
+					errorText = error instanceof Error ? error.message : String(error);
+				}
+			} finally {
+				isPolling = false;
+			}
+		}
+
 		void poll();
-		pollTimer = window.setInterval(poll, 1500);
+		const timer = window.setInterval(poll, 1500);
 
 		return () => {
-			if (pollTimer !== null) clearInterval(pollTimer);
+			destroyed = true;
+			clearInterval(timer);
 			// Riporta a `progress` alla chiusura per risparmiare banda
 			void session.client.send({ type: 'set_subagent_subscription', level: 'progress' });
 		};
 	});
 
-	onDestroy(() => {
-		if (pollTimer !== null) clearInterval(pollTimer);
-	});
+	function handleKeydown(e: KeyboardEvent) {
+		const target = e.target as HTMLElement | null;
+		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			return;
+		}
+		if (e.key === 'Escape') {
+			e.stopPropagation();
+			onClose();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="drawer-backdrop" onclick={onClose}></div>
 
-<div class="subagent-drawer" role="dialog" aria-label="Transcript subagent">
+<div class="subagent-drawer" role="dialog" aria-modal="true" aria-label="Transcript subagent">
 	<div class="drawer-head">
 		<div class="head-info">
 			<span class="glyph">⇉</span>
@@ -98,7 +123,7 @@
 			<div class="msg-row {msg.role}">
 				<div class="msg-role">{msg.role}</div>
 				<div class="msg-body">
-					{#each msg.content ?? [] as block, bIdx (bIdx)}
+					{#each Array.isArray(msg.content) ? msg.content : [] as block, bIdx (bIdx)}
 						{#if block.type === 'text' && block.text}
 							<pre class="text-content">{block.text}</pre>
 						{:else if block.type === 'toolCall'}
@@ -183,8 +208,8 @@
 
 	.error-banner {
 		padding: var(--space-1) var(--space-3);
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
-		color: var(--brand-ink);
+		background: var(--danger-dim);
+		color: var(--danger);
 		font-size: var(--text-xs);
 	}
 

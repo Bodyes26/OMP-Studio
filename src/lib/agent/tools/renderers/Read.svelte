@@ -31,6 +31,20 @@
 	const sourceValue = $derived(str(source?.value) ?? str(args.path) ?? str(args.file) ?? '');
 	const isPath = $derived(sourceType === 'path');
 
+	// Il selettore di riga (`:10-50`, `:10+150`, ...) viaggia appiccicato al
+	// percorso: se lo si passa cosi' com'e' a Monaco, l'apertura del file fallisce
+	// perche' quel percorso non esiste sul disco.
+	function splitPathSelector(value: string): { path: string; line: number | null } {
+		const idx = value.lastIndexOf(':');
+		if (idx <= 1) return { path: value, line: null };
+		const selector = value.slice(idx + 1);
+		if (!/^(raw|\d)/.test(selector)) return { path: value, line: null };
+		const lineMatch = /\d+/.exec(selector);
+		return { path: value.slice(0, idx), line: lineMatch ? Number(lineMatch[0]) : null };
+	}
+
+	const pathSelector = $derived(isPath ? splitPathSelector(sourceValue) : { path: sourceValue, line: null });
+
 	const totalLines = $derived(num(details?.totalLines));
 	const fileSize = $derived(num(details?.fileSize));
 
@@ -67,7 +81,7 @@
 {#if view === 'summary'}
 	<div class="read-summary">
 		{#if isPath && sourceValue}
-			<PathChip path={sourceValue} />
+			<PathChip path={pathSelector.path} line={pathSelector.line} />
 		{:else if sourceValue}
 			<span class="source-text">{sourceValue}</span>
 		{/if}

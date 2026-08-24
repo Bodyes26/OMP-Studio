@@ -19,9 +19,12 @@ import {
  *  minuto e' un comando perso: senza timeout la promise resterebbe appesa. */
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-/** `compact` e `handoff` fanno una chiamata al modello: il minuto non basta. */
+/** `compact` e `handoff` fanno una chiamata al modello e `bash` esegue un
+ *  comando arbitrario: per tutti e tre il minuto non basta. Una build o una
+ *  suite di test superano regolarmente i 60 s, e il rigetto anticipato
+ *  lascerebbe il comando in esecuzione senza nessuno che ne raccoglie l'esito. */
 const SLOW_COMMAND_TIMEOUT_MS = 300_000;
-const SLOW_COMMANDS: Record<string, true> = { compact: true, handoff: true };
+const SLOW_COMMANDS: Record<string, true> = { compact: true, handoff: true, bash: true };
 
 export interface RpcError extends Error {
 	code?: string;
@@ -194,24 +197,28 @@ export class OmpRpcClient {
 
 	private settle(response: RpcResponse) {
 		// Le risposte senza `id` esistono per contratto: comando ignoto e
-		// `command: "parse"`. Senza questo ramo un errore di parse lascerebbe
-		// una promise appesa per sempre.
+		// `command: "parse"`. La correlazione si fa sul nome del comando, mai
+		// sull'anzianita': rigettare la richiesta piu' vecchia significava far
+		// fallire un `prompt` legittimo ancora in volo per colpa di un frame
+		// malformato che non lo riguardava. Se nessuna richiesta in sospeso
+		// porta quel nome, si lascia decidere al timeout: e' l'unica rete che
+		// non inventa una vittima.
 		if (typeof response.id !== 'string') {
-			const oldest = this.oldestPending();
-			if (!oldest) {
-				console.warn('Risposta RPC senza id e senza richieste in sospeso:', response.command, response.error);
+			const orphan = typeof response.command === 'string' ? this.oldestPendingOf(response.command) : null;
+			if (!orphan) {
+				console.warn(
+					'Risposta RPC senza id non correlabile:',
+					response.command,
+					response.error
+				);
 				return;
 			}
-			this.pending.delete(oldest.id);
-			window.clearTimeout(oldest.timer);
-			console.warn(
-				`Risposta RPC senza id (${response.command}): rigettata la richiesta piu' vecchia "${oldest.command}"`,
-				response.error
-			);
-			oldest.reject(
+			this.pending.delete(orphan.id);
+			window.clearTimeout(orphan.timer);
+			orphan.reject(
 				rpcError(
-					response.error ?? `Comando "${oldest.command}" non riconosciuto da omp`,
-					oldest.command,
+					response.error ?? `Comando "${orphan.command}" non riconosciuto da omp`,
+					orphan.command,
 					'uncorrelated'
 				)
 			);
@@ -230,9 +237,11 @@ export class OmpRpcClient {
 		else entry.reject(rpcError(response.error ?? 'Comando fallito', response.command, response.code));
 	}
 
-	private oldestPending(): Pending | null {
+	/** La piu' vecchia richiesta in sospeso con quel nome di comando. */
+	private oldestPendingOf(command: string): Pending | null {
 		let oldest: Pending | null = null;
 		for (const entry of this.pending.values()) {
+			if (entry.command !== command) continue;
 			if (oldest === null || entry.sentAt < oldest.sentAt) oldest = entry;
 		}
 		return oldest;

@@ -9,8 +9,16 @@ Le uniche scorciatoie globali catturate dall'app vivono dietro il modificatore *
 | `Ctrl+Alt+N` | Globale | Nuovo progetto (apre selettore cartella) |
 | `Ctrl+Alt+S` | Globale | Apre una chat Scratchpad (temporanea, `--no-session`) |
 | `Ctrl+Alt+U` | Globale | Apre e chiude il pannello consumi (quote) |
+| `Ctrl+Alt+M` / `Ctrl+Alt+,` | Globale | Apre le impostazioni dei modelli |
+| `Ctrl+Alt+A` | Globale | Passa tra la superficie TERMINAL e la superficie GUI conservando la sessione |
 | `Ctrl+Alt+Freccia Destra` | Globale | Passa al progetto aperto successivo |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Passa al progetto aperto precedente |
+| `Ctrl+P` | Composer GUI | Passa al modello successivo |
+| `/` | Composer GUI | Apre la palette dei comandi disponibili |
+| `Invio` | Composer GUI | Invia; con la palette aperta seleziona il comando evidenziato |
+| `Maiusc+Invio` | Composer GUI | Inserisce una nuova riga |
+| `Esc` | Composer GUI | Chiude palette/menu; durante lo streaming interrompe la risposta |
+| `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
 | `Ctrl+W` | Editor | Chiude il file corrente |
 | `Ctrl+F4` | Editor | Chiude il file corrente |

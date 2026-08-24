@@ -3,9 +3,16 @@
 	// Collassato per default, lo stato di espansione vive in memoria nel componente.
 	import { countLabel } from '../tools/types';
 
-	let { text = '' }: { text?: string } = $props();
+	let {
+		text = '',
+		streaming = false
+	}: {
+		text?: string;
+		streaming?: boolean;
+	} = $props();
 
 	let expanded = $state(false);
+	const bodyId = `thinking-${Math.random().toString(36).slice(2, 9)}`;
 
 	const lines = $derived(text ? text.split('\n') : []);
 	const label = $derived(
@@ -13,20 +20,26 @@
 	);
 </script>
 
-{#if text}
+{#if text || streaming}
 	<div class="thinking-block">
 		<button
 			type="button"
 			class="header-btn"
 			class:expanded
+			class:streaming
+			aria-expanded={expanded}
+			aria-controls={bodyId}
 			onclick={() => (expanded = !expanded)}
 			title={expanded ? 'Comprimi ragionamento' : 'Espandi ragionamento'}
 		>
 			<span class="chevron">{expanded ? '▾' : '▸'}</span>
 			<span class="label">{label}</span>
+			{#if streaming}
+				<span class="streaming-dot" title="In elaborazione..."></span>
+			{/if}
 		</button>
 		{#if expanded}
-			<div class="body">
+			<div id={bodyId} class="body">
 				<pre>{text}</pre>
 			</div>
 		{/if}
@@ -72,6 +85,15 @@
 		line-height: 1;
 	}
 
+
+	.streaming-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: var(--radius-full);
+		background: var(--brand);
+		margin-left: auto;
+		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+	}
 	.label {
 		font-family: var(--font-ui);
 	}

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
-	import { onDestroy } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
@@ -8,9 +7,8 @@
 
 	let usageData = $state<any>(null);
 	let loading = $state(false);
+	let fetchError = $state<string | null>(null);
 	let now = $state(Date.now());
-	let timer: any = null;
-
 	type ProviderHost = {
 		provider: string;
 		model: string;
@@ -23,6 +21,7 @@
 
 	async function fetchUsage(force = false) {
 		loading = true;
+		fetchError = null;
 		try {
 			const [usage, hosts] = await Promise.all([
 				invoke<any>('usage_snapshot', { force }),
@@ -31,7 +30,8 @@
 			usageData = usage.raw_json;
 			providerHosts = hosts;
 		} catch (e) {
-			console.error("Usage fetch failed", e);
+			// Conserviamo l'errore per mostrarlo all'utente con pulsante di riprova
+			fetchError = String(e);
 		} finally {
 			loading = false;
 		}
@@ -68,22 +68,23 @@
 
 	$effect(() => {
 		if (open) {
-			fetchUsage();
+			void fetchUsage();
 			now = Date.now();
-			timer = setInterval(() => {
+			const timer = setInterval(() => {
 				now = Date.now();
 			}, 10000);
-		} else {
-			if (timer) clearInterval(timer);
+			return () => {
+				clearInterval(timer);
+			};
 		}
 	});
 
-	onDestroy(() => {
-		if (timer) clearInterval(timer);
-	});
-
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && onClose) {
+		if (e.key === 'Escape' && open && onClose) {
+			const t = e.target as HTMLElement | null;
+			if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+				return;
+			}
 			onClose();
 		}
 	}
@@ -121,6 +122,12 @@
 			<div class="loading-bar"></div>
 		{/if}
 		<div class="content">
+			{#if fetchError}
+				<div class="usage-error" role="alert">
+					<span class="error-text" title={fetchError}>Errore quote: {fetchError}</span>
+					<button type="button" class="retry-btn" onclick={() => void fetchUsage(true)}>Riprova</button>
+				</div>
+			{/if}
 			{#if loading && !usageData}
 				<div class="loading-state">
 					<span class="spinner"></span>
@@ -171,7 +178,7 @@
 						</div>
 					{/if}
 				{/each}
-			{:else}
+			{:else if !fetchError}
 				<div class="msg">Nessun dato di utilizzo disponibile</div>
 			{/if}
 		</div>
@@ -416,9 +423,43 @@
 		animation: barFill 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 		animation-delay: calc(var(--bar-delay, 0s) + 0.1s);
 	}
-
 	@keyframes barFill {
 		from { width: 0%; }
 		to { width: var(--target-width); }
+	}
+
+	.usage-error {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg-sunken);
+		border: 1px solid var(--danger);
+		border-radius: var(--radius-sm);
+		color: var(--danger);
+		font-size: var(--text-xs);
+	}
+
+	.usage-error .error-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.usage-error .retry-btn {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		font-size: var(--text-xs);
+		padding: 2px 8px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.usage-error .retry-btn:hover {
+		background: var(--bg-hover);
 	}
 </style>

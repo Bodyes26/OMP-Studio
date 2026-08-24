@@ -13,6 +13,9 @@
   e l'output testuale in OutputBlock.
 -->
 <script lang="ts">
+	// I link ad issue/PR aprono il browser di sistema via Tauri: un `<a href>`
+	// dentro la webview non naviga fuori dall'app.
+	import { openUrl } from '@tauri-apps/plugin-opener';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -69,6 +72,12 @@
 		if (run) rows.push({ key: 'Run ID', value: run });
 		return rows;
 	});
+
+	function openLink(url: string) {
+		if (url) {
+			void openUrl(url);
+		}
+	}
 </script>
 
 {#if view === 'summary'}
@@ -102,7 +111,14 @@
 							<span class="item-state">{itemState}</span>
 						{/if}
 						{#if itemUrl}
-							<a href={itemUrl} target="_blank" rel="noreferrer" class="item-link">apri ↗</a>
+							<button
+								type="button"
+								class="item-link"
+								onclick={() => openLink(itemUrl)}
+								title="Apri nel browser"
+							>
+								apri ↗
+							</button>
 						{/if}
 					</div>
 				{/each}
@@ -190,10 +206,14 @@
 	}
 
 	.item-link {
+		background: transparent;
+		border: none;
+		padding: 0;
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
 		text-decoration: none;
 		white-space: nowrap;
+		cursor: pointer;
 	}
 
 	.item-link:hover {

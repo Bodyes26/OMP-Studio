@@ -22,20 +22,23 @@
 	const tool = $derived(pending.tool || 'tool');
 	const input = $derived(pending.input || {});
 
-	// Scorciatoie tastiera: Enter per approvare, Esc per negare.
+	// La card deve ricevere il fuoco alla comparsa: e' un gate bloccante e le
+	// scorciatoie Invio/Esc vanno gestite solo sul contenitore, mai su window,
+	// altrimenti premere Invio nel composer approverebbe una bash in sospeso.
+	let cardEl = $state<HTMLElement | null>(null);
 	$effect(() => {
-		function onKeydown(e: KeyboardEvent) {
-			if (e.key === 'Enter') {
-				e.preventDefault();
-				session.answerSelect('Approve');
-			} else if (e.key === 'Escape') {
-				e.preventDefault();
-				session.answerSelect('Deny');
-			}
-		}
-		window.addEventListener('keydown', onKeydown);
-		return () => window.removeEventListener('keydown', onKeydown);
+		cardEl?.focus();
 	});
+
+	function onCardKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			session.answerSelect('Approve');
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			session.answerSelect('Deny');
+		}
+	}
 
 	// Campi estratti per tool specifici
 	const bashCommand = $derived(str(input.command));
@@ -89,7 +92,15 @@
 	});
 </script>
 
-<div class="approval-card" role="alertdialog" aria-modal="true" aria-labelledby="approval-title">
+<div
+	class="approval-card"
+	role="alertdialog"
+	aria-modal="true"
+	aria-labelledby="approval-title"
+	tabindex="-1"
+	bind:this={cardEl}
+	onkeydown={onCardKeydown}
+>
 	<div class="header">
 		<div class="title-row">
 			<span class="gate-tag">Approvazione</span>
@@ -260,6 +271,7 @@
 		border-radius: var(--radius-md);
 		padding: var(--space-3);
 		min-width: 0;
+		outline: none;
 	}
 
 	.header {
