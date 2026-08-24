@@ -9,6 +9,21 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-24
+
+### Added
+
+- Ogni progetto dispone di una coda ordinabile di prompt: un task avvia una
+  sessione pulita, passa automaticamente allo storico e mantiene il badge `TASK`.
+- Le sessioni storiche si riprendono con un click nello stesso terminale, senza
+  riavviare il processo `omp`.
+
+### Fixed
+
+- Gli aggiornamenti di Studio non propongono più installer destinati a un altro
+  sistema operativo quando nella release manca il pacchetto compatibile.
+- Ogni nuova release viene pubblicata solo dopo aver generato sia l'installer
+  Windows x64 sia il DMG universale per Mac Intel e Apple Silicon.
 ## [0.8.1] - 2026-08-21
 
 ### Changed
