@@ -72,6 +72,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout del tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
       - name: Scarica tutti gli installer
         uses: actions/download-artifact@v4
         with:
