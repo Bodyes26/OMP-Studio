@@ -333,22 +333,31 @@ Il popover **non copre mai la viewport del terminale**: si apre ancorato in alto
 
 Vietato: grafici a torta, KPI card, numeri giganti decorativi, gradienti nelle barre.
 
-### 7.3 Colonna sinistra — albero e storico
+### 7.3 Colonna sinistra — file, git e agente
 
-Larghezza default 260px, min 180px, max 480px. Due sezioni con header sticky, commutabili:
+Larghezza default 260px, min 180px, max 480px. Tre sezioni con header sticky,
+commutabili: **FILE**, **GIT**, **AGENTE**.
 
 - **FILE** — albero della cartella progetto. Righe 22px, indentazione 12px per livello, icona 14px, nome in `--text-base`. Cartelle prima, ordine alfabetico. Filtro incrementale in cima. Directory rumorose (`bin`, `obj`, `.vs`, `packages`, `node_modules`) collassate e in `--ink-faint` per default.
-- **SESSIONI** — storico `omp` del progetto corrente. Ogni voce: primo prompt troncato su 2 righe come titolo (`--text-base`, `--ink`), sotto data relativa + modello + numero di messaggi (`--text-xs`, `--ink-faint`). Campo di ricerca full-text in cima. Click → riprende in un nuovo tab di terminale.
+- **GIT** — stato di lavoro, ultimo commit, branch e sessioni recenti collegate al lavoro.
+- **AGENTE** — due viste secondarie, **Coda** e **Sessioni**. La Coda usa righe dense senza card: maniglia di riordino, titolo derivato dalla prima riga, estratto e modifica. Il click sul testo avvia solo quando `omp` è `idle` e l'input del terminale è vuoto. Sessioni mostra il primo prompt su due righe, data relativa e badge neutro `TASK` per le sessioni nate dalla coda. Il click invia `/resume <id>` nella TUI corrente.
 
-### 7.4 Colonna centrale — editor
+Il prompt completo si modifica nella colonna centrale: textarea a tutta altezza,
+salvataggio automatico, eliminazione a doppia azione inline. Dopo un invio riuscito
+AGENTE passa a Sessioni e marca la sessione nuova come attiva.
+
+### 7.4 Colonna centrale — editor e task
 
 `--bg-sunken`. I file aperti vivono in tab per progetto: ciascuno espone nome, indicatore di modifica, diff e chiusura; il modello Monaco resta vivo finche' la tab non viene chiusa. Il salvataggio resta nel solo file attivo. Nessuna minimap per default (larghezza sprecata a questa densita'), nessun breadcrumb, nessuna barra strumenti.
+
+Quando si crea o modifica un task, il composer sostituisce temporaneamente l'editor
+senza chiuderne i modelli. Chiudendo il composer torna la superficie precedente.
 
 Stato vuoto: nessuna illustrazione. Una riga in `--ink-faint` centrata e il set di scorciatoie disponibili.
 
 ### 7.5 Colonna destra — terminale
 
-`--bg-sunken`, padding 8px sui soli lati, 0 in alto e in basso (il terminale gestisce il proprio scroll). Header minimo: nome della sessione, modello attivo, pulsante nuovo tab.
+`--bg-sunken`, padding 8px sui soli lati, 0 in alto e in basso (il terminale gestisce il proprio scroll). Task e storico pilotano questa stessa TUI con `/new` e `/resume`: non aprono tab aggiuntivi e non riavviano il PTY.
 
 **Vincolo tecnico che vincola il design:** un terminale nascosto con `display: none` misura 0 e rompe `FitAddon` ([xterm.js #3029](https://github.com/xtermjs/xterm.js/issues/3029)). I terminali dei progetti non attivi restano quindi montati e dimensionati, nascosti con `visibility: hidden` fuori dal flusso. Conseguenza di design: **non esistono transizioni di crossfade tra terminali di progetti diversi**, perché sono tutti presenti contemporaneamente. Coerente con la regola 1 del movimento.
 

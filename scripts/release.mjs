@@ -110,5 +110,6 @@ Comandi da eseguire:
   git commit -m "release: v${version}"
   git tag -a v${version} -F .release-notes.md
   git push --follow-tags
-  npx tauri build
-  gh release create v${version} "src-tauri/target/release/bundle/nsis/OMP Studio_${version}_x64-setup.exe" --title "v${version}" --notes-file .release-notes.md`);
+
+Il push del tag avvia .github/workflows/release.yml: la release viene pubblicata
+solo dopo la compilazione dell'installer Windows x64 e del DMG universale macOS.`);

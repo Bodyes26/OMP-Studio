@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::command;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 #[derive(Serialize, Deserialize)]
 pub struct Dirent {
@@ -38,9 +38,12 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
 
     let clean_rel_path = rel_path.replace('\\', "/");
 
-    let base = Path::new(&clean_project_path)
-        .canonicalize()
-        .map_err(|e| format!("Radice del progetto non valida ({}): {}", clean_project_path, e))?;
+    let base = Path::new(&clean_project_path).canonicalize().map_err(|e| {
+        format!(
+            "Radice del progetto non valida ({}): {}",
+            clean_project_path, e
+        )
+    })?;
 
     let target = if clean_rel_path.is_empty() {
         base.clone()
@@ -70,7 +73,7 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
 #[command]
 pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>, String> {
     let target = resolve_path(&project_path, &rel)?;
-    
+
     let mut entries = Vec::new();
     let dir = fs::read_dir(&target).map_err(|e| e.to_string())?;
 
@@ -79,7 +82,7 @@ pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>,
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
             let is_dir = path.is_dir();
-            
+
             // Normalize path string
             let rel_p = if rel.is_empty() {
                 name.clone()
@@ -97,7 +100,9 @@ pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>,
 
     // Sort: directories first, then alphabetical
     entries.sort_by(|a, b| {
-        b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
 
     Ok(entries)
@@ -106,11 +111,11 @@ pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>,
 #[command]
 pub async fn file_read(project_path: String, rel: String) -> Result<FileContent, String> {
     let target = resolve_path(&project_path, &rel)?;
-    
+
     // Check encoding (simple fallback to UTF-8 lossy for now)
     let bytes = fs::read(&target).map_err(|e| e.to_string())?;
     let content = String::from_utf8_lossy(&bytes).to_string();
-    
+
     Ok(FileContent { content })
 }
 
@@ -126,16 +131,22 @@ pub async fn file_git_head(project_path: String, rel: String) -> Result<GitHeadC
     let mut cmd = Command::new("git");
     cmd.current_dir(&project_path);
     cmd.args(["show", &format!("HEAD:{}", rel_norm)]);
-    
+
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
     match cmd.output() {
         Ok(output) if output.status.success() => {
             let content = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(GitHeadContent { content, exists: true })
+            Ok(GitHeadContent {
+                content,
+                exists: true,
+            })
         }
-        _ => Ok(GitHeadContent { content: String::new(), exists: false })
+        _ => Ok(GitHeadContent {
+            content: String::new(),
+            exists: false,
+        }),
     }
 }
 
@@ -302,7 +313,10 @@ fn merge_name_status_numstat(status_out: &[u8], numstat_out: &[u8]) -> Vec<Commi
 pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>, String> {
     let sep = '\u{1f}';
     let fmt = format!("%H{sep}%h{sep}%an{sep}%at{sep}%s");
-    let Some(out) = run_git(&project_path, &["log", "-1", &format!("--pretty=format:{fmt}")]) else {
+    let Some(out) = run_git(
+        &project_path,
+        &["log", "-1", &format!("--pretty=format:{fmt}")],
+    ) else {
         return Ok(None);
     };
     let text = String::from_utf8_lossy(&out).to_string();
@@ -313,12 +327,26 @@ pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>,
     let hash = parts[0].to_string();
     let status = run_git(
         &project_path,
-        &["diff-tree", "--no-commit-id", "--name-status", "-r", "-M", &hash],
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "-r",
+            "-M",
+            &hash,
+        ],
     )
     .unwrap_or_default();
     let numstat = run_git(
         &project_path,
-        &["diff-tree", "--no-commit-id", "--numstat", "-r", "-M", &hash],
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "--numstat",
+            "-r",
+            "-M",
+            &hash,
+        ],
     )
     .unwrap_or_default();
     Ok(Some(CommitInfo {
@@ -332,14 +360,23 @@ pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>,
 }
 
 #[command]
-pub async fn git_recent_commits(project_path: String, limit: Option<u32>) -> Result<Vec<CommitInfo>, String> {
+pub async fn git_recent_commits(
+    project_path: String,
+    limit: Option<u32>,
+) -> Result<Vec<CommitInfo>, String> {
     let n = limit.unwrap_or(10).clamp(1, 50);
     let sep = '\u{1f}';
     let rec = '\u{1e}';
     let fmt = format!("{rec}%H{sep}%h{sep}%an{sep}%at{sep}%s");
     let Some(out) = run_git(
         &project_path,
-        &["log", &format!("-n{n}"), &format!("--pretty=format:{fmt}"), "--name-status", "-M"],
+        &[
+            "log",
+            &format!("-n{n}"),
+            &format!("--pretty=format:{fmt}"),
+            "--name-status",
+            "-M",
+        ],
     ) else {
         return Ok(Vec::new());
     };
@@ -389,9 +426,11 @@ pub async fn git_recent_commits(project_path: String, limit: Option<u32>) -> Res
 
 #[command]
 pub async fn git_current_branch(project_path: String) -> Result<String, String> {
-    Ok(run_git(&project_path, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .map(|b| String::from_utf8_lossy(&b).trim().to_string())
-        .unwrap_or_default())
+    Ok(
+        run_git(&project_path, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .map(|b| String::from_utf8_lossy(&b).trim().to_string())
+            .unwrap_or_default(),
+    )
 }
 
 #[command]
@@ -420,7 +459,11 @@ pub async fn git_working_numstat(project_path: String) -> Result<HashMap<String,
 /// Serve al diff dei commit: l'originale e' `<hash>~1`, il modificato e'
 /// `<hash>`. Il blocco `..` e' una difesa in piu' rispetto a `file_git_head`.
 #[command]
-pub async fn file_git_rev(project_path: String, rel: String, rev: String) -> Result<GitRevContent, String> {
+pub async fn file_git_rev(
+    project_path: String,
+    rel: String,
+    rev: String,
+) -> Result<GitRevContent, String> {
     if rel.split(['/', '\\']).any(|seg| seg == "..") {
         return Err("Percorso non valido".to_string());
     }
@@ -452,7 +495,10 @@ pub struct GitBranch {
 /// Elenco dei branch locali. `current` marca quello attivo.
 #[command]
 pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, String> {
-    let Some(out) = run_git(&project_path, &["branch", "--list", "--format=%(HEAD)%00%(refname:short)"]) else {
+    let Some(out) = run_git(
+        &project_path,
+        &["branch", "--list", "--format=%(HEAD)%00%(refname:short)"],
+    ) else {
         return Ok(Vec::new());
     };
     let mut branches = Vec::new();
@@ -481,7 +527,10 @@ pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, Str
 pub async fn git_branch_checkout(project_path: String, name: String) -> Result<(), String> {
     let status = project_git_status(project_path.clone()).await?;
     if !status.statuses.is_empty() {
-        return Err("Ci sono modifiche non committate: committale o scartale prima di cambiare branch".to_string());
+        return Err(
+            "Ci sono modifiche non committate: committale o scartale prima di cambiare branch"
+                .to_string(),
+        );
     }
     let mut cmd = Command::new("git");
     cmd.current_dir(&project_path);
@@ -567,7 +616,12 @@ fn parse_candidate(raw: &str) -> (String, Option<usize>) {
         s = rest;
     }
 
-    s = s.trim_end_matches(|c: char| matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '>' | '\'' | '"' | '`'));
+    s = s.trim_end_matches(|c: char| {
+        matches!(
+            c,
+            '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '>' | '\'' | '"' | '`'
+        )
+    });
 
     let mut line: Option<usize> = None;
     let mut path_part = s.to_string();
@@ -576,7 +630,13 @@ fn parse_candidate(raw: &str) -> (String, Option<usize>) {
         let after_hash = &path_part[hash_idx + 1..];
         if let Some(colon_idx) = after_hash.find(':') {
             let line_str = &after_hash[colon_idx + 1..];
-            let num_str = line_str.split('-').next().unwrap_or(line_str).split(':').next().unwrap_or(line_str);
+            let num_str = line_str
+                .split('-')
+                .next()
+                .unwrap_or(line_str)
+                .split(':')
+                .next()
+                .unwrap_or(line_str);
             if let Ok(n) = num_str.parse::<usize>() {
                 if n > 0 {
                     line = Some(n);
@@ -704,7 +764,10 @@ fn find_file_in_dir(dir: &Path, target_name: &str, depth: usize) -> Option<PathB
     None
 }
 
-pub fn resolve_project_file_sync(project_path: &str, candidate: &str) -> Result<Option<ResolvedFile>, String> {
+pub fn resolve_project_file_sync(
+    project_path: &str,
+    candidate: &str,
+) -> Result<Option<ResolvedFile>, String> {
     if project_path.trim().is_empty() || candidate.trim().is_empty() {
         return Ok(None);
     }
@@ -731,15 +794,20 @@ pub fn resolve_project_file_sync(project_path: &str, candidate: &str) -> Result<
         raw_path = raw_path[2..].to_string();
     }
 
-    if raw_path.is_empty() || raw_path.contains('\0') || raw_path.starts_with("http://") || raw_path.starts_with("https://") {
+    if raw_path.is_empty()
+        || raw_path.contains('\0')
+        || raw_path.starts_with("http://")
+        || raw_path.starts_with("https://")
+    {
         return Ok(None);
     }
 
-    let candidates_to_try = if (raw_path.starts_with("a/") || raw_path.starts_with("b/")) && raw_path.len() > 2 {
-        vec![raw_path.clone(), raw_path[2..].to_string()]
-    } else {
-        vec![raw_path.clone()]
-    };
+    let candidates_to_try =
+        if (raw_path.starts_with("a/") || raw_path.starts_with("b/")) && raw_path.len() > 2 {
+            vec![raw_path.clone(), raw_path[2..].to_string()]
+        } else {
+            vec![raw_path.clone()]
+        };
 
     for path_str in &candidates_to_try {
         let p = Path::new(path_str);
@@ -782,17 +850,21 @@ pub fn resolve_project_file_sync(project_path: &str, candidate: &str) -> Result<
 }
 
 #[command]
-pub async fn resolve_project_file(project_path: String, candidate: String) -> Result<Option<ResolvedFile>, String> {
-    tokio::task::spawn_blocking(move || {
-        resolve_project_file_sync(&project_path, &candidate)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+pub async fn resolve_project_file(
+    project_path: String,
+    candidate: String,
+) -> Result<Option<ResolvedFile>, String> {
+    tokio::task::spawn_blocking(move || resolve_project_file_sync(&project_path, &candidate))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_path, resolve_project_file_sync, merge_name_status_numstat, git_last_commit, git_recent_commits, file_git_rev};
+    use super::{
+        file_git_rev, git_last_commit, git_recent_commits, merge_name_status_numstat, resolve_path,
+        resolve_project_file_sync,
+    };
     use std::fs;
     #[cfg(windows)]
     use std::process::Command;
@@ -831,7 +903,11 @@ mod tests {
     fn rifiuta_la_risalita_fuori_dalla_radice() {
         let root = temp_dir("risalita");
 
-        assert!(resolve_path(root.to_str().unwrap(), "../../windows/system32/drivers/etc/hosts").is_err());
+        assert!(resolve_path(
+            root.to_str().unwrap(),
+            "../../windows/system32/drivers/etc/hosts"
+        )
+        .is_err());
     }
 
     /// Il caso che il conteggio dei componenti non vedeva: un collegamento dentro la
@@ -856,7 +932,10 @@ mod tests {
         let creato = std::os::unix::fs::symlink(&fuori, &dentro).is_ok();
 
         assert!(creato, "impossibile creare il collegamento di prova");
-        assert!(dentro.join("segreto.txt").exists(), "il collegamento non attraversa");
+        assert!(
+            dentro.join("segreto.txt").exists(),
+            "il collegamento non attraversa"
+        );
 
         assert!(resolve_path(root.to_str().unwrap(), "scorciatoia/segreto.txt").is_err());
     }
@@ -871,43 +950,61 @@ mod tests {
         let root_str = root.to_str().unwrap();
 
         // Percorso relativo esatto
-        let r1 = resolve_project_file_sync(root_str, "AGENTS.md").unwrap().unwrap();
+        let r1 = resolve_project_file_sync(root_str, "AGENTS.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(r1.rel_path, "AGENTS.md");
         assert_eq!(r1.line, None);
 
         // Case insensitive su nome file
-        let r2 = resolve_project_file_sync(root_str, "agents.md").unwrap().unwrap();
+        let r2 = resolve_project_file_sync(root_str, "agents.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(r2.rel_path, "AGENTS.md");
 
         // Con numero di riga
-        let r3 = resolve_project_file_sync(root_str, "src/lib/Editor.svelte:75").unwrap().unwrap();
+        let r3 = resolve_project_file_sync(root_str, "src/lib/Editor.svelte:75")
+            .unwrap()
+            .unwrap();
         assert_eq!(r3.rel_path, "src/lib/Editor.svelte");
         assert_eq!(r3.line, Some(75));
 
         // Con riga e colonna
-        let r4 = resolve_project_file_sync(root_str, "src/lib/Editor.svelte:75:10").unwrap().unwrap();
+        let r4 = resolve_project_file_sync(root_str, "src/lib/Editor.svelte:75:10")
+            .unwrap()
+            .unwrap();
         assert_eq!(r4.rel_path, "src/lib/Editor.svelte");
         assert_eq!(r4.line, Some(75));
 
         // Con formato snapshot tool header
-        let r5 = resolve_project_file_sync(root_str, "[src/lib/Editor.svelte#A44A:42-80]").unwrap().unwrap();
+        let r5 = resolve_project_file_sync(root_str, "[src/lib/Editor.svelte#A44A:42-80]")
+            .unwrap()
+            .unwrap();
         assert_eq!(r5.rel_path, "src/lib/Editor.svelte");
         assert_eq!(r5.line, Some(42));
 
         // Con formato git diff
-        let r6 = resolve_project_file_sync(root_str, "b/src/lib/Editor.svelte").unwrap().unwrap();
+        let r6 = resolve_project_file_sync(root_str, "b/src/lib/Editor.svelte")
+            .unwrap()
+            .unwrap();
         assert_eq!(r6.rel_path, "src/lib/Editor.svelte");
 
         // Ricerca automatica di nome file isolato in sottocartella
-        let r7 = resolve_project_file_sync(root_str, "Editor.svelte").unwrap().unwrap();
+        let r7 = resolve_project_file_sync(root_str, "Editor.svelte")
+            .unwrap()
+            .unwrap();
         assert_eq!(r7.rel_path, "src/lib/Editor.svelte");
 
         // Con punteggiatura finale
-        let r8 = resolve_project_file_sync(root_str, "agents.md.").unwrap().unwrap();
+        let r8 = resolve_project_file_sync(root_str, "agents.md.")
+            .unwrap()
+            .unwrap();
         assert_eq!(r8.rel_path, "AGENTS.md");
 
         // Con virgolette o backtick
-        let r9 = resolve_project_file_sync(root_str, "`AGENTS.md`").unwrap().unwrap();
+        let r9 = resolve_project_file_sync(root_str, "`AGENTS.md`")
+            .unwrap()
+            .unwrap();
         assert_eq!(r9.rel_path, "AGENTS.md");
     }
 
@@ -972,12 +1069,13 @@ mod tests {
     fn file_git_rev_legge_head_e_rifiuta_traversal() {
         let repo = env!("CARGO_MANIFEST_DIR");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let ok = rt.block_on(file_git_rev(
-            repo.to_string(),
-            "src-tauri/Cargo.toml".to_string(),
-            "HEAD".to_string(),
-        ))
-        .unwrap();
+        let ok = rt
+            .block_on(file_git_rev(
+                repo.to_string(),
+                "src-tauri/Cargo.toml".to_string(),
+                "HEAD".to_string(),
+            ))
+            .unwrap();
         assert!(ok.exists);
         assert!(ok.content.contains("[package]"));
 

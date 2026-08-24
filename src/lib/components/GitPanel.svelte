@@ -6,13 +6,17 @@
 		agentState,
 		onOpenWorkingDiff,
 		onOpenCommitDiff,
-		onResumeSession
+		onResumeSession,
+		canResume = true,
+		resumeReason = ''
 	}: {
 		projectPath: string;
 		agentState?: string;
 		onOpenWorkingDiff?: (path: string) => void;
 		onOpenCommitDiff?: (path: string, hash: string, short: string) => void;
 		onResumeSession?: (sessionId: string) => void;
+		canResume?: boolean;
+		resumeReason?: string;
 	} = $props();
 
 	interface CommitFileEntry {
@@ -213,7 +217,8 @@
 			{#each sessions.slice(0, 8) as s (s.id)}
 				<button
 					class="row session-row"
-					title="{s.title} — clicca per riprendere questa sessione"
+					disabled={!canResume}
+					title={canResume ? `${s.title} — clicca per riprendere questa sessione` : resumeReason}
 					onclick={() => onResumeSession?.(s.id)}
 				>
 					<span class="badge session-badge" aria-hidden="true">◆</span>

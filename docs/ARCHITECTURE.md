@@ -111,12 +111,14 @@ lib/
   ipc.ts                wrapper tipizzati su invoke/Channel, un solo punto di contatto con Tauri
   stores/
     projects.svelte.ts  $state: progetti aperti, attivo, stato per progetto
-    layout.svelte.ts    $state: larghezze colonne, collassi, per progetto
-    usage.svelte.ts     $state: ultimo snapshot quote, derivate di severita
-    sessions.svelte.ts  $state: storico del progetto attivo, query di ricerca
+    tasks.svelte.ts     $state: code per path, ordine, viste e origine sessioni
+  components/
+    AgentPanel.svelte   coda task e navigazione dello storico
+    TaskEditor.svelte   composer persistente del prompt
+    SessionList.svelte  storico da history.db + badge locali
   terminal/
-    Terminal.svelte     un'istanza xterm per sessione, mai smontata al cambio progetto
-    terminal.ts         factory: addon, tema dai token, fit + ResizeObserver con debounce
+    Terminal.svelte     un'istanza xterm per progetto, mai smontata al cambio
+    terminal.ts         addon, tema, fit, input pending, /new e /resume
   editor/
     Editor.svelte       istanza Monaco singola, modelli multipli
     monaco.ts           MonacoEnvironment.getWorker, tema derivato dai token
@@ -142,16 +144,18 @@ Un solo modulo frontend (`lib/ipc.ts`) parla con Rust. Nessun componente chiama 
 ```rust
 // --- PTY ---
 #[tauri::command] async fn pty_open(
-    project_id: String,
     cwd: String,
-    args: Vec<String>,          // es. ["--resume", "<id>"] oppure ["--no-session"]
+    args: Vec<String>,          // ["--no-session"] per lo scratchpad
     cols: u16, rows: u16,
     on_output: tauri::ipc::Channel<&[u8]>,
-) -> Result<PtyHandle, AppError>;
+) -> Result<u64, String>;
 
-#[tauri::command] async fn pty_write(pty_id: u64, data: Vec<u8>) -> Result<(), AppError>;
-#[tauri::command] async fn pty_resize(pty_id: u64, cols: u16, rows: u16) -> Result<(), AppError>;
-#[tauri::command] async fn pty_close(pty_id: u64) -> Result<(), AppError>;
+#[tauri::command] async fn pty_write(pty_id: u64, data: Vec<u8>) -> Result<(), String>;
+#[tauri::command] async fn pty_resize(pty_id: u64, cols: u16, rows: u16) -> Result<(), String>;
+#[tauri::command] async fn pty_close(pty_id: u64) -> Result<(), String>;
+#[tauri::command] async fn pty_session_info(
+    pty_id: u64,
+) -> Result<Option<PtySessionInfo>, String>;
 #[tauri::command] async fn pty_list(project_id: Option<String>) -> Result<Vec<PtyInfo>, AppError>;
 
 // --- Progetti ---
@@ -254,11 +258,15 @@ Al `pty_close` la sequenza è: chiusura del writer, `child.kill()` se ancora viv
 
 `term.onResize` → `pty_resize` → `MasterPty::resize()`. La JSDoc di `Terminal.resize()` raccomanda esplicitamente il debounce, per dare al pty il tempo di reagire prima del resize successivo: **debounce 150 ms** sul `ResizeObserver`, e `fit()` chiamato solo su container visibile e con dimensioni non nulle.
 
-### 5.5 Uscita del processo e recupero
+### 5.5 Uscita del processo, task e ripresa
 
-Quando `omp` esce (`/exit`, crash, kill esterno) il reader riceve EOF. Il tab non viene chiuso automaticamente: la viewport resta leggibile con l'ultimo output e il codice di uscita, più un'azione di riavvio. Chiudere il tab cancellerebbe l'unica traccia visibile del motivo dell'uscita.
+Quando `omp` esce (`/exit`, crash, kill esterno) il reader riceve EOF. Il tab non viene chiuso automaticamente: la viewport resta leggibile con l'ultimo output e il codice di uscita, più un'azione di riavvio.
 
-La ripresa dopo un'uscita non ricostruisce nulla a mano: la sessione logica è persistita da `omp` e si riapre con `--continue` nella stessa cartella, oppure con `--resume <session_id>` preso da `history.db`. Il PTY è un processo, la sessione è un file: l'app non confonde le due cose.
+Con un PTY vivo Studio non sostituisce il processo per cambiare sessione. La coda invia
+`/new`, attende che il breadcrumb `terminal-sessions/wt-<id>` punti al nuovo `.jsonl`,
+incolla il prompt in bracketed paste e conferma. Lo storico invia `/resume <session_id>`
+e attende lo stesso breadcrumb come conferma. Il PTY resta lo stesso; cambia soltanto
+la sessione logica gestita da `omp`.
 
 ---
 
@@ -302,6 +310,11 @@ Monaco invece è **un'istanza sola** per tutta l'app, con un `ITextModel` per fi
 Scritture con debounce di 500 ms e scrittura atomica (file temporaneo più rename). Il layout è **per progetto**, come richiesto dal principio 6 di `PRODUCT.md`.
 
 Le sessioni di terminale **non** vengono persistite: un PTY non sopravvive alla chiusura dell'app. Alla riapertura si riaprono i progetti e si offre la ripresa dell'ultima sessione di ognuno tramite `--continue`, che è il comportamento onesto: la sessione logica di `omp` sopravvive, il processo no.
+
+Le code task vivono in `tasks.json`, separate dalla configurazione dei progetti. La
+chiave è il path normalizzato, quindi chiudere e riaprire un progetto non perde la
+coda. Dopo l'avvio resta soltanto il mapping tra session ID e task necessario al badge
+`TASK`; i file di sessione e `history.db` restano di proprietà di `omp`.
 
 ---
 

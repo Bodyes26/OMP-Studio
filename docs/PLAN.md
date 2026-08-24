@@ -232,6 +232,28 @@ Questo è il primo gate perché l'intera barra progetti si appoggia alla riga su
 - [ ] Ogni stato di errore è stato provocato di proposito e si presenta bene.
 - [ ] **Prova finale: una settimana di lavoro reale su progetti reali senza riaprire VS Code per il flusso `omp`.**
 
+## Fase 7 — Coda task e ripresa in-place
+
+**Obiettivo:** parcheggiare il prossimo prompt per progetto e trasformarlo in una
+sessione senza interrompere o ricreare il PTY corrente.
+
+### Passi
+
+1. Store `tasks.json`: prompt, ordine manuale, vista AGENTE e mapping sessione → task.
+2. Tab AGENTE con sottoviste Coda e Sessioni; composer del prompt nella colonna centrale.
+3. Gate unico per automazioni: solo `idle`, input terminale vuoto e nessuna transizione attiva.
+4. Avvio task: `/new`, attesa del nuovo breadcrumb, bracketed paste del prompt, invio.
+5. Ripresa storica: `/resume <session_id>` nella TUI corrente, senza `pty_close`.
+6. Badge `TASK`, sessione attiva e riconciliazione immediata con `history.db`.
+
+### Accettazione
+
+- [x] I task restano associati al progetto e mantengono l'ordine dopo il riavvio.
+- [x] Un prompt multilinea crea una nuova sessione e passa dalla Coda a Sessioni.
+- [x] La sessione creata mostra `TASK` e `ATTIVA`.
+- [x] Un click su una sessione idle la riprende nello stesso PTY con `/resume`.
+- [x] Working, attention, stato sconosciuto e input non inviato bloccano l'automazione.
+
 ---
 
 ## Ordine dei lavori e dipendenze
@@ -245,6 +267,8 @@ graph LR
   F3 --> F5["Fase 5<br/>Usage + Storico"]
   F4 --> F6["Fase 6<br/>Rifinitura"]
   F5 --> F6
+  F5 --> F7["Fase 7<br/>Coda task"]
+  F6 --> F7
 ```
 
 Le fasi 4 e 5 sono indipendenti: toccano colonne diverse e fonti dati diverse. Si possono affrontare in parallelo o nell'ordine che preferisci. Tutte le altre sono in sequenza stretta, perché ognuna appoggia sulla precedente.

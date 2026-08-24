@@ -1,15 +1,15 @@
+use rusqlite::{Connection, OpenFlags};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use rusqlite::{Connection, OpenFlags};
-use serde::Serialize;
-use std::path::PathBuf;
-use std::process::Command;
-use tauri::command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::command;
 fn get_user_home() -> Option<String> {
     if let Ok(home) = std::env::var("HOME") {
         if !home.is_empty() {
@@ -39,11 +39,12 @@ fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
     let path = get_db_path(db_name);
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
         .map_err(|e| format!("Cannot open db {}: {}", db_name, e))?;
-    
+
     conn.execute_batch(
         "PRAGMA query_only = ON;
-         PRAGMA busy_timeout = 3000;"
-    ).map_err(|e| e.to_string())?;
+         PRAGMA busy_timeout = 3000;",
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(conn)
 }
@@ -120,8 +121,13 @@ pub async fn theme_apply(theme: serde_json::Value) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("Cartella temi: {}", e))?;
 
     let mut theme = theme;
-    let obj = theme.as_object_mut().ok_or("Il tema non e' un oggetto JSON")?;
-    obj.insert("name".into(), serde_json::Value::String(STUDIO_THEME_NAME.into()));
+    let obj = theme
+        .as_object_mut()
+        .ok_or("Il tema non e' un oggetto JSON")?;
+    obj.insert(
+        "name".into(),
+        serde_json::Value::String(STUDIO_THEME_NAME.into()),
+    );
     obj.remove("$schema");
 
     let body = serde_json::to_string_pretty(&theme).map_err(|e| e.to_string())?;
@@ -185,10 +191,11 @@ pub async fn usage_snapshot(_force: bool) -> Result<UsageReport, String> {
     }
 
     let output = cmd.output().map_err(|e| e.to_string())?;
-    
+
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
-        let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
         Ok(UsageReport { raw_json: parsed })
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
@@ -434,23 +441,27 @@ pub struct SessionEntry {
 #[command]
 pub async fn sessions_list(project_path: String) -> Result<Vec<SessionEntry>, String> {
     let conn = open_readonly_db("history.db")?;
-    
-    let mut stmt = conn.prepare(
-        "SELECT session_id, prompt, MIN(created_at) as created_at 
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT session_id, prompt, MIN(created_at) as created_at 
          FROM history 
          WHERE cwd = ? AND prompt NOT LIKE '/%' 
          GROUP BY session_id 
          ORDER BY created_at DESC 
-         LIMIT 50"
-    ).map_err(|e| e.to_string())?;
+         LIMIT 50",
+        )
+        .map_err(|e| e.to_string())?;
 
-    let iter = stmt.query_map([&project_path], |row| {
-        Ok(SessionEntry {
-            id: row.get(0)?,
-            title: row.get(1)?,
-            created_at: row.get(2)?,
+    let iter = stmt
+        .query_map([&project_path], |row| {
+            Ok(SessionEntry {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                created_at: row.get(2)?,
+            })
         })
-    }).map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
 
     let mut sessions = Vec::new();
     for row in iter {
@@ -458,14 +469,17 @@ pub async fn sessions_list(project_path: String) -> Result<Vec<SessionEntry>, St
             sessions.push(s);
         }
     }
-    
+
     Ok(sessions)
 }
 
 #[command]
-pub async fn sessions_search(query: String, project_path: Option<String>) -> Result<Vec<SessionEntry>, String> {
+pub async fn sessions_search(
+    query: String,
+    project_path: Option<String>,
+) -> Result<Vec<SessionEntry>, String> {
     let conn = open_readonly_db("history.db")?;
-    
+
     let sql = if project_path.is_some() {
         "SELECT h.session_id, h.prompt, h.created_at 
          FROM history_fts f 
@@ -487,26 +501,30 @@ pub async fn sessions_search(query: String, project_path: Option<String>) -> Res
     let mut sessions = Vec::new();
 
     if let Some(path) = project_path {
-        let iter = stmt.query_map(rusqlite::params![query, path], |row| {
-            Ok(SessionEntry {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                created_at: row.get(2)?,
+        let iter = stmt
+            .query_map(rusqlite::params![query, path], |row| {
+                Ok(SessionEntry {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    created_at: row.get(2)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
         for row in iter {
             if let Ok(s) = row {
                 sessions.push(s);
             }
         }
     } else {
-        let iter = stmt.query_map([&query], |row| {
-            Ok(SessionEntry {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                created_at: row.get(2)?,
+        let iter = stmt
+            .query_map([&query], |row| {
+                Ok(SessionEntry {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    created_at: row.get(2)?,
+                })
             })
-        }).map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?;
         for row in iter {
             if let Ok(s) = row {
                 sessions.push(s);
@@ -535,10 +553,16 @@ pub async fn get_omp_version() -> Result<String, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd.output().map_err(|e| format!("Failed to run omp: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to run omp: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let trimmed = stdout.trim();
-    let ver = trimmed.trim_start_matches("omp").trim_start_matches('/').trim_start_matches('v').trim();
+    let ver = trimmed
+        .trim_start_matches("omp")
+        .trim_start_matches('/')
+        .trim_start_matches('v')
+        .trim();
     if ver.is_empty() {
         Err("Unable to parse version".to_string())
     } else {
@@ -557,13 +581,20 @@ pub async fn check_omp_update() -> Result<OmpUpdateCheck, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd.output().map_err(|e| format!("Failed to check omp update: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to check omp update: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}\n{}", stdout, stderr);
 
-    let current_version = get_omp_version().await.unwrap_or_else(|_| "unknown".to_string());
-    let has_update = !combined.contains("Already up to date") && (combined.contains("Update available") || combined.contains("-->") || combined.contains("new version"));
+    let current_version = get_omp_version()
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
+    let has_update = !combined.contains("Already up to date")
+        && (combined.contains("Update available")
+            || combined.contains("-->")
+            || combined.contains("new version"));
 
     Ok(OmpUpdateCheck {
         has_update,
@@ -584,7 +615,9 @@ pub async fn run_omp_update() -> Result<String, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd.output().map_err(|e| format!("Failed to run omp update: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to run omp update: {}", e))?;
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         Ok(stdout.trim().to_string())

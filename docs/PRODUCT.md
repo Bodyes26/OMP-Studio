@@ -16,7 +16,7 @@ Desktop Windows 11 x64, Tauri 2 + WebView2. Nessun mobile, nessuna versione brow
 nessun server. L'app gira in locale e parla solo con il filesystem, con `git` e con
 `omp` installati sulla macchina.
 
-## I tre problemi che risolve
+## I quattro problemi che risolve
 
 **1. Cambiare progetto senza costo mentale.** Con un agente per progetto e una finestra
 per progetto, ricordare quale sessione gira in quale finestra è lavoro che ricade
@@ -28,14 +28,19 @@ dall'interno di una sessione significa aprire un secondo terminale ed eseguire u
 comando solo per leggere un numero. Qui l'usage sta dietro un'icona in barra, con dati
 reali da `omp usage --json`, aggiornati mentre l'agente lavora.
 
-**3. Riprendere un lavoro interrotto in un click.** Riprendere a mano significa
+**3. Non perdere il prossimo lavoro mentre l'agente è occupato.** Ogni progetto ha una
+coda manuale di prompt: si scrive il prossimo task, lo si riordina e lo si avvia quando
+`omp` torna in attesa. Studio crea una sessione pulita con `/new`, invia il prompt e
+mantiene nello storico l'origine del task.
+
+**4. Riprendere un lavoro interrotto in un click.** Riprendere a mano significa
 ricordare il progetto, riaprire la cartella, riavviare l'agente, cercare la sessione
 giusta in un elenco. Qui lo storico è una lista per progetto, con il primo prompt come
-titolo, ricercabile full-text.
+titolo, ricercabile full-text e riprendibile con `/resume` nello stesso terminale.
 
 **Successo si misura così:** passare da progetto a progetto non richiede di ricordare
-nulla; conoscere la quota residua non richiede di interrompere niente; riprendere una
-sessione di ieri richiede un click.
+nulla; conoscere la quota residua non richiede di interrompere niente; il prossimo
+prompt resta nella coda del progetto; riprendere una sessione di ieri richiede un click.
 
 ## Non-obiettivi
 

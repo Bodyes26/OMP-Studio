@@ -1,14 +1,24 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { TerminalSession } from './terminal';
+	import { TerminalSession, type TerminalAgentState, type TerminalSessionInfo } from './terminal';
 	import '@xterm/xterm/css/xterm.css';
 
-	let { cwd = '.', visible = true, onStateChange, onOpenFile, sessionRef } = $props<{
-		cwd?: string,
-		visible?: boolean,
-		onStateChange?: (s: string) => void,
-		onOpenFile?: (relPath: string, line: number | null) => void,
-		sessionRef?: (session: TerminalSession | null) => void
+	let {
+		cwd = '.',
+		visible = true,
+		onStateChange,
+		onOpenFile,
+		onInputPendingChange,
+		onSessionChange,
+		sessionRef
+	} = $props<{
+		cwd?: string;
+		visible?: boolean;
+		onStateChange?: (state: TerminalAgentState) => void;
+		onOpenFile?: (relPath: string, line: number | null) => void;
+		onInputPendingChange?: (pending: boolean) => void;
+		onSessionChange?: (session: TerminalSessionInfo | null) => void;
+		sessionRef?: (session: TerminalSession | null) => void;
 	}>();
 
 	let container: HTMLElement;
@@ -18,15 +28,17 @@
 		session = new TerminalSession(
 			container,
 			cwd,
-			(s) => onStateChange?.(s),
-			(relPath, line) => onOpenFile?.(relPath, line)
+			(state) => onStateChange?.(state),
+			(relPath, line) => onOpenFile?.(relPath, line),
+			(pending) => onInputPendingChange?.(pending),
+			(info) => onSessionChange?.(info)
 		);
 		sessionRef?.(session);
 
-		const handleRestart = (e: any) => {
-			const targetCwd = e.detail?.targetCwd;
+		const handleRestart = (event: Event) => {
+			const targetCwd = (event as CustomEvent<{ targetCwd?: string }>).detail?.targetCwd;
 			if (!targetCwd || targetCwd === cwd) {
-				session?.restart();
+				void session?.restart();
 			}
 		};
 

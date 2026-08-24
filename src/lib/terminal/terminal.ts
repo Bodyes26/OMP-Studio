@@ -23,6 +23,15 @@ const MONO_FONT = IS_MAC
 	? `${BUNDLED_NF}, "BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font Mono", "FiraCode Nerd Font", "Hack Nerd Font Mono", "Hack Nerd Font", "MesloLGS NF", "Symbols Nerd Font Mono", "Symbols Nerd Font", Menlo, monospace`
 	: `"BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "Symbols Nerd Font Mono", "Symbols Nerd Font", "Cascadia Mono", Consolas, ${BUNDLED_NF}, monospace`;
 
+export type TerminalAgentState = 'idle' | 'working' | 'attention' | 'unknown';
+
+export interface TerminalSessionInfo {
+	sessionId: string;
+	sessionPath: string;
+	cwd: string;
+	fresh: boolean;
+}
+
 export class TerminalSession {
 	private term: Terminal;
 	private fitAddon: FitAddon;
@@ -33,20 +42,29 @@ export class TerminalSession {
 	private resizeTimeout: number | null = null;
 	private disposed = false;
 	private unsubscribeTheme: () => void;
+	private currentState: TerminalAgentState = 'unknown';
+	private pendingInputLength = 0;
+	private currentSession: TerminalSessionInfo | null = null;
 
-	public onStateChange: (state: 'idle' | 'working' | 'attention' | 'unknown') => void = () => {};
+	public onStateChange: (state: TerminalAgentState) => void = () => {};
 	public onOpenFile: (relPath: string, line: number | null) => void = () => {};
+	public onInputPendingChange: (pending: boolean) => void = () => {};
+	public onSessionChange: (session: TerminalSessionInfo | null) => void = () => {};
 
 	constructor(
 		container: HTMLElement,
 		cwd: string,
-		onStateChange: (state: 'idle' | 'working' | 'attention' | 'unknown') => void,
-		onOpenFile: (relPath: string, line: number | null) => void
+		onStateChange: (state: TerminalAgentState) => void,
+		onOpenFile: (relPath: string, line: number | null) => void,
+		onInputPendingChange: (pending: boolean) => void,
+		onSessionChange: (session: TerminalSessionInfo | null) => void
 	) {
 		this.container = container;
 		this.cwd = cwd;
 		this.onStateChange = onStateChange;
 		this.onOpenFile = onOpenFile;
+		this.onInputPendingChange = onInputPendingChange;
+		this.onSessionChange = onSessionChange;
 
 		this.term = new Terminal({
 			allowProposedApi: true,
@@ -120,10 +138,10 @@ export class TerminalSession {
 		});
 
 		this.term.onData((data) => {
-			if (this.ptyId !== null) {
-				const encoded = new TextEncoder().encode(data);
-				invoke('pty_write', { ptyId: this.ptyId, data: Array.from(encoded) });
-			}
+			this.trackUserInput(data);
+			void this.writePty(data).catch((error) => {
+				console.error('Scrittura input nel PTY:', error);
+			});
 		});
 
 		this.term.onResize((size) => {
@@ -133,9 +151,14 @@ export class TerminalSession {
 		});
 
 		this.term.onTitleChange((title) => {
-			const m = TITLE_STATE_REGEX.exec(title);
-			const state = m ? ({ ">": "idle", ":": "working", "!": "attention" } as const)[m[1] as ">"|":"|"!"] : "unknown";
+			const match = TITLE_STATE_REGEX.exec(title);
+			const state = match
+				? ({ ">": "idle", ":": "working", "!": "attention" } as const)[match[1] as ">" | ":" | "!"]
+				: "unknown";
+			this.currentState = state;
+			if (state === 'working') this.setInputPending(0);
 			this.onStateChange(state);
+			if (state === 'idle') void this.refreshSessionInfo();
 		});
 
 		this.resizeObserver = new ResizeObserver(() => {
@@ -144,8 +167,7 @@ export class TerminalSession {
 		});
 
 		this.resizeObserver.observe(container);
-		
-		this.startPty(cwd);
+		void this.startPty(cwd);
 	}
 
 	private async activateFileCandidate(candidate: string) {
@@ -163,31 +185,138 @@ export class TerminalSession {
 		}
 	}
 
+	private setInputPending(length: number) {
+		const wasPending = this.pendingInputLength > 0;
+		this.pendingInputLength = Math.max(0, length);
+		const isPending = this.pendingInputLength > 0;
+		if (wasPending !== isPending) this.onInputPendingChange(isPending);
+	}
 
-	private async startPty(cwd: string, extraArg?: string) {
+	private trackUserInput(data: string) {
+		const pasteStart = '\x1b[200~';
+		const pasteEnd = '\x1b[201~';
+		if (data.includes(pasteStart)) {
+			const content = data.replaceAll(pasteStart, '').replaceAll(pasteEnd, '');
+			this.setInputPending(this.pendingInputLength + Array.from(content).length);
+			return;
+		}
+		if (data === '\r' || data === '\n' || data === '\x03' || data === '\x15') {
+			this.setInputPending(0);
+			return;
+		}
+		if (data.startsWith('\x1b')) return;
+
+		let length = this.pendingInputLength;
+		for (const character of data) {
+			if (character === '\x7f' || character === '\b') length = Math.max(0, length - 1);
+			else if (character >= ' ') length += 1;
+		}
+		this.setInputPending(length);
+	}
+
+	private async writePty(data: string) {
+		if (this.ptyId === null) throw new Error('Terminale OMP non pronto');
+		const encoded = new TextEncoder().encode(data);
+		await invoke('pty_write', { ptyId: this.ptyId, data: Array.from(encoded) });
+	}
+
+	private async readSessionInfo() {
+		if (this.ptyId === null || !this.cwd) return null;
+		return invoke<TerminalSessionInfo | null>('pty_session_info', { ptyId: this.ptyId });
+	}
+
+	private updateSessionInfo(info: TerminalSessionInfo | null) {
+		if (info?.sessionId === this.currentSession?.sessionId && info?.fresh === this.currentSession?.fresh) return;
+		this.currentSession = info;
+		this.onSessionChange(info);
+	}
+
+	private async refreshSessionInfo() {
+		try {
+			this.updateSessionInfo(await this.readSessionInfo());
+		} catch (error) {
+			console.warn('Lettura sessione terminale:', error);
+		}
+	}
+
+	private async waitForSession(predicate: (info: TerminalSessionInfo) => boolean, failureMessage: string) {
+		const deadline = Date.now() + 10_000;
+		while (!this.disposed && Date.now() < deadline) {
+			const info = await this.readSessionInfo();
+			if (info && predicate(info)) {
+				this.updateSessionInfo(info);
+				return info;
+			}
+			const { promise, resolve } = Promise.withResolvers<void>();
+			window.setTimeout(resolve, 100);
+			await promise;
+		}
+		throw new Error(failureMessage);
+	}
+
+	private assertAutomationReady() {
+		if (this.disposed || this.ptyId === null) throw new Error('Terminale OMP non pronto');
+		if (this.currentState !== 'idle') throw new Error('OMP deve essere in attesa prima di cambiare sessione');
+		if (this.pendingInputLength > 0) throw new Error('Completa o cancella il testo presente nel terminale');
+	}
+
+	public async startTask(prompt: string) {
+		if (!prompt.trim()) throw new Error('Il task non contiene un prompt');
+		if (prompt.includes('\x1b[201~')) throw new Error('Il prompt contiene una sequenza di controllo non supportata');
+		this.assertAutomationReady();
+		const previous = await this.readSessionInfo();
+		if (!previous) throw new Error('OMP non ha ancora pubblicato la sessione corrente');
+		await this.writePty('/new\r');
+		const next = await this.waitForSession(
+			(info) => info.sessionId !== previous.sessionId,
+			'OMP non ha confermato la nuova sessione'
+		);
+		await this.writePty(`\x1b[200~${prompt}\x1b[201~\r`);
+		this.setInputPending(0);
+		return next;
+	}
+
+	public async resumeSession(sessionId: string) {
+		if (!/^[A-Za-z0-9._-]+$/.test(sessionId)) throw new Error('Identificativo sessione non valido');
+		this.assertAutomationReady();
+		const current = await this.readSessionInfo();
+		if (current?.sessionId === sessionId) {
+			this.updateSessionInfo(current);
+			return current;
+		}
+		await this.writePty(`/resume ${sessionId}\r`);
+		this.setInputPending(0);
+		return this.waitForSession(
+			(info) => info.sessionId === sessionId,
+			'OMP non ha confermato la ripresa della sessione'
+		);
+	}
+
+
+	private async startPty(cwd: string) {
 		const onOutput = new Channel<Uint8Array>();
-		onOutput.onmessage = (message: any) => {
+		onOutput.onmessage = (message: unknown) => {
 			try {
 				if (message instanceof Uint8Array) {
 					this.term.write(message);
 				} else if (message instanceof ArrayBuffer) {
 					this.term.write(new Uint8Array(message));
-				} else if (Array.isArray(message)) {
+				} else if (Array.isArray(message) && message.every((value) => typeof value === 'number')) {
 					this.term.write(new Uint8Array(message));
-				} else if (message && typeof message === 'object' && 'data' in message) {
+				} else if (message && typeof message === 'object' && 'data' in message && Array.isArray(message.data)) {
 					this.term.write(new Uint8Array(message.data));
 				} else if (typeof message === 'string') {
 					this.term.write(message);
 				} else {
-					this.term.write(new Uint8Array(message));
+					console.warn('Output PTY non riconosciuto:', message);
 				}
-			} catch (err) {
-				console.error("Error writing PTY output to xterm:", err, message);
+			} catch (error) {
+				console.error('Output PTY non renderizzabile:', error, message);
 			}
 		};
 
 		const isScratchpad = cwd === '';
-		const args = isScratchpad ? ['--no-session'] : extraArg ? [extraArg] : [];
+		const args = isScratchpad ? ['--no-session'] : [];
 		const launchCwd = isScratchpad ? '.' : cwd;
 
 		try {
@@ -209,6 +338,7 @@ export class TerminalSession {
 			if (this.term.cols !== cols || this.term.rows !== rows) {
 				invoke('pty_resize', { ptyId: this.ptyId, cols: this.term.cols, rows: this.term.rows });
 			}
+			void this.refreshSessionInfo();
 		} catch (e) {
 			console.error("Failed to open PTY", e);
 			this.term.write(`\r\n\x1b[31mFailed to start terminal: ${e}\x1b[0m\r\n`);
@@ -227,27 +357,22 @@ export class TerminalSession {
 			console.error("Fit error", e);
 		}
 	}
-	public async restart(resumeSessionId?: string) {
+	public async restart() {
 		if (this.disposed) return;
 		if (this.ptyId !== null) {
 			try {
 				await invoke('pty_close', { ptyId: this.ptyId });
-			} catch (e) {
-				console.warn('pty_close on restart:', e);
+			} catch (error) {
+				console.warn('pty_close on restart:', error);
 			}
 			this.ptyId = null;
 		}
 		this.term.reset();
-		this.onStateChange('idle');
-		await this.startPty(this.cwd, resumeSessionId);
-	}
-
-	/// Riprende una sessione `omp` esistente: riavvia il PTY passando
-	/// `--resume <id>` come argomento extra (stesso meccanismo dello
-	/// scratchpad con `--no-session`).
-	public async resumeSession(sessionId: string) {
-		if (this.disposed || !sessionId) return;
-		await this.restart(`--resume=${sessionId}`);
+		this.currentState = 'unknown';
+		this.setInputPending(0);
+		this.updateSessionInfo(null);
+		this.onStateChange('unknown');
+		await this.startPty(this.cwd);
 	}
 
 	public destroy() {

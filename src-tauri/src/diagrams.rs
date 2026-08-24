@@ -98,7 +98,9 @@ fn scan_and_emit(app: &AppHandle, state: &DiagramWatcherState) {
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
-        let Ok(modified) = meta.modified() else { continue };
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
         let stamp = modified
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)

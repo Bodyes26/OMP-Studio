@@ -1,9 +1,12 @@
-use std::sync::Arc;
-use parking_lot::Mutex;
-use std::thread;
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use portable_pty::{CommandBuilder, native_pty_system, PtySize, MasterPty, Child};
+use std::path::Path;
+use std::sync::Arc;
+use std::thread;
+
+use parking_lot::Mutex;
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use serde::Serialize;
 use tauri::ipc::{Channel, Response};
 use tauri::State;
 
@@ -36,6 +39,71 @@ pub const TERMINAL_ID_PREFIX: &str = "0MP57UD10";
 /// come nostro, mai in collisione con un UUID vero di Windows Terminal.
 pub fn terminal_id(pty_id: u64) -> String {
     format!("{}-{:016}", TERMINAL_ID_PREFIX, pty_id)
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtySessionInfo {
+    pub session_id: String,
+    pub session_path: String,
+    pub cwd: String,
+    pub fresh: bool,
+}
+
+fn session_id_from_path(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_string_lossy();
+    let session_id = stem
+        .rsplit_once('_')
+        .map_or(stem.as_ref(), |(_, suffix)| suffix);
+    (!session_id.is_empty()).then(|| session_id.to_string())
+}
+
+fn read_session_info(pty_id: u64) -> Result<Option<PtySessionInfo>, String> {
+    let Some(mut breadcrumb) = crate::omp_ops::agent_dir() else {
+        return Ok(None);
+    };
+    breadcrumb.push("terminal-sessions");
+    breadcrumb.push(format!("wt-{}", terminal_id(pty_id)));
+
+    let content = match std::fs::read_to_string(&breadcrumb) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("Lettura breadcrumb PTY: {}", error)),
+    };
+    let mut lines = content.lines();
+    let Some(cwd) = lines.next() else {
+        return Ok(None);
+    };
+    let Some(session_path) = lines.next() else {
+        return Ok(None);
+    };
+    let path = Path::new(session_path.trim_end_matches('\r'));
+    let Some(session_id) = session_id_from_path(path) else {
+        return Ok(None);
+    };
+    let fresh = lines
+        .next()
+        .is_some_and(|line| line.trim_end_matches('\r') == "fresh");
+
+    Ok(Some(PtySessionInfo {
+        session_id,
+        session_path: path.to_string_lossy().into_owned(),
+        cwd: cwd.trim_end_matches('\r').to_string(),
+        fresh,
+    }))
+}
+
+#[tauri::command]
+pub async fn pty_session_info(
+    pty_id: u64,
+    manager: State<'_, PtyManager>,
+) -> Result<Option<PtySessionInfo>, String> {
+    if !manager.sessions.lock().contains_key(&pty_id) {
+        return Ok(None);
+    }
+    tokio::task::spawn_blocking(move || read_session_info(pty_id))
+        .await
+        .map_err(|error| format!("Lettura sessione PTY: {}", error))?
 }
 
 /// Overlay di configurazione passato con `--config`: non tocca la config
@@ -78,7 +146,11 @@ fn write_diagram_extension() -> Option<String> {
         std::env::var("HOME").ok()?
     };
     let dir = std::path::Path::new(&base)
-        .join(if cfg!(target_os = "windows") { "omp-studio" } else { ".omp-studio" })
+        .join(if cfg!(target_os = "windows") {
+            "omp-studio"
+        } else {
+            ".omp-studio"
+        })
         .join("extensions");
     std::fs::create_dir_all(&dir).ok()?;
     let path = dir.join("studio-diagram.ts");
@@ -117,16 +189,21 @@ pub async fn pty_open(
     manager: State<'_, PtyManager>,
 ) -> Result<u64, String> {
     let pty_system = native_pty_system();
-    
-    let pair = pty_system.openpty(PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
-    }).map_err(|e| e.to_string())?;
+
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| e.to_string())?;
 
     let omp_path = crate::omp_ops::get_omp_binary();
-    println!("[PTY] pty_open called: cwd={:?}, omp_path={:?}, args={:?}, cols={}, rows={}", cwd, omp_path, args, cols, rows);
+    println!(
+        "[PTY] pty_open called: cwd={:?}, omp_path={:?}, args={:?}, cols={}, rows={}",
+        cwd, omp_path, args, cols, rows
+    );
     let pty_id = {
         let mut id_guard = manager.next_id.lock();
         let id = *id_guard;
@@ -170,7 +247,11 @@ pub async fn pty_open(
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let mut c = CommandBuilder::new(&shell);
         let mut launch = if std::path::Path::new(&omp_path).exists() {
-            format!("{} --config {}", sh_quote(&omp_path), sh_quote(&overlay_path.to_string_lossy()))
+            format!(
+                "{} --config {}",
+                sh_quote(&omp_path),
+                sh_quote(&overlay_path.to_string_lossy())
+            )
         } else {
             format!("exec {} -l", sh_quote(&shell))
         };
@@ -239,7 +320,7 @@ pub async fn pty_open(
     thread::spawn(move || {
         let mut buf = [0u8; 65536];
         let mut reader = reader;
-        
+
         loop {
             match reader.read(&mut buf) {
                 Ok(n) if n > 0 => {
@@ -261,12 +342,16 @@ pub async fn pty_write(
     manager: State<'_, PtyManager>,
 ) -> Result<(), String> {
     let sessions = manager.sessions.lock();
-    if let Some(session) = sessions.get(&pty_id) {
-        let mut writer = session.writer.lock();
-        let _ = writer.write_all(&data);
-        let _ = writer.flush();
-    }
-    Ok(())
+    let session = sessions
+        .get(&pty_id)
+        .ok_or_else(|| format!("PTY {} non disponibile", pty_id))?;
+    let mut writer = session.writer.lock();
+    writer
+        .write_all(&data)
+        .map_err(|error| format!("Scrittura PTY {}: {}", pty_id, error))?;
+    writer
+        .flush()
+        .map_err(|error| format!("Flush PTY {}: {}", pty_id, error))
 }
 
 #[tauri::command]
@@ -279,16 +364,18 @@ pub async fn pty_resize(
     let sessions = manager.sessions.lock();
     if let Some(session) = sessions.get(&pty_id) {
         let master = session.master.lock();
-        let _ = master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+        let _ = master.resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        });
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn pty_close(
-    pty_id: u64,
-    manager: State<'_, PtyManager>,
-) -> Result<(), String> {
+pub async fn pty_close(pty_id: u64, manager: State<'_, PtyManager>) -> Result<(), String> {
     let session = manager.sessions.lock().remove(&pty_id);
     if let Some(session) = session {
         let mut child = session.child.lock();
@@ -296,4 +383,21 @@ pub async fn pty_close(
         let _ = child.wait();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_id_from_path;
+    use std::path::Path;
+
+    #[test]
+    fn estrae_id_uuid_dal_nome_sessione_omp() {
+        let path = Path::new(
+            r"C:\Users\utente\.omp\agent\sessions\progetto\2026-08-24T06-25-03-854Z_01a03271-a569-7000-add2-1e09089f3e60.jsonl",
+        );
+        assert_eq!(
+            session_id_from_path(path).as_deref(),
+            Some("01a03271-a569-7000-add2-1e09089f3e60")
+        );
+    }
 }

@@ -1,8 +1,8 @@
+use rusqlite::{Connection, OpenFlags};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
-use rusqlite::{Connection, OpenFlags};
-use serde::{Deserialize, Serialize};
 use tauri::command;
 
 #[cfg(target_os = "windows")]
@@ -248,7 +248,8 @@ pub async fn save_model_config(config: ModelConfigDto) -> Result<(), String> {
 
     let mut root_val: serde_yaml::Value = if config_path.exists() {
         let text = std::fs::read_to_string(&config_path).unwrap_or_default();
-        serde_yaml::from_str(&text).unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()))
+        serde_yaml::from_str(&text)
+            .unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()))
     } else {
         serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
     };
@@ -357,15 +358,27 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
 
         for row in rows.flatten() {
             let (provider_id, json_str) = row;
-            let clean_provider = provider_id.split(':').next().unwrap_or(&provider_id).to_string();
+            let clean_provider = provider_id
+                .split(':')
+                .next()
+                .unwrap_or(&provider_id)
+                .to_string();
 
             if let Ok(raw_models) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
                 for m in raw_models {
-                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let id = m
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if id.is_empty() {
                         continue;
                     }
-                    let name = m.get("name").and_then(|v| v.as_str()).unwrap_or(&id).to_string();
+                    let name = m
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&id)
+                        .to_string();
                     let provider = m
                         .get("provider")
                         .and_then(|v| v.as_str())
@@ -385,16 +398,23 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
                     let mut thinking_info = None;
                     if let Some(th) = m.get("thinking") {
                         if !th.is_null() {
-                            let mode = th.get("mode").and_then(|v| v.as_str()).map(|s| s.to_string());
+                            let mode = th
+                                .get("mode")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let efforts = th.get("efforts").and_then(|v| v.as_array()).map(|arr| {
-                                arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()
+                                arr.iter()
+                                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                                    .collect()
                             });
                             thinking_info = Some(ModelThinkingInfo { mode, efforts });
                         }
                     }
 
                     let input = m.get("input").and_then(|v| v.as_array()).map(|arr| {
-                        arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()
+                        arr.iter()
+                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                            .collect()
                     });
 
                     let mut cost_info = None;
@@ -523,7 +543,9 @@ pub async fn save_custom_providers(data: CustomProvidersFile) -> Result<(), Stri
 pub async fn get_auth_providers_summary() -> Result<Vec<AuthProviderSummary>, String> {
     let conn = open_readonly_db("agent.db")?;
     let mut stmt = conn
-        .prepare("SELECT provider, credential_type, identity_key, disabled_cause FROM auth_credentials")
+        .prepare(
+            "SELECT provider, credential_type, identity_key, disabled_cause FROM auth_credentials",
+        )
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
@@ -561,7 +583,11 @@ fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
     let mut date_val = None;
     if let Some(pos) = clean_id.find("-202") {
         let suffix = &clean_id[pos + 1..];
-        let date_digits: String = suffix.chars().filter(|c| c.is_ascii_digit()).take(8).collect();
+        let date_digits: String = suffix
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .take(8)
+            .collect();
         if date_digits.len() == 8 {
             if let Ok(num) = date_digits.parse::<u64>() {
                 date_val = Some(num);
@@ -603,7 +629,11 @@ fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
                 }
             }
             template_parts.push(if !prefix.is_empty() {
-                if prefix == "v" { "v{V}" } else { "k{V}" }
+                if prefix == "v" {
+                    "v{V}"
+                } else {
+                    "k{V}"
+                }
             } else {
                 "{V}"
             });
@@ -771,10 +801,10 @@ struct RawLlmSuggestions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntelligenceTier {
     Tier1Plus, // Top Quality (Claude Opus 5, GPT-5.6 Sol/Terra, Claude Fable 5) ~1565+ ELO
-    Tier1,     // High Intelligence (Gemini 3.7 Flash, Gemini 3.1 Pro, DeepSeek V4 Pro, Claude Opus 4.8) ~1550+ ELO
-    Tier2,     // Workhorse (Claude Sonnet 5, Claude Sonnet 4.6, Gemini 3.6 Flash, GPT-5.4, GLM-5.3) ~1505+ ELO
-    Tier3,     // Fast / Daily (DeepSeek V4 Flash, GPT-5.6 Luna, GPT-5.4 Mini, Gemini 3.5 Flash) ~1450+ ELO
-    Tier4,     // Ultra-light / Atomic (Gemini 3.1 Flash Lite, GPT-5-nano, Gemma 4, Hy3) ~1380-1420 ELO
+    Tier1, // High Intelligence (Gemini 3.7 Flash, Gemini 3.1 Pro, DeepSeek V4 Pro, Claude Opus 4.8) ~1550+ ELO
+    Tier2, // Workhorse (Claude Sonnet 5, Claude Sonnet 4.6, Gemini 3.6 Flash, GPT-5.4, GLM-5.3) ~1505+ ELO
+    Tier3, // Fast / Daily (DeepSeek V4 Flash, GPT-5.6 Luna, GPT-5.4 Mini, Gemini 3.5 Flash) ~1450+ ELO
+    Tier4, // Ultra-light / Atomic (Gemini 3.1 Flash Lite, GPT-5-nano, Gemma 4, Hy3) ~1380-1420 ELO
 }
 
 fn get_model_benchmark_profile(model_id: &str, model_name: &str) -> (IntelligenceTier, u32) {
@@ -899,22 +929,34 @@ fn get_models_perf_map() -> HashMap<String, ModelPerfStat> {
     map
 }
 
-fn find_matching_catalog_selector<'a>(raw_sel: &str, catalog: &'a [ModelDto]) -> Option<&'a ModelDto> {
+fn find_matching_catalog_selector<'a>(
+    raw_sel: &str,
+    catalog: &'a [ModelDto],
+) -> Option<&'a ModelDto> {
     let clean = raw_sel.trim();
     if clean.is_empty() {
         return None;
     }
     // 1. Exact match
-    if let Some(m) = catalog.iter().find(|m| m.selector == clean || m.id == clean) {
+    if let Some(m) = catalog
+        .iter()
+        .find(|m| m.selector == clean || m.id == clean)
+    {
         return Some(m);
     }
     // 2. Case insensitive exact match
     let clean_lower = clean.to_lowercase();
-    if let Some(m) = catalog.iter().find(|m| m.selector.to_lowercase() == clean_lower || m.id.to_lowercase() == clean_lower) {
+    if let Some(m) = catalog
+        .iter()
+        .find(|m| m.selector.to_lowercase() == clean_lower || m.id.to_lowercase() == clean_lower)
+    {
         return Some(m);
     }
     // 3. Substring match
-    if let Some(m) = catalog.iter().find(|m| m.selector.to_lowercase().contains(&clean_lower) || clean_lower.contains(&m.selector.to_lowercase())) {
+    if let Some(m) = catalog.iter().find(|m| {
+        m.selector.to_lowercase().contains(&clean_lower)
+            || clean_lower.contains(&m.selector.to_lowercase())
+    }) {
         return Some(m);
     }
     None
@@ -949,7 +991,11 @@ pub async fn get_role_suggestions(
     // Provider con abbonamento OAuth / flat (costo extra per chiamata: 0€)
     let subscription_providers: Vec<String> = auth_summary
         .iter()
-        .filter(|a| a.has_credential && a.credential_type == "oauth" && !config.disabled_providers.contains(&a.provider))
+        .filter(|a| {
+            a.has_credential
+                && a.credential_type == "oauth"
+                && !config.disabled_providers.contains(&a.provider)
+        })
         .map(|a| a.provider.clone())
         .collect();
 
@@ -959,7 +1005,10 @@ pub async fn get_role_suggestions(
         .filter(|m| active_providers.contains(&m.provider))
         .filter(|m| {
             if role_id == "vision" {
-                m.input.as_ref().map(|i| i.iter().any(|v| v == "image")).unwrap_or(false)
+                m.input
+                    .as_ref()
+                    .map(|i| i.iter().any(|v| v == "image"))
+                    .unwrap_or(false)
             } else {
                 true
             }
@@ -967,10 +1016,16 @@ pub async fn get_role_suggestions(
         .filter(|m| {
             // Inclusione: account in abbonamento (OAuth), modelli :free / -free, o provider locali
             let is_sub = subscription_providers.contains(&m.provider);
-            let is_free_selector = m.selector.ends_with(":free") || m.id.ends_with("-free") || m.id.contains("-free-");
-            let is_zero_cost = m.cost.as_ref().map(|c| c.input.unwrap_or(0.0) == 0.0 && c.output.unwrap_or(0.0) == 0.0).unwrap_or(false);
-            let is_local = m.provider == "ollama" || m.provider == "llama.cpp" || m.provider == "lm-studio";
-            
+            let is_free_selector =
+                m.selector.ends_with(":free") || m.id.ends_with("-free") || m.id.contains("-free-");
+            let is_zero_cost = m
+                .cost
+                .as_ref()
+                .map(|c| c.input.unwrap_or(0.0) == 0.0 && c.output.unwrap_or(0.0) == 0.0)
+                .unwrap_or(false);
+            let is_local =
+                m.provider == "ollama" || m.provider == "llama.cpp" || m.provider == "lm-studio";
+
             // Escludi categoricamente modelli a pagamento su provider a consumo
             is_sub || is_free_selector || is_zero_cost || is_local
         })
@@ -993,7 +1048,9 @@ pub async fn get_role_suggestions(
         for other in &candidate_models {
             if other.provider == m.provider && other.id != m.id {
                 let (tpl_other, ver_other, date_other) = parse_model_signature(&other.id);
-                if tpl_other == tpl_cur && is_version_newer(&ver_cur, date_cur, &ver_other, date_other) {
+                if tpl_other == tpl_cur
+                    && is_version_newer(&ver_cur, date_cur, &ver_other, date_other)
+                {
                     has_newer = true;
                     break;
                 }
@@ -1039,12 +1096,16 @@ pub async fn get_role_suggestions(
     // 5. Costruzione del sommario dei modelli disponibili
     let mut models_summary = String::new();
     if !sub_models.is_empty() {
-        models_summary.push_str("### MODELLI DA ACCOUNT IN ABBONAMENTO (FLAT / PRIORITA ELEVATA / ZERO EXTRA COST):\n");
+        models_summary.push_str(
+            "### MODELLI DA ACCOUNT IN ABBONAMENTO (FLAT / PRIORITA ELEVATA / ZERO EXTRA COST):\n",
+        );
         for m in &sub_models {
             let (_tier, elo) = get_model_benchmark_profile(&m.id, &m.name);
             let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
             let speed_tag = match perf_stat {
-                Some(p) if p.tokens_per_sec > 0.0 => format!(" [{} tok/s reali]", p.tokens_per_sec as u32),
+                Some(p) if p.tokens_per_sec > 0.0 => {
+                    format!(" [{} tok/s reali]", p.tokens_per_sec as u32)
+                }
                 _ => String::new(),
             };
             let mut tags = vec![format!("Coding ELO: ~{}", elo)];
@@ -1060,7 +1121,11 @@ pub async fn get_role_suggestions(
             }
             models_summary.push_str(&format!(
                 "- {} (nome: \"{}\", provider: {}) [{}] {}\n",
-                m.selector, m.name, m.provider, tags.join(", "), speed_tag
+                m.selector,
+                m.name,
+                m.provider,
+                tags.join(", "),
+                speed_tag
             ));
         }
     }
@@ -1071,7 +1136,9 @@ pub async fn get_role_suggestions(
             let (_tier, elo) = get_model_benchmark_profile(&m.id, &m.name);
             let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
             let speed_tag = match perf_stat {
-                Some(p) if p.tokens_per_sec > 0.0 => format!(" [{} tok/s reali]", p.tokens_per_sec as u32),
+                Some(p) if p.tokens_per_sec > 0.0 => {
+                    format!(" [{} tok/s reali]", p.tokens_per_sec as u32)
+                }
                 _ => String::new(),
             };
             let mut tags = vec!["FREE".to_string(), format!("Coding ELO: ~{}", elo)];
@@ -1084,7 +1151,11 @@ pub async fn get_role_suggestions(
             }
             models_summary.push_str(&format!(
                 "- {} (nome: \"{}\", provider: {}) [{}] {}\n",
-                m.selector, m.name, m.provider, tags.join(", "), speed_tag
+                m.selector,
+                m.name,
+                m.provider,
+                tags.join(", "),
+                speed_tag
             ));
         }
     }
@@ -1165,15 +1236,16 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
         Ok(o) if o.status.success() => {
             let stdout_str = String::from_utf8_lossy(&o.stdout).to_string();
             let trimmed = stdout_str.trim();
-            let json_candidate = if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
-                if end >= start {
-                    &trimmed[start..=end]
+            let json_candidate =
+                if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
+                    if end >= start {
+                        &trimmed[start..=end]
+                    } else {
+                        trimmed
+                    }
                 } else {
                     trimmed
-                }
-            } else {
-                trimmed
-            };
+                };
             serde_json::from_str(json_candidate).ok()
         }
         _ => None,
@@ -1188,34 +1260,55 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
         for it in items {
             if let Some(raw_sel) = it.selector {
                 if let Some(matched_model) = find_matching_catalog_selector(&raw_sel, &catalog) {
-                    if !validated_primary.iter().any(|p| p.selector == matched_model.selector) {
-                        let (_, elo) = get_model_benchmark_profile(&matched_model.id, &matched_model.name);
-                        let perf_stat = perf_map.get(&matched_model.selector).or_else(|| perf_map.get(&matched_model.id));
+                    if !validated_primary
+                        .iter()
+                        .any(|p| p.selector == matched_model.selector)
+                    {
+                        let (_, elo) =
+                            get_model_benchmark_profile(&matched_model.id, &matched_model.name);
+                        let perf_stat = perf_map
+                            .get(&matched_model.selector)
+                            .or_else(|| perf_map.get(&matched_model.id));
                         let is_sub = subscription_providers.contains(&matched_model.provider);
-                        let is_free = !is_sub && (matched_model.selector.ends_with(":free") || matched_model.id.ends_with("-free") || matched_model.cost.as_ref().map(|c| c.input.unwrap_or(0.0) == 0.0 && c.output.unwrap_or(0.0) == 0.0).unwrap_or(false));
+                        let is_free = !is_sub
+                            && (matched_model.selector.ends_with(":free")
+                                || matched_model.id.ends_with("-free")
+                                || matched_model
+                                    .cost
+                                    .as_ref()
+                                    .map(|c| {
+                                        c.input.unwrap_or(0.0) == 0.0
+                                            && c.output.unwrap_or(0.0) == 0.0
+                                    })
+                                    .unwrap_or(false));
 
                         // Badge intelligente di fallback se mancante o generico
-                        let badge = it.badge.filter(|b| !b.is_empty() && b != "Consigliato").or_else(|| {
-                            if elo >= 1560 {
-                                Some(format!("Top ELO {}", elo))
-                            } else if let Some(p) = perf_stat {
-                                if p.tokens_per_sec >= 200.0 {
-                                    Some(format!("{} tok/s", p.tokens_per_sec as u32))
+                        let badge = it
+                            .badge
+                            .filter(|b| !b.is_empty() && b != "Consigliato")
+                            .or_else(|| {
+                                if elo >= 1560 {
+                                    Some(format!("Top ELO {}", elo))
+                                } else if let Some(p) = perf_stat {
+                                    if p.tokens_per_sec >= 200.0 {
+                                        Some(format!("{} tok/s", p.tokens_per_sec as u32))
+                                    } else if is_sub {
+                                        Some("Abbonamento".to_string())
+                                    } else {
+                                        Some(format!("ELO {}", elo))
+                                    }
                                 } else if is_sub {
                                     Some("Abbonamento".to_string())
                                 } else {
                                     Some(format!("ELO {}", elo))
                                 }
-                            } else if is_sub {
-                                Some("Abbonamento".to_string())
-                            } else {
-                                Some(format!("ELO {}", elo))
-                            }
-                        });
+                            });
 
                         validated_primary.push(SuggestedModelItem {
                             selector: matched_model.selector.clone(),
-                            reason: it.reason.unwrap_or_else(|| "Modello consigliato per questo ruolo".to_string()),
+                            reason: it.reason.unwrap_or_else(|| {
+                                "Modello consigliato per questo ruolo".to_string()
+                            }),
                             badge,
                             recommended_thinking: it.recommended_thinking,
                             arena_elo: Some(elo),
@@ -1234,11 +1327,27 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
         for it in items {
             if let Some(raw_sel) = it.selector {
                 if let Some(matched_model) = find_matching_catalog_selector(&raw_sel, &catalog) {
-                    if !validated_fallback.iter().any(|f| f.selector == matched_model.selector) {
-                        let (_, elo) = get_model_benchmark_profile(&matched_model.id, &matched_model.name);
-                        let perf_stat = perf_map.get(&matched_model.selector).or_else(|| perf_map.get(&matched_model.id));
+                    if !validated_fallback
+                        .iter()
+                        .any(|f| f.selector == matched_model.selector)
+                    {
+                        let (_, elo) =
+                            get_model_benchmark_profile(&matched_model.id, &matched_model.name);
+                        let perf_stat = perf_map
+                            .get(&matched_model.selector)
+                            .or_else(|| perf_map.get(&matched_model.id));
                         let is_sub = subscription_providers.contains(&matched_model.provider);
-                        let is_free = !is_sub && (matched_model.selector.ends_with(":free") || matched_model.id.ends_with("-free") || matched_model.cost.as_ref().map(|c| c.input.unwrap_or(0.0) == 0.0 && c.output.unwrap_or(0.0) == 0.0).unwrap_or(false));
+                        let is_free = !is_sub
+                            && (matched_model.selector.ends_with(":free")
+                                || matched_model.id.ends_with("-free")
+                                || matched_model
+                                    .cost
+                                    .as_ref()
+                                    .map(|c| {
+                                        c.input.unwrap_or(0.0) == 0.0
+                                            && c.output.unwrap_or(0.0) == 0.0
+                                    })
+                                    .unwrap_or(false));
 
                         let badge = it.badge.filter(|b| !b.is_empty()).or_else(|| {
                             if is_free {
@@ -1250,7 +1359,9 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
 
                         validated_fallback.push(SuggestedModelItem {
                             selector: matched_model.selector.clone(),
-                            reason: it.reason.unwrap_or_else(|| "Riserva consigliata su rate-limit".to_string()),
+                            reason: it
+                                .reason
+                                .unwrap_or_else(|| "Riserva consigliata su rate-limit".to_string()),
                             badge,
                             recommended_thinking: it.recommended_thinking,
                             arena_elo: Some(elo),
@@ -1300,9 +1411,19 @@ fn build_deterministic_suggestions(
     let mut primary_candidates = sub_models.to_vec();
     if role_id == "smol" || role_id == "commit" {
         primary_candidates.sort_by(|a, b| {
-            let speed_a = perf_map.get(&a.selector).or_else(|| perf_map.get(&a.id)).map(|p| p.tokens_per_sec).unwrap_or(0.0);
-            let speed_b = perf_map.get(&b.selector).or_else(|| perf_map.get(&b.id)).map(|p| p.tokens_per_sec).unwrap_or(0.0);
-            speed_b.partial_cmp(&speed_a).unwrap_or(std::cmp::Ordering::Equal)
+            let speed_a = perf_map
+                .get(&a.selector)
+                .or_else(|| perf_map.get(&a.id))
+                .map(|p| p.tokens_per_sec)
+                .unwrap_or(0.0);
+            let speed_b = perf_map
+                .get(&b.selector)
+                .or_else(|| perf_map.get(&b.id))
+                .map(|p| p.tokens_per_sec)
+                .unwrap_or(0.0);
+            speed_b
+                .partial_cmp(&speed_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
 
@@ -1314,7 +1435,13 @@ fn build_deterministic_suggestions(
         let (_, elo) = get_model_benchmark_profile(&m.id, &m.name);
         let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
         let is_sub = subscription_providers.contains(&m.provider);
-        let is_free = !is_sub && (m.selector.ends_with(":free") || m.id.ends_with("-free") || m.cost.as_ref().map(|c| c.input.unwrap_or(0.0) == 0.0 && c.output.unwrap_or(0.0) == 0.0).unwrap_or(false));
+        let is_free = !is_sub
+            && (m.selector.ends_with(":free")
+                || m.id.ends_with("-free")
+                || m.cost
+                    .as_ref()
+                    .map(|c| c.input.unwrap_or(0.0) == 0.0 && c.output.unwrap_or(0.0) == 0.0)
+                    .unwrap_or(false));
 
         let badge = if elo >= 1560 {
             Some(format!("Top ELO {}", elo))
@@ -1365,7 +1492,10 @@ fn build_deterministic_suggestions(
 
     // Fallback: 2) miglior modello completamente GRATUITO da provider diverso
     for m in free_models {
-        if m.provider != primary_provider && !fallback.iter().any(|f| f.selector == m.selector) && !primary.iter().any(|p| p.selector == m.selector) {
+        if m.provider != primary_provider
+            && !fallback.iter().any(|f| f.selector == m.selector)
+            && !primary.iter().any(|p| p.selector == m.selector)
+        {
             let (_, elo) = get_model_benchmark_profile(&m.id, &m.name);
             let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
             fallback.push(SuggestedModelItem {
@@ -1454,7 +1584,8 @@ mod tests {
         assert_eq!(tier4, IntelligenceTier::Tier3);
         assert_eq!(elo4, 1465);
 
-        let (tier5, elo5) = get_model_benchmark_profile("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite");
+        let (tier5, elo5) =
+            get_model_benchmark_profile("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite");
         assert_eq!(tier5, IntelligenceTier::Tier4);
         assert_eq!(elo5, 1410);
     }

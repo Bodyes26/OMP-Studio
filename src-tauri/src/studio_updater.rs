@@ -1,10 +1,10 @@
+use futures_util::StreamExt;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use futures_util::StreamExt;
-use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 const GITHUB_REPO: &str = "Bodyes26/OMP-Studio";
@@ -90,10 +90,7 @@ fn normalize_version(v: &str) -> &str {
 }
 
 /// Seleziona l'asset piu' adatto per il sistema operativo e l'architettura correnti.
-fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
-
+fn pick_best_asset_for(assets: &[GithubAsset], os: &str, arch: &str) -> Option<StudioReleaseAsset> {
     if assets.is_empty() {
         return None;
     }
@@ -114,7 +111,10 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
         }
 
         // Priorita 2: file .msi
-        if let Some(a) = assets.iter().find(|a| a.name.to_lowercase().ends_with(".msi")) {
+        if let Some(a) = assets
+            .iter()
+            .find(|a| a.name.to_lowercase().ends_with(".msi"))
+        {
             return Some(StudioReleaseAsset {
                 name: a.name.clone(),
                 size: a.size,
@@ -124,7 +124,10 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
         }
 
         // Priorita 3: qualsiasi .exe
-        if let Some(a) = assets.iter().find(|a| a.name.to_lowercase().ends_with(".exe")) {
+        if let Some(a) = assets
+            .iter()
+            .find(|a| a.name.to_lowercase().ends_with(".exe"))
+        {
             return Some(StudioReleaseAsset {
                 name: a.name.clone(),
                 size: a.size,
@@ -136,7 +139,8 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
         // Priorita 4: file .zip per windows
         if let Some(a) = assets.iter().find(|a| {
             let lower = a.name.to_lowercase();
-            lower.ends_with(".zip") && (lower.contains("win") || lower.contains("x64") || lower.contains("x86"))
+            lower.ends_with(".zip")
+                && (lower.contains("win") || lower.contains("x64") || lower.contains("x86"))
         }) {
             return Some(StudioReleaseAsset {
                 name: a.name.clone(),
@@ -153,7 +157,12 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
         let is_arm = arch.contains("aarch64") || arch.contains("arm");
         if let Some(a) = assets.iter().find(|a| {
             let lower = a.name.to_lowercase();
-            lower.ends_with(".dmg") && (if is_arm { lower.contains("aarch64") || lower.contains("arm64") } else { lower.contains("x64") || lower.contains("x86_64") })
+            lower.ends_with(".dmg")
+                && (if is_arm {
+                    lower.contains("aarch64") || lower.contains("arm64")
+                } else {
+                    lower.contains("x64") || lower.contains("x86_64")
+                })
         }) {
             return Some(StudioReleaseAsset {
                 name: a.name.clone(),
@@ -164,7 +173,10 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
         }
 
         // Qualsiasi .dmg
-        if let Some(a) = assets.iter().find(|a| a.name.to_lowercase().ends_with(".dmg")) {
+        if let Some(a) = assets
+            .iter()
+            .find(|a| a.name.to_lowercase().ends_with(".dmg"))
+        {
             return Some(StudioReleaseAsset {
                 name: a.name.clone(),
                 size: a.size,
@@ -176,7 +188,10 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
         // File .app.tar.gz o .tar.gz per macOS
         if let Some(a) = assets.iter().find(|a| {
             let lower = a.name.to_lowercase();
-            (lower.ends_with(".app.tar.gz") || lower.ends_with(".tar.gz") || lower.ends_with(".zip")) && lower.contains("mac")
+            (lower.ends_with(".app.tar.gz")
+                || lower.ends_with(".tar.gz")
+                || lower.ends_with(".zip"))
+                && lower.contains("mac")
         }) {
             return Some(StudioReleaseAsset {
                 name: a.name.clone(),
@@ -189,7 +204,10 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
 
     // Linux
     if os == "linux" {
-        if let Some(a) = assets.iter().find(|a| a.name.to_lowercase().ends_with(".appimage")) {
+        if let Some(a) = assets
+            .iter()
+            .find(|a| a.name.to_lowercase().ends_with(".appimage"))
+        {
             return Some(StudioReleaseAsset {
                 name: a.name.clone(),
                 size: a.size,
@@ -197,7 +215,10 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
                 content_type: a.content_type.clone(),
             });
         }
-        if let Some(a) = assets.iter().find(|a| a.name.to_lowercase().ends_with(".deb")) {
+        if let Some(a) = assets
+            .iter()
+            .find(|a| a.name.to_lowercase().ends_with(".deb"))
+        {
             return Some(StudioReleaseAsset {
                 name: a.name.clone(),
                 size: a.size,
@@ -207,13 +228,12 @@ fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
         }
     }
 
-    // Fallback: primo asset disponibile se c'e'
-    assets.first().map(|a| StudioReleaseAsset {
-        name: a.name.clone(),
-        size: a.size,
-        download_url: a.browser_download_url.clone(),
-        content_type: a.content_type.clone(),
-    })
+    // Nessun fallback cross-platform: un pacchetto di un altro OS non e' installabile.
+    None
+}
+
+fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
+    pick_best_asset_for(assets, std::env::consts::OS, std::env::consts::ARCH)
 }
 
 /// Verifica se e' disponibile un aggiornamento di OMP Studio interrogando GitHub Releases API.
@@ -227,10 +247,16 @@ pub async fn check_studio_update() -> Result<StudioUpdateInfo, String> {
         .build()
         .map_err(|e| format!("Impossibile inizializzare client HTTP: {}", e))?;
 
-    let url = format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO);
+    let url = format!(
+        "https://api.github.com/repos/{}/releases/latest",
+        GITHUB_REPO
+    );
     let resp = client
         .get(&url)
-        .header("User-Agent", format!("omp-studio-app/{}", current_version_raw))
+        .header(
+            "User-Agent",
+            format!("omp-studio-app/{}", current_version_raw),
+        )
         .header("Accept", "application/vnd.github.v3+json")
         .header("Cache-Control", "no-cache, no-store, must-revalidate")
         .header("Pragma", "no-cache")
@@ -238,15 +264,19 @@ pub async fn check_studio_update() -> Result<StudioUpdateInfo, String> {
         .await;
 
     let release: GithubRelease = match resp {
-        Ok(r) if r.status().is_success() => {
-            r.json::<GithubRelease>().await.map_err(|e| format!("Errore nel parsing della release da GitHub: {}", e))?
-        }
+        Ok(r) if r.status().is_success() => r
+            .json::<GithubRelease>()
+            .await
+            .map_err(|e| format!("Errore nel parsing della release da GitHub: {}", e))?,
         Ok(r) if r.status().as_u16() == 404 => {
             // Se /releases/latest da 404 (es. non c'e' ancora una release marcata come latest), prendiamo la lista releases
             let list_url = format!("https://api.github.com/repos/{}/releases", GITHUB_REPO);
             let list_resp = client
                 .get(&list_url)
-                .header("User-Agent", format!("omp-studio-app/{}", current_version_raw))
+                .header(
+                    "User-Agent",
+                    format!("omp-studio-app/{}", current_version_raw),
+                )
                 .header("Accept", "application/vnd.github.v3+json")
                 .header("Cache-Control", "no-cache, no-store, must-revalidate")
                 .header("Pragma", "no-cache")
@@ -255,7 +285,10 @@ pub async fn check_studio_update() -> Result<StudioUpdateInfo, String> {
                 .map_err(|e| format!("Errore nella connessione a GitHub: {}", e))?;
 
             if !list_resp.status().is_success() {
-                return Err(format!("GitHub API ha risposto con codice {}", list_resp.status()));
+                return Err(format!(
+                    "GitHub API ha risposto con codice {}",
+                    list_resp.status()
+                ));
             }
 
             let mut releases = list_resp
@@ -281,17 +314,26 @@ pub async fn check_studio_update() -> Result<StudioUpdateInfo, String> {
             releases.remove(0)
         }
         Ok(r) => {
-            return Err(format!("GitHub API ha risposto con errore HTTP {}", r.status()));
+            return Err(format!(
+                "GitHub API ha risposto con errore HTTP {}",
+                r.status()
+            ));
         }
         Err(e) => {
-            return Err(format!("Impossibile contattare GitHub per la verifica: {}", e));
+            return Err(format!(
+                "Impossibile contattare GitHub per la verifica: {}",
+                e
+            ));
         }
     };
 
     let latest_ver_norm = normalize_version(&release.tag_name);
 
     // Confronto semantico delle versioni
-    let has_update = match (semver::Version::parse(current_ver_norm), semver::Version::parse(latest_ver_norm)) {
+    let has_update = match (
+        semver::Version::parse(current_ver_norm),
+        semver::Version::parse(latest_ver_norm),
+    ) {
         (Ok(cur), Ok(lat)) => lat > cur,
         _ => {
             // Fallback se una delle stringhe non e' puro SemVer
@@ -323,7 +365,11 @@ pub async fn start_studio_update_download(
     filename: String,
 ) -> Result<String, String> {
     // Evita download multipli concorrenti
-    if state.is_downloading.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+    if state
+        .is_downloading
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
         return Err("Un download e' gia' in corso".to_string());
     }
 
@@ -357,7 +403,10 @@ pub async fn start_studio_update_download(
     }
 
     tokio::spawn(async move {
-        let client = match reqwest::Client::builder().timeout(Duration::from_secs(300)).build() {
+        let client = match reqwest::Client::builder()
+            .timeout(Duration::from_secs(300))
+            .build()
+        {
             Ok(c) => c,
             Err(e) => {
                 is_downloading.store(false, Ordering::SeqCst);
@@ -388,7 +437,10 @@ pub async fn start_studio_update_download(
                         total_bytes: 0,
                         percentage: 0.0,
                         speed_bytes_per_sec: 0,
-                        error: Some(format!("Server di download ha risposto con codice {}", res.status())),
+                        error: Some(format!(
+                            "Server di download ha risposto con codice {}",
+                            res.status()
+                        )),
                     },
                 );
                 return;
@@ -450,7 +502,11 @@ pub async fn start_studio_update_download(
                         status: "cancelled".to_string(),
                         downloaded_bytes,
                         total_bytes: total_size,
-                        percentage: if total_size > 0 { (downloaded_bytes as f64 / total_size as f64) * 100.0 } else { 0.0 },
+                        percentage: if total_size > 0 {
+                            (downloaded_bytes as f64 / total_size as f64) * 100.0
+                        } else {
+                            0.0
+                        },
                         speed_bytes_per_sec: 0,
                         error: None,
                     },
@@ -468,7 +524,11 @@ pub async fn start_studio_update_download(
                                 status: "error".to_string(),
                                 downloaded_bytes,
                                 total_bytes: total_size,
-                                percentage: if total_size > 0 { (downloaded_bytes as f64 / total_size as f64) * 100.0 } else { 0.0 },
+                                percentage: if total_size > 0 {
+                                    (downloaded_bytes as f64 / total_size as f64) * 100.0
+                                } else {
+                                    0.0
+                                },
                                 speed_bytes_per_sec: 0,
                                 error: Some(format!("Errore di scrittura su disco: {}", e)),
                             },
@@ -482,7 +542,9 @@ pub async fn start_studio_update_download(
 
                     let now = Instant::now();
                     let elapsed = now.duration_since(last_progress_emit);
-                    if elapsed >= Duration::from_millis(200) || (total_size > 0 && downloaded_bytes >= total_size) {
+                    if elapsed >= Duration::from_millis(200)
+                        || (total_size > 0 && downloaded_bytes >= total_size)
+                    {
                         let secs = elapsed.as_secs_f64();
                         if secs > 0.0 {
                             current_speed = (bytes_since_last_emit as f64 / secs) as u64;
@@ -517,7 +579,11 @@ pub async fn start_studio_update_download(
                             status: "error".to_string(),
                             downloaded_bytes,
                             total_bytes: total_size,
-                            percentage: if total_size > 0 { (downloaded_bytes as f64 / total_size as f64) * 100.0 } else { 0.0 },
+                            percentage: if total_size > 0 {
+                                (downloaded_bytes as f64 / total_size as f64) * 100.0
+                            } else {
+                                0.0
+                            },
                             speed_bytes_per_sec: 0,
                             error: Some(format!("Errore durante la ricezione dati: {}", e)),
                         },
@@ -548,14 +614,22 @@ pub async fn start_studio_update_download(
         is_downloading.store(false, Ordering::SeqCst);
 
         let total_time = start_time.elapsed().as_secs_f64();
-        let avg_speed = if total_time > 0.0 { (downloaded_bytes as f64 / total_time) as u64 } else { 0 };
+        let avg_speed = if total_time > 0.0 {
+            (downloaded_bytes as f64 / total_time) as u64
+        } else {
+            0
+        };
 
         let _ = app_handle.emit(
             "studio_update_progress",
             StudioDownloadProgress {
                 status: "finished".to_string(),
                 downloaded_bytes,
-                total_bytes: if total_size > 0 { total_size } else { downloaded_bytes },
+                total_bytes: if total_size > 0 {
+                    total_size
+                } else {
+                    downloaded_bytes
+                },
                 percentage: 100.0,
                 speed_bytes_per_sec: avg_speed,
                 error: None,
@@ -568,7 +642,9 @@ pub async fn start_studio_update_download(
 
 /// Annulla il download in corso se presente.
 #[tauri::command]
-pub async fn cancel_studio_update_download(state: State<'_, StudioUpdaterState>) -> Result<(), String> {
+pub async fn cancel_studio_update_download(
+    state: State<'_, StudioUpdaterState>,
+) -> Result<(), String> {
     state.cancel_flag.store(true, Ordering::SeqCst);
     Ok(())
 }
@@ -583,7 +659,10 @@ pub async fn install_studio_update_and_restart(
         let guard = state.downloaded_installer.lock();
         match guard.as_ref() {
             Some(p) if p.exists() => p.clone(),
-            _ => return Err("Nessun pacchetto di aggiornamento valido trovato su disco. Riprova a scaricarlo.".to_string()),
+            _ => return Err(
+                "Nessun pacchetto di aggiornamento valido trovato su disco. Riprova a scaricarlo."
+                    .to_string(),
+            ),
         }
     };
 
@@ -591,14 +670,15 @@ pub async fn install_studio_update_and_restart(
 
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
         use std::os::windows::process::CommandExt;
+        use std::process::Command;
 
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         const DETACHED_PROCESS: u32 = 0x00000008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
-        let current_exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("OMP Studio.exe"));
+        let current_exe =
+            std::env::current_exe().unwrap_or_else(|_| PathBuf::from("OMP Studio.exe"));
 
         let is_msi = installer_path
             .extension()
@@ -624,7 +704,8 @@ pub async fn install_studio_update_and_restart(
         let mut cmd = Command::new("cmd.exe");
         cmd.raw_arg(format!("/C \"{}\"", cmd_string));
         cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-        cmd.spawn().map_err(|e| format!("Impossibile avviare il processo di aggiornamento: {}", e))?;
+        cmd.spawn()
+            .map_err(|e| format!("Impossibile avviare il processo di aggiornamento: {}", e))?;
 
         // Breve pausa per essere certi che il processo installer sia stato avviato
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -637,7 +718,10 @@ pub async fn install_studio_update_and_restart(
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        let ext = installer_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = installer_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
         if ext.eq_ignore_ascii_case("dmg") {
             // Su macOS apriamo il file .dmg con `open`
             Command::new("open")
@@ -660,10 +744,16 @@ pub async fn install_studio_update_and_restart(
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
-        let ext = installer_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = installer_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
         if ext.eq_ignore_ascii_case("appimage") {
             // Rendi eseguibile e lancia
-            let _ = Command::new("chmod").arg("+x").arg(&installer_path).status();
+            let _ = Command::new("chmod")
+                .arg("+x")
+                .arg(&installer_path)
+                .status();
             Command::new(&installer_path)
                 .spawn()
                 .map_err(|e| format!("Impossibile eseguire AppImage: {}", e))?;
@@ -680,7 +770,10 @@ pub async fn install_studio_update_and_restart(
     }
 
     #[allow(unreachable_code)]
-    Err(format!("Installazione automatica non supportata su {}", _os))
+    Err(format!(
+        "Installazione automatica non supportata su {}",
+        _os
+    ))
 }
 
 #[cfg(test)]
@@ -725,10 +818,30 @@ mod tests {
             },
         ];
 
-        let picked = pick_best_asset(&assets);
+        let picked = pick_best_asset_for(&assets, "windows", "x86_64");
         assert!(picked.is_some());
         let asset = picked.unwrap();
-        #[cfg(target_os = "windows")]
         assert!(asset.name.contains("setup.exe"));
+    }
+
+    #[test]
+    fn test_pick_best_asset_rejects_other_operating_systems() {
+        let mac_assets = vec![GithubAsset {
+            name: "OMP.Studio_0.8.1_aarch64.dmg".to_string(),
+            size: 12_000_000,
+            browser_download_url: "https://example.invalid/OMP.Studio_0.8.1_aarch64.dmg"
+                .to_string(),
+            content_type: Some("application/x-apple-diskimage".to_string()),
+        }];
+        let windows_assets = vec![GithubAsset {
+            name: "OMP-Studio_0.8.1_x64-setup.exe".to_string(),
+            size: 15_000_000,
+            browser_download_url: "https://example.invalid/OMP-Studio_0.8.1_x64-setup.exe"
+                .to_string(),
+            content_type: Some("application/octet-stream".to_string()),
+        }];
+
+        assert!(pick_best_asset_for(&mac_assets, "windows", "x86_64").is_none());
+        assert!(pick_best_asset_for(&windows_assets, "macos", "aarch64").is_none());
     }
 }

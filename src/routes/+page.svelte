@@ -3,7 +3,7 @@
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FileTree from '$lib/components/FileTree.svelte';
 	import Editor from '$lib/editor/Editor.svelte';
-	import SessionList from '$lib/components/SessionList.svelte';
+	import AgentPanel from '$lib/components/AgentPanel.svelte';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
 	import GitPanel from '$lib/components/GitPanel.svelte';
@@ -11,14 +11,17 @@
 	import PreviewViewer from '$lib/components/PreviewViewer.svelte';
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
 	import ModelSettingsModal from '$lib/components/models/ModelSettingsModal.svelte';
+	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { onDestroy } from 'svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
+	import { normalizeProjectPath, projectStore } from '$lib/stores/projects.svelte';
+	import { taskStore } from '$lib/stores/tasks.svelte';
+	import type { TerminalSessionInfo } from '$lib/terminal/terminal';
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
 	import { onMount } from 'svelte';
-	let leftSection = $state<'files' | 'sessions' | 'git'>('files');
+	let leftSection = $state<'files' | 'git' | 'agent'>('files');
 	// Quando un diagramma arriva, la colonna centrale mostra la whiteboard
 	// al posto dell'editor; si torna all'editor chiudendo la whiteboard.
 	let diagramOpen = $state(false);
@@ -61,13 +64,100 @@
 	} | null>(null);
 	let editorDiffRequestId = 0;
 
-	// Sessioni terminale per progetto: servono a riprendere una sessione
-	// storica con `--resume` senza toccare il PTY degli altri progetti.
+	// Il processo OMP resta uno per progetto. Task e storico pilotano la TUI
+	// esistente con /new e /resume senza riavviare o sostituire il PTY.
 	const terminalSessions = new Map<string, import('$lib/terminal/terminal').TerminalSession>();
+	let terminalMeta = $state<Record<string, { inputPending: boolean; sessionId: string | null }>>({});
+	let terminalBusy = $state<Record<string, boolean>>({});
+	let agentErrors = $state<Record<string, string | null>>({});
+	let taskEditorId = $state<string | null>(null);
+	const taskEditor = $derived(taskStore.taskById(taskEditorId));
+	const activeTaskEditor = $derived(
+		taskEditor
+		&& projectStore.activeProject
+		&& taskEditor.projectPath === normalizeProjectPath(projectStore.activeProject.path).toLowerCase()
+			? taskEditor
+			: undefined
+	);
 
-	function handleResumeSession(projectId: string, sessionId: string) {
+	function updateTerminalMeta(projectId: string, patch: Partial<{ inputPending: boolean; sessionId: string | null }>) {
+		terminalMeta[projectId] = {
+			inputPending: terminalMeta[projectId]?.inputPending ?? false,
+			sessionId: terminalMeta[projectId]?.sessionId ?? null,
+			...patch
+		};
+	}
+
+	function automationReason(projectId: string) {
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		if (terminalBusy[projectId]) return 'Operazione in corso';
+		if (terminalMeta[projectId]?.inputPending) return 'Completa il testo nel terminale';
+		if (project?.agentState === 'working') return 'OMP sta lavorando';
+		if (project?.agentState === 'attention') return 'OMP aspetta una risposta';
+		if (project?.agentState !== 'idle') return 'Stato OMP non disponibile';
+		return 'Pronto';
+	}
+
+	function canAutomate(projectId: string) {
+		return automationReason(projectId) === 'Pronto';
+	}
+
+	function openNewTask(projectPath: string) {
+		const task = taskStore.createTask(projectPath);
+		taskEditorId = task.id;
+		diagramOpen = false;
+		previewFile = null;
+	}
+
+	function openTask(taskId: string) {
+		taskEditorId = taskId;
+		diagramOpen = false;
+		previewFile = null;
+	}
+
+	async function handleRunTask(projectId: string, taskId: string) {
 		const term = terminalSessions.get(projectId);
-		if (term) void term.resumeSession(sessionId);
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		const task = taskStore.taskById(taskId);
+		if (!term || !project || !task || !canAutomate(projectId)) return;
+
+		terminalBusy[projectId] = true;
+		agentErrors[projectId] = null;
+		taskStore.markDispatching(taskId);
+		try {
+			const session = await term.startTask(task.prompt);
+			taskStore.completeDispatch(taskId, session.sessionId);
+			taskStore.setView(project.path, 'sessions');
+			if (taskEditorId === taskId) taskEditorId = null;
+			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
+				detail: { projectPath: project.path, sessionId: session.sessionId }
+			}));
+		} catch (error) {
+			taskStore.rollbackDispatch(taskId);
+			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
+		} finally {
+			terminalBusy[projectId] = false;
+		}
+	}
+
+	async function handleResumeSession(projectId: string, sessionId: string) {
+		const term = terminalSessions.get(projectId);
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		if (!term || !project || !canAutomate(projectId)) return;
+
+		terminalBusy[projectId] = true;
+		agentErrors[projectId] = null;
+		try {
+			await term.resumeSession(sessionId);
+			taskStore.setView(project.path, 'sessions');
+			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
+				detail: { projectPath: project.path, sessionId }
+			}));
+		} catch (error) {
+			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
+		} finally {
+			terminalBusy[projectId] = false;
+		}
 	}
 
 	function handleGitPanelDiff(filePath: string, mode: 'working' | 'commit', hash?: string) {
@@ -284,11 +374,11 @@
 	<main class="columns" class:dragging bind:this={columnsEl} style:grid-template-columns={gridTemplate}>
 		<aside class="col-left">
 			<div class="col-header tabs-header">
-				<button class:active={leftSection === 'files'} onclick={() => leftSection = 'files'}>FILE</button>
-				<button class:active={leftSection === 'git'} onclick={() => leftSection = 'git'}>GIT</button>
-				<button class:active={leftSection === 'sessions'} onclick={() => leftSection = 'sessions'}>SESSIONI</button>
+				<button type="button" class:active={leftSection === 'files'} onclick={() => leftSection = 'files'}>FILE</button>
+				<button type="button" class:active={leftSection === 'git'} onclick={() => leftSection = 'git'}>GIT</button>
+				<button type="button" class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'}>AGENTE</button>
 			</div>
-			<div class="col-content">
+			<div class="col-content" class:agent-content={leftSection === 'agent'}>
 				{#if projectStore.activeProject}
 					{@const proj = projectStore.activeProject}
 					{#if proj.path === ''}
@@ -310,9 +400,21 @@
 							onOpenWorkingDiff={(p) => handleGitPanelDiff(p, 'working')}
 							onOpenCommitDiff={(p, hash) => handleGitPanelDiff(p, 'commit', hash)}
 							onResumeSession={(sid) => handleResumeSession(proj.id, sid)}
+							canResume={canAutomate(proj.id)}
+							resumeReason={automationReason(proj.id)}
 						/>
 					{:else}
-						<SessionList projectPath={proj.path} />
+						<AgentPanel
+							projectPath={proj.path}
+							canAutomate={canAutomate(proj.id)}
+							automationReason={automationReason(proj.id)}
+							actionError={agentErrors[proj.id] ?? null}
+							currentSessionId={terminalMeta[proj.id]?.sessionId ?? null}
+							onCreateTask={() => openNewTask(proj.path)}
+							onEditTask={openTask}
+							onRunTask={(taskId) => void handleRunTask(proj.id, taskId)}
+							onResumeSession={(sessionId) => void handleResumeSession(proj.id, sessionId)}
+						/>
 					{/if}
 				{/if}
 			</div>
@@ -328,10 +430,12 @@
 		></div>
 
 		<section class="col-center">
-			<div class="col-header">{diagramOpen ? 'DIAGRAMMA' : previewFile ? 'ANTEPRIMA' : 'EDITOR'}</div>
+			<div class="col-header">{activeTaskEditor ? 'TASK' : diagramOpen ? 'DIAGRAMMA' : previewFile ? 'ANTEPRIMA' : 'EDITOR'}</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#if projectStore.activeProject}
-					{#if diagramOpen}
+					{#if activeTaskEditor}
+						<TaskEditor task={activeTaskEditor} onClose={() => taskEditorId = null} />
+					{:else if diagramOpen}
 						<DiagramViewer
 							projectPath={projectStore.activeProject.path}
 							onClose={() => (diagramOpen = false)}
@@ -379,7 +483,9 @@
 							if (s) terminalSessions.set(p.id, s);
 							else terminalSessions.delete(p.id);
 						}}
-						onStateChange={(s) => projectStore.setAgentState(p.id, s as any)}
+						onStateChange={(state) => projectStore.setAgentState(p.id, state)}
+						onInputPendingChange={(inputPending) => updateTerminalMeta(p.id, { inputPending })}
+						onSessionChange={(session: TerminalSessionInfo | null) => updateTerminalMeta(p.id, { sessionId: session?.sessionId ?? null })}
 						onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
 					/>
 				{/each}
@@ -546,7 +652,7 @@
 		font-weight: 600;
 		letter-spacing: 0.05em;
 		height: 100%;
-		padding: 0 var(--space-3);
+		padding: 0 var(--space-2);
 		cursor: pointer;
 		border-bottom: 2px solid transparent;
 	}
@@ -569,6 +675,12 @@
 		   tagliate da una linea. */
 		-webkit-mask-image: linear-gradient(to bottom, transparent 0, black 10px);
 		mask-image: linear-gradient(to bottom, transparent 0, black 10px);
+	}
+
+	.col-content.agent-content {
+		overflow: hidden;
+		-webkit-mask-image: none;
+		mask-image: none;
 	}
 
 	/* Editor e terminale gestiscono il proprio scroll: uno scroll esterno

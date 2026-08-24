@@ -1,0 +1,94 @@
+name: Release multipiattaforma
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag da compilare e pubblicare (es. v0.8.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            build_args: --bundles nsis
+            artifact_name: windows-x64
+            artifact_path: src-tauri/target/release/bundle/nsis/*.exe
+          - name: macOS universal
+            os: macos-14
+            build_args: --bundles dmg --target universal-apple-darwin
+            artifact_name: macos-universal
+            artifact_path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout del tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Installa Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Installa Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Installa i target macOS universal
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Installa le dipendenze
+        run: bun install --frozen-lockfile
+
+      - name: Compila gli installer
+        run: bun tauri build ${{ matrix.build_args }}
+
+      - name: Conserva gli installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+
+  publish:
+    name: Pubblica release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Scarica tutti gli installer
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Crea o completa la release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --verify-tag \
+              --title "$RELEASE_TAG" \
+              --notes-from-tag
+          fi
