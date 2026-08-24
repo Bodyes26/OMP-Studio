@@ -47,9 +47,13 @@ prompt resta nella coda del progetto; riprendere una sessione di ieri richiede u
 - **Non è un IDE.** Niente build, debug, refactoring, GUI per git, estensioni.
   L'editor serve a leggere e correggere quello che l'agente tocca, non a sostituire
   l'ambiente di sviluppo.
-- **Non reimplementa la chat dell'agente.** Nessun client ACP, nessuna API: la TUI di
-  `omp` gira in un terminale reale e l'app non la interpreta, la ospita. La TUI è
-  l'interfaccia dell'agente e resta intatta, scorciatoie comprese.
+- **Non sostituisce la TUI.** La TUI di `omp` gira in un terminale reale e l'app non la
+  interpreta, la ospita: resta intatta, scorciatoie comprese. Accanto a essa, dalla 1.0,
+  la colonna destra ha una seconda superficie — una GUI nativa che pilota lo stesso
+  `omp` su `--mode rpc-ui`. Le due superfici sono alternative, non sovrapposte: un solo
+  processo per progetto, e il passaggio riapre la **stessa** sessione con `--resume`.
+  Quello che l'app continua a non fare è reimplementare l'agente: nessun client ACP
+  verso agenti terzi, nessuna logica di modello, di prompt o di tool dentro Studio.
 - **Non è multipiattaforma.** Un solo bersaglio, ottimizzato, invece di tre approssimati.
 - **Non è un dashboard di analytics.** L'usage risponde a "quanto resta e quando si
   resetta", non produce grafici.
@@ -76,8 +80,12 @@ silenzioso, preciso**.
 - **VS Code.** OMP Studio non deve diventarne un clone con meno funzioni. Se una feature
   esiste solo perché "VS Code ce l'ha", si taglia. Nessuna command palette generica,
   nessuna activity bar a otto icone, nessuna status bar con dodici widget.
-- **Cursor / Windsurf / OpenCode Desktop.** Sostituiscono la TUI dell'agente con una
-  chat GUI propria. È esattamente la scelta che questo progetto rifiuta.
+- **Cursor / Windsurf / OpenCode Desktop.** Rimpiazzano la TUI dell'agente con una chat
+  GUI che diventa l'unica interfaccia possibile, e con essa reimplementano prompt, tool
+  e approvazioni. Questo resta il rifiuto: la GUI di Studio **affianca** la TUI, non la
+  sostituisce, e non contiene logica di agente — è un client di `--mode rpc-ui` che
+  rende quello che `omp` dichiara. Chi vuole la TUI la trova nella scheda accanto, sulla
+  stessa sessione.
 - **Zed.** Ottimo editor, ma resta un editor con una nozione di workspace da editor.
   Qui il primo cittadino è la sessione agente per progetto.
 - **AI slop 2025-2026.** Glassmorphism decorativo, gradient text, card con bordo sottile

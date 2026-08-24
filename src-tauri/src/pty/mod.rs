@@ -133,13 +133,11 @@ fn write_overlay() -> std::path::PathBuf {
 /// Sorgente dell'estensione-ponte (tool `studio_diagram`). Inclusa nel
 /// binario con `include_str!` dal repo: una sola verita', nessuna risorsa
 /// Tauri da configurare.
-const DIAGRAM_EXTENSION_TS: &str = include_str!("../../../extensions/studio-diagram.ts");
-/// Estrae l'estensione in %LOCALAPPDATA%/omp-studio/extensions/ e ritorna
-/// il percorso da passare a omp con `-e`. Riscrive il file se il sorgente
-/// nel binario e' piu' nuovo della copia su disco: aggiornando Studio si
-/// aggiorna anche l'estensione. None = impossibile scrivere: le sessioni
-/// partono comunque, solo senza il tool dei diagrammi.
-fn write_diagram_extension() -> Option<String> {
+pub const DIAGRAM_EXTENSION_TS: &str = include_str!("../../../extensions/studio-diagram.ts");
+
+/// Cartella delle estensioni di Studio: `%LOCALAPPDATA%/omp-studio/extensions`
+/// su Windows, `~/.omp-studio/extensions` altrove. Mai dentro `~/.omp`.
+fn extensions_dir() -> Option<std::path::PathBuf> {
     let base = if cfg!(target_os = "windows") {
         std::env::var("LOCALAPPDATA").ok()?
     } else {
@@ -153,14 +151,22 @@ fn write_diagram_extension() -> Option<String> {
         })
         .join("extensions");
     std::fs::create_dir_all(&dir).ok()?;
-    let path = dir.join("studio-diagram.ts");
+    Some(dir)
+}
 
+/// Estrae un'estensione inclusa nel binario e ritorna il percorso da passare
+/// a omp con `-e`. Riscrive il file quando il sorgente incluso differisce
+/// dalla copia su disco: aggiornando Studio si aggiornano le estensioni.
+/// None = impossibile scrivere: le sessioni partono comunque, solo senza
+/// quell'estensione.
+pub fn write_extension(file_name: &str, source: &str) -> Option<String> {
+    let path = extensions_dir()?.join(file_name);
     let stale = match std::fs::read_to_string(&path) {
-        Ok(existing) => existing != DIAGRAM_EXTENSION_TS,
+        Ok(existing) => existing != source,
         Err(_) => true,
     };
     if stale {
-        std::fs::write(&path, DIAGRAM_EXTENSION_TS).ok()?;
+        std::fs::write(&path, source).ok()?;
     }
     Some(path.to_string_lossy().to_string())
 }
@@ -217,7 +223,7 @@ pub async fn pty_open(
     // Studio (risorsa inclusa nel binario, scritta accanto all'exe alla
     // prima apertura). Se il file non esiste ancora lo si estrae: nessuna
     // scrittura in ~/.omp, la copia sta in %LOCALAPPDATA%/omp-studio.
-    let extension_arg = write_diagram_extension();
+    let extension_arg = write_extension("studio-diagram.ts", DIAGRAM_EXTENSION_TS);
 
     #[cfg(target_os = "windows")]
     let mut cmd = {

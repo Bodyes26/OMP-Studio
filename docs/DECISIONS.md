@@ -60,3 +60,53 @@ Con una copia valida di un tema builtin il caricamento è silenzioso.
 **Non verificato:** il ricaricamento a caldo delle TUI già aperte quando il file
 viene riscritto. Il meccanismo esiste nel sorgente e tutti i suoi gate sono
 soddisfatti, ma non è stato osservato: l'interfaccia non lo promette.
+
+---
+
+## Gate R10: seconda superficie via `--mode rpc-ui`
+
+**Data:** 2026-08-24
+**Esito:** SUPERATO, con perimetro
+**Decisione:** la colonna destra diventa a schede `TERMINAL | GUI`. La scheda GUI è un
+client nativo che pilota `omp --mode rpc-ui` su stdio NDJSON. Un solo processo `omp` per
+progetto: cambiare scheda chiude quel processo e riapre la **stessa** sessione con
+`--resume <sessionId>`.
+
+**Cosa rovescia.** Fino alla 0.9 tre punti dicevano il contrario, e sono stati riscritti,
+non aggirati: il non-obiettivo «non reimplementa la chat dell'agente» (`PRODUCT.md`),
+l'anti-riferimento Cursor/Windsurf (`PRODUCT.md`), e «`--mode rpc` … significherebbe
+sostituire la TUI» (`ricerca/OMP-INTEGRATION.md` §5.5). La distinzione che regge il
+rovesciamento: *sostituire* la TUI era il rifiuto, *affiancarla* non lo è. La TUI resta
+la superficie di default, resta intatta, e ogni comando che vive solo lì continua a
+viverci — la GUI lo dichiara e offre il passaggio, non lo emula.
+
+**Perché `rpc-ui` e non `rpc`.** `--mode rpc` mette `hasUI = false` e il tool `ask` muore
+con `Ask tool requires interactive mode`. Senza `ask` un agente che chiede una scelta si
+interrompe: non è una superficie, è una demo.
+
+**Verificato empiricamente il 2026-08-24** su `omp/18.0.4`, avviando
+`omp --mode rpc-ui --cwd <repo>` con stdio in pipe:
+
+1. frame `ready` con `supportedProtocolVersions: [1, 2]`, `maxFrameBytes: 1048576`,
+   `maxReassembledFrameBytes: 67108864`;
+2. `{"type":"negotiate_protocol","protocolVersion":2}` risponde
+   `success: true, data.protocolVersion: 2`;
+3. `get_state` restituisce `sessionId`, `sessionFile`, `contextUsage`, `todoPhases`,
+   `queuedMessageCount` e i tre modi di coda;
+4. `available_commands_update` arriva non richiesto all'avvio;
+5. arrivano `extension_ui_request` che **non** sono domande (`method: "setWidget"`): il
+   client non può assumere che ogni `extension_ui_request` richieda una risposta.
+
+**Perimetro, dichiarato nell'interfaccia e non nascosto.**
+
+- **Un solo proprietario per sessione.** Le due superfici non coesistono per lo stesso
+  progetto. L'handoff è esplicito, mai automatico.
+- **Il passaggio perde lo stato non persistito**: job in background, kernel `eval`, tab
+  del browser, sessioni shell di `bash`. Il transcript no: è lo stesso `.jsonl`.
+- **Nessun controllo dei subagent dalla GUI.** Il protocollo espone solo `get_subagents` e
+  `get_subagent_messages`: il pannello è in sola lettura e lo scrive.
+- **Le approvazioni argomento-dipendenti di `omp` non scattano** quando l'overlay GUI
+  mette `approvalMode: yolo` per evitare il doppio prompt. Per questo la policy di
+  default di Studio è `ask-writes`, che mette `bash` ed `eval` dietro una card.
+- **Nessuna scrittura in `~/.omp`.** La policy di approvazione vive in
+  `%LOCALAPPDATA%/omp-studio/approval.json`: il Gate R9 resta l'unica deroga.

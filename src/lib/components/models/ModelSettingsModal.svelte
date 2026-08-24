@@ -3,6 +3,7 @@
 	import RolesTab from './RolesTab.svelte';
 	import CatalogTab from './CatalogTab.svelte';
 	import ProvidersTab from './ProvidersTab.svelte';
+	import ApprovalsTab from './ApprovalsTab.svelte';
 	import UpgradeModal from './UpgradeModal.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -144,6 +145,17 @@
 			>
 				Provider & Custom
 			</button>
+			<button
+				class="nav-tab"
+				role="tab"
+				aria-selected={modelSettingsStore.activeTab === 'approvals'}
+				aria-controls="panel-approvals"
+				id="tab-approvals"
+				class:active={modelSettingsStore.activeTab === 'approvals'}
+				onclick={() => modelSettingsStore.activeTab = 'approvals'}
+			>
+				Approvazioni
+			</button>
 		</div>
 
 		<!-- Content Body -->
@@ -164,6 +176,10 @@
 			{:else if modelSettingsStore.activeTab === 'providers'}
 				<div id="panel-providers" role="tabpanel" aria-labelledby="tab-providers" class="tab-panel">
 					<ProvidersTab />
+				</div>
+			{:else if modelSettingsStore.activeTab === 'approvals'}
+				<div id="panel-approvals" role="tabpanel" aria-labelledby="tab-approvals" class="tab-panel">
+					<ApprovalsTab />
 				</div>
 			{/if}
 		</div>

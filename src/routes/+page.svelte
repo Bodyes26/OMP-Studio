@@ -1,5 +1,8 @@
 <script lang="ts">
 	import Terminal from '$lib/terminal/Terminal.svelte';
+	import Chat from '$lib/agent/components/Chat.svelte';
+	import { AgentSession } from '$lib/agent/session.svelte';
+	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FileTree from '$lib/components/FileTree.svelte';
 	import Editor from '$lib/editor/Editor.svelte';
@@ -15,7 +18,7 @@
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { onDestroy } from 'svelte';
-	import { normalizeProjectPath, projectStore } from '$lib/stores/projects.svelte';
+	import { normalizeProjectPath, projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	import type { TerminalSessionInfo } from '$lib/terminal/terminal';
 	import { invoke } from '@tauri-apps/api/core';
@@ -64,12 +67,14 @@
 	} | null>(null);
 	let editorDiffRequestId = 0;
 
-	// Il processo OMP resta uno per progetto. Task e storico pilotano la TUI
-	// esistente con /new e /resume senza riavviare o sostituire il PTY.
+	// Il processo OMP resta uno per progetto: o gira in Terminal (PTY) o in Chat (RPC).
+	// Passare da una superficie all'altra chiude il processo e lo riapre con --resume.
 	const terminalSessions = new Map<string, import('$lib/terminal/terminal').TerminalSession>();
+	const agentSessions = new Map<string, AgentSession>();
 	let terminalMeta = $state<Record<string, { inputPending: boolean; sessionId: string | null }>>({});
 	let terminalBusy = $state<Record<string, boolean>>({});
 	let agentErrors = $state<Record<string, string | null>>({});
+	let viewingImage = $state<{ data: string; mimeType: string } | null>(null);
 	let taskEditorId = $state<string | null>(null);
 	const taskEditor = $derived(taskStore.taskById(taskEditorId));
 	const activeTaskEditor = $derived(
@@ -79,6 +84,35 @@
 			? taskEditor
 			: undefined
 	);
+
+	function getOrCreateAgentSession(p: Project): AgentSession {
+		let session = agentSessions.get(p.id);
+		if (!session) {
+			session = new AgentSession(p.path);
+			agentSessions.set(p.id, session);
+			if (p.layout.rightSection === 'gui') {
+				void session.open(terminalMeta[p.id]?.sessionId ?? null);
+			}
+		}
+		return session;
+	}
+
+	// Sincronizza lo stato dell'agente e la sessione dalle sessioni GUI
+	$effect(() => {
+		for (const p of projectStore.projects) {
+			if (p.layout.rightSection === 'gui') {
+				const session = agentSessions.get(p.id);
+				if (session) {
+					if (session.agentState !== 'unknown') {
+						projectStore.setAgentState(p.id, session.agentState);
+					}
+					if (session.sessionId) {
+						updateTerminalMeta(p.id, { sessionId: session.sessionId });
+					}
+				}
+			}
+		}
+	});
 
 	function updateTerminalMeta(projectId: string, patch: Partial<{ inputPending: boolean; sessionId: string | null }>) {
 		terminalMeta[projectId] = {
@@ -91,6 +125,13 @@
 	function automationReason(projectId: string) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		if (terminalBusy[projectId]) return 'Operazione in corso';
+		if (project?.layout.rightSection === 'gui') {
+			const session = agentSessions.get(projectId);
+			if (session?.isStreaming) return 'OMP sta lavorando';
+			if (session?.isCompacting) return 'Compattazione in corso';
+			if (project.agentState === 'attention') return 'OMP aspetta una risposta';
+			return 'Pronto';
+		}
 		if (terminalMeta[projectId]?.inputPending) return 'Completa il testo nel terminale';
 		if (project?.agentState === 'working') return 'OMP sta lavorando';
 		if (project?.agentState === 'attention') return 'OMP aspetta una risposta';
@@ -116,22 +157,42 @@
 	}
 
 	async function handleRunTask(projectId: string, taskId: string) {
-		const term = terminalSessions.get(projectId);
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		const task = taskStore.taskById(taskId);
-		if (!term || !project || !task || !canAutomate(projectId)) return;
+		if (!project || !task || !canAutomate(projectId)) return;
 
 		terminalBusy[projectId] = true;
 		agentErrors[projectId] = null;
 		taskStore.markDispatching(taskId);
+
 		try {
-			const session = await term.startTask(task.prompt);
-			taskStore.completeDispatch(taskId, session.sessionId);
-			taskStore.setView(project.path, 'sessions');
-			if (taskEditorId === taskId) taskEditorId = null;
-			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
-				detail: { projectPath: project.path, sessionId: session.sessionId }
-			}));
+			if (project.layout.rightSection === 'gui') {
+				const session = getOrCreateAgentSession(project);
+				if (!session.client.isOpen) {
+					await session.open();
+				}
+				const sid = await session.newSession();
+				await session.prompt(task.prompt, [], 'steer');
+				const resolvedSid = sid ?? session.sessionId;
+				if (resolvedSid) {
+					taskStore.completeDispatch(taskId, resolvedSid);
+				}
+				taskStore.setView(project.path, 'sessions');
+				if (taskEditorId === taskId) taskEditorId = null;
+				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
+					detail: { projectPath: project.path, sessionId: resolvedSid }
+				}));
+			} else {
+				const term = terminalSessions.get(projectId);
+				if (!term) throw new Error('Terminale non pronto');
+				const session = await term.startTask(task.prompt);
+				taskStore.completeDispatch(taskId, session.sessionId);
+				taskStore.setView(project.path, 'sessions');
+				if (taskEditorId === taskId) taskEditorId = null;
+				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
+					detail: { projectPath: project.path, sessionId: session.sessionId }
+				}));
+			}
 		} catch (error) {
 			taskStore.rollbackDispatch(taskId);
 			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
@@ -141,24 +202,132 @@
 	}
 
 	async function handleResumeSession(projectId: string, sessionId: string) {
-		const term = terminalSessions.get(projectId);
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		if (!term || !project || !canAutomate(projectId)) return;
+		if (!project || !canAutomate(projectId)) return;
 
 		terminalBusy[projectId] = true;
 		agentErrors[projectId] = null;
 		try {
-			await term.resumeSession(sessionId);
-			taskStore.setView(project.path, 'sessions');
-			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
-				detail: { projectPath: project.path, sessionId }
-			}));
+			if (project.layout.rightSection === 'gui') {
+				const session = getOrCreateAgentSession(project);
+				await session.close();
+				await session.open(sessionId);
+				taskStore.setView(project.path, 'sessions');
+				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
+					detail: { projectPath: project.path, sessionId }
+				}));
+			} else {
+				const term = terminalSessions.get(projectId);
+				if (!term) throw new Error('Terminale non pronto');
+				await term.resumeSession(sessionId);
+				taskStore.setView(project.path, 'sessions');
+				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
+					detail: { projectPath: project.path, sessionId }
+				}));
+			}
 		} catch (error) {
 			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
 		} finally {
 			terminalBusy[projectId] = false;
 		}
 	}
+
+	/**
+	 * Handoff tra TERMINAL e GUI: un solo processo omp attivo per progetto.
+	 * Il passaggio conserva la stessa sessione tramite --resume <sessionId>.
+	 */
+	async function switchSurface(projectId: string, target: 'terminal' | 'gui') {
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		if (!project || project.layout.rightSection === target) return;
+
+		const currentSessionId = terminalMeta[projectId]?.sessionId ?? agentSessions.get(projectId)?.sessionId ?? null;
+
+		if (project.layout.rightSection === 'gui') {
+			const session = agentSessions.get(projectId);
+			if (session) {
+				if (session.isStreaming) {
+					await session.abort();
+				}
+				await session.close();
+			}
+		}
+
+		projectStore.updateLayout(projectId, (l) => {
+			l.rightSection = target;
+		});
+
+		if (target === 'gui') {
+			const session = getOrCreateAgentSession(project);
+			await session.open(currentSessionId);
+		}
+	}
+
+	/** Intercettazione comandi slash nella chat GUI */
+	function handleGuiSlashCommand(projectId: string, raw: string): boolean {
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		const session = agentSessions.get(projectId);
+		if (!project || !session) return false;
+
+		const trimmed = raw.trim();
+		const [cmd, ...rest] = trimmed.split(/\s+/);
+		const lowerCmd = cmd.toLowerCase();
+
+		if (lowerCmd === '/new') {
+			void session.newSession();
+			return true;
+		}
+		if (lowerCmd === '/clear') {
+			void session.newSession();
+			return true;
+		}
+		if (lowerCmd === '/resume') {
+			const targetId = rest[0];
+			if (targetId) {
+				void handleResumeSession(projectId, targetId);
+			} else {
+				leftSection = 'agent';
+				taskStore.setView(project.path, 'sessions');
+			}
+			return true;
+		}
+		if (lowerCmd === '/switch') {
+			pickerOpen = true;
+			return true;
+		}
+		if (lowerCmd === '/git' || lowerCmd === '/branch') {
+			leftSection = 'git';
+			return true;
+		}
+		if (lowerCmd === '/settings' || lowerCmd === '/setup') {
+			modelSettingsStore.openModal();
+			return true;
+		}
+
+		// Comandi solo-TUI: mostrano l'avviso con il bottone verso TERMINAL
+		const TUI_ONLY = [
+			'/fork', '/tree', '/drop', '/login', '/logout', '/plan', '/plan-review',
+			'/vibe', '/goal', '/guided-goal', '/loop', '/extensions', '/agents',
+			'/live', '/pause', '/collab', '/join', '/leave', '/copy', '/quit'
+		];
+		if (TUI_ONLY.includes(lowerCmd)) {
+			session.pushNotice(
+				'info',
+				`Il comando ${cmd} vive nella TUI. Passa alla scheda TERMINAL per usarlo.`,
+				undefined,
+				true
+			);
+			return true;
+		}
+
+		return false;
+	}
+
+	onDestroy(() => {
+		for (const session of agentSessions.values()) {
+			void session.close();
+		}
+		agentSessions.clear();
+	});
 
 	function handleGitPanelDiff(filePath: string, mode: 'working' | 'commit', hash?: string) {
 		if (!projectStore.activeId) return;
@@ -346,6 +515,12 @@
 			} else if (e.key.toLowerCase() === 'm' || e.key === ',') {
 				e.preventDefault();
 				modelSettingsStore.openModal();
+			} else if (e.key.toLowerCase() === 'a') {
+				e.preventDefault();
+				if (projectStore.activeProject) {
+					const next = projectStore.activeProject.layout.rightSection === 'gui' ? 'terminal' : 'gui';
+					void switchSurface(projectStore.activeProject.id, next);
+				}
 			} else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
 				e.preventDefault();
 				const projects = projectStore.projects;
@@ -473,21 +648,43 @@
 		></div>
 
 		<section class="col-right">
-			<div class="col-header">TERMINAL</div>
+			<div class="col-header tabs-header">
+				<button
+					type="button"
+					class:active={projectStore.activeProject?.layout.rightSection !== 'gui'}
+					onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
+				>TERMINAL</button>
+				<button
+					type="button"
+					class:active={projectStore.activeProject?.layout.rightSection === 'gui'}
+					onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
+				>GUI</button>
+			</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#each projectStore.projects as p (p.id)}
-					<Terminal
-						cwd={p.path}
-						visible={p.id === projectStore.activeId}
-						sessionRef={(s) => {
-							if (s) terminalSessions.set(p.id, s);
-							else terminalSessions.delete(p.id);
-						}}
-						onStateChange={(state) => projectStore.setAgentState(p.id, state)}
-						onInputPendingChange={(inputPending) => updateTerminalMeta(p.id, { inputPending })}
-						onSessionChange={(session: TerminalSessionInfo | null) => updateTerminalMeta(p.id, { sessionId: session?.sessionId ?? null })}
-						onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
-					/>
+					{#if p.layout.rightSection === 'gui'}
+						<Chat
+							session={getOrCreateAgentSession(p)}
+							visible={p.id === projectStore.activeId}
+							onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
+							onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
+							onSwitchToTerminal={() => void switchSurface(p.id, 'terminal')}
+							onSlashCommand={(raw) => handleGuiSlashCommand(p.id, raw)}
+						/>
+					{:else}
+						<Terminal
+							cwd={p.path}
+							visible={p.id === projectStore.activeId}
+							sessionRef={(s) => {
+								if (s) terminalSessions.set(p.id, s);
+								else terminalSessions.delete(p.id);
+							}}
+							onStateChange={(state) => projectStore.setAgentState(p.id, state)}
+							onInputPendingChange={(inputPending) => updateTerminalMeta(p.id, { inputPending })}
+							onSessionChange={(session: TerminalSessionInfo | null) => updateTerminalMeta(p.id, { sessionId: session?.sessionId ?? null })}
+							onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
+						/>
+					{/if}
 				{/each}
 			</div>
 		</section>
@@ -583,6 +780,13 @@
 	{/if}
 
 	<StudioUpdateModal />
+	{#if viewingImage}
+		<ImageModal
+			data={viewingImage.data}
+			mimeType={viewingImage.mimeType}
+			onClose={() => (viewingImage = null)}
+		/>
+	{/if}
 </div>
 
 <style>

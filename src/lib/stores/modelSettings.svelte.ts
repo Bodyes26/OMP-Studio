@@ -115,7 +115,7 @@ export interface RoleSuggestionsResponse {
 
 class ModelSettingsStore {
 	isOpen = $state(false);
-	activeTab = $state<'roles' | 'catalog' | 'providers'>('roles');
+	activeTab = $state<'roles' | 'catalog' | 'providers' | 'approvals'>('roles');
 	
 	loading = $state(false);
 	saving = $state(false);

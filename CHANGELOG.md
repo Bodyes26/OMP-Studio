@@ -9,6 +9,21 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-24
+
+### Added
+
+- Seconda superficie nativa per l'agente: la colonna destra diventa a schede
+  `TERMINAL | GUI`, con handoff esplicito e conservazione della stessa sessione
+  tramite `--resume`.
+- Client nativo Svelte 5 che pilota `omp --mode rpc-ui` su stdio NDJSON con
+  trasporto Rust a coalescenza di delta e riassemblaggio di chunk protocollo v2.
+- Transcript nativo con rendering markdown, blocchi di ragionamento collassabili,
+  30 card dedicate per i tool di sistema, gestione subagent e visualizzazione todo.
+- Gate di approvazione strutturato con policy configurabile (`ask-writes`,
+  `ask-all`, `yolo`) nel pannello impostazioni, salvata in locale senza toccare `~/.omp`.
+- Intercettazione intelligente dei comandi slash e gestione della coda di prompt
+  con interruttore steer/follow-up.
 ## [0.9.0] - 2026-08-24
 
 ### Added

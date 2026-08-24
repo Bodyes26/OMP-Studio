@@ -2,6 +2,11 @@ mod diagrams;
 mod previews;
 mod pty;
 use pty::{pty_close, pty_open, pty_resize, pty_session_info, pty_write, PtyManager};
+mod rpc;
+use rpc::{
+    approval_policy_get, approval_policy_save, rpc_close, rpc_open, rpc_protocol, rpc_send,
+    rpc_stderr, RpcManager,
+};
 mod projects;
 use projects::{
     file_git_head, file_git_rev, file_read, file_write, git_branch_checkout, git_branch_create,
@@ -37,6 +42,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .manage(PtyManager::new())
+        .manage(RpcManager::new())
         .manage(StudioUpdaterState::new())
         .manage(diagrams::DiagramWatcherState::new())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -63,7 +69,14 @@ pub fn run() {
             pty_resize,
             pty_close,
             pty_session_info,
+            rpc_open,
+            rpc_send,
+            rpc_close,
+            rpc_stderr,
+            rpc_protocol,
             tree_read,
+            approval_policy_get,
+            approval_policy_save,
             file_read,
             file_write,
             file_git_head,

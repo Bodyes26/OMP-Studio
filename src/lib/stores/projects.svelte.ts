@@ -40,6 +40,12 @@ export interface ProjectLayout {
 	center: number;
 	leftSection: 'files' | 'sessions';
 	editorOpen: boolean;
+	/**
+	 * Superficie della colonna destra. Un progetto esistente riparte in
+	 * `terminal`: aggiornare Studio non deve spostare nessuno su una
+	 * superficie che non ha scelto.
+	 */
+	rightSection: 'terminal' | 'gui';
 }
 
 export interface Project {
@@ -112,7 +118,14 @@ class ProjectStore {
 					colorMode: p.colorMode === 'custom' || (typeof p.hue === 'number' && p.hue !== getProjectHue(path)) ? 'custom' : 'auto',
 					agentState: 'unknown',
 					openFiles: [],
-					activeFile: null
+					activeFile: null,
+					layout: {
+						left: typeof p.layout?.left === 'number' ? p.layout.left : 260,
+						center: typeof p.layout?.center === 'number' ? p.layout.center : 0.5,
+						leftSection: p.layout?.leftSection === 'sessions' ? 'sessions' : 'files',
+						editorOpen: p.layout?.editorOpen !== false,
+						rightSection: p.layout?.rightSection === 'gui' ? 'gui' : 'terminal'
+					}
 				});
 			}
 			this.projects.sort((a, b) => (b.lastOpened || 0) - (a.lastOpened || 0));
@@ -185,7 +198,8 @@ class ProjectStore {
 				left: 260,
 				center: 0.5,
 				leftSection: 'files',
-				editorOpen: true
+				editorOpen: true,
+				rightSection: 'terminal'
 			},
 			lastOpened: Date.now()
 		};
@@ -211,7 +225,8 @@ class ProjectStore {
 				left: 260,
 				center: 0.5,
 				leftSection: 'files',
-				editorOpen: false
+				editorOpen: false,
+				rightSection: 'terminal'
 			},
 			lastOpened: Date.now()
 		};
