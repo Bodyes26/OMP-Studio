@@ -5,7 +5,7 @@
 	// Rendering a finestre: se ci sono piu' di 300 entry mostra le ultime 300
 	// e un bottone «Carica precedenti» in cima che ne scopre altre 300.
 	import { projectStore } from '../../stores/projects.svelte';
-	import type { AgentSession, TranscriptEntry } from '../session.svelte';
+	import type { AgentSession, Block, TranscriptEntry } from '../session.svelte';
 	import ToolCard from '../tools/ToolCard.svelte';
 
 	import AssistantText from './AssistantText.svelte';
@@ -20,6 +20,21 @@
 
 	const projectName = $derived(
 		projectStore.activeProject?.name ?? session.sessionName ?? 'Progetto'
+	);
+	const activeAssistant = $derived(
+		session.visibleEntries.find(
+			(entry: TranscriptEntry) => entry.kind === 'assistant' && entry.id === session.activeAssistantId
+		)
+	);
+	const activeAssistantHasContent = $derived(
+		activeAssistant?.kind === 'assistant'
+			&& activeAssistant.blocks.some((block: Block) => block.type !== 'text' || block.text.length > 0)
+	);
+	const hasRunningTool = $derived(
+		session.visibleEntries.some((entry: TranscriptEntry) => entry.kind === 'tool' && entry.running)
+	);
+	const showActivity = $derived(
+		session.isStreaming && !activeAssistantHasContent && !hasRunningTool && !session.pendingUi
 	);
 
 	function applySuggestion(suggestion: string) {
@@ -37,7 +52,12 @@
 
 </script>
 
-<div class="transcript" bind:this={transcriptEl} class:is-empty={session.visibleEntries.length === 0}>
+<div
+	class="transcript"
+	bind:this={transcriptEl}
+	class:is-empty={session.visibleEntries.length === 0}
+	aria-busy={session.isStreaming}
+>
 	{#if session.hasEarlier}
 		<div class="earlier-bar">
 			<button type="button" class="earlier-btn" onclick={() => session.showEarlier()}>
@@ -93,7 +113,7 @@
 			{#if entry.kind === 'user'}
 				<UserMessage {entry} />
 			{:else if entry.kind === 'assistant'}
-				<AssistantText {entry} streaming={session.isStreaming} />
+				<AssistantText {entry} streaming={entry.id === session.activeAssistantId} />
 			{:else if entry.kind === 'tool'}
 				<ToolCard {entry} />
 			{:else if entry.kind === 'notice'}
@@ -107,6 +127,13 @@
 			{/if}
 		{/each}
 	{/if}
+
+	{#if showActivity}
+		<div class="agent-activity" role="status" aria-live="polite">
+			<span class="activity-dot" aria-hidden="true"></span>
+			<span>Sta pensando</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -116,6 +143,34 @@
 		gap: var(--space-3);
 		padding: var(--space-3);
 		min-width: 0;
+	}
+
+	.agent-activity {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		width: fit-content;
+		padding: var(--space-1) var(--space-2);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		transition:
+			opacity var(--dur-fast) var(--ease-out),
+			transform var(--dur-fast) var(--ease-out);
+	}
+
+	.activity-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: var(--radius-full);
+		background: var(--brand);
+		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+	}
+
+	@starting-style {
+		.agent-activity {
+			opacity: 0;
+			transform: translateY(2px);
+		}
 	}
 
 	.transcript.is-empty {

@@ -16,7 +16,11 @@
 
 	const lines = $derived(text ? text.split('\n') : []);
 	const label = $derived(
-		lines.length > 0 ? `Ragionamento · ${countLabel(lines.length, 'riga', 'righe')}` : 'Ragionamento'
+		streaming
+			? 'Sta pensando'
+			: lines.length > 0
+				? `Ragionamento · ${countLabel(lines.length, 'riga', 'righe')}`
+				: 'Ragionamento'
 	);
 </script>
 
@@ -29,13 +33,14 @@
 			class:streaming
 			aria-expanded={expanded}
 			aria-controls={bodyId}
+			aria-label={`${label}. ${expanded ? 'Comprimi' : 'Espandi'} il ragionamento`}
 			onclick={() => (expanded = !expanded)}
 			title={expanded ? 'Comprimi ragionamento' : 'Espandi ragionamento'}
 		>
-			<span class="chevron">{expanded ? '▾' : '▸'}</span>
+			<span class="chevron" class:expanded aria-hidden="true">▸</span>
 			<span class="label">{label}</span>
 			{#if streaming}
-				<span class="streaming-dot" title="In elaborazione..."></span>
+				<span class="streaming-dot" aria-hidden="true"></span>
 			{/if}
 		</button>
 		{#if expanded}
@@ -67,11 +72,20 @@
 		cursor: pointer;
 		text-align: left;
 		user-select: none;
+		transition:
+			background var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
 	.header-btn:hover {
 		color: var(--ink-muted);
 		border-color: var(--line-strong);
+	}
+
+	.header-btn.streaming {
+		background: var(--bg-raised);
+		color: var(--ink-muted);
 	}
 
 	.header-btn.expanded {
@@ -83,6 +97,11 @@
 	.chevron {
 		font-size: 10px;
 		line-height: 1;
+		transition: transform var(--dur-fast) var(--ease-out);
+	}
+
+	.chevron.expanded {
+		transform: rotate(90deg);
 	}
 
 
@@ -107,6 +126,16 @@
 		background: var(--bg-sunken);
 		max-height: 360px;
 		overflow-y: auto;
+		transition:
+			opacity var(--dur-fast) var(--ease-out),
+			transform var(--dur-fast) var(--ease-out);
+	}
+
+	@starting-style {
+		.body {
+			opacity: 0;
+			transform: translateY(-2px);
+		}
 	}
 
 	pre {

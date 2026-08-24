@@ -65,17 +65,23 @@ rilasciato si annota lì subito, con la sua voce.
 1. Verifica che la modifica funzioni (smoke test / test mirato).
 2. Aggiungi la voce sotto `## [Unreleased]` nella categoria giusta
    (`Added`, `Changed`, `Fixed`, `Removed`).
-3. **Chiedi all'utente cosa fare della versione**, proponendo:
-   - **A — Rilascia ora**: bump della versione indicata (per un fix: patch, es. `0.1.0 → 0.1.1`).
-     Quando l'utente sceglie l'opzione di rilascio, **l'agente esegue autonomamente TUTTI i passaggi**:
-     bump, commit, tag annotato e push. Il tag avvia `.github/workflows/release.yml`, che compila in
-     parallelo l'installer Windows x64 e il DMG universale macOS e pubblica la release solo dopo il
-     completamento di entrambi. L'agente attende il workflow e verifica gli asset della release.
-   - **B — Parcheggia**: resta in `[Unreleased]`, si rilascia insieme al lavoro successivo.
-   - **C — Versione specifica**: l'utente indica il numero (es. `0.2.0` per un blocco di lavori). Anche qui,
-     alla conferma l'agente esegue l'intera pipeline fino alla verifica degli installer pubblicati.
-   Includi sempre la proposta di default e la bozza della voce di changelog.
-4. Non fare mai il bump di iniziativa propria: senza risposta, il default è **B (parcheggia)**.
+3. **Chiedi all'utente cosa pubblicare**, proponendo nell'ordine:
+   - **A — Pubblica Nightly (predefinita)**: non cambia la versione stabile e
+     lascia il changelog in `[Unreleased]`. L'agente committa i soli percorsi
+     del lavoro, esegue il push su `main`, attende `.github/workflows/nightly.yml`
+     e verifica la prerelease `nightly` con installer Windows, DMG macOS e
+     `nightly.json`.
+   - **B — Rilascia stabile ora**: bump della versione indicata (per un fix:
+     patch, es. `1.1.0 → 1.1.1`). L'agente esegue autonomamente bump, commit,
+     tag annotato, push e verifica degli installer pubblicati.
+   - **C — Parcheggia**: resta in `[Unreleased]`, senza commit o pubblicazione.
+   - **D — Versione stabile specifica**: l'utente indica il numero; alla
+     conferma l'agente esegue l'intera pipeline fino alla verifica degli
+     installer pubblicati.
+   Includi sempre la proposta predefinita **A**, la bozza della voce di
+   changelog e l'indicazione che Nightly non chiude `[Unreleased]`.
+4. Non fare mai commit, push o bump senza risposta esplicita. Se l'utente non
+   risponde, il lavoro resta parcheggiato.
 ### Criteri di numerazione (pre-1.0)
 
 | Tipo di lavoro | Bump |
@@ -87,7 +93,33 @@ rilasciato si annota lì subito, con la sua voce.
 
 `1.0.0` è riservato alla prima pubblicazione stabile su GitHub.
 
-## 3. Rilascio
+## 3. Pubblicazione
+
+### Nightly (predefinita)
+
+La Nightly pubblica il commit corrente di `main` senza modificare i quattro file
+di versione e senza chiudere `[Unreleased]`. Per ogni pubblicazione:
+
+```powershell
+# 1. Commit dei soli percorsi del lavoro
+git add <file1> <file2>
+git commit -m "descrizione concisa"
+
+# 2. Push: le modifiche applicative avviano nightly.yml
+git push origin main
+
+# 3. Attesa e verifica
+gh run list --workflow nightly.yml --branch main --limit 1
+gh run watch <run-id> --exit-status
+gh release view nightly --json assets,isPrerelease,name,tagName,url
+```
+
+La verifica è completa solo quando la prerelease `nightly` contiene un installer
+NSIS `.exe`, un DMG universale `.dmg` e `nightly.json`. Se il push non rientra nei
+percorsi osservati dal workflow, avvialo con
+`gh workflow run nightly.yml --ref main`, poi attendi e verifica allo stesso modo.
+
+### Release stabile
 
 ```
 npm run release -- 0.2.0            # bump dei 4 file + chiude [Unreleased] con data

@@ -179,6 +179,7 @@ export class AgentSession {
 	isCompacting = $state(false);
 	isReady = $state(false);
 	isAttached = $state(false);
+	activeAssistantId = $state<number | null>(null);
 
 	model = $state<ModelInfo | null>(null);
 	thinkingLevel = $state<ThinkingLevel | null>(null);
@@ -508,6 +509,7 @@ export class AgentSession {
 				if (!message) return;
 				if (message.role === 'user') {
 					this.assistantEntry = null;
+					this.activeAssistantId = null;
 					const content = textOf(message.content);
 					const pending = this.optimisticUser;
 					this.optimisticUser = null;
@@ -534,6 +536,7 @@ export class AgentSession {
 						kind: 'assistant',
 						blocks: []
 					}) as AssistantEntry;
+					this.activeAssistantId = this.assistantEntry.id;
 				} else if (message.role === 'custom' || message.role === 'developer') {
 					// Esiti dei job in background e promemoria: senza questo ramo
 					// il completamento di un subagent non lascia traccia.
@@ -554,6 +557,7 @@ export class AgentSession {
 				this.assistantEntry.model = message.model;
 				this.assistantEntry.stopReason = message.stopReason;
 				this.assistantEntry = null;
+				this.activeAssistantId = null;
 				return;
 			}
 
@@ -602,6 +606,7 @@ export class AgentSession {
 				if (event.isTerminal === false) return;
 				this.isStreaming = false;
 				this.assistantEntry = null;
+				this.activeAssistantId = null;
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				void this.reconcile();
 				return;
@@ -736,6 +741,7 @@ export class AgentSession {
 					requestedResume !== null
 					&& stderr.some((line) => line.includes(`Session "${requestedResume}" not found.`));
 				this.isStreaming = false;
+				this.activeAssistantId = null;
 				this.exited = true;
 				this.isReady = false;
 				this.isAttached = false;
@@ -846,6 +852,7 @@ export class AgentSession {
 			kind: 'assistant',
 			blocks: []
 		}) as AssistantEntry;
+		this.activeAssistantId = this.assistantEntry.id;
 		return this.assistantEntry;
 	}
 
@@ -1049,6 +1056,7 @@ export class AgentSession {
 		this.entries = [];
 		this.toolEntries.clear();
 		this.assistantEntry = null;
+		this.activeAssistantId = null;
 		this.optimisticUser = null;
 		this.subagents = [];
 		this.todoPhases = [];

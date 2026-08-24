@@ -9,6 +9,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Changed
+
+- La chat GUI presenta le risposte con una cadenza continua anche quando il
+  provider invia blocchi grandi e rende visibile lo stato «Sta pensando».
+
 ## [1.1.0] - 2026-08-24
 
 ### Added
