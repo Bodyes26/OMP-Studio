@@ -11,15 +11,29 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 
+- Scorciatoie da tastiera di `omp` nella superficie GUI: `Alt+P` per aprire il pannello cambio
+  modello con filtro rapido e navigazione da tastiera, `Ctrl+P` per passare al modello successivo,
+  `Alt+M` per il menu thinking, `Alt+T` per ciclare rapidamente il ragionamento, `Alt+Q` per le
+  impostazioni della coda, `Alt+S` per alternare lo steering, `Alt+C`/`Ctrl+C` per interrompere
+  o cancellare il testo, `Alt+E` per mettere a fuoco il composer e `Alt+H`/`Alt+K`/`F1` per la
+  guida completa delle scorciatoie.
 - La palette dei comandi slash (`/`) include i comandi nativi del guscio Studio
   (`/new`, `/clear`, `/resume`, `/compact`, `/thinking`, ecc.) con badge di origine
   visibile, sottocomandi interattivi e anteprima dettagliata.
-
 ### Changed
 
 - La chat GUI presenta le risposte con una cadenza continua anche quando il
   provider invia blocchi grandi e rende visibile lo stato «Sta pensando».
+- Spostato il selettore «steer / follow-up» dal campo di scrittura del prompt
+  direttamente sui singoli chip dei messaggi in coda, consentendo di digitare e
+  inviare direttamente con Invio e commutare il comportamento dall'interfaccia della coda.
+### Removed
 
+- Rimossa la richiesta bloccante dei permessi/approvazioni nella GUI per l'esecuzione dei tool
+  (bash, write, edit, eval, ecc.): le azioni vengono eseguite direttamente e senza interruzioni,
+  allineando il comportamento della GUI a quello della TUI.
+- Rimosso il pannello «Approvazioni» dal modale di gestione modelli e l'estensione di gate delle approvazioni.
+- Rimosso il selettore fisso «steer / follow-up» dalla barra di inserimento del prompt.
 ## [1.1.0] - 2026-08-24
 
 ### Added

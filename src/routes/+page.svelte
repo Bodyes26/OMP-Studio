@@ -512,10 +512,16 @@
 			'/model [next] — apre le impostazioni modelli o cicla',
 			'/name <titolo> — rinomina la sessione',
 			'/cost, /stats, /status — riepilogo della sessione',
-			'/git, /settings, /usage, /switch, /terminal — pannelli del guscio'
+			'/git, /settings, /usage, /switch, /terminal — pannelli del guscio',
+			'',
+			'Scorciatoie principali (Alt+H per la guida completa):',
+			'Alt+P: cambia modello rapido • Ctrl+P: cicla modello',
+			'Alt+M: menu thinking • Alt+T: cicla thinking',
+			'Alt+Q: menu coda • Alt+S: alterna steering',
+			'Alt+C: interrompi/cancella • Alt+E: fuoco su composer'
 		];
 		if (session.availableCommands.length > 0) {
-			lines.push(`Altri ${session.availableCommands.length} comandi registrati da omp ed estensioni.`);
+			lines.push('', `Altri ${session.availableCommands.length} comandi registrati da omp ed estensioni.`);
 		}
 		return lines.join('\n');
 	}

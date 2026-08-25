@@ -9,19 +9,27 @@ Le uniche scorciatoie globali catturate dall'app vivono dietro il modificatore *
 | `Ctrl+Alt+N` | Globale | Nuovo progetto (apre selettore cartella) |
 | `Ctrl+Alt+S` | Globale | Apre una chat Scratchpad (temporanea, `--no-session`) |
 | `Ctrl+Alt+U` | Globale | Apre e chiude il pannello consumi (quote) |
-| `Ctrl+Alt+M` / `Ctrl+Alt+,` | Globale | Apre le impostazioni dei modelli |
+| `Ctrl+Alt+M` / `Ctrl+Alt+,` | Globale | Apre le impostazioni dei modelli (Ruoli, Catalogo, Provider) |
 | `Ctrl+Alt+A` | Globale | Passa tra la superficie TERMINAL e la superficie GUI conservando la sessione |
 | `Ctrl+Alt+Freccia Destra` | Globale | Passa al progetto aperto successivo |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Passa al progetto aperto precedente |
-| `Ctrl+P` | Composer GUI | Passa al modello successivo |
-| `/` | Composer GUI | Apre la palette dei comandi disponibili |
+| `Alt+P` | Superficie GUI | Apre il menu selezione modello con filtro rapido e navigazione tastiera |
+| `Ctrl+P` | Superficie GUI | Cicla al modello successivo configurato |
+| `Alt+M` | Superficie GUI | Apre il menu di selezione del livello di thinking (ragionamento) |
+| `Alt+T` | Superficie GUI | Cicla direttamente il livello di thinking (`off` → `max`) |
+| `Alt+Q` | Superficie GUI | Apre le impostazioni della coda (steering, follow-up, interruzione) |
+| `Alt+S` | Superficie GUI | Alterna rapidamente la modalità steering (`one-at-a-time` / `all`) |
+| `Alt+C` | Superficie GUI | Interrompe la risposta in corso o cancella il testo scritto |
+| `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato) |
+| `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
+| `Alt+H` / `Alt+K` / `F1` | Superficie GUI | Apre la finestra di riepilogo delle scorciatoie da tastiera |
+| `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
 | `Invio` | Composer GUI | Invia; con la palette aperta seleziona il comando evidenziato |
-| `Maiusc+Invio` | Composer GUI | Inserisce una nuova riga |
-| `Esc` | Composer GUI | Chiude palette/menu; durante lo streaming interrompe la risposta |
+| `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |
+| `Esc` | Composer GUI | Chiude palette/menu/modale aiuto; durante lo streaming interrompe la risposta |
 | `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
 | `Ctrl+W` | Editor | Chiude il file corrente |
 | `Ctrl+F4` | Editor | Chiude il file corrente |
 | `Esc` | Popover / Dialog | Chiude la finestra modale aperta |
-
 *Nota: all'interno del terminale `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` non gestiscono i file dell'editor: vengono inviati all'agente se supportati, o restano soggetti al comportamento del terminale nativo.*

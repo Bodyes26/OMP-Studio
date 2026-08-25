@@ -12,26 +12,21 @@
 		type InterruptMode,
 		type ModelInfo,
 		type QueueMode,
-		type StreamingBehavior,
 		type ThinkingLevel
 	} from '../wire';
 	import { asRecord } from '../tools/types';
 	import { prepareImage } from '../images';
 	import QueueChips from './QueueChips.svelte';
 	import CommandPalette from './CommandPalette.svelte';
+	import ShortcutsHelpModal from './ShortcutsHelpModal.svelte';
 	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '../commands';
-
 	let {
 		session,
-		behavior,
 		visible = true,
-		onBehaviorChange,
 		onSlashCommand
 	} = $props<{
 		session: AgentSession;
-		behavior: StreamingBehavior;
 		visible?: boolean;
-		onBehaviorChange: (b: StreamingBehavior) => void;
 		onSlashCommand: (raw: string) => boolean;
 	}>();
 
@@ -40,12 +35,19 @@
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
 	let composerEl = $state<HTMLElement | null>(null);
 	let paletteOpen = $state(false);
+	let shortcutsHelpOpen = $state(false);
 
 	// Menu a comparsa per i chip di stato
 	let activeMenu = $state<'model' | 'thinking' | 'queue' | null>(null);
 	let availableModels = $state<ModelInfo[]>([]);
 	let loadingModels = $state(false);
 
+	// Ricerca e navigazione da tastiera per i menu
+	let modelFilterQuery = $state('');
+	let highlightedModelIndex = $state(0);
+	let highlightedThinkingIndex = $state(0);
+	let modelListEl = $state<HTMLElement | null>(null);
+	let modelSearchInputEl = $state<HTMLInputElement | null>(null);
 	// Impostazioni della coda
 	let steeringMode = $state<QueueMode>('one-at-a-time');
 	let followUpMode = $state<QueueMode>('one-at-a-time');
@@ -54,6 +56,22 @@
 	const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session.availableCommands));
+	const filteredModels = $derived.by(() => {
+		const q = modelFilterQuery.trim().toLowerCase();
+		if (!q) return availableModels;
+		return availableModels.filter(
+			(m) =>
+				(m.name && m.name.toLowerCase().includes(q))
+				|| (m.id && m.id.toLowerCase().includes(q))
+				|| (m.provider && m.provider.toLowerCase().includes(q))
+		);
+	});
+
+	$effect(() => {
+		if (activeMenu !== 'model' || !modelListEl || filteredModels.length === 0) return;
+		const item = modelListEl.children[highlightedModelIndex] as HTMLElement | undefined;
+		item?.scrollIntoView({ block: 'nearest' });
+	});
 
 	function shouldOpenPalette(value: string): boolean {
 		if (!value.startsWith('/')) return false;
@@ -162,11 +180,12 @@
 			session.pushNotice('warning', `Errore selezione modello: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
-
 	async function handleCycleModel() {
 		try {
 			await session.client.send({ type: 'cycle_model' });
 			await session.refreshState();
+			const current = session.model?.name || session.model?.id || 'default';
+			session.pushNotice('info', `Modello attivo: ${current}`, 'studio');
 		} catch (err) {
 			session.pushNotice('warning', `Errore passaggio modello successivo: ${err instanceof Error ? err.message : String(err)}`);
 		}
@@ -182,6 +201,33 @@
 			await session.refreshState();
 		} catch (err) {
 			session.pushNotice('warning', `Errore impostazione livello di thinking: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+
+	async function handleCycleThinking() {
+		const current = session.thinkingLevel || 'off';
+		const idx = THINKING_LEVELS.indexOf(current);
+		const next = THINKING_LEVELS[(idx + 1) % THINKING_LEVELS.length];
+		await handleThinkingSelect(next);
+		session.pushNotice('info', `Livello di thinking: ${next}`, 'studio');
+	}
+
+	async function handleToggleSteering() {
+		const next = steeringMode === 'one-at-a-time' ? 'all' : 'one-at-a-time';
+		await setSteeringMode(next);
+		session.pushNotice('info', `Modalità steering: ${next}`, 'studio');
+	}
+
+	function handleCancelOrClear() {
+		if (session.isStreaming) {
+			void session.abort();
+			return;
+		}
+		if (text || attachedImages.length > 0) {
+			text = '';
+			attachedImages = [];
+			paletteOpen = false;
+			adjustTextareaHeight();
 		}
 	}
 
@@ -217,8 +263,20 @@
 			activeMenu = null;
 		} else {
 			activeMenu = menu;
-			if (menu === 'model') void loadAvailableModels();
-			if (menu === 'queue') void loadQueueSettings();
+			if (menu === 'model') {
+				modelFilterQuery = '';
+				highlightedModelIndex = 0;
+				void loadAvailableModels();
+				setTimeout(() => modelSearchInputEl?.focus(), 40);
+			}
+			if (menu === 'thinking') {
+				const current = session.thinkingLevel || 'off';
+				const idx = THINKING_LEVELS.indexOf(current);
+				highlightedThinkingIndex = idx >= 0 ? idx : 0;
+			}
+			if (menu === 'queue') {
+				void loadQueueSettings();
+			}
 		}
 	}
 
@@ -231,9 +289,187 @@
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
-		if (!visible || event.key !== 'Escape' || !activeMenu) return;
-		event.preventDefault();
-		activeMenu = null;
+		if (!visible) return;
+
+		const target = event.target;
+		const isComposerTextarea = target === textareaEl;
+		const isModelSearchInput = target === modelSearchInputEl;
+		const isOtherInput = !isComposerTextarea && !isModelSearchInput && (
+			target instanceof HTMLInputElement
+			|| target instanceof HTMLTextAreaElement
+			|| (target instanceof HTMLElement && target.isContentEditable)
+		);
+
+		// Se il fuoco e' in un altro campo input/textarea esterno, non intercettare
+		if (isOtherInput) return;
+
+		const isAltOnly = event.altKey && !event.ctrlKey && !event.metaKey;
+		const isCtrlOrCmd = (event.ctrlKey || event.metaKey) && !event.altKey;
+		const keyLower = event.key.toLowerCase();
+		const code = event.code;
+
+		// Escape: chiusura a cascata o abort streaming
+		if (event.key === 'Escape') {
+			if (shortcutsHelpOpen) {
+				event.preventDefault();
+				shortcutsHelpOpen = false;
+				textareaEl?.focus();
+				return;
+			}
+			if (activeMenu) {
+				event.preventDefault();
+				activeMenu = null;
+				textareaEl?.focus();
+				return;
+			}
+			if (paletteOpen) {
+				event.preventDefault();
+				paletteOpen = false;
+				textareaEl?.focus();
+				return;
+			}
+			if (session.isStreaming) {
+				event.preventDefault();
+				void session.abort();
+				return;
+			}
+			return;
+		}
+
+		// Alt+H o Alt+K o F1: toggle modale scorciatoie
+		if ((isAltOnly && (keyLower === 'h' || code === 'KeyH' || keyLower === 'k' || code === 'KeyK')) || event.key === 'F1') {
+			event.preventDefault();
+			shortcutsHelpOpen = !shortcutsHelpOpen;
+			return;
+		}
+
+		// Se il modale di aiuto e' aperto, non processare scorciatoie di composer
+		if (shortcutsHelpOpen) return;
+
+		// Navigazione da tastiera nei menu aperti
+		if (activeMenu === 'model') {
+			if (event.key === 'ArrowDown') {
+				event.preventDefault();
+				if (filteredModels.length > 0) {
+					highlightedModelIndex = (highlightedModelIndex + 1) % filteredModels.length;
+				}
+				return;
+			}
+			if (event.key === 'ArrowUp') {
+				event.preventDefault();
+				if (filteredModels.length > 0) {
+					highlightedModelIndex = (highlightedModelIndex - 1 + filteredModels.length) % filteredModels.length;
+				}
+				return;
+			}
+			if (event.key === 'Enter') {
+				if (filteredModels.length > 0 && highlightedModelIndex < filteredModels.length) {
+					event.preventDefault();
+					void handleModelSelect(filteredModels[highlightedModelIndex]);
+					textareaEl?.focus();
+					return;
+				}
+			}
+		} else if (activeMenu === 'thinking') {
+			if (event.key === 'ArrowDown') {
+				event.preventDefault();
+				highlightedThinkingIndex = (highlightedThinkingIndex + 1) % THINKING_LEVELS.length;
+				return;
+			}
+			if (event.key === 'ArrowUp') {
+				event.preventDefault();
+				highlightedThinkingIndex = (highlightedThinkingIndex - 1 + THINKING_LEVELS.length) % THINKING_LEVELS.length;
+				return;
+			}
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				void handleThinkingSelect(THINKING_LEVELS[highlightedThinkingIndex]);
+				textareaEl?.focus();
+				return;
+			}
+		} else if (activeMenu === 'queue') {
+			if (event.key === '1' || keyLower === 's') {
+				event.preventDefault();
+				void setSteeringMode(steeringMode === 'one-at-a-time' ? 'all' : 'one-at-a-time');
+				return;
+			}
+			if (event.key === '2' || keyLower === 'f') {
+				event.preventDefault();
+				void setFollowUpMode(followUpMode === 'one-at-a-time' ? 'all' : 'one-at-a-time');
+				return;
+			}
+			if (event.key === '3' || keyLower === 'i') {
+				event.preventDefault();
+				void setInterruptMode(interruptMode === 'immediate' ? 'wait' : 'immediate');
+				return;
+			}
+		}
+
+		// Alt+P: apri/chiudi menu modelli
+		if (isAltOnly && (keyLower === 'p' || code === 'KeyP')) {
+			event.preventDefault();
+			toggleMenu('model');
+			return;
+		}
+
+		// Ctrl+P / Cmd+P: cicla modello successivo
+		if (isCtrlOrCmd && (keyLower === 'p' || code === 'KeyP')) {
+			event.preventDefault();
+			void handleCycleModel();
+			return;
+		}
+
+		// Alt+M: apri/chiudi menu thinking
+		if (isAltOnly && (keyLower === 'm' || code === 'KeyM')) {
+			event.preventDefault();
+			toggleMenu('thinking');
+			return;
+		}
+
+		// Alt+T: cicla direttamente livello thinking
+		if (isAltOnly && (keyLower === 't' || code === 'KeyT')) {
+			event.preventDefault();
+			void handleCycleThinking();
+			return;
+		}
+
+		// Alt+Q: apri/chiudi menu impostazioni coda
+		if (isAltOnly && (keyLower === 'q' || code === 'KeyQ')) {
+			event.preventDefault();
+			toggleMenu('queue');
+			return;
+		}
+
+		// Alt+S: alterna modalita' steering
+		if (isAltOnly && (keyLower === 's' || code === 'KeyS')) {
+			event.preventDefault();
+			void handleToggleSteering();
+			return;
+		}
+
+		// Alt+C: interrompi streaming o cancella input
+		if (isAltOnly && (keyLower === 'c' || code === 'KeyC')) {
+			event.preventDefault();
+			handleCancelOrClear();
+			return;
+		}
+
+		// Ctrl+C: interrompi streaming se non c'e' testo selezionato
+		if (isCtrlOrCmd && (keyLower === 'c' || code === 'KeyC') && session.isStreaming) {
+			const selection = window.getSelection()?.toString();
+			if (!selection) {
+				event.preventDefault();
+				void session.abort();
+				return;
+			}
+		}
+
+		// Alt+E: metti a fuoco la textarea del composer
+		if (isAltOnly && (keyLower === 'e' || code === 'KeyE')) {
+			event.preventDefault();
+			textareaEl?.focus();
+			return;
+		}
 	}
 
 	async function handleProcessFiles(files: FileList | File[]) {
@@ -301,41 +537,18 @@
 		attachedImages = [];
 		paletteOpen = false;
 		adjustTextareaHeight();
-
-		await session.prompt(raw, imagesToSend, behavior);
+		await session.prompt(raw, imagesToSend);
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		// Ctrl+P / Cmd+P cicla il modello successivo
-		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
-			event.preventDefault();
-			void handleCycleModel();
-			return;
-		}
-
-		if (event.key === 'Escape') {
-			if (paletteOpen) {
-				paletteOpen = false;
-				return;
-			}
-			if (activeMenu) {
-				activeMenu = null;
-				return;
-			}
-			if (session.isStreaming) {
-				event.preventDefault();
-				void session.abort();
-			}
-			return;
-		}
-
-		if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+		if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
 			if (paletteOpen) {
 				// Se la palette e' aperta, lascia che sia essa a gestire l'Enter
 				return;
 			}
 			event.preventDefault();
 			void handleSubmit();
+			return;
 		}
 	}
 	function handlePalettePick(value: string, keepsOpen: boolean, submitImmediately: boolean) {
@@ -373,8 +586,11 @@
 
 <div class="composer-container" bind:this={composerEl}>
 	<!-- Chip dei messaggi in coda -->
-	<QueueChips queued={session.queued} serverCount={session.queuedMessageCount} />
-
+	<QueueChips
+		queued={session.queued}
+		serverCount={session.queuedMessageCount}
+		onToggleBehavior={(id, b) => session.setQueuedBehavior(id, b)}
+	/>
 	<!-- Palette comandi slash -->
 	<CommandPalette
 		open={visible && paletteOpen}
@@ -422,45 +638,19 @@
 			oninput={handleComposerInput}
 			onkeydown={handleKeydown}
 			onpaste={handlePaste}
-			placeholder="Scrivi un prompt, incolla un'immagine, digita / per i comandi..."
+			placeholder="Scrivi un prompt, incolla un'immagine, digita / per i comandi... (Alt+P modelli, Alt+H scorciatoie)"
 			rows="1"
 			class="composer-textarea"
 			aria-label="Messaggio per l'assistente"
 		></textarea>
 
 		<div class="actions-group">
-			<!-- Interruttore Steer / Follow-up -->
-			<div
-				class="behavior-switch"
-				class:streaming={session.isStreaming}
-				title={session.isStreaming
-					? 'Attivo durante lo streaming: steer interrompe il turno per inserire il messaggio, follow-up lo accoda alla fine'
-					: 'Attivo solo durante lo streaming (fuori dallo streaming non ha effetto)'}
-			>
-				<button
-					type="button"
-					class="behavior-btn"
-					class:active={behavior === 'steer'}
-					onclick={() => onBehaviorChange('steer')}
-				>
-					steer
-				</button>
-				<button
-					type="button"
-					class="behavior-btn"
-					class:active={behavior === 'followUp'}
-					onclick={() => onBehaviorChange('followUp')}
-				>
-					follow-up
-				</button>
-			</div>
-
 			<!-- Pulsante Invio / Stop -->
-			{#if session.isStreaming}
+			{#if session.isStreaming && !text.trim() && attachedImages.length === 0}
 				<button
 					type="button"
 					class="send-btn stop"
-					title="Interrompi risposta (Esc)"
+					title="Interrompi risposta (Esc / Alt+C)"
 					onclick={() => session.abort()}
 				>
 					<span class="stop-icon">■</span>
@@ -469,8 +659,7 @@
 				<button
 					type="button"
 					class="send-btn"
-					title="Invia messaggio (Enter)"
-					onclick={handleSubmit}
+					title={session.isStreaming ? 'Accoda messaggio (Invio)' : 'Invia messaggio (Invio)'}
 					disabled={!text.trim() && attachedImages.length === 0}
 				>
 					<span class="send-icon">↑</span>
@@ -485,8 +674,7 @@
 		<div class="status-item-wrap">
 			<button
 				type="button"
-				class="status-chip"
-				title="Modello corrente (Ctrl+P per passare al successivo)"
+				title="Modello corrente (Alt+P per aprire il menu, Ctrl+P per passare al successivo)"
 				aria-haspopup="dialog"
 				aria-expanded={activeMenu === 'model'}
 				onclick={(e) => {
@@ -501,21 +689,46 @@
 			{#if activeMenu === 'model'}
 				<div class="dropdown-menu model-menu" role="dialog" tabindex="-1" aria-label="Modelli disponibili">
 					<div class="menu-header">
-						<span>Modelli disponibili</span>
-						<button type="button" class="menu-cycle-btn" onclick={handleCycleModel} title="Passa al successivo">
+						<span>Modelli (Alt+P)</span>
+						<button type="button" class="menu-cycle-btn" onclick={handleCycleModel} title="Cicla al modello successivo (Ctrl+P)">
 							Cicla (Ctrl+P)
 						</button>
 					</div>
-					<div class="menu-body">
+					<div class="menu-search-wrap">
+						<span class="search-icon">🔍</span>
+						<input
+							bind:this={modelSearchInputEl}
+							bind:value={modelFilterQuery}
+							type="text"
+							class="menu-search-input"
+							placeholder="Filtra modelli..."
+							oninput={() => highlightedModelIndex = 0}
+						/>
+						{#if modelFilterQuery}
+							<button
+								type="button"
+								class="menu-search-clear"
+								onclick={() => { modelFilterQuery = ''; highlightedModelIndex = 0; }}
+								title="Cancella filtro"
+							>
+								&times;
+							</button>
+						{/if}
+					</div>
+					<div class="menu-body" bind:this={modelListEl} role="listbox" aria-label="Modelli">
 						{#if loadingModels}
 							<div class="menu-loading">Caricamento modelli...</div>
-						{:else if availableModels.length > 0}
-							{#each availableModels as m (m.provider + ':' + m.id)}
+						{:else if filteredModels.length > 0}
+							{#each filteredModels as m, idx (m.provider + ':' + m.id)}
 								<button
 									type="button"
 									class="menu-item"
 									class:selected={session.model?.id === m.id && session.model?.provider === m.provider}
+									class:highlighted={highlightedModelIndex === idx}
+									role="option"
+									aria-selected={session.model?.id === m.id && session.model?.provider === m.provider}
 									onclick={() => handleModelSelect(m)}
+									onmouseenter={() => highlightedModelIndex = idx}
 								>
 									<span class="model-item-name">{m.name || m.id}</span>
 									{#if m.provider}
@@ -524,8 +737,13 @@
 								</button>
 							{/each}
 						{:else}
-							<div class="menu-empty">Nessun modello censito</div>
+							<div class="menu-empty">Nessun modello corrispondente</div>
 						{/if}
+					</div>
+					<div class="menu-footer-hint">
+						<span>↑↓ naviga</span>
+						<span>↵ scegli</span>
+						<span>Esc chiudi</span>
 					</div>
 				</div>
 			{/if}
@@ -536,7 +754,7 @@
 			<button
 				type="button"
 				class="status-chip"
-				title="Livello di thinking"
+				title="Livello di thinking (Alt+M per aprire il menu, Alt+T per ciclarlo)"
 				aria-haspopup="dialog"
 				aria-expanded={activeMenu === 'thinking'}
 				onclick={(e) => {
@@ -550,18 +768,35 @@
 
 			{#if activeMenu === 'thinking'}
 				<div class="dropdown-menu thinking-menu" role="dialog" tabindex="-1" aria-label="Livello di thinking">
-					<div class="menu-header">Livello di thinking</div>
-					<div class="menu-body">
-						{#each THINKING_LEVELS as lvl (lvl)}
+					<div class="menu-header">
+						<span>Thinking (Alt+M)</span>
+						<button type="button" class="menu-cycle-btn" onclick={handleCycleThinking} title="Cicla rapido (Alt+T)">
+							Cicla (Alt+T)
+						</button>
+					</div>
+					<div class="menu-body" role="listbox">
+						{#each THINKING_LEVELS as lvl, idx (lvl)}
 							<button
 								type="button"
 								class="menu-item"
 								class:selected={(session.thinkingLevel || 'off') === lvl}
+								class:highlighted={highlightedThinkingIndex === idx}
+								role="option"
+								aria-selected={(session.thinkingLevel || 'off') === lvl}
 								onclick={() => handleThinkingSelect(lvl)}
+								onmouseenter={() => highlightedThinkingIndex = idx}
 							>
-								{lvl}
+								<span>{lvl}</span>
+								{#if (session.thinkingLevel || 'off') === lvl}
+									<span class="item-check">✓</span>
+								{/if}
 							</button>
 						{/each}
+					</div>
+					<div class="menu-footer-hint">
+						<span>↑↓ naviga</span>
+						<span>↵ scegli</span>
+						<span>Esc chiudi</span>
 					</div>
 				</div>
 			{/if}
@@ -593,7 +828,7 @@
 			<button
 				type="button"
 				class="status-chip queue-btn"
-				title="Impostazioni di accodamento e interruzione"
+				title="Impostazioni di accodamento e interruzione (Alt+Q)"
 				aria-haspopup="dialog"
 				aria-expanded={activeMenu === 'queue'}
 				onclick={(e) => {
@@ -606,9 +841,14 @@
 
 			{#if activeMenu === 'queue'}
 				<div class="dropdown-menu queue-menu" role="dialog" tabindex="-1" aria-label="Impostazioni coda">
-					<div class="menu-header">Impostazioni coda omp</div>
+					<div class="menu-header">
+						<span>Coda omp (Alt+Q)</span>
+					</div>
 					<div class="menu-section">
-						<div class="section-title">Modalità steering</div>
+						<div class="section-title-row">
+							<span class="section-title">Modalità steering</span>
+							<kbd class="key-shortcut-tag">1 o S</kbd>
+						</div>
 						<div class="section-buttons">
 							<button
 								type="button"
@@ -630,7 +870,10 @@
 					</div>
 
 					<div class="menu-section">
-						<div class="section-title">Modalità follow-up</div>
+						<div class="section-title-row">
+							<span class="section-title">Modalità follow-up</span>
+							<kbd class="key-shortcut-tag">2 o F</kbd>
+						</div>
 						<div class="section-buttons">
 							<button
 								type="button"
@@ -652,7 +895,10 @@
 					</div>
 
 					<div class="menu-section">
-						<div class="section-title">Modalità interruzione</div>
+						<div class="section-title-row">
+							<span class="section-title">Modalità interruzione</span>
+							<kbd class="key-shortcut-tag">3 o I</kbd>
+						</div>
 						<div class="section-buttons">
 							<button
 								type="button"
@@ -672,11 +918,33 @@
 							</button>
 						</div>
 					</div>
+					<div class="menu-footer-hint">
+						<span>1/2/3 cambia</span>
+						<span>Esc chiudi</span>
+					</div>
 				</div>
 			{/if}
 		</div>
+
+		<!-- Chip Scorciatoie da tastiera -->
+		<div class="status-item-wrap">
+			<button
+				type="button"
+				class="status-chip shortcuts-help-chip"
+				title="Scorciatoie da tastiera (Alt+H o F1)"
+				onclick={(e) => {
+					e.stopPropagation();
+					shortcutsHelpOpen = !shortcutsHelpOpen;
+				}}
+			>
+				<span class="chip-label">⌨</span>
+				<span class="chip-val shortcut-hint">Alt+H</span>
+			</button>
+		</div>
 	</div>
 </div>
+
+<ShortcutsHelpModal open={shortcutsHelpOpen} onClose={() => (shortcutsHelpOpen = false)} />
 
 <style>
 	.composer-container {
@@ -773,38 +1041,6 @@
 		gap: var(--space-1);
 		margin-bottom: 2px;
 		user-select: none;
-	}
-
-	.behavior-switch {
-		display: flex;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px;
-		opacity: 0.6;
-	}
-
-	.behavior-switch.streaming {
-		opacity: 1;
-		border-color: var(--line-strong);
-	}
-
-	.behavior-btn {
-		padding: 2px 6px;
-		font-family: var(--font-mono);
-		font-size: 10px;
-		text-transform: lowercase;
-		background: transparent;
-		border: none;
-		border-radius: calc(var(--radius-sm) - 1px);
-		color: var(--ink-faint);
-		cursor: pointer;
-	}
-
-	.behavior-btn.active {
-		background: var(--bg-base);
-		color: var(--ink);
-		font-weight: 500;
 	}
 
 	.send-btn {
@@ -1103,5 +1339,101 @@
 		background: var(--bg-base);
 		color: var(--ink);
 		font-weight: 500;
+	}
+	/* Barra di ricerca nel menu modelli */
+	.menu-search-wrap {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		padding: 4px var(--space-2);
+		background: var(--bg-base);
+		border-bottom: 1px solid var(--line);
+	}
+
+	.menu-search-input {
+		flex: 1;
+		background: transparent;
+		border: none;
+		outline: none;
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		color: var(--ink);
+		min-width: 0;
+		padding: 2px 0;
+	}
+
+	.menu-search-input::placeholder {
+		color: var(--ink-faint);
+	}
+
+	.menu-search-clear {
+		background: transparent;
+		border: none;
+		color: var(--ink-muted);
+		cursor: pointer;
+		font-size: 14px;
+		line-height: 1;
+		padding: 0 2px;
+	}
+
+	.menu-search-clear:hover {
+		color: var(--ink);
+	}
+
+	.search-icon {
+		font-size: 11px;
+		color: var(--ink-faint);
+	}
+
+	.menu-item.highlighted {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.item-check {
+		font-size: 11px;
+		color: var(--brand-ink);
+		font-weight: 600;
+	}
+
+	.menu-footer-hint {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: 3px var(--space-2);
+		background: var(--bg-sunken);
+		border-top: 1px solid var(--line);
+		font-size: 10px;
+		color: var(--ink-faint);
+		user-select: none;
+	}
+
+	.section-title-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
+	.key-shortcut-tag {
+		display: inline-flex;
+		align-items: center;
+		padding: 1px 4px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line-strong);
+		border-radius: 3px;
+		font-family: var(--font-mono);
+		font-size: 9px;
+		color: var(--ink-faint);
+	}
+
+	.shortcuts-help-chip {
+		padding: 2px 5px;
+	}
+
+	.shortcut-hint {
+		font-size: 10px;
+		color: var(--ink-faint);
 	}
 </style>
