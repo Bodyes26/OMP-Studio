@@ -68,6 +68,11 @@
 	</div>
 {:else}
 	<div class="edit-body">
+		{#if filePath}
+			<div class="file-header">
+				<PathChip path={filePath} full />
+			</div>
+		{/if}
 		{#if diffText}
 			<Diff diff={diffText} />
 		{:else if running}
@@ -99,6 +104,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+	}
+
+	.file-header {
+		display: flex;
+		align-items: center;
 		min-width: 0;
 	}
 

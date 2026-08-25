@@ -62,6 +62,11 @@
 	</div>
 {:else}
 	<div class="write-body">
+		{#if filePath}
+			<div class="file-header">
+				<PathChip path={filePath} full />
+			</div>
+		{/if}
 		{#if metaRows.length > 0}
 			<KeyValue rows={metaRows} />
 		{/if}
@@ -89,6 +94,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+	}
+
+	.file-header {
+		display: flex;
+		align-items: center;
 		min-width: 0;
 	}
 </style>

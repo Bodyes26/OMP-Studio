@@ -10,7 +10,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
-
+- Collegamenti interattivi ai file nel transcript della chat: cliccando su qualsiasi percorso di file (nei chip di intestazione/dettaglio dei tool come `edit` e `write`, nei link markdown o nei blocchi di codice inline che contengono percorsi del progetto) il file corrispondente viene aperto e visualizzato automaticamente nell'editor Monaco.
+- Inclusione automatica del contesto dell'editor (file aperti, file attivo in focus con posizione cursore ed eventuale testo selezionato) nei prompt inviati a omp.
+- Nella colonna centrale dell'editor di task, alla creazione di un nuovo task il focus si posiziona automaticamente sull'area di scrittura, che diventa un rich input con supporto per allegare e visualizzare screenshot (tramite incolla, trascina o pulsante) e autocompletamento interattivo dei comandi slash (`/`) con palette dei comandi censiti da omp e Studio.
 - Scorciatoie da tastiera di `omp` nella superficie GUI: `Alt+P` per aprire il pannello cambio
   modello con filtro rapido e navigazione da tastiera, `Ctrl+P` per passare al modello successivo,
   `Alt+M` per il menu thinking, `Alt+T` per ciclare rapidamente il ragionamento, `Alt+Q` per le
@@ -22,11 +24,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
   visibile, sottocomandi interattivi e anteprima dettagliata.
 ### Changed
 
+- Raggruppate le chiamate consecutive ai tool in un unico blocco compatto e collassabile (`ToolGroup`), con riepilogo degli strumenti eseguiti, chip aggregati, stato in corso e durata totale, riducendo l'ingombro visivo nel transcript della chat.
 - La chat GUI presenta le risposte con una cadenza continua anche quando il
-  provider invia blocchi grandi e rende visibile lo stato «Sta pensando».
+-  provider invia blocchi grandi e rende visibile lo stato «Sta pensando».
 - Spostato il selettore «steer / follow-up» dal campo di scrittura del prompt
-  direttamente sui singoli chip dei messaggi in coda, consentendo di digitare e
-  inviare direttamente con Invio e commutare il comportamento dall'interfaccia della coda.
+-  direttamente sui singoli chip dei messaggi in coda, consentendo di digitare e
+-  inviare direttamente con Invio e commutare il comportamento dall'interfaccia della coda.
 ### Removed
 
 - Rimossa la richiesta bloccante dei permessi/approvazioni nella GUI per l'esecuzione dei tool

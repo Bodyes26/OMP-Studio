@@ -1,17 +1,34 @@
 <script lang="ts">
 	// Rendering inline dei token di marked. Ricorsivo su se stesso.
 	// L'HTML non e' mai interpretato: viene reso come testo grezzo.
-	// I link aprono il browser esterno via Tauri, mai navigazione interna.
+	// I link web aprono il browser esterno via Tauri; se il link o codespan
+	// e' un percorso di file valido del progetto, viene aperto nell'editor.
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import type { Token } from '../markdown';
+	import { agentUiHooks } from '../ui-context';
 	import MarkdownInline from './MarkdownInline.svelte';
 
 	let { tokens = [] }: { tokens?: Token[] } = $props();
 
+	const hooks = agentUiHooks();
+
 	function handleLink(e: MouseEvent, href: string) {
 		e.preventDefault();
 		if (!href) return;
-		openUrl(href).catch(() => {});
+		if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
+			openUrl(href).catch(() => {});
+		} else {
+			hooks.openFile(href, null);
+		}
+	}
+
+	function handleCodespanClick(text: string) {
+		if (!text) return;
+		const trimmed = text.trim();
+		// Se sembra un percorso o nome file (es. con estensione o slash), tenta la risoluzione nell'editor
+		if (trimmed.includes('/') || trimmed.includes('\\') || /\.[a-zA-Z0-9_-]+(?::\d+)?$/.test(trimmed)) {
+			hooks.openFile(trimmed, null);
+		}
 	}
 </script>
 
@@ -29,7 +46,19 @@
 	{:else if token.type === 'del'}
 		<del><MarkdownInline tokens={token.tokens} /></del>
 	{:else if token.type === 'codespan'}
-		<code class="codespan">{token.text}</code>
+		{@const isFileLike = token.text.includes('/') || token.text.includes('\\') || /\.[a-zA-Z0-9_-]+(?::\d+)?$/.test(token.text.trim())}
+		{#if isFileLike}
+			<button
+				type="button"
+				class="codespan-btn"
+				title={`Apri ${token.text} nell'editor`}
+				onclick={() => handleCodespanClick(token.text)}
+			>
+				<code>{token.text}</code>
+			</button>
+		{:else}
+			<code class="codespan">{token.text}</code>
+		{/if}
 	{:else if token.type === 'link'}
 		<a
 			href={token.href}
@@ -68,6 +97,32 @@
 		user-select: text;
 	}
 
+	.codespan-btn {
+		display: inline;
+		background: transparent;
+		border: none;
+		padding: 0;
+		margin: 0;
+		font: inherit;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.codespan-btn code {
+		font-family: var(--font-mono);
+		font-size: 0.9em;
+		background: var(--bg-hover);
+		padding: 1px var(--space-1);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		border-bottom: 1px solid transparent;
+		transition: border-color var(--transition-fast), color var(--transition-fast);
+	}
+
+	.codespan-btn:hover code {
+		color: var(--brand-ink);
+		border-bottom-color: var(--brand);
+	}
 	.link {
 		color: var(--brand-ink);
 		text-decoration: underline;
