@@ -1,17 +1,6 @@
 name: Nightly multipiattaforma
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "src/**"
-      - "src-tauri/**"
-      - "static/**"
-      - "package.json"
-      - "bun.lock"
-      - "scripts/nightly-version.mjs"
-      - ".github/workflows/nightly.yml"
   workflow_dispatch:
 
 permissions:
@@ -47,7 +36,7 @@ jobs:
 
       - name: Imposta la versione nightly temporanea
         shell: bash
-        run: node scripts/nightly-version.mjs "${{ github.run_id }}"
+        run: node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s%3N)"
 
       - name: Installa Bun
         uses: oven-sh/setup-bun@v2
@@ -86,7 +75,7 @@ jobs:
       - name: Calcola la versione nightly
         id: nightly
         shell: bash
-        run: echo "version=$(node scripts/nightly-version.mjs '${{ github.run_id }}')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s%3N)")" >> "$GITHUB_OUTPUT"
 
       - name: Scarica tutti gli installer
         uses: actions/download-artifact@v4
