@@ -6,6 +6,7 @@
 	// ricalcoli O(n^2).
 	import { onDestroy } from 'svelte';
 	import { agentUiHooks } from '../ui-context';
+	import { chatReveal } from '../motion';
 	import { lexMarkdown, type StreamFade, type Token } from '../markdown';
 	import type { AssistantEntry, Block } from '../session.svelte';
 	import Markdown from './Markdown.svelte';
@@ -230,40 +231,49 @@
 <div class="assistant-entry" class:streaming={streaming || isPresentingLastText}>
 	<div class="blocks">
 		{#each entry.blocks as block, i (`${block.type}-${i}`)}
-			{#if block.type === 'text'}
-				{#if isPresentingLastText && i === lastBlockIndex}
-					{#if throttledTokens}
-						<div class="markdown-wrap">
-							<Markdown tokens={throttledTokens} {fade} />
-						</div>
+			<div
+				class="assistant-block"
+				in:chatReveal={{
+					duration: block.type === 'text' ? 140 : 210,
+					blur: block.type === 'text' ? 2 : 5,
+					distance: block.type === 'thinking' ? 2 : 3
+				}}
+			>
+				{#if block.type === 'text'}
+					{#if isPresentingLastText && i === lastBlockIndex}
+						{#if throttledTokens}
+							<div class="markdown-wrap">
+								<Markdown tokens={throttledTokens} {fade} />
+							</div>
+						{:else}
+							<pre class="streaming-text">{displayedText}</pre>
+						{/if}
 					{:else}
-						<pre class="streaming-text">{displayedText}</pre>
+						<div class="markdown-wrap">
+							<Markdown tokens={lexMarkdown(block.text)} />
+						</div>
 					{/if}
-				{:else}
-					<div class="markdown-wrap">
-						<Markdown tokens={lexMarkdown(block.text)} />
+				{:else if block.type === 'thinking'}
+					<ThinkingBlock
+						text={block.text}
+						streaming={streaming && i === lastBlockIndex}
+					/>
+				{:else if block.type === 'image'}
+					<div class="image-wrap">
+						<button
+							type="button"
+							class="image-btn"
+							onclick={() => hooks.openImage(block.data, block.mimeType)}
+							title="Apri immagine"
+						>
+							<img
+								src={`data:${block.mimeType};base64,${block.data}`}
+								alt="Immagine generata dall'assistente"
+							/>
+						</button>
 					</div>
 				{/if}
-			{:else if block.type === 'thinking'}
-				<ThinkingBlock
-					text={block.text}
-					streaming={streaming && i === lastBlockIndex}
-				/>
-			{:else if block.type === 'image'}
-				<div class="image-wrap">
-					<button
-						type="button"
-						class="image-btn"
-						onclick={() => hooks.openImage(block.data, block.mimeType)}
-						title="Apri immagine"
-					>
-						<img
-							src={`data:${block.mimeType};base64,${block.data}`}
-							alt="Immagine generata dall'assistente"
-						/>
-					</button>
-				</div>
-			{/if}
+			</div>
 		{/each}
 	</div>
 
@@ -305,6 +315,10 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+		min-width: 0;
+	}
+
+	.assistant-block {
 		min-width: 0;
 	}
 
@@ -356,14 +370,8 @@
 		gap: var(--space-2);
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		opacity: 0;
-		transition: opacity var(--dur-fast) var(--ease-out);
 		user-select: none;
-		padding-top: 2px;
-	}
-
-	.assistant-entry:hover .footer {
-		opacity: 1;
+		padding-top: var(--space-1);
 	}
 
 	.model {
@@ -372,5 +380,6 @@
 
 	.cost {
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 	}
 </style>

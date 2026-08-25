@@ -52,6 +52,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Unificato il vocabolario di espansione in tutto il pannello (chevron che ruota a 90° su tool, thinking, blocchi di codice, task e json), eliminato ogni keyframe ridondante fuori da `app.css` e limitato il respiro `state-pulse` al solo gruppo di esecuzione attivo.
 - Cronometro live sull'esecuzione dei tool e dei gruppi: il tempo trascorso viene visualizzato e aggiornato in tempo reale con allineamento numerico tabulare, evitando che l'utente debba distinguere uno stato di lavoro da un blocco.
 - Scala tipografica dei titoli markdown, limite a 65 caratteri per riga sulla prosa, e rimozione delle label con testo in maiuscolo tracciato (eyebrow uppercase) da tutti i renderer dei tool.
+- La chat accompagna la comparsa, l'espansione e la compattazione di tool, thinking, richieste e righe di sistema con un reveal fluido di altezza, opacita' e messa a fuoco, eliminando i salti del transcript e rispettando il movimento ridotto.
 ### Fixed
 - Risolto il disallineamento fra selezione e fuoco nella scheda di richiesta (`AskCard`): implementato il roving tabindex in modo che la selezione con le frecce sposti contemporaneamente il fuoco tastiera, evitando l'invio accidentale di un'opzione diversa da quella evidenziata.
 - Corretto il contrasto di tutte le etichette e badge di errore e fallimento nel transcript (ora sempre conformi alla soglia WCAG >= 4.5:1), unificando la semantica d'errore sul colore dedicato ed eliminando l'uso improprio del colore brand come testo.

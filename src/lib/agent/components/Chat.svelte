@@ -1,11 +1,12 @@
 <script lang="ts">
 	// Contenuto della colonna destra in modalita' GUI.
 	//
-	// Autoscroll ancorato in basso: se l'utente scrolla in su di piu' di 40px,
+	// Autoscroll ancorato in basso: se l'utente si allontana dal fondo,
 	// l'autoscroll si sospende e compare un pulsante «↓ In fondo».
 	// Unico punto di innesto per i ganci verso il guscio (`setAgentUiHooks`).
 
 	import type { AgentSession } from '../session.svelte';
+	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
 
 	import AskCard from './AskCard.svelte';
@@ -52,7 +53,10 @@
 	function handleScroll() {
 		if (!scrollEl) return;
 		const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
-		userScrolledUp = distance > 40;
+		// La sospensione dell'autoscroll e' una decisione dell'utente: una volta
+		// allontanato dal fondo (oltre tolleranza di 4px per subpixel), resta
+		// sospeso finche' l'utente non torna esplicitamente in fondo o preme il pulsante.
+		userScrolledUp = distance > 4;
 	}
 
 	function scrollToBottom() {
@@ -110,14 +114,23 @@
 		<Transcript {session} />
 
 		{#if session.pendingUi}
-			<div class="pending-ui-slot">
+			<div
+				class="pending-ui-slot"
+				transition:chatReveal={{ duration: 220, blur: 4, distance: 3 }}
+			>
 				<AskCard {session} pending={session.pendingUi} />
 			</div>
 		{/if}
 	</div>
 
 	{#if userScrolledUp}
-		<button type="button" class="scroll-bottom-btn" onclick={scrollToBottom} title="Torna in fondo">
+		<button
+			type="button"
+			class="scroll-bottom-btn"
+			onclick={scrollToBottom}
+			title="Torna in fondo"
+			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
+		>
 			↓ In fondo
 		</button>
 	{/if}
@@ -186,18 +199,16 @@
 	.scroll-bottom-btn {
 		position: absolute;
 		right: var(--space-4);
-		bottom: 120px;
+		bottom: calc(var(--space-5) * 5);
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-full);
-		padding: 4px 10px;
+		padding: var(--space-1) var(--space-3);
 		color: var(--ink);
 		font-size: var(--text-xs);
-		box-shadow: var(--shadow-overlay);
 		cursor: pointer;
 		z-index: var(--z-sticky);
 	}
-
 	.scroll-bottom-btn:hover {
 		background: var(--bg-hover);
 	}

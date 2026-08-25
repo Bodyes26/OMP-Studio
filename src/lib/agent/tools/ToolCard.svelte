@@ -6,6 +6,7 @@
 	// anche le card riuscite trasformerebbe un turno di venti tool in un muro
 	// di testo.
 	import type { ToolEntry } from '../session.svelte';
+	import { chatReveal } from '../motion';
 	import { rendererFor } from './registry';
 	import { formatDuration } from './types';
 
@@ -13,8 +14,21 @@
 
 	const renderer = $derived(rendererFor(entry.toolName));
 	const isError = $derived(entry.result?.isError === true);
+
+	// Cronometro: mentre il tool e' in esecuzione il tempo trascorso si
+	// aggiorna ogni secondo; a esecuzione conclusa resta la durata finale.
+	let now = $state(Date.now());
+	$effect(() => {
+		if (!entry.running) return;
+		const id = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(id);
+	});
 	const duration = $derived(
-		entry.endedAt && entry.startedAt ? formatDuration(entry.endedAt - entry.startedAt) : undefined
+		entry.running
+			? formatDuration(now - entry.startedAt)
+			: entry.endedAt && entry.startedAt
+				? formatDuration(entry.endedAt - entry.startedAt)
+				: undefined
 	);
 
 	let manual = $state<boolean | null>(null);
@@ -31,6 +45,9 @@
 			aria-expanded={open}
 			onclick={() => canOpen && (manual = !open)}
 		>
+			{#if canOpen}
+				<span class="chevron" class:expanded={open} aria-hidden="true">▸</span>
+			{/if}
 			<span class="state" aria-hidden="true"></span>
 			<span class="name">{entry.toolName}</span>
 			{#if isError}
@@ -46,9 +63,7 @@
 				view="summary"
 			/>
 		</span>
-		{#if entry.running}
-			<span class="tail">in corso</span>
-		{:else if duration}
+		{#if duration}
 			<span class="tail">{duration}</span>
 		{/if}
 	</div>
@@ -56,7 +71,10 @@
 		<div class="intent">{entry.intent}</div>
 	{/if}
 	{#if open && canOpen}
-		<div class="body">
+		<div
+			class="body"
+			transition:chatReveal={{ duration: 220, blur: 4, distance: -2 }}
+		>
 			<renderer.component
 				name={entry.toolName}
 				args={entry.args}
@@ -73,13 +91,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
-		padding: var(--space-2) var(--space-3);
-		border-left: 2px solid var(--line);
+		padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
 		min-width: 0;
-	}
-
-	.card.error {
-		border-left-color: var(--danger);
 	}
 
 	.head {
@@ -105,19 +118,33 @@
 		cursor: default;
 	}
 
+	.chevron {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		transition: transform var(--dur-fast) var(--ease-out);
+		display: inline-block;
+		width: var(--space-3);
+		text-align: center;
+		flex-shrink: 0;
+	}
+
+	.chevron.expanded {
+		transform: rotate(90deg);
+	}
+
 	.state {
 		width: 6px;
 		height: 6px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background: var(--ink-faint);
 		transform: translateY(-1px);
 	}
 
-	/* Una sola animazione in loop in tutta l'app: si riusa `state-pulse`,
-	   non se ne aggiunge una seconda (docs/DESIGN.md). */
+	/* Il respiro (state-pulse) resta riservato al pallino del gruppo tool e
+	   alla riga di attivita' del transcript: qui il pallino in esecuzione e'
+	   statico, altrimenti due elementi respirerebbero insieme nello stesso turno. */
 	.running .state {
 		background: var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 
 	.error .state {
@@ -128,9 +155,6 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--danger);
-		background: var(--danger-dim);
-		padding: 0 var(--space-1);
-		border-radius: var(--radius-sm);
 		line-height: 1.4;
 	}
 
@@ -149,6 +173,7 @@
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
 

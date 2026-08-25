@@ -6,6 +6,7 @@
 	// e un bottone «Carica precedenti» in cima che ne scopre altre 300.
 	import { projectStore } from '../../stores/projects.svelte';
 	import type { AgentSession, AssistantEntry, Block, ToolEntry, TranscriptEntry } from '../session.svelte';
+	import { chatReveal } from '../motion';
 	import ToolCard from '../tools/ToolCard.svelte';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
 	import AssistantText from './AssistantText.svelte';
@@ -16,7 +17,6 @@
 	import UserMessage from './UserMessage.svelte';
 
 	let { session } = $props<{ session: AgentSession }>();
-	let transcriptEl = $state<HTMLElement | null>(null);
 
 	const projectName = $derived(
 		projectStore.activeProject?.name ?? session.sessionName ?? 'Progetto'
@@ -88,24 +88,22 @@
 		flushSegment();
 		return items;
 	});
-	function applySuggestion(suggestion: string) {
-		// Ogni progetto mantiene la propria Chat montata anche quando e'
-		// nascosta: una query sul documento prenderebbe il composer della prima
-		// scheda, non quello accanto a questo stato vuoto.
-		const textarea = transcriptEl
-			?.closest('.chat-surface')
-			?.querySelector<HTMLTextAreaElement>('.composer-textarea');
-		if (!textarea) return;
-		textarea.value = suggestion;
-		textarea.dispatchEvent(new Event('input', { bubbles: true }));
-		textarea.focus();
+	function entryKind(item: DisplayItem): 'user' | 'system' | 'content' {
+		// Classifica l'item per il ritmo verticale: il confine di turno
+		// (messaggio utente) merita piu' distacco dal turno precedente; le
+		// righe di sistema consecutive (notice/retry/ttsr/compaction) restano
+		// ravvicinate, sono note a margine, non contenuto.
+		if (item.kind === 'tool-group') return 'content';
+		const k = item.entry.kind;
+		if (k === 'user') return 'user';
+		if (k === 'notice' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
+		return 'content';
 	}
 
 </script>
 
 <div
 	class="transcript"
-	bind:this={transcriptEl}
 	class:is-empty={session.visibleEntries.length === 0}
 	aria-busy={session.isStreaming}
 >
@@ -126,33 +124,6 @@
 				</p>
 			</div>
 
-			<div class="suggestions">
-				<span class="suggestions-label">Suggerimenti per iniziare:</span>
-				<div class="suggestions-list">
-					<button
-						type="button"
-						class="suggestion-btn"
-						onclick={() => applySuggestion('Spiegami la struttura del progetto')}
-					>
-						Spiegami la struttura del progetto
-					</button>
-					<button
-						type="button"
-						class="suggestion-btn"
-						onclick={() => applySuggestion('Trova i punti di ingresso principali del codice')}
-					>
-						Trova i punti di ingresso principali del codice
-					</button>
-					<button
-						type="button"
-						class="suggestion-btn"
-						onclick={() => applySuggestion('Mostra lo stato del repository e le modifiche recenti')}
-					>
-						Mostra lo stato del repository e le modifiche recenti
-					</button>
-				</div>
-			</div>
-
 			<div class="shortcuts-row">
 				<span class="shortcut"><kbd>/</kbd> comandi</span>
 				<span class="shortcut"><kbd>Invio</kbd> invia</span>
@@ -160,29 +131,44 @@
 			</div>
 		</div>
 	{:else}
-		{#each displayItems as item (item.kind === 'single' ? item.entry.id : `group-${item.id}`)}
-			{#if item.kind === 'tool-group'}
-				<ToolGroup entries={item.entries} activeAssistantId={session.activeAssistantId} />
-			{:else if item.entry.kind === 'user'}
-				<UserMessage entry={item.entry} />
-			{:else if item.entry.kind === 'assistant'}
-				<AssistantText entry={item.entry} streaming={item.entry.id === session.activeAssistantId} />
-			{:else if item.entry.kind === 'tool'}
-				<ToolCard entry={item.entry} />
-			{:else if item.entry.kind === 'notice'}
-				<NoticeRow entry={item.entry} />
-			{:else if item.entry.kind === 'compaction'}
-				<CompactionRow entry={item.entry} />
-			{:else if item.entry.kind === 'retry'}
-				<RetryRow entry={item.entry} />
-			{:else if item.entry.kind === 'ttsr'}
-				<TtsrRow entry={item.entry} />
-			{/if}
+		{#each displayItems as item, i (item.kind === 'single' ? item.entry.id : `group-${item.id}`)}
+			{@const kind = entryKind(item)}
+			{@const prevKind = i > 0 ? entryKind(displayItems[i - 1]) : null}
+			<div
+				class="entry-row"
+				class:turn-boundary={kind === 'user' && i > 0}
+				class:after-user={prevKind === 'user'}
+				class:system-tight={kind === 'system' && prevKind === 'system'}
+				transition:chatReveal={{ duration: 210 }}
+			>
+				{#if item.kind === 'tool-group'}
+					<ToolGroup entries={item.entries} activeAssistantId={session.activeAssistantId} />
+				{:else if item.entry.kind === 'user'}
+					<UserMessage entry={item.entry} />
+				{:else if item.entry.kind === 'assistant'}
+					<AssistantText entry={item.entry} streaming={item.entry.id === session.activeAssistantId} />
+				{:else if item.entry.kind === 'tool'}
+					<ToolCard entry={item.entry} />
+				{:else if item.entry.kind === 'notice'}
+					<NoticeRow entry={item.entry} />
+				{:else if item.entry.kind === 'compaction'}
+					<CompactionRow entry={item.entry} />
+				{:else if item.entry.kind === 'retry'}
+					<RetryRow entry={item.entry} />
+				{:else if item.entry.kind === 'ttsr'}
+					<TtsrRow entry={item.entry} />
+				{/if}
+			</div>
 		{/each}
 	{/if}
 
 	{#if showActivity}
-		<div class="agent-activity" role="status" aria-live="polite">
+		<div
+			class="agent-activity"
+			role="status"
+			aria-live="polite"
+			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
+		>
 			<span class="activity-dot" aria-hidden="true"></span>
 			<span>Sta pensando</span>
 		</div>
@@ -193,12 +179,36 @@
 	.transcript {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
 		padding: var(--space-3);
 		min-width: 0;
 	}
 
+	/* Ritmo verticale: niente gap uniforme. Ogni entry porta il proprio
+	   margin-top, cosi' il confine di turno (utente) puo' distanziarsi di
+	   piu' delle righe di sistema consecutive fra loro. */
+	.entry-row {
+		margin-top: var(--space-3);
+		min-width: 0;
+	}
+
+	.entry-row:first-child {
+		margin-top: 0;
+	}
+
+	.entry-row.turn-boundary {
+		margin-top: var(--space-6);
+	}
+
+	.entry-row.after-user {
+		margin-top: var(--space-4);
+	}
+
+	.entry-row.system-tight {
+		margin-top: var(--space-1);
+	}
+
 	.agent-activity {
+		margin-top: var(--space-3);
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
@@ -206,9 +216,6 @@
 		padding: var(--space-1) var(--space-2);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
-		transition:
-			opacity var(--dur-fast) var(--ease-out),
-			transform var(--dur-fast) var(--ease-out);
 	}
 
 	.activity-dot {
@@ -219,12 +226,6 @@
 		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 
-	@starting-style {
-		.agent-activity {
-			opacity: 0;
-			transform: translateY(2px);
-		}
-	}
 
 	.transcript.is-empty {
 		flex: 1;
@@ -263,44 +264,6 @@
 		line-height: 1.4;
 	}
 
-	.suggestions {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		width: 100%;
-	}
-
-	.suggestions-label {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-align: left;
-	}
-
-	.suggestions-list {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		width: 100%;
-	}
-
-	.suggestion-btn {
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-3);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		text-align: left;
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-	}
-
-	.suggestion-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-		color: var(--ink);
-	}
-
 	.shortcuts-row {
 		display: flex;
 		align-items: center;
@@ -314,16 +277,16 @@
 	.shortcut {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	.shortcut kbd {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		padding: 1px 5px;
+		padding: 1px var(--space-2);
 		color: var(--ink-muted);
 	}
 
@@ -337,7 +300,7 @@
 		background: var(--bg-hover);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		padding: 4px var(--space-3);
+		padding: var(--space-1) var(--space-3);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		cursor: pointer;

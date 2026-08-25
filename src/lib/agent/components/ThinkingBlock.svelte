@@ -1,7 +1,14 @@
+<script module lang="ts">
+	// Preferenza di espansione condivisa per la sessione del pannello: l'ultima
+	// scelta dell'utente (espandi/comprimi un blocco di ragionamento) diventa
+	// il default dei blocchi successivi. Vive in memoria, non su disco.
+	let lastExpandedPreference = $state(false);
+</script>
+
 <script lang="ts">
 	// Blocco collassabile per il ragionamento (thinking/reasoning).
-	// Collassato per default, lo stato di espansione vive in memoria nel componente.
 	import { countLabel } from '../tools/types';
+	import { chatReveal } from '../motion';
 
 	let {
 		text = '',
@@ -11,7 +18,12 @@
 		streaming?: boolean;
 	} = $props();
 
-	let expanded = $state(false);
+	let expanded = $state(lastExpandedPreference);
+
+	function toggleExpanded() {
+		expanded = !expanded;
+		lastExpandedPreference = expanded;
+	}
 	const bodyId = `thinking-${Math.random().toString(36).slice(2, 9)}`;
 
 	const lines = $derived(text ? text.split('\n') : []);
@@ -34,7 +46,7 @@
 			aria-expanded={expanded}
 			aria-controls={bodyId}
 			aria-label={`${label}. ${expanded ? 'Comprimi' : 'Espandi'} il ragionamento`}
-			onclick={() => (expanded = !expanded)}
+			onclick={toggleExpanded}
 			title={expanded ? 'Comprimi ragionamento' : 'Espandi ragionamento'}
 		>
 			<span class="chevron" class:expanded aria-hidden="true">▸</span>
@@ -44,7 +56,11 @@
 			{/if}
 		</button>
 		{#if expanded}
-			<div id={bodyId} class="body">
+			<div
+				id={bodyId}
+				class="body"
+				transition:chatReveal={{ duration: 220, blur: 4, distance: -2 }}
+			>
 				<pre>{text}</pre>
 			</div>
 		{/if}
@@ -65,7 +81,7 @@
 		gap: var(--space-2);
 		padding: var(--space-1) var(--space-2);
 		background: transparent;
-		border: 1px solid var(--line);
+		border: none;
 		border-radius: var(--radius-sm);
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
@@ -74,28 +90,20 @@
 		user-select: none;
 		transition:
 			background var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out),
 			color var(--dur-fast) var(--ease-out);
 	}
 
 	.header-btn:hover {
 		color: var(--ink-muted);
-		border-color: var(--line-strong);
+		background: var(--bg-hover);
 	}
 
 	.header-btn.streaming {
-		background: var(--bg-raised);
 		color: var(--ink-muted);
 	}
 
-	.header-btn.expanded {
-		border-bottom-left-radius: 0;
-		border-bottom-right-radius: 0;
-		border-bottom-color: transparent;
-	}
-
 	.chevron {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		line-height: 1;
 		transition: transform var(--dur-fast) var(--ease-out);
 	}
@@ -104,38 +112,24 @@
 		transform: rotate(90deg);
 	}
 
-
 	.streaming-dot {
 		width: 6px;
 		height: 6px;
 		border-radius: var(--radius-full);
 		background: var(--brand);
 		margin-left: auto;
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 	.label {
 		font-family: var(--font-ui);
 	}
 
 	.body {
-		padding: var(--space-2);
-		border: 1px solid var(--line);
-		border-top: none;
-		border-bottom-left-radius: var(--radius-sm);
-		border-bottom-right-radius: var(--radius-sm);
-		background: var(--bg-sunken);
+		/* Niente bordo/riempimento proprio: si distingue per indentazione e
+		   separatore 1px, non per un secondo riquadro dentro la card. */
+		padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+		border-top: 1px solid var(--line);
 		max-height: 360px;
 		overflow-y: auto;
-		transition:
-			opacity var(--dur-fast) var(--ease-out),
-			transform var(--dur-fast) var(--ease-out);
-	}
-
-	@starting-style {
-		.body {
-			opacity: 0;
-			transform: translateY(-2px);
-		}
 	}
 
 	pre {
