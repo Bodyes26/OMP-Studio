@@ -39,13 +39,17 @@ export function extractImageFiles(dataTransfer: DataTransfer | null): File[] {
 	const imageFiles: File[] = [];
 	const seen = new Set<string>();
 
+	// Se `items` e' supportato ed espone file/immagini, estraiamo da qui ed evitiamo
+	// di riesaminare `files`: nei browser moderni (Chromium/Tauri) entrambi contengono
+	// gli stessi oggetti, e scorrerli entrambi provocherebbe un doppio inserimento
+	// a causa di timestamp sintetici `lastModified` discordanti.
 	if (dataTransfer.items && dataTransfer.items.length > 0) {
 		for (let i = 0; i < dataTransfer.items.length; i++) {
 			const item = dataTransfer.items[i];
 			if (item.kind === 'file' || item.type.startsWith('image/')) {
 				const file = item.getAsFile();
 				if (file && isImageFile(file)) {
-					const key = `${file.name}-${file.size}-${file.lastModified}`;
+					const key = `${file.name}-${file.size}`;
 					if (!seen.has(key)) {
 						imageFiles.push(file);
 						seen.add(key);
@@ -53,15 +57,21 @@ export function extractImageFiles(dataTransfer: DataTransfer | null): File[] {
 				}
 			}
 		}
+		if (imageFiles.length > 0) {
+			return imageFiles;
+		}
 	}
 
+	// Fallback per ambienti senza supporto a `items` o con solo `files` popolato
 	if (dataTransfer.files && dataTransfer.files.length > 0) {
 		for (let i = 0; i < dataTransfer.files.length; i++) {
 			const file = dataTransfer.files[i];
-			const key = `${file.name}-${file.size}-${file.lastModified}`;
-			if (!seen.has(key) && isImageFile(file)) {
-				imageFiles.push(file);
-				seen.add(key);
+			if (isImageFile(file)) {
+				const key = `${file.name}-${file.size}`;
+				if (!seen.has(key)) {
+					imageFiles.push(file);
+					seen.add(key);
+				}
 			}
 		}
 	}

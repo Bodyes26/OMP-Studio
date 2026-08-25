@@ -273,16 +273,22 @@
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);
 		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.palette-main {
 		display: grid;
 		grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.1fr);
+		grid-template-rows: minmax(0, 1fr);
 		min-height: 150px;
 		max-height: 380px;
+		overflow: hidden;
 	}
 
 	.palette-list {
+		min-height: 0;
+		height: 100%;
 		overflow-y: auto;
 		padding: var(--space-1);
 		display: flex;
@@ -290,7 +296,6 @@
 		gap: 2px;
 		border-right: 1px solid var(--line);
 	}
-
 	.palette-item {
 		display: flex;
 		flex-direction: column;
@@ -356,6 +361,8 @@
 	}
 
 	.command-preview {
+		min-height: 0;
+		height: 100%;
 		overflow-y: auto;
 		padding: var(--space-3);
 		background: var(--bg-sunken);
@@ -442,11 +449,14 @@
 	}
 
 	.palette-help {
+		flex-shrink: 0;
+		position: relative;
+		z-index: 1;
 		display: flex;
 		gap: var(--space-3);
 		padding: var(--space-1) var(--space-2);
 		border-top: 1px solid var(--line);
-		background: var(--bg-raised);
+		background: var(--bg-sunken);
 		color: var(--ink-faint);
 		font-size: 10px;
 	}

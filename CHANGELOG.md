@@ -42,6 +42,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Rimosso il selettore fisso «steer / follow-up» dalla barra di inserimento del prompt.
 ### Fixed
 
+- Risolto un bug grafico nella palette dei comandi slash (`/`) per cui la barra di aiuto con i tasti di navigazione (`↑↓ naviga`, `Invio seleziona`, `Esc chiude`) non rimaneva fissata al fondo durante lo scorrimento e si sovrapponeva all'elenco dei comandi.
+- Risolto il problema dell'inserimento duplicato delle immagini quando incollate dagli appunti (Ctrl+V) nel campo di scrittura o nell'editor dei task.
 - Filtrati gli avvisi interni di sistema relativi al montaggio dei tool MCP (`xd://: mounted mcp__...`) per evitare messaggi di log e avvisi spuri all'avvio della sessione.
 - Risolto il caricamento e l'incollamento delle immagini nel prompt della GUI (Composer e Task Editor): abilitata la decodifica diretta in memoria via `createImageBitmap` con fallback su data URL e aggiunta l'origine `blob:` alla Content Security Policy (`img-src`), consentendo di allegare screenshot e immagini dagli appunti (Ctrl+V), da file o tramite drag & drop senza errori.
 - L'editor ricorda la posizione di scorrimento e del cursore di ogni file: passando da un progetto all'altro, o da un tab all'altro, il documento riprende da dove era stato lasciato invece di tornare in cima.
