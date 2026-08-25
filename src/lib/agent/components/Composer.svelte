@@ -15,7 +15,7 @@
 		type ThinkingLevel
 	} from '../wire';
 	import { asRecord } from '../tools/types';
-	import { prepareImage } from '../images';
+	import { prepareImage, extractImageFiles, isImageFile } from '../images';
 	import QueueChips from './QueueChips.svelte';
 	import CommandPalette from './CommandPalette.svelte';
 	import ShortcutsHelpModal from './ShortcutsHelpModal.svelte';
@@ -474,7 +474,7 @@
 
 	async function handleProcessFiles(files: FileList | File[]) {
 		for (const file of Array.from(files)) {
-			if (!file.type.startsWith('image/')) continue;
+			if (!isImageFile(file)) continue;
 			const res = await prepareImage(file);
 			if ('error' in res) {
 				session.pushNotice('warning', res.error);
@@ -485,16 +485,7 @@
 	}
 
 	function handlePaste(event: ClipboardEvent) {
-		const items = event.clipboardData?.items;
-		if (!items) return;
-		const imageFiles: File[] = [];
-		for (let i = 0; i < items.length; i++) {
-			const item = items[i];
-			if (item.type.startsWith('image/')) {
-				const file = item.getAsFile();
-				if (file) imageFiles.push(file);
-			}
-		}
+		const imageFiles = extractImageFiles(event.clipboardData);
 		if (imageFiles.length > 0) {
 			event.preventDefault();
 			void handleProcessFiles(imageFiles);
@@ -503,12 +494,11 @@
 
 	function handleDrop(event: DragEvent) {
 		event.preventDefault();
-		const files = event.dataTransfer?.files;
-		if (files && files.length > 0) {
-			void handleProcessFiles(files);
+		const imageFiles = extractImageFiles(event.dataTransfer);
+		if (imageFiles.length > 0) {
+			void handleProcessFiles(imageFiles);
 		}
 	}
-
 	function handleDragOver(event: DragEvent) {
 		event.preventDefault();
 	}
@@ -638,7 +628,7 @@
 			oninput={handleComposerInput}
 			onkeydown={handleKeydown}
 			onpaste={handlePaste}
-			placeholder="Scrivi un prompt, incolla un'immagine, digita / per i comandi... (Alt+P modelli, Alt+H scorciatoie)"
+			placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere il tuo prompt" : "Scrivi un prompt, incolla un'immagine, digita / per i comandi... (Alt+P modelli, Alt+H scorciatoie)"}
 			rows="1"
 			class="composer-textarea"
 			aria-label="Messaggio per l'assistente"
@@ -659,8 +649,9 @@
 				<button
 					type="button"
 					class="send-btn"
-					title={session.isStreaming ? 'Accoda messaggio (Invio)' : 'Invia messaggio (Invio)'}
+					title={session.isStarting ? 'Invia messaggio (verrà recapitato appena OMP è pronto)' : session.isStreaming ? 'Accoda messaggio (Invio)' : 'Invia messaggio (Invio)'}
 					disabled={!text.trim() && attachedImages.length === 0}
+					onclick={() => handleSubmit()}
 				>
 					<span class="send-icon">↑</span>
 				</button>
@@ -674,16 +665,24 @@
 		<div class="status-item-wrap">
 			<button
 				type="button"
-				title="Modello corrente (Alt+P per aprire il menu, Ctrl+P per passare al successivo)"
+				class="status-chip"
+				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Modello corrente (Alt+P per aprire il menu, Ctrl+P per passare al successivo)'}
 				aria-haspopup="dialog"
 				aria-expanded={activeMenu === 'model'}
+				disabled={session.isStarting}
 				onclick={(e) => {
 					e.stopPropagation();
 					toggleMenu('model');
 				}}
 			>
 				<span class="chip-label">modello:</span>
-				<span class="chip-val">{session.model?.name || session.model?.id || 'default'}</span>
+				{#if session.isStarting}
+					<span class="chip-val starting">
+						<span class="starting-spinner"></span> in avvio...
+					</span>
+				{:else}
+					<span class="chip-val">{session.model?.name || session.model?.id || 'default'}</span>
+				{/if}
 			</button>
 
 			{#if activeMenu === 'model'}
@@ -748,6 +747,14 @@
 				</div>
 			{/if}
 		</div>
+		<!-- Badge di avvio OMP -->
+		{#if session.isStarting}
+			<div class="startup-badge" title="OMP si sta avviando in background. Puoi già scrivere e inviare messaggi, verranno elaborati appena pronto.">
+				<span class="starting-dot"></span>
+				<span class="startup-text">Avvio OMP in corso...</span>
+			</div>
+		{/if}
+
 
 		<!-- Chip Thinking -->
 		<div class="status-item-wrap">
@@ -1136,6 +1143,61 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--ink);
+	}
+
+	.chip-val.starting {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		color: var(--ink-muted);
+	}
+
+	.starting-spinner {
+		display: inline-block;
+		width: 9px;
+		height: 9px;
+		border: 1.5px solid var(--ink-faint);
+		border-top-color: var(--brand-ink, var(--brand));
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	.startup-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 2px 7px;
+		background: color-mix(in srgb, var(--brand) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
+		border-radius: var(--radius-sm);
+		font-size: 11px;
+		color: var(--brand-ink, var(--brand));
+		line-height: 1;
+	}
+
+	.starting-dot {
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: var(--brand);
+		animation: pulse-dot 1.4s ease-in-out infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	@keyframes pulse-dot {
+		0%, 100% {
+			opacity: 0.4;
+			transform: scale(0.85);
+		}
+		50% {
+			opacity: 1;
+			transform: scale(1.15);
+		}
 	}
 
 	.context-chip {

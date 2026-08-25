@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { attachEditorContext } from '$lib/editor/editorContext';
 	import Terminal from '$lib/terminal/Terminal.svelte';
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
@@ -153,6 +154,7 @@
 		if (terminalBusy[projectId]) return 'Operazione in corso';
 		if (project?.layout.rightSection === 'gui') {
 			const session = agentSessions.get(projectId);
+			if (!session?.isReady || !session?.isAttached) return 'OMP in avvio...';
 			if (session?.isStreaming) return 'OMP sta lavorando';
 			if (session?.isCompacting) return 'Compattazione in corso';
 			if (project.agentState === 'attention') return 'OMP aspetta una risposta';
@@ -198,7 +200,7 @@
 					await session.open();
 				}
 				const sid = await session.newSession();
-				await session.prompt(task.prompt, [], 'steer');
+				await session.prompt(task.prompt, task.images ?? [], 'steer');
 				const resolvedSid = sid ?? session.sessionId;
 				if (resolvedSid) {
 					taskStore.completeDispatch(taskId, resolvedSid);
@@ -211,7 +213,7 @@
 			} else {
 				const term = terminalSessions.get(projectId);
 				if (!term) throw new Error('Terminale non pronto');
-				const session = await term.startTask(task.prompt);
+				const session = await term.startTask(attachEditorContext(task.prompt, project.path));
 				taskStore.completeDispatch(taskId, session.sessionId);
 				taskStore.setView(project.path, 'sessions');
 				if (taskEditorId === taskId) taskEditorId = null;
@@ -856,7 +858,12 @@
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#if projectStore.activeProject}
 					{#if activeTaskEditor}
-						<TaskEditor task={activeTaskEditor} onClose={() => taskEditorId = null} />
+						<TaskEditor
+							task={activeTaskEditor}
+							session={agentSessions.get(projectStore.activeProject.id) ?? null}
+							onClose={() => taskEditorId = null}
+							onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
+						/>
 					{:else if diagramOpen}
 						<DiagramViewer
 							projectPath={projectStore.activeProject.path}

@@ -373,12 +373,3 @@ export interface StudioErrorFrame {
 	message: string;
 }
 
-/** Sentinella dell'estensione di approvazione: NUL non compare nei titoli di omp. */
-export const APPROVAL_SENTINEL = '\u0000studio-approval\u0000';
-
-export interface ApprovalRequestPayload {
-	v: number;
-	tool: string;
-	toolCallId: string | null;
-	input: Record<string, unknown>;
-}

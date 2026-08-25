@@ -324,13 +324,14 @@ esclude le prerelease e impedisce che una build sperimentale raggiunga chi non h
 scelto Nightly. Il canale `nightly` confronta invece l'ultima stabile con la
 prerelease associata al tag mobile `nightly` e propone la versione SemVer maggiore.
 
-`.github/workflows/nightly.yml` ricompila Windows x64 e macOS universal a ogni push
-di codice su `main`. Nel checkout del runner `scripts/nightly-version.mjs` trasforma
-temporaneamente, per esempio, `1.0.1` in `1.0.2-nightly.<run_id>` senza committare il
-bump e senza chiudere `[Unreleased]`. La prerelease viene sostituita integralmente e
-contiene `nightly.json`, manifest strutturato con versione, commit e data. Una release
-stabile finale (`1.0.2` o superiore) prevale sempre sulle prerelease dello stesso ciclo.
-
+La pubblicazione Nightly (`npm run nightly`, script `scripts/publish-nightly.mjs`)
+compila rapidamente in locale l'installer per il sistema operativo in uso, sfruttando
+la cache di Cargo e Vite. Lo script trasforma temporaneamente, per esempio, `1.1.0`
+in `1.1.1-nightly.<timestamp>` senza committare il bump e senza chiudere `[Unreleased]`,
+genera `nightly.json` (manifest strutturato con versione, commit e data) e aggiorna
+la prerelease associata al tag mobile `nightly` su GitHub. Una release stabile finale
+prevale sempre sulle prerelease dello stesso ciclo. Per compilare la matrice completa
+multipiattaforma in cloud rimane disponibile l'avvio manuale di `.github/workflows/nightly.yml`.
 Il frontend persiste `studioUpdateChannel` in `settings.json`. Tornando a Stabile da
 una nightly più recente non viene eseguito alcun downgrade: l'app attende la prima
 release stabile con versione superiore.

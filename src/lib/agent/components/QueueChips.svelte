@@ -1,15 +1,26 @@
 <script lang="ts">
 	// Specchio dei messaggi in coda durante lo streaming.
 	//
-	// Nessun pulsante di cancellazione (X): il protocollo RPC non espone
-	// la rimozione di singoli elementi dalla coda. Mostrare un'azione non
-	// supportata sarebbe fuorviante.
+	// Consente di commutare il comportamento di accodamento (steer / follow-up)
+	// direttamente per ciascun messaggio in coda.
 	import type { QueuedMessage } from '../session.svelte';
+	import type { StreamingBehavior } from '../wire';
 
-	let { queued, serverCount } = $props<{
+	let {
+		queued,
+		serverCount,
+		onToggleBehavior
+	} = $props<{
 		queued: QueuedMessage[];
 		serverCount: number;
+		onToggleBehavior?: (id: number, behavior: StreamingBehavior) => void;
 	}>();
+
+	function handleSetBehavior(item: QueuedMessage, behavior: StreamingBehavior) {
+		if (item.behavior === behavior) return;
+		item.behavior = behavior;
+		onToggleBehavior?.(item.id, behavior);
+	}
 
 	function truncate(text: string, max = 60): string {
 		const clean = text.replace(/\s+/g, ' ').trim();
@@ -27,10 +38,27 @@
 				class:follow-up={item.behavior === 'followUp'}
 				title="omp non espone la cancellazione dalla coda"
 			>
-				<span class="chip-kind">
-					{item.behavior === 'followUp' ? 'follow-up' : 'steer'}
-				</span>
-				<span class="chip-text">{truncate(item.text)}</span>
+				<div class="chip-behavior-switch" role="group" aria-label="Comportamento messaggio in coda">
+					<button
+						type="button"
+						class="chip-behavior-btn"
+						class:active={item.behavior === 'steer'}
+						onclick={() => handleSetBehavior(item, 'steer')}
+						title="Steer: interrompe il turno corrente per inserire il messaggio"
+					>
+						steer
+					</button>
+					<button
+						type="button"
+						class="chip-behavior-btn"
+						class:active={item.behavior === 'followUp'}
+						onclick={() => handleSetBehavior(item, 'followUp')}
+						title="Follow-up: attende la fine del turno e accoda il messaggio"
+					>
+						follow-up
+					</button>
+				</div>
+				<span class="chip-text" title={item.text}>{truncate(item.text)}</span>
 			</div>
 		{/each}
 
@@ -62,27 +90,55 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-		padding: 2px 6px;
+		padding: 2px 4px;
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
-		max-width: 380px;
-		cursor: default;
+		max-width: 420px;
 		user-select: text;
 	}
 
-	.chip-kind {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		color: var(--ink-faint);
-		white-space: nowrap;
+	.chip-behavior-switch {
+		display: inline-flex;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 1px;
+		gap: 1px;
+		user-select: none;
 	}
 
-	.chip.steer .chip-kind {
+	.chip-behavior-btn {
+		padding: 1px 5px;
+		font-family: var(--font-mono);
+		font-size: 9px;
+		text-transform: lowercase;
+		background: transparent;
+		border: none;
+		border-radius: calc(var(--radius-sm) - 1px);
+		color: var(--ink-faint);
+		cursor: pointer;
+		line-height: 1.2;
+		transition: background-color 100ms ease, color 100ms ease;
+	}
+
+	.chip-behavior-btn:hover {
+		color: var(--ink);
+	}
+
+	.chip-behavior-btn.active {
+		background: var(--bg-base);
+		color: var(--ink);
+		font-weight: 600;
+	}
+
+	.chip.steer .chip-behavior-btn.active {
 		color: var(--brand-ink);
+	}
+
+	.chip.follow-up .chip-behavior-btn.active {
+		color: var(--ink);
 	}
 
 	.chip-text {
@@ -90,8 +146,9 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--ink);
+		font-size: var(--text-xs);
+		padding-left: 2px;
 	}
-
 	.server-count {
 		border-style: dashed;
 		color: var(--ink-faint);

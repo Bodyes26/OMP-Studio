@@ -3,106 +3,40 @@
 	// L'HTML non e' mai interpretato: viene reso come testo grezzo in <pre>.
 	// L'unico {@html} ammesso in tutto il progetto e' il risultato di
 	// `colorizeCode`, che produce markup generato da Monaco.
-	import { untrack } from 'svelte';
-	import { colorizeCode, type Token, type Tokens } from '../markdown';
+	import type { StreamFade, Token } from '../markdown';
+	import CodeBlock from './CodeBlock.svelte';
 	import Markdown from './Markdown.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
+	import StreamTail from './StreamTail.svelte';
 
-	let { tokens = [] }: { tokens?: Token[] } = $props();
-
-	let colorized = $state<Record<string, string>>({});
-	let copied = $state<Record<string, boolean>>({});
-
-	function codeKey(lang: string | undefined, text: string): string {
-		return `${lang ?? ''}:${text}`;
-	}
-
-	// Evidenziazione asincrona dei blocchi di codice con Monaco indicizzata per contenuto.
-	$effect(() => {
-		const currentKeys = new Set<string>();
-
-		for (const tok of tokens) {
-			if (tok.type === 'code') {
-				const codeToken = tok as Tokens.Code;
-				const key = codeKey(codeToken.lang, codeToken.text);
-				currentKeys.add(key);
-
-				const isAlreadyColorized = untrack(() => Boolean(colorized[key]));
-				if (!isAlreadyColorized) {
-					colorizeCode(codeToken.text, codeToken.lang)
-						.then((html) => {
-							if (html) {
-								colorized[key] = html;
-							}
-						})
-						.catch(() => {});
-				}
-			}
-		}
-
-		// Scarta i risultati di blocchi non piu' presenti nei token correnti
-		untrack(() => {
-			for (const key of Object.keys(colorized)) {
-				if (!currentKeys.has(key)) {
-					delete colorized[key];
-				}
-			}
-		});
-	});
-
-	async function copyCode(key: string, text: string) {
-		try {
-			await navigator.clipboard.writeText(text);
-			copied[key] = true;
-			setTimeout(() => {
-				copied[key] = false;
-			}, 1500);
-		} catch {
-			// Clipboard non accessibile nel contesto corrente
-		}
-	}
+	// `fade` non nullo significa "l'ultimo blocco e' la coda del testo in
+	// arrivo": scende solo lungo la catena degli ultimi figli.
+	let { tokens = [], fade = null }: { tokens?: Token[]; fade?: StreamFade | null } = $props();
 </script>
 
 {#each tokens as token, i (i)}
+	{@const tail = fade && i === tokens.length - 1 ? fade : null}
 	{#if token.type === 'heading'}
 		{#if token.depth === 1}
-			<h1 class="heading h1"><MarkdownInline tokens={token.tokens} /></h1>
+			<h1 class="heading h1"><MarkdownInline tokens={token.tokens} fade={tail} /></h1>
 		{:else if token.depth === 2}
-			<h2 class="heading h2"><MarkdownInline tokens={token.tokens} /></h2>
+			<h2 class="heading h2"><MarkdownInline tokens={token.tokens} fade={tail} /></h2>
 		{:else if token.depth === 3}
-			<h3 class="heading h3"><MarkdownInline tokens={token.tokens} /></h3>
+			<h3 class="heading h3"><MarkdownInline tokens={token.tokens} fade={tail} /></h3>
 		{:else if token.depth === 4}
-			<h4 class="heading h4"><MarkdownInline tokens={token.tokens} /></h4>
+			<h4 class="heading h4"><MarkdownInline tokens={token.tokens} fade={tail} /></h4>
 		{:else if token.depth === 5}
-			<h5 class="heading h5"><MarkdownInline tokens={token.tokens} /></h5>
+			<h5 class="heading h5"><MarkdownInline tokens={token.tokens} fade={tail} /></h5>
 		{:else}
-			<h6 class="heading h6"><MarkdownInline tokens={token.tokens} /></h6>
+			<h6 class="heading h6"><MarkdownInline tokens={token.tokens} fade={tail} /></h6>
 		{/if}
 	{:else if token.type === 'paragraph'}
-		<p class="paragraph"><MarkdownInline tokens={token.tokens} /></p>
+		<p class="paragraph"><MarkdownInline tokens={token.tokens} fade={tail} /></p>
 	{:else if token.type === 'code'}
-		{@const key = codeKey(token.lang, token.text)}
-		<div class="code-block">
-			<div class="code-header">
-				<span class="code-lang">{token.lang || 'testo'}</span>
-				<button
-					type="button"
-					class="copy-btn"
-					onclick={() => copyCode(key, token.text)}
-					title="Copia codice negli appunti"
-				>
-					{copied[key] ? 'Copiato!' : 'Copia'}
-				</button>
-			</div>
-			{#if colorized[key]}
-				<pre class="code-pre colorized">{@html colorized[key]}</pre>
-			{:else}
-				<pre class="code-pre">{token.text}</pre>
-			{/if}
-		</div>
+		<CodeBlock lang={token.lang} text={token.text} fade={tail} />
 	{:else if token.type === 'blockquote'}
 		<blockquote class="blockquote">
-			<Markdown tokens={token.tokens} />
+			<Markdown tokens={token.tokens} fade={tail} />
 		</blockquote>
 	{:else if token.type === 'list'}
 		{#if token.ordered}
@@ -113,7 +47,7 @@
 							<input type="checkbox" checked={item.checked} disabled class="task-checkbox" />
 						{/if}
 						<div class="item-content">
-							<Markdown tokens={item.tokens} />
+							<Markdown tokens={item.tokens} fade={itemIdx === token.items.length - 1 ? tail : null} />
 						</div>
 					</li>
 				{/each}
@@ -126,7 +60,7 @@
 							<input type="checkbox" checked={item.checked} disabled class="task-checkbox" />
 						{/if}
 						<div class="item-content">
-							<Markdown tokens={item.tokens} />
+							<Markdown tokens={item.tokens} fade={itemIdx === token.items.length - 1 ? tail : null} />
 						</div>
 					</li>
 				{/each}
@@ -166,17 +100,19 @@
 	{:else if token.type === 'text'}
 		<div class="text-block">
 			{#if 'tokens' in token && token.tokens && token.tokens.length > 0}
-				<MarkdownInline tokens={token.tokens} />
+				<MarkdownInline tokens={token.tokens} fade={tail} />
+			{:else if tail}
+				<StreamTail text={token.text} fade={tail} />
 			{:else}
 				{token.text}
 			{/if}
 		</div>
 	{:else if 'tokens' in token && token.tokens}
 		<div class="generic-block">
-			<MarkdownInline tokens={token.tokens} />
+			<MarkdownInline tokens={token.tokens} fade={tail} />
 		</div>
 	{:else if 'text' in token && typeof token.text === 'string'}
-		<p class="paragraph">{token.text}</p>
+		<p class="paragraph">{#if tail}<StreamTail text={token.text} fade={tail} />{:else}{token.text}{/if}</p>
 	{/if}
 {/each}
 
@@ -272,57 +208,6 @@
 		min-width: 0;
 	}
 
-	.code-block {
-		margin: var(--space-2) 0;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		overflow: hidden;
-	}
-
-	.code-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 2px var(--space-2);
-		background: var(--bg-hover);
-		border-bottom: 1px solid var(--line);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		user-select: none;
-	}
-
-	.code-lang {
-		font-family: var(--font-mono);
-		text-transform: lowercase;
-	}
-
-	.copy-btn {
-		background: transparent;
-		border: none;
-		padding: 2px var(--space-1);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		cursor: pointer;
-		border-radius: var(--radius-sm);
-	}
-
-	.copy-btn:hover {
-		color: var(--ink);
-		background: var(--bg-hover);
-	}
-
-	.code-pre {
-		margin: 0;
-		padding: var(--space-2);
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		line-height: 1.5;
-		color: var(--ink);
-		overflow-x: auto;
-		white-space: pre;
-		user-select: text;
-	}
 
 	.table-wrap {
 		overflow-x: auto;

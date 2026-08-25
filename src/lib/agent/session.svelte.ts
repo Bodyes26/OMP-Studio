@@ -1,3 +1,4 @@
+import { attachEditorContext } from '$lib/editor/editorContext';
 // Stato della superficie GUI: un'istanza per progetto.
 //
 // Il riduttore e' esplicito e volutamente noioso: ogni frame del protocollo
@@ -6,7 +7,7 @@
 // dallo stesso rendering (`ricerca/TOOL-DETAILS.md`).
 
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { OmpRpcClient, parseApprovalRequest } from './client';
+import { OmpRpcClient } from './client';
 import {
 	ANSWERABLE_UI_METHODS,
 	type AgentMessage,
@@ -110,14 +111,6 @@ export interface QueuedMessage {
 	behavior: StreamingBehavior;
 }
 
-export interface PendingApproval {
-	kind: 'approval';
-	requestId: string;
-	tool: string;
-	toolCallId: string | null;
-	input: Record<string, unknown>;
-}
-
 export interface PendingAsk {
 	kind: 'ask';
 	requestId: string;
@@ -132,7 +125,7 @@ export interface PendingAsk {
 	deadline?: number;
 }
 
-export type PendingUiRequest = PendingApproval | PendingAsk;
+export type PendingUiRequest = PendingAsk;
 
 /** Numero massimo di entry renderizzate: oltre, si scopre a blocchi. */
 const RENDER_WINDOW = 300;
@@ -216,7 +209,16 @@ export class AgentSession {
 	 * frame `message_start`: mezzo secondo in cui la chat sembra ferma.
 	 */
 	private optimisticUser: UserEntry | null = null;
+	private pendingStartupPrompts: {
+		message: string;
+		images: ImageContent[];
+		behavior: StreamingBehavior;
+		optimisticUser: UserEntry;
+	}[] = [];
 
+	get isStarting(): boolean {
+		return !this.isAttached && !this.exited;
+	}
 	constructor(cwd: string) {
 		this.cwd = cwd;
 		this.client.onEvent((event) => this.reduce(event));
@@ -266,6 +268,7 @@ export class AgentSession {
 		await this.client.close();
 		this.isReady = false;
 		this.isAttached = false;
+		this.pendingStartupPrompts = [];
 	}
 
 	/**
@@ -292,6 +295,7 @@ export class AgentSession {
 				`La sessione ${recoveredResume} non è più disponibile. È stata avviata una nuova chat.`
 			);
 		}
+		await this.flushStartupPrompts();
 	}
 
 
@@ -411,7 +415,7 @@ export class AgentSession {
 				// storico valgono quanto in diretta, altrimenti riprendendo una
 				// sessione sparirebbero.
 				const text = textOf(message.content);
-				if (text) {
+				if (text && !this.isNoiseNotice(text, message.role === 'custom' ? 'sistema' : 'promemoria')) {
 					entries.push({
 						id: this.nextEntryId++,
 						kind: 'notice',
@@ -541,7 +545,9 @@ export class AgentSession {
 					// Esiti dei job in background e promemoria: senza questo ramo
 					// il completamento di un subagent non lascia traccia.
 					const text = textOf(message.content);
-					if (text) this.pushNotice('info', text, message.role === 'custom' ? 'sistema' : 'promemoria');
+					if (text && !this.isNoiseNotice(text, message.role === 'custom' ? 'sistema' : 'promemoria')) {
+						this.pushNotice('info', text, message.role === 'custom' ? 'sistema' : 'promemoria');
+					}
 				}
 				return;
 			}
@@ -622,7 +628,7 @@ export class AgentSession {
 
 			case 'notice': {
 				const text = typeof event.message === 'string' ? event.message : '';
-				if (!text) return;
+				if (!text || this.isNoiseNotice(text, typeof event.source === 'string' ? event.source : undefined)) return;
 				this.pushNotice(this.noticeLevel(event.level), text, typeof event.source === 'string' ? event.source : undefined);
 				return;
 			}
@@ -749,6 +755,14 @@ export class AgentSession {
 				this.pendingUi = null;
 				this.client.markExited();
 
+				if (this.pendingStartupPrompts.length > 0) {
+					for (const pending of this.pendingStartupPrompts) {
+						const idx = this.entries.indexOf(pending.optimisticUser);
+						if (idx !== -1) this.entries.splice(idx, 1);
+					}
+					this.pendingStartupPrompts = [];
+					this.pushNotice('error', 'Prompt non inviato: la sessione OMP e\u2019 terminata prima del completamento dell’avvio');
+				}
 				if (resumeMissing) {
 					this.requestedResume = null;
 					this.recoveredResume = requestedResume;
@@ -930,40 +944,29 @@ export class AgentSession {
 		}
 		if (ANSWERABLE_UI_METHODS[method] !== true) return;
 
-		const approval = method === 'select' ? parseApprovalRequest(title) : null;
-		if (approval) {
-			this.pendingUi = {
-				kind: 'approval',
-				requestId: id,
-				tool: approval.tool,
-				toolCallId: approval.toolCallId,
-				input: approval.input
-			};
-		} else {
-			const options = Array.isArray(event.options)
-				? event.options.filter((option): option is string => typeof option === 'string')
-				: [];
-			const optionDetails = Array.isArray(event.optionDetails)
-				? event.optionDetails.map((detail) => ({
-						description:
-							detail && typeof detail === 'object' && 'description' in detail && typeof detail.description === 'string'
-								? detail.description
-								: undefined
-					}))
-				: [];
-			this.pendingUi = {
-				kind: 'ask',
-				requestId: id,
-				method: method === 'confirm' || method === 'input' || method === 'editor' ? method : 'select',
-				title: title ?? '',
-				message: text,
-				options,
-				optionDetails,
-				placeholder: typeof event.placeholder === 'string' ? event.placeholder : undefined,
-				prefill: typeof event.prefill === 'string' ? event.prefill : undefined,
-				deadline: typeof event.timeout === 'number' ? Date.now() + event.timeout : undefined
-			};
-		}
+		const options = Array.isArray(event.options)
+			? event.options.filter((option): option is string => typeof option === 'string')
+			: [];
+		const optionDetails = Array.isArray(event.optionDetails)
+			? event.optionDetails.map((detail) => ({
+					description:
+						detail && typeof detail === 'object' && 'description' in detail && typeof detail.description === 'string'
+							? detail.description
+							: undefined
+				}))
+			: [];
+		this.pendingUi = {
+			kind: 'ask',
+			requestId: id,
+			method: method === 'confirm' || method === 'input' || method === 'editor' ? method : 'select',
+			title: title ?? '',
+			message: text,
+			options,
+			optionDetails,
+			placeholder: typeof event.placeholder === 'string' ? event.placeholder : undefined,
+			prefill: typeof event.prefill === 'string' ? event.prefill : undefined,
+			deadline: typeof event.timeout === 'number' ? Date.now() + event.timeout : undefined
+		};
 		this.agentState = 'attention';
 	}
 
@@ -999,14 +1002,33 @@ export class AgentSession {
 
 	/**
 	 * Invio di un prompt. Durante lo streaming `streamingBehavior` e'
-	 * obbligatorio: senza, il comando fallisce lato omp.
+	 * obbligatorio: senza, il comando fallisce lato omp. Predefinito a 'steer'.
 	 */
-	async prompt(message: string, images: ImageContent[], behavior: StreamingBehavior) {
+	async prompt(message: string, images: ImageContent[] = [], behavior: StreamingBehavior = 'steer') {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return;
+		const fullMessage = attachEditorContext(trimmed, this.cwd);
+
+		// Se OMP e' ancora in fase di avvio, accoda il messaggio e mostra subito l'entry ottimistica
+		if (!this.isReady || !this.isAttached) {
+			const optimistic = this.push({
+				id: this.nextEntryId++,
+				kind: 'user',
+				content: fullMessage,
+				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType }))
+			}) as UserEntry;
+			this.pendingStartupPrompts.push({
+				message: fullMessage,
+				images,
+				behavior,
+				optimisticUser: optimistic
+			});
+			return;
+		}
+
 		const streaming = this.isStreaming;
 		if (streaming) {
-			this.queued.push({ id: this.nextQueueId++, text: trimmed, behavior });
+			this.queued.push({ id: this.nextQueueId++, text: fullMessage, behavior });
 		} else {
 			// Fuori dallo streaming il messaggio compare subito: l'eco di omp
 			// lo completera' invece di duplicarlo. Durante lo streaming il
@@ -1014,24 +1036,51 @@ export class AgentSession {
 			this.optimisticUser = this.push({
 				id: this.nextEntryId++,
 				kind: 'user',
-				content: trimmed,
+				content: fullMessage,
 				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType }))
 			}) as UserEntry;
 		}
 		try {
 			await this.client.send({
 				type: 'prompt',
-				message: trimmed,
+				message: fullMessage,
 				images: images.length > 0 ? images : undefined,
 				streamingBehavior: streaming ? behavior : undefined
 			});
 		} catch (error) {
-			if (streaming) this.queued = this.queued.filter((entry) => entry.text !== trimmed);
+			if (streaming) this.queued = this.queued.filter((entry) => entry.text !== fullMessage);
 			this.dropOptimisticUser();
 			this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
 			return;
 		}
 		if (streaming) void this.reconcile();
+	}
+
+	private async flushStartupPrompts() {
+		if (this.pendingStartupPrompts.length === 0) return;
+		const queue = [...this.pendingStartupPrompts];
+		this.pendingStartupPrompts = [];
+
+		for (const pending of queue) {
+			if (!this.entries.includes(pending.optimisticUser)) {
+				this.entries.push(pending.optimisticUser);
+			}
+			this.optimisticUser = pending.optimisticUser;
+
+			try {
+				await this.client.send({
+					type: 'prompt',
+					message: pending.message,
+					images: pending.images.length > 0 ? pending.images : undefined,
+					streamingBehavior: this.isStreaming ? pending.behavior : undefined
+				});
+			} catch (error) {
+				this.dropOptimisticUser();
+				const idx = this.entries.indexOf(pending.optimisticUser);
+				if (idx !== -1) this.entries.splice(idx, 1);
+				this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
+			}
+		}
 	}
 
 	/** Toglie il messaggio disegnato in anticipo quando l'invio fallisce. */
@@ -1041,6 +1090,21 @@ export class AgentSession {
 		this.optimisticUser = null;
 		const index = this.entries.indexOf(pending);
 		if (index !== -1) this.entries.splice(index, 1);
+	}
+	/** Modifica il comportamento di un messaggio in coda (steer / follow-up). */
+	setQueuedBehavior(id: number, behavior: StreamingBehavior) {
+		const target = this.queued.find((item) => item.id === id);
+		if (target) {
+			target.behavior = behavior;
+		}
+	}
+
+	private isNoiseNotice(text: string, source?: string): boolean {
+		if (!text) return false;
+		if (text.startsWith('xd://: mounted') || text.startsWith('xd:// mounted')) return true;
+		if (text.includes('mounted mcp__')) return true;
+		if (source === 'xd://' && text.includes('mounted')) return true;
+		return false;
 	}
 
 	async abort() {
@@ -1052,6 +1116,7 @@ export class AgentSession {
 	}
 
 	async newSession(): Promise<string | null> {
+		this.pendingStartupPrompts = [];
 		await this.client.send({ type: 'new_session' });
 		this.entries = [];
 		this.toolEntries.clear();

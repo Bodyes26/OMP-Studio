@@ -68,8 +68,8 @@ rilasciato si annota lì subito, con la sua voce.
 3. **Chiedi all'utente cosa pubblicare**, proponendo nell'ordine:
    - **A — Pubblica Nightly (predefinita)**: non cambia la versione stabile e
      lascia il changelog in `[Unreleased]`. L'agente committa i soli percorsi
-     del lavoro, esegue il push su `main`, attende `.github/workflows/nightly.yml`
-     e verifica la prerelease `nightly` con installer Windows, DMG macOS e
+     del lavoro, esegue il push su `main`, esegue `npm run nightly` (build locale
+     rapida per l'OS in uso) e verifica la prerelease `nightly` con installer e
      `nightly.json`.
    - **B — Rilascia stabile ora**: bump della versione indicata (per un fix:
      patch, es. `1.1.0 → 1.1.1`). L'agente esegue autonomamente bump, commit,
@@ -98,27 +98,29 @@ rilasciato si annota lì subito, con la sua voce.
 ### Nightly (predefinita)
 
 La Nightly pubblica il commit corrente di `main` senza modificare i quattro file
-di versione e senza chiudere `[Unreleased]`. Per ogni pubblicazione:
+di versione e senza chiudere `[Unreleased]`. La compilazione avviene in locale
+per il sistema operativo in uso, sfruttando la cache di Cargo e Vite ed evitando
+i tempi di attesa della doppia build in cloud:
 
 ```powershell
 # 1. Commit dei soli percorsi del lavoro
 git add <file1> <file2>
 git commit -m "descrizione concisa"
 
-# 2. Push: le modifiche applicative avviano nightly.yml
+# 2. Push su main
 git push origin main
 
-# 3. Attesa e verifica
-gh run list --workflow nightly.yml --branch main --limit 1
-gh run watch <run-id> --exit-status
+# 3. Build locale e aggiornamento prerelease GitHub
+npm run nightly
+
+# 4. Verifica
 gh release view nightly --json assets,isPrerelease,name,tagName,url
 ```
 
-La verifica è completa solo quando la prerelease `nightly` contiene un installer
-NSIS `.exe`, un DMG universale `.dmg` e `nightly.json`. Se il push non rientra nei
-percorsi osservati dal workflow, avvialo con
-`gh workflow run nightly.yml --ref main`, poi attendi e verifica allo stesso modo.
-
+La verifica è completa quando la prerelease `nightly` contiene l'installer del sistema
+operativo in uso (es. `.exe` su Windows) e `nightly.json`. Per compilare la matrice
+multipiattaforma completa in cloud è sempre possibile avviare manualmente
+`gh workflow run nightly.yml --ref main`.
 ### Release stabile
 
 ```

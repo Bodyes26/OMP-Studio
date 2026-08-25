@@ -15,6 +15,18 @@ export type { Token, Tokens };
 export type BlockToken = Token;
 
 /**
+ * Dissolvenza della coda del testo in arrivo. Non e' un'animazione CSS: e' una
+ * funzione della distanza dalla testa di lettura, quindi riparsare il markdown
+ * non fa ripartire nulla e i caratteri non lampeggiano.
+ */
+export type StreamFade = {
+	/** Di quanti caratteri la testa di lettura ha superato la fine del testo. */
+	over: number;
+	/** Ampiezza in caratteri della rampa di opacita'. */
+	window: number;
+};
+
+/**
  * Tokenizza. `gfm` per tabelle e barrato, `breaks` perche' in chat un
  * ritorno a capo e' un ritorno a capo e non uno spazio.
  */

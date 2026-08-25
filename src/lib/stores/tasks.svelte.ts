@@ -1,6 +1,7 @@
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
 import { normalizeProjectPath } from './projects.svelte';
+import type { ImageContent } from '$lib/agent/wire';
 
 export type AgentView = 'queue' | 'sessions';
 export type StudioTaskStatus = 'queued' | 'dispatching';
@@ -9,6 +10,7 @@ export interface StudioTask {
 	id: string;
 	projectPath: string;
 	prompt: string;
+	images?: ImageContent[];
 	position: number;
 	createdAt: number;
 	updatedAt: number;
@@ -46,6 +48,7 @@ function parsePersistedState(value: unknown): PersistedTaskState | null {
 		return typeof task.id === 'string'
 			&& typeof task.projectPath === 'string'
 			&& typeof task.prompt === 'string'
+			&& (task.images === undefined || Array.isArray(task.images))
 			&& typeof task.position === 'number'
 			&& typeof task.createdAt === 'number'
 			&& typeof task.updatedAt === 'number'
@@ -84,7 +87,7 @@ class TaskStore {
 		const persisted = parsePersistedState(await this.store.get<unknown>('taskState'));
 		if (persisted) {
 			this.tasks = (persisted.tasks ?? [])
-				.filter((task) => task.prompt.trim())
+				.filter((task) => task.prompt.trim() || (task.images && task.images.length > 0))
 				.map((task) => ({ ...task, status: 'queued' as const }));
 			this.origins = persisted.origins ?? [];
 			this.views = persisted.views ?? {};
@@ -110,6 +113,7 @@ class TaskStore {
 			id: crypto.randomUUID(),
 			projectPath: key,
 			prompt: '',
+			images: [],
 			position: this.tasksFor(projectPath).length,
 			createdAt: now,
 			updatedAt: now,
@@ -131,12 +135,19 @@ class TaskStore {
 			.sort((left, right) => left.position - right.position || left.createdAt - right.createdAt);
 	}
 
-	updatePrompt(id: string, prompt: string) {
+	updateTask(id: string, prompt: string, images?: ImageContent[]) {
 		const task = this.taskById(id);
 		if (!task) return;
 		task.prompt = prompt;
+		if (images !== undefined) {
+			task.images = images;
+		}
 		task.updatedAt = Date.now();
 		this.save();
+	}
+
+	updatePrompt(id: string, prompt: string) {
+		this.updateTask(id, prompt);
 	}
 
 	deleteTask(id: string) {

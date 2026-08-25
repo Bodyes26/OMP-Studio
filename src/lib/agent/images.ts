@@ -11,6 +11,125 @@ const MAX_DIMENSION = 1568;
 const MAX_BASE64_LENGTH = 700_000;
 const MAX_ATTEMPTS = 4;
 const JPEG_QUALITIES = [0.85, 0.7, 0.6];
+const IMAGE_EXTENSIONS = new Set([
+	'png',
+	'jpg',
+	'jpeg',
+	'webp',
+	'gif',
+	'bmp',
+	'avif',
+	'ico',
+	'svg',
+	'tiff',
+	'tif'
+]);
+
+export function isImageFile(file: File | Blob): boolean {
+	if (file.type && file.type.startsWith('image/')) return true;
+	if ('name' in file && typeof file.name === 'string') {
+		const ext = file.name.split('.').pop()?.toLowerCase();
+		if (ext && IMAGE_EXTENSIONS.has(ext)) return true;
+	}
+	return false;
+}
+
+export function extractImageFiles(dataTransfer: DataTransfer | null): File[] {
+	if (!dataTransfer) return [];
+	const imageFiles: File[] = [];
+	const seen = new Set<string>();
+
+	if (dataTransfer.items && dataTransfer.items.length > 0) {
+		for (let i = 0; i < dataTransfer.items.length; i++) {
+			const item = dataTransfer.items[i];
+			if (item.kind === 'file' || item.type.startsWith('image/')) {
+				const file = item.getAsFile();
+				if (file && isImageFile(file)) {
+					const key = `${file.name}-${file.size}-${file.lastModified}`;
+					if (!seen.has(key)) {
+						imageFiles.push(file);
+						seen.add(key);
+					}
+				}
+			}
+		}
+	}
+
+	if (dataTransfer.files && dataTransfer.files.length > 0) {
+		for (let i = 0; i < dataTransfer.files.length; i++) {
+			const file = dataTransfer.files[i];
+			const key = `${file.name}-${file.size}-${file.lastModified}`;
+			if (!seen.has(key) && isImageFile(file)) {
+				imageFiles.push(file);
+				seen.add(key);
+			}
+		}
+	}
+
+	return imageFiles;
+}
+
+interface DecodedImageSource {
+	width: number;
+	height: number;
+	draw(ctx: CanvasRenderingContext2D, width: number, height: number): void;
+	dispose(): void;
+}
+
+function readFileAsDataUrl(file: File | Blob): Promise<string> {
+	const { promise, resolve, reject } = Promise.withResolvers<string>();
+	const reader = new FileReader();
+	reader.onload = () => {
+		if (typeof reader.result === 'string') {
+			resolve(reader.result);
+		} else {
+			reject(new Error('Formato di lettura non valido'));
+		}
+	};
+	reader.onerror = () => reject(new Error('Impossibile leggere il file dell’immagine'));
+	reader.readAsDataURL(file);
+	return promise;
+}
+
+async function loadDecodedSource(file: File | Blob): Promise<DecodedImageSource> {
+	// 1. Prova prima createImageBitmap (veloce, decodifica diretta in memoria, nessun DOM ne' CSP)
+	if (typeof createImageBitmap === 'function') {
+		try {
+			const bitmap = await createImageBitmap(file);
+			return {
+				width: bitmap.width,
+				height: bitmap.height,
+				draw(ctx, w, h) {
+					ctx.drawImage(bitmap, 0, 0, w, h);
+				},
+				dispose() {
+					bitmap.close();
+				}
+			};
+		} catch {
+			// Fallback su metodo alternativo
+		}
+	}
+
+	// 2. Fallback su FileReader in data URL + Image
+	const dataUrl = await readFileAsDataUrl(file);
+	const img = new Image();
+	const { promise, resolve, reject } = Promise.withResolvers<void>();
+	img.onload = () => resolve();
+	img.onerror = () => reject(new Error('Impossibile caricare l’immagine'));
+	img.src = dataUrl;
+	await promise;
+	const width = img.naturalWidth || img.width;
+	const height = img.naturalHeight || img.height;
+	return {
+		width,
+		height,
+		draw(ctx, w, h) {
+			ctx.drawImage(img, 0, 0, w, h);
+		},
+		dispose() {}
+	};
+}
 
 function stripDataPrefix(dataUrl: string): string {
 	const commaIndex = dataUrl.indexOf(',');
@@ -23,22 +142,12 @@ function getBase64(canvas: HTMLCanvasElement, mimeType: string, quality?: number
 }
 
 export async function prepareImage(file: File | Blob): Promise<ImageContent | { error: string }> {
+	let source: DecodedImageSource | null = null;
 	try {
-		const url = URL.createObjectURL(file);
-		const img = new Image();
+		source = await loadDecodedSource(file);
 
-		try {
-			await new Promise<void>((resolve, reject) => {
-				img.onload = () => resolve();
-				img.onerror = () => reject(new Error('Impossibile caricare l’immagine'));
-				img.src = url;
-			});
-		} finally {
-			URL.revokeObjectURL(url);
-		}
-
-		let width = img.naturalWidth || img.width;
-		let height = img.naturalHeight || img.height;
+		let width = source.width;
+		let height = source.height;
 
 		if (!width || !height) {
 			return { error: 'Dimensioni dell’immagine non valide' };
@@ -62,7 +171,7 @@ export async function prepareImage(file: File | Blob): Promise<ImageContent | { 
 			canvas.width = width;
 			canvas.height = height;
 			ctx.clearRect(0, 0, width, height);
-			ctx.drawImage(img, 0, 0, width, height);
+			source.draw(ctx, width, height);
 
 			// 1. Prova PNG
 			const png = getBase64(canvas, 'image/png');
@@ -95,5 +204,7 @@ export async function prepareImage(file: File | Blob): Promise<ImageContent | { 
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Errore sconosciuto durante la preparazione dell’immagine';
 		return { error: message };
+	} finally {
+		source?.dispose();
 	}
 }

@@ -3,10 +3,7 @@ mod previews;
 mod pty;
 use pty::{pty_close, pty_open, pty_resize, pty_session_info, pty_write, PtyManager};
 mod rpc;
-use rpc::{
-    approval_policy_get, approval_policy_save, rpc_close, rpc_open, rpc_protocol, rpc_send,
-    rpc_stderr, RpcManager,
-};
+use rpc::{rpc_close, rpc_open, rpc_protocol, rpc_send, rpc_stderr, RpcManager};
 mod projects;
 use projects::{
     file_git_head, file_git_rev, file_read, file_write, git_branch_checkout, git_branch_create,
@@ -75,8 +72,6 @@ pub fn run() {
             rpc_stderr,
             rpc_protocol,
             tree_read,
-            approval_policy_get,
-            approval_policy_save,
             file_read,
             file_write,
             file_git_head,

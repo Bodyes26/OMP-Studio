@@ -38,7 +38,11 @@
 
 	function taskExcerpt(task: StudioTask) {
 		const compact = task.prompt.replace(/\s+/g, ' ').trim();
-		return compact || 'Prompt ancora vuoto';
+		if (compact) return compact;
+		if (task.images && task.images.length > 0) {
+			return `${task.images.length} ${task.images.length === 1 ? 'immagine allegata' : 'immagini allegate'}`;
+		}
+		return 'Prompt ancora vuoto';
 	}
 
 	function dropOn(targetId: string) {
@@ -125,7 +129,7 @@
 						<button
 							type="button"
 							class="task-launch"
-							disabled={!canAutomate || !task.prompt.trim() || task.status === 'dispatching'}
+							disabled={!canAutomate || (!task.prompt.trim() && (!task.images || task.images.length === 0)) || task.status === 'dispatching'}
 							title={canAutomate ? `Avvia: ${taskTitle(task)}` : automationReason}
 							onclick={() => onRunTask(task.id)}
 						>

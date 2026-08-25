@@ -41,10 +41,6 @@ const DELTA_WINDOW: Duration = Duration::from_millis(8);
 /// si manifesterebbe solo come stdin chiuso.
 const STDERR_TAIL_LINES: usize = 200;
 
-/// Sorgente dell'estensione-ponte delle approvazioni, inclusa nel binario
-/// come quella dei diagrammi. Passata **solo** ai processi RPC: nella TUI
-/// produrrebbe titoli di select con la sentinella grezza dentro.
-const APPROVAL_EXTENSION_TS: &str = include_str!("../../../extensions/studio-approval.ts");
 
 pub struct RpcSession {
     child: Arc<Mutex<Child>>,
@@ -69,11 +65,11 @@ impl RpcManager {
     }
 }
 
-/// Overlay `--config` del percorso GUI. Solo `tools.approvalMode: yolo`:
-/// niente `tui.*` (non c'e' terminale) e niente `theme.*` (non c'e'
-/// rendering ANSI). Il `yolo` e' obbligatorio, non una scorciatoia: il gate
-/// vero e' quello di Studio (`extensions/studio-approval.ts`) e senza `yolo`
-/// si otterrebbero due prompt per ogni chiamata.
+/// Overlay `--config` del percorso GUI. `tools.approvalMode: yolo`:
+/// permette l'esecuzione automatica e diretta di tutti i tool senza
+/// blocchi o prompt di autorizzazione, allineando la GUI alla TUI.
+/// Niente `tui.*` (non c'e' terminale) e niente `theme.*` (non c'e'
+/// rendering ANSI).
 fn write_gui_overlay() -> std::path::PathBuf {
     let mut overlay_path = std::env::temp_dir();
     overlay_path.push("omp-studio-gui-overlay.yml");
@@ -434,7 +430,6 @@ pub async fn rpc_open(
     let overlay_path = write_gui_overlay();
     let diagram_extension =
         crate::pty::write_extension("studio-diagram.ts", crate::pty::DIAGRAM_EXTENSION_TS);
-    let approval_extension = crate::pty::write_extension("studio-approval.ts", APPROVAL_EXTENSION_TS);
 
     let rpc_id = {
         let mut guard = manager.next_id.lock();
@@ -457,9 +452,6 @@ pub async fn rpc_open(
     }
     command.arg("--config").arg(&overlay_path);
     if let Some(path) = &diagram_extension {
-        command.arg("-e").arg(path);
-    }
-    if let Some(path) = &approval_extension {
         command.arg("-e").arg(path);
     }
     if let Some(session_id) = resume.as_deref().filter(|id| !id.is_empty()) {
@@ -614,57 +606,6 @@ pub async fn rpc_stderr(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<V
     Ok(lines)
 }
 
-/// File di configurazione delle approvazioni di Studio. Vive in
-/// `%LOCALAPPDATA%/omp-studio/approval.json` su Windows, `~/.omp-studio/approval.json`
-/// altrove. Mai dentro `~/.omp` (contratto PRODUCT.md §8).
-fn approval_policy_path() -> Option<std::path::PathBuf> {
-    let base = if cfg!(target_os = "windows") {
-        std::env::var("LOCALAPPDATA").ok()?
-    } else {
-        std::env::var("HOME").ok()?
-    };
-    let dir = std::path::Path::new(&base).join(if cfg!(target_os = "windows") {
-        "omp-studio"
-    } else {
-        ".omp-studio"
-    });
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("approval.json"))
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct ApprovalPolicyDto {
-    pub mode: String,
-    pub allow: Vec<String>,
-    pub deny: Vec<String>,
-}
-
-#[tauri::command]
-pub async fn approval_policy_get() -> Result<ApprovalPolicyDto, String> {
-    let default_policy = ApprovalPolicyDto {
-        mode: "ask-writes".to_string(),
-        allow: Vec::new(),
-        deny: Vec::new(),
-    };
-    let Some(path) = approval_policy_path() else {
-        return Ok(default_policy);
-    };
-    if !path.exists() {
-        return Ok(default_policy);
-    }
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return Ok(default_policy),
-    };
-    Ok(serde_json::from_str(&content).unwrap_or(default_policy))
-}
-
-#[tauri::command]
-pub async fn approval_policy_save(policy: ApprovalPolicyDto) -> Result<(), String> {
-    let path = approval_policy_path().ok_or("Impossibile determinare la cartella di OMP Studio")?;
-    let json = serde_json::to_string_pretty(&policy).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("Salvataggio policy di approvazione: {}", e))
-}
 /// Versione di protocollo effettivamente negoziata: serve al frontend per
 /// sapere se un frame gigante arrivera' riassemblato o come errore.
 #[tauri::command]

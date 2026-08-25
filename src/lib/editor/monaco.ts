@@ -60,6 +60,31 @@ const models = new Map<string, monaco.editor.ITextModel>();
 /** Ultimo file richiesto: serve ad agganciare il modello se l'editor viene
  *  creato dopo `openFileModel` (host DOM non ancora montato). */
 let activePath: string | null = null;
+/** Vista (scroll, cursore, folding) per path: Monaco la perde a ogni
+ *  `setModel`, quindi cambiare file o progetto riporterebbe il file in cima. */
+const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>();
+/** Path del modello agganciato all'editor: chiave con cui salvare la vista
+ *  prima di sostituirlo. */
+let attachedPath: string | null = null;
+
+function stashViewState() {
+	if (!editorInstance || !attachedPath) return;
+	const state = editorInstance.saveViewState();
+	if (state) viewStates.set(attachedPath, state);
+}
+
+function attachModel(path: string, model: monaco.editor.ITextModel) {
+	if (!editorInstance) return;
+	if (editorInstance.getModel() === model) {
+		attachedPath = path;
+		return;
+	}
+	stashViewState();
+	editorInstance.setModel(model);
+	attachedPath = path;
+	const state = viewStates.get(path);
+	if (state) editorInstance.restoreViewState(state);
+}
 
 export function getEditorInstance(container: HTMLElement) {
 	if (!editorInstance) {
@@ -85,9 +110,11 @@ export function getEditorInstance(container: HTMLElement) {
 			folding: true
 		});
 		const pending = activePath ? models.get(activePath) : undefined;
-		if (pending) editorInstance.setModel(pending);
+		if (pending && activePath) attachModel(activePath, pending);
 	} else if (editorInstance.getContainerDomNode() !== container) {
 		const currentModel = editorInstance.getModel();
+		const carriedPath = attachedPath;
+		stashViewState();
 		editorInstance.dispose();
 		editorInstance = monaco.editor.create(container, {
 			model: currentModel,
@@ -110,6 +137,9 @@ export function getEditorInstance(container: HTMLElement) {
 			lineNumbersMinChars: 3,
 			folding: true
 		});
+		attachedPath = carriedPath;
+		const carriedState = carriedPath ? viewStates.get(carriedPath) : undefined;
+		if (carriedState) editorInstance.restoreViewState(carriedState);
 	}
 	return editorInstance;
 }
@@ -123,18 +153,20 @@ export function openFileModel(absPath: string, content: string, language?: strin
 		model = monaco.editor.createModel(content, language, monaco.Uri.file(absPath));
 		models.set(absPath, model);
 	}
-	if (editorInstance) {
-		editorInstance.setModel(model);
-	}
+	attachModel(absPath, model);
 }
 
 /** Rilascia il testo non salvato quando il relativo tab viene chiuso. */
 export function disposeFileModel(absPath: string) {
 	const model = models.get(absPath);
 	if (!model) return;
-	if (editorInstance?.getModel() === model) editorInstance.setModel(null);
+	if (editorInstance?.getModel() === model) {
+		editorInstance.setModel(null);
+		attachedPath = null;
+	}
 	model.dispose();
 	models.delete(absPath);
+	viewStates.delete(absPath);
 	if (activePath === absPath) activePath = null;
 }
 
@@ -149,6 +181,52 @@ export function revealLineInEditor(line: number) {
 export function getCurrentFileContent(absPath: string): string | null {
 	const model = models.get(absPath);
 	return model ? model.getValue() : null;
+}
+export interface EditorSelectionInfo {
+	selectionText: string;
+	startLine: number;
+	startColumn: number;
+	endLine: number;
+	endColumn: number;
+	hasFocus: boolean;
+	cursorLine: number;
+	cursorColumn: number;
+}
+
+export function getActiveEditorInfo(): {
+	activePath: string | null;
+	selection: EditorSelectionInfo | null;
+} {
+	if (!editorInstance) {
+		return { activePath, selection: null };
+	}
+
+	const model = editorInstance.getModel();
+	const path = activePath;
+	const hasFocus = editorInstance.hasWidgetFocus() || editorInstance.hasTextFocus();
+
+	const selection = editorInstance.getSelection();
+	const position = editorInstance.getPosition();
+
+	if (!model || !selection) {
+		return { activePath: path, selection: null };
+	}
+
+	const selectedText = model.getValueInRange(selection);
+
+	return {
+		activePath: path,
+		selection: {
+			selectionText: selectedText,
+			startLine: selection.startLineNumber,
+			startColumn: selection.startColumn,
+			endLine: selection.endLineNumber,
+			endColumn: selection.endColumn,
+			hasFocus,
+			cursorLine: position ? position.lineNumber : selection.positionLineNumber,
+			cursorColumn: position ? position.column : selection.positionColumn
+		}
+	};
 }
 export function createDiffEditorInstance(container: HTMLElement, originalContent: string, modifiedContent: string, language: string) {
 	const diffEditor = monaco.editor.createDiffEditor(container, {

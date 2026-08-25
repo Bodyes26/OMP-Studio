@@ -105,8 +105,6 @@ interrompe: non è una superficie, è una demo.
   del browser, sessioni shell di `bash`. Il transcript no: è lo stesso `.jsonl`.
 - **Nessun controllo dei subagent dalla GUI.** Il protocollo espone solo `get_subagents` e
   `get_subagent_messages`: il pannello è in sola lettura e lo scrive.
-- **Le approvazioni argomento-dipendenti di `omp` non scattano** quando l'overlay GUI
-  mette `approvalMode: yolo` per evitare il doppio prompt. Per questo la policy di
-  default di Studio è `ask-writes`, che mette `bash` ed `eval` dietro una card.
-- **Nessuna scrittura in `~/.omp`.** La policy di approvazione vive in
-  `%LOCALAPPDATA%/omp-studio/approval.json`: il Gate R9 resta l'unica deroga.
+- **Esecuzione diretta e allineata alla TUI.** L'overlay GUI imposta `tools.approvalMode: yolo`
+  permettendone l'esecuzione automatica senza prompt bloccanti o richieste di permessi,
+  allineando il comportamento della GUI a quello della TUI.

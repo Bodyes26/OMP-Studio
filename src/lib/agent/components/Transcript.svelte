@@ -5,9 +5,9 @@
 	// Rendering a finestre: se ci sono piu' di 300 entry mostra le ultime 300
 	// e un bottone «Carica precedenti» in cima che ne scopre altre 300.
 	import { projectStore } from '../../stores/projects.svelte';
-	import type { AgentSession, Block, TranscriptEntry } from '../session.svelte';
+	import type { AgentSession, AssistantEntry, Block, ToolEntry, TranscriptEntry } from '../session.svelte';
 	import ToolCard from '../tools/ToolCard.svelte';
-
+	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
 	import AssistantText from './AssistantText.svelte';
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
@@ -37,6 +37,57 @@
 		session.isStreaming && !activeAssistantHasContent && !hasRunningTool && !session.pendingUi
 	);
 
+	type DisplayItem =
+		| { kind: 'single'; entry: TranscriptEntry }
+		| { kind: 'tool-group'; id: number; entries: ToolGroupEntry[] };
+
+	function hasResponseContent(entry: AssistantEntry): boolean {
+		return entry.blocks.some(
+			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
+		);
+	}
+
+	function isExecutionEntry(entry: TranscriptEntry): boolean {
+		if (entry.kind === 'tool') return true;
+		if (entry.kind === 'assistant' && !hasResponseContent(entry)) return true;
+		return false;
+	}
+
+	// Raggruppa chiamate tool e blocchi di thinking consecutivi o alternati in un unico blocco.
+	// Se una sequenza di esecuzione contiene tool, viene accorpata in un unico ToolGroup elegante.
+	const displayItems = $derived.by<DisplayItem[]>(() => {
+		const items: DisplayItem[] = [];
+		let currentSegment: ToolGroupEntry[] = [];
+
+		function flushSegment() {
+			if (currentSegment.length === 0) return;
+			const hasTools = currentSegment.some((e) => e.kind === 'tool');
+			if (hasTools && currentSegment.length > 1) {
+				items.push({
+					kind: 'tool-group',
+					id: currentSegment[0].id,
+					entries: [...currentSegment]
+				});
+			} else {
+				for (const entry of currentSegment) {
+					items.push({ kind: 'single', entry });
+				}
+			}
+			currentSegment = [];
+		}
+
+		for (const entry of session.visibleEntries) {
+			if (isExecutionEntry(entry)) {
+				currentSegment.push(entry as ToolGroupEntry);
+			} else {
+				flushSegment();
+				items.push({ kind: 'single', entry });
+			}
+		}
+
+		flushSegment();
+		return items;
+	});
 	function applySuggestion(suggestion: string) {
 		// Ogni progetto mantiene la propria Chat montata anche quando e'
 		// nascosta: una query sul documento prenderebbe il composer della prima
@@ -109,21 +160,23 @@
 			</div>
 		</div>
 	{:else}
-		{#each session.visibleEntries as entry (entry.id)}
-			{#if entry.kind === 'user'}
-				<UserMessage {entry} />
-			{:else if entry.kind === 'assistant'}
-				<AssistantText {entry} streaming={entry.id === session.activeAssistantId} />
-			{:else if entry.kind === 'tool'}
-				<ToolCard {entry} />
-			{:else if entry.kind === 'notice'}
-				<NoticeRow {entry} />
-			{:else if entry.kind === 'compaction'}
-				<CompactionRow {entry} />
-			{:else if entry.kind === 'retry'}
-				<RetryRow {entry} />
-			{:else if entry.kind === 'ttsr'}
-				<TtsrRow {entry} />
+		{#each displayItems as item (item.kind === 'single' ? item.entry.id : `group-${item.id}`)}
+			{#if item.kind === 'tool-group'}
+				<ToolGroup entries={item.entries} activeAssistantId={session.activeAssistantId} />
+			{:else if item.entry.kind === 'user'}
+				<UserMessage entry={item.entry} />
+			{:else if item.entry.kind === 'assistant'}
+				<AssistantText entry={item.entry} streaming={item.entry.id === session.activeAssistantId} />
+			{:else if item.entry.kind === 'tool'}
+				<ToolCard entry={item.entry} />
+			{:else if item.entry.kind === 'notice'}
+				<NoticeRow entry={item.entry} />
+			{:else if item.entry.kind === 'compaction'}
+				<CompactionRow entry={item.entry} />
+			{:else if item.entry.kind === 'retry'}
+				<RetryRow entry={item.entry} />
+			{:else if item.entry.kind === 'ttsr'}
+				<TtsrRow entry={item.entry} />
 			{/if}
 		{/each}
 	{/if}

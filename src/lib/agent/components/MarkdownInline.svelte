@@ -4,11 +4,14 @@
 	// I link web aprono il browser esterno via Tauri; se il link o codespan
 	// e' un percorso di file valido del progetto, viene aperto nell'editor.
 	import { openUrl } from '@tauri-apps/plugin-opener';
-	import type { Token } from '../markdown';
+	import type { StreamFade, Token } from '../markdown';
 	import { agentUiHooks } from '../ui-context';
 	import MarkdownInline from './MarkdownInline.svelte';
+	import StreamTail from './StreamTail.svelte';
 
-	let { tokens = [] }: { tokens?: Token[] } = $props();
+	// `fade` non nullo significa "questo e' l'ultimo frammento del testo in
+	// arrivo": scende solo lungo la catena degli ultimi figli.
+	let { tokens = [], fade = null }: { tokens?: Token[]; fade?: StreamFade | null } = $props();
 
 	const hooks = agentUiHooks();
 
@@ -32,19 +35,22 @@
 	}
 </script>
 
-{#each tokens as token}
+{#each tokens as token, i}
+	{@const tail = fade && i === tokens.length - 1 ? fade : null}
 	{#if token.type === 'text'}
 		{#if 'tokens' in token && token.tokens && token.tokens.length > 0}
-			<MarkdownInline tokens={token.tokens} />
+			<MarkdownInline tokens={token.tokens} fade={tail} />
+		{:else if tail}
+			<StreamTail text={token.text} fade={tail} />
 		{:else}
 			{token.text}
 		{/if}
 	{:else if token.type === 'strong'}
-		<strong><MarkdownInline tokens={token.tokens} /></strong>
+		<strong><MarkdownInline tokens={token.tokens} fade={tail} /></strong>
 	{:else if token.type === 'em'}
-		<em><MarkdownInline tokens={token.tokens} /></em>
+		<em><MarkdownInline tokens={token.tokens} fade={tail} /></em>
 	{:else if token.type === 'del'}
-		<del><MarkdownInline tokens={token.tokens} /></del>
+		<del><MarkdownInline tokens={token.tokens} fade={tail} /></del>
 	{:else if token.type === 'codespan'}
 		{@const isFileLike = token.text.includes('/') || token.text.includes('\\') || /\.[a-zA-Z0-9_-]+(?::\d+)?$/.test(token.text.trim())}
 		{#if isFileLike}
@@ -81,7 +87,7 @@
 	{:else if token.type === 'html' || token.type === 'tag'}
 		{token.text}
 	{:else if 'text' in token && typeof token.text === 'string'}
-		{token.text}
+		{#if tail}<StreamTail text={token.text} fade={tail} />{:else}{token.text}{/if}
 	{:else if 'raw' in token && typeof token.raw === 'string'}
 		{token.raw}
 	{/if}

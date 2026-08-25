@@ -6,10 +6,8 @@
 	// Unico punto di innesto per i ganci verso il guscio (`setAgentUiHooks`).
 
 	import type { AgentSession } from '../session.svelte';
-	import type { StreamingBehavior } from '../wire';
 	import { setAgentUiHooks } from '../ui-context';
 
-	import ApprovalCard from './ApprovalCard.svelte';
 	import AskCard from './AskCard.svelte';
 	import Composer from './Composer.svelte';
 	import SubagentBar from './SubagentBar.svelte';
@@ -50,7 +48,6 @@
 	let userScrolledUp = $state(false);
 	let panelOpen = $state(false);
 	let activeSubagentId = $state<string | null>(null);
-	let behavior = $state<StreamingBehavior>('steer');
 
 	function handleScroll() {
 		if (!scrollEl) return;
@@ -114,11 +111,7 @@
 
 		{#if session.pendingUi}
 			<div class="pending-ui-slot">
-				{#if session.pendingUi.kind === 'approval'}
-					<ApprovalCard {session} pending={session.pendingUi} />
-				{:else}
-					<AskCard {session} pending={session.pendingUi} />
-				{/if}
+				<AskCard {session} pending={session.pendingUi} />
 			</div>
 		{/if}
 	</div>
@@ -140,10 +133,8 @@
 
 		<Composer
 			{session}
-			{behavior}
 			{visible}
-			onBehaviorChange={(b) => (behavior = b)}
-			onSlashCommand={(cmd) => (onSlashCommand ? onSlashCommand(cmd) : false)}
+			onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 		/>
 	</div>
 

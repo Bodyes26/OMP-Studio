@@ -7,9 +7,7 @@
 
 import { Channel, invoke } from '@tauri-apps/api/core';
 import {
-	APPROVAL_SENTINEL,
 	type AgentSessionEvent,
-	type ApprovalRequestPayload,
 	type ExtensionUiResponse,
 	type RpcCommand,
 	type RpcResponse
@@ -47,28 +45,6 @@ function rpcError(message: string, command?: string, code?: string): RpcError {
 	return error;
 }
 
-/**
- * Riconosce le select coniate da `extensions/studio-approval.ts` e ne estrae
- * il payload. Le altre select restano generiche: il testo di un prompt
- * nativo non va mai parsato.
- */
-export function parseApprovalRequest(title: string | undefined): ApprovalRequestPayload | null {
-	if (!title || !title.startsWith(APPROVAL_SENTINEL)) return null;
-	try {
-		const parsed: unknown = JSON.parse(title.slice(APPROVAL_SENTINEL.length));
-		if (!parsed || typeof parsed !== 'object') return null;
-		const raw = parsed as Record<string, unknown>;
-		if (typeof raw.tool !== 'string') return null;
-		return {
-			v: typeof raw.v === 'number' ? raw.v : 1,
-			tool: raw.tool,
-			toolCallId: typeof raw.toolCallId === 'string' ? raw.toolCallId : null,
-			input: raw.input && typeof raw.input === 'object' ? (raw.input as Record<string, unknown>) : {}
-		};
-	} catch {
-		return null;
-	}
-}
 
 export class OmpRpcClient {
 	private rpcId: number | null = null;

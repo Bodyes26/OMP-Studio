@@ -11,6 +11,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 - Collegamenti interattivi ai file nel transcript della chat: cliccando su qualsiasi percorso di file (nei chip di intestazione/dettaglio dei tool come `edit` e `write`, nei link markdown o nei blocchi di codice inline che contengono percorsi del progetto) il file corrispondente viene aperto e visualizzato automaticamente nell'editor Monaco.
+- Indicatore visivo dello stato di avvio di OMP nella barra inferiore della chat, con badge dedicato, spinner nel chip del modello e possibilità di scrivere e inviare prompt immediatamente durante l'inizializzazione, che vengono accodati e inoltrati in automatico non appena OMP è pronto.
 - Inclusione automatica del contesto dell'editor (file aperti, file attivo in focus con posizione cursore ed eventuale testo selezionato) nei prompt inviati a omp.
 - Nella colonna centrale dell'editor di task, alla creazione di un nuovo task il focus si posiziona automaticamente sull'area di scrittura, che diventa un rich input con supporto per allegare e visualizzare screenshot (tramite incolla, trascina o pulsante) e autocompletamento interattivo dei comandi slash (`/`) con palette dei comandi censiti da omp e Studio.
 - Scorciatoie da tastiera di `omp` nella superficie GUI: `Alt+P` per aprire il pannello cambio
@@ -24,19 +25,26 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
   visibile, sottocomandi interattivi e anteprima dettagliata.
 ### Changed
 
-- Raggruppate le chiamate consecutive ai tool in un unico blocco compatto e collassabile (`ToolGroup`), con riepilogo degli strumenti eseguiti, chip aggregati, stato in corso e durata totale, riducendo l'ingombro visivo nel transcript della chat.
+- Raggruppamento unificato delle sequenze di esecuzione nella chat GUI: le chiamate ai tool e i relativi blocchi di ragionamento (`thinking`) intermedi vengono accorpati in un unico blocco compatto (`ToolGroup`), evitando frammentazioni nel transcript ed evidenziando chiaramente la risposta finale dell'assistente.
+- Blocchi di codice nelle risposte dell'assistente resi collassabili ad accordion cliccando sull'intestazione (con indicatore del numero di righe e pulsante di copia dedicato), con altezza massima fissata a 10.5 righe, scorrimento interno e sfumatura d'ombra sul fondo in presenza di contenuto eccedente.
 - La chat GUI presenta le risposte con una cadenza continua anche quando il
--  provider invia blocchi grandi e rende visibile lo stato «Sta pensando».
+  provider invia blocchi grandi, restando circa mezzo secondo dietro al dato in
+  arrivo: i caratteri compaiono con una dissolvenza progressiva invece di
+  apparire a scatti, e lo stato «Sta pensando» resta visibile.
 - Spostato il selettore «steer / follow-up» dal campo di scrittura del prompt
--  direttamente sui singoli chip dei messaggi in coda, consentendo di digitare e
--  inviare direttamente con Invio e commutare il comportamento dall'interfaccia della coda.
-### Removed
+  direttamente sui singoli chip dei messaggi in coda, consentendo di digitare e
+  inviare direttamente con Invio e commutare il comportamento dall'interfaccia della coda.
 
 - Rimossa la richiesta bloccante dei permessi/approvazioni nella GUI per l'esecuzione dei tool
   (bash, write, edit, eval, ecc.): le azioni vengono eseguite direttamente e senza interruzioni,
   allineando il comportamento della GUI a quello della TUI.
 - Rimosso il pannello «Approvazioni» dal modale di gestione modelli e l'estensione di gate delle approvazioni.
 - Rimosso il selettore fisso «steer / follow-up» dalla barra di inserimento del prompt.
+### Fixed
+
+- Filtrati gli avvisi interni di sistema relativi al montaggio dei tool MCP (`xd://: mounted mcp__...`) per evitare messaggi di log e avvisi spuri all'avvio della sessione.
+- Risolto il caricamento e l'incollamento delle immagini nel prompt della GUI (Composer e Task Editor): abilitata la decodifica diretta in memoria via `createImageBitmap` con fallback su data URL e aggiunta l'origine `blob:` alla Content Security Policy (`img-src`), consentendo di allegare screenshot e immagini dagli appunti (Ctrl+V), da file o tramite drag & drop senza errori.
+- L'editor ricorda la posizione di scorrimento e del cursore di ogni file: passando da un progetto all'altro, o da un tab all'altro, il documento riprende da dove era stato lasciato invece di tornare in cima.
 ## [1.1.0] - 2026-08-24
 
 ### Added
