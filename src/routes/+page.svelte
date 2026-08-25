@@ -21,7 +21,7 @@
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type Project } from '$lib/stores/projects.svelte';
-	import { taskStore } from '$lib/stores/tasks.svelte';
+	import { taskStore, formatTaskPrompt } from '$lib/stores/tasks.svelte';
 	import type { TerminalSessionInfo } from '$lib/terminal/terminal';
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
@@ -200,7 +200,36 @@
 					await session.open();
 				}
 				const sid = await session.newSession();
-				await session.prompt(task.prompt, task.images ?? [], 'steer');
+
+				// Applica modello specifico se configurato nelle opzioni del task
+				if (task.options?.modelSelector) {
+					const rawSelector = task.options.modelSelector;
+					const [prov, mId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
+					try {
+						await session.client.send({
+							type: 'set_model',
+							provider: prov || session.model?.provider || '',
+							modelId: mId
+						});
+					} catch (err) {
+						console.warn('Impostazione modello task:', err);
+					}
+				}
+
+				// Applica livello di thinking se configurato nelle opzioni del task
+				if (task.options?.thinkingLevel && task.options.thinkingLevel !== 'auto') {
+					try {
+						await session.client.send({
+							type: 'set_thinking_level',
+							level: task.options.thinkingLevel as ThinkingLevel
+						});
+					} catch (err) {
+						console.warn('Impostazione thinking task:', err);
+					}
+				}
+
+				const fullPrompt = formatTaskPrompt(task, project.path);
+				await session.prompt(fullPrompt, task.images ?? [], 'steer');
 				const resolvedSid = sid ?? session.sessionId;
 				if (resolvedSid) {
 					taskStore.completeDispatch(taskId, resolvedSid);
@@ -213,7 +242,8 @@
 			} else {
 				const term = terminalSessions.get(projectId);
 				if (!term) throw new Error('Terminale non pronto');
-				const session = await term.startTask(attachEditorContext(task.prompt, project.path));
+				const fullPrompt = formatTaskPrompt(task, project.path);
+				const session = await term.startTask(fullPrompt);
 				taskStore.completeDispatch(taskId, session.sessionId);
 				taskStore.setView(project.path, 'sessions');
 				if (taskEditorId === taskId) taskEditorId = null;
@@ -954,6 +984,7 @@
 							task={activeTaskEditor}
 							session={agentSessions.get(projectStore.activeProject.id) ?? null}
 							onClose={() => taskEditorId = null}
+							onRunTask={(taskId) => void handleRunTask(projectStore.activeProject!.id, taskId)}
 							onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
 						/>
 					{:else if diagramOpen}

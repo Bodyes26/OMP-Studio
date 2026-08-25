@@ -10,6 +10,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Nuovo editor di task a sezioni con layout scrollabile: textarea compatta, pulsanti primari espliciti «Salva e Chiudi» (`Esc`) e «Salva e Avvia subito» (`Ctrl+Invio`), ed eliminazione con conferma rapida.
+- Selezione del livello di complessità e profilo di ruolo (`smol`, `default`, `slow`, `plan`, `custom`) per ciascun task, con sincronizzazione e override libero del modello specifico e dello slider di thinking effort.
+- Modalità e direttive speciali attivabili tramite spunte dedicate nell'editor di task: «Modalità Piano (Plan Mode)», «Modalità Discussione & Requisiti (/grill-me)», «Soluzione Minimale (/ponytail)» e inclusione selettiva del contesto editor.
+- Autocompletamento contestuale dei comandi slash (`/`) a qualsiasi posizione nel testo del prompt (sia nell'editor dei task che nel Composer della chat): rileva la posizione del cursore e sostituisce chirurgicamente il solo token del comando senza alterare il resto del testo.
+- Badge visivi per i task nella lista della coda (`AgentPanel`) con indicazione a colpo d'occhio del profilo di ruolo (`⚡ smol`, `⌘ default`, `∞ slow`, `◆ plan`) e dei tag delle modalità attive (`Plan`, `Grill-Me`, `Ponytail`, allegati).
 - Switcher rapido e ciclo dei ruoli (`Ctrl+P` e `Alt+R`) nel Composer della GUI: `Ctrl+P` cicla sequenzialmente tra i ruoli configurati (`default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit`, `advisor`), impostando modello e livello di thinking associato e visualizzando il chip di ruolo attivo (`⌘ default`, `◆ plan`, ecc.).
 - Menu rapido dei ruoli (`Alt+R`) con ricerca per nome/descrizione/modello, navigazione da tastiera e pulsante rapido per aprire la configurazione completa (`Ctrl+Alt+M`).
 - Supporto per il comando slash `/role` (con sottocomandi per impostare ruoli specifici o ciclare al successivo con `/role next`).

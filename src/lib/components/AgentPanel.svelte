@@ -55,6 +55,17 @@
 		event.preventDefault();
 		taskStore.moveTaskBy(taskId, event.key === 'ArrowUp' ? -1 : 1);
 	}
+
+	function roleBadge(role?: string): string | null {
+		switch (role) {
+			case 'smol': return '⚡ smol';
+			case 'slow': return '∞ slow';
+			case 'plan': return '◆ plan';
+			case 'custom': return '⚙️ custom';
+			case 'default': return '⌘ default';
+			default: return null;
+		}
+	}
 </script>
 
 <div class="agent-panel">
@@ -133,8 +144,32 @@
 							title={canAutomate ? `Avvia: ${taskTitle(task)}` : automationReason}
 							onclick={() => onRunTask(task.id)}
 						>
-							<span class="task-title">{taskTitle(task)}</span>
-							<span class="task-excerpt">{task.status === 'dispatching' ? 'Avvio della nuova sessione...' : taskExcerpt(task)}</span>
+							<div class="task-title-row">
+								<span class="task-title">{taskTitle(task)}</span>
+								{#if task.options?.role}
+									{@const badge = roleBadge(task.options.role)}
+									{#if badge}
+										<span class="task-chip role-chip">{badge}</span>
+									{/if}
+								{/if}
+							</div>
+							<div class="task-meta-row">
+								<span class="task-excerpt">{task.status === 'dispatching' ? 'Avvio della nuova sessione...' : taskExcerpt(task)}</span>
+								<div class="task-chips">
+									{#if task.options?.planMode}
+										<span class="task-chip mode-chip">Plan</span>
+									{/if}
+									{#if task.options?.discussionMode}
+										<span class="task-chip mode-chip">Grill-Me</span>
+									{/if}
+									{#if task.options?.minimalMode}
+										<span class="task-chip mode-chip">Ponytail</span>
+									{/if}
+									{#if task.images && task.images.length > 0}
+										<span class="task-chip img-chip">📷 {task.images.length}</span>
+									{/if}
+								</div>
+							</div>
 						</button>
 						<button
 							type="button"
@@ -370,23 +405,75 @@
 		cursor: default;
 	}
 
+	.task-title-row {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-1);
+	}
+
+	.task-meta-row {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-1);
+	}
+
+	.task-chips {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		flex-shrink: 0;
+	}
+
+	.task-chip {
+		font-family: var(--font-mono);
+		font-size: 9px;
+		padding: 1px 4px;
+		border-radius: var(--radius-xs);
+		white-space: nowrap;
+		line-height: 1.2;
+	}
+
+	.task-chip.role-chip {
+		background: var(--brand-dim);
+		color: var(--brand-ink);
+		font-weight: 600;
+		font-size: 10px;
+	}
+
+	.task-chip.mode-chip {
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		color: var(--ink-muted);
+	}
+
+	.task-chip.img-chip {
+		background: var(--bg-sunken);
+		color: var(--ink-faint);
+	}
+
 	.task-title,
 	.task-excerpt {
-		width: 100%;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		min-width: 0;
 	}
 
 	.task-title {
 		color: var(--ink);
 		font-size: var(--text-base);
 		font-weight: 500;
+		flex: 1;
 	}
 
 	.task-excerpt {
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
+		flex: 1;
 	}
 
 	.task-launch:disabled .task-title {

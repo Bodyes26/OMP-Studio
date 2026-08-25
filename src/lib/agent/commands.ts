@@ -154,3 +154,89 @@ export function mergeCommands(
 
 	return result;
 }
+
+export interface SlashCursorMatch {
+	query: string;
+	startIndex: number;
+	endIndex: number;
+}
+
+/**
+ * Estrae il token del comando slash alla posizione corrente del cursore.
+ * Riconosce '/' solo se all'inizio del testo o preceduto da spazio/a capo,
+ * evitando falsi positivi su URL (http://) o percorsi di file (src/lib/...).
+ */
+export function extractSlashQueryAtCursor(text: string, cursorPos: number): SlashCursorMatch | null {
+	if (cursorPos < 0 || cursorPos > text.length) return null;
+	const beforeCursor = text.slice(0, cursorPos);
+	const lastSlashIndex = beforeCursor.lastIndexOf('/');
+	if (lastSlashIndex === -1) return null;
+
+	// Verifica che '/' sia a inizio testo o preceduto da whitespace
+	if (lastSlashIndex > 0) {
+		const charBefore = text[lastSlashIndex - 1];
+		if (!charBefore || !/\s/.test(charBefore)) {
+			return null;
+		}
+	}
+
+	// Non deve attraversare ritorni a capo tra lo slash e il cursore
+	const betweenSlashAndCursor = beforeCursor.slice(lastSlashIndex);
+	if (betweenSlashAndCursor.includes('\n') || betweenSlashAndCursor.includes('\r')) {
+		return null;
+	}
+
+	const query = beforeCursor.slice(lastSlashIndex + 1);
+
+	// Calcola l'indice di fine cercando la fine della parola corrente dopo il cursore
+	let endIndex = cursorPos;
+	while (endIndex < text.length && !/\s/.test(text[endIndex])) {
+		endIndex++;
+	}
+
+	return {
+		query,
+		startIndex: lastSlashIndex,
+		endIndex
+	};
+}
+
+/**
+ * Verifica se la palette deve aprirsi per il match slash alla posizione corrente del cursore.
+ */
+export function shouldOpenSlashPaletteAtCursor(
+	match: SlashCursorMatch | null,
+	commands: AvailableCommand[]
+): boolean {
+	if (!match) return false;
+	const raw = match.query.trimStart();
+	const space = raw.search(/\s/);
+	if (space === -1) return true;
+	const token = raw.slice(0, space).toLowerCase();
+	const command = commands.find(
+		(candidate: AvailableCommand) =>
+			candidate.name.toLowerCase() === token
+			|| candidate.aliases?.some((alias: string) => alias.toLowerCase() === token)
+	);
+	return Boolean(command?.subcommands?.length);
+}
+
+/**
+ * Sostituisce chirurgicamente il token del comando slash alla posizione specificata.
+ */
+export function insertSlashCommandAtCursor(
+	text: string,
+	startIndex: number,
+	endIndex: number,
+	commandValue: string
+): { newText: string; newCursorPos: number } {
+	const before = text.slice(0, startIndex);
+	const after = text.slice(endIndex);
+	const insertText = `/${commandValue} `;
+	const newText = before + insertText + after;
+	const newCursorPos = before.length + insertText.length;
+	return {
+		newText,
+		newCursorPos
+	};
+}

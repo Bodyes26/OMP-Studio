@@ -2,15 +2,26 @@ import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
 import { normalizeProjectPath } from './projects.svelte';
 import type { ImageContent } from '$lib/agent/wire';
-
+import { attachEditorContext } from '$lib/editor/editorContext';
 export type AgentView = 'queue' | 'sessions';
 export type StudioTaskStatus = 'queued' | 'dispatching';
+
+export interface StudioTaskOptions {
+	role?: string;
+	modelSelector?: string;
+	thinkingLevel?: string;
+	planMode?: boolean;
+	discussionMode?: boolean;
+	minimalMode?: boolean;
+	includeEditorContext?: boolean;
+}
 
 export interface StudioTask {
 	id: string;
 	projectPath: string;
 	prompt: string;
 	images?: ImageContent[];
+	options?: StudioTaskOptions;
 	position: number;
 	createdAt: number;
 	updatedAt: number;
@@ -23,6 +34,34 @@ export interface TaskSessionOrigin {
 	taskId: string;
 	title: string;
 	launchedAt: number;
+}
+
+/**
+ * Formatta il prompt del task applicando le direttive speciali e il contesto editor.
+ */
+export function formatTaskPrompt(task: StudioTask, projectPath?: string): string {
+	let body = task.prompt.trim();
+	const prefixes: string[] = [];
+
+	if (task.options?.discussionMode) {
+		prefixes.push('[Modalita Discussione: NON modificare codice subito. Analizza il progetto e usa la skill /grill-me o interroga l\'utente con domande mirate per chiarire decisioni, vincoli e architettura prima di procedere.]');
+	}
+	if (task.options?.planMode) {
+		prefixes.push('[Modalita Piano: formula prima un piano di esecuzione dettagliato passo-passo ed esponilo per approvazione prima di procedere con modifiche.]');
+	}
+	if (task.options?.minimalMode) {
+		prefixes.push('[Modalita Minimale: applica la soluzione piu pigra, semplice e minimale possibile (/ponytail). Evita astrazioni premature, boilerplate o nuove dipendenze se non indispensabili.]');
+	}
+
+	if (prefixes.length > 0) {
+		body = `${prefixes.join('\n\n')}\n\n${body}`;
+	}
+
+	if (task.options?.includeEditorContext !== false) {
+		body = attachEditorContext(body, projectPath);
+	}
+
+	return body;
 }
 
 interface PersistedTaskState {
@@ -49,6 +88,7 @@ function parsePersistedState(value: unknown): PersistedTaskState | null {
 			&& typeof task.projectPath === 'string'
 			&& typeof task.prompt === 'string'
 			&& (task.images === undefined || Array.isArray(task.images))
+			&& (task.options === undefined || (typeof task.options === 'object' && task.options !== null))
 			&& typeof task.position === 'number'
 			&& typeof task.createdAt === 'number'
 			&& typeof task.updatedAt === 'number'
@@ -114,6 +154,11 @@ class TaskStore {
 			projectPath: key,
 			prompt: '',
 			images: [],
+			options: {
+				role: 'default',
+				thinkingLevel: 'auto',
+				includeEditorContext: true
+			},
 			position: this.tasksFor(projectPath).length,
 			createdAt: now,
 			updatedAt: now,
@@ -135,17 +180,19 @@ class TaskStore {
 			.sort((left, right) => left.position - right.position || left.createdAt - right.createdAt);
 	}
 
-	updateTask(id: string, prompt: string, images?: ImageContent[]) {
+	updateTask(id: string, prompt: string, images?: ImageContent[], options?: StudioTaskOptions) {
 		const task = this.taskById(id);
 		if (!task) return;
 		task.prompt = prompt;
 		if (images !== undefined) {
 			task.images = images;
 		}
+		if (options !== undefined) {
+			task.options = options;
+		}
 		task.updatedAt = Date.now();
 		this.save();
 	}
-
 	updatePrompt(id: string, prompt: string) {
 		this.updateTask(id, prompt);
 	}

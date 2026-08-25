@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	// Superficie di inserimento comandi e prompt per l'agente.
 	//
 	// Gestisce l'auto-dimensionamento della textarea (fino a ~12 righe),
@@ -19,7 +20,14 @@
 	import QueueChips from './QueueChips.svelte';
 import CommandPalette from './CommandPalette.svelte';
 import ShortcutsHelpModal from './ShortcutsHelpModal.svelte';
-import { STUDIO_SLASH_COMMANDS, mergeCommands } from '../commands';
+import {
+	STUDIO_SLASH_COMMANDS,
+	mergeCommands,
+	extractSlashQueryAtCursor,
+	shouldOpenSlashPaletteAtCursor,
+	insertSlashCommandAtCursor,
+	type SlashCursorMatch
+} from '../commands';
 import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	let {
 		session,
@@ -35,6 +43,8 @@ import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/m
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
 	let composerEl = $state<HTMLElement | null>(null);
 	let paletteOpen = $state(false);
+	let paletteQuery = $state('');
+	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
 	let shortcutsHelpOpen = $state(false);
 
 // Menu a comparsa per i chip di stato
@@ -131,31 +141,30 @@ $effect(() => {
 	const item = modelListEl.children[highlightedModelIndex] as HTMLElement | undefined;
 	item?.scrollIntoView({ block: 'nearest' });
 });
-	function shouldOpenPalette(value: string): boolean {
-		if (!value.startsWith('/')) return false;
-		const body = value.slice(1);
-		const space = body.search(/\s/);
-		if (space === -1) return true;
-		const token = body.slice(0, space).toLowerCase();
-		const command = allCommands.find(
-			(candidate: AvailableCommand) =>
-				candidate.name.toLowerCase() === token
-				|| candidate.aliases?.some((alias: string) => alias.toLowerCase() === token)
-		);
-		// Dopo lo spazio la palette serve solo a scegliere un sottocomando.
-		return Boolean(command?.subcommands?.length);
+	function updateSlashState() {
+		if (!textareaEl) return;
+		const cursor = textareaEl.selectionStart ?? text.length;
+		const match = extractSlashQueryAtCursor(text, cursor);
+		currentSlashMatch = match;
+		paletteQuery = match?.query ?? '';
+		paletteOpen = shouldOpenSlashPaletteAtCursor(match, allCommands);
+
+		if (match && session.availableCommands.length === 0) {
+			void loadAvailableCommands().then(() => {
+				if (visible) {
+					paletteOpen = shouldOpenSlashPaletteAtCursor(currentSlashMatch, allCommands);
+				}
+			});
+		}
 	}
 
 	function handleComposerInput() {
 		adjustTextareaHeight();
-		const current = text;
-		paletteOpen = shouldOpenPalette(current);
-		if (!current.startsWith('/') || session.availableCommands.length > 0) return;
-		void loadAvailableCommands().then(() => {
-			// L'utente puo' aver continuato a scrivere mentre la richiesta era
-			// in volo: una risposta vecchia non deve riaprire la palette.
-			if (text === current && visible) paletteOpen = shouldOpenPalette(current);
-		});
+		updateSlashState();
+	}
+
+	function handleCursorMovement() {
+		updateSlashState();
 	}
 
 	// Auto-dimensionamento della textarea fino a circa 12 righe (~240px)
@@ -714,11 +723,33 @@ $effect(() => {
 		}
 	}
 	function handlePalettePick(value: string, keepsOpen: boolean, submitImmediately: boolean) {
-		text = `/${value} `;
+		if (!currentSlashMatch) {
+			text = `/${value} `;
+			paletteOpen = keepsOpen;
+			textareaEl?.focus();
+			adjustTextareaHeight();
+			if (submitImmediately) void handleSubmit();
+			return;
+		}
+
+		const res = insertSlashCommandAtCursor(
+			text,
+			currentSlashMatch.startIndex,
+			currentSlashMatch.endIndex,
+			value
+		);
+		text = res.newText;
 		paletteOpen = keepsOpen;
-		textareaEl?.focus();
+		currentSlashMatch = null;
 		adjustTextareaHeight();
-		if (submitImmediately) void handleSubmit();
+
+		void tick().then(() => {
+			if (textareaEl) {
+				textareaEl.focus();
+				textareaEl.setSelectionRange(res.newCursorPos, res.newCursorPos);
+			}
+			if (submitImmediately) void handleSubmit();
+		});
 	}
 
 	function formatTokens(count?: number): string {
@@ -757,7 +788,7 @@ $effect(() => {
 	<CommandPalette
 		open={visible && paletteOpen}
 		commands={allCommands}
-		query={text}
+		query={paletteQuery}
 		onPick={handlePalettePick}
 		onClose={() => (paletteOpen = false)}
 		onSubmitFallback={() => void handleSubmit()}
@@ -798,6 +829,8 @@ $effect(() => {
 			bind:this={textareaEl}
 			bind:value={text}
 			oninput={handleComposerInput}
+			onclick={handleCursorMovement}
+			onkeyup={handleCursorMovement}
 			onkeydown={handleKeydown}
 			onpaste={handlePaste}
 			placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere il tuo prompt" : "Scrivi un prompt, incolla un'immagine, digita / per i comandi... (Alt+R ruoli, Alt+P modelli, Alt+H scorciatoie)"}
