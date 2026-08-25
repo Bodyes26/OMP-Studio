@@ -284,6 +284,7 @@ export class AgentSession {
 			await this.client.send({ type: 'set_subagent_subscription', level: 'progress' });
 			await this.rebuildTranscript();
 			void this.refreshCost();
+			void this.refreshCommands();
 		} catch (error) {
 			this.pushNotice('error', `Insediamento della sessione non completato: ${this.reason(error)}`);
 		}
@@ -303,6 +304,17 @@ export class AgentSession {
 		const state = await this.client.send<RpcSessionState>({ type: 'get_state' });
 		this.applyState(state);
 	}
+	async refreshCommands() {
+		try {
+			const res = await this.client.send<{ commands?: AvailableCommand[] }>({ type: 'get_available_commands' });
+			if (res && Array.isArray(res.commands)) {
+				this.availableCommands = res.commands;
+			}
+		} catch {
+			// Fallback silente: i comandi restano quelli noti
+		}
+	}
+
 
 	private applyState(state: RpcSessionState | null | undefined) {
 		if (!state) return;
@@ -640,7 +652,14 @@ export class AgentSession {
 			}
 
 			case 'command_output': {
-				const output = typeof event.output === 'string' ? event.output : typeof event.message === 'string' ? event.message : '';
+				const output =
+					typeof event.text === 'string'
+						? event.text
+						: typeof event.output === 'string'
+							? event.output
+							: typeof event.message === 'string'
+								? event.message
+								: '';
 				if (output) this.pushNotice('info', output, 'comando');
 				return;
 			}
@@ -1118,6 +1137,22 @@ export class AgentSession {
 	async newSession(): Promise<string | null> {
 		this.pendingStartupPrompts = [];
 		await this.client.send({ type: 'new_session' });
+		this.entries = [];
+		this.toolEntries.clear();
+		this.assistantEntry = null;
+		this.activeAssistantId = null;
+		this.optimisticUser = null;
+		this.subagents = [];
+		this.todoPhases = [];
+		this.queued = [];
+		this.visibleCount = RENDER_WINDOW;
+		await this.refreshState();
+		return this.sessionId;
+	}
+	async forkSession(): Promise<string | null> {
+		this.pendingStartupPrompts = [];
+		const parent = this.sessionId;
+		await this.client.send({ type: 'new_session', parentSession: parent || undefined });
 		this.entries = [];
 		this.toolEntries.clear();
 		this.assistantEntry = null;

@@ -118,6 +118,39 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		name: 'help',
 		description: 'Mostra i comandi disponibili nella superficie GUI',
 		source: 'studio'
+	},
+	{
+		name: 'login',
+		description: 'Apre la configurazione dei provider di modelli e credenziali',
+		aliases: ['logout'],
+		source: 'studio'
+	},
+	{
+		name: 'copy',
+		description: 'Copia l\'intera trascrizione della sessione corrente negli appunti',
+		source: 'studio'
+	},
+	{
+		name: 'tree',
+		description: 'Mostra l\'albero e lo storico delle sessioni del progetto',
+		aliases: ['sessions'],
+		source: 'studio'
+	},
+	{
+		name: 'fork',
+		description: 'Crea una nuova diramazione (fork) della sessione corrente',
+		source: 'studio'
+	},
+	{
+		name: 'drop',
+		description: 'Apre lo storico per gestire ed eliminare rami di sessione',
+		source: 'studio'
+	},
+	{
+		name: 'quit',
+		description: 'Azzera la vista attiva e avvia una nuova sessione pulita',
+		aliases: ['exit'],
+		source: 'studio'
 	}
 ];
 
@@ -142,13 +175,32 @@ export function mergeCommands(
 	}
 
 	for (const cmd of ompCommands) {
-		const lowerName = cmd.name.toLowerCase();
-		if (!seen.has(lowerName)) {
-			seen.add(lowerName);
-			result.push({
-				...cmd,
-				source: cmd.source || 'omp'
-			});
+		const isSkill = cmd.source === 'skill' || cmd.name.startsWith('skill:');
+		const cleanName = isSkill ? cmd.name.replace(/^skill:/, '') : cmd.name;
+		const lowerClean = cleanName.toLowerCase();
+		const lowerRaw = cmd.name.toLowerCase();
+
+		if (!seen.has(lowerClean)) {
+			seen.add(lowerClean);
+			if (isSkill) {
+				seen.add(lowerRaw);
+				const aliases = [...(cmd.aliases || [])];
+				if (!aliases.includes(cmd.name) && cmd.name !== cleanName) {
+					aliases.push(cmd.name);
+				}
+				result.push({
+					...cmd,
+					name: cleanName,
+					aliases,
+					source: 'skill',
+					input: cmd.input || { hint: 'arguments' }
+				});
+			} else {
+				result.push({
+					...cmd,
+					source: cmd.source || 'omp'
+				});
+			}
 		}
 	}
 

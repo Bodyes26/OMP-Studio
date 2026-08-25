@@ -60,18 +60,32 @@
 		};
 	});
 
-	function isStudio(source?: string): boolean {
-		return source === 'studio';
+	function sourceBadgeClass(source?: string): string {
+		if (source === 'studio') return 'studio';
+		if (source === 'skill') return 'skill';
+		if (source === 'extension') return 'extension';
+		if (source === 'custom') return 'custom';
+		if (source === 'file') return 'file';
+		return 'omp';
 	}
 
 	function sourceLabel(source?: string): string {
 		if (source === 'studio') return 'Studio';
-		if (source === 'extension') return 'Estensione';
 		if (source === 'skill') return 'Skill';
+		if (source === 'extension') return 'Estensione';
 		if (source === 'custom') return 'Personalizzato';
+		if (source === 'file') return 'Template';
 		return 'omp';
 	}
 
+	function originDescription(source?: string): string {
+		if (source === 'studio') return 'Guscio GUI (azione locale di Studio)';
+		if (source === 'skill') return 'Skill agente (eseguita con prompt e tool dedicati)';
+		if (source === 'extension') return 'Estensione omp';
+		if (source === 'custom') return 'Prompt personalizzato';
+		if (source === 'file') return 'Template prompt da file';
+		return 'Agente / omp (inviato via RPC)';
+	}
 	function rank(value: string, description: string | undefined, aliases: string[] | undefined, needle: string): number {
 		const name = value.toLowerCase();
 		if (!needle || name.startsWith(needle)) return 0;
@@ -191,7 +205,7 @@
 						>
 							<div class="cmd-header">
 								<span class="cmd-name">{option.label}</span>
-								<span class="source-badge" class:studio={isStudio(option.command.source)} class:omp={!isStudio(option.command.source)}>
+								<span class="source-badge {sourceBadgeClass(option.command.source)}">
 									{sourceLabel(option.command.source)}
 								</span>
 							</div>
@@ -212,14 +226,14 @@
 				<aside class="command-preview" aria-live="polite">
 					<div class="preview-header">
 						<div class="preview-title">{activeOption.label}</div>
-						<span class="source-badge" class:studio={isStudio(activeOption.command.source)} class:omp={!isStudio(activeOption.command.source)}>
+						<span class="source-badge {sourceBadgeClass(activeOption.command.source)}">
 							{sourceLabel(activeOption.command.source)}
 						</span>
 					</div>
 					<div class="preview-row">
 						<span class="preview-label">Origine</span>
 						<span class="preview-source-desc">
-							{isStudio(activeOption.command.source) ? 'Guscio GUI (azione locale di Studio)' : 'Agente / omp (inviato via RPC)'}
+							{originDescription(activeOption.command.source)}
 						</span>
 					</div>
 					{#if activeOption.command.aliases?.length}
@@ -342,12 +356,30 @@
 		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
 	}
 
+	.source-badge.skill {
+		background: color-mix(in srgb, #a855f7 16%, transparent);
+		color: color-mix(in srgb, #c084fc 90%, var(--ink));
+		border: 1px solid color-mix(in srgb, #a855f7 35%, transparent);
+	}
+
+	.source-badge.extension {
+		background: color-mix(in srgb, #f59e0b 16%, transparent);
+		color: color-mix(in srgb, #fbbf24 90%, var(--ink));
+		border: 1px solid color-mix(in srgb, #f59e0b 35%, transparent);
+	}
+
+	.source-badge.custom,
+	.source-badge.file {
+		background: color-mix(in srgb, #06b6d4 16%, transparent);
+		color: color-mix(in srgb, #22d3ee 90%, var(--ink));
+		border: 1px solid color-mix(in srgb, #06b6d4 35%, transparent);
+	}
+
 	.source-badge.omp {
 		background: var(--bg-sunken);
 		color: var(--ink-faint);
 		border: 1px solid var(--line);
 	}
-
 	.cmd-name,
 	code {
 		font-family: var(--font-mono);

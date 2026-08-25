@@ -273,6 +273,8 @@ export interface AgentSessionEvent {
 	 * chiave. Il riduttore restringe caso per caso invece di fidarsi.
 	 */
 	message?: AgentMessage | string;
+	text?: string;
+	output?: string;
 	messages?: AgentMessage[];
 	/** `agent_end`: terminale quando `!== false`. */
 	isTerminal?: boolean;

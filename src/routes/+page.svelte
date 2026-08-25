@@ -16,6 +16,7 @@
 	import PreviewViewer from '$lib/components/PreviewViewer.svelte';
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
 	import ModelSettingsModal from '$lib/components/models/ModelSettingsModal.svelte';
+	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
@@ -58,6 +59,10 @@
 	});
 	let usageOpen = $state(false);
 	let pickerOpen = $state(false);
+	// Primo avvio guidato: `contract_check` decide se e da quale carta partire.
+	let setupOpen = $state(false);
+	let setupStartAt = $state<'install' | 'wizard' | 'project'>('wizard');
+	let setupIncomplete = $state(false);
 
 	// Richiesta di apertura diff proveniente dal pannello GIT: porta il file
 	// nell'editor gia' in modalita' diff, con la revisione giusta.
@@ -365,13 +370,62 @@
 			void session.newSession();
 			return true;
 		}
-		if (lowerCmd === '/resume') {
-			if (argument) {
+		if (lowerCmd === '/resume' || lowerCmd === '/sessions' || lowerCmd === '/tree') {
+			if (argument && lowerCmd === '/resume') {
 				void handleResumeSession(projectId, argument);
 			} else {
 				leftSection = 'agent';
 				taskStore.setView(project.path, 'sessions');
 			}
+			return true;
+		}
+		if (lowerCmd === '/fork') {
+			void (async () => {
+				try {
+					const newId = await session.forkSession();
+					session.pushNotice('info', `Sessione ramificata in un nuovo branch: ${newId ?? ''}`, 'studio');
+				} catch (error) {
+					session.pushNotice('error', `Errore durante il fork: ${error instanceof Error ? error.message : String(error)}`, 'studio');
+				}
+			})();
+			return true;
+		}
+		if (lowerCmd === '/drop') {
+			leftSection = 'agent';
+			taskStore.setView(project.path, 'sessions');
+			session.pushNotice('info', 'Usa il menu contestuale nella lista sessioni a sinistra per archiviare o eliminare un ramo.', 'studio');
+			return true;
+		}
+		if (lowerCmd === '/quit' || lowerCmd === '/exit') {
+			void session.newSession();
+			return true;
+		}
+		if (lowerCmd === '/copy') {
+			const transcriptText = session.entries
+				.map((entry) => {
+					if (entry.kind === 'user') return `User: ${entry.content || ''}`;
+					if (entry.kind === 'assistant') {
+						const text = entry.blocks
+							.map((b) => (b.type === 'text' ? b.text : b.type === 'thinking' ? `[Thinking: ${b.text}]` : ''))
+							.filter(Boolean)
+							.join('\n');
+						return `Assistant: ${text}`;
+					}
+					if (entry.kind === 'notice') return `[${entry.level}]: ${entry.message || ''}`;
+					return '';
+				})
+				.filter(Boolean)
+				.join('\n\n');
+			if (transcriptText) {
+				void navigator.clipboard.writeText(transcriptText);
+				session.pushNotice('info', 'Trascrizione della sessione copiata negli appunti.', 'studio');
+			} else {
+				session.pushNotice('warning', 'Nessun messaggio da copiare nella sessione corrente.', 'studio');
+			}
+			return true;
+		}
+		if (lowerCmd === '/login' || lowerCmd === '/logout') {
+			modelSettingsStore.openModal('providers');
 			return true;
 		}
 		if (lowerCmd === '/switch') {
@@ -550,41 +604,12 @@
 			return true;
 		}
 
-		// --- comandi che vivono solo nella TUI --------------------------------
-		const TUI_ONLY = [
-			'/fork', '/tree', '/drop', '/login', '/logout', '/plan', '/plan-review',
-			'/vibe', '/goal', '/guided-goal', '/loop', '/extensions', '/agents',
-			'/live', '/pause', '/collab', '/join', '/leave', '/copy', '/quit'
-		];
-		if (TUI_ONLY.includes(lowerCmd)) {
-			session.pushNotice(
-				'info',
-				`Il comando ${cmd} vive nella TUI. Passa alla scheda TERMINAL per usarlo.`,
-				undefined,
-				true
-			);
-			return true;
-		}
-
-		// --- rete di sicurezza -------------------------------------------------
-		// Se omp conosce questo comando ma Studio non sa eseguirlo, l'inoltro
-		// come prompt produrrebbe una risposta vuota: meglio dirlo.
-		const known = session.availableCommands.some(
-			(candidate) =>
-				`/${candidate.name.toLowerCase()}` === lowerCmd
-				|| candidate.aliases?.some((alias) => `/${alias.toLowerCase()}` === lowerCmd)
-		);
-		if (known) {
-			session.pushNotice(
-				'info',
-				`${cmd} non e' ancora disponibile nella superficie GUI. Passa alla scheda TERMINAL per usarlo.`,
-				undefined,
-				true
-			);
-			return true;
-		}
-
-		// Non e' un comando: e' testo che inizia per `/`. Va all'agente.
+		// --- Tutti gli altri comandi slash -------------------------------------
+		// Qualsiasi altro comando slash (skill, template, prompt, modalita'
+		// /plan, /vibe, /goal, /loop, comandi builtin come /fast, /security,
+		// /todo, /mcp, /jobs, /dirs, /plugins, ecc.) viene inoltrato
+		// direttamente a omp via RPC prompt: omp lo esegue ed emette l'output
+		// corrispondente (command_output/notice) oppure attiva l'agente.
 		return false;
 	}
 
@@ -716,8 +741,59 @@
 		}
 	}
 
+	/**
+	 * Verifica del contratto con `omp` all'avvio (docs/PLAN.md Fase 8). Il
+	 * wizard si apre solo quando c'e' qualcosa da fare, e parte dalla carta
+	 * giusta: senza binario dall'installazione, senza credenziali o modello
+	 * dal setup nativo, tutto a posto ma senza progetti dalla cartella.
+	 */
+	async function checkSetupContract() {
+		try {
+			const status = await invoke<{ missing: string[] }>('setup_status');
+			setupIncomplete = status.missing.length > 0;
+			if (status.missing.includes('omp')) {
+				setupStartAt = 'install';
+			} else if (setupIncomplete) {
+				setupStartAt = 'wizard';
+			} else if (projectStore.projects.length === 0) {
+				setupStartAt = 'project';
+			} else {
+				return;
+			}
+			setupOpen = true;
+		} catch (e) {
+			console.error('Verifica del contratto omp', e);
+		}
+	}
+
+	function openSetup() {
+		setupStartAt = setupIncomplete ? 'wizard' : 'project';
+		setupOpen = true;
+	}
+
+	async function closeSetup() {
+		setupOpen = false;
+		// Rileggere lo stato aggiorna il chip: se manca ancora qualcosa resta
+		// visibile in barra, ma il wizard non si riapre da solo — sarebbe una
+		// trappola.
+		const wasIncomplete = setupIncomplete;
+		await refreshSetupChip();
+		if (wasIncomplete) await fetchOmpVersion();
+	}
+
+	/** Aggiorna il solo indicatore, senza decidere di aprire niente. */
+	async function refreshSetupChip() {
+		try {
+			const status = await invoke<{ missing: string[] }>('setup_status');
+			setupIncomplete = status.missing.length > 0;
+		} catch (e) {
+			console.error('Verifica del contratto omp', e);
+		}
+	}
+
 	onMount(() => {
 		fetchOmpVersion();
+		void checkSetupContract();
 		studioUpdaterStore.init();
 	});
 
@@ -912,7 +988,10 @@
 		onUsageClick={() => usageOpen = !usageOpen}
 		onNewProject={() => pickerOpen = true}
 		onModelsClick={() => modelSettingsStore.openModal()}
+		onSetupClick={openSetup}
+		{setupIncomplete}
 	/>
+	<SetupWizard open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
 	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
 	<ModelSettingsModal />

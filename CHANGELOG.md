@@ -10,11 +10,18 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Primo avvio guidato: all'apertura Studio verifica che `omp` sia installato, autenticato e con un modello predefinito, e apre un modal che accompagna solo i passaggi che mancano davvero.
+- Se `omp` non è installato, Studio lo scarica dalle release ufficiali con barra di progresso, ne verifica l'impronta SHA-256 pubblicata e lo installa senza chiedere privilegi di amministratore; configura anche Git Bash come shell di `omp` quando non è già impostata.
+- Il setup dei provider, del modello, dei glifi, del composer e del tema è quello nativo di `omp`, eseguito in una scheda di terminale dentro il modal: le stesse scene del terminale, senza doverle imparare due volte. Il modal si chiude solo quando la configurazione è davvero utilizzabile, e se il setup viene abbandonato a metà dice cosa manca e permette di riaprirlo.
+- Il tema del guscio adotta quello scelto durante il setup di `omp`, invece di sovrascriverlo.
+- Installazione silenziosa del font Nerd nel profilo utente, così le icone di `omp` si vedono anche nei terminali esterni a Studio.
+- Al termine Studio propone la cartella dei progetti in cui hai più repository, col conteggio, e permette di aprirne subito uno.
+- Chip `⚠ Setup` nella barra superiore: compare solo quando alla configurazione di `omp` manca qualcosa e riapre il primo avvio guidato.
 - Nuovo editor di task a sezioni con layout scrollabile: textarea compatta, pulsanti primari espliciti «Salva e Chiudi» (`Esc`) e «Salva e Avvia subito» (`Ctrl+Invio`), ed eliminazione con conferma rapida.
 - Selezione del livello di complessità e profilo di ruolo (`smol`, `default`, `slow`, `plan`, `custom`) per ciascun task, con sincronizzazione e override libero del modello specifico e dello slider di thinking effort.
-- Modalità e direttive speciali attivabili tramite spunte dedicate nell'editor di task: «Modalità Piano (Plan Mode)», «Modalità Discussione & Requisiti (/grill-me)», «Soluzione Minimale (/ponytail)» e inclusione selettiva del contesto editor.
+- Modalità e direttive speciali attivabili tramite spunte dedicate nell'editor di task: «Modalità Piano (Plan Mode)», «Modalità Discussione & Requisiti (/grill-me)», «Soluzione Minimale (/ponytail)», «Modalità Ricerca Online» e inclusione selettiva del contesto editor.
 - Autocompletamento contestuale dei comandi slash (`/`) a qualsiasi posizione nel testo del prompt (sia nell'editor dei task che nel Composer della chat): rileva la posizione del cursore e sostituisce chirurgicamente il solo token del comando senza alterare il resto del testo.
-- Badge visivi per i task nella lista della coda (`AgentPanel`) con indicazione a colpo d'occhio del profilo di ruolo (`⚡ smol`, `⌘ default`, `∞ slow`, `◆ plan`) e dei tag delle modalità attive (`Plan`, `Grill-Me`, `Ponytail`, allegati).
+- Badge visivi per i task nella lista della coda (`AgentPanel`) con indicazione a colpo d'occhio del profilo di ruolo (`⚡ smol`, `⌘ default`, `∞ slow`, `◆ plan`) e dei tag delle modalità attive (`Plan`, `Grill-Me`, `Ponytail`, `Research`, allegati).
 - Switcher rapido e ciclo dei ruoli (`Ctrl+P` e `Alt+R`) nel Composer della GUI: `Ctrl+P` cicla sequenzialmente tra i ruoli configurati (`default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit`, `advisor`), impostando modello e livello di thinking associato e visualizzando il chip di ruolo attivo (`⌘ default`, `◆ plan`, ecc.).
 - Menu rapido dei ruoli (`Alt+R`) con ricerca per nome/descrizione/modello, navigazione da tastiera e pulsante rapido per aprire la configurazione completa (`Ctrl+Alt+M`).
 - Supporto per il comando slash `/role` (con sottocomandi per impostare ruoli specifici o ciclare al successivo con `/role next`).
@@ -26,11 +33,15 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La palette dei comandi slash (`/`) include i comandi nativi del guscio Studio
   (`/new`, `/clear`, `/resume`, `/compact`, `/thinking`, `/role`, ecc.) con badge di origine
   visibile, sottocomandi interattivi e anteprima dettagliata.
+- Nella palette dei comandi slash (`/`), le skill dell'agente vengono censite con il loro nome pulito (es. `/pubblicazione-progetto` oltre all'alias `/skill:pubblicazione-progetto`), badge visivo dedicato `Skill` in evidenza e descrizione dettagliata, caricate automaticamente all'apertura della sessione.
 - Raggruppamento unificato delle sequenze di esecuzione nella chat GUI: le chiamate ai tool e i relativi blocchi di ragionamento (`thinking`) intermedi vengono accorpati in un unico blocco compatto (`ToolGroup`), evitando frammentazioni nel transcript ed evidenziando chiaramente la risposta finale dell'assistente.
+- Nuova modalità «Modalità Ricerca Online» nello step di creazione ed editing dei task: istruisce l'agente ad approfondire l'ambito e la richiesta con ricerche online mirate (documentazione, riferimenti, librerie e best practice) dopo aver completato l'analisi del repository e del codice collegato prima di applicare modifiche.
 
 ### Fixed
+- Ripristino immediato dell'altezza predefinita a riga singola per la textarea del prompt nel Composer della chat dopo l'invio o la cancellazione del messaggio, evitando che rimanga espansa a vuoto quando si inviano prompt lunghi o multilinea.
 - Risolto il blocco permanente delle sessioni create da task su GUI con stato «in sincronizzazione» e riga non cliccabile: la lettura dello storico unifica i file di sessione persistiti su disco (`~/.omp/agent/sessions/`) e la cronologia, consentendo di riprendere regolarmente le sessioni anche dopo la chiusura o il riavvio di Studio.
-
+- Supporto unificato per tutti i comandi slash (`/`) nella chat e nell'editor dei task della superficie GUI: rimossa ogni restrizione che imponeva il passaggio alla scheda TERMINAL. Tutti i comandi builtin di configurazione/stato di `omp` (`/fast`, `/security`, `/todo`, `/mcp`, `/jobs`, `/tools`, `/context`, `/ssh`, `/dirs`, `/plugins`, `/export`, ecc.) e le modalità/prompt dell'agente (`/plan`, `/plan-review`, `/vibe`, `/goal`, `/loop`, `/init`, `/green`, `/review`, e tutte le skill `/skill:...`) vengono eseguiti direttamente dalla GUI.
+- Integrazione grafica nativa per i comandi di sessione e autenticazione nella GUI: `/login` e `/logout` aprono il pannello di gestione Provider, `/copy` copia l'intera trascrizione negli appunti, `/fork` crea una nuova diramazione di sessione, `/tree` e `/sessions` aprono lo storico laterale, e `/drop` guida alla gestione dei rami.
 ### Changed
 - Differenziata chiaramente la grafica dei messaggi inseriti dall'utente nel transcript della chat rispetto al testo generato: ogni messaggio utente ha ora un blocco dedicato con sfondo `--bg-raised`, bordo con accento a sinistra e badge `› Tu` (o attribuzione personalizzata), rendendo immediata la distinzione rispetto alle risposte dell'assistente.
 - Ottimizzato il comportamento del gruppo strumenti (`ToolGroup`) nella chat: durante l'esecuzione rimane chiuso e compatto di default per evitare salti o aperture a flash dei singoli tool, aggiungendo e aggiornando i chip e l'intento con animazioni fluide (`slide` e transizioni CSS morbide).
