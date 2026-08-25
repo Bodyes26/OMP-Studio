@@ -1,15 +1,20 @@
 <script lang="ts">
 	import { projectStore, PRESET_HUES, type Project } from '$lib/stores/projects.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { automaticProjectHue, THEME_GROUPS, THEMES, swatchesFor, type ThemeMode } from '$lib/theme';
+	import { automaticProjectHue, THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
 
-	let { onUsageClick, onNewProject, onModelsClick } = $props<{
+	let { onUsageClick, onNewProject, onModelsClick, onSetupClick, setupIncomplete = false } = $props<{
 		onUsageClick?: () => void;
 		onNewProject?: () => void;
 		onModelsClick?: () => void;
+		onSetupClick?: () => void;
+		/** Vero quando manca qualcosa perche' la GUI funzioni: il chip di
+		 *  setup compare solo allora, e sparisce quando non ha piu' niente da
+		 *  dire. */
+		setupIncomplete?: boolean;
 	}>();
 
 	const appWindow = getCurrentWindow();
@@ -25,6 +30,7 @@
 	let projectNameDraft = $state('');
 	let projectLabelDraft = $state('');
 
+	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 
 	const activeThemeGroup = $derived(THEME_GROUPS.find((group) => group.mode === themeStore.pickerMode)!);
 	const filteredThemes = $derived(
@@ -190,7 +196,11 @@
 <header class="topbar" data-tauri-drag-region="deep">
 	<div class="brand-section">
 		<div class="app-icon" title="OMP Studio">
-			<img src="/logo-topbar.png" alt="OH MY π" class="brand-logo-img" />
+			<img
+				src={isLightTheme ? '/logo-topbar-light.png' : '/logo-topbar.png'}
+				alt="OMP Studio"
+				class="brand-logo-img"
+			/>
 		</div>
 	</div>
 
@@ -331,6 +341,15 @@
 	</div>
 
 	<div class="controls">
+		{#if setupIncomplete}
+			<button
+				class="setup-chip"
+				onclick={(e) => { e.stopPropagation(); onSetupClick?.(); }}
+				title="Completa la configurazione di omp"
+			>
+				⚠ Setup
+			</button>
+		{/if}
 		<button
 			class="models-chip"
 			onclick={(e) => { e.stopPropagation(); onModelsClick?.(); }}
@@ -891,6 +910,28 @@
 	.models-chip:hover {
 		color: var(--ink);
 		border-color: var(--brand);
+		background: var(--bg-hover);
+	}
+
+	/* Il solo chip che ha diritto di usare l'ambra: dice che una cosa manca,
+	   ed e' anche il solo che compare e sparisce da solo. */
+	.setup-chip {
+		background: transparent;
+		border: 1px solid var(--warn-dim);
+		color: var(--warn);
+		padding: 3px 10px;
+		font-size: var(--text-xs);
+		border-radius: var(--radius-full);
+		cursor: pointer;
+		margin-right: var(--space-2);
+		transition: all 0.15s ease;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.setup-chip:hover {
+		border-color: var(--warn);
 		background: var(--bg-hover);
 	}
 

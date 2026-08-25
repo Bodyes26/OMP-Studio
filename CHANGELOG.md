@@ -38,18 +38,22 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nuova modalità «Modalità Ricerca Online» nello step di creazione ed editing dei task: istruisce l'agente ad approfondire l'ambito e la richiesta con ricerche online mirate (documentazione, riferimenti, librerie e best practice) dopo aver completato l'analisi del repository e del codice collegato prima di applicare modifiche.
 
 ### Fixed
+- Riconoscimento e indicazione dei progetti in uso nel pannello delle quote di utilizzo (API Usage Limits) per i modelli e i subagenti attivi nella superficie GUI, con corrispondenza dei provider tra report dei consumi e catalogo modelli.
 - Ripristino immediato dell'altezza predefinita a riga singola per la textarea del prompt nel Composer della chat dopo l'invio o la cancellazione del messaggio, evitando che rimanga espansa a vuoto quando si inviano prompt lunghi o multilinea.
 - Risolto il blocco permanente delle sessioni create da task su GUI con stato «in sincronizzazione» e riga non cliccabile: la lettura dello storico unifica i file di sessione persistiti su disco (`~/.omp/agent/sessions/`) e la cronologia, consentendo di riprendere regolarmente le sessioni anche dopo la chiusura o il riavvio di Studio.
 - Supporto unificato per tutti i comandi slash (`/`) nella chat e nell'editor dei task della superficie GUI: rimossa ogni restrizione che imponeva il passaggio alla scheda TERMINAL. Tutti i comandi builtin di configurazione/stato di `omp` (`/fast`, `/security`, `/todo`, `/mcp`, `/jobs`, `/tools`, `/context`, `/ssh`, `/dirs`, `/plugins`, `/export`, ecc.) e le modalità/prompt dell'agente (`/plan`, `/plan-review`, `/vibe`, `/goal`, `/loop`, `/init`, `/green`, `/review`, e tutte le skill `/skill:...`) vengono eseguiti direttamente dalla GUI.
 - Integrazione grafica nativa per i comandi di sessione e autenticazione nella GUI: `/login` e `/logout` aprono il pannello di gestione Provider, `/copy` copia l'intera trascrizione negli appunti, `/fork` crea una nuova diramazione di sessione, `/tree` e `/sessions` aprono lo storico laterale, e `/drop` guida alla gestione dei rami.
 ### Changed
-- Differenziata chiaramente la grafica dei messaggi inseriti dall'utente nel transcript della chat rispetto al testo generato: ogni messaggio utente ha ora un blocco dedicato con sfondo `--bg-raised`, bordo con accento a sinistra e badge `› Tu` (o attribuzione personalizzata), rendendo immediata la distinzione rispetto alle risposte dell'assistente.
-- Ottimizzato il comportamento del gruppo strumenti (`ToolGroup`) nella chat: durante l'esecuzione rimane chiuso e compatto di default per evitare salti o aperture a flash dei singoli tool, aggiungendo e aggiornando i chip e l'intento con animazioni fluide (`slide` e transizioni CSS morbide).
-- Blocchi di codice nelle risposte dell'assistente resi collassabili ad accordion cliccando sull'intestazione (con indicatore del numero di righe e pulsante di copia dedicato), con altezza massima fissata a 10.5 righe, scorrimento interno e sfumatura d'ombra sul fondo in presenza di contenuto eccedente.
-- La chat GUI presenta le risposte con una cadenza continua anche quando il
-  provider invia blocchi grandi, restando circa mezzo secondo dietro al dato in
-  arrivo: i caratteri compaiono con una dissolvenza progressiva invece di
-  apparire a scatti, e lo stato «Sta pensando» resta visibile.
+- Nuova icona dell'applicazione e logo topbar: icona Pi neon luminescente per temi scuri e dock/taskbar, e variante Pi glass scura ad alto contrasto per temi chiari nella barra superiore.
+- Rimosso ogni bordo laterale colorato (side-stripe) da card dei tool, messaggi utente, righe dei subagent e modali di aggiornamento: la gerarchia visiva del transcript e' ora affidata all'indentazione proporzionale, alla luminanza delle superfici e al pallino di stato, nel rispetto del design system.
+- Struttura dei turni di esecuzione unificata e appiattita: rimossi i contenitori annidati a piu' livelli e rimosso il limite di altezza a 10.5 righe sui blocchi di codice, che ora scorrono liberamente col transcript.
+- Unificato il vocabolario di espansione in tutto il pannello (chevron che ruota a 90° su tool, thinking, blocchi di codice, task e json), eliminato ogni keyframe ridondante fuori da `app.css` e limitato il respiro `state-pulse` al solo gruppo di esecuzione attivo.
+- Cronometro live sull'esecuzione dei tool e dei gruppi: il tempo trascorso viene visualizzato e aggiornato in tempo reale con allineamento numerico tabulare, evitando che l'utente debba distinguere uno stato di lavoro da un blocco.
+- Scala tipografica dei titoli markdown, limite a 65 caratteri per riga sulla prosa, e rimozione delle label con testo in maiuscolo tracciato (eyebrow uppercase) da tutti i renderer dei tool.
+### Fixed
+- Risolto il disallineamento fra selezione e fuoco nella scheda di richiesta (`AskCard`): implementato il roving tabindex in modo che la selezione con le frecce sposti contemporaneamente il fuoco tastiera, evitando l'invio accidentale di un'opzione diversa da quella evidenziata.
+- Corretto il contrasto di tutte le etichette e badge di errore e fallimento nel transcript (ora sempre conformi alla soglia WCAG >= 4.5:1), unificando la semantica d'errore sul colore dedicato ed eliminando l'uso improprio del colore brand come testo.
+- Ripristinati gli indicatori di fuoco visibili (`:focus-visible` e `:focus-within`) sul campo di scrittura del prompt e sui controlli interattivi della GUI, con pulsante di arresto differenziato graficamente da quello di invio.
 - Spostato il selettore «steer / follow-up» dal campo di scrittura del prompt
   direttamente sui singoli chip dei messaggi in coda, consentendo di digitare e
   inviare direttamente con Invio e commutare il comportamento dall'interfaccia della coda.
