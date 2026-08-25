@@ -13,8 +13,9 @@ Le uniche scorciatoie globali catturate dall'app vivono dietro il modificatore *
 | `Ctrl+Alt+A` | Globale | Passa tra la superficie TERMINAL e la superficie GUI conservando la sessione |
 | `Ctrl+Alt+Freccia Destra` | Globale | Passa al progetto aperto successivo |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Passa al progetto aperto precedente |
-| `Alt+P` | Superficie GUI | Apre il menu selezione modello con filtro rapido e navigazione tastiera |
-| `Ctrl+P` | Superficie GUI | Cicla al modello successivo configurato |
+| `Ctrl+P` | Superficie GUI | Cicla sequenzialmente tra i ruoli configurati (`default` → `plan` → `smol`...) |
+| `Alt+R` | Superficie GUI | Apre il menu rapido di selezione del ruolo con filtro e navigazione |
+| `Alt+P` | Superficie GUI | Apre il catalogo modelli con filtro rapido e navigazione tastiera |
 | `Alt+M` | Superficie GUI | Apre il menu di selezione del livello di thinking (ragionamento) |
 | `Alt+T` | Superficie GUI | Cicla direttamente il livello di thinking (`off` → `max`) |
 | `Alt+Q` | Superficie GUI | Apre le impostazioni della coda (steering, follow-up, interruzione) |

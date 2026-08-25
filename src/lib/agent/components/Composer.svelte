@@ -17,9 +17,10 @@
 	import { asRecord } from '../tools/types';
 	import { prepareImage, extractImageFiles, isImageFile } from '../images';
 	import QueueChips from './QueueChips.svelte';
-	import CommandPalette from './CommandPalette.svelte';
-	import ShortcutsHelpModal from './ShortcutsHelpModal.svelte';
-	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '../commands';
+import CommandPalette from './CommandPalette.svelte';
+import ShortcutsHelpModal from './ShortcutsHelpModal.svelte';
+import { STUDIO_SLASH_COMMANDS, mergeCommands } from '../commands';
+import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	let {
 		session,
 		visible = true,
@@ -29,7 +30,6 @@
 		visible?: boolean;
 		onSlashCommand: (raw: string) => boolean;
 	}>();
-
 	let text = $state('');
 	let attachedImages = $state<ImageContent[]>([]);
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
@@ -37,18 +37,21 @@
 	let paletteOpen = $state(false);
 	let shortcutsHelpOpen = $state(false);
 
-	// Menu a comparsa per i chip di stato
-	let activeMenu = $state<'model' | 'thinking' | 'queue' | null>(null);
-	let availableModels = $state<ModelInfo[]>([]);
-	let loadingModels = $state(false);
+// Menu a comparsa per i chip di stato
+let activeMenu = $state<'role' | 'model' | 'thinking' | 'queue' | null>(null);
+let availableModels = $state<ModelInfo[]>([]);
+let loadingModels = $state(false);
 
-	// Ricerca e navigazione da tastiera per i menu
-	let modelFilterQuery = $state('');
-	let highlightedModelIndex = $state(0);
-	let highlightedThinkingIndex = $state(0);
-	let modelListEl = $state<HTMLElement | null>(null);
-	let modelSearchInputEl = $state<HTMLInputElement | null>(null);
-	// Impostazioni della coda
+// Ricerca e navigazione da tastiera per i menu
+let modelFilterQuery = $state('');
+let roleFilterQuery = $state('');
+let highlightedRoleIndex = $state(0);
+let highlightedModelIndex = $state(0);
+let highlightedThinkingIndex = $state(0);
+let roleListEl = $state<HTMLElement | null>(null);
+let roleSearchInputEl = $state<HTMLInputElement | null>(null);
+let modelListEl = $state<HTMLElement | null>(null);
+let modelSearchInputEl = $state<HTMLInputElement | null>(null);
 	let steeringMode = $state<QueueMode>('one-at-a-time');
 	let followUpMode = $state<QueueMode>('one-at-a-time');
 	let interruptMode = $state<InterruptMode>('immediate');
@@ -65,14 +68,69 @@
 				|| (m.id && m.id.toLowerCase().includes(q))
 				|| (m.provider && m.provider.toLowerCase().includes(q))
 		);
-	});
+});
 
-	$effect(() => {
-		if (activeMenu !== 'model' || !modelListEl || filteredModels.length === 0) return;
-		const item = modelListEl.children[highlightedModelIndex] as HTMLElement | undefined;
-		item?.scrollIntoView({ block: 'nearest' });
-	});
+const configuredRolesList = $derived.by(() => {
+	const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
+	const cycleOrder = modelSettingsStore.config?.cycleOrder || modelSettingsStore.draftConfig?.cycleOrder || [];
+	const q = roleFilterQuery.trim().toLowerCase();
 
+	return STANDARD_ROLES.map((r) => {
+		const selector = rolesMap[r.id] || '';
+		const rawSelector = selector.split(':')[0] || '';
+		const thinking = selector.includes(':') ? selector.split(':')[1] : 'auto';
+		const modelDto = modelSettingsStore.catalog.find((m) => m.selector === rawSelector || m.id === rawSelector);
+		return {
+			...r,
+			selector,
+			rawSelector,
+			thinking,
+			modelName: modelDto?.name || rawSelector.split('/')[1] || rawSelector,
+			provider: modelDto?.provider || rawSelector.split('/')[0] || '',
+			isConfigured: Boolean(rawSelector)
+		};
+	}).filter((item) => {
+		if (!q) return true;
+		return item.label.toLowerCase().includes(q)
+			|| item.id.toLowerCase().includes(q)
+			|| item.desc.toLowerCase().includes(q)
+			|| item.modelName.toLowerCase().includes(q)
+			|| item.provider.toLowerCase().includes(q);
+	});
+});
+
+const activeRoleInfo = $derived.by(() => {
+	if (!session.model?.id) return null;
+	const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
+	const curId = session.model.id;
+	const curProvider = session.model.provider || '';
+
+	for (const r of STANDARD_ROLES) {
+		const full = rolesMap[r.id];
+		if (!full) continue;
+		const raw = full.split(':')[0];
+		if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
+			return r;
+		}
+	}
+	return null;
+});
+
+$effect(() => {
+	void modelSettingsStore.ensureLoaded();
+});
+
+$effect(() => {
+	if (activeMenu !== 'role' || !roleListEl || configuredRolesList.length === 0) return;
+	const item = roleListEl.children[highlightedRoleIndex] as HTMLElement | undefined;
+	item?.scrollIntoView({ block: 'nearest' });
+});
+
+$effect(() => {
+	if (activeMenu !== 'model' || !modelListEl || filteredModels.length === 0) return;
+	const item = modelListEl.children[highlightedModelIndex] as HTMLElement | undefined;
+	item?.scrollIntoView({ block: 'nearest' });
+});
 	function shouldOpenPalette(value: string): boolean {
 		if (!value.startsWith('/')) return false;
 		const body = value.slice(1);
@@ -180,15 +238,90 @@
 			session.pushNotice('warning', `Errore selezione modello: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
-	async function handleCycleModel() {
-		try {
-			await session.client.send({ type: 'cycle_model' });
-			await session.refreshState();
-			const current = session.model?.name || session.model?.id || 'default';
-			session.pushNotice('info', `Modello attivo: ${current}`, 'studio');
-		} catch (err) {
-			session.pushNotice('warning', `Errore passaggio modello successivo: ${err instanceof Error ? err.message : String(err)}`);
+
+	async function handleRoleSelect(roleId: string) {
+		activeMenu = null;
+		await modelSettingsStore.ensureLoaded();
+		const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
+		const fullSelector = rolesMap[roleId];
+		const roleMeta = STANDARD_ROLES.find(r => r.id === roleId);
+		if (!fullSelector) {
+			session.pushNotice('warning', `Il ruolo "${roleMeta?.label || roleId}" non è ancora configurato. Configuralo in Gestione Modelli (Ctrl+Alt+M).`, 'studio');
+			return;
 		}
+
+		const [rawSelector, thinking] = fullSelector.split(':');
+		const [provider, modelId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
+
+		if (!modelId) return;
+		try {
+			await session.client.send({
+				type: 'set_model',
+				provider: provider || session.model?.provider || '',
+				modelId
+			});
+			if (thinking && thinking !== 'auto') {
+				await session.client.send({
+					type: 'set_thinking_level',
+					level: thinking as ThinkingLevel
+				});
+			}
+			await session.refreshState();
+			const roleLabel = roleMeta ? `${roleMeta.glyph} ${roleMeta.label}` : roleId;
+			const currentModel = session.model?.name || session.model?.id || modelId;
+			session.pushNotice('info', `Ruolo attivo: ${roleLabel} (${currentModel})`, 'studio');
+		} catch (err) {
+			session.pushNotice('warning', `Errore applicazione ruolo ${roleId}: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+
+	async function handleCycleRole() {
+		await modelSettingsStore.ensureLoaded();
+		const cfg = modelSettingsStore.config || modelSettingsStore.draftConfig;
+		const rolesMap = cfg?.modelRoles || {};
+		const cycleOrder = cfg?.cycleOrder && cfg.cycleOrder.length > 0
+			? cfg.cycleOrder
+			: STANDARD_ROLES.map(r => r.id);
+
+		// Filtra solo i ruoli che sono effettivamente configurati con un modello
+		const configuredCycle = cycleOrder.filter(rId => Boolean(rolesMap[rId]));
+
+		if (configuredCycle.length === 0) {
+			// Se nessun ruolo è configurato, fallback su cycle_model standard
+			try {
+				await session.client.send({ type: 'cycle_model' });
+				await session.refreshState();
+				const current = session.model?.name || session.model?.id || 'default';
+				session.pushNotice('info', `Modello attivo: ${current}`, 'studio');
+			} catch (err) {
+				session.pushNotice('warning', `Errore passaggio modello: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			return;
+		}
+
+		// Determina il ruolo attivo corrente
+		const curId = session.model?.id || '';
+		const curProvider = session.model?.provider || '';
+		let currentIndex = -1;
+
+		for (let i = 0; i < configuredCycle.length; i++) {
+			const rId = configuredCycle[i];
+			const full = rolesMap[rId];
+			if (!full) continue;
+			const raw = full.split(':')[0];
+			if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
+				currentIndex = i;
+				break;
+			}
+		}
+
+		const nextIndex = (currentIndex + 1) % configuredCycle.length;
+		const nextRoleId = configuredCycle[nextIndex];
+		await handleRoleSelect(nextRoleId);
+	}
+
+	async function handleCycleModel() {
+		await handleCycleRole();
 	}
 
 	async function handleThinkingSelect(level: ThinkingLevel) {
@@ -257,12 +390,17 @@
 			session.pushNotice('warning', `Errore impostazione modalita' interruzione: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	}
-
-	function toggleMenu(menu: 'model' | 'thinking' | 'queue') {
+	function toggleMenu(menu: 'role' | 'model' | 'thinking' | 'queue') {
 		if (activeMenu === menu) {
 			activeMenu = null;
 		} else {
 			activeMenu = menu;
+			if (menu === 'role') {
+				roleFilterQuery = '';
+				highlightedRoleIndex = 0;
+				void modelSettingsStore.ensureLoaded();
+				setTimeout(() => roleSearchInputEl?.focus(), 40);
+			}
 			if (menu === 'model') {
 				modelFilterQuery = '';
 				highlightedModelIndex = 0;
@@ -280,6 +418,12 @@
 		}
 	}
 
+	function openModelSettings() {
+		activeMenu = null;
+		modelSettingsStore.openModal('roles');
+	}
+
+
 	function closeMenus(event: MouseEvent) {
 		if (!visible || (!activeMenu && !paletteOpen)) return;
 		const target = event.target;
@@ -294,12 +438,12 @@
 		const target = event.target;
 		const isComposerTextarea = target === textareaEl;
 		const isModelSearchInput = target === modelSearchInputEl;
-		const isOtherInput = !isComposerTextarea && !isModelSearchInput && (
+		const isRoleSearchInput = target === roleSearchInputEl;
+		const isOtherInput = !isComposerTextarea && !isModelSearchInput && !isRoleSearchInput && (
 			target instanceof HTMLInputElement
 			|| target instanceof HTMLTextAreaElement
 			|| (target instanceof HTMLElement && target.isContentEditable)
 		);
-
 		// Se il fuoco e' in un altro campo input/textarea esterno, non intercettare
 		if (isOtherInput) return;
 
@@ -345,9 +489,31 @@
 
 		// Se il modale di aiuto e' aperto, non processare scorciatoie di composer
 		if (shortcutsHelpOpen) return;
-
 		// Navigazione da tastiera nei menu aperti
-		if (activeMenu === 'model') {
+		if (activeMenu === 'role') {
+			if (event.key === 'ArrowDown') {
+				event.preventDefault();
+				if (configuredRolesList.length > 0) {
+					highlightedRoleIndex = (highlightedRoleIndex + 1) % configuredRolesList.length;
+				}
+				return;
+			}
+			if (event.key === 'ArrowUp') {
+				event.preventDefault();
+				if (configuredRolesList.length > 0) {
+					highlightedRoleIndex = (highlightedRoleIndex - 1 + configuredRolesList.length) % configuredRolesList.length;
+				}
+				return;
+			}
+			if (event.key === 'Enter') {
+				if (configuredRolesList.length > 0 && highlightedRoleIndex < configuredRolesList.length) {
+					event.preventDefault();
+					void handleRoleSelect(configuredRolesList[highlightedRoleIndex].id);
+					textareaEl?.focus();
+					return;
+				}
+			}
+		} else if (activeMenu === 'model') {
 			if (event.key === 'ArrowDown') {
 				event.preventDefault();
 				if (filteredModels.length > 0) {
@@ -405,6 +571,13 @@
 			}
 		}
 
+		// Alt+R: apri/chiudi menu ruoli
+		if (isAltOnly && (keyLower === 'r' || code === 'KeyR')) {
+			event.preventDefault();
+			toggleMenu('role');
+			return;
+		}
+
 		// Alt+P: apri/chiudi menu modelli
 		if (isAltOnly && (keyLower === 'p' || code === 'KeyP')) {
 			event.preventDefault();
@@ -412,13 +585,12 @@
 			return;
 		}
 
-		// Ctrl+P / Cmd+P: cicla modello successivo
+		// Ctrl+P / Cmd+P: cicla tra i ruoli configurati
 		if (isCtrlOrCmd && (keyLower === 'p' || code === 'KeyP')) {
 			event.preventDefault();
-			void handleCycleModel();
+			void handleCycleRole();
 			return;
 		}
-
 		// Alt+M: apri/chiudi menu thinking
 		if (isAltOnly && (keyLower === 'm' || code === 'KeyM')) {
 			event.preventDefault();
@@ -628,7 +800,7 @@
 			oninput={handleComposerInput}
 			onkeydown={handleKeydown}
 			onpaste={handlePaste}
-			placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere il tuo prompt" : "Scrivi un prompt, incolla un'immagine, digita / per i comandi... (Alt+P modelli, Alt+H scorciatoie)"}
+			placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere il tuo prompt" : "Scrivi un prompt, incolla un'immagine, digita / per i comandi... (Alt+R ruoli, Alt+P modelli, Alt+H scorciatoie)"}
 			rows="1"
 			class="composer-textarea"
 			aria-label="Messaggio per l'assistente"
@@ -661,12 +833,116 @@
 
 	<!-- Barra dei chip di stato sotto la textarea -->
 	<div class="status-bar" aria-label="Stato della sessione">
+		<!-- Chip Ruolo -->
+		<div class="status-item-wrap">
+			<button
+				type="button"
+				class="status-chip role-chip"
+				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Ruolo attivo (Alt+R per aprire il menu ruoli, Ctrl+P per ciclarlo)'}
+				aria-haspopup="dialog"
+				aria-expanded={activeMenu === 'role'}
+				disabled={session.isStarting}
+				onclick={(e) => {
+					e.stopPropagation();
+					toggleMenu('role');
+				}}
+			>
+				<span class="chip-label">ruolo:</span>
+				<span class="chip-val role-val">
+					{#if activeRoleInfo}
+						<span class="role-glyph-inline">{activeRoleInfo.glyph}</span> {activeRoleInfo.label}
+					{:else}
+						personalizzato
+					{/if}
+				</span>
+			</button>
+
+			{#if activeMenu === 'role'}
+				<div class="dropdown-menu role-menu" role="dialog" tabindex="-1" aria-label="Ruoli configurati">
+					<div class="menu-header">
+						<span>Ruoli (Alt+R)</span>
+						<div class="menu-header-actions">
+							<button type="button" class="menu-cycle-btn" onclick={handleCycleRole} title="Cicla al ruolo successivo (Ctrl+P)">
+								Cicla (Ctrl+P)
+							</button>
+							<button type="button" class="menu-config-btn" onclick={openModelSettings} title="Gestione completa modelli e ruoli (Ctrl+Alt+M)">
+								⚙️
+							</button>
+						</div>
+					</div>
+					<div class="menu-search-wrap">
+						<span class="search-icon">🔍</span>
+						<input
+							bind:this={roleSearchInputEl}
+							bind:value={roleFilterQuery}
+							type="text"
+							class="menu-search-input"
+							placeholder="Filtra ruoli..."
+							oninput={() => highlightedRoleIndex = 0}
+						/>
+						{#if roleFilterQuery}
+							<button
+								type="button"
+								class="menu-search-clear"
+								onclick={() => { roleFilterQuery = ''; highlightedRoleIndex = 0; }}
+								title="Cancella filtro"
+							>
+								&times;
+							</button>
+						{/if}
+					</div>
+					<div class="menu-body" bind:this={roleListEl} role="listbox" aria-label="Ruoli">
+						{#if configuredRolesList.length > 0}
+							{#each configuredRolesList as r, idx (r.id)}
+								{@const isSelected = activeRoleInfo?.id === r.id}
+								<button
+									type="button"
+									class="menu-item role-item"
+									class:selected={isSelected}
+									class:highlighted={highlightedRoleIndex === idx}
+									class:unconfigured={!r.isConfigured}
+									role="option"
+									aria-selected={isSelected}
+									onclick={() => handleRoleSelect(r.id)}
+									onmouseenter={() => highlightedRoleIndex = idx}
+								>
+									<span class="role-item-glyph">{r.glyph}</span>
+									<div class="role-item-main">
+										<div class="role-item-title-row">
+											<span class="role-item-name">{r.label}</span>
+											{#if isSelected}
+												<span class="item-check">✓</span>
+											{/if}
+										</div>
+										{#if r.isConfigured}
+											<span class="role-item-sub truncate">
+												{r.modelName} {#if r.provider}<span class="provider-sub">({r.provider})</span>{/if}
+											</span>
+										{:else}
+											<span class="role-item-sub unconfigured-sub">Non configurato — clicca per aprire</span>
+										{/if}
+									</div>
+								</button>
+							{/each}
+						{:else}
+							<div class="menu-empty">Nessun ruolo corrispondente</div>
+						{/if}
+					</div>
+					<div class="menu-footer-hint">
+						<span>↑↓ naviga</span>
+						<span>↵ seleziona</span>
+						<span>Esc chiudi</span>
+					</div>
+				</div>
+			{/if}
+		</div>
+
 		<!-- Chip Modello -->
 		<div class="status-item-wrap">
 			<button
 				type="button"
 				class="status-chip"
-				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Modello corrente (Alt+P per aprire il menu, Ctrl+P per passare al successivo)'}
+				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Modello corrente (Alt+P per aprire il catalogo modelli)'}
 				aria-haspopup="dialog"
 				aria-expanded={activeMenu === 'model'}
 				disabled={session.isStarting}
@@ -688,10 +964,12 @@
 			{#if activeMenu === 'model'}
 				<div class="dropdown-menu model-menu" role="dialog" tabindex="-1" aria-label="Modelli disponibili">
 					<div class="menu-header">
-						<span>Modelli (Alt+P)</span>
-						<button type="button" class="menu-cycle-btn" onclick={handleCycleModel} title="Cicla al modello successivo (Ctrl+P)">
-							Cicla (Ctrl+P)
-						</button>
+						<span>Catalogo Modelli (Alt+P)</span>
+						<div class="menu-header-actions">
+							<button type="button" class="menu-config-btn" onclick={openModelSettings} title="Gestione completa modelli (Ctrl+Alt+M)">
+								⚙️
+							</button>
+						</div>
 					</div>
 					<div class="menu-search-wrap">
 						<span class="search-icon">🔍</span>
@@ -1286,8 +1564,14 @@
 		letter-spacing: 0.03em;
 		color: var(--ink-faint);
 	}
+	.menu-header-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
 
-	.menu-cycle-btn {
+	.menu-cycle-btn,
+	.menu-config-btn {
 		background: transparent;
 		border: none;
 		color: var(--brand-ink);
@@ -1296,10 +1580,80 @@
 		padding: 0;
 	}
 
-	.menu-cycle-btn:hover {
+	.menu-cycle-btn:hover,
+	.menu-config-btn:hover {
 		text-decoration: underline;
 	}
 
+	.role-chip .role-val {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+	}
+
+	.role-glyph-inline {
+		color: var(--brand-ink);
+		font-size: 11px;
+	}
+
+	.role-menu {
+		min-width: 250px;
+	}
+
+	.role-item {
+		align-items: flex-start;
+		gap: var(--space-2);
+		padding: var(--space-1) var(--space-2);
+	}
+
+	.role-item-glyph {
+		font-size: 12px;
+		color: var(--brand-ink);
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+
+	.role-item-main {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		overflow: hidden;
+	}
+
+	.role-item-title-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+	}
+
+	.role-item-name {
+		font-weight: 500;
+		font-size: var(--text-xs);
+	}
+
+	.role-item-sub {
+		font-size: 10px;
+		font-family: var(--font-mono);
+		color: var(--ink-faint);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.role-item-sub .provider-sub {
+		color: var(--ink-faint);
+		opacity: 0.8;
+	}
+
+	.role-item.unconfigured {
+		opacity: 0.65;
+	}
+
+	.role-item-sub.unconfigured-sub {
+		color: var(--warning-ink, #d97706);
+	}
 	.menu-body {
 		max-height: 220px;
 		overflow-y: auto;

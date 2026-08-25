@@ -10,22 +10,25 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Switcher rapido e ciclo dei ruoli (`Ctrl+P` e `Alt+R`) nel Composer della GUI: `Ctrl+P` cicla sequenzialmente tra i ruoli configurati (`default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit`, `advisor`), impostando modello e livello di thinking associato e visualizzando il chip di ruolo attivo (`⌘ default`, `◆ plan`, ecc.).
+- Menu rapido dei ruoli (`Alt+R`) con ricerca per nome/descrizione/modello, navigazione da tastiera e pulsante rapido per aprire la configurazione completa (`Ctrl+Alt+M`).
+- Supporto per il comando slash `/role` (con sottocomandi per impostare ruoli specifici o ciclare al successivo con `/role next`).
 - Collegamenti interattivi ai file nel transcript della chat: cliccando su qualsiasi percorso di file (nei chip di intestazione/dettaglio dei tool come `edit` e `write`, nei link markdown o nei blocchi di codice inline che contengono percorsi del progetto) il file corrispondente viene aperto e visualizzato automaticamente nell'editor Monaco.
 - Indicatore visivo dello stato di avvio di OMP nella barra inferiore della chat, con badge dedicato, spinner nel chip del modello e possibilità di scrivere e inviare prompt immediatamente durante l'inizializzazione, che vengono accodati e inoltrati in automatico non appena OMP è pronto.
 - Inclusione automatica del contesto dell'editor (file aperti, file attivo in focus con posizione cursore ed eventuale testo selezionato) nei prompt inviati a omp.
 - Nella colonna centrale dell'editor di task, alla creazione di un nuovo task il focus si posiziona automaticamente sull'area di scrittura, che diventa un rich input con supporto per allegare e visualizzare screenshot (tramite incolla, trascina o pulsante) e autocompletamento interattivo dei comandi slash (`/`) con palette dei comandi censiti da omp e Studio.
-- Scorciatoie da tastiera di `omp` nella superficie GUI: `Alt+P` per aprire il pannello cambio
-  modello con filtro rapido e navigazione da tastiera, `Ctrl+P` per passare al modello successivo,
-  `Alt+M` per il menu thinking, `Alt+T` per ciclare rapidamente il ragionamento, `Alt+Q` per le
-  impostazioni della coda, `Alt+S` per alternare lo steering, `Alt+C`/`Ctrl+C` per interrompere
-  o cancellare il testo, `Alt+E` per mettere a fuoco il composer e `Alt+H`/`Alt+K`/`F1` per la
-  guida completa delle scorciatoie.
+- Scorciatoie da tastiera di `omp` nella superficie GUI: `Ctrl+P` per ciclare i ruoli configurati, `Alt+R` per il menu ruoli, `Alt+P` per il catalogo modelli, `Alt+M` per il menu thinking, `Alt+T` per ciclare rapidamente il ragionamento, `Alt+Q` per le impostazioni della coda, `Alt+S` per alternare lo steering, `Alt+C`/`Ctrl+C` per interrompere o cancellare il testo, `Alt+E` per mettere a fuoco il composer e `Alt+H`/`Alt+K`/`F1` per la guida completa delle scorciatoie.
 - La palette dei comandi slash (`/`) include i comandi nativi del guscio Studio
-  (`/new`, `/clear`, `/resume`, `/compact`, `/thinking`, ecc.) con badge di origine
+  (`/new`, `/clear`, `/resume`, `/compact`, `/thinking`, `/role`, ecc.) con badge di origine
   visibile, sottocomandi interattivi e anteprima dettagliata.
-### Changed
-
 - Raggruppamento unificato delle sequenze di esecuzione nella chat GUI: le chiamate ai tool e i relativi blocchi di ragionamento (`thinking`) intermedi vengono accorpati in un unico blocco compatto (`ToolGroup`), evitando frammentazioni nel transcript ed evidenziando chiaramente la risposta finale dell'assistente.
+
+### Fixed
+- Risolto il blocco permanente delle sessioni create da task su GUI con stato «in sincronizzazione» e riga non cliccabile: la lettura dello storico unifica i file di sessione persistiti su disco (`~/.omp/agent/sessions/`) e la cronologia, consentendo di riprendere regolarmente le sessioni anche dopo la chiusura o il riavvio di Studio.
+
+### Changed
+- Differenziata chiaramente la grafica dei messaggi inseriti dall'utente nel transcript della chat rispetto al testo generato: ogni messaggio utente ha ora un blocco dedicato con sfondo `--bg-raised`, bordo con accento a sinistra e badge `› Tu` (o attribuzione personalizzata), rendendo immediata la distinzione rispetto alle risposte dell'assistente.
+- Ottimizzato il comportamento del gruppo strumenti (`ToolGroup`) nella chat: durante l'esecuzione rimane chiuso e compatto di default per evitare salti o aperture a flash dei singoli tool, aggiungendo e aggiornando i chip e l'intento con animazioni fluide (`slide` e transizioni CSS morbide).
 - Blocchi di codice nelle risposte dell'assistente resi collassabili ad accordion cliccando sull'intestazione (con indicatore del numero di righe e pulsante di copia dedicato), con altezza massima fissata a 10.5 righe, scorrimento interno e sfumatura d'ombra sul fondo in presenza di contenuto eccedente.
 - La chat GUI presenta le risposte con una cadenza continua anche quando il
   provider invia blocchi grandi, restando circa mezzo secondo dietro al dato in
@@ -34,7 +37,6 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Spostato il selettore «steer / follow-up» dal campo di scrittura del prompt
   direttamente sui singoli chip dei messaggi in coda, consentendo di digitare e
   inviare direttamente con Invio e commutare il comportamento dall'interfaccia della coda.
-
 - Rimossa la richiesta bloccante dei permessi/approvazioni nella GUI per l'esecuzione dei tool
   (bash, write, edit, eval, ecc.): le azioni vengono eseguite direttamente e senza interruzioni,
   allineando il comportamento della GUI a quello della TUI.

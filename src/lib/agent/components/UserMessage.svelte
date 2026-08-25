@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Messaggio dell'utente nel transcript.
-	// Allineato a sinistra: nessuna bolla di chat, nessun avatar.
-	// Usa MarkdownInline per rendere percorsi e frammenti di codice leggibili.
+	// Evidenziato come blocco utente con indicatore 'Tu' / badge di attribuzione,
+	// superficie `--bg-raised`, bordo discreto e MarkdownInline.
 	import { agentUiHooks } from '../ui-context';
 	import { lexMarkdownInline } from '../markdown';
 	import type { UserEntry } from '../session.svelte';
@@ -13,15 +13,19 @@
 	const isNonStandardAttribution = $derived(
 		Boolean(entry.attribution && entry.attribution !== 'user')
 	);
+	const attributionLabel = $derived(
+		isNonStandardAttribution ? entry.attribution : 'Tu'
+	);
 	const inlineTokens = $derived(entry.content ? lexMarkdownInline(entry.content) : []);
 </script>
 
 <div class="user-message">
-	{#if isNonStandardAttribution}
-		<div class="attribution-row">
-			<span class="attribution-badge">{entry.attribution}</span>
-		</div>
-	{/if}
+	<div class="user-header">
+		<span class="user-badge" class:custom-badge={isNonStandardAttribution}>
+			<span class="user-glyph" aria-hidden="true">›</span>
+			<span class="user-label">{attributionLabel}</span>
+		</span>
+	</div>
 
 	{#if entry.images && entry.images.length > 0}
 		<div class="images-strip">
@@ -49,28 +53,60 @@
 	.user-message {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
+		gap: var(--space-2);
 		min-width: 0;
+		width: 100%;
 		align-items: flex-start;
 		text-align: left;
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-left: 2px solid var(--ink-faint);
+		border-radius: var(--radius-md);
+		padding: var(--space-2) var(--space-3);
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.attribution-row {
+	.user-message:hover {
+		border-color: var(--line-strong);
+		border-left-color: var(--ink-muted);
+	}
+
+	.user-header {
 		display: flex;
 		align-items: center;
+		gap: var(--space-1);
+		user-select: none;
 	}
 
-	.attribution-badge {
+	.user-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 		background: var(--bg-hover);
-		padding: 1px var(--space-1);
+		padding: 1px 6px;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
+		line-height: 1.3;
+	}
+
+	.user-badge.custom-badge {
+		color: var(--ink-faint);
 		text-transform: lowercase;
 	}
 
+	.user-glyph {
+		color: var(--brand-ink);
+		font-weight: 600;
+		font-size: 11px;
+		line-height: 1;
+	}
+
+	.user-label {
+		font-weight: 500;
+	}
 	.images-strip {
 		display: flex;
 		flex-wrap: wrap;

@@ -33,15 +33,21 @@
 	const displaySessions = $derived.by(() => {
 		const known = new Set(sessions.map((session) => session.id));
 		const normalizedQuery = query.trim().toLocaleLowerCase();
+		const nowSec = Math.floor(Date.now() / 1000);
 		const optimistic = taskStore.originsFor(projectPath)
 			.filter((origin) => !known.has(origin.sessionId))
 			.filter((origin) => !normalizedQuery || origin.title.toLocaleLowerCase().includes(normalizedQuery))
-			.map((origin): SessionEntry => ({
-				id: origin.sessionId,
-				title: origin.title,
-				created_at: Math.floor(origin.launchedAt / 1000),
-				optimistic: true
-			}));
+			.map((origin): SessionEntry => {
+				const created_at = Math.floor(origin.launchedAt / 1000);
+				// Se il task e' stato lanciato da oltre 15 secondi, non e' piu' in attesa iniziale di sync
+				const isRecent = nowSec - created_at < 15;
+				return {
+					id: origin.sessionId,
+					title: origin.title,
+					created_at,
+					optimistic: isRecent
+				};
+			});
 		return [...optimistic, ...sessions].sort((left, right) => right.created_at - left.created_at);
 	});
 
@@ -174,11 +180,11 @@
 					type="button"
 					class="session-row"
 					class:current={isCurrent}
-					disabled={isCurrent || !canAutomate || session.optimistic}
+					disabled={isCurrent || !canAutomate}
 					title={isCurrent
 						? 'Sessione attiva'
 						: session.optimistic
-							? 'La sessione sta entrando nello storico'
+							? 'La sessione si sta sincronizzando con lo storico'
 							: canAutomate
 								? `Riprendi: ${session.title}`
 								: automationReason}

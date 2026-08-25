@@ -40,10 +40,11 @@
 
 	const categories: ShortcutCategory[] = [
 		{
-			title: 'Modelli & Sessione (GUI)',
+			title: 'Modelli & Ruoli (GUI)',
 			items: [
-				{ keys: ['Alt+P'], description: 'Apre il pannello rapido cambio modello con ricerca e tastiera' },
-				{ keys: ['Ctrl+P'], description: 'Cicla al modello successivo registrato' },
+				{ keys: ['Ctrl+P'], description: 'Cicla sequenzialmente tra i ruoli configurati (default → plan → smol...)' },
+				{ keys: ['Alt+R'], description: 'Apre il menu rapido di selezione ruolo' },
+				{ keys: ['Alt+P'], description: 'Apre il catalogo rapido dei modelli con ricerca e tastiera' },
 				{ keys: ['Alt+M'], description: 'Apre il menu livello di thinking (ragionamento)' },
 				{ keys: ['Alt+T'], description: 'Cicla direttamente il livello di thinking (off → max)' },
 				{ keys: ['Alt+Q'], description: 'Apre le impostazioni di accodamento e interruzione' },

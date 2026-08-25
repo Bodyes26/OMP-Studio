@@ -187,6 +187,26 @@ class ModelSettingsStore {
 		}
 	}
 
+	/** Carica la configurazione e il catalogo in background se non ancora caricati, senza mostrare toast o bloccare l'interfaccia */
+	async ensureLoaded() {
+		if (this.config && this.catalog.length > 0) return;
+		try {
+			const [cfg, cat] = await Promise.all([
+				invoke<ModelConfigDto>('get_model_config'),
+				invoke<ModelDto[]>('get_models_catalog')
+			]);
+			if (!this.config) {
+				this.config = cfg;
+				this.draftConfig = JSON.parse(JSON.stringify(cfg));
+			}
+			if (this.catalog.length === 0) {
+				this.catalog = cat;
+			}
+		} catch (e) {
+			console.error('ensureLoaded failed:', e);
+		}
+	}
+
 	async saveConfig() {
 		if (!this.draftConfig) return false;
 		this.saving = true;

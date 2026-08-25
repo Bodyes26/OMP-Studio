@@ -3,8 +3,9 @@
 	// (thinking) consecutivi o alternati in un unico blocco compatto ed elegante.
 	//
 	// Mostra un'intestazione riassuntiva con conteggio operazioni, chip dei tool usati,
-	// stato di esecuzione e durata totale. Il corpo è collassabile, ma si apre
-	// automaticamente mentre un tool o il ragionamento è in esecuzione o in caso di errori.
+	// stato di esecuzione e durata totale. Il corpo è collassabile e resta chiuso
+	// durante l'esecuzione per evitare flash e salti di layout, espandendosi solo su errore o clic manuale.
+	import { slide } from 'svelte/transition';
 	import type { AssistantEntry, ToolEntry } from '../session.svelte';
 	import ThinkingBlock from '../components/ThinkingBlock.svelte';
 	import ToolCard from './ToolCard.svelte';
@@ -62,10 +63,10 @@
 		return toolEntries[toolEntries.length - 1];
 	});
 
-	// Espansione manuale: se null, default aperto se running o con errore, collassato se terminato con successo
+	// Espansione manuale: di default resta collassato per evitare flash/salti fastidiosi,
+	// tranne se c'è un errore o se l'utente clicca esplicitamente per aprirlo.
 	let manualExpanded = $state<boolean | null>(null);
-	const isExpanded = $derived(manualExpanded ?? (isRunning || hasError));
-
+	const isExpanded = $derived(manualExpanded ?? hasError);
 	const headerLabel = $derived.by(() => {
 		const totalTools = toolEntries.length;
 		const labelStep = totalTools === 1 ? '1 operazione' : `${totalTools} operazioni`;
@@ -129,7 +130,7 @@
 	</button>
 
 	{#if isExpanded}
-		<div class="group-body">
+		<div class="group-body" transition:slide={{ duration: 180 }}>
 			{#each entries as entry (entry.id)}
 				{#if entry.kind === 'tool'}
 					<ToolCard {entry} />
@@ -261,11 +262,24 @@
 		color: var(--ink-muted);
 		white-space: nowrap;
 		flex-shrink: 0;
+		animation: chip-enter var(--dur-fast) var(--ease-out);
+	}
+
+	@keyframes chip-enter {
+		from {
+			opacity: 0;
+			transform: scale(0.92) translateX(4px);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1) translateX(0);
+		}
 	}
 
 	.chip-count {
 		color: var(--ink-faint);
 		font-size: 10px;
+		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
 	.header-right {
@@ -283,6 +297,18 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-style: italic;
+		animation: intent-fade var(--dur-fast) var(--ease-out);
+	}
+
+	@keyframes intent-fade {
+		from {
+			opacity: 0;
+			transform: translateY(2px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.status-tag {

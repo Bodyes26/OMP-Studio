@@ -56,6 +56,24 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		]
 	},
 	{
+		name: 'role',
+		description: 'Apre la configurazione ruoli o imposta un ruolo specifico',
+		aliases: ['roles'],
+		source: 'studio',
+		input: { hint: '[default|plan|smol|slow|vision|task|commit|advisor]' },
+		subcommands: [
+			{ name: 'default', description: 'Imposta il ruolo Default / Chat' },
+			{ name: 'plan', description: 'Imposta il ruolo Architectural Plan' },
+			{ name: 'smol', description: 'Imposta il ruolo Smol (Fast)' },
+			{ name: 'slow', description: 'Imposta il ruolo Slow (Reasoning)' },
+			{ name: 'vision', description: 'Imposta il ruolo Vision / Images' },
+			{ name: 'task', description: 'Imposta il ruolo Task Subagents' },
+			{ name: 'commit', description: 'Imposta il ruolo Git Commit' },
+			{ name: 'advisor', description: 'Imposta il ruolo Advisor (Reviewer)' },
+			{ name: 'next', description: 'Passa al ruolo successivo nella sequenza' }
+		]
+	},
+	{
 		name: 'name',
 		description: 'Rinomina la sessione corrente',
 		aliases: ['rename'],

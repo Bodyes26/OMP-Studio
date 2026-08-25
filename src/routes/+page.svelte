@@ -396,18 +396,110 @@
 			});
 			return true;
 		}
+		if (lowerCmd === '/role' || lowerCmd === '/roles') {
+			if (!argument) {
+				modelSettingsStore.openModal('roles');
+				return true;
+			}
+			const arg = argument.trim().toLowerCase();
+			void (async () => {
+				await modelSettingsStore.ensureLoaded();
+				const cfg = modelSettingsStore.config || modelSettingsStore.draftConfig;
+				const rolesMap = cfg?.modelRoles || {};
+
+				if (arg === 'next' || arg === 'cycle') {
+					const cycleOrder = cfg?.cycleOrder && cfg.cycleOrder.length > 0
+						? cfg.cycleOrder
+						: Object.keys(rolesMap);
+					const configured = cycleOrder.filter(r => Boolean(rolesMap[r]));
+					if (configured.length === 0) {
+						session.pushNotice('warning', 'Nessun ruolo configurato con un modello valido.', 'studio');
+						return;
+					}
+					const curId = session.model?.id || '';
+					const curProvider = session.model?.provider || '';
+					let curIdx = -1;
+					for (let i = 0; i < configured.length; i++) {
+						const raw = (rolesMap[configured[i]] || '').split(':')[0];
+						if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
+							curIdx = i;
+							break;
+						}
+					}
+					const nextRole = configured[(curIdx + 1) % configured.length];
+					const full = rolesMap[nextRole];
+					const [rawSelector, thinking] = full.split(':');
+					const [prov, mId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
+					await session.client.send({ type: 'set_model', provider: prov || session.model?.provider || '', modelId: mId });
+					if (thinking && thinking !== 'auto') {
+						await session.client.send({ type: 'set_thinking_level', level: thinking as any });
+					}
+					await session.refreshState();
+					session.pushNotice('info', `Ruolo attivo: ${nextRole} (${session.model?.name || mId})`, 'studio');
+					return;
+				}
+
+				const full = rolesMap[arg];
+				if (!full) {
+					session.pushNotice('warning', `Il ruolo "${arg}" non è configurato. Usa /role per aprire la configurazione.`, 'studio');
+					return;
+				}
+				const [rawSelector, thinking] = full.split(':');
+				const [prov, mId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
+				await session.client.send({ type: 'set_model', provider: prov || session.model?.provider || '', modelId: mId });
+				if (thinking && thinking !== 'auto') {
+					await session.client.send({ type: 'set_thinking_level', level: thinking as any });
+				}
+				await session.refreshState();
+				session.pushNotice('info', `Ruolo attivo: ${arg} (${session.model?.name || mId})`, 'studio');
+			})();
+			return true;
+		}
 		if (lowerCmd === '/model') {
 			if (!argument) {
-				modelSettingsStore.openModal();
+				modelSettingsStore.openModal('catalog');
 				return true;
 			}
 			if (argument.toLowerCase() === 'next' || argument.toLowerCase() === 'cycle') {
-				void runSessionCommand(session, 'Modello successivo', { type: 'cycle_model' });
+				void (async () => {
+					await modelSettingsStore.ensureLoaded();
+					const cfg = modelSettingsStore.config || modelSettingsStore.draftConfig;
+					const rolesMap = cfg?.modelRoles || {};
+					const cycleOrder = cfg?.cycleOrder && cfg.cycleOrder.length > 0 ? cfg.cycleOrder : Object.keys(rolesMap);
+					const configured = cycleOrder.filter(r => Boolean(rolesMap[r]));
+					if (configured.length > 0) {
+						const curId = session.model?.id || '';
+						const curProvider = session.model?.provider || '';
+						let curIdx = -1;
+						for (let i = 0; i < configured.length; i++) {
+							const raw = (rolesMap[configured[i]] || '').split(':')[0];
+							if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
+								curIdx = i;
+								break;
+							}
+						}
+						const nextRole = configured[(curIdx + 1) % configured.length];
+						const full = rolesMap[nextRole];
+						const [rawSelector, thinking] = full.split(':');
+						const [prov, mId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
+						await session.client.send({ type: 'set_model', provider: prov || session.model?.provider || '', modelId: mId });
+						if (thinking && thinking !== 'auto') {
+							await session.client.send({ type: 'set_thinking_level', level: thinking as any });
+						}
+						await session.refreshState();
+						session.pushNotice('info', `Ruolo attivo: ${nextRole} (${session.model?.name || mId})`, 'studio');
+					} else {
+						await session.client.send({ type: 'cycle_model' });
+						await session.refreshState();
+						const current = session.model?.name || session.model?.id || 'default';
+						session.pushNotice('info', `Modello attivo: ${current}`, 'studio');
+					}
+				})();
 				return true;
 			}
 			session.pushNotice(
 				'info',
-				'Per scegliere un modello preciso usa il chip «modello» sotto il campo di scrittura, oppure /model next per ciclare.',
+				'Per scegliere un modello preciso usa il chip «modello» sotto il campo di scrittura, oppure /role next per ciclare i ruoli.',
 				'studio'
 			);
 			return true;

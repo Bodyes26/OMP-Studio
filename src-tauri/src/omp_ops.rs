@@ -1,8 +1,8 @@
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::Path;
@@ -438,37 +438,196 @@ pub struct SessionEntry {
     pub created_at: i64,
 }
 
-#[command]
-pub async fn sessions_list(project_path: String) -> Result<Vec<SessionEntry>, String> {
-    let conn = open_readonly_db("history.db")?;
+fn normalize_path_for_compare(path: &str) -> String {
+    path.replace('\\', "/").trim_end_matches('/').to_lowercase()
+}
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT session_id, prompt, MIN(created_at) as created_at 
-         FROM history 
-         WHERE cwd = ? AND prompt NOT LIKE '/%' 
-         GROUP BY session_id 
-         ORDER BY created_at DESC 
-         LIMIT 50",
-        )
-        .map_err(|e| e.to_string())?;
+fn scan_sessions_from_disk(
+    project_path: &str,
+    query: Option<&str>,
+    titles: &HashMap<String, String>,
+) -> Vec<SessionEntry> {
+    let Some(agent) = agent_dir() else {
+        return Vec::new();
+    };
+    let sessions_root = agent.join("sessions");
+    if !sessions_root.exists() {
+        return Vec::new();
+    }
 
-    let iter = stmt
-        .query_map([&project_path], |row| {
-            Ok(SessionEntry {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                created_at: row.get(2)?,
-            })
-        })
-        .map_err(|e| e.to_string())?;
+    let target_norm = normalize_path_for_compare(project_path);
+    let query_lower = query.map(|q| q.trim().to_lowercase());
+    let mut found = Vec::new();
 
-    let mut sessions = Vec::new();
-    for row in iter {
-        if let Ok(s) = row {
-            sessions.push(s);
+    let Ok(dir_entries) = std::fs::read_dir(&sessions_root) else {
+        return Vec::new();
+    };
+
+    for folder_entry in dir_entries.flatten() {
+        let folder_path = folder_entry.path();
+        if !folder_path.is_dir() {
+            continue;
+        }
+        let Ok(files) = std::fs::read_dir(&folder_path) else {
+            continue;
+        };
+        for file_entry in files.flatten() {
+            let path = file_entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+
+            let Ok(file) = File::open(&path) else {
+                continue;
+            };
+            let reader = BufReader::new(file);
+            let mut header_title = None;
+            let mut session_id = None;
+            let mut session_cwd = None;
+            let mut first_prompt = None;
+
+            for line in reader.lines().take(20).flatten() {
+                let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    continue;
+                };
+                let entry_type = val.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                if entry_type == "title" {
+                    if let Some(t) = val.get("title").and_then(|t| t.as_str()) {
+                        if !t.is_empty() {
+                            header_title = Some(t.to_string());
+                        }
+                    }
+                } else if entry_type == "session" {
+                    if let Some(id) = val.get("id").and_then(|i| i.as_str()) {
+                        session_id = Some(id.to_string());
+                    }
+                    if let Some(cwd) = val.get("cwd").and_then(|c| c.as_str()) {
+                        session_cwd = Some(cwd.to_string());
+                    }
+                    if header_title.is_none() {
+                        if let Some(t) = val.get("title").and_then(|t| t.as_str()) {
+                            if !t.is_empty() {
+                                header_title = Some(t.to_string());
+                            }
+                        }
+                    }
+                } else if entry_type == "message" && first_prompt.is_none() {
+                    let role = val
+                        .get("message")
+                        .and_then(|m| m.get("role"))
+                        .and_then(|r| r.as_str());
+                    if role == Some("user") {
+                        if let Some(content) = val.get("message").and_then(|m| m.get("content")) {
+                            if let Some(text) = content.as_str() {
+                                first_prompt = Some(text.to_string());
+                            } else if let Some(arr) = content.as_array() {
+                                for part in arr {
+                                    if part.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                        if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
+                                            first_prompt = Some(txt.to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if session_id.is_some() && session_cwd.is_some() && first_prompt.is_some() {
+                    break;
+                }
+            }
+
+            if let (Some(id), Some(cwd)) = (session_id, session_cwd) {
+                if normalize_path_for_compare(&cwd) == target_norm {
+                    let title = titles
+                        .get(&id)
+                        .cloned()
+                        .or(header_title)
+                        .or(first_prompt)
+                        .unwrap_or_else(|| "Nuova sessione".to_string());
+
+                    let matches = match &query_lower {
+                        None => true,
+                        Some(q) if q.is_empty() => true,
+                        Some(q) => title.to_lowercase().contains(q) || id.to_lowercase().contains(q),
+                    };
+
+                    if matches {
+                        let mtime = file_entry
+                            .metadata()
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+
+                        found.push(SessionEntry {
+                            id,
+                            title,
+                            created_at: mtime,
+                        });
+                    }
+                }
+            }
         }
     }
+
+    found
+}
+
+#[command]
+pub async fn sessions_list(project_path: String) -> Result<Vec<SessionEntry>, String> {
+    let mut titles = HashMap::new();
+    let mut history_sessions = Vec::new();
+
+    if let Ok(conn) = open_readonly_db("history.db") {
+        if let Ok(mut title_stmt) = conn.prepare("SELECT session_id, title FROM session_titles") {
+            if let Ok(iter) = title_stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
+                for row in iter.flatten() {
+                    titles.insert(row.0, row.1);
+                }
+            }
+        }
+
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT session_id, prompt, MIN(created_at) as created_at 
+             FROM history 
+             WHERE cwd = ? AND prompt NOT LIKE '/%' 
+             GROUP BY session_id 
+             ORDER BY created_at DESC 
+             LIMIT 50",
+        ) {
+            if let Ok(iter) = stmt.query_map([&project_path], |row| {
+                Ok(SessionEntry {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    created_at: row.get(2)?,
+                })
+            }) {
+                for row in iter.flatten() {
+                    history_sessions.push(row);
+                }
+            }
+        }
+    }
+
+    let mut sessions = scan_sessions_from_disk(&project_path, None, &titles);
+    let mut seen: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
+
+    for mut h in history_sessions {
+        if !seen.contains(&h.id) {
+            if let Some(t) = titles.get(&h.id) {
+                h.title = t.clone();
+            }
+            seen.insert(h.id.clone());
+            sessions.push(h);
+        }
+    }
+
+    sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    sessions.truncate(50);
 
     Ok(sessions)
 }
@@ -478,59 +637,85 @@ pub async fn sessions_search(
     query: String,
     project_path: Option<String>,
 ) -> Result<Vec<SessionEntry>, String> {
-    let conn = open_readonly_db("history.db")?;
+    let trimmed_query = query.trim().to_string();
+    let mut titles = HashMap::new();
+    let mut history_sessions = Vec::new();
 
-    let sql = if project_path.is_some() {
-        "SELECT h.session_id, h.prompt, h.created_at 
-         FROM history_fts f 
-         JOIN history h ON f.rowid = h.id 
-         WHERE history_fts MATCH ? AND h.cwd = ? 
-         GROUP BY h.session_id 
-         ORDER BY h.created_at DESC LIMIT 50"
-    } else {
-        "SELECT h.session_id, h.prompt, h.created_at 
-         FROM history_fts f 
-         JOIN history h ON f.rowid = h.id 
-         WHERE history_fts MATCH ? 
-         GROUP BY h.session_id 
-         ORDER BY h.created_at DESC LIMIT 50"
-    };
-
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-
-    let mut sessions = Vec::new();
-
-    if let Some(path) = project_path {
-        let iter = stmt
-            .query_map(rusqlite::params![query, path], |row| {
-                Ok(SessionEntry {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    created_at: row.get(2)?,
-                })
-            })
-            .map_err(|e| e.to_string())?;
-        for row in iter {
-            if let Ok(s) = row {
-                sessions.push(s);
+    if let Ok(conn) = open_readonly_db("history.db") {
+        if let Ok(mut title_stmt) = conn.prepare("SELECT session_id, title FROM session_titles") {
+            if let Ok(iter) = title_stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
+                for row in iter.flatten() {
+                    titles.insert(row.0, row.1);
+                }
             }
         }
-    } else {
-        let iter = stmt
-            .query_map([&query], |row| {
+
+        let sql = if project_path.is_some() {
+            "SELECT h.session_id, h.prompt, h.created_at 
+             FROM history_fts f 
+             JOIN history h ON f.rowid = h.id 
+             WHERE history_fts MATCH ? AND h.cwd = ? 
+             GROUP BY h.session_id 
+             ORDER BY h.created_at DESC LIMIT 50"
+        } else {
+            "SELECT h.session_id, h.prompt, h.created_at 
+             FROM history_fts f 
+             JOIN history h ON f.rowid = h.id 
+             WHERE history_fts MATCH ? 
+             GROUP BY h.session_id 
+             ORDER BY h.created_at DESC LIMIT 50"
+        };
+
+        if let Ok(mut stmt) = conn.prepare(sql) {
+            if let Some(path) = &project_path {
+                if let Ok(iter) = stmt.query_map(rusqlite::params![trimmed_query, path], |row| {
+                    Ok(SessionEntry {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        created_at: row.get(2)?,
+                    })
+                }) {
+                    for row in iter.flatten() {
+                        history_sessions.push(row);
+                    }
+                }
+            } else if let Ok(iter) = stmt.query_map([&trimmed_query], |row| {
                 Ok(SessionEntry {
                     id: row.get(0)?,
                     title: row.get(1)?,
                     created_at: row.get(2)?,
                 })
-            })
-            .map_err(|e| e.to_string())?;
-        for row in iter {
-            if let Ok(s) = row {
-                sessions.push(s);
+            }) {
+                for row in iter.flatten() {
+                    history_sessions.push(row);
+                }
             }
         }
     }
+
+    let mut sessions = if let Some(path) = &project_path {
+        scan_sessions_from_disk(path, Some(&trimmed_query), &titles)
+    } else {
+        Vec::new()
+    };
+
+    let mut seen: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
+    let query_lower = trimmed_query.to_lowercase();
+
+    for mut h in history_sessions {
+        if !seen.contains(&h.id) {
+            if let Some(t) = titles.get(&h.id) {
+                h.title = t.clone();
+            }
+            if h.title.to_lowercase().contains(&query_lower) || h.id.to_lowercase().contains(&query_lower) {
+                seen.insert(h.id.clone());
+                sessions.push(h);
+            }
+        }
+    }
+
+    sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    sessions.truncate(50);
 
     Ok(sessions)
 }
