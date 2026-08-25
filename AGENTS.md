@@ -26,9 +26,9 @@ Valgono per ogni agente e per ogni modifica al codice di questo repository.
   raster 96px da 3 KB, non l'SVG originale da 1,7 MB (356 tracciati, ~30.000
   segmenti bézier, ognuno più piccolo di 1/2000 di pixel a quella dimensione).
 - Le icone dell'applicazione si rigenerano dall'originale con un comando:
-  `npx tauri icon assets/app-icon.png`. Genera anche icone iOS/Android/macOS che
-  questa app (solo Windows) non usa: tenere in `src-tauri/icons/` **solo** i file
-  elencati in `bundle.icon` di `tauri.conf.json`.
+  `npx tauri icon assets/app-icon.png`. Genera anche icone mobili iOS/Android che
+  questa app desktop non usa: tenere in `src-tauri/icons/` **solo** i file
+  elencati in `bundle.icon` di `tauri.conf.json` (inclusi `icon.ico` per Windows e `icon.icns` per macOS).
 
 ## 1. Ogni modifica va controllata con git
 
@@ -65,8 +65,8 @@ rilasciato si annota lì subito, con la sua voce.
 1. Verifica che la modifica funzioni (smoke test / test mirato).
 2. Aggiungi la voce sotto `## [Unreleased]` nella categoria giusta
    (`Added`, `Changed`, `Fixed`, `Removed`).
-3. **Chiedi all'utente cosa pubblicare**, proponendo nell'ordine:
-   - **A — Pubblica Nightly (predefinita)**: non cambia la versione stabile e
+3. **Chiedi all'utente cosa pubblicare usando sempre il tool `ask`** (MAI solo come testo in chat), proponendo le opzioni nell'ordine:
+   - **A — Pubblica Nightly (predefinita)** (`recommended: 0`): non cambia la versione stabile e
      lascia il changelog in `[Unreleased]`. L'agente committa i soli percorsi
      del lavoro, esegue il push su `main`, esegue `npm run nightly` (build locale
      rapida per l'OS in uso) e verifica la prerelease `nightly` con installer e
@@ -75,10 +75,10 @@ rilasciato si annota lì subito, con la sua voce.
      patch, es. `1.1.0 → 1.1.1`). L'agente esegue autonomamente bump, commit,
      tag annotato, push e verifica degli installer pubblicati.
    - **C — Parcheggia**: resta in `[Unreleased]`, senza commit o pubblicazione.
-   - **D — Versione stabile specifica**: l'utente indica il numero; alla
+   - **D — Versione stabile specifica**: l'utente indica il numero (o tramite opzione libera del tool `ask`); alla
      conferma l'agente esegue l'intera pipeline fino alla verifica degli
      installer pubblicati.
-   Includi sempre la proposta predefinita **A**, la bozza della voce di
+   Includi sempre la proposta predefinita **A** (`recommended: 0`), la bozza della voce di
    changelog e l'indicazione che Nightly non chiude `[Unreleased]`.
 4. Non fare mai commit, push o bump senza risposta esplicita. Se l'utente non
    risponde, il lavoro resta parcheggiato.

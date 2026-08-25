@@ -38,6 +38,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nuova modalità «Modalità Ricerca Online» nello step di creazione ed editing dei task: istruisce l'agente ad approfondire l'ambito e la richiesta con ricerche online mirate (documentazione, riferimenti, librerie e best practice) dopo aver completato l'analisi del repository e del codice collegato prima di applicare modifiche.
 
 ### Fixed
+- Generato e incluso l'asset icona `icon.icns` per il Dock su macOS e per i bundle multipiattaforma (`bundle.icon`), garantendo che il Dock e la barra delle applicazioni mostrino sempre l'icona Pi aggiornata dell'applicazione.
+- Rimosso il doppio anello di focus durante la digitazione dei prompt nella chat GUI (eliminato il contorno `:focus-within` sul contenitore dell'input ed eliminato ogni outline/ring nativo o globale sulla textarea del Composer).
 - Riconoscimento e indicazione dei progetti in uso nel pannello delle quote di utilizzo (API Usage Limits) per i modelli e i subagenti attivi nella superficie GUI, con corrispondenza dei provider tra report dei consumi e catalogo modelli.
 - Ripristino immediato dell'altezza predefinita a riga singola per la textarea del prompt nel Composer della chat dopo l'invio o la cancellazione del messaggio, evitando che rimanga espansa a vuoto quando si inviano prompt lunghi o multilinea.
 - Risolto il blocco permanente delle sessioni create da task su GUI con stato «in sincronizzazione» e riga non cliccabile: la lettura dello storico unifica i file di sessione persistiti su disco (`~/.omp/agent/sessions/`) e la cronologia, consentendo di riprendere regolarmente le sessioni anche dopo la chiusura o il riavvio di Studio.

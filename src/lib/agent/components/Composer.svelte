@@ -170,6 +170,11 @@ $effect(() => {
 	// Auto-dimensionamento della textarea fino a circa 12 righe (~240px)
 	function adjustTextareaHeight() {
 		if (!textareaEl) return;
+		if (!text) {
+			textareaEl.style.height = '';
+			textareaEl.style.overflowY = 'hidden';
+			return;
+		}
 		textareaEl.style.height = 'auto';
 		const scrollH = textareaEl.scrollHeight;
 		const maxH = 240;
@@ -745,6 +750,7 @@ $effect(() => {
 
 		void tick().then(() => {
 			if (textareaEl) {
+				adjustTextareaHeight();
 				textareaEl.focus();
 				textareaEl.setSelectionRange(res.newCursorPos, res.newCursorPos);
 			}
@@ -870,9 +876,9 @@ $effect(() => {
 		<div class="status-item-wrap">
 			<button
 				type="button"
-				class="status-chip role-chip"
+				class="status-chip echo role-chip"
 				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Ruolo attivo (Alt+R per aprire il menu ruoli, Ctrl+P per ciclarlo)'}
-				aria-haspopup="dialog"
+				aria-haspopup="listbox"
 				aria-expanded={activeMenu === 'role'}
 				disabled={session.isStarting}
 				onclick={(e) => {
@@ -891,7 +897,7 @@ $effect(() => {
 			</button>
 
 			{#if activeMenu === 'role'}
-				<div class="dropdown-menu role-menu" role="dialog" tabindex="-1" aria-label="Ruoli configurati">
+				<div class="dropdown-menu role-menu" role="group" aria-label="Ruoli configurati">
 					<div class="menu-header">
 						<span>Ruoli (Alt+R)</span>
 						<div class="menu-header-actions">
@@ -899,18 +905,21 @@ $effect(() => {
 								Cicla (Ctrl+P)
 							</button>
 							<button type="button" class="menu-config-btn" onclick={openModelSettings} title="Gestione completa modelli e ruoli (Ctrl+Alt+M)">
-								⚙️
+								gestisci
 							</button>
 						</div>
 					</div>
 					<div class="menu-search-wrap">
-						<span class="search-icon">🔍</span>
+						<span class="search-icon">cerca</span>
 						<input
 							bind:this={roleSearchInputEl}
 							bind:value={roleFilterQuery}
 							type="text"
 							class="menu-search-input"
 							placeholder="Filtra ruoli..."
+							aria-autocomplete="list"
+							aria-controls="role-listbox"
+							aria-activedescendant={configuredRolesList[highlightedRoleIndex] ? `role-opt-${highlightedRoleIndex}` : undefined}
 							oninput={() => highlightedRoleIndex = 0}
 						/>
 						{#if roleFilterQuery}
@@ -924,17 +933,18 @@ $effect(() => {
 							</button>
 						{/if}
 					</div>
-					<div class="menu-body" bind:this={roleListEl} role="listbox" aria-label="Ruoli">
+					<div class="menu-body" id="role-listbox" bind:this={roleListEl} role="listbox" aria-label="Ruoli">
 						{#if configuredRolesList.length > 0}
 							{#each configuredRolesList as r, idx (r.id)}
 								{@const isSelected = activeRoleInfo?.id === r.id}
-								<button
-									type="button"
+								<div
+									id="role-opt-{idx}"
 									class="menu-item role-item"
 									class:selected={isSelected}
 									class:highlighted={highlightedRoleIndex === idx}
 									class:unconfigured={!r.isConfigured}
 									role="option"
+									tabindex="-1"
 									aria-selected={isSelected}
 									onclick={() => handleRoleSelect(r.id)}
 									onmouseenter={() => highlightedRoleIndex = idx}
@@ -955,7 +965,7 @@ $effect(() => {
 											<span class="role-item-sub unconfigured-sub">Non configurato — clicca per aprire</span>
 										{/if}
 									</div>
-								</button>
+								</div>
 							{/each}
 						{:else}
 							<div class="menu-empty">Nessun ruolo corrispondente</div>
@@ -974,9 +984,9 @@ $effect(() => {
 		<div class="status-item-wrap">
 			<button
 				type="button"
-				class="status-chip"
+				class="status-chip echo model-chip"
 				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Modello corrente (Alt+P per aprire il catalogo modelli)'}
-				aria-haspopup="dialog"
+				aria-haspopup="listbox"
 				aria-expanded={activeMenu === 'model'}
 				disabled={session.isStarting}
 				onclick={(e) => {
@@ -995,23 +1005,26 @@ $effect(() => {
 			</button>
 
 			{#if activeMenu === 'model'}
-				<div class="dropdown-menu model-menu" role="dialog" tabindex="-1" aria-label="Modelli disponibili">
+				<div class="dropdown-menu model-menu" role="group" aria-label="Modelli disponibili">
 					<div class="menu-header">
-						<span>Catalogo Modelli (Alt+P)</span>
+						<span>Catalogo modelli (Alt+P)</span>
 						<div class="menu-header-actions">
 							<button type="button" class="menu-config-btn" onclick={openModelSettings} title="Gestione completa modelli (Ctrl+Alt+M)">
-								⚙️
+								gestisci
 							</button>
 						</div>
 					</div>
 					<div class="menu-search-wrap">
-						<span class="search-icon">🔍</span>
+						<span class="search-icon">cerca</span>
 						<input
 							bind:this={modelSearchInputEl}
 							bind:value={modelFilterQuery}
 							type="text"
 							class="menu-search-input"
 							placeholder="Filtra modelli..."
+							aria-autocomplete="list"
+							aria-controls="model-listbox"
+							aria-activedescendant={filteredModels[highlightedModelIndex] ? `model-opt-${highlightedModelIndex}` : undefined}
 							oninput={() => highlightedModelIndex = 0}
 						/>
 						{#if modelFilterQuery}
@@ -1025,18 +1038,20 @@ $effect(() => {
 							</button>
 						{/if}
 					</div>
-					<div class="menu-body" bind:this={modelListEl} role="listbox" aria-label="Modelli">
+					<div class="menu-body" id="model-listbox" bind:this={modelListEl} role="listbox" aria-label="Modelli">
 						{#if loadingModels}
 							<div class="menu-loading">Caricamento modelli...</div>
 						{:else if filteredModels.length > 0}
 							{#each filteredModels as m, idx (m.provider + ':' + m.id)}
-								<button
-									type="button"
+								{@const isSelected = session.model?.id === m.id && session.model?.provider === m.provider}
+								<div
+									id="model-opt-{idx}"
 									class="menu-item"
-									class:selected={session.model?.id === m.id && session.model?.provider === m.provider}
+									class:selected={isSelected}
 									class:highlighted={highlightedModelIndex === idx}
 									role="option"
-									aria-selected={session.model?.id === m.id && session.model?.provider === m.provider}
+									tabindex="-1"
+									aria-selected={isSelected}
 									onclick={() => handleModelSelect(m)}
 									onmouseenter={() => highlightedModelIndex = idx}
 								>
@@ -1044,7 +1059,7 @@ $effect(() => {
 									{#if m.provider}
 										<span class="model-item-provider">{m.provider}</span>
 									{/if}
-								</button>
+								</div>
 							{/each}
 						{:else}
 							<div class="menu-empty">Nessun modello corrispondente</div>
@@ -1071,9 +1086,9 @@ $effect(() => {
 		<div class="status-item-wrap">
 			<button
 				type="button"
-				class="status-chip"
+				class="status-chip echo thinking-chip"
 				title="Livello di thinking (Alt+M per aprire il menu, Alt+T per ciclarlo)"
-				aria-haspopup="dialog"
+				aria-haspopup="listbox"
 				aria-expanded={activeMenu === 'thinking'}
 				onclick={(e) => {
 					e.stopPropagation();
@@ -1085,30 +1100,32 @@ $effect(() => {
 			</button>
 
 			{#if activeMenu === 'thinking'}
-				<div class="dropdown-menu thinking-menu" role="dialog" tabindex="-1" aria-label="Livello di thinking">
+				<div class="dropdown-menu thinking-menu" role="group" aria-label="Livello di thinking">
 					<div class="menu-header">
 						<span>Thinking (Alt+M)</span>
 						<button type="button" class="menu-cycle-btn" onclick={handleCycleThinking} title="Cicla rapido (Alt+T)">
 							Cicla (Alt+T)
 						</button>
 					</div>
-					<div class="menu-body" role="listbox">
+					<div class="menu-body" id="thinking-listbox" role="listbox" aria-label="Livelli di thinking">
 						{#each THINKING_LEVELS as lvl, idx (lvl)}
-							<button
-								type="button"
+							{@const isSelected = (session.thinkingLevel || 'off') === lvl}
+							<div
+								id="thinking-opt-{idx}"
 								class="menu-item"
-								class:selected={(session.thinkingLevel || 'off') === lvl}
+								class:selected={isSelected}
 								class:highlighted={highlightedThinkingIndex === idx}
 								role="option"
-								aria-selected={(session.thinkingLevel || 'off') === lvl}
+								tabindex="-1"
+								aria-selected={isSelected}
 								onclick={() => handleThinkingSelect(lvl)}
 								onmouseenter={() => highlightedThinkingIndex = idx}
 							>
 								<span>{lvl}</span>
-								{#if (session.thinkingLevel || 'off') === lvl}
+								{#if isSelected}
 									<span class="item-check">✓</span>
 								{/if}
-							</button>
+							</div>
 						{/each}
 					</div>
 					<div class="menu-footer-hint">
@@ -1131,7 +1148,7 @@ $effect(() => {
 				{formatTokens(session.contextUsage?.tokens)} / {formatTokens(session.contextUsage?.contextWindow)}
 			</span>
 			<div class="context-gauge-track" aria-hidden="true">
-				<div class="context-gauge-fill" style:width="{contextPercent}%"></div>
+				<div class="context-gauge-fill" style:transform="scaleX({contextPercent / 100})"></div>
 			</div>
 		</div>
 
@@ -1145,7 +1162,7 @@ $effect(() => {
 		<div class="status-item-wrap queue-settings-wrap">
 			<button
 				type="button"
-				class="status-chip queue-btn"
+				class="status-chip echo queue-btn"
 				title="Impostazioni di accodamento e interruzione (Alt+Q)"
 				aria-haspopup="dialog"
 				aria-expanded={activeMenu === 'queue'}
@@ -1158,7 +1175,7 @@ $effect(() => {
 			</button>
 
 			{#if activeMenu === 'queue'}
-				<div class="dropdown-menu queue-menu" role="dialog" tabindex="-1" aria-label="Impostazioni coda">
+				<div class="dropdown-menu queue-menu" role="group" aria-label="Impostazioni coda">
 					<div class="menu-header">
 						<span>Coda omp (Alt+Q)</span>
 					</div>
@@ -1316,7 +1333,7 @@ $effect(() => {
 		border: 1px solid var(--line);
 		border-radius: var(--radius-full);
 		color: var(--ink);
-		font-size: 11px;
+		font-size: var(--text-xs);
 		line-height: 1;
 		cursor: pointer;
 		padding: 0;
@@ -1332,8 +1349,8 @@ $effect(() => {
 		align-items: flex-end;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-sm);
 	}
-
 	.composer-textarea {
 		flex: 1;
 		min-height: 36px;
@@ -1342,6 +1359,7 @@ $effect(() => {
 		background: transparent;
 		border: none;
 		outline: none;
+		box-shadow: none;
 		resize: none;
 		font-family: var(--font-ui);
 		font-size: var(--text-base);
@@ -1349,6 +1367,11 @@ $effect(() => {
 		line-height: 1.45;
 	}
 
+	.composer-textarea:focus,
+	.composer-textarea:focus-visible {
+		outline: none;
+		box-shadow: none;
+	}
 	.composer-textarea::placeholder {
 		color: var(--ink-faint);
 	}
@@ -1375,25 +1398,45 @@ $effect(() => {
 		font-weight: 600;
 	}
 
+	.send-btn:hover {
+		background: var(--brand-dim);
+	}
+
+	.send-btn:active {
+		background: var(--brand-ink);
+	}
+
 	.send-btn:disabled {
 		opacity: 0.35;
-		cursor: not-allowed;
+		cursor: default;
 		background: var(--bg-hover);
 		color: var(--ink-faint);
 	}
 
 	.send-btn.stop {
-		background: var(--brand);
-		color: var(--on-brand);
+		background: var(--bg-base);
+		border: 1px solid var(--line-strong);
+		color: var(--danger);
+	}
+
+	.send-btn.stop:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
+		color: var(--danger);
+	}
+
+	.send-btn.stop:active {
+		background: var(--bg-active);
+		color: var(--danger);
 	}
 
 	.send-icon {
-		font-size: 14px;
+		font-size: var(--text-md);
 		line-height: 1;
 	}
 
 	.stop-icon {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		line-height: 1;
 	}
 
@@ -1416,7 +1459,7 @@ $effect(() => {
 	.status-chip {
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
+		gap: var(--space-1);
 		padding: 2px 4px;
 		background: transparent;
 		border: 1px solid transparent;
@@ -1433,10 +1476,45 @@ $effect(() => {
 		border-color: var(--line);
 		color: var(--ink);
 	}
+
+	.status-chip:disabled {
+		opacity: 0.5;
+		cursor: default;
+		background: transparent;
+		border-color: transparent;
+	}
+
+	.status-chip:disabled:hover {
+		background: transparent;
+		border-color: transparent;
+		color: var(--ink-muted);
+	}
+
+	.status-chip.echo {
+		color: var(--ink-faint);
+	}
+
+	.status-chip.echo .chip-val {
+		color: var(--ink-muted);
+	}
+
+	.status-chip.echo .role-glyph-inline {
+		color: var(--ink-muted);
+	}
+
+	.status-chip.echo:hover {
+		color: var(--ink);
+	}
+
+	.status-chip.echo:hover .chip-val,
+	.status-chip.echo:hover .role-glyph-inline {
+		color: var(--ink);
+	}
+
 	.status-readout {
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
+		gap: var(--space-1);
 		padding: 2px 0;
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
@@ -1446,76 +1524,58 @@ $effect(() => {
 
 	.chip-label {
 		color: var(--ink-faint);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		text-transform: lowercase;
 	}
 
 	.chip-val {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink);
 	}
 
 	.chip-val.starting {
 		display: inline-flex;
 		align-items: center;
-		gap: 5px;
+		gap: var(--space-2);
 		color: var(--ink-muted);
 	}
 
 	.starting-spinner {
 		display: inline-block;
-		width: 9px;
-		height: 9px;
-		border: 1.5px solid var(--ink-faint);
-		border-top-color: var(--brand-ink, var(--brand));
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+		width: 6px;
+		height: 6px;
+		background: var(--brand);
+		border-radius: var(--radius-full);
 	}
 
 	.startup-badge {
 		display: inline-flex;
 		align-items: center;
-		gap: 5px;
-		padding: 2px 7px;
-		background: color-mix(in srgb, var(--brand) 10%, transparent);
-		border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
+		gap: var(--space-2);
+		padding: 2px var(--space-2);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		font-size: 11px;
-		color: var(--brand-ink, var(--brand));
+		font-size: var(--text-xs);
+		color: var(--brand-ink);
 		line-height: 1;
 	}
 
 	.starting-dot {
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		border-radius: var(--radius-full);
 		background: var(--brand);
-		animation: pulse-dot 1.4s ease-in-out infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	@keyframes pulse-dot {
-		0%, 100% {
-			opacity: 0.4;
-			transform: scale(0.85);
-		}
-		50% {
-			opacity: 1;
-			transform: scale(1.15);
-		}
 	}
 
 	.context-chip {
 		cursor: default;
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	.context-chip:hover {
@@ -1527,15 +1587,17 @@ $effect(() => {
 		width: 36px;
 		height: 2px;
 		background: var(--line-strong);
-		border-radius: 1px;
+		border-radius: var(--radius-full);
 		overflow: hidden;
 		margin-left: 2px;
 	}
 
 	.context-gauge-fill {
+		width: 100%;
 		height: 100%;
 		background: var(--brand-ink);
-		transition: width var(--dur-fast) var(--ease-out);
+		transform-origin: left;
+		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
 	.cost-chip {
@@ -1556,7 +1618,7 @@ $effect(() => {
 	}
 
 	.queue-icon {
-		font-size: 11px;
+		font-size: var(--text-xs);
 		line-height: 1;
 		color: var(--ink-faint);
 	}
@@ -1568,7 +1630,6 @@ $effect(() => {
 		left: 0;
 		margin-bottom: var(--space-1);
 		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);
@@ -1591,12 +1652,11 @@ $effect(() => {
 		padding: var(--space-1) var(--space-2);
 		background: var(--bg-sunken);
 		border-bottom: 1px solid var(--line);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
 		color: var(--ink-faint);
 	}
+
 	.menu-header-actions {
 		display: flex;
 		align-items: center;
@@ -1608,7 +1668,7 @@ $effect(() => {
 		background: transparent;
 		border: none;
 		color: var(--brand-ink);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		cursor: pointer;
 		padding: 0;
 	}
@@ -1621,12 +1681,12 @@ $effect(() => {
 	.role-chip .role-val {
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
+		gap: var(--space-1);
 	}
 
 	.role-glyph-inline {
 		color: var(--brand-ink);
-		font-size: 11px;
+		font-size: var(--text-xs);
 	}
 
 	.role-menu {
@@ -1640,7 +1700,7 @@ $effect(() => {
 	}
 
 	.role-item-glyph {
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--brand-ink);
 		flex-shrink: 0;
 		margin-top: 1px;
@@ -1667,7 +1727,7 @@ $effect(() => {
 	}
 
 	.role-item-sub {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
 		overflow: hidden;
@@ -1685,8 +1745,9 @@ $effect(() => {
 	}
 
 	.role-item-sub.unconfigured-sub {
-		color: var(--warning-ink, #d97706);
+		color: var(--warn);
 	}
+
 	.menu-body {
 		max-height: 220px;
 		overflow-y: auto;
@@ -1732,7 +1793,7 @@ $effect(() => {
 	}
 
 	.model-item-provider {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		white-space: nowrap;
 	}
@@ -1757,10 +1818,8 @@ $effect(() => {
 	}
 
 	.section-title {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
 	}
 
 	.section-buttons {
@@ -1779,7 +1838,7 @@ $effect(() => {
 		border-radius: calc(var(--radius-sm) - 1px);
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		cursor: pointer;
 		text-align: center;
 	}
@@ -1789,6 +1848,7 @@ $effect(() => {
 		color: var(--ink);
 		font-weight: 500;
 	}
+
 	/* Barra di ricerca nel menu modelli */
 	.menu-search-wrap {
 		display: flex;
@@ -1803,7 +1863,6 @@ $effect(() => {
 		flex: 1;
 		background: transparent;
 		border: none;
-		outline: none;
 		font-family: var(--font-ui);
 		font-size: var(--text-xs);
 		color: var(--ink);
@@ -1820,7 +1879,7 @@ $effect(() => {
 		border: none;
 		color: var(--ink-muted);
 		cursor: pointer;
-		font-size: 14px;
+		font-size: var(--text-md);
 		line-height: 1;
 		padding: 0 2px;
 	}
@@ -1830,7 +1889,7 @@ $effect(() => {
 	}
 
 	.search-icon {
-		font-size: 11px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
 
@@ -1840,7 +1899,7 @@ $effect(() => {
 	}
 
 	.item-check {
-		font-size: 11px;
+		font-size: var(--text-xs);
 		color: var(--brand-ink);
 		font-weight: 600;
 	}
@@ -1850,10 +1909,10 @@ $effect(() => {
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-2);
-		padding: 3px var(--space-2);
+		padding: var(--space-1) var(--space-2);
 		background: var(--bg-sunken);
 		border-top: 1px solid var(--line);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		user-select: none;
 	}
@@ -1871,9 +1930,9 @@ $effect(() => {
 		padding: 1px 4px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line-strong);
-		border-radius: 3px;
+		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 9px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
 
@@ -1882,7 +1941,7 @@ $effect(() => {
 	}
 
 	.shortcut-hint {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
 </style>
