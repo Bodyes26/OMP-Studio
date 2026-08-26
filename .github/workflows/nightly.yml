@@ -65,7 +65,8 @@ jobs:
     name: Aggiorna il canale nightly
     needs: build
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
     steps:
       - name: Checkout del commit
         uses: actions/checkout@v4
@@ -97,20 +98,26 @@ jobs:
           printf 'Build automatica del commit `%s` sul ramo `main`.\n\nQuesta versione può contenere modifiche non ancora verificate per il canale stabile.\n' \
             "$GITHUB_SHA" > nightly-notes.md
 
-      - name: Sostituisce la prerelease nightly
+      - name: Pubblica o aggiorna la prerelease nightly
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           NIGHTLY_VERSION: ${{ steps.nightly.outputs.version }}
         shell: bash
         run: |
-          if gh release view nightly >/dev/null 2>&1; then
-            gh release delete nightly --yes
-          fi
           git tag -f nightly "$GITHUB_SHA"
           git push origin refs/tags/nightly --force
-          gh release create nightly release-assets/* nightly.json \
-            --verify-tag \
-            --prerelease \
-            --title "Nightly $NIGHTLY_VERSION" \
-            --notes-file nightly-notes.md
+
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly \
+              --title "Nightly $NIGHTLY_VERSION" \
+              --notes-file nightly-notes.md \
+              --prerelease
+            gh release upload nightly release-assets/* nightly.json --clobber
+          else
+            gh release create nightly release-assets/* nightly.json \
+              --verify-tag \
+              --prerelease \
+              --title "Nightly $NIGHTLY_VERSION" \
+              --notes-file nightly-notes.md
+          fi

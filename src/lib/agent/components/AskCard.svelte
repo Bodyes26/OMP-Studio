@@ -138,14 +138,15 @@
 	}
 </script>
 
+<svelte:window onkeydown={(e) => { if (cardEl && cardEl.contains(document.activeElement)) onCardKeydown(e); }} />
+
 <div
 	class="ask-card"
-	role="group"
+	role="region"
 	aria-label={parsedTitle.text || 'Richiesta agente'}
 	aria-labelledby="ask-title"
 	tabindex="-1"
 	bind:this={cardEl}
-	onkeydown={onCardKeydown}
 >
 	<div class="header">
 		<div class="title-row">

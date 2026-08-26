@@ -37,6 +37,7 @@ futures-util = "0.3"
 # Riassemblaggio dei frame `rpc_chunk` del protocollo v2: il payload dei
 # chunk e' base64 e va decodificato in Rust, non nel webview.
 base64 = "0.22"
+sha2 = "0.10"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
@@ -46,8 +47,18 @@ tauri-plugin-window-state = "2"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    "Win32_Security",
     "Win32_System_Com",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[profile.release]
+# Ottimizzazione per dimensione del binario finale ed esecuzione (LTO completa)
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

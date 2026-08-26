@@ -20,6 +20,7 @@
     "dialog:default",
     "notification:default",
     "core:window:allow-set-focus",
-    "core:window:allow-request-user-attention"
+    "core:window:allow-request-user-attention",
+    "studio-updater"
   ]
 }

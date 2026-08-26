@@ -1,0 +1,32 @@
+# Permessi per l'updater di Studio
+[[permission]]
+identifier = "allow-check-studio-update"
+description = "Permette di verificare gli aggiornamenti di Studio e leggere la versione installata"
+commands.allow = [
+    "get_studio_version",
+    "check_studio_update"
+]
+
+[[permission]]
+identifier = "allow-studio-update-download"
+description = "Permette di avviare e annullare il download con integrità verificata"
+commands.allow = [
+    "start_studio_update_download",
+    "cancel_studio_update_download"
+]
+
+[[permission]]
+identifier = "allow-studio-update-install"
+description = "Permette di eseguire l'installazione verificata e riavviare Studio"
+commands.allow = [
+    "install_studio_update_and_restart"
+]
+
+[[set]]
+identifier = "studio-updater"
+description = "Set di permessi confinati per l'updater di Studio"
+permissions = [
+    "allow-check-studio-update",
+    "allow-studio-update-download",
+    "allow-studio-update-install"
+]

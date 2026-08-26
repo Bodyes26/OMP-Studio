@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
 	import { settingsStore, type NotificationStyle } from '$lib/stores/settings.svelte';
+	import { notificationManager } from '$lib/stores/notifications.svelte';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
 
 	let permissionStatus = $state<'granted' | 'denied' | 'default' | 'unknown'>('unknown');
+	let testResult = $state<{ ok: boolean; message: string; diagnostic?: string } | null>(null);
+	let sendingTest = $state(false);
 
 	const STYLE_OPTIONS: { id: NotificationStyle; label: string; desc: string }[] = [
 		{
@@ -23,6 +27,36 @@
 			permissionStatus = granted ? 'granted' : 'default';
 		} catch {
 			permissionStatus = 'unknown';
+		}
+	}
+
+	async function runTestNotification() {
+		if (sendingTest) return;
+		sendingTest = true;
+		testResult = null;
+		try {
+			const res = await notificationManager.sendTestNotification();
+			if (res.ok) {
+				testResult = {
+					ok: true,
+					message: 'Notifica inviata con successo al sistema operativo. Se non la vedi, controlla la modalità Non Disturbare o Focus di Windows.'
+				};
+			} else {
+				testResult = {
+					ok: false,
+					message: 'Impossibile recapitare la notifica di sistema.',
+					diagnostic: res.error ?? 'Errore sconosciuto nel canale notifiche.'
+				};
+			}
+			await checkPermission();
+		} catch (e) {
+			testResult = {
+				ok: false,
+				message: 'Errore durante l\'invio della notifica di prova.',
+				diagnostic: String(e)
+			};
+		} finally {
+			sendingTest = false;
 		}
 	}
 
@@ -63,8 +97,40 @@
 		<button type="button" class="btn btn-secondary" onclick={() => settingsStore.reset('notifications')}>Ripristina</button>
 	</div>
 
+	{#if permissionStatus === 'denied'}
+		<AlertBanner
+			variant="warning"
+			title="Notifiche disabilitate dal sistema operativo"
+			message="Il sistema operativo sta bloccando le notifiche per OMP Studio."
+			diagnostic="Su Windows 11: apri Impostazioni > Sistema > Notifiche e assicurati che 'OMP Studio' sia impostato su 'Attivato'.&#10;Su macOS: apri Impostazioni di Sistema > Notifiche > OMP Studio > Consenti notifiche."
+		/>
+	{/if}
+
+	{#if testResult}
+		<AlertBanner
+			variant={testResult.ok ? 'success' : 'error'}
+			title={testResult.ok ? 'Test notifica completato' : 'Test notifica fallito'}
+			message={testResult.message}
+			diagnostic={testResult.diagnostic}
+			dismissible={true}
+			onDismiss={() => (testResult = null)}
+			onRetry={!testResult.ok ? runTestNotification : undefined}
+			retryLabel="Riprova test"
+		/>
+	{/if}
+
 	<div class="section-block">
-		<span class="block-title">Notifiche di sistema</span>
+		<div class="block-head-row">
+			<span class="block-title">Notifiche di sistema</span>
+			<button
+				type="button"
+				class="btn btn-sm btn-test"
+				onclick={runTestNotification}
+				disabled={sendingTest || !settingsStore.notifications.enabled}
+			>
+				{sendingTest ? 'Invio in corso...' : 'Invia notifica di prova'}
+			</button>
+		</div>
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
@@ -123,7 +189,6 @@
 			</div>
 		</div>
 	</div>
-
 	<div class="section-block">
 		<span class="block-title">Icona applicazione (Dock & Barra delle applicazioni)</span>
 		<div class="section-group">
@@ -257,6 +322,33 @@
 	}
 
 	select:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.block-head-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.btn-sm {
+		padding: 3px 10px;
+		font-size: var(--text-xs);
+	}
+
+	.btn-test {
+		background: var(--bg-raised);
+		color: var(--brand);
+		border: 1px solid var(--line);
+	}
+
+	.btn-test:hover:not(:disabled) {
+		background: var(--bg-hover);
+		border-color: var(--brand);
+	}
+
+	.btn-test:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}

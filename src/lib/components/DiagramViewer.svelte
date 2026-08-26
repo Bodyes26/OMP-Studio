@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import { sanitizeSvg } from '$lib/editor/svgSandbox';
 
 	let {
 		projectPath,
@@ -67,7 +68,7 @@
 				}
 			});
 			const { svg } = await mermaidApi.render('studio-diagram-' + Date.now(), mermaid);
-			svgHost.innerHTML = svg;
+			svgHost.innerHTML = sanitizeSvg(svg);
 			// Adatta l'SVG al contenitore: rimuove larghezza fissa e lascia
 			// fare lo scaling alla transform della whiteboard.
 			const svgEl = svgHost.querySelector('svg');
@@ -197,11 +198,11 @@
 		<div class="diagram-toolbar">
 			<span class="diagram-title" title={diagram.title}>{diagram.title}</span>
 			<span class="toolbar-spacer"></span>
-			<button class="tool-btn" onclick={fitToView} title="Adatta alla finestra (Ctrl+0)">Adatta</button>
-			<button class="tool-btn" onclick={() => (scale = clampScale(scale * 1.25))} title="Zoom in">+</button>
-			<button class="tool-btn" onclick={() => (scale = clampScale(scale / 1.25))} title="Zoom out">&minus;</button>
+			<button class="tool-btn" onclick={fitToView} title="Adatta alla finestra (Ctrl+0)" aria-label="Adatta diagramma alla finestra (Ctrl+0)">Adatta</button>
+			<button class="tool-btn" onclick={() => (scale = clampScale(scale * 1.25))} title="Zoom in" aria-label="Ingrandisci diagramma (Zoom in)">+</button>
+			<button class="tool-btn" onclick={() => (scale = clampScale(scale / 1.25))} title="Zoom out" aria-label="Riduci diagramma (Zoom out)">&minus;</button>
 			<span class="zoom-label">{Math.round(scale * 100)}%</span>
-			<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)">×</button>
+			<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)" aria-label="Chiudi visualizzatore diagramma (Esc)">×</button>
 		</div>
 		<div
 			class="diagram-viewport"

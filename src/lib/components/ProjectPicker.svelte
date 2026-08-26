@@ -2,6 +2,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { projectStore, normalizeProjectPath, joinProjectPath } from '$lib/stores/projects.svelte';
+	import { trapFocus } from '$lib/focusTrap';
 
 	let { open = false, onClose } = $props<{ open?: boolean; onClose?: () => void }>();
 
@@ -91,25 +92,34 @@
 </script>
 
 {#if open}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="backdrop" onclick={() => onClose?.()}></div>
-	<div class="palette">
+	<button type="button" class="backdrop" onclick={() => onClose?.()} aria-label="Chiudi selettore progetto" tabindex="-1"></button>
+	<div
+		class="palette"
+		role="dialog"
+		aria-modal="true"
+		aria-label="Apri cartella progetto"
+		use:trapFocus={{ onEscape: () => onClose?.() }}
+	>
 		<input
 			bind:this={inputEl}
 			bind:value={query}
 			onkeydown={onKeydown}
 			placeholder="Cerca una cartella in {projectStore.projectRoot}"
+			aria-label="Cerca cartella progetto"
 			spellcheck="false"
 		/>
-		<div class="rows">
+		<div class="rows" role="listbox" aria-label="Cartelle progetto">
 			{#if error}
-				<div class="error">Impossibile leggere {projectStore.projectRoot}: {error}</div>
+				<div class="error" role="alert">Impossibile leggere {projectStore.projectRoot}: {error}</div>
 			{/if}
 			{#each filtered as c, i (c.path)}
 				<button
+					type="button"
 					class="row"
 					class:sel={i === selectedIndex}
+					role="option"
+					aria-selected={i === selectedIndex}
+					aria-label={`${c.name} - ${c.path}${openKeys.has(c.path.toLowerCase()) ? ' (già aperto)' : ''}`}
 					onmouseenter={() => index = i}
 					onclick={() => pick(i)}
 				>
@@ -121,12 +131,17 @@
 				</button>
 			{/each}
 			<button
+				type="button"
 				class="row browse"
 				class:sel={selectedIndex === filtered.length}
+				role="option"
+				aria-selected={selectedIndex === filtered.length}
+				aria-label="Sfoglia un'altra cartella"
 				onmouseenter={() => index = filtered.length}
 				onclick={() => browse()}
 			>
-				<span class="name">Sfoglia cartella…</span>
+				<span class="name">Sfoglia…</span>
+				<span class="path">Apri una cartella fuori da {projectStore.projectRoot}</span>
 			</button>
 		</div>
 	</div>

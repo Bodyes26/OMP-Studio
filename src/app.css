@@ -171,10 +171,24 @@ input, textarea, button {
   background-clip: padding-box;
 }
 
+/* Accessibilità: indicatore di focus da tastiera conforme WCAG AA */
 :focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
   border-radius: inherit;
+}
+
+/* Utility visivamente nascosta per screen reader (WCAG 2.1 compliant) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 /* Decorazioni di gutter git in Monaco: elementi DOM, quindi i token valgono. */
 .git-gutter-added {

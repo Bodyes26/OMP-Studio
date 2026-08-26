@@ -207,6 +207,12 @@
 									<span class="asset-name">{studioUpdaterStore.updateInfo.asset.name}</span>
 									<span class="asset-size">{formatBytes(studioUpdaterStore.updateInfo.asset.size)}</span>
 								</div>
+								{#if studioUpdaterStore.updateInfo.asset.sha256}
+									<div class="sha-badge" title="SHA-256 verificato: {studioUpdaterStore.updateInfo.asset.sha256}">
+										<span class="sha-label">SHA256:</span>
+										<code class="sha-code">{studioUpdaterStore.updateInfo.asset.sha256.slice(0, 10)}…</code>
+									</div>
+								{/if}
 							</div>
 						{:else}
 							<div class="no-asset-notice">
@@ -218,7 +224,7 @@
 
 				<!-- Progresso Download -->
 				{#if studioUpdaterStore.isDownloading && studioUpdaterStore.downloadProgress}
-					<div class="progress-section">
+					<div class="progress-section" role="status" aria-live="polite">
 						<div class="progress-header">
 							<span class="progress-title">Scaricamento in corso...</span>
 							<span class="progress-pct">{studioUpdaterStore.downloadProgress.percentage.toFixed(0)}%</span>
@@ -242,7 +248,7 @@
 
 				<!-- Messaggio di Download Completato -->
 				{#if studioUpdaterStore.downloadProgress?.status === 'finished'}
-					<div class="finished-banner">
+					<div class="finished-banner" role="status" aria-live="polite">
 						<div class="finished-text">
 							<strong>Pacchetto scaricato con successo!</strong>
 							<span>Clicca su "Riavvia e Installa" per completare l'aggiornamento e riaprire OMP Studio.</span>
@@ -252,7 +258,7 @@
 
 				<!-- Messaggi di Errore -->
 				{#if studioUpdaterStore.errorMessage}
-					<div class="error-banner" role="alert">
+					<div class="error-banner" role="alert" aria-live="assertive">
 						<span class="error-text">{studioUpdaterStore.errorMessage}</span>
 					</div>
 				{/if}
@@ -651,6 +657,7 @@
 	.asset-info {
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
 		background: var(--bg-base);
@@ -658,6 +665,30 @@
 		border-radius: var(--radius-md);
 	}
 
+	.sha-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 2px 6px;
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--brand) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
+		font-size: var(--text-xs);
+		color: var(--brand);
+		white-space: nowrap;
+	}
+
+	.sha-label {
+		font-weight: 600;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.sha-code {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+	}
 
 	.asset-text {
 		display: flex;

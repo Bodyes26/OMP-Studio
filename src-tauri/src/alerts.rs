@@ -267,3 +267,78 @@ fn win_clear_overlay_icon(window: &WebviewWindow) {
         }
     }
 }
+
+/// Configura l'AppUserModelId (AUMID) e i metadati di notifica per Windows 10/11.
+/// Questo assicura che le notifiche toast mostrino l'icona e il nome di OMP Studio
+/// e vengano integrate correttamente nel Centro Notifiche di Windows.
+#[cfg(target_os = "windows")]
+pub fn init_windows_aumid() {
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::process::CommandExt;
+
+    const AUMID_STR: &str = "sh.omp.studio";
+    let aumid: Vec<u16> = std::ffi::OsStr::new(AUMID_STR)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        let hr = windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(aumid.as_ptr());
+        if hr < 0 {
+            eprintln!("[Alerts] SetCurrentProcessExplicitAppUserModelID HRESULT: 0x{:08X}", hr);
+        }
+    }
+
+    // Registra nel registro HKCU\Software\Classes\AppUserModelId\sh.omp.studio
+    if let Ok(exe) = std::env::current_exe() {
+        let exe_path = exe.to_string_lossy().to_string();
+        let script = format!(
+            "$path = 'HKCU:\\Software\\Classes\\AppUserModelId\\{}';\
+             if (-not (Test-Path $path)) {{ New-Item -Path $path -Force | Out-Null }};\
+             Set-ItemProperty -Path $path -Name 'DisplayName' -Value 'OMP Studio' -Force;\
+             Set-ItemProperty -Path $path -Name 'IconBackgroundColor' -Value '0' -Force;\
+             Set-ItemProperty -Path $path -Name 'ShowInSettings' -Value 1 -Type DWord -Force;\
+             Set-ItemProperty -Path $path -Name 'IconUri' -Value '{}' -Force;",
+            AUMID_STR,
+            exe_path.replace('\'', "''")
+        );
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ]);
+        cmd.creation_flags(0x0800_0000);
+        let _ = cmd.output();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn init_windows_aumid() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_init_windows_aumid_registers_registry_keys() {
+        init_windows_aumid();
+
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-ItemProperty -Path 'HKCU:\\Software\\Classes\\AppUserModelId\\sh.omp.studio').DisplayName",
+        ]);
+        cmd.creation_flags(0x0800_0000);
+        let out = cmd.output().expect("verifica AUMID");
+        let display_name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        assert_eq!(display_name, "OMP Studio");
+    }
+}

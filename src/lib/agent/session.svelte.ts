@@ -24,7 +24,8 @@ import {
 	type SessionStats,
 	type StreamingBehavior,
 	type ThinkingLevel,
-	type TodoPhase
+	type TodoPhase,
+	StreamBatcher
 } from './wire';
 
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
@@ -203,6 +204,15 @@ export class AgentSession {
 	private opening: Promise<void> | null = null;
 	private requestedResume: string | null = null;
 	private recoveredResume: string | null = null;
+	private isAttaching = false;
+	private attachEventQueue: AgentSessionEvent[] = [];
+	private isAborting = false;
+	private unsubscribeEvent: (() => void) | null = null;
+	private deltaBatcher = new StreamBatcher((items) => {
+		for (const item of items) {
+			this.applyBufferedDelta(item.kind, item.contentIndex, item.delta);
+		}
+	});
 	/**
 	 * Messaggio dell'utente gia' disegnato in attesa dell'eco di omp. Senza,
 	 * il testo sparisce dal campo di scrittura e riappare solo al ritorno del
@@ -221,7 +231,7 @@ export class AgentSession {
 	}
 	constructor(cwd: string) {
 		this.cwd = cwd;
-		this.client.onEvent((event) => this.reduce(event));
+		this.unsubscribeEvent = this.client.onEvent((event) => this.reduce(event));
 	}
 
 	get visibleEntries(): TranscriptEntry[] {
@@ -265,10 +275,16 @@ export class AgentSession {
 	}
 
 	async close() {
+		this.unsubscribeEvent?.();
+		this.unsubscribeEvent = null;
 		await this.client.close();
 		this.isReady = false;
 		this.isAttached = false;
+		this.isAttaching = false;
+		this.isAborting = false;
+		this.attachEventQueue = [];
 		this.pendingStartupPrompts = [];
+		this.deltaBatcher.clear();
 	}
 
 	/**
@@ -278,7 +294,8 @@ export class AgentSession {
 	 */
 	private async attach() {
 		if (this.isAttached) return;
-		this.isAttached = true;
+		this.isAttaching = true;
+		this.attachEventQueue = [];
 		try {
 			await this.refreshState();
 			await this.client.send({ type: 'set_subagent_subscription', level: 'progress' });
@@ -288,6 +305,17 @@ export class AgentSession {
 		} catch (error) {
 			this.pushNotice('error', `Insediamento della sessione non completato: ${this.reason(error)}`);
 		}
+
+		// 1. Svuota e sincronizza in ordine FIFO la coda eventi accumulata durante l'insediamento
+		this.isAttaching = false;
+		const queuedEvents = this.attachEventQueue;
+		this.attachEventQueue = [];
+		for (const queuedEvent of queuedEvents) {
+			this.reduce(queuedEvent);
+		}
+
+		this.isAttached = true;
+
 		const recoveredResume = this.recoveredResume;
 		if (recoveredResume) {
 			this.recoveredResume = null;
@@ -296,6 +324,8 @@ export class AgentSession {
 				`La sessione ${recoveredResume} non è più disponibile. È stata avviata una nuova chat.`
 			);
 		}
+
+		// 2. Svuota e invia i prompt di avvio in ordine FIFO
 		await this.flushStartupPrompts();
 	}
 
@@ -325,7 +355,14 @@ export class AgentSession {
 		if (typeof state.sessionFile === 'string') this.sessionFile = state.sessionFile;
 		if (typeof state.sessionName === 'string') this.sessionName = state.sessionName;
 		if (Array.isArray(state.todoPhases)) this.todoPhases = state.todoPhases;
-		if (typeof state.isStreaming === 'boolean') this.isStreaming = state.isStreaming;
+		if (typeof state.isStreaming === 'boolean') {
+			this.isStreaming = state.isStreaming;
+			if (!state.isStreaming && this.agentState === 'working') {
+				this.agentState = this.pendingUi ? 'attention' : 'idle';
+				this.assistantEntry = null;
+				this.activeAssistantId = null;
+			}
+		}
 		if (typeof state.isCompacting === 'boolean') this.isCompacting = state.isCompacting;
 		if (typeof state.queuedMessageCount === 'number') {
 			this.queuedMessageCount = state.queuedMessageCount;
@@ -507,12 +544,28 @@ export class AgentSession {
 	}
 
 	/* ------------------------------------------------------------ riduttore */
-
 	private reduce(event: AgentSessionEvent) {
+		// Se la sessione e' in fase di attach, accoda tutti gli eventi in ordine FIFO
+		// tranne quelli di terminazione/errore critico che interrompono l'attach.
+		if (this.isAttaching) {
+			if (event.type === 'studio_exit' || event.type === 'studio_error') {
+				this.isAttaching = false;
+				this.attachEventQueue = [];
+			} else {
+				this.attachEventQueue.push(event);
+				return;
+			}
+		}
+
+		if (event.type !== 'studio_delta') {
+			this.deltaBatcher.flush();
+		}
+
 		switch (event.type) {
 			case 'ready':
 				this.requestedResume = null;
 				this.isReady = true;
+				this.isAborting = false;
 				void this.attach();
 				return;
 
@@ -544,7 +597,7 @@ export class AgentSession {
 						attribution: message.attribution
 					});
 				} else if (message.role === 'assistant') {
-					if (!this.isStreaming) return;
+					if (!this.isStreaming || this.isAborting) return;
 					// `push` restituisce l'istanza dentro l'array reattivo: tenere
 					// l'oggetto grezzo significherebbe mutarlo fuori dal proxy di
 					// Svelte e non far mai comparire il testo in streaming.
@@ -571,17 +624,22 @@ export class AgentSession {
 
 			case 'message_end': {
 				const message = this.asMessage(event.message);
-				if (!message || message.role !== 'assistant' || !this.assistantEntry) return;
-				this.assistantEntry.usage = message.usage;
-				this.assistantEntry.model = message.model;
-				this.assistantEntry.stopReason = message.stopReason;
-				this.assistantEntry = null;
+				if (!message || message.role !== 'assistant') return;
+				if (this.assistantEntry) {
+					this.assistantEntry.usage = message.usage;
+					this.assistantEntry.model = message.model;
+					if (!this.assistantEntry.stopReason) {
+						this.assistantEntry.stopReason = message.stopReason;
+					}
+					this.assistantEntry = null;
+				}
 				this.activeAssistantId = null;
 				return;
 			}
 
 			case 'tool_execution_start': {
 				if (typeof event.toolCallId !== 'string' || typeof event.toolName !== 'string') return;
+				if (!this.isStreaming || this.isAborting) return;
 				const entry: ToolEntry = {
 					id: this.nextEntryId++,
 					kind: 'tool',
@@ -595,54 +653,80 @@ export class AgentSession {
 				// Stessa ragione dell'entry assistant: nella mappa va l'istanza
 				// reattiva, non quella grezza appena costruita.
 				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
+				this.agentState = 'working';
 				return;
 			}
 
 			case 'tool_execution_update': {
 				const entry = typeof event.toolCallId === 'string' ? this.toolEntries.get(event.toolCallId) : undefined;
 				if (!entry || !event.partialResult) return;
+				if (!entry.running && entry.result?.isError) return;
 				entry.result = event.partialResult;
 				return;
 			}
 
 			case 'tool_execution_end': {
 				const entry = typeof event.toolCallId === 'string' ? this.toolEntries.get(event.toolCallId) : undefined;
-				if (!entry) return;
-				if (event.result) entry.result = event.result;
-				entry.running = false;
-				entry.endedAt = Date.now();
+				if (entry) {
+					if (event.result && (!entry.result || !entry.result.isError)) entry.result = event.result;
+					entry.running = false;
+					entry.endedAt = Date.now();
+				}
+				if (!this.isStreaming) {
+					const hasRunning = Array.from(this.toolEntries.values()).some((t) => t.running);
+					if (!hasRunning) {
+						this.agentState = this.pendingUi ? 'attention' : 'idle';
+					}
+				}
 				return;
 			}
 
 			case 'agent_start':
+				if (this.isAborting) return;
 				this.isStreaming = true;
 				this.agentState = 'working';
 				return;
 
-			case 'agent_end':
-				// `isTerminal: false` significa che la sessione riprendera': non
-				// e' la fine del turno e non cambia stato.
-				if (event.isTerminal === false) return;
+			case 'agent_end': {
+				const wasAborting = this.isAborting;
+				this.isAborting = false;
+				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato richiesto un abort
+				if (event.isTerminal === false && !wasAborting) return;
 				this.isStreaming = false;
+				this.isCompacting = false;
+				this.assistantEntry = null;
+				this.activeAssistantId = null;
+				this.agentState = this.pendingUi ? 'attention' : 'idle';
+				void this.reconcile();
+				return;
+			}
+			case 'turn_start':
+				if (this.isAborting) return;
+				this.agentState = 'working';
+				return;
+
+			case 'turn_end':
+				this.isAborting = false;
+				this.isStreaming = false;
+				this.isCompacting = false;
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				void this.reconcile();
 				return;
 
-			case 'turn_start':
-				// Nessuno stato da toccare: `agent_start` ha gia' acceso lo
-				// streaming. Esplicito per non finire nel ramo predefinito.
-				return;
-
-			case 'turn_end':
-				void this.reconcile();
-				return;
-
 			case 'notice': {
 				const text = typeof event.message === 'string' ? event.message : '';
 				if (!text || this.isNoiseNotice(text, typeof event.source === 'string' ? event.source : undefined)) return;
-				this.pushNotice(this.noticeLevel(event.level), text, typeof event.source === 'string' ? event.source : undefined);
+				const level = this.noticeLevel(event.level);
+				this.pushNotice(level, text, typeof event.source === 'string' ? event.source : undefined);
+				if (level === 'error') {
+					const hasRunningTools = Array.from(this.toolEntries.values()).some((t) => t.running);
+					if (!hasRunningTools && !this.assistantEntry) {
+						this.isStreaming = false;
+						this.agentState = this.pendingUi ? 'attention' : 'idle';
+					}
+				}
 				return;
 			}
 
@@ -676,6 +760,9 @@ export class AgentSession {
 				if (last) {
 					last.running = false;
 					last.message = 'Contesto compattato';
+				}
+				if (!this.isStreaming) {
+					this.agentState = this.pendingUi ? 'attention' : 'idle';
 				}
 				void this.refreshState();
 				return;
@@ -753,9 +840,65 @@ export class AgentSession {
 				return;
 			}
 
-			case 'studio_error':
-				this.pushNotice('error', typeof event.message === 'string' ? event.message : 'Errore del trasporto RPC');
+			case 'studio_error': {
+				const msg = typeof event.message === 'string' ? event.message : 'Errore del trasporto RPC';
+				this.isAborting = false;
+				this.isStreaming = false;
+				this.isCompacting = false;
+				if (this.assistantEntry) {
+					if (!this.assistantEntry.stopReason) {
+						this.assistantEntry.stopReason = 'error';
+					}
+					this.assistantEntry = null;
+				}
+				this.activeAssistantId = null;
+				for (const entry of this.toolEntries.values()) {
+					if (entry.running) {
+						entry.running = false;
+						entry.endedAt = Date.now();
+						if (!entry.result) {
+							entry.result = { isError: true, content: [{ type: 'text', text: msg }] };
+						}
+					}
+				}
+				this.agentState = this.pendingUi ? 'attention' : 'idle';
+				this.pushNotice('error', msg);
+				void this.reconcile();
 				return;
+			}
+
+			case 'error':
+			case 'agent_error': {
+				const msg =
+					typeof event.error === 'string'
+						? event.error
+						: typeof event.message === 'string'
+							? event.message
+							: 'Errore durante l\u2019esecuzione di OMP';
+				this.isAborting = false;
+				this.isStreaming = false;
+				this.isCompacting = false;
+				if (this.assistantEntry) {
+					if (!this.assistantEntry.stopReason) {
+						this.assistantEntry.stopReason = 'error';
+					}
+					this.assistantEntry = null;
+				}
+				this.activeAssistantId = null;
+				for (const entry of this.toolEntries.values()) {
+					if (entry.running) {
+						entry.running = false;
+						entry.endedAt = Date.now();
+						if (!entry.result) {
+							entry.result = { isError: true, content: [{ type: 'text', text: msg }] };
+						}
+					}
+				}
+				this.agentState = this.pendingUi ? 'attention' : 'idle';
+				this.pushNotice('error', msg);
+				void this.reconcile();
+				return;
+			}
 
 			case 'studio_exit': {
 				const code = typeof event.code === 'number' ? event.code : null;
@@ -766,13 +909,39 @@ export class AgentSession {
 				const resumeMissing =
 					requestedResume !== null
 					&& stderr.some((line) => line.includes(`Session "${requestedResume}" not found.`));
+				this.isAborting = false;
 				this.isStreaming = false;
+				this.isCompacting = false;
 				this.activeAssistantId = null;
+				this.assistantEntry = null;
 				this.exited = true;
 				this.isReady = false;
 				this.isAttached = false;
+				this.isAttaching = false;
+				this.attachEventQueue = [];
 				this.agentState = 'idle';
 				this.pendingUi = null;
+
+				for (const entry of this.toolEntries.values()) {
+					if (entry.running) {
+						entry.running = false;
+						entry.endedAt = Date.now();
+						if (!entry.result) {
+							entry.result = {
+								isError: true,
+								content: [{ type: 'text', text: 'Processo terminato' }]
+							};
+						}
+					}
+				}
+
+				for (let i = 0; i < this.subagents.length; i++) {
+					const sub = this.subagents[i];
+					if (sub.status === 'running' || sub.status === 'pending') {
+						this.subagents[i] = { ...sub, status: 'failed' };
+					}
+				}
+
 				this.client.markExited();
 
 				if (this.pendingStartupPrompts.length > 0) {
@@ -804,7 +973,6 @@ export class AgentSession {
 				});
 				return;
 			}
-
 
 			default:
 				return;
@@ -843,6 +1011,7 @@ export class AgentSession {
 	}
 
 	private applyAssistantEvent(event: AgentSessionEvent) {
+		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
 		const inner = event.assistantMessageEvent;
 		if (!inner) return;
 		const index = inner.contentIndex ?? 0;
@@ -861,15 +1030,18 @@ export class AgentSession {
 			this.setBlock(index, { type: 'image', data: inner.content, mimeType: inner.mimeType ?? 'image/png' });
 			return;
 		}
-		// `toolcall_end` non produce niente sul transcript: la card nasce da
-		// `tool_execution_start`, che porta gli argomenti normalizzati.
 	}
 
 	private applyDelta(event: AgentSessionEvent) {
-		if (!this.isStreaming && !this.assistantEntry) return;
-		const kind = event.kind;
+		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
+		const kind = event.kind ?? 'text';
 		const delta = typeof event.delta === 'string' ? event.delta : '';
 		const index = typeof event.contentIndex === 'number' ? event.contentIndex : 0;
+		this.deltaBatcher.push(kind, index, delta);
+	}
+
+	private applyBufferedDelta(kind: string, index: number, delta: string) {
+		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
 		const entry = this.ensureAssistant();
 		const existing = entry.blocks[index];
 		if (existing && (existing.type === 'text' || existing.type === 'thinking') && existing.type === kind) {
@@ -1027,6 +1199,7 @@ export class AgentSession {
 	async prompt(message: string, images: ImageContent[] = [], behavior: StreamingBehavior = 'steer') {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return;
+		this.isAborting = false;
 		const fullMessage = attachEditorContext(trimmed, this.cwd);
 
 		// Se OMP e' ancora in fase di avvio, accoda il messaggio e mostra subito l'entry ottimistica
@@ -1082,21 +1255,22 @@ export class AgentSession {
 		this.pendingStartupPrompts = [];
 
 		for (const pending of queue) {
-			if (!this.entries.includes(pending.optimisticUser)) {
+			if (!this.entries.some((e) => e.id === pending.optimisticUser.id)) {
 				this.entries.push(pending.optimisticUser);
 			}
 			this.optimisticUser = pending.optimisticUser;
 
 			try {
+				const streaming = this.isStreaming;
 				await this.client.send({
 					type: 'prompt',
 					message: pending.message,
 					images: pending.images.length > 0 ? pending.images : undefined,
-					streamingBehavior: this.isStreaming ? pending.behavior : undefined
+					streamingBehavior: streaming ? pending.behavior : undefined
 				});
 			} catch (error) {
 				this.dropOptimisticUser();
-				const idx = this.entries.indexOf(pending.optimisticUser);
+				const idx = this.entries.findIndex((e) => e.id === pending.optimisticUser.id);
 				if (idx !== -1) this.entries.splice(idx, 1);
 				this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
 			}
@@ -1129,17 +1303,19 @@ export class AgentSession {
 
 	async abort() {
 		// 1. Reset istantaneo dello stato locale (priorita' massima e latenza 0 per la GUI)
+		this.isAborting = true;
 		this.isStreaming = false;
 		this.isCompacting = false;
 		this.agentState = 'idle';
+		this.deltaBatcher.clear();
 
 		if (this.assistantEntry) {
 			if (!this.assistantEntry.stopReason) {
 				this.assistantEntry.stopReason = 'aborted';
 			}
 			this.assistantEntry = null;
-			this.activeAssistantId = null;
 		}
+		this.activeAssistantId = null;
 
 		for (const entry of this.toolEntries.values()) {
 			if (entry.running) {
@@ -1164,6 +1340,7 @@ export class AgentSession {
 		this.clearPendingUi();
 		this.queued = [];
 		this.pendingStartupPrompts = [];
+		this.attachEventQueue = [];
 		this.dropOptimisticUser();
 
 		// 2. Invio prioritario al client RPC per interrompere processi/tool sottostanti
@@ -1176,6 +1353,8 @@ export class AgentSession {
 
 	async newSession(): Promise<string | null> {
 		this.pendingStartupPrompts = [];
+		this.attachEventQueue = [];
+		this.isAborting = false;
 		await this.client.send({ type: 'new_session' });
 		this.entries = [];
 		this.toolEntries.clear();
@@ -1185,12 +1364,17 @@ export class AgentSession {
 		this.subagents = [];
 		this.todoPhases = [];
 		this.queued = [];
+		this.isStreaming = false;
+		this.isCompacting = false;
+		this.agentState = 'idle';
 		this.visibleCount = RENDER_WINDOW;
 		await this.refreshState();
 		return this.sessionId;
 	}
 	async forkSession(): Promise<string | null> {
 		this.pendingStartupPrompts = [];
+		this.attachEventQueue = [];
+		this.isAborting = false;
 		const parent = this.sessionId;
 		await this.client.send({ type: 'new_session', parentSession: parent || undefined });
 		this.entries = [];
@@ -1201,6 +1385,9 @@ export class AgentSession {
 		this.subagents = [];
 		this.todoPhases = [];
 		this.queued = [];
+		this.isStreaming = false;
+		this.isCompacting = false;
+		this.agentState = 'idle';
 		this.visibleCount = RENDER_WINDOW;
 		await this.refreshState();
 		return this.sessionId;

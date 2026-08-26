@@ -1,350 +1,137 @@
 # OMP Studio — Piano di lavoro
 
-Documento operativo. È la sequenza di passi da seguire dall'inizio alla consegna, con criteri di accettazione verificabili per ogni fase.
+Documento operativo. Traccia l'evoluzione e lo stato di avanzamento delle fasi architetturali fino alla versione stabile 1.0.0, con criteri di accettazione verificati.
 
-**Leggere prima:** `PRODUCT.md` (cosa e perché), `DESIGN.md` (sistema visivo), `ARCHITECTURE.md` (come è costruito).
+**Leggere prima:** `PRODUCT.md` (visione e perimetro), `DESIGN.md` (sistema visivo e token), `ARCHITECTURE.md` (architettura tecnica).
 
 ---
 
-## 0. Stato di partenza — verificato il 2026-07-29
+## 0. Stato di avanzamento e prerequisiti verificati
 
-| Elemento | Stato |
-|---|---|
-| `omp` | **17.1.8**, eseguibile nativo in `%LOCALAPPDATA%\omp\omp.exe` |
-| WebView2 Runtime | **148.0.3967.96** presente |
-| Node | v22.15.1 |
-| Bun | 1.3.14 |
-| npm | 11.14.1 |
-| **Rust** | **NON installato** — prerequisito bloccante della Fase 0 |
-| Dati `omp` disponibili | `stats.db` (11.695 messaggi), `history.db` (1.029 prompt + FTS5), `agent.db` (1.935 snapshot quota) |
-| `omp usage --json` | Verificato, output strutturato, cachato, ~1,4 s |
-| Progetti reali | ~25 cartelle sotto la radice dei repository |
-
-### Le tre regole del piano
-
-1. **Ogni fase finisce con qualcosa che si può usare.** Nessuna fase consegna solo scaffolding.
-2. **I rischi si validano prima di costruirci sopra.** Le due incognite reali (finestra custom, stato dell'agente) hanno un gate dedicato all'inizio della fase che le riguarda, non un rinvio a fine progetto.
-3. **Ogni feature fuori dalle fasi va in `IDEAS.md`.** Non nel codice. È la difesa contro la deriva verso "un IDE".
+| Elemento | Stato | Dettagli |
+|---|---|---|
+| `omp` | **18.x / 17.x** | Eseguibile nativo in `%LOCALAPPDATA%\omp\omp.exe` o PATH di sistema |
+| WebView2 Runtime / WebKit | Presente | Windows 11 x64 (WebView2 148+) e macOS (WebKit WKWebView) |
+| Toolchain Rust | Installata | `stable-x86_64-pc-windows-msvc` / `stable-aarch64-apple-darwin` (Tauri 2.11.5) |
+| Runtime JS & Build | Installati | Node v22.x, Bun 1.3.14, npm 11.x |
+| Dati `omp` disponibili | Verificati | `stats.db`, `history.db` (FTS5), `agent.db` (quote snapshot) |
+| Protocollo RPC OMP | Verificato | `omp --mode rpc-ui` (NDJSON Protocol v2, chunking, streaming) |
+| Piattaforme supportate | Verificate | Windows 11 x64 (NSIS `.exe`) e macOS universale (`.dmg`) |
 
 ---
 
 ## Fase 0 — Toolchain e scheletro
 
-**Obiettivo:** una finestra Tauri che si apre, con i token di design applicati.
+**Obiettivo:** finestra Tauri funzionante con token di design, font locali e configurazione CSP ermetica.
 
-### Passi
-
-1. Installare Rust: `winget install --id Rustlang.Rustup`, poi `rustup default stable-x86_64-pc-windows-msvc`.
-2. Installare Visual Studio Build Tools, workload **"Desktop development with C++"** (MSVC v143 + Windows 11 SDK).
-3. Verificare: `rustc --version`, `cargo --version`.
-4. Creare il progetto: `bun create tauri-app@latest omp-studio-app --template svelte-ts` (Svelte 5 + Vite puro, **non** SvelteKit).
-5. Registrare i plugin nell'ordine corretto: `single-instance` **per primo**, poi `store`, `dialog`, `window-state`, `opener`.
-6. Scrivere `src/app.css` con i token di `DESIGN.md` §8, incorporare Inter e JetBrainsMono Nerd Font via `@font-face` locale (nessuna risorsa remota).
-7. Impostare la CSP restrittiva in `tauri.conf.json`.
-8. Definire la griglia di `App.svelte`: barra 40px + tre colonne + barra di stato, con placeholder statici.
-
-### Accettazione
-
-- [ ] `bun tauri dev` apre la finestra; `bun tauri build` produce un `.exe` funzionante.
-- [ ] Lo sfondo è `#131313`, i pannelli `#191919`: verificato con un color picker, non a occhio.
-- [ ] Entrambi i font si caricano; nessun errore di rete in console.
-- [ ] Nessun colore hard-coded nei componenti: solo `var(--*)`.
+- [x] Configurazione toolchain Rust e Tauri 2 con template Svelte 5 (`svelte-ts`).
+- [x] Registrazione plugin nell'ordine corretto (`single-instance` per primo, poi `store`, `dialog`, `window-state`, `opener`, `notification`).
+- [x] Implementazione `src/app.css` con token cromatici a contrasto WCAG AA, font monospazio `StudioMonoNF-Regular.woff2` e Inter incorporati.
+- [x] CSP restrittiva in `tauri.conf.json`.
 
 ---
 
-## Fase 1 — La finestra, con gate sul rischio R1
+## Fase 1 — Finestra e windowing nativo (Gate R1)
 
-**Obiettivo:** decidere in modo definitivo la questione della barra del titolo, con prove alla mano.
+**Obiettivo:** garantire affidabilità assoluta del windowing, ridimensionamento e snap layout.
 
-Questo è il primo gate perché l'intera barra progetti si appoggia alla riga superiore della finestra. Scoprire più tardi che la finestra non si ridimensiona significherebbe rifare il layout.
-
-### Passi
-
-1. Prototipare la finestra con `"decorations": false`, area `data-tauri-drag-region`, e i controlli minimizza / massimizza / chiudi con le API `getCurrentWindow()`.
-2. Concedere i permessi minimi: `core:window:allow-start-dragging`, `allow-minimize`, `allow-toggle-maximize`, `allow-close`.
-3. **Eseguire il gate**, verificando a mano ognuna di queste voci:
-
-| Verifica | Atteso |
-|---|---|
-| Trascinamento dalla barra | Sposta la finestra |
-| Doppio click sulla barra | Massimizza / ripristina |
-| Resize dagli 8 bordi e angoli | Funziona su tutti |
-| `Win`+frecce | Snap nativo funzionante |
-| Trascinamento al bordo schermo | Snap layout di Windows |
-| Doppio monitor con DPI diversi | Nessun salto, nessuna scala errata |
-| Massimizza su schermo secondario | Rispetta l'area di lavoro, non copre la taskbar |
-
-4. **Decisione, da scrivere in `docs/DECISIONS.md`:**
-   - Tutte le voci passano → si tiene la barra custom.
-   - Anche una sola voce fallisce → `"decorations": true`, e la barra progetti diventa la prima riga del contenuto.
-
-   La motivazione è nel registro rischi R1: una barra nativa è meno bella, una finestra che non si ridimensiona è rotta. Il bug noto è [tauri #8519](https://github.com/tauri-apps/tauri/issues/8519).
-5. Attivare `window-state` per la persistenza di posizione e dimensione.
-
-### Accettazione
-
-- [ ] La tabella del gate è compilata con esito reale per ogni riga.
-- [ ] La decisione è scritta con la sua motivazione.
-- [ ] Riavviando, la finestra riappare dove era, anche sul monitor secondario.
+- [x] **Gate R1 eseguito:** la configurazione senza decorazioni (`decorations: false`) presentava difetti di snap layout e resize diagonale (`tauri #8519`).
+- [x] **Decisione applicata:** mantenuta la finestra con decorazioni native di sistema (`"decorations": true`), spostando la topbar progetti appena sotto la barra di sistema.
+- [x] Attivato `tauri-plugin-window-state` per la persistenza di coordinate e massimizzazione.
 
 ---
 
-## Fase 2 — Il terminale, con gate sui rischi R6 e R8
+## Fase 2 — Terminale PTY e trasporto ad alte prestazioni (Gate R6, R8)
 
-**Obiettivo:** la TUI di `omp` gira dentro l'app, indistinguibile da Windows Terminal.
+**Obiettivo:** la TUI di `omp` gira dentro l'app indistinguibile dal terminale nativo, senza ritardi né perdite di frame.
 
-È il cuore. Se questa fase non è perfetta, il progetto non ha ragione di esistere.
-
-### Passi
-
-1. Backend PTY in Rust con `portable-pty` 0.9.0: `native_pty_system()`, `openpty(PtySize)`, `CommandBuilder` sull'exe nativo, `try_clone_reader()`, `take_writer()`.
-2. Risoluzione dell'eseguibile in ordine: impostazione utente → `%LOCALAPPDATA%\omp\omp.exe` → `PATH`. Errore chiaro se nessuna funziona.
-3. Thread di lettura dedicato, buffer 64 KiB, coalescenza a un frame ogni 8 ms, tetto di 1 MiB con marcatore di troncamento.
-4. Trasporto via `tauri::ipc::Channel` con `InvokeResponseBody::Raw`: byte grezzi, mai JSON né base64.
-5. Frontend: `@xterm/xterm` 6.0.0 + **`@xterm/addon-canvas`** 0.7.0 (**non** WebGL: regressioni [#4665](https://github.com/xtermjs/xterm.js/issues/4665) e legature rotte [#3303](https://github.com/xtermjs/xterm.js/issues/3303) in WebView2) + `addon-fit` + `addon-ligatures` + `addon-unicode11` + `addon-web-links` + `addon-search`.
-6. Cablare `onData` → `pty_write`, `onResize` → `pty_resize`, output → `term.write(Uint8Array)` senza conversioni.
-7. `FitAddon` + `ResizeObserver` con debounce 150 ms; `fit()` solo su container visibile e dimensionato.
-8. Env del figlio: `TERM=xterm-256color`, `COLORTERM=truecolor`, `OMP_STUDIO=1`.
-9. Generare l'overlay `omp-overlay.yml` con `tui.titleState: true` e lanciare con `--config <overlay>`, senza toccare la configurazione dell'utente.
-10. **Gate R8:** verificare che lo stato arrivi. Avviare `omp`, dare un compito lungo, e osservare `term.onTitleChange`. Atteso: `π > …` da fermo, `π : …` durante il lavoro, `π ! …` su una domanda. Riconoscitore unico: `/^\u03c0 ([>:!])(?: |$)/`.
-    - Fallisce → fallback con estensione `omp` sugli eventi ufficiali. **Vietato analizzare lo schermo ANSI.**
-11. **Gate R6:** far stampare a `omp` un file da diversi MB e verificare che l'output non perda byte e che la TUI non si sfasi. Confronto con l'output dello stesso comando in Windows Terminal.
-
-### Accettazione
-
-- [ ] La TUI si disegna correttamente: bordi, colori a 24 bit, spinner, legature.
-- [ ] Tutte le scorciatoie di `omp` funzionano, incluse quelle con `Ctrl`. Nessuna viene intercettata dall'app.
-- [ ] Ridimensionando la finestra la TUI si riadatta senza artefatti.
-- [ ] Copia e incolla funzionano nei due sensi.
-- [ ] Latenza tasto → glifo sotto i 16 ms in mediana.
-- [ ] Throughput oltre 20 MB/s senza byte persi.
-- [ ] Il gate R8 ha un esito scritto e lo stato è leggibile in console.
-- [ ] Uscendo da `omp` il tab resta leggibile con il codice di uscita e l'azione di riavvio.
+- [x] Backend PTY in Rust con `portable-pty` 0.9.0 (ConPTY su Windows, POSIX su macOS).
+- [x] Thread di lettura dedicato da 64 KiB con coalescenza a **8 ms** (~120 fps) e trasporto su `tauri::ipc::Channel` con byte grezzi (`Vec<u8>`).
+- [x] Frontend con `@xterm/xterm` 6.0.0 e `@xterm/addon-canvas` 0.7.0 (renderer Canvas stabile con pieno supporto legature tipografiche e glifi Nerd Font).
+- [x] **Gate R8 superato:** rilevamento dello stato dell'agente tramite OSC 0 (`/^\u03c0 ([>:!])/`) con overlay generato `tui.titleState: true`.
+- [x] **Gate R6 superato:** throughput misurato a oltre **26 MB/s** senza perdita di frame o byte.
 
 ---
 
-## Fase 3 — Multi-progetto
+## Fase 3 — Multi-progetto e TopBar reattiva
 
-**Obiettivo:** più progetti aperti, switch istantaneo, sessioni che sopravvivono in background.
+**Obiettivo:** gestione di workspace multi-progetto, switch istantaneo non animato e persistenza di processo.
 
-### Passi
-
-1. Registry progetti in Rust: apri, crea cartella, chiudi, recenti. Colore di identità dall'hash del path sulla rampa a 8 tinte di `DESIGN.md` §2.7.
-2. `PtyManager` con più sessioni indicizzate per progetto.
-3. Store Svelte 5 con le rune: progetti aperti, progetto attivo, stato agente per progetto.
-4. **Regola vincolante:** i terminali dei progetti non attivi **restano montati**, nascosti con `visibility: hidden` e `position: absolute`. Mai `display: none`, che azzera le dimensioni e rompe `FitAddon` ([#3029](https://github.com/xtermjs/xterm.js/issues/3029)).
-5. Barra progetti: tessere 26×26px con iniziale, riordino per trascinamento, pulsante `+`, nome del progetto attivo al centro.
-6. Indicatore attivo: una sola barra da 2px in `--brand` che trasla, `--dur-base`, `--ease-out`.
-7. Stato sulla tessera: `idle` neutro, `running` anello che respira, `attention` punto fisso, `unknown` neutro. Alternativa statica sotto `prefers-reduced-motion`.
-8. Persistenza in `settings.json`: progetti, larghezze colonne **per progetto**, progetto attivo. Scrittura atomica con debounce 500 ms.
-9. Splitter con area di presa 8px, doppio click per ripristinare, larghezze persistenti.
-10. Schermata di benvenuto: recenti, sfoglia, crea. Nessuna illustrazione.
-
-### Accettazione
-
-- [ ] Tre progetti aperti insieme, ognuno con la sua sessione viva.
-- [ ] Lo switch è sotto i 50 ms e **non è animato**; si muove solo l'indicatore.
-- [ ] La sessione di un progetto non a schermo continua a lavorare, e la sua tessera lo mostra.
-- [ ] Tornando su un progetto, la TUI ha la dimensione giusta senza reflow visibile.
-- [ ] Nessun PTY muore per: switch, resize, collasso colonna, minimizzazione.
-- [ ] Riavviando l'app, progetti e layout tornano come erano.
-- [ ] RAM sotto 500 MB con 3 progetti attivi.
+- [x] Registry progetti in Rust con calcolo colore identità dall'hash del percorso.
+- [x] `PtyManager` multi-sessione: le sessioni PTY dei progetti non attivi restano montate e nascoste (`visibility: hidden`), prevenendo perdite di stato o de-sincronizzazioni di `FitAddon`.
+- [x] Barra dei progetti con ordine manuale stabile (`fixed`), supporto MRU, priorità task e alfabetico.
+- [x] Indicatore attivo non invasivo in `--brand`, badge contatore dei task in coda con quattro stili configurabili.
+- [x] Persistenza layout e dimensioni colonne per-progetto in `settings.json`.
 
 ---
 
-## Fase 4 — Albero file ed editor
+## Fase 4 — Albero file, Git panel ed Editor Monaco
 
-**Obiettivo:** leggere e modificare codice senza uscire dall'app.
+**Obiettivo:** ispezione, diff e modifica del codice sul posto senza uscire dall'applicazione.
 
-### Passi
-
-1. `tree_read` pigro, un livello per chiamata. Cartelle rumorose (`bin`, `obj`, `.vs`, `packages`, `node_modules`) collassate e in `--ink-faint`.
-2. Validazione dei path in Rust: `project_id` + path **relativo**, ricomposizione e `canonicalize` per verificare che resti dentro la radice. Blocca traversal e junction.
-3. `watcher.rs` con `notify` per invalidare l'albero sui cambi esterni: `omp` modifica i file mentre lavora, l'albero deve restare vero.
-4. Filtro incrementale sull'albero.
-5. Monaco 0.56.0: **una sola istanza**, un `ITextModel` per file. Worker via `MonacoEnvironment.getWorker` con import `?worker` di Vite; nessun plugin, nessun wrapper Svelte (non ne esiste uno mantenuto).
-6. Tema Monaco derivato dai token di `DESIGN.md`. Nessuna minimap, nessun breadcrumb.
-7. Lettura e scrittura file con rilevamento dell'encoding: i sorgenti più vecchi non sono tutti UTF-8. Preservare encoding e fine-riga originali, e non riscrivere il BOM se non c'era.
-8. Indicatore di modifica e salvataggio con `Ctrl+S`.
-
-### Accettazione
-
-- [ ] L'albero apre un progetto reale con 130+ voci senza rallentamenti.
-- [ ] Un file da 300 KB si apre e scorre fluido.
-- [ ] Un file non-UTF-8 si apre, si salva e **non risulta modificato** in un confronto binario se non si è toccato nulla.
-- [ ] Un path fuori dalla radice del progetto viene rifiutato dal backend.
-- [ ] Un file modificato da `omp` si aggiorna nell'albero senza refresh manuale.
+- [x] `tree_read` pigro con `resolve_path` in Rust (validazione `canonicalize` per bloccare directory traversal fuori radice).
+- [x] Pannello Git: visualizzazione branch, file modificati con conteggio righe, commit recenti e visualizzazione diff affiancato nell'editor.
+- [x] Monaco Editor 0.56.0: istanza singola multi-modello con diff editor, syntax highlighting esteso (.sql, .yaml, .toml, .py, .csproj, script di shell) e persistenza della posizione cursore/scroll per file.
 
 ---
 
-## Fase 5 — Usage e storico
+## Fase 5 — Quote AI, usage e storico sessioni
 
-**Obiettivo:** i due attriti restanti eliminati.
+**Obiettivo:** monitoraggio in tempo reale dei consumi e ripresa rapida delle sessioni.
 
-### Passi
-
-1. `db.rs`: connessioni SQLite con `PRAGMA query_only = ON`, `busy_timeout = 3000`, e un filtro che rifiuta ogni statement non `SELECT`/`WITH`. Aperte in read-write per vedere il WAL: `SQLITE_OPEN_READONLY` nasconderebbe i dati appena scritti.
-2. `usage.rs`: esecuzione di `omp usage --json`, parsing tollerante con `serde` e campi opzionali. Numero di finestre per provider variabile, `unit` letto e non assunto, `status != "ok"` trattato come severità massima.
-3. Worker di polling a 60 s, **sospeso a finestra non focalizzata**, refresh immediato all'apertura del popover. Mai `usage invalidate` in automatico: forza il refetch verso i provider.
-4. Chip in barra: mostra la quota peggiore, colore per severità secondo `DESIGN.md` §2.6.
-5. Popover 360px: riga di sintesi con countdown al reset, elenco quote ordinate per severità, sparkline 24h da `agent.db.usage_history`, piede con costi da `stats.db`. `position: fixed`, focus trap, `Esc` per chiudere. **Non copre mai la viewport del terminale.**
-6. `history.rs`: elenco sessioni da `history.db` filtrando su `cwd` (mai ricostruendo lo slug), titolo = primo prompt non-slash, ricerca via `history_fts` MATCH. Attenzione: `created_at` è in **secondi**, mentre `stats.db.timestamp` è in **millisecondi**.
-7. Pannello SESSIONI nella colonna sinistra, con ricerca.
-8. Ripresa in un click: `omp --resume <session_id>` in un nuovo tab, saltando il picker.
-9. `contract_check` all'avvio: exe, versione, presenza e leggibilità dei tre DB, colonne attese. Ogni verifica fallita degrada la singola funzione e lo dichiara nell'interfaccia.
-10. Controllo aggiornamenti all'avvio con `omp update --check` (non installa). L'installazione con `omp update` è **esplicita** e possibile solo con zero PTY attivi: aggiornare l'eseguibile sotto sessioni vive è un modo per rompere tutto.
-
-### Accettazione
-
-- [ ] Il chip mostra un numero reale e coerente con `omp usage` da terminale.
-- [ ] Il popover si apre in meno di 100 ms con dato in cache.
-- [ ] L'usage si aggiorna **mentre** una sessione lavora, senza toccarla.
-- [ ] Il countdown al reset è corretto rispetto a `resetsAt`.
-- [ ] Le sessioni di un progetto reale sono elencate con titoli sensati.
-- [ ] La ricerca full-text trova un prompt di settimane fa.
-- [ ] Un click riprende la sessione giusta nella cartella giusta.
-- [ ] Rinominando temporaneamente `stats.db`, l'app parte, lo dichiara, e il terminale funziona comunque.
+- [x] Query protette SQLite su `stats.db`, `history.db` e `agent.db` aperte in sola lettura effettiva (`PRAGMA query_only = ON`, `OpenFlags::SQLITE_OPEN_READONLY`) su `tokio::task::spawn_blocking`.
+- [x] Chip topbar e popover consumi: visualizzazione quote peggiori, countdown al reset, trend 24h, stima velocità (tok/s) e gestione resiliente degli stati offline.
+- [x] Storico sessioni unificato con ricerca full-text FTS5 e ripresa in-place nello stesso PTY tramite `/resume <sessionId>`.
+- [x] Gestione avanzata dei modelli e ruoli (`Ctrl+Alt+M`): catalogo modelli, slider reasoning a gradini, raccomandazione intelligente Tier 1/Zero-Cost e catene di fallback.
 
 ---
 
-## Fase 6 — Chat temporanea e rifinitura
+## Fase 6 — Whiteboard diagrammi, sandbox prototipi e rifinitura
 
-**Obiettivo:** consegna. Qualità 100, non 90.
+**Obiettivo:** strumenti visuali contestuali per l'agente e chat temporanea.
 
-### Passi
-
-1. Chat temporanea con `omp --no-session`: tab non legato ad alcun progetto, nessuna sessione salvata.
-2. Set di scorciatoie **minimo**, su `Ctrl+Alt` che la TUI non usa. Ogni combinazione che `omp` intercetta passa al terminale senza eccezioni. Documentate in `docs/SHORTCUTS.md`.
-3. Passata sui divieti: la checklist di `DESIGN.md` §9, voce per voce.
-4. Verifica del contrasto sull'app costruita, con misura reale e non a occhio.
-5. Verifica `prefers-reduced-motion`: nessuna informazione veicolata solo dal movimento.
-6. Passata sugli stati: primo avvio, nessun progetto, cartella vuota, `omp` non trovato, DB illeggibile, sessione uscita male, quota esaurita. Nessun placeholder plausibile: se un dato manca, si dice.
-7. Misura del budget di performance di `ARCHITECTURE.md` §9, con i numeri scritti.
-8. Icona dell'app, metadati, installer.
-9. `README.md` con build e struttura; `docs/DECISIONS.md` con gli esiti dei gate.
-
-### Accettazione
-
-- [ ] Avvio a finestra interattiva sotto 700 ms, misurato.
-- [ ] Tutte le metriche di §9 misurate e annotate.
-- [ ] La checklist dei divieti è completa, tutte le voci spuntate.
-- [ ] Nessun testo sotto 4.5:1, verificato sull'app reale.
-- [ ] Ogni stato di errore è stato provocato di proposito e si presenta bene.
-- [ ] **Prova finale: una settimana di lavoro reale su progetti reali senza riaprire VS Code per il flusso `omp`.**
-
-## Fase 7 — Coda task e ripresa in-place
-
-**Obiettivo:** parcheggiare il prossimo prompt per progetto e trasformarlo in una
-sessione senza interrompere o ricreare il PTY corrente.
-
-### Passi
-
-1. Store `tasks.json`: prompt, ordine manuale, vista AGENTE e mapping sessione → task.
-2. Tab AGENTE con sottoviste Coda e Sessioni; composer del prompt nella colonna centrale.
-3. Gate unico per automazioni: solo `idle`, input terminale vuoto e nessuna transizione attiva.
-4. Avvio task: `/new`, attesa del nuovo breadcrumb, bracketed paste del prompt, invio.
-5. Ripresa storica: `/resume <session_id>` nella TUI corrente, senza `pty_close`.
-6. Badge `TASK`, sessione attiva e riconciliazione immediata con `history.db`.
-
-### Accettazione
-
-- [x] I task restano associati al progetto e mantengono l'ordine dopo il riavvio.
-- [x] Un prompt multilinea crea una nuova sessione e passa dalla Coda a Sessioni.
-- [x] La sessione creata mostra `TASK` e `ATTIVA`.
-- [x] Un click su una sessione idle la riprende nello stesso PTY con `/resume`.
-- [x] Working, attention, stato sconosciuto e input non inviato bloccano l'automazione.
+- [x] Chat temporanea scratchpad con `omp --no-session` (`Ctrl+Alt+S`).
+- [x] Tool `studio_diagram`: rendering automatico e interattivo di diagrammi Mermaid nella colonna centrale.
+- [x] Tool `studio_preview`: anteprima live di componenti e prototipi UI HTML/SVG con switch responsivo del viewport (Desktop, Tablet, Mobile).
+- [x] Set di scorciatoie globali su modificatore sicuro `Ctrl+Alt`.
 
 ---
 
-## Fase 8 — Primo avvio guidato
+## Fase 7 — Coda task persistente, TaskEditor avanzato e Auto-Dispatch (Gate R12, R14)
 
-**Obiettivo:** chi scarica Studio su una macchina pulita arriva ad avere `omp`
-installato, autenticato, con un modello di default e un progetto aperto, senza
-uscire dall'app e senza che Studio reimplementi l'onboarding di `omp`.
+**Obiettivo:** pianificazione e accodamento dei prompt per progetto con opzioni avanzate ed esecuzione coordinata.
 
-### Il flusso, in una riga
+- [x] Disaccoppiamento dello stato dei task su `tasks.json` dedicato via Tauri store (`Gate R14`).
+- [x] `TaskEditor.svelte`: composer a sezioni con textarea ad auto-dimensionamento, selezione del profilo di ruolo (`smol`, `default`, `slow`, `plan`), slider del thinking effort, toggle per direttive speciali (Piano, Discussione `/grill-me`, Minimale `/ponytail`, Ricerca Online) e supporto allegati visivi (screenshot da clipboard o drag & drop).
+- [x] Autocompletamento contestuale dei comandi slash (`/`) e censimento automatico delle skill dell'agente.
+- [x] Vista aggregata delle code di tutti i progetti (`QueueDrawer.svelte`, `Ctrl+Alt+T`) con avvio diretto.
+- [x] Meccanismo di auto-dispatch per singolo progetto con lock anti-race e convalida delle condizioni di prontezza dell'agente (`Gate R12`).
 
-`contract_check` decide quali carte mostrare; l'onboarding di `omp` non lo
-riscriviamo, lo **ospitiamo** in una scheda di terminale dentro un modal.
+---
 
-### Cosa fa `omp` da solo — verificato su 18.0.4
+## Fase 8 — Primo avvio guidato (Gate R11)
 
-Il wizard nativo esiste: `packages/coding-agent/src/modes/setup-wizard/`, cinque
-scene in ordine `providers` → `model` → `glyph-mode` → `composer-shape` → `theme`,
-più `outro`. Gate: `setupVersion` in `config.yml` contro `CURRENT_SETUP_VERSION = 2`.
-Non parte se manca il TTY, con `--resume`, con `OMP_SKIP_SETUP` valorizzato o con
-`startup.setupWizard: false`.
+**Obiettivo:** onboarding completo a zero attrito senza uscire dall'applicazione.
 
-Due conseguenze che decidono il progetto:
+- [x] Rilevamento semantico dello stato (`setup_status`): verifica binario, credenziali provider attive, modello predefinito e cartella progetti.
+- [x] Download e installazione automatica di `omp` con calcolo e verifica nativa dell'impronta crittografica SHA-256 da GitHub Releases.
+- [x] Configurazione automatica di Git Bash come shell predefinita (`shellPath`).
+- [x] Installazione del font monospazio Nerd nel profilo utente Windows/macOS.
+- [x] Wizard nativo di configurazione `omp setup` ospitato all'interno di una scheda terminale PTY dedicata nel modal, sincronizzando automaticamente il tema scelto con il guscio di Studio.
+- [x] Rilevamento automatico della cartella radice con maggior numero di repository Git.
 
-1. `omp setup` (`commands/setup.ts` → `runOnboardingSetup`) forza **tutte** le scene
-   ignorando `setupVersion`, ed esce con codice 1 e `omp setup requires an interactive
-   TTY.` se stdio non è un TTY. Nel PTY di Studio il TTY c'è: è il comando del modal,
-   ed è ri-eseguibile a vita.
-2. `markSetupWizardComplete()` sta **dopo** `await run()` nel `try`, quindi
-   `setupVersion: 2` viene scritto anche uscendo con Esc da ogni scena. Non è un
-   segnale di successo: è un segnale di "il wizard non è più a schermo".
+---
 
-`/setup` (alias `/providers`, solo TUI) riapre la **sola** scena provider senza
-rimarcare il setup: è il pulsante "ti manca il login".
+## Fase 9 — Seconda superficie nativa GUI via RPC, accessibilità e sicurezza (Gate R10, R15, R16, R17)
 
-### Passi
+**Obiettivo:** chat nativa Svelte 5 con streaming fluido, accessibilità WCAG AA, isolamento sandbox e notifiche OS.
 
-1. **`contract_check`** — il comando previsto in `ARCHITECTURE.md` §4.1 e mai scritto.
-   Quattro esiti, non un booleano: binario assente / nessuna credenziale attiva
-   (`get_auth_providers_summary`, sola lettura, mai un token) / `modelRoles.default`
-   vuoto (`get_model_config`) / nessun progetto. Più la leggibilità di `agent.db`,
-   `history.db`, `stats.db`.
-2. **Carta "installa `omp`"** — download nativo, non hook NSIS: `reqwest` in streaming
-   come `studio_updater.rs`, `releases/latest` di `can1357/oh-my-pi`, asset
-   `omp-windows-x64.exe` → `%LOCALAPPDATA%\omp\omp.exe`, aggiunta al PATH utente.
-   Replica anche `Configure-BashShell` dell'installer ufficiale: se
-   `~/.omp/agent/settings.json` non ha `shellPath` e `C:\Program Files\Git\bin\bash.exe`
-   esiste, lo scrive in merge (vedi Gate R11).
-3. **Font Nerd per-utente, silenzioso** — `%LOCALAPPDATA%\Microsoft\Windows\Fonts` +
-   valore in `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts` (percorso
-   assoluto, non solo il nome file) e `WM_FONTCHANGE`. Nessun admin. Serve a `omp`
-   lanciato **fuori** da Studio: dentro Studio i glifi già rendono col webfont
-   bundlato (`terminal.ts:17-23`).
-4. **Modal con scheda terminale** — PTY dentro il modal che lancia `omp setup`.
-   Il flag `--no-session` non è passabile: `omp setup` non lo accetta e chiama
-   `runRoot` con argv vuoto. La sessione parte quindi nella cwd di Studio, e il
-   modal la chiude appena il setup è concluso.
-5. **Rilevamento semantico della fine** — `setup_status` riletto ogni secondo
-   mentre il modal è aperto: `config.yml` e `agent.db` sono scritti da un altro
-   processo con lock e debounce, e un polling da una lettura di file più una query
-   costa meno di un watcher da mantenere. Il modal si chiude quando **tutte** e tre
-   valgono: `setupVersion >= 2`, almeno una credenziale attiva, `modelRoles.default`
-   valorizzato. Se `setupVersion` arriva a 2 con qualcosa che manca, il modal
-   **resta** e mostra cosa manca, con un pulsante che manda `/setup` nella stessa
-   scheda.
-6. **Il guscio si adegua al tema scelto nel wizard** — leggiamo `theme.dark` e mappiamo
-   Studio (`titanium` → scuro, `light` → chiaro, `colorblind` → `colorBlindMode`).
-   Nessuna seconda domanda sul tema e nessun `omp-studio` forzato sopra una scelta
-   fatta venti secondi prima.
-7. **Carta Studio: cartella progetti** — scansione dei candidati (`source/repos`, `dev`,
-   `projects`, `code`, `git`, `Documents\GitHub`), conteggio delle sottocartelle con
-   `.git`, proposta della vincente **col numero** e "Sfoglia" via `plugin-dialog`.
-   Scrive `projectRoot` nello store di Studio.
-8. **Uscita** — non un pulsante "Fine": l'elenco dei repository trovati. Un clic apre il
-   primo progetto e il modal muore su un'azione utile.
-9. **`OMP_SKIP_SETUP=1`** nei PTY e negli RPC **di lavoro**: il wizard non ricompare in
-   una scheda vera, e resta intatto per chi usa `omp` da terminale.
-10. **Riapribile** da un chip `⚠ Setup` in barra, che compare **solo** quando manca
-    qualcosa e sparisce quando non ha più niente da dire: nessun comando permanente
-    in una barra già densa. `/setup` resta disponibile in qualsiasi scheda.
-
-### Accettazione
-
-- [ ] Su un profilo pulito (`omp --profile studio-setup-test`) il modal porta da zero a
-      sessione funzionante senza aprire un terminale esterno.
-- [ ] Con `omp` disinstallato, la carta di installazione lo installa e la versione
-      compare in status bar senza riavviare Studio.
-- [ ] Esc su tutte le scene del wizard **non** chiude il modal: dice cosa manca.
-- [ ] Il tema del guscio dopo il wizard coincide con quello scelto nella TUI.
-- [ ] Il font installato è visibile in un terminale esterno (Windows Terminal) senza admin.
-- [ ] Una scheda di lavoro aperta dopo il setup non mostra il wizard.
-- [ ] La cartella progetti proposta è quella con più repository, col conteggio giusto.
+- [x] **Seconda superficie GUI (`Gate R10`):** integrazione di `omp --mode rpc-ui` su stdio NDJSON Protocol v2; riassemblaggio frame fino a 64 MiB; coalescenza delta di streaming a 8 ms; handoff di sessione trasparente via `--resume`.
+- [x] **Raggruppamento semantico e transcript (`Gate R16`):** componente `ToolGroup` che unifica sequenze di tool e blocchi di ragionamento (`thinking`); 30+ card renderer specializzate; cronometro live tabulare; autoscroll fluido ancorato in fondo.
+- [x] **Accessibilità completa:** chiusura criticità audit Impeccable, conformità WCAG AA per contrasti (>= 4.5:1), etichette `aria-label`, gestione focus trap con `roving tabindex` su `AskCard` e annunci `aria-live`.
+- [x] **Difesa in profondità sandbox SVG/HTML (`Gate R15`):** rendering in `<iframe>` con `sandbox=""` privo di script, origine `null`, CSP `default-src 'none'` e sanitizzazione DOMPurify.
+- [x] **Notifiche OS e avvisi di stato (`Gate R17`):** registrazione AUMID Windows `sh.omp.studio`, toast nativi OS, pallino rosso/flash su taskbar Windows e badge numerico/bounce su Dock macOS.
+- [x] **Contenimento processi:** Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) per terminazione ad albero deterministica all'uscita.
 
 ---
 
@@ -352,24 +139,41 @@ rimarcare il setup: è il pulsante "ti manca il login".
 
 ```mermaid
 graph LR
-  F0["Fase 0<br/>Toolchain"] --> F1["Fase 1<br/>Finestra<br/>gate R1"]
-  F1 --> F2["Fase 2<br/>Terminale<br/>gate R6 R8"]
+  F0["Fase 0<br/>Toolchain"] --> F1["Fase 1<br/>Finestra (R1)"]
+  F1 --> F2["Fase 2<br/>Terminale PTY (R6, R8)"]
   F2 --> F3["Fase 3<br/>Multi-progetto"]
-  F3 --> F4["Fase 4<br/>Albero + Editor"]
+  F3 --> F4["Fase 4<br/>Albero + Editor + Git"]
   F3 --> F5["Fase 5<br/>Usage + Storico"]
-  F4 --> F6["Fase 6<br/>Rifinitura"]
+  F4 --> F6["Fase 6<br/>Whiteboard + Sandbox"]
   F5 --> F6
-  F5 --> F7["Fase 7<br/>Coda task"]
+  F5 --> F7["Fase 7<br/>Coda Task (R12, R14)"]
   F6 --> F7
-  F7 --> F8["Fase 8<br/>Primo avvio<br/>gate R11"]
+  F7 --> F8["Fase 8<br/>Primo Avvio (R11)"]
+  F8 --> F9["Fase 9<br/>GUI RPC + Sicurezza<br/>+ Accessibilità (R10, R15, R16, R17)"]
+  F9 --> REL["Pipeline di Rilascio<br/>Promozione RC -> Stabile (R13)"]
 ```
 
-Le fasi 4 e 5 sono indipendenti: toccano colonne diverse e fonti dati diverse. Si possono affrontare in parallelo o nell'ordine che preferisci. Tutte le altre sono in sequenza stretta, perché ognuna appoggia sulla precedente.
+---
+
+## Pipeline di Rilascio — Promozione da Release Candidate (RC) a Stabile (Gate R13)
+
+Per azzerare il rischio di discrepanze tra il codice testato e quello distribuito agli utenti finali, il processo di rilascio adotta la promozione diretta degli stessi artefatti binari già validati in pre-release, invece di ricompilare da zero al momento del rilascio stabile.
+
+### Principi operativi
+
+1. **Allineamento rigido dei 4 file di versione.** Prima di qualunque operazione di bump o pubblicazione, `npm run release -- --check` valida che `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` e `src-tauri/Cargo.lock` dichiarino esattamente la stessa versione. Qualsiasi disallineamento blocca la pipeline.
+2. **Verifica crittografica di consistenza del commit.** Quando viene creato un tag stabile (`vX.Y.Z`) o avviato il workflow di release indicando una Release Candidate sorgente (`vX.Y.Z-rc.N`), il workflow `.github/workflows/release.yml` confronta i commit SHA dei due tag:
+   - Se i commit coincidono, gli artefatti testati della RC (NSIS `.exe` per Windows e DMG universale per macOS) vengono riutilizzati direttamente nella release stabile, calcolando i checksum `SHA256SUMS.txt`.
+   - Se i commit divergono, il workflow fallisce bloccando il rilascio con errore esplicito, impedendo che modifiche non testate vengano spacciate per la RC validata.
+3. **Workflow Nightly locale e rapido.** Il comando `npm run nightly` (`scripts/publish-nightly.mjs`) compila in locale per il sistema operativo in uso, aggiorna `nightly.json` e la prerelease GitHub associata al tag mobile `nightly`, senza chiudere la sezione `[Unreleased]` del changelog.
+4. **Fallback controllato.** In assenza di RC o impostando `force_rebuild: true`, il workflow esegue la compilazione multipiattaforma completa e pubblica con le note estratte dall'annotazione del tag o da `CHANGELOG.md`.
 
 ---
 
 ## Cosa NON entra in questo piano
 
-Da `PRODUCT.md`: nessuna integrazione git, nessun build o debug, nessun sistema di estensioni, nessun supporto multipiattaforma, nessuna sostituzione della TUI via ACP o `--mode rpc`, nessuna command palette generica.
-
-Ogni idea che arriva durante il lavoro va in `IDEAS.md` e si valuta dopo la Fase 6. È l'unica difesa contro il rischio che ha ucciso più progetti simili di qualsiasi problema tecnico.
+In linea con i principi di `PRODUCT.md`:
+- Nessun debugger generico, compilatore esterno o pipeline di build complessa nell'app.
+- Nessun marketplace di estensioni terze o plugin arbitrari.
+- Nessun servizio cloud, server remoto obbligatorio o telemetria esterna: il funzionamento è al 100% locale e privato.
+- Nessuna emulazione di modelli o prompt custom hardcoded: Studio è un guscio ergonomico e sicuro che dialoga esclusivamente con il runtime ufficiale di `omp`.

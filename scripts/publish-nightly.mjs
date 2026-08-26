@@ -8,8 +8,9 @@
 //   node scripts/publish-nightly.mjs --skip-build   # pubblica l'ultimo installer gia' compilato
 //   node scripts/publish-nightly.mjs --build-id 123 # specifica un ID build numerico
 
-import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
 	ROOT,
@@ -63,18 +64,39 @@ Opzioni:
 `);
 }
 
-function getCommitSha() {
-	try {
-		return execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
-	} catch (err) {
-		throw new Error(`Impossibile determinare il commit git corrente: ${err.message}`);
+function runCommand(cmd, args, options = {}) {
+	const res = spawnSync(cmd, args, {
+		cwd: ROOT,
+		stdio: options.stdio || 'inherit',
+		encoding: 'utf8',
+		...options
+	});
+	if (res.error) {
+		throw res.error;
 	}
+	if (res.status !== 0 && !options.allowFailure) {
+		const formatted = [cmd, ...args].map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
+		throw new Error(`Comando '${formatted}' fallito con codice di uscita ${res.status}`);
+	}
+	return res;
+}
+
+function getCommitSha() {
+	const res = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+	if (res.error) {
+		throw new Error(`Impossibile determinare il commit git corrente: ${res.error.message}`);
+	}
+	if (res.status !== 0 || !res.stdout) {
+		throw new Error(
+			`Impossibile determinare il commit git corrente: git rev-parse HEAD e' terminato con codice ${res.status}`
+		);
+	}
+	return res.stdout.trim();
 }
 
 function verifyGhAuth() {
-	try {
-		execSync('gh auth status', { cwd: ROOT, stdio: 'ignore' });
-	} catch {
+	const res = spawnSync('gh', ['auth', 'status'], { cwd: ROOT, stdio: 'ignore' });
+	if (res.error || res.status !== 0) {
 		throw new Error(
 			'GitHub CLI (gh) non risulta autenticata. Esegui `gh auth login` prima di pubblicare.'
 		);
@@ -208,15 +230,7 @@ async function main() {
 			const tauriCmd = 'bun';
 			const tauriArgs = ['run', 'tauri', 'build', ...platform.bundleArgs];
 
-			const res = spawnSync(tauriCmd, tauriArgs, {
-				cwd: ROOT,
-				stdio: 'inherit',
-				shell: true
-			});
-
-			if (res.status !== 0) {
-				throw new Error(`Compilazione fallita con codice di uscita ${res.status}`);
-			}
+			runCommand(tauriCmd, tauriArgs);
 		} else {
 			console.log(`\nSalto la compilazione (--skip-build).`);
 		}
@@ -229,15 +243,20 @@ async function main() {
 		console.log(`  Percorso:   ${installer.path}`);
 		console.log(`  Dimensione: ${sizeMb} MB`);
 
+		// Calcolo hash SHA256 dell'installer per il manifest
+		const installerBuffer = readFileSync(installer.path);
+		const installerSha256 = createHash('sha256').update(installerBuffer).digest('hex');
+		console.log(`  SHA256:     ${installerSha256}`);
+
 		// 4. Generazione manifest e note
 		const manifest = {
 			version,
 			commit: commitSha,
-			published_at: new Date().toISOString()
+			published_at: new Date().toISOString(),
+			sha256: installerSha256
 		};
 		const manifestPath = join(ROOT, 'nightly.json');
 		writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
-
 		const notesContent = [
 			`Build locale del commit \`${commitSha}\` (${platform.name}).`,
 			'',
@@ -250,34 +269,60 @@ async function main() {
 
 		// 5. Upload GitHub
 		if (!opts.dryRun) {
-			console.log(`\nAggiorno il tag e la prerelease GitHub 'nightly'...`);
+			console.log(`\nAggiorno il tag git 'nightly' sul commit ${commitSha}...`);
+			runCommand('git', ['tag', '-f', 'nightly', commitSha]);
+			runCommand('git', ['push', 'origin', 'refs/tags/nightly', '--force']);
 
-			// Tag mobile 'nightly'
-			execSync(`git tag -f nightly ${commitSha}`, { cwd: ROOT, stdio: 'inherit' });
-			execSync(`git push origin refs/tags/nightly --force`, { cwd: ROOT, stdio: 'inherit' });
+			// Se la release 'nightly' esiste gia', la aggiorniamo con clobbering degli asset
+			const releaseCheck = runCommand('gh', ['release', 'view', 'nightly'], {
+				stdio: 'ignore',
+				allowFailure: true
+			});
+			const releaseExists = releaseCheck.status === 0;
 
-			// Se la release 'nightly' esiste gia', la ricreiamo per sostituire gli asset
-			try {
-				execSync('gh release view nightly', { cwd: ROOT, stdio: 'ignore' });
-				console.log(`Eliminazione precedente release 'nightly'...`);
-				execSync('gh release delete nightly --yes', { cwd: ROOT, stdio: 'inherit' });
-			} catch {
-				// Non esiste ancora o non e' raggiungibile: prosegui con la creazione
+			if (releaseExists) {
+				console.log(`Aggiornamento metadati prerelease 'nightly'...`);
+				runCommand('gh', [
+					'release',
+					'edit',
+					'nightly',
+					'--title',
+					`Nightly ${version}`,
+					'--notes-file',
+					notesPath,
+					'--prerelease'
+				]);
+
+				console.log(`Caricamento asset (con sovrascrittura / clobber)...`);
+				runCommand('gh', [
+					'release',
+					'upload',
+					'nightly',
+					installer.path,
+					manifestPath,
+					'--clobber'
+				]);
+			} else {
+				console.log(`Creazione nuova prerelease 'nightly'...`);
+				runCommand('gh', [
+					'release',
+					'create',
+					'nightly',
+					installer.path,
+					manifestPath,
+					'--verify-tag',
+					'--prerelease',
+					'--title',
+					`Nightly ${version}`,
+					'--notes-file',
+					notesPath
+				]);
 			}
 
-			console.log(`Creazione nuova prerelease 'nightly'...`);
-			execSync(
-				`gh release create nightly "${installer.path}" nightly.json --verify-tag --prerelease --title "Nightly ${version}" --notes-file nightly-notes.md`,
-				{ cwd: ROOT, stdio: 'inherit' }
-			);
-
 			console.log(`\nPrerelease Nightly pubblicata con successo!`);
-			try {
-				execSync('gh release view nightly --json url,assets', {
-					cwd: ROOT,
-					stdio: 'inherit'
-				});
-			} catch {}
+			runCommand('gh', ['release', 'view', 'nightly', '--json', 'url,assets'], {
+				allowFailure: true
+			});
 		} else {
 			console.log(`\n[DRY-RUN] Manifest generato in ${manifestPath}`);
 			console.log(`[DRY-RUN] Nessun upload effettuato su GitHub.`);

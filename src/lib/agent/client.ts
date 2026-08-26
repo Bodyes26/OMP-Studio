@@ -56,17 +56,29 @@ export class OmpRpcClient {
 	private readonly pending = new Map<string, Pending>();
 	private eventHandler: ((event: AgentSessionEvent) => void) | null = null;
 	private closed = false;
+	private abortEpoch = 0;
+	get currentAbortEpoch(): number {
+		return this.abortEpoch;
+	}
 
 	get id(): number | null {
 		return this.rpcId;
 	}
-
 	get isOpen(): boolean {
 		return this.rpcId !== null && !this.closed;
 	}
 
-	onEvent(handler: (event: AgentSessionEvent) => void) {
+	onEvent(handler: (event: AgentSessionEvent) => void): () => void {
 		this.eventHandler = handler;
+		return () => {
+			if (this.eventHandler === handler) {
+				this.eventHandler = null;
+			}
+		};
+	}
+
+	clearEventHandler() {
+		this.eventHandler = null;
 	}
 
 	async open(cwd: string, resume?: string | null): Promise<number> {
@@ -135,6 +147,7 @@ export class OmpRpcClient {
 	 */
 	async abort(): Promise<void> {
 		if (this.rpcId === null || this.closed) return;
+		this.abortEpoch++;
 		this.abortPendingRequests('Interrotto dall\u2019utente');
 		const rpcId = this.rpcId;
 		const abortId = `s${++this.seq}`;

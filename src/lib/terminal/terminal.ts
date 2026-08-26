@@ -62,6 +62,14 @@ export class TerminalSession {
 	/** Contesto WebAudio per il campanello, creato al primo bell e riusato:
 	 *  aprirne uno per ogni bell sarebbe inutile e piu' lento. */
 	private audioCtx: AudioContext | null = null;
+	/** Buffer per micro-batching dell'output PTY: aggrega i chunk ravvicinati
+	 *  per ridurre le scritture su xterm e i cicli di rendering durante
+	 *  flussi di streaming veloci. */
+	private outputBuffer: (Uint8Array | string)[] = [];
+	private outputRafId: number | null = null;
+	private outputTimeoutId: number | null = null;
+	private bufferedOutputBytes = 0;
+	private static readonly MAX_BATCH_BYTES = 65536;
 
 	public onStateChange: (state: TerminalAgentState) => void = () => {};
 	public onOpenFile: (relPath: string, line: number | null) => void = () => {};
@@ -325,21 +333,119 @@ export class TerminalSession {
 		);
 	}
 
+	private queueTerminalOutput(data: Uint8Array | string) {
+		if (this.disposed) return;
+		this.outputBuffer.push(data);
+		this.bufferedOutputBytes += typeof data === 'string' ? data.length : data.byteLength;
+
+		if (this.bufferedOutputBytes >= TerminalSession.MAX_BATCH_BYTES) {
+			this.flushTerminalOutput();
+			return;
+		}
+
+		if (this.outputRafId === null) {
+			if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+				this.outputRafId = window.requestAnimationFrame(() => {
+					this.outputRafId = null;
+					if (this.outputTimeoutId !== null) {
+						window.clearTimeout(this.outputTimeoutId);
+						this.outputTimeoutId = null;
+					}
+					this.flushTerminalOutput();
+				});
+				if (this.outputTimeoutId === null) {
+					this.outputTimeoutId = window.setTimeout(() => {
+						this.outputTimeoutId = null;
+						if (this.outputRafId !== null) {
+							window.cancelAnimationFrame(this.outputRafId);
+							this.outputRafId = null;
+						}
+						this.flushTerminalOutput();
+					}, 16);
+				}
+			} else {
+				this.flushTerminalOutput();
+			}
+		}
+	}
+
+	private flushTerminalOutput() {
+		if (this.outputRafId !== null && typeof window !== 'undefined') {
+			window.cancelAnimationFrame(this.outputRafId);
+			this.outputRafId = null;
+		}
+		if (this.outputTimeoutId !== null && typeof window !== 'undefined') {
+			window.clearTimeout(this.outputTimeoutId);
+			this.outputTimeoutId = null;
+		}
+		if (this.disposed || this.outputBuffer.length === 0) return;
+
+		const chunks = this.outputBuffer;
+		this.outputBuffer = [];
+		this.bufferedOutputBytes = 0;
+
+		if (chunks.length === 1) {
+			this.term.write(chunks[0]);
+			return;
+		}
+
+		// Se tutti i chunk nel batch sono Uint8Array, concatenali in un unico buffer
+		// per massimizzare la resa del parser interno di xterm e azzerare i micro-jank
+		let allUint8 = true;
+		let totalBytes = 0;
+		for (const chunk of chunks) {
+			if (chunk instanceof Uint8Array) {
+				totalBytes += chunk.length;
+			} else {
+				allUint8 = false;
+				break;
+			}
+		}
+
+		if (allUint8 && totalBytes > 0) {
+			const merged = new Uint8Array(totalBytes);
+			let offset = 0;
+			for (const chunk of chunks) {
+				const arr = chunk as Uint8Array;
+				merged.set(arr, offset);
+				offset += arr.length;
+			}
+			this.term.write(merged);
+			return;
+		}
+
+		for (const chunk of chunks) {
+			this.term.write(chunk);
+		}
+	}
+
+	private clearTerminalOutputBuffer() {
+		if (this.outputRafId !== null && typeof window !== 'undefined') {
+			window.cancelAnimationFrame(this.outputRafId);
+			this.outputRafId = null;
+		}
+		if (this.outputTimeoutId !== null && typeof window !== 'undefined') {
+			window.clearTimeout(this.outputTimeoutId);
+			this.outputTimeoutId = null;
+		}
+		this.outputBuffer = [];
+		this.bufferedOutputBytes = 0;
+	}
 
 	private async startPty(cwd: string) {
 		const onOutput = new Channel<Uint8Array>();
 		onOutput.onmessage = (message: unknown) => {
 			try {
 				if (message instanceof Uint8Array) {
-					this.term.write(message);
+					this.queueTerminalOutput(message);
 				} else if (message instanceof ArrayBuffer) {
-					this.term.write(new Uint8Array(message));
+					this.queueTerminalOutput(new Uint8Array(message));
 				} else if (Array.isArray(message) && message.every((value) => typeof value === 'number')) {
-					this.term.write(new Uint8Array(message));
+					this.queueTerminalOutput(new Uint8Array(message));
 				} else if (message && typeof message === 'object' && 'data' in message && Array.isArray(message.data)) {
-					this.term.write(new Uint8Array(message.data));
+					this.queueTerminalOutput(new Uint8Array(message.data));
 				} else if (typeof message === 'string') {
-					this.term.write(message);
+					this.queueTerminalOutput(message);
 				} else {
 					console.warn('Output PTY non riconosciuto:', message);
 				}
@@ -347,7 +453,6 @@ export class TerminalSession {
 				console.error('Output PTY non renderizzabile:', error, message);
 			}
 		};
-
 		const isScratchpad = cwd === '';
 		const launchCwd = isScratchpad ? '.' : cwd;
 		const args = this.launchArgs
@@ -438,6 +543,7 @@ export class TerminalSession {
 
 	public async restart() {
 		if (this.disposed) return;
+		this.clearTerminalOutputBuffer();
 		if (this.ptyId !== null) {
 			try {
 				await invoke('pty_close', { ptyId: this.ptyId });
@@ -473,9 +579,10 @@ export class TerminalSession {
 
 	public async close() {
 		if (this.disposed) return;
+		this.flushTerminalOutput();
+		this.clearTerminalOutputBuffer();
 		await this.release();
 		this.disposed = true;
-		this.resizeObserver.disconnect();
 		this.unsubscribeTheme();
 		clearTimeout(this.resizeTimeout ?? undefined);
 		if (this.audioCtx) {

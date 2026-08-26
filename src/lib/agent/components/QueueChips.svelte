@@ -5,6 +5,7 @@
 	// direttamente per ciascun messaggio in coda.
 	import type { QueuedMessage } from '../session.svelte';
 	import type { StreamingBehavior } from '../wire';
+	import { stripEditorContext } from '$lib/editor/editorContext';
 
 	let {
 		queued,
@@ -23,7 +24,8 @@
 	}
 
 	function truncate(text: string, max = 60): string {
-		const clean = text.replace(/\s+/g, ' ').trim();
+		const stripped = stripEditorContext(text);
+		const clean = (stripped || text).replace(/\s+/g, ' ').trim();
 		if (clean.length <= max) return clean;
 		return clean.slice(0, max - 3) + '...';
 	}

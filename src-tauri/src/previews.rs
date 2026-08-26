@@ -3,8 +3,9 @@
 //! L'estensione `studio_preview` (caricata con `-e` nelle sessioni lanciate
 //! da Studio) scrive un file JSON per ogni prototipo generato in
 //! `%LOCALAPPDATA%/omp-studio/previews`. Questo modulo osserva la cartella,
-//! legge i nuovi file e li inoltra al frontend con l'evento
-//! `preview://new`: la colonna centrale apre l'anteprima sandbox interattiva.
+//! legge i nuovi file e li inoltra al frontend con l'evento `preview://new`:
+//! la colonna centrale apre l'anteprima sandbox interattiva (per file SVG
+//! il rendering e' completamente isolato con sandbox restrittivo privo di script).
 
 use std::path::PathBuf;
 use std::time::Duration;

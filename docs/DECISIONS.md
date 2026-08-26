@@ -232,3 +232,77 @@ spedizione passa da `queueMicrotask` e da un lock per progetto.
 `taskDefaults`) nell'array `projects` già persistito. Niente dentro `~/.omp`. Ogni campo
 viene riletto con validazione campo per campo (`parseSettings`): un file troncato o
 scritto a mano riporta i default, non una GUI rotta.
+
+---
+
+## Gate R13: Promozione diretta degli artefatti validati da Release Candidate a Stabile con verifica di consistenza
+
+**Data:** 2026-08-26
+**Esito:** SUPERATO
+**Decisione:** la release stabile non ricompila più da zero il codice se esiste una Release Candidate testata; promuove direttamente gli stessi file binari (installer `.exe` e `.dmg`) controllando in modo bloccante che il commit del tag stabile coincida con quello della candidate. Lo script `scripts/release.mjs` valida preventivamente l'allineamento perfetto dei 4 file di versione (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`).
+
+**Il problema risolto.** Ricompilando da zero durante la release stabile, c'era il rischio concreto che discrepanze nell'ambiente runner, risoluzione di pacchetti o tempistiche producessero binari differenti da quelli effettivamente testati durante la fase di candidate.
+
+**La garanzia di consistenza.** Il job `resolve` di `.github/workflows/release.yml` recupera il commit SHA del tag stabile e della candidate associata:
+- Se i commit coincidono, salta la compilazione di Windows e macOS e scarica gli asset firmati e testati della RC, calcolando i checksum `SHA256SUMS.txt`.
+- Se i commit divergono, il workflow fallisce con errore bloccante, impedendo il rilascio di codice non testato sotto l'egida della RC.
+
+---
+
+## Gate R14: Disaccoppiamento dello stato dei Task in `tasks.json` dedicato su Tauri store
+
+**Data:** 2026-08-26  
+**Esito:** SUPERATO  
+**Decisione:** Lo stato dei task, le code di prompt, le viste e le associazioni di origine sessione vivono in un file separato `tasks.json` gestito con `tauri-plugin-store`, completamente isolato da `settings.json`.
+
+**Il problema risolto:** Unire la configurazione globale del guscio (`settings.json`) con i dati operativi ad alta frequenza dei task (`tasks.json`) aumentava la probabilità di conflitti di I/O, sovrascritture concorrenti e corruzioni. Inoltre, i task appartengono al progetto e devono sopravvivere a chiusure e riaperture del workspace.
+
+**Architettura di persistenza:**
+1. I task vengono indicizzati tramite chiave di progetto normalizzata (`projectKey = normalizeProjectPath(path).toLowerCase()`).
+2. Il salvataggio su disco è asincrono e atomico con debounce di 250 ms, convertendo gli array reattivi Svelte 5 con `$state.snapshot`.
+3. Le opzioni avanzate del task (ruolo, thinking effort, direttive speciali Plan/Discussione/Minimale/Ricerca, inclusione contesto editor e screenshot allegati in base64) sono modellate con tipi TypeScript rigorosi (`StudioTask`, `PersistedTaskState`) e sanitizzate al caricamento per prevenire dati malformati.
+
+---
+
+## Gate R15: Difesa in profondità per anteprime vettoriali SVG e prototipi UI
+
+**Data:** 2026-08-26  
+**Esito:** SUPERATO  
+**Decisione:** L'anteprima dei file SVG e dei prototipi UI generati dall'agente (`studio_preview`) viene isolata all'interno di un `<iframe>` con sandbox restrittiva, origine `null` disaccoppiata e CSP ermetica, preceduta da sanitizzazione con `DOMPurify`.
+
+**Il problema risolto:** L'ambiente Tauri opera in un contesto con privilegi nativi di sistema. L'esecuzione o visualizzazione diretta di markup SVG o codice HTML prodotto dall'agente senza isolamento comporterebbe gravi rischi di Cross-Site Scripting (XSS), furto di token o invocazione indebita di comandi IPC (`window.__TAURI__`).
+
+**Garanzia tecnica multistrato:**
+1. **Sanitizzazione primaria:** passaggio su `DOMPurify` (profilo SVG restrittivo, rimozione di tag `<script>`, `<foreignObject>`, `<iframe>`, attributi `on*` e URI `javascript:`).
+2. **Content Security Policy ermetica:** `default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:;` (blocca script, fetch, connessioni esterne, worker ed oggetti).
+3. **Iframe Sandboxing:** l'anteprima risiede all'interno di un `<iframe sandbox="">` privo di `allow-scripts` e `allow-same-origin`, con origine `null`. Il motore del browser disabilita l'esecuzione JavaScript alla radice e impedisce qualunque accesso a `window.parent` o alle API IPC di Tauri.
+
+---
+
+## Gate R16: Raggruppamento semantico delle chiamate tool (`ToolGroup`), thinking accordion e accessibilità chat
+
+**Data:** 2026-08-26  
+**Esito:** SUPERATO  
+**Decisione:** Nel transcript della chat GUI, le chiamate consecutive ai tool e i relativi blocchi di ragionamento intermedio (`thinking`) vengono accorpati in un unico blocco compatto `ToolGroup`, con cronometro live tabulare, autoscroll resiliente ancorato in fondo e navigazione accessibile con `roving tabindex` sulle card interattive (`AskCard`).
+
+**Il problema risolto:** Lo streaming asincrono di OMP produceva frammentazioni visive con decine di card separate e salti di scroll fastidiosi durante la generazione di risposte lunghe. Inoltre, l'audit Impeccable ha evidenziato disallineamenti di focus tastiera sulle scelte multiple e contrasti cromatici insufficienti.
+
+**Risultato verificato:**
+1. Il transcript mantiene la risposta finale dell'assistente in primo piano e raggruppa le sequenze di tool intermedi in un blocco espandibile/collassabile con chevron animato e timer in tempo reale.
+2. L'autoscroll resta saldamente ancorato in fondo durante lo streaming; se l'utente scorre intenzionalmente verso l'alto la visuale si blocca, e si riaggancia automaticamente quando si torna vicino al fondo o si preme il pulsante dedicato.
+3. Le card di scelta interattiva (`AskCard`) implementano il pattern WAI-ARIA con `roving tabindex`, sincronizzando la navigazione con i tasti freccia e il fuoco effettivo per evitare invii accidentali. Tutti i badge e gli stati di errore rispettano la soglia di contrasto WCAG AA (>= 4.5:1).
+
+---
+
+## Gate R17: Notifiche desktop cross-platform con AUMID Windows registrato e avvisi visivi su Dock/Taskbar
+
+**Data:** 2026-08-26  
+**Esito:** SUPERATO  
+**Decisione:** Quando un agente richiede attenzione (`agentState === 'attention'`) o completa un task mentre l'applicazione non è a fuoco o su un altro progetto, Studio emette una notifica toast nativa e attiva segnali visivi di allerta: pallino rosso lampeggiante sull'icona della barra delle applicazioni di Windows e badge numerico con rimbalzo animato nel Dock di macOS. Cliccando sulla notifica, Studio viene portato in primo piano aprendo direttamente il progetto interessato.
+
+**Il problema risolto:** L'utente che delega compiti lunghi a più agenti in parallelo non deve monitorare costantemente la finestra. Su Windows, le notifiche toast senza un AppUserModelId esplicito fallivano o venivano mostrate come script generici di PowerShell; registrando `sh.omp.studio` nel registro di sistema Windows, l'icona ufficiale e il nome vengono sempre visualizzati correttamente nel Centro Notifiche.
+
+**Perimetro e integrazione:**
+1. Registrazione dell'AUMID `sh.omp.studio` nel registro utente Windows (`HKCU\Software\Classes\AppUserModelId\sh.omp.studio`) con percorso icona nativo.
+2. Dispatch toast tramite `tauri-plugin-notification` con due stili configurabili (sintetico o dettagliato con la domanda dell'agente).
+3. Integrazione bidirezionale con reset automatico dello stato di attenzione (`clear_app_attention`) appena la finestra o la scheda del progetto torna in primo piano.

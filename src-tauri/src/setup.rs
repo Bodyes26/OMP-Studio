@@ -9,6 +9,8 @@
 
 use futures_util::StreamExt;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{command, AppHandle, Emitter};
@@ -92,43 +94,95 @@ fn omp_binary_if_present() -> Option<PathBuf> {
 /// `command -v` altrove.
 fn which_on_path(program: &str) -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
-    let output = {
+    {
         let mut cmd = Command::new("where.exe");
         cmd.arg(program);
         cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.output().ok()?
-    };
-    #[cfg(not(target_os = "windows"))]
-    let output = Command::new("sh").arg("-c").arg(format!("command -v {}", program)).output().ok()?;
-
-    if !output.status.success() {
-        return None;
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Some(first) = text.lines().next().map(|l| l.trim()) {
+                    if !first.is_empty() {
+                        return Some(PathBuf::from(first));
+                    }
+                }
+            }
+        }
+        // Prova con estensioni comuni se non presenti
+        if !program.ends_with(".exe") && !program.ends_with(".cmd") && !program.ends_with(".bat") {
+            for ext in &[".exe", ".cmd", ".bat", ".ps1"] {
+                let candidate = format!("{}{}", program, ext);
+                let mut cmd = Command::new("where.exe");
+                cmd.arg(&candidate);
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                if let Ok(out) = cmd.output() {
+                    if out.status.success() {
+                        let text = String::from_utf8_lossy(&out.stdout);
+                        if let Some(first) = text.lines().next().map(|l| l.trim()) {
+                            if !first.is_empty() {
+                                return Some(PathBuf::from(first));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let first = text.lines().next()?.trim();
-    (!first.is_empty()).then(|| PathBuf::from(first))
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {}", program))
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let first = text.lines().next()?.trim();
+        (!first.is_empty()).then(|| PathBuf::from(first))
+    }
 }
 
 fn read_omp_version(binary: &Path) -> Option<String> {
-    let mut cmd = Command::new(binary);
-    cmd.arg("--version");
+    let ext = binary.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let mut cmd = if cfg!(target_os = "windows")
+        && (ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
+    {
+        let mut c = Command::new("cmd.exe");
+        c.args(["/c", &binary.to_string_lossy(), "--version"]);
+        c
+    } else {
+        let mut c = Command::new(binary);
+        c.arg("--version");
+        c
+    };
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let output = cmd.output().ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let raw = text.trim();
-    if raw.is_empty() {
-        return None;
-    }
+    let stdout_text = String::from_utf8_lossy(&output.stdout);
+    let raw = stdout_text.trim();
+    let text_to_parse = if raw.is_empty() {
+        let stderr_text = String::from_utf8_lossy(&output.stderr);
+        let err_trimmed = stderr_text.trim().to_string();
+        if err_trimmed.is_empty() {
+            return None;
+        }
+        err_trimmed
+    } else {
+        raw.to_string()
+    };
     // `omp/18.0.4` -> `18.0.4`
-    Some(
-        raw.rsplit('/')
-            .next()
-            .unwrap_or(raw)
-            .trim_start_matches(['v', 'V'])
-            .trim()
-            .to_string(),
-    )
+    let version_part = text_to_parse
+        .lines()
+        .next()?
+        .rsplit('/')
+        .next()
+        .unwrap_or(&text_to_parse)
+        .trim_start_matches(['v', 'V'])
+        .trim();
+    (!version_part.is_empty()).then(|| version_part.to_string())
 }
 
 fn config_yml_path_in(dir: &Path) -> Option<PathBuf> {
@@ -316,6 +370,8 @@ pub struct InstallProgress {
     pub percentage: f64,
     pub message: Option<String>,
     pub error: Option<String>,
+    pub diagnostic: Option<String>,
+    pub retryable: bool,
 }
 
 impl InstallProgress {
@@ -327,10 +383,12 @@ impl InstallProgress {
             percentage: 0.0,
             message: Some(message.to_string()),
             error: None,
+            diagnostic: None,
+            retryable: false,
         }
     }
 
-    fn failed(error: String) -> Self {
+    fn failed_with_diag(error: String, diagnostic: String, retryable: bool) -> Self {
         Self {
             status: "error".to_string(),
             downloaded_bytes: 0,
@@ -338,6 +396,8 @@ impl InstallProgress {
             percentage: 0.0,
             message: None,
             error: Some(error),
+            diagnostic: Some(diagnostic),
+            retryable,
         }
     }
 }
@@ -404,51 +464,29 @@ fn installed_binary_path() -> Option<PathBuf> {
 
 fn github_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(900))
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(300))
         .user_agent(format!("omp-studio/{}", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| format!("Client HTTP: {}", e))
+        .map_err(|e| format!("Inizializzazione client HTTP: {}", e))
 }
 
-/// SHA-256 del file appena scaricato. Su Windows lo calcola `Get-FileHash`:
-/// evita una dipendenza per un controllo che facciamo una volta sola.
-/// Altrove `shasum`/`sha256sum`. `None` = impossibile calcolarlo.
+/// SHA-256 del file appena scaricato, calcolato nativamente in Rust.
+/// Evita dipendenze da PowerShell o shasum ed elimina rischi di timeout
+/// o execution policy.
 fn file_sha256(path: &Path) -> Option<String> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = Command::new("powershell.exe");
-        cmd.args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            &format!(
-                "(Get-FileHash -LiteralPath {} -Algorithm SHA256).Hash",
-                ps_single_quote(&path.to_string_lossy())
-            ),
-        ]);
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let out = cmd.output().ok()?;
-        if !out.status.success() {
-            return None;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buffer).ok()?;
+        if n == 0 {
+            break;
         }
-        let hash = String::from_utf8_lossy(&out.stdout).trim().to_lowercase();
-        (!hash.is_empty()).then_some(hash)
+        hasher.update(&buffer[..n]);
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let out = Command::new("shasum")
-            .arg("-a")
-            .arg("256")
-            .arg(path)
-            .output()
-            .ok()?;
-        if !out.status.success() {
-            return None;
-        }
-        let text = String::from_utf8_lossy(&out.stdout);
-        let hash = text.split_whitespace().next()?.to_lowercase();
-        (!hash.is_empty()).then_some(hash)
-    }
+    let hash = hasher.finalize();
+    Some(format!("{:x}", hash))
 }
 
 /// Quota una stringa per una riga di comando PowerShell in apici singoli.
@@ -473,16 +511,26 @@ fn ensure_user_path_contains(dir: &Path) -> Result<bool, String> {
         d = dir_literal
     );
     let mut cmd = Command::new("powershell.exe");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    cmd.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &script,
+    ]);
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let out = cmd
-        .output()
-        .map_err(|e| format!("Aggiornamento del Path utente: {}", e))?;
+    let out = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("[Setup] Avviso: esecuzione powershell per PATH non riuscita: {}", e);
+            return Ok(false);
+        }
+    };
     if !out.status.success() {
-        return Err(format!(
-            "Aggiornamento del Path utente: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+        let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        eprintln!("[Setup] Avviso: aggiornamento PATH utente non riuscito: {}", err_msg);
+        return Ok(false);
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim() == "added")
 }
@@ -578,7 +626,16 @@ pub struct InstallOutcome {
 pub async fn install_omp(app: AppHandle) -> Result<InstallOutcome, String> {
     let result = install_omp_inner(&app).await;
     if let Err(error) = &result {
-        let _ = app.emit(INSTALL_EVENT, InstallProgress::failed(error.clone()));
+        let diagnostic = format!(
+            "Errore durante l'installazione di omp su {} {}: {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            error
+        );
+        let _ = app.emit(
+            INSTALL_EVENT,
+            InstallProgress::failed_with_diag(error.clone(), diagnostic, true),
+        );
     }
     result
 }
@@ -591,7 +648,8 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
             std::env::consts::ARCH
         )
     })?;
-    let target = installed_binary_path().ok_or("Impossibile risolvere la cartella di installazione")?;
+    let target = installed_binary_path()
+        .ok_or("Impossibile risolvere la cartella di installazione")?;
     let dir = target
         .parent()
         .ok_or("Cartella di installazione non valida")?
@@ -599,67 +657,74 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
 
     let _ = app.emit(
         INSTALL_EVENT,
-        InstallProgress::stage("resolving", "Cerco l'ultima release"),
+        InstallProgress::stage("resolving", "Cerco l'ultima release di omp"),
     );
 
     let client = github_client()?;
-    let release: Release = client
-        .get(format!(
-            "https://api.github.com/repos/{}/releases/latest",
-            OMP_REPO
-        ))
-        .send()
-        .await
-        .map_err(|e| format!("Lettura della release: {}", e))?
-        .error_for_status()
-        .map_err(|e| format!("Lettura della release: {}", e))?
-        .json()
-        .await
-        .map_err(|e| format!("Risposta della release non valida: {}", e))?;
-
-    let asset = release
-        .assets
-        .iter()
-        .find(|a| a.name == asset_name)
-        .ok_or_else(|| format!("La release {} non contiene {}", release.tag_name, asset_name))?;
-    let expected_hash = fetch_expected_hash(&client, &release, asset_name).await;
+    let (download_url, tag_name, expected_hash) = match fetch_release_info(&client, asset_name).await {
+        Ok(info) => info,
+        Err(err) => {
+            eprintln!("[Setup] GitHub API fallita ({}), tento il download diretto dal tag latest...", err);
+            let fallback_url = format!(
+                "https://github.com/{}/releases/latest/download/{}",
+                OMP_REPO, asset_name
+            );
+            let sums_url = format!(
+                "https://github.com/{}/releases/latest/download/SHA256SUMS.txt",
+                OMP_REPO
+            );
+            let expected = fetch_hash_from_url(&client, &sums_url, asset_name).await;
+            (fallback_url, "latest".to_string(), expected)
+        }
+    };
 
     // Si scarica in un file temporaneo accanto alla destinazione: se il
-    // download si interrompe, `omp.exe` non viene toccato.
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Cartella di installazione: {}", e))?;
+    // download si interrompe, l'eventuale binario esistente non viene corrotto.
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Creazione cartella di installazione {}: {}", dir.display(), e))?;
     let temp_path = dir.join(format!("{}.download", asset_name));
     if temp_path.exists() {
         let _ = std::fs::remove_file(&temp_path);
     }
 
+    let _ = app.emit(
+        INSTALL_EVENT,
+        InstallProgress::stage("downloading", "Avvio del download di omp"),
+    );
+
     let response = client
-        .get(&asset.browser_download_url)
+        .get(&download_url)
         .send()
         .await
-        .map_err(|e| format!("Download di omp: {}", e))?
+        .map_err(|e| format!("Connessione per il download non riuscita: {}", e))?
         .error_for_status()
-        .map_err(|e| format!("Download di omp: {}", e))?;
+        .map_err(|e| format!("Download non disponibile dal server: {}", e))?;
     let total_bytes = response.content_length().unwrap_or(0);
 
     {
         use tokio::io::AsyncWriteExt;
         let mut file = tokio::fs::File::create(&temp_path)
             .await
-            .map_err(|e| format!("Creazione del file scaricato: {}", e))?;
+            .map_err(|e| format!("Creazione file temporaneo {}: {}", temp_path.display(), e))?;
         let mut stream = response.bytes_stream();
         let mut downloaded: u64 = 0;
         let mut last_emit = std::time::Instant::now();
 
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| format!("Download interrotto: {}", e))?;
-            file.write_all(&chunk)
-                .await
-                .map_err(|e| format!("Scrittura del file scaricato: {}", e))?;
+        while let Some(chunk_res) = stream.next().await {
+            let chunk = match chunk_res {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&temp_path);
+                    return Err(format!("Download interrotto per errore di rete: {}", e));
+                }
+            };
+            if let Err(e) = file.write_all(&chunk).await {
+                let _ = std::fs::remove_file(&temp_path);
+                return Err(format!("Scrittura del file scaricato su disco: {}", e));
+            }
             downloaded += chunk.len() as u64;
 
-            // Un evento ogni 120 ms: il progresso resta fluido senza
-            // inondare l'IPC durante un download da 140 MB.
-            if last_emit.elapsed() >= std::time::Duration::from_millis(120) {
+            if last_emit.elapsed() >= std::time::Duration::from_millis(100) {
                 last_emit = std::time::Instant::now();
                 let _ = app.emit(
                     INSTALL_EVENT,
@@ -672,29 +737,32 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
                         } else {
                             0.0
                         },
-                        message: None,
+                        message: Some("Download di omp in corso".to_string()),
                         error: None,
+                        diagnostic: None,
+                        retryable: false,
                     },
                 );
             }
         }
-        file.flush()
-            .await
-            .map_err(|e| format!("Chiusura del file scaricato: {}", e))?;
+        if let Err(e) = file.flush().await {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!("Chiusura del file scaricato: {}", e));
+        }
     }
 
     let checksum_verified = match expected_hash {
         Some(expected) => {
             let _ = app.emit(
                 INSTALL_EVENT,
-                InstallProgress::stage("verifying", "Verifico l'impronta SHA-256"),
+                InstallProgress::stage("verifying", "Verifico l'impronta di sicurezza SHA-256"),
             );
             match file_sha256(&temp_path) {
                 Some(actual) if actual == expected => Some(true),
                 Some(actual) => {
                     let _ = std::fs::remove_file(&temp_path);
                     return Err(format!(
-                        "Impronta del file scaricato diversa da quella pubblicata: attesa {}, trovata {}",
+                        "Impronta del file scaricato diversa da quella ufficiale pubblicata: attesa {}, trovata {}",
                         expected, actual
                     ));
                 }
@@ -706,14 +774,14 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
 
     let _ = app.emit(
         INSTALL_EVENT,
-        InstallProgress::stage("installing", "Installo il binario"),
+        InstallProgress::stage("installing", "Installazione del binario"),
     );
 
     if target.exists() {
         let _ = std::fs::remove_file(&target);
     }
     std::fs::rename(&temp_path, &target)
-        .map_err(|e| format!("Installazione del binario: {}", e))?;
+        .map_err(|e| format!("Installazione del binario {}: {}", target.display(), e))?;
 
     #[cfg(unix)]
     {
@@ -721,17 +789,33 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
         let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755));
     }
 
-    let path_updated = ensure_user_path_contains(&dir)?;
-    let shell_path = ensure_shell_path()?;
+    let path_updated = ensure_user_path_contains(&dir).unwrap_or(false);
+    let shell_path = ensure_shell_path().ok().flatten();
 
-    let version = read_omp_version(&target).ok_or(
-        "Il binario e' stato scritto ma `omp --version` non risponde: installazione da rifare",
-    )?;
+    // Riprova l'esecuzione fino a 4 volte con backoff per consentire
+    // l'eventuale scansione iniziale dell'antivirus.
+    let mut detected_version = None;
+    for attempt in 0..4 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(250 * attempt)).await;
+        }
+        if let Some(v) = read_omp_version(&target) {
+            detected_version = Some(v);
+            break;
+        }
+    }
+
+    let version = detected_version.ok_or_else(|| {
+        format!(
+            "Il binario e' stato scritto in {} ma non risponde a 'omp --version'. Verifica che l'antivirus non stia bloccando il file.",
+            target.display()
+        )
+    })?;
 
     let outcome = InstallOutcome {
         version,
         path: target.to_string_lossy().to_string(),
-        tag: release.tag_name,
+        tag: tag_name,
         path_updated,
         shell_path,
         checksum_verified,
@@ -744,24 +828,50 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
             downloaded_bytes: total_bytes,
             total_bytes,
             percentage: 100.0,
-            message: Some(format!("omp {} installato", outcome.version)),
+            message: Some(format!("omp {} installato con successo", outcome.version)),
             error: None,
+            diagnostic: None,
+            retryable: false,
         },
     );
     Ok(outcome)
 }
 
-/// Hash atteso per l'asset, letto da `SHA256SUMS.txt` della stessa release.
-/// L'assenza del file non e' un errore: l'installazione prosegue dichiarando
-/// che la verifica non e' stata fatta.
-async fn fetch_expected_hash(
+async fn fetch_release_info(
     client: &reqwest::Client,
-    release: &Release,
+    asset_name: &str,
+) -> Result<(String, String, Option<String>), String> {
+    let release: Release = client
+        .get(format!(
+            "https://api.github.com/repos/{}/releases/latest",
+            OMP_REPO
+        ))
+        .send()
+        .await
+        .map_err(|e| format!("Connessione a GitHub: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("Status release GitHub: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Risposta JSON della release non valida: {}", e))?;
+
+    let asset = release
+        .assets
+        .iter()
+        .find(|a| a.name == asset_name)
+        .ok_or_else(|| format!("La release {} non contiene l'asset {}", release.tag_name, asset_name))?;
+
+    let expected_hash = fetch_expected_hash(client, &release, asset_name).await;
+    Ok((asset.browser_download_url.clone(), release.tag_name, expected_hash))
+}
+
+async fn fetch_hash_from_url(
+    client: &reqwest::Client,
+    url: &str,
     asset_name: &str,
 ) -> Option<String> {
-    let sums = release.assets.iter().find(|a| a.name == "SHA256SUMS.txt")?;
     let text = client
-        .get(&sums.browser_download_url)
+        .get(url)
         .send()
         .await
         .ok()?
@@ -770,15 +880,28 @@ async fn fetch_expected_hash(
         .text()
         .await
         .ok()?;
+    parse_checksums(&text, asset_name)
+}
+
+fn parse_checksums(text: &str, asset_name: &str) -> Option<String> {
     for line in text.lines() {
         let mut parts = line.split_whitespace();
         let hash = parts.next()?;
-        let name = parts.next().unwrap_or_default();
+        let name = parts.next().unwrap_or_default().trim_start_matches('*');
         if name == asset_name {
             return Some(hash.to_lowercase());
         }
     }
     None
+}
+
+async fn fetch_expected_hash(
+    client: &reqwest::Client,
+    release: &Release,
+    asset_name: &str,
+) -> Option<String> {
+    let sums = release.assets.iter().find(|a| a.name == "SHA256SUMS.txt")?;
+    fetch_hash_from_url(client, &sums.browser_download_url, asset_name).await
 }
 
 // -----------------------------------------------------------------------------
@@ -1077,6 +1200,37 @@ mod tests {
         assert_eq!(status.missing, vec!["credentials".to_string()]);
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn file_sha256_computes_correct_hash() {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("omp-test-hash-{}.txt", std::process::id()));
+        std::fs::write(&temp_file, b"hello world").unwrap();
+
+        let hash = file_sha256(&temp_file);
+        let _ = std::fs::remove_file(&temp_file);
+
+        // echo -n "hello world" | sha256sum -> b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+        assert_eq!(
+            hash.as_deref(),
+            Some("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
+        );
+    }
+
+    #[test]
+    fn parse_checksums_finds_asset_hash() {
+        let text = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9  omp-windows-x64.exe\n\
+                    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 *omp-darwin-arm64\n";
+        assert_eq!(
+            parse_checksums(text, "omp-windows-x64.exe").as_deref(),
+            Some("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
+        );
+        assert_eq!(
+            parse_checksums(text, "omp-darwin-arm64").as_deref(),
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        );
+        assert_eq!(parse_checksums(text, "nonexistent"), None);
     }
 
     /// Installa davvero il font nel profilo dell'utente, quindi non gira nella

@@ -1,6 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
+import {
+	isPermissionGranted,
+	requestPermission,
+	sendNotification,
+	createChannel,
+	Importance,
+	Visibility,
+	onAction
+} from '@tauri-apps/plugin-notification';
 import { projectStore } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 
@@ -19,6 +27,21 @@ class NotificationManager {
 	async init() {
 		if (this.initialized) return;
 		this.initialized = true;
+
+		// Registra il canale notifiche per Windows e Android
+		try {
+			await createChannel({
+				id: 'omp-studio-alerts',
+				name: 'OMP Studio',
+				description: 'Avvisi per richieste di intervento e completamento task degli agenti',
+				importance: Importance.High,
+				visibility: Visibility.Public,
+				sound: 'default'
+			});
+		} catch (err) {
+			// createChannel potrebbe non essere implementato su tutte le piattaforme desktop: non fatale
+			console.debug('Inizializzazione canale notifiche:', err);
+		}
 
 		// Registra il listener per il click sulle notifiche di sistema
 		try {
@@ -156,6 +179,7 @@ class NotificationManager {
 			sendNotification({
 				title,
 				body,
+				channelId: 'omp-studio-alerts',
 				extra: { projectId: project.id },
 				silent: !settingsStore.notifications.sound
 			});
@@ -203,6 +227,33 @@ class NotificationManager {
 		if (projectId) {
 			projectStore.setActive(projectId);
 			this.acknowledge(projectId);
+		}
+	}
+
+	/**
+	 * Invia una notifica di test del sistema operativo per verificare
+	 * il corretto funzionamento di AUMID, icona e canale notifiche.
+	 */
+	async sendTestNotification(): Promise<{ ok: boolean; error?: string }> {
+		try {
+			let granted = await isPermissionGranted();
+			if (!granted) {
+				const status = await requestPermission();
+				granted = status === 'granted';
+			}
+			if (!granted) {
+				return { ok: false, error: 'Permesso di invio notifiche negato dal sistema operativo.' };
+			}
+
+			sendNotification({
+				title: 'OMP Studio · Notifica di prova',
+				body: 'Le notifiche desktop e gli avvisi di sistema sono configurati correttamente.',
+				channelId: 'omp-studio-alerts',
+				silent: !settingsStore.notifications.sound
+			});
+			return { ok: true };
+		} catch (err) {
+			return { ok: false, error: String(err) };
 		}
 	}
 }

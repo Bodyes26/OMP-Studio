@@ -839,7 +839,7 @@ $effect(() => {
 			onkeyup={handleCursorMovement}
 			onkeydown={handleKeydown}
 			onpaste={handlePaste}
-			placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere il tuo prompt" : "Scrivi un prompt, incolla un'immagine, digita / per i comandi... (Alt+R ruoli, Alt+P modelli, Alt+H scorciatoie)"}
+			placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere" : "Scrivi un messaggio... digita / per i comandi (Alt+H scorciatoie)"}
 			rows="1"
 			class="composer-textarea"
 			aria-label="Messaggio per l'assistente"
@@ -852,19 +852,25 @@ $effect(() => {
 					type="button"
 					class="send-btn stop"
 					title="Interrompi risposta (Esc / Alt+C)"
+					aria-label="Interrompi generazione (Esc)"
 					onclick={() => session.abort()}
 				>
-					<span class="stop-icon">■</span>
+					<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
+						<rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="currentColor" />
+					</svg>
 				</button>
 			{:else}
 				<button
 					type="button"
 					class="send-btn"
 					title={session.isStarting ? 'Invia messaggio (verrà recapitato appena OMP è pronto)' : session.isStreaming ? 'Accoda messaggio (Invio)' : 'Invia messaggio (Invio)'}
+					aria-label={session.isStreaming ? 'Accoda messaggio (Invio)' : 'Invia messaggio (Invio)'}
 					disabled={!text.trim() && attachedImages.length === 0}
 					onclick={() => handleSubmit()}
 				>
-					<span class="send-icon">↑</span>
+					<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
+						<path d="M8 12.5V3.5M3.5 8L8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+					</svg>
 				</button>
 			{/if}
 		</div>
@@ -886,7 +892,7 @@ $effect(() => {
 					toggleMenu('role');
 				}}
 			>
-				<span class="chip-label">ruolo:</span>
+				
 				<span class="chip-val role-val">
 					{#if activeRoleInfo}
 						<span class="role-glyph-inline">{activeRoleInfo.glyph}</span> {activeRoleInfo.label}
@@ -947,6 +953,7 @@ $effect(() => {
 									tabindex="-1"
 									aria-selected={isSelected}
 									onclick={() => handleRoleSelect(r.id)}
+									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleRoleSelect(r.id); } }}
 									onmouseenter={() => highlightedRoleIndex = idx}
 								>
 									<span class="role-item-glyph">{r.glyph}</span>
@@ -994,7 +1001,7 @@ $effect(() => {
 					toggleMenu('model');
 				}}
 			>
-				<span class="chip-label">modello:</span>
+				
 				{#if session.isStarting}
 					<span class="chip-val starting">
 						<span class="starting-spinner"></span> in avvio...
@@ -1053,6 +1060,7 @@ $effect(() => {
 									tabindex="-1"
 									aria-selected={isSelected}
 									onclick={() => handleModelSelect(m)}
+									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleModelSelect(m); } }}
 									onmouseenter={() => highlightedModelIndex = idx}
 								>
 									<span class="model-item-name">{m.name || m.id}</span>
@@ -1073,13 +1081,6 @@ $effect(() => {
 				</div>
 			{/if}
 		</div>
-		<!-- Badge di avvio OMP -->
-		{#if session.isStarting}
-			<div class="startup-badge" title="OMP si sta avviando in background. Puoi già scrivere e inviare messaggi, verranno elaborati appena pronto.">
-				<span class="starting-dot"></span>
-				<span class="startup-text">Avvio OMP in corso...</span>
-			</div>
-		{/if}
 
 
 		<!-- Chip Thinking -->
@@ -1095,8 +1096,7 @@ $effect(() => {
 					toggleMenu('thinking');
 				}}
 			>
-				<span class="chip-label">thinking:</span>
-				<span class="chip-val">{session.thinkingLevel || 'off'}</span>
+				<span class="chip-val">thinking: {session.thinkingLevel || 'off'}</span>
 			</button>
 
 			{#if activeMenu === 'thinking'}
@@ -1119,6 +1119,7 @@ $effect(() => {
 								tabindex="-1"
 								aria-selected={isSelected}
 								onclick={() => handleThinkingSelect(lvl)}
+								onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleThinkingSelect(lvl); } }}
 								onmouseenter={() => highlightedThinkingIndex = idx}
 							>
 								<span>{lvl}</span>
@@ -1143,7 +1144,7 @@ $effect(() => {
 			role="status"
 			title="Utilizzo del contesto: {session.contextUsage?.tokens ?? 0} su {session.contextUsage?.contextWindow ?? 0} token ({contextPercent.toFixed(1)}%)"
 		>
-			<span class="chip-label">ctx:</span>
+			
 			<span class="chip-val">
 				{formatTokens(session.contextUsage?.tokens)} / {formatTokens(session.contextUsage?.contextWindow)}
 			</span>
@@ -1154,7 +1155,7 @@ $effect(() => {
 
 		<!-- Chip Costo -->
 		<div class="status-readout cost-chip" role="status" title="Costo stimato della sessione">
-			<span class="chip-label">costo:</span>
+			
 			<span class="chip-val">{formatCost(session.sessionCost)}</span>
 		</div>
 
@@ -1392,52 +1393,51 @@ $effect(() => {
 		height: 28px;
 		background: var(--brand);
 		color: var(--on-brand);
-		border: none;
+		border: 1px solid var(--brand);
 		border-radius: var(--radius-sm);
 		cursor: pointer;
 		font-weight: 600;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.send-btn:hover {
-		background: var(--brand-dim);
-	}
-
-	.send-btn:active {
+	.send-btn:hover:not(:disabled) {
 		background: var(--brand-ink);
+		border-color: var(--brand-ink);
+	}
+
+	.send-btn:active:not(:disabled) {
+		background: var(--brand-dim);
 	}
 
 	.send-btn:disabled {
 		opacity: 0.35;
 		cursor: default;
 		background: var(--bg-hover);
+		border-color: var(--line);
 		color: var(--ink-faint);
 	}
 
 	.send-btn.stop {
 		background: var(--bg-base);
-		border: 1px solid var(--line-strong);
+		border: 1px solid var(--danger);
 		color: var(--danger);
 	}
 
 	.send-btn.stop:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-		color: var(--danger);
+		background: var(--danger-dim);
+		border-color: var(--danger);
+		color: var(--ink);
 	}
 
 	.send-btn.stop:active {
-		background: var(--bg-active);
-		color: var(--danger);
+		background: var(--danger);
+		color: var(--on-danger);
 	}
 
-	.send-icon {
-		font-size: var(--text-md);
-		line-height: 1;
-	}
-
-	.stop-icon {
-		font-size: var(--text-xs);
-		line-height: 1;
+	.btn-icon {
+		width: 14px;
+		height: 14px;
+		flex-shrink: 0;
 	}
 
 	/* Barra di stato inferiore */
@@ -1550,27 +1550,6 @@ $effect(() => {
 		border-radius: var(--radius-full);
 	}
 
-	.startup-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: 2px var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-		color: var(--brand-ink);
-		line-height: 1;
-	}
-
-	.starting-dot {
-		display: inline-block;
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--brand);
-	}
-
 	.context-chip {
 		cursor: default;
 		display: inline-flex;
@@ -1630,6 +1609,7 @@ $effect(() => {
 		left: 0;
 		margin-bottom: var(--space-1);
 		background: var(--bg-raised);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);

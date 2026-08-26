@@ -3,35 +3,8 @@ import { homeDir, join } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
 
-const isWindows = typeof navigator !== 'undefined' && /win/i.test((navigator.userAgent || navigator.platform || '').toLowerCase());
-
-export function normalizeProjectPath(p: string): string {
-	if (!p) return '';
-	if (isWindows) {
-		let out = p.replace(/\//g, '\\').replace(/\\+$/, '');
-		if (/^[A-Za-z]:$/.test(out)) out += '\\';
-		return out;
-	} else {
-		let out = p.replace(/\\/g, '/').replace(/\/+$/, '');
-		if (out === '') return '/';
-		return out;
-	}
-}
-
-function pathKey(p: string): string {
-	return normalizeProjectPath(p).toLowerCase();
-}
-
-export function joinProjectPath(projectPath: string, rel: string): string {
-	if (!rel) return projectPath;
-	if (isWindows) {
-		return `${projectPath}\\${rel.replace(/\//g, '\\')}`;
-	} else {
-		const base = projectPath.endsWith('/') ? projectPath.slice(0, -1) : projectPath;
-		const child = rel.startsWith('/') ? rel.slice(1) : rel;
-		return `${base}/${child.replace(/\\/g, '/')}`;
-	}
-}
+import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/utils/paths';
+export { normalizeProjectPath, joinProjectPath, pathKey };
 
 export type AgentState = 'idle' | 'working' | 'attention' | 'finished' | 'unknown';
 export type ProjectColorMode = 'auto' | 'custom';

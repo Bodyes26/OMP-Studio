@@ -162,50 +162,54 @@
 				value={query}
 				oninput={handleQueryInput}
 				placeholder="Cerca nello storico..."
+				aria-label="Cerca nello storico delle sessioni"
 			/>
 		</div>
 	</form>
 
-	<div class="list" aria-busy={loading}>
+	<ul class="list" aria-label="Elenco sessioni" aria-busy={loading}>
 		{#if loading && displaySessions.length === 0}
-			<div class="msg">Caricamento sessioni...</div>
+			<li class="msg">Caricamento sessioni...</li>
 		{:else if loadError}
-			<div class="msg error" role="alert">{loadError}</div>
+			<li class="msg error" role="alert">{loadError}</li>
 		{:else if displaySessions.length === 0}
-			<div class="msg">Nessuna sessione trovata per questo progetto.</div>
+			<li class="msg">Nessuna sessione trovata per questo progetto.</li>
 		{:else}
 			{#each displaySessions as session (session.id)}
 				{@const isCurrent = session.id === currentSessionId}
-				<button
-					type="button"
-					class="session-row"
-					class:current={isCurrent}
-					disabled={isCurrent || !canAutomate}
-					title={isCurrent
-						? 'Sessione attiva'
-						: session.optimistic
-							? 'La sessione si sta sincronizzando con lo storico'
-							: canAutomate
-								? `Riprendi: ${session.title}`
-								: automationReason}
-					onclick={() => onResume(session.id)}
-				>
-					<span class="title">{session.title || 'Sessione senza titolo'}</span>
-					<span class="meta">
-						{formatRelative(session.created_at)}
-						{#if taskStore.isTaskSession(projectPath, session.id)}
-							<span class="badge">TASK</span>
-						{/if}
-						{#if isCurrent}
-							<span class="current-label">ATTIVA</span>
-						{:else if session.optimistic}
-							<span>in sincronizzazione</span>
-						{/if}
-					</span>
-				</button>
+				<li>
+					<button
+						type="button"
+						class="session-row"
+						class:current={isCurrent}
+						disabled={isCurrent || !canAutomate}
+						title={isCurrent
+							? 'Sessione attiva'
+							: session.optimistic
+								? 'La sessione si sta sincronizzando con lo storico'
+								: canAutomate
+									? `Riprendi: ${session.title}`
+									: automationReason}
+						aria-label={isCurrent ? `Sessione attiva: ${session.title || 'senza titolo'}` : `Riprendi sessione: ${session.title || 'senza titolo'}, ${formatRelative(session.created_at)}`}
+						onclick={() => onResume(session.id)}
+					>
+						<span class="title">{session.title || 'Sessione senza titolo'}</span>
+						<span class="meta">
+							{formatRelative(session.created_at)}
+							{#if taskStore.isTaskSession(projectPath, session.id)}
+								<span class="badge">TASK</span>
+							{/if}
+							{#if isCurrent}
+								<span class="current-label">ATTIVA</span>
+							{:else if session.optimistic}
+								<span>in sincronizzazione</span>
+							{/if}
+						</span>
+					</button>
+				</li>
 			{/each}
 		{/if}
-	</div>
+	</ul>
 </div>
 
 <style>
@@ -278,12 +282,19 @@
 	}
 
 	.list {
+		list-style: none;
+		margin: 0;
+		padding: 0 0 var(--space-2) 0;
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
-		padding-bottom: var(--space-2);
 	}
 
+	.list > li {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
 	.msg {
 		padding: var(--space-4) var(--space-3);
 		color: var(--ink-faint);

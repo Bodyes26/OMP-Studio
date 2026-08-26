@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
 	import { wrapPrototypeCode } from '$lib/prototype/wrapper';
-
+	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '$lib/editor/svgSandbox';
 	let {
 		projectPath,
 		filePath,
@@ -27,7 +27,7 @@
 		mobile: '390px'
 	};
 	let device = $state<Device>('desktop');
-
+	let isCurrentSvg = $derived(isSvgFileName(filePath) || isSvgContent(rawContent));
 	async function load() {
 		loading = true;
 		missing = false;
@@ -44,7 +44,11 @@
 			} else {
 				rawContent = res.content;
 				const title = filePath.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Prototipo';
-				htmlDoc = wrapPrototypeCode(title, res.content);
+				if (isSvgFileName(filePath) || isSvgContent(res.content)) {
+					htmlDoc = buildSandboxedSvgDocument(res.content);
+				} else {
+					htmlDoc = wrapPrototypeCode(title, res.content);
+				}
 			}
 		} catch (e) {
 			// Conserviamo l'errore reale per non confondere errori di I/O con file mancante
@@ -88,7 +92,7 @@
 <div class="preview-viewer">
 	<div class="preview-toolbar">
 		<div class="title-wrap">
-			<span class="preview-badge">PROTO</span>
+			<span class="preview-badge">{isCurrentSvg ? 'SVG' : 'PROTO'}</span>
 			<span class="preview-title" title={filePath}>{filePath.split('/').pop()}</span>
 		</div>
 
@@ -132,11 +136,11 @@
 
 		<span class="toolbar-spacer"></span>
 
-		<button class="tool-btn" onclick={copyCode} title="Copia il codice sorgente negli appunti">
+		<button class="tool-btn" onclick={copyCode} title="Copia il codice sorgente negli appunti" aria-label="Copia codice sorgente negli appunti">
 			{copied ? '✓ Copiato!' : 'Copia'}
 		</button>
-		<button class="tool-btn" onclick={() => void load()} title="Ricarica il file">Ricarica</button>
-		<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)">×</button>
+		<button class="tool-btn" onclick={() => void load()} title="Ricarica il file" aria-label="Ricarica file anteprima">Ricarica</button>
+		<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)" aria-label="Chiudi anteprima">×</button>
 	</div>
 
 	{#if loading}
@@ -154,12 +158,13 @@
 		</div>
 	{:else}
 		<div class="preview-stage">
-			<!-- sandbox senza allow-same-origin: il prototipo gira isolato, non
-			     puo' toccare il DOM di Studio ne' i cookie della WebView. -->
+			<!-- sandbox isolata: per file SVG 'allow-scripts' e' severamente disabilitato (sandbox=""),
+			     mentre per prototipi UI e' attivo 'allow-scripts' ma MAI 'allow-same-origin'.
+			     In nessun caso l'iframe ha accesso a IPC o al DOM dell'app. -->
 			<iframe
 				class="preview-frame"
 				style:width={DEVICE_WIDTHS[device]}
-				sandbox="allow-scripts"
+				sandbox={isCurrentSvg ? '' : 'allow-scripts'}
 				title="Anteprima {filePath}"
 				srcdoc={htmlDoc}
 			></iframe>
@@ -201,11 +206,9 @@
 		font-weight: 600;
 		letter-spacing: 0.05em;
 		padding: 1px 5px;
-		border-radius: var(--radius-sm);
 		background: var(--brand-dim);
-		color: var(--brand-ink);
+		color: var(--ink);
 		border: 1px solid var(--line);
-		flex-shrink: 0;
 	}
 
 	.preview-title {

@@ -12,6 +12,7 @@
 	} from './monaco';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import ImageViewer from './ImageViewer.svelte';
+	import SvgPreview from './SvgPreview.svelte';
 	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 
@@ -544,7 +545,7 @@
 					{#if isSvg}
 						<div class="preview-header">Anteprima SVG Live</div>
 						<div class="svg-preview-viewport">
-							{@html currentText}
+							<SvgPreview content={currentText} title="Anteprima live di {fileName(filePath)}" />
 						</div>
 					{:else if isMarkdown}
 						<div class="preview-header">Anteprima Markdown Live</div>
@@ -765,8 +766,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: var(--space-4);
-		overflow: auto;
+		padding: var(--space-2);
+		overflow: hidden;
+		position: relative;
 		/* Scacchiera di trasparenza: quadri traslucidi sopra il pozzo, cosi'
 		   seguono la superficie invece di essere due grigi fissi. */
 		--checker: color-mix(in srgb, var(--ink) 5%, transparent);

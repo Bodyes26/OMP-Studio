@@ -319,12 +319,12 @@ export function applyAnchors(anchors: ThemeAnchors) {
 	root.setProperty('--warn-h', String(anchors.warnH));
 	root.setProperty('--warn-c', String(anchors.warnC));
 	root.setProperty('--ink', anchors.isLight ? 'oklch(0.240 0 0)' : 'oklch(0.970 0 0)');
-	root.setProperty('--ink-muted', anchors.isLight ? 'oklch(0.430 0 0)' : 'oklch(0.760 0 0)');
-	root.setProperty('--ink-faint', anchors.isLight ? 'oklch(0.520 0 0)' : 'oklch(0.655 0 0)');
-	root.setProperty('--brand-ink-l', anchors.isLight ? '0.430' : '0.720');
-	root.setProperty('--brand-dim-l', anchors.isLight ? '0.500' : '0.440');
-	root.setProperty('--warn-l', anchors.isLight ? '0.560' : '0.780');
-	root.setProperty('--warn-dim-l', anchors.isLight ? '0.460' : '0.560');
+	root.setProperty('--ink-muted', anchors.isLight ? 'oklch(0.400 0 0)' : 'oklch(0.760 0 0)');
+	root.setProperty('--ink-faint', anchors.isLight ? 'oklch(0.460 0 0)' : 'oklch(0.655 0 0)');
+	root.setProperty('--brand-ink-l', anchors.isLight ? '0.400' : '0.720');
+	root.setProperty('--brand-dim-l', anchors.isLight ? '0.880' : '0.440');
+	root.setProperty('--warn-l', anchors.isLight ? '0.420' : '0.780');
+	root.setProperty('--warn-dim-l', anchors.isLight ? '0.880' : '0.560');
 	root.setProperty('--on-brand', anchors.isLight ? 'var(--ink)' : 'var(--bg-sunken)');
 	root.setProperty('--on-project', anchors.isLight ? 'var(--ink)' : 'var(--bg-sunken)');
 	root.setProperty('--proj-l-ink', anchors.isLight ? '0.430' : '0.780');

@@ -297,6 +297,17 @@ export interface AgentSessionEvent {
 	payload?: SubagentProgressPayload;
 	/** `available_commands_update` */
 	commands?: AvailableCommand[];
+	/** `studio_delta` */
+	kind?: 'text' | 'thinking' | 'toolcall' | string;
+	contentIndex?: number;
+	delta?: string;
+	/** `studio_exit` */
+	code?: number | null;
+	stderr?: string[];
+	/** `error`, `agent_error`, `studio_error`, `extension_error` */
+	error?: string;
+	reason?: string;
+	extensionPath?: string;
 	[key: string]: unknown;
 }
 
@@ -373,5 +384,158 @@ export interface StudioExitFrame {
 export interface StudioErrorFrame {
 	type: 'studio_error';
 	message: string;
+}
+
+/* ------------------------------------------- micro-batching per streaming */
+
+export interface DeltaBatchItem {
+	kind: 'text' | 'thinking' | 'toolcall' | string;
+	contentIndex: number;
+	delta: string;
+}
+
+/**
+ * Micro-batching per lo streaming veloce di token e delta:
+ * accumula frammenti consecutivi di testo o pensiero e li invia
+ * sincronizzati con requestAnimationFrame (con fallback a throttle ~16ms).
+ * Evita continui re-render reattivi e ricalcoli markdown durante
+ * emissioni ad alta frequenza.
+ */
+export class StreamBatcher {
+	private pending = new Map<string, DeltaBatchItem>();
+	private rafId: number | null = null;
+	private timeoutId: number | null = null;
+	private onFlush: (items: DeltaBatchItem[]) => void;
+	private maxBatchSize: number;
+
+	constructor(onFlush: (items: DeltaBatchItem[]) => void, maxBatchSize = 4096) {
+		this.onFlush = onFlush;
+		this.maxBatchSize = maxBatchSize;
+	}
+
+	push(kind: 'text' | 'thinking' | 'toolcall' | string, contentIndex: number, delta: string) {
+		const key = `${kind}:${contentIndex}`;
+		const existing = this.pending.get(key);
+		if (existing) {
+			existing.delta += delta;
+		} else {
+			this.pending.set(key, { kind, contentIndex, delta });
+		}
+
+		let totalChars = 0;
+		for (const item of this.pending.values()) {
+			totalChars += item.delta.length;
+		}
+		if (totalChars >= this.maxBatchSize) {
+			this.flush();
+			return;
+		}
+
+		if (this.rafId === null) {
+			if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+				this.rafId = window.requestAnimationFrame(() => {
+					this.rafId = null;
+					if (this.timeoutId !== null) {
+						window.clearTimeout(this.timeoutId);
+						this.timeoutId = null;
+					}
+					this.flush();
+				});
+				if (this.timeoutId === null) {
+					this.timeoutId = window.setTimeout(() => {
+						this.timeoutId = null;
+						if (this.rafId !== null) {
+							window.cancelAnimationFrame(this.rafId);
+							this.rafId = null;
+						}
+						this.flush();
+					}, 32);
+				}
+			} else {
+				this.flush();
+			}
+		}
+	}
+
+	flush() {
+		if (this.rafId !== null && typeof window !== 'undefined') {
+			window.cancelAnimationFrame(this.rafId);
+			this.rafId = null;
+		}
+		if (this.timeoutId !== null && typeof window !== 'undefined') {
+			window.clearTimeout(this.timeoutId);
+			this.timeoutId = null;
+		}
+		if (this.pending.size === 0) return;
+
+		const items = Array.from(this.pending.values());
+		this.pending.clear();
+		this.onFlush(items);
+	}
+
+	clear() {
+		if (this.rafId !== null && typeof window !== 'undefined') {
+			window.cancelAnimationFrame(this.rafId);
+			this.rafId = null;
+		}
+		if (this.timeoutId !== null && typeof window !== 'undefined') {
+			window.clearTimeout(this.timeoutId);
+			this.timeoutId = null;
+		}
+		this.pending.clear();
+	}
+}
+
+/* ------------------------------------------- parsing e validazione wire */
+
+/**
+ * Verifica se un valore è un frame/evento wire valido con tipo stringa.
+ */
+export function isWireEvent(value: unknown): value is AgentSessionEvent {
+	if (!value || typeof value !== 'object') return false;
+	const rec = value as Record<string, unknown>;
+	return typeof rec.type === 'string' && rec.type.trim().length > 0;
+}
+
+/**
+ * Verifica se un valore è una risposta RPC conforme al protocollo.
+ */
+export function isWireResponse(value: unknown): value is RpcResponse {
+	if (!isWireEvent(value)) return false;
+	const rec = value as Record<string, unknown>;
+	return rec.type === 'response' && typeof rec.command === 'string' && typeof rec.success === 'boolean';
+}
+
+/**
+ * Determina se un metodo di estensione UI richiede una risposta da parte dell'utente/client.
+ */
+export function isAnswerableUiMethod(method: string): boolean {
+	return ANSWERABLE_UI_METHODS[method] === true;
+}
+
+/**
+ * Parsa e valida una riga JSON o un payload ricevuto dal canale wire OMP.
+ * Ritorna l'evento tipizzato o null se la riga è malformata o non valida.
+ */
+export function parseWireEvent(input: unknown): AgentSessionEvent | null {
+	let payload: unknown = input;
+	if (typeof input === 'string') {
+		try {
+			payload = JSON.parse(input);
+		} catch {
+			return null;
+		}
+	}
+	if (!isWireEvent(payload)) {
+		return null;
+	}
+	return payload;
+}
+
+/**
+ * Formatta un comando RPC con id per l'invio su stdin/wire a omp.
+ */
+export function formatWireCommand(command: RpcCommand, id: string): string {
+	return JSON.stringify({ id, ...command });
 }
 

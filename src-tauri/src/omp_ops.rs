@@ -24,21 +24,31 @@ fn get_user_home() -> Option<String> {
     None
 }
 
-fn get_db_path(db_name: &str) -> PathBuf {
-    let home = get_user_home().unwrap_or_default();
-    let mut path = PathBuf::from(home);
-    path.push(".omp");
+fn get_db_path(db_name: &str) -> Option<PathBuf> {
     if db_name != "stats.db" && db_name != "autoqa.db" {
-        path.push("agent");
+        let mut path = agent_dir()?;
+        path.push(db_name);
+        Some(path)
+    } else {
+        let home = get_user_home()?;
+        let mut path = PathBuf::from(home);
+        path.push(".omp");
+        path.push(db_name);
+        Some(path)
     }
-    path.push(db_name);
-    path
 }
 
 fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
-    let path = get_db_path(db_name);
-    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-        .map_err(|e| format!("Cannot open db {}: {}", db_name, e))?;
+    let path = get_db_path(db_name)
+        .ok_or_else(|| format!("Percorso db {} non risolvibile", db_name))?;
+    if !path.exists() {
+        return Err(format!("File db {} non esiste", path.display()));
+    }
+    let conn = Connection::open_with_flags(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|e| format!("Cannot open db {}: {}", db_name, e))?;
 
     conn.execute_batch(
         "PRAGMA query_only = ON;
@@ -114,8 +124,7 @@ pub fn studio_theme_file() -> Option<PathBuf> {
 /// da Studio hanno `theme.dark` e `theme.light` puntati al tema scritto da
 /// `theme_apply` nell'overlay, quindi ogni modalita' della TUI usa la stessa
 /// scelta.
-#[command]
-pub async fn theme_apply(theme: serde_json::Value) -> Result<(), String> {
+fn theme_apply_sync(theme: serde_json::Value) -> Result<(), String> {
     let path = studio_theme_file().ok_or("Impossibile risolvere ~/.omp/agent")?;
     let dir = path.parent().ok_or("Percorso tema senza cartella")?;
     std::fs::create_dir_all(dir).map_err(|e| format!("Cartella temi: {}", e))?;
@@ -134,12 +143,18 @@ pub async fn theme_apply(theme: serde_json::Value) -> Result<(), String> {
     std::fs::write(&path, body).map_err(|e| format!("Scrittura tema: {}", e))
 }
 
+#[command]
+pub async fn theme_apply(theme: serde_json::Value) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || theme_apply_sync(theme))
+        .await
+        .map_err(|e| format!("Task theme_apply: {}", e))?
+}
+
 /// Il tema attivo nella configurazione dell'utente (`theme.dark` di
 /// `config.yml`), letto per far partire Studio con l'aspetto che l'utente ha
 /// gia' scelto in `omp`. Se `theme.dark` non e' presente, usa `theme.light`
 /// come fallback.
-#[command]
-pub async fn omp_user_theme() -> Result<Option<String>, String> {
+fn omp_user_theme_sync() -> Result<Option<String>, String> {
     let mut path = agent_dir().ok_or("Impossibile risolvere ~/.omp/agent")?;
     path.push("config.yml");
     let Ok(text) = std::fs::read_to_string(&path) else {
@@ -172,13 +187,19 @@ pub async fn omp_user_theme() -> Result<Option<String>, String> {
     Ok(dark.or(light))
 }
 
+#[command]
+pub async fn omp_user_theme() -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(omp_user_theme_sync)
+        .await
+        .map_err(|e| format!("Task omp_user_theme: {}", e))?
+}
+
 #[derive(Serialize)]
 pub struct UsageReport {
     raw_json: serde_json::Value,
 }
 
-#[command]
-pub async fn usage_snapshot(_force: bool) -> Result<UsageReport, String> {
+fn usage_snapshot_sync() -> Result<UsageReport, String> {
     let omp_path = get_omp_binary();
 
     let mut cmd = Command::new(&omp_path);
@@ -200,6 +221,13 @@ pub async fn usage_snapshot(_force: bool) -> Result<UsageReport, String> {
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
+}
+
+#[command]
+pub async fn usage_snapshot(_force: bool) -> Result<UsageReport, String> {
+    tokio::task::spawn_blocking(usage_snapshot_sync)
+        .await
+        .map_err(|e| format!("Task usage_snapshot: {}", e))?
 }
 
 const SESSION_TAIL_BYTES: u64 = 256 * 1024;
@@ -328,8 +356,7 @@ pub struct ProviderHost {
     pub last_active_ms: i64,
 }
 
-#[command]
-pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
+fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
     let Some(mut terminal_sessions) = agent_dir() else {
         return Ok(Vec::new());
     };
@@ -451,6 +478,12 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
     let mut hosts = hosts.into_values().collect::<Vec<_>>();
     hosts.sort_by(|left, right| right.last_active_ms.cmp(&left.last_active_ms));
     Ok(hosts)
+}
+#[command]
+pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
+    tokio::task::spawn_blocking(provider_hosts_sync)
+        .await
+        .map_err(|e| format!("Task provider_hosts: {}", e))?
 }
 
 #[derive(Serialize)]
@@ -599,8 +632,7 @@ fn scan_sessions_from_disk(
     found
 }
 
-#[command]
-pub async fn sessions_list(project_path: String) -> Result<Vec<SessionEntry>, String> {
+fn sessions_list_sync(project_path: String) -> Result<Vec<SessionEntry>, String> {
     let mut titles = HashMap::new();
     let mut history_sessions = Vec::new();
 
@@ -655,7 +687,19 @@ pub async fn sessions_list(project_path: String) -> Result<Vec<SessionEntry>, St
 }
 
 #[command]
-pub async fn sessions_search(
+pub async fn sessions_list(project_path: String) -> Result<Vec<SessionEntry>, String> {
+    tokio::task::spawn_blocking(move || sessions_list_sync(project_path))
+        .await
+        .map_err(|e| format!("Task sessions_list: {}", e))?
+}
+
+pub fn sanitize_fts_query(query: &str) -> String {
+    // Rimuove o raddoppia i doppi apici e racchiude tra virgolette per evitare errori di sintassi FTS
+    let escaped = query.replace('"', "\"\"");
+    format!("\"{}\"", escaped)
+}
+
+fn sessions_search_sync(
     query: String,
     project_path: Option<String>,
 ) -> Result<Vec<SessionEntry>, String> {
@@ -663,34 +707,47 @@ pub async fn sessions_search(
     let mut titles = HashMap::new();
     let mut history_sessions = Vec::new();
 
-    if let Ok(conn) = open_readonly_db("history.db") {
-        if let Ok(mut title_stmt) = conn.prepare("SELECT session_id, title FROM session_titles") {
-            if let Ok(iter) = title_stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
-                for row in iter.flatten() {
-                    titles.insert(row.0, row.1);
+    if !trimmed_query.is_empty() {
+        if let Ok(conn) = open_readonly_db("history.db") {
+            if let Ok(mut title_stmt) = conn.prepare("SELECT session_id, title FROM session_titles") {
+                if let Ok(iter) = title_stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
+                    for row in iter.flatten() {
+                        titles.insert(row.0, row.1);
+                    }
                 }
             }
-        }
 
-        let sql = if project_path.is_some() {
-            "SELECT h.session_id, h.prompt, h.created_at 
-             FROM history_fts f 
-             JOIN history h ON f.rowid = h.id 
-             WHERE history_fts MATCH ? AND h.cwd = ? 
-             GROUP BY h.session_id 
-             ORDER BY h.created_at DESC LIMIT 50"
-        } else {
-            "SELECT h.session_id, h.prompt, h.created_at 
-             FROM history_fts f 
-             JOIN history h ON f.rowid = h.id 
-             WHERE history_fts MATCH ? 
-             GROUP BY h.session_id 
-             ORDER BY h.created_at DESC LIMIT 50"
-        };
+            let fts_query = sanitize_fts_query(&trimmed_query);
+            let sql = if project_path.is_some() {
+                "SELECT h.session_id, h.prompt, h.created_at 
+                 FROM history_fts f 
+                 JOIN history h ON f.rowid = h.id 
+                 WHERE history_fts MATCH ? AND h.cwd = ? 
+                 GROUP BY h.session_id 
+                 ORDER BY h.created_at DESC LIMIT 50"
+            } else {
+                "SELECT h.session_id, h.prompt, h.created_at 
+                 FROM history_fts f 
+                 JOIN history h ON f.rowid = h.id 
+                 WHERE history_fts MATCH ? 
+                 GROUP BY h.session_id 
+                 ORDER BY h.created_at DESC LIMIT 50"
+            };
 
-        if let Ok(mut stmt) = conn.prepare(sql) {
-            if let Some(path) = &project_path {
-                if let Ok(iter) = stmt.query_map(rusqlite::params![trimmed_query, path], |row| {
+            if let Ok(mut stmt) = conn.prepare(sql) {
+                if let Some(path) = &project_path {
+                    if let Ok(iter) = stmt.query_map(rusqlite::params![fts_query, path], |row| {
+                        Ok(SessionEntry {
+                            id: row.get(0)?,
+                            title: row.get(1)?,
+                            created_at: row.get(2)?,
+                        })
+                    }) {
+                        for row in iter.flatten() {
+                            history_sessions.push(row);
+                        }
+                    }
+                } else if let Ok(iter) = stmt.query_map([&fts_query], |row| {
                     Ok(SessionEntry {
                         id: row.get(0)?,
                         title: row.get(1)?,
@@ -700,16 +757,6 @@ pub async fn sessions_search(
                     for row in iter.flatten() {
                         history_sessions.push(row);
                     }
-                }
-            } else if let Ok(iter) = stmt.query_map([&trimmed_query], |row| {
-                Ok(SessionEntry {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    created_at: row.get(2)?,
-                })
-            }) {
-                for row in iter.flatten() {
-                    history_sessions.push(row);
                 }
             }
         }
@@ -741,16 +788,18 @@ pub async fn sessions_search(
 
     Ok(sessions)
 }
-#[derive(Serialize)]
-pub struct OmpUpdateCheck {
-    pub has_update: bool,
-    pub current_version: String,
-    pub latest_version: String,
-    pub message: String,
-}
 
 #[command]
-pub async fn get_omp_version() -> Result<String, String> {
+pub async fn sessions_search(
+    query: String,
+    project_path: Option<String>,
+) -> Result<Vec<SessionEntry>, String> {
+    tokio::task::spawn_blocking(move || sessions_search_sync(query, project_path))
+        .await
+        .map_err(|e| format!("Task sessions_search: {}", e))?
+}
+
+fn get_omp_version_sync() -> Result<String, String> {
     let omp_path = get_omp_binary();
     let mut cmd = Command::new(&omp_path);
     cmd.arg("--version");
@@ -775,6 +824,20 @@ pub async fn get_omp_version() -> Result<String, String> {
     } else {
         Ok(ver.to_string())
     }
+}
+
+#[command]
+pub async fn get_omp_version() -> Result<String, String> {
+    tokio::task::spawn_blocking(get_omp_version_sync)
+        .await
+        .map_err(|e| format!("Task get_omp_version: {}", e))?
+}
+#[derive(Serialize)]
+pub struct OmpUpdateCheck {
+    pub has_update: bool,
+    pub current_version: String,
+    pub latest_version: String,
+    pub message: String,
 }
 
 /// Rimuove sequenze di escape ANSI (es. colori picocolors/chalk) da una stringa
@@ -926,8 +989,7 @@ pub fn parse_omp_update_check(
     })
 }
 
-#[command]
-pub async fn check_omp_update() -> Result<OmpUpdateCheck, String> {
+fn check_omp_update_sync() -> Result<OmpUpdateCheck, String> {
     let omp_path = get_omp_binary();
     let mut cmd = Command::new(&omp_path);
     cmd.arg("update").arg("--check");
@@ -937,9 +999,7 @@ pub async fn check_omp_update() -> Result<OmpUpdateCheck, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let current_version = get_omp_version()
-        .await
-        .unwrap_or_else(|_| "unknown".to_string());
+    let current_version = get_omp_version_sync().unwrap_or_else(|_| "unknown".to_string());
 
     let output = cmd
         .output()
@@ -952,7 +1012,13 @@ pub async fn check_omp_update() -> Result<OmpUpdateCheck, String> {
 }
 
 #[command]
-pub async fn run_omp_update() -> Result<String, String> {
+pub async fn check_omp_update() -> Result<OmpUpdateCheck, String> {
+    tokio::task::spawn_blocking(check_omp_update_sync)
+        .await
+        .map_err(|e| format!("Task check_omp_update: {}", e))?
+}
+
+fn run_omp_update_sync() -> Result<String, String> {
     let omp_path = get_omp_binary();
     let mut cmd = Command::new(&omp_path);
     cmd.arg("update");
@@ -981,6 +1047,13 @@ pub async fn run_omp_update() -> Result<String, String> {
         };
         Err(msg)
     }
+}
+
+#[command]
+pub async fn run_omp_update() -> Result<String, String> {
+    tokio::task::spawn_blocking(run_omp_update_sync)
+        .await
+        .map_err(|e| format!("Task run_omp_update: {}", e))?
 }
 
 #[cfg(test)]
@@ -1069,5 +1142,64 @@ mod tests {
         let stderr = "Failed to check for updates: network timeout\n";
         let res = parse_omp_update_check("", stderr, false, "18.0.4");
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_sanitize_fts_query_evita_caratteri_speciali() {
+        let q = sanitize_fts_query("errore: \"crash\" (subito)");
+        assert_eq!(q, "\"errore: \"\"crash\"\" (subito)\"");
+
+        let simple = sanitize_fts_query("ricerca");
+        assert_eq!(simple, "\"ricerca\"");
+    }
+
+    #[test]
+    fn test_sqlite_readonly_impedisce_scritture() {
+        let temp_dir = std::env::temp_dir();
+        let unique_name = format!(
+            "test_omp_readonly_{}_{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+        let db_path = temp_dir.join(unique_name);
+        let _ = std::fs::remove_file(&db_path);
+
+        // Crea db di test iniziale
+        {
+            let conn = Connection::open(&db_path).expect("creazione db test");
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS test (id INTEGER PRIMARY KEY, val TEXT);
+                 INSERT INTO test (val) VALUES ('valore iniziale');",
+            )
+            .expect("setup tabelle");
+        }
+
+        // Apre con le modalita' read-only di open_readonly_db
+        let conn = Connection::open_with_flags(
+            &db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .expect("apertura readonly");
+        conn.execute_batch("PRAGMA query_only = ON; PRAGMA busy_timeout = 3000;")
+            .expect("pragma setup");
+
+        // Verifica che la lettura funzioni
+        let val: String = conn
+            .query_row("SELECT val FROM test WHERE id = 1", [], |r| r.get(0))
+            .expect("lettura consentita");
+        assert_eq!(val, "valore iniziale");
+
+        // Verifica che qualsiasi scrittura fallisca categoricamente (read-only)
+        let write_result = conn.execute("INSERT INTO test (val) VALUES ('tentativo write')", []);
+        assert!(write_result.is_err(), "La scrittura su db readonly DEVE fallire");
+
+        let update_result = conn.execute("UPDATE test SET val = 'modificato' WHERE id = 1", []);
+        assert!(update_result.is_err(), "L'update su db readonly DEVE fallire");
+
+        // Pulizia
+        let _ = std::fs::remove_file(db_path);
     }
 }

@@ -8,6 +8,7 @@ export interface StudioReleaseAsset {
 	size: number;
 	download_url: string;
 	content_type?: string;
+	sha256?: string | null;
 }
 
 export type StudioUpdateChannel = 'stable' | 'nightly';
@@ -217,6 +218,12 @@ class StudioUpdaterStore {
 			return;
 		}
 
+		if (!this.updateInfo.asset.sha256) {
+			this.errorMessage = 'Checksum SHA256 non disponibile per questa release: installazione non sicura rifiutata.';
+			this.setBadge('Non verificato', 'error', 4000);
+			return;
+		}
+
 		this.isDownloading = true;
 		this.errorMessage = null;
 		this.downloadProgress = {
@@ -231,7 +238,8 @@ class StudioUpdaterStore {
 		try {
 			await invoke('start_studio_update_download', {
 				downloadUrl: this.updateInfo.asset.download_url,
-				filename: this.updateInfo.asset.name
+				filename: this.updateInfo.asset.name,
+				expectedSha256: this.updateInfo.asset.sha256
 			});
 		} catch (e: unknown) {
 			this.isDownloading = false;
@@ -250,8 +258,8 @@ class StudioUpdaterStore {
 		}
 		this.isDownloading = false;
 		this.downloadProgress = null;
+		this.setBadge(null);
 	}
-
 	async installAndRestart() {
 		this.isInstalling = true;
 		this.errorMessage = null;

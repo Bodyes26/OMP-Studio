@@ -8,6 +8,8 @@
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
+	import { trapFocus } from '$lib/focusTrap';
+	import { quotaStore } from '$lib/stores/quota.svelte';
 
 	let {
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
@@ -52,6 +54,49 @@
 	let draggedProjectId = $state<string | null>(null);
 	let dragOverProjectId = $state<string | null>(null);
 	let closeConfirmId = $state<string | null>(null);
+	let tabsTrackEl = $state<HTMLElement | null>(null);
+	let canScrollLeft = $state(false);
+	let canScrollRight = $state(false);
+	let popoverPos = $state<{ top: number; left: number } | null>(null);
+
+	function updateScrollState() {
+		if (!tabsTrackEl) return;
+		const { scrollLeft, scrollWidth, clientWidth } = tabsTrackEl;
+		canScrollLeft = scrollLeft > 2;
+		canScrollRight = scrollLeft + clientWidth < scrollWidth - 2;
+	}
+
+	function scrollTabs(delta: number) {
+		if (!tabsTrackEl) return;
+		tabsTrackEl.scrollBy({ left: delta, behavior: 'smooth' });
+	}
+
+	function handleTabsWheel(e: WheelEvent) {
+		if (!tabsTrackEl) return;
+		if (e.deltaY && !e.deltaX) {
+			e.preventDefault();
+			tabsTrackEl.scrollLeft += e.deltaY;
+			updateScrollState();
+		}
+	}
+
+	$effect(() => {
+		const activeId = projectStore.activeId;
+		if (!activeId || !tabsTrackEl) return;
+		const activeEl = tabsTrackEl.querySelector<HTMLElement>(`[data-tab-id="${activeId}"]`);
+		if (activeEl) {
+			activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+		}
+		updateScrollState();
+	});
+
+	$effect(() => {
+		// Tracciamo il numero di progetti per ricalcolare lo scorrimento
+		void projectOrder.list.length;
+		if (tabsTrackEl) {
+			requestAnimationFrame(updateScrollState);
+		}
+	});
 
 	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 
@@ -67,6 +112,13 @@
 	$effect(() => {
 		if (closeConfirmId && closeConfirmId !== hoveredTabId) closeConfirmId = null;
 	});
+	$effect(() => {
+		quotaStore.init();
+		return () => {
+			quotaStore.destroy();
+		};
+	});
+
 
 	function pickTheme(name: string) {
 		themeStore.select(name);
@@ -178,8 +230,13 @@
 		return path.slice(0, head) + '…' + path.slice(path.length - tail);
 	}
 
-	function handleTabMouseEnter(id: string) {
+	function handleTabMouseEnter(id: string, event?: MouseEvent) {
 		if (hoverTimer) clearTimeout(hoverTimer);
+		if (event?.currentTarget) {
+			const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+			const left = Math.max(8, Math.min(window.innerWidth - 290, rect.left));
+			popoverPos = { top: rect.bottom + 6, left };
+		}
 		hoverTimer = setTimeout(() => {
 			hoveredTabId = id;
 		}, 300);
@@ -313,7 +370,26 @@
 		e.stopPropagation();
 		appWindow.close().catch(err => console.error("Close error:", err));
 	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			if (themeOpen) {
+				themeOpen = false;
+				return;
+			}
+			if (orderMenuOpen) {
+				orderMenuOpen = false;
+				return;
+			}
+			if (hoveredTabId) {
+				hoveredTabId = null;
+				return;
+			}
+		}
+	}
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <header class="topbar" data-tauri-drag-region="deep">
 	<div class="brand-section">
@@ -326,24 +402,42 @@
 		</div>
 	</div>
 
-	<div class="tabs">
+	<div class="tabs-nav" data-tauri-drag-region="deep">
+		{#if canScrollLeft}
+			<button
+				type="button"
+				class="tab-scroll-btn left"
+				onclick={() => scrollTabs(-180)}
+				title="Scorri progetti a sinistra"
+				aria-label="Scorri progetti a sinistra"
+			>‹</button>
+		{/if}
+
+		<div
+			class="tabs-track"
+			bind:this={tabsTrackEl}
+			onscroll={updateScrollState}
+			onwheel={handleTabsWheel}
+		>
+			<div class="tabs">
 		{#each projectOrder.list as p (p.id)}
 			{@const queued = p.path ? taskStore.queuedCountFor(p.path) : 0}
 			{@const ready = canRunTask?.(p.id) ?? false}
 			<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div
-				class="tab-container"
-				class:drag-over={dragOverProjectId === p.id}
-				draggable={settingsStore.projectBar.order === 'fixed'}
-				ondragstart={() => handleProjectDragStart(p.id)}
-				ondragend={handleProjectDragEnd}
-				ondragover={(event) => handleProjectDragOver(event, p.id)}
-				ondragleave={() => handleProjectDragLeave(p.id)}
-				ondrop={() => handleProjectDrop(p.id)}
-				onmouseenter={() => handleTabMouseEnter(p.id)}
-				onmouseleave={handleTabMouseLeave}
-			>
+					<div
+						class="tab-container"
+						data-tab-id={p.id}
+						class:drag-over={dragOverProjectId === p.id}
+						draggable={settingsStore.projectBar.order === 'fixed'}
+						ondragstart={() => handleProjectDragStart(p.id)}
+						ondragend={handleProjectDragEnd}
+						ondragover={(event) => handleProjectDragOver(event, p.id)}
+						ondragleave={() => handleProjectDragLeave(p.id)}
+						ondrop={() => handleProjectDrop(p.id)}
+						onmouseenter={(e) => handleTabMouseEnter(p.id, e)}
+						onmouseleave={handleTabMouseLeave}
+					>
 				<button
 					class="tab"
 					class:active={projectStore.activeId === p.id}
@@ -354,9 +448,10 @@
 					style="--proj-hue: {projectHue(p)}"
 					onclick={() => projectStore.setActive(p.id)}
 					title={p.name}
+					aria-label={!p.path ? `Scratchpad: ${p.name}` : `Progetto: ${p.name}`}
 				>
 					{#if !p.path}
-						<svg class="ghost-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+						<svg class="ghost-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 							<path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 3 3 4-4 4 4 3-3V10a8 8 0 0 0-8-8z"/>
 						</svg>
 					{:else}
@@ -366,19 +461,20 @@
 
 				{#if settingsStore.projectBar.showAgentDot}
 					{#if p.agentState === 'attention'}
-						<span class="status-dot attention" title="L'agente richiede un intervento"></span>
+						<span class="status-dot attention" aria-hidden="true" title="L'agente richiede un intervento"></span>
 					{:else if p.agentState === 'finished'}
-						<span class="status-dot finished" title="L'agente ha completato il lavoro"></span>
+						<span class="status-dot finished" aria-hidden="true" title="L'agente ha completato il lavoro"></span>
 					{/if}
 				{/if}
 
 				{#if p.path && queued > 0 && settingsStore.projectBar.queueBadge !== 'off'}
 					{#if settingsStore.projectBar.queueBadge === 'dot'}
-						<span class="queue-dot" title="{queued} task in coda"></span>
+						<span class="queue-dot" aria-hidden="true" title="{queued} task in coda"></span>
 					{:else}
 						<span
 							class="queue-badge"
 							class:ready={settingsStore.projectBar.queueBadge === 'count-state' && ready}
+							aria-hidden="true"
 							title={queueBadgeTitle(p, queued, ready)}
 						>{queued}</span>
 					{/if}
@@ -389,6 +485,7 @@
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class="tab-popover"
+						style={popoverPos ? `top: ${popoverPos.top}px; left: ${popoverPos.left}px;` : ''}
 						onmouseenter={handlePopoverMouseEnter}
 						onmouseleave={handlePopoverMouseLeave}
 					>
@@ -396,11 +493,11 @@
 							<form class="project-identity-form" onsubmit={(event) => { event.preventDefault(); saveProjectEdit(p); }}>
 								<label>
 									<span>Nome</span>
-									<input bind:value={projectNameDraft} onkeydown={(event) => handleProjectEditKeydown(event, p)} />
+									<input bind:value={projectNameDraft} aria-label="Nome progetto" onkeydown={(event) => handleProjectEditKeydown(event, p)} />
 								</label>
 								<label>
 									<span>Sigla</span>
-									<input bind:value={projectLabelDraft} placeholder={getInitials(p.name)} onkeydown={(event) => handleProjectEditKeydown(event, p)} />
+									<input bind:value={projectLabelDraft} aria-label="Sigla progetto" placeholder={getInitials(p.name)} onkeydown={(event) => handleProjectEditKeydown(event, p)} />
 								</label>
 								<div class="project-identity-actions">
 									<button type="submit" class="identity-save">Salva</button>
@@ -417,7 +514,7 @@
 										<div class="popover-path">Chat temporanea</div>
 									{/if}
 								</div>
-								<button class="popover-edit" onclick={() => startProjectEdit(p)}>Modifica</button>
+								<button class="popover-edit" onclick={() => startProjectEdit(p)} aria-label={`Modifica nome e sigla del progetto ${p.name}`}>Modifica</button>
 							</div>
 						{/if}
 
@@ -435,18 +532,20 @@
 													class="queue-peek-btn"
 													disabled={!ready}
 													title={ready ? 'Click: avvia in background. Ctrl+click: avvia e passa al progetto.' : runReason?.(p.id)}
+													aria-label={`Avvia task: ${queueTaskLabel(task)}`}
 													onclick={(event) => onRunTask?.(p.id, task.id, event.ctrlKey || event.metaKey)}
 												>Avvia</button>
 												<button
 													type="button"
 													class="queue-peek-btn"
+													aria-label={`Modifica task: ${queueTaskLabel(task)}`}
 													onclick={() => onEditTask?.(p.id, task.id)}
 												>Modifica</button>
 											</div>
 										</div>
 									{/each}
 									{#if queueTasks.length > 5}
-										<button type="button" class="queue-peek-more" onclick={() => onQueueClick?.()}>
+										<button type="button" class="queue-peek-more" onclick={() => onQueueClick?.()} aria-label={`Mostra altri ${queueTasks.length - 5} task in coda`}>
 											+{queueTasks.length - 5} altri
 										</button>
 									{/if}
@@ -473,6 +572,7 @@
 										style="--auto-hue: {projectHue(p)}"
 										onclick={() => projectStore.useAutomaticProjectColor(p.id)}
 										title="Segui la palette del tema"
+										aria-label="Segui la palette del tema"
 									>
 										<span class="color-mode-preview"></span>
 										<span>Temi</span>
@@ -484,6 +584,7 @@
 											style="--swatch-hue: {hue};"
 											onclick={() => projectStore.setProjectHue(p.id, hue)}
 											title="Cambia colore"
+											aria-label={`Tonalità colore ${hue}`}
 										></button>
 									{/each}
 									<button
@@ -491,11 +592,13 @@
 										class:selected={p.colorMode === 'custom' && !PRESET_HUES.includes(p.hue)}
 										onclick={() => colorInputEl?.click()}
 										title="Colore personalizzato (color picker)"
+										aria-label="Scegli colore personalizzato dal selettore"
 									></button>
 									<input
 										type="color"
 										bind:this={colorInputEl}
 										class="hidden-color-input"
+										aria-label="Selettore colore personalizzato"
 										onchange={(event) => handleCustomColorChange(p.id, event.currentTarget.value)}
 									/>
 								</div>
@@ -520,40 +623,55 @@
 				{/if}
 			</div>
 		{/each}
+			</div>
+		</div>
 
-		<button class="tab-add" onclick={() => onNewProject?.()} title="Nuovo progetto (Ctrl+Alt+N)">+</button>
-		<button class="tab-add" onclick={() => projectStore.openScratchpad()} title="Scratchpad (Ctrl+Alt+S)">*</button>
-
-		<div class="order-control">
+		{#if canScrollRight}
 			<button
 				type="button"
-				class="tab-add"
-				onclick={(event) => { event.stopPropagation(); orderMenuOpen = !orderMenuOpen; }}
-				title="Ordina i progetti"
-				aria-haspopup="menu"
-				aria-expanded={orderMenuOpen}
-			>▾</button>
-			{#if orderMenuOpen}
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="order-backdrop" onclick={() => orderMenuOpen = false}></div>
-				<div class="order-popover">
-					{#each PROJECT_BAR_ORDER_OPTIONS as option (option.value)}
+				class="tab-scroll-btn right"
+				onclick={() => scrollTabs(180)}
+				title="Scorri progetti a destra"
+				aria-label="Scorri progetti a destra"
+			>›</button>
+		{/if}
+
+		<div class="tabs-actions">
+			<button class="tab-add" onclick={() => onNewProject?.()} title="Nuovo progetto (Ctrl+Alt+N)" aria-label="Nuovo progetto (Ctrl+Alt+N)">+</button>
+			<button class="tab-add" onclick={() => projectStore.openScratchpad()} title="Scratchpad (Ctrl+Alt+S)" aria-label="Scratchpad (Ctrl+Alt+S)">*</button>
+
+			<div class="order-control">
+				<button
+					type="button"
+					class="tab-add"
+					onclick={(event) => { event.stopPropagation(); orderMenuOpen = !orderMenuOpen; }}
+					title="Ordina i progetti"
+					aria-label="Ordina i progetti"
+					aria-haspopup="menu"
+					aria-expanded={orderMenuOpen}
+				>▾</button>
+				{#if orderMenuOpen}
+					<button type="button" class="order-backdrop" onclick={() => orderMenuOpen = false} aria-label="Chiudi menu ordinamento" tabindex="-1"></button>
+					<div class="order-popover" role="menu" aria-label="Ordinamento progetti" use:trapFocus={{ onEscape: () => orderMenuOpen = false }}>
+						{#each PROJECT_BAR_ORDER_OPTIONS as option (option.value)}
+							<button
+								type="button"
+								class="order-option"
+								role="menuitem"
+								class:active={settingsStore.projectBar.order === option.value}
+								onclick={() => selectProjectOrder(option.value)}
+							>{option.label}</button>
+						{/each}
+						<div class="popover-divider"></div>
 						<button
 							type="button"
 							class="order-option"
-							class:active={settingsStore.projectBar.order === option.value}
-							onclick={() => selectProjectOrder(option.value)}
-						>{option.label}</button>
-					{/each}
-					<div class="popover-divider"></div>
-					<button
-						type="button"
-						class="order-option"
-						onclick={() => { orderMenuOpen = false; onSettingsClick?.('projectBar'); }}
-					>Tutte le impostazioni della barra...</button>
-				</div>
-			{/if}
+							role="menuitem"
+							onclick={() => { orderMenuOpen = false; onSettingsClick?.('projectBar'); }}
+						>Tutte le impostazioni della barra...</button>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 
@@ -567,6 +685,7 @@
 				class="setup-chip"
 				onclick={(e) => { e.stopPropagation(); onSetupClick?.(); }}
 				title="Completa la configurazione di omp"
+				aria-label="Completa configurazione OMP"
 			>
 				⚠ Setup
 			</button>
@@ -575,6 +694,7 @@
 			class="settings-chip"
 			onclick={(e) => { e.stopPropagation(); onSettingsClick?.(); }}
 			title="Impostazioni di Studio (Ctrl+Alt+,)"
+			aria-label="Impostazioni di Studio (Ctrl+Alt+,)"
 		>
 			⚙️ Impostazioni
 		</button>
@@ -594,16 +714,28 @@
 				class="queue-chip"
 				onclick={(e) => { e.stopPropagation(); onQueueClick?.(); }}
 				title="Task in attesa su tutti i progetti (Ctrl+Alt+T)"
+				aria-label="Task in coda su tutti i progetti: {taskStore.totalQueued} (Ctrl+Alt+T)"
 			>
 				Coda ({taskStore.totalQueued})
 			</button>
 		{/if}
-		<button class="usage-chip" onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }} title="Quota (Ctrl+Alt+U)">⚡ Quota</button>
+		<button
+			class="usage-chip"
+			class:offline={quotaStore.status === 'offline'}
+			class:unconfigured={quotaStore.status === 'unconfigured'}
+			class:warning={quotaStore.status === 'warning'}
+			class:exhausted={quotaStore.status === 'exhausted'}
+			onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }}
+			title={quotaStore.chipTooltip}
+			aria-label="{quotaStore.chipLabel} (Ctrl+Alt+U)"
+		>
+			{quotaStore.chipLabel}
+		</button>
 		<div class="window-controls">
-			<button class="win-btn" onclick={handleMinimize} title="Riduci a icona">
+			<button class="win-btn" onclick={handleMinimize} title="Riduci a icona" aria-label="Riduci a icona">
 				<svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
 			</button>
-			<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? "Ripristina" : "Ingrandisci"}>
+			<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? "Ripristina" : "Ingrandisci"} aria-label={isMaximized ? "Ripristina finestra" : "Ingrandisci finestra"}>
 				{#if isMaximized}
 					<svg width="10" height="10" viewBox="0 0 10 10">
 						<path d="M2.5 1h6v6h-1v-5h-5v-1zm-1.5 2.5h6v6h-6v-6zm1 1v4h4v-4h-4z" fill="currentColor"/>
@@ -614,7 +746,7 @@
 					</svg>
 				{/if}
 			</button>
-			<button class="win-btn close" onclick={handleClose} title="Chiudi">
+			<button class="win-btn close" onclick={handleClose} title="Chiudi" aria-label="Chiudi applicazione">
 				<svg width="10" height="10" viewBox="0 0 10 10">
 					<path d="M1 1l8 8m0-8l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
 				</svg>
@@ -624,10 +756,8 @@
 </header>
 
 {#if themeOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="theme-backdrop" onclick={() => themeOpen = false}></div>
-	<div class="theme-popover">
+	<button type="button" class="theme-backdrop" onclick={() => themeOpen = false} aria-label="Chiudi selezione tema" tabindex="-1"></button>
+	<div class="theme-popover" role="dialog" aria-modal="true" aria-label="Selezione tema" use:trapFocus={{ onEscape: () => themeOpen = false }}>
 		<div class="theme-tabs" role="group" aria-label="Categoria temi">
 			{#each THEME_GROUPS as group (group.mode)}
 				<button
@@ -643,15 +773,17 @@
 			class="theme-filter"
 			type="text"
 			placeholder="Filtra {activeThemeGroup.names.length} temi"
+			aria-label="Cerca e filtra temi"
 			bind:value={themeFilter}
 			onkeydown={(event) => { if (event.key === 'Escape') themeOpen = false; }}
 		/>
-		<div class="theme-list">
+		<div class="theme-list" role="listbox" aria-label="Elenco temi">
 			{#each filteredThemes as theme (theme.name)}
 				<button
 					class="theme-row"
 					class:selected={theme.name === themeStore.current}
 					aria-pressed={theme.name === themeStore.current}
+					aria-label={`Tema ${theme.name}`}
 					onclick={() => pickTheme(theme.name)}
 				>
 					<span class="theme-preview" style="background: {theme.bg};">
@@ -686,6 +818,7 @@
 		z-index: var(--z-topbar);
 		user-select: none;
 		position: relative;
+		gap: var(--space-2);
 	}
 
 	.brand-section {
@@ -693,6 +826,7 @@
 		align-items: center;
 		gap: var(--space-2);
 		padding-right: var(--space-2);
+		flex-shrink: 0;
 	}
 
 	.app-icon {
@@ -708,11 +842,72 @@
 		object-fit: contain;
 	}
 
+	.tabs-nav {
+		display: flex;
+		align-items: center;
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: min(58vw, 920px);
+		position: relative;
+		gap: 2px;
+	}
+
+	.tabs-track {
+		display: flex;
+		align-items: center;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+		min-width: 0;
+		flex: 1 1 auto;
+		scroll-behavior: smooth;
+	}
+
+	.tabs-track::-webkit-scrollbar {
+		display: none;
+	}
+
 	.tabs {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		flex-shrink: 0;
+		padding: 2px 0;
 		z-index: 2;
+	}
+
+	.tabs-actions {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		flex-shrink: 0;
+		padding-left: 2px;
+	}
+
+	.tab-scroll-btn {
+		height: 26px;
+		width: 18px;
+		border: 1px solid var(--line);
+		background: var(--bg-raised);
+		color: var(--ink-muted);
+		border-radius: var(--radius-sm);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		font-size: 14px;
+		line-height: 1;
+		flex-shrink: 0;
+		transition: all 0.15s ease;
+		z-index: 3;
+		padding: 0;
+	}
+
+	.tab-scroll-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--brand);
 	}
 
 	.tab-container {
@@ -969,15 +1164,15 @@
 
 	.queue-badge.ready {
 		background-color: var(--brand-dim);
-		color: var(--brand-ink);
+		color: var(--ink);
 	}
 
 	/* Tab Popover Card */
+	/* Tab Popover Card: fixed per non essere clippato da overflow del contenitore */
 	.tab-popover {
-		position: absolute;
-		top: calc(100% + 6px);
-		left: 0;
-		width: min(280px, calc(100vw - 16px));
+		position: fixed;
+		top: 48px;
+		left: 8px;
 		box-sizing: border-box;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
@@ -1309,7 +1504,8 @@
 		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--ink-muted);
-		flex: 1;
+		flex: 1 1 auto;
+		min-width: 0;
 		text-align: center;
 		cursor: default;
 		white-space: nowrap;
@@ -1322,6 +1518,7 @@
 		display: flex;
 		align-items: center;
 		height: 100%;
+		flex-shrink: 0;
 		z-index: 2;
 	}
 	.settings-chip {
@@ -1400,6 +1597,43 @@
 		color: var(--ink);
 		border-color: var(--line-strong);
 		background: var(--bg-hover);
+	}
+
+	.usage-chip.offline {
+		border-color: var(--warn-dim, #f59e0b44);
+		color: var(--warn, #f59e0b);
+		background: color-mix(in srgb, var(--warn, #f59e0b) 6%, transparent);
+	}
+
+	.usage-chip.offline:hover {
+		border-color: var(--warn, #f59e0b);
+		background: color-mix(in srgb, var(--warn, #f59e0b) 12%, transparent);
+	}
+
+	.usage-chip.unconfigured {
+		border-color: var(--line);
+		border-style: dashed;
+		color: var(--ink-faint);
+	}
+
+	.usage-chip.unconfigured:hover {
+		border-color: var(--ink-muted);
+		color: var(--ink-muted);
+	}
+
+	.usage-chip.exhausted {
+		border-color: var(--danger-dim, #ef444466);
+		color: var(--danger, #ef4444);
+		background: color-mix(in srgb, var(--danger, #ef4444) 6%, transparent);
+	}
+
+	.usage-chip.exhausted:hover {
+		border-color: var(--danger, #ef4444);
+	}
+
+	.usage-chip.warning {
+		border-color: var(--warn-dim, #f59e0b44);
+		color: var(--warn, #f59e0b);
 	}
 
 	/* Il badge conserva il colore del tema, ma rende leggibile anche il suo nome. */

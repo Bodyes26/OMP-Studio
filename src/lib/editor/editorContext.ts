@@ -5,6 +5,23 @@ export interface EditorContextOptions {
 	projectPath?: string;
 }
 
+export {
+	EDITOR_CONTEXT_MARKER,
+	type ParsedEditorCursor,
+	type ParsedEditorSelection,
+	type ParsedEditorContext,
+	type SplitMessageContextResult,
+	formatEditorContext,
+	parseEditorContext,
+	splitMessageAndEditorContext,
+	stripEditorContext
+} from './editorContextParsing';
+
+import {
+	EDITOR_CONTEXT_MARKER,
+	formatEditorContext
+} from './editorContextParsing';
+
 /**
  * Ritorna il testo formattato del contesto dell'editor corrente per il progetto dato.
  * Include:
@@ -28,38 +45,15 @@ export function buildEditorContext(projectPath?: string): string | null {
 	const selection = editorInfo?.selection;
 	const hasSelection = Boolean(selection && selection.selectionText && selection.selectionText.trim().length > 0);
 
-	// Se non c'è nessun file aperto e nessun file attivo, non c'è contesto da aggiungere
-	if (!hasOpenFiles && !hasActiveFile) {
-		return null;
-	}
+	const cursor = selection?.cursorLine
+		? { line: selection.cursorLine, column: selection.cursorColumn }
+		: undefined;
 
-	const sections: string[] = [];
+	const sel = hasSelection && selection && activeFile
+		? { text: selection.selectionText, startLine: selection.startLine, endLine: selection.endLine }
+		: undefined;
 
-	if (hasOpenFiles) {
-		sections.push(`- Open files: ${openFiles.map((f) => `\`${f}\``).join(', ')}`);
-	}
-
-	if (hasActiveFile) {
-		let activeDesc = `- Active file: \`${activeFile}\``;
-		if (selection && selection.cursorLine) {
-			activeDesc += ` (line ${selection.cursorLine}, col ${selection.cursorColumn})`;
-		}
-		sections.push(activeDesc);
-	}
-
-	if (hasSelection && selection) {
-		const lines = selection.selectionText.split('\n');
-		const lineRange =
-			selection.startLine === selection.endLine
-				? `line ${selection.startLine}`
-				: `lines ${selection.startLine}-${selection.endLine}`;
-
-		sections.push(`- Active selection in \`${activeFile}\` (${lineRange}):\n\`\`\`\n${selection.selectionText}\n\`\`\``);
-	}
-
-	if (sections.length === 0) return null;
-
-	return `[Editor Context]\n${sections.join('\n')}`;
+	return formatEditorContext(openFiles, activeFile, cursor, sel);
 }
 
 /**
@@ -71,7 +65,7 @@ export function attachEditorContext(message: string, projectPath?: string): stri
 	if (!ctx) return trimmed;
 
 	// Se il prompt dell'utente include già un blocco di contesto editor o comandi speciali, evitiamo duplicati
-	if (trimmed.includes('[Editor Context]')) {
+	if (trimmed.includes(EDITOR_CONTEXT_MARKER)) {
 		return trimmed;
 	}
 

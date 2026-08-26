@@ -19,6 +19,7 @@
 	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
 	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -31,12 +32,40 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
 	import { onMount } from 'svelte';
+	import { trapFocus } from '$lib/focusTrap';
+
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
-	// Quando un diagramma arriva, la colonna centrale mostra la whiteboard
-	// al posto dell'editor; si torna all'editor chiudendo la whiteboard.
 	let diagramOpen = $state(false);
-	// Anteprima sandbox di un file HTML del progetto (vibecoding).
 	let previewFile = $state<string | null>(null);
+	let agentAnnouncement = $state('');
+	const prevAgentStates = new Map<string, string>();
+
+	$effect(() => {
+		for (const p of projectStore.projects) {
+			const prev = prevAgentStates.get(p.id);
+			const curr = p.agentState;
+			if (prev && prev !== curr) {
+				if (curr === 'working') {
+					agentAnnouncement = `L'agente ha iniziato l'elaborazione per il progetto ${p.name}`;
+				} else if (curr === 'attention') {
+					agentAnnouncement = `L'agente richiede il tuo intervento per il progetto ${p.name}`;
+				} else if (curr === 'finished') {
+					agentAnnouncement = `L'agente ha completato il lavoro per il progetto ${p.name}`;
+				}
+			}
+			prevAgentStates.set(p.id, curr);
+		}
+	});
+
+	function agentStateLabel(state?: string): string {
+		switch (state) {
+			case 'working': return 'In esecuzione';
+			case 'attention': return 'Richiede risposta';
+			case 'finished': return 'Completato';
+			case 'idle': return 'In attesa';
+			default: return 'Pronto';
+		}
+	}
 
 	onMount(() => {
 		void notificationManager.init();
@@ -1053,7 +1082,7 @@
 	}
 	const SPLIT = 6;
 	const MIN_COL = 160;
-	let columnsEl: HTMLElement;
+	let columnsEl = $state<HTMLElement | null>(null);
 	let leftWidth = $state(260);
 	// 0 = non ancora misurata: il centro resta elastico finche' non si trascina.
 	let centerWidth = $state(0);
@@ -1066,10 +1095,12 @@
 	const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
 	function maxCenter() {
+		if (!columnsEl) return MIN_COL;
 		return Math.max(MIN_COL, columnsEl.clientWidth - leftWidth - 2 * SPLIT - MIN_COL);
 	}
-
 	function startDrag(e: PointerEvent, which: 'left' | 'center') {
+		if (!columnsEl) return;
+		const el = columnsEl;
 		const handle = e.currentTarget as HTMLElement;
 		handle.setPointerCapture(e.pointerId);
 		dragging = true;
@@ -1080,11 +1111,11 @@
 		// altrimenti passerebbe da elastico a un valore arbitrario.
 		const startCenter = centerWidth > 0
 			? centerWidth
-			: columnsEl.children[2].getBoundingClientRect().width;
+			: el.children[2].getBoundingClientRect().width;
 
 		const onMove = (ev: PointerEvent) => {
 			const dx = ev.clientX - startX;
-			const total = columnsEl.clientWidth;
+			const total = el.clientWidth;
 			if (which === 'left') {
 				leftWidth = clamp(startLeft + dx, MIN_COL, total - 2 * SPLIT - 2 * MIN_COL);
 				centerWidth = clamp(startCenter, MIN_COL, maxCenter());
@@ -1115,14 +1146,18 @@
 	// minimizzata o nascosta) vanno ignorate, altrimenti le colonne
 	// resterebbero schiacciate al minimo dopo il ripristino.
 	$effect(() => {
+		if (!columnsEl) return;
+		const el = columnsEl;
 		const ro = new ResizeObserver(() => {
-			const total = columnsEl.clientWidth;
+			const total = el.clientWidth;
 			if (total < 3 * MIN_COL + 2 * SPLIT) return;
 			leftWidth = clamp(leftWidth, MIN_COL, total - 2 * SPLIT - 2 * MIN_COL);
 			if (centerWidth > 0) centerWidth = clamp(centerWidth, MIN_COL, maxCenter());
 		});
-		ro.observe(columnsEl);
-		return () => ro.disconnect();
+		ro.observe(el);
+		return () => {
+			ro.disconnect();
+		};
 	});
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -1223,12 +1258,42 @@
 		runReason={automationReason}
 	/>
 
+	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+		{agentAnnouncement}
+	</div>
+
+	{#if projectStore.projects.length === 0}
+		<main class="empty-workspace">
+			<EmptyState
+				variant="no-projects"
+				setupIncomplete={setupIncomplete}
+				onSetupClick={() => { setupOpen = true; setupStartAt = 'wizard'; }}
+				primaryAction={{
+					label: 'Apri progetto',
+					shortcut: 'Ctrl+Alt+N',
+					onClick: () => pickerOpen = true
+				}}
+				secondaryAction={{
+					label: 'Avvia Scratchpad',
+					shortcut: 'Ctrl+Alt+S',
+					onClick: () => projectStore.openScratchpad()
+				}}
+				shortcuts={[
+					{ key: 'Ctrl+Alt+N', label: 'Apri cartella progetto', action: () => pickerOpen = true },
+					{ key: 'Ctrl+Alt+S', label: 'Nuova chat rapida', action: () => projectStore.openScratchpad() },
+					{ key: 'Ctrl+Alt+U', label: 'Quota e consumi API', action: () => usageOpen = true },
+					{ key: 'Ctrl+Alt+,', label: 'Impostazioni Studio', action: () => settingsStore.openSection() },
+					{ key: 'Ctrl+Alt+M', label: 'Modelli e provider', action: () => settingsStore.openSection('models') }
+				]}
+			/>
+		</main>
+	{:else}
 	<main class="columns" class:dragging bind:this={columnsEl} style:grid-template-columns={gridTemplate}>
 		<aside class="col-left">
-			<div class="col-header tabs-header">
-				<button type="button" class:active={leftSection === 'files'} onclick={() => leftSection = 'files'}>FILE</button>
-				<button type="button" class:active={leftSection === 'git'} onclick={() => leftSection = 'git'}>GIT</button>
-				<button type="button" class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'}>AGENTE</button>
+			<div class="col-header tabs-header" role="tablist" aria-label="Pannelli laterali">
+				<button type="button" role="tab" aria-selected={leftSection === 'files'} class:active={leftSection === 'files'} onclick={() => leftSection = 'files'} aria-label="Pannello file">FILE</button>
+				<button type="button" role="tab" aria-selected={leftSection === 'git'} class:active={leftSection === 'git'} onclick={() => leftSection = 'git'} aria-label="Pannello git">GIT</button>
+				<button type="button" role="tab" aria-selected={leftSection === 'agent'} class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'} aria-label="Pannello agente">AGENTE</button>
 			</div>
 			<div class="col-content" class:agent-content={leftSection === 'agent'}>
 				{#if projectStore.activeProject}
@@ -1290,8 +1355,8 @@
 							task={activeTaskEditor}
 							session={agentSessions.get(projectStore.activeProject.id) ?? null}
 							onClose={() => taskEditorId = null}
-							onRunTask={(taskId) => void handleRunTask(projectStore.activeProject!.id, taskId)}
-							onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
+							onRunTask={(taskId: string) => void handleRunTask(projectStore.activeProject!.id, taskId)}
+							onOpenImage={(data: string, mimeType: string) => (viewingImage = { data, mimeType })}
 						/>
 					{:else if diagramOpen}
 						<DiagramViewer
@@ -1331,19 +1396,25 @@
 		></div>
 
 		<section class="col-right">
-			<div class="col-header tabs-header">
+			<div class="col-header tabs-header" role="tablist" aria-label="Superfici di interazione">
 				<button
 					type="button"
+					role="tab"
+					aria-selected={projectStore.activeProject?.layout.rightSection !== 'gui'}
 					class:active={projectStore.activeProject?.layout.rightSection !== 'gui'}
 					disabled={activeSwitching}
 					title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie terminale (Ctrl+Alt+A)'}
+					aria-label="Superficie terminale (Ctrl+Alt+A)"
 					onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
 				>TERMINAL</button>
 				<button
 					type="button"
+					role="tab"
+					aria-selected={projectStore.activeProject?.layout.rightSection === 'gui'}
 					class:active={projectStore.activeProject?.layout.rightSection === 'gui'}
 					disabled={activeSwitching}
 					title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie grafica (Ctrl+Alt+A)'}
+					aria-label="Superficie grafica (Ctrl+Alt+A)"
 					onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
 				>GUI</button>
 			</div>
@@ -1377,6 +1448,7 @@
 			</div>
 		</section>
 	</main>
+	{/if}
 
 	<footer class="statusbar">
 		<div class="statusbar-left">
@@ -1395,6 +1467,7 @@
 					}
 				}}
 				title="Clicca per verificare aggiornamenti OMP Studio"
+				aria-label="Verifica aggiornamenti OMP Studio"
 			>
 				{studioUpdaterStore.currentVersion ? `Studio v${studioUpdaterStore.currentVersion}` : 'Studio'}
 				{#if studioUpdaterStore.updateBadge}
@@ -1413,6 +1486,7 @@
 				class:spinning={isCheckingUpdate || isInstallingUpdate}
 				onclick={handleCheckUpdate}
 				title="Clicca per verificare aggiornamenti OMP CLI"
+				aria-label="Verifica aggiornamenti OMP CLI"
 			>
 				{ompVersion ? `OMP v${ompVersion}` : 'OMP'}
 				{#if updateMessage}
@@ -1426,18 +1500,21 @@
 					</span>
 				{/if}
 			</button>
-			<div class="status-indicator" title="Stato agente: {projectStore.activeProject?.agentState || 'idle'}">
-				<span class="status-led {projectStore.activeProject?.agentState || 'idle'}"></span>
-				<span>Status: {projectStore.activeProject?.agentState || 'idle'}</span>
+			<div
+				class="status-indicator"
+				role="status"
+				aria-live="polite"
+				title="Stato agente: {agentStateLabel(projectStore.activeProject?.agentState)}"
+			>
+				<span class="status-led {projectStore.activeProject?.agentState || 'idle'}" aria-hidden="true"></span>
+				<span>Stato: {agentStateLabel(projectStore.activeProject?.agentState)}</span>
 			</div>
 		</div>
 	</footer>
 
 	{#if showUpdatePromptModal}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="modal-backdrop" onclick={() => showUpdatePromptModal = false}></div>
-		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-update-title">
+		<button type="button" class="modal-backdrop" onclick={() => showUpdatePromptModal = false} aria-label="Chiudi finestra aggiornamento" tabindex="-1"></button>
+		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-update-title" use:trapFocus={{ onEscape: () => showUpdatePromptModal = false }}>
 			<div class="modal-header">
 				<h3 id="omp-update-title">Aggiornamento OMP disponibile</h3>
 			</div>
@@ -1460,10 +1537,8 @@
 	{/if}
 
 	{#if showRestartModal}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="modal-backdrop" onclick={() => showRestartModal = false}></div>
-		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-restart-title">
+		<button type="button" class="modal-backdrop" onclick={() => showRestartModal = false} aria-label="Chiudi finestra riavvio" tabindex="-1"></button>
+		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-restart-title" use:trapFocus={{ onEscape: () => showRestartModal = false }}>
 			<div class="modal-header">
 				<h3 id="omp-restart-title">Aggiornamento completato</h3>
 			</div>
@@ -1495,6 +1570,17 @@
 		flex-direction: column;
 		height: 100vh;
 		width: 100vw;
+	}
+
+	.empty-workspace {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--bg-base);
+		overflow: auto;
+		min-height: 0;
+		min-width: 0;
 	}
 
 	.columns {
