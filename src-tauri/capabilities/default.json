@@ -17,6 +17,9 @@
     "core:window:allow-close",
     "opener:default",
     "store:default",
-    "dialog:default"
+    "dialog:default",
+    "notification:default",
+    "core:window:allow-set-focus",
+    "core:window:allow-request-user-attention"
   ]
 }

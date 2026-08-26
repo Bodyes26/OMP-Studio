@@ -23,6 +23,7 @@
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
+	import { notificationManager } from '$lib/stores/notifications.svelte';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, formatTaskPrompt } from '$lib/stores/tasks.svelte';
@@ -38,6 +39,7 @@
 	let previewFile = $state<string | null>(null);
 
 	onMount(() => {
+		void notificationManager.init();
 		const unlistenDiagram = listen<{ cwd?: string }>('diagram://new', (e) => {
 			const targetCwd = e.payload?.cwd;
 			if (!targetCwd || !projectStore.activeProject || targetCwd.toLowerCase() === projectStore.activeProject.path.toLowerCase()) {
@@ -197,10 +199,36 @@
 			if (session.agentState !== 'unknown') {
 				projectStore.setAgentState(p.id, session.agentState);
 			}
+			if (session.pendingUi?.kind === 'ask' && session.pendingUi.message) {
+				notificationManager.setProjectAskMessage(p.id, session.pendingUi.message);
+			} else {
+				notificationManager.clearProjectAskMessage(p.id);
+			}
 			if (session.sessionId) {
 				updateTerminalMeta(p.id, { sessionId: session.sessionId });
 			}
 		}
+	});
+
+	// Notifiche di sistema e allerta sull'icona dell'app (Dock / Taskbar)
+	$effect(() => {
+		for (const p of projectStore.projects) {
+			void notificationManager.onProjectStateChanged(p.id, p.agentState);
+		}
+	});
+
+	// Quando cambia il progetto attivo, azzera l'alert se la finestra ha il focus
+	$effect(() => {
+		const activeId = projectStore.activeId;
+		if (activeId) {
+			notificationManager.checkFocusAcknowledgement();
+		}
+	});
+
+	// Sincronizza l'attenzione se l'utente cambia l'impostazione appBadge
+	$effect(() => {
+		const _badgeEnabled = settingsStore.notifications.appBadge;
+		void notificationManager.syncNativeAttention(false);
 	});
 
 	/**

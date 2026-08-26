@@ -32,7 +32,21 @@ export type CloseWithQueuedTasks = 'ask' | 'keep' | 'discard';
 /** Superficie con cui nasce un progetto nuovo. */
 export type DefaultSurface = 'terminal' | 'gui';
 
-export type SettingsSection = 'general' | 'projectBar' | 'workspace' | 'tasks' | 'models';
+export type SettingsSection = 'general' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models';
+
+/** Stile del messaggio della notifica di sistema. */
+export type NotificationStyle = 'brief' | 'detailed';
+
+export interface NotificationSettings {
+	/** Invio di notifiche toast del sistema operativo. */
+	enabled: boolean;
+	/** Stile del testo: sintetica ('OMP ha bisogno di te...') o completa (con la domanda/messaggio dell'agente). */
+	style: NotificationStyle;
+	/** Segnalatore visivo sull'icona dell'app (pallino rosso su Windows, badge numerico su macOS). */
+	appBadge: boolean;
+	/** Segnale sonoro alla notifica. */
+	sound: boolean;
+}
 
 export interface ProjectBarSettings {
 	order: ProjectBarOrder;
@@ -84,6 +98,7 @@ export interface StudioSettings {
 	terminal: TerminalSettings;
 	taskDefaults: TaskDefaults;
 	general: GeneralSettings;
+	notifications: NotificationSettings;
 }
 
 export const DEFAULT_SETTINGS: StudioSettings = {
@@ -123,6 +138,12 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 	general: {
 		defaultSurface: 'terminal',
 		closeWithQueuedTasks: 'ask'
+	},
+	notifications: {
+		enabled: true,
+		style: 'brief',
+		appBadge: true,
+		sound: true
 	}
 };
 
@@ -160,6 +181,7 @@ export function parseSettings(value: unknown): StudioSettings {
 	const terminal = (record.terminal && typeof record.terminal === 'object' ? record.terminal : {}) as Record<string, unknown>;
 	const tasks = (record.taskDefaults && typeof record.taskDefaults === 'object' ? record.taskDefaults : {}) as Record<string, unknown>;
 	const general = (record.general && typeof record.general === 'object' ? record.general : {}) as Record<string, unknown>;
+	const notif = (record.notifications && typeof record.notifications === 'object' ? record.notifications : {}) as Record<string, unknown>;
 	const d = DEFAULT_SETTINGS;
 
 	return {
@@ -197,6 +219,12 @@ export function parseSettings(value: unknown): StudioSettings {
 		general: {
 			defaultSurface: pick(general.defaultSurface, ['terminal', 'gui'] as const, d.general.defaultSurface),
 			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks)
+		},
+		notifications: {
+			enabled: bool(notif.enabled, d.notifications.enabled),
+			style: pick(notif.style, ['brief', 'detailed'] as const, d.notifications.style),
+			appBadge: bool(notif.appBadge, d.notifications.appBadge),
+			sound: bool(notif.sound, d.notifications.sound)
 		}
 	};
 }
@@ -219,6 +247,7 @@ class SettingsStore {
 	terminal = $state<TerminalSettings>({ ...DEFAULT_SETTINGS.terminal });
 	taskDefaults = $state<TaskDefaults>({ ...DEFAULT_SETTINGS.taskDefaults });
 	general = $state<GeneralSettings>({ ...DEFAULT_SETTINGS.general });
+	notifications = $state<NotificationSettings>({ ...DEFAULT_SETTINGS.notifications });
 
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
 	ready = $state(false);
@@ -250,6 +279,7 @@ class SettingsStore {
 			this.terminal = parsed.terminal;
 			this.taskDefaults = parsed.taskDefaults;
 			this.general = parsed.general;
+			this.notifications = parsed.notifications;
 		} catch {
 			// Impostazioni illeggibili: si lavora con i default, senza bloccare
 			// l'avvio. Il costo di un errore qui deve restare zero.
@@ -266,7 +296,8 @@ class SettingsStore {
 			editor: $state.snapshot(this.editor),
 			terminal: $state.snapshot(this.terminal),
 			taskDefaults: $state.snapshot(this.taskDefaults),
-			general: $state.snapshot(this.general)
+			general: $state.snapshot(this.general),
+			notifications: $state.snapshot(this.notifications),
 		};
 		await this.store.set('studioSettings', snapshot);
 		await this.store.save();
@@ -306,6 +337,11 @@ class SettingsStore {
 		this.save();
 	}
 
+	patchNotifications(patch: Partial<NotificationSettings>) {
+		Object.assign(this.notifications, patch);
+		this.save();
+	}
+
 	/** Riporta ai default una sezione, o tutto se non se ne indica una. */
 	reset(section?: Exclude<SettingsSection, 'models'>) {
 		if (!section || section === 'projectBar') this.projectBar = { ...DEFAULT_SETTINGS.projectBar };
@@ -315,6 +351,7 @@ class SettingsStore {
 		}
 		if (!section || section === 'tasks') this.taskDefaults = { ...DEFAULT_SETTINGS.taskDefaults };
 		if (!section || section === 'general') this.general = { ...DEFAULT_SETTINGS.general };
+		if (!section || section === 'notifications') this.notifications = { ...DEFAULT_SETTINGS.notifications };
 		this.save();
 	}
 }

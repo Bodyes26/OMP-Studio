@@ -10,6 +10,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Notifiche di sistema e allerta su icona (Dock e barra delle applicazioni): quando un agente richiede un intervento o una risposta mentre Studio è in background o su un altro progetto, l'app mostra una notifica toast (Windows/macOS) e aggiunge il pallino rosso all'icona della barra delle applicazioni di Windows (con breve flash) o il badge numerico con rimbalzo nel Dock di macOS. Cliccando sulla notifica, Studio viene portato in primo piano aprendo direttamente il progetto interessato.
+- Nuova sezione «Notifiche» nel centro impostazioni (`Ctrl+Alt+,`): controlli per attivare/disattivare le notifiche toast del sistema operativo, configurare lo stile del messaggio (sintetico fisso o completo con la domanda dell'agente), abilitare gli avvisi visivi sull'icona e gestire il segnale sonoro.
 - Centro impostazioni unificato (`Ctrl+Alt+,`) con cinque sezioni — Generale, Barra progetti, Editor & Terminale, Task & Agenti, Modelli: la configurazione di modelli e ruoli diventa una sezione di questo pannello e resta raggiungibile direttamente con `Ctrl+Alt+M`.
 - La barra dei progetti non si riordina più da sola: l'ordine è manuale, si cambia trascinando le tessere (o con `Ctrl+Alt+Maiusc+Frecce`) e resta quello anche dopo un riavvio. Restano disponibili gli ordinamenti «Ultimo aperto» (il comportamento precedente), «Priorità task» e «Alfabetico».
 - Le tessere della barra mostrano quanti task attendono in coda, con quattro stili a scelta: numero con indicazione di prontezza, solo numero, puntino o niente.

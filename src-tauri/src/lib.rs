@@ -28,6 +28,8 @@ use models_ops::{
 };
 mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
+mod alerts;
+use alerts::{clear_app_attention, set_app_attention};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -61,6 +63,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             pty_open,
@@ -116,7 +119,9 @@ pub fn run() {
             setup_status,
             install_omp,
             install_nerd_font,
-            detect_project_roots
+            detect_project_roots,
+            set_app_attention,
+            clear_app_attention
         ])
         .setup(|app| {
             // Il watcher dei diagrammi parte subito dopo il setup: ascolta
