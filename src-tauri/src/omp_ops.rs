@@ -777,6 +777,155 @@ pub async fn get_omp_version() -> Result<String, String> {
     }
 }
 
+/// Rimuove sequenze di escape ANSI (es. colori picocolors/chalk) da una stringa
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if let Some(&'[') = chars.peek() {
+                chars.next();
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Analizza l'output del comando `omp update --check`
+pub fn parse_omp_update_check(
+    stdout: &str,
+    stderr: &str,
+    exit_success: bool,
+    fallback_current_version: &str,
+) -> Result<OmpUpdateCheck, String> {
+    let clean_stdout = strip_ansi(stdout);
+    let clean_stderr = strip_ansi(stderr);
+    let combined = format!("{}\n{}", clean_stdout, clean_stderr).trim().to_string();
+    let lower = combined.to_lowercase();
+
+    // Se il processo e' fallito o l'output segnala un errore esplicito, riportiamo l'errore
+    if !exit_success || lower.contains("failed to check for updates") {
+        let err_msg = if !combined.is_empty() {
+            combined
+        } else {
+            "Controllo aggiornamenti OMP fallito senza output".to_string()
+        };
+        return Err(err_msg);
+    }
+
+    // Estrazione versione corrente da "Current version: <ver>" se presente
+    let mut current_version = fallback_current_version.to_string();
+    for line in combined.lines() {
+        let trimmed_line = line.trim();
+        if let Some(idx) = trimmed_line.to_lowercase().find("current version:") {
+            let ver_part = trimmed_line[idx + "current version:".len()..].trim();
+            let candidate = ver_part
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_start_matches('v');
+            if !candidate.is_empty() {
+                current_version = candidate.to_string();
+                break;
+            }
+        }
+    }
+
+    // Caso 1: OMP e' gia' aggiornato ("Already up to date")
+    if lower.contains("already up to date") {
+        return Ok(OmpUpdateCheck {
+            has_update: false,
+            current_version: current_version.clone(),
+            latest_version: current_version,
+            message: combined,
+        });
+    }
+
+    // Caso 2: Rilevamento nuova versione disponibile
+    let mut has_update = false;
+    let mut latest_version = String::new();
+
+    for line in combined.lines() {
+        let trimmed_line = line.trim();
+        let lower_line = trimmed_line.to_lowercase();
+
+        // Pattern: "New version available: 18.0.5"
+        if let Some(idx) = lower_line.find("new version available:") {
+            has_update = true;
+            let ver_part = trimmed_line[idx + "new version available:".len()..].trim();
+            if let Some(candidate) = ver_part.split_whitespace().next() {
+                latest_version = candidate.trim_start_matches('v').to_string();
+            }
+            break;
+        }
+
+        // Pattern: "Update available: 18.0.5" o "Update available"
+        if let Some(idx) = lower_line.find("update available") {
+            has_update = true;
+            let after = trimmed_line[idx + "update available".len()..]
+                .trim_start_matches(':')
+                .trim();
+            if let Some((_, right)) = after.split_once("->") {
+                if let Some(candidate) = right.trim().split_whitespace().next() {
+                    latest_version = candidate.trim_start_matches('v').to_string();
+                }
+            } else if let Some(candidate) = after.split_whitespace().next() {
+                latest_version = candidate.trim_start_matches('v').to_string();
+            }
+            break;
+        }
+
+        // Pattern: "Switching to canary 18.1.0"
+        if let Some(idx) = lower_line.find("switching to") {
+            has_update = true;
+            let after = trimmed_line[idx + "switching to".len()..].trim();
+            for token in after.split_whitespace() {
+                if token.chars().any(|c| c.is_ascii_digit()) {
+                    latest_version = token.trim_start_matches('v').to_string();
+                    break;
+                }
+            }
+            break;
+        }
+
+        // Pattern con frecce "-->" o "->"
+        if trimmed_line.contains("-->") || trimmed_line.contains("->") {
+            has_update = true;
+            let right = if let Some((_, r)) = trimmed_line.split_once("-->") {
+                r
+            } else if let Some((_, r)) = trimmed_line.split_once("->") {
+                r
+            } else {
+                ""
+            };
+            if let Some(candidate) = right.trim().split_whitespace().next() {
+                latest_version = candidate.trim_start_matches('v').to_string();
+            }
+            break;
+        }
+    }
+
+    // Se non identificato riga per riga ma contiene "new version" o "update available"
+    if !has_update && (lower.contains("new version") || lower.contains("update available")) {
+        has_update = true;
+    }
+
+    Ok(OmpUpdateCheck {
+        has_update,
+        current_version,
+        latest_version,
+        message: combined,
+    })
+}
+
 #[command]
 pub async fn check_omp_update() -> Result<OmpUpdateCheck, String> {
     let omp_path = get_omp_binary();
@@ -788,27 +937,18 @@ pub async fn check_omp_update() -> Result<OmpUpdateCheck, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to check omp update: {}", e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{}\n{}", stdout, stderr);
-
     let current_version = get_omp_version()
         .await
         .unwrap_or_else(|_| "unknown".to_string());
-    let has_update = !combined.contains("Already up to date")
-        && (combined.contains("Update available")
-            || combined.contains("-->")
-            || combined.contains("new version"));
 
-    Ok(OmpUpdateCheck {
-        has_update,
-        current_version,
-        latest_version: "".to_string(),
-        message: combined.trim().to_string(),
-    })
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Impossibile verificare aggiornamenti OMP: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    parse_omp_update_check(&stdout, &stderr, output.status.success(), &current_version)
 }
 
 #[command]
@@ -824,13 +964,22 @@ pub async fn run_omp_update() -> Result<String, String> {
 
     let output = cmd
         .output()
-        .map_err(|e| format!("Failed to run omp update: {}", e))?;
+        .map_err(|e| format!("Impossibile eseguire l'aggiornamento di OMP: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}\n{}", stdout, stderr);
+    let cleaned = strip_ansi(&combined).trim().to_string();
+
     if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(stdout.trim().to_string())
+        Ok(cleaned)
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(stderr.trim().to_string())
+        let msg = if !cleaned.is_empty() {
+            cleaned
+        } else {
+            format!("Aggiornamento OMP fallito con codice {:?}", output.status.code())
+        };
+        Err(msg)
     }
 }
 
@@ -879,5 +1028,46 @@ mod tests {
 "#;
         let provider = assistant_providers_in_tail(tail, false);
         assert_eq!(provider, None);
+    }
+
+    #[test]
+    fn test_parse_omp_update_check_con_nuova_versione() {
+        let stdout = "Current version: 18.0.4\nNew version available: 18.0.5\n";
+        let res = parse_omp_update_check(stdout, "", true, "18.0.4").expect("parsing riuscito");
+        assert!(res.has_update);
+        assert_eq!(res.current_version, "18.0.4");
+        assert_eq!(res.latest_version, "18.0.5");
+    }
+
+    #[test]
+    fn test_parse_omp_update_check_con_ansi() {
+        let stdout = "\x1b[2mCurrent version: 18.0.4\x1b[22m\n\x1b[36mNew version available: 18.0.5\x1b[39m\n";
+        let res = parse_omp_update_check(stdout, "", true, "18.0.4").expect("parsing riuscito");
+        assert!(res.has_update);
+        assert_eq!(res.current_version, "18.0.4");
+        assert_eq!(res.latest_version, "18.0.5");
+    }
+
+    #[test]
+    fn test_parse_omp_update_check_gia_aggiornato() {
+        let stdout = "\u{2714} Already up to date\n";
+        let res = parse_omp_update_check(stdout, "", true, "18.0.4").expect("parsing riuscito");
+        assert!(!res.has_update);
+        assert_eq!(res.current_version, "18.0.4");
+    }
+
+    #[test]
+    fn test_parse_omp_update_check_switching_canary() {
+        let stdout = "Current version: 18.0.4\nSwitching to canary 18.1.0 (downgrade from 18.0.4)\n";
+        let res = parse_omp_update_check(stdout, "", true, "18.0.4").expect("parsing riuscito");
+        assert!(res.has_update);
+        assert_eq!(res.latest_version, "18.1.0");
+    }
+
+    #[test]
+    fn test_parse_omp_update_check_fallito() {
+        let stderr = "Failed to check for updates: network timeout\n";
+        let res = parse_omp_update_check("", stderr, false, "18.0.4");
+        assert!(res.is_err());
     }
 }

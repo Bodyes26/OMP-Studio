@@ -26,10 +26,10 @@
 
 <style>
 	.path-chip {
-		background: var(--bg-hover);
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		padding: 1px 6px;
+		padding: 1px var(--space-2);
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		color: var(--ink);
@@ -40,15 +40,14 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 2px;
-		transition: border-color var(--transition-fast), color var(--transition-fast), background-color var(--transition-fast);
+		transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 	}
 
 	.path-chip:hover {
 		color: var(--brand-ink);
 		border-color: var(--brand);
-		background: var(--bg-surface);
+		background: var(--bg-hover);
 	}
-
 	.line {
 		color: var(--ink-faint);
 	}

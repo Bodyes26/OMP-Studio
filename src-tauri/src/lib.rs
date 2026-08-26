@@ -26,6 +26,8 @@ use models_ops::{
     get_model_config, get_models_catalog, get_role_suggestions, refresh_models_catalog,
     save_custom_providers, save_model_config,
 };
+mod setup;
+use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -110,7 +112,11 @@ pub fn run() {
             get_auth_providers_summary,
             check_model_upgrades,
             apply_model_upgrades,
-            get_role_suggestions
+            get_role_suggestions,
+            setup_status,
+            install_omp,
+            install_nerd_font,
+            detect_project_roots
         ])
         .setup(|app| {
             // Il watcher dei diagrammi parte subito dopo il setup: ascolta

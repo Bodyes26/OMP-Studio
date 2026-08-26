@@ -256,6 +256,98 @@ sessione senza interrompere o ricreare il PTY corrente.
 
 ---
 
+## Fase 8 — Primo avvio guidato
+
+**Obiettivo:** chi scarica Studio su una macchina pulita arriva ad avere `omp`
+installato, autenticato, con un modello di default e un progetto aperto, senza
+uscire dall'app e senza che Studio reimplementi l'onboarding di `omp`.
+
+### Il flusso, in una riga
+
+`contract_check` decide quali carte mostrare; l'onboarding di `omp` non lo
+riscriviamo, lo **ospitiamo** in una scheda di terminale dentro un modal.
+
+### Cosa fa `omp` da solo — verificato su 18.0.4
+
+Il wizard nativo esiste: `packages/coding-agent/src/modes/setup-wizard/`, cinque
+scene in ordine `providers` → `model` → `glyph-mode` → `composer-shape` → `theme`,
+più `outro`. Gate: `setupVersion` in `config.yml` contro `CURRENT_SETUP_VERSION = 2`.
+Non parte se manca il TTY, con `--resume`, con `OMP_SKIP_SETUP` valorizzato o con
+`startup.setupWizard: false`.
+
+Due conseguenze che decidono il progetto:
+
+1. `omp setup` (`commands/setup.ts` → `runOnboardingSetup`) forza **tutte** le scene
+   ignorando `setupVersion`, ed esce con codice 1 e `omp setup requires an interactive
+   TTY.` se stdio non è un TTY. Nel PTY di Studio il TTY c'è: è il comando del modal,
+   ed è ri-eseguibile a vita.
+2. `markSetupWizardComplete()` sta **dopo** `await run()` nel `try`, quindi
+   `setupVersion: 2` viene scritto anche uscendo con Esc da ogni scena. Non è un
+   segnale di successo: è un segnale di "il wizard non è più a schermo".
+
+`/setup` (alias `/providers`, solo TUI) riapre la **sola** scena provider senza
+rimarcare il setup: è il pulsante "ti manca il login".
+
+### Passi
+
+1. **`contract_check`** — il comando previsto in `ARCHITECTURE.md` §4.1 e mai scritto.
+   Quattro esiti, non un booleano: binario assente / nessuna credenziale attiva
+   (`get_auth_providers_summary`, sola lettura, mai un token) / `modelRoles.default`
+   vuoto (`get_model_config`) / nessun progetto. Più la leggibilità di `agent.db`,
+   `history.db`, `stats.db`.
+2. **Carta "installa `omp`"** — download nativo, non hook NSIS: `reqwest` in streaming
+   come `studio_updater.rs`, `releases/latest` di `can1357/oh-my-pi`, asset
+   `omp-windows-x64.exe` → `%LOCALAPPDATA%\omp\omp.exe`, aggiunta al PATH utente.
+   Replica anche `Configure-BashShell` dell'installer ufficiale: se
+   `~/.omp/agent/settings.json` non ha `shellPath` e `C:\Program Files\Git\bin\bash.exe`
+   esiste, lo scrive in merge (vedi Gate R11).
+3. **Font Nerd per-utente, silenzioso** — `%LOCALAPPDATA%\Microsoft\Windows\Fonts` +
+   valore in `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts` (percorso
+   assoluto, non solo il nome file) e `WM_FONTCHANGE`. Nessun admin. Serve a `omp`
+   lanciato **fuori** da Studio: dentro Studio i glifi già rendono col webfont
+   bundlato (`terminal.ts:17-23`).
+4. **Modal con scheda terminale** — PTY dentro il modal che lancia `omp setup`.
+   Il flag `--no-session` non è passabile: `omp setup` non lo accetta e chiama
+   `runRoot` con argv vuoto. La sessione parte quindi nella cwd di Studio, e il
+   modal la chiude appena il setup è concluso.
+5. **Rilevamento semantico della fine** — `setup_status` riletto ogni secondo
+   mentre il modal è aperto: `config.yml` e `agent.db` sono scritti da un altro
+   processo con lock e debounce, e un polling da una lettura di file più una query
+   costa meno di un watcher da mantenere. Il modal si chiude quando **tutte** e tre
+   valgono: `setupVersion >= 2`, almeno una credenziale attiva, `modelRoles.default`
+   valorizzato. Se `setupVersion` arriva a 2 con qualcosa che manca, il modal
+   **resta** e mostra cosa manca, con un pulsante che manda `/setup` nella stessa
+   scheda.
+6. **Il guscio si adegua al tema scelto nel wizard** — leggiamo `theme.dark` e mappiamo
+   Studio (`titanium` → scuro, `light` → chiaro, `colorblind` → `colorBlindMode`).
+   Nessuna seconda domanda sul tema e nessun `omp-studio` forzato sopra una scelta
+   fatta venti secondi prima.
+7. **Carta Studio: cartella progetti** — scansione dei candidati (`source/repos`, `dev`,
+   `projects`, `code`, `git`, `Documents\GitHub`), conteggio delle sottocartelle con
+   `.git`, proposta della vincente **col numero** e "Sfoglia" via `plugin-dialog`.
+   Scrive `projectRoot` nello store di Studio.
+8. **Uscita** — non un pulsante "Fine": l'elenco dei repository trovati. Un clic apre il
+   primo progetto e il modal muore su un'azione utile.
+9. **`OMP_SKIP_SETUP=1`** nei PTY e negli RPC **di lavoro**: il wizard non ricompare in
+   una scheda vera, e resta intatto per chi usa `omp` da terminale.
+10. **Riapribile** da un chip `⚠ Setup` in barra, che compare **solo** quando manca
+    qualcosa e sparisce quando non ha più niente da dire: nessun comando permanente
+    in una barra già densa. `/setup` resta disponibile in qualsiasi scheda.
+
+### Accettazione
+
+- [ ] Su un profilo pulito (`omp --profile studio-setup-test`) il modal porta da zero a
+      sessione funzionante senza aprire un terminale esterno.
+- [ ] Con `omp` disinstallato, la carta di installazione lo installa e la versione
+      compare in status bar senza riavviare Studio.
+- [ ] Esc su tutte le scene del wizard **non** chiude il modal: dice cosa manca.
+- [ ] Il tema del guscio dopo il wizard coincide con quello scelto nella TUI.
+- [ ] Il font installato è visibile in un terminale esterno (Windows Terminal) senza admin.
+- [ ] Una scheda di lavoro aperta dopo il setup non mostra il wizard.
+- [ ] La cartella progetti proposta è quella con più repository, col conteggio giusto.
+
+---
+
 ## Ordine dei lavori e dipendenze
 
 ```mermaid
@@ -269,6 +361,7 @@ graph LR
   F5 --> F6
   F5 --> F7["Fase 7<br/>Coda task"]
   F6 --> F7
+  F7 --> F8["Fase 8<br/>Primo avvio<br/>gate R11"]
 ```
 
 Le fasi 4 e 5 sono indipendenti: toccano colonne diverse e fonti dati diverse. Si possono affrontare in parallelo o nell'ordine che preferisci. Tutte le altre sono in sequenza stretta, perché ognuna appoggia sulla precedente.

@@ -103,7 +103,7 @@
 	.tool-badge {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		color: var(--warn);
+		color: var(--ink-muted);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);

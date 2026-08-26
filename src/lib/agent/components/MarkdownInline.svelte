@@ -96,7 +96,7 @@
 <style>
 	.codespan {
 		font-family: var(--font-mono);
-		font-size: 0.9em;
+		font-size: var(--text-sm);
 		background: var(--bg-hover);
 		padding: 1px var(--space-1);
 		border-radius: var(--radius-sm);
@@ -116,13 +116,13 @@
 
 	.codespan-btn code {
 		font-family: var(--font-mono);
-		font-size: 0.9em;
+		font-size: var(--text-sm);
 		background: var(--bg-hover);
 		padding: 1px var(--space-1);
 		border-radius: var(--radius-sm);
 		color: var(--ink);
 		border-bottom: 1px solid transparent;
-		transition: border-color var(--transition-fast), color var(--transition-fast);
+		transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.codespan-btn:hover code {

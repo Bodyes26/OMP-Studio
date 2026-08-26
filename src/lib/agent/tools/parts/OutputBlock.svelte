@@ -52,6 +52,7 @@
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
 		cursor: pointer;
+		font-variant-numeric: tabular-nums;
 	}
 
 	button:hover {

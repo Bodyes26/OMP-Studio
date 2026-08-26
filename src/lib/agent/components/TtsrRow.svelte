@@ -8,7 +8,7 @@
 
 <div class="ttsr-row">
 	<div class="main-line">
-		<span class="label">Regole richiamate:</span>
+		<span class="label">Regole di contesto:</span>
 		{#if entry.rules && entry.rules.length > 0}
 			<div class="rules-list">
 				{#each entry.rules as rule, i (i)}
@@ -25,7 +25,6 @@
 	.ttsr-row {
 		width: 100%;
 		border-top: 1px solid var(--line);
-		border-bottom: 1px solid var(--line);
 		padding: var(--space-1) 0;
 		font-size: var(--text-xs);
 		line-height: 1.4;

@@ -154,14 +154,14 @@
 
 	.h6 {
 		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink-muted);
+		font-weight: 500;
 	}
 
 	.paragraph {
 		margin: 0 0 var(--space-2) 0;
 		line-height: 1.5;
 		color: var(--ink);
+		max-width: 65ch;
 	}
 
 	.paragraph:last-child {
@@ -173,12 +173,14 @@
 		padding: var(--space-1) 0 var(--space-1) var(--space-3);
 		border-left: 2px solid var(--line);
 		color: var(--ink-muted);
+		max-width: 65ch;
 	}
 
 	.list {
 		margin: 0 0 var(--space-2) 0;
 		padding-left: var(--space-4);
 		line-height: 1.5;
+		max-width: 65ch;
 	}
 
 	.list:last-child {
@@ -198,7 +200,7 @@
 	}
 
 	.task-checkbox {
-		margin: 3px 0 0 0;
+		margin: var(--space-1) 0 0 0;
 		accent-color: var(--brand);
 		cursor: default;
 	}
@@ -261,5 +263,6 @@
 	.generic-block {
 		margin: 0 0 var(--space-1) 0;
 		line-height: 1.5;
+		max-width: 65ch;
 	}
 </style>

@@ -16,6 +16,7 @@
 	// I link ad issue/PR aprono il browser di sistema via Tauri: un `<a href>`
 	// dentro la webview non naviga fuori dall'app.
 	import { openUrl } from '@tauri-apps/plugin-opener';
+	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -82,7 +83,7 @@
 
 {#if view === 'summary'}
 	<div class="gh-summary">
-		<span class="op-tag">{op}</span>
+		<CountBadge text={op} />
 		{#if targetLabel}
 			<span class="target-text">{targetLabel}</span>
 		{/if}
@@ -139,14 +140,6 @@
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.op-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-transform: uppercase;
 		white-space: nowrap;
 	}
 

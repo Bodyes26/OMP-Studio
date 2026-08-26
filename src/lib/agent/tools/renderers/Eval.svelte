@@ -84,7 +84,7 @@
 
 {#if view === 'summary'}
 	<div class="eval-summary">
-		<span class="lang-tag">{language}</span>
+		<CountBadge text={language} />
 		{#if lastCell?.title}
 			<span class="last-title" title={lastCell.title}>{lastCell.title}</span>
 		{/if}
@@ -136,16 +136,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	.lang-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--brand);
-		background: var(--bg-sunken);
-		padding: 1px var(--space-1);
-		border-radius: var(--radius-sm);
 	}
 
 	.last-title {
@@ -219,12 +209,13 @@
 	.exit-code {
 		font-family: var(--font-mono);
 		color: var(--danger);
+		font-variant-numeric: tabular-nums;
 	}
 	.cell-dur {
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
 	}
-
 	.cell-code {
 		margin: 0;
 		font-family: var(--font-mono);

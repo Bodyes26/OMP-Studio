@@ -20,7 +20,10 @@
 
 {#if text && text !== '{}'}
 	<details bind:open>
-		<summary>{label} · {lineCount} righe</summary>
+		<summary>
+			<span class="chevron" aria-hidden="true">▸</span>
+			<span>{label} · {lineCount} righe</span>
+		</summary>
 		<pre>{text}</pre>
 	</details>
 {/if}
@@ -31,28 +34,35 @@
 	}
 
 	summary {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		cursor: pointer;
 		list-style: none;
+		user-select: none;
+		font-variant-numeric: tabular-nums;
 	}
 
 	summary::-webkit-details-marker {
 		display: none;
 	}
 
-	summary::before {
-		content: '▸ ';
+	.chevron {
+		display: inline-block;
+		transition: transform var(--dur-fast) var(--ease-out);
+		font-size: var(--text-xs);
+		line-height: 1;
 	}
 
-	details[open] summary::before {
-		content: '▾ ';
+	details[open] .chevron {
+		transform: rotate(90deg);
 	}
 
 	summary:hover {
 		color: var(--ink);
 	}
-
 	pre {
 		margin: var(--space-1) 0 0;
 		font-family: var(--font-mono);

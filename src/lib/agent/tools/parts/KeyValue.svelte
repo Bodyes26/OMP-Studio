@@ -33,5 +33,6 @@
 		color: var(--ink-muted);
 		overflow-wrap: anywhere;
 		user-select: text;
+		font-variant-numeric: tabular-nums;
 	}
 </style>

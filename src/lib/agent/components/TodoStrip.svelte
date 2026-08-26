@@ -39,7 +39,7 @@
 			aria-expanded={expanded}
 			onclick={() => (expanded = !expanded)}
 		>
-			<span class="chevron">{expanded ? '▾' : '▸'}</span>
+			<span class="chevron" class:expanded aria-hidden="true">▸</span>
 			<span class="phase-name">{currentPhase?.name ?? 'Todo'}</span>
 			{#if hasBlocked}
 				<span class="blocked-badge" title="Ci sono task bloccati">!</span>
@@ -83,7 +83,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: 4px var(--space-3);
+		padding: var(--space-1) var(--space-3);
 		background: transparent;
 		border: none;
 		color: var(--ink-muted);
@@ -100,7 +100,17 @@
 
 	.chevron {
 		color: var(--ink-faint);
-		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: 1;
+		transition: transform var(--dur-fast) var(--ease-out);
+		display: inline-block;
+		width: 10px;
+		text-align: center;
+		flex-shrink: 0;
+	}
+
+	.chevron.expanded {
+		transform: rotate(90deg);
 	}
 
 	.phase-name {
@@ -112,18 +122,18 @@
 
 	.blocked-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 700;
 		color: var(--warn);
-		background: var(--warn-dim);
-		padding: 0 4px;
-		border-radius: var(--radius-sm);
+		background: transparent;
 		line-height: 1.2;
 	}
 
 	.tally {
 		margin-left: auto;
 		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 	}
 
@@ -145,9 +155,7 @@
 	.phase-title {
 		font-weight: 600;
 		color: var(--ink-faint);
-		letter-spacing: 0.04em;
-		font-size: 10px;
-		text-transform: uppercase;
+		font-size: var(--text-xs);
 	}
 
 	.task-list {
@@ -177,12 +185,9 @@
 		color: var(--ink);
 		font-weight: 500;
 	}
-
 	.task-row.in_progress .status-glyph {
-		color: var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+		color: var(--brand-ink);
 	}
-
 	.task-row.completed {
 		color: var(--ink-faint);
 	}

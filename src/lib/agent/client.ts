@@ -24,6 +24,10 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const SLOW_COMMAND_TIMEOUT_MS = 300_000;
 const SLOW_COMMANDS: Record<string, true> = { compact: true, handoff: true, bash: true };
 
+/** `abort` e `abort_bash` hanno priorita' massima e non devono mai attendere il
+ *  timeout di un minuto: l'interruzione deve agire subito. */
+const FAST_COMMAND_TIMEOUT_MS = 4_000;
+const FAST_COMMANDS: Record<string, true> = { abort: true, abort_bash: true };
 export interface RpcError extends Error {
 	code?: string;
 	command?: string;
@@ -93,7 +97,12 @@ export class OmpRpcClient {
 	async send<T = unknown>(command: RpcCommand): Promise<T> {
 		if (this.rpcId === null || this.closed) throw rpcError('Sessione RPC non aperta', command.type);
 		const id = `s${++this.seq}`;
-		const timeoutMs = SLOW_COMMANDS[command.type] === true ? SLOW_COMMAND_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+		const timeoutMs =
+			SLOW_COMMANDS[command.type] === true
+				? SLOW_COMMAND_TIMEOUT_MS
+				: FAST_COMMANDS[command.type] === true
+					? FAST_COMMAND_TIMEOUT_MS
+					: DEFAULT_TIMEOUT_MS;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
 
 		const timer = window.setTimeout(() => {
@@ -116,6 +125,38 @@ export class OmpRpcClient {
 	async respondUi(response: ExtensionUiResponse): Promise<void> {
 		if (this.rpcId === null || this.closed) return;
 		await invoke('rpc_send', { rpcId: this.rpcId, line: JSON.stringify(response) });
+	}
+
+	/**
+	 * Interrompe l'agente con priorita' massima:
+	 * 1. Fa fallire immediatamente tutte le richieste in volo non-abort,
+	 *    sbloccando i chiamanti senza attendere timeout di rete o del modello.
+	 * 2. Invia i comandi `abort` e `abort_bash` a omp su stdin.
+	 */
+	async abort(): Promise<void> {
+		if (this.rpcId === null || this.closed) return;
+		this.abortPendingRequests('Interrotto dall\u2019utente');
+		const rpcId = this.rpcId;
+		const abortId = `s${++this.seq}`;
+		const abortBashId = `s${++this.seq}`;
+		try {
+			await Promise.allSettled([
+				invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortId, type: 'abort' }) }),
+				invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortBashId, type: 'abort_bash' }) })
+			]);
+		} catch (error) {
+			console.warn('Errore invio frame abort su RPC:', error);
+		}
+	}
+
+	/** Fa fallire tutte le richieste ordinarie in volo con stato abortito. */
+	abortPendingRequests(reason: string) {
+		for (const [id, entry] of this.pending.entries()) {
+			if (FAST_COMMANDS[entry.command] === true) continue;
+			window.clearTimeout(entry.timer);
+			this.pending.delete(id);
+			entry.reject(rpcError(reason, entry.command, 'aborted'));
+		}
 	}
 
 	async stderrTail(): Promise<string[]> {

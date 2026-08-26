@@ -461,6 +461,8 @@ pub async fn rpc_open(
     command
         .current_dir(&launch_cwd)
         .env("OMP_STUDIO", "1")
+        // Come per il PTY: nessun wizard dentro una sessione di lavoro.
+        .env("OMP_SKIP_SETUP", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

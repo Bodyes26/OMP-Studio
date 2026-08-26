@@ -67,17 +67,17 @@
 	.dot {
 		width: 6px;
 		height: 6px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background: var(--ink-faint);
 	}
 
 	.dot.running {
 		background: var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 
 	.label {
 		font-weight: 500;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.counts {
@@ -85,14 +85,17 @@
 		gap: var(--space-2);
 		color: var(--ink-faint);
 		margin-left: var(--space-1);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.count-running {
-		color: var(--brand);
+		color: var(--brand-ink);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.count-failed {
 		color: var(--danger);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.arrow {

@@ -9,10 +9,10 @@
 	let selectedIndex = $state(0);
 	let inputValue = $state('');
 	let editorValue = $state('');
+	let submitting = $state(false);
 	let inputEl = $state<HTMLInputElement | null>(null);
 	let editorEl = $state<HTMLTextAreaElement | null>(null);
 	let cardEl = $state<HTMLElement | null>(null);
-
 	// Scadenza con countdown
 	let now = $state(Date.now());
 	$effect(() => {
@@ -50,42 +50,58 @@
 	const options = $derived(pending.options ?? []);
 	const optionDetails = $derived(pending.optionDetails ?? []);
 
-	// Reset dello stato quando cambia la richiesta: il fuoco va sul campo di
-	// testo per input/editor, altrimenti sulla card stessa (select/confirm)
-	// cosi' le scorciatoie sotto restano scoperte da onkeydown solo qui.
+	function focusOptionAt(index: number) {
+		if (!cardEl) return;
+		const items = cardEl.querySelectorAll<HTMLButtonElement>('.option-item');
+		items[index]?.focus();
+	}
+
+	async function submitAnswer(action: () => Promise<void> | void) {
+		if (submitting) return;
+		submitting = true;
+		try {
+			await action();
+		} finally {
+			submitting = false;
+		}
+	}
+
+	function moveSelection(delta: number) {
+		if (options.length === 0) return;
+		selectedIndex = (selectedIndex + delta + options.length) % options.length;
+		focusOptionAt(selectedIndex);
+	}
+
+	// Reset dello stato quando cambia la richiesta: con il roving tabindex il fuoco
+	// va sulla prima opzione per select, sul campo per input/editor, sulla card per confirm.
 	$effect(() => {
 		const _req = pending.requestId;
 		selectedIndex = 0;
 		inputValue = pending.prefill ?? '';
 		editorValue = pending.prefill ?? '';
+		submitting = false;
 
 		if (pending.method === 'input' && inputEl) {
 			inputEl.focus();
 		} else if (pending.method === 'editor' && editorEl) {
 			editorEl.focus();
+		} else if (pending.method === 'select') {
+			focusOptionAt(0);
 		} else {
 			cardEl?.focus();
 		}
 	});
 
-	// Navigazione da tastiera per select e confirm: gestita sul contenitore
-	// (mai su window), altrimenti Invio/Esc/frecce digitate altrove nell'app
-	// (es. nel composer) risponderebbero a questa richiesta al posto loro.
+	// Navigazione da tastiera per select e confirm: roving tabindex sposta sia
+	// il fuoco sia selectedIndex. Invio sul bottone opzione e' gestito nativamente dal click.
 	function onCardKeydown(e: KeyboardEvent) {
 		if (pending.method === 'select') {
-			if (options.length === 0) return;
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				selectedIndex = (selectedIndex + 1) % options.length;
+				moveSelection(1);
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				selectedIndex = (selectedIndex - 1 + options.length) % options.length;
-			} else if (e.key === 'Enter') {
-				e.preventDefault();
-				const opt = options[selectedIndex];
-				if (opt !== undefined) {
-					session.answerSelect(opt);
-				}
+				moveSelection(-1);
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
 				session.cancelPendingUi();
@@ -93,7 +109,7 @@
 		} else if (pending.method === 'confirm') {
 			if (e.key === 'Enter') {
 				e.preventDefault();
-				session.answerConfirm(true);
+				submitAnswer(() => session.answerConfirm(true));
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
 				session.answerConfirm(false);
@@ -104,7 +120,7 @@
 	function handleInputKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') {
 			e.preventDefault();
-			session.answerSelect(inputValue);
+			submitAnswer(() => session.answerSelect(inputValue));
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			session.cancelPendingUi();
@@ -114,7 +130,7 @@
 	function handleEditorKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 			e.preventDefault();
-			session.answerSelect(editorValue);
+			submitAnswer(() => session.answerSelect(editorValue));
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			session.cancelPendingUi();
@@ -124,8 +140,8 @@
 
 <div
 	class="ask-card"
-	role="dialog"
-	aria-modal="true"
+	role="group"
+	aria-label={parsedTitle.text || 'Richiesta agente'}
 	aria-labelledby="ask-title"
 	tabindex="-1"
 	bind:this={cardEl}
@@ -153,11 +169,14 @@
 					<button
 						type="button"
 						role="option"
+						tabindex={selectedIndex === i ? 0 : -1}
 						aria-selected={selectedIndex === i}
 						class="option-item"
 						class:selected={selectedIndex === i}
-						onclick={() => session.answerSelect(opt)}
-						onmouseenter={() => (selectedIndex = i)}
+						onclick={() => {
+							selectedIndex = i;
+							submitAnswer(() => session.answerSelect(opt));
+						}}
 					>
 						<span class="option-label">{opt}</span>
 						{#if optionDetails[i]?.description}
@@ -193,7 +212,8 @@
 					<button
 						type="button"
 						class="btn-submit"
-						onclick={() => session.answerSelect(inputValue)}
+						disabled={submitting}
+						onclick={() => submitAnswer(() => session.answerSelect(inputValue))}
 						title="Invia risposta (Enter)"
 					>
 						Invia <span class="kbd">↵</span>
@@ -221,7 +241,8 @@
 					<button
 						type="button"
 						class="btn-submit"
-						onclick={() => session.answerSelect(editorValue)}
+						disabled={submitting}
+						onclick={() => submitAnswer(() => session.answerSelect(editorValue))}
 						title="Invia risposta (Ctrl+Enter)"
 					>
 						Invia <span class="kbd">Ctrl+↵</span>
@@ -242,7 +263,8 @@
 					<button
 						type="button"
 						class="btn-submit"
-						onclick={() => session.answerConfirm(true)}
+						disabled={submitting}
+						onclick={() => submitAnswer(() => session.answerConfirm(true))}
 						title="Conferma (Enter)"
 					>
 						Sì <span class="kbd">↵</span>
@@ -263,7 +285,6 @@
 		border-radius: var(--radius-md);
 		padding: var(--space-3);
 		min-width: 0;
-		outline: none;
 	}
 
 	.header {
@@ -286,6 +307,7 @@
 		padding: 2px 6px;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-muted);
 	}
 
@@ -300,12 +322,13 @@
 	}
 
 	.deadline-badge {
-		background: color-mix(in srgb, var(--warn) 15%, transparent);
-		border: 1px solid var(--warn);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		padding: 2px 6px;
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
 		color: var(--warn);
 		margin-left: auto;
 	}
@@ -347,9 +370,11 @@
 		width: 100%;
 	}
 
-	.option-item:hover,
-	.option-item.selected {
+	.option-item:hover {
 		background: var(--bg-hover);
+	}
+
+	.option-item.selected {
 		border-color: var(--brand);
 	}
 
@@ -387,11 +412,10 @@
 		background: var(--bg-sunken);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-sm);
-		padding: 8px var(--space-3);
+		padding: var(--space-2) var(--space-3);
 		font-size: var(--text-sm);
 		font-family: var(--font-ui);
 		color: var(--ink);
-		outline: none;
 		transition: border-color var(--dur-fast);
 	}
 
@@ -410,7 +434,6 @@
 		font-size: var(--text-sm);
 		font-family: var(--font-mono);
 		color: var(--ink);
-		outline: none;
 		transition: border-color var(--dur-fast);
 	}
 
@@ -433,9 +456,9 @@
 	button {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-2);
 		border-radius: var(--radius-sm);
-		padding: 6px var(--space-3);
+		padding: var(--space-2) var(--space-3);
 		font-size: var(--text-sm);
 		cursor: pointer;
 		transition: background var(--dur-fast), border-color var(--dur-fast);
@@ -460,7 +483,13 @@
 	}
 
 	.btn-submit:hover {
-		filter: brightness(1.08);
+		background: var(--brand-dim);
+		border-color: var(--brand-dim);
+	}
+
+	.btn-submit:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 
 	.kbd {

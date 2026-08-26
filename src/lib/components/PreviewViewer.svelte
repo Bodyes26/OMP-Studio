@@ -197,7 +197,7 @@
 
 	.preview-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		letter-spacing: 0.05em;
 		padding: 1px 5px;
@@ -238,7 +238,7 @@
 		padding: 2px 8px;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
-		transition: background 0.12s ease, color 0.12s ease;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.mode-btn:hover,
@@ -266,7 +266,7 @@
 		padding: 3px 8px;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
-		transition: background 0.12s ease, color 0.12s ease;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.tool-btn:hover {
@@ -294,8 +294,6 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		background: var(--bg-base);
-		box-shadow: var(--shadow-overlay);
-		transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.code-view-container {

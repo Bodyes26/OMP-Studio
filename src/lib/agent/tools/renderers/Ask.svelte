@@ -210,7 +210,7 @@
 	}
 
 	.selected .mark {
-		color: var(--brand);
+		color: var(--brand-ink);
 	}
 
 	.option-content {

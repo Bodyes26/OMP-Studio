@@ -1,8 +1,7 @@
 <script lang="ts">
 	// CodeBlock: blocco di codice per le risposte dell'assistente con evidenziazione
-	// sintattica Monaco, intestazione a fisarmonica (accordion), altezza massima a 10.5 righe
-	// con scorrimento interno, sfumatura/ombra sul fondo in presenza di overflow e copia rapida.
-	import { untrack } from 'svelte';
+	// sintattica Monaco, intestazione a fisarmonica (accordion) e copia rapida.
+	// Il codice scorre con il transcript (nessun tetto di altezza interno).
 	import { colorizeCode, type StreamFade } from '../markdown';
 	import { countLabel } from '../tools/types';
 	import StreamTail from './StreamTail.svelte';
@@ -20,8 +19,6 @@
 	let collapsed = $state(false);
 	let copied = $state(false);
 	let colorizedHtml = $state<string | null>(null);
-	let preEl = $state<HTMLElement | null>(null);
-	let canScrollDown = $state(false);
 
 	const normalizedLang = $derived((lang ?? '').trim().toLowerCase());
 	const displayLang = $derived(normalizedLang || 'testo');
@@ -54,39 +51,6 @@
 		return () => {
 			cancelled = true;
 		};
-	});
-
-	function checkScroll() {
-		if (!preEl || collapsed) {
-			canScrollDown = false;
-			return;
-		}
-		const { scrollTop, scrollHeight, clientHeight } = preEl;
-		const threshold = 4;
-		canScrollDown = scrollHeight - (scrollTop + clientHeight) > threshold;
-	}
-
-	// Monitora il ridimensionamento e il caricamento del contenuto per l'ombra inferiore
-	$effect(() => {
-		// Dipendenze reattive
-		void text;
-		void colorizedHtml;
-		void collapsed;
-
-		if (!preEl || collapsed) {
-			canScrollDown = false;
-			return;
-		}
-
-		checkScroll();
-
-		if (typeof ResizeObserver !== 'undefined') {
-			const ro = new ResizeObserver(() => {
-				checkScroll();
-			});
-			ro.observe(preEl);
-			return () => ro.disconnect();
-		}
 	});
 
 	async function handleCopy(e: MouseEvent) {
@@ -142,21 +106,9 @@
 	{#if !collapsed}
 		<div class="code-body-wrap">
 			{#if colorizedHtml}
-				<pre
-					bind:this={preEl}
-					class="code-pre colorized"
-					onscroll={checkScroll}
-				>{@html colorizedHtml}</pre>
+				<pre class="code-pre colorized">{@html colorizedHtml}</pre>
 			{:else}
-				<pre
-					bind:this={preEl}
-					class="code-pre"
-					onscroll={checkScroll}
-				>{#if fade}<StreamTail {text} {fade} />{:else}{text}{/if}</pre>
-			{/if}
-
-			{#if canScrollDown}
-				<div class="scroll-fade-bottom" aria-hidden="true"></div>
+				<pre class="code-pre">{#if fade}<StreamTail {text} {fade} />{:else}{text}{/if}</pre>
 			{/if}
 		</div>
 	{/if}
@@ -192,7 +144,7 @@
 	}
 
 	.code-header:hover {
-		background: color-mix(in srgb, var(--bg-hover) 150%, transparent);
+		background: var(--bg-active);
 	}
 
 	.header-toggle {
@@ -238,7 +190,7 @@
 
 	.line-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		opacity: 0.85;
 	}
@@ -271,7 +223,7 @@
 	}
 
 	.copied-indicator {
-		color: var(--brand-ink, var(--brand));
+		color: var(--brand-ink);
 		font-weight: 500;
 	}
 
@@ -289,32 +241,7 @@
 		line-height: 1.5;
 		color: var(--ink);
 		overflow-x: auto;
-		overflow-y: auto;
-		/* Massimo 10.5 righe di altezza: 10.5 * 1.5em + padding sopra/sotto */
-		max-height: calc(10.5 * 1.5em + var(--space-2) * 2);
 		white-space: pre;
 		user-select: text;
-		scrollbar-gutter: stable;
-	}
-
-	/* Ombra/sfumatura elegante sul fondo quando ci sono ulteriori righe oltre l'altezza massima */
-	.scroll-fade-bottom {
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		height: 28px;
-		background: linear-gradient(
-			to bottom,
-			transparent 0%,
-			color-mix(in srgb, var(--bg-sunken) 80%, transparent) 40%,
-			var(--bg-sunken) 100%
-		);
-		pointer-events: none;
-		opacity: 1;
-		transition: opacity var(--dur-fast) var(--ease-out);
-		border-bottom-left-radius: var(--radius-sm);
-		border-bottom-right-radius: var(--radius-sm);
-		box-shadow: inset 0 -6px 8px -4px color-mix(in srgb, #000 35%, transparent);
 	}
 </style>

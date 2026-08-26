@@ -544,6 +544,7 @@ export class AgentSession {
 						attribution: message.attribution
 					});
 				} else if (message.role === 'assistant') {
+					if (!this.isStreaming) return;
 					// `push` restituisce l'istanza dentro l'array reattivo: tenere
 					// l'oggetto grezzo significherebbe mutarlo fuori dal proxy di
 					// Svelte e non far mai comparire il testo in streaming.
@@ -865,13 +866,13 @@ export class AgentSession {
 	}
 
 	private applyDelta(event: AgentSessionEvent) {
+		if (!this.isStreaming && !this.assistantEntry) return;
 		const kind = event.kind;
 		const delta = typeof event.delta === 'string' ? event.delta : '';
-		if (!delta || (kind !== 'text' && kind !== 'thinking')) return;
 		const index = typeof event.contentIndex === 'number' ? event.contentIndex : 0;
 		const entry = this.ensureAssistant();
 		const existing = entry.blocks[index];
-		if (existing && existing.type === kind) {
+		if (existing && (existing.type === 'text' || existing.type === 'thinking') && existing.type === kind) {
 			existing.text += delta;
 			return;
 		}
@@ -1127,10 +1128,49 @@ export class AgentSession {
 	}
 
 	async abort() {
+		// 1. Reset istantaneo dello stato locale (priorita' massima e latenza 0 per la GUI)
+		this.isStreaming = false;
+		this.isCompacting = false;
+		this.agentState = 'idle';
+
+		if (this.assistantEntry) {
+			if (!this.assistantEntry.stopReason) {
+				this.assistantEntry.stopReason = 'aborted';
+			}
+			this.assistantEntry = null;
+			this.activeAssistantId = null;
+		}
+
+		for (const entry of this.toolEntries.values()) {
+			if (entry.running) {
+				entry.running = false;
+				entry.endedAt = Date.now();
+				if (!entry.result) {
+					entry.result = {
+						isError: true,
+						content: [{ type: 'text', text: 'Interrotto dall\u2019utente' }]
+					};
+				}
+			}
+		}
+
+		for (let i = 0; i < this.subagents.length; i++) {
+			const sub = this.subagents[i];
+			if (sub.status === 'running' || sub.status === 'pending') {
+				this.subagents[i] = { ...sub, status: 'aborted' };
+			}
+		}
+
+		this.clearPendingUi();
+		this.queued = [];
+		this.pendingStartupPrompts = [];
+		this.dropOptimisticUser();
+
+		// 2. Invio prioritario al client RPC per interrompere processi/tool sottostanti
 		try {
-			await this.client.send({ type: 'abort' });
+			await this.client.abort();
 		} catch (error) {
-			this.pushNotice('warning', `Interruzione non riuscita: ${this.reason(error)}`);
+			console.warn('Invio comando abort:', error);
 		}
 	}
 

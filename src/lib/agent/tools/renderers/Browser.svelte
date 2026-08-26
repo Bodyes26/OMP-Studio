@@ -81,7 +81,7 @@
 
 {#if view === 'summary'}
 	<div class="browser-summary">
-		<span class="action-tag">{action}</span>
+		<CountBadge text={action} />
 		<span class="target-text">{targetLabel}</span>
 		{#if images.length > 0}
 			<CountBadge text={countLabel(images.length, 'screenshot', 'screenshot')} />
@@ -117,14 +117,6 @@
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.action-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-transform: uppercase;
 		white-space: nowrap;
 	}
 

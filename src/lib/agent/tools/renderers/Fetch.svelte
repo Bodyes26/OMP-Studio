@@ -57,7 +57,7 @@
 
 {#if view === 'summary'}
 	<div class="fetch-summary">
-		<span class="method-tag">{method}</span>
+		<CountBadge text={method} />
 		<span class="url-text">{url || 'fetch'}</span>
 		{#if charLabel}
 			<CountBadge text={charLabel} muted />
@@ -83,14 +83,6 @@
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.method-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-transform: uppercase;
 		white-space: nowrap;
 	}
 

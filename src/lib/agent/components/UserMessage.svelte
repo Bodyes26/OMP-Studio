@@ -60,7 +60,6 @@
 		text-align: left;
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
-		border-left: 2px solid var(--ink-faint);
 		border-radius: var(--radius-md);
 		padding: var(--space-2) var(--space-3);
 		transition: border-color var(--dur-fast) var(--ease-out);
@@ -68,7 +67,6 @@
 
 	.user-message:hover {
 		border-color: var(--line-strong);
-		border-left-color: var(--ink-muted);
 	}
 
 	.user-header {
@@ -81,12 +79,12 @@
 	.user-badge {
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
+		gap: var(--space-1);
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
 		background: var(--bg-hover);
-		padding: 1px 6px;
+		padding: 1px var(--space-2);
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
 		line-height: 1.3;
@@ -100,7 +98,7 @@
 	.user-glyph {
 		color: var(--brand-ink);
 		font-weight: 600;
-		font-size: 11px;
+		font-size: var(--text-xs);
 		line-height: 1;
 	}
 

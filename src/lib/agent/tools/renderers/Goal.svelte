@@ -12,6 +12,7 @@
   e l'output testuale in OutputBlock se presente.
 -->
 <script lang="ts">
+	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -48,7 +49,7 @@
 
 {#if view === 'summary'}
 	<div class="goal-summary">
-		<span class="goal-tag">obiettivo</span>
+		<CountBadge text="obiettivo" />
 		<span class="goal-text">{goalText || 'Nessun obiettivo specificato'}</span>
 	</div>
 {:else}
@@ -80,13 +81,6 @@
 		white-space: nowrap;
 	}
 
-	.goal-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		white-space: nowrap;
-	}
 
 	.goal-text {
 		font-size: var(--text-sm);

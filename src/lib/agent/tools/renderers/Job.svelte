@@ -247,8 +247,7 @@
 	}
 
 	.status-pill.failed {
-		color: var(--brand);
-		background: var(--brand-ink);
+		color: var(--danger);
 	}
 
 	.status-faint {
@@ -258,6 +257,7 @@
 	.dur-cell {
 		color: var(--ink-faint);
 		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.label-cell {

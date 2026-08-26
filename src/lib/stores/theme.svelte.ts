@@ -56,6 +56,25 @@ class ThemeStore {
 		applyAnchors(anchorsFor(THEMES[this.current]));
 	}
 
+	/**
+	 * Rilegge il tema di `omp` e lo adotta. Serve dopo il wizard di primo
+	 * avvio: la scena `theme` cambia `theme.dark` mentre Studio e' gia' in
+	 * esecuzione, e il guscio deve seguire quella scelta invece di imporne
+	 * un'altra. Se l'utente ha gia' scelto un tema dentro Studio (`bridged`)
+	 * non si tocca niente: la sua scelta piu' recente vince.
+	 */
+	async adoptFromOmp() {
+		if (this.bridged) return;
+		try {
+			const userTheme = (await invoke('omp_user_theme')) as string | null;
+			if (!userTheme || !THEMES[userTheme] || userTheme === this.current) return;
+			this.current = userTheme;
+			applyAnchors(anchorsFor(THEMES[userTheme]));
+		} catch {
+			// `omp` non raggiungibile: il guscio resta com'e'.
+		}
+	}
+
 	async select(name: string) {
 		const theme = THEMES[name];
 		if (!theme) return;

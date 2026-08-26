@@ -12,6 +12,7 @@
   altrimenti mostra l'output testuale in OutputBlock.
 -->
 <script lang="ts">
+	import CountBadge from '../parts/CountBadge.svelte';
 	import Diff from '../parts/Diff.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';
@@ -46,7 +47,7 @@
 			{opsCountLabel} in {pathsCountLabel}
 		</span>
 		{#if totalReplacements !== undefined}
-			<span class="badge">{countLabel(totalReplacements, 'sostituzione', 'sostituzioni')}</span>
+			<CountBadge text={countLabel(totalReplacements, 'sostituzione', 'sostituzioni')} />
 		{/if}
 	</div>
 {:else}
@@ -58,11 +59,11 @@
 					{@const out = typeof op.out === 'string' ? op.out : ''}
 					<div class="op-card">
 						<div class="op-row">
-							<span class="op-tag">pat</span>
+							<CountBadge text="pat" muted />
 							<code>{pat}</code>
 						</div>
 						<div class="op-row">
-							<span class="op-tag">out</span>
+							<CountBadge text="out" muted />
 							<code>{out.length > 0 ? out : '(nodo rimosso)'}</code>
 						</div>
 					</div>
@@ -111,12 +112,6 @@
 		white-space: nowrap;
 	}
 
-	.badge {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		white-space: nowrap;
-	}
 
 	.ast-edit-body {
 		display: flex;
@@ -147,14 +142,6 @@
 		align-items: baseline;
 		gap: var(--space-2);
 		min-width: 0;
-	}
-
-	.op-tag {
-		color: var(--ink-faint);
-		font-size: 10px;
-		text-transform: uppercase;
-		user-select: none;
-		min-width: 24px;
 	}
 
 	code {

@@ -131,14 +131,11 @@
 	}
 
 	.outcome-badge.applied {
-		color: var(--git-added);
-		border-color: var(--line);
+		color: var(--ink);
 	}
 
 	.outcome-badge.rejected {
-		color: var(--brand);
-		background: var(--brand-ink);
-		border-color: var(--brand);
+		color: var(--danger);
 	}
 
 	.outcome-badge.proposed {

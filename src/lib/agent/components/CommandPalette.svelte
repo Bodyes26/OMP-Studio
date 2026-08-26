@@ -60,14 +60,6 @@
 		};
 	});
 
-	function sourceBadgeClass(source?: string): string {
-		if (source === 'studio') return 'studio';
-		if (source === 'skill') return 'skill';
-		if (source === 'extension') return 'extension';
-		if (source === 'custom') return 'custom';
-		if (source === 'file') return 'file';
-		return 'omp';
-	}
 
 	function sourceLabel(source?: string): string {
 		if (source === 'studio') return 'Studio';
@@ -205,7 +197,7 @@
 						>
 							<div class="cmd-header">
 								<span class="cmd-name">{option.label}</span>
-								<span class="source-badge {sourceBadgeClass(option.command.source)}">
+								<span class="source-badge">
 									{sourceLabel(option.command.source)}
 								</span>
 							</div>
@@ -226,7 +218,7 @@
 				<aside class="command-preview" aria-live="polite">
 					<div class="preview-header">
 						<div class="preview-title">{activeOption.label}</div>
-						<span class="source-badge {sourceBadgeClass(activeOption.command.source)}">
+						<span class="source-badge">
 							{sourceLabel(activeOption.command.source)}
 						</span>
 					</div>
@@ -282,7 +274,6 @@
 		margin-bottom: var(--space-1);
 		max-width: calc(100vw - 2 * var(--space-4));
 		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);
@@ -314,7 +305,7 @@
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		gap: 3px;
+		gap: var(--space-1);
 		width: 100%;
 		padding: var(--space-2);
 		background: transparent;
@@ -341,44 +332,10 @@
 
 	.source-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
-		line-height: 1;
-		padding: 2px 5px;
-		border-radius: var(--radius-sm);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		flex-shrink: 0;
-	}
-
-	.source-badge.studio {
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
-		color: var(--brand-ink);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
-	}
-
-	.source-badge.skill {
-		background: color-mix(in srgb, #a855f7 16%, transparent);
-		color: color-mix(in srgb, #c084fc 90%, var(--ink));
-		border: 1px solid color-mix(in srgb, #a855f7 35%, transparent);
-	}
-
-	.source-badge.extension {
-		background: color-mix(in srgb, #f59e0b 16%, transparent);
-		color: color-mix(in srgb, #fbbf24 90%, var(--ink));
-		border: 1px solid color-mix(in srgb, #f59e0b 35%, transparent);
-	}
-
-	.source-badge.custom,
-	.source-badge.file {
-		background: color-mix(in srgb, #06b6d4 16%, transparent);
-		color: color-mix(in srgb, #22d3ee 90%, var(--ink));
-		border: 1px solid color-mix(in srgb, #06b6d4 35%, transparent);
-	}
-
-	.source-badge.omp {
-		background: var(--bg-sunken);
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		border: 1px solid var(--line);
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 	.cmd-name,
 	code {
@@ -415,7 +372,7 @@
 	.preview-title {
 		font-family: var(--font-mono);
 		font-size: var(--text-base);
-		font-weight: 650;
+		font-weight: 600;
 		color: var(--ink);
 		margin-bottom: var(--space-3);
 	}
@@ -434,9 +391,7 @@
 	}
 
 	.preview-label {
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
 
@@ -482,17 +437,14 @@
 
 	.palette-help {
 		flex-shrink: 0;
-		position: relative;
-		z-index: 1;
 		display: flex;
 		gap: var(--space-3);
 		padding: var(--space-1) var(--space-2);
 		border-top: 1px solid var(--line);
 		background: var(--bg-sunken);
 		color: var(--ink-faint);
-		font-size: 10px;
+		font-size: var(--text-xs);
 	}
-
 	@media (max-width: 720px) {
 		.palette-main {
 			grid-template-columns: 1fr;

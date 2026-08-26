@@ -17,7 +17,6 @@
 	.retry-row {
 		width: 100%;
 		border-top: 1px solid var(--line);
-		border-bottom: 1px solid var(--line);
 		padding: var(--space-1) 0;
 		font-size: var(--text-xs);
 		line-height: 1.4;
@@ -31,14 +30,14 @@
 	}
 
 	.icon {
-		color: var(--warn);
-		font-size: 11px;
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
 		flex-shrink: 0;
 		line-height: 1;
 	}
 
 	.message {
-		color: var(--warn);
+		color: var(--ink-faint);
 		user-select: text;
 		word-break: break-word;
 	}

@@ -98,7 +98,7 @@
 
 {#if view === 'summary'}
 	<div class="hub-summary">
-		<span class="op-tag">{op}</span>
+		<CountBadge text={op} />
 		{#if summaryJobLabel}
 			<CountBadge text={summaryJobLabel} />
 		{:else if to}
@@ -163,14 +163,6 @@
 		white-space: nowrap;
 	}
 
-	.op-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		white-space: nowrap;
-	}
-
 	.target-text {
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
@@ -216,14 +208,12 @@
 	}
 
 	.running .glyph {
-		color: var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
-	}
-
-	.failed .glyph {
 		color: var(--brand-ink);
 	}
 
+	.failed .glyph {
+		color: var(--danger);
+	}
 	.job-id {
 		font-family: var(--font-mono);
 		color: var(--ink);
@@ -240,8 +230,8 @@
 	.job-duration {
 		margin-left: auto;
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 	}
-
 	.job-output {
 		margin-top: 2px;
 	}

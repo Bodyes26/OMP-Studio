@@ -95,7 +95,7 @@
 	}
 
 	.summary-line.error .text-preview {
-		color: var(--brand);
+		color: var(--danger);
 	}
 
 	.text-preview {
@@ -117,14 +117,14 @@
 		flex-direction: column;
 		gap: 2px;
 		padding: var(--space-2);
-		background: var(--brand-ink);
-		border: 1px solid var(--brand);
+		background: var(--bg-sunken);
+		border: 1px solid var(--danger);
 		border-radius: var(--radius-sm);
 	}
 
 	.error-label {
 		font-size: var(--text-xs);
-		color: var(--brand);
+		color: var(--danger);
 		font-weight: 500;
 	}
 

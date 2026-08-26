@@ -38,7 +38,7 @@
 					class="action-btn terminal-btn"
 					onclick={() => hooks.switchToTerminal()}
 				>
-					Apri nel TERMINAL
+					Apri nel terminale
 				</button>
 			{/if}
 		</div>
@@ -53,7 +53,6 @@
 	.notice-row {
 		width: 100%;
 		border-top: 1px solid var(--line);
-		border-bottom: 1px solid var(--line);
 		padding: var(--space-1) 0;
 		font-size: var(--text-xs);
 		line-height: 1.4;
@@ -114,6 +113,7 @@
 		border-radius: var(--radius-sm);
 		padding: 1px var(--space-2);
 		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-muted);
 		cursor: pointer;
 	}

@@ -58,11 +58,11 @@
 
 	function roleBadge(role?: string): string | null {
 		switch (role) {
-			case 'smol': return '⚡ smol';
-			case 'slow': return '∞ slow';
-			case 'plan': return '◆ plan';
-			case 'custom': return '⚙️ custom';
-			case 'default': return '⌘ default';
+			case 'smol': return 'smol';
+			case 'slow': return 'slow';
+			case 'plan': return 'plan';
+			case 'custom': return 'custom';
+			case 'default': return 'default';
 			default: return null;
 		}
 	}
@@ -123,11 +123,11 @@
 						ondragend={() => draggedId = null}
 						ondragover={(event) => event.preventDefault()}
 						ondrop={() => dropOn(task.id)}
+						onkeydown={(event) => handleMoveKey(event, task.id)}
 					>
 						<button
 							type="button"
 							class="drag-handle"
-							onkeydown={(event) => handleMoveKey(event, task.id)}
 							aria-label={`Riordina ${taskTitle(task)}. Alt più freccia su o giù.`}
 							title="Trascina oppure usa Alt+freccia"
 						>
@@ -165,8 +165,11 @@
 									{#if task.options?.minimalMode}
 										<span class="task-chip mode-chip">Ponytail</span>
 									{/if}
+									{#if task.options?.researchMode}
+										<span class="task-chip mode-chip">Research</span>
+									{/if}
 									{#if task.images && task.images.length > 0}
-										<span class="task-chip img-chip">📷 {task.images.length}</span>
+										<span class="task-chip img-chip">img {task.images.length}</span>
 									{/if}
 								</div>
 							</div>
@@ -257,7 +260,7 @@
 		margin: 0 var(--space-2) var(--space-2);
 		padding: var(--space-2);
 		border-radius: var(--radius-sm);
-		background: var(--brand-dim);
+		background: var(--danger-dim);
 		color: var(--ink);
 		font-size: var(--text-sm);
 		line-height: 1.4;
@@ -424,15 +427,16 @@
 	.task-chips {
 		display: flex;
 		align-items: center;
-		gap: 3px;
+		gap: var(--space-1);
 		flex-shrink: 0;
 	}
 
 	.task-chip {
 		font-family: var(--font-mono);
-		font-size: 9px;
+		font-size: var(--text-xs);
 		padding: 1px 4px;
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-sm);
+		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 		line-height: 1.2;
 	}
@@ -441,7 +445,7 @@
 		background: var(--brand-dim);
 		color: var(--brand-ink);
 		font-weight: 600;
-		font-size: 10px;
+		font-size: var(--text-xs);
 	}
 
 	.task-chip.mode-chip {

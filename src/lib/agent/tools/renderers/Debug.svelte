@@ -13,6 +13,7 @@
   le sezioni per stack trace, variabili e breakpoint lette da `details`.
 -->
 <script lang="ts">
+	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';
@@ -121,7 +122,7 @@
 
 {#if view === 'summary'}
 	<div class="debug-summary">
-		<span class="action-tag">{action}</span>
+		<CountBadge text={action} />
 		{#if targetLabel}
 			<span class="target-text">{targetLabel}</span>
 		{/if}
@@ -200,14 +201,6 @@
 		white-space: nowrap;
 	}
 
-	.action-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		white-space: nowrap;
-	}
-
 	.target-text {
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
@@ -240,9 +233,7 @@
 	.section-title {
 		font-size: var(--text-xs);
 		font-weight: 600;
-		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		color: var(--ink-faint);
 	}
 
 	.frame-list,
@@ -252,7 +243,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 3px;
+		gap: var(--space-1);
 	}
 
 	.frame-row,

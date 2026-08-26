@@ -36,7 +36,6 @@
 				class="chip"
 				class:steer={item.behavior === 'steer'}
 				class:follow-up={item.behavior === 'followUp'}
-				title="omp non espone la cancellazione dalla coda"
 			>
 				<div class="chip-behavior-switch" role="group" aria-label="Comportamento messaggio in coda">
 					<button
@@ -63,13 +62,12 @@
 		{/each}
 
 		{#if serverCount > 0 && serverCount !== queued.length}
-			<div
-				class="chip server-count"
-				title="omp non espone la cancellazione dalla coda"
-			>
+			<div class="chip server-count">
 				<span class="server-label">{serverCount} in coda sul server</span>
 			</div>
 		{/if}
+
+		<span class="queue-limit-note">non cancellabili da omp</span>
 	</div>
 {/if}
 
@@ -110,9 +108,9 @@
 	}
 
 	.chip-behavior-btn {
-		padding: 1px 5px;
+		padding: 1px var(--space-1);
 		font-family: var(--font-mono);
-		font-size: 9px;
+		font-size: var(--text-xs);
 		text-transform: lowercase;
 		background: transparent;
 		border: none;
@@ -120,9 +118,9 @@
 		color: var(--ink-faint);
 		cursor: pointer;
 		line-height: 1.2;
-		transition: background-color 100ms ease, color 100ms ease;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
-
 	.chip-behavior-btn:hover {
 		color: var(--ink);
 	}
@@ -150,13 +148,20 @@
 		padding-left: 2px;
 	}
 	.server-count {
-		border-style: dashed;
 		color: var(--ink-faint);
 		background: transparent;
 	}
 
 	.server-label {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.queue-limit-note {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		margin-left: auto;
+		user-select: none;
 	}
 </style>

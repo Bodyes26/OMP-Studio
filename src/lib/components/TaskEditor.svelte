@@ -54,10 +54,10 @@
 
 	// Ruoli principali disponibili per la barra di difficolta / preset
 	const DIFFICULTY_ROLES = [
-		{ id: 'smol', label: 'Leggero / Rapido', badge: '⚡ smol', desc: 'Fix rapidi, compiti semplici e modelli veloci' },
-		{ id: 'default', label: 'Standard / Chat', badge: '⌘ default', desc: 'Sviluppo normale e interazione standard' },
-		{ id: 'slow', label: 'Deep Reasoning', badge: '∞ slow', desc: 'Ragionamento approfondito e problemi complessi' },
-		{ id: 'plan', label: 'Architetturale', badge: '◆ plan', desc: 'Pianificazione e progettazione strutturale' }
+		{ id: 'smol', label: 'Leggero / Rapido', badge: 'smol', desc: 'Fix rapidi, compiti semplici e modelli veloci' },
+		{ id: 'default', label: 'Standard / Chat', badge: 'default', desc: 'Sviluppo normale e interazione standard' },
+		{ id: 'slow', label: 'Deep Reasoning', badge: 'slow', desc: 'Ragionamento approfondito e problemi complessi' },
+		{ id: 'plan', label: 'Architetturale', badge: 'plan', desc: 'Pianificazione e progettazione strutturale' }
 	] as const;
 
 	$effect(() => {
@@ -199,6 +199,11 @@
 
 	function toggleMinimalMode() {
 		options.minimalMode = !options.minimalMode;
+		saveTask();
+	}
+
+	function toggleResearchMode() {
+		options.researchMode = !options.researchMode;
 		saveTask();
 	}
 
@@ -505,7 +510,7 @@
 					onclick={() => selectRole('custom')}
 				>
 					<div class="role-card-header">
-						<span class="role-badge">⚙️ custom</span>
+						<span class="role-badge">custom</span>
 						<span class="role-name">Personalizzato</span>
 					</div>
 					<span class="role-desc">Override manuale modello e thinking sotto</span>
@@ -610,6 +615,23 @@
 					</div>
 				</label>
 
+				<label class="toggle-card" class:checked={Boolean(options.researchMode)}>
+					<input
+						type="checkbox"
+						checked={Boolean(options.researchMode)}
+						onchange={toggleResearchMode}
+					/>
+					<div class="toggle-content">
+						<div class="toggle-header">
+							<span class="toggle-title">Modalità Ricerca Online</span>
+							<span class="toggle-tag">Ricerca Web</span>
+						</div>
+						<p class="toggle-desc">
+							Forza l'agente a fare ricerche online mirate sull'ambito e sulla richiesta dopo aver analizzato al completo la richiesta e il codice collegato.
+						</p>
+					</div>
+				</label>
+
 				<label class="toggle-card" class:checked={options.includeEditorContext !== false}>
 					<input
 						type="checkbox"
@@ -686,11 +708,11 @@
 	}
 
 	.task-badge {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 700;
 		letter-spacing: 0.05em;
 		padding: 2px 6px;
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-sm);
 		background: var(--brand-dim);
 		color: var(--brand-ink);
 	}
@@ -724,15 +746,15 @@
 		font-size: var(--text-xs);
 		font-weight: 500;
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.action-btn kbd {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-sm);
 		padding: 1px 4px;
 		color: var(--ink-faint);
 	}
@@ -744,15 +766,15 @@
 	}
 
 	.action-btn.delete-btn:hover {
-		background: color-mix(in srgb, #e05252 15%, transparent);
-		color: #e05252;
-		border-color: color-mix(in srgb, #e05252 40%, transparent);
+		background: var(--danger-dim);
+		color: var(--ink);
+		border-color: var(--danger);
 	}
 
 	.action-btn.confirm-delete {
-		background: #e05252;
-		color: #fff;
-		border-color: #e05252;
+		background: var(--danger);
+		color: var(--on-danger);
+		border-color: var(--danger);
 	}
 
 	.action-btn.primary-btn {
@@ -768,18 +790,18 @@
 
 	.action-btn.launch-btn {
 		background: var(--brand);
-		color: #fff;
+		color: var(--on-brand);
 		border-color: var(--brand);
 	}
 
 	.action-btn.launch-btn kbd {
-		background: color-mix(in srgb, #fff 20%, transparent);
+		background: color-mix(in srgb, var(--on-brand) 20%, transparent);
 		border-color: transparent;
-		color: #fff;
+		color: var(--on-brand);
 	}
 
 	.action-btn.launch-btn:hover:not(:disabled) {
-		filter: brightness(1.1);
+		background: var(--brand-ink);
 	}
 
 	.action-btn:disabled {
@@ -842,7 +864,6 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		overflow: hidden;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 	}
 
 	.input-card:focus-within {
@@ -915,7 +936,7 @@
 		object-fit: cover;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
-		transition: opacity 0.15s;
+		transition: opacity var(--dur-fast) var(--ease-out);
 	}
 
 	.image-thumb-btn:hover .image-thumb {
@@ -928,17 +949,16 @@
 		right: -6px;
 		width: 18px;
 		height: 18px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
 		color: var(--ink-faint);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 13px;
+		font-size: var(--text-base);
 		line-height: 1;
 		cursor: pointer;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 		padding: 0;
 	}
 
@@ -968,7 +988,7 @@
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		cursor: pointer;
-		transition: all 0.15s;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.attach-btn:hover {
@@ -1000,11 +1020,11 @@
 
 	.hint-text code {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-xs);
 		padding: 1px 4px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-sm);
 		color: var(--brand-ink);
 	}
 
@@ -1060,7 +1080,7 @@
 		background: var(--bg-raised);
 		cursor: pointer;
 		text-align: left;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.role-card:hover {
@@ -1083,7 +1103,7 @@
 
 	.role-badge {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--brand-ink);
 	}
@@ -1095,7 +1115,7 @@
 	}
 
 	.role-desc {
-		font-size: 11px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		line-height: 1.3;
 	}
@@ -1147,7 +1167,7 @@
 		background: var(--bg-raised);
 		cursor: pointer;
 		user-select: none;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.toggle-card:hover {
@@ -1189,17 +1209,17 @@
 
 	.toggle-tag {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		padding: 1px 4px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-sm);
 		color: var(--ink-faint);
 	}
 
 	.toggle-desc {
 		margin: 0;
-		font-size: 11px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		line-height: 1.35;
 	}
@@ -1236,15 +1256,15 @@
 		font-size: var(--text-xs);
 		font-weight: 600;
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.bottom-btn kbd {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-sm);
 		padding: 1px 4px;
 	}
 
@@ -1262,17 +1282,17 @@
 	.bottom-btn.primary {
 		border: 1px solid var(--brand);
 		background: var(--brand);
-		color: #fff;
+		color: var(--on-brand);
 	}
 
 	.bottom-btn.primary kbd {
-		background: color-mix(in srgb, #fff 20%, transparent);
+		background: color-mix(in srgb, var(--on-brand) 20%, transparent);
 		border-color: transparent;
-		color: #fff;
+		color: var(--on-brand);
 	}
 
 	.bottom-btn.primary:hover:not(:disabled) {
-		filter: brightness(1.1);
+		background: var(--brand-ink);
 	}
 
 	.bottom-btn:disabled {

@@ -71,12 +71,11 @@
 	}
 
 	.running .glyph {
-		color: var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+		color: var(--brand-ink);
 	}
 
 	.failed .glyph {
-		color: var(--brand-ink);
+		color: var(--danger);
 	}
 
 	.name {
@@ -84,11 +83,17 @@
 		font-family: var(--font-mono);
 	}
 
-	.agent,
+	.agent {
+		color: var(--ink-faint);
+		font-size: var(--text-xs);
+		white-space: nowrap;
+	}
+
 	.numbers {
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
 		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.meta {

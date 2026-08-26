@@ -102,7 +102,7 @@
 				</div>
 			{/if}
 			{#if provider}
-				<span class="provider-tag">{provider}</span>
+				<CountBadge text={provider} />
 			{/if}
 		</div>
 
@@ -214,16 +214,7 @@
 		white-space: nowrap;
 	}
 
-	.provider-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px var(--space-1);
-		flex-shrink: 0;
-	}
+
 
 	.answer-box {
 		display: flex;
@@ -289,7 +280,7 @@
 
 	.title-link:hover {
 		text-decoration: underline;
-		color: var(--brand);
+		color: var(--brand-ink);
 	}
 
 	.title-plain {

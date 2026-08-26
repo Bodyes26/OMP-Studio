@@ -127,7 +127,6 @@
 								<li class="task-row {task.status}">
 									<span
 										class="glyph"
-										class:pulse={task.status === 'in_progress'}
 										title={task.status === 'blocked' ? (task.blocker ?? 'Bloccato') : undefined}
 									>
 										{STATUS_GLYPH[task.status]}
@@ -191,9 +190,7 @@
 	.phase-header {
 		font-size: var(--text-xs);
 		font-weight: 600;
-		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		color: var(--ink-faint);
 	}
 
 	.task-list {
@@ -202,7 +199,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 3px;
+		gap: var(--space-1);
 	}
 
 	.task-row {
@@ -221,13 +218,8 @@
 		text-align: center;
 		flex-shrink: 0;
 	}
-
 	.task-row.in_progress .glyph {
-		color: var(--brand);
-	}
-
-	.pulse {
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+		color: var(--brand-ink);
 	}
 
 	.task-row.completed .glyph {

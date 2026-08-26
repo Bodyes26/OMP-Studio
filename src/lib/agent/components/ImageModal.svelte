@@ -66,7 +66,6 @@
 		max-width: 90vw;
 		max-height: 90vh;
 		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		padding: var(--space-2);
 		box-shadow: var(--shadow-overlay);
@@ -90,7 +89,6 @@
 		height: 28px;
 		border-radius: var(--radius-full);
 		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
 		color: var(--ink);
 		font-size: var(--text-md);
 		cursor: pointer;

@@ -27,14 +27,59 @@
 			onClose();
 		}
 	}
+
+	// Azione per intrappolare il fuoco dentro il pannello: sposta il fuoco
+	// sul primo elemento interattivo all'apertura e lo confina con Tab/Shift+Tab,
+	// cosi' l'aria-modal dichiarato e' vero e non solo un'etichetta.
+	function trapFocus(node: HTMLElement) {
+		const previouslyFocused = document.activeElement as HTMLElement | null;
+		const focusableSelector =
+			'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+		const first = node.querySelector<HTMLElement>(focusableSelector);
+		if (first) {
+			first.focus();
+		}
+
+		function onKeydown(e: KeyboardEvent) {
+			if (e.key !== 'Tab') return;
+			const focusables = Array.from(node.querySelectorAll<HTMLElement>(focusableSelector));
+			if (focusables.length === 0) return;
+			const firstEl = focusables[0];
+			const lastEl = focusables[focusables.length - 1];
+
+			if (e.shiftKey) {
+				if (document.activeElement === firstEl) {
+					e.preventDefault();
+					lastEl.focus();
+				}
+			} else if (document.activeElement === lastEl) {
+				e.preventDefault();
+				firstEl.focus();
+			}
+		}
+
+		node.addEventListener('keydown', onKeydown);
+
+		return {
+			destroy() {
+				node.removeEventListener('keydown', onKeydown);
+				// Ripristina il fuoco a chi aveva aperto il pannello
+				if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+					previouslyFocused.focus();
+				}
+			}
+		};
+	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="panel-backdrop" onclick={onClose}></div>
+<!-- Bottone decorativo: chiude al clic ma resta fuori da tab e albero di
+     accessibilita'; il fuoco vero passa dal pannello (fuoco iniziale +
+     trap) e da Esc, non dal backdrop. -->
+<button type="button" class="panel-backdrop" onclick={onClose} aria-hidden="true" tabindex="-1"></button>
 
-<div class="subagent-panel" role="dialog" aria-modal="true" aria-label="Elenco subagent">
+<div class="subagent-panel" role="dialog" aria-modal="true" aria-label="Elenco subagent" use:trapFocus>
 	<div class="panel-head">
 		<span class="title">Subagent del progetto ({subagents.length})</span>
 		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi">×</button>
@@ -49,7 +94,7 @@
 	</div>
 
 	<div class="readonly-notice">
-		<span>Per steerare o terminare un subagent passa alla scheda TERMINAL (Alt+A).</span>
+		<span>Per steerare o terminare un subagent passa al terminale (Alt+A).</span>
 	</div>
 </div>
 
@@ -58,6 +103,10 @@
 		position: absolute;
 		inset: 0;
 		background: var(--backdrop);
+		border: none;
+		padding: 0;
+		margin: 0;
+		cursor: default;
 		z-index: var(--z-overlay);
 	}
 
@@ -68,7 +117,6 @@
 		right: 0;
 		max-height: 70%;
 		background: var(--bg-overlay);
-		border-top: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 		box-shadow: var(--shadow-overlay);
 		display: flex;

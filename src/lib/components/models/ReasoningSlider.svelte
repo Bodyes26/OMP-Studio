@@ -116,7 +116,7 @@
 		onkeydown={handleKeydown}
 	>
 		<div class="track-bg"></div>
-		<div class="track-fill" style="width: {progressPercent}%;"></div>
+		<div class="track-fill" style="transform: scaleX({progressPercent / 100});"></div>
 
 		<!-- Step Ticks -->
 		{#each levels as lvl, i (lvl.id)}
@@ -203,7 +203,7 @@
 
 	.budget-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--brand) 18%, transparent);
@@ -212,7 +212,7 @@
 	}
 
 	.level-desc {
-		font-size: 11px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
 	}
@@ -244,10 +244,12 @@
 	.track-fill {
 		position: absolute;
 		left: 0;
+		right: 0;
 		height: 4px;
 		background: var(--brand);
 		border-radius: var(--radius-full);
-		transition: width 80ms ease-out;
+		transform-origin: left;
+		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
 	.step-tick-btn {
@@ -268,9 +270,9 @@
 	.tick-dot {
 		width: 5px;
 		height: 5px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background: color-mix(in srgb, var(--ink) 35%, transparent);
-		transition: transform 120ms ease, background-color 120ms ease;
+		transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 	}
 
 	.step-tick-btn.passed .tick-dot {
@@ -288,13 +290,12 @@
 		transform: translate(-50%, -50%);
 		width: 12px;
 		height: 12px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background: var(--ink);
 		border: 2px solid var(--brand);
-		box-shadow: 0 1px 4px oklch(0 0 0 / 0.5);
 		z-index: 3;
 		pointer-events: none;
-		transition: left 80ms ease-out, transform 100ms ease;
+		transition: left var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 	}
 
 	.slider-thumb.dragging {
@@ -311,11 +312,11 @@
 		background: transparent;
 		border: none;
 		padding: 2px 0;
-		font-size: 9.5px;
+		font-size: var(--text-xs);
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
 		cursor: pointer;
-		transition: color 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out);
 		text-align: center;
 	}
 

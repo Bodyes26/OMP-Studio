@@ -11,6 +11,7 @@
   testuale di risposta in OutputBlock.
 -->
 <script lang="ts">
+	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -52,7 +53,7 @@
 
 {#if view === 'summary'}
 	<div class="irc-summary">
-		<span class="irc-tag">a {to}</span>
+		<CountBadge text={`a ${to}`} />
 		{#if message}
 			<span class="msg-text">{message}</span>
 		{/if}
@@ -84,13 +85,6 @@
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.irc-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
 		white-space: nowrap;
 	}
 

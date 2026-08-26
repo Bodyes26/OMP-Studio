@@ -101,7 +101,6 @@
 		<div class="modal-card" onclick={(e) => e.stopPropagation()}>
 			<header class="modal-header">
 				<div class="header-title-wrap">
-					<span class="header-icon">⌨</span>
 					<h2>Scorciatoie da tastiera</h2>
 				</div>
 				<button type="button" class="close-btn" onclick={onClose} aria-label="Chiudi (Esc)">
@@ -158,18 +157,16 @@
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.65);
-		backdrop-filter: blur(2px);
+		background: var(--backdrop);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: var(--z-modal, 1000);
+		z-index: var(--z-dialog);
 		padding: var(--space-4);
 	}
 
 	.modal-card {
 		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		width: 100%;
@@ -197,11 +194,6 @@
 		gap: var(--space-2);
 	}
 
-	.header-icon {
-		font-size: 18px;
-		line-height: 1;
-		color: var(--brand-ink);
-	}
 
 	.modal-header h2 {
 		margin: 0;
@@ -220,7 +212,7 @@
 		border: none;
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
-		font-size: 20px;
+		font-size: var(--text-xl);
 		line-height: 1;
 		cursor: pointer;
 	}
@@ -245,11 +237,8 @@
 	}
 
 	.category-title {
-		margin: 0;
-		font-size: 11px;
+		font-size: var(--text-xs);
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
 		color: var(--ink-faint);
 		padding-bottom: 4px;
 		border-bottom: 1px solid var(--line);
@@ -258,7 +247,7 @@
 	.shortcuts-grid {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: var(--space-2);
 	}
 
 	.shortcut-row {
@@ -266,7 +255,7 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
-		padding: 4px 8px;
+		padding: var(--space-1) var(--space-2);
 		border-radius: var(--radius-sm);
 		background: var(--bg-base);
 		border: 1px solid var(--line);
@@ -291,13 +280,13 @@
 	}
 
 	.keys-or {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		margin: 0 2px;
 	}
 
 	.key-plus {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		user-select: none;
 	}
@@ -311,18 +300,17 @@
 		background: var(--bg-sunken);
 		border: 1px solid var(--line-strong);
 		border-bottom-width: 2px;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--ink);
 		line-height: 1.2;
-		box-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);
 	}
 
 	.key-badge.small {
 		padding: 1px 4px;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		min-width: 16px;
 	}
 
@@ -339,7 +327,7 @@
 
 	.desc-note {
 		display: block;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
 
@@ -361,7 +349,7 @@
 	}
 
 	.footer-btn {
-		padding: 6px 14px;
+		padding: var(--space-2) var(--space-3);
 		background: var(--brand);
 		color: var(--on-brand);
 		border: none;
@@ -372,7 +360,7 @@
 	}
 
 	.footer-btn:hover {
-		opacity: 0.9;
+		background: var(--brand-dim);
 	}
 
 	@media (max-width: 600px) {

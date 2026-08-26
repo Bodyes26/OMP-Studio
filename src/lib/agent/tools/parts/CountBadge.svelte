@@ -12,6 +12,7 @@
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
 		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.muted {

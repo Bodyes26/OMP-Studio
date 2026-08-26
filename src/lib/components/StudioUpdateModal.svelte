@@ -90,7 +90,6 @@
 		>
 			<div class="modal-header">
 				<div class="header-left">
-					<span class="header-icon">🚀</span>
 					<h3 id="studio-update-title">
 						{studioUpdaterStore.hasUpdate ? 'Aggiornamento OMP Studio' : 'OMP Studio è aggiornato'}
 					</h3>
@@ -99,13 +98,12 @@
 					{#if !studioUpdaterStore.isDownloading}
 						<button
 							class="refresh-icon-btn"
-							class:spinning={studioUpdaterStore.isChecking}
 							disabled={studioUpdaterStore.isChecking}
 							onclick={() => studioUpdaterStore.checkUpdate(true)}
 							title="Verifica se ci sono versioni più recenti su GitHub"
 							aria-label="Verifica aggiornamenti"
 						>
-							<span class="refresh-symbol" class:spinning={studioUpdaterStore.isChecking}>↻</span>
+							<span class="refresh-symbol">↻</span>
 						</button>
 						<button
 							class="close-btn"
@@ -205,7 +203,6 @@
 					{#if studioUpdaterStore.hasUpdate}
 						{#if studioUpdaterStore.updateInfo.asset}
 							<div class="asset-info">
-								<span class="asset-icon">📦</span>
 								<div class="asset-text">
 									<span class="asset-name">{studioUpdaterStore.updateInfo.asset.name}</span>
 									<span class="asset-size">{formatBytes(studioUpdaterStore.updateInfo.asset.size)}</span>
@@ -213,7 +210,7 @@
 							</div>
 						{:else}
 							<div class="no-asset-notice">
-								<span>⚠️ Nessun pacchetto binario pre-compilato allegato a questa release. Puoi scaricarla o consultarla su GitHub.</span>
+								<span>Nessun pacchetto binario pre-compilato allegato a questa release. Puoi scaricarla o consultarla su GitHub.</span>
 							</div>
 						{/if}
 					{/if}
@@ -229,7 +226,7 @@
 						<div class="progress-bar-bg">
 							<div
 								class="progress-bar-fill"
-								style="width: {Math.max(4, studioUpdaterStore.downloadProgress.percentage)}%"
+								style="transform: scaleX({Math.max(0.04, studioUpdaterStore.downloadProgress.percentage / 100)});"
 							></div>
 						</div>
 						<div class="progress-stats">
@@ -246,7 +243,6 @@
 				<!-- Messaggio di Download Completato -->
 				{#if studioUpdaterStore.downloadProgress?.status === 'finished'}
 					<div class="finished-banner">
-						<span class="finished-icon">✅</span>
 						<div class="finished-text">
 							<strong>Pacchetto scaricato con successo!</strong>
 							<span>Clicca su "Riavvia e Installa" per completare l'aggiornamento e riaprire OMP Studio.</span>
@@ -256,8 +252,7 @@
 
 				<!-- Messaggi di Errore -->
 				{#if studioUpdaterStore.errorMessage}
-					<div class="error-banner">
-						<span class="error-icon">❌</span>
+					<div class="error-banner" role="alert">
 						<span class="error-text">{studioUpdaterStore.errorMessage}</span>
 					</div>
 				{/if}
@@ -299,7 +294,7 @@
 							disabled={studioUpdaterStore.isChecking}
 							title="Controlla se è uscita una versione ancora più recente su GitHub"
 						>
-							<span class="refresh-symbol" class:spinning={studioUpdaterStore.isChecking}>↻</span>
+							<span class="refresh-symbol">↻</span>
 							{studioUpdaterStore.isChecking ? 'Verifica...' : 'Ricontrolla'}
 						</button>
 						<button class="btn btn-secondary" onclick={() => studioUpdaterStore.closeModal()}>
@@ -314,7 +309,7 @@
 							onclick={() => studioUpdaterStore.checkUpdate(true)}
 							disabled={studioUpdaterStore.isChecking}
 						>
-							<span class="refresh-symbol" class:spinning={studioUpdaterStore.isChecking}>↻</span>
+							<span class="refresh-symbol">↻</span>
 							{#if studioUpdaterStore.isChecking}
 								Verifica in corso...
 							{:else}
@@ -347,11 +342,9 @@
 		max-width: 92vw;
 		max-height: 85vh;
 		background: var(--bg-overlay);
-		border: 1px solid var(--line);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-dialog);
-		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 	}
@@ -370,9 +363,6 @@
 		gap: var(--space-2);
 	}
 
-	.header-icon {
-		font-size: 1.25rem;
-	}
 
 	.modal-header h3 {
 		margin: 0;
@@ -395,7 +385,7 @@
 		padding: 4px 8px;
 		border-radius: var(--radius-sm);
 		font-size: var(--text-sm);
-		transition: all 0.15s ease;
+		transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -417,14 +407,6 @@
 		line-height: 1;
 	}
 
-	.refresh-symbol.spinning {
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
 
 	.close-btn {
 		background: transparent;
@@ -434,7 +416,7 @@
 		padding: 4px 8px;
 		border-radius: var(--radius-sm);
 		font-size: var(--text-sm);
-		transition: all 0.15s ease;
+		transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 	}
 
 	.close-btn:hover {
@@ -594,7 +576,7 @@
 		background: color-mix(in srgb, var(--warn) 14%, transparent);
 		color: var(--warn);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		line-height: 1.4;
 	}
@@ -649,11 +631,8 @@
 	.notes-heading {
 		font-size: var(--text-xs);
 		font-weight: 600;
-		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		color: var(--ink-faint);
 	}
-
 	.release-notes {
 		max-height: 140px;
 		overflow-y: auto;
@@ -661,7 +640,7 @@
 		border: 1px solid var(--line);
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
-		font-size: 11px;
+		font-size: var(--text-xs);
 		font-family: var(--font-mono);
 		color: var(--ink-muted);
 		white-space: pre-wrap;
@@ -675,13 +654,10 @@
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
 		background: var(--bg-base);
-		border: 1px dashed var(--line);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 	}
 
-	.asset-icon {
-		font-size: 1.1rem;
-	}
 
 	.asset-text {
 		display: flex;
@@ -700,17 +676,16 @@
 	}
 
 	.asset-size {
-		font-size: 10px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
 
 	.no-asset-notice {
 		background: var(--bg-sunken);
-		border-left: 3px solid var(--warn);
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
-		color: var(--ink-muted);
+		color: var(--warn);
 	}
 
 	.progress-section {
@@ -739,27 +714,31 @@
 		font-family: var(--font-mono);
 		font-weight: bold;
 		color: var(--brand);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.progress-bar-bg {
 		height: 8px;
 		background: var(--bg-hover);
-		border-radius: 99px;
+		border-radius: var(--radius-full);
 		overflow: hidden;
 	}
 
 	.progress-bar-fill {
 		height: 100%;
+		width: 100%;
 		background: var(--brand);
-		border-radius: 99px;
-		transition: width 0.2s ease;
+		border-radius: var(--radius-full);
+		transform-origin: left;
+		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
 	.progress-stats {
 		display: flex;
 		justify-content: space-between;
-		font-size: 10px;
+		font-size: var(--text-xs);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 	}
 
@@ -777,10 +756,6 @@
 		border-radius: var(--radius-md);
 	}
 
-	.finished-icon {
-		font-size: 1.25rem;
-		line-height: 1;
-	}
 
 	.finished-text {
 		display: flex;
@@ -802,17 +777,11 @@
 		align-items: center;
 		gap: var(--space-2);
 		background: var(--bg-sunken);
-		border-left: 3px solid var(--danger);
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
-		color: var(--ink);
+		color: var(--danger);
 	}
-
-	.error-icon {
-		font-size: 1rem;
-	}
-
 	.error-text {
 		color: var(--danger);
 		word-break: break-word;
@@ -839,7 +808,7 @@
 		font-weight: 500;
 		cursor: pointer;
 		border: 1px solid transparent;
-		transition: all 0.15s ease;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn:disabled {
@@ -876,6 +845,6 @@
 	}
 
 	.btn-primary:hover:not(:disabled) {
-		filter: brightness(1.1);
+		background: var(--brand-ink);
 	}
 </style>

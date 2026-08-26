@@ -11,6 +11,21 @@
 	import type { AgentSession } from '../session.svelte';
 	import type { AgentMessage } from '../wire';
 
+	// Etichette di ruolo in italiano, stessa mappa di session.svelte.ts
+	// (custom -> sistema, developer -> promemoria). Ruoli non mappati
+	// (tipo aperto) restano visibili col valore grezzo.
+	const ROLE_LABEL: Record<string, string> = {
+		user: 'utente',
+		assistant: 'assistente',
+		toolResult: 'risultato tool',
+		developer: 'promemoria',
+		custom: 'sistema'
+	};
+
+	function roleLabel(role: string): string {
+		return ROLE_LABEL[role] ?? role;
+	}
+
 	let {
 		session,
 		subagentId,
@@ -121,7 +136,7 @@
 	<div class="messages-area">
 		{#each messages as msg, idx (idx)}
 			<div class="msg-row {msg.role}">
-				<div class="msg-role">{msg.role}</div>
+				<div class="msg-role">{roleLabel(msg.role)}</div>
 				<div class="msg-body">
 					{#each Array.isArray(msg.content) ? msg.content : [] as block, bIdx (bIdx)}
 						{#if block.type === 'text' && block.text}
@@ -159,7 +174,6 @@
 		width: 85%;
 		max-width: 600px;
 		background: var(--bg-overlay);
-		border-left: 1px solid var(--line-strong);
 		box-shadow: var(--shadow-overlay);
 		display: flex;
 		flex-direction: column;
@@ -184,7 +198,7 @@
 	}
 
 	.glyph {
-		color: var(--brand);
+		color: var(--brand-ink);
 	}
 
 	.title {
@@ -208,7 +222,7 @@
 
 	.error-banner {
 		padding: var(--space-1) var(--space-3);
-		background: var(--danger-dim);
+		background: var(--bg-sunken);
 		color: var(--danger);
 		font-size: var(--text-xs);
 	}
@@ -227,23 +241,20 @@
 		flex-direction: column;
 		gap: 2px;
 		font-size: var(--text-xs);
-		border-left: 2px solid var(--line);
 		padding-left: var(--space-2);
-	}
-
-	.msg-row.user {
-		border-left-color: var(--ink-faint);
-	}
-
-	.msg-row.assistant {
-		border-left-color: var(--brand-dim);
 	}
 
 	.msg-role {
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
-		font-size: 10px;
-		text-transform: uppercase;
+		font-size: var(--text-xs);
+	}
+
+	/* L'assistente si distingue dall'utente per etichetta di ruolo
+	   (parola e peso), non piu' per stroke laterale colorato. */
+	.msg-row.assistant .msg-role {
+		color: var(--ink);
+		font-weight: 600;
 	}
 
 	.msg-body {
@@ -266,7 +277,7 @@
 		display: flex;
 		gap: var(--space-1);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		overflow: hidden;
 		text-overflow: ellipsis;
