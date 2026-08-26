@@ -1,6 +1,7 @@
 import { load } from '@tauri-apps/plugin-store';
 import { homeDir, join } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
+import { settingsStore, type TaskDefaults } from './settings.svelte';
 
 const isWindows = typeof navigator !== 'undefined' && /win/i.test((navigator.userAgent || navigator.platform || '').toLowerCase());
 
@@ -62,6 +63,10 @@ export interface Project {
 	activeFile: string | null;
 	layout: ProjectLayout;
 	lastOpened: number;
+	/** Il primo task in coda parte da solo appena il terminale e' libero. */
+	autoDispatch: boolean;
+	/** Default dei task di questo progetto: sovrascrivono taskDefaults globali. */
+	taskDefaults: Partial<TaskDefaults> | null;
 }
 
 export const PRESET_HUES = [355, 25, 60, 135, 175, 220, 265, 305];
@@ -87,6 +92,9 @@ class ProjectStore {
 	}
 
 	async initStore() {
+		// L'ordinamento (`mru` o no) decide se qui sotto si riordina o no:
+		// va letto da disco prima, altrimenti si legge sempre il default.
+		await settingsStore.init();
 		this.store = await load('settings.json', { autoSave: false });
 		const storedProjects = await this.store.get('projects') as Project[] | null;
 		const storedActiveId = await this.store.get('activeProjectId') as string | null;
@@ -125,19 +133,27 @@ class ProjectStore {
 						leftSection: p.layout?.leftSection === 'sessions' ? 'sessions' : 'files',
 						editorOpen: p.layout?.editorOpen !== false,
 						rightSection: p.layout?.rightSection === 'gui' ? 'gui' : 'terminal'
-					}
+					},
+					autoDispatch: p.autoDispatch === true,
+					taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null
 				});
 			}
-			this.projects.sort((a, b) => (b.lastOpened || 0) - (a.lastOpened || 0));
+			// L'ordine salvato e' l'unica verita' fuori da `mru`: solo li'
+			// il piu' recente deve tornare in cima da solo.
+			if (settingsStore.projectBar.order === 'mru') {
+				this.projects.sort((a, b) => (b.lastOpened || 0) - (a.lastOpened || 0));
+			}
 		}
 
 		if (storedActiveId && this.projects.some(p => p.id === storedActiveId)) {
 			this.activeId = storedActiveId;
-			// Assicura che il progetto attivo all'avvio sia in prima posizione
-			const idx = this.projects.findIndex(p => p.id === storedActiveId);
-			if (idx > 0) {
-				const [activeProj] = this.projects.splice(idx, 1);
-				this.projects.unshift(activeProj);
+			if (settingsStore.projectBar.order === 'mru') {
+				// Assicura che il progetto attivo all'avvio sia in prima posizione
+				const idx = this.projects.findIndex(p => p.id === storedActiveId);
+				if (idx > 0) {
+					const [activeProj] = this.projects.splice(idx, 1);
+					this.projects.unshift(activeProj);
+				}
 			}
 		} else if (this.projects.length > 0) {
 			this.activeId = this.projects[0].id;
@@ -156,7 +172,9 @@ class ProjectStore {
 			hue: p.hue,
 			colorMode: p.colorMode,
 			layout: $state.snapshot(p.layout),
-			lastOpened: p.lastOpened
+			lastOpened: p.lastOpened,
+			autoDispatch: p.autoDispatch,
+			taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null
 		}));
 		await this.store.set('projects', toSave);
 		await this.store.set('activeProjectId', this.activeId);
@@ -172,10 +190,12 @@ class ProjectStore {
 		if (existing) {
 			existing.lastOpened = Date.now();
 			this.activeId = existing.id;
-			const idx = this.projects.findIndex(p => p.id === existing.id);
-			if (idx > 0) {
-				const [proj] = this.projects.splice(idx, 1);
-				this.projects.unshift(proj);
+			if (settingsStore.projectBar.order === 'mru') {
+				const idx = this.projects.findIndex(p => p.id === existing.id);
+				if (idx > 0) {
+					const [proj] = this.projects.splice(idx, 1);
+					this.projects.unshift(proj);
+				}
 			}
 			this.save();
 			return existing.id;
@@ -199,14 +219,31 @@ class ProjectStore {
 				center: 0.5,
 				leftSection: 'files',
 				editorOpen: true,
-				rightSection: 'terminal'
+				rightSection: settingsStore.general.defaultSurface
 			},
-			lastOpened: Date.now()
+			lastOpened: Date.now(),
+			autoDispatch: false,
+			taskDefaults: null
 		};
-		this.projects.unshift(newProj);
+		// Nuovo progetto: in coda con l'ordine manuale, in testa solo se
+		// l'utente ha scelto `mru` (il piu' recente resta il piu' visibile).
+		if (settingsStore.projectBar.order === 'mru') {
+			this.projects.unshift(newProj);
+		} else {
+			this.projects.push(newProj);
+		}
 		this.activeId = id;
 		this.save();
 		return id;
+	}
+
+	/** Cambia la cartella in cui cercare i progetti e la persiste. Usata dal
+	 *  primo avvio guidato e dalle impostazioni. */
+	setProjectRoot(path: string) {
+		const canonical = normalizeProjectPath(path);
+		if (!canonical) return;
+		this.projectRoot = canonical;
+		this.save();
 	}
 
 	openScratchpad() {
@@ -226,11 +263,17 @@ class ProjectStore {
 				center: 0.5,
 				leftSection: 'files',
 				editorOpen: false,
-				rightSection: 'terminal'
+				rightSection: settingsStore.general.defaultSurface
 			},
-			lastOpened: Date.now()
+			lastOpened: Date.now(),
+			autoDispatch: false,
+			taskDefaults: null
 		};
-		this.projects.unshift(scratchpadProj);
+		if (settingsStore.projectBar.order === 'mru') {
+			this.projects.unshift(scratchpadProj);
+		} else {
+			this.projects.push(scratchpadProj);
+		}
 		this.activeId = id;
 		this.save();
 		return id;
@@ -255,13 +298,63 @@ class ProjectStore {
 	setActive(id: string) {
 		const idx = this.projects.findIndex(p => p.id === id);
 		if (idx === -1) return;
-		const [p] = this.projects.splice(idx, 1);
+		const p = this.projects[idx];
 		p.lastOpened = Date.now();
 		if (p.agentState === 'finished') {
 			p.agentState = 'idle';
 		}
-		this.projects.unshift(p);
+		// L'ordine dell'array e' l'unica verita' fuori da `mru`: qui si tocca
+		// solo lo stato del progetto, mai la sua posizione.
+		if (settingsStore.projectBar.order === 'mru' && idx > 0) {
+			this.projects.splice(idx, 1);
+			this.projects.unshift(p);
+		}
 		this.activeId = id;
+		this.save();
+	}
+
+	/** Riordino manuale (drag&drop): `id` prende il posto di `targetId`. */
+	moveProject(id: string, targetId: string) {
+		if (id === targetId) return;
+		const from = this.projects.findIndex(p => p.id === id);
+		const targetIdx = this.projects.findIndex(p => p.id === targetId);
+		if (from === -1 || targetIdx === -1) return;
+		const [moved] = this.projects.splice(from, 1);
+		const to = this.projects.findIndex(p => p.id === targetId);
+		this.projects.splice(to, 0, moved);
+		this.save();
+	}
+
+	/** Sposta la tessera di una posizione a sinistra (-1) o a destra (+1). */
+	shiftProject(id: string, delta: number) {
+		const from = this.projects.findIndex(p => p.id === id);
+		if (from === -1) return;
+		const to = Math.max(0, Math.min(this.projects.length - 1, from + delta));
+		if (to === from) return;
+		const [moved] = this.projects.splice(from, 1);
+		this.projects.splice(to, 0, moved);
+		this.save();
+	}
+
+	setAutoDispatch(id: string, value: boolean) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p) return;
+		p.autoDispatch = value;
+		this.save();
+	}
+
+	/** `patch` null azzera l'override; altrimenti si fonde col precedente e,
+	 *  se il risultato e' vuoto, si torna a `null` (nessun override e' lo
+	 *  stato canonico, non un oggetto vuoto perpetuo). */
+	setTaskDefaults(id: string, patch: Partial<TaskDefaults> | null) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p) return;
+		if (patch === null) {
+			p.taskDefaults = null;
+		} else {
+			const merged = { ...(p.taskDefaults ?? {}), ...patch };
+			p.taskDefaults = Object.keys(merged).length > 0 ? merged : null;
+		}
 		this.save();
 	}
 

@@ -15,11 +15,14 @@
 	import DiagramViewer from '$lib/components/DiagramViewer.svelte';
 	import PreviewViewer from '$lib/components/PreviewViewer.svelte';
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
-	import ModelSettingsModal from '$lib/components/models/ModelSettingsModal.svelte';
+	import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
+	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
 	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, formatTaskPrompt } from '$lib/stores/tasks.svelte';
@@ -59,6 +62,9 @@
 	});
 	let usageOpen = $state(false);
 	let pickerOpen = $state(false);
+	// Vista aggregata delle code: serve a vedere in un posto solo su quali
+	// progetti c'e' lavoro in attesa, senza aprirli uno a uno.
+	let queueOpen = $state(false);
 	// Primo avvio guidato: `contract_check` decide se e da quale carta partire.
 	let setupOpen = $state(false);
 	let setupStartAt = $state<'install' | 'wizard' | 'project'>('wizard');
@@ -247,10 +253,29 @@
 		previewFile = null;
 	}
 
-	async function handleRunTask(projectId: string, taskId: string) {
+	/**
+	 * Apre nell'editor un task che puo' appartenere a un altro progetto: il
+	 * composer vive nella colonna centrale del progetto attivo, quindi prima
+	 * si cambia stanza e poi si apre il task.
+	 */
+	function openTaskOfProject(projectId: string, taskId: string) {
+		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		queueOpen = false;
+		leftSection = 'agent';
+		openTask(taskId);
+	}
+
+	/**
+	 * `follow` vero porta il fuoco sul progetto lanciato (Ctrl+click, o
+	 * "Avvia e apri"). Falso lascia l'utente dove sta: il task parte in
+	 * background e la tessera racconta lo stato.
+	 */
+	async function handleRunTask(projectId: string, taskId: string, follow = false) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		const task = taskStore.taskById(taskId);
 		if (!project || !task || !canAutomate(projectId)) return;
+		if (follow && projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		queueOpen = false;
 
 		terminalBusy[projectId] = true;
 		agentErrors[projectId] = null;
@@ -321,6 +346,37 @@
 			terminalBusy[projectId] = false;
 		}
 	}
+
+	/**
+	 * Auto-avvio per progetto (spento di default, vedi docs/DECISIONS.md Gate
+	 * R12): quando l'agente di un progetto con l'interruttore acceso torna
+	 * `Pronto` e ha task in coda, il primo parte da solo.
+	 *
+	 * La spedizione esce dall'effetto con `queueMicrotask` e passa da un lock
+	 * per progetto: `handleRunTask` scrive `terminalBusy` e `markDispatching`,
+	 * cioe' proprio lo stato che l'effetto legge, e scriverlo qui dentro
+	 * riaccenderebbe l'effetto che l'ha prodotto (`effect_update_depth_exceeded`).
+	 */
+	const autoDispatching = new Set<string>();
+	$effect(() => {
+		const candidates: Array<{ projectId: string; taskId: string }> = [];
+		for (const project of projectStore.projects) {
+			if (!project.autoDispatch || !project.path) continue;
+			if (autoDispatching.has(project.id)) continue;
+			const next = taskStore.tasksFor(project.path).find((task) => task.status === 'queued');
+			if (!next) continue;
+			if (automationReason(project.id) !== 'Pronto') continue;
+			candidates.push({ projectId: project.id, taskId: next.id });
+		}
+
+		for (const candidate of candidates) {
+			autoDispatching.add(candidate.projectId);
+			queueMicrotask(() => {
+				void handleRunTask(candidate.projectId, candidate.taskId)
+					.finally(() => autoDispatching.delete(candidate.projectId));
+			});
+		}
+	});
 
 	async function handleResumeSession(projectId: string, sessionId: string) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
@@ -785,9 +841,15 @@
 	let ompVersion = $state<string | null>(null);
 	let isCheckingUpdate = $state(false);
 	let updateMessage = $state<string | null>(null);
+	let ompBadgeType = $state<'warn' | 'success' | 'error' | null>(null);
 	let showUpdatePromptModal = $state(false);
 	let showRestartModal = $state(false);
-	let pendingUpdateCheck = $state<{ has_update: boolean; current_version: string; message: string } | null>(null);
+	let pendingUpdateCheck = $state<{
+		has_update: boolean;
+		current_version: string;
+		latest_version: string;
+		message: string;
+	} | null>(null);
 	let isInstallingUpdate = $state(false);
 
 	async function fetchOmpVersion() {
@@ -849,8 +911,30 @@
 		}
 	}
 
+	async function checkOmpUpdateSilently() {
+		try {
+			const res: {
+				has_update: boolean;
+				current_version: string;
+				latest_version: string;
+				message: string;
+			} = await invoke('check_omp_update');
+			if (res.current_version && res.current_version !== 'unknown') {
+				ompVersion = res.current_version;
+			}
+			if (res.has_update) {
+				pendingUpdateCheck = res;
+				updateMessage = 'Nuova versione!';
+				ompBadgeType = 'warn';
+			}
+		} catch {
+			// Verifica di background: errori di rete o rate limit non sono bloccanti
+		}
+	}
+
 	onMount(() => {
 		fetchOmpVersion();
+		void checkOmpUpdateSilently();
 		void checkSetupContract();
 		studioUpdaterStore.init();
 	});
@@ -861,25 +945,49 @@
 
 	async function handleCheckUpdate() {
 		if (isCheckingUpdate || isInstallingUpdate) return;
+		if (pendingUpdateCheck?.has_update) {
+			showUpdatePromptModal = true;
+			return;
+		}
 		isCheckingUpdate = true;
 		updateMessage = 'Verifica...';
+		ompBadgeType = null;
 		try {
-			const res: { has_update: boolean; current_version: string; message: string } = await invoke('check_omp_update');
+			const res: {
+				has_update: boolean;
+				current_version: string;
+				latest_version: string;
+				message: string;
+			} = await invoke('check_omp_update');
 			if (res.current_version && res.current_version !== 'unknown') {
 				ompVersion = res.current_version;
 			}
 			if (res.has_update) {
 				pendingUpdateCheck = res;
 				updateMessage = 'Nuova versione!';
+				ompBadgeType = 'warn';
 				showUpdatePromptModal = true;
 			} else {
+				pendingUpdateCheck = null;
 				updateMessage = 'OMP aggiornato ✓';
-				setTimeout(() => { updateMessage = null; }, 3000);
+				ompBadgeType = 'success';
+				setTimeout(() => {
+					if (!pendingUpdateCheck?.has_update) {
+						updateMessage = null;
+						ompBadgeType = null;
+					}
+				}, 3000);
 			}
 		} catch (e) {
 			console.error("Update check failed", e);
 			updateMessage = 'Errore verifica';
-			setTimeout(() => { updateMessage = null; }, 3000);
+			ompBadgeType = 'error';
+			setTimeout(() => {
+				if (!pendingUpdateCheck?.has_update) {
+					updateMessage = null;
+					ompBadgeType = null;
+				}
+			}, 3000);
 		} finally {
 			isCheckingUpdate = false;
 		}
@@ -889,15 +997,24 @@
 		showUpdatePromptModal = false;
 		isInstallingUpdate = true;
 		updateMessage = 'Installazione...';
+		ompBadgeType = null;
 		try {
 			await invoke('run_omp_update');
 			await fetchOmpVersion();
+			pendingUpdateCheck = null;
 			updateMessage = 'Aggiornato!';
+			ompBadgeType = 'success';
 			showRestartModal = true;
 		} catch (e) {
 			console.error("Update failed", e);
 			updateMessage = 'Errore aggiornamento';
-			setTimeout(() => { updateMessage = null; }, 4000);
+			ompBadgeType = 'error';
+			setTimeout(() => {
+				if (!pendingUpdateCheck?.has_update) {
+					updateMessage = null;
+					ompBadgeType = null;
+				}
+			}, 4000);
 		} finally {
 			isInstallingUpdate = false;
 		}
@@ -1018,9 +1135,15 @@
 		} else if (e.key.toLowerCase() === 'u') {
 			e.preventDefault();
 			usageOpen = !usageOpen;
-		} else if (e.key.toLowerCase() === 'm' || e.key === ',') {
+		} else if (e.key.toLowerCase() === 'm') {
 			e.preventDefault();
 			modelSettingsStore.openModal();
+		} else if (e.key === ',') {
+			e.preventDefault();
+			settingsStore.openSection();
+		} else if (e.key.toLowerCase() === 't') {
+			e.preventDefault();
+			queueOpen = !queueOpen;
 		} else if (e.key.toLowerCase() === 'a') {
 			e.preventDefault();
 			if (projectStore.activeProject) {
@@ -1029,12 +1152,17 @@
 			}
 		} else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
 			e.preventDefault();
-			const projects = projectStore.projects;
+			// La navigazione segue l'ordine mostrato, non quello dell'array:
+			// con ordinamento per priorita' o alfabetico i due divergono.
+			const projects = projectOrder.list;
 			const idx = projects.findIndex(p => p.id === projectStore.activeId);
-			if (idx !== -1 && projects.length > 1) {
-				const nextIdx = e.key === 'ArrowRight' ? (idx + 1) % projects.length : (idx - 1 + projects.length) % projects.length;
-				projectStore.setActive(projects[nextIdx].id);
+			if (idx === -1 || projects.length < 2) return;
+			if (e.shiftKey) {
+				projectStore.shiftProject(projects[idx].id, e.key === 'ArrowRight' ? 1 : -1);
+				return;
 			}
+			const nextIdx = e.key === 'ArrowRight' ? (idx + 1) % projects.length : (idx - 1 + projects.length) % projects.length;
+			projectStore.setActive(projects[nextIdx].id);
 		}
 	}
 </script>
@@ -1045,14 +1173,27 @@
 	<TopBar
 		onUsageClick={() => usageOpen = !usageOpen}
 		onNewProject={() => pickerOpen = true}
-		onModelsClick={() => modelSettingsStore.openModal()}
+		onSettingsClick={(section) => settingsStore.openSection(section)}
 		onSetupClick={openSetup}
+		onQueueClick={() => queueOpen = !queueOpen}
 		{setupIncomplete}
+		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, follow)}
+		onEditTask={openTaskOfProject}
+		canRunTask={canAutomate}
+		runReason={automationReason}
 	/>
 	<SetupWizard open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
 	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
-	<ModelSettingsModal />
+	<SettingsModal />
+	<QueueDrawer
+		open={queueOpen}
+		onClose={() => queueOpen = false}
+		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, follow)}
+		onEditTask={openTaskOfProject}
+		canRunTask={canAutomate}
+		runReason={automationReason}
+	/>
 
 	<main class="columns" class:dragging bind:this={columnsEl} style:grid-template-columns={gridTemplate}>
 		<aside class="col-left">
@@ -1247,7 +1388,14 @@
 			>
 				{ompVersion ? `OMP v${ompVersion}` : 'OMP'}
 				{#if updateMessage}
-					<span class="update-chip">{updateMessage}</span>
+					<span
+						class="update-chip"
+						class:warn={ompBadgeType === 'warn'}
+						class:success={ompBadgeType === 'success'}
+						class:error={ompBadgeType === 'error'}
+					>
+						{updateMessage}
+					</span>
 				{/if}
 			</button>
 			<div class="status-indicator" title="Stato agente: {projectStore.activeProject?.agentState || 'idle'}">
@@ -1268,6 +1416,9 @@
 			<div class="modal-body">
 				<p>È disponibile una nuova versione di OMP CLI.</p>
 				<p class="modal-sub">Versione attualmente installata: <strong>v{ompVersion || 'sconosciuta'}</strong></p>
+				{#if pendingUpdateCheck?.latest_version}
+					<p class="modal-sub">Nuova versione disponibile: <strong>v{pendingUpdateCheck.latest_version}</strong></p>
+				{/if}
 				{#if pendingUpdateCheck?.message}
 					<pre class="update-log">{pendingUpdateCheck.message}</pre>
 				{/if}

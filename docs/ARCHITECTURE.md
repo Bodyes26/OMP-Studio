@@ -110,12 +110,16 @@ app.css                 token di DESIGN.md, reset, @font-face
 lib/
   ipc.ts                wrapper tipizzati su invoke/Channel, un solo punto di contatto con Tauri
   stores/
-    projects.svelte.ts  $state: progetti aperti, attivo, stato per progetto
+    projects.svelte.ts  $state: progetti aperti, attivo, stato per progetto, ordine manuale
     tasks.svelte.ts     $state: code per path, ordine, viste e origine sessioni
+    settings.svelte.ts  $state: personalizzazioni del guscio, unica chiave `studioSettings`
+    projectOrder.svelte.ts  vista ordinata delle tessere (rompe il ciclo projects<->tasks)
   components/
     AgentPanel.svelte   coda task e navigazione dello storico
     TaskEditor.svelte   composer persistente del prompt
     SessionList.svelte  storico da history.db + badge locali
+    QueueDrawer.svelte  vista aggregata delle code di tutti i progetti, con avvio diretto
+    settings/           centro impostazioni: SettingsModal + una sezione per ambito
   terminal/
     Terminal.svelte     un'istanza xterm per progetto, mai smontata al cambio
     terminal.ts         addon, tema, fit, input pending, /new e /resume

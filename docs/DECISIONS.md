@@ -108,3 +108,127 @@ interrompe: non è una superficie, è una demo.
 - **Esecuzione diretta e allineata alla TUI.** L'overlay GUI imposta `tools.approvalMode: yolo`
   permettendone l'esecuzione automatica senza prompt bloccanti o richieste di permessi,
   allineando il comportamento della GUI a quello della TUI.
+
+---
+
+## Gate R11: il primo avvio ospita il wizard di `omp`, non lo riscrive
+
+**Data:** 2026-08-25
+**Esito:** SUPERATO, con perimetro di scrittura chiuso
+**Decisione:** l'onboarding di `omp` resta di `omp`. Studio lo esegue dentro un modal
+con una scheda di terminale (`omp setup --no-session`), rileva la fine leggendo lo stato
+reale, e chiede per conto proprio solo la cartella dei progetti.
+
+**Perché ospitare e non reimplementare.** Il wizard nativo è versionato: `setupVersion`
+contro `CURRENT_SETUP_VERSION`, e ogni scena dichiara il suo `minVersion`.
+`composer-shape` è arrivata con `minVersion: 2`, cioè l'insieme delle domande è già
+cambiato una volta. Una GUI custom si disallineerebbe alla prossima, e nessuno se ne
+accorgerebbe finché un utente non resta senza una configurazione che `omp` dà per fatta.
+Ospitare la TUI è anche coerente con il principio 1 di `PRODUCT.md`: il terminale è il
+contenuto, l'app è la cornice.
+
+**Il segnale di fine non è la fine.** Verificato nel bundle di `omp/18.0.4`:
+`markSetupWizardComplete()` è chiamata **dopo** `await run()` dentro il `try` di
+`runSetupWizard`, quindi `setupVersion: 2` viene scritto anche da chi esce con Esc da
+tutte e cinque le scene. Chiudere il modal su quel segnale consegnerebbe una GUI rotta
+in silenzio — il fallimento che questa fase esiste per eliminare. La condizione di
+chiusura è quindi semantica: `setupVersion >= 2` **e** almeno una credenziale attiva
+**e** `modelRoles.default` valorizzato. Altrimenti il modal resta e dichiara cosa manca,
+con `/setup` (alias `/providers`, riapre la sola scena provider senza rimarcare il setup)
+come azione di rimedio.
+
+**Perimetro di scrittura, chiuso ed elencato.** Il flusso scrive esattamente questo, e
+`config.yml` **non** è nella lista: lo scrive `omp` stesso attraverso il suo wizard.
+
+| Percorso | Quando | Modo |
+|---|---|---|
+| `%LOCALAPPDATA%\omp\omp.exe` | solo se `omp` è assente | file nuovo, fuori da `~/.omp` |
+| `HKCU\Environment` → `Path` | solo se la cartella non c'è già | append, mai riscrittura |
+| `~/.omp/agent/settings.json` → `shellPath` | solo se la chiave è assente | merge, mai sovrascrittura |
+| `%LOCALAPPDATA%\Microsoft\Windows\Fonts` + `HKCU\...\Fonts` | installazione font per-utente | file nuovo + un valore |
+| `%APPDATA%\omp-studio\settings.json` → `projectRoot` | carta finale | store di Studio, non di `omp` |
+
+`shellPath` è la sola aggiunta dentro `~/.omp` oltre a R9, e replica ciò che fa
+`Configure-BashShell` nell'installer ufficiale (`scripts/install.ps1`): senza quella
+chiave il tool `bash` di `omp` ricade sulla shell interna. Scritta in merge e solo se
+assente, non può distruggere una configurazione esistente.
+
+**Perché l'installazione di `omp` sta nell'app e non in un hook NSIS.** L'installer è
+`installMode: currentUser`, quindi un hook sarebbe tecnicamente possibile. Ma il binario
+è ~143 MB: dentro NSIS non c'è progresso né retry, e la via pratica (`powershell -Command
+"irm https://omp.sh/install.ps1 | iex"`) può fallire per proxy, ExecutionPolicy, TLS o
+antivirus **lasciando l'installer riuscito** e l'utente con Studio aperto e `omp`
+assente. La carta in-app servirebbe comunque da fallback: se serve comunque, l'hook è
+macchinario duplicato con la UX peggiore. In-app c'è già tutto (`reqwest` con `stream`,
+il pattern di `studio_updater.rs`) e copre anche Nightly e installazioni non-NSIS.
+
+**Perché il font si installa lo stesso, pur non servendo a Studio.** Dentro Studio i
+glifi Nerd già rendono: `static/fonts/StudioMonoNF-Regular.woff2` è primo nello stack del
+canvas xterm (`terminal.ts:17-23`) proprio per non dipendere dai font di sistema.
+L'installazione serve a `omp` lanciato **fuori** da Studio, dove la scena `glyph-mode`
+scrive `symbolPreset` e un terminale senza Nerd Font disegna tofu. È una scelta
+deliberata a favore della coerenza fra le due superfici, non un requisito di Studio.
+Il font è ricavabile senza aggiungere asset: il `.woff2` bundlato è **FiraCode Nerd Font
+Mono Regular** completo (12.415 glifi, 11.969 in cmap, 10.396 nell'area Private Use, 328
+latini), contorni TrueType, non sottoinsiemato; togliere il flavor `woff2` produce un TTF
+valido di 2,63 MB senza perdita. Verificato con fontTools il 2026-08-25.
+
+**Il tema non si forza.** La scena `theme` del wizard scrive `theme.dark`; il guscio si
+adegua a quella scelta (`titanium` → scuro, `light` → chiaro, `colorblind` →
+`colorBlindMode`) invece di imporre `omp-studio` sopra una decisione presa venti secondi
+prima. Guscio e TUI restano allineati come chiede `PRODUCT.md`, senza una seconda domanda.
+
+**Il prerequisito mancante.** `contract_check`, specificato in `ARCHITECTURE.md` §4.1 e
+`PLAN.md` Fase 6 e mai implementato (annotato in `IDEAS.md`), è ciò che decide quale carta
+mostrare. Va scritto prima del modal: oggi al suo posto ci sono un `console.error` e il
+messaggio rosso di PowerShell dentro il PTY.
+
+---
+
+## Gate R12: la barra dei progetti diventa configurabile, e la coda può avviarsi da sola
+
+**Data:** 2026-08-26
+**Esito:** SUPERATO, con perimetro
+**Decisione:** l'ordine delle tessere è manuale per default e non cambia più da sé; la
+tessera mostra quanti task attendono; i task si avviano dalla barra o da una vista
+aggregata senza cambiare progetto; l'auto-avvio del prossimo task esiste, ma solo come
+interruttore per singolo progetto, spento di default. Tutte le personalizzazioni vivono
+in un centro impostazioni unico (`Ctrl+Alt+,`), di cui i modelli diventano una sezione.
+
+**Il problema misurato.** Con `setActive` che faceva `unshift` sull'array e lo persisteva,
+ogni click riscriveva l'ordine della barra: nessuna tessera aveva una posizione stabile,
+e la memoria spaziale — il motivo per cui una barra esiste — non si formava. In più lo
+stato della coda era invisibile dall'alto: per sapere se un progetto aveva task in attesa
+bisognava aprirlo, spostandolo in testa, e guardare il pannello di sinistra. Su cinque
+progetti aperti sono cinque cambi di stanza per rispondere a "dove c'è lavoro da lanciare".
+
+**Cosa rovescia.** Due frasi di `PRODUCT.md`, riscritte e non aggirate:
+
+1. «Tre stati e non uno di più» (§Principi/3). Il contatore della coda è un quarto
+   segnale sulla tessera. La distinzione che regge il rovesciamento: i tre stati
+   descrivono l'**agente**, il contatore descrive il **lavoro in attesa**, che non è uno
+   stato dell'agente e non ne aggiunge uno. Resta spegnibile (`queueBadge: 'off'`).
+2. «coda **manuale** di prompt … si avvia quando `omp` torna in attesa» (§Problema 3).
+   L'auto-avvio contraddice l'aggettivo. Perimetro che lo rende accettabile: spento di
+   default, per progetto e mai globale, mai retroattivo su progetti esistenti, e sempre
+   subordinato alla stessa condizione di prontezza dell'avvio manuale
+   (`automationReason() === 'Pronto'`): non forza un agente occupato, non accoda niente
+   di nascosto, non riordina la coda.
+
+**Perché l'ordinamento non-manuale non muta l'array.** `priority` e `alpha` sono viste
+derivate (`projectOrder.list`), non riscritture di `projectStore.projects`. Così tornare
+a `Manuale` restituisce esattamente l'ordine che l'utente aveva costruito trascinando le
+tessere, invece di un ordine alfabetico congelato. La migrazione di chi aggiorna congela
+l'ordine MRU corrente: nessuno si ritrova le tessere rimescolate al primo avvio.
+
+**Perché l'auto-avvio esce dall'effetto.** `handleRunTask` scrive `terminalBusy` e
+`markDispatching`, cioè lo stato che l'effetto di auto-avvio legge per decidere. Scrivere
+dentro l'effetto che ha appena letto quello stato è il difetto che in questo stesso file
+aveva già prodotto `effect_update_depth_exceeded` (commento in `routes/+page.svelte`): la
+spedizione passa da `queueMicrotask` e da un lock per progetto.
+
+**Perimetro di scrittura.** Una sola chiave nuova, `studioSettings` in
+`%APPDATA%\omp-studio\settings.json`, più due campi per progetto (`autoDispatch`,
+`taskDefaults`) nell'array `projects` già persistito. Niente dentro `~/.omp`. Ogni campo
+viene riletto con validazione campo per campo (`parseSettings`): un file troncato o
+scritto a mano riporta i default, non una GUI rotta.

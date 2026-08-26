@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { TerminalSession, type TerminalAgentState, type TerminalSessionInfo } from './terminal';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 	import '@xterm/xterm/css/xterm.css';
 
 	let {
 		cwd = '.',
 		visible = true,
 		resumeSessionId = null,
+		launchArgs = null,
 		onStateChange,
 		onOpenFile,
 		onInputPendingChange,
@@ -17,6 +19,8 @@
 		visible?: boolean;
 		/** Sessione da riprendere all'avvio: la porta il passaggio da GUI. */
 		resumeSessionId?: string | null;
+		/** Argomenti espliciti per `omp` (il modal di setup lancia `omp setup`). */
+		launchArgs?: string[] | null;
 		onStateChange?: (state: TerminalAgentState) => void;
 		onOpenFile?: (relPath: string, line: number | null) => void;
 		onInputPendingChange?: (pending: boolean) => void;
@@ -37,7 +41,8 @@
 			(relPath, line) => onOpenFile?.(relPath, line),
 			(pending) => onInputPendingChange?.(pending),
 			(info) => onSessionChange?.(info),
-			resumeSessionId
+			resumeSessionId,
+			launchArgs
 		);
 		sessionRef?.(session);
 
@@ -69,6 +74,18 @@
 		const current = session;
 		const timer = window.setTimeout(() => current.fit(), 10);
 		return () => window.clearTimeout(timer);
+	});
+
+	// Le preferenze del terminale si applicano a caldo: leggere i singoli
+	// campi (non l'oggetto) evita di rieseguire l'effetto per scritture che
+	// non riguardano il terminale (es. editor). Mai ricreare la sessione per
+	// un cambio di impostazione.
+	$effect(() => {
+		void settingsStore.terminal.fontSize;
+		void settingsStore.terminal.fontFamily;
+		void settingsStore.terminal.scrollback;
+		void settingsStore.terminal.cursorBlink;
+		session?.applySettings();
 	});
 </script>
 

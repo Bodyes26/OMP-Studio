@@ -5,6 +5,7 @@ import CssWorker from 'monaco-editor/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/language/html/html.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 import { canvasColors, onThemeChange } from '$lib/theme';
+import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
 
 export function initMonaco() {
 	self.MonacoEnvironment = {
@@ -56,6 +57,21 @@ let editorInstance: monaco.editor.IStandaloneCodeEditor | null = null;
 // Stack letterale: Monaco misura i caratteri anche via canvas, dove
 // `var(--font-mono)` non viene risolto.
 const MONO_FONT = '"JetBrainsMono Nerd Font", "JetBrains Mono NF", "JetBrainsMonoNerdFont", "CaskaydiaCove Nerd Font", "CaskaydiaMono Nerd Font", "CaskaydiaCove NF", "Cascadia Code NF", "CascadiaMono NF", "Symbols Nerd Font Mono", "Symbols Nerd Font", "FiraCode Nerd Font", "MesloLGS NF", "Hack Nerd Font", "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, monospace';
+
+/** Opzioni condivise dalle tre creazioni di Monaco: unica fonte le
+ *  preferenze in settingsStore, cosi' i tre editor non possono divergere. */
+function editorSettingsOptions(): monaco.editor.IEditorOptions & monaco.editor.IGlobalEditorOptions {
+	const settings = settingsStore.editor;
+	return {
+		fontFamily: withFontFamily(settings.fontFamily, MONO_FONT),
+		fontSize: settings.fontSize,
+		minimap: { enabled: settings.minimap },
+		wordWrap: settings.wordWrap ? 'on' : 'off',
+		tabSize: settings.tabSize,
+		lineNumbers: settings.lineNumbers ? 'on' : 'off'
+	};
+}
+
 const models = new Map<string, monaco.editor.ITextModel>();
 /** Ultimo file richiesto: serve ad agganciare il modello se l'editor viene
  *  creato dopo `openFileModel` (host DOM non ancora montato). */
@@ -90,18 +106,15 @@ export function getEditorInstance(container: HTMLElement) {
 	if (!editorInstance) {
 		initMonaco();
 		editorInstance = monaco.editor.create(container, {
+			...editorSettingsOptions(),
 			theme: 'omp-studio',
-			fontFamily: MONO_FONT,
-			fontSize: 14,
 			lineHeight: 1.2,
 			automaticLayout: true,
-			minimap: { enabled: false },
 			scrollbar: {
 				verticalScrollbarSize: 10,
 				horizontalScrollbarSize: 10
 			},
 			padding: { top: 12, bottom: 12 },
-			wordWrap: 'off',
 			cursorSmoothCaretAnimation: 'on',
 			cursorBlinking: 'smooth',
 			smoothScrolling: true,
@@ -118,18 +131,15 @@ export function getEditorInstance(container: HTMLElement) {
 		editorInstance.dispose();
 		editorInstance = monaco.editor.create(container, {
 			model: currentModel,
+			...editorSettingsOptions(),
 			theme: 'omp-studio',
-			fontFamily: MONO_FONT,
-			fontSize: 14,
 			lineHeight: 1.2,
 			automaticLayout: true,
-			minimap: { enabled: false },
 			scrollbar: {
 				verticalScrollbarSize: 10,
 				horizontalScrollbarSize: 10
 			},
 			padding: { top: 12, bottom: 12 },
-			wordWrap: 'off',
 			cursorSmoothCaretAnimation: 'on',
 			cursorBlinking: 'smooth',
 			smoothScrolling: true,
@@ -229,16 +239,15 @@ export function getActiveEditorInfo(): {
 	};
 }
 export function createDiffEditorInstance(container: HTMLElement, originalContent: string, modifiedContent: string, language: string) {
+	const sharedOptions = editorSettingsOptions();
 	const diffEditor = monaco.editor.createDiffEditor(container, {
+		...sharedOptions,
 		theme: 'omp-studio',
-		fontFamily: MONO_FONT,
-		fontSize: 14,
 		lineHeight: 1.2,
 		automaticLayout: true,
 		readOnly: false,
 		originalEditable: false,
 		renderSideBySide: true,
-		wordWrap: 'off',
 		smoothScrolling: true
 	});
 
@@ -250,7 +259,25 @@ export function createDiffEditorInstance(container: HTMLElement, originalContent
 		modified: modifiedModel
 	});
 
+	// `tabSize` e' un'opzione di modello (IGlobalEditorOptions), fuori dalle
+	// opzioni di costruzione del diff editor: va applicata sui due editor
+	// interni, non su `diffEditor` stesso.
+	diffEditor.getOriginalEditor().updateOptions(sharedOptions);
+	diffEditor.getModifiedEditor().updateOptions(sharedOptions);
+
 	return diffEditor;
+}
+
+/** Riapplica a caldo le preferenze correnti alle istanze vive, senza
+ *  ricrearle: cambiare un'impostazione non deve mai riavviare l'editor.
+ *  `diffEditor`, se passato, e' l'istanza diff attualmente montata. */
+export function applyEditorSettings(diffEditor?: monaco.editor.IStandaloneDiffEditor | null) {
+	const sharedOptions = editorSettingsOptions();
+	editorInstance?.updateOptions(sharedOptions);
+	if (!diffEditor) return;
+	diffEditor.updateOptions(sharedOptions);
+	diffEditor.getOriginalEditor().updateOptions(sharedOptions);
+	diffEditor.getModifiedEditor().updateOptions(sharedOptions);
 }
 
 export function updateGutterDecorations(

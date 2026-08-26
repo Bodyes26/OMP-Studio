@@ -9,6 +9,7 @@ import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { invoke, Channel } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { canvasColors, onThemeChange } from '$lib/theme';
+import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
 const TITLE_STATE_REGEX = /^\u03c0 ([>:!])(?: |$)/;
 
 // Deve essere uno stack di font letterale: xterm/Monaco lo usano anche per
@@ -22,6 +23,12 @@ const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform
 const MONO_FONT = IS_MAC
 	? `${BUNDLED_NF}, "BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font Mono", "FiraCode Nerd Font", "Hack Nerd Font Mono", "Hack Nerd Font", "MesloLGS NF", "Symbols Nerd Font Mono", "Symbols Nerd Font", Menlo, monospace`
 	: `"BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "Symbols Nerd Font Mono", "Symbols Nerd Font", "Cascadia Mono", Consolas, ${BUNDLED_NF}, monospace`;
+
+/** Font family effettiva: la preferenza dell'utente in testa, lo stack del
+ *  guscio come fallback (glifi Nerd Font per icone e powerline della TUI). */
+function terminalFontFamily(): string {
+	return withFontFamily(settingsStore.terminal.fontFamily, MONO_FONT);
+}
 
 export type TerminalAgentState = 'idle' | 'working' | 'attention' | 'unknown';
 
@@ -48,6 +55,13 @@ export class TerminalSession {
 	/** Sessione da riprendere al primo avvio, consumata una volta sola: un
 	 *  riavvio successivo deve ripartire da quella corrente, non da questa. */
 	private pendingResume: string | null;
+	/** Argomenti espliciti per `omp`, quando la scheda non e' una sessione di
+	 *  progetto: il modal di primo avvio lancia `omp setup`. Sostituiscono del
+	 *  tutto la derivazione da `cwd`/`--resume`. */
+	private launchArgs: string[] | null;
+	/** Contesto WebAudio per il campanello, creato al primo bell e riusato:
+	 *  aprirne uno per ogni bell sarebbe inutile e piu' lento. */
+	private audioCtx: AudioContext | null = null;
 
 	public onStateChange: (state: TerminalAgentState) => void = () => {};
 	public onOpenFile: (relPath: string, line: number | null) => void = () => {};
@@ -61,9 +75,11 @@ export class TerminalSession {
 		onOpenFile: (relPath: string, line: number | null) => void,
 		onInputPendingChange: (pending: boolean) => void,
 		onSessionChange: (session: TerminalSessionInfo | null) => void,
-		resumeSessionId: string | null = null
+		resumeSessionId: string | null = null,
+		launchArgs: string[] | null = null
 	) {
 		this.pendingResume = resumeSessionId;
+		this.launchArgs = launchArgs;
 		this.container = container;
 		this.cwd = cwd;
 		this.onStateChange = onStateChange;
@@ -73,15 +89,15 @@ export class TerminalSession {
 
 		this.term = new Terminal({
 			allowProposedApi: true,
-			fontFamily: MONO_FONT,
-			fontSize: 14,
+			fontFamily: terminalFontFamily(),
+			fontSize: settingsStore.terminal.fontSize,
 			lineHeight: 1.2,
-			cursorBlink: true,
+			cursorBlink: settingsStore.terminal.cursorBlink,
 			// Su macOS Option compone caratteri (Option+P = pi greco): cosi'
 			// le scorciatoie Alt di omp (es. selettore modelli) non arrivano.
 			// Option diventa Meta (prefisso ESC), come in iTerm2/VS Code.
 			macOptionIsMeta: true,
-			scrollback: 10000,
+			scrollback: settingsStore.terminal.scrollback,
 			/* Solo background e foreground: i 16 colori ANSI appartengono al
 			   tema di omp, il guscio non li tocca (docs/DESIGN.md §2.8). */
 			theme: {
@@ -138,7 +154,7 @@ export class TerminalSession {
 		// prima che siano pronti, quindi va rimisurata quando lo sono.
 		document.fonts.ready.then(() => {
 			if (this.disposed) return;
-			this.term.options.fontFamily = MONO_FONT;
+			this.term.options.fontFamily = terminalFontFamily();
 			this.fit();
 		});
 
@@ -165,6 +181,8 @@ export class TerminalSession {
 			this.onStateChange(state);
 			if (state === 'idle') void this.refreshSessionInfo();
 		});
+
+		this.term.onBell(() => this.playBell());
 
 		this.resizeObserver = new ResizeObserver(() => {
 			clearTimeout(this.resizeTimeout ?? undefined);
@@ -265,6 +283,16 @@ export class TerminalSession {
 		if (this.pendingInputLength > 0) throw new Error('Completa o cancella il testo presente nel terminale');
 	}
 
+	/** Invia un comando slash nella scheda corrente, senza ricreare il PTY.
+	 *  Il primo avvio guidato lo usa per riaprire `/setup`. Non passa dai
+	 *  gate di `assertAutomationReady`: la sessione di setup non pubblica uno
+	 *  stato agente e non e' una coda di task. */
+	public async sendCommand(command: string) {
+		if (!/^\/[a-z][a-z0-9:_-]*$/i.test(command)) throw new Error('Comando non valido');
+		await this.writePty(`${command}\r`);
+		this.setInputPending(0);
+	}
+
 	public async startTask(prompt: string) {
 		if (!prompt.trim()) throw new Error('Il task non contiene un prompt');
 		if (prompt.includes('\x1b[201~')) throw new Error('Il prompt contiene una sequenza di controllo non supportata');
@@ -321,15 +349,19 @@ export class TerminalSession {
 		};
 
 		const isScratchpad = cwd === '';
-		const args = isScratchpad ? ['--no-session'] : [];
 		const launchCwd = isScratchpad ? '.' : cwd;
+		const args = this.launchArgs
+			? [...this.launchArgs]
+			: isScratchpad
+				? ['--no-session']
+				: [];
 
 		// Il passaggio da GUI a TERMINAL deve continuare la stessa sessione:
 		// senza questo `--resume` la scheda si apriva su una chat vuota e il
 		// lavoro appena fatto in GUI sembrava perduto.
 		const resume = this.pendingResume;
 		this.pendingResume = null;
-		if (!isScratchpad && resume && /^[A-Za-z0-9._-]+$/.test(resume)) {
+		if (!this.launchArgs && !isScratchpad && resume && /^[A-Za-z0-9._-]+$/.test(resume)) {
 			args.push('--resume', resume);
 		}
 
@@ -371,6 +403,39 @@ export class TerminalSession {
 			console.error("Fit error", e);
 		}
 	}
+
+	/** Riapplica a caldo le preferenze correnti, senza mai ricreare il
+	 *  terminale: nessuna azione di UI puo' riavviare il PTY. */
+	public applySettings() {
+		if (this.disposed) return;
+		this.term.options.fontFamily = terminalFontFamily();
+		this.term.options.fontSize = settingsStore.terminal.fontSize;
+		this.term.options.scrollback = settingsStore.terminal.scrollback;
+		this.term.options.cursorBlink = settingsStore.terminal.cursorBlink;
+		this.fit();
+	}
+
+	/** Il campanello ANSI (`\x07`): questa versione di xterm non espone
+	 *  un'opzione di stile, solo l'evento `onBell` a cui agganciare il
+	 *  suono. Un breve beep via WebAudio, solo se l'utente lo ha attivato. */
+	private playBell() {
+		if (this.disposed || !settingsStore.terminal.bell) return;
+		try {
+			if (!this.audioCtx) this.audioCtx = new AudioContext();
+			const ctx = this.audioCtx;
+			const oscillator = ctx.createOscillator();
+			const gain = ctx.createGain();
+			oscillator.type = 'sine';
+			oscillator.frequency.value = 880;
+			gain.gain.value = 0.05;
+			oscillator.connect(gain).connect(ctx.destination);
+			oscillator.start();
+			oscillator.stop(ctx.currentTime + 0.08);
+		} catch (error) {
+			console.warn('Campanello terminale:', error);
+		}
+	}
+
 	public async restart() {
 		if (this.disposed) return;
 		if (this.ptyId !== null) {
@@ -413,6 +478,10 @@ export class TerminalSession {
 		this.resizeObserver.disconnect();
 		this.unsubscribeTheme();
 		clearTimeout(this.resizeTimeout ?? undefined);
+		if (this.audioCtx) {
+			void this.audioCtx.close().catch(() => {});
+			this.audioCtx = null;
+		}
 		// Alcuni addon di xterm possono lanciare durante la disposizione se
 		// WebView2 ha gia' rimosso i relativi listener. Il processo e' comunque
 		// chiuso: la pulizia della vista non deve bloccare un handoff.

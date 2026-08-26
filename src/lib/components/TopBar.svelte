@@ -1,21 +1,40 @@
 <script lang="ts">
 	import { projectStore, PRESET_HUES, type Project } from '$lib/stores/projects.svelte';
+	import { projectOrder } from '$lib/stores/projectOrder.svelte';
+	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
+	import { settingsStore, type ProjectBarOrder, type SettingsSection } from '$lib/stores/settings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import { automaticProjectHue, THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
 
-	let { onUsageClick, onNewProject, onModelsClick, onSetupClick, setupIncomplete = false } = $props<{
+	let {
+		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
+		setupIncomplete = false,
+		onRunTask, onEditTask, canRunTask, runReason
+	} = $props<{
 		onUsageClick?: () => void;
 		onNewProject?: () => void;
-		onModelsClick?: () => void;
+		onSettingsClick?: (section?: SettingsSection) => void;
 		onSetupClick?: () => void;
+		onQueueClick?: () => void;
 		/** Vero quando manca qualcosa perche' la GUI funzioni: il chip di
 		 *  setup compare solo allora, e sparisce quando non ha piu' niente da
 		 *  dire. */
 		setupIncomplete?: boolean;
+		onRunTask?: (projectId: string, taskId: string, follow: boolean) => void;
+		onEditTask?: (projectId: string, taskId: string) => void;
+		canRunTask?: (projectId: string) => boolean;
+		runReason?: (projectId: string) => string;
 	}>();
+
+	const PROJECT_BAR_ORDER_OPTIONS: { value: ProjectBarOrder; label: string }[] = [
+		{ value: 'fixed', label: 'Manuale' },
+		{ value: 'mru', label: 'Ultimo aperto' },
+		{ value: 'priority', label: 'Priorità task' },
+		{ value: 'alpha', label: 'Alfabetico' }
+	];
 
 	const appWindow = getCurrentWindow();
 
@@ -29,6 +48,10 @@
 	let editingProjectId = $state<string | null>(null);
 	let projectNameDraft = $state('');
 	let projectLabelDraft = $state('');
+	let orderMenuOpen = $state(false);
+	let draggedProjectId = $state<string | null>(null);
+	let dragOverProjectId = $state<string | null>(null);
+	let closeConfirmId = $state<string | null>(null);
 
 	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 
@@ -38,6 +61,12 @@
 			.filter((name) => name.includes(themeFilter.trim().toLowerCase()))
 			.map((name) => ({ name, ...swatchesFor(THEMES[name]) }))
 	);
+
+	// La conferma di chiusura appartiene alla tessera sotto il mouse: cambiando
+	// tessera va richiusa, altrimenti resterebbe visibile su quella sbagliata.
+	$effect(() => {
+		if (closeConfirmId && closeConfirmId !== hoveredTabId) closeConfirmId = null;
+	});
 
 	function pickTheme(name: string) {
 		themeStore.select(name);
@@ -55,7 +84,15 @@
 	}
 
 	function projectLabel(project: Project): string {
-		return project.label ?? getInitials(project.name);
+		if (project.label !== null) return project.label;
+		return settingsStore.projectBar.label === 'name' ? truncateName(project.name) : getInitials(project.name);
+	}
+
+	// Etichetta come nome: troncata in fondo, non al centro come il path,
+	// perche' qui e' l'inizio del nome la parte che identifica il progetto.
+	function truncateName(name: string, max = 12): string {
+		if (name.length <= max) return name;
+		return name.slice(0, max - 1) + '…';
 	}
 
 	function startProjectEdit(project: Project) {
@@ -172,6 +209,91 @@
 		void revealItemInDir(path);
 	}
 
+	// Riordino manuale della barra: ha senso solo con order === 'fixed', gli
+	// altri modi sono viste calcolate che non hanno un ordine da spostare.
+	function handleProjectDragStart(id: string) {
+		if (settingsStore.projectBar.order !== 'fixed') return;
+		draggedProjectId = id;
+	}
+
+	function handleProjectDragOver(event: DragEvent, id: string) {
+		if (settingsStore.projectBar.order !== 'fixed' || !draggedProjectId) return;
+		event.preventDefault();
+		dragOverProjectId = id;
+	}
+
+	function handleProjectDragLeave(id: string) {
+		if (dragOverProjectId === id) dragOverProjectId = null;
+	}
+
+	function handleProjectDrop(id: string) {
+		if (draggedProjectId && draggedProjectId !== id) projectStore.moveProject(draggedProjectId, id);
+		draggedProjectId = null;
+		dragOverProjectId = null;
+	}
+
+	function handleProjectDragEnd() {
+		draggedProjectId = null;
+		dragOverProjectId = null;
+	}
+
+	function selectProjectOrder(order: ProjectBarOrder) {
+		settingsStore.patchProjectBar({ order });
+		orderMenuOpen = false;
+	}
+
+	// Prima riga non vuota del prompt: la stessa euristica del pannello
+	// agente, cosi' il peek mostra lo stesso titolo che l'utente vedrebbe
+	// aprendo la coda per intero.
+	function queueTaskLabel(task: StudioTask): string {
+		const line = task.prompt.split(/\r?\n/).find((entry) => entry.trim())?.trim();
+		if (line) return line;
+		if (task.images && task.images.length > 0) return '(solo immagini)';
+		return 'Nuovo task';
+	}
+
+	function queueBadgeTitle(project: Project, queued: number, ready: boolean): string {
+		const base = `${queued} task in coda`;
+		if (settingsStore.projectBar.queueBadge !== 'count-state') return base;
+		return ready ? `${base} · pronti a partire` : `${base} · ${runReason?.(project.id) ?? 'non lanciabili ora'}`;
+	}
+
+	// La sorte della coda alla chiusura segue le impostazioni generali: tenerla,
+	// buttarla o chiedere ogni volta prima di deciderlo.
+	function requestCloseProject(project: Project) {
+		if (!project.path) {
+			projectStore.closeProject(project.id);
+			hoveredTabId = null;
+			return;
+		}
+		const queued = taskStore.queuedCountFor(project.path);
+		if (queued === 0 || settingsStore.general.closeWithQueuedTasks === 'keep') {
+			projectStore.closeProject(project.id);
+			hoveredTabId = null;
+			return;
+		}
+		if (settingsStore.general.closeWithQueuedTasks === 'discard') {
+			taskStore.clearProject(project.path);
+			projectStore.closeProject(project.id);
+			hoveredTabId = null;
+			return;
+		}
+		closeConfirmId = project.id;
+	}
+
+	function confirmCloseKeepQueue(project: Project) {
+		projectStore.closeProject(project.id);
+		closeConfirmId = null;
+		hoveredTabId = null;
+	}
+
+	function confirmCloseDiscardQueue(project: Project) {
+		taskStore.clearProject(project.path);
+		projectStore.closeProject(project.id);
+		closeConfirmId = null;
+		hoveredTabId = null;
+	}
+
 	function handleMinimize(e: MouseEvent) {
 		e.stopPropagation();
 		appWindow.minimize().catch(err => console.error("Minimize error:", err));
@@ -205,11 +327,20 @@
 	</div>
 
 	<div class="tabs">
-		{#each projectStore.projects as p}
+		{#each projectOrder.list as p (p.id)}
+			{@const queued = p.path ? taskStore.queuedCountFor(p.path) : 0}
+			{@const ready = canRunTask?.(p.id) ?? false}
 			<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div 
+			<div
 				class="tab-container"
+				class:drag-over={dragOverProjectId === p.id}
+				draggable={settingsStore.projectBar.order === 'fixed'}
+				ondragstart={() => handleProjectDragStart(p.id)}
+				ondragend={handleProjectDragEnd}
+				ondragover={(event) => handleProjectDragOver(event, p.id)}
+				ondragleave={() => handleProjectDragLeave(p.id)}
+				ondrop={() => handleProjectDrop(p.id)}
 				onmouseenter={() => handleTabMouseEnter(p.id)}
 				onmouseleave={handleTabMouseLeave}
 			>
@@ -233,10 +364,24 @@
 					{/if}
 				</button>
 
-				{#if p.agentState === 'attention'}
-					<span class="status-dot attention" title="L'agente richiede un intervento"></span>
-				{:else if p.agentState === 'finished'}
-					<span class="status-dot finished" title="L'agente ha completato il lavoro"></span>
+				{#if settingsStore.projectBar.showAgentDot}
+					{#if p.agentState === 'attention'}
+						<span class="status-dot attention" title="L'agente richiede un intervento"></span>
+					{:else if p.agentState === 'finished'}
+						<span class="status-dot finished" title="L'agente ha completato il lavoro"></span>
+					{/if}
+				{/if}
+
+				{#if p.path && queued > 0 && settingsStore.projectBar.queueBadge !== 'off'}
+					{#if settingsStore.projectBar.queueBadge === 'dot'}
+						<span class="queue-dot" title="{queued} task in coda"></span>
+					{:else}
+						<span
+							class="queue-badge"
+							class:ready={settingsStore.projectBar.queueBadge === 'count-state' && ready}
+							title={queueBadgeTitle(p, queued, ready)}
+						>{queued}</span>
+					{/if}
 				{/if}
 
 				{#if hoveredTabId === p.id}
@@ -274,6 +419,39 @@
 								</div>
 								<button class="popover-edit" onclick={() => startProjectEdit(p)}>Modifica</button>
 							</div>
+						{/if}
+
+						{#if settingsStore.projectBar.showQueuePeek && p.path}
+							{@const queueTasks = taskStore.tasksFor(p.path)}
+							{#if queueTasks.length > 0}
+								<div class="popover-queue">
+									<div class="popover-section-label">Coda ({queueTasks.length})</div>
+									{#each queueTasks.slice(0, 5) as task (task.id)}
+										<div class="queue-peek-row">
+											<span class="queue-peek-label" title={queueTaskLabel(task)}>{queueTaskLabel(task)}</span>
+											<div class="queue-peek-actions">
+												<button
+													type="button"
+													class="queue-peek-btn"
+													disabled={!ready}
+													title={ready ? 'Click: avvia in background. Ctrl+click: avvia e passa al progetto.' : runReason?.(p.id)}
+													onclick={(event) => onRunTask?.(p.id, task.id, event.ctrlKey || event.metaKey)}
+												>Avvia</button>
+												<button
+													type="button"
+													class="queue-peek-btn"
+													onclick={() => onEditTask?.(p.id, task.id)}
+												>Modifica</button>
+											</div>
+										</div>
+									{/each}
+									{#if queueTasks.length > 5}
+										<button type="button" class="queue-peek-more" onclick={() => onQueueClick?.()}>
+											+{queueTasks.length - 5} altri
+										</button>
+									{/if}
+								</div>
+							{/if}
 						{/if}
 
 						<div class="popover-actions">
@@ -323,9 +501,20 @@
 								</div>
 							{/if}
 							<div class="popover-divider"></div>
-							<button class="popover-btn danger" onclick={() => { projectStore.closeProject(p.id); hoveredTabId = null; }}>
-								<span class="btn-icon">✕</span> Chiudi progetto
-							</button>
+							{#if closeConfirmId === p.id}
+								<div class="close-confirm">
+									<div class="close-confirm-text">Ci sono task in coda: come vuoi chiudere?</div>
+									<div class="close-confirm-actions">
+										<button type="button" class="popover-btn" onclick={() => closeConfirmId = null}>Annulla</button>
+										<button type="button" class="popover-btn" onclick={() => confirmCloseKeepQueue(p)}>Chiudi e conserva la coda</button>
+										<button type="button" class="popover-btn danger" onclick={() => confirmCloseDiscardQueue(p)}>Chiudi ed elimina i task</button>
+									</div>
+								</div>
+							{:else}
+								<button class="popover-btn danger" onclick={() => requestCloseProject(p)}>
+									<span class="btn-icon">✕</span> Chiudi progetto
+								</button>
+							{/if}
 						</div>
 					</div>
 				{/if}
@@ -334,6 +523,38 @@
 
 		<button class="tab-add" onclick={() => onNewProject?.()} title="Nuovo progetto (Ctrl+Alt+N)">+</button>
 		<button class="tab-add" onclick={() => projectStore.openScratchpad()} title="Scratchpad (Ctrl+Alt+S)">*</button>
+
+		<div class="order-control">
+			<button
+				type="button"
+				class="tab-add"
+				onclick={(event) => { event.stopPropagation(); orderMenuOpen = !orderMenuOpen; }}
+				title="Ordina i progetti"
+				aria-haspopup="menu"
+				aria-expanded={orderMenuOpen}
+			>▾</button>
+			{#if orderMenuOpen}
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="order-backdrop" onclick={() => orderMenuOpen = false}></div>
+				<div class="order-popover">
+					{#each PROJECT_BAR_ORDER_OPTIONS as option (option.value)}
+						<button
+							type="button"
+							class="order-option"
+							class:active={settingsStore.projectBar.order === option.value}
+							onclick={() => selectProjectOrder(option.value)}
+						>{option.label}</button>
+					{/each}
+					<div class="popover-divider"></div>
+					<button
+						type="button"
+						class="order-option"
+						onclick={() => { orderMenuOpen = false; onSettingsClick?.('projectBar'); }}
+					>Tutte le impostazioni della barra...</button>
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	<div class="title">
@@ -351,11 +572,11 @@
 			</button>
 		{/if}
 		<button
-			class="models-chip"
-			onclick={(e) => { e.stopPropagation(); onModelsClick?.(); }}
-			title="Gestione Modelli e Ruoli OMP (Ctrl+Alt+M)"
+			class="settings-chip"
+			onclick={(e) => { e.stopPropagation(); onSettingsClick?.(); }}
+			title="Impostazioni di Studio (Ctrl+Alt+,)"
 		>
-			⚙️ Modelli
+			⚙️ Impostazioni
 		</button>
 
 		<button
@@ -368,6 +589,15 @@
 			<span class="theme-badge-name">{themeStore.current}</span>
 		</button>
 
+		{#if taskStore.totalQueued > 0}
+			<button
+				class="queue-chip"
+				onclick={(e) => { e.stopPropagation(); onQueueClick?.(); }}
+				title="Task in attesa su tutti i progetti (Ctrl+Alt+T)"
+			>
+				Coda ({taskStore.totalQueued})
+			</button>
+		{/if}
 		<button class="usage-chip" onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }} title="Quota (Ctrl+Alt+U)">⚡ Quota</button>
 		<div class="window-controls">
 			<button class="win-btn" onclick={handleMinimize} title="Riduci a icona">
@@ -491,6 +721,24 @@
 		align-items: center;
 	}
 
+	/* Riordino manuale: la tessera trascinata segnala il punto di sgancio con
+	   una barra sottile, mai con un'animazione che distragga. */
+	.tab-container[draggable="true"] .tab {
+		cursor: grab;
+	}
+
+	.tab-container.drag-over::before {
+		content: '';
+		position: absolute;
+		top: 2px;
+		bottom: 2px;
+		left: -5px;
+		width: 2px;
+		border-radius: var(--radius-full);
+		background-color: var(--brand);
+		pointer-events: none;
+	}
+
 	.tab,
 	.tab-add {
 		height: 30px;
@@ -575,6 +823,60 @@
 		background-color: var(--bg-hover);
 	}
 
+	.order-control {
+		position: relative;
+		display: flex;
+		align-items: center;
+	}
+
+	.order-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: var(--z-backdrop);
+	}
+
+	.order-popover {
+		position: absolute;
+		top: calc(100% + 6px);
+		left: 0;
+		width: 200px;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
+		padding: var(--space-2);
+		z-index: var(--z-overlay);
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.order-option {
+		display: flex;
+		align-items: center;
+		background: transparent;
+		border: none;
+		color: var(--ink-muted);
+		font: inherit;
+		font-size: var(--text-xs);
+		padding: 6px 8px;
+		border-radius: var(--radius-md);
+		cursor: pointer;
+		text-align: left;
+		transition: background 0.15s ease, color 0.15s ease;
+	}
+
+	.order-option:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.order-option.active {
+		background: var(--bg-active);
+		color: var(--ink);
+		font-weight: 600;
+	}
+
 	.tab.active {
 		background-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
 		color: var(--on-project);
@@ -625,6 +927,49 @@
 
 	.status-dot.finished {
 		background-color: var(--brand);
+	}
+
+	/* Il badge non deve mai spostare la tessera: resta in overlay come lo
+	   status-dot, ma sul lato opposto per restare distinguibile a colpo d'occhio
+	   anche quando i due compaiono insieme. */
+	.queue-dot {
+		position: absolute;
+		bottom: -2px;
+		right: -2px;
+		width: 6px;
+		height: 6px;
+		border-radius: 1px;
+		background-color: var(--ink-faint);
+		outline: 2px solid var(--bg-raised);
+		z-index: 3;
+		pointer-events: none;
+	}
+
+	.queue-badge {
+		position: absolute;
+		bottom: -5px;
+		right: -5px;
+		min-width: 14px;
+		height: 14px;
+		padding: 0 3px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: var(--radius-full);
+		background-color: var(--ink-faint);
+		color: var(--bg-raised);
+		font-family: var(--font-mono);
+		font-size: 9px;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		outline: 2px solid var(--bg-raised);
+		z-index: 3;
+		pointer-events: none;
+	}
+
+	.queue-badge.ready {
+		background-color: var(--brand-dim);
+		color: var(--brand-ink);
 	}
 
 	/* Tab Popover Card */
@@ -867,6 +1212,93 @@
 		color: var(--brand-ink);
 	}
 
+	.popover-queue {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		border-top: 1px solid var(--line);
+		padding-top: var(--space-2);
+	}
+
+	.queue-peek-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 2px 8px;
+	}
+
+	.queue-peek-label {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+	}
+
+	.queue-peek-actions {
+		display: flex;
+		gap: 4px;
+		flex: none;
+	}
+
+	.queue-peek-btn {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		cursor: pointer;
+		font: inherit;
+		font-size: 11px;
+		padding: 2px 6px;
+	}
+
+	.queue-peek-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line-strong);
+	}
+
+	.queue-peek-btn:disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+
+	.queue-peek-more {
+		background: transparent;
+		border: none;
+		color: var(--ink-faint);
+		cursor: pointer;
+		font: inherit;
+		font-size: var(--text-xs);
+		padding: 4px 8px;
+		text-align: left;
+	}
+
+	.queue-peek-more:hover {
+		color: var(--ink);
+	}
+
+	.close-confirm {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding-top: var(--space-1);
+	}
+
+	.close-confirm-text {
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		padding: 0 8px;
+	}
+
+	.close-confirm-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
 	.btn-icon {
 		font-size: 12px;
 		width: 14px;
@@ -892,7 +1324,7 @@
 		height: 100%;
 		z-index: 2;
 	}
-	.models-chip {
+	.settings-chip {
 		background: transparent;
 		border: 1px solid var(--line);
 		color: var(--ink-muted);
@@ -907,8 +1339,25 @@
 		gap: 4px;
 	}
 
-	.models-chip:hover {
+	.settings-chip:hover {
 		color: var(--ink);
+		border-color: var(--brand);
+		background: var(--bg-hover);
+	}
+
+	.queue-chip {
+		background: transparent;
+		border: 1px solid var(--brand-dim);
+		color: var(--brand-ink);
+		padding: 3px 10px;
+		font-size: var(--text-xs);
+		border-radius: var(--radius-full);
+		cursor: pointer;
+		margin-right: var(--space-2);
+		transition: all 0.15s ease;
+	}
+
+	.queue-chip:hover {
 		border-color: var(--brand);
 		background: var(--bg-hover);
 	}

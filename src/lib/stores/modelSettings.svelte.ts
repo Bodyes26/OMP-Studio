@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { restartOmpTerminals } from '$lib/terminal/terminal';
+import { settingsStore } from './settings.svelte';
 
 export interface ModelCost {
 	input?: number;
@@ -114,7 +115,10 @@ export interface RoleSuggestionsResponse {
 }
 
 class ModelSettingsStore {
-	isOpen = $state(false);
+	/** Apertura/sezione hanno un'unica fonte: `settingsStore`. Nessun secondo flag da tenere allineato. */
+	get isOpen() {
+		return settingsStore.open && settingsStore.section === 'models';
+	}
 	activeTab = $state<'roles' | 'catalog' | 'providers'>('roles');
 	
 	loading = $state(false);
@@ -146,12 +150,12 @@ class ModelSettingsStore {
 
 	openModal(tab: 'roles' | 'catalog' | 'providers' = 'roles') {
 		this.activeTab = tab;
-		this.isOpen = true;
+		settingsStore.openSection('models');
 		void this.loadAll();
 	}
 
 	closeModal() {
-		this.isOpen = false;
+		settingsStore.close();
 	}
 
 	showToast(msg: string, duration = 3500) {

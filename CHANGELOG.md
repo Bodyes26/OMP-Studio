@@ -10,6 +10,15 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Centro impostazioni unificato (`Ctrl+Alt+,`) con cinque sezioni — Generale, Barra progetti, Editor & Terminale, Task & Agenti, Modelli: la configurazione di modelli e ruoli diventa una sezione di questo pannello e resta raggiungibile direttamente con `Ctrl+Alt+M`.
+- La barra dei progetti non si riordina più da sola: l'ordine è manuale, si cambia trascinando le tessere (o con `Ctrl+Alt+Maiusc+Frecce`) e resta quello anche dopo un riavvio. Restano disponibili gli ordinamenti «Ultimo aperto» (il comportamento precedente), «Priorità task» e «Alfabetico».
+- Le tessere della barra mostrano quanti task attendono in coda, con quattro stili a scelta: numero con indicazione di prontezza, solo numero, puntino o niente.
+- Avvio dei task direttamente dalla barra: passando su una tessera, il pannello elenca i task in attesa e li lancia sul posto senza cambiare progetto; `Ctrl+click` avvia e apre il progetto.
+- Nuova vista aggregata delle code (`Ctrl+Alt+T`, o il chip in barra col totale dei task in attesa): tutte le code di tutti i progetti in un elenco unico, con avvio diretto e motivo esplicito quando un progetto non è pronto.
+- Avvio automatico del prossimo task, attivabile progetto per progetto: quando l'agente di quel progetto torna libero, il primo task della coda parte da solo. Spento di default.
+- Dimensione e famiglia del font, minimappa, ritorno a capo, ampiezza tabulazione e numeri di riga dell'editor sono configurabili, così come font, dimensione, scrollback, campanello e cursore del terminale: le modifiche si applicano subito, senza riavviare le sessioni.
+- Valori predefiniti dei nuovi task configurabili (ruolo, livello di ragionamento, modalità Discussione/Piano/Minimale/Ricerca, contesto editor), con possibilità di sovrascriverli per singolo progetto.
+- Impostazioni generali: superficie con cui nasce un progetto nuovo (Terminale o GUI), cosa fare della coda quando si chiude un progetto che ha task in attesa, cartella radice dei progetti e canale di aggiornamento.
 - Primo avvio guidato: all'apertura Studio verifica che `omp` sia installato, autenticato e con un modello predefinito, e apre un modal che accompagna solo i passaggi che mancano davvero.
 - Se `omp` non è installato, Studio lo scarica dalle release ufficiali con barra di progresso, ne verifica l'impronta SHA-256 pubblicata e lo installa senza chiedere privilegi di amministratore; configura anche Git Bash come shell di `omp` quando non è già impostata.
 - Il setup dei provider, del modello, dei glifi, del composer e del tema è quello nativo di `omp`, eseguito in una scheda di terminale dentro il modal: le stesse scene del terminale, senza doverle imparare due volte. Il modal si chiude solo quando la configurazione è davvero utilizzabile, e se il setup viene abbandonato a metà dice cosa manca e permette di riaprirlo.
@@ -68,6 +77,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Rimosso il selettore fisso «steer / follow-up» dalla barra di inserimento del prompt.
 ### Fixed
 
+- Controllo aggiornamenti OMP CLI: corretto il rilevamento delle nuove versioni dall'output di `omp update --check`, con eliminazione delle sequenze ANSI, estrazione della versione più recente e gestione affidabile degli errori di rete, segnalando tempestivamente la nuova versione nella barra di stato e consentendone l'aggiornamento diretto.
 - Risolto un bug grafico nella palette dei comandi slash (`/`) per cui la barra di aiuto con i tasti di navigazione (`↑↓ naviga`, `Invio seleziona`, `Esc chiude`) non rimaneva fissata al fondo durante lo scorrimento e si sovrapponeva all'elenco dei comandi.
 - Risolto il problema dell'inserimento duplicato delle immagini quando incollate dagli appunti (Ctrl+V) nel campo di scrittura o nell'editor dei task.
 - Filtrati gli avvisi interni di sistema relativi al montaggio dei tool MCP (`xd://: mounted mcp__...`) per evitare messaggi di log e avvisi spuri all'avvio della sessione.

@@ -1,6 +1,7 @@
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
-import { normalizeProjectPath } from './projects.svelte';
+import { normalizeProjectPath, projectStore } from './projects.svelte';
+import { settingsStore, type TaskDefaults } from './settings.svelte';
 import type { ImageContent } from '$lib/agent/wire';
 import { attachEditorContext } from '$lib/editor/editorContext';
 export type AgentView = 'queue' | 'sessions';
@@ -13,6 +14,7 @@ export interface StudioTaskOptions {
 	planMode?: boolean;
 	discussionMode?: boolean;
 	minimalMode?: boolean;
+	researchMode?: boolean;
 	includeEditorContext?: boolean;
 }
 
@@ -55,6 +57,11 @@ export function formatTaskPrompt(task: StudioTask, projectPath?: string): string
 
 	if (prefixes.length > 0) {
 		body = `${prefixes.join('\n\n')}\n\n${body}`;
+	}
+
+	if (task.options?.researchMode) {
+		const researchDirective = '[Direttiva Ricerca Online: Dopo aver analizzato al completo la richiesta e tutto il codice collegato nel progetto, effettua ricerche online approfondite sull\'ambito e sulla richiesta (documentazione, riferimenti, librerie e best practice) prima di procedere con l\'implementazione o le modifiche.]';
+		body = body ? `${body}\n\n${researchDirective}` : researchDirective;
 	}
 
 	if (task.options?.includeEditorContext !== false) {
@@ -123,6 +130,9 @@ class TaskStore {
 	}
 
 	private async init() {
+		// I default dei task vengono da settingsStore: va atteso qui, non solo
+		// dal guscio, o createTask nascerebbe con i default vuoti in corsa.
+		await settingsStore.init();
 		this.store = await load('tasks.json', { autoSave: false });
 		const persisted = parsePersistedState(await this.store.get<unknown>('taskState'));
 		if (persisted) {
@@ -149,16 +159,28 @@ class TaskStore {
 	createTask(projectPath: string): StudioTask {
 		const key = projectKey(projectPath);
 		const now = Date.now();
+		// I default del progetto sovrascrivono quelli globali, non li sostituiscono:
+		// un progetto puo' scegliere solo il ruolo e lasciare il resto ai default.
+		const project = projectStore.projects.find((p) => projectKey(p.path) === key);
+		const defaults: TaskDefaults = { ...settingsStore.taskDefaults, ...(project?.taskDefaults ?? {}) };
+		const options: StudioTaskOptions = {
+			role: defaults.role,
+			thinkingLevel: defaults.thinkingLevel,
+			includeEditorContext: defaults.includeEditorContext
+		};
+		// Le modalita' si scrivono solo se attive: un persistito piu' magro
+		// e coerente con `formatTaskPrompt`, che le legge come opzionali.
+		if (defaults.discussionMode) options.discussionMode = true;
+		if (defaults.planMode) options.planMode = true;
+		if (defaults.minimalMode) options.minimalMode = true;
+		if (defaults.researchMode) options.researchMode = true;
+
 		const task: StudioTask = {
 			id: crypto.randomUUID(),
 			projectPath: key,
 			prompt: '',
 			images: [],
-			options: {
-				role: 'default',
-				thinkingLevel: 'auto',
-				includeEditorContext: true
-			},
+			options,
 			position: this.tasksFor(projectPath).length,
 			createdAt: now,
 			updatedAt: now,
@@ -178,6 +200,41 @@ class TaskStore {
 		return this.tasks
 			.filter((task) => task.projectPath === key)
 			.sort((left, right) => left.position - right.position || left.createdAt - right.createdAt);
+	}
+
+	queuedCountFor(projectPath: string): number {
+		const key = projectKey(projectPath);
+		let count = 0;
+		for (const task of this.tasks) {
+			if (task.projectPath === key && task.status === 'queued') count++;
+		}
+		return count;
+	}
+
+	/** Una sola passata su tutti i task: usato dalla barra per tutti i badge insieme. */
+	get queuedCountByProject(): Record<string, number> {
+		const counts: Record<string, number> = {};
+		for (const task of this.tasks) {
+			if (task.status !== 'queued') continue;
+			counts[task.projectPath] = (counts[task.projectPath] ?? 0) + 1;
+		}
+		return counts;
+	}
+
+	/**
+	 * Totale mostrato dal chip in barra. Conta solo i progetti aperti, perche'
+	 * il chip porta alla vista aggregata, che di progetti chiusi non parla:
+	 * un numero senza destinazione sarebbe peggio di nessun numero. La coda di
+	 * un progetto chiuso resta su disco e torna visibile riaprendolo.
+	 */
+	get totalQueued(): number {
+		const counts = this.queuedCountByProject;
+		let total = 0;
+		for (const project of projectStore.projects) {
+			if (!project.path) continue;
+			total += counts[projectKey(project.path)] ?? 0;
+		}
+		return total;
 	}
 
 	updateTask(id: string, prompt: string, images?: ImageContent[], options?: StudioTaskOptions) {
@@ -203,6 +260,14 @@ class TaskStore {
 		const path = task.projectPath;
 		this.tasks = this.tasks.filter((candidate) => candidate.id !== id);
 		this.reindex(path);
+		this.save();
+	}
+
+	/** Svuota la coda di un progetto. Le `origins` restano: sono lo storico
+	 *  delle sessioni gia' lanciate, non task ancora da eseguire. */
+	clearProject(projectPath: string) {
+		const key = projectKey(projectPath);
+		this.tasks = this.tasks.filter((task) => task.projectPath !== key);
 		this.save();
 	}
 

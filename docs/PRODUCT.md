@@ -29,9 +29,13 @@ comando solo per leggere un numero. Qui l'usage sta dietro un'icona in barra, co
 reali da `omp usage --json`, aggiornati mentre l'agente lavora.
 
 **3. Non perdere il prossimo lavoro mentre l'agente è occupato.** Ogni progetto ha una
-coda manuale di prompt: si scrive il prossimo task, lo si riordina e lo si avvia quando
-`omp` torna in attesa. Studio crea una sessione pulita con `/new`, invia il prompt e
-mantiene nello storico l'origine del task.
+coda di prompt: si scrive il prossimo task, lo si riordina e lo si avvia quando `omp`
+torna in attesa. Studio crea una sessione pulita con `/new`, invia il prompt e mantiene
+nello storico l'origine del task. L'avvio resta un gesto dell'utente: la tessera del
+progetto dice quanti task attendono e se sono lanciabili ora, e si lanciano dalla barra
+o dalla vista aggregata delle code senza cambiare progetto. Solo chi lo chiede
+esplicitamente, progetto per progetto, ottiene l'avvio automatico del prossimo task
+quando l'agente torna libero (spento di default, vedi `DECISIONS.md` Gate R12).
 
 **4. Riprendere un lavoro interrotto in un click.** Riprendere a mano significa
 ricordare il progetto, riaprire la cartella, riavviare l'agente, cercare la sessione
@@ -79,7 +83,11 @@ silenzioso, preciso**.
 
 - **VS Code.** OMP Studio non deve diventarne un clone con meno funzioni. Se una feature
   esiste solo perché "VS Code ce l'ha", si taglia. Nessuna command palette generica,
-  nessuna activity bar a otto icone, nessuna status bar con dodici widget.
+  nessuna activity bar a otto icone, nessuna status bar con dodici widget. Vale anche
+  per le impostazioni: esiste un centro impostazioni, non un albero di preferenze.
+  Ogni voce deve rispondere a un attrito reale della giornata di lavoro — la barra dei
+  progetti che si sposta sotto il mouse, il font troppo piccolo alle otto di sera — e
+  quella che non lo fa non viene aggiunta.
 - **Cursor / Windsurf / OpenCode Desktop.** Rimpiazzano la TUI dell'agente con una chat
   GUI che diventa l'unica interfaccia possibile, e con essa reimplementano prompt, tool
   e approvazioni. Questo resta il rifiuto: la GUI di Studio **affianca** la TUI, non la
@@ -113,10 +121,13 @@ silenzioso, preciso**.
    si muove solo l'indicatore di tessera attiva. Animare lo swap aggiungerebbe latenza
    percepita a gratis.
 
-3. **Lo stato di un progetto si legge dalla tessera, sempre.** Tre stati e non uno di
-   più: inattivo, l'agente sta lavorando, l'agente aspetta te. Leggibili anche per il
-   progetto non a schermo. È l'informazione che manca a chi lavora con più agenti in
-   parallelo, e giustifica l'intero progetto.
+3. **Lo stato di un progetto si legge dalla tessera, sempre.** Tre stati dell'agente e
+   non uno di più: inattivo, sta lavorando, aspetta te. Accanto a essi, un solo dato
+   che non è uno stato ma una quantità: quanti task attendono in coda. Tutto leggibile
+   anche per il progetto non a schermo — è l'informazione che manca a chi lavora con
+   più agenti in parallelo, e giustifica l'intero progetto. Lo stile del contatore
+   (numero, numero più prontezza, puntino, niente) è una preferenza: chi vuole la
+   tessera muta lo spegne.
 
 4. **La sessione non muore mai per colpa della UI.** Cambiare progetto, ridimensionare,
    chiudere un pannello, collassare una colonna: nessuna di queste azioni può uccidere,

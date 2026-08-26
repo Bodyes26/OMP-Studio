@@ -7,8 +7,10 @@
 		openFileModel,
 		revealLineInEditor,
 		createDiffEditorInstance,
-		updateGutterDecorations
+		updateGutterDecorations,
+		applyEditorSettings
 	} from './monaco';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 	import ImageViewer from './ImageViewer.svelte';
 	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
@@ -302,6 +304,20 @@
 				d.dispose();
 			}
 		};
+	});
+
+	// Le preferenze dell'editor si applicano a caldo: leggere i singoli campi
+	// (non l'oggetto) evita di rieseguire l'effetto per scritture che non
+	// riguardano l'editor (es. terminale). Mai ricreare l'istanza per un
+	// cambio di impostazione.
+	$effect(() => {
+		void settingsStore.editor.fontSize;
+		void settingsStore.editor.fontFamily;
+		void settingsStore.editor.minimap;
+		void settingsStore.editor.wordWrap;
+		void settingsStore.editor.tabSize;
+		void settingsStore.editor.lineNumbers;
+		applyEditorSettings(diffEditorInstance);
 	});
 
 	// Il modello arriva dal filesystem in asincrono: il cursore va mosso solo
