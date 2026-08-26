@@ -50,36 +50,66 @@
 	let panelOpen = $state(false);
 	let activeSubagentId = $state<string | null>(null);
 
-	function handleScroll() {
-		if (!scrollEl) return;
-		const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
-		// La sospensione dell'autoscroll e' una decisione dell'utente: una volta
-		// allontanato dal fondo (oltre tolleranza di 4px per subpixel), resta
-		// sospeso finche' l'utente non torna esplicitamente in fondo o preme il pulsante.
-		userScrolledUp = distance > 4;
+	let lastScrollTop = 0;
+	// Soglia in pixel per considerare l'utente "al fondo" (tolleranza subpixel e font scaling).
+	const SCROLL_THRESHOLD = 32;
+
+	function autoScrollToBottom() {
+		if (!scrollEl || userScrolledUp) return;
+		scrollEl.scrollTop = scrollEl.scrollHeight;
+		lastScrollTop = scrollEl.scrollTop;
 	}
 
 	function scrollToBottom() {
 		if (!scrollEl) return;
-		scrollEl.scrollTop = scrollEl.scrollHeight;
 		userScrolledUp = false;
+		scrollEl.scrollTop = scrollEl.scrollHeight;
+		lastScrollTop = scrollEl.scrollTop;
 	}
+
+	function handleScroll() {
+		if (!scrollEl) return;
+		const currentScrollTop = scrollEl.scrollTop;
+		const distance = scrollEl.scrollHeight - currentScrollTop - scrollEl.clientHeight;
+
+		// Se l'utente e' tornato vicino al fondo (o il contenuto entra nella viewport),
+		// l'autoscroll si riaggancia automaticamente.
+		if (distance <= SCROLL_THRESHOLD) {
+			userScrolledUp = false;
+		} else if (currentScrollTop < lastScrollTop - 2) {
+			// Solo se lo scroll si muove effettivamente verso l'alto l'utente ha deciso
+			// di allontanarsi dal fondo; la crescita di altezza del contenuto o le
+			// animazioni transitorie non devono mai essere scambiate per uno scroll dell'utente.
+			userScrolledUp = true;
+		}
+
+		lastScrollTop = currentScrollTop;
+	}
+
+	// Quando cambia la sessione attiva, ripristina l'ancoraggio in fondo.
+	let lastSessionId: string | null = null;
+	$effect(() => {
+		const currentSessionId = session.sessionId ?? '';
+		if (lastSessionId !== null && lastSessionId !== currentSessionId) {
+			userScrolledUp = false;
+			scrollToBottom();
+		}
+		lastSessionId = currentSessionId;
+	});
 
 	// Autoscroll ancorato in fondo tramite ResizeObserver e MutationObserver:
 	// segue lo streaming del testo e l'arrivo di nuove entry senza scatti o timeout non gestiti.
 	$effect(() => {
 		if (!scrollEl || !visible) return;
 
-		if (!userScrolledUp) {
-			scrollEl.scrollTop = scrollEl.scrollHeight;
-		}
+		autoScrollToBottom();
 
 		const resizeObserver = new ResizeObserver(() => {
-			if (!userScrolledUp && scrollEl) {
-				scrollEl.scrollTop = scrollEl.scrollHeight;
-			}
+			autoScrollToBottom();
 		});
 
+		// Osserva sia il contenitore scrollabile che tutti i figli diretti
+		resizeObserver.observe(scrollEl);
 		for (const child of scrollEl.children) {
 			resizeObserver.observe(child);
 		}
@@ -89,12 +119,10 @@
 			for (const child of scrollEl.children) {
 				resizeObserver.observe(child);
 			}
-			if (!userScrolledUp) {
-				scrollEl.scrollTop = scrollEl.scrollHeight;
-			}
+			autoScrollToBottom();
 		});
 
-		mutationObserver.observe(scrollEl, { childList: true, subtree: true });
+		mutationObserver.observe(scrollEl, { childList: true, subtree: true, characterData: true });
 
 		return () => {
 			resizeObserver.disconnect();
@@ -187,6 +215,7 @@
 		min-height: 0;
 		min-width: 0;
 		overflow-y: auto;
+		overflow-anchor: none;
 		display: flex;
 		flex-direction: column;
 	}
