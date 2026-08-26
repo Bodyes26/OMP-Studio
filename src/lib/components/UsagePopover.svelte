@@ -126,7 +126,7 @@
 				<h3>API Usage Limits</h3>
 				{#if usageData?.generatedAt}
 					<span class="freshness" title={new Date(usageData.generatedAt).toLocaleString()}>
-						Aggiornato {formatAge(usageData.generatedAt)}
+						{loading ? 'Aggiornamento in corso...' : `Aggiornato ${formatAge(usageData.generatedAt)}`}
 					</span>
 				{/if}
 			</div>
@@ -137,11 +137,14 @@
 					title="Aggiorna dati"
 					disabled={loading}
 				>
-					<span class="refresh-icon">↻</span>
+					<span class="refresh-icon" class:spinning={loading}>↻</span>
 				</button>
 				<button class="close-btn" onclick={onClose}>×</button>
 			</div>
 		</div>
+		{#if loading && usageData}
+			<div class="loading-bar"></div>
+		{/if}
 		<div class="content">
 			{#if fetchError}
 				<div class="usage-error" role="alert">
@@ -167,7 +170,7 @@
 								return host.project || host.host;
 							})
 							.filter((label) => Boolean(label)))]}
-						<div class="provider-section">
+						<div class="provider-section" style="animation-delay: {i * 0.08}s;">
 							<h4>{report.provider} <span class="meta">{report.metadata?.email || ''}</span></h4>
 							{#if projectLabels.length > 0}
 								<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
@@ -198,7 +201,7 @@
 										</span>
 									</div>
 									<div class="limit-bar" title="Consumato: {usedPercent}% | Rimanente: {remainingPercent}%{resetCountdown ? ` | Reset: ${resetCountdown}${resetExact ? ` (${resetExact})` : ''}` : ''}">
-										<div class="limit-fill" style="transform: scaleX({usedPercent / 100}); background: {colorVar};"></div>
+										<div class="limit-fill" style="--target-width: {usedPercent}%; background: {colorVar}; --bar-delay: {i * 0.08}s;"></div>
 									</div>
 								</div>
 							{/each}
@@ -225,6 +228,7 @@
 		width: 360px;
 		max-height: calc(100vh - 80px);
 		background: var(--bg-overlay);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);
@@ -302,6 +306,27 @@
 		line-height: 1;
 	}
 
+	.refresh-icon.spinning {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.loading-bar {
+		height: 2px;
+		width: 100%;
+		background: linear-gradient(90deg, transparent, var(--brand), transparent);
+		background-size: 200% 100%;
+		animation: loadingPulse 1.5s ease-in-out infinite;
+	}
+
+	@keyframes loadingPulse {
+		0% { background-position: 200% 0; }
+		100% { background-position: -200% 0; }
+	}
 
 	.loading-state {
 		display: flex;
@@ -315,11 +340,14 @@
 	}
 
 	.spinner {
-		width: 8px;
-		height: 8px;
-		background: var(--brand);
-		border-radius: var(--radius-full);
+		width: 22px;
+		height: 22px;
+		border: 2px solid var(--line);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
 	}
+
 	.content {
 		padding: var(--space-4);
 		overflow-y: auto;
@@ -327,7 +355,6 @@
 		flex-direction: column;
 		gap: var(--space-4);
 	}
-
 	.msg {
 		color: var(--ink-faint);
 		font-size: var(--text-sm);
@@ -338,7 +365,20 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+		animation: sectionFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 	}
+
+	@keyframes sectionFadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
 	h4 {
 		margin: 0;
 		font-size: var(--text-md);
@@ -412,10 +452,15 @@
 
 	.limit-fill {
 		height: 100%;
-		width: 100%;
 		border-radius: var(--radius-full);
-		transform-origin: left;
-		transition: transform var(--dur-fast) var(--ease-out);
+		width: 0%;
+		animation: barFill 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+		animation-delay: calc(var(--bar-delay, 0s) + 0.1s);
+	}
+
+	@keyframes barFill {
+		from { width: 0%; }
+		to { width: var(--target-width); }
 	}
 
 	.usage-error {
@@ -429,7 +474,6 @@
 		color: var(--danger);
 		font-size: var(--text-xs);
 	}
-
 	.usage-error .error-text {
 		overflow: hidden;
 		text-overflow: ellipsis;
