@@ -5,8 +5,8 @@
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import { automaticProjectHue, THEMES } from '$lib/theme';
+	import { trapFocus } from '$lib/focusTrap';
 	import type { Project } from '$lib/stores/projects.svelte';
-
 	let {
 		open = false,
 		onClose,
@@ -59,28 +59,28 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape' || !open) return;
-		const target = event.target as HTMLElement | null;
-		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-		onClose?.();
+		if (event.key === 'Escape' && open) {
+			event.preventDefault();
+			onClose?.();
+		}
 	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="backdrop" onclick={onClose} transition:fade={{ duration: 180 }}></div>
+	<button type="button" class="backdrop" onclick={onClose} aria-label="Chiudi cassetto coda" tabindex="-1" transition:fade={{ duration: 180 }}></button>
 	<div
 		class="drawer"
 		role="dialog"
+		aria-modal="true"
 		aria-label="Coda di tutti i progetti"
+		use:trapFocus={{ onEscape: onClose }}
 		transition:fly={{ y: -12, duration: 220, easing: cubicOut }}
 	>
 		<div class="header">
 			<h3>Task in coda</h3>
-			<button type="button" class="close-btn" onclick={onClose} aria-label="Chiudi">×</button>
+			<button type="button" class="close-btn" onclick={onClose} aria-label="Chiudi cassetto coda">×</button>
 		</div>
 		<div class="body" role="list" aria-label="Progetti con task in coda">
 			{#if groups.length === 0}
@@ -102,6 +102,7 @@
 								class="run-first"
 								disabled={blocked}
 								title={blocked ? reason : `Avvia: ${taskTitle(group.tasks[0])}`}
+								aria-label={`Avvia il primo task in coda per ${group.project.name}`}
 								onclick={(event) => runTask(event, group.project.id, group.tasks[0].id)}
 							>
 								Avvia il primo
@@ -111,15 +112,20 @@
 							{#each group.tasks as task (task.id)}
 								<div class="task-row" role="listitem">
 									<div class="task-main">
-										<span class="task-title">{taskTitle(task)}</span>
-										{#if task.options?.discussionMode || task.options?.planMode || task.options?.minimalMode || task.options?.researchMode}
-											<div class="task-chips">
-												{#if task.options?.discussionMode}<span class="task-chip">Discussione</span>{/if}
-												{#if task.options?.planMode}<span class="task-chip">Piano</span>{/if}
-												{#if task.options?.minimalMode}<span class="task-chip">Minimale</span>{/if}
-												{#if task.options?.researchMode}<span class="task-chip">Ricerca</span>{/if}
-											</div>
-										{/if}
+										<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
+										<div class="task-chips">
+											{#if task.status === 'in_progress'}
+												<span class="task-chip status-chip in-progress">in corso</span>
+											{:else if task.status === 'completed'}
+												<span class="task-chip status-chip completed">fatto</span>
+											{:else if task.status === 'abandoned'}
+												<span class="task-chip status-chip abandoned">abbandonato</span>
+											{/if}
+											{#if task.options?.discussionMode}<span class="task-chip">Discussione</span>{/if}
+											{#if task.options?.planMode}<span class="task-chip">Piano</span>{/if}
+											{#if task.options?.minimalMode}<span class="task-chip">Minimale</span>{/if}
+											{#if task.options?.researchMode}<span class="task-chip">Ricerca</span>{/if}
+										</div>
 									</div>
 									<div class="task-actions">
 										<button
@@ -127,6 +133,7 @@
 											class="task-run"
 											disabled={blocked}
 											title={blocked ? reason : `Avvia: ${taskTitle(task)}`}
+											aria-label={`Avvia task: ${taskTitle(task)}`}
 											onclick={(event) => runTask(event, group.project.id, task.id)}
 										>
 											Avvia
@@ -135,6 +142,7 @@
 											type="button"
 											class="task-edit"
 											title="Modifica task"
+											aria-label={`Modifica task: ${taskTitle(task)}`}
 											onclick={() => onEditTask?.(group.project.id, task.id)}
 										>
 											Modifica
@@ -409,6 +417,27 @@
 		color: var(--ink-faint);
 		border-color: var(--line);
 		cursor: default;
+	}
+	.status-chip.in-progress {
+		background: var(--brand-dim);
+		color: var(--brand-ink);
+		font-weight: 600;
+	}
+
+	.status-chip.completed {
+		background: var(--bg-sunken);
+		color: var(--success, #22c55e);
+	}
+
+	.status-chip.abandoned {
+		background: var(--bg-sunken);
+		color: var(--ink-faint);
+		opacity: 0.7;
+	}
+
+	.completed-text {
+		text-decoration: line-through;
+		color: var(--ink-faint);
 	}
 
 	.task-edit {

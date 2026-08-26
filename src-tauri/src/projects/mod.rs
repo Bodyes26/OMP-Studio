@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::command;
 
+pub mod tasks;
+pub use tasks::*;
+
 #[derive(Serialize, Deserialize)]
 pub struct Dirent {
     pub name: String,
@@ -703,8 +706,10 @@ fn parse_candidate(raw: &str) -> (String, Option<usize>) {
 }
 
 /// Contenuto di un file del progetto per l'anteprima nella sandbox.
-/// Il frontend lo inietta in un iframe sandbox via `srcdoc`: nessun server
-/// locale, nessuna porta aperta, il file non lascia la macchina.
+/// Il frontend lo inietta in un iframe sandbox via `srcdoc`: per i vettoriali SVG
+/// l'iframe e' rigorosamente sandboxed senza 'allow-scripts' e senza 'allow-same-origin',
+/// con CSP ermetica (default-src 'none') per isolare completamente il rendering
+/// dal contesto WebView privilegiato di Tauri (nessun accesso a IPC, store o filesystem).
 #[command]
 pub async fn preview_file(project_path: String, rel: String) -> Result<GitRevContent, String> {
     let resolved = resolve_path(&project_path, &rel)?;

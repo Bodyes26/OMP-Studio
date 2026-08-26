@@ -1,5 +1,6 @@
 <script lang="ts">
 	import SessionList from './SessionList.svelte';
+	import EmptyState from './EmptyState.svelte';
 	import { taskStore, type AgentView, type StudioTask } from '$lib/stores/tasks.svelte';
 
 	let {
@@ -73,6 +74,8 @@
 		<button
 			type="button"
 			role="tab"
+			id="tab-agent-queue"
+			aria-controls="panel-agent-queue"
 			aria-selected={view === 'queue'}
 			class:active={view === 'queue'}
 			onclick={() => setView('queue')}
@@ -83,6 +86,8 @@
 		<button
 			type="button"
 			role="tab"
+			id="tab-agent-sessions"
+			aria-controls="panel-agent-sessions"
 			aria-selected={view === 'sessions'}
 			class:active={view === 'sessions'}
 			onclick={() => setView('sessions')}
@@ -92,111 +97,134 @@
 	</div>
 
 	{#if actionError}
-		<div class="action-error" role="alert">{actionError}</div>
+		<div class="action-error" role="alert" aria-live="assertive">{actionError}</div>
 	{/if}
 
 	{#if view === 'queue'}
-		<div class="queue-toolbar">
-			<button type="button" class="new-task" onclick={onCreateTask}>
-				<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
-				Nuovo task
-			</button>
-			{#if !canAutomate && automationReason}
-				<span class="automation-state" title={automationReason}>{automationReason}</span>
-			{/if}
-		</div>
+		<div id="panel-agent-queue" role="tabpanel" aria-labelledby="tab-agent-queue" class="panel-tab-body">
+			<div class="queue-toolbar">
+				<button type="button" class="new-task" onclick={onCreateTask} aria-label="Crea nuovo task">
+					<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+					Nuovo task
+				</button>
+				{#if !canAutomate && automationReason}
+					<span class="automation-state" role="status" aria-live="polite" title={automationReason}>{automationReason}</span>
+				{/if}
+			</div>
 
-		<div class="queue-list" role="list" aria-label="Task in coda">
-			{#if tasks.length === 0}
-				<div class="empty-state">
-					<strong>Nessun task in coda</strong>
-					<span>Scrivi il prossimo prompt da eseguire per questo progetto.</span>
-				</div>
-			{:else}
-				{#each tasks as task (task.id)}
-					<div
-						class="task-row"
-						role="listitem"
-						class:dispatching={task.status === 'dispatching'}
-						draggable={task.status === 'queued'}
-						ondragstart={() => draggedId = task.id}
-						ondragend={() => draggedId = null}
-						ondragover={(event) => event.preventDefault()}
-						ondrop={() => dropOn(task.id)}
-						onkeydown={(event) => handleMoveKey(event, task.id)}
-					>
-						<button
-							type="button"
-							class="drag-handle"
-							aria-label={`Riordina ${taskTitle(task)}. Alt più freccia su o giù.`}
-							title="Trascina oppure usa Alt+freccia"
+			<ul class="queue-list" aria-label="Task in coda">
+				{#if tasks.length === 0}
+					<li class="empty-task-container">
+						<EmptyState
+							variant="no-tasks"
+							compact={true}
+							primaryAction={{
+								label: 'Nuovo task',
+								onClick: onCreateTask
+							}}
+							shortcuts={[
+								{ key: 'Alt+E', label: 'Scrivi nel Composer' },
+								{ key: 'Alt+Q', label: 'Opzioni coda' }
+							]}
+						/>
+					</li>
+				{:else}
+					{#each tasks as task (task.id)}
+						<li
+							class="task-row"
+							class:dispatching={task.status === 'dispatching'}
+							draggable={task.status === 'queued'}
+							ondragstart={() => draggedId = task.id}
+							ondragend={() => draggedId = null}
+							ondragover={(event) => event.preventDefault()}
+							ondrop={() => dropOn(task.id)}
 						>
-							<svg viewBox="0 0 12 16" aria-hidden="true">
-								<circle cx="3" cy="4" r="1" /><circle cx="9" cy="4" r="1" />
-								<circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" />
-								<circle cx="3" cy="12" r="1" /><circle cx="9" cy="12" r="1" />
-							</svg>
-						</button>
-						<button
-							type="button"
-							class="task-launch"
-							disabled={!canAutomate || (!task.prompt.trim() && (!task.images || task.images.length === 0)) || task.status === 'dispatching'}
-							title={canAutomate ? `Avvia: ${taskTitle(task)}` : automationReason}
-							onclick={() => onRunTask(task.id)}
-						>
-							<div class="task-title-row">
-								<span class="task-title">{taskTitle(task)}</span>
-								{#if task.options?.role}
-									{@const badge = roleBadge(task.options.role)}
-									{#if badge}
-										<span class="task-chip role-chip">{badge}</span>
-									{/if}
-								{/if}
-							</div>
-							<div class="task-meta-row">
-								<span class="task-excerpt">{task.status === 'dispatching' ? 'Avvio della nuova sessione...' : taskExcerpt(task)}</span>
-								<div class="task-chips">
-									{#if task.options?.planMode}
-										<span class="task-chip mode-chip">Plan</span>
-									{/if}
-									{#if task.options?.discussionMode}
-										<span class="task-chip mode-chip">Grill-Me</span>
-									{/if}
-									{#if task.options?.minimalMode}
-										<span class="task-chip mode-chip">Ponytail</span>
-									{/if}
-									{#if task.options?.researchMode}
-										<span class="task-chip mode-chip">Research</span>
-									{/if}
-									{#if task.images && task.images.length > 0}
-										<span class="task-chip img-chip">img {task.images.length}</span>
-									{/if}
+							<button
+								type="button"
+								class="drag-handle"
+								aria-label={`Riordina ${taskTitle(task)}. Alt più freccia su o giù.`}
+								title="Trascina oppure usa Alt+freccia"
+								onkeydown={(event) => handleMoveKey(event, task.id)}
+							>
+								<svg viewBox="0 0 12 16" aria-hidden="true">
+									<circle cx="3" cy="4" r="1" /><circle cx="9" cy="4" r="1" />
+									<circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" />
+									<circle cx="3" cy="12" r="1" /><circle cx="9" cy="12" r="1" />
+								</svg>
+							</button>
+							<button
+								type="button"
+								class="task-launch"
+								disabled={!canAutomate || (!task.prompt.trim() && (!task.images || task.images.length === 0)) || task.status === 'dispatching'}
+								title={canAutomate ? `Avvia: ${taskTitle(task)}` : automationReason}
+								aria-label={`Avvia task: ${taskTitle(task)}`}
+								onclick={() => onRunTask(task.id)}
+							>
+								<div class="task-title-row">
+									<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
+									<div class="status-and-role">
+										{#if task.status === 'in_progress'}
+											<span class="task-chip status-chip in-progress">in corso</span>
+										{:else if task.status === 'completed'}
+											<span class="task-chip status-chip completed">fatto</span>
+										{:else if task.status === 'abandoned'}
+											<span class="task-chip status-chip abandoned">abbandonato</span>
+										{/if}
+										{#if task.options?.role}
+											{@const badge = roleBadge(task.options.role)}
+											{#if badge}
+												<span class="task-chip role-chip">{badge}</span>
+											{/if}
+										{/if}
+									</div>
 								</div>
-							</div>
-						</button>
-						<button
-							type="button"
-							class="edit-task"
-							onclick={() => onEditTask(task.id)}
-							aria-label={`Modifica ${taskTitle(task)}`}
-							title="Modifica task"
-						>
-							<svg viewBox="0 0 16 16" aria-hidden="true">
-								<path d="m10.8 3.2 2 2-7.2 7.2-2.6.6.6-2.6 7.2-7.2ZM9.5 4.5l2 2" />
-							</svg>
-						</button>
-					</div>
-				{/each}
-			{/if}
+								<div class="task-meta-row">
+									<span class="task-excerpt" role="status" aria-live={task.status === 'dispatching' ? 'polite' : 'off'}>{task.status === 'dispatching' ? 'Avvio della nuova sessione...' : taskExcerpt(task)}</span>
+									<div class="task-chips">
+										{#if task.options?.planMode}
+											<span class="task-chip mode-chip">Plan</span>
+										{/if}
+										{#if task.options?.discussionMode}
+											<span class="task-chip mode-chip">Grill-Me</span>
+										{/if}
+										{#if task.options?.minimalMode}
+											<span class="task-chip mode-chip">Ponytail</span>
+										{/if}
+										{#if task.options?.researchMode}
+											<span class="task-chip mode-chip">Research</span>
+										{/if}
+										{#if task.images && task.images.length > 0}
+											<span class="task-chip img-chip">img {task.images.length}</span>
+										{/if}
+									</div>
+								</div>
+							</button>
+							<button
+								type="button"
+								class="edit-task"
+								onclick={() => onEditTask(task.id)}
+								aria-label={`Modifica task: ${taskTitle(task)}`}
+								title="Modifica task"
+							>
+								<svg viewBox="0 0 16 16" aria-hidden="true">
+									<path d="m10.8 3.2 2 2-7.2 7.2-2.6.6.6-2.6 7.2-7.2ZM9.5 4.5l2 2" />
+								</svg>
+							</button>
+						</li>
+					{/each}
+				{/if}
+			</ul>
 		</div>
 	{:else}
-		<SessionList
-			{projectPath}
-			{canAutomate}
-			{automationReason}
-			{currentSessionId}
-			onResume={onResumeSession}
-		/>
+		<div id="panel-agent-sessions" role="tabpanel" aria-labelledby="tab-agent-sessions" class="panel-tab-body">
+			<SessionList
+				{projectPath}
+				{canAutomate}
+				{automationReason}
+				{currentSessionId}
+				onResume={onResumeSession}
+			/>
+		</div>
 	{/if}
 </div>
 
@@ -315,29 +343,27 @@
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
 	}
+	.panel-tab-body {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+	}
 
 	.queue-list {
+		list-style: none;
+		margin: 0;
+		padding: 0 0 var(--space-2) 0;
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
-		padding-bottom: var(--space-2);
+	}
+	.empty-task-container {
+		list-style: none;
+		padding: 0;
+		width: 100%;
 	}
 
-	.empty-state {
-		padding: var(--space-4) var(--space-3);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		color: var(--ink-faint);
-		font-size: var(--text-sm);
-		line-height: 1.45;
-	}
-
-	.empty-state strong {
-		color: var(--ink-muted);
-		font-size: var(--text-base);
-		font-weight: 500;
-	}
 
 	.task-row {
 		display: grid;
@@ -430,6 +456,33 @@
 		gap: var(--space-1);
 		flex-shrink: 0;
 	}
+	.status-and-role {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.status-chip.in-progress {
+		background: var(--brand-dim);
+		color: var(--brand-ink);
+		font-weight: 600;
+	}
+
+	.status-chip.completed {
+		background: var(--bg-sunken);
+		color: var(--success, #22c55e);
+	}
+
+	.status-chip.abandoned {
+		background: var(--bg-sunken);
+		color: var(--ink-faint);
+		opacity: 0.7;
+	}
+
+	.completed-text {
+		text-decoration: line-through;
+		color: var(--ink-faint);
+	}
 
 	.task-chip {
 		font-family: var(--font-mono);
@@ -443,7 +496,7 @@
 
 	.task-chip.role-chip {
 		background: var(--brand-dim);
-		color: var(--brand-ink);
+		color: var(--ink);
 		font-weight: 600;
 		font-size: var(--text-xs);
 	}

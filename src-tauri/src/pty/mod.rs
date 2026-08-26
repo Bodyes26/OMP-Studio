@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 
@@ -10,10 +11,143 @@ use serde::Serialize;
 use tauri::ipc::{Channel, Response};
 use tauri::State;
 
+#[cfg(target_os = "windows")]
+pub struct WindowsJob {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(target_os = "windows")]
+unsafe impl Send for WindowsJob {}
+#[cfg(target_os = "windows")]
+unsafe impl Sync for WindowsJob {}
+
+#[cfg(target_os = "windows")]
+impl WindowsJob {
+    pub fn create_for_process(pid: u32) -> Result<Self, String> {
+        use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
+            JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        };
+
+        unsafe {
+            let job_handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job_handle.is_null() {
+                return Err("Creazione Job Object fallita".to_string());
+            }
+
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+            let res = SetInformationJobObject(
+                job_handle,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+            if res == 0 {
+                CloseHandle(job_handle);
+                return Err("Configurazione Job Object (KILL_ON_JOB_CLOSE) fallita".to_string());
+            }
+
+            let proc_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, pid);
+            if proc_handle.is_null() {
+                CloseHandle(job_handle);
+                return Err(format!("Apertura processo PID {} fallita", pid));
+            }
+
+            let assign_res = AssignProcessToJobObject(job_handle, proc_handle);
+            CloseHandle(proc_handle);
+
+            if assign_res == 0 {
+                CloseHandle(job_handle);
+                return Err(format!("Assegnazione processo {} al Job Object fallita", pid));
+            }
+
+            Ok(Self { handle: job_handle })
+        }
+    }
+
+    pub fn terminate(&self) {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        unsafe {
+            if !self.handle.is_null() {
+                let _ = TerminateJobObject(self.handle, 1);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        unsafe {
+            if !self.handle.is_null() {
+                CloseHandle(self.handle);
+            }
+        }
+    }
+}
+
 pub struct PtySession {
+    pub pty_id: u64,
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    pub pid: Option<u32>,
+    #[cfg(target_os = "windows")]
+    pub job: Option<Arc<WindowsJob>>,
+    killed: Arc<AtomicBool>,
+}
+
+impl PtySession {
+    pub fn kill_tree(&self) {
+        if self.killed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // 1. Termina l'intero Windows Job Object: il kernel uccide ricorsivamente
+            // tutti i processi child e grandchild (PowerShell, omp, node, ecc.)
+            if let Some(job) = &self.job {
+                job.terminate();
+            }
+            // 2. Ridondanza di sicurezza: taskkill /F /T per garantire la pulizia
+            // anche in caso di processi dissociati
+            if let Some(pid) = self.pid {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Some(pid) = self.pid {
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", &format!("-{}", pid)])
+                    .output();
+                let _ = std::process::Command::new("kill")
+                    .args(["-KILL", &format!("-{}", pid)])
+                    .output();
+            }
+        }
+
+        let mut child = self.child.lock();
+        let _ = child.kill();
+        let _ = child.wait();
+
+        remove_breadcrumb(self.pty_id);
+    }
 }
 
 /// Cita un argomento per la riga di comando di PowerShell (single-quoted).
@@ -134,6 +268,7 @@ fn write_overlay() -> std::path::PathBuf {
 /// binario con `include_str!` dal repo: una sola verita', nessuna risorsa
 /// Tauri da configurare.
 pub const DIAGRAM_EXTENSION_TS: &str = include_str!("../../../extensions/studio-diagram.ts");
+pub const TASKS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-tasks.ts");
 
 /// Cartella delle estensioni di Studio: `%LOCALAPPDATA%/omp-studio/extensions`
 /// su Windows, `~/.omp-studio/extensions` altrove. Mai dentro `~/.omp`.
@@ -172,16 +307,41 @@ pub fn write_extension(file_name: &str, source: &str) -> Option<String> {
 }
 
 pub struct PtyManager {
-    sessions: Mutex<HashMap<u64, PtySession>>,
+    sessions: Arc<Mutex<HashMap<u64, PtySession>>>,
     next_id: Mutex<u64>,
 }
 
 impl PtyManager {
     pub fn new() -> Self {
         PtyManager {
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
             next_id: Mutex::new(1),
         }
+    }
+
+    pub fn close_all(&self) {
+        let sessions: Vec<(u64, PtySession)> = {
+            let mut lock = self.sessions.lock();
+            lock.drain().collect()
+        };
+        for (pty_id, session) in sessions {
+            session.kill_tree();
+            remove_breadcrumb(pty_id);
+        }
+    }
+}
+
+impl Drop for PtyManager {
+    fn drop(&mut self) {
+        self.close_all();
+    }
+}
+
+pub fn remove_breadcrumb(pty_id: u64) {
+    if let Some(mut breadcrumb) = crate::omp_ops::agent_dir() {
+        breadcrumb.push("terminal-sessions");
+        breadcrumb.push(format!("wt-{}", terminal_id(pty_id)));
+        let _ = std::fs::remove_file(breadcrumb);
     }
 }
 
@@ -224,6 +384,7 @@ pub async fn pty_open(
     // prima apertura). Se il file non esiste ancora lo si estrae: nessuna
     // scrittura in ~/.omp, la copia sta in %LOCALAPPDATA%/omp-studio.
     let extension_arg = write_extension("studio-diagram.ts", DIAGRAM_EXTENSION_TS);
+    let tasks_extension_arg = write_extension("studio-tasks.ts", TASKS_EXTENSION_TS);
 
     #[cfg(target_os = "windows")]
     let mut cmd = {
@@ -232,6 +393,10 @@ pub async fn pty_open(
         launch.push_str(" --config ");
         launch.push_str(&ps_quote(&overlay_path.to_string_lossy()));
         if let Some(ext) = &extension_arg {
+            launch.push_str(" -e ");
+            launch.push_str(&ps_quote(ext));
+        }
+        if let Some(ext) = &tasks_extension_arg {
             launch.push_str(" -e ");
             launch.push_str(&ps_quote(ext));
         }
@@ -262,6 +427,10 @@ pub async fn pty_open(
             format!("exec {} -l", sh_quote(&shell))
         };
         if let Some(ext) = &extension_arg {
+            launch.push_str(" -e ");
+            launch.push_str(&sh_quote(ext));
+        }
+        if let Some(ext) = &tasks_extension_arg {
             launch.push_str(" -e ");
             launch.push_str(&sh_quote(ext));
         }
@@ -319,10 +488,39 @@ pub async fn pty_open(
     let master_arc = Arc::new(Mutex::new(master_pty));
     let writer_arc = Arc::new(Mutex::new(writer));
 
+    let pid = child.process_id();
+
+    #[cfg(target_os = "windows")]
+    let job = if let Some(proc_id) = pid {
+        match WindowsJob::create_for_process(proc_id) {
+            Ok(j) => {
+                println!(
+                    "[PTY] Associato processo {} a Windows Job Object (kill on close)",
+                    proc_id
+                );
+                Some(Arc::new(j))
+            }
+            Err(e) => {
+                eprintln!(
+                    "[PTY] Avviso: associazione Job Object fallita per PID {}: {}",
+                    proc_id, e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let session = PtySession {
+        pty_id,
         master: master_arc.clone(),
         writer: writer_arc.clone(),
         child: Arc::new(Mutex::new(child)),
+        pid,
+        #[cfg(target_os = "windows")]
+        job,
+        killed: Arc::new(AtomicBool::new(false)),
     };
 
     manager.sessions.lock().insert(pty_id, session);
@@ -352,17 +550,24 @@ pub async fn pty_write(
     data: Vec<u8>,
     manager: State<'_, PtyManager>,
 ) -> Result<(), String> {
-    let sessions = manager.sessions.lock();
-    let session = sessions
-        .get(&pty_id)
-        .ok_or_else(|| format!("PTY {} non disponibile", pty_id))?;
-    let mut writer = session.writer.lock();
-    writer
-        .write_all(&data)
-        .map_err(|error| format!("Scrittura PTY {}: {}", pty_id, error))?;
-    writer
-        .flush()
-        .map_err(|error| format!("Flush PTY {}: {}", pty_id, error))
+    let writer = {
+        let sessions = manager.sessions.lock();
+        let session = sessions
+            .get(&pty_id)
+            .ok_or_else(|| format!("PTY {} non disponibile", pty_id))?;
+        session.writer.clone()
+    };
+    tokio::task::spawn_blocking(move || {
+        let mut writer = writer.lock();
+        writer
+            .write_all(&data)
+            .map_err(|error| format!("Scrittura PTY {}: {}", pty_id, error))?;
+        writer
+            .flush()
+            .map_err(|error| format!("Flush PTY {}: {}", pty_id, error))
+    })
+    .await
+    .map_err(|e| format!("Task pty_write: {}", e))?
 }
 
 #[tauri::command]
@@ -388,22 +593,20 @@ pub async fn pty_resize(
 #[tauri::command]
 pub async fn pty_close(pty_id: u64, manager: State<'_, PtyManager>) -> Result<(), String> {
     let session = manager.sessions.lock().remove(&pty_id);
-    if let Some(session) = session {
-        let mut child = session.child.lock();
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    if let Some(mut breadcrumb) = crate::omp_ops::agent_dir() {
-        breadcrumb.push("terminal-sessions");
-        breadcrumb.push(format!("wt-{}", terminal_id(pty_id)));
-        let _ = std::fs::remove_file(breadcrumb);
-    }
+    tokio::task::spawn_blocking(move || {
+        if let Some(session) = session {
+            session.kill_tree();
+        }
+        remove_breadcrumb(pty_id);
+    })
+    .await
+    .map_err(|e| format!("Chiusura PTY {}: {}", pty_id, e))?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::session_id_from_path;
+    use super::*;
     use std::path::Path;
 
     #[test]
@@ -415,5 +618,37 @@ mod tests {
             session_id_from_path(path).as_deref(),
             Some("01a03271-a569-7000-add2-1e09089f3e60")
         );
+    }
+
+    #[test]
+    fn pty_manager_close_all_gestisce_mappa_vuota() {
+        let manager = PtyManager::new();
+        manager.close_all();
+        assert!(manager.sessions.lock().is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_job_creazione_e_terminazione_child_process() {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut child = Command::new("cmd")
+            .args(["/c", "timeout", "/t", "10"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .expect("avvio child cmd");
+
+        let pid = child.id();
+        let job = WindowsJob::create_for_process(pid);
+        assert!(job.is_ok(), "Job Object associato al child process");
+
+        // Termina il Job Object e verifica che il processo sia stato terminato
+        if let Ok(j) = job {
+            j.terminate();
+        }
+        let status = child.wait().expect("wait su child");
+        assert!(!status.success());
     }
 }

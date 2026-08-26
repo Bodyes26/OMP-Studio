@@ -1,120 +1,48 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
 import { normalizeProjectPath, projectStore } from './projects.svelte';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
 import type { ImageContent } from '$lib/agent/wire';
 import { attachEditorContext } from '$lib/editor/editorContext';
-export type AgentView = 'queue' | 'sessions';
-export type StudioTaskStatus = 'queued' | 'dispatching';
+import {
+	type AgentView,
+	type StudioTaskStatus,
+	type StudioTaskOptions,
+	type StudioTask,
+	type TaskSessionOrigin,
+	type PersistedTaskState,
+	parsePersistedState,
+	sanitizeLoadedTasks,
+	applyTaskModeDirectives,
+	parseProjectTasksFile,
+	serializeProjectTasksFile
+} from './taskSerialization';
 
-export interface StudioTaskOptions {
-	role?: string;
-	modelSelector?: string;
-	thinkingLevel?: string;
-	planMode?: boolean;
-	discussionMode?: boolean;
-	minimalMode?: boolean;
-	researchMode?: boolean;
-	includeEditorContext?: boolean;
-}
-
-export interface StudioTask {
-	id: string;
-	projectPath: string;
-	prompt: string;
-	images?: ImageContent[];
-	options?: StudioTaskOptions;
-	position: number;
-	createdAt: number;
-	updatedAt: number;
-	status: StudioTaskStatus;
-}
-
-export interface TaskSessionOrigin {
-	projectPath: string;
-	sessionId: string;
-	taskId: string;
-	title: string;
-	launchedAt: number;
-}
+export type {
+	AgentView,
+	StudioTaskStatus,
+	StudioTaskOptions,
+	StudioTask,
+	TaskSessionOrigin,
+	PersistedTaskState
+};
+export { parsePersistedState, sanitizeLoadedTasks };
 
 /**
  * Formatta il prompt del task applicando le direttive speciali e il contesto editor.
  */
 export function formatTaskPrompt(task: StudioTask, projectPath?: string): string {
-	let body = task.prompt.trim();
-	const prefixes: string[] = [];
-
-	if (task.options?.discussionMode) {
-		prefixes.push('[Modalita Discussione: NON modificare codice subito. Analizza il progetto e usa la skill /grill-me o interroga l\'utente con domande mirate per chiarire decisioni, vincoli e architettura prima di procedere.]');
-	}
-	if (task.options?.planMode) {
-		prefixes.push('[Modalita Piano: formula prima un piano di esecuzione dettagliato passo-passo ed esponilo per approvazione prima di procedere con modifiche.]');
-	}
-	if (task.options?.minimalMode) {
-		prefixes.push('[Modalita Minimale: applica la soluzione piu pigra, semplice e minimale possibile (/ponytail). Evita astrazioni premature, boilerplate o nuove dipendenze se non indispensabili.]');
-	}
-
-	if (prefixes.length > 0) {
-		body = `${prefixes.join('\n\n')}\n\n${body}`;
-	}
-
-	if (task.options?.researchMode) {
-		const researchDirective = '[Direttiva Ricerca Online: Dopo aver analizzato al completo la richiesta e tutto il codice collegato nel progetto, effettua ricerche online approfondite sull\'ambito e sulla richiesta (documentazione, riferimenti, librerie e best practice) prima di procedere con l\'implementazione o le modifiche.]';
-		body = body ? `${body}\n\n${researchDirective}` : researchDirective;
-	}
-
+	let body = applyTaskModeDirectives(task.prompt, task.options);
 	if (task.options?.includeEditorContext !== false) {
 		body = attachEditorContext(body, projectPath);
 	}
-
 	return body;
-}
-
-interface PersistedTaskState {
-	tasks: StudioTask[];
-	origins: TaskSessionOrigin[];
-	views: Record<string, AgentView>;
 }
 
 function projectKey(path: string): string {
 	return normalizeProjectPath(path).toLowerCase();
-}
-
-function parsePersistedState(value: unknown): PersistedTaskState | null {
-	if (!value || typeof value !== 'object') return null;
-	const record = value as Record<string, unknown>;
-	if (!Array.isArray(record.tasks) || !Array.isArray(record.origins) || !record.views || typeof record.views !== 'object') {
-		return null;
-	}
-
-	const tasks = record.tasks.filter((entry): entry is StudioTask => {
-		if (!entry || typeof entry !== 'object') return false;
-		const task = entry as Record<string, unknown>;
-		return typeof task.id === 'string'
-			&& typeof task.projectPath === 'string'
-			&& typeof task.prompt === 'string'
-			&& (task.images === undefined || Array.isArray(task.images))
-			&& (task.options === undefined || (typeof task.options === 'object' && task.options !== null))
-			&& typeof task.position === 'number'
-			&& typeof task.createdAt === 'number'
-			&& typeof task.updatedAt === 'number'
-			&& (task.status === 'queued' || task.status === 'dispatching');
-	});
-	const origins = record.origins.filter((entry): entry is TaskSessionOrigin => {
-		if (!entry || typeof entry !== 'object') return false;
-		const origin = entry as Record<string, unknown>;
-		return typeof origin.projectPath === 'string'
-			&& typeof origin.sessionId === 'string'
-			&& typeof origin.taskId === 'string'
-			&& typeof origin.title === 'string'
-			&& typeof origin.launchedAt === 'number';
-	});
-	const views = Object.fromEntries(
-		Object.entries(record.views as Record<string, unknown>)
-			.filter((entry): entry is [string, AgentView] => entry[1] === 'queue' || entry[1] === 'sessions')
-	);
-	return { tasks, origins, views };
 }
 
 
@@ -124,37 +52,119 @@ class TaskStore {
 	views = $state<Record<string, AgentView>>({});
 	private store: Store | null = null;
 	private initialized = false;
+	private loadedProjects = new Set<string>();
+	private unlistenTasksChanged: UnlistenFn | null = null;
+	private pendingProjectSaves = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor() {
 		void this.init();
 	}
 
+	private get isTauri(): boolean {
+		return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+	}
+
 	private async init() {
-		// I default dei task vengono da settingsStore: va atteso qui, non solo
-		// dal guscio, o createTask nascerebbe con i default vuoti in corsa.
 		await settingsStore.init();
 		this.store = await load('tasks.json', { autoSave: false });
 		const persisted = parsePersistedState(await this.store.get<unknown>('taskState'));
 		if (persisted) {
-			this.tasks = (persisted.tasks ?? [])
-				.filter((task) => task.prompt.trim() || (task.images && task.images.length > 0))
-				.map((task) => ({ ...task, status: 'queued' as const }));
+			this.tasks = sanitizeLoadedTasks(persisted.tasks ?? []);
 			this.origins = persisted.origins ?? [];
 			this.views = persisted.views ?? {};
 		}
 		this.initialized = true;
+
+		// Ascolta gli eventi di modifica provenienti da OMP (TUI / Tool)
+		if (this.isTauri) {
+			try {
+				this.unlistenTasksChanged = await listen<{ projectPath: string }>(
+					'project-tasks-changed',
+					async (event) => {
+						const path = event.payload?.projectPath;
+						if (path) {
+							await this.reloadProject(path);
+						}
+					}
+				);
+			} catch (err) {
+				console.warn('Listener project-tasks-changed non registrato:', err);
+			}
+		}
+
+		// Carica i task per tutti i progetti aperti
+		for (const project of projectStore.projects) {
+			if (project.path) {
+				void this.loadProject(project.path);
+			}
+		}
 	}
 
-	private save = debounce(async () => {
+	async loadProject(projectPath: string) {
+		if (!projectPath || !projectPath.trim() || !this.isTauri) return;
+		const key = projectKey(projectPath);
+		try {
+			const content = await invoke<string>('project_tasks_read', { projectPath });
+			if (content && content.trim()) {
+				const projectTasks = parseProjectTasksFile(content, key);
+				this.tasks = this.tasks.filter((t) => t.projectPath !== key).concat(projectTasks);
+			} else {
+				// Migrazione automatica se presenti task nel vecchio store globale
+				const existing = this.tasksFor(projectPath);
+				const toWrite = serializeProjectTasksFile(existing);
+				await invoke('project_tasks_write', { projectPath, content: toWrite });
+			}
+			await invoke('project_tasks_watch', { projectPath });
+			this.loadedProjects.add(key);
+		} catch (err) {
+			console.warn(`Impossibile caricare .omp/tasks.json per ${projectPath}:`, err);
+		}
+	}
+
+	async reloadProject(projectPath: string) {
+		if (!projectPath || !this.isTauri) return;
+		const key = projectKey(projectPath);
+		try {
+			const content = await invoke<string>('project_tasks_read', { projectPath });
+			if (content !== undefined) {
+				const projectTasks = parseProjectTasksFile(content, key);
+				this.tasks = this.tasks.filter((t) => t.projectPath !== key).concat(projectTasks);
+			}
+		} catch (err) {
+			console.warn(`Errore reload task per ${projectPath}:`, err);
+		}
+	}
+
+	private saveGlobal = debounce(async () => {
 		if (!this.initialized || !this.store) return;
 		const state: PersistedTaskState = {
-			tasks: $state.snapshot(this.tasks),
+			tasks: [], // I task di progetto risiedono in .omp/tasks.json
 			origins: $state.snapshot(this.origins),
 			views: $state.snapshot(this.views)
 		};
 		await this.store.set('taskState', state);
 		await this.store.save();
 	}, 250);
+
+	private saveProject(projectPath: string) {
+		if (!projectPath) return;
+		const key = projectKey(projectPath);
+		clearTimeout(this.pendingProjectSaves.get(key));
+
+		const timer = setTimeout(async () => {
+			this.pendingProjectSaves.delete(key);
+			if (!this.isTauri) return;
+			try {
+				const tasks = this.tasksFor(projectPath);
+				const content = serializeProjectTasksFile(tasks);
+				await invoke('project_tasks_write', { projectPath, content });
+			} catch (err) {
+				console.error(`Errore salvataggio task per ${projectPath}:`, err);
+			}
+		}, 150);
+
+		this.pendingProjectSaves.set(key, timer);
+	}
 
 	createTask(projectPath: string): StudioTask {
 		const key = projectKey(projectPath);
@@ -187,7 +197,7 @@ class TaskStore {
 			status: 'queued'
 		};
 		this.tasks.push(task);
-		this.save();
+		this.saveProject(task.projectPath);
 		return task;
 	}
 
@@ -197,6 +207,10 @@ class TaskStore {
 
 	tasksFor(projectPath: string): StudioTask[] {
 		const key = projectKey(projectPath);
+		if (this.initialized && !this.loadedProjects.has(key)) {
+			this.loadedProjects.add(key);
+			void this.loadProject(projectPath);
+		}
 		return this.tasks
 			.filter((task) => task.projectPath === key)
 			.sort((left, right) => left.position - right.position || left.createdAt - right.createdAt);
@@ -248,7 +262,7 @@ class TaskStore {
 			task.options = options;
 		}
 		task.updatedAt = Date.now();
-		this.save();
+		this.saveProject(task.projectPath);
 	}
 	updatePrompt(id: string, prompt: string) {
 		this.updateTask(id, prompt);
@@ -260,7 +274,7 @@ class TaskStore {
 		const path = task.projectPath;
 		this.tasks = this.tasks.filter((candidate) => candidate.id !== id);
 		this.reindex(path);
-		this.save();
+		this.saveProject(path);
 	}
 
 	/** Svuota la coda di un progetto. Le `origins` restano: sono lo storico
@@ -268,7 +282,7 @@ class TaskStore {
 	clearProject(projectPath: string) {
 		const key = projectKey(projectPath);
 		this.tasks = this.tasks.filter((task) => task.projectPath !== key);
-		this.save();
+		this.saveProject(projectPath);
 	}
 
 	moveTask(id: string, targetId: string) {
@@ -283,7 +297,7 @@ class TaskStore {
 		const [moved] = ordered.splice(from, 1);
 		ordered.splice(to, 0, moved);
 		ordered.forEach((task, index) => task.position = index);
-		this.save();
+		this.saveProject(source.projectPath);
 	}
 
 	moveTaskBy(id: string, offset: -1 | 1) {
@@ -299,14 +313,14 @@ class TaskStore {
 		const task = this.taskById(id);
 		if (!task) return;
 		task.status = 'dispatching';
-		this.save();
+		this.saveProject(task.projectPath);
 	}
 
 	rollbackDispatch(id: string) {
 		const task = this.taskById(id);
 		if (!task) return;
 		task.status = 'queued';
-		this.save();
+		this.saveProject(task.projectPath);
 	}
 
 	completeDispatch(id: string, sessionId: string) {
@@ -326,7 +340,8 @@ class TaskStore {
 		const path = task.projectPath;
 		this.tasks = this.tasks.filter((candidate) => candidate.id !== id);
 		this.reindex(path);
-		this.save();
+		this.saveProject(path);
+		this.saveGlobal();
 	}
 
 	originsFor(projectPath: string): TaskSessionOrigin[] {
@@ -345,7 +360,7 @@ class TaskStore {
 
 	setView(projectPath: string, view: AgentView) {
 		this.views[projectKey(projectPath)] = view;
-		this.save();
+		this.saveGlobal();
 	}
 
 	private reindex(projectPath: string) {

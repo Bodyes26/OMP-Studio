@@ -16,7 +16,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -49,6 +49,7 @@ pub struct RpcSession {
     stdin: Arc<Mutex<Option<ChildStdin>>>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     protocol: Arc<AtomicU8>,
+    abort_signal: Arc<AtomicBool>,
 }
 
 pub struct RpcManager {
@@ -169,6 +170,7 @@ fn reader_loop(
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     sessions: Arc<Mutex<HashMap<u64, RpcSession>>>,
     rpc_id: u64,
+    abort_signal: Arc<AtomicBool>,
 ) {
     let mut reader = BufReader::with_capacity(1 << 16, stdout);
     let mut raw = Vec::with_capacity(1 << 16);
@@ -188,12 +190,17 @@ fn reader_loop(
         if raw.is_empty() {
             continue;
         }
+        // Svuota delta e chunk pendenti se e' arrivato un segnale di abort
+        if abort_signal.swap(false, Ordering::SeqCst) {
+            pending_delta = None;
+            assembly = None;
+        }
+
         let Ok(line) = std::str::from_utf8(&raw) else {
             // stdout di omp e' UTF-8 per contratto: una riga non decodificabile
             // e' corruzione del filo, non un frame da inoltrare.
             continue;
         };
-
         // I chunk si riassemblano qui: il webview non ne vede mai uno.
         if line.contains("\"rpc_chunk\"") {
             match reassemble(line, &mut assembly) {
@@ -216,6 +223,12 @@ fn reader_loop(
             }
             continue;
         }
+        // Se arriva una riga ordinaria non-chunk mentre una sequenza era in corso,
+        // la sequenza incompleta e' da considerarsi interrotta/annullata.
+        if assembly.is_some() {
+            assembly = None;
+        }
+
 
         if !dispatch(line, &on_event, &stdin, &protocol, &mut pending_delta) {
             break;
@@ -276,10 +289,22 @@ fn reassemble(line: &str, assembly: &mut Option<ChunkAssembly>) -> Result<Option
             current
         }
         Some(previous) => {
-            return Err(format!(
-                "Sequenza di chunk {} interlacciata con {}",
-                previous.chunk_id, chunk.chunk_id
-            ));
+            if chunk.index == 0 {
+                // Se la sequenza precedente e' stata troncata e ne inizia una nuova (index 0),
+                // scartiamo quella vecchia senza fallire la nuova.
+                ChunkAssembly {
+                    chunk_id: chunk.chunk_id.clone(),
+                    count: chunk.count,
+                    byte_length: chunk.byte_length,
+                    next_index: 0,
+                    buffer: Vec::with_capacity(chunk.byte_length.min(MAX_REASSEMBLED_BYTES)),
+                }
+            } else {
+                return Err(format!(
+                    "Sequenza di chunk {} interlacciata con {}",
+                    previous.chunk_id, chunk.chunk_id
+                ));
+            }
         }
         None => {
             if chunk.index != 0 {
@@ -384,7 +409,9 @@ fn dispatch(
     // Qualsiasi frame che non sia un delta e' un punto di riallineamento:
     // i delta accumulati vanno spediti prima, o arriverebbero dopo il
     // `*_end` che li rende autorevoli.
-    if let Some(buffer) = pending_delta.take() {
+    if line.contains("\"command\":\"abort\"") {
+        *pending_delta = None;
+    } else if let Some(buffer) = pending_delta.take() {
         if on_event.send(buffer.into_frame()).is_err() {
             return false;
         }
@@ -392,6 +419,7 @@ fn dispatch(
 
     if let Some(peek) = &peek {
         if peek.kind == Some("ready") {
+            *pending_delta = None;
             let supports_v2 = peek
                 .supported_protocol_versions
                 .as_ref()
@@ -430,6 +458,8 @@ pub async fn rpc_open(
     let overlay_path = write_gui_overlay();
     let diagram_extension =
         crate::pty::write_extension("studio-diagram.ts", crate::pty::DIAGRAM_EXTENSION_TS);
+    let tasks_extension =
+        crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
 
     let rpc_id = {
         let mut guard = manager.next_id.lock();
@@ -452,6 +482,9 @@ pub async fn rpc_open(
     }
     command.arg("--config").arg(&overlay_path);
     if let Some(path) = &diagram_extension {
+        command.arg("-e").arg(path);
+    }
+    if let Some(path) = &tasks_extension {
         command.arg("-e").arg(path);
     }
     if let Some(session_id) = resume.as_deref().filter(|id| !id.is_empty()) {
@@ -500,6 +533,7 @@ pub async fn rpc_open(
     let stdin = Arc::new(Mutex::new(Some(stdin)));
     let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
     let protocol = Arc::new(AtomicU8::new(1));
+    let abort_signal = Arc::new(AtomicBool::new(false));
     let child = Arc::new(Mutex::new(child));
 
     manager.sessions.lock().insert(
@@ -509,6 +543,7 @@ pub async fn rpc_open(
             stdin: stdin.clone(),
             stderr_tail: stderr_tail.clone(),
             protocol: protocol.clone(),
+            abort_signal: abort_signal.clone(),
         },
     );
 
@@ -524,6 +559,7 @@ pub async fn rpc_open(
             reader_tail,
             sessions,
             rpc_id,
+            abort_signal,
         );
     });
 
@@ -546,13 +582,17 @@ pub async fn rpc_send(
     line: String,
     manager: State<'_, RpcManager>,
 ) -> Result<(), String> {
-    let stdin = {
+    let (stdin, abort_signal) = {
         let sessions = manager.sessions.lock();
         let session = sessions
             .get(&rpc_id)
             .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
-        session.stdin.clone()
+        (session.stdin.clone(), session.abort_signal.clone())
     };
+
+    if line.contains("\"type\":\"abort\"") || line.contains("\"type\":\"abort_bash\"") {
+        abort_signal.store(true, Ordering::SeqCst);
+    }
     let mut guard = stdin.lock();
     let handle = guard
         .as_mut()
@@ -656,7 +696,19 @@ mod tests {
     fn rifiuta_una_sequenza_interlacciata() {
         let mut assembly = None;
         let _ = reassemble(&chunk("c1", 0, 2, 10, "0123456789"), &mut assembly);
-        assert!(reassemble(&chunk("c2", 0, 2, 10, "0123456789"), &mut assembly).is_err());
+        assert!(reassemble(&chunk("c2", 1, 2, 10, "0123456789"), &mut assembly).is_err());
+    }
+
+    #[test]
+    fn recupera_sequenza_nuova_dopo_interruzione() {
+        let mut assembly = None;
+        let _ = reassemble(&chunk("c1", 0, 2, 10, "0123456789"), &mut assembly);
+        let logical = r#"{"type":"response","command":"abort"}"#;
+        assert_eq!(
+            reassemble(&chunk("c2", 0, 1, logical.len(), logical), &mut assembly),
+            Ok(Some(logical.to_string()))
+        );
+        assert!(assembly.is_none());
     }
 
     #[test]

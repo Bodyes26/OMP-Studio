@@ -8,7 +8,8 @@ mod projects;
 use projects::{
     file_git_head, file_git_rev, file_read, file_write, git_branch_checkout, git_branch_create,
     git_branch_list, git_branch_merge, git_current_branch, git_last_commit, git_recent_commits,
-    git_working_numstat, preview_file, project_git_status, resolve_project_file, tree_read,
+    git_working_numstat, preview_file, project_git_status, project_tasks_read, project_tasks_watch,
+    project_tasks_unwatch, project_tasks_write, resolve_project_file, tree_read,
 };
 mod omp_ops;
 use omp_ops::{
@@ -29,7 +30,7 @@ use models_ops::{
 mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
 mod alerts;
-use alerts::{clear_app_attention, set_app_attention};
+use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -46,6 +47,7 @@ pub fn run() {
         .manage(RpcManager::new())
         .manage(StudioUpdaterState::new())
         .manage(diagrams::DiagramWatcherState::new())
+        .manage(projects::ProjectTasksState::new())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = app
                 .get_webview_window("main")
@@ -91,6 +93,10 @@ pub fn run() {
             git_branch_create,
             git_branch_merge,
             preview_file,
+            project_tasks_read,
+            project_tasks_write,
+            project_tasks_watch,
+            project_tasks_unwatch,
             resolve_project_file,
             usage_snapshot,
             sessions_list,
@@ -123,7 +129,17 @@ pub fn run() {
             set_app_attention,
             clear_app_attention
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if window.label() == "main" {
+                    if let Some(pty_manager) = window.try_state::<PtyManager>() {
+                        pty_manager.close_all();
+                    }
+                }
+            }
+        })
         .setup(|app| {
+            init_windows_aumid();
             // Il watcher dei diagrammi parte subito dopo il setup: ascolta
             // la cartella di scambio e notifica il frontend via
             // `diagram://new`.
@@ -131,6 +147,13 @@ pub fn run() {
             previews::spawn_watcher(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                if let Some(pty_manager) = app_handle.try_state::<PtyManager>() {
+                    pty_manager.close_all();
+                }
+            }
+        });
 }

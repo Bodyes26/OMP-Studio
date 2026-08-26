@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, tick } from 'svelte';
-	import { taskStore, type StudioTask, type StudioTaskOptions } from '$lib/stores/tasks.svelte';
+	import { taskStore, type StudioTask, type StudioTaskStatus, type StudioTaskOptions } from '$lib/stores/tasks.svelte';
 	import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	import type { AgentSession } from '$lib/agent/session.svelte';
 	import type { AvailableCommand, ImageContent } from '$lib/agent/wire';
@@ -48,21 +48,48 @@
 	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
 	let fileInputEl = $state<HTMLInputElement | null>(null);
 	let isDraggingOver = $state(false);
+	let advancedOpen = $state(false);
 
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session?.availableCommands ?? []));
 	const title = $derived(prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task');
 
-	// Ruoli principali disponibili per la barra di difficolta / preset
+	// Ruoli principali disponibili per la barra di selezione rapida
 	const DIFFICULTY_ROLES = [
-		{ id: 'smol', label: 'Leggero / Rapido', badge: 'smol', desc: 'Fix rapidi, compiti semplici e modelli veloci' },
-		{ id: 'default', label: 'Standard / Chat', badge: 'default', desc: 'Sviluppo normale e interazione standard' },
-		{ id: 'slow', label: 'Deep Reasoning', badge: 'slow', desc: 'Ragionamento approfondito e problemi complessi' },
-		{ id: 'plan', label: 'Architetturale', badge: 'plan', desc: 'Pianificazione e progettazione strutturale' }
+		{ id: 'smol', label: 'Rapido', badge: '⚡ smol', desc: 'Fix rapidi, compiti semplici e modelli veloci' },
+		{ id: 'default', label: 'Standard', badge: '⌘ default', desc: 'Sviluppo normale e interazione standard' },
+		{ id: 'slow', label: 'Deep Reasoning', badge: '∞ slow', desc: 'Ragionamento approfondito e problemi complessi' },
+		{ id: 'plan', label: 'Architettura', badge: '◆ plan', desc: 'Pianificazione e progettazione strutturale' }
 	] as const;
+
+	const currentRoleDisplay = $derived.by(() => {
+		if (options.role === 'custom') return { badge: 'custom', label: 'Personalizzato' };
+		const found = DIFFICULTY_ROLES.find((r) => r.id === options.role);
+		return found ? { badge: found.badge, label: found.label } : { badge: options.role || 'default', label: options.role || 'Default' };
+	});
+
+	const activeModifiersCount = $derived(
+		(options.planMode ? 1 : 0) +
+		(options.discussionMode ? 1 : 0) +
+		(options.minimalMode ? 1 : 0) +
+		(options.researchMode ? 1 : 0) +
+		(options.includeEditorContext === false ? 1 : 0)
+	);
 
 	$effect(() => {
 		void modelSettingsStore.ensureLoaded();
 	});
+
+	// Auto-dimensionamento della textarea prompt (140px - 460px)
+	function adjustTextareaHeight() {
+		if (!textareaEl) return;
+		textareaEl.style.height = 'auto';
+		const scrollH = textareaEl.scrollHeight;
+		const minH = 140;
+		const maxH = 460;
+		const targetH = Math.max(minH, Math.min(scrollH, maxH));
+		textareaEl.style.height = `${targetH}px`;
+		textareaEl.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
+	}
 
 	// Sincronizza stato e mette il focus immediato al cambio o creazione del task
 	$effect(() => {
@@ -76,7 +103,20 @@
 			deleteArmed = false;
 			paletteOpen = false;
 			currentSlashMatch = null;
+
+			// Apri automaticamente opzioni avanzate se il task usa configurazioni non predefinite
+			advancedOpen = Boolean(
+				(task.options?.role && task.options.role !== 'default') ||
+				task.options?.planMode ||
+				task.options?.discussionMode ||
+				task.options?.minimalMode ||
+				task.options?.researchMode ||
+				task.options?.modelSelector ||
+				(task.options?.thinkingLevel && task.options.thinkingLevel !== 'auto')
+			);
+
 			void tick().then(() => {
+				adjustTextareaHeight();
 				textareaEl?.focus();
 				if (textareaEl) {
 					textareaEl.selectionStart = textareaEl.value.length;
@@ -121,6 +161,7 @@
 
 	function handlePromptInput() {
 		saveTask();
+		adjustTextareaHeight();
 		updateSlashState();
 	}
 
@@ -132,6 +173,7 @@
 		if (!currentSlashMatch) {
 			prompt = `/${value} `;
 			saveTask();
+			adjustTextareaHeight();
 			paletteOpen = keepsOpen;
 			textareaEl?.focus();
 			return;
@@ -145,6 +187,7 @@
 		);
 		prompt = res.newText;
 		saveTask();
+		adjustTextareaHeight();
 		paletteOpen = keepsOpen;
 		currentSlashMatch = null;
 
@@ -295,6 +338,7 @@
 				paletteOpen = false;
 				return;
 			}
+			e.preventDefault();
 			e.stopPropagation();
 			closeEditor();
 			return;
@@ -303,8 +347,22 @@
 		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 			e.preventDefault();
 			e.stopPropagation();
-			runNow();
+			closeEditor();
+			return;
 		}
+	}
+
+	function cycleStatus() {
+		const next: Record<StudioTaskStatus, StudioTaskStatus> = {
+			queued: 'in_progress',
+			in_progress: 'completed',
+			completed: 'queued',
+			abandoned: 'queued',
+			dispatching: 'queued'
+		};
+		task.status = next[task.status] || 'queued';
+		task.updatedAt = Date.now();
+		taskStore.updateTask(task.id, prompt, attachedImages, options);
 	}
 
 	function requestDelete() {
@@ -314,34 +372,53 @@
 			return;
 		}
 		deleteArmed = true;
-		if (deleteTimer !== null) window.clearTimeout(deleteTimer);
-		deleteTimer = window.setTimeout(() => deleteArmed = false, 4000);
+		window.clearTimeout(deleteTimer ?? undefined);
+		deleteTimer = window.setTimeout(() => (deleteArmed = false), 4000);
 	}
 
 	onDestroy(() => {
-		if (deleteTimer !== null) window.clearTimeout(deleteTimer);
+		window.clearTimeout(deleteTimer ?? undefined);
 	});
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="task-editor" onkeydown={handleKeydown}>
+<svelte:window onkeydown={handleKeydown} />
+
+<div class="task-editor" role="region" aria-label="Editor del task">
 	<header class="task-toolbar">
 		<div class="task-heading">
 			<span class="task-badge">TASK</span>
-			<span class="task-title" title={title}>{title}</span>
-		</div>
-		<div class="task-actions">
-			<span class="save-state" aria-live="polite">Salvato</span>
 			<button
 				type="button"
-				class="action-btn delete-btn"
+				class="status-toggle-btn {task.status}"
+				onclick={cycleStatus}
+				title="Clicca per cambiare lo stato del task"
+			>
+				{#if task.status === 'in_progress'}
+					● In corso
+				{:else if task.status === 'completed'}
+					✓ Fatto
+				{:else if task.status === 'abandoned'}
+					✕ Abbandonato
+				{:else}
+					○ In coda
+				{/if}
+			</button>
+			<span class="task-title" title={title}>{title}</span>
+			<span class="save-state" aria-live="polite">Salvato</span>
+		</div>
+
+		<div class="task-actions">
+			<!-- Distruttivo: Elimina -->
+			<button
+				type="button"
+				class="action-btn btn-danger"
 				class:confirm-delete={deleteArmed}
 				onclick={requestDelete}
 				aria-label={deleteArmed ? 'Conferma eliminazione task' : 'Elimina task'}
-				title={deleteArmed ? 'Clicca ancora per eliminare' : 'Elimina task'}
+				title={deleteArmed ? 'Clicca ancora per eliminare definitivamente' : 'Elimina questo task'}
 			>
 				{#if deleteArmed}
-					Conferma elimina
+					<span>Conferma elimina</span>
 				{:else}
 					<svg viewBox="0 0 16 16" aria-hidden="true">
 						<path d="M3 4.5h10M6 2.5h4l.7 2H5.3l.7-2ZM5 6.5v6M8 6.5v6M11 6.5v6M4.5 4.5l.6 9h5.8l.6-9" />
@@ -350,39 +427,57 @@
 				{/if}
 			</button>
 
+			<!-- Secondario: Esegui / Avvia subito -->
+			{#if onRunTask}
+				<button
+					type="button"
+					class="action-btn btn-secondary"
+					onclick={runNow}
+					disabled={!prompt.trim() && attachedImages.length === 0}
+					aria-label="Esegui subito questo task"
+					title="Esegui subito questo task"
+				>
+					<svg viewBox="0 0 16 16" aria-hidden="true">
+						<path d="M4 3.5l9 4.5-9 4.5V3.5z" />
+					</svg>
+					<span>Esegui</span>
+				</button>
+			{/if}
+
+			<!-- Primario: Salva (Ctrl+Invio) -->
 			<button
 				type="button"
-				class="action-btn primary-btn"
+				class="action-btn btn-primary"
 				onclick={closeEditor}
-				title="Chiudi editor e torna alla vista precedente (Esc)"
+				aria-label="Salva e chiudi editor task (Ctrl+Invio)"
+				title="Salva modifiche e chiudi editor (Ctrl+Invio)"
 			>
 				<svg viewBox="0 0 16 16" aria-hidden="true">
 					<path d="M3.5 8.5l3 3 6-6" />
 				</svg>
-				<span>Salva e Chiudi</span>
-				<kbd>Esc</kbd>
+				<span>Salva</span>
+				<kbd>Ctrl+↵</kbd>
 			</button>
 
-			{#if onRunTask}
-				<button
-					type="button"
-					class="action-btn launch-btn"
-					onclick={runNow}
-					disabled={!prompt.trim() && attachedImages.length === 0}
-					title="Avvia subito questo task (Ctrl+Invio)"
-				>
-					<svg viewBox="0 0 16 16" aria-hidden="true">
-						<path d="M4 3l9 5-9 5V3z" />
-					</svg>
-					<span>Avvia ora</span>
-					<kbd>Ctrl+↵</kbd>
-				</button>
-			{/if}
+			<div class="actions-divider" aria-hidden="true"></div>
+
+			<!-- Chiudi (Esc) -->
+			<button
+				type="button"
+				class="action-btn btn-close"
+				onclick={closeEditor}
+				aria-label="Chiudi editor (Esc)"
+				title="Chiudi editor (Esc)"
+			>
+				<svg viewBox="0 0 16 16" aria-hidden="true">
+					<path d="M4 4l8 8M12 4L4 12" />
+				</svg>
+			</button>
 		</div>
 	</header>
 
 	<div class="editor-scroll-body">
-		<!-- Sezione 1: Prompt & Allegati -->
+		<!-- Sezione 1: Prompt & Allegati (Hero / Centro) -->
 		<section
 			class="prompt-section"
 			class:dragging={isDraggingOver}
@@ -411,8 +506,15 @@
 					oninput={handlePromptInput}
 					onclick={handleCursorMovement}
 					onkeyup={handleCursorMovement}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+							e.preventDefault();
+							e.stopPropagation();
+							closeEditor();
+						}
+					}}
 					onpaste={handlePaste}
-					placeholder="Descrivi cosa deve fare l'agente... digita / ovunque per inserire skill e comandi..."
+					placeholder="Descrivi cosa deve fare l'agente... digita / per inserire skill e comandi..."
 					spellcheck="true"
 				></textarea>
 
@@ -459,6 +561,7 @@
 						type="button"
 						class="attach-btn"
 						onclick={triggerFileInput}
+						aria-label="Allega screenshot o immagine al task"
 						title="Allega screenshot o immagine"
 					>
 						<svg viewBox="0 0 16 16" aria-hidden="true">
@@ -468,212 +571,205 @@
 					</button>
 
 					<div class="footer-hints">
-						<span class="hint-text">Incolla screenshot (Ctrl+V) o digita <code>/</code> per le skill</span>
+						<span class="hint-text"><kbd>Ctrl+V</kbd> incolla screenshot · digita <code>/</code> per le skill</span>
 					</div>
 				</div>
 			</div>
 		</section>
 
-		<!-- Sezione 2: Complessità & Ruolo -->
-		<section class="config-section">
-			<div class="section-title">
-				<div class="title-left">
-					<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
-						<path d="M8 2v12M2 8h12" stroke-linecap="round" />
-					</svg>
-					<h3>Livello di Complessità & Ruolo</h3>
-				</div>
-				<span class="section-desc">Seleziona il profilo di ragionamento ideale per questa richiesta</span>
-			</div>
-
-			<div class="role-selector-grid">
-				{#each DIFFICULTY_ROLES as r (r.id)}
-					{@const active = options.role === r.id}
-					<button
-						type="button"
-						class="role-card"
-						class:active
-						onclick={() => selectRole(r.id)}
+		<!-- Sezione 2: Opzioni Avanzate (Collassabile e compatta) -->
+		<section class="advanced-section" aria-label="Opzioni avanzate del task">
+			<button
+				type="button"
+				class="advanced-toggle-btn"
+				onclick={() => (advancedOpen = !advancedOpen)}
+				aria-expanded={advancedOpen}
+				aria-controls="advanced-controls-panel"
+			>
+				<div class="advanced-toggle-left">
+					<svg
+						class="chevron-icon"
+						class:rotated={advancedOpen}
+						viewBox="0 0 16 16"
+						aria-hidden="true"
 					>
-						<div class="role-card-header">
-							<span class="role-badge">{r.badge}</span>
-							<span class="role-name">{r.label}</span>
-						</div>
-						<span class="role-desc">{r.desc}</span>
-					</button>
-				{/each}
-				
-				<button
-					type="button"
-					class="role-card"
-					class:active={options.role === 'custom'}
-					onclick={() => selectRole('custom')}
-				>
-					<div class="role-card-header">
-						<span class="role-badge">custom</span>
-						<span class="role-name">Personalizzato</span>
-					</div>
-					<span class="role-desc">Override manuale modello e thinking sotto</span>
-				</button>
-			</div>
-		</section>
-
-		<!-- Sezione 3: Dettaglio Modello & Thinking -->
-		<section class="config-section model-section">
-			<div class="section-title">
-				<div class="title-left">
-					<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
-						<path d="M2 4.5A2.5 2.5 0 0 1 4.5 2h7A2.5 2.5 0 0 1 14 4.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 11.5v-7z" />
-						<path d="M6 8h4M8 6v4" stroke-linecap="round" />
+						<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
 					</svg>
-					<h3>Modello Specifico & Thinking Effort</h3>
+					<span class="advanced-title">Opzioni avanzate</span>
+					<div class="advanced-summary">
+						<span class="summary-chip">{currentRoleDisplay.badge}</span>
+						{#if options.thinkingLevel && options.thinkingLevel !== 'auto'}
+							<span class="summary-chip">thinking: {options.thinkingLevel}</span>
+						{/if}
+						{#if activeModifiersCount > 0}
+							<span class="summary-chip active-count">{activeModifiersCount} {activeModifiersCount === 1 ? 'modalità attiva' : 'modalità attive'}</span>
+						{/if}
+					</div>
 				</div>
-				<span class="section-desc">Sincronizzati col ruolo scelto sopra o personalizzabili liberamente</span>
-			</div>
+				<span class="advanced-toggle-hint">{advancedOpen ? 'Comprimi' : 'Espandi'}</span>
+			</button>
 
-			<div class="model-controls-row">
-				<div class="model-picker-wrap">
-					<label for="task-model-picker">Modello</label>
-					<ModelPickerDropdown
-						catalog={modelSettingsStore.catalog}
-						value={options.modelSelector || ''}
-						placeholder="Usa modello predefinito del ruolo..."
-						onSelect={handleModelSelect}
-					/>
-				</div>
+			{#if advancedOpen}
+				<div id="advanced-controls-panel" class="advanced-panel-content">
+					<!-- Ruolo / Livello complessità -->
+					<div class="config-block">
+						<div class="block-header">
+							<span class="block-label">Ruolo & Complessità</span>
+							<span class="block-sub">Profilo di ragionamento e modello associato</span>
+						</div>
+						<div class="role-pills-row" role="radiogroup" aria-label="Ruolo e complessità">
+							{#each DIFFICULTY_ROLES as r (r.id)}
+								{@const active = options.role === r.id}
+								<button
+									type="button"
+									class="role-pill-btn"
+									class:active
+									role="radio"
+									aria-checked={active}
+									aria-label={`Ruolo: ${r.label}. ${r.desc}`}
+									title={r.desc}
+									onclick={() => selectRole(r.id)}
+								>
+									<span class="role-pill-badge">{r.badge}</span>
+									<span class="role-pill-label">{r.label}</span>
+								</button>
+							{/each}
 
-				<div class="thinking-slider-wrap">
-					<ReasoningSlider
-						value={options.thinkingLevel || 'auto'}
-						onChange={handleThinkingChange}
-					/>
+							<button
+								type="button"
+								class="role-pill-btn"
+								class:active={options.role === 'custom'}
+								role="radio"
+								aria-checked={options.role === 'custom'}
+								aria-label="Ruolo: Personalizzato. Modello e thinking specifici"
+								title="Personalizza manualmente modello e livello di thinking"
+								onclick={() => selectRole('custom')}
+							>
+								<span class="role-pill-badge">custom</span>
+								<span class="role-pill-label">Personalizzato</span>
+							</button>
+						</div>
+					</div>
+
+					<!-- Modello e Thinking Effort -->
+					<div class="config-block">
+						<div class="model-thinking-grid">
+							<div class="model-col">
+								<label for="task-model-picker" class="block-label">Modello specifico</label>
+								<ModelPickerDropdown
+									catalog={modelSettingsStore.catalog}
+									value={options.modelSelector || ''}
+									placeholder="Usa modello predefinito del ruolo..."
+									onSelect={handleModelSelect}
+								/>
+							</div>
+
+							<div class="thinking-col">
+								<div class="block-label">Thinking effort</div>
+								<ReasoningSlider
+									value={options.thinkingLevel || 'auto'}
+									onChange={handleThinkingChange}
+								/>
+							</div>
+						</div>
+					</div>
+
+					<!-- Modalità e Direttive Speciali -->
+					<div class="config-block">
+						<div class="block-header">
+							<span class="block-label">Modalità & Direttive Speciali</span>
+							<span class="block-sub">Vincoli operativi e automatismi durante l'esecuzione del task</span>
+						</div>
+						<div class="modifiers-grid">
+							<label class="modifier-card" class:checked={Boolean(options.planMode)}>
+								<input
+									type="checkbox"
+									checked={Boolean(options.planMode)}
+									onchange={togglePlanMode}
+								/>
+								<div class="modifier-body">
+									<div class="modifier-top">
+										<span class="modifier-title">Modalità Piano (Plan Mode)</span>
+										<span class="modifier-tag">/plan</span>
+									</div>
+									<p class="modifier-desc">
+										Formula un piano architetturale ed attende approvazione prima di modificare file.
+									</p>
+								</div>
+							</label>
+
+							<label class="modifier-card" class:checked={Boolean(options.discussionMode)}>
+								<input
+									type="checkbox"
+									checked={Boolean(options.discussionMode)}
+									onchange={toggleDiscussionMode}
+								/>
+								<div class="modifier-body">
+									<div class="modifier-top">
+										<span class="modifier-title">Discussione & Requisiti</span>
+										<span class="modifier-tag">/grill-me</span>
+									</div>
+									<p class="modifier-desc">
+										Pone domande approfondite per chiarire ogni decisione prima di toccare il codice.
+									</p>
+								</div>
+							</label>
+
+							<label class="modifier-card" class:checked={Boolean(options.minimalMode)}>
+								<input
+									type="checkbox"
+									checked={Boolean(options.minimalMode)}
+									onchange={toggleMinimalMode}
+								/>
+								<div class="modifier-body">
+									<div class="modifier-top">
+										<span class="modifier-title">Soluzione Minimale</span>
+										<span class="modifier-tag">/ponytail</span>
+									</div>
+									<p class="modifier-desc">
+										Forza la soluzione più semplice, pigra e senza dipendenze o astrazioni superflue.
+									</p>
+								</div>
+							</label>
+
+							<label class="modifier-card" class:checked={Boolean(options.researchMode)}>
+								<input
+									type="checkbox"
+									checked={Boolean(options.researchMode)}
+									onchange={toggleResearchMode}
+								/>
+								<div class="modifier-body">
+									<div class="modifier-top">
+										<span class="modifier-title">Ricerca Web Online</span>
+										<span class="modifier-tag">Web</span>
+									</div>
+									<p class="modifier-desc">
+										Esegue ricerche online mirate sull'ambito della richiesta prima di procedere.
+									</p>
+								</div>
+							</label>
+
+							<label class="modifier-card" class:checked={options.includeEditorContext !== false}>
+								<input
+									type="checkbox"
+									checked={options.includeEditorContext !== false}
+									onchange={toggleIncludeEditorContext}
+								/>
+								<div class="modifier-body">
+									<div class="modifier-top">
+										<span class="modifier-title">Contesto Editor</span>
+										<span class="modifier-tag">File aperti</span>
+									</div>
+									<p class="modifier-desc">
+										Allega l'elenco dei file correntemente aperti e la selezione attiva nell'editor.
+									</p>
+								</div>
+							</label>
+						</div>
+					</div>
 				</div>
-			</div>
+			{/if}
 		</section>
-
-		<!-- Sezione 4: Modalità Speciali & Spunte -->
-		<section class="config-section modifiers-section">
-			<div class="section-title">
-				<div class="title-left">
-					<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
-						<path d="M3 8.5l3 3 7-7" stroke-linecap="round" stroke-linejoin="round" />
-					</svg>
-					<h3>Modalità & Direttive Speciali</h3>
-				</div>
-				<span class="section-desc">Attiva automatismi e vincoli comportamentali per l'esecuzione del task</span>
-			</div>
-
-			<div class="toggles-grid">
-				<label class="toggle-card" class:checked={Boolean(options.planMode)}>
-					<input
-						type="checkbox"
-						checked={Boolean(options.planMode)}
-						onchange={togglePlanMode}
-					/>
-					<div class="toggle-content">
-						<div class="toggle-header">
-							<span class="toggle-title">Modalità Piano (Plan Mode)</span>
-							<span class="toggle-tag">Pianificazione</span>
-						</div>
-						<p class="toggle-desc">
-							Non modifica subito i file: formula un piano architetturale dettagliato e richiede approvazione prima dell'esecuzione.
-						</p>
-					</div>
-				</label>
-
-				<label class="toggle-card" class:checked={Boolean(options.discussionMode)}>
-					<input
-						type="checkbox"
-						checked={Boolean(options.discussionMode)}
-						onchange={toggleDiscussionMode}
-					/>
-					<div class="toggle-content">
-						<div class="toggle-header">
-							<span class="toggle-title">Modalità Discussione & Requisiti</span>
-							<span class="toggle-tag">/grill-me</span>
-						</div>
-						<p class="toggle-desc">
-							Analizza il contesto e interroga l'utente con domande approfondite per chiarire ogni decisione prima di toccare il codice.
-						</p>
-					</div>
-				</label>
-
-				<label class="toggle-card" class:checked={Boolean(options.minimalMode)}>
-					<input
-						type="checkbox"
-						checked={Boolean(options.minimalMode)}
-						onchange={toggleMinimalMode}
-					/>
-					<div class="toggle-content">
-						<div class="toggle-header">
-							<span class="toggle-title">Soluzione Minimale</span>
-							<span class="toggle-tag">/ponytail</span>
-						</div>
-						<p class="toggle-desc">
-							Forza la soluzione più semplice, pigra e con meno codice/dipendenze. Rifiuta over-engineering e astrazioni premature.
-						</p>
-					</div>
-				</label>
-
-				<label class="toggle-card" class:checked={Boolean(options.researchMode)}>
-					<input
-						type="checkbox"
-						checked={Boolean(options.researchMode)}
-						onchange={toggleResearchMode}
-					/>
-					<div class="toggle-content">
-						<div class="toggle-header">
-							<span class="toggle-title">Modalità Ricerca Online</span>
-							<span class="toggle-tag">Ricerca Web</span>
-						</div>
-						<p class="toggle-desc">
-							Forza l'agente a fare ricerche online mirate sull'ambito e sulla richiesta dopo aver analizzato al completo la richiesta e il codice collegato.
-						</p>
-					</div>
-				</label>
-
-				<label class="toggle-card" class:checked={options.includeEditorContext !== false}>
-					<input
-						type="checkbox"
-						checked={options.includeEditorContext !== false}
-						onchange={toggleIncludeEditorContext}
-					/>
-					<div class="toggle-content">
-						<div class="toggle-header">
-							<span class="toggle-title">Includi contesto editor</span>
-							<span class="toggle-tag">File aperti</span>
-						</div>
-						<p class="toggle-desc">
-							Allega automaticamente l'elenco dei file correntemente aperti e l'eventuale selezione di testo attiva nell'editor.
-						</p>
-					</div>
-				</label>
-			</div>
-		</section>
-
-		<!-- Footer azioni rapide -->
-		<footer class="editor-bottom-bar">
-			<div class="bottom-info">
-				<span>I task creati vengono salvati nella coda del progetto.</span>
-			</div>
-			<div class="bottom-actions">
-				<button type="button" class="bottom-btn secondary" onclick={closeEditor}>
-					<span>Salva e Chiudi</span>
-					<kbd>Esc</kbd>
-				</button>
-				{#if onRunTask}
-					<button
-						type="button"
-						class="bottom-btn primary"
-						onclick={runNow}
-						disabled={!prompt.trim() && attachedImages.length === 0}
-					>
-						<span>Salva e Avvia subito</span>
-						<kbd>Ctrl+↵</kbd>
-					</button>
-				{/if}
-			</div>
-		</footer>
 	</div>
 </div>
 
@@ -685,6 +781,7 @@
 		min-width: 0;
 		background: var(--bg-sunken);
 		overflow: hidden;
+		font-family: var(--font-ui);
 	}
 
 	.task-toolbar {
@@ -697,6 +794,7 @@
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--line);
 		flex-shrink: 0;
+		z-index: 2;
 	}
 
 	.task-heading,
@@ -714,11 +812,46 @@
 		padding: 2px 6px;
 		border-radius: var(--radius-sm);
 		background: var(--brand-dim);
+		color: var(--ink);
+	}
+	.status-toggle-btn {
+		font-size: var(--text-xs);
+		font-family: var(--font-mono);
+		padding: 2px 8px;
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		color: var(--ink-faint);
+		cursor: pointer;
+		transition: all 120ms ease;
+	}
+
+	.status-toggle-btn:hover {
+		border-color: var(--brand);
+		color: var(--ink);
+	}
+
+	.status-toggle-btn.in_progress {
+		background: var(--brand-dim);
 		color: var(--brand-ink);
+		font-weight: 600;
+		border-color: var(--brand);
+	}
+
+	.status-toggle-btn.completed {
+		background: var(--bg-sunken);
+		color: var(--success, #22c55e);
+		border-color: var(--success, #22c55e);
+	}
+
+	.status-toggle-btn.abandoned {
+		background: var(--bg-sunken);
+		color: var(--ink-faint);
+		opacity: 0.7;
 	}
 
 	.task-title {
-		max-width: 36ch;
+		max-width: 28ch;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -730,7 +863,7 @@
 	.save-state {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		margin-right: var(--space-1);
+		margin-left: var(--space-1);
 	}
 
 	.action-btn {
@@ -738,75 +871,20 @@
 		padding: 0 var(--space-2);
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 		gap: 6px;
-		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		background: var(--bg-base);
-		color: var(--ink-muted);
 		font-size: var(--text-xs);
-		font-weight: 500;
 		cursor: pointer;
+		user-select: none;
 		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.action-btn kbd {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
 		padding: 1px 4px;
-		color: var(--ink-faint);
-	}
-
-	.action-btn:hover:not(:disabled) {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.action-btn.delete-btn:hover {
-		background: var(--danger-dim);
-		color: var(--ink);
-		border-color: var(--danger);
-	}
-
-	.action-btn.confirm-delete {
-		background: var(--danger);
-		color: var(--on-danger);
-		border-color: var(--danger);
-	}
-
-	.action-btn.primary-btn {
-		background: var(--bg-base);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.action-btn.primary-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-	}
-
-	.action-btn.launch-btn {
-		background: var(--brand);
-		color: var(--on-brand);
-		border-color: var(--brand);
-	}
-
-	.action-btn.launch-btn kbd {
-		background: color-mix(in srgb, var(--on-brand) 20%, transparent);
-		border-color: transparent;
-		color: var(--on-brand);
-	}
-
-	.action-btn.launch-btn:hover:not(:disabled) {
-		background: var(--brand-ink);
-	}
-
-	.action-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
+		border-radius: var(--radius-sm);
 	}
 
 	.action-btn svg {
@@ -817,6 +895,88 @@
 		stroke-width: 1.5;
 		stroke-linecap: round;
 		stroke-linejoin: round;
+		flex-shrink: 0;
+	}
+
+	/* 1. Primario: Salva (Ctrl+Invio) */
+	.action-btn.btn-primary {
+		background: var(--brand);
+		color: var(--on-brand);
+		border: 1px solid var(--brand);
+		font-weight: 600;
+	}
+
+	.action-btn.btn-primary kbd {
+		background: color-mix(in srgb, var(--on-brand) 20%, transparent);
+		border: 1px solid transparent;
+		color: var(--on-brand);
+	}
+
+	.action-btn.btn-primary:hover:not(:disabled) {
+		background: var(--brand-ink);
+		border-color: var(--brand-ink);
+	}
+
+	/* 2. Secondario: Esegui */
+	.action-btn.btn-secondary {
+		background: var(--bg-base);
+		color: var(--ink);
+		border: 1px solid var(--line-strong);
+		font-weight: 500;
+	}
+
+	.action-btn.btn-secondary:hover:not(:disabled) {
+		background: var(--bg-hover);
+		border-color: var(--brand);
+	}
+
+	.action-btn.btn-secondary:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+		border-color: var(--line);
+	}
+
+	/* 3. Distruttivo: Elimina */
+	.action-btn.btn-danger {
+		background: transparent;
+		color: var(--ink-faint);
+		border: 1px solid transparent;
+	}
+
+	.action-btn.btn-danger:hover {
+		background: var(--danger-dim);
+		color: var(--ink);
+		border-color: var(--danger);
+	}
+
+	.action-btn.btn-danger.confirm-delete {
+		background: var(--danger);
+		color: var(--on-danger);
+		border-color: var(--danger);
+		font-weight: 600;
+	}
+
+	/* 4. Ausiliario: Chiudi */
+	.action-btn.btn-close {
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		background: transparent;
+		color: var(--ink-faint);
+		border: 1px solid transparent;
+	}
+
+	.action-btn.btn-close:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line);
+	}
+
+	.actions-divider {
+		width: 1px;
+		height: 16px;
+		background: var(--line);
+		margin: 0 2px;
 	}
 
 	.editor-scroll-body {
@@ -826,9 +986,14 @@
 		padding: var(--space-3) var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
+		gap: var(--space-3);
+		width: 100%;
+		max-width: 900px;
+		margin: 0 auto;
+		box-sizing: border-box;
 	}
 
+	/* Prompt Section */
 	.prompt-section {
 		position: relative;
 		display: flex;
@@ -864,12 +1029,11 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		overflow: hidden;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.input-card:focus-within {
-		outline: 2px solid var(--brand);
-		outline-offset: 1px;
-		border-color: transparent;
+		border-color: var(--line-strong);
 	}
 
 	.sr-only {
@@ -887,9 +1051,9 @@
 	textarea {
 		width: 100%;
 		min-height: 140px;
-		max-height: 320px;
+		max-height: 460px;
 		padding: var(--space-3);
-		resize: vertical;
+		resize: none;
 		border: none;
 		background: transparent;
 		color: var(--ink);
@@ -898,6 +1062,7 @@
 		line-height: 1.55;
 		caret-color: var(--brand-ink);
 		outline: none;
+		box-sizing: border-box;
 	}
 
 	textarea::placeholder {
@@ -931,8 +1096,8 @@
 	}
 
 	.image-thumb {
-		height: 52px;
-		max-width: 110px;
+		height: 48px;
+		max-width: 100px;
 		object-fit: cover;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
@@ -945,10 +1110,10 @@
 
 	.image-remove-btn {
 		position: absolute;
-		top: -6px;
-		right: -6px;
-		width: 18px;
-		height: 18px;
+		top: -5px;
+		right: -5px;
+		width: 16px;
+		height: 16px;
 		border-radius: var(--radius-full);
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
@@ -956,7 +1121,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: var(--text-base);
+		font-size: var(--text-xs);
 		line-height: 1;
 		cursor: pointer;
 		padding: 0;
@@ -998,8 +1163,8 @@
 	}
 
 	.attach-btn svg {
-		width: 14px;
-		height: 14px;
+		width: 13px;
+		height: 13px;
 		fill: none;
 		stroke: currentColor;
 		stroke-width: 1.5;
@@ -1018,6 +1183,7 @@
 		color: var(--ink-faint);
 	}
 
+	.hint-text kbd,
 	.hint-text code {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
@@ -1025,143 +1191,206 @@
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		color: var(--brand-ink);
+		color: var(--ink-muted);
 	}
 
-	.config-section {
+	/* Advanced Section (Collapsible) */
+	.advanced-section {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		padding: var(--space-3);
+		overflow: hidden;
 	}
 
-	.section-title {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		margin-bottom: var(--space-1);
-	}
-
-	.title-left {
+	.advanced-toggle-btn {
+		width: 100%;
+		padding: var(--space-2) var(--space-3);
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		justify-content: space-between;
+		background: var(--bg-raised);
+		border: none;
+		color: var(--ink);
+		cursor: pointer;
+		font-family: var(--font-ui);
+		text-align: left;
+		transition: background var(--dur-fast) var(--ease-out);
+	}
+
+	.advanced-toggle-btn:hover {
+		background: var(--bg-hover);
+	}
+
+	.advanced-toggle-left {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
+		flex-wrap: wrap;
+	}
+
+	.chevron-icon {
+		width: 14px;
+		height: 14px;
+		color: var(--ink-faint);
+		transition: transform var(--dur-fast) var(--ease-out);
+		flex-shrink: 0;
+	}
+
+	.chevron-icon.rotated {
+		transform: rotate(90deg);
+	}
+
+	.advanced-title {
+		font-size: var(--text-xs);
+		font-weight: 600;
 		color: var(--ink);
 	}
 
-	.title-left h3 {
-		margin: 0;
-		font-size: var(--text-sm);
-		font-weight: 600;
-	}
-
-	.section-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.role-selector-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-		gap: var(--space-2);
-	}
-
-	.role-card {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 4px;
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--bg-raised);
-		cursor: pointer;
-		text-align: left;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.role-card:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-	.role-card.active {
-		background: var(--brand-dim);
-		border-color: var(--brand);
-		outline: 1px solid var(--brand);
-	}
-
-	.role-card-header {
+	.advanced-summary {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		width: 100%;
+		flex-wrap: wrap;
 	}
 
-	.role-badge {
+	.summary-chip {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--brand-ink);
-	}
-
-	.role-name {
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.role-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		padding: 1px 6px;
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		color: var(--ink-muted);
 		line-height: 1.3;
 	}
 
-	.model-controls-row {
+	.summary-chip.active-count {
+		color: var(--brand-ink);
+		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
+		background: color-mix(in srgb, var(--brand) 8%, var(--bg-sunken));
+	}
+
+	.advanced-toggle-hint {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.advanced-panel-content {
+		padding: var(--space-3);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		border-top: 1px solid var(--line);
+	}
+
+	.config-block {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.block-header {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+
+	.block-label {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.block-sub {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+	}
+
+	/* Role Pills */
+	.role-pills-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+	}
+
+	.role-pill-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 10px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		background: var(--bg-raised);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+	}
+
+	.role-pill-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
+		color: var(--ink);
+	}
+
+	.role-pill-btn.active {
+		background: var(--brand-dim);
+		border-color: var(--brand);
+		color: var(--ink);
+		font-weight: 600;
+	}
+
+	.role-pill-badge {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--brand-ink);
+	}
+
+	.role-pill-btn.active .role-pill-badge {
+		color: var(--ink);
+	}
+
+	.role-pill-label {
+		font-size: var(--text-xs);
+	}
+
+	/* Model & Thinking Grid */
+	.model-thinking-grid {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: var(--space-3);
 		align-items: start;
 	}
 
-	@media (max-width: 840px) {
-		.model-controls-row {
+	@media (max-width: 720px) {
+		.model-thinking-grid {
 			grid-template-columns: 1fr;
 		}
 	}
 
-	.model-picker-wrap {
+	.model-col,
+	.thinking-col {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
 	}
 
-	.model-picker-wrap label {
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink-muted);
-	}
-
-	.thinking-slider-wrap {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-
-	.toggles-grid {
+	/* Modifiers Grid */
+	.modifiers-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 		gap: var(--space-2);
 	}
 
-	.toggle-card {
+	.modifier-card {
 		display: flex;
 		align-items: flex-start;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
+		padding: var(--space-2);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		background: var(--bg-raised);
@@ -1170,23 +1399,23 @@
 		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.toggle-card:hover {
+	.modifier-card:hover {
 		background: var(--bg-hover);
 		border-color: var(--line-strong);
 	}
 
-	.toggle-card.checked {
+	.modifier-card.checked {
 		background: color-mix(in srgb, var(--brand) 6%, var(--bg-raised));
 		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
 	}
 
-	.toggle-card input[type="checkbox"] {
+	.modifier-card input[type="checkbox"] {
 		margin-top: 2px;
 		accent-color: var(--brand);
 		cursor: pointer;
 	}
 
-	.toggle-content {
+	.modifier-body {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
@@ -1194,20 +1423,20 @@
 		min-width: 0;
 	}
 
-	.toggle-header {
+	.modifier-top {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-1);
 	}
 
-	.toggle-title {
+	.modifier-title {
 		font-size: var(--text-xs);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
-	.toggle-tag {
+	.modifier-tag {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		padding: 1px 4px;
@@ -1217,93 +1446,17 @@
 		color: var(--ink-faint);
 	}
 
-	.toggle-desc {
+	.modifier-desc {
 		margin: 0;
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		line-height: 1.35;
 	}
 
-	.editor-bottom-bar {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-2) var(--space-3);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		margin-top: var(--space-2);
-	}
-
-	.bottom-info {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.bottom-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.bottom-btn {
-		height: 30px;
-		padding: 0 var(--space-3);
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.bottom-btn kbd {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px 4px;
-	}
-
-	.bottom-btn.secondary {
-		border: 1px solid var(--line);
-		background: var(--bg-base);
-		color: var(--ink);
-	}
-
-	.bottom-btn.secondary:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-	.bottom-btn.primary {
-		border: 1px solid var(--brand);
-		background: var(--brand);
-		color: var(--on-brand);
-	}
-
-	.bottom-btn.primary kbd {
-		background: color-mix(in srgb, var(--on-brand) 20%, transparent);
-		border-color: transparent;
-		color: var(--on-brand);
-	}
-
-	.bottom-btn.primary:hover:not(:disabled) {
-		background: var(--brand-ink);
-	}
-
-	.bottom-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	@media (max-width: 900px) {
+	@media (max-width: 800px) {
 		.save-state,
 		.hint-text,
-		.bottom-info {
+		.advanced-toggle-hint {
 			display: none;
 		}
 	}
