@@ -203,7 +203,7 @@ pub async fn usage_snapshot(_force: bool) -> Result<UsageReport, String> {
 }
 
 const SESSION_TAIL_BYTES: u64 = 256 * 1024;
-const ACTIVE_SESSION_MAX_AGE: Duration = Duration::from_secs(30 * 60);
+const ACTIVE_SESSION_MAX_AGE: Duration = Duration::from_secs(120);
 
 fn read_session_tail(path: &Path, length: u64) -> std::io::Result<(String, bool)> {
     let tail_length = length.min(SESSION_TAIL_BYTES);
@@ -219,20 +219,28 @@ fn read_session_tail(path: &Path, length: u64) -> std::io::Result<(String, bool)
     Ok((String::from_utf8_lossy(&bytes).into_owned(), tail_start > 0))
 }
 
-fn assistant_providers_in_tail(jsonl_tail: &str, starts_mid_line: bool) -> Vec<(String, String)> {
+fn assistant_providers_in_tail(jsonl_tail: &str, starts_mid_line: bool) -> Option<(String, String)> {
     let mut lines = jsonl_tail.lines();
     if starts_mid_line {
         lines.next();
     }
 
-    let mut results = Vec::new();
-    let mut seen_providers = std::collections::HashSet::new();
-
     for line in lines.rev() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        if value.get("type").and_then(|t| t.as_str()) != Some("message") {
+        let event_type = value.get("type").and_then(|t| t.as_str());
+        if event_type == Some("model_change") {
+            if let (Some(provider), Some(model)) = (
+                value.get("provider").and_then(|p| p.as_str()),
+                value.get("model").and_then(|m| m.as_str()),
+            ) {
+                return Some((provider.to_string(), model.to_string()));
+            }
+            continue;
+        }
+
+        if event_type != Some("message") {
             continue;
         }
 
@@ -250,12 +258,10 @@ fn assistant_providers_in_tail(jsonl_tail: &str, starts_mid_line: bool) -> Vec<(
             continue;
         };
 
-        if seen_providers.insert(provider.to_string()) {
-            results.push((provider.to_string(), model.to_string()));
-        }
+        return Some((provider.to_string(), model.to_string()));
     }
 
-    results
+    None
 }
 
 fn collect_subagent_sessions(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
@@ -350,15 +356,22 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
         }
 
         let breadcrumb_name = entry.file_name().to_string_lossy().into_owned();
+        let is_studio_breadcrumb = breadcrumb_name.starts_with("wt-0MP57UD10-");
         let breadcrumb = match std::fs::read_to_string(entry.path()) {
             Ok(breadcrumb) => breadcrumb,
             Err(_) => continue,
         };
         let mut lines = breadcrumb.trim().split('\n');
         let Some(cwd) = lines.next() else {
+            if is_studio_breadcrumb {
+                let _ = std::fs::remove_file(entry.path());
+            }
             continue;
         };
         let Some(jsonl_path) = lines.next() else {
+            if is_studio_breadcrumb {
+                let _ = std::fs::remove_file(entry.path());
+            }
             continue;
         };
         if lines
@@ -369,6 +382,13 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
         }
 
         let session_path = PathBuf::from(jsonl_path.trim_end_matches('\r'));
+        if !session_path.exists() {
+            if is_studio_breadcrumb {
+                let _ = std::fs::remove_file(entry.path());
+            }
+            continue;
+        }
+
         let mut session_files = vec![session_path.clone()];
         let subagents_dir = session_path.with_extension("");
         if subagents_dir.is_dir() {
@@ -388,12 +408,15 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
                 Err(_) => continue,
             };
 
-            // Una sessione ferma oltre 30 minuti non consuma quota adesso.
+            // Una sessione ferma oltre 2 minuti non consuma quota adesso.
             let age = match SystemTime::now().duration_since(modified) {
                 Ok(age) => age,
                 Err(_) => Duration::ZERO,
             };
             if age > ACTIVE_SESSION_MAX_AGE {
+                if is_studio_breadcrumb {
+                    let _ = std::fs::remove_file(entry.path());
+                }
                 continue;
             }
             let last_active_ms = match modified.duration_since(UNIX_EPOCH) {
@@ -406,8 +429,7 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
                 Err(_) => continue,
             };
 
-            let providers = assistant_providers_in_tail(&tail, starts_mid_line);
-            for (provider, model) in providers {
+            if let Some((provider, model)) = assistant_providers_in_tail(&tail, starts_mid_line) {
                 let dedupe_key = (project_name.clone(), provider.clone());
                 let candidate = ProviderHost {
                     provider,
@@ -817,16 +839,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn estrae_provider_multipli_dalla_coda() {
+    fn estrae_ultimo_provider_dalla_coda() {
         let tail = r#"
 {"type":"message","message":{"role":"assistant","provider":"openai-codex","model":"gpt-5.6-terra"}}
 {"type":"message","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-4-8"}}
 {"type":"message","message":{"role":"assistant","provider":"google-antigravity","model":"gemini-3.7-flash"}}
 "#;
-        let providers = assistant_providers_in_tail(tail, false);
-        assert_eq!(providers.len(), 3);
-        assert_eq!(providers[0].0, "google-antigravity");
-        assert_eq!(providers[1].0, "anthropic");
-        assert_eq!(providers[2].0, "openai-codex");
+        let provider = assistant_providers_in_tail(tail, false);
+        assert_eq!(
+            provider,
+            Some((
+                "google-antigravity".to_string(),
+                "gemini-3.7-flash".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn estrae_model_change_recente() {
+        let tail = r#"
+{"type":"message","message":{"role":"assistant","provider":"openai-codex","model":"gpt-5.6-terra"}}
+{"type":"model_change","provider":"google-antigravity","model":"gemini-3.7-flash"}
+"#;
+        let provider = assistant_providers_in_tail(tail, false);
+        assert_eq!(
+            provider,
+            Some((
+                "google-antigravity".to_string(),
+                "gemini-3.7-flash".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn restituisce_none_senza_messaggi_assistant() {
+        let tail = r#"
+{"type":"message","message":{"role":"user","content":"ciao"}}
+{"type":"custom","customType":"notice","data":{}}
+"#;
+        let provider = assistant_providers_in_tail(tail, false);
+        assert_eq!(provider, None);
     }
 }

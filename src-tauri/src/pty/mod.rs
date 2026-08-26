@@ -283,6 +283,11 @@ pub async fn pty_open(
     // modo di sapere quale sessione appartiene a questa scheda.
     cmd.env("WT_SESSION", terminal_id(pty_id));
     cmd.env("PI_FORCE_HYPERLINKS", "1");
+    // Il wizard di primo avvio di `omp` non deve comparire in una scheda di
+    // lavoro: lo esegue il modal di setup con `omp setup`, che forza le scene
+    // e ignora questa variabile. Fuori da Studio l'onboarding nativo resta
+    // intatto.
+    cmd.env("OMP_SKIP_SETUP", "1");
 
     #[cfg(not(target_os = "windows"))]
     {
@@ -387,6 +392,11 @@ pub async fn pty_close(pty_id: u64, manager: State<'_, PtyManager>) -> Result<()
         let mut child = session.child.lock();
         let _ = child.kill();
         let _ = child.wait();
+    }
+    if let Some(mut breadcrumb) = crate::omp_ops::agent_dir() {
+        breadcrumb.push("terminal-sessions");
+        breadcrumb.push(format!("wt-{}", terminal_id(pty_id)));
+        let _ = std::fs::remove_file(breadcrumb);
     }
     Ok(())
 }

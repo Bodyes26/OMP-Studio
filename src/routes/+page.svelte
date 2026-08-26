@@ -9,7 +9,7 @@
 	import FileTree from '$lib/components/FileTree.svelte';
 	import Editor from '$lib/editor/Editor.svelte';
 	import AgentPanel from '$lib/components/AgentPanel.svelte';
-	import UsagePopover from '$lib/components/UsagePopover.svelte';
+	import UsagePopover, { type ProviderHost } from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
 	import GitPanel from '$lib/components/GitPanel.svelte';
 	import DiagramViewer from '$lib/components/DiagramViewer.svelte';
@@ -95,6 +95,64 @@
 			? taskEditor
 			: undefined
 	);
+
+	const guiHosts = $derived.by(() => {
+		const list: ProviderHost[] = [];
+		for (const project of projectStore.projects) {
+			const session = agentSessions.get(project.id);
+			if (!session) continue;
+
+			// Un progetto consuma quota GUI solo se sta effettivamente generando
+			// o se ha subagenti in esecuzione in questo momento.
+			const isGenerating = session.isStreaming || session.agentState === 'working';
+			const activeSubagents = (session.subagents || []).filter(
+				(sub) => sub.status === 'running'
+			);
+
+			if (!isGenerating && activeSubagents.length === 0) {
+				continue;
+			}
+
+			const projectName = project.label?.trim() || project.name;
+
+			// 1. Modello primario attivo nella sessione GUI (solo se sta generando)
+			if (isGenerating && session.model) {
+				let provider = session.model.provider || '';
+				let modelId = session.model.id || session.model.name || '';
+				if (!provider && modelId.includes('/')) {
+					const parts = modelId.split('/');
+					provider = parts[0];
+					modelId = parts.slice(1).join('/');
+				}
+				if (provider) {
+					list.push({
+						provider,
+						model: modelId,
+						host: 'OMP Studio',
+						project: projectName,
+						last_active_ms: Date.now()
+					});
+				}
+			}
+
+			// 2. Eventuali subagenti attualmente in esecuzione
+			for (const sub of activeSubagents) {
+				if (sub.resolvedModel) {
+					const parts = sub.resolvedModel.split('/');
+					if (parts.length >= 2) {
+						list.push({
+							provider: parts[0],
+							model: parts.slice(1).join('/'),
+							host: 'OMP Studio',
+							project: projectName,
+							last_active_ms: Date.now()
+						});
+					}
+				}
+			}
+		}
+		return list;
+	});
 
 	/**
 	 * Crea la sessione se manca, senza aprirla. Il markup puo' chiamarla
@@ -992,7 +1050,7 @@
 		{setupIncomplete}
 	/>
 	<SetupWizard open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
-	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} />
+	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
 	<ModelSettingsModal />
 

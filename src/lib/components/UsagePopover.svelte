@@ -3,13 +3,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
-	let { open = false, onClose } = $props<{ open?: boolean, onClose?: () => void }>();
-
-	let usageData = $state<any>(null);
-	let loading = $state(false);
-	let fetchError = $state<string | null>(null);
-	let now = $state(Date.now());
-	type ProviderHost = {
+	export type ProviderHost = {
 		provider: string;
 		model: string;
 		host: string;
@@ -17,7 +11,37 @@
 		last_active_ms: number;
 	};
 
+	let {
+		open = false,
+		onClose,
+		guiHosts = []
+	} = $props<{
+		open?: boolean;
+		onClose?: () => void;
+		guiHosts?: ProviderHost[];
+	}>();
+
+	let usageData = $state<any>(null);
+	let loading = $state(false);
+	let fetchError = $state<string | null>(null);
+	let now = $state(Date.now());
+
 	let providerHosts = $state<ProviderHost[]>([]);
+
+	function matchesProvider(hostProvider: string | undefined, reportProvider: string | undefined): boolean {
+		if (!hostProvider || !reportProvider) return false;
+		const h = hostProvider.trim().toLowerCase();
+		const r = reportProvider.trim().toLowerCase();
+		if (h === r) return true;
+
+		// Normalizzazioni e alias noti tra provider su omp usage e cataloghi
+		if ((h === 'openai' || h === 'openai-codex') && (r === 'openai' || r === 'openai-codex')) return true;
+		if ((h === 'google' || h === 'google-antigravity') && (r === 'google' || r === 'google-antigravity')) return true;
+		if ((h === 'copilot' || h === 'github-copilot') && (r === 'copilot' || r === 'github-copilot')) return true;
+		if ((h === 'ollama' || h === 'ollama-cloud') && (r === 'ollama' || r === 'ollama-cloud')) return true;
+
+		return false;
+	}
 
 	async function fetchUsage(force = false) {
 		loading = true;
@@ -113,14 +137,11 @@
 					title="Aggiorna dati"
 					disabled={loading}
 				>
-					<span class="refresh-icon" class:spinning={loading}>↻</span>
+					<span class="refresh-icon">↻</span>
 				</button>
 				<button class="close-btn" onclick={onClose}>×</button>
 			</div>
 		</div>
-		{#if loading && usageData}
-			<div class="loading-bar"></div>
-		{/if}
 		<div class="content">
 			{#if fetchError}
 				<div class="usage-error" role="alert">
@@ -136,11 +157,17 @@
 			{:else if usageData && usageData.reports}
 				{#each usageData.reports as report, i}
 					{#if report.limits && report.limits.length > 0}
-						{@const projectLabels = [...new Set(providerHosts
-							.filter((host) => host.provider === report.provider)
-							.map((host) => host.project)
-							.filter((project) => project))]}
-						<div class="provider-section" style="animation-delay: {i * 0.08}s;">
+						{@const allHosts = [...guiHosts, ...providerHosts]}
+						{@const projectLabels = [...new Set(allHosts
+							.filter((host) => matchesProvider(host.provider, report.provider))
+							.map((host) => {
+								if (host.host && host.project) {
+									return `${host.host} · ${host.project}`;
+								}
+								return host.project || host.host;
+							})
+							.filter((label) => Boolean(label)))]}
+						<div class="provider-section">
 							<h4>{report.provider} <span class="meta">{report.metadata?.email || ''}</span></h4>
 							{#if projectLabels.length > 0}
 								<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
@@ -171,7 +198,7 @@
 										</span>
 									</div>
 									<div class="limit-bar" title="Consumato: {usedPercent}% | Rimanente: {remainingPercent}%{resetCountdown ? ` | Reset: ${resetCountdown}${resetExact ? ` (${resetExact})` : ''}` : ''}">
-										<div class="limit-fill" style="--target-width: {usedPercent}%; background: {colorVar}; --bar-delay: {i * 0.08}s;"></div>
+										<div class="limit-fill" style="transform: scaleX({usedPercent / 100}); background: {colorVar};"></div>
 									</div>
 								</div>
 							{/each}
@@ -198,7 +225,6 @@
 		width: 360px;
 		max-height: calc(100vh - 80px);
 		background: var(--bg-overlay);
-		border: 1px solid var(--line);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);
@@ -206,8 +232,6 @@
 		flex-direction: column;
 		color: var(--ink);
 		overflow: hidden;
-		transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1), height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-		interpolate-size: allow-keywords;
 	}
 
 	.header {
@@ -232,6 +256,7 @@
 
 	.freshness {
 		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 	}
 
@@ -246,18 +271,23 @@
 		border: none;
 		color: var(--ink-faint);
 		cursor: pointer;
-		font-size: 16px;
+		font-size: var(--text-lg);
 		padding: 4px;
 		border-radius: var(--radius-sm);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		line-height: 1;
-		transition: color 0.15s ease, background 0.15s ease;
+		transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+	}
+
+	.icon-btn:disabled, .close-btn:disabled {
+		opacity: 0.6;
+		cursor: default;
 	}
 
 	.close-btn {
-		font-size: 20px;
+		font-size: var(--text-xl);
 	}
 
 	.icon-btn:hover, .close-btn:hover {
@@ -272,27 +302,6 @@
 		line-height: 1;
 	}
 
-	.refresh-icon.spinning {
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
-
-	.loading-bar {
-		height: 2px;
-		width: 100%;
-		background: linear-gradient(90deg, transparent, var(--brand), transparent);
-		background-size: 200% 100%;
-		animation: loadingPulse 1.5s ease-in-out infinite;
-	}
-
-	@keyframes loadingPulse {
-		0% { background-position: 200% 0; }
-		100% { background-position: -200% 0; }
-	}
 
 	.loading-state {
 		display: flex;
@@ -306,12 +315,10 @@
 	}
 
 	.spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid var(--line);
-		border-top-color: var(--ink);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+		width: 8px;
+		height: 8px;
+		background: var(--brand);
+		border-radius: var(--radius-full);
 	}
 	.content {
 		padding: var(--space-4);
@@ -319,7 +326,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
-		transition: height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.msg {
@@ -332,20 +338,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		animation: sectionFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 	}
-
-	@keyframes sectionFadeIn {
-		from {
-			opacity: 0;
-			transform: translateY(8px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
 	h4 {
 		margin: 0;
 		font-size: var(--text-md);
@@ -393,6 +386,7 @@
 
 	.reset-time {
 		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 		white-space: nowrap;
 		flex-shrink: 0;
@@ -418,14 +412,10 @@
 
 	.limit-fill {
 		height: 100%;
+		width: 100%;
 		border-radius: var(--radius-full);
-		width: 0%;
-		animation: barFill 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-		animation-delay: calc(var(--bar-delay, 0s) + 0.1s);
-	}
-	@keyframes barFill {
-		from { width: 0%; }
-		to { width: var(--target-width); }
+		transform-origin: left;
+		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
 	.usage-error {
