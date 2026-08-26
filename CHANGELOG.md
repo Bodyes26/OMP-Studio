@@ -64,6 +64,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Editor Monaco: ripristino e conservazione della posizione di scorrimento e cursore per ciascun file aperto al cambio di scheda o progetto.
 - Correzioni grafiche ed ergonomiche: rimosso il doppio anello di focus durante la digitazione dei prompt; ripristino dell'altezza predefinita a riga singola della textarea dopo l'invio; corretta la barra di aiuto con i tasti di navigazione nella palette dei comandi slash; deduplicato l'incollamento di immagini dagli appunti (Ctrl+V) ed eliminati avvisi di log spuri all'avvio.
 - Controllo aggiornamenti OMP CLI: estrazione affidabile della versione più recente dall'output di `omp update --check` con eliminazione delle sequenze ANSI e gestione degli errori di rete.
+- Canale Nightly: l'aggiornamento propone sempre l'installer della build annunciata anche quando la prerelease conserva ancora quelli delle build precedenti, che vengono ora rimossi alla pubblicazione.
 
 ### Security
 - Isolamento e sicurezza delle anteprime vettoriali SVG e prototipi UI: rendering eseguito all'interno di una sandbox iframe rigorosa (priva di privilegi script e con origine `null` disaccoppiata), protetto da Content Security Policy ermetica (`default-src 'none'`) e sanitizzazione preventiva con DOMPurify, neutralizzando vettori XSS, tag script ed handler malevoli.

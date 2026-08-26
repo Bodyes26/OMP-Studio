@@ -383,8 +383,38 @@ fn pick_best_asset_for(assets: &[GithubAsset], os: &str, arch: &str) -> Option<S
     None
 }
 
-fn pick_best_asset(assets: &[GithubAsset]) -> Option<StudioReleaseAsset> {
-    pick_best_asset_for(assets, std::env::consts::OS, std::env::consts::ARCH)
+/// Restringe la scelta agli asset della versione annunciata prima di applicare le
+/// priorita' per sistema operativo: una release puo' conservare installer di build
+/// precedenti (asset nightly non ancora rimossi) e sceglierne uno significherebbe
+/// installare silenziosamente una build piu' vecchia di quella dichiarata.
+fn pick_versioned_asset_for(
+    assets: &[GithubAsset],
+    version: &str,
+    os: &str,
+    arch: &str,
+) -> Option<StudioReleaseAsset> {
+    let scoped: Vec<GithubAsset> = assets
+        .iter()
+        .filter(|a| a.name.contains(version))
+        .cloned()
+        .collect();
+
+    if !scoped.is_empty() {
+        if let Some(found) = pick_best_asset_for(&scoped, os, arch) {
+            return Some(found);
+        }
+    }
+
+    pick_best_asset_for(assets, os, arch)
+}
+
+fn pick_versioned_asset(assets: &[GithubAsset], version: &str) -> Option<StudioReleaseAsset> {
+    pick_versioned_asset_for(
+        assets,
+        version,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
 }
 
 fn github_get(
@@ -654,7 +684,7 @@ pub async fn check_studio_update(
         None => candidate.version != normalize_version(current_version),
     };
     let ahead_of_channel = relation == Some(std::cmp::Ordering::Less);
-    let mut best_asset = pick_best_asset(&candidate.release.assets);
+    let mut best_asset = pick_versioned_asset(&candidate.release.assets, &candidate.version);
 
     if let Some(asset) = &mut best_asset {
         if asset.sha256.is_none() {
@@ -1556,6 +1586,48 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
 
         assert!(pick_best_asset_for(&mac_assets, "windows", "x86_64").is_none());
         assert!(pick_best_asset_for(&windows_assets, "macos", "aarch64").is_none());
+    }
+
+    #[test]
+    fn test_pick_versioned_asset_ignora_installer_di_build_precedenti() {
+        // La prerelease 'nightly' e' un tag mobile: puo' conservare gli installer di
+        // build precedenti. GitHub restituisce gli asset in ordine alfabetico, quindi
+        // il primo .exe della lista e' il piu' vecchio.
+        let assets = vec![
+            GithubAsset {
+                name: "OMP.Studio_1.1.1-nightly.1787735049853_x64-setup.exe".to_string(),
+                size: 11_616_362,
+                browser_download_url: "https://example.invalid/vecchio_x64-setup.exe".to_string(),
+                content_type: Some("application/x-msdownload".to_string()),
+                digest: Some("sha256:dd86554bb75e9bdb802a6d0edafac2bd20cce602c605a69d35e7d03837c820c8".to_string()),
+            },
+            GithubAsset {
+                name: "OMP.Studio_1.1.1-nightly.1787753960479_x64-setup.exe".to_string(),
+                size: 9_803_289,
+                browser_download_url: "https://example.invalid/nuovo_x64-setup.exe".to_string(),
+                content_type: Some("application/x-msdownload".to_string()),
+                digest: Some("sha256:878c0fa0dad081109b6f1cad9583d4dea5403fbaafbfb9e3065fbffb5718ae3f".to_string()),
+            },
+        ];
+
+        let picked = pick_versioned_asset_for(
+            &assets,
+            "1.1.1-nightly.1787753960479",
+            "windows",
+            "x86_64",
+        )
+        .expect("asset selezionato");
+        assert_eq!(picked.name, "OMP.Studio_1.1.1-nightly.1787753960479_x64-setup.exe");
+        assert_eq!(
+            picked.sha256,
+            Some("878c0fa0dad081109b6f1cad9583d4dea5403fbaafbfb9e3065fbffb5718ae3f".to_string())
+        );
+
+        // Nessun asset della versione annunciata: si torna alla scelta per sistema
+        // operativo invece di lasciare l'utente senza aggiornamento.
+        let fallback = pick_versioned_asset_for(&assets, "9.9.9", "windows", "x86_64")
+            .expect("fallback per sistema operativo");
+        assert!(fallback.name.ends_with("_x64-setup.exe"));
     }
 
     #[test]

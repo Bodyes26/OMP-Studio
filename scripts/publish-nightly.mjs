@@ -11,7 +11,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
 	ROOT,
 	VERSION_FILES,
@@ -317,6 +317,35 @@ async function main() {
 					'--notes-file',
 					notesPath
 				]);
+			}
+
+			// Il tag 'nightly' e' mobile e `--clobber` sovrascrive solo gli asset con lo
+			// stesso nome: cambiando il build-id gli installer delle build precedenti
+			// resterebbero pubblicati. GitHub restituisce gli asset in ordine
+			// alfabetico, quindi il piu' vecchio verrebbe scelto per primo dall'updater.
+			// GitHub sostituisce gli spazi con punti nei nomi degli asset caricati.
+			const normalizza = (nome) => nome.replace(/ /g, '.');
+			const nomiDaConservare = new Set(
+				[basename(installer.path), basename(manifestPath)].map(normalizza)
+			);
+			const elenco = runCommand(
+				'gh',
+				['release', 'view', 'nightly', '--json', 'assets', '--jq', '.assets[].name'],
+				{ stdio: 'pipe', allowFailure: true }
+			);
+			if (elenco.status === 0) {
+				const obsoleti = String(elenco.stdout || '')
+					.split('\n')
+					.map((n) => n.trim())
+					.filter(
+						(n) => n && !nomiDaConservare.has(normalizza(n)) && !n.includes(version)
+					);
+				for (const nome of obsoleti) {
+					console.log(`Rimozione asset obsoleto: ${nome}`);
+					runCommand('gh', ['release', 'delete-asset', 'nightly', nome, '--yes'], {
+						allowFailure: true
+					});
+				}
 			}
 
 			console.log(`\nPrerelease Nightly pubblicata con successo!`);
