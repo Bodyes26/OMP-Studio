@@ -1,6 +1,6 @@
 {
   "name": "omp-studio-app",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Guscio desktop multi-progetto per l'agente omp: terminale integrato, albero dei file, editor e pannello consumi.",
   "type": "module",
   "scripts": {

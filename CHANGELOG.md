@@ -9,69 +9,72 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-26
+
 ### Added
-- **Gestione Interattiva Task (.omp/tasks.json) da GUI e TUI:**
-  - Persistenza dei task locale al progetto in `.omp/tasks.json`, non più confinata nello store globale di Studio, con auto-esclusione in `.omp/.gitignore` e migrazione automatica trasparente dei task esistenti.
-  - File watcher bidirezionale non bloccante con scritture atomiche (temp + rename) per sincronizzazione in tempo reale tra Studio GUI e OMP TUI senza lock sui file.
-  - Nuovo slash command `/tasks` per OMP: overlay interattivo a tutto schermo nel terminale per navigare con le frecce (`↑`/`↓`), cambiare stato con `Spazio`, aggiungere prompt con `A`, eliminare con `D`, riordinare con `J`/`K` e avviare immediatamente il task con `Invio`.
-  - Nuovo tool agente `project_tasks` per OMP con supporto completo a `list`, `add`, `update`, `delete`, `reorder` e `get`, integrato automaticamente in tutte le sessioni PTY e RPC via flag `-e`.
-  - Nuovi stati operativi per i task (`in_progress`, `completed`, `abandoned`) con chip visivi dedicati sia nell'AgentPanel che nel QueueDrawer e pulsante di commutazione stato rapido nel TaskEditor.
-- **Gestione Task e Coda Multi-progetto:**
-  - Nuovo `TaskEditor` a sezioni con layout scrollabile, textarea ad auto-dimensionamento, selezione del profilo di ruolo (`smol`, `default`, `slow`, `plan`, `custom`), slider interattivo del thinking effort e pulsanti primari espliciti «Salva e Chiudi» (`Esc`) e «Salva e Avvia subito» (`Ctrl+Invio`).
-  - Modalità e direttive speciali per task: «Modalità Piano (Plan Mode)», «Modalità Discussione & Requisiti (/grill-me)», «Soluzione Minimale (/ponytail)», «Modalità Ricerca Online» e inclusione selettiva del contesto dell'editor attivo (file aperti, selezione e posizione cursore).
-  - Supporto per allegati visivi nei prompt: acquisizione e rendering di screenshot dagli appunti (`Ctrl+V`), trascinamento file o selezione da pulsante, sia nel `TaskEditor` che nel `Composer` della chat.
-  - Autocompletamento contestuale dei comandi slash (`/`) e censimento automatico delle skill installate con visualizzazione chiara dei comandi nativi del guscio Studio e delle estensioni.
-  - Vista aggregata delle code di tutti i progetti (`Ctrl+Alt+T`, o chip in barra con il totale dei task in attesa): visualizzazione e avvio diretto dei prompt senza cambiare workspace, con motivo esplicito quando un progetto non è pronto.
-  - Avvio automatico dei task in coda (`autoDispatch`), attivabile per singolo progetto con lock anti-race e subordinato alla verifica di prontezza dell'agente.
-  - Configurazione della barra dei progetti con ordinamento manuale stabile (`fixed`), oltre a «Ultimo aperto», «Priorità task» e «Alfabetico»; badge contatore dei task in attesa con 4 stili personalizzabili e anteprima rapida con avvio a 1-click al passaggio del mouse sulla tessera.
-- **Superficie GUI e Transcript Avanzato:**
-  - Switcher rapido e ciclo dei ruoli (`Ctrl+P` e `Alt+R`) nel Composer della GUI per alternare sequenzialmente tra `default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit`, `advisor`, impostando modello e livello di thinking associato.
-  - Collegamenti interattivi ai file nel transcript della chat: cliccando su qualsiasi percorso di file nei chip di intestazione dei tool (`edit`, `write`, ecc.), nei link markdown o nei blocchi di codice, il file corrispondente viene aperto e visualizzato automaticamente nell'editor Monaco.
-  - Raggruppamento unificato delle sequenze di esecuzione (`ToolGroup`): accorpa chiamate ai tool e blocchi di pensiero (`thinking`) intermedi in un unico elemento compatto ed espandibile con cronometro live tabulare, mantenendo la risposta finale dell'assistente in primo piano.
-  - Supporto per tutti i comandi slash (`/`) e skill direttamente nella GUI, con palette dei comandi filtrabile e comandi grafici per gestione sessioni (`/login`, `/logout`, `/copy`, `/fork`, `/tree`, `/sessions`, `/drop`).
-  - Indicatore visivo dello stato di avvio di OMP nella barra inferiore della chat, con accodamento e inoltro automatico dei prompt digitati durante l'inizializzazione.
-  - Separazione visuale del contesto editor nei messaggi chat: i file aperti e il codice selezionato continuano a essere inviati nel prompt effettivo all'agente, ma nella grafica del messaggio vengono sostituiti da chip interattivi cliccabili (con indicazione file attivo, cursore o righe selezionate e anteprima comprimibile del codice), rimuovendo il testo raw dal fumetto utente.
-- **Primo Avvio Guidato (Setup Wizard):**
-  - Procedura di onboarding all'avvio con rilevamento semantico della configurazione mancante: download e installazione automatica di `omp` da GitHub Releases, configurazione shell Git Bash, installazione silenziosa del font monospazio Nerd nel profilo utente e wizard di configurazione credenziali/modelli nativo di `omp` ospitato in una scheda terminale protetta.
-  - Chip `⚠ Setup` nella barra superiore che segnala configurazioni incomplete e consente di riaprire il wizard guidato in qualsiasi momento.
-- **Notifiche OS e Allerte di Sistema:**
-  - Notifiche toast native (Windows 10/11 e macOS) quando un agente richiede attenzione o termina un task mentre l'app è in background, con click-to-focus diretto sul progetto interessato.
-  - Segnalazione visiva dell'attenzione: pallino rosso lampeggiante sull'icona della barra delle applicazioni di Windows e badge numerico con rimbalzo animato nel Dock di macOS.
-  - Nuova sezione «Notifiche» nel centro impostazioni (`Ctrl+Alt+,`) con controllo abilitazione, scelta dello stile del testo (sintetico o completo con la domanda dell'agente), allerta visiva su icona, segnale sonoro e pulsante «Invia notifica di prova».
-- **Centro Impostazioni e Personalizzazione Guscio:**
-  - Centro impostazioni unificato (`Ctrl+Alt+,`) con sei sezioni (Generale, Notifiche, Barra progetti, Workspace/Editor & Terminale, Task & Agenti, Modelli).
-  - Configurabilità avanzata dell'editor Monaco (font, dimensione, minimappa, ritorno a capo, tabulazione, numeri di riga) e del terminale (font, dimensione, scrollback, campanello sonoro, cursore), applicabili immediatamente a caldo.
-  - Valori predefiniti globali dei nuovi task con possibilità di override per singolo progetto.
-  - Componente `EmptyState` interattivo nel workspace e nel pannello agenti con inviti all'azione primari e griglia interattiva delle scorciatoie da tastiera.
-  - Componente `AlertBanner` unificato per diagnostica ed errori di sistema con feedback azionabile e pulsanti di riprova immediata.
-- **Release Pipeline e Packaging:**
-  - Promozione diretta degli artefatti validati da Release Candidate a Stabile nel workflow GitHub Actions, con verifica crittografica di consistenza tra commit del tag stabile e commit della pre-release testata.
-  - Validazione preventiva dell'allineamento dei quattro file di versione (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`) tramite `npm run release -- --check`.
-  - Icona applicazione `icon.icns` per macOS e `icon.ico` per Windows con logo Pi neon luminescente e variante Pi glass ad alto contrasto.
+
+- I task di ogni progetto vivono in `.omp/tasks.json` dentro il progetto stesso: restano accanto al codice, si escludono da git da soli e i task già presenti in Studio vengono migrati automaticamente.
+- Studio e il terminale condividono la stessa coda in tempo reale: ciò che aggiungi da una parte compare subito dall'altra, senza conflitti di scrittura.
+- Nuovo comando `/tasks` nel terminale: overlay a schermo intero per scorrere i task con le frecce, cambiarne lo stato con `Spazio`, aggiungerne con `A`, eliminarne con `D`, riordinarli con `J`/`K` e avviarli con `Invio`.
+- L'agente gestisce la coda del progetto da sé con il nuovo strumento `project_tasks` (elenco, aggiunta, modifica, eliminazione, riordino), disponibile in tutte le sessioni.
+- I task hanno stati reali — in corso, completato, abbandonato — con indicatori visibili nel pannello agente e nel cassetto delle code.
+- Nuovo editor dei task a sezioni: prompt al centro, scelta del profilo di ruolo (`smol`, `default`, `slow`, `plan`, personalizzato), regolazione dello sforzo di ragionamento e pulsanti «Salva e chiudi» (`Esc`) e «Salva e avvia subito» (`Ctrl+Invio`).
+- Direttive rapide per i task: Modalità Piano, Discussione & Requisiti, Soluzione Minimale e Ricerca Online, con inclusione facoltativa del contesto dell'editor (file aperti, selezione, posizione del cursore).
+- Allegati visivi nei prompt: incolla uno screenshot con `Ctrl+V`, trascina un file o scegline uno dal pulsante, sia nell'editor dei task sia nella chat.
+- Completamento automatico dei comandi `/` con l'elenco delle skill installate, distinguendo i comandi di Studio da quelli dell'agente.
+- Vista unica delle code di tutti i progetti (`Ctrl+Alt+T`, o il chip in barra col totale dei task in attesa): avvii il prompt di un altro progetto senza cambiare workspace e vedi il motivo quando un progetto non è pronto.
+- Avvio automatico dei task in coda, attivabile progetto per progetto, che parte solo quando l'agente è davvero pronto.
+- Barra dei progetti configurabile: ordine manuale, ultimo aperto, priorità dei task o alfabetico, con contatore dei task in attesa in quattro stili e anteprima ad avvio immediato al passaggio del mouse.
+- Cambio rapido dei ruoli nella chat (`Ctrl+P` e `Alt+R`) fra `default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit` e `advisor`, con modello e livello di ragionamento associati.
+- Percorsi di file cliccabili in tutta la chat: dai chip dei tool, dai link markdown o dai blocchi di codice il file si apre direttamente nell'editor.
+- Le sequenze di esecuzione dell'agente sono raccolte in un unico blocco espandibile con cronometro, così la risposta finale resta in primo piano.
+- Tutti i comandi `/` e le skill funzionano anche nella chat grafica, comprese le operazioni sulle sessioni (`/login`, `/logout`, `/copy`, `/fork`, `/tree`, `/sessions`, `/drop`).
+- La chat mostra lo stato di avvio dell'agente e accoda i prompt scritti durante l'inizializzazione, inoltrandoli appena è pronto.
+- Il contesto dell'editor allegato ai messaggi diventa un chip cliccabile con anteprima richiudibile, al posto del testo grezzo nel fumetto.
+- Primo avvio guidato: Studio rileva ciò che manca, scarica e installa `omp`, configura Git Bash, installa il font monospazio e ospita la configurazione di credenziali e modelli in una scheda protetta.
+- Chip «⚠ Setup» nella barra superiore quando la configurazione è incompleta, per riaprire la procedura guidata in qualsiasi momento.
+- Notifiche di sistema su Windows 10/11 e macOS quando l'agente chiede attenzione o completa un task con l'app in secondo piano, con clic diretto sul progetto interessato.
+- Segnale visivo sull'icona dell'app: pallino rosso lampeggiante sulla barra delle applicazioni di Windows e badge numerato con rimbalzo nel Dock di macOS.
+- Nuova sezione «Notifiche» nelle impostazioni: attivazione, testo sintetico o completo, allerta sull'icona, segnale sonoro e invio di una notifica di prova.
+- Centro impostazioni unificato (`Ctrl+Alt+,`) con sei sezioni: Generale, Notifiche, Barra progetti, Workspace, Task & Agenti e Modelli.
+- Editor e terminale personalizzabili — carattere, dimensione, minimappa, ritorno a capo, tabulazione, numeri di riga, scrollback, campanello e cursore — applicati subito, senza riavviare.
+- Valori predefiniti dei nuovi task impostabili globalmente e sovrascrivibili per singolo progetto.
+- Pannello consumi in finestra dedicata, con quote più critiche, conto alla rovescia al ripristino, andamento nelle 24 ore e velocità stimata.
+- Anteprima dedicata per i file SVG aperti nell'editor.
+- Schermate iniziali utili in workspace e pannello agenti, con azioni consigliate e griglia delle scorciatoie da tastiera.
+- Avvisi di sistema uniformi che spiegano la causa dell'errore e offrono un pulsante per riprovare, al posto di pannelli vuoti o bloccati su «Caricamento».
+- Nuova icona dell'applicazione per Windows e macOS.
 
 ### Changed
-- Ottimizzazione delle prestazioni di streaming e avvio: suddivisione del bundle JavaScript con code-splitting dedicato per Monaco editor, xterm e Mermaid per ridurre il tempo di caricamento iniziale della WebView; micro-batching sincronizzato con requestAnimationFrame per lo streaming ad alta frequenza nel terminale e nella chat dell'agente eliminando blocchi o scatti della UI; abilitazione di Link Time Optimization (LTO), eliminazione dei simboli di debug e ottimizzazioni per la dimensione del binario nel profilo release di Rust.
-- Riorganizzazione dell'interfaccia di `TaskEditor` e `Composer`: prompt del task al centro con textarea ad auto-dimensionamento dinamico, opzioni avanzate racchiuse in un pannello collassabile con riassunto visivo, e pulsanti di azione unificati.
-- Design del transcript della chat: rimozione dei bordi laterali colorati decorativi in favore di indentazione proporzionale, luminanza delle superfici e chevron unificato a 90°; rimozione del limite di altezza a 10.5 righe sui blocchi di codice; scala tipografica dei titoli markdown con limite a 65 caratteri per riga sulla prosa.
-- Animazioni fluide progressive: la chat accompagna comparsa, espansione e compattazione di tool e thinking con un reveal fluido di altezza e opacità senza salti del transcript, con pieno rispetto di `prefers-reduced-motion`.
-- Esecuzione diretta dei tool nella GUI: rimossa la richiesta bloccante di approvazione per i comandi standard (bash, write, edit, eval), allineando il comportamento della GUI a quello della TUI tramite overlay `approvalMode: yolo`.
+
+- Avvio più rapido e streaming più fluido: bundle suddiviso fra editor, terminale e diagrammi, aggiornamenti sincronizzati al refresh dello schermo e binario compilato con ottimizzazioni complete.
+- Editor dei task e chat riorganizzati: prompt al centro, opzioni avanzate in un pannello richiudibile con riassunto, pulsanti di azione uniformi.
+- Trascritto della chat più leggibile: indentazione e luminanza al posto dei bordi colorati decorativi, nessun limite di altezza sui blocchi di codice, prosa limitata a 65 caratteri per riga.
+- Comparsa, espansione e chiusura dei blocchi avvengono con animazioni fluide, disattivate quando il sistema richiede movimento ridotto.
+- La chat esegue direttamente i comandi standard (bash, write, edit, eval) senza chiedere approvazione, allineandosi al terminale.
 
 ### Fixed
-- Accessibilità completa (WAI-ARIA e WCAG AA): aggiunti `aria-label` descrittivi su tutti i pulsanti e controlli interattivi; focus trap con loop del tasto Tab e chiusura con `Esc` su modali, cassetti (`QueueDrawer`) e popover; risolto il disallineamento fra selezione e fuoco nella scheda `AskCard` tramite implementazione del `roving tabindex`; conformità del contrasto cromatico su tutti i badge e messaggi di errore (>= 4.5:1); annunci `aria-live` per i cambi di stato asincroni degli agenti.
-- Lifecycle dei processi e gestione PTY/RPC: terminazione ad albero dei processi figli e discendenti (PowerShell, runtime OMP, processi figli) alla chiusura della scheda o dell'applicazione tramite Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`), eliminando processi orfani in background; interruzione immediata dell'agente su pressione del tasto stop (`Esc` / `Alt+C` / `Ctrl+C`) azzerando all'istante lo stato locale di streaming e inviando i frame di abort prioritari a OMP.
-- Robustezza sessioni GUI e storico: unificazione della lettura dello storico da disco (`~/.omp/agent/sessions/`) e cronologia per riprendere regolarmente le sessioni create da task; sincronizzazione FIFO all'aggancio sessione evitando disallineamenti di messaggi; risolto il falso rilevamento di progetti attivi nel pannello consumi con riduzione della finestra di inattività a 2 minuti e pulizia automatica dei breadcrumb orfani.
-- Autoscroll chat GUI: risolto il problema della perdita di ancoraggio durante lo streaming e la comparsa spuria del pulsante di scorrimento; lo scroll resta ancorato in fondo e si riaggancia automaticamente quando ci si riavvicina al fondo.
-- Editor Monaco: ripristino e conservazione della posizione di scorrimento e cursore per ciascun file aperto al cambio di scheda o progetto.
-- Correzioni grafiche ed ergonomiche: rimosso il doppio anello di focus durante la digitazione dei prompt; ripristino dell'altezza predefinita a riga singola della textarea dopo l'invio; corretta la barra di aiuto con i tasti di navigazione nella palette dei comandi slash; deduplicato l'incollamento di immagini dagli appunti (Ctrl+V) ed eliminati avvisi di log spuri all'avvio.
-- Controllo aggiornamenti OMP CLI: estrazione affidabile della versione più recente dall'output di `omp update --check` con eliminazione delle sequenze ANSI e gestione degli errori di rete.
-- Canale Nightly: l'aggiornamento propone sempre l'installer della build annunciata anche quando la prerelease conserva ancora quelli delle build precedenti, che vengono ora rimossi alla pubblicazione.
+
+- Accessibilità: etichette su tutti i controlli, `Tab` che resta dentro modali e cassetti, chiusura con `Esc`, contrasti conformi e annunci dei cambi di stato dell'agente.
+- Alla chiusura di una scheda o dell'applicazione vengono terminati anche tutti i processi figli: niente più processi orfani in background.
+- Il tasto di stop interrompe l'agente all'istante (`Esc`, `Alt+C`, `Ctrl+C`).
+- Lo storico unisce le sessioni su disco e la cronologia, così anche le sessioni nate da un task si riprendono correttamente.
+- Nessun disallineamento dei messaggi quando ci si aggancia a una sessione già in corso.
+- Il pannello consumi non segnala più progetti attivi che non lo sono e ripulisce le tracce rimaste indietro.
+- La chat resta ancorata in fondo durante lo streaming e si riaggancia da sola quando ti riavvicini al fondo.
+- L'editor conserva posizione di scorrimento e cursore di ogni file al cambio di scheda o di progetto.
+- Corretti il doppio anello di focus sul prompt, l'altezza della casella di testo dopo l'invio, la barra di aiuto della palette dei comandi, le immagini incollate due volte e gli avvisi spuri all'avvio.
+- Il controllo aggiornamenti di `omp` legge la versione corretta anche quando l'output contiene sequenze di colore, e gestisce gli errori di rete.
+- Canale Nightly: l'aggiornamento propone sempre l'installer della build annunciata, e quelli delle build precedenti vengono rimossi alla pubblicazione.
 
 ### Security
-- Isolamento e sicurezza delle anteprime vettoriali SVG e prototipi UI: rendering eseguito all'interno di una sandbox iframe rigorosa (priva di privilegi script e con origine `null` disaccoppiata), protetto da Content Security Policy ermetica (`default-src 'none'`) e sanitizzazione preventiva con DOMPurify, neutralizzando vettori XSS, tag script ed handler malevoli.
-- Integrità e sicurezza dell'updater di Studio e dell'installer OMP: calcolo e validazione obbligatoria dell'impronta crittografica SHA-256 rispetto ai digest pubblicati su GitHub Releases prima dell'esecuzione, confino dei comandi IPC e distruzione garantita dei file temporanei in caso di errore.
-- Accesso ai database SQLite rigorosamente in sola lettura: apertura delle connessioni con flag `SQLITE_OPEN_READ_ONLY`, `PRAGMA query_only = ON` e validazione delle query per prevenire mutazioni o lock concorrenti, delegando l'I/O al thread pool asincrono `tokio::task::spawn_blocking`.
-- Isolamento del filesystem: tutti i percorsi relativi passano dalla validazione `resolve_path` con `canonicalize` e verifica del prefisso della radice del progetto, bloccando attacchi di directory traversal e symlink escaping.
-- Registrazione dell'AUMID `sh.omp.studio` su Windows 10/11 per prevenire spoofing di script e garantire identità affidabile delle notifiche desktop.
+
+- Le anteprime SVG e i prototipi HTML vengono aperti in un contenitore isolato, privo di script e di accesso all'applicazione, con il contenuto ripulito prima del rendering.
+- L'aggiornamento di Studio rifiuta qualsiasi pacchetto privo di impronta SHA-256 verificata, ricontrolla il file su disco subito prima di eseguirlo e cancella sempre i file temporanei.
+- L'installazione di `omp` si interrompe se l'impronta pubblicata su GitHub non corrisponde al file scaricato.
+- I database di `omp` vengono aperti in sola lettura, senza possibilità di modificarli o bloccarli, e le interrogazioni non bloccano l'interfaccia.
+- Ogni percorso richiesto viene risolto e verificato dentro la radice del progetto, bloccando le uscite tramite `..` o collegamenti simbolici.
+- Dall'interfaccia sono raggiungibili solo i comandi dichiarati nei permessi dell'applicazione; su Windows Studio registra la propria identità per le notifiche di sistema.
 ## [1.1.0] - 2026-08-24
 
 ### Added
