@@ -1,4 +1,6 @@
-use tauri::{AppHandle, Manager, UserAttentionType, WebviewWindow};
+use tauri::{AppHandle, Manager, UserAttentionType};
+#[cfg(target_os = "windows")]
+use tauri::WebviewWindow;
 
 #[tauri::command]
 pub fn set_app_attention(
@@ -14,7 +16,8 @@ pub fn set_app_attention(
             }
             #[cfg(target_os = "macos")]
             {
-                let _ = app.set_badge_count(Some(count as i64));
+                // Il badge del Dock e' esposto dalla finestra, non da AppHandle.
+                let _ = window.set_badge_count(Some(count as i64));
             }
             if alert {
                 let _ = window.request_user_attention(Some(UserAttentionType::Informational));
@@ -35,7 +38,7 @@ pub fn clear_app_attention(app: AppHandle) -> Result<(), String> {
         }
         #[cfg(target_os = "macos")]
         {
-            let _ = app.set_badge_count(None);
+            let _ = window.set_badge_count(None);
         }
         let _ = window.request_user_attention(None);
     }
