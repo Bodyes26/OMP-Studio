@@ -1,0 +1,139 @@
+# Permessi dei comandi nativi di Studio.
+#
+# Attenzione: la sola esistenza di questa cartella attiva l'ACL sui comandi
+# dell'app. Ogni comando registrato in `tauri::generate_handler!` (src/lib.rs)
+# deve comparire qui, altrimenti a runtime viene rifiutato con
+# "command <nome> not allowed by ACL". Il test `test/acl-coverage.test.ts`
+# fallisce se le due liste divergono.
+
+[[permission]]
+identifier = "allow-terminal"
+description = "Terminale PTY: apertura, scrittura, ridimensionamento e chiusura delle sessioni"
+commands.allow = [
+    "pty_open",
+    "pty_write",
+    "pty_resize",
+    "pty_close",
+    "pty_session_info"
+]
+
+[[permission]]
+identifier = "allow-agent-rpc"
+description = "Seconda superficie GUI: trasporto NDJSON verso omp in modalita' rpc-ui"
+commands.allow = [
+    "rpc_open",
+    "rpc_send",
+    "rpc_close",
+    "rpc_stderr",
+    "rpc_protocol"
+]
+
+[[permission]]
+identifier = "allow-workspace-files"
+description = "Albero dei file, lettura e scrittura confinate alla radice del progetto e anteprime"
+commands.allow = [
+    "tree_read",
+    "file_read",
+    "file_write",
+    "preview_file",
+    "resolve_project_file"
+]
+
+[[permission]]
+identifier = "allow-git"
+description = "Pannello Git: stato, diff, cronologia e gestione dei rami del progetto"
+commands.allow = [
+    "file_git_head",
+    "file_git_rev",
+    "project_git_status",
+    "git_last_commit",
+    "git_recent_commits",
+    "git_current_branch",
+    "git_working_numstat",
+    "git_branch_list",
+    "git_branch_checkout",
+    "git_branch_create",
+    "git_branch_merge"
+]
+
+[[permission]]
+identifier = "allow-project-tasks"
+description = "Coda dei task di progetto persistita in .omp/tasks.json e relativo watcher"
+commands.allow = [
+    "project_tasks_read",
+    "project_tasks_write",
+    "project_tasks_watch",
+    "project_tasks_unwatch"
+]
+
+[[permission]]
+identifier = "allow-usage-and-sessions"
+description = "Pannello consumi e storico sessioni in sola lettura dai database di omp"
+commands.allow = [
+    "usage_snapshot",
+    "sessions_list",
+    "sessions_search",
+    "provider_hosts"
+]
+
+[[permission]]
+identifier = "allow-omp-runtime"
+description = "Versione, aggiornamento e tema del runtime omp"
+commands.allow = [
+    "greet",
+    "get_omp_version",
+    "check_omp_update",
+    "run_omp_update",
+    "theme_apply",
+    "omp_user_theme"
+]
+
+[[permission]]
+identifier = "allow-models"
+description = "Catalogo modelli, ruoli, provider personalizzati e proposte di aggiornamento"
+commands.allow = [
+    "get_model_config",
+    "save_model_config",
+    "get_models_catalog",
+    "refresh_models_catalog",
+    "get_custom_providers",
+    "save_custom_providers",
+    "get_auth_providers_summary",
+    "check_model_upgrades",
+    "apply_model_upgrades",
+    "get_role_suggestions"
+]
+
+[[permission]]
+identifier = "allow-setup"
+description = "Primo avvio guidato: rilevamento stato, installazione di omp, font e radici progetti"
+commands.allow = [
+    "setup_status",
+    "install_omp",
+    "install_nerd_font",
+    "detect_project_roots"
+]
+
+[[permission]]
+identifier = "allow-attention"
+description = "Segnalazione di attenzione su taskbar Windows e Dock macOS"
+commands.allow = [
+    "set_app_attention",
+    "clear_app_attention"
+]
+
+[[set]]
+identifier = "studio-app"
+description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
+permissions = [
+    "allow-terminal",
+    "allow-agent-rpc",
+    "allow-workspace-files",
+    "allow-git",
+    "allow-project-tasks",
+    "allow-usage-and-sessions",
+    "allow-omp-runtime",
+    "allow-models",
+    "allow-setup",
+    "allow-attention"
+]

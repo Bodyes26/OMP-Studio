@@ -21,6 +21,7 @@
     "notification:default",
     "core:window:allow-set-focus",
     "core:window:allow-request-user-attention",
+    "studio-app",
     "studio-updater"
   ]
 }
