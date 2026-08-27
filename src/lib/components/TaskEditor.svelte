@@ -104,15 +104,20 @@
 			paletteOpen = false;
 			currentSlashMatch = null;
 
-			// Apri automaticamente opzioni avanzate se il task usa configurazioni non predefinite
+			// Apri automaticamente opzioni avanzate se il task usa configurazioni non
+			// predefinite. Modello e thinking non contano quando coincidono con quelli
+			// del ruolo scelto: li' sono solo il riflesso del ruolo, non una scelta.
+			const roleConfig = resolveRoleConfig(task.options?.role || 'default');
 			advancedOpen = Boolean(
 				(task.options?.role && task.options.role !== 'default') ||
 				task.options?.planMode ||
 				task.options?.discussionMode ||
 				task.options?.minimalMode ||
 				task.options?.researchMode ||
-				task.options?.modelSelector ||
-				(task.options?.thinkingLevel && task.options.thinkingLevel !== 'auto')
+				(task.options?.modelSelector && task.options.modelSelector !== roleConfig.model) ||
+				(task.options?.thinkingLevel &&
+					task.options.thinkingLevel !== 'auto' &&
+					task.options.thinkingLevel !== roleConfig.thinking)
 			);
 
 			void tick().then(() => {
@@ -199,20 +204,41 @@
 		});
 	}
 
+	/** Modello e thinking configurati per un ruolo, letti dalla configurazione dei modelli. */
+	function resolveRoleConfig(roleId: string): { model: string; thinking: string } {
+		const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
+		const roleSelector = rolesMap[roleId] || '';
+		return {
+			model: roleSelector.split(':')[0] || '',
+			thinking: roleSelector.includes(':') ? roleSelector.split(':')[1] : 'auto'
+		};
+	}
+
 	function selectRole(roleId: string) {
 		options.role = roleId;
 		if (roleId === 'custom') {
 			saveTask();
 			return;
 		}
-		const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
-		const roleSelector = rolesMap[roleId] || '';
-		const rawModel = roleSelector.split(':')[0] || '';
-		const roleThinking = roleSelector.includes(':') ? roleSelector.split(':')[1] : 'auto';
-		options.modelSelector = rawModel;
-		options.thinkingLevel = roleThinking;
+		const { model, thinking } = resolveRoleConfig(roleId);
+		options.modelSelector = model;
+		options.thinkingLevel = thinking;
 		saveTask();
 	}
+
+	// Un task nuovo nasce con il ruolo predefinito ma senza modello: appena la
+	// configurazione dei modelli e' disponibile si compilano modello e thinking
+	// effettivi del ruolo, cosi' i controlli mostrano subito cio' che verra' usato
+	// invece di restare sul placeholder.
+	$effect(() => {
+		const role = options.role;
+		if (!role || role === 'custom' || options.modelSelector) return;
+		const { model, thinking } = resolveRoleConfig(role);
+		if (!model) return;
+		options.modelSelector = model;
+		options.thinkingLevel = thinking;
+		saveTask();
+	});
 
 	function handleModelSelect(selector: string) {
 		options.modelSelector = selector;

@@ -9,6 +9,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Changed
+
+- Lo slider dello sforzo di ragionamento è una pillola col riempimento nel colore del tema: i pallini dei livelli non hanno più le etichette e attirano magneticamente il pomello durante il trascinamento, mentre il livello scelto si legge dal chip in testa al controllo.
+- Nell'editor di un nuovo task il modello e lo sforzo di ragionamento mostrano subito quelli del ruolo predefinito, invece di restare vuoti finché non si ritocca il ruolo.
+
 ## [1.2.0] - 2026-08-26
 
 ### Added

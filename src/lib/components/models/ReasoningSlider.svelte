@@ -1,4 +1,9 @@
 <script lang="ts">
+	// Slider del "thinking effort" in stile pillola: traccia spessa arrotondata,
+	// parte piena col colore del tema, pallini di passo senza etichette e pomello
+	// tondo. Durante il trascinamento il pomello segue il puntatore ma viene
+	// attratto verso il pallino piu' vicino (effetto magnetico), cosi' la
+	// selezione resta discreta ma il gesto rimane continuo.
 	import { THINKING_LEVELS } from '$lib/stores/modelSettings.svelte';
 
 	let {
@@ -13,9 +18,18 @@
 
 	const levels = THINKING_LEVELS;
 	const levelIds = levels.map((l) => l.id);
+	const lastIndex = levels.length - 1;
+
+	// Geometria: TRACK_H e' anche il diametro dell'area del pomello, KNOB_HALF il
+	// raggio effettivo del pomello disegnato. Restano allineati al CSS.
+	const TRACK_H = 26;
+	const KNOB_HALF = 11;
 
 	let trackEl = $state<HTMLDivElement | null>(null);
+	let trackWidth = $state(0);
 	let isDragging = $state(false);
+	// Rapporto continuo 0..1 gia' magnetizzato: usato solo mentre si trascina.
+	let dragRatio = $state(0);
 
 	const currentIndex = $derived.by(() => {
 		const idx = levelIds.indexOf(value as any);
@@ -23,24 +37,60 @@
 	});
 
 	const currentLevel = $derived(levels[currentIndex] || levels[0]);
-	const progressPercent = $derived((currentIndex / (levels.length - 1)) * 100);
+	// Posizione del pomello: magnetizzata nel drag, agganciata al passo a riposo.
+	const thumbRatio = $derived(isDragging ? dragRatio : currentIndex / lastIndex);
+	// Corsa utile: la traccia meno il pomello, che non ne esce mai.
+	const usableWidth = $derived(Math.max(1, trackWidth - TRACK_H));
+
+	// La larghezza serve per sapere quali pallini finiscono sotto al pomello.
+	$effect(() => {
+		const el = trackEl;
+		if (!el) return;
+		trackWidth = el.getBoundingClientRect().width;
+		const obs = new ResizeObserver(() => {
+			trackWidth = el.getBoundingClientRect().width;
+		});
+		obs.observe(el);
+		return () => obs.disconnect();
+	});
+
+	/**
+	 * Attrazione verso il passo piu' vicino: lo scostamento normalizzato dal
+	 * centro del segmento viene compresso con una potenza > 1, quindi il pomello
+	 * "cade" sul pallino e si stacca solo verso il confine del segmento, dove la
+	 * funzione resta continua (a |d| = 0.5 la spinta vale esattamente 0.5).
+	 */
+	function magnetize(ratio: number): number {
+		const seg = 1 / lastIndex;
+		const idx = Math.round(ratio / seg);
+		const center = idx * seg;
+		const d = (ratio - center) / seg;
+		const pulled = Math.sign(d) * (Math.abs(d) * 2) ** 2.4 * 0.5;
+		return Math.min(1, Math.max(0, center + pulled * seg));
+	}
+
+	function ratioFromClientX(clientX: number): number {
+		if (!trackEl) return 0;
+		const rect = trackEl.getBoundingClientRect();
+		// Il pomello non esce dalla traccia: l'area utile e' ridotta della sua larghezza.
+		const knob = rect.height;
+		const usable = Math.max(1, rect.width - knob);
+		return Math.min(1, Math.max(0, (clientX - rect.left - knob / 2) / usable));
+	}
 
 	function updateFromClientX(clientX: number) {
 		if (disabled || !trackEl) return;
-		const rect = trackEl.getBoundingClientRect();
-		const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-		const targetIndex = Math.round(ratio * (levels.length - 1));
-		const next = levelIds[targetIndex];
-		if (next && next !== value) {
-			onChange?.(next);
-		}
+		const raw = ratioFromClientX(clientX);
+		dragRatio = magnetize(raw);
+		const next = levelIds[Math.round(raw * lastIndex)];
+		if (next && next !== value) onChange?.(next);
 	}
 
 	function handlePointerDown(e: PointerEvent) {
 		if (disabled) return;
 		e.preventDefault();
-		isDragging = true;
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		isDragging = true;
 		updateFromClientX(e.clientX);
 	}
 
@@ -55,7 +105,7 @@
 		try {
 			(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
 		} catch {
-			// ignore
+			// il puntatore puo' essere gia' stato rilasciato dal browser
 		}
 	}
 
@@ -69,19 +119,9 @@
 		else return;
 
 		e.preventDefault();
-		const nextIndex = Math.min(levels.length - 1, Math.max(0, currentIndex + delta));
+		const nextIndex = Math.min(lastIndex, Math.max(0, currentIndex + delta));
 		const next = levelIds[nextIndex];
-		if (next && next !== value) {
-			onChange?.(next);
-		}
-	}
-
-	function handleStepClick(idx: number) {
-		if (disabled) return;
-		const next = levelIds[idx];
-		if (next && next !== value) {
-			onChange?.(next);
-		}
+		if (next && next !== value) onChange?.(next);
 	}
 </script>
 
@@ -97,7 +137,6 @@
 		<span class="level-desc">{currentLevel.desc}</span>
 	</div>
 
-	<!-- Interactive Slider Track -->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<div
 		bind:this={trackEl}
@@ -105,61 +144,32 @@
 		tabindex="0"
 		aria-label="Reasoning / Thinking Effort"
 		aria-valuemin="0"
-		aria-valuemax={levels.length - 1}
+		aria-valuemax={lastIndex}
 		aria-valuenow={currentIndex}
 		aria-valuetext={currentLevel.label}
-		class="slider-track-area"
+		class="slider-track"
+		class:dragging={isDragging}
 		onpointerdown={handlePointerDown}
 		onpointermove={handlePointerMove}
 		onpointerup={handlePointerUp}
 		onpointercancel={handlePointerUp}
 		onkeydown={handleKeydown}
 	>
-		<div class="track-bg"></div>
-		<div class="track-fill" style="transform: scaleX({progressPercent / 100});"></div>
+		<div class="track-fill" style="--pos: {thumbRatio};"></div>
 
-		<!-- Step Ticks -->
 		{#each levels as lvl, i (lvl.id)}
-			{@const stepPct = (i / (levels.length - 1)) * 100}
-			{@const isPassed = i <= currentIndex}
-			{@const isCurrent = i === currentIndex}
-			<button
-				type="button"
-				class="step-tick-btn"
-				class:passed={isPassed}
-				class:current={isCurrent}
-				style="left: {stepPct}%;"
-				onclick={(e) => {
-					e.stopPropagation();
-					handleStepClick(i);
-				}}
-				title="{lvl.label} ({lvl.budget})"
-			>
-				<span class="tick-dot"></span>
-			</button>
+			{@const stepRatio = i / lastIndex}
+			{@const gapPx = Math.abs(stepRatio - thumbRatio) * usableWidth}
+			<span
+				class="tick-dot"
+				class:filled={stepRatio <= thumbRatio + 0.001}
+				class:covered={gapPx < KNOB_HALF + 1}
+				class:near={gapPx < KNOB_HALF * 2.4}
+				style="--pos: {stepRatio};"
+			></span>
 		{/each}
 
-		<!-- Thumb Handle -->
-		<div
-			class="slider-thumb"
-			class:dragging={isDragging}
-			style="left: {progressPercent}%;"
-		></div>
-	</div>
-
-	<!-- Step Labels -->
-	<div class="step-labels">
-		{#each levels as lvl, i (lvl.id)}
-			{@const isCurrent = i === currentIndex}
-			<button
-				type="button"
-				class="step-label-btn"
-				class:active={isCurrent}
-				onclick={() => handleStepClick(i)}
-			>
-				{lvl.label}
-			</button>
-		{/each}
+		<div class="slider-thumb" style="--pos: {thumbRatio};"></div>
 	</div>
 </div>
 
@@ -181,13 +191,15 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		margin-bottom: 8px;
+		gap: 8px;
+		margin-bottom: 10px;
 	}
 
 	.header-left {
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		min-width: 0;
 	}
 
 	.brain-icon {
@@ -215,117 +227,93 @@
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
+		white-space: nowrap;
 	}
 
-	.slider-track-area {
+	/* Traccia a pillola: l'altezza definisce anche il diametro del pomello. */
+	.slider-track {
 		position: relative;
-		height: 20px;
+		height: 26px;
+		border-radius: var(--radius-full);
+		background: color-mix(in srgb, var(--ink) 10%, transparent);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 6%, transparent);
 		cursor: pointer;
-		display: flex;
-		align-items: center;
 		outline: none;
 		touch-action: none;
 	}
 
-	.slider-track-area:focus-visible .track-bg {
-		outline: 2px solid color-mix(in srgb, var(--brand) 60%, transparent);
-		outline-offset: 2px;
+	.slider-track:focus-visible {
+		box-shadow:
+			inset 0 0 0 1px color-mix(in srgb, var(--ink) 6%, transparent),
+			0 0 0 2px color-mix(in srgb, var(--brand) 55%, transparent);
 	}
 
-	.track-bg {
-		position: absolute;
-		left: 0;
-		right: 0;
-		height: 4px;
-		background: var(--line-strong);
-		border-radius: var(--radius-full);
-	}
-
+	/* La parte piena arriva al centro del pomello: mezzo pomello + corsa percorsa. */
 	.track-fill {
 		position: absolute;
-		left: 0;
-		right: 0;
-		height: 4px;
-		background: var(--brand);
+		inset: 0;
+		width: calc(13px + var(--pos) * (100% - 26px));
 		border-radius: var(--radius-full);
-		transform-origin: left;
-		transition: transform var(--dur-fast) var(--ease-out);
+		background: var(--brand);
+		transition: width var(--dur-fast) var(--ease-out);
 	}
 
-	.step-tick-btn {
-		position: absolute;
-		top: 50%;
-		transform: translate(-50%, -50%);
-		width: 14px;
-		height: 14px;
-		padding: 0;
-		border: none;
-		background: transparent;
-		cursor: pointer;
-		display: grid;
-		place-items: center;
-		z-index: 2;
+	.slider-track.dragging .track-fill {
+		transition: none;
 	}
 
 	.tick-dot {
-		width: 5px;
-		height: 5px;
+		position: absolute;
+		top: 50%;
+		left: calc(13px + var(--pos) * (100% - 26px));
+		transform: translate(-50%, -50%);
+		width: 4px;
+		height: 4px;
 		border-radius: var(--radius-full);
-		background: color-mix(in srgb, var(--ink) 35%, transparent);
-		transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+		background: color-mix(in srgb, var(--ink) 28%, transparent);
+		z-index: 1;
+		pointer-events: none;
+		transition:
+			transform var(--dur-fast) var(--ease-out),
+			opacity var(--dur-fast) var(--ease-out),
+			background-color var(--dur-fast) var(--ease-out);
 	}
 
-	.step-tick-btn.passed .tick-dot {
-		background: color-mix(in srgb, var(--brand-ink) 70%, transparent);
+	.tick-dot.filled {
+		background: color-mix(in srgb, var(--on-brand) 65%, transparent);
 	}
 
-	.step-tick-btn.current .tick-dot {
-		background: var(--brand-ink);
-		transform: scale(1.3);
+	/* Feedback del magnetismo: il pallino accanto al pomello si allarga. */
+	.tick-dot.near {
+		transform: translate(-50%, -50%) scale(1.5);
+	}
+
+	/* Il pallino finito sotto al pomello non deve spuntare. */
+	.tick-dot.covered {
+		opacity: 0;
 	}
 
 	.slider-thumb {
 		position: absolute;
 		top: 50%;
+		left: calc(13px + var(--pos) * (100% - 26px));
 		transform: translate(-50%, -50%);
-		width: 12px;
-		height: 12px;
+		width: 22px;
+		height: 22px;
 		border-radius: var(--radius-full);
-		background: var(--ink);
-		border: 2px solid var(--brand);
-		z-index: 3;
+		background: color-mix(in srgb, #fff 90%, var(--brand));
+		box-shadow:
+			0 1px 4px color-mix(in srgb, #000 30%, transparent),
+			0 0 0 1px color-mix(in srgb, #000 8%, transparent);
+		z-index: 2;
 		pointer-events: none;
-		transition: left var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+		transition:
+			left var(--dur-fast) var(--ease-out),
+			transform var(--dur-fast) var(--ease-out);
 	}
 
-	.slider-thumb.dragging {
-		transform: translate(-50%, -50%) scale(1.25);
-	}
-
-	.step-labels {
-		display: flex;
-		justify-content: space-between;
-		margin-top: 2px;
-	}
-
-	.step-label-btn {
-		background: transparent;
-		border: none;
-		padding: 2px 0;
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		color: var(--ink-faint);
-		cursor: pointer;
-		transition: color var(--dur-fast) var(--ease-out);
-		text-align: center;
-	}
-
-	.step-label-btn:hover {
-		color: var(--ink-muted);
-	}
-
-	.step-label-btn.active {
-		color: var(--brand-ink);
-		font-weight: 600;
+	.slider-track.dragging .slider-thumb {
+		transition: transform var(--dur-fast) var(--ease-out);
+		transform: translate(-50%, -50%) scale(1.06);
 	}
 </style>
