@@ -38,6 +38,7 @@ futures-util = "0.3"
 # chunk e' base64 e va decodificato in Rust, non nel webview.
 base64 = "0.22"
 sha2 = "0.10"
+trash = "3"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

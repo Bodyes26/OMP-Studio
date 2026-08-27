@@ -30,9 +30,13 @@ commands.allow = [
 
 [[permission]]
 identifier = "allow-workspace-files"
-description = "Albero dei file, lettura e scrittura confinate alla radice del progetto e anteprime"
+description = "Albero dei file e operazioni confinate alla radice del progetto: lettura, scrittura, creazione, rinomina, cestino e anteprime"
 commands.allow = [
     "tree_read",
+    "path_create_file",
+    "path_create_directory",
+    "path_rename",
+    "path_trash",
     "file_read",
     "file_write",
     "preview_file",

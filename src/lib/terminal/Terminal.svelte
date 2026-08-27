@@ -2,6 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { TerminalSession, type TerminalAgentState, type TerminalSessionInfo } from './terminal';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
+	import { IconCopy, IconPaste, IconSelectAll, IconClear } from '$lib/icons';
 	import '@xterm/xterm/css/xterm.css';
 
 	let {
@@ -87,8 +89,63 @@
 		void settingsStore.terminal.cursorBlink;
 		session?.applySettings();
 	});
+
+	const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent);
+	const mod = isMac ? '⌘' : 'Ctrl+';
+
+	function handleContextMenu(event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		if (!visible || !session) return;
+
+		const hasSel = session.hasSelection();
+
+		const items: ContextMenuEntry[] = [
+			{
+				kind: 'item',
+				label: 'Copia',
+				icon: IconCopy,
+				shortcut: `${mod}C`,
+				disabled: !hasSel,
+				hint: !hasSel ? 'Nessun testo selezionato' : undefined,
+				run: () => void session?.copy()
+			},
+			{
+				kind: 'item',
+				label: 'Incolla',
+				icon: IconPaste,
+				shortcut: `${mod}V`,
+				run: () => void session?.paste()
+			},
+			{
+				kind: 'item',
+				label: 'Seleziona tutto',
+				icon: IconSelectAll,
+				shortcut: `${mod}A`,
+				run: () => session?.selectAll()
+			},
+			{
+				kind: 'separator'
+			},
+			{
+				kind: 'item',
+				label: 'Pulisci visualizzazione',
+				icon: IconClear,
+				shortcut: isMac ? '⌘K' : 'Ctrl+L',
+				run: () => session?.clear()
+			}
+		];
+
+		contextMenu.open(event, {
+			label: 'Terminale',
+			items,
+			invoker: container
+		});
+	}
 </script>
 
+<!-- Il nodo e' solo l'host di xterm; l'elemento interattivo con ruolo e focus viene creato da xterm. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div 
 	bind:this={container} 
 	class="terminal-container" 
@@ -96,6 +153,7 @@
 	style:pointer-events={visible ? 'auto' : 'none'}
 	style:position="absolute"
 	style:inset="0"
+	oncontextmenu={handleContextMenu}
 ></div>
 
 <style>

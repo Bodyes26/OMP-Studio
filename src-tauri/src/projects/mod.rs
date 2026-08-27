@@ -72,6 +72,255 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
 
     Ok(resolved)
 }
+/// Valida un singolo nome base (file o cartella).
+/// Rifiuta stringhe vuote, '.' o '..', separatori di percorso e byte NUL.
+pub(crate) fn validate_basename(name: &str) -> Result<&str, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("Il nome non puo' essere vuoto".to_string());
+    }
+    if name == "." || name == ".." || trimmed == "." || trimmed == ".." {
+        return Err("Nome non valido: '.' e '..' non sono ammessi".to_string());
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return Err(
+            "Il nome non puo' contenere separatori di percorso o caratteri nulli".to_string(),
+        );
+    }
+    Ok(name)
+}
+
+/// Risolve e canonizza la radice del progetto, garantendo che esista e sia valida.
+pub(crate) fn canonical_project_base(project_path: &str) -> Result<PathBuf, String> {
+    #[cfg(not(target_os = "windows"))]
+    let clean_project_path = project_path.replace('\\', "/");
+    #[cfg(target_os = "windows")]
+    let clean_project_path = project_path.to_string();
+
+    if clean_project_path.trim().is_empty() {
+        return Err("Percorso del progetto non specificato".to_string());
+    }
+
+    Path::new(&clean_project_path).canonicalize().map_err(|e| {
+        format!(
+            "Radice del progetto non valida ({}): {}",
+            clean_project_path, e
+        )
+    })
+}
+
+/// Risolve e canonizza la cartella genitore rispetto alla base del progetto,
+/// assicurando che non esca dai confini della radice.
+pub(crate) fn resolve_parent_dir(base: &Path, parent_rel: &str) -> Result<PathBuf, String> {
+    let clean_parent = parent_rel.replace('\\', "/");
+    let clean_parent = clean_parent.trim_matches('/');
+
+    let target = if clean_parent.is_empty() || clean_parent == "." {
+        base.to_path_buf()
+    } else {
+        base.join(clean_parent)
+    };
+
+    let canonical = target
+        .canonicalize()
+        .map_err(|e| format!("Cartella genitore non valida o inesistente: {}", e))?;
+
+    if !canonical.starts_with(base) {
+        return Err("Il percorso esce dalla cartella del progetto".to_string());
+    }
+
+    if !canonical.is_dir() {
+        return Err("Il percorso genitore non e' una cartella".to_string());
+    }
+
+    Ok(canonical)
+}
+
+/// Suddivide un percorso relativo di un elemento esistente in (parent_rel_norm, leaf_name).
+/// Rifiuta operazioni sulla radice del progetto.
+pub(crate) fn split_rel_path(rel: &str) -> Result<(String, String), String> {
+    let clean = rel.replace('\\', "/");
+    let clean = clean.trim_matches('/');
+    if clean.is_empty() || clean == "." {
+        return Err("Operazione non consentita sulla radice del progetto".to_string());
+    }
+
+    let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return Err("Operazione non consentita sulla radice del progetto".to_string());
+    }
+
+    let leaf = parts.last().unwrap();
+    validate_basename(leaf)?;
+
+    let parent_parts = &parts[..parts.len() - 1];
+    let parent_rel = parent_parts.join("/");
+    Ok((parent_rel, leaf.to_string()))
+}
+
+/// Risolve un elemento esistente senza seguire symlink/junction sull'ultimo segmento (leaf),
+/// in modo che operazioni di rinomina o cestinazione agiscano sul link stesso e non sulla destinazione.
+pub(crate) fn resolve_existing_entry(
+    project_path: &str,
+    rel: &str,
+) -> Result<(PathBuf, String, String, bool), String> {
+    let base = canonical_project_base(project_path)?;
+    let (parent_rel, leaf_name) = split_rel_path(rel)?;
+    let parent_dir = resolve_parent_dir(&base, &parent_rel)?;
+    let entry_path = parent_dir.join(&leaf_name);
+
+    // Leaf non seguito: verifichiamo l'esistenza dell'entry con symlink_metadata
+    let _meta = fs::symlink_metadata(&entry_path)
+        .map_err(|e| format!("Elemento '{}' non trovato: {}", rel, e))?;
+
+    let is_dir = entry_path.is_dir();
+
+    Ok((entry_path, parent_rel, leaf_name, is_dir))
+}
+
+/// Risolve la destinazione per un nuovo elemento (file o directory),
+/// validando che il genitore sia dentro la radice e che non ci siano collisioni.
+pub(crate) fn resolve_new_destination(
+    project_path: &str,
+    parent_rel: &str,
+    name: &str,
+) -> Result<(PathBuf, String, String), String> {
+    let base = canonical_project_base(project_path)?;
+    validate_basename(name)?;
+
+    let clean_parent = parent_rel.replace('\\', "/");
+    let clean_parent = clean_parent.trim_matches('/').to_string();
+
+    let parent_dir = resolve_parent_dir(&base, &clean_parent)?;
+    let dest_path = parent_dir.join(name);
+
+    // Collision check: rifiuta se esiste gia' file, cartella, symlink o junction
+    if fs::symlink_metadata(&dest_path).is_ok() {
+        return Err(format!("Un elemento con il nome '{}' esiste gia'", name));
+    }
+
+    Ok((dest_path, clean_parent, name.to_string()))
+}
+
+#[command]
+pub async fn path_create_file(
+    project_path: String,
+    parent_rel: String,
+    name: String,
+) -> Result<Dirent, String> {
+    let (dest_path, parent_norm, file_name) =
+        resolve_new_destination(&project_path, &parent_rel, &name)?;
+
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&dest_path)
+        .map_err(|e| format!("Impossibile creare il file '{}': {}", name, e))?;
+
+    drop(file);
+
+    let rel_path = if parent_norm.is_empty() {
+        file_name.clone()
+    } else {
+        format!("{}/{}", parent_norm, file_name)
+    };
+
+    Ok(Dirent {
+        name: file_name,
+        path: rel_path,
+        is_dir: false,
+    })
+}
+
+#[command]
+pub async fn path_create_directory(
+    project_path: String,
+    parent_rel: String,
+    name: String,
+) -> Result<Dirent, String> {
+    let (dest_path, parent_norm, dir_name) =
+        resolve_new_destination(&project_path, &parent_rel, &name)?;
+
+    fs::create_dir(&dest_path)
+        .map_err(|e| format!("Impossibile creare la cartella '{}': {}", name, e))?;
+
+    let rel_path = if parent_norm.is_empty() {
+        dir_name.clone()
+    } else {
+        format!("{}/{}", parent_norm, dir_name)
+    };
+
+    Ok(Dirent {
+        name: dir_name,
+        path: rel_path,
+        is_dir: true,
+    })
+}
+
+#[command]
+pub async fn path_rename(
+    project_path: String,
+    rel: String,
+    new_name: String,
+) -> Result<Dirent, String> {
+    validate_basename(&new_name)?;
+    let (old_path, parent_rel, old_name, is_dir) = resolve_existing_entry(&project_path, &rel)?;
+
+    if new_name == old_name {
+        let rel_path = if parent_rel.is_empty() {
+            new_name.clone()
+        } else {
+            format!("{}/{}", parent_rel, new_name)
+        };
+        return Ok(Dirent {
+            name: new_name,
+            path: rel_path,
+            is_dir,
+        });
+    }
+
+    let parent_dir = old_path.parent().ok_or("Cartella genitore non trovata")?;
+    let new_path = parent_dir.join(&new_name);
+
+    #[cfg(target_os = "windows")]
+    let is_case_only_rename = new_name.eq_ignore_ascii_case(&old_name);
+    #[cfg(not(target_os = "windows"))]
+    let is_case_only_rename = false;
+
+    if !is_case_only_rename && fs::symlink_metadata(&new_path).is_ok() {
+        return Err(format!(
+            "Un elemento con il nome '{}' esiste gia'",
+            new_name
+        ));
+    }
+
+    fs::rename(&old_path, &new_path).map_err(|e| {
+        format!(
+            "Impossibile rinominare '{}' in '{}': {}",
+            old_name, new_name, e
+        )
+    })?;
+
+    let rel_path = if parent_rel.is_empty() {
+        new_name.clone()
+    } else {
+        format!("{}/{}", parent_rel, new_name)
+    };
+
+    Ok(Dirent {
+        name: new_name,
+        path: rel_path,
+        is_dir,
+    })
+}
+
+#[command]
+pub async fn path_trash(project_path: String, rel: String) -> Result<(), String> {
+    let (target_path, _, _, _) = resolve_existing_entry(&project_path, &rel)?;
+    trash::delete(&target_path)
+        .map_err(|e| format!("Impossibile spostare nel cestino '{}': {}", rel, e))?;
+    Ok(())
+}
 
 #[command]
 pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>, String> {
@@ -867,8 +1116,10 @@ pub async fn resolve_project_file(
 #[cfg(test)]
 mod tests {
     use super::{
-        file_git_rev, git_last_commit, git_recent_commits, merge_name_status_numstat, resolve_path,
-        resolve_project_file_sync,
+        file_git_rev, git_last_commit, git_recent_commits, merge_name_status_numstat,
+        path_create_directory, path_create_file, path_rename, resolve_existing_entry,
+        resolve_new_destination, resolve_path, resolve_project_file_sync, split_rel_path,
+        validate_basename,
     };
     use std::fs;
     #[cfg(windows)]
@@ -1090,5 +1341,227 @@ mod tests {
             "HEAD".to_string(),
         ));
         assert!(bad.is_err());
+    }
+
+    #[test]
+    fn basename_validazione() {
+        assert!(validate_basename("file.txt").is_ok());
+        assert!(validate_basename("my-dir_123").is_ok());
+        assert!(validate_basename("file with spaces.png").is_ok());
+
+        assert!(validate_basename("").is_err());
+        assert!(validate_basename("   ").is_err());
+        assert!(validate_basename(".").is_err());
+        assert!(validate_basename("..").is_err());
+        assert!(validate_basename("a/b").is_err());
+        assert!(validate_basename("a\\b").is_err());
+        assert!(validate_basename("name\0bad").is_err());
+    }
+
+    #[test]
+    fn creazione_file_e_collisione() {
+        let root = temp_dir("create-file");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let root_str = root.to_str().unwrap().to_string();
+
+        // Creazione file in radice
+        let d1 = rt
+            .block_on(path_create_file(
+                root_str.clone(),
+                "".to_string(),
+                "nuovo.txt".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d1.name, "nuovo.txt");
+        assert_eq!(d1.path, "nuovo.txt");
+        assert!(!d1.is_dir);
+        assert!(root.join("nuovo.txt").is_file());
+
+        // Creazione in sottocartella
+        fs::create_dir(root.join("sub")).unwrap();
+        let d2 = rt
+            .block_on(path_create_file(
+                root_str.clone(),
+                "sub".to_string(),
+                "nested.txt".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d2.name, "nested.txt");
+        assert_eq!(d2.path, "sub/nested.txt");
+        assert!(!d2.is_dir);
+        assert!(root.join("sub/nested.txt").is_file());
+
+        // Collisione: tentare di ricreare lo stesso file deve fallire
+        let err_coll = rt.block_on(path_create_file(
+            root_str.clone(),
+            "".to_string(),
+            "nuovo.txt".to_string(),
+        ));
+        assert!(err_coll.is_err());
+
+        // Traversal nel genitore deve fallire
+        let err_trav = rt.block_on(path_create_file(
+            root_str,
+            "../../fuori".to_string(),
+            "hacked.txt".to_string(),
+        ));
+        assert!(err_trav.is_err());
+    }
+
+    #[test]
+    fn creazione_cartella_singolo_livello() {
+        let root = temp_dir("create-dir");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let root_str = root.to_str().unwrap().to_string();
+
+        // Creazione cartella in radice
+        let d1 = rt
+            .block_on(path_create_directory(
+                root_str.clone(),
+                "".to_string(),
+                "assets".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d1.name, "assets");
+        assert_eq!(d1.path, "assets");
+        assert!(d1.is_dir);
+        assert!(root.join("assets").is_dir());
+
+        // Collisione con cartella esistente
+        let err_coll = rt.block_on(path_create_directory(
+            root_str.clone(),
+            "".to_string(),
+            "assets".to_string(),
+        ));
+        assert!(err_coll.is_err());
+
+        // Singolo livello: creazione sotto genitore inesistente fallisce
+        let err_nonexistent_parent = rt.block_on(path_create_directory(
+            root_str,
+            "inesistente/path".to_string(),
+            "child".to_string(),
+        ));
+        assert!(err_nonexistent_parent.is_err());
+    }
+
+    #[test]
+    fn rinomina_file_e_cartella() {
+        let root = temp_dir("rename");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let root_str = root.to_str().unwrap().to_string();
+
+        fs::write(root.join("vecchio.txt"), "dati").unwrap();
+        fs::create_dir_all(root.join("sub/old_dir")).unwrap();
+
+        // Rinomina file in radice
+        let d1 = rt
+            .block_on(path_rename(
+                root_str.clone(),
+                "vecchio.txt".to_string(),
+                "nuovo.txt".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d1.name, "nuovo.txt");
+        assert_eq!(d1.path, "nuovo.txt");
+        assert!(!d1.is_dir);
+        assert!(!root.join("vecchio.txt").exists());
+        assert!(root.join("nuovo.txt").is_file());
+
+        // Rinomina cartella annidata
+        let d2 = rt
+            .block_on(path_rename(
+                root_str.clone(),
+                "sub/old_dir".to_string(),
+                "new_dir".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d2.name, "new_dir");
+        assert_eq!(d2.path, "sub/new_dir");
+        assert!(d2.is_dir);
+        assert!(!root.join("sub/old_dir").exists());
+        assert!(root.join("sub/new_dir").is_dir());
+
+        // Collisione su rinomina
+        fs::write(root.join("esiste.txt"), "e").unwrap();
+        let err_coll = rt.block_on(path_rename(
+            root_str.clone(),
+            "nuovo.txt".to_string(),
+            "esiste.txt".to_string(),
+        ));
+        assert!(err_coll.is_err());
+
+        // Rinomina della radice vietata
+        let err_root = rt.block_on(path_rename(
+            root_str,
+            "".to_string(),
+            "altra_radice".to_string(),
+        ));
+        assert!(err_root.is_err());
+    }
+
+    #[test]
+    fn radice_e_traversal_protetti() {
+        let root = temp_dir("root-prot");
+        let root_str = root.to_str().unwrap();
+
+        assert!(split_rel_path("").is_err());
+        assert!(split_rel_path(".").is_err());
+        assert!(split_rel_path("/").is_err());
+        assert!(resolve_existing_entry(root_str, "").is_err());
+        assert!(resolve_existing_entry(root_str, ".").is_err());
+
+        assert!(resolve_new_destination(root_str, "../..", "evil.txt").is_err());
+        assert!(resolve_new_destination(root_str, "sub/../../fuori", "evil.txt").is_err());
+    }
+
+    #[test]
+    fn symlink_e_junction_leaf_non_seguito() {
+        let root = temp_dir("link-leaf");
+        let fuori = temp_dir("link-fuori-dest");
+        fs::write(fuori.join("segreto.txt"), "contenuto protetto").unwrap();
+        let dentro_link = root.join("collegamento");
+
+        #[cfg(windows)]
+        let creato = Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&dentro_link)
+            .arg(&fuori)
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false);
+        #[cfg(not(windows))]
+        let creato = std::os::unix::fs::symlink(&fuori, &dentro_link).is_ok();
+
+        assert!(creato, "impossibile creare il collegamento per il test");
+
+        let root_str = root.to_str().unwrap();
+
+        // Risoluzione dell'entry del link: punta al link dentro il workspace, NON al target fuori
+        let (entry_path, parent_rel, leaf_name, _is_dir) =
+            resolve_existing_entry(root_str, "collegamento").unwrap();
+        assert_eq!(leaf_name, "collegamento");
+        assert_eq!(parent_rel, "");
+        assert_eq!(
+            entry_path,
+            root.canonicalize().unwrap().join("collegamento")
+        );
+
+        // Rinomina del link: deve rinominare il collegamento senza toccare o spostare la cartella esterna
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let d = rt
+            .block_on(path_rename(
+                root_str.to_string(),
+                "collegamento".to_string(),
+                "collegamento_rinominato".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d.name, "collegamento_rinominato");
+        assert!(root.join("collegamento_rinominato").exists());
+        assert!(!root.join("collegamento").exists());
+        // La cartella esterna e il suo file rimangono intatti
+        assert!(fuori.join("segreto.txt").exists());
+
+        // Attraversamento oltre il link verso l'esterno: viene bloccato perche' il genitore esce da base
+        assert!(resolve_existing_entry(root_str, "collegamento_rinominato/segreto.txt").is_err());
     }
 }

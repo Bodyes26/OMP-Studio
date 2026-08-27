@@ -32,6 +32,9 @@ export type CloseWithQueuedTasks = 'ask' | 'keep' | 'discard';
 /** Superficie con cui nasce un progetto nuovo. */
 export type DefaultSurface = 'terminal' | 'gui';
 
+/** Larghezza e allineamento del flusso della chat: centrata per leggibilita' o a tutta colonna. */
+export type ChatWidth = 'readable' | 'full';
+
 export type SettingsSection = 'general' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models';
 
 /** Stile del messaggio della notifica di sistema. */
@@ -90,6 +93,8 @@ export interface TaskDefaults {
 export interface GeneralSettings {
 	defaultSurface: DefaultSurface;
 	closeWithQueuedTasks: CloseWithQueuedTasks;
+	/** Larghezza e allineamento della chat: centrata con larghezza massima leggibile o a tutta colonna. */
+	chatWidth: ChatWidth;
 }
 
 export interface StudioSettings {
@@ -137,7 +142,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 	},
 	general: {
 		defaultSurface: 'terminal',
-		closeWithQueuedTasks: 'ask'
+		closeWithQueuedTasks: 'ask',
+		chatWidth: 'readable'
 	},
 	notifications: {
 		enabled: true,
@@ -218,7 +224,8 @@ export function parseSettings(value: unknown): StudioSettings {
 		},
 		general: {
 			defaultSurface: pick(general.defaultSurface, ['terminal', 'gui'] as const, d.general.defaultSurface),
-			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks)
+			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks),
+			chatWidth: pick(general.chatWidth, ['readable', 'full'] as const, d.general.chatWidth)
 		},
 		notifications: {
 			enabled: bool(notif.enabled, d.notifications.enabled),

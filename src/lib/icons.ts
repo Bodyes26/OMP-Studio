@@ -51,6 +51,17 @@ export { default as IconAuto } from '@lucide/svelte/icons/zap';
 export { default as IconCloseOthers } from '@lucide/svelte/icons/square-x';
 export { default as IconGitBranch } from '@lucide/svelte/icons/git-branch';
 
+// Menu contestuali e modifica testo.
+export { default as IconUndo } from '@lucide/svelte/icons/undo';
+export { default as IconRedo } from '@lucide/svelte/icons/redo';
+export { default as IconCut } from '@lucide/svelte/icons/scissors';
+export { default as IconPaste } from '@lucide/svelte/icons/clipboard-paste';
+export { default as IconSelectAll } from '@lucide/svelte/icons/text-select';
+export { default as IconTrash } from '@lucide/svelte/icons/trash-2';
+export { default as IconNewFile } from '@lucide/svelte/icons/file-plus';
+export { default as IconNewFolder } from '@lucide/svelte/icons/folder-plus';
+export { default as IconSave } from '@lucide/svelte/icons/save';
+export { default as IconClear } from '@lucide/svelte/icons/eraser';
 // Stato: le stesse quattro forme per task, job, subagent e todo.
 export { default as IconStatusPending } from '@lucide/svelte/icons/circle';
 export { default as IconStatusRunning } from '@lucide/svelte/icons/circle-dot';

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import * as monaco from 'monaco-editor';
 	import {
 		disposeFileModel,
 		getCurrentFileContent,
@@ -13,11 +14,34 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import ImageViewer from './ImageViewer.svelte';
 	import SvgPreview from './SvgPreview.svelte';
-	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
+	import { projectStore, joinProjectPath, isWindows } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { IconClose } from '$lib/icons';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
+	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
+	import {
+		IconClose,
+		IconCloseOthers,
+		IconCopy,
+		IconCut,
+		IconFolderOpen,
+		IconGitBranch,
+		IconPaste,
+		IconRedo,
+		IconSave,
+		IconSelectAll,
+		IconUndo
+	} from '$lib/icons';
 
-	let { projectPath, filePaths, filePath, onFileSaved, openFileRequest, editorDiffRequest, onPreviewRequest } = $props<{
+	let {
+		projectPath,
+		filePaths,
+		filePath,
+		onFileSaved,
+		openFileRequest,
+		editorDiffRequest,
+		onPreviewRequest,
+		onDirtyFilesChange
+	} = $props<{
 		projectPath: string;
 		filePaths: string[];
 		filePath: string | null;
@@ -30,8 +54,8 @@
 			id: number;
 		} | null;
 		onPreviewRequest?: (filePath: string) => void;
+		onDirtyFilesChange?: (paths: string[]) => void;
 	}>();
-
 	function isHtmlFile(path: string): boolean {
 		return ['html', 'htm'].includes(path.split('.').pop()?.toLowerCase() || '');
 	}
@@ -76,6 +100,55 @@
 	let isSvg = $derived(filePath ? filePath.split('.').pop()?.toLowerCase() === 'svg' : false);
 	let isMarkdown = $derived(filePath ? ['md', 'markdown'].includes(filePath.split('.').pop()?.toLowerCase() || '') : false);
 
+	let currentProjectDirtyPaths = $derived.by(() => {
+		if (!projectPath) return [];
+		const prefix = `${projectPath}\u0000`;
+		const paths: string[] = [];
+		for (const [key, dirty] of Object.entries(dirtyFiles)) {
+			if (dirty && key.startsWith(prefix)) {
+				paths.push(key.slice(prefix.length));
+			}
+		}
+		return paths;
+	});
+
+	$effect(() => {
+		const paths = currentProjectDirtyPaths;
+		onDirtyFilesChange?.(paths);
+	});
+
+	const knownFilesByProject = new Map<string, Set<string>>();
+
+	$effect(() => {
+		const currentProject = projectPath;
+		const currentPaths = filePaths;
+		if (!currentProject) return;
+
+		const currentSet = new Set<string>(currentPaths);
+		const prefix = `${currentProject}\u0000`;
+
+		// Smaltisce fileState e modelli Monaco dei file di questo progetto non piu' in filePaths
+		for (const key of Array.from(fileStates.keys())) {
+			if (key.startsWith(prefix)) {
+				const path = key.slice(prefix.length);
+				if (!currentSet.has(path)) {
+					fileStates.delete(key);
+					clearDirty(key);
+					disposeFileModel(joinProjectPath(currentProject, path));
+				}
+			}
+		}
+
+		const prev = knownFilesByProject.get(currentProject);
+		if (prev) {
+			for (const oldFile of prev) {
+				if (!currentSet.has(oldFile)) {
+					disposeFileModel(joinProjectPath(currentProject, oldFile));
+				}
+			}
+		}
+		knownFilesByProject.set(currentProject, currentSet);
+	});
 	let commandsBound = false;
 
 	function fileKey(project: string, path: string): string {
@@ -154,10 +227,9 @@
 			);
 			setTimeout(() => editor?.layout(), 10);
 		}
-
 		if (pendingDiffFile === path) {
 			pendingDiffFile = null;
-			toggleGitDiff();
+			showDiff = true;
 		}
 	}
 
@@ -279,6 +351,13 @@
 			});
 		}
 
+		const ctxListener = editor.onContextMenu((e: any) => {
+			handleEditorContextMenu(e.event.browserEvent, editor);
+		});
+		if (ctxListener && typeof ctxListener.dispose === 'function') {
+			disposables.push(ctxListener);
+		}
+
 		const changeListener = editor.onDidChangeModelContent(() => {
 			if (!filePath || !projectPath || !loadedKey) return;
 			const state = fileStates.get(loadedKey);
@@ -308,6 +387,42 @@
 		};
 	});
 
+	$effect(() => {
+		const host = diffContainer;
+		if (!host || !showDiff || !filePath) return;
+		disposeDiff();
+		const original = diffOriginalOverride ?? gitHeadContent ?? '';
+		const modified = diffModifiedOverride ?? currentText;
+		const diffInst = createDiffEditorInstance(
+			host,
+			original,
+			modified,
+			languageFor(filePath)
+		);
+		diffEditorInstance = diffInst;
+
+		const disposables: { dispose: () => void }[] = [];
+		const origListener = diffInst.getOriginalEditor().onContextMenu((e: any) => {
+			handleEditorContextMenu(e.event.browserEvent, diffInst.getOriginalEditor());
+		});
+		if (origListener && typeof origListener.dispose === 'function') {
+			disposables.push(origListener);
+		}
+
+		const modListener = diffInst.getModifiedEditor().onContextMenu((e: any) => {
+			handleEditorContextMenu(e.event.browserEvent, diffInst.getModifiedEditor());
+		});
+		if (modListener && typeof modListener.dispose === 'function') {
+			disposables.push(modListener);
+		}
+
+		return () => {
+			for (const d of disposables) {
+				d.dispose();
+			}
+			disposeDiff();
+		};
+	});
 	// Le preferenze dell'editor si applicano a caldo: leggere i singoli campi
 	// (non l'oggetto) evita di rieseguire l'effetto per scritture che non
 	// riguardano l'editor (es. terminale). Mai ricreare l'istanza per un
@@ -353,20 +468,25 @@
 		stopResize();
 	});
 
-	async function saveCurrentFile() {
-		if (!loadedKey || !filePath || !projectPath || isImage) return;
-		const abs = joinProjectPath(projectPath, filePath);
-		const content = getCurrentFileContent(abs);
-		const state = fileStates.get(loadedKey);
-		if (content === null || !state) return;
+	async function saveFileByPath(targetPath: string) {
+		if (!targetPath || !projectPath || isImageFile(targetPath)) return;
+		const key = fileKey(projectPath, targetPath);
+		const abs = joinProjectPath(projectPath, targetPath);
+		const state = fileStates.get(key);
+		const content = getCurrentFileContent(abs) ?? state?.currentText;
+		if (content === null || content === undefined) return;
 		try {
-			await invoke('file_write', { projectPath, rel: filePath, content });
-			state.initialContent = content;
-			state.currentText = content;
-			initialContent = content;
-			currentText = content;
-			setDirty(loadedKey, false);
-			if (editor) {
+			await invoke('file_write', { projectPath, rel: targetPath, content });
+			if (state) {
+				state.initialContent = content;
+				state.currentText = content;
+			}
+			if (targetPath === filePath) {
+				initialContent = content;
+				currentText = content;
+			}
+			setDirty(key, false);
+			if (targetPath === filePath && editor && state) {
 				state.decorationIds = updateGutterDecorations(
 					editor,
 					state.gitHeadContent,
@@ -378,6 +498,11 @@
 		} catch (error) {
 			console.error('Save failed', error);
 		}
+	}
+
+	async function saveCurrentFile() {
+		if (!filePath) return;
+		await saveFileByPath(filePath);
 	}
 
 	function selectFile(path: string) {
@@ -397,6 +522,19 @@
 		projectStore.closeFile(projectStore.activeId, path);
 	}
 
+	function closeOtherFiles(keepPath: string) {
+		if (!projectPath || !projectStore.activeId) return;
+		for (const p of filePaths) {
+			if (p !== keepPath) {
+				const key = fileKey(projectPath, p);
+				fileStates.delete(key);
+				clearDirty(key);
+				disposeFileModel(joinProjectPath(projectPath, p));
+			}
+		}
+		projectStore.closeOtherFiles(projectStore.activeId, keepPath);
+	}
+
 	function openDiff(path: string) {
 		if (isImageFile(path)) return;
 		if (path === filePath) {
@@ -412,21 +550,251 @@
 		showDiff = !showDiff;
 		if (!showDiff) {
 			disposeDiff();
-			return;
 		}
+	}
 
-	setTimeout(() => {
-		if (!diffContainer) return;
-		disposeDiff();
-		const original = diffOriginalOverride ?? gitHeadContent ?? '';
-		const modified = diffModifiedOverride ?? currentText;
-		diffEditorInstance = createDiffEditorInstance(
-			diffContainer,
-			original,
-			modified,
-			languageFor(filePath!)
+	function handleTabContextMenu(event: MouseEvent, tabPath: string) {
+		event.preventDefault();
+		event.stopPropagation();
+		if (!projectPath) return;
+
+		const isTabDirty = dirtyFiles[fileKey(projectPath, tabPath)] === true;
+		const isTabImage = isImageFile(tabPath);
+		const revealLabel = isWindows ? 'Mostra in Esplora file' : 'Mostra nel Finder';
+
+		const items: ContextMenuEntry[] = [
+			{
+				kind: 'item',
+				label: 'Salva',
+				icon: IconSave,
+				shortcut: isWindows ? 'Ctrl+S' : 'Cmd+S',
+				disabled: !isTabDirty || isTabImage,
+				hint: !isTabDirty ? 'Nessuna modifica da salvare' : isTabImage ? 'File non modificabile' : undefined,
+				run: () => void saveFileByPath(tabPath)
+			},
+			{
+				kind: 'item',
+				label: 'Diff',
+				icon: IconGitBranch,
+				disabled: isTabImage,
+				hint: isTabImage ? 'Diff non disponibile per le immagini' : undefined,
+				run: () => openDiff(tabPath)
+			},
+			{ kind: 'separator' },
+			{
+				kind: 'item',
+				label: 'Copia percorso relativo',
+				icon: IconCopy,
+				run: async () => {
+					await navigator.clipboard.writeText(tabPath);
+				}
+			},
+			{
+				kind: 'item',
+				label: 'Copia percorso completo',
+				icon: IconCopy,
+				run: async () => {
+					await navigator.clipboard.writeText(joinProjectPath(projectPath, tabPath));
+				}
+			},
+			{
+				kind: 'item',
+				label: revealLabel,
+				icon: IconFolderOpen,
+				run: async () => {
+					try {
+						await revealItemInDir(joinProjectPath(projectPath, tabPath));
+					} catch (error) {
+						console.error('Impossibile mostrare il file nel file manager:', error);
+					}
+				}
+			},
+			{ kind: 'separator' },
+			{
+				kind: 'item',
+				label: 'Chiudi',
+				icon: IconClose,
+				shortcut: isWindows ? 'Ctrl+W' : 'Cmd+W',
+				run: () => closeFile(tabPath)
+			},
+			{
+				kind: 'item',
+				label: 'Chiudi gli altri',
+				icon: IconCloseOthers,
+				disabled: filePaths.length <= 1,
+				hint: filePaths.length <= 1 ? 'Nessun altro file aperto' : undefined,
+				run: () => closeOtherFiles(tabPath)
+			}
+		];
+
+		contextMenu.open(event, {
+			label: fileName(tabPath),
+			items,
+			invoker: (event.currentTarget as HTMLElement) ?? (event.target as HTMLElement)
+		});
+	}
+
+	function handleEditorContextMenu(event: MouseEvent, targetEditor?: monaco.editor.IStandaloneCodeEditor | null) {
+		event.preventDefault();
+		event.stopPropagation();
+		const ed = targetEditor ?? editor;
+		if (!ed) return;
+
+		const isMainEditor = ed === editor;
+		const isReadOnly = Boolean(
+			ed.getOption?.(monaco.editor.EditorOption.readOnly) ??
+			(ed as any).getRawOptions?.()?.readOnly
 		);
-	}, 20);
+		const selection = ed.getSelection?.();
+		const hasSelection = selection ? !selection.isEmpty() : false;
+		const isDiffOriginal = isReadOnly && showDiff;
+		const readOnlyHint = isDiffOriginal ? 'Originale non modificabile' : 'File in sola lettura';
+
+		const items: ContextMenuEntry[] = [
+			{
+				kind: 'item',
+				label: 'Annulla',
+				icon: IconUndo,
+				shortcut: isWindows ? 'Ctrl+Z' : 'Cmd+Z',
+				disabled: isReadOnly,
+				hint: isReadOnly ? readOnlyHint : undefined,
+				run: () => {
+					ed.focus();
+					ed.trigger('contextMenu', 'undo', null);
+				}
+			},
+			{
+				kind: 'item',
+				label: 'Ripeti',
+				icon: IconRedo,
+				shortcut: isWindows ? 'Ctrl+Y' : 'Cmd+Shift+Z',
+				disabled: isReadOnly,
+				hint: isReadOnly ? readOnlyHint : undefined,
+				run: () => {
+					ed.focus();
+					ed.trigger('contextMenu', 'redo', null);
+				}
+			},
+			{ kind: 'separator' },
+			{
+				kind: 'item',
+				label: 'Taglia',
+				icon: IconCut,
+				shortcut: isWindows ? 'Ctrl+X' : 'Cmd+X',
+				disabled: isReadOnly || !hasSelection,
+				hint: isReadOnly ? readOnlyHint : !hasSelection ? 'Nessun testo selezionato' : undefined,
+				run: async () => {
+					ed.focus();
+					const sel = ed.getSelection();
+					const model = ed.getModel();
+					if (sel && model && !sel.isEmpty()) {
+						const text = model.getValueInRange(sel);
+						if (navigator.clipboard?.writeText) {
+							try {
+								await navigator.clipboard.writeText(text);
+							} catch {
+								// ignora errore clipboard
+							}
+						}
+						ed.trigger('contextMenu', 'editor.action.clipboardCutAction', null);
+					}
+				}
+			},
+			{
+				kind: 'item',
+				label: 'Copia',
+				icon: IconCopy,
+				shortcut: isWindows ? 'Ctrl+C' : 'Cmd+C',
+				disabled: !hasSelection,
+				hint: !hasSelection ? 'Nessun testo selezionato' : undefined,
+				run: async () => {
+					ed.focus();
+					const sel = ed.getSelection();
+					const model = ed.getModel();
+					if (sel && model && !sel.isEmpty()) {
+						const text = model.getValueInRange(sel);
+						if (navigator.clipboard?.writeText) {
+							try {
+								await navigator.clipboard.writeText(text);
+								return;
+							} catch {
+								// fallback a trigger Monaco
+							}
+						}
+					}
+					ed.trigger('contextMenu', 'editor.action.clipboardCopyAction', null);
+				}
+			},
+			{
+				kind: 'item',
+				label: 'Incolla',
+				icon: IconPaste,
+				shortcut: isWindows ? 'Ctrl+V' : 'Cmd+V',
+				disabled: isReadOnly,
+				hint: isReadOnly ? readOnlyHint : undefined,
+				run: async () => {
+					ed.focus();
+					if (navigator.clipboard?.readText) {
+						try {
+							const text = await navigator.clipboard.readText();
+							if (text) {
+								const sel = ed.getSelection() ?? new monaco.Range(1, 1, 1, 1);
+								ed.executeEdits('paste', [{ range: sel, text, forceMoveMarkers: true }]);
+								return;
+							}
+						} catch {
+							// fallback a trigger Monaco
+						}
+					}
+					ed.trigger('contextMenu', 'editor.action.clipboardPasteAction', null);
+				}
+			},
+			{ kind: 'separator' },
+			{
+				kind: 'item',
+				label: 'Seleziona tutto',
+				icon: IconSelectAll,
+				shortcut: isWindows ? 'Ctrl+A' : 'Cmd+A',
+				run: () => {
+					ed.focus();
+					ed.trigger('contextMenu', 'editor.action.selectAll', null);
+				}
+			},
+			{ kind: 'separator' },
+			{
+				kind: 'item',
+				label: 'Salva',
+				icon: IconSave,
+				shortcut: isWindows ? 'Ctrl+S' : 'Cmd+S',
+				disabled: !isMainEditor || isReadOnly || !isDirty,
+				hint: !isMainEditor
+					? 'Salvataggio disponibile nell’editor principale'
+					: isReadOnly
+						? readOnlyHint
+						: !isDirty
+							? 'Nessuna modifica da salvare'
+							: undefined,
+				run: () => {
+					void saveCurrentFile();
+				}
+			},
+			{
+				kind: 'item',
+				label: showDiff ? 'Nascondi diff' : 'Mostra diff',
+				icon: IconGitBranch,
+				disabled: isImage,
+				hint: isImage ? 'Diff non disponibile per le immagini' : undefined,
+				run: () => {
+					toggleGitDiff();
+				}
+			}
+		];
+
+		contextMenu.open(event, {
+			label: 'Editor',
+			items,
+			invoker: (event.target as HTMLElement) ?? (event.currentTarget as HTMLElement)
+		});
 	}
 
 	function startResize(event: MouseEvent) {
@@ -472,7 +840,12 @@
 			<div class="editor-tabs" role="group" aria-label="File aperti">
 				{#each filePaths as path (path)}
 					{@const isActive = path === filePath}
-					<div class="editor-tab" class:active={isActive}>
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="editor-tab"
+						class:active={isActive}
+						oncontextmenu={(event) => handleTabContextMenu(event, path)}
+					>
 						<button
 							class="editor-tab-file"
 							aria-pressed={isActive}
@@ -532,11 +905,21 @@
 		{:else if isImage}
 			<ImageViewer projectPath={projectPath} filePath={filePath} />
 		{:else if showDiff}
-			<div class="diff-wrapper" bind:this={diffContainer}></div>
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="diff-wrapper"
+				bind:this={diffContainer}
+				oncontextmenu={(event) => handleEditorContextMenu(event, diffEditorInstance?.getModifiedEditor() ?? null)}
+			></div>
 		{:else if isSvg || isMarkdown}
 			<div class="split-container" bind:this={splitContainer}>
 				<div class="split-top" style="height: {splitPercent}%;">
-					<div class="monaco-host" bind:this={container}></div>
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="monaco-host"
+						bind:this={container}
+						oncontextmenu={(event) => handleEditorContextMenu(event, editor)}
+					></div>
 				</div>
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div class="splitter-bar" onmousedown={startResize} title="Trascina per ridimensionare">
@@ -557,7 +940,12 @@
 				</div>
 			</div>
 		{:else}
-			<div class="monaco-host" bind:this={container}></div>
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="monaco-host"
+				bind:this={container}
+				oncontextmenu={(event) => handleEditorContextMenu(event, editor)}
+			></div>
 		{/if}
 	</div>
 </div>

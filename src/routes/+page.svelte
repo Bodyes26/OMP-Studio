@@ -889,6 +889,8 @@
 		editorDiffRequest = { filePath, mode, hash, id: ++editorDiffRequestId };
 	}
 
+	let activeDirtyFiles = $state<string[]>([]);
+
 	let terminalOpenRequest = $state<{
 		projectId: string;
 		filePath: string;
@@ -1322,6 +1324,10 @@
 								projectPath={proj.path}
 								name={proj.name}
 								onFileSelect={(file) => projectStore.openFile(proj.id, file)}
+								onFileDiff={(path) => handleGitPanelDiff(path, 'working')}
+								dirtyFilePaths={activeDirtyFiles}
+								onPathRenamed={(from, to, isDir) => projectStore.renamePath(proj.id, from, to, isDir)}
+								onPathTrashed={(path, isDir) => projectStore.trashPath(proj.id, path, isDir)}
 							/>
 						{/key}
 					{:else if leftSection === 'git'}
@@ -1390,6 +1396,7 @@
 							filePath={projectStore.activeProject.activeFile}
 							openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
 							editorDiffRequest={editorDiffRequest}
+							onDirtyFilesChange={(paths) => (activeDirtyFiles = paths)}
 							onPreviewRequest={(fp) => (previewFile = fp)}
 							onFileSaved={() => {
 								window.dispatchEvent(new CustomEvent('git-status-refresh'));

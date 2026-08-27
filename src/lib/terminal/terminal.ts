@@ -520,6 +520,65 @@ export class TerminalSession {
 		this.fit();
 	}
 
+	/** Indica se nel terminale e' attualmente presente testo selezionato. */
+	public hasSelection(): boolean {
+		if (this.disposed) return false;
+		return this.term.hasSelection();
+	}
+
+
+	/** Copia la selezione corrente negli appunti di sistema senza interrompere
+	 *  la sessione se l'operazione non e' consentita o fallisce. */
+	public async copy(): Promise<void> {
+		if (this.disposed) return;
+		try {
+			const text = this.term.getSelection();
+			if (!text) return;
+			if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(text);
+			}
+		} catch (error) {
+			console.warn('Copia negli appunti non riuscita:', error);
+		}
+	}
+
+	/** Incolla dagli appunti di sistema (o il testo specificato) nel terminale
+	 *  passando dal motore xterm (`paste`) per preservare il bracketed paste mode,
+	 *  l'aggiornamento dell'input pendente e il flusso PTY esistente. */
+	public async paste(text?: string): Promise<void> {
+		if (this.disposed) return;
+		try {
+			let content = text;
+			if (content === undefined) {
+				if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+					content = await navigator.clipboard.readText();
+				}
+			}
+			if (content) {
+				this.term.paste(content);
+				this.term.focus();
+			}
+		} catch (error) {
+			console.warn('Incolla dagli appunti non riuscito:', error);
+		}
+	}
+
+	/** Seleziona l'intero contenuto testuale del buffer del terminale. */
+	public selectAll(): void {
+		if (this.disposed) return;
+		this.term.selectAll();
+	}
+
+
+	/** Pulisce la visualizzazione a video e il buffer di output pendente
+	 *  senza riavviare o distruggere il processo PTY sottostante. */
+	public clear(): void {
+		if (this.disposed) return;
+		this.clearTerminalOutputBuffer();
+		this.term.clear();
+	}
+
+
 	/** Il campanello ANSI (`\x07`): questa versione di xterm non espone
 	 *  un'opzione di stile, solo l'evento `onBell` a cui agganciare il
 	 *  suono. Un breve beep via WebAudio, solo se l'utente lo ha attivato. */

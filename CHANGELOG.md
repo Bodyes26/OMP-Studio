@@ -12,8 +12,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Added
 
 - Il pannello di un progetto si apre anche col **click destro** sulla tessera (o col tasto `Menu`): resta fissato finché non scegli un comando, premi `Esc` o clicchi fuori. Il menu contestuale della WebView, con voci come «Ricarica» e «Stampa», non compare più da nessuna parte dell'app tranne nei campi di testo, nell'editor e nel terminale, dove serve per copiare e incollare.
+- Menu contestuale tematizzato uniforme in tutta l'applicazione: click destro nei campi di testo, nell'editor di codice, nel terminale e nell'albero dei file apre un menu coerente con il tema attivo, con icone, scorciatoie di sistema (`Ctrl+Z`, `Ctrl+Y`, `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, `Ctrl+S`, `Ctrl+W`) e navigazione completa da tastiera (`Freccia Giù/Su`, `Home`, `End`, `Invio`, `Esc`).
+- Gestione file e cartelle dall'albero: creazione rapida inline di nuovi file e cartelle, rinomina e spostamento nel Cestino con aggiornamento immediato delle schede aperte nell'editor, sincronizzazione dei badge Git e protezione contro la perdita di modifiche non salvate.
+- Menu contestuale sulle schede dell'editor per salvare, aprire il diff, copiare il percorso, mostrare il file nel file manager di sistema (Esplora file / Finder), chiudere la scheda o chiudere tutte le altre.
 - Nuove azioni nel pannello del progetto: copia percorso, apri nel terminale, apri nell'editor esterno, nuovo task, interruttore dell'avvio automatico dei task, spostamento della tessera e chiusura degli altri progetti.
 - Il pannello dice in una riga cosa sta facendo l'agente e, quando un task in coda non può partire, il motivo per cui non parte.
+- Nuova opzione «Larghezza chat» nelle impostazioni generali: permette di scegliere tra il layout centrato con margini bilanciati per la leggibilità e il layout a tutta colonna.
 
 ### Changed
 
@@ -24,8 +28,13 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Il pannello del progetto ha una larghezza fissa: con task in coda dai prompt lunghi non si allarga più oltre il bordo dello schermo.
 - Il pannello non viene più tagliato dalla barra dei progetti, si ribalta verso l'alto quando in basso non c'è spazio e resta agganciato alla tessera anche facendo scorrere la barra.
 - Il pannello aperto col click destro è navigabile da tastiera e chiude restituendo il fuoco alla tessera.
-- Lo slider dello sforzo di ragionamento è una pillola col riempimento nel colore del tema: i pallini dei livelli non hanno più le etichette e attirano magneticamente il pomello durante il trascinamento, mentre il livello scelto si legge dal chip in testa al controllo.
+- Lo slider dello sforzo di ragionamento è una pillola col riempimento nel colore del tema: i pallini dei livelli non hanno più le etichette e attirano magneticamente il pomello durante il trascinamento.
+- Il chip dello slider di ragionamento mostra unicamente l'identificativo del livello (minimal, low, medium, high, xhigh, max, auto, off), rimuovendo il conteggio e i riferimenti numerici ai token dedicati.
 - Nell'editor di un nuovo task il modello e lo sforzo di ragionamento mostrano subito quelli del ruolo predefinito, invece di restare vuoti finché non si ritocca il ruolo.
+
+### Fixed
+
+- Rimosso il limite rigido di 65 caratteri sui paragrafi Markdown della chat, che causava l'andata a capo anticipata del testo lasciando spazio vuoto solo a destra rispetto alle card dei tool.
 
 ## [1.2.0] - 2026-08-26
 

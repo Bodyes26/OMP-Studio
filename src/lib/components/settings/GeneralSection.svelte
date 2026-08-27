@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import { settingsStore, type DefaultSurface, type CloseWithQueuedTasks } from '$lib/stores/settings.svelte';
+	import { settingsStore, type DefaultSurface, type CloseWithQueuedTasks, type ChatWidth } from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 
@@ -43,6 +43,22 @@
 					<option value="ask">Chiedi conferma</option>
 					<option value="keep">Mantieni la coda</option>
 					<option value="discard">Scarta la coda</option>
+				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">Larghezza chat</span>
+				<span class="form-row-desc">Distribuzione dei messaggi: centrata con margini bilanciati per la lettura o estesa a tutta la colonna.</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					value={settingsStore.general.chatWidth}
+					onchange={(e) => settingsStore.patchGeneral({ chatWidth: (e.currentTarget as HTMLSelectElement).value as ChatWidth })}
+				>
+					<option value="readable">Centrata (leggibile)</option>
+					<option value="full">Tutta la colonna</option>
 				</select>
 			</div>
 		</div>

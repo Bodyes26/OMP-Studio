@@ -4,7 +4,7 @@ import { debounce } from 'lodash-es';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
 
 import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/utils/paths';
-export { normalizeProjectPath, joinProjectPath, pathKey };
+export { normalizeProjectPath, joinProjectPath, pathKey, isWindows };
 
 export type AgentState = 'idle' | 'working' | 'attention' | 'finished' | 'unknown';
 export type ProjectColorMode = 'auto' | 'custom';
@@ -348,6 +348,128 @@ class ProjectStore {
 		if (p.activeFile === file) {
 			p.activeFile = p.openFiles[index] ?? p.openFiles[index - 1] ?? null;
 		}
+	}
+
+	private isPathUnder(filePath: string, targetPath: string, isDir: boolean): boolean {
+		const normFile = filePath.replace(/\\/g, '/');
+		const normTarget = targetPath.replace(/\\/g, '/').replace(/\/+$/, '');
+		if (isDir) {
+			if (normFile === normTarget || normFile.startsWith(normTarget + '/')) return true;
+			if (isWindows) {
+				const lowFile = normFile.toLowerCase();
+				const lowTarget = normTarget.toLowerCase();
+				return lowFile === lowTarget || lowFile.startsWith(lowTarget + '/');
+			}
+			return false;
+		}
+		if (normFile === normTarget) return true;
+		if (isWindows) {
+			return normFile.toLowerCase() === normTarget.toLowerCase();
+		}
+		return false;
+	}
+
+	private remapPath(filePath: string, from: string, to: string, isDir: boolean): string | null {
+		const normFile = filePath.replace(/\\/g, '/');
+		const normFrom = from.replace(/\\/g, '/').replace(/\/+$/, '');
+		const normTo = to.replace(/\\/g, '/').replace(/\/+$/, '');
+
+		if (isDir) {
+			if (normFile === normFrom || (isWindows && normFile.toLowerCase() === normFrom.toLowerCase())) {
+				return to;
+			}
+			if (normFile.startsWith(normFrom + '/')) {
+				const suffix = normFile.slice(normFrom.length);
+				const joined = normTo + suffix;
+				return (to.includes('\\') || filePath.includes('\\')) ? joined.replace(/\//g, '\\') : joined;
+			}
+			if (isWindows && normFile.toLowerCase().startsWith(normFrom.toLowerCase() + '/')) {
+				const suffix = normFile.slice(normFrom.length);
+				const joined = normTo + suffix;
+				return (to.includes('\\') || filePath.includes('\\')) ? joined.replace(/\//g, '\\') : joined;
+			}
+		} else {
+			if (normFile === normFrom || (isWindows && normFile.toLowerCase() === normFrom.toLowerCase())) {
+				return to;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Rinomina un file o tutti i tab discendenti da una directory rinominata.
+	 * Preserva l'ordine dei tab e l'eventuale tab attivo rimappato.
+	 */
+	renamePath(id: string, from: string, to: string, isDir: boolean) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p || !from || !to) return;
+		let activeChanged = false;
+		let newActive = p.activeFile;
+		p.openFiles = p.openFiles.map(file => {
+			const remapped = this.remapPath(file, from, to, isDir);
+			if (remapped) {
+				if (p.activeFile === file) {
+					newActive = remapped;
+					activeChanged = true;
+				}
+				return remapped;
+			}
+			return file;
+		});
+		if (activeChanged) {
+			p.activeFile = newActive;
+		}
+	}
+
+	/**
+	 * Rimuove i tab di un file o di tutti i file sotto una directory cestinata.
+	 * Se il tab attivo viene rimosso, seleziona il tab adiacente piu' vicino
+	 * (priorita' a destra, altrimenti a sinistra).
+	 */
+	trashPath(id: string, path: string, isDir: boolean) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p || !path) return;
+		const isUnderTrash = (file: string) => this.isPathUnder(file, path, isDir);
+
+		const activeIsRemoved = p.activeFile !== null && isUnderTrash(p.activeFile);
+		const activeIndex = p.activeFile !== null ? p.openFiles.indexOf(p.activeFile) : -1;
+
+		const remaining: string[] = [];
+		let nextActiveCandidate: string | null = null;
+		let prevActiveCandidate: string | null = null;
+
+		for (let i = 0; i < p.openFiles.length; i++) {
+			const file = p.openFiles[i];
+			if (!isUnderTrash(file)) {
+				remaining.push(file);
+				if (i > activeIndex && nextActiveCandidate === null) {
+					nextActiveCandidate = file;
+				}
+				if (i < activeIndex) {
+					prevActiveCandidate = file;
+				}
+			}
+		}
+
+		p.openFiles = remaining;
+		if (activeIsRemoved) {
+			p.activeFile = nextActiveCandidate ?? prevActiveCandidate ?? null;
+		}
+	}
+
+	closeOtherFiles(id: string, keepFile: string) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p || !keepFile) return;
+		if (!p.openFiles.includes(keepFile)) return;
+		p.openFiles = [keepFile];
+		p.activeFile = keepFile;
+	}
+
+	closeAllFiles(id: string) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p) return;
+		p.openFiles = [];
+		p.activeFile = null;
 	}
 
 	setPtyId(id: string, ptyId: number) {

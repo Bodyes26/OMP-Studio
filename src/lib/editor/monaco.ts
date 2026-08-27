@@ -68,7 +68,8 @@ function editorSettingsOptions(): monaco.editor.IEditorOptions & monaco.editor.I
 		minimap: { enabled: settings.minimap },
 		wordWrap: settings.wordWrap ? 'on' : 'off',
 		tabSize: settings.tabSize,
-		lineNumbers: settings.lineNumbers ? 'on' : 'off'
+		lineNumbers: settings.lineNumbers ? 'on' : 'off',
+		contextmenu: false
 	};
 }
 
@@ -169,13 +170,14 @@ export function openFileModel(absPath: string, content: string, language?: strin
 /** Rilascia il testo non salvato quando il relativo tab viene chiuso. */
 export function disposeFileModel(absPath: string) {
 	const model = models.get(absPath);
-	if (!model) return;
-	if (editorInstance?.getModel() === model) {
-		editorInstance.setModel(null);
-		attachedPath = null;
+	if (model) {
+		if (editorInstance?.getModel() === model) {
+			editorInstance.setModel(null);
+			attachedPath = null;
+		}
+		model.dispose();
+		models.delete(absPath);
 	}
-	model.dispose();
-	models.delete(absPath);
 	viewStates.delete(absPath);
 	if (activePath === absPath) activePath = null;
 }
@@ -242,6 +244,7 @@ export function createDiffEditorInstance(container: HTMLElement, originalContent
 	const sharedOptions = editorSettingsOptions();
 	const diffEditor = monaco.editor.createDiffEditor(container, {
 		...sharedOptions,
+		contextmenu: false,
 		theme: 'omp-studio',
 		lineHeight: 1.2,
 		automaticLayout: true,

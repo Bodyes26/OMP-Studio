@@ -131,8 +131,7 @@
 			<svg class="brain-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4">
 				<path d="M4.5 9.5a2.5 2.5 0 0 1-2.5-2.5c0-1.2.8-2.2 2-2.4a3 3 0 0 1 5.5-1.1 3 3 0 0 1 4.5 3.5c.9.4 1.5 1.4 1.5 2.5a2.5 2.5 0 0 1-2.5 2.5M8 3.5V14M5.5 14h5" stroke-linecap="round" stroke-linejoin="round" />
 			</svg>
-			<span class="level-title">{currentLevel.label}</span>
-			<span class="budget-badge">{currentLevel.budget}</span>
+			<span class="level-chip">{currentLevel.id}</span>
 		</div>
 		<span class="level-desc">{currentLevel.desc}</span>
 	</div>
@@ -146,7 +145,7 @@
 		aria-valuemin="0"
 		aria-valuemax={lastIndex}
 		aria-valuenow={currentIndex}
-		aria-valuetext={currentLevel.label}
+		aria-valuetext={currentLevel.id}
 		class="slider-track"
 		class:dragging={isDragging}
 		onpointerdown={handlePointerDown}
@@ -207,20 +206,17 @@
 		flex-shrink: 0;
 	}
 
-	.level-title {
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.budget-badge {
+	.level-chip {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		padding: 1px 5px;
+		font-weight: 600;
+		padding: 1px 7px;
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--brand) 18%, transparent);
 		color: var(--brand-ink);
 		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+		letter-spacing: 0.02em;
+		line-height: 1.4;
 	}
 
 	.level-desc {

@@ -8,8 +8,9 @@ mod projects;
 use projects::{
     file_git_head, file_git_rev, file_read, file_write, git_branch_checkout, git_branch_create,
     git_branch_list, git_branch_merge, git_current_branch, git_last_commit, git_recent_commits,
-    git_working_numstat, preview_file, project_git_status, project_tasks_read, project_tasks_watch,
-    project_tasks_unwatch, project_tasks_write, resolve_project_file, tree_read,
+    git_working_numstat, path_create_directory, path_create_file, path_rename, path_trash,
+    preview_file, project_git_status, project_tasks_read, project_tasks_unwatch,
+    project_tasks_watch, project_tasks_write, resolve_project_file, tree_read,
 };
 mod omp_ops;
 use omp_ops::{
@@ -81,6 +82,10 @@ pub fn run() {
             rpc_stderr,
             rpc_protocol,
             tree_read,
+            path_create_file,
+            path_create_directory,
+            path_rename,
+            path_trash,
             file_read,
             file_write,
             file_git_head,

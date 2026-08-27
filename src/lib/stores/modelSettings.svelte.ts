@@ -98,14 +98,14 @@ export const STANDARD_ROLES = [
 ] as const;
 
 export const THINKING_LEVELS = [
-	{ id: 'auto', label: 'Auto', budget: 'adattivo', desc: 'Deciso dal modello' },
-	{ id: 'off', label: 'Off', budget: '0', desc: 'Disabilitato' },
-	{ id: 'minimal', label: 'Minimal', budget: '1k', desc: '1.024 token' },
-	{ id: 'low', label: 'Low', budget: '2k', desc: '2.048 token' },
-	{ id: 'medium', label: 'Medium', budget: '8k', desc: '8.192 token' },
-	{ id: 'high', label: 'High', budget: '16k', desc: '16.384 token' },
-	{ id: 'xhigh', label: 'Extra High', budget: '32k', desc: '32.768 token' },
-	{ id: 'max', label: 'Max', budget: '64k', desc: 'Massimo consentito' }
+	{ id: 'auto', label: 'Auto', desc: 'Deciso dal modello' },
+	{ id: 'off', label: 'Off', desc: 'Disabilitato' },
+	{ id: 'minimal', label: 'Minimal', desc: 'Ragionamento minimo' },
+	{ id: 'low', label: 'Low', desc: 'Ragionamento basso' },
+	{ id: 'medium', label: 'Medium', desc: 'Ragionamento medio' },
+	{ id: 'high', label: 'High', desc: 'Ragionamento alto' },
+	{ id: 'xhigh', label: 'Extra High', desc: 'Ragionamento molto alto' },
+	{ id: 'max', label: 'Max', desc: 'Ragionamento massimo' }
 ] as const;
 
 export interface SuggestedModelItem {

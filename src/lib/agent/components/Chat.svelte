@@ -9,6 +9,7 @@
 	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
 	import { IconArrowDown } from '$lib/icons';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 
 	import AskCard from './AskCard.svelte';
 	import Composer from './Composer.svelte';
@@ -140,22 +141,28 @@
 	style:inset="0"
 >
 	<div class="scroll-area" bind:this={scrollEl} onscroll={handleScroll}>
-		<Transcript {session} />
+		<div
+			class="chat-content-container"
+			class:readable={settingsStore.general.chatWidth === 'readable'}
+		>
+			<Transcript {session} />
 
-		{#if session.pendingUi}
-			<div
-				class="pending-ui-slot"
-				transition:chatReveal={{ duration: 220, blur: 4, distance: 3 }}
-			>
-				<AskCard {session} pending={session.pendingUi} />
-			</div>
-		{/if}
+			{#if session.pendingUi}
+				<div
+					class="pending-ui-slot"
+					transition:chatReveal={{ duration: 220, blur: 4, distance: 3 }}
+				>
+					<AskCard {session} pending={session.pendingUi} />
+				</div>
+			{/if}
+		</div>
 	</div>
 
 	{#if userScrolledUp}
 		<button
 			type="button"
 			class="scroll-bottom-btn"
+			class:readable={settingsStore.general.chatWidth === 'readable'}
 			onclick={scrollToBottom}
 			title="Torna in fondo"
 			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
@@ -166,19 +173,24 @@
 	{/if}
 
 	<div class="footer-stack">
-		{#if session.subagents.length > 0}
-			<SubagentBar subagents={session.subagents} onOpen={() => (panelOpen = true)} />
-		{/if}
+		<div
+			class="footer-inner"
+			class:readable={settingsStore.general.chatWidth === 'readable'}
+		>
+			{#if session.subagents.length > 0}
+				<SubagentBar subagents={session.subagents} onOpen={() => (panelOpen = true)} />
+			{/if}
 
-		{#if session.todoPhases.length > 0}
-			<TodoStrip phases={session.todoPhases} />
-		{/if}
+			{#if session.todoPhases.length > 0}
+				<TodoStrip phases={session.todoPhases} />
+			{/if}
 
-		<Composer
-			{session}
-			{visible}
-			onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
-		/>
+			<Composer
+				{session}
+				{visible}
+				onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
+			/>
+		</div>
 	</div>
 
 	{#if panelOpen}
@@ -221,6 +233,19 @@
 		display: flex;
 		flex-direction: column;
 	}
+	.chat-content-container {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.chat-content-container.readable {
+		max-width: 860px;
+		margin: 0 auto;
+	}
+
 
 	.pending-ui-slot {
 		padding: 0 var(--space-3) var(--space-3);
@@ -246,6 +271,22 @@
 	}
 	.scroll-bottom-btn:hover {
 		background: var(--bg-hover);
+	}
+
+	.scroll-bottom-btn.readable {
+		right: max(var(--space-4), calc(50% - 430px + var(--space-4)));
+	}
+
+	.footer-inner {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.footer-inner.readable {
+		max-width: 860px;
+		margin: 0 auto;
 	}
 
 	.footer-stack {

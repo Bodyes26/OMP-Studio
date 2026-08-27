@@ -36,5 +36,12 @@ Le uniche scorciatoie globali catturate dall'app vivono dietro il modificatore *
 | `Ctrl+W` | Editor | Chiude il file corrente |
 | `Ctrl+F4` | Editor | Chiude il file corrente |
 | `Click destro` / `Menu` / `Shift+F10` | Tessera progetto | Apre il pannello del progetto e lo tiene fissato (al posto del menu della WebView) |
+| `Click destro` / `Menu` / `Shift+F10` | Campi di testo / Input | Apre il menu contestuale di modifica (Annulla, Ripeti, Taglia, Copia, Incolla, Seleziona tutto) |
+| `Click destro` / `Menu` / `Shift+F10` | Editor di codice | Apre il menu contestuale Monaco (Annulla, Ripeti, Taglia, Copia, Incolla, Seleziona tutto, Salva, Diff) |
+| `Click destro` / `Menu` / `Shift+F10` | Schede aperte (Tab) | Apre il menu della scheda (Salva, Diff, Copia percorso, Mostra in Esplora file/Finder, Chiudi, Chiudi gli altri) |
+| `Click destro` / `Menu` / `Shift+F10` | Albero dei file (File/Cartella/Radice) | Apre il menu del file o della cartella (Nuovo file/cartella, Aggiorna, Apri nel terminale, Mostra nel file manager, Rinomina, Sposta nel Cestino) |
+| `Click destro` / `Menu` / `Shift+F10` | Terminale PTY | Apre il menu contestuale del terminale (Copia, Incolla, Seleziona tutto, Pulisci visualizzazione) |
+| `Freccia Giù` / `Freccia Su` / `Home` / `End` | Menu contestuale aperto | Naviga ciclicamente tra le voci del menu contestuale |
+| `Invio` / `Spazio` | Menu contestuale aperto | Esegue la voce di menu selezionata |
 | `Esc` | Popover / Dialog | Chiude la finestra modale aperta |
 *Nota: all'interno del terminale `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` non gestiscono i file dell'editor: vengono inviati all'agente se supportati, o restano soggetti al comportamento del terminale nativo.*
