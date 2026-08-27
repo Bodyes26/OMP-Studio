@@ -112,6 +112,21 @@ export interface QueuedMessage {
 	behavior: StreamingBehavior;
 }
 
+export interface AskQuestionOption {
+	label: string;
+	description?: string;
+	preview?: string;
+}
+
+export interface AskQuestion {
+	id: string;
+	question: string;
+	header?: string;
+	options: AskQuestionOption[];
+	multi?: boolean;
+	recommended?: number;
+}
+
 export interface PendingAsk {
 	kind: 'ask';
 	requestId: string;
@@ -124,6 +139,12 @@ export interface PendingAsk {
 	prefill?: string;
 	/** Scadenza assoluta in ms; oltre, omp risolve da se' al default. */
 	deadline?: number;
+	/** Lista completa delle domande ricavata dagli argomenti del tool `ask` */
+	questions?: AskQuestion[];
+	/** Indice 0-based della domanda corrente nella sequenza multi-domanda */
+	questionIndex?: number;
+	/** Conteggio totale delle domande nella sequenza */
+	totalQuestions?: number;
 }
 
 export type PendingUiRequest = PendingAsk;
@@ -194,6 +215,9 @@ export class AgentSession {
 
 	/** Stato per la tessera di progetto: derivato, non inventato. */
 	agentState = $state<AgentSurfaceState>('unknown');
+
+	/** Coda di risposte pre-compilate dal wizard per soddisfare round OMP consecutivi. */
+	private queuedAskResponses: string[] = [];
 
 	private nextEntryId = 1;
 	private nextQueueId = 1;
@@ -1136,6 +1160,13 @@ export class AgentSession {
 		}
 		if (ANSWERABLE_UI_METHODS[method] !== true) return;
 
+		// Se ci sono risposte in coda dal wizard per round successivi, rispondiamo immediatamente.
+		if (this.queuedAskResponses.length > 0) {
+			const nextVal = this.queuedAskResponses.shift()!;
+			void this.client.respondUi({ type: 'extension_ui_response', id, value: nextVal });
+			return;
+		}
+
 		const options = Array.isArray(event.options)
 			? event.options.filter((option): option is string => typeof option === 'string')
 			: [];
@@ -1147,6 +1178,51 @@ export class AgentSession {
 							: undefined
 				}))
 			: [];
+
+		// Recupera le informazioni complete della domanda/domande se la richiesta
+		// proviene dal tool ask (arguments.questions).
+		const runningAsk = Array.from(this.toolEntries.values())
+			.reverse()
+			.find((t) => t.running && t.toolName === 'ask');
+
+		let parsedQuestions: AskQuestion[] | undefined;
+		if (runningAsk?.args && typeof runningAsk.args === 'object' && Array.isArray(runningAsk.args.questions)) {
+			parsedQuestions = (runningAsk.args.questions as Record<string, unknown>[])
+				.filter((q): q is Record<string, unknown> => q !== null && typeof q === 'object')
+				.map((q, idx) => ({
+					id: typeof q.id === 'string' ? q.id : `q${idx + 1}`,
+					question: typeof q.question === 'string' ? q.question : (typeof q.prompt === 'string' ? q.prompt : ''),
+					header: typeof q.header === 'string' ? q.header : undefined,
+					multi: q.multi === true,
+					recommended: typeof q.recommended === 'number' ? q.recommended : undefined,
+					options: Array.isArray(q.options)
+						? q.options.map((opt) => {
+								if (typeof opt === 'string') return { label: opt };
+								if (opt && typeof opt === 'object') {
+									const o = opt as Record<string, unknown>;
+									return {
+										label: typeof o.label === 'string' ? o.label : String(o.name ?? o.text ?? ''),
+										description: typeof o.description === 'string' ? o.description : undefined,
+										preview: typeof o.preview === 'string' ? o.preview : undefined
+									};
+								}
+								return { label: String(opt) };
+							})
+						: []
+				}));
+		}
+
+		let questionIndex: number | undefined;
+		let totalQuestions: number | undefined;
+		const progMatch = (title ?? '').match(/\((\d+)\/(\d+)\)/);
+		if (progMatch) {
+			questionIndex = parseInt(progMatch[1], 10) - 1;
+			totalQuestions = parseInt(progMatch[2], 10);
+		} else if (parsedQuestions && parsedQuestions.length > 0) {
+			totalQuestions = parsedQuestions.length;
+			questionIndex = 0;
+		}
+
 		this.pendingUi = {
 			kind: 'ask',
 			requestId: id,
@@ -1157,17 +1233,40 @@ export class AgentSession {
 			optionDetails,
 			placeholder: typeof event.placeholder === 'string' ? event.placeholder : undefined,
 			prefill: typeof event.prefill === 'string' ? event.prefill : undefined,
-			deadline: typeof event.timeout === 'number' ? Date.now() + event.timeout : undefined
+			deadline: typeof event.timeout === 'number' ? Date.now() + event.timeout : undefined,
+			questions: parsedQuestions,
+			questionIndex,
+			totalQuestions
 		};
 		this.agentState = 'attention';
 	}
 
 	private clearPendingUi() {
 		this.pendingUi = null;
+		this.queuedAskResponses = [];
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
 	}
 
 	/* --------------------------------------------------------- risposte UI */
+
+	/**
+	 * Invia tutte le risposte di un wizard multi-domanda a OMP, accodando
+	 * le risposte per i round RPC successivi.
+	 */
+	async submitAskWizard(responses: string[]) {
+		if (responses.length === 0) {
+			await this.cancelPendingUi();
+			return;
+		}
+		const pending = this.pendingUi;
+		if (!pending) return;
+
+		const [first, ...rest] = responses;
+		this.queuedAskResponses = rest;
+		this.pendingUi = null;
+		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
+		await this.client.respondUi({ type: 'extension_ui_response', id: pending.requestId, value: first });
+	}
 
 	async answerSelect(value: string) {
 		const pending = this.pendingUi;

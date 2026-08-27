@@ -14,3 +14,4 @@ import './editor-context.test.ts';
 import './studio-tasks.test.ts';
 import './acl-coverage.test.ts';
 import './context-menu-and-tree.test.ts';
+import './ask-tool.test.ts';

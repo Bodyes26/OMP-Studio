@@ -11,6 +11,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 
+- Nuovo wizard interattivo per le domande dell'agente (`ask`): navigazione a schede tra domande multiple (`Freccia Sinistra/Destra`), aggiunta di note o specifiche opzionali a qualsiasi risposta (`N`), spunte a casella per le scelte multiple con stato visivo immediato e schermata finale di riepilogo per verificare tutte le risposte prima dell'invio.
+- Il renderer dello storico del tool `ask` nella chat mostra tutte le domande poste con le relative scelte selezionate, le risposte personalizzate e le note dell'utente.
 - Il pannello di un progetto si apre anche col **click destro** sulla tessera (o col tasto `Menu`): resta fissato finché non scegli un comando, premi `Esc` o clicchi fuori. Il menu contestuale della WebView, con voci come «Ricarica» e «Stampa», non compare più da nessuna parte dell'app tranne nei campi di testo, nell'editor e nel terminale, dove serve per copiare e incollare.
 - Menu contestuale tematizzato uniforme in tutta l'applicazione: click destro nei campi di testo, nell'editor di codice, nel terminale e nell'albero dei file apre un menu coerente con il tema attivo, con icone, scorciatoie di sistema (`Ctrl+Z`, `Ctrl+Y`, `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, `Ctrl+S`, `Ctrl+W`) e navigazione completa da tastiera (`Freccia Giù/Su`, `Home`, `End`, `Invio`, `Esc`).
 - Gestione file e cartelle dall'albero: creazione rapida inline di nuovi file e cartelle, rinomina e spostamento nel Cestino con aggiornamento immediato delle schede aperte nell'editor, sincronizzazione dei badge Git e protezione contro la perdita di modifiche non salvate.
@@ -25,6 +27,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 - Tutte le icone di Studio vengono da un unico set disegnato (Lucide) al posto delle emoji del sistema: stesso tratto, stessa dimensione e stesso colore del tema su Windows e su macOS.
 - Il colore di un progetto si sceglie da una striscia di tinte resa con i colori del tema: ogni tinta mostrata è esattamente quella che prenderà la tessera. Spariti il pallino arcobaleno e il selettore di colori del browser, che promettevano sedici milioni di colori per poi conservarne uno su quarantamila.
+- La selezione a scelta multipla nel tool `ask` sostituisce la voce tecnica «Done selecting» con un pulsante dedicato «Conferma selezione» e permette di selezionare le opzioni con `Spazio` e confermare con `Invio`.
 - I pallini delle tinte predefinite mostrano il colore reale della tessera nel tema attivo, non più una tonalità fissa diversa dal risultato.
 - La tessera del progetto non mostra più il tooltip col nome: nome e percorso sono già nel pannello.
 - Il pannello del progetto ha una larghezza fissa: con task in coda dai prompt lunghi non si allarga più oltre il bordo dello schermo.
