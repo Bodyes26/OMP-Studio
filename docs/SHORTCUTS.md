@@ -35,5 +35,6 @@ Le uniche scorciatoie globali catturate dall'app vivono dietro il modificatore *
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
 | `Ctrl+W` | Editor | Chiude il file corrente |
 | `Ctrl+F4` | Editor | Chiude il file corrente |
+| `Click destro` / `Menu` / `Shift+F10` | Tessera progetto | Apre il pannello del progetto e lo tiene fissato (al posto del menu della WebView) |
 | `Esc` | Popover / Dialog | Chiude la finestra modale aperta |
 *Nota: all'interno del terminale `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` non gestiscono i file dell'editor: vengono inviati all'agente se supportati, o restano soggetti al comportamento del terminale nativo.*

@@ -98,22 +98,24 @@ class QuotaStore {
 	disabledCredentials = $derived<DisabledCredential[]>(this.rawJson?.disabledCredentials ?? []);
 	accountsWithoutUsage = $derived<AccountWithoutUsage[]>(this.rawJson?.accountsWithoutUsage ?? []);
 
+	// Testo senza glifi: l'icona la mette il chip nella barra (IconQuota),
+	// cosi' l'etichetta resta leggibile anche dentro un aria-label.
 	chipLabel = $derived.by(() => {
 		switch (this.status) {
 			case 'offline':
-				return '⚡ Offline';
+				return 'Offline';
 			case 'unconfigured':
-				return '⚡ Quota: non config.';
+				return 'Quota: non config.';
 			case 'exhausted':
-				return '⚡ Quota esaurita';
+				return 'Quota esaurita';
 			case 'warning':
 				return this.lowestRemainingPercent !== null
-					? `⚡ Quota ${this.lowestRemainingPercent}%`
-					: '⚡ Quota bassa';
+					? `Quota ${this.lowestRemainingPercent}%`
+					: 'Quota bassa';
 			case 'loading':
-				return this.rawJson ? '⚡ Quota...' : '⚡ Quota';
+				return this.rawJson ? 'Quota...' : 'Quota';
 			default:
-				return '⚡ Quota';
+				return 'Quota';
 		}
 	});
 

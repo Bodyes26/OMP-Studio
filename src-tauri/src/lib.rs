@@ -31,6 +31,8 @@ mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
 mod alerts;
 use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
+mod external;
+use external::open_project_external;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -127,7 +129,8 @@ pub fn run() {
             install_nerd_font,
             detect_project_roots,
             set_app_attention,
-            clear_app_attention
+            clear_app_attention,
+            open_project_external
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

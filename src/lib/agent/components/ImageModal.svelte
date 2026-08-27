@@ -1,5 +1,6 @@
 <script lang="ts">
 	// Visualizzatore a schermo intero per immagini prodotte dai tool o incollate.
+	import { IconClose } from '$lib/icons';
 	let {
 		data,
 		mimeType = 'image/png',
@@ -45,7 +46,7 @@
 >
 	<div class="image-container" onclick={(e) => e.stopPropagation()}>
 		<img src={`data:${mimeType};base64,${data}`} alt="Anteprima immagine" />
-		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi">×</button>
+		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi"><IconClose /></button>
 	</div>
 </div>
 

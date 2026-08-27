@@ -4,12 +4,19 @@
   Mostra l'operazione (es. init, update, complete) e il riepilogo dello stato
   dei task nel sommario. Nel corpo visualizza le fasi (senza id sul filo,
   quindi indicizzate per posizione) con l'elenco dei task e i rispettivi
-  glifi di stato: pendente (○), in corso (● in brand), completato (✓ in faint),
-  abbandonato (barrato) e bloccato (in warn con tooltip del blocker).
+  icone di stato: pendente, in corso (brand), completato (faint),
+  abbandonato (barrato, faint) e bloccato (warning, con tooltip del blocker).
 -->
 <script lang="ts">
 	import CountBadge from '../parts/CountBadge.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
+	import {
+		IconStatusPending,
+		IconStatusRunning,
+		IconStatusDone,
+		IconStatusFailed,
+		IconWarning
+	} from '$lib/icons';
 	import {
 		asRecord,
 		recordList,
@@ -97,12 +104,12 @@
 		return parts.join(', ');
 	});
 
-	const STATUS_GLYPH: Record<TaskItem['status'], string> = {
-		pending: '○',
-		in_progress: '●',
-		completed: '✓',
-		abandoned: '―',
-		blocked: '⊘'
+	const STATUS_ICON: Record<TaskItem['status'], typeof IconStatusPending> = {
+		pending: IconStatusPending,
+		in_progress: IconStatusRunning,
+		completed: IconStatusDone,
+		abandoned: IconStatusFailed,
+		blocked: IconWarning
 	};
 
 	const textFallback = $derived(resultText(result));
@@ -124,12 +131,13 @@
 						<div class="phase-header">{phase.name}</div>
 						<ul class="task-list">
 							{#each phase.tasks as task, taskIdx (taskIdx)}
+								{@const StatusIcon = STATUS_ICON[task.status] ?? IconStatusPending}
 								<li class="task-row {task.status}">
 									<span
 										class="glyph"
 										title={task.status === 'blocked' ? (task.blocker ?? 'Bloccato') : undefined}
 									>
-										{STATUS_GLYPH[task.status]}
+										<StatusIcon />
 									</span>
 									<span
 										class="task-text"
@@ -211,11 +219,12 @@
 	}
 
 	.glyph {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		--icon-size: 12px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		color: var(--ink-faint);
 		width: 14px;
-		text-align: center;
 		flex-shrink: 0;
 	}
 	.task-row.in_progress .glyph {

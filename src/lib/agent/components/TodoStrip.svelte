@@ -5,6 +5,7 @@
 	// espande la lista completa, fase per fase. Cinque stati:
 	// `pending` cerchio vuoto, `in_progress` cerchio pieno in `--brand`,
 	import type { TodoItem, TodoPhase } from '../wire';
+	import { IconChevronRight, IconStatusPending, IconStatusRunning, IconStatusDone, IconStatusFailed, IconWarning } from '$lib/icons';
 
 	let { phases } = $props<{ phases: TodoPhase[] }>();
 
@@ -22,12 +23,14 @@
 			phases[phases.length - 1]
 	);
 
-	const STATUS_GLYPH: Record<string, string> = {
-		pending: '○',
-		in_progress: '●',
-		completed: '✓',
-		abandoned: '⊘',
-		blocked: '!'
+	// Bloccato e abbandonato hanno una forma propria: il CSS li colora, ma senza
+	// un segno distinto restavano cerchi identici a "in attesa".
+	const STATUS_ICON: Record<string, typeof IconStatusPending> = {
+		pending: IconStatusPending,
+		in_progress: IconStatusRunning,
+		completed: IconStatusDone,
+		blocked: IconWarning,
+		abandoned: IconStatusFailed
 	};
 </script>
 
@@ -39,7 +42,7 @@
 			aria-expanded={expanded}
 			onclick={() => (expanded = !expanded)}
 		>
-			<span class="chevron" class:expanded aria-hidden="true">▸</span>
+			<span class="chevron" class:expanded aria-hidden="true"><IconChevronRight /></span>
 			<span class="phase-name">{currentPhase?.name ?? 'Todo'}</span>
 			{#if hasBlocked}
 				<span class="blocked-badge" title="Ci sono task bloccati">!</span>
@@ -53,11 +56,12 @@
 						<div class="phase-title">{phase.name}</div>
 						<ul class="task-list">
 							{#each phase.tasks ?? [] as task, taskIdx (task.id ?? taskIdx)}
+								{@const StatusIcon = STATUS_ICON[task.status] ?? IconStatusPending}
 								<li
 									class="task-row {task.status}"
 									title={task.blocker ? `Bloccato: ${task.blocker}` : undefined}
 								>
-									<span class="status-glyph">{STATUS_GLYPH[task.status] ?? '○'}</span>
+									<span class="status-glyph"><StatusIcon /></span>
 									<span class="content">{task.content}</span>
 								</li>
 							{/each}
@@ -99,13 +103,15 @@
 	}
 
 	.chevron {
+		--icon-size: 12px;
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
 		line-height: 1;
 		transition: transform var(--dur-fast) var(--ease-out);
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		width: 10px;
-		text-align: center;
 		flex-shrink: 0;
 	}
 
@@ -177,8 +183,11 @@
 	}
 
 	.status-glyph {
+		--icon-size: 12px;
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
+		display: inline-flex;
+		align-items: center;
 	}
 
 	.task-row.in_progress {

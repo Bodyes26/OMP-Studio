@@ -19,6 +19,12 @@
 		strList,
 		type ToolRenderProps
 	} from '../types';
+	import {
+		IconCheckboxChecked,
+		IconCheckbox,
+		IconRadioChecked,
+		IconRadio
+	} from '$lib/icons';
 
 	let { args, result, view }: ToolRenderProps = $props();
 
@@ -118,9 +124,9 @@
 					<div class="option-row" class:selected={opt.selected}>
 						<span class="mark" aria-hidden="true">
 							{#if isMulti}
-								{opt.selected ? '☑' : '☐'}
+								{#if opt.selected}<IconCheckboxChecked />{:else}<IconCheckbox />{/if}
 							{:else}
-								{opt.selected ? '◉' : '○'}
+								{#if opt.selected}<IconRadioChecked />{:else}<IconRadio />{/if}
 							{/if}
 						</span>
 						<div class="option-content">
@@ -202,8 +208,9 @@
 	}
 
 	.mark {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		--icon-size: 12px;
+		display: inline-flex;
+		align-items: center;
 		color: var(--ink-faint);
 		margin-top: 1px;
 		flex-shrink: 0;

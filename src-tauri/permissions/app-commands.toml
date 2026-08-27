@@ -122,6 +122,13 @@ commands.allow = [
     "clear_app_attention"
 ]
 
+[[permission]]
+identifier = "allow-external-open"
+description = "Apertura della cartella di progetto in un terminale o in un editor esterno"
+commands.allow = [
+    "open_project_external"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -135,5 +142,6 @@ permissions = [
     "allow-omp-runtime",
     "allow-models",
     "allow-setup",
-    "allow-attention"
+    "allow-attention",
+    "allow-external-open"
 ]

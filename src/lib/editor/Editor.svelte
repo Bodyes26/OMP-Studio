@@ -15,6 +15,7 @@
 	import SvgPreview from './SvgPreview.svelte';
 	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
+	import { IconClose } from '$lib/icons';
 
 	let { projectPath, filePaths, filePath, onFileSaved, openFileRequest, editorDiffRequest, onPreviewRequest } = $props<{
 		projectPath: string;
@@ -497,7 +498,7 @@
 							onclick={(event) => { event.stopPropagation(); closeFile(path); }}
 							title="Chiudi file (Ctrl+W o Ctrl+F4)"
 							aria-label="Chiudi {fileName(path)}"
-						>×</button>
+						><IconClose /></button>
 					</div>
 				{/each}
 			</div>
@@ -660,6 +661,9 @@
 	.close-tab {
 		font-size: 16px;
 		line-height: 1;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.action-btn {

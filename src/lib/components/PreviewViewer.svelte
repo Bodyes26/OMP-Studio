@@ -2,6 +2,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { wrapPrototypeCode } from '$lib/prototype/wrapper';
 	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '$lib/editor/svgSandbox';
+	import { IconCheck, IconClose } from '$lib/icons';
 	let {
 		projectPath,
 		filePath,
@@ -137,10 +138,10 @@
 		<span class="toolbar-spacer"></span>
 
 		<button class="tool-btn" onclick={copyCode} title="Copia il codice sorgente negli appunti" aria-label="Copia codice sorgente negli appunti">
-			{copied ? '✓ Copiato!' : 'Copia'}
+			{#if copied}<IconCheck /> Copiato!{:else}Copia{/if}
 		</button>
 		<button class="tool-btn" onclick={() => void load()} title="Ricarica il file" aria-label="Ricarica file anteprima">Ricarica</button>
-		<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)" aria-label="Chiudi anteprima">×</button>
+		<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)" aria-label="Chiudi anteprima"><IconClose /></button>
 	</div>
 
 	{#if loading}

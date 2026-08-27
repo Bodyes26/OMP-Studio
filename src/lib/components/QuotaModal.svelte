@@ -7,6 +7,7 @@
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
 	import { quotaStore, type ProviderHost, type QuotaLimit } from '$lib/stores/quota.svelte';
+	import { IconRefresh, IconClose, IconWarning } from '$lib/icons';
 	let {
 		open = false,
 		onClose,
@@ -118,9 +119,9 @@
 					aria-label="Aggiorna dati utilizzo API"
 					disabled={quotaStore.loading}
 				>
-					<span class="refresh-icon" class:spinning={quotaStore.loading}>↻</span>
+					<span class="refresh-icon" class:spinning={quotaStore.loading}><IconRefresh /></span>
 				</button>
-				<button class="close-btn" onclick={onClose} aria-label="Chiudi finestra limiti utilizzo">×</button>
+				<button class="close-btn" onclick={onClose} aria-label="Chiudi finestra limiti utilizzo"><IconClose /></button>
 			</div>
 		</div>
 
@@ -157,7 +158,7 @@
 
 			{#if quotaStore.status === 'unconfigured'}
 				<div class="quota-alert unconfigured">
-					<div class="alert-icon" aria-hidden="true">⚡</div>
+					<div class="alert-icon" aria-hidden="true"><IconWarning /></div>
 					<div class="alert-body">
 						<strong class="alert-title">Nessun provider attivo con quote</strong>
 						<p class="alert-desc">Non risultano credenziali o limiti configurati per i provider AI. Aggiungi API key o account OAuth nelle impostazioni.</p>

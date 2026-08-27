@@ -9,6 +9,7 @@
 	// Blocco collassabile per il ragionamento (thinking/reasoning).
 	import { countLabel } from '../tools/types';
 	import { chatReveal } from '../motion';
+	import { IconChevronRight } from '$lib/icons';
 
 	let {
 		text = '',
@@ -49,7 +50,7 @@
 			onclick={toggleExpanded}
 			title={expanded ? 'Comprimi ragionamento' : 'Espandi ragionamento'}
 		>
-			<span class="chevron" class:expanded aria-hidden="true">▸</span>
+			<span class="chevron" class:expanded aria-hidden="true"><IconChevronRight /></span>
 			<span class="label">{label}</span>
 			{#if streaming}
 				<span class="streaming-dot" aria-hidden="true"></span>
@@ -103,8 +104,11 @@
 	}
 
 	.chevron {
+		--icon-size: 12px;
 		font-size: var(--text-xs);
 		line-height: 1;
+		display: inline-flex;
+		align-items: center;
 		transition: transform var(--dur-fast) var(--ease-out);
 	}
 

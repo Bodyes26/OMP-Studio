@@ -29,6 +29,7 @@ import {
 	type SlashCursorMatch
 } from '../commands';
 import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
+import { IconClose, IconCheck, IconSettings, IconKeyboard } from '$lib/icons';
 	let {
 		session,
 		visible = true,
@@ -281,7 +282,7 @@ $effect(() => {
 				});
 			}
 			await session.refreshState();
-			const roleLabel = roleMeta ? `${roleMeta.glyph} ${roleMeta.label}` : roleId;
+			const roleLabel = roleMeta ? roleMeta.label : roleId;
 			const currentModel = session.model?.name || session.model?.id || modelId;
 			session.pushNotice('info', `Ruolo attivo: ${roleLabel} (${currentModel})`, 'studio');
 		} catch (err) {
@@ -816,7 +817,7 @@ $effect(() => {
 						title="Rimuovi immagine"
 						onclick={() => removeImage(idx)}
 					>
-						&times;
+						<IconClose />
 					</button>
 				</div>
 			{/each}
@@ -895,7 +896,8 @@ $effect(() => {
 				
 				<span class="chip-val role-val">
 					{#if activeRoleInfo}
-						<span class="role-glyph-inline">{activeRoleInfo.glyph}</span> {activeRoleInfo.label}
+						{@const RoleIcon = activeRoleInfo.icon}
+						<span class="role-glyph-inline"><RoleIcon /></span> {activeRoleInfo.label}
 					{:else}
 						personalizzato
 					{/if}
@@ -935,7 +937,7 @@ $effect(() => {
 								onclick={() => { roleFilterQuery = ''; highlightedRoleIndex = 0; }}
 								title="Cancella filtro"
 							>
-								&times;
+								<IconClose />
 							</button>
 						{/if}
 					</div>
@@ -943,6 +945,7 @@ $effect(() => {
 						{#if configuredRolesList.length > 0}
 							{#each configuredRolesList as r, idx (r.id)}
 								{@const isSelected = activeRoleInfo?.id === r.id}
+								{@const RoleItemIcon = r.icon}
 								<div
 									id="role-opt-{idx}"
 									class="menu-item role-item"
@@ -956,12 +959,12 @@ $effect(() => {
 									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleRoleSelect(r.id); } }}
 									onmouseenter={() => highlightedRoleIndex = idx}
 								>
-									<span class="role-item-glyph">{r.glyph}</span>
+									<span class="role-item-glyph"><RoleItemIcon /></span>
 									<div class="role-item-main">
 										<div class="role-item-title-row">
 											<span class="role-item-name">{r.label}</span>
 											{#if isSelected}
-												<span class="item-check">✓</span>
+												<span class="item-check"><IconCheck /></span>
 											{/if}
 										</div>
 										{#if r.isConfigured}
@@ -1041,7 +1044,7 @@ $effect(() => {
 								onclick={() => { modelFilterQuery = ''; highlightedModelIndex = 0; }}
 								title="Cancella filtro"
 							>
-								&times;
+								<IconClose />
 							</button>
 						{/if}
 					</div>
@@ -1124,7 +1127,7 @@ $effect(() => {
 							>
 								<span>{lvl}</span>
 								{#if isSelected}
-									<span class="item-check">✓</span>
+									<span class="item-check"><IconCheck /></span>
 								{/if}
 							</div>
 						{/each}
@@ -1172,7 +1175,7 @@ $effect(() => {
 					toggleMenu('queue');
 				}}
 			>
-				<span class="queue-icon">⚙</span>
+				<span class="queue-icon"><IconSettings /></span>
 			</button>
 
 			{#if activeMenu === 'queue'}
@@ -1273,7 +1276,7 @@ $effect(() => {
 					shortcutsHelpOpen = !shortcutsHelpOpen;
 				}}
 			>
-				<span class="chip-label">⌨</span>
+				<span class="chip-label"><IconKeyboard /></span>
 				<span class="chip-val shortcut-hint">Alt+H</span>
 			</button>
 		</div>
@@ -1338,6 +1341,7 @@ $effect(() => {
 		line-height: 1;
 		cursor: pointer;
 		padding: 0;
+		--icon-size: 12px;
 	}
 
 	.image-remove-btn:hover {
@@ -1526,6 +1530,7 @@ $effect(() => {
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
 		text-transform: lowercase;
+		--icon-size: 12px;
 	}
 
 	.chip-val {
@@ -1600,6 +1605,7 @@ $effect(() => {
 		font-size: var(--text-xs);
 		line-height: 1;
 		color: var(--ink-faint);
+		--icon-size: 12px;
 	}
 
 	/* Menu a comparsa */
@@ -1667,6 +1673,7 @@ $effect(() => {
 	.role-glyph-inline {
 		color: var(--brand-ink);
 		font-size: var(--text-xs);
+		--icon-size: 12px;
 	}
 
 	.role-menu {
@@ -1882,6 +1889,7 @@ $effect(() => {
 		font-size: var(--text-xs);
 		color: var(--brand-ink);
 		font-weight: 600;
+		--icon-size: 12px;
 	}
 
 	.menu-footer-hint {

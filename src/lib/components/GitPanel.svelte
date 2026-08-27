@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
+	import { IconGitBranch, IconChevronDown, IconDiamond, IconCheck, IconPlus } from '$lib/icons';
 
 	let {
 		projectPath,
@@ -264,9 +265,9 @@
 				aria-haspopup="menu"
 				aria-expanded={branchMenuOpen}
 			>
-				<span class="branch-icon" aria-hidden="true">⑂</span>
+				<span class="branch-icon" aria-hidden="true"><IconGitBranch /></span>
 				<span class="branch-name">{branch || '—'}</span>
-				<span class="branch-caret" aria-hidden="true">▾</span>
+				<span class="branch-caret" aria-hidden="true"><IconChevronDown /></span>
 			</button>
 		</div>
 
@@ -306,7 +307,7 @@
 					title={canResume ? `${s.title} — clicca per riprendere questa sessione` : resumeReason}
 					onclick={() => onResumeSession?.(s.id)}
 				>
-					<span class="badge session-badge" aria-hidden="true">◆</span>
+					<span class="badge session-badge" aria-hidden="true"><IconDiamond /></span>
 					<span class="name">{s.title || 'Sessione senza titolo'}</span>
 					<span class="nums"><span class="session-time">{relTime(s.created_at)}</span></span>
 				</button>
@@ -323,7 +324,7 @@
 						title={b.current ? 'Branch attivo' : `Passa a ${b.name}`}
 						role="menuitem"
 					>
-						<span class="branch-check">{b.current ? '●' : ''}</span>
+						<span class="branch-check">{#if b.current}<IconCheck />{/if}</span>
 						{b.name}
 					</button>
 				{/each}
@@ -336,7 +337,7 @@
 							if (e.key === 'Enter') void createBranch();
 						}}
 					/>
-					<button class="branch-create" onclick={() => void createBranch()} title="Crea e passa al nuovo branch">+</button>
+					<button class="branch-create" onclick={() => void createBranch()} title="Crea e passa al nuovo branch"><IconPlus /></button>
 				</div>
 			</div>
 		{/if}
@@ -428,7 +429,7 @@
 
 	.branch-caret {
 		color: var(--ink-faint);
-		font-size: 9px;
+		--icon-size: 12px;
 		margin-left: auto;
 	}
 
@@ -493,9 +494,12 @@
 	}
 
 	.branch-check {
-		width: 10px;
+		width: 12px;
 		flex-shrink: 0;
-		font-size: 8px;
+		--icon-size: 12px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.branch-new {
@@ -557,7 +561,7 @@
 
 	.session-badge {
 		color: var(--brand-ink);
-		font-size: 8px;
+		--icon-size: 12px;
 	}
 
 	.session-time {

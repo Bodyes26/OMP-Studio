@@ -10,6 +10,7 @@
 	import ThinkingBlock from '../components/ThinkingBlock.svelte';
 	import ToolCard from './ToolCard.svelte';
 	import { formatDuration } from './types';
+	import { IconChevronRight } from '$lib/icons';
 
 	export type ToolGroupEntry = ToolEntry | AssistantEntry;
 
@@ -116,7 +117,7 @@
 		title={isExpanded ? 'Comprimi passaggi' : 'Espandi passaggi'}
 	>
 		<div class="header-left">
-			<span class="chevron" class:expanded={isExpanded} aria-hidden="true">▸</span>
+			<span class="chevron" class:expanded={isExpanded} aria-hidden="true"><IconChevronRight /></span>
 			<span class="state-dot" aria-hidden="true"></span>
 			<span class="title">{headerLabel}</span>
 
@@ -241,12 +242,13 @@
 	}
 
 	.chevron {
-		font-size: var(--text-xs);
+		--icon-size: 12px;
 		color: var(--ink-faint);
 		transition: transform var(--dur-fast) var(--ease-out);
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		width: var(--space-3);
-		text-align: center;
 		flex-shrink: 0;
 	}
 

@@ -4,6 +4,7 @@
 		modelSettingsStore,
 		STANDARD_ROLES
 	} from '$lib/stores/modelSettings.svelte';
+	import { IconClose, IconArrowRight } from '$lib/icons';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
@@ -134,7 +135,7 @@
 				<h3 id="upgrade-dialog-title">Nuove Versioni Modelli Disponibili</h3>
 				<p>OMP ha individuato versioni aggiornate per i modelli assegnati ai ruoli operativi.</p>
 			</div>
-			<button class="btn-close" aria-label="Chiudi finestra" onclick={handleClose}>×</button>
+			<button class="btn-close" aria-label="Chiudi finestra" onclick={handleClose}><IconClose /></button>
 		</div>
 
 		<div class="dialog-body">
@@ -188,7 +189,7 @@
 									{/if}
 								</div>
 
-								<span class="diff-arrow">→</span>
+								<span class="diff-arrow"><IconArrowRight /></span>
 
 								<div class="model-box new">
 									<span class="box-label">Suggerito</span>

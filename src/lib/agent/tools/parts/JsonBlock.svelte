@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconChevronRight } from '$lib/icons';
 	// JSON pieghevole: il ripiego quando non c'e' niente di meglio da dire su
 	// un payload. Usato da `Generic` e dai renderer per gli argomenti che non
 	// hanno una forma propria.
@@ -21,7 +22,7 @@
 {#if text && text !== '{}'}
 	<details bind:open>
 		<summary>
-			<span class="chevron" aria-hidden="true">▸</span>
+			<span class="chevron" aria-hidden="true"><IconChevronRight /></span>
 			<span>{label} · {lineCount} righe</span>
 		</summary>
 		<pre>{text}</pre>
@@ -50,10 +51,10 @@
 	}
 
 	.chevron {
-		display: inline-block;
+		--icon-size: 12px;
+		display: inline-flex;
+		align-items: center;
 		transition: transform var(--dur-fast) var(--ease-out);
-		font-size: var(--text-xs);
-		line-height: 1;
 	}
 
 	details[open] .chevron {

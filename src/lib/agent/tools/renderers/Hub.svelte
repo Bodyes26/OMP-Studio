@@ -18,6 +18,12 @@
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
+		IconStatusPending,
+		IconStatusRunning,
+		IconStatusDone,
+		IconStatusFailed
+	} from '$lib/icons';
+	import {
 		asRecord,
 		countLabel,
 		formatDuration,
@@ -45,12 +51,12 @@
 	const signal = $derived(str(args.signal));
 	const keys = $derived(strList(args.keys));
 
-	const STATUS_GLYPH: Record<string, string> = {
-		pending: '○',
-		running: '●',
-		completed: '✓',
-		failed: '✗',
-		aborted: '⊘'
+	const STATUS_ICON: Record<string, typeof IconStatusPending> = {
+		pending: IconStatusPending,
+		running: IconStatusRunning,
+		completed: IconStatusDone,
+		failed: IconStatusFailed,
+		aborted: IconStatusFailed
 	};
 
 	const jobCounts = $derived.by(() => {
@@ -115,14 +121,14 @@
 					{@const jobId = str(job.id) ?? `job-${index}`}
 					{@const jobType = str(job.type) ?? 'task'}
 					{@const jobStatus = str(job.status) ?? 'pending'}
-					{@const glyph = STATUS_GLYPH[jobStatus] ?? '○'}
+					{@const StatusIcon = STATUS_ICON[jobStatus] ?? IconStatusPending}
 					{@const model = str(job.resolvedModel)}
 					{@const dur = formatDuration(num(job.durationMs))}
 					{@const jobResText = str(job.resultText)}
 
 					<div class="job-card" class:failed={jobStatus === 'failed' || jobStatus === 'aborted'} class:running={jobStatus === 'running'}>
 						<div class="job-header">
-							<span class="glyph">{glyph}</span>
+							<span class="glyph"><StatusIcon /></span>
 							<span class="job-id">{jobId}</span>
 							<span class="job-type">{jobType}</span>
 							{#if model}
@@ -203,8 +209,10 @@
 	}
 
 	.glyph {
+		--icon-size: 12px;
+		display: inline-flex;
+		align-items: center;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
 	}
 
 	.running .glyph {

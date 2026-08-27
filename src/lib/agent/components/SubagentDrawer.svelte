@@ -10,6 +10,7 @@
 	// costoso durante un fan-out a 32 worker.
 	import type { AgentSession } from '../session.svelte';
 	import type { AgentMessage } from '../wire';
+	import { IconSubagents, IconClose } from '$lib/icons';
 
 	// Etichette di ruolo in italiano, stessa mappa di session.svelte.ts
 	// (custom -> sistema, developer -> promemoria). Ruoli non mappati
@@ -123,10 +124,10 @@
 <div class="subagent-drawer" role="dialog" aria-modal="true" aria-label="Transcript subagent">
 	<div class="drawer-head">
 		<div class="head-info">
-			<span class="glyph">⇉</span>
+			<span class="glyph"><IconSubagents aria-hidden="true" /></span>
 			<span class="title">{subagentId}</span>
 		</div>
-		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi">×</button>
+		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi"><IconClose /></button>
 	</div>
 
 	{#if errorText}
@@ -214,6 +215,9 @@
 		cursor: pointer;
 		line-height: 1;
 		padding: 0 4px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.btn-close:hover {

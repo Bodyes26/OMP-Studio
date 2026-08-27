@@ -5,21 +5,27 @@
 	import { agentUiHooks } from '../../ui-context';
 	import type { AgentProgress } from '../../wire';
 	import { formatDuration } from '../types';
+	import {
+		IconStatusPending,
+		IconStatusRunning,
+		IconStatusDone,
+		IconStatusFailed
+	} from '$lib/icons';
 
 	let { progress } = $props<{ progress: AgentProgress }>();
 
 	const hooks = agentUiHooks();
 
-	const STATUS_GLYPH: Record<string, string> = {
-		pending: '○',
-		running: '●',
-		completed: '✓',
-		failed: '✗',
-		aborted: '⊘'
+	const STATUS_ICON: Record<string, typeof IconStatusPending> = {
+		pending: IconStatusPending,
+		running: IconStatusRunning,
+		completed: IconStatusDone,
+		failed: IconStatusFailed,
+		aborted: IconStatusFailed
 	};
 
 	const status = $derived(progress.status ?? 'pending');
-	const glyph = $derived(STATUS_GLYPH[status] ?? '○');
+	const StatusIcon = $derived(STATUS_ICON[status] ?? IconStatusPending);
 	const duration = $derived(formatDuration(progress.durationMs));
 	const lastTool = $derived(progress.recentTools?.at(-1)?.tool);
 </script>
@@ -32,7 +38,7 @@
 	onclick={() => progress.id && hooks.openSubagent(progress.id)}
 	title={progress.description ?? progress.assignment ?? progress.task ?? ''}
 >
-	<span class="glyph">{glyph}</span>
+	<span class="glyph"><StatusIcon /></span>
 	<span class="name">{progress.id ?? progress.agent ?? 'subagent'}</span>
 	<span class="agent">{progress.agent ?? ''}</span>
 	<span class="meta">
@@ -66,8 +72,10 @@
 	}
 
 	.glyph {
+		--icon-size: 12px;
+		display: inline-flex;
+		align-items: center;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
 	}
 
 	.running .glyph {

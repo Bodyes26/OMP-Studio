@@ -109,7 +109,7 @@ class StudioUpdaterStore {
 				} else if (data.status === 'finished') {
 					this.isDownloading = false;
 					this.errorMessage = null;
-					this.setBadge('Scaricato ✓', 'success', 6000);
+					this.setBadge('Scaricato', 'success', 6000);
 				} else if (data.status === 'error') {
 					this.isDownloading = false;
 					this.errorMessage = data.error || 'Errore sconosciuto durante il download';
@@ -193,7 +193,7 @@ class StudioUpdaterStore {
 				}
 			} else {
 				if (manual) {
-					this.setBadge('Aggiornato ✓', 'success', 3500);
+					this.setBadge('Aggiornato', 'success', 3500);
 					this.showModal = true;
 				} else {
 					this.updateBadge = null;

@@ -16,6 +16,17 @@
 	import CommandPalette from '$lib/agent/components/CommandPalette.svelte';
 	import ModelPickerDropdown from '$lib/components/models/ModelPickerDropdown.svelte';
 	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
+	import {
+		IconRoleSmol,
+		IconRoleDefault,
+		IconRoleSlow,
+		IconRolePlan,
+		IconStatusRunning,
+		IconStatusDone,
+		IconStatusFailed,
+		IconStatusPending,
+		IconClose
+	} from '$lib/icons';
 
 	let {
 		task,
@@ -55,16 +66,16 @@
 
 	// Ruoli principali disponibili per la barra di selezione rapida
 	const DIFFICULTY_ROLES = [
-		{ id: 'smol', label: 'Rapido', badge: '⚡ smol', desc: 'Fix rapidi, compiti semplici e modelli veloci' },
-		{ id: 'default', label: 'Standard', badge: '⌘ default', desc: 'Sviluppo normale e interazione standard' },
-		{ id: 'slow', label: 'Deep Reasoning', badge: '∞ slow', desc: 'Ragionamento approfondito e problemi complessi' },
-		{ id: 'plan', label: 'Architettura', badge: '◆ plan', desc: 'Pianificazione e progettazione strutturale' }
+		{ id: 'smol', label: 'Rapido', badge: 'smol', icon: IconRoleSmol, desc: 'Fix rapidi, compiti semplici e modelli veloci' },
+		{ id: 'default', label: 'Standard', badge: 'default', icon: IconRoleDefault, desc: 'Sviluppo normale e interazione standard' },
+		{ id: 'slow', label: 'Deep Reasoning', badge: 'slow', icon: IconRoleSlow, desc: 'Ragionamento approfondito e problemi complessi' },
+		{ id: 'plan', label: 'Architettura', badge: 'plan', icon: IconRolePlan, desc: 'Pianificazione e progettazione strutturale' }
 	] as const;
 
 	const currentRoleDisplay = $derived.by(() => {
-		if (options.role === 'custom') return { badge: 'custom', label: 'Personalizzato' };
+		if (options.role === 'custom') return { badge: 'custom', label: 'Personalizzato', icon: null };
 		const found = DIFFICULTY_ROLES.find((r) => r.id === options.role);
-		return found ? { badge: found.badge, label: found.label } : { badge: options.role || 'default', label: options.role || 'Default' };
+		return found ? { badge: found.badge, label: found.label, icon: found.icon } : { badge: options.role || 'default', label: options.role || 'Default', icon: null };
 	});
 
 	const activeModifiersCount = $derived(
@@ -420,13 +431,13 @@
 				title="Clicca per cambiare lo stato del task"
 			>
 				{#if task.status === 'in_progress'}
-					● In corso
+					<IconStatusRunning /> In corso
 				{:else if task.status === 'completed'}
-					✓ Fatto
+					<IconStatusDone /> Fatto
 				{:else if task.status === 'abandoned'}
-					✕ Abbandonato
+					<IconStatusFailed /> Abbandonato
 				{:else}
-					○ In coda
+					<IconStatusPending /> In coda
 				{/if}
 			</button>
 			<span class="task-title" title={title}>{title}</span>
@@ -567,7 +578,7 @@
 									onclick={() => removeImage(idx)}
 									aria-label="Rimuovi immagine"
 								>
-									&times;
+									<IconClose />
 								</button>
 							</div>
 						{/each}
@@ -623,7 +634,7 @@
 					</svg>
 					<span class="advanced-title">Opzioni avanzate</span>
 					<div class="advanced-summary">
-						<span class="summary-chip">{currentRoleDisplay.badge}</span>
+						<span class="summary-chip">{#if currentRoleDisplay.icon}{@const Icon = currentRoleDisplay.icon}<Icon /> {/if}{currentRoleDisplay.badge}</span>
 						{#if options.thinkingLevel && options.thinkingLevel !== 'auto'}
 							<span class="summary-chip">thinking: {options.thinkingLevel}</span>
 						{/if}
@@ -646,6 +657,7 @@
 						<div class="role-pills-row" role="radiogroup" aria-label="Ruolo e complessità">
 							{#each DIFFICULTY_ROLES as r (r.id)}
 								{@const active = options.role === r.id}
+								{@const Icon = r.icon}
 								<button
 									type="button"
 									class="role-pill-btn"
@@ -656,7 +668,7 @@
 									title={r.desc}
 									onclick={() => selectRole(r.id)}
 								>
-									<span class="role-pill-badge">{r.badge}</span>
+									<span class="role-pill-badge"><Icon /> {r.badge}</span>
 									<span class="role-pill-label">{r.label}</span>
 								</button>
 							{/each}
@@ -849,6 +861,10 @@
 		border: 1px solid var(--line);
 		color: var(--ink-faint);
 		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		--icon-size: 12px;
 		transition: all 120ms ease;
 	}
 
@@ -1291,6 +1307,10 @@
 		border: 1px solid var(--line);
 		color: var(--ink-muted);
 		line-height: 1.3;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		--icon-size: 12px;
 	}
 
 	.summary-chip.active-count {
@@ -1374,6 +1394,10 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--brand-ink);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		--icon-size: 12px;
 	}
 
 	.role-pill-btn.active .role-pill-badge {

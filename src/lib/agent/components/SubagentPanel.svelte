@@ -6,6 +6,7 @@
 	// o uccidere un subagent. Lo dichiara in fondo invece di inventare bottoni.
 	import AgentLink from '../tools/parts/AgentLink.svelte';
 	import type { AgentProgress } from '../wire';
+	import { IconClose } from '$lib/icons';
 
 	let {
 		subagents,
@@ -82,7 +83,7 @@
 <div class="subagent-panel" role="dialog" aria-modal="true" aria-label="Elenco subagent" use:trapFocus>
 	<div class="panel-head">
 		<span class="title">Subagent del progetto ({subagents.length})</span>
-		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi">×</button>
+		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi"><IconClose /></button>
 	</div>
 
 	<div class="roster">
@@ -147,6 +148,9 @@
 		cursor: pointer;
 		line-height: 1;
 		padding: 0 4px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.btn-close:hover {

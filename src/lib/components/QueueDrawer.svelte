@@ -7,6 +7,7 @@
 	import { automaticProjectHue, THEMES } from '$lib/theme';
 	import { trapFocus } from '$lib/focusTrap';
 	import type { Project } from '$lib/stores/projects.svelte';
+	import { IconClose } from '$lib/icons';
 	let {
 		open = false,
 		onClose,
@@ -80,7 +81,7 @@
 	>
 		<div class="header">
 			<h3>Task in coda</h3>
-			<button type="button" class="close-btn" onclick={onClose} aria-label="Chiudi cassetto coda">×</button>
+			<button type="button" class="close-btn" onclick={onClose} aria-label="Chiudi cassetto coda"><IconClose /></button>
 		</div>
 		<div class="body" role="list" aria-label="Progetti con task in coda">
 			{#if groups.length === 0}

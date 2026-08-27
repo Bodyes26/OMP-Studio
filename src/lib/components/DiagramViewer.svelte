@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { sanitizeSvg } from '$lib/editor/svgSandbox';
+	import { IconClose, IconZoomIn, IconZoomOut } from '$lib/icons';
 
 	let {
 		projectPath,
@@ -199,10 +200,10 @@
 			<span class="diagram-title" title={diagram.title}>{diagram.title}</span>
 			<span class="toolbar-spacer"></span>
 			<button class="tool-btn" onclick={fitToView} title="Adatta alla finestra (Ctrl+0)" aria-label="Adatta diagramma alla finestra (Ctrl+0)">Adatta</button>
-			<button class="tool-btn" onclick={() => (scale = clampScale(scale * 1.25))} title="Zoom in" aria-label="Ingrandisci diagramma (Zoom in)">+</button>
-			<button class="tool-btn" onclick={() => (scale = clampScale(scale / 1.25))} title="Zoom out" aria-label="Riduci diagramma (Zoom out)">&minus;</button>
+			<button class="tool-btn" onclick={() => (scale = clampScale(scale * 1.25))} title="Zoom in" aria-label="Ingrandisci diagramma (Zoom in)"><IconZoomIn /></button>
+			<button class="tool-btn" onclick={() => (scale = clampScale(scale / 1.25))} title="Zoom out" aria-label="Riduci diagramma (Zoom out)"><IconZoomOut /></button>
 			<span class="zoom-label">{Math.round(scale * 100)}%</span>
-			<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)" aria-label="Chiudi visualizzatore diagramma (Esc)">×</button>
+			<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)" aria-label="Chiudi visualizzatore diagramma (Esc)"><IconClose /></button>
 		</div>
 		<div
 			class="diagram-viewport"

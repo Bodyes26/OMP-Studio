@@ -2,13 +2,14 @@
 	// Riga di retry: notifica di un tentativo ripetuto del modello o del tool.
 	// Riga a tutta larghezza con bordi sottili, coerente con NoticeRow.
 	import type { RetryEntry } from '../session.svelte';
+	import { IconRefresh } from '$lib/icons';
 
 	let { entry }: { entry: RetryEntry } = $props();
 </script>
 
 <div class="retry-row">
 	<div class="main-line">
-		<span class="icon">↻</span>
+		<span class="icon"><IconRefresh aria-hidden="true" /></span>
 		<span class="message">{entry.message}</span>
 	</div>
 </div>
@@ -30,10 +31,13 @@
 	}
 
 	.icon {
+		--icon-size: 12px;
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		flex-shrink: 0;
 		line-height: 1;
+		display: inline-flex;
+		align-items: center;
 	}
 
 	.message {

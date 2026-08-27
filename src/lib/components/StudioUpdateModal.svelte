@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { studioUpdaterStore, formatBytes, formatSpeed } from '$lib/stores/studioUpdater.svelte';
 	import { fade, fly } from 'svelte/transition';
+	import { IconRefresh, IconClose, IconArrowRight, IconCheck, IconExternalLink } from '$lib/icons';
 
 	let dialogEl = $state<HTMLDivElement | null>(null);
 	let previousActiveElement: HTMLElement | null = null;
@@ -103,7 +104,7 @@
 							title="Verifica se ci sono versioni più recenti su GitHub"
 							aria-label="Verifica aggiornamenti"
 						>
-							<span class="refresh-symbol">↻</span>
+							<span class="refresh-symbol"><IconRefresh /></span>
 						</button>
 						<button
 							class="close-btn"
@@ -111,7 +112,7 @@
 							title="Chiudi"
 							aria-label="Chiudi"
 						>
-							✕
+							<IconClose />
 						</button>
 					{/if}
 				</div>
@@ -160,13 +161,13 @@
 						{/if}
 					</div>
 					{#if studioUpdaterStore.hasUpdate && studioUpdaterStore.updateInfo}
-						<span class="v-arrow">→</span>
+						<span class="v-arrow"><IconArrowRight /></span>
 						<div class="version-item">
 							<span class="v-label">Nuova</span>
 							<span class="v-badge target">v{studioUpdaterStore.updateInfo.latest_version}</span>
 						</div>
 					{:else}
-						<span class="up-to-date-tag">✓ Ultima versione</span>
+						<span class="up-to-date-tag"><IconCheck /> Ultima versione</span>
 					{/if}
 				</div>
 
@@ -270,7 +271,7 @@
 					onclick={() => studioUpdaterStore.openReleaseInBrowser()}
 					title="Visualizza la release su GitHub"
 				>
-					Vedi su GitHub ↗
+					Vedi su GitHub <IconExternalLink />
 				</button>
 
 				<div class="footer-actions">
@@ -300,7 +301,7 @@
 							disabled={studioUpdaterStore.isChecking}
 							title="Controlla se è uscita una versione ancora più recente su GitHub"
 						>
-							<span class="refresh-symbol">↻</span>
+							<span class="refresh-symbol"><IconRefresh /></span>
 							{studioUpdaterStore.isChecking ? 'Verifica...' : 'Ricontrolla'}
 						</button>
 						<button class="btn btn-secondary" onclick={() => studioUpdaterStore.closeModal()}>
@@ -315,7 +316,7 @@
 							onclick={() => studioUpdaterStore.checkUpdate(true)}
 							disabled={studioUpdaterStore.isChecking}
 						>
-							<span class="refresh-symbol">↻</span>
+							<span class="refresh-symbol"><IconRefresh /></span>
 							{#if studioUpdaterStore.isChecking}
 								Verifica in corso...
 							{:else}
@@ -409,7 +410,8 @@
 	}
 
 	.refresh-symbol {
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
 		line-height: 1;
 	}
 
@@ -572,6 +574,10 @@
 		color: var(--brand);
 		font-weight: 600;
 		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		--icon-size: 12px;
 	}
 
 	.channel-tag {
@@ -853,6 +859,10 @@
 		color: var(--ink-faint);
 		padding: 4px 8px;
 		font-size: var(--text-xs);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		--icon-size: 12px;
 	}
 
 	.btn-link:hover {

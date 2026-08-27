@@ -21,6 +21,7 @@
 	import type { TerminalSession } from '$lib/terminal/terminal';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import { trapFocus } from '$lib/focusTrap';
+	import { IconRefresh } from '$lib/icons';
 
 	export type Step = 'install' | 'wizard' | 'project';
 
@@ -318,7 +319,7 @@
 					title="Aggiorna e verifica lo stato del setup"
 					aria-label="Aggiorna e verifica stato configurazione"
 				>
-					{checkingStatus ? '...' : '↻ Verifica'}
+					{#if checkingStatus}...{:else}<IconRefresh /> Verifica{/if}
 				</button>
 				<button type="button" class="quiet" onclick={() => onClose?.()} disabled={installing} aria-label="Chiudi configurazione guidata">
 					Chiudi
@@ -548,6 +549,10 @@
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
 		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		--icon-size: 12px;
 		transition: color 0.12s ease, border-color 0.12s ease;
 	}
 

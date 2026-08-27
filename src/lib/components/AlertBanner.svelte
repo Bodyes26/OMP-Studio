@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fade, slide } from 'svelte/transition';
 	import type { Snippet } from 'svelte';
+	import { IconChevronRight, IconClose } from '$lib/icons';
 
 	export type AlertVariant = 'error' | 'warning' | 'info' | 'success';
 
@@ -113,7 +114,7 @@
 						aria-expanded={showDetails}
 						aria-label={showDetails ? 'Nascondi dettagli diagnostici' : 'Mostra dettagli diagnostici'}
 					>
-						<span class="chevron" class:open={showDetails}>▶</span>
+						<span class="chevron" class:open={showDetails}><IconChevronRight /></span>
 						{showDetails ? 'Nascondi dettagli diagnostici' : 'Mostra dettagli diagnostici'}
 					</button>
 				</div>
@@ -167,7 +168,7 @@
 					onclick={onDismiss}
 					aria-label="Chiudi avviso"
 				>
-					✕
+					<IconClose />
 				</button>
 			{/if}
 		</div>
@@ -304,7 +305,7 @@
 
 	.chevron {
 		display: inline-block;
-		font-size: 8px;
+		--icon-size: 12px;
 		transition: transform 0.15s ease;
 	}
 

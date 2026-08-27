@@ -19,6 +19,7 @@
 	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
+	import { IconExternalLink } from '$lib/icons';
 	import {
 		asRecord,
 		recordList,
@@ -118,7 +119,7 @@
 								onclick={() => openLink(itemUrl)}
 								title="Apri nel browser"
 							>
-								apri ↗
+								apri <IconExternalLink />
 							</button>
 						{/if}
 					</div>
@@ -199,6 +200,10 @@
 	}
 
 	.item-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		--icon-size: 12px;
 		background: transparent;
 		border: none;
 		padding: 0;

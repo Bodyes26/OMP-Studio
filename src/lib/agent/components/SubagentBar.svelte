@@ -2,6 +2,7 @@
 	// Barra riassuntiva dei subagent attivi/completati, sopra il composer.
 	// Clic apre il pannello dei subagent.
 	import type { AgentProgress } from '../wire';
+	import { IconChevronRight } from '$lib/icons';
 
 	let { subagents, onOpen } = $props<{
 		subagents: AgentProgress[];
@@ -31,7 +32,7 @@
 					<span class="count-failed">{failedCount} falliti</span>
 				{/if}
 			</span>
-			<span class="arrow">▸</span>
+			<span class="arrow"><IconChevronRight aria-hidden="true" /></span>
 		</button>
 	</div>
 {/if}
@@ -99,7 +100,10 @@
 	}
 
 	.arrow {
+		--icon-size: 12px;
 		margin-left: auto;
 		color: var(--ink-faint);
+		display: inline-flex;
+		align-items: center;
 	}
 </style>

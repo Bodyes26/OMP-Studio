@@ -217,6 +217,34 @@ Tetto assoluto: **10px**. Un raggio a 16px+ su un pannello di uno strumento tecn
 - Ombre: **una sola**, e solo per superfici che galleggiano davvero (popover, dialog): `--shadow-overlay: 0 8px 24px -8px oklch(0 0 0 / 0.7), 0 2px 6px -2px oklch(0 0 0 / 0.5)`.
 - Nessuna ombra su tessere, righe, bottoni, pannelli. Nessuna ombra "morbida e larga" come decorazione.
 
+### Icone — un set solo
+
+Le icone sono **Lucide** (`@lucide/svelte`), e non esiste una seconda sorgente.
+
+- **Un registro, non trentasette import.** I componenti importano da
+  `src/lib/icons.ts`, che riesporta solo le icone in uso con un nome che dice a
+  cosa servono (`IconFolderOpen`, `IconRename`, `IconStatusRunning`). Cambiare
+  il glifo di un'azione è una riga in quel file. Nei componenti l'import diretto
+  da `@lucide/svelte` è vietato: il barrel del pacchetto contiene 1777 moduli e
+  in dev li servirebbe tutti.
+- **Una misura.** `svg.lucide` in `app.css` legge `--icon-size` (default 14px).
+  Chi ha bisogno di un'altra misura la imposta sul **contenitore**, e tutte le
+  icone dentro la seguono. La prop `size` non si usa: la dimensione è una
+  proprietà del posto, non della chiamata.
+- **Tratto nativo.** Lucide disegna su griglia 24 con tratto 2: a 14px sono
+  1,17px ottici, coerenti con gli hairline da 1px del resto del guscio.
+- **La classe non si passa a un'icona.** Lo scoping CSS di Svelte non raggiunge
+  la radice di un componente figlio: `<IconChevronRight class="chevron" />`
+  perde ogni regola `.chevron`. L'icona si avvolge nell'elemento che ha già la
+  classe, e rotazioni, colori e transizioni continuano a funzionare.
+- **Nessuna emoji come icona.** Il font emoji del sistema porta il suo colore,
+  ignora la palette (§2) e cambia disegno fra Windows e macOS: tre motivi che
+  bastano da soli.
+- **Cosa non è un'icona** e resta testo: le legende dei tasti (`↑ ↓ ↵`), il
+  segno di moltiplicazione (`1024 × 768`, `×3`), i separatori in prosa, i
+  puntini di stato disegnati in CSS e i tre glifi dei controlli finestra, che
+  seguono la convenzione del sistema operativo e non il set.
+
 ---
 
 ## 5. Elevazione e z-index
@@ -311,7 +339,7 @@ Altezza 48px, sfondo `--bg-raised`. Nessun bordo inferiore: la separazione dal c
   - `finished` — anello statico 1px `--brand` più punto 6px `--brand`. Cremisi fermo = ha finito, nessuna urgenza.
 
   Il punto è staccato dalla tessera con `outline: 2px solid var(--bg-raised)`, un knockout, non un'ombra.
-- **Nome del progetto attivo**: centrato, `--text-md`, `--ink`. Il path completo è nel tooltip.
+- **Nome del progetto attivo**: centrato, `--text-md`, `--ink`. La tessera non porta `title`: il nome e il percorso stanno nel pannello (§7.8), e un tooltip nativo che ripete quello che è già scritto due volte sullo schermo è rumore.
 - **Pulsante `+`**: apre il selettore progetto (recenti + sfoglia + crea).
 - **Chip usage**: mostra solo il numero peggiore tra tutte le quote (`min(remainingFraction)`) e la sua icona. Click → popover. Colore per severità (§2.6). È l'unico elemento della barra che può essere colorato di ambra o cremisi.
 - **Avatar/profilo**: iniziali dell'account, apre menu impostazioni.
@@ -380,6 +408,46 @@ Vale per tutta l'app: **nessun bordo verticale nel corpo**, e nessun bordo sotto
 `--brand` su `--bg-base` misura 4.63:1, oltre il minimo di 3:1 per indicatori non testuali. Nessun elemento interattivo senza stato di fuoco visibile. Nessun `outline: none` senza sostituto.
 
 Le scorciatoie globali vivono su `Ctrl+Alt`, che la TUI di `omp` non usa. Nell'editor Monaco, `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` agiscono solo quando il fuoco e' nel codice; il terminale continua a ricevere senza eccezioni le proprie combinazioni.
+
+### 7.8 Pannello della tessera progetto
+
+Un solo pannello, due modi di aprirlo. Al **passaggio del mouse** (280ms di
+attesa, 160ms di grazia all'uscita) è un'anteprima effimera che non prende il
+fuoco. Col **click destro** — e col tasto `Menu` o `Shift+F10`, che nella
+WebView generano lo stesso evento — è fissato: prende il fuoco sulla prima
+azione, si segna con il bordo in `--brand` e si chiude solo con `Esc`, con un
+click fuori o eseguendo un comando. Il menu contestuale della WebView è
+soppresso: «Ricarica / Indietro / Stampa» non significano niente qui.
+
+- `role="dialog"` con `aria-modal="false"`, **non** `role="tooltip"`: le APG
+  WAI-ARIA vietano i tooltip che contengono elementi attivabili, e qui dentro
+  ci sono campi di testo, bottoni e un selettore di tinta. La tessera dichiara
+  `aria-haspopup="dialog"` e `aria-expanded`.
+- **Larghezza fissa 300px.** Non è una preferenza estetica: la riga di un task
+  in coda è la prima riga di un prompt, e su una riga sola dettava la larghezza
+  del pannello fino a mandarlo fuori dallo schermo. Il testo si taglia con
+  l'ellissi, il pannello non cresce.
+- **Top layer.** `popover="manual"` e apertura da JS: il pannello non viene
+  tagliato dall'`overflow` della barra e non litiga con gli `z-index`. Il
+  piazzamento resta in JavaScript (`src/lib/anchoredPopover.ts`): CSS Anchor
+  Positioning non esiste su WKWebView prima di Safari 26, quindi su macOS 14 e
+  15 il pannello finirebbe fuori posto. L'azione ribalta sull'asse verticale
+  quando sotto non c'è spazio, blocca il pannello dentro i bordi della finestra
+  e ricalcola su scroll, resize e cambio di dimensione del pannello.
+- **Ponte del mouse.** Uno pseudo-elemento da 8px copre lo stacco fra tessera e
+  pannello, sul lato giusto rispetto al ribaltamento: senza, il cursore che
+  attraversa i 6px di distacco farebbe scattare la chiusura.
+- Struttura, dall'alto: identità (tessera, nome, percorso troncato al centro,
+  rinomina) · stato dell'agente in una riga · coda del progetto con avvio e
+  modifica per riga, e il motivo quando l'avvio non è possibile · azioni del
+  progetto · **Colore** · chiusura, con la conferma che appare dentro il
+  pannello e non in un dialogo.
+- **Il selettore di tinta** mostra solo tinte che il sistema sa produrre: la
+  striscia e i pallini sono resi con `--proj-l-fill` e `--proj-c-fill`, quindi
+  ogni colore visibile è esattamente quello che prenderà la tessera. Niente
+  selettore RGB del browser: il modello dati conserva una tinta, non un colore,
+  e un selettore a sedici milioni di colori che ne consegna trecentosessanta
+  mente all'utente.
 
 ---
 
@@ -464,3 +532,7 @@ Le scorciatoie globali vivono su `Ctrl+Alt`, che la TUI di `omp` non usa. Nell'e
 - [ ] Nessuna animazione senza alternativa `prefers-reduced-motion`.
 - [ ] Nessun testo con contrasto sotto 4.5:1, verificato e non stimato.
 - [ ] Nessun colore hard-coded nel codice dei componenti: solo token.
+- [ ] Nessuna emoji usata come icona: solo il set di §4 via `src/lib/icons.ts`.
+- [ ] Nessuna `class` passata a un componente icona: si avvolge, non si decora.
+- [ ] Nessun `title` che ripete un'informazione già visibile accanto.
+- [ ] Nessun pannello sospeso la cui larghezza dipenda dal contenuto.

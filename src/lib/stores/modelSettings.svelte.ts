@@ -1,6 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import { restartOmpTerminals } from '$lib/terminal/terminal';
 import { settingsStore } from './settings.svelte';
+import {
+	IconRoleDefault,
+	IconRolePlan,
+	IconRoleSmol,
+	IconRoleSlow,
+	IconRoleVision,
+	IconRoleTask,
+	IconRoleCommit,
+	IconRoleAdvisor
+} from '$lib/icons';
 
 export interface ModelCost {
 	input?: number;
@@ -77,14 +87,14 @@ export interface ModelUpgradeCandidate {
 }
 
 export const STANDARD_ROLES = [
-	{ id: 'default', label: 'Default / Chat', glyph: '⌘', abbr: 'CH', desc: 'Modello principale per conversazione e attivita generali' },
-	{ id: 'plan', label: 'Architectural Plan', glyph: '◆', abbr: 'PL', desc: 'Modello per pianificazione e analisi architetturale' },
-	{ id: 'smol', label: 'Smol (Fast)', glyph: '⚡', abbr: 'SM', desc: 'Modello ultra-rapido per compiti leggeri, esplorazione e scouting' },
-	{ id: 'slow', label: 'Slow (Reasoning)', glyph: '∞', abbr: 'SL', desc: 'Modello per ragionamenti complessi e deduzioni approfondite' },
-	{ id: 'vision', label: 'Vision / Images', glyph: '◉', abbr: 'VI', desc: 'Modello multimodale per ispezione e comprensione immagini' },
-	{ id: 'task', label: 'Task Subagents', glyph: '⇉', abbr: 'TS', desc: 'Modello delegato per subagenti ed esecuzioni parallele' },
-	{ id: 'commit', label: 'Git Commit', glyph: '⌥', abbr: 'CM', desc: 'Modello per generazione messaggi di commit e changelog' },
-	{ id: 'advisor', label: 'Advisor (Reviewer)', glyph: '◇', abbr: 'AD', desc: 'Modello di revisione e controllo passivo di qualita' }
+	{ id: 'default', label: 'Default / Chat', icon: IconRoleDefault, abbr: 'CH', desc: 'Modello principale per conversazione e attivita generali' },
+	{ id: 'plan', label: 'Architectural Plan', icon: IconRolePlan, abbr: 'PL', desc: 'Modello per pianificazione e analisi architetturale' },
+	{ id: 'smol', label: 'Smol (Fast)', icon: IconRoleSmol, abbr: 'SM', desc: 'Modello ultra-rapido per compiti leggeri, esplorazione e scouting' },
+	{ id: 'slow', label: 'Slow (Reasoning)', icon: IconRoleSlow, abbr: 'SL', desc: 'Modello per ragionamenti complessi e deduzioni approfondite' },
+	{ id: 'vision', label: 'Vision / Images', icon: IconRoleVision, abbr: 'VI', desc: 'Modello multimodale per ispezione e comprensione immagini' },
+	{ id: 'task', label: 'Task Subagents', icon: IconRoleTask, abbr: 'TS', desc: 'Modello delegato per subagenti ed esecuzioni parallele' },
+	{ id: 'commit', label: 'Git Commit', icon: IconRoleCommit, abbr: 'CM', desc: 'Modello per generazione messaggi di commit e changelog' },
+	{ id: 'advisor', label: 'Advisor (Reviewer)', icon: IconRoleAdvisor, abbr: 'AD', desc: 'Modello di revisione e controllo passivo di qualita' }
 ] as const;
 
 export const THINKING_LEVELS = [

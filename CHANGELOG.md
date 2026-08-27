@@ -9,8 +9,21 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+
+- Il pannello di un progetto si apre anche col **click destro** sulla tessera (o col tasto `Menu`): resta fissato finché non scegli un comando, premi `Esc` o clicchi fuori. Il menu contestuale della WebView, con voci come «Ricarica» e «Stampa», non compare più da nessuna parte dell'app tranne nei campi di testo, nell'editor e nel terminale, dove serve per copiare e incollare.
+- Nuove azioni nel pannello del progetto: copia percorso, apri nel terminale, apri nell'editor esterno, nuovo task, interruttore dell'avvio automatico dei task, spostamento della tessera e chiusura degli altri progetti.
+- Il pannello dice in una riga cosa sta facendo l'agente e, quando un task in coda non può partire, il motivo per cui non parte.
+
 ### Changed
 
+- Tutte le icone di Studio vengono da un unico set disegnato (Lucide) al posto delle emoji del sistema: stesso tratto, stessa dimensione e stesso colore del tema su Windows e su macOS.
+- Il colore di un progetto si sceglie da una striscia di tinte resa con i colori del tema: ogni tinta mostrata è esattamente quella che prenderà la tessera. Spariti il pallino arcobaleno e il selettore di colori del browser, che promettevano sedici milioni di colori per poi conservarne uno su quarantamila.
+- I pallini delle tinte predefinite mostrano il colore reale della tessera nel tema attivo, non più una tonalità fissa diversa dal risultato.
+- La tessera del progetto non mostra più il tooltip col nome: nome e percorso sono già nel pannello.
+- Il pannello del progetto ha una larghezza fissa: con task in coda dai prompt lunghi non si allarga più oltre il bordo dello schermo.
+- Il pannello non viene più tagliato dalla barra dei progetti, si ribalta verso l'alto quando in basso non c'è spazio e resta agganciato alla tessera anche facendo scorrere la barra.
+- Il pannello aperto col click destro è navigabile da tastiera e chiude restituendo il fuoco alla tessera.
 - Lo slider dello sforzo di ragionamento è una pillola col riempimento nel colore del tema: i pallini dei livelli non hanno più le etichette e attirano magneticamente il pomello durante il trascinamento, mentre il livello scelto si legge dal chip in testa al controllo.
 - Nell'editor di un nuovo task il modello e lo sforzo di ragionamento mostrano subito quelli del ruolo predefinito, invece di restare vuoti finché non si ritocca il ruolo.
 

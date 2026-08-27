@@ -306,3 +306,64 @@ scritto a mano riporta i default, non una GUI rotta.
 1. Registrazione dell'AUMID `sh.omp.studio` nel registro utente Windows (`HKCU\Software\Classes\AppUserModelId\sh.omp.studio`) con percorso icona nativo.
 2. Dispatch toast tramite `tauri-plugin-notification` con due stili configurabili (sintetico o dettagliato con la domanda dell'agente).
 3. Integrazione bidirezionale con reset automatico dello stato di attenzione (`clear_app_attention`) appena la finestra o la scheda del progetto torna in primo piano.
+
+---
+
+## Gate R18: un solo set di icone, click destro sulle tessere e tinta di progetto senza selettore RGB
+
+**Data:** 2026-08-27
+**Esito:** SUPERATO
+**Decisione:** Le icone di Studio vengono da **Lucide** (`@lucide/svelte`),
+esposte da un registro locale `src/lib/icons.ts`; il click destro su una tessera
+apre il pannello del progetto invece del menu della WebView, soppresso in tutta
+l'app tranne dove serve la clipboard nativa; il colore personalizzato di un
+progetto resta **una tinta** e si sceglie da un selettore reso con i token del
+tema, non dal selettore di colori del browser.
+
+**Il problema risolto:** tre difetti con la stessa radice, cioe' un'interfaccia
+che promette piu' di quanto il sistema sotto sappia mantenere.
+
+1. **Emoji come icone.** 108 righe in 37 file usavano glifi del font emoji di
+   sistema, che porta il proprio colore, ignora la palette (`DESIGN.md` §2) e
+   cambia disegno fra Windows e macOS. Verificato prima di scegliere:
+   `@lucide/svelte@1.34.0` dichiara `svelte: ^5` come peer, non ha dipendenze,
+   e' ISC, ha `sideEffects: false` ed espone ogni icona come componente Svelte 5
+   su un sottopercorso proprio (`@lucide/svelte/icons/folder-open`), quindi il
+   bundle porta solo le icone usate. Scartati: `lucide-svelte` (deprecato),
+   `@iconify/svelte` (scarica gli SVG in rete, incompatibile con la CSP
+   `connect-src 'self'`), `phosphor-svelte` (richiede un plugin Vite),
+   `@tabler/icons-svelte` (piu' pesante, tratto meno coerente). Lucide era gia'
+   il vocabolario dei prototipi in `src/lib/prototype/template.ts`.
+   Il registro esiste perche' l'import diretto dal barrel del pacchetto
+   servirebbe 1777 moduli in sviluppo, e perche' cambiare il glifo di un'azione
+   deve costare una riga.
+2. **Menu contestuale della WebView.** Verificato nel sorgente di `wry 0.55.1`:
+   `default_context_menus` resta `true` anche in release, dove cade soltanto
+   «Ispeziona elemento». Le voci «Ricarica / Indietro / Stampa» non hanno senso
+   in un guscio desktop. La soppressione e' un solo listener con whitelist
+   (`input`, `textarea`, `contenteditable`, `.monaco-editor`, `.xterm`, e il
+   caso del testo selezionato), quindi copiare e incollare resta possibile dove
+   serve. Il trascinamento della finestra non ne soffre: `drag.js` di
+   `tauri 2.11.5` filtra `e.button === 0` e ignora il tasto destro, e
+   `data-tauri-drag-region="deep"` (introdotto in `tauri 2.11.0`) continua a
+   valere per il tasto sinistro sui figli non interattivi.
+   Scartato il menu nativo `tauri::menu::ContextMenu::popup_at`: non accetta
+   icone vettoriali, non si tematizza e non puo' ospitare il campo di rinomina
+   ne' il selettore di tinta.
+3. **Selettore di colore.** `Project` conserva `hue: number`; luminosita' e
+   croma arrivano da `--proj-l-fill` e `--proj-c-fill`. Il vecchio
+   `input type="color"` faceva scegliere fra sedici milioni di colori e ne
+   conservava la sola tinta (`hexToHue`), quindi un pastello tornava saturo. La
+   scelta e' stata **non allargare il modello dati**: nessuna migrazione,
+   nessun rischio di tessere illeggibili contro `--on-project`, e un selettore
+   che mostra solo cio' che il sistema sa produrre. I pallini predefiniti sono
+   passati dai valori cablati `oklch(0.68 0.16 H)` ai token del tema: prima
+   l'anteprima non corrispondeva al colore reale della tessera.
+
+**Perimetro tecnico del pannello:** `popover="manual"` per vivere nel top layer,
+piazzamento in JavaScript (`src/lib/anchoredPopover.ts`) perche' CSS Anchor
+Positioning non esiste su WKWebView prima di Safari 26 e macOS 14/15 resta un
+bersaglio di distribuzione; `role="dialog"` non modale, come prescrivono le APG
+WAI-ARIA per un pannello che contiene elementi attivabili; larghezza fissa, dopo
+che le righe della coda — prime righe di prompt su una riga sola — spingevano il
+pannello fuori dallo schermo.

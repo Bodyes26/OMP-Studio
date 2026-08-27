@@ -1,20 +1,30 @@
 <script lang="ts">
-	import { projectStore, PRESET_HUES, type Project } from '$lib/stores/projects.svelte';
+	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
-	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
+	import { taskStore } from '$lib/stores/tasks.svelte';
 	import { settingsStore, type ProjectBarOrder, type SettingsSection } from '$lib/stores/settings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import { automaticProjectHue, THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
-	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
 	import { trapFocus } from '$lib/focusTrap';
 	import { quotaStore } from '$lib/stores/quota.svelte';
+	import ProjectPopover from './ProjectPopover.svelte';
+	import {
+		IconChevronDown,
+		IconChevronLeft,
+		IconChevronRight,
+		IconGhost,
+		IconPlus,
+		IconQuota,
+		IconSettings,
+		IconWarning
+	} from '$lib/icons';
 
 	let {
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
 		setupIncomplete = false,
-		onRunTask, onEditTask, canRunTask, runReason
+		onRunTask, onEditTask, onNewTask, canRunTask, runReason
 	} = $props<{
 		onUsageClick?: () => void;
 		onNewProject?: () => void;
@@ -27,6 +37,8 @@
 		setupIncomplete?: boolean;
 		onRunTask?: (projectId: string, taskId: string, follow: boolean) => void;
 		onEditTask?: (projectId: string, taskId: string) => void;
+		/** Apre l'editor di un task nuovo sul progetto indicato. */
+		onNewTask?: (projectId: string) => void;
 		canRunTask?: (projectId: string) => boolean;
 		runReason?: (projectId: string) => string;
 	}>();
@@ -40,24 +52,34 @@
 
 	const appWindow = getCurrentWindow();
 
+	/** Il pannello di una tessera: chi lo ospita, a che cosa e' agganciato e se
+	 *  e' fissato dal click destro invece di seguire il mouse. */
+	interface PanelState {
+		projectId: string;
+		anchor: HTMLElement;
+		pinned: boolean;
+	}
+
+	const HOVER_OPEN_MS = 280;
+	const HOVER_CLOSE_MS = 160;
+
 	let isMaximized = $state(false);
-	let hoveredTabId = $state<string | null>(null);
-	let hoverTimer: any = null;
-	let mouseInsidePopover = false;
-	let colorInputEl = $state<HTMLInputElement | null>(null);
+	let panel = $state<PanelState | null>(null);
+	let openTimer: ReturnType<typeof setTimeout> | null = null;
+	let closeTimer: ReturnType<typeof setTimeout> | null = null;
+	let pointerInsidePanel = false;
 	let themeOpen = $state(false);
 	let themeFilter = $state('');
-	let editingProjectId = $state<string | null>(null);
-	let projectNameDraft = $state('');
-	let projectLabelDraft = $state('');
 	let orderMenuOpen = $state(false);
 	let draggedProjectId = $state<string | null>(null);
 	let dragOverProjectId = $state<string | null>(null);
-	let closeConfirmId = $state<string | null>(null);
 	let tabsTrackEl = $state<HTMLElement | null>(null);
 	let canScrollLeft = $state(false);
 	let canScrollRight = $state(false);
-	let popoverPos = $state<{ top: number; left: number } | null>(null);
+
+	const panelProject = $derived(
+		panel ? projectStore.projects.find((candidate) => candidate.id === panel!.projectId) ?? null : null
+	);
 
 	function updateScrollState() {
 		if (!tabsTrackEl) return;
@@ -107,11 +129,11 @@
 			.map((name) => ({ name, ...swatchesFor(THEMES[name]) }))
 	);
 
-	// La conferma di chiusura appartiene alla tessera sotto il mouse: cambiando
-	// tessera va richiusa, altrimenti resterebbe visibile su quella sbagliata.
+	// Il progetto chiuso dal pannello non lascia dietro un pannello orfano.
 	$effect(() => {
-		if (closeConfirmId && closeConfirmId !== hoveredTabId) closeConfirmId = null;
+		if (panel && !panelProject) closePanel();
 	});
+
 	$effect(() => {
 		quotaStore.init();
 		return () => {
@@ -119,6 +141,7 @@
 		};
 	});
 
+	$effect(() => () => clearTimers());
 
 	function pickTheme(name: string) {
 		themeStore.select(name);
@@ -135,6 +158,13 @@
 		return automaticProjectHue(THEMES[themeStore.current], project.path);
 	}
 
+	/** Tinta che il tema assegnerebbe: serve al selettore per mostrare cosa si
+	 *  ottiene tornando alla modalita' automatica. */
+	function themeHue(project: Project): number {
+		if (!project.path) return 0;
+		return automaticProjectHue(THEMES[themeStore.current], project.path);
+	}
+
 	function projectLabel(project: Project): string {
 		if (project.label !== null) return project.label;
 		return settingsStore.projectBar.label === 'name' ? truncateName(project.name) : getInitials(project.name);
@@ -145,65 +175,6 @@
 	function truncateName(name: string, max = 12): string {
 		if (name.length <= max) return name;
 		return name.slice(0, max - 1) + '…';
-	}
-
-	function startProjectEdit(project: Project) {
-		editingProjectId = project.id;
-		projectNameDraft = project.name;
-		projectLabelDraft = project.label ?? '';
-	}
-
-	function saveProjectEdit(project: Project) {
-		projectStore.renameProject(project.id, projectNameDraft);
-		projectStore.setProjectLabel(project.id, projectLabelDraft);
-		editingProjectId = null;
-	}
-
-	function cancelProjectEdit() {
-		editingProjectId = null;
-	}
-
-	function handleProjectEditKeydown(event: KeyboardEvent, project: Project) {
-		if (event.key === 'Enter') {
-			event.preventDefault();
-			saveProjectEdit(project);
-		} else if (event.key === 'Escape') {
-			event.preventDefault();
-			cancelProjectEdit();
-		}
-	}
-
-	function hexToHue(hex: string): number {
-		let c = hex.replace('#', '');
-		if (c.length === 3) c = c.split('').map(x => x + x).join('');
-		const num = parseInt(c, 16);
-		const r = ((num >> 16) & 255) / 255;
-		const g = ((num >> 8) & 255) / 255;
-		const b = (num & 255) / 255;
-
-		const max = Math.max(r, g, b);
-		const min = Math.min(r, g, b);
-		const d = max - min;
-
-		if (d === 0) return 0;
-
-		let h = 0;
-		if (max === r) {
-			h = ((g - b) / d) % 6;
-		} else if (max === g) {
-			h = (b - r) / d + 2;
-		} else {
-			h = (r - g) / d + 4;
-		}
-
-		h = Math.round(h * 60);
-		if (h < 0) h += 360;
-		return h;
-	}
-
-	function handleCustomColorChange(projectId: string, hex: string) {
-		const hue = hexToHue(hex);
-		projectStore.setProjectHue(projectId, hue);
 	}
 
 	onMount(() => {
@@ -222,54 +193,80 @@
 		return name.slice(0, 2).toUpperCase();
 	}
 
-	// Il path si tronca al centro: la coda e' la parte informativa.
-	function truncateMiddle(path: string, max = 38) {
-		if (path.length <= max) return path;
-		const head = Math.ceil((max - 1) / 2);
-		const tail = Math.floor((max - 1) / 2);
-		return path.slice(0, head) + '…' + path.slice(path.length - tail);
+	function clearTimers() {
+		if (openTimer) clearTimeout(openTimer);
+		if (closeTimer) clearTimeout(closeTimer);
+		openTimer = null;
+		closeTimer = null;
 	}
 
-	function handleTabMouseEnter(id: string, event?: MouseEvent) {
-		if (hoverTimer) clearTimeout(hoverTimer);
-		if (event?.currentTarget) {
-			const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-			const left = Math.max(8, Math.min(window.innerWidth - 290, rect.left));
-			popoverPos = { top: rect.bottom + 6, left };
+	function openPanel(projectId: string, anchor: HTMLElement, pinned: boolean) {
+		clearTimers();
+		pointerInsidePanel = false;
+		panel = { projectId, anchor, pinned };
+	}
+
+	function closePanel(returnFocus = false) {
+		clearTimers();
+		const anchor = panel?.anchor;
+		const wasPinned = panel?.pinned ?? false;
+		panel = null;
+		pointerInsidePanel = false;
+		// Il fuoco torna alla tessera solo se era stato spostato: dopo un hover
+		// nessuno lo ha mosso, e rubarlo qui interromperebbe la digitazione.
+		if (returnFocus && wasPinned) anchor?.querySelector('button')?.focus();
+	}
+
+	function handleTabPointerEnter(projectId: string, event: PointerEvent) {
+		// Solo il mouse apre l'anteprima: con penna o dito non esiste "passare
+		// sopra", e il pannello comparirebbe al tocco insieme alla selezione.
+		if (event.pointerType !== 'mouse') return;
+		if (draggedProjectId) return;
+		if (panel?.pinned) return;
+		const anchor = event.currentTarget as HTMLElement;
+		clearTimers();
+		openTimer = setTimeout(() => openPanel(projectId, anchor, false), HOVER_OPEN_MS);
+	}
+
+	function handleTabPointerLeave() {
+		if (openTimer) clearTimeout(openTimer);
+		openTimer = null;
+		if (panel?.pinned) return;
+		scheduleHoverClose();
+	}
+
+	function scheduleHoverClose() {
+		if (closeTimer) clearTimeout(closeTimer);
+		closeTimer = setTimeout(() => {
+			if (!pointerInsidePanel) closePanel();
+		}, HOVER_CLOSE_MS);
+	}
+
+	function handlePanelHoverChange(inside: boolean) {
+		pointerInsidePanel = inside;
+		if (inside) {
+			if (closeTimer) clearTimeout(closeTimer);
+			closeTimer = null;
+			return;
 		}
-		hoverTimer = setTimeout(() => {
-			hoveredTabId = id;
-		}, 300);
+		if (panel?.pinned) return;
+		scheduleHoverClose();
 	}
 
-	function handleTabMouseLeave() {
-		if (hoverTimer) clearTimeout(hoverTimer);
-		hoverTimer = setTimeout(() => {
-			if (!mouseInsidePopover) {
-				hoveredTabId = null;
-			}
-		}, 150);
-	}
-
-	function handlePopoverMouseEnter() {
-		mouseInsidePopover = true;
-		if (hoverTimer) clearTimeout(hoverTimer);
-	}
-
-	function handlePopoverMouseLeave() {
-		mouseInsidePopover = false;
-		hoveredTabId = null;
-	}
-
-	function revealProject(path: string) {
-		hoveredTabId = null;
-		void revealItemInDir(path);
+	/** Click destro sulla tessera, e anche tasto Menu o Shift+F10: la WebView
+	 *  manda `contextmenu` in tutti e tre i casi. Il menu di default della
+	 *  WebView si ferma qui con `preventDefault`. */
+	function handleTabContextMenu(projectId: string, event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		openPanel(projectId, event.currentTarget as HTMLElement, true);
 	}
 
 	// Riordino manuale della barra: ha senso solo con order === 'fixed', gli
 	// altri modi sono viste calcolate che non hanno un ordine da spostare.
 	function handleProjectDragStart(id: string) {
 		if (settingsStore.projectBar.order !== 'fixed') return;
+		closePanel();
 		draggedProjectId = id;
 	}
 
@@ -299,56 +296,10 @@
 		orderMenuOpen = false;
 	}
 
-	// Prima riga non vuota del prompt: la stessa euristica del pannello
-	// agente, cosi' il peek mostra lo stesso titolo che l'utente vedrebbe
-	// aprendo la coda per intero.
-	function queueTaskLabel(task: StudioTask): string {
-		const line = task.prompt.split(/\r?\n/).find((entry) => entry.trim())?.trim();
-		if (line) return line;
-		if (task.images && task.images.length > 0) return '(solo immagini)';
-		return 'Nuovo task';
-	}
-
 	function queueBadgeTitle(project: Project, queued: number, ready: boolean): string {
 		const base = `${queued} task in coda`;
 		if (settingsStore.projectBar.queueBadge !== 'count-state') return base;
 		return ready ? `${base} · pronti a partire` : `${base} · ${runReason?.(project.id) ?? 'non lanciabili ora'}`;
-	}
-
-	// La sorte della coda alla chiusura segue le impostazioni generali: tenerla,
-	// buttarla o chiedere ogni volta prima di deciderlo.
-	function requestCloseProject(project: Project) {
-		if (!project.path) {
-			projectStore.closeProject(project.id);
-			hoveredTabId = null;
-			return;
-		}
-		const queued = taskStore.queuedCountFor(project.path);
-		if (queued === 0 || settingsStore.general.closeWithQueuedTasks === 'keep') {
-			projectStore.closeProject(project.id);
-			hoveredTabId = null;
-			return;
-		}
-		if (settingsStore.general.closeWithQueuedTasks === 'discard') {
-			taskStore.clearProject(project.path);
-			projectStore.closeProject(project.id);
-			hoveredTabId = null;
-			return;
-		}
-		closeConfirmId = project.id;
-	}
-
-	function confirmCloseKeepQueue(project: Project) {
-		projectStore.closeProject(project.id);
-		closeConfirmId = null;
-		hoveredTabId = null;
-	}
-
-	function confirmCloseDiscardQueue(project: Project) {
-		taskStore.clearProject(project.path);
-		projectStore.closeProject(project.id);
-		closeConfirmId = null;
-		hoveredTabId = null;
 	}
 
 	function handleMinimize(e: MouseEvent) {
@@ -381,8 +332,8 @@
 				orderMenuOpen = false;
 				return;
 			}
-			if (hoveredTabId) {
-				hoveredTabId = null;
+			if (panel) {
+				closePanel(true);
 				return;
 			}
 		}
@@ -410,7 +361,7 @@
 				onclick={() => scrollTabs(-180)}
 				title="Scorri progetti a sinistra"
 				aria-label="Scorri progetti a sinistra"
-			>‹</button>
+			><IconChevronLeft /></button>
 		{/if}
 
 		<div
@@ -423,20 +374,21 @@
 		{#each projectOrder.list as p (p.id)}
 			{@const queued = p.path ? taskStore.queuedCountFor(p.path) : 0}
 			{@const ready = canRunTask?.(p.id) ?? false}
-			<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class="tab-container"
 						data-tab-id={p.id}
 						class:drag-over={dragOverProjectId === p.id}
+						class:panel-open={panel?.projectId === p.id}
 						draggable={settingsStore.projectBar.order === 'fixed'}
 						ondragstart={() => handleProjectDragStart(p.id)}
 						ondragend={handleProjectDragEnd}
 						ondragover={(event) => handleProjectDragOver(event, p.id)}
 						ondragleave={() => handleProjectDragLeave(p.id)}
 						ondrop={() => handleProjectDrop(p.id)}
-						onmouseenter={(e) => handleTabMouseEnter(p.id, e)}
-						onmouseleave={handleTabMouseLeave}
+						onpointerenter={(event) => handleTabPointerEnter(p.id, event)}
+						onpointerleave={handleTabPointerLeave}
+						oncontextmenu={(event) => handleTabContextMenu(p.id, event)}
 					>
 				<button
 					class="tab"
@@ -447,13 +399,12 @@
 					class:scratchpad={!p.path}
 					style="--proj-hue: {projectHue(p)}"
 					onclick={() => projectStore.setActive(p.id)}
-					title={p.name}
+					aria-haspopup="dialog"
+					aria-expanded={panel?.projectId === p.id}
 					aria-label={!p.path ? `Scratchpad: ${p.name}` : `Progetto: ${p.name}`}
 				>
 					{#if !p.path}
-						<svg class="ghost-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-							<path d="M9 10h.01M15 10h.01M12 2a8 8 0 0 0-8 8v12l3-3 3 3 4-4 4 4 3-3V10a8 8 0 0 0-8-8z"/>
-						</svg>
+						<IconGhost />
 					{:else}
 						<span class="tab-label">{projectLabel(p)}</span>
 					{/if}
@@ -480,147 +431,6 @@
 					{/if}
 				{/if}
 
-				{#if hoveredTabId === p.id}
-					<!-- svelte-ignore a11y_mouse_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="tab-popover"
-						style={popoverPos ? `top: ${popoverPos.top}px; left: ${popoverPos.left}px;` : ''}
-						onmouseenter={handlePopoverMouseEnter}
-						onmouseleave={handlePopoverMouseLeave}
-					>
-						{#if editingProjectId === p.id}
-							<form class="project-identity-form" onsubmit={(event) => { event.preventDefault(); saveProjectEdit(p); }}>
-								<label>
-									<span>Nome</span>
-									<input bind:value={projectNameDraft} aria-label="Nome progetto" onkeydown={(event) => handleProjectEditKeydown(event, p)} />
-								</label>
-								<label>
-									<span>Sigla</span>
-									<input bind:value={projectLabelDraft} aria-label="Sigla progetto" placeholder={getInitials(p.name)} onkeydown={(event) => handleProjectEditKeydown(event, p)} />
-								</label>
-								<div class="project-identity-actions">
-									<button type="submit" class="identity-save">Salva</button>
-									<button type="button" class="identity-cancel" onclick={cancelProjectEdit}>Annulla</button>
-								</div>
-							</form>
-						{:else}
-							<div class="popover-header">
-								<div class="popover-titles">
-									<div class="popover-name">{p.name}</div>
-									{#if p.path}
-										<div class="popover-path" title={p.path}>{truncateMiddle(p.path)}</div>
-									{:else}
-										<div class="popover-path">Chat temporanea</div>
-									{/if}
-								</div>
-								<button class="popover-edit" onclick={() => startProjectEdit(p)} aria-label={`Modifica nome e sigla del progetto ${p.name}`}>Modifica</button>
-							</div>
-						{/if}
-
-						{#if settingsStore.projectBar.showQueuePeek && p.path}
-							{@const queueTasks = taskStore.tasksFor(p.path)}
-							{#if queueTasks.length > 0}
-								<div class="popover-queue">
-									<div class="popover-section-label">Coda ({queueTasks.length})</div>
-									{#each queueTasks.slice(0, 5) as task (task.id)}
-										<div class="queue-peek-row">
-											<span class="queue-peek-label" title={queueTaskLabel(task)}>{queueTaskLabel(task)}</span>
-											<div class="queue-peek-actions">
-												<button
-													type="button"
-													class="queue-peek-btn"
-													disabled={!ready}
-													title={ready ? 'Click: avvia in background. Ctrl+click: avvia e passa al progetto.' : runReason?.(p.id)}
-													aria-label={`Avvia task: ${queueTaskLabel(task)}`}
-													onclick={(event) => onRunTask?.(p.id, task.id, event.ctrlKey || event.metaKey)}
-												>Avvia</button>
-												<button
-													type="button"
-													class="queue-peek-btn"
-													aria-label={`Modifica task: ${queueTaskLabel(task)}`}
-													onclick={() => onEditTask?.(p.id, task.id)}
-												>Modifica</button>
-											</div>
-										</div>
-									{/each}
-									{#if queueTasks.length > 5}
-										<button type="button" class="queue-peek-more" onclick={() => onQueueClick?.()} aria-label={`Mostra altri ${queueTasks.length - 5} task in coda`}>
-											+{queueTasks.length - 5} altri
-										</button>
-									{/if}
-								</div>
-							{/if}
-						{/if}
-
-						<div class="popover-actions">
-							{#if projectStore.activeId !== p.id}
-								<button class="popover-btn" onclick={() => { projectStore.setActive(p.id); hoveredTabId = null; }}>
-									<span class="btn-icon">✓</span> Seleziona progetto
-								</button>
-							{/if}
-							{#if p.path}
-								<button class="popover-btn" onclick={() => revealProject(p.path)}>
-									<span class="btn-icon">📁</span> Mostra nella cartella
-								</button>
-								<div class="popover-divider"></div>
-								<div class="popover-section-label">Colore scheda</div>
-								<div class="color-picker-grid">
-									<button
-										class="color-mode"
-										class:selected={p.colorMode === 'auto'}
-										style="--auto-hue: {projectHue(p)}"
-										onclick={() => projectStore.useAutomaticProjectColor(p.id)}
-										title="Segui la palette del tema"
-										aria-label="Segui la palette del tema"
-									>
-										<span class="color-mode-preview"></span>
-										<span>Temi</span>
-									</button>
-									{#each PRESET_HUES as hue}
-										<button
-											class="color-swatch"
-											class:selected={p.colorMode === 'custom' && p.hue === hue}
-											style="--swatch-hue: {hue};"
-											onclick={() => projectStore.setProjectHue(p.id, hue)}
-											title="Cambia colore"
-											aria-label={`Tonalità colore ${hue}`}
-										></button>
-									{/each}
-									<button
-										class="color-swatch custom-rainbow"
-										class:selected={p.colorMode === 'custom' && !PRESET_HUES.includes(p.hue)}
-										onclick={() => colorInputEl?.click()}
-										title="Colore personalizzato (color picker)"
-										aria-label="Scegli colore personalizzato dal selettore"
-									></button>
-									<input
-										type="color"
-										bind:this={colorInputEl}
-										class="hidden-color-input"
-										aria-label="Selettore colore personalizzato"
-										onchange={(event) => handleCustomColorChange(p.id, event.currentTarget.value)}
-									/>
-								</div>
-							{/if}
-							<div class="popover-divider"></div>
-							{#if closeConfirmId === p.id}
-								<div class="close-confirm">
-									<div class="close-confirm-text">Ci sono task in coda: come vuoi chiudere?</div>
-									<div class="close-confirm-actions">
-										<button type="button" class="popover-btn" onclick={() => closeConfirmId = null}>Annulla</button>
-										<button type="button" class="popover-btn" onclick={() => confirmCloseKeepQueue(p)}>Chiudi e conserva la coda</button>
-										<button type="button" class="popover-btn danger" onclick={() => confirmCloseDiscardQueue(p)}>Chiudi ed elimina i task</button>
-									</div>
-								</div>
-							{:else}
-								<button class="popover-btn danger" onclick={() => requestCloseProject(p)}>
-									<span class="btn-icon">✕</span> Chiudi progetto
-								</button>
-							{/if}
-						</div>
-					</div>
-				{/if}
 			</div>
 		{/each}
 			</div>
@@ -633,12 +443,12 @@
 				onclick={() => scrollTabs(180)}
 				title="Scorri progetti a destra"
 				aria-label="Scorri progetti a destra"
-			>›</button>
+			><IconChevronRight /></button>
 		{/if}
 
 		<div class="tabs-actions">
-			<button class="tab-add" onclick={() => onNewProject?.()} title="Nuovo progetto (Ctrl+Alt+N)" aria-label="Nuovo progetto (Ctrl+Alt+N)">+</button>
-			<button class="tab-add" onclick={() => projectStore.openScratchpad()} title="Scratchpad (Ctrl+Alt+S)" aria-label="Scratchpad (Ctrl+Alt+S)">*</button>
+			<button class="tab-add" onclick={() => onNewProject?.()} title="Nuovo progetto (Ctrl+Alt+N)" aria-label="Nuovo progetto (Ctrl+Alt+N)"><IconPlus /></button>
+			<button class="tab-add" onclick={() => projectStore.openScratchpad()} title="Scratchpad (Ctrl+Alt+S)" aria-label="Scratchpad (Ctrl+Alt+S)"><IconGhost /></button>
 
 			<div class="order-control">
 				<button
@@ -649,7 +459,7 @@
 					aria-label="Ordina i progetti"
 					aria-haspopup="menu"
 					aria-expanded={orderMenuOpen}
-				>▾</button>
+				><IconChevronDown /></button>
 				{#if orderMenuOpen}
 					<button type="button" class="order-backdrop" onclick={() => orderMenuOpen = false} aria-label="Chiudi menu ordinamento" tabindex="-1"></button>
 					<div class="order-popover" role="menu" aria-label="Ordinamento progetti" use:trapFocus={{ onEscape: () => orderMenuOpen = false }}>
@@ -687,7 +497,7 @@
 				title="Completa la configurazione di omp"
 				aria-label="Completa configurazione OMP"
 			>
-				⚠ Setup
+				<IconWarning /> Setup
 			</button>
 		{/if}
 		<button
@@ -696,7 +506,7 @@
 			title="Impostazioni di Studio (Ctrl+Alt+,)"
 			aria-label="Impostazioni di Studio (Ctrl+Alt+,)"
 		>
-			⚙️ Impostazioni
+			<IconSettings /> Impostazioni
 		</button>
 
 		<button
@@ -729,7 +539,7 @@
 			title={quotaStore.chipTooltip}
 			aria-label="{quotaStore.chipLabel} (Ctrl+Alt+U)"
 		>
-			{quotaStore.chipLabel}
+			<IconQuota /> {quotaStore.chipLabel}
 		</button>
 		<div class="window-controls">
 			<button class="win-btn" onclick={handleMinimize} title="Riduci a icona" aria-label="Riduci a icona">
@@ -754,6 +564,24 @@
 		</div>
 	</div>
 </header>
+
+{#if panel && panelProject}
+	<ProjectPopover
+		project={panelProject}
+		anchor={panel.anchor}
+		pinned={panel.pinned}
+		autoHue={themeHue(panelProject)}
+		otherProjectCount={projectStore.projects.length - 1}
+		onClose={() => closePanel(true)}
+		onHoverChange={handlePanelHoverChange}
+		{onRunTask}
+		{onEditTask}
+		{onNewTask}
+		{onQueueClick}
+		{canRunTask}
+		{runReason}
+	/>
+{/if}
 
 {#if themeOpen}
 	<button type="button" class="theme-backdrop" onclick={() => themeOpen = false} aria-label="Chiudi selezione tema" tabindex="-1"></button>
@@ -1004,9 +832,11 @@
 	}
 
 
-	.ghost-icon {
-		width: 14px;
-		height: 14px;
+	/* Tessera con il pannello aperto: l'anello dice da dove esce il pannello,
+	   cosi' con piu' progetti aperti si sa sempre di chi si stanno guardando
+	   le azioni. */
+	.tab-container.panel-open .tab {
+		box-shadow: inset 0 0 0 1px var(--line-strong);
 	}
 
 	.tab-add {
@@ -1167,337 +997,11 @@
 		color: var(--ink);
 	}
 
-	/* Tab Popover Card */
-	/* Tab Popover Card: fixed per non essere clippato da overflow del contenitore */
-	.tab-popover {
-		position: fixed;
-		top: 48px;
-		left: 8px;
-		box-sizing: border-box;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		padding: var(--space-3);
-		z-index: var(--z-overlay);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		animation: popoverFadeIn var(--dur-slow) var(--ease-out-expo);
-		transform-origin: top left;
-	}
-
-	@keyframes popoverFadeIn {
-		from {
-			opacity: 0;
-			transform: translateY(-6px) scale(0.96);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0) scale(1);
-		}
-	}
-
-	.popover-header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
-
-	.popover-titles {
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		flex: 1;
-	}
-
-	.popover-name {
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--ink);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.popover-path {
-		min-width: 0;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		color: var(--ink-faint);
-		white-space: nowrap;
-	}
-
-	.popover-edit,
-	.identity-save,
-	.identity-cancel {
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-		font: inherit;
-		font-size: var(--text-xs);
-		padding: var(--space-1) var(--space-2);
-	}
-
-	.popover-edit:hover,
-	.identity-cancel:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.project-identity-form {
-		display: grid;
-		gap: var(--space-2);
-	}
-
-	.project-identity-form label {
-		display: grid;
-		gap: var(--space-1);
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-	}
-
-	.project-identity-form input {
-		min-width: 0;
-		box-sizing: border-box;
-		width: 100%;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		color: var(--ink);
-		font: inherit;
-		font-size: var(--text-sm);
-		padding: var(--space-1) var(--space-2);
-	}
-
-	.project-identity-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: var(--space-2);
-	}
-
-	.identity-save {
-		background: var(--brand);
-		border-color: var(--brand);
-		color: var(--on-brand);
-	}
-
-
-	.popover-actions {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		border-top: 1px solid var(--line);
-		padding-top: var(--space-2);
-	}
+	/* Il divisore serve ancora al menu di ordinamento. */
 	.popover-divider {
 		height: 1px;
 		background: var(--line);
 		margin: 4px 0;
-	}
-
-	.popover-section-label {
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--ink-faint);
-		padding: 2px 8px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	.color-picker-grid {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding: 4px 8px;
-		flex-wrap: wrap;
-	}
-
-	.color-mode {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		height: 22px;
-		padding: 0 var(--space-1);
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		color: var(--ink-faint);
-		cursor: pointer;
-		font: inherit;
-		font-size: var(--text-xs);
-	}
-
-	.color-mode:hover,
-	.color-mode.selected {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-		color: var(--ink);
-	}
-
-	.color-mode-preview {
-		width: 12px;
-		height: 12px;
-		border-radius: var(--radius-full);
-		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--auto-hue));
-	}
-
-	.color-swatch {
-		width: 18px;
-		height: 18px;
-		border-radius: 50%;
-		border: 2px solid transparent;
-		background-color: oklch(0.68 0.16 var(--swatch-hue));
-		cursor: pointer;
-		padding: 0;
-		transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.color-swatch:hover {
-		transform: scale(1.25);
-	}
-
-	.color-swatch.selected {
-		border-color: var(--ink);
-		transform: scale(1.2);
-	}
-	.color-swatch.custom-rainbow {
-		background: conic-gradient(from 0deg in oklch,
-			oklch(0.68 0.16 0), oklch(0.68 0.16 60), oklch(0.68 0.16 135),
-			oklch(0.68 0.16 175), oklch(0.68 0.16 220), oklch(0.68 0.16 265),
-			oklch(0.68 0.16 305), oklch(0.68 0.16 0));
-	}
-
-	.hidden-color-input {
-		position: absolute;
-		opacity: 0;
-		width: 0;
-		height: 0;
-		pointer-events: none;
-	}
-
-	.popover-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		background: transparent;
-		border: none;
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		padding: 6px 8px;
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		text-align: left;
-		transition: background 0.15s ease, color 0.15s ease;
-	}
-
-	.popover-btn:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.popover-btn.danger:hover {
-		background: var(--bg-hover);
-		color: var(--brand-ink);
-	}
-
-	.popover-queue {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		border-top: 1px solid var(--line);
-		padding-top: var(--space-2);
-	}
-
-	.queue-peek-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: 2px 8px;
-	}
-
-	.queue-peek-label {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-	}
-
-	.queue-peek-actions {
-		display: flex;
-		gap: 4px;
-		flex: none;
-	}
-
-	.queue-peek-btn {
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-		font: inherit;
-		font-size: 11px;
-		padding: 2px 6px;
-	}
-
-	.queue-peek-btn:hover:not(:disabled) {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.queue-peek-btn:disabled {
-		cursor: not-allowed;
-		opacity: 0.5;
-	}
-
-	.queue-peek-more {
-		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		cursor: pointer;
-		font: inherit;
-		font-size: var(--text-xs);
-		padding: 4px 8px;
-		text-align: left;
-	}
-
-	.queue-peek-more:hover {
-		color: var(--ink);
-	}
-
-	.close-confirm {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding-top: var(--space-1);
-	}
-
-	.close-confirm-text {
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		padding: 0 8px;
-	}
-
-	.close-confirm-actions {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.btn-icon {
-		font-size: 12px;
-		width: 14px;
-		text-align: center;
 	}
 
 	.title {
@@ -1591,6 +1095,10 @@
 		cursor: pointer;
 		margin-right: var(--space-3);
 		transition: all 0.15s ease;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.usage-chip:hover {

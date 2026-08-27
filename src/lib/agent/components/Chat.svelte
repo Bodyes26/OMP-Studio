@@ -2,12 +2,13 @@
 	// Contenuto della colonna destra in modalita' GUI.
 	//
 	// Autoscroll ancorato in basso: se l'utente si allontana dal fondo,
-	// l'autoscroll si sospende e compare un pulsante «↓ In fondo».
+	// l'autoscroll si sospende e compare un pulsante «In fondo» con icona freccia in giu'.
 	// Unico punto di innesto per i ganci verso il guscio (`setAgentUiHooks`).
 
 	import type { AgentSession } from '../session.svelte';
 	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
+	import { IconArrowDown } from '$lib/icons';
 
 	import AskCard from './AskCard.svelte';
 	import Composer from './Composer.svelte';
@@ -159,7 +160,8 @@
 			title="Torna in fondo"
 			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
 		>
-			↓ In fondo
+			<IconArrowDown aria-hidden="true" />
+			In fondo
 		</button>
 	{/if}
 
@@ -237,6 +239,10 @@
 		font-size: var(--text-xs);
 		cursor: pointer;
 		z-index: var(--z-sticky);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		--icon-size: 12px;
 	}
 	.scroll-bottom-btn:hover {
 		background: var(--bg-hover);

@@ -3,6 +3,7 @@
 	import { slide } from 'svelte/transition';
 	import { setContext, getContext } from 'svelte';
 	import FileTree from './FileTree.svelte';
+	import { IconChevronRight } from '$lib/icons';
 	let { projectPath, relPath = "", name = "src", isDir = true, level = 0, onFileSelect } = $props<{
 		projectPath: string,
 		relPath?: string,
@@ -174,7 +175,7 @@
 		onclick={toggle}
 	>
 		{#if isDir}
-			<span class="arrow-icon" class:expanded={expanded}>▸</span>
+			<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
 			<span class="type-icon folder">
 				{#if expanded}
 					<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
@@ -350,7 +351,7 @@
 		justify-content: center;
 		width: 12px;
 		height: 12px;
-		font-size: 9px;
+		--icon-size: 12px;
 		color: var(--ink-muted);
 		transition: transform 0.18s ease-out;
 		flex-shrink: 0;

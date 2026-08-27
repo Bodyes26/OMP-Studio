@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconClose } from '$lib/icons';
 	import { settingsStore, type SettingsSection } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import RolesTab from '../models/RolesTab.svelte';
@@ -173,7 +174,7 @@
 					</button>
 				{/if}
 
-				<button class="btn-close" onclick={requestClose} aria-label="Chiudi finestra">×</button>
+				<button class="btn-close" onclick={requestClose} aria-label="Chiudi finestra"><IconClose /></button>
 			</div>
 		</div>
 

@@ -323,6 +323,19 @@
 	}
 
 	/**
+	 * Nuovo task chiesto dal pannello di una tessera: il composer vive nella
+	 * colonna centrale del progetto attivo, quindi prima si cambia stanza.
+	 */
+	function openNewTaskOfProject(projectId: string) {
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		if (!project) return;
+		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		queueOpen = false;
+		leftSection = 'agent';
+		openNewTask(project.path);
+	}
+
+	/**
 	 * `follow` vero porta il fuoco sul progetto lanciato (Ctrl+click, o
 	 * "Avvia e apri"). Falso lascia l'utente dove sta: il task parte in
 	 * background e la tessera racconta lo stato.
@@ -1026,7 +1039,7 @@
 				showUpdatePromptModal = true;
 			} else {
 				pendingUpdateCheck = null;
-				updateMessage = 'OMP aggiornato ✓';
+				updateMessage = 'OMP aggiornato';
 				ompBadgeType = 'success';
 				setTimeout(() => {
 					if (!pendingUpdateCheck?.has_update) {
@@ -1242,6 +1255,7 @@
 		{setupIncomplete}
 		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, follow)}
 		onEditTask={openTaskOfProject}
+		onNewTask={openNewTaskOfProject}
 		canRunTask={canAutomate}
 		runReason={automationReason}
 	/>

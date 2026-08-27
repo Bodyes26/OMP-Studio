@@ -150,6 +150,17 @@ input, textarea, button {
   font-size: inherit;
 }
 
+/* Icone: un solo set (Lucide, via src/lib/icons.ts) e una sola misura.
+   La dimensione arriva da una custom property, cosi' un contenitore puo'
+   ingrandire tutte le icone che contiene con una riga (--icon-size: 16px)
+   invece di passare una prop a ogni chiamata. Lo spessore resta quello
+   nativo del set: a 14px vale 1.17px ottici, in linea con gli hairline. */
+svg.lucide {
+  width: var(--icon-size, 14px);
+  height: var(--icon-size, 14px);
+  flex: 0 0 auto;
+}
+
 /* Scrollbar restyling for webkit */
 ::-webkit-scrollbar {
   width: 10px;

@@ -5,6 +5,7 @@
 	import { colorizeCode, type StreamFade } from '../markdown';
 	import { countLabel } from '../tools/types';
 	import StreamTail from './StreamTail.svelte';
+	import { IconChevronRight, IconCheck } from '$lib/icons';
 
 	let {
 		lang = '',
@@ -80,7 +81,7 @@
 			aria-expanded={!collapsed}
 			title={collapsed ? 'Espandi blocco di codice' : 'Comprimi blocco di codice'}
 		>
-			<span class="chevron" class:expanded={!collapsed} aria-hidden="true">▸</span>
+			<span class="chevron" class:expanded={!collapsed} aria-hidden="true"><IconChevronRight /></span>
 			<span class="code-lang">{displayLang}</span>
 			{#if lineCount > 1}
 				<span class="line-badge">{lineLabel}</span>
@@ -95,7 +96,7 @@
 				title="Copia codice negli appunti"
 			>
 				{#if copied}
-					<span class="copied-indicator">✓ Copiato!</span>
+					<span class="copied-indicator"><IconCheck aria-hidden="true" />Copiato!</span>
 				{:else}
 					<span>Copia</span>
 				{/if}
@@ -167,12 +168,14 @@
 	}
 
 	.chevron {
+		--icon-size: 12px;
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		transition: transform var(--dur-fast) var(--ease-out);
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		width: 10px;
-		text-align: center;
 		flex-shrink: 0;
 	}
 
@@ -223,6 +226,9 @@
 	}
 
 	.copied-indicator {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 		color: var(--brand-ink);
 		font-weight: 500;
 	}

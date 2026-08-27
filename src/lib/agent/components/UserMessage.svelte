@@ -8,6 +8,7 @@
 	import MarkdownInline from './MarkdownInline.svelte';
 	import { splitMessageAndEditorContext } from '$lib/editor/editorContext';
 	import { baseName } from '../tools/types';
+	import { IconChevronRight, IconClose, IconFile } from '$lib/icons';
 
 	let { entry }: { entry: UserEntry } = $props();
 
@@ -56,7 +57,7 @@
 <div class="user-message">
 	<div class="user-header">
 		<span class="user-badge" class:custom-badge={isNonStandardAttribution}>
-			<span class="user-glyph" aria-hidden="true">›</span>
+			<span class="user-glyph" aria-hidden="true"><IconChevronRight /></span>
 			<span class="user-label">{attributionLabel}</span>
 		</span>
 	</div>
@@ -103,10 +104,7 @@
 							title={`${file}${targetLine ? `:${targetLine}` : ''} • Clicca per aprire nell'editor`}
 							onclick={() => hooks.openFile(file, targetLine)}
 						>
-							<svg class="file-glyph" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-								<path d="M9 1.5H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5.5L9 1.5z" />
-								<polyline points="9 1.5 9 5.5 13 5.5" />
-							</svg>
+							<span class="file-glyph"><IconFile aria-hidden="true" /></span>
 							<span class="file-name">{baseName(file)}</span>
 							{#if isSelected}
 								<span class="chip-badge selection-badge" title="Selezione attiva inclusa">
@@ -155,7 +153,7 @@
 							onclick={() => (showSelectionCode = false)}
 							title="Chiudi visualizzazione codice"
 						>
-							✕
+							<IconClose aria-hidden="true" />
 						</button>
 					</div>
 					<pre class="snippet-code"><code>{parsed.context.selection.text}</code></pre>
@@ -212,6 +210,7 @@
 	}
 
 	.user-glyph {
+		--icon-size: 12px;
 		color: var(--brand-ink);
 		font-weight: 600;
 		font-size: var(--text-xs);
@@ -336,6 +335,7 @@
 	}
 
 	.file-glyph {
+		--icon-size: 11px;
 		color: var(--ink-muted);
 		flex-shrink: 0;
 	}
@@ -438,6 +438,7 @@
 	}
 
 	.snippet-close {
+		--icon-size: 12px;
 		background: transparent;
 		border: none;
 		color: var(--ink-muted);
@@ -445,6 +446,9 @@
 		font-size: 11px;
 		padding: 2px 4px;
 		border-radius: var(--radius-sm);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.snippet-close:hover {

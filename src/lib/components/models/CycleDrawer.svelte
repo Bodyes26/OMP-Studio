@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { modelSettingsStore, type ModelDto } from '$lib/stores/modelSettings.svelte';
+	import { IconArrowRight, IconLoop } from '$lib/icons';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import { slide } from 'svelte/transition';
 
@@ -162,10 +163,10 @@
 								{model?.name || item.split('/')[1] || item}
 							</span>
 							{#if idx < cycle.length - 1}
-								<span class="preview-arrow">→</span>
+								<span class="preview-arrow"><IconArrowRight /></span>
 							{/if}
 						{/each}
-						<span class="preview-loop" title="Ciclo continuo">↺</span>
+						<span class="preview-loop" title="Ciclo continuo"><IconLoop /></span>
 					</div>
 				</div>
 			{/if}
@@ -441,6 +442,7 @@
 
 	.preview-arrow {
 		color: var(--ink-faint);
+		--icon-size: 12px;
 	}
 
 	.preview-loop {

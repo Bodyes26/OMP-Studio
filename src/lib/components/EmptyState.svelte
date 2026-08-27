@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconWarning } from '$lib/icons';
 	export interface EmptyStateAction {
 		label: string;
 		shortcut?: string;
@@ -118,7 +119,7 @@
 
 		{#if setupIncomplete}
 			<div class="setup-notice">
-				<span class="notice-icon" aria-hidden="true">⚠</span>
+				<span class="notice-icon" aria-hidden="true"><IconWarning /></span>
 				<span class="notice-text">Configurazione di OMP incompleta o modelli mancanti.</span>
 				{#if onSetupClick}
 					<button type="button" class="btn-setup" onclick={onSetupClick}>

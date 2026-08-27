@@ -6,6 +6,7 @@
 		type RoleSuggestionsResponse,
 		type SuggestedModelItem
 	} from '$lib/stores/modelSettings.svelte';
+	import { IconClose, IconCheck, IconWarning } from '$lib/icons';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import ReasoningSlider from './ReasoningSlider.svelte';
 	import CycleDrawer from './CycleDrawer.svelte';
@@ -21,6 +22,7 @@
 	const selectedRole = $derived(
 		STANDARD_ROLES.find((r) => r.id === selectedRoleId) || STANDARD_ROLES[0]
 	);
+	const SelectedRoleIcon = $derived(selectedRole.icon);
 
 	const filteredRoles = $derived.by(() => {
 		const q = roleFilterQuery.trim().toLowerCase();
@@ -189,7 +191,7 @@
 						onclick={() => roleFilterQuery = ''}
 						aria-label="Cancella filtro"
 					>
-						×
+						<IconClose />
 					</button>
 				{/if}
 			</div>
@@ -202,6 +204,7 @@
 				{@const isConfigured = !!rawModel}
 				{@const isSelected = role.id === selectedRole.id}
 				{@const fallbacksCount = getFallbacks(role.id).length}
+				{@const RoleIcon = role.icon}
 
 				<button
 					type="button"
@@ -213,15 +216,15 @@
 						isAddingFallback = false;
 					}}
 				>
-					<span class="role-glyph" class:selected={isSelected}>{role.glyph}</span>
+					<span class="role-glyph" class:selected={isSelected}><RoleIcon /></span>
 					
 					<div class="role-nav-meta">
 						<div class="role-nav-top">
 							<span class="role-nav-name">{role.label}</span>
 							{#if isConfigured}
-								<span class="status-indicator configured" title="Configurato">✓</span>
+								<span class="status-indicator configured" title="Configurato"><IconCheck /></span>
 							{:else}
-								<span class="status-indicator warning" title="Non configurato">⚠</span>
+								<span class="status-indicator warning" title="Non configurato"><IconWarning /></span>
 							{/if}
 						</div>
 
@@ -274,7 +277,7 @@
 	<main class="role-detail-panel">
 		<header class="detail-header">
 			<div class="role-header-info">
-				<span class="role-hero-glyph">{selectedRole.glyph}</span>
+				<span class="role-hero-glyph"><SelectedRoleIcon /></span>
 				<div class="role-header-titles">
 					<div class="role-title-line">
 						<h2 class="role-title">{selectedRole.label}</h2>
@@ -661,6 +664,7 @@
 		color: var(--ink-muted);
 		margin-top: 1px;
 		transition: all 120ms ease;
+		--icon-size: 14px;
 	}
 
 	.role-glyph.selected {
@@ -698,6 +702,7 @@
 		font-size: 10px;
 		font-weight: 700;
 		flex-shrink: 0;
+		--icon-size: 12px;
 	}
 
 	.status-indicator.configured {
@@ -832,6 +837,7 @@
 		font-size: 16px;
 		font-weight: 600;
 		flex-shrink: 0;
+		--icon-size: 18px;
 	}
 
 	.role-header-titles {

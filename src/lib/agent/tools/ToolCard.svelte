@@ -9,6 +9,7 @@
 	import { chatReveal } from '../motion';
 	import { rendererFor } from './registry';
 	import { formatDuration } from './types';
+	import { IconChevronRight } from '$lib/icons';
 
 	let { entry } = $props<{ entry: ToolEntry }>();
 
@@ -46,7 +47,7 @@
 			onclick={() => canOpen && (manual = !open)}
 		>
 			{#if canOpen}
-				<span class="chevron" class:expanded={open} aria-hidden="true">▸</span>
+				<span class="chevron" class:expanded={open} aria-hidden="true"><IconChevronRight /></span>
 			{/if}
 			<span class="state" aria-hidden="true"></span>
 			<span class="name">{entry.toolName}</span>
@@ -119,12 +120,13 @@
 	}
 
 	.chevron {
-		font-size: var(--text-xs);
+		--icon-size: 12px;
 		color: var(--ink-faint);
 		transition: transform var(--dur-fast) var(--ease-out);
-		display: inline-block;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		width: var(--space-3);
-		text-align: center;
 		flex-shrink: 0;
 	}
 
