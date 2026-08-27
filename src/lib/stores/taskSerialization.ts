@@ -6,7 +6,9 @@
 
 import type { ImageContent } from '../agent/wire';
 
-export type AgentView = 'queue' | 'sessions';
+export const AGENT_VIEWS = ['queue', 'sessions', 'rules'] as const;
+export type AgentView = (typeof AGENT_VIEWS)[number];
+
 export type StudioTaskStatus = 'queued' | 'dispatching' | 'in_progress' | 'completed' | 'abandoned';
 
 export interface StudioTaskOptions {
@@ -115,7 +117,8 @@ export function parsePersistedState(value: unknown): PersistedTaskState | null {
 	const origins = record.origins.filter(isTaskSessionOrigin);
 	const views = Object.fromEntries(
 		Object.entries(record.views as Record<string, unknown>).filter(
-			(entry): entry is [string, AgentView] => entry[1] === 'queue' || entry[1] === 'sessions'
+			(entry): entry is [string, AgentView] =>
+				typeof entry[1] === 'string' && (AGENT_VIEWS as readonly string[]).includes(entry[1])
 		)
 	);
 

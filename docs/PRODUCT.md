@@ -7,7 +7,7 @@ agente incollato dentro: è un gestore di workspace multi-progetto che tratta la
 dell'agente come cittadino di prima classe, e ci mette un editor accanto.
 
 Una sola finestra, tre colonne flessibili:
-- **Sinistra**: Albero dei file, pannello Git (branch, diff, commit, history) e Agente (Coda task e Storico sessioni con ricerca full-text).
+- **Sinistra**: Albero dei file, pannello Git (branch, diff, commit, history) e Agente (Coda task, Storico sessioni con ricerca full-text e scheda Regole con censimento di regole di contesto e skill più proposte nate dall'attrito ricorrente).
 - **Centro**: Editor Monaco multi-modello (con visualizzatore diff affiancato, sintassi estesa, ripristino cursore/scroll), Whiteboard per diagrammi Mermaid (`studio_diagram`), Anteprima prototipi UI HTML/SVG in sandbox isolata (`studio_preview`), e Task Editor a sezioni con ruoli, thinking effort, direttive speciali e allegati visivi.
 - **Destra**: Superficie duale a schede `TERMINAL | GUI` (Terminale xterm.js Canvas + ConPTY/POSIX PTY ad alte prestazioni, e Chat GUI nativa Svelte 5 su `omp --mode rpc-ui` con 30+ card tool dedicate, raggruppamento semantico tool/thinking, gestione subagent e comandi slash).
 

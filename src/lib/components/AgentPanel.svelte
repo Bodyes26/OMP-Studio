@@ -1,7 +1,9 @@
 <script lang="ts">
 	import SessionList from './SessionList.svelte';
+	import RulesPanel from './RulesPanel.svelte';
 	import EmptyState from './EmptyState.svelte';
 	import { taskStore, type AgentView, type StudioTask } from '$lib/stores/tasks.svelte';
+	import { rulesStore } from '$lib/stores/rules.svelte';
 
 	let {
 		projectPath,
@@ -12,7 +14,8 @@
 		onCreateTask,
 		onEditTask,
 		onRunTask,
-		onResumeSession
+		onResumeSession,
+		onOpenFile
 	}: {
 		projectPath: string;
 		canAutomate: boolean;
@@ -23,10 +26,21 @@
 		onEditTask: (taskId: string) => void;
 		onRunTask: (taskId: string) => void;
 		onResumeSession: (sessionId: string) => void;
+		onOpenFile: (relPath: string) => void;
 	} = $props();
 
 	const tasks = $derived(taskStore.tasksFor(projectPath));
 	const view = $derived(taskStore.viewFor(projectPath));
+	const frictionCount = $derived(rulesStore.suggestionsFor(projectPath).length);
+
+	// L'analisi dell'attrito e' una singola query in sola lettura sullo storico:
+	// gira al montaggio del pannello perche' il conteggio sulla scheda deve
+	// esserci prima che l'utente pensi ad aprirla.
+	$effect(() => {
+		if (!projectPath) return;
+		void rulesStore.analyzeFriction(projectPath);
+	});
+
 	let draggedId = $state<string | null>(null);
 
 	function setView(next: AgentView) {
@@ -93,6 +107,18 @@
 			onclick={() => setView('sessions')}
 		>
 			Sessioni
+		</button>
+		<button
+			type="button"
+			role="tab"
+			id="tab-agent-rules"
+			aria-controls="panel-agent-rules"
+			aria-selected={view === 'rules'}
+			class:active={view === 'rules'}
+			onclick={() => setView('rules')}
+		>
+			Regole
+			{#if frictionCount > 0}<span class="count alert">{frictionCount}</span>{/if}
 		</button>
 	</div>
 
@@ -215,7 +241,7 @@
 				{/if}
 			</ul>
 		</div>
-	{:else}
+	{:else if view === 'sessions'}
 		<div id="panel-agent-sessions" role="tabpanel" aria-labelledby="tab-agent-sessions" class="panel-tab-body">
 			<SessionList
 				{projectPath}
@@ -224,6 +250,10 @@
 				{currentSessionId}
 				onResume={onResumeSession}
 			/>
+		</div>
+	{:else}
+		<div id="panel-agent-rules" role="tabpanel" aria-labelledby="tab-agent-rules" class="panel-tab-body">
+			<RulesPanel {projectPath} {onOpenFile} />
 		</div>
 	{/if}
 </div>
@@ -282,6 +312,12 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		font-variant-numeric: tabular-nums;
+	}
+
+	/* Attrito rilevato: ambra, l'unico segnale di attenzione della palette. */
+	.count.alert {
+		background: color-mix(in srgb, var(--warn) 22%, var(--bg-raised));
+		color: var(--warn);
 	}
 
 	.action-error {

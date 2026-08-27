@@ -133,6 +133,16 @@ commands.allow = [
     "open_project_external"
 ]
 
+[[permission]]
+identifier = "allow-rules-and-skills"
+description = "Scheda Regole: censimento dei file di contesto e delle skill, analisi in sola lettura dello storico e scrittura su AGENTS.md solo su azione esplicita"
+commands.allow = [
+    "get_project_context",
+    "create_project_agents_md",
+    "analyze_project_friction",
+    "apply_rule_suggestion"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -147,5 +157,6 @@ permissions = [
     "allow-models",
     "allow-setup",
     "allow-attention",
-    "allow-external-open"
+    "allow-external-open",
+    "allow-rules-and-skills"
 ]

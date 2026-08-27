@@ -38,7 +38,7 @@ fn get_db_path(db_name: &str) -> Option<PathBuf> {
     }
 }
 
-fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
+pub(crate) fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
     let path = get_db_path(db_name)
         .ok_or_else(|| format!("Percorso db {} non risolvibile", db_name))?;
     if !path.exists() {

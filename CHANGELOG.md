@@ -18,6 +18,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nuove azioni nel pannello del progetto: copia percorso, apri nel terminale, apri nell'editor esterno, nuovo task, interruttore dell'avvio automatico dei task, spostamento della tessera e chiusura degli altri progetti.
 - Il pannello dice in una riga cosa sta facendo l'agente e, quando un task in coda non può partire, il motivo per cui non parte.
 - Nuova opzione «Larghezza chat» nelle impostazioni generali: permette di scegliere tra il layout centrato con margini bilanciati per la leggibilità e il layout a tutta colonna.
+- Nuova scheda **Regole** nel pannello AGENTE: elenca i file di contesto del progetto (`AGENTS.md`, `.omp/rules/*.md`, `CLAUDE.md`, `GEMINI.md`) e le skill disponibili, di progetto e globali, con nome, comando `/nome` e descrizione. Un click apre il file nell'editor; le skill fuori dal progetto si mostrano nel file manager. Se il progetto non ha `AGENTS.md`, un pulsante lo crea con uno scheletro e lo apre subito.
+- La scheda Regole segnala le correzioni che ti tocca ripetere: quando lo storico locale mostra due o più volte la stessa richiesta (eseguire i test, verificare la build, non toccare file estranei), propone la regola corrispondente da aggiungere ad `AGENTS.md`, con l'anteprima esatta delle righe e i pulsanti Applica, Modifica e Ignora. Una proposta per volta, un contatore sulla scheda, e nessuna scrittura senza il tuo click.
 
 ### Changed
 

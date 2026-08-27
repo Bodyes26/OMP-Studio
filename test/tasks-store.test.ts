@@ -120,7 +120,8 @@ describe('Store tasks.json: validazione e parsing', () => {
 				views: {
 					proj1: 'queue',
 					proj2: 'invalid_view', // vista non valida
-					proj3: 'sessions'
+					proj3: 'sessions',
+					proj4: 'rules'
 				}
 			};
 
@@ -132,6 +133,7 @@ describe('Store tasks.json: validazione e parsing', () => {
 			assert.equal(parsed.views.proj1, 'queue');
 			assert.equal(parsed.views.proj3, 'sessions');
 			assert.equal(parsed.views.proj2, undefined);
+			assert.equal(parsed.views.proj4, 'rules');
 		});
 	});
 

@@ -1351,6 +1351,7 @@
 							onEditTask={openTask}
 							onRunTask={(taskId) => void handleRunTask(proj.id, taskId)}
 							onResumeSession={(sessionId) => void handleResumeSession(proj.id, sessionId)}
+							onOpenFile={(relPath) => projectStore.openFile(proj.id, relPath)}
 						/>
 					{/if}
 				{/if}

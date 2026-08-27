@@ -111,6 +111,7 @@ rpc/
 projects/
   mod.rs                Gestione filesystem con resolve_path (canonicalize), operazioni Git e branch
 omp_ops.rs              Query protette SQLite (usage, storico sessioni), verifica/aggiornamento OMP, temi
+rules_ops.rs            Censimento regole di contesto e skill, analisi attrito in sola lettura su history.db
 models_ops.rs           Gestione catalogo modelli, ruoli operativi, catene di fallback e raccomandazioni
 setup.rs                SetupWizard: download resiliente OMP, verifica SHA-256 nativa, installazione font Nerd
 studio_updater.rs       Updater applicazione: canali Stable/Nightly, verifica integrità SHA-256
@@ -137,6 +138,7 @@ lib/
     modelSettings.svelte.ts Stato configurazione modelli, ruoli e cataloghi
     studioUpdater.svelte.ts Stato verifiche e avanzamento download aggiornamenti Studio
     notifications.svelte.ts Gestione centrale notifiche toast, badge icona e preferenze utente
+    rules.svelte.ts     Censimento regole/skill per progetto e proposte di regola memorizzate
   agent/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
@@ -157,7 +159,8 @@ lib/
     TopBar.svelte       Barra progetti con tessere riordinabili, badge coda, chip usage e setup
     FileTree.svelte     Albero file pigro con filtro incrementale
     GitPanel.svelte     Pannello Git: branch, diff modifiche, commit recenti e sessioni
-    AgentPanel.svelte   Gestione coda task e storico sessioni del progetto
+    AgentPanel.svelte   Tre viste del progetto: coda task, storico sessioni e regole/skill
+    RulesPanel.svelte   Ispettore regole di contesto e skill, con proposte nate dall'attrito
     TaskEditor.svelte   Editor a sezioni: prompt, ruoli, slider thinking, toggle speciali, immagini
     QueueDrawer.svelte  Cassetto aggregato delle code di tutti i progetti con avvio diretto
     UsagePopover.svelte Popover quote, breakdown costi, trend e countdown al reset
@@ -225,6 +228,12 @@ run_omp_update() -> Result<String, String>;
 theme_apply(theme_name: String, is_dark: bool) -> Result<(), String>;
 omp_user_theme() -> Result<Option<String>, String>;
 provider_hosts() -> Result<Vec<ProviderHost>, String>;
+
+// --- Regole di contesto e Skill ---
+get_project_context(project_path: String) -> Result<ProjectContextSummary, String>;
+create_project_agents_md(project_path: String) -> Result<String, String>;
+analyze_project_friction(project_path: String) -> Result<Vec<RuleSuggestion>, String>;
+apply_rule_suggestion(project_path: String, target_rel_path: String, append_content: String) -> Result<(), String>;
 
 // --- Setup e Onboarding ---
 setup_status() -> Result<SetupStatus, String>;

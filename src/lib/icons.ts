@@ -50,6 +50,8 @@ export { default as IconQueue } from '@lucide/svelte/icons/list';
 export { default as IconAuto } from '@lucide/svelte/icons/zap';
 export { default as IconCloseOthers } from '@lucide/svelte/icons/square-x';
 export { default as IconGitBranch } from '@lucide/svelte/icons/git-branch';
+export { default as IconRule } from '@lucide/svelte/icons/scroll-text';
+export { default as IconSkill } from '@lucide/svelte/icons/wand-sparkles';
 
 // Menu contestuali e modifica testo.
 export { default as IconUndo } from '@lucide/svelte/icons/undo';

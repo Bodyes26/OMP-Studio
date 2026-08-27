@@ -34,6 +34,10 @@ mod alerts;
 use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
 mod external;
 use external::open_project_external;
+mod rules_ops;
+use rules_ops::{
+    analyze_project_friction, apply_rule_suggestion, create_project_agents_md, get_project_context,
+};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -135,7 +139,11 @@ pub fn run() {
             detect_project_roots,
             set_app_attention,
             clear_app_attention,
-            open_project_external
+            open_project_external,
+            get_project_context,
+            create_project_agents_md,
+            analyze_project_friction,
+            apply_rule_suggestion
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
