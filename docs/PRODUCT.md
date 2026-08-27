@@ -139,10 +139,14 @@ silenzioso, preciso**.
    percepita a gratis.
 
 3. **Lo stato di un progetto si legge dalla tessera, sempre.** Tre stati dell'agente e
-   non uno di più: inattivo, sta lavorando, aspetta te. Accanto a essi, un solo dato
-   che non è uno stato ma una quantità: quanti task attendono in coda. Tutto leggibile
-   anche per il progetto non a schermo — è l'informazione che manca a chi lavora con
-   più agenti in parallelo, e giustifica l'intero progetto. Lo stile del contatore
+   non uno di più: inattivo, sta lavorando, aspetta te. Ogni tessera li porta anche
+   quando il progetto non è a schermo — è l'informazione che manca a chi lavora con
+   più agenti in parallelo, e giustifica l'intero progetto: il punto colorato dice
+   che un agente è aperto, l'anello ambra che pulsa dice che aspetta te.
+   Accanto a essi un solo dato che non è uno stato ma una quantità: quanti task
+   attendono in coda. Questo vive **dentro la tessera aperta**, perché è un numero e
+   un numero va letto, non intravisto: il totale su tutti i progetti sta nel chip
+   «Coda» e l'elenco per progetto nel pannello della tessera. Lo stile del contatore
    (numero, numero più prontezza, puntino, niente) è una preferenza: chi vuole la
    tessera muta lo spegne.
 

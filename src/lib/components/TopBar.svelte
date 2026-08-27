@@ -50,6 +50,16 @@
 		{ value: 'alpha', label: 'Alfabetico' }
 	];
 
+	// Lo stato di una tessera e' un anello e un colore: senza queste etichette
+	// dentro l'`aria-label` sarebbe un'informazione affidata al solo colore.
+	const AGENT_STATE_LABEL: Record<Project['agentState'], string> = {
+		idle: 'nessun agente',
+		working: 'agente al lavoro',
+		attention: 'attende una risposta',
+		finished: 'ha finito il lavoro',
+		unknown: 'stato non disponibile'
+	};
+
 	const appWindow = getCurrentWindow();
 
 	/** Il pannello di una tessera: chi lo ospita, a che cosa e' agganciato e se
@@ -76,6 +86,12 @@
 	let tabsTrackEl = $state<HTMLElement | null>(null);
 	let canScrollLeft = $state(false);
 	let canScrollRight = $state(false);
+
+	/** Sequenza del lampo di transizione, una per progetto: cambiarla rimonta
+	 *  l'overlay e riavvia l'animazione. */
+	let flashSeq = $state<Record<string, number>>({});
+	const flashCount = new Map<string, number>();
+	const lastSeenState = new Map<string, Project['agentState']>();
 
 	const panelProject = $derived(
 		panel ? projectStore.projects.find((candidate) => candidate.id === panel!.projectId) ?? null : null
@@ -143,6 +159,26 @@
 
 	$effect(() => () => clearTimers());
 
+	/** Il cambio di stato di un agente e' un evento, non soltanto un colore
+	 *  diverso: un lampo nella tinta del progetto lo rende percepibile con la
+	 *  coda dell'occhio, che e' l'unico modo in cui questa barra viene
+	 *  guardata mentre si lavora. */
+	$effect(() => {
+		for (const p of projectStore.projects) {
+			const previous = lastSeenState.get(p.id);
+			lastSeenState.set(p.id, p.agentState);
+			// Il primo stato osservato non e' una transizione, e 'unknown' e' il
+			// valore prima che la sessione si attacchi: all'avvio non lampeggia
+			// niente.
+			if (previous === undefined || previous === 'unknown' || previous === p.agentState) continue;
+			const next = (flashCount.get(p.id) ?? 0) + 1;
+			flashCount.set(p.id, next);
+			// Scrittura pura: `flashSeq` non viene mai letto qui dentro, quindi
+			// l'effetto non si invalida da solo.
+			flashSeq[p.id] = next;
+		}
+	});
+
 	function pickTheme(name: string) {
 		themeStore.select(name);
 		themeOpen = false;
@@ -165,16 +201,11 @@
 		return automaticProjectHue(THEMES[themeStore.current], project.path);
 	}
 
-	function projectLabel(project: Project): string {
+	/** Sigla della tessera: sempre visibile, e' l'ancora spaziale della barra.
+	 *  Il nome intero non la sostituisce piu', si affianca. */
+	function projectCode(project: Project): string {
 		if (project.label !== null) return project.label;
-		return settingsStore.projectBar.label === 'name' ? truncateName(project.name) : getInitials(project.name);
-	}
-
-	// Etichetta come nome: troncata in fondo, non al centro come il path,
-	// perche' qui e' l'inizio del nome la parte che identifica il progetto.
-	function truncateName(name: string, max = 12): string {
-		if (name.length <= max) return name;
-		return name.slice(0, max - 1) + '…';
+		return getInitials(project.name);
 	}
 
 	onMount(() => {
@@ -374,6 +405,9 @@
 		{#each projectOrder.list as p (p.id)}
 			{@const queued = p.path ? taskStore.queuedCountFor(p.path) : 0}
 			{@const ready = canRunTask?.(p.id) ?? false}
+			{@const isActive = projectStore.activeId === p.id}
+			{@const showName = isActive || settingsStore.projectBar.label === 'name'}
+			{@const queueStyle = settingsStore.projectBar.queueBadge}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class="tab-container"
@@ -392,44 +426,58 @@
 					>
 				<button
 					class="tab"
-					class:active={projectStore.activeId === p.id}
-					class:working={p.agentState === 'working'}
-					class:attention={p.agentState === 'attention'}
-					class:finished={p.agentState === 'finished'}
+					class:active={isActive}
+					class:attention={settingsStore.projectBar.showAgentDot && p.agentState === 'attention'}
+					class:finished={settingsStore.projectBar.showAgentDot && p.agentState === 'finished'}
+					class:quiet={p.agentState === 'idle' || p.agentState === 'unknown'}
 					class:scratchpad={!p.path}
 					style="--proj-hue: {projectHue(p)}"
 					onclick={() => projectStore.setActive(p.id)}
 					aria-haspopup="dialog"
 					aria-expanded={panel?.projectId === p.id}
-					aria-label={!p.path ? `Scratchpad: ${p.name}` : `Progetto: ${p.name}`}
+					aria-current={isActive}
+					aria-label={`${p.path ? 'Progetto' : 'Scratchpad'}: ${p.name} · ${AGENT_STATE_LABEL[p.agentState]}${queued > 0 ? ` · ${queued} task in coda` : ''}`}
 				>
-					{#if !p.path}
-						<IconGhost />
+					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
+					     raggio; il rimontaggio con `#key` riavvia l'animazione. -->
+					{#if flashSeq[p.id]}
+						{#key flashSeq[p.id]}
+							<span class="tab-flash" aria-hidden="true"></span>
+						{/key}
+					{/if}
+
+					{#if p.path}
+						<span class="tab-dot" aria-hidden="true"></span>
+						<span class="tab-code">{projectCode(p)}</span>
 					{:else}
-						<span class="tab-label">{projectLabel(p)}</span>
+						<span class="tab-ghost" aria-hidden="true"><IconGhost /></span>
+					{/if}
+
+					<span class="tab-reveal" class:show={showName}>
+						<span class="tab-reveal-inner"><span class="tab-name">{p.name}</span></span>
+					</span>
+
+					<span class="tab-reveal" class:show={isActive && p.agentState === 'working'}>
+						<span class="tab-reveal-inner"><span class="tab-spin" aria-hidden="true"></span></span>
+					</span>
+
+					{#if p.path && queueStyle !== 'off'}
+						<span class="tab-reveal" class:show={isActive && queued > 0}>
+							<span class="tab-reveal-inner">
+								{#if queueStyle === 'dot'}
+									<span class="tab-queue-dot" aria-hidden="true" title="{queued} task in coda"></span>
+								{:else}
+									<span
+										class="tab-queue"
+										class:ready={queueStyle === 'count-state' && ready}
+										aria-hidden="true"
+										title={queueBadgeTitle(p, queued, ready)}
+									>{queued}</span>
+								{/if}
+							</span>
+						</span>
 					{/if}
 				</button>
-
-				{#if settingsStore.projectBar.showAgentDot}
-					{#if p.agentState === 'attention'}
-						<span class="status-dot attention" aria-hidden="true" title="L'agente richiede un intervento"></span>
-					{:else if p.agentState === 'finished'}
-						<span class="status-dot finished" aria-hidden="true" title="L'agente ha completato il lavoro"></span>
-					{/if}
-				{/if}
-
-				{#if p.path && queued > 0 && settingsStore.projectBar.queueBadge !== 'off'}
-					{#if settingsStore.projectBar.queueBadge === 'dot'}
-						<span class="queue-dot" aria-hidden="true" title="{queued} task in coda"></span>
-					{:else}
-						<span
-							class="queue-badge"
-							class:ready={settingsStore.projectBar.queueBadge === 'count-state' && ready}
-							aria-hidden="true"
-							title={queueBadgeTitle(p, queued, ready)}
-						>{queued}</span>
-					{/if}
-				{/if}
 
 			</div>
 		{/each}
@@ -485,9 +533,10 @@
 		</div>
 	</div>
 
-	<div class="title">
-		{projectStore.activeProject ? projectStore.activeProject.name : 'OMP Studio'}
-	</div>
+	<!-- Il nome del progetto attivo vive dentro la sua tessera: qui resta solo
+	     l'area di trascinamento della finestra, che senza decorazioni native e'
+	     l'unico modo per spostarla. -->
+	<div class="drag-spacer" data-tauri-drag-region="deep"></div>
 
 	<div class="controls">
 		{#if setupIncomplete}
@@ -699,7 +748,7 @@
 	.tabs {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
+		gap: 2px;
 		flex-shrink: 0;
 		padding: 2px 0;
 		z-index: 2;
@@ -755,7 +804,7 @@
 		position: absolute;
 		top: 2px;
 		bottom: 2px;
-		left: -5px;
+		left: -2px;
 		width: 2px;
 		border-radius: var(--radius-full);
 		background-color: var(--brand);
@@ -775,57 +824,62 @@
 		font-family: var(--font-mono);
 		cursor: pointer;
 		padding: 0;
-		transition: background-color var(--dur-fast) var(--ease-out),
-		            color var(--dur-fast) var(--ease-out);
 	}
 
+	/* La tessera non ha piu' una larghezza massima: si allarga quando il suo
+	   progetto viene aperto e si stringe quando un altro prende il posto. Il
+	   solo tetto e' sul nome. */
 	.tab {
-		min-width: 30px;
-		max-width: 96px;
 		padding: 0 var(--space-2);
 		white-space: nowrap;
-	}
-
-	.tab-label {
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		display: block;
-		max-width: 100%;
+		transition: background-color var(--dur-slow) var(--ease-out);
 	}
 
 	.tab-add {
 		width: 30px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out);
 	}
 
-	/* Tessera: neutra a riposo, con la sola lettera tinta del progetto.
-	   Il riempimento pieno e' riservato al progetto attivo: un solo blocco
-	   saturo per schermata invece di uno per progetto aperto. */
+	/* Tessera: neutra sempre. Il colore del progetto vive nel punto da 8px e
+	   non nel riempimento, cosi' sei progetti aperti sono sei punti e non sei
+	   blocchi saturi in cima allo schermo. */
 	.tab {
-		background-color: color-mix(in srgb, var(--ink) 8%, transparent);
+		background-color: transparent;
 		border: 1px solid transparent;
-		color: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--proj-hue));
 		position: relative;
 	}
 
 	.tab:hover {
-		background-color: var(--bg-active);
+		background-color: color-mix(in srgb, var(--ink) 5%, transparent);
+	}
+
+	/* Nessun agente aperto: la tessera si ritira. Il punto perde la tinta e il
+	   testo scende a --ink-faint, che resta sopra 4.5:1. */
+	.tab.quiet .tab-dot {
+		background-color: var(--ink-faint);
+		opacity: 0.5;
+	}
+
+	/* Una tessera aperta non e' mai spenta: il progetto che stai guardando
+	   resta leggibile anche quando nessun agente e' al lavoro. */
+	.tab.quiet:not(.active) .tab-code,
+	.tab.quiet:not(.active) .tab-name {
+		color: var(--ink-faint);
 	}
 
 	.tab.scratchpad {
-		background-color: transparent;
-		color: var(--ink-faint);
 		border: 1px dashed var(--line-strong);
+		color: var(--ink-faint);
 	}
 
 	.tab.scratchpad:hover {
-		background-color: var(--bg-hover);
 		border-color: var(--ink-faint);
 		color: var(--ink);
 	}
 
 	.tab.scratchpad.active {
-		background-color: var(--bg-active);
 		border-style: solid;
 		border-color: var(--ink-faint);
 		color: var(--ink);
@@ -902,99 +956,167 @@
 		font-weight: 600;
 	}
 
+	/* Progetto aperto: fondo neutro e nome rivelato. Nessun riempimento saturo,
+	   e il nome dentro la tessera rende inutile il titolo al centro. */
 	.tab.active {
-		background-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
-		color: var(--on-project);
-		font-weight: 700;
+		background-color: color-mix(in srgb, var(--ink) 8%, transparent);
 	}
 
-	/* Stato: un anello, mai un alone. Solo "working" respira. */
-	.tab.working::after,
+	.tab.active:hover {
+		background-color: color-mix(in srgb, var(--ink) 11%, transparent);
+	}
+
+	/* Punto di identita': 8px, sempre presente. E' l'unico posto della barra
+	   dove compare la tinta del progetto. */
+	.tab-dot {
+		width: 8px;
+		height: 8px;
+		flex: none;
+		border-radius: var(--radius-full);
+		background-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
+		position: relative;
+		z-index: 1;
+		transition: background-color var(--dur-calm) var(--ease-out),
+		            opacity var(--dur-calm) var(--ease-out);
+	}
+
+	.tab-ghost {
+		display: flex;
+		align-items: center;
+		position: relative;
+		z-index: 1;
+	}
+
+	.tab-code {
+		margin-left: var(--space-2);
+		color: var(--ink);
+		position: relative;
+		z-index: 1;
+		transition: color var(--dur-calm) var(--ease-out);
+	}
+
+	/* Rivelazione: la larghezza automatica si anima passando da 0fr a 1fr, che
+	   e' l'unico modo di farlo senza cablare un max-width. Il figlio taglia il
+	   contenuto mentre la colonna si stringe. */
+	.tab-reveal {
+		display: grid;
+		grid-template-columns: 0fr;
+		opacity: 0;
+		position: relative;
+		z-index: 1;
+		transition: grid-template-columns var(--dur-slow) var(--ease-out),
+		            opacity var(--dur-slow) var(--ease-out);
+	}
+
+	.tab-reveal.show {
+		grid-template-columns: 1fr;
+		opacity: 1;
+	}
+
+	.tab-reveal-inner {
+		display: flex;
+		align-items: center;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.tab-name {
+		margin-left: var(--space-2);
+		max-width: 160px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-ui);
+		font-weight: 450;
+		color: var(--ink-muted);
+		transition: color var(--dur-calm) var(--ease-out);
+	}
+
+	/* "Sta lavorando" e' un arco che gira, e solo sulla tessera aperta: sulle
+	   altre lo dicono il punto pieno e il testo acceso. */
+	.tab-spin {
+		margin-left: var(--space-2);
+		width: 12px;
+		height: 12px;
+		flex: none;
+		border-radius: var(--radius-full);
+		border: 1.5px solid transparent;
+		border-top-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
+		animation: tab-spin 900ms linear infinite;
+	}
+
+	.tab-queue {
+		margin-left: var(--space-2);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-faint);
+	}
+
+	.tab-queue.ready {
+		color: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--proj-hue));
+	}
+
+	.tab-queue-dot {
+		margin-left: var(--space-2);
+		width: 6px;
+		height: 6px;
+		flex: none;
+		border-radius: 1px;
+		background-color: var(--ink-faint);
+	}
+
+	/* Stato: un anello, mai un alone. L'unico anello che si muove e' quello che
+	   chiede una risposta, perche' il movimento serve a chiamare qualcuno e
+	   "sta lavorando" non chiama nessuno. */
 	.tab.attention::after,
 	.tab.finished::after {
 		content: '';
 		position: absolute;
-		inset: -2px;
-		border-radius: var(--radius-md);
+		inset: 0;
+		border-radius: inherit;
 		pointer-events: none;
-	}
-
-	.tab.working::after {
-		border: 2px solid var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+		z-index: 2;
 	}
 
 	.tab.attention::after {
-		border: 1px solid var(--warn);
+		box-shadow: inset 0 0 0 1.5px var(--warn);
+		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 
 	.tab.finished::after {
-		border: 1px solid var(--brand);
+		box-shadow: inset 0 0 0 1px var(--brand);
 	}
 
-	.status-dot {
+	/* Lampo di transizione: rende percepibile un cambio di stato che altrimenti
+	   sarebbe solo un'opacita' diversa. */
+	.tab-flash {
 		position: absolute;
-		top: -2px;
-		right: -2px;
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		/* Knockout sul colore della barra: separa il punto dalla tessera
-		   senza usare un'ombra. */
-		outline: 2px solid var(--bg-raised);
-		z-index: 3;
+		inset: 0;
+		z-index: 0;
+		border-radius: inherit;
 		pointer-events: none;
+		background-color: color-mix(in srgb, oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue)) 35%, transparent);
+		animation: tab-flash var(--dur-flash) var(--ease-out) both;
 	}
 
-	.status-dot.attention {
-		background-color: var(--warn);
+	@keyframes tab-spin {
+		to { transform: rotate(360deg); }
 	}
 
-	.status-dot.finished {
-		background-color: var(--brand);
+	@keyframes tab-flash {
+		0%   { opacity: 0; }
+		25%  { opacity: 0.9; }
+		100% { opacity: 0; }
 	}
 
-	/* Il badge non deve mai spostare la tessera: resta in overlay come lo
-	   status-dot, ma sul lato opposto per restare distinguibile a colpo d'occhio
-	   anche quando i due compaiono insieme. */
-	.queue-dot {
-		position: absolute;
-		bottom: -2px;
-		right: -2px;
-		width: 6px;
-		height: 6px;
-		border-radius: 1px;
-		background-color: var(--ink-faint);
-		outline: 2px solid var(--bg-raised);
-		z-index: 3;
-		pointer-events: none;
-	}
-
-	.queue-badge {
-		position: absolute;
-		bottom: -5px;
-		right: -5px;
-		min-width: 14px;
-		height: 14px;
-		padding: 0 3px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: var(--radius-full);
-		background-color: var(--ink-faint);
-		color: var(--bg-raised);
-		font-family: var(--font-mono);
-		font-size: 9px;
-		font-weight: 700;
-		font-variant-numeric: tabular-nums;
-		outline: 2px solid var(--bg-raised);
-		z-index: 3;
-		pointer-events: none;
-	}
-
-	.queue-badge.ready {
-		background-color: var(--brand-dim);
-		color: var(--ink);
+	/* Senza movimento l'arco si fermerebbe in un punto qualsiasi e sembrerebbe
+	   un anello rotto: diventa un anello intero. */
+	@media (prefers-reduced-motion: reduce) {
+		.tab-spin {
+			border-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
+		}
 	}
 
 	/* Il divisore serve ancora al menu di ordinamento. */
@@ -1004,18 +1126,10 @@
 		margin: 4px 0;
 	}
 
-	.title {
-		font-size: var(--text-sm);
-		font-weight: 500;
-		color: var(--ink-muted);
+	.drag-spacer {
 		flex: 1 1 auto;
-		min-width: 0;
-		text-align: center;
-		cursor: default;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		padding: 0 var(--space-3);
+		min-width: var(--space-3);
+		height: 100%;
 	}
 
 	.controls {

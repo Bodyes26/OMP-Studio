@@ -367,3 +367,69 @@ bersaglio di distribuzione; `role="dialog"` non modale, come prescrivono le APG
 WAI-ARIA per un pannello che contiene elementi attivabili; larghezza fissa, dopo
 che le righe della coda — prime righe di prompt su una riga sola — spingevano il
 pannello fuori dallo schermo.
+
+---
+
+## Gate R19: si muove chi chiede una risposta, non chi lavora
+
+**Data:** 2026-08-27
+**Esito:** ROVESCIAMENTO ACCETTATO
+**Decisione:** la tessera di progetto porta il colore in un punto da 8px invece che
+nel riempimento; il nome del progetto vive dentro la tessera aperta e non più al
+centro della barra; l'unico movimento persistente passa da «sta lavorando» a
+«aspetta una risposta»; il contatore dei task in coda si mostra solo sulla tessera
+aperta.
+
+**Origine.** Un prototipo separato ("Quiet Dots", React + Tailwind) ha permesso di
+guardare le alternative fuori dall'app, con interruttori per tema chiaro/scuro,
+controlli macOS/Windows e trigger di stato. L'analisi completa del prototipo è in
+`ricerca/topbar-quiet-dots-analisi.md` (fuori da git).
+
+**Le quattro cose che cambiano, e perché.**
+
+1. **Il colore nel punto, non nel riempimento.** Prima il colore del progetto
+   compariva solo sulla tessera attiva, come riempimento pieno: un blocco saturo
+   in cima allo schermo e, soprattutto, **nessun colore sui progetti chiusi**, che
+   sono esattamente quelli che l'utente deve riconoscere a colpo d'occhio. Con il
+   punto, tutti i progetti hanno sempre la loro tinta e nessuno è un blocco pieno.
+   La regola «un solo blocco saturo per schermata» non è stata rilassata: è stata
+   portata a zero.
+
+2. **Il nome dentro la tessera.** Il nome del progetto attivo era scritto due
+   volte (tessera + titolo centrato). Rivelandolo dentro la tessera con
+   un'animazione di larghezza, la barra perde un elemento e guadagna un
+   indicatore di posizione che si muove insieme al fuoco. Il titolo centrato è
+   diventato pura area di trascinamento.
+
+3. **Si muove chi chiama.** `DESIGN.md` faceva respirare `working` e lasciava
+   `attention` fermo. È l'inverso di ciò che serve: «sta lavorando» è
+   un'informazione che si consulta, «aspetta una risposta» è una richiesta che
+   deve interrompere. Con cinque progetti aperti e tre agenti al lavoro, la
+   vecchia regola metteva in movimento tre tessere su cinque e rendeva invisibile
+   la sola che aveva bisogno di qualcuno. Ora pulsa solo l'ambra, e il costo a
+   riposo dell'animazione si paga solo quando c'è davvero qualcosa da chiedere.
+   L'arco che gira sulla tessera aperta in `working` resta, perché è locale al
+   progetto che si sta già guardando.
+
+4. **Il contatore solo sulla tessera aperta.** Il badge in overlay su ogni
+   tessera era il quarto segnale contemporaneo su un quadrato da 30px (lettera,
+   anello, punto di stato, badge). Un numero va letto, non intravisto: resta
+   dentro la tessera aperta, mentre il totale su tutti i progetti è già nel chip
+   «Coda» e l'elenco per progetto nel pannello della tessera. È una perdita di
+   informazione periferica accettata consapevolmente, e la sola in questo giro.
+
+**Cosa NON è stato portato dal prototipo:** l'alone da 12px attorno all'anello di
+attenzione (`DESIGN.md` §4: nessuna ombra sulle tessere), il `title` che ripeteva
+sigla e nome (§9), l'assenza di un fallback `prefers-reduced-motion`, e i colori
+di progetto cablati in oklch — la tinta continua a nascere dal tema di `omp`.
+Il prototipo, inoltre, nascondeva `working` e la coda su **tutte** le tessere
+chiuse: quella parte è stata rifiutata, perché lo stato dell'agente fuori schermo
+è il motivo per cui questa barra esiste (`PRODUCT.md` §3).
+
+**Impostazioni.** Le cinque preferenze di `projectBar` restano tutte, senza
+migrazione dei dati: `queueBadge` continua a scegliere fra numero, numero più
+prontezza, puntino e niente (adesso dentro la tessera aperta), e `label` decide se
+il nome compare solo sulla tessera aperta o su tutte, che è l'interruttore
+«sigla / sigla + nome» del prototipo. `showAgentDot` cambia oggetto e non nome:
+prima accendeva il puntino accanto alla tessera, ora accende i due anelli di
+stato, che dicono la stessa cosa nello stesso posto.

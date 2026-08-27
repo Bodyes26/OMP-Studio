@@ -14,9 +14,12 @@
 		{ id: 'alpha', label: 'Alfabetico', desc: "Le tessere seguono l'ordine alfabetico del nome." }
 	];
 
+	// Il contatore vive dentro la tessera del progetto aperto: le tessere degli
+	// altri progetti restano mute per scelta, e il conto complessivo sta nel
+	// chip "Coda" della barra.
 	const QUEUE_BADGE_OPTIONS: { id: QueueBadgeStyle; label: string; desc: string }[] = [
-		{ id: 'count-state', label: 'Numero e stato', desc: 'Quanti task sono in coda, con un colore che segnala se OMP lavora o aspetta.' },
-		{ id: 'count', label: 'Solo numero', desc: 'Quanti task sono in coda, senza indicazione di stato.' },
+		{ id: 'count-state', label: 'Numero e stato', desc: 'Quanti task attendono nel progetto aperto, tinti quando sono pronti a partire.' },
+		{ id: 'count', label: 'Solo numero', desc: 'Quanti task attendono nel progetto aperto, senza indicazione di prontezza.' },
 		{ id: 'dot', label: 'Puntino', desc: "Un puntino se c'è almeno un task in coda, senza contarli." },
 		{ id: 'off', label: 'Nessuno', desc: 'Nessun indicatore di coda sulla tessera.' }
 	];
@@ -81,8 +84,8 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Etichetta tessera</span>
-				<span class="form-row-desc">Cosa mostra la tessera del progetto: sigla di due lettere o nome troncato.</span>
+				<span class="form-row-label">Nome sulle tessere</span>
+				<span class="form-row-desc">La sigla c'è sempre. Il nome del progetto compare solo sulla tessera aperta, oppure su tutte.</span>
 			</div>
 			<div class="form-row-control">
 				<div class="segmented">
@@ -91,14 +94,14 @@
 						class:active={settingsStore.projectBar.label === 'initials'}
 						onclick={() => settingsStore.patchProjectBar({ label: 'initials' })}
 					>
-						Iniziali
+						Solo aperta
 					</button>
 					<button
 						type="button"
 						class:active={settingsStore.projectBar.label === 'name'}
 						onclick={() => settingsStore.patchProjectBar({ label: 'name' })}
 					>
-						Nome
+						Tutte
 					</button>
 				</div>
 			</div>
@@ -106,8 +109,8 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Puntino di stato agente</span>
-				<span class="form-row-desc">Segnala accanto alla tessera che il progetto chiede attenzione o ha finito un task.</span>
+				<span class="form-row-label">Segno di stato agente</span>
+				<span class="form-row-desc">Anello ambra che pulsa quando l'agente attende una risposta, anello fermo quando ha finito il lavoro.</span>
 			</div>
 			<div class="form-row-control">
 				<label class="switch">
@@ -268,32 +271,25 @@
 		justify-content: center;
 	}
 
+	/* L'anteprima mostra il contatore com'e' nella barra: numero mono nudo
+	   dentro la tessera, non una pastiglia in overlay. */
 	.badge-sample {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 18px;
-		height: 18px;
-		padding: 0 5px;
-		border-radius: var(--radius-full);
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
 		font-family: var(--font-mono);
-		border: 1px solid var(--line);
+		font-size: 10px;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-faint);
 	}
 
 	.badge-sample.state {
-		background: var(--brand-dim);
 		color: var(--brand-ink);
-		border-color: var(--brand);
 	}
 
 	.dot-sample {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--brand);
+		width: 6px;
+		height: 6px;
+		border-radius: 1px;
+		background: var(--ink-faint);
 	}
 
 	.none-sample {

@@ -31,6 +31,13 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Lo slider dello sforzo di ragionamento è una pillola col riempimento nel colore del tema: i pallini dei livelli non hanno più le etichette e attirano magneticamente il pomello durante il trascinamento.
 - Il chip dello slider di ragionamento mostra unicamente l'identificativo del livello (minimal, low, medium, high, xhigh, max, auto, off), rimuovendo il conteggio e i riferimenti numerici ai token dedicati.
 - Nell'editor di un nuovo task il modello e lo sforzo di ragionamento mostrano subito quelli del ruolo predefinito, invece di restare vuoti finché non si ritocca il ruolo.
+- La barra dei progetti è stata rifatta: ogni tessera mostra un punto nel colore del progetto e la sua sigla, e il progetto aperto allarga la propria tessera per scrivere il nome per intero. Il colore identifica sempre tutti i progetti, anche quelli chiusi, e non c'è più nessun rettangolo colorato pieno in cima allo schermo.
+- Il nome del progetto attivo non è più scritto al centro della barra: è dentro la sua tessera, scritto una volta sola.
+- Cambia il segnale di stato sulle tessere: pulsa l'anello ambra del progetto che **aspetta una risposta**, mentre «sta lavorando» si legge dal punto pieno e dalla sigla accesa, più un piccolo arco che gira sulla tessera aperta. Prima si muoveva ogni progetto al lavoro e restava fermo proprio quello che aveva bisogno di te.
+- Un progetto senza agente aperto sbiadisce: punto neutro e sigla tenue, senza sparire dalla barra.
+- A ogni cambio di stato dell'agente la tessera lampeggia una volta nel colore del progetto: te ne accorgi con la coda dell'occhio anche mentre leggi il terminale.
+- Il contatore dei task in coda è dentro la tessera del progetto aperto invece di essere un bollino sovrapposto: resta nei quattro stili di sempre, e il totale su tutti i progetti continua a essere nel chip «Coda».
+- L'impostazione «Puntino di stato agente» si chiama «Segno di stato agente» e accende o spegne i due anelli di stato; «Etichetta tessera» diventa «Nome sulle tessere» e sceglie se il nome del progetto compare solo sulla tessera aperta o su tutte.
 
 ### Fixed
 

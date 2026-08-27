@@ -114,15 +114,21 @@ L e C sono fissi per tinta-stato e cambiano con la luminanza del tema, cosi' tut
 
 La rampa qui sopra e' il fallback per i temi quasi monocromatici e la palette esplicita del selettore manuale. Per gli altri temi, Studio estrae accento, avviso, stati e colori sintattici: se non bastano a distinguere i progetti, completa la rampa ruotando le tinte gia' presenti senza introdurre una palette estranea.
 
-**Colore della lettera sulla tessera:**
+**Dove il colore del progetto compare davvero:**
 
-- idle e hover → lettera `--ink`. Contrasto minimo misurato: **6.77:1** (idle), **4.76:1** (hover). La tessera è volutamente in secondo piano: è la lettera a identificarla.
-- attivo → lettera `--on-project`: `--bg-sunken` sui temi scuri e `--ink` sui
-  temi chiari. Il riempimento della tessera resta sempre leggibile senza
-  affidarsi alla sola differenza di colore.
+- **Punto identità** sulla tessera (8px, `--proj-l-fill` / `--proj-c-fill`):
+  pieno quando un agente è aperto sul progetto, neutro `--ink-faint` al 50%
+  quando non lo è. È l'uso principale, e l'unico sempre presente.
+- **Arco di lavoro** e **contatore dei task pronti** sulla tessera aperta.
+- **Lampo di transizione** (§6), al 35% e per 600ms.
+- **Tessera del pannello di progetto** (§7.8): l'unico riempimento pieno che
+  resta, ed è dentro un pannello, non in cima allo schermo.
 
-L'inversione della lettera sull'attivazione è intenzionale: la tessera "si accende".
-Il token `--on-project` evita testo chiaro su riempimenti chiari.
+La sigla sulla tessera è **neutra** (`--ink`, oppure `--ink-faint` senza
+agente): con il punto accanto, tingere anche il testo raddoppierebbe lo stesso
+segnale a scapito del contrasto. Per la stessa ragione la tessera aperta non è
+più un riempimento saturo ma un fondo neutro all'8%: il colore che identifica
+resta al suo posto e non c'è nessun blocco pieno in cima allo schermo.
 
 ### 2.8 Il terminale non è nel sistema di colore
 
@@ -275,9 +281,15 @@ Popover e menu **non** vengono posizionati in `absolute` dentro colonne con `ove
 |---|---|---|
 | `--dur-instant` | 0 | Switch di progetto (vedi sotto) |
 | `--dur-fast` | 120 | Hover, pressione, cambio di stato di un controllo |
-| `--dur-base` | 180 | Indicatore di tessera attiva, fade di riga |
-| `--dur-slow` | 240 | Apertura/chiusura popover e dialog |
-| `--dur-pulse` | 1800 | Ciclo del respiro "agente al lavoro" |
+| `--dur-base` | 180 | Fade di riga |
+| `--dur-slow` | 240 | Popover e dialog; larghezza delle tessere di progetto |
+| `--dur-calm` | 480 | Colore e opacità di un cambio di stato dell'agente |
+| `--dur-flash` | 600 | Lampo di transizione sulla tessera |
+| `--dur-pulse` | 1800 | Ciclo del respiro «l'agente aspetta te» |
+
+Le due durate lunghe esistono solo per la barra progetti, e solo perché lì il
+movimento porta un'informazione invece di accompagnare un'azione: un cambio di
+stato a 120ms è uno scatto che l'occhio legge come un errore di rendering.
 
 ### Curve
 
@@ -291,13 +303,17 @@ Nessun bounce, nessun elastic, nessun overshoot.
 
 ### Le tre regole di movimento di questa app
 
-1. **Lo switch di progetto non si anima.** Il contenuto delle tre colonne appare a `--dur-instant`. Si anima soltanto la traslazione dell'indicatore di tessera attiva (`--dur-base`, `--ease-out`). Motivo: cambiare progetto è cambiare stanza; una transizione aggiungerebbe 200ms di latenza percepita su un'azione fatta decine di volte al giorno.
+1. **Lo switch di progetto non si anima.** Il contenuto delle tre colonne appare a `--dur-instant`. Si anima soltanto la tessera: quella che si apre allarga la propria larghezza per fare posto al nome del progetto, quella che si chiude la restituisce (`--dur-slow`, `--ease-out`). Motivo: cambiare progetto è cambiare stanza; animare le colonne aggiungerebbe 200ms di latenza percepita su un'azione fatta decine di volte al giorno, mentre la tessera che cresce è l'indicatore di posizione, non una transizione di contenuto.
+
+   La larghezza si anima passando `grid-template-columns` da `0fr` a `1fr` su un contenitore in `overflow: hidden`: è l'unico modo di animare una larghezza *automatica* senza cablare un `max-width` che poi taglierebbe i nomi lunghi.
 
 2. **Il terminale non è mai il soggetto di un'animazione.** Niente fade in ingresso, niente slide, niente scale. La viewport appare già disegnata. Animarla causa reflow su un canvas che sta ridisegnando testo.
 
-3. **Un solo movimento persistente in tutta l'app**: il respiro della tessera "agente al lavoro". Opacità `1 → 0.35 → 1` su un anello da 2px in `--brand`, 1800ms, `--ease-in-out`, infinito. È l'unica animazione in loop consentita, perché è l'unica informazione continua che l'app deve trasmettere.
+3. **Un solo movimento persistente in tutta l'app**: il respiro dell'anello ambra sulla tessera di un progetto che **aspetta una risposta**. Opacità `1 → 0.35 → 1` su un anello inset da 1.5px in `--warn`, 1800ms, `--ease-in-out`, infinito. Il movimento serve a chiamare qualcuno: lo stato che ha bisogno dell'utente è il solo che ha diritto di muoversi, mentre «sta lavorando» non chiede niente a nessuno e si accontenta di un punto pieno.
 
-Il respiro è a **duty-cycle**: due plateau (opacità 1 e 0.35) collegati da rampe `steps(6)`. Il compositor aggiorna 12 frame discreti per ciclo invece di uno per vsync — su GPU integrata è la differenza tra un'animazione gratuita e un costo fisso a riposo. Il keyframe è `state-pulse`, globale in `src/app.css`, ed è l'unico dell'app.
+   L'arco che gira sulla tessera **aperta** in `working` non è un'eccezione a questa regola: è un'animazione locale a un solo elemento visibile solo sul progetto che si sta già guardando, e scompare quando la tessera si chiude.
+
+Il respiro è a **duty-cycle**: due plateau (opacità 1 e 0.35) collegati da rampe `steps(6)`. Il compositor aggiorna 12 frame discreti per ciclo invece di uno per vsync — su GPU integrata è la differenza tra un'animazione gratuita e un costo fisso a riposo. Il keyframe è `state-pulse`, globale in `src/app.css`; `tab-spin` e `tab-flash` vivono dentro `TopBar.svelte`, dove sono usati.
 
 ### Reduced motion — obbligatorio
 
@@ -308,12 +324,13 @@ Il respiro è a **duty-cycle**: due plateau (opacità 1 e 0.35) collegati da ram
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
-  /* Il "respiro" degrada a un anello statico pieno: lo stato resta leggibile senza moto. */
-  .tile[data-state="running"] { animation: none; outline: 2px solid var(--brand); }
+  /* L'arco che gira degrada a un anello intero: fermo a un angolo qualsiasi
+     sembrerebbe un anello rotto, non uno stato. */
+  .tab-spin { border-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue)); }
 }
 ```
 
-Nessuna animazione deve essere l'unico veicolo di un'informazione. Lo stato "al lavoro" è leggibile anche fermo.
+Nessuna animazione deve essere l'unico veicolo di un'informazione: «aspetta te» resta leggibile dall'anello ambra anche fermo, «al lavoro» dal punto pieno e dalla sigla accesa.
 
 ---
 
@@ -325,26 +342,53 @@ Altezza 48px, sfondo `--bg-raised`. Nessun bordo inferiore: la separazione dal c
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│ [C] [A] [S] │ +        MyProject                  ⌁ 69%   [AV] ▾       │
+│ ▣ │ ●OM Omnipulse ◔ 3  ●CA  ○PU  ●GE                ⌁ 69%  [tema] ▾    │
 └────────────────────────────────────────────────────────────────────────┘
-  tessere      nuovo    progetto attivo (centro)   usage    profilo
+  logo  tessera aperta      tessere chiuse          usage    controlli
 ```
 
-- **Tessere**: 30×30px, `--radius-md`, iniziale in mono 13px/600. Ordine = ordine di apertura, riordinabili per trascinamento. **Una sola tessera colorata per volta**: l'attiva è piena nel colore del progetto con la lettera nel pozzo, le altre sono neutre (`ink` all'8%) con la sola lettera tinta. N progetti aperti non devono produrre N blocchi saturi in cima allo schermo.
-- **Indicatore attivo**: barra da 2px in `--brand` sul bordo *inferiore* della barra, larga come la tessera, che trasla tra le tessere. Un solo elemento animato, non uno per tessera.
-- **Stato sulla tessera** (leggibile anche per progetti non a schermo). Due soli colori, entrambi già nella palette; nessun verde, nessun blu:
-  - `idle` — riempimento idle, nessun segno.
-  - `working` — anello 2px `--brand` che respira. Nessun punto: l'anello che si muove è il segnale.
-  - `attention` — anello statico 1px `--warn` più punto 6px `--warn` in alto a destra. Ambra = l'agente aspetta te.
-  - `finished` — anello statico 1px `--brand` più punto 6px `--brand`. Cremisi fermo = ha finito, nessuna urgenza.
+- **Tessera**: altezza 30px, `--radius-md`, gap 2px. Anatomia fissa, da sinistra:
+  punto identità 8px · sigla in mono `--text-sm`/600 · nome del progetto ·
+  arco di lavoro · contatore della coda. Gli ultimi tre non esistono a riposo:
+  compaiono **animando la propria larghezza** (§6).
+- **Il colore vive nel punto, non nel riempimento.** Otto progetti aperti sono
+  otto punti da 8px, non otto blocchi saturi: il colore per progetto resta
+  sempre visibile senza mai competere con il contenuto delle colonne. La sigla
+  è neutra (`--ink`), non tinta.
+- **Tessera aperta**: fondo `color-mix(in srgb, var(--ink) 8%, transparent)` e
+  nome del progetto rivelato accanto alla sigla. È l'unica tessera che porta un
+  nome, ed è il motivo per cui la barra non ha più un titolo al centro: il nome
+  del progetto attivo è scritto una volta sola, dove sta la sua tessera.
+- **Stato sulla tessera.** Due segnali indipendenti, perché rispondono a due
+  domande diverse — «c'è un agente?» e «mi sta chiamando?»:
+  - `working` — punto pieno nel colore del progetto, sigla `--ink`. Sulla
+    tessera aperta, in più, un arco da 12px che gira in 900ms.
+  - `idle` e `unknown` — punto neutro `--ink-faint` al 50%, sigla
+    `--ink-faint`. La tessera si ritira senza sparire. Una tessera **aperta**
+    non si spegne mai: la sua sigla resta `--ink` anche senza agente.
+  - `attention` — anello 1.5px `--warn` inset sull'intera tessera, che pulsa
+    con `state-pulse`. **È il solo elemento animato in modo persistente
+    dell'app**: il movimento serve a chiamare qualcuno, e "sta lavorando" non
+    chiama nessuno.
+  - `finished` — anello fermo 1px `--brand`. Ha finito, nessuna urgenza.
 
-  Il punto è staccato dalla tessera con `outline: 2px solid var(--bg-raised)`, un knockout, non un'ombra.
-- **Nome del progetto attivo**: centrato, `--text-md`, `--ink`. La tessera non porta `title`: il nome e il percorso stanno nel pannello (§7.8), e un tooltip nativo che ripete quello che è già scritto due volte sullo schermo è rumore.
+  Nessun alone, nessuna ombra: solo anelli inset. I due anelli si spengono
+  insieme con l'impostazione «Segno di stato agente».
+- **Contatore della coda**: mono 10px/700 `tabular-nums`, dentro la tessera
+  aperta. `--ink-faint` quando i task non possono partire, tinta del progetto
+  quando sono pronti. Le tessere chiuse restano mute: il conto complessivo di
+  tutti i progetti sta nel chip «Coda» a destra.
+- **Lampo di transizione**: a ogni cambio di stato dell'agente la tessera
+  lampeggia una volta nella tinta del progetto al 35% (§6). Rende percepibile
+  un evento che altrimenti sarebbe solo un'opacità diversa.
+- La tessera non porta `title`: nome, percorso e stato stanno nel pannello
+  (§7.8), e l'`aria-label` porta già nome e stato per chi legge con la voce.
 - **Pulsante `+`**: apre il selettore progetto (recenti + sfoglia + crea).
 - **Chip usage**: mostra solo il numero peggiore tra tutte le quote (`min(remainingFraction)`) e la sua icona. Click → popover. Colore per severità (§2.6). È l'unico elemento della barra che può essere colorato di ambra o cremisi.
-- **Avatar/profilo**: iniziali dell'account, apre menu impostazioni.
+- **Scratchpad**: nessun punto e nessuna sigla, solo l'icona fantasma su bordo
+  tratteggiato. Non è un progetto e non deve sembrarlo.
 
-Massimo consigliato: 8 tessere. Oltre, la barra scorre orizzontalmente senza scrollbar visibile. Non si comprimono le tessere.
+Massimo consigliato: 8 tessere. Oltre, la barra scorre orizzontalmente senza scrollbar visibile. Non si comprimono le tessere: si stringono da sole, perché solo la tessera aperta porta il nome.
 
 ### 7.2 Popover usage
 
@@ -504,6 +548,7 @@ soppresso: «Ricarica / Indietro / Stampa» non significano niente qui.
   /* Movimento */
   --dur-instant: 0ms; --dur-fast: 120ms; --dur-base: 180ms;
   --dur-slow: 240ms;  --dur-pulse: 1800ms;
+  --dur-calm: 480ms;  --dur-flash: 600ms;
   --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.30, 1);
   --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);

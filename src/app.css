@@ -101,6 +101,10 @@
   /* Movimento */
   --dur-instant: 0ms; --dur-fast: 120ms; --dur-base: 180ms;
   --dur-slow: 240ms;  --dur-pulse: 1800ms;
+  /* Due durate lunghe, e solo per la barra progetti: il cambio di stato di un
+     agente non e' un hover, e a 120ms sarebbe uno scatto che l'occhio legge
+     come un errore di rendering invece che come un evento. */
+  --dur-calm: 480ms;  --dur-flash: 600ms;
   --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.30, 1);
   --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
