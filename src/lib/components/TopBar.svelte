@@ -908,10 +908,17 @@
 		align-items: center;
 	}
 
+	/* Click-catcher, non un controllo da disegnare: e' un <button> per il focus
+	   e la tastiera, e senza reset lo user agent gli dipinge `ButtonFace` piu'
+	   un bordo `outset`, tingendo di grigio tutta la finestra. */
 	.order-backdrop {
 		position: fixed;
 		inset: 0;
 		z-index: var(--z-backdrop);
+		background: transparent;
+		border: none;
+		padding: 0;
+		cursor: default;
 	}
 
 	.order-popover {
@@ -1297,10 +1304,15 @@
 		white-space: nowrap;
 	}
 
+	/* Come `.order-backdrop`: velo invisibile, senza chrome dello user agent. */
 	.theme-backdrop {
 		position: fixed;
 		inset: 0;
 		z-index: var(--z-backdrop);
+		background: transparent;
+		border: none;
+		padding: 0;
+		cursor: default;
 	}
 
 	.theme-popover {

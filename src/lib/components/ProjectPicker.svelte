@@ -148,10 +148,17 @@
 {/if}
 
 <style>
+	/* Click-catcher a piena viewport: senza reset il <button> erediterebbe
+	   `ButtonFace` e il bordo `outset` dello user agent, tingendo di grigio
+	   tutta la finestra invece di restare invisibile. */
 	.backdrop {
 		position: fixed;
 		inset: 0;
 		z-index: var(--z-backdrop);
+		background: transparent;
+		border: none;
+		padding: 0;
+		cursor: default;
 	}
 
 	.palette {

@@ -57,6 +57,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Fixed
 
+- Aprendo il selettore del tema o il menu di ordinamento della barra superiore la finestra di Studio non diventa più tutta grigia: il velo sotto questi popover era un pulsante a piena finestra che ereditava lo sfondo grigio e la cornice del sistema. Stessa correzione per il selettore progetto e il cassetto della coda.
 - Passando dalla chat grafica al terminale (o viceversa) con una sessione ancora senza messaggi non compare più una shell nuda con «Session not found»: una sessione viene ripresa solo se ha davvero un transcript su disco, altrimenti la superficie ne apre una nuova.
 - Rimosso il limite rigido di 65 caratteri sui paragrafi Markdown della chat, che causava l'andata a capo anticipata del testo lasciando spazio vuoto solo a destra rispetto alle card dei tool.
 - Lo storico delle sessioni si apre in un istante invece che dopo oltre un minuto: Studio leggeva l'inizio di ogni transcript di ogni progetto (centinaia di file, decine di megabyte) per capire a quale progetto appartenesse; adesso ne legge la sola riga di intestazione e la tiene a mente.

@@ -1853,11 +1853,17 @@
 		background-color: var(--brand);
 	}
 
+	/* Il velo e' un <button>: il colore lo mette la regola, ma il bordo
+	   `outset` dello user agent va rimosso o disegna una cornice a 2px
+	   lungo tutto il perimetro della finestra. */
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
 		background: var(--backdrop);
 		z-index: var(--z-backdrop);
+		border: none;
+		padding: 0;
+		cursor: default;
 	}
 
 	.modal-dialog {
