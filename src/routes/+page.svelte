@@ -167,6 +167,7 @@
 						model: modelId,
 						host: 'OMP Studio',
 						project: projectName,
+						project_path: project.path,
 						last_active_ms: Date.now()
 					});
 				}
@@ -182,6 +183,7 @@
 							model: parts.slice(1).join('/'),
 							host: 'OMP Studio',
 							project: projectName,
+							project_path: project.path,
 							last_active_ms: Date.now()
 						});
 					}
@@ -359,31 +361,26 @@
 				}
 				const sid = await session.newSession();
 
-				// Applica modello specifico se configurato nelle opzioni del task
+				// Una configurazione esplicita e' parte del contratto del task:
+				// se non si applica, il task resta in coda invece di partire col
+				// modello sbagliato.
 				if (task.options?.modelSelector) {
 					const rawSelector = task.options.modelSelector;
-					const [prov, mId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
-					try {
-						await session.client.send({
-							type: 'set_model',
-							provider: prov || session.model?.provider || '',
-							modelId: mId
-						});
-					} catch (err) {
-						console.warn('Impostazione modello task:', err);
-					}
+					const separator = rawSelector.indexOf('/');
+					const provider = separator >= 0 ? rawSelector.slice(0, separator) : session.model?.provider || '';
+					const modelId = separator >= 0 ? rawSelector.slice(separator + 1) : rawSelector;
+					await session.client.send({
+						type: 'set_model',
+						provider,
+						modelId
+					});
 				}
 
-				// Applica livello di thinking se configurato nelle opzioni del task
 				if (task.options?.thinkingLevel && task.options.thinkingLevel !== 'auto') {
-					try {
-						await session.client.send({
-							type: 'set_thinking_level',
-							level: task.options.thinkingLevel as ThinkingLevel
-						});
-					} catch (err) {
-						console.warn('Impostazione thinking task:', err);
-					}
+					await session.client.send({
+						type: 'set_thinking_level',
+						level: task.options.thinkingLevel as ThinkingLevel
+					});
 				}
 
 				const fullPrompt = formatTaskPrompt(task, project.path);
@@ -401,7 +398,13 @@
 				const term = terminalSessions.get(projectId);
 				if (!term) throw new Error('Terminale non pronto');
 				const fullPrompt = formatTaskPrompt(task, project.path);
-				const session = await term.startTask(fullPrompt);
+				const configuration = task.options?.modelSelector
+					? {
+							modelSelector: task.options.modelSelector,
+							thinkingLevel: task.options.thinkingLevel || 'auto'
+						}
+					: undefined;
+				const session = await term.startTask(fullPrompt, configuration);
 				taskStore.completeDispatch(taskId, session.sessionId);
 				taskStore.setView(project.path, 'sessions');
 				if (taskEditorId === taskId) taskEditorId = null;
@@ -1375,6 +1378,7 @@
 						<TaskEditor
 							task={activeTaskEditor}
 							session={agentSessions.get(projectStore.activeProject.id) ?? null}
+							guiHosts={guiHosts}
 							onClose={() => taskEditorId = null}
 							onRunTask={(taskId: string) => void handleRunTask(projectStore.activeProject!.id, taskId)}
 							onOpenImage={(data: string, mimeType: string) => (viewingImage = { data, mimeType })}

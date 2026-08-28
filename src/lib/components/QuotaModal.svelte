@@ -6,7 +6,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
-	import { quotaStore, type ProviderHost, type QuotaLimit } from '$lib/stores/quota.svelte';
+	import { quotaStore, providersMatch, type ProviderHost, type QuotaLimit } from '$lib/stores/quota.svelte';
 	import { IconRefresh, IconClose, IconWarning } from '$lib/icons';
 	let {
 		open = false,
@@ -22,20 +22,6 @@
 
 	let now = $state(Date.now());
 
-	function matchesProvider(hostProvider: string | undefined, reportProvider: string | undefined): boolean {
-		if (!hostProvider || !reportProvider) return false;
-		const h = hostProvider.trim().toLowerCase();
-		const r = reportProvider.trim().toLowerCase();
-		if (h === r) return true;
-
-		// Normalizzazioni e alias noti tra provider su omp usage e cataloghi
-		if ((h === 'openai' || h === 'openai-codex') && (r === 'openai' || r === 'openai-codex')) return true;
-		if ((h === 'google' || h === 'google-antigravity') && (r === 'google' || r === 'google-antigravity')) return true;
-		if ((h === 'copilot' || h === 'github-copilot') && (r === 'copilot' || r === 'github-copilot')) return true;
-		if ((h === 'ollama' || h === 'ollama-cloud') && (r === 'ollama' || r === 'ollama-cloud')) return true;
-
-		return false;
-	}
 
 	function formatAge(ts: number | undefined) {
 		if (!ts) return '';
@@ -207,7 +193,7 @@
 				{#each quotaStore.reports as report, i}
 					{#if report.limits && report.limits.length > 0}
 						{@const projectLabels = [...new Set(allHosts
-							.filter((host) => matchesProvider(host.provider, report.provider))
+							.filter((host) => providersMatch(host.provider, report.provider))
 							.map((host) => {
 								if (host.host && host.project) {
 									return `${host.host} · ${host.project}`;

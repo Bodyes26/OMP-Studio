@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ModelDto } from '$lib/stores/modelSettings.svelte';
 	import { fade } from 'svelte/transition';
+	import { IconContextWindow, IconRoleSlow, IconRoleVision } from '$lib/icons';
 
 	let {
 		catalog = [],
@@ -28,7 +29,14 @@
 
 	const selectedModel = $derived.by(() => {
 		if (!cleanSelector) return null;
-		return (catalog as ModelDto[]).find((m: ModelDto) => m.selector === cleanSelector) || null;
+		return (catalog as ModelDto[]).find((model: ModelDto) => model.selector === cleanSelector) || null;
+	});
+	const fallbackSelection = $derived.by(() => {
+		const separator = cleanSelector.indexOf('/');
+		return {
+			provider: separator >= 0 ? cleanSelector.slice(0, separator) : 'custom',
+			name: separator >= 0 ? cleanSelector.slice(separator + 1) : cleanSelector
+		};
 	});
 
 	const filteredModels = $derived.by(() => {
@@ -76,9 +84,9 @@
 
 	function formatContext(tokens?: number) {
 		if (!tokens) return '';
-		if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M ctx`;
-		if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k ctx`;
-		return `${tokens} ctx`;
+		if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`;
+		if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
+		return `${tokens}`;
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -144,22 +152,39 @@
 	>
 		{#if selectedModel}
 			<span class="trigger-content">
-				<span class="provider-tag">{selectedModel.provider}</span>
-				<span class="model-name" title={selectedModel.selector}>{selectedModel.name}</span>
-				{#if selectedModel.contextWindow}
-					<span class="ctx-chip">{formatContext(selectedModel.contextWindow)}</span>
-				{/if}
-				{#if selectedModel.input?.includes('image')}
-					<span class="cap-chip">Vision</span>
-				{/if}
-				{#if selectedModel.reasoning}
-					<span class="cap-chip">Reasoning</span>
-				{/if}
+				<span class="selection-copy">
+					<span class="provider-line">{selectedModel.provider}</span>
+					<span class="model-name" title={selectedModel.selector}>{selectedModel.name}</span>
+				</span>
+				<span class="selection-capabilities" aria-label="Capacità del modello">
+					{#if selectedModel.contextWindow}
+						<span
+							class="capability-icon context-capability"
+							title={`Contesto: ${formatContext(selectedModel.contextWindow)} token`}
+							aria-label={`Contesto: ${formatContext(selectedModel.contextWindow)} token`}
+						>
+							<IconContextWindow />
+							<small>{formatContext(selectedModel.contextWindow)}</small>
+						</span>
+					{/if}
+					{#if selectedModel.input?.includes('image')}
+						<span class="capability-icon" title="Supporta immagini" aria-label="Supporta immagini">
+							<IconRoleVision />
+						</span>
+					{/if}
+					{#if selectedModel.reasoning}
+						<span class="capability-icon" title="Supporta reasoning" aria-label="Supporta reasoning">
+							<IconRoleSlow />
+						</span>
+					{/if}
+				</span>
 			</span>
 		{:else if cleanSelector}
 			<span class="trigger-content">
-				<span class="provider-tag">custom</span>
-				<span class="model-name">{cleanSelector}</span>
+				<span class="selection-copy">
+					<span class="provider-line">{fallbackSelection.provider}</span>
+					<span class="model-name" title={cleanSelector}>{fallbackSelection.name}</span>
+				</span>
 			</span>
 		{:else}
 			<span class="placeholder">{placeholder}</span>
@@ -234,7 +259,7 @@
 										</div>
 										<div class="option-badges">
 											{#if m.contextWindow}
-												<span class="ctx-chip">{formatContext(m.contextWindow)}</span>
+												<span class="ctx-chip">{formatContext(m.contextWindow)} ctx</span>
 											{/if}
 											{#if m.input?.includes('image')}
 												<span class="cap-chip">Vision</span>
@@ -283,6 +308,11 @@
 		transition: border-color var(--dur-fast), background var(--dur-fast);
 	}
 
+	.picker-trigger.has-value {
+		min-height: 44px;
+		padding-block: 6px;
+	}
+
 	.picker-trigger:hover:not(:disabled) {
 		border-color: var(--line-strong);
 		background: var(--bg-hover);
@@ -300,29 +330,59 @@
 	.trigger-content {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		justify-content: space-between;
+		gap: 12px;
+		min-width: 0;
+		overflow: hidden;
+		text-align: left;
+	}
+
+	.selection-copy {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		gap: 1px;
 		min-width: 0;
 		overflow: hidden;
 	}
 
-	.provider-tag {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--ink-faint);
-		background: var(--bg-hover);
-		padding: 1px 5px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		flex-shrink: 0;
+	.provider-line {
+		color: var(--ink-muted);
+		font-size: 9px;
+		line-height: 1.1;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 
 	.model-name {
-		font-size: var(--text-xs);
-		font-weight: 500;
-		color: var(--ink);
-		white-space: nowrap;
 		overflow: hidden;
+		color: var(--ink);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		line-height: 1.25;
 		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.selection-capabilities {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		flex-shrink: 0;
+		color: var(--ink-faint);
+	}
+
+	.capability-icon {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		--icon-size: 12px;
+	}
+
+	.capability-icon small {
+		font-family: var(--font-mono);
+		font-size: 9px;
+		line-height: 1;
 	}
 
 	.placeholder {

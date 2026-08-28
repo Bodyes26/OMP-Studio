@@ -99,6 +99,7 @@ commands.allow = [
     "get_model_config",
     "save_model_config",
     "get_models_catalog",
+    "get_available_models_catalog",
     "refresh_models_catalog",
     "get_custom_providers",
     "save_custom_providers",

@@ -95,6 +95,52 @@ pub struct ModelDto {
     pub is_custom: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct AvailableModelsResponse {
+    models: Vec<AvailableModel>,
+}
+
+/// `omp models --json` pubblica `thinking` come elenco piatto degli sforzi
+/// supportati, non come l'oggetto `{mode, efforts}` della cache locale: il
+/// catalogo dei modelli disponibili ha quindi un DTO proprio, convertito poi
+/// nella forma che il frontend riceve da `get_models_catalog`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AvailableModel {
+    id: String,
+    name: Option<String>,
+    provider: String,
+    selector: String,
+    context_window: Option<u64>,
+    max_tokens: Option<u64>,
+    reasoning: Option<bool>,
+    thinking: Option<Vec<String>>,
+    input: Option<Vec<String>>,
+    cost: Option<ModelCost>,
+}
+
+impl From<AvailableModel> for ModelDto {
+    fn from(model: AvailableModel) -> Self {
+        let name = model.name.unwrap_or_else(|| model.id.clone());
+        ModelDto {
+            id: model.id,
+            name,
+            provider: model.provider,
+            selector: model.selector,
+            context_window: model.context_window,
+            max_tokens: model.max_tokens,
+            reasoning: model.reasoning,
+            thinking: model.thinking.map(|efforts| ModelThinkingInfo {
+                mode: None,
+                efforts: Some(efforts),
+            }),
+            input: model.input,
+            cost: model.cost,
+            is_custom: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomModelDef {
@@ -473,6 +519,35 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
     }
 
     Ok(catalog)
+}
+
+fn parse_available_models(stdout: &[u8]) -> Result<Vec<ModelDto>, String> {
+    serde_json::from_slice::<AvailableModelsResponse>(stdout)
+        .map(|response| response.models.into_iter().map(ModelDto::from).collect())
+        .map_err(|error| format!("Risposta di `omp models --json` non valida: {}", error))
+}
+
+#[command]
+pub async fn get_available_models_catalog() -> Result<Vec<ModelDto>, String> {
+    let omp_path = crate::omp_ops::get_omp_binary();
+    let output = tokio::task::spawn_blocking(move || {
+        let mut cmd = Command::new(omp_path);
+        cmd.arg("models").arg("--json");
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000);
+        cmd.output()
+    })
+    .await
+    .map_err(|error| format!("Esecuzione di `omp models --json` interrotta: {}", error))?
+    .map_err(|error| format!("Avvio di `omp models --json` fallito: {}", error))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "`omp models --json` e' terminato con errore: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    parse_available_models(&output.stdout)
 }
 
 #[command]
@@ -1522,6 +1597,33 @@ fn build_deterministic_suggestions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_available_models_with_flat_thinking_list() {
+        // Payload reale di `omp models --json`: `thinking` e' l'elenco piatto
+        // degli sforzi (o null), `cost` porta chiavi extra come longContext e
+        // nessun modello dichiara isCustom.
+        let raw = br#"{"models":[
+            {"provider":"anthropic","id":"claude-3-5-sonnet-20240620","selector":"anthropic/claude-3-5-sonnet-20240620","name":"Claude Sonnet 3.5","contextWindow":200000,"maxTokens":8192,"reasoning":false,"thinking":null,"input":["text","image"],"cost":{"input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75}},
+            {"provider":"anthropic","id":"claude-opus-5","selector":"anthropic/claude-opus-5","name":"Claude Opus 5","contextWindow":200000,"maxTokens":64000,"reasoning":true,"thinking":["low","medium","high","max"],"input":["text","image"],"cost":{"input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25,"longContext":10}}
+        ]}"#;
+        let models = parse_available_models(raw).expect("catalogo OMP valido");
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].selector, "anthropic/claude-3-5-sonnet-20240620");
+        assert_eq!(models[0].context_window, Some(200000));
+        assert!(models[0].thinking.is_none());
+        assert!(!models[0].is_custom);
+
+        let opus = &models[1];
+        assert_eq!(opus.selector, "anthropic/claude-opus-5");
+        assert_eq!(
+            opus.thinking.as_ref().and_then(|t| t.efforts.as_deref()),
+            Some(["low", "medium", "high", "max"].map(String::from).as_slice())
+        );
+        assert_eq!(opus.cost.as_ref().and_then(|c| c.output), Some(25.0));
+        assert!(!opus.is_custom);
+    }
 
     #[test]
     fn test_parse_model_signature_semantic() {

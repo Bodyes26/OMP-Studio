@@ -24,9 +24,9 @@ use studio_updater::{
 };
 mod models_ops;
 use models_ops::{
-    apply_model_upgrades, check_model_upgrades, get_auth_providers_summary, get_custom_providers,
-    get_model_config, get_models_catalog, get_role_suggestions, refresh_models_catalog,
-    save_custom_providers, save_model_config,
+    apply_model_upgrades, check_model_upgrades, get_auth_providers_summary,
+    get_available_models_catalog, get_custom_providers, get_model_config, get_models_catalog,
+    get_role_suggestions, refresh_models_catalog, save_custom_providers, save_model_config,
 };
 mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
@@ -126,6 +126,7 @@ pub fn run() {
             get_model_config,
             save_model_config,
             get_models_catalog,
+            get_available_models_catalog,
             refresh_models_catalog,
             get_custom_providers,
             save_custom_providers,

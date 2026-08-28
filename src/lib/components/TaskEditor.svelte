@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onDestroy, tick } from 'svelte';
 	import { taskStore, type StudioTask, type StudioTaskStatus, type StudioTaskOptions } from '$lib/stores/tasks.svelte';
-	import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
+	import { rankFrequentTaskModelConfigurations } from '$lib/stores/taskSerialization';
+	import { modelSettingsStore, STANDARD_ROLES, THINKING_LEVELS, type ModelDto } from '$lib/stores/modelSettings.svelte';
+	import { quotaStore, providersMatch, type ProviderHost } from '$lib/stores/quota.svelte';
 	import type { AgentSession } from '$lib/agent/session.svelte';
 	import type { AvailableCommand, ImageContent } from '$lib/agent/wire';
 	import { prepareImage, extractImageFiles, isImageFile } from '$lib/agent/images';
@@ -31,12 +33,14 @@
 	let {
 		task,
 		session,
+		guiHosts = [],
 		onClose,
 		onRunTask,
 		onOpenImage
 	}: {
 		task: StudioTask;
 		session?: AgentSession | null;
+		guiHosts?: ProviderHost[];
 		onClose: () => void;
 		onRunTask?: (taskId: string) => void;
 		onOpenImage?: (data: string, mimeType: string) => void;
@@ -63,6 +67,91 @@
 
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session?.availableCommands ?? []));
 	const title = $derived(prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task');
+	const selectedModel = $derived(
+		modelSettingsStore.availableCatalog.find((model) => model.selector === options.modelSelector) ??
+		modelSettingsStore.catalog.find((model) => model.selector === options.modelSelector)
+	);
+	const frequentModelConfigurations = $derived.by(() => {
+		const ranked = rankFrequentTaskModelConfigurations(taskStore.originsFor(task.projectPath));
+		return ranked.flatMap((configuration) => {
+			const model = modelSettingsStore.availableCatalog.find(
+				(candidate) => candidate.selector === configuration.modelSelector
+			);
+			return model ? [{ ...configuration, model }] : [];
+		});
+	});
+	const selectedModelContext = $derived.by(() => {
+		if (!selectedModel) return null;
+		const reports = quotaStore.reports.filter((report) =>
+			providersMatch(report.provider, selectedModel.provider)
+		);
+		const windows = reports.flatMap((report) =>
+			(report.limits ?? []).flatMap((limit) => {
+				const remaining = limit.amount?.remainingFraction ??
+					(limit.amount?.usedFraction === undefined ? undefined : 1 - limit.amount.usedFraction);
+				if (remaining === undefined) return [];
+				const resetsAt = limit.window?.resetsAt ?? limit.resetsAt;
+				return [{
+					label: limit.label,
+					remainingPercent: Math.round(Math.max(0, Math.min(1, remaining)) * 100),
+					resetsAt
+				}];
+			})
+		);
+		let detail = '';
+		let detailTitle = '';
+		if (reports.length > 0) {
+			if (windows.length > 0) {
+				const minimum = Math.min(...windows.map((window) => window.remainingPercent));
+				detail = `Quota minima ${minimum}%`;
+				detailTitle = windows
+					.map((window) => {
+						const reset = window.resetsAt
+							? ` · reset ${new Date(window.resetsAt).toLocaleString()}`
+							: '';
+						return `${window.label}: ${window.remainingPercent}%${reset}`;
+					})
+					.join('\n');
+			} else {
+				detail = 'Quota non disponibile';
+				detailTitle = 'Provider in abbonamento, ma OMP non espone finestre di quota.';
+			}
+		} else if (selectedModel.cost) {
+			const formatCost = (value: number | undefined) =>
+				`$${(value ?? 0).toLocaleString('en-US', { maximumFractionDigits: 4 })}`;
+			detail = `${formatCost(selectedModel.cost.input)} input · ${formatCost(selectedModel.cost.output)} output / 1M token`;
+			detailTitle = 'Costo API indicativo per un milione di token.';
+		}
+
+		const currentProjectPath = task.projectPath.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+		const currentProjectName = currentProjectPath.split('/').filter(Boolean).at(-1);
+		const projects = [...new Set([...guiHosts, ...quotaStore.providerHosts]
+			.filter((host) => {
+				const hostProjectPath = host.project_path
+					?.replaceAll('\\', '/')
+					.replace(/\/+$/, '')
+					.toLowerCase();
+				const belongsToAnotherProject = hostProjectPath
+					? hostProjectPath !== currentProjectPath
+					: host.project.toLowerCase() !== currentProjectName;
+				return (
+					providersMatch(host.provider, selectedModel.provider) &&
+					(host.model === selectedModel.id ||
+						host.model === selectedModel.selector ||
+						host.model.endsWith(`/${selectedModel.id}`)) &&
+					belongsToAnotherProject
+				);
+			})
+			.map((host) => host.project)
+			.filter(Boolean))];
+
+		return {
+			detail,
+			detailTitle,
+			usage: projects.length > 0 ? 'In uso altrove' : '',
+			usageTitle: projects.length > 0 ? `In uso in: ${projects.join(', ')}` : ''
+		};
+	});
 
 	// Ruoli principali disponibili per la barra di selezione rapida
 	const DIFFICULTY_ROLES = [
@@ -225,6 +314,14 @@
 		};
 	}
 
+	function syncRoleToConfiguration(modelSelector: string, thinkingLevel: string) {
+		const matchingRole = STANDARD_ROLES.find((role) => {
+			const configured = resolveRoleConfig(role.id);
+			return configured.model === modelSelector && configured.thinking === thinkingLevel;
+		});
+		options.role = matchingRole?.id ?? 'custom';
+	}
+
 	function selectRole(roleId: string) {
 		options.role = roleId;
 		if (roleId === 'custom') {
@@ -253,17 +350,20 @@
 
 	function handleModelSelect(selector: string) {
 		options.modelSelector = selector;
-		const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
-		const currentRole = options.role ?? 'default';
-		const expectedSelector = rolesMap[currentRole]?.split(':')[0] || '';
-		if (selector !== expectedSelector) {
-			options.role = 'custom';
-		}
+		syncRoleToConfiguration(selector, options.thinkingLevel || 'auto');
 		saveTask();
 	}
 
 	function handleThinkingChange(level: string) {
 		options.thinkingLevel = level;
+		syncRoleToConfiguration(options.modelSelector || '', level);
+		saveTask();
+	}
+
+	function applyFrequentConfiguration(modelSelector: string, thinkingLevel: string) {
+		options.modelSelector = modelSelector;
+		options.thinkingLevel = thinkingLevel;
+		syncRoleToConfiguration(modelSelector, thinkingLevel);
 		saveTask();
 	}
 
@@ -695,11 +795,44 @@
 							<div class="model-col">
 								<label for="task-model-picker" class="block-label">Modello specifico</label>
 								<ModelPickerDropdown
-									catalog={modelSettingsStore.catalog}
+									catalog={modelSettingsStore.availableCatalog}
 									value={options.modelSelector || ''}
 									placeholder="Usa modello predefinito del ruolo..."
 									onSelect={handleModelSelect}
 								/>
+								{#if selectedModelContext && (selectedModelContext.detail || selectedModelContext.usage)}
+									<div class="model-context-line">
+										{#if selectedModelContext.detail}
+											<span title={selectedModelContext.detailTitle}>{selectedModelContext.detail}</span>
+										{/if}
+										{#if selectedModelContext.usage}
+											<span
+												class="model-usage-note"
+												title={selectedModelContext.usageTitle}
+											>{selectedModelContext.usage}</span>
+										{/if}
+									</div>
+								{/if}
+								{#if frequentModelConfigurations.length > 0}
+									<div class="frequent-configurations" aria-label="Configurazioni modello usate spesso">
+										<span class="frequent-label">Usati spesso</span>
+										<div class="frequent-chips">
+											{#each frequentModelConfigurations as configuration (`${configuration.modelSelector}:${configuration.thinkingLevel}`)}
+												{@const thinkingLabel = THINKING_LEVELS.find((level) => level.id === configuration.thinkingLevel)?.label ?? configuration.thinkingLevel}
+												<button
+													type="button"
+													class="frequent-chip"
+													class:active={options.modelSelector === configuration.modelSelector && (options.thinkingLevel || 'auto') === configuration.thinkingLevel}
+													title={`${configuration.model.provider} · ${configuration.model.name} · Thinking ${thinkingLabel} · ${configuration.count} utilizzi recenti`}
+													onclick={() => applyFrequentConfiguration(configuration.modelSelector, configuration.thinkingLevel)}
+												>
+													<span>{configuration.model.name}</span>
+													<small>{thinkingLabel}</small>
+												</button>
+											{/each}
+										</div>
+									</div>
+								{/if}
 							</div>
 
 							<div class="thinking-col">
@@ -1427,6 +1560,75 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+	}
+
+	.model-context-line {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 10px;
+		color: var(--ink-faint);
+		font-size: 10px;
+		line-height: 1.35;
+	}
+
+	.model-usage-note {
+		color: var(--warn);
+	}
+
+	.frequent-configurations {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-top: 2px;
+	}
+
+	.frequent-label {
+		color: var(--ink-faint);
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.frequent-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+	}
+
+	.frequent-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		max-width: 100%;
+		padding: 3px 6px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
+		color: var(--ink-muted);
+		font: inherit;
+		font-size: 10px;
+		cursor: pointer;
+	}
+
+	.frequent-chip > span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.frequent-chip small {
+		flex-shrink: 0;
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
+		font-size: 9px;
+	}
+
+	.frequent-chip:hover,
+	.frequent-chip.active {
+		border-color: var(--brand);
+		background: var(--brand-dim);
+		color: var(--ink);
 	}
 
 	/* Modifiers Grid */

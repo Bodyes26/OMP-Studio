@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -182,6 +182,8 @@ pub struct PtySessionInfo {
     pub session_path: String,
     pub cwd: String,
     pub fresh: bool,
+    pub model_selector: Option<String>,
+    pub thinking_level: Option<String>,
 }
 
 fn session_id_from_path(path: &Path) -> Option<String> {
@@ -190,6 +192,54 @@ fn session_id_from_path(path: &Path) -> Option<String> {
         .rsplit_once('_')
         .map_or(stem.as_ref(), |(_, suffix)| suffix);
     (!session_id.is_empty()).then(|| session_id.to_string())
+}
+
+fn read_session_configuration(path: &Path) -> (Option<String>, Option<String>) {
+    const TAIL_BYTES: u64 = 128 * 1024;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return (None, None);
+    };
+    let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
+        return (None, None);
+    };
+    let start = length.saturating_sub(TAIL_BYTES);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return (None, None);
+    }
+    let mut bytes = Vec::with_capacity((length - start) as usize);
+    if file.read_to_end(&mut bytes).is_err() {
+        return (None, None);
+    }
+    let tail = String::from_utf8_lossy(&bytes);
+    let mut lines = tail.lines();
+    if start > 0 {
+        lines.next();
+    }
+
+    let mut model_selector = None;
+    let mut thinking_level = None;
+    for line in lines {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        match value.get("type").and_then(|kind| kind.as_str()) {
+            Some("model_change") => {
+                if let Some(model) = value.get("model").and_then(|model| model.as_str()) {
+                    model_selector = Some(model.to_string());
+                }
+            }
+            Some("thinking_level_change") => {
+                if let Some(level) = value
+                    .get("thinkingLevel")
+                    .and_then(|level| level.as_str())
+                {
+                    thinking_level = Some(level.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    (model_selector, thinking_level)
 }
 
 fn read_session_info(pty_id: u64) -> Result<Option<PtySessionInfo>, String> {
@@ -218,12 +268,15 @@ fn read_session_info(pty_id: u64) -> Result<Option<PtySessionInfo>, String> {
     let fresh = lines
         .next()
         .is_some_and(|line| line.trim_end_matches('\r') == "fresh");
+    let (model_selector, thinking_level) = read_session_configuration(path);
 
     Ok(Some(PtySessionInfo {
         session_id,
         session_path: path.to_string_lossy().into_owned(),
         cwd: cwd.trim_end_matches('\r').to_string(),
         fresh,
+        model_selector,
+        thinking_level,
     }))
 }
 
@@ -618,6 +671,49 @@ mod tests {
             session_id_from_path(path).as_deref(),
             Some("01a03271-a569-7000-add2-1e09089f3e60")
         );
+    }
+
+    #[test]
+    fn legge_ultima_configurazione_dalla_coda_della_sessione() {
+        let path = std::env::temp_dir().join(format!(
+            "omp-studio-session-config-{}.jsonl",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        // Righe piu' vecchie della finestra di coda: la funzione legge gli
+        // ultimi 128 KiB, quindi la configurazione iniziale di una sessione
+        // lunghissima resta invisibile e vince quella recente.
+        let mut content = String::new();
+        content.push_str(
+            "{\"type\":\"model_change\",\"model\":\"anthropic/claude-opus-5\"}\n\
+             {\"type\":\"thinking_level_change\",\"thinkingLevel\":\"low\"}\n",
+        );
+        while content.len() < 200 * 1024 {
+            content.push_str("{\"type\":\"message\",\"message\":{\"role\":\"user\"}}\n");
+        }
+        content.push_str(
+            "{\"type\":\"model_change\",\"model\":\"openai-codex/gpt-5.6-sol\"}\n\
+             {\"type\":\"thinking_level_change\",\"thinkingLevel\":\"high\"}\n\
+             {\"type\":\"model_change\",\"model\":\"anthropic/claude-sonnet-5\"}\n",
+        );
+        std::fs::write(&path, &content).unwrap();
+
+        let (model, thinking) = read_session_configuration(&path);
+        assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-5"));
+        assert_eq!(thinking.as_deref(), Some("high"));
+
+        // File corto: nessuna riga viene scartata, la prima resta leggibile.
+        std::fs::write(
+            &path,
+            "{\"type\":\"model_change\",\"model\":\"google/gemini-3.7-flash\"}\n",
+        )
+        .unwrap();
+        let (model, thinking) = read_session_configuration(&path);
+        assert_eq!(model.as_deref(), Some("google/gemini-3.7-flash"));
+        assert_eq!(thinking, None);
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

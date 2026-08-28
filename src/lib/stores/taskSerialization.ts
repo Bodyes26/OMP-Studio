@@ -45,6 +45,15 @@ export interface TaskSessionOrigin {
 	taskId: string;
 	title: string;
 	launchedAt: number;
+	modelSelector?: string;
+	thinkingLevel?: string;
+}
+
+export interface FrequentTaskModelConfiguration {
+	modelSelector: string;
+	thinkingLevel: string;
+	count: number;
+	lastUsedAt: number;
 }
 
 export interface PersistedTaskState {
@@ -93,8 +102,53 @@ export function isTaskSessionOrigin(entry: unknown): entry is TaskSessionOrigin 
 		typeof origin.sessionId === 'string' &&
 		typeof origin.taskId === 'string' &&
 		typeof origin.title === 'string' &&
-		typeof origin.launchedAt === 'number'
+		typeof origin.launchedAt === 'number' &&
+		(origin.modelSelector === undefined || typeof origin.modelSelector === 'string') &&
+		(origin.thinkingLevel === undefined || typeof origin.thinkingLevel === 'string')
 	);
+}
+
+/**
+ * Classifica le coppie modello/thinking lanciate piu' spesso nel progetto.
+ * La finestra recente evita che abitudini ormai superate restino dominanti.
+ */
+export function rankFrequentTaskModelConfigurations(
+	origins: TaskSessionOrigin[],
+	limit = 4,
+	windowSize = 50
+): FrequentTaskModelConfiguration[] {
+	const recent = origins
+		.filter((origin) => Boolean(origin.modelSelector?.trim()))
+		.sort((left, right) => right.launchedAt - left.launchedAt)
+		.slice(0, windowSize);
+	const grouped = new Map<string, FrequentTaskModelConfiguration>();
+
+	for (const origin of recent) {
+		const modelSelector = origin.modelSelector!.trim();
+		const thinkingLevel = origin.thinkingLevel?.trim() || 'auto';
+		const key = `${modelSelector}\0${thinkingLevel}`;
+		const existing = grouped.get(key);
+		if (existing) {
+			existing.count += 1;
+			existing.lastUsedAt = Math.max(existing.lastUsedAt, origin.launchedAt);
+		} else {
+			grouped.set(key, {
+				modelSelector,
+				thinkingLevel,
+				count: 1,
+				lastUsedAt: origin.launchedAt
+			});
+		}
+	}
+
+	return [...grouped.values()]
+		.sort((left, right) =>
+			right.count - left.count ||
+			right.lastUsedAt - left.lastUsedAt ||
+			left.modelSelector.localeCompare(right.modelSelector) ||
+			left.thinkingLevel.localeCompare(right.thinkingLevel)
+		)
+		.slice(0, limit);
 }
 
 /**

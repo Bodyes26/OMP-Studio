@@ -9,6 +9,7 @@ import {
 	serializeTaskState,
 	parseProjectTasksFile,
 	serializeProjectTasksFile,
+	rankFrequentTaskModelConfigurations,
 	type StudioTask,
 	type PersistedTaskState
 } from '../src/lib/stores/taskSerialization.ts';
@@ -48,13 +49,15 @@ describe('Store tasks.json: validazione e parsing', () => {
 	});
 
 	describe('isTaskSessionOrigin', () => {
-		it('riconosce una origine valida', () => {
+		it('riconosce una origine valida con configurazione modello', () => {
 			const origin = {
 				projectPath: 'C:\\Projects\\App',
 				sessionId: 'sess-123',
 				taskId: 'task-1',
 				title: 'Task Session 1',
-				launchedAt: 1700000000000
+				launchedAt: 1700000000000,
+				modelSelector: 'openai-codex/gpt-5.6',
+				thinkingLevel: 'high'
 			};
 			assert.equal(isTaskSessionOrigin(origin), true);
 		});
@@ -62,6 +65,44 @@ describe('Store tasks.json: validazione e parsing', () => {
 		it('rifiuta origini incomplete', () => {
 			assert.equal(isTaskSessionOrigin(null), false);
 			assert.equal(isTaskSessionOrigin({ sessionId: '123' }), false);
+		});
+	});
+
+	describe('rankFrequentTaskModelConfigurations', () => {
+		it('ordina per frequenza nella finestra recente e usa la recenza come spareggio', () => {
+			const base = {
+				projectPath: 'C:\\Projects\\App',
+				taskId: 'task-1',
+				title: 'Task',
+				thinkingLevel: 'high'
+			};
+			const ranked = rankFrequentTaskModelConfigurations([
+				{ ...base, sessionId: 's1', launchedAt: 100, modelSelector: 'anthropic/claude-opus' },
+				{ ...base, sessionId: 's2', launchedAt: 200, modelSelector: 'openai-codex/gpt-5.6' },
+				{ ...base, sessionId: 's3', launchedAt: 300, modelSelector: 'anthropic/claude-opus' },
+				{ ...base, sessionId: 's4', launchedAt: 400, modelSelector: 'openai-codex/gpt-5.6' },
+				{ ...base, sessionId: 's5', launchedAt: 500, modelSelector: 'google/gemini-pro', thinkingLevel: 'auto' }
+			], 4, 4);
+
+			assert.deepEqual(ranked.map((item) => [item.modelSelector, item.count]), [
+				['openai-codex/gpt-5.6', 2],
+				['google/gemini-pro', 1],
+				['anthropic/claude-opus', 1]
+			]);
+			assert.equal(ranked[1].thinkingLevel, 'auto');
+		});
+
+		it('ignora lo storico precedente privo di modello', () => {
+			const ranked = rankFrequentTaskModelConfigurations([
+				{
+					projectPath: 'C:\\Projects\\App',
+					sessionId: 'legacy',
+					taskId: 'task-1',
+					title: 'Task precedente',
+					launchedAt: 100
+				}
+			]);
+			assert.deepEqual(ranked, []);
 		});
 	});
 

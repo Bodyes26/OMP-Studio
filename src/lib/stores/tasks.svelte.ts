@@ -335,7 +335,9 @@ class TaskStore {
 			sessionId,
 			taskId: task.id,
 			title,
-			launchedAt: Date.now()
+			launchedAt: Date.now(),
+			modelSelector: task.options?.modelSelector,
+			thinkingLevel: task.options?.thinkingLevel || 'auto'
 		});
 		const path = task.projectPath;
 		this.tasks = this.tasks.filter((candidate) => candidate.id !== id);

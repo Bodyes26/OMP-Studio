@@ -83,6 +83,7 @@ export { default as IconRolePlan } from '@lucide/svelte/icons/diamond';
 export { default as IconRoleSmol } from '@lucide/svelte/icons/zap';
 export { default as IconRoleSlow } from '@lucide/svelte/icons/infinity';
 export { default as IconRoleVision } from '@lucide/svelte/icons/eye';
+export { default as IconContextWindow } from '@lucide/svelte/icons/scan-text';
 export { default as IconRoleTask } from '@lucide/svelte/icons/split';
 export { default as IconRoleCommit } from '@lucide/svelte/icons/git-commit-horizontal';
 export { default as IconRoleAdvisor } from '@lucide/svelte/icons/shield-check';

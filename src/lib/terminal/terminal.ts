@@ -10,6 +10,10 @@ import { invoke, Channel } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { canvasColors, onThemeChange } from '$lib/theme';
 import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
+import {
+	describeConfigurationMismatch,
+	type TerminalTaskConfiguration
+} from './taskConfiguration';
 const TITLE_STATE_REGEX = /^\u03c0 ([>:!])(?: |$)/;
 
 // Deve essere uno stack di font letterale: xterm/Monaco lo usano anche per
@@ -37,7 +41,11 @@ export interface TerminalSessionInfo {
 	sessionPath: string;
 	cwd: string;
 	fresh: boolean;
+	modelSelector?: string;
+	thinkingLevel?: string;
 }
+
+export type { TerminalTaskConfiguration };
 
 export class TerminalSession {
 	private term: Terminal;
@@ -257,7 +265,12 @@ export class TerminalSession {
 	}
 
 	private updateSessionInfo(info: TerminalSessionInfo | null) {
-		if (info?.sessionId === this.currentSession?.sessionId && info?.fresh === this.currentSession?.fresh) return;
+		if (
+			info?.sessionId === this.currentSession?.sessionId &&
+			info?.fresh === this.currentSession?.fresh &&
+			info?.modelSelector === this.currentSession?.modelSelector &&
+			info?.thinkingLevel === this.currentSession?.thinkingLevel
+		) return;
 		this.currentSession = info;
 		this.onSessionChange(info);
 	}
@@ -301,12 +314,21 @@ export class TerminalSession {
 		this.setInputPending(0);
 	}
 
-	public async startTask(prompt: string) {
+	public async startTask(prompt: string, configuration?: TerminalTaskConfiguration) {
 		if (!prompt.trim()) throw new Error('Il task non contiene un prompt');
 		if (prompt.includes('\x1b[201~')) throw new Error('Il prompt contiene una sequenza di controllo non supportata');
 		this.assertAutomationReady();
 		const previous = await this.readSessionInfo();
 		if (!previous) throw new Error('OMP non ha ancora pubblicato la sessione corrente');
+
+		// Il controllo guarda la sessione corrente, non quella che nascera' da
+		// `/new`: il modello appartiene al processo omp e resta lo stesso, mentre
+		// la sessione nuova non ha ancora un file JSONL da cui leggerlo.
+		if (configuration?.modelSelector) {
+			const mismatch = describeConfigurationMismatch(previous, configuration);
+			if (mismatch) throw new Error(mismatch);
+		}
+
 		await this.writePty('/new\r');
 		const next = await this.waitForSession(
 			(info) => info.sessionId !== previous.sessionId,

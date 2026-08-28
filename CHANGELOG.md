@@ -22,6 +22,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nuova opzione «Larghezza chat» nelle impostazioni generali: permette di scegliere tra il layout centrato con margini bilanciati per la leggibilità e il layout a tutta colonna.
 - Nuova scheda **Regole** nel pannello AGENTE: elenca i file di contesto del progetto (`AGENTS.md`, `.omp/rules/*.md`, `CLAUDE.md`, `GEMINI.md`) e le skill disponibili, di progetto e globali, con nome, comando `/nome` e descrizione. Un click apre il file nell'editor; le skill fuori dal progetto si mostrano nel file manager. Se il progetto non ha `AGENTS.md`, un pulsante lo crea con uno scheletro e lo apre subito.
 - La scheda Regole segnala le correzioni che ti tocca ripetere: quando lo storico locale mostra due o più volte la stessa richiesta (eseguire i test, verificare la build, non toccare file estranei), propone la regola corrispondente da aggiungere ad `AGENTS.md`, con l'anteprima esatta delle righe e i pulsanti Applica, Modifica e Ignora. Una proposta per volta, un contatore sulla scheda, e nessuna scrittura senza il tuo click.
+- L'editor dei task propone i modelli usati più spesso nel progetto: i chip «Usati spesso» ricordano le coppie modello + sforzo di ragionamento delle esecuzioni recenti e le applicano con un click.
+- Sotto il modello scelto compare cosa costa usarlo: la quota residua del provider con le finestre e gli orari di ripristino nel tooltip se è un abbonamento, il prezzo per milione di token se è a consumo, più un avviso quando lo stesso modello è già al lavoro in un altro progetto.
 
 ### Changed
 
@@ -43,6 +45,10 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - A ogni cambio di stato dell'agente la tessera lampeggia una volta nel colore del progetto: te ne accorgi con la coda dell'occhio anche mentre leggi il terminale.
 - Il contatore dei task in coda è dentro la tessera del progetto aperto invece di essere un bollino sovrapposto: resta nei quattro stili di sempre, e il totale su tutti i progetti continua a essere nel chip «Coda».
 - L'impostazione «Puntino di stato agente» si chiama «Segno di stato agente» e accende o spegne i due anelli di stato; «Etichetta tessera» diventa «Nome sulle tessere» e sceglie se il nome del progetto compare solo sulla tessera aperta o su tutte.
+- L'elenco dei modelli nell'editor dei task contiene solo quelli davvero utilizzabili con le credenziali configurate, interrogando direttamente `omp`, invece dell'intero catalogo scaricato dai provider.
+- Il modello selezionato si legge a colpo d'occhio: provider sopra, nome del modello sotto, e tre icone per finestra di contesto, immagini e ragionamento al posto delle etichette testuali.
+- Modello e sforzo di ragionamento scelti in un task vengono applicati davvero alla sessione della chat grafica: se il modello richiesto non è disponibile il task resta in coda con l'errore, invece di partire in silenzio con un altro modello.
+- Sulla superficie terminale la configurazione del task viene verificata prima di lanciarlo: se la sessione di `omp` usa un altro modello il task resta in coda spiegando cosa allineare, perché il terminale non ha alcun comando per cambiare modello a una sessione.
 
 ### Fixed
 

@@ -37,6 +37,33 @@ export interface ProjectTaskPayload {
 	tasks: ProjectTask[];
 }
 
+interface StudioTaskConfigCommandContext {
+	ui: {
+		notify: (message: string, level: "info" | "error") => void;
+	};
+	models: {
+		resolve: (selector: string) => { provider: string; id: string } | undefined;
+	};
+}
+
+function parseStudioTaskConfig(raw: string): { modelSelector: string; thinkingLevel: string } | null {
+	try {
+		const parsed: unknown = JSON.parse(decodeURIComponent(raw.trim()));
+		if (!parsed || typeof parsed !== "object") return null;
+		if (!("modelSelector" in parsed) || typeof parsed.modelSelector !== "string") return null;
+		const thinkingLevel =
+			"thinkingLevel" in parsed && typeof parsed.thinkingLevel === "string"
+				? parsed.thinkingLevel
+				: "auto";
+		return {
+			modelSelector: parsed.modelSelector.trim(),
+			thinkingLevel: thinkingLevel.trim() || "auto"
+		};
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Assicura che la directory `.omp` esista e che `.omp/.gitignore` escluda `tasks.json`.
  */
@@ -614,6 +641,40 @@ export default function studioTasksExtension(pi: any): void {
 				default:
 					return { output: `Error: Unknown action '${action}'.`, isError: true };
 			}
+		}
+	});
+
+	// Comando interno usato dal composer di Studio prima di inviare un task
+	// alla TUI. Passa da ExtensionAPI invece di pilotare menu e scorciatoie,
+	// che l'utente puo' rimappare e che cambiano tra versioni di omp.
+	pi.registerCommand("studio-task-config", {
+		description: "Applica modello e thinking a un task avviato da OMP Studio",
+		handler: async (args: string, ctx: StudioTaskConfigCommandContext) => {
+			const config = parseStudioTaskConfig(args);
+			if (!config) {
+				ctx.ui.notify("Configurazione task non valida", "error");
+				return;
+			}
+
+			const { modelSelector, thinkingLevel } = config;
+			const model = ctx.models.resolve(modelSelector);
+			if (!model) {
+				ctx.ui.notify(`Modello task non disponibile: ${modelSelector}`, "error");
+				return;
+			}
+
+			const applied = await pi.setModel(model);
+			if (!applied) {
+				ctx.ui.notify(`Credenziali non disponibili per ${modelSelector}`, "error");
+				return;
+			}
+			if (thinkingLevel !== "auto") {
+				pi.setThinkingLevel(thinkingLevel);
+			}
+			ctx.ui.notify(
+				`Task: ${model.provider}/${model.id} · thinking ${thinkingLevel}`,
+				"info"
+			);
 		}
 	});
 

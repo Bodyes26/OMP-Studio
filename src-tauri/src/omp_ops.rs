@@ -353,6 +353,7 @@ pub struct ProviderHost {
     pub model: String,
     pub host: String,
     pub project: String,
+    pub project_path: String,
     pub last_active_ms: i64,
 }
 
@@ -422,7 +423,8 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
             collect_subagent_sessions(&subagents_dir, 0, &mut session_files);
         }
 
-        let project_name = project_from_cwd(cwd.trim_end_matches('\r'));
+        let project_path = cwd.trim_end_matches('\r').to_string();
+        let project_name = project_from_cwd(&project_path);
         let host_name = provider_host(&breadcrumb_name).to_string();
 
         for file_path in session_files {
@@ -457,12 +459,13 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
             };
 
             if let Some((provider, model)) = assistant_providers_in_tail(&tail, starts_mid_line) {
-                let dedupe_key = (project_name.clone(), provider.clone());
+                let dedupe_key = (project_path.clone(), provider.clone());
                 let candidate = ProviderHost {
                     provider,
                     model,
                     host: host_name.clone(),
                     project: project_name.clone(),
+                    project_path: project_path.clone(),
                     last_active_ms,
                 };
 

@@ -5,8 +5,27 @@ export type ProviderHost = {
 	model: string;
 	host: string;
 	project: string;
+	project_path?: string;
 	last_active_ms: number;
 };
+
+const PROVIDER_FAMILY_BY_ID: Record<string, string> = {
+	openai: 'openai',
+	'openai-codex': 'openai',
+	google: 'google',
+	'google-antigravity': 'google',
+	copilot: 'copilot',
+	'github-copilot': 'copilot',
+	ollama: 'ollama',
+	'ollama-cloud': 'ollama'
+};
+
+export function providersMatch(left: string | undefined, right: string | undefined): boolean {
+	if (!left || !right) return false;
+	const first = left.trim().toLowerCase();
+	const second = right.trim().toLowerCase();
+	return (PROVIDER_FAMILY_BY_ID[first] ?? first) === (PROVIDER_FAMILY_BY_ID[second] ?? second);
+}
 
 export type QuotaStatus = 'idle' | 'loading' | 'ok' | 'warning' | 'exhausted' | 'unconfigured' | 'offline';
 

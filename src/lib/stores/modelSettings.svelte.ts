@@ -139,6 +139,8 @@ class ModelSettingsStore {
 	config = $state<ModelConfigDto | null>(null);
 	draftConfig = $state<ModelConfigDto | null>(null);
 	catalog = $state<ModelDto[]>([]);
+	availableCatalog = $state<ModelDto[]>([]);
+	availableCatalogLoaded = $state(false);
 	customProviders = $state<Record<string, CustomProviderDef>>({});
 	draftCustomProviders = $state<Record<string, CustomProviderDef>>({});
 	authProviders = $state<AuthProviderSummary[]>([]);
@@ -180,9 +182,13 @@ class ModelSettingsStore {
 	async loadAll() {
 		this.loading = true;
 		try {
-			const [cfg, cat, custom, auth] = await Promise.all([
+			const [cfg, cat, available, custom, auth] = await Promise.all([
 				invoke<ModelConfigDto>('get_model_config'),
 				invoke<ModelDto[]>('get_models_catalog'),
+				invoke<ModelDto[]>('get_available_models_catalog').catch((error) => {
+					console.warn('Available models catalog:', error);
+					return [];
+				}),
 				invoke<CustomProvidersFile>('get_custom_providers'),
 				invoke<AuthProviderSummary[]>('get_auth_providers_summary')
 			]);
@@ -190,6 +196,8 @@ class ModelSettingsStore {
 			this.config = cfg;
 			this.draftConfig = JSON.parse(JSON.stringify(cfg));
 			this.catalog = cat;
+			this.availableCatalog = available;
+			this.availableCatalogLoaded = true;
 			this.customProviders = custom.providers || {};
 			this.draftCustomProviders = JSON.parse(JSON.stringify(custom.providers || {}));
 			this.authProviders = auth;
@@ -201,13 +209,17 @@ class ModelSettingsStore {
 		}
 	}
 
-	/** Carica la configurazione e il catalogo in background se non ancora caricati, senza mostrare toast o bloccare l'interfaccia */
+	/** Carica la configurazione e i cataloghi in background senza mostrare toast o bloccare l'interfaccia. */
 	async ensureLoaded() {
-		if (this.config && this.catalog.length > 0) return;
+		if (this.config && this.catalog.length > 0 && this.availableCatalogLoaded) return;
 		try {
-			const [cfg, cat] = await Promise.all([
+			const [cfg, cat, available] = await Promise.all([
 				invoke<ModelConfigDto>('get_model_config'),
-				invoke<ModelDto[]>('get_models_catalog')
+				invoke<ModelDto[]>('get_models_catalog'),
+				invoke<ModelDto[]>('get_available_models_catalog').catch((error) => {
+					console.warn('Available models catalog:', error);
+					return [];
+				})
 			]);
 			if (!this.config) {
 				this.config = cfg;
@@ -216,6 +228,8 @@ class ModelSettingsStore {
 			if (this.catalog.length === 0) {
 				this.catalog = cat;
 			}
+			this.availableCatalog = available;
+			this.availableCatalogLoaded = true;
 		} catch (e) {
 			console.error('ensureLoaded failed:', e);
 		}
@@ -241,6 +255,8 @@ class ModelSettingsStore {
 			if (customChanged || cfgChanged) {
 				const cat = await invoke<ModelDto[]>('refresh_models_catalog');
 				this.catalog = cat;
+				this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog');
+				this.availableCatalogLoaded = true;
 			}
 			this.clearSuggestionsCache();
 			this.showToast('Configurazione modelli salvata');
@@ -259,6 +275,8 @@ class ModelSettingsStore {
 		try {
 			const cat = await invoke<ModelDto[]>('refresh_models_catalog');
 			this.catalog = cat;
+			this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog');
+			this.availableCatalogLoaded = true;
 			this.clearSuggestionsCache();
 			this.showToast(`Catalogo aggiornato (${cat.length} modelli)`);
 		} catch (e) {
