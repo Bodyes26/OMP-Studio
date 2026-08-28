@@ -487,7 +487,13 @@ pub async fn rpc_open(
     if let Some(path) = &tasks_extension {
         command.arg("-e").arg(path);
     }
-    if let Some(session_id) = resume.as_deref().filter(|id| !id.is_empty()) {
+    // Il resume di una sessione senza transcript farebbe uscire omp subito:
+    // meglio aprirne una nuova, che e' esattamente cio' che la sessione vuota
+    // conteneva.
+    if let Some(session_id) = resume
+        .as_deref()
+        .filter(|id| !id.is_empty() && crate::omp_ops::session_transcript_exists(id))
+    {
         command.arg("--resume").arg(session_id);
     }
 

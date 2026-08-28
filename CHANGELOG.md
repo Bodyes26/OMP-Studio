@@ -52,6 +52,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Fixed
 
+- Passando dalla chat grafica al terminale (o viceversa) con una sessione ancora senza messaggi non compare più una shell nuda con «Session not found»: una sessione viene ripresa solo se ha davvero un transcript su disco, altrimenti la superficie ne apre una nuova.
 - Rimosso il limite rigido di 65 caratteri sui paragrafi Markdown della chat, che causava l'andata a capo anticipata del testo lasciando spazio vuoto solo a destra rispetto alle card dei tool.
 
 ## [1.2.0] - 2026-08-26

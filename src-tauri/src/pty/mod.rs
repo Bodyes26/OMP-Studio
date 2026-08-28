@@ -398,6 +398,29 @@ pub fn remove_breadcrumb(pty_id: u64) {
     }
 }
 
+/// Toglie la coppia `--resume <id>` quando quella sessione non e' ripristinabile.
+/// Il resto degli argomenti resta intatto, compreso un `--resume` valido.
+fn drop_unresumable_resume(args: Vec<String>, resumable: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut kept = Vec::with_capacity(args.len());
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if arg != "--resume" {
+            kept.push(arg);
+            continue;
+        }
+        match iter.next() {
+            Some(session_id) if resumable(&session_id) => {
+                kept.push(arg);
+                kept.push(session_id);
+            }
+            // Sia l'id non ripristinabile sia un `--resume` senza valore
+            // spariscono: in entrambi i casi omp uscirebbe subito.
+            Some(_) | None => {}
+        }
+    }
+    kept
+}
+
 #[tauri::command]
 pub async fn pty_open(
     cwd: String,
@@ -438,6 +461,13 @@ pub async fn pty_open(
     // scrittura in ~/.omp, la copia sta in %LOCALAPPDATA%/omp-studio.
     let extension_arg = write_extension("studio-diagram.ts", DIAGRAM_EXTENSION_TS);
     let tasks_extension_arg = write_extension("studio-tasks.ts", TASKS_EXTENSION_TS);
+
+    // Il `--resume` arriva dal frontend con l'id della sessione da cui si sta
+    // passando: se quella sessione non ha ancora un transcript, omp esce con
+    // «Session not found» e nel pannello resta la shell nuda invece del TUI.
+    let args = drop_unresumable_resume(args, |id| {
+        crate::omp_ops::session_transcript_exists(id)
+    });
 
     #[cfg(target_os = "windows")]
     let mut cmd = {
@@ -714,6 +744,37 @@ mod tests {
         assert_eq!(thinking, None);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn tiene_il_resume_ripristinabile_e_scarta_gli_altri() {
+        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        assert_eq!(
+            drop_unresumable_resume(args(&["--resume", "sessione-viva", "--cwd", "C:/p"]), |id| id
+                == "sessione-viva"),
+            args(&["--resume", "sessione-viva", "--cwd", "C:/p"])
+        );
+
+        // Sessione senza transcript: resta il resto della riga di comando.
+        assert_eq!(
+            drop_unresumable_resume(args(&["--cwd", "C:/p", "--resume", "sessione-fresh"]), |_| {
+                false
+            }),
+            args(&["--cwd", "C:/p"])
+        );
+
+        // `--resume` in coda senza id: omp uscirebbe comunque.
+        assert_eq!(
+            drop_unresumable_resume(args(&["--cwd", "C:/p", "--resume"]), |_| true),
+            args(&["--cwd", "C:/p"])
+        );
+
+        // Nessun `--resume`: argomenti invariati.
+        assert_eq!(
+            drop_unresumable_resume(args(&["-e", "ext.ts"]), |_| false),
+            args(&["-e", "ext.ts"])
+        );
     }
 
     #[test]

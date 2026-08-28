@@ -292,6 +292,50 @@ fn assistant_providers_in_tail(jsonl_tail: &str, starts_mid_line: bool) -> Optio
     None
 }
 
+/// Vero quando la sessione ha un transcript su disco.
+///
+/// `omp --resume <id>` cerca il file della sessione: una sessione senza
+/// messaggi non ne ha ancora uno (lo scrive col primo messaggio), quindi il
+/// resume esce con «Session not found» e la superficie resta senza agente.
+/// Il breadcrumb non basta a distinguerli: il marcatore `fresh` manca su molti
+/// breadcrumb il cui `.jsonl` non esiste comunque.
+fn transcript_exists_in(sessions_root: &Path, session_id: &str) -> bool {
+    if session_id.is_empty() {
+        return false;
+    }
+    let Ok(folders) = std::fs::read_dir(sessions_root) else {
+        return false;
+    };
+    for folder in folders.flatten() {
+        let Ok(files) = std::fs::read_dir(folder.path()) else {
+            continue;
+        };
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            // Nome file: `<timestamp>_<sessionId>.jsonl`. `--resume` accetta
+            // anche un prefisso dell'id, quindi il confronto lo ammette.
+            let candidate = stem.rsplit('_').next().unwrap_or(stem);
+            if candidate.starts_with(session_id) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub fn session_transcript_exists(session_id: &str) -> bool {
+    let Some(agent) = agent_dir() else {
+        return false;
+    };
+    transcript_exists_in(&agent.join("sessions"), session_id)
+}
+
 fn collect_subagent_sessions(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     if depth > 4 {
         return;
@@ -1078,6 +1122,41 @@ mod tests {
                 "gemini-3.7-flash".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn riconosce_le_sessioni_con_transcript_su_disco() {
+        let root = std::env::temp_dir().join(format!(
+            "omp-studio-sessions-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let progetto = root.join("-source-repos-app");
+        std::fs::create_dir_all(&progetto).unwrap();
+        std::fs::write(
+            progetto.join("2026-08-28T07-24-00-669Z_01a04741-0d1d-73fa-8437-7b15b016d35c.jsonl"),
+            "{}\n",
+        )
+        .unwrap();
+        // Il breadcrumb di una sessione senza messaggi punta a un file che non
+        // esiste: nessun `.jsonl`, nessun resume possibile.
+        std::fs::write(progetto.join("note.txt"), "non e' un transcript").unwrap();
+
+        assert!(transcript_exists_in(
+            &root,
+            "01a04741-0d1d-73fa-8437-7b15b016d35c"
+        ));
+        // `--resume` accetta anche il prefisso dell'id.
+        assert!(transcript_exists_in(&root, "01a04741"));
+        assert!(!transcript_exists_in(
+            &root,
+            "01a0473c-187f-74fa-8ac2-f34e6b11fa91"
+        ));
+        assert!(!transcript_exists_in(&root, ""));
+        assert!(!transcript_exists_in(&root.join("inesistente"), "01a04741"));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
