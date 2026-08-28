@@ -11,6 +11,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 
+- Cursore fluido e animato (smooth cursor) nella casella di testo della chat della GUI: scorrimento morbido e reattivo durante la digitazione, navigazione tra i caratteri o selezione, con respiro/lampeggio morbido a riposo e rispetto delle preferenze di movimento ridotto del sistema.
 - Nuovo wizard interattivo per le domande dell'agente (`ask`): navigazione a schede tra domande multiple (`Freccia Sinistra/Destra`), aggiunta di note o specifiche opzionali a qualsiasi risposta (`N`), spunte a casella per le scelte multiple con stato visivo immediato e schermata finale di riepilogo per verificare tutte le risposte prima dell'invio.
 - Il renderer dello storico del tool `ask` nella chat mostra tutte le domande poste con le relative scelte selezionate, le risposte personalizzate e le note dell'utente.
 - Il pannello di un progetto si apre anche col **click destro** sulla tessera (o col tasto `Menu`): resta fissato finché non scegli un comando, premi `Esc` o clicchi fuori. Il menu contestuale della WebView, con voci come «Ricarica» e «Stampa», non compare più da nessuna parte dell'app tranne nei campi di testo, nell'editor e nel terminale, dove serve per copiare e incollare.

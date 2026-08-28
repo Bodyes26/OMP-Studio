@@ -16,3 +16,4 @@ import './studio-tasks.test.ts';
 import './acl-coverage.test.ts';
 import './context-menu-and-tree.test.ts';
 import './ask-tool.test.ts';
+import './smooth-cursor.test.ts';

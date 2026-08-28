@@ -30,6 +30,7 @@ import {
 } from '../commands';
 import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
 import { IconClose, IconCheck, IconSettings, IconKeyboard } from '$lib/icons';
+import { getCaretCoordinates } from './caretCoordinates';
 	let {
 		session,
 		visible = true,
@@ -47,6 +48,16 @@ import { IconClose, IconCheck, IconSettings, IconKeyboard } from '$lib/icons';
 	let paletteQuery = $state('');
 	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
 	let shortcutsHelpOpen = $state(false);
+
+	// Stato per smooth cursor (cursore fluido animato sulla textarea di chat)
+	let cursorX = $state(0);
+	let cursorY = $state(0);
+	let cursorHeight = $state(18);
+	let isCursorFocused = $state(false);
+	let isCursorBlinking = $state(false);
+	let hasTextSelection = $state(false);
+	let cursorInstantSnap = $state(false);
+	let blinkTimer: number | null = null;
 
 // Menu a comparsa per i chip di stato
 let activeMenu = $state<'role' | 'model' | 'thinking' | 'queue' | null>(null);
@@ -158,16 +169,83 @@ $effect(() => {
 			});
 		}
 	}
+	function updateSmoothCursor(instant = false) {
+		if (!textareaEl) return;
+		const isFocused = typeof document !== 'undefined' && document.activeElement === textareaEl;
+		isCursorFocused = isFocused;
+		if (!isFocused) return;
+
+		const start = textareaEl.selectionStart ?? 0;
+		const end = textareaEl.selectionEnd ?? 0;
+		hasTextSelection = start !== end;
+		if (hasTextSelection) return;
+
+		const coords = getCaretCoordinates(textareaEl, start);
+		cursorX = coords.left;
+		cursorY = coords.top;
+		cursorHeight = coords.height;
+
+		if (instant) {
+			cursorInstantSnap = true;
+			void tick().then(() => {
+				cursorInstantSnap = false;
+			});
+		}
+
+		// Resetta il timer di lampeggio/respiro morbido a riposo (500ms di inattività)
+		isCursorBlinking = false;
+		if (blinkTimer !== null) {
+			window.clearTimeout(blinkTimer);
+		}
+		blinkTimer = window.setTimeout(() => {
+			isCursorBlinking = true;
+		}, 500);
+	}
+
+	$effect(() => {
+		if (typeof document === 'undefined') return;
+		function handleSelectionChange() {
+			if (document.activeElement === textareaEl) {
+				updateSmoothCursor();
+			}
+		}
+		document.addEventListener('selectionchange', handleSelectionChange);
+		return () => {
+			document.removeEventListener('selectionchange', handleSelectionChange);
+		};
+	});
+
+	$effect(() => {
+		if (!textareaEl || typeof ResizeObserver === 'undefined') return;
+		const ro = new ResizeObserver(() => {
+			if (isCursorFocused) {
+				updateSmoothCursor();
+			}
+		});
+		ro.observe(textareaEl);
+		return () => {
+			ro.disconnect();
+		};
+	});
+
+	$effect(() => {
+		// Reattività su cambi di testo esterni (es. invio prompt, slash autocomplete)
+		const _ = text;
+		if (isCursorFocused) {
+			void tick().then(() => updateSmoothCursor());
+		}
+	});
 
 	function handleComposerInput() {
 		adjustTextareaHeight();
 		updateSlashState();
+		updateSmoothCursor();
 	}
 
 	function handleCursorMovement() {
 		updateSlashState();
+		updateSmoothCursor();
 	}
-
 	// Auto-dimensionamento della textarea fino a circa 12 righe (~240px)
 	function adjustTextareaHeight() {
 		if (!textareaEl) return;
@@ -832,19 +910,34 @@ $effect(() => {
 		role="region"
 		aria-label="Area di scrittura"
 	>
-		<textarea
-			bind:this={textareaEl}
-			bind:value={text}
-			oninput={handleComposerInput}
-			onclick={handleCursorMovement}
-			onkeyup={handleCursorMovement}
-			onkeydown={handleKeydown}
-			onpaste={handlePaste}
-			placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere" : "Scrivi un messaggio... digita / per i comandi (Alt+H scorciatoie)"}
-			rows="1"
-			class="composer-textarea"
-			aria-label="Messaggio per l'assistente"
-		></textarea>
+		<div class="composer-textarea-wrap">
+			<textarea
+				bind:this={textareaEl}
+				bind:value={text}
+				oninput={handleComposerInput}
+				onclick={handleCursorMovement}
+				onkeyup={handleCursorMovement}
+				onkeydown={handleKeydown}
+				onpaste={handlePaste}
+				onfocus={() => updateSmoothCursor(true)}
+				onblur={() => { isCursorFocused = false; }}
+				onscroll={handleCursorMovement}
+				placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere" : "Scrivi un messaggio... digita / per i comandi (Alt+H scorciatoie)"}
+				rows="1"
+				class="composer-textarea"
+				class:has-smooth-cursor={isCursorFocused}
+				aria-label="Messaggio per l'assistente"
+			></textarea>
+
+			<div
+				class="smooth-cursor"
+				class:visible={isCursorFocused && !hasTextSelection}
+				class:blinking={isCursorBlinking}
+				class:no-transition={cursorInstantSnap}
+				style="transform: translate3d({cursorX}px, {cursorY}px, 0); height: {cursorHeight}px;"
+				aria-hidden="true"
+			></div>
+		</div>
 
 		<div class="actions-group">
 			<!-- Pulsante Invio / Stop -->
@@ -1356,7 +1449,16 @@ $effect(() => {
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-sm);
 	}
+	.composer-textarea-wrap {
+		position: relative;
+		flex: 1;
+		display: flex;
+		min-width: 0;
+		align-self: stretch;
+	}
+
 	.composer-textarea {
+		width: 100%;
 		flex: 1;
 		min-height: 36px;
 		max-height: 240px;
@@ -1370,6 +1472,59 @@ $effect(() => {
 		font-size: var(--text-base);
 		color: var(--ink);
 		line-height: 1.45;
+	}
+
+	.composer-textarea.has-smooth-cursor {
+		caret-color: transparent;
+	}
+
+	.smooth-cursor {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 2px;
+		border-radius: 1px;
+		background: var(--brand);
+		pointer-events: none;
+		z-index: 2;
+		opacity: 0;
+		transform: translate3d(0, 0, 0);
+		transition:
+			transform 80ms cubic-bezier(0.1, 0.9, 0.2, 1),
+			height 80ms cubic-bezier(0.1, 0.9, 0.2, 1),
+			opacity 140ms ease-out;
+		will-change: transform, height, opacity;
+	}
+
+	.smooth-cursor.visible {
+		opacity: 1;
+	}
+
+	.smooth-cursor.no-transition {
+		transition: opacity 140ms ease-out !important;
+	}
+
+	.smooth-cursor.blinking {
+		animation: smooth-cursor-blink 1s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+	}
+
+	@keyframes smooth-cursor-blink {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.smooth-cursor {
+			transition: none !important;
+			animation: none !important;
+		}
+		.smooth-cursor.blinking {
+			opacity: 1;
+		}
 	}
 
 	.composer-textarea:focus,
