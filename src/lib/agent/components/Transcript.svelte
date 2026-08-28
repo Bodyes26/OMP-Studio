@@ -115,7 +115,32 @@
 		</div>
 	{/if}
 
-	{#if session.visibleEntries.length === 0}
+	{#if session.isLoading && session.visibleEntries.length === 0}
+		<div class="resume-loading-state" aria-live="polite" aria-busy="true">
+			<div class="resume-header">
+				<div class="resume-spinner" aria-hidden="true"></div>
+				<span class="resume-title">Caricamento sessione in corso...</span>
+			</div>
+			<div class="skeleton-stream">
+				<div class="skeleton-card skeleton-user">
+					<div class="skeleton-line w-40"></div>
+					<div class="skeleton-line w-75"></div>
+				</div>
+				<div class="skeleton-card skeleton-assistant">
+					<div class="skeleton-line w-90"></div>
+					<div class="skeleton-line w-60"></div>
+					<div class="skeleton-line w-80"></div>
+				</div>
+				<div class="skeleton-card skeleton-tool">
+					<div class="skeleton-line w-50"></div>
+				</div>
+				<div class="skeleton-card skeleton-assistant">
+					<div class="skeleton-line w-85"></div>
+					<div class="skeleton-line w-70"></div>
+				</div>
+			</div>
+		</div>
+	{:else if session.visibleEntries.length === 0}
 		<div class="empty-state">
 			<div class="empty-header">
 				<h2 class="project-title">{projectName}</h2>
@@ -231,6 +256,89 @@
 		flex: 1;
 		justify-content: center;
 	}
+	.resume-loading-state {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		max-width: 640px;
+		margin: 0 auto;
+		width: 100%;
+		padding: var(--space-4) var(--space-2);
+		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
+	}
+
+	.resume-header {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-2);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+	}
+
+	.resume-spinner {
+		width: 14px;
+		height: 14px;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		animation: spin-fast 600ms linear infinite;
+		flex: 0 0 auto;
+	}
+
+	.skeleton-stream {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		width: 100%;
+	}
+
+	.skeleton-card {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-md);
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		animation: shimmer-pulse 1.8s ease-in-out infinite;
+	}
+
+	.skeleton-card.skeleton-user {
+		align-self: flex-end;
+		width: 65%;
+		background: color-mix(in srgb, var(--brand-dim) 25%, var(--bg-raised));
+		border-color: color-mix(in srgb, var(--brand-dim) 50%, var(--line));
+	}
+
+	.skeleton-card.skeleton-assistant {
+		align-self: flex-start;
+		width: 85%;
+	}
+
+	.skeleton-card.skeleton-tool {
+		align-self: flex-start;
+		width: 50%;
+		background: var(--bg-sunken);
+		border-style: dashed;
+	}
+
+	.skeleton-line {
+		height: 10px;
+		border-radius: var(--radius-sm);
+		background: var(--line-strong);
+	}
+
+	.w-40 { width: 40%; }
+	.w-50 { width: 50%; }
+	.w-60 { width: 60%; }
+	.w-70 { width: 70%; }
+	.w-75 { width: 75%; }
+	.w-80 { width: 80%; }
+	.w-85 { width: 85%; }
+	.w-90 { width: 90%; }
+
 
 	.empty-state {
 		display: flex;

@@ -167,10 +167,14 @@
 	<form onsubmit={handleSearch} class="search-form">
 		<label for="session-search">Cerca nelle sessioni</label>
 		<div class="search-row">
-			<svg viewBox="0 0 16 16" aria-hidden="true">
-				<circle cx="7" cy="7" r="4.5" />
-				<path d="m10.5 10.5 3.5 3.5" />
-			</svg>
+			{#if loading && displaySessions.length > 0}
+				<div class="search-spinner" aria-hidden="true"></div>
+			{:else}
+				<svg viewBox="0 0 16 16" aria-hidden="true">
+					<circle cx="7" cy="7" r="4.5" />
+					<path d="m10.5 10.5 3.5 3.5" />
+				</svg>
+			{/if}
 			<input
 				id="session-search"
 				type="search"
@@ -184,15 +188,18 @@
 
 	<ul class="list" aria-label="Elenco sessioni" aria-busy={loading}>
 		{#if loading && displaySessions.length === 0}
-			<li class="msg">Caricamento sessioni...</li>
+			<li class="loading-state" aria-live="polite">
+				<div class="spinner" aria-hidden="true"></div>
+				<span class="loading-label">Caricamento sessioni...</span>
+			</li>
 		{:else if loadError}
 			<li class="msg error" role="alert">{loadError}</li>
 		{:else if displaySessions.length === 0}
 			<li class="msg">Nessuna sessione trovata per questo progetto.</li>
 		{:else}
-			{#each displaySessions as session (session.id)}
+			{#each displaySessions as session, i (session.id)}
 				{@const isCurrent = session.id === currentSessionId}
-				<li>
+				<li class="session-item-animated" style:--index={Math.min(i, 15)}>
 					<button
 						type="button"
 						class="session-row"
@@ -310,6 +317,48 @@
 		margin: 0;
 		padding: 0;
 	}
+	.loading-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-3);
+		padding: var(--space-6) var(--space-4);
+		color: var(--ink-muted);
+		text-align: center;
+		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
+	}
+
+	.spinner {
+		width: 20px;
+		height: 20px;
+		border: 2px solid var(--line-strong);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		animation: spin-fast 600ms linear infinite;
+	}
+
+	.loading-label {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		letter-spacing: 0.02em;
+	}
+
+	.search-spinner {
+		width: 12px;
+		height: 12px;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		animation: spin-fast 600ms linear infinite;
+		flex: 0 0 auto;
+	}
+
+	.session-item-animated {
+		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
+		animation-delay: min(calc(var(--index, 0) * 24ms), 300ms);
+	}
+
 	.msg {
 		padding: var(--space-4) var(--space-3);
 		color: var(--ink-faint);

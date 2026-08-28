@@ -35,8 +35,7 @@ export type DefaultSurface = 'terminal' | 'gui';
 /** Larghezza e allineamento del flusso della chat: centrata per leggibilita' o a tutta colonna. */
 export type ChatWidth = 'readable' | 'full';
 
-export type SettingsSection = 'general' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models';
-
+export type SettingsSection = 'general' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -49,6 +48,11 @@ export interface NotificationSettings {
 	appBadge: boolean;
 	/** Segnale sonoro alla notifica. */
 	sound: boolean;
+}
+
+export interface AccessibilitySettings {
+	/** Abilita animazioni e transizioni nell'interfaccia. */
+	animations: boolean;
 }
 
 export interface ProjectBarSettings {
@@ -104,6 +108,7 @@ export interface StudioSettings {
 	taskDefaults: TaskDefaults;
 	general: GeneralSettings;
 	notifications: NotificationSettings;
+	accessibility: AccessibilitySettings;
 }
 
 export const DEFAULT_SETTINGS: StudioSettings = {
@@ -150,6 +155,9 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		style: 'brief',
 		appBadge: true,
 		sound: true
+	},
+	accessibility: {
+		animations: true
 	}
 };
 
@@ -188,6 +196,7 @@ export function parseSettings(value: unknown): StudioSettings {
 	const tasks = (record.taskDefaults && typeof record.taskDefaults === 'object' ? record.taskDefaults : {}) as Record<string, unknown>;
 	const general = (record.general && typeof record.general === 'object' ? record.general : {}) as Record<string, unknown>;
 	const notif = (record.notifications && typeof record.notifications === 'object' ? record.notifications : {}) as Record<string, unknown>;
+	const access = (record.accessibility && typeof record.accessibility === 'object' ? record.accessibility : {}) as Record<string, unknown>;
 	const d = DEFAULT_SETTINGS;
 
 	return {
@@ -232,6 +241,9 @@ export function parseSettings(value: unknown): StudioSettings {
 			style: pick(notif.style, ['brief', 'detailed'] as const, d.notifications.style),
 			appBadge: bool(notif.appBadge, d.notifications.appBadge),
 			sound: bool(notif.sound, d.notifications.sound)
+		},
+		accessibility: {
+			animations: bool(access.animations, d.accessibility.animations)
 		}
 	};
 }
@@ -255,7 +267,7 @@ class SettingsStore {
 	taskDefaults = $state<TaskDefaults>({ ...DEFAULT_SETTINGS.taskDefaults });
 	general = $state<GeneralSettings>({ ...DEFAULT_SETTINGS.general });
 	notifications = $state<NotificationSettings>({ ...DEFAULT_SETTINGS.notifications });
-
+	accessibility = $state<AccessibilitySettings>({ ...DEFAULT_SETTINGS.accessibility });
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
 	ready = $state(false);
 
@@ -287,6 +299,7 @@ class SettingsStore {
 			this.taskDefaults = parsed.taskDefaults;
 			this.general = parsed.general;
 			this.notifications = parsed.notifications;
+			this.accessibility = parsed.accessibility;
 		} catch {
 			// Impostazioni illeggibili: si lavora con i default, senza bloccare
 			// l'avvio. Il costo di un errore qui deve restare zero.
@@ -305,6 +318,7 @@ class SettingsStore {
 			taskDefaults: $state.snapshot(this.taskDefaults),
 			general: $state.snapshot(this.general),
 			notifications: $state.snapshot(this.notifications),
+			accessibility: $state.snapshot(this.accessibility),
 		};
 		await this.store.set('studioSettings', snapshot);
 		await this.store.save();
@@ -349,6 +363,11 @@ class SettingsStore {
 		this.save();
 	}
 
+	patchAccessibility(patch: Partial<AccessibilitySettings>) {
+		Object.assign(this.accessibility, patch);
+		this.save();
+	}
+
 	/** Riporta ai default una sezione, o tutto se non se ne indica una. */
 	reset(section?: Exclude<SettingsSection, 'models'>) {
 		if (!section || section === 'projectBar') this.projectBar = { ...DEFAULT_SETTINGS.projectBar };
@@ -359,6 +378,7 @@ class SettingsStore {
 		if (!section || section === 'tasks') this.taskDefaults = { ...DEFAULT_SETTINGS.taskDefaults };
 		if (!section || section === 'general') this.general = { ...DEFAULT_SETTINGS.general };
 		if (!section || section === 'notifications') this.notifications = { ...DEFAULT_SETTINGS.notifications };
+		if (!section || section === 'accessibility') this.accessibility = { ...DEFAULT_SETTINGS.accessibility };
 		this.save();
 	}
 }

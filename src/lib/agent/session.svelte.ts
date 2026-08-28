@@ -194,6 +194,9 @@ export class AgentSession {
 	isCompacting = $state(false);
 	isReady = $state(false);
 	isAttached = $state(false);
+	isAttaching = $state(false);
+	isRebuildingTranscript = $state(false);
+	requestedResume = $state<string | null>(null);
 	activeAssistantId = $state<number | null>(null);
 
 	model = $state<ModelInfo | null>(null);
@@ -226,9 +229,7 @@ export class AgentSession {
 	private readonly cwd: string;
 	private stateRefresh: Promise<void> | null = null;
 	private opening: Promise<void> | null = null;
-	private requestedResume: string | null = null;
 	private recoveredResume: string | null = null;
-	private isAttaching = false;
 	private attachEventQueue: AgentSessionEvent[] = [];
 	private isAborting = false;
 	private unsubscribeEvent: (() => void) | null = null;
@@ -252,6 +253,16 @@ export class AgentSession {
 
 	get isStarting(): boolean {
 		return !this.isAttached && !this.exited;
+	}
+
+	/** Vero quando la sessione e' in fase di apertura, collegamento o caricamento dello storico. */
+	get isLoading(): boolean {
+		return !this.exited && (!this.isAttached || this.isAttaching || this.isRebuildingTranscript);
+	}
+
+	/** Vero se la sessione corrente sta effettuando la ripresa da uno storico di sessione. */
+	get isResuming(): boolean {
+		return this.isLoading && (!!this.requestedResume || (this.entries.length === 0 && !this.isAttached));
 	}
 	constructor(cwd: string) {
 		this.cwd = cwd;
@@ -316,8 +327,9 @@ export class AgentSession {
 		this.isReady = false;
 		this.isAttached = false;
 		this.isAttaching = false;
+		this.isRebuildingTranscript = false;
+		this.requestedResume = null;
 		this.isAborting = false;
-		this.attachEventQueue = [];
 		this.pendingStartupPrompts = [];
 		this.deltaBatcher.clear();
 	}
@@ -434,47 +446,52 @@ export class AgentSession {
 	 * solo messaggio con immagini sfonda il frame fisico da 1 MiB.
 	 */
 	private async rebuildTranscript() {
-		for (let attempt = 1; attempt <= REBUILD_ATTEMPTS; attempt++) {
-			const collected: AgentMessage[] = [];
-			let cursor: string | undefined;
-			let failed: string | null = null;
+		this.isRebuildingTranscript = true;
+		try {
+			for (let attempt = 1; attempt <= REBUILD_ATTEMPTS; attempt++) {
+				const collected: AgentMessage[] = [];
+				let cursor: string | undefined;
+				let failed: string | null = null;
 
-			do {
-				try {
-					const page = await this.client.send<{ messages?: AgentMessage[]; nextCursor?: string }>({
-						type: 'get_messages_page',
-						cursor,
-						limit: 256
-					});
-					if (Array.isArray(page?.messages)) collected.push(...page.messages);
-					cursor = typeof page?.nextCursor === 'string' ? page.nextCursor : undefined;
-				} catch (error) {
-					// `session_busy` e `stale_cursor` invalidano le pagine gia'
-					// raccolte: mescolarle darebbe un transcript inventato.
-					const code = error instanceof Error && 'code' in error ? error.code : undefined;
-					failed = code === 'session_busy' || code === 'stale_cursor' ? code : 'fatal';
-					break;
-				}
-			} while (cursor);
+				do {
+					try {
+						const page = await this.client.send<{ messages?: AgentMessage[]; nextCursor?: string }>({
+							type: 'get_messages_page',
+							cursor,
+							limit: 256
+						});
+						if (Array.isArray(page?.messages)) collected.push(...page.messages);
+						cursor = typeof page?.nextCursor === 'string' ? page.nextCursor : undefined;
+					} catch (error) {
+						// `session_busy` e `stale_cursor` invalidano le pagine gia'
+						// raccolte: mescolarle darebbe un transcript inventato.
+						const code = error instanceof Error && 'code' in error ? error.code : undefined;
+						failed = code === 'session_busy' || code === 'stale_cursor' ? code : 'fatal';
+						break;
+					}
+				} while (cursor);
 
-			if (failed === null) {
-				this.entries = this.mapHistory(collected);
-				// Le card ricostruite devono restare aggiornabili dalla diretta:
-				// nella mappa vanno le istanze reattive, prese dopo l'assegnazione.
-				this.toolEntries.clear();
-				for (const entry of this.entries) {
-					if (entry.kind === 'tool' && !entry.result) this.toolEntries.set(entry.toolCallId, entry);
+				if (failed === null) {
+					this.entries = this.mapHistory(collected);
+					// Le card ricostruite devono restare aggiornabili dalla diretta:
+					// nella mappa vanno le istanze reattive, prese dopo l'assegnazione.
+					this.toolEntries.clear();
+					for (const entry of this.entries) {
+						if (entry.kind === 'tool' && !entry.result) this.toolEntries.set(entry.toolCallId, entry);
+					}
+					this.optimisticUser = null;
+					this.visibleCount = RENDER_WINDOW;
+					return;
 				}
-				this.optimisticUser = null;
-				this.visibleCount = RENDER_WINDOW;
-				return;
+				if (failed === 'fatal') break;
+				const { promise, resolve } = Promise.withResolvers<void>();
+				window.setTimeout(resolve, 400 * attempt);
+				await promise;
 			}
-			if (failed === 'fatal') break;
-			const { promise, resolve } = Promise.withResolvers<void>();
-			window.setTimeout(resolve, 400 * attempt);
-			await promise;
+			this.pushNotice('warning', 'Transcript storico non ricostruito: la sessione e\u2019 occupata');
+		} finally {
+			this.isRebuildingTranscript = false;
 		}
-		this.pushNotice('warning', 'Transcript storico non ricostruito: la sessione e\u2019 occupata');
 	}
 
 	/** Storico -> entry. Stessa forma della diretta: nessun percorso separato. */

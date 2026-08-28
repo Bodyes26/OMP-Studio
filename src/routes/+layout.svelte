@@ -18,6 +18,13 @@
 	// Un unico listener sopprime il menu nativo della WebView e inoltra il
 	// click alle superfici con menu tematizzato: input, Monaco, xterm e file tree.
 	$effect(() => installContextMenuHandling());
+
+	// Sincronizza l'attributo data-animations sull'elemento radice per il controllo globale CSS
+	$effect(() => {
+		if (typeof document !== 'undefined') {
+			document.documentElement.dataset.animations = settingsStore.accessibility.animations ? 'true' : 'false';
+		}
+	});
 </script>
 
 {@render children()}

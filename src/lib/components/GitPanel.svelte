@@ -55,6 +55,7 @@
 	let expandedCommit = $state<string | null>(null);
 	let notRepo = $state(false);
 	let refreshError = $state<string | null>(null);
+	let isRefreshing = $state(false);
 	let sessions = $state<{ id: string; title: string; created_at: number }[]>([]);
 	let actionError = $state<string | null>(null);
 	function baseName(p: string): string {
@@ -82,7 +83,7 @@
 		const targetPath = projectPath;
 		if (!targetPath) return;
 		refreshError = null;
-
+		isRefreshing = true;
 		try {
 			const [branchRes, statusRes, numstatRes, lastRes, recentRes] = await Promise.all([
 				invoke('git_current_branch', { projectPath: targetPath }),
@@ -133,6 +134,8 @@
 				notRepo = false;
 				refreshError = msg;
 			}
+		} finally {
+			if (projectPath === targetPath) isRefreshing = false;
 		}
 	}
 
@@ -273,14 +276,16 @@
 
 		<div class="section-label">
 			Non committate
+			{#if isRefreshing}<span class="git-spinner" aria-hidden="true"></span>{/if}
 			{#if workingFiles.length > 0}<span class="count">{workingFiles.length}</span>{/if}
 		</div>
 		{#if workingFiles.length === 0}
 			<div class="empty">Albero pulito</div>
 		{:else}
-			{#each workingFiles as f (f.path)}
+			{#each workingFiles as f, i (f.path)}
 				<button
-					class="row"
+					class="row git-row-animated"
+					style:--index={Math.min(i, 8)}
 					title="{f.path} — clicca per il diff con HEAD"
 					onclick={() => onOpenWorkingDiff?.(f.path)}
 				>
@@ -300,9 +305,10 @@
 		{#if sessions.length === 0}
 			<div class="empty">Nessuna sessione</div>
 		{:else}
-			{#each sessions.slice(0, 8) as s (s.id)}
+			{#each sessions.slice(0, 8) as s, i (s.id)}
 				<button
-					class="row session-row"
+					class="row session-row git-row-animated"
+					style:--index={Math.min(i, 8)}
 					disabled={!canResume}
 					title={canResume ? `${s.title} — clicca per riprendere questa sessione` : resumeReason}
 					onclick={() => onResumeSession?.(s.id)}
@@ -372,8 +378,8 @@
 
 		{#if commits.length > 1}
 			<div class="section-label">Storico</div>
-			{#each commits.slice(1) as c (c.hash)}
-				<div class="commit-card">
+			{#each commits.slice(1) as c, i (c.hash)}
+				<div class="commit-card git-row-animated" style:--index={Math.min(i, 8)}>
 					<button class="commit-head" title={c.hash} onclick={() => toggleCommit(c.hash)}>
 						<span class="dot" aria-hidden="true"></span>
 						<span class="subject">{c.subject}</span>
@@ -735,5 +741,21 @@
 	.git-error .retry-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
+	}
+
+	.git-spinner {
+		display: inline-block;
+		width: 10px;
+		height: 10px;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		animation: spin-fast 600ms linear infinite;
+		margin-left: var(--space-1);
+	}
+
+	.git-row-animated {
+		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
+		animation-delay: min(calc(var(--index, 0) * 20ms), 200ms);
 	}
 </style>

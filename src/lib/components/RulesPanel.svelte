@@ -151,12 +151,13 @@
 
 		<div class="section-label">
 			Regole di contesto
+			{#if busy}<span class="rules-spinner" aria-hidden="true"></span>{/if}
 			{#if activeRulesCount > 0}<span class="count">{activeRulesCount}</span>{/if}
 		</div>
 
-		{#each context.rules as rule (rule.id)}
+		{#each context.rules as rule, i (rule.id)}
 			{#if rule.exists}
-				<button type="button" class="row" onclick={() => openRule(rule)}>
+				<button type="button" class="row rules-item-animated" style:--index={Math.min(i, 8)} onclick={() => openRule(rule)}>
 					<span class="row-icon">
 						{#if rule.rule_type === 'guidelines'}<IconFile />{:else}<IconRule />{/if}
 					</span>
@@ -187,10 +188,11 @@
 		{#if projectSkills.length === 0}
 			<div class="empty">Nessuna skill in <code>.omp/skills</code>.</div>
 		{:else}
-			{#each projectSkills as skill (skill.path)}
+			{#each projectSkills as skill, i (skill.path)}
 				<button
 					type="button"
-					class="row"
+					class="row rules-item-animated"
+					style:--index={Math.min(i, 8)}
 					disabled={!skill.rel_path}
 					onclick={() => skill.rel_path && onOpenFile(skill.rel_path)}
 				>
@@ -215,10 +217,11 @@
 		{#if globalSkills.length === 0}
 			<div class="empty">Nessuna skill in <code>~/.omp/agent</code>.</div>
 		{:else}
-			{#each globalSkills as skill (skill.path)}
+			{#each globalSkills as skill, i (skill.path)}
 				<button
 					type="button"
-					class="row"
+					class="row rules-item-animated"
+					style:--index={Math.min(i, 8)}
 					title="Fuori dal progetto: si apre nel file manager, non nell'editor"
 					onclick={() => void revealSkill(skill)}
 				>
@@ -241,9 +244,9 @@
 		<button
 			type="button"
 			class="btn"
+			class:spinning={busy}
 			disabled={busy}
 			onclick={() => void refresh()}
-			aria-busy={busy}
 		>
 			<IconRefresh />
 			{busy ? 'Analisi in corso...' : 'Aggiorna regole e analisi'}
@@ -524,5 +527,25 @@
 	code {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
+	}
+
+	.rules-spinner {
+		display: inline-block;
+		width: 10px;
+		height: 10px;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		animation: spin-fast 600ms linear infinite;
+		margin-left: var(--space-1);
+	}
+
+	.rules-item-animated {
+		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
+		animation-delay: min(calc(var(--index, 0) * 20ms), 200ms);
+	}
+
+	.btn.spinning :global(svg) {
+		animation: spin-fast 800ms linear infinite;
 	}
 </style>

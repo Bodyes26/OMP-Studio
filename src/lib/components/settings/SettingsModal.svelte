@@ -11,6 +11,7 @@
 	import ProjectBarSection from './ProjectBarSection.svelte';
 	import WorkspaceSection from './WorkspaceSection.svelte';
 	import TasksSection from './TasksSection.svelte';
+	import AccessibilitySection from './AccessibilitySection.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
@@ -18,6 +19,7 @@
 	// impostazioni. "Modelli" e' l'unica con le tre schede orizzontali storiche.
 	const NAV_SECTIONS: { id: SettingsSection; label: string }[] = [
 		{ id: 'general', label: 'Generale' },
+		{ id: 'accessibility', label: 'Accessibilità' },
 		{ id: 'notifications', label: 'Notifiche' },
 		{ id: 'projectBar', label: 'Barra progetti' },
 		{ id: 'workspace', label: 'Editor & Terminale' },
@@ -296,6 +298,10 @@
 				{:else if settingsStore.section === 'general'}
 					<div class="modal-body">
 						<GeneralSection />
+					</div>
+				{:else if settingsStore.section === 'accessibility'}
+					<div class="modal-body">
+						<AccessibilitySection />
 					</div>
 				{:else if settingsStore.section === 'notifications'}
 					<div class="modal-body">

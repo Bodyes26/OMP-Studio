@@ -11,6 +11,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 
+- Caricamenti animati e reveal fluido delle sessioni: spinner di caricamento e ingresso graduale (staggered) delle voci nello storico delle sessioni, micro-indicatore durante la ricerca e scheletro animato (skeleton stream) con transizione morbida durante la ripresa o apertura di una sessione nella chat GUI.
+- Nuova sezione «Accessibilità» nelle Impostazioni con interruttore per disattivare animazioni e transizioni dell'interfaccia, garantendo una risposta visiva istantanea e a basso consumo di risorse.
+- Indicatori di caricamento e transizioni graduali nel pannello Git (stato del repository e commit recenti) e nella scheda Regole durante l'analisi dell'attrito.
 - Cursore fluido e animato (smooth cursor) nella casella di testo della chat della GUI: scorrimento morbido e reattivo durante la digitazione, navigazione tra i caratteri o selezione, con respiro/lampeggio morbido a riposo e rispetto delle preferenze di movimento ridotto del sistema.
 - Nuovo wizard interattivo per le domande dell'agente (`ask`): navigazione a schede tra domande multiple (`Freccia Sinistra/Destra`), aggiunta di note o specifiche opzionali a qualsiasi risposta (`N`), spunte a casella per le scelte multiple con stato visivo immediato e schermata finale di riepilogo per verificare tutte le risposte prima dell'invio.
 - Il renderer dello storico del tool `ask` nella chat mostra tutte le domande poste con le relative scelte selezionate, le risposte personalizzate e le note dell'utente.
