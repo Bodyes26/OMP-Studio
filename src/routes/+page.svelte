@@ -18,6 +18,8 @@
 	import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
 	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
 	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
+	import ShortcutsHelpModal from '$lib/agent/components/ShortcutsHelpModal.svelte';
+	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
@@ -1184,6 +1186,11 @@
 	function handleKeydown(e: KeyboardEvent) {
 		// Esc chiude il dialogo piu' esterno, dal piu' recente al piu' vecchio.
 		if (e.key === 'Escape') {
+			if (shortcutsModalStore.isOpen) {
+				e.preventDefault();
+				shortcutsModalStore.close();
+				return;
+			}
 			if (showRestartModal) {
 				e.preventDefault();
 				showRestartModal = false;
@@ -1194,6 +1201,19 @@
 				showUpdatePromptModal = false;
 				return;
 			}
+			return;
+		}
+
+		// Alt+H, Alt+K, F1 o Ctrl+Alt+H: guida scorciatoie globale
+		const isAltOnly = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+		const keyLower = e.key.toLowerCase();
+		if (
+			(isAltOnly && (keyLower === 'h' || e.code === 'KeyH' || keyLower === 'k' || e.code === 'KeyK')) ||
+			e.key === 'F1' ||
+			((e.ctrlKey || e.metaKey) && e.altKey && (keyLower === 'h' || e.code === 'KeyH'))
+		) {
+			e.preventDefault();
+			shortcutsModalStore.toggle();
 			return;
 		}
 
@@ -1584,6 +1604,7 @@
 	{/if}
 
 	<StudioUpdateModal />
+	<ShortcutsHelpModal />
 	{#if viewingImage}
 		<ImageModal
 			data={viewingImage.data}

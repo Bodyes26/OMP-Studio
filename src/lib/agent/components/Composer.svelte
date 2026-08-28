@@ -19,7 +19,7 @@
 	import { prepareImage, extractImageFiles, isImageFile } from '../images';
 	import QueueChips from './QueueChips.svelte';
 import CommandPalette from './CommandPalette.svelte';
-import ShortcutsHelpModal from './ShortcutsHelpModal.svelte';
+import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 import {
 	STUDIO_SLASH_COMMANDS,
 	mergeCommands,
@@ -47,7 +47,6 @@ import { getCaretCoordinates } from './caretCoordinates';
 	let paletteOpen = $state(false);
 	let paletteQuery = $state('');
 	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
-	let shortcutsHelpOpen = $state(false);
 
 	// Stato per smooth cursor (cursore fluido animato sulla textarea di chat)
 	let cursorX = $state(0);
@@ -547,9 +546,9 @@ $effect(() => {
 
 		// Escape: chiusura a cascata o abort streaming
 		if (event.key === 'Escape') {
-			if (shortcutsHelpOpen) {
+			if (shortcutsModalStore.isOpen) {
 				event.preventDefault();
-				shortcutsHelpOpen = false;
+				shortcutsModalStore.close();
 				textareaEl?.focus();
 				return;
 			}
@@ -576,12 +575,12 @@ $effect(() => {
 		// Alt+H o Alt+K o F1: toggle modale scorciatoie
 		if ((isAltOnly && (keyLower === 'h' || code === 'KeyH' || keyLower === 'k' || code === 'KeyK')) || event.key === 'F1') {
 			event.preventDefault();
-			shortcutsHelpOpen = !shortcutsHelpOpen;
+			shortcutsModalStore.toggle();
 			return;
 		}
 
 		// Se il modale di aiuto e' aperto, non processare scorciatoie di composer
-		if (shortcutsHelpOpen) return;
+		if (shortcutsModalStore.isOpen) return;
 		// Navigazione da tastiera nei menu aperti
 		if (activeMenu === 'role') {
 			if (event.key === 'ArrowDown') {
@@ -1366,7 +1365,7 @@ $effect(() => {
 				title="Scorciatoie da tastiera (Alt+H o F1)"
 				onclick={(e) => {
 					e.stopPropagation();
-					shortcutsHelpOpen = !shortcutsHelpOpen;
+					shortcutsModalStore.toggle();
 				}}
 			>
 				<span class="chip-label"><IconKeyboard /></span>
@@ -1376,7 +1375,6 @@ $effect(() => {
 	</div>
 </div>
 
-<ShortcutsHelpModal open={shortcutsHelpOpen} onClose={() => (shortcutsHelpOpen = false)} />
 
 <style>
 	.composer-container {

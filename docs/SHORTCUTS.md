@@ -2,10 +2,11 @@
 
 OMP Studio delega l'intero blocco di tasti e scorciatoie convenzionali (incluse quelle con `Ctrl` e `Alt`) al terminale PTY, tranne quando il fuoco e' nell'editor Monaco. In quel caso le scorciatoie di gestione file agiscono solo sul file attivo, senza intercettare input del terminale.
 
-Le uniche scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+Alt`**, che non collide con le combinazioni primarie di `omp`.
+Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+Alt`** e la guida di aiuto **`Alt+H` / `Alt+K` / `F1`**, che non collidono con le combinazioni primarie di `omp`.
 
 | Scorciatoia | Contesto | Azione |
 |---|---|---|
+| `Alt+H` / `Alt+K` / `F1` | Globale | Apre la guida alle scorciatoie da tastiera con layout a 2 colonne e filtro |
 | `Ctrl+Alt+N` | Globale | Nuovo progetto (apre selettore cartella) |
 | `Ctrl+Alt+S` | Globale | Apre una chat Scratchpad (temporanea, `--no-session`) |
 | `Ctrl+Alt+U` | Globale | Apre e chiude il pannello consumi (quote) |
@@ -26,7 +27,6 @@ Le uniche scorciatoie globali catturate dall'app vivono dietro il modificatore *
 | `Alt+C` | Superficie GUI | Interrompe la risposta in corso o cancella il testo scritto |
 | `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato) |
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
-| `Alt+H` / `Alt+K` / `F1` | Superficie GUI | Apre la finestra di riepilogo delle scorciatoie da tastiera |
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
 | `Invio` | Composer GUI | Invia; con la palette aperta seleziona il comando evidenziato |
 | `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |

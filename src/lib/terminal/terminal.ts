@@ -10,6 +10,7 @@ import { invoke, Channel } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { canvasColors, onThemeChange } from '$lib/theme';
 import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
+import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 import {
 	describeConfigurationMismatch,
 	type TerminalTaskConfiguration
@@ -151,6 +152,23 @@ export class TerminalSession {
 		this.term.loadAddon(new ClipboardAddon());
 
 		this.term.open(container);
+		this.term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+			if (event.type === 'keydown') {
+				const isAltOnly = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+				const keyLower = event.key.toLowerCase();
+				// Alt+H, Alt+K, F1: guida scorciatoie globale
+				if ((isAltOnly && (keyLower === 'h' || event.code === 'KeyH' || keyLower === 'k' || event.code === 'KeyK')) || event.key === 'F1') {
+					shortcutsModalStore.toggle();
+					return false;
+				}
+				// Ctrl+Alt+... (scorciatoie globali del guscio Studio)
+				if (event.altKey && (event.ctrlKey || event.metaKey)) {
+					return false;
+				}
+			}
+			return true;
+		});
+
 
 		try {
 			this.term.loadAddon(new LigaturesAddon());

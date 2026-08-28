@@ -30,6 +30,7 @@ export { default as IconRefresh } from '@lucide/svelte/icons/refresh-cw';
 export { default as IconLoop } from '@lucide/svelte/icons/rotate-ccw';
 export { default as IconZoomIn } from '@lucide/svelte/icons/zoom-in';
 export { default as IconZoomOut } from '@lucide/svelte/icons/zoom-out';
+export { default as IconSearch } from '@lucide/svelte/icons/search';
 
 // Barra dei progetti e guscio.
 export { default as IconGhost } from '@lucide/svelte/icons/ghost';
