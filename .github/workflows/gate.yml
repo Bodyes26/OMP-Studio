@@ -34,7 +34,7 @@ jobs:
         run: node scripts/release.mjs --check
 
       - name: Tipi del frontend
-        run: npx svelte-check --tsconfig ./tsconfig.json --threshold warning
+        run: bun run check
 
       - name: Smoke test delle funzionalita critiche
         run: npm run test:smoke
