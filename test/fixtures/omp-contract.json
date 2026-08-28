@@ -1,0 +1,22 @@
+{
+  "descrizione": "Contratto verso omp da cui dipende OMP Studio. Ogni voce qui e' una cosa che, se omp la cambia, rompe Studio in silenzio: il test omp-contract.test.ts confronta questa fixture con il codice, cosi' una divergenza si vede prima del packaging invece che a casa dell'utente.",
+  "ompVersioniVerificate": {
+    "minima": "17.0.0",
+    "corrente": "18.0.4"
+  },
+  "setupVersion": 2,
+  "assetDiRelease": {
+    "windows-x86_64": "omp-windows-x64.exe",
+    "macos-aarch64": "omp-darwin-arm64",
+    "macos-x86_64": "omp-darwin-x64",
+    "linux-aarch64": "omp-linux-arm64",
+    "linux-x86_64": "omp-linux-x64"
+  },
+  "fileChecksumRelease": "SHA256SUMS.txt",
+  "chiaviConfigLette": ["setupVersion", "modelRoles", "theme", "colorBlindMode"],
+  "stderrSessioneAssente": [
+    "Session \"{id}\" not found.",
+    "Session \"{id}\" not found",
+    "Session {id} not found after update"
+  ]
+}

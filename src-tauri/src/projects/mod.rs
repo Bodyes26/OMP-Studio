@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::command;
 
 pub mod tasks;
@@ -257,6 +259,77 @@ pub async fn path_create_directory(
     })
 }
 
+/// Contatore dei nomi temporanei della rinomina in due passi: il pid da solo
+/// non basta se due rinomine convivono nello stesso processo.
+static RENAME_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Vero quando i due percorsi indicano lo stesso elemento sul disco. Serve a
+/// distinguere `foo` -> `Foo` su filesystem case-insensitive, dove la
+/// destinazione "esiste" solo perche' e' la sorgente, da una collisione reale
+/// con un elemento diverso.
+#[cfg(unix)]
+fn is_same_entry(old_path: &Path, new_path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    // symlink_metadata e non metadata: il leaf non va seguito, altrimenti un
+    // link e il suo bersaglio sembrerebbero lo stesso elemento.
+    match (
+        fs::symlink_metadata(old_path),
+        fs::symlink_metadata(new_path),
+    ) {
+        (Ok(old_meta), Ok(new_meta)) => {
+            old_meta.dev() == new_meta.dev() && old_meta.ino() == new_meta.ino()
+        }
+        _ => false,
+    }
+}
+
+/// Windows non espone dev/ino sulla `Metadata` stabile. NTFS e' comunque
+/// case-insensitive, quindi due nomi che differiscono solo per il case e che
+/// risolvono entrambi a un elemento esistente sono lo stesso elemento.
+#[cfg(not(unix))]
+fn is_same_entry(old_path: &Path, new_path: &Path) -> bool {
+    match (old_path.file_name(), new_path.file_name()) {
+        (Some(old_name), Some(new_name)) => {
+            old_name
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&new_name.to_string_lossy())
+                && fs::symlink_metadata(new_path).is_ok()
+        }
+        _ => false,
+    }
+}
+
+/// Rinomina in due passi per il caso "stesso elemento, solo case diverso":
+/// un rename diretto verso un percorso che risolve alla sorgente puo' essere
+/// trattato come no-op e lasciare sul disco il nome vecchio. Passiamo da un
+/// nome temporaneo unico nella stessa directory (un rename tra directory
+/// diverse non sarebbe atomico) e, se il secondo passo fallisce, riportiamo
+/// l'elemento al nome originale: nessun temporaneo resta sul disco.
+fn rename_via_temp(old_path: &Path, new_path: &Path) -> io::Result<()> {
+    let parent = old_path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "percorso senza directory"))?;
+
+    let temp_path = loop {
+        let counter = RENAME_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(".omp-rename.{}.{}", std::process::id(), counter));
+        if fs::symlink_metadata(&candidate).is_err() {
+            break candidate;
+        }
+    };
+
+    fs::rename(old_path, &temp_path)?;
+    if let Err(error) = fs::rename(&temp_path, new_path) {
+        // Ripristino: il nome di partenza e' preferibile a un elemento orfano
+        // sotto un nome temporaneo.
+        let _ = fs::rename(&temp_path, old_path);
+        return Err(error);
+    }
+
+    Ok(())
+}
+
 #[command]
 pub async fn path_rename(
     project_path: String,
@@ -282,10 +355,12 @@ pub async fn path_rename(
     let parent_dir = old_path.parent().ok_or("Cartella genitore non trovata")?;
     let new_path = parent_dir.join(&new_name);
 
-    #[cfg(target_os = "windows")]
-    let is_case_only_rename = new_name.eq_ignore_ascii_case(&old_name);
-    #[cfg(not(target_os = "windows"))]
-    let is_case_only_rename = false;
+    // Su un filesystem case-insensitive (APFS, NTFS) il percorso di
+    // destinazione risolve alla sorgente: la collisione e' apparente e la
+    // rinomina richiesta e' proprio quella. Il confronto e' sull'identita'
+    // dell'elemento, non sul nome, cosi' una collisione vera con un file
+    // diverso continua a essere rifiutata.
+    let is_case_only_rename = is_same_entry(&old_path, &new_path);
 
     if !is_case_only_rename && fs::symlink_metadata(&new_path).is_ok() {
         return Err(format!(
@@ -294,7 +369,13 @@ pub async fn path_rename(
         ));
     }
 
-    fs::rename(&old_path, &new_path).map_err(|e| {
+    let outcome = if is_case_only_rename {
+        rename_via_temp(&old_path, &new_path)
+    } else {
+        fs::rename(&old_path, &new_path)
+    };
+
+    outcome.map_err(|e| {
         format!(
             "Impossibile rinominare '{}' in '{}': {}",
             old_name, new_name, e
@@ -329,25 +410,23 @@ pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>,
     let mut entries = Vec::new();
     let dir = fs::read_dir(&target).map_err(|e| e.to_string())?;
 
-    for entry in dir {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            let is_dir = path.is_dir();
+    for entry in dir.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = path.is_dir();
 
-            // Normalize path string
-            let rel_p = if rel.is_empty() {
-                name.clone()
-            } else {
-                format!("{}/{}", rel, name)
-            };
+        // Normalize path string
+        let rel_p = if rel.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", rel, name)
+        };
 
-            entries.push(Dirent {
-                name,
-                path: rel_p,
-                is_dir,
-            });
-        }
+        entries.push(Dirent {
+            name,
+            path: rel_p,
+            is_dir,
+        });
     }
 
     // Sort: directories first, then alphabetical
@@ -1002,10 +1081,8 @@ fn find_file_in_dir(dir: &Path, target_name: &str, depth: usize) -> Option<PathB
             ) {
                 subdirs.push(path);
             }
-        } else if path.is_file() {
-            if name.eq_ignore_ascii_case(target_name) {
-                return Some(path);
-            }
+        } else if path.is_file() && name.eq_ignore_ascii_case(target_name) {
+            return Some(path);
         }
     }
 
@@ -1117,9 +1194,9 @@ pub async fn resolve_project_file(
 mod tests {
     use super::{
         file_git_rev, git_last_commit, git_recent_commits, merge_name_status_numstat,
-        path_create_directory, path_create_file, path_rename, resolve_existing_entry,
-        resolve_new_destination, resolve_path, resolve_project_file_sync, split_rel_path,
-        validate_basename,
+        path_create_directory, path_create_file, path_rename, rename_via_temp,
+        resolve_existing_entry, resolve_new_destination, resolve_path, resolve_project_file_sync,
+        split_rel_path, validate_basename, Dirent,
     };
     use std::fs;
     #[cfg(windows)]
@@ -1497,6 +1574,163 @@ mod tests {
             "altra_radice".to_string(),
         ));
         assert!(err_root.is_err());
+    }
+
+    /// Nomi dei residui della rinomina in due passi presenti in una directory.
+    fn residui_rinomina(dir: &std::path::Path) -> Vec<String> {
+        fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.starts_with(".omp-rename."))
+            .collect()
+    }
+
+    /// Nomi effettivamente presenti sul disco, ordinati. Su un filesystem
+    /// case-insensitive `exists()` non distingue `foo` da `Foo`: solo la
+    /// lettura della directory dice quale nome e' stato registrato.
+    fn nomi_su_disco(dir: &std::path::Path) -> Vec<String> {
+        let mut nomi: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        nomi.sort();
+        nomi
+    }
+
+    /// Messaggio d'errore di una rinomina che deve fallire. Evita
+    /// `unwrap_err`, che pretenderebbe `Debug` su `Dirent`: un tipo di
+    /// produzione non deve derivare tratti solo per i test.
+    fn errore_di(esito: Result<Dirent, String>) -> String {
+        match esito {
+            Ok(dirent) => panic!("rinomina riuscita inattesa su '{}'", dirent.path),
+            Err(errore) => errore,
+        }
+    }
+
+    /// S21: su APFS e NTFS la destinazione con case diverso risolve alla
+    /// sorgente. La rinomina deve comunque cambiare il nome sul disco, senza
+    /// lasciare temporanei.
+    #[test]
+    fn rinomina_solo_di_case() {
+        let root = temp_dir("rename-case");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let root_str = root.to_str().unwrap().to_string();
+
+        fs::write(root.join("appunti.txt"), "dati").unwrap();
+        fs::create_dir(root.join("componenti")).unwrap();
+        fs::write(root.join("componenti/interno.txt"), "figlio").unwrap();
+
+        let d1 = rt
+            .block_on(path_rename(
+                root_str.clone(),
+                "appunti.txt".to_string(),
+                "Appunti.txt".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d1.name, "Appunti.txt");
+        assert_eq!(d1.path, "Appunti.txt");
+        assert!(!d1.is_dir);
+
+        let d2 = rt
+            .block_on(path_rename(
+                root_str,
+                "componenti".to_string(),
+                "Componenti".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d2.name, "Componenti");
+        assert!(d2.is_dir);
+
+        assert_eq!(
+            nomi_su_disco(&root),
+            vec!["Appunti.txt".to_string(), "Componenti".to_string()]
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("Appunti.txt")).unwrap(),
+            "dati"
+        );
+        // La cartella e' stata rinominata, non ricreata: il figlio c'e' ancora
+        assert_eq!(
+            fs::read_to_string(root.join("Componenti/interno.txt")).unwrap(),
+            "figlio"
+        );
+        assert!(residui_rinomina(&root).is_empty());
+    }
+
+    /// S21: il rilassamento della collisione vale solo per lo stesso elemento.
+    /// Un nome diverso, o un nome che differisce solo per il case su un
+    /// filesystem case-sensitive, resta un errore e non tocca nulla.
+    #[test]
+    fn collisione_reale_rifiutata_su_rinomina() {
+        let root = temp_dir("rename-collisione");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let root_str = root.to_str().unwrap().to_string();
+
+        fs::write(root.join("uno.txt"), "1").unwrap();
+        fs::write(root.join("due.txt"), "2").unwrap();
+
+        let err = errore_di(rt.block_on(path_rename(
+            root_str.clone(),
+            "uno.txt".to_string(),
+            "due.txt".to_string(),
+        )));
+        assert!(err.contains("esiste gia'"), "errore inatteso: {}", err);
+        assert_eq!(fs::read_to_string(root.join("uno.txt")).unwrap(), "1");
+        assert_eq!(fs::read_to_string(root.join("due.txt")).unwrap(), "2");
+        assert!(residui_rinomina(&root).is_empty());
+
+        // Su un filesystem case-sensitive due nomi che differiscono solo per
+        // il case sono elementi distinti: la rinomina resta una collisione.
+        fs::write(root.join("sonda"), "s").unwrap();
+        let case_sensitive = fs::read_to_string(root.join("SONDA")).is_err();
+        if case_sensitive {
+            fs::write(root.join("TRE.txt"), "3").unwrap();
+            fs::write(root.join("tre.txt"), "4").unwrap();
+
+            let err_case = errore_di(rt.block_on(path_rename(
+                root_str,
+                "tre.txt".to_string(),
+                "TRE.txt".to_string(),
+            )));
+            assert!(
+                err_case.contains("esiste gia'"),
+                "errore inatteso: {}",
+                err_case
+            );
+            assert_eq!(fs::read_to_string(root.join("TRE.txt")).unwrap(), "3");
+            assert_eq!(fs::read_to_string(root.join("tre.txt")).unwrap(), "4");
+        }
+    }
+
+    /// S21: se il secondo passo della rinomina in due passi fallisce,
+    /// l'elemento torna al nome originale e la directory resta pulita.
+    /// Su POSIX `rename` di un file su una directory esistente non riesce:
+    /// e' il modo piu' diretto per far fallire il secondo passo.
+    #[test]
+    fn rinomina_in_due_passi_ripristina_dopo_un_errore() {
+        let root = temp_dir("rename-ripristino");
+        let sorgente = root.join("file.txt");
+        let destinazione = root.join("ostacolo");
+        fs::write(&sorgente, "dati").unwrap();
+        fs::create_dir(&destinazione).unwrap();
+        fs::write(destinazione.join("dentro.txt"), "x").unwrap();
+
+        let errore = rename_via_temp(&sorgente, &destinazione).unwrap_err();
+
+        assert!(
+            errore.raw_os_error().is_some(),
+            "errore inatteso: {}",
+            errore
+        );
+        assert_eq!(fs::read_to_string(&sorgente).unwrap(), "dati");
+        assert!(destinazione.join("dentro.txt").is_file());
+        assert!(
+            residui_rinomina(&root).is_empty(),
+            "temporaneo rimasto: {:?}",
+            residui_rinomina(&root)
+        );
     }
 
     #[test]

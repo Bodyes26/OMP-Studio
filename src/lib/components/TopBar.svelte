@@ -8,6 +8,7 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
 	import { trapFocus } from '$lib/focusTrap';
+	import { IS_MAC } from '$lib/utils/platform';
 	import { quotaStore } from '$lib/stores/quota.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
 	import {
@@ -95,6 +96,16 @@
 
 	const panelProject = $derived(
 		panel ? projectStore.projects.find((candidate) => candidate.id === panel!.projectId) ?? null : null
+	);
+
+	/** Tessera che tiene il posto della barra nel tab order: e' quella attiva,
+	 *  oppure la prima se nessun progetto lo e' (all'avvio, o dopo la chiusura
+	 *  dell'ultimo attivo), altrimenti la barra diventerebbe irraggiungibile
+	 *  da tastiera. */
+	const rovingTabId = $derived(
+		projectOrder.list.some((candidate) => candidate.id === projectStore.activeId)
+			? projectStore.activeId
+			: projectOrder.list[0]?.id ?? null
 	);
 
 	function updateScrollState() {
@@ -293,6 +304,37 @@
 		openPanel(projectId, event.currentTarget as HTMLElement, true);
 	}
 
+	/** Le tessere in ordine di documento, che nella barra e' anche quello
+	 *  visibile: il `#each` segue `projectOrder.list` e nessuna regola CSS
+	 *  inverte le righe, quindi le frecce restano coerenti anche dopo un
+	 *  riordino manuale. */
+	function tabButtons(): HTMLElement[] {
+		if (!tabsTrackEl) return [];
+		return Array.from(tabsTrackEl.querySelectorAll<HTMLElement>('button.tab[role="tab"]'));
+	}
+
+	/** Frecce, Inizio e Fine spostano solo il fuoco: il progetto cambia con
+	 *  Invio o Spazio, che il `<button>` traduce in click da solo. Senza
+	 *  `preventDefault` la traccia scorrerebbe di lato per conto suo. */
+	function handleTabKeydown(event: KeyboardEvent) {
+		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+		const tabs = tabButtons();
+		const current = tabs.indexOf(event.currentTarget as HTMLElement);
+		if (current < 0) return;
+		let next: number;
+		switch (event.key) {
+			// La barra e' un anello: dall'ultima tessera si torna alla prima,
+			// che con molti progetti aperti risparmia una traversata.
+			case 'ArrowLeft': next = (current - 1 + tabs.length) % tabs.length; break;
+			case 'ArrowRight': next = (current + 1) % tabs.length; break;
+			case 'Home': next = 0; break;
+			case 'End': next = tabs.length - 1; break;
+			default: return;
+		}
+		event.preventDefault();
+		tabs[next].focus();
+	}
+
 	// Riordino manuale della barra: ha senso solo con order === 'fixed', gli
 	// altri modi sono viste calcolate che non hanno un ordine da spostare.
 	function handleProjectDragStart(id: string) {
@@ -373,7 +415,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<header class="topbar" data-tauri-drag-region="deep">
+<header class="topbar" class:mac-chrome={IS_MAC} data-tauri-drag-region="deep">
 	<div class="brand-section">
 		<div class="app-icon" title="OMP Studio">
 			<img
@@ -401,16 +443,26 @@
 			onscroll={updateScrollState}
 			onwheel={handleTabsWheel}
 		>
-			<div class="tabs">
+			<!-- Le tessere sono schede: selezionandone una cambia il contenuto
+			     della finestra sotto. Il pannello non ha un id stabile a cui
+			     agganciare `aria-controls`, e inventarne uno che non punta a
+			     niente sarebbe peggio dell'assenza. -->
+			<div class="tabs" role="tablist" aria-orientation="horizontal" aria-label="Progetti aperti">
 		{#each projectOrder.list as p (p.id)}
 			{@const queued = p.path ? taskStore.queuedCountFor(p.path) : 0}
 			{@const ready = canRunTask?.(p.id) ?? false}
 			{@const isActive = projectStore.activeId === p.id}
 			{@const showName = isActive || settingsStore.projectBar.label === 'name'}
 			{@const queueStyle = settingsStore.projectBar.queueBadge}
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<!-- Il contenitore esiste solo per trascinamento, hover e menu
+			     contestuale: con `role="presentation"` sparisce dall'albero
+			     accessibile e la tessera resta figlia diretta del tablist, come
+			     la relazione tablist/tab richiede. `role="presentation"` copre
+			     anche i gestori senza semantica, percio' non serve piu' l'ignore
+			     di a11y_no_static_element_interactions. -->
 					<div
 						class="tab-container"
+						role="presentation"
 						data-tab-id={p.id}
 						class:drag-over={dragOverProjectId === p.id}
 						class:panel-open={panel?.projectId === p.id}
@@ -424,8 +476,17 @@
 						onpointerleave={handleTabPointerLeave}
 						oncontextmenu={(event) => handleTabContextMenu(p.id, event)}
 					>
+				<!-- `aria-selected` dice quale progetto e' in primo piano, percio'
+				     l'`aria-current` di prima sarebbe un doppione letto due volte.
+				     Anche `aria-expanded` e' sparito: su una scheda descrive il
+				     pannello di contenuto, non l'anteprima al passaggio del mouse,
+				     e annuncerebbe "non espanso" su ogni tessera.
+				     Invio e Spazio non hanno un gestore: il pulsante nativo li
+				     traduce gia' in click, e intercettarli attiverebbe due volte. -->
 				<button
 					class="tab"
+					type="button"
+					role="tab"
 					class:active={isActive}
 					class:attention={settingsStore.projectBar.showAgentDot && p.agentState === 'attention'}
 					class:finished={settingsStore.projectBar.showAgentDot && p.agentState === 'finished'}
@@ -433,9 +494,10 @@
 					class:scratchpad={!p.path}
 					style="--proj-hue: {projectHue(p)}"
 					onclick={() => projectStore.setActive(p.id)}
+					onkeydown={handleTabKeydown}
+					aria-selected={isActive}
+					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-expanded={panel?.projectId === p.id}
-					aria-current={isActive}
 					aria-label={`${p.path ? 'Progetto' : 'Scratchpad'}: ${p.name} · ${AGENT_STATE_LABEL[p.agentState]}${queued > 0 ? ` · ${queued} task in coda` : ''}`}
 				>
 					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
@@ -590,27 +652,31 @@
 		>
 			<IconQuota /> {quotaStore.chipLabel}
 		</button>
-		<div class="window-controls">
-			<button class="win-btn" onclick={handleMinimize} title="Riduci a icona" aria-label="Riduci a icona">
-				<svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
-			</button>
-			<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? "Ripristina" : "Ingrandisci"} aria-label={isMaximized ? "Ripristina finestra" : "Ingrandisci finestra"}>
-				{#if isMaximized}
+		{#if !IS_MAC}
+			<!-- Su macOS i tre controlli li disegna il sistema (semafori nativi):
+			     duplicarli darebbe due serie di pulsanti nella stessa finestra. -->
+			<div class="window-controls">
+				<button class="win-btn" onclick={handleMinimize} title="Riduci a icona" aria-label="Riduci a icona">
+					<svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+				</button>
+				<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? "Ripristina" : "Ingrandisci"} aria-label={isMaximized ? "Ripristina finestra" : "Ingrandisci finestra"}>
+					{#if isMaximized}
+						<svg width="10" height="10" viewBox="0 0 10 10">
+							<path d="M2.5 1h6v6h-1v-5h-5v-1zm-1.5 2.5h6v6h-6v-6zm1 1v4h4v-4h-4z" fill="currentColor"/>
+						</svg>
+					{:else}
+						<svg width="10" height="10" viewBox="0 0 10 10">
+							<path d="M1 1h8v8h-8v-8zm1 1v6h6v-6h-6z" fill="currentColor"/>
+						</svg>
+					{/if}
+				</button>
+				<button class="win-btn close" onclick={handleClose} title="Chiudi" aria-label="Chiudi applicazione">
 					<svg width="10" height="10" viewBox="0 0 10 10">
-						<path d="M2.5 1h6v6h-1v-5h-5v-1zm-1.5 2.5h6v6h-6v-6zm1 1v4h4v-4h-4z" fill="currentColor"/>
+						<path d="M1 1l8 8m0-8l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
 					</svg>
-				{:else}
-					<svg width="10" height="10" viewBox="0 0 10 10">
-						<path d="M1 1h8v8h-8v-8zm1 1v6h6v-6h-6z" fill="currentColor"/>
-					</svg>
-				{/if}
-			</button>
-			<button class="win-btn close" onclick={handleClose} title="Chiudi" aria-label="Chiudi applicazione">
-				<svg width="10" height="10" viewBox="0 0 10 10">
-					<path d="M1 1l8 8m0-8l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-				</svg>
-			</button>
-		</div>
+				</button>
+			</div>
+		{/if}
 	</div>
 </header>
 
@@ -696,6 +762,12 @@
 		user-select: none;
 		position: relative;
 		gap: var(--space-2);
+	}
+
+	/* macOS: `titleBarStyle: Overlay` tiene i semafori nativi sopra la barra,
+	   in alto a sinistra. Senza questo spazio coprirebbero il logo. */
+	.topbar.mac-chrome {
+		padding-left: 78px;
 	}
 
 	.brand-section {

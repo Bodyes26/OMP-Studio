@@ -6,8 +6,10 @@ import { attachEditorContext } from '$lib/editor/editorContext';
 // Studio, non di omp: e' quello che permette a replay e diretta di passare
 // dallo stesso rendering (`ricerca/TOOL-DETAILS.md`).
 
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
+import { openExternalUrl } from '$lib/utils/openExternal';
 import { OmpRpcClient } from './client';
+import { isMissingSessionError } from './resumeErrors';
 import {
 	ANSWERABLE_UI_METHODS,
 	type AgentMessage,
@@ -149,6 +151,9 @@ export interface PendingAsk {
 
 export type PendingUiRequest = PendingAsk;
 
+/** Contenuto di una risposta a una `extension_ui_request`. */
+type AskAnswerPayload = { value: string } | { confirmed: boolean } | { cancelled: true };
+
 /** Numero massimo di entry renderizzate: oltre, si scopre a blocchi. */
 const RENDER_WINDOW = 300;
 
@@ -219,8 +224,12 @@ export class AgentSession {
 	/** Stato per la tessera di progetto: derivato, non inventato. */
 	agentState = $state<AgentSurfaceState>('unknown');
 
-	/** Coda di risposte pre-compilate dal wizard per soddisfare round OMP consecutivi. */
-	private queuedAskResponses: string[] = [];
+	/**
+	 * Risposte pre-compilate dal wizard per i round successivi della **stessa**
+	 * chiamata `ask`. Il `toolCallId` e' il vincolo: senza di lui una risposta
+	 * rimasta in coda finirebbe su una domanda futura e diversa.
+	 */
+	private askQueue: { toolCallId: string; responses: string[] } | null = null;
 
 	private nextEntryId = 1;
 	private nextQueueId = 1;
@@ -959,8 +968,7 @@ export class AgentSession {
 					: [];
 				const requestedResume = this.requestedResume;
 				const resumeMissing =
-					requestedResume !== null
-					&& stderr.some((line) => line.includes(`Session "${requestedResume}" not found.`));
+					requestedResume !== null && isMissingSessionError(stderr, requestedResume);
 				this.isAborting = false;
 				this.isStreaming = false;
 				this.isCompacting = false;
@@ -1181,18 +1189,39 @@ export class AgentSession {
 		}
 		if (method === 'open_url') {
 			// Il campo `launchUrl` esiste proprio per questo: quando c'e', e'
-			// l'indirizzo da aprire davvero.
+			// l'indirizzo da aprire davvero. L'evento arriva da un'estensione
+			// dell'agente, quindi il protocollo va verificato prima di aprirlo.
 			const target = typeof event.launchUrl === 'string' ? event.launchUrl : typeof event.url === 'string' ? event.url : null;
-			if (target) void openUrl(target);
+			if (target === null) return;
+			if (!isAllowedExternalUrl(target)) {
+				this.pushNotice('warning', `Apertura bloccata: ${target}`, 'estensione');
+				return;
+			}
+			void openExternalUrl(target);
 			return;
 		}
 		if (ANSWERABLE_UI_METHODS[method] !== true) return;
 
-		// Se ci sono risposte in coda dal wizard per round successivi, rispondiamo immediatamente.
-		if (this.queuedAskResponses.length > 0) {
-			const nextVal = this.queuedAskResponses.shift()!;
-			void this.client.respondUi({ type: 'extension_ui_response', id, value: nextVal });
-			return;
+		// La chiamata `ask` in corso identifica il wizard: e' l'unico modo di
+		// distinguere "round successivo della stessa domanda" da "nuova
+		// domanda", che non deve mai essere risposta al posto dell'utente.
+		const runningAsk = Array.from(this.toolEntries.values())
+			.reverse()
+			.find((t) => t.running && t.toolName === 'ask');
+
+		if (this.askQueue) {
+			if (runningAsk && runningAsk.toolCallId === this.askQueue.toolCallId) {
+				const nextVal = this.askQueue.responses.shift();
+				if (this.askQueue.responses.length === 0) this.askQueue = null;
+				if (nextVal !== undefined) {
+					void this.client.respondUi({ type: 'extension_ui_response', id, value: nextVal });
+					return;
+				}
+			} else {
+				// Wizard chiuso o sostituito: le risposte rimaste non valgono
+				// piu' per niente.
+				this.askQueue = null;
+			}
 		}
 
 		const options = Array.isArray(event.options)
@@ -1207,12 +1236,8 @@ export class AgentSession {
 				}))
 			: [];
 
-		// Recupera le informazioni complete della domanda/domande se la richiesta
-		// proviene dal tool ask (arguments.questions).
-		const runningAsk = Array.from(this.toolEntries.values())
-			.reverse()
-			.find((t) => t.running && t.toolName === 'ask');
-
+		// Informazioni complete della domanda quando la richiesta proviene dal
+		// tool `ask` (`arguments.questions`).
 		let parsedQuestions: AskQuestion[] | undefined;
 		if (runningAsk?.args && typeof runningAsk.args === 'object' && Array.isArray(runningAsk.args.questions)) {
 			parsedQuestions = (runningAsk.args.questions as Record<string, unknown>[])
@@ -1271,15 +1296,54 @@ export class AgentSession {
 
 	private clearPendingUi() {
 		this.pendingUi = null;
-		this.queuedAskResponses = [];
+		this.askQueue = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
 	}
 
 	/* --------------------------------------------------------- risposte UI */
 
 	/**
-	 * Invia tutte le risposte di un wizard multi-domanda a OMP, accodando
-	 * le risposte per i round RPC successivi.
+	 * Invia una risposta e conferma lo stato solo se l'invio riesce. Su errore
+	 * la richiesta torna all'utente cosi' com'era: perderla lascerebbe
+	 * l'agente in attesa di qualcosa che non arrivera' mai.
+	 */
+	private async respond(
+		pending: PendingUiRequest,
+		answer: AskAnswerPayload,
+		queue: { toolCallId: string; responses: string[] } | null
+	): Promise<boolean> {
+		const previousState = this.agentState;
+		// La coda va armata prima dell'invio: il round successivo del wizard
+		// puo' arrivare mentre la promessa e' ancora in volo.
+		this.askQueue = queue;
+		this.pendingUi = null;
+		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
+
+		try {
+			await this.client.respondUi(
+				'cancelled' in answer
+					? { type: 'extension_ui_response', id: pending.requestId, cancelled: true }
+					: 'confirmed' in answer
+						? {
+								type: 'extension_ui_response',
+								id: pending.requestId,
+								confirmed: answer.confirmed
+							}
+						: { type: 'extension_ui_response', id: pending.requestId, value: answer.value }
+			);
+			return true;
+		} catch (error) {
+			this.askQueue = null;
+			this.pendingUi = pending;
+			this.agentState = previousState;
+			this.pushNotice('error', `Risposta non inviata: ${this.reason(error)}`);
+			return false;
+		}
+	}
+
+	/**
+	 * Invia tutte le risposte di un wizard multi-domanda: la prima subito, le
+	 * altre in coda per i round successivi della stessa chiamata `ask`.
 	 */
 	async submitAskWizard(responses: string[]) {
 		if (responses.length === 0) {
@@ -1290,31 +1354,35 @@ export class AgentSession {
 		if (!pending) return;
 
 		const [first, ...rest] = responses;
-		this.queuedAskResponses = rest;
-		this.pendingUi = null;
-		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
-		await this.client.respondUi({ type: 'extension_ui_response', id: pending.requestId, value: first });
+		const runningAsk = Array.from(this.toolEntries.values())
+			.reverse()
+			.find((t) => t.running && t.toolName === 'ask');
+		// Senza la chiamata `ask` che le ha generate, le risposte in coda non
+		// sarebbero attribuibili: si invia solo la prima.
+		const queue =
+			rest.length > 0 && runningAsk
+				? { toolCallId: runningAsk.toolCallId, responses: rest }
+				: null;
+
+		await this.respond(pending, { value: first }, queue);
 	}
 
 	async answerSelect(value: string) {
 		const pending = this.pendingUi;
 		if (!pending) return;
-		this.clearPendingUi();
-		await this.client.respondUi({ type: 'extension_ui_response', id: pending.requestId, value });
+		await this.respond(pending, { value }, null);
 	}
 
 	async answerConfirm(confirmed: boolean) {
 		const pending = this.pendingUi;
 		if (!pending) return;
-		this.clearPendingUi();
-		await this.client.respondUi({ type: 'extension_ui_response', id: pending.requestId, confirmed });
+		await this.respond(pending, { confirmed }, null);
 	}
 
 	async cancelPendingUi() {
 		const pending = this.pendingUi;
 		if (!pending) return;
-		this.clearPendingUi();
-		await this.client.respondUi({ type: 'extension_ui_response', id: pending.requestId, cancelled: true });
+		await this.respond(pending, { cancelled: true }, null);
 	}
 
 	/* ------------------------------------------------------------- comandi */

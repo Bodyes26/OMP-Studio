@@ -15,7 +15,7 @@
 use crate::omp_ops::{agent_dir, open_readonly_db};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Component, Path};
+use std::path::Path;
 use tauri::command;
 
 /// Un file di contesto del progetto: `AGENTS.md`, una regola in `.omp/rules/`
@@ -411,30 +411,36 @@ pub fn analyze_project_friction(project_path: String) -> Result<Vec<RuleSuggesti
     Ok(build_suggestions(&prompts, agents_md.as_deref()))
 }
 
-/// Vero se il percorso e' relativo e non risale sopra la radice: `apply_rule_suggestion`
-/// non passa da `resolve_path` (privato in `projects`), quindi valida qui.
-fn is_safe_relative(rel: &str) -> bool {
-    let path = Path::new(rel);
-    if rel.trim().is_empty() || path.is_absolute() {
-        return false;
-    }
-    path.components()
-        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
-}
-
 #[command]
 pub fn apply_rule_suggestion(
     project_path: String,
     target_rel_path: String,
     append_content: String,
 ) -> Result<(), String> {
-    if !is_safe_relative(&target_rel_path) {
-        return Err(format!("Percorso non ammesso: {}", target_rel_path));
-    }
-    let full_path = Path::new(&project_path).join(&target_rel_path);
-    if !full_path.is_file() {
-        return Err(format!(
+    // Contenimento canonico riusato da `projects`: il genitore deve stare
+    // dentro la radice reale del progetto, non solo sembrarlo.
+    let base = crate::projects::canonical_project_base(&project_path)?;
+    let (parent_rel, leaf_name) = crate::projects::split_rel_path(&target_rel_path)?;
+    let parent_dir = crate::projects::resolve_parent_dir(&base, &parent_rel)?;
+    let full_path = parent_dir.join(&leaf_name);
+
+    // `symlink_metadata` non segue il collegamento: un `AGENTS.md` che punta
+    // fuori dal progetto verrebbe altrimenti riscritto sulla destinazione.
+    let meta = fs::symlink_metadata(&full_path).map_err(|_| {
+        format!(
             "File {} non trovato: inizializzalo prima di applicare la proposta",
+            target_rel_path
+        )
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(format!(
+            "Percorso non ammesso: {} e' un collegamento e potrebbe puntare fuori dal progetto",
+            target_rel_path
+        ));
+    }
+    if !meta.is_file() {
+        return Err(format!(
+            "Percorso non ammesso: {} non e' un file",
             target_rel_path
         ));
     }
@@ -609,5 +615,27 @@ mod tests {
             "x\n".to_string()
         )
         .is_err());
+    }
+
+    /// Un `AGENTS.md` che e' un collegamento a un file esterno non deve poter
+    /// essere riscritto: la proposta agirebbe fuori dal progetto.
+    #[test]
+    #[cfg(unix)]
+    fn rifiuta_un_collegamento_che_punta_fuori() {
+        let root = temp_root("omp-studio-rules-symlink");
+        let outside = temp_root("omp-studio-rules-symlink-target");
+        let secret = outside.join("AGENTS.md");
+        fs::write(&secret, "# Fuori\n").unwrap();
+        std::os::unix::fs::symlink(&secret, root.join("AGENTS.md")).unwrap();
+
+        let err = apply_rule_suggestion(
+            root.to_string_lossy().to_string(),
+            "AGENTS.md".to_string(),
+            "## Iniettato\n".to_string(),
+        )
+        .unwrap_err();
+
+        assert!(err.contains("collegamento"), "errore inatteso: {}", err);
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "# Fuori\n");
     }
 }

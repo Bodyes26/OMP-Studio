@@ -616,7 +616,7 @@ pub async fn pty_open(
         loop {
             match reader.read(&mut buf) {
                 Ok(n) if n > 0 => {
-                    if let Err(_) = on_output.send(Response::new(buf[..n].to_vec())) {
+                    if on_output.send(Response::new(buf[..n].to_vec())).is_err() {
                         break;
                     }
                 }

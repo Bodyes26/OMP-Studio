@@ -4,6 +4,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import { IconCopy, IconPaste, IconSelectAll, IconClear } from '$lib/icons';
+	import { IS_MAC as isMac, MOD_LABEL as mod } from '$lib/utils/platform';
 	import '@xterm/xterm/css/xterm.css';
 
 	let {
@@ -89,9 +90,6 @@
 		void settingsStore.terminal.cursorBlink;
 		session?.applySettings();
 	});
-
-	const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent);
-	const mod = isMac ? '⌘' : 'Ctrl+';
 
 	function handleContextMenu(event: MouseEvent) {
 		event.preventDefault();

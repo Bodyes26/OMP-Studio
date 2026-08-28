@@ -1,4 +1,4 @@
-import { load } from '@tauri-apps/plugin-store';
+import { load, type Store } from '@tauri-apps/plugin-store';
 import { homeDir, join } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
@@ -57,21 +57,37 @@ class ProjectStore {
 	projects = $state<Project[]>([]);
 	activeId = $state<string | null>(null);
 	projectRoot = $state<string>('');
-	private store: any = null;
+	/** Vero quando i progetti persistiti sono stati letti dal disco: prima di
+	 *  allora `projects` e' vuoto perche' non si sa ancora niente, non perche'
+	 *  l'utente non abbia progetti. */
+	ready = $state(false);
+	private store: Store | null = null;
 	private initialized = false;
+	private initPromise: Promise<void> | null = null;
 
 	constructor() {
-		this.initStore();
+		void this.init();
 	}
 
-	async initStore() {
+	/**
+	 * Idempotente e memoizzata come `settingsStore.init()`: la chiamano il
+	 * costruttore e chiunque debba decidere qualcosa in base ai progetti
+	 * salvati (per esempio il contratto di setup all'avvio).
+	 */
+	init(): Promise<void> {
+		if (!this.initPromise) this.initPromise = this.initStore();
+		return this.initPromise;
+	}
+
+	private async initStore() {
 		// L'ordinamento (`mru` o no) decide se qui sotto si riordina o no:
 		// va letto da disco prima, altrimenti si legge sempre il default.
 		await settingsStore.init();
-		this.store = await load('settings.json', { autoSave: false });
-		const storedProjects = await this.store.get('projects') as Project[] | null;
-		const storedActiveId = await this.store.get('activeProjectId') as string | null;
-		const storedRoot = await this.store.get('projectRoot') as string | null;
+		const store = await load('settings.json', { autoSave: false });
+		this.store = store;
+		const storedProjects = await store.get<Project[]>('projects');
+		const storedActiveId = await store.get<string>('activeProjectId');
+		const storedRoot = await store.get<string>('projectRoot');
 		let defaultRoot = await homeDir();
 		if (isWindows) {
 			defaultRoot = await join(defaultRoot, 'source', 'repos');
@@ -133,6 +149,7 @@ class ProjectStore {
 		}
 
 		this.initialized = true;
+		this.ready = true;
 	}
 
 	private save = debounce(async () => {

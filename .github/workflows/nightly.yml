@@ -11,8 +11,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gate:
+    name: Gate di qualita
+    uses: ./.github/workflows/gate.yml
+
   build:
     name: Build ${{ matrix.name }}
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -32,17 +37,20 @@ jobs:
 
     steps:
       - name: Checkout del commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Imposta la versione nightly temporanea
         shell: bash
         run: node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s%3N)"
 
       - name: Installa Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Installa Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # branch stable, 2026-08-05
+        with:
+          toolchain: stable
+          components: clippy
 
       - name: Installa i target macOS universal
         if: runner.os == 'macOS'
@@ -51,11 +59,17 @@ jobs:
       - name: Installa le dipendenze
         run: bun install --frozen-lockfile
 
+      - name: Test del backend Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Lint del backend Rust
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
       - name: Compila gli installer
         run: bun tauri build ${{ matrix.build_args }}
 
       - name: Conserva gli installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
@@ -69,7 +83,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout del commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -79,7 +93,7 @@ jobs:
         run: echo "version=$(node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s%3N)")" >> "$GITHUB_OUTPUT"
 
       - name: Scarica tutti gli installer
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-assets
           merge-multiple: true

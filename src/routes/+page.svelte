@@ -7,7 +7,7 @@
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FileTree from '$lib/components/FileTree.svelte';
-	import Editor from '$lib/editor/Editor.svelte';
+	import type EditorSurface from '$lib/editor/Editor.svelte';
 	import AgentPanel from '$lib/components/AgentPanel.svelte';
 	import UsagePopover, { type ProviderHost } from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
@@ -41,6 +41,20 @@
 	let previewFile = $state<string | null>(null);
 	let agentAnnouncement = $state('');
 	const prevAgentStates = new Map<string, string>();
+
+	/**
+	 * L'editor porta con se' Monaco: da solo pesa quanto tutto il resto del
+	 * guscio. Un import statico lo metterebbe davanti al primo frame, quindi qui
+	 * il caricamento e' dinamico di proposito: la finestra si disegna e l'editor
+	 * entra subito dopo.
+	 */
+	let EditorComponent = $state<typeof EditorSurface | null>(null);
+	$effect(() => {
+		if (EditorComponent) return;
+		void import('$lib/editor/Editor.svelte').then((module) => {
+			EditorComponent = module.default;
+		});
+	});
 
 	$effect(() => {
 		for (const p of projectStore.projects) {
@@ -949,6 +963,10 @@
 	 */
 	async function checkSetupContract() {
 		try {
+			// I progetti salvati arrivano dal disco in modo asincrono: senza
+			// attendere, un utente con progetti vedrebbe il wizard solo perche'
+			// la lista e' ancora vuota.
+			await projectStore.init();
 			const status = await invoke<{ missing: string[] }>('setup_status');
 			setupIncomplete = status.missing.length > 0;
 			if (status.missing.includes('omp')) {
@@ -1417,15 +1435,15 @@
 							filePath={previewFile}
 							onClose={() => (previewFile = null)}
 						/>
-					{:else}
-						<Editor
+					{:else if EditorComponent}
+						<EditorComponent
 							projectPath={projectStore.activeProject.path}
 							filePaths={projectStore.activeProject.openFiles}
 							filePath={projectStore.activeProject.activeFile}
 							openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
 							editorDiffRequest={editorDiffRequest}
-							onDirtyFilesChange={(paths) => (activeDirtyFiles = paths)}
-							onPreviewRequest={(fp) => (previewFile = fp)}
+							onDirtyFilesChange={(paths: string[]) => (activeDirtyFiles = paths)}
+							onPreviewRequest={(fp: string) => (previewFile = fp)}
 							onFileSaved={() => {
 								window.dispatchEvent(new CustomEvent('git-status-refresh'));
 							}}

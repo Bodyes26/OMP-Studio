@@ -525,7 +525,7 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
         }
     }
     let mut hosts = hosts.into_values().collect::<Vec<_>>();
-    hosts.sort_by(|left, right| right.last_active_ms.cmp(&left.last_active_ms));
+    hosts.sort_by_key(|right| std::cmp::Reverse(right.last_active_ms));
     Ok(hosts)
 }
 #[command]
@@ -754,7 +754,7 @@ fn scan_sessions_in(
         }
     }
 
-    candidates.sort_by(|left, right| right.2.cmp(&left.2));
+    candidates.sort_by_key(|right| std::cmp::Reverse(right.2));
     // Senza ricerca la GUI mostra le piu' recenti: il titolo va risolto solo
     // per quelle, non per tutto lo storico del progetto.
     if query.is_none() {
@@ -840,7 +840,7 @@ fn sessions_list_sync(project_path: String) -> Result<Vec<SessionEntry>, String>
         }
     }
 
-    sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    sessions.sort_by_key(|b| std::cmp::Reverse(b.created_at));
     sessions.truncate(SESSION_LIST_LIMIT);
 
     Ok(sessions)
@@ -943,7 +943,7 @@ fn sessions_search_sync(
         }
     }
 
-    sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    sessions.sort_by_key(|b| std::cmp::Reverse(b.created_at));
     sessions.truncate(SESSION_LIST_LIMIT);
 
     Ok(sessions)
@@ -1097,7 +1097,7 @@ pub fn parse_omp_update_check(
                 .trim_start_matches(':')
                 .trim();
             if let Some((_, right)) = after.split_once("->") {
-                if let Some(candidate) = right.trim().split_whitespace().next() {
+                if let Some(candidate) = right.split_whitespace().next() {
                     latest_version = candidate.trim_start_matches('v').to_string();
                 }
             } else if let Some(candidate) = after.split_whitespace().next() {
@@ -1129,7 +1129,7 @@ pub fn parse_omp_update_check(
             } else {
                 ""
             };
-            if let Some(candidate) = right.trim().split_whitespace().next() {
+            if let Some(candidate) = right.split_whitespace().next() {
                 latest_version = candidate.trim_start_matches('v').to_string();
             }
             break;

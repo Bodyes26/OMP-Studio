@@ -6,7 +6,6 @@
 // L'unico `{@html}` dell'intero percorso e' il risultato di
 // `monaco.editor.colorize`, che produce markup nostro.
 
-import * as monaco from 'monaco-editor';
 import { marked, type Token, type Tokens } from 'marked';
 
 export type { Token, Tokens };
@@ -92,15 +91,18 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 };
 
 /**
- * Evidenzia un blocco di codice con Monaco, che e' gia' nel bundle: zero
- * dipendenze nuove per l'evidenziazione. Ritorna `null` quando il
- * linguaggio non e' registrato, cosi' il chiamante resta su testo grezzo
- * invece di mostrare markup vuoto.
+ * Evidenzia un blocco di codice con Monaco.
+ *
+ * L'import statico qui non puo' funzionare come confine di caricamento: il
+ * modulo del markdown viene caricato all'avvio della chat e trascinerebbe con
+ * se' i 4 MB di Monaco anche quando nessun messaggio contiene codice. Il
+ * caricamento dinamico e' l'unico modo di tenerli fuori dal primo frame.
  */
 export async function colorizeCode(code: string, language: string | undefined): Promise<string | null> {
 	const requested = (language ?? '').trim().toLowerCase();
 	if (!requested) return null;
 	const resolved = LANGUAGE_ALIASES[requested] ?? requested;
+	const monaco = await import('monaco-editor');
 	const known = monaco.languages.getLanguages().some((entry) => entry.id === resolved);
 	if (!known) return null;
 	try {

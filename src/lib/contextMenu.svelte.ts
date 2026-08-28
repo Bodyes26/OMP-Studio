@@ -17,6 +17,7 @@ import {
 	IconPaste,
 	IconSelectAll
 } from '$lib/icons';
+import { IS_MAC, MOD_LABEL as MOD } from '$lib/utils/platform';
 
 export interface ContextMenuItem {
 	kind: 'item';
@@ -140,9 +141,6 @@ const NON_TEXT_INPUT_TYPES: Record<string, true> = {
 	image: true,
 	hidden: true
 };
-
-const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent);
-const MOD = IS_MAC ? '⌘' : 'Ctrl+';
 
 function triggerInputEvents(el: HTMLElement) {
 	el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
@@ -407,48 +405,55 @@ function buildTextEntryMenu(target: HTMLElement): ContextMenuEntry[] {
 
 export function installContextMenuHandling(): () => void {
 	function onContextMenu(event: MouseEvent) {
-		const target = event.target as HTMLElement | null;
-		if (!target) return;
+		// `event.target` non e' sempre un HTMLElement: dentro un campo editabile
+		// il click puo' cadere su un'icona SVG, che non ha `isContentEditable`.
+		const node = event.target;
+		if (!(node instanceof Element)) return;
 
 		// Se il click avviene dentro il menu contestuale aperto, sopprimi senza ricreare
-		if (target.closest('.context-menu')) {
+		if (node.closest('.context-menu')) {
 			event.preventDefault();
 			return;
 		}
 
 		// Superfici con gestione autonoma (Monaco Editor, terminale xterm):
 		// sopprimi il menu nativo della WebView ma lascia propagare l'evento ai componenti
-		if (target.closest('.monaco-editor, .xterm')) {
+		if (node.closest('.monaco-editor, .xterm')) {
 			event.preventDefault();
 			return;
 		}
 
+		// Il campo di testo puo' essere un antenato del bersaglio: dentro un
+		// contenteditable si clicca spesso su un discendente (span, icona), e
+		// il menu nativo di taglia/copia/incolla deve restare quello del campo.
+		const host = node.closest('input, textarea, [contenteditable]');
+		const field =
+			host instanceof HTMLTextAreaElement ||
+			host instanceof HTMLInputElement ||
+			(host instanceof HTMLElement && host.isContentEditable)
+				? host
+				: null;
+
 		// Controlli di input / selezione non testuali
-		if (target instanceof HTMLInputElement && NON_TEXT_INPUT_TYPES[target.type.toLowerCase()]) {
+		if (field instanceof HTMLInputElement && NON_TEXT_INPUT_TYPES[field.type.toLowerCase()]) {
 			event.preventDefault();
 			contextMenu.close();
 			return;
 		}
 
-		// Campi di inserimento testo (input testuali, textarea, contenteditable)
-		const isText =
-			target instanceof HTMLTextAreaElement ||
-			(target instanceof HTMLInputElement && !NON_TEXT_INPUT_TYPES[target.type.toLowerCase()]) ||
-			target.isContentEditable;
-
-		if (isText) {
+		if (field) {
 			event.preventDefault();
-			const items = buildTextEntryMenu(target);
+			const items = buildTextEntryMenu(field);
 			contextMenu.open(event, {
 				label: 'Modifica testo',
 				items,
-				invoker: target
+				invoker: field
 			});
 			return;
 		}
 
 		// Selezione testo in sola lettura che interseca effettivamente il target cliccato
-		if (selectionIntersectsTarget(target)) {
+		if (selectionIntersectsTarget(node)) {
 			const sel = window.getSelection();
 			const selectedText = sel ? sel.toString() : '';
 			if (selectedText) {
@@ -472,7 +477,7 @@ export function installContextMenuHandling(): () => void {
 							}
 						}
 					],
-					invoker: target
+					invoker: node instanceof HTMLElement ? node : undefined
 				});
 				return;
 			}

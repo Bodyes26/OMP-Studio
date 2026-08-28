@@ -1,3 +1,4 @@
+mod fs_atomic;
 mod diagrams;
 mod previews;
 mod pty;

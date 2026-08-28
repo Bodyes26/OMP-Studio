@@ -17,3 +17,7 @@ import './acl-coverage.test.ts';
 import './context-menu-and-tree.test.ts';
 import './ask-tool.test.ts';
 import './smooth-cursor.test.ts';
+import './external-url.test.ts';
+import './platform.test.ts';
+import './resume-errors.test.ts';
+import './omp-contract.test.ts';

@@ -15,7 +15,7 @@
 <script lang="ts">
 	// I link ad issue/PR aprono il browser di sistema via Tauri: un `<a href>`
 	// dentro la webview non naviga fuori dall'app.
-	import { openUrl } from '@tauri-apps/plugin-opener';
+	import { openExternalUrl } from '$lib/utils/openExternal';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -77,7 +77,7 @@
 
 	function openLink(url: string) {
 		if (url) {
-			void openUrl(url);
+			void openExternalUrl(url);
 		}
 	}
 </script>

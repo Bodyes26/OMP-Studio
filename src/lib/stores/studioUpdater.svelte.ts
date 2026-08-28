@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { load, type Store } from '@tauri-apps/plugin-store';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { openExternalUrl } from '$lib/utils/openExternal';
 
 export interface StudioReleaseAsset {
 	name: string;
@@ -274,11 +274,7 @@ class StudioUpdaterStore {
 
 	async openReleaseInBrowser() {
 		if (this.updateInfo?.html_url) {
-			try {
-				await openUrl(this.updateInfo.html_url);
-			} catch (e) {
-				console.error('Impossibile aprire URL release', e);
-			}
+			await openExternalUrl(this.updateInfo.html_url);
 		}
 	}
 

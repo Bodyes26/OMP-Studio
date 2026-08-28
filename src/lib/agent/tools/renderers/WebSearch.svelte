@@ -14,7 +14,7 @@
 	// Il componente renderizza la query da `args` e il testo completo dal risultato
 	// `resultText(result)` tramite `OutputBlock`, senza sollevare errori.
 
-	import { openUrl } from '@tauri-apps/plugin-opener';
+	import { openExternalUrl } from '$lib/utils/openExternal';
 	import MarkdownInline from '../../components/MarkdownInline.svelte';
 	import { lexMarkdownInline } from '../../markdown';
 	import CountBadge from '../parts/CountBadge.svelte';
@@ -76,7 +76,7 @@
 
 	function openLink(url: string) {
 		if (url) {
-			void openUrl(url);
+			void openExternalUrl(url);
 		}
 	}
 </script>

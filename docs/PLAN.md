@@ -1,8 +1,230 @@
 # OMP Studio — Piano di lavoro
 
-Documento operativo. Traccia l'evoluzione e lo stato di avanzamento delle fasi architetturali fino alla versione stabile 1.0.0, con criteri di accettazione verificati.
+Documento operativo. Traccia l'evoluzione del prodotto, il piano di stabilizzazione della 1.2.1 e i criteri di accettazione necessari prima di ogni release stabile.
 
 **Leggere prima:** `PRODUCT.md` (visione e perimetro), `DESIGN.md` (sistema visivo e token), `ARCHITECTURE.md` (architettura tecnica).
+
+---
+
+## Piano di stabilizzazione 1.2.1 — audit NO-GO
+
+**Stato:** pianificato. La pubblicazione stabile resta bloccata finche tutti i P0 e P1 sono chiusi, la matrice di verifica e verde e il secondo audit non rileva blocker.
+
+Le fasi 0-9 piu sotto restano come storico dell'implementazione. Le loro spunte non sostituiscono i gate correnti: le dichiarazioni non piu vere vengono riallineate nello step S30.
+
+### Metodo di esecuzione
+
+- Un solo step e attivo alla volta. Ogni step termina con il proprio test comportamentale mirato prima di passare al successivo.
+- `Main` mantiene ownership dei file condivisi e integra ogni risultato. Uno step marcato `Subagente` puo essere implementato in worktree isolato; il subagente non esegue suite globali.
+- Gli step che condividono `setup.rs`, `session.svelte.ts`, `TopBar.svelte`, `AskCard.svelte`, `tauri.conf.json` o i workflow sono sempre serializzati.
+- Nessuna failure viene trasformata in default distruttivo, warning ignorato o fallback implicito.
+- Nessun bump, commit, push o tag durante la remediation. Changelog, decisione di pubblicazione e pipeline arrivano solo dopo la chiusura tecnica completa.
+
+### Definition of done per step
+
+1. La causa radice e corretta senza alias, shim o percorso legacy rimasto attivo.
+2. Tutti i caller coinvolti sono migrati.
+3. Esiste un test solo quando protegge un contratto osservabile o una regressione plausibile.
+4. Il test mirato e lo smoke del percorso modificato passano.
+5. Errori, rollback e stato persistito sono verificati, non solo il percorso felice.
+6. Il diff non introduce nuovi warning, permessi o dipendenze non giustificati.
+
+### Fase A — P0: integrita, dati e pipeline
+
+- [x] **S01 — Installer OMP fail-closed** (`Main`, review sicurezza)
+  Intervenire in `src-tauri/src/setup.rs` e `SetupModal.svelte`: rendere obbligatorio un digest attendibile prima dell'installazione, scaricare nello stesso filesystem della destinazione, verificare SHA-256, sostituire atomicamente e avviare OMP solo dopo la verifica. La UI deve distinguere download, verifica e installazione.
+  **Accettazione:** hash assente, manifest irraggiungibile, mismatch e asset inatteso non modificano l'eseguibile esistente; hash valido installa e avvia; test per tutti e quattro i casi.
+
+- [x] **S02 — Configurazioni lossless e atomiche** (`Main`, review sicurezza)
+  Rifattorizzare `src-tauri/src/models_ops.rs`: distinguere file assente da errore di lettura, rifiutare YAML/JSON invalido, preservare campi sconosciuti, serializzare una sola volta e sostituire con temp file, flush e rename atomico. Applicare lo stesso contratto ai provider custom e impedire write concorrenti.
+  **Accettazione:** config invalida o illeggibile resta byte-per-byte invariata; campi estranei sopravvivono; una failure di replace conserva il file precedente; test di concorrenza e rollback.
+
+- [x] **S03 — Smoke test realmente multipiattaforma** (`Subagente`)
+  Rendere esplicita la piattaforma nei helper di `test/context-menu-and-tree.test.ts` e coprire semantica Windows case-insensitive e POSIX case-sensitive senza dipendere dal runner.
+  **Accettazione:** lo stesso test passa su macOS, Windows e Linux; il job `resolve` della release non fallisce prima della build.
+
+**Gate A:** S01-S03 completati; relativi test Rust/TS verdi; nessun percorso fail-open o test dipendente da `process.platform`.
+
+### Fase B — P1: confini di sicurezza
+
+- [x] **S04 — Rimuovere `cmd /C` dai launcher Windows** (`Subagente`, review sicurezza)
+  In `src-tauri/src/external.rs` avviare editor e terminali direttamente con argomenti strutturati. Non concatenare mai path in un linguaggio shell.
+  **Accettazione:** cartelle contenenti spazio, `&`, `|`, `^`, parentesi e Unicode vengono aperte letteralmente; nessun comando aggiuntivo viene interpretato.
+
+- [x] **S05 — Confinare Apply Rule contro symlink** (`Subagente`, review sicurezza)
+  Riutilizzare il resolver canonico di `projects` in `rules_ops.rs`; rifiutare symlink foglia e target canonici fuori dalla root.
+  **Accettazione:** traversal e symlink esterno falliscono senza modificare il target; file regolare interno continua a funzionare.
+
+- [x] **S06 — Allowlist dei protocolli esterni** (`Main`)
+  Centralizzare l'apertura URL della sessione agente: consentire automaticamente solo `https:` e `http:`; bloccare URI malformati e richiedere un flusso esplicito per qualunque schema aggiuntivo realmente necessario.
+  **Accettazione:** `file:`, `javascript:`, `data:` e custom scheme non vengono aperti da eventi RPC; URL web validi restano funzionanti.
+
+- [x] **S07 — Chiudere le vulnerabilita runtime frontend** (`Subagente`, review sicurezza)
+  Aggiornare DOMPurify e le dipendenze che ne fissano copie vulnerabili, rigenerare il lockfile e valutare separatamente gli advisory non raggiungibili nella build Tauri statica.
+  **Accettazione:** nessun advisory high/moderate raggiungibile nel runtime distribuito; i test di sanitizzazione SVG/HTML/Mermaid continuano a passare.
+
+**Gate B:** test ostili su path, symlink, URL e sanitizzazione verdi; `bun audit` senza vulnerabilita high/moderate applicabili al runtime.
+
+### Fase C — setup e adattamento piattaforma
+
+- [x] **S08 — Window chrome nativo su macOS** (`Subagente UI`, integrazione `Main`)
+  Rendere la shell platform-aware: controlli custom minimize/maximize/close solo su Windows; traffic light, drag region, fullscreen e double-click titlebar conformi a macOS. Usare configurazione Tauri specifica per piattaforma invece di un unico `decorations: false`.
+  **Accettazione:** screenshot e smoke reali su entrambe le piattaforme; nessun controllo Windows su macOS; snap/maximize Windows e fullscreen macOS funzionanti.
+
+- [x] **S09 — Attendere l'idratazione dei progetti** (`Main`)
+  Esporre uno stato/promise `ready` dallo store progetti e serializzare `checkSetupContract` dopo il caricamento persistito.
+  **Accettazione:** un utente con progetti salvati non vede mai il setup per uno stato vuoto transitorio; primo avvio reale continua ad aprirlo.
+
+- [x] **S10 — Copy e percorsi setup per piattaforma** (`Subagente UI`)
+  Eliminare `%LOCALAPPDATA%` dal testo macOS e derivare copy e destinazioni dallo stato restituito dal backend, senza stringhe di percorso duplicate nel frontend.
+  **Accettazione:** ogni piattaforma mostra il percorso effettivo; nessun riferimento Windows compare su macOS.
+
+- [x] **S11 — Installazione font nativa per piattaforma** (`Main`)
+  Separare Windows e macOS: su macOS usare la directory font utente e il meccanismo di registrazione supportato dal sistema, senza `~/.local/share/fonts` o `fc-cache`.
+  **Accettazione:** font disponibile in una nuova sessione dell'app senza logout; failure di registrazione e mostrata e non dichiarata come successo.
+
+- [x] **S12 — PATH OMP sicuro nelle shell Unix** (`Main`)
+  Rendere `~/.omp/bin` utilizzabile anche nei terminali esterni supportati, con modifica idempotente e delimitata dei profili shell oppure con un meccanismo nativo meno invasivo. Non alterare righe utente esistenti.
+  **Accettazione:** nuova shell zsh trova `omp`; seconda esecuzione non duplica il blocco; rollback documentato e testato con HOME temporanea.
+
+- [x] **S13 — Fallback editor basato sull'exit status** (`Subagente`)
+  Considerare riuscito `open -a` solo dopo un exit code positivo; provare il fallback successivo su errore reale.
+  **Accettazione:** app assente attiva il fallback; app presente apre la directory una sola volta.
+
+**Gate C:** setup pulito e setup di ritorno provati su macOS; smoke equivalente Windows in CI; nessuna mutazione del profilo utente usato dai test.
+
+### Fase D — interazioni Ask e protocollo RPC
+
+- [x] **S14 — Vietare risposte Ask implicite** (`Subagente Agent UI`)
+  Spostare formattazione e validazione in un modulo di dominio importabile; nessuna domanda senza scelta e nessun `Other` vuoto puo avanzare o essere inviato.
+  **Accettazione:** Next/Confirm/Submit riflettono la validita; zero fallback alla prima opzione; multi-question e custom answer coperti.
+
+- [x] **S15 — Queue delle risposte request-scoped** (`Main`)
+  Associare ogni risposta accodata all'ID della richiesta e cambiare stato solo dopo conferma RPC. Su errore ripristinare richiesta, selezioni e focus; non riutilizzare mai la risposta con un evento successivo.
+  **Accettazione:** failure sulla prima risposta non auto-risponde la seconda; retry esplicito invia gli stessi dati una sola volta.
+
+**Gate D:** test end-to-end del wizard con domande parziali, `Other`, failure RPC, retry e nuova richiesta.
+
+### Fase E — release engineering e trust degli installer
+
+- [ ] **S16 — Firma e notarizzazione macOS** (`Main`, prerequisito esterno — workflow e verifiche configurati)
+  Integrare Developer ID, hardened runtime, notarizzazione e stapling nel workflow. I secret devono essere solo GitHub Actions secrets e mai scritti nel repository.
+  **Accettazione:** `codesign --verify --deep --strict`, `spctl --assess` e verifica notarizzazione passano sul DMG scaricato. Richiede certificato/account Apple disponibili.
+
+- [ ] **S17 — Firma Authenticode Windows** (`Main`, prerequisito esterno — workflow e verifiche configurati)
+  Integrare firma timestamped dell'installer NSIS e verifica post-upload.
+  **Accettazione:** `Get-AuthenticodeSignature` restituisce `Valid` sull'asset pubblicato. Richiede certificato di code signing disponibile.
+
+- [x] **S18 — Gate CI completi prima del packaging** (`Subagente workflow`, integrazione `Main`)
+  Aggiungere al workflow typecheck, smoke TS, test Rust, Clippy, audit dipendenze, version check e diff hygiene prima dei job di build. Evitare duplicazioni tra Nightly, RC e stable tramite script condivisi gia presenti o un unico job riusabile.
+  **Accettazione:** ogni gate viene fatto fallire intenzionalmente in una prova controllata e impedisce la pubblicazione.
+
+- [x] **S19 — Pin delle GitHub Actions a SHA** (`Subagente workflow`)
+  Sostituire tag mobili con commit SHA verificati, mantenendo il numero di versione in commento per leggibilita.
+  **Accettazione:** nessun `uses:` di terze parti resta su tag o branch mobile.
+
+- [x] **S20 — Ridurre CSP e capability Tauri** (`Main`, review sicurezza)
+  Inventariare codice che richiede `unsafe-inline`, `unsafe-eval`, opener e core permissions; rimuovere cio che non e indispensabile e restringere scope/comandi. Mantenere il test di copertura ACL.
+  **Accettazione:** app completa funzionante con policy minima documentata; test ACL verde; nessun allargamento wildcard.
+
+**Gate E:** pipeline produce installer firmati verificabili e non pubblica se un gate precedente fallisce.
+
+### Fase F — correttezza filesystem e durabilita
+
+- [x] **S21 — Rinomina case-only su macOS** (`Subagente`)
+  Gestire filesystem case-insensitive con rename in due passi tramite nome temporaneo collision-safe e rollback.
+  **Accettazione:** `foo` → `Foo` funziona su APFS predefinito; collisioni reali falliscono; nessun file temporaneo resta dopo errore.
+
+- [x] **S22 — Persistenza task crash-safe su Windows** (`Subagente Rust`)
+  Sostituire il fallback remove-then-rename con una primitive di replace sicura o una strategia con backup e rollback nello stesso filesystem.
+  **Accettazione:** failure in ogni punto conserva almeno una copia valida della coda; test fault-injection dove possibile.
+
+- [x] **S23 — Errori resume tipizzati** (`Main`)
+  Verificare il contratto OMP disponibile e centralizzare la classificazione degli errori. Preferire code/eventi strutturati; se OMP espone solo stderr, isolare un parser versionato e testato invece del confronto letterale nel componente.
+  **Accettazione:** variazioni innocue di quoting, prefisso e whitespace non rompono il recupero; errori diversi non vengono confusi con sessione assente.
+
+- [x] **S24 — Target `contenteditable` annidati** (`Subagente frontend`)
+  Rilevare l'editing tramite `closest()` e percorso evento, mantenendo il menu nativo per qualsiasi discendente editabile.
+  **Accettazione:** click destro su testo e child element annidato conserva cut/copy/paste nativi; aree non editabili usano il menu Studio.
+
+**Gate F:** suite filesystem e menu contestuale verde su piattaforme supportate.
+
+### Fase G — accessibilita e performance
+
+- [x] **S25 — Semantica e tastiera Ask** (`Subagente accessibilita`)
+  Implementare `listbox/option` coerenti, `aria-selected`, `aria-multiselectable` quando serve e roving tabindex; in alternativa usare controlli radio/checkbox nativi mantenendo il layout visuale.
+  **Accettazione:** Arrow, Home, End, Space/Enter e annunci screen reader funzionano; una sola opzione e nel tab order.
+
+- [x] **S26 — Tablist dei progetti** (`Subagente accessibilita`)
+  Applicare `tablist/tab/tabpanel`, `aria-selected`, relazione al pannello e navigazione roving senza rompere drag, reorder e shortcut.
+  **Accettazione:** switch completo solo tastiera, focus visibile e ordine coerente dopo riordino.
+
+- [x] **S27 — File tree accessibile** (`Subagente accessibilita`)
+  Implementare `tree/treeitem/group`, livelli, espansione, selezione, roving tabindex e tasti Arrow/Home/End/Enter. Preservare lazy loading e menu contestuale.
+  **Accettazione:** navigazione completa senza mouse su albero profondo; focus stabile dopo rename, delete e refresh.
+
+- [x] **S28 — Code splitting delle superfici pesanti** (`Subagente performance`)
+  Misurare i chunk, caricare Monaco, Mermaid e worker solo all'apertura delle rispettive superfici e rimuovere preload involontari.
+  **Accettazione:** Monaco/Mermaid assenti dal percorso iniziale; nessun chunk iniziale non-worker supera 1 MiB senza giustificazione; editor e diagrammi restano funzionali.
+
+**Gate G:** audit tastiera/screen reader sui tre widget e confronto bundle prima/dopo allegato alla review.
+
+### Fase H — test, lint e documentazione
+
+- [x] **S29 — Test Ask contro codice di produzione** (`Subagente test`)
+  Estrarre helper puri usati dal componente e importarli nei test; eliminare copie del comportamento dentro `test/ask-tool.test.ts`.
+  **Accettazione:** la regressione della risposta implicita fa fallire il test; nessuna implementazione duplicata.
+
+- [x] **S30 — Riallineare gate e architettura documentata** (`Subagente documentazione`)
+  Correggere `PLAN.md` e `ARCHITECTURE.md` affinche decorazioni finestra, CSP, setup, accessibilita e gate riflettano il codice verificato, distinguendo storico e stato corrente.
+  **Accettazione:** nessuna voce `SUPERATO` o `[x]` contraddice configurazione o test correnti.
+
+- [x] **S31 — Clippy a zero warning** (`Subagente meccanico`, integrazione `Main`)
+  Correggere i 16 finding senza `allow` generici e senza cambiare semantica o drop order non verificato.
+  **Accettazione:** `cargo clippy --all-targets -- -D warnings` passa.
+
+- [x] **S32 — Diff hygiene** (`Subagente meccanico`)
+  Rimuovere il trailing whitespace rilevato e impedire recidive nel gate CI.
+  **Accettazione:** `git diff --check v1.2.0..HEAD` e il diff della remediation passano.
+
+- [x] **S33 — Compatibilita automatica del contratto setup** (`Main`)
+  Versionare fixture/contratto OMP e aggiungere uno smoke che valida la minima e la corrente versione supportata, inclusi asset name, setup status e chiavi di configurazione.
+  **Accettazione:** una variazione incompatibile dell'output o della config OMP fallisce prima del packaging con errore diagnostico.
+
+**Gate H:** typecheck, lint, test e documentazione coerenti; zero warning ignorati.
+
+### Fase I — verifica, candidate e stable
+
+- [ ] **S34 — Matrice multipiattaforma completa** (`Main`)
+  Eseguire su macOS arm64 locale e Windows x64 CI: setup pulito e di ritorno, topbar/windowing, Ask failure/retry, file operations, editor/terminal opener, updater, resume, firme e installazione reale.
+  **Accettazione:** evidenza per ogni scenario; nessuno skip salvo test che mutano intenzionalmente un profilo temporaneo.
+
+- [ ] **S35 — Secondo audit finding-per-finding** (`Main` + reviewer)
+  Rieseguire sicurezza, accessibilita, performance, packaging e regressioni usando questa lista come matrice di tracciabilita.
+  **Accettazione:** zero P0/P1, nessun finding chiuso solo per inferenza, ogni chiusura punta a test o smoke osservato.
+
+- [ ] **S36 — Changelog utente finale** (`Main`)
+  Aggiungere sotto `[Unreleased]` voci italiane concise per sicurezza del setup, affidabilita configurazione, integrazione macOS/Windows, Ask, accessibilita e performance.
+  **Accettazione:** descrive cosa cambia per l'utente, non file o dettagli interni; nessuna voce duplicata.
+
+- [ ] **S37 — Pubblicazione controllata 1.2.1** (`Main`, decisione utente obbligatoria)
+  Chiedere tramite `ask` la strategia prevista dalle regole di progetto. Prima validare una Nightly/RC multipiattaforma dello stesso commit; poi eseguire bump con `npm run release -- 1.2.1`, commit, tag, push e promozione/verifica degli asset firmati.
+  **Accettazione:** tag stable e candidate puntano allo stesso commit; release contiene DMG universale notarizzato, EXE x64 firmato, checksum e note corrette.
+
+### Matrice finale obbligatoria
+
+```text
+npx svelte-check --tsconfig ./tsconfig.json
+bun run build
+npm run test:smoke
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+bun audit
+npm run release -- --check
+git diff --check
+```
+
+Oltre ai comandi, la verifica richiede l'avvio dell'app reale e l'esercizio delle superfici modificate. Un rendering browser senza IPC Tauri non vale come smoke desktop.
 
 ---
 

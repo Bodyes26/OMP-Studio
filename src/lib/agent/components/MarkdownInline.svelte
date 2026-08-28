@@ -3,7 +3,8 @@
 	// L'HTML non e' mai interpretato: viene reso come testo grezzo.
 	// I link web aprono il browser esterno via Tauri; se il link o codespan
 	// e' un percorso di file valido del progetto, viene aperto nell'editor.
-	import { openUrl } from '@tauri-apps/plugin-opener';
+	import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
+	import { openExternalUrl } from '$lib/utils/openExternal';
 	import type { StreamFade, Token } from '../markdown';
 	import { agentUiHooks } from '../ui-context';
 	import MarkdownInline from './MarkdownInline.svelte';
@@ -18,8 +19,8 @@
 	function handleLink(e: MouseEvent, href: string) {
 		e.preventDefault();
 		if (!href) return;
-		if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
-			openUrl(href).catch(() => {});
+		if (isAllowedExternalUrl(href)) {
+			void openExternalUrl(href);
 		} else {
 			hooks.openFile(href, null);
 		}

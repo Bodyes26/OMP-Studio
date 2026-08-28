@@ -40,6 +40,7 @@
 	export interface SetupStatus {
 		ompInstalled: boolean;
 		ompPath: string | null;
+		installDir: string | null;
 		ompVersion: string | null;
 		setupVersion: number;
 		wizardPending: boolean;
@@ -202,7 +203,7 @@
 		} catch (e) {
 			installError = String(e);
 			if (!installDiagnostic) {
-				installDiagnostic = 'L\'installazione non è riuscita. Verifica la connessione a GitHub o che un antivirus non stia bloccando il download.';
+				installDiagnostic = 'L\'installazione non è riuscita. Verifica la connessione a GitHub, la disponibilità dell\'impronta SHA-256 ufficiale o che un antivirus non stia bloccando il download.';
 			}
 		} finally {
 			installing = false;
@@ -330,10 +331,15 @@
 			{#if step === 'install'}
 				<div class="card">
 					<p class="lead">
-						Il binario viene scaricato dalle release ufficiali di <code>oh-my-pi</code>, verificato
-						con l'impronta SHA-256 pubblicata accanto ad esso e installato in
-						<code>%LOCALAPPDATA%\omp</code>. Nessuno script remoto viene eseguito.
+						Studio installa il binario delle release ufficiali di <code>oh-my-pi</code> solo dopo
+						averne verificato l'impronta SHA-256 pubblicata da GitHub. Se l'impronta manca,
+						non è valida o non coincide, il binario esistente resta intatto. Nessuno script remoto viene eseguito.
 					</p>
+					{#if status?.installDir}
+						<p class="lead">
+							Destinazione: <code>{status.installDir}</code>
+						</p>
+					{/if}
 					{#if progress && installing}
 						<div class="progress">
 							<div class="progress-track">

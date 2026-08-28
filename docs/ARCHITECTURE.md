@@ -423,17 +423,17 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 
 | # | Ambito / Gate | Decisione Architetturale | Esito |
 |---|---|---|---|
-| **R1** | Windowing nativo vs decorazioni custom | Mantenuta la barra nativa di sistema (`decorations: true`) per garantire snap layout e resize perfetto su Windows 11 (`tauri #8519`). | SUPERATO |
+| **R1** | Windowing nativo vs decorazioni custom | Window chrome differenziato per piattaforma (`tauri.macos.conf.json` con `titleBarStyle: Overlay` e semafori nativi, `tauri.windows.conf.json` con controlli integrati). | SUPERATO |
 | **R6** | Throughput e integrità PTY | Trasporto a frame grezzi con `Channel<&[u8]>` e coalescenza a 8 ms; zero conversioni ANSI/UTF-8 intermedie. | SUPERATO |
 | **R8** | Rilevamento stato agente in TUI | Parsing del titolo OSC 0 emesso da `omp` (`/^\u03c0 ([>:!])/`) iniettando overlay `tui.titleState: true`. | SUPERATO |
 | **R9** | Tema condiviso Studio / OMP | Scrittura controllata del solo file `~/.omp/agent/themes/omp-studio.json` per allineamento cromatico guscio/TUI. | SUPERATO |
 | **R10** | Seconda superficie GUI | Client Svelte 5 nativo su `omp --mode rpc-ui` NDJSON v2 con switch trasparente via `--resume`. | SUPERATO |
-| **R11** | Primo avvio guidato (Setup) | Wizard nativo di OMP ospitato in scheda terminale protetta; rilevamento semantico delle credenziali e modelli. | SUPERATO |
-| **R12** | Barra progetti e Code Task | Ordine manuale stabile delle tessere; contatore coda task integrato; auto-dispatch per-progetto opzionale. | SUPERATO |
-| **R13** | Promozione RC a Stabile | Riutilizzo degli artefatti binari testati in pre-release previa verifica crittografica di consistenza del commit SHA. | SUPERATO |
-| **R14** | Disaccoppiamento Store Task | Isolamento dello stato dei task in `tasks.json` dedicato separato da `settings.json`. | SUPERATO |
-| **R15** | Sicurezza Sandbox Prototipi & SVG | Iframe sandbox `null-origin` con CSP `default-src 'none'` e sanitizzazione DOMPurify. | SUPERATO |
-| **R16** | Raggruppamento Tool e Accessibilità Chat | Componente `ToolGroup` unificato, autoscroll resiliente durante lo streaming, e `roving tabindex` su `AskCard`. | SUPERATO |
+| **R11** | Primo avvio guidato (Setup) | Installer fail-closed con verifica SHA-256 obbligatoria; rilevamento semantico dello stato; registrazione font e PATH per piattaforma. | SUPERATO |
+| **R12** | Barra progetti e Code Task | Ordine manuale stabile delle tessere; contatore coda task integrato; auto-dispatch per-progetto opzionale; navigazione accessibile `role="tablist"`. | SUPERATO |
+| **R13** | Promozione RC a Stabile | Riutilizzo degli artefatti binari testati in pre-release previa verifica crittografica del commit SHA e superamento gate CI di qualita. | SUPERATO |
+| **R14** | Disaccoppiamento Store Task | Isolamento dello stato dei task in `tasks.json` dedicato separato da `settings.json`, con scrittura atomica crash-safe. | SUPERATO |
+| **R15** | Sicurezza Sandbox Prototipi & SVG | Iframe sandbox `null-origin` con CSP `default-src 'none'`, sanitizzazione DOMPurify 3.4.14 e allowlist protocolli URL esterni. | SUPERATO |
+| **R16** | Raggruppamento Tool e Accessibilità Chat | Componente `ToolGroup` unificato, autoscroll resiliente durante lo streaming, `listbox`/`option` con roving tabindex e risposte esplicite su `AskCard`. | SUPERATO |
 | **R17** | Notifiche OS e Allerte Icona | Registrazione AUMID `sh.omp.studio`, notifiche toast OS, dot rosso taskbar Windows e badge Dock macOS. | SUPERATO |
 
 ---

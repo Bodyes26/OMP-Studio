@@ -7,7 +7,9 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { invoke, Channel } from '@tauri-apps/api/core';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { IS_MAC } from '$lib/utils/platform';
+import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
+import { openExternalUrl } from '$lib/utils/openExternal';
 import { canvasColors, onThemeChange } from '$lib/theme';
 import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
 import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
@@ -24,7 +26,6 @@ const TITLE_STATE_REGEX = /^\u03c0 ([>:!])(?: |$)/;
 // macOS WebKit non disegna i glifi Private Use dei font di sistema nel
 // canvas, quindi va primo; altrove resta un fallback dopo i Nerd locali.
 const BUNDLED_NF = '"Studio Mono NF"';
-const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
 const MONO_FONT = IS_MAC
 	? `${BUNDLED_NF}, "BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font Mono", "FiraCode Nerd Font", "Hack Nerd Font Mono", "Hack Nerd Font", "MesloLGS NF", "Symbols Nerd Font Mono", "Symbols Nerd Font", Menlo, monospace`
 	: `"BlexMono Nerd Font Propo", "BlexMono Nerd Font Mono", "BlexMono Nerd Font", "IBMPlexMono Nerd Font Propo", "JetBrainsMono Nerd Font", "CaskaydiaCove Nerd Font", "Symbols Nerd Font Mono", "Symbols Nerd Font", "Cascadia Mono", Consolas, ${BUNDLED_NF}, monospace`;
@@ -124,8 +125,8 @@ export class TerminalSession {
 			linkHandler: {
 				allowNonHttpProtocols: true,
 				activate: (_event, text) => {
-					if (text.startsWith('http://') || text.startsWith('https://')) {
-						void openUrl(text);
+					if (isAllowedExternalUrl(text)) {
+						void openExternalUrl(text);
 						return;
 					}
 					void this.activateFileCandidate(text);
@@ -143,7 +144,7 @@ export class TerminalSession {
 		this.term.loadAddon(new Unicode11Addon());
 		this.term.unicode.activeVersion = '11';
 		this.term.loadAddon(new WebLinksAddon((_event, uri) => {
-			void openUrl(uri);
+			void openExternalUrl(uri);
 		}));
 		this.term.registerLinkProvider(new FileLinkProvider(this.term, (text) => {
 			void this.activateFileCandidate(text);
