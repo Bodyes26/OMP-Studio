@@ -71,19 +71,31 @@
 		}, delay);
 	}
 
+	/**
+	 * Le risposte lente vanno scartate, non applicate. Il pannello non e'
+	 * ricreato al cambio progetto: senza questa guardia la lista del progetto
+	 * precedente arrivava dopo ed elencava sessioni che non sono di qui.
+	 */
+	let requestToken = 0;
+
 	async function loadSessions(customQuery?: string) {
+		const target = projectPath;
+		const token = ++requestToken;
 		loading = true;
 		loadError = null;
 		const q = customQuery !== undefined ? customQuery : untrack(() => query);
 		try {
-			sessions = q.trim()
-				? await invoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath })
-				: await invoke<SessionEntry[]>('sessions_list', { projectPath });
+			const result = q.trim()
+				? await invoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath: target })
+				: await invoke<SessionEntry[]>('sessions_list', { projectPath: target });
+			if (token !== requestToken || target !== projectPath) return;
+			sessions = result;
 			scheduleReconciliation();
 		} catch (error) {
+			if (token !== requestToken || target !== projectPath) return;
 			loadError = `Storico non disponibile: ${String(error)}`;
 		} finally {
-			loading = false;
+			if (token === requestToken) loading = false;
 		}
 	}
 
@@ -122,6 +134,9 @@
 		reconciliationTimer = null;
 		if (searchTimer !== null) window.clearTimeout(searchTimer);
 		searchTimer = null;
+		// La lista del progetto precedente sparisce subito: mostrarla mentre
+		// arriva quella nuova e' peggio di un caricamento vuoto.
+		sessions = [];
 		// untrack evita che la lettura di query renda l'effetto dipendente da ogni battuta di tasto
 		untrack(() => {
 			void loadSessions();

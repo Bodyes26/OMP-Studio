@@ -277,6 +277,13 @@ export class AgentSession {
 		if (this.client.isOpen) return;
 		if (this.opening) return this.opening;
 
+		// `close()` stacca il riduttore dal canale: senza riagganciarlo qui il
+		// frame `ready` del nuovo processo cadrebbe nel vuoto, `attach()` non
+		// partirebbe mai e la superficie resterebbe vuota per sempre. E' il
+		// percorso di ogni ripresa dallo storico (close + open sulla stessa
+		// istanza) e di ogni cambio di superficie.
+		this.unsubscribeEvent ??= this.client.onEvent((event) => this.reduce(event));
+
 		const requestedResume = resume ?? null;
 		const opening = (async () => {
 			this.exited = false;
@@ -301,6 +308,10 @@ export class AgentSession {
 	async close() {
 		this.unsubscribeEvent?.();
 		this.unsubscribeEvent = null;
+		// Un'apertura ancora in volo non deve piu' fare da guardia: senza
+		// azzerarla, la `open()` successiva restituirebbe la promise della
+		// sessione appena chiusa e la ripresa non aprirebbe nulla.
+		this.opening = null;
 		await this.client.close();
 		this.isReady = false;
 		this.isAttached = false;

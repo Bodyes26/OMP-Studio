@@ -1,3 +1,4 @@
+use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -8,6 +9,7 @@ use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::LazyLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::command;
 fn get_user_home() -> Option<String> {
@@ -544,6 +546,158 @@ fn normalize_path_for_compare(path: &str) -> String {
     path.replace('\\', "/").trim_end_matches('/').to_lowercase()
 }
 
+/// Quante sessioni tornano al massimo alla GUI.
+const SESSION_LIST_LIMIT: usize = 50;
+
+/// Righe iniziali entro cui cercare intestazione e primo prompt.
+const HEADER_LINES: usize = 20;
+
+/// Tetto di byte letti per l'intestazione: `id` e `cwd` stanno nelle prime
+/// centinaia di byte, il resto sarebbe solo un transcript da megabyte.
+const HEADER_BYTES: u64 = 64 * 1024;
+
+/// Tetto di byte letti quando serve il primo prompt come titolo di ripiego.
+const PROMPT_BYTES: u64 = 512 * 1024;
+
+/// Un titolo lungo non si vede comunque nella colonna: oltre questo si taglia.
+const TITLE_CHARS: usize = 200;
+
+/// Intestazione di un transcript. `id` e `cwd` vengono scritti alla creazione
+/// del file e non cambiano piu': si leggono una volta sola. `title` e' il
+/// titolo ricavato dal file stesso (record `title`, `session.title` o primo
+/// prompt) e puo' arrivare in un secondo momento.
+#[derive(Clone)]
+struct CachedSession {
+    id: String,
+    cwd: String,
+    title: Option<String>,
+}
+
+/// Cache di processo delle intestazioni. Senza, ogni cambio progetto e ogni
+/// ritorno di focus rileggeva tutti i transcript di tutti i progetti: con 700
+/// sessioni sono ~70 MB di JSON da parsare, oltre un minuto a freddo.
+static SESSION_HEADERS: LazyLock<Mutex<HashMap<PathBuf, CachedSession>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn truncate_title(text: &str) -> String {
+    let trimmed = text.trim();
+    match trimmed.char_indices().nth(TITLE_CHARS) {
+        Some((cut, _)) => trimmed[..cut].to_string(),
+        None => trimmed.to_string(),
+    }
+}
+
+/// Legge le sole righe di intestazione e si ferma appena ha `id` e `cwd`.
+/// Ritorna `None` se il file non e' un transcript riconoscibile.
+fn read_session_header(path: &Path) -> Option<CachedSession> {
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file.take(HEADER_BYTES));
+    let mut header_title = None;
+    let mut session_id = None;
+    let mut session_cwd = None;
+
+    for line in reader.lines().take(HEADER_LINES).map_while(Result::ok) {
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        match val.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+            "title" => {
+                if let Some(t) = val.get("title").and_then(|t| t.as_str()) {
+                    if !t.is_empty() {
+                        header_title = Some(truncate_title(t));
+                    }
+                }
+            }
+            "session" => {
+                session_id = val
+                    .get("id")
+                    .and_then(|i| i.as_str())
+                    .map(|i| i.to_string());
+                session_cwd = val
+                    .get("cwd")
+                    .and_then(|c| c.as_str())
+                    .map(|c| c.to_string());
+                if header_title.is_none() {
+                    if let Some(t) = val.get("title").and_then(|t| t.as_str()) {
+                        if !t.is_empty() {
+                            header_title = Some(truncate_title(t));
+                        }
+                    }
+                }
+                if session_id.is_some() && session_cwd.is_some() {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Some(CachedSession {
+        id: session_id?,
+        cwd: session_cwd?,
+        title: header_title,
+    })
+}
+
+fn cached_header(path: &Path) -> Option<CachedSession> {
+    if let Some(hit) = SESSION_HEADERS.lock().get(path) {
+        return Some(hit.clone());
+    }
+    let header = read_session_header(path)?;
+    SESSION_HEADERS
+        .lock()
+        .insert(path.to_path_buf(), header.clone());
+    Some(header)
+}
+
+/// Titolo di ripiego: il primo messaggio dell'utente. Costa la lettura di
+/// parecchie righe di transcript, quindi si fa solo per le sessioni del
+/// progetto cercato e il risultato resta in cache.
+fn resolve_title_from_file(path: &Path) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file.take(PROMPT_BYTES));
+    let mut prompt = None;
+
+    for line in reader.lines().take(HEADER_LINES).map_while(Result::ok) {
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        if val.get("type").and_then(|t| t.as_str()) != Some("message") {
+            continue;
+        }
+        let Some(message) = val.get("message") else {
+            continue;
+        };
+        if message.get("role").and_then(|r| r.as_str()) != Some("user") {
+            continue;
+        }
+        let Some(content) = message.get("content") else {
+            continue;
+        };
+        if let Some(text) = content.as_str() {
+            prompt = Some(truncate_title(text));
+        } else if let Some(arr) = content.as_array() {
+            for part in arr {
+                if part.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
+                        prompt = Some(truncate_title(txt));
+                        break;
+                    }
+                }
+            }
+        }
+        if prompt.is_some() {
+            break;
+        }
+    }
+
+    let prompt = prompt?;
+    if let Some(entry) = SESSION_HEADERS.lock().get_mut(path) {
+        entry.title = Some(prompt.clone());
+    }
+    Some(prompt)
+}
+
 fn scan_sessions_from_disk(
     project_path: &str,
     query: Option<&str>,
@@ -552,19 +706,24 @@ fn scan_sessions_from_disk(
     let Some(agent) = agent_dir() else {
         return Vec::new();
     };
-    let sessions_root = agent.join("sessions");
-    if !sessions_root.exists() {
-        return Vec::new();
-    }
+    scan_sessions_in(&agent.join("sessions"), project_path, query, titles)
+}
 
+fn scan_sessions_in(
+    sessions_root: &Path,
+    project_path: &str,
+    query: Option<&str>,
+    titles: &HashMap<String, String>,
+) -> Vec<SessionEntry> {
     let target_norm = normalize_path_for_compare(project_path);
-    let query_lower = query.map(|q| q.trim().to_lowercase());
-    let mut found = Vec::new();
 
-    let Ok(dir_entries) = std::fs::read_dir(&sessions_root) else {
+    let Ok(dir_entries) = std::fs::read_dir(sessions_root) else {
         return Vec::new();
     };
 
+    // Fase 1: solo le intestazioni. Scartare il transcript di un altro
+    // progetto costa poche centinaia di byte, non l'intero file.
+    let mut candidates: Vec<(PathBuf, CachedSession, i64)> = Vec::new();
     for folder_entry in dir_entries.flatten() {
         let folder_path = folder_entry.path();
         if !folder_path.is_dir() {
@@ -578,102 +737,56 @@ fn scan_sessions_from_disk(
             if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
                 continue;
             }
-
-            let Ok(file) = File::open(&path) else {
+            let Some(header) = cached_header(&path) else {
                 continue;
             };
-            let reader = BufReader::new(file);
-            let mut header_title = None;
-            let mut session_id = None;
-            let mut session_cwd = None;
-            let mut first_prompt = None;
-
-            for line in reader.lines().take(20).flatten() {
-                let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
-                    continue;
-                };
-                let entry_type = val.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                if entry_type == "title" {
-                    if let Some(t) = val.get("title").and_then(|t| t.as_str()) {
-                        if !t.is_empty() {
-                            header_title = Some(t.to_string());
-                        }
-                    }
-                } else if entry_type == "session" {
-                    if let Some(id) = val.get("id").and_then(|i| i.as_str()) {
-                        session_id = Some(id.to_string());
-                    }
-                    if let Some(cwd) = val.get("cwd").and_then(|c| c.as_str()) {
-                        session_cwd = Some(cwd.to_string());
-                    }
-                    if header_title.is_none() {
-                        if let Some(t) = val.get("title").and_then(|t| t.as_str()) {
-                            if !t.is_empty() {
-                                header_title = Some(t.to_string());
-                            }
-                        }
-                    }
-                } else if entry_type == "message" && first_prompt.is_none() {
-                    let role = val
-                        .get("message")
-                        .and_then(|m| m.get("role"))
-                        .and_then(|r| r.as_str());
-                    if role == Some("user") {
-                        if let Some(content) = val.get("message").and_then(|m| m.get("content")) {
-                            if let Some(text) = content.as_str() {
-                                first_prompt = Some(text.to_string());
-                            } else if let Some(arr) = content.as_array() {
-                                for part in arr {
-                                    if part.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                        if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
-                                            first_prompt = Some(txt.to_string());
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if session_id.is_some() && session_cwd.is_some() && first_prompt.is_some() {
-                    break;
-                }
+            if normalize_path_for_compare(&header.cwd) != target_norm {
+                continue;
             }
+            let mtime = file_entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            candidates.push((path, header, mtime));
+        }
+    }
 
-            if let (Some(id), Some(cwd)) = (session_id, session_cwd) {
-                if normalize_path_for_compare(&cwd) == target_norm {
-                    let title = titles
-                        .get(&id)
-                        .cloned()
-                        .or(header_title)
-                        .or(first_prompt)
-                        .unwrap_or_else(|| "Nuova sessione".to_string());
+    candidates.sort_by(|left, right| right.2.cmp(&left.2));
+    // Senza ricerca la GUI mostra le piu' recenti: il titolo va risolto solo
+    // per quelle, non per tutto lo storico del progetto.
+    if query.is_none() {
+        candidates.truncate(SESSION_LIST_LIMIT);
+    }
 
-                    let matches = match &query_lower {
-                        None => true,
-                        Some(q) if q.is_empty() => true,
-                        Some(q) => title.to_lowercase().contains(q) || id.to_lowercase().contains(q),
-                    };
+    let query_lower = query
+        .map(|q| q.trim().to_lowercase())
+        .filter(|q| !q.is_empty());
 
-                    if matches {
-                        let mtime = file_entry
-                            .metadata()
-                            .and_then(|m| m.modified())
-                            .ok()
-                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs() as i64)
-                            .unwrap_or(0);
+    // Fase 2: il titolo. Si legge il transcript solo quando manca sia in
+    // history.db sia nell'intestazione.
+    let mut found = Vec::with_capacity(candidates.len());
+    for (path, header, mtime) in candidates {
+        let title = titles
+            .get(&header.id)
+            .map(|t| truncate_title(t))
+            .or(header.title)
+            .or_else(|| resolve_title_from_file(&path))
+            .unwrap_or_else(|| "Nuova sessione".to_string());
 
-                        found.push(SessionEntry {
-                            id,
-                            title,
-                            created_at: mtime,
-                        });
-                    }
-                }
+        if let Some(q) = &query_lower {
+            if !title.to_lowercase().contains(q) && !header.id.to_lowercase().contains(q) {
+                continue;
             }
         }
+
+        found.push(SessionEntry {
+            id: header.id,
+            title,
+            created_at: mtime,
+        });
     }
 
     found
@@ -728,7 +841,7 @@ fn sessions_list_sync(project_path: String) -> Result<Vec<SessionEntry>, String>
     }
 
     sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    sessions.truncate(50);
+    sessions.truncate(SESSION_LIST_LIMIT);
 
     Ok(sessions)
 }
@@ -831,7 +944,7 @@ fn sessions_search_sync(
     }
 
     sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    sessions.truncate(50);
+    sessions.truncate(SESSION_LIST_LIMIT);
 
     Ok(sessions)
 }
@@ -1283,5 +1396,72 @@ mod tests {
 
         // Pulizia
         let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn elenca_solo_le_sessioni_del_progetto_richiesto() {
+        let root = std::env::temp_dir().join(format!(
+            "omp-studio-scan-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let mio = root.join("-source-repos-app");
+        let altro = root.join("-source-repos-altro");
+        std::fs::create_dir_all(&mio).unwrap();
+        std::fs::create_dir_all(&altro).unwrap();
+
+        // Titolo dal primo prompt: l'intestazione lo ha vuoto.
+        std::fs::write(
+            mio.join("2026-08-28T07-24-00-669Z_aaa.jsonl"),
+            concat!(
+                "{\"type\":\"title\",\"title\":\"\"}\n",
+                "{\"type\":\"session\",\"id\":\"aaa\",\"cwd\":\"C:\\\\repos\\\\app\"}\n",
+                "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"prima domanda\"}}\n",
+            ),
+        )
+        .unwrap();
+        // Titolo nell'intestazione: nessuna lettura oltre.
+        std::fs::write(
+            mio.join("2026-08-28T08-24-00-669Z_bbb.jsonl"),
+            concat!(
+                "{\"type\":\"title\",\"title\":\"Titolo scritto\"}\n",
+                "{\"type\":\"session\",\"id\":\"bbb\",\"cwd\":\"c:/repos/app/\"}\n",
+            ),
+        )
+        .unwrap();
+        // Altro progetto: va scartato sulla sola intestazione.
+        std::fs::write(
+            altro.join("2026-08-28T09-24-00-669Z_ccc.jsonl"),
+            "{\"type\":\"session\",\"id\":\"ccc\",\"cwd\":\"C:\\\\repos\\\\altro\"}\n",
+        )
+        .unwrap();
+
+        let mut titles = HashMap::new();
+        titles.insert("aaa".to_string(), "Titolo dal database".to_string());
+
+        let trovate = scan_sessions_in(&root, "C:\\repos\\app", None, &titles);
+        let ids: Vec<&str> = trovate.iter().map(|s| s.id.as_str()).collect();
+        assert!(ids.contains(&"aaa"), "sessione del progetto assente");
+        assert!(ids.contains(&"bbb"), "sessione del progetto assente");
+        assert!(!ids.contains(&"ccc"), "sessione di un altro progetto inclusa");
+
+        // history.db ha la precedenza sul contenuto del file.
+        let aaa = trovate.iter().find(|s| s.id == "aaa").unwrap();
+        assert_eq!(aaa.title, "Titolo dal database");
+        let bbb = trovate.iter().find(|s| s.id == "bbb").unwrap();
+        assert_eq!(bbb.title, "Titolo scritto");
+
+        // Senza titolo noto si ripiega sul primo prompt dell'utente.
+        let senza_titoli = scan_sessions_in(&root, "C:\\repos\\app", None, &HashMap::new());
+        let aaa = senza_titoli.iter().find(|s| s.id == "aaa").unwrap();
+        assert_eq!(aaa.title, "prima domanda");
+
+        // La ricerca filtra sul titolo risolto.
+        let cercate = scan_sessions_in(&root, "C:\\repos\\app", Some("scritto"), &titles);
+        assert_eq!(cercate.len(), 1);
+        assert_eq!(cercate[0].id, "bbb");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

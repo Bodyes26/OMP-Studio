@@ -459,7 +459,10 @@
 		agentErrors[projectId] = null;
 		try {
 			if (project.layout.rightSection === 'gui') {
-				const session = getOrCreateAgentSession(project);
+				// `agentSessionFor` e non `getOrCreateAgentSession`: quest'ultimo
+				// avvierebbe un processo sulla sessione precedente proprio mentre
+				// la stiamo chiudendo per riprenderne un'altra.
+				const session = agentSessionFor(project);
 				await session.close();
 				await session.open(sessionId);
 				taskStore.setView(project.path, 'sessions');
