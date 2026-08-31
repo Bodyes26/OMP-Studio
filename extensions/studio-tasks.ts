@@ -13,9 +13,21 @@ import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+export interface TaskDirectiveSnapshot {
+	id: string;
+	factoryKey?: "plan" | "discussion" | "minimal" | "research";
+	name: string;
+	tag: string;
+	prompt: string;
+	placement: "before" | "after";
+	order: number;
+	revision: number;
+}
+
 export interface TaskOptions {
 	role?: string;
 	thinkingLevel?: string;
+	directives?: TaskDirectiveSnapshot[];
 	planMode?: boolean;
 	discussionMode?: boolean;
 	minimalMode?: boolean;
@@ -35,6 +47,64 @@ export interface ProjectTask {
 export interface ProjectTaskPayload {
 	version: 1;
 	tasks: ProjectTask[];
+}
+
+/**
+ * Compone il testo finale del task applicando le direttive o i flag legacy.
+ */
+export function composeTaskPrompt(prompt: string, options?: TaskOptions): string {
+	const body = prompt.trim();
+	if (!options) return body;
+
+	if (options.directives && options.directives.length > 0) {
+		const beforeList = options.directives
+			.filter((d) => d.placement === "before" && d.prompt && d.prompt.trim().length > 0)
+			.sort((a, b) => a.order - b.order)
+			.map((d) => d.prompt.trim());
+
+		const afterList = options.directives
+			.filter((d) => d.placement === "after" && d.prompt && d.prompt.trim().length > 0)
+			.sort((a, b) => a.order - b.order)
+			.map((d) => d.prompt.trim());
+
+		let res = body;
+		if (beforeList.length > 0) {
+			const b = beforeList.join("\n\n");
+			res = res ? `${b}\n\n${res}` : b;
+		}
+		if (afterList.length > 0) {
+			const a = afterList.join("\n\n");
+			res = res ? `${res}\n\n${a}` : a;
+		}
+		return res;
+	}
+
+	const prefixes: string[] = [];
+	if (options.discussionMode) {
+		prefixes.push(
+			"[Modalita Discussione: NON modificare codice subito. Analizza il progetto e usa la skill /grill-me o interroga l'utente con domande mirate per chiarire decisioni, vincoli e architettura prima di procedere.]"
+		);
+	}
+	if (options.planMode) {
+		prefixes.push(
+			"[Modalita Piano: formula prima un piano di esecuzione dettagliato passo-passo ed esponilo per approvazione prima di procedere con modifiche.]"
+		);
+	}
+	if (options.minimalMode) {
+		prefixes.push(
+			"[Modalita Minimale: applica la soluzione piu pigra, semplice e minimale possibile (/ponytail). Evita astrazioni premature, boilerplate o nuove dipendenze se non indispensabili.]"
+		);
+	}
+	let res = body;
+	if (prefixes.length > 0) {
+		res = `${prefixes.join("\n\n")}\n\n${res}`;
+	}
+	if (options.researchMode) {
+		const research =
+			"[Direttiva Ricerca Online: Dopo aver analizzato al completo la richiesta e tutto il codice collegato nel progetto, effettua ricerche online approfondite sull'ambito e sulla richiesta (documentazione, riferimenti, librerie e best practice) prima di procedere con l'implementazione o le modifiche.]";
+		res = res ? `${res}\n\n${research}` : research;
+	}
+	return res;
 }
 
 interface StudioTaskConfigCommandContext {
@@ -280,9 +350,16 @@ class TasksTuiOverlay {
 				if (task.options?.role && task.options.role !== "default") {
 					optBadges.push(`[${task.options.role}]`);
 				}
-				if (task.options?.planMode) optBadges.push("[plan]");
-				if (task.options?.discussionMode) optBadges.push("[discuss]");
-				if (task.options?.minimalMode) optBadges.push("[ponytail]");
+				if (task.options?.directives && task.options.directives.length > 0) {
+					for (const d of task.options.directives) {
+						optBadges.push(`[${d.tag || d.name}]`);
+					}
+				} else {
+					if (task.options?.planMode) optBadges.push("[plan]");
+					if (task.options?.discussionMode) optBadges.push("[discuss]");
+					if (task.options?.minimalMode) optBadges.push("[ponytail]");
+					if (task.options?.researchMode) optBadges.push("[web]");
+				}
 				const badgeStr = optBadges.length > 0 ? " " + c.fg("accent", optBadges.join(" ")) : "";
 
 				const firstLine = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim() || "(prompt vuoto)";
@@ -451,10 +528,11 @@ class TasksTuiOverlay {
 				task.updatedAt = Date.now();
 				saveProjectTasks(this.cwd, this.tasks);
 
-				// Invia il prompt a OMP
+				// Invia il prompt a OMP applicando le direttive
 				try {
 					if (typeof this.pi?.sendMessage === "function") {
-						this.pi.sendMessage(task.prompt, { triggerTurn: true });
+						const fullPrompt = composeTaskPrompt(task.prompt, task.options);
+						this.pi.sendMessage(fullPrompt, { triggerTurn: true });
 					}
 				} catch (err) {
 					console.error("Errore invio prompt da TUI /tasks:", err);

@@ -13,6 +13,15 @@ import {
 	type StudioTask,
 	type PersistedTaskState
 } from '../src/lib/stores/taskSerialization.ts';
+import {
+	type TaskDirective,
+	type TaskDirectiveSnapshot,
+	FACTORY_DIRECTIVES,
+	createDirectiveSnapshot,
+	compareDirectiveRevision,
+	sanitizeDirectivesCatalog,
+	applyTaskDirectives
+} from '../src/lib/stores/taskDirectives.ts';
 
 describe('Store tasks.json: validazione e parsing', () => {
 	const validTask: StudioTask = {
@@ -199,6 +208,114 @@ describe('Store tasks.json: validazione e parsing', () => {
 
 			const cleaned = sanitizeLoadedTasks(tasks);
 			assert.equal(cleaned[0].status, 'queued');
+		});
+		it('migra i campi booleani legacy in snapshot di direttive congelati', () => {
+			const legacyTasks: StudioTask[] = [
+				{
+					...validTask,
+					id: 'legacy-1',
+					options: {
+						role: 'smol',
+						planMode: true,
+						discussionMode: true,
+						minimalMode: true,
+						researchMode: true
+					}
+				}
+			];
+
+			const cleaned = sanitizeLoadedTasks(legacyTasks);
+			const opts = cleaned[0].options;
+			assert.ok(opts?.directives);
+			assert.equal(opts.directives.length, 4);
+			assert.equal(opts.directives[0].factoryKey, 'plan');
+			assert.equal(opts.directives[1].factoryKey, 'discussion');
+			assert.equal(opts.directives[2].factoryKey, 'minimal');
+			assert.equal(opts.directives[3].factoryKey, 'research');
+		});
+	});
+
+	describe('Catalogo direttive e snapshot (taskDirectives.ts)', () => {
+		it('sanitizeDirectivesCatalog include sempre tutti i 4 preset di fabbrica', () => {
+			const catalog = sanitizeDirectivesCatalog([]);
+			assert.equal(catalog.length, 4);
+			assert.ok(catalog.some((d) => d.factoryKey === 'plan'));
+			assert.ok(catalog.some((d) => d.factoryKey === 'discussion'));
+			assert.ok(catalog.some((d) => d.factoryKey === 'minimal'));
+			assert.ok(catalog.some((d) => d.factoryKey === 'research'));
+		});
+
+		it('preserva le direttive personalizzate e ordina correttamente', () => {
+			const custom: TaskDirective = {
+				id: 'dir_custom_1',
+				name: 'Test First',
+				description: 'Desc',
+				tag: '/test',
+				prompt: '[Direttiva: Test]',
+				placement: 'before',
+				order: 5,
+				revision: 1
+			};
+			const catalog = sanitizeDirectivesCatalog([custom]);
+			assert.equal(catalog.length, 5);
+			assert.equal(catalog[0].id, 'dir_custom_1'); // order: 5 viene prima di order: 10
+		});
+
+		it('compareDirectiveRevision riconosce up_to_date, upgrade_available e orphan', () => {
+			const catalog: TaskDirective[] = [
+				{ ...FACTORY_DIRECTIVES[0], revision: 3 }
+			];
+			const upToDateSnap = createDirectiveSnapshot({ ...FACTORY_DIRECTIVES[0], revision: 3 });
+			const oldSnap = createDirectiveSnapshot({ ...FACTORY_DIRECTIVES[0], revision: 1 });
+			const orphanSnap: TaskDirectiveSnapshot = {
+				id: 'non_existent',
+				name: 'Deleted',
+				tag: 'del',
+				prompt: 'p',
+				placement: 'before',
+				order: 1,
+				revision: 1
+			};
+
+			assert.equal(compareDirectiveRevision(upToDateSnap, catalog), 'up_to_date');
+			assert.equal(compareDirectiveRevision(oldSnap, catalog), 'upgrade_available');
+			assert.equal(compareDirectiveRevision(orphanSnap, catalog), 'orphan');
+		});
+
+		it('applyTaskDirectives compone deterministica prima -> prompt -> dopo', () => {
+			const dBefore1: TaskDirectiveSnapshot = {
+				id: 'b1',
+				name: 'B1',
+				tag: 'b1',
+				prompt: '[Before 1]',
+				placement: 'before',
+				order: 10,
+				revision: 1
+			};
+			const dBefore2: TaskDirectiveSnapshot = {
+				id: 'b2',
+				name: 'B2',
+				tag: 'b2',
+				prompt: '[Before 2]',
+				placement: 'before',
+				order: 20,
+				revision: 1
+			};
+			const dAfter: TaskDirectiveSnapshot = {
+				id: 'a1',
+				name: 'A1',
+				tag: 'a1',
+				prompt: '[After 1]',
+				placement: 'after',
+				order: 30,
+				revision: 1
+			};
+
+			const result = applyTaskDirectives('Corpo del task', [dAfter, dBefore2, dBefore1]);
+			assert.equal(
+				result,
+				'[Before 1]\n\n[Before 2]\n\nCorpo del task\n\n[After 1]'
+			);
 		});
 	});
 

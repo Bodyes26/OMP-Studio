@@ -1,5 +1,12 @@
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
+import {
+	type TaskDirective,
+	type FactoryDirectiveKey,
+	FACTORY_DIRECTIVES,
+	sanitizeDirectivesCatalog,
+	getFactoryDirective
+} from './taskDirectives';
 
 /**
  * Personalizzazioni del guscio.
@@ -35,7 +42,7 @@ export type DefaultSurface = 'terminal' | 'gui';
 /** Larghezza e allineamento del flusso della chat: centrata per leggibilita' o a tutta colonna. */
 export type ChatWidth = 'readable' | 'full';
 
-export type SettingsSection = 'general' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -87,11 +94,8 @@ export interface TerminalSettings {
 export interface TaskDefaults {
 	role: string;
 	thinkingLevel: string;
-	discussionMode: boolean;
-	planMode: boolean;
-	minimalMode: boolean;
-	researchMode: boolean;
 	includeEditorContext: boolean;
+	selectedDirectiveIds: string[];
 }
 
 export interface GeneralSettings {
@@ -106,11 +110,11 @@ export interface StudioSettings {
 	editor: EditorSettings;
 	terminal: TerminalSettings;
 	taskDefaults: TaskDefaults;
+	taskDirectives: TaskDirective[];
 	general: GeneralSettings;
 	notifications: NotificationSettings;
 	accessibility: AccessibilitySettings;
 }
-
 export const DEFAULT_SETTINGS: StudioSettings = {
 	projectBar: {
 		// `fixed` e' il default: una tessera che si sposta da sola non e' un
@@ -139,12 +143,10 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 	taskDefaults: {
 		role: 'default',
 		thinkingLevel: 'auto',
-		discussionMode: false,
-		planMode: false,
-		minimalMode: false,
-		researchMode: false,
-		includeEditorContext: true
+		includeEditorContext: true,
+		selectedDirectiveIds: []
 	},
+	taskDirectives: sanitizeDirectivesCatalog(FACTORY_DIRECTIVES),
 	general: {
 		defaultSurface: 'terminal',
 		closeWithQueuedTasks: 'ask',
@@ -194,6 +196,7 @@ export function parseSettings(value: unknown): StudioSettings {
 	const editor = (record.editor && typeof record.editor === 'object' ? record.editor : {}) as Record<string, unknown>;
 	const terminal = (record.terminal && typeof record.terminal === 'object' ? record.terminal : {}) as Record<string, unknown>;
 	const tasks = (record.taskDefaults && typeof record.taskDefaults === 'object' ? record.taskDefaults : {}) as Record<string, unknown>;
+	const rawDirectives = record.taskDirectives;
 	const general = (record.general && typeof record.general === 'object' ? record.general : {}) as Record<string, unknown>;
 	const notif = (record.notifications && typeof record.notifications === 'object' ? record.notifications : {}) as Record<string, unknown>;
 	const access = (record.accessibility && typeof record.accessibility === 'object' ? record.accessibility : {}) as Record<string, unknown>;
@@ -225,12 +228,17 @@ export function parseSettings(value: unknown): StudioSettings {
 		taskDefaults: {
 			role: str(tasks.role, d.taskDefaults.role),
 			thinkingLevel: str(tasks.thinkingLevel, d.taskDefaults.thinkingLevel),
-			discussionMode: bool(tasks.discussionMode, d.taskDefaults.discussionMode),
-			planMode: bool(tasks.planMode, d.taskDefaults.planMode),
-			minimalMode: bool(tasks.minimalMode, d.taskDefaults.minimalMode),
-			researchMode: bool(tasks.researchMode, d.taskDefaults.researchMode),
-			includeEditorContext: bool(tasks.includeEditorContext, d.taskDefaults.includeEditorContext)
+			includeEditorContext: bool(tasks.includeEditorContext, d.taskDefaults.includeEditorContext),
+			selectedDirectiveIds: Array.isArray(tasks.selectedDirectiveIds)
+				? (tasks.selectedDirectiveIds.filter((id) => typeof id === 'string') as string[])
+				: [
+						...(tasks.planMode === true ? ['dir_factory_plan'] : []),
+						...(tasks.discussionMode === true ? ['dir_factory_discussion'] : []),
+						...(tasks.minimalMode === true ? ['dir_factory_minimal'] : []),
+						...(tasks.researchMode === true ? ['dir_factory_research'] : [])
+					]
 		},
+		taskDirectives: sanitizeDirectivesCatalog(rawDirectives ?? d.taskDirectives),
 		general: {
 			defaultSurface: pick(general.defaultSurface, ['terminal', 'gui'] as const, d.general.defaultSurface),
 			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks),
@@ -265,6 +273,7 @@ class SettingsStore {
 	editor = $state<EditorSettings>({ ...DEFAULT_SETTINGS.editor });
 	terminal = $state<TerminalSettings>({ ...DEFAULT_SETTINGS.terminal });
 	taskDefaults = $state<TaskDefaults>({ ...DEFAULT_SETTINGS.taskDefaults });
+	taskDirectives = $state<TaskDirective[]>(sanitizeDirectivesCatalog(DEFAULT_SETTINGS.taskDirectives));
 	general = $state<GeneralSettings>({ ...DEFAULT_SETTINGS.general });
 	notifications = $state<NotificationSettings>({ ...DEFAULT_SETTINGS.notifications });
 	accessibility = $state<AccessibilitySettings>({ ...DEFAULT_SETTINGS.accessibility });
@@ -297,6 +306,7 @@ class SettingsStore {
 			this.editor = parsed.editor;
 			this.terminal = parsed.terminal;
 			this.taskDefaults = parsed.taskDefaults;
+			this.taskDirectives = parsed.taskDirectives;
 			this.general = parsed.general;
 			this.notifications = parsed.notifications;
 			this.accessibility = parsed.accessibility;
@@ -316,8 +326,9 @@ class SettingsStore {
 			editor: $state.snapshot(this.editor),
 			terminal: $state.snapshot(this.terminal),
 			taskDefaults: $state.snapshot(this.taskDefaults),
-			general: $state.snapshot(this.general),
+			taskDirectives: $state.snapshot(this.taskDirectives),
 			notifications: $state.snapshot(this.notifications),
+			general: $state.snapshot(this.general),
 			accessibility: $state.snapshot(this.accessibility),
 		};
 		await this.store.set('studioSettings', snapshot);
@@ -352,6 +363,62 @@ class SettingsStore {
 		Object.assign(this.taskDefaults, patch);
 		this.save();
 	}
+	setTaskDirectives(directives: TaskDirective[]) {
+		this.taskDirectives = sanitizeDirectivesCatalog(directives);
+		this.save();
+	}
+
+	upsertTaskDirective(directive: TaskDirective) {
+		const list = [...this.taskDirectives];
+		const index = list.findIndex((d) => d.id === directive.id);
+		if (index >= 0) {
+			const existing = list[index];
+			const changed =
+				existing.name !== directive.name ||
+				existing.description !== directive.description ||
+				existing.tag !== directive.tag ||
+				existing.prompt !== directive.prompt ||
+				existing.placement !== directive.placement;
+			list[index] = {
+				...directive,
+				revision: changed ? (existing.revision || 1) + 1 : existing.revision || 1
+			};
+		} else {
+			list.push({
+				...directive,
+				revision: 1
+			});
+		}
+		this.taskDirectives = sanitizeDirectivesCatalog(list);
+		this.save();
+	}
+
+	deleteTaskDirective(id: string) {
+		const list = this.taskDirectives.filter((d) => d.id !== id);
+		this.taskDirectives = sanitizeDirectivesCatalog(list);
+		if (this.taskDefaults.selectedDirectiveIds.includes(id)) {
+			this.taskDefaults.selectedDirectiveIds = this.taskDefaults.selectedDirectiveIds.filter((dId) => dId !== id);
+		}
+		this.save();
+	}
+
+	resetFactoryDirective(key: FactoryDirectiveKey) {
+		const factory = getFactoryDirective(key);
+		if (!factory) return;
+		const list = [...this.taskDirectives];
+		const index = list.findIndex((d) => d.factoryKey === key || d.id === factory.id);
+		if (index >= 0) {
+			list[index] = {
+				...factory,
+				revision: (list[index].revision || 1) + 1
+			};
+		} else {
+			list.push({ ...factory });
+		}
+		this.taskDirectives = sanitizeDirectivesCatalog(list);
+		this.save();
+	}
+
 
 	patchGeneral(patch: Partial<GeneralSettings>) {
 		Object.assign(this.general, patch);
@@ -375,7 +442,10 @@ class SettingsStore {
 			this.editor = { ...DEFAULT_SETTINGS.editor };
 			this.terminal = { ...DEFAULT_SETTINGS.terminal };
 		}
-		if (!section || section === 'tasks') this.taskDefaults = { ...DEFAULT_SETTINGS.taskDefaults };
+		if (!section || section === 'tasks') {
+			this.taskDefaults = { ...DEFAULT_SETTINGS.taskDefaults };
+			this.taskDirectives = sanitizeDirectivesCatalog(DEFAULT_SETTINGS.taskDirectives);
+		}
 		if (!section || section === 'general') this.general = { ...DEFAULT_SETTINGS.general };
 		if (!section || section === 'notifications') this.notifications = { ...DEFAULT_SETTINGS.notifications };
 		if (!section || section === 'accessibility') this.accessibility = { ...DEFAULT_SETTINGS.accessibility };

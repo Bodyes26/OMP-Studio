@@ -2,6 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { openExternalUrl } from '$lib/utils/openExternal';
+import { formatVersion, type FormatVersionOptions } from '$lib/utils/version';
+
+export { formatVersion, type FormatVersionOptions };
 
 export interface StudioReleaseAsset {
 	name: string;
@@ -138,7 +141,7 @@ class StudioUpdaterStore {
 				if (!this.hasUpdate) {
 					this.updateBadge = null;
 				} else {
-					this.updateBadge = `v${this.updateInfo?.latest_version || ''}`;
+					this.updateBadge = formatVersion(this.updateInfo?.latest_version, { prefix: true, compact: true }) || null;
 					this.badgeType = 'warn';
 				}
 			}, autoClearMs);
@@ -187,7 +190,7 @@ class StudioUpdaterStore {
 			this.hasUpdate = info.has_update;
 
 			if (info.has_update) {
-				this.setBadge(`v${info.latest_version}`, 'warn');
+				this.setBadge(formatVersion(info.latest_version, { prefix: true, compact: true }), 'warn');
 				if (manual) {
 					this.showModal = true;
 				}

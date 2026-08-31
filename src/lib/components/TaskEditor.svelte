@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { onDestroy, tick } from 'svelte';
 	import { taskStore, type StudioTask, type StudioTaskStatus, type StudioTaskOptions } from '$lib/stores/tasks.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
+	import {
+		createDirectiveSnapshot,
+		compareDirectiveRevision,
+		type TaskDirective,
+		type TaskDirectiveSnapshot
+	} from '$lib/stores/taskDirectives';
 	import { rankFrequentTaskModelConfigurations } from '$lib/stores/taskSerialization';
 	import { modelSettingsStore, STANDARD_ROLES, THINKING_LEVELS, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	import { quotaStore, providersMatch, type ProviderHost } from '$lib/stores/quota.svelte';
@@ -167,11 +174,31 @@
 		return found ? { badge: found.badge, label: found.label, icon: found.icon } : { badge: options.role || 'default', label: options.role || 'Default', icon: null };
 	});
 
+	const availableDirectives = $derived.by(() => {
+		const catalog = settingsStore.taskDirectives;
+		const snapshots = options.directives || [];
+		const list: (TaskDirective | TaskDirectiveSnapshot)[] = [];
+		const seenIds = new Set<string>();
+
+		for (const cat of catalog) {
+			if (!cat.hidden || snapshots.some((s) => s.id === cat.id)) {
+				list.push(cat);
+				seenIds.add(cat.id);
+			}
+		}
+
+		for (const snap of snapshots) {
+			if (!seenIds.has(snap.id)) {
+				list.push(snap);
+				seenIds.add(snap.id);
+			}
+		}
+
+		return list.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+	});
+
 	const activeModifiersCount = $derived(
-		(options.planMode ? 1 : 0) +
-		(options.discussionMode ? 1 : 0) +
-		(options.minimalMode ? 1 : 0) +
-		(options.researchMode ? 1 : 0) +
+		(options.directives?.length ?? 0) +
 		(options.includeEditorContext === false ? 1 : 0)
 	);
 
@@ -210,10 +237,7 @@
 			const roleConfig = resolveRoleConfig(task.options?.role || 'default');
 			advancedOpen = Boolean(
 				(task.options?.role && task.options.role !== 'default') ||
-				task.options?.planMode ||
-				task.options?.discussionMode ||
-				task.options?.minimalMode ||
-				task.options?.researchMode ||
+				(task.options?.directives && task.options.directives.length > 0) ||
 				(task.options?.modelSelector && task.options.modelSelector !== roleConfig.model) ||
 				(task.options?.thinkingLevel &&
 					task.options.thinkingLevel !== 'auto' &&
@@ -367,24 +391,31 @@
 		saveTask();
 	}
 
-	function togglePlanMode() {
-		options.planMode = !options.planMode;
+	function toggleDirective(item: TaskDirective | TaskDirectiveSnapshot) {
+		const current = [...(options.directives || [])];
+		const index = current.findIndex((d) => d.id === item.id);
+		if (index >= 0) {
+			current.splice(index, 1);
+		} else {
+			const cat = settingsStore.taskDirectives.find((d) => d.id === item.id);
+			current.push(createDirectiveSnapshot(cat || item));
+		}
+		current.sort((a, b) => a.order - b.order);
+		options.directives = current.length > 0 ? current : undefined;
 		saveTask();
 	}
 
-	function toggleDiscussionMode() {
-		options.discussionMode = !options.discussionMode;
-		saveTask();
-	}
-
-	function toggleMinimalMode() {
-		options.minimalMode = !options.minimalMode;
-		saveTask();
-	}
-
-	function toggleResearchMode() {
-		options.researchMode = !options.researchMode;
-		saveTask();
+	function upgradeDirective(directiveId: string) {
+		const cat = settingsStore.taskDirectives.find((d) => d.id === directiveId);
+		if (!cat) return;
+		const current = [...(options.directives || [])];
+		const index = current.findIndex((d) => d.id === directiveId);
+		if (index >= 0) {
+			current[index] = createDirectiveSnapshot(cat);
+			current.sort((a, b) => a.order - b.order);
+			options.directives = current;
+			saveTask();
+		}
 	}
 
 	function toggleIncludeEditorContext() {
@@ -848,78 +879,65 @@
 					<!-- Modalità e Direttive Speciali -->
 					<div class="config-block">
 						<div class="block-header">
-							<span class="block-label">Modalità & Direttive Speciali</span>
-							<span class="block-sub">Vincoli operativi e automatismi durante l'esecuzione del task</span>
+							<div class="block-header-text">
+								<span class="block-label">Modalità & Direttive Speciali</span>
+								<span class="block-sub">Vincoli operativi e automatismi durante l'esecuzione del task</span>
+							</div>
+							<button
+								type="button"
+								class="btn-manage-directives"
+								onclick={() => settingsStore.openSection('tasks')}
+								title="Configura o crea nuove direttive nel catalogo impostazioni"
+							>
+								Gestisci direttive
+							</button>
 						</div>
 						<div class="modifiers-grid">
-							<label class="modifier-card" class:checked={Boolean(options.planMode)}>
-								<input
-									type="checkbox"
-									checked={Boolean(options.planMode)}
-									onchange={togglePlanMode}
-								/>
-								<div class="modifier-body">
-									<div class="modifier-top">
-										<span class="modifier-title">Modalità Piano (Plan Mode)</span>
-										<span class="modifier-tag">/plan</span>
+							{#each availableDirectives as dir (dir.id)}
+								{@const activeSnapshot = options.directives?.find((d) => d.id === dir.id)}
+								{@const isChecked = Boolean(activeSnapshot)}
+								{@const revStatus = activeSnapshot ? compareDirectiveRevision(activeSnapshot, settingsStore.taskDirectives) : 'up_to_date'}
+								<label class="modifier-card" class:checked={isChecked}>
+									<input
+										type="checkbox"
+										checked={isChecked}
+										onchange={() => toggleDirective(dir)}
+									/>
+									<div class="modifier-body">
+										<div class="modifier-top">
+											<span class="modifier-title">{dir.name}</span>
+											<div class="modifier-badges">
+												{#if dir.placement === 'after'}
+													<span class="modifier-placement" title="Posizionata dopo il prompt">dopo</span>
+												{/if}
+												{#if dir.tag}
+													<span class="modifier-tag">{dir.tag}</span>
+												{/if}
+											</div>
+										</div>
+										{#if dir.description}
+											<p class="modifier-desc">{dir.description}</p>
+										{/if}
+										{#if isChecked && revStatus === 'upgrade_available'}
+											<div class="modifier-upgrade-row">
+												<span class="upgrade-badge">Aggiornamento v{settingsStore.taskDirectives.find((d) => d.id === dir.id)?.revision}</span>
+												<button
+													type="button"
+													class="btn-upgrade-directive"
+													onclick={(e) => { e.stopPropagation(); upgradeDirective(dir.id); }}
+													title="Sostituisce lo snapshot congelato con la versione più recente del catalogo"
+												>
+													Aggiorna
+												</button>
+											</div>
+										{:else if isChecked && revStatus === 'orphan'}
+											<div class="modifier-upgrade-row">
+												<span class="orphan-badge">Non in catalogo</span>
+											</div>
+										{/if}
 									</div>
-									<p class="modifier-desc">
-										Formula un piano architetturale ed attende approvazione prima di modificare file.
-									</p>
-								</div>
-							</label>
-
-							<label class="modifier-card" class:checked={Boolean(options.discussionMode)}>
-								<input
-									type="checkbox"
-									checked={Boolean(options.discussionMode)}
-									onchange={toggleDiscussionMode}
-								/>
-								<div class="modifier-body">
-									<div class="modifier-top">
-										<span class="modifier-title">Discussione & Requisiti</span>
-										<span class="modifier-tag">/grill-me</span>
-									</div>
-									<p class="modifier-desc">
-										Pone domande approfondite per chiarire ogni decisione prima di toccare il codice.
-									</p>
-								</div>
-							</label>
-
-							<label class="modifier-card" class:checked={Boolean(options.minimalMode)}>
-								<input
-									type="checkbox"
-									checked={Boolean(options.minimalMode)}
-									onchange={toggleMinimalMode}
-								/>
-								<div class="modifier-body">
-									<div class="modifier-top">
-										<span class="modifier-title">Soluzione Minimale</span>
-										<span class="modifier-tag">/ponytail</span>
-									</div>
-									<p class="modifier-desc">
-										Forza la soluzione più semplice, pigra e senza dipendenze o astrazioni superflue.
-									</p>
-								</div>
-							</label>
-
-							<label class="modifier-card" class:checked={Boolean(options.researchMode)}>
-								<input
-									type="checkbox"
-									checked={Boolean(options.researchMode)}
-									onchange={toggleResearchMode}
-								/>
-								<div class="modifier-body">
-									<div class="modifier-top">
-										<span class="modifier-title">Ricerca Web Online</span>
-										<span class="modifier-tag">Web</span>
-									</div>
-									<p class="modifier-desc">
-										Esegue ricerche online mirate sull'ambito della richiesta prima di procedere.
-									</p>
-								</div>
-							</label>
-
+								</label>
+							{/each}
 							<label class="modifier-card" class:checked={options.includeEditorContext !== false}>
 								<input
 									type="checkbox"
@@ -1703,6 +1721,86 @@
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		line-height: 1.35;
+	}
+
+	.block-header-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.btn-manage-directives {
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		color: var(--brand-ink);
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 2px 8px;
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.btn-manage-directives:hover {
+		background: var(--bg-hover);
+		border-color: var(--brand);
+	}
+
+	.modifier-badges {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	.modifier-placement {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		padding: 0 4px;
+		background: color-mix(in srgb, var(--brand) 12%, var(--bg-sunken));
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
+		border-radius: var(--radius-sm);
+		color: var(--brand-ink);
+		text-transform: uppercase;
+	}
+
+	.modifier-upgrade-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		margin-top: 4px;
+		padding-top: 4px;
+		border-top: 1px dashed var(--line);
+	}
+
+	.upgrade-badge {
+		font-size: 10px;
+		font-family: var(--font-mono);
+		color: var(--warn);
+	}
+
+	.btn-upgrade-directive {
+		font-size: 10px;
+		font-family: var(--font-ui);
+		font-weight: 600;
+		padding: 1px 6px;
+		background: var(--bg-hover);
+		border: 1px solid var(--warn);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out);
+	}
+
+	.btn-upgrade-directive:hover {
+		background: color-mix(in srgb, var(--warn) 20%, var(--bg-hover));
+	}
+
+	.orphan-badge {
+		font-size: 10px;
+		color: var(--ink-faint);
+		font-style: italic;
 	}
 
 	@media (max-width: 800px) {

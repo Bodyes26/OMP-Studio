@@ -16,7 +16,8 @@
 		IconGitBranch,
 		IconTrash,
 		IconNewFile,
-		IconNewFolder
+		IconNewFolder,
+		IconSearch
 	} from '$lib/icons';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import { joinProjectPath, isWindows } from '$lib/utils/paths';
@@ -65,6 +66,25 @@
 	let renameValue = $state('');
 	let renameError = $state<string | null>(null);
 	let renameInputRef = $state<HTMLInputElement | null>(null);
+
+	interface FileSearchResult {
+		name: string;
+		path: string;
+		is_dir: boolean;
+		score: number;
+		name_indices: number[];
+		path_indices: number[];
+	}
+
+	// Stato per ricerca file (attivo solo alla radice level === 0)
+	let searchQuery = $state('');
+	let searchResults = $state<FileSearchResult[]>([]);
+	let searchLoading = $state(false);
+	let searchError = $state<string | null>(null);
+	let selectedSearchIndex = $state(0);
+	let searchInputRef = $state<HTMLInputElement | null>(null);
+	let searchTimer: number | null = null;
+	let searchRequestToken = 0;
 
 	const NOISY_DIRS = ['bin', 'obj', '.vs', 'packages', 'node_modules'];
 	let isNoisy = $derived(NOISY_DIRS.includes(name));
@@ -263,6 +283,7 @@
 		if (level === 0 && projectPath) {
 			if (lastLoadedPath !== projectPath) {
 				lastLoadedPath = projectPath;
+				clearSearch();
 				loaded = false;
 				loadError = null;
 				entries = [];
@@ -281,12 +302,15 @@
 			window.addEventListener('focus', handleRefresh);
 
 			return () => {
+				if (searchTimer !== null) {
+					window.clearTimeout(searchTimer);
+					searchTimer = null;
+				}
 				window.removeEventListener('git-status-refresh', handleRefresh);
 				window.removeEventListener('focus', handleRefresh);
 			};
 		}
 	});
-
 	let fileStatus = $derived.by(() => {
 		const statuses = gitStatuses;
 		if (!statuses || Object.keys(statuses).length === 0) return null;
@@ -798,412 +822,600 @@
 		if (ext === 'pdf') return 'pdf';
 		return 'file';
 	}
+	function getParentDirectory(path: string): string {
+		const lastSlash = path.lastIndexOf('/');
+		if (lastSlash > 0) {
+			return path.substring(0, lastSlash);
+		}
+		return '';
+	}
+
+	async function executeSearch(q: string) {
+		const trimmed = q.trim();
+		if (!trimmed || !projectPath) {
+			searchResults = [];
+			searchLoading = false;
+			searchError = null;
+			selectedSearchIndex = 0;
+			return;
+		}
+
+		const token = ++searchRequestToken;
+		searchLoading = true;
+		searchError = null;
+
+		try {
+			const results = await invoke<FileSearchResult[]>('project_files_search', {
+				projectPath,
+				query: trimmed,
+				limit: 150
+			});
+			if (token === searchRequestToken) {
+				searchResults = results;
+				searchLoading = false;
+				selectedSearchIndex = 0;
+			}
+		} catch (err) {
+			if (token === searchRequestToken) {
+				searchError = String(err);
+				searchLoading = false;
+				searchResults = [];
+			}
+		}
+	}
+
+	function handleSearchInput(e: Event) {
+		const val = (e.target as HTMLInputElement).value;
+		searchQuery = val;
+		if (searchTimer !== null) window.clearTimeout(searchTimer);
+		if (!val.trim()) {
+			searchResults = [];
+			searchLoading = false;
+			searchError = null;
+			selectedSearchIndex = 0;
+			return;
+		}
+		searchTimer = window.setTimeout(() => {
+			searchTimer = null;
+			void executeSearch(val);
+		}, 150);
+	}
+
+	function clearSearch() {
+		searchQuery = '';
+		if (searchTimer !== null) {
+			window.clearTimeout(searchTimer);
+			searchTimer = null;
+		}
+		searchResults = [];
+		searchLoading = false;
+		searchError = null;
+		selectedSearchIndex = 0;
+		searchInputRef?.focus();
+	}
+
+	function handleSelectSearchResult(res: FileSearchResult) {
+		if (res.is_dir) {
+			clearSearch();
+		} else if (onFileSelect) {
+			onFileSelect(res.path);
+		}
+	}
+
+	function renderHighlightedText(text: string, indices: number[]): { text: string; match: boolean }[] {
+		if (!indices || indices.length === 0) {
+			return [{ text, match: false }];
+		}
+		const matchSet = new Set(indices);
+		const segments: { text: string; match: boolean }[] = [];
+		const chars = Array.from(text);
+		let currentSegment = '';
+		let currentIsMatch = false;
+
+		for (let i = 0; i < chars.length; i++) {
+			const isMatch = matchSet.has(i);
+			if (i === 0) {
+				currentSegment = chars[i];
+				currentIsMatch = isMatch;
+			} else if (isMatch === currentIsMatch) {
+				currentSegment += chars[i];
+			} else {
+				segments.push({ text: currentSegment, match: currentIsMatch });
+				currentSegment = chars[i];
+				currentIsMatch = isMatch;
+			}
+		}
+		if (currentSegment) {
+			segments.push({ text: currentSegment, match: currentIsMatch });
+		}
+		return segments;
+	}
+
+	function handleSearchKeyDown(e: KeyboardEvent) {
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (searchResults.length > 0) {
+				selectedSearchIndex = 0;
+				const firstRow = document.querySelector<HTMLButtonElement>('.search-result-row');
+				firstRow?.focus();
+			}
+		} else if (e.key === 'Enter') {
+			e.preventDefault();
+			if (searchResults.length > 0) {
+				const target = searchResults[selectedSearchIndex] || searchResults[0];
+				handleSelectSearchResult(target);
+			}
+		} else if (e.key === 'Escape') {
+			if (searchQuery) {
+				e.preventDefault();
+				clearSearch();
+			}
+		}
+	}
+
+	function handleSearchResultKeyDown(e: KeyboardEvent, index: number, res: FileSearchResult) {
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (index < searchResults.length - 1) {
+				selectedSearchIndex = index + 1;
+				const next = (e.currentTarget as HTMLElement).nextElementSibling as HTMLButtonElement | null;
+				next?.focus();
+			}
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			if (index > 0) {
+				selectedSearchIndex = index - 1;
+				const prev = (e.currentTarget as HTMLElement).previousElementSibling as HTMLButtonElement | null;
+				prev?.focus();
+			} else {
+				searchInputRef?.focus();
+			}
+		} else if (e.key === 'Home') {
+			e.preventDefault();
+			selectedSearchIndex = 0;
+			const first = (e.currentTarget as HTMLElement).parentElement?.firstElementChild as HTMLButtonElement | null;
+			first?.focus();
+		} else if (e.key === 'End') {
+			e.preventDefault();
+			selectedSearchIndex = searchResults.length - 1;
+			const last = (e.currentTarget as HTMLElement).parentElement?.lastElementChild as HTMLButtonElement | null;
+			last?.focus();
+		} else if (e.key === 'Enter') {
+			e.preventDefault();
+			handleSelectSearchResult(res);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			clearSearch();
+		}
+	}
+
+	function handleSearchResultContextMenu(event: MouseEvent, res: FileSearchResult) {
+		event.preventDefault();
+		event.stopPropagation();
+
+		const fullPath = joinProjectPath(projectPath, res.path);
+		const revealLabel = isWindows ? 'Mostra in Esplora file' : 'Mostra nel Finder';
+		const resStatus = gitStatuses[res.path] || null;
+
+		const items: ContextMenuEntry[] = [
+			{
+				kind: 'item',
+				label: 'Apri',
+				icon: IconFile,
+				run: () => onFileSelect?.(res.path)
+			}
+		];
+
+		if (resStatus && onFileDiff) {
+			items.push({
+				kind: 'item',
+				label: 'Diff Git',
+				icon: IconGitBranch,
+				run: () => onFileDiff?.(res.path)
+			});
+		}
+
+		items.push(
+			{ kind: 'separator' },
+			{
+				kind: 'item',
+				label: 'Copia percorso relativo',
+				icon: IconCopy,
+				run: () => void copyText(res.path)
+			},
+			{
+				kind: 'item',
+				label: 'Copia percorso completo',
+				icon: IconCopy,
+				run: () => void copyText(fullPath)
+			},
+			{
+				kind: 'item',
+				label: revealLabel,
+				icon: IconExternalLink,
+				run: () => revealPath(res.path)
+			}
+		);
+
+		if (res.is_dir) {
+			items.push({
+				kind: 'item',
+				label: 'Apri nel terminale',
+				icon: IconTerminal,
+				run: () => void openInTerminal(res.path)
+			});
+		}
+
+		contextMenu.open(event, {
+			label: `${res.is_dir ? 'Cartella' : 'File'}: ${res.name}`,
+			items,
+			invoker: event.currentTarget as HTMLElement
+		});
+	}
 </script>
+{#snippet typeIcon(fileType: string, isFolder: boolean = false, isExp: boolean = false)}
+	{#if isFolder}
+		<span class="type-icon folder">
+			{#if isExp}
+				<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
+					<path d="M1.5 3.5h4l1.5 2h7.5v2.5h-11.5v5.5l-1.5-6z" fill-opacity="0.3"/>
+				</svg>
+			{:else}
+				<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
+					<path d="M1.5 3.5h4l1.5 2h7.5v8h-13z" fill-opacity="0.2"/>
+				</svg>
+			{/if}
+		</span>
+	{:else}
+		<span class="type-icon file {fileType}">
+			{#if fileType === 'md'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.15"/>
+					<path d="M4 11V5l2.5 3L9 5v6M12 9l-1.5 2L9 9" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>
+			{:else if fileType === 'json'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+					<path d="M5 3c-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5 1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5M11 3c1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5" stroke-linecap="round"/>
+				</svg>
+			{:else if fileType === 'vb'}
+				<svg viewBox="0 0 16 16" fill="none">
+					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
+					<text x="3.5" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">VB</text>
+				</svg>
+			{:else if fileType === 'aspx'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke-width="1.2"/>
+					<path d="M5 6l-2 2 2 2M11 6l2 2-2 2M9 5l-2 6" stroke-width="1.1" stroke-linecap="round"/>
+				</svg>
+			{:else if fileType === 'cs'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
+					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke-width="1.2"/>
+					<path d="M5.5 6.5C5 6 4 6.5 4 8s1 2 1.5 1.5M9 6v4M11 6v4M8 7.5h4M8 9.5h4" stroke-width="1.1" stroke-linecap="round"/>
+				</svg>
+			{:else if fileType === 'svg'}
+				<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
+					<circle cx="4" cy="12" r="1.5"/>
+					<circle cx="12" cy="4" r="1.5"/>
+					<path d="M4 12C4 7 12 9 12 4" fill="none" stroke-linecap="round"/>
+				</svg>
+			{:else if fileType === 'js'}
+				<svg viewBox="0 0 16 16" fill="none">
+					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
+					<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">JS</text>
+				</svg>
+			{:else if fileType === 'ts'}
+				<svg viewBox="0 0 16 16" fill="none">
+					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
+					<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">TS</text>
+				</svg>
+			{:else if fileType === 'html'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+					<path d="M5.5 5L3 8l2.5 3M10.5 5l2.5 3-2.5 3M9 4l-2 8"/>
+				</svg>
+			{:else if fileType === 'css'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+					<path d="M4 6h8M4 10h8M6.5 3.5l-1 9M10.5 3.5l-1 9"/>
+				</svg>
+			{:else if fileType === 'sql'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+					<ellipse cx="8" cy="4" rx="5" ry="2"/>
+					<path d="M3 4v4c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8v4c0 1.1 2.2 2 5 2s5-.9 5-2V8"/>
+				</svg>
+			{:else if fileType === 'xml'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+					<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.15"/>
+					<path d="M6 6l-1.5 2L6 10M10 6l1.5 2-1.5 2"/>
+				</svg>
+			{:else if fileType === 'image'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+					<rect x="2" y="3" width="12" height="10" rx="1.5"/>
+					<circle cx="5.5" cy="6" r="1" fill="currentColor"/>
+					<path d="M14 11l-3.5-3.5-4 4-2-2L2 11.5" stroke-linecap="round"/>
+				</svg>
+			{:else if fileType === 'archive'}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+					<path d="M3 4h10v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" fill="currentColor" fill-opacity="0.15"/>
+					<path d="M2 2h12v2H2zM8 6v3M6.5 7.5h3"/>
+				</svg>
+			{:else if fileType === 'pdf'}
+				<svg viewBox="0 0 16 16" fill="none">
+					<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
+					<text x="3.5" y="10.5" font-family="sans-serif" font-weight="bold" font-size="6.5" fill="currentColor">PDF</text>
+				</svg>
+			{:else}
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.6">
+					<path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z"/>
+					<path d="M9.5 2.5V6H13"/>
+				</svg>
+			{/if}
+		</span>
+	{/if}
+{/snippet}
 
 <!-- Il nodo radice intercetta solo lo spazio vuoto; righe e pulsanti mantengono i propri ruoli. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="tree-node"
 	class:tree-root={level === 0}
-	oncontextmenu={level === 0 ? handleRootContainerContextMenu : undefined}
+	bind:this={nodeEl}
+	oncontextmenu={level === 0 && !searchQuery.trim() ? handleRootContainerContextMenu : undefined}
 >
-	{#if isRenaming}
-		<div class="tree-row inline-edit-row" style="padding-left: {level * 12 + 8}px;">
-			{#if isDir}
-				<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
-				<span class="type-icon folder">
-					{#if expanded}
-						<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-							<path d="M1.5 3.5h4l1.5 2h7.5v2.5h-11.5v5.5l-1.5-6z" fill-opacity="0.3"/>
-						</svg>
-					{:else}
-						<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-							<path d="M1.5 3.5h4l1.5 2h7.5v8h-13z" fill-opacity="0.2"/>
-						</svg>
-					{/if}
-				</span>
-			{:else}
-				{@const fileType = getFileType(renameValue || name)}
-				<span class="type-icon file {fileType}">
-					{#if fileType === 'md'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.15"/>
-							<path d="M4 11V5l2.5 3L9 5v6M12 9l-1.5 2L9 9" stroke-linecap="round" stroke-linejoin="round"/>
-						</svg>
-					{:else if fileType === 'json'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-							<path d="M5 3c-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5 1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5M11 3c1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'vb'}
-						<svg viewBox="0 0 16 16" fill="none">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
-							<text x="3.5" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">VB</text>
-						</svg>
-					{:else if fileType === 'aspx'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke-width="1.2"/>
-							<path d="M5 6l-2 2 2 2M11 6l2 2-2 2M9 5l-2 6" stroke-width="1.1" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'cs'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke-width="1.2"/>
-							<path d="M5.5 6.5C5 6 4 6.5 4 8s1 2 1.5 1.5M9 6v4M11 6v4M8 7.5h4M8 9.5h4" stroke-width="1.1" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'svg'}
-						<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-							<circle cx="4" cy="12" r="1.5"/>
-							<circle cx="12" cy="4" r="1.5"/>
-							<path d="M4 12C4 7 12 9 12 4" fill="none" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'js'}
-						<svg viewBox="0 0 16 16" fill="none">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
-							<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">JS</text>
-						</svg>
-					{:else if fileType === 'ts'}
-						<svg viewBox="0 0 16 16" fill="none">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
-							<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">TS</text>
-						</svg>
-					{:else if fileType === 'html'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-							<path d="M5.5 5L3 8l2.5 3M10.5 5l2.5 3-2.5 3M9 4l-2 8"/>
-						</svg>
-					{:else if fileType === 'css'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-							<path d="M4 6h8M4 10h8M6.5 3.5l-1 9M10.5 3.5l-1 9"/>
-						</svg>
-					{:else if fileType === 'sql'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-							<ellipse cx="8" cy="4" rx="5" ry="2"/>
-							<path d="M3 4v4c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8v4c0 1.1 2.2 2 5 2s5-.9 5-2V8"/>
-						</svg>
-					{:else if fileType === 'xml'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
-							<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.15"/>
-							<path d="M6 6l-1.5 2L6 10M10 6l1.5 2-1.5 2"/>
-						</svg>
-					{:else if fileType === 'image'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-							<rect x="2" y="3" width="12" height="10" rx="1.5"/>
-							<circle cx="5.5" cy="6" r="1" fill="currentColor"/>
-							<path d="M14 11l-3.5-3.5-4 4-2-2L2 11.5" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'archive'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-							<path d="M3 4h10v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" fill="currentColor" fill-opacity="0.15"/>
-							<path d="M2 2h12v2H2zM8 6v3M6.5 7.5h3"/>
-						</svg>
-					{:else if fileType === 'pdf'}
-						<svg viewBox="0 0 16 16" fill="none">
-							<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
-							<text x="3.5" y="10.5" font-family="sans-serif" font-weight="bold" font-size="6.5" fill="currentColor">PDF</text>
-						</svg>
-					{:else}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.6">
-							<path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z"/>
-							<path d="M9.5 2.5V6H13"/>
-						</svg>
-					{/if}
-				</span>
-			{/if}
-			<form class="inline-form" onsubmit={(e) => { e.preventDefault(); void commitRename(); }}>
+	{#if level === 0}
+		<!-- Barra di ricerca file sempre visibile in cima al pannello FILE -->
+		<div class="tree-search-bar">
+			<div class="search-input-wrapper">
+				{#if searchLoading}
+					<div class="search-spinner" aria-hidden="true"></div>
+				{:else}
+					<span class="search-icon" aria-hidden="true">
+						<IconSearch />
+					</span>
+				{/if}
 				<input
-					bind:this={renameInputRef}
-					bind:value={renameValue}
-					type="text"
-					class="inline-input"
-					class:has-error={!!renameError}
-					onkeydown={handleRenameKeyDown}
-					onblur={handleRenameBlur}
-					aria-label={`Rinomina ${name}`}
+					bind:this={searchInputRef}
+					type="search"
+					class="search-input"
+					value={searchQuery}
+					oninput={handleSearchInput}
+					onkeydown={handleSearchKeyDown}
+					placeholder="Filtra file nel progetto..."
+					aria-label="Filtra file nel progetto"
+					aria-controls="file-search-results"
+					spellcheck="false"
+					autocomplete="off"
 				/>
-			</form>
-		</div>
-		{#if renameError}
-			<div
-				class="inline-error"
-				role="alert"
-				aria-live="polite"
-				style="padding-left: {level * 12 + 28}px;"
-			>
-				{renameError}
+				{#if searchQuery}
+					<button
+						type="button"
+						class="clear-search-btn"
+						onclick={clearSearch}
+						title="Cancella ricerca (Esc)"
+						aria-label="Cancella ricerca"
+					>
+						<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+							<path d="M3 3l10 10M13 3L3 13" />
+						</svg>
+					</button>
+				{/if}
 			</div>
-		{/if}
-	{:else}
-		<button 
-			class="tree-row" 
-			class:faint={isNoisy}
-			class:git-m={fileStatus === 'M'}
-			class:git-a={fileStatus === 'A'}
-			class:git-u={fileStatus === 'U'}
-			class:git-d={fileStatus === 'D'}
-			class:git-r={fileStatus === 'R'}
-			class:git-c={fileStatus === 'C'}
-			style="padding-left: {level * 12 + 8}px;"
-			onclick={toggle}
-			oncontextmenu={handleRowContextMenu}
-		>
-			{#if isDir}
-				<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
-				<span class="type-icon folder">
-					{#if expanded}
-						<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-							<path d="M1.5 3.5h4l1.5 2h7.5v2.5h-11.5v5.5l-1.5-6z" fill-opacity="0.3"/>
-						</svg>
+			{#if searchQuery.trim()}
+				<div class="search-meta">
+					{#if searchLoading}
+						<span class="meta-label">Ricerca in corso...</span>
+					{:else if searchError}
+						<span class="meta-label error">{searchError}</span>
 					{:else}
-						<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-							<path d="M1.5 3.5h4l1.5 2h7.5v8h-13z" fill-opacity="0.2"/>
-						</svg>
+						<span class="meta-label">
+							{searchResults.length === 1 ? '1 file trovato' : `${searchResults.length} file trovati`}
+						</span>
 					{/if}
-				</span>
-			{:else}
-				{@const fileType = getFileType(name)}
-				<span class="type-icon file {fileType}">
-					{#if fileType === 'md'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.15"/>
-							<path d="M4 11V5l2.5 3L9 5v6M12 9l-1.5 2L9 9" stroke-linecap="round" stroke-linejoin="round"/>
-						</svg>
-					{:else if fileType === 'json'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-							<path d="M5 3c-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5 1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5M11 3c1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'vb'}
-						<svg viewBox="0 0 16 16" fill="none">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
-							<text x="3.5" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">VB</text>
-						</svg>
-					{:else if fileType === 'aspx'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke-width="1.2"/>
-							<path d="M5 6l-2 2 2 2M11 6l2 2-2 2M9 5l-2 6" stroke-width="1.1" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'cs'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke-width="1.2"/>
-							<path d="M5.5 6.5C5 6 4 6.5 4 8s1 2 1.5 1.5M9 6v4M11 6v4M8 7.5h4M8 9.5h4" stroke-width="1.1" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'svg'}
-						<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-							<circle cx="4" cy="12" r="1.5"/>
-							<circle cx="12" cy="4" r="1.5"/>
-							<path d="M4 12C4 7 12 9 12 4" fill="none" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'js'}
-						<svg viewBox="0 0 16 16" fill="none">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
-							<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">JS</text>
-						</svg>
-					{:else if fileType === 'ts'}
-						<svg viewBox="0 0 16 16" fill="none">
-							<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
-							<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">TS</text>
-						</svg>
-					{:else if fileType === 'html'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-							<path d="M5.5 5L3 8l2.5 3M10.5 5l2.5 3-2.5 3M9 4l-2 8"/>
-						</svg>
-					{:else if fileType === 'css'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-							<path d="M4 6h8M4 10h8M6.5 3.5l-1 9M10.5 3.5l-1 9"/>
-						</svg>
-					{:else if fileType === 'sql'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-							<ellipse cx="8" cy="4" rx="5" ry="2"/>
-							<path d="M3 4v4c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8v4c0 1.1 2.2 2 5 2s5-.9 5-2V8"/>
-						</svg>
-					{:else if fileType === 'xml'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
-							<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.15"/>
-							<path d="M6 6l-1.5 2L6 10M10 6l1.5 2-1.5 2"/>
-						</svg>
-					{:else if fileType === 'image'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-							<rect x="2" y="3" width="12" height="10" rx="1.5"/>
-							<circle cx="5.5" cy="6" r="1" fill="currentColor"/>
-							<path d="M14 11l-3.5-3.5-4 4-2-2L2 11.5" stroke-linecap="round"/>
-						</svg>
-					{:else if fileType === 'archive'}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-							<path d="M3 4h10v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" fill="currentColor" fill-opacity="0.15"/>
-							<path d="M2 2h12v2H2zM8 6v3M6.5 7.5h3"/>
-						</svg>
-					{:else if fileType === 'pdf'}
-						<svg viewBox="0 0 16 16" fill="none">
-							<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
-							<text x="3.5" y="10.5" font-family="sans-serif" font-weight="bold" font-size="6.5" fill="currentColor">PDF</text>
-						</svg>
-					{:else}
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.6">
-							<path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z"/>
-							<path d="M9.5 2.5V6H13"/>
-						</svg>
-					{/if}
-				</span>
+				</div>
 			{/if}
-			<span class="name">{name}</span>
-			{#if fileStatus}
-				<span 
-					class="git-badge status-{fileStatus}" 
-					class:dir-badge={isDir}
-					title={getStatusTitle(fileStatus, isDir)}
-				>
-					{isDir ? '•' : fileStatus}
-				</span>
-			{/if}
-		</button>
+		</div>
 	{/if}
 
-	{#if isDir && expanded}
-		<div class="children" transition:slide={{ duration: 180 }}>
-			{#if creatingType}
-				<div class="tree-row inline-edit-row" style="padding-left: {(level + 1) * 12 + 8}px;">
-					{#if creatingType === 'dir'}
-						<span class="arrow-icon"><IconChevronRight /></span>
-						<span class="type-icon folder">
-							<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-								<path d="M1.5 3.5h4l1.5 2h7.5v8h-13z" fill-opacity="0.2"/>
-							</svg>
-						</span>
-					{:else}
-						{@const fileType = getFileType(creationName)}
-						<span class="type-icon file {fileType}">
-							{#if fileType === 'md'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-									<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.15"/>
-									<path d="M4 11V5l2.5 3L9 5v6M12 9l-1.5 2L9 9" stroke-linecap="round" stroke-linejoin="round"/>
-								</svg>
-							{:else if fileType === 'json'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-									<path d="M5 3c-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5 1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5M11 3c1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5" stroke-linecap="round"/>
-								</svg>
-							{:else if fileType === 'vb'}
-								<svg viewBox="0 0 16 16" fill="none">
-									<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
-									<text x="3.5" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">VB</text>
-								</svg>
-							{:else if fileType === 'aspx'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-									<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke-width="1.2"/>
-									<path d="M5 6l-2 2 2 2M11 6l2 2-2 2M9 5l-2 6" stroke-width="1.1" stroke-linecap="round"/>
-								</svg>
-							{:else if fileType === 'cs'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-									<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke-width="1.2"/>
-									<path d="M5.5 6.5C5 6 4 6.5 4 8s1 2 1.5 1.5M9 6v4M11 6v4M8 7.5h4M8 9.5h4" stroke-width="1.1" stroke-linecap="round"/>
-								</svg>
-							{:else if fileType === 'svg'}
-								<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-									<circle cx="4" cy="12" r="1.5"/>
-									<circle cx="12" cy="4" r="1.5"/>
-									<path d="M4 12C4 7 12 9 12 4" fill="none" stroke-linecap="round"/>
-								</svg>
-							{:else if fileType === 'js'}
-								<svg viewBox="0 0 16 16" fill="none">
-									<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
-									<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">JS</text>
-								</svg>
-							{:else if fileType === 'ts'}
-								<svg viewBox="0 0 16 16" fill="none">
-									<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
-									<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">TS</text>
-								</svg>
-							{:else if fileType === 'html'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-									<path d="M5.5 5L3 8l2.5 3M10.5 5l2.5 3-2.5 3M9 4l-2 8"/>
-								</svg>
-							{:else if fileType === 'css'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-									<path d="M4 6h8M4 10h8M6.5 3.5l-1 9M10.5 3.5l-1 9"/>
-								</svg>
-							{:else if fileType === 'sql'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-									<ellipse cx="8" cy="4" rx="5" ry="2"/>
-									<path d="M3 4v4c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8v4c0 1.1 2.2 2 5 2s5-.9 5-2V8"/>
-								</svg>
-							{:else if fileType === 'xml'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
-									<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.15"/>
-									<path d="M6 6l-1.5 2L6 10M10 6l1.5 2-1.5 2"/>
-								</svg>
-							{:else if fileType === 'image'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-									<rect x="2" y="3" width="12" height="10" rx="1.5"/>
-									<circle cx="5.5" cy="6" r="1" fill="currentColor"/>
-									<path d="M14 11l-3.5-3.5-4 4-2-2L2 11.5" stroke-linecap="round"/>
-								</svg>
-							{:else if fileType === 'archive'}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-									<path d="M3 4h10v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" fill="currentColor" fill-opacity="0.15"/>
-									<path d="M2 2h12v2H2zM8 6v3M6.5 7.5h3"/>
-								</svg>
-							{:else if fileType === 'pdf'}
-								<svg viewBox="0 0 16 16" fill="none">
-									<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
-									<text x="3.5" y="10.5" font-family="sans-serif" font-weight="bold" font-size="6.5" fill="currentColor">PDF</text>
-								</svg>
-							{:else}
-								<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.6">
-									<path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z"/>
-									<path d="M9.5 2.5V6H13"/>
-								</svg>
-							{/if}
-						</span>
-					{/if}
-					<form class="inline-form" onsubmit={(e) => { e.preventDefault(); void commitCreation(); }}>
-						<input
-							bind:this={creationInputRef}
-							bind:value={creationName}
-							type="text"
-							class="inline-input"
-							class:has-error={!!creationError}
-							placeholder={creatingType === 'dir' ? 'Nome cartella' : 'Nome file'}
-							onkeydown={handleCreationKeyDown}
-							onblur={handleCreationBlur}
-							aria-label={creatingType === 'dir' ? 'Nome nuova cartella' : 'Nome nuovo file'}
-						/>
-					</form>
+	{#if level === 0 && searchQuery.trim()}
+		<!-- Vista Lista Risultati Ricerca -->
+		<div class="search-results" id="file-search-results" role="listbox" aria-label="Risultati ricerca file">
+			{#if searchLoading && searchResults.length === 0}
+				<div class="search-state loading">
+					<div class="search-spinner"></div>
+					<span>Ricerca file in corso...</span>
 				</div>
-				{#if creationError}
-					<div
-						class="inline-error"
-						role="alert"
-						aria-live="polite"
-						style="padding-left: {(level + 1) * 12 + 28}px;"
-					>
-						{creationError}
-					</div>
-				{/if}
-			{/if}
-
-			{#if loaded}
-				{#each entries as entry}
-					<FileTree
-						projectPath={projectPath}
-						relPath={entry.path}
-						name={entry.name}
-						isDir={entry.is_dir}
-						level={level + 1}
-						onFileSelect={onFileSelect}
-						onFileDiff={onFileDiff}
-						dirtyFilePaths={dirtyFilePaths}
-						onPathRenamed={onPathRenamed}
-						onPathTrashed={onPathTrashed}
-					/>
-				{/each}
-				{#if entries.length === 0 && !creatingType}
-					<div class="empty" style="padding-left: {(level + 1) * 12 + 24}px;">(empty)</div>
-				{/if}
-			{:else if loadError}
-				<div class="load-error" style="padding-left: {(level + 1) * 12 + 24}px;">
-					<span class="error-text" title={loadError}>{loadError}</span>
-					<button type="button" class="retry-btn" onclick={() => void loadEntries(true)}>Riprova</button>
+			{:else if searchError}
+				<div class="search-state error" role="alert">
+					<span>{searchError}</span>
+					<button type="button" class="retry-btn" onclick={() => void executeSearch(searchQuery)}>Riprova</button>
+				</div>
+			{:else if searchResults.length === 0}
+				<div class="search-state empty">
+					<span>Nessun file corrisponde a "<strong>{searchQuery}</strong>"</span>
+					<button type="button" class="reset-btn" onclick={clearSearch}>Azzera filtro</button>
 				</div>
 			{:else}
-				<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">Loading...</div>
+				{#each searchResults as res, i (res.path)}
+					{@const fileType = getFileType(res.name)}
+					{@const resStatus = gitStatuses[res.path] || null}
+					{@const isSelected = i === selectedSearchIndex}
+					{@const parentDir = getParentDirectory(res.path)}
+					<button
+						type="button"
+						role="option"
+						aria-selected={isSelected}
+						class="search-result-row"
+						class:selected={isSelected}
+						class:git-m={resStatus === 'M'}
+						class:git-a={resStatus === 'A'}
+						class:git-u={resStatus === 'U'}
+						class:git-d={resStatus === 'D'}
+						class:git-r={resStatus === 'R'}
+						class:git-c={resStatus === 'C'}
+						onclick={() => handleSelectSearchResult(res)}
+						onkeydown={(e) => handleSearchResultKeyDown(e, i, res)}
+						oncontextmenu={(e) => handleSearchResultContextMenu(e, res)}
+					>
+						{@render typeIcon(fileType, res.is_dir, false)}
+						<div class="result-info">
+							<span class="result-name">
+								{#each renderHighlightedText(res.name, res.name_indices) as seg}
+									{#if seg.match}
+										<mark class="match">{seg.text}</mark>
+									{:else}
+										{seg.text}
+									{/if}
+								{/each}
+							</span>
+							{#if parentDir}
+								<span class="result-path" title={res.path}>
+									{parentDir}
+								</span>
+							{/if}
+						</div>
+						{#if resStatus}
+							<span
+								class="git-badge status-{resStatus}"
+								class:dir-badge={res.is_dir}
+								title={getStatusTitle(resStatus, res.is_dir)}
+							>
+								{res.is_dir ? '•' : resStatus}
+							</span>
+						{/if}
+					</button>
+				{/each}
 			{/if}
 		</div>
+	{:else}
+		{#if isRenaming}
+			<div class="tree-row inline-edit-row" style="padding-left: {level * 12 + 8}px;">
+				{#if isDir}
+					<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
+					{@render typeIcon('folder', true, expanded)}
+				{:else}
+					{@const fileType = getFileType(renameValue || name)}
+					{@render typeIcon(fileType, false, false)}
+				{/if}
+				<form class="inline-form" onsubmit={(e) => { e.preventDefault(); void commitRename(); }}>
+					<input
+						bind:this={renameInputRef}
+						bind:value={renameValue}
+						type="text"
+						class="inline-input"
+						class:has-error={!!renameError}
+						onkeydown={handleRenameKeyDown}
+						onblur={handleRenameBlur}
+						aria-label={`Rinomina ${name}`}
+					/>
+				</form>
+			</div>
+			{#if renameError}
+				<div
+					class="inline-error"
+					role="alert"
+					aria-live="polite"
+					style="padding-left: {level * 12 + 28}px;"
+				>
+					{renameError}
+				</div>
+			{/if}
+		{:else}
+			<button 
+				class="tree-row" 
+				class:faint={isNoisy}
+				class:git-m={fileStatus === 'M'}
+				class:git-a={fileStatus === 'A'}
+				class:git-u={fileStatus === 'U'}
+				class:git-d={fileStatus === 'D'}
+				class:git-r={fileStatus === 'R'}
+				class:git-c={fileStatus === 'C'}
+				style="padding-left: {level * 12 + 8}px;"
+				onclick={toggle}
+				oncontextmenu={handleRowContextMenu}
+			>
+				{#if isDir}
+					<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
+					{@render typeIcon('folder', true, expanded)}
+				{:else}
+					{@const fileType = getFileType(name)}
+					{@render typeIcon(fileType, false, false)}
+				{/if}
+				<span class="name">{name}</span>
+				{#if fileStatus}
+					<span 
+						class="git-badge status-{fileStatus}" 
+						class:dir-badge={isDir}
+						title={getStatusTitle(fileStatus, isDir)}
+					>
+						{isDir ? '•' : fileStatus}
+					</span>
+				{/if}
+			</button>
+		{/if}
+
+		{#if isDir && expanded}
+			<div class="children" transition:slide={{ duration: 180 }}>
+				{#if creatingType}
+					<div class="tree-row inline-edit-row" style="padding-left: {(level + 1) * 12 + 8}px;">
+						{#if creatingType === 'dir'}
+							<span class="arrow-icon"><IconChevronRight /></span>
+							{@render typeIcon('folder', true, false)}
+						{:else}
+							{@const fileType = getFileType(creationName)}
+							{@render typeIcon(fileType, false, false)}
+						{/if}
+						<form class="inline-form" onsubmit={(e) => { e.preventDefault(); void commitCreation(); }}>
+							<input
+								bind:this={creationInputRef}
+								bind:value={creationName}
+								type="text"
+								class="inline-input"
+								class:has-error={!!creationError}
+								placeholder={creatingType === 'dir' ? 'Nome cartella' : 'Nome file'}
+								onkeydown={handleCreationKeyDown}
+								onblur={handleCreationBlur}
+								aria-label={creatingType === 'dir' ? 'Nome nuova cartella' : 'Nome nuovo file'}
+							/>
+						</form>
+					</div>
+					{#if creationError}
+						<div
+							class="inline-error"
+							role="alert"
+							aria-live="polite"
+							style="padding-left: {(level + 1) * 12 + 28}px;"
+						>
+							{creationError}
+						</div>
+					{/if}
+				{/if}
+
+				{#if loaded}
+					{#each entries as entry}
+						<FileTree
+							projectPath={projectPath}
+							relPath={entry.path}
+							name={entry.name}
+							isDir={entry.is_dir}
+							level={level + 1}
+							onFileSelect={onFileSelect}
+							onFileDiff={onFileDiff}
+							dirtyFilePaths={dirtyFilePaths}
+							onPathRenamed={onPathRenamed}
+							onPathTrashed={onPathTrashed}
+						/>
+					{/each}
+					{#if entries.length === 0 && !creatingType}
+						<div class="empty" style="padding-left: {(level + 1) * 12 + 24}px;">(empty)</div>
+					{/if}
+				{:else if loadError}
+					<div class="load-error" style="padding-left: {(level + 1) * 12 + 24}px;">
+						<span class="error-text" title={loadError}>{loadError}</span>
+						<button type="button" class="retry-btn" onclick={() => void loadEntries(true)}>Riprova</button>
+					</div>
+				{:else}
+					<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">Loading...</div>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 </div>
 
@@ -1429,5 +1641,241 @@
 	.load-error .retry-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
+	}
+
+	/* Barra di ricerca file */
+	.tree-search-bar {
+		padding: var(--space-2) var(--space-2) var(--space-1);
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		background: var(--bg-base);
+		border-bottom: 1px solid var(--line);
+		flex-shrink: 0;
+	}
+
+	.search-input-wrapper {
+		position: relative;
+		display: flex;
+		align-items: center;
+		width: 100%;
+		height: 26px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		padding: 0 6px;
+		gap: 6px;
+		transition: border-color 0.15s ease;
+	}
+
+	.search-input-wrapper:focus-within {
+		border-color: var(--brand);
+		outline: 1px solid var(--brand);
+	}
+
+	.search-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--ink-faint);
+		font-size: 13px;
+		flex-shrink: 0;
+	}
+
+	.search-spinner {
+		width: 12px;
+		height: 12px;
+		border: 2px solid var(--line);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		animation: spin 0.6s linear infinite;
+		flex-shrink: 0;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.search-input {
+		flex: 1;
+		min-width: 0;
+		height: 100%;
+		background: transparent;
+		border: none;
+		outline: none;
+		color: var(--ink);
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		padding: 0;
+	}
+
+	.search-input::placeholder {
+		color: var(--ink-faint);
+	}
+
+	.search-input::-webkit-search-decoration,
+	.search-input::-webkit-search-cancel-button,
+	.search-input::-webkit-search-results-button,
+	.search-input::-webkit-search-results-decoration {
+		display: none;
+	}
+
+	.clear-search-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		padding: 0;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		color: var(--ink-faint);
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.clear-search-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.search-meta {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 2px;
+	}
+
+	.meta-label {
+		font-size: 10px;
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
+	}
+
+	.meta-label.error {
+		color: var(--danger);
+	}
+
+	/* Lista Risultati Ricerca */
+	.search-results {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overflow-x: hidden;
+		padding: 4px 0;
+	}
+
+	.search-result-row {
+		display: flex;
+		align-items: center;
+		width: 100%;
+		min-height: 28px;
+		padding: 3px var(--space-2);
+		background: transparent;
+		border: none;
+		color: var(--ink);
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		cursor: pointer;
+		text-align: left;
+		gap: 6px;
+	}
+
+	.search-result-row:hover,
+	.search-result-row:focus-visible,
+	.search-result-row.selected {
+		background: var(--bg-hover);
+		outline: none;
+	}
+
+	.result-info {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-width: 0;
+		line-height: 1.2;
+	}
+
+	.result-name {
+		font-size: var(--text-xs);
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.result-path {
+		font-size: 10px;
+		color: var(--ink-faint);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	mark.match {
+		background: transparent;
+		color: var(--brand);
+		font-weight: 700;
+		text-decoration: underline;
+		text-decoration-color: var(--brand);
+		text-underline-offset: 2px;
+	}
+
+	.search-result-row.git-m .result-name {
+		color: var(--git-modified);
+	}
+	.search-result-row.git-a .result-name {
+		color: var(--git-added);
+	}
+	.search-result-row.git-u .result-name {
+		color: var(--git-untracked);
+	}
+	.search-result-row.git-d .result-name {
+		color: var(--git-deleted);
+		text-decoration: line-through;
+	}
+	.search-result-row.git-r .result-name {
+		color: var(--git-renamed);
+	}
+	.search-result-row.git-c .result-name {
+		color: var(--git-conflict);
+	}
+
+	.search-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-4) var(--space-2);
+		gap: var(--space-2);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		text-align: center;
+	}
+
+	.search-state.error {
+		color: var(--danger);
+	}
+
+	.search-state .reset-btn,
+	.search-state .retry-btn {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		font-size: var(--text-xs);
+		padding: 3px 8px;
+		cursor: pointer;
+	}
+
+	.search-state .reset-btn:hover,
+	.search-state .retry-btn:hover {
+		background: var(--bg-hover);
 	}
 </style>

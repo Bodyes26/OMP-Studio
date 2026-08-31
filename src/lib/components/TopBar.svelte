@@ -4,7 +4,7 @@
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	import { settingsStore, type ProjectBarOrder, type SettingsSection } from '$lib/stores/settings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { automaticProjectHue, THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
+	import { automaticProjectHue, THEMES, anchorsFor } from '$lib/theme';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
 	import { trapFocus } from '$lib/focusTrap';
@@ -79,8 +79,6 @@
 	let openTimer: ReturnType<typeof setTimeout> | null = null;
 	let closeTimer: ReturnType<typeof setTimeout> | null = null;
 	let pointerInsidePanel = false;
-	let themeOpen = $state(false);
-	let themeFilter = $state('');
 	let orderMenuOpen = $state(false);
 	let draggedProjectId = $state<string | null>(null);
 	let dragOverProjectId = $state<string | null>(null);
@@ -149,12 +147,6 @@
 
 	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 
-	const activeThemeGroup = $derived(THEME_GROUPS.find((group) => group.mode === themeStore.pickerMode)!);
-	const filteredThemes = $derived(
-		activeThemeGroup.names
-			.filter((name) => name.includes(themeFilter.trim().toLowerCase()))
-			.map((name) => ({ name, ...swatchesFor(THEMES[name]) }))
-	);
 
 	// Il progetto chiuso dal pannello non lascia dietro un pannello orfano.
 	$effect(() => {
@@ -190,15 +182,6 @@
 		}
 	});
 
-	function pickTheme(name: string) {
-		themeStore.select(name);
-		themeOpen = false;
-		themeFilter = '';
-	}
-
-	function setThemePickerMode(mode: ThemeMode) {
-		void themeStore.setPickerMode(mode);
-	}
 
 	function projectHue(project: Project): number {
 		if (!project.path || project.colorMode === 'custom') return project.hue;
@@ -397,10 +380,6 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
-			if (themeOpen) {
-				themeOpen = false;
-				return;
-			}
 			if (orderMenuOpen) {
 				orderMenuOpen = false;
 				return;
@@ -620,15 +599,6 @@
 			<IconSettings /> Impostazioni
 		</button>
 
-		<button
-			class="theme-badge"
-			onclick={(event) => { event.stopPropagation(); themeOpen = !themeOpen; }}
-			title="Tema: {themeStore.current}"
-			aria-label="Cambia tema: {themeStore.current}"
-		>
-			<span class="theme-badge-color"></span>
-			<span class="theme-badge-name">{themeStore.current}</span>
-		</button>
 
 		{#if taskStore.totalQueued > 0}
 			<button
@@ -698,57 +668,6 @@
 	/>
 {/if}
 
-{#if themeOpen}
-	<button type="button" class="theme-backdrop" onclick={() => themeOpen = false} aria-label="Chiudi selezione tema" tabindex="-1"></button>
-	<div class="theme-popover" role="dialog" aria-modal="true" aria-label="Selezione tema" use:trapFocus={{ onEscape: () => themeOpen = false }}>
-		<div class="theme-tabs" role="group" aria-label="Categoria temi">
-			{#each THEME_GROUPS as group (group.mode)}
-				<button
-					class:active={themeStore.pickerMode === group.mode}
-					aria-pressed={themeStore.pickerMode === group.mode}
-					onclick={() => setThemePickerMode(group.mode)}
-				>
-					{group.label} <span>{group.names.length}</span>
-				</button>
-			{/each}
-		</div>
-		<input
-			class="theme-filter"
-			type="text"
-			placeholder="Filtra {activeThemeGroup.names.length} temi"
-			aria-label="Cerca e filtra temi"
-			bind:value={themeFilter}
-			onkeydown={(event) => { if (event.key === 'Escape') themeOpen = false; }}
-		/>
-		<div class="theme-list" role="listbox" aria-label="Elenco temi">
-			{#each filteredThemes as theme (theme.name)}
-				<button
-					class="theme-row"
-					class:selected={theme.name === themeStore.current}
-					aria-pressed={theme.name === themeStore.current}
-					aria-label={`Tema ${theme.name}`}
-					onclick={() => pickTheme(theme.name)}
-				>
-					<span class="theme-preview" style="background: {theme.bg};">
-						<span class="dot" style="background: {theme.accent};"></span>
-						<span class="dot" style="background: {theme.text};"></span>
-					</span>
-					<span class="theme-name">{theme.name}</span>
-				</button>
-			{:else}
-				<div class="theme-empty">Nessun tema {themeStore.pickerMode === 'dark' ? 'scuro' : 'chiaro'} trovato</div>
-			{/each}
-		</div>
-		<div class="theme-note">
-			{#if themeStore.bridged}
-				Lo usano anche le sessioni <code>omp</code> aperte da Studio.
-			{:else}
-				Alla prima scelta il tema passa anche a <code>omp</code>: le sessioni già
-				aperte restano come sono.
-			{/if}
-		</div>
-	</div>
-{/if}
 
 <style>
 	.topbar {
@@ -1335,192 +1254,6 @@
 	.usage-chip.warning {
 		border-color: var(--warn-dim, #f59e0b44);
 		color: var(--warn, #f59e0b);
-	}
-
-	/* Il badge conserva il colore del tema, ma rende leggibile anche il suo nome. */
-	.theme-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		height: 24px;
-		max-width: 160px;
-		padding: 0 var(--space-2);
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		color: var(--ink-muted);
-		cursor: pointer;
-		font: inherit;
-		font-size: var(--text-xs);
-		margin-right: var(--space-3);
-	}
-
-	.theme-badge:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-		color: var(--ink);
-	}
-
-	.theme-badge-color {
-		width: 10px;
-		height: 10px;
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-full);
-		background: var(--brand);
-		flex: none;
-	}
-
-	.theme-badge-name {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	/* Come `.order-backdrop`: velo invisibile, senza chrome dello user agent. */
-	.theme-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: var(--z-backdrop);
-		background: transparent;
-		border: none;
-		padding: 0;
-		cursor: default;
-	}
-
-	.theme-popover {
-		position: fixed;
-		top: 54px;
-		right: 140px;
-		width: 260px;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		padding: var(--space-2);
-		z-index: var(--z-overlay);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.theme-filter {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		color: var(--ink);
-		font-family: var(--font-ui);
-		font-size: var(--text-sm);
-		padding: var(--space-1) var(--space-2);
-	}
-
-	.theme-list {
-		display: flex;
-		flex-direction: column;
-		max-height: 320px;
-		overflow-y: auto;
-	}
-	.theme-tabs {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: var(--space-1);
-		padding-bottom: var(--space-1);
-		border-bottom: 1px solid var(--line);
-	}
-
-	.theme-tabs button {
-		background: transparent;
-		border: none;
-		border-radius: var(--radius-sm);
-		color: var(--ink-faint);
-		cursor: pointer;
-		font: inherit;
-		font-size: var(--text-xs);
-		padding: var(--space-1) var(--space-2);
-	}
-
-	.theme-tabs button:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.theme-tabs button.active {
-		background: var(--bg-active);
-		color: var(--ink);
-		font-weight: 600;
-	}
-
-	.theme-tabs span {
-		color: var(--ink-faint);
-		font-family: var(--font-mono);
-		font-size: 10px;
-		font-weight: 500;
-	}
-
-	.theme-empty {
-		color: var(--ink-faint);
-		font-size: var(--text-sm);
-		padding: var(--space-3) var(--space-2);
-		text-align: center;
-	}
-
-
-	.theme-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		background: transparent;
-		border: none;
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-		font-size: var(--text-sm);
-		padding: var(--space-1) var(--space-2);
-		text-align: left;
-	}
-
-	.theme-row:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.theme-row.selected {
-		background: var(--bg-active);
-		color: var(--ink);
-	}
-
-	.theme-preview {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 2px;
-		width: 34px;
-		height: 18px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		flex: none;
-	}
-
-	.theme-preview .dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-	}
-
-	.theme-name {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.theme-note {
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		line-height: 1.4;
-		padding: 0 var(--space-2) var(--space-1);
-	}
-
-	.theme-note code {
-		font-family: var(--font-mono);
 	}
 
 	/* Native Window Controls */

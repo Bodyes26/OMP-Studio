@@ -17,8 +17,9 @@ export const VERSION_FILES = [
 	'src-tauri/Cargo.lock'
 ];
 
-export function getNightlyVersion(buildId = Date.now()) {
-	const rawId = String(buildId ?? Date.now());
+export function getNightlyVersion(buildId) {
+	const fallbackId = Math.floor(Date.now() / 1000);
+	const rawId = String(buildId ?? fallbackId);
 	if (!/^[1-9]\d*$/.test(rawId)) {
 		throw new Error(`build-id numerico non valido: ${buildId}`);
 	}

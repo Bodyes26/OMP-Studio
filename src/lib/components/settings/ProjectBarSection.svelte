@@ -9,7 +9,7 @@
 	// deve capire l'effetto prima di cambiarlo, non scoprirlo per tentativi.
 	const ORDER_OPTIONS: { id: ProjectBarOrder; label: string; desc: string }[] = [
 		{ id: 'fixed', label: 'Manuale', desc: "Le tessere non si spostano da sole: riordinabili trascinando." },
-		{ id: 'mru', label: 'Ultimo aperto', desc: 'Comportamento storico: il progetto che apri va in prima posizione.' },
+		{ id: 'mru', label: 'Ultimo aperto', desc: 'Il progetto che apri va in prima posizione.' },
 		{ id: 'priority', label: 'Priorità task', desc: 'Chi ha task in coda o chiede attenzione va a sinistra.' },
 		{ id: 'alpha', label: 'Alfabetico', desc: "Le tessere seguono l'ordine alfabetico del nome." }
 	];

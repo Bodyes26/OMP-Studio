@@ -7,6 +7,7 @@
 	import ProvidersTab from '../models/ProvidersTab.svelte';
 	import UpgradeModal from '../models/UpgradeModal.svelte';
 	import GeneralSection from './GeneralSection.svelte';
+	import AppearanceSection from './AppearanceSection.svelte';
 	import NotificationsSection from './NotificationsSection.svelte';
 	import ProjectBarSection from './ProjectBarSection.svelte';
 	import WorkspaceSection from './WorkspaceSection.svelte';
@@ -19,6 +20,7 @@
 	// impostazioni. "Modelli" e' l'unica con le tre schede orizzontali storiche.
 	const NAV_SECTIONS: { id: SettingsSection; label: string }[] = [
 		{ id: 'general', label: 'Generale' },
+		{ id: 'appearance', label: 'Aspetto' },
 		{ id: 'accessibility', label: 'Accessibilità' },
 		{ id: 'notifications', label: 'Notifiche' },
 		{ id: 'projectBar', label: 'Barra progetti' },
@@ -298,6 +300,10 @@
 				{:else if settingsStore.section === 'general'}
 					<div class="modal-body">
 						<GeneralSection />
+					</div>
+				{:else if settingsStore.section === 'appearance'}
+					<div class="modal-body">
+						<AppearanceSection />
 					</div>
 				{:else if settingsStore.section === 'accessibility'}
 					<div class="modal-body">

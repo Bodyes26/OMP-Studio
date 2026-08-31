@@ -5,7 +5,13 @@
  */
 
 import type { ImageContent } from '../agent/wire';
-
+import {
+	type TaskDirectiveSnapshot,
+	createDirectiveSnapshot,
+	getFactoryDirective,
+	applyTaskDirectives,
+	isTaskDirectiveSnapshot
+} from './taskDirectives.ts';
 export const AGENT_VIEWS = ['queue', 'sessions', 'rules'] as const;
 export type AgentView = (typeof AGENT_VIEWS)[number];
 
@@ -15,11 +21,8 @@ export interface StudioTaskOptions {
 	role?: string;
 	modelSelector?: string;
 	thinkingLevel?: string;
-	planMode?: boolean;
-	discussionMode?: boolean;
-	minimalMode?: boolean;
-	researchMode?: boolean;
 	includeEditorContext?: boolean;
+	directives?: TaskDirectiveSnapshot[];
 }
 
 export interface StudioTask {
@@ -187,11 +190,63 @@ export function parsePersistedState(value: unknown): PersistedTaskState | null {
 export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: string): StudioTask[] {
 	return tasks
 		.filter((task) => task.prompt.trim() || (task.images && task.images.length > 0))
-		.map((task) => ({
-			...task,
-			projectPath: task.projectPath ?? defaultProjectPath ?? '',
-			status: task.status === 'dispatching' ? ('queued' as const) : task.status
-		}));
+		.map((task) => {
+			let options = task.options ? { ...task.options } : undefined;
+
+			if (options) {
+				const rawOptions = options as Record<string, unknown>;
+				let directives: TaskDirectiveSnapshot[] = Array.isArray(rawOptions.directives)
+					? (rawOptions.directives.filter(isTaskDirectiveSnapshot) as TaskDirectiveSnapshot[])
+					: [];
+
+				// Migrazione deterministica dai campi booleani legacy ai factory snapshots
+				const seenIds = new Set(directives.map((d) => d.id));
+				if (rawOptions.discussionMode === true) {
+					const factory = getFactoryDirective('discussion');
+					if (factory && !seenIds.has(factory.id)) {
+						directives.push(createDirectiveSnapshot(factory));
+						seenIds.add(factory.id);
+					}
+				}
+				if (rawOptions.planMode === true) {
+					const factory = getFactoryDirective('plan');
+					if (factory && !seenIds.has(factory.id)) {
+						directives.push(createDirectiveSnapshot(factory));
+						seenIds.add(factory.id);
+					}
+				}
+				if (rawOptions.minimalMode === true) {
+					const factory = getFactoryDirective('minimal');
+					if (factory && !seenIds.has(factory.id)) {
+						directives.push(createDirectiveSnapshot(factory));
+						seenIds.add(factory.id);
+					}
+				}
+				if (rawOptions.researchMode === true) {
+					const factory = getFactoryDirective('research');
+					if (factory && !seenIds.has(factory.id)) {
+						directives.push(createDirectiveSnapshot(factory));
+						seenIds.add(factory.id);
+					}
+				}
+
+				directives.sort((a, b) => a.order - b.order);
+				options = {
+					role: typeof options.role === 'string' ? options.role : undefined,
+					modelSelector: typeof options.modelSelector === 'string' ? options.modelSelector : undefined,
+					thinkingLevel: typeof options.thinkingLevel === 'string' ? options.thinkingLevel : undefined,
+					includeEditorContext: options.includeEditorContext !== false,
+					directives: directives.length > 0 ? directives : undefined
+				};
+			}
+
+			return {
+				...task,
+				options,
+				projectPath: task.projectPath ?? defaultProjectPath ?? '',
+				status: task.status === 'dispatching' ? ('queued' as const) : task.status
+			};
+		});
 }
 
 /**
@@ -240,37 +295,31 @@ export function serializeTaskState(state: PersistedTaskState): string {
 }
 
 /**
- * Applica le direttive speciali del task (discussione, piano, minimale, ricerca) al testo del prompt.
+ * Applica le direttive del task al testo del prompt delegando ad applyTaskDirectives.
+ * Supporta sia gli snapshot moderni `directives` sia il fallback per campi booleani legacy.
  */
 export function applyTaskModeDirectives(prompt: string, options?: StudioTaskOptions): string {
-	let body = prompt.trim();
-	const prefixes: string[] = [];
-
-	if (options?.discussionMode) {
-		prefixes.push(
-			'[Modalita Discussione: NON modificare codice subito. Analizza il progetto e usa la skill /grill-me o interroga l\'utente con domande mirate per chiarire decisioni, vincoli e architettura prima di procedere.]'
-		);
+	if (!options) return prompt.trim();
+	if (options.directives && options.directives.length > 0) {
+		return applyTaskDirectives(prompt, options.directives);
 	}
-	if (options?.planMode) {
-		prefixes.push(
-			'[Modalita Piano: formula prima un piano di esecuzione dettagliato passo-passo ed esponilo per approvazione prima di procedere con modifiche.]'
-		);
+	const raw = options as Record<string, unknown>;
+	const legacySnapshots: TaskDirectiveSnapshot[] = [];
+	if (raw.discussionMode === true) {
+		const d = getFactoryDirective('discussion');
+		if (d) legacySnapshots.push(createDirectiveSnapshot(d));
 	}
-	if (options?.minimalMode) {
-		prefixes.push(
-			'[Modalita Minimale: applica la soluzione piu pigra, semplice e minimale possibile (/ponytail). Evita astrazioni premature, boilerplate o nuove dipendenze se non indispensabili.]'
-		);
+	if (raw.planMode === true) {
+		const d = getFactoryDirective('plan');
+		if (d) legacySnapshots.push(createDirectiveSnapshot(d));
 	}
-
-	if (prefixes.length > 0) {
-		body = `${prefixes.join('\n\n')}\n\n${body}`;
+	if (raw.minimalMode === true) {
+		const d = getFactoryDirective('minimal');
+		if (d) legacySnapshots.push(createDirectiveSnapshot(d));
 	}
-
-	if (options?.researchMode) {
-		const researchDirective =
-			'[Direttiva Ricerca Online: Dopo aver analizzato al completo la richiesta e tutto il codice collegato nel progetto, effettua ricerche online approfondite sull\'ambito e sulla richiesta (documentazione, riferimenti, librerie e best practice) prima di procedere con l\'implementazione o le modifiche.]';
-		body = body ? `${body}\n\n${researchDirective}` : researchDirective;
+	if (raw.researchMode === true) {
+		const d = getFactoryDirective('research');
+		if (d) legacySnapshots.push(createDirectiveSnapshot(d));
 	}
-
-	return body;
+	return applyTaskDirectives(prompt, legacySnapshots.length > 0 ? legacySnapshots : undefined);
 }

@@ -25,8 +25,8 @@ Valgono per ogni agente e per ogni modifica al codice di questo repository.
   Il logo della barra superiore si mostra a 22–28px: `static/logo-topbar.png` è un
   raster 96px da 3 KB, non l'SVG originale da 1,7 MB (356 tracciati, ~30.000
   segmenti bézier, ognuno più piccolo di 1/2000 di pixel a quella dimensione).
-- Le icone dell'applicazione si rigenerano dall'originale con un comando:
-  `npx tauri icon assets/app-icon.png`. Genera anche icone mobili iOS/Android che
+- Le icone dell'applicazione si rigenerano dall'originale con il comando npm:
+  `npm run tauri -- icon assets/app-icon.png`. Genera anche icone mobili iOS/Android che
   questa app desktop non usa: tenere in `src-tauri/icons/` **solo** i file
   elencati in `bundle.icon` di `tauri.conf.json` (inclusi `icon.ico` per Windows e `icon.icns` per macOS).
 
@@ -184,5 +184,31 @@ all'imperativo/indicativo presente.
   agganciare nodi DOM condizionali: usa un `$effect` sul nodo (vedi `src/lib/editor/Editor.svelte`).
 - Stack di font per canvas (xterm, Monaco) sempre **letterali**: `var(--font-mono)`
   non viene risolto in `ctx.font`.
-- Verifica prima di dichiarare fatto: `npx svelte-check --tsconfig ./tsconfig.json`
-  per i tipi, e uno smoke test reale del percorso modificato.
+- Verifica prima di dichiarare fatto: `npm run check` per i tipi, `cargo check --manifest-path src-tauri/Cargo.toml` per il backend Rust se modificato, e uno smoke test reale del percorso modificato.
+
+## 5. Comandi canonici di build, verifica e ambiente (usare npm)
+
+Tutti i comandi bash devono rispettare l'ambiente Windows della workstation (usare forward slash `/` nei percorsi, evitare variabili `%VAR%` o comandi interni CMD come `dir /s`):
+
+- **Frontend — Controllo tipi**:
+  `npm run check` (esegue automaticamente `svelte-kit sync` prima di `svelte-check`; non usare `npx svelte-check` isolato).
+- **Frontend — Compilazione produzione**:
+  `npm run build` (esegue Vite con la corretta allocazione di memoria Node).
+- **Smoke test e unit test**:
+  `npm test` (oppure `npm run test:smoke`: esegue la suite automatizzata su protocollo wire, parsing/serializzazione task store, percorsi Windows/POSIX; non invocare `node --test` direttamente sui file `.ts`).
+- **Backend Rust**:
+  `cargo check --manifest-path src-tauri/Cargo.toml` per verificare la compilazione.
+  `cargo test --manifest-path src-tauri/Cargo.toml` per i test unitari.
+  **Non eseguire `cargo fmt --check` globale**: il workspace `src-tauri` contiene file preesistenti con stili disallineati; eseguire rustfmt solo sui file specifici modificati.
+- **Tauri CLI**:
+  Usare sempre lo script npm delegato: `npm run tauri -- <comando>` (es. `npm run tauri -- icon assets/app-icon.png`, `npm run tauri -- dev`). Non usare `npx tauri` (fallisce in ambiente Windows/Bun con `could not determine executable`).
+- **File locking Windows**:
+  Non tentare di eliminare o sovrascrivere file `.exe` o artefatti di build mentre l'applicazione OMP Studio o altri processi correlati sono in esecuzione.
+
+## 6. Esplorazione e ricerca: delega Subagent-First
+
+Per preservare le quote dei modelli primari (es. Claude Opus, GPT-5.6 Sol) durante le fasi di discussione, analisi e pianificazione:
+
+- **Mai esplorazioni massive sul modello principale**: quando l'indagine richiede di esaminare più di 2 file o effettuare ricerche `grep` diffuse, delegare l'indagine a uno o più subagenti `scout` tramite il tool `task`.
+- Lo scout effettua le letture e restituisce un estratto compatto. Il modello principale effettua la sintesi decisionale e formula il piano in 1–2 turni compatti.
+- In modalità discussione/pianificazione architetturale, non eseguire script di documentazione grafica (`impeccable`, `ui-ux-pro-max`) se non espressamente richiesto.

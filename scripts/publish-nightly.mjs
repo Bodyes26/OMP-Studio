@@ -193,7 +193,7 @@ async function main() {
 
 	const commitSha = getCommitSha();
 	const platform = getPlatformConfig();
-	const buildId = opts.buildId || String(Date.now());
+	const buildId = opts.buildId || String(Math.floor(Date.now() / 1000));
 	const version = getNightlyVersion(buildId);
 
 	console.log(`\n========================================`);

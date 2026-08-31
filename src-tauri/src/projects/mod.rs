@@ -35,6 +35,154 @@ pub struct FileGitStatus {
     pub statuses: HashMap<String, String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FileSearchResult {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub score: i64,
+    pub name_indices: Vec<usize>,
+    pub path_indices: Vec<usize>,
+}
+
+pub const IGNORED_SEARCH_DIRS: &[&str] = &[
+    ".git",
+    "node_modules",
+    "bin",
+    "obj",
+    ".vs",
+    "packages",
+    "target",
+    ".idea",
+    ".svelte-kit",
+    ".next",
+    ".nuxt",
+    "dist",
+    "build",
+    ".cache",
+];
+
+fn fuzzy_match_str(target: &str, query: &str) -> Option<(i64, Vec<usize>)> {
+    if query.is_empty() {
+        return Some((0, Vec::new()));
+    }
+    let orig_target: Vec<char> = target.chars().collect();
+    let target_lower: Vec<char> = target.to_lowercase().chars().collect();
+    let query_lower: Vec<char> = query.to_lowercase().chars().collect();
+
+    if query_lower.len() > target_lower.len() {
+        return None;
+    }
+    fn find_best(
+        target: &[char],
+        orig_target: &[char],
+        query: &[char],
+        t_idx: usize,
+        q_idx: usize,
+        prev_matched_idx: Option<usize>,
+        current_indices: &mut Vec<usize>,
+        current_score: i64,
+        best_score: &mut Option<(i64, Vec<usize>)>,
+        calls: &mut usize,
+    ) {
+        *calls += 1;
+        if *calls > 1000 {
+            return;
+        }
+
+        if q_idx == query.len() {
+            let is_better = match best_score {
+                Some((score, _)) => current_score > *score,
+                None => true,
+            };
+            if is_better {
+                *best_score = Some((current_score, current_indices.clone()));
+            }
+            return;
+        }
+
+        let q_char = query[q_idx];
+        let remaining_q = query.len() - q_idx;
+        let remaining_t = target.len() - t_idx;
+        if remaining_t < remaining_q {
+            return;
+        }
+
+        for i in t_idx..=target.len() - remaining_q {
+            if target[i] == q_char {
+                let mut match_score = 10i64;
+
+                if let Some(prev) = prev_matched_idx {
+                    if i == prev + 1 {
+                        match_score += 20;
+                    } else {
+                        let dist = (i - prev - 1) as i64;
+                        match_score -= dist.min(10);
+                    }
+                }
+
+                if i == 0 {
+                    match_score += 35;
+                } else {
+                    let prev_char = target[i - 1];
+                    let orig_prev = orig_target[i - 1];
+                    let orig_curr = orig_target[i];
+
+                    if prev_char == '/'
+                        || prev_char == '\\'
+                        || prev_char == '.'
+                        || prev_char == '_'
+                        || prev_char == '-'
+                        || prev_char == ' '
+                    {
+                        match_score += 25;
+                    } else if orig_prev.is_lowercase() && orig_curr.is_uppercase() {
+                        match_score += 20;
+                    }
+                }
+
+                current_indices.push(i);
+                find_best(
+                    target,
+                    orig_target,
+                    query,
+                    i + 1,
+                    q_idx + 1,
+                    Some(i),
+                    current_indices,
+                    current_score + match_score,
+                    best_score,
+                    calls,
+                );
+                current_indices.pop();
+
+                if *calls > 1000 {
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut best_score = None;
+    let mut current_indices = Vec::new();
+    let mut calls = 0;
+
+    find_best(
+        &target_lower,
+        &orig_target,
+        &query_lower,
+        0,
+        0,
+        None,
+        &mut current_indices,
+        0,
+        &mut best_score,
+        &mut calls,
+    );
+
+    best_score
+}
+
 fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
     #[cfg(not(target_os = "windows"))]
     let clean_project_path = project_path.replace('\\', "/");
@@ -437,6 +585,163 @@ pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>,
     });
 
     Ok(entries)
+}
+
+#[command]
+pub async fn project_files_search(
+    project_path: String,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<FileSearchResult>, String> {
+    let base = canonical_project_base(&project_path)?;
+    let clean_query = query.trim();
+    if clean_query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let max_results = limit.unwrap_or(100).clamp(1, 500);
+
+    let mut collected: Vec<(String, String, bool)> = Vec::new();
+    let mut stack = vec![(base.clone(), String::new())];
+
+    while let Some((current_dir, current_rel)) = stack.pop() {
+        let dir_entries = match fs::read_dir(&current_dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in dir_entries.flatten() {
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+
+            let name = entry.file_name().to_string_lossy().to_string();
+            let is_dir = file_type.is_dir();
+
+            if is_dir {
+                if IGNORED_SEARCH_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                let rel = if current_rel.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", current_rel, name)
+                };
+                stack.push((entry.path(), rel.clone()));
+                collected.push((name, rel, true));
+            } else {
+                let rel = if current_rel.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", current_rel, name)
+                };
+                collected.push((name, rel, false));
+            }
+        }
+    }
+
+    let query_lower = clean_query.to_lowercase();
+    let has_slash = clean_query.contains('/') || clean_query.contains('\\');
+    let normalized_query_slash = clean_query.replace('\\', "/").to_lowercase();
+
+    let mut results = Vec::new();
+
+    for (name, rel_path, is_dir) in collected {
+        let name_lower = name.to_lowercase();
+        let path_lower = rel_path.to_lowercase();
+
+        let parent_offset = if rel_path.len() > name.len() {
+            rel_path[..rel_path.len() - name.len()].chars().count()
+        } else {
+            0
+        };
+
+        let mut matched = false;
+        let mut best_score = i64::MIN;
+        let mut res_name_indices = Vec::new();
+        let mut res_path_indices = Vec::new();
+
+        // 1. Corrispondenza sul nome del file
+        if let Some((score, indices)) = fuzzy_match_str(&name, clean_query) {
+            let mut final_score = score + 100;
+            if name_lower == query_lower {
+                final_score += 150;
+            } else if name_lower.starts_with(&query_lower) {
+                final_score += 60;
+            } else if name_lower.contains(&query_lower) {
+                final_score += 30;
+            }
+
+            if !is_dir {
+                final_score += 10;
+            }
+
+            let path_idx: Vec<usize> = indices.iter().map(|&i| i + parent_offset).collect();
+            if final_score > best_score {
+                best_score = final_score;
+                res_name_indices = indices;
+                res_path_indices = path_idx;
+                matched = true;
+            }
+        }
+
+        // 2. Corrispondenza sul percorso relativo completo
+        let q_for_path = if has_slash {
+            &normalized_query_slash
+        } else {
+            clean_query
+        };
+        if let Some((score, indices)) = fuzzy_match_str(&rel_path, q_for_path) {
+            let mut final_score = score;
+            if has_slash {
+                final_score += 120;
+            }
+            if path_lower == normalized_query_slash {
+                final_score += 150;
+            } else if path_lower.starts_with(&normalized_query_slash) {
+                final_score += 50;
+            } else if path_lower.contains(&normalized_query_slash) {
+                final_score += 25;
+            }
+
+            if !is_dir {
+                final_score += 10;
+            }
+
+            if final_score > best_score {
+                best_score = final_score;
+                res_path_indices = indices.clone();
+                res_name_indices = indices
+                    .into_iter()
+                    .filter(|&i| i >= parent_offset)
+                    .map(|i| i - parent_offset)
+                    .collect();
+                matched = true;
+            }
+        }
+
+        if matched {
+            results.push(FileSearchResult {
+                name,
+                path: rel_path,
+                is_dir,
+                score: best_score,
+                name_indices: res_name_indices,
+                path_indices: res_path_indices,
+            });
+        }
+    }
+
+    results.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.path.len().cmp(&b.path.len()))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    results.truncate(max_results);
+    Ok(results)
 }
 
 #[command]
@@ -1193,10 +1498,11 @@ pub async fn resolve_project_file(
 #[cfg(test)]
 mod tests {
     use super::{
-        file_git_rev, git_last_commit, git_recent_commits, merge_name_status_numstat,
-        path_create_directory, path_create_file, path_rename, rename_via_temp,
-        resolve_existing_entry, resolve_new_destination, resolve_path, resolve_project_file_sync,
-        split_rel_path, validate_basename, Dirent,
+        file_git_rev, fuzzy_match_str, git_last_commit, git_recent_commits,
+        merge_name_status_numstat, path_create_directory, path_create_file, path_rename,
+        project_files_search, rename_via_temp, resolve_existing_entry, resolve_new_destination,
+        resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
+        FileSearchResult,
     };
     use std::fs;
     #[cfg(windows)]
@@ -1797,5 +2103,73 @@ mod tests {
 
         // Attraversamento oltre il link verso l'esterno: viene bloccato perche' il genitore esce da base
         assert!(resolve_existing_entry(root_str, "collegamento_rinominato/segreto.txt").is_err());
+    }
+    #[test]
+    fn fuzzy_match_ranking_e_boundaries() {
+        let res1 = fuzzy_match_str("FileTree.svelte", "ftr");
+        assert!(res1.is_some());
+        let (score1, indices1) = res1.unwrap();
+        assert_eq!(indices1, vec![0, 4, 5]); // F, T, r
+        assert!(score1 > 0);
+
+        let res2 = fuzzy_match_str("format_tree.ts", "ftr");
+        assert!(res2.is_some());
+        let (_, indices2) = res2.unwrap();
+        assert_eq!(indices2, vec![0, 7, 8]); // f, t, r
+
+        // Ricerca senza match
+        assert!(fuzzy_match_str("FileTree.svelte", "xyz").is_none());
+    }
+
+    #[test]
+    fn ricerca_file_progetto_con_esclusioni_e_ranking() {
+        let root = temp_dir("search-files");
+        let root_str = root.to_str().unwrap().to_string();
+
+        // Struttura fittizia
+        fs::create_dir_all(root.join("src/lib/components")).unwrap();
+        fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        fs::create_dir_all(root.join(".git/objects")).unwrap();
+        fs::create_dir_all(root.join("target/debug")).unwrap();
+
+        fs::write(root.join("src/lib/components/FileTree.svelte"), "<script></script>").unwrap();
+        fs::write(root.join("src/lib/components/TopBar.svelte"), "<script></script>").unwrap();
+        fs::write(root.join("src/lib/icons.ts"), "export const a = 1;").unwrap();
+        fs::write(root.join("README.md"), "# Progetto").unwrap();
+
+        // File nelle cartelle ignorate (non devono comparire)
+        fs::write(root.join("node_modules/pkg/index.js"), "console.log(1);").unwrap();
+        fs::write(root.join(".git/objects/blob.txt"), "git data").unwrap();
+        fs::write(root.join("target/debug/build.log"), "build data").unwrap();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // Ricerca per nome file
+        let results_ftr = rt
+            .block_on(project_files_search(root_str.clone(), "ftree".to_string(), None))
+            .unwrap();
+        assert!(!results_ftr.is_empty());
+        assert_eq!(results_ftr[0].name, "FileTree.svelte");
+        assert_eq!(results_ftr[0].path, "src/lib/components/FileTree.svelte");
+
+        // Nessun file da node_modules o .git deve essere presente
+        for r in &results_ftr {
+            assert!(!r.path.starts_with("node_modules"));
+            assert!(!r.path.starts_with(".git"));
+            assert!(!r.path.starts_with("target"));
+        }
+
+        // Ricerca con slash nel percorso
+        let results_slash = rt
+            .block_on(project_files_search(root_str.clone(), "comp/top".to_string(), None))
+            .unwrap();
+        assert!(!results_slash.is_empty());
+        assert_eq!(results_slash[0].name, "TopBar.svelte");
+
+        // Ricerca vuota ritorna vettore vuoto
+        let results_empty = rt
+            .block_on(project_files_search(root_str, "".to_string(), None))
+            .unwrap();
+        assert!(results_empty.is_empty());
     }
 }

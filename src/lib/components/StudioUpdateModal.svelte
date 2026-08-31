@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { studioUpdaterStore, formatBytes, formatSpeed } from '$lib/stores/studioUpdater.svelte';
+	import { studioUpdaterStore, formatBytes, formatSpeed, formatVersion } from '$lib/stores/studioUpdater.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { IconRefresh, IconClose, IconArrowRight, IconCheck, IconExternalLink } from '$lib/icons';
 
@@ -159,18 +159,18 @@
 
 				<!-- Versione Corrente e Nuova -->
 				<div class="version-banner">
-					<div class="version-item">
+					<div class="version-item" title={studioUpdaterStore.currentVersion ? `v${studioUpdaterStore.currentVersion}` : ''}>
 						<span class="v-label">Installata</span>
-						<span class="v-badge current">v{studioUpdaterStore.currentVersion || '...'}</span>
+						<span class="v-badge current">v{formatVersion(studioUpdaterStore.currentVersion) || '...'}</span>
 						{#if studioUpdaterStore.currentVersion?.includes('-nightly.')}
 							<span class="channel-tag">Nightly</span>
 						{/if}
 					</div>
 					{#if studioUpdaterStore.hasUpdate && studioUpdaterStore.updateInfo}
 						<span class="v-arrow"><IconArrowRight /></span>
-						<div class="version-item">
+						<div class="version-item" title="v{studioUpdaterStore.updateInfo.latest_version}">
 							<span class="v-label">Nuova</span>
-							<span class="v-badge target">v{studioUpdaterStore.updateInfo.latest_version}</span>
+							<span class="v-badge target">v{formatVersion(studioUpdaterStore.updateInfo.latest_version)}</span>
 						</div>
 					{:else}
 						<span class="up-to-date-tag"><IconCheck /> Ultima versione</span>
@@ -188,7 +188,9 @@
 					<div class="release-meta">
 						<div class="meta-row">
 							<span class="release-identity">
-								<span class="release-title">{studioUpdaterStore.updateInfo.release_name}</span>
+								<span class="release-title" title={studioUpdaterStore.updateInfo.release_name}>
+									{studioUpdaterStore.updateInfo.release_name}
+								</span>
 								{#if studioUpdaterStore.updateInfo.release_channel === 'nightly'}
 									<span class="channel-tag">Nightly</span>
 								{/if}
@@ -211,7 +213,7 @@
 						{#if studioUpdaterStore.updateInfo.asset}
 							<div class="asset-info">
 								<div class="asset-text">
-									<span class="asset-name">{studioUpdaterStore.updateInfo.asset.name}</span>
+									<span class="asset-name" title={studioUpdaterStore.updateInfo.asset.name}>{studioUpdaterStore.updateInfo.asset.name}</span>
 									<span class="asset-size">{formatBytes(studioUpdaterStore.updateInfo.asset.size)}</span>
 								</div>
 								{#if studioUpdaterStore.updateInfo.asset.sha256}
@@ -358,6 +360,7 @@
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-dialog);
+		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 	}
@@ -446,6 +449,7 @@
 		flex-direction: column;
 		gap: var(--space-3);
 		overflow-y: auto;
+		overflow-x: hidden;
 		min-height: 0;
 	}
 
@@ -562,17 +566,21 @@
 	.version-banner {
 		display: flex;
 		align-items: center;
+		flex-wrap: wrap;
 		gap: var(--space-2);
 		background: var(--bg-sunken);
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-md);
 		border: 1px solid var(--line);
+		min-width: 0;
 	}
 
 	.version-item {
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		min-width: 0;
+		flex-wrap: wrap;
 	}
 
 	.v-label {
@@ -586,6 +594,10 @@
 		font-weight: 600;
 		padding: 2px 6px;
 		border-radius: var(--radius-sm);
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.v-badge.current {
@@ -648,6 +660,7 @@
 		align-items: baseline;
 		justify-content: space-between;
 		gap: var(--space-2);
+		min-width: 0;
 	}
 
 	.release-identity {
@@ -655,12 +668,17 @@
 		align-items: center;
 		gap: var(--space-2);
 		min-width: 0;
+		flex: 1 1 auto;
+		overflow: hidden;
 	}
 
 	.release-title {
 		font-weight: 600;
 		color: var(--ink);
 		font-size: var(--text-sm);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.release-date {
@@ -703,6 +721,7 @@
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
+		min-width: 0;
 	}
 
 	.sha-badge {
@@ -734,6 +753,7 @@
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
+		flex: 1 1 auto;
 	}
 
 	.asset-name {

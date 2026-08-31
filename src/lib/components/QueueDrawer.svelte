@@ -122,10 +122,14 @@
 											{:else if task.status === 'abandoned'}
 												<span class="task-chip status-chip abandoned">abbandonato</span>
 											{/if}
-											{#if task.options?.discussionMode}<span class="task-chip">Discussione</span>{/if}
-											{#if task.options?.planMode}<span class="task-chip">Piano</span>{/if}
-											{#if task.options?.minimalMode}<span class="task-chip">Minimale</span>{/if}
-											{#if task.options?.researchMode}<span class="task-chip">Ricerca</span>{/if}
+											{#if task.options?.directives && task.options.directives.length > 0}
+												{#each task.options.directives.slice(0, 3) as d (d.id)}
+													<span class="task-chip" title={d.name}>{d.tag || d.name}</span>
+												{/each}
+												{#if task.options.directives.length > 3}
+													<span class="task-chip" title={task.options.directives.slice(3).map((d) => d.name).join(', ')}>+{task.options.directives.length - 3}</span>
+												{/if}
+											{/if}
 										</div>
 									</div>
 									<div class="task-actions">

@@ -6,6 +6,7 @@ import { normalizeProjectPath, projectStore } from './projects.svelte';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
 import type { ImageContent } from '$lib/agent/wire';
 import { attachEditorContext } from '$lib/editor/editorContext';
+import { createDirectiveSnapshot, type TaskDirectiveSnapshot } from './taskDirectives';
 import {
 	type AgentView,
 	type StudioTaskStatus,
@@ -173,18 +174,18 @@ class TaskStore {
 		// un progetto puo' scegliere solo il ruolo e lasciare il resto ai default.
 		const project = projectStore.projects.find((p) => projectKey(p.path) === key);
 		const defaults: TaskDefaults = { ...settingsStore.taskDefaults, ...(project?.taskDefaults ?? {}) };
+		const catalog = settingsStore.taskDirectives;
+		const selectedIds = new Set(defaults.selectedDirectiveIds ?? []);
+		const directives: TaskDirectiveSnapshot[] = catalog
+			.filter((d) => !d.hidden && selectedIds.has(d.id))
+			.map(createDirectiveSnapshot);
+
 		const options: StudioTaskOptions = {
 			role: defaults.role,
 			thinkingLevel: defaults.thinkingLevel,
-			includeEditorContext: defaults.includeEditorContext
+			includeEditorContext: defaults.includeEditorContext,
+			directives: directives.length > 0 ? directives : undefined
 		};
-		// Le modalita' si scrivono solo se attive: un persistito piu' magro
-		// e coerente con `formatTaskPrompt`, che le legge come opzionali.
-		if (defaults.discussionMode) options.discussionMode = true;
-		if (defaults.planMode) options.planMode = true;
-		if (defaults.minimalMode) options.minimalMode = true;
-		if (defaults.researchMode) options.researchMode = true;
-
 		const task: StudioTask = {
 			id: crypto.randomUUID(),
 			projectPath: key,

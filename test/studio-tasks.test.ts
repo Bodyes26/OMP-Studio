@@ -7,9 +7,10 @@ import {
 	ensureProjectOmpDir,
 	loadProjectTasks,
 	saveProjectTasks,
-	type ProjectTask
+	composeTaskPrompt,
+	type ProjectTask,
+	type TaskDirectiveSnapshot
 } from '../extensions/studio-tasks.ts';
-
 describe('Estensione studio-tasks: I/O atomico e gestione task', () => {
 	let tempProjectDir: string;
 
@@ -102,5 +103,63 @@ describe('Estensione studio-tasks: I/O atomico e gestione task', () => {
 		assert.equal(reloaded.length, 2);
 		assert.equal(reloaded[0].position, 0);
 		assert.equal(reloaded[1].position, 1);
+	});
+
+	it('salva e ricarica i task con snapshot di direttive personalizzate', () => {
+		const snap: TaskDirectiveSnapshot = {
+			id: 'dir-custom-1',
+			name: 'Test Rigorosi',
+			tag: 'test',
+			prompt: '[Direttiva: Test rigorosi]',
+			placement: 'before',
+			order: 10,
+			revision: 1
+		};
+		const tasks: ProjectTask[] = [
+			{
+				id: 't-snap',
+				prompt: 'Task con snapshot',
+				position: 0,
+				status: 'queued',
+				createdAt: 1000,
+				updatedAt: 1000,
+				options: {
+					role: 'default',
+					directives: [snap]
+				}
+			}
+		];
+		saveProjectTasks(tempProjectDir, tasks);
+		const loaded = loadProjectTasks(tempProjectDir);
+		assert.equal(loaded.length, 1);
+		assert.equal(loaded[0].options?.directives?.length, 1);
+		assert.equal(loaded[0].options?.directives?.[0].id, 'dir-custom-1');
+		assert.equal(loaded[0].options?.directives?.[0].prompt, '[Direttiva: Test rigorosi]');
+	});
+
+	it('composeTaskPrompt compone le direttive prima e dopo nell\'ordine corretto', () => {
+		const snapBefore: TaskDirectiveSnapshot = {
+			id: 'b',
+			name: 'B',
+			tag: 'b',
+			prompt: '[Before]',
+			placement: 'before',
+			order: 10,
+			revision: 1
+		};
+		const snapAfter: TaskDirectiveSnapshot = {
+			id: 'a',
+			name: 'A',
+			tag: 'a',
+			prompt: '[After]',
+			placement: 'after',
+			order: 20,
+			revision: 1
+		};
+
+		const composed = composeTaskPrompt('Mio prompt', {
+			directives: [snapAfter, snapBefore]
+		});
+		assert.equal(composed, '[Before]\n\nMio prompt\n\n[After]');
 	});
 });

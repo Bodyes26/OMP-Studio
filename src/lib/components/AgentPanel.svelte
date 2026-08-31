@@ -207,17 +207,13 @@
 								<div class="task-meta-row">
 									<span class="task-excerpt" role="status" aria-live={task.status === 'dispatching' ? 'polite' : 'off'}>{task.status === 'dispatching' ? 'Avvio della nuova sessione...' : taskExcerpt(task)}</span>
 									<div class="task-chips">
-										{#if task.options?.planMode}
-											<span class="task-chip mode-chip">Plan</span>
-										{/if}
-										{#if task.options?.discussionMode}
-											<span class="task-chip mode-chip">Grill-Me</span>
-										{/if}
-										{#if task.options?.minimalMode}
-											<span class="task-chip mode-chip">Ponytail</span>
-										{/if}
-										{#if task.options?.researchMode}
-											<span class="task-chip mode-chip">Research</span>
+										{#if task.options?.directives && task.options.directives.length > 0}
+											{#each task.options.directives.slice(0, 2) as d (d.id)}
+												<span class="task-chip mode-chip" title={d.name}>{d.tag || d.name}</span>
+											{/each}
+											{#if task.options.directives.length > 2}
+												<span class="task-chip mode-chip" title={task.options.directives.slice(2).map((d) => d.name).join(', ')}>+{task.options.directives.length - 2}</span>
+											{/if}
 										{/if}
 										{#if task.images && task.images.length > 0}
 											<span class="task-chip img-chip">img {task.images.length}</span>
