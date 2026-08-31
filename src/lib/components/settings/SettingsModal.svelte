@@ -514,8 +514,6 @@
 	.section-nav-item.active {
 		background: var(--bg-active);
 		color: var(--ink);
-		font-weight: 600;
-		box-shadow: inset 2px 0 0 var(--brand);
 	}
 
 	.section-content {

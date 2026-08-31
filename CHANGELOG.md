@@ -11,7 +11,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Changed
 
+- Rimossa la barra di evidenziazione sinistra e il testo in grassetto sulla voce di sezione attiva nella colonna sinistra della finestra Impostazioni, per una navigazione più pulita e uniforme.
 - I controlli di scelta singola (radio button) in tutta l'applicazione sono stati ridisegnati con uno stile personalizzato coerente con il tema attivo (anello reattivo e punto interno centrato nel colore del brand), rinnovando il selettore del canale aggiornamenti (nelle impostazioni generali e nel dialogo di aggiornamento dalla barra inferiore, con schede dedicate e badge «Consigliato»/«Anteprima») e le opzioni di ordinamento della barra dei progetti.
+- Semplificata la descrizione dell'opzione di ordinamento «Ultimo aperto» nelle impostazioni della barra progetti, rimuovendo il prefisso ridondante «Comportamento storico:».
 
 ### Fixed
 
