@@ -58,6 +58,43 @@ export function isDoneOption(label: string): boolean {
 }
 
 /**
+ * Chiave di confronto tra le opzioni di una richiesta e quelle di una domanda
+ * dichiarata negli argomenti del tool. Fuori restano il suffisso
+ * ` (Recommended)` e le voci aggiunte dal runtime di omp ("Altro", "Fine
+ * selezione"), che compaiono e scompaiono tra un round e l'altro dello stesso
+ * elenco.
+ */
+export function optionSignature(labels: string[]): string {
+	return labels
+		.map(cleanOptionLabel)
+		.filter((label) => !isOtherOption(label) && !isDoneOption(label))
+		.join('\u0000');
+}
+
+/**
+ * Indice della domanda le cui opzioni corrispondono alla richiesta in arrivo,
+ * `-1` quando non ce n'e' nessuna. `preferred` (l'indice dichiarato dal
+ * titolo `(k/N)`) viene provato per primo.
+ *
+ * Serve a non fidarsi a occhi chiusi degli argomenti del tool: il protocollo
+ * di `ask` e' sequenziale e una lista disallineata farebbe finire la risposta
+ * di una domanda nella casella di un'altra.
+ */
+export function matchQuestionIndex(
+	questions: { options: { label: string }[] }[],
+	signature: string,
+	preferred = 0
+): number {
+	const signatures = questions.map((question) =>
+		optionSignature(question.options.map((option) => option.label))
+	);
+	if (preferred >= 0 && preferred < signatures.length && signatures[preferred] === signature) {
+		return preferred;
+	}
+	return signatures.indexOf(signature);
+}
+
+/**
  * Vero solo quando la risposta esiste davvero:
  * - "Altro" richiede del testo, non basta averlo scelto;
  * - a scelta singola serve un'opzione selezionata (anche quella consigliata,

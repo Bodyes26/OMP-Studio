@@ -9,8 +9,15 @@
 	// 5. Countdown di scadenza e navigazione accessibile da tastiera: la lista
 	//    opzioni e' un listbox con figli `option` e roving tabindex, quindi il
 	//    focus reale segue le frecce e un solo elemento entra nel tab order.
+	//
+	// Il protocollo di `ask` e' sequenziale: omp manda una richiesta per
+	// domanda e aspetta una riga per volta. Il wizard qui dentro copre solo le
+	// domande **ancora da chiedere** (`pending.questionIndex` in avanti): se la
+	// card comparisse a domanda 2 mostrando la 1, le risposte finirebbero tutte
+	// nella casella sbagliata.
 
 	import { tick } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		IconArrowLeft,
 		IconArrowRight,
@@ -57,6 +64,18 @@
 		recommended?: number;
 		showNoteInput: boolean;
 		cursorIndex: number;
+		/**
+		 * Numero della domanda nella sequenza completa di omp (1-based). Il
+		 * wizard puo' partire da meta' sequenza, quindi l'indice locale non
+		 * coincide con il numero che l'utente deve vedere.
+		 */
+		number: number;
+		/**
+		 * Le mutazioni di un `Set` normale sono invisibili alla reattivita' di
+		 * Svelte (il proxy di `$state` avvolge solo oggetti semplici e array):
+		 * con un `Set` la spunta non si aggiornava piu' dopo il primo clic.
+		 */
+		selectedOptions: SvelteSet<string>;
 	}
 
 
@@ -78,28 +97,37 @@
 
 	const showCountdown = $derived(remainingSeconds !== null && remainingSeconds > 0);
 
-	// Parsing del titolo per estrarre eventuale contatore di round `(N selected)` o `(K/N)`
+	// Parsing del titolo: omp premette `(N selected)` nei round a scelta
+	// multipla e aggiunge in coda `(k/N)` nelle sequenze multi-domanda. Le due
+	// cose convivono, quindi si togliono entrambe dal testo della domanda.
 	const parsedTitle = $derived.by(() => {
 		const raw = pending.title || '';
-		const selectedMatch = raw.match(/^\((\d+\s+selected|\d+\s+selezionat[io]|[^)]+)\)\s*(.*)$/i);
+		let text = raw;
+		let counter: string | null = null;
+
+		const selectedMatch = text.match(/^\(([^)]+)\)\s*(.*)$/);
 		if (selectedMatch) {
-			return {
-				counter: selectedMatch[1].trim(),
-				text: selectedMatch[2].trim() || raw
-			};
+			counter = selectedMatch[1].trim();
+			text = selectedMatch[2].trim() || raw;
 		}
-		const progMatch = raw.match(/\((\d+)\/(\d+)\)/);
+
+		const progMatch = text.match(/\s*\((\d+)\/(\d+)\)\s*$/);
 		if (progMatch) {
-			return {
-				counter: `${progMatch[1]}/${progMatch[2]}`,
-				text: raw.replace(/\(\d+\/\d+\)/, '').trim()
-			};
+			text = text.slice(0, progMatch.index).trim();
+			counter ??= `${progMatch[1]}/${progMatch[2]}`;
 		}
-		return {
-			counter: null,
-			text: raw
-		};
+
+		return { counter, text };
 	});
+
+	/**
+	 * Posizione dichiarata dal protocollo, non dal wizard locale: rispondere
+	 * qui non chiude la richiesta se omp ha altre domande da fare, e il
+	 * pulsante deve dirlo invece di promettere una conferma finale.
+	 */
+	const askedNumber = $derived(Math.max((pending.questionIndex ?? 0) + 1, 1));
+	const askedTotal = $derived(Math.max(pending.totalQuestions ?? 1, askedNumber));
+	const moreQuestionsFollow = $derived(askedTotal > askedNumber);
 
 	// Costruzione dello stato normalizzato delle domande
 	let questions = $state<WizardQuestion[]>([]);
@@ -120,8 +148,14 @@
 		const rawDetails = pending.optionDetails ?? [];
 
 		if (rawQuestions && rawQuestions.length > 0) {
-			// Richiesta con lista strutturata completa di domande
-			questions = rawQuestions.map((q: AskQuestion, qIdx: number) => {
+			// Richiesta con lista strutturata di domande. Si parte da quella che
+			// omp sta chiedendo: le precedenti hanno gia' avuto la loro risposta
+			// e riproporle sposterebbe tutte le successive di una casella.
+			const startIndex = Math.min(
+				Math.max(pending.questionIndex ?? 0, 0),
+				rawQuestions.length - 1
+			);
+			questions = rawQuestions.slice(startIndex).map((q: AskQuestion, qIdx: number) => {
 				const opts: WizardOption[] = q.options.map((o: AskQuestionOption, oIdx: number) => {
 					const clean = cleanOptionLabel(o.label);
 					const isRec = o.label.endsWith(' (Recommended)') || q.recommended === oIdx;
@@ -151,16 +185,17 @@
 				}
 
 				// Pre-selezione se consigliata per singola scelta
-				const preselected = new Set<string>();
+				const preselected = new SvelteSet<string>();
 				const recIdx = q.recommended;
 				if (!q.multi && typeof recIdx === 'number' && recIdx >= 0 && recIdx < opts.length && !opts[recIdx].isOther) {
 					preselected.add(opts[recIdx].cleanLabel);
 				}
 
 				return {
-					id: q.id || `q${qIdx + 1}`,
+					id: q.id || `q${startIndex + qIdx + 1}`,
 					question: q.question,
 					header: q.header,
+					number: startIndex + qIdx + 1,
 					options: opts,
 					multi: q.multi === true,
 					recommended: q.recommended,
@@ -192,7 +227,7 @@
 				};
 			});
 
-			const preselected = new Set<string>();
+			const preselected = new SvelteSet<string>();
 			const recIdx = opts.findIndex((o) => o.isRecommended);
 			if (!isMulti && recIdx >= 0 && !opts[recIdx].isOther) {
 				preselected.add(opts[recIdx].cleanLabel);
@@ -203,6 +238,7 @@
 					id: 'q1',
 					question: parsedTitle.text || pending.title || 'Richiesta agente',
 					header: undefined,
+					number: askedNumber,
 					options: opts,
 					multi: isMulti,
 					recommended: recIdx >= 0 ? recIdx : undefined,
@@ -275,12 +311,31 @@
 		return true;
 	}
 
+	/**
+	 * Spostamento del cursore. A scelta singola la selezione segue il fuoco,
+	 * come in un radiogroup: il ring che si muoveva lasciando indietro la
+	 * risposta era la trappola peggiore, perche' l'invio mandava all'agente
+	 * l'opzione consigliata invece di quella che l'utente stava leggendo.
+	 * A scelta multipla le frecce spostano soltanto: la spunta e' Spazio.
+	 */
+	function moveTo(index: number) {
+		if (!currentQuestion) return;
+		const total = visibleOptions.length;
+		if (total === 0) return;
+		focusOption(index);
+		if (currentQuestion.multi) return;
+		const opt = visibleOptions[currentQuestion.cursorIndex];
+		// "Altro" si arma ma non ruba il fuoco: le frecce devono continuare a
+		// funzionare, e la risposta resta incompleta finche' non c'e' il testo.
+		if (opt) toggleOption(opt, false);
+	}
+
 	/** Frecce su/giu': scorrimento circolare come nelle altre liste dell'app. */
 	function moveCursor(delta: number) {
 		if (!currentQuestion) return;
 		const total = visibleOptions.length;
 		if (total === 0) return;
-		focusOption((currentQuestion.cursorIndex + delta + total) % total);
+		moveTo((currentQuestion.cursorIndex + delta + total) % total);
 	}
 
 	/** Selezione dall'indice: usata sia dal click sia dalla barra spaziatrice. */
@@ -288,18 +343,18 @@
 		const opt = visibleOptions[index];
 		if (!opt) return;
 		focusOption(index);
-		toggleOption(opt);
+		toggleOption(opt, true);
 	}
 
 	// Gestione selezione opzioni
-	function toggleOption(opt: WizardOption) {
+	function toggleOption(opt: WizardOption, focusCustom: boolean) {
 		if (!currentQuestion) return;
 		currentQuestion.touched = true;
 
 		if (opt.isOther) {
 			currentQuestion.isCustom = true;
 			currentQuestion.selectedOptions.clear();
-			setTimeout(() => customTextareaEl?.focus(), 50);
+			if (focusCustom) setTimeout(() => customTextareaEl?.focus(), 50);
 			return;
 		}
 
@@ -325,9 +380,13 @@
 		}
 	}
 
-	// Navigazione tra le domande
+	// Navigazione tra le domande. Il riepilogo esiste solo con piu' di una
+	// domanda: con una sola, il passo `questions.length` non ha niente da
+	// mostrare e la card resterebbe vuota con omp ancora in attesa.
+	const lastStep = $derived(questions.length > 1 ? questions.length : Math.max(questions.length - 1, 0));
+
 	async function goToStep(stepIndex: number) {
-		if (stepIndex < 0 || stepIndex > questions.length) return;
+		if (stepIndex < 0 || stepIndex > lastStep) return;
 		activeStep = stepIndex;
 		if (currentQuestion && currentQuestion.cursorIndex >= visibleOptions.length) {
 			currentQuestion.cursorIndex = 0;
@@ -343,7 +402,7 @@
 		// Avanzare senza risposta significherebbe inviarne una inventata al
 		// posto dell'utente: il passo resta dov'e'.
 		if (!isReviewStep && !currentAnswered) return;
-		if (activeStep < questions.length) {
+		if (activeStep < lastStep) {
 			void goToStep(activeStep + 1);
 		} else {
 			void submitAllAnswers();
@@ -368,12 +427,10 @@
 
 		submitting = true;
 		try {
-			if (questions.length === 1 && !pending.questions) {
-				// Richiesta singola immediata: una sola riga di risposta.
-				await session.answerSelect(responses[0]);
-			} else {
-				await session.submitAskWizard(responses);
-			}
+			// Anche una domanda sola puo' produrre piu' righe (spunte multiple
+			// piu' la sentinella di fine selezione): mandarne una e buttare le
+			// altre lasciava omp a chiedere di nuovo la stessa cosa.
+			await session.submitAskWizard(responses);
 		} finally {
 			submitting = false;
 		}
@@ -460,12 +517,12 @@
 		// Home / End: prima e ultima opzione dell'elenco.
 		if (e.key === 'Home' && currentQuestion) {
 			e.preventDefault();
-			focusOption(0);
+			moveTo(0);
 			return;
 		}
 		if (e.key === 'End' && currentQuestion) {
 			e.preventDefault();
-			focusOption(visibleOptions.length - 1);
+			moveTo(visibleOptions.length - 1);
 			return;
 		}
 
@@ -520,16 +577,16 @@
 						onclick={() => void goToStep(idx)}
 						title={q.question}
 						aria-current={isCurrent ? 'step' : undefined}
-						aria-label={`Domanda ${idx + 1} di ${questions.length}: ${q.header || q.question}, ${isAnswered ? 'completata' : 'ancora senza risposta'}`}
+						aria-label={`Domanda ${q.number} di ${askedTotal}: ${q.header || q.question}, ${isAnswered ? 'completata' : 'ancora senza risposta'}`}
 					>
 						<span class="step-badge" aria-hidden="true">
 							{#if isAnswered && !isCurrent}
 								<IconCheck />
 							{:else}
-								{idx + 1}
+								{q.number}
 							{/if}
 						</span>
-						<span class="step-label">{q.header || `Domanda ${idx + 1}`}</span>
+						<span class="step-label">{q.header || `Domanda ${q.number}`}</span>
 						<!-- Lo stato non puo' vivere solo nell'icona: qui resta anche
 						     come testo per chi legge la pillola a schermo. -->
 						<span class="step-state" class:missing={!isAnswered}>
@@ -545,7 +602,7 @@
 					aria-current={isReviewStep ? 'step' : undefined}
 					aria-label={missingIndex === -1
 						? 'Riepilogo, tutte le risposte compilate'
-						: `Riepilogo, manca la risposta alla domanda ${missingIndex + 1}`}
+						: `Riepilogo, manca la risposta alla domanda ${questions[missingIndex]?.number ?? missingIndex + 1}`}
 				>
 					<span class="step-badge" aria-hidden="true">★</span>
 					<span class="step-label">Riepilogo</span>
@@ -554,7 +611,12 @@
 		{/if}
 
 		<div class="title-row">
-			{#if parsedTitle.counter && questions.length <= 1}
+			{#if askedTotal > 1 && questions.length <= 1}
+				<!-- Sequenza in corso di cui la card vede una sola domanda: il
+				     numero va detto, o l'utente crede di stare rispondendo a
+				     tutto. -->
+				<span class="counter-badge">Domanda {askedNumber} di {askedTotal}</span>
+			{:else if parsedTitle.counter && questions.length <= 1}
 				<span class="counter-badge">{parsedTitle.counter}</span>
 			{/if}
 			<h3 class="title-text" id={`${uid}-question`}>
@@ -587,14 +649,14 @@
 						{#each questions as q, idx}
 							<div class="review-item">
 								<div class="review-item-header">
-									<span class="review-item-num">#{idx + 1}</span>
+									<span class="review-item-num">#{q.number}</span>
 									<span class="review-item-q">{q.question}</span>
 									<button
 										type="button"
 										class="btn-edit-step"
 										onclick={() => void goToStep(idx)}
 										title="Modifica questa risposta"
-										aria-label={`Modifica la risposta alla domanda ${idx + 1}`}
+										aria-label={`Modifica la risposta alla domanda ${q.number}`}
 									>
 										<IconRename /> Modifica
 									</button>
@@ -628,8 +690,8 @@
 						<!-- L'invio e' bloccato: il perche' va detto a parole, non solo
 						     col pulsante disabilitato. -->
 						<p class="review-warning" role="status">
-							Manca la risposta alla domanda {missingIndex + 1}: aprila e scegli
-							un'opzione prima di inviare.
+							Manca la risposta alla domanda {questions[missingIndex]?.number ?? missingIndex + 1}:
+							aprila e scegli un'opzione prima di inviare.
 						</p>
 					{/if}
 
@@ -657,7 +719,7 @@
 							onclick={() => void submitAllAnswers()}
 							title={missingIndex === -1
 								? 'Invia tutte le risposte (Enter)'
-								: `Manca la risposta alla domanda ${missingIndex + 1}`}
+								: `Manca la risposta alla domanda ${questions[missingIndex]?.number ?? missingIndex + 1}`}
 						>
 							<IconCheck /> Invia tutte le risposte <span class="kbd">↵</span>
 						</button>
@@ -821,7 +883,10 @@
 					<!-- Barra Azioni e Scorciatoie -->
 					<div class="footer-row">
 						<div class="shortcut-hints">
-							<span><span class="kbd">↑</span> <span class="kbd">↓</span> sposta</span>
+							<span>
+								<span class="kbd">↑</span> <span class="kbd">↓</span>
+								{currentQuestion.multi ? 'sposta' : 'scegli'}
+							</span>
 							<span><span class="kbd">Spazio</span> {currentQuestion.multi ? 'seleziona/deseleziona' : 'scegli'}</span>
 							<span><span class="kbd">N</span> nota</span>
 							{#if questions.length > 1}
@@ -868,16 +933,25 @@
 									{/if}
 								</button>
 							{:else}
+								<!-- Una domanda sola nella card non significa una domanda
+								     sola nella richiesta: se omp ne ha altre in coda, il
+								     pulsante manda avanti e non conferma niente. -->
 								<button
 									type="button"
 									class="btn-submit"
 									disabled={submitting || !currentAnswered}
 									onclick={() => void submitAllAnswers()}
 									title={currentAnswered
-										? 'Invia risposta (Enter)'
+										? moreQuestionsFollow
+											? `Invia la risposta alla domanda ${askedNumber} e passa alla successiva (Enter)`
+											: 'Invia risposta (Enter)'
 										: 'Scegli una risposta o scrivine una in "Altro"'}
 								>
-									Conferma <span class="kbd">↵</span>
+									{#if moreQuestionsFollow}
+										Avanti <IconArrowRight />
+									{:else}
+										Conferma <span class="kbd">↵</span>
+									{/if}
 								</button>
 							{/if}
 						</div>

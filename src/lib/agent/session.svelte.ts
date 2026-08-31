@@ -10,6 +10,7 @@ import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { OmpRpcClient } from './client';
 import { isMissingSessionError } from './resumeErrors';
+import { matchQuestionIndex, optionSignature } from './askAnswers';
 import {
 	ANSWERABLE_UI_METHODS,
 	type AgentMessage,
@@ -141,9 +142,17 @@ export interface PendingAsk {
 	prefill?: string;
 	/** Scadenza assoluta in ms; oltre, omp risolve da se' al default. */
 	deadline?: number;
-	/** Lista completa delle domande ricavata dagli argomenti del tool `ask` */
+	/**
+	 * Lista completa delle domande ricavata dagli argomenti del tool `ask`.
+	 * Presente solo quando le opzioni di *questa* richiesta corrispondono
+	 * davvero a quelle della domanda `questionIndex`: senza la verifica il
+	 * wizard finirebbe per rispondere alla domanda sbagliata.
+	 */
 	questions?: AskQuestion[];
-	/** Indice 0-based della domanda corrente nella sequenza multi-domanda */
+	/**
+	 * Indice 0-based della domanda che omp sta chiedendo adesso. Ricavato dal
+	 * titolo `(k/N)` e confermato dalle opzioni quando la lista c'e'.
+	 */
 	questionIndex?: number;
 	/** Conteggio totale delle domande nella sequenza */
 	totalQuestions?: number;
@@ -226,10 +235,17 @@ export class AgentSession {
 
 	/**
 	 * Risposte pre-compilate dal wizard per i round successivi della **stessa**
-	 * chiamata `ask`. Il `toolCallId` e' il vincolo: senza di lui una risposta
-	 * rimasta in coda finirebbe su una domanda futura e diversa.
+	 * chiamata `ask`. Il vincolo e' il `toolCallId`: senza di lui una risposta
+	 * rimasta in coda finirebbe su una domanda futura e diversa. Quando la
+	 * chiamata non e' identificabile (nessuna entry `ask` in esecuzione) resta
+	 * la firma delle opzioni: il ciclo a scelta multipla ripresenta lo stesso
+	 * elenco a ogni spunta, ed e' l'unico caso in cui la coda vale ancora.
 	 */
-	private askQueue: { toolCallId: string; responses: string[] } | null = null;
+	private askQueue: {
+		toolCallId: string | null;
+		signature: string;
+		responses: string[];
+	} | null = null;
 
 	private nextEntryId = 1;
 	private nextQueueId = 1;
@@ -1202,6 +1218,19 @@ export class AgentSession {
 		}
 		if (ANSWERABLE_UI_METHODS[method] !== true) return;
 
+		const options = Array.isArray(event.options)
+			? event.options.filter((option): option is string => typeof option === 'string')
+			: [];
+		const optionDetails = Array.isArray(event.optionDetails)
+			? event.optionDetails.map((detail) => ({
+					description:
+						detail && typeof detail === 'object' && 'description' in detail && typeof detail.description === 'string'
+							? detail.description
+							: undefined
+				}))
+			: [];
+		const signature = optionSignature(options);
+
 		// La chiamata `ask` in corso identifica il wizard: e' l'unico modo di
 		// distinguere "round successivo della stessa domanda" da "nuova
 		// domanda", che non deve mai essere risposta al posto dell'utente.
@@ -1210,7 +1239,13 @@ export class AgentSession {
 			.find((t) => t.running && t.toolName === 'ask');
 
 		if (this.askQueue) {
-			if (runningAsk && runningAsk.toolCallId === this.askQueue.toolCallId) {
+			const sameCall =
+				this.askQueue.toolCallId !== null && runningAsk?.toolCallId === this.askQueue.toolCallId;
+			// Coda senza `toolCallId`: vale solo se omp sta ripresentando lo
+			// stesso elenco di opzioni, cioe' il ciclo delle spunte multiple.
+			const sameList =
+				this.askQueue.toolCallId === null && method === 'select' && signature === this.askQueue.signature;
+			if (sameCall || sameList) {
 				const nextVal = this.askQueue.responses.shift();
 				if (this.askQueue.responses.length === 0) this.askQueue = null;
 				if (nextVal !== undefined) {
@@ -1223,18 +1258,6 @@ export class AgentSession {
 				this.askQueue = null;
 			}
 		}
-
-		const options = Array.isArray(event.options)
-			? event.options.filter((option): option is string => typeof option === 'string')
-			: [];
-		const optionDetails = Array.isArray(event.optionDetails)
-			? event.optionDetails.map((detail) => ({
-					description:
-						detail && typeof detail === 'object' && 'description' in detail && typeof detail.description === 'string'
-							? detail.description
-							: undefined
-				}))
-			: [];
 
 		// Informazioni complete della domanda quando la richiesta proviene dal
 		// tool `ask` (`arguments.questions`).
@@ -1265,15 +1288,32 @@ export class AgentSession {
 				}));
 		}
 
+		// Il titolo dichiara la posizione nella sequenza (`(k/N)`): e' l'unico
+		// dato che arriva insieme alla richiesta, quindi vale anche quando gli
+		// argomenti del tool non sono disponibili.
 		let questionIndex: number | undefined;
 		let totalQuestions: number | undefined;
 		const progMatch = (title ?? '').match(/\((\d+)\/(\d+)\)/);
 		if (progMatch) {
 			questionIndex = parseInt(progMatch[1], 10) - 1;
 			totalQuestions = parseInt(progMatch[2], 10);
-		} else if (parsedQuestions && parsedQuestions.length > 0) {
-			totalQuestions = parsedQuestions.length;
-			questionIndex = 0;
+		}
+
+		// Le opzioni della richiesta sono l'unica prova che la lista di domande
+		// riguarda davvero questo round: se non combaciano con nessuna domanda,
+		// la lista viene scartata e resta la richiesta nuda, che e' sempre
+		// allineata. Un wizard disallineato manderebbe la risposta di una
+		// domanda nella casella di un'altra.
+		if (parsedQuestions && parsedQuestions.length > 0 && method === 'select') {
+			const matched = matchQuestionIndex(parsedQuestions, signature, questionIndex ?? 0);
+			if (matched >= 0) {
+				questionIndex = matched;
+				totalQuestions = parsedQuestions.length;
+			} else {
+				parsedQuestions = undefined;
+			}
+		} else {
+			parsedQuestions = undefined;
 		}
 
 		this.pendingUi = {
@@ -1310,7 +1350,7 @@ export class AgentSession {
 	private async respond(
 		pending: PendingUiRequest,
 		answer: AskAnswerPayload,
-		queue: { toolCallId: string; responses: string[] } | null
+		queue: { toolCallId: string | null; signature: string; responses: string[] } | null
 	): Promise<boolean> {
 		const previousState = this.agentState;
 		// La coda va armata prima dell'invio: il round successivo del wizard
@@ -1357,11 +1397,16 @@ export class AgentSession {
 		const runningAsk = Array.from(this.toolEntries.values())
 			.reverse()
 			.find((t) => t.running && t.toolName === 'ask');
-		// Senza la chiamata `ask` che le ha generate, le risposte in coda non
-		// sarebbero attribuibili: si invia solo la prima.
+		// Senza la chiamata `ask` identificata resta la firma delle opzioni: il
+		// ciclo delle spunte multiple ripresenta lo stesso elenco, ed e' l'unico
+		// round successivo a cui le risposte in coda appartengono davvero.
 		const queue =
-			rest.length > 0 && runningAsk
-				? { toolCallId: runningAsk.toolCallId, responses: rest }
+			rest.length > 0
+				? {
+						toolCallId: runningAsk?.toolCallId ?? null,
+						signature: optionSignature(pending.options),
+						responses: rest
+					}
 				: null;
 
 		await this.respond(pending, { value: first }, queue);

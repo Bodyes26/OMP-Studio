@@ -10,6 +10,8 @@ import {
 	isDoneOption,
 	isOtherOption,
 	isQuestionAnswered,
+	matchQuestionIndex,
+	optionSignature,
 	type AnswerableOption,
 	type AnswerableQuestion
 } from '../src/lib/agent/askAnswers.ts';
@@ -189,6 +191,62 @@ describe('Ask tool: etichette, note e formattazione risposte', () => {
 
 			assert.equal(raw.options.length, 2);
 			assert.equal(cleanOptionLabel(raw.options[0].label), 'SQLite');
+		});
+	});
+
+	// Il protocollo di `ask` e' sequenziale: una richiesta per domanda. Gli
+	// argomenti del tool arrivano da un'altra strada (l'entry del tool in
+	// esecuzione) e possono riferirsi a un'altra domanda o a un'altra chiamata:
+	// senza il riscontro sulle opzioni la risposta finisce nella casella
+	// sbagliata.
+	describe('Allineamento tra richiesta e domande dichiarate', () => {
+		const questions: AskQuestion[] = [
+			{
+				id: 'storage_type',
+				question: 'Quale storage backend?',
+				options: [{ label: 'SQLite' }, { label: 'PostgreSQL' }]
+			},
+			{
+				id: 'auth_method',
+				question: 'Quale metodo di autenticazione?',
+				options: [{ label: 'JWT' }, { label: 'Session cookies' }]
+			}
+		];
+
+		it('la firma ignora suffisso consigliata e voci aggiunte dal runtime', () => {
+			assert.equal(
+				optionSignature(['SQLite (Recommended)', 'PostgreSQL', 'Other (type your own)']),
+				optionSignature(['SQLite', 'PostgreSQL'])
+			);
+		});
+
+		it('la firma non cambia quando compare la sentinella di fine selezione', () => {
+			assert.equal(
+				optionSignature(['JWT', 'Session cookies', '\u2714 Done selecting', 'Other (type your own)']),
+				optionSignature(['JWT', 'Session cookies'])
+			);
+		});
+
+		it('elenchi diversi hanno firme diverse', () => {
+			assert.notEqual(optionSignature(['SQLite', 'PostgreSQL']), optionSignature(['JWT', 'Session cookies']));
+		});
+
+		it('conferma l indice dichiarato dal titolo quando le opzioni combaciano', () => {
+			const signature = optionSignature(['JWT', 'Session cookies', 'Other (type your own)']);
+			assert.equal(matchQuestionIndex(questions, signature, 1), 1);
+		});
+
+		it('riallinea l indice quando il titolo e le opzioni si contraddicono', () => {
+			// Card comparsa alla seconda domanda con indice dichiarato 0: senza
+			// riallineamento il wizard mostrerebbe la prima domanda e sposterebbe
+			// tutte le risposte di una casella.
+			const signature = optionSignature(['JWT', 'Session cookies', 'Other (type your own)']);
+			assert.equal(matchQuestionIndex(questions, signature, 0), 1);
+		});
+
+		it('rifiuta la lista quando nessuna domanda corrisponde alla richiesta', () => {
+			const signature = optionSignature(['Rust', 'Go', 'Other (type your own)']);
+			assert.equal(matchQuestionIndex(questions, signature, 0), -1);
 		});
 	});
 });

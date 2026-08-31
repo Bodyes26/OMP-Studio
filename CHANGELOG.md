@@ -13,6 +13,14 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 - I controlli di scelta singola (radio button) in tutta l'applicazione sono stati ridisegnati con uno stile personalizzato coerente con il tema attivo (anello reattivo e punto interno centrato nel colore del brand), rinnovando il selettore del canale aggiornamenti (nelle impostazioni generali e nel dialogo di aggiornamento dalla barra inferiore, con schede dedicate e badge «Consigliato»/«Anteprima») e le opzioni di ordinamento della barra dei progetti.
 
+### Fixed
+
+- Le domande dell'agente (`ask`) tornano a rispondere ai clic: cambiare opzione dopo la prima scelta non aveva più effetto, la spunta restava sull'opzione iniziale e l'agente riceveva una risposta diversa da quella scelta.
+- Le frecce `Su`/`Giù` nelle domande a scelta singola spostano la risposta e non solo l'anello di fuoco: prima si poteva scorrere fino all'opzione desiderata e confermare, mentre all'agente veniva inviata l'opzione consigliata.
+- Nelle sequenze di più domande la card mostra la domanda che l'agente sta effettivamente chiedendo, con «Domanda 2 di 3» e il pulsante `Avanti` al posto di `Conferma`: prima la prima domanda veniva riproposta una seconda volta e le risposte finivano sfalsate di una posizione.
+- Le risposte a scelta multipla di una singola domanda vengono inviate per intero: prima veniva spedita solo la prima spunta e la stessa domanda si ripresentava.
+- `Invio` su una domanda a scelta multipla non svuota più la card lasciando l'agente in attesa.
+
 ## [1.2.1] - 2026-08-28
 
 ### Added
