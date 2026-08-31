@@ -320,15 +320,22 @@
 
 	// Riordino manuale della barra: ha senso solo con order === 'fixed', gli
 	// altri modi sono viste calcolate che non hanno un ordine da spostare.
-	function handleProjectDragStart(id: string) {
+	function handleProjectDragStart(event: DragEvent, id: string) {
 		if (settingsStore.projectBar.order !== 'fixed') return;
 		closePanel();
 		draggedProjectId = id;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/plain', id);
+		}
 	}
 
 	function handleProjectDragOver(event: DragEvent, id: string) {
 		if (settingsStore.projectBar.order !== 'fixed' || !draggedProjectId) return;
 		event.preventDefault();
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'move';
+		}
 		dragOverProjectId = id;
 	}
 
@@ -336,8 +343,10 @@
 		if (dragOverProjectId === id) dragOverProjectId = null;
 	}
 
-	function handleProjectDrop(id: string) {
-		if (draggedProjectId && draggedProjectId !== id) projectStore.moveProject(draggedProjectId, id);
+	function handleProjectDrop(event: DragEvent, id: string) {
+		event.preventDefault();
+		const sourceId = draggedProjectId || event.dataTransfer?.getData('text/plain');
+		if (sourceId && sourceId !== id) projectStore.moveProject(sourceId, id);
 		draggedProjectId = null;
 		dragOverProjectId = null;
 	}
@@ -405,7 +414,7 @@
 		</div>
 	</div>
 
-	<div class="tabs-nav" data-tauri-drag-region="deep">
+	<div class="tabs-nav">
 		{#if canScrollLeft}
 			<button
 				type="button"
@@ -443,14 +452,13 @@
 						class="tab-container"
 						role="presentation"
 						data-tab-id={p.id}
-						class:drag-over={dragOverProjectId === p.id}
+						class:dragging={draggedProjectId === p.id}
+						class:drag-over={dragOverProjectId === p.id && draggedProjectId !== null && draggedProjectId !== p.id}
 						class:panel-open={panel?.projectId === p.id}
 						draggable={settingsStore.projectBar.order === 'fixed'}
-						ondragstart={() => handleProjectDragStart(p.id)}
-						ondragend={handleProjectDragEnd}
 						ondragover={(event) => handleProjectDragOver(event, p.id)}
 						ondragleave={() => handleProjectDragLeave(p.id)}
-						ondrop={() => handleProjectDrop(p.id)}
+						ondrop={(event) => handleProjectDrop(event, p.id)}
 						onpointerenter={(event) => handleTabPointerEnter(p.id, event)}
 						onpointerleave={handleTabPointerLeave}
 						oncontextmenu={(event) => handleTabContextMenu(p.id, event)}
@@ -466,6 +474,9 @@
 					class="tab"
 					type="button"
 					role="tab"
+					draggable={settingsStore.projectBar.order === 'fixed'}
+					ondragstart={(event) => handleProjectDragStart(event, p.id)}
+					ondragend={handleProjectDragEnd}
 					class:active={isActive}
 					class:attention={settingsStore.projectBar.showAgentDot && p.agentState === 'attention'}
 					class:finished={settingsStore.projectBar.showAgentDot && p.agentState === 'finished'}
@@ -786,8 +797,18 @@
 
 	/* Riordino manuale: la tessera trascinata segnala il punto di sgancio con
 	   una barra sottile, mai con un'animazione che distragga. */
+	.tab[draggable="true"],
 	.tab-container[draggable="true"] .tab {
 		cursor: grab;
+	}
+
+	.tab[draggable="true"]:active,
+	.tab-container[draggable="true"] .tab:active {
+		cursor: grabbing;
+	}
+
+	.tab-container.dragging {
+		opacity: 0.45;
 	}
 
 	.tab-container.drag-over::before {

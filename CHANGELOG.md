@@ -33,6 +33,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - I comandi slash `/login` e `/logout` supportano l'indicazione opzionale del provider (es. `/login anthropic`, `/logout openai-codex`) per aprire direttamente la scheda Provider con il provider di destinazione pre-selezionato.
 ### Fixed
 
+- Riordino schede progetto tramite trascinamento (drag & drop): ripristinato il trascinamento delle tessere dei progetti nella barra superiore quando l'ordinamento è impostato su «Manuale», risolvendo il mancato avvio del drag e il conflitto con la finestra su WebView2/Chromium.
 - Ripristinato il funzionamento del comando slash `/compact` e `/handoff` dalla chat grafica: risolto il blocco della palette comandi all'invio, aggiunto il feedback visivo di compattazione in corso con riga animata, aggiornamento immediato del transcript e del conteggio token al termine, e messaggi di avviso chiari quando la cronologia è troppo breve.
 - Dialogo aggiornamenti compatto per il canale Nightly: abbreviata la nomenclatura dei build ID e resa reattiva la visualizzazione delle versioni nel modale di aggiornamento, evitando lo scorrimento orizzontale.
 - Le domande dell'agente (`ask`) tornano a rispondere ai clic: cambiare opzione dopo la prima scelta non aveva più effetto, la spunta restava sull'opzione iniziale e l'agente riceveva una risposta diversa da quella scelta.

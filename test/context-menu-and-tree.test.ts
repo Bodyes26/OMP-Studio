@@ -92,6 +92,27 @@ function applyTrash(openFiles: string[], activeFile: string | null, targetPath: 
 		activeFile: activeIsRemoved ? (nextActiveCandidate ?? prevActiveCandidate ?? null) : activeFile
 	};
 }
+function moveProjectList(projects: Array<{ id: string }>, id: string, targetId: string) {
+	if (id === targetId) return projects;
+	const from = projects.findIndex(p => p.id === id);
+	const targetIdx = projects.findIndex(p => p.id === targetId);
+	if (from === -1 || targetIdx === -1) return projects;
+	const [moved] = projects.splice(from, 1);
+	const to = projects.findIndex(p => p.id === targetId);
+	projects.splice(to, 0, moved);
+	return projects;
+}
+
+function shiftProjectList(projects: Array<{ id: string }>, id: string, delta: number) {
+	const from = projects.findIndex(p => p.id === id);
+	if (from === -1) return projects;
+	const to = Math.max(0, Math.min(projects.length - 1, from + delta));
+	if (to === from) return projects;
+	const [moved] = projects.splice(from, 1);
+	projects.splice(to, 0, moved);
+	return projects;
+}
+
 
 describe('Gestione tab e percorsi su rinomina/cestino', () => {
 	it('rinomina file singolo aperto aggiornando path e activeFile', () => {
@@ -140,5 +161,37 @@ describe('Gestione tab e percorsi su rinomina/cestino', () => {
 		const res = applyTrash(open, active, 'src', true, false);
 		assert.deepEqual(res.openFiles, ['docs/index.md']);
 		assert.equal(res.activeFile, 'docs/index.md');
+	});
+});
+
+describe('Riordino progetti (manuale e drag&drop)', () => {
+	it('moveProject riordina spostando il progetto trascinato nella posizione target', () => {
+		const projects = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }, { id: 'p4' }];
+		moveProjectList(projects, 'p3', 'p1');
+		assert.deepEqual(projects.map(p => p.id), ['p3', 'p1', 'p2', 'p4']);
+	});
+
+	it('moveProject gestisce spostamento da sinistra a destra', () => {
+		const projects = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }, { id: 'p4' }];
+		moveProjectList(projects, 'p1', 'p4');
+		assert.deepEqual(projects.map(p => p.id), ['p2', 'p3', 'p1', 'p4']);
+	});
+
+	it('moveProject ignora spostamenti su se stesso o id inesistenti', () => {
+		const projects = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }];
+		moveProjectList(projects, 'p2', 'p2');
+		assert.deepEqual(projects.map(p => p.id), ['p1', 'p2', 'p3']);
+		moveProjectList(projects, 'p99', 'p1');
+		assert.deepEqual(projects.map(p => p.id), ['p1', 'p2', 'p3']);
+	});
+
+	it('shiftProject sposta la scheda a sinistra o a destra rispettando i limiti', () => {
+		const projects = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }];
+		shiftProjectList(projects, 'p2', -1);
+		assert.deepEqual(projects.map(p => p.id), ['p2', 'p1', 'p3']);
+		shiftProjectList(projects, 'p2', -1); // al limite sinistro
+		assert.deepEqual(projects.map(p => p.id), ['p2', 'p1', 'p3']);
+		shiftProjectList(projects, 'p2', 1);
+		assert.deepEqual(projects.map(p => p.id), ['p1', 'p2', 'p3']);
 	});
 });
