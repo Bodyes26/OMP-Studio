@@ -9,6 +9,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-28
+
 ### Added
 
 - Caricamenti animati e reveal fluido delle sessioni: spinner di caricamento e ingresso graduale (staggered) delle voci nello storico delle sessioni, micro-indicatore durante la ricerca e scheletro animato (skeleton stream) con transizione morbida durante la ripresa o apertura di una sessione nella chat GUI.
@@ -58,13 +60,26 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Fixed
 
+- L'installazione guidata di `omp` verifica obbligatoriamente l'impronta crittografica SHA-256 ufficiale prima di sostituire il binario: se il controllo fallisce o l'impronta non è disponibile, l'eseguibile esistente resta intatto.
+- Salvataggio sicuro e atomico della configurazione dei modelli e dei provider: la scrittura conserva tutti i campi non gestiti direttamente da Studio e previene la corruzione del file in caso di spegnimento o errore di I/O.
+- Finestra nativa e barra superiore ottimizzate per macOS: ripristinati i pulsanti semaforo di sistema nel rispetto delle convenzioni di Apple, eliminando i controlli duplicati di stile Windows e garantendo l'area di trascinamento corretta.
+- Corretta l'installazione del font Nerd su macOS nella cartella `~/Library/Fonts`, rendendolo disponibile alle shell esterne senza richiedere utility Linux.
+- Il primo avvio guidato attende il caricamento dei progetti salvati prima di decidere se aprirsi, evitando la comparsa del wizard per gli utenti che hanno già progetti configurati.
+- Nelle domande dell'agente (`ask`) è ora richiesta una scelta esplicita per ciascun passaggio: eliminato qualsiasi ripiego automatico sulla prima opzione e disabilitato l'avanzamento per risposte personalizzate vuote.
+- Le risposte del wizard delle domande vengono associate in modo rigido alla specifica richiesta in corso, prevenendo l'applicazione accidentale di risposte residue a richieste successive.
+- Apertura sicura di editor e terminali esterni: i percorsi dei progetti vengono passati come argomenti strutturati senza interpreti di comandi intermedi, e i link esterni sono vincolati a protocolli web autorizzati (`https:`, `http:`, `mailto:`).
+- Supporto alla rinomina di file e cartelle con sola variazione di maiuscole/minuscole (es. `appunti.txt` → `Appunti.txt`) su filesystem APFS di macOS.
+- Scrittura atomica e protetta della coda dei task `.omp/tasks.json`, azzerando il rischio di perdita di dati durante modifiche concorrenti.
+- Riconoscimento resiliente degli errori di sessione non trovata da parte di `omp`, ripristinando correttamente la chat anche con formattazioni di testo eterogenee.
+- Navigazione da tastiera accessibile con standard ARIA (`role="listbox"`, `role="tablist"`, `role="tree"`) nel wizard delle domande, nella barra dei progetti e nell'albero dei file.
+- Ottimizzazione dei tempi di avvio e delle dimensioni del bundle iniziale: Monaco Editor e Mermaid vengono caricati in memoria su richiesta solo quando le rispettive superfici sono visualizzate.
+- Aggiornate le dipendenze di sicurezza del frontend e azzerate le vulnerabilità nel runtime applicativo.
 - Aprendo il selettore del tema o il menu di ordinamento della barra superiore la finestra di Studio non diventa più tutta grigia: il velo sotto questi popover era un pulsante a piena finestra che ereditava lo sfondo grigio e la cornice del sistema. Stessa correzione per il selettore progetto e il cassetto della coda.
 - Passando dalla chat grafica al terminale (o viceversa) con una sessione ancora senza messaggi non compare più una shell nuda con «Session not found»: una sessione viene ripresa solo se ha davvero un transcript su disco, altrimenti la superficie ne apre una nuova.
 - Rimosso il limite rigido di 65 caratteri sui paragrafi Markdown della chat, che causava l'andata a capo anticipata del testo lasciando spazio vuoto solo a destra rispetto alle card dei tool.
 - Lo storico delle sessioni si apre in un istante invece che dopo oltre un minuto: Studio leggeva l'inizio di ogni transcript di ogni progetto (centinaia di file, decine di megabyte) per capire a quale progetto appartenesse; adesso ne legge la sola riga di intestazione e la tiene a mente.
 - Cambiando progetto la colonna delle sessioni non mostra più, per un istante, lo storico del progetto precedente: la risposta arrivata in ritardo viene scartata e l'elenco vecchio sparisce subito.
 - Riprendere una sessione dallo storico nella chat grafica torna a funzionare: la chat non resta più su «OMP in avvio...» con il transcript vuoto, ma ricarica davvero i messaggi della sessione ripresa. Stesso rimedio per il passaggio tra TERMINAL e GUI.
-
 ## [1.2.0] - 2026-08-26
 
 ### Added

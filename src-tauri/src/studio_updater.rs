@@ -128,7 +128,7 @@ pub async fn get_studio_version() -> Result<String, String> {
 
 /// Normalizza una stringa di versione rimuovendo prefissi come 'v' o 'V' e spazi.
 pub fn normalize_version(v: &str) -> &str {
-    v.trim().trim_start_matches(|c| c == 'v' || c == 'V').trim()
+    v.trim().trim_start_matches(['v', 'V']).trim()
 }
 
 /// Estrae e normalizza una stringa SHA256 hex a 64 caratteri da vari formati (es. "sha256:<hex>").

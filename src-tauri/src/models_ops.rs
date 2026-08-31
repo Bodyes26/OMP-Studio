@@ -1,12 +1,63 @@
+use crate::fs_atomic::atomic_write;
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
 use tauri::command;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+static CONFIG_MUTATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+/// Serve solo a dare un nome unico alle directory dei test.
+#[cfg(test)]
+static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn mutation_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    CONFIG_MUTATION_LOCK
+        .lock()
+        .map_err(|_| "Lock configurazione non disponibile".to_string())
+}
+
+fn read_yaml_mapping(path: &Path) -> Result<Option<serde_yaml::Mapping>, String> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!("Lettura {}: {}", path.display(), error));
+        }
+    };
+    let value: serde_yaml::Value = serde_yaml::from_slice(&bytes)
+        .map_err(|error| format!("Parsing YAML {}: {}", path.display(), error))?;
+    value
+        .as_mapping()
+        .cloned()
+        .map(Some)
+        .ok_or_else(|| format!("Struttura {} non valida (atteso dizionario)", path.display()))
+}
+
+fn read_json_mapping(path: &Path) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!("Lettura {}: {}", path.display(), error));
+        }
+    };
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Parsing JSON {}: {}", path.display(), error))?;
+    value
+        .as_object()
+        .cloned()
+        .map(Some)
+        .ok_or_else(|| format!("Struttura {} non valida (atteso dizionario)", path.display()))
+}
 
 fn get_user_home() -> Option<String> {
     if let Ok(home) = std::env::var("HOME") {
@@ -194,189 +245,158 @@ pub struct ModelUpgradeCandidate {
 // Commands: Configurazione Ruoli e Modelli
 // -----------------------------------------------------------------------------
 
-#[command]
-pub async fn get_model_config() -> Result<ModelConfigDto, String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    let config_path = agent.join("config.yml");
-
-    if !config_path.exists() {
-        return Ok(ModelConfigDto {
-            model_roles: HashMap::new(),
-            cycle_order: vec![
-                "plan".into(),
-                "vision".into(),
-                "default".into(),
-                "smol".into(),
-                "task".into(),
-                "commit".into(),
-            ],
-            disabled_providers: Vec::new(),
-            fallback_chains: HashMap::new(),
-            default_thinking_level: Some("auto".into()),
-        });
-    }
-
-    let text = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
-    let val: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| e.to_string())?;
-
-    let mut model_roles = HashMap::new();
-    if let Some(roles_map) = val.get("modelRoles").and_then(|v| v.as_mapping()) {
-        for (k, v) in roles_map {
-            if let (Some(k_str), Some(v_str)) = (k.as_str(), v.as_str()) {
-                model_roles.insert(k_str.to_string(), v_str.to_string());
-            }
-        }
-    }
-
-    let mut cycle_order = Vec::new();
-    if let Some(seq) = val.get("cycleOrder").and_then(|v| v.as_sequence()) {
-        for item in seq {
-            if let Some(s) = item.as_str() {
-                cycle_order.push(s.to_string());
-            }
-        }
-    }
-    if cycle_order.is_empty() {
-        cycle_order = vec![
+fn default_model_config() -> ModelConfigDto {
+    ModelConfigDto {
+        model_roles: HashMap::new(),
+        cycle_order: vec![
             "plan".into(),
             "vision".into(),
             "default".into(),
             "smol".into(),
             "task".into(),
             "commit".into(),
-        ];
+        ],
+        disabled_providers: Vec::new(),
+        fallback_chains: HashMap::new(),
+        default_thinking_level: Some("auto".into()),
     }
+}
 
-    let mut disabled_providers = Vec::new();
-    if let Some(seq) = val.get("disabledProviders").and_then(|v| v.as_sequence()) {
-        for item in seq {
-            if let Some(s) = item.as_str() {
-                disabled_providers.push(s.to_string());
-            }
+fn yaml_key(name: &str) -> serde_yaml::Value {
+    serde_yaml::Value::String(name.to_string())
+}
+
+fn parse_yaml_field<T>(
+    mapping: &serde_yaml::Mapping,
+    name: &str,
+    path: &Path,
+) -> Result<Option<T>, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    mapping
+        .get(yaml_key(name))
+        .cloned()
+        .map(|value| {
+            serde_yaml::from_value(value)
+                .map_err(|error| format!("Campo {} non valido in {}: {}", name, path.display(), error))
+        })
+        .transpose()
+}
+
+fn model_config_from_mapping(
+    mapping: &serde_yaml::Mapping,
+    path: &Path,
+) -> Result<ModelConfigDto, String> {
+    let mut config = default_model_config();
+    config.default_thinking_level = None;
+    config.model_roles = parse_yaml_field(mapping, "modelRoles", path)?.unwrap_or_default();
+    if let Some(cycle_order) = parse_yaml_field(mapping, "cycleOrder", path)? {
+        config.cycle_order = cycle_order;
+        if config.cycle_order.is_empty() {
+            config.cycle_order = default_model_config().cycle_order;
         }
     }
+    config.disabled_providers = parse_yaml_field(mapping, "disabledProviders", path)?.unwrap_or_default();
 
-    let mut fallback_chains = HashMap::new();
-    if let Some(retry_val) = val.get("retry") {
-        if let Some(fb_map) = retry_val.get("fallbackChains").and_then(|v| v.as_mapping()) {
-            for (k, v) in fb_map {
-                if let (Some(k_str), Some(seq)) = (k.as_str(), v.as_sequence()) {
-                    let mut list = Vec::new();
-                    for item in seq {
-                        if let Some(s) = item.as_str() {
-                            list.push(s.to_string());
-                        }
-                    }
-                    fallback_chains.insert(k_str.to_string(), list);
-                }
-            }
-        }
+    if let Some(retry_value) = mapping.get(yaml_key("retry")) {
+        let retry = retry_value.as_mapping().ok_or_else(|| {
+            format!(
+                "Campo retry non valido in {} (atteso dizionario)",
+                path.display()
+            )
+        })?;
+        config.fallback_chains = parse_yaml_field(retry, "fallbackChains", path)?.unwrap_or_default();
     }
 
-    let default_thinking_level = val
-        .get("defaultThinkingLevel")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    if let Some(level) =
+        parse_yaml_field::<Option<String>>(mapping, "defaultThinkingLevel", path)?
+    {
+        config.default_thinking_level = level;
+    }
+    Ok(config)
+}
 
-    Ok(ModelConfigDto {
-        model_roles,
-        cycle_order,
-        disabled_providers,
-        fallback_chains,
-        default_thinking_level,
-    })
+fn read_model_config_path(path: &Path) -> Result<ModelConfigDto, String> {
+    match read_yaml_mapping(path)? {
+        Some(mapping) => model_config_from_mapping(&mapping, path),
+        None => Ok(default_model_config()),
+    }
+}
+
+fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), String> {
+    let mut mapping = match read_yaml_mapping(path)? {
+        Some(mapping) => {
+            model_config_from_mapping(&mapping, path)?;
+            mapping
+        }
+        None => serde_yaml::Mapping::new(),
+    };
+
+    let roles = serde_yaml::to_value(&config.model_roles)
+        .map_err(|error| format!("Serializzazione modelRoles: {}", error))?;
+    mapping.insert(yaml_key("modelRoles"), roles);
+
+    let cycle_order = serde_yaml::to_value(&config.cycle_order)
+        .map_err(|error| format!("Serializzazione cycleOrder: {}", error))?;
+    mapping.insert(yaml_key("cycleOrder"), cycle_order);
+
+    let disabled = serde_yaml::to_value(&config.disabled_providers)
+        .map_err(|error| format!("Serializzazione disabledProviders: {}", error))?;
+    mapping.insert(yaml_key("disabledProviders"), disabled);
+
+    let retry_key = yaml_key("retry");
+    let mut retry = match mapping.get(&retry_key) {
+        Some(value) => value.as_mapping().cloned().ok_or_else(|| {
+            format!(
+                "Campo retry non valido in {} (atteso dizionario)",
+                path.display()
+            )
+        })?,
+        None => serde_yaml::Mapping::new(),
+    };
+    let fallbacks = serde_yaml::to_value(&config.fallback_chains)
+        .map_err(|error| format!("Serializzazione fallbackChains: {}", error))?;
+    retry.insert(yaml_key("fallbackChains"), fallbacks);
+    mapping.insert(retry_key, serde_yaml::Value::Mapping(retry));
+
+    if let Some(level) = &config.default_thinking_level {
+        mapping.insert(
+            yaml_key("defaultThinkingLevel"),
+            serde_yaml::Value::String(level.clone()),
+        );
+    }
+
+    let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
+        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+    atomic_write(path, serialized.as_bytes())
+}
+
+fn save_model_config_path(path: &Path, config: &ModelConfigDto) -> Result<(), String> {
+    let _guard = mutation_lock()?;
+    save_model_config_locked(path, config)
+}
+
+fn mutate_model_config_path<F>(path: &Path, mutate: F) -> Result<(), String>
+where
+    F: FnOnce(&mut ModelConfigDto),
+{
+    let _guard = mutation_lock()?;
+    let mut config = read_model_config_path(path)?;
+    mutate(&mut config);
+    save_model_config_locked(path, &config)
+}
+
+#[command]
+pub async fn get_model_config() -> Result<ModelConfigDto, String> {
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    read_model_config_path(&agent.join("config.yml"))
 }
 
 #[command]
 pub async fn save_model_config(config: ModelConfigDto) -> Result<(), String> {
     let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    let config_path = agent.join("config.yml");
-
-    let mut root_val: serde_yaml::Value = if config_path.exists() {
-        let text = std::fs::read_to_string(&config_path).unwrap_or_default();
-        serde_yaml::from_str(&text)
-            .unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()))
-    } else {
-        serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
-    };
-
-    let mapping = root_val
-        .as_mapping_mut()
-        .ok_or("Struttura config.yml non valida (atteso dizionario)")?;
-
-    // 1. Aggiorna modelRoles
-    let mut roles_map = serde_yaml::Mapping::new();
-    for (k, v) in &config.model_roles {
-        roles_map.insert(
-            serde_yaml::Value::String(k.clone()),
-            serde_yaml::Value::String(v.clone()),
-        );
-    }
-    mapping.insert(
-        serde_yaml::Value::String("modelRoles".into()),
-        serde_yaml::Value::Mapping(roles_map),
-    );
-
-    // 2. Aggiorna cycleOrder
-    let cycle_seq = config
-        .cycle_order
-        .iter()
-        .map(|s| serde_yaml::Value::String(s.clone()))
-        .collect();
-    mapping.insert(
-        serde_yaml::Value::String("cycleOrder".into()),
-        serde_yaml::Value::Sequence(cycle_seq),
-    );
-
-    // 3. Aggiorna disabledProviders
-    let disabled_seq = config
-        .disabled_providers
-        .iter()
-        .map(|s| serde_yaml::Value::String(s.clone()))
-        .collect();
-    mapping.insert(
-        serde_yaml::Value::String("disabledProviders".into()),
-        serde_yaml::Value::Sequence(disabled_seq),
-    );
-
-    // 4. Aggiorna retry.fallbackChains
-    let mut fallback_map = serde_yaml::Mapping::new();
-    for (k, v) in &config.fallback_chains {
-        let seq = v
-            .iter()
-            .map(|s| serde_yaml::Value::String(s.clone()))
-            .collect();
-        fallback_map.insert(
-            serde_yaml::Value::String(k.clone()),
-            serde_yaml::Value::Sequence(seq),
-        );
-    }
-
-    let retry_key = serde_yaml::Value::String("retry".into());
-    let mut retry_map = mapping
-        .get(&retry_key)
-        .and_then(|v| v.as_mapping())
-        .cloned()
-        .unwrap_or_else(serde_yaml::Mapping::new);
-
-    retry_map.insert(
-        serde_yaml::Value::String("fallbackChains".into()),
-        serde_yaml::Value::Mapping(fallback_map),
-    );
-    mapping.insert(retry_key, serde_yaml::Value::Mapping(retry_map));
-
-    // 5. defaultThinkingLevel
-    if let Some(lvl) = config.default_thinking_level {
-        mapping.insert(
-            serde_yaml::Value::String("defaultThinkingLevel".into()),
-            serde_yaml::Value::String(lvl),
-        );
-    }
-
-    let serialized = serde_yaml::to_string(&root_val).map_err(|e| e.to_string())?;
-    std::fs::write(&config_path, serialized).map_err(|e| format!("Scrittura config.yml: {}", e))?;
-
-    Ok(())
+    save_model_config_path(&agent.join("config.yml"), &config)
 }
 
 // -----------------------------------------------------------------------------
@@ -492,29 +512,28 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
     }
 
     // 2. Leggi provider e modelli custom da models.json
-    if let Ok(custom_defs) = get_custom_providers().await {
-        for (provider_name, p_def) in custom_defs.providers {
-            for m in p_def.models {
-                let selector = format!("{}/{}", provider_name, m.id);
-                if seen_selectors.contains(&selector) {
-                    continue;
-                }
-                seen_selectors.insert(selector.clone());
-
-                catalog.push(ModelDto {
-                    id: m.id,
-                    name: m.name,
-                    provider: provider_name.clone(),
-                    selector,
-                    context_window: m.context_window,
-                    max_tokens: m.max_tokens,
-                    reasoning: m.reasoning,
-                    thinking: None,
-                    input: m.input,
-                    cost: None,
-                    is_custom: true,
-                });
+    let custom_defs = get_custom_providers().await?;
+    for (provider_name, p_def) in custom_defs.providers {
+        for m in p_def.models {
+            let selector = format!("{}/{}", provider_name, m.id);
+            if seen_selectors.contains(&selector) {
+                continue;
             }
+            seen_selectors.insert(selector.clone());
+
+            catalog.push(ModelDto {
+                id: m.id,
+                name: m.name,
+                provider: provider_name.clone(),
+                selector,
+                context_window: m.context_window,
+                max_tokens: m.max_tokens,
+                reasoning: m.reasoning,
+                thinking: None,
+                input: m.input,
+                cost: None,
+                is_custom: true,
+            });
         }
     }
 
@@ -570,44 +589,236 @@ pub async fn refresh_models_catalog() -> Result<Vec<ModelDto>, String> {
 // Custom Providers (models.json / models.yml)
 // -----------------------------------------------------------------------------
 
-#[command]
-pub async fn get_custom_providers() -> Result<CustomProvidersFile, String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    let json_path = agent.join("models.json");
-    let yml_path = agent.join("models.yml");
+fn custom_providers_from_yaml(
+    mapping: &serde_yaml::Mapping,
+    path: &Path,
+) -> Result<CustomProvidersFile, String> {
+    serde_yaml::from_value(serde_yaml::Value::Mapping(mapping.clone()))
+        .map_err(|error| format!("Struttura provider non valida in {}: {}", path.display(), error))
+}
 
-    if json_path.exists() {
-        let text = std::fs::read_to_string(&json_path).map_err(|e| e.to_string())?;
-        if let Ok(file_obj) = serde_json::from_str::<CustomProvidersFile>(&text) {
-            return Ok(file_obj);
-        }
+fn json_mapping_to_yaml(
+    mapping: serde_json::Map<String, serde_json::Value>,
+    path: &Path,
+) -> Result<serde_yaml::Mapping, String> {
+    let value = serde_yaml::to_value(serde_json::Value::Object(mapping))
+        .map_err(|error| format!("Conversione {}: {}", path.display(), error))?;
+    value
+        .as_mapping()
+        .cloned()
+        .ok_or_else(|| format!("Struttura {} non valida (atteso dizionario)", path.display()))
+}
+
+fn read_custom_providers_paths(
+    json_path: &Path,
+    yml_path: &Path,
+) -> Result<CustomProvidersFile, String> {
+    if let Some(mapping) = read_json_mapping(json_path)? {
+        return serde_json::from_value(serde_json::Value::Object(mapping)).map_err(|error| {
+            format!(
+                "Struttura provider non valida in {}: {}",
+                json_path.display(),
+                error
+            )
+        });
     }
-
-    if yml_path.exists() {
-        let text = std::fs::read_to_string(&yml_path).map_err(|e| e.to_string())?;
-        if let Ok(file_obj) = serde_yaml::from_str::<CustomProvidersFile>(&text) {
-            return Ok(file_obj);
-        }
+    if let Some(mapping) = read_yaml_mapping(yml_path)? {
+        return custom_providers_from_yaml(&mapping, yml_path);
     }
-
     Ok(CustomProvidersFile {
         providers: HashMap::new(),
     })
 }
 
+fn copy_yaml_fields(
+    target: &mut serde_yaml::Mapping,
+    source: &serde_yaml::Mapping,
+    fields: &[&str],
+) {
+    for field in fields {
+        let key = yaml_key(field);
+        if let Some(value) = source.get(&key) {
+            target.insert(key, value.clone());
+        }
+    }
+}
+
+fn merge_provider_models(
+    existing: Option<&serde_yaml::Value>,
+    desired: &serde_yaml::Value,
+    provider_name: &str,
+) -> Result<serde_yaml::Value, String> {
+    let desired_models = desired
+        .as_sequence()
+        .ok_or_else(|| format!("Models provider {} non validi", provider_name))?;
+    let existing_models: &[serde_yaml::Value] = match existing {
+        Some(value) => value
+            .as_sequence()
+            .ok_or_else(|| format!("Models provider {} non validi", provider_name))?
+            .as_slice(),
+        None => &[],
+    };
+    let mut merged = Vec::with_capacity(desired_models.len());
+
+    for desired_model in desired_models {
+        let desired_mapping = desired_model
+            .as_mapping()
+            .ok_or_else(|| format!("Modello provider {} non valido", provider_name))?;
+        let id = desired_mapping
+            .get(yaml_key("id"))
+            .and_then(serde_yaml::Value::as_str)
+            .ok_or_else(|| format!("Modello provider {} senza id", provider_name))?;
+        let mut model_mapping = match existing_models
+            .iter()
+            .filter_map(serde_yaml::Value::as_mapping)
+            .find(|mapping| {
+                mapping
+                    .get(yaml_key("id"))
+                    .and_then(serde_yaml::Value::as_str)
+                    == Some(id)
+            }) {
+            Some(mapping) => mapping.clone(),
+            None => serde_yaml::Mapping::new(),
+        };
+        copy_yaml_fields(
+            &mut model_mapping,
+            desired_mapping,
+            &[
+                "id",
+                "name",
+                "contextWindow",
+                "maxTokens",
+                "reasoning",
+                "input",
+            ],
+        );
+        merged.push(serde_yaml::Value::Mapping(model_mapping));
+    }
+
+    Ok(serde_yaml::Value::Sequence(merged))
+}
+
+fn merge_custom_providers(
+    root: &mut serde_yaml::Mapping,
+    data: &CustomProvidersFile,
+) -> Result<(), String> {
+    let desired = serde_yaml::to_value(data)
+        .map_err(|error| format!("Serializzazione provider: {}", error))?;
+    let desired_root = desired
+        .as_mapping()
+        .ok_or("Serializzazione provider non valida")?;
+    let desired_providers = desired_root
+        .get(yaml_key("providers"))
+        .and_then(serde_yaml::Value::as_mapping)
+        .ok_or("Serializzazione providers non valida")?;
+
+    let providers_key = yaml_key("providers");
+    let existing_providers = match root.get(&providers_key) {
+        Some(value) => value
+            .as_mapping()
+            .ok_or("Campo providers non valido (atteso dizionario)")?
+            .clone(),
+        None => serde_yaml::Mapping::new(),
+    };
+    let mut merged_providers = serde_yaml::Mapping::new();
+
+    for (provider_key, desired_provider) in desired_providers {
+        let provider_name = provider_key
+            .as_str()
+            .ok_or("Nome provider non valido")?;
+        let desired_mapping = desired_provider
+            .as_mapping()
+            .ok_or_else(|| format!("Provider {} non valido", provider_name))?;
+        let mut provider_mapping = match existing_providers.get(provider_key) {
+            Some(value) => value
+                .as_mapping()
+                .cloned()
+                .ok_or_else(|| format!("Provider {} non valido", provider_name))?,
+            None => serde_yaml::Mapping::new(),
+        };
+        copy_yaml_fields(
+            &mut provider_mapping,
+            desired_mapping,
+            &["baseUrl", "apiKey", "api"],
+        );
+        let models_key = yaml_key("models");
+        let desired_models = desired_mapping
+            .get(&models_key)
+            .ok_or_else(|| format!("Provider {} senza models", provider_name))?;
+        let models = merge_provider_models(
+            provider_mapping.get(&models_key),
+            desired_models,
+            provider_name,
+        )?;
+        provider_mapping.insert(models_key, models);
+        merged_providers.insert(
+            provider_key.clone(),
+            serde_yaml::Value::Mapping(provider_mapping),
+        );
+    }
+
+    root.insert(
+        providers_key,
+        serde_yaml::Value::Mapping(merged_providers),
+    );
+    Ok(())
+}
+
+fn save_custom_providers_paths(
+    json_path: &Path,
+    yml_path: &Path,
+    data: &CustomProvidersFile,
+) -> Result<(), String> {
+    let _guard = mutation_lock()?;
+    let json_mapping = read_json_mapping(json_path)?;
+    let yaml_mapping = read_yaml_mapping(yml_path)?;
+
+    let json_yaml = json_mapping
+        .map(|mapping| json_mapping_to_yaml(mapping, json_path))
+        .transpose()?;
+    if let Some(mapping) = &json_yaml {
+        custom_providers_from_yaml(mapping, json_path)?;
+    }
+    if let Some(mapping) = &yaml_mapping {
+        custom_providers_from_yaml(mapping, yml_path)?;
+    }
+
+    let mut json_root = match (&json_yaml, &yaml_mapping) {
+        (Some(mapping), _) | (None, Some(mapping)) => mapping.clone(),
+        (None, None) => serde_yaml::Mapping::new(),
+    };
+    let mut yaml_root = match (&yaml_mapping, &json_yaml) {
+        (Some(mapping), _) | (None, Some(mapping)) => mapping.clone(),
+        (None, None) => serde_yaml::Mapping::new(),
+    };
+    merge_custom_providers(&mut json_root, data)?;
+    merge_custom_providers(&mut yaml_root, data)?;
+
+    let json_value = serde_json::to_value(serde_yaml::Value::Mapping(json_root))
+        .map_err(|error| format!("Serializzazione {}: {}", json_path.display(), error))?;
+    let json = serde_json::to_vec_pretty(&json_value)
+        .map_err(|error| format!("Serializzazione {}: {}", json_path.display(), error))?;
+    let yaml = serde_yaml::to_string(&serde_yaml::Value::Mapping(yaml_root))
+        .map_err(|error| format!("Serializzazione {}: {}", yml_path.display(), error))?;
+
+    atomic_write(json_path, &json)?;
+    atomic_write(yml_path, yaml.as_bytes())
+}
+
+#[command]
+pub async fn get_custom_providers() -> Result<CustomProvidersFile, String> {
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    read_custom_providers_paths(&agent.join("models.json"), &agent.join("models.yml"))
+}
+
 #[command]
 pub async fn save_custom_providers(data: CustomProvidersFile) -> Result<(), String> {
     let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    let json_path = agent.join("models.json");
-    let yml_path = agent.join("models.yml");
-
-    let json_str = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-    std::fs::write(&json_path, json_str).map_err(|e| format!("Scrittura models.json: {}", e))?;
-
-    let yml_str = serde_yaml::to_string(&data).map_err(|e| e.to_string())?;
-    std::fs::write(&yml_path, yml_str).map_err(|e| format!("Scrittura models.yml: {}", e))?;
-
-    Ok(())
+    save_custom_providers_paths(
+        &agent.join("models.json"),
+        &agent.join("models.yml"),
+        &data,
+    )
 }
 
 // -----------------------------------------------------------------------------
@@ -783,15 +994,15 @@ pub async fn check_model_upgrades() -> Result<Vec<ModelUpgradeCandidate>, String
             }
 
             let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
-            if tpl_cand == tpl_cur {
-                if is_version_newer(&ver_cur, date_cur, &ver_cand, date_cand) {
-                    if let Some((_, best_ver, best_date)) = &best_upgrade {
-                        if is_version_newer(best_ver, *best_date, &ver_cand, date_cand) {
-                            best_upgrade = Some((m, ver_cand, date_cand));
-                        }
-                    } else {
+            if tpl_cand == tpl_cur
+                && is_version_newer(&ver_cur, date_cur, &ver_cand, date_cand)
+            {
+                if let Some((_, best_ver, best_date)) = &best_upgrade {
+                    if is_version_newer(best_ver, *best_date, &ver_cand, date_cand) {
                         best_upgrade = Some((m, ver_cand, date_cand));
                     }
+                } else {
+                    best_upgrade = Some((m, ver_cand, date_cand));
                 }
             }
         }
@@ -828,13 +1039,13 @@ pub struct UpgradeApplyItem {
 
 #[command]
 pub async fn apply_model_upgrades(updates: Vec<UpgradeApplyItem>) -> Result<(), String> {
-    let mut config = get_model_config().await?;
-
-    for item in updates {
-        config.model_roles.insert(item.role, item.new_selector);
-    }
-
-    save_model_config(config).await
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    let path = agent.join("config.yml");
+    mutate_model_config_path(&path, move |config| {
+        for item in updates {
+            config.model_roles.insert(item.role, item.new_selector);
+        }
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1598,6 +1809,53 @@ fn build_deterministic_suggestions(
 mod tests {
     use super::*;
 
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new(label: &str) -> Self {
+            let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "omp-studio-models-{}-{}-{}",
+                label,
+                std::process::id(),
+                counter
+            ));
+            fs::create_dir(&path).expect("creazione directory test");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn sample_custom_providers() -> CustomProvidersFile {
+        CustomProvidersFile {
+            providers: HashMap::from([(
+                "custom".to_string(),
+                CustomProviderDef {
+                    base_url: "https://new.example/v1".to_string(),
+                    api_key: Some("new-secret".to_string()),
+                    api: Some("openai-completions".to_string()),
+                    models: vec![CustomModelDef {
+                        id: "model-a".to_string(),
+                        name: "Model A updated".to_string(),
+                        context_window: Some(200),
+                        max_tokens: Some(20),
+                        reasoning: Some(true),
+                        input: Some(vec!["text".to_string()]),
+                    }],
+                },
+            )]),
+        }
+    }
+
     #[test]
     fn parses_available_models_with_flat_thinking_list() {
         // Payload reale di `omp models --json`: `thinking` e' l'elenco piatto
@@ -1690,5 +1948,238 @@ mod tests {
             get_model_benchmark_profile("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite");
         assert_eq!(tier5, IntelligenceTier::Tier4);
         assert_eq!(elo5, 1410);
+    }
+
+    #[test]
+    fn invalid_yaml_is_not_replaced_by_save() {
+        let dir = TestDir::new("invalid-yaml");
+        let path = dir.path().join("config.yml");
+        let original = b"modelRoles: [unterminated";
+        fs::write(&path, original).expect("scrittura fixture");
+
+        let error = save_model_config_path(&path, &default_model_config())
+            .expect_err("il salvataggio deve fallire");
+
+        assert!(error.contains("Parsing YAML"));
+        assert_eq!(fs::read(&path).expect("rilettura fixture"), original);
+    }
+
+    #[test]
+    fn invalid_json_is_not_replaced_or_mapped_to_yaml() {
+        let dir = TestDir::new("invalid-json");
+        let json_path = dir.path().join("models.json");
+        let yml_path = dir.path().join("models.yml");
+        let original = b"{\"providers\": ";
+        fs::write(&json_path, original).expect("scrittura fixture");
+
+        let error = save_custom_providers_paths(
+            &json_path,
+            &yml_path,
+            &sample_custom_providers(),
+        )
+        .expect_err("il salvataggio deve fallire");
+
+        assert!(error.contains("Parsing JSON"));
+        assert_eq!(fs::read(&json_path).expect("rilettura fixture"), original);
+        assert!(!yml_path.exists());
+    }
+
+    #[test]
+    fn model_save_preserves_unknown_root_and_retry_fields() {
+        let dir = TestDir::new("yaml-extras");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            "unknownRoot:\n  keep: true\nretry:\n  backoffMs: 250\n  fallbackChains:\n    default: [old/model]\nmodelRoles:\n  default: old/model\n",
+        )
+        .expect("scrittura fixture");
+        let mut config = default_model_config();
+        config
+            .model_roles
+            .insert("default".to_string(), "new/model".to_string());
+
+        save_model_config_path(&path, &config).expect("salvataggio config");
+
+        let mapping = read_yaml_mapping(&path)
+            .expect("lettura config")
+            .expect("config presente");
+        assert_eq!(
+            mapping
+                .get(yaml_key("unknownRoot"))
+                .and_then(|value| value.get("keep"))
+                .and_then(serde_yaml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            mapping
+                .get(yaml_key("retry"))
+                .and_then(|value| value.get("backoffMs"))
+                .and_then(serde_yaml::Value::as_u64),
+            Some(250)
+        );
+    }
+
+    #[test]
+    fn provider_save_preserves_unknown_fields_in_both_formats() {
+        let dir = TestDir::new("provider-extras");
+        let json_path = dir.path().join("models.json");
+        let yml_path = dir.path().join("models.yml");
+        fs::write(
+            &json_path,
+            r#"{
+  "rootExtra": {"keep": true},
+  "providers": {
+    "custom": {
+      "baseUrl": "https://old.example/v1",
+      "apiKey": "old-secret",
+      "api": "openai-completions",
+      "providerExtra": 7,
+      "models": [{
+        "id": "model-a",
+        "name": "Old",
+        "contextWindow": 100,
+        "maxTokens": 10,
+        "reasoning": false,
+        "input": ["text"],
+        "modelExtra": "keep"
+      }]
+    }
+  }
+}"#,
+        )
+        .expect("scrittura JSON fixture");
+        fs::write(
+            &yml_path,
+            "rootExtra:\n  keep: true\nproviders:\n  custom:\n    baseUrl: https://old.example/v1\n    apiKey: old-secret\n    api: openai-completions\n    providerExtra: 7\n    models:\n      - id: model-a\n        name: Old\n        contextWindow: 100\n        maxTokens: 10\n        reasoning: false\n        input: [text]\n        modelExtra: keep\n",
+        )
+        .expect("scrittura YAML fixture");
+
+        save_custom_providers_paths(
+            &json_path,
+            &yml_path,
+            &sample_custom_providers(),
+        )
+        .expect("salvataggio provider");
+
+        let json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&json_path).expect("lettura JSON"))
+                .expect("JSON valido");
+        assert_eq!(json.pointer("/rootExtra/keep").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            json.pointer("/providers/custom/providerExtra")
+                .and_then(|v| v.as_u64()),
+            Some(7)
+        );
+        assert_eq!(
+            json.pointer("/providers/custom/models/0/modelExtra")
+                .and_then(|v| v.as_str()),
+            Some("keep")
+        );
+        assert_eq!(
+            json.pointer("/providers/custom/models/0/name")
+                .and_then(|v| v.as_str()),
+            Some("Model A updated")
+        );
+
+        let yaml = serde_yaml::Value::Mapping(
+            read_yaml_mapping(&yml_path)
+                .expect("lettura YAML")
+                .expect("YAML presente"),
+        );
+        assert_eq!(
+            yaml.get("providers")
+                .and_then(|v| v.get("custom"))
+                .and_then(|v| v.get("providerExtra"))
+                .and_then(serde_yaml::Value::as_u64),
+            Some(7)
+        );
+        assert_eq!(
+            yaml.get("providers")
+                .and_then(|v| v.get("custom"))
+                .and_then(|v| v.get("models"))
+                .and_then(serde_yaml::Value::as_sequence)
+                .and_then(|models| models.first())
+                .and_then(|v| v.get("modelExtra"))
+                .and_then(serde_yaml::Value::as_str),
+            Some("keep")
+        );
+    }
+
+    #[test]
+    fn missing_files_create_defaults_and_new_configs() {
+        let dir = TestDir::new("missing");
+        let config_path = dir.path().join("config.yml");
+        let json_path = dir.path().join("models.json");
+        let yml_path = dir.path().join("models.yml");
+
+        let config = read_model_config_path(&config_path).expect("default config");
+        assert!(config.model_roles.is_empty());
+        save_model_config_path(&config_path, &config).expect("creazione config");
+        assert!(config_path.exists());
+
+        let providers =
+            read_custom_providers_paths(&json_path, &yml_path).expect("default provider");
+        assert!(providers.providers.is_empty());
+        save_custom_providers_paths(&json_path, &yml_path, &sample_custom_providers())
+            .expect("creazione provider");
+        assert!(json_path.exists());
+        assert!(yml_path.exists());
+    }
+
+    #[test]
+    fn atomic_write_cleans_temp_after_replace_error() {
+        let dir = TestDir::new("temp-cleanup");
+        let target = dir.path().join("target");
+        fs::create_dir(&target).expect("creazione destinazione non sostituibile");
+
+        atomic_write(&target, b"new contents").expect_err("replace deve fallire");
+
+        let prefix = format!(".target.{}.", std::process::id());
+        let leaked_temp = fs::read_dir(dir.path())
+            .expect("lettura directory")
+            .filter_map(Result::ok)
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix));
+        assert!(!leaked_temp);
+        assert!(target.is_dir());
+    }
+
+    #[test]
+    fn concurrent_model_mutations_do_not_lose_roles() {
+        let dir = TestDir::new("concurrency");
+        let path = dir.path().join("config.yml");
+        fs::write(&path, "unknownRoot: keep\n").expect("scrittura fixture");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let mut threads = Vec::new();
+
+        for index in 0..8 {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                mutate_model_config_path(&path, |config| {
+                    config
+                        .model_roles
+                        .insert(format!("role-{}", index), format!("model-{}", index));
+                })
+            }));
+        }
+        for thread in threads {
+            thread
+                .join()
+                .expect("thread mutazione")
+                .expect("mutazione config");
+        }
+
+        let config = read_model_config_path(&path).expect("lettura config finale");
+        assert_eq!(config.model_roles.len(), 8);
+        let mapping = read_yaml_mapping(&path)
+            .expect("lettura YAML finale")
+            .expect("config presente");
+        assert_eq!(
+            mapping
+                .get(yaml_key("unknownRoot"))
+                .and_then(serde_yaml::Value::as_str),
+            Some("keep")
+        );
     }
 }

@@ -26,20 +26,12 @@
 		IconRadio,
 		IconNote
 	} from '$lib/icons';
+	import { extractNoteFromLabel } from '../../askAnswers';
 
 	let { args, result, view }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 	const textResult = $derived(resultText(result));
-
-	// Estrazione note da stringa o dettagli
-	function extractNoteFromLabel(label: string): { clean: string; note?: string } {
-		const match = label.match(/^(.*?)\s*\((?:nota|note):\s*([^)]+)\)$/i);
-		if (match) {
-			return { clean: match[1].trim(), note: match[2].trim() };
-		}
-		return { clean: label };
-	}
 
 	interface RenderOption {
 		label: string;

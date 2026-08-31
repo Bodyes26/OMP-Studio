@@ -1,72 +1,55 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AskQuestion, PendingAsk } from '../src/lib/agent/session.svelte.ts';
+import type { AskQuestion } from '../src/lib/agent/session.svelte.ts';
+import {
+	cleanOptionLabel,
+	extractNoteFromLabel,
+	firstUnansweredIndex,
+	formatQuestionAnswer,
+	formatWizardAnswers,
+	isDoneOption,
+	isOtherOption,
+	isQuestionAnswered,
+	type AnswerableOption,
+	type AnswerableQuestion
+} from '../src/lib/agent/askAnswers.ts';
 
-// Funzioni logiche di supporto per AskCard e Ask renderer
-function cleanOptionLabel(label: string): string {
-	const recSuffix = ' (Recommended)';
-	if (label.endsWith(recSuffix)) {
-		return label.slice(0, -recSuffix.length);
-	}
-	return label;
+function option(label: string): AnswerableOption {
+	return {
+		label,
+		cleanLabel: cleanOptionLabel(label),
+		isOther: isOtherOption(label),
+		isDoneSentinel: isDoneOption(label)
+	};
 }
 
-function extractNoteFromLabel(label: string): { clean: string; note?: string } {
-	const match = label.match(/^(.*?)\s*\((?:nota|note):\s*([^)]+)\)$/i);
-	if (match) {
-		return { clean: match[1].trim(), note: match[2].trim() };
-	}
-	return { clean: label };
+function question(overrides: Partial<AnswerableQuestion> = {}): AnswerableQuestion {
+	return {
+		options: [
+			option('SQLite (Recommended)'),
+			option('PostgreSQL'),
+			option('Other (type your own)'),
+			option('✔ Done selecting')
+		],
+		multi: false,
+		selectedOptions: new Set<string>(),
+		note: '',
+		customInput: '',
+		isCustom: false,
+		touched: false,
+		...overrides
+	};
 }
 
-function isDoneOption(label: string): boolean {
-	const lower = label.toLowerCase();
-	return lower.includes('done selecting') || lower.includes('fine selezione') || label.startsWith('✔');
-}
-
-function isOtherOption(label: string): boolean {
-	const lower = label.toLowerCase();
-	return (
-		lower === 'other (type your own)' ||
-		lower.startsWith('other (') ||
-		lower === 'other' ||
-		lower === 'altro (scrivi la tua risposta)' ||
-		lower === 'altro'
-	);
-}
-
-describe('Ask tool: parsing, note e formattazione risposte', () => {
-	describe('cleanOptionLabel & isRecommended', () => {
+describe('Ask tool: etichette, note e formattazione risposte', () => {
+	describe('Parsing delle etichette', () => {
 		it('rimuove il suffisso (Recommended) per il matching pulito', () => {
 			assert.equal(cleanOptionLabel('Modifica minima (Recommended)'), 'Modifica minima');
 			assert.equal(cleanOptionLabel('Refactor completo'), 'Refactor completo');
 		});
-	});
 
-	describe('extractNoteFromLabel', () => {
-		it('estrae nota in italiano (nota: ...)', () => {
-			const res = extractNoteFromLabel('SQLite (nota: solo per sviluppo locale)');
-			assert.equal(res.clean, 'SQLite');
-			assert.equal(res.note, 'solo per sviluppo locale');
-		});
-
-		it('estrae nota in inglese (note: ...)', () => {
-			const res = extractNoteFromLabel('JWT (note: include refresh token)');
-			assert.equal(res.clean, 'JWT');
-			assert.equal(res.note, 'include refresh token');
-		});
-
-		it('preserva etichette prive di nota', () => {
-			const res = extractNoteFromLabel('PostgreSQL');
-			assert.equal(res.clean, 'PostgreSQL');
-			assert.equal(res.note, undefined);
-		});
-	});
-
-	describe('isDoneOption & isOtherOption', () => {
 		it('riconosce sentinelle di completamento multi-select', () => {
 			assert.equal(isDoneOption('✔ Done selecting'), true);
-			assert.equal(isDoneOption('Done selecting'), true);
 			assert.equal(isDoneOption('Fine selezione'), true);
 			assert.equal(isDoneOption('Opzione normale'), false);
 		});
@@ -79,32 +62,120 @@ describe('Ask tool: parsing, note e formattazione risposte', () => {
 		});
 	});
 
-	describe('Formattazione risposte wizard', () => {
-		it('formatta risposta a scelta singola con nota', () => {
-			const label = 'Modifica minima';
-			const note = 'assicurati di non rompere la firma';
-			const formatted = note.trim() ? `${cleanOptionLabel(label)} (nota: ${note.trim()})` : label;
-			assert.equal(formatted, 'Modifica minima (nota: non rompere la firma)'.replace('non rompere', 'assicurati di non rompere'));
+	describe('Nessuna risposta inventata', () => {
+		it('una domanda a scelta singola senza selezione non e risposta', () => {
+			assert.equal(isQuestionAnswered(question()), false);
 		});
 
-		it('formatta risposta a scelta multipla con sentinella Done', () => {
-			const selected = ['JWT', 'OAuth2'];
-			const doneSentinel = '✔ Done selecting';
-			const sequence = [...selected, doneSentinel];
-			assert.deepEqual(sequence, ['JWT', 'OAuth2', '✔ Done selecting']);
+		it('formattare una domanda senza risposta e un errore, non la prima opzione', () => {
+			// La regressione da difendere: prima veniva restituita `SQLite`
+			// anche quando l'utente non aveva scelto niente.
+			assert.throws(() => formatQuestionAnswer(question()), /Risposta assente/);
 		});
 
-		it('formatta risposta personalizzata (Altro)', () => {
-			const customInput = 'Usa una soluzione ibrida personalizzata';
-			const note = 'vedi doc';
-			const formatted = note ? `${customInput} (nota: ${note})` : customInput;
-			assert.equal(formatted, 'Usa una soluzione ibrida personalizzata (nota: vedi doc)');
+		it('"Altro" senza testo non e una risposta', () => {
+			const q = question({ isCustom: true, touched: true, customInput: '   ' });
+			assert.equal(isQuestionAnswered(q), false);
+			assert.throws(() => formatQuestionAnswer(q), /Risposta assente/);
+		});
+
+		it('un wizard incompleto non produce righe da inviare', () => {
+			const answered = question({ selectedOptions: new Set(['PostgreSQL']), touched: true });
+			assert.equal(formatWizardAnswers([answered, question()]), null);
+			assert.equal(firstUnansweredIndex([answered, question()]), 1);
+			assert.equal(firstUnansweredIndex([answered]), -1);
+		});
+
+		it('la scelta multipla vuota vale "nessuna" solo se la domanda e stata toccata', () => {
+			assert.equal(isQuestionAnswered(question({ multi: true })), false);
+			assert.equal(isQuestionAnswered(question({ multi: true, touched: true })), true);
 		});
 	});
 
-	describe('Struttura dati PendingAsk e Questions', () => {
-		it('valida domande strutturate con raccomandazioni e multi-select', () => {
-			const rawQuestion: AskQuestion = {
+	describe('Formattazione delle risposte compilate', () => {
+		it('rimanda l etichetta originale dell opzione scelta', () => {
+			const q = question({ selectedOptions: new Set(['SQLite']), touched: true });
+			assert.deepEqual(formatQuestionAnswer(q), ['SQLite (Recommended)']);
+		});
+
+		it('allega la nota alla scelta singola, senza il suffisso Recommended', () => {
+			const q = question({
+				selectedOptions: new Set(['SQLite']),
+				note: '  solo per sviluppo locale  ',
+				touched: true
+			});
+			assert.deepEqual(formatQuestionAnswer(q), ['SQLite (nota: solo per sviluppo locale)']);
+		});
+
+		it('chiude la scelta multipla con la sentinella Done', () => {
+			const q = question({
+				multi: true,
+				selectedOptions: new Set(['PostgreSQL', 'SQLite']),
+				note: 'vedi doc',
+				touched: true
+			});
+			assert.deepEqual(formatQuestionAnswer(q), [
+				'PostgreSQL',
+				'SQLite (Recommended)',
+				'(nota: vedi doc)',
+				'✔ Done selecting'
+			]);
+		});
+
+		it('invia il testo personalizzato quando l utente scrive in "Altro"', () => {
+			const q = question({
+				isCustom: true,
+				touched: true,
+				customInput: '  Soluzione ibrida  ',
+				note: 'vedi doc'
+			});
+			assert.deepEqual(formatQuestionAnswer(q), ['Soluzione ibrida (nota: vedi doc)']);
+		});
+
+		it('concatena le righe di tutte le domande in ordine', () => {
+			const first = question({ selectedOptions: new Set(['PostgreSQL']), touched: true });
+			const second = question({
+				multi: true,
+				selectedOptions: new Set(['SQLite']),
+				touched: true
+			});
+			assert.deepEqual(formatWizardAnswers([first, second]), [
+				'PostgreSQL',
+				'SQLite (Recommended)',
+				'✔ Done selecting'
+			]);
+		});
+	});
+
+	describe('Round trip con il renderer delle risposte', () => {
+		it('la nota formattata viene riletta separata dall opzione', () => {
+			const q = question({
+				selectedOptions: new Set(['PostgreSQL']),
+				note: 'robusto per multi-utenza',
+				touched: true
+			});
+			const [line] = formatQuestionAnswer(q);
+			assert.deepEqual(extractNoteFromLabel(line), {
+				clean: 'PostgreSQL',
+				note: 'robusto per multi-utenza'
+			});
+		});
+
+		it('preserva etichette prive di nota', () => {
+			assert.deepEqual(extractNoteFromLabel('PostgreSQL'), { clean: 'PostgreSQL' });
+		});
+
+		it('legge anche la forma inglese (note: ...)', () => {
+			assert.deepEqual(extractNoteFromLabel('JWT (note: include refresh token)'), {
+				clean: 'JWT',
+				note: 'include refresh token'
+			});
+		});
+	});
+
+	describe('Struttura delle domande strutturate', () => {
+		it('valida domande con raccomandazione e opzioni descritte', () => {
+			const raw: AskQuestion = {
 				id: 'storage_type',
 				question: 'Quale storage backend utilizzare?',
 				header: 'Storage',
@@ -116,10 +187,8 @@ describe('Ask tool: parsing, note e formattazione risposte', () => {
 				]
 			};
 
-			assert.equal(rawQuestion.id, 'storage_type');
-			assert.equal(rawQuestion.multi, false);
-			assert.equal(rawQuestion.options.length, 2);
-			assert.equal(cleanOptionLabel(rawQuestion.options[0].label), 'SQLite');
+			assert.equal(raw.options.length, 2);
+			assert.equal(cleanOptionLabel(raw.options[0].label), 'SQLite');
 		});
 	});
 });

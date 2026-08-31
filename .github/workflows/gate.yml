@@ -1,0 +1,46 @@
+name: Gate di qualita
+
+# Gate unico riusato da Nightly e Release: nessun installer viene compilato o
+# promosso se uno di questi controlli fallisce. I gate Rust girano dentro i job
+# di build, sulla stessa macchina che produce l'artefatto.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Ref da verificare (tag, branch o commit)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  gate:
+    name: Tipi, test, dipendenze e igiene del diff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+          fetch-depth: 2
+
+      - name: Installa Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Installa le dipendenze
+        run: bun install --frozen-lockfile
+
+      - name: Allineamento dei quattro file di versione
+        run: node scripts/release.mjs --check
+
+      - name: Tipi del frontend
+        run: bun run check
+
+      - name: Smoke test delle funzionalita critiche
+        run: npm run test:smoke
+
+      - name: Vulnerabilita delle dipendenze
+        run: bun audit
+
+      - name: Igiene del diff dell'ultimo commit
+        run: git diff --check HEAD^ HEAD

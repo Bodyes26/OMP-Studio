@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Helper di logica tab percorsi coerente con ProjectStore
-function isPathUnder(filePath: string, targetPath: string, isDir: boolean, isWindows = process.platform === 'win32'): boolean {
+function isPathUnder(filePath: string, targetPath: string, isDir: boolean, isWindows: boolean): boolean {
 	const normFile = filePath.replace(/\\/g, '/');
 	const normTarget = targetPath.replace(/\\/g, '/').replace(/\/+$/, '');
 	if (isDir) {
@@ -21,7 +21,7 @@ function isPathUnder(filePath: string, targetPath: string, isDir: boolean, isWin
 	return false;
 }
 
-function remapPath(filePath: string, from: string, to: string, isDir: boolean, isWindows = process.platform === 'win32'): string | null {
+function remapPath(filePath: string, from: string, to: string, isDir: boolean, isWindows: boolean): string | null {
 	const normFile = filePath.replace(/\\/g, '/');
 	const normFrom = from.replace(/\\/g, '/').replace(/\/+$/, '');
 	const normTo = to.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -48,11 +48,11 @@ function remapPath(filePath: string, from: string, to: string, isDir: boolean, i
 	return null;
 }
 
-function applyRename(openFiles: string[], activeFile: string | null, from: string, to: string, isDir: boolean) {
+function applyRename(openFiles: string[], activeFile: string | null, from: string, to: string, isDir: boolean, isWindows: boolean) {
 	let activeChanged = false;
 	let newActive = activeFile;
 	const updated = openFiles.map((file) => {
-		const remapped = remapPath(file, from, to, isDir);
+		const remapped = remapPath(file, from, to, isDir, isWindows);
 		if (remapped) {
 			if (activeFile === file) {
 				newActive = remapped;
@@ -65,8 +65,8 @@ function applyRename(openFiles: string[], activeFile: string | null, from: strin
 	return { openFiles: updated, activeFile: activeChanged ? newActive : activeFile };
 }
 
-function applyTrash(openFiles: string[], activeFile: string | null, targetPath: string, isDir: boolean) {
-	const isUnder = (file: string) => isPathUnder(file, targetPath, isDir);
+function applyTrash(openFiles: string[], activeFile: string | null, targetPath: string, isDir: boolean, isWindows: boolean) {
+	const isUnder = (file: string) => isPathUnder(file, targetPath, isDir, isWindows);
 	const activeIsRemoved = activeFile !== null && isUnder(activeFile);
 	const activeIndex = activeFile !== null ? openFiles.indexOf(activeFile) : -1;
 
@@ -97,7 +97,7 @@ describe('Gestione tab e percorsi su rinomina/cestino', () => {
 	it('rinomina file singolo aperto aggiornando path e activeFile', () => {
 		const open = ['src/a.ts', 'src/b.ts', 'README.md'];
 		const active = 'src/b.ts';
-		const res = applyRename(open, active, 'src/b.ts', 'src/c.ts', false);
+		const res = applyRename(open, active, 'src/b.ts', 'src/c.ts', false, false);
 		assert.deepEqual(res.openFiles, ['src/a.ts', 'src/c.ts', 'README.md']);
 		assert.equal(res.activeFile, 'src/c.ts');
 	});
@@ -105,7 +105,7 @@ describe('Gestione tab e percorsi su rinomina/cestino', () => {
 	it('rinomina directory aggiornando tutti i tab discendenti e preservando ordine', () => {
 		const open = ['src/components/Button.svelte', 'src/lib/utils.ts', 'src/components/Modal.svelte'];
 		const active = 'src/components/Modal.svelte';
-		const res = applyRename(open, active, 'src/components', 'src/ui', true);
+		const res = applyRename(open, active, 'src/components', 'src/ui', true, false);
 		assert.deepEqual(res.openFiles, ['src/ui/Button.svelte', 'src/lib/utils.ts', 'src/ui/Modal.svelte']);
 		assert.equal(res.activeFile, 'src/ui/Modal.svelte');
 	});
@@ -113,7 +113,7 @@ describe('Gestione tab e percorsi su rinomina/cestino', () => {
 	it('supporta percorsi case-insensitive su Windows', () => {
 		assert.equal(isPathUnder('SRC/LIB/MOD.RS', 'src/lib', true, true), true);
 		assert.equal(isPathUnder('SRC/MAIN.RS', 'src/main.rs', false, true), true);
-		const res = applyRename(['SRC/MAIN.RS'], 'SRC/MAIN.RS', 'src/main.rs', 'src/app.rs', false);
+		const res = applyRename(['SRC/MAIN.RS'], 'SRC/MAIN.RS', 'src/main.rs', 'src/app.rs', false, true);
 		assert.deepEqual(res.openFiles, ['src/app.rs']);
 		assert.equal(res.activeFile, 'src/app.rs');
 	});
@@ -121,7 +121,7 @@ describe('Gestione tab e percorsi su rinomina/cestino', () => {
 	it('cestino su file attivo seleziona la scheda adiacente a destra se disponibile', () => {
 		const open = ['a.txt', 'b.txt', 'c.txt'];
 		const active = 'b.txt';
-		const res = applyTrash(open, active, 'b.txt', false);
+		const res = applyTrash(open, active, 'b.txt', false, false);
 		assert.deepEqual(res.openFiles, ['a.txt', 'c.txt']);
 		assert.equal(res.activeFile, 'c.txt');
 	});
@@ -129,7 +129,7 @@ describe('Gestione tab e percorsi su rinomina/cestino', () => {
 	it('cestino sull ultimo file attivo seleziona la scheda a sinistra', () => {
 		const open = ['a.txt', 'b.txt', 'c.txt'];
 		const active = 'c.txt';
-		const res = applyTrash(open, active, 'c.txt', false);
+		const res = applyTrash(open, active, 'c.txt', false, false);
 		assert.deepEqual(res.openFiles, ['a.txt', 'b.txt']);
 		assert.equal(res.activeFile, 'b.txt');
 	});
@@ -137,7 +137,7 @@ describe('Gestione tab e percorsi su rinomina/cestino', () => {
 	it('cestino su directory elimina tutti i file aperti al suo interno', () => {
 		const open = ['src/a.ts', 'src/b.ts', 'docs/index.md'];
 		const active = 'src/a.ts';
-		const res = applyTrash(open, active, 'src', true);
+		const res = applyTrash(open, active, 'src', true, false);
 		assert.deepEqual(res.openFiles, ['docs/index.md']);
 		assert.equal(res.activeFile, 'docs/index.md');
 	});

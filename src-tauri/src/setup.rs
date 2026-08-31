@@ -60,6 +60,10 @@ pub struct DatabaseStatus {
 pub struct SetupStatus {
     pub omp_installed: bool,
     pub omp_path: Option<String>,
+    /// Dove Studio installerebbe (o ha installato) il binario. Il frontend la
+    /// mostra invece di indovinare un percorso per piattaforma: qui e' gia'
+    /// rispettata anche la variabile `PI_INSTALL_DIR`.
+    pub install_dir: Option<String>,
     pub omp_version: Option<String>,
     /// `setupVersion` letto da `config.yml`; 0 quando la chiave o il file mancano.
     pub setup_version: u64,
@@ -274,10 +278,7 @@ fn database_status(agent: &Path) -> Vec<DatabaseStatus> {
     let targets: Vec<(String, PathBuf)> = ["agent.db", "history.db", "models.db"]
         .iter()
         .map(|name| ((*name).to_string(), agent.join(name)))
-        .chain(
-            root.map(|r| ("stats.db".to_string(), r.join("stats.db")))
-                .into_iter(),
-        )
+        .chain(root.map(|r| ("stats.db".to_string(), r.join("stats.db"))))
         .collect();
 
     targets
@@ -342,6 +343,7 @@ fn status_for(agent: Option<PathBuf>) -> SetupStatus {
     SetupStatus {
         omp_installed: binary.is_some(),
         omp_path: binary.as_ref().map(|p| p.to_string_lossy().to_string()),
+        install_dir: install_dir().map(|p| p.to_string_lossy().to_string()),
         omp_version,
         setup_version: facts.setup_version,
         wizard_pending: facts.setup_version < CURRENT_SETUP_VERSION,
@@ -408,6 +410,7 @@ const INSTALL_EVENT: &str = "setup://install-progress";
 struct ReleaseAsset {
     name: String,
     browser_download_url: String,
+    digest: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -474,21 +477,65 @@ fn github_client() -> Result<reqwest::Client, String> {
 /// SHA-256 del file appena scaricato, calcolato nativamente in Rust.
 /// Evita dipendenze da PowerShell o shasum ed elimina rischi di timeout
 /// o execution policy.
-fn file_sha256(path: &Path) -> Option<String> {
-    let mut file = std::fs::File::open(path).ok()?;
+fn file_sha256(path: &Path) -> Result<String, String> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| format!("Apertura del file da verificare {}: {}", path.display(), e))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
-        let n = file.read(&mut buffer).ok()?;
+        let n = file
+            .read(&mut buffer)
+            .map_err(|e| format!("Lettura del file da verificare {}: {}", path.display(), e))?;
         if n == 0 {
             break;
         }
         hasher.update(&buffer[..n]);
     }
     let hash = hasher.finalize();
-    Some(format!("{:x}", hash))
+    Ok(format!("{:x}", hash))
 }
 
+fn normalize_sha256(value: &str) -> Option<String> {
+    let value = value.trim();
+    (value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| value.to_ascii_lowercase())
+}
+
+fn parse_asset_digest(value: &str) -> Option<String> {
+    let (algorithm, hash) = value.trim().split_once(':')?;
+    if !algorithm.eq_ignore_ascii_case("sha256") {
+        return None;
+    }
+    normalize_sha256(hash)
+}
+
+fn resolve_expected_hash(
+    asset_digest: Option<&str>,
+    checksum_hash: Option<&str>,
+) -> Result<String, String> {
+    asset_digest
+        .and_then(parse_asset_digest)
+        .or_else(|| checksum_hash.and_then(normalize_sha256))
+        .ok_or_else(|| {
+            "La release non fornisce un'impronta SHA-256 valida per il binario richiesto"
+                .to_string()
+        })
+}
+
+fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), String> {
+    let expected = normalize_sha256(expected)
+        .ok_or("L'impronta SHA-256 attesa non e' valida")?;
+    let actual = file_sha256(path)?;
+    if actual == expected {
+        return Ok(());
+    }
+    Err(format!(
+        "Impronta del file scaricato diversa da quella ufficiale pubblicata: attesa {}, trovata {}",
+        expected, actual
+    ))
+}
+
+#[cfg(any(target_os = "windows", test))]
 /// Quota una stringa per una riga di comando PowerShell in apici singoli.
 fn ps_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
@@ -535,11 +582,108 @@ fn ensure_user_path_contains(dir: &Path) -> Result<bool, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim() == "added")
 }
 
+/// Delimitatori del blocco che Studio si riserva dentro i profili di shell.
+/// Servono a essere idempotenti senza rileggere righe che non sono nostre.
+#[cfg(unix)]
+const PATH_BLOCK_START: &str = "# >>> omp studio (PATH) >>>";
+#[cfg(unix)]
+const PATH_BLOCK_END: &str = "# <<< omp studio (PATH) <<<";
+
+/// Riga `export` con il percorso citato per una shell POSIX: senza escape un
+/// `$`, un backtick o una virgoletta nel percorso diventerebbe codice.
+#[cfg(unix)]
+fn posix_path_export(dir: &Path) -> String {
+    let quoted = dir
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`");
+    format!("export PATH=\"{}:$PATH\"", quoted)
+}
+
+/// Profili da aggiornare: quello della shell di login corrente (anche se non
+/// esiste ancora, perche' e' quello che l'utente usera') e gli altri solo se
+/// esistono gia'. Creare profili che nessuno legge sarebbe rumore.
+#[cfg(unix)]
+fn shell_profiles_to_update(home: &Path, shell: Option<&str>) -> Vec<PathBuf> {
+    let mut profiles: Vec<PathBuf> = Vec::new();
+
+    if let Some(shell) = shell {
+        profiles.push(if shell.contains("zsh") {
+            home.join(".zprofile")
+        } else if shell.contains("bash") {
+            home.join(".bash_profile")
+        } else {
+            home.join(".profile")
+        });
+    }
+
+    for name in [".zprofile", ".bash_profile", ".profile"] {
+        let path = home.join(name);
+        if path.is_file() && !profiles.contains(&path) {
+            profiles.push(path);
+        }
+    }
+
+    profiles
+}
+
+/// Aggiunge in coda al profilo un blocco delimitato con l'export del PATH.
+/// Nessuna riga esistente viene toccata e la scrittura e' atomica: un profilo
+/// di shell troncato a meta' lascerebbe l'utente senza ambiente.
+#[cfg(unix)]
+fn ensure_profile_exports(profile: &Path, dir: &Path) -> Result<bool, String> {
+    let existing = match std::fs::read_to_string(profile) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("Lettura di {}: {}", profile.display(), error)),
+    };
+    if existing.contains(PATH_BLOCK_START) {
+        return Ok(false);
+    }
+
+    let mut next = existing;
+    if !next.is_empty() && !next.ends_with('\n') {
+        next.push('\n');
+    }
+    next.push_str(PATH_BLOCK_START);
+    next.push('\n');
+    next.push_str(&posix_path_export(dir));
+    next.push('\n');
+    next.push_str(PATH_BLOCK_END);
+    next.push('\n');
+
+    if let Some(parent) = profile.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Cartella di {}: {}", profile.display(), error))?;
+    }
+    crate::fs_atomic::atomic_write(profile, next.as_bytes())?;
+    Ok(true)
+}
+
+/// Su Unix il PATH vive nei profili di shell: senza questo blocco `omp`
+/// resterebbe invisibile nei terminali esterni, pur essendo installato.
 #[cfg(not(target_os = "windows"))]
-fn ensure_user_path_contains(_dir: &Path) -> Result<bool, String> {
-    // Su Unix il PATH e' responsabilita' del profilo della shell: non lo
-    // riscriviamo alle spalle dell'utente.
-    Ok(false)
+fn ensure_user_path_contains(dir: &Path) -> Result<bool, String> {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Ok(false);
+    };
+    let shell = std::env::var("SHELL").ok();
+
+    let mut changed = false;
+    for profile in shell_profiles_to_update(&home, shell.as_deref()) {
+        match ensure_profile_exports(&profile, dir) {
+            Ok(true) => changed = true,
+            Ok(false) => {}
+            Err(error) => eprintln!(
+                "[Setup] Avviso: PATH non aggiornato in {}: {}",
+                profile.display(),
+                error
+            ),
+        }
+    }
+    Ok(changed)
 }
 
 /// Percorsi tipici di una bash su Windows, nell'ordine usato dallo script
@@ -606,6 +750,61 @@ fn ensure_shell_path() -> Result<Option<String>, String> {
     Ok(Some(bash_str))
 }
 
+fn replace_verified_binary(temp_path: &Path, target: &Path) -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        // `rename` sostituisce atomicamente un file esistente: un errore lascia
+        // quindi intatta la versione gia' installata.
+        std::fs::rename(temp_path, target)
+            .map_err(|e| format!("Installazione del binario {}: {}", target.display(), e))
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if !target.exists() {
+            return std::fs::rename(temp_path, target)
+                .map_err(|e| format!("Installazione del binario {}: {}", target.display(), e));
+        }
+
+        // Windows non consente a `rename` di sovrascrivere la destinazione.
+        // Conserviamo il binario corrente finche' quello verificato non e'
+        // entrato al suo posto, cosi' possiamo ripristinarlo in caso di errore.
+        let file_name = target
+            .file_name()
+            .ok_or_else(|| format!("Nome del binario di destinazione non valido: {}", target.display()))?;
+        let backup = target.with_file_name(format!("{}.previous", file_name.to_string_lossy()));
+        if backup.exists() {
+            std::fs::remove_file(&backup)
+                .map_err(|e| format!("Rimozione del backup precedente {}: {}", backup.display(), e))?;
+        }
+        std::fs::rename(target, &backup)
+            .map_err(|e| format!("Preparazione della sostituzione di {}: {}", target.display(), e))?;
+        if let Err(install_error) = std::fs::rename(temp_path, target) {
+            return match std::fs::rename(&backup, target) {
+                Ok(()) => Err(format!(
+                    "Installazione del binario {}: {}",
+                    target.display(),
+                    install_error
+                )),
+                Err(restore_error) => Err(format!(
+                    "Installazione del binario {}: {}; ripristino del binario precedente non riuscito: {}",
+                    target.display(),
+                    install_error,
+                    restore_error
+                )),
+            };
+        }
+        if let Err(error) = std::fs::remove_file(&backup) {
+            eprintln!(
+                "[Setup] Avviso: rimozione del backup {} non riuscita: {}",
+                backup.display(),
+                error
+            );
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallOutcome {
@@ -614,9 +813,8 @@ pub struct InstallOutcome {
     pub tag: String,
     pub path_updated: bool,
     pub shell_path: Option<String>,
-    /// `None` quando la release non pubblica `SHA256SUMS.txt` o l'hash non
-    /// e' calcolabile: l'installazione prosegue, ma lo dichiariamo.
-    pub checksum_verified: Option<bool>,
+    /// La sostituzione avviene solo dopo una verifica SHA-256 riuscita.
+    pub checksum_verified: bool,
 }
 
 /// Scarica e installa `omp` replicando il ramo `-Binary` di
@@ -661,22 +859,33 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
     );
 
     let client = github_client()?;
-    let (download_url, tag_name, expected_hash) = match fetch_release_info(&client, asset_name).await {
-        Ok(info) => info,
-        Err(err) => {
-            eprintln!("[Setup] GitHub API fallita ({}), tento il download diretto dal tag latest...", err);
-            let fallback_url = format!(
-                "https://github.com/{}/releases/latest/download/{}",
-                OMP_REPO, asset_name
-            );
-            let sums_url = format!(
-                "https://github.com/{}/releases/latest/download/SHA256SUMS.txt",
-                OMP_REPO
-            );
-            let expected = fetch_hash_from_url(&client, &sums_url, asset_name).await;
-            (fallback_url, "latest".to_string(), expected)
-        }
-    };
+    let (download_url, tag_name, expected_hash) =
+        match fetch_release_info(&client, asset_name).await {
+            Ok(info) => info,
+            Err(api_error) => {
+                eprintln!(
+                    "[Setup] GitHub API fallita ({}), tento il download diretto dal tag latest...",
+                    api_error
+                );
+                let fallback_url = format!(
+                    "https://github.com/{}/releases/latest/download/{}",
+                    OMP_REPO, asset_name
+                );
+                let sums_url = format!(
+                    "https://github.com/{}/releases/latest/download/SHA256SUMS.txt",
+                    OMP_REPO
+                );
+                let expected = fetch_hash_from_url(&client, &sums_url, asset_name)
+                    .await
+                    .map_err(|checksum_error| {
+                        format!(
+                            "Impossibile risolvere un'impronta SHA-256 attendibile: API GitHub: {}; checksum della release: {}",
+                            api_error, checksum_error
+                        )
+                    })?;
+                (fallback_url, "latest".to_string(), expected)
+            }
+        };
 
     // Si scarica in un file temporaneo accanto alla destinazione: se il
     // download si interrompe, l'eventuale binario esistente non viene corrotto.
@@ -751,46 +960,30 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
         }
     }
 
-    let checksum_verified = match expected_hash {
-        Some(expected) => {
-            let _ = app.emit(
-                INSTALL_EVENT,
-                InstallProgress::stage("verifying", "Verifico l'impronta di sicurezza SHA-256"),
-            );
-            match file_sha256(&temp_path) {
-                Some(actual) if actual == expected => Some(true),
-                Some(actual) => {
-                    let _ = std::fs::remove_file(&temp_path);
-                    return Err(format!(
-                        "Impronta del file scaricato diversa da quella ufficiale pubblicata: attesa {}, trovata {}",
-                        expected, actual
-                    ));
-                }
-                None => None,
-            }
-        }
-        None => None,
-    };
+    let _ = app.emit(
+        INSTALL_EVENT,
+        InstallProgress::stage("verifying", "Verifico l'impronta di sicurezza SHA-256"),
+    );
+    if let Err(error) = verify_file_sha256(&temp_path, &expected_hash) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(error);
+    }
 
     let _ = app.emit(
         INSTALL_EVENT,
         InstallProgress::stage("installing", "Installazione del binario"),
     );
 
-    if target.exists() {
-        let _ = std::fs::remove_file(&target);
+    if let Err(error) = replace_verified_binary(&temp_path, &target) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(error);
     }
-    std::fs::rename(&temp_path, &target)
-        .map_err(|e| format!("Installazione del binario {}: {}", target.display(), e))?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755));
     }
-
-    let path_updated = ensure_user_path_contains(&dir).unwrap_or(false);
-    let shell_path = ensure_shell_path().ok().flatten();
 
     // Riprova l'esecuzione fino a 4 volte con backoff per consentire
     // l'eventuale scansione iniziale dell'antivirus.
@@ -812,13 +1005,18 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
         )
     })?;
 
+    // PATH e impostazioni vengono aggiornati soltanto dopo che il binario
+    // sostituito ha risposto correttamente.
+    let path_updated = ensure_user_path_contains(&dir).unwrap_or(false);
+    let shell_path = ensure_shell_path().ok().flatten();
+
     let outcome = InstallOutcome {
         version,
         path: target.to_string_lossy().to_string(),
         tag: tag_name,
         path_updated,
         shell_path,
-        checksum_verified,
+        checksum_verified: true,
     };
 
     let _ = app.emit(
@@ -840,7 +1038,7 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
 async fn fetch_release_info(
     client: &reqwest::Client,
     asset_name: &str,
-) -> Result<(String, String, Option<String>), String> {
+) -> Result<(String, String, String), String> {
     let release: Release = client
         .get(format!(
             "https://api.github.com/repos/{}/releases/latest",
@@ -858,38 +1056,69 @@ async fn fetch_release_info(
     let asset = release
         .assets
         .iter()
-        .find(|a| a.name == asset_name)
-        .ok_or_else(|| format!("La release {} non contiene l'asset {}", release.tag_name, asset_name))?;
+        .find(|asset| asset.name == asset_name)
+        .ok_or_else(|| {
+            format!(
+                "La release {} non contiene l'asset {}",
+                release.tag_name, asset_name
+            )
+        })?;
 
-    let expected_hash = fetch_expected_hash(client, &release, asset_name).await;
-    Ok((asset.browser_download_url.clone(), release.tag_name, expected_hash))
+    let checksum_hash = if asset
+        .digest
+        .as_deref()
+        .and_then(parse_asset_digest)
+        .is_some()
+    {
+        None
+    } else {
+        Some(fetch_expected_hash(client, &release, asset_name).await?)
+    };
+    let expected_hash =
+        resolve_expected_hash(asset.digest.as_deref(), checksum_hash.as_deref())?;
+    Ok((
+        asset.browser_download_url.clone(),
+        release.tag_name,
+        expected_hash,
+    ))
 }
 
 async fn fetch_hash_from_url(
     client: &reqwest::Client,
     url: &str,
     asset_name: &str,
-) -> Option<String> {
+) -> Result<String, String> {
     let text = client
         .get(url)
         .send()
         .await
-        .ok()?
+        .map_err(|e| format!("Connessione al file checksum: {}", e))?
         .error_for_status()
-        .ok()?
+        .map_err(|e| format!("File checksum non disponibile: {}", e))?
         .text()
         .await
-        .ok()?;
-    parse_checksums(&text, asset_name)
+        .map_err(|e| format!("Lettura del file checksum: {}", e))?;
+    parse_checksums(&text, asset_name).ok_or_else(|| {
+        format!(
+            "Il file checksum non contiene uno SHA-256 valido per {}",
+            asset_name
+        )
+    })
 }
 
 fn parse_checksums(text: &str, asset_name: &str) -> Option<String> {
     for line in text.lines() {
         let mut parts = line.split_whitespace();
-        let hash = parts.next()?;
-        let name = parts.next().unwrap_or_default().trim_start_matches('*');
-        if name == asset_name {
-            return Some(hash.to_lowercase());
+        let Some(hash) = parts.next() else {
+            continue;
+        };
+        let Some(name) = parts.next() else {
+            continue;
+        };
+        if name.trim_start_matches('*') == asset_name {
+            if let Some(hash) = normalize_sha256(hash) {
+                return Some(hash);
+            }
         }
     }
     None
@@ -899,8 +1128,12 @@ async fn fetch_expected_hash(
     client: &reqwest::Client,
     release: &Release,
     asset_name: &str,
-) -> Option<String> {
-    let sums = release.assets.iter().find(|a| a.name == "SHA256SUMS.txt")?;
+) -> Result<String, String> {
+    let sums = release
+        .assets
+        .iter()
+        .find(|asset| asset.name == "SHA256SUMS.txt")
+        .ok_or("La release non pubblica SHA256SUMS.txt")?;
     fetch_hash_from_url(client, &sums.browser_download_url, asset_name).await
 }
 
@@ -908,8 +1141,11 @@ async fn fetch_expected_hash(
 // Font Nerd per-utente
 // -----------------------------------------------------------------------------
 
-/// `%LOCALAPPDATA%\Microsoft\Windows\Fonts`: installazione per-utente,
-/// disponibile da Windows 10 1809 e senza privilegi di amministratore.
+/// Cartella dei font dell'utente, per piattaforma:
+/// - Windows: `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, per-utente e senza
+///   privilegi di amministratore (da Windows 10 1809);
+/// - macOS: `~/Library/Fonts`, la cartella che il sistema attiva da solo;
+/// - altrove: `~/.local/share/fonts`, la convenzione fontconfig.
 fn nerd_font_target() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
@@ -922,7 +1158,17 @@ fn nerd_font_target() -> Option<PathBuf> {
                 .join(NERD_FONT_FILE),
         )
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").ok()?;
+        Some(
+            PathBuf::from(home)
+                .join("Library")
+                .join("Fonts")
+                .join(NERD_FONT_FILE),
+        )
+    }
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let home = std::env::var("HOME").ok()?;
         Some(
@@ -1023,9 +1269,17 @@ fn register_font(path: &Path) -> bool {
     true
 }
 
-#[cfg(not(target_os = "windows"))]
+/// Su macOS non c'e' niente da registrare: il sistema attiva da solo i font
+/// dentro `~/Library/Fonts` per i processi avviati dopo la copia. Diciamo
+/// "registrato" solo se il file e' davvero dove serve.
+#[cfg(target_os = "macos")]
+fn register_font(path: &Path) -> bool {
+    path.is_file()
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn register_font(_path: &Path) -> bool {
-    // Su Linux basta la cartella font dell'utente piu' `fc-cache`.
+    // Su Linux serve fontconfig: la cartella dell'utente piu' `fc-cache`.
     Command::new("fc-cache")
         .arg("-f")
         .output()
@@ -1100,7 +1354,7 @@ pub async fn detect_project_roots() -> Result<Vec<ProjectRootCandidate>, String>
 
         // Ordine stabile: piu' repository prima, e a parita' l'ordine dei
         // candidati (che e' quello in cui `sort_by` li trova).
-        found.sort_by(|a, b| b.repo_count.cmp(&a.repo_count));
+        found.sort_by_key(|b| std::cmp::Reverse(b.repo_count));
         Ok(found)
     })
     .await
@@ -1137,6 +1391,41 @@ mod tests {
         // sostituito con un woff2, Windows rifiuterebbe di installarlo.
         assert!(NERD_FONT_TTF.len() > 1_000_000);
         assert_eq!(&NERD_FONT_TTF[0..4], &[0x00, 0x01, 0x00, 0x00]);
+    }
+
+    /// La cartella sbagliata e' il difetto piu' silenzioso possibile: il file
+    /// viene scritto, l'esito dice "installato" e il font non compare mai.
+    #[test]
+    fn font_target_follows_platform_convention() {
+        let target = nerd_font_target().expect("cartella dei font risolvibile");
+        assert!(target.ends_with(NERD_FONT_FILE));
+        let shown = target.to_string_lossy().replace('\\', "/");
+
+        #[cfg(target_os = "macos")]
+        {
+            assert!(
+                shown.contains("/Library/Fonts/"),
+                "su macOS i font dell'utente stanno in ~/Library/Fonts: {}",
+                shown
+            );
+            assert!(
+                !shown.contains("/.local/share/fonts/"),
+                "percorso fontconfig di Linux usato su macOS: {}",
+                shown
+            );
+        }
+        #[cfg(target_os = "windows")]
+        assert!(
+            shown.contains("/Microsoft/Windows/Fonts/"),
+            "su Windows serve la cartella font per-utente: {}",
+            shown
+        );
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        assert!(
+            shown.contains("/.local/share/fonts/"),
+            "altrove vale la convenzione fontconfig: {}",
+            shown
+        );
     }
 
     #[test]
@@ -1202,25 +1491,93 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn il_blocco_path_e_idempotente_e_non_tocca_le_righe_dell_utente() {
+        let home = std::env::temp_dir().join(format!("omp-studio-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let profile = home.join(".zprofile");
+        std::fs::write(&profile, "export EDITOR=vim\n").unwrap();
+
+        let dir = home.join(".omp").join("bin");
+        assert!(ensure_profile_exports(&profile, &dir).unwrap());
+
+        let after_first = std::fs::read_to_string(&profile).unwrap();
+        assert!(after_first.starts_with("export EDITOR=vim\n"), "riga utente perduta");
+        assert!(after_first.contains(&posix_path_export(&dir)));
+        assert_eq!(after_first.matches(PATH_BLOCK_START).count(), 1);
+        assert_eq!(after_first.matches(PATH_BLOCK_END).count(), 1);
+
+        // Seconda installazione: niente da fare, nessun duplicato.
+        assert!(!ensure_profile_exports(&profile, &dir).unwrap());
+        assert_eq!(std::fs::read_to_string(&profile).unwrap(), after_first);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_percorso_ostile_non_diventa_codice_di_shell() {
+        let export = posix_path_export(Path::new("/tmp/a b/$(whoami)/`id`/\"x\""));
+        assert!(export.contains("\\$(whoami)"), "{}", export);
+        assert!(export.contains("\\`id\\`"), "{}", export);
+        assert!(export.contains("\\\"x\\\""), "{}", export);
+        assert!(export.ends_with(":$PATH\""), "{}", export);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn si_aggiorna_il_profilo_della_shell_di_login_e_quelli_esistenti() {
+        let home = std::env::temp_dir().join(format!("omp-studio-profiles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join(".profile"), "# esistente\n").unwrap();
+
+        // zsh: `.zprofile` va creato, `.profile` aggiornato perche' c'e' gia',
+        // `.bash_profile` no perche' non esiste.
+        let profiles = shell_profiles_to_update(&home, Some("/bin/zsh"));
+        assert_eq!(
+            profiles,
+            vec![home.join(".zprofile"), home.join(".profile")]
+        );
+
+        // Shell sconosciuta: si ripiega sul profilo POSIX, senza duplicarlo.
+        assert_eq!(
+            shell_profiles_to_update(&home, Some("/usr/bin/fish")),
+            vec![home.join(".profile")]
+        );
+
+        // Senza `$SHELL` si toccano solo i profili esistenti.
+        assert_eq!(
+            shell_profiles_to_update(&home, None),
+            vec![home.join(".profile")]
+        );
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn file_sha256_computes_correct_hash() {
         let temp_dir = std::env::temp_dir();
         let temp_file = temp_dir.join(format!("omp-test-hash-{}.txt", std::process::id()));
         std::fs::write(&temp_file, b"hello world").unwrap();
 
-        let hash = file_sha256(&temp_file);
+        let hash = file_sha256(&temp_file).unwrap();
         let _ = std::fs::remove_file(&temp_file);
 
         // echo -n "hello world" | sha256sum -> b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
         assert_eq!(
-            hash.as_deref(),
-            Some("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
+            hash,
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
         );
     }
 
     #[test]
-    fn parse_checksums_finds_asset_hash() {
-        let text = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9  omp-windows-x64.exe\n\
+    fn parse_checksums_accepts_only_valid_sha256_for_the_asset() {
+        let text = "\n\
+                    not-a-hash  omp-windows-x64.exe\n\
+                    B94D27B9934D3E08A52E52D7DA7DABFAC484EFE37A5380EE9088F7ACE2EFCDE9  omp-windows-x64.exe\n\
                     e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 *omp-darwin-arm64\n";
         assert_eq!(
             parse_checksums(text, "omp-windows-x64.exe").as_deref(),
@@ -1230,7 +1587,51 @@ mod tests {
             parse_checksums(text, "omp-darwin-arm64").as_deref(),
             Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
         );
+        assert_eq!(parse_checksums("not-a-hash  omp-linux-x64", "omp-linux-x64"), None);
         assert_eq!(parse_checksums(text, "nonexistent"), None);
+    }
+
+    #[test]
+    fn expected_hash_prefers_digest_and_requires_a_valid_fallback() {
+        let digest_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+        let checksum_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        let digest = format!("sha256:{}", digest_hash.to_uppercase());
+
+        assert_eq!(
+            resolve_expected_hash(Some(&digest), Some(checksum_hash)).unwrap(),
+            digest_hash
+        );
+        assert_eq!(
+            resolve_expected_hash(Some("sha256:malformed"), Some(checksum_hash)).unwrap(),
+            checksum_hash
+        );
+        assert!(resolve_expected_hash(None, None).is_err());
+        assert!(resolve_expected_hash(Some("sha512:abcd"), Some("malformed")).is_err());
+    }
+
+    #[test]
+    fn hash_mismatch_does_not_touch_existing_binary() {
+        let base =
+            std::env::temp_dir().join(format!("omp-test-mismatch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let downloaded = base.join("omp.download");
+        let existing = base.join("omp");
+        std::fs::write(&downloaded, b"new binary").unwrap();
+        std::fs::write(&existing, b"existing binary").unwrap();
+
+        let error = verify_file_sha256(
+            &downloaded,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        )
+        .unwrap_err();
+
+        assert!(error.contains("diversa"));
+        assert_eq!(
+            std::fs::read(&existing).unwrap().as_slice(),
+            b"existing binary"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// Installa davvero il font nel profilo dell'utente, quindi non gira nella

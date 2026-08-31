@@ -161,7 +161,7 @@ fn delta_kind(event_kind: &str) -> Option<&'static str> {
 /// Legge stdout riga per riga. Le righe arrivano fino a 1 MiB, quindi
 /// `read_until` su un `Vec` che si ridimensiona, non `lines()` con il buffer
 /// di default.
-fn reader_loop(
+struct ReaderLoopArgs {
     stdout: std::process::ChildStdout,
     on_event: Channel<String>,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
@@ -171,7 +171,20 @@ fn reader_loop(
     sessions: Arc<Mutex<HashMap<u64, RpcSession>>>,
     rpc_id: u64,
     abort_signal: Arc<AtomicBool>,
-) {
+}
+
+fn reader_loop(args: ReaderLoopArgs) {
+    let ReaderLoopArgs {
+        stdout,
+        on_event,
+        stdin,
+        protocol,
+        child,
+        stderr_tail,
+        sessions,
+        rpc_id,
+        abort_signal,
+    } = args;
     let mut reader = BufReader::with_capacity(1 << 16, stdout);
     let mut raw = Vec::with_capacity(1 << 16);
     let mut assembly: Option<ChunkAssembly> = None;
@@ -556,17 +569,17 @@ pub async fn rpc_open(
     let sessions = manager.sessions.clone();
     let reader_tail = stderr_tail.clone();
     thread::spawn(move || {
-        reader_loop(
+        reader_loop(ReaderLoopArgs {
             stdout,
             on_event,
             stdin,
             protocol,
             child,
-            reader_tail,
+            stderr_tail: reader_tail,
             sessions,
             rpc_id,
             abort_signal,
-        );
+        });
     });
 
     thread::spawn(move || {

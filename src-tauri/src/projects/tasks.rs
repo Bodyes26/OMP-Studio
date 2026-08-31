@@ -3,7 +3,7 @@
 //! Garantisce che:
 //! 1. Il file viva all'interno del progetto in `.omp/tasks.json`.
 //! 2. Sia automaticamente inserito in `.omp/.gitignore` per evitare commit involontari.
-//! 3. Le scritture siano atomiche (scrittura su file temporaneo + rename) per prevenire corruzioni e conflitti I/O.
+//! 3. Le scritture passino da `crate::fs_atomic` (temporaneo nella stessa cartella, flush su disco, sostituzione) cosi' un errore o un crash lascia sempre leggibile la coda precedente.
 //! 4. Le modifiche esterne (da terminale/TUI o da tool OMP) siano rilevate da un file watcher e notificate alla GUI via `project-tasks-changed`.
 
 use std::collections::HashMap;
@@ -65,7 +65,7 @@ fn ensure_auto_ignore(omp_dir: &Path) -> Result<(), String> {
     };
 
     if needs_entry {
-        let entry = "\n# OMP Studio: task locali non versionati\ntasks.json\ntasks.json.tmp*\n";
+        let entry = "\n# OMP Studio: task locali non versionati\ntasks.json\n.tasks.json.*.tmp\n";
         let mut existing = fs::read_to_string(&gitignore_path).unwrap_or_default();
         existing.push_str(entry);
         fs::write(&gitignore_path, existing)
@@ -86,6 +86,18 @@ pub async fn project_tasks_read(project_path: String) -> Result<String, String> 
     Ok(content)
 }
 
+/// Scrittura crash-safe della coda su `.omp/tasks.json`.
+///
+/// `fs_atomic::atomic_write` sostituisce la destinazione solo dopo aver
+/// forzato il temporaneo su disco: non esiste piu' una finestra in cui il
+/// file di destinazione e' assente, come accadeva con il remove-then-rename.
+fn write_tasks_file(project_path: &str, content: &str) -> Result<(), String> {
+    let omp_dir = project_omp_dir(project_path);
+    ensure_auto_ignore(&omp_dir)?;
+
+    crate::fs_atomic::atomic_write(&omp_dir.join("tasks.json"), content.as_bytes())
+}
+
 /// Scrive in modo atomico il file `.omp/tasks.json`.
 #[tauri::command]
 pub async fn project_tasks_write(
@@ -93,29 +105,13 @@ pub async fn project_tasks_write(
     content: String,
     state: State<'_, ProjectTasksState>,
 ) -> Result<(), String> {
-    let omp_dir = project_omp_dir(&project_path);
-    ensure_auto_ignore(&omp_dir)?;
-
-    let target_file = omp_dir.join("tasks.json");
-    let temp_name = format!("tasks.json.tmp.{}", std::process::id());
-    let temp_file = omp_dir.join(&temp_name);
-
-    fs::write(&temp_file, &content)
-        .map_err(|e| format!("Errore scrittura file temporaneo dei task: {}", e))?;
-
-    // Registra il timestamp dell'I/O di Studio per silenziare l'eco del file watcher
+    // Il timestamp va registrato prima della sostituzione: il watcher puo'
+    // vedere il rename prima che il controllo torni qui, e senza il marcatore
+    // interpreterebbe la scrittura di Studio come una modifica esterna.
     let norm_key = project_path.replace('\\', "/").to_lowercase();
     state.last_studio_writes.lock().insert(norm_key, Instant::now());
 
-    // Rename atomico (su Windows fs::rename sovrascrive se usiamo movefileex o se rimuoviamo con fallback)
-    if let Err(err) = fs::rename(&temp_file, &target_file) {
-        // Fallback per filesystem Windows in cui la destinazione già esiste
-        let _ = fs::remove_file(&target_file);
-        fs::rename(&temp_file, &target_file)
-            .map_err(|e| format!("Errore atomizzazione tasks.json (orig: {}, fallback: {})", err, e))?;
-    }
-
-    Ok(())
+    write_tasks_file(&project_path, &content)
 }
 
 /// Registra un watcher filesystem sulla cartella `.omp` per notificare modifiche esterne a `tasks.json`.
@@ -194,4 +190,92 @@ pub async fn project_tasks_unwatch(
     let norm_key = project_path.replace('\\', "/").to_lowercase();
     state.watchers.lock().remove(&norm_key);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{project_tasks_file, write_tasks_file};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn temp_project(label: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("omp-studio-tasks-{}-{}", label, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Temporanei di `fs_atomic` rimasti nella cartella `.omp`.
+    fn residui(omp_dir: &Path) -> Vec<String> {
+        fs::read_dir(omp_dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect()
+    }
+
+    #[test]
+    fn scrive_la_coda_senza_lasciare_temporanei() {
+        let project = temp_project("scrittura");
+        let project_str = project.to_str().unwrap();
+
+        write_tasks_file(project_str, "{\"tasks\":[]}").unwrap();
+
+        let file = project_tasks_file(project_str);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "{\"tasks\":[]}");
+        assert!(residui(&project.join(".omp")).is_empty());
+
+        // La seconda scrittura sostituisce, non accoda
+        write_tasks_file(project_str, "{\"tasks\":[1]}").unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "{\"tasks\":[1]}");
+        assert!(residui(&project.join(".omp")).is_empty());
+
+        let _ = fs::remove_dir_all(&project);
+    }
+
+    /// S22: se la scrittura non riesce, la coda precedente deve restare
+    /// leggibile. Togliamo il permesso di scrittura a `.omp`: il temporaneo
+    /// non nasce e la destinazione non viene mai toccata.
+    #[cfg(unix)]
+    #[test]
+    fn una_scrittura_fallita_lascia_la_coda_precedente() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let project = temp_project("fallimento");
+        let project_str = project.to_str().unwrap();
+        let omp_dir = project.join(".omp");
+
+        write_tasks_file(project_str, "prima").unwrap();
+
+        let permessi_originali = fs::metadata(&omp_dir).unwrap().permissions();
+        fs::set_permissions(&omp_dir, fs::Permissions::from_mode(0o500)).unwrap();
+
+        // Root ignora i permessi: senza un errore riproducibile non c'e'
+        // niente da verificare, si ripulisce e si esce.
+        let sonda = omp_dir.join("sonda");
+        if fs::write(&sonda, "x").is_ok() {
+            let _ = fs::remove_file(&sonda);
+            fs::set_permissions(&omp_dir, permessi_originali).unwrap();
+            let _ = fs::remove_dir_all(&project);
+            return;
+        }
+
+        let errore = write_tasks_file(project_str, "dopo").unwrap_err();
+
+        assert!(
+            errore.contains("Creazione temp"),
+            "errore inatteso: {}",
+            errore
+        );
+        assert_eq!(
+            fs::read_to_string(omp_dir.join("tasks.json")).unwrap(),
+            "prima"
+        );
+        assert!(residui(&omp_dir).is_empty());
+
+        fs::set_permissions(&omp_dir, permessi_originali).unwrap();
+        let _ = fs::remove_dir_all(&project);
+    }
 }

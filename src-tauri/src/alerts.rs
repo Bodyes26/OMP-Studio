@@ -322,7 +322,7 @@ pub fn init_windows_aumid() {
 #[cfg(not(target_os = "windows"))]
 pub fn init_windows_aumid() {}
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
     #[cfg(target_os = "windows")]

@@ -27,6 +27,8 @@
 		name = "src",
 		isDir = true,
 		level = 0,
+		posInSet = 1,
+		setSize = 1,
 		onFileSelect,
 		onFileDiff,
 		dirtyFilePaths = [],
@@ -38,6 +40,8 @@
 		name?: string,
 		isDir?: boolean,
 		level?: number,
+		posInSet?: number,
+		setSize?: number,
 		onFileSelect?: (path: string) => void,
 		onFileDiff?: (path: string) => void,
 		dirtyFilePaths?: string[],
@@ -82,6 +86,145 @@
 		await loadEntries(true);
 	};
 	setContext('fileTreeRefreshDirCtx', refreshThisDir);
+
+	// Riferimenti DOM del nodo: servono a riportare il focus su questa riga
+	// quando una riga discendente sparisce (chiusura cartella, cestino).
+	let nodeEl = $state<HTMLDivElement | null>(null);
+	let rowEl = $state<HTMLButtonElement | null>(null);
+
+	// Chiavi opache: il prefisso distingue la riga del nodo dalla riga di
+	// errore, cosi due treeitem dello stesso percorso non collidono mai.
+	let rowKey = $derived(`row:${relPath}`);
+	let errorKey = $derived(`err:${relPath}`);
+
+	// Navigazione ad albero: solo la radice possiede lo stato del roving
+	// tabindex e lo condivide con i discendenti, cosi una sola riga per volta
+	// resta nel tab order anche se ogni nodo e' un componente separato.
+	type TreeNav = {
+		isActive: (key: string) => boolean;
+		setActive: (key: string) => void;
+		focusKey: (key: string) => Promise<void>;
+		syncActive: () => Promise<void>;
+	};
+
+	let treeEl = $state<HTMLDivElement | null>(null);
+	let activeKey = $state('row:');
+
+	// Una riga chiusa resta nel DOM per tutta la transizione di slide: va
+	// esclusa dalla navigazione, altrimenti il focus finisce su un nodo morente.
+	function isRowLive(row: HTMLElement): boolean {
+		let group = row.parentElement?.closest('.children') ?? null;
+		while (group) {
+			if (group.previousElementSibling?.getAttribute('aria-expanded') === 'false') return false;
+			group = group.parentElement?.closest('.children') ?? null;
+		}
+		return true;
+	}
+
+	// L'ordine del DOM coincide con l'ordine visivo delle righe aperte:
+	// non serve un registro dei nodi, basta interrogare l'albero renderizzato.
+	function treeRows(): HTMLElement[] {
+		if (!treeEl) return [];
+		return Array.from(treeEl.querySelectorAll<HTMLElement>('[data-tree-key]')).filter(isRowLive);
+	}
+
+	function findRow(key: string): HTMLElement | null {
+		return treeRows().find((row) => row.dataset.treeKey === key) ?? null;
+	}
+
+	function rowLevel(row: HTMLElement): number {
+		return Number(row.getAttribute('aria-level') ?? '1');
+	}
+
+	function focusRow(row: HTMLElement | null | undefined) {
+		if (!row) return;
+		activeKey = row.dataset.treeKey ?? activeKey;
+		row.focus();
+	}
+
+	async function syncActiveRow() {
+		await tick();
+		if (!treeEl || findRow(activeKey)) return;
+		// La riga nel tab order e' sparita (chiusura, cestino, ricarica):
+		// senza questo rientro l'albero resterebbe irraggiungibile con Tab.
+		activeKey = treeRows()[0]?.dataset.treeKey ?? 'row:';
+	}
+
+	const parentNav = getContext<TreeNav | undefined>('fileTreeNavCtx');
+	const nav: TreeNav = parentNav ?? {
+		isActive: (key) => activeKey === key,
+		setActive: (key) => { activeKey = key; },
+		focusKey: async (key) => {
+			await tick();
+			const row = findRow(key);
+			if (!row) {
+				await syncActiveRow();
+				return;
+			}
+			activeKey = key;
+			row.focus();
+		},
+		syncActive: syncActiveRow
+	};
+	if (!parentNav) setContext('fileTreeNavCtx', nav);
+
+	function parentRow(rows: HTMLElement[], index: number): HTMLElement | null {
+		const depth = rowLevel(rows[index]);
+		for (let i = index - 1; i >= 0; i--) {
+			if (rowLevel(rows[i]) < depth) return rows[i];
+		}
+		return null;
+	}
+
+	function handleTreeKeyDown(event: KeyboardEvent) {
+		// Le scorciatoie applicative con modificatori restano di competenza della finestra
+		if (event.altKey || event.ctrlKey || event.metaKey) return;
+		// Gli input inline non sono treeitem: la navigazione non li intercetta
+		const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-tree-key]');
+		if (!target) return;
+		const rows = treeRows();
+		const index = rows.indexOf(target);
+		if (index < 0) return;
+		const expandedAttr = target.getAttribute('aria-expanded');
+
+		switch (event.key) {
+			case 'ArrowDown':
+				event.preventDefault();
+				focusRow(rows[index + 1]);
+				break;
+			case 'ArrowUp':
+				event.preventDefault();
+				focusRow(rows[index - 1]);
+				break;
+			case 'Home':
+				event.preventDefault();
+				focusRow(rows[0]);
+				break;
+			case 'End':
+				event.preventDefault();
+				focusRow(rows[rows.length - 1]);
+				break;
+			case 'ArrowRight':
+				event.preventDefault();
+				if (expandedAttr === 'false') {
+					// Il click passa da toggle(): l'apertura carica i figli su richiesta
+					target.click();
+				} else if (expandedAttr === 'true') {
+					const child = rows[index + 1];
+					// Cartella aperta ma vuota o ancora in caricamento: non si esce dal sottoalbero
+					if (child && rowLevel(child) > rowLevel(target)) focusRow(child);
+				}
+				break;
+			case 'ArrowLeft':
+				event.preventDefault();
+				if (expandedAttr === 'true') {
+					target.click();
+					break;
+				}
+				focusRow(parentRow(rows, index));
+				break;
+		}
+	}
 
 	// Verifica se il file o un discendente ha modifiche non salvate
 	function isDirtyOrHasDirtyChildren(targetRel: string, isDirectory: boolean): boolean {

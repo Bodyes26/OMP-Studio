@@ -6,8 +6,11 @@
 	// 3. Input personalizzato inline per "Altro (scrivi la tua risposta)".
 	// 4. Stepper multi-domanda con navigazione libera (frecce sx/dx, tab) e
 	//    schermata finale di riepilogo prima dell'invio definitivo.
-	// 5. Countdown di scadenza e navigazione accessibile da tastiera.
+	// 5. Countdown di scadenza e navigazione accessibile da tastiera: la lista
+	//    opzioni e' un listbox con figli `option` e roving tabindex, quindi il
+	//    focus reale segue le frecce e un solo elemento entra nel tab order.
 
+	import { tick } from 'svelte';
 	import {
 		IconArrowLeft,
 		IconArrowRight,
@@ -20,7 +23,20 @@
 		IconRename
 	} from '$lib/icons';
 	import type { AgentSession, AskQuestion, AskQuestionOption, PendingAsk } from '../session.svelte';
+	import {
+		cleanOptionLabel,
+		firstUnansweredIndex,
+		formatWizardAnswers,
+		isDoneOption,
+		isOtherOption,
+		isQuestionAnswered,
+		type AnswerableQuestion
+	} from '../askAnswers';
 	let { session, pending } = $props<{ session: AgentSession; pending: PendingAsk }>();
+
+	// Prefisso unico per gli id ARIA: piu' sessioni possono avere una card
+	// aperta insieme e gli id duplicati romperebbero aria-describedby.
+	const uid = $props.id();
 
 	// Struttura normalizzata per ogni domanda del wizard
 	interface WizardOption {
@@ -33,39 +49,16 @@
 		isDoneSentinel: boolean;
 	}
 
-	interface WizardQuestion {
+	interface WizardQuestion extends AnswerableQuestion {
 		id: string;
 		question: string;
 		header?: string;
 		options: WizardOption[];
-		multi: boolean;
 		recommended?: number;
-		selectedOptions: Set<string>;
-		note: string;
 		showNoteInput: boolean;
-		customInput: string;
-		isCustom: boolean;
 		cursorIndex: number;
 	}
 
-	// Parsing helper per label opzioni
-	function isDoneOption(label: string): boolean {
-		const lower = label.toLowerCase();
-		return lower.includes('done selecting') || lower.includes('fine selezione') || label.startsWith('✔');
-	}
-
-	function isOtherOption(label: string): boolean {
-		const lower = label.toLowerCase();
-		return lower === 'other (type your own)' || lower.startsWith('other (') || lower === 'other' || lower === 'altro (scrivi la tua risposta)' || lower === 'altro';
-	}
-
-	function cleanOptionLabel(label: string): string {
-		const recSuffix = ' (Recommended)';
-		if (label.endsWith(recSuffix)) {
-			return label.slice(0, -recSuffix.length);
-		}
-		return label;
-	}
 
 	// Scadenza con countdown
 	let now = $state(Date.now());
@@ -113,6 +106,12 @@
 	let activeStep = $state(0); // 0..questions.length-1 sono le domande, questions.length è il Riepilogo
 	let isReviewStep = $derived(questions.length > 1 && activeStep === questions.length);
 	let currentQuestion = $derived<WizardQuestion | undefined>(questions[activeStep]);
+	/** Vero quando la domanda corrente puo' essere considerata risposta. */
+	const currentAnswered = $derived(
+		currentQuestion ? isQuestionAnswered(currentQuestion) : false
+	);
+	/** Indice della prima domanda incompleta, per il riepilogo e l'invio. */
+	const missingIndex = $derived(firstUnansweredIndex(questions));
 
 	// Inizializzazione o aggiornamento delle domande al cambio di pendingUi
 	$effect(() => {
@@ -170,6 +169,7 @@
 					showNoteInput: false,
 					customInput: '',
 					isCustom: false,
+					touched: false,
 					cursorIndex: typeof recIdx === 'number' && recIdx >= 0 ? recIdx : 0
 				};
 			});
@@ -211,6 +211,7 @@
 					showNoteInput: false,
 					customInput: '',
 					isCustom: false,
+					touched: false,
 					cursorIndex: recIdx >= 0 ? recIdx : 0
 				}
 			];
@@ -250,9 +251,50 @@
 		return currentQuestion.options.filter((o) => !o.isDoneSentinel);
 	});
 
+	/** Nome accessibile dell'opzione: "consigliata" deve stare nel nome, non
+	 * solo nel badge colorato, altrimenti chi non vede il badge la perde. */
+	function optionAccessibleName(opt: WizardOption): string {
+		return opt.isRecommended ? `${opt.cleanLabel}, consigliata` : opt.cleanLabel;
+	}
+
+	// Riferimenti alle opzioni renderizzate: il focus reale deve seguire il
+	// cursore, perche' uno screen reader annuncia solo l'elemento a fuoco.
+	// Svelte azzera la casella quando l'elemento viene distrutto.
+	let optionEls: (HTMLElement | null)[] = [];
+
+	/** Porta cursore e focus reale sull'opzione `index`. Falso se non c'e'. */
+	function focusOption(index: number): boolean {
+		if (!currentQuestion) return false;
+		const total = visibleOptions.length;
+		if (total === 0) return false;
+		const clamped = Math.min(Math.max(index, 0), total - 1);
+		currentQuestion.cursorIndex = clamped;
+		const el = optionEls[clamped];
+		if (!el?.isConnected) return false;
+		el.focus();
+		return true;
+	}
+
+	/** Frecce su/giu': scorrimento circolare come nelle altre liste dell'app. */
+	function moveCursor(delta: number) {
+		if (!currentQuestion) return;
+		const total = visibleOptions.length;
+		if (total === 0) return;
+		focusOption((currentQuestion.cursorIndex + delta + total) % total);
+	}
+
+	/** Selezione dall'indice: usata sia dal click sia dalla barra spaziatrice. */
+	function selectAt(index: number) {
+		const opt = visibleOptions[index];
+		if (!opt) return;
+		focusOption(index);
+		toggleOption(opt);
+	}
+
 	// Gestione selezione opzioni
 	function toggleOption(opt: WizardOption) {
 		if (!currentQuestion) return;
+		currentQuestion.touched = true;
 
 		if (opt.isOther) {
 			currentQuestion.isCustom = true;
@@ -276,6 +318,7 @@
 
 	function toggleNoteInput() {
 		if (!currentQuestion) return;
+		currentQuestion.touched = true;
 		currentQuestion.showNoteInput = !currentQuestion.showNoteInput;
 		if (currentQuestion.showNoteInput) {
 			setTimeout(() => noteInputEl?.focus(), 50);
@@ -283,17 +326,25 @@
 	}
 
 	// Navigazione tra le domande
-	function goToStep(stepIndex: number) {
+	async function goToStep(stepIndex: number) {
 		if (stepIndex < 0 || stepIndex > questions.length) return;
 		activeStep = stepIndex;
 		if (currentQuestion && currentQuestion.cursorIndex >= visibleOptions.length) {
 			currentQuestion.cursorIndex = 0;
 		}
+		// Le opzioni del passo precedente vengono distrutte: senza riportare il
+		// focus dentro la card le scorciatoie da tastiera smetterebbero di
+		// funzionare, perche' il gestore ascolta solo il focus interno.
+		await tick();
+		if (!focusOption(currentQuestion?.cursorIndex ?? 0)) cardEl?.focus();
 	}
 
 	function nextStep() {
+		// Avanzare senza risposta significherebbe inviarne una inventata al
+		// posto dell'utente: il passo resta dov'e'.
+		if (!isReviewStep && !currentAnswered) return;
 		if (activeStep < questions.length) {
-			goToStep(activeStep + 1);
+			void goToStep(activeStep + 1);
 		} else {
 			void submitAllAnswers();
 		}
@@ -301,69 +352,27 @@
 
 	function prevStep() {
 		if (activeStep > 0) {
-			goToStep(activeStep - 1);
+			void goToStep(activeStep - 1);
 		}
 	}
 
-	// Costruzione della risposta formattata per singola domanda
-	function formatQuestionAnswer(q: WizardQuestion): string[] {
-		if (q.isCustom && q.customInput.trim()) {
-			const custom = q.customInput.trim();
-			if (q.note.trim()) {
-				return [`${custom} (nota: ${q.note.trim()})`];
-			}
-			return [custom];
-		}
-
-		const selected = Array.from(q.selectedOptions);
-		if (q.multi) {
-			const result: string[] = [];
-			for (const optLabel of selected) {
-				const matching = q.options.find((o) => o.cleanLabel === optLabel);
-				result.push(matching ? matching.label : optLabel);
-			}
-			// Se è stata allegata una nota, la inviamo come informazione
-			if (q.note.trim()) {
-				result.push(`(nota: ${q.note.trim()})`);
-			}
-			const doneOpt = q.options.find((o) => o.isDoneSentinel)?.label ?? '✔ Done selecting';
-			result.push(doneOpt);
-			return result;
-		}
-
-		const chosenLabel = selected[0] ?? (q.options.find((o) => !o.isOther)?.cleanLabel || '');
-		const matching = q.options.find((o) => o.cleanLabel === chosenLabel);
-		const baseLabel = matching ? matching.label : chosenLabel;
-
-		if (q.note.trim()) {
-			return [`${cleanOptionLabel(baseLabel)} (nota: ${q.note.trim()})`];
-		}
-		return [baseLabel];
-	}
-
-	// Invio definitivo di tutte le risposte
+	/** Invio definitivo: solo con tutte le risposte davvero compilate. */
 	async function submitAllAnswers() {
 		if (submitting) return;
+		const responses = formatWizardAnswers(questions);
+		if (!responses) {
+			// Porta l'utente sulla domanda che manca, invece di inviare a meta'.
+			if (missingIndex >= 0) goToStep(missingIndex);
+			return;
+		}
+
 		submitting = true;
 		try {
 			if (questions.length === 1 && !pending.questions) {
-				// Richiesta singola immediata
-				const q = questions[0];
-				if (q) {
-					if (q.isCustom && q.customInput.trim()) {
-						await session.answerSelect(q.customInput.trim());
-					} else {
-						const formatted = formatQuestionAnswer(q);
-						await session.answerSelect(formatted[0] || 'Approve');
-					}
-				}
+				// Richiesta singola immediata: una sola riga di risposta.
+				await session.answerSelect(responses[0]);
 			} else {
-				// Wizard multi-domanda completo
-				const allResponses: string[] = [];
-				for (const q of questions) {
-					allResponses.push(...formatQuestionAnswer(q));
-				}
-				await session.submitAskWizard(allResponses);
+				await session.submitAskWizard(responses);
 			}
 		} finally {
 			submitting = false;
@@ -436,48 +445,51 @@
 			return;
 		}
 
-		// Navigazione verticale opzioni (↑ / ↓)
+		// Navigazione verticale opzioni (↑ / ↓): sposta anche il focus reale.
 		if (e.key === 'ArrowUp' && currentQuestion) {
 			e.preventDefault();
-			const opts = visibleOptions;
-			if (opts.length > 0) {
-				currentQuestion.cursorIndex = (currentQuestion.cursorIndex - 1 + opts.length) % opts.length;
-			}
+			moveCursor(-1);
 			return;
 		}
 		if (e.key === 'ArrowDown' && currentQuestion) {
 			e.preventDefault();
-			const opts = visibleOptions;
-			if (opts.length > 0) {
-				currentQuestion.cursorIndex = (currentQuestion.cursorIndex + 1) % opts.length;
-			}
+			moveCursor(1);
 			return;
 		}
 
-		// Spazio: toggle selezione opzione evidenziata
+		// Home / End: prima e ultima opzione dell'elenco.
+		if (e.key === 'Home' && currentQuestion) {
+			e.preventDefault();
+			focusOption(0);
+			return;
+		}
+		if (e.key === 'End' && currentQuestion) {
+			e.preventDefault();
+			focusOption(visibleOptions.length - 1);
+			return;
+		}
+
+		// Spazio: seleziona o spunta l'opzione a fuoco.
 		if (e.key === ' ' && currentQuestion) {
 			e.preventDefault();
-			const opt = visibleOptions[currentQuestion.cursorIndex];
-			if (opt) toggleOption(opt);
+			selectAt(currentQuestion.cursorIndex);
 			return;
 		}
 
-		// Invio: avanza o conferma
+		// Invio: conferma la domanda singola oppure avanza nel wizard.
 		if (e.key === 'Enter') {
 			e.preventDefault();
+			// Senza selezione vale l'opzione a fuoco: e' quella che l'utente sta
+			// leggendo, non un ripiego scelto dal codice.
+			const needsCursorPick =
+				!!currentQuestion && currentQuestion.selectedOptions.size === 0 && !currentQuestion.isCustom;
 			if (isReviewStep || (questions.length === 1 && !currentQuestion?.multi)) {
-				// Se è una domanda singola non multipla e non ha ancora selezionato nulla ma c'è un cursore
-				if (questions.length === 1 && currentQuestion && currentQuestion.selectedOptions.size === 0 && !currentQuestion.isCustom) {
-					const opt = visibleOptions[currentQuestion.cursorIndex];
-					if (opt) toggleOption(opt);
+				if (questions.length === 1 && needsCursorPick && currentQuestion) {
+					selectAt(currentQuestion.cursorIndex);
 				}
 				void submitAllAnswers();
 			} else {
-				// Avanza alla prossima domanda
-				if (currentQuestion && currentQuestion.selectedOptions.size === 0 && !currentQuestion.isCustom) {
-					const opt = visibleOptions[currentQuestion.cursorIndex];
-					if (opt) toggleOption(opt);
-				}
+				if (needsCursorPick && currentQuestion) selectAt(currentQuestion.cursorIndex);
 				nextStep();
 			}
 		}
@@ -498,17 +510,19 @@
 		{#if questions.length > 1}
 			<nav class="stepper-bar" aria-label="Passaggi domande">
 				{#each questions as q, idx}
-					{@const isAnswered = q.selectedOptions.size > 0 || (q.isCustom && q.customInput.trim().length > 0)}
+					{@const isAnswered = isQuestionAnswered(q)}
 					{@const isCurrent = activeStep === idx}
 					<button
 						type="button"
 						class="step-pill"
 						class:active={isCurrent}
 						class:answered={isAnswered}
-						onclick={() => goToStep(idx)}
+						onclick={() => void goToStep(idx)}
 						title={q.question}
+						aria-current={isCurrent ? 'step' : undefined}
+						aria-label={`Domanda ${idx + 1} di ${questions.length}: ${q.header || q.question}, ${isAnswered ? 'completata' : 'ancora senza risposta'}`}
 					>
-						<span class="step-badge">
+						<span class="step-badge" aria-hidden="true">
 							{#if isAnswered && !isCurrent}
 								<IconCheck />
 							{:else}
@@ -516,15 +530,24 @@
 							{/if}
 						</span>
 						<span class="step-label">{q.header || `Domanda ${idx + 1}`}</span>
+						<!-- Lo stato non puo' vivere solo nell'icona: qui resta anche
+						     come testo per chi legge la pillola a schermo. -->
+						<span class="step-state" class:missing={!isAnswered}>
+							{isAnswered ? 'ok' : 'da fare'}
+						</span>
 					</button>
 				{/each}
 				<button
 					type="button"
 					class="step-pill review-pill"
 					class:active={isReviewStep}
-					onclick={() => goToStep(questions.length)}
+					onclick={() => void goToStep(questions.length)}
+					aria-current={isReviewStep ? 'step' : undefined}
+					aria-label={missingIndex === -1
+						? 'Riepilogo, tutte le risposte compilate'
+						: `Riepilogo, manca la risposta alla domanda ${missingIndex + 1}`}
 				>
-					<span class="step-badge">★</span>
+					<span class="step-badge" aria-hidden="true">★</span>
 					<span class="step-label">Riepilogo</span>
 				</button>
 			</nav>
@@ -534,7 +557,7 @@
 			{#if parsedTitle.counter && questions.length <= 1}
 				<span class="counter-badge">{parsedTitle.counter}</span>
 			{/if}
-			<h3 class="title-text">
+			<h3 class="title-text" id={`${uid}-question`}>
 				{#if isReviewStep}
 					Riepilogo delle risposte
 				{:else if currentQuestion}
@@ -569,8 +592,9 @@
 									<button
 										type="button"
 										class="btn-edit-step"
-										onclick={() => goToStep(idx)}
+										onclick={() => void goToStep(idx)}
 										title="Modifica questa risposta"
+										aria-label={`Modifica la risposta alla domanda ${idx + 1}`}
 									>
 										<IconRename /> Modifica
 									</button>
@@ -584,8 +608,10 @@
 												<span class="answer-tag">{sel}</span>
 											{/each}
 										</div>
+									{:else if isQuestionAnswered(q)}
+										<span class="answer-text">Nessuna opzione: risposta "nessuna"</span>
 									{:else}
-										<span class="answer-empty">Nessuna opzione scelta (verrà usato il default)</span>
+										<span class="answer-empty">Risposta mancante: apri la domanda e scegli</span>
 									{/if}
 									{#if q.note.trim()}
 										<div class="review-note">
@@ -597,6 +623,15 @@
 							</div>
 						{/each}
 					</div>
+
+					{#if missingIndex !== -1}
+						<!-- L'invio e' bloccato: il perche' va detto a parole, non solo
+						     col pulsante disabilitato. -->
+						<p class="review-warning" role="status">
+							Manca la risposta alla domanda {missingIndex + 1}: aprila e scegli
+							un'opzione prima di inviare.
+						</p>
+					{/if}
 
 					<div class="actions review-actions">
 						<button
@@ -618,9 +653,11 @@
 						<button
 							type="button"
 							class="btn-submit"
-							disabled={submitting}
+							disabled={submitting || missingIndex !== -1}
 							onclick={() => void submitAllAnswers()}
-							title="Invia tutte le risposte (Enter)"
+							title={missingIndex === -1
+								? 'Invia tutte le risposte (Enter)'
+								: `Manca la risposta alla domanda ${missingIndex + 1}`}
 						>
 							<IconCheck /> Invia tutte le risposte <span class="kbd">↵</span>
 						</button>
@@ -636,18 +673,43 @@
 						</div>
 					{/if}
 
-					<div class="options-list" role="listbox">
+					<div
+						class="options-list"
+						role="listbox"
+						aria-labelledby={`${uid}-question`}
+						aria-multiselectable={currentQuestion.multi}
+					>
 						{#each visibleOptions as opt, i}
 							{@const isSelected = currentQuestion.isCustom ? opt.isOther : currentQuestion.selectedOptions.has(opt.cleanLabel)}
 							{@const isFocused = currentQuestion.cursorIndex === i}
+							<!-- I figli di un listbox devono essere `option`, e un `option`
+							     non puo' contenere controlli: nota e testo libero stanno
+							     percio' sotto l'elenco, non dentro l'opzione. Roving
+							     tabindex: solo l'opzione a fuoco entra nel tab order. -->
 							<div
+								bind:this={optionEls[i]}
+								id={`${uid}-opt-${i}`}
 								class="option-card"
 								class:selected={isSelected}
 								class:focused={isFocused}
-								role="button"
-								tabindex="0"
-								onclick={() => toggleOption(opt)}
-								onkeydown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleOption(opt); } }}
+								role="option"
+								aria-selected={isSelected}
+								aria-label={optionAccessibleName(opt)}
+								aria-describedby={opt.description ? `${uid}-opt-${i}-desc` : undefined}
+								tabindex={isFocused ? 0 : -1}
+								onclick={() => selectAt(i)}
+								onfocus={() => {
+									if (currentQuestion) currentQuestion.cursorIndex = i;
+								}}
+								onkeydown={(e) => {
+									// Lo spazio si ferma qui: il gestore della card agisce
+									// sullo stesso indice e annullerebbe subito la spunta.
+									if (e.key === ' ') {
+										e.preventDefault();
+										e.stopPropagation();
+										selectAt(i);
+									}
+								}}
 							>
 								<div class="option-header">
 									<span class="selection-icon" aria-hidden="true">
@@ -674,47 +736,48 @@
 											{/if}
 										</span>
 										{#if opt.description}
-											<span class="option-desc">{opt.description}</span>
+											<span class="option-desc" id={`${uid}-opt-${i}-desc`}>
+												{opt.description}
+											</span>
 										{/if}
 									</div>
-
-									{#if isSelected && !opt.isOther}
-										<button
-											type="button"
-											class="btn-note-toggle"
-											class:has-note={currentQuestion.note.trim().length > 0}
-											onclick={(e) => {
-												e.stopPropagation();
-												toggleNoteInput();
-											}}
-											title="Aggiungi una nota a questa risposta (N)"
-										>
-											<IconNote />
-											{#if currentQuestion.note.trim().length > 0}
-												Modifica nota
-											{:else}
-												Aggiungi nota
-											{/if}
-										</button>
-									{/if}
 								</div>
-
-								{#if opt.isOther && currentQuestion.isCustom}
-									<!-- Textarea Inline per Altro / Risposta personalizzata -->
-									<div class="custom-input-box">
-										<textarea
-											class="custom-textarea"
-											placeholder="Scrivi qui la tua risposta personalizzata..."
-											bind:value={currentQuestion.customInput}
-											bind:this={customTextareaEl}
-											rows="2"
-											onclick={(e) => e.stopPropagation()}
-										></textarea>
-									</div>
-								{/if}
 							</div>
 						{/each}
 					</div>
+
+					{#if currentQuestion.isCustom}
+						<!-- Testo libero dell'opzione "Altro": fuori dall'elenco, cosi'
+						     resta un campo raggiungibile con Tab e con etichetta propria. -->
+						<div class="custom-input-box">
+							<label class="custom-label" for={`${uid}-custom`}>
+								La tua risposta personalizzata
+							</label>
+							<textarea
+								id={`${uid}-custom`}
+								class="custom-textarea"
+								placeholder="Scrivi qui la tua risposta personalizzata..."
+								bind:value={currentQuestion.customInput}
+								bind:this={customTextareaEl}
+								rows="2"
+							></textarea>
+						</div>
+					{/if}
+
+					{#if !currentQuestion.showNoteInput &&
+						!currentQuestion.note.trim() &&
+						(currentQuestion.selectedOptions.size > 0 || currentQuestion.isCustom)}
+						<div class="note-actions">
+							<button
+								type="button"
+								class="btn-note-toggle"
+								onclick={() => toggleNoteInput()}
+								title="Aggiungi una nota alla risposta (N)"
+							>
+								<IconNote /> Aggiungi nota <span class="kbd">N</span>
+							</button>
+						</div>
+					{/if}
 
 					<!-- Campo Nota Espandibile -->
 					{#if currentQuestion.showNoteInput}
@@ -792,8 +855,11 @@
 								<button
 									type="button"
 									class="btn-submit"
+									disabled={!currentAnswered}
 									onclick={() => nextStep()}
-									title="Domanda successiva o riepilogo (Enter / →)"
+									title={currentAnswered
+										? 'Domanda successiva o riepilogo (Enter / →)'
+										: 'Scegli una risposta per continuare'}
 								>
 									{#if activeStep === questions.length - 1}
 										Riepilogo <IconArrowRight />
@@ -805,9 +871,11 @@
 								<button
 									type="button"
 									class="btn-submit"
-									disabled={submitting}
+									disabled={submitting || !currentAnswered}
 									onclick={() => void submitAllAnswers()}
-									title="Invia risposta (Enter)"
+									title={currentAnswered
+										? 'Invia risposta (Enter)'
+										: 'Scegli una risposta o scrivine una in "Altro"'}
 								>
 									Conferma <span class="kbd">↵</span>
 								</button>
@@ -1197,12 +1265,6 @@
 		border-color: var(--brand);
 	}
 
-	.btn-note-toggle.has-note {
-		border-style: solid;
-		border-color: var(--accent);
-		color: var(--accent);
-		background: var(--accent-subtle, rgba(59, 130, 246, 0.08));
-	}
 
 	/* Textarea per opzione "Altro" */
 	.custom-input-box {
