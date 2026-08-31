@@ -18,6 +18,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Changed
 
+- Ottimizzati i tempi di compilazione e pubblicazione: adozione di Thin LTO e generazione di codice parallela nel profilo Rust release, eliminazione dei chunk ridondanti nella build Vite frontend e introduzione della cache delle dipendenze Rust (rust-cache) nei workflow GitHub Actions, riducendo drasticamente i tempi di build locali e cloud.
 - Rimossa la barra di evidenziazione sinistra e il testo in grassetto sulla voce di sezione attiva nella colonna sinistra della finestra Impostazioni, per una navigazione più pulita e uniforme.
 - Spostata la selezione del tema dalla barra superiore (TopBar) alla nuova sezione dedicata nelle Impostazioni, rimuovendo il badge e il popover galleggiante per una barra più pulita ed essenziale.
 - I controlli di scelta singola (radio button) in tutta l'applicazione sono stati ridisegnati con uno stile personalizzato coerente con il tema attivo (anello reattivo e punto interno centrato nel colore del brand), rinnovando il selettore del canale aggiornamenti (nelle impostazioni generali e nel dialogo di aggiornamento dalla barra inferiore, con schede dedicate e badge «Consigliato»/«Anteprima») e le opzioni di ordinamento della barra dei progetti.

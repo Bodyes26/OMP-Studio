@@ -16,9 +16,6 @@ export default defineConfig(({ isSsrBuild }) => ({
         : {
             manualChunks(id) {
               if (id.includes('node_modules')) {
-                if (id.includes('monaco-editor')) {
-                  return 'vendor-monaco';
-                }
                 if (id.includes('@xterm')) {
                   return 'vendor-xterm';
                 }

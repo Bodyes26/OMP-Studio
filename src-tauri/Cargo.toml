@@ -57,9 +57,9 @@ windows-sys = { version = "0.59", features = [
 ] }
 
 [profile.release]
-# Ottimizzazione per dimensione del binario finale ed esecuzione (LTO completa)
+# Ottimizzazione per dimensione ed esecuzione rapida con LTO parallela (Thin LTO)
 opt-level = "s"
-lto = true
-codegen-units = 1
+lto = "thin"
+codegen-units = 16
 panic = "abort"
 strip = true

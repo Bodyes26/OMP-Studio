@@ -41,7 +41,7 @@ jobs:
 
       - name: Imposta la versione nightly temporanea
         shell: bash
-        run: node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s%3N)"
+        run: node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s)"
 
       - name: Installa Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -55,6 +55,11 @@ jobs:
       - name: Installa i target macOS universal
         if: runner.os == 'macOS'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache delle dipendenze Rust
+        uses: swatinem/rust-cache@82a92a6e8fbeee08c6c4d4b1204d5517777f43f1 # v2
+        with:
+          workspaces: "src-tauri -> target"
 
       - name: Installa le dipendenze
         run: bun install --frozen-lockfile
@@ -90,7 +95,7 @@ jobs:
       - name: Calcola la versione nightly
         id: nightly
         shell: bash
-        run: echo "version=$(node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s%3N)")" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s)")" >> "$GITHUB_OUTPUT"
 
       - name: Scarica tutti gli installer
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
