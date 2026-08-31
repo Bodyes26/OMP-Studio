@@ -9,14 +9,24 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+
+- Direttive e modalità del task completamente personalizzabili: nuova libreria in «Impostazioni → Task & Agenti» per creare, modificare, riordinare, nascondere o ripristinare le modalità di prompt (inclusi i preset Piano, Discussione, Minimale e Ricerca), impostandone il posizionamento prima o dopo il testo principale.
+- Assistente AI per le direttive: generazione guidata di nuove modalità da una descrizione in linguaggio naturale, miglioramento e affinamento del prompt con anteprima delle modifiche e analisi su richiesta delle ricorrenze nei prompt recenti del progetto per suggerire nuove direttive utili.
+- Snapshot deterministici e aggiornamento controllato: ogni task in coda congela la versione esatta delle direttive al momento della creazione, con avviso visivo e pulsante «Aggiorna» quando la libreria contiene una versione più recente.
+- Nuova sezione «Aspetto» nel modale Impostazioni con galleria visiva a griglia di tutti i temi disponibili (scuri e chiari), ricerca in tempo reale, anteprima grafica con campioni di colore (sfondo, accento, testo) e indicatore del tema attivo con applicazione immediata.
+
 ### Changed
 
 - Rimossa la barra di evidenziazione sinistra e il testo in grassetto sulla voce di sezione attiva nella colonna sinistra della finestra Impostazioni, per una navigazione più pulita e uniforme.
+- Spostata la selezione del tema dalla barra superiore (TopBar) alla nuova sezione dedicata nelle Impostazioni, rimuovendo il badge e il popover galleggiante per una barra più pulita ed essenziale.
 - I controlli di scelta singola (radio button) in tutta l'applicazione sono stati ridisegnati con uno stile personalizzato coerente con il tema attivo (anello reattivo e punto interno centrato nel colore del brand), rinnovando il selettore del canale aggiornamenti (nelle impostazioni generali e nel dialogo di aggiornamento dalla barra inferiore, con schede dedicate e badge «Consigliato»/«Anteprima») e le opzioni di ordinamento della barra dei progetti.
 - Semplificata la descrizione dell'opzione di ordinamento «Ultimo aperto» nelle impostazioni della barra progetti, rimuovendo il prefisso ridondante «Comportamento storico:».
 
 ### Fixed
 
+- Ripristinato il funzionamento del comando slash `/compact` e `/handoff` dalla chat grafica: risolto il blocco della palette comandi all'invio, aggiunto il feedback visivo di compattazione in corso con riga animata, aggiornamento immediato del transcript e del conteggio token al termine, e messaggi di avviso chiari quando la cronologia è troppo breve.
+- Dialogo aggiornamenti compatto per il canale Nightly: abbreviata la nomenclatura dei build ID e resa reattiva la visualizzazione delle versioni nel modale di aggiornamento, evitando lo scorrimento orizzontale.
 - Le domande dell'agente (`ask`) tornano a rispondere ai clic: cambiare opzione dopo la prima scelta non aveva più effetto, la spunta restava sull'opzione iniziale e l'agente riceveva una risposta diversa da quella scelta.
 - Le frecce `Su`/`Giù` nelle domande a scelta singola spostano la risposta e non solo l'anello di fuoco: prima si poteva scorrere fino all'opzione desiderata e confermare, mentre all'agente veniva inviata l'opzione consigliata.
 - Nelle sequenze di più domande la card mostra la domanda che l'agente sta effettivamente chiedendo, con «Domanda 2 di 3» e il pulsante `Avanti` al posto di `Conferma`: prima la prima domanda veniva riproposta una seconda volta e le risposte finivano sfalsate di una posizione.

@@ -22,7 +22,7 @@
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
-	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
+	import { studioUpdaterStore, formatVersion } from '$lib/stores/studioUpdater.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
@@ -661,17 +661,11 @@
 
 		// --- comandi con una RPC corrispondente -------------------------------
 		if (lowerCmd === '/compact') {
-			void runSessionCommand(session, 'Compattazione richiesta', {
-				type: 'compact',
-				customInstructions: argument || undefined
-			});
+			void session.compact(argument || undefined);
 			return true;
 		}
 		if (lowerCmd === '/handoff') {
-			void runSessionCommand(session, 'Handoff richiesto', {
-				type: 'handoff',
-				customInstructions: argument || undefined
-			});
+			void session.handoff(argument || undefined);
 			return true;
 		}
 		if (lowerCmd === '/thinking' || lowerCmd === '/reasoning') {
@@ -1533,10 +1527,10 @@
 						studioUpdaterStore.checkUpdate(true);
 					}
 				}}
-				title="Clicca per verificare aggiornamenti OMP Studio"
+				title={studioUpdaterStore.currentVersion ? `OMP Studio v${studioUpdaterStore.currentVersion} — Clicca per verificare aggiornamenti` : 'Clicca per verificare aggiornamenti OMP Studio'}
 				aria-label="Verifica aggiornamenti OMP Studio"
 			>
-				{studioUpdaterStore.currentVersion ? `Studio v${studioUpdaterStore.currentVersion}` : 'Studio'}
+				{studioUpdaterStore.currentVersion ? `Studio ${formatVersion(studioUpdaterStore.currentVersion, { prefix: true, compact: true })}` : 'Studio'}
 				{#if studioUpdaterStore.updateBadge}
 					<span 
 						class="update-chip" 

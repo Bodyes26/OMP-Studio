@@ -16,6 +16,7 @@ import {
 	shouldOpenSlashPaletteAtCursor,
 	insertSlashCommandAtCursor
 } from '../src/lib/agent/commands.ts';
+import { formatTokens } from '../src/lib/utils/format.ts';
 
 describe('Wire OMP e comandi', () => {
 	describe('parseWireEvent e validazione eventi', () => {
@@ -128,6 +129,19 @@ describe('Wire OMP e comandi', () => {
 			assert.equal(parsed.type, 'set_thinking_level');
 			assert.equal(parsed.level, 'high');
 		});
+
+		it('serializza comandi compact e handoff con istruzioni opzionali', () => {
+			const compactCmd: RpcCommand = { type: 'compact', customInstructions: 'mantieni i todo' };
+			const parsedCompact = JSON.parse(formatWireCommand(compactCmd, 'c1'));
+			assert.equal(parsedCompact.id, 'c1');
+			assert.equal(parsedCompact.type, 'compact');
+			assert.equal(parsedCompact.customInstructions, 'mantieni i todo');
+
+			const handoffCmd: RpcCommand = { type: 'handoff' };
+			const parsedHandoff = JSON.parse(formatWireCommand(handoffCmd, 'h1'));
+			assert.equal(parsedHandoff.id, 'h1');
+			assert.equal(parsedHandoff.type, 'handoff');
+		});
 	});
 
 	describe('Comandi slash e cataloghi', () => {
@@ -220,6 +234,29 @@ describe('Wire OMP e comandi', () => {
 				assert.equal(res.newText, 'Prima /thinking  dopo');
 				assert.equal(res.newCursorPos, 16);
 			});
+		});
+	});
+
+	describe('Formattazione token (formatTokens)', () => {
+		it('formatta numeri piccoli come stringa', () => {
+			assert.equal(formatTokens(0), '0');
+			assert.equal(formatTokens(450), '450');
+			assert.equal(formatTokens(999), '999');
+		});
+
+		it('formatta migliaia con suffisso k', () => {
+			assert.equal(formatTokens(1000), '1.0k');
+			assert.equal(formatTokens(28877), '28.9k');
+			assert.equal(formatTokens(25092), '25.1k');
+		});
+
+		it('formatta milioni con suffisso M', () => {
+			assert.equal(formatTokens(1000000), '1.0M');
+			assert.equal(formatTokens(2500000), '2.5M');
+		});
+
+		it('gestisce valori null o undefined', () => {
+			assert.equal(formatTokens(undefined), '0');
 		});
 	});
 });

@@ -175,8 +175,13 @@ export interface AgentMessage {
 	isError?: boolean;
 	synthetic?: boolean;
 	steering?: boolean;
+	/** Presente sui messaggi `compactionSummary`. */
+	summary?: string;
+	shortSummary?: string;
+	tokensBefore?: number;
+	tokensAfter?: number;
+	method?: string;
 }
-
 /**
  * Statistiche di sessione, verificate su omp 17.2.1: `cost` e' un numero al
  * primo livello. Le chiavi restano opzionali perche' cambiano per versione e

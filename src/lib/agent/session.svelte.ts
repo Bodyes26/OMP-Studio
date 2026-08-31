@@ -1,4 +1,5 @@
 import { attachEditorContext } from '$lib/editor/editorContext';
+import { formatTokens } from '$lib/utils/format';
 // Stato della superficie GUI: un'istanza per progetto.
 //
 // Il riduttore e' esplicito e volutamente noioso: ogni frame del protocollo
@@ -86,6 +87,10 @@ export interface CompactionEntry {
 	kind: 'compaction';
 	message: string;
 	running: boolean;
+	summary?: string;
+	shortSummary?: string;
+	tokensBefore?: number;
+	tokensAfter?: number;
 }
 
 export interface RetryEntry {
@@ -526,6 +531,30 @@ export class AgentSession {
 		this.toolEntries.clear();
 
 		for (const message of messages) {
+			if (message.role === 'compactionSummary' || (typeof message.summary === 'string' && !message.role)) {
+				let msg = 'Contesto compattato';
+				if (typeof message.tokensBefore === 'number' && typeof message.tokensAfter === 'number') {
+					const saved = message.tokensBefore - message.tokensAfter;
+					if (saved > 0) {
+						msg = `Contesto compattato (${formatTokens(message.tokensBefore)} → ${formatTokens(message.tokensAfter)} token, -${formatTokens(saved)})`;
+					} else {
+						msg = `Contesto compattato (${formatTokens(message.tokensAfter)} token)`;
+					}
+				} else if (message.shortSummary) {
+					msg = `Contesto compattato: ${message.shortSummary}`;
+				}
+				entries.push({
+					id: this.nextEntryId++,
+					kind: 'compaction',
+					message: msg,
+					running: false,
+					summary: message.summary,
+					shortSummary: message.shortSummary,
+					tokensBefore: message.tokensBefore,
+					tokensAfter: message.tokensAfter
+				});
+				continue;
+			}
 			if (message.role === 'user') {
 				entries.push({
 					id: this.nextEntryId++,
@@ -842,6 +871,8 @@ export class AgentSession {
 					this.agentState = this.pendingUi ? 'attention' : 'idle';
 				}
 				void this.refreshState();
+				void this.rebuildTranscript();
+				void this.refreshCost();
 				return;
 			}
 
@@ -1631,6 +1662,116 @@ export class AgentSession {
 		this.visibleCount = RENDER_WINDOW;
 		await this.refreshState();
 		return this.sessionId;
+	}
+
+	/** Compatta la cronologia e il contesto della sessione attiva. */
+	async compact(customInstructions?: string): Promise<boolean> {
+		if (this.isCompacting) return false;
+		this.isCompacting = true;
+		const entryId = this.nextEntryId++;
+		const entry = this.push<CompactionEntry>({
+			id: entryId,
+			kind: 'compaction',
+			message: 'Compattazione del contesto in corso...',
+			running: true
+		});
+
+		try {
+			const res = await this.client.send<{
+				summary?: string;
+				shortSummary?: string;
+				tokensBefore?: number;
+				tokensAfter?: number;
+				firstKeptEntryId?: string;
+			}>({
+				type: 'compact',
+				customInstructions: customInstructions || undefined
+			});
+
+			entry.running = false;
+			let msg = 'Contesto compattato';
+			if (typeof res?.tokensBefore === 'number' && typeof res?.tokensAfter === 'number') {
+				const saved = res.tokensBefore - res.tokensAfter;
+				if (saved > 0) {
+					msg = `Contesto compattato (${formatTokens(res.tokensBefore)} → ${formatTokens(res.tokensAfter)} token, -${formatTokens(saved)})`;
+				} else {
+					msg = `Contesto compattato (${formatTokens(res.tokensAfter)} token)`;
+				}
+			} else if (res?.shortSummary) {
+				msg = `Contesto compattato: ${res.shortSummary}`;
+			}
+			entry.message = msg;
+			if (res?.summary) entry.summary = res.summary;
+			if (res?.shortSummary) entry.shortSummary = res.shortSummary;
+			if (typeof res?.tokensBefore === 'number') entry.tokensBefore = res.tokensBefore;
+			if (typeof res?.tokensAfter === 'number') entry.tokensAfter = res.tokensAfter;
+
+			await this.rebuildTranscript();
+			await this.refreshState();
+			void this.refreshCost();
+			this.pushNotice('info', 'Compattazione del contesto completata con successo.', 'studio');
+			return true;
+		} catch (error) {
+			const idx = this.entries.findIndex((e) => e.id === entryId);
+			if (idx !== -1) {
+				this.entries.splice(idx, 1);
+			}
+			const errStr = error instanceof Error ? error.message : String(error);
+			if (errStr.includes('Nothing to compact') || errStr.includes('session too small') || errStr.includes('no messages')) {
+				this.pushNotice('info', 'Nessun contenuto da compattare: la sessione è troppo breve o non ha abbastanza contesto.', 'studio');
+			} else {
+				this.pushNotice('error', `Compattazione non riuscita: ${this.reason(error)}`, 'studio');
+			}
+			return false;
+		} finally {
+			this.isCompacting = false;
+			if (!this.isStreaming) {
+				this.agentState = this.pendingUi ? 'attention' : 'idle';
+			}
+		}
+	}
+
+	/** Esegue l'handoff della sessione, avviandone una nuova con il riassunto della precedente. */
+	async handoff(customInstructions?: string): Promise<boolean> {
+		if (this.isCompacting) return false;
+		this.isCompacting = true;
+		this.pushNotice('info', 'Passaggio delle consegne (handoff) in corso...', 'studio');
+
+		try {
+			await this.client.send({
+				type: 'handoff',
+				customInstructions: customInstructions || undefined
+			});
+
+			this.entries = [];
+			this.toolEntries.clear();
+			this.assistantEntry = null;
+			this.activeAssistantId = null;
+			this.optimisticUser = null;
+			this.subagents = [];
+			this.todoPhases = [];
+			this.queued = [];
+			this.visibleCount = RENDER_WINDOW;
+
+			await this.rebuildTranscript();
+			await this.refreshState();
+			void this.refreshCost();
+			this.pushNotice('info', 'Handoff completato: nuova sessione avviata con il riassunto della precedente.', 'studio');
+			return true;
+		} catch (error) {
+			const errStr = error instanceof Error ? error.message : String(error);
+			if (errStr.includes('Nothing to hand off') || errStr.includes('no messages')) {
+				this.pushNotice('info', 'Nessun contenuto per l’handoff: la sessione corrente non contiene messaggi.', 'studio');
+			} else {
+				this.pushNotice('error', `Handoff non riuscito: ${this.reason(error)}`, 'studio');
+			}
+			return false;
+		} finally {
+			this.isCompacting = false;
+			if (!this.isStreaming) {
+				this.agentState = this.pendingUi ? 'attention' : 'idle';
+			}
+		}
 	}
 
 	/** Riallinea i chip locali al conteggio autorevole del server. */

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { formatTokens } from '$lib/utils/format';
 	// Superficie di inserimento comandi e prompt per l'agente.
 	//
 	// Gestisce l'auto-dimensionamento della textarea (fino a ~12 righe),
@@ -836,12 +837,6 @@ $effect(() => {
 		});
 	}
 
-	function formatTokens(count?: number): string {
-		if (typeof count !== 'number') return '0';
-		if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-		if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
-		return String(count);
-	}
 
 	function formatCost(cost?: number | null): string {
 		if (typeof cost !== 'number') return '$0.0000';

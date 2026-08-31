@@ -120,7 +120,7 @@
 					description: command.description,
 					command,
 					keepsOpen: Boolean(command.subcommands?.length),
-					submitImmediately: !command.subcommands?.length && !command.input?.hint
+					submitImmediately: !command.subcommands?.length && (!command.input?.hint || command.input.hint.startsWith('['))
 				},
 				order,
 				rank: rank(command.name, command.description, command.aliases, parsed.commandQuery)
