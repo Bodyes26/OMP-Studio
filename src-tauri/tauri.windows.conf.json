@@ -14,9 +14,6 @@
     ]
   },
   "bundle": {
-    "targets": ["nsis"],
-    "windows": {
-      "signCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -Path \"%1\""
-    }
+    "targets": ["nsis"]
   }
 }
