@@ -122,7 +122,7 @@
 				<fieldset class="channel-picker" disabled={studioUpdaterStore.channelChangeDisabled}>
 					<legend>Canale aggiornamenti</legend>
 					<div class="channel-options">
-						<label class:checked={studioUpdaterStore.channel === 'stable'} class="channel-option">
+						<label class="channel-option" class:checked={studioUpdaterStore.channel === 'stable'}>
 							<input
 								type="radio"
 								name="studio-update-channel"
@@ -131,11 +131,14 @@
 								onchange={() => void studioUpdaterStore.setChannel('stable')}
 							/>
 							<span class="channel-copy">
-								<strong>Stabile</strong>
+								<span class="channel-title-row">
+									<strong>Stabile</strong>
+									<span class="channel-badge stable">Consigliato</span>
+								</span>
 								<small>Release ufficiali verificate</small>
 							</span>
 						</label>
-						<label class:checked={studioUpdaterStore.channel === 'nightly'} class="channel-option">
+						<label class="channel-option" class:checked={studioUpdaterStore.channel === 'nightly'}>
 							<input
 								type="radio"
 								name="studio-update-channel"
@@ -144,7 +147,10 @@
 								onchange={() => void studioUpdaterStore.setChannel('nightly')}
 							/>
 							<span class="channel-copy">
-								<strong>Nightly</strong>
+								<span class="channel-title-row">
+									<strong>Nightly</strong>
+									<span class="channel-badge nightly">Anteprima</span>
+								</span>
 								<small>Ultima build, può essere instabile</small>
 							</span>
 						</label>
@@ -458,52 +464,78 @@
 	}
 
 	.channel-options {
-		display: flex;
-		overflow: hidden;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		background: var(--bg-sunken);
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: var(--space-2);
 	}
 
 	.channel-option {
 		display: flex;
-		flex: 1;
-		align-items: center;
+		align-items: flex-start;
 		gap: var(--space-2);
 		min-width: 0;
 		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-sunken);
 		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out);
-	}
-
-	.channel-option + .channel-option {
-		border-left: 1px solid var(--line);
+		transition: background var(--dur-fast) var(--ease-out),
+		            border-color var(--dur-fast) var(--ease-out),
+		            box-shadow var(--dur-fast) var(--ease-out);
 	}
 
 	.channel-option:hover {
 		background: var(--bg-hover);
+		border-color: var(--line-strong);
 	}
 
 	.channel-option.checked {
-		background: var(--bg-active);
+		background: color-mix(in srgb, var(--brand) 7%, var(--bg-sunken));
+		border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
 	}
 
-	.channel-option input {
-		margin: 0;
-		accent-color: var(--brand);
+	.channel-option input[type='radio'] {
+		margin-top: 2px;
 	}
 
 	.channel-copy {
 		display: flex;
 		flex-direction: column;
-		gap: 1px;
+		gap: 2px;
 		min-width: 0;
 	}
 
-	.channel-copy strong {
+	.channel-title-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.channel-title-row strong {
 		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--ink);
+	}
+
+	.channel-badge {
+		font-size: 10px;
+		font-weight: 600;
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		line-height: 1.2;
+		letter-spacing: 0.02em;
+	}
+
+	.channel-badge.stable {
+		background: color-mix(in srgb, var(--git-added) 15%, transparent);
+		color: var(--git-added);
+		border: 1px solid color-mix(in srgb, var(--git-added) 30%, transparent);
+	}
+
+	.channel-badge.nightly {
+		background: color-mix(in srgb, var(--warn) 15%, transparent);
+		color: var(--warn);
+		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
 	}
 
 	.channel-copy small {
@@ -514,15 +546,17 @@
 
 	.channel-picker:disabled .channel-option {
 		cursor: not-allowed;
-		opacity: 0.65;
+		opacity: 0.6;
 	}
 
 	.channel-picker:disabled .channel-option:hover {
-		background: transparent;
+		background: var(--bg-sunken);
+		border-color: var(--line);
 	}
 
 	.channel-picker:disabled .channel-option.checked:hover {
-		background: var(--bg-active);
+		background: color-mix(in srgb, var(--brand) 7%, var(--bg-sunken));
+		border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
 	}
 
 	.version-banner {

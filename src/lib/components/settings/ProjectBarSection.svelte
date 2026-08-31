@@ -195,6 +195,7 @@
 		padding: var(--space-2) var(--space-3);
 		border-bottom: 1px solid var(--line);
 		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out);
 	}
 
 	.option-row:last-child {
@@ -206,13 +207,11 @@
 	}
 
 	.option-row.active {
-		background: color-mix(in srgb, var(--brand) 6%, var(--bg-raised));
+		background: color-mix(in srgb, var(--brand) 7%, var(--bg-raised));
 	}
 
 	.option-row input[type='radio'] {
 		margin-top: 2px;
-		accent-color: var(--brand);
-		cursor: pointer;
 	}
 
 	.option-copy {

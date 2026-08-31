@@ -188,6 +188,70 @@ input, textarea, button {
   font-size: inherit;
 }
 
+/* Radio button personalizzati di Studio (non standard del browser):
+   cerchio rifinito a mano con anello reattivo e dot interno centrato
+   sintonizzato sulla tinta del tema attivo (--brand). */
+input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background-color: var(--bg-sunken);
+  display: inline-grid;
+  place-content: center;
+  position: relative;
+  cursor: pointer;
+  vertical-align: middle;
+  flex-shrink: 0;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+
+input[type='radio']::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--brand);
+  transform: scale(0);
+  opacity: 0;
+  transition: transform var(--dur-fast) var(--ease-out),
+              opacity var(--dur-fast) var(--ease-out);
+}
+
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--ink-muted);
+  background-color: var(--bg-hover);
+}
+
+input[type='radio']:checked {
+  border-color: var(--brand);
+  background-color: var(--bg-sunken);
+}
+
+input[type='radio']:checked::before {
+  transform: scale(1);
+  opacity: 1;
+}
+
+input[type='radio']:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* Icone: un solo set (Lucide, via src/lib/icons.ts) e una sola misura.
    La dimensione arriva da una custom property, cosi' un contenitore puo'
    ingrandire tutte le icone che contiene con una riga (--icon-size: 16px)

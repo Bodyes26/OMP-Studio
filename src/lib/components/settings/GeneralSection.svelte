@@ -93,7 +93,7 @@
 							checked={studioUpdaterStore.channel === 'stable'}
 							onchange={() => void studioUpdaterStore.setChannel('stable')}
 						/>
-						<span>Stabile</span>
+						<span class="channel-name">Stabile</span>
 					</label>
 					<label class="channel-option" class:checked={studioUpdaterStore.channel === 'nightly'}>
 						<input
@@ -103,7 +103,7 @@
 							checked={studioUpdaterStore.channel === 'nightly'}
 							onchange={() => void studioUpdaterStore.setChannel('nightly')}
 						/>
-						<span>Nightly</span>
+						<span class="channel-name">Nightly</span>
 					</label>
 				</fieldset>
 			</div>
@@ -222,41 +222,55 @@
 	}
 
 	.channel-options {
-		display: flex;
-		overflow: hidden;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		background: var(--bg-sunken);
 		margin: 0;
-		padding: 0;
+		padding: 3px;
 	}
 
 	.channel-options:disabled {
 		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.channel-option {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 6px;
-		padding: var(--space-2) var(--space-3);
+		gap: var(--space-2);
+		padding: 5px var(--space-3);
+		border-radius: var(--radius-sm);
+		border: 1px solid transparent;
 		cursor: pointer;
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
-		transition: background var(--dur-fast), color var(--dur-fast);
-	}
-
-	.channel-option + .channel-option {
-		border-left: 1px solid var(--line);
+		background: transparent;
+		transition: background var(--dur-fast) var(--ease-out),
+		            border-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out);
 	}
 
 	.channel-option:hover {
+		color: var(--ink);
 		background: var(--bg-hover);
 	}
 
 	.channel-option.checked {
 		color: var(--ink);
-		font-weight: 600;
-		background: var(--bg-active);
+		font-weight: 500;
+		background: var(--bg-raised);
+		border-color: var(--line-strong);
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+	}
+
+	.channel-options:disabled .channel-option {
+		cursor: not-allowed;
+	}
+
+	.channel-name {
+		user-select: none;
 	}
 </style>

@@ -31,6 +31,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Changed
 
+- I controlli di scelta singola (radio button) in tutta l'applicazione sono stati ridisegnati con uno stile personalizzato coerente con il tema attivo (anello reattivo e punto interno centrato nel colore del brand), rinnovando il selettore del canale aggiornamenti (nelle impostazioni generali e nel dialogo di aggiornamento dalla barra inferiore, con schede dedicate e badge «Consigliato»/«Anteprima») e le opzioni di ordinamento della barra dei progetti.
 - Il riepilogo delle scorciatoie da tastiera (`Alt+H`, `Alt+K`, `F1`) è ora un modale globale di Studio disponibile ovunque (GUI, Terminale, Editor, Barra), ridisegnato su due colonne bilanciate con altezza contenuta, ricerca in tempo reale e chiusura immediata con `Esc`.
 - Tutte le icone di Studio vengono da un unico set disegnato (Lucide) al posto delle emoji del sistema: stesso tratto, stessa dimensione e stesso colore del tema su Windows e su macOS.
 - Il colore di un progetto si sceglie da una striscia di tinte resa con i colori del tema: ogni tinta mostrata è esattamente quella che prenderà la tessera. Spariti il pallino arcobaleno e il selettore di colori del browser, che promettevano sedici milioni di colori per poi conservarne uno su quarantamila.
