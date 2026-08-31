@@ -2,15 +2,14 @@
 	// Cornice di una chiamata a tool: intestazione sempre visibile (stato,
 	// nome, sommario del renderer, durata) e corpo espandibile.
 	//
-	// L'espansione automatica scatta **solo** sugli errori: aprire da soli
-	// anche le card riuscite trasformerebbe un turno di venti tool in un muro
-	// di testo.
+	// Di default resta chiusa anche se il tool fallisce: l'errore viene
+	// segnalato con il tag 'fallito' e il microcopy sotto l'intestazione,
+	// senza forzare l'apertura automatica del corpo.
 	import type { ToolEntry } from '../session.svelte';
 	import { chatReveal } from '../motion';
 	import { rendererFor } from './registry';
-	import { formatDuration } from './types';
+	import { formatDuration, extractToolErrorReason } from './types';
 	import { IconChevronRight } from '$lib/icons';
-
 	let { entry } = $props<{ entry: ToolEntry }>();
 
 	const renderer = $derived(rendererFor(entry.toolName));
@@ -32,8 +31,7 @@
 				: undefined
 	);
 
-	let manual = $state<boolean | null>(null);
-	const open = $derived(manual ?? isError);
+	let open = $state(false);
 	const canOpen = $derived(renderer.expandable);
 </script>
 
@@ -44,7 +42,7 @@
 			class="toggle"
 			disabled={!canOpen}
 			aria-expanded={open}
-			onclick={() => canOpen && (manual = !open)}
+			onclick={() => canOpen && (open = !open)}
 		>
 			{#if canOpen}
 				<span class="chevron" class:expanded={open} aria-hidden="true"><IconChevronRight /></span>
@@ -70,6 +68,15 @@
 	</div>
 	{#if entry.intent}
 		<div class="intent">{entry.intent}</div>
+	{/if}
+	{#if isError && !open}
+		<div
+			class="failure-microcopy"
+			in:chatReveal={{ duration: 160, blur: 2, distance: -1 }}
+		>
+			<span class="failure-prefix">tool <strong class="failure-tool-name">{entry.toolName}</strong> fallito per:</span>
+			<span class="failure-reason" title={extractToolErrorReason(entry)}>{extractToolErrorReason(entry)}</span>
+		</div>
 	{/if}
 	{#if open && canOpen}
 		<div
@@ -182,6 +189,44 @@
 	.intent {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
+	}
+
+	.failure-microcopy {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+		padding: var(--space-1) var(--space-2);
+		margin-left: calc(var(--space-3) + var(--space-2));
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--danger) 7%, transparent);
+		border-left: 2px solid var(--danger);
+		font-size: var(--text-xs);
+		line-height: 1.4;
+		min-width: 0;
+	}
+
+	.failure-prefix {
+		color: var(--danger);
+		font-size: var(--text-xs);
+		font-weight: 500;
+		white-space: nowrap;
+	}
+
+	.failure-tool-name {
+		font-family: var(--font-mono);
+		font-weight: 600;
+		color: var(--danger);
+	}
+
+	.failure-reason {
+		color: var(--ink-muted);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
 	}
 
 	.body {

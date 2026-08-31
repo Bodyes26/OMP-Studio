@@ -4,12 +4,13 @@
 	//
 	// Mostra un'intestazione riassuntiva con conteggio operazioni, chip dei tool usati,
 	// stato di esecuzione e durata totale. Il corpo è collassabile e resta chiuso
-	// durante l'esecuzione per evitare flash e salti di layout, espandendosi solo su errore o clic manuale.
+	// durante l'esecuzione e in caso di errore (mostrando un microcopy con il motivo
+	// del fallimento), espandendosi solo su clic manuale dell'utente.
 	import type { AssistantEntry, ToolEntry } from '../session.svelte';
 	import { chatReveal } from '../motion';
 	import ThinkingBlock from '../components/ThinkingBlock.svelte';
 	import ToolCard from './ToolCard.svelte';
-	import { formatDuration } from './types';
+	import { formatDuration, extractToolErrorReason } from './types';
 	import { IconChevronRight } from '$lib/icons';
 
 	export type ToolGroupEntry = ToolEntry | AssistantEntry;
@@ -77,18 +78,12 @@
 	});
 
 	// Espansione manuale: di default resta collassato per evitare flash/salti fastidiosi,
-	// tranne se c'è un errore o se l'utente clicca esplicitamente per aprirlo.
-	let manualExpanded = $state<boolean | null>(null);
-	const isExpanded = $derived(manualExpanded ?? hasError);
+	// anche in caso di errore (l'errore viene segnalato con microcopy sotto l'header).
+	let isExpanded = $state(false);
+	const visibleEntries = $derived(entries);
 
-	// Quando il gruppo si apre da solo per un errore (nessuna scelta manuale),
-	// mostriamo solo le operazioni fallite: aprire l'intera sequenza per farne
-	// vedere una su venti sarebbe un muro di rumore. Un clic manuale mostra
-	// invece sempre la sequenza completa.
-	const autoExpandedByError = $derived(manualExpanded === null && hasError);
-	const visibleEntries = $derived(
-		autoExpandedByError ? entries.filter((e) => e.kind === 'tool' && e.result?.isError === true) : entries
-	);
+	// Tool falliti all'interno del gruppo per il microcopy
+	const failedTools = $derived(toolEntries.filter((e) => e.result?.isError === true));
 
 	const headerLabel = $derived.by(() => {
 		const totalTools = toolEntries.length;
@@ -113,7 +108,7 @@
 		type="button"
 		class="group-header"
 		aria-expanded={isExpanded}
-		onclick={() => (manualExpanded = !isExpanded)}
+		onclick={() => (isExpanded = !isExpanded)}
 		title={isExpanded ? 'Comprimi passaggi' : 'Espandi passaggi'}
 	>
 		<div class="header-left">
@@ -159,6 +154,20 @@
 			{/if}
 		</div>
 	</button>
+	{#if !isExpanded && hasError && failedTools.length > 0}
+		<div
+			class="failure-microcopy"
+			in:chatReveal={{ duration: 160, blur: 2, distance: -1 }}
+		>
+			{#each failedTools as tool (tool.id)}
+				<div class="failure-line">
+					<span class="failure-prefix">tool <strong class="failure-tool-name">{tool.toolName}</strong> fallito per:</span>
+					<span class="failure-reason" title={extractToolErrorReason(tool)}>{extractToolErrorReason(tool)}</span>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
 
 	{#if isExpanded}
 		<div
@@ -360,6 +369,48 @@
 		border-top: 1px solid var(--line);
 		gap: var(--space-1);
 		background: var(--bg-sunken);
+	}
+
+	.failure-microcopy {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding: var(--space-1) var(--space-3) var(--space-2) calc(var(--space-3) + var(--space-3) + 2px);
+		border-top: 1px dashed color-mix(in srgb, var(--danger) 25%, var(--line));
+		background: color-mix(in srgb, var(--danger) 5%, transparent);
+	}
+
+	.failure-line {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+		font-size: var(--text-xs);
+		line-height: 1.4;
+		min-width: 0;
+	}
+
+	.failure-prefix {
+		color: var(--danger);
+		font-size: var(--text-xs);
+		font-weight: 500;
+		white-space: nowrap;
+	}
+
+	.failure-tool-name {
+		font-family: var(--font-mono);
+		font-weight: 600;
+		color: var(--danger);
+	}
+
+	.failure-reason {
+		color: var(--ink-muted);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
 	}
 
 	.group-entry {

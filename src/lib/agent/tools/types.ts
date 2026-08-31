@@ -102,3 +102,72 @@ export function formatDuration(ms: number | undefined): string | undefined {
 export function countLabel(count: number, singular: string, plural: string): string {
 	return `${count} ${count === 1 ? singular : plural}`;
 }
+
+/**
+ * Estrae una breve descrizione dell'errore per il microcopy di fallimento.
+ * Restituisce una sola riga concisa e pulita.
+ */
+export function extractToolErrorReason(tool: {
+	args?: Record<string, unknown>;
+	result?: { content?: ContentBlock[]; details?: unknown; isError?: boolean };
+}): string {
+	const result = tool.result;
+	const details = asRecord(result?.details);
+
+	// 1. Cerca prima messaggi strutturati in details
+	if (typeof result?.details === 'string' && result.details.trim().length > 0) {
+		return cleanErrorLine(result.details);
+	}
+	if (details) {
+		const detailErr =
+			str(details.error) ??
+			str(details.message) ??
+			str(details.reason) ??
+			str(details.stderr) ??
+			str(details.statusText);
+		if (detailErr) {
+			return cleanErrorLine(detailErr);
+		}
+	}
+
+	// 2. Cerca in args (ad es. yield o report_issue con errore esplicito)
+	if (tool.args) {
+		const argErr = str(tool.args.error) ?? str(tool.args.reason);
+		if (argErr) {
+			return cleanErrorLine(argErr);
+		}
+	}
+
+	// 3. Cerca nel testo dei blocchi di risultato
+	const text = resultText(result);
+	if (text.trim().length > 0) {
+		const lines = text
+			.split('\n')
+			.map((l) => l.trim())
+			.filter((l) => l.length > 0);
+
+		if (lines.length > 0) {
+			const first = lines[0];
+			if ((first.toLowerCase() === 'error:' || first.toLowerCase() === 'command failed:') && lines.length > 1) {
+				return cleanErrorLine(`${first} ${lines[1]}`);
+			}
+			return cleanErrorLine(first);
+		}
+	}
+
+	// 4. Ripiego generico
+	return 'operazione non riuscita';
+}
+
+function cleanErrorLine(raw: string): string {
+	let cleaned = raw.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '');
+	cleaned = cleaned.replace(/\s+/g, ' ').trim();
+	if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+		cleaned = cleaned.slice(1, -1).trim();
+	}
+	const MAX_LEN = 140;
+	if (cleaned.length > MAX_LEN) {
+		return cleaned.slice(0, MAX_LEN - 3).trimEnd() + '...';
+	}
+	return cleaned || 'operazione non riuscita';
+}
