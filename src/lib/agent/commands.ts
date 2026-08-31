@@ -121,8 +121,9 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	},
 	{
 		name: 'login',
-		description: 'Apre la configurazione dei provider di modelli e credenziali',
+		description: 'Apre la configurazione dei provider di modelli e credenziali; con un argomento apre direttamente quel provider',
 		aliases: ['logout'],
+		input: { hint: '[provider]' },
 		source: 'studio'
 	},
 	{

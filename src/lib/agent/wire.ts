@@ -45,7 +45,9 @@ export type RpcCommand =
 	| { type: 'handoff'; customInstructions?: string }
 	| { type: 'set_session_name'; name: string }
 	| { type: 'bash'; command: string }
-	| { type: 'abort_bash' };
+	| { type: 'abort_bash' }
+	| { type: 'get_login_providers' }
+	| { type: 'login'; providerId: string };
 
 /** Risposta a un comando: `code` e' presente sui fallimenti tipizzati. */
 export interface RpcResponse {
@@ -114,6 +116,14 @@ export interface AvailableCommand {
 	source?: string;
 	input?: { hint?: string };
 	subcommands?: { name: string; description?: string }[];
+}
+
+/** Provider OAuth disponibile per login, con stato di autenticazione corrente. */
+export interface LoginProviderInfo {
+	id: string;
+	name: string;
+	available: boolean;
+	authenticated: boolean;
 }
 
 /* --------------------------------------------------------------- messaggi */

@@ -631,7 +631,7 @@
 			return true;
 		}
 		if (lowerCmd === '/login' || lowerCmd === '/logout') {
-			modelSettingsStore.openModal('providers');
+			modelSettingsStore.openModal('providers', argument || undefined);
 			return true;
 		}
 		if (lowerCmd === '/switch') {

@@ -66,6 +66,35 @@ export interface AuthProviderSummary {
 	disabledCause?: string;
 }
 
+export interface ProviderSummary {
+	id: string;
+	name: string;
+	source: string; // "builtin" | "plugin" | "custom"
+	enabled: boolean;
+	configured: boolean;
+	authOrigin?: string; // "oauth" | "api_key" | "env" | "custom"
+	availableModelCount: number;
+	accountCount: number;
+	hasOauth: boolean;
+	isCustom: boolean;
+}
+
+export interface AuthAccount {
+	id: number;
+	provider: string;
+	credentialType: string;
+	identityKey?: string;
+	email?: string;
+	accountId?: string;
+	orgId?: string;
+	orgName?: string;
+	plan?: string;
+	disabledCause?: string;
+	hasCredential: boolean;
+	createdAt?: number;
+	updatedAt?: number;
+}
+
 export interface ModelConfigDto {
 	modelRoles: Record<string, string>;
 	cycleOrder: string[];
@@ -144,6 +173,9 @@ class ModelSettingsStore {
 	customProviders = $state<Record<string, CustomProviderDef>>({});
 	draftCustomProviders = $state<Record<string, CustomProviderDef>>({});
 	authProviders = $state<AuthProviderSummary[]>([]);
+	providers = $state<ProviderSummary[]>([]);
+	authAccounts = $state<AuthAccount[]>([]);
+	selectedProviderId = $state<string | null>(null);
 	
 	upgradeCandidates = $state<ModelUpgradeCandidate[]>([]);
 	upgradeModalOpen = $state(false);
@@ -160,8 +192,11 @@ class ModelSettingsStore {
 		return cfgChanged || customChanged;
 	});
 
-	openModal(tab: 'roles' | 'catalog' | 'providers' = 'roles') {
+	openModal(tab: 'roles' | 'catalog' | 'providers' = 'roles', targetProvider?: string) {
 		this.activeTab = tab;
+		if (targetProvider) {
+			this.selectedProviderId = targetProvider;
+		}
 		settingsStore.openSection('models');
 		void this.loadAll();
 	}
@@ -190,7 +225,9 @@ class ModelSettingsStore {
 					return [];
 				}),
 				invoke<CustomProvidersFile>('get_custom_providers'),
-				invoke<AuthProviderSummary[]>('get_auth_providers_summary')
+				invoke<AuthProviderSummary[]>('get_auth_providers_summary'),
+				this.loadProviders(),
+				this.loadAccounts()
 			]);
 
 			this.config = cfg;
@@ -207,6 +244,43 @@ class ModelSettingsStore {
 		} finally {
 			this.loading = false;
 		}
+	}
+
+	/** Carica il catalogo provider dinamici (builtin, plugin, custom). Errori loggati, non bloccano `loadAll`. */
+	async loadProviders() {
+		try {
+			this.providers = await invoke<ProviderSummary[]>('get_model_providers');
+		} catch (e) {
+			console.error('Failed to load model providers:', e);
+			this.providers = [];
+		}
+	}
+
+	/** Carica gli account di autenticazione, opzionalmente filtrati per provider. */
+	async loadAccounts(providerId?: string) {
+		try {
+			this.authAccounts = await invoke<AuthAccount[]>('get_auth_accounts', { providerId: providerId ?? null });
+		} catch (e) {
+			console.error('Failed to load auth accounts:', e);
+			this.authAccounts = [];
+		}
+	}
+
+	/** Rimuove un account di autenticazione e ricarica accounts/providers. */
+	async removeAccount(provider: string, credentialId: number) {
+		try {
+			await invoke('remove_auth_account', { provider, credentialId });
+			await Promise.all([this.loadAccounts(), this.loadProviders()]);
+			this.showToast('Account rimosso');
+		} catch (e) {
+			console.error('Failed to remove auth account:', e);
+			this.showToast(`Errore rimozione account: ${e}`);
+		}
+	}
+
+	/** Imposta il provider attivo/selezionato nella tab Provider. */
+	selectProvider(id: string) {
+		this.selectedProviderId = id;
 	}
 
 	/** Carica la configurazione e i cataloghi in background senza mostrare toast o bloccare l'interfaccia. */
@@ -270,15 +344,22 @@ class ModelSettingsStore {
 		}
 	}
 
-	async refreshCatalog() {
+	async refreshCatalog(providerId?: string) {
 		this.isRefreshingCatalog = true;
 		try {
-			const cat = await invoke<ModelDto[]>('refresh_models_catalog');
+			const cat = providerId
+				? await invoke<ModelDto[]>('refresh_model_provider', { providerId })
+				: await invoke<ModelDto[]>('refresh_models_catalog');
 			this.catalog = cat;
 			this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog');
 			this.availableCatalogLoaded = true;
 			this.clearSuggestionsCache();
-			this.showToast(`Catalogo aggiornato (${cat.length} modelli)`);
+			void this.loadProviders();
+			this.showToast(
+				providerId
+					? `Catalogo aggiornato per ${providerId} (${cat.length} modelli)`
+					: `Catalogo aggiornato (${cat.length} modelli)`
+			);
 		} catch (e) {
 			console.error('Failed to refresh models catalog:', e);
 			this.showToast(`Errore aggiornamento catalogo: ${e}`);

@@ -10,7 +10,7 @@ use projects::{
     file_git_head, file_git_rev, file_read, file_write, git_branch_checkout, git_branch_create,
     git_branch_list, git_branch_merge, git_current_branch, git_last_commit, git_recent_commits,
     git_working_numstat, path_create_directory, path_create_file, path_rename, path_trash,
-    preview_file, project_git_status, project_tasks_read, project_tasks_unwatch,
+    preview_file, project_files_search, project_git_status, project_tasks_read, project_tasks_unwatch,
     project_tasks_watch, project_tasks_write, resolve_project_file, tree_read,
 };
 mod omp_ops;
@@ -25,9 +25,10 @@ use studio_updater::{
 };
 mod models_ops;
 use models_ops::{
-    apply_model_upgrades, check_model_upgrades, get_auth_providers_summary,
-    get_available_models_catalog, get_custom_providers, get_model_config, get_models_catalog,
-    get_role_suggestions, refresh_models_catalog, save_custom_providers, save_model_config,
+    apply_model_upgrades, check_model_upgrades, get_auth_accounts, get_auth_providers_summary,
+    get_available_models_catalog, get_custom_providers, get_model_config, get_model_providers,
+    get_models_catalog, get_role_suggestions, refresh_model_provider, refresh_models_catalog,
+    remove_auth_account, save_custom_providers, save_model_config,
 };
 mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
@@ -38,6 +39,10 @@ use external::open_project_external;
 mod rules_ops;
 use rules_ops::{
     analyze_project_friction, apply_rule_suggestion, create_project_agents_md, get_project_context,
+};
+mod directives_ops;
+use directives_ops::{
+    analyze_task_directives_friction, generate_task_directive_ai, refine_task_directive_ai,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -87,6 +92,7 @@ pub fn run() {
             rpc_stderr,
             rpc_protocol,
             tree_read,
+            project_files_search,
             path_create_file,
             path_create_directory,
             path_rename,
@@ -132,6 +138,10 @@ pub fn run() {
             get_custom_providers,
             save_custom_providers,
             get_auth_providers_summary,
+            get_model_providers,
+            get_auth_accounts,
+            remove_auth_account,
+            refresh_model_provider,
             check_model_upgrades,
             apply_model_upgrades,
             get_role_suggestions,
@@ -145,7 +155,10 @@ pub fn run() {
             get_project_context,
             create_project_agents_md,
             analyze_project_friction,
-            apply_rule_suggestion
+            apply_rule_suggestion,
+            generate_task_directive_ai,
+            refine_task_directive_ai,
+            analyze_task_directives_friction
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

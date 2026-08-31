@@ -9,6 +9,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import {
 	type AgentSessionEvent,
 	type ExtensionUiResponse,
+	type LoginProviderInfo,
 	type RpcCommand,
 	type RpcResponse
 } from './wire';
@@ -23,6 +24,11 @@ const DEFAULT_TIMEOUT_MS = 60_000;
  *  lascerebbe il comando in esecuzione senza nessuno che ne raccoglie l'esito. */
 const SLOW_COMMAND_TIMEOUT_MS = 300_000;
 const SLOW_COMMANDS: Record<string, true> = { compact: true, handoff: true, bash: true };
+
+/** `login` puo' restare in attesa di un intero flusso OAuth interattivo nel
+ *  browser dell'utente: ne' il timeout standard ne' quello "lento" bastano.
+ *  Stesso valore del client RPC di riferimento di omp. */
+const LOGIN_TIMEOUT_MS = 600_000;
 
 /** `abort` e `abort_bash` hanno priorita' massima e non devono mai attendere il
  *  timeout di un minuto: l'interruzione deve agire subito. */
@@ -110,11 +116,13 @@ export class OmpRpcClient {
 		if (this.rpcId === null || this.closed) throw rpcError('Sessione RPC non aperta', command.type);
 		const id = `s${++this.seq}`;
 		const timeoutMs =
-			SLOW_COMMANDS[command.type] === true
-				? SLOW_COMMAND_TIMEOUT_MS
-				: FAST_COMMANDS[command.type] === true
-					? FAST_COMMAND_TIMEOUT_MS
-					: DEFAULT_TIMEOUT_MS;
+			command.type === 'login'
+				? LOGIN_TIMEOUT_MS
+				: SLOW_COMMANDS[command.type] === true
+					? SLOW_COMMAND_TIMEOUT_MS
+					: FAST_COMMANDS[command.type] === true
+						? FAST_COMMAND_TIMEOUT_MS
+						: DEFAULT_TIMEOUT_MS;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
 
 		const timer = window.setTimeout(() => {
@@ -131,6 +139,22 @@ export class OmpRpcClient {
 			throw rpcError(error instanceof Error ? error.message : String(error), command.type, 'transport');
 		}
 		return (await promise) as T;
+	}
+
+	/** Elenco dei provider OAuth disponibili per il login, con stato di autenticazione corrente. */
+	async getLoginProviders(): Promise<LoginProviderInfo[]> {
+		const data = await this.send<{ providers: LoginProviderInfo[] }>({ type: 'get_login_providers' });
+		return data.providers;
+	}
+
+	/**
+	 * Avvia il login OAuth per un provider. Il server risponde emettendo una
+	 * `open_url` extension_ui_request per l'URL di autenticazione (ed
+	 * eventualmente una `input` per il codice incollato): entrambe arrivano
+	 * come normali frame sul canale eventi, gestite dal riduttore di sessione.
+	 */
+	async login(providerId: string): Promise<{ providerId: string }> {
+		return this.send({ type: 'login', providerId });
 	}
 
 	/** Risposta a una `extension_ui_request`: fuori dal canale delle risposte. */

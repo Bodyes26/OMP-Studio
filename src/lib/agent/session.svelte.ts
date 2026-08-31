@@ -22,6 +22,7 @@ import {
 	type ContentBlock,
 	type ContextUsage,
 	type ImageContent,
+	type LoginProviderInfo,
 	type MessageUsage,
 	type ModelInfo,
 	type RpcSessionState,
@@ -1771,6 +1772,34 @@ export class AgentSession {
 			if (!this.isStreaming) {
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 			}
+		}
+	}
+
+	/** Provider OAuth disponibili per il login, con stato di autenticazione corrente. */
+	async getLoginProviders(): Promise<LoginProviderInfo[]> {
+		try {
+			return await this.client.getLoginProviders();
+		} catch (error) {
+			this.pushNotice('error', `Impossibile recuperare i provider di login: ${this.reason(error)}`, 'studio');
+			return [];
+		}
+	}
+
+	/**
+	 * Avvia il login OAuth per un provider sulla sessione RPC attiva. L'URL di
+	 * autenticazione arriva come `open_url` extension_ui_request, gestita dal
+	 * normale canale di richieste UI (apertura automatica se l'origine e'
+	 * consentita).
+	 */
+	async login(providerId: string): Promise<boolean> {
+		try {
+			await this.client.login(providerId);
+			this.pushNotice('info', `Login completato per il provider "${providerId}".`, 'studio');
+			await this.refreshState();
+			return true;
+		} catch (error) {
+			this.pushNotice('error', `Login non riuscito per "${providerId}": ${this.reason(error)}`, 'studio');
+			return false;
 		}
 	}
 

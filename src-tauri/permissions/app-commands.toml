@@ -33,6 +33,7 @@ identifier = "allow-workspace-files"
 description = "Albero dei file e operazioni confinate alla radice del progetto: lettura, scrittura, creazione, rinomina, cestino e anteprime"
 commands.allow = [
     "tree_read",
+    "project_files_search",
     "path_create_file",
     "path_create_directory",
     "path_rename",
@@ -104,6 +105,10 @@ commands.allow = [
     "get_custom_providers",
     "save_custom_providers",
     "get_auth_providers_summary",
+    "get_model_providers",
+    "get_auth_accounts",
+    "remove_auth_account",
+    "refresh_model_provider",
     "check_model_upgrades",
     "apply_model_upgrades",
     "get_role_suggestions"
@@ -144,6 +149,15 @@ commands.allow = [
     "apply_rule_suggestion"
 ]
 
+[[permission]]
+identifier = "allow-task-directives"
+description = "Operazioni AI su direttive dei task: generazione, miglioramento e analisi dell'attrito nei prompt recenti"
+commands.allow = [
+    "generate_task_directive_ai",
+    "refine_task_directive_ai",
+    "analyze_task_directives_friction"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -159,5 +173,6 @@ permissions = [
     "allow-setup",
     "allow-attention",
     "allow-external-open",
-    "allow-rules-and-skills"
+    "allow-rules-and-skills",
+    "allow-task-directives"
 ]

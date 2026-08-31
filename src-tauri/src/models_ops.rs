@@ -100,6 +100,17 @@ fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
     Ok(conn)
 }
 
+/// Come `open_readonly_db`, ma in scrittura: serve solo a disattivare una
+/// credenziale (`remove_auth_account`). Nessuna creazione automatica del
+/// file: se `agent.db` non esiste non c'e' nulla da rimuovere.
+fn open_readwrite_db(db_name: &str) -> Result<Connection, String> {
+    let path = get_db_path(db_name).ok_or("Impossibile risolvere il percorso del database")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| format!("Impossibile aprire {} in scrittura: {}", db_name, e))?;
+    let _ = conn.execute_batch("PRAGMA busy_timeout = 3000;");
+    Ok(conn)
+}
+
 // -----------------------------------------------------------------------------
 // DTOs
 // -----------------------------------------------------------------------------
@@ -225,6 +236,44 @@ pub struct AuthProviderSummary {
     pub identity_key: Option<String>,
     pub has_credential: bool,
     pub disabled_cause: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSummaryDto {
+    pub id: String,
+    pub name: String,
+    /// "builtin" | "plugin" | "custom"
+    pub source: String,
+    pub enabled: bool,
+    pub configured: bool,
+    /// "oauth" | "api_key" | "env" | "custom"
+    pub auth_origin: Option<String>,
+    pub available_model_count: usize,
+    pub account_count: usize,
+    pub has_oauth: bool,
+    pub is_custom: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthAccountDto {
+    pub id: i64,
+    pub provider: String,
+    pub credential_type: String,
+    pub identity_key: Option<String>,
+    /// Metadati identificativi non segreti, ricavati da `identity_key` e dal
+    /// payload `data`. Mai token, chiavi o segreti: quelli restano nel
+    /// database e non attraversano mai questo DTO.
+    pub email: Option<String>,
+    pub account_id: Option<String>,
+    pub org_id: Option<String>,
+    pub org_name: Option<String>,
+    pub plan: Option<String>,
+    pub disabled_cause: Option<String>,
+    pub has_credential: bool,
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -585,6 +634,22 @@ pub async fn refresh_models_catalog() -> Result<Vec<ModelDto>, String> {
     get_models_catalog().await
 }
 
+#[command]
+pub async fn refresh_model_provider(provider_id: Option<String>) -> Result<Vec<ModelDto>, String> {
+    // `omp models refresh` e' sempre globale: la CLI espone solo
+    // `ls|find|refresh|<provider>` come azione, non un refresh per singolo
+    // provider. `provider_id` filtra quindi la lista restituita, non la
+    // chiamata al binario.
+    let catalog = refresh_models_catalog().await?;
+    match provider_id {
+        Some(provider) => Ok(catalog
+            .into_iter()
+            .filter(|model| model.provider == provider)
+            .collect()),
+        None => Ok(catalog),
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Custom Providers (models.json / models.yml)
 // -----------------------------------------------------------------------------
@@ -855,6 +920,405 @@ pub async fn get_auth_providers_summary() -> Result<Vec<AuthProviderSummary>, St
         list.push(r);
     }
     Ok(list)
+}
+
+/// Metadati identificativi ricavati da `identity_key` (mai un segreto: e'
+/// solo una chiave di deduplica leggibile scritta da `omp`), nelle forme
+/// osservate `email:...`, `account:...|org:...`, `org:...`, `project:...`.
+#[derive(Debug, Default, Clone)]
+struct IdentityKeyFields {
+    email: Option<String>,
+    account_id: Option<String>,
+    org_id: Option<String>,
+}
+
+fn parse_identity_key(identity_key: &str) -> IdentityKeyFields {
+    let mut fields = IdentityKeyFields::default();
+    for segment in identity_key.split('|') {
+        let Some((key, value)) = segment.trim().split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match key.trim() {
+            "email" if fields.email.is_none() => fields.email = Some(value.to_string()),
+            "account" if fields.account_id.is_none() => fields.account_id = Some(value.to_string()),
+            "org" | "organization" if fields.org_id.is_none() => fields.org_id = Some(value.to_string()),
+            // Nessun campo dedicato per un identificativo di progetto (GCP e
+            // simili): resta comunque l'identita' dell'account sul provider.
+            "project" if fields.account_id.is_none() => fields.account_id = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    fields
+}
+
+/// Legge la prima chiave presente tra varie forme lecite di un oggetto JSON
+/// e ne restituisce il valore stringa, mai vuoto. Usata solo su campi non
+/// segreti (email, id account/org, piano, hint di provenienza): le chiavi
+/// del token (`access`, `refresh`, `key`, ...) non vengono mai lette qui.
+fn extract_json_string(data: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    let obj = data.as_object()?;
+    keys.iter().find_map(|key| {
+        obj.get(*key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn build_auth_account_dto(
+    id: i64,
+    provider: String,
+    credential_type: String,
+    identity_key: Option<String>,
+    disabled_cause: Option<String>,
+    data: &str,
+    created_at: Option<i64>,
+    updated_at: Option<i64>,
+) -> AuthAccountDto {
+    let identity_fields = identity_key
+        .as_deref()
+        .map(parse_identity_key)
+        .unwrap_or_default();
+    // Il payload puo' non essere JSON valido (schema futuro/estensioni): un
+    // parsing fallito non deve mai far fallire la lista degli account, resta
+    // solo senza i metadati opzionali.
+    let data_json = serde_json::from_str::<serde_json::Value>(data).ok();
+
+    let email = identity_fields.email.or_else(|| {
+        data_json
+            .as_ref()
+            .and_then(|d| extract_json_string(d, &["email", "userEmail", "user_email"]))
+    });
+    let account_id = identity_fields.account_id.or_else(|| {
+        data_json
+            .as_ref()
+            .and_then(|d| extract_json_string(d, &["accountId", "account_id", "userId", "user_id"]))
+    });
+    let org_id = identity_fields.org_id.or_else(|| {
+        data_json.as_ref().and_then(|d| {
+            extract_json_string(d, &["orgId", "org_id", "organizationId", "organization_id"])
+        })
+    });
+    let org_name = data_json.as_ref().and_then(|d| {
+        extract_json_string(
+            d,
+            &["orgName", "org_name", "organizationName", "organization_name"],
+        )
+    });
+    let plan = data_json
+        .as_ref()
+        .and_then(|d| extract_json_string(d, &["plan", "planType", "plan_type", "subscription"]));
+
+    AuthAccountDto {
+        id,
+        provider,
+        credential_type,
+        identity_key,
+        email,
+        account_id,
+        org_id,
+        org_name,
+        plan,
+        disabled_cause,
+        has_credential: true,
+        created_at,
+        updated_at,
+    }
+}
+
+#[command]
+pub async fn get_auth_accounts(provider_id: Option<String>) -> Result<Vec<AuthAccountDto>, String> {
+    let conn = open_readonly_db("agent.db")?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, provider, credential_type, identity_key, disabled_cause, data, created_at, updated_at \
+             FROM auth_credentials WHERE ?1 IS NULL OR provider = ?1 ORDER BY provider, id",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![provider_id], |row| {
+            let id: i64 = row.get(0)?;
+            let provider: String = row.get(1)?;
+            let credential_type: String = row.get(2)?;
+            let identity_key: Option<String> = row.get(3)?;
+            let disabled_cause: Option<String> = row.get(4)?;
+            let data: String = row.get(5)?;
+            let created_at: Option<i64> = row.get(6)?;
+            let updated_at: Option<i64> = row.get(7)?;
+            Ok((
+                id,
+                provider,
+                credential_type,
+                identity_key,
+                disabled_cause,
+                data,
+                created_at,
+                updated_at,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut list = Vec::new();
+    for row in rows {
+        let (id, provider, credential_type, identity_key, disabled_cause, data, created_at, updated_at) =
+            row.map_err(|e| e.to_string())?;
+        list.push(build_auth_account_dto(
+            id,
+            provider,
+            credential_type,
+            identity_key,
+            disabled_cause,
+            &data,
+            created_at,
+            updated_at,
+        ));
+    }
+    Ok(list)
+}
+
+#[command]
+pub async fn remove_auth_account(provider: String, credential_id: i64) -> Result<(), String> {
+    let conn = open_readwrite_db("agent.db")?;
+    // Disattivazione soft: stesso meccanismo di `disabled_cause` che `omp`
+    // usa gia' per le credenziali scadute o non valide. La riga resta per
+    // storia/diagnostica, ma smette immediatamente di essere utilizzabile.
+    let changed = conn
+        .execute(
+            "UPDATE auth_credentials SET disabled_cause = ?1, updated_at = CAST(strftime('%s','now') AS INTEGER) \
+             WHERE id = ?2 AND provider = ?3",
+            rusqlite::params!["deleted by user", credential_id, provider],
+        )
+        .map_err(|e| format!("Rimozione credenziale: {}", e))?;
+
+    if changed == 0 {
+        return Err(format!(
+            "Nessuna credenziale con id {} per il provider '{}'",
+            credential_id, provider
+        ));
+    }
+    Ok(())
+}
+
+// -----------------------------------------------------------------------------
+// Provider Aggregati (builtin + plugin + custom)
+// -----------------------------------------------------------------------------
+
+/// Nome leggibile dei provider curati da Studio, allineato a
+/// `KNOWN_BUILTIN_PROVIDERS` in `ProvidersTab.svelte`. Chi non compare qui ma
+/// esiste nel catalogo o nel database credenziali e' un plugin scoperto a
+/// runtime da `omp`, non un provider curato da Studio.
+const BUILTIN_PROVIDER_NAMES: &[(&str, &str)] = &[
+    ("anthropic", "Anthropic Claude"),
+    ("openai-codex", "OpenAI Codex"),
+    ("google-antigravity", "Google Antigravity"),
+    ("opencode-go", "OpenCode Go"),
+    ("opencode-zen", "OpenCode Zen"),
+    ("perplexity", "Perplexity Search"),
+    ("cerebras", "Cerebras"),
+    ("tavily", "Tavily Search"),
+    ("ollama-cloud", "Ollama Cloud"),
+    ("ollama", "Ollama (Local)"),
+    ("openrouter", "OpenRouter"),
+    ("cursor", "Cursor AI"),
+    ("devin", "Devin AI"),
+    ("groq", "Groq LPU"),
+    ("mistral", "Mistral AI"),
+    ("xai", "xAI Grok"),
+    ("zai", "Zhipu AI (GLM)"),
+    ("llama.cpp", "llama.cpp (Local)"),
+    ("lm-studio", "LM Studio (Local)"),
+];
+
+/// Nomi leggibili di plugin conosciuti ma non curati staticamente (registrati
+/// da `omp` a runtime, non da Studio). Solo cosmetica: un plugin assente da
+/// questa lista resta comunque "plugin", solo con un nome ricavato dall'id.
+const PLUGIN_PROVIDER_NAMES: &[(&str, &str)] = &[
+    ("commandcode", "Command Code"),
+    ("tokenrouter", "TokenRouter"),
+    ("xkiro", "Xkiro"),
+];
+
+fn humanize_provider_id(id: &str) -> String {
+    id.split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn provider_display_name(id: &str, is_custom: bool) -> String {
+    if is_custom {
+        return humanize_provider_id(id);
+    }
+    if let Some((_, name)) = BUILTIN_PROVIDER_NAMES.iter().find(|(bid, _)| *bid == id) {
+        return (*name).to_string();
+    }
+    if let Some((_, name)) = PLUGIN_PROVIDER_NAMES.iter().find(|(bid, _)| *bid == id) {
+        return (*name).to_string();
+    }
+    humanize_provider_id(id)
+}
+
+#[derive(Debug, Default, Clone)]
+struct ProviderAccountAggregate {
+    total: usize,
+    has_oauth: bool,
+    origin: Option<String>,
+}
+
+fn extract_credential_source(data: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(data)
+        .ok()
+        .and_then(|value| extract_json_string(&value, &["source"]))
+}
+
+/// Aggrega gli account per provider. Legge la colonna `data` solo per capire
+/// come e' stata ottenuta una `api_key` (`source: "env"` vs interattiva);
+/// nessun campo estratto qui attraversa mai un DTO verso il frontend.
+/// Fallisce in silenzio (mappa vuota) se `agent.db` manca o non e' leggibile:
+/// la lista provider resta comunque utile senza lo stato delle credenziali.
+fn read_provider_account_aggregates() -> HashMap<String, ProviderAccountAggregate> {
+    let mut aggregates: HashMap<String, ProviderAccountAggregate> = HashMap::new();
+    let Ok(conn) = open_readonly_db("agent.db") else {
+        return aggregates;
+    };
+    let Ok(mut stmt) = conn.prepare("SELECT provider, credential_type, data FROM auth_credentials")
+    else {
+        return aggregates;
+    };
+    let Ok(rows) = stmt.query_map([], |row| {
+        let provider: String = row.get(0)?;
+        let credential_type: String = row.get(1)?;
+        let data: String = row.get(2)?;
+        Ok((provider, credential_type, data))
+    }) else {
+        return aggregates;
+    };
+
+    for (provider, credential_type, data) in rows.flatten() {
+        // La stessa tabella ospita anche le credenziali OAuth dei server MCP
+        // (chiave "mcp_oauth:profile:..."): non sono provider di modelli.
+        if provider.contains(':') {
+            continue;
+        }
+        let entry = aggregates.entry(provider).or_default();
+        entry.total += 1;
+        if credential_type == "oauth" {
+            entry.has_oauth = true;
+            entry.origin = Some("oauth".to_string());
+        } else if entry.origin.as_deref() != Some("oauth") {
+            let is_env = extract_credential_source(&data).as_deref() == Some("env");
+            entry.origin = Some(if is_env { "env" } else { "api_key" }.to_string());
+        }
+    }
+    aggregates
+}
+
+/// Catalogo live (`omp models --json`) arricchito dai provider custom, che
+/// il comando `omp` non conosce. Se il binario non risponde ripiega sulla
+/// cache locale (`get_models_catalog`), che li include gia'.
+async fn build_provider_catalog() -> Vec<ModelDto> {
+    match get_available_models_catalog().await {
+        Ok(mut live) => {
+            let mut seen: std::collections::HashSet<String> =
+                live.iter().map(|m| m.selector.clone()).collect();
+            if let Ok(custom_defs) = get_custom_providers().await {
+                for (provider_name, provider_def) in custom_defs.providers {
+                    for model in provider_def.models {
+                        let selector = format!("{}/{}", provider_name, model.id);
+                        if seen.insert(selector.clone()) {
+                            live.push(ModelDto {
+                                id: model.id,
+                                name: model.name,
+                                provider: provider_name.clone(),
+                                selector,
+                                context_window: model.context_window,
+                                max_tokens: model.max_tokens,
+                                reasoning: model.reasoning,
+                                thinking: None,
+                                input: model.input,
+                                cost: None,
+                                is_custom: true,
+                            });
+                        }
+                    }
+                }
+            }
+            live
+        }
+        Err(_) => get_models_catalog().await.unwrap_or_default(),
+    }
+}
+
+#[command]
+pub async fn get_model_providers() -> Result<Vec<ProviderSummaryDto>, String> {
+    let config = get_model_config()
+        .await
+        .unwrap_or_else(|_| default_model_config());
+    let custom_defs = get_custom_providers().await.unwrap_or_else(|_| CustomProvidersFile {
+        providers: HashMap::new(),
+    });
+    let catalog = build_provider_catalog().await;
+    let account_aggregates = read_provider_account_aggregates();
+
+    let mut model_counts: HashMap<String, usize> = HashMap::new();
+    for model in &catalog {
+        *model_counts.entry(model.provider.clone()).or_insert(0) += 1;
+    }
+
+    let mut provider_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    provider_ids.extend(BUILTIN_PROVIDER_NAMES.iter().map(|(id, _)| id.to_string()));
+    provider_ids.extend(custom_defs.providers.keys().cloned());
+    provider_ids.extend(model_counts.keys().cloned());
+    provider_ids.extend(account_aggregates.keys().cloned());
+
+    let mut summaries: Vec<ProviderSummaryDto> = provider_ids
+        .into_iter()
+        .map(|id| {
+            let is_custom = custom_defs.providers.contains_key(&id);
+            let aggregate = account_aggregates.get(&id);
+            let account_count = aggregate.map(|a| a.total).unwrap_or(0);
+            let has_oauth = aggregate.map(|a| a.has_oauth).unwrap_or(false);
+            let auth_origin = aggregate
+                .and_then(|a| a.origin.clone())
+                .or(if is_custom { Some("custom".to_string()) } else { None });
+            let source = if is_custom {
+                "custom"
+            } else if BUILTIN_PROVIDER_NAMES.iter().any(|(bid, _)| *bid == id) {
+                "builtin"
+            } else {
+                "plugin"
+            };
+
+            ProviderSummaryDto {
+                name: provider_display_name(&id, is_custom),
+                source: source.to_string(),
+                enabled: !config.disabled_providers.contains(&id),
+                configured: account_count > 0 || is_custom,
+                auth_origin,
+                available_model_count: model_counts.get(&id).copied().unwrap_or(0),
+                account_count,
+                has_oauth,
+                is_custom,
+                id,
+            }
+        })
+        .collect();
+
+    summaries.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(summaries)
 }
 
 // -----------------------------------------------------------------------------
@@ -1854,6 +2318,104 @@ mod tests {
                 },
             )]),
         }
+    }
+
+    #[test]
+    fn parses_identity_key_variants() {
+        let email_only = parse_identity_key("email:foo@bar.com");
+        assert_eq!(email_only.email.as_deref(), Some("foo@bar.com"));
+        assert_eq!(email_only.account_id, None);
+        assert_eq!(email_only.org_id, None);
+
+        let account_and_org = parse_identity_key("account:acc-123|org:org-456");
+        assert_eq!(account_and_org.account_id.as_deref(), Some("acc-123"));
+        assert_eq!(account_and_org.org_id.as_deref(), Some("org-456"));
+
+        let org_only = parse_identity_key("org:org-456");
+        assert_eq!(org_only.org_id.as_deref(), Some("org-456"));
+
+        let project = parse_identity_key("project:my-gcp-project");
+        assert_eq!(project.account_id.as_deref(), Some("my-gcp-project"));
+
+        let malformed = parse_identity_key("garbage-without-colon|:empty-key");
+        assert_eq!(malformed.email, None);
+        assert_eq!(malformed.account_id, None);
+        assert_eq!(malformed.org_id, None);
+    }
+
+    #[test]
+    fn extracts_first_matching_json_key_never_empty() {
+        let data: serde_json::Value =
+            serde_json::from_str(r#"{"email":"  ","orgName":"Acme Inc","plan":""}"#).unwrap();
+        assert_eq!(
+            extract_json_string(&data, &["email", "orgName"]),
+            Some("Acme Inc".to_string())
+        );
+        assert_eq!(extract_json_string(&data, &["plan", "planType"]), None);
+        assert_eq!(extract_json_string(&data, &["missing"]), None);
+    }
+
+    #[test]
+    fn builds_auth_account_dto_merging_identity_key_and_data_payload() {
+        // Forma reale osservata in agent.db per una credenziale OAuth: i
+        // segreti (`access`, `refresh`, `expires`) non devono mai comparire
+        // nel DTO risultante.
+        let dto = build_auth_account_dto(
+            22,
+            "openai-codex".to_string(),
+            "oauth".to_string(),
+            Some("email:jane@example.com".to_string()),
+            None,
+            r#"{"access":"secret-access","refresh":"secret-refresh","expires":1234,"accountId":"acc-1","email":"jane@example.com","orgId":"org-9","orgName":"Acme Inc"}"#,
+            Some(1_700_000_000),
+            Some(1_700_000_100),
+        );
+
+        assert_eq!(dto.email.as_deref(), Some("jane@example.com"));
+        assert_eq!(dto.account_id.as_deref(), Some("acc-1"));
+        assert_eq!(dto.org_id.as_deref(), Some("org-9"));
+        assert_eq!(dto.org_name.as_deref(), Some("Acme Inc"));
+        assert_eq!(dto.plan, None);
+        assert!(dto.has_credential);
+        assert_eq!(dto.created_at, Some(1_700_000_000));
+
+        let serialized = serde_json::to_string(&dto).expect("serializzazione DTO");
+        assert!(!serialized.contains("secret-access"));
+        assert!(!serialized.contains("secret-refresh"));
+    }
+
+    #[test]
+    fn builds_auth_account_dto_tolerates_malformed_data_payload() {
+        let dto = build_auth_account_dto(
+            5,
+            "tavily".to_string(),
+            "api_key".to_string(),
+            None,
+            None,
+            "not valid json",
+            None,
+            None,
+        );
+        assert_eq!(dto.email, None);
+        assert_eq!(dto.account_id, None);
+        assert!(dto.has_credential);
+    }
+
+    #[test]
+    fn humanizes_provider_ids_without_static_name() {
+        assert_eq!(humanize_provider_id("tokenrouter"), "Tokenrouter");
+        assert_eq!(humanize_provider_id("my-local-endpoint"), "My Local Endpoint");
+        assert_eq!(humanize_provider_id("solo_underscore"), "Solo Underscore");
+    }
+
+    #[test]
+    fn provider_display_name_prefers_builtin_then_plugin_then_humanized() {
+        assert_eq!(provider_display_name("anthropic", false), "Anthropic Claude");
+        assert_eq!(provider_display_name("commandcode", false), "Command Code");
+        assert_eq!(provider_display_name("brand-new-plugin", false), "Brand New Plugin");
+        // Un provider custom prende sempre il nome umanizzato dell'id: non
+        // ha un campo "name" proprio in `CustomProviderDef`.
+        assert_eq!(provider_display_name("anthropic", true), "Anthropic");
     }
 
     #[test]

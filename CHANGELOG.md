@@ -11,10 +11,14 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 
+- Ricerca fuzzy nel filetree di progetto: barra di ricerca sempre accessibile in cima al pannello FILE con filtro istantaneo, evidenziazione dei caratteri corrispondenti nel nome e percorso del file, navigazione rapida da tastiera (Frecce, Invio, Esc) e menu contestuale sui risultati.
 - Direttive e modalità del task completamente personalizzabili: nuova libreria in «Impostazioni → Task & Agenti» per creare, modificare, riordinare, nascondere o ripristinare le modalità di prompt (inclusi i preset Piano, Discussione, Minimale e Ricerca), impostandone il posizionamento prima o dopo il testo principale.
 - Assistente AI per le direttive: generazione guidata di nuove modalità da una descrizione in linguaggio naturale, miglioramento e affinamento del prompt con anteprima delle modifiche e analisi su richiesta delle ricorrenze nei prompt recenti del progetto per suggerire nuove direttive utili.
 - Snapshot deterministici e aggiornamento controllato: ogni task in coda congela la versione esatta delle direttive al momento della creazione, con avviso visivo e pulsante «Aggiorna» quando la libreria contiene una versione più recente.
 - Nuova sezione «Aspetto» nel modale Impostazioni con galleria visiva a griglia di tutti i temi disponibili (scuri e chiari), ricerca in tempo reale, anteprima grafica con campioni di colore (sfondo, accento, testo) e indicatore del tema attivo con applicazione immediata.
+- Gestione avanzata dei provider e supporto completo ai plugin: la sezione «Impostazioni → Modelli → Provider» adotta un layout a due colonne che rileva dinamicamente tutti i provider built-in, plugin (come Command Code) e custom, mostrando lo stato di abilitazione, il conteggio dei modelli disponibili e gli account associati.
+- Gestione multi-account con identificativi e disconnessione selettiva: visualizzazione trasparente di email, ID account e organizzazione/piano per ogni credenziale memorizzata, con possibilità di disconnettere singoli account tramite dialogo di conferma protetto senza invalidare l'intero provider.
+- Catalogo modelli basato sui modelli realmente disponibili: la scheda «Catalogo» organizza i modelli per provider con badge contestuali (finestra di contesto, token massimi di output, reasoning con livelli di thinking e costi), filtri rapidi (Vision, Reasoning, Gratis), ricerca full-text e aggiornamento mirato del catalogo.
 
 ### Changed
 
@@ -25,6 +29,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - I controlli di scelta singola (radio button) in tutta l'applicazione sono stati ridisegnati con uno stile personalizzato coerente con il tema attivo (anello reattivo e punto interno centrato nel colore del brand), rinnovando il selettore del canale aggiornamenti (nelle impostazioni generali e nel dialogo di aggiornamento dalla barra inferiore, con schede dedicate e badge «Consigliato»/«Anteprima») e le opzioni di ordinamento della barra dei progetti.
 - Semplificata la descrizione dell'opzione di ordinamento «Ultimo aperto» nelle impostazioni della barra progetti, rimuovendo il prefisso ridondante «Comportamento storico:».
 
+- I comandi slash `/login` e `/logout` supportano l'indicazione opzionale del provider (es. `/login anthropic`, `/logout openai-codex`) per aprire direttamente la scheda Provider con il provider di destinazione pre-selezionato.
 ### Fixed
 
 - Ripristinato il funzionamento del comando slash `/compact` e `/handoff` dalla chat grafica: risolto il blocco della palette comandi all'invio, aggiunto il feedback visivo di compattazione in corso con riga animata, aggiornamento immediato del transcript e del conteggio token al termine, e messaggi di avviso chiari quando la cronologia è troppo breve.
