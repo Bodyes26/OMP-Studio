@@ -19,6 +19,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Gestione avanzata dei provider e supporto completo ai plugin: la sezione «Impostazioni → Modelli → Provider» adotta un layout a due colonne che rileva dinamicamente tutti i provider built-in, plugin (come Command Code) e custom, mostrando lo stato di abilitazione, il conteggio dei modelli disponibili e gli account associati.
 - Gestione multi-account con identificativi e disconnessione selettiva: visualizzazione trasparente di email, ID account e organizzazione/piano per ogni credenziale memorizzata, con possibilità di disconnettere singoli account tramite dialogo di conferma protetto senza invalidare l'intero provider.
 - Catalogo modelli basato sui modelli realmente disponibili: la scheda «Catalogo» organizza i modelli per provider con badge contestuali (finestra di contesto, token massimi di output, reasoning con livelli di thinking e costi), filtri rapidi (Vision, Reasoning, Gratis), ricerca full-text e aggiornamento mirato del catalogo.
+- Il terminale dice cosa sta facendo mentre parte: durante l'avvio dell'ambiente compare una riga di attesa attenuata al posto del riquadro nero, con testo diverso a seconda del contesto (avvio, ripresa di una sessione, configurazione guidata). Sparisce da sé al primo output e, se l'ambiente non risponde entro dieci secondi, lascia il posto a un avviso con l'indicazione di cosa verificare.
 
 ### Changed
 

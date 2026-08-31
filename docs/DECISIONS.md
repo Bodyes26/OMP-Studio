@@ -433,3 +433,51 @@ il nome compare solo sulla tessera aperta o su tutte, che è l'interruttore
 «sigla / sigla + nome» del prototipo. `showAgentDot` cambia oggetto e non nome:
 prima accendeva il puntino accanto alla tessera, ora accende i due anelli di
 stato, che dicono la stessa cosa nello stesso posto.
+
+---
+
+## Gate R20: l'attesa del terminale è testo nel buffer, non un velo sopra la viewport
+
+**Decisione.** Durante l'avvio di una sessione il terminale scrive nel proprio
+buffer una riga attenuata (`avvio ambiente`, `ripresa della sessione`,
+`preparazione della configurazione guidata`) e la cancella al primo byte reale.
+Nessun overlay, nessuno spinner, nessuna transizione: il feedback è **contenuto
+del terminale**, esattamente come l'errore di spawn che `terminal.ts` scriveva
+già in ANSI rosso.
+
+**Il problema misurato.** Fra `pty_open` e il primo frame della TUI passano
+~0.75 s (`ARCHITECTURE.md` §11), e di più quando `--resume` rilegge un transcript
+da disco. In quella finestra la viewport era un rettangolo nero: nessun segnale
+che ConPTY, PowerShell e `omp` fossero in moto. Sotto la soglia di 1 s canonica
+non serve un indicatore di progresso, ma serve sapere che il sistema ha ricevuto
+il comando.
+
+**Perché non un overlay, pur essendo la strada già battuta nella GUI.**
+`Transcript.svelte` ha skeleton e spinner, e riusarli qui sarebbe stato meccanico.
+`DESIGN.md` §6.2 lo vieta: «il terminale non è mai il soggetto di un'animazione…
+la viewport appare già disegnata». La lettera della regola motiva il divieto col
+reflow su un canvas che sta ridisegnando testo — motivo che durante il boot non
+si applica, perché il buffer è vuoto e non c'è nulla in disegno. Il divieto è
+stato mantenuto comunque, perché la ragione **vera** della regola è un'altra e
+resta valida: la cornice non entra dentro la viewport. Un messaggio scritto nel
+buffer rispetta il confine invece di negoziarlo, e costa un `write` invece di un
+wrapper DOM, un ciclo di stato reattivo e una regola CSS.
+
+**Attenuazione, non colore.** La riga usa SGR 2 (dim) e non un colore ANSI: i 16
+colori appartengono al tema di `omp` (`PRODUCT.md` §3.1). Verificato che il
+renderer Canvas applichi il flag dim e lasci `fgColorMode` a default.
+
+**I due segnali sono distinti, e non è ridondanza.** La riga sparisce al primo
+output, perché è l'unico istante in cui si può cancellare senza che la TUI le si
+disegni sopra a metà; lo stato di avvio si chiude invece al primo titolo `π` di
+`omp`, che è il segnale semantico di «TUI viva» (l'equivalente in casa di OSC 133).
+Entrambi chiamano lo stesso metodo idempotente: chi arriva secondo non fa nulla.
+La documentazione di xterm.js è esplicita sul fatto che un chunk scritto è
+*parsato*, non necessariamente dipinto, quindi il primo output non è una prova di
+«pronto» e non viene usato come tale.
+
+**Soglia e resa.** Sotto i 150 ms non si scrive niente: un avvio a caldo
+produrrebbe solo un lampo di testo subito sovrascritto. Oltre i 10 s senza un
+solo byte la riga diventa un avviso con la causa e cosa verificare, invece di
+restare un'attesa perenne — la stessa scelta già fatta per i pannelli FILE, GIT
+e quote.

@@ -81,6 +81,22 @@ export class TerminalSession {
 	private bufferedOutputBytes = 0;
 	private static readonly MAX_BATCH_BYTES = 65536;
 
+	/** Messaggio di attesa mostrato mentre ConPTY, la shell e la TUI di `omp`
+	 *  partono: senza di esso la viewport resta un rettangolo nero per tutto
+	 *  l'avvio (~0.75s misurati, di piu' riprendendo una sessione da disco).
+	 *  Vive dentro il buffer di xterm come qualsiasi altro output, non come
+	 *  overlay: la viewport non si decora ne' si sovrappone (docs/DESIGN.md
+	 *  §6.2), e gli errori di runtime seguono gia' la stessa strada. */
+	private bootHintTimer: number | null = null;
+	private bootTimeoutTimer: number | null = null;
+	private bootHintShown = false;
+	/** Sotto questa soglia l'attesa non merita un messaggio: scriverlo
+	 *  produrrebbe solo un lampo di testo subito sovrascritto dalla TUI. */
+	private static readonly BOOT_HINT_DELAY_MS = 150;
+	/** Oltre questo tempo senza un solo byte l'avvio e' da considerare fallito:
+	 *  meglio dirlo che lasciare a schermo un'attesa perenne. */
+	private static readonly BOOT_TIMEOUT_MS = 10000;
+
 	public onStateChange: (state: TerminalAgentState) => void = () => {};
 	public onOpenFile: (relPath: string, line: number | null) => void = () => {};
 	public onInputPendingChange: (pending: boolean) => void = () => {};
@@ -214,6 +230,7 @@ export class TerminalSession {
 			this.currentState = state;
 			if (state === 'working') this.setInputPending(0);
 			this.onStateChange(state);
+			if (state !== 'unknown') this.endBootHint();
 			if (state === 'idle') void this.refreshSessionInfo();
 		});
 
@@ -421,6 +438,10 @@ export class TerminalSession {
 		}
 		if (this.disposed || this.outputBuffer.length === 0) return;
 
+		// L'attesa esce di scena appena c'e' output vero: cancellarla prima
+		// della scrittura evita che la TUI le si disegni sopra a meta'.
+		this.endBootHint();
+
 		const chunks = this.outputBuffer;
 		this.outputBuffer = [];
 		this.bufferedOutputBytes = 0;
@@ -473,6 +494,63 @@ export class TerminalSession {
 		this.bufferedOutputBytes = 0;
 	}
 
+	/** Il testo dice cosa sta davvero partendo: riprendere una sessione
+	 *  rilegge il transcript da disco ed e' l'attesa piu' lunga delle tre. */
+	private bootHintText(): string {
+		if (this.launchArgs?.includes('setup')) return 'preparazione della configurazione guidata';
+		if (this.pendingResume) return 'ripresa della sessione';
+		return 'avvio ambiente';
+	}
+
+	/** Va chiamata prima che `startPty` consumi `pendingResume`, altrimenti il
+	 *  testo perde il contesto della ripresa. */
+	private scheduleBootHint() {
+		// `endBootHint` e non `clearBootTimers`: un riavvio in pieno avvio
+		// deve poter tornare a mostrare il messaggio da capo.
+		this.endBootHint();
+		const text = this.bootHintText();
+		this.bootHintTimer = window.setTimeout(() => {
+			this.bootHintTimer = null;
+			if (this.disposed) return;
+			this.bootHintShown = true;
+			// Attenuato, non colorato: i 16 ANSI appartengono al tema di omp.
+			this.term.write(`\x1b[2m  ${text}\u2026\x1b[0m`);
+		}, TerminalSession.BOOT_HINT_DELAY_MS);
+		this.bootTimeoutTimer = window.setTimeout(() => {
+			this.bootTimeoutTimer = null;
+			if (this.disposed) return;
+			// Un'attesa senza fine non informa: qui l'ambiente non ha aperto
+			// bocca, e va detto insieme a cosa fare (docs/PRODUCT.md §3.4).
+			this.endBootHint();
+			this.term.write(
+				"\x1b[33mL'ambiente non ha risposto entro 10 secondi.\x1b[0m\r\n" +
+					'\x1b[2mVerifica che `omp` sia installato e raggiungibile, poi riavvia il terminale.\x1b[0m\r\n'
+			);
+		}, TerminalSession.BOOT_TIMEOUT_MS);
+	}
+
+	/** Idempotente: la chiudono sia il primo output sia il primo titolo di
+	 *  `omp`, e chi arriva secondo non deve toccare piu' nulla. */
+	private endBootHint() {
+		this.clearBootTimers();
+		if (!this.bootHintShown) return;
+		this.bootHintShown = false;
+		// A schermo c'e' solo questa riga: azzerarlo tutto e' esatto a
+		// prescindere da quante righe il messaggio abbia occupato.
+		this.term.write('\x1b[H\x1b[2J');
+	}
+
+	private clearBootTimers() {
+		if (this.bootHintTimer !== null) {
+			window.clearTimeout(this.bootHintTimer);
+			this.bootHintTimer = null;
+		}
+		if (this.bootTimeoutTimer !== null) {
+			window.clearTimeout(this.bootTimeoutTimer);
+			this.bootTimeoutTimer = null;
+		}
+	}
+
 	private async startPty(cwd: string) {
 		const onOutput = new Channel<Uint8Array>();
 		onOutput.onmessage = (message: unknown) => {
@@ -494,6 +572,8 @@ export class TerminalSession {
 				console.error('Output PTY non renderizzabile:', error, message);
 			}
 		};
+
+		this.scheduleBootHint();
 		const isScratchpad = cwd === '';
 		const launchCwd = isScratchpad ? '.' : cwd;
 		const args = this.launchArgs
@@ -533,6 +613,7 @@ export class TerminalSession {
 			void this.refreshSessionInfo();
 		} catch (e) {
 			console.error("Failed to open PTY", e);
+			this.endBootHint();
 			this.term.write(`\r\n\x1b[31mFailed to start terminal: ${e}\x1b[0m\r\n`);
 		}
 	}
@@ -616,6 +697,7 @@ export class TerminalSession {
 	public clear(): void {
 		if (this.disposed) return;
 		this.clearTerminalOutputBuffer();
+		this.bootHintShown = false;
 		this.term.clear();
 	}
 
@@ -681,6 +763,7 @@ export class TerminalSession {
 		if (this.disposed) return;
 		this.flushTerminalOutput();
 		this.clearTerminalOutputBuffer();
+		this.clearBootTimers();
 		await this.release();
 		this.disposed = true;
 		this.unsubscribeTheme();

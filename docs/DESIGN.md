@@ -309,6 +309,8 @@ Nessun bounce, nessun elastic, nessun overshoot.
 
 2. **Il terminale non è mai il soggetto di un'animazione.** Niente fade in ingresso, niente slide, niente scale. La viewport appare già disegnata. Animarla causa reflow su un canvas che sta ridisegnando testo.
 
+   L'attesa di avvio non è un'eccezione: il messaggio che compare mentre la shell e `omp` partono è **testo scritto nel buffer di xterm**, non un velo sopra la viewport, e non anima nulla (`DECISIONS.md` Gate R20).
+
 3. **Un solo movimento persistente in tutta l'app**: il respiro dell'anello ambra sulla tessera di un progetto che **aspetta una risposta**. Opacità `1 → 0.35 → 1` su un anello inset da 1.5px in `--warn`, 1800ms, `--ease-in-out`, infinito. Il movimento serve a chiamare qualcuno: lo stato che ha bisogno dell'utente è il solo che ha diritto di muoversi, mentre «sta lavorando» non chiede niente a nessuno e si accontenta di un punto pieno.
 
    L'arco che gira sulla tessera **aperta** in `working` non è un'eccezione a questa regola: è un'animazione locale a un solo elemento visibile solo sul progetto che si sta già guardando, e scompare quando la tessera si chiude.
