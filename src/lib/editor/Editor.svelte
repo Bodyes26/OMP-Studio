@@ -17,6 +17,7 @@
 	import Markdown from '$lib/agent/components/Markdown.svelte';
 	import { lexMarkdown } from '$lib/agent/markdown';
 	import { projectStore, joinProjectPath, isWindows } from '$lib/stores/projects.svelte';
+	import { IS_MAC, REVEAL_LABEL } from '$lib/utils/platform';
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
@@ -755,14 +756,14 @@
 
 		const isTabDirty = dirtyFiles[fileKey(projectPath, tabPath)] === true;
 		const isTabImage = isImageFile(tabPath);
-		const revealLabel = isWindows ? 'Mostra in Esplora file' : 'Mostra nel Finder';
+		const revealLabel = REVEAL_LABEL;
 
 		const items: ContextMenuEntry[] = [
 			{
 				kind: 'item',
 				label: 'Salva',
 				icon: IconSave,
-				shortcut: isWindows ? 'Ctrl+S' : 'Cmd+S',
+				shortcut: IS_MAC ? 'Cmd+S' : 'Ctrl+S',
 				disabled: !isTabDirty || isTabImage,
 				hint: !isTabDirty ? 'Nessuna modifica da salvare' : isTabImage ? 'File non modificabile' : undefined,
 				run: () => void saveFileByPath(tabPath)
@@ -809,7 +810,7 @@
 				kind: 'item',
 				label: 'Chiudi',
 				icon: IconClose,
-				shortcut: isWindows ? 'Ctrl+W' : 'Cmd+W',
+				shortcut: IS_MAC ? 'Cmd+W' : 'Ctrl+W',
 				run: () => closeFile(tabPath)
 			},
 			{
@@ -824,7 +825,7 @@
 				kind: 'item',
 				label: 'Chiudi tutti',
 				icon: IconCloseOthers,
-				shortcut: isWindows ? 'Ctrl+Shift+W' : 'Cmd+Shift+W',
+				shortcut: IS_MAC ? 'Cmd+Shift+W' : 'Ctrl+Shift+W',
 				disabled: filePaths.length === 0,
 				run: () => closeAllFiles()
 			}
@@ -858,7 +859,7 @@
 				kind: 'item',
 				label: 'Annulla',
 				icon: IconUndo,
-				shortcut: isWindows ? 'Ctrl+Z' : 'Cmd+Z',
+				shortcut: IS_MAC ? 'Cmd+Z' : 'Ctrl+Z',
 				disabled: isReadOnly,
 				hint: isReadOnly ? readOnlyHint : undefined,
 				run: () => {
@@ -870,7 +871,7 @@
 				kind: 'item',
 				label: 'Ripeti',
 				icon: IconRedo,
-				shortcut: isWindows ? 'Ctrl+Y' : 'Cmd+Shift+Z',
+				shortcut: IS_MAC ? 'Cmd+Shift+Z' : 'Ctrl+Y',
 				disabled: isReadOnly,
 				hint: isReadOnly ? readOnlyHint : undefined,
 				run: () => {
@@ -883,7 +884,7 @@
 				kind: 'item',
 				label: 'Taglia',
 				icon: IconCut,
-				shortcut: isWindows ? 'Ctrl+X' : 'Cmd+X',
+				shortcut: IS_MAC ? 'Cmd+X' : 'Ctrl+X',
 				disabled: isReadOnly || !hasSelection,
 				hint: isReadOnly ? readOnlyHint : !hasSelection ? 'Nessun testo selezionato' : undefined,
 				run: async () => {
@@ -907,7 +908,7 @@
 				kind: 'item',
 				label: 'Copia',
 				icon: IconCopy,
-				shortcut: isWindows ? 'Ctrl+C' : 'Cmd+C',
+				shortcut: IS_MAC ? 'Cmd+C' : 'Ctrl+C',
 				disabled: !hasSelection,
 				hint: !hasSelection ? 'Nessun testo selezionato' : undefined,
 				run: async () => {
@@ -932,7 +933,7 @@
 				kind: 'item',
 				label: 'Incolla',
 				icon: IconPaste,
-				shortcut: isWindows ? 'Ctrl+V' : 'Cmd+V',
+				shortcut: IS_MAC ? 'Cmd+V' : 'Ctrl+V',
 				disabled: isReadOnly,
 				hint: isReadOnly ? readOnlyHint : undefined,
 				run: async () => {
@@ -957,7 +958,7 @@
 				kind: 'item',
 				label: 'Seleziona tutto',
 				icon: IconSelectAll,
-				shortcut: isWindows ? 'Ctrl+A' : 'Cmd+A',
+				shortcut: IS_MAC ? 'Cmd+A' : 'Ctrl+A',
 				run: () => {
 					ed.focus();
 					ed.trigger('contextMenu', 'editor.action.selectAll', null);
@@ -968,7 +969,7 @@
 				kind: 'item',
 				label: 'Salva',
 				icon: IconSave,
-				shortcut: isWindows ? 'Ctrl+S' : 'Cmd+S',
+				shortcut: IS_MAC ? 'Cmd+S' : 'Ctrl+S',
 				disabled: !isMainEditor || isReadOnly || !isDirty,
 				hint: !isMainEditor
 					? 'Salvataggio disponibile nell’editor principale'
@@ -995,7 +996,7 @@
 				kind: 'item',
 				label: 'Cambia vista',
 				icon: IconViewPreview,
-				shortcut: isWindows ? 'Ctrl+Shift+V' : 'Cmd+Shift+V',
+				shortcut: IS_MAC ? 'Cmd+Shift+V' : 'Ctrl+Shift+V',
 				disabled: !previewCapable,
 				hint: !previewCapable ? 'Nessuna anteprima per questo tipo di file' : undefined,
 				run: () => {

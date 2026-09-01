@@ -8,11 +8,11 @@ Documento tecnico. Le versioni, i contratti IPC, gli schemi di persistenza e le 
 
 | Livello | Tecnologia | Versione / Dettaglio | Perché |
 |---|---|---|---|
-| Shell desktop | Tauri 2 (crate `tauri`) | **2.11.5** | Binario compatto (~15 MB), WebView nativa di sistema (WebView2 su Windows, WebKit su macOS), nessun runtime Chromium incorporato |
-| CLI di build | `@tauri-apps/cli` / `tauri-cli` | **2.11.4** | Toolchain ufficiale Tauri 2 per packaging NSIS e DMG |
+| Shell desktop | Tauri 2 (crate `tauri`) | **2.11.5** | Binario compatto (~15 MB), WebView nativa di sistema (WebView2 su Windows, WebKit su macOS/Linux), nessun runtime Chromium incorporato |
+| CLI di build | `@tauri-apps/cli` / `tauri-cli` | **2.11.4** | Toolchain ufficiale Tauri 2 per packaging NSIS, DMG, DEB e AppImage |
 | API JS | `@tauri-apps/api` | **2.11.1** | Binding IPC tipizzati su invoke e Channel |
-| Backend | Rust (edizione 2021) | `stable-x86_64-pc-windows-msvc` / `stable-aarch64-apple-darwin` | PTY nativo, I/O filesystem con canonicalize, SQLite con thread pool bloccante, isolamento processi con Windows Job Objects |
-| PTY | `portable-pty` | **0.9.0** | ConPTY nativo su Windows 10/11, POSIX PTY su macOS |
+| Backend | Rust (edizione 2021) | `stable-x86_64-pc-windows-msvc` / `stable-*-apple-darwin` / `stable-x86_64-unknown-linux-gnu` | PTY nativo, I/O filesystem con canonicalize, SQLite con thread pool bloccante, isolamento processi con Windows Job Objects o segnali POSIX |
+| PTY | `portable-pty` | **0.9.0** | ConPTY nativo su Windows 10/11, POSIX PTY su macOS e Linux |
 | RPC OMP | `omp --mode rpc-ui` su stdio | NDJSON Protocol v2 | Seconda superficie GUI: streaming asincrono bidirezionale, riassemblaggio chunk fino a 64 MiB, coalescenza delta |
 | Frontend | Svelte 5 + Vite (template `svelte-ts`) | Svelte **5.56.8** | Reattività nativa con Runes (`$state`, `$derived`, `$effect`, `$props`), nessun framework server, zero overhead di virtual DOM |
 | Terminale | `@xterm/xterm` + `@xterm/addon-canvas` | **6.0.0** / **0.7.0** | Renderer Canvas ad alte prestazioni; addon fit, ligatures, unicode11, web-links, search |
@@ -476,4 +476,22 @@ xcode-select --install
 
 # 3. Compilazione bundle DMG universale
 npm run tauri build -- --target universal-apple-darwin
+
+### Linux x64 (Debian / Ubuntu / AppImage)
+```bash
+# 1. Dipendenze di sistema (librerie C/GTK per Tauri v2 e AppImage)
+sudo apt-get update && sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  libgtk-3-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  patchelf \
+  build-essential \
+  curl wget file libssl-dev
+
+# 2. Toolchain Rust
+rustup default stable-x86_64-unknown-linux-gnu
+
+# 3. Compilazione bundle DEB e AppImage
+npm run tauri build -- --bundles deb,appimage
 ```

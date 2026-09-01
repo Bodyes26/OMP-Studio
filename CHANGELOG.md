@@ -11,6 +11,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 
+- Supporto completo alla compilazione e distribuzione per sistemi Linux (x86_64): generazione automatica dei pacchetti Debian (`.deb`) e portabili universali (`.AppImage`) nei canali Nightly e Release stabili di GitHub Actions con promozione candidate senza ricompilazione, script di build locale e ottimizzazione del fallback shell POSIX.
 - I suggerimenti di risposta nel composer: chip cliccabili sopra il campo di scrittura che precompilano il prompt con un click o con Alt+1, Alt+2, Alt+3; l'invio resta un tuo gesto esplicito.
 - La nuova sezione «Suggerimenti» delle impostazioni per creare, modificare, riordinare, nascondere o ripristinare i suggerimenti fissi.
 - I suggerimenti generati dal modello leggero al termine di ogni risposta dell'agente, che leggono l'ultimo messaggio e propongono fino a tre risposte pronte; disattivati per impostazione predefinita, con scelta del modello e del limite.

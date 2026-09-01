@@ -148,7 +148,8 @@ git push --follow-tags
 `.github/workflows/release.yml` compila su runner separati:
 
 - NSIS `.exe` per Windows x64;
-- DMG universale (`aarch64` + `x86_64`) per macOS.
+- DMG universale (`aarch64` + `x86_64`) per macOS;
+- `.deb` e `.AppImage` per Linux x64.
 
 ### Promozione da Release Candidate (RC) a Stabile
 
@@ -159,14 +160,14 @@ degli installer compilati e firmati:
 1. **Verifica di consistenza commit**: il job `resolve` controlla che il commit del
    tag stabile coincida esattamente con il commit della candidate. Se divergono,
    il workflow fallisce bloccando il rilascio.
-2. **Riutilizzo artefatti**: con commit coincidente, gli installer (`.exe` e `.dmg`)
+2. **Riutilizzo artefatti**: con commit coincidente, gli installer (`.exe`, `.dmg`, `.deb` e `.AppImage`)
    vengono scaricati dalla candidate, rinominati alla versione stabile e verificati
    con generazione di `SHA256SUMS.txt`, senza rischiare ricompilazioni disallineate.
 3. In assenza di candidate (o con `force_rebuild: true`), il workflow compila normalmente.
 
-La release GitHub viene creata solo quando entrambi gli installer sono pronti (compilati o
+La release GitHub viene creata solo quando gli installer di tutte le piattaforme supportate sono pronti (compilati o
 promossi). L'agente attende il workflow e controlla con `gh release view v0.2.0 --json assets,url`
-che i due installer siano presenti.
+che gli installer siano presenti.
 Per riparare una release già esistente, avvia manualmente lo stesso workflow indicando il tag:
 il job ricompila o ri-promuove e carica gli asset con `--clobber`.
 Le note si estraggono con `node scripts/release.mjs --notes`, **non** con

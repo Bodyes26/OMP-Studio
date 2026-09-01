@@ -34,3 +34,12 @@ export const IS_MAC = SHELL_PLATFORM === 'macos';
 
 /** Il tasto modificatore mostrato nelle scorciatoie e nei menu contestuali. */
 export const MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl+';
+
+/** Etichetta dell'azione per mostrare file/cartelle nel file manager di sistema. */
+export function getRevealLabel(platform: ShellPlatform = SHELL_PLATFORM): string {
+	if (platform === 'macos') return 'Mostra nel Finder';
+	if (platform === 'windows') return 'Mostra in Esplora file';
+	return 'Mostra nel gestore file';
+}
+
+export const REVEAL_LABEL = getRevealLabel();

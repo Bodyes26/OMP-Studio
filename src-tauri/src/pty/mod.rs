@@ -498,7 +498,12 @@ pub async fn pty_open(
 
     #[cfg(not(target_os = "windows"))]
     let mut cmd = {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let default_shell = if cfg!(target_os = "macos") {
+            "/bin/zsh"
+        } else {
+            "/bin/bash"
+        };
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| default_shell.to_string());
         let mut c = CommandBuilder::new(&shell);
         let mut launch = if std::path::Path::new(&omp_path).exists() {
             format!(

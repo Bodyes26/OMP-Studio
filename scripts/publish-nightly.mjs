@@ -131,7 +131,7 @@ function getPlatformConfig() {
 	}
 }
 
-function findInstaller(platformConfig, version, buildStartTime) {
+function findInstallers(platformConfig, version, buildStartTime) {
 	const dir = platformConfig.bundleDir;
 	if (!existsSync(dir)) {
 		throw new Error(`Directory bundle non trovata: ${dir}`);
@@ -167,21 +167,30 @@ function findInstaller(platformConfig, version, buildStartTime) {
 		throw new Error(`Nessun installer trovato in ${dir}`);
 	}
 
-	// 1. Cerca il file che contiene esattamente la versione nel nome
-	const exactMatch = candidates.find((c) => c.name.includes(version));
-	if (exactMatch) {
-		return exactMatch;
+	// 1. Cerca i file che contengono esattamente la versione nel nome
+	const exactMatches = candidates.filter((c) => c.name.includes(version));
+	if (exactMatches.length > 0) {
+		return exactMatches;
 	}
 
-	// 2. Se non c'e' match per nome esatto, prendi il piu' recente dopo l'avvio della build
+	// 2. Se non c'e' match per nome esatto, raggruppa per estensione e prendi il piu' recente
 	candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-	const newest = candidates[0];
-	if (buildStartTime && newest.mtimeMs < buildStartTime - 10000) {
-		console.warn(
-			`Attenzione: l'installer trovato (${newest.name}) e' anteriore all'avvio della build.`
-		);
+	const byExt = new Map();
+	for (const cand of candidates) {
+		const ext = cand.name.substring(cand.name.lastIndexOf('.')).toLowerCase();
+		if (!byExt.has(ext)) {
+			byExt.set(ext, cand);
+		}
 	}
-	return newest;
+	const selected = Array.from(byExt.values());
+	for (const cand of selected) {
+		if (buildStartTime && cand.mtimeMs < buildStartTime - 10000) {
+			console.warn(
+				`Attenzione: l'installer trovato (${cand.name}) e' anteriore all'avvio della build.`
+			);
+		}
+	}
+	return selected;
 }
 
 async function main() {
@@ -236,24 +245,27 @@ async function main() {
 		}
 
 		// 3. Individuazione installer
-		const installer = findInstaller(platform, version, buildStartTime);
-		const sizeMb = (installer.size / (1024 * 1024)).toFixed(2);
-		console.log(`\nInstaller individuato:`);
-		console.log(`  File:       ${installer.name}`);
-		console.log(`  Percorso:   ${installer.path}`);
-		console.log(`  Dimensione: ${sizeMb} MB`);
+		const installers = findInstallers(platform, version, buildStartTime);
+		console.log(`\nInstaller individuati (${installers.length}):`);
+		for (const inst of installers) {
+			const sizeMb = (inst.size / (1024 * 1024)).toFixed(2);
+			console.log(`  - File:       ${inst.name}`);
+			console.log(`    Percorso:   ${inst.path}`);
+			console.log(`    Dimensione: ${sizeMb} MB`);
+		}
 
-		// Calcolo hash SHA256 dell'installer per il manifest
-		const installerBuffer = readFileSync(installer.path);
-		const installerSha256 = createHash('sha256').update(installerBuffer).digest('hex');
-		console.log(`  SHA256:     ${installerSha256}`);
+		// Calcolo hash SHA256 del primo installer per il manifest
+		const primaryInstaller = installers[0];
+		const primaryBuffer = readFileSync(primaryInstaller.path);
+		const primarySha256 = createHash('sha256').update(primaryBuffer).digest('hex');
+		console.log(`  SHA256 (${primaryInstaller.name}): ${primarySha256}`);
 
 		// 4. Generazione manifest e note
 		const manifest = {
 			version,
 			commit: commitSha,
 			published_at: new Date().toISOString(),
-			sha256: installerSha256
+			sha256: primarySha256
 		};
 		const manifestPath = join(ROOT, 'nightly.json');
 		writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
@@ -268,6 +280,7 @@ async function main() {
 		writeFileSync(notesPath, notesContent + '\n', 'utf8');
 
 		// 5. Upload GitHub
+		const installerPaths = installers.map((i) => i.path);
 		if (!opts.dryRun) {
 			console.log(`\nAggiorno il tag git 'nightly' sul commit ${commitSha}...`);
 			runCommand('git', ['tag', '-f', 'nightly', commitSha]);
@@ -298,7 +311,7 @@ async function main() {
 					'release',
 					'upload',
 					'nightly',
-					installer.path,
+					...installerPaths,
 					manifestPath,
 					'--clobber'
 				]);
@@ -308,7 +321,7 @@ async function main() {
 					'release',
 					'create',
 					'nightly',
-					installer.path,
+					...installerPaths,
 					manifestPath,
 					'--verify-tag',
 					'--prerelease',
@@ -326,7 +339,7 @@ async function main() {
 			// GitHub sostituisce gli spazi con punti nei nomi degli asset caricati.
 			const normalizza = (nome) => nome.replace(/ /g, '.');
 			const nomiDaConservare = new Set(
-				[basename(installer.path), basename(manifestPath)].map(normalizza)
+				[...installers.map((i) => basename(i.path)), basename(manifestPath)].map(normalizza)
 			);
 			const elenco = runCommand(
 				'gh',

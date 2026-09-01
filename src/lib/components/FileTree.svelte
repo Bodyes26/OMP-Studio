@@ -21,6 +21,7 @@
 	} from '$lib/icons';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import { joinProjectPath, isWindows } from '$lib/utils/paths';
+	import { REVEAL_LABEL } from '$lib/utils/platform';
 
 	let {
 		projectPath,
@@ -591,7 +592,7 @@
 	// Costruzione dei menu contestuali
 	function openFileMenu(event: MouseEvent) {
 		const fullPath = joinProjectPath(projectPath, relPath);
-		const revealLabel = isWindows ? 'Mostra in Esplora file' : 'Mostra nel Finder';
+		const revealLabel = REVEAL_LABEL;
 
 		const items: ContextMenuEntry[] = [
 			{
@@ -660,7 +661,7 @@
 
 	function openFolderMenu(event: MouseEvent) {
 		const fullPath = joinProjectPath(projectPath, relPath);
-		const revealLabel = isWindows ? 'Mostra in Esplora file' : 'Mostra nel Finder';
+		const revealLabel = REVEAL_LABEL;
 
 		const items: ContextMenuEntry[] = [
 			{
@@ -735,7 +736,7 @@
 	}
 
 	function openRootMenu(event: MouseEvent) {
-		const revealLabel = isWindows ? 'Mostra in Esplora file' : 'Mostra nel Finder';
+		const revealLabel = REVEAL_LABEL;
 
 		const items: ContextMenuEntry[] = [
 			{
@@ -994,7 +995,7 @@
 		event.stopPropagation();
 
 		const fullPath = joinProjectPath(projectPath, res.path);
-		const revealLabel = isWindows ? 'Mostra in Esplora file' : 'Mostra nel Finder';
+		const revealLabel = REVEAL_LABEL;
 		const resStatus = gitStatuses[res.path] || null;
 
 		const items: ContextMenuEntry[] = [

@@ -161,7 +161,13 @@ jobs:
             build_args: --bundles dmg --target universal-apple-darwin
             artifact_name: macos-universal
             artifact_path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-
+          - name: Linux x64
+            os: ubuntu-22.04
+            build_args: --bundles deb,appimage
+            artifact_name: linux-x64
+            artifact_path: |
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/appimage/*.AppImage
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -178,6 +184,17 @@ jobs:
         with:
           toolchain: stable
           components: clippy
+
+      - name: Installa dipendenze di sistema Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
       - name: Installa i target macOS universal
         if: runner.os == 'macOS'
@@ -321,13 +338,15 @@ jobs:
           # Verifica presenza degli installer attesi
           has_exe=false
           has_dmg=false
+          has_linux=false
           for f in promoted-assets/*; do
             [[ "$f" == *.exe ]] && has_exe=true
             [[ "$f" == *.dmg ]] && has_dmg=true
+            [[ "$f" == *.deb || "$f" == *.AppImage || "$f" == *.appimage ]] && has_linux=true
           done
 
-          if [ "$has_exe" = "false" ] || [ "$has_dmg" = "false" ]; then
-            echo "::error::Artefatti incompleti nella candidate: attesi sia installer Windows (.exe) che macOS (.dmg)."
+          if [ "$has_exe" = "false" ] || [ "$has_dmg" = "false" ] || [ "$has_linux" = "false" ]; then
+            echo "::error::Artefatti incompleti nella candidate: attesi installer Windows (.exe), macOS (.dmg) e Linux (.deb / .AppImage)."
             exit 1
           fi
 
@@ -395,6 +414,11 @@ jobs:
               echo "*(Artefatti verificati e promossi dalla Release Candidate \`$CANDIDATE_TAG\` sul commit \`${TARGET_SHA:0:7}\` senza ricompilazione)*"
             } >> release-notes.md
           fi
+
+          # Rigenera o aggiorna la tabella dei checksum SHA256 di tutti gli artefatti pubblicati
+          (cd release-assets && rm -f SHA256SUMS.txt && sha256sum * > SHA256SUMS.txt)
+          echo "=== CHECKSUM RELEASE ==="
+          cat release-assets/SHA256SUMS.txt
 
           echo "=== NOTE DI RELEASE ==="
           cat release-notes.md

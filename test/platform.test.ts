@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectShellPlatform } from '../src/lib/utils/platform.ts';
+import { detectShellPlatform, getRevealLabel } from '../src/lib/utils/platform.ts';
 
 // Stringhe reali delle due webview che Studio usa: da queste dipende se la
 // barra disegna i controlli finestra di Windows o lascia spazio ai semafori
@@ -32,5 +32,13 @@ describe('Piattaforma del guscio', () => {
 			detectShellPlatform('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', 'Linux x86_64'),
 			'other'
 		);
+	});
+});
+
+describe('Etichette del file manager per piattaforma', () => {
+	it('restituisce l’etichetta corretta per ciascuna piattaforma', () => {
+		assert.equal(getRevealLabel('macos'), 'Mostra nel Finder');
+		assert.equal(getRevealLabel('windows'), 'Mostra in Esplora file');
+		assert.equal(getRevealLabel('other'), 'Mostra nel gestore file');
 	});
 });
