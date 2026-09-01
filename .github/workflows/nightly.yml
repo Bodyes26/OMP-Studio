@@ -105,11 +105,6 @@ jobs:
         if: runner.os == 'macOS'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      - name: Cache delle dipendenze Rust
-        uses: swatinem/rust-cache@82a92a6e8fbeee08c6c4d4b1204d5517777f43f1 # v2
-        with:
-          workspaces: "src-tauri -> target"
-
       - name: Installa le dipendenze
         run: bun install --frozen-lockfile
 
