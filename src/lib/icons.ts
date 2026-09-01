@@ -54,6 +54,12 @@ export { default as IconGitBranch } from '@lucide/svelte/icons/git-branch';
 export { default as IconRule } from '@lucide/svelte/icons/scroll-text';
 export { default as IconSkill } from '@lucide/svelte/icons/wand-sparkles';
 
+// Editor: viste del file e barra delle schede.
+export { default as IconViewCode } from '@lucide/svelte/icons/code';
+export { default as IconViewSplit } from '@lucide/svelte/icons/columns-2';
+export { default as IconViewPreview } from '@lucide/svelte/icons/eye';
+export { default as IconDiff } from '@lucide/svelte/icons/file-diff';
+
 // Menu contestuali e modifica testo.
 export { default as IconUndo } from '@lucide/svelte/icons/undo';
 export { default as IconRedo } from '@lucide/svelte/icons/redo';

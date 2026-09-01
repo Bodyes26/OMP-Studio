@@ -39,6 +39,7 @@ commands.allow = [
     "path_rename",
     "path_trash",
     "file_read",
+    "file_read_bytes",
     "file_write",
     "preview_file",
     "resolve_project_file"

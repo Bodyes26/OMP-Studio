@@ -14,22 +14,29 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import ImageViewer from './ImageViewer.svelte';
 	import SvgPreview from './SvgPreview.svelte';
+	import Markdown from '$lib/agent/components/Markdown.svelte';
+	import { lexMarkdown } from '$lib/agent/markdown';
 	import { projectStore, joinProjectPath, isWindows } from '$lib/stores/projects.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import {
+		IconChevronLeft,
+		IconChevronRight,
 		IconClose,
 		IconCloseOthers,
 		IconCopy,
 		IconCut,
+		IconDiff,
 		IconFolderOpen,
-		IconGitBranch,
 		IconPaste,
 		IconRedo,
 		IconSave,
 		IconSelectAll,
-		IconUndo
+		IconUndo,
+		IconViewCode,
+		IconViewPreview,
+		IconViewSplit
 	} from '$lib/icons';
 
 	let {
@@ -67,6 +74,10 @@
 		decorationIds: string[];
 	}
 
+	/** `code` mostra solo Monaco, `split` Monaco piu' anteprima, `preview` solo
+	 *  l'anteprima. Vale solo per i tipi con anteprima (markdown, SVG). */
+	type ViewMode = 'code' | 'split' | 'preview';
+
 	const fileStates = new Map<string, FileState>();
 	const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'bmp', 'ico'];
 
@@ -100,6 +111,27 @@
 	let isSvg = $derived(filePath ? filePath.split('.').pop()?.toLowerCase() === 'svg' : false);
 	let isMarkdown = $derived(filePath ? ['md', 'markdown'].includes(filePath.split('.').pop()?.toLowerCase() || '') : false);
 
+	// Vista scelta per file: la chiave e' fileKey, non il path, cosi' due
+	// progetti con lo stesso file relativo non si sovrascrivono la scelta.
+	// Vive fuori da FileState perche' sopravvive al caricamento e serve anche
+	// prima che il contenuto sia arrivato.
+	let viewModes = $state<Record<string, ViewMode>>({});
+	let tabsTrackEl = $state<HTMLElement | null>(null);
+	let canScrollLeft = $state(false);
+	let canScrollRight = $state(false);
+	let draggedTabPath = $state<string | null>(null);
+	let dragOverTabPath = $state<string | null>(null);
+	// La linea di inserimento sta dal lato verso cui la scheda si muove:
+	// `moveFile` inserisce dopo il bersaglio quando lo si trascina in avanti.
+	let dragOverAfter = $state(false);
+
+	let previewCapable = $derived(isSvg || isMarkdown);
+	let viewMode = $derived.by<ViewMode>(() => {
+		if (!filePath || !previewCapable) return 'code';
+		return viewModes[fileKey(projectPath, filePath)] ?? 'split';
+	});
+	let markdownTokens = $derived(isMarkdown && viewMode !== 'code' ? lexMarkdown(currentText) : []);
+
 	let currentProjectDirtyPaths = $derived.by(() => {
 		if (!projectPath) return [];
 		const prefix = `${projectPath}\u0000`;
@@ -127,13 +159,14 @@
 		const currentSet = new Set<string>(currentPaths);
 		const prefix = `${currentProject}\u0000`;
 
-		// Smaltisce fileState e modelli Monaco dei file di questo progetto non piu' in filePaths
+		// Smaltisce fileState, vista e modelli Monaco dei file di questo progetto non piu' in filePaths
 		for (const key of Array.from(fileStates.keys())) {
 			if (key.startsWith(prefix)) {
 				const path = key.slice(prefix.length);
 				if (!currentSet.has(path)) {
 					fileStates.delete(key);
 					clearDirty(key);
+					clearViewMode(key);
 					disposeFileModel(joinProjectPath(currentProject, path));
 				}
 			}
@@ -149,7 +182,6 @@
 		}
 		knownFilesByProject.set(currentProject, currentSet);
 	});
-	let commandsBound = false;
 
 	function fileKey(project: string, path: string): string {
 		return `${project}\u0000${path}`;
@@ -196,6 +228,31 @@
 		if (!(key in dirtyFiles)) return;
 		const { [key]: _, ...remaining } = dirtyFiles;
 		dirtyFiles = remaining;
+	}
+
+	function clearViewMode(key: string) {
+		if (!(key in viewModes)) return;
+		const { [key]: _, ...remaining } = viewModes;
+		viewModes = remaining;
+	}
+
+	function setViewMode(mode: ViewMode) {
+		if (!filePath || !previewCapable) return;
+		// Anteprima e diff occupano lo stesso spazio: scegliere una vista
+		// chiude il diff, invece di lasciare due modi attivi insieme.
+		if (showDiff) {
+			showDiff = false;
+			disposeDiff();
+		}
+		viewModes = { ...viewModes, [fileKey(projectPath, filePath)]: mode };
+	}
+
+	const VIEW_CYCLE: ViewMode[] = ['split', 'preview', 'code'];
+
+	function cycleViewMode() {
+		if (!filePath || !previewCapable) return;
+		const next = VIEW_CYCLE[(VIEW_CYCLE.indexOf(viewMode) + 1) % VIEW_CYCLE.length];
+		setViewMode(next);
 	}
 
 	function disposeDiff() {
@@ -338,18 +395,10 @@
 		editor = getEditorInstance(host);
 		const disposables: { dispose: () => void }[] = [];
 
-		if (!commandsBound) {
-			commandsBound = true;
-			editor.addCommand(2048 | 49 /* Ctrl | S */, () => {
-				void saveCurrentFile();
-			});
-			editor.addCommand(2048 | 53 /* Ctrl | W */, () => {
-				closeFile();
-			});
-			editor.addCommand(2048 | 62 /* Ctrl | F4 */, () => {
-				closeFile();
-			});
-		}
+		// Nessun `addCommand` qui: Monaco viene ricreato quando cambia il
+		// contenitore DOM (split <-> non split), quindi comandi agganciati
+		// all'istanza sparirebbero senza preavviso. Le scorciatoie stanno tutte
+		// nell'handler di finestra, che vale anche fuori dall'area di testo.
 
 		const ctxListener = editor.onContextMenu((e: any) => {
 			handleEditorContextMenu(e.event.browserEvent, editor);
@@ -518,6 +567,7 @@
 		}
 		fileStates.delete(key);
 		clearDirty(key);
+		clearViewMode(key);
 		disposeFileModel(joinProjectPath(projectPath, path));
 		projectStore.closeFile(projectStore.activeId, path);
 	}
@@ -529,10 +579,25 @@
 				const key = fileKey(projectPath, p);
 				fileStates.delete(key);
 				clearDirty(key);
+				clearViewMode(key);
 				disposeFileModel(joinProjectPath(projectPath, p));
 			}
 		}
 		projectStore.closeOtherFiles(projectStore.activeId, keepPath);
+	}
+
+	function closeAllFiles() {
+		if (!projectPath || !projectStore.activeId) return;
+		disposeDiff();
+		showDiff = false;
+		for (const p of filePaths) {
+			const key = fileKey(projectPath, p);
+			fileStates.delete(key);
+			clearDirty(key);
+			clearViewMode(key);
+			disposeFileModel(joinProjectPath(projectPath, p));
+		}
+		projectStore.closeAllFiles(projectStore.activeId);
 	}
 
 	function openDiff(path: string) {
@@ -551,6 +616,136 @@
 		if (!showDiff) {
 			disposeDiff();
 		}
+	}
+
+	/** Un `keydown` in cattura sulla finestra: l'unico posto dove vivono le
+	 *  scorciatoie dell'editor. Escluso il terminale, dove Ctrl+W cancella la
+	 *  parola nella shell, e i campi di testo dell'app - ma non l'area di
+	 *  input di Monaco, che e' l'editor stesso. */
+	function isInsideEditorSurface(target: EventTarget | null): boolean {
+		return target instanceof Element && target.closest('.editor-wrapper') !== null;
+	}
+
+	function swallowsEditorShortcuts(target: EventTarget | null): boolean {
+		if (!(target instanceof Element)) return false;
+		if (target.closest('.xterm')) return true;
+		if (isInsideEditorSurface(target)) return false;
+		if (target.closest('input, textarea, [contenteditable="true"]')) return true;
+		return false;
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (!event.ctrlKey && !event.metaKey) return;
+		if (event.altKey) return;
+		if (swallowsEditorShortcuts(event.target)) return;
+
+		const key = event.key.toLowerCase();
+
+		if (key === 's' && !event.shiftKey) {
+			if (!filePath || isImage) return;
+			event.preventDefault();
+			void saveCurrentFile();
+			return;
+		}
+
+		if (key === 'v' && event.shiftKey) {
+			if (!previewCapable) return;
+			event.preventDefault();
+			cycleViewMode();
+			return;
+		}
+
+		// Ctrl+W e Ctrl+F4 chiudono la scheda; con nessun file aperto non
+		// fanno nulla, mai chiudere la finestra dell'app.
+		if ((key === 'w' || event.key === 'F4') && !event.shiftKey) {
+			if (!filePath) return;
+			event.preventDefault();
+			closeFile();
+			return;
+		}
+
+		if (key === 'w' && event.shiftKey) {
+			if (filePaths.length === 0) return;
+			event.preventDefault();
+			closeAllFiles();
+		}
+	}
+
+	function updateTabScrollState() {
+		if (!tabsTrackEl) return;
+		const { scrollLeft, scrollWidth, clientWidth } = tabsTrackEl;
+		canScrollLeft = scrollLeft > 2;
+		canScrollRight = scrollLeft + clientWidth < scrollWidth - 2;
+	}
+
+	function scrollTabs(delta: number) {
+		tabsTrackEl?.scrollBy({ left: delta, behavior: 'smooth' });
+	}
+
+	function handleTabsWheel(event: WheelEvent) {
+		if (!tabsTrackEl) return;
+		if (event.deltaY && !event.deltaX) {
+			event.preventDefault();
+			tabsTrackEl.scrollLeft += event.deltaY;
+			updateTabScrollState();
+		}
+	}
+
+	// La scheda attiva deve restare visibile anche quando la barra scorre, e
+	// le frecce vanno ricalcolate quando cambia il numero di schede.
+	$effect(() => {
+		const active = filePath;
+		const count = filePaths.length;
+		void count;
+		if (!tabsTrackEl) return;
+		if (active) {
+			const activeEl = tabsTrackEl.querySelector<HTMLElement>(`[data-tab-path="${CSS.escape(active)}"]`);
+			activeEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+		}
+		requestAnimationFrame(updateTabScrollState);
+	});
+
+	// Il tasto centrale su Windows avvia l'autoscroll: va fermato sul
+	// mousedown, non basta chiudere la scheda sull'auxclick.
+	function handleTabMouseDown(event: MouseEvent, path: string) {
+		if (event.button !== 1) return;
+		event.preventDefault();
+		closeFile(path);
+	}
+
+	function handleTabDragStart(event: DragEvent, path: string) {
+		draggedTabPath = path;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/plain', path);
+		}
+	}
+
+	function handleTabDragOver(event: DragEvent, path: string) {
+		if (!draggedTabPath) return;
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+		dragOverTabPath = path;
+		dragOverAfter = filePaths.indexOf(path) > filePaths.indexOf(draggedTabPath);
+	}
+
+	function handleTabDragLeave(path: string) {
+		if (dragOverTabPath === path) dragOverTabPath = null;
+	}
+
+	function handleTabDrop(event: DragEvent, path: string) {
+		event.preventDefault();
+		const source = draggedTabPath || event.dataTransfer?.getData('text/plain');
+		if (source && source !== path && projectStore.activeId) {
+			projectStore.moveFile(projectStore.activeId, source, path);
+		}
+		draggedTabPath = null;
+		dragOverTabPath = null;
+	}
+
+	function handleTabDragEnd() {
+		draggedTabPath = null;
+		dragOverTabPath = null;
 	}
 
 	function handleTabContextMenu(event: MouseEvent, tabPath: string) {
@@ -574,8 +769,8 @@
 			},
 			{
 				kind: 'item',
-				label: 'Diff',
-				icon: IconGitBranch,
+				label: 'Confronta con HEAD',
+				icon: IconDiff,
 				disabled: isTabImage,
 				hint: isTabImage ? 'Diff non disponibile per le immagini' : undefined,
 				run: () => openDiff(tabPath)
@@ -624,6 +819,14 @@
 				disabled: filePaths.length <= 1,
 				hint: filePaths.length <= 1 ? 'Nessun altro file aperto' : undefined,
 				run: () => closeOtherFiles(tabPath)
+			},
+			{
+				kind: 'item',
+				label: 'Chiudi tutti',
+				icon: IconCloseOthers,
+				shortcut: isWindows ? 'Ctrl+Shift+W' : 'Cmd+Shift+W',
+				disabled: filePaths.length === 0,
+				run: () => closeAllFiles()
 			}
 		];
 
@@ -780,12 +983,23 @@
 			},
 			{
 				kind: 'item',
-				label: showDiff ? 'Nascondi diff' : 'Mostra diff',
-				icon: IconGitBranch,
+				label: showDiff ? 'Chiudi confronto' : 'Confronta con HEAD',
+				icon: IconDiff,
 				disabled: isImage,
 				hint: isImage ? 'Diff non disponibile per le immagini' : undefined,
 				run: () => {
 					toggleGitDiff();
+				}
+			},
+			{
+				kind: 'item',
+				label: 'Cambia vista',
+				icon: IconViewPreview,
+				shortcut: isWindows ? 'Ctrl+Shift+V' : 'Cmd+Shift+V',
+				disabled: !previewCapable,
+				hint: !previewCapable ? 'Nessuna anteprima per questo tipo di file' : undefined,
+				run: () => {
+					cycleViewMode();
 				}
 			}
 		];
@@ -819,31 +1033,48 @@
 		window.removeEventListener('mouseup', stopResize);
 	}
 
-	function renderMarkdown(md: string): string {
-		if (!md) return '';
-		return md
-			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-			.replace(/^### (.*$)/gim, '<h3>$1</h3>')
-			.replace(/^## (.*$)/gim, '<h2>$1</h2>')
-			.replace(/^# (.*$)/gim, '<h1>$1</h1>')
-			.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-			.replace(/\*(.*?)\*/g, '<em>$1</em>')
-			.replace(/`(.*?)`/g, '<code>$1</code>')
-			.replace(/^\s*-\s+(.*$)/gim, '<li>$1</li>')
-			.replace(/\n\n/g, '<br/><br/>');
-	}
 </script>
+
+<svelte:window onkeydowncapture={handleWindowKeydown} />
 
 <div class="editor-wrapper">
 	{#if filePaths.length > 0}
 		<div class="editor-header">
-			<div class="editor-tabs" role="group" aria-label="File aperti">
+			{#if canScrollLeft}
+				<button
+					type="button"
+					class="tab-scroll-btn"
+					onclick={() => scrollTabs(-180)}
+					title="Scorri le schede a sinistra"
+					aria-label="Scorri le schede a sinistra"
+				><IconChevronLeft /></button>
+			{/if}
+			<div
+				class="editor-tabs"
+				role="group"
+				aria-label="File aperti"
+				bind:this={tabsTrackEl}
+				onscroll={updateTabScrollState}
+				onwheel={handleTabsWheel}
+			>
 				{#each filePaths as path (path)}
 					{@const isActive = path === filePath}
+					{@const isTabDirty = dirtyFiles[fileKey(projectPath, path)] === true}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						class="editor-tab"
 						class:active={isActive}
+						class:dragging={draggedTabPath === path}
+						class:drag-over={dragOverTabPath === path && draggedTabPath !== path}
+						class:drag-after={dragOverAfter}
+						data-tab-path={path}
+						draggable="true"
+						ondragstart={(event) => handleTabDragStart(event, path)}
+						ondragover={(event) => handleTabDragOver(event, path)}
+						ondragleave={() => handleTabDragLeave(path)}
+						ondrop={(event) => handleTabDrop(event, path)}
+						ondragend={handleTabDragEnd}
+						onmousedown={(event) => handleTabMouseDown(event, path)}
 						oncontextmenu={(event) => handleTabContextMenu(event, path)}
 					>
 						<button
@@ -852,42 +1083,92 @@
 							title={path}
 							onclick={() => selectFile(path)}
 						>
-							<span>{fileName(path)}</span>
-							{#if dirtyFiles[fileKey(projectPath, path)]}
-								<span class="dirty-dot" title="Modifiche non salvate">•</span>
-							{/if}
+							<span class="tab-label" class:unsaved={isTabDirty}>{fileName(path)}</span>
 						</button>
-						{#if !isImageFile(path)}
+						<!-- Un solo posto per due segni: il pallino delle modifiche non
+						     salvate lascia il posto alla X al passaggio del mouse, cosi'
+						     la larghezza della scheda non cambia mai. -->
+						<span class="tab-slot" class:has-dot={isTabDirty}>
+							{#if isTabDirty}
+								<span class="dirty-dot" aria-hidden="true">•</span>
+							{/if}
 							<button
-								class="editor-tab-action"
-								class:active={isActive && showDiff}
-								onclick={(event) => { event.stopPropagation(); openDiff(path); }}
-								title="Visualizza Git Diff"
-								aria-label="Visualizza Git Diff di {fileName(path)}"
-							>Diff</button>
-						{/if}
-						<button
-							class="editor-tab-action close-tab"
-							onclick={(event) => { event.stopPropagation(); closeFile(path); }}
-							title="Chiudi file (Ctrl+W o Ctrl+F4)"
-							aria-label="Chiudi {fileName(path)}"
-						><IconClose /></button>
+								class="close-tab"
+								onclick={(event) => { event.stopPropagation(); closeFile(path); }}
+								title="Chiudi {fileName(path)} (Ctrl+W)"
+								aria-label="Chiudi {fileName(path)}"
+							><IconClose /></button>
+						</span>
 					</div>
 				{/each}
 			</div>
-			{#if filePath && isHtmlFile(filePath)}
+			{#if canScrollRight}
 				<button
-					class="action-btn"
-					onclick={() => onPreviewRequest?.(filePath)}
-					title="Apri anteprima live in sandbox"
-				>
-					Anteprima
-				</button>
+					type="button"
+					class="tab-scroll-btn"
+					onclick={() => scrollTabs(180)}
+					title="Scorri le schede a destra"
+					aria-label="Scorri le schede a destra"
+				><IconChevronRight /></button>
 			{/if}
-			{#if isDirty && !isImage}
-				<button class="action-btn save-btn" onclick={() => void saveCurrentFile()} title="Salva modifiche (Ctrl+S)">
-					Salva
-				</button>
+
+			{#if filePath}
+				<div class="header-actions">
+					{#if previewCapable}
+						<!-- La vista vale per la scheda attiva: un solo controllo,
+						     non un pulsante per ogni linguetta. -->
+						<div class="segmented" role="group" aria-label="Vista del file">
+							<button
+								class="seg-btn"
+								class:active={viewMode === 'code' && !showDiff}
+								onclick={() => setViewMode('code')}
+								title="Solo codice (Ctrl+Shift+V cicla)"
+								aria-label="Solo codice"
+								aria-pressed={viewMode === 'code' && !showDiff}
+							><IconViewCode /></button>
+							<button
+								class="seg-btn"
+								class:active={viewMode === 'split' && !showDiff}
+								onclick={() => setViewMode('split')}
+								title="Codice e anteprima (Ctrl+Shift+V cicla)"
+								aria-label="Codice e anteprima"
+								aria-pressed={viewMode === 'split' && !showDiff}
+							><IconViewSplit /></button>
+							<button
+								class="seg-btn"
+								class:active={viewMode === 'preview' && !showDiff}
+								onclick={() => setViewMode('preview')}
+								title="Solo anteprima (Ctrl+Shift+V cicla)"
+								aria-label="Solo anteprima"
+								aria-pressed={viewMode === 'preview' && !showDiff}
+							><IconViewPreview /></button>
+						</div>
+					{/if}
+					{#if !isImage}
+						<button
+							class="icon-btn"
+							class:active={showDiff}
+							onclick={toggleGitDiff}
+							title={showDiff ? 'Chiudi il confronto con HEAD' : 'Confronta con HEAD'}
+							aria-label={showDiff ? 'Chiudi il confronto con HEAD' : 'Confronta con HEAD'}
+							aria-pressed={showDiff}
+						><IconDiff /></button>
+					{/if}
+					{#if isHtmlFile(filePath)}
+						<button
+							class="action-btn"
+							onclick={() => onPreviewRequest?.(filePath)}
+							title="Apri anteprima live in sandbox"
+						>
+							Anteprima
+						</button>
+					{/if}
+					{#if isDirty && !isImage}
+						<button class="action-btn save-btn" onclick={() => void saveCurrentFile()} title="Salva modifiche (Ctrl+S)">
+							Salva
+						</button>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -900,7 +1181,7 @@
 		{#if !filePath}
 			<div class="empty-state">
 				<div class="empty-text">Seleziona un file dall'albero per modificarlo</div>
-				<div class="empty-hint">Ctrl+S salva · Ctrl+W o Ctrl+F4 chiude il file</div>
+				<div class="empty-hint">Ctrl+S salva · Ctrl+W chiude la scheda</div>
 			</div>
 		{:else if isImage}
 			<ImageViewer projectPath={projectPath} filePath={filePath} />
@@ -911,7 +1192,19 @@
 				bind:this={diffContainer}
 				oncontextmenu={(event) => handleEditorContextMenu(event, diffEditorInstance?.getModifiedEditor() ?? null)}
 			></div>
-		{:else if isSvg || isMarkdown}
+		{:else if previewCapable && viewMode === 'preview'}
+			<div class="preview-only">
+				{#if isSvg}
+					<div class="svg-preview-viewport">
+						<SvgPreview content={currentText} title="Anteprima live di {fileName(filePath)}" />
+					</div>
+				{:else}
+					<div class="markdown-preview-viewport">
+						<Markdown tokens={markdownTokens} />
+					</div>
+				{/if}
+			</div>
+		{:else if previewCapable && viewMode === 'split'}
 			<div class="split-container" bind:this={splitContainer}>
 				<div class="split-top" style="height: {splitPercent}%;">
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -927,14 +1220,12 @@
 				</div>
 				<div class="split-bottom" style="height: {100 - splitPercent}%;">
 					{#if isSvg}
-						<div class="preview-header">Anteprima SVG Live</div>
 						<div class="svg-preview-viewport">
 							<SvgPreview content={currentText} title="Anteprima live di {fileName(filePath)}" />
 						</div>
-					{:else if isMarkdown}
-						<div class="preview-header">Anteprima Markdown Live</div>
+					{:else}
 						<div class="markdown-preview-viewport">
-							{@html renderMarkdown(currentText)}
+							<Markdown tokens={markdownTokens} />
 						</div>
 					{/if}
 				</div>
@@ -980,18 +1271,81 @@
 		flex: 1;
 		overflow-x: auto;
 		overflow-y: hidden;
+		scrollbar-width: none;
+	}
+
+	.editor-tabs::-webkit-scrollbar {
+		display: none;
+	}
+
+	.tab-scroll-btn {
+		align-self: center;
+		width: 18px;
+		height: 26px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		cursor: pointer;
+		flex: none;
+	}
+
+	.tab-scroll-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line-strong);
 	}
 
 	.editor-tab {
+		position: relative;
 		display: flex;
 		align-items: center;
 		min-width: 0;
 		color: var(--ink-muted);
+		cursor: grab;
+		border-right: 1px solid var(--line);
+	}
+
+	.editor-tab:active {
+		cursor: grabbing;
+	}
+
+	.editor-tab:hover {
+		background: var(--bg-hover);
 	}
 
 	.editor-tab.active {
 		background: var(--bg-sunken);
 		color: var(--ink);
+	}
+
+	/* La scheda attiva si riconosce da una barra sopra, non solo dal fondo
+	   piu' scuro: a tema chiaro la differenza di superficie e' troppo tenue. */
+	.editor-tab.active::before {
+		content: '';
+		position: absolute;
+		inset: 0 0 auto 0;
+		height: 2px;
+		background: var(--brand);
+	}
+
+	.editor-tab.dragging {
+		opacity: 0.5;
+	}
+
+	.editor-tab.drag-over::after {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 2px;
+		background: var(--brand);
+	}
+
+	.editor-tab.drag-over.drag-after::after {
+		inset: 0 0 0 auto;
 	}
 
 	.editor-tab-file {
@@ -1001,57 +1355,156 @@
 		min-width: 0;
 		max-width: 180px;
 		height: 100%;
-		padding: 0 var(--space-2);
+		padding: 0 var(--space-1) 0 var(--space-2);
 		background: transparent;
 		border: none;
 		color: inherit;
-		cursor: pointer;
+		cursor: inherit;
 		font: inherit;
 		overflow: hidden;
 		white-space: nowrap;
 	}
 
-	.editor-tab-file > span:first-child {
+	.tab-label {
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 
-	.editor-tab-file:hover,
-	.editor-tab-action:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
+	/* Il corsivo dice "non salvato" anche a chi non distingue il colore del
+	   pallino (DESIGN.md: nessuna informazione affidata al solo colore). */
+	.tab-label.unsaved {
+		font-style: italic;
+	}
+
+	/* Cella di larghezza fissa: il pallino e la X vivono nello stesso posto,
+	   quindi passare col mouse non fa saltare la linguetta di qualche pixel. */
+	.tab-slot {
+		position: relative;
+		width: 20px;
+		height: 20px;
+		margin-right: var(--space-1);
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.dirty-dot {
 		color: var(--warn);
-		font-size: 14px;
+		font-size: 16px;
 		line-height: 1;
-		flex: none;
 	}
 
-	.editor-tab-action {
-		height: 22px;
-		padding: 0 var(--space-1);
+	.close-tab {
+		position: absolute;
+		inset: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		background: transparent;
 		border: none;
 		border-radius: var(--radius-sm);
 		color: inherit;
 		cursor: pointer;
-		font: inherit;
-		font-size: var(--text-xs);
+		padding: 0;
+		opacity: 0;
 	}
 
-	.editor-tab-action.active {
+	.close-tab:hover {
 		background: var(--bg-active);
 		color: var(--ink);
 	}
 
-	.close-tab {
-		font-size: 16px;
-		line-height: 1;
+	.editor-tab:hover .close-tab,
+	.close-tab:focus-visible {
+		opacity: 1;
+	}
+
+	.editor-tab:hover .dirty-dot,
+	.tab-slot:focus-within .dirty-dot {
+		opacity: 0;
+	}
+
+	/* Senza modifiche pendenti la X resta visibile sulla scheda attiva: e'
+	   l'azione piu' probabile su quella linguetta. */
+	.editor-tab.active .close-tab {
+		opacity: 0.7;
+	}
+
+	.editor-tab.active:hover .close-tab {
+		opacity: 1;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		flex: none;
+		padding-left: var(--space-1);
+	}
+
+	.segmented {
+		display: inline-flex;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+	}
+
+	.seg-btn {
+		width: 26px;
+		height: 22px;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
+		background: transparent;
+		border: none;
+		border-left: 1px solid var(--line);
+		color: var(--ink-muted);
+		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.seg-btn:first-child {
+		border-left: none;
+	}
+
+	.seg-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.seg-btn.active {
+		background: var(--bg-active);
+		color: var(--ink);
+	}
+
+	.icon-btn {
+		width: 26px;
+		height: 22px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.icon-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line-strong);
+	}
+
+	.icon-btn.active {
+		background: var(--bg-active);
+		color: var(--ink);
+		border-color: var(--brand);
 	}
 
 	.action-btn {
@@ -1140,17 +1593,15 @@
 		overflow: hidden;
 	}
 
-	.preview-header {
-		height: 24px;
-		background: var(--bg-raised);
-		border-bottom: 1px solid var(--line);
-		padding: 0 var(--space-3);
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		color: var(--ink-faint);
+	/* Vista a tutta altezza: stessa impaginazione del pannello inferiore dello
+	   split, senza il divisore. */
+	.preview-only {
+		width: 100%;
+		height: 100%;
 		display: flex;
-		align-items: center;
-		flex-shrink: 0;
+		flex-direction: column;
+		background: var(--bg-base);
+		overflow: hidden;
 	}
 
 	.svg-preview-viewport {
@@ -1173,32 +1624,15 @@
 		background-size: 16px 16px;
 	}
 
+	/* Nessuna regola sui figli: il markdown arriva dal componente della chat,
+	   che porta i propri stili. Due fogli sullo stesso albero divergerebbero. */
 	.markdown-preview-viewport {
 		flex: 1;
-		padding: var(--space-4);
+		padding: var(--space-4) var(--space-5);
 		overflow-y: auto;
 		color: var(--ink);
 		font-family: var(--font-ui);
-		line-height: 1.6;
 		font-size: var(--text-base);
-	}
-
-	.markdown-preview-viewport :global(h1),
-	.markdown-preview-viewport :global(h2),
-	.markdown-preview-viewport :global(h3) {
-		border-bottom: 1px solid var(--line);
-		padding-bottom: var(--space-1);
-		margin-top: var(--space-3);
-		margin-bottom: var(--space-2);
-		color: var(--ink);
-	}
-
-	.markdown-preview-viewport :global(code) {
-		background: var(--bg-sunken);
-		padding: 2px 6px;
-		border-radius: var(--radius-sm);
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
 	}
 
 	.loading-overlay, .empty-state {

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::command;
+use tauri::ipc::Response;
 
 pub mod tasks;
 pub use tasks::*;
@@ -753,6 +754,17 @@ pub async fn file_read(project_path: String, rel: String) -> Result<FileContent,
     let content = String::from_utf8_lossy(&bytes).to_string();
 
     Ok(FileContent { content })
+}
+
+/// Byte grezzi di un file, senza passare da JSON: `Response` viaggia sull'IPC
+/// come corpo binario, quindi il frontend riceve un ArrayBuffer da cui fare un
+/// Blob. Serve alle immagini raster, che una `String::from_utf8_lossy`
+/// distruggerebbe.
+#[command]
+pub async fn file_read_bytes(project_path: String, rel: String) -> Result<Response, String> {
+    let target = resolve_path(&project_path, &rel)?;
+    let bytes = fs::read(&target).map_err(|e| e.to_string())?;
+    Ok(Response::new(bytes))
 }
 
 #[command]

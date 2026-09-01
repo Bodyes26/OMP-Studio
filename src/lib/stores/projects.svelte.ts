@@ -367,6 +367,19 @@ class ProjectStore {
 		}
 	}
 
+	/** Sposta la scheda `file` nella posizione di `beforeFile`, come il
+	 *  trascinamento della barra dei progetti. Nessun save(): l'ordine dei tab
+	 *  e' stato di sessione. */
+	moveFile(id: string, file: string, beforeFile: string) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p || file === beforeFile) return;
+		const from = p.openFiles.indexOf(file);
+		const to = p.openFiles.indexOf(beforeFile);
+		if (from === -1 || to === -1) return;
+		p.openFiles.splice(from, 1);
+		p.openFiles.splice(to, 0, file);
+	}
+
 	private isPathUnder(filePath: string, targetPath: string, isDir: boolean): boolean {
 		const normFile = filePath.replace(/\\/g, '/');
 		const normTarget = targetPath.replace(/\\/g, '/').replace(/\/+$/, '');

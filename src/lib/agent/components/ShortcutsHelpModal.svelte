@@ -102,8 +102,11 @@
 			title: 'Editor, File & Varie',
 			column: 2,
 			items: [
-				{ keys: ['Ctrl+S'], description: 'Salva il file corrente nell\'editor Monaco' },
+				{ keys: ['Ctrl+S'], description: 'Salva il file corrente nell\'editor' },
 				{ keys: ['Ctrl+W', 'Ctrl+F4'], description: 'Chiude la scheda del file corrente' },
+				{ keys: ['Ctrl+Shift+W'], description: 'Chiude tutte le schede aperte nell\'editor' },
+				{ keys: ['Ctrl+Shift+V'], description: 'Cicla la vista dei file con anteprima: codice, affiancata, solo anteprima' },
+				{ keys: ['Clic centrale'], description: 'Chiude la scheda dell\'editor sotto il puntatore' },
 				{ keys: ['Ctrl+0'], description: 'Adatta il diagramma a tutto schermo (viewer)' },
 				{ keys: ['Click destro', 'Shift+F10'], description: 'Apre il menu contestuale dedicato dell\'elemento a fuoco' }
 			]

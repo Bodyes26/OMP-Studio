@@ -7,7 +7,8 @@ mod rpc;
 use rpc::{rpc_close, rpc_open, rpc_protocol, rpc_send, rpc_stderr, RpcManager};
 mod projects;
 use projects::{
-    file_git_head, file_git_rev, file_read, file_write, git_branch_checkout, git_branch_create,
+    file_git_head, file_git_rev, file_read, file_read_bytes, file_write, git_branch_checkout,
+    git_branch_create,
     git_branch_list, git_branch_merge, git_current_branch, git_last_commit, git_recent_commits,
     git_working_numstat, path_create_directory, path_create_file, path_rename, path_trash,
     preview_file, project_files_search, project_git_status, project_tasks_read, project_tasks_unwatch,
@@ -98,6 +99,7 @@ pub fn run() {
             path_rename,
             path_trash,
             file_read,
+            file_read_bytes,
             file_write,
             file_git_head,
             project_git_status,

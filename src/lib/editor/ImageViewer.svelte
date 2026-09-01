@@ -1,11 +1,26 @@
 <script lang="ts">
-	import { convertFileSrc } from '@tauri-apps/api/core';
-	import { joinProjectPath } from '$lib/stores/projects.svelte';
+	import { invoke } from '@tauri-apps/api/core';
 
 	let { projectPath, filePath } = $props<{
 		projectPath: string;
 		filePath: string;
 	}>();
+
+	// Il protocollo `asset:` di Tauri e' disabilitato di default e il suo scope
+	// e' statico, mentre i progetti vivono in cartelle arbitrarie: i byte
+	// arrivano dall'IPC come ArrayBuffer e diventano un blob locale. La CSP
+	// consente gia' `blob:` in img-src.
+	const MIME_BY_EXT: Record<string, string> = {
+		png: 'image/png',
+		jpg: 'image/jpeg',
+		jpeg: 'image/jpeg',
+		gif: 'image/gif',
+		webp: 'image/webp',
+		bmp: 'image/bmp',
+		ico: 'image/x-icon',
+		heic: 'image/heic',
+		avif: 'image/avif'
+	};
 
 	let scale = $state(1);
 	let panX = $state(0);
@@ -15,9 +30,55 @@
 	let startY = 0;
 	let imgWidth = $state(0);
 	let imgHeight = $state(0);
+	let imgSrc = $state<string | null>(null);
+	let loadError = $state<string | null>(null);
+	let byteSize = $state(0);
 
-	let fullPath = $derived(joinProjectPath(projectPath, filePath));
-	let imgSrc = $derived(convertFileSrc(fullPath));
+	function mimeFor(path: string): string {
+		const ext = path.split('.').pop()?.toLowerCase() ?? '';
+		return MIME_BY_EXT[ext] ?? 'application/octet-stream';
+	}
+
+	$effect(() => {
+		const project = projectPath;
+		const rel = filePath;
+		imgSrc = null;
+		loadError = null;
+		imgWidth = 0;
+		imgHeight = 0;
+		byteSize = 0;
+		if (!project || !rel) return;
+
+		// L'URL va revocato alla dismissione: un object URL vive quanto il
+		// documento, quindi cambiare file senza revocare trattiene i byte.
+		let url: string | null = null;
+		let cancelled = false;
+		void (async () => {
+			try {
+				const bytes = await invoke<ArrayBuffer>('file_read_bytes', {
+					projectPath: project,
+					rel
+				});
+				if (cancelled) return;
+				url = URL.createObjectURL(new Blob([bytes], { type: mimeFor(rel) }));
+				byteSize = bytes.byteLength;
+				imgSrc = url;
+			} catch (error) {
+				if (!cancelled) loadError = String(error);
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+			if (url) URL.revokeObjectURL(url);
+		};
+	});
+
+	function formatBytes(size: number): string {
+		if (size < 1024) return `${size} B`;
+		if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+		return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+	}
 
 	function handleImgLoad(e: Event) {
 		const img = e.currentTarget as HTMLImageElement;
@@ -71,7 +132,7 @@
 	<div class="image-toolbar">
 		<span class="file-name">{filePath.split(/[\\/]/).pop()}</span>
 		{#if imgWidth && imgHeight}
-			<span class="img-meta">{imgWidth} × {imgHeight} px</span>
+			<span class="img-meta">{imgWidth} × {imgHeight} px{byteSize ? ` · ${formatBytes(byteSize)}` : ''}</span>
 		{/if}
 		<div class="zoom-controls">
 			<button class="tool-btn" onclick={zoomOut} title="Zoom Out (-)">−</button>
@@ -81,27 +142,39 @@
 		</div>
 	</div>
 
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div 
-		class="viewport"
-		onwheel={handleWheel}
-		onmousedown={handleMouseDown}
-		onmousemove={handleMouseMove}
-		onmouseup={handleMouseUp}
-		onmouseleave={handleMouseUp}
-	>
-		<div 
-			class="image-wrapper"
-			style="transform: translate({panX}px, {panY}px) scale({scale}); cursor: {isDragging ? 'grabbing' : 'grab'};"
-		>
-			<img 
-				src={imgSrc} 
-				alt={filePath} 
-				onload={handleImgLoad} 
-				draggable="false"
-			/>
+	{#if loadError}
+		<div class="viewport error">
+			<div class="error-box">
+				<div class="error-title">Immagine non caricata</div>
+				<div class="error-detail">{loadError}</div>
+			</div>
 		</div>
-	</div>
+	{:else}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="viewport"
+			onwheel={handleWheel}
+			onmousedown={handleMouseDown}
+			onmousemove={handleMouseMove}
+			onmouseup={handleMouseUp}
+			onmouseleave={handleMouseUp}
+		>
+			<div
+				class="image-wrapper"
+				style="transform: translate({panX}px, {panY}px) scale({scale}); cursor: {isDragging ? 'grabbing' : 'grab'};"
+			>
+				{#if imgSrc}
+					<img
+						src={imgSrc}
+						alt={filePath}
+						onload={handleImgLoad}
+						onerror={() => (loadError = 'Formato non supportato dal renderer della webview.')}
+						draggable="false"
+					/>
+				{/if}
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -112,6 +185,33 @@
 		flex-direction: column;
 		background: var(--bg-sunken);
 		user-select: none;
+	}
+
+	.viewport.error {
+		cursor: default;
+	}
+
+	.error-box {
+		max-width: 420px;
+		padding: var(--space-4);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		background: var(--bg-raised);
+		text-align: center;
+	}
+
+	.error-title {
+		color: var(--warn);
+		font-size: var(--text-md);
+		margin-bottom: var(--space-2);
+	}
+
+	.error-detail {
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		word-break: break-word;
+		user-select: text;
 	}
 
 	.image-toolbar {
