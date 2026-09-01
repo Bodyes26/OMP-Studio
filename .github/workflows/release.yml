@@ -79,17 +79,17 @@ jobs:
             os: windows-latest
             build_args: --bundles nsis
             artifact_name: windows-x64
-            artifact_glob: src-tauri/target/release/bundle/nsis/*.exe
+            artifact_dir: src-tauri/target/release/bundle/nsis
           - name: macOS universal
             os: macos-14
             build_args: --bundles dmg --target universal-apple-darwin
             artifact_name: macos-universal
-            artifact_glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            artifact_dir: src-tauri/target/universal-apple-darwin/release/bundle/dmg
           - name: Linux x64
             os: ubuntu-22.04
             build_args: --bundles deb,appimage
             artifact_name: linux-x64
-            artifact_glob: "src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage"
+            artifact_dir: "src-tauri/target/release/bundle/deb src-tauri/target/release/bundle/appimage"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -137,6 +137,7 @@ jobs:
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
       - name: Compila gli installer
+        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -146,7 +147,11 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
           CI: "true"
-        run: bun tauri build ${{ matrix.build_args }}
+        run: |
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          fi
+          bun tauri build ${{ matrix.build_args }}
 
       - name: Verifica firma e notarizzazione macOS
         if: runner.os == 'macOS'
@@ -228,8 +233,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p staging
-          for pattern in ${{ matrix.artifact_glob }}; do
-            for f in $pattern; do
+          for dir in ${{ matrix.artifact_dir }}; do
+            [ -d "$dir" ] || continue
+            for f in "$dir"/*; do
               [ -f "$f" ] || continue
               fname=$(basename "$f")
               dotted="${fname// /.}"
