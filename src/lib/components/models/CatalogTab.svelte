@@ -34,7 +34,7 @@
 	});
 
 	const providerScoped = $derived.by(() => {
-		const scope = modelSettingsStore.selectedProviderId;
+		const scope = modelSettingsStore.catalogFilterProviderId;
 		if (!scope) return effectiveCatalog;
 		return effectiveCatalog.filter((m) => m.provider === scope);
 	});
@@ -102,7 +102,11 @@
 	}
 
 	function selectAllProviders() {
-		modelSettingsStore.selectedProviderId = null;
+		modelSettingsStore.setCatalogFilter(null);
+	}
+
+	function selectScopeProvider(id: string) {
+		modelSettingsStore.setCatalogFilter(id);
 	}
 
 	function clearSearchFilters() {
@@ -130,7 +134,9 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape' && openAssignMenuFor) {
+			e.preventDefault();
 			e.stopPropagation();
+			e.stopImmediatePropagation?.();
 			openAssignMenuFor = null;
 		}
 	}
@@ -146,7 +152,7 @@
 			<button
 				type="button"
 				class="scope-item"
-				class:active={modelSettingsStore.selectedProviderId === null}
+				class:active={modelSettingsStore.catalogFilterProviderId === null}
 				onclick={selectAllProviders}
 			>
 				<span class="scope-label">Tutti i modelli</span>
@@ -156,8 +162,8 @@
 				<button
 					type="button"
 					class="scope-item"
-					class:active={modelSettingsStore.selectedProviderId === p.id}
-					onclick={() => modelSettingsStore.selectProvider(p.id)}
+					class:active={modelSettingsStore.catalogFilterProviderId === p.id}
+					onclick={() => selectScopeProvider(p.id)}
 					title={p.source === 'plugin' ? `${p.name} (plugin)` : p.name}
 				>
 					<span class="scope-label">{p.name}</span>
@@ -223,9 +229,9 @@
 					type="button"
 					class="refresh-catalog-btn"
 					disabled={modelSettingsStore.isRefreshingCatalog}
-					onclick={() => modelSettingsStore.refreshCatalog(modelSettingsStore.selectedProviderId ?? undefined)}
-					title={modelSettingsStore.selectedProviderId
-						? `Aggiorna catalogo per ${providerName(modelSettingsStore.selectedProviderId)}`
+					onclick={() => modelSettingsStore.refreshCatalog(modelSettingsStore.catalogFilterProviderId ?? undefined)}
+					title={modelSettingsStore.catalogFilterProviderId
+						? `Aggiorna catalogo per ${providerName(modelSettingsStore.catalogFilterProviderId)}`
 						: 'Aggiorna catalogo da tutti i provider attivi'}
 				>
 					<svg

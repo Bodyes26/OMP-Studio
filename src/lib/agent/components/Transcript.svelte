@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	// Transcript: itera `entries` con chiavi stabili (`e.id`, contatore monotono
 	// assegnato all'inserimento, mai l'indice). Delega il rendering per `kind`.
 	//
 	// Rendering a finestre: se ci sono piu' di 300 entry mostra le ultime 300
-	// e un bottone «Carica precedenti» in cima che ne scopre altre 300.
+	// e un bottone «Carica precedenti» in cima che ne scopre altre 300 preservando la viewport.
 	import { projectStore } from '../../stores/projects.svelte';
 	import type { AgentSession, AssistantEntry, Block, ToolEntry, TranscriptEntry } from '../session.svelte';
 	import { chatReveal } from '../motion';
@@ -100,16 +101,53 @@
 		return 'content';
 	}
 
+	let transcriptEl = $state<HTMLElement | null>(null);
+	let disableAnimations = $state(false);
+
+	async function handleShowEarlier() {
+		if (!transcriptEl) {
+			session.showEarlier();
+			return;
+		}
+
+		const scrollContainer = (transcriptEl.closest('.scroll-area') || transcriptEl.parentElement || document.scrollingElement) as HTMLElement | null;
+		const firstRow = transcriptEl.querySelector('.entry-row') as HTMLElement | null;
+		const topOffsetBefore = firstRow ? firstRow.getBoundingClientRect().top : null;
+		const prevScrollHeight = scrollContainer ? scrollContainer.scrollHeight : 0;
+		const prevScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+
+		disableAnimations = true;
+		session.showEarlier();
+		await tick();
+
+		if (firstRow && scrollContainer && topOffsetBefore !== null) {
+			const topOffsetAfter = firstRow.getBoundingClientRect().top;
+			const diff = topOffsetAfter - topOffsetBefore;
+			if (Math.abs(diff) > 0) {
+				scrollContainer.scrollTop = prevScrollTop + diff;
+			}
+		} else if (scrollContainer && prevScrollHeight > 0) {
+			const delta = scrollContainer.scrollHeight - prevScrollHeight;
+			if (delta > 0) {
+				scrollContainer.scrollTop = prevScrollTop + delta;
+			}
+		}
+
+		requestAnimationFrame(() => {
+			disableAnimations = false;
+		});
+	}
 </script>
 
 <div
+	bind:this={transcriptEl}
 	class="transcript"
 	class:is-empty={session.visibleEntries.length === 0}
 	aria-busy={session.isStreaming}
 >
 	{#if session.hasEarlier}
 		<div class="earlier-bar">
-			<button type="button" class="earlier-btn" onclick={() => session.showEarlier()}>
+			<button type="button" class="earlier-btn" onclick={handleShowEarlier}>
 				Carica precedenti ({session.entries.length - session.visibleCount} nascoste)
 			</button>
 		</div>
@@ -164,7 +202,7 @@
 				class:turn-boundary={kind === 'user' && i > 0}
 				class:after-user={prevKind === 'user'}
 				class:system-tight={kind === 'system' && prevKind === 'system'}
-				transition:chatReveal={{ duration: 210 }}
+				transition:chatReveal={{ duration: disableAnimations ? 0 : 210 }}
 			>
 				{#if item.kind === 'tool-group'}
 					<ToolGroup entries={item.entries} activeAssistantId={session.activeAssistantId} />

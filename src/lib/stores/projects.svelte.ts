@@ -4,7 +4,15 @@ import { debounce } from 'lodash-es';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
 
 import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/utils/paths';
-export { normalizeProjectPath, joinProjectPath, pathKey, isWindows };
+import {
+	applyTabRename,
+	applyTabTrash,
+	isPathUnder,
+	remapPath,
+	reorderItemsList,
+	shiftItemList
+} from './projectTabHelpers';
+export { normalizeProjectPath, joinProjectPath, pathKey, isWindows, isPathUnder, remapPath };
 
 export type AgentState = 'idle' | 'working' | 'attention' | 'finished' | 'unknown';
 export type ProjectColorMode = 'auto' | 'custom';
@@ -305,24 +313,13 @@ class ProjectStore {
 
 	/** Riordino manuale (drag&drop): `id` prende il posto di `targetId`. */
 	moveProject(id: string, targetId: string) {
-		if (id === targetId) return;
-		const from = this.projects.findIndex(p => p.id === id);
-		const targetIdx = this.projects.findIndex(p => p.id === targetId);
-		if (from === -1 || targetIdx === -1) return;
-		const [moved] = this.projects.splice(from, 1);
-		const to = this.projects.findIndex(p => p.id === targetId);
-		this.projects.splice(to, 0, moved);
+		this.projects = reorderItemsList(this.projects, id, targetId);
 		this.save();
 	}
 
 	/** Sposta la tessera di una posizione a sinistra (-1) o a destra (+1). */
 	shiftProject(id: string, delta: number) {
-		const from = this.projects.findIndex(p => p.id === id);
-		if (from === -1) return;
-		const to = Math.max(0, Math.min(this.projects.length - 1, from + delta));
-		if (to === from) return;
-		const [moved] = this.projects.splice(from, 1);
-		this.projects.splice(to, 0, moved);
+		this.projects = shiftItemList(this.projects, id, delta);
 		this.save();
 	}
 
@@ -381,49 +378,11 @@ class ProjectStore {
 	}
 
 	private isPathUnder(filePath: string, targetPath: string, isDir: boolean): boolean {
-		const normFile = filePath.replace(/\\/g, '/');
-		const normTarget = targetPath.replace(/\\/g, '/').replace(/\/+$/, '');
-		if (isDir) {
-			if (normFile === normTarget || normFile.startsWith(normTarget + '/')) return true;
-			if (isWindows) {
-				const lowFile = normFile.toLowerCase();
-				const lowTarget = normTarget.toLowerCase();
-				return lowFile === lowTarget || lowFile.startsWith(lowTarget + '/');
-			}
-			return false;
-		}
-		if (normFile === normTarget) return true;
-		if (isWindows) {
-			return normFile.toLowerCase() === normTarget.toLowerCase();
-		}
-		return false;
+		return isPathUnder(filePath, targetPath, isDir);
 	}
 
 	private remapPath(filePath: string, from: string, to: string, isDir: boolean): string | null {
-		const normFile = filePath.replace(/\\/g, '/');
-		const normFrom = from.replace(/\\/g, '/').replace(/\/+$/, '');
-		const normTo = to.replace(/\\/g, '/').replace(/\/+$/, '');
-
-		if (isDir) {
-			if (normFile === normFrom || (isWindows && normFile.toLowerCase() === normFrom.toLowerCase())) {
-				return to;
-			}
-			if (normFile.startsWith(normFrom + '/')) {
-				const suffix = normFile.slice(normFrom.length);
-				const joined = normTo + suffix;
-				return (to.includes('\\') || filePath.includes('\\')) ? joined.replace(/\//g, '\\') : joined;
-			}
-			if (isWindows && normFile.toLowerCase().startsWith(normFrom.toLowerCase() + '/')) {
-				const suffix = normFile.slice(normFrom.length);
-				const joined = normTo + suffix;
-				return (to.includes('\\') || filePath.includes('\\')) ? joined.replace(/\//g, '\\') : joined;
-			}
-		} else {
-			if (normFile === normFrom || (isWindows && normFile.toLowerCase() === normFrom.toLowerCase())) {
-				return to;
-			}
-		}
-		return null;
+		return remapPath(filePath, from, to, isDir);
 	}
 
 	/**
@@ -433,22 +392,9 @@ class ProjectStore {
 	renamePath(id: string, from: string, to: string, isDir: boolean) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p || !from || !to) return;
-		let activeChanged = false;
-		let newActive = p.activeFile;
-		p.openFiles = p.openFiles.map(file => {
-			const remapped = this.remapPath(file, from, to, isDir);
-			if (remapped) {
-				if (p.activeFile === file) {
-					newActive = remapped;
-					activeChanged = true;
-				}
-				return remapped;
-			}
-			return file;
-		});
-		if (activeChanged) {
-			p.activeFile = newActive;
-		}
+		const res = applyTabRename(p.openFiles, p.activeFile, from, to, isDir);
+		p.openFiles = res.openFiles;
+		p.activeFile = res.activeFile;
 	}
 
 	/**
@@ -459,32 +405,9 @@ class ProjectStore {
 	trashPath(id: string, path: string, isDir: boolean) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p || !path) return;
-		const isUnderTrash = (file: string) => this.isPathUnder(file, path, isDir);
-
-		const activeIsRemoved = p.activeFile !== null && isUnderTrash(p.activeFile);
-		const activeIndex = p.activeFile !== null ? p.openFiles.indexOf(p.activeFile) : -1;
-
-		const remaining: string[] = [];
-		let nextActiveCandidate: string | null = null;
-		let prevActiveCandidate: string | null = null;
-
-		for (let i = 0; i < p.openFiles.length; i++) {
-			const file = p.openFiles[i];
-			if (!isUnderTrash(file)) {
-				remaining.push(file);
-				if (i > activeIndex && nextActiveCandidate === null) {
-					nextActiveCandidate = file;
-				}
-				if (i < activeIndex) {
-					prevActiveCandidate = file;
-				}
-			}
-		}
-
-		p.openFiles = remaining;
-		if (activeIsRemoved) {
-			p.activeFile = nextActiveCandidate ?? prevActiveCandidate ?? null;
-		}
+		const res = applyTabTrash(p.openFiles, p.activeFile, path, isDir);
+		p.openFiles = res.openFiles;
+		p.activeFile = res.activeFile;
 	}
 
 	closeOtherFiles(id: string, keepFile: string) {

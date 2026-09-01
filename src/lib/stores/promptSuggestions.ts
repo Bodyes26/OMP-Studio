@@ -205,7 +205,9 @@ export function composeSuggestionChips(
 		});
 	}
 
-	const limit = Math.max(1, Math.min(MAX_DYNAMIC_CHIPS, maxDynamic || MAX_DYNAMIC_CHIPS));
+	const num = typeof maxDynamic === 'string' ? Number(maxDynamic) : maxDynamic;
+	const parsed = typeof num === 'number' && Number.isFinite(num) && num > 0 ? num : MAX_DYNAMIC_CHIPS;
+	const limit = Math.max(1, Math.min(MAX_DYNAMIC_CHIPS, parsed));
 	let taken = 0;
 
 	for (const raw of dynamics) {

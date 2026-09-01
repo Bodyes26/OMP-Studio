@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::command;
@@ -68,15 +68,34 @@ fn fuzzy_match_str(target: &str, query: &str) -> Option<(i64, Vec<usize>)> {
         return Some((0, Vec::new()));
     }
     let orig_target: Vec<char> = target.chars().collect();
-    let target_lower: Vec<char> = target.to_lowercase().chars().collect();
-    let query_lower: Vec<char> = query.to_lowercase().chars().collect();
+    if orig_target.is_empty() {
+        return None;
+    }
+
+    // Mappa ogni carattere minuscolo all'indice del carattere originale in orig_target.
+    // Alcuni caratteri Unicode (es. 'İ') si espandono in piu' caratteri minuscoli ('i' + '\u{0307}').
+    let mut target_lower: Vec<char> = Vec::new();
+    let mut lower_to_orig: Vec<usize> = Vec::new();
+    for (orig_idx, &c) in orig_target.iter().enumerate() {
+        for lc in c.to_lowercase() {
+            target_lower.push(lc);
+            lower_to_orig.push(orig_idx);
+        }
+    }
+
+    let query_lower: Vec<char> = query.chars().flat_map(|c| c.to_lowercase()).collect();
+    if query_lower.is_empty() {
+        return Some((0, Vec::new()));
+    }
 
     if query_lower.len() > target_lower.len() {
         return None;
     }
+
     fn find_best(
-        target: &[char],
+        target_lower: &[char],
         orig_target: &[char],
+        lower_to_orig: &[usize],
         query: &[char],
         t_idx: usize,
         q_idx: usize,
@@ -97,20 +116,28 @@ fn fuzzy_match_str(target: &str, query: &str) -> Option<(i64, Vec<usize>)> {
                 None => true,
             };
             if is_better {
-                *best_score = Some((current_score, current_indices.clone()));
+                // Rimappa gli indici della sequenza minuscola sugli indici originali e deduplica
+                let mut orig_indices = Vec::with_capacity(current_indices.len());
+                for &idx in current_indices.iter() {
+                    let orig_i = lower_to_orig[idx];
+                    if orig_indices.last() != Some(&orig_i) {
+                        orig_indices.push(orig_i);
+                    }
+                }
+                *best_score = Some((current_score, orig_indices));
             }
             return;
         }
 
         let q_char = query[q_idx];
         let remaining_q = query.len() - q_idx;
-        let remaining_t = target.len() - t_idx;
+        let remaining_t = target_lower.len() - t_idx;
         if remaining_t < remaining_q {
             return;
         }
 
-        for i in t_idx..=target.len() - remaining_q {
-            if target[i] == q_char {
+        for i in t_idx..=target_lower.len() - remaining_q {
+            if target_lower[i] == q_char {
                 let mut match_score = 10i64;
 
                 if let Some(prev) = prev_matched_idx {
@@ -125,9 +152,8 @@ fn fuzzy_match_str(target: &str, query: &str) -> Option<(i64, Vec<usize>)> {
                 if i == 0 {
                     match_score += 35;
                 } else {
-                    let prev_char = target[i - 1];
-                    let orig_prev = orig_target[i - 1];
-                    let orig_curr = orig_target[i];
+                    let prev_char = target_lower[i - 1];
+                    let orig_idx = lower_to_orig[i];
 
                     if prev_char == '/'
                         || prev_char == '\\'
@@ -137,15 +163,21 @@ fn fuzzy_match_str(target: &str, query: &str) -> Option<(i64, Vec<usize>)> {
                         || prev_char == ' '
                     {
                         match_score += 25;
-                    } else if orig_prev.is_lowercase() && orig_curr.is_uppercase() {
-                        match_score += 20;
+                    } else if orig_idx > 0 && orig_idx < orig_target.len() {
+                        let orig_prev = orig_target[orig_idx - 1];
+                        let orig_curr = orig_target[orig_idx];
+
+                        if orig_prev.is_lowercase() && orig_curr.is_uppercase() {
+                            match_score += 20;
+                        }
                     }
                 }
 
                 current_indices.push(i);
                 find_best(
-                    target,
+                    target_lower,
                     orig_target,
+                    lower_to_orig,
                     query,
                     i + 1,
                     q_idx + 1,
@@ -171,6 +203,7 @@ fn fuzzy_match_str(target: &str, query: &str) -> Option<(i64, Vec<usize>)> {
     find_best(
         &target_lower,
         &orig_target,
+        &lower_to_orig,
         &query_lower,
         0,
         0,
@@ -198,6 +231,13 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
             clean_project_path, e
         )
     })?;
+    if clean_rel_path.contains('\0') {
+        return Err("Il percorso relativo contiene caratteri non ammessi".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    if clean_rel_path.contains(':') {
+        return Err("Il percorso relativo contiene caratteri non ammessi".to_string());
+    }
 
     let target = if clean_rel_path.is_empty() {
         base.clone()
@@ -225,6 +265,7 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
 }
 /// Valida un singolo nome base (file o cartella).
 /// Rifiuta stringhe vuote, '.' o '..', separatori di percorso e byte NUL.
+/// Su Windows rifiuta inoltre i due punti ':' per impedire prefissi drive (es. 'C:') e stream NTFS.
 pub(crate) fn validate_basename(name: &str) -> Result<&str, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -237,6 +278,17 @@ pub(crate) fn validate_basename(name: &str) -> Result<&str, String> {
         return Err(
             "Il nome non puo' contenere separatori di percorso o caratteri nulli".to_string(),
         );
+    }
+    #[cfg(target_os = "windows")]
+    if name.contains(':') {
+        return Err("Il nome non puo' contenere due punti o prefissi drive".to_string());
+    }
+    let mut components = Path::new(name).components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(comp)), None) if comp == name => {}
+        _ => {
+            return Err("Nome non valido: deve essere un singolo componente normale".to_string());
+        }
     }
     Ok(name)
 }
@@ -263,12 +315,25 @@ pub(crate) fn canonical_project_base(project_path: &str) -> Result<PathBuf, Stri
 /// Risolve e canonizza la cartella genitore rispetto alla base del progetto,
 /// assicurando che non esca dai confini della radice.
 pub(crate) fn resolve_parent_dir(base: &Path, parent_rel: &str) -> Result<PathBuf, String> {
+    if parent_rel.contains('\0') {
+        return Err("Percorso relativo non valido: contiene caratteri non ammessi".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    if parent_rel.contains(':') {
+        return Err("Percorso relativo non valido: contiene caratteri non ammessi".to_string());
+    }
     let clean_parent = parent_rel.replace('\\', "/");
     let clean_parent = clean_parent.trim_matches('/');
 
     let target = if clean_parent.is_empty() || clean_parent == "." {
         base.to_path_buf()
     } else {
+        for comp in Path::new(clean_parent).components() {
+            match comp {
+                Component::Normal(_) | Component::CurDir | Component::ParentDir => {}
+                _ => return Err("Percorso relativo non valido: contiene radici o prefissi".to_string()),
+            }
+        }
         base.join(clean_parent)
     };
 
@@ -290,6 +355,13 @@ pub(crate) fn resolve_parent_dir(base: &Path, parent_rel: &str) -> Result<PathBu
 /// Suddivide un percorso relativo di un elemento esistente in (parent_rel_norm, leaf_name).
 /// Rifiuta operazioni sulla radice del progetto.
 pub(crate) fn split_rel_path(rel: &str) -> Result<(String, String), String> {
+    if rel.contains('\0') {
+        return Err("Percorso non valido: contiene caratteri non ammessi".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    if rel.contains(':') {
+        return Err("Percorso non valido: contiene caratteri non ammessi".to_string());
+    }
     let clean = rel.replace('\\', "/");
     let clean = clean.trim_matches('/');
     if clean.is_empty() || clean == "." {
@@ -314,11 +386,15 @@ pub(crate) fn split_rel_path(rel: &str) -> Result<(String, String), String> {
 pub(crate) fn resolve_existing_entry(
     project_path: &str,
     rel: &str,
-) -> Result<(PathBuf, String, String, bool), String> {
+    ) -> Result<(PathBuf, String, String, bool), String> {
     let base = canonical_project_base(project_path)?;
     let (parent_rel, leaf_name) = split_rel_path(rel)?;
     let parent_dir = resolve_parent_dir(&base, &parent_rel)?;
     let entry_path = parent_dir.join(&leaf_name);
+
+    if !entry_path.starts_with(&base) || entry_path.parent() != Some(&parent_dir) {
+        return Err("Il percorso esce dalla cartella del progetto".to_string());
+    }
 
     // Leaf non seguito: verifichiamo l'esistenza dell'entry con symlink_metadata
     let _meta = fs::symlink_metadata(&entry_path)
@@ -344,6 +420,10 @@ pub(crate) fn resolve_new_destination(
 
     let parent_dir = resolve_parent_dir(&base, &clean_parent)?;
     let dest_path = parent_dir.join(name);
+
+    if !dest_path.starts_with(&base) || dest_path.parent() != Some(&parent_dir) {
+        return Err("La destinazione esce dalla cartella del progetto".to_string());
+    }
 
     // Collision check: rifiuta se esiste gia' file, cartella, symlink o junction
     if fs::symlink_metadata(&dest_path).is_ok() {
@@ -440,9 +520,10 @@ fn is_same_entry(old_path: &Path, new_path: &Path) -> bool {
 fn is_same_entry(old_path: &Path, new_path: &Path) -> bool {
     match (old_path.file_name(), new_path.file_name()) {
         (Some(old_name), Some(new_name)) => {
-            old_name
-                .to_string_lossy()
-                .eq_ignore_ascii_case(&new_name.to_string_lossy())
+            let old_str = old_name.to_string_lossy();
+            let new_str = new_name.to_string_lossy();
+            (old_str.eq_ignore_ascii_case(&new_str)
+                || old_str.to_lowercase() == new_str.to_lowercase())
                 && fs::symlink_metadata(new_path).is_ok()
         }
         _ => false,
@@ -503,6 +584,11 @@ pub async fn path_rename(
 
     let parent_dir = old_path.parent().ok_or("Cartella genitore non trovata")?;
     let new_path = parent_dir.join(&new_name);
+
+    let base = canonical_project_base(&project_path)?;
+    if !new_path.starts_with(&base) || new_path.parent() != Some(parent_dir) {
+        return Err("La destinazione della rinomina esce dalla cartella consentita".to_string());
+    }
 
     // Su un filesystem case-insensitive (APFS, NTFS) il percorso di
     // destinazione risolve alla sorgente: la collisione e' apparente e la
@@ -1513,8 +1599,8 @@ mod tests {
         file_git_rev, fuzzy_match_str, git_last_commit, git_recent_commits,
         merge_name_status_numstat, path_create_directory, path_create_file, path_rename,
         project_files_search, rename_via_temp, resolve_existing_entry, resolve_new_destination,
-        resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
-        FileSearchResult,
+        resolve_parent_dir, resolve_path, resolve_project_file_sync, split_rel_path,
+        validate_basename, Dirent,
     };
     use std::fs;
     #[cfg(windows)]
@@ -1743,14 +1829,31 @@ mod tests {
         assert!(validate_basename("file.txt").is_ok());
         assert!(validate_basename("my-dir_123").is_ok());
         assert!(validate_basename("file with spaces.png").is_ok());
+        assert!(validate_basename("İtem.txt").is_ok());
 
         assert!(validate_basename("").is_err());
         assert!(validate_basename("   ").is_err());
         assert!(validate_basename(".").is_err());
         assert!(validate_basename("..").is_err());
+        assert!(validate_basename(" . ").is_err());
+        assert!(validate_basename(" .. ").is_err());
         assert!(validate_basename("a/b").is_err());
         assert!(validate_basename("a\\b").is_err());
         assert!(validate_basename("name\0bad").is_err());
+
+        #[cfg(windows)]
+        {
+            assert!(validate_basename("C:evil.txt").is_err());
+            assert!(validate_basename("D:").is_err());
+            assert!(validate_basename("file:stream").is_err());
+            assert!(validate_basename("foo:bar").is_err());
+        }
+
+        #[cfg(not(windows))]
+        {
+            assert!(validate_basename("file:meta").is_ok());
+            assert!(validate_basename("foo:bar").is_ok());
+        }
     }
 
     #[test]
@@ -2183,5 +2286,135 @@ mod tests {
             .block_on(project_files_search(root_str, "".to_string(), None))
             .unwrap();
         assert!(results_empty.is_empty());
+    }
+
+    #[test]
+    fn fuzzy_match_unicode_espansione_i_e_range() {
+        // 'İ' (U+0130) si espande in 2 caratteri lowercase ('i' + U+0307)
+        let target = "İtem.txt";
+        let res = fuzzy_match_str(target, "item");
+        assert!(res.is_some());
+        let (score, indices) = res.unwrap();
+        assert!(score > 0);
+        // Tutti gli indici devono essere all'interno del range di caratteri dell'originale target (0..8)
+        let orig_char_count = target.chars().count();
+        for &idx in &indices {
+            assert!(
+                idx < orig_char_count,
+                "indice {} fuori range ({})",
+                idx,
+                orig_char_count
+            );
+        }
+        // Indici validi e deduplicati
+        assert_eq!(indices, vec![0, 1, 2, 3]);
+
+        // Match su 'İ' con query 'İ'
+        let res_exact = fuzzy_match_str(target, "İ");
+        assert!(res_exact.is_some());
+        let (_, indices_exact) = res_exact.unwrap();
+        // L'indice deve essere deduplicato a [0] (e non duplicato [0, 0])
+        assert_eq!(indices_exact, vec![0]);
+
+        // Stringa con multiple espansioni Unicode
+        let multi = "İ_İ.txt";
+        let res_multi = fuzzy_match_str(multi, "ii");
+        assert!(res_multi.is_some());
+        let (_, indices_multi) = res_multi.unwrap();
+        let multi_char_count = multi.chars().count();
+        for &idx in &indices_multi {
+            assert!(idx < multi_char_count, "indice {} fuori range", idx);
+        }
+        assert_eq!(indices_multi, vec![0, 2]);
+
+        // Nessun panic su stringhe speciali o query senza match
+        assert!(fuzzy_match_str("İ", "xyz").is_none());
+        assert_eq!(fuzzy_match_str("İ", "İ").unwrap().1, vec![0]);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn protezione_prefissi_windows_due_punti_e_traversal() {
+        let root = temp_dir("windows-traversal");
+        let root_str = root.to_str().unwrap().to_string();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // Tentativi di creare file con prefissi Windows drive o due punti
+        let err_drive = rt.block_on(path_create_file(
+            root_str.clone(),
+            "".to_string(),
+            "C:evil.txt".to_string(),
+        ));
+        assert!(err_drive.is_err());
+
+        let err_stream = rt.block_on(path_create_file(
+            root_str.clone(),
+            "".to_string(),
+            "test.txt:stream".to_string(),
+        ));
+        assert!(err_stream.is_err());
+
+        // Tentativi di creare directory con prefissi Windows drive o due punti
+        let err_dir_drive = rt.block_on(path_create_directory(
+            root_str.clone(),
+            "".to_string(),
+            "D:cartella".to_string(),
+        ));
+        assert!(err_dir_drive.is_err());
+
+        // Tentativi di rinomina verso nomi con prefissi Windows o due punti
+        fs::write(root.join("innocuo.txt"), "dati").unwrap();
+        let err_rename_drive = rt.block_on(path_rename(
+            root_str.clone(),
+            "innocuo.txt".to_string(),
+            "C:fuga.txt".to_string(),
+        ));
+        assert!(err_rename_drive.is_err());
+
+        let err_rename_stream = rt.block_on(path_rename(
+            root_str.clone(),
+            "innocuo.txt".to_string(),
+            "innocuo.txt:hidden".to_string(),
+        ));
+        assert!(err_rename_stream.is_err());
+
+        // Tentativi con genitore contenente prefisso drive o due punti
+        assert!(resolve_parent_dir(&root, "C:sub").is_err());
+        assert!(resolve_parent_dir(&root, "sub:bad").is_err());
+        assert!(split_rel_path("C:evil.txt").is_err());
+        assert!(split_rel_path("folder/file:stream").is_err());
+        assert!(resolve_new_destination(&root_str, "C:sub", "file.txt").is_err());
+        assert!(resolve_new_destination(&root_str, "", "C:file.txt").is_err());
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn posix_accetta_due_punti_nel_nome() {
+        let root = temp_dir("posix-colons");
+        let root_str = root.to_str().unwrap().to_string();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        // Su POSIX 'file:meta' e' un nome valido dentro il workspace
+        let d = rt
+            .block_on(path_create_file(
+                root_str.clone(),
+                "".to_string(),
+                "file:meta".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d.name, "file:meta");
+        assert!(root.join("file:meta").is_file());
+
+        // Rinomina con due punti su POSIX
+        let d_ren = rt
+            .block_on(path_rename(
+                root_str.clone(),
+                "file:meta".to_string(),
+                "file:meta:v2".to_string(),
+            ))
+            .unwrap();
+        assert_eq!(d_ren.name, "file:meta:v2");
+        assert!(root.join("file:meta:v2").is_file());
+        assert!(!root.join("file:meta").exists());
     }
 }

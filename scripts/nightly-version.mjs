@@ -17,19 +17,51 @@ export const VERSION_FILES = [
 	'src-tauri/Cargo.lock'
 ];
 
-export function getNightlyVersion(buildId) {
-	const fallbackId = Math.floor(Date.now() / 1000);
-	const rawId = String(buildId ?? fallbackId);
-	if (!/^[1-9]\d*$/.test(rawId)) {
+/**
+ * Normalizza qualsiasi input di build-id (stringa data ISO, timestamp secondi o ms, numero build).
+ * Garantisce la monotonicita' rispetto a vecchi ID in millisecondi (~13 cifre)
+ * convertendo i timestamp in secondi (10 cifre) in millisecondi.
+ */
+export function normalizeBuildId(buildId) {
+	if (buildId === undefined || buildId === null || buildId === '') {
+		return Date.now();
+	}
+
+	const str = String(buildId).trim();
+
+	// Se e' una stringa data ISO (es. "2026-09-01T12:00:00Z" o github.run_started_at)
+	if (isNaN(Number(str))) {
+		const parsed = Date.parse(str);
+		if (!isNaN(parsed) && parsed > 0) {
+			return parsed;
+		}
+		throw new Error(`build-id data non valido: ${buildId}`);
+	}
+
+	const num = Number(str);
+	if (!Number.isInteger(num) || num <= 0) {
 		throw new Error(`build-id numerico non valido: ${buildId}`);
 	}
+
+	// Se il timestamp e' espresso in secondi (10 cifre, es. 1740838123),
+	// lo convertiamo in millisecondi per preservare l'ordinamento monotono SemVer
+	// rispetto a ID precedenti generati in millisecondi (13 cifre).
+	if (num >= 1_000_000_000 && num < 100_000_000_000) {
+		return num * 1000;
+	}
+
+	return num;
+}
+
+export function getNightlyVersion(buildId) {
+	const normalizedId = normalizeBuildId(buildId);
 	const stableVersion = JSON.parse(read('package.json')).version;
 	const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(stableVersion);
 	if (!match) {
 		throw new Error(`La versione sorgente deve essere stabile, ricevuta: ${stableVersion}`);
 	}
 	const [, major, minor, patch] = match;
-	return `${major}.${minor}.${Number(patch) + 1}-nightly.${rawId}`;
+	return `${major}.${minor}.${Number(patch) + 1}-nightly.${normalizedId}`;
 }
 
 export function computeVersionBumps(version) {
@@ -67,11 +99,22 @@ const isDirectExecution = process.argv[1] && fileURLToPath(import.meta.url) === 
 if (isDirectExecution) {
 	const args = process.argv.slice(2);
 	const checkOnly = args.includes('--check');
-	const positional = args.filter((a) => a !== '--check');
-	const buildId = positional[0] || String(Date.now());
+	const printIdOnly = args.includes('--print-id');
+	const printVersionOnly = args.includes('--print-version');
+	const positional = args.filter(
+		(a) => a !== '--check' && a !== '--print-id' && a !== '--print-version'
+	);
+	const rawInput = positional[0] || undefined;
+
 	try {
-		const version = applyNightlyVersion(buildId, checkOnly);
-		console.log(version);
+		if (printIdOnly) {
+			console.log(normalizeBuildId(rawInput));
+		} else if (printVersionOnly) {
+			console.log(getNightlyVersion(rawInput));
+		} else {
+			const version = applyNightlyVersion(rawInput, checkOnly);
+			console.log(version);
+		}
 	} catch (err) {
 		console.error(err instanceof Error ? err.message : String(err));
 		process.exit(1);

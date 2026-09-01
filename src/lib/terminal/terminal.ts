@@ -12,7 +12,7 @@ import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { canvasColors, onThemeChange } from '$lib/theme';
 import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
-import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
+import { isShortcutsHelpKey, isGlobalShellShortcut } from '$lib/shortcuts/shortcutMatch';
 import {
 	describeConfigurationMismatch,
 	type TerminalTaskConfiguration
@@ -171,15 +171,12 @@ export class TerminalSession {
 		this.term.open(container);
 		this.term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
 			if (event.type === 'keydown') {
-				const isAltOnly = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
-				const keyLower = event.key.toLowerCase();
-				// Alt+H, Alt+K, F1: guida scorciatoie globale
-				if ((isAltOnly && (keyLower === 'h' || event.code === 'KeyH' || keyLower === 'k' || event.code === 'KeyK')) || event.key === 'F1') {
-					shortcutsModalStore.toggle();
+				// Alt+H, Alt+K, F1: guida scorciatoie globale (gestita da +page.svelte come unico owner)
+				if (isShortcutsHelpKey(event)) {
 					return false;
 				}
-				// Ctrl+Alt+... (scorciatoie globali del guscio Studio)
-				if (event.altKey && (event.ctrlKey || event.metaKey)) {
+				// Ctrl+Alt+... (scorciatoie globali del guscio Studio gestite da +page.svelte)
+				if (isGlobalShellShortcut(event)) {
 					return false;
 				}
 			}

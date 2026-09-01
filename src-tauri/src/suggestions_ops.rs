@@ -12,6 +12,8 @@
 use std::collections::HashSet;
 use std::time::Duration;
 use tauri::command;
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
 
 /// Timeout massimo di sicurezza (secondi) per l'esecuzione del processo omp effimero.
 const SUGGESTIONS_TIMEOUT_SECS: u64 = 30;
@@ -52,6 +54,99 @@ fn truncate_prefix_chars(s: &str, max_chars: usize) -> &str {
         .unwrap_or(s)
 }
 
+/// Estrae e ripulisce le risposte suggerite dal testo grezzo prodotto dal modello.
+pub(crate) fn parse_and_clean_suggestions(raw_response: &str, max_items: usize) -> Vec<String> {
+    let json_text = match crate::directives_ops::extract_json_payload(raw_response) {
+        Ok(j) => j,
+        Err(_) => return Vec::new(),
+    };
+
+    let parsed: Vec<String> = match serde_json::from_str(&json_text) {
+        Ok(items) => items,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut seen = HashSet::new();
+    let mut cleaned = Vec::with_capacity(max_items);
+
+    for item in parsed {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.chars().count() > 90 {
+            continue;
+        }
+        let lower = trimmed.to_lowercase();
+        if seen.insert(lower) {
+            cleaned.push(trimmed.to_string());
+            if cleaned.len() >= max_items {
+                break;
+            }
+        }
+    }
+
+    cleaned
+}
+
+/// Esegue un processo child con timeout di sicurezza, leggendo stdout e stderr in modo concorrente
+/// per evitare deadlock sui buffer di pipe e terminando con kill + wait al timeout.
+async fn run_child_with_timeout(
+    mut child: tokio::process::Child,
+    timeout_duration: Duration,
+) -> Result<Option<String>, String> {
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+
+    let stdout_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = stdout_pipe {
+            let _ = pipe.read_to_end(&mut buf).await;
+        }
+        buf
+    });
+
+    let stderr_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = stderr_pipe {
+            let _ = pipe.read_to_end(&mut buf).await;
+        }
+        buf
+    });
+
+    let wait_res = tokio::time::timeout(timeout_duration, child.wait()).await;
+
+    let status = match wait_res {
+        Ok(Ok(status)) => status,
+        Ok(Err(_io_err)) => {
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            return Ok(None);
+        }
+        Err(_timeout) => {
+            // Timeout scaduto: terminazione forzata (kill) e attesa del child (wait) per evitare processi orfani
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            return Ok(None);
+        }
+    };
+
+    let stdout_bytes = stdout_task.await.unwrap_or_default();
+    let stderr_bytes = stderr_task.await.unwrap_or_default();
+
+    if !status.success() {
+        let stderr_msg = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
+        if stderr_msg.starts_with("Avvio processo omp fallito") {
+            return Err(stderr_msg);
+        }
+        return Ok(None);
+    }
+
+    Ok(Some(String::from_utf8_lossy(&stdout_bytes).trim().to_string()))
+}
+
 /// Genera suggerimenti contestuali per il composer a partire dall'ultimo messaggio dell'assistente.
 #[command]
 pub async fn generate_prompt_suggestions(
@@ -89,68 +184,114 @@ pub async fn generate_prompt_suggestions(
     let resolved_model =
         crate::directives_ops::resolve_assistant_model(model_selector.as_deref()).await;
 
-    // Esegue omp in un thread bloccante separato con timeout di sicurezza
-    let raw_result = tokio::time::timeout(
-        Duration::from_secs(SUGGESTIONS_TIMEOUT_SECS),
-        tokio::task::spawn_blocking(move || {
-            crate::directives_ops::run_ephemeral_omp_raw(
-                SYSTEM_PROMPT,
-                &user_prompt,
-                resolved_model.as_deref(),
-            )
-        }),
-    )
-    .await;
+    let omp_path = crate::omp_ops::get_omp_binary();
+    let mut cmd = Command::new(&omp_path);
 
-    let raw_response = match raw_result {
-        // Timeout scaduto: ritorno silenzioso di lista vuota
-        Err(_) => return Ok(Vec::new()),
-        // Thread interrotto: ritorno silenzioso
-        Ok(Err(_join_err)) => return Ok(Vec::new()),
-        // Processo terminato
-        Ok(Ok(process_res)) => match process_res {
-            Ok(stdout) => stdout,
-            Err(err_msg) => {
-                // Errore fatale di avvio binario: unico caso in cui si propaga l'errore
-                if err_msg.starts_with("Avvio processo omp fallito") {
-                    return Err(err_msg);
-                }
-                // Altri errori (es. fallimento modello, codice di uscita non zero): fallback silenzioso
-                return Ok(Vec::new());
-            }
-        },
-    };
+    cmd.arg("-p")
+        .arg("--no-session")
+        .arg("--no-tools")
+        .arg("--no-skills")
+        .arg("--no-rules")
+        .arg("--no-title")
+        .arg("--system-prompt")
+        .arg(SYSTEM_PROMPT);
 
-    let json_text = match crate::directives_ops::extract_json_payload(&raw_response) {
-        Ok(j) => j,
-        Err(_) => return Ok(Vec::new()),
-    };
-
-    let parsed: Vec<String> = match serde_json::from_str(&json_text) {
-        Ok(items) => items,
-        Err(_) => return Ok(Vec::new()),
-    };
-
-    // Ripulitura: trim, rimozione vuote, filtro lunghezza (max 90 char), deduplica case-insensitive, limite max_items
-    let mut seen = HashSet::new();
-    let mut cleaned = Vec::with_capacity(max_items_clamped);
-
-    for item in parsed {
-        let trimmed = item.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed.chars().count() > 90 {
-            continue;
-        }
-        let lower = trimmed.to_lowercase();
-        if seen.insert(lower) {
-            cleaned.push(trimmed.to_string());
-            if cleaned.len() >= max_items_clamped {
-                break;
-            }
-        }
+    if let Some(model) = resolved_model.as_deref() {
+        cmd.arg("--model").arg(model);
     }
 
-    Ok(cleaned)
+    cmd.arg(&user_prompt);
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return Err(format!("Avvio processo omp fallito: {}", e)),
+    };
+
+    // Attende l'uscita del processo con timeout di sicurezza e gestione pipe/orfani.
+    let raw_response = match run_child_with_timeout(
+        child,
+        Duration::from_secs(SUGGESTIONS_TIMEOUT_SECS),
+    )
+    .await?
+    {
+        Some(output) => output,
+        None => return Ok(Vec::new()),
+    };
+
+    Ok(parse_and_clean_suggestions(
+        &raw_response,
+        max_items_clamped,
+    ))
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_prefix_chars() {
+        assert_eq!(truncate_prefix_chars("hello", 3), "hel");
+        assert_eq!(truncate_prefix_chars("hello", 10), "hello");
+        assert_eq!(truncate_prefix_chars("🚀🦀✨💡", 2), "🚀🦀");
+        assert_eq!(truncate_prefix_chars("città", 4), "citt");
+        assert_eq!(truncate_prefix_chars("", 5), "");
+    }
+
+    #[test]
+    fn test_truncate_suffix_chars() {
+        assert_eq!(truncate_suffix_chars("hello", 3), "llo");
+        assert_eq!(truncate_suffix_chars("hello", 10), "hello");
+        assert_eq!(truncate_suffix_chars("🚀🦀✨💡", 2), "✨💡");
+        assert_eq!(truncate_suffix_chars("città", 3), "ttà");
+        assert_eq!(truncate_suffix_chars("", 5), "");
+    }
+
+    #[test]
+    fn test_parse_and_clean_suggestions_valid_json() {
+        let raw = r#"["Procedi pure", "Mostrami prima il diff", "Annulla"]"#;
+        let suggestions = parse_and_clean_suggestions(raw, 3);
+        assert_eq!(
+            suggestions,
+            vec!["Procedi pure", "Mostrami prima il diff", "Annulla"]
+        );
+    }
+
+    #[test]
+    fn test_parse_and_clean_suggestions_markdown_fence() {
+        let raw = "Ecco i suggerimenti:\n```json\n[\"Procedi pure\", \"Esegui i test\"]\n```\n";
+        let suggestions = parse_and_clean_suggestions(raw, 2);
+        assert_eq!(suggestions, vec!["Procedi pure", "Esegui i test"]);
+    }
+
+    #[test]
+    fn test_parse_and_clean_suggestions_deduplication_and_limits() {
+        let too_long = "a".repeat(95);
+        let raw = format!(
+            r#"["Procedi pure", "procedi pure", "  ", "{}", "Esegui i test", "Altro"]"#,
+            too_long
+        );
+        let suggestions = parse_and_clean_suggestions(&raw, 2);
+        assert_eq!(suggestions, vec!["Procedi pure", "Esegui i test"]);
+    }
+
+    #[test]
+    fn test_parse_and_clean_suggestions_invalid_json() {
+        assert!(parse_and_clean_suggestions("non è un json", 3).is_empty());
+        assert!(parse_and_clean_suggestions("", 3).is_empty());
+        assert!(parse_and_clean_suggestions("[]", 3).is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_empty_assistant_returns_empty() {
+        let res = generate_prompt_suggestions("   ".to_string(), "ciao".to_string(), None, 3).await;
+        assert_eq!(res.unwrap(), Vec::<String>::new());
+    }
 }

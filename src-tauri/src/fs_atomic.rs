@@ -10,11 +10,15 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Temporaneo nella stessa directory della destinazione: un `rename` tra
 /// filesystem diversi non sarebbe atomico.
+/// Su Unix il file temporaneo viene creato con modo restrittivo 0600
+/// (lettura e scrittura solo per il proprietario).
 fn create_temp_file(path: &Path) -> io::Result<(PathBuf, File)> {
     let parent = path
         .parent()
@@ -32,11 +36,12 @@ fn create_temp_file(path: &Path) -> io::Result<(PathBuf, File)> {
             std::process::id(),
             counter
         ));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)
-        {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+
+        match options.open(&temp_path) {
             Ok(file) => return Ok((temp_path, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
@@ -46,6 +51,19 @@ fn create_temp_file(path: &Path) -> io::Result<(PathBuf, File)> {
 
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<()> {
+    // Se la destinazione esiste gia', ne preserviamo i permessi originali sul
+    // file temporaneo prima dello swap. Se il target esiste ma non e' possibile
+    // leggere o applicare i suoi permessi, propaghiamo l'errore (fail-closed)
+    // invece di procedere con permessi errati.
+    #[cfg(unix)]
+    match fs::metadata(target_path) {
+        Ok(metadata) => {
+            fs::set_permissions(temp_path, metadata.permissions())?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+
     // Su POSIX `rename` sostituisce atomicamente anche una destinazione
     // esistente.
     fs::rename(temp_path, target_path)
@@ -183,6 +201,95 @@ mod tests {
 
         assert!(error.contains("Creazione temp"), "errore inatteso: {}", error);
         assert!(!target.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fallimento_replace_pulisce_il_temporaneo() {
+        let dir = temp_dir("replace-fail");
+        let target = dir.join("target_dir");
+        fs::create_dir(&target).expect("creazione directory target");
+
+        let res = atomic_write(&target, b"data");
+        assert!(res.is_err(), "la sostituzione su directory deve fallire");
+
+        let residui: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(residui.is_empty(), "il file temporaneo deve essere rimosso in caso di fallimento");
+        assert!(target.is_dir(), "la directory di destinazione deve restare intatta");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_preserva_permessi_0600_su_target_esistente() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("perm-0600");
+        let target = dir.join("config.json");
+        fs::write(&target, b"vecchio").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+
+        atomic_write(&target, b"nuovo").unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"nuovo");
+        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "i permessi 0600 devono essere preservati");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_preserva_altro_modo_su_target_esistente() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("perm-altro");
+        let target = dir.join("config.yml");
+        fs::write(&target, b"vecchio").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+
+        atomic_write(&target, b"nuovo").unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"nuovo");
+        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644, "i permessi 0644 devono essere preservati");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_nuovo_file_creato_con_modo_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("perm-new");
+        let target = dir.join("nuovo.json");
+
+        atomic_write(&target, b"{\"created\": true}").unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"{\"created\": true}");
+        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "i nuovi file devono avere modo 0600");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_fallimento_replace_pulisce_il_temporaneo() {
+        let dir = temp_dir("unix-replace-failure");
+        let target = dir.join("directory_target");
+        fs::create_dir(&target).unwrap();
+
+        let result = atomic_write(&target, b"contenuto");
+        assert!(result.is_err(), "la scrittura atomica su una directory deve fallire");
+
+        let prefix = format!(".directory_target.{}.", std::process::id());
+        let residui: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+            .collect();
+        assert!(residui.is_empty(), "il file temporaneo deve essere rimosso in caso di fallimento del replace");
+        assert!(target.is_dir(), "la directory di destinazione deve rimanere intatta");
         let _ = fs::remove_dir_all(&dir);
     }
 }

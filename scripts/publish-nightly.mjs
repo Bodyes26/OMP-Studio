@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Compila in locale l'installer per il sistema operativo corrente, genera il
-// manifest nightly.json e aggiorna la prerelease `nightly` su GitHub tramite `gh`.
+// manifest nightly.json con checksum esatti per asset e aggiorna la prerelease
+// `nightly` su GitHub tramite `gh` in modo fail-safe.
 //
 // Uso:
 //   node scripts/publish-nightly.mjs                # build locale e pubblicazione completa
@@ -10,13 +11,24 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	unlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import {
 	ROOT,
 	VERSION_FILES,
 	computeVersionBumps,
 	getNightlyVersion,
+	normalizeBuildId,
 	read,
 	write
 } from './nightly-version.mjs';
@@ -56,8 +68,8 @@ function printHelp() {
 Uso: node scripts/publish-nightly.mjs [opzioni]
 
 Opzioni:
-  --build-id <id>     ID build numerico per SemVer (default: timestamp in secondi)
-  --dry-run           Compila e genera nightly.json senza pubblicare su GitHub
+  --build-id <id>     ID build numerico o timestamp per SemVer (default: ora corrente)
+  --dry-run           Compila e genera manifest senza pubblicare su GitHub
   --no-upload         Alias di --dry-run
   --skip-build        Salta la compilazione e usa l'installer piu' recente
   -h, --help          Mostra questo messaggio di aiuto
@@ -202,13 +214,14 @@ async function main() {
 
 	const commitSha = getCommitSha();
 	const platform = getPlatformConfig();
-	const buildId = opts.buildId || String(Math.floor(Date.now() / 1000));
+	const buildId = normalizeBuildId(opts.buildId);
 	const version = getNightlyVersion(buildId);
 
 	console.log(`\n========================================`);
 	console.log(`  Pubblicazione Nightly Locale`);
 	console.log(`========================================`);
 	console.log(`  Piattaforma:  ${platform.name}`);
+	console.log(`  Build ID:     ${buildId}`);
 	console.log(`  Versione:     ${version}`);
 	console.log(`  Commit:       ${commitSha}`);
 	console.log(`  Modalita':    ${opts.dryRun ? 'DRY-RUN (nessun upload)' : 'Pubblicazione GitHub'}`);
@@ -223,6 +236,7 @@ async function main() {
 	let versionApplied = false;
 
 	const buildStartTime = Date.now();
+	const stagingDir = join(ROOT, 'staging-nightly');
 
 	try {
 		// 1. Applica versione temporanea
@@ -244,31 +258,60 @@ async function main() {
 			console.log(`\nSalto la compilazione (--skip-build).`);
 		}
 
-		// 3. Individuazione installer
-		const installers = findInstallers(platform, version, buildStartTime);
-		console.log(`\nInstaller individuati (${installers.length}):`);
-		for (const inst of installers) {
-			const sizeMb = (inst.size / (1024 * 1024)).toFixed(2);
-			console.log(`  - File:       ${inst.name}`);
-			console.log(`    Percorso:   ${inst.path}`);
-			console.log(`    Dimensione: ${sizeMb} MB`);
+		// 3. Individuazione installer e preparazione staging piatto con nomi normalizzati a punti
+		const rawInstallers = findInstallers(platform, version, buildStartTime);
+		if (existsSync(stagingDir)) {
+			rmSync(stagingDir, { recursive: true, force: true });
+		}
+		mkdirSync(stagingDir, { recursive: true });
+
+		console.log(`\nPreparazione staging piatto (${rawInstallers.length} file)...`);
+		const stagedInstallers = [];
+		const checksums = {};
+		const sha256Lines = [];
+
+		for (const raw of rawInstallers) {
+			// Normalizza a punti PRIMA di calcolare checksum e caricare
+			const targetName = raw.name.replace(/ /g, '.');
+			const targetPath = join(stagingDir, targetName);
+			copyFileSync(raw.path, targetPath);
+
+			const fileBuffer = readFileSync(targetPath);
+			const fileSha = createHash('sha256').update(fileBuffer).digest('hex');
+			const stats = statSync(targetPath);
+
+			checksums[targetName] = fileSha;
+			sha256Lines.push(`${fileSha}  ${targetName}`);
+			stagedInstallers.push({
+				name: targetName,
+				path: targetPath,
+				size: stats.size,
+				sha256: fileSha
+			});
+
+			const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
+			console.log(`  - ${targetName} (${sizeMb} MB) -> SHA256: ${fileSha}`);
 		}
 
-		// Calcolo hash SHA256 del primo installer per il manifest
-		const primaryInstaller = installers[0];
-		const primaryBuffer = readFileSync(primaryInstaller.path);
-		const primarySha256 = createHash('sha256').update(primaryBuffer).digest('hex');
-		console.log(`  SHA256 (${primaryInstaller.name}): ${primarySha256}`);
+		// Scrivi file SHA256SUMS.txt nello staging
+		const sumsPath = join(stagingDir, 'SHA256SUMS.txt');
+		writeFileSync(sumsPath, sha256Lines.join('\n') + '\n', 'utf8');
 
 		// 4. Generazione manifest e note
+		// Il campo legacy `sha256` si riferisce esplicitamente all'installer Windows .exe se presente
+		const exeInstaller = stagedInstallers.find((i) => i.name.toLowerCase().endsWith('.exe'));
+		const legacySha256 = exeInstaller ? exeInstaller.sha256 : (stagedInstallers[0] ? stagedInstallers[0].sha256 : undefined);
+
 		const manifest = {
 			version,
 			commit: commitSha,
 			published_at: new Date().toISOString(),
-			sha256: primarySha256
+			checksums,
+			sha256: legacySha256
 		};
-		const manifestPath = join(ROOT, 'nightly.json');
+		const manifestPath = join(stagingDir, 'nightly.json');
 		writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+
 		const notesContent = [
 			`Build locale del commit \`${commitSha}\` (${platform.name}).`,
 			'',
@@ -276,17 +319,17 @@ async function main() {
 			'',
 			'Questa versione può contenere modifiche sperimentali non ancora verificate per il canale stabile.'
 		].join('\n');
-		const notesPath = join(ROOT, 'nightly-notes.md');
+		const notesPath = join(stagingDir, 'nightly-notes.md');
 		writeFileSync(notesPath, notesContent + '\n', 'utf8');
 
-		// 5. Upload GitHub
-		const installerPaths = installers.map((i) => i.path);
+		// 5. Upload GitHub fail-safe (upload/clobber prima, poi pulizia obsoleti, poi spostamento tag)
 		if (!opts.dryRun) {
-			console.log(`\nAggiorno il tag git 'nightly' sul commit ${commitSha}...`);
-			runCommand('git', ['tag', '-f', 'nightly', commitSha]);
-			runCommand('git', ['push', 'origin', 'refs/tags/nightly', '--force']);
+			const uploadFiles = [
+				...stagedInstallers.map((i) => i.path),
+				sumsPath,
+				manifestPath
+			];
 
-			// Se la release 'nightly' esiste gia', la aggiorniamo con clobbering degli asset
 			const releaseCheck = runCommand('gh', ['release', 'view', 'nightly'], {
 				stdio: 'ignore',
 				allowFailure: true
@@ -294,6 +337,15 @@ async function main() {
 			const releaseExists = releaseCheck.status === 0;
 
 			if (releaseExists) {
+				console.log(`Caricamento nuovi asset nella prerelease 'nightly'...`);
+				runCommand('gh', [
+					'release',
+					'upload',
+					'nightly',
+					...uploadFiles,
+					'--clobber'
+				]);
+
 				console.log(`Aggiornamento metadati prerelease 'nightly'...`);
 				runCommand('gh', [
 					'release',
@@ -306,24 +358,40 @@ async function main() {
 					'--prerelease'
 				]);
 
-				console.log(`Caricamento asset (con sovrascrittura / clobber)...`);
-				runCommand('gh', [
-					'release',
-					'upload',
-					'nightly',
-					...installerPaths,
-					manifestPath,
-					'--clobber'
-				]);
+				// Rimuove solo gli asset obsoleti non appartenenti al set appena caricato
+				console.log(`Pulizia asset obsoleti dalla prerelease 'nightly'...`);
+				const currentNames = new Set(
+					[...stagedInstallers.map((i) => i.name), 'SHA256SUMS.txt', 'nightly.json'].map((n) =>
+						n.replace(/ /g, '.')
+					)
+				);
+				const assetsOutput = runCommand(
+					'gh',
+					['release', 'view', 'nightly', '--json', 'assets', '--jq', '.assets[].name'],
+					{ stdio: 'pipe', allowFailure: true }
+				);
+				if (assetsOutput.status === 0 && assetsOutput.stdout) {
+					const remoteAssets = String(assetsOutput.stdout)
+						.split('\n')
+						.map((n) => n.trim())
+						.filter(Boolean);
+					for (const assetName of remoteAssets) {
+						const norm = assetName.replace(/ /g, '.');
+						if (!currentNames.has(norm) && !norm.includes(version)) {
+							console.log(`Eliminazione asset obsoleto: ${assetName}`);
+							runCommand('gh', ['release', 'delete-asset', 'nightly', assetName, '--yes'], {
+								allowFailure: true
+							});
+						}
+					}
+				}
 			} else {
 				console.log(`Creazione nuova prerelease 'nightly'...`);
 				runCommand('gh', [
 					'release',
 					'create',
 					'nightly',
-					...installerPaths,
-					manifestPath,
-					'--verify-tag',
+					...uploadFiles,
 					'--prerelease',
 					'--title',
 					`Nightly ${version}`,
@@ -332,41 +400,18 @@ async function main() {
 				]);
 			}
 
-			// Il tag 'nightly' e' mobile e `--clobber` sovrascrive solo gli asset con lo
-			// stesso nome: cambiando il build-id gli installer delle build precedenti
-			// resterebbero pubblicati. GitHub restituisce gli asset in ordine
-			// alfabetico, quindi il piu' vecchio verrebbe scelto per primo dall'updater.
-			// GitHub sostituisce gli spazi con punti nei nomi degli asset caricati.
-			const normalizza = (nome) => nome.replace(/ /g, '.');
-			const nomiDaConservare = new Set(
-				[...installers.map((i) => basename(i.path)), basename(manifestPath)].map(normalizza)
-			);
-			const elenco = runCommand(
-				'gh',
-				['release', 'view', 'nightly', '--json', 'assets', '--jq', '.assets[].name'],
-				{ stdio: 'pipe', allowFailure: true }
-			);
-			if (elenco.status === 0) {
-				const obsoleti = String(elenco.stdout || '')
-					.split('\n')
-					.map((n) => n.trim())
-					.filter(
-						(n) => n && !nomiDaConservare.has(normalizza(n)) && !n.includes(version)
-					);
-				for (const nome of obsoleti) {
-					console.log(`Rimozione asset obsoleto: ${nome}`);
-					runCommand('gh', ['release', 'delete-asset', 'nightly', nome, '--yes'], {
-						allowFailure: true
-					});
-				}
-			}
+			// Spostamento del tag git mobile 'nightly' solo a valle del completamento dell'upload
+			console.log(`\nAggiorno il tag git 'nightly' sul commit ${commitSha}...`);
+			runCommand('git', ['tag', '-f', 'nightly', commitSha]);
+			runCommand('git', ['push', 'origin', 'refs/tags/nightly', '--force']);
 
 			console.log(`\nPrerelease Nightly pubblicata con successo!`);
 			runCommand('gh', ['release', 'view', 'nightly', '--json', 'url,assets'], {
 				allowFailure: true
 			});
 		} else {
-			console.log(`\n[DRY-RUN] Manifest generato in ${manifestPath}`);
+			console.log(`\n[DRY-RUN] File di staging generati in ${stagingDir}`);
+			console.log(`[DRY-RUN] Manifest:\n${JSON.stringify(manifest, null, 2)}`);
 			console.log(`[DRY-RUN] Nessun upload effettuato su GitHub.`);
 		}
 	} finally {
@@ -379,18 +424,8 @@ async function main() {
 			console.log(`File di versione ripristinati.`);
 		}
 
-		// Pulizia file temporanei
-		const tempNotes = join(ROOT, 'nightly-notes.md');
-		if (existsSync(tempNotes)) {
-			unlinkSync(tempNotes);
-		}
-		if (opts.dryRun) {
-			// In dry-run possiamo conservare nightly.json per ispezione
-		} else {
-			const tempManifest = join(ROOT, 'nightly.json');
-			if (existsSync(tempManifest)) {
-				unlinkSync(tempManifest);
-			}
+		if (!opts.dryRun && existsSync(stagingDir)) {
+			rmSync(stagingDir, { recursive: true, force: true });
 		}
 	}
 }

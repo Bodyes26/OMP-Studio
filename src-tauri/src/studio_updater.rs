@@ -74,7 +74,7 @@ pub struct GithubRelease {
     pub assets: Vec<GithubAsset>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct NightlyManifest {
     pub version: String,
     #[allow(dead_code)]
@@ -84,6 +84,10 @@ pub struct NightlyManifest {
     pub sha256: Option<String>,
     #[serde(default)]
     pub digest: Option<String>,
+    #[serde(default)]
+    pub checksums: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub assets: std::collections::HashMap<String, String>,
 }
 
 pub struct StudioReleaseCandidate {
@@ -91,6 +95,7 @@ pub struct StudioReleaseCandidate {
     pub version: String,
     pub channel: StudioUpdateChannel,
     pub published_at: Option<String>,
+    pub manifest_checksums: std::collections::HashMap<String, String>,
     pub manifest_sha256: Option<String>,
 }
 
@@ -151,25 +156,39 @@ pub fn parse_sha256_digest(raw: &str) -> Option<String> {
 
 /// Estrae il checksum SHA256 per un file specifico da un file di checksum (es. SHA256SUMS).
 pub fn extract_hash_from_checksum_file(content: &str, target_filename: &str) -> Option<String> {
+    let clean_target = target_filename.trim().trim_start_matches('*').trim_start_matches("./");
+    let mut single_line_hash: Option<String> = None;
+    let mut line_count = 0;
+
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
+        line_count += 1;
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        if parts.len() == 1 {
-            if let Some(h) = parse_sha256_digest(parts[0]) {
-                return Some(h);
-            }
-        } else if parts.len() >= 2 {
-            let file_part = parts[1].trim_start_matches('*');
-            if file_part.eq_ignore_ascii_case(target_filename) {
+        if parts.len() >= 2 {
+            let file_part = parts[1].trim_start_matches('*').trim_start_matches("./");
+            if file_part.eq_ignore_ascii_case(clean_target)
+                || file_part.replace(' ', ".").eq_ignore_ascii_case(&clean_target.replace(' ', "."))
+            {
                 if let Some(h) = parse_sha256_digest(parts[0]) {
                     return Some(h);
                 }
             }
+        } else if parts.len() == 1 {
+            if let Some(h) = parse_sha256_digest(parts[0]) {
+                single_line_hash = Some(h);
+            }
         }
     }
+
+    // Un file checksum a riga singola (senza nome file) e' valido solo se l'intero file
+    // contiene un unico hash, come tipico dei file compagni <asset>.sha256.
+    if line_count == 1 {
+        return single_line_hash;
+    }
+
     None
 }
 
@@ -552,6 +571,10 @@ async fn fetch_nightly_release(
         ));
     }
 
+    let mut checksums = manifest.checksums.clone();
+    for (k, v) in &manifest.assets {
+        checksums.entry(k.clone()).or_insert_with(|| v.clone());
+    }
     let manifest_sha256 = manifest
         .digest
         .as_deref()
@@ -565,6 +588,7 @@ async fn fetch_nightly_release(
         version,
         channel: StudioUpdateChannel::Nightly,
         published_at,
+        manifest_checksums: checksums,
         manifest_sha256,
     }))
 }
@@ -595,15 +619,32 @@ async fn resolve_asset_sha256(
     client: &reqwest::Client,
     asset: &mut StudioReleaseAsset,
     all_assets: &[GithubAsset],
+    manifest_checksums: &std::collections::HashMap<String, String>,
+    manifest_sha256: Option<&str>,
     current_version: &str,
 ) {
     if asset.sha256.is_some() {
         return;
     }
 
-    // 1. Cerca file compagno con estensione .sha256 o .sha256sum
-    let companion_name = format!("{}.sha256", asset.name);
-    let companion_name_alt = format!("{}.sha256sum", asset.name);
+    let clean_name = asset.name.trim();
+    let dotted_name = clean_name.replace(' ', ".");
+
+    // 1. Cerca nella mappa checksum del manifest (nightly.json)
+    for (k, v) in manifest_checksums {
+        let k_clean = k.trim().trim_start_matches('*').trim_start_matches("./");
+        let k_dotted = k_clean.replace(' ', ".");
+        if k_clean.eq_ignore_ascii_case(clean_name) || k_dotted.eq_ignore_ascii_case(&dotted_name) {
+            if let Some(h) = parse_sha256_digest(v) {
+                asset.sha256 = Some(h);
+                return;
+            }
+        }
+    }
+
+    // 2. Cerca file compagno con estensione .sha256 o .sha256sum
+    let companion_name = format!("{}.sha256", clean_name);
+    let companion_name_alt = format!("{}.sha256sum", clean_name);
     if let Some(companion) = all_assets.iter().find(|a| {
         a.name.eq_ignore_ascii_case(&companion_name)
             || a.name.eq_ignore_ascii_case(&companion_name_alt)
@@ -611,7 +652,7 @@ async fn resolve_asset_sha256(
         if let Ok(res) = github_get(client, &companion.browser_download_url, current_version).send().await {
             if res.status().is_success() {
                 if let Ok(text) = res.text().await {
-                    if let Some(hash) = extract_hash_from_checksum_file(&text, &asset.name) {
+                    if let Some(hash) = extract_hash_from_checksum_file(&text, clean_name) {
                         asset.sha256 = Some(hash);
                         return;
                     }
@@ -620,7 +661,7 @@ async fn resolve_asset_sha256(
         }
     }
 
-    // 2. Cerca manifest globale SHA256SUMS / checksums.txt
+    // 3. Cerca manifest globale SHA256SUMS / checksums.txt
     if let Some(sums_asset) = all_assets.iter().find(|a| {
         let n = a.name.to_lowercase();
         n == "sha256sums" || n == "sha256sums.txt" || n == "checksums.txt"
@@ -628,10 +669,38 @@ async fn resolve_asset_sha256(
         if let Ok(res) = github_get(client, &sums_asset.browser_download_url, current_version).send().await {
             if res.status().is_success() {
                 if let Ok(text) = res.text().await {
-                    if let Some(hash) = extract_hash_from_checksum_file(&text, &asset.name) {
+                    if let Some(hash) = extract_hash_from_checksum_file(&text, clean_name) {
                         asset.sha256 = Some(hash);
+                        return;
                     }
                 }
+            }
+        }
+    }
+
+    // 4. Se il manifest ha un singolo hash sha256/digest legacy (riferito all'EXE Windows):
+    // Usalo se l'asset e' un eseguibile Windows .exe, oppure se l'intera release contiene solo un installer.
+    // In caso di release con molteplici asset (deb, AppImage, dmg), un hash legacy non viene associato
+    // a pacchetti non-Windows per evitare hash mismatch.
+    if let Some(sha) = manifest_sha256 {
+        let lower = clean_name.to_lowercase();
+        let is_windows_exe = lower.ends_with(".exe");
+        let installer_assets_count = all_assets
+            .iter()
+            .filter(|a| {
+                let l = a.name.to_lowercase();
+                l.ends_with(".exe")
+                    || l.ends_with(".msi")
+                    || l.ends_with(".dmg")
+                    || l.ends_with(".appimage")
+                    || l.ends_with(".deb")
+                    || l.ends_with(".tar.gz")
+                    || l.ends_with(".zip")
+            })
+            .count();
+        if is_windows_exe || installer_assets_count <= 1 {
+            if let Some(parsed) = parse_sha256_digest(sha) {
+                asset.sha256 = Some(parsed);
             }
         }
     }
@@ -656,6 +725,7 @@ pub async fn check_studio_update(
             published_at: release.published_at.clone(),
             release,
             channel: StudioUpdateChannel::Stable,
+            manifest_checksums: std::collections::HashMap::new(),
             manifest_sha256: None,
         });
 
@@ -687,18 +757,25 @@ pub async fn check_studio_update(
     let mut best_asset = pick_versioned_asset(&candidate.release.assets, &candidate.version);
 
     if let Some(asset) = &mut best_asset {
-        if asset.sha256.is_none() {
-            if let Some(sha) = &candidate.manifest_sha256 {
-                asset.sha256 = Some(sha.clone());
-            }
-        }
-        resolve_asset_sha256(&client, asset, &candidate.release.assets, current_version).await;
+        let empty_checksums = std::collections::HashMap::new();
+        let candidate_checksums = match &candidate.channel {
+            StudioUpdateChannel::Nightly => &candidate.manifest_checksums,
+            _ => &empty_checksums,
+        };
+        resolve_asset_sha256(
+            &client,
+            asset,
+            &candidate.release.assets,
+            candidate_checksums,
+            candidate.manifest_sha256.as_deref(),
+            current_version,
+        )
+        .await;
         // Memorizza l'hash atteso verificato nello stato globale dell'updater
         *state.expected_sha256.lock() = asset.sha256.clone();
     } else {
         *state.expected_sha256.lock() = None;
     }
-
     let release_name = candidate
         .release
         .name
@@ -1685,5 +1762,56 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
         let temp_dir = get_safe_temp_updates_dir().unwrap();
         assert!(temp_dir.exists());
         assert!(temp_dir.ends_with("omp-studio-updates"));
+    }
+
+    #[test]
+    fn test_extract_hash_linux_deb_and_appimage_distinct() {
+        let sums_content = r#"
+3a5f8a129d2bf941f2a36b33379201509930f78bd3ff727924c203a6eb294cbe  omp-studio_1.2.2-nightly_amd64.deb
+8e4b2d119c8eb2198217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad  omp-studio_1.2.2-nightly_amd64.AppImage
+b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b  OMP.Studio_1.2.2-nightly_universal.dmg
+1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad  OMP-Studio_1.2.2-nightly_x64-setup.exe
+"#;
+        let deb_hash = extract_hash_from_checksum_file(sums_content, "omp-studio_1.2.2-nightly_amd64.deb");
+        let appimage_hash = extract_hash_from_checksum_file(sums_content, "omp-studio_1.2.2-nightly_amd64.AppImage");
+        let dmg_hash = extract_hash_from_checksum_file(sums_content, "OMP.Studio_1.2.2-nightly_universal.dmg");
+        let exe_hash = extract_hash_from_checksum_file(sums_content, "OMP-Studio_1.2.2-nightly_x64-setup.exe");
+
+        assert_eq!(deb_hash, Some("3a5f8a129d2bf941f2a36b33379201509930f78bd3ff727924c203a6eb294cbe".to_string()));
+        assert_eq!(appimage_hash, Some("8e4b2d119c8eb2198217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad".to_string()));
+        assert_eq!(dmg_hash, Some("b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b".to_string()));
+        assert_eq!(exe_hash, Some("1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad".to_string()));
+        assert_ne!(deb_hash, appimage_hash);
+    }
+
+    #[test]
+    fn test_nightly_manifest_checksums_map() {
+        let json = r#"{
+            "version": "1.2.2-nightly.1788273000000",
+            "commit": "abcdef123456",
+            "published_at": "2026-09-01T12:00:00Z",
+            "checksums": {
+                "omp-studio_1.2.2-nightly_amd64.deb": "3a5f8a129d2bf941f2a36b33379201509930f78bd3ff727924c203a6eb294cbe",
+                "omp-studio_1.2.2-nightly_amd64.AppImage": "8e4b2d119c8eb2198217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad"
+            },
+            "sha256": "3a5f8a129d2bf941f2a36b33379201509930f78bd3ff727924c203a6eb294cbe"
+        }"#;
+        let manifest: NightlyManifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.version, "1.2.2-nightly.1788273000000");
+        assert_eq!(
+            manifest.checksums.get("omp-studio_1.2.2-nightly_amd64.deb").map(|s| s.as_str()),
+            Some("3a5f8a129d2bf941f2a36b33379201509930f78bd3ff727924c203a6eb294cbe")
+        );
+        assert_eq!(
+            manifest.checksums.get("omp-studio_1.2.2-nightly_amd64.AppImage").map(|s| s.as_str()),
+            Some("8e4b2d119c8eb2198217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad")
+        );
+    }
+
+    #[test]
+    fn test_extract_hash_rejects_ambiguous_or_mismatched() {
+        let multiline_content = "1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad  file1.exe\n2d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad  file2.exe";
+        // Non-matching file in multiline should be rejected (None)
+        assert_eq!(extract_hash_from_checksum_file(multiline_content, "file3.exe"), None);
     }
 }

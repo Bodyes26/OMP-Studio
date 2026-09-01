@@ -14,6 +14,12 @@ import { isMissingSessionError } from './resumeErrors';
 import { matchQuestionIndex, optionSignature } from './askAnswers';
 import { SessionSuggestions } from './suggestions.svelte';
 import {
+	RENDER_WINDOW,
+	clampVisibleCount,
+	sliceVisibleEntries,
+	hasEarlierEntries
+} from './transcriptWindow';
+import {
 	ANSWERABLE_UI_METHODS,
 	type AgentMessage,
 	type AgentProgress,
@@ -170,8 +176,7 @@ export type PendingUiRequest = PendingAsk;
 /** Contenuto di una risposta a una `extension_ui_request`. */
 type AskAnswerPayload = { value: string } | { confirmed: boolean } | { cancelled: true };
 
-/** Numero massimo di entry renderizzate: oltre, si scopre a blocchi. */
-const RENDER_WINDOW = 300;
+export { RENDER_WINDOW, clampVisibleCount, sliceVisibleEntries, hasEarlierEntries } from './transcriptWindow';
 
 /** Tentativi di ricostruzione del transcript prima di arrendersi. */
 const REBUILD_ATTEMPTS = 3;
@@ -310,12 +315,20 @@ export class AgentSession {
 	}
 
 	get visibleEntries(): TranscriptEntry[] {
-		if (this.entries.length <= this.visibleCount) return this.entries;
-		return this.entries.slice(this.entries.length - this.visibleCount);
+		return sliceVisibleEntries(this.entries, this.visibleCount);
 	}
 
 	get hasEarlier(): boolean {
-		return this.entries.length > this.visibleCount;
+		return hasEarlierEntries(this.entries.length, this.visibleCount);
+	}
+
+	/**
+	 * Mostra una finestra precedente di entry dello storico (di default RENDER_WINDOW = 300 entry),
+	 * con clamp alla dimensione totale di `entries`.
+	 */
+	showEarlier(step = RENDER_WINDOW): void {
+		if (!this.hasEarlier) return;
+		this.visibleCount = clampVisibleCount(this.entries.length, this.visibleCount, step);
 	}
 
 	/**

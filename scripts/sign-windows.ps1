@@ -5,7 +5,7 @@
 # in `src-tauri/tauri.windows.conf.json`).
 #
 # Senza certificato lo script non firma e lo dichiara: la build resta possibile
-# per le prerelease, mentre il workflow di release stabile verifica la firma e
+# per le prerelease/dev, mentre il workflow di release stabile verifica la firma e
 # rifiuta di pubblicare un installer non firmato.
 
 param(
@@ -15,9 +15,21 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Sanitizza e normalizza il percorso ricevuto
+$cleanPath = $Path.Trim().Trim('"', "'")
+if ([string]::IsNullOrWhiteSpace($cleanPath)) {
+	throw "sign-windows: percorso del file vuoto o non specificato."
+}
+
+if (-not (Test-Path -LiteralPath $cleanPath)) {
+	throw "sign-windows: file da firmare non trovato al percorso '$cleanPath'."
+}
+
+$resolvedPath = (Resolve-Path -LiteralPath $cleanPath).Path
+
 $thumbprint = $env:WINDOWS_CERTIFICATE_THUMBPRINT
 if ([string]::IsNullOrWhiteSpace($thumbprint)) {
-	Write-Output "sign-windows: nessun certificato configurato, '$Path' resta non firmato."
+	Write-Output "sign-windows: nessun certificato configurato, '$resolvedPath' resta non firmato."
 	exit 0
 }
 
@@ -35,15 +47,23 @@ if (-not $signtool) {
 		Sort-Object FullName -Descending |
 		Select-Object -First 1
 	if (-not $signtool) {
-		throw "signtool.exe non trovato: impossibile firmare '$Path'."
+		throw "signtool.exe non trovato: impossibile firmare '$resolvedPath'."
 	}
 	$signtoolPath = $signtool.FullName
 } else {
 	$signtoolPath = $signtool.Source
 }
 
-Write-Output "sign-windows: firmo '$Path' con l'impronta $thumbprint"
-& $signtoolPath sign /fd sha256 /td sha256 /tr $timestampUrl /sha1 $thumbprint $Path
+Write-Output "sign-windows: firmo '$resolvedPath' con l'impronta $thumbprint..."
+& $signtoolPath sign /fd sha256 /td sha256 /tr $timestampUrl /sha1 $thumbprint "$resolvedPath"
 if ($LASTEXITCODE -ne 0) {
-	throw "signtool ha restituito $LASTEXITCODE per '$Path'."
+	throw "signtool ha restituito codice di uscita $LASTEXITCODE per '$resolvedPath'."
 }
+
+# Verifica post-firma del binario/installer
+$signature = Get-AuthenticodeSignature -LiteralPath $resolvedPath
+if ($signature.Status -ne 'Valid') {
+	throw "Verifica firma Authenticode fallita per '$resolvedPath': $($signature.StatusMessage) (Status: $($signature.Status))"
+}
+
+Write-Output "sign-windows: firma Authenticode verificata con successo per '$resolvedPath' ($($signature.Status))."

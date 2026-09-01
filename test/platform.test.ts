@@ -33,6 +33,15 @@ describe('Piattaforma del guscio', () => {
 			'other'
 		);
 	});
+
+	it('riserva i controlli finestra custom esclusivamente a Windows', () => {
+		assert.equal(detectShellPlatform(WEBVIEW2_WINDOWS, 'Win32') === 'windows', true);
+		assert.equal(detectShellPlatform(WK_WEBVIEW_MACOS, 'MacIntel') === 'windows', false);
+		assert.equal(
+			detectShellPlatform('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', 'Linux x86_64') === 'windows',
+			false
+		);
+	});
 });
 
 describe('Etichette del file manager per piattaforma', () => {

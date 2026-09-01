@@ -476,6 +476,7 @@ xcode-select --install
 
 # 3. Compilazione bundle DMG universale
 npm run tauri build -- --target universal-apple-darwin
+```
 
 ### Linux x64 (Debian / Ubuntu / AppImage)
 ```bash

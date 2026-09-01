@@ -49,89 +49,158 @@ export interface ProjectTaskPayload {
 	tasks: ProjectTask[];
 }
 
+export const FACTORY_DIRECTIVES: readonly TaskDirectiveSnapshot[] = [
+	{
+		id: "dir_factory_plan",
+		factoryKey: "plan",
+		name: "Modalità Piano",
+		tag: "/plan",
+		prompt:
+			"[Modalita Piano: formula prima un piano di esecuzione dettagliato passo-passo ed esponilo per approvazione prima di procedere con modifiche.]",
+		placement: "before",
+		order: 10,
+		revision: 1
+	},
+	{
+		id: "dir_factory_discussion",
+		factoryKey: "discussion",
+		name: "Discussione & Requisiti",
+		tag: "/grill-me",
+		prompt:
+			"[Modalita Discussione: NON modificare codice subito. Analizza il progetto e usa la skill /grill-me o interroga l'utente con domande mirate per chiarire decisioni, vincoli e architettura prima di procedere.]",
+		placement: "before",
+		order: 20,
+		revision: 1
+	},
+	{
+		id: "dir_factory_minimal",
+		factoryKey: "minimal",
+		name: "Soluzione Minimale",
+		tag: "/ponytail",
+		prompt:
+			"[Modalita Minimale: applica la soluzione piu pigra, semplice e minimale possibile (/ponytail). Evita astrazioni premature, boilerplate o nuove dipendenze se non indispensabili.]",
+		placement: "before",
+		order: 30,
+		revision: 1
+	},
+	{
+		id: "dir_factory_research",
+		factoryKey: "research",
+		name: "Ricerca Web Online",
+		tag: "Web",
+		prompt:
+			"[Direttiva Ricerca Online: Dopo aver analizzato al completo la richiesta e tutto il codice collegato nel progetto, effettua ricerche online approfondite sull'ambito e sulla richiesta (documentazione, riferimenti, librerie e best practice) prima di procedere con l'implementazione o le modifiche.]",
+		placement: "after",
+		order: 40,
+		revision: 1
+	}
+] as const;
+
 /**
- * Compone il testo finale del task applicando le direttive o i flag legacy.
+ * Normalizza le opzioni di un task migrando i campi booleani legacy in snapshot di direttive.
+ * Garantisce una singola fonte di verità deterministica per le direttive attive.
+ */
+export function normalizeTaskOptions(options?: TaskOptions): TaskOptions | undefined {
+	if (!options || typeof options !== "object") return undefined;
+
+	const rawOptions = options as Record<string, unknown>;
+	const directives: TaskDirectiveSnapshot[] = Array.isArray(rawOptions.directives)
+		? (rawOptions.directives
+				.filter(
+					(d): d is TaskDirectiveSnapshot =>
+						Boolean(
+							d &&
+							typeof d === "object" &&
+							"id" in d &&
+							typeof d.id === "string" &&
+							"prompt" in d &&
+							typeof d.prompt === "string" &&
+							"placement" in d &&
+							(d.placement === "before" || d.placement === "after")
+						)
+				)
+				.map((d) => ({
+					id: d.id,
+					factoryKey: d.factoryKey,
+					name: typeof d.name === "string" ? d.name : d.id,
+					tag: typeof d.tag === "string" ? d.tag : "",
+					prompt: d.prompt,
+					placement: d.placement,
+					order: typeof d.order === "number" ? d.order : 0,
+					revision: typeof d.revision === "number" ? d.revision : 1
+				})))
+		: [];
+
+	const seenIds = new Set(directives.map((d) => d.id));
+	const seenKeys = new Set(directives.map((d) => d.factoryKey).filter(Boolean));
+
+	function addFactoryDirective(key: "plan" | "discussion" | "minimal" | "research") {
+		if (seenKeys.has(key)) return;
+		const factory = FACTORY_DIRECTIVES.find((f) => f.factoryKey === key);
+		if (factory && !seenIds.has(factory.id)) {
+			directives.push({ ...factory });
+			seenIds.add(factory.id);
+			seenKeys.add(key);
+		}
+	}
+
+	if (rawOptions.discussionMode === true) addFactoryDirective("discussion");
+	if (rawOptions.planMode === true) addFactoryDirective("plan");
+	if (rawOptions.minimalMode === true) addFactoryDirective("minimal");
+	if (rawOptions.researchMode === true) addFactoryDirective("research");
+
+	directives.sort((a, b) => a.order - b.order);
+
+	const role =
+		typeof rawOptions.role === "string" && rawOptions.role.trim() ? rawOptions.role.trim() : undefined;
+	const thinkingLevel =
+		typeof rawOptions.thinkingLevel === "string" && rawOptions.thinkingLevel.trim()
+			? rawOptions.thinkingLevel.trim()
+			: undefined;
+
+	if (!role && !thinkingLevel && directives.length === 0) {
+		return undefined;
+	}
+
+	return {
+		role,
+		thinkingLevel,
+		directives: directives.length > 0 ? directives : undefined
+	};
+}
+
+/**
+ * Compone il testo finale del task applicando le direttive.
+ * Converte eventuali flag legacy in snapshot e applica le direttive
+ * in ordine deterministico (before -> prompt -> after).
  */
 export function composeTaskPrompt(prompt: string, options?: TaskOptions): string {
 	const body = prompt.trim();
-	if (!options) return body;
-
-	if (options.directives && options.directives.length > 0) {
-		const beforeList = options.directives
-			.filter((d) => d.placement === "before" && d.prompt && d.prompt.trim().length > 0)
-			.sort((a, b) => a.order - b.order)
-			.map((d) => d.prompt.trim());
-
-		const afterList = options.directives
-			.filter((d) => d.placement === "after" && d.prompt && d.prompt.trim().length > 0)
-			.sort((a, b) => a.order - b.order)
-			.map((d) => d.prompt.trim());
-
-		let res = body;
-		if (beforeList.length > 0) {
-			const b = beforeList.join("\n\n");
-			res = res ? `${b}\n\n${res}` : b;
-		}
-		if (afterList.length > 0) {
-			const a = afterList.join("\n\n");
-			res = res ? `${res}\n\n${a}` : a;
-		}
-		return res;
+	const normalized = normalizeTaskOptions(options);
+	if (!normalized || !normalized.directives || normalized.directives.length === 0) {
+		return body;
 	}
 
-	const prefixes: string[] = [];
-	if (options.discussionMode) {
-		prefixes.push(
-			"[Modalita Discussione: NON modificare codice subito. Analizza il progetto e usa la skill /grill-me o interroga l'utente con domande mirate per chiarire decisioni, vincoli e architettura prima di procedere.]"
-		);
-	}
-	if (options.planMode) {
-		prefixes.push(
-			"[Modalita Piano: formula prima un piano di esecuzione dettagliato passo-passo ed esponilo per approvazione prima di procedere con modifiche.]"
-		);
-	}
-	if (options.minimalMode) {
-		prefixes.push(
-			"[Modalita Minimale: applica la soluzione piu pigra, semplice e minimale possibile (/ponytail). Evita astrazioni premature, boilerplate o nuove dipendenze se non indispensabili.]"
-		);
-	}
+	const beforeList = normalized.directives
+		.filter((d) => d.placement === "before" && d.prompt && d.prompt.trim().length > 0)
+		.sort((a, b) => a.order - b.order)
+		.map((d) => d.prompt.trim());
+
+	const afterList = normalized.directives
+		.filter((d) => d.placement === "after" && d.prompt && d.prompt.trim().length > 0)
+		.sort((a, b) => a.order - b.order)
+		.map((d) => d.prompt.trim());
+
 	let res = body;
-	if (prefixes.length > 0) {
-		res = `${prefixes.join("\n\n")}\n\n${res}`;
+	if (beforeList.length > 0) {
+		const b = beforeList.join("\n\n");
+		res = res ? `${b}\n\n${res}` : b;
 	}
-	if (options.researchMode) {
-		const research =
-			"[Direttiva Ricerca Online: Dopo aver analizzato al completo la richiesta e tutto il codice collegato nel progetto, effettua ricerche online approfondite sull'ambito e sulla richiesta (documentazione, riferimenti, librerie e best practice) prima di procedere con l'implementazione o le modifiche.]";
-		res = res ? `${res}\n\n${research}` : research;
+	if (afterList.length > 0) {
+		const a = afterList.join("\n\n");
+		res = res ? `${res}\n\n${a}` : a;
 	}
 	return res;
-}
-
-interface StudioTaskConfigCommandContext {
-	ui: {
-		notify: (message: string, level: "info" | "error") => void;
-	};
-	models: {
-		resolve: (selector: string) => { provider: string; id: string } | undefined;
-	};
-}
-
-function parseStudioTaskConfig(raw: string): { modelSelector: string; thinkingLevel: string } | null {
-	try {
-		const parsed: unknown = JSON.parse(decodeURIComponent(raw.trim()));
-		if (!parsed || typeof parsed !== "object") return null;
-		if (!("modelSelector" in parsed) || typeof parsed.modelSelector !== "string") return null;
-		const thinkingLevel =
-			"thinkingLevel" in parsed && typeof parsed.thinkingLevel === "string"
-				? parsed.thinkingLevel
-				: "auto";
-		return {
-			modelSelector: parsed.modelSelector.trim(),
-			thinkingLevel: thinkingLevel.trim() || "auto"
-		};
-	} catch {
-		return null;
-	}
 }
 
 /**
@@ -205,7 +274,7 @@ export function loadProjectTasks(cwd: string): ProjectTask[] {
 					: "queued") as ProjectTask["status"],
 				createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
 				updatedAt: typeof t.updatedAt === "number" ? t.updatedAt : Date.now(),
-				options: t.options && typeof t.options === "object" ? t.options : undefined
+				options: normalizeTaskOptions(t.options as TaskOptions | undefined)
 			}))
 			.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
 	} catch {
@@ -225,7 +294,8 @@ export function saveProjectTasks(cwd: string, tasks: ProjectTask[]): void {
 		version: 1,
 		tasks: tasks.map((t, idx) => ({
 			...t,
-			position: idx
+			position: idx,
+			options: normalizeTaskOptions(t.options)
 		}))
 	};
 
@@ -257,19 +327,26 @@ function fitWidth(str: string, max: number): string {
  * Componente TUI per l'interfaccia interattiva `/tasks`.
  */
 class TasksTuiOverlay {
-	private tui: any;
-	private theme: any;
-	private keybindings: any;
+	private tui: { requestRender?: () => void } | undefined;
+	private theme: { fg: (color: string, text: string) => string; bold: (text: string) => string };
+	private keybindings: { matches: (data: string, action: string) => boolean };
 	private done: (value: void) => void;
 	private cwd: string;
-	private pi: any;
+	private pi: { sendMessage?: (msg: string, opts?: { triggerTurn?: boolean }) => void } | undefined;
 	private tasks: ProjectTask[] = [];
 	private selectedIndex = 0;
 	private isAdding = false;
 	private newPromptBuffer = "";
 	private statusMessage = "";
 
-	constructor(tui: any, theme: any, keybindings: any, done: (value: void) => void, cwd: string, pi: any) {
+	constructor(
+		tui: { requestRender?: () => void } | undefined,
+		theme: { fg: (color: string, text: string) => string; bold: (text: string) => string },
+		keybindings: { matches: (data: string, action: string) => boolean },
+		done: (value: void) => void,
+		cwd: string,
+		pi: { sendMessage?: (msg: string, opts?: { triggerTurn?: boolean }) => void } | undefined
+	) {
 		this.tui = tui;
 		this.theme = theme;
 		this.keybindings = keybindings;
@@ -617,8 +694,6 @@ interface StudioTasksApi {
 		name: string,
 		command: { description: string; handler: (args: string, ctx: TContext) => Promise<void> }
 	): void;
-	setModel(model: { provider: string; id: string }): Promise<boolean>;
-	setThinkingLevel(level: string): void;
 	// Usato dall'overlay TUI per lanciare subito il task selezionato.
 	sendMessage(message: string, options?: { triggerTurn?: boolean }): void;
 }
@@ -718,13 +793,14 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 					if (!prompt) {
 						return errorResult("Error: Prompt cannot be empty for adding a task.");
 					}
-					const options: TaskOptions = {};
-					if (params.role) options.role = String(params.role);
-					if (params.thinkingLevel) options.thinkingLevel = String(params.thinkingLevel);
-					if (params.planMode) options.planMode = true;
-					if (params.discussionMode) options.discussionMode = true;
-					if (params.minimalMode) options.minimalMode = true;
-					if (params.researchMode) options.researchMode = true;
+					const options = normalizeTaskOptions({
+						role: params.role,
+						thinkingLevel: params.thinkingLevel,
+						planMode: params.planMode,
+						discussionMode: params.discussionMode,
+						minimalMode: params.minimalMode,
+						researchMode: params.researchMode
+					});
 
 					const newTask: ProjectTask = {
 						id: randomUUID(),
@@ -733,7 +809,7 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 						status: params.status || "queued",
 						createdAt: Date.now(),
 						updatedAt: Date.now(),
-						options: Object.keys(options).length > 0 ? options : undefined
+						options
 					};
 
 					tasks.push(newTask);
@@ -753,16 +829,33 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 
 					if (params.prompt !== undefined) task.prompt = String(params.prompt);
 					if (params.status !== undefined) task.status = params.status;
-					if (task.options || params.role || params.thinkingLevel || params.planMode || params.discussionMode || params.minimalMode || params.researchMode) {
-						task.options = task.options || {};
-						if (params.role !== undefined) task.options.role = String(params.role);
-						if (params.thinkingLevel !== undefined) task.options.thinkingLevel = String(params.thinkingLevel);
-						if (params.planMode !== undefined) task.options.planMode = Boolean(params.planMode);
-						if (params.discussionMode !== undefined) task.options.discussionMode = Boolean(params.discussionMode);
-						if (params.minimalMode !== undefined) task.options.minimalMode = Boolean(params.minimalMode);
-						if (params.researchMode !== undefined) task.options.researchMode = Boolean(params.researchMode);
+					if (
+						task.options ||
+						params.role !== undefined ||
+						params.thinkingLevel !== undefined ||
+						params.planMode !== undefined ||
+						params.discussionMode !== undefined ||
+						params.minimalMode !== undefined ||
+						params.researchMode !== undefined
+					) {
+						const existingDirectives = (task.options?.directives || []).filter((d) => {
+							if (params.planMode === false && (d.factoryKey === "plan" || d.id === "dir_factory_plan")) return false;
+							if (params.discussionMode === false && (d.factoryKey === "discussion" || d.id === "dir_factory_discussion")) return false;
+							if (params.minimalMode === false && (d.factoryKey === "minimal" || d.id === "dir_factory_minimal")) return false;
+							if (params.researchMode === false && (d.factoryKey === "research" || d.id === "dir_factory_research")) return false;
+							return true;
+						});
+
+						task.options = normalizeTaskOptions({
+							role: params.role !== undefined ? params.role : task.options?.role,
+							thinkingLevel: params.thinkingLevel !== undefined ? params.thinkingLevel : task.options?.thinkingLevel,
+							directives: existingDirectives,
+							planMode: params.planMode === true,
+							discussionMode: params.discussionMode === true,
+							minimalMode: params.minimalMode === true,
+							researchMode: params.researchMode === true
+						});
 					}
-					task.updatedAt = Date.now();
 					saveProjectTasks(cwd, tasks);
 
 					return textResult(`Task '${id}' updated successfully (status: ${task.status}).`, { task });
@@ -811,39 +904,6 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 		}
 	});
 
-	// Comando interno usato dal composer di Studio prima di inviare un task
-	// alla TUI. Passa da ExtensionAPI invece di pilotare menu e scorciatoie,
-	// che l'utente puo' rimappare e che cambiano tra versioni di omp.
-	pi.registerCommand("studio-task-config", {
-		description: "Applica modello e thinking a un task avviato da OMP Studio",
-		handler: async (args: string, ctx: StudioTaskConfigCommandContext) => {
-			const config = parseStudioTaskConfig(args);
-			if (!config) {
-				ctx.ui.notify("Configurazione task non valida", "error");
-				return;
-			}
-
-			const { modelSelector, thinkingLevel } = config;
-			const model = ctx.models.resolve(modelSelector);
-			if (!model) {
-				ctx.ui.notify(`Modello task non disponibile: ${modelSelector}`, "error");
-				return;
-			}
-
-			const applied = await pi.setModel(model);
-			if (!applied) {
-				ctx.ui.notify(`Credenziali non disponibili per ${modelSelector}`, "error");
-				return;
-			}
-			if (thinkingLevel !== "auto") {
-				pi.setThinkingLevel(thinkingLevel);
-			}
-			ctx.ui.notify(
-				`Task: ${model.provider}/${model.id} · thinking ${thinkingLevel}`,
-				"info"
-			);
-		}
-	});
 
 	// 2. Registrazione dello Slash Command `/tasks` per TUI
 	pi.registerCommand("tasks", {

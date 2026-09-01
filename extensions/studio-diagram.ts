@@ -24,8 +24,21 @@
 // - Descrizioni: usare `.optional().describe(...)`, non `.describe(...).optional()`:
 //   su enum/union quest'ultimo ordine perde la description nello JSON Schema.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import {
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	unlinkSync,
+	writeFileSync
+} from "node:fs";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
+
+function isSubpath(parent: string, child: string): boolean {
+	const rel = relative(parent, child);
+	return !rel.startsWith("..") && !isAbsolute(rel);
+}
 
 function wrapPrototypeCode(title: string, code: string): string {
 	const raw = code.trim();
@@ -265,12 +278,19 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				return errorResult("Error: cannot resolve exchange directory");
 			}
 
-			mkdirSync(base, { recursive: true });
+			try {
+				mkdirSync(base, { recursive: true });
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return errorResult(`Error creating exchange directory: ${msg}`);
+			}
 
-			const cwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
+			const rawCwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
+			const cwd = resolve(rawCwd);
 			const sessionId = ctx?.sessionManager?.getSessionId?.() ?? "unknown";
 			const slug = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 			const file = join(base, `${slug}.json`);
+			const tmpFile = join(base, `.${slug}.json.tmp.${process.pid}.${Date.now()}`);
 
 			const payload = {
 				version: 1,
@@ -282,7 +302,24 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				tool_call_id: toolCallId,
 				created_at: new Date().toISOString()
 			};
-			writeFileSync(file, JSON.stringify(payload, null, 2), "utf8");
+
+			try {
+				writeFileSync(tmpFile, JSON.stringify(payload, null, 2), "utf8");
+				try {
+					renameSync(tmpFile, file);
+				} catch {
+					try {
+						unlinkSync(file);
+					} catch {}
+					renameSync(tmpFile, file);
+				}
+			} catch (err: unknown) {
+				try {
+					unlinkSync(tmpFile);
+				} catch {}
+				const msg = err instanceof Error ? err.message : String(err);
+				return errorResult(`Error writing diagram exchange file: ${msg}`);
+			}
 
 			return textResult(`Diagram "${title}" sent to OMP Studio whiteboard (${basename(file)}).`, {
 				studioFile: file
@@ -315,7 +352,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				.optional()
 				.describe("Optional short summary of what the component does or interactive parts")
 		}),
-		approval: "read",
+		approval: "write",
 		async execute(toolCallId, params: PreviewParams, _signal, _onUpdate, ctx) {
 			const title = String(params.title || "Prototype").slice(0, 120);
 			const code = String(params.code || "");
@@ -323,42 +360,145 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				return errorResult("Error: prototype code is empty");
 			}
 
-			const cwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
-			const sessionId = ctx?.sessionManager?.getSessionId?.() ?? "unknown";
-
-			const slug = (params.name || title)
-				.toLowerCase()
-				.replace(/[^a-z0-9]+/g, "-")
-				.replace(/(^-|-$)/g, "") || "prototype";
-
-			// 1. Assicura che la cartella proto/ esista nel progetto
-			const protoDir = join(cwd, "proto");
+			const rawCwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
+			const cwd = resolve(rawCwd);
+			let canonicalCwd: string;
 			try {
-				mkdirSync(protoDir, { recursive: true });
-			} catch (e) {
-				// Se non possiamo creare la cartella nel progetto, continuiamo comunque con la sandbox
+				canonicalCwd = realpathSync(cwd);
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return errorResult(`Error resolving project working directory: ${msg}`);
 			}
 
-			// 2. Assicura che 'proto/' sia presente in .gitignore per non sporcare il working tree
-			const gitignorePath = join(cwd, ".gitignore");
+			const sessionId = ctx?.sessionManager?.getSessionId?.() ?? "unknown";
+
+			const rawName = (params.name || title || "").trim();
+			const baseCandidate = basename(rawName);
+			let slug = baseCandidate
+				.toLowerCase()
+				.replace(/[^a-z0-9_-]+/g, "-")
+				.replace(/^-+|-+$/g, "");
+			if (!slug) {
+				slug = "prototype";
+			}
+
+			// 1. Assicura che 'proto/' sia presente in .gitignore per non sporcare il working tree
+			const gitignorePath = join(canonicalCwd, ".gitignore");
+			let gitignoreExists = false;
+			try {
+				const stat = lstatSync(gitignorePath, { throwIfNoEntry: false });
+				if (stat) {
+					if (stat.isSymbolicLink()) {
+						return errorResult("Error: .gitignore is a symbolic link or junction");
+					}
+					gitignoreExists = true;
+				}
+			} catch (err: unknown) {
+				const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+				if (code !== "ENOENT") {
+					const msg = err instanceof Error ? err.message : String(err);
+					return errorResult(`Error checking .gitignore: ${msg}`);
+				}
+			}
+
 			try {
 				let gi = "";
-				try {
+				if (gitignoreExists) {
 					gi = readFileSync(gitignorePath, "utf8");
-				} catch {}
+				}
 				if (!/(^|\n)\s*\/?proto\/?(\s*|\n|$)/i.test(gi)) {
 					const prefix = gi && !gi.endsWith("\n") ? "\n" : "";
-					writeFileSync(gitignorePath, gi + prefix + "# OMP Studio prototypes\nproto/\n", "utf8");
+					const newContent = gi + prefix + "# OMP Studio prototypes\nproto/\n";
+					const tmpGitignore = join(canonicalCwd, `.gitignore.tmp.${process.pid}.${Date.now()}`);
+					writeFileSync(tmpGitignore, newContent, "utf8");
+					try {
+						renameSync(tmpGitignore, gitignorePath);
+					} catch {
+						try {
+							unlinkSync(gitignorePath);
+						} catch {}
+						renameSync(tmpGitignore, gitignorePath);
+					}
 				}
-			} catch {}
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return errorResult(`Error updating .gitignore: ${msg}`);
+			}
 
-			// 3. Salva il file HTML autonomo in proto/<slug>.html
+			// 2. Assicura che la cartella proto/ esista nel progetto e non sia un symlink/junction
+			const protoDir = join(canonicalCwd, "proto");
+			try {
+				const stat = lstatSync(protoDir, { throwIfNoEntry: false });
+				if (stat) {
+					if (stat.isSymbolicLink()) {
+						return errorResult("Error: proto directory is a symbolic link or junction");
+					}
+					if (!stat.isDirectory()) {
+						return errorResult("Error: proto exists but is not a directory");
+					}
+				} else {
+					mkdirSync(protoDir, { recursive: true });
+				}
+			} catch (err: unknown) {
+				const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+				if (code !== "ENOENT") {
+					const msg = err instanceof Error ? err.message : String(err);
+					return errorResult(`Error accessing proto directory: ${msg}`);
+				}
+			}
+
+			let canonicalProtoDir: string;
+			try {
+				canonicalProtoDir = realpathSync(protoDir);
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return errorResult(`Error resolving proto directory: ${msg}`);
+			}
+
+			if (!isSubpath(canonicalCwd, canonicalProtoDir) || canonicalProtoDir === canonicalCwd) {
+				return errorResult("Error: proto directory resolves outside of project root");
+			}
+
+			// 3. Verifica il file foglia prima della scrittura e salva in modo atomico
+			const targetFile = join(canonicalProtoDir, `${slug}.html`);
+			if (!isSubpath(canonicalProtoDir, targetFile)) {
+				return errorResult("Error: target prototype path is outside of proto directory");
+			}
+
+			try {
+				const stat = lstatSync(targetFile, { throwIfNoEntry: false });
+				if (stat && stat.isSymbolicLink()) {
+					return errorResult("Error: target prototype file is a symbolic link or junction");
+				}
+			} catch (err: unknown) {
+				const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+				if (code !== "ENOENT") {
+					const msg = err instanceof Error ? err.message : String(err);
+					return errorResult(`Error checking target file: ${msg}`);
+				}
+			}
+
 			const fullHtml = wrapPrototypeCode(title, code);
 			const relPath = `proto/${slug}.html`;
-			const targetFile = join(cwd, "proto", `${slug}.html`);
+			const tmpTargetFile = join(canonicalProtoDir, `.${slug}.html.tmp.${process.pid}.${Date.now()}`);
+
 			try {
-				writeFileSync(targetFile, fullHtml, "utf8");
-			} catch {}
+				writeFileSync(tmpTargetFile, fullHtml, "utf8");
+				try {
+					renameSync(tmpTargetFile, targetFile);
+				} catch {
+					try {
+						unlinkSync(targetFile);
+					} catch {}
+					renameSync(tmpTargetFile, targetFile);
+				}
+			} catch (err: unknown) {
+				try {
+					unlinkSync(tmpTargetFile);
+				} catch {}
+				const msg = err instanceof Error ? err.message : String(err);
+				return errorResult(`Error writing prototype file: ${msg}`);
+			}
 
 			// 4. Scrive la notifica per Studio in %LOCALAPPDATA%/omp-studio/previews
 			let base: string;
@@ -367,24 +507,48 @@ export default function studioExtension(pi: StudioExtensionApi) {
 			} else if (process.env.HOME) {
 				base = join(process.env.HOME, ".omp-studio", "previews");
 			} else {
-				return textResult(`Prototype "${title}" saved to ${relPath}.`, { filePath: relPath });
+				return errorResult("Error: cannot resolve preview exchange directory");
 			}
 
-			mkdirSync(base, { recursive: true });
+			try {
+				mkdirSync(base, { recursive: true });
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return errorResult(`Error creating preview exchange directory: ${msg}`);
+			}
+
 			const exchangeSlug = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 			const exchangeFile = join(base, `${exchangeSlug}.json`);
+			const tmpExchangeFile = join(base, `.${exchangeSlug}.json.tmp.${process.pid}.${Date.now()}`);
 
 			const payload = {
 				version: 1,
 				id: exchangeSlug,
 				title,
 				file_path: relPath,
-				cwd,
+				cwd: canonicalCwd,
 				session_id: sessionId,
 				tool_call_id: toolCallId,
 				created_at: new Date().toISOString()
 			};
-			writeFileSync(exchangeFile, JSON.stringify(payload, null, 2), "utf8");
+
+			try {
+				writeFileSync(tmpExchangeFile, JSON.stringify(payload, null, 2), "utf8");
+				try {
+					renameSync(tmpExchangeFile, exchangeFile);
+				} catch {
+					try {
+						unlinkSync(exchangeFile);
+					} catch {}
+					renameSync(tmpExchangeFile, exchangeFile);
+				}
+			} catch (err: unknown) {
+				try {
+					unlinkSync(tmpExchangeFile);
+				} catch {}
+				const msg = err instanceof Error ? err.message : String(err);
+				return errorResult(`Error writing preview exchange file: ${msg}`);
+			}
 
 			return textResult(
 				`Prototype "${title}" rendered live in OMP Studio preview sandbox and saved to ${relPath}.`,

@@ -20,6 +20,7 @@
 	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
 	import ShortcutsHelpModal from '$lib/agent/components/ShortcutsHelpModal.svelte';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
+	import { isShortcutsHelpKey } from '$lib/shortcuts/shortcutMatch';
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { studioUpdaterStore, formatVersion } from '$lib/stores/studioUpdater.svelte';
@@ -1220,13 +1221,7 @@
 		}
 
 		// Alt+H, Alt+K, F1 o Ctrl+Alt+H: guida scorciatoie globale
-		const isAltOnly = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
-		const keyLower = e.key.toLowerCase();
-		if (
-			(isAltOnly && (keyLower === 'h' || e.code === 'KeyH' || keyLower === 'k' || e.code === 'KeyK')) ||
-			e.key === 'F1' ||
-			((e.ctrlKey || e.metaKey) && e.altKey && (keyLower === 'h' || e.code === 'KeyH'))
-		) {
+		if (isShortcutsHelpKey(e)) {
 			e.preventDefault();
 			shortcutsModalStore.toggle();
 			return;
@@ -1364,11 +1359,11 @@
 							<FileTree
 								projectPath={proj.path}
 								name={proj.name}
-								onFileSelect={(file) => projectStore.openFile(proj.id, file)}
-								onFileDiff={(path) => handleGitPanelDiff(path, 'working')}
+								onFileSelect={(file: string) => projectStore.openFile(proj.id, file)}
+								onFileDiff={(path: string) => handleGitPanelDiff(path, 'working')}
 								dirtyFilePaths={activeDirtyFiles}
-								onPathRenamed={(from, to, isDir) => projectStore.renamePath(proj.id, from, to, isDir)}
-								onPathTrashed={(path, isDir) => projectStore.trashPath(proj.id, path, isDir)}
+								onPathRenamed={(from: string, to: string, isDir: boolean) => projectStore.renamePath(proj.id, from, to, isDir)}
+								onPathTrashed={(path: string, isDir: boolean) => projectStore.trashPath(proj.id, path, isDir)}
 							/>
 						{/key}
 					{:else if leftSection === 'git'}

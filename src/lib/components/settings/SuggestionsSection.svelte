@@ -272,9 +272,9 @@
 							})
 						}
 					>
-						<option value="1">1 suggerimento</option>
-						<option value="2">2 suggerimenti</option>
-						<option value="3">3 suggerimenti</option>
+						<option value={1}>1 suggerimento</option>
+						<option value={2}>2 suggerimenti</option>
+						<option value={3}>3 suggerimenti</option>
 					</select>
 				</div>
 			</div>

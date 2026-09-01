@@ -14,6 +14,19 @@
     ]
   },
   "bundle": {
-    "targets": ["nsis"]
+    "targets": ["nsis"],
+    "windows": {
+      "signCommand": {
+        "cmd": "powershell",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          "& { $p = $args[0]; $s = @('scripts/sign-windows.ps1', '../scripts/sign-windows.ps1') | Where-Object { Test-Path $_ } | Select-Object -First 1; if (-not $s) { throw 'scripts/sign-windows.ps1 non trovato' }; & $s -Path $p }",
+          "%1"
+        ]
+      }
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { restartOmpTerminals } from '$lib/terminal/terminal';
+import { restartOmpTerminals } from '../terminal/terminal';
 import { settingsStore } from './settings.svelte';
 import {
 	IconRoleDefault,
@@ -10,34 +10,34 @@ import {
 	IconRoleTask,
 	IconRoleCommit,
 	IconRoleAdvisor
-} from '$lib/icons';
+} from '../icons';
+import type {
+	ModelCost,
+	ModelThinkingInfo,
+	ModelDto,
+	AuthAccount,
+	ProviderSummary
+} from './modelSettingsHelpers';
+import {
+	mergeProviderIntoCatalog,
+	isAuthAccountActive,
+	getProviderEnvVarHint,
+	sanitizeMaxDynamic
+} from './modelSettingsHelpers';
 
-export interface ModelCost {
-	input?: number;
-	output?: number;
-	cacheRead?: number;
-	cacheWrite?: number;
-}
-
-export interface ModelThinkingInfo {
-	mode?: string;
-	efforts?: string[];
-}
-
-export interface ModelDto {
-	id: string;
-	name: string;
-	provider: string;
-	selector: string;
-	contextWindow?: number;
-	maxTokens?: number;
-	reasoning?: boolean;
-	thinking?: ModelThinkingInfo;
-	input?: string[];
-	cost?: ModelCost;
-	isCustom: boolean;
-}
-
+export type {
+	ModelCost,
+	ModelThinkingInfo,
+	ModelDto,
+	AuthAccount,
+	ProviderSummary
+};
+export {
+	mergeProviderIntoCatalog,
+	isAuthAccountActive,
+	getProviderEnvVarHint,
+	sanitizeMaxDynamic
+};
 export interface CustomModelDef {
 	id: string;
 	name: string;
@@ -66,34 +66,6 @@ export interface AuthProviderSummary {
 	disabledCause?: string;
 }
 
-export interface ProviderSummary {
-	id: string;
-	name: string;
-	source: string; // "builtin" | "plugin" | "custom"
-	enabled: boolean;
-	configured: boolean;
-	authOrigin?: string; // "oauth" | "api_key" | "env" | "custom"
-	availableModelCount: number;
-	accountCount: number;
-	hasOauth: boolean;
-	isCustom: boolean;
-}
-
-export interface AuthAccount {
-	id: number;
-	provider: string;
-	credentialType: string;
-	identityKey?: string;
-	email?: string;
-	accountId?: string;
-	orgId?: string;
-	orgName?: string;
-	plan?: string;
-	disabledCause?: string;
-	hasCredential: boolean;
-	createdAt?: number;
-	updatedAt?: number;
-}
 
 export interface ModelConfigDto {
 	modelRoles: Record<string, string>;
@@ -153,6 +125,7 @@ export interface RoleSuggestionsResponse {
 	fallback: SuggestedModelItem[];
 }
 
+
 class ModelSettingsStore {
 	/** Apertura/sezione hanno un'unica fonte: `settingsStore`. Nessun secondo flag da tenere allineato. */
 	get isOpen() {
@@ -176,6 +149,7 @@ class ModelSettingsStore {
 	providers = $state<ProviderSummary[]>([]);
 	authAccounts = $state<AuthAccount[]>([]);
 	selectedProviderId = $state<string | null>(null);
+	catalogFilterProviderId = $state<string | null>(null);
 	
 	upgradeCandidates = $state<ModelUpgradeCandidate[]>([]);
 	upgradeModalOpen = $state(false);
@@ -195,7 +169,11 @@ class ModelSettingsStore {
 	openModal(tab: 'roles' | 'catalog' | 'providers' = 'roles', targetProvider?: string) {
 		this.activeTab = tab;
 		if (targetProvider) {
-			this.selectedProviderId = targetProvider;
+			if (tab === 'catalog') {
+				this.catalogFilterProviderId = targetProvider;
+			} else {
+				this.selectedProviderId = targetProvider;
+			}
 		}
 		settingsStore.openSection('models');
 		void this.loadAll();
@@ -279,8 +257,13 @@ class ModelSettingsStore {
 	}
 
 	/** Imposta il provider attivo/selezionato nella tab Provider. */
-	selectProvider(id: string) {
+	selectProvider(id: string | null) {
 		this.selectedProviderId = id;
+	}
+
+	/** Imposta il filtro per provider nella tab Catalogo (`null` = tutti i modelli). */
+	setCatalogFilter(id: string | null) {
+		this.catalogFilterProviderId = id;
 	}
 
 	/** Carica la configurazione e i cataloghi in background senza mostrare toast o bloccare l'interfaccia. */
@@ -347,19 +330,27 @@ class ModelSettingsStore {
 	async refreshCatalog(providerId?: string) {
 		this.isRefreshingCatalog = true;
 		try {
-			const cat = providerId
-				? await invoke<ModelDto[]>('refresh_model_provider', { providerId })
-				: await invoke<ModelDto[]>('refresh_models_catalog');
-			this.catalog = cat;
-			this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog');
-			this.availableCatalogLoaded = true;
-			this.clearSuggestionsCache();
-			void this.loadProviders();
-			this.showToast(
-				providerId
-					? `Catalogo aggiornato per ${providerId} (${cat.length} modelli)`
-					: `Catalogo aggiornato (${cat.length} modelli)`
-			);
+			if (providerId) {
+				const providerModels = await invoke<ModelDto[]>('refresh_model_provider', { providerId });
+				// Ricarichiamo il catalogo completo o fondiamo per non troncare gli altri provider
+				const fullCatalog = await invoke<ModelDto[]>('get_models_catalog').catch(() => []);
+				this.catalog = fullCatalog.length > 0
+					? fullCatalog
+					: mergeProviderIntoCatalog(this.catalog, providerId, providerModels);
+				this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog').catch(() => []);
+				this.availableCatalogLoaded = true;
+				this.clearSuggestionsCache();
+				void this.loadProviders();
+				this.showToast(`Catalogo aggiornato per ${providerId} (${providerModels.length} modelli)`);
+			} else {
+				const cat = await invoke<ModelDto[]>('refresh_models_catalog');
+				this.catalog = cat;
+				this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog').catch(() => []);
+				this.availableCatalogLoaded = true;
+				this.clearSuggestionsCache();
+				void this.loadProviders();
+				this.showToast(`Catalogo aggiornato (${cat.length} modelli)`);
+			}
 		} catch (e) {
 			console.error('Failed to refresh models catalog:', e);
 			this.showToast(`Errore aggiornamento catalogo: ${e}`);

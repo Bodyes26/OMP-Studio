@@ -10,16 +10,6 @@ on:
         description: "Tag da compilare o pubblicare (es. v1.2.0 o v1.2.0-rc.1)"
         required: true
         type: string
-      from_candidate:
-        description: "Tag della Release Candidate sorgente da cui promuovere gli artefatti (es. v1.2.0-rc.1). Se vuoto, cerca candidati idonei o compila da zero."
-        required: false
-        default: ""
-        type: string
-      force_rebuild:
-        description: "Forza la ricompilazione da zero anche se esiste una Release Candidate"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -29,13 +19,11 @@ env:
 
 jobs:
   resolve:
-    name: Verifica consistenza e risoluzione candidate
+    name: Verifica consistenza tag di release
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.check.outputs.release_tag }}
       is_candidate: ${{ steps.check.outputs.is_candidate }}
-      promote: ${{ steps.check.outputs.promote }}
-      candidate_tag: ${{ steps.check.outputs.candidate_tag }}
       target_sha: ${{ steps.check.outputs.target_sha }}
     steps:
       - name: Checkout del tag
@@ -44,97 +32,34 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
+      - name: Installa Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 22
+
       - name: Installa Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
-      - name: Analisi tag e verifica consistenza candidate
+      - name: Analisi tag e verifica versione
         id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild || 'false' }}
-          FROM_CANDIDATE: ${{ github.event_name == 'workflow_dispatch' && inputs.from_candidate || '' }}
         shell: bash
         run: |
           set -euo pipefail
           RELEASE_TAG="${RELEASE_TAG}"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
-          # Determina se il tag corrente è esso stesso un pre-release/candidate (es. v1.2.0-rc.1)
+          # Determina se il tag corrente è una pre-release / candidate (es. v1.2.0-rc.1)
           if [[ "$RELEASE_TAG" =~ - ]]; then
             echo "Il tag $RELEASE_TAG è una versione pre-release / candidate."
             echo "is_candidate=true" >> "$GITHUB_OUTPUT"
-            echo "promote=false" >> "$GITHUB_OUTPUT"
-            echo "candidate_tag=" >> "$GITHUB_OUTPUT"
-            TARGET_SHA=$(git rev-parse "${RELEASE_TAG}^{commit}")
-            echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
-            exit 0
           else
+            echo "Il tag $RELEASE_TAG è una release stabile."
             echo "is_candidate=false" >> "$GITHUB_OUTPUT"
           fi
 
           TARGET_SHA=$(git rev-parse "${RELEASE_TAG}^{commit}")
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
           echo "Commit del tag $RELEASE_TAG: $TARGET_SHA"
-
-          # Se è richiesto esplicitamente il rebuild forzato, compila da zero
-          if [ "$FORCE_REBUILD" = "true" ]; then
-            echo "Richiesta ricompilazione forzata (force_rebuild=true). Skip promozione candidate."
-            echo "promote=false" >> "$GITHUB_OUTPUT"
-            echo "candidate_tag=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Risolvi eventuale tag candidate sorgente
-          CANDIDATE_TAG="$FROM_CANDIDATE"
-          if [ -z "$CANDIDATE_TAG" ]; then
-            echo "Nessuna candidate specificata manualmente. Ricerca candidate esistente per $RELEASE_TAG..."
-            MATCHED_TAG=$(git tag -l "${RELEASE_TAG}-rc*" "${RELEASE_TAG}-beta*" | sort -V | tail -n1 || true)
-            if [ -n "$MATCHED_TAG" ]; then
-              CANDIDATE_TAG="$MATCHED_TAG"
-              echo "Trovato tag candidate: $CANDIDATE_TAG"
-            else
-              GH_CAND=$(gh release list --limit 30 --json tagName,isPrerelease --jq ".[] | select(.isPrerelease and (.tagName | startswith(\"${RELEASE_TAG}-\"))) | .tagName" 2>/dev/null | head -n1 || true)
-              if [ -n "$GH_CAND" ]; then
-                CANDIDATE_TAG="$GH_CAND"
-                echo "Trovata release candidate su GitHub: $CANDIDATE_TAG"
-              fi
-            fi
-          fi
-
-          if [ -z "$CANDIDATE_TAG" ]; then
-            echo "Nessuna Release Candidate trovata per $RELEASE_TAG. Procedura con compilazione standard."
-            echo "promote=false" >> "$GITHUB_OUTPUT"
-            echo "candidate_tag=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Verifica se la release candidate esiste su GitHub e ha una release associata
-          if ! gh release view "$CANDIDATE_TAG" >/dev/null 2>&1; then
-            echo "Attenzione: la candidate $CANDIDATE_TAG non ha una release GitHub associata. Procedura con compilazione standard."
-            echo "promote=false" >> "$GITHUB_OUTPUT"
-            echo "candidate_tag=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # --- VERIFICA DI CONSISTENZA DEL COMMIT ---
-          echo "Verifica consistenza commit tra tag stabile $RELEASE_TAG e candidate $CANDIDATE_TAG..."
-          CANDIDATE_SHA=$(git rev-parse "${CANDIDATE_TAG}^{commit}" 2>/dev/null || gh release view "$CANDIDATE_TAG" --json targetCommitish --jq .targetCommitish)
-
-          echo "Target commit:    $TARGET_SHA ($RELEASE_TAG)"
-          echo "Candidate commit: $CANDIDATE_SHA ($CANDIDATE_TAG)"
-
-          if [ "$TARGET_SHA" != "$CANDIDATE_SHA" ]; then
-            echo "::error::INCONSISTENZA BLOCCANTE: Il tag stabile $RELEASE_TAG punta a $TARGET_SHA, mentre la candidate $CANDIDATE_TAG punta a $CANDIDATE_SHA."
-            echo "::error::Rischio di discrepanza: gli artefatti testati nella candidate non riflettono il codice sorgente del tag stabile!"
-            echo "::error::Per compilare forzatamente il nuovo codice, eseguire il workflow con force_rebuild=true, oppure allineare i tag allo stesso commit testato."
-            exit 1
-          fi
-
-          echo "Consistenza verificata con successo: sia $RELEASE_TAG che $CANDIDATE_TAG puntano esattamente allo stesso commit ($TARGET_SHA)."
-          echo "Gli artefatti firmati e testati della candidate $CANDIDATE_TAG verranno riutilizzati per la release stabile."
-          echo "promote=true" >> "$GITHUB_OUTPUT"
-          echo "candidate_tag=$CANDIDATE_TAG" >> "$GITHUB_OUTPUT"
 
   gate:
     name: Gate di qualita
@@ -146,7 +71,6 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     needs: [resolve, gate]
-    if: needs.resolve.outputs.promote != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -155,19 +79,17 @@ jobs:
             os: windows-latest
             build_args: --bundles nsis
             artifact_name: windows-x64
-            artifact_path: src-tauri/target/release/bundle/nsis/*.exe
+            artifact_glob: src-tauri/target/release/bundle/nsis/*.exe
           - name: macOS universal
             os: macos-14
             build_args: --bundles dmg --target universal-apple-darwin
             artifact_name: macos-universal
-            artifact_path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            artifact_glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           - name: Linux x64
             os: ubuntu-22.04
             build_args: --bundles deb,appimage
             artifact_name: linux-x64
-            artifact_path: |
-              src-tauri/target/release/bundle/deb/*.deb
-              src-tauri/target/release/bundle/appimage/*.AppImage
+            artifact_glob: "src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -175,6 +97,11 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.resolve.outputs.release_tag }}
+
+      - name: Installa Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 22
 
       - name: Installa Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -216,22 +143,17 @@ jobs:
 
       - name: Compila gli installer
         env:
-          # macOS: senza queste variabili tauri-bundler produce un bundle
-          # NON firmato e non lo dice. La verifica qui sotto e' l'unica cosa
-          # che impedisce di pubblicare un installer che Gatekeeper blocca.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows: il comando di firma vive in `bundle.windows.signCommand`
-          # e legge questi valori dall'ambiente.
           WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
           CI: "true"
         run: bun tauri build ${{ matrix.build_args }}
 
-      - name: Verifica firma e notarizzazione macOS
+      - name: Verifica firma e notarizzazione macOS (fail-closed per release stabile)
         if: runner.os == 'macOS'
         shell: bash
         env:
@@ -242,7 +164,7 @@ jobs:
           APP="src-tauri/target/universal-apple-darwin/release/bundle/macos/OMP Studio.app"
           if [ "$SIGNING_CONFIGURED" != "true" ]; then
             if [ "$IS_CANDIDATE" = "true" ]; then
-              echo "::warning::Candidate senza certificato Apple: il DMG non e' firmato ne' notarizzato."
+              echo "::warning::Candidate senza certificato Apple: il bundle non e' firmato ne' notarizzato."
               exit 0
             fi
             echo "::error::Release stabile senza certificato Apple: configura i secret APPLE_* prima di pubblicare."
@@ -252,7 +174,7 @@ jobs:
           spctl --assess --type execute --verbose=4 "$APP"
           xcrun stapler validate "$APP"
 
-      - name: Verifica firma Authenticode Windows
+      - name: Verifica firma Authenticode Windows (fail-closed per release stabile)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -262,110 +184,66 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if ($env:SIGNING_CONFIGURED -ne 'true') {
             if ($env:IS_CANDIDATE -eq 'true') {
-              Write-Output "::warning::Candidate senza certificato di code signing: l'installer non e' firmato."
+              Write-Output "::warning::Candidate senza certificato di code signing: i binari Windows non sono firmati."
               exit 0
             }
             Write-Output "::error::Release stabile senza certificato di code signing: configura WINDOWS_CERTIFICATE_THUMBPRINT prima di pubblicare."
             exit 1
           }
-          $installer = Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
-          $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
-          Write-Output "Firma di $($installer.Name): $($signature.Status)"
-          if ($signature.Status -ne 'Valid') {
-            Write-Output "::error::Installer non firmato correttamente: $($signature.StatusMessage)"
+
+          # 1. Verifica eseguibile principale dell'applicazione
+          $binaries = Get-ChildItem -Path 'src-tauri/target/release' -Filter '*.exe' -File | Where-Object { $_.Name -notmatch 'build_script|deps' }
+          foreach ($bin in $binaries) {
+            $binSig = Get-AuthenticodeSignature -LiteralPath $bin.FullName
+            Write-Output "Firma del binario $($bin.Name): $($binSig.Status)"
+            if ($binSig.Status -ne 'Valid') {
+              Write-Output "::error::Binario $($bin.Name) non firmato correttamente: $($binSig.StatusMessage)"
+              exit 1
+            }
+          }
+
+          # 2. Verifica installer NSIS
+          $installers = Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis/*.exe'
+          if (-not $installers) {
+            Write-Output "::error::Nessun installer NSIS trovato in src-tauri/target/release/bundle/nsis/"
             exit 1
           }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+            Write-Output "Firma di $($installer.Name): $($signature.Status)"
+            if ($signature.Status -ne 'Valid') {
+              Write-Output "::error::Installer $($installer.Name) non firmato correttamente: $($signature.StatusMessage)"
+              exit 1
+            }
+          }
+
+      - name: Prepara staging piatto con nomi normalizzati a punti
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for pattern in ${{ matrix.artifact_glob }}; do
+            for f in $pattern; do
+              [ -f "$f" ] || continue
+              fname=$(basename "$f")
+              dotted="${fname// /.}"
+              cp -f "$f" "staging/$dotted"
+              echo "Staging: $fname -> $dotted"
+            done
+          done
+          echo "Artefatti in staging:"
+          ls -la staging
 
       - name: Conserva gli installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
-          if-no-files-found: error
-
-  promote:
-    name: Promuovi artefatti da candidate
-    needs: [resolve, gate]
-    if: needs.resolve.outputs.promote == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout del tag
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ needs.resolve.outputs.release_tag }}
-
-      - name: Scarica asset della candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          CANDIDATE_TAG: ${{ needs.resolve.outputs.candidate_tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p candidate-assets promoted-assets
-          gh release download "$CANDIDATE_TAG" --dir candidate-assets
-          echo "Asset scaricati da $CANDIDATE_TAG:"
-          ls -la candidate-assets
-
-      - name: Prepara e valida asset promossi
-        env:
-          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
-          CANDIDATE_TAG: ${{ needs.resolve.outputs.candidate_tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TARGET_VERSION="${RELEASE_TAG#v}"
-          CANDIDATE_VERSION="${CANDIDATE_TAG#v}"
-
-          for file in candidate-assets/*; do
-            [ -f "$file" ] || continue
-            fname=$(basename "$file")
-            # Ignora manifest o checksum vecchi che verranno rigenerati
-            if [[ "$fname" == "SHA256SUMS.txt" || "$fname" == *.json ]]; then
-              continue
-            fi
-
-            # Rinomina la stringa di versione se presente nel nome file (es. OMP.Studio_1.2.0-rc.1_... -> OMP.Studio_1.2.0_...)
-            new_fname="${fname/$CANDIDATE_VERSION/$TARGET_VERSION}"
-            cp "$file" "promoted-assets/$new_fname"
-            if [ "$new_fname" != "$fname" ]; then
-              echo "Promosso: $fname -> $new_fname"
-            else
-              echo "Promosso: $fname"
-            fi
-          done
-
-          # Verifica presenza degli installer attesi
-          has_exe=false
-          has_dmg=false
-          has_linux=false
-          for f in promoted-assets/*; do
-            [[ "$f" == *.exe ]] && has_exe=true
-            [[ "$f" == *.dmg ]] && has_dmg=true
-            [[ "$f" == *.deb || "$f" == *.AppImage || "$f" == *.appimage ]] && has_linux=true
-          done
-
-          if [ "$has_exe" = "false" ] || [ "$has_dmg" = "false" ] || [ "$has_linux" = "false" ]; then
-            echo "::error::Artefatti incompleti nella candidate: attesi installer Windows (.exe), macOS (.dmg) e Linux (.deb / .AppImage)."
-            exit 1
-          fi
-
-          # Calcola i checksum SHA256 dei file promossi
-          (cd promoted-assets && sha256sum * > SHA256SUMS.txt)
-          echo "Checksum SHA256 calcolati per la release stabile:"
-          cat promoted-assets/SHA256SUMS.txt
-
-      - name: Conserva gli installer promossi
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: promoted-assets
-          path: promoted-assets/*
+          path: staging/*
           if-no-files-found: error
 
   publish:
     name: Pubblica release
-    needs: [resolve, gate, build, promote]
-    if: always() && !cancelled() && needs.resolve.result == 'success' && needs.gate.result == 'success' && !contains(needs.*.result, 'failure')
+    needs: [resolve, gate, build]
     runs-on: ubuntu-latest
 
     steps:
@@ -374,6 +252,11 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.release_tag }}
           fetch-depth: 0
+
+      - name: Installa Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 22
 
       - name: Installa Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -384,16 +267,28 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Prepara note di release
+      - name: Prepara note di release e checksum piatti
         env:
           RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
-          PROMOTE: ${{ needs.resolve.outputs.promote }}
-          CANDIDATE_TAG: ${{ needs.resolve.outputs.candidate_tag }}
           TARGET_SHA: ${{ needs.resolve.outputs.target_sha }}
         shell: bash
         run: |
           set -euo pipefail
           TAG_VERSION="${RELEASE_TAG#v}"
+
+          # Appiattisce release-assets
+          find release-assets -mindepth 2 -type f -exec mv -t release-assets {} +
+          find release-assets -mindepth 1 -type d -empty -delete || true
+
+          # Normalizza a punti eventuali file rimanenti con spazi
+          for f in release-assets/*; do
+            [ -f "$f" ] || continue
+            fname=$(basename "$f")
+            dotted="${fname// /.}"
+            if [ "$fname" != "$dotted" ]; then
+              mv -f "$f" "release-assets/$dotted"
+            fi
+          done
 
           # 1. Tenta di estrarre le note dall'annotazione del git tag
           TAG_ANNOTATION=$(git tag -l --format='%(contents)' "$RELEASE_TAG" 2>/dev/null || true)
@@ -406,17 +301,8 @@ jobs:
             echo "Release $RELEASE_TAG" > release-notes.md
           fi
 
-          # Se la release e' stata promossa da una RC, aggiungi nota di attestazione in calce
-          if [ "$PROMOTE" = "true" ]; then
-            {
-              echo ""
-              echo "---"
-              echo "*(Artefatti verificati e promossi dalla Release Candidate \`$CANDIDATE_TAG\` sul commit \`${TARGET_SHA:0:7}\` senza ricompilazione)*"
-            } >> release-notes.md
-          fi
-
-          # Rigenera o aggiorna la tabella dei checksum SHA256 di tutti gli artefatti pubblicati
-          (cd release-assets && rm -f SHA256SUMS.txt && sha256sum * > SHA256SUMS.txt)
+          # Rigenera la tabella dei checksum SHA256 dei soli file regolari pubblicati
+          (cd release-assets && rm -f SHA256SUMS.txt && find . -maxdepth 1 -type f -exec sha256sum {} + | sed 's|^\./||' | sort -k2 > SHA256SUMS.txt)
           echo "=== CHECKSUM RELEASE ==="
           cat release-assets/SHA256SUMS.txt
 

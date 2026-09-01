@@ -101,6 +101,7 @@
 	const reason = $derived(runReason?.(project.id) ?? '');
 	const queueTasks = $derived(project.path ? taskStore.tasksFor(project.path) : []);
 	const canReorder = $derived(settingsStore.projectBar.order === 'fixed');
+	const effectiveHue = $derived(project.colorMode === 'custom' ? project.hue : autoHue);
 
 	function initials(name: string) {
 		return name.slice(0, 2).toUpperCase();
@@ -311,7 +312,7 @@
 		</form>
 	{:else}
 		<header class="head">
-			<span class="tile" class:scratchpad={isScratchpad} style="--tile-hue: {autoHue}" aria-hidden="true">
+			<span class="tile" class:scratchpad={isScratchpad} style="--tile-hue: {effectiveHue}" aria-hidden="true">
 				{#if isScratchpad}
 					<IconGhost />
 				{:else}

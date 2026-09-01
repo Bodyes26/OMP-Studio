@@ -8,7 +8,7 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
 	import { trapFocus } from '$lib/focusTrap';
-	import { IS_MAC } from '$lib/utils/platform';
+	import { IS_MAC, IS_WINDOWS } from '$lib/utils/platform';
 	import { quotaStore } from '$lib/stores/quota.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
 	import {
@@ -633,9 +633,9 @@
 		>
 			<IconQuota /> {quotaStore.chipLabel}
 		</button>
-		{#if !IS_MAC}
-			<!-- Su macOS i tre controlli li disegna il sistema (semafori nativi):
-			     duplicarli darebbe due serie di pulsanti nella stessa finestra. -->
+		{#if IS_WINDOWS}
+			<!-- Su Windows Studio disegna i tre controlli personalizzati;
+			     su macOS e Linux le decorazioni sono native per evitare doppie barre. -->
 			<div class="window-controls">
 				<button class="win-btn" onclick={handleMinimize} title="Riduci a icona" aria-label="Riduci a icona">
 					<svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>

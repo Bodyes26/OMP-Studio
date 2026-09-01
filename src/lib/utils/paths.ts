@@ -5,15 +5,11 @@
  */
 
 function checkIsWindows(): boolean {
+	if (typeof process !== 'undefined' && process && typeof process.platform === 'string') {
+		return process.platform === 'win32';
+	}
 	if (typeof navigator !== 'undefined') {
 		return /win/i.test((navigator.userAgent || navigator.platform || '').toLowerCase());
-	}
-	const g: unknown = globalThis;
-	if (g && typeof g === 'object' && 'process' in g) {
-		const p = g.process;
-		if (p && typeof p === 'object' && 'platform' in p) {
-			return p.platform === 'win32';
-		}
 	}
 	return false;
 }

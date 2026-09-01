@@ -11,6 +11,7 @@ import {
 	type ProjectTask,
 	type TaskDirectiveSnapshot
 } from '../extensions/studio-tasks.ts';
+
 describe('Estensione studio-tasks: I/O atomico e gestione task', () => {
 	let tempProjectDir: string;
 
@@ -36,7 +37,7 @@ describe('Estensione studio-tasks: I/O atomico e gestione task', () => {
 		assert.ok(content.includes('tasks.json'));
 	});
 
-	it('salva e ricarica i task mantenendo ordine e opzioni', () => {
+	it('salva e ricarica i task migrando i flag legacy in snapshot di direttive', () => {
 		const sampleTasks: ProjectTask[] = [
 			{
 				id: 't-1',
@@ -65,10 +66,13 @@ describe('Estensione studio-tasks: I/O atomico e gestione task', () => {
 		assert.equal(loaded[0].id, 't-1');
 		assert.equal(loaded[0].prompt, 'Primo task di test');
 		assert.equal(loaded[0].options?.role, 'smol');
-		assert.equal(loaded[0].options?.planMode, true);
+		assert.equal(loaded[0].options?.directives?.length, 1);
+		assert.equal(loaded[0].options?.directives?.[0].factoryKey, 'plan');
+		assert.equal(loaded[0].options?.directives?.[0].id, 'dir_factory_plan');
 		assert.equal(loaded[1].id, 't-2');
 		assert.equal(loaded[1].status, 'in_progress');
-		assert.equal(loaded[1].options?.discussionMode, true);
+		assert.equal(loaded[1].options?.directives?.length, 1);
+		assert.equal(loaded[1].options?.directives?.[0].factoryKey, 'discussion');
 	});
 
 	it('gestisce task vuoti o file inesistenti ritornando array vuoto', () => {
@@ -161,5 +165,52 @@ describe('Estensione studio-tasks: I/O atomico e gestione task', () => {
 			directives: [snapAfter, snapBefore]
 		});
 		assert.equal(composed, '[Before]\n\nMio prompt\n\n[After]');
+	});
+
+	it('composeTaskPrompt gestisce opzioni miste (snapshot + flag legacy) senza ignorare alcun flag', () => {
+		const customSnap: TaskDirectiveSnapshot = {
+			id: 'custom-security',
+			name: 'Security Check',
+			tag: 'sec',
+			prompt: '[Direttiva Sicurezza]',
+			placement: 'before',
+			order: 5,
+			revision: 1
+		};
+
+		// Task misto: direttiva personalizzata (order 5) + planMode (order 10) + researchMode (order 40, placement after)
+		const composed = composeTaskPrompt('Implementa autenticazione', {
+			directives: [customSnap],
+			planMode: true,
+			researchMode: true
+		});
+
+		assert.ok(composed.startsWith('[Direttiva Sicurezza]\n\n[Modalita Piano:'));
+		assert.ok(composed.includes('\n\nImplementa autenticazione\n\n'));
+		assert.ok(
+			composed.endsWith(
+				"[Direttiva Ricerca Online: Dopo aver analizzato al completo la richiesta e tutto il codice collegato nel progetto, effettua ricerche online approfondite sull'ambito e sulla richiesta (documentazione, riferimenti, librerie e best practice) prima di procedere con l'implementazione o le modifiche.]"
+			)
+		);
+	});
+
+	it('composeTaskPrompt non duplica direttive di fabbrica se gia presenti negli snapshot', () => {
+		const planSnap: TaskDirectiveSnapshot = {
+			id: 'dir_factory_plan',
+			factoryKey: 'plan',
+			name: 'Modalità Piano Custom',
+			tag: '/plan',
+			prompt: '[Piano Personalizzato]',
+			placement: 'before',
+			order: 10,
+			revision: 2
+		};
+
+		const composed = composeTaskPrompt('Mio task', {
+			directives: [planSnap],
+			planMode: true
+		});
+
+		assert.equal(composed, '[Piano Personalizzato]\n\nMio task');
 	});
 });

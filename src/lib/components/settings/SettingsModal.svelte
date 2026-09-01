@@ -67,6 +67,7 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (!settingsStore.open) return;
+		if (e.defaultPrevented) return;
 
 		if (e.key === 'Escape') {
 			if (modelSettingsStore.upgradeModalOpen) return;

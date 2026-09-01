@@ -15,9 +15,38 @@ jobs:
     name: Gate di qualita
     uses: ./.github/workflows/gate.yml
 
+  resolve:
+    name: Risoluzione versione nightly
+    runs-on: ubuntu-latest
+    outputs:
+      build_id: ${{ steps.version.outputs.build_id }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout del commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Installa Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 22
+
+      - name: Calcola build-id e versione unici
+        id: version
+        shell: bash
+        env:
+          RUN_STARTED_AT: ${{ github.run_started_at }}
+        run: |
+          set -euo pipefail
+          BUILD_ID=$(node scripts/nightly-version.mjs --print-id "$RUN_STARTED_AT")
+          VERSION=$(node scripts/nightly-version.mjs --print-version "$BUILD_ID")
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Build ID unico: $BUILD_ID"
+          echo "Versione Nightly: $VERSION"
+
   build:
     name: Build ${{ matrix.name }}
-    needs: gate
+    needs: [gate, resolve]
     strategy:
       fail-fast: false
       matrix:
@@ -26,28 +55,31 @@ jobs:
             os: windows-latest
             build_args: --bundles nsis
             artifact_name: nightly-windows-x64
-            artifact_path: src-tauri/target/release/bundle/nsis/*.exe
+            artifact_glob: src-tauri/target/release/bundle/nsis/*.exe
           - name: macOS universal
             os: macos-14
             build_args: --bundles dmg --target universal-apple-darwin
             artifact_name: nightly-macos-universal
-            artifact_path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            artifact_glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           - name: Linux x64
             os: ubuntu-22.04
             build_args: --bundles deb,appimage
             artifact_name: nightly-linux-x64
-            artifact_path: |
-              src-tauri/target/release/bundle/deb/*.deb
-              src-tauri/target/release/bundle/appimage/*.AppImage
+            artifact_glob: "src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/appimage/*.AppImage"
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout del commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Installa Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 22
+
       - name: Imposta la versione nightly temporanea
         shell: bash
-        run: node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s)"
+        run: node scripts/nightly-version.mjs "${{ needs.resolve.outputs.build_id }}"
 
       - name: Installa Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -88,18 +120,38 @@ jobs:
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
       - name: Compila gli installer
+        env:
+          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+          CI: "true"
         run: bun tauri build ${{ matrix.build_args }}
+
+      - name: Prepara staging piatto con nomi normalizzati a punti
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for pattern in ${{ matrix.artifact_glob }}; do
+            for f in $pattern; do
+              [ -f "$f" ] || continue
+              fname=$(basename "$f")
+              dotted="${fname// /.}"
+              cp -f "$f" "staging/$dotted"
+              echo "Staging: $fname -> $dotted"
+            done
+          done
+          echo "Artefatti in staging:"
+          ls -la staging
 
       - name: Conserva gli installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
+          path: staging/*
           if-no-files-found: error
 
   publish:
     name: Aggiorna il canale nightly
-    needs: build
+    needs: [resolve, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -109,10 +161,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Calcola la versione nightly
-        id: nightly
-        shell: bash
-        run: echo "version=$(node scripts/nightly-version.mjs "$(date -d "${{ github.run_started_at }}" +%s)")" >> "$GITHUB_OUTPUT"
+      - name: Installa Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 22
 
       - name: Scarica tutti gli installer
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -120,40 +172,102 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Prepara manifest e note
+      - name: Prepara staging piatto, manifest e checksum
         env:
-          NIGHTLY_VERSION: ${{ steps.nightly.outputs.version }}
+          NIGHTLY_VERSION: ${{ needs.resolve.outputs.version }}
         shell: bash
         run: |
-          jq -n \
-            --arg version "$NIGHTLY_VERSION" \
-            --arg commit "$GITHUB_SHA" \
-            --arg published_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{version: $version, commit: $commit, published_at: $published_at}' \
-            > nightly.json
+          set -euo pipefail
+          # Appiattisce release-assets spostando eventuali file annidati nella radice
+          find release-assets -mindepth 2 -type f -exec mv -t release-assets {} +
+          find release-assets -mindepth 1 -type d -empty -delete || true
+
+          # Normalizza a punti eventuali file rimanenti con spazi
+          for f in release-assets/*; do
+            [ -f "$f" ] || continue
+            fname=$(basename "$f")
+            dotted="${fname// /.}"
+            if [ "$fname" != "$dotted" ]; then
+              mv -f "$f" "release-assets/$dotted"
+            fi
+          done
+
+          echo "File di release pronti per upload:"
+          ls -la release-assets
+
+          # Calcola SHA256 per ogni singolo file regolare (escludendo directory e manifest)
+          (cd release-assets && find . -maxdepth 1 -type f ! -name "SHA256SUMS.txt" ! -name "nightly.json" ! -name "nightly-notes.md" -exec sha256sum {} + | sed 's|^\./||' | sort -k2 > SHA256SUMS.txt)
+          cat release-assets/SHA256SUMS.txt
+
+          # Genera mappa JSON dei checksum per asset con Node (legacy sha256 punta all'EXE Windows)
+          node -e '
+            const fs = require("node:fs");
+            const lines = fs.readFileSync("release-assets/SHA256SUMS.txt", "utf8").trim().split("\n");
+            const checksums = {};
+            let exeSha = "";
+            let fallbackSha = "";
+            for (const line of lines) {
+              const parts = line.trim().split(/\s+/);
+              if (parts.length >= 2) {
+                const hash = parts[0];
+                const file = parts[1].replace(/^\*/, "");
+                checksums[file] = hash;
+                if (!fallbackSha) fallbackSha = hash;
+                if (file.toLowerCase().endsWith(".exe")) {
+                  exeSha = hash;
+                }
+              }
+            }
+            const manifest = {
+              version: process.env.NIGHTLY_VERSION,
+              commit: process.env.GITHUB_SHA,
+              published_at: new Date().toISOString(),
+              checksums: checksums,
+              sha256: exeSha || fallbackSha
+            };
+            fs.writeFileSync("nightly.json", JSON.stringify(manifest, null, 2) + "\n");
+          '
+
           printf 'Build automatica del commit `%s` sul ramo `main`.\n\nQuesta versione può contenere modifiche non ancora verificate per il canale stabile.\n' \
             "$GITHUB_SHA" > nightly-notes.md
 
-      - name: Pubblica o aggiorna la prerelease nightly
+      - name: Pubblica o aggiorna la prerelease nightly in modo fail-safe
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          NIGHTLY_VERSION: ${{ steps.nightly.outputs.version }}
+          NIGHTLY_VERSION: ${{ needs.resolve.outputs.version }}
         shell: bash
         run: |
-          git tag -f nightly "$GITHUB_SHA"
-          git push origin refs/tags/nightly --force
+          set -euo pipefail
 
           if gh release view nightly >/dev/null 2>&1; then
+            echo "Aggiornamento asset della prerelease nightly..."
+            gh release upload nightly release-assets/* nightly.json --clobber
+
             gh release edit nightly \
               --title "Nightly $NIGHTLY_VERSION" \
               --notes-file nightly-notes.md \
               --prerelease
-            gh release upload nightly release-assets/* nightly.json --clobber
+
+            echo "Pulizia asset obsoleti dalla release nightly..."
+            CURRENT_NAMES=$(find release-assets -maxdepth 1 -type f -exec basename {} \;)
+            REMOTE_ASSETS=$(gh release view nightly --json assets --jq '.assets[].name' 2>/dev/null || true)
+            for asset in $REMOTE_ASSETS; do
+              [ -n "$asset" ] || continue
+              if ! echo "$CURRENT_NAMES" | grep -qx "$asset" && [ "$asset" != "nightly.json" ] && [ "$asset" != "SHA256SUMS.txt" ]; then
+                echo "Eliminazione asset obsoleto: $asset"
+                gh release delete-asset nightly "$asset" --yes || true
+              fi
+            done
           else
+            echo "Creazione nuova prerelease nightly..."
             gh release create nightly release-assets/* nightly.json \
-              --verify-tag \
               --prerelease \
               --title "Nightly $NIGHTLY_VERSION" \
               --notes-file nightly-notes.md
           fi
+
+          # Spostamento del tag git mobile solo dopo che l'upload su GitHub e' riuscito
+          echo "Aggiornamento tag git 'nightly' sul commit $GITHUB_SHA..."
+          git tag -f nightly "$GITHUB_SHA"
+          git push origin refs/tags/nightly --force

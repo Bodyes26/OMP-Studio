@@ -4,14 +4,14 @@
 
 # OMP Studio
 
-**The high-performance desktop workbench for the `omp` coding agent.**  
+**The high-performance desktop workbench for the `omp` coding agent.**
 Multi-project workspace, dual Terminal / Chat GUI surfaces, Monaco editor with Git diff, visual sandboxes, task orchestration, and real-time AI quota monitoring.
 
 [![GitHub Release](https://img.shields.io/github/v/release/Bodyes26/OMP-Studio?style=flat-square&color=crimson)](https://github.com/Bodyes26/OMP-Studio/releases)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2.x-24C8D8?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app/)
 [![Svelte 5](https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte&logoColor=white)](https://svelte.dev/)
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/Bodyes26/OMP-Studio/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/Bodyes26/OMP-Studio/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
 <br />
@@ -93,10 +93,10 @@ This entire application is **developed, maintained, and evolved iteratively usin
 
 ## 📥 Download & Installation
 
-Pre-built releases are available for Windows and macOS.
+Pre-built releases are available for Windows, macOS, and Linux (x86_64).
 
 ### Windows (10 / 11 64-bit)
-Download the lightweight NSIS installer (`.exe`) or MSI package from **[Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest)**.
+Download the lightweight NSIS installer (`.exe`) from **[Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest)**.
 - Per-user installation (no administrator privileges / UAC required).
 - Silent, background in-app updates.
 
@@ -105,6 +105,10 @@ Download the Universal DMG (`.dmg`) from **[Releases](https://github.com/Bodyes2
 - Universal binary (`aarch64` Apple Silicon + `x86_64` Intel).
 - Native WebKit rendering and system notifications.
 
+### Linux (x86_64)
+Download Debian package (`.deb`) or portable AppImage (`.AppImage`) from **[Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest)**.
+- Native GTK3 / WebKitGTK rendering with desktop notifications.
+- Compatible with Ubuntu, Debian, Fedora, Arch, and major distributions.
 *Note: If `omp` is not installed on your system, Studio's built-in **Setup Wizard** will automatically offer to download, verify, and configure it on first launch.*
 
 ---

@@ -24,6 +24,11 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
           fetch-depth: 2
 
+      - name: Installa Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 22
+
       - name: Installa Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 

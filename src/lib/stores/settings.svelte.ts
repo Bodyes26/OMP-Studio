@@ -197,9 +197,10 @@ export const TERMINAL_FONT_SIZE_RANGE = { min: 9, max: 28 } as const;
 export const SCROLLBACK_RANGE = { min: 1000, max: 200000 } as const;
 export const TAB_SIZE_RANGE = { min: 2, max: 8 } as const;
 
-function clamp(value: number, min: number, max: number, fallback: number): number {
-	if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-	return Math.min(max, Math.max(min, Math.round(value)));
+function clamp(value: unknown, min: number, max: number, fallback: number): number {
+	const num = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+	if (!Number.isFinite(num)) return fallback;
+	return Math.min(max, Math.max(min, Math.round(num)));
 }
 
 function bool(value: unknown, fallback: boolean): boolean {
@@ -464,6 +465,14 @@ class SettingsStore {
 	}
 
 	patchSuggestions(patch: Partial<SuggestionSettings>) {
+		if (patch.maxDynamic !== undefined) {
+			const val = typeof patch.maxDynamic === 'string' ? Number(patch.maxDynamic) : patch.maxDynamic;
+			patch.maxDynamic = Number.isFinite(val) ? Math.min(3, Math.max(1, Math.round(val))) : DEFAULT_SETTINGS.suggestions.maxDynamic;
+		}
+		if (patch.timeoutMs !== undefined) {
+			const val = typeof patch.timeoutMs === 'string' ? Number(patch.timeoutMs) : patch.timeoutMs;
+			patch.timeoutMs = Number.isFinite(val) ? Math.min(60000, Math.max(5000, Math.round(val))) : DEFAULT_SETTINGS.suggestions.timeoutMs;
+		}
 		Object.assign(this.suggestions, patch);
 		this.save();
 	}

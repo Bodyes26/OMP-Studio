@@ -585,12 +585,6 @@ $effect(() => {
 			return;
 		}
 
-		// Alt+H o Alt+K o F1: toggle modale scorciatoie
-		if ((isAltOnly && (keyLower === 'h' || code === 'KeyH' || keyLower === 'k' || code === 'KeyK')) || event.key === 'F1') {
-			event.preventDefault();
-			shortcutsModalStore.toggle();
-			return;
-		}
 
 		// Se il modale di aiuto e' aperto, non processare scorciatoie di composer
 		if (shortcutsModalStore.isOpen) return;

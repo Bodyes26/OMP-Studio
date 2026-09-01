@@ -1,6 +1,8 @@
 <script lang="ts">
 	import {
 		modelSettingsStore,
+		isAuthAccountActive,
+		getProviderEnvVarHint,
 		type ProviderSummary,
 		type AuthAccount
 	} from '$lib/stores/modelSettings.svelte';
@@ -60,7 +62,13 @@
 	);
 
 	const selectedAccounts = $derived(
-		modelSettingsStore.authAccounts.filter((a) => a.provider === modelSettingsStore.selectedProviderId)
+		modelSettingsStore.authAccounts.filter(
+			(a) => a.provider === modelSettingsStore.selectedProviderId && isAuthAccountActive(a)
+		)
+	);
+
+	const isOAuthProvider = $derived(
+		selectedProvider ? (selectedProvider.hasOauth || selectedProvider.authOrigin === 'oauth') : false
 	);
 
 	// Seleziona automaticamente il primo provider quando nessuno e' ancora attivo
@@ -77,6 +85,13 @@
 	function modelCountFor(p: ProviderSummary): number {
 		const draft = modelSettingsStore.draftCustomProviders[p.id];
 		return p.source === 'custom' && draft ? draft.models.length : p.availableModelCount;
+	}
+
+	function activeAccountCountFor(p: ProviderSummary): number {
+		if (p.source === 'custom') return 0;
+		return modelSettingsStore.authAccounts.filter(
+			(a) => a.provider === p.id && isAuthAccountActive(a)
+		).length;
 	}
 
 	function sourceLabel(source: string): string {
@@ -189,13 +204,19 @@
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (e.key !== 'Escape') return;
 		if (accountToRemove) {
+			e.preventDefault();
 			e.stopPropagation();
+			e.stopImmediatePropagation?.();
 			accountToRemove = null;
 		} else if (providerToDelete) {
+			e.preventDefault();
 			e.stopPropagation();
+			e.stopImmediatePropagation?.();
 			providerToDelete = null;
 		} else if (addMenuOpen) {
+			e.preventDefault();
 			e.stopPropagation();
+			e.stopImmediatePropagation?.();
 			closeAddMenu();
 		}
 	}
@@ -306,6 +327,15 @@
 			modelSettingsStore.showToast(`Esegui "${cmd}" in un terminale per accedere`);
 		}
 	}
+
+	async function handleCopyEnvHint(envVar: string) {
+		try {
+			await navigator.clipboard.writeText(envVar);
+			modelSettingsStore.showToast(`Copiato: "${envVar}"`);
+		} catch {
+			modelSettingsStore.showToast(`Variabile: ${envVar}`);
+		}
+	}
 </script>
 
 <svelte:window onclick={handleDocClick} onkeydown={handleWindowKeydown} />
@@ -366,7 +396,7 @@
 						<span class="state-badge" class:off={!enabled}>{enabled ? 'Abilitato' : 'Disabilitato'}</span>
 						<span class="count-pill" title="Account collegati">
 							<svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5.5" r="2.5" /><path d="M2.5 14c0-2.8 2.4-5 5.5-5s5.5 2.2 5.5 5" stroke-linecap="round" /></svg>
-							{p.accountCount}
+							{activeAccountCountFor(p)}
 						</span>
 						<span class="count-pill" title="Modelli disponibili">
 							<svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M2.5 6.5h11M6.5 2.5v11" /></svg>
@@ -565,7 +595,7 @@
 				<section class="detail-section">
 					<div class="section-header-row">
 						<h3 class="detail-section-title">Autenticazione e Account</h3>
-						{#if selectedProvider.hasOauth}
+						{#if isOAuthProvider}
 							<button
 								type="button"
 								class="btn btn-sm btn-secondary"
@@ -581,11 +611,26 @@
 						<div class="empty-accounts">
 							{#if selectedProvider.source === 'custom'}
 								<p>I provider Custom usano la API key configurata sopra: non richiedono account separati.</p>
-							{:else}
+							{:else if isOAuthProvider}
 								<p>Nessun account collegato a questo provider.</p>
 								<button type="button" class="btn btn-sm btn-primary" onclick={() => handleLoginAction(selectedProvider.id)}>
-									Accedi
+									Accedi con OAuth
 								</button>
+							{:else}
+								{@const envHint = getProviderEnvVarHint(selectedProvider.id)}
+								<p class="auth-instruction">
+									Questo provider si autentica tramite chiave API o variabile d'ambiente.
+									{#if envHint}
+										Configura la variabile <code>{envHint}</code> o esegui il setup iniziale in OMP.
+									{:else}
+										Configura la chiave API nelle impostazioni ambiente di OMP.
+									{/if}
+								</p>
+								{#if envHint}
+									<button type="button" class="btn btn-sm btn-secondary" onclick={() => handleCopyEnvHint(envHint)}>
+										Copia nome variabile ({envHint})
+									</button>
+								{/if}
 							{/if}
 						</div>
 					{:else}
@@ -629,7 +674,7 @@
 									</div>
 
 									<div class="account-actions">
-										{#if status.variant !== 'ok'}
+										{#if status.variant !== 'ok' && isOAuthProvider}
 											<button type="button" class="btn btn-xs btn-secondary" onclick={() => handleLoginAction(account.provider)}>
 												Accedi di nuovo
 											</button>
@@ -658,8 +703,12 @@
 
 	<!-- Dialog: rimuovi provider Custom dalla bozza -->
 	{#if providerToDelete}
-		<div class="confirm-overlay" transition:fade={{ duration: 100 }}>
-			<div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="del-provider-title" transition:slide={{ duration: 150 }}>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="confirm-overlay" onclick={cancelDeleteCustomProvider} transition:fade={{ duration: 100 }}>
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<div class="confirm-box" role="alertdialog" tabindex="-1" aria-modal="true" aria-labelledby="del-provider-title" onclick={(e) => e.stopPropagation()} transition:slide={{ duration: 150 }}>
 				<h4 id="del-provider-title">Rimuovere il provider "{providerToDelete}"?</h4>
 				<p>Il provider e i suoi modelli definiti verranno rimossi dalla bozza.</p>
 				<div class="confirm-actions">
@@ -672,8 +721,12 @@
 
 	<!-- Dialog: disconnetti account -->
 	{#if accountToRemove}
-		<div class="confirm-overlay" transition:fade={{ duration: 100 }}>
-			<div class="confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="del-account-title" transition:slide={{ duration: 150 }}>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="confirm-overlay" onclick={cancelRemoveAccount} transition:fade={{ duration: 100 }}>
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<div class="confirm-box" role="alertdialog" tabindex="-1" aria-modal="true" aria-labelledby="del-account-title" onclick={(e) => e.stopPropagation()} transition:slide={{ duration: 150 }}>
 				<h4 id="del-account-title">Disconnettere l'account "{accountDisplayName(accountToRemove)}"?</h4>
 				<p>Le credenziali salvate per questo account verranno rimosse. Potrai ricollegarlo in qualunque momento.</p>
 				<div class="confirm-actions">
@@ -1309,8 +1362,17 @@
 
 	.empty-accounts p {
 		margin: 0;
+		line-height: 1.45;
 	}
 
+	.empty-accounts code {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		background: var(--bg-surface);
+		padding: 1px 4px;
+		border-radius: var(--radius-xs);
+		color: var(--ink);
+	}
 	.accounts-list {
 		display: flex;
 		flex-direction: column;

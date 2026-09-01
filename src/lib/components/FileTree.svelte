@@ -101,6 +101,22 @@
 	setContext('gitStatusesCtx', getGitStatuses);
 	let gitStatuses = $derived(getGitStatuses());
 
+	async function loadEntries(force = false) {
+		if (loaded && !force) return;
+		loadError = null;
+		const hadFocus = typeof document !== 'undefined' && nodeEl?.contains(document.activeElement);
+		try {
+			entries = await invoke('tree_read', { projectPath, rel: relPath });
+			loaded = true;
+			await nav.syncActive();
+			if (hadFocus) {
+				await nav.focusKey(activeKey);
+			}
+		} catch (e) {
+			// Conserviamo l'errore reale per mostrare il messaggio all'utente con pulsante di riprova
+			loadError = String(e);
+		}
+	}
 	// Contesto per aggiornare solo il ramo genitore interessato da rinomina/eliminazione
 	const parentRefresh = getContext<() => Promise<void>>('fileTreeRefreshDirCtx');
 	const refreshThisDir = async () => {
@@ -116,8 +132,6 @@
 	// Chiavi opache: il prefisso distingue la riga del nodo dalla riga di
 	// errore, cosi due treeitem dello stesso percorso non collidono mai.
 	let rowKey = $derived(`row:${relPath}`);
-	let errorKey = $derived(`err:${relPath}`);
-
 	// Navigazione ad albero: solo la radice possiede lo stato del roving
 	// tabindex e lo condivide con i discendenti, cosi una sola riga per volta
 	// resta nel tab order anche se ogni nodo e' un componente separato.
@@ -130,6 +144,8 @@
 
 	let treeEl = $state<HTMLDivElement | null>(null);
 	let activeKey = $state('row:');
+	let trashError = $state<string | null>(null);
+
 
 	// Una riga chiusa resta nel DOM per tutta la transizione di slide: va
 	// esclusa dalla navigazione, altrimenti il focus finisce su un nodo morente.
@@ -145,8 +161,9 @@
 	// L'ordine del DOM coincide con l'ordine visivo delle righe aperte:
 	// non serve un registro dei nodi, basta interrogare l'albero renderizzato.
 	function treeRows(): HTMLElement[] {
-		if (!treeEl) return [];
-		return Array.from(treeEl.querySelectorAll<HTMLElement>('[data-tree-key]')).filter(isRowLive);
+		const root = nodeEl ?? treeEl;
+		if (!root) return [];
+		return Array.from(root.querySelectorAll<HTMLElement>('[data-tree-key]')).filter(isRowLive);
 	}
 
 	function findRow(key: string): HTMLElement | null {
@@ -165,7 +182,8 @@
 
 	async function syncActiveRow() {
 		await tick();
-		if (!treeEl || findRow(activeKey)) return;
+		const root = nodeEl ?? treeEl;
+		if (!root || findRow(activeKey)) return;
 		// La riga nel tab order e' sparita (chiusura, cestino, ricarica):
 		// senza questo rientro l'albero resterebbe irraggiungibile con Tab.
 		activeKey = treeRows()[0]?.dataset.treeKey ?? 'row:';
@@ -244,9 +262,12 @@
 				}
 				focusRow(parentRow(rows, index));
 				break;
+			case 'Enter':
+				event.preventDefault();
+				target.click();
+				break;
 		}
 	}
-
 	// Verifica se il file o un discendente ha modifiche non salvate
 	function isDirtyOrHasDirtyChildren(targetRel: string, isDirectory: boolean): boolean {
 		if (dirtyFilePaths.length === 0) return false;
@@ -355,19 +376,9 @@
 		}
 	}
 
-	async function loadEntries(force = false) {
-		if (loaded && !force) return;
-		loadError = null;
-		try {
-			entries = await invoke('tree_read', { projectPath, rel: relPath });
-			loaded = true;
-		} catch (e) {
-			// Conserviamo l'errore reale per mostrare il messaggio all'utente con pulsante di riprova
-			loadError = String(e);
-		}
-	}
 
 	async function toggle() {
+		trashError = null;
 		if (!isDir) {
 			if (onFileSelect) onFileSelect(relPath);
 			return;
@@ -378,6 +389,7 @@
 			await loadEntries();
 		}
 	}
+
 
 	async function copyText(text: string) {
 		try {
@@ -411,6 +423,7 @@
 
 	// Creazione inline
 	async function startCreation(type: 'file' | 'dir') {
+		trashError = null;
 		if (!expanded) {
 			expanded = true;
 		}
@@ -423,7 +436,6 @@
 		await tick();
 		creationInputRef?.focus();
 	}
-
 	function cancelCreation() {
 		creatingType = null;
 		creationName = '';
@@ -493,6 +505,7 @@
 	// Rinomina inline
 	async function startRename() {
 		if (isDirty) return;
+		trashError = null;
 		isRenaming = true;
 		renameValue = name;
 		renameError = null;
@@ -577,15 +590,17 @@
 	// Cestino
 	async function trashItem() {
 		if (isDirty) return;
+		trashError = null;
 		try {
 			await invoke('path_trash', { projectPath, rel: relPath });
+			trashError = null;
 			if (parentRefresh) {
 				await parentRefresh();
 			}
 			onPathTrashed?.(relPath, isDir);
 			window.dispatchEvent(new CustomEvent('git-status-refresh'));
 		} catch (err) {
-			console.error('Errore spostamento nel cestino:', err);
+			trashError = typeof err === 'string' ? err : (err instanceof Error ? err.message : String(err));
 		}
 	}
 
@@ -1155,10 +1170,15 @@
 
 <!-- Il nodo radice intercetta solo lo spazio vuoto; righe e pulsanti mantengono i propri ruoli. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
 	class="tree-node"
 	class:tree-root={level === 0}
 	bind:this={nodeEl}
+	role={level === 0 && !searchQuery.trim() ? "tree" : undefined}
+	aria-label={level === 0 ? `Albero file: ${name}` : undefined}
+	tabindex={level === 0 && !searchQuery.trim() ? -1 : undefined}
+	onkeydown={level === 0 && !searchQuery.trim() ? handleTreeKeyDown : undefined}
 	oncontextmenu={level === 0 && !searchQuery.trim() ? handleRootContainerContextMenu : undefined}
 >
 	{#if level === 0}
@@ -1319,8 +1339,18 @@
 				</div>
 			{/if}
 		{:else}
-			<button 
-				class="tree-row" 
+			<button
+				bind:this={rowEl}
+				type="button"
+				class="tree-row"
+				role="treeitem"
+				data-tree-key={rowKey}
+				aria-level={level + 1}
+				aria-setsize={setSize}
+				aria-posinset={posInSet}
+				aria-expanded={isDir ? expanded : undefined}
+				aria-selected={isDir ? undefined : false}
+				tabindex={nav.isActive(rowKey) ? 0 : -1}
 				class:faint={isNoisy}
 				class:git-m={fileStatus === 'M'}
 				class:git-a={fileStatus === 'A'}
@@ -1329,6 +1359,7 @@
 				class:git-r={fileStatus === 'R'}
 				class:git-c={fileStatus === 'C'}
 				style="padding-left: {level * 12 + 8}px;"
+				onfocus={() => nav.setActive(rowKey)}
 				onclick={toggle}
 				oncontextmenu={handleRowContextMenu}
 			>
@@ -1341,8 +1372,8 @@
 				{/if}
 				<span class="name">{name}</span>
 				{#if fileStatus}
-					<span 
-						class="git-badge status-{fileStatus}" 
+					<span
+						class="git-badge status-{fileStatus}"
 						class:dir-badge={isDir}
 						title={getStatusTitle(fileStatus, isDir)}
 					>
@@ -1350,10 +1381,20 @@
 					</span>
 				{/if}
 			</button>
+			{#if trashError}
+				<div
+					class="inline-error"
+					role="alert"
+					aria-live="polite"
+					style="padding-left: {level * 12 + 28}px;"
+				>
+					{trashError}
+				</div>
+			{/if}
 		{/if}
 
 		{#if isDir && expanded}
-			<div class="children" transition:slide={{ duration: 180 }}>
+			<div class="children" role="group" transition:slide={{ duration: 180 }}>
 				{#if creatingType}
 					<div class="tree-row inline-edit-row" style="padding-left: {(level + 1) * 12 + 8}px;">
 						{#if creatingType === 'dir'}
@@ -1390,13 +1431,15 @@
 				{/if}
 
 				{#if loaded}
-					{#each entries as entry}
+					{#each entries as entry, i (entry.path)}
 						<FileTree
 							projectPath={projectPath}
 							relPath={entry.path}
 							name={entry.name}
 							isDir={entry.is_dir}
 							level={level + 1}
+							posInSet={i + 1}
+							setSize={entries.length}
 							onFileSelect={onFileSelect}
 							onFileDiff={onFileDiff}
 							dirtyFilePaths={dirtyFilePaths}

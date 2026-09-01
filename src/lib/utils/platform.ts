@@ -31,6 +31,7 @@ export const SHELL_PLATFORM: ShellPlatform =
 		: detectShellPlatform(navigator.userAgent || '', navigator.platform || '');
 
 export const IS_MAC = SHELL_PLATFORM === 'macos';
+export const IS_WINDOWS = SHELL_PLATFORM === 'windows';
 
 /** Il tasto modificatore mostrato nelle scorciatoie e nei menu contestuali. */
 export const MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl+';

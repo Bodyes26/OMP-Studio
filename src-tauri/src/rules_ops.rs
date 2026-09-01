@@ -15,9 +15,9 @@
 use crate::omp_ops::{agent_dir, open_readonly_db};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use tauri::command;
-
 /// Un file di contesto del progetto: `AGENTS.md`, una regola in `.omp/rules/`
 /// oppure un file di linee guida alternativo. `path` e' sempre relativo alla
 /// radice del progetto, cosi' com'e' atteso da `file_read`/`file_write`.
@@ -58,16 +58,15 @@ const ALT_CONTEXT_FILES: &[(&str, &str)] = &[
     (".impeccable.md", "Regole e principi interfaccia"),
 ];
 
-#[command]
-pub fn get_project_context(project_path: String) -> Result<ProjectContextSummary, String> {
-    let root = Path::new(&project_path);
+/// Censisce le regole e le skill per il percorso specificato in modo sincrono.
+pub(crate) fn get_project_context_sync(project_path: &str) -> Result<ProjectContextSummary, String> {
+    let root = Path::new(project_path);
     if !root.is_dir() {
         return Err(format!(
             "Directory di progetto non trovata: {}",
             project_path
         ));
     }
-
     let mut rules = Vec::new();
     let mut skills = Vec::new();
 
@@ -140,6 +139,13 @@ pub fn get_project_context(project_path: String) -> Result<ProjectContextSummary
     }
 
     Ok(ProjectContextSummary { rules, skills })
+}
+
+#[command]
+pub async fn get_project_context(project_path: String) -> Result<ProjectContextSummary, String> {
+    tokio::task::spawn_blocking(move || get_project_context_sync(&project_path))
+        .await
+        .map_err(|e| format!("Task get_project_context fallito: {}", e))?
 }
 
 fn has_md_extension(path: &Path) -> bool {
@@ -247,21 +253,62 @@ Linee guida e convenzioni per gli agenti che operano su questo repository.
 "#;
 
 #[command]
-pub fn create_project_agents_md(project_path: String) -> Result<String, String> {
-    let root = Path::new(&project_path);
-    if !root.is_dir() {
-        return Err(format!(
-            "Directory di progetto non trovata: {}",
-            project_path
-        ));
+/// Crea il file `AGENTS.md` nella radice del progetto in modo sicuro e sincrono:
+/// valida il contenimento canonico del genitore, rifiuta collegamenti e symlink
+/// dangling, e usa `create_new` per prevenire scritture fuori dallo spazio di lavoro.
+pub(crate) fn create_project_agents_md_sync(project_path: &str) -> Result<String, String> {
+    let base = crate::projects::canonical_project_base(project_path)?;
+    let target = base.join("AGENTS.md");
+
+    // `symlink_metadata` non segue i collegamenti: intercetta symlink validi o dangling
+    if let Ok(meta) = fs::symlink_metadata(&target) {
+        if meta.file_type().is_symlink() {
+            return Err(
+                "Percorso non ammesso: AGENTS.md e' un collegamento e potrebbe puntare fuori dal progetto"
+                    .to_string(),
+            );
+        }
+        if meta.is_file() {
+            return Ok("AGENTS.md".to_string());
+        }
+        if meta.is_dir() {
+            return Err("Percorso non ammesso: AGENTS.md e' una cartella".to_string());
+        }
+        return Err("Percorso non ammesso: tipo di elemento non valido per AGENTS.md".to_string());
     }
-    let target = root.join("AGENTS.md");
-    if target.exists() {
-        return Ok("AGENTS.md".to_string());
-    }
-    fs::write(&target, DEFAULT_AGENTS_MD)
-        .map_err(|e| format!("Errore durante la creazione di AGENTS.md: {}", e))?;
+
+    // Creazione atomica esclusiva: `create_new(true)` impedisce sovrascritture concorrenti o traversal
+    let mut file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let meta = fs::symlink_metadata(&target)
+                .map_err(|e| format!("Errore verifica AGENTS.md: {}", e))?;
+            if meta.file_type().is_symlink() {
+                return Err(
+                    "Percorso non ammesso: AGENTS.md e' un collegamento e potrebbe puntare fuori dal progetto"
+                        .to_string(),
+                );
+            }
+            return Ok("AGENTS.md".to_string());
+        }
+        Err(e) => return Err(format!("Errore durante la creazione di AGENTS.md: {}", e)),
+    };
+
+    file.write_all(DEFAULT_AGENTS_MD.as_bytes())
+        .map_err(|e| format!("Errore durante la scrittura di AGENTS.md: {}", e))?;
+
     Ok("AGENTS.md".to_string())
+}
+
+#[command]
+pub async fn create_project_agents_md(project_path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || create_project_agents_md_sync(&project_path))
+        .await
+        .map_err(|e| format!("Task create_project_agents_md fallito: {}", e))?
 }
 
 /// Una proposta di regola nata dall'attrito osservato nei prompt recenti.
@@ -382,8 +429,8 @@ fn build_suggestions(prompts: &[String], agents_md: Option<&str>) -> Vec<RuleSug
     suggestions
 }
 
-#[command]
-pub fn analyze_project_friction(project_path: String) -> Result<Vec<RuleSuggestion>, String> {
+/// Esegue l'analisi dell'attrito in modo sincrono isolando la connessione SQLite.
+pub(crate) fn analyze_project_friction_sync(project_path: &str) -> Result<Vec<RuleSuggestion>, String> {
     // Storico assente (prima installazione, agente mai avviato): nessun
     // attrito da mostrare, non un errore da segnalare.
     let Ok(conn) = open_readonly_db("history.db") else {
@@ -400,27 +447,34 @@ pub fn analyze_project_friction(project_path: String) -> Result<Vec<RuleSuggesti
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
-        .query_map(rusqlite::params![&project_path, PROMPT_WINDOW as i64], |row| {
+        .query_map(rusqlite::params![project_path, PROMPT_WINDOW as i64], |row| {
             row.get::<_, String>(0)
         })
         .map_err(|e| e.to_string())?;
 
     let prompts: Vec<String> = rows.flatten().collect();
-    let agents_md = fs::read_to_string(Path::new(&project_path).join("AGENTS.md")).ok();
+    let agents_md = fs::read_to_string(Path::new(project_path).join("AGENTS.md")).ok();
 
     Ok(build_suggestions(&prompts, agents_md.as_deref()))
 }
 
 #[command]
-pub fn apply_rule_suggestion(
-    project_path: String,
-    target_rel_path: String,
-    append_content: String,
+pub async fn analyze_project_friction(project_path: String) -> Result<Vec<RuleSuggestion>, String> {
+    tokio::task::spawn_blocking(move || analyze_project_friction_sync(&project_path))
+        .await
+        .map_err(|e| format!("Task analyze_project_friction fallito: {}", e))?
+}
+
+/// Applica la proposta di regola in modo sincrono con contenimento canonico e controllo symlink.
+pub(crate) fn apply_rule_suggestion_sync(
+    project_path: &str,
+    target_rel_path: &str,
+    append_content: &str,
 ) -> Result<(), String> {
     // Contenimento canonico riusato da `projects`: il genitore deve stare
     // dentro la radice reale del progetto, non solo sembrarlo.
-    let base = crate::projects::canonical_project_base(&project_path)?;
-    let (parent_rel, leaf_name) = crate::projects::split_rel_path(&target_rel_path)?;
+    let base = crate::projects::canonical_project_base(project_path)?;
+    let (parent_rel, leaf_name) = crate::projects::split_rel_path(target_rel_path)?;
     let parent_dir = crate::projects::resolve_parent_dir(&base, &parent_rel)?;
     let full_path = parent_dir.join(&leaf_name);
 
@@ -456,6 +510,19 @@ pub fn apply_rule_suggestion(
     fs::write(&full_path, next).map_err(|e| e.to_string())
 }
 
+#[command]
+pub async fn apply_rule_suggestion(
+    project_path: String,
+    target_rel_path: String,
+    append_content: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        apply_rule_suggestion_sync(&project_path, &target_rel_path, &append_content)
+    })
+    .await
+    .map_err(|e| format!("Task apply_rule_suggestion fallito: {}", e))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,18 +534,20 @@ mod tests {
         root
     }
 
-    #[test]
-    fn censisce_agents_md_anche_quando_manca() {
+    #[tokio::test]
+    async fn censisce_agents_md_anche_quando_manca() {
         let root = temp_root("omp-studio-rules-vuoto");
-        let summary = get_project_context(root.to_string_lossy().to_string()).unwrap();
+        let summary = get_project_context(root.to_string_lossy().to_string())
+            .await
+            .unwrap();
 
         assert_eq!(summary.rules.len(), 1);
         assert_eq!(summary.rules[0].id, "agents_md");
         assert!(!summary.rules[0].exists);
     }
 
-    #[test]
-    fn censisce_regole_modulari_e_file_alternativi() {
+    #[tokio::test]
+    async fn censisce_regole_modulari_e_file_alternativi() {
         let root = temp_root("omp-studio-rules-censimento");
         fs::write(root.join("AGENTS.md"), "# A").unwrap();
         fs::write(root.join("CLAUDE.md"), "# C").unwrap();
@@ -487,7 +556,9 @@ mod tests {
         fs::write(root.join(".omp/rules/alfa.md"), "a").unwrap();
         fs::write(root.join(".omp/rules/note.txt"), "ignorato").unwrap();
 
-        let summary = get_project_context(root.to_string_lossy().to_string()).unwrap();
+        let summary = get_project_context(root.to_string_lossy().to_string())
+            .await
+            .unwrap();
         let paths: Vec<&str> = summary.rules.iter().map(|r| r.path.as_str()).collect();
 
         assert_eq!(
@@ -502,8 +573,8 @@ mod tests {
         assert!(summary.rules[0].exists);
     }
 
-    #[test]
-    fn censisce_skill_di_progetto_con_percorso_relativo() {
+    #[tokio::test]
+    async fn censisce_skill_di_progetto_con_percorso_relativo() {
         let root = temp_root("omp-studio-rules-skill");
         fs::create_dir_all(root.join(".omp/skills/deploy")).unwrap();
         fs::write(
@@ -514,7 +585,9 @@ mod tests {
         fs::write(root.join(".omp/skills/lint.md"), "# Lint\n\nControlla lo stile.\n").unwrap();
         fs::create_dir_all(root.join(".omp/skills/incompleta")).unwrap();
 
-        let summary = get_project_context(root.to_string_lossy().to_string()).unwrap();
+        let summary = get_project_context(root.to_string_lossy().to_string())
+            .await
+            .unwrap();
         let project: Vec<&SkillItem> = summary
             .skills
             .iter()
@@ -533,17 +606,57 @@ mod tests {
         assert_eq!(project[1].description.as_deref(), Some("Controlla lo stile."));
     }
 
-    #[test]
-    fn crea_agents_md_una_sola_volta() {
+    #[tokio::test]
+    async fn crea_agents_md_una_sola_volta() {
         let root = temp_root("omp-studio-rules-init");
         let path = root.to_string_lossy().to_string();
 
-        assert_eq!(create_project_agents_md(path.clone()).unwrap(), "AGENTS.md");
+        assert_eq!(
+            create_project_agents_md(path.clone()).await.unwrap(),
+            "AGENTS.md"
+        );
         fs::write(root.join("AGENTS.md"), "contenuto utente").unwrap();
-        assert_eq!(create_project_agents_md(path).unwrap(), "AGENTS.md");
+        assert_eq!(create_project_agents_md(path).await.unwrap(), "AGENTS.md");
         assert_eq!(
             fs::read_to_string(root.join("AGENTS.md")).unwrap(),
             "contenuto utente"
+        );
+    }
+
+    #[tokio::test]
+    async fn crea_agents_md_rifiuta_radice_non_valida() {
+        assert!(create_project_agents_md("".to_string()).await.is_err());
+        assert!(
+            create_project_agents_md("C:/percorso/non/esistente/xyz123".to_string())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn crea_agents_md_rifiuta_symlink_esistente_o_dangling() {
+        let root = temp_root("omp-studio-rules-create-symlink");
+        let outside = temp_root("omp-studio-rules-create-symlink-target");
+        let secret = outside.join("AGENTS.md");
+        fs::write(&secret, "# Fuori\n").unwrap();
+        std::os::unix::fs::symlink(&secret, root.join("AGENTS.md")).unwrap();
+
+        let err = create_project_agents_md(root.to_string_lossy().to_string())
+            .await
+            .unwrap_err();
+        assert!(err.contains("collegamento"), "errore inatteso: {}", err);
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "# Fuori\n");
+
+        // Dangling symlink: cancelliamo il target esterno
+        let _ = fs::remove_file(&secret);
+        let err_dangling = create_project_agents_md(root.to_string_lossy().to_string())
+            .await
+            .unwrap_err();
+        assert!(
+            err_dangling.contains("collegamento"),
+            "errore inatteso per dangling symlink: {}",
+            err_dangling
         );
     }
 
@@ -573,8 +686,8 @@ mod tests {
         assert!(build_suggestions(&prompts, Some("# AGENTS\n\n## Vincolo di build\n- ...\n")).is_empty());
     }
 
-    #[test]
-    fn applica_la_proposta_normalizzando_le_righe() {
+    #[tokio::test]
+    async fn applica_la_proposta_normalizzando_le_righe() {
         let root = temp_root("omp-studio-rules-apply");
         fs::write(root.join("AGENTS.md"), "# AGENTS\n\nTesto.\n\n\n").unwrap();
 
@@ -583,6 +696,7 @@ mod tests {
             "AGENTS.md".to_string(),
             "## Vincolo di build\n- Verificare.\n".to_string(),
         )
+        .await
         .unwrap();
 
         assert_eq!(
@@ -591,8 +705,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn rifiuta_percorsi_fuori_dal_progetto() {
+    #[tokio::test]
+    async fn rifiuta_percorsi_fuori_dal_progetto() {
         let root = temp_root("omp-studio-rules-traversal");
         fs::write(root.join("AGENTS.md"), "# AGENTS\n").unwrap();
         let path = root.to_string_lossy().to_string();
@@ -602,26 +716,29 @@ mod tests {
             "../AGENTS.md".to_string(),
             "x\n".to_string()
         )
+        .await
         .is_err());
         assert!(apply_rule_suggestion(
             path.clone(),
             "".to_string(),
             "x\n".to_string()
         )
+        .await
         .is_err());
         assert!(apply_rule_suggestion(
             path,
             "DA_CREARE.md".to_string(),
             "x\n".to_string()
         )
+        .await
         .is_err());
     }
 
     /// Un `AGENTS.md` che e' un collegamento a un file esterno non deve poter
     /// essere riscritto: la proposta agirebbe fuori dal progetto.
-    #[test]
+    #[tokio::test]
     #[cfg(unix)]
-    fn rifiuta_un_collegamento_che_punta_fuori() {
+    async fn rifiuta_un_collegamento_che_punta_fuori() {
         let root = temp_root("omp-studio-rules-symlink");
         let outside = temp_root("omp-studio-rules-symlink-target");
         let secret = outside.join("AGENTS.md");
@@ -633,6 +750,7 @@ mod tests {
             "AGENTS.md".to_string(),
             "## Iniettato\n".to_string(),
         )
+        .await
         .unwrap_err();
 
         assert!(err.contains("collegamento"), "errore inatteso: {}", err);
