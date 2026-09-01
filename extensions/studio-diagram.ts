@@ -12,11 +12,17 @@
 // --config gia' presente). Nessuna scrittura in ~/.omp: la cartella e' di
 // Studio e cancellarla riporta tutto com'era (contratto PRODUCT.md §8).
 //
-// API verificate sul binario omp 17.x:
+// API verificate sul binario omp installato (probe: ricerca/probe-ext.ts):
 // - pi.registerTool({ name, label, description, parameters, approval, execute })
-//   con schema TypeBox esposto come pi.typebox (alias P nel binario).
-// - execute(toolCallId, params, signal?, onUpdate?, ctx?) -> { output, details? }
+//   con schema Zod-compatibile esposto come pi.zod (backend omptype).
+//   NON usare pi.typebox: e' il namespace del modulo legacy ({ Type, default }),
+//   non il costruttore, e pi.typebox.String non esiste piu'.
+// - execute(toolCallId, params, signal?, onUpdate?, ctx?) -> AgentToolResult:
+//   il risultato DEVE avere `content` come array di blocchi { type: "text", text }.
+//   Un `{ output }` viene rifiutato con "Tool returned an invalid result".
 // - ctx.sessionManager.getCwd() / getSessionId() disponibili nel ctx dei tool.
+// - Descrizioni: usare `.optional().describe(...)`, non `.describe(...).optional()`:
+//   su enum/union quest'ultimo ordine perde la description nello JSON Schema.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -160,8 +166,73 @@ function wrapPrototypeCode(title: string, code: string): string {
 </html>`;
 }
 
-export default function studioExtension(pi) {
-	const Type = pi.typebox;
+// Sottoinsieme tipizzato della superficie iniettata da omp: solo cio' che serve
+// qui, cosi' un cambio di API si vede come errore di tipo e non a runtime.
+interface ZodType {
+	optional(): ZodType;
+	describe(text: string): ZodType;
+}
+
+interface ZodBuilder {
+	object(shape: Record<string, ZodType>): ZodType;
+	string(): ZodType;
+}
+
+interface ToolContext {
+	sessionManager?: {
+		getCwd?: () => string;
+		getSessionId?: () => string;
+	};
+}
+
+interface ToolResult {
+	content: { type: "text"; text: string }[];
+	details?: Record<string, unknown>;
+	isError?: boolean;
+}
+
+interface ToolDefinition<TParams> {
+	name: string;
+	label: string;
+	description: string;
+	parameters: ZodType;
+	approval: "read" | "write" | "exec";
+	execute(
+		toolCallId: string,
+		params: TParams,
+		signal: AbortSignal | undefined,
+		onUpdate: unknown,
+		ctx: ToolContext | undefined
+	): Promise<ToolResult>;
+}
+
+interface StudioExtensionApi {
+	zod: ZodBuilder;
+	registerTool<TParams>(definition: ToolDefinition<TParams>): void;
+}
+
+function textResult(text: string, details?: Record<string, unknown>): ToolResult {
+	return details ? { content: [{ type: "text", text }], details } : { content: [{ type: "text", text }] };
+}
+
+function errorResult(text: string): ToolResult {
+	return { content: [{ type: "text", text }], isError: true };
+}
+
+interface DiagramParams {
+	title: string;
+	mermaid: string;
+}
+
+interface PreviewParams {
+	title: string;
+	code: string;
+	name?: string;
+	description?: string;
+}
+
+export default function studioExtension(pi: StudioExtensionApi) {
+	const z = pi.zod;
 
 	// 1. Tool per whiteboard diagrammi Mermaid
 	pi.registerTool({
@@ -173,29 +244,25 @@ export default function studioExtension(pi) {
 			"database schema or plan. Provide Mermaid syntax. Supported: flowchart, sequenceDiagram, classDiagram, " +
 			"erDiagram, stateDiagram-v2, gantt, mindmap, timeline. The user sees the rendered diagram next to the editor; " +
 			"the terminal only shows a short confirmation.",
-		parameters: Type.Object({
-			title: Type.String({
-				description: "Short human title shown above the diagram, e.g. 'Auth flow'"
-			}),
-			mermaid: Type.String({
-				description: "Mermaid diagram source, without ``` fences"
-			})
+		parameters: z.object({
+			title: z.string().describe("Short human title shown above the diagram, e.g. 'Auth flow'"),
+			mermaid: z.string().describe("Mermaid diagram source, without ``` fences")
 		}),
 		approval: "read",
-		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(toolCallId, params: DiagramParams, _signal, _onUpdate, ctx) {
 			const title = String(params.title || "Diagram").slice(0, 120);
 			const mermaid = String(params.mermaid || "");
 			if (!mermaid.trim()) {
-				return { output: "Error: mermaid source is empty", isError: true };
+				return errorResult("Error: mermaid source is empty");
 			}
 
-			let base;
+			let base: string;
 			if (process.platform === "win32" && process.env.LOCALAPPDATA) {
 				base = `${process.env.LOCALAPPDATA}\\omp-studio\\diagrams`;
 			} else if (process.env.HOME) {
 				base = join(process.env.HOME, ".omp-studio", "diagrams");
 			} else {
-				return { output: "Error: cannot resolve exchange directory", isError: true };
+				return errorResult("Error: cannot resolve exchange directory");
 			}
 
 			mkdirSync(base, { recursive: true });
@@ -217,10 +284,9 @@ export default function studioExtension(pi) {
 			};
 			writeFileSync(file, JSON.stringify(payload, null, 2), "utf8");
 
-			return {
-				output: `Diagram "${title}" sent to OMP Studio whiteboard (${basename(file)}).`,
-				details: { studioFile: file }
-			};
+			return textResult(`Diagram "${title}" sent to OMP Studio whiteboard (${basename(file)}).`, {
+				studioFile: file
+			});
 		}
 	});
 
@@ -235,26 +301,26 @@ export default function studioExtension(pi) {
 			"Interactive state (useState), animations, and responsive layout are fully supported. " +
 			"The prototype is automatically saved into the project's 'proto/' directory (added to .gitignore so it never litters git) " +
 			"and opened immediately in the Studio preview window next to the terminal. Call this repeatedly as the user iterates.",
-		parameters: Type.Object({
-			title: Type.String({
-				description: "Short human title shown above the preview, e.g. 'Quota Usage Card' or 'Billing Filter Dialog'"
-			}),
-			code: Type.String({
-				description: "React TSX/JSX component code or full HTML prototype"
-			}),
-			name: Type.Optional(Type.String({
-				description: "Optional file slug name, e.g. 'quota-card'. Defaults to a slug from title."
-			})),
-			description: Type.Optional(Type.String({
-				description: "Optional short summary of what the component does or interactive parts"
-			}))
+		parameters: z.object({
+			title: z
+				.string()
+				.describe("Short human title shown above the preview, e.g. 'Quota Usage Card' or 'Billing Filter Dialog'"),
+			code: z.string().describe("React TSX/JSX component code or full HTML prototype"),
+			name: z
+				.string()
+				.optional()
+				.describe("Optional file slug name, e.g. 'quota-card'. Defaults to a slug from title."),
+			description: z
+				.string()
+				.optional()
+				.describe("Optional short summary of what the component does or interactive parts")
 		}),
 		approval: "read",
-		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(toolCallId, params: PreviewParams, _signal, _onUpdate, ctx) {
 			const title = String(params.title || "Prototype").slice(0, 120);
 			const code = String(params.code || "");
 			if (!code.trim()) {
-				return { output: "Error: prototype code is empty", isError: true };
+				return errorResult("Error: prototype code is empty");
 			}
 
 			const cwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
@@ -295,16 +361,13 @@ export default function studioExtension(pi) {
 			} catch {}
 
 			// 4. Scrive la notifica per Studio in %LOCALAPPDATA%/omp-studio/previews
-			let base;
+			let base: string;
 			if (process.platform === "win32" && process.env.LOCALAPPDATA) {
 				base = `${process.env.LOCALAPPDATA}\\omp-studio\\previews`;
 			} else if (process.env.HOME) {
 				base = join(process.env.HOME, ".omp-studio", "previews");
 			} else {
-				return {
-					output: `Prototype "${title}" saved to ${relPath}.`,
-					details: { filePath: relPath }
-				};
+				return textResult(`Prototype "${title}" saved to ${relPath}.`, { filePath: relPath });
 			}
 
 			mkdirSync(base, { recursive: true });
@@ -323,10 +386,10 @@ export default function studioExtension(pi) {
 			};
 			writeFileSync(exchangeFile, JSON.stringify(payload, null, 2), "utf8");
 
-			return {
-				output: `Prototype "${title}" rendered live in OMP Studio preview sandbox and saved to ${relPath}.`,
-				details: { filePath: relPath, studioFile: exchangeFile }
-			};
+			return textResult(
+				`Prototype "${title}" rendered live in OMP Studio preview sandbox and saved to ${relPath}.`,
+				{ filePath: relPath, studioFile: exchangeFile }
+			);
 		}
 	});
 }

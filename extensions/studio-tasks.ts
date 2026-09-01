@@ -549,11 +549,107 @@ class TasksTuiOverlay {
 	}
 }
 
+// Sottoinsieme tipizzato della superficie iniettata da omp. Solo cio' che serve
+// qui: uno schema Zod-compatibile (pi.zod) e i risultati con blocchi `content`.
+// pi.typebox NON e' il costruttore ma il namespace del modulo legacy
+// ({ Type, default }), e un risultato `{ output }` viene rifiutato dal loop
+// dell'agente con "Tool returned an invalid result: missing content array".
+// Le description vanno applicate come `.optional().describe(...)`: l'ordine
+// inverso le perde sugli enum.
+interface ZodType {
+	optional(): ZodType;
+	describe(text: string): ZodType;
+}
+
+interface ZodBuilder {
+	object(shape: Record<string, ZodType>): ZodType;
+	string(): ZodType;
+	number(): ZodType;
+	boolean(): ZodType;
+	enum(values: readonly string[]): ZodType;
+}
+
+interface ToolContext {
+	sessionManager?: {
+		getCwd?: () => string;
+	};
+}
+
+interface ToolResult {
+	content: { type: "text"; text: string }[];
+	details?: Record<string, unknown>;
+	isError?: boolean;
+}
+
+interface ToolDefinition<TParams> {
+	name: string;
+	label: string;
+	description: string;
+	parameters: ZodType;
+	approval: "read" | "write" | "exec";
+	execute(
+		toolCallId: string,
+		params: TParams,
+		signal: AbortSignal | undefined,
+		onUpdate: unknown,
+		ctx: ToolContext | undefined
+	): Promise<ToolResult>;
+}
+
+interface TasksCommandContext {
+	hasUI: boolean;
+	ui: {
+		notify: (message: string, level: "info" | "error") => void;
+		custom: (
+			factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (value: void) => void) => unknown,
+			options: { overlay: boolean }
+		) => Promise<void>;
+	};
+	sessionManager?: {
+		getCwd?: () => string;
+	};
+}
+
+interface StudioTasksApi {
+	zod: ZodBuilder;
+	registerTool<TParams>(definition: ToolDefinition<TParams>): void;
+	registerCommand<TContext>(
+		name: string,
+		command: { description: string; handler: (args: string, ctx: TContext) => Promise<void> }
+	): void;
+	setModel(model: { provider: string; id: string }): Promise<boolean>;
+	setThinkingLevel(level: string): void;
+	// Usato dall'overlay TUI per lanciare subito il task selezionato.
+	sendMessage(message: string, options?: { triggerTurn?: boolean }): void;
+}
+
+interface TaskToolParams {
+	action?: "list" | "add" | "update" | "delete" | "reorder" | "get";
+	taskId?: string;
+	prompt?: string;
+	status?: ProjectTask["status"];
+	role?: string;
+	thinkingLevel?: string;
+	planMode?: boolean;
+	discussionMode?: boolean;
+	minimalMode?: boolean;
+	researchMode?: boolean;
+	targetPosition?: number;
+}
+
+function textResult(text: string, details?: Record<string, unknown>): ToolResult {
+	return details ? { content: [{ type: "text", text }], details } : { content: [{ type: "text", text }] };
+}
+
+function errorResult(text: string): ToolResult {
+	return { content: [{ type: "text", text }], isError: true };
+}
+
 /**
  * Entrypoint dell'estensione OMP.
  */
-export default function studioTasksExtension(pi: any): void {
-	const Type = pi.typebox;
+export default function studioTasksExtension(pi: StudioTasksApi): void {
+	const z = pi.zod;
 
 	// 1. Registrazione del Tool `project_tasks` per l'Agente
 	pi.registerTool({
@@ -564,33 +660,29 @@ export default function studioTasksExtension(pi: any): void {
 			"Use this tool to view the project queue, add new tasks discovered during planning/execution, " +
 			"update task status (queued, in_progress, completed, abandoned), reorder, or delete tasks. " +
 			"Changes are automatically saved to disk and synchronized with OMP Studio GUI and TUI in real time.",
-		parameters: Type.Object({
-			action: Type.Union([
-				Type.Literal("list"),
-				Type.Literal("add"),
-				Type.Literal("update"),
-				Type.Literal("delete"),
-				Type.Literal("reorder"),
-				Type.Literal("get")
-			], { description: "The action to perform on the project tasks." }),
-			taskId: Type.Optional(Type.String({ description: "Unique task ID (required for update, delete, get, reorder)." })),
-			prompt: Type.Optional(Type.String({ description: "Prompt or description of the task." })),
-			status: Type.Optional(Type.Union([
-				Type.Literal("queued"),
-				Type.Literal("in_progress"),
-				Type.Literal("completed"),
-				Type.Literal("abandoned")
-			], { description: "Current execution status of the task." })),
-			role: Type.Optional(Type.String({ description: "Optional role assignment (e.g. 'plan', 'smol', 'slow')." })),
-			thinkingLevel: Type.Optional(Type.String({ description: "Optional reasoning level (e.g. 'auto', 'low', 'high')." })),
-			planMode: Type.Optional(Type.Boolean({ description: "Enable plan mode directive (/plan)." })),
-			discussionMode: Type.Optional(Type.Boolean({ description: "Enable discussion mode directive (/grill-me)." })),
-			minimalMode: Type.Optional(Type.Boolean({ description: "Enable minimal mode directive (/ponytail)." })),
-			researchMode: Type.Optional(Type.Boolean({ description: "Enable online research mode." })),
-			targetPosition: Type.Optional(Type.Number({ description: "Target index position for reordering." }))
+		parameters: z.object({
+			action: z
+				.enum(["list", "add", "update", "delete", "reorder", "get"])
+				.describe("The action to perform on the project tasks."),
+			taskId: z
+				.string()
+				.optional()
+				.describe("Unique task ID (required for update, delete, get, reorder)."),
+			prompt: z.string().optional().describe("Prompt or description of the task."),
+			status: z
+				.enum(["queued", "in_progress", "completed", "abandoned"])
+				.optional()
+				.describe("Current execution status of the task."),
+			role: z.string().optional().describe("Optional role assignment (e.g. 'plan', 'smol', 'slow')."),
+			thinkingLevel: z.string().optional().describe("Optional reasoning level (e.g. 'auto', 'low', 'high')."),
+			planMode: z.boolean().optional().describe("Enable plan mode directive (/plan)."),
+			discussionMode: z.boolean().optional().describe("Enable discussion mode directive (/grill-me)."),
+			minimalMode: z.boolean().optional().describe("Enable minimal mode directive (/ponytail)."),
+			researchMode: z.boolean().optional().describe("Enable online research mode."),
+			targetPosition: z.number().optional().describe("Target index position for reordering.")
 		}),
 		approval: "read",
-		async execute(_toolCallId: string, params: any, _signal: any, _onUpdate: any, ctx: any) {
+		async execute(_toolCallId, params: TaskToolParams, _signal, _onUpdate, ctx) {
 			const cwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
 			const tasks = loadProjectTasks(cwd);
 			const action = String(params.action || "list");
@@ -602,29 +694,29 @@ export default function studioTasksExtension(pi: any): void {
 					const inProgress = tasks.filter((t) => t.status === "in_progress").length;
 					const queued = tasks.filter((t) => t.status === "queued").length;
 
-					return {
-						output: `Project tasks (${total} total: ${completed} completed, ${inProgress} in progress, ${queued} queued):\n` +
+					return textResult(
+						`Project tasks (${total} total: ${completed} completed, ${inProgress} in progress, ${queued} queued):\n` +
 							tasks.map((t, idx) => `[${idx}] [${t.status}] ${t.id}: ${t.prompt.split("\n")[0]}`).join("\n"),
-						details: { tasks, total, completed, inProgress, queued }
-					};
+						{ tasks, total, completed, inProgress, queued }
+					);
 				}
 
 				case "get": {
 					const id = String(params.taskId || "");
 					const found = tasks.find((t) => t.id === id);
 					if (!found) {
-						return { output: `Error: Task with ID '${id}' not found.`, isError: true };
+						return errorResult(`Error: Task with ID '${id}' not found.`);
 					}
-					return {
-						output: `Task ${found.id}:\nStatus: ${found.status}\nPrompt: ${found.prompt}\nOptions: ${JSON.stringify(found.options || {})}`,
-						details: { task: found }
-					};
+					return textResult(
+						`Task ${found.id}:\nStatus: ${found.status}\nPrompt: ${found.prompt}\nOptions: ${JSON.stringify(found.options || {})}`,
+						{ task: found }
+					);
 				}
 
 				case "add": {
 					const prompt = String(params.prompt || "").trim();
 					if (!prompt) {
-						return { output: "Error: Prompt cannot be empty for adding a task.", isError: true };
+						return errorResult("Error: Prompt cannot be empty for adding a task.");
 					}
 					const options: TaskOptions = {};
 					if (params.role) options.role = String(params.role);
@@ -647,17 +739,16 @@ export default function studioTasksExtension(pi: any): void {
 					tasks.push(newTask);
 					saveProjectTasks(cwd, tasks);
 
-					return {
-						output: `Task created successfully (ID: ${newTask.id}, position: ${newTask.position}).`,
-						details: { task: newTask }
-					};
+					return textResult(`Task created successfully (ID: ${newTask.id}, position: ${newTask.position}).`, {
+						task: newTask
+					});
 				}
 
 				case "update": {
 					const id = String(params.taskId || "");
 					const task = tasks.find((t) => t.id === id);
 					if (!task) {
-						return { output: `Error: Task with ID '${id}' not found.`, isError: true };
+						return errorResult(`Error: Task with ID '${id}' not found.`);
 					}
 
 					if (params.prompt !== undefined) task.prompt = String(params.prompt);
@@ -674,25 +765,22 @@ export default function studioTasksExtension(pi: any): void {
 					task.updatedAt = Date.now();
 					saveProjectTasks(cwd, tasks);
 
-					return {
-						output: `Task '${id}' updated successfully (status: ${task.status}).`,
-						details: { task }
-					};
+					return textResult(`Task '${id}' updated successfully (status: ${task.status}).`, { task });
 				}
 
 				case "delete": {
 					const id = String(params.taskId || "");
 					const idx = tasks.findIndex((t) => t.id === id);
 					if (idx === -1) {
-						return { output: `Error: Task with ID '${id}' not found.`, isError: true };
+						return errorResult(`Error: Task with ID '${id}' not found.`);
 					}
 					const [removed] = tasks.splice(idx, 1);
 					saveProjectTasks(cwd, tasks);
 
-					return {
-						output: `Task '${id}' deleted successfully.`,
-						details: { deletedTaskId: id, promptExcerpt: removed.prompt.slice(0, 50) }
-					};
+					return textResult(`Task '${id}' deleted successfully.`, {
+						deletedTaskId: id,
+						promptExcerpt: removed.prompt.slice(0, 50)
+					});
 				}
 
 				case "reorder": {
@@ -700,24 +788,25 @@ export default function studioTasksExtension(pi: any): void {
 					const targetPos = typeof params.targetPosition === "number" ? params.targetPosition : -1;
 					const idx = tasks.findIndex((t) => t.id === id);
 					if (idx === -1) {
-						return { output: `Error: Task with ID '${id}' not found.`, isError: true };
+						return errorResult(`Error: Task with ID '${id}' not found.`);
 					}
 					if (targetPos < 0 || targetPos >= tasks.length) {
-						return { output: `Error: Target position ${targetPos} out of bounds (0-${tasks.length - 1}).`, isError: true };
+						return errorResult(`Error: Target position ${targetPos} out of bounds (0-${tasks.length - 1}).`);
 					}
 
 					const [moved] = tasks.splice(idx, 1);
 					tasks.splice(targetPos, 0, moved);
 					saveProjectTasks(cwd, tasks);
 
-					return {
-						output: `Task '${id}' moved from position ${idx} to ${targetPos}.`,
-						details: { taskId: id, from: idx, to: targetPos }
-					};
+					return textResult(`Task '${id}' moved from position ${idx} to ${targetPos}.`, {
+						taskId: id,
+						from: idx,
+						to: targetPos
+					});
 				}
 
 				default:
-					return { output: `Error: Unknown action '${action}'.`, isError: true };
+					return errorResult(`Error: Unknown action '${action}'.`);
 			}
 		}
 	});
@@ -759,7 +848,7 @@ export default function studioTasksExtension(pi: any): void {
 	// 2. Registrazione dello Slash Command `/tasks` per TUI
 	pi.registerCommand("tasks", {
 		description: "Apri il gestore interattivo dei task del progetto (.omp/tasks.json)",
-		handler: async (_args: string, ctx: any) => {
+		handler: async (_args: string, ctx: TasksCommandContext) => {
 			const cwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
 
 			if (!ctx.hasUI) {
@@ -775,7 +864,7 @@ export default function studioTasksExtension(pi: any): void {
 			}
 
 			// Modalità interattiva TUI a tutto schermo
-			await ctx.ui.custom((tui: any, theme: any, keybindings: any, done: (value: void) => void) => {
+			await ctx.ui.custom((tui, theme, keybindings, done) => {
 				return new TasksTuiOverlay(tui, theme, keybindings, done, cwd, pi);
 			}, { overlay: true });
 		}

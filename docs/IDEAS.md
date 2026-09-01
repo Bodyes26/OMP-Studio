@@ -193,11 +193,19 @@ Desktop, Cursor, Windsurf) e scelte di roadmap condivise con l'utente.
   restano single-threaded per decisione dell'utente.
 - **Quick Switcher / Context Gauge** (Modulo 6): non richiesto.
 
-### Note tecniche verificate sul binario omp 17.x
+### Note tecniche verificate sul binario omp installato
 
 - `pi.registerTool({ name, label, description, parameters, approval, execute })`;
-  schema TypeBox esposto come `pi.typebox` (e `pi.zod`, `pi.arktype`).
-- `execute(toolCallId, params, signal?, onUpdate?, ctx?) -> { output, details? }`.
+  schema Zod-compatibile esposto come `pi.zod` (backend omptype), con
+  `pi.arktype` per il DSL nativo. `pi.typebox` e' il **namespace** del modulo
+  legacy (`{ Type, default }`), non il costruttore: `pi.typebox.String` non
+  esiste, serve `pi.typebox.Type.String`. Le estensioni di Studio usano `pi.zod`.
+- `execute(toolCallId, params, signal?, onUpdate?, ctx?) -> AgentToolResult`:
+  il risultato deve avere `content` come array di blocchi `{ type: "text", text }`
+  (piu' `details?`, `isError?`). Un `{ output }` viene sostituito dal loop
+  dell'agente con "Tool returned an invalid result: missing content array".
+- Description sui parametri: `.optional().describe(...)`; l'ordine inverso
+  perde la description sugli enum nello JSON Schema inviato al modello.
 - Eventi: `tool_call`/`tool_result` (con `toolName`, `toolCallId`, `input`,
   `content`, `details`, `isError`), `tool_approval_requested/resolved`,
   `agent_start/end`, `turn_start/end`, `session_start`,
