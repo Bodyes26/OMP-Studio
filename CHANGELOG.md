@@ -9,6 +9,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-01
+
 ### Added
 
 - Supporto completo alla compilazione e distribuzione per sistemi Linux (x86_64): generazione automatica dei pacchetti Debian (`.deb`) e portabili universali (`.AppImage`) nei canali Nightly e Release stabili di GitHub Actions con promozione candidate senza ricompilazione, script di build locale e ottimizzazione del fallback shell POSIX.
@@ -67,7 +69,6 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Riprendere una chat dallo storico subito dopo l'avvio di Studio non lascia più la conversazione vuota: cliccare una sessione mentre il processo del progetto stava ancora partendo ne avviava un secondo, la chat si insediava su quello sbagliato (una sessione nuova, senza messaggi) e i messaggi non comparivano mai, benché l'agente rispondesse conoscendo tutto lo storico. Ora la ripresa scelta dall'utente ha la precedenza, il processo superato viene chiuso invece di restare vivo in background e il transcript viene ricostruito a ogni nuovo agganciamento.
 - Nelle domande a più risposte le altre domande non risultano più «ok» prima di essere lette: l'opzione consigliata resta pre-selezionata come proposta, ma vale come risposta solo dopo che la domanda è stata aperta. Il riepilogo indica le domande ancora da vedere e l'invio resta bloccato finché ne manca una, così non partono più scelte mai viste dall'utente.
 - Le domande già inviate di una sequenza `ask` restano visibili nella barra dei passaggi, contrassegnate come «inviata» e non modificabili: prima sparivano del tutto e la numerazione delle domande rimaste risultava incomprensibile.
-
 ## [1.2.1] - 2026-08-28
 
 ### Added
