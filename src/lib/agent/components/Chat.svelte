@@ -148,11 +148,14 @@
 			<Transcript {session} />
 
 			{#if session.pendingUi}
+				{@const cardKey = `${session.pendingUi.toolCallId ?? session.pendingUi.requestId}:${session.pendingUi.questions?.length ?? 0}:${session.pendingUi.questionIndex ?? 0}`}
 				<div
 					class="pending-ui-slot"
 					transition:chatReveal={{ duration: 220, blur: 4, distance: 3 }}
 				>
-					<AskCard {session} pending={session.pendingUi} />
+					{#key cardKey}
+						<AskCard {session} pending={session.pendingUi} />
+					{/key}
 				</div>
 			{/if}
 		</div>

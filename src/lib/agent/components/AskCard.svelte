@@ -29,15 +29,17 @@
 		IconRadioChecked,
 		IconRename
 	} from '$lib/icons';
-	import type { AgentSession, AskQuestion, AskQuestionOption, PendingAsk } from '../session.svelte';
+	import type { AgentSession, PendingAsk } from '../session.svelte';
 	import {
 		cleanOptionLabel,
 		firstUnansweredIndex,
-		formatWizardAnswers,
+		buildFlushPlan,
 		isDoneOption,
 		isOtherOption,
 		isQuestionAnswered,
-		type AnswerableQuestion
+		type AnswerableQuestion,
+		type AskQuestion,
+		type AskQuestionOption
 	} from '../askAnswers';
 	let { session, pending } = $props<{ session: AgentSession; pending: PendingAsk }>();
 
@@ -129,8 +131,122 @@
 	const askedTotal = $derived(Math.max(pending.totalQuestions ?? 1, askedNumber));
 	const moreQuestionsFollow = $derived(askedTotal > askedNumber);
 
+	/**
+	 * Costruisce lo stato iniziale delle domande. Vive a livello di modulo o
+	 * mount: non dentro un `$effect`, perche' sincronizzare stato derivato dai
+	 * props con un effetto e' l'anti-pattern segnalato dalla documentazione di
+	 * Svelte 5. Quando `pendingUi` cambia o viene arricchito da
+	 * `tool_execution_start`, il blocco `{#key}` nel genitore distrugge e
+	 * rimonta questa card con il nuovo stato pulito.
+	 */
+	function initWizardQuestions(): WizardQuestion[] {
+		const rawQuestions = pending.questions;
+		const rawOptions = pending.options ?? [];
+		const rawDetails = pending.optionDetails ?? [];
+		const baseStart = rawQuestions && rawQuestions.length > 0
+			? Math.min(Math.max(pending.questionIndex ?? 0, 0), rawQuestions.length - 1)
+			: 0;
+
+		if (rawQuestions && rawQuestions.length > 0) {
+			return rawQuestions.slice(baseStart).map((q: AskQuestion, qIdx: number) => {
+				const opts: WizardOption[] = q.options.map((o: AskQuestionOption, oIdx: number) => {
+					const clean = cleanOptionLabel(o.label);
+					const isRec = o.label.endsWith(' (Recommended)') || q.recommended === oIdx;
+					const isOth = isOtherOption(o.label);
+					const isDone = isDoneOption(o.label);
+					return {
+						label: o.label,
+						cleanLabel: clean,
+						description: o.description,
+						preview: o.preview,
+						isRecommended: isRec,
+						isOther: isOth,
+						isDoneSentinel: isDone
+					};
+				});
+
+				if (!opts.some((o) => o.isOther)) {
+					opts.push({
+						label: 'Other (type your own)',
+						cleanLabel: 'Altro (scrivi la tua risposta)',
+						description: 'Inserisci una risposta personalizzata',
+						isRecommended: false,
+						isOther: true,
+						isDoneSentinel: false
+					});
+				}
+
+				const preselected = new SvelteSet<string>();
+				const recIdx = q.recommended;
+				if (!q.multi && typeof recIdx === 'number' && recIdx >= 0 && recIdx < opts.length && !opts[recIdx].isOther) {
+					preselected.add(opts[recIdx].cleanLabel);
+				}
+
+				return {
+					id: q.id || `q${baseStart + qIdx + 1}`,
+					question: q.question,
+					header: q.header,
+					number: baseStart + qIdx + 1,
+					options: opts,
+					multi: q.multi === true,
+					recommended: q.recommended,
+					selectedOptions: preselected,
+					note: '',
+					showNoteInput: false,
+					customInput: '',
+					isCustom: false,
+					touched: false,
+					visited: qIdx === 0,
+					cursorIndex: typeof recIdx === 'number' && recIdx >= 0 ? recIdx : 0
+				};
+			});
+		}
+
+		const isMulti = parsedTitle.counter !== null && /selected|selezionat/i.test(parsedTitle.counter || '');
+		const opts: WizardOption[] = rawOptions.map((o: string, oIdx: number) => {
+			const clean = cleanOptionLabel(o);
+			const isRec = o.endsWith(' (Recommended)');
+			const isOth = isOtherOption(o);
+			const isDone = isDoneOption(o);
+			return {
+				label: o,
+				cleanLabel: isOth ? 'Altro (scrivi la tua risposta)' : clean,
+				description: rawDetails[oIdx]?.description,
+				isRecommended: isRec,
+				isOther: isOth,
+				isDoneSentinel: isDone
+			};
+		});
+
+		const preselected = new SvelteSet<string>();
+		const recIdx = opts.findIndex((o) => o.isRecommended);
+		if (!isMulti && recIdx >= 0 && !opts[recIdx].isOther) {
+			preselected.add(opts[recIdx].cleanLabel);
+		}
+
+		return [
+			{
+				id: 'q1',
+				question: parsedTitle.text || pending.title || 'Richiesta agente',
+				header: undefined,
+				number: askedNumber,
+				options: opts,
+				multi: isMulti,
+				recommended: recIdx >= 0 ? recIdx : undefined,
+				selectedOptions: preselected,
+				note: '',
+				showNoteInput: false,
+				customInput: '',
+				isCustom: false,
+				touched: false,
+				visited: true,
+				cursorIndex: recIdx >= 0 ? recIdx : 0
+			}
+		];
+	}
+
 	// Costruzione dello stato normalizzato delle domande
-	let questions = $state<WizardQuestion[]>([]);
+	let questions = $state<WizardQuestion[]>(initWizardQuestions());
 	let activeStep = $state(0); // 0..questions.length-1 sono le domande, questions.length è il Riepilogo
 	let isReviewStep = $derived(questions.length > 1 && activeStep === questions.length);
 	let currentQuestion = $derived<WizardQuestion | undefined>(questions[activeStep]);
@@ -166,117 +282,6 @@
 			label: q.header || `Domanda ${idx + 1}`,
 			question: q.question
 		}));
-	});
-
-	// Inizializzazione o aggiornamento delle domande al cambio di pendingUi
-	$effect(() => {
-		const rawQuestions = pending.questions;
-		const rawOptions = pending.options ?? [];
-		const rawDetails = pending.optionDetails ?? [];
-
-		if (rawQuestions && rawQuestions.length > 0) {
-			// Richiesta con lista strutturata di domande, dalla prima ancora
-			// senza risposta in avanti (vedi `startIndex`).
-			questions = rawQuestions.slice(startIndex).map((q: AskQuestion, qIdx: number) => {
-				const opts: WizardOption[] = q.options.map((o: AskQuestionOption, oIdx: number) => {
-					const clean = cleanOptionLabel(o.label);
-					const isRec = o.label.endsWith(' (Recommended)') || q.recommended === oIdx;
-					const isOth = isOtherOption(o.label);
-					const isDone = isDoneOption(o.label);
-					return {
-						label: o.label,
-						cleanLabel: clean,
-						description: o.description,
-						preview: o.preview,
-						isRecommended: isRec,
-						isOther: isOth,
-						isDoneSentinel: isDone
-					};
-				});
-
-				// Se non c'è l'opzione "Altro", aggiungiamola sinteticamente
-				if (!opts.some((o) => o.isOther)) {
-					opts.push({
-						label: 'Other (type your own)',
-						cleanLabel: 'Altro (scrivi la tua risposta)',
-						description: 'Inserisci una risposta personalizzata',
-						isRecommended: false,
-						isOther: true,
-						isDoneSentinel: false
-					});
-				}
-
-				// Pre-selezione se consigliata per singola scelta
-				const preselected = new SvelteSet<string>();
-				const recIdx = q.recommended;
-				if (!q.multi && typeof recIdx === 'number' && recIdx >= 0 && recIdx < opts.length && !opts[recIdx].isOther) {
-					preselected.add(opts[recIdx].cleanLabel);
-				}
-
-				return {
-					id: q.id || `q${startIndex + qIdx + 1}`,
-					question: q.question,
-					header: q.header,
-					number: startIndex + qIdx + 1,
-					options: opts,
-					multi: q.multi === true,
-					recommended: q.recommended,
-					selectedOptions: preselected,
-					note: '',
-					showNoteInput: false,
-					customInput: '',
-					isCustom: false,
-					touched: false,
-					visited: qIdx === 0,
-					cursorIndex: typeof recIdx === 'number' && recIdx >= 0 ? recIdx : 0
-				};
-			});
-			activeStep = 0;
-		} else {
-			// Fallback: singola domanda ricavata dai parametri immediati di pendingUi
-			const isMulti = parsedTitle.counter !== null && /selected|selezionat/i.test(parsedTitle.counter || '');
-			const opts: WizardOption[] = rawOptions.map((o: string, oIdx: number) => {
-				const clean = cleanOptionLabel(o);
-				const isRec = o.endsWith(' (Recommended)');
-				const isOth = isOtherOption(o);
-				const isDone = isDoneOption(o);
-				return {
-					label: o,
-					cleanLabel: isOth ? 'Altro (scrivi la tua risposta)' : clean,
-					description: rawDetails[oIdx]?.description,
-					isRecommended: isRec,
-					isOther: isOth,
-					isDoneSentinel: isDone
-				};
-			});
-
-			const preselected = new SvelteSet<string>();
-			const recIdx = opts.findIndex((o) => o.isRecommended);
-			if (!isMulti && recIdx >= 0 && !opts[recIdx].isOther) {
-				preselected.add(opts[recIdx].cleanLabel);
-			}
-
-			questions = [
-				{
-					id: 'q1',
-					question: parsedTitle.text || pending.title || 'Richiesta agente',
-					header: undefined,
-					number: askedNumber,
-					options: opts,
-					multi: isMulti,
-					recommended: recIdx >= 0 ? recIdx : undefined,
-					selectedOptions: preselected,
-					note: '',
-					showNoteInput: false,
-					customInput: '',
-					isCustom: false,
-					touched: false,
-					visited: true,
-					cursorIndex: recIdx >= 0 ? recIdx : 0
-				}
-			];
-			activeStep = 0;
-		}
 	});
 
 	// Riferimenti DOM ed input
@@ -447,8 +452,8 @@
 	/** Invio definitivo: solo con tutte le risposte davvero compilate. */
 	async function submitAllAnswers() {
 		if (submitting) return;
-		const responses = formatWizardAnswers(questions);
-		if (!responses) {
+		const plan = buildFlushPlan(questions);
+		if (!plan) {
 			// Porta l'utente sulla domanda che manca, invece di inviare a meta'.
 			if (missingIndex >= 0) goToStep(missingIndex);
 			return;
@@ -459,7 +464,7 @@
 			// Anche una domanda sola puo' produrre piu' righe (spunte multiple
 			// piu' la sentinella di fine selezione): mandarne una e buttare le
 			// altre lasciava omp a chiedere di nuovo la stessa cosa.
-			await session.submitAskWizard(responses);
+			await session.submitAskWizard(plan);
 		} finally {
 			submitting = false;
 		}
@@ -981,9 +986,9 @@
 									{/if}
 								</button>
 							{:else}
-								<!-- Una domanda sola nella card non significa una domanda
-								     sola nella richiesta: se omp ne ha altre in coda, il
-								     pulsante manda avanti e non conferma niente. -->
+								<!-- Una sola domanda disponibile (richiesta nuda o sequenza
+								     senza argomenti del tool): l'invio spedisce la risposta
+								     sul filo in modo definitivo. -->
 								<button
 									type="button"
 									class="btn-submit"
@@ -991,12 +996,12 @@
 									onclick={() => void submitAllAnswers()}
 									title={currentAnswered
 										? moreQuestionsFollow
-											? `Invia la risposta alla domanda ${askedNumber} e passa alla successiva (Enter)`
+											? `Invia la risposta alla domanda ${askedNumber} di ${askedTotal}: non potrai tornare indietro a questa domanda (Enter)`
 											: 'Invia risposta (Enter)'
 										: 'Scegli una risposta o scrivine una in "Altro"'}
 								>
 									{#if moreQuestionsFollow}
-										Avanti <IconArrowRight />
+										Invia risposta ({askedNumber}/{askedTotal}) <IconArrowRight />
 									{:else}
 										Conferma <span class="kbd">↵</span>
 									{/if}

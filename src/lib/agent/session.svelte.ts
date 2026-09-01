@@ -11,7 +11,14 @@ import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { OmpRpcClient } from './client';
 import { isMissingSessionError } from './resumeErrors';
-import { matchQuestionIndex, optionSignature } from './askAnswers';
+import {
+	matchQuestionIndex,
+	optionSignature,
+	parseAskQuestions,
+	stepAcceptsRequest,
+	type AskFlushStep,
+	type AskQuestion
+} from './askAnswers';
 import { SessionSuggestions } from './suggestions.svelte';
 import {
 	RENDER_WINDOW,
@@ -128,24 +135,15 @@ export interface QueuedMessage {
 	behavior: StreamingBehavior;
 }
 
-export interface AskQuestionOption {
-	label: string;
-	description?: string;
-	preview?: string;
-}
-
-export interface AskQuestion {
-	id: string;
-	question: string;
-	header?: string;
-	options: AskQuestionOption[];
-	multi?: boolean;
-	recommended?: number;
-}
-
 export interface PendingAsk {
 	kind: 'ask';
 	requestId: string;
+	/**
+	 * Chiamata `ask` a cui la richiesta appartiene. Serve a legare la card e il
+	 * piano di consegna alla chiamata invece che al singolo round del filo.
+	 */
+	toolCallId?: string;
+
 	method: 'select' | 'confirm' | 'input' | 'editor';
 	title: string;
 	message?: string;
@@ -248,17 +246,21 @@ export class AgentSession {
 	agentState = $state<AgentSurfaceState>('unknown');
 
 	/**
-	 * Risposte pre-compilate dal wizard per i round successivi della **stessa**
-	 * chiamata `ask`. Il vincolo e' il `toolCallId`: senza di lui una risposta
-	 * rimasta in coda finirebbe su una domanda futura e diversa. Quando la
-	 * chiamata non e' identificabile (nessuna entry `ask` in esecuzione) resta
-	 * la firma delle opzioni: il ciclo a scelta multipla ripresenta lo stesso
-	 * elenco a ogni spunta, ed e' l'unico caso in cui la coda vale ancora.
+	 * Piano di consegna del wizard: le risposte gia' compilate dall'utente che
+	 * aspettano la richiesta a cui appartengono. Il protocollo di `ask` e'
+	 * sequenziale e irreversibile, quindi la card raccoglie tutto e qui restano
+	 * i passi ancora da consegnare, uno per richiesta.
+	 *
+	 * Il vincolo e' il `toolCallId`: senza di lui un passo rimasto in coda
+	 * finirebbe su una domanda futura e diversa. `lastClosing` ricorda la
+	 * sentinella di fine selezione appena consegnata: se omp ripropone la
+	 * stessa domanda vuol dire che non l'ha riconosciuta (dipende dal tema) e
+	 * il ripiego del passo prende il suo posto.
 	 */
-	private askQueue: {
+	private askFlush: {
 		toolCallId: string | null;
-		signature: string;
-		responses: string[];
+		steps: AskFlushStep[];
+		lastClosing: AskFlushStep | null;
 	} | null = null;
 
 	private nextEntryId = 1;
@@ -812,6 +814,12 @@ export class AgentSession {
 				// reattiva, non quella grezza appena costruita.
 				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
 				this.agentState = 'working';
+				// La richiesta della prima domanda puo' arrivare prima di questo
+				// evento: omp la scrive per conto suo mentre gli eventi di
+				// sessione passano dallo stream dell'agent-loop. La card che
+				// aspetta e' gia' aperta e va completata adesso, o resterebbe una
+				// domanda alla volta senza possibilita' di tornare indietro.
+				if (event.toolName === 'ask') this.enrichPendingAsk(entry);
 				return;
 			}
 
@@ -829,6 +837,11 @@ export class AgentSession {
 					if (event.result && (!entry.result || !entry.result.isError)) entry.result = event.result;
 					entry.running = false;
 					entry.endedAt = Date.now();
+				}
+				// La chiamata e' finita: qualunque passo non consegnato non ha
+				// piu' una domanda a cui appartenere.
+				if (this.askFlush && this.askFlush.toolCallId === event.toolCallId) {
+					this.askFlush = null;
 				}
 				if (!this.isStreaming) {
 					const hasRunning = Array.from(this.toolEntries.values()).some((t) => t.running);
@@ -1325,55 +1338,13 @@ export class AgentSession {
 			.reverse()
 			.find((t) => t.running && t.toolName === 'ask');
 
-		if (this.askQueue) {
-			const sameCall =
-				this.askQueue.toolCallId !== null && runningAsk?.toolCallId === this.askQueue.toolCallId;
-			// Coda senza `toolCallId`: vale solo se omp sta ripresentando lo
-			// stesso elenco di opzioni, cioe' il ciclo delle spunte multiple.
-			const sameList =
-				this.askQueue.toolCallId === null && method === 'select' && signature === this.askQueue.signature;
-			if (sameCall || sameList) {
-				const nextVal = this.askQueue.responses.shift();
-				if (this.askQueue.responses.length === 0) this.askQueue = null;
-				if (nextVal !== undefined) {
-					void this.client.respondUi({ type: 'extension_ui_response', id, value: nextVal });
-					return;
-				}
-			} else {
-				// Wizard chiuso o sostituito: le risposte rimaste non valgono
-				// piu' per niente.
-				this.askQueue = null;
-			}
+		if (this.askFlush && this.deliverFlushStep(this.askFlush, id, method, signature, runningAsk?.toolCallId)) {
+			return;
 		}
 
 		// Informazioni complete della domanda quando la richiesta proviene dal
 		// tool `ask` (`arguments.questions`).
-		let parsedQuestions: AskQuestion[] | undefined;
-		if (runningAsk?.args && typeof runningAsk.args === 'object' && Array.isArray(runningAsk.args.questions)) {
-			parsedQuestions = (runningAsk.args.questions as Record<string, unknown>[])
-				.filter((q): q is Record<string, unknown> => q !== null && typeof q === 'object')
-				.map((q, idx) => ({
-					id: typeof q.id === 'string' ? q.id : `q${idx + 1}`,
-					question: typeof q.question === 'string' ? q.question : (typeof q.prompt === 'string' ? q.prompt : ''),
-					header: typeof q.header === 'string' ? q.header : undefined,
-					multi: q.multi === true,
-					recommended: typeof q.recommended === 'number' ? q.recommended : undefined,
-					options: Array.isArray(q.options)
-						? q.options.map((opt) => {
-								if (typeof opt === 'string') return { label: opt };
-								if (opt && typeof opt === 'object') {
-									const o = opt as Record<string, unknown>;
-									return {
-										label: typeof o.label === 'string' ? o.label : String(o.name ?? o.text ?? ''),
-										description: typeof o.description === 'string' ? o.description : undefined,
-										preview: typeof o.preview === 'string' ? o.preview : undefined
-									};
-								}
-								return { label: String(opt) };
-							})
-						: []
-				}));
-		}
+		let parsedQuestions = parseAskQuestions(runningAsk?.args);
 
 		// Il titolo dichiara la posizione nella sequenza (`(k/N)`): e' l'unico
 		// dato che arriva insieme alla richiesta, quindi vale anche quando gli
@@ -1406,6 +1377,7 @@ export class AgentSession {
 		this.pendingUi = {
 			kind: 'ask',
 			requestId: id,
+			toolCallId: runningAsk?.toolCallId,
 			method: method === 'confirm' || method === 'input' || method === 'editor' ? method : 'select',
 			title: title ?? '',
 			message: text,
@@ -1423,8 +1395,113 @@ export class AgentSession {
 
 	private clearPendingUi() {
 		this.pendingUi = null;
-		this.askQueue = null;
+		this.askFlush = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
+	}
+
+	/**
+	 * Quando `tool_execution_start` arriva dopo la prima richiesta, completa la
+	 * card gia' aperta con la lista di tutte le domande. La card e' reattiva:
+	 * la sostituzione dell'oggetto attiva il remount nel modulo completo.
+	 */
+	private enrichPendingAsk(entry: ToolEntry) {
+		const pending = this.pendingUi;
+		if (!pending || pending.kind !== 'ask') return;
+		if (pending.questions && pending.questions.length > 0) return;
+		const questions = parseAskQuestions(entry.args);
+		if (!questions || questions.length === 0) return;
+
+		const signature = optionSignature(pending.options);
+		const matched = matchQuestionIndex(questions, signature, pending.questionIndex ?? 0);
+		if (matched < 0) return;
+
+		this.pendingUi = {
+			...pending,
+			toolCallId: entry.toolCallId,
+			questions,
+			questionIndex: matched,
+			totalQuestions: questions.length
+		};
+	}
+
+	/**
+	 * Consegna il prossimo passo del piano a una richiesta in arrivo. Ritorna
+	 * vero se la richiesta e' stata consumata (quindi la card non deve
+	 * comparire), falso se il piano non e' applicabile e la richiesta va
+	 * mostrata all'utente.
+	 */
+	private deliverFlushStep(
+		flush: { toolCallId: string | null; steps: AskFlushStep[]; lastClosing: AskFlushStep | null },
+		id: string,
+		method: string,
+		signature: string,
+		runningCallId: string | undefined
+	): boolean {
+		const sameCall = flush.toolCallId !== null && runningCallId === flush.toolCallId;
+		const request = { method, signature };
+
+		// Se omp ripropone la stessa domanda dopo una sentinella di chiusura,
+		// vuol dire che la sentinella non e' stata riconosciuta (glifo diverso
+		// per il tema attivo). Inseriamo i passi di ripiego in testa al piano.
+		if (
+			flush.lastClosing &&
+			method === 'select' &&
+			flush.lastClosing.method === 'select' &&
+			signature === flush.lastClosing.signature &&
+			flush.lastClosing.recovery &&
+			(flush.steps.length === 0 ||
+				flush.steps[0].method !== 'select' ||
+				flush.steps[0].signature !== signature)
+		) {
+			const recovery = flush.lastClosing.recovery;
+			flush.lastClosing = null;
+			flush.steps.unshift(...recovery);
+		}
+
+		const next = flush.steps[0];
+		if (!next) {
+			if (sameCall) {
+				// Piano finito ma la stessa chiamata chiede ancora: fermiamo il
+				// piano e lasciamo rispondere l'utente.
+				this.askFlush = null;
+				this.pushNotice(
+					'warning',
+					'La sequenza di risposte automatiche e\u2019 terminata prima che l\u2019agente ricevesse tutte le informazioni: rispondi a questa richiesta per continuare.',
+					'domande'
+				);
+			}
+			return false;
+		}
+
+		const accepts = (sameCall || flush.toolCallId === null) && stepAcceptsRequest(next, request);
+		if (!accepts) {
+			if (sameCall) {
+				// Disallineamento: la richiesta non combacia con il passo che
+				// la coda si aspettava. Scartiamo il piano rimasto per evitare
+				// di mandare risposte nella casella sbagliata, e mostriamo la
+				// richiesta nuda come deciso dall'utente.
+				this.askFlush = null;
+				this.pushNotice(
+					'warning',
+					'La richiesta dell\u2019agente non corrisponde al piano di risposte preparato: il resto del piano e\u2019 stato interrotto per sicurezza. Rispondi a mano da questa domanda.',
+					'domande'
+				);
+			}
+			return false;
+		}
+
+		flush.steps.shift();
+		flush.lastClosing = next.method === 'select' && next.recovery ? next : null;
+		if (flush.steps.length === 0 && !flush.lastClosing) {
+			this.askFlush = null;
+		}
+
+		void this.client.respondUi({
+			type: 'extension_ui_response',
+			id,
+			value: next.value
+		});
+		return true;
 	}
 
 	/* --------------------------------------------------------- risposte UI */
@@ -1437,12 +1514,12 @@ export class AgentSession {
 	private async respond(
 		pending: PendingUiRequest,
 		answer: AskAnswerPayload,
-		queue: { toolCallId: string | null; signature: string; responses: string[] } | null
+		flush: { toolCallId: string | null; steps: AskFlushStep[]; lastClosing: AskFlushStep | null } | null
 	): Promise<boolean> {
 		const previousState = this.agentState;
-		// La coda va armata prima dell'invio: il round successivo del wizard
-		// puo' arrivare mentre la promessa e' ancora in volo.
-		this.askQueue = queue;
+		// Il piano va armato prima dell'invio: il round successivo puo'
+		// arrivare mentre la promessa e' ancora in volo.
+		this.askFlush = flush;
 		this.pendingUi = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
 
@@ -1460,7 +1537,7 @@ export class AgentSession {
 			);
 			return true;
 		} catch (error) {
-			this.askQueue = null;
+			this.askFlush = null;
 			this.pendingUi = pending;
 			this.agentState = previousState;
 			this.pushNotice('error', `Risposta non inviata: ${this.reason(error)}`);
@@ -1469,34 +1546,32 @@ export class AgentSession {
 	}
 
 	/**
-	 * Invia tutte le risposte di un wizard multi-domanda: la prima subito, le
-	 * altre in coda per i round successivi della stessa chiamata `ask`.
+	 * Invia il piano completo del wizard: il primo passo subito alla richiesta
+	 * viva, gli altri armati in `askFlush` per i round successivi.
 	 */
-	async submitAskWizard(responses: string[]) {
-		if (responses.length === 0) {
+	async submitAskWizard(plan: AskFlushStep[]) {
+		if (plan.length === 0) {
 			await this.cancelPendingUi();
 			return;
 		}
 		const pending = this.pendingUi;
 		if (!pending) return;
 
-		const [first, ...rest] = responses;
+		const [first, ...rest] = plan;
 		const runningAsk = Array.from(this.toolEntries.values())
 			.reverse()
 			.find((t) => t.running && t.toolName === 'ask');
-		// Senza la chiamata `ask` identificata resta la firma delle opzioni: il
-		// ciclo delle spunte multiple ripresenta lo stesso elenco, ed e' l'unico
-		// round successivo a cui le risposte in coda appartengono davvero.
-		const queue =
+		const toolCallId = pending.toolCallId ?? runningAsk?.toolCallId ?? null;
+		const flush =
 			rest.length > 0
 				? {
-						toolCallId: runningAsk?.toolCallId ?? null,
-						signature: optionSignature(pending.options),
-						responses: rest
+						toolCallId,
+						steps: rest,
+						lastClosing: first.method === 'select' && first.recovery ? first : null
 					}
 				: null;
 
-		await this.respond(pending, { value: first }, queue);
+		await this.respond(pending, { value: first.value }, flush);
 	}
 
 	async answerSelect(value: string) {
