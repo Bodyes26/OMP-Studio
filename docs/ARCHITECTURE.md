@@ -95,6 +95,11 @@ graph TB
 ### 2.3 Worker Asincroni e Database SQLite
 - Tutte le interrogazioni su `stats.db`, `history.db` e `agent.db` vengono eseguite all'interno di `tokio::task::spawn_blocking` con connessioni aperte in modalità `OpenFlags::SQLITE_OPEN_READ_ONLY`, `PRAGMA query_only = ON` e `PRAGMA busy_timeout = 3000`, evitando di bloccare l'event loop di Tauri.
 
+### 2.4 Generazione dei Suggerimenti di Prompt (Processi Effimeri)
+- **Esecuzione effimera e isolata:** il comando `generate_prompt_suggestions` invoca `omp -p` con il modello del ruolo `smol` come processo figlio effimero e isolato, effettuando il parsing dell'array JSON di risposta con fallimento silenzioso.
+- **Scelta architetturale:** processo effimero e non residente (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti.
+- **Politica Opt-In e Fallimento Silenzioso:** la generazione e' opt-in (`dynamicEnabled` predefinito a falso) perche' costa una chiamata a modello per ogni fine turno. In caso di errore o timeout, il comando restituisce un array vuoto senza disturbare l'utente.
+
 ---
 
 ## 3. Mappa dei Moduli
@@ -113,6 +118,7 @@ projects/
 omp_ops.rs              Query protette SQLite (usage, storico sessioni), verifica/aggiornamento OMP, temi
 rules_ops.rs            Censimento regole di contesto e skill, analisi attrito in sola lettura su history.db
 models_ops.rs           Gestione catalogo modelli, ruoli operativi, catene di fallback e raccomandazioni
+suggestions_ops.rs      Comando generate_prompt_suggestions: chiamata effimera a omp -p con ruolo smol, parsing JSON, fallimento silenzioso
 setup.rs                SetupWizard: download resiliente OMP, verifica SHA-256 nativa, installazione font Nerd
 studio_updater.rs       Updater applicazione: canali Stable/Nightly, verifica integrità SHA-256
 alerts.rs               Notifiche OS, registrazione AUMID Windows (sh.omp.studio), attenzione Dock/Taskbar
@@ -134,11 +140,13 @@ lib/
     tasks.svelte.ts     Store reattivo code task (persistenza su tasks.json via Tauri store)
     taskSerialization.ts Validazione, parsing e formattazione prompt con direttive speciali
     settings.svelte.ts  Impostazioni del guscio (persistenza su settings.json via Tauri store)
+    promptSuggestions.ts Tipi, preset di fabbrica e sanitizzazione del catalogo dei suggerimenti fissi
     projectOrder.svelte.ts Viste derivate ordinamento tessere (manuale, MRU, priorità, alfabetico)
     modelSettings.svelte.ts Stato configurazione modelli, ruoli e cataloghi
     studioUpdater.svelte.ts Stato verifiche e avanzamento download aggiornamenti Studio
     notifications.svelte.ts Gestione centrale notifiche toast, badge icona e preferenze utente
     rules.svelte.ts     Censimento regole/skill per progetto e proposte di regola memorizzate
+    suggestions.svelte.ts Controller per sessione dei suggerimenti dinamici: trigger agent_end, chiave di turno, invalidazione, timeout
   agent/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
@@ -146,6 +154,7 @@ lib/
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
       Composer.svelte   Input prompt con autocomplete slash (/), drag&drop immagini, ciclo ruoli
+      SuggestionChips.svelte Riga di chip nel composer per suggerimenti prompt fissi e dinamici
       Transcript.svelte Lista messaggi con autoscroll resiliente e virtualizzazione progressiva
       AskCard.svelte    Card di risposta interattiva con roving tabindex
       ThinkingBlock.svelte Accordion per blocchi di ragionamento con indicatore tempo
@@ -167,7 +176,8 @@ lib/
     DiagramViewer.svelte Whiteboard interattiva per diagrammi Mermaid
     PreviewViewer.svelte Sandbox isolata in iframe per prototipi UI e vettoriali SVG
     SetupWizard.svelte  Wizard guidato per installazione OMP, setup credenziali e modelli
-    SettingsModal.svelte Centro impostazioni a 6 sezioni (Generale, Notifiche, Barra, Workspace, Task, Modelli)
+    SettingsModal.svelte Centro impostazioni (Generale, Notifiche, Barra, Workspace, Task, Suggerimenti, Modelli, Aspetto, Accessibilità)
+    SuggestionsSection.svelte Sezione «Suggerimenti» delle impostazioni per catalogo fissi e opzioni dinamiche
     EmptyState.svelte   Stato iniziale workspace con inviti all'azione e griglia scorciatoie
     AlertBanner.svelte  Banner unificato per diagnostica ed errori di sistema
   editor/
@@ -263,8 +273,10 @@ install_studio_update_and_restart() -> Result<(), String>;
 // --- Notifiche e Allerte OS ---
 set_app_attention(project_name: String, message: String) -> Result<(), String>;
 clear_app_attention() -> Result<(), String>;
-```
 
+// --- Suggerimenti Prompt ---
+generate_prompt_suggestions(last_assistant: String, last_user: String, model_selector: Option<String>, max_items: u8) -> Result<Vec<String>, String>;
+```
 ---
 
 ## 5. Flusso dei Task e Architettura dello Store
@@ -419,7 +431,7 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 
 ---
 
-## 9. Registro delle Decisioni e dei Rischi (Gate R1 - R17)
+## 9. Registro delle Decisioni e dei Rischi (Gate R1 - R18)
 
 | # | Ambito / Gate | Decisione Architetturale | Esito |
 |---|---|---|---|
@@ -435,6 +447,7 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 | **R15** | Sicurezza Sandbox Prototipi & SVG | Iframe sandbox `null-origin` con CSP `default-src 'none'`, sanitizzazione DOMPurify 3.4.14 e allowlist protocolli URL esterni. | SUPERATO |
 | **R16** | Raggruppamento Tool e Accessibilità Chat | Componente `ToolGroup` unificato, autoscroll resiliente durante lo streaming, `listbox`/`option` con roving tabindex e risposte esplicite su `AskCard`. | SUPERATO |
 | **R17** | Notifiche OS e Allerte Icona | Registrazione AUMID `sh.omp.studio`, notifiche toast OS, dot rosso taskbar Windows e badge Dock macOS. | SUPERATO |
+| **R18** | Suggerimenti dinamici effimeri vs residenti | Processo effimero e non residente via `omp -p` (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti; generazione opt-in (`dynamicEnabled: false` di default) per non consumare chiamate a modello non richieste ad ogni fine turno. | SUPERATO |
 
 ---
 

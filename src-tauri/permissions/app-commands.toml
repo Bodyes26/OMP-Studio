@@ -159,6 +159,13 @@ commands.allow = [
     "analyze_task_directives_friction"
 ]
 
+[[permission]]
+identifier = "allow-prompt-suggestions"
+description = "Generazione dei suggerimenti di risposta nel composer: chiamata effimera al modello leggero configurato"
+commands.allow = [
+    "generate_prompt_suggestions"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -175,5 +182,6 @@ permissions = [
     "allow-attention",
     "allow-external-open",
     "allow-rules-and-skills",
-    "allow-task-directives"
+    "allow-task-directives",
+    "allow-prompt-suggestions"
 ]

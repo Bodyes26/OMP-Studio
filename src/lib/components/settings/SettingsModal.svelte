@@ -12,6 +12,7 @@
 	import ProjectBarSection from './ProjectBarSection.svelte';
 	import WorkspaceSection from './WorkspaceSection.svelte';
 	import TasksSection from './TasksSection.svelte';
+	import SuggestionsSection from './SuggestionsSection.svelte';
 	import AccessibilitySection from './AccessibilitySection.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -26,6 +27,7 @@
 		{ id: 'projectBar', label: 'Barra progetti' },
 		{ id: 'workspace', label: 'Editor & Terminale' },
 		{ id: 'tasks', label: 'Task & Agenti' },
+		{ id: 'suggestions', label: 'Suggerimenti' },
 		{ id: 'models', label: 'Modelli' }
 	];
 
@@ -324,6 +326,10 @@
 				{:else if settingsStore.section === 'tasks'}
 					<div class="modal-body">
 						<TasksSection />
+					</div>
+				{:else if settingsStore.section === 'suggestions'}
+					<div class="modal-body">
+						<SuggestionsSection />
 					</div>
 				{/if}
 			</div>

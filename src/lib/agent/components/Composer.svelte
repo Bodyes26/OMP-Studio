@@ -19,6 +19,14 @@
 	import { asRecord } from '../tools/types';
 	import { prepareImage, extractImageFiles, isImageFile } from '../images';
 	import QueueChips from './QueueChips.svelte';
+	import SuggestionChips from './SuggestionChips.svelte';
+	import {
+		visibleSuggestions,
+		composeSuggestionChips,
+		MAX_STATIC_CHIPS,
+		type SuggestionChipItem
+	} from '$lib/stores/promptSuggestions';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 import CommandPalette from './CommandPalette.svelte';
 import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 import {
@@ -41,6 +49,10 @@ import { getCaretCoordinates } from './caretCoordinates';
 		visible?: boolean;
 		onSlashCommand: (raw: string) => boolean;
 	}>();
+
+	$effect(() => {
+		session.suggestions.setVisible(visible);
+	});
 	let text = $state('');
 	let attachedImages = $state<ImageContent[]>([]);
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
@@ -663,6 +675,29 @@ $effect(() => {
 				return;
 			}
 		}
+		// Alt+1 .. Alt+6: applica suggerimento prompt corrispondente
+		if (isAltOnly && !activeMenu && showSuggestionChips) {
+			let digit: number | null = null;
+			if (event.key >= '1' && event.key <= '6') {
+				digit = parseInt(event.key, 10);
+			} else if (code.startsWith('Digit')) {
+				const d = parseInt(code.slice(5), 10);
+				if (d >= 1 && d <= 6) digit = d;
+			} else if (code.startsWith('Numpad')) {
+				const d = parseInt(code.slice(6), 10);
+				if (d >= 1 && d <= 6) digit = d;
+			}
+
+			if (digit !== null) {
+				const targetIndex = digit - 1;
+				if (targetIndex >= 0 && targetIndex < displayedSuggestions.length) {
+					event.preventDefault();
+					applySuggestion(displayedSuggestions[targetIndex].prompt);
+					return;
+				}
+			}
+		}
+
 
 		// Alt+R: apri/chiudi menu ruoli
 		if (isAltOnly && (keyLower === 'r' || code === 'KeyR')) {
@@ -773,9 +808,9 @@ $effect(() => {
 	}
 
 	async function handleSubmit() {
+		session.suggestions.invalidate();
 		const raw = text.trim();
 		if (!raw && attachedImages.length === 0) return;
-
 		// Se inizia con /, verifica prima se Studio lo intercetta
 		if (raw.startsWith('/')) {
 			const handled = onSlashCommand(raw);
@@ -852,6 +887,38 @@ $effect(() => {
 		}
 		return 0;
 	});
+
+	const displayedSuggestions = $derived.by<SuggestionChipItem[]>(() =>
+		composeSuggestionChips(
+			visibleSuggestions(settingsStore.promptSuggestions, MAX_STATIC_CHIPS),
+			session.suggestions.items,
+			settingsStore.suggestions.maxDynamic
+		)
+	);
+
+	const showSuggestionChips = $derived(
+		visible &&
+		text.trim() === '' &&
+		!session.isStreaming &&
+		attachedImages.length === 0 &&
+		!paletteOpen &&
+		displayedSuggestions.length > 0
+	);
+
+	function applySuggestion(prompt: string) {
+		text = prompt;
+		paletteOpen = false;
+		adjustTextareaHeight();
+
+		void tick().then(() => {
+			if (textareaEl) {
+				adjustTextareaHeight();
+				textareaEl.focus();
+				const len = textareaEl.value.length;
+				textareaEl.setSelectionRange(len, len);
+			}
+		});
+	}
 </script>
 
 <svelte:window onclick={closeMenus} onkeydown={handleWindowKeydown} />
@@ -863,6 +930,13 @@ $effect(() => {
 		serverCount={session.queuedMessageCount}
 		onToggleBehavior={(id, b) => session.setQueuedBehavior(id, b)}
 	/>
+	<!-- Suggerimenti prompt (statici e dinamici) -->
+	{#if showSuggestionChips}
+		<SuggestionChips
+			chips={displayedSuggestions}
+			onSelect={applySuggestion}
+		/>
+	{/if}
 	<!-- Palette comandi slash -->
 	<CommandPalette
 		open={visible && paletteOpen}

@@ -496,6 +496,18 @@ soppresso: «Ricarica / Indietro / Stampa» non significano niente qui.
   e un selettore a sedici milioni di colori che ne consegna trecentosessanta
   mente all'utente.
 
+### 7.9 Suggerimenti di prompt (chip del composer)
+
+Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente sopra la textarea di input (dopo le eventuali chip informative della coda o dello steering).
+
+- **Contenitore riga**: sfondo `--bg-sunken`, layout flex orizzontale con wrap disattivato e scorrimento orizzontale contenuto, `gap: var(--space-1)`, `padding: var(--space-1) var(--space-2)`, testo `--text-xs`.
+- **Condizioni di visibilità**: la riga esiste solo a composer completamente vuoto (`text.trim() === ''`), agente non in streaming (`isStreaming === false`), nessuna immagine o allegato presente e palette comandi slash chiusa. Sparisce istantaneamente al primo carattere digitato, senza transizioni o ritardi che ostacolerebbero la digitazione.
+- **Anatomia della chip**: elemento interattivo `<button type="button">`, sfondo `--bg-base`, bordo 1px solid `--line`, raccordo `--radius-sm`, testo `--ink`, hover su `--bg-hover`, stato attivo su `--bg-active`. Nessuna ombra, nessun gradiente, nessuna animazione persistente.
+- **Badge numerico**: indicatore posizionale `1`..`6` renderizzato a sinistra dell'etichetta in `--font-mono`, colore `--ink-faint`, associato alla scorciatoia `Alt+N`.
+- **Distinzione visiva**: le chip generate dal modello leggero (`smol`) si distinguono da quelle fisse in modo sobrio ed elegante (es. icona discreta o indicatore attenuato in `--ink-faint`), preservando l'omogeneità di peso visivo della riga.
+- **Interazione**: il click o la pressione di `Alt+N` **precompila** il campo di testo della textarea senza inviare il messaggio, aggiorna l'altezza del composer e posiziona il fuoco e il cursore alla fine del prompt inserito. L'invio resta sempre un gesto esplicito dell'utente (`Invio`).
+- **Accessibilità e navigazione**: focus ring standard `:focus-visible` (outline 2px `--brand`, offset 2px), navigazione orizzontale da tastiera con pattern roving tabindex (`Freccia Sinistra` / `Freccia Destra`, `Home`, `End`), etichette `aria-label` complete di hint della scorciatoia da tastiera.
+
 ---
 
 ## 8. Token CSS pronti

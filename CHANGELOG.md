@@ -11,6 +11,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 
+- I suggerimenti di risposta nel composer: chip cliccabili sopra il campo di scrittura che precompilano il prompt con un click o con Alt+1, Alt+2, Alt+3; l'invio resta un tuo gesto esplicito.
+- La nuova sezione «Suggerimenti» delle impostazioni per creare, modificare, riordinare, nascondere o ripristinare i suggerimenti fissi.
+- I suggerimenti generati dal modello leggero al termine di ogni risposta dell'agente, che leggono l'ultimo messaggio e propongono fino a tre risposte pronte; disattivati per impostazione predefinita, con scelta del modello e del limite.
 - Ricerca fuzzy nel filetree di progetto: barra di ricerca sempre accessibile in cima al pannello FILE con filtro istantaneo, evidenziazione dei caratteri corrispondenti nel nome e percorso del file, navigazione rapida da tastiera (Frecce, Invio, Esc) e menu contestuale sui risultati.
 - Direttive e modalità del task completamente personalizzabili: nuova libreria in «Impostazioni → Task & Agenti» per creare, modificare, riordinare, nascondere o ripristinare le modalità di prompt (inclusi i preset Piano, Discussione, Minimale e Ricerca), impostandone il posizionamento prima o dopo il testo principale.
 - Assistente AI per le direttive: generazione guidata di nuove modalità da una descrizione in linguaggio naturale, miglioramento e affinamento del prompt con anteprima delle modifiche e analisi su richiesta delle ricorrenze nei prompt recenti del progetto per suggerire nuove direttive utili.

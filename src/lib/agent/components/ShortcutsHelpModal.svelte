@@ -74,6 +74,7 @@
 				{ keys: ['Invio'], description: 'Invia il messaggio o seleziona il comando nella palette' },
 				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: 'Inserisce una nuova riga nel campo di scrittura' },
 				{ keys: ['/'], description: 'Apre la palette dei comandi slash disponibili' },
+				{ keys: ['Alt+1…6'], description: 'Precompila il composer con il suggerimento in quella posizione (non invia)' },
 				{ keys: ['Alt+E'], description: 'Mette a fuoco il campo di scrittura del Composer' },
 				{ keys: ['Alt+C'], description: 'Interrompe la risposta in streaming o cancella il testo' },
 				{ keys: ['Ctrl+C'], description: 'Interrompe la risposta in streaming (senza testo evidenziato)' },

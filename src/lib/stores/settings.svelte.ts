@@ -7,6 +7,13 @@ import {
 	sanitizeDirectivesCatalog,
 	getFactoryDirective
 } from './taskDirectives';
+import {
+	type PromptSuggestion,
+	type FactorySuggestionKey,
+	FACTORY_SUGGESTIONS,
+	sanitizeSuggestionsCatalog,
+	getFactorySuggestion
+} from './promptSuggestions';
 
 /**
  * Personalizzazioni del guscio.
@@ -42,7 +49,7 @@ export type DefaultSurface = 'terminal' | 'gui';
 /** Larghezza e allineamento del flusso della chat: centrata per leggibilita' o a tutta colonna. */
 export type ChatWidth = 'readable' | 'full';
 
-export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -105,12 +112,25 @@ export interface GeneralSettings {
 	chatWidth: ChatWidth;
 }
 
+export interface SuggestionSettings {
+	/** Abilita la generazione di suggerimenti dinamici con modello leggero a fine turno. */
+	dynamicEnabled: boolean;
+	/** Modello specifico per i suggerimenti ('provider/modello[:thinking]'); vuoto = ruolo smol. */
+	modelSelector: string;
+	/** Numero massimo di chip dinamiche mostrate (1..3). */
+	maxDynamic: number;
+	/** Timeout della richiesta di generazione in millisecondi (5000..60000). */
+	timeoutMs: number;
+}
+
 export interface StudioSettings {
 	projectBar: ProjectBarSettings;
 	editor: EditorSettings;
 	terminal: TerminalSettings;
 	taskDefaults: TaskDefaults;
 	taskDirectives: TaskDirective[];
+	promptSuggestions: PromptSuggestion[];
+	suggestions: SuggestionSettings;
 	general: GeneralSettings;
 	notifications: NotificationSettings;
 	accessibility: AccessibilitySettings;
@@ -147,6 +167,15 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		selectedDirectiveIds: []
 	},
 	taskDirectives: sanitizeDirectivesCatalog(FACTORY_DIRECTIVES),
+	promptSuggestions: sanitizeSuggestionsCatalog(FACTORY_SUGGESTIONS),
+	suggestions: {
+		// La generazione dinamica consuma chiamate al modello a ogni turno:
+		// resta disattivata di default per non consumare quota all'insaputa dell'utente.
+		dynamicEnabled: false,
+		modelSelector: '',
+		maxDynamic: 3,
+		timeoutMs: 20000
+	},
 	general: {
 		defaultSurface: 'terminal',
 		closeWithQueuedTasks: 'ask',
@@ -197,6 +226,8 @@ export function parseSettings(value: unknown): StudioSettings {
 	const terminal = (record.terminal && typeof record.terminal === 'object' ? record.terminal : {}) as Record<string, unknown>;
 	const tasks = (record.taskDefaults && typeof record.taskDefaults === 'object' ? record.taskDefaults : {}) as Record<string, unknown>;
 	const rawDirectives = record.taskDirectives;
+	const rawPromptSuggestions = record.promptSuggestions;
+	const rawSuggestions = (record.suggestions && typeof record.suggestions === 'object' ? record.suggestions : {}) as Record<string, unknown>;
 	const general = (record.general && typeof record.general === 'object' ? record.general : {}) as Record<string, unknown>;
 	const notif = (record.notifications && typeof record.notifications === 'object' ? record.notifications : {}) as Record<string, unknown>;
 	const access = (record.accessibility && typeof record.accessibility === 'object' ? record.accessibility : {}) as Record<string, unknown>;
@@ -239,6 +270,13 @@ export function parseSettings(value: unknown): StudioSettings {
 					]
 		},
 		taskDirectives: sanitizeDirectivesCatalog(rawDirectives ?? d.taskDirectives),
+		promptSuggestions: sanitizeSuggestionsCatalog(rawPromptSuggestions ?? d.promptSuggestions),
+		suggestions: {
+			dynamicEnabled: bool(rawSuggestions.dynamicEnabled, d.suggestions.dynamicEnabled),
+			modelSelector: str(rawSuggestions.modelSelector, d.suggestions.modelSelector),
+			maxDynamic: clamp(rawSuggestions.maxDynamic as number, 1, 3, d.suggestions.maxDynamic),
+			timeoutMs: clamp(rawSuggestions.timeoutMs as number, 5000, 60000, d.suggestions.timeoutMs)
+		},
 		general: {
 			defaultSurface: pick(general.defaultSurface, ['terminal', 'gui'] as const, d.general.defaultSurface),
 			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks),
@@ -274,6 +312,8 @@ class SettingsStore {
 	terminal = $state<TerminalSettings>({ ...DEFAULT_SETTINGS.terminal });
 	taskDefaults = $state<TaskDefaults>({ ...DEFAULT_SETTINGS.taskDefaults });
 	taskDirectives = $state<TaskDirective[]>(sanitizeDirectivesCatalog(DEFAULT_SETTINGS.taskDirectives));
+	promptSuggestions = $state<PromptSuggestion[]>(sanitizeSuggestionsCatalog(DEFAULT_SETTINGS.promptSuggestions));
+	suggestions = $state<SuggestionSettings>({ ...DEFAULT_SETTINGS.suggestions });
 	general = $state<GeneralSettings>({ ...DEFAULT_SETTINGS.general });
 	notifications = $state<NotificationSettings>({ ...DEFAULT_SETTINGS.notifications });
 	accessibility = $state<AccessibilitySettings>({ ...DEFAULT_SETTINGS.accessibility });
@@ -307,6 +347,8 @@ class SettingsStore {
 			this.terminal = parsed.terminal;
 			this.taskDefaults = parsed.taskDefaults;
 			this.taskDirectives = parsed.taskDirectives;
+			this.promptSuggestions = parsed.promptSuggestions;
+			this.suggestions = parsed.suggestions;
 			this.general = parsed.general;
 			this.notifications = parsed.notifications;
 			this.accessibility = parsed.accessibility;
@@ -327,6 +369,8 @@ class SettingsStore {
 			terminal: $state.snapshot(this.terminal),
 			taskDefaults: $state.snapshot(this.taskDefaults),
 			taskDirectives: $state.snapshot(this.taskDirectives),
+			promptSuggestions: $state.snapshot(this.promptSuggestions),
+			suggestions: $state.snapshot(this.suggestions),
 			notifications: $state.snapshot(this.notifications),
 			general: $state.snapshot(this.general),
 			accessibility: $state.snapshot(this.accessibility),
@@ -419,6 +463,103 @@ class SettingsStore {
 		this.save();
 	}
 
+	patchSuggestions(patch: Partial<SuggestionSettings>) {
+		Object.assign(this.suggestions, patch);
+		this.save();
+	}
+
+	upsertPromptSuggestion(suggestion: PromptSuggestion) {
+		const list = [...this.promptSuggestions];
+		const index = list.findIndex((s) => s.id === suggestion.id);
+		if (index >= 0) {
+			list[index] = {
+				...suggestion,
+				label: suggestion.label.trim().slice(0, 28),
+				prompt: suggestion.prompt.trim()
+			};
+		} else {
+			list.push({
+				...suggestion,
+				label: suggestion.label.trim().slice(0, 28),
+				prompt: suggestion.prompt.trim()
+			});
+		}
+		this.promptSuggestions = sanitizeSuggestionsCatalog(list);
+		this.save();
+	}
+
+	deletePromptSuggestion(id: string) {
+		const list = this.promptSuggestions.filter((s) => s.id !== id);
+		this.promptSuggestions = sanitizeSuggestionsCatalog(list);
+		this.save();
+	}
+
+	movePromptSuggestion(id: string, delta: -1 | 1) {
+		const list = [...this.promptSuggestions];
+		const index = list.findIndex((s) => s.id === id);
+		if (index === -1) return;
+		const targetIndex = index + delta;
+		if (targetIndex < 0 || targetIndex >= list.length) return;
+		const [moved] = list.splice(index, 1);
+		list.splice(targetIndex, 0, moved);
+		list.forEach((item, idx) => {
+			item.order = (idx + 1) * 10;
+		});
+		this.promptSuggestions = sanitizeSuggestionsCatalog(list);
+		this.save();
+	}
+
+	duplicatePromptSuggestion(id: string) {
+		const list = [...this.promptSuggestions];
+		const index = list.findIndex((s) => s.id === id);
+		if (index === -1) return;
+		const original = list[index];
+		const duplicateId = `sug_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+		const baseLabel = original.label.slice(0, 20).trim();
+		const duplicateLabel = `${baseLabel} (copia)`.slice(0, 28);
+		const duplicate: PromptSuggestion = {
+			id: duplicateId,
+			factoryKey: null,
+			label: duplicateLabel,
+			prompt: original.prompt,
+			order: original.order + 1,
+			hidden: original.hidden
+		};
+		list.splice(index + 1, 0, duplicate);
+		list.forEach((item, idx) => {
+			item.order = (idx + 1) * 10;
+		});
+		this.promptSuggestions = sanitizeSuggestionsCatalog(list);
+		this.save();
+	}
+
+	setPromptSuggestionHidden(id: string, hidden: boolean) {
+		const list = this.promptSuggestions.map((s) =>
+			s.id === id ? { ...s, hidden } : s
+		);
+		this.promptSuggestions = sanitizeSuggestionsCatalog(list);
+		this.save();
+	}
+
+	resetPromptSuggestionToFactory(key: FactorySuggestionKey) {
+		const factory = getFactorySuggestion(key);
+		if (!factory) return;
+		const list = [...this.promptSuggestions];
+		const index = list.findIndex((s) => s.factoryKey === key || s.id === factory.id);
+		if (index >= 0) {
+			list[index] = {
+				...list[index],
+				label: factory.label,
+				prompt: factory.prompt,
+				factoryKey: factory.factoryKey
+			};
+		} else {
+			list.push({ ...factory });
+		}
+		this.promptSuggestions = sanitizeSuggestionsCatalog(list);
+		this.save();
+	}
+
 
 	patchGeneral(patch: Partial<GeneralSettings>) {
 		Object.assign(this.general, patch);
@@ -445,6 +586,10 @@ class SettingsStore {
 		if (!section || section === 'tasks') {
 			this.taskDefaults = { ...DEFAULT_SETTINGS.taskDefaults };
 			this.taskDirectives = sanitizeDirectivesCatalog(DEFAULT_SETTINGS.taskDirectives);
+		}
+		if (!section || section === 'suggestions') {
+			this.promptSuggestions = sanitizeSuggestionsCatalog(DEFAULT_SETTINGS.promptSuggestions);
+			this.suggestions = { ...DEFAULT_SETTINGS.suggestions };
 		}
 		if (!section || section === 'general') this.general = { ...DEFAULT_SETTINGS.general };
 		if (!section || section === 'notifications') this.notifications = { ...DEFAULT_SETTINGS.notifications };

@@ -28,6 +28,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato) |
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
+| `Alt+1` … `Alt+6` | Composer GUI | Precompila il composer con il suggerimento in quella posizione (non invia) |
 | `Invio` | Composer GUI | Invia; con la palette aperta seleziona il comando evidenziato |
 | `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |
 | `Esc` | Composer GUI | Chiude palette/menu/modale aiuto; durante lo streaming interrompe la risposta |
@@ -45,3 +46,5 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Invio` / `Spazio` | Menu contestuale aperto | Esegue la voce di menu selezionata |
 | `Esc` | Popover / Dialog | Chiude la finestra modale aperta |
 *Nota: all'interno del terminale `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` non gestiscono i file dell'editor: vengono inviati all'agente se supportati, o restano soggetti al comportamento del terminale nativo.*
+
+*Nota sui suggerimenti di prompt: la numerazione `Alt+1` … `Alt+6` e' posizionale: i suggerimenti fissi occupano le prime posizioni, quelli generati dal modello si accodano, e nessuna chip a schermo cambia numero quando arrivano i nuovi suggerimenti dinamici.*

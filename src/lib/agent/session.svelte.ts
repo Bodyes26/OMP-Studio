@@ -12,6 +12,7 @@ import { openExternalUrl } from '$lib/utils/openExternal';
 import { OmpRpcClient } from './client';
 import { isMissingSessionError } from './resumeErrors';
 import { matchQuestionIndex, optionSignature } from './askAnswers';
+import { SessionSuggestions } from './suggestions.svelte';
 import {
 	ANSWERABLE_UI_METHODS,
 	type AgentMessage,
@@ -206,6 +207,8 @@ function stripIntent(args: Record<string, unknown> | undefined): Record<string, 
 
 export class AgentSession {
 	readonly client = new OmpRpcClient();
+	readonly suggestions: SessionSuggestions = new SessionSuggestions(this);
+
 
 	entries = $state<TranscriptEntry[]>([]);
 	visibleCount = $state(RENDER_WINDOW);
@@ -825,6 +828,7 @@ export class AgentSession {
 
 			case 'agent_start':
 				if (this.isAborting) return;
+				this.suggestions.invalidate();
 				this.isStreaming = true;
 				this.agentState = 'working';
 				return;
@@ -840,13 +844,16 @@ export class AgentSession {
 				this.activeAssistantId = null;
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				void this.reconcile();
+				if (!this.pendingUi && !wasAborting) {
+					this.suggestions.notifyTurnEnd();
+				}
 				return;
 			}
 			case 'turn_start':
 				if (this.isAborting) return;
+				this.suggestions.invalidate();
 				this.agentState = 'working';
 				return;
-
 			case 'turn_end':
 				this.isAborting = false;
 				this.isStreaming = false;
@@ -1507,6 +1514,7 @@ export class AgentSession {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return;
 		this.isAborting = false;
+		this.suggestions.invalidate();
 		const fullMessage = attachEditorContext(trimmed, this.cwd);
 
 		// Se OMP e' ancora in fase di avvio, accoda il messaggio e mostra subito l'entry ottimistica
@@ -1611,6 +1619,7 @@ export class AgentSession {
 	async abort() {
 		// 1. Reset istantaneo dello stato locale (priorita' massima e latenza 0 per la GUI)
 		this.isAborting = true;
+		this.suggestions.invalidate();
 		this.isStreaming = false;
 		this.isCompacting = false;
 		this.agentState = 'idle';
@@ -1662,6 +1671,7 @@ export class AgentSession {
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
 		this.isAborting = false;
+		this.suggestions.invalidate();
 		await this.client.send({ type: 'new_session' });
 		this.entries = [];
 		this.toolEntries.clear();
@@ -1682,6 +1692,7 @@ export class AgentSession {
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
 		this.isAborting = false;
+		this.suggestions.invalidate();
 		const parent = this.sessionId;
 		await this.client.send({ type: 'new_session', parentSession: parent || undefined });
 		this.entries = [];

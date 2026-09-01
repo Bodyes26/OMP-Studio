@@ -45,6 +45,8 @@ mod directives_ops;
 use directives_ops::{
     analyze_task_directives_friction, generate_task_directive_ai, refine_task_directive_ai,
 };
+mod suggestions_ops;
+use suggestions_ops::generate_prompt_suggestions;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -160,7 +162,8 @@ pub fn run() {
             apply_rule_suggestion,
             generate_task_directive_ai,
             refine_task_directive_ai,
-            analyze_task_directives_friction
+            analyze_task_directives_friction,
+            generate_prompt_suggestions,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

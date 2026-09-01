@@ -47,7 +47,7 @@ pub struct TaskDirectiveAiProposal {
 
 /// Risolve il selettore del modello da usare per l'assistente effimero.
 /// Priorità: 1. `model_selector` esplicito se fornito; 2. ruolo `smol` da config; 3. ruolo `default` da config; 4. None.
-async fn resolve_assistant_model(model_override: Option<&str>) -> Option<String> {
+pub(crate) async fn resolve_assistant_model(model_override: Option<&str>) -> Option<String> {
     if let Some(m) = model_override {
         let trimmed = m.trim();
         if !trimmed.is_empty() {
@@ -136,7 +136,7 @@ pub fn extract_json_payload(raw: &str) -> Result<String, String> {
 }
 
 /// Esegue una chiamata effimera a `omp -p --no-session` e raccoglie l'output standard.
-fn run_ephemeral_omp_raw(
+pub(crate) fn run_ephemeral_omp_raw(
     system_prompt: &str,
     user_prompt: &str,
     model_selector: Option<&str>,
