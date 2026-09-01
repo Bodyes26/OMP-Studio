@@ -970,6 +970,7 @@ fn extract_json_string(data: &serde_json::Value, keys: &[&str]) -> Option<String
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_auth_account_dto(
     id: i64,
     provider: String,

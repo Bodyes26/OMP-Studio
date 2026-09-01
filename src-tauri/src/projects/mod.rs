@@ -92,6 +92,7 @@ fn fuzzy_match_str(target: &str, query: &str) -> Option<(i64, Vec<usize>)> {
         return None;
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn find_best(
         target_lower: &[char],
         orig_target: &[char],

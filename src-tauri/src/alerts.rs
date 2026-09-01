@@ -141,7 +141,7 @@ static RED_DOT_ICON: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
         const W: u32 = 16;
         const H: u32 = 16;
         let mut color_pixels = [0u32; (W * H) as usize];
-        let mask_bits = [0u8; ((W + 7) / 8 * H) as usize];
+        let mask_bits = [0u8; (W.div_ceil(8) * H) as usize];
 
         let cx = 7.5f32;
         let cy = 7.5f32;
