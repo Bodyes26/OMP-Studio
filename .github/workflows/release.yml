@@ -174,6 +174,29 @@ jobs:
           spctl --assess --type execute --verbose=4 "$APP"
           xcrun stapler validate "$APP"
 
+      - name: Firma Authenticode dei binari ed installer Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_THUMBPRINT)) {
+            Write-Output "Nessun certificato Windows configurato (WINDOWS_CERTIFICATE_THUMBPRINT non presente)."
+          } else {
+            Write-Output "Firma Authenticode con impronta: $env:WINDOWS_CERTIFICATE_THUMBPRINT"
+            # Firma eseguibili in target/release
+            $binaries = Get-ChildItem -Path 'src-tauri/target/release' -Filter '*.exe' -File | Where-Object { $_.Name -notmatch 'build_script|deps' }
+            foreach ($bin in $binaries) {
+              & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -Path $bin.FullName
+            }
+            # Firma installer NSIS
+            $installers = Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis/*.exe' -File
+            foreach ($inst in $installers) {
+              & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -Path $inst.FullName
+            }
+          }
+
       - name: Verifica firma Authenticode Windows (fail-closed per release stabile)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -190,7 +213,6 @@ jobs:
             Write-Output "::error::Release stabile senza certificato di code signing: configura WINDOWS_CERTIFICATE_THUMBPRINT prima di pubblicare."
             exit 1
           }
-
           # 1. Verifica eseguibile principale dell'applicazione
           $binaries = Get-ChildItem -Path 'src-tauri/target/release' -Filter '*.exe' -File | Where-Object { $_.Name -notmatch 'build_script|deps' }
           foreach ($bin in $binaries) {

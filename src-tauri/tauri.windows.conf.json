@@ -14,9 +14,6 @@
     ]
   },
   "bundle": {
-    "targets": ["nsis"],
-    "windows": {
-      "signCommand": "scripts/sign-windows-wrapper.bat %1"
-    }
+    "targets": ["nsis"]
   }
 }
