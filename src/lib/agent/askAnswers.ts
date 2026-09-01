@@ -29,6 +29,15 @@ export interface AnswerableQuestion {
 	isCustom: boolean;
 	/** Vero appena l'utente interviene sulla domanda: selezione, testo, nota. */
 	touched: boolean;
+	/**
+	 * Vero quando la domanda e' stata davvero mostrata all'utente. La
+	 * pre-selezione dell'opzione consigliata e' un **valore predefinito**, non
+	 * una risposta: senza questa distinzione ogni domanda con `recommended`
+	 * risultava completata prima di essere letta, il riepilogo dichiarava
+	 * tutto pronto e l'invio spediva all'agente scelte che l'utente non aveva
+	 * mai visto.
+	 */
+	visited: boolean;
 }
 
 const RECOMMENDED_SUFFIX = ' (Recommended)';
@@ -97,13 +106,18 @@ export function matchQuestionIndex(
 /**
  * Vero solo quando la risposta esiste davvero:
  * - "Altro" richiede del testo, non basta averlo scelto;
- * - a scelta singola serve un'opzione selezionata (anche quella consigliata,
- *   che l'utente vede evidenziata prima di confermare);
+ * - una domanda mai mostrata non ha risposta, nemmeno quando l'opzione
+ *   consigliata e' gia' selezionata: quella e' la proposta del codice, e
+ *   spedirla come scelta dell'utente e' esattamente l'errore che il wizard
+ *   deve impedire;
+ * - a scelta singola, sulla domanda vista, basta un'opzione selezionata
+ *   (anche la consigliata, che l'utente vede evidenziata prima di confermare);
  * - a scelta multipla l'insieme vuoto e' una risposta valida ("nessuna"), ma
  *   solo se l'utente ha davvero toccato la domanda.
  */
 export function isQuestionAnswered(question: AnswerableQuestion): boolean {
 	if (question.isCustom) return question.customInput.trim().length > 0;
+	if (!question.visited) return false;
 	if (question.selectedOptions.size > 0) return true;
 	return question.multi && question.touched;
 }

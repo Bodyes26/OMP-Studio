@@ -141,6 +141,33 @@
 	/** Indice della prima domanda incompleta, per il riepilogo e l'invio. */
 	const missingIndex = $derived(firstUnansweredIndex(questions));
 
+	/**
+	 * Posizione della prima domanda ancora da chiedere. Il wizard modifica
+	 * solo da qui in avanti: le precedenti hanno gia' avuto la loro risposta e
+	 * riproporle sposterebbe tutte le successive di una casella.
+	 */
+	const startIndex = $derived.by(() => {
+		const raw = pending.questions;
+		if (!raw || raw.length === 0) return 0;
+		return Math.min(Math.max(pending.questionIndex ?? 0, 0), raw.length - 1);
+	});
+
+	/**
+	 * Domande di questa chiamata `ask` la cui risposta e' gia' partita. Non
+	 * sono modificabili, ma restano nella barra dei passaggi: farle sparire
+	 * sembrava una domanda cancellata e rendeva incomprensibile la
+	 * numerazione di quelle rimaste.
+	 */
+	const sentQuestions = $derived.by(() => {
+		const raw = pending.questions;
+		if (!raw || raw.length === 0) return [];
+		return raw.slice(0, startIndex).map((q: AskQuestion, idx: number) => ({
+			number: idx + 1,
+			label: q.header || `Domanda ${idx + 1}`,
+			question: q.question
+		}));
+	});
+
 	// Inizializzazione o aggiornamento delle domande al cambio di pendingUi
 	$effect(() => {
 		const rawQuestions = pending.questions;
@@ -148,13 +175,8 @@
 		const rawDetails = pending.optionDetails ?? [];
 
 		if (rawQuestions && rawQuestions.length > 0) {
-			// Richiesta con lista strutturata di domande. Si parte da quella che
-			// omp sta chiedendo: le precedenti hanno gia' avuto la loro risposta
-			// e riproporle sposterebbe tutte le successive di una casella.
-			const startIndex = Math.min(
-				Math.max(pending.questionIndex ?? 0, 0),
-				rawQuestions.length - 1
-			);
+			// Richiesta con lista strutturata di domande, dalla prima ancora
+			// senza risposta in avanti (vedi `startIndex`).
 			questions = rawQuestions.slice(startIndex).map((q: AskQuestion, qIdx: number) => {
 				const opts: WizardOption[] = q.options.map((o: AskQuestionOption, oIdx: number) => {
 					const clean = cleanOptionLabel(o.label);
@@ -205,6 +227,7 @@
 					customInput: '',
 					isCustom: false,
 					touched: false,
+					visited: qIdx === 0,
 					cursorIndex: typeof recIdx === 'number' && recIdx >= 0 ? recIdx : 0
 				};
 			});
@@ -248,6 +271,7 @@
 					customInput: '',
 					isCustom: false,
 					touched: false,
+					visited: true,
 					cursorIndex: recIdx >= 0 ? recIdx : 0
 				}
 			];
@@ -350,6 +374,7 @@
 	function toggleOption(opt: WizardOption, focusCustom: boolean) {
 		if (!currentQuestion) return;
 		currentQuestion.touched = true;
+		currentQuestion.visited = true;
 
 		if (opt.isOther) {
 			currentQuestion.isCustom = true;
@@ -388,6 +413,10 @@
 	async function goToStep(stepIndex: number) {
 		if (stepIndex < 0 || stepIndex > lastStep) return;
 		activeStep = stepIndex;
+		// Vedere la domanda e' la condizione perche' la sua opzione
+		// pre-selezionata possa valere come risposta.
+		const target = questions[stepIndex];
+		if (target) target.visited = true;
 		if (currentQuestion && currentQuestion.cursorIndex >= visibleOptions.length) {
 			currentQuestion.cursorIndex = 0;
 		}
@@ -564,8 +593,22 @@
 >
 	<!-- Header con Stepper Multi-Domanda e Countdown -->
 	<div class="header">
-		{#if questions.length > 1}
+		{#if sentQuestions.length + questions.length > 1}
 			<nav class="stepper-bar" aria-label="Passaggi domande">
+				<!-- Domande la cui risposta e' gia' partita: restano visibili e
+				     non cliccabili, perche' il protocollo non permette di
+				     tornare indietro su una risposta consegnata. -->
+				{#each sentQuestions as sent}
+					<span
+						class="step-pill sent"
+						title={sent.question}
+						aria-label={`Domanda ${sent.number} di ${askedTotal}: ${sent.label}, risposta gia' inviata`}
+					>
+						<span class="step-badge" aria-hidden="true"><IconCheck /></span>
+						<span class="step-label">{sent.label}</span>
+						<span class="step-state">inviata</span>
+					</span>
+				{/each}
 				{#each questions as q, idx}
 					{@const isAnswered = isQuestionAnswered(q)}
 					{@const isCurrent = activeStep === idx}
@@ -594,19 +637,21 @@
 						</span>
 					</button>
 				{/each}
-				<button
-					type="button"
-					class="step-pill review-pill"
-					class:active={isReviewStep}
-					onclick={() => void goToStep(questions.length)}
-					aria-current={isReviewStep ? 'step' : undefined}
-					aria-label={missingIndex === -1
-						? 'Riepilogo, tutte le risposte compilate'
-						: `Riepilogo, manca la risposta alla domanda ${questions[missingIndex]?.number ?? missingIndex + 1}`}
-				>
-					<span class="step-badge" aria-hidden="true">★</span>
-					<span class="step-label">Riepilogo</span>
-				</button>
+				{#if questions.length > 1}
+					<button
+						type="button"
+						class="step-pill review-pill"
+						class:active={isReviewStep}
+						onclick={() => void goToStep(questions.length)}
+						aria-current={isReviewStep ? 'step' : undefined}
+						aria-label={missingIndex === -1
+							? 'Riepilogo, tutte le risposte compilate'
+							: `Riepilogo, manca la risposta alla domanda ${questions[missingIndex]?.number ?? missingIndex + 1}`}
+					>
+						<span class="step-badge" aria-hidden="true">★</span>
+						<span class="step-label">Riepilogo</span>
+					</button>
+				{/if}
 			</nav>
 		{/if}
 
@@ -662,7 +707,12 @@
 									</button>
 								</div>
 								<div class="review-item-answer">
-									{#if q.isCustom && q.customInput.trim()}
+									{#if !isQuestionAnswered(q)}
+										<!-- Domanda mai aperta: l'opzione consigliata e' gia'
+										     selezionata, ma qui non va spacciata per una scelta
+										     dell'utente. -->
+										<span class="answer-empty">Risposta mancante: apri la domanda e scegli</span>
+									{:else if q.isCustom && q.customInput.trim()}
 										<span class="answer-text custom">“{q.customInput.trim()}”</span>
 									{:else if q.selectedOptions.size > 0}
 										<div class="answer-tags">
@@ -670,10 +720,8 @@
 												<span class="answer-tag">{sel}</span>
 											{/each}
 										</div>
-									{:else if isQuestionAnswered(q)}
-										<span class="answer-text">Nessuna opzione: risposta "nessuna"</span>
 									{:else}
-										<span class="answer-empty">Risposta mancante: apri la domanda e scegli</span>
+										<span class="answer-text">Nessuna opzione: risposta "nessuna"</span>
 									{/if}
 									{#if q.note.trim()}
 										<div class="review-note">
@@ -1123,6 +1171,18 @@
 	.step-pill.answered:not(.active) {
 		border-color: var(--success, #10b981);
 		color: var(--ink);
+	}
+
+	/* Risposta gia' consegnata: nessuna interazione, colore attenuato. La
+	   pillola serve solo a tenere il conto delle domande. */
+	.step-pill.sent {
+		cursor: default;
+		opacity: 0.65;
+	}
+
+	.step-pill.sent:hover {
+		background: var(--bg-sunken);
+		color: var(--ink-muted);
 	}
 
 	.step-badge {

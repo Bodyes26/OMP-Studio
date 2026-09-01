@@ -11,6 +11,7 @@ import './paths.test.ts';
 import './tasks-store.test.ts';
 import './terminal-task-config.test.ts';
 import './wire-omp.test.ts';
+import './rpc-open-lifecycle.test.ts';
 import './editor-context.test.ts';
 import './studio-tasks.test.ts';
 import './acl-coverage.test.ts';

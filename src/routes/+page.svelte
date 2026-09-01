@@ -223,12 +223,14 @@
 		return session;
 	}
 
-	/** Come sopra, ma garantisce anche che il processo sia avviato. */
+	/**
+	 * Come sopra, ma garantisce anche che il processo sia avviato. `ensureOpen`
+	 * e non `open`: un'apertura gia' in volo (per esempio la ripresa scelta
+	 * dall'utente) non va scavalcata dall'ultima sessione conosciuta.
+	 */
 	function getOrCreateAgentSession(p: Project): AgentSession {
 		const session = agentSessionFor(p);
-		if (!session.client.isOpen) {
-			void session.open(terminalMeta[p.id]?.sessionId ?? null);
-		}
+		void session.ensureOpen(terminalMeta[p.id]?.sessionId ?? null);
 		return session;
 	}
 
@@ -240,8 +242,8 @@
 			if (p.layout.rightSection !== 'gui') continue;
 			const session = agentSessions.get(p.id);
 			if (!session) continue;
-			if (!session.client.isOpen && !session.exited) {
-				void session.open(terminalMeta[p.id]?.sessionId ?? null);
+			if (!session.exited) {
+				void session.ensureOpen(terminalMeta[p.id]?.sessionId ?? null);
 			}
 			if (session.agentState !== 'unknown') {
 				projectStore.setAgentState(p.id, session.agentState);
@@ -371,10 +373,11 @@
 
 		try {
 			if (project.layout.rightSection === 'gui') {
-				const session = getOrCreateAgentSession(project);
-				if (!session.client.isOpen) {
-					await session.open();
-				}
+				const session = agentSessionFor(project);
+				// Una sola apertura, attesa: `newSession()` ha bisogno del
+				// processo vivo, e aprirne un secondo qui lo farebbe partire
+				// mentre il primo sta ancora nascendo.
+				await session.ensureOpen(terminalMeta[project.id]?.sessionId ?? null);
 				const sid = await session.newSession();
 
 				// Una configurazione esplicita e' parte del contratto del task:

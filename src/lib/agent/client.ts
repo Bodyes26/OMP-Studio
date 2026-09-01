@@ -6,12 +6,12 @@
 // consegnare i frame non-risposta a chi li riduce.
 
 import { Channel, invoke } from '@tauri-apps/api/core';
-import {
-	type AgentSessionEvent,
-	type ExtensionUiResponse,
-	type LoginProviderInfo,
-	type RpcCommand,
-	type RpcResponse
+import type {
+	AgentSessionEvent,
+	ExtensionUiResponse,
+	LoginProviderInfo,
+	RpcCommand,
+	RpcResponse
 } from './wire';
 
 /** Timeout di default per richiesta. Un comando che non risponde entro un
@@ -58,6 +58,14 @@ function rpcError(message: string, command?: string, code?: string): RpcError {
 
 export class OmpRpcClient {
 	private rpcId: number | null = null;
+	/**
+	 * Generazione dell'apertura corrente. Un `open()` piu' recente (o un
+	 * `close()`) rende stale quello in volo: i suoi frame non vanno ridotti e
+	 * il suo processo, se nasce comunque, va chiuso. Senza questo contatore
+	 * due processi omp restavano vivi sullo stesso progetto e spingevano
+	 * entrambi i loro eventi nello stesso riduttore.
+	 */
+	private openEpoch = 0;
 	private seq = 0;
 	private readonly pending = new Map<string, Pending>();
 	private eventHandler: ((event: AgentSessionEvent) => void) | null = null;
@@ -88,8 +96,16 @@ export class OmpRpcClient {
 	}
 
 	async open(cwd: string, resume?: string | null): Promise<number> {
+		const epoch = ++this.openEpoch;
 		const channel = new Channel<string>();
-		channel.onmessage = (line) => this.receive(line);
+		channel.onmessage = (line) => {
+			// Frame di un processo superato: la sessione ne sta aprendo un
+			// altro. Ridurli significherebbe insediarsi sul primo processo
+			// pronto invece che su quello richiesto, e con una sessione nuova
+			// e vuota il transcript ricostruito resta vuoto per sempre.
+			if (epoch !== this.openEpoch) return;
+			this.receive(line);
+		};
 		this.rpcId = null;
 		this.closed = false;
 		const rpcId = await invoke<number>('rpc_open', {
@@ -99,7 +115,9 @@ export class OmpRpcClient {
 		});
 		// Un processo che fallisce in avvio puo' emettere `studio_exit` prima
 		// che la Promise di `rpc_open` venga risolta. Non rianimare quell'id.
-		if (this.closed) {
+		// Stesso trattamento per un'apertura superata: il processo e' nato ed
+		// e' vivo, e senza questa chiusura resterebbe a tenere la sessione.
+		if (this.closed || epoch !== this.openEpoch) {
 			void invoke('rpc_close', { rpcId }).catch(() => {});
 			return rpcId;
 		}
@@ -211,6 +229,9 @@ export class OmpRpcClient {
 		const rpcId = this.rpcId;
 		this.closed = true;
 		this.rpcId = null;
+		// Un'apertura ancora in volo non ha ancora un `rpcId` da chiudere: la
+		// generazione la invalida, e il processo verra' chiuso appena nasce.
+		this.openEpoch++;
 		this.failAllPending('Sessione RPC chiusa');
 		if (rpcId === null) return;
 		await invoke('rpc_close', { rpcId });

@@ -260,6 +260,12 @@ export class AgentSession {
 	private readonly cwd: string;
 	private stateRefresh: Promise<void> | null = null;
 	private opening: Promise<void> | null = null;
+	/**
+	 * Sessione che l'apertura in volo sta riprendendo (`null` = sessione
+	 * nuova). Serve a distinguere «la stessa apertura, chiesta due volte» da
+	 * «un'altra sessione, che deve prendere il posto di questa».
+	 */
+	private openTarget: string | null = null;
 	private recoveredResume: string | null = null;
 	private attachEventQueue: AgentSessionEvent[] = [];
 	private isAborting = false;
@@ -309,15 +315,37 @@ export class AgentSession {
 		return this.entries.length > this.visibleCount;
 	}
 
-	showEarlier() {
-		this.visibleCount += RENDER_WINDOW;
+	/**
+	 * Garantisce un processo vivo senza cambiare quello che sta nascendo. E' la
+	 * strada dell'`$effect` che tiene su le superfici GUI e di chi ha solo
+	 * bisogno che la sessione sia pronta: un'apertura gia' in volo si attende,
+	 * non si scavalca, o la sessione scelta dall'utente verrebbe sostituita
+	 * dall'ultima sessione conosciuta.
+	 */
+	async ensureOpen(resume?: string | null) {
+		if (this.client.isOpen) return;
+		if (this.opening) {
+			await this.opening;
+			return;
+		}
+		await this.open(resume);
 	}
-
-	/* ------------------------------------------------------------ apertura */
 
 	async open(resume?: string | null) {
 		if (this.client.isOpen) return;
-		if (this.opening) return this.opening;
+		const requestedResume = resume ?? null;
+
+		if (this.opening) {
+			// Stessa sessione: una sola apertura basta.
+			if (this.openTarget === requestedResume) return this.opening;
+			// Sessione diversa: vince la richiesta piu' recente, ed e' l'unico
+			// modo di riprendere una chat mentre il processo del progetto sta
+			// ancora partendo. Senza chiudere l'apertura in volo restavano due
+			// processi omp vivi sullo stesso progetto: l'insediamento si
+			// faceva sul primo pronto (la sessione nuova e vuota), i prompt
+			// andavano all'altro, e la chat ripresa restava senza messaggi.
+			await this.close();
+		}
 
 		// `close()` stacca il riduttore dal canale: senza riagganciarlo qui il
 		// frame `ready` del nuovo processo cadrebbe nel vuoto, `attach()` non
@@ -326,7 +354,6 @@ export class AgentSession {
 		// istanza) e di ogni cambio di superficie.
 		this.unsubscribeEvent ??= this.client.onEvent((event) => this.reduce(event));
 
-		const requestedResume = resume ?? null;
 		const opening = (async () => {
 			this.exited = false;
 			this.requestedResume = requestedResume;
@@ -340,6 +367,7 @@ export class AgentSession {
 			// risponderebbe su una sessione non ancora insediata.
 		})();
 		this.opening = opening;
+		this.openTarget = requestedResume;
 		try {
 			await opening;
 		} finally {
@@ -354,6 +382,7 @@ export class AgentSession {
 		// azzerarla, la `open()` successiva restituirebbe la promise della
 		// sessione appena chiusa e la ripresa non aprirebbe nulla.
 		this.opening = null;
+		this.openTarget = null;
 		await this.client.close();
 		this.isReady = false;
 		this.isAttached = false;
@@ -673,6 +702,12 @@ export class AgentSession {
 				this.requestedResume = null;
 				this.isReady = true;
 				this.isAborting = false;
+				// `ready` e' l'handshake di un processo nuovo: l'insediamento
+				// precedente non vale piu'. Senza azzerarlo `attach()` uscirebbe
+				// subito e il transcript resterebbe quello del processo di
+				// prima, che nella ripresa di una chat significa nessun
+				// messaggio a schermo.
+				this.isAttached = false;
 				void this.attach();
 				return;
 

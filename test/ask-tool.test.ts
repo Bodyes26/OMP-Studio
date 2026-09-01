@@ -39,6 +39,9 @@ function question(overrides: Partial<AnswerableQuestion> = {}): AnswerableQuesti
 		customInput: '',
 		isCustom: false,
 		touched: false,
+		// Il caso normale nei test e' una domanda che l'utente ha davanti agli
+		// occhi: le prove sulla domanda mai aperta passano `visited: false`.
+		visited: true,
 		...overrides
 	};
 }
@@ -91,6 +94,33 @@ describe('Ask tool: etichette, note e formattazione risposte', () => {
 		it('la scelta multipla vuota vale "nessuna" solo se la domanda e stata toccata', () => {
 			assert.equal(isQuestionAnswered(question({ multi: true })), false);
 			assert.equal(isQuestionAnswered(question({ multi: true, touched: true })), true);
+		});
+
+		it('la pre-selezione consigliata di una domanda mai aperta non e una risposta', () => {
+			// La regressione da difendere: il wizard pre-seleziona l'opzione
+			// consigliata di **tutte** le domande. Con quella sola, ogni
+			// domanda risultava completata prima di essere letta, il riepilogo
+			// dichiarava tutto pronto e l'invio spediva scelte mai viste.
+			const mai = question({ selectedOptions: new Set(['SQLite']), visited: false });
+			assert.equal(isQuestionAnswered(mai), false);
+			assert.throws(() => formatQuestionAnswer(mai), /Risposta assente/);
+		});
+
+		it('la stessa pre-selezione vale come risposta appena la domanda e mostrata', () => {
+			const vista = question({ selectedOptions: new Set(['SQLite']), visited: true });
+			assert.equal(isQuestionAnswered(vista), true);
+			assert.deepEqual(formatQuestionAnswer(vista), ['SQLite (Recommended)']);
+		});
+
+		it('un wizard con domande mai aperte non parte, e indica la prima', () => {
+			const vista = question({ selectedOptions: new Set(['PostgreSQL']) });
+			const mai = question({ selectedOptions: new Set(['SQLite']), visited: false });
+			assert.equal(formatWizardAnswers([vista, mai, mai]), null);
+			assert.equal(firstUnansweredIndex([vista, mai, mai]), 1);
+		});
+
+		it('la scelta multipla mai aperta non vale "nessuna" nemmeno se toccata', () => {
+			assert.equal(isQuestionAnswered(question({ multi: true, touched: true, visited: false })), false);
 		});
 	});
 

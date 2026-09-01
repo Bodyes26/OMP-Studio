@@ -50,6 +50,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nelle sequenze di più domande la card mostra la domanda che l'agente sta effettivamente chiedendo, con «Domanda 2 di 3» e il pulsante `Avanti` al posto di `Conferma`: prima la prima domanda veniva riproposta una seconda volta e le risposte finivano sfalsate di una posizione.
 - Le risposte a scelta multipla di una singola domanda vengono inviate per intero: prima veniva spedita solo la prima spunta e la stessa domanda si ripresentava.
 - `Invio` su una domanda a scelta multipla non svuota più la card lasciando l'agente in attesa.
+- Riprendere una chat dallo storico subito dopo l'avvio di Studio non lascia più la conversazione vuota: cliccare una sessione mentre il processo del progetto stava ancora partendo ne avviava un secondo, la chat si insediava su quello sbagliato (una sessione nuova, senza messaggi) e i messaggi non comparivano mai, benché l'agente rispondesse conoscendo tutto lo storico. Ora la ripresa scelta dall'utente ha la precedenza, il processo superato viene chiuso invece di restare vivo in background e il transcript viene ricostruito a ogni nuovo agganciamento.
+- Nelle domande a più risposte le altre domande non risultano più «ok» prima di essere lette: l'opzione consigliata resta pre-selezionata come proposta, ma vale come risposta solo dopo che la domanda è stata aperta. Il riepilogo indica le domande ancora da vedere e l'invio resta bloccato finché ne manca una, così non partono più scelte mai viste dall'utente.
+- Le domande già inviate di una sequenza `ask` restano visibili nella barra dei passaggi, contrassegnate come «inviata» e non modificabili: prima sparivano del tutto e la numerazione delle domande rimaste risultava incomprensibile.
 
 ## [1.2.1] - 2026-08-28
 
