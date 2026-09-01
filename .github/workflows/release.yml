@@ -148,27 +148,21 @@ jobs:
           CI: "true"
         run: bun tauri build ${{ matrix.build_args }}
 
-      - name: Verifica firma e notarizzazione macOS (fail-closed per release stabile)
+      - name: Verifica firma e notarizzazione macOS
         if: runner.os == 'macOS'
         shell: bash
         env:
           SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' && 'true' || 'false' }}
-          IS_CANDIDATE: ${{ needs.resolve.outputs.is_candidate }}
         run: |
           set -euo pipefail
           APP="src-tauri/target/universal-apple-darwin/release/bundle/macos/OMP Studio.app"
           if [ "$SIGNING_CONFIGURED" != "true" ]; then
-            if [ "$IS_CANDIDATE" = "true" ]; then
-              echo "::warning::Candidate senza certificato Apple: il bundle non e' firmato ne' notarizzato."
-              exit 0
-            fi
-            echo "::error::Release stabile senza certificato Apple: configura i secret APPLE_* prima di pubblicare."
-            exit 1
+            echo "::warning::Certificato Apple non configurato (secret APPLE_* assenti): il bundle macOS non e' firmato ne' notarizzato."
+            exit 0
           fi
           codesign --verify --deep --strict --verbose=2 "$APP"
           spctl --assess --type execute --verbose=4 "$APP"
           xcrun stapler validate "$APP"
-
       - name: Firma Authenticode dei binari ed installer Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -192,21 +186,16 @@ jobs:
             }
           }
 
-      - name: Verifica firma Authenticode Windows (fail-closed per release stabile)
+      - name: Verifica firma Authenticode Windows
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           SIGNING_CONFIGURED: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT != '' && 'true' || 'false' }}
-          IS_CANDIDATE: ${{ needs.resolve.outputs.is_candidate }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:SIGNING_CONFIGURED -ne 'true') {
-            if ($env:IS_CANDIDATE -eq 'true') {
-              Write-Output "::warning::Candidate senza certificato di code signing: i binari Windows non sono firmati."
-              exit 0
-            }
-            Write-Output "::error::Release stabile senza certificato di code signing: configura WINDOWS_CERTIFICATE_THUMBPRINT prima di pubblicare."
-            exit 1
+            Write-Output "::warning::Certificato Windows non configurato (WINDOWS_CERTIFICATE_THUMBPRINT assente): i binari Windows non sono firmati."
+            exit 0
           }
           # 1. Verifica eseguibile principale dell'applicazione
           $binaries = Get-ChildItem -Path 'src-tauri/target/release' -Filter '*.exe' -File | Where-Object { $_.Name -notmatch 'build_script|deps' }

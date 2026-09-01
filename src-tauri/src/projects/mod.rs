@@ -1596,12 +1596,13 @@ pub async fn resolve_project_file(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::resolve_parent_dir;
     use super::{
         file_git_rev, fuzzy_match_str, git_last_commit, git_recent_commits,
         merge_name_status_numstat, path_create_directory, path_create_file, path_rename,
         project_files_search, rename_via_temp, resolve_existing_entry, resolve_new_destination,
-        resolve_parent_dir, resolve_path, resolve_project_file_sync, split_rel_path,
-        validate_basename, Dirent,
+        resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
     };
     use std::fs;
     #[cfg(windows)]
