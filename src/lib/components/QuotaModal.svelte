@@ -194,12 +194,7 @@
 					{#if report.limits && report.limits.length > 0}
 						{@const projectLabels = [...new Set(allHosts
 							.filter((host) => providersMatch(host.provider, report.provider))
-							.map((host) => {
-								if (host.host && host.project) {
-									return `${host.host} · ${host.project}`;
-								}
-								return host.project || host.host;
-							})
+							.map((host) => host.project || host.host)
 							.filter((label) => Boolean(label)))]}
 						<div class="provider-section" style="animation-delay: {i * 0.08}s;">
 							<h4>

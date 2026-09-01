@@ -26,6 +26,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Changed
 
+- Popover della quota d'utilizzo: l'indicazione dei progetti attivi per ciascun provider mostra ora direttamente il solo nome del progetto (es. «ContrattiImmobili»), eliminando il prefisso ridondante dell'applicativo («OMP Studio»).
 - Disattivata l'espansione automatica dell'accordion e delle card dei tool in caso di errore: i passaggi rimangono compatti e sotto l'accordion chiuso compare un microcopy che indica il tool fallito e la breve descrizione del motivo, lasciando l'apertura completa al clic manuale.
 - Ottimizzati i tempi di compilazione e pubblicazione: adozione di Thin LTO e generazione di codice parallela nel profilo Rust release, eliminazione dei chunk ridondanti nella build Vite frontend e introduzione della cache delle dipendenze Rust (rust-cache) nei workflow GitHub Actions, riducendo drasticamente i tempi di build locali e cloud.
 - Rimossa la barra di evidenziazione sinistra e il testo in grassetto sulla voce di sezione attiva nella colonna sinistra della finestra Impostazioni, per una navigazione più pulita e uniforme.
