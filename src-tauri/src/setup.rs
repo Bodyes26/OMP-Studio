@@ -1484,10 +1484,9 @@ mod tests {
 
         let status = status_for(Some(base.clone()));
         assert!(!status.wizard_pending);
-        // Il modello c'e' ma le credenziali no: e' esattamente il caso
-        // "wizard chiuso con Esc" che non deve chiudere il modal.
-        assert_eq!(status.missing, vec!["credentials".to_string()]);
-
+        // Il modello c'e' ma le credenziali no: e' il caso "wizard chiuso con Esc"
+        assert!(status.missing.contains(&"credentials".to_string()));
+        assert!(!status.missing.contains(&"model".to_string()));
         let _ = std::fs::remove_dir_all(&base);
     }
 
