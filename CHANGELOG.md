@@ -9,6 +9,10 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+
+- Il popover della quota può mostrare anche provider che `omp` non sa interrogare da solo (per esempio quelli aggiunti da un plugin): basta descrivere la sorgente in un file JSON dentro `%LOCALAPPDATA%/omp-studio/usage-sources/` indicando il comando da eseguire, e le sue quote compaiono accanto alle altre. Senza quella cartella nulla cambia.
+
 ### Fixed
 
 - Sincronizzazione affidabile del focus e digitazione diretta nella chat: il cursore animato (smooth cursor) si spegne tempestivamente quando la finestra o l'applicazione perde il focus evitando falsi lampeggi a vuoto, l'intera area del riquadro di input trasferisce il focus alla casella di scrittura al clic, e la digitazione a focus neutro attiva automaticamente il campo senza perdere i caratteri digitati.

@@ -220,6 +220,27 @@ Desktop, Cursor, Windsurf) e scelte di roadmap condivise con l'utente.
 
 ---
 
+## ~~Quote dei provider aggiunti da plugin (Command Code)~~ → fatta il 2026-09-02, in forma generica
+
+Discussa il 2026-08-31 e risolta due giorni dopo, ma non come sembrava.
+
+Il fatto: `omp usage --json` non carica né estensioni né plugin
+(`usage-cli.ts:1102` istanzia un `ModelRegistry` nudo), quindi `commandcode`
+non aveva alcun report pur avendo un'API di quota funzionante. Le tre strade
+ovvie sono tutte chiuse — `UsageProvider` in un'estensione, `registerProvider`
+con solo `usage`, un campo in `models.yml` — e nemmeno una PR al plugin
+basterebbe: le ragioni, con i numeri di riga, stanno nel **Gate R21** di
+`DECISIONS.md`.
+
+Realizzata come **sorgenti di quota dichiarate dall'utente**: descrittori in
+`%LOCALAPPDATA%/omp-studio/usage-sources/*.json`, un comando per sorgente, e
+`usage_snapshot` che ne fonde l'output in `reports[]`. Studio non nomina nessun
+provider: la conoscenza specifica di Command Code sta nello script dell'utente,
+fuori dal repo. Resta aperto il vero difetto, che è a monte e non nostro:
+`omp usage` dovrebbe caricare i provider di plugin come fa già `omp models`.
+
+---
+
 ## Scartate, con la ragione
 
 Servono a non ridiscuterle fra un mese.

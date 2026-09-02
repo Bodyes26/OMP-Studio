@@ -481,3 +481,70 @@ produrrebbe solo un lampo di testo subito sovrascritto. Oltre i 10 s senza un
 solo byte la riga diventa un avviso con la causa e cosa verificare, invece di
 restare un'attesa perenne — la stessa scelta già fatta per i pannelli FILE, GIT
 e quote.
+
+## Gate R21: le quote dei provider aggiunti da plugin entrano da sorgenti dichiarate dall'utente, non da codice per-provider
+
+**Data:** 2026-09-02
+**Esito:** SUPERATO, con perimetro
+
+**Decisione.** Il popover quote continua a nascere da `omp usage --json`, ma
+`usage_snapshot` fonde in `reports[]` anche l'output dei descrittori trovati in
+`%LOCALAPPDATA%/omp-studio/usage-sources/*.json` (`~/.omp-studio/usage-sources`
+altrove). Ogni descrittore dichiara un comando; Studio lo esegue e si aspetta
+sullo stdout la stessa forma del comando `omp` (`{"reports":[…]}`, un array di
+report o un report singolo). **Nel codice di Studio non compare il nome di
+nessun provider**: cartella assente o vuota significa il comportamento
+precedente, byte per byte, per chiunque non abbia dichiarato nulla.
+
+**Il problema misurato.** `omp usage --json` non carica né estensioni né
+plugin: il suo percorso CLI istanzia un `ModelRegistry` nudo
+(`packages/coding-agent/src/cli/usage-cli.ts:1102`) mentre `omp models` passa da
+`loadCliExtensionProviders()`. Conseguenza: un provider aggiunto da un plugin —
+`commandcode` via `pi-commandcode-provider` — resta senza alcun report anche
+quando l'API per leggerne la quota esiste e risponde. Il popover era corretto e
+vuoto allo stesso tempo.
+
+**Perché non le tre strade più ovvie.** Verificate sul sorgente, tutte chiuse:
+
+1. *Un `UsageProvider` in un'estensione dell'utente.* Non verrebbe mai
+   interrogato: `omp usage` non carica estensioni, quindi
+   `#runtimeUsageProviderOverrides` (`packages/ai/src/auth-storage.ts:3627`) è
+   vuoto in quel processo.
+2. *`pi.registerProvider("commandcode", { usage })` per aggiungere il pezzo
+   mancante.* È un **source handoff**: `model-registry.ts:2565-2578` azzera lo
+   stato runtime del provider, quindi passare solo `usage` gli farebbe perdere
+   modelli e transport del plugin. E le estensioni native si caricano **prima**
+   dei plugin (`extensions/loader.ts:684-717`), quindi il plugin cancellerebbe
+   comunque l'usage registrato dall'estensione.
+3. *Una riga in `models.yml`.* Lo schema dei provider non ha alcun campo
+   `usage` (`config/models-config-schema-bundle.ts:296-339`).
+
+Da qui anche il corollario che ha deciso la scelta: **una PR al plugin non
+basterebbe**, perché il comando `usage` non lo caricherebbe comunque. Il buco è
+a monte, e finché resta tale l'unico posto in cui la conoscenza specifica di un
+provider può stare senza sporcare l'app è la configurazione di chi lo usa.
+
+**Scartato.** Eseguire `/commandcode-quota` nel PTY e leggerne l'output: un
+parser su testo destinato a un umano si rompe al primo cambio di wording.
+Scartato anche il codice per-provider dentro Studio: farebbe spedire a tutti il
+supporto di un provider che nessun altro ha configurato.
+
+**Perimetro.**
+
+- Studio **non legge credenziali**: il divieto di `IDEAS.md` resta intatto. È lo
+  script dell'utente a procurarsi la chiave, e lo fa dalla superficie supportata
+  `omp token <provider>`, non da `auth_credentials`.
+- Timeout per sorgente: 15 s di default, `timeoutSec` fino a 60, processo ucciso
+  allo scadere (`kill_on_drop`); stdout oltre 2 MB scartato.
+- I report di `omp usage` vincono: una sorgente non può oscurare un provider che
+  ha già dati reali (confronto per nome, case-insensitive).
+- Ogni fallimento è isolato e non fatale: descrittore malformato, comando
+  assente, uscita diversa da zero o JSON irriconoscibile finiscono su stderr e
+  lasciano il resto del popover intatto.
+- `fetchedAt` viene timbrato da Studio solo se la sorgente non lo dichiara.
+
+**Verifica.** Tre test in `omp_ops.rs` (le tre forme di output accettate, la
+fusione che non oscura i duplicati, `fetchedAt` preservato) più l'esecuzione
+reale del percorso `usage_source_specs → run_usage_source → merge_extra_reports`
+con il descrittore `commandcode.json` di questa macchina: due limiti (finestra
+5 ore e settimana) fusi accanto ai report di `omp usage`.

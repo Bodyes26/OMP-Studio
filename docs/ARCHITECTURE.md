@@ -115,7 +115,7 @@ rpc/
   mod.rs                RpcManager, RpcSession, trasporto stdio NDJSON, riassemblaggio chunk, overlay GUI
 projects/
   mod.rs                Gestione filesystem con resolve_path (canonicalize), operazioni Git e branch
-omp_ops.rs              Query protette SQLite (usage, storico sessioni), verifica/aggiornamento OMP, temi
+omp_ops.rs              Query protette SQLite (usage, storico sessioni), verifica/aggiornamento OMP, temi, sorgenti di quota dichiarate dall'utente
 rules_ops.rs            Censimento regole di contesto e skill, analisi attrito in sola lettura su history.db
 models_ops.rs           Gestione catalogo modelli, ruoli operativi, catene di fallback e raccomandazioni
 suggestions_ops.rs      Comando generate_prompt_suggestions: chiamata effimera a omp -p con ruolo smol, parsing JSON, fallimento silenzioso
@@ -229,7 +229,7 @@ git_branch_create(project_path: String, name: String, start_point: Option<String
 git_branch_merge(project_path: String, branch: String) -> Result<(), String>;
 
 // --- OMP, Database e Temi ---
-usage_snapshot(force: bool) -> Result<UsageReport, String>;
+usage_snapshot(force: bool) -> Result<UsageReport, String>;   // omp usage --json + sorgenti aggiuntive (Gate R21)
 sessions_list(project_path: String, limit: u32) -> Result<Vec<SessionEntry>, String>;
 sessions_search(query: String, project_path: Option<String>) -> Result<Vec<SessionEntry>, String>;
 get_omp_version() -> Result<String, String>;

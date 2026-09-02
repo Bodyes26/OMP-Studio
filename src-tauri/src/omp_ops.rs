@@ -1,6 +1,6 @@
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -225,11 +225,246 @@ fn usage_snapshot_sync() -> Result<UsageReport, String> {
     }
 }
 
+/// Le sorgenti di quota aggiuntive (sotto) si fondono qui: il popover mostra
+/// qualunque provider trovi in `reports[]`, senza conoscerne nessuno.
 #[command]
 pub async fn usage_snapshot(_force: bool) -> Result<UsageReport, String> {
-    tokio::task::spawn_blocking(usage_snapshot_sync)
+    let mut report = tokio::task::spawn_blocking(usage_snapshot_sync)
         .await
-        .map_err(|e| format!("Task usage_snapshot: {}", e))?
+        .map_err(|e| format!("Task usage_snapshot: {}", e))??;
+    let extra = extra_usage_reports().await;
+    merge_extra_reports(&mut report.raw_json, extra, now_ms());
+    Ok(report)
+}
+
+// --- Sorgenti di quota aggiuntive ---
+//
+// `omp usage --json` non carica ne' estensioni ne' plugin: il suo percorso CLI
+// istanzia un `ModelRegistry` nudo (upstream
+// `packages/coding-agent/src/cli/usage-cli.ts:1102`), quindi un provider
+// aggiunto da un plugin resta senza report anche quando l'API per leggerne la
+// quota esiste. Studio non conosce nessun provider in particolare: esegue il
+// comando che l'utente dichiara e si aspetta sullo stdout la stessa forma di
+// `omp usage --json`. Cartella assente o vuota: comportamento identico a prima.
+
+const USAGE_SOURCE_TIMEOUT_DEFAULT: u64 = 15;
+const USAGE_SOURCE_TIMEOUT_MAX: u64 = 60;
+/// Oltre questa soglia lo stdout non e' un report di quota ma un incidente.
+const USAGE_SOURCE_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+/// Descrittore in `%LOCALAPPDATA%/omp-studio/usage-sources/<nome>.json`
+/// (`~/.omp-studio/usage-sources` altrove).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageSourceSpec {
+    command: String,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    timeout_sec: Option<u64>,
+    #[serde(default = "usage_source_default_enabled")]
+    enabled: bool,
+}
+
+fn usage_source_default_enabled() -> bool {
+    true
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn usage_sources_dir() -> Option<PathBuf> {
+    let base = if cfg!(target_os = "windows") {
+        std::env::var("LOCALAPPDATA").ok()?
+    } else {
+        std::env::var("HOME").ok()?
+    };
+    Some(
+        PathBuf::from(base)
+            .join(if cfg!(target_os = "windows") {
+                "omp-studio"
+            } else {
+                ".omp-studio"
+            })
+            .join("usage-sources"),
+    )
+}
+
+/// Descrittori validi, in ordine di nome file: un JSON malformato viene
+/// ignorato senza toccare gli altri.
+fn usage_source_specs() -> Vec<(String, UsageSourceSpec)> {
+    let Some(dir) = usage_sources_dir() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+
+    let mut specs: Vec<(String, UsageSourceSpec)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        match serde_json::from_str::<UsageSourceSpec>(&text) {
+            Ok(spec) if spec.enabled => {
+                let name = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                specs.push((name, spec));
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("[usage-source] {} non valido: {}", path.display(), e),
+        }
+    }
+    specs.sort_by(|a, b| a.0.cmp(&b.0));
+    specs
+}
+
+/// Accetta le tre forme che una sorgente puo' emettere: `{"reports":[…]}`,
+/// un array di report, o un singolo report. Scarta tutto cio' che non ha un
+/// `provider` non vuoto.
+fn reports_from_source_output(stdout: &[u8]) -> Vec<serde_json::Value> {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(stdout) else {
+        return Vec::new();
+    };
+    let candidates = match value {
+        serde_json::Value::Array(items) => items,
+        serde_json::Value::Object(mut map) => match map.remove("reports") {
+            Some(serde_json::Value::Array(items)) => items,
+            _ => vec![serde_json::Value::Object(map)],
+        },
+        _ => return Vec::new(),
+    };
+    candidates
+        .into_iter()
+        .filter(|item| {
+            item.get("provider")
+                .and_then(|p| p.as_str())
+                .is_some_and(|p| !p.trim().is_empty())
+        })
+        .collect()
+}
+
+/// I report di `omp usage` vincono: una sorgente aggiuntiva non puo' oscurare
+/// un provider che ha gia' dati reali.
+fn merge_extra_reports(
+    snapshot: &mut serde_json::Value,
+    extra: Vec<serde_json::Value>,
+    now_ms: u64,
+) {
+    if extra.is_empty() {
+        return;
+    }
+    let Some(root) = snapshot.as_object_mut() else {
+        return;
+    };
+    let list = root
+        .entry("reports")
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    let Some(list) = list.as_array_mut() else {
+        return;
+    };
+
+    let mut seen: HashSet<String> = list
+        .iter()
+        .filter_map(|r| r.get("provider").and_then(|p| p.as_str()))
+        .map(|p| p.trim().to_lowercase())
+        .collect();
+
+    for mut report in extra {
+        let provider = report
+            .get("provider")
+            .and_then(|p| p.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase();
+        if provider.is_empty() || !seen.insert(provider) {
+            continue;
+        }
+        if let Some(obj) = report.as_object_mut() {
+            obj.entry("fetchedAt")
+                .or_insert_with(|| serde_json::Value::from(now_ms));
+        }
+        list.push(report);
+    }
+}
+
+async fn run_usage_source(name: &str, spec: &UsageSourceSpec) -> Vec<serde_json::Value> {
+    let mut cmd = tokio::process::Command::new(&spec.command);
+    cmd.args(&spec.args)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    if let Some(cwd) = &spec.cwd {
+        cmd.current_dir(cwd);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let limit = Duration::from_secs(
+        spec.timeout_sec
+            .unwrap_or(USAGE_SOURCE_TIMEOUT_DEFAULT)
+            .clamp(1, USAGE_SOURCE_TIMEOUT_MAX),
+    );
+
+    match tokio::time::timeout(limit, cmd.output()).await {
+        Ok(Ok(out)) if out.status.success() && out.stdout.len() <= USAGE_SOURCE_MAX_BYTES => {
+            let reports = reports_from_source_output(&out.stdout);
+            if reports.is_empty() {
+                eprintln!(
+                    "[usage-source {}] nessun report riconosciuto sullo stdout",
+                    name
+                );
+            }
+            reports
+        }
+        Ok(Ok(out)) => {
+            eprintln!(
+                "[usage-source {}] uscita {:?}, {} byte di stdout: {}",
+                name,
+                out.status.code(),
+                out.stdout.len(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+            Vec::new()
+        }
+        Ok(Err(e)) => {
+            eprintln!(
+                "[usage-source {}] avvio di `{}` fallito: {}",
+                name, spec.command, e
+            );
+            Vec::new()
+        }
+        Err(_) => {
+            eprintln!("[usage-source {}] scaduto dopo {:?}", name, limit);
+            Vec::new()
+        }
+    }
+}
+
+async fn extra_usage_reports() -> Vec<serde_json::Value> {
+    let specs = tokio::task::spawn_blocking(usage_source_specs)
+        .await
+        .unwrap_or_default();
+    let mut reports = Vec::new();
+    for (name, spec) in &specs {
+        reports.extend(run_usage_source(name, spec).await);
+    }
+    reports
 }
 
 const SESSION_TAIL_BYTES: u64 = 256 * 1024;
@@ -1219,6 +1454,55 @@ pub async fn run_omp_update() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accetta_le_tre_forme_di_output_di_una_sorgente() {
+        let wrapped = br#"{"reports":[{"provider":"acme","limits":[]}]}"#;
+        let bare_array = br#"[{"provider":"acme"},{"limits":[]}]"#;
+        let single = br#"{"provider":"acme","fetchedAt":7}"#;
+
+        assert_eq!(reports_from_source_output(wrapped).len(), 1);
+        // Il secondo elemento non ha `provider`: scartato.
+        assert_eq!(reports_from_source_output(bare_array).len(), 1);
+        assert_eq!(reports_from_source_output(single).len(), 1);
+
+        assert!(reports_from_source_output(b"non json").is_empty());
+        assert!(reports_from_source_output(br#"{"provider":"  "}"#).is_empty());
+        assert!(reports_from_source_output(b"42").is_empty());
+    }
+
+    #[test]
+    fn fonde_le_sorgenti_senza_oscurare_i_report_di_omp() {
+        let mut snapshot = serde_json::json!({
+            "generatedAt": 1,
+            "reports": [{ "provider": "anthropic", "limits": [] }]
+        });
+        let extra = reports_from_source_output(
+            br#"[{"provider":"Anthropic","limits":[{"id":"falso"}]},{"provider":"commandcode","limits":[]}]"#,
+        );
+
+        merge_extra_reports(&mut snapshot, extra, 1234);
+
+        let reports = snapshot["reports"].as_array().expect("array di report");
+        assert_eq!(reports.len(), 2, "il duplicato di anthropic va scartato");
+        assert_eq!(reports[0]["provider"], "anthropic");
+        assert!(reports[0]["limits"].as_array().unwrap().is_empty());
+        assert_eq!(reports[1]["provider"], "commandcode");
+        // `fetchedAt` assente nella sorgente: lo timbra Studio.
+        assert_eq!(reports[1]["fetchedAt"], 1234);
+    }
+
+    #[test]
+    fn preserva_il_fetched_at_dichiarato_e_crea_reports_se_manca() {
+        let mut snapshot = serde_json::json!({ "generatedAt": 1 });
+        let extra = reports_from_source_output(br#"{"provider":"acme","fetchedAt":99}"#);
+
+        merge_extra_reports(&mut snapshot, extra, 1234);
+
+        let reports = snapshot["reports"].as_array().expect("array di report");
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0]["fetchedAt"], 99);
+    }
 
     #[test]
     fn estrae_ultimo_provider_dalla_coda() {
