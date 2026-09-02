@@ -76,6 +76,7 @@
 				{ keys: ['/'], description: 'Apre la palette dei comandi slash disponibili' },
 				{ keys: ['Alt+1…6'], description: 'Precompila il composer con il suggerimento in quella posizione (non invia)' },
 				{ keys: ['Alt+E'], description: 'Mette a fuoco il campo di scrittura del Composer' },
+				{ keys: ['Alt+N'], description: 'Apre una nuova chat nel progetto attivo' },
 				{ keys: ['Alt+C'], description: 'Interrompe la risposta in streaming o cancella il testo' },
 				{ keys: ['Ctrl+C'], description: 'Interrompe la risposta in streaming (senza testo evidenziato)' },
 				{ keys: ['Esc'], description: 'Chiude menu/palette a comparsa o interrompe lo streaming' }

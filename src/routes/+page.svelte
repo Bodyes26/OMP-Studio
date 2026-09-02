@@ -5,6 +5,7 @@
 	import { AgentSession } from '$lib/agent/session.svelte';
 	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
+	import { IconNewChat } from '$lib/icons';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FileTree from '$lib/components/FileTree.svelte';
 	import type EditorSurface from '$lib/editor/Editor.svelte';
@@ -565,6 +566,17 @@
 	 * silenzio. Un testo che inizia per `/` ma non nomina un comando conosciuto
 	 * (un percorso assoluto, per esempio) resta un prompt normale.
 	 */
+	async function handleNewChat(projectId: string) {
+		const project = projectStore.projects.find((p) => p.id === projectId);
+		if (!project) return;
+		const session = agentSessionFor(project);
+		// newSession() azzera isStreaming solo localmente e non inoltra l'abort al
+		// processo omp: senza questo, i token della risposta in corso finirebbero
+		// dentro la chat appena creata.
+		if (session.isStreaming) await session.abort();
+		await session.newSession();
+	}
+
 	function handleGuiSlashCommand(projectId: string, raw: string): boolean {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		const session = agentSessions.get(projectId);
@@ -577,7 +589,7 @@
 
 		// --- comandi del guscio: li serve Studio, non omp ---------------------
 		if (lowerCmd === '/new' || lowerCmd === '/clear') {
-			void session.newSession();
+			void handleNewChat(projectId);
 			return true;
 		}
 		if (lowerCmd === '/resume' || lowerCmd === '/sessions' || lowerCmd === '/tree') {
@@ -1455,27 +1467,39 @@
 		></div>
 
 		<section class="col-right">
-			<div class="col-header tabs-header" role="tablist" aria-label="Superfici di interazione">
-				<button
-					type="button"
-					role="tab"
-					aria-selected={projectStore.activeProject?.layout.rightSection !== 'gui'}
-					class:active={projectStore.activeProject?.layout.rightSection !== 'gui'}
-					disabled={activeSwitching}
-					title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie terminale (Ctrl+Alt+A)'}
-					aria-label="Superficie terminale (Ctrl+Alt+A)"
-					onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
-				>TERMINAL</button>
-				<button
-					type="button"
-					role="tab"
-					aria-selected={projectStore.activeProject?.layout.rightSection === 'gui'}
-					class:active={projectStore.activeProject?.layout.rightSection === 'gui'}
-					disabled={activeSwitching}
-					title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie grafica (Ctrl+Alt+A)'}
-					aria-label="Superficie grafica (Ctrl+Alt+A)"
-					onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
-				>GUI</button>
+			<div class="col-header tabs-header">
+				<div class="tab-group" role="tablist" aria-label="Superfici di interazione">
+					<button
+						type="button"
+						role="tab"
+						aria-selected={projectStore.activeProject?.layout.rightSection !== 'gui'}
+						class:active={projectStore.activeProject?.layout.rightSection !== 'gui'}
+						disabled={activeSwitching}
+						title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie terminale (Ctrl+Alt+A)'}
+						aria-label="Superficie terminale (Ctrl+Alt+A)"
+						onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
+					>TERMINAL</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={projectStore.activeProject?.layout.rightSection === 'gui'}
+						class:active={projectStore.activeProject?.layout.rightSection === 'gui'}
+						disabled={activeSwitching}
+						title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie grafica (Ctrl+Alt+A)'}
+						aria-label="Superficie grafica (Ctrl+Alt+A)"
+						onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
+					>GUI</button>
+				</div>
+				<!-- I figli di un tablist devono avere role="tab": l'azione sta fuori dal tablist e si mostra solo per la GUI. -->
+				{#if projectStore.activeProject?.layout.rightSection === 'gui'}
+					<button
+						type="button"
+						class="header-action"
+						title="Nuova chat (Alt+N)"
+						aria-label="Nuova chat (Alt+N)"
+						onclick={() => projectStore.activeProject && void handleNewChat(projectStore.activeProject.id)}
+					><IconNewChat /></button>
+				{/if}
 			</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#each projectStore.projects as p (p.id)}
@@ -1487,6 +1511,7 @@
 							onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
 							onSwitchToTerminal={() => void switchSurface(p.id, 'terminal')}
 							onSlashCommand={(raw) => handleGuiSlashCommand(p.id, raw)}
+							onNewChat={() => void handleNewChat(p.id)}
 						/>
 					{:else}
 						<Terminal
@@ -1690,11 +1715,17 @@
 	}
 
 	.tabs-header {
+		justify-content: space-between;
 		padding: 0;
 		gap: 0;
 	}
 
-	.tabs-header button {
+	.tab-group {
+		display: flex;
+		height: 100%;
+	}
+
+	.tabs-header button[role="tab"] {
 		background: transparent;
 		border: none;
 		color: var(--ink-faint);
@@ -1707,13 +1738,38 @@
 		border-bottom: 2px solid transparent;
 	}
 
-	.tabs-header button:hover {
+	.tabs-header button[role="tab"]:hover {
 		color: var(--ink-muted);
 	}
 
-	.tabs-header button.active {
+	.tabs-header button[role="tab"].active {
 		color: var(--ink);
 		border-bottom-color: var(--brand);
+	}
+
+	.header-action {
+		width: 24px;
+		height: 24px;
+		border-radius: var(--radius-sm);
+		border: none;
+		background: transparent;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--ink-faint);
+		cursor: pointer;
+		padding: 0;
+		margin-right: var(--space-1);
+		--icon-size: 14px;
+		flex: 0 0 auto;
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.header-action:hover {
+		color: var(--ink);
+		background-color: var(--bg-hover);
 	}
 
 	.col-content {

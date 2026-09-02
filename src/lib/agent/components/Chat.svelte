@@ -25,7 +25,8 @@
 		onOpenFile,
 		onOpenImage,
 		onSwitchToTerminal,
-		onSlashCommand
+		onSlashCommand,
+		onNewChat
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
@@ -33,6 +34,7 @@
 		onOpenImage?: (data: string, mimeType: string) => void;
 		onSwitchToTerminal?: () => void;
 		onSlashCommand?: (raw: string) => boolean;
+		onNewChat?: () => void;
 	}>();
 
 	// Ganci condivisi passati via contesto: i componenti annidati non hanno
@@ -192,6 +194,7 @@
 				{session}
 				{visible}
 				onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
+				{onNewChat}
 			/>
 		</div>
 	</div>

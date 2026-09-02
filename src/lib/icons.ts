@@ -34,6 +34,7 @@ export { default as IconSearch } from '@lucide/svelte/icons/search';
 
 // Barra dei progetti e guscio.
 export { default as IconGhost } from '@lucide/svelte/icons/ghost';
+export { default as IconNewChat } from '@lucide/svelte/icons/message-square-plus';
 export { default as IconSettings } from '@lucide/svelte/icons/settings';
 export { default as IconWarning } from '@lucide/svelte/icons/triangle-alert';
 export { default as IconQuota } from '@lucide/svelte/icons/gauge';

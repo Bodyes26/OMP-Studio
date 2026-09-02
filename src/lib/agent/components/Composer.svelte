@@ -43,11 +43,13 @@ import { getCaretCoordinates } from './caretCoordinates';
 	let {
 		session,
 		visible = true,
-		onSlashCommand
+		onSlashCommand,
+		onNewChat
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
 		onSlashCommand: (raw: string) => boolean;
+		onNewChat?: () => void;
 	}>();
 
 	$effect(() => {
@@ -830,6 +832,13 @@ $effect(() => {
 		if (isAltOnly && (keyLower === 'e' || code === 'KeyE')) {
 			event.preventDefault();
 			textareaEl?.focus();
+			return;
+		}
+
+		// Alt+N: apre una nuova chat nel progetto attivo
+		if (isAltOnly && (keyLower === 'n' || code === 'KeyN')) {
+			event.preventDefault();
+			onNewChat?.();
 			return;
 		}
 	}

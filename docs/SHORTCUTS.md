@@ -27,6 +27,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+C` | Superficie GUI | Interrompe la risposta in corso o cancella il testo scritto |
 | `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato) |
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
+| `Alt+N` | Superficie GUI | Apre una nuova chat nel progetto attivo |
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
 | `Alt+1` … `Alt+6` | Composer GUI | Precompila il composer con il suggerimento in quella posizione (non invia) |
 | `Invio` | Composer GUI | Invia; con la palette aperta seleziona il comando evidenziato |
