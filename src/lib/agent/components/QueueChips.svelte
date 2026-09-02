@@ -35,7 +35,7 @@
 					class="chip-badge"
 					class:steer={item.behavior === 'steer'}
 					class:follow-up={item.behavior === 'followUp'}
-					title="La modalita si scegle all'invio: Invio o Alt+Invio. omp non permette di modificarla ne di annullare il messaggio dopo l'accodamento."
+					title="La modalita si sceglie all'invio: Invio o Alt+Invio. omp non permette di modificarla ne di annullare il messaggio dopo l'accodamento."
 				>
 					{item.behavior === 'steer' ? 'Steer' : 'Follow-up'}
 				</span>

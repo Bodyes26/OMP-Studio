@@ -281,9 +281,13 @@ fn now_ms() -> u64 {
 
 fn usage_sources_dir() -> Option<PathBuf> {
     let base = if cfg!(target_os = "windows") {
-        std::env::var("LOCALAPPDATA").ok()?
+        std::env::var("LOCALAPPDATA")
+            .ok()
+            .filter(|v| !v.trim().is_empty())?
     } else {
-        std::env::var("HOME").ok()?
+        std::env::var("HOME")
+            .ok()
+            .filter(|v| !v.trim().is_empty())?
     };
     Some(
         PathBuf::from(base)
@@ -404,6 +408,8 @@ async fn run_usage_source(name: &str, spec: &UsageSourceSpec) -> Vec<serde_json:
     let mut cmd = tokio::process::Command::new(&spec.command);
     cmd.args(&spec.args)
         .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
     if let Some(cwd) = &spec.cwd {
         cmd.current_dir(cwd);
@@ -421,9 +427,36 @@ async fn run_usage_source(name: &str, spec: &UsageSourceSpec) -> Vec<serde_json:
             .clamp(1, USAGE_SOURCE_TIMEOUT_MAX),
     );
 
-    match tokio::time::timeout(limit, cmd.output()).await {
-        Ok(Ok(out)) if out.status.success() && out.stdout.len() <= USAGE_SOURCE_MAX_BYTES => {
-            let reports = reports_from_source_output(&out.stdout);
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            eprintln!(
+                "[usage-source {}] avvio di `{}` fallito: {}",
+                name, spec.command, e
+            );
+            return Vec::new();
+        }
+    };
+
+    let mut stdout_buf = Vec::new();
+    let mut stderr_buf = Vec::new();
+
+    let read_future = async {
+        use tokio::io::AsyncReadExt;
+        if let Some(mut stdout) = child.stdout.take() {
+            let mut handle = (&mut stdout).take(USAGE_SOURCE_MAX_BYTES as u64 + 1);
+            let _ = handle.read_to_end(&mut stdout_buf).await;
+        }
+        if let Some(mut stderr) = child.stderr.take() {
+            let mut handle = (&mut stderr).take(16 * 1024);
+            let _ = handle.read_to_end(&mut stderr_buf).await;
+        }
+        child.wait().await
+    };
+
+    match tokio::time::timeout(limit, read_future).await {
+        Ok(Ok(status)) if status.success() && stdout_buf.len() <= USAGE_SOURCE_MAX_BYTES => {
+            let reports = reports_from_source_output(&stdout_buf);
             if reports.is_empty() {
                 eprintln!(
                     "[usage-source {}] nessun report riconosciuto sullo stdout",
@@ -432,19 +465,19 @@ async fn run_usage_source(name: &str, spec: &UsageSourceSpec) -> Vec<serde_json:
             }
             reports
         }
-        Ok(Ok(out)) => {
+        Ok(Ok(status)) => {
             eprintln!(
                 "[usage-source {}] uscita {:?}, {} byte di stdout: {}",
                 name,
-                out.status.code(),
-                out.stdout.len(),
-                String::from_utf8_lossy(&out.stderr).trim()
+                status.code(),
+                stdout_buf.len(),
+                String::from_utf8_lossy(&stderr_buf).trim()
             );
             Vec::new()
         }
         Ok(Err(e)) => {
             eprintln!(
-                "[usage-source {}] avvio di `{}` fallito: {}",
+                "[usage-source {}] errore durante l'esecuzione di `{}`: {}",
                 name, spec.command, e
             );
             Vec::new()

@@ -222,6 +222,28 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 			]);
 		});
 
+		it('chiude correttamente la scelta multipla quando l utente seleziona "Altro"', () => {
+			const q = question({
+				multi: true,
+				isCustom: true,
+				touched: true,
+				customInput: '  Redis  ',
+				note: 'per caching'
+			});
+			const steps = buildQuestionSteps(q);
+			assert.deepEqual(steps, [
+				{
+					method: 'select',
+					value: OTHER_LABEL,
+					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
+				},
+				{
+					method: 'editor',
+					value: 'Redis (nota: per caching)'
+				}
+			]);
+		});
+
 		it('concatena i passi di tutte le domande nel piano del wizard', () => {
 			const first = question({ selectedOptions: new Set(['PostgreSQL']), touched: true });
 			const second = question({

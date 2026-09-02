@@ -24,8 +24,13 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 - Rimosso il popover di configurazione della coda con icona a ingranaggio dal campo di scrittura della chat e le scorciatoie `Alt+Q` e `Alt+S`, sostituite dalle impostazioni generali e dalla selezione rapida all'invio.
 - Rimossa la scorciatoia orfana non funzionante `Alt+Q Opzioni coda` dallo stato vuoto della colonna dei task.
+
 ### Fixed
-- Sincronizzazione affidabile del focus e digitazione diretta nella chat: il cursore animato (smooth cursor) si spegne tempestivamente quando la finestra o l'applicazione perde il focus evitando falsi lampeggi a vuoto, l'intera area del riquadro di input trasferisce il focus alla casella di scrittura al clic, e la digitazione a focus neutro attiva automaticamente il campo senza perdere i caratteri digitati.
+
+- Sincronizzazione affidabile del focus e digitazione diretta nella chat: il cursore animato (smooth cursor) si spegne tempestivamente quando la finestra o l'applicazione perde il focus evitando falsi lampeggi a vuoto, l'intera area del riquadro di input trasferisce il focus alla casella di scrittura al clic, la digitazione non intercetta i tasti quando sono aperti modali o dialoghi preservando l'uso della barra spaziatrice sugli elementi interattivi, e la posizione del cursore resta allineata durante lo scorrimento.
+- Completamento affidabile delle scelte multiple con opzione personalizzata («Altro»): la risposta a testo libero su domande a scelta multipla viene instradata con il passo di chiusura corretto preservando l'esecuzione dell'intero piano di risposte per tutte le domande del wizard.
+- Caricamento coalescente dei modelli e provider: l'inizializzazione in background elimina le chiamate concorrenti duplicate a `omp models` all'avvio dell'applicazione e azzera i cicli reattivi di ricarica in caso di errore.
+- Sicurezza e robustezza delle sorgenti di quota: confinamento rigoroso dei percorsi con fallback protetto in caso di variabili d'ambiente vuote, limitazione a flusso del buffer di output dei processi figli e validazione difensiva dei valori numerici nel popover delle quote.
 - Modulo unico e navigazione libera per le domande multiple dell'agente (`ask`): la card riceve ed espone tutte le domande fin dalla prima richiesta grazie all'arricchimento bidirezionale immediato all'arrivo degli argomenti del tool, consentendo di spostarsi liberamente avanti e indietro tra i passaggi e di verificare il riepilogo prima dell'invio definitivo, azzerando le card frammentate e la perdita di navigazione sulle domande precedenti.
 - Preservazione delle note nelle scelte multiple e validazione rigorosa della coda di consegna: l'aggiunta di note a risposte a scelta multipla viene instradata correttamente senza generare opzioni fantasma per l'agente, e i passi automatici in coda vengono verificati per metodo, firma delle opzioni e identificativo di chiamata prima di essere consegnati a `omp`, arrestando la sequenza con avviso chiaro in caso di disallineamento.
 - I menu dei modelli mostrano le capacità come icone: accanto a ogni modello compaiono la finestra di contesto, l'occhio per il supporto alle immagini e il simbolo del ragionamento esteso, con i livelli di sforzo nel suggerimento. Prima l'elenco aperto scriveva «Vision» e «Reasoning» a parole solo nel selettore del task, e nel menu rapido della chat non diceva nulla.
@@ -34,7 +39,6 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le riserve dei ruoli, il modello primario, il ciclo rapido e il modello dei suggerimenti propongono soltanto i modelli dei provider effettivamente configurati e abilitati, non l'intero catalogo di OMP.
 - I suggerimenti AI per i ruoli non propongono più modelli di provider che non hai: la validazione avviene sull'elenco realmente disponibile e i provider personalizzati definiti in `models.json` (compresi i server locali) ora vengono inclusi invece di essere sempre esclusi.
 - Pannelli e liste ad altezza vincolata scorrono invece di troncare il contenuto: elenco ruoli e dettaglio ruolo, elenco provider e dettaglio provider, cassetto del ciclo rapido, pannello e cassetto dei subagenti, selettore di progetto e popover delle quote.
-
 ## [1.3.0] - 2026-09-01
 
 ### Added

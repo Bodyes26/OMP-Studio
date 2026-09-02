@@ -207,8 +207,10 @@
 								<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
 							{/if}
 							{#each report.limits as limit}
-								{@const usedFrac = limit.amount?.usedFraction ?? (1 - (limit.amount?.remainingFraction ?? 1))}
-								{@const remainingFrac = limit.amount?.remainingFraction ?? (1 - usedFrac)}
+								{@const rawUsed = typeof limit.amount?.usedFraction === 'number' ? limit.amount.usedFraction : null}
+								{@const rawRem = typeof limit.amount?.remainingFraction === 'number' ? limit.amount.remainingFraction : null}
+								{@const usedFrac = Math.max(0, Math.min(1, rawUsed ?? (rawRem !== null ? 1 - rawRem : 0)))}
+								{@const remainingFrac = Math.max(0, Math.min(1, rawRem ?? (1 - usedFrac)))}
 								{@const remainingPercent = Math.round(remainingFrac * 100)}
 								{@const usedPercent = Math.round(usedFrac * 100)}
 								{@const colorVar = usedFrac >= 0.9 ? 'var(--brand)' : usedFrac >= 0.75 ? 'var(--warn)' : 'var(--ink-muted)'}
@@ -224,8 +226,10 @@
 											{/if}
 										</span>
 										<span class="value">
-											{#if limit.amount?.unit === 'usd'}
-												{remainingPercent}% (${limit.amount?.remaining?.toFixed(2)} / ${limit.amount?.limit?.toFixed(2)})
+											{#if limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number' && typeof limit.amount?.limit === 'number'}
+												{remainingPercent}% (${limit.amount.remaining.toFixed(2)} / ${limit.amount.limit.toFixed(2)})
+											{:else if limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number'}
+												{remainingPercent}% (${limit.amount.remaining.toFixed(2)})
 											{:else}
 												{remainingPercent}%
 											{/if}

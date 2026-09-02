@@ -1495,12 +1495,11 @@ export class AgentSession {
 
 		const accepts = (sameCall || flush.toolCallId === null) && stepAcceptsRequest(next, request);
 		if (!accepts) {
-			if (sameCall) {
-				// Disallineamento: la richiesta non combacia con il passo che
-				// la coda si aspettava. Scartiamo il piano rimasto per evitare
-				// di mandare risposte nella casella sbagliata, e mostriamo la
-				// richiesta nuda come deciso dall'utente.
-				this.askFlush = null;
+			// Disallineamento: la richiesta non combacia con il passo che
+			// la coda si aspettava. Scartiamo il piano rimasto per evitare
+			// di mandare risposte nella casella sbagliata.
+			this.askFlush = null;
+			if (sameCall || flush.toolCallId === null) {
 				this.pushNotice(
 					'warning',
 					'La richiesta dell\u2019agente non corrisponde al piano di risposte preparato: il resto del piano e\u2019 stato interrotto per sicurezza. Rispondi a mano da questa domanda.',
@@ -1582,15 +1581,15 @@ export class AgentSession {
 			.reverse()
 			.find((t) => t.running && t.toolName === 'ask');
 		const toolCallId = pending.toolCallId ?? runningAsk?.toolCallId ?? null;
+		const hasRecovery = Boolean(first.method === 'select' && first.recovery);
 		const flush =
-			rest.length > 0
+			rest.length > 0 || hasRecovery
 				? {
 						toolCallId,
 						steps: rest,
 						lastClosing: first.method === 'select' && first.recovery ? first : null
 					}
 				: null;
-
 		await this.respond(pending, { value: first.value }, flush);
 	}
 

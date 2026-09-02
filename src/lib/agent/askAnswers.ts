@@ -211,26 +211,30 @@ export function buildQuestionSteps(question: AnswerableQuestion): AskFlushStep[]
 	const signature = answerableSignature(question);
 	const note = question.note.trim();
 
-	// "Altro": il valore va spedito cosi' com'e'. Il ramo a scelta singola di
-	// omp accetta qualunque stringa e la registra come risposta, quindi non
-	// serve passare per `Other` e per la richiesta `editor` che ne seguirebbe.
-	if (question.isCustom) {
-		const custom = question.customInput.trim();
-		return [{ method: 'select', value: note ? `${custom} (nota: ${note})` : custom, signature }];
-	}
-
-	const selected = Array.from(question.selectedOptions);
-
 	if (question.multi) {
-		// Ogni spunta e' un round: il ciclo di omp ripropone lo stesso elenco
-		// dopo ognuna. La nota non puo' viaggiare come spunta, perche' omp
-		// aggiunge al set qualunque valore ignoto e l'agente si ritroverebbe
-		// un'opzione inesistente tra quelle scelte.
+		const selected = Array.from(question.selectedOptions);
 		const steps: AskFlushStep[] = selected.map((key) => ({
 			method: 'select' as const,
 			value: originalLabel(question, key),
 			signature
 		}));
+
+		// Se l'utente ha indicato un valore personalizzato ("Altro"), inviamo
+		// la richiesta attraverso la voce Other e il prompt editor
+		if (question.isCustom) {
+			const custom = question.customInput.trim();
+			const customValue = note ? `${custom} (nota: ${note})` : custom;
+			steps.push(
+				{ method: 'select', value: OTHER_LABEL, signature },
+				{ method: 'editor', value: customValue }
+			);
+			return steps;
+		}
+
+		// Ogni spunta e' un round: il ciclo di omp ripropone lo stesso elenco
+		// dopo ognuna. La nota non puo' viaggiare come spunta, perche' omp
+		// aggiunge al set qualunque valore ignoto e l'agente si ritroverebbe
+		// un'opzione inesistente tra quelle scelte.
 		const summary = multiSummary(question, selected);
 		const viaOther: AskFlushStep[] = [
 			{ method: 'select', value: OTHER_LABEL, signature },
@@ -253,6 +257,16 @@ export function buildQuestionSteps(question: AnswerableQuestion): AskFlushStep[]
 		});
 		return steps;
 	}
+
+	// Scelta singola con "Altro": il valore va spedito cosi' com'e'. Il ramo a
+	// scelta singola di omp accetta qualunque stringa e la registra come risposta,
+	// quindi non serve passare per `Other` e per la richiesta `editor` che ne seguirebbe.
+	if (question.isCustom) {
+		const custom = question.customInput.trim();
+		return [{ method: 'select', value: note ? `${custom} (nota: ${note})` : custom, signature }];
+	}
+
+	const selected = Array.from(question.selectedOptions);
 
 	const label = originalLabel(question, selected[0]);
 	return [

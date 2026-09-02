@@ -155,6 +155,10 @@ class ModelSettingsStore {
 	upgradeModalOpen = $state(false);
 	lastUpgradeCheckMessage = $state<string | null>(null);
 	statusToast = $state<string | null>(null);
+	private loadProvidersPromise: Promise<void> | null = null;
+	private ensureLoadedPromise: Promise<void> | null = null;
+	private providersRequested = false;
+
 
 	suggestionsCache = new Map<string, RoleSuggestionsResponse>();
 	loadingSuggestionsRole = $state<string | null>(null);
@@ -247,12 +251,20 @@ class ModelSettingsStore {
 
 	/** Carica il catalogo provider dinamici (builtin, plugin, custom). Errori loggati, non bloccano `loadAll`. */
 	async loadProviders() {
-		try {
-			this.providers = await invoke<ProviderSummary[]>('get_model_providers');
-		} catch (e) {
-			console.error('Failed to load model providers:', e);
-			this.providers = [];
-		}
+		if (this.loadProvidersPromise) return this.loadProvidersPromise;
+		this.loadProvidersPromise = (async () => {
+			try {
+				this.providers = await invoke<ProviderSummary[]>('get_model_providers');
+			} catch (e) {
+				console.error('Failed to load model providers:', e);
+				if (this.providers.length > 0) {
+					this.providers = [];
+				}
+			} finally {
+				this.loadProvidersPromise = null;
+			}
+		})();
+		return this.loadProvidersPromise;
 	}
 
 	/** Carica gli account di autenticazione, opzionalmente filtrati per provider. */
@@ -292,31 +304,40 @@ class ModelSettingsStore {
 		// L'elenco provider serve a `assignableCatalog` quando `omp models`
 		// non risponde: senza di esso il ripiego non saprebbe quali provider
 		// hanno credenziali e mostrerebbe il catalogo intero.
-		if (this.providers.length === 0) {
+		if (!this.providersRequested) {
+			this.providersRequested = true;
 			void this.loadProviders();
 		}
 		if (this.config && this.catalog.length > 0 && this.availableCatalogLoaded) return;
-		try {
-			const [cfg, cat, available] = await Promise.all([
-				invoke<ModelConfigDto>('get_model_config'),
-				invoke<ModelDto[]>('get_models_catalog'),
-				invoke<ModelDto[]>('get_available_models_catalog').catch((error) => {
-					console.warn('Available models catalog:', error);
-					return [];
-				})
-			]);
-			if (!this.config) {
-				this.config = cfg;
-				this.draftConfig = JSON.parse(JSON.stringify(cfg));
+		if (this.ensureLoadedPromise) return this.ensureLoadedPromise;
+
+		this.ensureLoadedPromise = (async () => {
+			try {
+				const [cfg, cat, available] = await Promise.all([
+					invoke<ModelConfigDto>('get_model_config'),
+					invoke<ModelDto[]>('get_models_catalog'),
+					invoke<ModelDto[]>('get_available_models_catalog').catch((error) => {
+						console.warn('Available models catalog:', error);
+						return [];
+					})
+				]);
+				if (!this.config) {
+					this.config = cfg;
+					this.draftConfig = JSON.parse(JSON.stringify(cfg));
+				}
+				if (this.catalog.length === 0) {
+					this.catalog = cat;
+				}
+				this.availableCatalog = available;
+				this.availableCatalogLoaded = true;
+			} catch (e) {
+				console.error('ensureLoaded failed:', e);
+			} finally {
+				this.ensureLoadedPromise = null;
 			}
-			if (this.catalog.length === 0) {
-				this.catalog = cat;
-			}
-			this.availableCatalog = available;
-			this.availableCatalogLoaded = true;
-		} catch (e) {
-			console.error('ensureLoaded failed:', e);
-		}
+		})();
+
+		return this.ensureLoadedPromise;
 	}
 
 	async saveConfig() {

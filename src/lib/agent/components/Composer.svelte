@@ -320,6 +320,10 @@ $effect(() => {
 			window.removeEventListener('focus', handleWindowFocus);
 			window.removeEventListener('blur', handleWindowBlur);
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			if (blinkTimer !== null) {
+				window.clearTimeout(blinkTimer);
+				blinkTimer = null;
+			}
 		};
 	});
 
@@ -589,6 +593,12 @@ $effect(() => {
 		activeMenu = null;
 		paletteOpen = false;
 	}
+	$effect(() => {
+		if (!session.isStreaming && activeMenu === 'send') {
+			activeMenu = null;
+		}
+	});
+
 
 	function handleWindowKeydown(event: KeyboardEvent) {
 		if (!visible) return;
@@ -610,10 +620,40 @@ $effect(() => {
 		const keyLower = event.key.toLowerCase();
 		const code = event.code;
 
+		const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+		const isInteractiveElement = activeEl instanceof HTMLElement && (
+			activeEl instanceof HTMLButtonElement
+			|| activeEl instanceof HTMLSelectElement
+			|| activeEl.getAttribute('role') === 'button'
+			|| activeEl.getAttribute('role') === 'option'
+			|| activeEl.getAttribute('role') === 'tab'
+			|| activeEl.getAttribute('role') === 'menuitem'
+			|| activeEl.getAttribute('role') === 'radio'
+			|| activeEl.getAttribute('role') === 'checkbox'
+			|| activeEl.closest('.ask-card') !== null
+			|| activeEl.closest('.modal-dialog') !== null
+			|| activeEl.closest('.popover') !== null
+			|| activeEl.closest('.drawer') !== null
+		);
+		const hasOpenOverlay = typeof document !== 'undefined' && Boolean(
+			settingsStore.open
+			|| modelSettingsStore.isOpen
+			|| shortcutsModalStore.isOpen
+			|| document.querySelector('.modal-dialog, .modal-backdrop, .project-picker-modal, .queue-drawer.open')
+		);
+
 		// Type-to-focus: se l'utente inizia a scrivere (lettera/simbolo normale) e il focus non e' in un altro input
-		// ne' ci sono dialoghi/menu aperti, focalizza automaticamente la textarea del composer
-		if (!isComposerTextarea && !activeMenu && !paletteOpen && !shortcutsModalStore.isOpen) {
+		// ne' ci sono dialoghi/menu aperti o elementi interattivi a fuoco
+		if (!isComposerTextarea && !activeMenu && !paletteOpen && !hasOpenOverlay) {
 			if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && !event.isComposing) {
+				if (event.key === ' ' && isInteractiveElement) {
+					// Lascia che lo spazio attivi l'elemento con focus
+					return;
+				}
+				if (isInteractiveElement && activeEl?.closest('.ask-card')) {
+					// Non rubare il fuoco alla card di ask
+					return;
+				}
 				textareaEl?.focus();
 				// Lascia propagare l'evento per inserire il carattere nella textarea
 			}
@@ -1032,6 +1072,7 @@ $effect(() => {
 				oninput={handleComposerInput}
 				onclick={handleCursorMovement}
 				onkeyup={handleCursorMovement}
+				onscroll={handleCursorMovement}
 				onkeydown={handleKeydown}
 				onpaste={handlePaste}
 				onfocus={() => updateSmoothCursor(true)}
