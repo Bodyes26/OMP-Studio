@@ -27,12 +27,28 @@ export interface AnchoredOptions {
 	/** Margine minimo dai bordi della finestra. */
 	padding?: number;
 	placement?: AnchorPlacement;
+	/** Larghezza del pannello uguale a quella dell'ancora: serve ai menu di
+	 *  selezione, che devono sembrare la continuazione del loro trigger. */
+	matchWidth?: boolean;
+	/** Pubblica lo spazio verticale disponibile nella variabile CSS
+	 *  `--anchored-space`, che il pannello compone con il proprio limite. */
+	constrainHeight?: boolean;
 	/** Notifica il ribaltamento: serve al pannello per spostare il ponte del
 	 *  mouse dal lato giusto. */
 	onFlip?: (flipped: boolean) => void;
 }
 
-const DEFAULTS = { offset: 6, padding: 8, placement: 'bottom-start' as AnchorPlacement };
+const DEFAULTS = {
+	offset: 6,
+	padding: 8,
+	placement: 'bottom-start' as AnchorPlacement,
+	matchWidth: false,
+	constrainHeight: false
+};
+
+/** Sotto questa soglia il pannello non si comprime: meglio uscire dai bordi
+ *  che diventare una fessura di due righe. */
+const MIN_CONSTRAINED_HEIGHT = 180;
 
 export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}) {
 	let current = { ...DEFAULTS, ...options };
@@ -59,12 +75,34 @@ export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}
 		if (!anchor?.isConnected) return;
 
 		const rect = anchor.getBoundingClientRect();
-		const width = node.offsetWidth;
-		const height = node.offsetHeight;
-		const { offset, padding, placement } = current;
+		const { offset, padding, placement, matchWidth, constrainHeight } = current;
+
+		// La larghezza si impone prima di misurare l'altezza: il contenuto
+		// rifluisce, e un'altezza misurata sulla larghezza vecchia sbaglierebbe
+		// il ribaltamento.
+		if (matchWidth) {
+			const target = `${Math.round(rect.width)}px`;
+			if (node.style.width !== target) node.style.width = target;
+		}
 
 		const spaceBelow = window.innerHeight - rect.bottom - offset - padding;
 		const spaceAbove = rect.top - offset - padding;
+
+		// Lo spazio disponibile si pubblica come variabile CSS invece di
+		// scrivere `max-height` inline: cosi' il pannello lo compone con il
+		// proprio limite (`min(320px, var(--anchored-space))`) invece di
+		// vederselo sovrascritto. Si misura sul lato che verra' scelto,
+		// altrimenti un pannello ribaltato resterebbe tagliato in alto.
+		if (constrainHeight) {
+			const side = Math.max(spaceBelow, spaceAbove, MIN_CONSTRAINED_HEIGHT);
+			const limit = `${Math.round(side)}px`;
+			if (node.style.getPropertyValue('--anchored-space') !== limit) {
+				node.style.setProperty('--anchored-space', limit);
+			}
+		}
+
+		const width = node.offsetWidth;
+		const height = node.offsetHeight;
 		// Si ribalta solo se sopra c'e' davvero piu' spazio: un pannello alto
 		// che non entra da nessuna parte resta sotto l'ancora, dove l'utente
 		// lo aspetta, e scorre al proprio interno.

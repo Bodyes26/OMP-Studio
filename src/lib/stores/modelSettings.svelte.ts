@@ -166,6 +166,27 @@ class ModelSettingsStore {
 		return cfgChanged || customChanged;
 	});
 
+	/**
+	 * Catalogo da usare in ogni selettore di assegnazione (ruoli, riserve,
+	 * ciclo rapido, task): solo modelli raggiungibili con le credenziali che
+	 * l'utente ha davvero. `catalog` e' l'elenco completo noto a OMP e serve
+	 * alla scheda Catalogo e alle ricerche di metadati, non alla scelta.
+	 *
+	 * `availableCatalog` arriva da `omp models --json`. Se la CLI non risponde
+	 * si ripiega sul catalogo completo filtrato per i provider marcati
+	 * configurati e abilitati; se nemmeno quello e' noto si torna al catalogo
+	 * intero, perche' un elenco largo e' comunque meglio di un elenco vuoto.
+	 */
+	assignableCatalog = $derived.by(() => {
+		if (this.availableCatalog.length > 0) return this.availableCatalog;
+		const usable = new Set(
+			this.providers.filter((p) => p.configured && p.enabled).map((p) => p.id)
+		);
+		if (usable.size === 0) return this.catalog;
+		const filtered = this.catalog.filter((m) => usable.has(m.provider));
+		return filtered.length > 0 ? filtered : this.catalog;
+	});
+
 	openModal(tab: 'roles' | 'catalog' | 'providers' = 'roles', targetProvider?: string) {
 		this.activeTab = tab;
 		if (targetProvider) {
@@ -268,6 +289,12 @@ class ModelSettingsStore {
 
 	/** Carica la configurazione e i cataloghi in background senza mostrare toast o bloccare l'interfaccia. */
 	async ensureLoaded() {
+		// L'elenco provider serve a `assignableCatalog` quando `omp models`
+		// non risponde: senza di esso il ripiego non saprebbe quali provider
+		// hanno credenziali e mostrerebbe il catalogo intero.
+		if (this.providers.length === 0) {
+			void this.loadProviders();
+		}
 		if (this.config && this.catalog.length > 0 && this.availableCatalogLoaded) return;
 		try {
 			const [cfg, cat, available] = await Promise.all([

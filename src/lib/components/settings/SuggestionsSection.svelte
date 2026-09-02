@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/core';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	import type { PromptSuggestion, FactorySuggestionKey } from '$lib/stores/promptSuggestions';
@@ -13,33 +12,18 @@
 		IconClose
 	} from '$lib/icons';
 
-	// Catalogo modelli caricato come fallback locale se non ancora presente nello store
-	let fallbackCatalog = $state<ModelDto[]>([]);
-	let catalogLoaded = $state(false);
+	// Il caricamento lo fa lo store, una volta: `assignableCatalog` contiene
+	// solo i modelli raggiungibili con le credenziali presenti, quindi la
+	// select non propone provider che l'utente non ha configurato.
+	let catalogRequested = $state(false);
 
-	// Caricamento non bloccante del catalogo modelli per popolare il selettore
 	$effect(() => {
-		if (modelSettingsStore.catalog.length > 0) {
-			catalogLoaded = true;
-			return;
-		}
-		invoke<ModelDto[]>('get_models_catalog')
-			.then((models) => {
-				fallbackCatalog = models || [];
-				catalogLoaded = true;
-			})
-			.catch((err) => {
-				console.warn('Impossibile caricare il catalogo modelli per i suggerimenti:', err);
-				catalogLoaded = true;
-			});
+		if (catalogRequested) return;
+		catalogRequested = true;
+		void modelSettingsStore.ensureLoaded();
 	});
 
-	const availableModels = $derived.by(() => {
-		if (modelSettingsStore.catalog.length > 0) {
-			return modelSettingsStore.catalog;
-		}
-		return fallbackCatalog;
-	});
+	const availableModels = $derived(modelSettingsStore.assignableCatalog);
 
 	// Raggruppa i modelli per provider per una select ordinata
 	const groupedModels = $derived.by(() => {

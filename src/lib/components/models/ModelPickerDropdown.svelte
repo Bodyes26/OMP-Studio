@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ModelDto } from '$lib/stores/modelSettings.svelte';
-	import { fade } from 'svelte/transition';
+	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { IconContextWindow, IconRoleSlow, IconRoleVision } from '$lib/icons';
 
 	let {
@@ -87,6 +87,15 @@
 		if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`;
 		if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
 		return `${tokens}`;
+	}
+
+	// I livelli di sforzo, quando il modello li dichiara, sono l'informazione
+	// utile: "reasoning" da solo non dice quanto puoi spingerlo.
+	function thinkingTitle(m: ModelDto) {
+		const efforts = m.thinking?.efforts;
+		return efforts && efforts.length > 0
+			? `Thinking: ${efforts.join(' · ')}`
+			: 'Thinking: supporta il ragionamento esteso';
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -204,7 +213,11 @@
 	</button>
 
 	{#if isOpen}
-		<div class="picker-dropdown" transition:fade={{ duration: 120 }}>
+		<div
+			class="picker-dropdown"
+			popover="manual"
+			use:anchoredPopover={{ anchor: triggerRef, offset: 4, matchWidth: true, constrainHeight: true }}
+		>
 			<div class="search-box">
 				<svg class="search-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4">
 					<circle cx="7" cy="7" r="4.5" />
@@ -259,13 +272,35 @@
 										</div>
 										<div class="option-badges">
 											{#if m.contextWindow}
-												<span class="ctx-chip">{formatContext(m.contextWindow)} ctx</span>
+												<span
+													class="cap-chip ctx"
+													role="img"
+													title={`Finestra di contesto: ${formatContext(m.contextWindow)} token`}
+													aria-label={`Contesto ${formatContext(m.contextWindow)} token`}
+												>
+													<IconContextWindow />
+													<small>{formatContext(m.contextWindow)}</small>
+												</span>
 											{/if}
 											{#if m.input?.includes('image')}
-												<span class="cap-chip">Vision</span>
+												<span
+													class="cap-chip vision"
+													role="img"
+													title="Vision: accetta immagini in input"
+													aria-label="Vision: accetta immagini in input"
+												>
+													<IconRoleVision />
+												</span>
 											{/if}
 											{#if m.reasoning}
-												<span class="cap-chip">Reasoning</span>
+												<span
+													class="cap-chip thinking"
+													role="img"
+													title={thinkingTitle(m)}
+													aria-label={thinkingTitle(m)}
+												>
+													<IconRoleSlow />
+												</span>
 											{/if}
 											{#if m.isCustom}
 												<span class="custom-chip">Custom</span>
@@ -403,13 +438,22 @@
 		transform: rotate(180deg);
 	}
 
+	/* Nel top layer (`popover`) il pannello non lo taglia nessun `overflow`
+	   degli antenati: dentro l'editor task o un pannello di impostazioni un
+	   menu `absolute` perdeva le ultime voci. Le coordinate le calcola
+	   `anchoredPopover`, che ribalta e pubblica lo spazio disponibile. */
 	.picker-dropdown {
-		position: absolute;
-		top: calc(100% + 4px);
-		left: 0;
-		right: 0;
-		max-height: 320px;
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		padding: 0;
+		min-width: 240px;
+		max-height: min(320px, var(--anchored-space, 320px));
+		animation: picker-in var(--dur-fast) var(--ease-out);
 		background: var(--bg-overlay);
+		/* Lo stile UA di `[popover]` impone `color: CanvasText`: senza questa
+		   riga il testo non erediterebbe il tema. */
+		color: var(--ink);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
@@ -419,7 +463,17 @@
 		overflow: hidden;
 	}
 
+	@keyframes picker-in {
+		from {
+			opacity: 0;
+			transform: translateY(-4px);
+		}
+	}
+
+	/* La ricerca non si comprime: col pannello limitato allo spazio
+	   disponibile deve cedere solo l'elenco. */
 	.search-box {
+		flex-shrink: 0;
 		display: flex;
 		align-items: center;
 		position: relative;
@@ -466,6 +520,7 @@
 
 	.results-list {
 		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 		padding: 4px;
 		display: flex;
@@ -556,24 +611,39 @@
 		flex-shrink: 0;
 	}
 
-	.ctx-chip {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--ink-faint);
-		background: var(--bg-base);
+	/* Le capability si leggono come icone, non come parole: la riga di un
+	   modello resta corta e il colore distingue vision da thinking anche
+	   con la coda dell'occhio. Gli stessi glifi del trigger. */
+	.cap-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
 		padding: 1px 4px;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
+		background: var(--bg-base);
+		color: var(--ink-muted);
+		--icon-size: 11px;
 	}
 
-	.cap-chip {
-		font-size: 9px;
-		font-weight: 500;
-		color: var(--ink-muted);
-		background: var(--bg-base);
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
+	.cap-chip small {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		line-height: 1;
+	}
+
+	.cap-chip.ctx {
+		color: var(--ink-faint);
+	}
+
+	.cap-chip.vision {
+		border-color: color-mix(in srgb, oklch(0.68 0.16 195) 30%, transparent);
+		color: oklch(0.78 0.13 195);
+	}
+
+	.cap-chip.thinking {
+		border-color: color-mix(in srgb, oklch(0.65 0.18 290) 30%, transparent);
+		color: oklch(0.78 0.14 290);
 	}
 
 	.custom-chip {

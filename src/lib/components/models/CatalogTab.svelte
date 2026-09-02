@@ -4,6 +4,7 @@
 		STANDARD_ROLES,
 		type ModelDto
 	} from '$lib/stores/modelSettings.svelte';
+	import { anchoredPopover } from '$lib/anchoredPopover';
 
 	let searchQuery = $state('');
 	let filterVision = $state(false);
@@ -11,6 +12,7 @@
 	let filterFree = $state(false);
 
 	let openAssignMenuFor = $state<string | null>(null);
+	let assignTriggerRef = $state<HTMLElement | null>(null);
 
 	/** Sorgente dati unica: i modelli realmente disponibili (auth valida / provider raggiungibile),
 	 *  con fallback sul catalogo statico completo finche' il primo non e' ancora stato caricato. */
@@ -119,17 +121,20 @@
 	function handleAssignToRole(roleId: string, model: ModelDto) {
 		modelSettingsStore.setRoleModel(roleId, model.selector);
 		openAssignMenuFor = null;
+		assignTriggerRef = null;
 		modelSettingsStore.showToast(`Modello assegnato al ruolo ${roleId}`);
 	}
 
 	function handleAddAsFallback(roleId: string, model: ModelDto) {
 		modelSettingsStore.addFallback(roleId, model.selector);
 		openAssignMenuFor = null;
+		assignTriggerRef = null;
 		modelSettingsStore.showToast(`Aggiunto come fallback a ${roleId}`);
 	}
 
 	function handleDocClick() {
 		openAssignMenuFor = null;
+		assignTriggerRef = null;
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -138,6 +143,7 @@
 			e.stopPropagation();
 			e.stopImmediatePropagation?.();
 			openAssignMenuFor = null;
+			assignTriggerRef = null;
 		}
 	}
 </script>
@@ -313,7 +319,13 @@
 								aria-expanded={openAssignMenuFor === m.selector}
 								onclick={(e) => {
 									e.stopPropagation();
-									openAssignMenuFor = openAssignMenuFor === m.selector ? null : m.selector;
+									if (openAssignMenuFor === m.selector) {
+										openAssignMenuFor = null;
+										assignTriggerRef = null;
+									} else {
+										openAssignMenuFor = m.selector;
+										assignTriggerRef = e.currentTarget;
+									}
 								}}
 							>
 								<span>Assegna</span>
@@ -325,7 +337,17 @@
 							{#if openAssignMenuFor === m.selector}
 								<!-- svelte-ignore a11y_click_events_have_key_events -->
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div class="assign-popover" onclick={(e) => e.stopPropagation()}>
+								<div
+									class="assign-popover"
+									popover="manual"
+									use:anchoredPopover={{
+										anchor: assignTriggerRef,
+										offset: 4,
+										placement: 'bottom-end',
+										constrainHeight: true
+									}}
+									onclick={(e) => e.stopPropagation()}
+								>
 									<div class="assign-section-title">Assegna a Ruolo</div>
 									<div class="assign-grid">
 										{#each STANDARD_ROLES as r (r.id)}
@@ -788,18 +810,21 @@
 		border-color: var(--line-strong);
 	}
 
+	/* Nel top layer (`popover`) il pannello non viene clippato dagli antenati con overflow
+	   (lista o dialog). Posizionamento e ribaltamento gestiti da anchoredPopover. */
 	.assign-popover {
-		position: absolute;
-		top: calc(100% + 4px);
-		right: 0;
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		padding: var(--space-2);
+		color: var(--ink);
 		width: 280px;
-		max-height: 380px;
+		max-height: min(380px, var(--anchored-space, 380px));
 		overflow-y: auto;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
-		padding: var(--space-2);
 		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;

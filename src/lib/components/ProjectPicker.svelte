@@ -191,6 +191,9 @@
 	}
 
 	.rows {
+		flex: 0 1 auto;
+		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del proprio contenuto, quindi il contenitore lo taglia invece di far comparire la barra di scorrimento */
+		min-height: 0;
 		overflow-y: auto;
 		padding: var(--space-1);
 		display: flex;

@@ -311,7 +311,7 @@
 
 				<div class="picker-container">
 					<ModelPickerDropdown
-						catalog={modelSettingsStore.catalog}
+						catalog={modelSettingsStore.assignableCatalog}
 						value={selectedRoleModelRaw}
 						placeholder="Seleziona modello per {selectedRole.label}..."
 						onSelect={(sel) => handleModelChange(selectedRole.id, sel)}
@@ -486,7 +486,7 @@
 					{#if isAddingFallback}
 						<div class="inline-fallback-picker">
 							<ModelPickerDropdown
-								catalog={modelSettingsStore.catalog}
+								catalog={modelSettingsStore.assignableCatalog}
 								placeholder="Scegli modello di riserva..."
 								onSelect={(sel) => handleAddFallback(selectedRole.id, sel)}
 							/>
@@ -620,6 +620,8 @@
 
 	.roles-list {
 		flex: 1;
+		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del proprio contenuto, quindi il contenitore lo taglia invece di far comparire la barra di scorrimento */
+		min-height: 0;
 		overflow-y: auto;
 		padding: 6px;
 		display: flex;
@@ -896,6 +898,7 @@
 
 	.detail-scroll-body {
 		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 		padding: 16px 20px;
 		display: flex;

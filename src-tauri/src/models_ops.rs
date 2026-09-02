@@ -1680,31 +1680,36 @@ fn get_models_perf_map() -> HashMap<String, ModelPerfStat> {
     map
 }
 
+/// Risolve il selettore proposto da un modello di linguaggio dentro un pool
+/// ristretto. Il pool si passa come slice di riferimenti perche' il chiamante
+/// lo compone da liste diverse senza clonare i modelli.
 fn find_matching_catalog_selector<'a>(
     raw_sel: &str,
-    catalog: &'a [ModelDto],
+    pool: &[&'a ModelDto],
 ) -> Option<&'a ModelDto> {
     let clean = raw_sel.trim();
     if clean.is_empty() {
         return None;
     }
     // 1. Exact match
-    if let Some(m) = catalog
+    if let Some(m) = pool
         .iter()
+        .copied()
         .find(|m| m.selector == clean || m.id == clean)
     {
         return Some(m);
     }
     // 2. Case insensitive exact match
     let clean_lower = clean.to_lowercase();
-    if let Some(m) = catalog
+    if let Some(m) = pool
         .iter()
+        .copied()
         .find(|m| m.selector.to_lowercase() == clean_lower || m.id.to_lowercase() == clean_lower)
     {
         return Some(m);
     }
     // 3. Substring match
-    if let Some(m) = catalog.iter().find(|m| {
+    if let Some(m) = pool.iter().copied().find(|m| {
         m.selector.to_lowercase().contains(&clean_lower)
             || clean_lower.contains(&m.selector.to_lowercase())
     }) {
@@ -1722,13 +1727,24 @@ pub async fn get_role_suggestions(
     let config = get_model_config().await?;
     let catalog = get_models_catalog().await?;
     let auth_summary = get_auth_providers_summary().await?;
+    let custom_defs = get_custom_providers()
+        .await
+        .unwrap_or_else(|_| CustomProvidersFile {
+            providers: HashMap::new(),
+        });
     let perf_map = get_models_perf_map();
 
-    // 1. Individua provider attivi e abilitati
+    // 1. Individua provider attivi e abilitati. I provider custom di
+    // `models.json` tengono baseUrl e chiave nel proprio file e non hanno
+    // riga in `auth_credentials`: pesarli solo su `auth_summary` li
+    // escludeva sempre, e chi ha soltanto provider locali non vedeva mai un
+    // suggerimento.
     let active_providers: Vec<String> = auth_summary
         .iter()
-        .filter(|a| a.has_credential && !config.disabled_providers.contains(&a.provider))
+        .filter(|a| a.has_credential)
         .map(|a| a.provider.clone())
+        .chain(custom_defs.providers.keys().cloned())
+        .filter(|provider| !config.disabled_providers.contains(provider))
         .collect();
 
     if active_providers.is_empty() {
@@ -1776,9 +1792,13 @@ pub async fn get_role_suggestions(
                 .unwrap_or(false);
             let is_local =
                 m.provider == "ollama" || m.provider == "llama.cpp" || m.provider == "lm-studio";
+            // Un provider custom non passa per la contabilita' di OMP e in
+            // `models.json` non dichiara costi: escluderlo per "costo
+            // sconosciuto" lo avrebbe reso invisibile ai suggerimenti.
+            let is_custom_provider = custom_defs.providers.contains_key(&m.provider);
 
             // Escludi categoricamente modelli a pagamento su provider a consumo
-            is_sub || is_free_selector || is_zero_cost || is_local
+            is_sub || is_free_selector || is_zero_cost || is_local || is_custom_provider
         })
         .cloned()
         .collect();
@@ -1843,6 +1863,12 @@ pub async fn get_role_suggestions(
     if free_models.len() > 10 {
         free_models.truncate(10);
     }
+
+    // Elenco esatto mostrato al modello: le sue risposte si validano solo su
+    // questo. Sul catalogo completo il match per sottostringa risolveva un
+    // nome inventato su un provider senza credenziali, e il suggerimento
+    // finiva su un provider che l'utente non ha.
+    let offered: Vec<&ModelDto> = sub_models.iter().chain(free_models.iter()).collect();
 
     // 5. Costruzione del sommario dei modelli disponibili
     let mut models_summary = String::new();
@@ -2010,7 +2036,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
     if let Some(items) = parsed.primary {
         for it in items {
             if let Some(raw_sel) = it.selector {
-                if let Some(matched_model) = find_matching_catalog_selector(&raw_sel, &catalog) {
+                if let Some(matched_model) = find_matching_catalog_selector(&raw_sel, &offered) {
                     if !validated_primary
                         .iter()
                         .any(|p| p.selector == matched_model.selector)
@@ -2077,7 +2103,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
     if let Some(items) = parsed.fallback {
         for it in items {
             if let Some(raw_sel) = it.selector {
-                if let Some(matched_model) = find_matching_catalog_selector(&raw_sel, &catalog) {
+                if let Some(matched_model) = find_matching_catalog_selector(&raw_sel, &offered) {
                     if !validated_fallback
                         .iter()
                         .any(|f| f.selector == matched_model.selector)

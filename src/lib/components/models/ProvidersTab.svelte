@@ -6,6 +6,7 @@
 		type ProviderSummary,
 		type AuthAccount
 	} from '$lib/stores/modelSettings.svelte';
+	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { IconClose, IconPlus } from '$lib/icons';
 	import { slide, fade } from 'svelte/transition';
 
@@ -154,6 +155,10 @@
 
 	// --- Menu "+ Aggiungi provider" ---
 	function openAddMenu() {
+		if (addMenuOpen) {
+			closeAddMenu();
+			return;
+		}
 		addMenuMode = unconfiguredProviders.length > 0 ? 'pick' : 'custom';
 		newProviderName = '';
 		addMenuOpen = true;
@@ -418,7 +423,17 @@
 			</button>
 
 			{#if addMenuOpen}
-				<div class="add-menu" bind:this={addMenuEl} transition:slide={{ duration: 140 }}>
+				<div
+					class="add-menu"
+					bind:this={addMenuEl}
+					popover="manual"
+					use:anchoredPopover={{
+						anchor: addMenuBtnEl,
+						offset: 6,
+						matchWidth: true,
+						constrainHeight: true
+					}}
+				>
 					{#if addMenuMode === 'pick'}
 						<span class="add-menu-title">Provider non configurati</span>
 						{#if unconfiguredProviders.length === 0}
@@ -811,6 +826,9 @@
 
 	.providers-list {
 		flex: 1;
+		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del
+		   contenuto e il contenitore lo taglia invece di far comparire la barra. */
+		min-height: 0;
 		overflow-y: auto;
 		padding: 6px;
 		display: flex;
@@ -974,24 +992,25 @@
 		background: color-mix(in srgb, var(--brand) 10%, var(--bg-raised));
 	}
 
+	/* Nel top layer (`popover`) il menu non viene clippato dalla sidebar o dal
+	   contenitore con overflow. Posizionamento e ribaltamento gestiti da anchoredPopover. */
 	.add-menu {
-		position: absolute;
-		left: 10px;
-		right: 10px;
-		bottom: calc(100% + 6px);
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		padding: var(--space-2);
+		color: var(--ink);
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
-		padding: var(--space-2);
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
 		z-index: var(--z-overlay);
-		max-height: 280px;
+		max-height: min(280px, var(--anchored-space, 280px));
 		overflow-y: auto;
 	}
-
 	.add-menu-title {
 		font-size: 10px;
 		font-weight: 600;
@@ -1136,6 +1155,9 @@
 
 	.detail-body {
 		flex: 1;
+		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del
+		   contenuto e il contenitore lo taglia invece di far comparire la barra. */
+		min-height: 0;
 		overflow-y: auto;
 		padding: var(--space-3) 18px var(--space-4);
 		display: flex;

@@ -129,7 +129,7 @@
 				{#if isAdding}
 					<div class="inline-picker">
 						<ModelPickerDropdown
-							catalog={modelSettingsStore.catalog}
+							catalog={modelSettingsStore.assignableCatalog}
 							placeholder="Scegli modello per ciclo..."
 							onSelect={(sel) => handleAddSelect(sel)}
 						/>
@@ -242,6 +242,8 @@
 
 	.drawer-content {
 		flex: 1;
+		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del proprio contenuto, quindi il contenitore lo taglia invece di far comparire la barra di scorrimento */
+		min-height: 0;
 		overflow-y: auto;
 		padding: 12px;
 		display: flex;

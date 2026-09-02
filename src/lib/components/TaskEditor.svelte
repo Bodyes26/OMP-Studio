@@ -75,13 +75,13 @@
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session?.availableCommands ?? []));
 	const title = $derived(prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task');
 	const selectedModel = $derived(
-		modelSettingsStore.availableCatalog.find((model) => model.selector === options.modelSelector) ??
+		modelSettingsStore.assignableCatalog.find((model) => model.selector === options.modelSelector) ??
 		modelSettingsStore.catalog.find((model) => model.selector === options.modelSelector)
 	);
 	const frequentModelConfigurations = $derived.by(() => {
 		const ranked = rankFrequentTaskModelConfigurations(taskStore.originsFor(task.projectPath));
 		return ranked.flatMap((configuration) => {
-			const model = modelSettingsStore.availableCatalog.find(
+			const model = modelSettingsStore.assignableCatalog.find(
 				(candidate) => candidate.selector === configuration.modelSelector
 			);
 			return model ? [{ ...configuration, model }] : [];
@@ -826,7 +826,7 @@
 							<div class="model-col">
 								<label for="task-model-picker" class="block-label">Modello specifico</label>
 								<ModelPickerDropdown
-									catalog={modelSettingsStore.availableCatalog}
+									catalog={modelSettingsStore.assignableCatalog}
 									value={options.modelSelector || ''}
 									placeholder="Usa modello predefinito del ruolo..."
 									onSelect={handleModelSelect}
@@ -1187,9 +1187,14 @@
 	}
 
 	/* Prompt Section */
+	/* `flex: 0 0 auto` e' quello che fa comparire lo scroll: da flex item
+	   comprimibile la sezione veniva schiacciata dal corpo a altezza fissa,
+	   quindi il contenuto non superava mai il contenitore e la barra non
+	   nasceva. Con il prompt cresciuto, l'accordion sotto restava tagliato. */
 	.prompt-section {
 		position: relative;
 		display: flex;
+		flex: 0 0 auto;
 		flex-direction: column;
 	}
 
@@ -1390,6 +1395,9 @@
 	/* Advanced Section (Collapsible) */
 	.advanced-section {
 		display: flex;
+		/* Idem: l'`overflow: hidden` serve solo ad arrotondare gli angoli, e
+		   su un flex item comprimibile diventava una forbice sul contenuto. */
+		flex: 0 0 auto;
 		flex-direction: column;
 		background: var(--bg-base);
 		border: 1px solid var(--line);

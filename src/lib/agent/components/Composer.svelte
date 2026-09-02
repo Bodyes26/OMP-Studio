@@ -37,7 +37,15 @@ import {
 	type SlashCursorMatch
 } from '../commands';
 import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
-import { IconClose, IconCheck, IconKeyboard } from '$lib/icons';
+import {
+	IconClose,
+	IconCheck,
+	IconKeyboard,
+	IconContextWindow,
+	IconRoleSlow,
+	IconRoleVision
+} from '$lib/icons';
+import { anchoredPopover } from '$lib/anchoredPopover';
 import { getCaretCoordinates } from './caretCoordinates';
 	let {
 		session,
@@ -87,6 +95,12 @@ let roleListEl = $state<HTMLElement | null>(null);
 let roleSearchInputEl = $state<HTMLInputElement | null>(null);
 let modelListEl = $state<HTMLElement | null>(null);
 let modelSearchInputEl = $state<HTMLInputElement | null>(null);
+// Ancore dei menu a comparsa: i pannelli vivono nel top layer, quindi le
+// coordinate si calcolano dal chip che li apre.
+let roleChipEl = $state<HTMLElement | null>(null);
+let modelChipEl = $state<HTMLElement | null>(null);
+let thinkingChipEl = $state<HTMLElement | null>(null);
+let sendCaretEl = $state<HTMLElement | null>(null);
 	// Modalita di streaming/accodamento (predefinita e alternativa)
 	const defaultBehavior = $derived<StreamingBehavior>(settingsStore.general.defaultStreamingBehavior ?? 'steer');
 	const alternativeBehavior = $derived<StreamingBehavior>(defaultBehavior === 'steer' ? 'followUp' : 'steer');
@@ -109,6 +123,32 @@ let modelSearchInputEl = $state<HTMLInputElement | null>(null);
 				|| (m.provider && m.provider.toLowerCase().includes(q))
 		);
 });
+
+// Il protocollo di sessione manda solo id, nome, provider e contesto: vision
+// e thinking si leggono dal catalogo, cosi' questa lista mostra le stesse
+// icone del selettore modello del task invece di due righe di testo nudo.
+const catalogByKey = $derived.by(() => {
+	const byKey: Record<string, ModelDto> = {};
+	for (const model of modelSettingsStore.catalog) {
+		byKey[`${model.provider}/${model.id}`] = model;
+		byKey[model.selector] = model;
+		byKey[model.id] = model;
+	}
+	return byKey;
+});
+
+function modelCapabilities(m: ModelInfo) {
+	const dto = catalogByKey[`${m.provider}/${m.id}`] ?? (m.id ? catalogByKey[m.id] : undefined);
+	return {
+		vision: dto?.input?.includes('image') ?? false,
+		thinking: dto?.reasoning ?? false,
+		contextWindow: m.contextWindow ?? dto?.contextWindow,
+		thinkingTitle:
+			dto?.thinking?.efforts && dto.thinking.efforts.length > 0
+				? `Thinking: ${dto.thinking.efforts.join(' · ')}`
+				: 'Thinking: supporta il ragionamento esteso'
+	};
+}
 
 const configuredRolesList = $derived.by(() => {
 	const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
@@ -1051,6 +1091,7 @@ $effect(() => {
 					</button>
 					<button
 						type="button"
+						bind:this={sendCaretEl}
 						class="send-btn send-caret-btn"
 						title="Altre modalità di invio"
 						aria-haspopup="menu"
@@ -1068,7 +1109,13 @@ $effect(() => {
 					</button>
 
 					{#if activeMenu === 'send'}
-						<div class="dropdown-menu send-menu" role="menu" aria-label="Modalità di invio">
+						<div
+							class="dropdown-menu send-menu"
+							role="menu"
+							aria-label="Modalità di invio"
+							popover="manual"
+							use:anchoredPopover={{ anchor: sendCaretEl, offset: 6, placement: 'bottom-end', constrainHeight: true }}
+						>
 							<div class="menu-header">
 								<span>Modalità di accodamento</span>
 							</div>
@@ -1142,6 +1189,7 @@ $effect(() => {
 		<div class="status-item-wrap">
 			<button
 				type="button"
+				bind:this={roleChipEl}
 				class="status-chip echo role-chip"
 				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Ruolo attivo (Alt+R per aprire il menu ruoli, Ctrl+P per ciclarlo)'}
 				aria-haspopup="listbox"
@@ -1164,7 +1212,13 @@ $effect(() => {
 			</button>
 
 			{#if activeMenu === 'role'}
-				<div class="dropdown-menu role-menu" role="group" aria-label="Ruoli configurati">
+				<div
+					class="dropdown-menu role-menu"
+					role="group"
+					aria-label="Ruoli configurati"
+					popover="manual"
+					use:anchoredPopover={{ anchor: roleChipEl, offset: 6, constrainHeight: true }}
+				>
 					<div class="menu-header">
 						<span>Ruoli (Alt+R)</span>
 						<div class="menu-header-actions">
@@ -1253,6 +1307,7 @@ $effect(() => {
 		<div class="status-item-wrap">
 			<button
 				type="button"
+				bind:this={modelChipEl}
 				class="status-chip echo model-chip"
 				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Modello corrente (Alt+P per aprire il catalogo modelli)'}
 				aria-haspopup="listbox"
@@ -1274,7 +1329,13 @@ $effect(() => {
 			</button>
 
 			{#if activeMenu === 'model'}
-				<div class="dropdown-menu model-menu" role="group" aria-label="Modelli disponibili">
+				<div
+					class="dropdown-menu model-menu"
+					role="group"
+					aria-label="Modelli disponibili"
+					popover="manual"
+					use:anchoredPopover={{ anchor: modelChipEl, offset: 6, constrainHeight: true }}
+				>
 					<div class="menu-header">
 						<span>Catalogo modelli (Alt+P)</span>
 						<div class="menu-header-actions">
@@ -1313,6 +1374,7 @@ $effect(() => {
 						{:else if filteredModels.length > 0}
 							{#each filteredModels as m, idx (m.provider + ':' + m.id)}
 								{@const isSelected = session.model?.id === m.id && session.model?.provider === m.provider}
+								{@const caps = modelCapabilities(m)}
 								<div
 									id="model-opt-{idx}"
 									class="menu-item"
@@ -1326,9 +1388,42 @@ $effect(() => {
 									onmouseenter={() => highlightedModelIndex = idx}
 								>
 									<span class="model-item-name">{m.name || m.id}</span>
-									{#if m.provider}
-										<span class="model-item-provider">{m.provider}</span>
-									{/if}
+									<span class="model-item-meta">
+										{#if m.provider}
+											<span class="model-item-provider">{m.provider}</span>
+										{/if}
+										{#if caps.contextWindow}
+											<span
+												class="cap-chip ctx"
+												role="img"
+												title={`Finestra di contesto: ${formatTokens(caps.contextWindow)} token`}
+												aria-label={`Contesto ${formatTokens(caps.contextWindow)} token`}
+											>
+												<IconContextWindow />
+												<small>{formatTokens(caps.contextWindow)}</small>
+											</span>
+										{/if}
+										{#if caps.vision}
+											<span
+												class="cap-chip vision"
+												role="img"
+												title="Vision: accetta immagini in input"
+												aria-label="Vision: accetta immagini in input"
+											>
+												<IconRoleVision />
+											</span>
+										{/if}
+										{#if caps.thinking}
+											<span
+												class="cap-chip thinking"
+												role="img"
+												title={caps.thinkingTitle}
+												aria-label={caps.thinkingTitle}
+											>
+												<IconRoleSlow />
+											</span>
+										{/if}
+									</span>
 								</div>
 							{/each}
 						{:else}
@@ -1349,6 +1444,7 @@ $effect(() => {
 		<div class="status-item-wrap">
 			<button
 				type="button"
+				bind:this={thinkingChipEl}
 				class="status-chip echo thinking-chip"
 				title="Livello di thinking (Alt+M per aprire il menu, Alt+T per ciclarlo)"
 				aria-haspopup="listbox"
@@ -1362,7 +1458,13 @@ $effect(() => {
 			</button>
 
 			{#if activeMenu === 'thinking'}
-				<div class="dropdown-menu thinking-menu" role="group" aria-label="Livello di thinking">
+				<div
+					class="dropdown-menu thinking-menu"
+					role="group"
+					aria-label="Livello di thinking"
+					popover="manual"
+					use:anchoredPopover={{ anchor: thinkingChipEl, offset: 6, constrainHeight: true }}
+				>
 					<div class="menu-header">
 						<span>Thinking (Alt+M)</span>
 						<button type="button" class="menu-cycle-btn" onclick={handleCycleThinking} title="Cicla rapido (Alt+T)">
@@ -1705,9 +1807,9 @@ $effect(() => {
 		flex-shrink: 0;
 	}
 
+	/* Il lato lo decide `anchoredPopover` con `placement: bottom-end`: qui
+	   resta solo la larghezza propria del pannello. */
 	.send-menu {
-		left: auto;
-		right: 0;
 		width: 260px;
 	}
 
@@ -1896,24 +1998,35 @@ $effect(() => {
 	}
 
 
-	/* Menu a comparsa */
+	/* Menu a comparsa. Nel top layer (`popover`) non li taglia nessun
+	   `overflow`: da `absolute` con `bottom: 100%` venivano tosati da
+	   `.chat-surface` e dalla colonna quando la chat era bassa. Le coordinate
+	   e il ribaltamento li calcola `anchoredPopover`. */
 	.dropdown-menu {
-		position: absolute;
-		bottom: 100%;
-		left: 0;
-		margin-bottom: var(--space-1);
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
 		background: var(--bg-raised);
+		/* Lo stile UA di `[popover]` impone `color: CanvasText`. */
+		color: var(--ink);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-overlay);
 		min-width: 180px;
 		max-width: calc(100vw - 2 * var(--space-4));
+		max-height: min(360px, var(--anchored-space, 360px));
 		overflow: hidden;
 	}
 
 
+	/* Intestazione, ricerca e piede non si comprimono: quando il pannello
+	   e' limitato dallo spazio disponibile deve cedere solo il corpo. */
 	.menu-header {
+		flex-shrink: 0;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -2017,7 +2130,12 @@ $effect(() => {
 		color: var(--warn);
 	}
 
+	/* Il corpo assorbe lo spazio residuo e scorre: con il pannello limitato
+	   allo spazio disponibile, senza `min-height: 0` non si comprimerebbe e
+	   le ultime voci resterebbero fuori. */
 	.menu-body {
+		flex: 1 1 auto;
+		min-height: 0;
 		max-height: 220px;
 		overflow-y: auto;
 		padding: var(--space-1);
@@ -2061,10 +2179,51 @@ $effect(() => {
 		white-space: nowrap;
 	}
 
+	.model-item-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
 	.model-item-provider {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		white-space: nowrap;
+	}
+
+	/* Stesse icone e stessi colori del selettore modello del task: vision e
+	   thinking si riconoscono senza leggere. */
+	.cap-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 1px 4px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		background: var(--bg-base);
+		color: var(--ink-muted);
+		--icon-size: 11px;
+	}
+
+	.cap-chip small {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		line-height: 1;
+	}
+
+	.cap-chip.ctx {
+		color: var(--ink-faint);
+	}
+
+	.cap-chip.vision {
+		border-color: color-mix(in srgb, oklch(0.68 0.16 195) 30%, transparent);
+		color: oklch(0.78 0.13 195);
+	}
+
+	.cap-chip.thinking {
+		border-color: color-mix(in srgb, oklch(0.65 0.18 290) 30%, transparent);
+		color: oklch(0.78 0.14 290);
 	}
 
 	.menu-loading,
@@ -2077,6 +2236,7 @@ $effect(() => {
 
 	/* Barra di ricerca nel menu modelli */
 	.menu-search-wrap {
+		flex-shrink: 0;
 		display: flex;
 		align-items: center;
 		gap: var(--space-1);
@@ -2132,6 +2292,7 @@ $effect(() => {
 	}
 
 	.menu-footer-hint {
+		flex-shrink: 0;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
