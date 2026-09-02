@@ -67,8 +67,7 @@
 		}
 		if (variant === 'no-tasks') {
 			return [
-				{ key: 'Alt+E', label: 'Scrivi nel Composer' },
-				{ key: 'Alt+Q', label: 'Impostazioni coda task' }
+				{ key: 'Alt+E', label: 'Scrivi nel Composer' }
 			];
 		}
 		return [];

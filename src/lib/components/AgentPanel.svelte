@@ -149,8 +149,7 @@
 								onClick: onCreateTask
 							}}
 							shortcuts={[
-								{ key: 'Alt+E', label: 'Scrivi nel Composer' },
-								{ key: 'Alt+Q', label: 'Opzioni coda' }
+								{ key: 'Alt+E', label: 'Scrivi nel Composer' }
 							]}
 						/>
 					</li>

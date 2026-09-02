@@ -23,7 +23,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Removed
 
 - Rimosso il popover di configurazione della coda con icona a ingranaggio dal campo di scrittura della chat e le scorciatoie `Alt+Q` e `Alt+S`, sostituite dalle impostazioni generali e dalla selezione rapida all'invio.
-
+- Rimossa la scorciatoia orfana non funzionante `Alt+Q Opzioni coda` dallo stato vuoto della colonna dei task.
 ### Fixed
 - Sincronizzazione affidabile del focus e digitazione diretta nella chat: il cursore animato (smooth cursor) si spegne tempestivamente quando la finestra o l'applicazione perde il focus evitando falsi lampeggi a vuoto, l'intera area del riquadro di input trasferisce il focus alla casella di scrittura al clic, e la digitazione a focus neutro attiva automaticamente il campo senza perdere i caratteri digitati.
 - Modulo unico e navigazione libera per le domande multiple dell'agente (`ask`): la card riceve ed espone tutte le domande fin dalla prima richiesta grazie all'arricchimento bidirezionale immediato all'arrivo degli argomenti del tool, consentendo di spostarsi liberamente avanti e indietro tra i passaggi e di verificare il riepilogo prima dell'invio definitivo, azzerando le card frammentate e la perdita di navigazione sulle domande precedenti.
