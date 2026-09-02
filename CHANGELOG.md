@@ -9,6 +9,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-02
+
 ### Added
 
 - Scelta immediata della modalità di accodamento al momento dell'invio: durante lo streaming dell'agente il pulsante di invio si sdoppia (split button) per inviare con il comportamento predefinito o aprire il menu a tendina e forzare la modalità Steer o Follow-up, con scorciatoie da tastiera `Invio` (modalità predefinita) e `Alt+Invio` (modalità opposta).
