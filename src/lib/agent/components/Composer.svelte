@@ -181,11 +181,24 @@ $effect(() => {
 			});
 		}
 	}
+	function isComposerActiveAndFocused(): boolean {
+		if (!textareaEl || typeof document === 'undefined') return false;
+		const hasDocFocus = typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+		return hasDocFocus && document.activeElement === textareaEl && !document.hidden;
+	}
+
 	function updateSmoothCursor(instant = false) {
 		if (!textareaEl) return;
-		const isFocused = typeof document !== 'undefined' && document.activeElement === textareaEl;
+		const isFocused = isComposerActiveAndFocused();
 		isCursorFocused = isFocused;
-		if (!isFocused) return;
+		if (!isFocused) {
+			isCursorBlinking = false;
+			if (blinkTimer !== null) {
+				window.clearTimeout(blinkTimer);
+				blinkTimer = null;
+			}
+			return;
+		}
 
 		const start = textareaEl.selectionStart ?? 0;
 		const end = textareaEl.selectionEnd ?? 0;
@@ -210,20 +223,57 @@ $effect(() => {
 			window.clearTimeout(blinkTimer);
 		}
 		blinkTimer = window.setTimeout(() => {
-			isCursorBlinking = true;
+			if (isComposerActiveAndFocused()) {
+				isCursorBlinking = true;
+			}
 		}, 500);
 	}
 
 	$effect(() => {
-		if (typeof document === 'undefined') return;
+		if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
 		function handleSelectionChange() {
 			if (document.activeElement === textareaEl) {
 				updateSmoothCursor();
 			}
 		}
+
+		function handleWindowFocus() {
+			if (document.activeElement === textareaEl) {
+				updateSmoothCursor(true);
+			} else {
+				isCursorFocused = false;
+				isCursorBlinking = false;
+			}
+		}
+
+		function handleWindowBlur() {
+			isCursorFocused = false;
+			isCursorBlinking = false;
+			if (blinkTimer !== null) {
+				window.clearTimeout(blinkTimer);
+				blinkTimer = null;
+			}
+		}
+
+		function handleVisibilityChange() {
+			if (document.hidden) {
+				handleWindowBlur();
+			} else if (document.activeElement === textareaEl) {
+				handleWindowFocus();
+			}
+		}
+
 		document.addEventListener('selectionchange', handleSelectionChange);
+		window.addEventListener('focus', handleWindowFocus);
+		window.addEventListener('blur', handleWindowBlur);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
 		return () => {
 			document.removeEventListener('selectionchange', handleSelectionChange);
+			window.removeEventListener('focus', handleWindowFocus);
+			window.removeEventListener('blur', handleWindowBlur);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
 	});
 
@@ -257,6 +307,16 @@ $effect(() => {
 	function handleCursorMovement() {
 		updateSlashState();
 		updateSmoothCursor();
+	}
+	function handleInputRowClick(event: MouseEvent) {
+		const target = event.target as HTMLElement | null;
+		if (target && (target.closest('button') || target.closest('a') || target.closest('input') || target.closest('.image-thumb-wrap'))) {
+			return;
+		}
+		if (textareaEl && document.activeElement !== textareaEl) {
+			textareaEl.focus();
+			updateSmoothCursor(true);
+		}
 	}
 	// Auto-dimensionamento della textarea fino a circa 12 righe (~240px)
 	function adjustTextareaHeight() {
@@ -557,6 +617,14 @@ $effect(() => {
 		const keyLower = event.key.toLowerCase();
 		const code = event.code;
 
+		// Type-to-focus: se l'utente inizia a scrivere (lettera/simbolo normale) e il focus non e' in un altro input
+		// ne' ci sono dialoghi/menu aperti, focalizza automaticamente la textarea del composer
+		if (!isComposerTextarea && !activeMenu && !paletteOpen && !shortcutsModalStore.isOpen) {
+			if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && !event.isComposing) {
+				textareaEl?.focus();
+				// Lascia propagare l'evento per inserire il carattere nella textarea
+			}
+		}
 		// Escape: chiusura a cascata o abort streaming
 		if (event.key === 'Escape') {
 			if (shortcutsModalStore.isOpen) {
@@ -965,12 +1033,13 @@ $effect(() => {
 	{/if}
 
 	<!-- Area di input principale -->
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
 	<div
 		class="input-row"
+		role="presentation"
 		ondrop={handleDrop}
 		ondragover={handleDragOver}
-		role="region"
-		aria-label="Area di scrittura"
+		onclick={handleInputRowClick}
 	>
 		<div class="composer-textarea-wrap">
 			<textarea
@@ -982,8 +1051,14 @@ $effect(() => {
 				onkeydown={handleKeydown}
 				onpaste={handlePaste}
 				onfocus={() => updateSmoothCursor(true)}
-				onblur={() => { isCursorFocused = false; }}
-				onscroll={handleCursorMovement}
+				onblur={() => {
+					isCursorFocused = false;
+					isCursorBlinking = false;
+					if (blinkTimer !== null) {
+						window.clearTimeout(blinkTimer);
+						blinkTimer = null;
+					}
+				}}
 				placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere" : "Scrivi un messaggio... digita / per i comandi (Alt+H scorciatoie)"}
 				rows="1"
 				class="composer-textarea"
