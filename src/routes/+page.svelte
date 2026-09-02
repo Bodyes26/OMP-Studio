@@ -282,6 +282,17 @@
 		void notificationManager.syncNativeAttention(false);
 	});
 
+	// Riapplica le modalita' di coda a tutte le sessioni agenti attive quando cambiano le preferenze generali.
+	// Necessario perche' agentSessions e' locale a questo componente e non accessibile direttamente dallo store.
+	$effect(() => {
+		const _steering = settingsStore.general.steeringMode;
+		const _followUp = settingsStore.general.followUpMode;
+		const _interrupt = settingsStore.general.interruptMode;
+		for (const session of agentSessions.values()) {
+			void session.applyQueueModes();
+		}
+	});
+
 	/**
 	 * Scrive solo se qualcosa cambia davvero. La versione precedente
 	 * assegnava un oggetto nuovo a ogni chiamata: dentro l'`$effect` qui sopra
@@ -882,7 +893,7 @@
 			'Scorciatoie principali (Alt+H per la guida completa):',
 			'Alt+P: cambia modello rapido • Ctrl+P: cicla modello',
 			'Alt+M: menu thinking • Alt+T: cicla thinking',
-			'Alt+Q: menu coda • Alt+S: alterna steering',
+			'Alt+Invio: invia con la modalita alternativa',
 			'Alt+C: interrompi/cancella • Alt+E: fuoco su composer'
 		];
 		if (session.availableCommands.length > 0) {

@@ -129,6 +129,44 @@ describe('Wire OMP e comandi', () => {
 			assert.equal(parsed.type, 'set_thinking_level');
 			assert.equal(parsed.level, 'high');
 		});
+		it('serializza prompt con streamingBehavior steer e followUp', () => {
+			const steerPrompt: RpcCommand = {
+				type: 'prompt',
+				message: 'Interrompi e fai X',
+				streamingBehavior: 'steer'
+			};
+			const parsedSteer = JSON.parse(formatWireCommand(steerPrompt, 'p1'));
+			assert.equal(parsedSteer.id, 'p1');
+			assert.equal(parsedSteer.type, 'prompt');
+			assert.equal(parsedSteer.streamingBehavior, 'steer');
+
+			const followUpPrompt: RpcCommand = {
+				type: 'prompt',
+				message: 'Accoda per dopo',
+				streamingBehavior: 'followUp'
+			};
+			const parsedFollowUp = JSON.parse(formatWireCommand(followUpPrompt, 'p2'));
+			assert.equal(parsedFollowUp.id, 'p2');
+			assert.equal(parsedFollowUp.type, 'prompt');
+			assert.equal(parsedFollowUp.streamingBehavior, 'followUp');
+		});
+
+		it('serializza i comandi per le tre modalita di coda omp', () => {
+			const steerCmd: RpcCommand = { type: 'set_steering_mode', mode: 'all' };
+			const parsedSteer = JSON.parse(formatWireCommand(steerCmd, 'q1'));
+			assert.equal(parsedSteer.type, 'set_steering_mode');
+			assert.equal(parsedSteer.mode, 'all');
+
+			const followUpCmd: RpcCommand = { type: 'set_follow_up_mode', mode: 'one-at-a-time' };
+			const parsedFollowUp = JSON.parse(formatWireCommand(followUpCmd, 'q2'));
+			assert.equal(parsedFollowUp.type, 'set_follow_up_mode');
+			assert.equal(parsedFollowUp.mode, 'one-at-a-time');
+
+			const interruptCmd: RpcCommand = { type: 'set_interrupt_mode', mode: 'wait' };
+			const parsedInterrupt = JSON.parse(formatWireCommand(interruptCmd, 'q3'));
+			assert.equal(parsedInterrupt.type, 'set_interrupt_mode');
+			assert.equal(parsedInterrupt.mode, 'wait');
+		});
 
 		it('serializza comandi compact e handoff con istruzioni opzionali', () => {
 			const compactCmd: RpcCommand = { type: 'compact', customInstructions: 'mantieni i todo' };

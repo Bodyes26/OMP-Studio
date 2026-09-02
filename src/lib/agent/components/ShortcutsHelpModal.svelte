@@ -62,8 +62,6 @@
 				{ keys: ['Alt+P'], description: 'Apre il catalogo rapido dei modelli con ricerca e tastiera' },
 				{ keys: ['Alt+M'], description: 'Apre il menu livello di thinking (ragionamento)' },
 				{ keys: ['Alt+T'], description: 'Cicla direttamente il livello di thinking (off → max)' },
-				{ keys: ['Alt+Q'], description: 'Apre le impostazioni della coda (steering, follow-up, interruzione)' },
-				{ keys: ['Alt+S'], description: 'Alterna rapidamente la modalità steering (one-at-a-time / all)' }
 			]
 		},
 		{
@@ -72,6 +70,7 @@
 			column: 1,
 			items: [
 				{ keys: ['Invio'], description: 'Invia il messaggio o seleziona il comando nella palette' },
+				{ keys: ['Alt+Invio'], description: 'Invia con la modalità di accodamento alternativa' },
 				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: 'Inserisce una nuova riga nel campo di scrittura' },
 				{ keys: ['/'], description: 'Apre la palette dei comandi slash disponibili' },
 				{ keys: ['Alt+1…6'], description: 'Precompila il composer con il suggerimento in quella posizione (non invia)' },

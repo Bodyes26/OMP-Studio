@@ -1,27 +1,19 @@
 <script lang="ts">
-	// Specchio dei messaggi in coda durante lo streaming.
+	// Specchio dei messaggi in coda durante lo streaming (sola lettura).
 	//
-	// Consente di commutare il comportamento di accodamento (steer / follow-up)
-	// direttamente per ciascun messaggio in coda.
+	// La modalita (steer / follow-up) viene trasmessa a omp nell'istante
+	// dell'invio e il protocollo RPC non espone comandi per modificare,
+	// rimuovere o riordinare un messaggio gia accodato (nessun dequeue/clear_queue).
 	import type { QueuedMessage } from '../session.svelte';
-	import type { StreamingBehavior } from '../wire';
 	import { stripEditorContext } from '$lib/editor/editorContext';
 
 	let {
 		queued,
-		serverCount,
-		onToggleBehavior
+		serverCount
 	} = $props<{
 		queued: QueuedMessage[];
 		serverCount: number;
-		onToggleBehavior?: (id: number, behavior: StreamingBehavior) => void;
 	}>();
-
-	function handleSetBehavior(item: QueuedMessage, behavior: StreamingBehavior) {
-		if (item.behavior === behavior) return;
-		item.behavior = behavior;
-		onToggleBehavior?.(item.id, behavior);
-	}
 
 	function truncate(text: string, max = 60): string {
 		const stripped = stripEditorContext(text);
@@ -39,26 +31,14 @@
 				class:steer={item.behavior === 'steer'}
 				class:follow-up={item.behavior === 'followUp'}
 			>
-				<div class="chip-behavior-switch" role="group" aria-label="Comportamento messaggio in coda">
-					<button
-						type="button"
-						class="chip-behavior-btn"
-						class:active={item.behavior === 'steer'}
-						onclick={() => handleSetBehavior(item, 'steer')}
-						title="Steer: interrompe il turno corrente per inserire il messaggio"
-					>
-						steer
-					</button>
-					<button
-						type="button"
-						class="chip-behavior-btn"
-						class:active={item.behavior === 'followUp'}
-						onclick={() => handleSetBehavior(item, 'followUp')}
-						title="Follow-up: attende la fine del turno e accoda il messaggio"
-					>
-						follow-up
-					</button>
-				</div>
+				<span
+					class="chip-badge"
+					class:steer={item.behavior === 'steer'}
+					class:follow-up={item.behavior === 'followUp'}
+					title="La modalita si scegle all'invio: Invio o Alt+Invio. omp non permette di modificarla ne di annullare il messaggio dopo l'accodamento."
+				>
+					{item.behavior === 'steer' ? 'Steer' : 'Follow-up'}
+				</span>
 				<span class="chip-text" title={item.text}>{truncate(item.text)}</span>
 			</div>
 		{/each}
@@ -99,45 +79,26 @@
 		user-select: text;
 	}
 
-	.chip-behavior-switch {
+	.chip-badge {
 		display: inline-flex;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px;
-		gap: 1px;
-		user-select: none;
-	}
-
-	.chip-behavior-btn {
+		align-items: center;
 		padding: 1px var(--space-1);
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
-		text-transform: lowercase;
-		background: transparent;
-		border: none;
+		line-height: 1.2;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		border-radius: calc(var(--radius-sm) - 1px);
 		color: var(--ink-faint);
-		cursor: pointer;
-		line-height: 1.2;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
-	}
-	.chip-behavior-btn:hover {
-		color: var(--ink);
-	}
-
-	.chip-behavior-btn.active {
-		background: var(--bg-base);
-		color: var(--ink);
 		font-weight: 600;
+		user-select: none;
 	}
 
-	.chip.steer .chip-behavior-btn.active {
+	.chip-badge.steer {
 		color: var(--brand-ink);
 	}
 
-	.chip.follow-up .chip-behavior-btn.active {
+	.chip-badge.follow-up {
 		color: var(--ink);
 	}
 

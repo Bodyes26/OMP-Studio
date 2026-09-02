@@ -14,6 +14,8 @@ import {
 	sanitizeSuggestionsCatalog,
 	getFactorySuggestion
 } from './promptSuggestions';
+import type { StreamingBehavior, QueueMode, InterruptMode } from '$lib/agent/wire';
+
 
 /**
  * Personalizzazioni del guscio.
@@ -48,6 +50,8 @@ export type DefaultSurface = 'terminal' | 'gui';
 
 /** Larghezza e allineamento del flusso della chat: centrata per leggibilita' o a tutta colonna. */
 export type ChatWidth = 'readable' | 'full';
+export type { StreamingBehavior, QueueMode, InterruptMode };
+
 
 export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions';
 /** Stile del messaggio della notifica di sistema. */
@@ -110,7 +114,17 @@ export interface GeneralSettings {
 	closeWithQueuedTasks: CloseWithQueuedTasks;
 	/** Larghezza e allineamento della chat: centrata con larghezza massima leggibile o a tutta colonna. */
 	chatWidth: ChatWidth;
+	/**
+	 * Modalita di accodamento e interruzione.
+	 * Vivono qui come preferenze persistenti (e non nella sessione volatile)
+	 * per sopravvivere al riavvio della chat e venire riapplicate ad ogni sessione.
+	 */
+	defaultStreamingBehavior: StreamingBehavior;
+	steeringMode: QueueMode;
+	followUpMode: QueueMode;
+	interruptMode: InterruptMode;
 }
+
 
 export interface SuggestionSettings {
 	/** Abilita la generazione di suggerimenti dinamici con modello leggero a fine turno. */
@@ -179,7 +193,11 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 	general: {
 		defaultSurface: 'terminal',
 		closeWithQueuedTasks: 'ask',
-		chatWidth: 'readable'
+		chatWidth: 'readable',
+		defaultStreamingBehavior: 'steer',
+		steeringMode: 'one-at-a-time',
+		followUpMode: 'one-at-a-time',
+		interruptMode: 'immediate'
 	},
 	notifications: {
 		enabled: true,
@@ -281,7 +299,15 @@ export function parseSettings(value: unknown): StudioSettings {
 		general: {
 			defaultSurface: pick(general.defaultSurface, ['terminal', 'gui'] as const, d.general.defaultSurface),
 			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks),
-			chatWidth: pick(general.chatWidth, ['readable', 'full'] as const, d.general.chatWidth)
+			chatWidth: pick(general.chatWidth, ['readable', 'full'] as const, d.general.chatWidth),
+			defaultStreamingBehavior: pick(
+				general.defaultStreamingBehavior,
+				['steer', 'followUp'] as const,
+				d.general.defaultStreamingBehavior
+			),
+			steeringMode: pick(general.steeringMode, ['all', 'one-at-a-time'] as const, d.general.steeringMode),
+			followUpMode: pick(general.followUpMode, ['all', 'one-at-a-time'] as const, d.general.followUpMode),
+			interruptMode: pick(general.interruptMode, ['immediate', 'wait'] as const, d.general.interruptMode)
 		},
 		notifications: {
 			enabled: bool(notif.enabled, d.notifications.enabled),

@@ -498,7 +498,7 @@ soppresso: «Ricarica / Indietro / Stampa» non significano niente qui.
 
 ### 7.9 Suggerimenti di prompt (chip del composer)
 
-Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente sopra la textarea di input (dopo le eventuali chip informative della coda o dello steering).
+Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente sopra la textarea di input (dopo le chip informative di sola lettura della coda o dello steering).
 
 - **Contenitore riga**: sfondo `--bg-sunken`, layout flex orizzontale con wrap disattivato e scorrimento orizzontale contenuto, `gap: var(--space-1)`, `padding: var(--space-1) var(--space-2)`, testo `--text-xs`.
 - **Condizioni di visibilità**: la riga esiste solo a composer completamente vuoto (`text.trim() === ''`), agente non in streaming (`isStreaming === false`), nessuna immagine o allegato presente e palette comandi slash chiusa. Sparisce istantaneamente al primo carattere digitato, senza transizioni o ritardi che ostacolerebbero la digitazione.
@@ -507,6 +507,20 @@ Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente 
 - **Distinzione visiva**: le chip generate dal modello leggero (`smol`) si distinguono da quelle fisse in modo sobrio ed elegante (es. icona discreta o indicatore attenuato in `--ink-faint`), preservando l'omogeneità di peso visivo della riga.
 - **Interazione**: il click o la pressione di `Alt+N` **precompila** il campo di testo della textarea senza inviare il messaggio, aggiorna l'altezza del composer e posiziona il fuoco e il cursore alla fine del prompt inserito. L'invio resta sempre un gesto esplicito dell'utente (`Invio`).
 - **Accessibilità e navigazione**: focus ring standard `:focus-visible` (outline 2px `--brand`, offset 2px), navigazione orizzontale da tastiera con pattern roving tabindex (`Freccia Sinistra` / `Freccia Destra`, `Home`, `End`), etichette `aria-label` complete di hint della scorciatoia da tastiera.
+
+### 7.10 Composer della chat, invio e gestione coda (GUI)
+
+- **Badge di coda in sola lettura**: le chip che rappresentano i messaggi accodati (`steer` / `follow-up`) e lo stato della coda sono badge informativi statici con tooltip esplicativo, non elementi interattivi. Il protocollo `omp` fissa la modalità all'atto della ricezione del prompt e non espone comandi per modificare, riordinare o rimuovere messaggi già accodati; l'interfaccia rispecchia fedelmente questo vincolo senza proporre controlli placebo.
+- **Split button di invio durante lo streaming**:
+  - A riposo (`isStreaming === false`), il pulsante di invio è un bottone standard che invia il prompt con la modalità predefinita.
+  - Durante lo streaming dell'agente (`isStreaming === true`), il controllo si trasforma in uno **split button**:
+    - **Pulsante primario**: invia il prompt applicando la modalità predefinita configurata nelle Impostazioni Generali (`steer` o `follow-up`).
+    - **Caret secondario**: apre un menu a tendina per selezionare esplicitamente la modalità alternativa desiderata (`Steer` o `Follow-up`).
+- **Comandi da tastiera e invio**:
+  - `Invio`: invia applicando la modalità predefinita configurata.
+  - `Alt+Invio`: invia applicando la modalità alternativa (opposta al default).
+  - `Shift+Invio` e `Ctrl+Invio`: inseriscono un'interruzione di riga senza inviare.
+  - Nessun popover ingranaggio sul composer: la configurazione dei modi di coda (`all` / `one-at-a-time`, interruzione `immediate` / `wait`) e del comportamento di invio predefinito è centralizzata nelle Impostazioni Generali di Studio.
 
 ---
 

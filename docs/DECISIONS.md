@@ -548,3 +548,37 @@ fusione che non oscura i duplicati, `fetchedAt` preservato) più l'esecuzione
 reale del percorso `usage_source_specs → run_usage_source → merge_extra_reports`
 con il descrittore `commandcode.json` di questa macchina: due limiti (finestra
 5 ore e settimana) fusi accanto ai report di `omp usage`.
+
+---
+
+## Gate R22: la modalità di accodamento è decisa all'invio, chip di sola lettura e nessuna coda locale in Studio
+
+**Data:** 2026-09-02  
+**Esito:** APPROVATO, con perimetro  
+**Decisione:** la modalità di accodamento (`steer` vs `followUp`) viene scelta e trasmessa irrevocabilmente al momento dell'invio del prompt. I chip dei messaggi in coda diventano badge informativi di sola lettura. Le modalità di gestione della coda (`steeringMode`, `followUpMode`, `interruptMode`) e il comportamento predefinito di invio vengono centralizzati come preferenze persistenti in *Impostazioni > Generali*, eliminando il popover ingranaggio del composer e le scorciatoie `Alt+Q` e `Alt+S`. Nessun buffer o coda locale viene introdotto in Studio.
+
+**Motivazione:**
+
+1. **Il protocollo `omp` non rende mutabile la coda accodata.**  
+   L'ispezione dello schema RPC di `omp` (`omp://rpc.md:109-205`) conferma che il parametro `streamingBehavior` (`"steer"` | `"followUp"`) viene accettato esclusivamente come argomento del comando `prompt` nell'istante in cui il messaggio viene immesso nel processo. Il protocollo non espone alcuna chiamata per interrogare, modificare, riordinare o estrarre messaggi già presenti nella coda (nessun comando `dequeue` o `clear_queue`; il `dequeue` visibile nella TUI è un keybinding puramente interno al processo terminale non esposto via RPC). Il toggle della modalità di accodamento sui chip di coda precedentemente presente nell'interfaccia di Studio era un placebo: modificava lo stato reattivo locale senza alcun effetto sul comportamento reale di `omp`. `AgentSession.setQueuedBehavior()` è stato rimosso come codice morto.
+
+2. **Scelta esplicita all'invio invece che post-accodamento.**  
+   Poiché la natura del messaggio è immutabile una volta inoltrato, la decisione deve avvenire prima o durante la sottomissione:
+   - `Invio`: invia il messaggio adottando la modalità predefinita configurata nelle impostazioni generali (`steer` o `followUp`).
+   - `Alt+Invio`: invia il messaggio adottando la modalità opposta al default.
+   - `Shift+Invio` e `Ctrl+Invio`: restano dedicati all'inserimento di una nuova riga (a capo) senza invio.
+   - Durante lo streaming dell'agente, il pulsante di invio nel composer si sdoppia in uno **split button**: il bottone primario invia con il default, mentre il menu a comparsa (caret) permette la selezione esplicita tra Steer e Follow-up.
+
+3. **Perché NON introdurre una coda locale in Studio.**  
+   È stata valutata e scartata l'ipotesi di trattenere i messaggi `followUp` in un buffer locale gestito da Studio (che ne avrebbe permesso la cancellazione o la modifica prima della conclusione dello streaming):
+   - Avrebbe sdoppiato la gestione della coda tra il client Studio e il server `omp`, rendendo inconsistente il contatore `queuedMessageCount` notificato dallo stato RPC.
+   - Avrebbe introdotto una sorgente di disallineamento e rischio di perdita di messaggi in caso di crash dell'applicazione, disconnessione o cambio progetto durante l'attesa.
+   - L'invio immediato al processo `omp` preserva la semantica originale dell'agente e garantisce che lo stato di esecuzione rimanga centralizzato e autoritativo.
+
+4. **Centralizzazione delle impostazioni di coda.**  
+   I tre modi operativi di `omp` (`set_steering_mode` `all` | `one-at-a-time`, `set_follow_up_mode` `all` | `one-at-a-time`, `set_interrupt_mode` `immediate` | `wait`) escono dal popover ingranaggio del composer e diventano impostazioni globali persistenti in `settingsStore.general`, sincronizzate e riapplicate all'avvio o all'aggancio di ogni sessione (`AgentSession.applyQueueModes()`).
+
+**Perimetro.**
+
+- I chip dei messaggi in coda forniscono solo trasparenza visiva sullo stato di avanzamento e sulla modalità originariamente scelta, arricchiti da tooltip esplicativi.
+- Il backend Rust (`src-tauri/src/rpc/mod.rs`) non viene alterato, fungendo da trasparente proxy di trasporto NDJSON.

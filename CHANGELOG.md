@@ -11,11 +11,20 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 
+- Scelta immediata della modalità di accodamento al momento dell'invio: durante lo streaming dell'agente il pulsante di invio si sdoppia (split button) per inviare con il comportamento predefinito o aprire il menu a tendina e forzare la modalità Steer o Follow-up, con scorciatoie da tastiera `Invio` (modalità predefinita) e `Alt+Invio` (modalità opposta).
+- Nuove preferenze di accodamento in «Impostazioni → Generali» per scegliere il comportamento di invio predefinito (Steer o Follow-up), le modalità di estrazione dei messaggi (singolo o tutti insieme) e la modalità di interruzione.
 - Pulsante "Nuova chat" nell'intestazione della colonna destra, con scorciatoia `Alt+N`.
 - Il popover della quota può mostrare anche provider che `omp` non sa interrogare da solo (per esempio quelli aggiunti da un plugin): basta descrivere la sorgente in un file JSON dentro `%LOCALAPPDATA%/omp-studio/usage-sources/` indicando il comando da eseguire, e le sue quote compaiono accanto alle altre. Senza quella cartella nulla cambia.
 
-### Fixed
+### Changed
 
+- I chip dei messaggi in coda nella chat sono ora badge informativi di sola lettura con spiegazione contestuale, rispecchiando con chiarezza che i messaggi già presi in carico da `omp` non possono essere modificati né riordinati.
+
+### Removed
+
+- Rimosso il popover di configurazione della coda con icona a ingranaggio dal campo di scrittura della chat e le scorciatoie `Alt+Q` e `Alt+S`, sostituite dalle impostazioni generali e dalla selezione rapida all'invio.
+
+### Fixed
 - Sincronizzazione affidabile del focus e digitazione diretta nella chat: il cursore animato (smooth cursor) si spegne tempestivamente quando la finestra o l'applicazione perde il focus evitando falsi lampeggi a vuoto, l'intera area del riquadro di input trasferisce il focus alla casella di scrittura al clic, e la digitazione a focus neutro attiva automaticamente il campo senza perdere i caratteri digitati.
 - Modulo unico e navigazione libera per le domande multiple dell'agente (`ask`): la card riceve ed espone tutte le domande fin dalla prima richiesta grazie all'arricchimento bidirezionale immediato all'arrivo degli argomenti del tool, consentendo di spostarsi liberamente avanti e indietro tra i passaggi e di verificare il riepilogo prima dell'invio definitivo, azzerando le card frammentate e la perdita di navigazione sulle domande precedenti.
 - Preservazione delle note nelle scelte multiple e validazione rigorosa della coda di consegna: l'aggiunta di note a risposte a scelta multipla viene instradata correttamente senza generare opzioni fantasma per l'agente, e i passi automatici in coda vengono verificati per metodo, firma delle opzioni e identificativo di chiamata prima di essere consegnati a `omp`, arrestando la sequenza con avviso chiaro in caso di disallineamento.

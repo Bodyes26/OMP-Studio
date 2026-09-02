@@ -1,4 +1,5 @@
 import { attachEditorContext } from '$lib/editor/editorContext';
+import { settingsStore } from '$lib/stores/settings.svelte';
 import { formatTokens } from '$lib/utils/format';
 // Stato della superficie GUI: un'istanza per progetto.
 //
@@ -424,6 +425,7 @@ export class AgentSession {
 		try {
 			await this.refreshState();
 			await this.client.send({ type: 'set_subagent_subscription', level: 'progress' });
+			await this.applyQueueModes();
 			await this.rebuildTranscript();
 			void this.refreshCost();
 			void this.refreshCommands();
@@ -458,6 +460,24 @@ export class AgentSession {
 	async refreshState() {
 		const state = await this.client.send<RpcSessionState>({ type: 'get_state' });
 		this.applyState(state);
+	}
+
+	/**
+	 * Riafferma le modalita' di coda e interruzione configurate nelle impostazioni.
+	 * I modi di coda sono stato di sessione lato omp e si resettano a ogni chat:
+	 * Studio li riafferma sia durante l'insediamento sia quando l'utente modifica
+	 * le preferenze globali.
+	 */
+	async applyQueueModes(): Promise<void> {
+		if (!this.isReady) return;
+		try {
+			const { steeringMode, followUpMode, interruptMode } = settingsStore.general;
+			await this.client.send({ type: 'set_steering_mode', mode: steeringMode });
+			await this.client.send({ type: 'set_follow_up_mode', mode: followUpMode });
+			await this.client.send({ type: 'set_interrupt_mode', mode: interruptMode });
+		} catch (error) {
+			this.pushNotice('warning', `Impossibile sincronizzare le modalità di coda: ${this.reason(error)}`);
+		}
 	}
 	async refreshCommands() {
 		try {
@@ -1687,13 +1707,6 @@ export class AgentSession {
 		this.optimisticUser = null;
 		const index = this.entries.indexOf(pending);
 		if (index !== -1) this.entries.splice(index, 1);
-	}
-	/** Modifica il comportamento di un messaggio in coda (steer / follow-up). */
-	setQueuedBehavior(id: number, behavior: StreamingBehavior) {
-		const target = this.queued.find((item) => item.id === id);
-		if (target) {
-			target.behavior = behavior;
-		}
 	}
 
 	private isNoiseNotice(text: string, source?: string): boolean {

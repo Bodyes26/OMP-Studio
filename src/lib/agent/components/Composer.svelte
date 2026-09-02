@@ -11,9 +11,8 @@
 	import {
 		type AvailableCommand,
 		type ImageContent,
-		type InterruptMode,
 		type ModelInfo,
-		type QueueMode,
+		type StreamingBehavior,
 		type ThinkingLevel
 	} from '../wire';
 	import { asRecord } from '../tools/types';
@@ -38,7 +37,7 @@ import {
 	type SlashCursorMatch
 } from '../commands';
 import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
-import { IconClose, IconCheck, IconSettings, IconKeyboard } from '$lib/icons';
+import { IconClose, IconCheck, IconKeyboard } from '$lib/icons';
 import { getCaretCoordinates } from './caretCoordinates';
 	let {
 		session,
@@ -74,7 +73,7 @@ import { getCaretCoordinates } from './caretCoordinates';
 	let blinkTimer: number | null = null;
 
 // Menu a comparsa per i chip di stato
-let activeMenu = $state<'role' | 'model' | 'thinking' | 'queue' | null>(null);
+let activeMenu = $state<'role' | 'model' | 'thinking' | 'send' | null>(null);
 let availableModels = $state<ModelInfo[]>([]);
 let loadingModels = $state(false);
 
@@ -88,9 +87,14 @@ let roleListEl = $state<HTMLElement | null>(null);
 let roleSearchInputEl = $state<HTMLInputElement | null>(null);
 let modelListEl = $state<HTMLElement | null>(null);
 let modelSearchInputEl = $state<HTMLInputElement | null>(null);
-	let steeringMode = $state<QueueMode>('one-at-a-time');
-	let followUpMode = $state<QueueMode>('one-at-a-time');
-	let interruptMode = $state<InterruptMode>('immediate');
+	// Modalita di streaming/accodamento (predefinita e alternativa)
+	const defaultBehavior = $derived<StreamingBehavior>(settingsStore.general.defaultStreamingBehavior ?? 'steer');
+	const alternativeBehavior = $derived<StreamingBehavior>(defaultBehavior === 'steer' ? 'followUp' : 'steer');
+
+	function getBehaviorLabel(b: StreamingBehavior): string {
+		return b === 'steer' ? 'Steer' : 'Follow-up';
+	}
+	const defaultBehaviorLabel = $derived(getBehaviorLabel(defaultBehavior));
 
 	const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -371,25 +375,6 @@ $effect(() => {
 		}
 	}
 
-	async function loadQueueSettings() {
-		try {
-			const res = await session.client.send({ type: 'get_state' });
-			const state = asRecord(res);
-			if (state) {
-				if (state.steeringMode === 'all' || state.steeringMode === 'one-at-a-time') {
-					steeringMode = state.steeringMode;
-				}
-				if (state.followUpMode === 'all' || state.followUpMode === 'one-at-a-time') {
-					followUpMode = state.followUpMode;
-				}
-				if (state.interruptMode === 'immediate' || state.interruptMode === 'wait') {
-					interruptMode = state.interruptMode;
-				}
-			}
-		} catch {
-			// Mantiene i valori attuali
-		}
-	}
 
 	async function handleModelSelect(model: ModelInfo) {
 		activeMenu = null;
@@ -512,11 +497,6 @@ $effect(() => {
 		session.pushNotice('info', `Livello di thinking: ${next}`, 'studio');
 	}
 
-	async function handleToggleSteering() {
-		const next = steeringMode === 'one-at-a-time' ? 'all' : 'one-at-a-time';
-		await setSteeringMode(next);
-		session.pushNotice('info', `Modalità steering: ${next}`, 'studio');
-	}
 
 	function handleCancelOrClear() {
 		if (session.isStreaming) {
@@ -531,33 +511,7 @@ $effect(() => {
 		}
 	}
 
-	async function setSteeringMode(mode: QueueMode) {
-		steeringMode = mode;
-		try {
-			await session.client.send({ type: 'set_steering_mode', mode });
-		} catch (err) {
-			session.pushNotice('warning', `Errore impostazione modalita' steering: ${err instanceof Error ? err.message : String(err)}`);
-		}
-	}
-
-	async function setFollowUpMode(mode: QueueMode) {
-		followUpMode = mode;
-		try {
-			await session.client.send({ type: 'set_follow_up_mode', mode });
-		} catch (err) {
-			session.pushNotice('warning', `Errore impostazione modalita' follow-up: ${err instanceof Error ? err.message : String(err)}`);
-		}
-	}
-
-	async function setInterruptMode(mode: InterruptMode) {
-		interruptMode = mode;
-		try {
-			await session.client.send({ type: 'set_interrupt_mode', mode });
-		} catch (err) {
-			session.pushNotice('warning', `Errore impostazione modalita' interruzione: ${err instanceof Error ? err.message : String(err)}`);
-		}
-	}
-	function toggleMenu(menu: 'role' | 'model' | 'thinking' | 'queue') {
+	function toggleMenu(menu: 'role' | 'model' | 'thinking' | 'send') {
 		if (activeMenu === menu) {
 			activeMenu = null;
 		} else {
@@ -578,9 +532,6 @@ $effect(() => {
 				const current = session.thinkingLevel || 'off';
 				const idx = THINKING_LEVELS.indexOf(current);
 				highlightedThinkingIndex = idx >= 0 ? idx : 0;
-			}
-			if (menu === 'queue') {
-				void loadQueueSettings();
 			}
 		}
 	}
@@ -722,22 +673,6 @@ $effect(() => {
 				textareaEl?.focus();
 				return;
 			}
-		} else if (activeMenu === 'queue') {
-			if (event.key === '1' || keyLower === 's') {
-				event.preventDefault();
-				void setSteeringMode(steeringMode === 'one-at-a-time' ? 'all' : 'one-at-a-time');
-				return;
-			}
-			if (event.key === '2' || keyLower === 'f') {
-				event.preventDefault();
-				void setFollowUpMode(followUpMode === 'one-at-a-time' ? 'all' : 'one-at-a-time');
-				return;
-			}
-			if (event.key === '3' || keyLower === 'i') {
-				event.preventDefault();
-				void setInterruptMode(interruptMode === 'immediate' ? 'wait' : 'immediate');
-				return;
-			}
 		}
 		// Alt+1 .. Alt+6: applica suggerimento prompt corrispondente
 		if (isAltOnly && !activeMenu && showSuggestionChips) {
@@ -797,19 +732,8 @@ $effect(() => {
 			return;
 		}
 
-		// Alt+Q: apri/chiudi menu impostazioni coda
-		if (isAltOnly && (keyLower === 'q' || code === 'KeyQ')) {
-			event.preventDefault();
-			toggleMenu('queue');
-			return;
-		}
-
-		// Alt+S: alterna modalita' steering
-		if (isAltOnly && (keyLower === 's' || code === 'KeyS')) {
-			event.preventDefault();
-			void handleToggleSteering();
-			return;
-		}
+		// Nota: Alt+Enter e' gestito direttamente in handleKeydown della textarea per inviare con la modalita' alternativa
+		// e non deve essere intercettato qui a livello di finestra.
 
 		// Alt+C: interrompi streaming o cancella input
 		if (isAltOnly && (keyLower === 'c' || code === 'KeyC')) {
@@ -878,7 +802,7 @@ $effect(() => {
 		attachedImages = attachedImages.filter((_, i) => i !== index);
 	}
 
-	async function handleSubmit() {
+	async function handleSubmit(behavior?: StreamingBehavior) {
 		session.suggestions.invalidate();
 		const raw = text.trim();
 		if (!raw && attachedImages.length === 0) return;
@@ -898,11 +822,23 @@ $effect(() => {
 		attachedImages = [];
 		paletteOpen = false;
 		adjustTextareaHeight();
-		await session.prompt(raw, imagesToSend);
+		await session.prompt(raw, imagesToSend, behavior ?? settingsStore.general.defaultStreamingBehavior);
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
+		// Alt+Enter: invia con la modalita' opposta al default
+		if (event.key === 'Enter' && event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
+			if (paletteOpen) {
+				// Se la palette e' aperta, lascia che sia essa a gestire l'Enter
+				return;
+			}
+			event.preventDefault();
+			void handleSubmit(alternativeBehavior);
+			return;
+		}
+
+		// Enter: invia con la modalita' predefinita da impostazioni
+		if (event.key === 'Enter' && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
 			if (paletteOpen) {
 				// Se la palette e' aperta, lascia che sia essa a gestire l'Enter
 				return;
@@ -999,7 +935,6 @@ $effect(() => {
 	<QueueChips
 		queued={session.queued}
 		serverCount={session.queuedMessageCount}
-		onToggleBehavior={(id, b) => session.setQueuedBehavior(id, b)}
 	/>
 	<!-- Suggerimenti prompt (statici e dinamici) -->
 	{#if showSuggestionChips}
@@ -1086,7 +1021,7 @@ $effect(() => {
 		</div>
 
 		<div class="actions-group">
-			<!-- Pulsante Invio / Stop -->
+			<!-- Pulsante Invio / Stop / Split Button -->
 			{#if session.isStreaming && !text.trim() && attachedImages.length === 0}
 				<button
 					type="button"
@@ -1099,12 +1034,97 @@ $effect(() => {
 						<rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="currentColor" />
 					</svg>
 				</button>
+			{:else if session.isStreaming}
+				<div class="send-split-wrap" role="group" aria-label="Invio messaggio in coda">
+					<button
+						type="button"
+						class="send-btn send-btn-split"
+						title={`Accoda come ${defaultBehaviorLabel} (Invio)`}
+						aria-label={`Accoda come ${defaultBehaviorLabel} (Invio)`}
+						disabled={!text.trim() && attachedImages.length === 0}
+						onclick={() => handleSubmit()}
+					>
+						<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
+							<path d="M8 12.5V3.5M3.5 8L8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+						<span class="send-btn-label">{defaultBehaviorLabel}</span>
+					</button>
+					<button
+						type="button"
+						class="send-btn send-caret-btn"
+						title="Altre modalità di invio"
+						aria-haspopup="menu"
+						aria-expanded={activeMenu === 'send'}
+						aria-label="Altre modalità di invio"
+						disabled={!text.trim() && attachedImages.length === 0}
+						onclick={(e) => {
+							e.stopPropagation();
+							toggleMenu('send');
+						}}
+					>
+						<svg viewBox="0 0 16 16" class="caret-icon" aria-hidden="true">
+							<path d="M4 6L8 10L12 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+						</svg>
+					</button>
+
+					{#if activeMenu === 'send'}
+						<div class="dropdown-menu send-menu" role="menu" aria-label="Modalità di invio">
+							<div class="menu-header">
+								<span>Modalità di accodamento</span>
+							</div>
+							<div class="menu-body">
+								<button
+									type="button"
+									class="menu-item send-menu-item"
+									class:selected={defaultBehavior === 'steer'}
+									role="menuitem"
+									onclick={() => {
+										activeMenu = null;
+										void handleSubmit('steer');
+									}}
+								>
+									<div class="send-menu-item-main">
+										<div class="send-menu-item-title">
+											<span class="send-mode-name">Steer</span>
+											<kbd class="key-shortcut-tag">{defaultBehavior === 'steer' ? 'Invio' : 'Alt+Invio'}</kbd>
+										</div>
+										<span class="send-mode-desc">Interrompe il turno in corso e subentra subito</span>
+									</div>
+									{#if defaultBehavior === 'steer'}
+										<span class="item-check"><IconCheck /></span>
+									{/if}
+								</button>
+								<button
+									type="button"
+									class="menu-item send-menu-item"
+									class:selected={defaultBehavior === 'followUp'}
+									role="menuitem"
+									onclick={() => {
+										activeMenu = null;
+										void handleSubmit('followUp');
+									}}
+								>
+									<div class="send-menu-item-main">
+										<div class="send-menu-item-title">
+											<span class="send-mode-name">Follow-up</span>
+											<kbd class="key-shortcut-tag">{defaultBehavior === 'followUp' ? 'Invio' : 'Alt+Invio'}</kbd>
+										</div>
+										<span class="send-mode-desc">Attende il completamento del turno in corso</span>
+									</div>
+									{#if defaultBehavior === 'followUp'}
+										<span class="item-check"><IconCheck /></span>
+									{/if}
+								</button>
+							</div>
+						</div>
+					{/if}
+				</div>
 			{:else}
 				<button
 					type="button"
 					class="send-btn"
-					title={session.isStarting ? 'Invia messaggio (verrà recapitato appena OMP è pronto)' : session.isStreaming ? 'Accoda messaggio (Invio)' : 'Invia messaggio (Invio)'}
-					aria-label={session.isStreaming ? 'Accoda messaggio (Invio)' : 'Invia messaggio (Invio)'}
+					title={session.isStarting ? 'Invia messaggio (verrà recapitato appena OMP è pronto)' : 'Invia messaggio (Invio)'}
+					aria-label="Invia messaggio (Invio)"
 					disabled={!text.trim() && attachedImages.length === 0}
 					onclick={() => handleSubmit()}
 				>
@@ -1401,109 +1421,6 @@ $effect(() => {
 			<span class="chip-val">{formatCost(session.sessionCost)}</span>
 		</div>
 
-		<!-- Menu impostazioni coda (icona discreta) -->
-		<div class="status-item-wrap queue-settings-wrap">
-			<button
-				type="button"
-				class="status-chip echo queue-btn"
-				title="Impostazioni di accodamento e interruzione (Alt+Q)"
-				aria-haspopup="dialog"
-				aria-expanded={activeMenu === 'queue'}
-				onclick={(e) => {
-					e.stopPropagation();
-					toggleMenu('queue');
-				}}
-			>
-				<span class="queue-icon"><IconSettings /></span>
-			</button>
-
-			{#if activeMenu === 'queue'}
-				<div class="dropdown-menu queue-menu" role="group" aria-label="Impostazioni coda">
-					<div class="menu-header">
-						<span>Coda omp (Alt+Q)</span>
-					</div>
-					<div class="menu-section">
-						<div class="section-title-row">
-							<span class="section-title">Modalità steering</span>
-							<kbd class="key-shortcut-tag">1 o S</kbd>
-						</div>
-						<div class="section-buttons">
-							<button
-								type="button"
-								class="toggle-choice-btn"
-								class:selected={steeringMode === 'one-at-a-time'}
-								onclick={() => setSteeringMode('one-at-a-time')}
-							>
-								one-at-a-time
-							</button>
-							<button
-								type="button"
-								class="toggle-choice-btn"
-								class:selected={steeringMode === 'all'}
-								onclick={() => setSteeringMode('all')}
-							>
-								all
-							</button>
-						</div>
-					</div>
-
-					<div class="menu-section">
-						<div class="section-title-row">
-							<span class="section-title">Modalità follow-up</span>
-							<kbd class="key-shortcut-tag">2 o F</kbd>
-						</div>
-						<div class="section-buttons">
-							<button
-								type="button"
-								class="toggle-choice-btn"
-								class:selected={followUpMode === 'one-at-a-time'}
-								onclick={() => setFollowUpMode('one-at-a-time')}
-							>
-								one-at-a-time
-							</button>
-							<button
-								type="button"
-								class="toggle-choice-btn"
-								class:selected={followUpMode === 'all'}
-								onclick={() => setFollowUpMode('all')}
-							>
-								all
-							</button>
-						</div>
-					</div>
-
-					<div class="menu-section">
-						<div class="section-title-row">
-							<span class="section-title">Modalità interruzione</span>
-							<kbd class="key-shortcut-tag">3 o I</kbd>
-						</div>
-						<div class="section-buttons">
-							<button
-								type="button"
-								class="toggle-choice-btn"
-								class:selected={interruptMode === 'immediate'}
-								onclick={() => setInterruptMode('immediate')}
-							>
-								immediate
-							</button>
-							<button
-								type="button"
-								class="toggle-choice-btn"
-								class:selected={interruptMode === 'wait'}
-								onclick={() => setInterruptMode('wait')}
-							>
-								wait
-							</button>
-						</div>
-					</div>
-					<div class="menu-footer-hint">
-						<span>1/2/3 cambia</span>
-						<span>Esc chiudi</span>
-					</div>
-				</div>
-			{/if}
-		</div>
-
 		<!-- Chip Scorciatoie da tastiera -->
 		<div class="status-item-wrap">
 			<button
@@ -1743,6 +1660,91 @@ $effect(() => {
 		height: 14px;
 		flex-shrink: 0;
 	}
+	/* Split button invio / accodamento */
+	.send-split-wrap {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.send-btn.send-btn-split {
+		width: auto;
+		height: 28px;
+		padding: 0 var(--space-2);
+		gap: var(--space-1);
+		border-top-right-radius: 0;
+		border-bottom-right-radius: 0;
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-weight: 500;
+		line-height: 1;
+	}
+
+	.send-btn-label {
+		font-size: var(--text-xs);
+		font-weight: 500;
+		line-height: 1;
+	}
+
+	.send-btn.send-caret-btn {
+		width: 20px;
+		height: 28px;
+		padding: 0;
+		border-top-left-radius: 0;
+		border-bottom-left-radius: 0;
+		border-left: 1px solid rgba(255, 255, 255, 0.25);
+	}
+
+	.send-btn.send-caret-btn:disabled {
+		border-left-color: var(--line);
+	}
+
+	.caret-icon {
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
+	}
+
+	.send-menu {
+		left: auto;
+		right: 0;
+		width: 260px;
+	}
+
+	.send-menu-item {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: var(--space-2);
+	}
+
+	.send-menu-item-main {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		text-align: left;
+	}
+
+	.send-menu-item-title {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+	}
+
+	.send-mode-name {
+		font-weight: 600;
+		font-size: var(--text-xs);
+		color: var(--ink);
+	}
+
+	.send-mode-desc {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		line-height: 1.3;
+	}
 
 	/* Barra di stato inferiore */
 	.status-bar {
@@ -1893,20 +1895,6 @@ $effect(() => {
 		border-color: transparent;
 	}
 
-	.queue-settings-wrap {
-		margin-left: auto;
-	}
-
-	.queue-btn {
-		padding: 2px 6px;
-	}
-
-	.queue-icon {
-		font-size: var(--text-xs);
-		line-height: 1;
-		color: var(--ink-faint);
-		--icon-size: 12px;
-	}
 
 	/* Menu a comparsa */
 	.dropdown-menu {
@@ -1924,12 +1912,6 @@ $effect(() => {
 		overflow: hidden;
 	}
 
-	.queue-menu {
-		left: auto;
-		right: 0;
-		width: 240px;
-		padding: var(--space-2);
-	}
 
 	.menu-header {
 		display: flex;
@@ -2093,49 +2075,6 @@ $effect(() => {
 		text-align: center;
 	}
 
-	.menu-section {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		margin-bottom: var(--space-2);
-	}
-
-	.menu-section:last-child {
-		margin-bottom: 0;
-	}
-
-	.section-title {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.section-buttons {
-		display: flex;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px;
-	}
-
-	.toggle-choice-btn {
-		flex: 1;
-		padding: 2px 4px;
-		background: transparent;
-		border: none;
-		border-radius: calc(var(--radius-sm) - 1px);
-		color: var(--ink-faint);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		text-align: center;
-	}
-
-	.toggle-choice-btn.selected {
-		background: var(--bg-base);
-		color: var(--ink);
-		font-weight: 500;
-	}
-
 	/* Barra di ricerca nel menu modelli */
 	.menu-search-wrap {
 		display: flex;
@@ -2205,12 +2144,6 @@ $effect(() => {
 		user-select: none;
 	}
 
-	.section-title-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
 
 	.key-shortcut-tag {
 		display: inline-flex;

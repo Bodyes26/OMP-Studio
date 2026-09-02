@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import { settingsStore, type DefaultSurface, type CloseWithQueuedTasks, type ChatWidth } from '$lib/stores/settings.svelte';
+	import {
+		settingsStore,
+		type DefaultSurface,
+		type CloseWithQueuedTasks,
+		type ChatWidth,
+		type StreamingBehavior,
+		type QueueMode,
+		type InterruptMode
+	} from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 
@@ -106,6 +114,72 @@
 						<span class="channel-name">Nightly</span>
 					</label>
 				</fieldset>
+			</div>
+		</div>
+	</div>
+
+	<div class="section-group">
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">Invio durante l'elaborazione</span>
+				<span class="form-row-desc">Decide il comportamento del tasto Invio quando l'agente sta lavorando. Alt+Invio usa sempre l'altra modalita.</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					value={settingsStore.general.defaultStreamingBehavior}
+					onchange={(e) => settingsStore.patchGeneral({ defaultStreamingBehavior: (e.currentTarget as HTMLSelectElement).value as StreamingBehavior })}
+				>
+					<option value="steer">Steer (interrompe il turno in corso)</option>
+					<option value="followUp">Follow-up (attende la fine del turno)</option>
+				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">Estrazione messaggi steer</span>
+				<span class="form-row-desc">Quanti messaggi steer OMP preleva per ciascun turno di elaborazione.</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					value={settingsStore.general.steeringMode}
+					onchange={(e) => settingsStore.patchGeneral({ steeringMode: (e.currentTarget as HTMLSelectElement).value as QueueMode })}
+				>
+					<option value="one-at-a-time">Uno per turno</option>
+					<option value="all">Tutti insieme</option>
+				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">Estrazione messaggi follow-up</span>
+				<span class="form-row-desc">Quanti messaggi follow-up OMP preleva per ciascun turno di elaborazione.</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					value={settingsStore.general.followUpMode}
+					onchange={(e) => settingsStore.patchGeneral({ followUpMode: (e.currentTarget as HTMLSelectElement).value as QueueMode })}
+				>
+					<option value="one-at-a-time">Uno per turno</option>
+					<option value="all">Tutti insieme</option>
+				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">Interruzione durante i tool</span>
+				<span class="form-row-desc">Comportamento quando un messaggio interrompe l'elaborazione: interruzione immediata dei tool rimanenti o attesa a fine turno.</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					value={settingsStore.general.interruptMode}
+					onchange={(e) => settingsStore.patchGeneral({ interruptMode: (e.currentTarget as HTMLSelectElement).value as InterruptMode })}
+				>
+					<option value="immediate">Immediata</option>
+					<option value="wait">Attendi fine turno</option>
+				</select>
 			</div>
 		</div>
 	</div>

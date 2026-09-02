@@ -22,15 +22,14 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+P` | Superficie GUI | Apre il catalogo modelli con filtro rapido e navigazione tastiera |
 | `Alt+M` | Superficie GUI | Apre il menu di selezione del livello di thinking (ragionamento) |
 | `Alt+T` | Superficie GUI | Cicla direttamente il livello di thinking (`off` → `max`) |
-| `Alt+Q` | Superficie GUI | Apre le impostazioni della coda (steering, follow-up, interruzione) |
-| `Alt+S` | Superficie GUI | Alterna rapidamente la modalità steering (`one-at-a-time` / `all`) |
 | `Alt+C` | Superficie GUI | Interrompe la risposta in corso o cancella il testo scritto |
 | `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato) |
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
 | `Alt+N` | Superficie GUI | Apre una nuova chat nel progetto attivo |
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
 | `Alt+1` … `Alt+6` | Composer GUI | Precompila il composer con il suggerimento in quella posizione (non invia) |
-| `Invio` | Composer GUI | Invia; con la palette aperta seleziona il comando evidenziato |
+| `Invio` | Composer GUI | Invia con la modalità predefinita; con la palette aperta seleziona il comando evidenziato |
+| `Alt+Invio` | Composer GUI | Invia con la modalità di accodamento alternativa (opposta al default) |
 | `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |
 | `Esc` | Composer GUI | Chiude palette/menu/modale aiuto; durante lo streaming interrompe la risposta |
 | `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |
