@@ -942,13 +942,34 @@
 	} | null>(null);
 	let terminalOpenRequestId = 0;
 
-	function handleTerminalOpenFile(projectId: string, filePath: string, line: number | null) {
+	async function handleTerminalOpenFile(projectId: string, filePath: string, line: number | null) {
 		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
-		projectStore.openFile(projectId, filePath);
+		let targetPath = filePath;
+		let targetLine = line;
+
+		const proj = projectStore.projects.find((p) => p.id === projectId);
+		if (proj?.path) {
+			try {
+				const res: { rel_path: string; line: number | null } | null = await invoke('resolve_project_file', {
+					projectPath: proj.path,
+					candidate: filePath
+				});
+				if (res?.rel_path) {
+					targetPath = res.rel_path;
+					if (res.line !== null && targetLine === null) {
+						targetLine = res.line;
+					}
+				}
+			} catch {
+				// In caso di errore IPC o disconnessione, mantieni filePath grezzo come fallback
+			}
+		}
+
+		projectStore.openFile(projectId, targetPath);
 		terminalOpenRequest = {
 			projectId,
-			filePath,
-			line,
+			filePath: targetPath,
+			line: targetLine,
 			id: ++terminalOpenRequestId
 		};
 	}

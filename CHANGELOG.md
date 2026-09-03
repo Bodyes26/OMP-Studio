@@ -18,6 +18,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Fixed
 
 - Nomi dei provider corretti nel menu di selezione agente/modello: i modelli pubblicati da un gateway con identificativi del tipo `provider/modello` non vengono piu confusi con quelli del provider nativo, e ruoli, fallback e cassetto del ciclo rapido mostrano il provider giusto.
+- I percorsi file emessi dall'assistente come blocchi di codice (fenced code block) vengono ora renderizzati come chip compatti e cliccabili per aprirli direttamente nell'editor (con supporto per elenchi multi-riga e pulsante di copia dedicato), risolvendo percorsi complessi e numeri di riga tramite `resolve_project_file`.
 
 ## [1.4.0] - 2026-09-02
 
