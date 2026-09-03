@@ -21,6 +21,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nomi dei provider corretti nel menu di selezione agente/modello: i modelli pubblicati da un gateway con identificativi del tipo `provider/modello` non vengono piu confusi con quelli del provider nativo, e ruoli, fallback e cassetto del ciclo rapido mostrano il provider giusto.
 - I percorsi file emessi dall'assistente come blocchi di codice (fenced code block) vengono ora renderizzati come chip compatti e cliccabili per aprirli direttamente nell'editor (con supporto per elenchi multi-riga e pulsante di copia dedicato), risolvendo percorsi complessi e numeri di riga tramite `resolve_project_file`.
 - Riconoscimento intelligente delle nuove versioni dei modelli nella stessa famiglia (es. passaggio da Gemini 3.7 Flash a Gemini 3.8 Flash): la verifica aggiornamenti rinfresca ora automaticamente il catalogo, rispetta i ruoli attivi nel modal impostazioni anche prima del salvataggio, normalizza i formati di numerazione e preview ed evita che le date di snapshot prevalgano sulla versione semantica.
+- Rimosso l'anello di focus (outline ring) indesiderato sulle righe dell'albero file e sulla cartella radice all'apertura dell'applicazione, allineando lo stile di focus da tastiera all'evidenziazione di sfondo.
 
 ## [1.4.0] - 2026-09-02
 

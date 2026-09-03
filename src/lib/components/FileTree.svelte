@@ -1466,8 +1466,8 @@
 <style>
 	.tree-node {
 		overflow: hidden;
+		outline: none;
 	}
-
 	.tree-node.tree-root {
 		min-height: 100%;
 		display: flex;
@@ -1482,6 +1482,7 @@
 		height: 22px;
 		background: transparent;
 		border: none;
+		outline: none;
 		color: var(--ink);
 		font-family: var(--font-ui);
 		font-size: var(--text-sm);
@@ -1494,8 +1495,14 @@
 		gap: 4px;
 	}
 
-	.tree-row:hover {
+	.tree-row:hover,
+	.tree-row:focus-visible {
 		background: var(--bg-hover);
+		outline: none;
+	}
+
+	.tree-row:focus {
+		outline: none;
 	}
 
 	.inline-edit-row {
