@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { modelSettingsStore, type ModelDto } from '$lib/stores/modelSettings.svelte';
+	import { modelSettingsStore, resolveCatalogModel, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	import { IconArrowRight, IconLoop } from '$lib/icons';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import { slide } from 'svelte/transition';
@@ -17,8 +17,7 @@
 	const cycle = $derived(modelSettingsStore.draftConfig?.cycleOrder || []);
 
 	function getModel(selector: string): ModelDto | undefined {
-		const raw = selector.split(':')[0];
-		return modelSettingsStore.catalog.find((m) => m.selector === raw || m.id === raw);
+		return resolveCatalogModel(modelSettingsStore.catalog, selector);
 	}
 
 	function handleAddSelect(selector: string) {

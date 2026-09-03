@@ -47,6 +47,19 @@ import {
 	type TodoPhase,
 	StreamBatcher
 } from './wire';
+import {
+	STUDIO_BROWSER_LIVE_OFFER,
+	browserLiveFrom,
+	checkTicket,
+	parseBrowserSessionIdentity,
+	parseBrowserTabState,
+	readAdvertisedCapabilities,
+	shouldNegotiate,
+	type BrowserLiveNegotiation,
+	type BrowserLiveTicket,
+	type BrowserSessionIdentity,
+	type BrowserTabState
+} from './browser-live';
 
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
 export type AgentSurfaceState = 'idle' | 'working' | 'attention' | 'unknown';
@@ -242,6 +255,15 @@ export class AgentSession {
 	pendingUi = $state<PendingUiRequest | null>(null);
 	statusText = $state<string | null>(null);
 	exited = $state(false);
+
+	/**
+	 * Esito di `browser-live-v1` per questo processo: `null` finche' la
+	 * capability non e' stata negoziata, ed e' esattamente cio' che tiene la
+	 * superficie sul renderer screenshot del tool `browser`.
+	 */
+	browserLive = $state<BrowserLiveNegotiation | null>(null);
+	/** Stato delle tab live, indirizzate da `browserSessionId + tabId`. */
+	browserLiveTabs = $state<BrowserTabState[]>([]);
 
 	/** Stato per la tessera di progetto: derivato, non inventato. */
 	agentState = $state<AgentSurfaceState>('unknown');
@@ -460,6 +482,51 @@ export class AgentSession {
 	async refreshState() {
 		const state = await this.client.send<RpcSessionState>({ type: 'get_state' });
 		this.applyState(state);
+	}
+
+	/**
+	 * Handshake `browser-live-v1` sul frame `ready`.
+	 *
+	 * Contro un runtime precedente il campo `capabilities` non esiste, il
+	 * comando non parte affatto e `browserLive` resta `null`: la superficie
+	 * continua a disegnare gli screenshot del tool `browser`. Anche un
+	 * fallimento della risposta e' un no — non si tenta nessun endpoint che
+	 * non sia stato negoziato.
+	 */
+	private async negotiateCapabilities(readyEvent: AgentSessionEvent) {
+		const advertised = readAdvertisedCapabilities(readyEvent);
+		if (!shouldNegotiate(advertised)) return;
+		try {
+			const data = await this.client.send<{ accepted?: unknown }>({
+				type: 'negotiate_capabilities',
+				capabilities: [STUDIO_BROWSER_LIVE_OFFER]
+			});
+			this.browserLive = browserLiveFrom(data?.accepted);
+		} catch (error) {
+			this.browserLive = null;
+			console.warn('Negoziazione browser-live non riuscita:', error);
+		}
+	}
+
+	/**
+	 * Ticket monouso per il canale live di una tab gia' annunciata dal runtime.
+	 *
+	 * L'identita' non la inventa Studio: e' quella arrivata con
+	 * `browser_live_tab_state`. Il ticket ricevuto viene comunque verificato
+	 * (loopback, scadenza, identita') prima di poter essere usato.
+	 */
+	async requestBrowserLiveTicket(identity: BrowserSessionIdentity): Promise<BrowserLiveTicket | null> {
+		if (!this.browserLive) return null;
+		try {
+			const data = await this.client.send<unknown>({ type: 'browser_live_ticket', ...identity });
+			const check = checkTicket(data, identity);
+			if (check.ok) return check.value;
+			console.warn(`Ticket browser-live rifiutato (${check.code}): ${check.message}`);
+			return null;
+		} catch (error) {
+			console.warn('Richiesta ticket browser-live non riuscita:', error);
+			return null;
+		}
 	}
 
 	/**
@@ -746,8 +813,37 @@ export class AgentSession {
 				// prima, che nella ripresa di una chat significa nessun
 				// messaggio a schermo.
 				this.isAttached = false;
+				// Le capability appartengono al processo, non alla chat: un
+				// runtime nuovo puo' sostituirne uno precedente e viceversa.
+				this.browserLive = null;
+				this.browserLiveTabs = [];
+				void this.negotiateCapabilities(event);
 				void this.attach();
 				return;
+
+			// `browser-live-v1`: fuori dalla negoziazione questi frame non
+			// esistono. Cadere qui e' il fail-closed, non una svista.
+			case 'browser_live_tab_state': {
+				if (!this.browserLive) return;
+				const state = parseBrowserTabState(event.state);
+				if (!state) return;
+				const index = this.browserLiveTabs.findIndex(
+					(tab) => tab.browserSessionId === state.browserSessionId && tab.tabId === state.tabId
+				);
+				if (index === -1) this.browserLiveTabs.push(state);
+				else this.browserLiveTabs[index] = state;
+				return;
+			}
+
+			case 'browser_live_closed': {
+				if (!this.browserLive) return;
+				const identity = parseBrowserSessionIdentity(event.identity);
+				if (!identity) return;
+				this.browserLiveTabs = this.browserLiveTabs.filter(
+					(tab) => tab.browserSessionId !== identity.browserSessionId || tab.tabId !== identity.tabId
+				);
+				return;
+			}
 
 			case 'studio_delta':
 				this.applyDelta(event);

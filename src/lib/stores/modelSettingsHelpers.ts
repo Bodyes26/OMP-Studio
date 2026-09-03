@@ -110,3 +110,23 @@ export function sanitizeMaxDynamic(value: unknown, fallback: number = 3): number
 	if (!Number.isFinite(num)) return fallback;
 	return Math.min(3, Math.max(1, Math.round(num)));
 }
+
+/**
+ * Risolve il `ModelDto` di catalogo a partire da un selettore di ruolo/fallback
+ * (senza suffisso `:thinking`).
+ *
+ * L'ordine di priorita' e' obbligatorio: prima il match esatto su `selector`
+ * (`<provider>/<id>`), poi il match sull'`id` nudo. Molti gateway pubblicano
+ * modelli il cui `id` contiene il nome dell'upstream (es. `cloudflare-ai-gateway`
+ * espone `anthropic/claude-opus-5`): cercando in un colpo solo `selector || id` si
+ * attribuisce il modello al primo gateway presente nel catalogo invece che al
+ * provider realmente usato da omp.
+ */
+export function resolveCatalogModel(
+	catalog: ModelDto[],
+	rawSelector: string
+): ModelDto | undefined {
+	const raw = rawSelector.split(':')[0];
+	if (!raw) return undefined;
+	return catalog.find((m) => m.selector === raw) ?? catalog.find((m) => m.id === raw);
+}

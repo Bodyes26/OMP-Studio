@@ -22,6 +22,7 @@ import {
 	mergeProviderIntoCatalog,
 	isAuthAccountActive,
 	getProviderEnvVarHint,
+	resolveCatalogModel,
 	sanitizeMaxDynamic
 } from './modelSettingsHelpers';
 
@@ -36,6 +37,7 @@ export {
 	mergeProviderIntoCatalog,
 	isAuthAccountActive,
 	getProviderEnvVarHint,
+	resolveCatalogModel,
 	sanitizeMaxDynamic
 };
 export interface CustomModelDef {

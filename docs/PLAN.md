@@ -392,6 +392,118 @@ Per azzerare il rischio di discrepanze tra il codice testato e quello distribuit
 
 ---
 
+## Piano Browser Studio — Gate R23
+
+**Stato:** pianificato. Gli step sono strettamente sequenziali e fanno riferimento
+alla specifica canonica [`BROWSER-STUDIO.md`](BROWSER-STUDIO.md). Il sorgente
+upstream `can1357/oh-my-pi` non e presente in questo workspace: gli step runtime
+richiedono un checkout separato e un commit/PR identificabile; il runtime non va
+vendorizzato in `omp-studio-app`.
+
+**Regola documentale per ogni step:** prima di lavorare leggere
+`BROWSER-STUDIO.md`; al termine aggiornare le sezioni interessate, aggiungere una
+riga al registro implementativo, registrare eventuali scostamenti in
+`DECISIONS.md` e aggiornare questo piano. La documentazione deve descrivere il
+comportamento osservato, non quello ancora aspirazionale.
+
+- [x] **S38 — Contratto versionato `browser-live-v1`** (`Main`, runtime OMP + Studio)
+  Definire capability negotiation, identita progetto/chat/sessione/tab, messaggi
+  di stato, errori, token monouso e fixture di compatibilita. Il contratto deve
+  preservare `tool_execution_start/update/end` e il renderer screenshot quando
+  una parte non supporta il live.
+  **Accettazione:** schema e fixture sono consumati da entrambi i repository;
+  combinazioni runtime/Studio vecchie e nuove falliscono chiuse o degradano al
+  comportamento attuale senza tentare endpoint non negoziati.
+  **Fatto:** `src/lib/agent/browser-live.ts` (Studio) e
+  `packages/coding-agent/src/modes/rpc/browser-live.ts` (runtime, checkout
+  separato `../oh-my-pi-upstream`, branch `feat/s38-browser-live-v1-contract`)
+  implementano lo stesso algoritmo di intersezione; il frame `ready` porta le
+  capability solo con un provider registrato, `negotiate_capabilities` e
+  `browser_live_ticket` falliscono chiusi senza negoziazione e la fixture
+  `test/fixtures/browser-live-v1.json` e byte a byte identica nei due
+  repository, con confronto verificato dai test di Studio. Scostamenti in
+  `DECISIONS.md`, dettaglio tecnico nelle sezioni 5, 7, 8 e 18 di
+  `BROWSER-STUDIO.md`.
+
+- [ ] **S39 — BrowserSessionBroker e Chromium gestito** (`Main`, runtime OMP)
+  Implementare lifecycle lazy, profilo persistente per progetto, tab indirizzate
+  da chat e nome, CDP posseduto dal broker e terminazione senza processi orfani.
+  Managed mode non deve creare finestre desktop ne esporre il CDP al client.
+  **Accettazione:** due progetti non condividono storage, due chat con tab `main`
+  non collidono, close/crash revocano sessioni e il browser puo essere riaperto
+  conservando i dati del solo progetto.
+
+- [ ] **S40 — Stream live binario e backpressure** (`Main`, runtime OMP + Studio backend)
+  Esporre un canale loopback autenticato con frame CDP, metadati viewport/DPI,
+  ack e politica `newest frame wins`; separare lo stream dal transcript RPC.
+  **Accettazione:** una tab dinamica resta fluida senza crescita non limitata di
+  memoria, un client lento non accumula frame obsoleti e gli screenshot tool
+  mantengono le dimensioni reali del viewport.
+
+- [ ] **S41 — BrowserViewer nella colonna centrale** (`Subagente UI`, integrazione `Main`)
+  Aggiungere la superficie Browser distinta da Preview/File, apertura automatica
+  su `browser open`, toolbar, tab, URL, viewport e rendering live con mapping
+  input in pixel CSS. Non implementare ancora takeover o inspector avanzato.
+  **Accettazione:** la stessa tab guidata dall'agente e visibile in Studio; resize,
+  scroll e DPI scaling non disallineano coordinate e screenshot; PreviewViewer
+  conserva sandbox e comportamento precedenti.
+
+- [ ] **S42 — Control epochs e takeover privato** (`Main`, review concorrenza e sicurezza)
+  Rendere esclusivi i controller agente/utente, bufferizzare il primo input umano,
+  invalidare atomicamente l'epoch agente, restituire `CONTROL_INTERRUPTED` e
+  richiedere rilascio esplicito. In modalita privata solo il BrowserViewer locale
+  continua a ricevere frame.
+  **Accettazione:** il primo click umano viene applicato una sola volta, nessun
+  comando con epoch obsoleto raggiunge CDP e durante login privato transcript,
+  recorder, DOM, console e rete non ricevono dati.
+
+- [ ] **S43 — Origini, capability e redazione dati** (`Main`, security review)
+  Applicare policy top-level loopback/remoto, consenso persistente per progetto,
+  sospensione sui redirect non autorizzati, ticket fail-closed e redazione di
+  cookie, authorization header, token, titoli e contenuti non attendibili.
+  **Accettazione:** locale funziona senza prompt, ogni nuova origine remota
+  richiede consenso, la revoca e immediata e nessun segreto compare in eventi,
+  log, errori o artifact.
+
+- [ ] **S44 — Inspector mirato** (`Subagente UI + runtime`, integrazione `Main`)
+  Implementare element picker con contesto strutturato, Console e Network a ring
+  buffer, timeline Actions, invio selettivo al prompt, screenshot e diagnostica
+  derivati dalla stessa tab/viewport.
+  **Accettazione:** un elemento selezionato produce ruolo, nome accessibile,
+  selector, bounding box e ritaglio coerenti; console/rete sono filtrabili,
+  limitate e redatte; nessun Chrome DevTools completo viene incorporato.
+
+- [ ] **S45 — Dialoghi, popup, file e registrazione** (`Main`)
+  Gestire `alert`, `confirm`, `prompt`, `beforeunload`, nuove tab della chat,
+  download come artifact, upload autorizzati, clipboard/permessi e recording
+  locale con stati espliciti.
+  **Accettazione:** nessun dialogo blocca il supervisor senza stato visibile,
+  popup e file rispettano ownership e origini, upload non concede accesso libero
+  al filesystem e ogni registrazione ha lifecycle e percorso verificabili.
+
+- [ ] **S46 — Chrome Relay su tab autorizzata** (`Main`, runtime OMP + Studio)
+  Collegare una tab scelta del Chrome personale tramite ticket monouso, mostrarla
+  nella stessa UI live e riusare control epochs, privacy e inspector senza
+  copiare il profilo o enumerare implicitamente altre tab.
+  **Accettazione:** soltanto il target autorizzato e controllabile, disconnect
+  revoca subito stream e input, login/SSO restano disponibili e Studio non apre
+  una nuova finestra Chrome.
+
+- [ ] **S47 — Hardening e matrice end-to-end multipiattaforma** (`Main` + reviewer)
+  Coprire recovery, concorrenza multi-chat/progetto, performance, compatibilita,
+  ContrattiImmobili su IIS/Windows Authentication e smoke sulle piattaforme
+  supportate; eliminare scaffold e aggiornare definitivamente architettura,
+  decisioni, prodotto e changelog.
+  **Accettazione:** tutti i 14 scenari di `BROWSER-STUDIO.md` sono osservati o
+  coperti da test comportamentali, il Gate R23 passa a SUPERATO e i documenti non
+  descrivono moduli o garanzie non presenti nel codice.
+
+**Gate Browser Studio:** S38-S47 completati in ordine, compatibilita verificata con
+runtime precedente, nessuna finestra esterna in managed mode e nessuna perdita di
+isolamento o dati durante takeover.
+
+---
+
 ## Cosa NON entra in questo piano
 
 In linea con i principi di `PRODUCT.md`:

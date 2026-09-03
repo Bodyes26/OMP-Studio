@@ -9,6 +9,14 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+
+- Studio e il runtime `omp` concordano ora una capability versionata `browser-live-v1` all'avvio della sessione: e la base del futuro Browser Studio. Finche il runtime non offre il canale live non cambia nulla di visibile — il tool `browser` continua a mostrare riepilogo e screenshot come oggi — e con un runtime privo della capability Studio non tenta alcuna connessione.
+
+### Fixed
+
+- Nomi dei provider corretti nel menu di selezione agente/modello: i modelli pubblicati da un gateway con identificativi del tipo `provider/modello` non vengono piu confusi con quelli del provider nativo, e ruoli, fallback e cassetto del ciclo rapido mostrano il provider giusto.
+
 ## [1.4.0] - 2026-09-02
 
 ### Added

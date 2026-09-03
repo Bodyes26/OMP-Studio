@@ -31,9 +31,12 @@ const SLOW_COMMANDS: Record<string, true> = { compact: true, handoff: true, bash
 const LOGIN_TIMEOUT_MS = 600_000;
 
 /** `abort` e `abort_bash` hanno priorita' massima e non devono mai attendere il
- *  timeout di un minuto: l'interruzione deve agire subito. */
+ *  timeout di un minuto: l'interruzione deve agire subito.
+ *  `negotiate_capabilities` sta nella stessa lista per il motivo opposto: e'
+ *  un handshake locale che o risponde subito o non e' supportato, e non deve
+ *  ne' tenere aperta la sessione ne' cadere con l'abort dell'utente. */
 const FAST_COMMAND_TIMEOUT_MS = 4_000;
-const FAST_COMMANDS: Record<string, true> = { abort: true, abort_bash: true };
+const FAST_COMMANDS: Record<string, true> = { abort: true, abort_bash: true, negotiate_capabilities: true };
 export interface RpcError extends Error {
 	code?: string;
 	command?: string;

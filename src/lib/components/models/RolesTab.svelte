@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		modelSettingsStore,
+		resolveCatalogModel,
 		STANDARD_ROLES,
 		type ModelDto,
 		type RoleSuggestionsResponse,
@@ -60,8 +61,7 @@
 	}
 
 	function getModelDto(selector: string): ModelDto | undefined {
-		const raw = selector.split(':')[0];
-		return modelSettingsStore.catalog.find((m) => m.selector === raw || m.id === raw);
+		return resolveCatalogModel(modelSettingsStore.catalog, selector);
 	}
 
 	const selectedRoleModelRaw = $derived(getRoleModelRaw(selectedRole.id));

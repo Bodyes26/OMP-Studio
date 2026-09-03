@@ -582,3 +582,103 @@ con il descrittore `commandcode.json` di questa macchina: due limiti (finestra
 
 - I chip dei messaggi in coda forniscono solo trasparenza visiva sullo stato di avanzamento e sulla modalità originariamente scelta, arricchiti da tooltip esplicativi.
 - Il backend Rust (`src-tauri/src/rpc/mod.rs`) non viene alterato, fungendo da trasparente proxy di trasporto NDJSON.
+
+---
+
+## Gate R23: Browser Studio gestito e trasmesso nella colonna centrale
+
+**Data:** 2026-09-02
+**Esito:** APPROVATO, non ancora implementato
+
+**Decisione:** il tool standard `browser` del runtime OMP controllera un Chromium
+gestito senza finestra desktop e ne trasmettera la tab a una superficie Browser
+dedicata nella colonna centrale di Studio. Il runtime resta proprietario di
+processo, CDP, profili, tab e arbitraggio; Studio resta proprietario di rendering,
+input umano, consenso e inspector. Frame live e input useranno un canale locale
+autenticato distinto dal transcript RPC. La specifica autoritativa e
+[`BROWSER-STUDIO.md`](BROWSER-STUDIO.md).
+
+**Il problema risolto:** oggi il tool `browser` apre o collega un browser esterno,
+mentre `Browser.svelte` riceve soltanto eventi discreti e screenshot. Il
+`PreviewViewer` centrale e un iframe `srcdoc` sandboxed per prototipi statici:
+non ha profilo, cookie, navigazione HTTP generale, Windows Authentication o CDP e
+non puo ospitare correttamente i test del browser tool.
+
+**Perche NON le strade alternative:**
+
+1. Estendere `PreviewViewer` romperebbe il confine di sicurezza del Gate R15 e
+   mescolerebbe prototipi non attendibili con sessioni autenticate.
+2. Una WebView Tauri nativa userebbe WebView2, WKWebView o WebKitGTK a seconda
+   della piattaforma e non offrirebbe un contratto CDP uniforme al browser tool.
+3. Bundlare CEF duplichererebbe Chromium, aumenterebbe il peso degli installer e
+   imporrebbe una seconda pipeline di aggiornamenti di sicurezza.
+4. Mostrare soltanto screenshot non consente takeover, input continuo, picker o
+   ispezione coerente della stessa tab.
+5. Un nuovo tool `studio_browser` lascerebbe due percorsi concorrenti e non
+   risolverebbe l'apertura esterna del tool `browser` esistente.
+
+**Perimetro e garanzie di sicurezza:**
+
+- profilo persistente e isolato per progetto; tab possedute dalla chat;
+- un solo controller per tab, con control epochs e interruzione atomica al primo
+  input umano;
+- takeover privato: la pagina resta visibile localmente, ma agente, transcript,
+  recorder, DOM, console e rete non ricevono dati sensibili;
+- navigazione top-level automatica solo su loopback; nuova origine remota su
+  consenso per progetto;
+- Chrome personale soltanto come modalita opzionale tramite Relay e
+  autorizzazione di una tab specifica;
+- endpoint CDP mai esposto direttamente al frontend Svelte;
+- capability versionata e fallback al renderer screenshot con runtime o Studio
+  precedenti.
+
+**Verifica:** l'implementazione seguira gli step sequenziali S38-S47 di
+`PLAN.md`. Il gate sara marcato superato soltanto dopo la matrice end-to-end di
+`BROWSER-STUDIO.md`: nessuna finestra browser esterna in managed mode, mapping
+input corretto con resize/DPI, takeover privato senza dati nel transcript,
+isolamento tra progetti/chat, Relay limitato alla tab autorizzata e recovery senza
+processi orfani.
+
+### S38 — Scostamenti registrati durante l'implementazione del contratto
+
+**Data:** 2026-09-03
+**Esito:** contratto `browser-live-v1` implementato; Gate R23 resta APPROVATO, non
+ancora superato (mancano S39-S47).
+
+1. **La capability si annuncia solo con un provider registrato.** Il runtime
+   mette `capabilities` nel frame `ready` soltanto quando
+   `registerBrowserLiveProvider` ha un provider. S38 non ne registra nessuno,
+   quindi oggi il frame e identico a prima e ogni host resta sul renderer
+   screenshot. L'alternativa — annunciare la capability subito — avrebbe fatto
+   negoziare a Studio un canale inesistente, cioe' esattamente il fallimento
+   aperto che il gate vieta. Conseguenza dichiarata: la combinazione "runtime
+   nuovo + Studio nuovo" e verificata dai test di contratto con un provider
+   iniettato, non da un'esecuzione reale; diventera' osservabile con S39/S40.
+2. **Il ticket e una risposta, non un evento.** Studio lo chiede con
+   `browser_live_ticket`; il runtime non lo diffonde spontaneamente. Un segreto
+   monouso trasmesso senza richiesta sarebbe finito nei log di ogni host in
+   ascolto sul canale RPC.
+3. **Presentazione singola.** Il primo riscatto consuma il token anche quando
+   l'identita' non combacia (`TICKET_IDENTITY_MISMATCH`). Non bruciarlo avrebbe
+   permesso, con un token trapelato, di sondare quali identita' esistono.
+4. **Identita' prodotta dal runtime.** Studio non genera `projectId`: rispedisce
+   l'identita' ricevuta con `browser_live_tab_state`. Il `projectId` di Studio e
+   un UUID locale e non e' il criterio con cui il runtime isola i profili.
+5. **Modello di dominio esteso.** Rispetto alla sezione 7 della specifica sono
+   stati aggiunti `BrowserOriginPermission`, `BrowserViewport`,
+   `BrowserLiveCloseReason` e i parser severi `parseBrowserSessionIdentity` /
+   `parseBrowserTabState`. Semantica, ownership e invarianti restano quelli
+   approvati.
+6. **Checkout upstream spostato.** Il clone di `can1357/oh-my-pi` si trovava in
+   `ricerca/oh-my-pi-upstream`, dove la sezione 5 della specifica vieta di
+   tenerlo. E' stato spostato in `../oh-my-pi-upstream`, fratello del repository
+   e fuori da esso. Nessuna vendorizzazione, nessuna modifica all'exe installato.
+7. **Nessuna PR upstream.** Non esistono permessi di push su `can1357/oh-my-pi`:
+   il lavoro runtime vive sul branch locale `feat/s38-browser-live-v1-contract`
+   del checkout separato, con commit identificabile nel registro implementativo
+   di `BROWSER-STUDIO.md`.
+8. **Limite d'ambiente dichiarato.** Le suite RPC preesistenti del runtime
+   (`test/rpc*.test.ts`) richiedono l'addon nativo `pi_natives`; dove non e'
+   compilato falliscono in avvio, prima e dopo questa modifica. La verifica di
+   S38 si e' basata su typecheck completo del pacchetto (`tsgo --noEmit`),
+   biome e la suite di contratto dedicata.

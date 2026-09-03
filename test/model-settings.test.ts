@@ -9,6 +9,7 @@ import {
 	mergeProviderIntoCatalog,
 	isAuthAccountActive,
 	getProviderEnvVarHint,
+	resolveCatalogModel,
 	sanitizeMaxDynamic,
 	type ModelDto,
 	type AuthAccount
@@ -70,6 +71,48 @@ describe('ModelSettings: mergeProviderIntoCatalog', () => {
 		assert.equal(result.length, 2);
 		assert.ok(result.some((m) => m.selector === 'openai/gpt-4o'));
 		assert.ok(result.some((m) => m.selector === 'perplexity/sonar-pro'));
+	});
+});
+
+describe('ModelSettings: resolveCatalogModel', () => {
+	// I gateway (cloudflare-ai-gateway, kilo, nanogpt, zenmux) pubblicano modelli
+	// il cui `id` e' `anthropic/claude-opus-5`, identico al selettore del provider
+	// nativo `anthropic`. Nel catalogo il gateway precede anthropic, quindi una
+	// ricerca `selector || id` in un solo passaggio attribuiva il modello al gateway.
+	const catalogWithGatewayCollision: ModelDto[] = [
+		createModel('cloudflare-ai-gateway', 'anthropic/claude-opus-5'),
+		createModel('kilo', 'anthropic/claude-opus-5'),
+		createModel('anthropic', 'claude-opus-5'),
+		createModel('zenmux', 'anthropic/claude-opus-5')
+	];
+
+	it('preferisce il match esatto sul selettore rispetto all id di un gateway', () => {
+		const resolved = resolveCatalogModel(catalogWithGatewayCollision, 'anthropic/claude-opus-5');
+		assert.equal(resolved?.provider, 'anthropic');
+		assert.equal(resolved?.selector, 'anthropic/claude-opus-5');
+	});
+
+	it('ignora il suffisso di thinking del selettore di ruolo', () => {
+		const resolved = resolveCatalogModel(catalogWithGatewayCollision, 'anthropic/claude-opus-5:high');
+		assert.equal(resolved?.provider, 'anthropic');
+	});
+
+	it('risolve il selettore completo di un gateway sul gateway stesso', () => {
+		const resolved = resolveCatalogModel(
+			catalogWithGatewayCollision,
+			'cloudflare-ai-gateway/anthropic/claude-opus-5'
+		);
+		assert.equal(resolved?.provider, 'cloudflare-ai-gateway');
+	});
+
+	it('ripiega sull id nudo quando nessun selettore corrisponde', () => {
+		const resolved = resolveCatalogModel(catalogWithGatewayCollision, 'claude-opus-5');
+		assert.equal(resolved?.provider, 'anthropic');
+	});
+
+	it('restituisce undefined su selettore vuoto o sconosciuto', () => {
+		assert.equal(resolveCatalogModel(catalogWithGatewayCollision, ''), undefined);
+		assert.equal(resolveCatalogModel(catalogWithGatewayCollision, 'inesistente/modello'), undefined);
 	});
 });
 

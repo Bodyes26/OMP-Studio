@@ -449,6 +449,20 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 | **R17** | Notifiche OS e Allerte Icona | Registrazione AUMID `sh.omp.studio`, notifiche toast OS, dot rosso taskbar Windows e badge Dock macOS. | SUPERATO |
 | **R18** | Suggerimenti dinamici effimeri vs residenti | Processo effimero e non residente via `omp -p` (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti; generazione opt-in (`dynamicEnabled: false` di default) per non consumare chiamate a modello non richieste ad ogni fine turno. | SUPERATO |
 
+### 9.1 Evoluzione approvata e non ancora implementata: Browser Studio (Gate R23)
+
+Il Gate R23 approva una nuova superficie Browser nella colonna centrale, alimentata
+dal Chromium gestito dal runtime OMP e non dalla WebView Tauri o dal sandbox dei
+prototipi. Stato corrente: **pianificato; nessun modulo, comando IPC o processo
+browser descritto dalla specifica e ancora presente nel prodotto**.
+
+La specifica autoritativa, il contratto runtime/Studio, le garanzie di sicurezza e
+la sequenza S38-S47 sono in [`BROWSER-STUDIO.md`](BROWSER-STUDIO.md). Questa
+architettura verra riportata nelle sezioni 2-8 solo dopo che ciascun elemento sara
+stato implementato e verificato; il registro implementativo del documento canonico
+distingue in ogni momento progetto e comportamento effettivo.
+
+
 ---
 
 ## 10. Prerequisiti di Build e Compilazione

@@ -36,7 +36,7 @@ import {
 	insertSlashCommandAtCursor,
 	type SlashCursorMatch
 } from '../commands';
-import { modelSettingsStore, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
+import { modelSettingsStore, resolveCatalogModel, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
 import {
 	IconClose,
 	IconCheck,
@@ -129,10 +129,16 @@ let sendCaretEl = $state<HTMLElement | null>(null);
 // icone del selettore modello del task invece di due righe di testo nudo.
 const catalogByKey = $derived.by(() => {
 	const byKey: Record<string, ModelDto> = {};
+	// Prima passata: chiavi deboli su `id` nudo. I gateway pubblicano id come
+	// `anthropic/claude-opus-5`, che collidono con il selettore `<provider>/<id>`
+	// del provider nativo: la seconda passata deve poterle sovrascrivere.
+	for (const model of modelSettingsStore.catalog) {
+		byKey[model.id] = model;
+	}
+	// Seconda passata: chiavi forti, sempre vincenti sulle collisioni.
 	for (const model of modelSettingsStore.catalog) {
 		byKey[`${model.provider}/${model.id}`] = model;
 		byKey[model.selector] = model;
-		byKey[model.id] = model;
 	}
 	return byKey;
 });
@@ -159,7 +165,7 @@ const configuredRolesList = $derived.by(() => {
 		const selector = rolesMap[r.id] || '';
 		const rawSelector = selector.split(':')[0] || '';
 		const thinking = selector.includes(':') ? selector.split(':')[1] : 'auto';
-		const modelDto = modelSettingsStore.catalog.find((m) => m.selector === rawSelector || m.id === rawSelector);
+		const modelDto = resolveCatalogModel(modelSettingsStore.catalog, rawSelector);
 		return {
 			...r,
 			selector,

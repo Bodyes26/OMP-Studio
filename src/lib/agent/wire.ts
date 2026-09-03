@@ -6,6 +6,8 @@
 // non mandare. La forma di `details` per tool e' documentata in
 // `ricerca/TOOL-DETAILS.md`, rilevata sul filo e non dedotta.
 
+import type { BrowserSessionIdentity, RpcCapability } from './browser-live';
+
 /* ---------------------------------------------------------------- comandi */
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -47,7 +49,9 @@ export type RpcCommand =
 	| { type: 'bash'; command: string }
 	| { type: 'abort_bash' }
 	| { type: 'get_login_providers' }
-	| { type: 'login'; providerId: string };
+	| { type: 'login'; providerId: string }
+	| { type: 'negotiate_capabilities'; capabilities: RpcCapability[] }
+	| ({ type: 'browser_live_ticket' } & BrowserSessionIdentity);
 
 /** Risposta a un comando: `code` e' presente sui fallimenti tipizzati. */
 export interface RpcResponse {

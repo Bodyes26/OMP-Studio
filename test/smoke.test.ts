@@ -28,3 +28,4 @@ import './prompt-suggestions.test.ts';
 import './agent-interaction.test.ts';
 import './model-settings.test.ts';
 import './studio-preview.test.ts';
+import './browser-live-contract.test.ts';

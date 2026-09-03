@@ -1,0 +1,245 @@
+{
+	"contract": "browser-live-v1",
+	"revision": "2026-09-03",
+	"description": "Shared compatibility fixture for the browser-live-v1 contract. Byte-identical copies live in omp-studio-app (test/fixtures) and in the OMP runtime (packages/coding-agent/test/fixtures). Both test suites drive their own implementation against these cases; any drift between the two copies is a contract break.",
+	"capability": {
+		"name": "browser-live",
+		"version": 1,
+		"transports": ["local-websocket"],
+		"features": ["binary-frames", "control-epochs", "private-takeover", "inspector", "chrome-relay"]
+	},
+	"fallback": {
+		"toolEvents": ["tool_execution_start", "tool_execution_update", "tool_execution_end"],
+		"toolName": "browser",
+		"screenshotDetailsKey": "screenshots",
+		"note": "When browser-live is not negotiated the host renders the browser tool exactly as before: lifecycle from the three tool_execution events, images from result.details.screenshots and from image content blocks."
+	},
+	"eventTypes": ["browser_live_tab_state", "browser_live_closed"],
+	"closeReasons": ["closed", "session-ended", "runtime-shutdown", "revoked", "failed"],
+	"errorCodes": [
+		"BROWSER_LIVE_UNAVAILABLE",
+		"BROWSER_LIVE_NOT_NEGOTIATED",
+		"TICKET_INVALID",
+		"TICKET_EXPIRED",
+		"TICKET_ALREADY_REDEEMED",
+		"TICKET_IDENTITY_MISMATCH",
+		"ENDPOINT_NOT_LOOPBACK",
+		"SESSION_NOT_FOUND",
+		"TAB_NOT_FOUND",
+		"CONTROL_INTERRUPTED",
+		"PRIVATE_TAKEOVER_ACTIVE",
+		"ORIGIN_NOT_ALLOWED"
+	],
+	"ticket": {
+		"ttlMs": 30000,
+		"transport": "local-websocket",
+		"singlePresentation": true,
+		"note": "The first redeem attempt consumes the token whatever its outcome, so a leaked token cannot be replayed nor used to probe identities."
+	},
+	"readyFrames": {
+		"legacyRuntime": {
+			"type": "ready",
+			"protocolVersion": 1,
+			"supportedProtocolVersions": [1, 2],
+			"maxFrameBytes": 1048576,
+			"maxReassembledFrameBytes": 67108864
+		},
+		"liveRuntime": {
+			"type": "ready",
+			"protocolVersion": 1,
+			"supportedProtocolVersions": [1, 2],
+			"maxFrameBytes": 1048576,
+			"maxReassembledFrameBytes": 67108864,
+			"capabilities": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["binary-frames", "control-epochs", "private-takeover", "inspector", "chrome-relay"]
+				}
+			]
+		}
+	},
+	"negotiations": [
+		{
+			"case": "legacy runtime, new host",
+			"offered": [],
+			"requested": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["binary-frames", "control-epochs", "private-takeover", "inspector", "chrome-relay"]
+				}
+			],
+			"accepted": [],
+			"browserLive": false
+		},
+		{
+			"case": "new runtime, legacy host",
+			"offered": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["binary-frames", "control-epochs", "private-takeover", "inspector", "chrome-relay"]
+				}
+			],
+			"requested": [],
+			"accepted": [],
+			"browserLive": false
+		},
+		{
+			"case": "new runtime, new host",
+			"offered": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["binary-frames", "control-epochs", "private-takeover", "inspector", "chrome-relay"]
+				}
+			],
+			"requested": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["binary-frames", "control-epochs", "private-takeover", "inspector", "chrome-relay"]
+				}
+			],
+			"accepted": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["binary-frames", "control-epochs", "private-takeover", "inspector", "chrome-relay"]
+				}
+			],
+			"browserLive": true
+		},
+		{
+			"case": "version mismatch fails closed",
+			"offered": [{ "name": "browser-live", "version": 2, "transports": ["local-websocket"], "features": [] }],
+			"requested": [{ "name": "browser-live", "version": 1, "transports": ["local-websocket"], "features": [] }],
+			"accepted": [],
+			"browserLive": false
+		},
+		{
+			"case": "transport mismatch fails closed",
+			"offered": [{ "name": "browser-live", "version": 1, "transports": ["local-websocket"], "features": [] }],
+			"requested": [{ "name": "browser-live", "version": 1, "transports": ["shared-memory"], "features": [] }],
+			"accepted": [],
+			"browserLive": false
+		},
+		{
+			"case": "missing transports fail closed",
+			"offered": [{ "name": "browser-live", "version": 1, "transports": ["local-websocket"], "features": [] }],
+			"requested": [{ "name": "browser-live", "version": 1 }],
+			"accepted": [],
+			"browserLive": false
+		},
+		{
+			"case": "feature intersection keeps the offered order",
+			"offered": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["binary-frames", "control-epochs", "private-takeover", "inspector", "chrome-relay"]
+				}
+			],
+			"requested": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["inspector", "binary-frames", "time-travel"]
+				}
+			],
+			"accepted": [
+				{
+					"name": "browser-live",
+					"version": 1,
+					"transports": ["local-websocket"],
+					"features": ["binary-frames", "inspector"]
+				}
+			],
+			"browserLive": true
+		},
+		{
+			"case": "unknown capabilities and malformed entries are dropped",
+			"offered": [{ "name": "browser-live", "version": 1, "transports": ["local-websocket"], "features": [] }],
+			"requested": [
+				null,
+				{},
+				{ "name": "browser-live" },
+				{ "name": "time-travel", "version": 1, "transports": ["local-websocket"] },
+				{ "name": "browser-live", "version": 1, "transports": ["local-websocket"], "features": [] },
+				{ "name": "browser-live", "version": 1, "transports": ["local-websocket"], "features": [] }
+			],
+			"accepted": [
+				{ "name": "browser-live", "version": 1, "transports": ["local-websocket"], "features": [] }
+			],
+			"browserLive": true
+		}
+	],
+	"endpoints": [
+		{ "endpoint": "ws://127.0.0.1:53411/browser-live/v1", "loopback": true },
+		{ "endpoint": "ws://localhost:53411/browser-live/v1", "loopback": true },
+		{ "endpoint": "ws://[::1]:53411/browser-live/v1", "loopback": true },
+		{ "endpoint": "wss://127.0.0.1:53411/browser-live/v1", "loopback": false },
+		{ "endpoint": "ws://10.0.0.5:53411/browser-live/v1", "loopback": false },
+		{ "endpoint": "ws://example.com/browser-live/v1", "loopback": false },
+		{ "endpoint": "http://127.0.0.1:53411/browser-live/v1", "loopback": false },
+		{ "endpoint": "", "loopback": false }
+	],
+	"identity": {
+		"projectId": "1f8b0c2e-1f0f-4f2d-9a4b-6b3f4c2d1e00",
+		"chatSessionId": "chat-7f2a",
+		"browserSessionId": "bs-3c19",
+		"tabId": "main"
+	},
+	"tabState": {
+		"valid": {
+			"projectId": "1f8b0c2e-1f0f-4f2d-9a4b-6b3f4c2d1e00",
+			"chatSessionId": "chat-7f2a",
+			"browserSessionId": "bs-3c19",
+			"tabId": "main",
+			"mode": "managed",
+			"controller": "agent",
+			"controlEpoch": 3,
+			"url": "http://localhost:5173/",
+			"title": "OMP Studio",
+			"loading": false,
+			"originPermission": "local",
+			"viewport": { "width": 1280, "height": 800, "deviceScaleFactor": 1 },
+			"streamState": "live"
+		},
+		"invalid": [
+			{ "why": "unknown controller", "patch": { "controller": "root" } },
+			{ "why": "unknown stream state", "patch": { "streamState": "paused" } },
+			{ "why": "unknown mode", "patch": { "mode": "webview" } },
+			{ "why": "unknown origin permission", "patch": { "originPermission": "maybe" } },
+			{ "why": "negative control epoch", "patch": { "controlEpoch": -1 } },
+			{ "why": "non integer control epoch", "patch": { "controlEpoch": 1.5 } },
+			{ "why": "missing tab id", "patch": { "tabId": "" } },
+			{ "why": "loading is not a boolean", "patch": { "loading": "yes" } },
+			{ "why": "zero device scale factor", "patch": { "viewport": { "width": 1280, "height": 800, "deviceScaleFactor": 0 } } },
+			{ "why": "viewport is not an object", "patch": { "viewport": null } }
+		]
+	},
+	"ticketRedemption": [
+		{ "case": "fresh ticket with matching identity", "expected": "ok" },
+		{ "case": "same token presented twice", "expected": "TICKET_ALREADY_REDEEMED" },
+		{ "case": "unknown token", "expected": "TICKET_INVALID" },
+		{ "case": "token past its expiry", "expected": "TICKET_EXPIRED" },
+		{ "case": "identity of another chat", "expected": "TICKET_IDENTITY_MISMATCH" },
+		{ "case": "replay after an identity mismatch", "expected": "TICKET_ALREADY_REDEEMED" },
+		{ "case": "revoked browser session", "expected": "TICKET_INVALID" },
+		{ "case": "non loopback endpoint refused at issue time", "expected": "ENDPOINT_NOT_LOOPBACK" }
+	],
+	"ticketRequest": [
+		{ "case": "capability never negotiated", "expected": "BROWSER_LIVE_NOT_NEGOTIATED" },
+		{ "case": "negotiated but no provider registered", "expected": "BROWSER_LIVE_UNAVAILABLE" }
+	]
+}
