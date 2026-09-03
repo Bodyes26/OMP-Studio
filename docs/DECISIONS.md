@@ -682,3 +682,89 @@ ancora superato (mancano S39-S47).
    compilato falliscono in avvio, prima e dopo questa modifica. La verifica di
    S38 si e' basata su typecheck completo del pacchetto (`tsgo --noEmit`),
    biome e la suite di contratto dedicata.
+
+### S39 — Scostamenti registrati durante l'implementazione del broker
+
+**Data:** 2026-09-03
+**Esito:** `BrowserSessionBroker` e Chromium gestito implementati nel runtime
+(branch `feat/s39-browser-session-broker`, commit `73c8181`); Gate R23 resta
+APPROVATO, non ancora superato (mancano S40-S47).
+
+1. **Il broker si registra, la capability no.** `runRpcMode` registra il
+   `BrowserSessionBroker` come provider `browser-live` prima di emettere
+   `ready`, ma `BrowserSessionBroker.transports` resta vuoto finche non esiste
+   un endpoint live — cioe' finche' S40 non implementa il canale loopback.
+   Poiche' `browserLiveCapability()` scarta una capability senza trasporti, il
+   frame `ready` non cambia e ogni host resta sul renderer screenshot.
+   L'alternativa — annunciare `browser-live` subito — avrebbe fatto negoziare a
+   Studio un canale inesistente e chiedere ticket verso un endpoint che nessuno
+   serve. Il canale loopback e' il deliverable dichiarato di S40, non di S39:
+   costruirlo qui avrebbe spostato lo scope, non chiuso lo step.
+2. **`issueTicket` non e' uno stub: e' un guard con una dipendenza iniettata.**
+   L'endpoint live e' un parametro del costruttore
+   (`BrowserSessionBrokerOptions.liveEndpoint`), come i seam deterministici che
+   il contratto S38 gia' usa per `ticketId`/`token`. Il singleton di processo non
+   lo passa, i test lo passano, S40 lo passera'. Senza endpoint la risposta e'
+   `BROWSER_LIVE_UNAVAILABLE`; con endpoint il ticket e' reale, monouso e
+   revocabile — verificato dai test.
+3. **I profili stanno sotto `~/.omp`, non sotto `%LOCALAPPDATA%/omp-studio`.**
+   La sezione 9 della specifica indicava un percorso nel namespace di Studio,
+   ma il proprietario del profilo e' il runtime: lo crea, lo tiene bloccato
+   mentre Chromium vive e lo cancella. Un percorso di Studio avrebbe invitato
+   Studio a toccare direttamente file che non possiede — l'opposto del confine
+   della decisione 5 del gate. Percorso effettivo
+   `~/.omp/browser-profiles/<projectId>` (radice XDG-aware, override
+   `OMP_BROWSER_PROFILES_ROOT`), con il `projectId` come **nome** della
+   directory perche' la cancellazione dei dati di un progetto sia un solo
+   `rm -rf` di un percorso che nessun altro condivide.
+4. **`projectId = hashPath(cwd)`, non un UUID.** Serviva un id stabile fra
+   riavvii e derivabile dal runtime senza stato persistente: e' lo stesso
+   digest a 7 cifre esadecimali che il runtime usa per i worktree. Studio non
+   lo inventa: riceve l'identita' con `browser_live_tab_state` e la rispedisce
+   invariata.
+5. **Il tab supervisor e' indirizzato da una chiave, non dal nome.**
+   `tabs`/`acquireChains`/`killedTabs` passano da `name` a `key`; `TabSession`
+   guadagna `key` e conserva `name` come nome ergonomico, che resta cio' che
+   l'agente vede in `tab.name` e nei messaggi d'errore. Solo il motore gestito
+   deriva una chiave per chat (`chatSessionId::tabName`): connected, relay,
+   spawned e cmux sono superfici guidate dall'utente, dove la condivisione per
+   nome e' il comportamento voluto, e cambiarlo sarebbe stato uno scostamento
+   non richiesto.
+6. **Chiusura notificata da un hook sulla tab, non da un observer globale.**
+   `releaseTab`, il force-kill e il reap di sessione invocano
+   `TabSession.onClosed`. Un registro globale di listener nel supervisor
+   avrebbe accoppiato un modulo di basso livello al broker; l'hook viaggia con
+   la tab che lo riguarda.
+7. **Il motore gestito e' il default, la finestra e' l'eccezione.** Con
+   `browser.headless = true` (default) il kind e' `managed` e non esiste
+   configurazione che gli faccia aprire una finestra. `browser.headless = false`
+   (`/browser visible`) continua a usare il kind `headless` preesistente ed e'
+   l'unica via a una finestra desktop. Conseguenza dichiarata: i due motori
+   hanno profili distinti, quindi passare da gestito a visibile non porta con
+   se' cookie e storage — era gia' vero fra `omp.browser.headless` e
+   `omp.browser.headed` prima di S39.
+8. **Un solo Chromium di automazione per progetto.** `read-pdf` e il fallback
+   browser di `web search` costruivano `{ kind: "headless", headless: true }`
+   e avrebbero fatto convivere `omp.browser.headless` e `omp.browser.managed`.
+   Sono stati migrati al motore gestito. Le loro tab non vengono registrate nel
+   broker: non sono superfici di navigazione dell'agente e non devono comparire
+   in Studio.
+9. **Host senza broker restano su un profilo temporaneo.** `bun test` e
+   l'embedding SDK non possono avviare il broker di progetto; in quel caso il
+   kind gestito ricade su un Chromium locale al processo con profilo
+   temporaneo. Due Chromium non possono condividere il lock di una
+   `--user-data-dir`, quindi riusare il profilo persistente li' avrebbe rotto
+   il daemon. Il fallback e' esattamente quello che il kind `headless` aveva
+   prima di S39.
+10. **Verifica dello smoke: `scripts/s39-managed-browser-smoke.ts` e' un host
+    CLI-like.** Il percorso broker e' riservato agli host che possono avviarlo
+    (`isCompiledBinary() || workerHostEntry() !== null`), quindi lo smoke
+    dichiara se stesso worker host e smista i selettori `__omp_worker_tab` e
+    `__omp_worker_daemon_broker` come fa `src/cli.ts`. Alternativa scartata:
+    aggiungere un flag permanente alla CLI solo per verificare uno step.
+11. **Limite d'ambiente dichiarato.** Su questa macchina l'import a freddo di
+    puppeteer nel worker della tab supera a volte il budget di setup fisso del
+    supervisor: lo smoke ritenta l'apertura fino a due volte **solo** su quel
+    timeout, e stampa il ritentativo. Due test browser preesistenti
+    (`browser-attach`, `browser-tab-worker-startup`) falliscono per la stessa
+    ragione, identici sul commit base.

@@ -425,14 +425,26 @@ comportamento osservato, non quello ancora aspirazionale.
   `DECISIONS.md`, dettaglio tecnico nelle sezioni 5, 7, 8 e 18 di
   `BROWSER-STUDIO.md`.
 
-- [ ] **S39 — BrowserSessionBroker e Chromium gestito** (`Main`, runtime OMP)
+- [x] **S39 — BrowserSessionBroker e Chromium gestito** (`Main`, runtime OMP)
   Implementare lifecycle lazy, profilo persistente per progetto, tab indirizzate
   da chat e nome, CDP posseduto dal broker e terminazione senza processi orfani.
   Managed mode non deve creare finestre desktop ne esporre il CDP al client.
   **Accettazione:** due progetti non condividono storage, due chat con tab `main`
   non collidono, close/crash revocano sessioni e il browser puo essere riaperto
   conservando i dati del solo progetto.
-
+  **Fatto:** `packages/coding-agent/src/tools/browser/session-broker.ts`
+  (checkout separato `../oh-my-pi-upstream`, branch
+  `feat/s39-browser-session-broker`, commit `73c8181` su base `e0e1a9d`)
+  implementa `BrowserSessionBroker` con profili isolati sotto
+  `~/.omp/browser-profiles/<projectId>` (`projectId = hashPath(cwd)`),
+  daemon `omp.browser.managed` windowless avviato lazy, tab indirizzate da
+  chiave opaca `chatSessionId::tabName` con nome ergonomico separato,
+  cancellazione esplicita via `/browser clear-data` e provider `browser-live`
+  registrato in `runRpcMode`. I sei scenari di accettazione sono osservati
+  verdi sullo smoke reale `scripts/s39-managed-browser-smoke.ts` su Windows 11;
+  19 nuovi test in `test/tools/browser-session-broker.test.ts`. Scostamenti e
+  decisioni registrati in `DECISIONS.md` e nelle sezioni 5, 6, 8, 9, 10, 17 e
+  18 di `BROWSER-STUDIO.md`.
 - [ ] **S40 — Stream live binario e backpressure** (`Main`, runtime OMP + Studio backend)
   Esporre un canale loopback autenticato con frame CDP, metadati viewport/DPI,
   ack e politica `newest frame wins`; separare lo stream dal transcript RPC.

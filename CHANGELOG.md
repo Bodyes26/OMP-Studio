@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Added
 
 - Studio e il runtime `omp` concordano ora una capability versionata `browser-live-v1` all'avvio della sessione: e la base del futuro Browser Studio. Finche il runtime non offre il canale live non cambia nulla di visibile — il tool `browser` continua a mostrare riepilogo e screenshot come oggi — e con un runtime privo della capability Studio non tenta alcuna connessione.
+- Il runtime `omp` dispone ora del broker delle sessioni browser (`BrowserSessionBroker`) e di un motore Chromium gestito sempre senza finestra desktop: isola cookie e archiviazione per singolo progetto in cartelle dedicate, indirizza le schede tramite identificativi legati alla specifica sessione di chat (evitando collisioni tra schede con lo stesso nome in conversazioni diverse), instrada l'intero controllo CDP attraverso il broker e termina i processi senza lasciare orfani.
 
 ### Fixed
 

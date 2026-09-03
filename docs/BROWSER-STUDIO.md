@@ -1,6 +1,6 @@
 # Browser Studio — Specifica canonica
 
-**Stato:** S38 implementato (contratto `browser-live-v1`); S39-S47 non implementati  
+**Stato:** S38-S39 implementati (contratto `browser-live-v1` + `BrowserSessionBroker` e Chromium gestito); S40-S47 non implementati  
 **Gate:** R23  
 **Ultimo aggiornamento:** 2026-09-03  
 **Owner documentale:** ogni agente che completa uno step S38-S47
@@ -120,7 +120,23 @@ Cline lancia Chrome esterno o Chromium headless senza superficie live integrata;
 
 Il sorgente upstream non e presente in questo workspace. Gli step runtime richiedono un checkout separato del repository OMP e devono produrre un commit/PR upstream identificabile. Non vendorizzare il runtime dentro `omp-studio-app`, non modificare `%LOCALAPPDATA%/omp/omp.exe` e non salvare una copia del sorgente sotto `ricerca/`.
 
-Checkout usato da S38: `../oh-my-pi-upstream`, fratello di `omp-studio-app` e fuori dal repository. I test di Studio lo cercano li, oppure al percorso indicato da `OMP_UPSTREAM_ROOT`; se manca, il confronto della fixture condivisa viene saltato e dichiarato come tale, mai simulato con uno shim Studio-only.
+Checkout usato da S38 e S39: `../oh-my-pi-upstream`, fratello di `omp-studio-app` e fuori dal repository. I test di Studio lo cercano li, oppure al percorso indicato da `OMP_UPSTREAM_ROOT`; se manca, il confronto della fixture condivisa viene saltato e dichiarato come tale, mai simulato con uno shim Studio-only.
+
+S39 e interamente runtime: `omp-studio-app` non ha ricevuto codice, soltanto documentazione. Moduli toccati nel runtime:
+
+| File | Ruolo |
+|---|---|
+| `packages/coding-agent/src/tools/browser/session-broker.ts` | `BrowserSessionBroker`: identita, profili, registro tab, ticket, cancellazione dati |
+| `packages/coding-agent/src/tools/browser/shared-daemon.ts` | `ensureManagedBrowser` + `MANAGED_BROWSER_DAEMON_NAME` (`omp.browser.managed`) |
+| `packages/coding-agent/src/tools/browser/registry.ts` | nuovo `BrowserKind` `managed` e `openManagedHandle` |
+| `packages/coding-agent/src/tools/browser/tab-supervisor.ts` | tab indirizzate da chiave opaca, `tabName` separato, hook `onClosed`, `dropAutomationTabs` |
+| `packages/coding-agent/src/tools/browser.ts` | motore predefinito `managed`, chiavi per chat, pubblicazione stato al broker |
+| `packages/coding-agent/src/modes/rpc/rpc-mode.ts` | registrazione del provider, ponte eventi, teardown |
+| `packages/coding-agent/src/slash-commands/builtin-collaboration.ts` | `/browser clear-data` |
+| `packages/coding-agent/src/tools/read-pdf.ts`, `src/web/search/providers/browser-page.ts` | caller migrati al motore gestito |
+| `packages/utils/src/dirs.ts` | `getBrowserProfilesRoot` / `getBrowserProfileDir` |
+| `packages/coding-agent/scripts/s39-managed-browser-smoke.ts` | smoke reale dei sei scenari di accettazione |
+| `packages/coding-agent/test/tools/browser-session-broker.test.ts` | 19 test comportamentali sul broker |
 
 Ogni cambio di protocollo deve essere documentato qui prima di essere consumato da Studio. La compatibilita tra release viene negoziata tramite capability, non tramite assunzioni sulla versione installata.
 
@@ -141,9 +157,9 @@ flowchart LR
 
 ### 6.1 Responsabilita del runtime OMP
 
-- lifecycle Chromium e target CDP;
-- profili persistenti per progetto;
-- ownership delle tab per chat;
+- lifecycle Chromium e target CDP — **S39**;
+- profili persistenti per progetto — **S39**;
+- ownership delle tab per chat — **S39**;
 - serializzazione e cancellazione delle azioni;
 - control epochs;
 - stream con backpressure;
@@ -235,9 +251,36 @@ sostituirlo. Il frame `ready` guadagna un campo **opzionale** `capabilities`:
 ```
 
 Il runtime annuncia `browser-live` **soltanto** quando un provider e registrato
-(`registerBrowserLiveProvider`). Finche il broker di S39/S40 non esiste il campo
-e assente e il frame e byte-per-byte quello che i client precedenti gia
-leggono.
+(`registerBrowserLiveProvider`) **e** quel provider dichiara almeno un
+trasporto utilizzabile.
+
+Dopo S39 il provider esiste: `runRpcMode` registra il `BrowserSessionBroker`
+prima di emettere `ready`, e lo deregistra allo spegnimento. Ma
+`BrowserSessionBroker.transports` e vuoto finche non esiste un endpoint live —
+cioe finche S40 non implementa il canale loopback — quindi
+`browserLiveCapability()` resta `null`, il campo `capabilities` resta assente e
+il frame `ready` e ancora byte-per-byte quello che i client precedenti
+leggono. Studio non manda `negotiate_capabilities`, non chiede ticket e resta
+sul renderer screenshot. Il fallback non-live non e una modalita degradata: e
+lo stato corrente e osservato del sistema.
+
+Con un provider che dichiara il trasporto (iniettato nei test, reale in S40) la
+capability annunciata e
+`{ name: "browser-live", version: 1, transports: ["local-websocket"], features: [] }`:
+nessuna delle cinque feature e implementata da S39, e un'intersezione di
+feature vuota resta una capability valida.
+
+`browser_live_ticket` di conseguenza fallisce oggi con
+`BROWSER_LIVE_NOT_NEGOTIATED` (nessuna negoziazione possibile). Con capability
+negoziata e nessun endpoint live il broker risponde
+`BROWSER_LIVE_UNAVAILABLE`; per un'identita che non corrisponde a nessuna
+sessione gestita `SESSION_NOT_FOUND`, e per una sessione nota con una tab
+ignota `TAB_NOT_FOUND`.
+
+Gli eventi `browser_live_tab_state` e `browser_live_closed` sono cablati dal
+broker al canale RPC in `runRpcMode`, ma vengono emessi solo verso un host che
+ha negoziato `browser-live`: senza negoziazione l'evento viene scartato alla
+sorgente, non inviato e ignorato.
 
 Studio, sul frame `ready`, calcola l'intersezione in locale e manda
 `negotiate_capabilities` solo se qualcosa e realmente negoziabile:
@@ -357,17 +400,43 @@ versione o trasporto non condivisi — nulla cambia rispetto a oggi:
 L'elenco e pinnato nella fixture condivisa: aggiungere un codice senza
 aggiornarla fa fallire i test dei due repository.
 
-## 9. Profili, processi e tab
+## 9. Profili, processi e tab — implementato in S39
 
-Profilo persistente fuori dal repository:
+### 9.1 Identita
+
+`projectId` non viene mai inventato da Studio: e `hashPath(cwd)` del runtime,
+cioe il digest esadecimale a 7 caratteri della directory di progetto
+canonicalizzata, lo stesso helper usato per i worktree sotto `~/.omp/wt/`. Da
+esso derivano gli altri identificatori:
 
 ```text
-%LOCALAPPDATA%/omp-studio/browser-profiles/<project-id>/
+projectId        = hashPath(cwd)                     es. "1f3a9c0"
+browserSessionId = `managed-${projectId}`            es. "managed-1f3a9c0"
+tabId            = `${chatSessionId}::${tabName}`    es. "01K7Q...::main"
 ```
 
-Equivalenti platform-specific vanno usati su macOS e Linux.
+Le funzioni sono `managedProjectId`, `managedBrowserSessionId` e
+`managedTabId` in `session-broker.ts`; `BrowserSessionBroker.identityFor()`
+compone l'identita completa. Un acquirente che non si identifica (embedding
+SDK, test) usa `chatSessionId = "anonymous"`: non riceve un'identita finta,
+riceve una identita dichiaratamente anonima.
 
-Persistono per progetto:
+### 9.2 Profilo persistente
+
+Profilo persistente fuori dal repository, **posseduto dal runtime** e non da
+Studio:
+
+```text
+~/.omp/browser-profiles/<projectId>/
+```
+
+Su Windows con i default XDG del runtime la radice e
+`%USERPROFILE%\.omp\browser-profiles`; l'override `OMP_BROWSER_PROFILES_ROOT`
+la rialloca (usato dallo smoke e disponibile agli operatori). Il nome della
+directory *e* il `projectId`, cosi la cancellazione dei dati di un progetto e
+un solo `rm -rf` di un percorso che nessun altro condivide.
+
+Persistono per progetto (verificato: scenari 2 e 4 dello smoke):
 
 - cookie;
 - localStorage;
@@ -383,9 +452,55 @@ Non persistono come stato globale:
 - ownership agente;
 - tab di chat chiuse.
 
-Le tab sono indirizzate da `chatSessionId + tabName`, anche se il tool continua a esporre il nome ergonomico `main`. Due chat non possono controllare la stessa tab per collisione di nome.
+### 9.3 Lifecycle effettivo
 
-Il browser viene avviato lazy, senza finestra desktop, e terminato dopo inattivita preservando il profilo. Il password manager del browser gestito resta disabilitato. Studio offre cancellazione esplicita dei dati browser del progetto.
+1. `browser open` risolve il kind: senza `app.*`, senza relay, senza
+   `browser.cdpUrl` e senza cmux, con `browser.headless = true` (default) il
+   kind e `{ kind: "managed", projectId }`. `browser.headless = false`
+   (`/browser visible`) resta l'unica via a una finestra desktop, e usa il kind
+   `headless` preesistente.
+2. `openManagedHandle` chiede l'endpoint a `BrowserSessionBroker.ensureEndpoint()`.
+   Nessun altro punto del codice deriva un endpoint gestito.
+3. Il broker chiama `ensureManagedBrowser({ projectDir, profileDir })`, che
+   avvia **lazy** il daemon `omp.browser.managed` sotto il broker di progetto
+   (`persist: false`, `detached: false`), con argv `--headless=new`,
+   `--no-startup-window`, `--remote-debugging-port=0` e
+   `--user-data-dir=<profilo del progetto>`.
+4. La tab viene aperta dal tab supervisor con chiave `tabId`; il nome
+   ergonomico (`main`) resta in `TabSession.name` ed e quello che l'agente vede
+   in `tab.name` e nei messaggi d'errore.
+5. Alla creazione il broker pubblica un `BrowserTabState`
+   (`mode: "managed"`, `controller: "agent"`, `controlEpoch: 0`,
+   `originPermission: "local"`, `streamState: "detached"`); `run` che naviga
+   aggiorna URL e titolo.
+6. Chiusura: `releaseTab`, force-kill e reap di sessione invocano l'hook
+   `onClosed` della tab, che rimuove il record dal broker e revoca i ticket
+   della sessione quando non resta piu nessuna tab.
+7. Terminazione del processo Chromium: la possiede il broker di progetto, che
+   ferma il daemon quando l'ultimo client omp del progetto esce. Non esiste un
+   percorso in cui Chromium sopravviva a omp (verificato: scenari 5 e 6).
+
+Il password manager del browser gestito resta disabilitato
+(`--password-store=basic` dai default puppeteer, nessun profilo utente reale).
+
+### 9.4 Cancellazione esplicita dei dati
+
+`BrowserSessionBroker.deleteProjectData(cwd)` revoca i ticket della sessione e
+rimuove la directory di profilo del solo progetto indicato. Rifiuta finche il
+progetto ha tab gestite aperte — cancellare un profilo sotto un Chromium vivo
+lascerebbe una directory mezza rimossa su cui il browser continua a scrivere —
+e in quel caso restituisce `{ deleted: false, openTabs }`.
+
+Entry point utente lato runtime: `/browser clear-data`. Studio esporra il
+proprio comando sulla stessa API negli step UI (S41+).
+
+### 9.5 Fallback senza broker
+
+Un host che non puo avviare il broker (`bun test`, embedding SDK senza entry
+CLI) ottiene un Chromium locale al processo con profilo temporaneo, non il
+profilo persistente: due Chromium non possono condividere il lock di una
+`--user-data-dir`, e il profilo di progetto appartiene al daemon. Il
+comportamento e identico a quello che il kind `headless` aveva prima di S39.
 
 ## 10. Control epochs
 
@@ -408,6 +523,14 @@ Transizione atomica:
 7. impostare controller `user`.
 
 Il pannello deve mostrare sempre chi controlla la tab. Il ritorno all'agente richiede un comando esplicito e produce un nuovo snapshot semantico prima della ripresa.
+
+Stato dopo S39: il `controlEpoch` esiste nello stato tab ed e sempre `0`, il
+`controller` e sempre `agent`; l'arbitraggio e S42. Cio che S39 ha reso vero e
+la premessa: l'endpoint CDP del motore gestito nasce in un unico punto
+(`BrowserSessionBroker.ensureEndpoint`), non compare in nessun frame RPC, in
+nessun risultato di tool e in nessun ticket, e le tab sono raggiungibili solo
+tramite la chiave che il broker assegna. Non esiste una via per cui il client
+ottenga un endpoint Puppeteer con cui aggirare il broker.
 
 ## 11. Takeover privato
 
@@ -561,7 +684,41 @@ Stato per S38 (contratto). Lo scenario 12 e osservato, non solo dedotto:
 
 La combinazione "runtime nuovo con provider registrato + Studio nuovo" e
 coperta dai test con provider iniettato: diventa osservabile end-to-end con
-S39/S40. Gli scenari 1-11 e 13-14 restano aperti.
+S40, quando il trasporto live esiste.
+
+Stato per S39 (broker e Chromium gestito). Osservati con smoke reale su
+Windows 11, `bun packages/coding-agent/scripts/s39-managed-browser-smoke.ts`,
+6/6 scenari:
+
+| Scenario | Esito osservato |
+|---|---|
+| 1 — nessuna finestra desktop | daemon `omp.browser.managed` avviato, albero di processi del suo pid ispezionato via `Get-Process`/`Win32_Process`: nessuna finestra top-level (`MainWindowHandle != 0`) |
+| 6 — isolamento profili | progetto A scrive `s39=project-a` + `localStorage` su `http://127.0.0.1:<porta>/`; il progetto B, sulla **stessa** origine, legge `{"cookie":"","stored":null}` |
+| 7 — tab omonime | `chat-a::main` e `chat-b::main` sono due tab distinte nello stesso browser gestito, con titoli indipendenti |
+| riapertura | dopo `releaseAllTabs`, il progetto A ritrova cookie e `localStorage`, il progetto B resta vuoto |
+| 13 (parziale) — chiusura senza orfani | `releaseAllTabs` azzera il registro del broker; lo stop del daemon fa uscire il pid Chromium |
+| 13 (parziale) — crash senza orfani | un host figlio apre una tab gestita e viene ucciso con `SIGKILL` senza teardown: il Chromium del suo progetto esce comunque, per teardown dell'ultimo client del broker |
+
+Altre verifiche di S39:
+
+- 19 test comportamentali nuovi
+  (`packages/coding-agent/test/tools/browser-session-broker.test.ts`) e 38 test
+  di contratto S38 ancora verdi;
+- suite browser preesistenti del runtime: 78 test verdi su
+  `browser-session-broker`, `browser-live-contract`, `browser-lifecycle-leak`,
+  `browser-open-lease`, `browser-dispose-timeout`, `browser-profile-cleanup`,
+  `browser-cmux-release-mid-run`;
+- `browser-attach` e `browser-tab-worker-startup` hanno due fallimenti che si
+  riproducono identici sul commit base `e0e1a9d` (avvio Chromium reale su
+  questa macchina), quindi non sono regressioni di S39;
+- suite `test/rpc`: 4 fallimenti sul branch contro 5 sul commit base — tutti
+  preesistenti e dipendenti da rete/tempi;
+- `tsgo --noEmit` e `biome check` verdi sui pacchetti toccati.
+
+Scenario 12 (fallback non-live) resta osservato e ora vale per un runtime che
+**ha** il provider registrato: `transports` vuoto significa capability non
+annunciata, quindi il frame `ready` non cambia. Gli scenari 2-5, 8-11 e 14
+restano aperti.
 
 ### ContrattiImmobili
 
@@ -575,6 +732,7 @@ Ogni step aggiunge una voce senza riscrivere la storia:
 |---|---|---|---|---|
 | 2026-09-02 | Pianificazione | `omp-studio-app` | Gate R23 e task S38-S47 | Specifica iniziale; nessun codice implementato |
 | 2026-09-03 | S38 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s38-browser-live-v1-contract`, commit `e0e1a9d` su base `311b390`) + `omp-studio-app` (working tree, non committato al momento della stesura) | `browser-live-v1`: `capabilities` opzionale nel frame `ready`, comandi `negotiate_capabilities` e `browser_live_ticket`, identita `projectId/chatSessionId/browserSessionId/tabId`, `BrowserTabState`, `BrowserFrameMeta`, eventi `browser_live_tab_state` e `browser_live_closed`, 12 codici di errore, ticket loopback monouso con TTL 30 s. Fixture condivisa `browser-live-v1.json` identica nei due repository. | Capability annunciata solo con provider registrato (nessuno in S38); ticket come risposta e non come evento; presentazione singola del token; checkout upstream spostato fuori da `ricerca/`; nessuna PR upstream (branch locale). Dettaglio in `DECISIONS.md`, voce "S38 — Scostamenti". |
+| 2026-09-03 | S39 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s39-browser-session-broker`, commit `73c8181` su base `e0e1a9d`); `omp-studio-app`: solo documentazione | `BrowserSessionBroker` in `packages/coding-agent/src/tools/browser/session-broker.ts`. Nuovo `BrowserKind` `managed`, motore predefinito con `browser.headless = true`. Profilo persistente `~/.omp/browser-profiles/<projectId>` con `projectId = hashPath(cwd)`, override `OMP_BROWSER_PROFILES_ROOT`. Daemon `omp.browser.managed` avviato lazy (`--headless=new`, `--no-startup-window`, `--remote-debugging-port=0`, `persist:false`). Tab indirizzate da chiave opaca `chatSessionId::tabName` con nome ergonomico separato e hook `onClosed`. `deleteProjectData` + `/browser clear-data`. Provider `browser-live` registrato in `runRpcMode` con ponte eventi e teardown. | `transports` vuoto finche non esiste il canale live di S40: la capability resta non annunciata e il fallback screenshot e lo stato osservato, non una degradazione. Profili sotto `~/.omp` del runtime, non `%LOCALAPPDATA%/omp-studio`: li possiede e li cancella il runtime. `read-pdf` e il fallback browser di web search migrati al motore gestito. Host senza broker (bun test, SDK) restano su Chromium locale al processo con profilo temporaneo. `/browser visible` resta l'unica finestra desktop possibile. Dettaglio in `DECISIONS.md`, Gate R23 / S39. |
 
 Uno step non e concluso finche questa tabella, le sezioni tecniche interessate e `docs/PLAN.md` non riflettono il comportamento effettivo. Se il codice rende una parte della specifica non valida, aggiornare prima la decisione in `docs/DECISIONS.md`; non lasciare documentazione aspirazionale presentata come implementata.
 
