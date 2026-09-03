@@ -73,6 +73,19 @@ export interface AccessibilitySettings {
 	animations: boolean;
 }
 
+/** Stile visivo della chip quota nella barra in alto. */
+export type QuotaChipVariant = 'ringHalo' | 'fillWave';
+
+export interface QuotaChipSettings {
+	variant: QuotaChipVariant;
+	showProvider: boolean;
+	alwaysShowPct: boolean;
+}
+
+export interface AppearanceSettings {
+	quotaChip: QuotaChipSettings;
+}
+
 export interface ProjectBarSettings {
 	order: ProjectBarOrder;
 	queueBadge: QueueBadgeStyle;
@@ -148,6 +161,7 @@ export interface StudioSettings {
 	general: GeneralSettings;
 	notifications: NotificationSettings;
 	accessibility: AccessibilitySettings;
+	appearance: AppearanceSettings;
 }
 export const DEFAULT_SETTINGS: StudioSettings = {
 	projectBar: {
@@ -207,6 +221,13 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 	},
 	accessibility: {
 		animations: true
+	},
+	appearance: {
+		quotaChip: {
+			variant: 'ringHalo',
+			showProvider: true,
+			alwaysShowPct: false
+		}
 	}
 };
 
@@ -250,6 +271,8 @@ export function parseSettings(value: unknown): StudioSettings {
 	const general = (record.general && typeof record.general === 'object' ? record.general : {}) as Record<string, unknown>;
 	const notif = (record.notifications && typeof record.notifications === 'object' ? record.notifications : {}) as Record<string, unknown>;
 	const access = (record.accessibility && typeof record.accessibility === 'object' ? record.accessibility : {}) as Record<string, unknown>;
+	const appearance = (record.appearance && typeof record.appearance === 'object' ? record.appearance : {}) as Record<string, unknown>;
+	const quotaChip = (appearance.quotaChip && typeof appearance.quotaChip === 'object' ? appearance.quotaChip : {}) as Record<string, unknown>;
 	const d = DEFAULT_SETTINGS;
 
 	return {
@@ -317,6 +340,13 @@ export function parseSettings(value: unknown): StudioSettings {
 		},
 		accessibility: {
 			animations: bool(access.animations, d.accessibility.animations)
+		},
+		appearance: {
+			quotaChip: {
+				variant: pick(quotaChip.variant, ['ringHalo', 'fillWave'] as const, d.appearance.quotaChip.variant),
+				showProvider: bool(quotaChip.showProvider, d.appearance.quotaChip.showProvider),
+				alwaysShowPct: bool(quotaChip.alwaysShowPct, d.appearance.quotaChip.alwaysShowPct)
+			}
 		}
 	};
 }
@@ -344,6 +374,7 @@ class SettingsStore {
 	general = $state<GeneralSettings>({ ...DEFAULT_SETTINGS.general });
 	notifications = $state<NotificationSettings>({ ...DEFAULT_SETTINGS.notifications });
 	accessibility = $state<AccessibilitySettings>({ ...DEFAULT_SETTINGS.accessibility });
+	appearance = $state<AppearanceSettings>({ ...DEFAULT_SETTINGS.appearance });
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
 	ready = $state(false);
 
@@ -379,6 +410,7 @@ class SettingsStore {
 			this.general = parsed.general;
 			this.notifications = parsed.notifications;
 			this.accessibility = parsed.accessibility;
+			this.appearance = parsed.appearance;
 		} catch {
 			// Impostazioni illeggibili: si lavora con i default, senza bloccare
 			// l'avvio. Il costo di un errore qui deve restare zero.
@@ -401,6 +433,7 @@ class SettingsStore {
 			notifications: $state.snapshot(this.notifications),
 			general: $state.snapshot(this.general),
 			accessibility: $state.snapshot(this.accessibility),
+			appearance: $state.snapshot(this.appearance)
 		};
 		await this.store.set('studioSettings', snapshot);
 		await this.store.save();
@@ -432,6 +465,18 @@ class SettingsStore {
 
 	patchTaskDefaults(patch: Partial<TaskDefaults>) {
 		Object.assign(this.taskDefaults, patch);
+		this.save();
+	}
+
+	patchAppearance(patch: Partial<AppearanceSettings>) {
+		if (patch.quotaChip) {
+			Object.assign(this.appearance.quotaChip, patch.quotaChip);
+		}
+		this.save();
+	}
+
+	patchQuotaChip(patch: Partial<QuotaChipSettings>) {
+		Object.assign(this.appearance.quotaChip, patch);
 		this.save();
 	}
 	setTaskDirectives(directives: TaskDirective[]) {

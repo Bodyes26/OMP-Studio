@@ -10,6 +10,8 @@
 	import { trapFocus } from '$lib/focusTrap';
 	import { IS_MAC, IS_WINDOWS } from '$lib/utils/platform';
 	import { quotaStore } from '$lib/stores/quota.svelte';
+	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
+	import QuotaChip from './quota/QuotaChip.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
 	import {
 		IconChevronDown,
@@ -621,18 +623,19 @@
 				Coda ({taskStore.totalQueued})
 			</button>
 		{/if}
-		<button
-			class="usage-chip"
-			class:offline={quotaStore.status === 'offline'}
-			class:unconfigured={quotaStore.status === 'unconfigured'}
-			class:warning={quotaStore.status === 'warning'}
-			class:exhausted={quotaStore.status === 'exhausted'}
+		<QuotaChip
+			variant={settingsStore.appearance.quotaChip.variant}
+			showProvider={settingsStore.appearance.quotaChip.showProvider}
+			alwaysShowPct={settingsStore.appearance.quotaChip.alwaysShowPct}
+			status={activeQuotaStore.info.status}
+			remainingPct={activeQuotaStore.info.remainingPct}
+			usedPct={activeQuotaStore.info.usedPct}
+			shortName={activeQuotaStore.info.shortName}
+			hasLimits={activeQuotaStore.info.hasLimits}
+			title={activeQuotaStore.info.tooltip}
+			ariaLabel={activeQuotaStore.info.tooltip}
 			onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }}
-			title={quotaStore.chipTooltip}
-			aria-label="{quotaStore.chipLabel} (Ctrl+Alt+U)"
-		>
-			<IconQuota /> {quotaStore.chipLabel}
-		</button>
+		/>
 		{#if IS_WINDOWS}
 			<!-- Su Windows Studio disegna i tre controlli personalizzati;
 			     su macOS e Linux le decorazioni sono native per evitare doppie barre. -->
@@ -1218,63 +1221,8 @@
 		background: var(--bg-hover);
 	}
 
-	.usage-chip {
-		background: transparent;
-		border: 1px solid var(--line);
-		color: var(--ink-muted);
-		padding: 3px 10px;
-		font-size: var(--text-xs);
-		border-radius: var(--radius-full);
-		cursor: pointer;
+	.controls :global(.quota-chip) {
 		margin-right: var(--space-3);
-		transition: all 0.15s ease;
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-variant-numeric: tabular-nums;
-	}
-
-	.usage-chip:hover {
-		color: var(--ink);
-		border-color: var(--line-strong);
-		background: var(--bg-hover);
-	}
-
-	.usage-chip.offline {
-		border-color: var(--warn-dim, #f59e0b44);
-		color: var(--warn, #f59e0b);
-		background: color-mix(in srgb, var(--warn, #f59e0b) 6%, transparent);
-	}
-
-	.usage-chip.offline:hover {
-		border-color: var(--warn, #f59e0b);
-		background: color-mix(in srgb, var(--warn, #f59e0b) 12%, transparent);
-	}
-
-	.usage-chip.unconfigured {
-		border-color: var(--line);
-		border-style: dashed;
-		color: var(--ink-faint);
-	}
-
-	.usage-chip.unconfigured:hover {
-		border-color: var(--ink-muted);
-		color: var(--ink-muted);
-	}
-
-	.usage-chip.exhausted {
-		border-color: var(--danger-dim, #ef444466);
-		color: var(--danger, #ef4444);
-		background: color-mix(in srgb, var(--danger, #ef4444) 6%, transparent);
-	}
-
-	.usage-chip.exhausted:hover {
-		border-color: var(--danger, #ef4444);
-	}
-
-	.usage-chip.warning {
-		border-color: var(--warn-dim, #f59e0b44);
-		color: var(--warn, #f59e0b);
 	}
 
 	/* Native Window Controls */

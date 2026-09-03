@@ -29,6 +29,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
+	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, formatTaskPrompt } from '$lib/stores/tasks.svelte';
@@ -209,6 +210,59 @@
 			}
 		}
 		return list;
+	});
+
+	// Mantiene la quota contestuale allineata al modello e provider del progetto attivo.
+	$effect(() => {
+		const project = projectStore.activeProject;
+		if (!project) {
+			activeQuotaStore.setActiveModel(undefined, undefined);
+			return;
+		}
+
+		let provider: string | undefined;
+		let modelId: string | undefined;
+
+		if (project.layout.rightSection === 'gui') {
+			const session = agentSessions.get(project.id);
+			if (session?.model) {
+				provider = session.model.provider;
+				modelId = session.model.id || session.model.name;
+				if (!provider && modelId && modelId.includes('/')) {
+					const parts = modelId.split('/');
+					provider = parts[0];
+					modelId = parts.slice(1).join('/');
+				}
+			}
+		} else {
+			const term = terminalSessions.get(project.id);
+			const selector = term?.currentSessionInfo?.modelSelector;
+			if (selector) {
+				const clean = selector.split(':')[0];
+				if (clean.includes('/')) {
+					const parts = clean.split('/');
+					provider = parts[0];
+					modelId = parts.slice(1).join('/');
+				} else {
+					modelId = clean;
+				}
+			}
+		}
+
+		// Fallback su ruolo default configurato
+		if (!provider) {
+			const defaultRole = modelSettingsStore.config?.modelRoles?.['default'] || modelSettingsStore.draftConfig?.modelRoles?.['default'];
+			if (defaultRole) {
+				const clean = defaultRole.split(':')[0];
+				if (clean.includes('/')) {
+					const parts = clean.split('/');
+					provider = parts[0];
+					modelId = parts.slice(1).join('/');
+				}
+			}
+		}
+
+		activeQuotaStore.setActiveModel(provider, modelId);
 	});
 
 	/**

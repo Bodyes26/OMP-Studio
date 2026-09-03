@@ -101,6 +101,9 @@ export class TerminalSession {
 	public onOpenFile: (relPath: string, line: number | null) => void = () => {};
 	public onInputPendingChange: (pending: boolean) => void = () => {};
 	public onSessionChange: (session: TerminalSessionInfo | null) => void = () => {};
+	get currentSessionInfo(): TerminalSessionInfo | null {
+		return this.currentSession;
+	}
 
 	constructor(
 		container: HTMLElement,
