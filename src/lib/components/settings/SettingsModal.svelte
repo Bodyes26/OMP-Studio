@@ -157,15 +157,19 @@
 				{#if settingsStore.section === 'models'}
 					<button
 						class="btn-header-action upgrade-action"
-						class:spinning={modelSettingsStore.isCheckingUpgrades}
+						class:loading={modelSettingsStore.isCheckingUpgrades}
 						disabled={modelSettingsStore.isCheckingUpgrades}
 						onclick={handleCheckUpgrades}
 						title="Verifica se sono disponibili nuove versioni per i modelli configurati"
 					>
-						<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">
-							<circle cx="7" cy="7" r="4.5" />
-							<path d="M10.5 10.5L14 14" stroke-linecap="round" />
-						</svg>
+						{#if modelSettingsStore.isCheckingUpgrades}
+							<span class="btn-spinner" aria-hidden="true"></span>
+						{:else}
+							<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">
+								<circle cx="7" cy="7" r="4.5" />
+								<path d="M10.5 10.5L14 14" stroke-linecap="round" />
+							</svg>
+						{/if}
 						<span>{modelSettingsStore.isCheckingUpgrades ? 'Verifica...' : 'Verifica Versioni'}</span>
 					</button>
 
@@ -457,8 +461,19 @@
 		cursor: not-allowed;
 	}
 
-	.btn-header-action.spinning svg {
-		animation: spin 1s linear infinite;
+	.btn-header-action.loading:disabled {
+		opacity: 0.85;
+		cursor: wait;
+	}
+
+	.btn-spinner {
+		width: 12px;
+		height: 12px;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+		flex-shrink: 0;
 	}
 
 	@keyframes spin {
