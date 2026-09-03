@@ -29,6 +29,14 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "allow-browser-live"
+description = "Stream live binario e backpressure per Browser Studio su loopback autenticato"
+commands.allow = [
+    "browser_live_connect",
+    "browser_live_disconnect"
+]
+
+[[permission]]
 identifier = "allow-workspace-files"
 description = "Albero dei file e operazioni confinate alla radice del progetto: lettura, scrittura, creazione, rinomina, cestino e anteprime"
 commands.allow = [
@@ -183,5 +191,6 @@ permissions = [
     "allow-external-open",
     "allow-rules-and-skills",
     "allow-task-directives",
-    "allow-prompt-suggestions"
+    "allow-prompt-suggestions",
+    "allow-browser-live"
 ]

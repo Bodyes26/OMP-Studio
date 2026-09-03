@@ -55,10 +55,12 @@ import {
 	parseBrowserTabState,
 	readAdvertisedCapabilities,
 	shouldNegotiate,
+	type BrowserFrameMeta,
 	type BrowserLiveNegotiation,
 	type BrowserLiveTicket,
 	type BrowserSessionIdentity,
-	type BrowserTabState
+	type BrowserTabState,
+	connectBrowserLive
 } from './browser-live';
 
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
@@ -527,6 +529,36 @@ export class AgentSession {
 			console.warn('Richiesta ticket browser-live non riuscita:', error);
 			return null;
 		}
+	}
+
+	/**
+	 * Connette lo stream live autenticato per la tab indicata.
+	 * Restituisce la funzione di disconnessione o null se il live non e' negoziato.
+	 */
+	async connectLiveTab(
+		identity: BrowserSessionIdentity,
+		onFrame: (frame: { meta: BrowserFrameMeta; imageBase64: string }) => void
+	): Promise<(() => void) | null> {
+		const ticket = await this.requestBrowserLiveTicket(identity);
+		if (!ticket) return null;
+		return connectBrowserLive(ticket, (event) => {
+			if (event.type === 'frame') {
+				onFrame({ meta: event.meta, imageBase64: event.imageBase64 });
+			} else if (event.type === 'tab_state') {
+				const state = parseBrowserTabState(event.state);
+				if (state) {
+					const idx = this.browserLiveTabs.findIndex(
+						(t) => t.browserSessionId === state.browserSessionId && t.tabId === state.tabId
+					);
+					if (idx !== -1) this.browserLiveTabs[idx] = state;
+					else this.browserLiveTabs.push(state);
+				}
+			} else if (event.type === 'closed') {
+				this.browserLiveTabs = this.browserLiveTabs.filter(
+					(t) => t.browserSessionId !== event.identity.browserSessionId || t.tabId !== event.identity.tabId
+				);
+			}
+		});
 	}
 
 	/**

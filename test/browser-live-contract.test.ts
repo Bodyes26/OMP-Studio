@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
+	BLF1_MAGIC,
 	BROWSER_LIVE_CAPABILITY_NAME,
 	BROWSER_LIVE_ERROR_CODES,
 	BROWSER_LIVE_EVENT_TYPES,
@@ -12,13 +13,19 @@ import {
 	STUDIO_BROWSER_LIVE_OFFER,
 	browserLiveFrom,
 	checkTicket,
+	decodeBinaryFrame,
+	encodeBinaryFrame,
 	isBrowserLiveEventType,
 	isLoopbackWebSocketEndpoint,
 	negotiateCapabilities,
+	parseBrowserFrameMeta,
+	parseBrowserLiveClientMessage,
+	parseBrowserLiveServerMessage,
 	parseBrowserSessionIdentity,
 	parseBrowserTabState,
 	readAdvertisedCapabilities,
 	shouldNegotiate,
+	type BrowserFrameMeta,
 	type BrowserSessionIdentity,
 	type BrowserTabState,
 	type RpcCapability
@@ -64,6 +71,12 @@ interface BrowserLiveFixture {
 	tabState: { valid: BrowserTabState; invalid: { why: string; patch: Record<string, unknown> }[] };
 	ticketRedemption: { case: string; expected: string }[];
 	ticketRequest: { case: string; expected: string }[];
+	binaryFrames: {
+		magic: string;
+		magicBytes: number[];
+		headerLength: number;
+		sampleMeta: BrowserFrameMeta;
+	};
 }
 
 const fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as BrowserLiveFixture;
@@ -245,6 +258,67 @@ describe('Contratto browser-live-v1', () => {
 			};
 			assert.deepEqual(resultImages(result), [{ data: 'AAAA', mimeType: 'image/jpeg' }]);
 			assert.ok(Array.isArray(details[fixture.fallback.screenshotDetailsKey]));
+		});
+	});
+
+	describe('wire format binario BLF1 (S40)', () => {
+		it('dichiara header e magic coerenti con la fixture', () => {
+			assert.equal(fixture.binaryFrames.magic, 'BLF1');
+			assert.deepEqual([...BLF1_MAGIC], fixture.binaryFrames.magicBytes);
+			assert.equal(fixture.binaryFrames.headerLength, 8);
+		});
+
+		it('codifica e decodifica frame binari senza perdita', () => {
+			const sampleImage = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+			const encoded = encodeBinaryFrame(fixture.binaryFrames.sampleMeta, sampleImage);
+			assert.ok(encoded.length > sampleImage.length + 8);
+
+			const decoded = decodeBinaryFrame(encoded);
+			assert.ok(decoded);
+			assert.deepEqual(decoded.meta, fixture.binaryFrames.sampleMeta);
+			assert.deepEqual(decoded.image, sampleImage);
+		});
+
+		it('rifiuta magic number corrotto o header tronco', () => {
+			const sampleImage = new Uint8Array([1, 2, 3]);
+			const encoded = encodeBinaryFrame(fixture.binaryFrames.sampleMeta, sampleImage);
+			encoded[0] = 0x00;
+			assert.equal(decodeBinaryFrame(encoded), null);
+			assert.equal(decodeBinaryFrame(new Uint8Array([66, 76])), null);
+		});
+
+		it('rifiuta metadati malformati o lunghezze fuori range', () => {
+			const sampleImage = new Uint8Array([1, 2, 3]);
+			const encoded = encodeBinaryFrame(fixture.binaryFrames.sampleMeta, sampleImage);
+			const view = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength);
+			view.setUint32(4, 999999, false);
+			assert.equal(decodeBinaryFrame(encoded), null);
+		});
+
+		it('parsa correttamente i messaggi di controllo client/server', () => {
+			const clientRedeem = parseBrowserLiveClientMessage({
+				type: 'redeem',
+				token: 'tok-123',
+				identity: fixture.identity
+			});
+			assert.ok(clientRedeem && clientRedeem.type === 'redeem');
+
+			const clientAck = parseBrowserLiveClientMessage({ type: 'ack', sequence: 5 });
+			assert.ok(clientAck && clientAck.type === 'ack' && clientAck.sequence === 5);
+
+			const serverRedeemed = parseBrowserLiveServerMessage({
+				type: 'redeemed',
+				identity: fixture.identity,
+				state: fixture.tabState.valid
+			});
+			assert.ok(serverRedeemed && serverRedeemed.type === 'redeemed');
+
+			const serverError = parseBrowserLiveServerMessage({
+				type: 'error',
+				code: 'TICKET_INVALID',
+				message: 'Token invalido'
+			});
+			assert.ok(serverError && serverError.type === 'error' && serverError.code === 'TICKET_INVALID');
 		});
 	});
 });

@@ -48,6 +48,8 @@ use directives_ops::{
 mod suggestions_ops;
 use suggestions_ops::generate_prompt_suggestions;
 
+pub mod browser_live;
+use browser_live::{browser_live_connect, browser_live_disconnect, BrowserLiveManager};
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -64,6 +66,7 @@ pub fn run() {
         .manage(StudioUpdaterState::new())
         .manage(diagrams::DiagramWatcherState::new())
         .manage(projects::ProjectTasksState::new())
+        .manage(BrowserLiveManager::new())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = app
                 .get_webview_window("main")
@@ -94,6 +97,8 @@ pub fn run() {
             rpc_close,
             rpc_stderr,
             rpc_protocol,
+            browser_live_connect,
+            browser_live_disconnect,
             tree_read,
             project_files_search,
             path_create_file,

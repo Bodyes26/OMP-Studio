@@ -445,12 +445,20 @@ comportamento osservato, non quello ancora aspirazionale.
   19 nuovi test in `test/tools/browser-session-broker.test.ts`. Scostamenti e
   decisioni registrati in `DECISIONS.md` e nelle sezioni 5, 6, 8, 9, 10, 17 e
   18 di `BROWSER-STUDIO.md`.
-- [ ] **S40 — Stream live binario e backpressure** (`Main`, runtime OMP + Studio backend)
+- [x] **S40 — Stream live binario e backpressure** (`Main`, runtime OMP + Studio backend)
   Esporre un canale loopback autenticato con frame CDP, metadati viewport/DPI,
   ack e politica `newest frame wins`; separare lo stream dal transcript RPC.
   **Accettazione:** una tab dinamica resta fluida senza crescita non limitata di
   memoria, un client lento non accumula frame obsoleti e gli screenshot tool
   mantengono le dimensioni reali del viewport.
+  **Implementato:** canale loopback WebSocket autenticato con riscatto ticket a
+  presentazione singola; wire format binario `BLF1` con lunghezza prefissata e zero
+  overhead base64; buffering limitato a un singolo frame per client con scarto
+  deterministico dei frame obsoleti; backpressure hardware via `Page.screencastFrameAck`
+  e backpressure client via ack di sequenza; modulo backend Studio `src-tauri/src/browser_live.rs`
+  con isolamento dei segreti e inoltro via IPC Channel; 5/5 scenari verificati sullo smoke
+  reale `scripts/s40-live-stream-smoke.ts` su Windows 11; 10 nuovi test di streaming in upstream
+  (67 test browser totali) e 272 test smoke/contratto verdi in Studio.
 
 - [ ] **S41 — BrowserViewer nella colonna centrale** (`Subagente UI`, integrazione `Main`)
   Aggiungere la superficie Browser distinta da Preview/File, apertura automatica

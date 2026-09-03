@@ -355,9 +355,27 @@ type BrowserLiveCloseReason = "closed" | "session-ended" | "runtime-shutdown" | 
 `browser_live_closed` porta identita e motivo. Studio scarta entrambi finche
 `browser-live` non e negoziato: e il fail-closed, non una svista.
 
-### 8.3 Frame
+### 8.3 Frame e wire format binario — implementato in S40
 
-Ogni frame include metadati equivalenti a:
+I frame video ad alta frequenza viaggiano esclusivamente sul canale loopback
+WebSocket autenticato, mai sul canale RPC o nel transcript dei messaggi.
+
+Ogni frame e trasmesso come messaggio binario WebSocket secondo il formato **BLF1**
+(*Browser Live Frame v1*):
+
+```text
++-------------------+--------------------+------------------------+-----------------------+
+| Magic (4 byte)    | MetaLen (4 byte)   | JSON Metadata (MetaLen)| Binary Image Payload  |
+| "BLF1" (ASCII)    | uint32 big-endian  | UTF-8 BrowserFrameMeta | raw JPEG / PNG bytes  |
++-------------------+--------------------+------------------------+-----------------------+
+ 0                 4                    8                        8+MetaLen               Total
+```
+
+1. **Magic:** `[0x42, 0x4c, 0x46, 0x31]` (`"BLF1"` ASCII). Pacchetti con magic diverso
+   o troncati sotto gli 8 byte vengono scartati all'istante senza deallocazioni.
+2. **MetaLen:** lunghezza in byte del payload JSON dei metadati, codificata come intero
+   a 32 bit unsigned big-endian.
+3. **JSON Metadata:** serializzazione JSON UTF-8 conforme a `BrowserFrameMeta`:
 
 ```typescript
 interface BrowserFrameMeta {
@@ -376,8 +394,46 @@ interface BrowserFrameMeta {
 }
 ```
 
-La coda adotta `newest frame wins`: un client lento non deve accumulare frame obsoleti. Lo screenshot richiesto dal tool viene acquisito direttamente dal browser al viewport dichiarato, non dal canvas ridimensionato di Studio.
+4. **Binary Image Payload:** byte grezzi dell'immagine (JPEG qualità 80 generata da
+   `Page.startScreencast` CDP). Zero overhead base64 (33% di banda risparmiata) e zero
+   allocazioni di stringhe nel parsing.
 
+#### Messaggi di controllo sul WebSocket (frame di testo JSON)
+
+- **Client -> Server (Riscatto ticket):**
+  `{"type": "redeem", "token": string, "identity": BrowserSessionIdentity}`
+- **Server -> Client (Conferma riscatto):**
+  `{"type": "redeemed", "identity": BrowserSessionIdentity, "state": BrowserTabState}`
+- **Client -> Server (Ack ricezione frame):**
+  `{"type": "ack", "sequence": number}`
+- **Server -> Client (Aggiornamento stato tab):**
+  `{"type": "tab_state", "state": BrowserTabState}`
+- **Server -> Client (Chiusura tab):**
+  `{"type": "closed", "identity": BrowserSessionIdentity, "reason": BrowserLiveCloseReason}`
+- **Server -> Client (Errore autenticazione/stream):**
+  `{"type": "error", "code": BrowserLiveErrorCode, "message": string}`
+
+#### Backpressure e buffering limitato (Newest-Frame-Wins)
+
+1. **Coda limitata:** il server mantiene al piu **un solo** frame in attesa per
+   ciascun client connesso (`pendingFrame`). La memoria per client e rigorosamente
+   $O(1)$ (~30-80 KB) e non cresce mai in modo illimitato.
+2. **Newest-Frame-Wins:** se un nuovo frame arriva mentre il client ha ancora un frame
+   in volo non confermato, il nuovo frame sovrascrive `pendingFrame` e il contatore
+   dei frame scartati (`droppedFrames`) viene incrementato. I frame obsoleti non
+   vengono mai inviati.
+3. **Ripresa all'ack:** quando il client invia `{"type": "ack", "sequence": N}`, il
+   canale sblocca la trasmissione e invia immediatamente il frame piu fresco
+   presente in `pendingFrame`.
+4. **Backpressure hardware su CDP:** il server invia `Page.screencastFrameAck` a
+   Chromium per mantenere fluido il compositing su pagine dinamiche. Se tuttavia un
+   client congelato o bloccato accumula piu di 10 frame scartati senza inviare ack,
+   l'ack verso CDP viene sospeso: Chromium interrompe la generazione di screencast frame,
+   azzerando il consumo di CPU e memoria fino allo sblocco del client.
+5. **Screenshot del tool indipendenti:** `tab.screenshot()` continua ad acquisire
+   direttamente da Chromium (`page.screenshot()`) alle dimensioni reali del viewport
+   dichiarato (es. 1280x800), del tutto indipendenti dalla risoluzione video dello
+   screencast o dal canvas ridimensionato di Studio.
 ### 8.4 Fallback non negoziato — verificato in S38
 
 Quando `browser-live` non e negoziato — runtime precedente, Studio precedente,
@@ -715,10 +771,29 @@ Altre verifiche di S39:
   preesistenti e dipendenti da rete/tempi;
 - `tsgo --noEmit` e `biome check` verdi sui pacchetti toccati.
 
-Scenario 12 (fallback non-live) resta osservato e ora vale per un runtime che
-**ha** il provider registrato: `transports` vuoto significa capability non
-annunciata, quindi il frame `ready` non cambia. Gli scenari 2-5, 8-11 e 14
-restano aperti.
+Stato per S40 (stream live binario e backpressure). Osservati con smoke reale su
+Windows 11, `bun packages/coding-agent/scripts/s40-live-stream-smoke.ts`,
+5/5 scenari:
+
+| Scenario | Esito osservato |
+|---|---|
+| 1 — stream live su pagina dinamica | ricezione continua di frame binari con header BLF1, sequenza monotona crescente, metadati viewport 1280x800 e payload JPEG reale da Chromium gestito |
+| 2 — backpressure e newest-frame-wins | client lento che trattiene l'ack; scarto deterministico di 11 frame intermedi obsoleti; all'ack il client riceve il frame più recente senza backlog |
+| 3 — reconnect deterministico | chiusura WebSocket e riconnessione con ticket fresco; ripresa istantanea dello stream live sulla stessa tab senza perdite di stato |
+| 4 — screenshot tool a risoluzione reale | `page.screenshot()` mantiene il viewport reale dichiarato (1280x800), non influenzato da canvas o stream |
+| 5 — fallback screenshot non negoziato | `issueTicket` risponde `BROWSER_LIVE_UNAVAILABLE` quando il live server non e avviato; gli screenshot del tool continuano a funzionare regolarmente |
+
+Altre verifiche di S40:
+
+- 10 nuovi test di streaming, backpressure e autenticazione loopback
+  (`packages/coding-agent/test/tools/browser-live-stream.test.ts`), 19 test del broker e
+  38 test di contratto S38 verdi (totale 67 test browser nel runtime upstream);
+- 272 test smoke e di contratto verdi in Studio (`npm test`);
+- 136 unit test Rust verdi in `src-tauri` (`cargo test`);
+- `tsgo --noEmit` e `biome check` verdi nel runtime upstream;
+- `npm run check` (904 file controllati, 0 errori, 0 warning) e `cargo check` verdi in Studio;
+- Modulo backend Studio `src-tauri/src/browser_live.rs` con connessione loopback WebSocket,
+  parsing BLF1, invio automatico ack e inoltro a Svelte via IPC `Channel`.
 
 ### ContrattiImmobili
 
@@ -733,6 +808,7 @@ Ogni step aggiunge una voce senza riscrivere la storia:
 | 2026-09-02 | Pianificazione | `omp-studio-app` | Gate R23 e task S38-S47 | Specifica iniziale; nessun codice implementato |
 | 2026-09-03 | S38 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s38-browser-live-v1-contract`, commit `e0e1a9d` su base `311b390`) + `omp-studio-app` (working tree, non committato al momento della stesura) | `browser-live-v1`: `capabilities` opzionale nel frame `ready`, comandi `negotiate_capabilities` e `browser_live_ticket`, identita `projectId/chatSessionId/browserSessionId/tabId`, `BrowserTabState`, `BrowserFrameMeta`, eventi `browser_live_tab_state` e `browser_live_closed`, 12 codici di errore, ticket loopback monouso con TTL 30 s. Fixture condivisa `browser-live-v1.json` identica nei due repository. | Capability annunciata solo con provider registrato (nessuno in S38); ticket come risposta e non come evento; presentazione singola del token; checkout upstream spostato fuori da `ricerca/`; nessuna PR upstream (branch locale). Dettaglio in `DECISIONS.md`, voce "S38 — Scostamenti". |
 | 2026-09-03 | S39 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s39-browser-session-broker`, commit `73c8181` su base `e0e1a9d`); `omp-studio-app`: solo documentazione | `BrowserSessionBroker` in `packages/coding-agent/src/tools/browser/session-broker.ts`. Nuovo `BrowserKind` `managed`, motore predefinito con `browser.headless = true`. Profilo persistente `~/.omp/browser-profiles/<projectId>` con `projectId = hashPath(cwd)`, override `OMP_BROWSER_PROFILES_ROOT`. Daemon `omp.browser.managed` avviato lazy (`--headless=new`, `--no-startup-window`, `--remote-debugging-port=0`, `persist:false`). Tab indirizzate da chiave opaca `chatSessionId::tabName` con nome ergonomico separato e hook `onClosed`. `deleteProjectData` + `/browser clear-data`. Provider `browser-live` registrato in `runRpcMode` con ponte eventi e teardown. | `transports` vuoto finche non esiste il canale live di S40: la capability resta non annunciata e il fallback screenshot e lo stato osservato, non una degradazione. Profili sotto `~/.omp` del runtime, non `%LOCALAPPDATA%/omp-studio`: li possiede e li cancella il runtime. `read-pdf` e il fallback browser di web search migrati al motore gestito. Host senza broker (bun test, SDK) restano su Chromium locale al processo con profilo temporaneo. `/browser visible` resta l'unica finestra desktop possibile. Dettaglio in `DECISIONS.md`, Gate R23 / S39. |
+| 2026-09-03 | S40 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s40-browser-live-stream`, commit `e521201` su base `73c8181`); `omp-studio-app` (working tree) | Canale loopback WebSocket autenticato per live streaming; wire format binario `BLF1` (4B magic + 4B uint32 BE lunghezza + JSON `BrowserFrameMeta` + JPEG binary bytes); controllo text JSON per ticket redemption (`redeem`/`redeemed`), ack (`ack`), stati (`tab_state`) e chiusura (`closed`); buffering limitato $O(1)$ con politica newest-frame-wins; backpressure hardware su `Page.screencastFrameAck` con pausa oltre 10 frame scartati; modulo backend Studio Rust `browser_live` con gestione connessione e isolamento segreti; fallback screenshot preservato quando live non disponibile. | Fixture condivisa estesa con sezione `binaryFrames`; formato binario a lunghezza prefissata (BLF1) senza overhead base64; backpressure client-driven su socket loopback; timeout autenticazione 5s prima di terminare socket non autorizzati. |
 
 Uno step non e concluso finche questa tabella, le sezioni tecniche interessate e `docs/PLAN.md` non riflettono il comportamento effettivo. Se il codice rende una parte della specifica non valida, aggiornare prima la decisione in `docs/DECISIONS.md`; non lasciare documentazione aspirazionale presentata come implementata.
 

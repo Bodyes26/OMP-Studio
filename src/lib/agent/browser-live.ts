@@ -14,6 +14,8 @@
 // e resta sul renderer screenshot alimentato da
 // `tool_execution_start/update/end`.
 
+import { Channel, invoke } from '@tauri-apps/api/core';
+
 /* ------------------------------------------------------------- capability */
 
 export interface RpcCapability {
@@ -380,4 +382,296 @@ export function checkTicket(
 		ok: true,
 		value: { ticketId, token, endpoint, transport: 'local-websocket', identity, runtimePid, issuedAtMs, expiresAtMs }
 	};
+}
+
+/* --------------------------------------------------- wire format binario (S40) */
+
+export const BLF1_MAGIC = new Uint8Array([0x42, 0x4c, 0x46, 0x31]); // "BLF1"
+
+export function parseBrowserFrameMeta(value: unknown): BrowserFrameMeta | null {
+	const source = record(value);
+	if (!source) return null;
+	const sequence = source.sequence;
+	if (typeof sequence !== 'number' || !Number.isInteger(sequence) || sequence < 0) return null;
+	const browserSessionId = nonEmpty(source.browserSessionId);
+	const tabId = nonEmpty(source.tabId);
+	if (!browserSessionId || !tabId) return null;
+	const timestampMs = source.timestampMs;
+	if (typeof timestampMs !== 'number' || !Number.isFinite(timestampMs)) return null;
+	const viewportWidth = positive(source.viewportWidth);
+	const viewportHeight = positive(source.viewportHeight);
+	const deviceScaleFactor = positive(source.deviceScaleFactor);
+	if (viewportWidth === null || viewportHeight === null || deviceScaleFactor === null) return null;
+	const scrollX = typeof source.scrollX === 'number' && Number.isFinite(source.scrollX) ? source.scrollX : null;
+	const scrollY = typeof source.scrollY === 'number' && Number.isFinite(source.scrollY) ? source.scrollY : null;
+	if (scrollX === null || scrollY === null) return null;
+	const controlEpoch = source.controlEpoch;
+	if (typeof controlEpoch !== 'number' || !Number.isInteger(controlEpoch) || controlEpoch < 0) return null;
+	const privacy = source.privacy === 'normal' || source.privacy === 'private' ? source.privacy : null;
+	const mimeType = source.mimeType === 'image/jpeg' || source.mimeType === 'image/png' ? source.mimeType : null;
+	if (!privacy || !mimeType) return null;
+	return {
+		sequence,
+		browserSessionId,
+		tabId,
+		timestampMs,
+		viewportWidth,
+		viewportHeight,
+		deviceScaleFactor,
+		scrollX,
+		scrollY,
+		controlEpoch,
+		privacy,
+		mimeType
+	};
+}
+
+export function encodeBinaryFrame(meta: BrowserFrameMeta, imageBytes: Uint8Array): Uint8Array {
+	const metaJson = JSON.stringify(meta);
+	const metaBytes = new TextEncoder().encode(metaJson);
+	const totalLength = 8 + metaBytes.length + imageBytes.length;
+	const out = new Uint8Array(totalLength);
+	out.set(BLF1_MAGIC, 0);
+	const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+	view.setUint32(4, metaBytes.length, false);
+	out.set(metaBytes, 8);
+	out.set(imageBytes, 8 + metaBytes.length);
+	return out;
+}
+
+export function decodeBinaryFrame(data: Uint8Array): { meta: BrowserFrameMeta; image: Uint8Array } | null {
+	if (data.length < 8) return null;
+	if (
+		data[0] !== BLF1_MAGIC[0] ||
+		data[1] !== BLF1_MAGIC[1] ||
+		data[2] !== BLF1_MAGIC[2] ||
+		data[3] !== BLF1_MAGIC[3]
+	) {
+		return null;
+	}
+	const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+	const metaLen = view.getUint32(4, false);
+	if (8 + metaLen > data.length) return null;
+	const metaBytes = data.subarray(8, 8 + metaLen);
+	const metaJson = new TextDecoder().decode(metaBytes);
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(metaJson);
+	} catch {
+		return null;
+	}
+	const meta = parseBrowserFrameMeta(parsed);
+	if (!meta) return null;
+	const image = data.subarray(8 + metaLen);
+	return { meta, image };
+}
+
+export type BrowserLiveClientMessage =
+	| { type: 'redeem'; token: string; identity: BrowserSessionIdentity }
+	| { type: 'ack'; sequence: number }
+	| { type: 'ping' };
+
+export type BrowserLiveServerMessage =
+	| { type: 'redeemed'; identity: BrowserSessionIdentity; state: BrowserTabState }
+	| { type: 'tab_state'; state: BrowserTabState }
+	| { type: 'closed'; identity: BrowserSessionIdentity; reason: BrowserLiveCloseReason }
+	| { type: 'error'; code: BrowserLiveErrorCode; message: string }
+	| { type: 'pong' };
+
+export function parseBrowserLiveClientMessage(value: unknown): BrowserLiveClientMessage | null {
+	const source = record(value);
+	if (!source || typeof source.type !== 'string') return null;
+	if (source.type === 'redeem') {
+		const token = nonEmpty(source.token);
+		const identity = parseBrowserSessionIdentity(source.identity);
+		if (!token || !identity) return null;
+		return { type: 'redeem', token, identity };
+	}
+	if (source.type === 'ack') {
+		const sequence = source.sequence;
+		if (typeof sequence !== 'number' || !Number.isInteger(sequence) || sequence < 0) return null;
+		return { type: 'ack', sequence };
+	}
+	if (source.type === 'ping') {
+		return { type: 'ping' };
+	}
+	return null;
+}
+
+export function parseBrowserLiveServerMessage(value: unknown): BrowserLiveServerMessage | null {
+	const source = record(value);
+	if (!source || typeof source.type !== 'string') return null;
+	if (source.type === 'redeemed') {
+		const identity = parseBrowserSessionIdentity(source.identity);
+		const state = parseBrowserTabState(source.state);
+		if (!identity || !state) return null;
+		return { type: 'redeemed', identity, state };
+	}
+	if (source.type === 'tab_state') {
+		const state = parseBrowserTabState(source.state);
+		if (!state) return null;
+		return { type: 'tab_state', state };
+	}
+	if (source.type === 'closed') {
+		const identity = parseBrowserSessionIdentity(source.identity);
+		const reason = typeof source.reason === 'string' ? (source.reason as BrowserLiveCloseReason) : null;
+		if (!identity || !reason) return null;
+		return { type: 'closed', identity, reason };
+	}
+	if (source.type === 'error') {
+		const code = typeof source.code === 'string' ? (source.code as BrowserLiveErrorCode) : null;
+		const message = typeof source.message === 'string' ? source.message : '';
+		if (!code) return null;
+		return { type: 'error', code, message };
+	}
+	if (source.type === 'pong') {
+		return { type: 'pong' };
+	}
+	return null;
+}
+
+/* ------------------------------------------- stream live ed eventi Tauri (S40) */
+
+export type BrowserLiveEvent =
+	| { type: 'connecting' }
+	| { type: 'connected'; identity: BrowserSessionIdentity; state: unknown }
+	| { type: 'frame'; meta: BrowserFrameMeta; imageBase64: string }
+	| { type: 'tab_state'; state: unknown }
+	| { type: 'closed'; identity: BrowserSessionIdentity; reason: string }
+	| { type: 'error'; code: string; message: string }
+	| { type: 'disconnected' };
+
+/**
+ * Avvia lo stream live tramite il backend Rust (Tauri).
+ * Il token segreto e l'endpoint loopback vengono gestiti e verificati dal backend
+ * senza esporre endpoint CDP o segreti non protetti al webview.
+ */
+export async function startBrowserLiveTauriStream(
+	ticket: BrowserLiveTicket,
+	onEvent: (event: BrowserLiveEvent) => void
+): Promise<() => void> {
+	const channel = new Channel<BrowserLiveEvent>();
+	channel.onmessage = (event) => {
+		onEvent(event);
+	};
+	const sessionId = await invoke<number>('browser_live_connect', {
+		endpoint: ticket.endpoint,
+		token: ticket.token,
+		identity: ticket.identity,
+		onEvent: channel
+	});
+	return () => {
+		void invoke('browser_live_disconnect', { sessionId }).catch(() => {});
+	};
+}
+
+/**
+ * Stream WebSocket per ambienti di test / browser puro in cui Tauri non e' disponibile.
+ */
+export async function startBrowserLiveWebSocketStream(
+	ticket: BrowserLiveTicket,
+	onEvent: (event: BrowserLiveEvent) => void
+): Promise<() => void> {
+	const ws = new WebSocket(ticket.endpoint);
+	onEvent({ type: 'connecting' });
+	let closed = false;
+	const disconnect = () => {
+		if (closed) return;
+		closed = true;
+		ws.close();
+		onEvent({ type: 'disconnected' });
+	};
+
+	ws.onopen = () => {
+		if (closed) return;
+		const redeemMsg: BrowserLiveClientMessage = {
+			type: 'redeem',
+			token: ticket.token,
+			identity: ticket.identity
+		};
+		ws.send(JSON.stringify(redeemMsg));
+	};
+
+	ws.onmessage = (ev) => {
+		if (closed) return;
+		if (typeof ev.data === 'string') {
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(ev.data);
+			} catch {
+				return;
+			}
+			const msg = parseBrowserLiveServerMessage(parsed);
+			if (!msg) return;
+			if (msg.type === 'redeemed') {
+				onEvent({ type: 'connected', identity: msg.identity, state: msg.state });
+			} else if (msg.type === 'tab_state') {
+				onEvent({ type: 'tab_state', state: msg.state });
+			} else if (msg.type === 'closed') {
+				onEvent({ type: 'closed', identity: msg.identity, reason: msg.reason });
+			} else if (msg.type === 'error') {
+				onEvent({ type: 'error', code: msg.code, message: msg.message });
+			}
+			return;
+		}
+
+		// Binary frame
+		const buf = ev.data instanceof Uint8Array ? ev.data : new Uint8Array(ev.data as ArrayBuffer);
+		const decoded = decodeBinaryFrame(buf);
+		if (!decoded) return;
+
+		let binaryString = '';
+		const chunkSize = 8192;
+		for (let i = 0; i < decoded.image.length; i += chunkSize) {
+			const chunk = decoded.image.subarray(i, i + chunkSize);
+			binaryString += String.fromCharCode.apply(null, chunk as unknown as number[]);
+		}
+		const base64 = btoa(binaryString);
+
+		onEvent({
+			type: 'frame',
+			meta: decoded.meta,
+			imageBase64: base64
+		});
+
+		// Backpressure: ack al server
+		const ackMsg: BrowserLiveClientMessage = {
+			type: 'ack',
+			sequence: decoded.meta.sequence
+		};
+		ws.send(JSON.stringify(ackMsg));
+	};
+
+	ws.onerror = () => {
+		if (!closed) {
+			onEvent({
+				type: 'error',
+				code: 'BROWSER_LIVE_UNAVAILABLE',
+				message: 'Errore connessione WebSocket live'
+			});
+		}
+	};
+
+	ws.onclose = () => {
+		if (!closed) {
+			closed = true;
+			onEvent({ type: 'disconnected' });
+		}
+	};
+
+	return disconnect;
+}
+
+/**
+ * Connette lo stream live selezionando automaticamente il trasporto nativo Tauri
+ * o il WebSocket loopback diretto in ambiente browser / test.
+ */
+export async function connectBrowserLive(
+	ticket: BrowserLiveTicket,
+	onEvent: (event: BrowserLiveEvent) => void
+): Promise<() => void> {
+	if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+		return startBrowserLiveTauriStream(ticket, onEvent);
+	}
+	return startBrowserLiveWebSocketStream(ticket, onEvent);
 }

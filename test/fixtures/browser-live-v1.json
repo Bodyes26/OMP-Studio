@@ -241,5 +241,24 @@
 	"ticketRequest": [
 		{ "case": "capability never negotiated", "expected": "BROWSER_LIVE_NOT_NEGOTIATED" },
 		{ "case": "negotiated but no provider registered", "expected": "BROWSER_LIVE_UNAVAILABLE" }
-	]
+	],
+	"binaryFrames": {
+		"magic": "BLF1",
+		"magicBytes": [66, 76, 70, 49],
+		"headerLength": 8,
+		"sampleMeta": {
+			"sequence": 1,
+			"browserSessionId": "managed-1f3a9c0",
+			"tabId": "chat-1::main",
+			"timestampMs": 1725350000000,
+			"viewportWidth": 1280,
+			"viewportHeight": 800,
+			"deviceScaleFactor": 1,
+			"scrollX": 0,
+			"scrollY": 0,
+			"controlEpoch": 0,
+			"privacy": "normal",
+			"mimeType": "image/jpeg"
+		}
+	}
 }

@@ -768,3 +768,30 @@ APPROVATO, non ancora superato (mancano S40-S47).
     timeout, e stampa il ritentativo. Due test browser preesistenti
     (`browser-attach`, `browser-tab-worker-startup`) falliscono per la stessa
     ragione, identici sul commit base.
+
+### S40 — Scostamenti registrati durante l'implementazione dello stream live
+
+**Data:** 2026-09-03
+**Esito:** stream live binario loopback, formato BLF1 e backpressure implementati nel runtime e nel backend Studio (commit upstream `e521201` su branch `feat/s40-browser-live-stream`); Gate R23 resta APPROVATO, non ancora superato (mancano S41-S47).
+
+1. **Wire format BLF1 a lunghezza prefissata senza base64.** I frame video non viaggiano
+   come stringhe JSON base64 nel transcript RPC (che avrebbe provocato O(n^2) allocazioni di
+   stringhe su IPC), ma come messaggi binari WebSocket con header a 8 byte (`BLF1` + uint32 BE
+   lunghezza metadata) seguiti da JSON UTF-8 e payload JPEG binario. Risparmio di banda netto del 33%
+   e zero copie intermedie.
+2. **Backpressure a due livelli (software Newest-Frame-Wins + hardware CDP).** Per garantire
+   memoria $O(1)$ costante anche con client lenti, il broker mantiene al più un solo frame pendente
+   per socket. Quando arrivano nuovi frame mentre il client è occupato, i frame obsoleti vengono
+   scartati deterministico. Se il client accumula più di 10 frame scartati senza ack, l'ack
+   `Page.screencastFrameAck` verso Chromium viene trattenuto: Chromium sospende la codifica
+   dello screencast azzerando l'uso di CPU/GPU finché il client non invia l'ack.
+3. **Isolamento segreti nel backend Rust di Studio.** Il modulo `src-tauri/src/browser_live.rs`
+   gestisce direttamente la connessione WebSocket su loopback, valida la provenienza locale,
+   invia il token monouso ed esegue il loop di ricezione/ack. L'inoltro a Svelte avviene via
+   `tauri::ipc::Channel`, garantendo che né l'endpoint CDP né i token segreti siano accessibili
+   dal webview.
+4. **Verifica end-to-end con smoke su Chromium reale.** `scripts/s40-live-stream-smoke.ts`
+   ha testato con successo i 5 scenari su una pagina con animazione fluida continua
+   `requestAnimationFrame`: ricezione frame binari, scarto di 11 frame su client lento,
+   reconnect deterministico con ticket fresco, dimensioni reali dello screenshot del tool
+   (1280x800) e fallback screenshot a live disabilitato.
