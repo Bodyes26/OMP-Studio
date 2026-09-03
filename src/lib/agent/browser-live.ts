@@ -675,3 +675,96 @@ export async function connectBrowserLive(
 	}
 	return startBrowserLiveWebSocketStream(ticket, onEvent);
 }
+
+/* ------------------------------------------- mapping coordinate e input (S41) */
+
+export interface ViewportPoint {
+	/** Coordinata X in pixel CSS del viewport Chromium [0, viewportWidth] */
+	x: number;
+	/** Coordinata Y in pixel CSS del viewport Chromium [0, viewportHeight] */
+	y: number;
+}
+
+export interface BoundingBoxRect {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+}
+
+/**
+ * Converte le coordinate client del DOM (mouse, touch, click, drag) in coordinate
+ * esatte in pixel CSS del viewport Chromium usando i metadati del frame confermato.
+ *
+ * L'algoritmo calcola la posizione proporzionale [0..1] rispetto al rettangolo
+ * visivo dell'immagine/canvas renderizzato sullo schermo e la proietta sulle dimensioni
+ * del viewport dichiarato nei metadati del frame (`meta.viewportWidth`, `meta.viewportHeight`).
+ *
+ * Invariante rispetto a:
+ * 1. Ridimensionamento della finestra o della colonna centrale;
+ * 2. DPI scaling e zoom del browser/webview;
+ * 3. Modalita responsive viewport (desktop / tablet / mobile);
+ * 4. Scroll del contenitore.
+ */
+export function mapClientToViewportCoords(
+	clientX: number,
+	clientY: number,
+	rect: BoundingBoxRect,
+	meta: { viewportWidth: number; viewportHeight: number }
+): ViewportPoint | null {
+	if (rect.width <= 0 || rect.height <= 0 || meta.viewportWidth <= 0 || meta.viewportHeight <= 0) {
+		return null;
+	}
+	const relX = (clientX - rect.left) / rect.width;
+	const relY = (clientY - rect.top) / rect.height;
+	const clampedX = Math.max(0, Math.min(meta.viewportWidth, relX * meta.viewportWidth));
+	const clampedY = Math.max(0, Math.min(meta.viewportHeight, relY * meta.viewportHeight));
+	return {
+		x: Math.round(clampedX * 100) / 100,
+		y: Math.round(clampedY * 100) / 100
+	};
+}
+
+/**
+ * Normalizza il delta di scroll della rotellina del mouse in pixel CSS.
+ * Gestisce deltaMode: 0 (Pixel), 1 (Linee - standard ~16px per linea), 2 (Pagine).
+ */
+export function mapWheelToViewportScroll(
+	deltaX: number,
+	deltaY: number,
+	deltaMode: number = 0
+): { deltaX: number; deltaY: number } {
+	let factor = 1;
+	if (deltaMode === 1) {
+		factor = 16;
+	} else if (deltaMode === 2) {
+		factor = 400;
+	}
+	return {
+		deltaX: Math.round(deltaX * factor * 100) / 100,
+		deltaY: Math.round(deltaY * factor * 100) / 100
+	};
+}
+
+export type BrowserInputEvent =
+	| { type: 'mouse_move'; x: number; y: number; buttons: number }
+	| { type: 'mouse_down'; x: number; y: number; button: number; buttons: number; clickCount: number }
+	| { type: 'mouse_up'; x: number; y: number; button: number; buttons: number }
+	| { type: 'click'; x: number; y: number; button: number; detail: number }
+	| { type: 'double_click'; x: number; y: number }
+	| { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number }
+	| { type: 'drag_start'; x: number; y: number }
+	| { type: 'drag_move'; x: number; y: number }
+	| { type: 'drag_end'; x: number; y: number }
+	| {
+			type: 'key_down';
+			key: string;
+			code: string;
+			modifiers: { alt: boolean; ctrl: boolean; meta: boolean; shift: boolean };
+	  }
+	| {
+			type: 'key_up';
+			key: string;
+			code: string;
+			modifiers: { alt: boolean; ctrl: boolean; meta: boolean; shift: boolean };
+	  };

@@ -15,6 +15,7 @@
 	import GitPanel from '$lib/components/GitPanel.svelte';
 	import DiagramViewer from '$lib/components/DiagramViewer.svelte';
 	import PreviewViewer from '$lib/components/PreviewViewer.svelte';
+	import BrowserViewer from '$lib/components/BrowserViewer.svelte';
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
 	import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
 	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
@@ -30,6 +31,7 @@
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
+	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, formatTaskPrompt } from '$lib/stores/tasks.svelte';
@@ -42,6 +44,7 @@
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
 	let diagramOpen = $state(false);
 	let previewFile = $state<string | null>(null);
+	let browserOpen = $state(false);
 	let agentAnnouncement = $state('');
 	const prevAgentStates = new Map<string, string>();
 
@@ -57,6 +60,20 @@
 		void import('$lib/editor/Editor.svelte').then((module) => {
 			EditorComponent = module.default;
 		});
+	});
+
+	// Apertura automatica della superficie Browser al rilevamento di una tab live (S41)
+	let lastSeenBrowserTabCount = 0;
+	$effect(() => {
+		if (!projectStore.activeProject) return;
+		const session = agentSessions.get(projectStore.activeProject.id);
+		const tabCount = session?.browserLiveTabs.length ?? 0;
+		if (tabCount > 0 && lastSeenBrowserTabCount === 0 && !activeTaskEditor) {
+			browserOpen = true;
+			diagramOpen = false;
+			previewFile = null;
+		}
+		lastSeenBrowserTabCount = tabCount;
 	});
 
 	$effect(() => {
@@ -92,6 +109,8 @@
 			const targetCwd = e.payload?.cwd;
 			if (!targetCwd || !projectStore.activeProject || targetCwd.toLowerCase() === projectStore.activeProject.path.toLowerCase()) {
 				diagramOpen = true;
+				browserOpen = false;
+				previewFile = null;
 			}
 		});
 
@@ -101,6 +120,7 @@
 				if (e.payload?.file_path) {
 					previewFile = e.payload.file_path;
 					diagramOpen = false;
+					browserOpen = false;
 				}
 			}
 		});
@@ -211,6 +231,9 @@
 		}
 		return list;
 	});
+	// Memoizzazione dei pin credenziali per le sessioni GUI per non invocare ad ogni tick dell'effetto
+	let guiSessionPinsCache = $state<Record<string, Record<string, string>>>({});
+	const guiSessionPinsInFlight = new Set<string>();
 
 	// Mantiene la quota contestuale allineata al modello e provider del progetto attivo.
 	$effect(() => {
@@ -262,8 +285,52 @@
 			}
 		}
 
-		activeQuotaStore.setActiveModel(provider, modelId);
+		// Recupero del pin credenziale per il provider del progetto attivo
+		let credentialPin: string | undefined;
+		if (provider) {
+			if (project.layout.rightSection === 'gui') {
+				const session = agentSessions.get(project.id);
+				const sessionKey = session?.sessionId || session?.sessionFile || undefined;
+				if (sessionKey) {
+					const cached = guiSessionPinsCache[sessionKey];
+					if (cached) {
+						credentialPin = cached[provider];
+						if (!credentialPin) {
+							const matchedKey = Object.keys(cached).find((p) => providersMatch(p, provider));
+							if (matchedKey) credentialPin = cached[matchedKey];
+						}
+					} else if (!guiSessionPinsInFlight.has(sessionKey)) {
+						guiSessionPinsInFlight.add(sessionKey);
+						invoke<Record<string, string>>('session_credential_pins', { sessionId: sessionKey })
+							.then((pins) => {
+								guiSessionPinsCache[sessionKey] = pins || {};
+							})
+							.catch(() => {
+								guiSessionPinsCache[sessionKey] = {};
+							})
+							.finally(() => {
+								guiSessionPinsInFlight.delete(sessionKey);
+							});
+					}
+				}
+			} else {
+				// Sessione terminale: match su provider e progetto nei providerHosts di quotaStore
+				const projectName = project.label?.trim() || project.name;
+				const normActivePath = project.path ? normalizeProjectPath(project.path).toLowerCase() : '';
+				const host = quotaStore.providerHosts.find((h) => {
+					if (!providersMatch(h.provider, provider)) return false;
+					const normHostPath = h.project_path ? normalizeProjectPath(h.project_path).toLowerCase() : '';
+					const matchesPath = normActivePath && normHostPath && normActivePath === normHostPath;
+					const matchesName = h.project && (h.project === projectName || h.project === project.name);
+					return matchesPath || matchesName;
+				});
+				credentialPin = host?.credential_pin;
+			}
+		}
+
+		activeQuotaStore.setActiveModel(provider, modelId, credentialPin);
 	});
+
 
 	/**
 	 * Crea la sessione se manca, senza aprirla. Il markup puo' chiamarla
@@ -389,12 +456,14 @@
 		taskEditorId = task.id;
 		diagramOpen = false;
 		previewFile = null;
+		browserOpen = false;
 	}
 
 	function openTask(taskId: string) {
 		taskEditorId = taskId;
 		diagramOpen = false;
 		previewFile = null;
+		browserOpen = false;
 	}
 
 	/**
@@ -983,6 +1052,9 @@
 	function handleGitPanelDiff(filePath: string, mode: 'working' | 'commit', hash?: string) {
 		if (!projectStore.activeId) return;
 		projectStore.openFile(projectStore.activeId, filePath);
+		diagramOpen = false;
+		previewFile = null;
+		browserOpen = false;
 		editorDiffRequest = { filePath, mode, hash, id: ++editorDiffRequestId };
 	}
 
@@ -1457,7 +1529,12 @@
 							<FileTree
 								projectPath={proj.path}
 								name={proj.name}
-								onFileSelect={(file: string) => projectStore.openFile(proj.id, file)}
+								onFileSelect={(file: string) => {
+									projectStore.openFile(proj.id, file);
+									diagramOpen = false;
+									previewFile = null;
+									browserOpen = false;
+								}}
 								onFileDiff={(path: string) => handleGitPanelDiff(path, 'working')}
 								dirtyFilePaths={activeDirtyFiles}
 								onPathRenamed={(from: string, to: string, isDir: boolean) => projectStore.renamePath(proj.id, from, to, isDir)}
@@ -1485,7 +1562,12 @@
 							onEditTask={openTask}
 							onRunTask={(taskId) => void handleRunTask(proj.id, taskId)}
 							onResumeSession={(sessionId) => void handleResumeSession(proj.id, sessionId)}
-							onOpenFile={(relPath) => projectStore.openFile(proj.id, relPath)}
+							onOpenFile={(relPath) => {
+								projectStore.openFile(proj.id, relPath);
+								diagramOpen = false;
+								previewFile = null;
+								browserOpen = false;
+							}}
 						/>
 					{/if}
 				{/if}
@@ -1502,7 +1584,7 @@
 		></div>
 
 		<section class="col-center">
-			<div class="col-header">{activeTaskEditor ? 'TASK' : diagramOpen ? 'DIAGRAMMA' : previewFile ? 'ANTEPRIMA' : 'EDITOR'}</div>
+			<div class="col-header">{activeTaskEditor ? 'TASK' : diagramOpen ? 'DIAGRAMMA' : previewFile ? 'ANTEPRIMA' : browserOpen ? 'BROWSER' : 'EDITOR'}</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#if projectStore.activeProject}
 					{#if activeTaskEditor}
@@ -1525,6 +1607,12 @@
 							filePath={previewFile}
 							onClose={() => (previewFile = null)}
 						/>
+					{:else if browserOpen}
+						<BrowserViewer
+							session={agentSessions.get(projectStore.activeProject.id) ?? null}
+							projectPath={projectStore.activeProject.path}
+							onClose={() => (browserOpen = false)}
+						/>
 					{:else if EditorComponent}
 						<EditorComponent
 							projectPath={projectStore.activeProject.path}
@@ -1533,7 +1621,11 @@
 							openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
 							editorDiffRequest={editorDiffRequest}
 							onDirtyFilesChange={(paths: string[]) => (activeDirtyFiles = paths)}
-							onPreviewRequest={(fp: string) => (previewFile = fp)}
+							onPreviewRequest={(fp: string) => {
+								previewFile = fp;
+								browserOpen = false;
+								diagramOpen = false;
+							}}
 							onFileSaved={() => {
 								window.dispatchEvent(new CustomEvent('git-status-refresh'));
 							}}

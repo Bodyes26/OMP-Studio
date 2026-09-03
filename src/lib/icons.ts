@@ -31,6 +31,9 @@ export { default as IconLoop } from '@lucide/svelte/icons/rotate-ccw';
 export { default as IconZoomIn } from '@lucide/svelte/icons/zoom-in';
 export { default as IconZoomOut } from '@lucide/svelte/icons/zoom-out';
 export { default as IconSearch } from '@lucide/svelte/icons/search';
+export { default as IconGlobe } from '@lucide/svelte/icons/globe';
+export { default as IconLock } from '@lucide/svelte/icons/lock';
+export { default as IconCamera } from '@lucide/svelte/icons/camera';
 
 // Barra dei progetti e guscio.
 export { default as IconGhost } from '@lucide/svelte/icons/ghost';

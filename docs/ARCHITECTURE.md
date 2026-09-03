@@ -60,6 +60,7 @@ graph TB
       CHAT["Chat GUI (Transcript, ToolGroup, Thinking, Composer)"]
       MON["Monaco Editor (Single Instance, Multi-Model, Diff)"]
       PREV["PreviewViewer (Sandboxed Iframe null-origin + CSP 'none')"]
+      BROWSER["BrowserViewer (Superficie Live Browser, Coordinate CSS, Toolbar)"]
     end
   end
 
@@ -175,6 +176,7 @@ lib/
     UsagePopover.svelte Popover quote, breakdown costi, trend e countdown al reset
     DiagramViewer.svelte Whiteboard interattiva per diagrammi Mermaid
     PreviewViewer.svelte Sandbox isolata in iframe per prototipi UI e vettoriali SVG
+    BrowserViewer.svelte Superficie live Browser con toolbar, rendering frame BLF1 e mapping coordinate CSS
     SetupWizard.svelte  Wizard guidato per installazione OMP, setup credenziali e modelli
     SettingsModal.svelte Centro impostazioni (Generale, Notifiche, Barra, Workspace, Task, Suggerimenti, Modelli, Aspetto, Accessibilità)
     SuggestionsSection.svelte Sezione «Suggerimenti» delle impostazioni per catalogo fissi e opzioni dinamiche
@@ -449,19 +451,15 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 | **R17** | Notifiche OS e Allerte Icona | Registrazione AUMID `sh.omp.studio`, notifiche toast OS, dot rosso taskbar Windows e badge Dock macOS. | SUPERATO |
 | **R18** | Suggerimenti dinamici effimeri vs residenti | Processo effimero e non residente via `omp -p` (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti; generazione opt-in (`dynamicEnabled: false` di default) per non consumare chiamate a modello non richieste ad ogni fine turno. | SUPERATO |
 
-### 9.1 Evoluzione approvata e non ancora implementata: Browser Studio (Gate R23)
+### 9.1 Browser Studio (Gate R23 — S38-S41 completati)
 
-Il Gate R23 approva una nuova superficie Browser nella colonna centrale, alimentata
-dal Chromium gestito dal runtime OMP e non dalla WebView Tauri o dal sandbox dei
-prototipi. Stato corrente: **pianificato; nessun modulo, comando IPC o processo
-browser descritto dalla specifica e ancora presente nel prodotto**.
+Il Gate R23 introduce la superficie Browser nella colonna centrale, alimentata dal
+Chromium gestito dal runtime OMP via canale loopback autenticato WebSocket (wire format `BLF1`):
+1. **Backend Rust (`src-tauri/src/browser_live.rs`):** gestisce `browser_live_connect`/`browser_live_disconnect`, verifica endpoint strettamente su loopback, riscatta il ticket monouso, decodifica i frame binari BLF1, invia ack immediati per backpressure e inoltra gli eventi a Svelte tramite `tauri::ipc::Channel`.
+2. **Frontend Contract (`src/lib/agent/browser-live.ts`):** parsing severo di `BrowserFrameMeta`/`BrowserTabState`, handshake capabilities `browser-live-v1`, decodifica binaria BLF1 e funzioni di proiezione coordinate `mapClientToViewportCoords` e `mapWheelToViewportScroll` in pixel CSS del viewport nativo.
+3. **Superficie Centrale (`src/lib/components/BrowserViewer.svelte`):** rendering live ad alta fluidità del viewport, toolbar con URL/back/forward/reload/tab/mode/viewport/stato, selettore responsive (desktop/tablet/mobile) e cattura screenshot. L'apertura avviene automaticamente all'arrivo di tab gestite preservando i modelli Monaco e lo stato delle altre superfici.
 
-La specifica autoritativa, il contratto runtime/Studio, le garanzie di sicurezza e
-la sequenza S38-S47 sono in [`BROWSER-STUDIO.md`](BROWSER-STUDIO.md). Questa
-architettura verra riportata nelle sezioni 2-8 solo dopo che ciascun elemento sara
-stato implementato e verificato; il registro implementativo del documento canonico
-distingue in ogni momento progetto e comportamento effettivo.
-
+La specifica autoritativa e il registro implementativo completo sono in [`BROWSER-STUDIO.md`](BROWSER-STUDIO.md).
 
 ---
 

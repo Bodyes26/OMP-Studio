@@ -1,6 +1,6 @@
 # Browser Studio — Specifica canonica
 
-**Stato:** S38-S39 implementati (contratto `browser-live-v1` + `BrowserSessionBroker` e Chromium gestito); S40-S47 non implementati  
+**Stato:** S38-S41 implementati (contratto `browser-live-v1`, broker/Chromium gestito, stream binario BLF1 e BrowserViewer centrale); S42-S47 non implementati  
 **Gate:** R23  
 **Ultimo aggiornamento:** 2026-09-03  
 **Owner documentale:** ogni agente che completa uno step S38-S47
@@ -622,26 +622,53 @@ La policy governa la navigazione top-level dell'agente, non blocca indiscriminat
 
 Il frontend Svelte non riceve segreti del broker ne un endpoint CDP utilizzabile liberamente. Ticket e capability falliscono chiusi alla disconnessione.
 
-## 13. BrowserViewer
+## 13. BrowserViewer — implementato in S41
 
-La colonna centrale espone superfici distinte `Browser`, `Preview` e `File`. `browser open` seleziona automaticamente Browser senza distruggere lo stato delle altre superfici.
+La colonna centrale espone superfici distinte `Browser` (`src/lib/components/BrowserViewer.svelte`), `Preview` (`PreviewViewer.svelte`) ed `Editor` (`Editor.svelte`). `browser open` o l'arrivo di una tab gestita in sessione seleziona automaticamente la superficie `Browser` senza distruggere né alterare lo stato dei modelli Monaco, dei file aperti o delle anteprime statiche.
 
-Toolbar minima:
+### 13.1 Toolbar Browser Studio
 
-- back, forward, reload;
-- URL e stato caricamento;
-- selettore tab;
-- modalita `Browser Studio` / `Chrome personale`;
-- viewport responsive e device scale factor;
-- stato `Agente`, `Utente`, `Privato`;
-- `Prendi controllo` / `Restituisci controllo`;
-- element picker;
-- screenshot;
-- registrazione;
-- apertura inspector.
+La toolbar è integrata in alto e riutilizza strettamente i token di design globali (`--bg-raised`, `--line`, `--ink`, `--radius-sm`):
 
-La superficie live mostra cursore e click dell'agente. Input mouse, tastiera, scroll, drag e touch vengono convertiti in coordinate CSS del viewport usando i metadati del frame confermato, non le dimensioni visive del canvas.
+- **Navigazione:** pulsanti `Indietro` (`IconArrowLeft`), `Avanti` (`IconArrowRight`), `Ricarica` (`IconRefresh` con spinner durante il caricamento);
+- **URL Bar:** visualizzazione URL della tab attiva con icona di sicurezza (`IconLock` per locale/HTTPS o `IconGlobe` per HTTP) e indicatore pulsante di caricamento;
+- **Selettore Schede (Tab):** visualizzazione badge con nome sintetico (es. `main`) o selettore a pulsanti pill quando sono presenti più tab simultanee della chat;
+- **Modalità:** indicatore esplicito `Browser Studio` (motore gestito locale) o `Chrome Relay` (tab autorizzata);
+- **Viewport Responsive:** selettore integrato `Desktop` (100%), `Tablet` (768px), `Mobile` (390px) per collaudo rapido del layout; badge device scale factor (es. `@1x`, `@2x`);
+- **Stato Controller:** badge semantico dello stato corrente (`Agente` in accento brand, `Utente` in avviso ambra, `Privato` in magenta);
+- **Azioni rapide e Cattura:** pulsante `Cattura` (`IconCamera`) per copiare istantaneamente negli appunti lo screenshot a risoluzione reale del frame attivo;
+- **Chiusura:** pulsante `Chiudi (Esc)` (`IconClose`) per ritornare immediatamente all'Editor senza perdita di stato.
 
+### 13.2 Rendering Live e Mapping Coordinate CSS
+
+La superficie visualizza i frame binari JPEG decodificati dallo stream loopback WebSocket (`BLF1`) a 60 fps con backpressure.
+
+Il mapping delle interazioni (mouse down/move/up, click, double click, wheel, drag) traduce le coordinate client DOM in **pixel CSS esatti del viewport Chromium** usando i metadati del frame confermato:
+
+```typescript
+export function mapClientToViewportCoords(
+    clientX: number,
+    clientY: number,
+    rect: { left: number; top: number; width: number; height: number },
+    meta: { viewportWidth: number; viewportHeight: number }
+): { x: number; y: number } | null {
+    if (rect.width <= 0 || rect.height <= 0 || meta.viewportWidth <= 0 || meta.viewportHeight <= 0) return null;
+    const relX = (clientX - rect.left) / rect.width;
+    const relY = (clientY - rect.top) / rect.height;
+    return {
+        x: Math.round(Math.max(0, Math.min(meta.viewportWidth, relX * meta.viewportWidth)) * 100) / 100,
+        y: Math.round(Math.max(0, Math.min(meta.viewportHeight, relY * meta.viewportHeight)) * 100) / 100
+    };
+}
+```
+
+Questa proiezione è matematicamente invariante rispetto a:
+1. Ridimensionamento della finestra Studio o delle colonne laterali;
+2. Zoom dell'interfaccia e DPI scaling del display (100%, 125%, 150%, 200%);
+3. Preset responsive di viewport (Desktop/Tablet/Mobile);
+4. Scorrimento del contenitore centrale.
+
+I delta di scroll della rotellina vengono normalizzati tramite `mapWheelToViewportScroll` supportando modalità a pixel, linee (16px) e pagine (400px).
 ## 14. Inspector mirato
 
 ### Element picker
@@ -808,8 +835,8 @@ Ogni step aggiunge una voce senza riscrivere la storia:
 | 2026-09-02 | Pianificazione | `omp-studio-app` | Gate R23 e task S38-S47 | Specifica iniziale; nessun codice implementato |
 | 2026-09-03 | S38 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s38-browser-live-v1-contract`, commit `e0e1a9d` su base `311b390`) + `omp-studio-app` (working tree, non committato al momento della stesura) | `browser-live-v1`: `capabilities` opzionale nel frame `ready`, comandi `negotiate_capabilities` e `browser_live_ticket`, identita `projectId/chatSessionId/browserSessionId/tabId`, `BrowserTabState`, `BrowserFrameMeta`, eventi `browser_live_tab_state` e `browser_live_closed`, 12 codici di errore, ticket loopback monouso con TTL 30 s. Fixture condivisa `browser-live-v1.json` identica nei due repository. | Capability annunciata solo con provider registrato (nessuno in S38); ticket come risposta e non come evento; presentazione singola del token; checkout upstream spostato fuori da `ricerca/`; nessuna PR upstream (branch locale). Dettaglio in `DECISIONS.md`, voce "S38 — Scostamenti". |
 | 2026-09-03 | S39 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s39-browser-session-broker`, commit `73c8181` su base `e0e1a9d`); `omp-studio-app`: solo documentazione | `BrowserSessionBroker` in `packages/coding-agent/src/tools/browser/session-broker.ts`. Nuovo `BrowserKind` `managed`, motore predefinito con `browser.headless = true`. Profilo persistente `~/.omp/browser-profiles/<projectId>` con `projectId = hashPath(cwd)`, override `OMP_BROWSER_PROFILES_ROOT`. Daemon `omp.browser.managed` avviato lazy (`--headless=new`, `--no-startup-window`, `--remote-debugging-port=0`, `persist:false`). Tab indirizzate da chiave opaca `chatSessionId::tabName` con nome ergonomico separato e hook `onClosed`. `deleteProjectData` + `/browser clear-data`. Provider `browser-live` registrato in `runRpcMode` con ponte eventi e teardown. | `transports` vuoto finche non esiste il canale live di S40: la capability resta non annunciata e il fallback screenshot e lo stato osservato, non una degradazione. Profili sotto `~/.omp` del runtime, non `%LOCALAPPDATA%/omp-studio`: li possiede e li cancella il runtime. `read-pdf` e il fallback browser di web search migrati al motore gestito. Host senza broker (bun test, SDK) restano su Chromium locale al processo con profilo temporaneo. `/browser visible` resta l'unica finestra desktop possibile. Dettaglio in `DECISIONS.md`, Gate R23 / S39. |
-| 2026-09-03 | S40 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s40-browser-live-stream`, commit `e521201` su base `73c8181`); `omp-studio-app` (working tree) | Canale loopback WebSocket autenticato per live streaming; wire format binario `BLF1` (4B magic + 4B uint32 BE lunghezza + JSON `BrowserFrameMeta` + JPEG binary bytes); controllo text JSON per ticket redemption (`redeem`/`redeemed`), ack (`ack`), stati (`tab_state`) e chiusura (`closed`); buffering limitato $O(1)$ con politica newest-frame-wins; backpressure hardware su `Page.screencastFrameAck` con pausa oltre 10 frame scartati; modulo backend Studio Rust `browser_live` con gestione connessione e isolamento segreti; fallback screenshot preservato quando live non disponibile. | Fixture condivisa estesa con sezione `binaryFrames`; formato binario a lunghezza prefissata (BLF1) senza overhead base64; backpressure client-driven su socket loopback; timeout autenticazione 5s prima di terminare socket non autorizzati. |
-
+| 2026-09-03 | S40 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s40-browser-live-stream`, commit `e521201` su base `73c8181`); `omp-studio-app` (working tree) | Canale loopback WebSocket autenticato per live streaming; wire format binario `BLF1` (4B magic + 4B uint32 BE lunghezza + JSON `BrowserFrameMeta` + JPEG binary bytes); controllo text JSON per ticket redemption (`redeem`/`redeemed`), ack (`ack`), stati (`tab_state`) e chiusura (`closed`); buffering limitato $O(1)$ con politica newest-frame-wins; backpressure hardware su `Page.screencastFrameAck` con pausa oltre 10 frame scartati; modulo backend Studio Rust `browser_live` con gestione connessione e isolamento segreti; fallback screenshot preservato quando live non disponibile. | Fixture condivisa `browser-live-v1.json` aggiornata e verificata identica nei due repository. |
+| 2026-09-03 | S41 | `omp-studio-app` (working tree) | Superficie BrowserViewer nella colonna centrale (`src/lib/components/BrowserViewer.svelte`), distinta da Preview/File e dal transcript; toolbar con URL/back/forward/reload/tab/mode/viewport/stato; apertura automatica all'arrivo di tab gestite senza distruggere lo stato Monaco/Preview; rendering frame BLF1 live e proiezione coordinate in pixel CSS con `mapClientToViewportCoords` e `mapWheelToViewportScroll`; preset responsive desktop/tablet/mobile; 284 test verdi e 0 errori/warning su svelte-check. | Nessuno scostamento dal piano; PreviewViewer preservato invariato e isolato; takeover/inspector non anticipati. |
 Uno step non e concluso finche questa tabella, le sezioni tecniche interessate e `docs/PLAN.md` non riflettono il comportamento effettivo. Se il codice rende una parte della specifica non valida, aggiornare prima la decisione in `docs/DECISIONS.md`; non lasciare documentazione aspirazionale presentata come implementata.
 
 ## 19. Sequenza dei task

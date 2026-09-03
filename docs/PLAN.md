@@ -460,14 +460,20 @@ comportamento osservato, non quello ancora aspirazionale.
   reale `scripts/s40-live-stream-smoke.ts` su Windows 11; 10 nuovi test di streaming in upstream
   (67 test browser totali) e 272 test smoke/contratto verdi in Studio.
 
-- [ ] **S41 — BrowserViewer nella colonna centrale** (`Subagente UI`, integrazione `Main`)
+- [x] **S41 — BrowserViewer nella colonna centrale** (`Subagente UI`, integrazione `Main`)
   Aggiungere la superficie Browser distinta da Preview/File, apertura automatica
   su `browser open`, toolbar, tab, URL, viewport e rendering live con mapping
   input in pixel CSS. Non implementare ancora takeover o inspector avanzato.
   **Accettazione:** la stessa tab guidata dall'agente e visibile in Studio; resize,
   scroll e DPI scaling non disallineano coordinate e screenshot; PreviewViewer
   conserva sandbox e comportamento precedenti.
-
+  **Implementato:** superficie centrale dedicata `src/lib/components/BrowserViewer.svelte`
+  con toolbar completa (URL, back, forward, reload, selettore tab, modalità, viewport desktop/tablet/mobile,
+  badge controller agente/utente/privato, cattura screenshot); apertura automatica reattiva
+  alla creazione di tab live con preservazione dello stato Monaco e delle anteprime;
+  mapping geometrico delle coordinate `mapClientToViewportCoords` e normalizzazione rotellina
+  `mapWheelToViewportScroll` in pixel CSS del viewport Chromium invariante rispetto a resize,
+  scroll e DPI zoom; 284 test unitari e di contratto verdi in Studio (`npm test`) e 0 errori/warning `svelte-check`.
 - [ ] **S42 — Control epochs e takeover privato** (`Main`, review concorrenza e sicurezza)
   Rendere esclusivi i controller agente/utente, bufferizzare il primo input umano,
   invalidare atomicamente l'epoch agente, restituire `CONTROL_INTERRUPTED` e
