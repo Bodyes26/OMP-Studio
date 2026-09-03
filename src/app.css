@@ -54,6 +54,11 @@
   --on-brand:    var(--bg-sunken);
   --on-project:  var(--bg-sunken);
 
+
+  /* Focus semantico */
+  --focus:       var(--brand);
+  --focus-ring:  0 0 0 2px var(--brand);
+  --focus-inset: inset 0 0 0 2px var(--brand);
   /* Attenzione */
   --warn-h:      75;
   --warn-c:      0.150;

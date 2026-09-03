@@ -80,6 +80,7 @@ export interface QuotaChipSettings {
 	variant: QuotaChipVariant;
 	showProvider: boolean;
 	alwaysShowPct: boolean;
+	semanticColors: boolean;
 }
 
 export interface AppearanceSettings {
@@ -226,7 +227,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		quotaChip: {
 			variant: 'ringHalo',
 			showProvider: true,
-			alwaysShowPct: false
+			alwaysShowPct: false,
+			semanticColors: false
 		}
 	}
 };
@@ -345,7 +347,8 @@ export function parseSettings(value: unknown): StudioSettings {
 			quotaChip: {
 				variant: pick(quotaChip.variant, ['ringHalo', 'fillWave'] as const, d.appearance.quotaChip.variant),
 				showProvider: bool(quotaChip.showProvider, d.appearance.quotaChip.showProvider),
-				alwaysShowPct: bool(quotaChip.alwaysShowPct, d.appearance.quotaChip.alwaysShowPct)
+				alwaysShowPct: bool(quotaChip.alwaysShowPct, d.appearance.quotaChip.alwaysShowPct),
+				semanticColors: bool(quotaChip.semanticColors, d.appearance.quotaChip.semanticColors)
 			}
 		}
 	};
@@ -674,6 +677,7 @@ class SettingsStore {
 		if (!section || section === 'general') this.general = { ...DEFAULT_SETTINGS.general };
 		if (!section || section === 'notifications') this.notifications = { ...DEFAULT_SETTINGS.notifications };
 		if (!section || section === 'accessibility') this.accessibility = { ...DEFAULT_SETTINGS.accessibility };
+		if (!section || section === 'appearance') this.appearance = { quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip } };
 		this.save();
 	}
 }

@@ -2,6 +2,7 @@ import { load, type Store } from '@tauri-apps/plugin-store';
 import { homeDir, join } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
+import { extractOrigin, isLocalOrigin } from '$lib/agent/browser-live';
 
 import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/utils/paths';
 import {
@@ -48,6 +49,8 @@ export interface Project {
 	autoDispatch: boolean;
 	/** Default dei task di questo progetto: sovrascrivono taskDefaults globali. */
 	taskDefaults: Partial<TaskDefaults> | null;
+	/** Origini remote autorizzate per Browser Studio (S43). Persistite per progetto. */
+	browserAllowedOrigins?: string[];
 }
 
 export const PRESET_HUES = [355, 25, 60, 135, 175, 220, 265, 305];
@@ -242,6 +245,34 @@ class ProjectStore {
 		if (!canonical) return;
 		this.projectRoot = canonical;
 		this.save();
+	}
+	/** Concede l'autorizzazione persistente a un'origine remota per il progetto specificato (S43). */
+	grantBrowserOrigin(projectId: string, originOrUrl: string) {
+		const origin = extractOrigin(originOrUrl);
+		if (!origin || isLocalOrigin(origin)) return;
+		const project = this.projects.find((p) => p.id === projectId);
+		if (!project) return;
+		const current = project.browserAllowedOrigins ?? [];
+		if (!current.includes(origin)) {
+			project.browserAllowedOrigins = [...current, origin];
+			this.save();
+		}
+	}
+
+	/** Revoca immediatamente l'autorizzazione a un'origine remota per il progetto (S43). */
+	revokeBrowserOrigin(projectId: string, originOrUrl: string) {
+		const origin = extractOrigin(originOrUrl);
+		if (!origin) return;
+		const project = this.projects.find((p) => p.id === projectId);
+		if (!project || !project.browserAllowedOrigins) return;
+		project.browserAllowedOrigins = project.browserAllowedOrigins.filter((o) => o !== origin);
+		this.save();
+	}
+
+	/** Restituisce l'elenco delle origini remote autorizzate per il progetto. */
+	getBrowserAllowedOrigins(projectId: string): string[] {
+		const project = this.projects.find((p) => p.id === projectId);
+		return project?.browserAllowedOrigins ?? [];
 	}
 
 	openScratchpad() {

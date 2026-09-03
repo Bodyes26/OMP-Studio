@@ -102,3 +102,9 @@ export { default as IconRoleAdvisor } from '@lucide/svelte/icons/shield-check';
 // Varie.
 export { default as IconDiamond } from '@lucide/svelte/icons/diamond';
 export { default as IconSubagents } from '@lucide/svelte/icons/split';
+
+// Inspector e Browser Live.
+export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';
+export { default as IconNetwork } from '@lucide/svelte/icons/activity';
+export { default as IconHistory } from '@lucide/svelte/icons/history';
+export { default as IconSend } from '@lucide/svelte/icons/send';

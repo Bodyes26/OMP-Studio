@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { QuotaChipVariant } from '$lib/stores/settings.svelte';
-	import type { QuotaSemanticStatus } from '$lib/stores/activeQuota.svelte';
+	import type { QuotaSemanticStatus, QuotaLongWindowAlert } from '$lib/stores/activeQuota.svelte';
 	import { IconWarning, IconQuota } from '$lib/icons';
 
 	let {
@@ -16,7 +16,9 @@
 		ariaLabel = '',
 		onclick,
 		interactive = true,
-		class: className = ''
+		class: className = '',
+		longWindowAlert = null,
+		accountEmail
 	} = $props<{
 		variant?: QuotaChipVariant;
 		showProvider?: boolean;
@@ -31,14 +33,17 @@
 		onclick?: (e: MouseEvent) => void;
 		interactive?: boolean;
 		class?: string;
+		longWindowAlert?: QuotaLongWindowAlert | null;
+		accountEmail?: string;
 	}>();
 
-	// Calcoli geometrici per l'anello circolare SVG (raggio = 6.5px, perimetro = ~40.84px)
+	// Calcoli geometrici per l'anello circolare SVG (raggio = 6.5px, perimetro = ~40.84px).
+	// Allineato alla semantica "pieno = quota disponibile" usando remainingPct invece di usedPct.
 	const RING_RADIUS = 6.5;
 	const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-	const clampedUsed = $derived(Math.max(0, Math.min(100, usedPct)));
-	const strokeFilled = $derived((clampedUsed / 100) * CIRCUMFERENCE);
+	const clampedRemaining = $derived(Math.max(0, Math.min(100, remainingPct ?? 0)));
+	const strokeFilled = $derived((clampedRemaining / 100) * CIRCUMFERENCE);
 
 	const showPct = $derived(
 		hasLimits && remainingPct !== null && (alwaysShowPct || status !== 'ok')
@@ -48,7 +53,7 @@
 {#if status === 'exhausted'}
 	<button
 		type="button"
-		class="quota-chip status-exhausted {className}"
+		class="quota-chip status-exhausted status-bad {className}"
 		{title}
 		aria-label={ariaLabel || 'Quota esaurita'}
 		disabled={!interactive}
@@ -60,6 +65,12 @@
 		<span class="chip-label">Quota esaurita</span>
 		{#if showProvider && shortName}
 			<span class="provider-label">· {shortName}</span>
+		{/if}
+		{#if longWindowAlert}
+			<span
+				class="secondary-alert-dot alert-{longWindowAlert.status}"
+				aria-hidden="true"
+			></span>
 		{/if}
 	</button>
 {:else if status === 'offline'}
@@ -98,6 +109,7 @@
 	<button
 		type="button"
 		class="quota-chip fill-variant status-{status} {className}"
+		class:status-bad={status === 'critical' || status === 'exhausted'}
 		class:has-halo={status !== 'ok'}
 		class:critical-breathe={status === 'critical'}
 		{title}
@@ -134,12 +146,19 @@
 				<span class="pct-value">{remainingPct}%</span>
 			{/if}
 		</span>
+		{#if longWindowAlert}
+			<span
+				class="secondary-alert-dot alert-{longWindowAlert.status}"
+				aria-hidden="true"
+			></span>
+		{/if}
 	</button>
 {:else}
 	<!-- Variante Anello Progressivo (ringHalo) -->
 	<button
 		type="button"
 		class="quota-chip ring-variant status-{status} {className}"
+		class:status-bad={status === 'critical' || status === 'exhausted'}
 		class:has-halo={status !== 'ok'}
 		class:critical-breathe={status === 'critical'}
 		{title}
@@ -180,6 +199,12 @@
 		{/if}
 		{#if showPct && remainingPct !== null}
 			<span class="pct-value">{remainingPct}%</span>
+		{/if}
+		{#if longWindowAlert}
+			<span
+				class="secondary-alert-dot alert-{longWindowAlert.status}"
+				aria-hidden="true"
+			></span>
 		{/if}
 	</button>
 {/if}
@@ -236,49 +261,59 @@
 		font-weight: 600;
 	}
 
-	/* --- Stati semantici --- */
+	/* --- Stati semantici e variabili colore tokenizzate (C4) --- */
 
 	.status-ok {
-		color: var(--ink-muted);
+		--quota-chip-color: var(--quota-ok, var(--ink-muted));
+		--quota-chip-fg: var(--quota-ok, currentColor);
+		--quota-chip-fill: var(--quota-ok-fill, color-mix(in oklch, currentColor 14%, transparent));
+		color: var(--quota-chip-color);
 	}
 
 	.status-warn {
-		color: var(--warn, #f59e0b);
-		border-color: var(--warn-dim, #f59e0b55);
+		--quota-chip-color: var(--quota-warn, var(--warn, #f59e0b));
+		--quota-chip-fg: var(--quota-warn, currentColor);
+		--quota-chip-fill: var(--quota-warn-fill, color-mix(in oklch, currentColor 14%, transparent));
+		color: var(--quota-chip-color);
+		border-color: var(--quota-warn, var(--warn-dim, #f59e0b55));
 	}
 
 	.status-warn.has-halo {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn, #f59e0b) 20%, transparent);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--quota-warn, var(--warn, #f59e0b)) 20%, transparent);
 	}
 
 	.status-warn:hover:not(:disabled) {
-		border-color: var(--warn, #f59e0b);
-		background: color-mix(in srgb, var(--warn, #f59e0b) 10%, transparent);
+		border-color: var(--quota-warn, var(--warn, #f59e0b));
+		background: color-mix(in srgb, var(--quota-warn, var(--warn, #f59e0b)) 10%, transparent);
 	}
 
-	.status-critical {
-		color: var(--brand, #ef4444);
-		border-color: var(--brand-dim, #ef444455);
+	.status-critical,
+	.status-exhausted,
+	.status-bad {
+		--quota-chip-color: var(--quota-bad, var(--brand, #ef4444));
+		--quota-chip-fg: var(--quota-bad, currentColor);
+		--quota-chip-fill: var(--quota-bad-fill, color-mix(in oklch, currentColor 14%, transparent));
+		color: var(--quota-chip-color);
+		border-color: var(--quota-bad, var(--brand-dim, #ef444455));
 	}
 
 	.status-critical.has-halo {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand, #ef4444) 25%, transparent);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--quota-bad, var(--brand, #ef4444)) 25%, transparent);
 	}
 
 	.status-critical:hover:not(:disabled) {
-		border-color: var(--brand, #ef4444);
-		background: color-mix(in srgb, var(--brand, #ef4444) 12%, transparent);
+		border-color: var(--quota-bad, var(--brand, #ef4444));
+		background: color-mix(in srgb, var(--quota-bad, var(--brand, #ef4444)) 12%, transparent);
 	}
 
 	.status-exhausted {
-		color: var(--brand, #ef4444);
-		border-color: var(--brand, #ef4444);
-		background: color-mix(in srgb, var(--brand, #ef4444) 10%, transparent);
+		border-color: var(--quota-bad, var(--brand, #ef4444));
+		background: color-mix(in srgb, var(--quota-bad, var(--brand, #ef4444)) 10%, transparent);
 		animation: quota-breathe 2.6s ease-in-out infinite;
 	}
 
 	.status-exhausted:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--brand, #ef4444) 18%, transparent);
+		background: color-mix(in srgb, var(--quota-bad, var(--brand, #ef4444)) 18%, transparent);
 	}
 
 	.status-offline {
@@ -306,11 +341,12 @@
 
 	.ring-indicator {
 		transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-		stroke: currentColor;
+		stroke: var(--quota-chip-fg, currentColor);
 	}
 
 	.status-ok .ring-indicator {
-		stroke: color-mix(in srgb, var(--ink) 65%, transparent);
+		/* Con semaforo attivo usa --quota-ok; senza semaforo fallback alla tinta ink attenuata */
+		stroke: var(--quota-ok, color-mix(in srgb, var(--ink) 65%, transparent));
 	}
 
 	/* --- Variante Pill Riempita (fillWave) --- */
@@ -325,8 +361,8 @@
 		left: 0;
 		transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 		pointer-events: none;
-		background-color: currentColor;
-		opacity: 0.14;
+		/* IMPORTANTE: nessun opacity supplementare, il token porta gia' la propria alpha */
+		background: var(--quota-chip-fill, color-mix(in oklch, currentColor 14%, transparent));
 	}
 
 	.fill-meniscus {
@@ -336,7 +372,7 @@
 		transform: translateX(-50%);
 		transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 		pointer-events: none;
-		background-color: currentColor;
+		background-color: var(--quota-chip-fg, currentColor);
 		opacity: 0.3;
 		filter: blur(2.5px);
 		animation: quota-bob 2.4s ease-in-out infinite;
@@ -344,6 +380,49 @@
 
 	.critical-breathe {
 		animation: quota-breathe 2.6s ease-in-out infinite;
+	}
+
+	/* --- Indicatore secondario finestra lunga critica (C3/C4) --- */
+
+	.secondary-alert-dot {
+		position: absolute;
+		top: 2px;
+		right: 5px;
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		pointer-events: none;
+		z-index: 2;
+		box-shadow: 0 0 0 1px var(--bg-overlay, var(--bg-surface, #1e1e1e));
+	}
+
+	.secondary-alert-dot.alert-warn {
+		background-color: var(--quota-warn, var(--warn, #f59e0b));
+	}
+
+	.secondary-alert-dot.alert-critical,
+	.secondary-alert-dot.alert-exhausted {
+		background-color: var(--quota-bad, var(--brand, #ef4444));
+		animation: quota-dot-pulse 2s ease-in-out infinite;
+	}
+
+	@keyframes quota-dot-pulse {
+		0%, 100% {
+			opacity: 1;
+			transform: scale(1);
+		}
+		50% {
+			opacity: 0.4;
+			transform: scale(0.85);
+		}
+	}
+
+	/* Rispetto dell'attributo accessibilita' data-animations */
+	:global([data-animations='false']) .secondary-alert-dot,
+	:global([data-animations='false']) .fill-meniscus,
+	:global([data-animations='false']) .critical-breathe,
+	:global([data-animations='false']) .status-exhausted {
+		animation: none !important;
 	}
 
 	@keyframes quota-bob {

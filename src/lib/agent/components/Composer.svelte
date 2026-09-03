@@ -321,11 +321,40 @@ $effect(() => {
 		window.addEventListener('blur', handleWindowBlur);
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 
+		function handleInsertContext(e: Event) {
+			const customEv = e as CustomEvent<{ text?: string; images?: ImageContent[] }>;
+			const insertText = customEv.detail?.text?.trim();
+			const newImages = customEv.detail?.images ?? [];
+			if (insertText) {
+				if (text.trim()) {
+					text = `${text.trim()}\n\n${insertText}`;
+				} else {
+					text = insertText;
+				}
+			}
+			if (newImages.length > 0) {
+				attachedImages = [...attachedImages, ...newImages];
+			}
+			paletteOpen = false;
+			adjustTextareaHeight();
+			void tick().then(() => {
+				if (textareaEl) {
+					adjustTextareaHeight();
+					textareaEl.focus();
+					const len = textareaEl.value.length;
+					textareaEl.setSelectionRange(len, len);
+				}
+			});
+		}
+
+		window.addEventListener('composer-insert-context', handleInsertContext);
+
 		return () => {
 			document.removeEventListener('selectionchange', handleSelectionChange);
 			window.removeEventListener('focus', handleWindowFocus);
 			window.removeEventListener('blur', handleWindowBlur);
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			window.removeEventListener('composer-insert-context', handleInsertContext);
 			if (blinkTimer !== null) {
 				window.clearTimeout(blinkTimer);
 				blinkTimer = null;

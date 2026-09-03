@@ -442,4 +442,9 @@
 		transform: translateX(14px);
 		background: var(--bg-sunken);
 	}
+
+	input:focus-visible + .slider {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
+	}
 </style>

@@ -517,49 +517,73 @@ fn read_session_tail(path: &Path, length: u64) -> std::io::Result<(String, bool)
     Ok((String::from_utf8_lossy(&bytes).into_owned(), tail_start > 0))
 }
 
-fn assistant_providers_in_tail(jsonl_tail: &str, starts_mid_line: bool) -> Option<(String, String)> {
+/// Estrae provider e model piu' recenti e l'ultimo hash `credential_pin` per ciascun provider
+/// presente nella coda del transcript.
+fn tail_providers_and_pins(
+    jsonl_tail: &str,
+    starts_mid_line: bool,
+) -> (Option<(String, String)>, HashMap<String, String>) {
     let mut lines = jsonl_tail.lines();
     if starts_mid_line {
         lines.next();
     }
+
+    let mut provider_and_model = None;
+    let mut pins = HashMap::<String, String>::new();
 
     for line in lines.rev() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
         let event_type = value.get("type").and_then(|t| t.as_str());
-        if event_type == Some("model_change") {
-            if let (Some(provider), Some(model)) = (
+
+        // Record credential_pin: in scansione inversa il primo record incontrato
+        // per un dato provider e' l'ultimo in ordine cronologico di file.
+        if event_type == Some("credential_pin") {
+            if let (Some(provider), Some(hash)) = (
                 value.get("provider").and_then(|p| p.as_str()),
-                value.get("model").and_then(|m| m.as_str()),
+                value.get("hash").and_then(|h| h.as_str()),
             ) {
-                return Some((provider.to_string(), model.to_string()));
+                if !provider.is_empty() && !hash.is_empty() {
+                    pins.entry(provider.to_string())
+                        .or_insert_with(|| hash.to_string());
+                }
             }
             continue;
         }
 
-        if event_type != Some("message") {
-            continue;
+        if provider_and_model.is_none() {
+            if event_type == Some("model_change") {
+                if let (Some(provider), Some(model)) = (
+                    value.get("provider").and_then(|p| p.as_str()),
+                    value.get("model").and_then(|m| m.as_str()),
+                ) {
+                    provider_and_model = Some((provider.to_string(), model.to_string()));
+                }
+                continue;
+            }
+
+            if event_type == Some("message") {
+                let Some(message) = value.get("message") else {
+                    continue;
+                };
+                if message.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+                    continue;
+                }
+
+                let Some(provider) = message.get("provider").and_then(|p| p.as_str()) else {
+                    continue;
+                };
+                let Some(model) = message.get("model").and_then(|m| m.as_str()) else {
+                    continue;
+                };
+
+                provider_and_model = Some((provider.to_string(), model.to_string()));
+            }
         }
-
-        let Some(message) = value.get("message") else {
-            continue;
-        };
-        if message.get("role").and_then(|r| r.as_str()) != Some("assistant") {
-            continue;
-        }
-
-        let Some(provider) = message.get("provider").and_then(|p| p.as_str()) else {
-            continue;
-        };
-        let Some(model) = message.get("model").and_then(|m| m.as_str()) else {
-            continue;
-        };
-
-        return Some((provider.to_string(), model.to_string()));
     }
 
-    None
+    (provider_and_model, pins)
 }
 
 /// Vero quando la sessione ha un transcript su disco.
@@ -669,6 +693,7 @@ pub struct ProviderHost {
     pub project: String,
     pub project_path: String,
     pub last_active_ms: i64,
+    pub credential_pin: Option<String>,
 }
 
 fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
@@ -772,20 +797,33 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
                 Err(_) => continue,
             };
 
-            if let Some((provider, model)) = assistant_providers_in_tail(&tail, starts_mid_line) {
+            let (provider_model, pins) = tail_providers_and_pins(&tail, starts_mid_line);
+            if let Some((provider, model)) = provider_model {
+                let credential_pin = pins.get(&provider).cloned();
                 let dedupe_key = (project_path.clone(), provider.clone());
-                let candidate = ProviderHost {
+                let mut candidate = ProviderHost {
                     provider,
                     model,
                     host: host_name.clone(),
                     project: project_name.clone(),
                     project_path: project_path.clone(),
                     last_active_ms,
+                    credential_pin,
                 };
 
-                if let Some(existing) = hosts.get(&dedupe_key) {
+                if let Some(existing) = hosts.get_mut(&dedupe_key) {
                     if existing.last_active_ms >= candidate.last_active_ms {
+                        // Preserva il pin se l'host esistente piu' recente ne era sprovvisto
+                        // ma la sessione candidata lo contiene nella coda.
+                        if existing.credential_pin.is_none() && candidate.credential_pin.is_some() {
+                            existing.credential_pin = candidate.credential_pin;
+                        }
                         continue;
+                    }
+                    // Se la nuova sessione non ha il record del pin nella coda ma l'esistente ce l'aveva,
+                    // lo eredita per evitare di perderlo quando la sessione supera la dimensione della coda.
+                    if candidate.credential_pin.is_none() {
+                        candidate.credential_pin = existing.credential_pin.clone();
                     }
                 }
                 hosts.insert(dedupe_key, candidate);
@@ -1227,6 +1265,116 @@ pub async fn sessions_search(
         .map_err(|e| format!("Task sessions_search: {}", e))?
 }
 
+/// Estrae tutti i record `credential_pin` da un file di sessione JSONL.
+///
+/// I record successivi sovrascrivono i precedenti in modo che per ogni provider
+/// vinca l'hash del record piu' recente in ordine cronologico di file.
+/// Errori di I/O o JSON malformato vengono assorbiti restituendo una mappa vuota.
+fn extract_credential_pins_from_file(path: &Path) -> HashMap<String, String> {
+    let mut pins = HashMap::new();
+    let Ok(file) = File::open(path) else {
+        return pins;
+    };
+    let reader = BufReader::new(file);
+    for line in reader.lines().map_while(Result::ok) {
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        if val.get("type").and_then(|t| t.as_str()) == Some("credential_pin") {
+            if let (Some(provider), Some(hash)) = (
+                val.get("provider").and_then(|p| p.as_str()),
+                val.get("hash").and_then(|h| h.as_str()),
+            ) {
+                if !provider.is_empty() && !hash.is_empty() {
+                    pins.insert(provider.to_string(), hash.to_string());
+                }
+            }
+        }
+    }
+    pins
+}
+
+/// Localizza un file di sessione dato il suo id (UUID o prefisso) o nome file,
+/// cercando nelle cartelle progetto e nelle relative sottocartelle subagenti.
+fn find_session_file_in(sessions_root: &Path, session_id: &str) -> Option<PathBuf> {
+    let clean_id = session_id
+        .trim()
+        .strip_suffix(".jsonl")
+        .unwrap_or_else(|| session_id.trim());
+
+    if clean_id.is_empty() {
+        return None;
+    }
+
+    let folders = std::fs::read_dir(sessions_root).ok()?;
+    let mut prefix_match = None;
+
+    for folder in folders.flatten() {
+        let folder_path = folder.path();
+        if !folder_path.is_dir() {
+            continue;
+        }
+
+        let mut jsonl_files = Vec::new();
+        collect_subagent_sessions(&folder_path, 0, &mut jsonl_files);
+
+        for path in jsonl_files {
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            // Nome file principale: `<timestamp>_<sessionId>.jsonl`.
+            let candidate_id = stem.rsplit('_').next().unwrap_or(stem);
+
+            // Match esatto: sull'UUID estratto o sull'intero stem del file.
+            if candidate_id.eq_ignore_ascii_case(clean_id) || stem.eq_ignore_ascii_case(clean_id) {
+                return Some(path);
+            }
+
+            // Match per prefisso come fallback (supporta resume/ricerca abbreviata).
+            if prefix_match.is_none()
+                && (candidate_id.starts_with(clean_id) || stem.starts_with(clean_id))
+            {
+                prefix_match = Some(path);
+            }
+        }
+    }
+
+    prefix_match
+}
+
+/// Localizza il percorso del file di sessione accettando sia un percorso esistente
+/// (assoluto o relativo) sia l'id di sessione.
+fn find_session_path(session_id: &str) -> Option<PathBuf> {
+    let trimmed = session_id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let direct = Path::new(trimmed);
+    if direct.is_file() {
+        return Some(direct.to_path_buf());
+    }
+
+    let sessions_root = agent_dir()?.join("sessions");
+    find_session_file_in(&sessions_root, trimmed)
+}
+
+fn session_credential_pins_sync(session_id: &str) -> HashMap<String, String> {
+    let Some(path) = find_session_path(session_id) else {
+        return HashMap::new();
+    };
+    extract_credential_pins_from_file(&path)
+}
+
+/// Restituisce la mappa provider -> hash dei pin credenziale per la sessione indicata.
+/// Accetta sia l'UUID di sessione sia un percorso file. Non fallisce mai.
+#[command]
+pub async fn session_credential_pins(session_id: String) -> HashMap<String, String> {
+    tokio::task::spawn_blocking(move || session_credential_pins_sync(&session_id))
+        .await
+        .unwrap_or_default()
+}
+
 fn get_omp_version_sync() -> Result<String, String> {
     let omp_path = get_omp_binary();
     let mut cmd = Command::new(&omp_path);
@@ -1544,7 +1692,7 @@ mod tests {
 {"type":"message","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-4-8"}}
 {"type":"message","message":{"role":"assistant","provider":"google-antigravity","model":"gemini-3.7-flash"}}
 "#;
-        let provider = assistant_providers_in_tail(tail, false);
+        let provider = tail_providers_and_pins(tail, false).0;
         assert_eq!(
             provider,
             Some((
@@ -1595,7 +1743,7 @@ mod tests {
 {"type":"message","message":{"role":"assistant","provider":"openai-codex","model":"gpt-5.6-terra"}}
 {"type":"model_change","provider":"google-antigravity","model":"gemini-3.7-flash"}
 "#;
-        let provider = assistant_providers_in_tail(tail, false);
+        let provider = tail_providers_and_pins(tail, false).0;
         assert_eq!(
             provider,
             Some((
@@ -1611,7 +1759,7 @@ mod tests {
 {"type":"message","message":{"role":"user","content":"ciao"}}
 {"type":"custom","customType":"notice","data":{}}
 "#;
-        let provider = assistant_providers_in_tail(tail, false);
+        let provider = tail_providers_and_pins(tail, false).0;
         assert_eq!(provider, None);
     }
 
@@ -1778,6 +1926,102 @@ mod tests {
         let cercate = scan_sessions_in(&root, "C:\\repos\\app", Some("scritto"), &titles);
         assert_eq!(cercate.len(), 1);
         assert_eq!(cercate[0].id, "bbb");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn estrae_provider_e_credential_pins_dalla_coda() {
+        let tail = r#"
+{"type":"credential_pin","provider":"anthropic","hash":"vecchio_hash_anthropic"}
+{"type":"credential_pin","provider":"google-antigravity","hash":"hash_google"}
+{"type":"message","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-4-8"}}
+{"type":"credential_pin","provider":"anthropic","hash":"ultimo_hash_anthropic"}
+"#;
+        let (provider_model, pins) = tail_providers_and_pins(tail, false);
+        assert_eq!(
+            provider_model,
+            Some(("anthropic".to_string(), "claude-opus-4-8".to_string()))
+        );
+        // Vince l'ultimo hash in ordine cronologico per anthropic
+        assert_eq!(
+            pins.get("anthropic"),
+            Some(&"ultimo_hash_anthropic".to_string())
+        );
+        assert_eq!(
+            pins.get("google-antigravity"),
+            Some(&"hash_google".to_string())
+        );
+        assert_eq!(pins.get("openai"), None);
+    }
+
+    #[test]
+    fn estrae_credential_pins_da_file_completo() {
+        let root = std::env::temp_dir().join(format!(
+            "omp-studio-pins-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let session_file = root.join("test_session.jsonl");
+        let content = r#"{"type":"session","id":"test-123"}
+riga_non_json_che_viene_ignorata
+{"type":"credential_pin","provider":"anthropic","hash":"hash_iniziale"}
+{"type":"message","message":{"role":"user","content":"ciao"}}
+{"type":"credential_pin","provider":"anthropic","hash":"hash_finale"}
+{"type":"credential_pin","provider":"google-antigravity","hash":"hash_google_1"}
+"#;
+        std::fs::write(&session_file, content).unwrap();
+
+        let pins = extract_credential_pins_from_file(&session_file);
+        assert_eq!(pins.get("anthropic"), Some(&"hash_finale".to_string()));
+        assert_eq!(
+            pins.get("google-antigravity"),
+            Some(&"hash_google_1".to_string())
+        );
+        assert_eq!(pins.get("inesistente"), None);
+
+        // File inesistente ritorna mappa vuota senza panico
+        let vuoto = extract_credential_pins_from_file(&root.join("inesistente.jsonl"));
+        assert!(vuoto.is_empty());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn localizza_file_di_sessione_per_id_o_stem() {
+        let root = std::env::temp_dir().join(format!(
+            "omp-studio-find-session-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let progetto = root.join("-progetto-test");
+        std::fs::create_dir_all(&progetto).unwrap();
+
+        let file_path = progetto.join("2026-09-03T11-43-37-905Z_01a06714-e5b1-72c7-a3ae-821a3ab0a29f.jsonl");
+        std::fs::write(&file_path, "{}\n").unwrap();
+
+        // 1. Ricerca tramite UUID esatto
+        let trovato_uuid = find_session_file_in(&root, "01a06714-e5b1-72c7-a3ae-821a3ab0a29f");
+        assert_eq!(trovato_uuid, Some(file_path.clone()));
+
+        // 2. Ricerca tramite stem completo (con o senza .jsonl)
+        let trovato_stem = find_session_file_in(
+            &root,
+            "2026-09-03T11-43-37-905Z_01a06714-e5b1-72c7-a3ae-821a3ab0a29f.jsonl",
+        );
+        assert_eq!(trovato_stem, Some(file_path.clone()));
+
+        // 3. Ricerca tramite prefisso UUID
+        let trovato_prefisso = find_session_file_in(&root, "01a06714");
+        assert_eq!(trovato_prefisso, Some(file_path.clone()));
+
+        // 4. Sessione inesistente o vuota
+        assert_eq!(find_session_file_in(&root, "inesistente"), None);
+        assert_eq!(find_session_file_in(&root, ""), None);
 
         let _ = std::fs::remove_dir_all(&root);
     }

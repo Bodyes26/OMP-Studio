@@ -33,6 +33,7 @@ identifier = "allow-browser-live"
 description = "Stream live binario e backpressure per Browser Studio su loopback autenticato"
 commands.allow = [
     "browser_live_connect",
+    "browser_live_send_message",
     "browser_live_disconnect"
 ]
 
@@ -87,7 +88,8 @@ commands.allow = [
     "usage_snapshot",
     "sessions_list",
     "sessions_search",
-    "provider_hosts"
+    "provider_hosts",
+    "session_credential_pins"
 ]
 
 [[permission]]

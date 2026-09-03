@@ -1069,6 +1069,10 @@
 		background-color: var(--ink);
 	}
 
+	input:focus-visible + .slider {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
+	}
 	/* Directives Header */
 	.directives-header {
 		display: flex;

@@ -795,3 +795,18 @@ APPROVATO, non ancora superato (mancano S40-S47).
    `requestAnimationFrame`: ricezione frame binari, scarto di 11 frame su client lento,
    reconnect deterministico con ticket fresco, dimensioni reali dello screenshot del tool
    (1280x800) e fallback screenshot a live disabilitato.
+
+### S41 — BrowserViewer nella colonna centrale
+
+**Data:** 2026-09-03
+**Esito:** superficie centrale dedicata `src/lib/components/BrowserViewer.svelte`, toolbar completa, mapping geometrico coordinate `mapClientToViewportCoords` e normalizzazione rotellina `mapWheelToViewportScroll` invarianti rispetto a DPI, zoom e resize; 309 test smoke e 141 test Cargo verdi.
+
+### S42 — Scostamenti e decisioni: Control epochs e takeover privato
+
+**Data:** 2026-09-03
+**Esito:** arbitraggio esclusivo dei controller (`agent`, `user`, `private-user`) regolato da `controlEpoch` incrementale su `BrowserSessionBroker`; takeover atomico con primo input bufferizzato e inoltrato una sola volta; abort fail-closed delle azioni in corso con `CONTROL_INTERRUPTED`; takeover privato con oscuramento fail-closed dell'agente (`PRIVATE_TAKEOVER_ACTIVE`) e streaming video locale continuato su loopback (`privacy: "private"`); handle bidirezionale per input, takeover, rilascio e privacy via WebSocket e comando Tauri `browser_live_send_message`.
+
+1. **Epoch monotonicamente crescente per tab.** L'epoch viene verificato prima e dopo ogni esecuzione del tool `browser`. Qualunque tentativo di inviare comandi con epoch non allineato o durante il controllo umano fallisce immediatamente con `CONTROL_INTERRUPTED`.
+2. **Bufferizzazione e dispatch unico del primo input umano.** Il primo click/tasto dell'utente che innesca il takeover viaggia all'interno della richiesta `takeover` (`{ expectedEpoch, input }`) e viene inoltrato a CDP esattamente una volta, prevenendo perdite di interazione o doppie attivazioni.
+3. **Isolamento completo e continuita visiva in takeover privato.** In modalita `private-user` (focus password, CAPTCHA o attivazione manuale), il client loopback riceve frame `BLF1` con `meta.privacy = "private"`, consentendo all'utente di inserire credenziali senza che alcun dato, screenshot, evento di rete, console o elemento DOM finisca nell'agente o nel transcript.
+4. **Cancellazione sincrona fail-closed su abort handler.** All'attivazione del takeover, `BrowserSessionBroker` invoca gli abort handler registrati che terminano i `PendingRun` del `TabSupervisor` istantaneamente, senza lasciare code orfane né operazioni CDP pendenti.

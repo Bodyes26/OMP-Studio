@@ -42,6 +42,10 @@
 		settingsStore.patchQuotaChip({ showProvider: checked });
 	}
 
+	function toggleSemanticColors(checked: boolean) {
+		settingsStore.patchQuotaChip({ semanticColors: checked });
+	}
+
 	// Sincronizza la scheda del tema con la modalità attiva (scuro/chiaro) all'apertura
 	onMount(() => {
 		const curTheme = THEMES[themeStore.current];
@@ -85,7 +89,7 @@
 					<span class="variant-title">Anello progressivo</span>
 				</div>
 				<p class="variant-desc">
-					Indicatore circolare che mostra il consumo e segnala gli stati di allarme con alone colorato.
+					Indicatore circolare che mostra la quota ancora disponibile e segnala gli stati di allarme con alone colorato.
 				</p>
 				<div class="variant-preview">
 					<QuotaChip
@@ -118,7 +122,7 @@
 					<span class="variant-title">Pill riempita</span>
 				</div>
 				<p class="variant-desc">
-					Capsula fluida con barra interna a larghezza dinamica e menisco animato con effetto sfocato.
+					Capsula fluida che si svuota mentre la quota si consuma, con menisco animato ed effetto sfocato.
 				</p>
 				<div class="variant-preview">
 					<QuotaChip
@@ -142,7 +146,7 @@
 				<div class="form-row-copy">
 					<span class="form-row-label">Mostra sempre la percentuale</span>
 					<span class="form-row-desc">
-						Se disattivata, la percentuale numerica viene mostrata solo quando la quota scende al 25% o meno (avviso o critico).
+						Se disattivata, la percentuale numerica viene mostrata solo quando la quota scende al 30% o meno (avviso o critico).
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -170,6 +174,25 @@
 							type="checkbox"
 							checked={settingsStore.appearance.quotaChip.showProvider}
 							onchange={(e) => toggleShowProvider((e.currentTarget as HTMLInputElement).checked)}
+						/>
+						<span class="slider"></span>
+					</label>
+				</div>
+			</div>
+
+			<div class="form-row">
+				<div class="form-row-copy">
+					<span class="form-row-label">Colori semaforo per la quota</span>
+					<span class="form-row-desc">
+						Sostituisce i colori del tema con verde/giallo/rosso a contrasto elevato, con varianti dedicate per tema chiaro e scuro. Soglie a 30% (avviso) e 10% (critico) di quota residua.
+					</span>
+				</div>
+				<div class="form-row-control">
+					<label class="switch">
+						<input
+							type="checkbox"
+							checked={settingsStore.appearance.quotaChip.semanticColors}
+							onchange={(e) => toggleSemanticColors((e.currentTarget as HTMLInputElement).checked)}
 						/>
 						<span class="slider"></span>
 					</label>
@@ -532,6 +555,10 @@
 		background-color: #ffffff;
 	}
 
+	.switch input:focus-visible + .slider {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
+	}
 	/* --- Theme Toolbar & Grid --- */
 
 	.theme-toolbar {
@@ -569,13 +596,17 @@
 		color: var(--ink);
 	}
 
+	.mode-tab-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
+
 	.mode-tab-btn.active {
 		background: var(--bg-surface);
 		color: var(--ink);
 		font-weight: 500;
 		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
-
 	.tab-count {
 		font-size: 10px;
 		padding: 1px 5px;
@@ -631,9 +662,8 @@
 		gap: var(--space-2);
 		max-height: 280px;
 		overflow-y: auto;
-		padding-right: 4px;
+		padding: 4px;
 	}
-
 	.theme-card {
 		display: flex;
 		flex-direction: column;
@@ -649,14 +679,17 @@
 
 	.theme-card:hover {
 		border-color: var(--line-strong);
-		transform: translateY(-1px);
+	}
+
+	.theme-card:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
 	}
 
 	.theme-card.selected {
 		border-color: var(--brand);
-		box-shadow: 0 0 0 1px var(--brand);
+		box-shadow: inset 0 0 0 1px var(--brand);
 	}
-
 	.card-preview {
 		height: 64px;
 		display: flex;

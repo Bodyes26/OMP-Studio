@@ -30,3 +30,7 @@ import './model-settings.test.ts';
 import './studio-preview.test.ts';
 import './browser-live-contract.test.ts';
 import './markdown-filepaths.test.ts';
+import './browser-viewer.test.ts';
+import './browser-control-epochs.test.ts';
+import './browser-origin-policy.test.ts';
+import './browser-inspector.test.ts';

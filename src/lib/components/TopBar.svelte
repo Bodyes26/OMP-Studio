@@ -634,6 +634,8 @@
 			hasLimits={activeQuotaStore.info.hasLimits}
 			title={activeQuotaStore.info.tooltip}
 			ariaLabel={activeQuotaStore.info.tooltip}
+			longWindowAlert={activeQuotaStore.info.longWindowAlert}
+			accountEmail={activeQuotaStore.info.accountEmail}
 			onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }}
 		/>
 		{#if IS_WINDOWS}
@@ -785,11 +787,15 @@
 		z-index: 3;
 		padding: 0;
 	}
-
 	.tab-scroll-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
 		border-color: var(--brand);
+	}
+
+	.tab-scroll-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
 	}
 
 	.tab-container {
@@ -841,6 +847,11 @@
 		padding: 0;
 	}
 
+	.tab:focus-visible,
+	.tab-add:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
 	/* La tessera non ha piu' una larghezza massima: si allarga quando il suo
 	   progetto viene aperto e si stringe quando un altro prende il posto. Il
 	   solo tetto e' sul nome. */
@@ -1248,6 +1259,11 @@
 	.win-btn:hover {
 		background-color: var(--bg-hover);
 		color: var(--ink);
+	}
+
+	.win-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
 	}
 
 	.win-btn.close:hover {

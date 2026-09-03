@@ -380,7 +380,7 @@
 		white-space: nowrap;
 	}
 	.item:focus-visible {
-		box-shadow: inset 0 0 0 1px var(--focus);
+		box-shadow: inset 0 0 0 1.5px var(--focus);
 	}
 
 	.shortcut {

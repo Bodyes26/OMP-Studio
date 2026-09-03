@@ -474,31 +474,28 @@ comportamento osservato, non quello ancora aspirazionale.
   mapping geometrico delle coordinate `mapClientToViewportCoords` e normalizzazione rotellina
   `mapWheelToViewportScroll` in pixel CSS del viewport Chromium invariante rispetto a resize,
   scroll e DPI zoom; 284 test unitari e di contratto verdi in Studio (`npm test`) e 0 errori/warning `svelte-check`.
-- [ ] **S42 — Control epochs e takeover privato** (`Main`, review concorrenza e sicurezza)
+- [x] **S42 — Control epochs e takeover privato** (`Main`, review concorrenza e sicurezza)
   Rendere esclusivi i controller agente/utente, bufferizzare il primo input umano,
   invalidare atomicamente l'epoch agente, restituire `CONTROL_INTERRUPTED` e
   richiedere rilascio esplicito. In modalita privata solo il BrowserViewer locale
   continua a ricevere frame.
-  **Accettazione:** il primo click umano viene applicato una sola volta, nessun
-  comando con epoch obsoleto raggiunge CDP e durante login privato transcript,
-  recorder, DOM, console e rete non ricevono dati.
-
-- [ ] **S43 — Origini, capability e redazione dati** (`Main`, security review)
+  **Implementato:** implementato arbitraggio esclusivo dei controller (`agent`, `user`, `private-user`) regolato da `controlEpoch` incrementale su `BrowserSessionBroker`; acquisizione e verifica dell'epoch prima e dopo ogni comando broker/CDP con abort fail-closed delle azioni in corso (`CONTROL_INTERRUPTED`); takeover atomico al primo input umano (`click`, `down`, `key`, `wheel`) con bufferizzazione e dispatch singolo verso CDP; rilascio esplicito del controllo all'agente con nuovo snapshot semantico; takeover privato manuale o automatico con streaming video locale preservato su WebSocket loopback (`privacy: "private"`), blocco totale e bonifica di screenshot, DOM, console, rete e transcript per l'agente (`PRIVATE_TAKEOVER_ACTIVE`); handle bidirezionale `BrowserLiveStreamHandle` in TypeScript, backend Rust con `browser_live_send_message` e comandi dedicati in `BrowserViewer.svelte`. 309 test di fumo Studio e 141 test Cargo superati con successo.
+- [x] **S43 — Origini, capability e redazione dati** (`Main`, security review)
   Applicare policy top-level loopback/remoto, consenso persistente per progetto,
   sospensione sui redirect non autorizzati, ticket fail-closed e redazione di
   cookie, authorization header, token, titoli e contenuti non attendibili.
   **Accettazione:** locale funziona senza prompt, ogni nuova origine remota
   richiede consenso, la revoca e immediata e nessun segreto compare in eventi,
   log, errori o artifact.
-
-- [ ] **S44 — Inspector mirato** (`Subagente UI + runtime`, integrazione `Main`)
+  **Implementato:** implementata policy top-level con autorizzazione automatica per loopback (`localhost`, `127.0.0.1`, `[::1]`, `about:blank`, `data:`, `blob:`); consenso preventivo esplicito per nuove origini remote con stato `pending` e blocco fail-closed `ORIGIN_NOT_ALLOWED`; persistenza per progetto tramite `Project.browserAllowedOrigins` e broker; monitoraggio redirect main frame su `Page.frameNavigated` con sospensione automatica dell'agente; revoca immediata di origini concesse con transizione a `denied` e abort fail-closed; netta separazione delle navigazioni top-level dalle subresource (immagini, stili, script, font, fetch e CDN esterni continuano a funzionare liberamente); redazione automatica di credenziali URL (`user:pass@`), header `Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, token Bearer e password in eventi, log, errori e artifact; completo isolamento del frontend Svelte da endpoint CDP grezzi e segreti interni; 317 smoke test Studio, 143 test Cargo e 80 test upstream passati.
+- [x] **S44 — Inspector mirato** (`Subagente UI + runtime`, integrazione `Main`)
   Implementare element picker con contesto strutturato, Console e Network a ring
   buffer, timeline Actions, invio selettivo al prompt, screenshot e diagnostica
   derivati dalla stessa tab/viewport.
   **Accettazione:** un elemento selezionato produce ruolo, nome accessibile,
   selector, bounding box e ritaglio coerenti; console/rete sono filtrabili,
   limitate e redatte; nessun Chrome DevTools completo viene incorporato.
-
+  **Implementato:** implementato Element Picker su coordinate viewport CSS con highlight overlay non invasivo e tooltip semantico (`tag`, `role`, `accessibleName`, `text`, `selector`, `boundingBox`, `computedStyles`, `component`, `crop` PNG); `ConsoleRingBuffer` bounded a 500 item con deduplicazione messaggi consecutivi (`count`), stack trace e redazione credenziali/token Bearer; `NetworkRingBuffer` bounded a 200 item con correlazione in-place per `requestId`, filtri per errori/lente/XHR, redazione header sensibili e fetch body on-demand; `ActionRingBuffer` timeline bounded a 100 item; dock retrattile inferiore con 4 tab (Elementi, Console, Rete, Actions), filtri e ricerca testuale istantanea, gestione tastiera protetta da intercettazione indebita dello stream e invio selettivo del contesto strutturato e screenshot ritagliato direttamente al `Composer` via evento `composer-insert-context`. 335 smoke test e 146 test Cargo passati.
 - [ ] **S45 — Dialoghi, popup, file e registrazione** (`Main`)
   Gestire `alert`, `confirm`, `prompt`, `beforeunload`, nuove tab della chat,
   download come artifact, upload autorizzati, clipboard/permessi e recording

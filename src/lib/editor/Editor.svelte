@@ -1366,6 +1366,11 @@
 		white-space: nowrap;
 	}
 
+	.editor-tab-file:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
+
 	.tab-label {
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -1416,9 +1421,14 @@
 		color: var(--ink);
 	}
 
-	.editor-tab:hover .close-tab,
+	.editor-tab:hover .close-tab {
+		opacity: 1;
+	}
+
 	.close-tab:focus-visible {
 		opacity: 1;
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
 	}
 
 	.editor-tab:hover .dirty-dot,

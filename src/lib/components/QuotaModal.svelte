@@ -212,8 +212,13 @@
 								{@const usedFrac = Math.max(0, Math.min(1, rawUsed ?? (rawRem !== null ? 1 - rawRem : 0)))}
 								{@const remainingFrac = Math.max(0, Math.min(1, rawRem ?? (1 - usedFrac)))}
 								{@const remainingPercent = Math.round(remainingFrac * 100)}
-								{@const usedPercent = Math.round(usedFrac * 100)}
-								{@const colorVar = usedFrac >= 0.9 ? 'var(--brand)' : usedFrac >= 0.75 ? 'var(--warn)' : 'var(--ink-muted)'}
+								{@const isBad = limit.status === 'exhausted' || remainingPercent <= 10}
+								{@const isWarn = !isBad && remainingPercent <= 30}
+								{@const colorVar = isBad
+									? 'var(--quota-bad, var(--brand))'
+									: isWarn
+										? 'var(--quota-warn, var(--warn))'
+										: 'var(--quota-ok, var(--ink-muted))'}
 								{@const resetsAt = limit.window?.resetsAt ?? limit.resetsAt}
 								{@const resetCountdown = formatReset(resetsAt)}
 								{@const resetExact = resetsAt ? new Date(resetsAt).toLocaleString() : ''}
@@ -235,8 +240,8 @@
 											{/if}
 										</span>
 									</div>
-									<div class="limit-bar" title="Consumato: {usedPercent}% | Rimanente: {remainingPercent}%{resetCountdown ? ` | Reset: ${resetCountdown}${resetExact ? ` (${resetExact})` : ''}` : ''}">
-										<div class="limit-fill" style="--target-width: {usedPercent}%; background: {colorVar}; --bar-delay: {i * 0.08}s;"></div>
+									<div class="limit-bar" role="progressbar" aria-valuenow={remainingPercent} aria-valuemin="0" aria-valuemax="100" aria-label="{limit.label || 'Quota'}: {remainingPercent}% rimanente" title="Rimanente: {remainingPercent}%{resetCountdown ? ` | Reset: ${resetCountdown}${resetExact ? ` (${resetExact})` : ''}` : ''}">
+										<div class="limit-fill" style="--target-width: {remainingPercent}%; background: {colorVar}; --bar-delay: {i * 0.08}s;"></div>
 									</div>
 								</div>
 							{/each}

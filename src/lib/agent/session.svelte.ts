@@ -56,13 +56,15 @@ import {
 	readAdvertisedCapabilities,
 	shouldNegotiate,
 	type BrowserFrameMeta,
+	type BrowserInputEvent,
+	type BrowserLiveEvent,
 	type BrowserLiveNegotiation,
+	type BrowserLiveStreamHandle,
 	type BrowserLiveTicket,
 	type BrowserSessionIdentity,
 	type BrowserTabState,
 	connectBrowserLive
 } from './browser-live';
-
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
 export type AgentSurfaceState = 'idle' | 'working' | 'attention' | 'unknown';
 
@@ -266,7 +268,7 @@ export class AgentSession {
 	browserLive = $state<BrowserLiveNegotiation | null>(null);
 	/** Stato delle tab live, indirizzate da `browserSessionId + tabId`. */
 	browserLiveTabs = $state<BrowserTabState[]>([]);
-
+	#activeLiveHandles = new Map<string, BrowserLiveStreamHandle>();
 	/** Stato per la tessera di progetto: derivato, non inventato. */
 	agentState = $state<AgentSurfaceState>('unknown');
 
@@ -537,11 +539,13 @@ export class AgentSession {
 	 */
 	async connectLiveTab(
 		identity: BrowserSessionIdentity,
-		onFrame: (frame: { meta: BrowserFrameMeta; imageBase64: string }) => void
-	): Promise<(() => void) | null> {
+		onFrame: (frame: { meta: BrowserFrameMeta; imageBase64: string }) => void,
+		onInspectorEvent?: (event: BrowserLiveEvent) => void
+	): Promise<BrowserLiveStreamHandle | null> {
 		const ticket = await this.requestBrowserLiveTicket(identity);
 		if (!ticket) return null;
-		return connectBrowserLive(ticket, (event) => {
+		const key = `${identity.browserSessionId}::${identity.tabId}`;
+		const handle = await connectBrowserLive(ticket, (event) => {
 			if (event.type === 'frame') {
 				onFrame({ meta: event.meta, imageBase64: event.imageBase64 });
 			} else if (event.type === 'tab_state') {
@@ -554,13 +558,151 @@ export class AgentSession {
 					else this.browserLiveTabs.push(state);
 				}
 			} else if (event.type === 'closed') {
+				this.#activeLiveHandles.delete(key);
 				this.browserLiveTabs = this.browserLiveTabs.filter(
 					(t) => t.browserSessionId !== event.identity.browserSessionId || t.tabId !== event.identity.tabId
 				);
+			} else if (event.type === 'disconnected') {
+				this.#activeLiveHandles.delete(key);
 			}
+			onInspectorEvent?.(event);
 		});
+		this.#activeLiveHandles.set(key, handle);
+		return handle;
 	}
 
+	/** Richiede il takeover atomico del controllo della tab. */
+	async requestTakeover(tab: BrowserTabState, input?: BrowserInputEvent): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.sendTakeover(tab.controlEpoch, input);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante requestTakeover:', err);
+			return false;
+		}
+	}
+
+	/** Invia un evento di input alla tab controllata dall'utente. */
+	async sendTabInput(tab: BrowserTabState, input: BrowserInputEvent): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.sendInput(tab.controlEpoch, input);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante sendTabInput:', err);
+			return false;
+		}
+	}
+
+	/** Restituisce esplicitamente il controllo della tab all'agente. */
+	async returnControl(tab: BrowserTabState): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.returnControl(tab.controlEpoch);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante returnControl:', err);
+			return false;
+		}
+	}
+
+	/** Imposta la modalita di privacy (takeover privato). */
+	async setPrivacy(tab: BrowserTabState, privacy: 'normal' | 'private'): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.setPrivacy(privacy);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante setPrivacy:', err);
+			return false;
+		}
+	}
+
+	/** Richiede l'ispezione del nodo DOM al punto specificato. */
+	async inspectPoint(tab: BrowserTabState, x: number, y: number): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.inspectPoint(x, y);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante inspectPoint:', err);
+			return false;
+		}
+	}
+
+	/** Richiede l'ispezione mirata di un elemento via selettore o punto. */
+	async inspectElement(tab: BrowserTabState, selector?: string, point?: { x: number; y: number }): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.inspectElement(selector, point);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante inspectElement:', err);
+			return false;
+		}
+	}
+
+	/** Abilita o disabilita lo streaming di console/rete per l'Inspector. */
+	async setInspector(
+		tab: BrowserTabState,
+		enabled: boolean,
+		options?: { console?: boolean; network?: boolean }
+	): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.setInspector(enabled, options);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante setInspector:', err);
+			return false;
+		}
+	}
+
+	/** Richiede il corpo della risposta di una richiesta di rete on-demand. */
+	async requestNetworkBody(tab: BrowserTabState, requestId: string): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.requestNetworkBody(requestId);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante requestNetworkBody:', err);
+			return false;
+		}
+	}
+
+	/** Pulisce i buffer storici dell'Inspector. */
+	async clearInspectorBuffer(
+		tab: BrowserTabState,
+		target: 'console' | 'network' | 'actions' | 'all'
+	): Promise<boolean> {
+		const key = `${tab.browserSessionId}::${tab.tabId}`;
+		const handle = this.#activeLiveHandles.get(key);
+		if (!handle) return false;
+		try {
+			await handle.clearBuffer(target);
+			return true;
+		} catch (err) {
+			console.warn('Errore durante clearInspectorBuffer:', err);
+			return false;
+		}
+	}
 	/**
 	 * Riafferma le modalita' di coda e interruzione configurate nelle impostazioni.
 	 * I modi di coda sono stato di sessione lato omp e si resettano a ogni chat:

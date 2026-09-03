@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
 
 export type ProviderHost = {
 	provider: string;
@@ -7,6 +8,7 @@ export type ProviderHost = {
 	project: string;
 	project_path?: string;
 	last_active_ms: number;
+	credential_pin?: string;
 };
 
 const PROVIDER_FAMILY_BY_ID: Record<string, string> = {
@@ -69,6 +71,8 @@ export interface QuotaReport {
 		limitReached?: boolean;
 		orgId?: string;
 		orgName?: string;
+		accountId?: string;
+		[key: string]: unknown;
 	};
 	notes?: string[];
 	resetCredits?: {
@@ -112,7 +116,7 @@ class QuotaStore {
 	providerHosts = $state<ProviderHost[]>([]);
 	lastFetchedAt = $state<number | null>(null);
 	lowestRemainingPercent = $state<number | null>(null);
-
+	reportPinHashes = $state<(string | undefined)[]>([]);
 	reports = $derived<QuotaReport[]>(this.rawJson?.reports ?? []);
 	disabledCredentials = $derived<DisabledCredential[]>(this.rawJson?.disabledCredentials ?? []);
 	accountsWithoutUsage = $derived<AccountWithoutUsage[]>(this.rawJson?.accountsWithoutUsage ?? []);
@@ -190,14 +194,56 @@ class QuotaStore {
 			this.error = null;
 
 			this.evaluateStatus();
+			void this.updateReportPinHashes(this.reports);
 		} catch (err) {
 			// Resilienza totale: non rilanciamo mai l'errore per evitare crash del renderer UI
 			this.error = String(err);
 			this.status = 'offline';
+			this.reportPinHashes = [];
 		} finally {
 			this.loading = false;
 		}
 	}
+	/**
+	 * Trova il report associato a uno specifico pin credenziale verificando
+	 * che il provider coincida (tramite providersMatch) e che l'hash SHA-256
+	 * corrisponda a quello calcolato sulle credenziali del report.
+	 */
+	findReportByPin(provider: string, pinHash: string | undefined): QuotaReport | undefined {
+		if (!pinHash) return undefined;
+		const reports = this.reports;
+		const hashes = this.reportPinHashes;
+		for (let i = 0; i < reports.length; i++) {
+			const report = reports[i];
+			if (providersMatch(report.provider, provider)) {
+				if (hashes[i] === pinHash) {
+					return report;
+				}
+			}
+		}
+		return undefined;
+	}
+
+	private async updateReportPinHashes(reports: QuotaReport[]): Promise<void> {
+		try {
+			const hashes = await Promise.all(
+				reports.map(async (r) => {
+					try {
+						return await accountPinHash(r.provider, r.metadata);
+					} catch {
+						return undefined;
+					}
+				})
+			);
+			// Aggiorna solo se la lista di report e' ancora la stessa istanza
+			if (this.reports === reports) {
+				this.reportPinHashes = hashes;
+			}
+		} catch {
+			this.reportPinHashes = [];
+		}
+	}
+
 
 	private evaluateStatus() {
 		const reports = this.reports;
@@ -205,20 +251,36 @@ class QuotaStore {
 		let hasExhausted = false;
 		let minRemainingFraction = 1;
 
+		// Aggregazione a due livelli, coerente con la chip:
+		// per ogni account conta solo la finestra piu' breve (quella che blocca il lavoro adesso),
+		// fra piu' account dello stesso provider vince il migliore (un account esaurito non
+		// allarma se un altro dello stesso provider ha quota), fra provider vince il peggiore.
+		const bestByProvider = new Map<string, { remaining: number; exhausted: boolean }>();
+
 		for (const report of reports) {
 			if (!report.limits || report.limits.length === 0) continue;
-			for (const limit of report.limits) {
-				totalLimitsCount++;
-				const usedFrac = limit.amount?.usedFraction ?? (1 - (limit.amount?.remainingFraction ?? 1));
-				const remainingFrac = limit.amount?.remainingFraction ?? (1 - usedFrac);
+			totalLimitsCount += report.limits.length;
 
-				if (remainingFrac < minRemainingFraction) {
-					minRemainingFraction = remainingFrac;
-				}
+			const shortest = shortestWindowLimit(report.limits);
+			if (!shortest) continue;
+			const remaining = remainingFractionOf(shortest);
+			const exhausted = report.limits.some(
+				(limit) => limit.status === 'exhausted' || remainingFractionOf(limit) <= 0.001
+			);
 
-				if (limit.status === 'exhausted' || remainingFrac <= 0.001) {
-					hasExhausted = true;
-				}
+			const key = report.provider.trim().toLowerCase();
+			const current = bestByProvider.get(key);
+			if (!current || remaining > current.remaining) {
+				bestByProvider.set(key, { remaining, exhausted });
+			}
+		}
+
+		for (const entry of bestByProvider.values()) {
+			if (entry.remaining < minRemainingFraction) {
+				minRemainingFraction = entry.remaining;
+			}
+			if (entry.exhausted) {
+				hasExhausted = true;
 			}
 		}
 
@@ -230,9 +292,10 @@ class QuotaStore {
 
 		this.lowestRemainingPercent = Math.round(minRemainingFraction * 100);
 
-		if (hasExhausted) {
+		// Soglie allineate a quelle della chip: 30% avviso, 10% critico.
+		if (hasExhausted || minRemainingFraction <= 0.001) {
 			this.status = 'exhausted';
-		} else if (minRemainingFraction <= 0.15) {
+		} else if (minRemainingFraction <= 0.3) {
 			this.status = 'warning';
 		} else {
 			this.status = 'ok';

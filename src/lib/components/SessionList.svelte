@@ -394,6 +394,10 @@
 		background: var(--bg-hover);
 	}
 
+	.session-row:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
 	.session-row:active:not(:disabled) {
 		background: var(--bg-active);
 	}

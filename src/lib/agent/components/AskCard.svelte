@@ -1315,8 +1315,10 @@
 		border-color: var(--line-strong);
 	}
 
-	.option-card.focused {
-		outline: 1px solid var(--brand);
+	.option-card.focused,
+	.option-card:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
 	}
 
 	.option-card.selected {

@@ -203,6 +203,65 @@ export interface BrowserFrameMeta {
 	mimeType: 'image/jpeg' | 'image/png';
 }
 
+/* ------------------------------------------- inspector mirato types (S44) */
+
+export interface InspectedElementData {
+	tag: string;
+	role?: string;
+	accessibleName?: string;
+	text?: string;
+	selector: string;
+	boundingBox: { x: number; y: number; width: number; height: number };
+	computedStyles: Record<string, string>;
+	component?: string;
+	screenshotBase64?: string;
+}
+
+export interface ConsoleEntry {
+	id: string;
+	level: 'log' | 'info' | 'warn' | 'error' | 'debug';
+	text: string;
+	timestamp: number;
+	count: number;
+	stackTrace?: string;
+	url?: string;
+	line?: number;
+}
+
+export interface NetworkEntry {
+	id: string;
+	requestId: string;
+	url: string;
+	method: string;
+	status: number;
+	statusText: string;
+	mimeType: string;
+	resourceType: string;
+	durationMs: number;
+	timestamp: number;
+	failed: boolean;
+	errorText?: string;
+	headers?: Record<string, string>;
+	hasBody?: boolean;
+	body?: string;
+}
+
+export type ActionKind =
+	| 'navigation'
+	| 'agent_action'
+	| 'takeover'
+	| 'privacy'
+	| 'dialog'
+	| 'download'
+	| 'tab_change';
+
+export interface ActionEntry {
+	id: string;
+	timestamp: number;
+	kind: ActionKind;
+	label: string;
+	details?: string;
+}
 const MODES: readonly BrowserMode[] = ['managed', 'chrome-relay'];
 const CONTROLLERS: readonly BrowserController[] = ['agent', 'user', 'private-user'];
 const ORIGIN_PERMISSIONS: readonly BrowserOriginPermission[] = ['local', 'granted', 'pending', 'denied'];
@@ -469,6 +528,15 @@ export function decodeBinaryFrame(data: Uint8Array): { meta: BrowserFrameMeta; i
 export type BrowserLiveClientMessage =
 	| { type: 'redeem'; token: string; identity: BrowserSessionIdentity }
 	| { type: 'ack'; sequence: number }
+	| { type: 'takeover'; expectedEpoch: number; input?: BrowserInputEvent }
+	| { type: 'input'; epoch: number; input: BrowserInputEvent }
+	| { type: 'return_control'; epoch: number }
+	| { type: 'set_privacy'; privacy: 'normal' | 'private' }
+	| { type: 'inspect_point'; x: number; y: number }
+	| { type: 'inspect_element'; selector?: string; point?: { x: number; y: number } }
+	| { type: 'set_inspector'; enabled: boolean; console?: boolean; network?: boolean }
+	| { type: 'request_network_body'; requestId: string }
+	| { type: 'clear_buffer'; target: 'console' | 'network' | 'actions' | 'all' }
 	| { type: 'ping' };
 
 export type BrowserLiveServerMessage =
@@ -476,7 +544,68 @@ export type BrowserLiveServerMessage =
 	| { type: 'tab_state'; state: BrowserTabState }
 	| { type: 'closed'; identity: BrowserSessionIdentity; reason: BrowserLiveCloseReason }
 	| { type: 'error'; code: BrowserLiveErrorCode; message: string }
+	| { type: 'control_interrupted'; epoch: number; reason: string }
+	| { type: 'snapshot'; epoch: number; snapshot: unknown }
+	| { type: 'inspected_element'; element: InspectedElementData }
+	| { type: 'console_entry'; entry: ConsoleEntry }
+	| { type: 'network_entry'; entry: NetworkEntry }
+	| { type: 'network_body_response'; requestId: string; body?: string; error?: string }
+	| { type: 'action_entry'; entry: ActionEntry }
 	| { type: 'pong' };
+export function parseBrowserInputEvent(value: unknown): BrowserInputEvent | null {
+	const source = record(value);
+	if (!source || typeof source.type !== 'string') return null;
+	const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+	switch (source.type) {
+		case 'mouse_move': {
+			if (!isNum(source.x) || !isNum(source.y) || typeof source.buttons !== 'number') return null;
+			return { type: 'mouse_move', x: source.x, y: source.y, buttons: source.buttons };
+		}
+		case 'mouse_down': {
+			if (!isNum(source.x) || !isNum(source.y) || typeof source.button !== 'number' || typeof source.buttons !== 'number') return null;
+			const clickCount = typeof source.clickCount === 'number' ? source.clickCount : 1;
+			return { type: 'mouse_down', x: source.x, y: source.y, button: source.button, buttons: source.buttons, clickCount };
+		}
+		case 'mouse_up': {
+			if (!isNum(source.x) || !isNum(source.y) || typeof source.button !== 'number' || typeof source.buttons !== 'number') return null;
+			return { type: 'mouse_up', x: source.x, y: source.y, button: source.button, buttons: source.buttons };
+		}
+		case 'click': {
+			if (!isNum(source.x) || !isNum(source.y) || typeof source.button !== 'number') return null;
+			const detail = typeof source.detail === 'number' ? source.detail : 1;
+			return { type: 'click', x: source.x, y: source.y, button: source.button, detail };
+		}
+		case 'double_click': {
+			if (!isNum(source.x) || !isNum(source.y)) return null;
+			return { type: 'double_click', x: source.x, y: source.y };
+		}
+		case 'wheel': {
+			if (!isNum(source.x) || !isNum(source.y) || !isNum(source.deltaX) || !isNum(source.deltaY)) return null;
+			return { type: 'wheel', x: source.x, y: source.y, deltaX: source.deltaX, deltaY: source.deltaY };
+		}
+		case 'drag_start':
+		case 'drag_move':
+		case 'drag_end': {
+			if (!isNum(source.x) || !isNum(source.y)) return null;
+			return { type: source.type, x: source.x, y: source.y };
+		}
+		case 'key_down':
+		case 'key_up': {
+			if (typeof source.key !== 'string' || typeof source.code !== 'string') return null;
+			const mods = record(source.modifiers) ?? {};
+			const modifiers = {
+				alt: Boolean(mods.alt),
+				ctrl: Boolean(mods.ctrl),
+				meta: Boolean(mods.meta),
+				shift: Boolean(mods.shift)
+			};
+			return { type: source.type, key: source.key, code: source.code, modifiers };
+		}
+		default:
+			return null;
+	}
+}
 
 export function parseBrowserLiveClientMessage(value: unknown): BrowserLiveClientMessage | null {
 	const source = record(value);
@@ -492,10 +621,166 @@ export function parseBrowserLiveClientMessage(value: unknown): BrowserLiveClient
 		if (typeof sequence !== 'number' || !Number.isInteger(sequence) || sequence < 0) return null;
 		return { type: 'ack', sequence };
 	}
+	if (source.type === 'takeover') {
+		const expectedEpoch = source.expectedEpoch;
+		if (typeof expectedEpoch !== 'number' || !Number.isInteger(expectedEpoch) || expectedEpoch < 0) return null;
+		const input = source.input ? parseBrowserInputEvent(source.input) : undefined;
+		if (source.input && !input) return null;
+		return { type: 'takeover', expectedEpoch, ...(input ? { input } : {}) };
+	}
+	if (source.type === 'input') {
+		const epoch = source.epoch;
+		if (typeof epoch !== 'number' || !Number.isInteger(epoch) || epoch < 0) return null;
+		const input = parseBrowserInputEvent(source.input);
+		if (!input) return null;
+		return { type: 'input', epoch, input };
+	}
+	if (source.type === 'return_control') {
+		const epoch = source.epoch;
+		if (typeof epoch !== 'number' || !Number.isInteger(epoch) || epoch < 0) return null;
+		return { type: 'return_control', epoch };
+	}
+	if (source.type === 'set_privacy') {
+		const privacy = source.privacy === 'normal' || source.privacy === 'private' ? source.privacy : null;
+		if (!privacy) return null;
+		return { type: 'set_privacy', privacy };
+	}
+	if (source.type === 'inspect_point') {
+		if (typeof source.x !== 'number' || typeof source.y !== 'number') return null;
+		return { type: 'inspect_point', x: source.x, y: source.y };
+	}
+	if (source.type === 'inspect_element') {
+		const selector = typeof source.selector === 'string' ? source.selector : undefined;
+		const pt = record(source.point);
+		const point = pt && typeof pt.x === 'number' && typeof pt.y === 'number' ? { x: pt.x, y: pt.y } : undefined;
+		return { type: 'inspect_element', ...(selector ? { selector } : {}), ...(point ? { point } : {}) };
+	}
+	if (source.type === 'set_inspector') {
+		const enabled = Boolean(source.enabled);
+		const cons = typeof source.console === 'boolean' ? source.console : undefined;
+		const net = typeof source.network === 'boolean' ? source.network : undefined;
+		return { type: 'set_inspector', enabled, ...(cons !== undefined ? { console: cons } : {}), ...(net !== undefined ? { network: net } : {}) };
+	}
+	if (source.type === 'request_network_body') {
+		const requestId = nonEmpty(source.requestId);
+		if (!requestId) return null;
+		return { type: 'request_network_body', requestId };
+	}
+	if (source.type === 'clear_buffer') {
+		const target = member(source.target, ['console', 'network', 'actions', 'all'] as const);
+		if (!target) return null;
+		return { type: 'clear_buffer', target };
+	}
 	if (source.type === 'ping') {
 		return { type: 'ping' };
 	}
 	return null;
+}
+
+export function parseInspectedElementData(value: unknown): InspectedElementData | null {
+	const source = record(value);
+	if (!source) return null;
+	const tag = nonEmpty(source.tag);
+	const selector = nonEmpty(source.selector);
+	const bbox = record(source.boundingBox);
+	if (!tag || !selector || !bbox) return null;
+	if (
+		typeof bbox.x !== 'number' ||
+		typeof bbox.y !== 'number' ||
+		typeof bbox.width !== 'number' ||
+		typeof bbox.height !== 'number'
+	) {
+		return null;
+	}
+	const computedStyles = record(source.computedStyles) ?? {};
+	const stringStyles: Record<string, string> = {};
+	for (const [k, v] of Object.entries(computedStyles)) {
+		if (typeof v === 'string') stringStyles[k] = v;
+	}
+	return {
+		tag,
+		role: typeof source.role === 'string' ? source.role : undefined,
+		accessibleName: typeof source.accessibleName === 'string' ? source.accessibleName : undefined,
+		text: typeof source.text === 'string' ? source.text : undefined,
+		selector,
+		boundingBox: { x: bbox.x, y: bbox.y, width: bbox.width, height: bbox.height },
+		computedStyles: stringStyles,
+		component: typeof source.component === 'string' ? source.component : undefined,
+		screenshotBase64: typeof source.screenshotBase64 === 'string' ? source.screenshotBase64 : undefined
+	};
+}
+
+export function parseConsoleEntry(value: unknown): ConsoleEntry | null {
+	const source = record(value);
+	if (!source) return null;
+	const id = nonEmpty(source.id);
+	const level = member(source.level, ['log', 'info', 'warn', 'error', 'debug'] as const);
+	if (!id || !level || typeof source.text !== 'string' || typeof source.timestamp !== 'number') return null;
+	const count = typeof source.count === 'number' && Number.isInteger(source.count) && source.count > 0 ? source.count : 1;
+	return {
+		id,
+		level,
+		text: source.text,
+		timestamp: source.timestamp,
+		count,
+		stackTrace: typeof source.stackTrace === 'string' ? source.stackTrace : undefined,
+		url: typeof source.url === 'string' ? source.url : undefined,
+		line: typeof source.line === 'number' ? source.line : undefined
+	};
+}
+
+export function parseNetworkEntry(value: unknown): NetworkEntry | null {
+	const source = record(value);
+	if (!source) return null;
+	const id = nonEmpty(source.id);
+	const requestId = nonEmpty(source.requestId);
+	if (!id || !requestId || typeof source.url !== 'string' || typeof source.method !== 'string') return null;
+	const status = typeof source.status === 'number' ? source.status : 0;
+	const statusText = typeof source.statusText === 'string' ? source.statusText : '';
+	const mimeType = typeof source.mimeType === 'string' ? source.mimeType : '';
+	const resourceType = typeof source.resourceType === 'string' ? source.resourceType : 'other';
+	const durationMs = typeof source.durationMs === 'number' ? source.durationMs : 0;
+	const timestamp = typeof source.timestamp === 'number' ? source.timestamp : Date.now();
+	const failed = Boolean(source.failed);
+	const rawHeaders = record(source.headers);
+	const headers: Record<string, string> = {};
+	if (rawHeaders) {
+		for (const [k, v] of Object.entries(rawHeaders)) {
+			if (typeof v === 'string') headers[k] = v;
+		}
+	}
+	return {
+		id,
+		requestId,
+		url: source.url,
+		method: source.method,
+		status,
+		statusText,
+		mimeType,
+		resourceType,
+		durationMs,
+		timestamp,
+		failed,
+		errorText: typeof source.errorText === 'string' ? source.errorText : undefined,
+		headers: Object.keys(headers).length > 0 ? headers : undefined,
+		hasBody: Boolean(source.hasBody),
+		body: typeof source.body === 'string' ? source.body : undefined
+	};
+}
+
+export function parseActionEntry(value: unknown): ActionEntry | null {
+	const source = record(value);
+	if (!source) return null;
+	const id = nonEmpty(source.id);
+	const kind = member(source.kind, ['navigation', 'agent_action', 'takeover', 'privacy', 'dialog', 'download', 'tab_change'] as const);
+	if (!id || !kind || typeof source.label !== 'string' || typeof source.timestamp !== 'number') return null;
+	return {
+		id,
+		timestamp: source.timestamp,
+		kind,
+		label: source.label,
+		details: typeof source.details === 'string' ? source.details : undefined
+	};
 }
 
 export function parseBrowserLiveServerMessage(value: unknown): BrowserLiveServerMessage | null {
@@ -524,6 +809,43 @@ export function parseBrowserLiveServerMessage(value: unknown): BrowserLiveServer
 		if (!code) return null;
 		return { type: 'error', code, message };
 	}
+	if (source.type === 'control_interrupted') {
+		const epoch = source.epoch;
+		if (typeof epoch !== 'number' || !Number.isInteger(epoch) || epoch < 0) return null;
+		const reason = typeof source.reason === 'string' ? source.reason : 'CONTROL_INTERRUPTED';
+		return { type: 'control_interrupted', epoch, reason };
+	}
+	if (source.type === 'snapshot') {
+		const epoch = source.epoch;
+		if (typeof epoch !== 'number' || !Number.isInteger(epoch) || epoch < 0) return null;
+		return { type: 'snapshot', epoch, snapshot: source.snapshot };
+	}
+	if (source.type === 'inspected_element') {
+		const element = parseInspectedElementData(source.element);
+		if (!element) return null;
+		return { type: 'inspected_element', element };
+	}
+	if (source.type === 'console_entry') {
+		const entry = parseConsoleEntry(source.entry);
+		if (!entry) return null;
+		return { type: 'console_entry', entry };
+	}
+	if (source.type === 'network_entry') {
+		const entry = parseNetworkEntry(source.entry);
+		if (!entry) return null;
+		return { type: 'network_entry', entry };
+	}
+	if (source.type === 'network_body_response') {
+		const requestId = typeof source.requestId === 'string' ? source.requestId : '';
+		const body = typeof source.body === 'string' ? source.body : undefined;
+		const error = typeof source.error === 'string' ? source.error : undefined;
+		return { type: 'network_body_response', requestId, body, error };
+	}
+	if (source.type === 'action_entry') {
+		const entry = parseActionEntry(source.entry);
+		if (!entry) return null;
+		return { type: 'action_entry', entry };
+	}
 	if (source.type === 'pong') {
 		return { type: 'pong' };
 	}
@@ -539,7 +861,26 @@ export type BrowserLiveEvent =
 	| { type: 'tab_state'; state: unknown }
 	| { type: 'closed'; identity: BrowserSessionIdentity; reason: string }
 	| { type: 'error'; code: string; message: string }
+	| { type: 'inspected_element'; element: InspectedElementData }
+	| { type: 'console_entry'; entry: ConsoleEntry }
+	| { type: 'network_entry'; entry: NetworkEntry }
+	| { type: 'network_body_response'; requestId: string; body?: string; error?: string }
+	| { type: 'action_entry'; entry: ActionEntry }
 	| { type: 'disconnected' };
+
+export type BrowserLiveStreamHandle = (() => void) & {
+	disconnect: () => void;
+	sendTakeover: (expectedEpoch: number, input?: BrowserInputEvent) => Promise<void>;
+	sendInput: (epoch: number, input: BrowserInputEvent) => Promise<void>;
+	returnControl: (epoch: number) => Promise<void>;
+	setPrivacy: (privacy: 'normal' | 'private') => Promise<void>;
+	inspectPoint: (x: number, y: number) => Promise<void>;
+	inspectElement: (selector?: string, point?: { x: number; y: number }) => Promise<void>;
+	setInspector: (enabled: boolean, options?: { console?: boolean; network?: boolean }) => Promise<void>;
+	requestNetworkBody: (requestId: string) => Promise<void>;
+	clearBuffer: (target: 'console' | 'network' | 'actions' | 'all') => Promise<void>;
+	sendMessage: (msg: BrowserLiveClientMessage) => Promise<void>;
+};
 
 /**
  * Avvia lo stream live tramite il backend Rust (Tauri).
@@ -549,7 +890,7 @@ export type BrowserLiveEvent =
 export async function startBrowserLiveTauriStream(
 	ticket: BrowserLiveTicket,
 	onEvent: (event: BrowserLiveEvent) => void
-): Promise<() => void> {
+): Promise<BrowserLiveStreamHandle> {
 	const channel = new Channel<BrowserLiveEvent>();
 	channel.onmessage = (event) => {
 		onEvent(event);
@@ -560,9 +901,65 @@ export async function startBrowserLiveTauriStream(
 		identity: ticket.identity,
 		onEvent: channel
 	});
-	return () => {
+
+	const disconnect = () => {
 		void invoke('browser_live_disconnect', { sessionId }).catch(() => {});
 	};
+
+	const sendMessage = async (msg: BrowserLiveClientMessage): Promise<void> => {
+		await invoke('browser_live_send_message', { sessionId, message: msg });
+	};
+
+	const sendTakeover = async (expectedEpoch: number, input?: BrowserInputEvent): Promise<void> => {
+		await sendMessage({ type: 'takeover', expectedEpoch, ...(input ? { input } : {}) });
+	};
+
+	const sendInput = async (epoch: number, input: BrowserInputEvent): Promise<void> => {
+		await sendMessage({ type: 'input', epoch, input });
+	};
+
+	const returnControl = async (epoch: number): Promise<void> => {
+		await sendMessage({ type: 'return_control', epoch });
+	};
+
+	const setPrivacy = async (privacy: 'normal' | 'private'): Promise<void> => {
+		await sendMessage({ type: 'set_privacy', privacy });
+	};
+
+	const inspectPoint = async (x: number, y: number): Promise<void> => {
+		await sendMessage({ type: 'inspect_point', x, y });
+	};
+
+	const inspectElement = async (selector?: string, point?: { x: number; y: number }): Promise<void> => {
+		await sendMessage({ type: 'inspect_element', selector, point });
+	};
+
+	const setInspector = async (enabled: boolean, options?: { console?: boolean; network?: boolean }): Promise<void> => {
+		await sendMessage({ type: 'set_inspector', enabled, ...options });
+	};
+
+	const requestNetworkBody = async (requestId: string): Promise<void> => {
+		await sendMessage({ type: 'request_network_body', requestId });
+	};
+
+	const clearBuffer = async (target: 'console' | 'network' | 'actions' | 'all'): Promise<void> => {
+		await sendMessage({ type: 'clear_buffer', target });
+	};
+
+	const handle = Object.assign(disconnect, {
+		disconnect,
+		sendTakeover,
+		sendInput,
+		returnControl,
+		setPrivacy,
+		inspectPoint,
+		inspectElement,
+		setInspector,
+		requestNetworkBody,
+		clearBuffer,
+		sendMessage
+	});
+	return handle;
 }
 
 /**
@@ -571,7 +968,7 @@ export async function startBrowserLiveTauriStream(
 export async function startBrowserLiveWebSocketStream(
 	ticket: BrowserLiveTicket,
 	onEvent: (event: BrowserLiveEvent) => void
-): Promise<() => void> {
+): Promise<BrowserLiveStreamHandle> {
 	const ws = new WebSocket(ticket.endpoint);
 	onEvent({ type: 'connecting' });
 	let closed = false;
@@ -582,6 +979,46 @@ export async function startBrowserLiveWebSocketStream(
 		onEvent({ type: 'disconnected' });
 	};
 
+	const sendMessage = async (msg: BrowserLiveClientMessage): Promise<void> => {
+		if (closed || ws.readyState !== WebSocket.OPEN) return;
+		ws.send(JSON.stringify(msg));
+	};
+
+	const sendTakeover = async (expectedEpoch: number, input?: BrowserInputEvent): Promise<void> => {
+		await sendMessage({ type: 'takeover', expectedEpoch, ...(input ? { input } : {}) });
+	};
+
+	const sendInput = async (epoch: number, input: BrowserInputEvent): Promise<void> => {
+		await sendMessage({ type: 'input', epoch, input });
+	};
+
+	const returnControl = async (epoch: number): Promise<void> => {
+		await sendMessage({ type: 'return_control', epoch });
+	};
+
+	const setPrivacy = async (privacy: 'normal' | 'private'): Promise<void> => {
+		await sendMessage({ type: 'set_privacy', privacy });
+	};
+
+	const inspectPoint = async (x: number, y: number): Promise<void> => {
+		await sendMessage({ type: 'inspect_point', x, y });
+	};
+
+	const inspectElement = async (selector?: string, point?: { x: number; y: number }): Promise<void> => {
+		await sendMessage({ type: 'inspect_element', selector, point });
+	};
+
+	const setInspector = async (enabled: boolean, options?: { console?: boolean; network?: boolean }): Promise<void> => {
+		await sendMessage({ type: 'set_inspector', enabled, ...options });
+	};
+
+	const requestNetworkBody = async (requestId: string): Promise<void> => {
+		await sendMessage({ type: 'request_network_body', requestId });
+	};
+
+	const clearBuffer = async (target: 'console' | 'network' | 'actions' | 'all'): Promise<void> => {
+		await sendMessage({ type: 'clear_buffer', target });
+	};
 	ws.onopen = () => {
 		if (closed) return;
 		const redeemMsg: BrowserLiveClientMessage = {
@@ -611,6 +1048,16 @@ export async function startBrowserLiveWebSocketStream(
 				onEvent({ type: 'closed', identity: msg.identity, reason: msg.reason });
 			} else if (msg.type === 'error') {
 				onEvent({ type: 'error', code: msg.code, message: msg.message });
+			} else if (msg.type === 'inspected_element') {
+				onEvent({ type: 'inspected_element', element: msg.element });
+			} else if (msg.type === 'console_entry') {
+				onEvent({ type: 'console_entry', entry: msg.entry });
+			} else if (msg.type === 'network_entry') {
+				onEvent({ type: 'network_entry', entry: msg.entry });
+			} else if (msg.type === 'network_body_response') {
+				onEvent({ type: 'network_body_response', requestId: msg.requestId, body: msg.body, error: msg.error });
+			} else if (msg.type === 'action_entry') {
+				onEvent({ type: 'action_entry', entry: msg.entry });
 			}
 			return;
 		}
@@ -659,7 +1106,20 @@ export async function startBrowserLiveWebSocketStream(
 		}
 	};
 
-	return disconnect;
+	const handle = Object.assign(disconnect, {
+		disconnect,
+		sendTakeover,
+		sendInput,
+		returnControl,
+		setPrivacy,
+		inspectPoint,
+		inspectElement,
+		setInspector,
+		requestNetworkBody,
+		clearBuffer,
+		sendMessage
+	});
+	return handle;
 }
 
 /**
@@ -669,7 +1129,7 @@ export async function startBrowserLiveWebSocketStream(
 export async function connectBrowserLive(
 	ticket: BrowserLiveTicket,
 	onEvent: (event: BrowserLiveEvent) => void
-): Promise<() => void> {
+): Promise<BrowserLiveStreamHandle> {
 	if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
 		return startBrowserLiveTauriStream(ticket, onEvent);
 	}
@@ -768,3 +1228,384 @@ export type BrowserInputEvent =
 			code: string;
 			modifiers: { alt: boolean; ctrl: boolean; meta: boolean; shift: boolean };
 	  };
+
+/* ------------------------------------------- origin policy e redazione dati (S43) */
+
+/**
+ * Estrae l'origine normalizzata (schema + '//' + host + porta opzionale) da un URL.
+ * Restituisce null se l'URL non e' valido.
+ */
+export function extractOrigin(url: string): string | null {
+	if (!url || typeof url !== 'string') return null;
+	const trimmed = url.trim();
+	if (trimmed === 'about:blank' || trimmed.startsWith('about:')) return 'about:blank';
+	if (trimmed.startsWith('data:')) return 'data:';
+	if (trimmed.startsWith('blob:')) return 'blob:';
+	try {
+		const parsed = new URL(trimmed);
+		if (parsed.protocol === 'about:' || parsed.protocol === 'data:' || parsed.protocol === 'blob:') {
+			return parsed.protocol === 'about:' ? 'about:blank' : parsed.protocol;
+		}
+		return parsed.origin.toLowerCase();
+	} catch {
+		return null;
+	}
+}
+
+const LOCAL_ORIGIN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+/**
+ * Verifica se un URL o origine punta a un ambiente locale/loopback.
+ * Le origini locali sono autorizzate automaticamente senza richiesta di consenso.
+ */
+export function isLocalOrigin(urlOrOrigin: string): boolean {
+	if (!urlOrOrigin || typeof urlOrOrigin !== 'string') return false;
+	const trimmed = urlOrOrigin.trim().toLowerCase();
+	if (
+		trimmed === 'about:blank' ||
+		trimmed.startsWith('about:') ||
+		trimmed.startsWith('data:') ||
+		trimmed.startsWith('blob:')
+	) {
+		return true;
+	}
+	let parsed: URL;
+	try {
+		parsed = new URL(trimmed.includes('://') ? trimmed : `http://${trimmed}`);
+	} catch {
+		return false;
+	}
+	const host = parsed.hostname.toLowerCase();
+	if (LOCAL_ORIGIN_HOSTS.has(host) || host.startsWith('127.')) {
+		return true;
+	}
+	return false;
+}
+
+export type OriginClassification =
+	| { type: 'local'; origin: string }
+	| { type: 'remote'; origin: string }
+	| { type: 'special'; origin: string };
+
+export function classifyOrigin(url: string): OriginClassification {
+	const origin = extractOrigin(url) ?? 'unknown';
+	if (origin === 'about:blank' || origin === 'data:' || origin === 'blob:') {
+		return { type: 'special', origin };
+	}
+	if (isLocalOrigin(origin)) {
+		return { type: 'local', origin };
+	}
+	return { type: 'remote', origin };
+}
+
+/**
+ * Rimuove le credenziali user:pass@ dagli URL per evitare che passino nei log o nel transcript.
+ */
+export function redactUrlCredentials(url: string): string {
+	if (!url || typeof url !== 'string') return url;
+	if (!url.includes('@') && !url.includes('//')) return url;
+	return url.replace(/:\/\/([^:@\s]+)(?::([^@\s]*))?@/g, '://[REDACTED]@');
+}
+
+const SENSITIVE_HEADER_KEYS = new Set([
+	'authorization',
+	'cookie',
+	'set-cookie',
+	'x-api-key',
+	'proxy-authorization',
+	'sec-websocket-key',
+	'x-auth-token'
+]);
+
+/**
+ * Maschera gli header sensibili (Authorization, Cookie, Set-Cookie, API keys).
+ */
+export function redactSensitiveHeaders(
+	headers: Record<string, string | string[] | undefined>
+): Record<string, string | string[]> {
+	const redacted: Record<string, string | string[]> = {};
+	for (const [k, v] of Object.entries(headers)) {
+		if (v === undefined) continue;
+		const lowerKey = k.toLowerCase();
+		if (SENSITIVE_HEADER_KEYS.has(lowerKey)) {
+			redacted[k] = '[REDACTED]';
+		} else {
+			redacted[k] = v;
+		}
+	}
+	return redacted;
+}
+
+/**
+ * Maschera token, credenziali e chiavi sensibili da stringhe di log, errori o messaggi.
+ */
+export function redactSensitiveString(text: string): string {
+	if (!text || typeof text !== 'string') return text;
+	return text
+		.replace(/(Bearer\s+)[A-Za-z0-9\-._~+/]+=*/gi, '$1[REDACTED]')
+		.replace(/(Basic\s+)[A-Za-z0-9+/]+=*/gi, '$1[REDACTED]')
+		.replace(
+			/((?:token|secret|password|api[_-]?key)\s*[:=]\s*["']?)[A-Za-z0-9\-._~+/]{6,}(["']?)/gi,
+			'$1[REDACTED]$2'
+		)
+		.replace(/:\/\/([^:@\s]+):([^@\s]+)@/g, '://[REDACTED]:[REDACTED]@');
+}
+
+/* ------------------------------------------- ring buffer e diagnostica (S44) */
+
+export class BoundedRingBuffer<T> {
+	protected buffer: T[] = [];
+	readonly capacity: number;
+
+	constructor(capacity: number) {
+		this.capacity = Math.max(1, capacity);
+	}
+
+	get items(): readonly T[] {
+		return this.buffer;
+	}
+
+	get length(): number {
+		return this.buffer.length;
+	}
+
+	push(item: T): void {
+		if (this.buffer.length >= this.capacity) {
+			this.buffer.shift();
+		}
+		this.buffer.push(item);
+	}
+
+	clear(): void {
+		this.buffer = [];
+	}
+
+	filter(predicate: (item: T) => boolean): T[] {
+		return this.buffer.filter(predicate);
+	}
+}
+
+export class ConsoleRingBuffer extends BoundedRingBuffer<ConsoleEntry> {
+	constructor(capacity: number = 500) {
+		super(capacity);
+	}
+
+	/**
+	 * Inserisce o deduplica una voce di console applicando la redazione dei dati.
+	 */
+	override push(raw: ConsoleEntry): void {
+		const entry: ConsoleEntry = {
+			id: raw.id,
+			level: raw.level,
+			text: redactSensitiveString(raw.text),
+			timestamp: raw.timestamp,
+			count: raw.count || 1,
+			stackTrace: raw.stackTrace ? redactSensitiveString(raw.stackTrace) : undefined,
+			url: raw.url ? redactUrlCredentials(raw.url) : undefined,
+			line: raw.line
+		};
+
+		// Deduplica con l'ultimo messaggio se identico per livello, testo, url e riga
+		const last = this.buffer[this.buffer.length - 1];
+		if (
+			last &&
+			last.level === entry.level &&
+			last.text === entry.text &&
+			last.url === entry.url &&
+			last.line === entry.line
+		) {
+			last.count += entry.count;
+			last.timestamp = entry.timestamp;
+			return;
+		}
+
+		super.push(entry);
+	}
+}
+
+export class NetworkRingBuffer extends BoundedRingBuffer<NetworkEntry> {
+	constructor(capacity: number = 200) {
+		super(capacity);
+	}
+
+	/**
+	 * Inserisce o aggiorna una voce di rete per requestId applicando la redazione.
+	 */
+	override push(raw: NetworkEntry): void {
+		const entry: NetworkEntry = {
+			id: raw.id,
+			requestId: raw.requestId,
+			url: redactUrlCredentials(raw.url),
+			method: raw.method,
+			status: raw.status,
+			statusText: raw.statusText,
+			mimeType: raw.mimeType,
+			resourceType: raw.resourceType,
+			durationMs: Math.round(raw.durationMs * 10) / 10,
+			timestamp: raw.timestamp,
+			failed: raw.failed,
+			errorText: raw.errorText ? redactSensitiveString(raw.errorText) : undefined,
+			headers: raw.headers ? redactSensitiveHeaders(raw.headers) as Record<string, string> : undefined,
+			hasBody: raw.hasBody,
+			body: raw.body ? redactSensitiveString(raw.body) : undefined
+		};
+
+		const existingIndex = this.buffer.findIndex((e) => e.requestId === entry.requestId);
+		if (existingIndex !== -1) {
+			const prev = this.buffer[existingIndex];
+			this.buffer[existingIndex] = {
+				...prev,
+				...entry,
+				headers: entry.headers || prev.headers,
+				body: entry.body || prev.body
+			};
+			return;
+		}
+
+		super.push(entry);
+	}
+
+	/**
+	 * Aggiorna il corpo della risposta per una richiesta specifica.
+	 */
+	setBody(requestId: string, body: string): void {
+		const entry = this.buffer.find((e) => e.requestId === requestId);
+		if (entry) {
+			entry.body = redactSensitiveString(body);
+			entry.hasBody = true;
+		}
+	}
+}
+
+export class ActionRingBuffer extends BoundedRingBuffer<ActionEntry> {
+	constructor(capacity: number = 100) {
+		super(capacity);
+	}
+
+	override push(raw: ActionEntry): void {
+		const entry: ActionEntry = {
+			id: raw.id,
+			timestamp: raw.timestamp,
+			kind: raw.kind,
+			label: redactSensitiveString(raw.label),
+			details: raw.details ? redactSensitiveString(raw.details) : undefined
+		};
+		super.push(entry);
+	}
+}
+
+/* ------------------------------------------- formattazione contesto prompt (S44) */
+
+export function formatElementContextForPrompt(el: InspectedElementData): string {
+	const parts: string[] = [];
+	parts.push(`### Contesto Elemento Ispezionato`);
+	parts.push(`- **Elemento**: \`<${el.tag}>\` (Selettore: \`${el.selector}\`)`);
+	if (el.role) parts.push(`- **Ruolo ARIA**: \`${el.role}\``);
+	if (el.accessibleName) parts.push(`- **Nome accessibile**: "${el.accessibleName}"`);
+	if (el.text) parts.push(`- **Testo visibile**: "${el.text.length > 120 ? el.text.slice(0, 120) + '…' : el.text}"`);
+	if (el.component) parts.push(`- **Componente**: \`<${el.component}>\``);
+	parts.push(`- **Bounding Box**: ${Math.round(el.boundingBox.width)}x${Math.round(el.boundingBox.height)} a (${Math.round(el.boundingBox.x)}, ${Math.round(el.boundingBox.y)})`);
+
+	const styleKeys = Object.keys(el.computedStyles);
+	if (styleKeys.length > 0) {
+		const formattedStyles = styleKeys
+			.map((k) => `${k}: ${el.computedStyles[k]}`)
+			.join('; ');
+		parts.push(`- **Stili CSS rilevanti**: \`${formattedStyles}\``);
+	}
+
+	return parts.join('\n');
+}
+
+export function formatConsoleErrorsForPrompt(entries: ConsoleEntry[]): string {
+	const errors = entries.filter((e) => e.level === 'error' || e.level === 'warn');
+	if (errors.length === 0) return '';
+	const parts: string[] = [];
+	parts.push(`### Errori/Avvisi Console (${errors.length})`);
+	for (const err of errors.slice(0, 10)) {
+		const loc = err.url ? ` at ${err.url}${err.line !== undefined ? `:${err.line}` : ''}` : '';
+		const countStr = err.count > 1 ? ` (x${err.count})` : '';
+		parts.push(`- [${err.level}] \`${err.text}\`${loc}${countStr}`);
+		if (err.stackTrace) {
+			const stackLines = err.stackTrace.split('\n').slice(0, 3).map((l) => `  ${l.trim()}`).join('\n');
+			parts.push(`\`\`\`\n${stackLines}\n\`\`\``);
+		}
+	}
+	return parts.join('\n');
+}
+
+export function formatFailedRequestsForPrompt(entries: NetworkEntry[]): string {
+	const failed = entries.filter((e) => e.failed || e.status >= 400);
+	if (failed.length === 0) return '';
+	const parts: string[] = [];
+	parts.push(`### Richieste di Rete Fallite (${failed.length})`);
+	for (const req of failed.slice(0, 10)) {
+		const statusStr = req.status > 0 ? `Status ${req.status} ${req.statusText}`.trim() : 'FALLITA (Errore di rete)';
+		const errDetail = req.errorText ? ` - ${req.errorText}` : '';
+		parts.push(`- \`${req.method} ${req.url}\` -> ${statusStr} (${req.durationMs}ms)${errDetail}`);
+	}
+	return parts.join('\n');
+}
+
+export function formatInspectorContextForPrompt(options: {
+	element?: InspectedElementData | null;
+	consoleEntries?: ConsoleEntry[];
+	networkEntries?: NetworkEntry[];
+}): string {
+	const sections: string[] = [];
+	if (options.element) {
+		sections.push(formatElementContextForPrompt(options.element));
+	}
+	if (options.consoleEntries && options.consoleEntries.length > 0) {
+		const consoleText = formatConsoleErrorsForPrompt(options.consoleEntries);
+		if (consoleText) sections.push(consoleText);
+	}
+	if (options.networkEntries && options.networkEntries.length > 0) {
+		const netText = formatFailedRequestsForPrompt(options.networkEntries);
+		if (netText) sections.push(netText);
+	}
+	return sections.join('\n\n');
+}
+
+/**
+ * Esegue il ritaglio client-side dell'elemento su canvas a partire dall'immagine JPEG/PNG base64.
+ */
+export async function cropImageElement(
+	base64: string,
+	rect: { x: number; y: number; width: number; height: number },
+	viewport: { width: number; height: number }
+): Promise<string> {
+	if (typeof document === 'undefined' || typeof Image === 'undefined') return '';
+	if (rect.width <= 0 || rect.height <= 0 || viewport.width <= 0 || viewport.height <= 0) return '';
+
+	const { promise, resolve } = Promise.withResolvers<string>();
+	const img = new Image();
+	img.onload = () => {
+		try {
+			const canvas = document.createElement('canvas');
+			const scaleX = img.naturalWidth / viewport.width;
+			const scaleY = img.naturalHeight / viewport.height;
+
+			const srcX = Math.max(0, rect.x * scaleX);
+			const srcY = Math.max(0, rect.y * scaleY);
+			const srcW = Math.min(img.naturalWidth - srcX, rect.width * scaleX);
+			const srcH = Math.min(img.naturalHeight - srcY, rect.height * scaleY);
+
+			canvas.width = Math.max(1, Math.round(srcW));
+			canvas.height = Math.max(1, Math.round(srcH));
+			const ctx = canvas.getContext('2d');
+			if (!ctx) {
+				resolve('');
+				return;
+			}
+			ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+			const croppedData = canvas.toDataURL('image/png').split(',')[1] || '';
+			resolve(croppedData);
+		} catch {
+			resolve('');
+		}
+	};
+	img.onerror = () => resolve('');
+	img.src = base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}`;
+	return promise;
+}

@@ -17,7 +17,7 @@ use projects::{
 mod omp_ops;
 use omp_ops::{
     check_omp_update, get_omp_version, omp_user_theme, provider_hosts, run_omp_update,
-    sessions_list, sessions_search, theme_apply, usage_snapshot,
+    session_credential_pins, sessions_list, sessions_search, theme_apply, usage_snapshot,
 };
 mod studio_updater;
 use studio_updater::{
@@ -49,8 +49,9 @@ mod suggestions_ops;
 use suggestions_ops::generate_prompt_suggestions;
 
 pub mod browser_live;
-use browser_live::{browser_live_connect, browser_live_disconnect, BrowserLiveManager};
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use browser_live::{
+    browser_live_connect, browser_live_disconnect, browser_live_send_message, BrowserLiveManager,
+};
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -98,6 +99,7 @@ pub fn run() {
             rpc_stderr,
             rpc_protocol,
             browser_live_connect,
+            browser_live_send_message,
             browser_live_disconnect,
             tree_read,
             project_files_search,
@@ -128,6 +130,7 @@ pub fn run() {
             usage_snapshot,
             sessions_list,
             sessions_search,
+            session_credential_pins,
             get_omp_version,
             check_omp_update,
             run_omp_update,

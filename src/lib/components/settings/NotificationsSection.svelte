@@ -423,6 +423,11 @@
 		background: var(--bg-sunken);
 	}
 
+	input:focus-visible + .slider {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
+	}
+
 	input:disabled + .slider {
 		opacity: 0.5;
 		cursor: not-allowed;

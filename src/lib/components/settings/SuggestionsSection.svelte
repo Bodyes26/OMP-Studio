@@ -1007,8 +1007,8 @@
 	}
 
 	.order-btn:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 1px;
+		outline: 1.5px solid var(--brand);
+		outline-offset: -1px;
 	}
 
 	.order-btn:disabled {

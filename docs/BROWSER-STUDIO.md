@@ -1,6 +1,6 @@
 # Browser Studio — Specifica canonica
 
-**Stato:** S38-S41 implementati (contratto `browser-live-v1`, broker/Chromium gestito, stream binario BLF1 e BrowserViewer centrale); S42-S47 non implementati  
+**Stato:** S38-S43 implementati (contratto `browser-live-v1`, broker/Chromium gestito, stream binario BLF1, BrowserViewer centrale, control epochs, takeover privato, policy origini top-level, ticket fail-closed e redazione dati); S44-S47 non implementati  
 **Gate:** R23  
 **Ultimo aggiornamento:** 2026-09-03  
 **Owner documentale:** ogni agente che completa uno step S38-S47
@@ -558,70 +558,84 @@ profilo persistente: due Chromium non possono condividere il lock di una
 `--user-data-dir`, e il profilo di progetto appartiene al daemon. Il
 comportamento e identico a quello che il kind `headless` aveva prima di S39.
 
-## 10. Control epochs
+## 10. Control epochs — implementato in S42
 
-Ogni azione agente acquisisce l'epoch corrente e lo verifica prima e dopo ogni comando significativo. Le chiamate CDP passano dal broker; un client Puppeteer non deve avere un percorso alternativo che aggiri il controllo.
+Ogni azione agente acquisisce l'epoch corrente e lo verifica prima e dopo ogni comando significativo. Le chiamate CDP passano dal broker; un client Puppeteer non ha un percorso alternativo che aggiri il controllo.
 
-Primo input umano:
+### 10.1 Transizione atomica di Takeover
+
+Primo input umano catturato da `BrowserViewer`:
 
 ```text
 request_takeover(expectedEpoch, bufferedInput)
 ```
 
-Transizione atomica:
+Transizione atomica implementata in `BrowserSessionBroker`:
 
-1. verificare `expectedEpoch`;
-2. incrementare l'epoch;
-3. bloccare nuovi comandi agente;
-4. cancellare o chiudere in sicurezza il comando attivo;
-5. restituire `CONTROL_INTERRUPTED` all'agente;
-6. inoltrare una sola volta l'input umano bufferizzato;
-7. impostare controller `user`.
+1. **Verifica `expectedEpoch`:** se l'epoch specificato non coincide con quello attivo della tab, la richiesta fallisce immediatamente con `CONTROL_INTERRUPTED`;
+2. **Incremento atomico:** `controlEpoch++` monotonicamente;
+3. **Blocco comandi agente:** `controller` passa a `user`, bloccando nuove invocazioni del tool `browser`;
+4. **Cancellazione fail-closed dell'azione in corso:** invocazione sincrona degli handler di abort (`abortActiveTabRun`), che rigettano i `PendingRun` con `CONTROL_INTERRUPTED`;
+5. **Inoltro unico dell'input bufferizzato:** l'evento di input che ha innescato il takeover (`click`, `mouse_down`, `key_down`, `wheel`) viene inoltrato a CDP esattamente una volta (`dispatchInput`), evitando perdite di interazione;
+6. **Notifica live:** emissione immediata dell'evento `tab_state` sul WebSocket e sul canale broker RPC.
 
-Il pannello deve mostrare sempre chi controlla la tab. Il ritorno all'agente richiede un comando esplicito e produce un nuovo snapshot semantico prima della ripresa.
+### 10.2 Ritorno esplicito all'Agente
 
-Stato dopo S39: il `controlEpoch` esiste nello stato tab ed e sempre `0`, il
-`controller` e sempre `agent`; l'arbitraggio e S42. Cio che S39 ha reso vero e
-la premessa: l'endpoint CDP del motore gestito nasce in un unico punto
-(`BrowserSessionBroker.ensureEndpoint`), non compare in nessun frame RPC, in
-nessun risultato di tool e in nessun ticket, e le tab sono raggiungibili solo
-tramite la chiave che il broker assegna. Non esiste una via per cui il client
-ottenga un endpoint Puppeteer con cui aggirare il broker.
+Il pannello mostra in tempo reale chi controlla la tab (badge `Agente`, `Utente`, `Privato`). Il ritorno all'agente non avviene per timeout o presunzione di inattivita, ma richiede un'azione esplicita dell'utente (`Rilascia all'Agente`):
 
-## 11. Takeover privato
+```text
+return_control(epoch)
+```
 
-Attivazione:
+1. Verifica dell'epoch attivo (`epoch === tab.controlEpoch`);
+2. Incremento atomico dell'epoch (`controlEpoch++`);
+3. Transizione del controller a `agent`;
+4. Emissione di `tab_state` per sbloccare l'esecuzione dell'agente.
 
-- focus su campo password;
-- CAPTCHA riconosciuto;
-- richiesta login/credenziali del tool;
-- pulsante manuale.
+## 11. Takeover privato — implementato in S42
 
-Durante il takeover privato:
+### 11.1 Attivazione
 
-- il BrowserViewer continua a ricevere frame su canale locale;
-- l'agente non riceve frame, DOM, accessibility tree, console, rete o screenshot;
-- nessuna immagine entra nel transcript;
-- registrazione e buffer diagnostici vengono sospesi e ripuliti;
-- il tool vede soltanto `PRIVATE_TAKEOVER_ACTIVE`;
-- la riattivazione e manuale.
+- **Manuale:** pulsante `Privato` nella toolbar di `BrowserViewer.svelte`;
+- **Automatica:** focus su `<input type="password">`, rilevamento CAPTCHA o form credenziali.
 
-La modalita privata non deve rendere cieco l'utente e non deve affidarsi solo a mascherare i tasti.
+### 11.2 Comportamento e Gating dei Canali
 
-## 12. Origini e sicurezza
+Durante il takeover privato (`controller: "private-user"`):
 
-La policy governa la navigazione top-level dell'agente, non blocca indiscriminatamente CDN e risorse secondarie necessarie all'applicazione.
+- **Canale video locale:** lo stream loopback WebSocket continua a trasmettere frame binari `BLF1` a Studio con `privacy: "private"` affinché l'utente possa completare l'autenticazione;
+- **Isolamento agente:** l'agente non riceve frame, DOM, accessibility tree, console, eventi di rete o screenshot;
+- **Zero leak nel transcript:** nessuna immagine, screenshot o credenziale entra nel transcript o nei messaggi RPC;
+- **Tool fail-closed:** qualunque invocazione del tool da parte dell'agente restituisce l'errore strutturato `PRIVATE_TAKEOVER_ACTIVE`;
+- **Ripristino:** disattivazione manuale del toggle privato (ritorno a `user`) o rilascio esplicito all'agente (`return_control`).
 
-- `http://localhost:*` e `http://127.0.0.1:*`: consentiti automaticamente;
-- origini remote: consenso una tantum per progetto;
-- redirect top-level verso origine non autorizzata: sospensione prima di proseguire;
-- grant revocabili dalle impostazioni del progetto;
-- header `Authorization`, cookie, token e valori sensibili sempre redatti;
-- body di rete disponibile solo su richiesta e con limiti di dimensione;
-- URL, titoli e testo pagina sono input non attendibili e non vanno promossi a istruzioni di sistema.
+## 12. Origini, capability e sicurezza dati — implementato in S43
 
-Il frontend Svelte non riceve segreti del broker ne un endpoint CDP utilizzabile liberamente. Ticket e capability falliscono chiusi alla disconnessione.
+La policy di sicurezza governa rigorosamente la navigazione top-level dell'agente e protegge i segreti e le credenziali di sistema, senza bloccare indiscriminatamente CDN, immagini, fogli di stile, font o chiamate API secondarie necessarie al normale funzionamento delle applicazioni web.
 
+### 12.1 Policy origini top-level
+
+- **Ambienti loopback e locali:** `http://localhost:*`, `http://127.0.0.1:*`, `http://[::1]:*`, `about:blank`, `data:` e `blob:` sono considerati locali e consentiti automaticamente (`originPermission: "local"`), senza alcuna richiesta o prompt di conferma all'utente.
+- **Nuove origini remote:** qualsiasi navigazione top-level iniziale (`browser open` con `url`) o programmatica (`tab.goto(url)`) verso una nuova origine remota non ancora autorizzata imposta la tab in stato `originPermission: "pending"` e viene bloccata fail-closed restituendo l'errore strutturato `ORIGIN_NOT_ALLOWED`.
+- **Consenso persistente per progetto:** Studio espone un banner di consenso esplicito e una badge nella toolbar di `BrowserViewer.svelte`; l'autorizzazione concessa dall'utente viene memorizzata in modo persistente per progetto (`Project.browserAllowedOrigins` in `projectStore` e `#projectAllowedOrigins` nel broker di sessione), abilitando le navigazioni successive senza ulteriori richieste.
+- **Sospensione sui redirect top-level non autorizzati:** il server live monitora in tempo reale gli eventi CDP `Page.frameNavigated` filtrando strettamente il solo main frame documentale (`!params.frame.parentId`). Se la pagina esegue un redirect verso un'origine remota non autorizzata, la tab passa immediatamente a `originPermission: "pending"`, l'esecuzione dell'agente viene abortita e sospesa con `ORIGIN_NOT_ALLOWED` ed emesso l'evento `tab_state` per consentire all'utente di autorizzare o respingere il redirect.
+- **Separazione top-level / subresource:** le risorse secondarie caricate dalla pagina (tag `<script>`, `<link>`, `<img>`, font, o chiamate `fetch`/`XMLHttpRequest` asincrone dell'applicazione) non sono considerate navigazioni documentali di primo livello e non vengono intercettate né bloccate dalla policy, garantendo la compatibilità con librerie esterne e CDN.
+- **Revoca immediata:** i permessi concessi a un'origine possono essere revocati istantaneamente sia direttamente dalla toolbar di `BrowserViewer` sia dalla sezione impostazioni del progetto in `WorkspaceSection.svelte`. La revoca rimuove immediatamente l'origine dalla allow-list, imposta lo stato della tab attiva su `originPermission: "denied"` e abortisce fail-closed qualsiasi comando agente in corso con `ORIGIN_NOT_ALLOWED`.
+
+### 12.2 Fail-closed di ticket e capability
+
+- **Negoziazione severa:** la capability `browser-live` richiede corrispondenza esatta di nome e versione, condivisione del trasporto loopback e presenza di un provider attivo; in assenza di negoziazione, il sistema ricade deterministicamente sul renderer screenshot legacy senza fallimenti o leak.
+- **Presentazione singola del ticket:** il token di riscatto monouso (TTL 30 secondi) viene consumato ed eliminato dallo store al primo tentativo di riscatto, prevenendo attacchi di replay o probing.
+- **Rifiuto endpoint remoti:** ticket o endpoint non loopback vengono respinti sia all'emissione che prima della connessione con `ENDPOINT_NOT_LOOPBACK`.
+- **Pulizia deterministica:** alla chiusura di una tab, al disconnect di Studio o allo shutdown del runtime, i ticket e i canali live associati vengono revocati e chiusi immediatamente.
+
+### 12.3 Redazione dati e isolamento frontend
+
+- **Redazione credenziali URL:** le credenziali HTTP Basic Auth (`https://user:password@host`) vengono eliminate da tutti gli URL prima dell'emissione negli stati tab, nei log, nei dettagli dei tool e negli artifact (`https://[REDACTED]@host`).
+- **Redazione header sensibili:** gli header `Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key` e chiavi di autenticazione vengono mascherati con `[REDACTED]` nelle strutture di diagnostica e rete.
+- **Bonifica messaggi ed errori:** i messaggi di errore e i log applicativi vengono filtrati tramite `redactSensitiveString` in TypeScript e `redact_sensitive_string` in Rust, neutralizzando token Bearer, Basic e segreti.
+- **Isolamento CDP e segreti broker:** il frontend Svelte non riceve mai né l'endpoint CDP grezzo (`wsEndpoint`) né token di autenticazione o credenziali interne del broker; la comunicazione avviene unicamente tramite Tauri IPC (`browser_live_connect`) o canali WebSocket locali autenticati e tipizzati.
+- **Input non attendibili:** URL, titoli di pagina e testo estratto dal DOM sono considerati input non attendibili e non vengono promossi a istruzioni o direttive di sistema per il modello.
 ## 13. BrowserViewer — implementato in S41
 
 La colonna centrale espone superfici distinte `Browser` (`src/lib/components/BrowserViewer.svelte`), `Preview` (`PreviewViewer.svelte`) ed `Editor` (`Editor.svelte`). `browser open` o l'arrivo di una tab gestita in sessione seleziona automaticamente la superficie `Browser` senza distruggere né alterare lo stato dei modelli Monaco, dei file aperti o delle anteprime statiche.
@@ -669,40 +683,54 @@ Questa proiezione è matematicamente invariante rispetto a:
 4. Scorrimento del contenitore centrale.
 
 I delta di scroll della rotellina vengono normalizzati tramite `mapWheelToViewportScroll` supportando modalità a pixel, linee (16px) e pagine (400px).
-## 14. Inspector mirato
+## 14. Inspector mirato — implementato in S44
 
-### Element picker
+L'Inspector mirato fornisce strumenti di diagnosi compatti, reattivi e sicuri senza incorporare l'intera complessità di Chrome DevTools né interferire con la fruizione della pagina.
 
-Produce contesto strutturato:
+### 14.1 Element Picker e Contesto Strutturato
 
-```text
-tag, role, accessibleName, text, selector, boundingBox,
-computedStyles rilevanti, componente React se disponibile,
-screenshot ritagliato
-```
+1. **Attivazione e Overlay non invasivo:** attivabile tramite pulsante toolbar `Ispeziona` o scorciatoia `Alt+I` (`Ctrl+Shift+C`). Durante il puntamento, `BrowserViewer` calcola le coordinate CSS native tramite `mapClientToViewportCoords` e richiede l'ispezione via `inspectPoint(x, y)`. L'overlay visivo applica un rettangolo semitrasparente (`pointer-events: none`) e un tooltip compatto (`<tag.class> WxH [role]`) senza sovrapporre strati opachi permanenti.
+2. **Payload `InspectedElementData`:**
+   ```typescript
+   export interface InspectedElementData {
+       tag: string;
+       role?: string;
+       accessibleName?: string;
+       text?: string;
+       selector: string;
+       boundingBox: { x: number; y: number; width: number; height: number };
+       computedStyles: Record<string, string>;
+       component?: string; // Componente React / Svelte / WebComponent rilevato
+       screenshotBase64?: string; // Ritaglio client-side PNG
+   }
+   ```
+3. **Ritaglio viewport coerente (`cropImageElement`):** genera istantaneamente il ritaglio PNG scalato a partire dall'ultimo frame JPEG decodificato, proiettato sulle coordinate reali del viewport.
 
-Il contesto puo essere allegato al prompt senza ricopia manuale.
+### 14.2 Console con Ring Buffer Bounded e Deduplicazione
 
-### Console
+- **Capacità massima rigorosa:** `ConsoleRingBuffer` bounded a **500 item** con politica FIFO $O(1)$.
+- **Deduplicazione:** messaggi consecutivi identici per `level`, `text`, `url` e `line` incrementano il contatore `count` (es. `x3`) e aggiornano il timestamp senza duplicare righe.
+- **Redazione automatica:** URL credentials (`user:pass@`), token Bearer, Basic e segreti vengono mascherati con `[REDACTED]` prima dell'inserimento.
+- **Filtri e ricerca:** filtri dedicati per livello (`Tutti`, `Errori`, `Avvisi`, `Info`) e ricerca testuale istantanea.
 
-- ring buffer limitato;
-- errori e warning deduplicati;
-- stack trace;
-- valori sensibili redatti;
-- invio selettivo al prompt.
+### 14.3 Network con Ring Buffer Bounded e Body On-Demand
 
-### Network
+- **Capacità massima rigorosa:** `NetworkRingBuffer` bounded a **200 item** con politica FIFO $O(1)$.
+- **Aggiornamento in-place:** richieste e risposte vengono correlate tramite `requestId`, aggiornando durata, stato e mimeType in tempo reale.
+- **Redazione header:** gli header `Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key` e proxy vengono mascherati con `[REDACTED]`.
+- **Body on-demand:** il corpo della risposta non viene scaricato automaticamente per risparmiare banda e memoria; viene richiesto via `requestNetworkBody(requestId)` su click esplicito.
+- **Filtri dedicati:** filtri per errori (`4xx/5xx` o fallite), richieste lente (`>1s`), chiamate `Fetch/XHR` e ricerca URL.
 
-- URL, metodo, stato, durata e tipo risorsa;
-- body solo su richiesta;
-- header sensibili redatti;
-- filtri per errori e richieste lente;
-- invio selettivo al prompt.
+### 14.4 Timeline Actions (Ring Buffer Bounded 100)
 
-### Actions
+Traccia in tempo reale gli eventi di ciclo di vita della tab: navigazioni top-level, azioni agente, takeover utente, ritorno controllo, cambi di privacy, consensi origini e selezioni dell'element picker.
 
-Timeline condivisa di navigazioni, azioni agente, takeover, privacy, dialoghi, download e cambio tab.
+### 14.5 Invio Selettivo di Contesto al Prompt
 
+L'utente può inviare selettivamente porzioni di contesto strutturato al prompt (con inserimento automatico nel `Composer` via evento custom `composer-insert-context`):
+- **Elemento selezionato:** Markdown strutturato con tag, selettore, ruolo ARIA, nome accessibile, componente, bounding box, stili rilevanti e immagine ritagliata allegata;
+- **Errori console:** elenco degli ultimi errori e warning con stack trace e contatori di ripetizione;
+- **Richieste fallite:** elenco dettagliato con metodo, URL, codice di stato e durata.
 ## 15. Dialoghi, popup e file
 
 - `alert`, `confirm`, `prompt`, `beforeunload`: evento esplicito e risposta tracciata;
@@ -836,7 +864,9 @@ Ogni step aggiunge una voce senza riscrivere la storia:
 | 2026-09-03 | S38 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s38-browser-live-v1-contract`, commit `e0e1a9d` su base `311b390`) + `omp-studio-app` (working tree, non committato al momento della stesura) | `browser-live-v1`: `capabilities` opzionale nel frame `ready`, comandi `negotiate_capabilities` e `browser_live_ticket`, identita `projectId/chatSessionId/browserSessionId/tabId`, `BrowserTabState`, `BrowserFrameMeta`, eventi `browser_live_tab_state` e `browser_live_closed`, 12 codici di errore, ticket loopback monouso con TTL 30 s. Fixture condivisa `browser-live-v1.json` identica nei due repository. | Capability annunciata solo con provider registrato (nessuno in S38); ticket come risposta e non come evento; presentazione singola del token; checkout upstream spostato fuori da `ricerca/`; nessuna PR upstream (branch locale). Dettaglio in `DECISIONS.md`, voce "S38 — Scostamenti". |
 | 2026-09-03 | S39 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s39-browser-session-broker`, commit `73c8181` su base `e0e1a9d`); `omp-studio-app`: solo documentazione | `BrowserSessionBroker` in `packages/coding-agent/src/tools/browser/session-broker.ts`. Nuovo `BrowserKind` `managed`, motore predefinito con `browser.headless = true`. Profilo persistente `~/.omp/browser-profiles/<projectId>` con `projectId = hashPath(cwd)`, override `OMP_BROWSER_PROFILES_ROOT`. Daemon `omp.browser.managed` avviato lazy (`--headless=new`, `--no-startup-window`, `--remote-debugging-port=0`, `persist:false`). Tab indirizzate da chiave opaca `chatSessionId::tabName` con nome ergonomico separato e hook `onClosed`. `deleteProjectData` + `/browser clear-data`. Provider `browser-live` registrato in `runRpcMode` con ponte eventi e teardown. | `transports` vuoto finche non esiste il canale live di S40: la capability resta non annunciata e il fallback screenshot e lo stato osservato, non una degradazione. Profili sotto `~/.omp` del runtime, non `%LOCALAPPDATA%/omp-studio`: li possiede e li cancella il runtime. `read-pdf` e il fallback browser di web search migrati al motore gestito. Host senza broker (bun test, SDK) restano su Chromium locale al processo con profilo temporaneo. `/browser visible` resta l'unica finestra desktop possibile. Dettaglio in `DECISIONS.md`, Gate R23 / S39. |
 | 2026-09-03 | S40 | `oh-my-pi` (checkout `../oh-my-pi-upstream`, branch `feat/s40-browser-live-stream`, commit `e521201` su base `73c8181`); `omp-studio-app` (working tree) | Canale loopback WebSocket autenticato per live streaming; wire format binario `BLF1` (4B magic + 4B uint32 BE lunghezza + JSON `BrowserFrameMeta` + JPEG binary bytes); controllo text JSON per ticket redemption (`redeem`/`redeemed`), ack (`ack`), stati (`tab_state`) e chiusura (`closed`); buffering limitato $O(1)$ con politica newest-frame-wins; backpressure hardware su `Page.screencastFrameAck` con pausa oltre 10 frame scartati; modulo backend Studio Rust `browser_live` con gestione connessione e isolamento segreti; fallback screenshot preservato quando live non disponibile. | Fixture condivisa `browser-live-v1.json` aggiornata e verificata identica nei due repository. |
-| 2026-09-03 | S41 | `omp-studio-app` (working tree) | Superficie BrowserViewer nella colonna centrale (`src/lib/components/BrowserViewer.svelte`), distinta da Preview/File e dal transcript; toolbar con URL/back/forward/reload/tab/mode/viewport/stato; apertura automatica all'arrivo di tab gestite senza distruggere lo stato Monaco/Preview; rendering frame BLF1 live e proiezione coordinate in pixel CSS con `mapClientToViewportCoords` e `mapWheelToViewportScroll`; preset responsive desktop/tablet/mobile; 284 test verdi e 0 errori/warning su svelte-check. | Nessuno scostamento dal piano; PreviewViewer preservato invariato e isolato; takeover/inspector non anticipati. |
+| 2026-09-03 | S42 | `omp-studio-app` + `oh-my-pi-upstream` | `browser-live-v1` | Implementato arbitraggio esclusivo `agent` / `user` / `private-user` con `controlEpoch` incrementale, takeover atomico con primo input bufferizzato applicato 1 volta sola, abort fail-closed comandi agente in corso con `CONTROL_INTERRUPTED`, modalità takeover privato `PRIVATE_TAKEOVER_ACTIVE` con stream video locale continuato e transcript/screenshot/DOM/console isolati, handle bidirezionale per input/takeover/return_control/privacy via WebSocket e Tauri IPC. 309 smoke test e 141 test Cargo passati. |
+| 2026-09-03 | S43 | `omp-studio-app` + `oh-my-pi-upstream` | `browser-live-v1` | Policy origini top-level: loopback (`localhost`, `127.0.0.1`, `[::1]`) consentiti automaticamente; nuove origini remote con consenso persistente per progetto (`pending`), blocco fail-closed con `ORIGIN_NOT_ALLOWED`; grant memorizzati per progetto (`Project.browserAllowedOrigins` e broker); rilevamento redirect top-level con sospensione automatica dell'agente; revoca immediata di origini concesse con transizione a `denied` e abort fail-closed; separazione top-level da subresource (CDN, immagini, script, font e fetch ammessi); redazione credenziali URL (`user:pass@`), header `Authorization`/`Cookie`/`Set-Cookie`, token Bearer e chiavi in eventi, log, errori e artifact; completo isolamento CDP e segreti. 317 smoke test e 146 test Cargo passati. |
+| 2026-09-03 | S44 | `omp-studio-app` (working tree) + `oh-my-pi-upstream` | `browser-live-v1` | Inspector mirato su superficie BrowserViewer senza Chrome DevTools completo: Element Picker con coordinate viewport CSS e highlight overlay non invasivo (`tag`, `role`, `accessibleName`, `text`, `selector`, `boundingBox`, `computedStyles`, `component`, `crop` PNG); Console con ring buffer bounded (500 item), deduplicazione messaggi consecutivi (`count`), stack trace e redazione credenziali/token Bearer; Network con ring buffer bounded (200 item), aggiornamento in-place per `requestId`, filtri per errori/lente/XHR, redazione header sensibili e fetch body on-demand; Actions timeline bounded (100 item); dock retrattile inferiore con navigazione da tastiera protetta da intercettazione indebita; invio selettivo contesto strutturato e screenshot al prompt del Composer via evento `composer-insert-context`. 335 smoke test e 146 test Cargo passati. |
 Uno step non e concluso finche questa tabella, le sezioni tecniche interessate e `docs/PLAN.md` non riflettono il comportamento effettivo. Se il codice rende una parte della specifica non valida, aggiornare prima la decisione in `docs/DECISIONS.md`; non lasciare documentazione aspirazionale presentata come implementata.
 
 ## 19. Sequenza dei task

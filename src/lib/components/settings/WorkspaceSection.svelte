@@ -6,6 +6,9 @@
 		SCROLLBACK_RANGE,
 		TAB_SIZE_RANGE
 	} from '$lib/stores/settings.svelte';
+	import { projectStore } from '$lib/stores/projects.svelte';
+
+	const activeProject = $derived(projectStore.projects.find((p) => p.id === projectStore.activeId) ?? null);
 
 	// L'input numero permette di digitare fuori range mentre si scrive: il
 	// valore va riportato dentro i limiti solo al commit, non a ogni tasto.
@@ -210,6 +213,52 @@
 			</div>
 		</div>
 	</div>
+
+	<!-- Origini Browser autorizzate (S43) -->
+	<div class="section-block">
+		<span class="block-title">Origini Browser autorizzate</span>
+		<div class="section-group">
+			{#if activeProject}
+				{@const allowedOrigins = projectStore.getBrowserAllowedOrigins(activeProject.id)}
+				{#if allowedOrigins.length === 0}
+					<div class="form-row">
+						<div class="form-row-copy">
+							<span class="form-row-label">Nessuna origine remota autorizzata</span>
+							<span class="form-row-desc">
+								Le origini locali (<code>localhost</code>, <code>127.0.0.1</code>) sono consentite automaticamente. Le origini remote richiedono consenso preventivo.
+							</span>
+						</div>
+					</div>
+				{:else}
+					{#each allowedOrigins as origin}
+						<div class="form-row">
+							<div class="form-row-copy">
+								<span class="form-row-label"><code>{origin}</code></span>
+								<span class="form-row-desc">Origine remota autorizzata per il progetto {activeProject.name}.</span>
+							</div>
+							<div class="form-row-control">
+								<button
+									type="button"
+									class="btn-revoke-origin"
+									onclick={() => projectStore.revokeBrowserOrigin(activeProject.id, origin)}
+									title="Revoca immediatamente l'accesso a questa origine"
+								>
+									Revoca
+								</button>
+							</div>
+						</div>
+					{/each}
+				{/if}
+			{:else}
+				<div class="form-row">
+					<div class="form-row-copy">
+						<span class="form-row-label">Nessun progetto attivo</span>
+						<span class="form-row-desc">Seleziona un progetto per visualizzare e gestire le origini browser autorizzate.</span>
+					</div>
+				</div>
+			{/if}
+		</div>
+	</div>
 </div>
 
 <style>
@@ -388,5 +437,28 @@
 	input:checked + .slider::before {
 		transform: translateX(14px);
 		background: var(--bg-sunken);
+	}
+
+	input:focus-visible + .slider {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
+	}
+
+	.btn-revoke-origin {
+		height: 24px;
+		padding: 0 var(--space-2);
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--danger, #dc2626);
+		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		cursor: pointer;
+		transition: all var(--dur-fast);
+	}
+
+	.btn-revoke-origin:hover {
+		background: var(--danger-dim, rgba(239, 68, 68, 0.1));
+		border-color: rgba(239, 68, 68, 0.4);
 	}
 </style>

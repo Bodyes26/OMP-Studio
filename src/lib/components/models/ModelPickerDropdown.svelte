@@ -353,6 +353,11 @@
 		background: var(--bg-hover);
 	}
 
+	.picker-trigger:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
+
 	.picker-trigger.active {
 		border-color: var(--brand);
 	}
