@@ -450,11 +450,22 @@ class ModelSettingsStore {
 		};
 	}
 
-	async checkUpgrades() {
+	async checkUpgrades(refresh = true) {
 		this.isCheckingUpgrades = true;
 		this.lastUpgradeCheckMessage = null;
 		try {
-			const candidates = await invoke<ModelUpgradeCandidate[]>('check_model_upgrades');
+			const currentRoles = this.draftConfig?.modelRoles || this.config?.modelRoles || undefined;
+			const candidates = await invoke<ModelUpgradeCandidate[]>('check_model_upgrades', {
+				roles: currentRoles,
+				refreshCatalog: refresh
+			});
+			if (refresh) {
+				const fullCatalog = await invoke<ModelDto[]>('get_models_catalog').catch(() => []);
+				if (fullCatalog.length > 0) {
+					this.catalog = fullCatalog;
+				}
+				this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog').catch(() => []);
+			}
 			this.upgradeCandidates = candidates;
 			if (candidates.length > 0) {
 				this.upgradeModalOpen = true;
@@ -483,6 +494,8 @@ class ModelSettingsStore {
 			await invoke('apply_model_upgrades', { updates });
 			await this.loadAll();
 			this.clearSuggestionsCache();
+			this.upgradeModalOpen = false;
+			this.upgradeCandidates = [];
 			this.showToast(`Aggiornati ${updates.length} ruoli alla versione suggerita`);
 		} catch (e) {
 			console.error('Failed to apply model upgrades:', e);

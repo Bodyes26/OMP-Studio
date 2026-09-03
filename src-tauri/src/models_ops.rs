@@ -1328,11 +1328,24 @@ pub async fn get_model_providers() -> Result<Vec<ProviderSummaryDto>, String> {
 
 /// Estrae il template della famiglia e i numeri di versione/data da un model_id
 fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
-    let mut clean_id = model_id.to_string();
+    let mut clean_id = model_id.trim().to_string();
 
-    // Cerca date nel formato YYYYMMDD o YYYY-MM-DD
+    // Cerca date nel formato YYYYMMDD o YYYY-MM-DD o @YYYYMMDD
     let mut date_val = None;
-    if let Some(pos) = clean_id.find("-202") {
+    if let Some(pos) = clean_id.find('@') {
+        let suffix = &clean_id[pos + 1..];
+        let date_digits: String = suffix
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .take(8)
+            .collect();
+        if date_digits.len() == 8 {
+            if let Ok(num) = date_digits.parse::<u64>() {
+                date_val = Some(num);
+            }
+        }
+        clean_id = clean_id[..pos].to_string();
+    } else if let Some(pos) = clean_id.find("-202").or_else(|| clean_id.find("_202")) {
         let suffix = &clean_id[pos + 1..];
         let date_digits: String = suffix
             .chars()
@@ -1347,7 +1360,7 @@ fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
         clean_id = clean_id[..pos].to_string();
     }
 
-    // Tokenizza per '-' o '_' o '.'
+    // Tokenizza per '-' o '_'
     let mut template_parts = Vec::new();
     let mut versions = Vec::new();
 
@@ -1359,10 +1372,16 @@ fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
 
         let mut candidate = *t;
         let mut prefix = "";
-        if candidate.starts_with('v') || candidate.starts_with('V') {
+        if (candidate.starts_with('v') || candidate.starts_with('V'))
+            && candidate.len() > 1
+            && candidate[1..].chars().next().map_or(false, |c| c.is_ascii_digit())
+        {
             prefix = "v";
             candidate = &candidate[1..];
-        } else if candidate.starts_with('k') || candidate.starts_with('K') {
+        } else if (candidate.starts_with('k') || candidate.starts_with('K'))
+            && candidate.len() > 1
+            && candidate[1..].chars().next().map_or(false, |c| c.is_ascii_digit())
+        {
             prefix = "k";
             candidate = &candidate[1..];
         }
@@ -1396,18 +1415,25 @@ fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
     (template_parts.concat(), versions, date_val)
 }
 
+fn normalize_family_template(tpl: &str) -> String {
+    let mut s = tpl.to_string();
+    while s.contains("{V}-{V}") {
+        s = s.replace("{V}-{V}", "{V}");
+    }
+    let trimmed = s
+        .trim_end_matches("-preview")
+        .trim_end_matches("-exp")
+        .trim_end_matches("-latest");
+    trimmed.to_string()
+}
+
 fn is_version_newer(
     ver_a: &[f64],
     date_a: Option<u64>,
     ver_b: &[f64],
     date_b: Option<u64>,
 ) -> bool {
-    if let (Some(da), Some(db)) = (date_a, date_b) {
-        if db > da {
-            return true;
-        }
-    }
-
+    // 1. La versione numerica (semver) ha la precedenza assoluta sulla data di snapshot
     if !ver_a.is_empty() && !ver_b.is_empty() {
         for (a, b) in ver_a.iter().zip(ver_b.iter()) {
             if b > a {
@@ -1417,24 +1443,62 @@ fn is_version_newer(
             }
         }
         if ver_b.len() > ver_a.len() {
-            return true;
+            if ver_b[ver_a.len()..].iter().any(|&x| x > 0.0) {
+                return true;
+            }
+        } else if ver_a.len() > ver_b.len() {
+            if ver_a[ver_b.len()..].iter().any(|&x| x > 0.0) {
+                return false;
+            }
         }
-    } else if ver_a.is_empty() && !ver_b.is_empty() {
+
+        // Se le versioni numeriche sono identiche, confronta la data di snapshot
+        if let (Some(da), Some(db)) = (date_a, date_b) {
+            return db > da;
+        }
+
+        return false;
+    }
+
+    // 2. Se uno ha versione e l'altro no
+    if ver_a.is_empty() && !ver_b.is_empty() {
         return true;
+    }
+    if !ver_a.is_empty() && ver_b.is_empty() {
+        return false;
+    }
+
+    // 3. Se entrambi non hanno versioni numeriche ma hanno date
+    if let (Some(da), Some(db)) = (date_a, date_b) {
+        return db > da;
     }
 
     false
 }
 
 #[command]
-pub async fn check_model_upgrades() -> Result<Vec<ModelUpgradeCandidate>, String> {
-    let config = get_model_config().await?;
+pub async fn check_model_upgrades(
+    roles: Option<HashMap<String, String>>,
+    refresh_catalog: Option<bool>,
+) -> Result<Vec<ModelUpgradeCandidate>, String> {
+    if refresh_catalog.unwrap_or(false) {
+        let _ = refresh_models_catalog().await;
+    }
+
+    let roles_map = match roles {
+        Some(r) if !r.is_empty() => r,
+        _ => {
+            let config = get_model_config().await?;
+            config.model_roles
+        }
+    };
+
     let catalog = get_models_catalog().await?;
 
     let mut candidates = Vec::new();
 
     // 1. Controlla i ruoli configurati
-    for (role, full_selector) in &config.model_roles {
+    for (role, full_selector) in &roles_map {
         let (raw_selector, thinking_level) = match full_selector.split_once(':') {
             Some((sel, th)) => (sel, Some(th.to_string())),
             None => (full_selector.as_str(), None),
@@ -1450,6 +1514,7 @@ pub async fn check_model_upgrades() -> Result<Vec<ModelUpgradeCandidate>, String
         }
 
         let (tpl_cur, ver_cur, date_cur) = parse_model_signature(model_id);
+        let norm_cur = normalize_family_template(&tpl_cur);
 
         let mut best_upgrade: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
 
@@ -1459,7 +1524,10 @@ pub async fn check_model_upgrades() -> Result<Vec<ModelUpgradeCandidate>, String
             }
 
             let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
-            if tpl_cand == tpl_cur
+            let norm_cand = normalize_family_template(&tpl_cand);
+            let is_same_family = tpl_cand == tpl_cur || norm_cand == norm_cur;
+
+            if is_same_family
                 && is_version_newer(&ver_cur, date_cur, &ver_cand, date_cand)
             {
                 if let Some((_, best_ver, best_date)) = &best_upgrade {
@@ -1491,6 +1559,9 @@ pub async fn check_model_upgrades() -> Result<Vec<ModelUpgradeCandidate>, String
             });
         }
     }
+
+    // Ordina i candidati per determinismo
+    candidates.sort_by(|a, b| a.role.cmp(&b.role));
 
     Ok(candidates)
 }
@@ -1575,7 +1646,8 @@ fn get_model_benchmark_profile(model_id: &str, model_name: &str) -> (Intelligenc
     }
 
     // Tier 1: Deep reasoning & high ELO (~1550-1558)
-    if lower.contains("gemini-3.7-flash")
+    if lower.contains("gemini-3.8-flash")
+        || lower.contains("gemini-3.7-flash")
         || lower.contains("gemini-3.1-pro")
         || lower.contains("deepseek-v4-pro")
         || lower.contains("claude-opus-4-8")
@@ -2515,6 +2587,62 @@ mod tests {
         assert!(is_version_newer(&ver_ds1, None, &ver_ds2, None));
     }
 
+
+    #[test]
+    fn test_parse_model_signature_gemini_38_upgrade() {
+        let (tpl_g37, ver_g37, d_g37) = parse_model_signature("gemini-3.7-flash");
+        let (tpl_g38, ver_g38, d_g38) = parse_model_signature("gemini-3.8-flash");
+        assert_eq!(tpl_g37, "gemini-{V}-flash");
+        assert_eq!(tpl_g38, "gemini-{V}-flash");
+        assert_eq!(tpl_g37, tpl_g38);
+        assert_eq!(ver_g37, vec![3.0, 7.0]);
+        assert_eq!(ver_g38, vec![3.0, 8.0]);
+        assert!(is_version_newer(&ver_g37, d_g37, &ver_g38, d_g38));
+
+        // Verifica compatibilità con notazione a trattini (es. Venice: gemini-3-7-flash vs gemini-3-8-flash)
+        let (tpl_dash37, ver_dash37, _) = parse_model_signature("gemini-3-7-flash");
+        let (tpl_dash38, ver_dash38, _) = parse_model_signature("gemini-3-8-flash");
+        assert_eq!(
+            normalize_family_template(&tpl_dash37),
+            normalize_family_template(&tpl_dash38)
+        );
+        assert_eq!(
+            normalize_family_template(&tpl_g37),
+            normalize_family_template(&tpl_dash38)
+        );
+        assert!(is_version_newer(&ver_dash37, None, &ver_dash38, None));
+    }
+
+    #[test]
+    fn test_check_model_upgrades_finds_gemini_38() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut roles = HashMap::new();
+            roles.insert(
+                "smol".to_string(),
+                "google-antigravity/gemini-3.7-flash:high".to_string(),
+            );
+            roles.insert(
+                "task".to_string(),
+                "google-antigravity/gemini-3.7-flash:high".to_string(),
+            );
+
+            let candidates = check_model_upgrades(Some(roles), Some(false))
+                .await
+                .expect("check_model_upgrades");
+
+            assert_eq!(candidates.len(), 2);
+            for cand in candidates {
+                assert!(cand.role == "smol" || cand.role == "task");
+                assert_eq!(cand.current_model_id, "gemini-3.7-flash");
+                assert_eq!(cand.suggested_model_id, "gemini-3.8-flash");
+                assert_eq!(
+                    cand.suggested_selector,
+                    "google-antigravity/gemini-3.8-flash:high"
+                );
+            }
+        });
+    }
     #[test]
     fn test_benchmark_profile_ratings() {
         let (tier1, elo1) = get_model_benchmark_profile("claude-opus-5", "Claude Opus 5");
