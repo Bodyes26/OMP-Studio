@@ -30,6 +30,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
+	import { companionStore } from '$lib/stores/companion.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
 	import { onDestroy } from 'svelte';
@@ -373,13 +374,51 @@
 			}
 			if (session.pendingUi?.kind === 'ask' && session.pendingUi.message) {
 				notificationManager.setProjectAskMessage(p.id, session.pendingUi.message);
+				companionStore.setAttentionRequest({
+					projectId: p.id,
+					projectName: p.name,
+					projectHue: p.hue,
+					modelName: session.model ? (session.model.name || session.model.id) : undefined,
+					recentMessages: session.recentMessages,
+					pendingUi: $state.snapshot(session.pendingUi)
+				});
 			} else {
 				notificationManager.clearProjectAskMessage(p.id);
+				companionStore.clearAttentionRequest(p.id);
 			}
 			if (session.sessionId) {
 				updateTerminalMeta(p.id, { sessionId: session.sessionId });
 			}
 		}
+	});
+
+	// Risposte rapide arrivate dalla finestra Companion o da scorciatoia esterna
+	$effect(() => {
+		let unlisten: (() => void) | undefined;
+		void listen<{
+			projectId: string;
+			response: {
+				action: 'select' | 'confirm' | 'wizard' | 'cancel';
+				value?: string;
+				confirmed?: boolean;
+				plan?: import('$lib/agent/askAnswers').AskFlushStep[];
+			};
+		}>('studio-respond-ui', async (event) => {
+			const { projectId, response } = event.payload;
+			const session = agentSessions.get(projectId);
+			if (session && session.pendingUi) {
+				if (response.action === 'select' && typeof response.value === 'string') {
+					await session.answerSelect(response.value);
+				} else if (response.action === 'confirm' && typeof response.confirmed === 'boolean') {
+					await session.answerConfirm(response.confirmed);
+				} else if (response.action === 'wizard' && response.plan) {
+					await session.submitAskWizard(response.plan);
+				} else if (response.action === 'cancel') {
+					await session.cancelPendingUi();
+				}
+			}
+		}).then((fn) => { unlisten = fn; });
+		return () => { unlisten?.(); };
 	});
 
 	// Notifiche di sistema e allerta sull'icona dell'app (Dock / Taskbar)
@@ -1428,6 +1467,9 @@
 		} else if (e.key.toLowerCase() === 't') {
 			e.preventDefault();
 			queueOpen = !queueOpen;
+		} else if (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'r') {
+			e.preventDefault();
+			void companionStore.toggleCompanion();
 		} else if (e.key.toLowerCase() === 'a') {
 			e.preventDefault();
 			if (projectStore.activeProject) {

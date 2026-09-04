@@ -34,7 +34,8 @@ description = "Stream live binario e backpressure per Browser Studio su loopback
 commands.allow = [
     "browser_live_connect",
     "browser_live_send_message",
-    "browser_live_disconnect"
+    "browser_live_disconnect",
+    "browser_live_pick_upload_files"
 ]
 
 [[permission]]
@@ -176,6 +177,17 @@ commands.allow = [
     "generate_prompt_suggestions"
 ]
 
+[[permission]]
+identifier = "allow-companion"
+description = "Finestra secondaria Companion: alternanza visibilita', stato geometrico e parsing NL dei task"
+commands.allow = [
+    "toggle_companion_window",
+    "hide_companion_window",
+    "get_companion_state",
+    "save_companion_state",
+    "parse_quick_task_ai"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -194,5 +206,6 @@ permissions = [
     "allow-rules-and-skills",
     "allow-task-directives",
     "allow-prompt-suggestions",
-    "allow-browser-live"
+    "allow-browser-live",
+    "allow-companion"
 ]

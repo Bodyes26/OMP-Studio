@@ -34,3 +34,6 @@ import './browser-viewer.test.ts';
 import './browser-control-epochs.test.ts';
 import './browser-origin-policy.test.ts';
 import './browser-inspector.test.ts';
+import './browser-dialogs-files.test.ts';
+import './browser-hardening-matrix.test.ts';
+import './companion-quick-task.test.ts';

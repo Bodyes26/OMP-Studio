@@ -13,12 +13,14 @@
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import QuotaChip from './quota/QuotaChip.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
+	import { companionStore } from '$lib/stores/companion.svelte';
 	import {
 		IconChevronDown,
 		IconChevronLeft,
 		IconChevronRight,
 		IconGhost,
 		IconPlus,
+		IconPin,
 		IconQuota,
 		IconSettings,
 		IconWarning
@@ -612,6 +614,16 @@
 			<IconSettings /> Impostazioni
 		</button>
 
+		<button
+			class="settings-chip companion-chip"
+			class:active={companionStore.isPinned}
+			onclick={(e) => { e.stopPropagation(); void companionStore.toggleCompanion(); }}
+			title="Apri o fissa la finestra Companion (Alt+Spazio)"
+			aria-label="Finestra Companion (Alt+Spazio)"
+		>
+			<IconPin /> Companion
+		</button>
+
 
 		{#if taskStore.totalQueued > 0}
 			<button
@@ -1191,6 +1203,12 @@
 		color: var(--ink);
 		border-color: var(--brand);
 		background: var(--bg-hover);
+	}
+
+	.companion-chip.active {
+		color: var(--brand);
+		border-color: var(--brand);
+		background: var(--brand-tint);
 	}
 
 	.queue-chip {

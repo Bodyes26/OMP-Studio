@@ -12,12 +12,26 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "OMP Studio",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
         "decorations": true
+      },
+      {
+        "label": "companion",
+        "title": "OMP Studio Companion",
+        "url": "/companion",
+        "width": 560,
+        "height": 520,
+        "minWidth": 420,
+        "minHeight": 360,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "skipTaskbar": true
       }
     ],
     "security": {

@@ -18,6 +18,7 @@
 	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { anchoredPopover } from '$lib/anchoredPopover';
+	import { companionStore } from '$lib/stores/companion.svelte';
 	import HuePicker from './HuePicker.svelte';
 	import {
 		IconArrowLeft,
@@ -100,6 +101,17 @@
 	const ready = $derived(canRunTask?.(project.id) ?? false);
 	const reason = $derived(runReason?.(project.id) ?? '');
 	const queueTasks = $derived(project.path ? taskStore.tasksFor(project.path) : []);
+	const attentionReq = $derived(companionStore.attentionRequests.find((r) => r.projectId === project.id));
+
+	async function handleQuickReplySelect(value: string) {
+		await companionStore.respondUi(project.id, { action: 'select', value });
+		onClose();
+	}
+
+	async function handleQuickReplyConfirm(confirmed: boolean) {
+		await companionStore.respondUi(project.id, { action: 'confirm', confirmed });
+		onClose();
+	}
 	const canReorder = $derived(settingsStore.projectBar.order === 'fixed');
 	const effectiveHue = $derived(project.colorMode === 'custom' ? project.hue : autoHue);
 
@@ -350,6 +362,54 @@
 			{/if}
 			<span>{AGENT_STATE_LABEL[project.agentState]}</span>
 		</div>
+		{#if attentionReq}
+			<div class="popover-quick-reply">
+				{#if attentionReq.recentMessages && attentionReq.recentMessages.length > 0}
+					<div class="quick-context">
+						{#each attentionReq.recentMessages.slice(-2) as msg, i (i)}
+							<div class="context-item {msg.role}">
+								<strong>{msg.role === 'user' ? 'Tu' : 'Agente'}:</strong>
+								<span>{msg.text}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+
+				<p class="quick-ask-prompt">{attentionReq.pendingUi.message || attentionReq.pendingUi.title || 'Richiesta di risposta:'}</p>
+
+				{#if attentionReq.pendingUi.options && attentionReq.pendingUi.options.length > 0}
+					<div class="quick-options">
+						{#each attentionReq.pendingUi.options as opt, idx (opt)}
+							<button
+								type="button"
+								class="quick-opt-btn"
+								onclick={() => void handleQuickReplySelect(opt)}
+							>
+								<span class="q-num">{idx + 1}</span>
+								<span>{opt}</span>
+							</button>
+						{/each}
+					</div>
+				{:else if attentionReq.pendingUi.method === 'confirm'}
+					<div class="quick-confirm-btns">
+						<button
+							type="button"
+							class="quick-action-btn confirm"
+							onclick={() => void handleQuickReplyConfirm(true)}
+						>
+							<IconCheck /> Sì, procedi
+						</button>
+						<button
+							type="button"
+							class="quick-action-btn cancel"
+							onclick={() => void handleQuickReplyConfirm(false)}
+						>
+							<IconClose /> No
+						</button>
+					</div>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 
 	{#if view === 'close'}
@@ -558,6 +618,121 @@
 		border-color: var(--brand);
 	}
 
+	.popover-quick-reply {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-2);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		margin-top: var(--space-1);
+	}
+
+	.quick-context {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 6px;
+		max-height: 120px;
+		overflow-y: auto;
+	}
+
+	.context-item {
+		font-size: var(--text-xs);
+		line-height: 1.3;
+	}
+
+	.context-item strong {
+		color: var(--brand);
+		margin-right: 4px;
+	}
+
+	.context-item.assistant strong {
+		color: var(--ink-muted);
+	}
+
+	.context-item span {
+		color: var(--ink-muted);
+		word-break: break-word;
+	}
+
+	.quick-ask-prompt {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink);
+		margin: 0;
+	}
+
+	.quick-options {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.quick-opt-btn {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 8px;
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		font-size: var(--text-xs);
+		cursor: pointer;
+		text-align: left;
+		transition: background var(--dur-fast), border-color var(--dur-fast);
+	}
+
+	.quick-opt-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--brand);
+	}
+
+	.q-num {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		background: var(--bg-sunken);
+		border-radius: 2px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--ink-muted);
+	}
+
+	.quick-confirm-btns {
+		display: flex;
+		gap: var(--space-2);
+	}
+
+	.quick-action-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px 8px;
+		font-size: var(--text-xs);
+		font-weight: 500;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		border: 1px solid var(--line);
+	}
+
+	.quick-action-btn.confirm {
+		background: var(--brand);
+		color: var(--brand-contrast);
+		border-color: var(--brand);
+	}
+
+	.quick-action-btn.cancel {
+		background: var(--bg-hover);
+		color: var(--ink-muted);
+	}
 	@keyframes popover-in {
 		from {
 			opacity: 0;

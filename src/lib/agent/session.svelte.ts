@@ -57,10 +57,13 @@ import {
 	shouldNegotiate,
 	type BrowserFrameMeta,
 	type BrowserInputEvent,
+	type BrowserLiveClientMessage,
 	type BrowserLiveEvent,
 	type BrowserLiveNegotiation,
 	type BrowserLiveStreamHandle,
 	type BrowserLiveTicket,
+	type BrowserRelayProbe,
+	type BrowserRelayTarget,
 	type BrowserSessionIdentity,
 	type BrowserTabState,
 	connectBrowserLive
@@ -360,6 +363,27 @@ export class AgentSession {
 		this.visibleCount = clampVisibleCount(this.entries.length, this.visibleCount, step);
 	}
 
+	/** Ultimi messaggi utente e assistente per dare contesto alle richieste esterne (Companion / TopBar). */
+	get recentMessages(): import('$lib/stores/companion.svelte').RecentChatMessage[] {
+		const result: import('$lib/stores/companion.svelte').RecentChatMessage[] = [];
+		for (let i = this.entries.length - 1; i >= 0 && result.length < 10; i--) {
+			const entry = this.entries[i];
+			if (entry.kind === 'user') {
+				result.unshift({ role: 'user', text: entry.content });
+			} else if (entry.kind === 'assistant') {
+				const text = entry.blocks
+					.filter((b) => b.type === 'text')
+					.map((b) => b.text)
+					.filter(Boolean)
+					.join('\n');
+				if (text.trim()) {
+					result.unshift({ role: 'assistant', text });
+				}
+			}
+		}
+		return result;
+	}
+
 	/**
 	 * Garantisce un processo vivo senza cambiare quello che sta nascendo. E' la
 	 * strada dell'`$effect` che tiene su le superfici GUI e di chi ha solo
@@ -428,6 +452,7 @@ export class AgentSession {
 		// sessione appena chiusa e la ripresa non aprirebbe nulla.
 		this.opening = null;
 		this.openTarget = null;
+		this.resetBrowserLive();
 		await this.client.close();
 		this.isReady = false;
 		this.isAttached = false;
@@ -437,6 +462,14 @@ export class AgentSession {
 		this.isAborting = false;
 		this.pendingStartupPrompts = [];
 		this.deltaBatcher.clear();
+	}
+
+	/** Chiude ogni canale effimero del processo precedente e dimentica le sue capability. */
+	private resetBrowserLive(): void {
+		for (const handle of this.#activeLiveHandles.values()) handle.disconnect();
+		this.#activeLiveHandles.clear();
+		this.browserLive = null;
+		this.browserLiveTabs = [];
 	}
 
 	/**
@@ -533,6 +566,42 @@ export class AgentSession {
 		}
 	}
 
+	/** Elenca soltanto i metadati minimi necessari al picker Relay. */
+	async listBrowserRelayTargets(): Promise<{ probe: BrowserRelayProbe; targets: BrowserRelayTarget[] }> {
+		if (!this.browserLive?.features.includes('chrome-relay')) {
+			throw new Error('Chrome Relay non negoziato con questo runtime');
+		}
+		return await this.client.send<{ probe: BrowserRelayProbe; targets: BrowserRelayTarget[] }>({
+			type: 'browser_relay_targets'
+		});
+	}
+
+	/** Consuma il consenso per un target preciso; il runtime pubblica poi la tab live. */
+	async authorizeBrowserRelayTarget(
+		targetId: string
+	): Promise<{ state: BrowserTabState; probe: BrowserRelayProbe }> {
+		const result = await this.client.send<{ state: BrowserTabState; probe: BrowserRelayProbe }>({
+			type: 'browser_relay_authorize',
+			targetId
+		});
+		const state = parseBrowserTabState(result.state);
+		if (!state || state.mode !== 'chrome-relay') throw new Error('Stato Relay non valido');
+		const idx = this.browserLiveTabs.findIndex((tab) => tab.browserSessionId === state.browserSessionId);
+		if (idx === -1) this.browserLiveTabs.push(state);
+		else this.browserLiveTabs[idx] = state;
+		return { state, probe: result.probe };
+	}
+
+	/** Revoca immediata: runtime disconnette CDP, live server chiude frame e input. */
+	async revokeBrowserRelayTarget(browserSessionId: string): Promise<number> {
+		const result = await this.client.send<{ revoked: number }>({
+			type: 'browser_relay_revoke',
+			browserSessionId
+		});
+		this.browserLiveTabs = this.browserLiveTabs.filter((tab) => tab.browserSessionId !== browserSessionId);
+		return result.revoked;
+	}
+
 	/**
 	 * Connette lo stream live autenticato per la tab indicata.
 	 * Restituisce la funzione di disconnessione o null se il live non e' negoziato.
@@ -542,10 +611,16 @@ export class AgentSession {
 		onFrame: (frame: { meta: BrowserFrameMeta; imageBase64: string }) => void,
 		onInspectorEvent?: (event: BrowserLiveEvent) => void
 	): Promise<BrowserLiveStreamHandle | null> {
+		const key = `${identity.browserSessionId}::${identity.tabId}`;
+		const previous = this.#activeLiveHandles.get(key);
+		if (previous) {
+			previous.disconnect();
+			this.#activeLiveHandles.delete(key);
+		}
 		const ticket = await this.requestBrowserLiveTicket(identity);
 		if (!ticket) return null;
-		const key = `${identity.browserSessionId}::${identity.tabId}`;
-		const handle = await connectBrowserLive(ticket, (event) => {
+		let handle: BrowserLiveStreamHandle;
+		handle = await connectBrowserLive(ticket, (event) => {
 			if (event.type === 'frame') {
 				onFrame({ meta: event.meta, imageBase64: event.imageBase64 });
 			} else if (event.type === 'tab_state') {
@@ -558,12 +633,12 @@ export class AgentSession {
 					else this.browserLiveTabs.push(state);
 				}
 			} else if (event.type === 'closed') {
-				this.#activeLiveHandles.delete(key);
+				if (this.#activeLiveHandles.get(key) === handle) this.#activeLiveHandles.delete(key);
 				this.browserLiveTabs = this.browserLiveTabs.filter(
 					(t) => t.browserSessionId !== event.identity.browserSessionId || t.tabId !== event.identity.tabId
 				);
 			} else if (event.type === 'disconnected') {
-				this.#activeLiveHandles.delete(key);
+				if (this.#activeLiveHandles.get(key) === handle) this.#activeLiveHandles.delete(key);
 			}
 			onInspectorEvent?.(event);
 		});
@@ -702,6 +777,33 @@ export class AgentSession {
 			console.warn('Errore durante clearInspectorBuffer:', err);
 			return false;
 		}
+	}
+
+	/**
+	 * Invia un controllo S45 (dialoghi, download, upload, capability, recording)
+	 * sul canale live della tab. Un solo punto di uscita invece di una decina di
+	 * wrapper identici: il messaggio e' gia' tipizzato dal contratto.
+	 */
+	async sendLiveMessage(tab: BrowserTabState, message: BrowserLiveClientMessage): Promise<boolean> {
+		const handle = this.#activeLiveHandles.get(`${tab.browserSessionId}::${tab.tabId}`);
+		if (!handle) return false;
+		try {
+			await handle.sendMessage(message);
+			return true;
+		} catch (err) {
+			console.warn(`Errore durante l'invio del messaggio live ${message.type}:`, err);
+			return false;
+		}
+	}
+
+	/**
+	 * Apre il selettore file nativo per un file input intercettato.
+	 * Restituisce il numero di file autorizzati (0 = annullato).
+	 */
+	async pickUploadFiles(tab: BrowserTabState, chooserId: string, multiple: boolean): Promise<number> {
+		const handle = this.#activeLiveHandles.get(`${tab.browserSessionId}::${tab.tabId}`);
+		if (!handle) return 0;
+		return await handle.pickUploadFiles(chooserId, multiple);
 	}
 	/**
 	 * Riafferma le modalita' di coda e interruzione configurate nelle impostazioni.
@@ -989,8 +1091,7 @@ export class AgentSession {
 				this.isAttached = false;
 				// Le capability appartengono al processo, non alla chat: un
 				// runtime nuovo puo' sostituirne uno precedente e viceversa.
-				this.browserLive = null;
-				this.browserLiveTabs = [];
+				this.resetBrowserLive();
 				void this.negotiateCapabilities(event);
 				void this.attach();
 				return;
@@ -1308,6 +1409,7 @@ export class AgentSession {
 			}
 
 			case 'studio_error': {
+				this.resetBrowserLive();
 				const msg = typeof event.message === 'string' ? event.message : 'Errore del trasporto RPC';
 				this.isAborting = false;
 				this.isStreaming = false;
@@ -1368,6 +1470,7 @@ export class AgentSession {
 			}
 
 			case 'studio_exit': {
+				this.resetBrowserLive();
 				const code = typeof event.code === 'number' ? event.code : null;
 				const stderr = Array.isArray(event.stderr)
 					? event.stderr.filter((line): line is string => typeof line === 'string')

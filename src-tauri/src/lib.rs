@@ -47,10 +47,16 @@ use directives_ops::{
 };
 mod suggestions_ops;
 use suggestions_ops::generate_prompt_suggestions;
+mod companion_ops;
+use companion_ops::{
+    get_companion_state, hide_companion_window, init_global_shortcut, parse_quick_task_ai,
+    save_companion_state, toggle_companion_window,
+};
 
 pub mod browser_live;
 use browser_live::{
-    browser_live_connect, browser_live_disconnect, browser_live_send_message, BrowserLiveManager,
+    browser_live_connect, browser_live_disconnect, browser_live_pick_upload_files,
+    browser_live_send_message, BrowserLiveManager,
 };
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -86,6 +92,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             greet,
             pty_open,
@@ -101,6 +108,7 @@ pub fn run() {
             browser_live_connect,
             browser_live_send_message,
             browser_live_disconnect,
+            browser_live_pick_upload_files,
             tree_read,
             project_files_search,
             path_create_file,
@@ -172,6 +180,11 @@ pub fn run() {
             refine_task_directive_ai,
             analyze_task_directives_friction,
             generate_prompt_suggestions,
+            toggle_companion_window,
+            hide_companion_window,
+            get_companion_state,
+            save_companion_state,
+            parse_quick_task_ai,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -189,6 +202,7 @@ pub fn run() {
             // `diagram://new`.
             diagrams::spawn_watcher(app.handle().clone());
             previews::spawn_watcher(app.handle().clone());
+            init_global_shortcut(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

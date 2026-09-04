@@ -6,7 +6,8 @@
     "linux"
   ],
   "windows": [
-    "main"
+    "main",
+    "companion"
   ],
   "permissions": [
     "window-state:default"
