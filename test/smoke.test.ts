@@ -37,3 +37,4 @@ import './browser-inspector.test.ts';
 import './browser-dialogs-files.test.ts';
 import './browser-hardening-matrix.test.ts';
 import './companion-quick-task.test.ts';
+import './companion-attention.test.ts';

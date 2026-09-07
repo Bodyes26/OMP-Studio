@@ -1,0 +1,133 @@
+/**
+ * Logica di convergenza delle richieste di attenzione del Companion.
+ *
+ * Vive fuori da `companion.svelte.ts` perche' deve restare priva di rune: le
+ * decisioni di scrittura sono pura aritmetica sui dati e vanno verificabili
+ * dagli smoke test, che girano con il solo type-stripping di Node.
+ *
+ * Il contratto e' uno solo: `upsert` e `remove` restituiscono `null` quando
+ * l'elenco e' gia' nello stato richiesto. Chi scrive nello store si ferma su
+ * `null` e non tocca `$state`.
+ *
+ * Non e' un'ottimizzazione. Le due funzioni vengono chiamate da un `$effect`
+ * che rilegge l'elenco: riassegnare un array nuovo a ogni passata
+ * invaliderebbe la dipendenza appena letta e l'effetto si richiamerebbe da
+ * solo fino a `effect_update_depth_exceeded`, cioe' una superficie che non
+ * finisce mai di caricare.
+ */
+
+import type { AttentionRequest, RecentChatMessage } from './companion.svelte';
+
+/**
+ * Uguaglianza strutturale su valori serializzabili in JSON.
+ *
+ * `PendingUiPayload.questions` e' dichiarato `unknown[]`: arriva dal runtime e
+ * non ha una forma nota a compile time, quindi l'unico confronto onesto e'
+ * ricorsivo. Nessuna serializzazione intermedia: `JSON.stringify` allocherebbe
+ * due stringhe per ogni passata dell'effetto.
+ */
+function jsonEqual(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (typeof a !== typeof b) return false;
+	if (a === null || b === null) return false;
+	if (typeof a !== 'object') return false;
+
+	const aArray = Array.isArray(a);
+	if (aArray !== Array.isArray(b)) return false;
+
+	if (aArray) {
+		const left = a as unknown[];
+		const right = b as unknown[];
+		if (left.length !== right.length) return false;
+		for (let i = 0; i < left.length; i++) {
+			if (!jsonEqual(left[i], right[i])) return false;
+		}
+		return true;
+	}
+
+	const left = a as Record<string, unknown>;
+	const right = b as Record<string, unknown>;
+	const leftKeys = Object.keys(left);
+	if (leftKeys.length !== Object.keys(right).length) return false;
+	for (const key of leftKeys) {
+		if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+		if (!jsonEqual(left[key], right[key])) return false;
+	}
+	return true;
+}
+
+function sameRecentMessages(a: RecentChatMessage[], b: RecentChatMessage[]): boolean {
+	if (a === b) return true;
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		const left = a[i];
+		const right = b[i];
+		if (left.role !== right.role || left.text !== right.text || left.timestamp !== right.timestamp) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * Vero quando le due richieste descrivono lo stesso stato di attesa.
+ *
+ * Il chiamante ricostruisce `recentMessages` e `pendingUi` a ogni passata
+ * dell'effetto, quindi l'identita' di riferimento non dice nulla: serve il
+ * confronto sui contenuti.
+ */
+export function sameAttentionRequest(a: AttentionRequest, b: AttentionRequest): boolean {
+	const left = a.pendingUi;
+	const right = b.pendingUi;
+	return (
+		a.projectId === b.projectId &&
+		a.projectName === b.projectName &&
+		a.projectHue === b.projectHue &&
+		a.modelName === b.modelName &&
+		left.kind === right.kind &&
+		left.requestId === right.requestId &&
+		left.title === right.title &&
+		left.message === right.message &&
+		left.method === right.method &&
+		left.questionIndex === right.questionIndex &&
+		left.totalQuestions === right.totalQuestions &&
+		jsonEqual(left.options, right.options) &&
+		jsonEqual(left.questions, right.questions) &&
+		sameRecentMessages(a.recentMessages, b.recentMessages)
+	);
+}
+
+/**
+ * Inserisce o aggiorna la richiesta del progetto.
+ *
+ * Restituisce `null` quando l'elenco contiene gia' esattamente questa
+ * richiesta: nessuna scrittura, nessun broadcast IPC.
+ */
+export function upsertAttentionRequest(
+	list: readonly AttentionRequest[],
+	request: AttentionRequest
+): AttentionRequest[] | null {
+	const index = list.findIndex((entry) => entry.projectId === request.projectId);
+	if (index >= 0) {
+		if (sameAttentionRequest(list[index], request)) return null;
+		const next = list.slice();
+		next[index] = request;
+		return next;
+	}
+	return [...list, request];
+}
+
+/**
+ * Rimuove la richiesta del progetto.
+ *
+ * Restituisce `null` quando non c'era nulla da rimuovere: e' il caso normale a
+ * ogni avvio, quando nessun progetto ha una domanda pendente, ed e' proprio
+ * quello che non deve produrre scritture.
+ */
+export function removeAttentionRequest(
+	list: readonly AttentionRequest[],
+	projectId: string
+): AttentionRequest[] | null {
+	if (!list.some((entry) => entry.projectId === projectId)) return null;
+	return list.filter((entry) => entry.projectId !== projectId);
+}

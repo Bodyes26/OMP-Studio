@@ -7,6 +7,7 @@ import { modelSettingsStore } from './modelSettings.svelte';
 import { quotaStore, providersMatch } from './quota.svelte';
 import { parseProjectTasksFile, serializeProjectTasksFile, type StudioTask, type StudioTaskOptions } from './taskSerialization';
 import { createDirectiveSnapshot } from './taskDirectives';
+import { removeAttentionRequest, upsertAttentionRequest } from './companionAttention';
 
 export interface RecentChatMessage {
 	role: 'user' | 'assistant' | 'tool';
@@ -137,24 +138,26 @@ class CompanionStore {
 		void emit('studio-projects-update', $state.snapshot(projectStore.projects));
 	}
 
-	/** Registra una richiesta di attenzione per un progetto (chiamata dalla finestra main). */
+	/**
+	 * Registra una richiesta di attenzione per un progetto (chiamata dalla finestra main).
+	 *
+	 * Il chiamante e' un `$effect` che rilegge `attentionRequests`: si scrive
+	 * solo quando lo stato cambia davvero, altrimenti l'effetto invaliderebbe
+	 * la propria dipendenza e si richiamerebbe all'infinito.
+	 */
 	setAttentionRequest(request: AttentionRequest) {
-		const existingIndex = this.attentionRequests.findIndex((r) => r.projectId === request.projectId);
-		if (existingIndex >= 0) {
-			this.attentionRequests[existingIndex] = request;
-		} else {
-			this.attentionRequests.push(request);
-		}
+		const next = upsertAttentionRequest(this.attentionRequests, request);
+		if (!next) return;
+		this.attentionRequests = next;
 		this.broadcastState();
 	}
 
-	/** Rimuove la richiesta di attenzione quando risolta. */
+	/** Rimuove la richiesta di attenzione quando risolta. Converge come `setAttentionRequest`. */
 	clearAttentionRequest(projectId: string) {
-		const before = this.attentionRequests.length;
-		this.attentionRequests = this.attentionRequests.filter((r) => r.projectId !== projectId);
-		if (this.attentionRequests.length !== before) {
-			this.broadcastState();
-		}
+		const next = removeAttentionRequest(this.attentionRequests, projectId);
+		if (!next) return;
+		this.attentionRequests = next;
+		this.broadcastState();
 	}
 
 	/** Invia la risposta all'agente in background. */
