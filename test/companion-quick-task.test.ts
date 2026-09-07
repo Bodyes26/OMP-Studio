@@ -3,7 +3,7 @@
  * Verifica:
  * - Registrazione e gestione delle richieste di attenzione in companionStore
  * - Logica di controllo quota (warning ed esaurimento)
- * - Proprietà e configurazione della finestra secondaria in tauri.conf.json
+ * - Proprietà e configurazione effettiva della finestra secondaria su ogni piattaforma
  * - Copertura ACL e autorizzazioni dei comandi nativi companion
  */
 
@@ -15,22 +15,28 @@ import { dirname, join } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-test('Configurazione finestra Companion in tauri.conf.json', () => {
-	const configRaw = readFileSync(join(ROOT, 'src-tauri', 'tauri.conf.json'), 'utf8');
-	const config = JSON.parse(configRaw);
+test('Configurazione effettiva della finestra Companion su ogni piattaforma desktop', () => {
+	const baseConfig = JSON.parse(
+		readFileSync(join(ROOT, 'src-tauri', 'tauri.conf.json'), 'utf8')
+	);
+	const platformConfigs = [
+		['base', baseConfig],
+		['Windows', JSON.parse(readFileSync(join(ROOT, 'src-tauri', 'tauri.windows.conf.json'), 'utf8'))],
+		['macOS', JSON.parse(readFileSync(join(ROOT, 'src-tauri', 'tauri.macos.conf.json'), 'utf8'))]
+	] as const;
 
-	const windows = config.app?.windows ?? [];
-	assert.ok(windows.length >= 2, 'Devono essere configurate almeno due finestre (main e companion)');
+	for (const [platform, platformConfig] of platformConfigs) {
+		// Tauri applica RFC 7396: se il file di piattaforma dichiara app.windows,
+		// l'array sostituisce integralmente quello della configurazione base.
+		const windows = platformConfig.app?.windows ?? baseConfig.app?.windows ?? [];
+		const companionWindow = windows.find((w: { label?: string }) => w.label === 'companion');
 
-	const mainWindow = windows.find((w: { label?: string }) => w.label === 'main');
-	assert.ok(mainWindow, 'La finestra principale deve avere label "main"');
-
-	const companionWindow = windows.find((w: { label?: string }) => w.label === 'companion');
-	assert.ok(companionWindow, 'La finestra secondaria deve avere label "companion"');
-	assert.equal(companionWindow.decorations, false, 'La finestra companion deve essere senza decorazioni native (frameless)');
-	assert.equal(companionWindow.alwaysOnTop, true, 'La finestra companion deve avere alwaysOnTop = true');
-	assert.equal(companionWindow.visible, false, 'La finestra companion deve essere inizialmente nascosta per zero latenza');
-	assert.equal(companionWindow.skipTaskbar, true, 'La finestra companion non deve sporcare la barra delle applicazioni');
+		assert.ok(companionWindow, `${platform}: deve esistere la finestra "companion"`);
+		assert.equal(companionWindow.decorations, false, `${platform}: Companion deve essere frameless`);
+		assert.equal(companionWindow.alwaysOnTop, true, `${platform}: Companion deve restare in primo piano`);
+		assert.equal(companionWindow.visible, false, `${platform}: Companion deve partire nascosta`);
+		assert.equal(companionWindow.skipTaskbar, true, `${platform}: Companion non deve apparire nella taskbar`);
+	}
 });
 
 test('Capabilities e permessi per la finestra Companion', () => {

@@ -3,6 +3,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "OMP Studio",
         "width": 1200,
         "height": 800,
@@ -10,6 +11,19 @@
         "minHeight": 600,
         "decorations": false,
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+      },
+      {
+        "label": "companion",
+        "title": "OMP Studio Companion",
+        "url": "/companion",
+        "width": 560,
+        "height": 520,
+        "minWidth": 420,
+        "minHeight": 360,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "skipTaskbar": true
       }
     ]
   },
