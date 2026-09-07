@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { ModelDto } from '$lib/stores/modelSettings.svelte';
+	import { modelSettingsStore, type ModelDto } from '$lib/stores/modelSettings.svelte';
+	import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
 	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { IconContextWindow, IconRoleSlow, IconRoleVision } from '$lib/icons';
 
@@ -25,7 +26,9 @@
 	let inputRef = $state<HTMLInputElement | null>(null);
 
 	// Estrai il selector pulito (senza :thinkingLevel)
-	const cleanSelector = $derived(value ? value.split(':')[0] : '');
+	const cleanSelector = $derived(
+		value ? splitModelSelector(value, modelSettingsStore.knownSelectors).base : ''
+	);
 
 	const selectedModel = $derived.by(() => {
 		if (!cleanSelector) return null;

@@ -37,6 +37,7 @@ import {
 	type SlashCursorMatch
 } from '../commands';
 import { modelSettingsStore, resolveCatalogModel, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
+import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
 import {
 	IconClose,
 	IconCheck,
@@ -163,16 +164,18 @@ const configuredRolesList = $derived.by(() => {
 
 	return STANDARD_ROLES.map((r) => {
 		const selector = rolesMap[r.id] || '';
-		const rawSelector = selector.split(':')[0] || '';
-		const thinking = selector.includes(':') ? selector.split(':')[1] : 'auto';
+		const { base: rawSelector, thinking } = splitModelSelector(selector, modelSettingsStore.knownSelectors);
 		const modelDto = resolveCatalogModel(modelSettingsStore.catalog, rawSelector);
+		const slashIdx = rawSelector.indexOf('/');
+		const fallbackProvider = slashIdx >= 0 ? rawSelector.slice(0, slashIdx) : '';
+		const fallbackName = slashIdx >= 0 ? rawSelector.slice(slashIdx + 1) : rawSelector;
 		return {
 			...r,
 			selector,
 			rawSelector,
-			thinking,
-			modelName: modelDto?.name || rawSelector.split('/')[1] || rawSelector,
-			provider: modelDto?.provider || rawSelector.split('/')[0] || '',
+			thinking: thinking ?? 'auto',
+			modelName: modelDto?.name || fallbackName,
+			provider: modelDto?.provider || fallbackProvider,
 			isConfigured: Boolean(rawSelector)
 		};
 	}).filter((item) => {
@@ -194,7 +197,7 @@ const activeRoleInfo = $derived.by(() => {
 	for (const r of STANDARD_ROLES) {
 		const full = rolesMap[r.id];
 		if (!full) continue;
-		const raw = full.split(':')[0];
+		const raw = splitModelSelector(full, modelSettingsStore.knownSelectors).base;
 		if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
 			return r;
 		}
@@ -481,9 +484,10 @@ $effect(() => {
 			return;
 		}
 
-		const [rawSelector, thinking] = fullSelector.split(':');
-		const [provider, modelId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
-
+		const { base: rawSelector, thinking } = splitModelSelector(fullSelector, modelSettingsStore.knownSelectors);
+		const slashIdx = rawSelector.indexOf('/');
+		const provider = slashIdx >= 0 ? rawSelector.slice(0, slashIdx) : '';
+		const modelId = slashIdx >= 0 ? rawSelector.slice(slashIdx + 1) : rawSelector;
 		if (!modelId) return;
 		try {
 			await session.client.send({
@@ -539,7 +543,7 @@ $effect(() => {
 			const rId = configuredCycle[i];
 			const full = rolesMap[rId];
 			if (!full) continue;
-			const raw = full.split(':')[0];
+			const raw = splitModelSelector(full, modelSettingsStore.knownSelectors).base;
 			if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
 				currentIndex = i;
 				break;

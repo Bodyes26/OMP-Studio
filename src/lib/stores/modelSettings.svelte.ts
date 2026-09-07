@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { load, type Store } from '@tauri-apps/plugin-store';
 import { restartOmpTerminals } from '../terminal/terminal';
 import { settingsStore } from './settings.svelte';
 import {
@@ -16,14 +17,16 @@ import type {
 	ModelThinkingInfo,
 	ModelDto,
 	AuthAccount,
-	ProviderSummary
+	ProviderSummary,
+	ThinkingLevel
 } from './modelSettingsHelpers';
 import {
 	mergeProviderIntoCatalog,
 	isAuthAccountActive,
 	getProviderEnvVarHint,
 	resolveCatalogModel,
-	sanitizeMaxDynamic
+	sanitizeMaxDynamic,
+	splitModelSelector
 } from './modelSettingsHelpers';
 
 export type {
@@ -31,14 +34,16 @@ export type {
 	ModelThinkingInfo,
 	ModelDto,
 	AuthAccount,
-	ProviderSummary
+	ProviderSummary,
+	ThinkingLevel
 };
 export {
 	mergeProviderIntoCatalog,
 	isAuthAccountActive,
 	getProviderEnvVarHint,
 	resolveCatalogModel,
-	sanitizeMaxDynamic
+	sanitizeMaxDynamic,
+	splitModelSelector
 };
 export interface CustomModelDef {
 	id: string;
@@ -77,16 +82,50 @@ export interface ModelConfigDto {
 	defaultThinkingLevel?: string;
 }
 
-export interface ModelUpgradeCandidate {
+export interface ModelFinding {
 	role: string;
+	kind: 'primary' | 'fallback';
+	index: number | null;
 	currentSelector: string;
 	currentModelId: string;
 	currentProvider: string;
-	currentThinking?: string;
-	suggestedSelector: string;
-	suggestedModelId: string;
-	suggestedModelName: string;
+	currentThinking: string | null;
+	severity: 'error' | 'warn' | 'info';
+	code: 'removed' | 'not_offered' | 'provider_disabled' | 'provider_unconfigured' | 'upgrade';
 	reason: string;
+	suggestedSelector: string | null;
+	suggestedModelName: string | null;
+}
+
+export interface ModelHealthReport {
+	checkedAt: number;
+	catalogAgeDays: number | null;
+	catalogError: string | null;
+	findings: ModelFinding[];
+}
+
+export interface ModelFixItem {
+	role: string;
+	kind: 'primary' | 'fallback';
+	index: number | null;
+	action: 'replace' | 'remove';
+	newSelector: string | null;
+}
+
+/**
+ * Calcola un fingerprint deterministico e compatto a partire dall'elenco di findings.
+ * Concatena i campi identificativi ordinati per rilevare variazioni del referto.
+ */
+export function computeFindingsFingerprint(findings: ModelFinding[]): string {
+	if (findings.length === 0) return '';
+	const sorted = [...findings].sort((a, b) => {
+		const keyA = `${a.code}|${a.role}|${a.kind}|${a.index ?? -1}|${a.currentSelector}`;
+		const keyB = `${b.code}|${b.role}|${b.kind}|${b.index ?? -1}|${b.currentSelector}`;
+		return keyA.localeCompare(keyB);
+	});
+	return sorted
+		.map((f) => `${f.code}|${f.role}|${f.kind}|${f.index ?? -1}|${f.currentSelector}`)
+		.join(';');
 }
 
 export const STANDARD_ROLES = [
@@ -138,8 +177,7 @@ class ModelSettingsStore {
 	loading = $state(false);
 	saving = $state(false);
 	isRefreshingCatalog = $state(false);
-	isCheckingUpgrades = $state(false);
-
+	isCheckingHealth = $state(false);
 	config = $state<ModelConfigDto | null>(null);
 	draftConfig = $state<ModelConfigDto | null>(null);
 	catalog = $state<ModelDto[]>([]);
@@ -153,10 +191,15 @@ class ModelSettingsStore {
 	selectedProviderId = $state<string | null>(null);
 	catalogFilterProviderId = $state<string | null>(null);
 	
-	upgradeCandidates = $state<ModelUpgradeCandidate[]>([]);
-	upgradeModalOpen = $state(false);
-	lastUpgradeCheckMessage = $state<string | null>(null);
+	healthReport = $state<ModelHealthReport | null>(null);
+	healthModalOpen = $state(false);
+	lastCheckAt = $state<number>(0);
+	dismissedFingerprint = $state<string>('');
 	statusToast = $state<string | null>(null);
+	private healthWatchInitialized = false;
+	private healthIntervalTimer: number | null = null;
+	private healthBootstrapTimer: number | null = null;
+	private healthSettingsStore: Store | null = null;
 	private loadProvidersPromise: Promise<void> | null = null;
 	private ensureLoadedPromise: Promise<void> | null = null;
 	private providersRequested = false;
@@ -170,6 +213,52 @@ class ModelSettingsStore {
 		const cfgChanged = JSON.stringify(this.config) !== JSON.stringify(this.draftConfig);
 		const customChanged = JSON.stringify(this.customProviders) !== JSON.stringify(this.draftCustomProviders);
 		return cfgChanged || customChanged;
+	});
+
+	knownSelectors = $derived.by<ReadonlySet<string>>(() => {
+		const list = this.catalog ?? [];
+		return new Set(list.map((m) => m.selector));
+	});
+
+	blockingFindings = $derived.by<ModelFinding[]>(() => {
+		return (this.healthReport?.findings ?? []).filter((f) => f.code !== 'upgrade');
+	});
+
+	upgradeFindings = $derived.by<ModelFinding[]>(() => {
+		return (this.healthReport?.findings ?? []).filter((f) => f.code === 'upgrade');
+	});
+
+	currentFingerprint = $derived.by<string>(() => {
+		return computeFindingsFingerprint(this.healthReport?.findings ?? []);
+	});
+
+	attentionLevel = $derived.by<'none' | 'info' | 'warn'>(() => {
+		const findings = this.healthReport?.findings ?? [];
+		if (findings.length === 0) return 'none';
+		if (this.currentFingerprint === this.dismissedFingerprint) return 'none';
+		if (this.blockingFindings.length > 0) return 'warn';
+		if (this.upgradeFindings.length > 0) return 'info';
+		return 'none';
+	});
+
+	attentionTooltip = $derived.by<string>(() => {
+		if (this.attentionLevel === 'none') return '';
+		if (this.blockingFindings.length > 0) {
+			const count = this.blockingFindings.length;
+			const label =
+				count === 1 ? '1 modello non piu utilizzabile' : `${count} modelli non piu utilizzabili`;
+			const details = this.blockingFindings
+				.map((f) => (f.kind === 'fallback' ? `${f.role} #${(f.index ?? 0) + 1}` : f.role))
+				.join(', ');
+			return `${label}: ${details}`;
+		}
+		if (this.upgradeFindings.length > 0) {
+			const count = this.upgradeFindings.length;
+			return count === 1
+				? '1 aggiornamento modello disponibile'
+				: `${count} aggiornamenti modello disponibili`;
+		}
+		return '';
 	});
 
 	/**
@@ -450,59 +539,184 @@ class ModelSettingsStore {
 		};
 	}
 
-	async checkUpgrades(refresh = true) {
-		this.isCheckingUpgrades = true;
-		this.lastUpgradeCheckMessage = null;
+	findingFor(
+		role: string,
+		kind: 'primary' | 'fallback',
+		index?: number | null
+	): ModelFinding | undefined {
+		const findings = this.healthReport?.findings ?? [];
+		return findings.find((f) => {
+			if (f.role !== role || f.kind !== kind) return false;
+			if (kind === 'fallback') {
+				return f.index === (index ?? null);
+			}
+			return true;
+		});
+	}
+
+	private async ensureHealthSettingsStore(): Promise<Store | null> {
+		if (this.healthSettingsStore) return this.healthSettingsStore;
 		try {
-			const currentRoles = this.draftConfig?.modelRoles || this.config?.modelRoles || undefined;
-			const candidates = await invoke<ModelUpgradeCandidate[]>('check_model_upgrades', {
-				roles: currentRoles,
-				refreshCatalog: refresh
+			this.healthSettingsStore = await load('settings.json', { autoSave: false });
+			return this.healthSettingsStore;
+		} catch (e) {
+			console.error('Impossibile caricare store settings.json per modelHealth', e);
+			return null;
+		}
+	}
+
+	private async loadHealthSettings(): Promise<void> {
+		try {
+			const store = await this.ensureHealthSettingsStore();
+			if (!store) return;
+			const data = await store.get<{ lastCheckAt?: number; dismissedFingerprint?: string }>('modelHealth');
+			if (data && typeof data === 'object') {
+				if (typeof data.lastCheckAt === 'number' && Number.isFinite(data.lastCheckAt)) {
+					this.lastCheckAt = data.lastCheckAt;
+				}
+				if (typeof data.dismissedFingerprint === 'string') {
+					this.dismissedFingerprint = data.dismissedFingerprint;
+				}
+			}
+		} catch (e) {
+			console.error('Errore lettura impostazioni modelHealth da settings.json', e);
+		}
+	}
+
+	private async saveHealthSettings(): Promise<void> {
+		try {
+			const store = await this.ensureHealthSettingsStore();
+			if (!store) return;
+			await store.set('modelHealth', {
+				lastCheckAt: this.lastCheckAt,
+				dismissedFingerprint: this.dismissedFingerprint
 			});
+			await store.save();
+		} catch (e) {
+			console.error('Errore salvataggio impostazioni modelHealth in settings.json', e);
+		}
+	}
+
+	async checkHealth(opts: { refresh?: boolean; silent?: boolean } = {}): Promise<void> {
+		const refresh = opts.refresh ?? true;
+		const silent = opts.silent ?? false;
+		this.isCheckingHealth = true;
+
+		try {
+			const currentRoles = this.draftConfig?.modelRoles ?? this.config?.modelRoles ?? null;
+			const currentFallbacks =
+				this.draftConfig?.fallbackChains ?? this.config?.fallbackChains ?? null;
+
+			const report = await invoke<ModelHealthReport>('check_model_health', {
+				roles: currentRoles,
+				fallbackChains: currentFallbacks,
+				refreshCatalog: refresh ? true : false,
+				maxCatalogAgeHours: refresh ? null : 24
+			});
+
 			if (refresh) {
 				const fullCatalog = await invoke<ModelDto[]>('get_models_catalog').catch(() => []);
 				if (fullCatalog.length > 0) {
 					this.catalog = fullCatalog;
 				}
 				this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog').catch(() => []);
+				this.availableCatalogLoaded = true;
 			}
-			this.upgradeCandidates = candidates;
-			if (candidates.length > 0) {
-				this.upgradeModalOpen = true;
-			} else {
-				this.showToast('I modelli utilizzati sono aggiornati alla versione piu recente');
+
+			this.healthReport = report;
+			this.lastCheckAt = report.checkedAt || Date.now();
+
+			const newFingerprint = computeFindingsFingerprint(report.findings || []);
+			if (newFingerprint !== this.dismissedFingerprint) {
+				// Referto con findings diversi da quelli ignorati: azzera il dismiss per riaccendere il badge
+				this.dismissedFingerprint = '';
 			}
-			return candidates;
+			void this.saveHealthSettings();
+
+			if (!silent) {
+				if (report.findings && report.findings.length > 0) {
+					this.healthModalOpen = true;
+				} else {
+					this.showToast('Modelli verificati: nessun problema rilevato');
+				}
+			}
 		} catch (e) {
-			console.error('Failed to check model upgrades:', e);
-			this.showToast(`Errore verifica versioni: ${e}`);
-			return [];
+			if (!silent) {
+				console.error('Failed to check model health:', e);
+				this.showToast(`Errore verifica modelli: ${e}`);
+			} else {
+				console.error('Failed to check model health (silent):', e);
+			}
 		} finally {
-			this.isCheckingUpgrades = false;
+			this.isCheckingHealth = false;
 		}
 	}
 
-	async applyUpgrades(selectedCandidates: ModelUpgradeCandidate[]) {
-		if (selectedCandidates.length === 0) return;
+	async applyFixes(fixes: ModelFixItem[]): Promise<void> {
+		if (fixes.length === 0) return;
 		this.saving = true;
 		try {
-			const updates = selectedCandidates.map(c => ({
-				role: c.role,
-				newSelector: c.suggestedSelector
-			}));
-
-			await invoke('apply_model_upgrades', { updates });
+			await invoke('apply_model_fixes', { fixes });
 			await this.loadAll();
 			this.clearSuggestionsCache();
-			this.upgradeModalOpen = false;
-			this.upgradeCandidates = [];
-			this.showToast(`Aggiornati ${updates.length} ruoli alla versione suggerita`);
+			this.healthModalOpen = false;
+			await this.checkHealth({ refresh: false, silent: true });
+			const count = fixes.length;
+			this.showToast(
+				count === 1
+					? 'Correzione modello applicata'
+					: `Applicate ${count} correzioni ai modelli`
+			);
 		} catch (e) {
-			console.error('Failed to apply model upgrades:', e);
-			this.showToast(`Errore applicazione aggiornamenti: ${e}`);
+			console.error('Failed to apply model fixes:', e);
+			this.showToast(`Errore applicazione correzioni: ${e}`);
 		} finally {
 			this.saving = false;
 		}
+	}
+
+	async dismissHealthFindings(): Promise<void> {
+		this.dismissedFingerprint = this.currentFingerprint;
+		await this.saveHealthSettings();
+		this.healthModalOpen = false;
+	}
+
+	initHealthWatch(): void {
+		if (this.healthWatchInitialized) return;
+		this.healthWatchInitialized = true;
+
+		void this.loadHealthSettings().then(() => {
+			if (typeof window !== 'undefined') {
+				const HEALTH_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+				const HEALTH_BOOTSTRAP_DELAY_MS = 20_000;
+
+				this.healthBootstrapTimer = window.setTimeout(() => {
+					this.healthBootstrapTimer = null;
+					const elapsed = Date.now() - this.lastCheckAt;
+					if (elapsed > HEALTH_CHECK_INTERVAL_MS) {
+						void this.checkHealth({ refresh: false, silent: true });
+					}
+				}, HEALTH_BOOTSTRAP_DELAY_MS);
+
+				this.healthIntervalTimer = window.setInterval(() => {
+					void this.checkHealth({ refresh: false, silent: true });
+				}, HEALTH_CHECK_INTERVAL_MS);
+			}
+		});
+	}
+
+	destroyHealthWatch(): void {
+		if (typeof window !== 'undefined') {
+			if (this.healthBootstrapTimer !== null) {
+				clearTimeout(this.healthBootstrapTimer);
+				this.healthBootstrapTimer = null;
+			}
+			if (this.healthIntervalTimer !== null) {
+				clearInterval(this.healthIntervalTimer);
+				this.healthIntervalTimer = null;
+			}
+		}
+		this.healthWatchInitialized = false;
 	}
 
 	restartOmpSessions(targetCwd?: string) {
@@ -516,12 +730,16 @@ class ModelSettingsStore {
 		let val = modelSelector;
 		if (thinkingLevel && thinkingLevel !== 'auto') {
 			val = `${modelSelector}:${thinkingLevel}`;
+		} else if (thinkingLevel === 'auto') {
+			val = modelSelector;
 		} else {
 			// preserva eventuale livello di thinking esistente
 			const current = this.draftConfig.modelRoles[role];
-			if (current && current.includes(':')) {
-				const parts = current.split(':');
-				val = `${modelSelector}:${parts[1]}`;
+			if (current) {
+				const { thinking } = splitModelSelector(current, this.knownSelectors);
+				if (thinking) {
+					val = `${modelSelector}:${thinking}`;
+				}
 			}
 		}
 		this.draftConfig.modelRoles = {
@@ -534,8 +752,8 @@ class ModelSettingsStore {
 		if (!this.draftConfig) return;
 		const current = this.draftConfig.modelRoles[role];
 		if (!current) return;
-		const rawSelector = current.split(':')[0];
-		const val = thinkingLevel === 'auto' ? rawSelector : `${rawSelector}:${thinkingLevel}`;
+		const { base } = splitModelSelector(current, this.knownSelectors);
+		const val = thinkingLevel === 'auto' ? base : `${base}:${thinkingLevel}`;
 		this.draftConfig.modelRoles = {
 			...this.draftConfig.modelRoles,
 			[role]: val
@@ -642,13 +860,14 @@ class ModelSettingsStore {
 		currentFallbacks: string[] = [],
 		forceRefresh = false
 	): Promise<RoleSuggestionsResponse | null> {
-		const primaryRaw = currentPrimary?.split(':')[0] || '';
+		const primaryRaw = currentPrimary
+			? splitModelSelector(currentPrimary, this.knownSelectors).base
+			: '';
 		const cacheKey = `${roleId}:${primaryRaw}`;
 
 		if (!forceRefresh && this.suggestionsCache.has(cacheKey)) {
 			return this.suggestionsCache.get(cacheKey)!;
 		}
-
 		this.loadingSuggestionsRole = roleId;
 		try {
 			const res = await invoke<RoleSuggestionsResponse>('get_role_suggestions', {

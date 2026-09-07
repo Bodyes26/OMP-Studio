@@ -1242,12 +1242,13 @@
 		void checkOmpUpdateSilently();
 		void checkSetupContract();
 		studioUpdaterStore.init();
+		modelSettingsStore.initHealthWatch();
 	});
 
 	onDestroy(() => {
 		studioUpdaterStore.destroy();
+		modelSettingsStore.destroyHealthWatch();
 	});
-
 	async function handleCheckUpdate() {
 		if (isCheckingUpdate || isInstallingUpdate) return;
 		if (pendingUpdateCheck?.has_update) {

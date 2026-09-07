@@ -111,22 +111,68 @@ export function sanitizeMaxDynamic(value: unknown, fallback: number = 3): number
 	return Math.min(3, Math.max(1, Math.round(num)));
 }
 
+export const THINKING_LEVELS = [
+	'auto',
+	'off',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max'
+] as const;
+
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
 /**
- * Risolve il `ModelDto` di catalogo a partire da un selettore di ruolo/fallback
- * (senza suffisso `:thinking`).
+ * Separa `provider/model[:livelloThinking]`.
+ * `knownSelectors`: insieme opzionale dei selettori esistenti in catalogo (`provider/id`).
  *
- * L'ordine di priorita' e' obbligatorio: prima il match esatto su `selector`
- * (`<provider>/<id>`), poi il match sull'`id` nudo. Molti gateway pubblicano
- * modelli il cui `id` contiene il nome dell'upstream (es. `cloudflare-ai-gateway`
- * espone `anthropic/claude-opus-5`): cercando in un colpo solo `selector || id` si
- * attribuisce il modello al primo gateway presente nel catalogo invece che al
- * provider realmente usato da omp.
+ * Regole, nell'ordine:
+ * 1. se `selector` intero e' presente in `knownSelectors` -> { base: selector, thinking: null }
+ *    (copre `nanogpt/anthropic/claude-opus-4.6:thinking:max`, che e' un id vero)
+ * 2. altrimenti, se il segmento dopo l'ULTIMO ':' e' in THINKING_LEVELS -> { base: segmento-precedente, thinking: livello }
+ * 3. altrimenti -> { base: selector, thinking: null } (copre `kilo/arcee-ai/trinity-large-preview:free`)
+ */
+export function splitModelSelector(
+	selector: string,
+	knownSelectors?: ReadonlySet<string>
+): { base: string; thinking: string | null } {
+	if (knownSelectors && knownSelectors.has(selector)) {
+		return { base: selector, thinking: null };
+	}
+
+	const lastColon = selector.lastIndexOf(':');
+	if (lastColon !== -1) {
+		const candidateThinking = selector.slice(lastColon + 1);
+		if ((THINKING_LEVELS as readonly string[]).includes(candidateThinking)) {
+			return {
+				base: selector.slice(0, lastColon),
+				thinking: candidateThinking
+			};
+		}
+	}
+
+	return { base: selector, thinking: null };
+}
+
+/**
+ * Risolve il `ModelDto` di catalogo a partire da un selettore di ruolo/fallback.
+ *
+ * Utilizza `splitModelSelector` con l'insieme dei selettori noti per separare l'eventuale
+ * suffisso thinking senza troncare i selettori il cui ID contiene due punti.
+ * Prova in ordine: match esatto sul selettore intero, poi sul selettore base, poi sull'ID.
  */
 export function resolveCatalogModel(
 	catalog: ModelDto[],
 	rawSelector: string
 ): ModelDto | undefined {
-	const raw = rawSelector.split(':')[0];
-	if (!raw) return undefined;
-	return catalog.find((m) => m.selector === raw) ?? catalog.find((m) => m.id === raw);
+	if (!rawSelector) return undefined;
+	const knownSelectors = new Set(catalog.map((m) => m.selector));
+	const { base } = splitModelSelector(rawSelector, knownSelectors);
+	return (
+		catalog.find((m) => m.selector === rawSelector) ??
+		catalog.find((m) => m.selector === base) ??
+		catalog.find((m) => m.id === base)
+	);
 }

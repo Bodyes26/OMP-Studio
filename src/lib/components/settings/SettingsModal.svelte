@@ -5,7 +5,7 @@
 	import RolesTab from '../models/RolesTab.svelte';
 	import CatalogTab from '../models/CatalogTab.svelte';
 	import ProvidersTab from '../models/ProvidersTab.svelte';
-	import UpgradeModal from '../models/UpgradeModal.svelte';
+	import ModelHealthModal from '../models/ModelHealthModal.svelte';
 	import GeneralSection from './GeneralSection.svelte';
 	import AppearanceSection from './AppearanceSection.svelte';
 	import NotificationsSection from './NotificationsSection.svelte';
@@ -61,16 +61,25 @@
 		modelSettingsStore.restartOmpSessions();
 	}
 
-	function handleCheckUpgrades() {
-		void modelSettingsStore.checkUpgrades();
+	function handleCheckHealth() {
+		void modelSettingsStore.checkHealth({ refresh: true });
 	}
+
+	// La sezione Modelli e' raggiungibile anche senza passare da `openModal()`
+	// (voce di navigazione, chip Impostazioni con avviso): senza questo
+	// caricamento i ruoli risulterebbero tutti "Non configurato".
+	$effect(() => {
+		if (settingsStore.open && settingsStore.section === 'models') {
+			void modelSettingsStore.ensureLoaded();
+		}
+	});
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (!settingsStore.open) return;
 		if (e.defaultPrevented) return;
 
 		if (e.key === 'Escape') {
-			if (modelSettingsStore.upgradeModalOpen) return;
+			if (modelSettingsStore.healthModalOpen) return;
 			if (showDiscardConfirm) {
 				showDiscardConfirm = false;
 			} else {
@@ -156,13 +165,13 @@
 			<div class="header-actions">
 				{#if settingsStore.section === 'models'}
 					<button
-						class="btn-header-action upgrade-action"
-						class:loading={modelSettingsStore.isCheckingUpgrades}
-						disabled={modelSettingsStore.isCheckingUpgrades}
-						onclick={handleCheckUpgrades}
-						title="Verifica se sono disponibili nuove versioni per i modelli configurati"
+						class="btn-header-action health-action"
+						class:loading={modelSettingsStore.isCheckingHealth}
+						disabled={modelSettingsStore.isCheckingHealth}
+						onclick={handleCheckHealth}
+						title="Verifica disponibilita e versioni dei modelli configurati per ogni ruolo e riserva"
 					>
-						{#if modelSettingsStore.isCheckingUpgrades}
+						{#if modelSettingsStore.isCheckingHealth}
 							<span class="btn-spinner" aria-hidden="true"></span>
 						{:else}
 							<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">
@@ -170,7 +179,10 @@
 								<path d="M10.5 10.5L14 14" stroke-linecap="round" />
 							</svg>
 						{/if}
-						<span>{modelSettingsStore.isCheckingUpgrades ? 'Verifica...' : 'Verifica Versioni'}</span>
+						<span>{modelSettingsStore.isCheckingHealth ? 'Verifica...' : 'Verifica Modelli'}</span>
+						{#if modelSettingsStore.healthReport && modelSettingsStore.blockingFindings && modelSettingsStore.blockingFindings.length > 0}
+							<span class="header-action-badge">{modelSettingsStore.blockingFindings.length}</span>
+						{/if}
 					</button>
 
 					<button
@@ -199,7 +211,15 @@
 						class:active={settingsStore.section === s.id}
 						onclick={() => (settingsStore.section = s.id)}
 					>
-						{s.label}
+						<span>{s.label}</span>
+						{#if s.id === 'models' && modelSettingsStore.attentionLevel !== 'none'}
+							<span
+								class="nav-dot"
+								class:dot-warn={modelSettingsStore.attentionLevel === 'warn'}
+								class:dot-info={modelSettingsStore.attentionLevel === 'info'}
+								title={modelSettingsStore.attentionTooltip || 'Avvisi sui modelli'}
+							></span>
+						{/if}
 					</button>
 				{/each}
 			</nav>
@@ -355,8 +375,8 @@
 		{/if}
 	</div>
 
-	<!-- Modal secondario per approvazione version bump -->
-	<UpgradeModal />
+	<!-- Modal secondario per referto salute modelli -->
+	<ModelHealthModal />
 {/if}
 
 <style>
@@ -449,6 +469,22 @@
 		cursor: pointer;
 		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 	}
+	.header-action-badge {
+		font-size: 10px;
+		font-weight: 700;
+		line-height: 1;
+		min-width: 16px;
+		height: 16px;
+		padding: 0 4px;
+		border-radius: 8px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--warn);
+		color: #000;
+		margin-left: 2px;
+	}
+
 
 	.btn-header-action:hover:not(:disabled) {
 		background: var(--bg-hover);
@@ -522,6 +558,9 @@
 	}
 
 	.section-nav-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 		text-align: left;
 		padding: var(--space-2) var(--space-3);
 		border: none;
@@ -542,6 +581,22 @@
 	.section-nav-item.active {
 		background: var(--bg-active);
 		color: var(--ink);
+	}
+
+	.nav-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.nav-dot.dot-warn {
+		background: var(--warn);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--warn) 40%, transparent);
+	}
+
+	.nav-dot.dot-info {
+		background: var(--brand);
 	}
 
 	.section-content {

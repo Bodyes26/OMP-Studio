@@ -1,5 +1,5 @@
-mod fs_atomic;
 mod diagrams;
+mod fs_atomic;
 mod previews;
 mod pty;
 use pty::{pty_close, pty_open, pty_resize, pty_session_info, pty_write, PtyManager};
@@ -8,11 +8,11 @@ use rpc::{rpc_close, rpc_open, rpc_protocol, rpc_send, rpc_stderr, RpcManager};
 mod projects;
 use projects::{
     file_git_head, file_git_rev, file_read, file_read_bytes, file_write, git_branch_checkout,
-    git_branch_create,
-    git_branch_list, git_branch_merge, git_current_branch, git_last_commit, git_recent_commits,
-    git_working_numstat, path_create_directory, path_create_file, path_rename, path_trash,
-    preview_file, project_files_search, project_git_status, project_tasks_read, project_tasks_unwatch,
-    project_tasks_watch, project_tasks_write, resolve_project_file, tree_read,
+    git_branch_create, git_branch_list, git_branch_merge, git_current_branch, git_last_commit,
+    git_recent_commits, git_working_numstat, path_create_directory, path_create_file, path_rename,
+    path_trash, preview_file, project_files_search, project_git_status, project_tasks_read,
+    project_tasks_unwatch, project_tasks_watch, project_tasks_write, resolve_project_file,
+    tree_read,
 };
 mod omp_ops;
 use omp_ops::{
@@ -26,7 +26,7 @@ use studio_updater::{
 };
 mod models_ops;
 use models_ops::{
-    apply_model_upgrades, check_model_upgrades, get_auth_accounts, get_auth_providers_summary,
+    apply_model_fixes, check_model_health, get_auth_accounts, get_auth_providers_summary,
     get_available_models_catalog, get_custom_providers, get_model_config, get_model_providers,
     get_models_catalog, get_role_suggestions, refresh_model_provider, refresh_models_catalog,
     remove_auth_account, save_custom_providers, save_model_config,
@@ -162,8 +162,8 @@ pub fn run() {
             get_auth_accounts,
             remove_auth_account,
             refresh_model_provider,
-            check_model_upgrades,
-            apply_model_upgrades,
+            check_model_health,
+            apply_model_fixes,
             get_role_suggestions,
             setup_status,
             install_omp,

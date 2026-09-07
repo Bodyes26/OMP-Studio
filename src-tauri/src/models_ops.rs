@@ -35,14 +35,17 @@ fn read_yaml_mapping(path: &Path) -> Result<Option<serde_yaml::Mapping>, String>
     };
     let value: serde_yaml::Value = serde_yaml::from_slice(&bytes)
         .map_err(|error| format!("Parsing YAML {}: {}", path.display(), error))?;
-    value
-        .as_mapping()
-        .cloned()
-        .map(Some)
-        .ok_or_else(|| format!("Struttura {} non valida (atteso dizionario)", path.display()))
+    value.as_mapping().cloned().map(Some).ok_or_else(|| {
+        format!(
+            "Struttura {} non valida (atteso dizionario)",
+            path.display()
+        )
+    })
 }
 
-fn read_json_mapping(path: &Path) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
+fn read_json_mapping(
+    path: &Path,
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -52,11 +55,12 @@ fn read_json_mapping(path: &Path) -> Result<Option<serde_json::Map<String, serde
     };
     let value: serde_json::Value = serde_json::from_slice(&bytes)
         .map_err(|error| format!("Parsing JSON {}: {}", path.display(), error))?;
-    value
-        .as_object()
-        .cloned()
-        .map(Some)
-        .ok_or_else(|| format!("Struttura {} non valida (atteso dizionario)", path.display()))
+    value.as_object().cloned().map(Some).ok_or_else(|| {
+        format!(
+            "Struttura {} non valida (atteso dizionario)",
+            path.display()
+        )
+    })
 }
 
 fn get_user_home() -> Option<String> {
@@ -109,6 +113,28 @@ fn open_readwrite_db(db_name: &str) -> Result<Connection, String> {
         .map_err(|e| format!("Impossibile aprire {} in scrittura: {}", db_name, e))?;
     let _ = conn.execute_batch("PRAGMA busy_timeout = 3000;");
     Ok(conn)
+}
+
+/// Calcola l'eta' in ore del catalogo locale leggendo il timestamp massimo da `model_cache`.
+fn catalog_age_hours() -> Option<f64> {
+    let conn = open_readonly_db("models.db").ok()?;
+    let max_updated: Option<i64> = conn
+        .query_row("SELECT MAX(updated_at) FROM model_cache", [], |row| {
+            row.get(0)
+        })
+        .ok()?;
+    let updated_at = max_updated?;
+    let updated_secs = if updated_at > 1_000_000_000_000 {
+        (updated_at as f64) / 1000.0
+    } else {
+        updated_at as f64
+    };
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs_f64();
+    let age_secs = (now_secs - updated_secs).max(0.0);
+    Some(age_secs / 3600.0)
 }
 
 // -----------------------------------------------------------------------------
@@ -276,18 +302,73 @@ pub struct AuthAccountDto {
     pub updated_at: Option<i64>,
 }
 
+pub const THINKING_LEVELS: [&str; 8] = [
+    "auto", "off", "minimal", "low", "medium", "high", "xhigh", "max",
+];
+
+/// Separa `provider/model[:livelloThinking]`.
+/// Nel catalogo reale esistono id che contengono `:` (58 in `kilo`, 108 in `nanogpt`,
+/// es. `anthropic/claude-opus-4.6:thinking:max`, `arcee-ai/trinity-large-preview:free`),
+/// quindi `split_once(':')` produce id inesistenti e falsi allarmi.
+///
+/// Regole, nell'ordine:
+/// 1. se `selector` intero e' presente in `known_selectors` -> (selector, None)
+///    (copre `nanogpt/anthropic/claude-opus-4.6:thinking:max`, che e' un id vero)
+/// 2. altrimenti, se il segmento dopo l'ULTIMO ':' e' in THINKING_LEVELS -> (base, Some(livello))
+/// 3. altrimenti -> (selector, None)  (copre `kilo/arcee-ai/trinity-large-preview:free`)
+pub fn split_model_selector(
+    selector: &str,
+    known_selectors: Option<&std::collections::HashSet<String>>,
+) -> (String, Option<String>) {
+    if let Some(known) = known_selectors {
+        if known.contains(selector) {
+            return (selector.to_string(), None);
+        }
+    }
+
+    if let Some((base, candidate)) = selector.rsplit_once(':') {
+        if THINKING_LEVELS.contains(&candidate) {
+            return (base.to_string(), Some(candidate.to_string()));
+        }
+    }
+
+    (selector.to_string(), None)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModelUpgradeCandidate {
+pub struct ModelHealthReport {
+    pub checked_at: i64,
+    pub catalog_age_days: Option<f64>,
+    pub catalog_error: Option<String>,
+    pub findings: Vec<ModelFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelFinding {
     pub role: String,
+    pub kind: String,
+    pub index: Option<u32>,
     pub current_selector: String,
     pub current_model_id: String,
     pub current_provider: String,
     pub current_thinking: Option<String>,
-    pub suggested_selector: String,
-    pub suggested_model_id: String,
-    pub suggested_model_name: String,
+    pub severity: String,
+    pub code: String,
     pub reason: String,
+    pub suggested_selector: Option<String>,
+    pub suggested_model_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelFixItem {
+    pub role: String,
+    pub kind: String,
+    pub index: Option<u32>,
+    pub action: String,
+    pub new_selector: Option<String>,
 }
 
 // -----------------------------------------------------------------------------
@@ -327,8 +408,9 @@ where
         .get(yaml_key(name))
         .cloned()
         .map(|value| {
-            serde_yaml::from_value(value)
-                .map_err(|error| format!("Campo {} non valido in {}: {}", name, path.display(), error))
+            serde_yaml::from_value(value).map_err(|error| {
+                format!("Campo {} non valido in {}: {}", name, path.display(), error)
+            })
         })
         .transpose()
 }
@@ -346,7 +428,8 @@ fn model_config_from_mapping(
             config.cycle_order = default_model_config().cycle_order;
         }
     }
-    config.disabled_providers = parse_yaml_field(mapping, "disabledProviders", path)?.unwrap_or_default();
+    config.disabled_providers =
+        parse_yaml_field(mapping, "disabledProviders", path)?.unwrap_or_default();
 
     if let Some(retry_value) = mapping.get(yaml_key("retry")) {
         let retry = retry_value.as_mapping().ok_or_else(|| {
@@ -355,11 +438,11 @@ fn model_config_from_mapping(
                 path.display()
             )
         })?;
-        config.fallback_chains = parse_yaml_field(retry, "fallbackChains", path)?.unwrap_or_default();
+        config.fallback_chains =
+            parse_yaml_field(retry, "fallbackChains", path)?.unwrap_or_default();
     }
 
-    if let Some(level) =
-        parse_yaml_field::<Option<String>>(mapping, "defaultThinkingLevel", path)?
+    if let Some(level) = parse_yaml_field::<Option<String>>(mapping, "defaultThinkingLevel", path)?
     {
         config.default_thinking_level = level;
     }
@@ -428,11 +511,11 @@ fn save_model_config_path(path: &Path, config: &ModelConfigDto) -> Result<(), St
 
 fn mutate_model_config_path<F>(path: &Path, mutate: F) -> Result<(), String>
 where
-    F: FnOnce(&mut ModelConfigDto),
+    F: FnOnce(&mut ModelConfigDto) -> Result<(), String>,
 {
     let _guard = mutation_lock()?;
     let mut config = read_model_config_path(path)?;
-    mutate(&mut config);
+    mutate(&mut config)?;
     save_model_config_locked(path, &config)
 }
 
@@ -460,7 +543,7 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
     // 1. Leggi models.db
     if let Ok(conn) = open_readonly_db("models.db") {
         let mut stmt = conn
-            .prepare("SELECT provider_id, models FROM model_cache")
+            .prepare("SELECT provider_id, models FROM model_cache ORDER BY updated_at DESC")
             .map_err(|e| e.to_string())?;
 
         let rows = stmt
@@ -658,8 +741,13 @@ fn custom_providers_from_yaml(
     mapping: &serde_yaml::Mapping,
     path: &Path,
 ) -> Result<CustomProvidersFile, String> {
-    serde_yaml::from_value(serde_yaml::Value::Mapping(mapping.clone()))
-        .map_err(|error| format!("Struttura provider non valida in {}: {}", path.display(), error))
+    serde_yaml::from_value(serde_yaml::Value::Mapping(mapping.clone())).map_err(|error| {
+        format!(
+            "Struttura provider non valida in {}: {}",
+            path.display(),
+            error
+        )
+    })
 }
 
 fn json_mapping_to_yaml(
@@ -668,10 +756,12 @@ fn json_mapping_to_yaml(
 ) -> Result<serde_yaml::Mapping, String> {
     let value = serde_yaml::to_value(serde_json::Value::Object(mapping))
         .map_err(|error| format!("Conversione {}: {}", path.display(), error))?;
-    value
-        .as_mapping()
-        .cloned()
-        .ok_or_else(|| format!("Struttura {} non valida (atteso dizionario)", path.display()))
+    value.as_mapping().cloned().ok_or_else(|| {
+        format!(
+            "Struttura {} non valida (atteso dizionario)",
+            path.display()
+        )
+    })
 }
 
 fn read_custom_providers_paths(
@@ -788,9 +878,7 @@ fn merge_custom_providers(
     let mut merged_providers = serde_yaml::Mapping::new();
 
     for (provider_key, desired_provider) in desired_providers {
-        let provider_name = provider_key
-            .as_str()
-            .ok_or("Nome provider non valido")?;
+        let provider_name = provider_key.as_str().ok_or("Nome provider non valido")?;
         let desired_mapping = desired_provider
             .as_mapping()
             .ok_or_else(|| format!("Provider {} non valido", provider_name))?;
@@ -822,10 +910,7 @@ fn merge_custom_providers(
         );
     }
 
-    root.insert(
-        providers_key,
-        serde_yaml::Value::Mapping(merged_providers),
-    );
+    root.insert(providers_key, serde_yaml::Value::Mapping(merged_providers));
     Ok(())
 }
 
@@ -879,11 +964,7 @@ pub async fn get_custom_providers() -> Result<CustomProvidersFile, String> {
 #[command]
 pub async fn save_custom_providers(data: CustomProvidersFile) -> Result<(), String> {
     let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    save_custom_providers_paths(
-        &agent.join("models.json"),
-        &agent.join("models.yml"),
-        &data,
-    )
+    save_custom_providers_paths(&agent.join("models.json"), &agent.join("models.yml"), &data)
 }
 
 // -----------------------------------------------------------------------------
@@ -945,7 +1026,9 @@ fn parse_identity_key(identity_key: &str) -> IdentityKeyFields {
         match key.trim() {
             "email" if fields.email.is_none() => fields.email = Some(value.to_string()),
             "account" if fields.account_id.is_none() => fields.account_id = Some(value.to_string()),
-            "org" | "organization" if fields.org_id.is_none() => fields.org_id = Some(value.to_string()),
+            "org" | "organization" if fields.org_id.is_none() => {
+                fields.org_id = Some(value.to_string())
+            }
             // Nessun campo dedicato per un identificativo di progetto (GCP e
             // simili): resta comunque l'identita' dell'account sul provider.
             "project" if fields.account_id.is_none() => fields.account_id = Some(value.to_string()),
@@ -1008,7 +1091,12 @@ fn build_auth_account_dto(
     let org_name = data_json.as_ref().and_then(|d| {
         extract_json_string(
             d,
-            &["orgName", "org_name", "organizationName", "organization_name"],
+            &[
+                "orgName",
+                "org_name",
+                "organizationName",
+                "organization_name",
+            ],
         )
     });
     let plan = data_json
@@ -1067,8 +1155,16 @@ pub async fn get_auth_accounts(provider_id: Option<String>) -> Result<Vec<AuthAc
 
     let mut list = Vec::new();
     for row in rows {
-        let (id, provider, credential_type, identity_key, disabled_cause, data, created_at, updated_at) =
-            row.map_err(|e| e.to_string())?;
+        let (
+            id,
+            provider,
+            credential_type,
+            identity_key,
+            disabled_cause,
+            data,
+            created_at,
+            updated_at,
+        ) = row.map_err(|e| e.to_string())?;
         list.push(build_auth_account_dto(
             id,
             provider,
@@ -1268,9 +1364,11 @@ pub async fn get_model_providers() -> Result<Vec<ProviderSummaryDto>, String> {
     let config = get_model_config()
         .await
         .unwrap_or_else(|_| default_model_config());
-    let custom_defs = get_custom_providers().await.unwrap_or_else(|_| CustomProvidersFile {
-        providers: HashMap::new(),
-    });
+    let custom_defs = get_custom_providers()
+        .await
+        .unwrap_or_else(|_| CustomProvidersFile {
+            providers: HashMap::new(),
+        });
     let catalog = build_provider_catalog().await;
     let account_aggregates = read_provider_account_aggregates();
 
@@ -1292,9 +1390,11 @@ pub async fn get_model_providers() -> Result<Vec<ProviderSummaryDto>, String> {
             let aggregate = account_aggregates.get(&id);
             let account_count = aggregate.map(|a| a.total).unwrap_or(0);
             let has_oauth = aggregate.map(|a| a.has_oauth).unwrap_or(false);
-            let auth_origin = aggregate
-                .and_then(|a| a.origin.clone())
-                .or(if is_custom { Some("custom".to_string()) } else { None });
+            let auth_origin = aggregate.and_then(|a| a.origin.clone()).or(if is_custom {
+                Some("custom".to_string())
+            } else {
+                None
+            });
             let source = if is_custom {
                 "custom"
             } else if BUILTIN_PROVIDER_NAMES.iter().any(|(bid, _)| *bid == id) {
@@ -1374,13 +1474,19 @@ fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
         let mut prefix = "";
         if (candidate.starts_with('v') || candidate.starts_with('V'))
             && candidate.len() > 1
-            && candidate[1..].chars().next().map_or(false, |c| c.is_ascii_digit())
+            && candidate[1..]
+                .chars()
+                .next()
+                .map_or(false, |c| c.is_ascii_digit())
         {
             prefix = "v";
             candidate = &candidate[1..];
         } else if (candidate.starts_with('k') || candidate.starts_with('K'))
             && candidate.len() > 1
-            && candidate[1..].chars().next().map_or(false, |c| c.is_ascii_digit())
+            && candidate[1..]
+                .chars()
+                .next()
+                .map_or(false, |c| c.is_ascii_digit())
         {
             prefix = "k";
             candidate = &candidate[1..];
@@ -1477,111 +1583,393 @@ fn is_version_newer(
 }
 
 #[command]
-pub async fn check_model_upgrades(
+pub async fn check_model_health(
     roles: Option<HashMap<String, String>>,
+    fallback_chains: Option<HashMap<String, Vec<String>>>,
     refresh_catalog: Option<bool>,
-) -> Result<Vec<ModelUpgradeCandidate>, String> {
-    if refresh_catalog.unwrap_or(false) {
+    max_catalog_age_hours: Option<f64>,
+) -> Result<ModelHealthReport, String> {
+    // 1. Refresh condizionale del catalogo
+    let should_refresh = if refresh_catalog == Some(true) {
+        true
+    } else if let Some(max_age) = max_catalog_age_hours {
+        match catalog_age_hours() {
+            Some(age) => age > max_age,
+            None => true,
+        }
+    } else {
+        false
+    };
+
+    if should_refresh {
         let _ = refresh_models_catalog().await;
     }
 
-    let roles_map = match roles {
-        Some(r) if !r.is_empty() => r,
-        _ => {
-            let config = get_model_config().await?;
-            config.model_roles
-        }
+    // 2. Lettura sorgenti
+    let catalog = get_models_catalog().await?;
+    let (available_models, catalog_error) = match get_available_models_catalog().await {
+        Ok(models) => (Some(models), None),
+        Err(err) => (None, Some(err)),
+    };
+    let providers_summary = get_model_providers().await?;
+
+    let known_selectors: std::collections::HashSet<String> =
+        catalog.iter().map(|m| m.selector.clone()).collect();
+    let available_selectors: std::collections::HashSet<String> = available_models
+        .as_ref()
+        .map(|list| list.iter().map(|m| m.selector.clone()).collect())
+        .unwrap_or_default();
+    let providers_map: HashMap<String, &ProviderSummaryDto> = providers_summary
+        .iter()
+        .map(|p| (p.id.clone(), p))
+        .collect();
+
+    // 3. Risoluzione configurazione ruoli e catene di riserva
+    let (roles_map, fallback_map) = if roles.as_ref().map_or(true, |r| r.is_empty())
+        || fallback_chains.as_ref().map_or(true, |f| f.is_empty())
+    {
+        let config = get_model_config()
+            .await
+            .unwrap_or_else(|_| default_model_config());
+        let r = match roles {
+            Some(r) if !r.is_empty() => r,
+            _ => config.model_roles,
+        };
+        let f = match fallback_chains {
+            Some(f) if !f.is_empty() => f,
+            _ => config.fallback_chains,
+        };
+        (r, f)
+    } else {
+        (roles.unwrap(), fallback_chains.unwrap())
     };
 
-    let catalog = get_models_catalog().await?;
-
-    let mut candidates = Vec::new();
-
-    // 1. Controlla i ruoli configurati
-    for (role, full_selector) in &roles_map {
-        let (raw_selector, thinking_level) = match full_selector.split_once(':') {
-            Some((sel, th)) => (sel, Some(th.to_string())),
-            None => (full_selector.as_str(), None),
-        };
-
-        let (provider, model_id) = match raw_selector.split_once('/') {
-            Some((p, m)) => (p, m),
-            None => ("", raw_selector),
-        };
-
-        if provider.is_empty() || model_id.is_empty() {
-            continue;
-        }
-
-        let (tpl_cur, ver_cur, date_cur) = parse_model_signature(model_id);
-        let norm_cur = normalize_family_template(&tpl_cur);
-
-        let mut best_upgrade: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
-
-        for m in &catalog {
-            if m.provider != provider || m.id == model_id {
-                continue;
-            }
-
-            let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
-            let norm_cand = normalize_family_template(&tpl_cand);
-            let is_same_family = tpl_cand == tpl_cur || norm_cand == norm_cur;
-
-            if is_same_family
-                && is_version_newer(&ver_cur, date_cur, &ver_cand, date_cand)
-            {
-                if let Some((_, best_ver, best_date)) = &best_upgrade {
-                    if is_version_newer(best_ver, *best_date, &ver_cand, date_cand) {
-                        best_upgrade = Some((m, ver_cand, date_cand));
-                    }
-                } else {
-                    best_upgrade = Some((m, ver_cand, date_cand));
-                }
-            }
-        }
-
-        if let Some((newer_m, _, _)) = best_upgrade {
-            let suggested_selector = match &thinking_level {
-                Some(th) => format!("{}:{}", newer_m.selector, th),
-                None => newer_m.selector.clone(),
-            };
-
-            candidates.push(ModelUpgradeCandidate {
-                role: role.clone(),
-                current_selector: full_selector.clone(),
-                current_model_id: model_id.to_string(),
-                current_provider: provider.to_string(),
-                current_thinking: thinking_level,
-                suggested_selector,
-                suggested_model_id: newer_m.id.clone(),
-                suggested_model_name: newer_m.name.clone(),
-                reason: format!("Disponibile nuova versione: {}", newer_m.name),
-            });
+    let mut slots = Vec::new();
+    for (role, selector) in roles_map {
+        slots.push((role, "primary".to_string(), None, selector));
+    }
+    for (role, chain) in fallback_map {
+        for (i, selector) in chain.into_iter().enumerate() {
+            slots.push((
+                role.clone(),
+                "fallback".to_string(),
+                Some(i as u32),
+                selector,
+            ));
         }
     }
 
-    // Ordina i candidati per determinismo
-    candidates.sort_by(|a, b| a.role.cmp(&b.role));
+    let mut findings = Vec::new();
 
-    Ok(candidates)
+    for (role, kind, index, current_selector) in slots {
+        let (base, current_thinking) =
+            split_model_selector(&current_selector, Some(&known_selectors));
+        let (current_provider, current_model_id) = match base.split_once('/') {
+            Some((p, m)) => (p.to_string(), m.to_string()),
+            None => (String::new(), base.clone()),
+        };
+
+        let p_info = providers_map.get(&current_provider);
+        let is_configured = p_info.map_or(false, |p| p.configured);
+        let is_enabled = p_info.map_or(false, |p| p.enabled);
+
+        let (severity, code, reason) = if !is_configured {
+            (
+                "error",
+                "provider_unconfigured",
+                "Nessuna credenziale configurata per il provider".to_string(),
+            )
+        } else if !is_enabled {
+            (
+                "warn",
+                "provider_disabled",
+                "Provider disabilitato nelle impostazioni".to_string(),
+            )
+        } else if !known_selectors.contains(&base) {
+            (
+                "error",
+                "removed",
+                "Modello non piu presente nel catalogo del provider".to_string(),
+            )
+        } else if catalog_error.is_none() && !available_selectors.contains(&base) {
+            (
+                "error",
+                "not_offered",
+                "Modello non offerto dalle credenziali attive".to_string(),
+            )
+        } else {
+            // e. Ricerca eventuale aggiornamento di versione
+            let (tpl_cur, ver_cur, date_cur) = parse_model_signature(&current_model_id);
+            let norm_cur = normalize_family_template(&tpl_cur);
+
+            let mut best_upgrade: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
+            for m in &catalog {
+                if m.provider != current_provider || m.id == current_model_id {
+                    continue;
+                }
+
+                let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
+                let norm_cand = normalize_family_template(&tpl_cand);
+                let is_same_family = tpl_cand == tpl_cur || norm_cand == norm_cur;
+
+                if is_same_family && is_version_newer(&ver_cur, date_cur, &ver_cand, date_cand) {
+                    if let Some((_, best_ver, best_date)) = &best_upgrade {
+                        if is_version_newer(best_ver, *best_date, &ver_cand, date_cand) {
+                            best_upgrade = Some((m, ver_cand, date_cand));
+                        }
+                    } else {
+                        best_upgrade = Some((m, ver_cand, date_cand));
+                    }
+                }
+            }
+
+            if let Some((newer_m, _, _)) = best_upgrade {
+                let suggested_selector = match &current_thinking {
+                    Some(th) => format!("{}:{}", newer_m.selector, th),
+                    None => newer_m.selector.clone(),
+                };
+
+                findings.push(ModelFinding {
+                    role,
+                    kind,
+                    index,
+                    current_selector,
+                    current_model_id,
+                    current_provider,
+                    current_thinking,
+                    severity: "info".to_string(),
+                    code: "upgrade".to_string(),
+                    reason: format!("Disponibile nuova versione: {}", newer_m.name),
+                    suggested_selector: Some(suggested_selector),
+                    suggested_model_name: Some(newer_m.name.clone()),
+                });
+            }
+            continue;
+        };
+
+        // Proposta di rimpiazzo per codici bloccanti tra i modelli disponibili
+        let mut suggested_selector = None;
+        let mut suggested_model_name = None;
+
+        if let Some(avail) = &available_models {
+            let (tpl_cur, _ver_cur, _date_cur) = parse_model_signature(&current_model_id);
+            let norm_cur = normalize_family_template(&tpl_cur);
+
+            let mut best_replacement: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
+
+            for m in avail {
+                let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
+                let norm_cand = normalize_family_template(&tpl_cand);
+                let is_same_family = tpl_cand == tpl_cur || norm_cand == norm_cur;
+
+                if !is_same_family {
+                    continue;
+                }
+
+                if let Some((best_m, best_ver, best_date)) = &best_replacement {
+                    if is_version_newer(best_ver, *best_date, &ver_cand, date_cand) {
+                        best_replacement = Some((m, ver_cand, date_cand));
+                    } else if !is_version_newer(&ver_cand, date_cand, best_ver, *best_date) {
+                        if m.provider == current_provider && best_m.provider != current_provider {
+                            best_replacement = Some((m, ver_cand, date_cand));
+                        }
+                    }
+                } else {
+                    best_replacement = Some((m, ver_cand, date_cand));
+                }
+            }
+
+            if let Some((repl_m, _, _)) = best_replacement {
+                let sel = match &current_thinking {
+                    Some(th) => format!("{}:{}", repl_m.selector, th),
+                    None => repl_m.selector.clone(),
+                };
+                suggested_selector = Some(sel);
+                suggested_model_name = Some(repl_m.name.clone());
+            }
+        }
+
+        findings.push(ModelFinding {
+            role,
+            kind,
+            index,
+            current_selector,
+            current_model_id,
+            current_provider,
+            current_thinking,
+            severity: severity.to_string(),
+            code: code.to_string(),
+            reason,
+            suggested_selector,
+            suggested_model_name,
+        });
+    }
+
+    // Ordina: prima i bloccanti (code != "upgrade"), poi per role, poi primary prima di fallback, poi per index
+    findings.sort_by(|a, b| {
+        let a_blocking = a.code != "upgrade";
+        let b_blocking = b.code != "upgrade";
+        b_blocking
+            .cmp(&a_blocking)
+            .then_with(|| a.role.cmp(&b.role))
+            .then_with(|| {
+                let a_is_primary = a.kind == "primary";
+                let b_is_primary = b.kind == "primary";
+                b_is_primary.cmp(&a_is_primary)
+            })
+            .then_with(|| a.index.cmp(&b.index))
+    });
+
+    let checked_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let catalog_age_days = catalog_age_hours().map(|h| h / 24.0);
+
+    Ok(ModelHealthReport {
+        checked_at,
+        catalog_age_days,
+        catalog_error,
+        findings,
+    })
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpgradeApplyItem {
-    pub role: String,
-    pub new_selector: String,
+/// Applica le modifiche alla configurazione in modo puro e atomico.
+pub fn apply_fixes_to_config(
+    config: &mut ModelConfigDto,
+    fixes: Vec<ModelFixItem>,
+) -> Result<(), String> {
+    let mut working = config.clone();
+
+    let mut primary_fixes = Vec::new();
+    let mut fallback_replaces = Vec::new();
+    let mut fallback_removes = Vec::new();
+
+    for fix in fixes {
+        match fix.kind.as_str() {
+            "primary" => primary_fixes.push(fix),
+            "fallback" => match fix.action.as_str() {
+                "replace" => fallback_replaces.push(fix),
+                "remove" => fallback_removes.push(fix),
+                unknown => {
+                    return Err(format!(
+                        "Azione non valida '{}' per fallback del ruolo '{}'",
+                        unknown, fix.role
+                    ))
+                }
+            },
+            unknown => {
+                return Err(format!(
+                    "Tipo di elemento non valido '{}' per il ruolo '{}'",
+                    unknown, fix.role
+                ))
+            }
+        }
+    }
+
+    // Applica fix primari
+    for fix in primary_fixes {
+        match fix.action.as_str() {
+            "replace" => {
+                let new_sel = fix.new_selector.ok_or_else(|| {
+                    format!(
+                        "Nuovo selettore non specificato per sostituire il ruolo primario '{}'",
+                        fix.role
+                    )
+                })?;
+                working.model_roles.insert(fix.role, new_sel);
+            }
+            "remove" => {
+                working.model_roles.remove(&fix.role);
+            }
+            unknown => {
+                return Err(format!(
+                    "Azione non valida '{}' per il ruolo primario '{}'",
+                    unknown, fix.role
+                ))
+            }
+        }
+    }
+
+    // Applica fallback replace
+    for fix in fallback_replaces {
+        let idx = fix.index.ok_or_else(|| {
+            format!(
+                "Indice non specificato per la sostituzione fallback del ruolo '{}'",
+                fix.role
+            )
+        })? as usize;
+        let chain = working
+            .fallback_chains
+            .get_mut(&fix.role)
+            .ok_or_else(|| format!("Catena di riserva per il ruolo '{}' non presente", fix.role))?;
+        if idx >= chain.len() {
+            return Err(format!(
+                "Indice {} fuori intervallo per la catena di riserva del ruolo '{}' (lunghezza {})",
+                idx,
+                fix.role,
+                chain.len()
+            ));
+        }
+        let new_sel = fix.new_selector.ok_or_else(|| {
+            format!(
+                "Nuovo selettore non specificato per sostituire il fallback all'indice {} del ruolo '{}'",
+                idx, fix.role
+            )
+        })?;
+        chain[idx] = new_sel;
+    }
+
+    // Raggruppa fallback remove per ruolo e applicali in ordine DECRESCENTE di indice
+    let mut removes_by_role: HashMap<String, Vec<u32>> = HashMap::new();
+    for fix in fallback_removes {
+        let idx = fix.index.ok_or_else(|| {
+            format!(
+                "Indice non specificato per la rimozione fallback del ruolo '{}'",
+                fix.role
+            )
+        })?;
+        removes_by_role.entry(fix.role).or_default().push(idx);
+    }
+
+    for (role, mut indices) in removes_by_role {
+        indices.sort_by(|a, b| b.cmp(a));
+
+        for window in indices.windows(2) {
+            if window[0] == window[1] {
+                return Err(format!(
+                    "Indice fallback {} specificato piu' volte per la rimozione nel ruolo '{}'",
+                    window[0], role
+                ));
+            }
+        }
+
+        let chain = working
+            .fallback_chains
+            .get_mut(&role)
+            .ok_or_else(|| format!("Catena di riserva per il ruolo '{}' non presente", role))?;
+
+        for idx_u32 in indices {
+            let idx = idx_u32 as usize;
+            if idx >= chain.len() {
+                return Err(format!(
+                    "Indice {} fuori intervallo per la rimozione fallback del ruolo '{}' (lunghezza {})",
+                    idx, role, chain.len()
+                ));
+            }
+            chain.remove(idx);
+        }
+    }
+
+    *config = working;
+    Ok(())
 }
 
 #[command]
-pub async fn apply_model_upgrades(updates: Vec<UpgradeApplyItem>) -> Result<(), String> {
+pub async fn apply_model_fixes(fixes: Vec<ModelFixItem>) -> Result<(), String> {
     let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
     let path = agent.join("config.yml");
-    mutate_model_config_path(&path, move |config| {
-        for item in updates {
-            config.model_roles.insert(item.role, item.new_selector);
-        }
-    })
+    mutate_model_config_path(&path, move |config| apply_fixes_to_config(config, fixes))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2503,15 +2891,24 @@ mod tests {
     #[test]
     fn humanizes_provider_ids_without_static_name() {
         assert_eq!(humanize_provider_id("tokenrouter"), "Tokenrouter");
-        assert_eq!(humanize_provider_id("my-local-endpoint"), "My Local Endpoint");
+        assert_eq!(
+            humanize_provider_id("my-local-endpoint"),
+            "My Local Endpoint"
+        );
         assert_eq!(humanize_provider_id("solo_underscore"), "Solo Underscore");
     }
 
     #[test]
     fn provider_display_name_prefers_builtin_then_plugin_then_humanized() {
-        assert_eq!(provider_display_name("anthropic", false), "Anthropic Claude");
+        assert_eq!(
+            provider_display_name("anthropic", false),
+            "Anthropic Claude"
+        );
         assert_eq!(provider_display_name("commandcode", false), "Command Code");
-        assert_eq!(provider_display_name("brand-new-plugin", false), "Brand New Plugin");
+        assert_eq!(
+            provider_display_name("brand-new-plugin", false),
+            "Brand New Plugin"
+        );
         // Un provider custom prende sempre il nome umanizzato dell'id: non
         // ha un campo "name" proprio in `CustomProviderDef`.
         assert_eq!(provider_display_name("anthropic", true), "Anthropic");
@@ -2538,7 +2935,11 @@ mod tests {
         assert_eq!(opus.selector, "anthropic/claude-opus-5");
         assert_eq!(
             opus.thinking.as_ref().and_then(|t| t.efforts.as_deref()),
-            Some(["low", "medium", "high", "max"].map(String::from).as_slice())
+            Some(
+                ["low", "medium", "high", "max"]
+                    .map(String::from)
+                    .as_slice()
+            )
         );
         assert_eq!(opus.cost.as_ref().and_then(|c| c.output), Some(25.0));
         assert!(!opus.is_custom);
@@ -2587,7 +2988,6 @@ mod tests {
         assert!(is_version_newer(&ver_ds1, None, &ver_ds2, None));
     }
 
-
     #[test]
     fn test_parse_model_signature_gemini_38_upgrade() {
         let (tpl_g37, ver_g37, d_g37) = parse_model_signature("gemini-3.7-flash");
@@ -2614,7 +3014,102 @@ mod tests {
     }
 
     #[test]
-    fn test_check_model_upgrades_finds_gemini_38() {
+    fn test_split_model_selector() {
+        let mut known = std::collections::HashSet::new();
+        known.insert("nanogpt/anthropic/claude-opus-4.6:thinking:max".to_string());
+
+        // 1. "anthropic/claude-opus-5:high" -> ("anthropic/claude-opus-5", Some("high"))
+        let (base1, th1) = split_model_selector("anthropic/claude-opus-5:high", None);
+        assert_eq!(base1, "anthropic/claude-opus-5");
+        assert_eq!(th1, Some("high".to_string()));
+
+        // 2. "kilo/arcee-ai/trinity-large-preview:free" -> invariato, None
+        let (base2, th2) = split_model_selector("kilo/arcee-ai/trinity-large-preview:free", None);
+        assert_eq!(base2, "kilo/arcee-ai/trinity-large-preview:free");
+        assert_eq!(th2, None);
+
+        // 3. "nanogpt/anthropic/claude-opus-4.6:thinking:max" con selettore nel set noto -> invariato, None
+        let (base3, th3) = split_model_selector(
+            "nanogpt/anthropic/claude-opus-4.6:thinking:max",
+            Some(&known),
+        );
+        assert_eq!(base3, "nanogpt/anthropic/claude-opus-4.6:thinking:max");
+        assert_eq!(th3, None);
+
+        // 4. Stesso selettore SENZA il set noto -> base "...:thinking", Some("max")
+        let (base4, th4) =
+            split_model_selector("nanogpt/anthropic/claude-opus-4.6:thinking:max", None);
+        assert_eq!(base4, "nanogpt/anthropic/claude-opus-4.6:thinking");
+        assert_eq!(th4, Some("max".to_string()));
+
+        // 5. Selettore senza ':' -> invariato, None
+        let (base5, th5) = split_model_selector("openai/gpt-4o", None);
+        assert_eq!(base5, "openai/gpt-4o");
+        assert_eq!(th5, None);
+    }
+
+    #[test]
+    fn test_apply_fixes_to_config_removals_and_out_of_bounds() {
+        let mut config = default_model_config();
+        let mut fallbacks = HashMap::new();
+        fallbacks.insert(
+            "task".to_string(),
+            vec![
+                "provider/model-0".to_string(),
+                "provider/model-1".to_string(),
+                "provider/model-2".to_string(),
+            ],
+        );
+        config.fallback_chains = fallbacks;
+
+        let original_config = config.clone();
+
+        // 1. Indice fuori intervallo: restituisce Err e la config rimane invariata
+        let oob_fixes = vec![ModelFixItem {
+            role: "task".to_string(),
+            kind: "fallback".to_string(),
+            index: Some(99),
+            action: "remove".to_string(),
+            new_selector: None,
+        }];
+        let err = apply_fixes_to_config(&mut config, oob_fixes);
+        assert!(err.is_err(), "Dovrebbe fallire per indice fuori intervallo");
+        assert_eq!(
+            config.fallback_chains.get("task").unwrap(),
+            original_config.fallback_chains.get("task").unwrap(),
+            "La config deve rimanere invariata su errore"
+        );
+
+        // 2. Rimozione di due fallback dello stesso ruolo con indici 0 e 1 in una sola chiamata
+        let remove_fixes = vec![
+            ModelFixItem {
+                role: "task".to_string(),
+                kind: "fallback".to_string(),
+                index: Some(0),
+                action: "remove".to_string(),
+                new_selector: None,
+            },
+            ModelFixItem {
+                role: "task".to_string(),
+                kind: "fallback".to_string(),
+                index: Some(1),
+                action: "remove".to_string(),
+                new_selector: None,
+            },
+        ];
+        apply_fixes_to_config(&mut config, remove_fixes)
+            .expect("Rimozione multipla fallback deve riuscire");
+
+        let task_chain = config.fallback_chains.get("task").expect("catena presente");
+        assert_eq!(
+            task_chain,
+            &vec!["provider/model-2".to_string()],
+            "Gli elementi agli indici 0 e 1 devono essere stati entrambi rimossi"
+        );
+    }
+
+    #[test]
+    fn test_check_model_health_finds_gemini_38() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let mut roles = HashMap::new();
@@ -2627,18 +3122,23 @@ mod tests {
                 "google-antigravity/gemini-3.7-flash:high".to_string(),
             );
 
-            let candidates = check_model_upgrades(Some(roles), Some(false))
+            let report = check_model_health(Some(roles), None, Some(false), None)
                 .await
-                .expect("check_model_upgrades");
+                .expect("check_model_health");
 
-            assert_eq!(candidates.len(), 2);
-            for cand in candidates {
-                assert!(cand.role == "smol" || cand.role == "task");
-                assert_eq!(cand.current_model_id, "gemini-3.7-flash");
-                assert_eq!(cand.suggested_model_id, "gemini-3.8-flash");
+            let upgrades: Vec<_> = report
+                .findings
+                .iter()
+                .filter(|f| f.kind == "primary" && (f.role == "smol" || f.role == "task"))
+                .collect();
+
+            assert_eq!(upgrades.len(), 2);
+            for finding in upgrades {
+                assert_eq!(finding.current_model_id, "gemini-3.7-flash");
+                assert_eq!(finding.code, "upgrade");
                 assert_eq!(
-                    cand.suggested_selector,
-                    "google-antigravity/gemini-3.8-flash:high"
+                    finding.suggested_selector.as_deref(),
+                    Some("google-antigravity/gemini-3.8-flash:high")
                 );
             }
         });
@@ -2689,12 +3189,8 @@ mod tests {
         let original = b"{\"providers\": ";
         fs::write(&json_path, original).expect("scrittura fixture");
 
-        let error = save_custom_providers_paths(
-            &json_path,
-            &yml_path,
-            &sample_custom_providers(),
-        )
-        .expect_err("il salvataggio deve fallire");
+        let error = save_custom_providers_paths(&json_path, &yml_path, &sample_custom_providers())
+            .expect_err("il salvataggio deve fallire");
 
         assert!(error.contains("Parsing JSON"));
         assert_eq!(fs::read(&json_path).expect("rilettura fixture"), original);
@@ -2771,17 +3267,16 @@ mod tests {
         )
         .expect("scrittura YAML fixture");
 
-        save_custom_providers_paths(
-            &json_path,
-            &yml_path,
-            &sample_custom_providers(),
-        )
-        .expect("salvataggio provider");
+        save_custom_providers_paths(&json_path, &yml_path, &sample_custom_providers())
+            .expect("salvataggio provider");
 
         let json: serde_json::Value =
             serde_json::from_slice(&fs::read(&json_path).expect("lettura JSON"))
                 .expect("JSON valido");
-        assert_eq!(json.pointer("/rootExtra/keep").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            json.pointer("/rootExtra/keep").and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert_eq!(
             json.pointer("/providers/custom/providerExtra")
                 .and_then(|v| v.as_u64()),
@@ -2877,6 +3372,7 @@ mod tests {
                     config
                         .model_roles
                         .insert(format!("role-{}", index), format!("model-{}", index));
+                    Ok(())
                 })
             }));
         }

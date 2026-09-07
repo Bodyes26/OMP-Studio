@@ -121,8 +121,8 @@ commands.allow = [
     "get_auth_accounts",
     "remove_auth_account",
     "refresh_model_provider",
-    "check_model_upgrades",
-    "apply_model_upgrades",
+    "check_model_health",
+    "apply_model_fixes",
     "get_role_suggestions"
 ]
 

@@ -14,6 +14,7 @@
 	import QuotaChip from './quota/QuotaChip.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
 	import { companionStore } from '$lib/stores/companion.svelte';
+	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import {
 		IconChevronDown,
 		IconChevronLeft,
@@ -108,6 +109,14 @@
 		projectOrder.list.some((candidate) => candidate.id === projectStore.activeId)
 			? projectStore.activeId
 			: projectOrder.list[0]?.id ?? null
+	);
+
+	/** Tooltip e aria-label per la chip impostazioni: se c'e' un avviso di salute
+	 *  dei modelli, antepone il riassunto alla descrizione con la scorciatoia. */
+	const settingsChipTitle = $derived(
+		modelSettingsStore.attentionLevel !== 'none' && modelSettingsStore.attentionTooltip
+			? `${modelSettingsStore.attentionTooltip} — Impostazioni di Studio (Ctrl+Alt+,)`
+			: 'Impostazioni di Studio (Ctrl+Alt+,)'
 	);
 
 	function updateScrollState() {
@@ -607,11 +616,25 @@
 		{/if}
 		<button
 			class="settings-chip"
-			onclick={(e) => { e.stopPropagation(); onSettingsClick?.(); }}
-			title="Impostazioni di Studio (Ctrl+Alt+,)"
-			aria-label="Impostazioni di Studio (Ctrl+Alt+,)"
+			class:warn={modelSettingsStore.attentionLevel === 'warn'}
+			class:info={modelSettingsStore.attentionLevel === 'info'}
+			onclick={(e) => {
+				e.stopPropagation();
+				if (modelSettingsStore.attentionLevel !== 'none') {
+					onSettingsClick?.('models');
+				} else {
+					onSettingsClick?.();
+				}
+			}}
+			title={settingsChipTitle}
+			aria-label={settingsChipTitle}
 		>
 			<IconSettings /> Impostazioni
+			{#if modelSettingsStore.attentionLevel === 'warn'}
+				<span class="settings-badge warn" aria-hidden="true">!</span>
+			{:else if modelSettingsStore.attentionLevel === 'info'}
+				<span class="settings-badge info" aria-hidden="true"></span>
+			{/if}
 		</button>
 
 		<button
@@ -1203,6 +1226,49 @@
 		color: var(--ink);
 		border-color: var(--brand);
 		background: var(--bg-hover);
+	}
+
+	/* Stato di attenzione per la salute dei modelli: coerente con .setup-chip */
+	.settings-chip.warn {
+		border-color: var(--warn-dim);
+		color: var(--warn);
+	}
+
+	.settings-chip.warn:hover {
+		border-color: var(--warn);
+		background: var(--bg-hover);
+	}
+
+	.settings-chip.info {
+		border-color: var(--brand-dim);
+		color: var(--ink);
+	}
+
+	.settings-chip.info:hover {
+		border-color: var(--brand);
+		background: var(--bg-hover);
+	}
+
+	.settings-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.settings-badge.warn {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-weight: 700;
+		color: var(--warn);
+		line-height: 1;
+	}
+
+	.settings-badge.info {
+		width: 6px;
+		height: 6px;
+		border-radius: var(--radius-full);
+		background: var(--brand);
 	}
 
 	.companion-chip.active {

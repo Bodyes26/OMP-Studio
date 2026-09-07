@@ -7,6 +7,7 @@
 		type RoleSuggestionsResponse,
 		type SuggestedModelItem
 	} from '$lib/stores/modelSettings.svelte';
+	import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
 	import { IconClose, IconCheck, IconWarning } from '$lib/icons';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import ReasoningSlider from './ReasoningSlider.svelte';
@@ -42,15 +43,14 @@
 
 	function getRoleModelRaw(roleId: string): string {
 		const full = getRoleSelector(roleId);
-		return full.split(':')[0] || '';
+		if (!full) return '';
+		return splitModelSelector(full, modelSettingsStore.knownSelectors).base;
 	}
 
 	function getRoleThinking(roleId: string): string {
 		const full = getRoleSelector(roleId);
-		if (full.includes(':')) {
-			return full.split(':')[1];
-		}
-		return 'auto';
+		if (!full) return 'auto';
+		return splitModelSelector(full, modelSettingsStore.knownSelectors).thinking ?? 'auto';
 	}
 	const configuredCount = $derived(
 		STANDARD_ROLES.filter((r) => !!getRoleSelector(r.id)).length
@@ -63,12 +63,13 @@
 	function getModelDto(selector: string): ModelDto | undefined {
 		return resolveCatalogModel(modelSettingsStore.catalog, selector);
 	}
-
 	const selectedRoleModelRaw = $derived(getRoleModelRaw(selectedRole.id));
 	const selectedRoleModelDto = $derived(getModelDto(selectedRoleModelRaw));
 	const selectedRoleThinking = $derived(getRoleThinking(selectedRole.id));
 	const selectedRoleFallbacks = $derived(getFallbacks(selectedRole.id));
-
+	const selectedRolePrimaryFinding = $derived(
+		modelSettingsStore.findingFor(selectedRole.id, 'primary')
+	);
 	// Caricamento dinamico dei suggerimenti con OMP e caching
 	$effect(() => {
 		const roleId = selectedRole.id;
@@ -133,6 +134,15 @@
 		modelSettingsStore.removeFallback(roleId, index);
 	}
 
+	function replaceFallback(roleId: string, index: number, newSelector: string) {
+		if (!modelSettingsStore.draftConfig?.fallbackChains[roleId]) return;
+		const list = [...modelSettingsStore.draftConfig.fallbackChains[roleId]];
+		list[index] = newSelector;
+		modelSettingsStore.draftConfig.fallbackChains = {
+			...modelSettingsStore.draftConfig.fallbackChains,
+			[roleId]: list
+		};
+	}
 	function formatContextTokens(tokens?: number) {
 		if (!tokens) return '';
 		if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M ctx`;
@@ -203,8 +213,17 @@
 				{@const modelDto = getModelDto(rawModel)}
 				{@const isConfigured = !!rawModel}
 				{@const isSelected = role.id === selectedRole.id}
-				{@const fallbacksCount = getFallbacks(role.id).length}
+				{@const primaryFinding = modelSettingsStore.findingFor(role.id, 'primary')}
+				{@const isPrimaryBlocking = Boolean(primaryFinding && (primaryFinding.severity === 'error' || primaryFinding.severity === 'warn' || primaryFinding.code !== 'upgrade'))}
+				{@const roleFallbacks = getFallbacks(role.id)}
+				{@const fallbacksCount = roleFallbacks.length}
+				{@const fallbackBlockingCount = roleFallbacks.reduce((acc, _, idx) => {
+					const f = modelSettingsStore.findingFor(role.id, 'fallback', idx);
+					return (f && (f.severity === 'error' || f.severity === 'warn' || f.code !== 'upgrade')) ? acc + 1 : acc;
+				}, 0)}
 				{@const RoleIcon = role.icon}
+				{@const slashIdx = rawModel.indexOf('/')}
+				{@const modelDisplayName = modelDto?.name || (slashIdx >= 0 ? rawModel.slice(slashIdx + 1) : rawModel)}
 
 				<button
 					type="button"
@@ -221,20 +240,30 @@
 					<div class="role-nav-meta">
 						<div class="role-nav-top">
 							<span class="role-nav-name">{role.label}</span>
-							{#if isConfigured}
-								<span class="status-indicator configured" title="Configurato"><IconCheck /></span>
-							{:else}
+							{#if !isConfigured}
 								<span class="status-indicator warning" title="Non configurato"><IconWarning /></span>
+							{:else if isPrimaryBlocking}
+								<span class="status-indicator error" title={primaryFinding?.reason}><IconWarning /></span>
+							{:else}
+								<span class="status-indicator configured" title="Configurato"><IconCheck /></span>
 							{/if}
 						</div>
 
 						<div class="role-nav-bottom">
 							{#if isConfigured}
 								<span class="role-nav-model truncate" title={rawModel}>
-									{modelDto?.name || rawModel.split('/')[1] || rawModel}
+									{modelDisplayName}
 								</span>
 								{#if fallbacksCount > 0}
-									<span class="fallback-pill">+{fallbacksCount}</span>
+									<span
+										class="fallback-pill"
+										class:alert={fallbackBlockingCount > 0}
+										title={fallbackBlockingCount > 0
+											? `${fallbacksCount} riserve (${fallbackBlockingCount} con problemi)`
+											: `${fallbacksCount} riserve configurate`}
+									>
+										+{fallbacksCount}
+									</span>
 								{/if}
 							{:else}
 								<span class="role-nav-empty">Non configurato</span>
@@ -309,6 +338,30 @@
 					</span>
 				</div>
 
+				{#if selectedRolePrimaryFinding}
+					<div
+						class="primary-finding-alert"
+						class:error={selectedRolePrimaryFinding.severity === 'error'}
+						class:warn={selectedRolePrimaryFinding.severity !== 'error'}
+					>
+						<span class="finding-alert-icon">
+							<IconWarning />
+						</span>
+						<div class="finding-alert-body">
+							<span class="finding-alert-reason">{selectedRolePrimaryFinding.reason}</span>
+							{#if selectedRolePrimaryFinding.suggestedSelector}
+								<button
+									type="button"
+									class="btn-apply-primary-fix"
+									onclick={() => modelSettingsStore.setRoleModel(selectedRole.id, selectedRolePrimaryFinding.suggestedSelector!)}
+									title="Aggiorna modello primario a {selectedRolePrimaryFinding.suggestedSelector}"
+								>
+									Usa {selectedRolePrimaryFinding.suggestedModelName || selectedRolePrimaryFinding.suggestedSelector}
+								</button>
+							{/if}
+						</div>
+					</div>
+				{/if}
 				<div class="picker-container">
 					<ModelPickerDropdown
 						catalog={modelSettingsStore.assignableCatalog}
@@ -371,6 +424,8 @@
 								{@const modelDto = getModelDto(sug.selector)}
 								{@const isAlreadySelected = selectedRoleModelRaw === sug.selector}
 								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? ` • Velocità: ${Math.round(sug.tokensPerSec)} tok/s` : ''} (${sug.selector})`}
+								{@const sugClean = splitModelSelector(sug.selector, modelSettingsStore.knownSelectors).base}
+								{@const sugSlash = sugClean.indexOf('/')}
 								<button
 									type="button"
 									class="suggestion-chip"
@@ -378,8 +433,8 @@
 									onclick={() => handleApplyPrimarySuggestion(sug)}
 									title={tooltipText}
 								>
-									<span class="sug-provider">{modelDto?.provider || sug.selector.split('/')[0] || ''}</span>
-									<span class="sug-name">{modelDto?.name || sug.selector.split('/')[1] || sug.selector}</span>
+									<span class="sug-provider">{modelDto?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
+									<span class="sug-name">{modelDto?.name || (sugSlash >= 0 ? sugClean.slice(sugSlash + 1) : sugClean)}</span>
 									{#if sug.badge}
 										<span class="sug-badge" class:elo-badge={sug.badge.includes('ELO')} class:speed-badge={sug.badge.includes('tok/s')}>{sug.badge}</span>
 									{/if}
@@ -423,17 +478,56 @@
 				<!-- Lista Fallback -->
 				<div class="fallbacks-list">
 					{#each selectedRoleFallbacks as fbSelector, idx (fbSelector + idx)}
-						{@const fbModel = getModelDto(fbSelector)}
-						<div class="fallback-row">
+						{@const fbClean = splitModelSelector(fbSelector, modelSettingsStore.knownSelectors).base}
+						{@const fbModel = getModelDto(fbClean)}
+						{@const slashPos = fbClean.indexOf('/')}
+						{@const fallbackDisplayName = fbModel?.name || (slashPos >= 0 ? fbClean.slice(slashPos + 1) : fbClean)}
+						{@const fbFinding = modelSettingsStore.findingFor(selectedRole.id, 'fallback', idx)}
+						<div
+							class="fallback-row"
+							class:has-finding={Boolean(fbFinding)}
+							class:finding-error={fbFinding?.severity === 'error'}
+							class:finding-warn={Boolean(fbFinding && fbFinding.severity !== 'error')}
+						>
 							<span class="fb-order">#{idx + 1}</span>
 							
 							<div class="fb-info">
-								<span class="fb-name">{fbModel?.name || fbSelector.split('/')[1] || fbSelector}</span>
-								{#if fbModel}
-									<span class="fb-provider-tag">{fbModel.provider}</span>
+								<div class="fb-name-line">
+									{#if fbFinding}
+										<span
+											class="fb-finding-icon"
+											class:error={fbFinding.severity === 'error'}
+											class:warn={fbFinding.severity !== 'error'}
+											title={fbFinding.reason}
+										>
+											<IconWarning />
+										</span>
+									{/if}
+									<span class="fb-name">{fallbackDisplayName}</span>
+									{#if fbModel}
+										<span class="fb-provider-tag">{fbModel.provider}</span>
+									{/if}
+								</div>
+								{#if fbFinding}
+									<div
+										class="fb-finding-reason-row"
+										class:error={fbFinding.severity === 'error'}
+										class:warn={fbFinding.severity !== 'error'}
+									>
+										<span class="fb-finding-text" title={fbFinding.reason}>{fbFinding.reason}</span>
+										{#if fbFinding.suggestedSelector}
+											<button
+												type="button"
+												class="btn-replace-fb"
+												onclick={() => replaceFallback(selectedRole.id, idx, fbFinding.suggestedSelector!)}
+												title="Sostituisci con {fbFinding.suggestedSelector}"
+											>
+												Usa {fbFinding.suggestedModelName || fbFinding.suggestedSelector}
+											</button>
+										{/if}
+									</div>
 								{/if}
 							</div>
-
 							<div class="fb-actions">
 								<button
 									type="button"
@@ -520,6 +614,8 @@
 								{@const fbModel = getModelDto(sug.selector)}
 								{@const alreadyInFallback = selectedRoleFallbacks.includes(sug.selector)}
 								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? ` • Velocità: ${Math.round(sug.tokensPerSec)} tok/s` : ''} (${sug.selector})`}
+								{@const sugClean = splitModelSelector(sug.selector, modelSettingsStore.knownSelectors).base}
+								{@const sugSlash = sugClean.indexOf('/')}
 								{#if !alreadyInFallback && sug.selector !== selectedRoleModelRaw}
 									<button
 										type="button"
@@ -527,8 +623,8 @@
 										onclick={() => handleAddFallback(selectedRole.id, sug.selector)}
 										title={tooltipText}
 									>
-										<span class="sug-provider">{fbModel?.provider || sug.selector.split('/')[0] || ''}</span>
-										<span class="sug-name">{fbModel?.name || sug.selector.split('/')[1] || sug.selector}</span>
+										<span class="sug-provider">{fbModel?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
+										<span class="sug-name">{fbModel?.name || (sugSlash >= 0 ? sugClean.slice(sugSlash + 1) : sugClean)}</span>
 										{#if sug.badge}
 											<span class="sug-badge fallback-badge" class:free-badge={sug.badge.includes('Zero-Cost') || sug.isFree}>{sug.badge}</span>
 										{/if}
@@ -715,6 +811,10 @@
 		color: var(--warn);
 	}
 
+	.status-indicator.error {
+		color: var(--danger);
+	}
+
 	.role-nav-bottom {
 		display: flex;
 		align-items: center;
@@ -740,6 +840,12 @@
 		color: var(--brand-ink);
 		border: 1px solid var(--line);
 		flex-shrink: 0;
+	}
+
+	.fallback-pill.alert {
+		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+		background: color-mix(in srgb, var(--warn) 12%, transparent);
 	}
 
 	.role-nav-empty {
@@ -949,6 +1055,69 @@
 		color: var(--ink-faint);
 	}
 
+	.primary-finding-alert {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		padding: 8px 12px;
+		border-radius: var(--radius-md);
+		font-size: 11.5px;
+		margin-bottom: 8px;
+	}
+
+	.primary-finding-alert.error {
+		background: color-mix(in srgb, var(--danger) 8%, var(--bg-base));
+		border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+		color: var(--danger);
+	}
+
+	.primary-finding-alert.warn {
+		background: color-mix(in srgb, var(--warn) 8%, var(--bg-base));
+		border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+		color: var(--warn);
+	}
+
+	.finding-alert-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		font-size: 13px;
+		margin-top: 1px;
+	}
+
+	.finding-alert-body {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		flex: 1;
+		min-width: 0;
+		flex-wrap: wrap;
+	}
+
+	.finding-alert-reason {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.btn-apply-primary-fix {
+		padding: 3px 8px;
+		background: var(--bg-base);
+		border: 1px solid currentColor;
+		border-radius: var(--radius-sm);
+		font-size: 11px;
+		font-weight: 500;
+		color: inherit;
+		cursor: pointer;
+		transition: all 120ms ease;
+		white-space: nowrap;
+	}
+
+	.btn-apply-primary-fix:hover {
+		background: var(--bg-hover);
+	}
+
 	.picker-container {
 		width: 100%;
 	}
@@ -1143,6 +1312,17 @@
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
+		transition: all 120ms ease;
+	}
+
+	.fallback-row.has-finding {
+		border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+		background: color-mix(in srgb, var(--warn) 5%, var(--bg-base));
+	}
+
+	.fallback-row.finding-error {
+		border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+		background: color-mix(in srgb, var(--danger) 5%, var(--bg-base));
 	}
 
 	.fb-order {
@@ -1158,10 +1338,71 @@
 		flex: 1;
 		min-width: 0;
 		display: flex;
-		align-items: center;
-		gap: 6px;
+		flex-direction: column;
+		gap: 2px;
 	}
 
+	.fb-name-line {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+	}
+
+	.fb-finding-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 11px;
+		flex-shrink: 0;
+	}
+
+	.fb-finding-icon.error {
+		color: var(--danger);
+	}
+
+	.fb-finding-icon.warn {
+		color: var(--warn);
+	}
+
+	.fb-finding-reason-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+		font-size: 10px;
+	}
+
+	.fb-finding-reason-row.error {
+		color: var(--danger);
+	}
+
+	.fb-finding-reason-row.warn {
+		color: var(--warn);
+	}
+
+	.fb-finding-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.btn-replace-fb {
+		padding: 1px 6px;
+		background: var(--bg-base);
+		border: 1px solid currentColor;
+		border-radius: var(--radius-sm);
+		font-size: 9.5px;
+		font-weight: 500;
+		color: inherit;
+		cursor: pointer;
+		transition: all 120ms ease;
+		white-space: nowrap;
+	}
+
+	.btn-replace-fb:hover {
+		background: var(--bg-hover);
+	}
 	.fb-name {
 		font-family: var(--font-mono);
 		font-size: 11.5px;
