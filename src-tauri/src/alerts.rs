@@ -1,13 +1,9 @@
-use tauri::{AppHandle, Manager, UserAttentionType};
 #[cfg(target_os = "windows")]
 use tauri::WebviewWindow;
+use tauri::{AppHandle, Manager, UserAttentionType};
 
 #[tauri::command]
-pub fn set_app_attention(
-    app: AppHandle,
-    count: u32,
-    alert: bool,
-) -> Result<(), String> {
+pub fn set_app_attention(app: AppHandle, count: u32, alert: bool) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         if count > 0 {
             #[cfg(target_os = "windows")]
@@ -59,10 +55,22 @@ struct ITaskbarList3Vtbl {
     pub Release: unsafe extern "system" fn(this: *mut std::ffi::c_void) -> u32,
     // ITaskbarList
     pub HrInit: unsafe extern "system" fn(this: *mut std::ffi::c_void) -> i32,
-    pub AddTab: unsafe extern "system" fn(this: *mut std::ffi::c_void, hwnd: windows_sys::Win32::Foundation::HWND) -> i32,
-    pub DeleteTab: unsafe extern "system" fn(this: *mut std::ffi::c_void, hwnd: windows_sys::Win32::Foundation::HWND) -> i32,
-    pub ActivateTab: unsafe extern "system" fn(this: *mut std::ffi::c_void, hwnd: windows_sys::Win32::Foundation::HWND) -> i32,
-    pub SetActiveAlt: unsafe extern "system" fn(this: *mut std::ffi::c_void, hwnd: windows_sys::Win32::Foundation::HWND) -> i32,
+    pub AddTab: unsafe extern "system" fn(
+        this: *mut std::ffi::c_void,
+        hwnd: windows_sys::Win32::Foundation::HWND,
+    ) -> i32,
+    pub DeleteTab: unsafe extern "system" fn(
+        this: *mut std::ffi::c_void,
+        hwnd: windows_sys::Win32::Foundation::HWND,
+    ) -> i32,
+    pub ActivateTab: unsafe extern "system" fn(
+        this: *mut std::ffi::c_void,
+        hwnd: windows_sys::Win32::Foundation::HWND,
+    ) -> i32,
+    pub SetActiveAlt: unsafe extern "system" fn(
+        this: *mut std::ffi::c_void,
+        hwnd: windows_sys::Win32::Foundation::HWND,
+    ) -> i32,
     // ITaskbarList2
     pub MarkFullscreenWindow: unsafe extern "system" fn(
         this: *mut std::ffi::c_void,
@@ -127,9 +135,11 @@ struct ITaskbarList3Vtbl {
 }
 
 #[cfg(target_os = "windows")]
-const CLSID_TASKBAR_LIST: windows_sys::core::GUID = windows_sys::core::GUID::from_u128(0x56fdf344_fd6d_11d0_958a_006097c9a090);
+const CLSID_TASKBAR_LIST: windows_sys::core::GUID =
+    windows_sys::core::GUID::from_u128(0x56fdf344_fd6d_11d0_958a_006097c9a090);
 #[cfg(target_os = "windows")]
-const IID_ITASKBAR_LIST3: windows_sys::core::GUID = windows_sys::core::GUID::from_u128(0xea1afb91_9e28_4b86_90e9_9e9f8a5eefaf);
+const IID_ITASKBAR_LIST3: windows_sys::core::GUID =
+    windows_sys::core::GUID::from_u128(0xea1afb91_9e28_4b86_90e9_9e9f8a5eefaf);
 
 #[cfg(target_os = "windows")]
 static RED_DOT_ICON: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
@@ -286,9 +296,13 @@ pub fn init_windows_aumid() {
         .collect();
 
     unsafe {
-        let hr = windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(aumid.as_ptr());
+        let hr =
+            windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(aumid.as_ptr());
         if hr < 0 {
-            eprintln!("[Alerts] SetCurrentProcessExplicitAppUserModelID HRESULT: 0x{:08X}", hr);
+            eprintln!(
+                "[Alerts] SetCurrentProcessExplicitAppUserModelID HRESULT: 0x{:08X}",
+                hr
+            );
         }
     }
 

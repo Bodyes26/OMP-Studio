@@ -8,10 +8,10 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -199,7 +199,11 @@ mod tests {
 
         let error = atomic_write(&target, b"x").unwrap_err();
 
-        assert!(error.contains("Creazione temp"), "errore inatteso: {}", error);
+        assert!(
+            error.contains("Creazione temp"),
+            "errore inatteso: {}",
+            error
+        );
         assert!(!target.exists());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -218,8 +222,14 @@ mod tests {
             .flatten()
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
-        assert!(residui.is_empty(), "il file temporaneo deve essere rimosso in caso di fallimento");
-        assert!(target.is_dir(), "la directory di destinazione deve restare intatta");
+        assert!(
+            residui.is_empty(),
+            "il file temporaneo deve essere rimosso in caso di fallimento"
+        );
+        assert!(
+            target.is_dir(),
+            "la directory di destinazione deve restare intatta"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -280,7 +290,10 @@ mod tests {
         fs::create_dir(&target).unwrap();
 
         let result = atomic_write(&target, b"contenuto");
-        assert!(result.is_err(), "la scrittura atomica su una directory deve fallire");
+        assert!(
+            result.is_err(),
+            "la scrittura atomica su una directory deve fallire"
+        );
 
         let prefix = format!(".directory_target.{}.", std::process::id());
         let residui: Vec<_> = fs::read_dir(&dir)
@@ -288,8 +301,14 @@ mod tests {
             .flatten()
             .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
             .collect();
-        assert!(residui.is_empty(), "il file temporaneo deve essere rimosso in caso di fallimento del replace");
-        assert!(target.is_dir(), "la directory di destinazione deve rimanere intatta");
+        assert!(
+            residui.is_empty(),
+            "il file temporaneo deve essere rimosso in caso di fallimento del replace"
+        );
+        assert!(
+            target.is_dir(),
+            "la directory di destinazione deve rimanere intatta"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

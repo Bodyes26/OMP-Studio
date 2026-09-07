@@ -213,7 +213,10 @@ fn vscode_exe_candidates_from_shim(shim: &Path) -> Vec<PathBuf> {
     let Some(root) = shim.parent().and_then(Path::parent) else {
         return Vec::new();
     };
-    VSCODE_EXE_NAMES.iter().map(|name| root.join(name)).collect()
+    VSCODE_EXE_NAMES
+        .iter()
+        .map(|name| root.join(name))
+        .collect()
 }
 
 /// Percorsi che `where.exe` associa a un nome, senza passare da una shell.
@@ -468,15 +471,20 @@ mod tests {
     #[test]
     fn senza_editor_risolti_windows_non_ha_candidati() {
         // Fail closed: meglio l'errore che una shell avviata "con successo".
-        let candidates =
-            launch_candidates("windows", ExternalTarget::Editor, Path::new(HOSTILE_DIR), &[]);
+        let candidates = launch_candidates(
+            "windows",
+            ExternalTarget::Editor,
+            Path::new(HOSTILE_DIR),
+            &[],
+        );
         assert!(candidates.is_empty());
     }
 
     #[test]
     fn dallo_shim_si_risale_agli_eseguibili_di_vs_code() {
-        let from_shim =
-            vscode_exe_candidates_from_shim(Path::new("C:/Programs/Microsoft VS Code/bin/code.cmd"));
+        let from_shim = vscode_exe_candidates_from_shim(Path::new(
+            "C:/Programs/Microsoft VS Code/bin/code.cmd",
+        ));
         assert_eq!(
             from_shim,
             vec![

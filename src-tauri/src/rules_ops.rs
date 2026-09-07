@@ -59,7 +59,9 @@ const ALT_CONTEXT_FILES: &[(&str, &str)] = &[
 ];
 
 /// Censisce le regole e le skill per il percorso specificato in modo sincrono.
-pub(crate) fn get_project_context_sync(project_path: &str) -> Result<ProjectContextSummary, String> {
+pub(crate) fn get_project_context_sync(
+    project_path: &str,
+) -> Result<ProjectContextSummary, String> {
     let root = Path::new(project_path);
     if !root.is_dir() {
         return Err(format!(
@@ -430,7 +432,9 @@ fn build_suggestions(prompts: &[String], agents_md: Option<&str>) -> Vec<RuleSug
 }
 
 /// Esegue l'analisi dell'attrito in modo sincrono isolando la connessione SQLite.
-pub(crate) fn analyze_project_friction_sync(project_path: &str) -> Result<Vec<RuleSuggestion>, String> {
+pub(crate) fn analyze_project_friction_sync(
+    project_path: &str,
+) -> Result<Vec<RuleSuggestion>, String> {
     // Storico assente (prima installazione, agente mai avviato): nessun
     // attrito da mostrare, non un errore da segnalare.
     let Ok(conn) = open_readonly_db("history.db") else {
@@ -447,9 +451,10 @@ pub(crate) fn analyze_project_friction_sync(project_path: &str) -> Result<Vec<Ru
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
-        .query_map(rusqlite::params![project_path, PROMPT_WINDOW as i64], |row| {
-            row.get::<_, String>(0)
-        })
+        .query_map(
+            rusqlite::params![project_path, PROMPT_WINDOW as i64],
+            |row| row.get::<_, String>(0),
+        )
         .map_err(|e| e.to_string())?;
 
     let prompts: Vec<String> = rows.flatten().collect();
@@ -582,7 +587,11 @@ mod tests {
             "---\nname: deploy\ndescription: Pubblica il progetto\n---\n\nCorpo.\n",
         )
         .unwrap();
-        fs::write(root.join(".omp/skills/lint.md"), "# Lint\n\nControlla lo stile.\n").unwrap();
+        fs::write(
+            root.join(".omp/skills/lint.md"),
+            "# Lint\n\nControlla lo stile.\n",
+        )
+        .unwrap();
         fs::create_dir_all(root.join(".omp/skills/incompleta")).unwrap();
 
         let summary = get_project_context(root.to_string_lossy().to_string())
@@ -600,10 +609,16 @@ mod tests {
             project[0].rel_path.as_deref(),
             Some(".omp/skills/deploy/SKILL.md")
         );
-        assert_eq!(project[0].description.as_deref(), Some("Pubblica il progetto"));
+        assert_eq!(
+            project[0].description.as_deref(),
+            Some("Pubblica il progetto")
+        );
         assert_eq!(project[1].name, "lint");
         assert_eq!(project[1].rel_path.as_deref(), Some(".omp/skills/lint.md"));
-        assert_eq!(project[1].description.as_deref(), Some("Controlla lo stile."));
+        assert_eq!(
+            project[1].description.as_deref(),
+            Some("Controlla lo stile.")
+        );
     }
 
     #[tokio::test]
@@ -683,7 +698,10 @@ mod tests {
             "errore di build sul frontend".to_string(),
         ];
         assert_eq!(build_suggestions(&prompts, None).len(), 1);
-        assert!(build_suggestions(&prompts, Some("# AGENTS\n\n## Vincolo di build\n- ...\n")).is_empty());
+        assert!(
+            build_suggestions(&prompts, Some("# AGENTS\n\n## Vincolo di build\n- ...\n"))
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -711,27 +729,21 @@ mod tests {
         fs::write(root.join("AGENTS.md"), "# AGENTS\n").unwrap();
         let path = root.to_string_lossy().to_string();
 
-        assert!(apply_rule_suggestion(
-            path.clone(),
-            "../AGENTS.md".to_string(),
-            "x\n".to_string()
-        )
-        .await
-        .is_err());
-        assert!(apply_rule_suggestion(
-            path.clone(),
-            "".to_string(),
-            "x\n".to_string()
-        )
-        .await
-        .is_err());
-        assert!(apply_rule_suggestion(
-            path,
-            "DA_CREARE.md".to_string(),
-            "x\n".to_string()
-        )
-        .await
-        .is_err());
+        assert!(
+            apply_rule_suggestion(path.clone(), "../AGENTS.md".to_string(), "x\n".to_string())
+                .await
+                .is_err()
+        );
+        assert!(
+            apply_rule_suggestion(path.clone(), "".to_string(), "x\n".to_string())
+                .await
+                .is_err()
+        );
+        assert!(
+            apply_rule_suggestion(path, "DA_CREARE.md".to_string(), "x\n".to_string())
+                .await
+                .is_err()
+        );
     }
 
     /// Un `AGENTS.md` che e' un collegamento a un file esterno non deve poter

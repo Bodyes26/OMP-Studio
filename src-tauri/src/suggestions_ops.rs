@@ -144,7 +144,9 @@ async fn run_child_with_timeout(
         return Ok(None);
     }
 
-    Ok(Some(String::from_utf8_lossy(&stdout_bytes).trim().to_string()))
+    Ok(Some(
+        String::from_utf8_lossy(&stdout_bytes).trim().to_string(),
+    ))
 }
 
 /// Genera suggerimenti contestuali per il composer a partire dall'ultimo messaggio dell'assistente.
@@ -215,21 +217,16 @@ pub async fn generate_prompt_suggestions(
     };
 
     // Attende l'uscita del processo con timeout di sicurezza e gestione pipe/orfani.
-    let raw_response = match run_child_with_timeout(
-        child,
-        Duration::from_secs(SUGGESTIONS_TIMEOUT_SECS),
-    )
-    .await?
-    {
-        Some(output) => output,
-        None => return Ok(Vec::new()),
-    };
+    let raw_response =
+        match run_child_with_timeout(child, Duration::from_secs(SUGGESTIONS_TIMEOUT_SECS)).await? {
+            Some(output) => output,
+            None => return Ok(Vec::new()),
+        };
 
     Ok(parse_and_clean_suggestions(
         &raw_response,
         max_items_clamped,
     ))
-
 }
 
 #[cfg(test)]

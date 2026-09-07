@@ -41,7 +41,6 @@ const DELTA_WINDOW: Duration = Duration::from_millis(8);
 /// si manifesterebbe solo come stdin chiuso.
 const STDERR_TAIL_LINES: usize = 200;
 
-
 pub struct RpcSession {
     child: Arc<Mutex<Child>>,
     /// `None` dopo `rpc_close`: chiudere stdin e' il modo documentato di far
@@ -242,7 +241,6 @@ fn reader_loop(args: ReaderLoopArgs) {
             assembly = None;
         }
 
-
         if !dispatch(line, &on_event, &stdin, &protocol, &mut pending_delta) {
             break;
         }
@@ -257,7 +255,12 @@ fn reader_loop(args: ReaderLoopArgs) {
     // vedrebbe solo come una superficie che smette di rispondere. Il codice
     // puo' essere `null` se il figlio non e' ancora stato raccolto: e' un
     // dettaglio diagnostico, non un valore su cui ramificare.
-    let code = child.lock().try_wait().ok().flatten().and_then(|s| s.code());
+    let code = child
+        .lock()
+        .try_wait()
+        .ok()
+        .flatten()
+        .and_then(|s| s.code());
     let tail: Vec<String> = stderr_tail.lock().iter().cloned().collect();
     sessions.lock().remove(&rpc_id);
     let _ = on_event.send(
@@ -484,7 +487,11 @@ pub async fn rpc_open(
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
     let scratchpad = cwd.is_empty();
-    let launch_cwd = if scratchpad { ".".to_string() } else { cwd.clone() };
+    let launch_cwd = if scratchpad {
+        ".".to_string()
+    } else {
+        cwd.clone()
+    };
 
     let mut command = Command::new(&omp_path);
     command.arg("--mode").arg("rpc-ui");
@@ -655,7 +662,10 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
 /// e' appeso e non morto. Alla morte le stesse righe arrivano dentro
 /// `studio_exit`, perche' a quel punto la sessione non e' piu' nella mappa.
 #[tauri::command]
-pub async fn rpc_stderr(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<Vec<String>, String> {
+pub async fn rpc_stderr(
+    rpc_id: u64,
+    manager: State<'_, RpcManager>,
+) -> Result<Vec<String>, String> {
     let tail = {
         let sessions = manager.sessions.lock();
         let session = sessions
@@ -684,7 +694,13 @@ pub async fn rpc_protocol(rpc_id: u64, manager: State<'_, RpcManager>) -> Result
 mod tests {
     use super::*;
 
-    fn chunk(chunk_id: &str, index: usize, count: usize, byte_length: usize, payload: &str) -> String {
+    fn chunk(
+        chunk_id: &str,
+        index: usize,
+        count: usize,
+        byte_length: usize,
+        payload: &str,
+    ) -> String {
         format!(
             r#"{{"type":"rpc_chunk","chunkId":"{}","index":{},"count":{},"byteLength":{},"data":"{}"}}"#,
             chunk_id,

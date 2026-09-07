@@ -170,7 +170,10 @@ pub(crate) fn run_ephemeral_omp_raw(
     if !output.status.success() {
         let stderr_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr_msg.is_empty() {
-            format!("omp è terminato con codice di errore {:?}", output.status.code())
+            format!(
+                "omp è terminato con codice di errore {:?}",
+                output.status.code()
+            )
         } else {
             stderr_msg
         });
@@ -204,7 +207,10 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo introdutt
   "reason": "Spiegazione sintetica del perché è utile"
 }"#;
 
-    let mut user_prompt = format!("Crea una direttiva di prompt per questo obiettivo:\n\"{}\"", topic_trimmed);
+    let mut user_prompt = format!(
+        "Crea una direttiva di prompt per questo obiettivo:\n\"{}\"",
+        topic_trimmed
+    );
     if let Some(ctx) = context.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         user_prompt.push_str(&format!("\n\nContesto aggiuntivo o vincoli:\n{}", ctx));
     }
@@ -217,8 +223,12 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo introdutt
     .map_err(|e| format!("Task thread interrotto: {}", e))??;
 
     let json_text = extract_json_payload(&raw_response)?;
-    let proposal: TaskDirectiveAiProposal = serde_json::from_str(&json_text)
-        .map_err(|e| format!("Parsing risposta AI non riuscito: {}. Risposta grezza: {}", e, raw_response))?;
+    let proposal: TaskDirectiveAiProposal = serde_json::from_str(&json_text).map_err(|e| {
+        format!(
+            "Parsing risposta AI non riuscito: {}. Risposta grezza: {}",
+            e, raw_response
+        )
+    })?;
 
     Ok(proposal)
 }
@@ -265,8 +275,12 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido con la seguente strutt
     .map_err(|e| format!("Task thread interrotto: {}", e))??;
 
     let json_text = extract_json_payload(&raw_response)?;
-    let mut proposal: TaskDirectiveAiProposal = serde_json::from_str(&json_text)
-        .map_err(|e| format!("Parsing risposta AI non riuscito: {}. Risposta grezza: {}", e, raw_response))?;
+    let mut proposal: TaskDirectiveAiProposal = serde_json::from_str(&json_text).map_err(|e| {
+        format!(
+            "Parsing risposta AI non riuscito: {}. Risposta grezza: {}",
+            e, raw_response
+        )
+    })?;
 
     proposal.id = Some(directive.id);
     Ok(proposal)
@@ -355,7 +369,12 @@ Devi rispondere ESCLUSIVAMENTE con un array JSON di proposte (da 0 a 3 elementi)
 
     let existing_desc = existing_directives
         .iter()
-        .map(|d| format!("- {} (tag: {}, pos: {}): {}", d.name, d.tag, d.placement, d.description))
+        .map(|d| {
+            format!(
+                "- {} (tag: {}, pos: {}): {}",
+                d.name, d.tag, d.placement, d.description
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -380,8 +399,13 @@ Devi rispondere ESCLUSIVAMENTE con un array JSON di proposte (da 0 a 3 elementi)
     .map_err(|e| format!("Task thread interrotto: {}", e))??;
 
     let json_text = extract_json_payload(&raw_response)?;
-    let proposals: Vec<TaskDirectiveAiProposal> = serde_json::from_str(&json_text)
-        .map_err(|e| format!("Parsing array proposte AI non riuscito: {}. Risposta grezza: {}", e, raw_response))?;
+    let proposals: Vec<TaskDirectiveAiProposal> =
+        serde_json::from_str(&json_text).map_err(|e| {
+            format!(
+                "Parsing array proposte AI non riuscito: {}. Risposta grezza: {}",
+                e, raw_response
+            )
+        })?;
 
     Ok(proposals)
 }

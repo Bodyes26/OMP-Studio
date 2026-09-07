@@ -41,8 +41,8 @@ fn get_db_path(db_name: &str) -> Option<PathBuf> {
 }
 
 pub(crate) fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
-    let path = get_db_path(db_name)
-        .ok_or_else(|| format!("Percorso db {} non risolvibile", db_name))?;
+    let path =
+        get_db_path(db_name).ok_or_else(|| format!("Percorso db {} non risolvibile", db_name))?;
     if !path.exists() {
         return Err(format!("File db {} non esiste", path.display()));
     }
@@ -1175,7 +1175,8 @@ fn sessions_search_sync(
 
     if !trimmed_query.is_empty() {
         if let Ok(conn) = open_readonly_db("history.db") {
-            if let Ok(mut title_stmt) = conn.prepare("SELECT session_id, title FROM session_titles") {
+            if let Ok(mut title_stmt) = conn.prepare("SELECT session_id, title FROM session_titles")
+            {
                 if let Ok(iter) = title_stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
                     for row in iter.flatten() {
                         titles.insert(row.0, row.1);
@@ -1242,7 +1243,9 @@ fn sessions_search_sync(
             if let Some(t) = titles.get(&h.id) {
                 h.title = t.clone();
             }
-            if h.title.to_lowercase().contains(&query_lower) || h.id.to_lowercase().contains(&query_lower) {
+            if h.title.to_lowercase().contains(&query_lower)
+                || h.id.to_lowercase().contains(&query_lower)
+            {
                 seen.insert(h.id.clone());
                 sessions.push(h);
             }
@@ -1447,7 +1450,9 @@ pub fn parse_omp_update_check(
 ) -> Result<OmpUpdateCheck, String> {
     let clean_stdout = strip_ansi(stdout);
     let clean_stderr = strip_ansi(stderr);
-    let combined = format!("{}\n{}", clean_stdout, clean_stderr).trim().to_string();
+    let combined = format!("{}\n{}", clean_stdout, clean_stderr)
+        .trim()
+        .to_string();
     let lower = combined.to_lowercase();
 
     // Se il processo e' fallito o l'output segnala un errore esplicito, riportiamo l'errore
@@ -1619,7 +1624,10 @@ fn run_omp_update_sync() -> Result<String, String> {
         let msg = if !cleaned.is_empty() {
             cleaned
         } else {
-            format!("Aggiornamento OMP fallito con codice {:?}", output.status.code())
+            format!(
+                "Aggiornamento OMP fallito con codice {:?}",
+                output.status.code()
+            )
         };
         Err(msg)
     }
@@ -1791,7 +1799,8 @@ mod tests {
 
     #[test]
     fn test_parse_omp_update_check_switching_canary() {
-        let stdout = "Current version: 18.0.4\nSwitching to canary 18.1.0 (downgrade from 18.0.4)\n";
+        let stdout =
+            "Current version: 18.0.4\nSwitching to canary 18.1.0 (downgrade from 18.0.4)\n";
         let res = parse_omp_update_check(stdout, "", true, "18.0.4").expect("parsing riuscito");
         assert!(res.has_update);
         assert_eq!(res.latest_version, "18.1.0");
@@ -1854,10 +1863,16 @@ mod tests {
 
         // Verifica che qualsiasi scrittura fallisca categoricamente (read-only)
         let write_result = conn.execute("INSERT INTO test (val) VALUES ('tentativo write')", []);
-        assert!(write_result.is_err(), "La scrittura su db readonly DEVE fallire");
+        assert!(
+            write_result.is_err(),
+            "La scrittura su db readonly DEVE fallire"
+        );
 
         let update_result = conn.execute("UPDATE test SET val = 'modificato' WHERE id = 1", []);
-        assert!(update_result.is_err(), "L'update su db readonly DEVE fallire");
+        assert!(
+            update_result.is_err(),
+            "L'update su db readonly DEVE fallire"
+        );
 
         // Pulizia
         let _ = std::fs::remove_file(db_path);
@@ -1909,7 +1924,10 @@ mod tests {
         let ids: Vec<&str> = trovate.iter().map(|s| s.id.as_str()).collect();
         assert!(ids.contains(&"aaa"), "sessione del progetto assente");
         assert!(ids.contains(&"bbb"), "sessione del progetto assente");
-        assert!(!ids.contains(&"ccc"), "sessione di un altro progetto inclusa");
+        assert!(
+            !ids.contains(&"ccc"),
+            "sessione di un altro progetto inclusa"
+        );
 
         // history.db ha la precedenza sul contenuto del file.
         let aaa = trovate.iter().find(|s| s.id == "aaa").unwrap();
@@ -2001,7 +2019,8 @@ riga_non_json_che_viene_ignorata
         let progetto = root.join("-progetto-test");
         std::fs::create_dir_all(&progetto).unwrap();
 
-        let file_path = progetto.join("2026-09-03T11-43-37-905Z_01a06714-e5b1-72c7-a3ae-821a3ab0a29f.jsonl");
+        let file_path =
+            progetto.join("2026-09-03T11-43-37-905Z_01a06714-e5b1-72c7-a3ae-821a3ab0a29f.jsonl");
         std::fs::write(&file_path, "{}\n").unwrap();
 
         // 1. Ricerca tramite UUID esatto

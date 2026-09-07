@@ -332,7 +332,11 @@ pub(crate) fn resolve_parent_dir(base: &Path, parent_rel: &str) -> Result<PathBu
         for comp in Path::new(clean_parent).components() {
             match comp {
                 Component::Normal(_) | Component::CurDir | Component::ParentDir => {}
-                _ => return Err("Percorso relativo non valido: contiene radici o prefissi".to_string()),
+                _ => {
+                    return Err(
+                        "Percorso relativo non valido: contiene radici o prefissi".to_string()
+                    )
+                }
             }
         }
         base.join(clean_parent)
@@ -387,7 +391,7 @@ pub(crate) fn split_rel_path(rel: &str) -> Result<(String, String), String> {
 pub(crate) fn resolve_existing_entry(
     project_path: &str,
     rel: &str,
-    ) -> Result<(PathBuf, String, String, bool), String> {
+) -> Result<(PathBuf, String, String, bool), String> {
     let base = canonical_project_base(project_path)?;
     let (parent_rel, leaf_name) = split_rel_path(rel)?;
     let parent_dir = resolve_parent_dir(&base, &parent_rel)?;
@@ -2248,8 +2252,16 @@ mod tests {
         fs::create_dir_all(root.join(".git/objects")).unwrap();
         fs::create_dir_all(root.join("target/debug")).unwrap();
 
-        fs::write(root.join("src/lib/components/FileTree.svelte"), "<script></script>").unwrap();
-        fs::write(root.join("src/lib/components/TopBar.svelte"), "<script></script>").unwrap();
+        fs::write(
+            root.join("src/lib/components/FileTree.svelte"),
+            "<script></script>",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/lib/components/TopBar.svelte"),
+            "<script></script>",
+        )
+        .unwrap();
         fs::write(root.join("src/lib/icons.ts"), "export const a = 1;").unwrap();
         fs::write(root.join("README.md"), "# Progetto").unwrap();
 
@@ -2262,7 +2274,11 @@ mod tests {
 
         // Ricerca per nome file
         let results_ftr = rt
-            .block_on(project_files_search(root_str.clone(), "ftree".to_string(), None))
+            .block_on(project_files_search(
+                root_str.clone(),
+                "ftree".to_string(),
+                None,
+            ))
             .unwrap();
         assert!(!results_ftr.is_empty());
         assert_eq!(results_ftr[0].name, "FileTree.svelte");
@@ -2277,7 +2293,11 @@ mod tests {
 
         // Ricerca con slash nel percorso
         let results_slash = rt
-            .block_on(project_files_search(root_str.clone(), "comp/top".to_string(), None))
+            .block_on(project_files_search(
+                root_str.clone(),
+                "comp/top".to_string(),
+                None,
+            ))
             .unwrap();
         assert!(!results_slash.is_empty());
         assert_eq!(results_slash[0].name, "TopBar.svelte");

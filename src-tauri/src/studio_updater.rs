@@ -156,7 +156,10 @@ pub fn parse_sha256_digest(raw: &str) -> Option<String> {
 
 /// Estrae il checksum SHA256 per un file specifico da un file di checksum (es. SHA256SUMS).
 pub fn extract_hash_from_checksum_file(content: &str, target_filename: &str) -> Option<String> {
-    let clean_target = target_filename.trim().trim_start_matches('*').trim_start_matches("./");
+    let clean_target = target_filename
+        .trim()
+        .trim_start_matches('*')
+        .trim_start_matches("./");
     let mut single_line_hash: Option<String> = None;
     let mut line_count = 0;
 
@@ -170,7 +173,9 @@ pub fn extract_hash_from_checksum_file(content: &str, target_filename: &str) -> 
         if parts.len() >= 2 {
             let file_part = parts[1].trim_start_matches('*').trim_start_matches("./");
             if file_part.eq_ignore_ascii_case(clean_target)
-                || file_part.replace(' ', ".").eq_ignore_ascii_case(&clean_target.replace(' ', "."))
+                || file_part
+                    .replace(' ', ".")
+                    .eq_ignore_ascii_case(&clean_target.replace(' ', "."))
             {
                 if let Some(h) = parse_sha256_digest(parts[0]) {
                     return Some(h);
@@ -228,7 +233,11 @@ pub fn sanitize_installer_filename(raw_name: &str) -> Result<String, String> {
     }
 
     // Rifiuta qualsiasi separatore di percorso o sequenza di navigazione nel nome fornito
-    if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") || trimmed.contains(':') {
+    if trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.contains("..")
+        || trimmed.contains(':')
+    {
         return Err("Path traversal o caratteri di percorso rilevati nel nome file".to_string());
     }
 
@@ -649,7 +658,10 @@ async fn resolve_asset_sha256(
         a.name.eq_ignore_ascii_case(&companion_name)
             || a.name.eq_ignore_ascii_case(&companion_name_alt)
     }) {
-        if let Ok(res) = github_get(client, &companion.browser_download_url, current_version).send().await {
+        if let Ok(res) = github_get(client, &companion.browser_download_url, current_version)
+            .send()
+            .await
+        {
             if res.status().is_success() {
                 if let Ok(text) = res.text().await {
                     if let Some(hash) = extract_hash_from_checksum_file(&text, clean_name) {
@@ -666,7 +678,10 @@ async fn resolve_asset_sha256(
         let n = a.name.to_lowercase();
         n == "sha256sums" || n == "sha256sums.txt" || n == "checksums.txt"
     }) {
-        if let Ok(res) = github_get(client, &sums_asset.browser_download_url, current_version).send().await {
+        if let Ok(res) = github_get(client, &sums_asset.browser_download_url, current_version)
+            .send()
+            .await
+        {
             if res.status().is_success() {
                 if let Ok(text) = res.text().await {
                     if let Some(hash) = extract_hash_from_checksum_file(&text, clean_name) {
@@ -1490,10 +1505,7 @@ mod tests {
     #[test]
     fn test_parse_sha256_digest_formats() {
         let valid_hex = "1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad";
-        assert_eq!(
-            parse_sha256_digest(valid_hex),
-            Some(valid_hex.to_string())
-        );
+        assert_eq!(parse_sha256_digest(valid_hex), Some(valid_hex.to_string()));
         assert_eq!(
             parse_sha256_digest(&format!("sha256:{}", valid_hex)),
             Some(valid_hex.to_string())
@@ -1520,17 +1532,11 @@ mod tests {
 b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1.0_universal.dmg
 "#;
         assert_eq!(
-            extract_hash_from_checksum_file(
-                file_content,
-                "OMP-Studio_0.3.1_x64-setup.exe"
-            ),
+            extract_hash_from_checksum_file(file_content, "OMP-Studio_0.3.1_x64-setup.exe"),
             Some("1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad".to_string())
         );
         assert_eq!(
-            extract_hash_from_checksum_file(
-                file_content,
-                "OMP.Studio_1.1.0_universal.dmg"
-            ),
+            extract_hash_from_checksum_file(file_content, "OMP.Studio_1.1.0_universal.dmg"),
             Some("b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b".to_string())
         );
         assert_eq!(
@@ -1556,9 +1562,15 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
         ));
 
         // Rejected URLs
-        assert!(!is_trusted_download_url("http://github.com/Bodyes26/OMP-Studio/releases/download/v1.1.0/file.exe")); // HTTP insecure
-        assert!(!is_trusted_download_url("https://malicious.com/malware.exe")); // Unknown domain
-        assert!(!is_trusted_download_url("https://github.com/other-user/other-repo/releases/download/v1.0/file.exe")); // Wrong repo
+        assert!(!is_trusted_download_url(
+            "http://github.com/Bodyes26/OMP-Studio/releases/download/v1.1.0/file.exe"
+        )); // HTTP insecure
+        assert!(!is_trusted_download_url(
+            "https://malicious.com/malware.exe"
+        )); // Unknown domain
+        assert!(!is_trusted_download_url(
+            "https://github.com/other-user/other-repo/releases/download/v1.0/file.exe"
+        )); // Wrong repo
         assert!(!is_trusted_download_url("not-a-url"));
     }
 
@@ -1676,25 +1688,30 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
                 size: 11_616_362,
                 browser_download_url: "https://example.invalid/vecchio_x64-setup.exe".to_string(),
                 content_type: Some("application/x-msdownload".to_string()),
-                digest: Some("sha256:dd86554bb75e9bdb802a6d0edafac2bd20cce602c605a69d35e7d03837c820c8".to_string()),
+                digest: Some(
+                    "sha256:dd86554bb75e9bdb802a6d0edafac2bd20cce602c605a69d35e7d03837c820c8"
+                        .to_string(),
+                ),
             },
             GithubAsset {
                 name: "OMP.Studio_1.1.1-nightly.1787753960479_x64-setup.exe".to_string(),
                 size: 9_803_289,
                 browser_download_url: "https://example.invalid/nuovo_x64-setup.exe".to_string(),
                 content_type: Some("application/x-msdownload".to_string()),
-                digest: Some("sha256:878c0fa0dad081109b6f1cad9583d4dea5403fbaafbfb9e3065fbffb5718ae3f".to_string()),
+                digest: Some(
+                    "sha256:878c0fa0dad081109b6f1cad9583d4dea5403fbaafbfb9e3065fbffb5718ae3f"
+                        .to_string(),
+                ),
             },
         ];
 
-        let picked = pick_versioned_asset_for(
-            &assets,
-            "1.1.1-nightly.1787753960479",
-            "windows",
-            "x86_64",
-        )
-        .expect("asset selezionato");
-        assert_eq!(picked.name, "OMP.Studio_1.1.1-nightly.1787753960479_x64-setup.exe");
+        let picked =
+            pick_versioned_asset_for(&assets, "1.1.1-nightly.1787753960479", "windows", "x86_64")
+                .expect("asset selezionato");
+        assert_eq!(
+            picked.name,
+            "OMP.Studio_1.1.1-nightly.1787753960479_x64-setup.exe"
+        );
         assert_eq!(
             picked.sha256,
             Some("878c0fa0dad081109b6f1cad9583d4dea5403fbaafbfb9e3065fbffb5718ae3f".to_string())
@@ -1772,15 +1789,33 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
 b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b  OMP.Studio_1.2.2-nightly_universal.dmg
 1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad  OMP-Studio_1.2.2-nightly_x64-setup.exe
 "#;
-        let deb_hash = extract_hash_from_checksum_file(sums_content, "omp-studio_1.2.2-nightly_amd64.deb");
-        let appimage_hash = extract_hash_from_checksum_file(sums_content, "omp-studio_1.2.2-nightly_amd64.AppImage");
-        let dmg_hash = extract_hash_from_checksum_file(sums_content, "OMP.Studio_1.2.2-nightly_universal.dmg");
-        let exe_hash = extract_hash_from_checksum_file(sums_content, "OMP-Studio_1.2.2-nightly_x64-setup.exe");
+        let deb_hash =
+            extract_hash_from_checksum_file(sums_content, "omp-studio_1.2.2-nightly_amd64.deb");
+        let appimage_hash = extract_hash_from_checksum_file(
+            sums_content,
+            "omp-studio_1.2.2-nightly_amd64.AppImage",
+        );
+        let dmg_hash =
+            extract_hash_from_checksum_file(sums_content, "OMP.Studio_1.2.2-nightly_universal.dmg");
+        let exe_hash =
+            extract_hash_from_checksum_file(sums_content, "OMP-Studio_1.2.2-nightly_x64-setup.exe");
 
-        assert_eq!(deb_hash, Some("3a5f8a129d2bf941f2a36b33379201509930f78bd3ff727924c203a6eb294cbe".to_string()));
-        assert_eq!(appimage_hash, Some("8e4b2d119c8eb2198217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad".to_string()));
-        assert_eq!(dmg_hash, Some("b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b".to_string()));
-        assert_eq!(exe_hash, Some("1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad".to_string()));
+        assert_eq!(
+            deb_hash,
+            Some("3a5f8a129d2bf941f2a36b33379201509930f78bd3ff727924c203a6eb294cbe".to_string())
+        );
+        assert_eq!(
+            appimage_hash,
+            Some("8e4b2d119c8eb2198217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad".to_string())
+        );
+        assert_eq!(
+            dmg_hash,
+            Some("b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b".to_string())
+        );
+        assert_eq!(
+            exe_hash,
+            Some("1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad".to_string())
+        );
         assert_ne!(deb_hash, appimage_hash);
     }
 
@@ -1799,11 +1834,17 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b  OMP.Studio_1.2
         let manifest: NightlyManifest = serde_json::from_str(json).unwrap();
         assert_eq!(manifest.version, "1.2.2-nightly.1788273000000");
         assert_eq!(
-            manifest.checksums.get("omp-studio_1.2.2-nightly_amd64.deb").map(|s| s.as_str()),
+            manifest
+                .checksums
+                .get("omp-studio_1.2.2-nightly_amd64.deb")
+                .map(|s| s.as_str()),
             Some("3a5f8a129d2bf941f2a36b33379201509930f78bd3ff727924c203a6eb294cbe")
         );
         assert_eq!(
-            manifest.checksums.get("omp-studio_1.2.2-nightly_amd64.AppImage").map(|s| s.as_str()),
+            manifest
+                .checksums
+                .get("omp-studio_1.2.2-nightly_amd64.AppImage")
+                .map(|s| s.as_str()),
             Some("8e4b2d119c8eb2198217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad")
         );
     }
@@ -1812,6 +1853,9 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b  OMP.Studio_1.2
     fn test_extract_hash_rejects_ambiguous_or_mismatched() {
         let multiline_content = "1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad  file1.exe\n2d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad  file2.exe";
         // Non-matching file in multiline should be rejected (None)
-        assert_eq!(extract_hash_from_checksum_file(multiline_content, "file3.exe"), None);
+        assert_eq!(
+            extract_hash_from_checksum_file(multiline_content, "file3.exe"),
+            None
+        );
     }
 }

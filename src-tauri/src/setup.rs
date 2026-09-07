@@ -254,16 +254,15 @@ fn read_credential_providers(agent: &Path) -> Vec<String> {
     if !path.exists() {
         return Vec::new();
     }
-    let Ok(conn) = rusqlite::Connection::open_with_flags(
-        &path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) else {
+    let Ok(conn) =
+        rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
         return Vec::new();
     };
     let _ = conn.execute_batch("PRAGMA query_only = ON; PRAGMA busy_timeout = 3000;");
-    let Ok(mut stmt) = conn.prepare(
-        "SELECT DISTINCT provider FROM auth_credentials WHERE disabled_cause IS NULL",
-    ) else {
+    let Ok(mut stmt) =
+        conn.prepare("SELECT DISTINCT provider FROM auth_credentials WHERE disabled_cause IS NULL")
+    else {
         return Vec::new();
     };
     let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) else {
@@ -523,8 +522,7 @@ fn resolve_expected_hash(
 }
 
 fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), String> {
-    let expected = normalize_sha256(expected)
-        .ok_or("L'impronta SHA-256 attesa non e' valida")?;
+    let expected = normalize_sha256(expected).ok_or("L'impronta SHA-256 attesa non e' valida")?;
     let actual = file_sha256(path)?;
     if actual == expected {
         return Ok(());
@@ -570,13 +568,19 @@ fn ensure_user_path_contains(dir: &Path) -> Result<bool, String> {
     let out = match cmd.output() {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("[Setup] Avviso: esecuzione powershell per PATH non riuscita: {}", e);
+            eprintln!(
+                "[Setup] Avviso: esecuzione powershell per PATH non riuscita: {}",
+                e
+            );
             return Ok(false);
         }
     };
     if !out.status.success() {
         let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        eprintln!("[Setup] Avviso: aggiornamento PATH utente non riuscito: {}", err_msg);
+        eprintln!(
+            "[Setup] Avviso: aggiornamento PATH utente non riuscito: {}",
+            err_msg
+        );
         return Ok(false);
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim() == "added")
@@ -769,16 +773,29 @@ fn replace_verified_binary(temp_path: &Path, target: &Path) -> Result<(), String
         // Windows non consente a `rename` di sovrascrivere la destinazione.
         // Conserviamo il binario corrente finche' quello verificato non e'
         // entrato al suo posto, cosi' possiamo ripristinarlo in caso di errore.
-        let file_name = target
-            .file_name()
-            .ok_or_else(|| format!("Nome del binario di destinazione non valido: {}", target.display()))?;
+        let file_name = target.file_name().ok_or_else(|| {
+            format!(
+                "Nome del binario di destinazione non valido: {}",
+                target.display()
+            )
+        })?;
         let backup = target.with_file_name(format!("{}.previous", file_name.to_string_lossy()));
         if backup.exists() {
-            std::fs::remove_file(&backup)
-                .map_err(|e| format!("Rimozione del backup precedente {}: {}", backup.display(), e))?;
+            std::fs::remove_file(&backup).map_err(|e| {
+                format!(
+                    "Rimozione del backup precedente {}: {}",
+                    backup.display(),
+                    e
+                )
+            })?;
         }
-        std::fs::rename(target, &backup)
-            .map_err(|e| format!("Preparazione della sostituzione di {}: {}", target.display(), e))?;
+        std::fs::rename(target, &backup).map_err(|e| {
+            format!(
+                "Preparazione della sostituzione di {}: {}",
+                target.display(),
+                e
+            )
+        })?;
         if let Err(install_error) = std::fs::rename(temp_path, target) {
             return match std::fs::rename(&backup, target) {
                 Ok(()) => Err(format!(
@@ -846,8 +863,8 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
             std::env::consts::ARCH
         )
     })?;
-    let target = installed_binary_path()
-        .ok_or("Impossibile risolvere la cartella di installazione")?;
+    let target =
+        installed_binary_path().ok_or("Impossibile risolvere la cartella di installazione")?;
     let dir = target
         .parent()
         .ok_or("Cartella di installazione non valida")?
@@ -859,23 +876,24 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
     );
 
     let client = github_client()?;
-    let (download_url, tag_name, expected_hash) =
-        match fetch_release_info(&client, asset_name).await {
-            Ok(info) => info,
-            Err(api_error) => {
-                eprintln!(
-                    "[Setup] GitHub API fallita ({}), tento il download diretto dal tag latest...",
-                    api_error
-                );
-                let fallback_url = format!(
-                    "https://github.com/{}/releases/latest/download/{}",
-                    OMP_REPO, asset_name
-                );
-                let sums_url = format!(
-                    "https://github.com/{}/releases/latest/download/SHA256SUMS.txt",
-                    OMP_REPO
-                );
-                let expected = fetch_hash_from_url(&client, &sums_url, asset_name)
+    let (download_url, tag_name, expected_hash) = match fetch_release_info(&client, asset_name)
+        .await
+    {
+        Ok(info) => info,
+        Err(api_error) => {
+            eprintln!(
+                "[Setup] GitHub API fallita ({}), tento il download diretto dal tag latest...",
+                api_error
+            );
+            let fallback_url = format!(
+                "https://github.com/{}/releases/latest/download/{}",
+                OMP_REPO, asset_name
+            );
+            let sums_url = format!(
+                "https://github.com/{}/releases/latest/download/SHA256SUMS.txt",
+                OMP_REPO
+            );
+            let expected = fetch_hash_from_url(&client, &sums_url, asset_name)
                     .await
                     .map_err(|checksum_error| {
                         format!(
@@ -883,14 +901,19 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
                             api_error, checksum_error
                         )
                     })?;
-                (fallback_url, "latest".to_string(), expected)
-            }
-        };
+            (fallback_url, "latest".to_string(), expected)
+        }
+    };
 
     // Si scarica in un file temporaneo accanto alla destinazione: se il
     // download si interrompe, l'eventuale binario esistente non viene corrotto.
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Creazione cartella di installazione {}: {}", dir.display(), e))?;
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        format!(
+            "Creazione cartella di installazione {}: {}",
+            dir.display(),
+            e
+        )
+    })?;
     let temp_path = dir.join(format!("{}.download", asset_name));
     if temp_path.exists() {
         let _ = std::fs::remove_file(&temp_path);
@@ -1074,8 +1097,7 @@ async fn fetch_release_info(
     } else {
         Some(fetch_expected_hash(client, &release, asset_name).await?)
     };
-    let expected_hash =
-        resolve_expected_hash(asset.digest.as_deref(), checksum_hash.as_deref())?;
+    let expected_hash = resolve_expected_hash(asset.digest.as_deref(), checksum_hash.as_deref())?;
     Ok((
         asset.browser_download_url.clone(),
         release.tag_name,
@@ -1209,8 +1231,7 @@ pub async fn install_nerd_font() -> Result<FontInstallOutcome, String> {
                 .map(|m| m.len() == NERD_FONT_TTF.len() as u64)
                 .unwrap_or(false);
         if !already {
-            std::fs::write(&target, NERD_FONT_TTF)
-                .map_err(|e| format!("Copia del font: {}", e))?;
+            std::fs::write(&target, NERD_FONT_TTF).map_err(|e| format!("Copia del font: {}", e))?;
         }
 
         let registered = register_font(&target);
@@ -1450,7 +1471,10 @@ mod tests {
 
         let status = status_for(Some(base.clone()));
         assert_eq!(status.setup_version, 0);
-        assert!(status.wizard_pending, "il wizard nativo deve risultare da fare");
+        assert!(
+            status.wizard_pending,
+            "il wizard nativo deve risultare da fare"
+        );
         assert!(!status.has_credentials);
         assert_eq!(status.default_model, None);
         assert!(status.missing.contains(&"credentials".to_string()));
@@ -1503,7 +1527,10 @@ mod tests {
         assert!(ensure_profile_exports(&profile, &dir).unwrap());
 
         let after_first = std::fs::read_to_string(&profile).unwrap();
-        assert!(after_first.starts_with("export EDITOR=vim\n"), "riga utente perduta");
+        assert!(
+            after_first.starts_with("export EDITOR=vim\n"),
+            "riga utente perduta"
+        );
         assert!(after_first.contains(&posix_path_export(&dir)));
         assert_eq!(after_first.matches(PATH_BLOCK_START).count(), 1);
         assert_eq!(after_first.matches(PATH_BLOCK_END).count(), 1);
@@ -1586,7 +1613,10 @@ mod tests {
             parse_checksums(text, "omp-darwin-arm64").as_deref(),
             Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
         );
-        assert_eq!(parse_checksums("not-a-hash  omp-linux-x64", "omp-linux-x64"), None);
+        assert_eq!(
+            parse_checksums("not-a-hash  omp-linux-x64", "omp-linux-x64"),
+            None
+        );
         assert_eq!(parse_checksums(text, "nonexistent"), None);
     }
 
@@ -1610,8 +1640,7 @@ mod tests {
 
     #[test]
     fn hash_mismatch_does_not_touch_existing_binary() {
-        let base =
-            std::env::temp_dir().join(format!("omp-test-mismatch-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("omp-test-mismatch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         let downloaded = base.join("omp.download");
@@ -1654,5 +1683,3 @@ mod tests {
         assert!(!again.installed);
     }
 }
-
-

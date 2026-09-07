@@ -6,13 +6,13 @@
 //! 3. Le scritture passino da `crate::fs_atomic` (temporaneo nella stessa cartella, flush su disco, sostituzione) cosi' un errore o un crash lascia sempre leggibile la coda precedente.
 //! 4. Le modifiche esterne (da terminale/TUI o da tool OMP) siano rilevate da un file watcher e notificate alla GUI via `project-tasks-changed`.
 
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use parking_lot::Mutex;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use parking_lot::Mutex;
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Serialize, Clone)]
@@ -48,7 +48,8 @@ fn project_tasks_file(project_path: &str) -> PathBuf {
 /// Assicura che la cartella `.omp` e il relativo `.gitignore` esistano e contengano `tasks.json`.
 fn ensure_auto_ignore(omp_dir: &Path) -> Result<(), String> {
     if !omp_dir.exists() {
-        fs::create_dir_all(omp_dir).map_err(|e| format!("Impossibile creare cartella .omp: {}", e))?;
+        fs::create_dir_all(omp_dir)
+            .map_err(|e| format!("Impossibile creare cartella .omp: {}", e))?;
     }
 
     let gitignore_path = omp_dir.join(".gitignore");
@@ -81,8 +82,8 @@ pub async fn project_tasks_read(project_path: String) -> Result<String, String> 
     if !file.exists() {
         return Ok(String::new());
     }
-    let content = fs::read_to_string(&file)
-        .map_err(|e| format!("Errore lettura .omp/tasks.json: {}", e))?;
+    let content =
+        fs::read_to_string(&file).map_err(|e| format!("Errore lettura .omp/tasks.json: {}", e))?;
     Ok(content)
 }
 
@@ -109,7 +110,10 @@ pub async fn project_tasks_write(
     // vedere il rename prima che il controllo torni qui, e senza il marcatore
     // interpreterebbe la scrittura di Studio come una modifica esterna.
     let norm_key = project_path.replace('\\', "/").to_lowercase();
-    state.last_studio_writes.lock().insert(norm_key, Instant::now());
+    state
+        .last_studio_writes
+        .lock()
+        .insert(norm_key, Instant::now());
 
     write_tasks_file(&project_path, &content)
 }
