@@ -5,6 +5,7 @@
 	import {
 		settingsStore,
 		type LayoutMode,
+		type QueueViewVariant,
 		type QuotaChipVariant,
 		type QuotaPopoverVariant
 	} from '$lib/stores/settings.svelte';
@@ -38,6 +39,10 @@
 
 	function setLayoutMode(mode: LayoutMode) {
 		settingsStore.patchGeneral({ layoutMode: mode });
+	}
+
+	function setQueueView(variant: QueueViewVariant) {
+		settingsStore.patchQueueView(variant);
 	}
 
 	function setChipVariant(variant: QuotaChipVariant) {
@@ -200,6 +205,74 @@
 							<div class="mini-row editor" title="Editor"></div>
 							<div class="mini-row terminal" title="Terminale / Chat"></div>
 						</div>
+					</div>
+				</div>
+			</button>
+		</div>
+	</div>
+	<!-- BLOCCO: VISTA CODA TASK -->
+	<div class="section-block">
+		<div class="block-head-row">
+			<div class="block-titles">
+				<h4>Vista Coda Task</h4>
+				<span class="block-desc">
+					Come vengono mostrate le righe dei task nella scheda Coda e nel cassetto globale: compatte su tre piani o card ariose.
+				</span>
+			</div>
+		</div>
+		<div class="layout-variant-grid queue-view-grid" role="radiogroup" aria-label="Vista coda task">
+			<button
+				type="button"
+				class="variant-card"
+				class:selected={settingsStore.appearance.queueView === 'compact'}
+				role="radio"
+				aria-checked={settingsStore.appearance.queueView === 'compact'}
+				onclick={() => setQueueView('compact')}
+			>
+				<div class="card-radio-head">
+					<div class="radio-indicator">
+						{#if settingsStore.appearance.queueView === 'compact'}
+							<span class="radio-dot"></span>
+						{/if}
+					</div>
+					<span class="variant-title">Compatta</span>
+				</div>
+				<p class="variant-desc">
+					Titolo ed estratto a tutta larghezza su tre piani, badge tutti sotto il testo. Ideale con pochi task.
+				</p>
+				<div class="variant-preview">
+					<div class="queue-mini-preview">
+						<span class="mini-queue-title"></span>
+						<span class="mini-queue-excerpt"></span>
+						<span class="mini-queue-chips"><i></i><i></i><i></i></span>
+					</div>
+				</div>
+			</button>
+			<button
+				type="button"
+				class="variant-card"
+				class:selected={settingsStore.appearance.queueView === 'cards'}
+				role="radio"
+				aria-checked={settingsStore.appearance.queueView === 'cards'}
+				onclick={() => setQueueView('cards')}
+			>
+				<div class="card-radio-head">
+					<div class="radio-indicator">
+						{#if settingsStore.appearance.queueView === 'cards'}
+							<span class="radio-dot"></span>
+						{/if}
+					</div>
+					<span class="variant-title">Card</span>
+				</div>
+				<p class="variant-desc">
+					Ogni task respira come card separata con estratto su tre righe e badge su piu righe.
+				</p>
+				<div class="variant-preview">
+					<div class="queue-mini-preview card">
+						<span class="mini-queue-title"></span>
+						<span class="mini-queue-excerpt"></span>
+						<span class="mini-queue-excerpt short"></span>
+						<span class="mini-queue-chips"><i></i><i></i></span>
 					</div>
 				</div>
 			</button>
@@ -1152,6 +1225,10 @@
 		gap: var(--space-3);
 	}
 
+	.queue-view-grid {
+		grid-template-columns: repeat(2, 1fr);
+	}
+
 	@media (max-width: 640px) {
 		.layout-variant-grid {
 			grid-template-columns: 1fr;
@@ -1249,5 +1326,64 @@
 	.variant-card.selected .mini-col.editor,
 	.variant-card.selected .mini-row.editor {
 		border-color: var(--brand-dim);
+	}
+	.queue-mini-preview {
+		width: 100%;
+		box-sizing: border-box;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 6px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		transition: border-color 0.15s ease;
+	}
+
+	.queue-mini-preview.card {
+		border-radius: var(--radius-md);
+		padding: 8px;
+		gap: 5px;
+	}
+
+	.variant-card:hover .queue-mini-preview {
+		border-color: var(--line-strong);
+	}
+
+	.variant-card.selected .queue-mini-preview {
+		border-color: var(--brand);
+	}
+
+	.mini-queue-title {
+		height: 7px;
+		width: 75%;
+		border-radius: 2px;
+		background: var(--ink);
+		opacity: 0.75;
+	}
+
+	.mini-queue-excerpt {
+		height: 5px;
+		width: 95%;
+		border-radius: 2px;
+		background: var(--ink-faint);
+		opacity: 0.6;
+	}
+
+	.mini-queue-excerpt.short {
+		width: 60%;
+	}
+
+	.mini-queue-chips {
+		display: flex;
+		gap: 3px;
+	}
+
+	.mini-queue-chips i {
+		height: 9px;
+		width: 26px;
+		border-radius: 999px;
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
 	}
 </style>

@@ -4,6 +4,7 @@
 	import EmptyState from './EmptyState.svelte';
 	import { taskStore, type AgentView, type StudioTask } from '$lib/stores/tasks.svelte';
 	import { rulesStore } from '$lib/stores/rules.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 
 	let {
 		projectPath,
@@ -32,6 +33,7 @@
 	const tasks = $derived(taskStore.tasksFor(projectPath));
 	const view = $derived(taskStore.viewFor(projectPath));
 	const frictionCount = $derived(rulesStore.suggestionsFor(projectPath).length);
+	const isCardView = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
 
 	// L'analisi dell'attrito e' una singola query in sola lettura sullo storico:
 	// gira al montaggio del pannello perche' il conteggio sulla scheda deve
@@ -138,7 +140,7 @@
 				{/if}
 			</div>
 
-			<ul class="queue-list" aria-label="Task in coda">
+			<ul class="queue-list" class:queue-cards={isCardView} aria-label="Task in coda">
 				{#if tasks.length === 0}
 					<li class="empty-task-container">
 						<EmptyState
@@ -185,39 +187,33 @@
 								aria-label={`Avvia task: ${taskTitle(task)}`}
 								onclick={() => onRunTask(task.id)}
 							>
-								<div class="task-title-row">
-									<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
-									<div class="status-and-role">
-										{#if task.status === 'in_progress'}
-											<span class="task-chip status-chip in-progress">in corso</span>
-										{:else if task.status === 'completed'}
-											<span class="task-chip status-chip completed">fatto</span>
-										{:else if task.status === 'abandoned'}
-											<span class="task-chip status-chip abandoned">abbandonato</span>
+								<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
+								<span class="task-excerpt" role="status" aria-live={task.status === 'dispatching' ? 'polite' : 'off'}>{task.status === 'dispatching' ? 'Avvio della nuova sessione...' : taskExcerpt(task)}</span>
+								<div class="task-chips">
+									{#if task.status === 'in_progress'}
+										<span class="task-chip status-chip in-progress">in corso</span>
+									{:else if task.status === 'completed'}
+										<span class="task-chip status-chip completed">fatto</span>
+									{:else if task.status === 'abandoned'}
+										<span class="task-chip status-chip abandoned">abbandonato</span>
+									{/if}
+									{#if task.options?.role}
+										{@const badge = roleBadge(task.options.role)}
+										{#if badge}
+											<span class="task-chip role-chip">{badge}</span>
 										{/if}
-										{#if task.options?.role}
-											{@const badge = roleBadge(task.options.role)}
-											{#if badge}
-												<span class="task-chip role-chip">{badge}</span>
-											{/if}
+									{/if}
+									{#if task.options?.directives && task.options.directives.length > 0}
+										{#each task.options.directives.slice(0, 2) as d (d.id)}
+											<span class="task-chip mode-chip" title={d.name}>{d.tag || d.name}</span>
+										{/each}
+										{#if task.options.directives.length > 2}
+											<span class="task-chip mode-chip" title={task.options.directives.slice(2).map((d) => d.name).join(', ')}>+{task.options.directives.length - 2}</span>
 										{/if}
-									</div>
-								</div>
-								<div class="task-meta-row">
-									<span class="task-excerpt" role="status" aria-live={task.status === 'dispatching' ? 'polite' : 'off'}>{task.status === 'dispatching' ? 'Avvio della nuova sessione...' : taskExcerpt(task)}</span>
-									<div class="task-chips">
-										{#if task.options?.directives && task.options.directives.length > 0}
-											{#each task.options.directives.slice(0, 2) as d (d.id)}
-												<span class="task-chip mode-chip" title={d.name}>{d.tag || d.name}</span>
-											{/each}
-											{#if task.options.directives.length > 2}
-												<span class="task-chip mode-chip" title={task.options.directives.slice(2).map((d) => d.name).join(', ')}>+{task.options.directives.length - 2}</span>
-											{/if}
-										{/if}
-										{#if task.images && task.images.length > 0}
-											<span class="task-chip img-chip">img {task.images.length}</span>
-										{/if}
-									</div>
+									{/if}
+									{#if task.images && task.images.length > 0}
+										<span class="task-chip img-chip">img {task.images.length}</span>
+									{/if}
 								</div>
 							</button>
 							<button
@@ -389,6 +385,13 @@
 		min-height: 0;
 		overflow-y: auto;
 	}
+
+	.queue-list.queue-cards {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-1) var(--space-1) var(--space-2);
+	}
 	.empty-task-container {
 		list-style: none;
 		padding: 0;
@@ -400,8 +403,8 @@
 		display: grid;
 		grid-template-columns: 24px minmax(0, 1fr) 30px;
 		align-items: stretch;
-		min-height: 48px;
-		padding: 0 var(--space-1);
+		min-height: 72px;
+		padding: var(--space-1);
 		border-radius: var(--radius-sm);
 	}
 
@@ -451,12 +454,12 @@
 
 	.task-launch {
 		min-width: 0;
-		padding: var(--space-1) var(--space-1);
+		padding: var(--space-1);
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
-		align-items: flex-start;
-		gap: 0;
+		align-items: stretch;
+		gap: var(--space-1);
 		text-align: left;
 		cursor: pointer;
 	}
@@ -465,32 +468,16 @@
 		cursor: default;
 	}
 
-	.task-title-row {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-1);
-	}
-
-	.task-meta-row {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-1);
-	}
-
 	.task-chips {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
+		justify-content: flex-start;
 		gap: var(--space-1);
-		flex-shrink: 0;
 	}
-	.status-and-role {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
+
+	.task-chips:empty {
+		display: none;
 	}
 
 	.status-chip.in-progress {
@@ -543,25 +530,70 @@
 		color: var(--ink-faint);
 	}
 
-	.task-title,
-	.task-excerpt {
+	.task-title {
+		display: block;
+		width: 100%;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		min-width: 0;
-	}
-
-	.task-title {
 		color: var(--ink);
 		font-size: var(--text-base);
-		font-weight: 500;
-		flex: 1;
+		font-weight: 600;
 	}
 
 	.task-excerpt {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+		width: 100%;
+		min-width: 0;
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
-		flex: 1;
+		line-height: 1.45;
+		overflow-wrap: anywhere;
+	}
+
+	.queue-list.queue-cards .task-row {
+		min-height: 88px;
+		padding: var(--space-2);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-base);
+	}
+
+	.queue-list.queue-cards .task-row:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
+	}
+
+	.queue-list.queue-cards .task-row.dispatching {
+		border-color: var(--brand-dim);
+	}
+
+	.queue-list.queue-cards .task-title {
+		white-space: normal;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+	}
+
+	.queue-list.queue-cards .task-excerpt {
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		font-size: var(--text-sm);
+		color: var(--ink-muted);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.task-row,
+		.task-launch,
+		.task-chips {
+			transition: none;
+		}
 	}
 
 	.task-launch:disabled .task-title {

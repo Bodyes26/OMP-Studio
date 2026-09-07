@@ -93,9 +93,13 @@ export interface QuotaPopoverSettings {
 	semanticColors: boolean;
 }
 
+/** Vista delle righe task in coda: compatta su 3 piani o card ariosa. */
+export type QueueViewVariant = 'compact' | 'cards';
+
 export interface AppearanceSettings {
 	quotaChip: QuotaChipSettings;
 	quotaPopover: QuotaPopoverSettings;
+	queueView: QueueViewVariant;
 }
 
 export interface ProjectBarSettings {
@@ -255,7 +259,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		quotaPopover: {
 			variant: 'telemetry',
 			semanticColors: false
-		}
+		},
+		queueView: 'compact'
 	}
 };
 
@@ -382,7 +387,8 @@ export function parseSettings(value: unknown): StudioSettings {
 			quotaPopover: {
 				variant: pick(quotaPopover.variant, ['telemetry', 'radial'] as const, d.appearance.quotaPopover.variant),
 				semanticColors: bool(quotaPopover.semanticColors, d.appearance.quotaPopover.semanticColors)
-			}
+			},
+			queueView: pick(appearance.queueView, ['compact', 'cards'] as const, d.appearance.queueView)
 		}
 	};
 }
@@ -412,7 +418,8 @@ class SettingsStore {
 	accessibility = $state<AccessibilitySettings>({ ...DEFAULT_SETTINGS.accessibility });
 	appearance = $state<AppearanceSettings>({
 		quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip },
-		quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover }
+		quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover },
+		queueView: DEFAULT_SETTINGS.appearance.queueView
 	});
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
 	ready = $state(false);
@@ -526,6 +533,12 @@ class SettingsStore {
 		Object.assign(this.appearance.quotaPopover, patch);
 		this.save();
 	}
+
+	patchQueueView(queueView: QueueViewVariant) {
+		this.appearance.queueView = queueView;
+		this.save();
+	}
+
 	setTaskDirectives(directives: TaskDirective[]) {
 		this.taskDirectives = sanitizeDirectivesCatalog(directives);
 		this.save();
@@ -736,7 +749,8 @@ class SettingsStore {
 		if (!section || section === 'appearance') {
 			this.appearance = {
 				quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip },
-				quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover }
+				quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover },
+				queueView: DEFAULT_SETTINGS.appearance.queueView
 			};
 		}
 		this.save();

@@ -7,6 +7,7 @@
 	import { automaticProjectHue, THEMES } from '$lib/theme';
 	import { trapFocus } from '$lib/focusTrap';
 	import type { Project } from '$lib/stores/projects.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { IconClose } from '$lib/icons';
 	let {
 		open = false,
@@ -34,7 +35,9 @@
 			.map((p: Project) => ({ project: p, tasks: taskStore.tasksFor(p.path) }))
 			.filter((g: { project: Project; tasks: StudioTask[] }) => g.tasks.length > 0)
 	);
-
+	// Stessa vista scelta in Aspetto per la Coda: compatta di default,
+	// card ariose come opt-in. Stesse classi/regole di AgentPanel.
+	const isCardView = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
 	// Stessa logica di TopBar.svelte: la tinta segue il tema del progetto
 	// finche' l'utente non sceglie un colore personalizzato.
 	function projectHue(project: Project): number {
@@ -53,6 +56,25 @@
 		return 'Nuovo task';
 	}
 
+	function taskExcerpt(task: StudioTask): string {
+		const compact = task.prompt.replace(/\s+/g, ' ').trim();
+		if (compact) return compact;
+		if (task.images && task.images.length > 0) {
+			return `${task.images.length} ${task.images.length === 1 ? 'immagine allegata' : 'immagini allegate'}`;
+		}
+		return 'Prompt ancora vuoto';
+	}
+
+	function roleBadge(role?: string): string | null {
+		switch (role) {
+			case 'smol': return 'smol';
+			case 'slow': return 'slow';
+			case 'plan': return 'plan';
+			case 'custom': return 'custom';
+			case 'default': return 'default';
+			default: return null;
+		}
+	}
 	// Ctrl+click porta il focus sul progetto dopo l'avvio; il click semplice
 	// lancia in background, come deciso per tutti i punti di avvio condivisi.
 	function runTask(event: MouseEvent, projectId: string, taskId: string) {
@@ -109,11 +131,12 @@
 								Avvia il primo
 							</button>
 						</div>
-						<div class="task-list" role="list" aria-label={`Task in coda per ${group.project.name}`}>
+						<div class="task-list" class:queue-cards={isCardView} role="list" aria-label={`Task in coda per ${group.project.name}`}>
 							{#each group.tasks as task (task.id)}
 								<div class="task-row" role="listitem">
 									<div class="task-main">
 										<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
+										<span class="task-excerpt">{taskExcerpt(task)}</span>
 										<div class="task-chips">
 											{#if task.status === 'in_progress'}
 												<span class="task-chip status-chip in-progress">in corso</span>
@@ -122,6 +145,12 @@
 											{:else if task.status === 'abandoned'}
 												<span class="task-chip status-chip abandoned">abbandonato</span>
 											{/if}
+											{#if task.options?.role}
+												{@const badge = roleBadge(task.options.role)}
+												{#if badge}
+													<span class="task-chip role-chip">{badge}</span>
+												{/if}
+											{/if}
 											{#if task.options?.directives && task.options.directives.length > 0}
 												{#each task.options.directives.slice(0, 3) as d (d.id)}
 													<span class="task-chip" title={d.name}>{d.tag || d.name}</span>
@@ -129,6 +158,9 @@
 												{#if task.options.directives.length > 3}
 													<span class="task-chip" title={task.options.directives.slice(3).map((d) => d.name).join(', ')}>+{task.options.directives.length - 3}</span>
 												{/if}
+											{/if}
+											{#if task.images && task.images.length > 0}
+												<span class="task-chip img-chip">img {task.images.length}</span>
 											{/if}
 										</div>
 									</div>
@@ -351,19 +383,29 @@
 		gap: 2px;
 	}
 
+	.task-list.queue-cards {
+		gap: var(--space-2);
+	}
+
 	.task-row {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: var(--space-1);
+		padding: var(--space-1) var(--space-2);
 		border-radius: var(--radius-sm);
-		/* Le righe con le pillole di modalita' sarebbero piu' alte delle altre:
-		   un elenco che si muove a scatti si legge peggio di uno regolare. */
-		min-height: 40px;
+		min-height: 72px;
 	}
 
-	.task-row:hover {
-		background: var(--bg-hover);
+	.task-list.queue-cards .task-row {
+		align-items: stretch;
+		padding: var(--space-2);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		min-height: 88px;
+	}
+
+	.task-list.queue-cards .task-row:hover {
+		border-color: var(--line-strong);
 	}
 
 	.task-main {
@@ -371,7 +413,8 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		justify-content: center;
+		gap: var(--space-1);
 	}
 
 	.task-title {
@@ -380,13 +423,46 @@
 		white-space: nowrap;
 		color: var(--ink);
 		font-size: var(--text-sm);
-		font-weight: 500;
+		font-weight: 600;
+	}
+
+	.task-excerpt {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+		color: var(--ink-faint);
+		font-size: var(--text-xs);
+		line-height: 1.45;
+		overflow-wrap: anywhere;
+	}
+
+	.task-list.queue-cards .task-title {
+		white-space: normal;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+	}
+
+	.task-list.queue-cards .task-excerpt {
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		font-size: var(--text-sm);
+		color: var(--ink-muted);
 	}
 
 	.task-chips {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-start;
 		gap: 4px;
+	}
+
+	.task-chips:empty {
+		display: none;
 	}
 
 	.task-chip {
@@ -399,6 +475,17 @@
 		color: var(--ink-muted);
 		line-height: 1.2;
 		white-space: nowrap;
+	}
+
+	.task-chip.role-chip {
+		background: var(--brand-dim);
+		border-color: transparent;
+		color: var(--ink);
+		font-weight: 600;
+	}
+
+	.task-chip.img-chip {
+		color: var(--ink-faint);
 	}
 
 	.task-actions {
