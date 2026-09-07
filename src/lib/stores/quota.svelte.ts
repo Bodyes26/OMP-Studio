@@ -194,7 +194,7 @@ class QuotaStore {
 			this.error = null;
 
 			this.evaluateStatus();
-			void this.updateReportPinHashes(this.reports);
+			await this.updateReportPinHashes(this.reports);
 		} catch (err) {
 			// Resilienza totale: non rilanciamo mai l'errore per evitare crash del renderer UI
 			this.error = String(err);
@@ -235,10 +235,7 @@ class QuotaStore {
 					}
 				})
 			);
-			// Aggiorna solo se la lista di report e' ancora la stessa istanza
-			if (this.reports === reports) {
-				this.reportPinHashes = hashes;
-			}
+			this.reportPinHashes = hashes;
 		} catch {
 			this.reportPinHashes = [];
 		}

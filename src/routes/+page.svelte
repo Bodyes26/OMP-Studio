@@ -232,9 +232,10 @@
 		}
 		return list;
 	});
-	// Memoizzazione dei pin credenziali per le sessioni GUI per non invocare ad ogni tick dell'effetto
-	let guiSessionPinsCache = $state<Record<string, Record<string, string>>>({});
-	const guiSessionPinsInFlight = new Set<string>();
+	// Memoizzazione dei pin credenziali per le sessioni per non invocare ad ogni tick dell'effetto
+	let sessionPinsCache = $state<Record<string, Record<string, string>>>({});
+	const sessionPinsInFlight = new Set<string>();
+	const prevGeneratingBySession = new Map<string, boolean>();
 
 	// Mantiene la quota contestuale allineata al modello e provider del progetto attivo.
 	$effect(() => {
@@ -289,33 +290,55 @@
 		// Recupero del pin credenziale per il provider del progetto attivo
 		let credentialPin: string | undefined;
 		if (provider) {
-			if (project.layout.rightSection === 'gui') {
-				const session = agentSessions.get(project.id);
-				const sessionKey = session?.sessionId || session?.sessionFile || undefined;
-				if (sessionKey) {
-					const cached = guiSessionPinsCache[sessionKey];
-					if (cached) {
-						credentialPin = cached[provider];
-						if (!credentialPin) {
-							const matchedKey = Object.keys(cached).find((p) => providersMatch(p, provider));
-							if (matchedKey) credentialPin = cached[matchedKey];
-						}
-					} else if (!guiSessionPinsInFlight.has(sessionKey)) {
-						guiSessionPinsInFlight.add(sessionKey);
-						invoke<Record<string, string>>('session_credential_pins', { sessionId: sessionKey })
-							.then((pins) => {
-								guiSessionPinsCache[sessionKey] = pins || {};
-							})
-							.catch(() => {
-								guiSessionPinsCache[sessionKey] = {};
-							})
-							.finally(() => {
-								guiSessionPinsInFlight.delete(sessionKey);
-							});
+			const sessionKey =
+				project.layout.rightSection === 'gui'
+					? agentSessions.get(project.id)?.sessionId || agentSessions.get(project.id)?.sessionFile || undefined
+					: terminalSessions.get(project.id)?.currentSessionInfo?.sessionId ||
+						terminalSessions.get(project.id)?.currentSessionInfo?.sessionPath ||
+						undefined;
+
+			if (sessionKey) {
+				const isGenerating =
+					project.layout.rightSection === 'gui'
+						? (agentSessions.get(project.id)?.isStreaming || agentSessions.get(project.id)?.agentState === 'working')
+						: (terminalBusy[project.id] || project.agentState === 'working');
+
+				const wasGenerating = prevGeneratingBySession.get(sessionKey) ?? false;
+				prevGeneratingBySession.set(sessionKey, !!isGenerating);
+
+				// Se la generazione e' appena terminata, invalida la cache per rileggere i pin freschi dal transcript
+				if (wasGenerating && !isGenerating) {
+					delete sessionPinsCache[sessionKey];
+					void quotaStore.refresh(false);
+				}
+
+				const cached = sessionPinsCache[sessionKey];
+				if (cached) {
+					credentialPin = cached[provider];
+					if (!credentialPin) {
+						const matchedKey = Object.keys(cached).find((p) => providersMatch(p, provider));
+						if (matchedKey) credentialPin = cached[matchedKey];
 					}
 				}
-			} else {
-				// Sessione terminale: match su provider e progetto nei providerHosts di quotaStore
+				// Se il pin per questo provider non e' ancora in cache e non c'e' una richiesta in volo,
+				// interroga session_credential_pins per estrarre i pin aggiornati dal transcript
+				if (!credentialPin && !sessionPinsInFlight.has(sessionKey)) {
+					sessionPinsInFlight.add(sessionKey);
+					invoke<Record<string, string>>('session_credential_pins', { sessionId: sessionKey })
+						.then((pins) => {
+							sessionPinsCache[sessionKey] = pins || {};
+						})
+						.catch(() => {
+							sessionPinsCache[sessionKey] = {};
+						})
+						.finally(() => {
+							sessionPinsInFlight.delete(sessionKey);
+						});
+				}
+			}
+
+			// Fallback su providerHosts (es. terminale senza sessionKey nota o finche' session_credential_pins non risponde)
+			if (!credentialPin) {
 				const projectName = project.label?.trim() || project.name;
 				const normActivePath = project.path ? normalizeProjectPath(project.path).toLowerCase() : '';
 				const host = quotaStore.providerHosts.find((h) => {
