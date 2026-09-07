@@ -9,6 +9,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-07
+
 ### Added
 - Layout personalizzabile con supporto a monitor verticali (portrait) e collasso della barra laterale: commutazione automatica o manuale tra vista orizzontale a 3 colonne e vista verticale con editor in alto e terminale/chat in basso divisi da splitter orizzontale, scorciatoia `Ctrl+Alt+L` e chip di stato nella barra superiore per ciclare la modalità, e possibilità di nascondere o mostrare la barra laterale (File/Git/Agente) con `Ctrl+Alt+B` o cliccando sul logo &pi; in alto a sinistra per dedicare tutta la larghezza all'editor e alla conversazione.
 - Due stili per il popover delle quote, selezionabili in «Impostazioni → Aspetto» accanto a quello della chip: «Telemetria», con barra sottile, zona già consumata rigata e lettura di stato `OK / WARN / CRIT` per ogni finestra, e «Anello», con un indicatore circolare per finestra che si scarica e mostra una pastiglia di stato quando la quota scende. Le due card mostrano un'anteprima reale che cambia con la scelta, e lo stile vale sia nella finestra principale sia nel Companion.
@@ -64,7 +66,6 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Con più account dello stesso provider la quota mostrata poteva appartenere a un account diverso da quello effettivamente in uso, e l'etichetta «In uso da» compariva su tutti gli account del provider. Studio riconosce ora l'account che la sessione sta realmente utilizzando.
 - Sui provider che raggruppano più famiglie di modelli (come Google Antigravity, che tiene contatori separati per Gemini, Claude e GPT) la chip mostra ora il contatore della famiglia del modello in uso, invece del più basso fra tutti.
 - La chip non segnala più "Quota esaurita" quando un account inutilizzato ha una finestra esaurita ma un altro account dello stesso provider ha ancora quota disponibile.
-
 ## [1.4.0] - 2026-09-02
 
 ### Added
