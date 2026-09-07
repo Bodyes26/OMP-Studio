@@ -7,6 +7,7 @@
 		variant = 'ringHalo',
 		showProvider = true,
 		alwaysShowPct = false,
+		semanticColors = false,
 		status = 'ok',
 		remainingPct = null,
 		usedPct = 0,
@@ -23,6 +24,7 @@
 		variant?: QuotaChipVariant;
 		showProvider?: boolean;
 		alwaysShowPct?: boolean;
+		semanticColors?: boolean;
 		status?: QuotaSemanticStatus;
 		remainingPct?: number | null;
 		usedPct?: number;
@@ -54,6 +56,7 @@
 	<button
 		type="button"
 		class="quota-chip status-exhausted status-bad {className}"
+		class:quota-semantic={semanticColors}
 		{title}
 		aria-label={ariaLabel || 'Quota esaurita'}
 		disabled={!interactive}
@@ -77,6 +80,7 @@
 	<button
 		type="button"
 		class="quota-chip status-offline {className}"
+		class:quota-semantic={semanticColors}
 		{title}
 		aria-label={ariaLabel || 'Quota offline'}
 		disabled={!interactive}
@@ -94,6 +98,7 @@
 	<button
 		type="button"
 		class="quota-chip status-unconfigured {className}"
+		class:quota-semantic={semanticColors}
 		{title}
 		aria-label={ariaLabel || 'Quota: non configurata'}
 		disabled={!interactive}
@@ -112,6 +117,7 @@
 		class:status-bad={status === 'critical' || status === 'exhausted'}
 		class:has-halo={status !== 'ok'}
 		class:critical-breathe={status === 'critical'}
+		class:quota-semantic={semanticColors}
 		{title}
 		aria-label={ariaLabel || `Quota ${shortName ? `${shortName} ` : ''}${remainingPct !== null ? `${remainingPct}%` : ''}`}
 		disabled={!interactive}
@@ -161,6 +167,7 @@
 		class:status-bad={status === 'critical' || status === 'exhausted'}
 		class:has-halo={status !== 'ok'}
 		class:critical-breathe={status === 'critical'}
+		class:quota-semantic={semanticColors}
 		{title}
 		aria-label={ariaLabel || `Quota ${shortName ? `${shortName} ` : ''}${remainingPct !== null ? `${remainingPct}%` : ''}`}
 		disabled={!interactive}

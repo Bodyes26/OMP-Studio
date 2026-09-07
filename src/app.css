@@ -308,6 +308,21 @@ svg.lucide {
   white-space: nowrap;
   border: 0;
 }
+
+/*
+   Opt-in per superficie ai colori semaforo della quota:
+   rimappa le proprieta' locali --quota-* sulle variabili neutrali
+   --quota-sem-* iniettate su :root dal layout.
+   Senza questa classe, ogni superficie usa i colori del tema come fallback.
+*/
+.quota-semantic {
+	--quota-ok: var(--quota-sem-ok);
+	--quota-ok-fill: var(--quota-sem-ok-fill);
+	--quota-warn: var(--quota-sem-warn);
+	--quota-warn-fill: var(--quota-sem-warn-fill);
+	--quota-bad: var(--quota-sem-bad);
+	--quota-bad-fill: var(--quota-sem-bad-fill);
+}
 /* Decorazioni di gutter git in Monaco: elementi DOM, quindi i token valgono. */
 .git-gutter-added {
   background: var(--git-added) !important;

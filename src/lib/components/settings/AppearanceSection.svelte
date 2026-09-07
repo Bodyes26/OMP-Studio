@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { settingsStore, type QuotaChipVariant } from '$lib/stores/settings.svelte';
+	import {
+		settingsStore,
+		type QuotaChipVariant,
+		type QuotaPopoverVariant
+	} from '$lib/stores/settings.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
 	import { IconCheck } from '$lib/icons';
 	import QuotaChip from '../quota/QuotaChip.svelte';
-
+	import QuotaLimitRow from '../quota/QuotaLimitRow.svelte';
 	let filterQuery = $state('');
 
 	const activeGroup = $derived(
@@ -45,6 +50,37 @@
 	function toggleSemanticColors(checked: boolean) {
 		settingsStore.patchQuotaChip({ semanticColors: checked });
 	}
+
+	function setPopoverVariant(variant: QuotaPopoverVariant) {
+		settingsStore.patchQuotaPopover({ variant });
+	}
+
+	function togglePopoverSemanticColors(checked: boolean) {
+		settingsStore.patchQuotaPopover({ semanticColors: checked });
+	}
+
+	// Dati simulati per l'anteprima realistica del popover quote
+	interface PreviewLimit {
+		label: string;
+		remainingPercent: number;
+		tone: 'ok' | 'warn' | 'bad';
+		resetCountdown: string;
+	}
+
+	const PREVIEW_LIMITS: PreviewLimit[] = [
+		{
+			label: 'Claude 5 Hour',
+			remainingPercent: 78,
+			tone: 'ok',
+			resetCountdown: 'tra 3h 21m'
+		},
+		{
+			label: 'Claude 7 Day',
+			remainingPercent: 8,
+			tone: 'bad',
+			resetCountdown: 'tra 4g 2h'
+		}
+	];
 
 	// Sincronizza la scheda del tema con la modalità attiva (scuro/chiaro) all'apertura
 	onMount(() => {
@@ -96,6 +132,7 @@
 						variant="ringHalo"
 						showProvider={settingsStore.appearance.quotaChip.showProvider}
 						alwaysShowPct={settingsStore.appearance.quotaChip.alwaysShowPct}
+						semanticColors={settingsStore.appearance.quotaChip.semanticColors}
 						status={activeQuotaStore.info.status}
 						remainingPct={activeQuotaStore.info.remainingPct ?? 78}
 						usedPct={activeQuotaStore.info.usedPct || 22}
@@ -129,6 +166,7 @@
 						variant="fillWave"
 						showProvider={settingsStore.appearance.quotaChip.showProvider}
 						alwaysShowPct={settingsStore.appearance.quotaChip.alwaysShowPct}
+						semanticColors={settingsStore.appearance.quotaChip.semanticColors}
 						status={activeQuotaStore.info.status}
 						remainingPct={activeQuotaStore.info.remainingPct ?? 78}
 						usedPct={activeQuotaStore.info.usedPct || 22}
@@ -193,6 +231,146 @@
 							type="checkbox"
 							checked={settingsStore.appearance.quotaChip.semanticColors}
 							onchange={(e) => toggleSemanticColors((e.currentTarget as HTMLInputElement).checked)}
+						/>
+						<span class="slider"></span>
+					</label>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- SEPARATORE TRA BLOCCHI -->
+	<div class="block-divider"></div>
+
+	<!-- BLOCCO: POPOVER QUOTA (LIMITI DI UTILIZZO) -->
+	<div class="section-block">
+		<div class="block-head-row">
+			<div class="block-titles">
+				<h4>Popover Quota (Limiti di Utilizzo)</h4>
+				<span class="block-desc">
+					Scegli lo stile e la visualizzazione dei limiti di utilizzo nel popover delle quote per entrambe le finestre (principale e Companion).
+				</span>
+			</div>
+		</div>
+
+		<!-- Selettore stili popover (cards con preview live) -->
+		<div class="chip-variant-grid">
+			<!-- Card 1: Telemetria -->
+			<button
+				type="button"
+				class="variant-card"
+				class:selected={settingsStore.appearance.quotaPopover.variant === 'telemetry'}
+				onclick={() => setPopoverVariant('telemetry')}
+			>
+				<div class="card-radio-head">
+					<div class="radio-indicator">
+						{#if settingsStore.appearance.quotaPopover.variant === 'telemetry'}
+							<span class="radio-dot"></span>
+						{/if}
+					</div>
+					<span class="variant-title">Telemetria</span>
+				</div>
+				<p class="variant-desc">
+					Barra sottile con zona consumata rigata e lettura di stato OK / WARN / CRIT, ad alta densita' informativa.
+				</p>
+				<div class="variant-preview">
+					<div class="popover-mini-container">
+						{#key `${settingsStore.appearance.quotaPopover.variant}-${settingsStore.appearance.quotaPopover.semanticColors}`}
+							<div
+								class="popover-miniature"
+								class:quota-semantic={settingsStore.appearance.quotaPopover.semanticColors}
+								aria-hidden="true"
+								inert
+								transition:fade={{ duration: 150 }}
+							>
+								<div class="mini-provider-head telemetry">
+									<span class="mini-provider-name">anthropic</span>
+									<span class="mini-provider-email">user@example.com</span>
+								</div>
+								<div class="mini-limits-list">
+									{#each PREVIEW_LIMITS as limit, idx (limit.label)}
+										<QuotaLimitRow
+											variant="telemetry"
+											label={limit.label}
+											remainingPercent={limit.remainingPercent}
+											tone={limit.tone}
+											resetCountdown={limit.resetCountdown}
+											delayIndex={idx}
+										/>
+									{/each}
+								</div>
+							</div>
+						{/key}
+					</div>
+				</div>
+			</button>
+
+			<!-- Card 2: Anello -->
+			<button
+				type="button"
+				class="variant-card"
+				class:selected={settingsStore.appearance.quotaPopover.variant === 'radial'}
+				onclick={() => setPopoverVariant('radial')}
+			>
+				<div class="card-radio-head">
+					<div class="radio-indicator">
+						{#if settingsStore.appearance.quotaPopover.variant === 'radial'}
+							<span class="radio-dot"></span>
+						{/if}
+					</div>
+					<span class="variant-title">Anello</span>
+				</div>
+				<p class="variant-desc">
+					Un indicatore circolare per finestra, che si scarica senza direzione da interpretare, con pastiglia di stato quando la quota scende.
+				</p>
+				<div class="variant-preview">
+					<div class="popover-mini-container">
+						{#key `${settingsStore.appearance.quotaPopover.variant}-${settingsStore.appearance.quotaPopover.semanticColors}`}
+							<div
+								class="popover-miniature"
+								class:quota-semantic={settingsStore.appearance.quotaPopover.semanticColors}
+								aria-hidden="true"
+								inert
+								transition:fade={{ duration: 150 }}
+							>
+								<div class="mini-provider-head radial">
+									<span class="mini-provider-name">anthropic</span>
+									<span class="mini-provider-email">user@example.com</span>
+								</div>
+								<div class="mini-limits-list">
+									{#each PREVIEW_LIMITS as limit, idx (limit.label)}
+										<QuotaLimitRow
+											variant="radial"
+											label={limit.label}
+											remainingPercent={limit.remainingPercent}
+											tone={limit.tone}
+											resetCountdown={limit.resetCountdown}
+											delayIndex={idx}
+										/>
+									{/each}
+								</div>
+							</div>
+						{/key}
+					</div>
+				</div>
+			</button>
+		</div>
+
+		<!-- Opzioni Popover / Toggle Colori semaforo -->
+		<div class="section-group">
+			<div class="form-row">
+				<div class="form-row-copy">
+					<span class="form-row-label">Colori semaforo</span>
+					<span class="form-row-desc">
+						Sostituisce i colori del tema attivo con la scala verde/ambra/rosso ad alto contrasto per indicatori e barre di avanzamento nel popover delle quote.
+					</span>
+				</div>
+				<div class="form-row-control">
+					<label class="switch">
+						<input
+							type="checkbox"
+							checked={settingsStore.appearance.quotaPopover.semanticColors}
+							onchange={(e) => togglePopoverSemanticColors((e.currentTarget as HTMLInputElement).checked)}
 						/>
 						<span class="slider"></span>
 					</label>
@@ -461,6 +639,76 @@
 		display: flex;
 		align-items: center;
 		width: 100%;
+	}
+
+	/* --- Popover Miniature Preview --- */
+
+	.popover-mini-container {
+		width: 100%;
+		display: grid;
+		grid-template-columns: 1fr;
+	}
+
+	.popover-miniature {
+		grid-area: 1 / 1;
+		width: 100%;
+		box-sizing: border-box;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		padding: var(--space-3);
+		overflow: hidden;
+		pointer-events: none;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.mini-provider-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: var(--space-2);
+	}
+
+	.mini-provider-head.telemetry .mini-provider-name {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--ink-muted);
+	}
+
+	.mini-provider-head.telemetry .mini-provider-email {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--ink-faint);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mini-provider-head.radial .mini-provider-name {
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.mini-provider-head.radial .mini-provider-email {
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mini-limits-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
 	}
 
 	/* --- Form Rows & Switches --- */

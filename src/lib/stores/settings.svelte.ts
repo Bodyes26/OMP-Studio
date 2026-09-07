@@ -83,8 +83,17 @@ export interface QuotaChipSettings {
 	semanticColors: boolean;
 }
 
+/** Stile visivo del popover quote. */
+export type QuotaPopoverVariant = 'telemetry' | 'radial';
+
+export interface QuotaPopoverSettings {
+	variant: QuotaPopoverVariant;
+	semanticColors: boolean;
+}
+
 export interface AppearanceSettings {
 	quotaChip: QuotaChipSettings;
+	quotaPopover: QuotaPopoverSettings;
 }
 
 export interface ProjectBarSettings {
@@ -229,6 +238,10 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 			showProvider: true,
 			alwaysShowPct: false,
 			semanticColors: false
+		},
+		quotaPopover: {
+			variant: 'telemetry',
+			semanticColors: false
 		}
 	}
 };
@@ -275,6 +288,7 @@ export function parseSettings(value: unknown): StudioSettings {
 	const access = (record.accessibility && typeof record.accessibility === 'object' ? record.accessibility : {}) as Record<string, unknown>;
 	const appearance = (record.appearance && typeof record.appearance === 'object' ? record.appearance : {}) as Record<string, unknown>;
 	const quotaChip = (appearance.quotaChip && typeof appearance.quotaChip === 'object' ? appearance.quotaChip : {}) as Record<string, unknown>;
+	const quotaPopover = (appearance.quotaPopover && typeof appearance.quotaPopover === 'object' ? appearance.quotaPopover : {}) as Record<string, unknown>;
 	const d = DEFAULT_SETTINGS;
 
 	return {
@@ -349,6 +363,10 @@ export function parseSettings(value: unknown): StudioSettings {
 				showProvider: bool(quotaChip.showProvider, d.appearance.quotaChip.showProvider),
 				alwaysShowPct: bool(quotaChip.alwaysShowPct, d.appearance.quotaChip.alwaysShowPct),
 				semanticColors: bool(quotaChip.semanticColors, d.appearance.quotaChip.semanticColors)
+			},
+			quotaPopover: {
+				variant: pick(quotaPopover.variant, ['telemetry', 'radial'] as const, d.appearance.quotaPopover.variant),
+				semanticColors: bool(quotaPopover.semanticColors, d.appearance.quotaPopover.semanticColors)
 			}
 		}
 	};
@@ -377,7 +395,10 @@ class SettingsStore {
 	general = $state<GeneralSettings>({ ...DEFAULT_SETTINGS.general });
 	notifications = $state<NotificationSettings>({ ...DEFAULT_SETTINGS.notifications });
 	accessibility = $state<AccessibilitySettings>({ ...DEFAULT_SETTINGS.accessibility });
-	appearance = $state<AppearanceSettings>({ ...DEFAULT_SETTINGS.appearance });
+	appearance = $state<AppearanceSettings>({
+		quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip },
+		quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover }
+	});
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
 	ready = $state(false);
 
@@ -475,11 +496,19 @@ class SettingsStore {
 		if (patch.quotaChip) {
 			Object.assign(this.appearance.quotaChip, patch.quotaChip);
 		}
+		if (patch.quotaPopover) {
+			Object.assign(this.appearance.quotaPopover, patch.quotaPopover);
+		}
 		this.save();
 	}
 
 	patchQuotaChip(patch: Partial<QuotaChipSettings>) {
 		Object.assign(this.appearance.quotaChip, patch);
+		this.save();
+	}
+
+	patchQuotaPopover(patch: Partial<QuotaPopoverSettings>) {
+		Object.assign(this.appearance.quotaPopover, patch);
 		this.save();
 	}
 	setTaskDirectives(directives: TaskDirective[]) {
@@ -677,7 +706,12 @@ class SettingsStore {
 		if (!section || section === 'general') this.general = { ...DEFAULT_SETTINGS.general };
 		if (!section || section === 'notifications') this.notifications = { ...DEFAULT_SETTINGS.notifications };
 		if (!section || section === 'accessibility') this.accessibility = { ...DEFAULT_SETTINGS.accessibility };
-		if (!section || section === 'appearance') this.appearance = { quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip } };
+		if (!section || section === 'appearance') {
+			this.appearance = {
+				quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip },
+				quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover }
+			};
+		}
 		this.save();
 	}
 }

@@ -190,3 +190,22 @@ export function formatResetCountdown(resetsAt: number | undefined, now = Date.no
 	const remHours = diffHours % 24;
 	return remHours > 0 ? `tra ${diffDays}g ${remHours}h` : `tra ${diffDays}g`;
 }
+
+/**
+ * Tono visivo associato alla quota residua di una singola finestra o limite.
+ * Rispetta le soglie applicative esistenti:
+ * - 'bad' se il limite e' esaurito o la quota residua e' <= 10%
+ * - 'warn' se la quota residua e' <= 30%
+ * - 'ok' in tutti gli altri casi
+ */
+export type QuotaTone = 'ok' | 'warn' | 'bad';
+
+export function limitTone(remainingPercent: number, status?: string): QuotaTone {
+	if (status === 'exhausted' || remainingPercent <= 10) {
+		return 'bad';
+	}
+	if (remainingPercent <= 30) {
+		return 'warn';
+	}
+	return 'ok';
+}

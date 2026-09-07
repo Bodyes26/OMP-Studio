@@ -662,6 +662,7 @@
 			variant={settingsStore.appearance.quotaChip.variant}
 			showProvider={settingsStore.appearance.quotaChip.showProvider}
 			alwaysShowPct={settingsStore.appearance.quotaChip.alwaysShowPct}
+			semanticColors={settingsStore.appearance.quotaChip.semanticColors}
 			status={activeQuotaStore.info.status}
 			remainingPct={activeQuotaStore.info.remainingPct}
 			usedPct={activeQuotaStore.info.usedPct}

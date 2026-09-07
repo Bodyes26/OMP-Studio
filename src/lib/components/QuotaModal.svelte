@@ -7,6 +7,9 @@
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
 	import { quotaStore, providersMatch, type ProviderHost, type QuotaLimit } from '$lib/stores/quota.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
+	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
+	import { limitTone } from '$lib/quota/resolve';
 	import { IconRefresh, IconClose, IconWarning } from '$lib/icons';
 	let {
 		open = false,
@@ -22,6 +25,12 @@
 
 	let now = $state(Date.now());
 
+	/* Variante e preferenze colore semaforo del popover quote */
+	const popover = $derived(settingsStore.appearance.quotaPopover);
+
+	/* Host GUI e host noti allo store: usati per l'etichetta "In uso da".
+	   Sta nello script perche' {@const} non e' ammesso come figlio di un <div>. */
+	const allHosts = $derived([...guiHosts, ...quotaStore.providerHosts]);
 
 	function formatAge(ts: number | undefined) {
 		if (!ts) return '';
@@ -82,6 +91,8 @@
 	<button type="button" class="backdrop" onclick={onClose} aria-label="Chiudi limiti utilizzo" tabindex="-1" transition:fade={{ duration: 180 }}></button>
 	<div
 		class="popover"
+		class:quota-semantic={popover.semanticColors}
+		data-variant={popover.variant}
 		role="dialog"
 		aria-modal="true"
 		aria-label="Limiti di utilizzo API"
@@ -189,65 +200,55 @@
 					<span>Interrogazione quote in corso...</span>
 				</div>
 			{:else if quotaStore.reports && quotaStore.reports.length > 0}
-				{@const allHosts = [...guiHosts, ...quotaStore.providerHosts]}
-				{#each quotaStore.reports as report, i}
-					{#if report.limits && report.limits.length > 0}
-						{@const projectLabels = [...new Set(allHosts
-							.filter((host) => providersMatch(host.provider, report.provider))
-							.map((host) => host.project || host.host)
-							.filter((label) => Boolean(label)))]}
-						<div class="provider-section" style="animation-delay: {i * 0.08}s;">
-							<h4>
-								<span>{report.provider}</span>
-								{#if report.metadata?.email}
-									<span class="meta">{report.metadata.email}</span>
-								{/if}
-							</h4>
-							{#if projectLabels.length > 0}
-								<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
-							{/if}
-							{#each report.limits as limit}
-								{@const rawUsed = typeof limit.amount?.usedFraction === 'number' ? limit.amount.usedFraction : null}
-								{@const rawRem = typeof limit.amount?.remainingFraction === 'number' ? limit.amount.remainingFraction : null}
-								{@const usedFrac = Math.max(0, Math.min(1, rawUsed ?? (rawRem !== null ? 1 - rawRem : 0)))}
-								{@const remainingFrac = Math.max(0, Math.min(1, rawRem ?? (1 - usedFrac)))}
-								{@const remainingPercent = Math.round(remainingFrac * 100)}
-								{@const isBad = limit.status === 'exhausted' || remainingPercent <= 10}
-								{@const isWarn = !isBad && remainingPercent <= 30}
-								{@const colorVar = isBad
-									? 'var(--quota-bad, var(--brand))'
-									: isWarn
-										? 'var(--quota-warn, var(--warn))'
-										: 'var(--quota-ok, var(--ink-muted))'}
-								{@const resetsAt = limit.window?.resetsAt ?? limit.resetsAt}
-								{@const resetCountdown = formatReset(resetsAt)}
-								{@const resetExact = resetsAt ? new Date(resetsAt).toLocaleString() : ''}
-								<div class="limit-item">
-									<div class="limit-label">
-										<span class="limit-title">
-											<span class="limit-name">{limit.label}</span>
-											{#if resetCountdown}
-												<span class="reset-time" title={resetExact ? `Reset: ${resetExact}` : undefined}>· {resetCountdown}</span>
-											{/if}
-										</span>
-										<span class="value">
-											{#if limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number' && typeof limit.amount?.limit === 'number'}
-												{remainingPercent}% (${limit.amount.remaining.toFixed(2)} / ${limit.amount.limit.toFixed(2)})
-											{:else if limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number'}
-												{remainingPercent}% (${limit.amount.remaining.toFixed(2)})
-											{:else}
-												{remainingPercent}%
-											{/if}
-										</span>
-									</div>
-									<div class="limit-bar" role="progressbar" aria-valuenow={remainingPercent} aria-valuemin="0" aria-valuemax="100" aria-label="{limit.label || 'Quota'}: {remainingPercent}% rimanente" title="Rimanente: {remainingPercent}%{resetCountdown ? ` | Reset: ${resetCountdown}${resetExact ? ` (${resetExact})` : ''}` : ''}">
-										<div class="limit-fill" style="--target-width: {remainingPercent}%; background: {colorVar}; --bar-delay: {i * 0.08}s;"></div>
-									</div>
+				{#key popover.variant}
+					<div class="reports-container" in:fade={{ duration: 120 }}>
+						{#each quotaStore.reports as report, i}
+							{#if report.limits && report.limits.length > 0}
+								{@const projectLabels = [...new Set(allHosts
+									.filter((host) => providersMatch(host.provider, report.provider))
+									.map((host) => host.project || host.host)
+									.filter((label) => Boolean(label)))]}
+								<div class="provider-section" style="animation-delay: {i * 0.08}s;">
+									<h4>
+										<span>{report.provider}</span>
+										{#if report.metadata?.email}
+											<span class="meta">{report.metadata.email}</span>
+										{/if}
+									</h4>
+									{#if projectLabels.length > 0}
+										<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
+									{/if}
+									{#each report.limits as limit, limitIndex}
+										{@const rawUsed = typeof limit.amount?.usedFraction === 'number' ? limit.amount.usedFraction : null}
+										{@const rawRem = typeof limit.amount?.remainingFraction === 'number' ? limit.amount.remainingFraction : null}
+										{@const usedFrac = Math.max(0, Math.min(1, rawUsed ?? (rawRem !== null ? 1 - rawRem : 0)))}
+										{@const remainingFrac = Math.max(0, Math.min(1, rawRem ?? (1 - usedFrac)))}
+										{@const remainingPercent = Math.round(remainingFrac * 100)}
+										{@const resetsAt = limit.window?.resetsAt ?? limit.resetsAt}
+										{@const resetCountdown = formatReset(resetsAt)}
+										{@const resetExact = resetsAt ? new Date(resetsAt).toLocaleString() : ''}
+										{@const valueText =
+											limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number' && typeof limit.amount?.limit === 'number'
+												? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)} / $${limit.amount.limit.toFixed(2)})`
+												: limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number'
+													? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)})`
+													: `${remainingPercent}%`}
+										<QuotaLimitRow
+											variant={popover.variant}
+											label={limit.label}
+											{remainingPercent}
+											tone={limitTone(remainingPercent, limit.status)}
+											{resetCountdown}
+											{resetExact}
+											{valueText}
+											delayIndex={i * 4 + limitIndex}
+										/>
+									{/each}
 								</div>
-							{/each}
-						</div>
-					{/if}
-				{/each}
+							{/if}
+						{/each}
+					</div>
+				{/key}
 			{:else if quotaStore.status !== 'offline' && quotaStore.status !== 'unconfigured'}
 				<div class="msg">Nessun dato di utilizzo disponibile</div>
 			{/if}
@@ -577,6 +578,12 @@
 		white-space: nowrap;
 	}
 
+	.reports-container {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
 	.provider-section {
 		display: flex;
 		flex-direction: column;
@@ -611,71 +618,57 @@
 		color: var(--ink-faint);
 	}
 
-	.limit-item {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.limit-label {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: var(--space-2);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-	}
-
-	.limit-title {
-		display: flex;
-		align-items: baseline;
-		gap: 4px;
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	.limit-name {
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.reset-time {
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-		color: var(--ink-faint);
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-
-	.value {
-		font-family: var(--font-mono);
-		font-variant-numeric: tabular-nums;
-	}
-
-	.limit-bar {
-		height: 4px;
-		background: var(--bg-sunken);
-		border-radius: var(--radius-full);
-		overflow: hidden;
-	}
-
 	.host-usage {
 		margin-top: calc(-1 * var(--space-1));
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 	}
 
-	.limit-fill {
-		height: 100%;
-		border-radius: var(--radius-full);
-		width: 0%;
-		animation: barFill 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-		animation-delay: calc(var(--bar-delay, 0s) + 0.1s);
+	/* Variante telemetria: layout compatto, separatori hairline e intestazione mono */
+	.popover[data-variant='telemetry'] .reports-container {
+		gap: var(--space-3);
 	}
 
-	@keyframes barFill {
-		from { width: 0%; }
-		to { width: var(--target-width); }
+	/* Le righe telemetria sono blocchi di tre livelli (etichetta, barra, reset):
+	   servono 8px tra un blocco e il successivo perche' si leggano come unita'. */
+	.popover[data-variant='telemetry'] .provider-section {
+		gap: var(--space-2);
+	}
+
+	.popover[data-variant='telemetry'] .provider-section + .provider-section {
+		border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+		padding-top: var(--space-3);
+	}
+
+	.popover[data-variant='telemetry'] h4 {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.16em;
+		color: var(--ink-faint);
+	}
+
+	.popover[data-variant='telemetry'] h4 .meta {
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		font-weight: 400;
+		text-transform: none;
+		letter-spacing: normal;
+		color: var(--ink-faint);
+	}
+
+	/* Variante radiale: spaziatura piu ariosa e tipografia standard */
+	.popover[data-variant='radial'] .reports-container {
+		gap: var(--space-5);
+	}
+
+	.popover[data-variant='radial'] .provider-section {
+		gap: var(--space-3);
+	}
+
+	.popover[data-variant='radial'] .provider-section + .provider-section {
+		border-top: 1px solid var(--line);
+		padding-top: var(--space-4);
 	}
 </style>
