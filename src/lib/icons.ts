@@ -111,3 +111,9 @@ export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';
 export { default as IconHistory } from '@lucide/svelte/icons/history';
 export { default as IconSend } from '@lucide/svelte/icons/send';
+
+// Layout e pannelli.
+export { default as IconColumns3 } from '@lucide/svelte/icons/columns-3';
+export { default as IconRows2 } from '@lucide/svelte/icons/rows-2';
+export { default as IconPanelLeft } from '@lucide/svelte/icons/panel-left';
+export { default as IconPanelLeftClose } from '@lucide/svelte/icons/panel-left-close';

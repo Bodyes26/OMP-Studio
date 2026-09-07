@@ -14,6 +14,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+Alt+M` | Globale | Apre le impostazioni direttamente sulla sezione Modelli (Ruoli, Catalogo, Provider) |
 | `Ctrl+Alt+T` | Globale | Apre e chiude la vista aggregata dei task in attesa su tutti i progetti |
 | `Ctrl+Alt+A` | Globale | Passa tra la superficie TERMINAL e la superficie GUI conservando la sessione |
+| `Ctrl+Alt+B` | Globale | Mostra o nasconde la barra laterale sinistra (File, Git, Agente) |
+| `Ctrl+Alt+L` | Globale | Cicla la modalita di layout della finestra (`Auto` → `Orizzontale` → `Verticale`) |
 | `Ctrl+Alt+Freccia Destra` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Passa al progetto aperto precedente, nell'ordine mostrato in barra |
 | `Ctrl+Alt+Maiusc+Freccia` | Globale | Sposta la tessera del progetto attivo a destra o a sinistra (ordinamento manuale) |

@@ -1331,50 +1331,113 @@
 	}
 	const SPLIT = 6;
 	const MIN_COL = 160;
+	const MIN_ROW = 120;
 	let columnsEl = $state<HTMLElement | null>(null);
 	let leftWidth = $state(260);
 	// 0 = non ancora misurata: il centro resta elastico finche' non si trascina.
 	let centerWidth = $state(0);
+	// 0 = proporzionale 50/50: l'altezza top resta elastica finche' non si trascina.
+	let topHeight = $state(0);
 	let dragging = $state(false);
+	let draggingWhich = $state<'left' | 'center' | null>(null);
 
-	const gridTemplate = $derived(
-		`${leftWidth}px ${SPLIT}px ${centerWidth > 0 ? `${centerWidth}px` : 'minmax(0, 1fr)'} ${SPLIT}px minmax(0, 1fr)`
-	);
+	let windowWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200);
+	let windowHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
+
+	$effect(() => {
+		const updateDims = () => {
+			windowWidth = window.innerWidth;
+			windowHeight = window.innerHeight;
+		};
+		updateDims();
+		window.addEventListener('resize', updateDims);
+		return () => window.removeEventListener('resize', updateDims);
+	});
+
+	// Determina il layout effettivo: se 'auto', confronta larghezza e altezza della finestra (o soglia 1100px)
+	const effectiveLayout = $derived.by<'horizontal' | 'vertical'>(() => {
+		if (settingsStore.general.layoutMode === 'horizontal') return 'horizontal';
+		if (settingsStore.general.layoutMode === 'vertical') return 'vertical';
+		// 'auto': se la finestra e' portrait (altezza > larghezza) o la larghezza e' troppo stretta per 3 colonne (< 1100px)
+		return (windowHeight > windowWidth || windowWidth < 1100) ? 'vertical' : 'horizontal';
+	});
+
+	const gridColumns = $derived.by(() => {
+		const sideW = settingsStore.general.sidebarCollapsed ? 0 : leftWidth;
+		const splitW = settingsStore.general.sidebarCollapsed ? 0 : SPLIT;
+		if (effectiveLayout === 'vertical') {
+			return `${sideW}px ${splitW}px minmax(0, 1fr)`;
+		}
+		const center = centerWidth > 0 ? `${centerWidth}px` : 'minmax(0, 1fr)';
+		return `${sideW}px ${splitW}px ${center} ${SPLIT}px minmax(0, 1fr)`;
+	});
+
+	const gridRows = $derived.by(() => {
+		if (effectiveLayout === 'vertical') {
+			const top = topHeight > 0 ? `${topHeight}px` : 'minmax(0, 1fr)';
+			return `${top} ${SPLIT}px minmax(0, 1fr)`;
+		}
+		return '1fr';
+	});
 
 	const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
 	function maxCenter() {
 		if (!columnsEl) return MIN_COL;
-		return Math.max(MIN_COL, columnsEl.clientWidth - leftWidth - 2 * SPLIT - MIN_COL);
+		const sideW = settingsStore.general.sidebarCollapsed ? 0 : leftWidth;
+		const splitW = settingsStore.general.sidebarCollapsed ? 0 : SPLIT;
+		return Math.max(MIN_COL, columnsEl.clientWidth - sideW - splitW - SPLIT - MIN_COL);
 	}
+
+	function maxTop() {
+		if (!columnsEl) return MIN_ROW;
+		return Math.max(MIN_ROW, columnsEl.clientHeight - SPLIT - MIN_ROW);
+	}
+
 	function startDrag(e: PointerEvent, which: 'left' | 'center') {
 		if (!columnsEl) return;
 		const el = columnsEl;
 		const handle = e.currentTarget as HTMLElement;
 		handle.setPointerCapture(e.pointerId);
 		dragging = true;
+		draggingWhich = which;
 
 		const startX = e.clientX;
+		const startY = e.clientY;
 		const startLeft = leftWidth;
-		// Al primo trascinamento il centro va congelato alla larghezza reale,
+		const isVertical = effectiveLayout === 'vertical';
+
+		// Al primo trascinamento il centro va congelato alla dimensione reale,
 		// altrimenti passerebbe da elastico a un valore arbitrario.
 		const startCenter = centerWidth > 0
 			? centerWidth
-			: el.children[2].getBoundingClientRect().width;
+			: (el.querySelector('.col-center')?.getBoundingClientRect().width ?? MIN_COL);
+		const startTop = topHeight > 0
+			? topHeight
+			: (el.querySelector('.col-center')?.getBoundingClientRect().height ?? MIN_ROW);
 
 		const onMove = (ev: PointerEvent) => {
-			const dx = ev.clientX - startX;
-			const total = el.clientWidth;
+			const totalW = el.clientWidth;
 			if (which === 'left') {
-				leftWidth = clamp(startLeft + dx, MIN_COL, total - 2 * SPLIT - 2 * MIN_COL);
-				centerWidth = clamp(startCenter, MIN_COL, maxCenter());
+				const dx = ev.clientX - startX;
+				leftWidth = clamp(startLeft + dx, MIN_COL, totalW - 2 * SPLIT - 2 * MIN_COL);
+				if (!isVertical && centerWidth > 0) {
+					centerWidth = clamp(startCenter, MIN_COL, maxCenter());
+				}
 			} else {
-				centerWidth = clamp(startCenter + dx, MIN_COL, maxCenter());
+				if (isVertical) {
+					const dy = ev.clientY - startY;
+					topHeight = clamp(startTop + dy, MIN_ROW, maxTop());
+				} else {
+					const dx = ev.clientX - startX;
+					centerWidth = clamp(startCenter + dx, MIN_COL, maxCenter());
+				}
 			}
 		};
 
 		const onUp = () => {
 			dragging = false;
+			draggingWhich = null;
 			handle.removeEventListener('pointermove', onMove);
 			handle.removeEventListener('pointerup', onUp);
 			handle.removeEventListener('pointercancel', onUp);
@@ -1386,22 +1449,31 @@
 	}
 
 	function resetSplit(which: 'left' | 'center') {
-		if (which === 'left') leftWidth = 260;
-		else centerWidth = 0;
+		if (which === 'left') {
+			leftWidth = 260;
+		} else {
+			if (effectiveLayout === 'vertical') {
+				topHeight = 0;
+			} else {
+				centerWidth = 0;
+			}
+		}
 	}
 
-	// Se la finestra si restringe, il centro fisso potrebbe schiacciare la
-	// colonna destra a zero: va riclampato. Le misure degeneri (finestra
-	// minimizzata o nascosta) vanno ignorate, altrimenti le colonne
-	// resterebbero schiacciate al minimo dopo il ripristino.
+	// Se la finestra si restringe, le dimensioni fisse potrebbero schiacciare le
+	// sezioni flessibili a zero: vanno riclampate.
 	$effect(() => {
 		if (!columnsEl) return;
 		const el = columnsEl;
 		const ro = new ResizeObserver(() => {
-			const total = el.clientWidth;
-			if (total < 3 * MIN_COL + 2 * SPLIT) return;
-			leftWidth = clamp(leftWidth, MIN_COL, total - 2 * SPLIT - 2 * MIN_COL);
+			const totalW = el.clientWidth;
+			const totalH = el.clientHeight;
+			if (totalW < 3 * MIN_COL + 2 * SPLIT) return;
+			leftWidth = clamp(leftWidth, MIN_COL, totalW - 2 * SPLIT - 2 * MIN_COL);
 			if (centerWidth > 0) centerWidth = clamp(centerWidth, MIN_COL, maxCenter());
+			if (topHeight > 0 && totalH > 2 * MIN_ROW + SPLIT) {
+				topHeight = clamp(topHeight, MIN_ROW, maxTop());
+			}
 		});
 		ro.observe(el);
 		return () => {
@@ -1468,6 +1540,12 @@
 		} else if (e.key.toLowerCase() === 't') {
 			e.preventDefault();
 			queueOpen = !queueOpen;
+		} else if (e.key.toLowerCase() === 'b') {
+			e.preventDefault();
+			settingsStore.toggleSidebar();
+		} else if (e.key.toLowerCase() === 'l') {
+			e.preventDefault();
+			settingsStore.cycleLayoutMode();
 		} else if (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'r') {
 			e.preventDefault();
 			void companionStore.toggleCompanion();
@@ -1498,6 +1576,7 @@
 
 <div class="app-layout">
 	<TopBar
+		{effectiveLayout}
 		onUsageClick={() => usageOpen = !usageOpen}
 		onNewProject={() => pickerOpen = true}
 		onSettingsClick={(section) => settingsStore.openSection(section)}
@@ -1553,8 +1632,17 @@
 			/>
 		</main>
 	{:else}
-	<main class="columns" class:dragging bind:this={columnsEl} style:grid-template-columns={gridTemplate}>
-		<aside class="col-left">
+	<main
+		class="columns"
+		class:dragging
+		class:dragging-row={dragging && draggingWhich === 'center' && effectiveLayout === 'vertical'}
+		class:layout-vertical={effectiveLayout === 'vertical'}
+		class:sidebar-collapsed={settingsStore.general.sidebarCollapsed}
+		bind:this={columnsEl}
+		style:grid-template-columns={gridColumns}
+		style:grid-template-rows={gridRows}
+	>
+		<aside class="col-left" aria-hidden={settingsStore.general.sidebarCollapsed}>
 			<div class="col-header tabs-header" role="tablist" aria-label="Pannelli laterali">
 				<button type="button" role="tab" aria-selected={leftSection === 'files'} class:active={leftSection === 'files'} onclick={() => leftSection = 'files'} aria-label="Pannello file">FILE</button>
 				<button type="button" role="tab" aria-selected={leftSection === 'git'} class:active={leftSection === 'git'} onclick={() => leftSection = 'git'} aria-label="Pannello git">GIT</button>
@@ -1618,7 +1706,7 @@
 		</aside>
 
 		<div
-			class="splitter"
+			class="splitter splitter-left"
 			role="separator"
 			aria-orientation="vertical"
 			aria-label="Ridimensiona pannello file"
@@ -1679,10 +1767,10 @@
 		</section>
 
 		<div
-			class="splitter"
+			class="splitter splitter-center"
 			role="separator"
-			aria-orientation="vertical"
-			aria-label="Ridimensiona editor"
+			aria-orientation={effectiveLayout === 'vertical' ? 'horizontal' : 'vertical'}
+			aria-label={effectiveLayout === 'vertical' ? 'Ridimensiona altezza editor' : 'Ridimensiona editor'}
 			onpointerdown={(e) => startDrag(e, 'center')}
 			ondblclick={() => resetSplit('center')}
 		></div>
@@ -1891,15 +1979,90 @@
 
 	.columns {
 		display: grid;
-		/* grid-template-columns arriva inline: left | splitter | center | splitter | right */
 		flex: 1;
 		min-height: 0;
 		min-width: 0;
 	}
 
 	.columns.dragging {
-		cursor: col-resize;
 		user-select: none;
+	}
+
+	.columns.dragging:not(.dragging-row) {
+		cursor: col-resize;
+	}
+
+	.columns.dragging.dragging-row {
+		cursor: row-resize;
+	}
+
+	/* Posizionamento griglia: Orizzontale (3 colonne) */
+	.columns:not(.layout-vertical) .col-left {
+		grid-column: 1;
+		grid-row: 1;
+	}
+	.columns:not(.layout-vertical) .splitter-left {
+		grid-column: 2;
+		grid-row: 1;
+		cursor: col-resize;
+	}
+	.columns:not(.layout-vertical) .col-center {
+		grid-column: 3;
+		grid-row: 1;
+	}
+	.columns:not(.layout-vertical) .splitter-center {
+		grid-column: 4;
+		grid-row: 1;
+		cursor: col-resize;
+	}
+	.columns:not(.layout-vertical) .col-right {
+		grid-column: 5;
+		grid-row: 1;
+	}
+
+	/* Posizionamento griglia: Verticale (sidebar + stack editor sopra / chat sotto) */
+	.columns.layout-vertical .col-left {
+		grid-column: 1;
+		grid-row: 1 / span 3;
+	}
+	.columns.layout-vertical .splitter-left {
+		grid-column: 2;
+		grid-row: 1 / span 3;
+		cursor: col-resize;
+	}
+	.columns.layout-vertical .col-center {
+		grid-column: 3;
+		grid-row: 1;
+	}
+	.columns.layout-vertical .splitter-center {
+		grid-column: 3;
+		grid-row: 2;
+		cursor: row-resize;
+	}
+	.columns.layout-vertical .splitter-center:hover,
+	.columns.layout-vertical.dragging .splitter-center:active {
+		background-image: linear-gradient(to right, var(--brand), var(--brand));
+		background-size: 100% 1px;
+		background-position: center;
+		background-repeat: no-repeat;
+	}
+	.columns.layout-vertical .col-right {
+		grid-column: 3;
+		grid-row: 3;
+	}
+
+	/* Sidebar collassata */
+	.columns.sidebar-collapsed .col-left {
+		width: 0 !important;
+		min-width: 0 !important;
+		max-width: 0 !important;
+		overflow: hidden !important;
+		pointer-events: none !important;
+		visibility: hidden !important;
+	}
+	.columns.sidebar-collapsed .splitter-left {
+		display: none !important;
+		pointer-events: none !important;
 	}
 
 	.col-left {

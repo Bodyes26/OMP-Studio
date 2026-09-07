@@ -19,10 +19,12 @@
 		IconChevronDown,
 		IconChevronLeft,
 		IconChevronRight,
+		IconColumns3,
 		IconGhost,
 		IconPlus,
 		IconPin,
 		IconQuota,
+		IconRows2,
 		IconSettings,
 		IconWarning
 	} from '$lib/icons';
@@ -30,8 +32,10 @@
 	let {
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
 		setupIncomplete = false,
+		effectiveLayout = 'horizontal',
 		onRunTask, onEditTask, onNewTask, canRunTask, runReason
 	} = $props<{
+		effectiveLayout?: 'horizontal' | 'vertical';
 		onUsageClick?: () => void;
 		onNewProject?: () => void;
 		onSettingsClick?: (section?: SettingsSection) => void;
@@ -412,19 +416,44 @@
 			}
 		}
 	}
+
+	const layoutMode = $derived(settingsStore.general.layoutMode);
+	const layoutChipLabel = $derived(
+		layoutMode === 'auto'
+			? (effectiveLayout === 'vertical' ? 'Auto: Vert' : 'Auto: Oriz')
+			: (layoutMode === 'vertical' ? 'Verticale' : 'Orizzontale')
+	);
+	const layoutChipTitle = $derived(
+		`Layout: ${layoutMode === 'auto' ? `Automatico (${effectiveLayout === 'vertical' ? 'Verticale' : 'Orizzontale'})` : (layoutMode === 'vertical' ? 'Verticale (forzato)' : 'Orizzontale (forzato)')} — Clicca per cambiare (Ctrl+Alt+L)`
+	);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <header class="topbar" class:mac-chrome={IS_MAC} data-tauri-drag-region="deep">
 	<div class="brand-section">
-		<div class="app-icon" title="OMP Studio">
+		<button
+			type="button"
+			class="app-icon-btn"
+			class:collapsed={settingsStore.general.sidebarCollapsed}
+			onclick={(e) => {
+				e.stopPropagation();
+				settingsStore.toggleSidebar();
+			}}
+			title={settingsStore.general.sidebarCollapsed
+				? 'Mostra barra laterale (Ctrl+Alt+B)'
+				: 'Nascondi barra laterale (Ctrl+Alt+B)'}
+			aria-label={settingsStore.general.sidebarCollapsed
+				? 'Mostra barra laterale (Ctrl+Alt+B)'
+				: 'Nascondi barra laterale (Ctrl+Alt+B)'}
+			aria-expanded={!settingsStore.general.sidebarCollapsed}
+		>
 			<img
 				src={isLightTheme ? '/logo-topbar-light.png' : '/logo-topbar.png'}
 				alt="OMP Studio"
 				class="brand-logo-img"
 			/>
-		</div>
+		</button>
 	</div>
 
 	<div class="tabs-nav">
@@ -647,6 +676,24 @@
 			<IconPin /> Companion
 		</button>
 
+		<button
+			class="settings-chip layout-chip"
+			class:active={layoutMode !== 'auto'}
+			onclick={(e) => {
+				e.stopPropagation();
+				settingsStore.cycleLayoutMode();
+			}}
+			title={layoutChipTitle}
+			aria-label={layoutChipTitle}
+		>
+			{#if effectiveLayout === 'vertical'}
+				<IconRows2 />
+			{:else}
+				<IconColumns3 />
+			{/if}
+			<span>{layoutChipLabel}</span>
+		</button>
+
 
 		{#if taskStore.totalQueued > 0}
 			<button
@@ -749,11 +796,35 @@
 		flex-shrink: 0;
 	}
 
-	.app-icon {
+	.app-icon-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		height: 30px;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		padding: 2px 4px;
+		cursor: pointer;
+		transition: background-color var(--duration-fast), border-color var(--duration-fast), opacity var(--duration-fast);
+	}
+
+	.app-icon-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-dim);
+	}
+
+	.app-icon-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
+	}
+
+	.app-icon-btn.collapsed {
+		opacity: 0.6;
+	}
+
+	.app-icon-btn.collapsed:hover {
+		opacity: 1;
 	}
 
 	.brand-logo-img {
@@ -1278,6 +1349,12 @@
 		background: var(--brand-tint);
 	}
 
+
+	.layout-chip.active {
+		color: var(--brand);
+		border-color: var(--brand);
+		background: var(--brand-tint);
+	}
 	.queue-chip {
 		background: transparent;
 		border: 1px solid var(--brand-dim);

@@ -43,6 +43,8 @@ export type QueueBadgeStyle = 'count-state' | 'count' | 'dot' | 'off';
 export type ProjectLabelStyle = 'initials' | 'name';
 
 /** Sorte della coda quando si chiude un progetto che ha task in attesa. */
+export type LayoutMode = 'auto' | 'horizontal' | 'vertical';
+
 export type CloseWithQueuedTasks = 'ask' | 'keep' | 'discard';
 
 /** Superficie con cui nasce un progetto nuovo. */
@@ -138,6 +140,15 @@ export interface GeneralSettings {
 	/** Larghezza e allineamento della chat: centrata con larghezza massima leggibile o a tutta colonna. */
 	chatWidth: ChatWidth;
 	/**
+	 * Modalita layout della finestra principale:
+	 * 'auto' (adatta in base all'orientamento e larghezza finestra),
+	 * 'horizontal' (3 colonne affiancate),
+	 * 'vertical' (sidebar sinistra + editor sopra + chat/terminale sotto).
+	 */
+	layoutMode: LayoutMode;
+	/** Stato di collasso della barra laterale sinistra (a 0px). */
+	sidebarCollapsed: boolean;
+	/**
 	 * Modalita di accodamento e interruzione.
 	 * Vivono qui come preferenze persistenti (e non nella sessione volatile)
 	 * per sopravvivere al riavvio della chat e venire riapplicate ad ogni sessione.
@@ -218,6 +229,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		defaultSurface: 'terminal',
 		closeWithQueuedTasks: 'ask',
 		chatWidth: 'readable',
+		layoutMode: 'auto',
+		sidebarCollapsed: false,
 		defaultStreamingBehavior: 'steer',
 		steeringMode: 'one-at-a-time',
 		followUpMode: 'one-at-a-time',
@@ -339,6 +352,8 @@ export function parseSettings(value: unknown): StudioSettings {
 			defaultSurface: pick(general.defaultSurface, ['terminal', 'gui'] as const, d.general.defaultSurface),
 			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks),
 			chatWidth: pick(general.chatWidth, ['readable', 'full'] as const, d.general.chatWidth),
+			layoutMode: pick(general.layoutMode, ['auto', 'horizontal', 'vertical'] as const, d.general.layoutMode),
+			sidebarCollapsed: bool(general.sidebarCollapsed, d.general.sidebarCollapsed),
 			defaultStreamingBehavior: pick(
 				general.defaultStreamingBehavior,
 				['steer', 'followUp'] as const,
@@ -676,6 +691,18 @@ class SettingsStore {
 	patchGeneral(patch: Partial<GeneralSettings>) {
 		Object.assign(this.general, patch);
 		this.save();
+	}
+
+	toggleSidebar() {
+		this.general.sidebarCollapsed = !this.general.sidebarCollapsed;
+		this.save();
+	}
+
+	cycleLayoutMode() {
+		const order: LayoutMode[] = ['auto', 'horizontal', 'vertical'];
+		const currIndex = order.indexOf(this.general.layoutMode);
+		const next = order[(currIndex + 1) % order.length];
+		this.patchGeneral({ layoutMode: next });
 	}
 
 	patchNotifications(patch: Partial<NotificationSettings>) {

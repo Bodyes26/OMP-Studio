@@ -5,6 +5,7 @@
 		type DefaultSurface,
 		type CloseWithQueuedTasks,
 		type ChatWidth,
+		type LayoutMode,
 		type StreamingBehavior,
 		type QueueMode,
 		type InterruptMode
@@ -68,6 +69,42 @@
 					<option value="readable">Centrata (leggibile)</option>
 					<option value="full">Tutta la colonna</option>
 				</select>
+			</div>
+		</div>
+	</div>
+
+	<div class="section-group">
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">Disposizione finestra</span>
+				<span class="form-row-desc">Configurazione dei pannelli: 3 colonne affiancate o vista a stack per monitor verticali.</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					value={settingsStore.general.layoutMode}
+					onchange={(e) => settingsStore.patchGeneral({ layoutMode: (e.currentTarget as HTMLSelectElement).value as LayoutMode })}
+				>
+					<option value="auto">Automatico (in base alla finestra)</option>
+					<option value="horizontal">Orizzontale (3 colonne)</option>
+					<option value="vertical">Verticale (stack editor e chat)</option>
+				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">Barra laterale (File / Git / Agente)</span>
+				<span class="form-row-desc">Mostra o nascondi la barra laterale (Ctrl+Alt+B o clic sul logo &pi; in alto a sinistra).</span>
+			</div>
+			<div class="form-row-control">
+				<label class="switch">
+					<input
+						type="checkbox"
+						checked={!settingsStore.general.sidebarCollapsed}
+						onchange={(e) => settingsStore.patchGeneral({ sidebarCollapsed: !(e.currentTarget as HTMLInputElement).checked })}
+					/>
+					<span class="slider"></span>
+				</label>
 			</div>
 		</div>
 	</div>
@@ -346,5 +383,55 @@
 
 	.channel-name {
 		user-select: none;
+	}
+
+	.switch {
+		position: relative;
+		display: inline-block;
+		width: 32px;
+		height: 18px;
+		cursor: pointer;
+	}
+
+	.switch input {
+		opacity: 0;
+		width: 0;
+		height: 0;
+	}
+
+	.slider {
+		position: absolute;
+		inset: 0;
+		background: var(--bg-hover);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		transition: background var(--dur-fast), border-color var(--dur-fast);
+	}
+
+	.slider::before {
+		position: absolute;
+		content: '';
+		height: 12px;
+		width: 12px;
+		left: 2px;
+		bottom: 2px;
+		background: var(--ink-muted);
+		border-radius: 50%;
+		transition: transform var(--dur-fast), background var(--dur-fast);
+	}
+
+	input:checked + .slider {
+		background: var(--brand);
+		border-color: var(--brand);
+	}
+
+	input:checked + .slider::before {
+		transform: translateX(14px);
+		background: var(--bg-sunken);
+	}
+
+	input:focus-visible + .slider {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 	}
 </style>
