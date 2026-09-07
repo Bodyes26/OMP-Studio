@@ -33,7 +33,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Fixed
 
-- La finestra Companion viene ora creata correttamente su Windows e macOS, quindi torna ad aprirsi sia dalla chip nella barra superiore sia dalle scorciatoie da tastiera.
+- La finestra Companion torna ad aprirsi correttamente al clic sulla chip nella barra superiore e con la scorciatoia da tastiera: risolto il fallimento della creazione della webview nativa su Windows dovuto a parametri del browser disallineati tra le finestre, e garantito il ripristino visivo e del focus a ogni richiamo.
 - Riconoscimento corretto dell'account attivo per la chip della quota: quando una conversazione impiega credenziali specifiche di un provider (es. un secondo account con residuo differente), la chip recupera puntualmente il pin dal transcript sia su chat grafica che su terminale senza fermarsi a cache vuote né perdere l'associazione al termine della generazione o alla scadenza delle sessioni recenti.
 - Le barre del popover quote non si aggiornavano più dopo la prima apertura: l'animazione partiva una sola volta al montaggio, quindi un aggiornamento dei consumi a popover aperto cambiava la percentuale scritta ma non la barra. Ora barra e anello seguono il valore con la stessa animazione, in comparsa e a ogni aggiornamento.
 - Le quote residue vengono ora annunciate ai lettori di schermo come indicatori di livello (con percentuale e tempo di ripristino) e non più come barre di avanzamento, che descrivevano un caricamento inesistente.

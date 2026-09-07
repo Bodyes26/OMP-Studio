@@ -9,8 +9,7 @@
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
-        "decorations": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+        "decorations": false
       },
       {
         "label": "companion",

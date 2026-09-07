@@ -16,7 +16,12 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{command, AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{
+    command,
+    webview::PageLoadEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::directives_ops::{extract_json_payload, run_ephemeral_omp_raw};
@@ -107,10 +112,9 @@ pub fn get_companion_state() -> Result<CompanionState, String> {
         return Ok(CompanionState::default());
     }
 
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("Lettura stato companion fallita: {}", e))?;
-    let state: CompanionState = serde_json::from_str(&raw)
-        .unwrap_or_default();
+    let raw =
+        fs::read_to_string(&path).map_err(|e| format!("Lettura stato companion fallita: {}", e))?;
+    let state: CompanionState = serde_json::from_str(&raw).unwrap_or_default();
     Ok(state)
 }
 
@@ -120,57 +124,105 @@ pub fn save_companion_state(state: CompanionState) -> Result<(), String> {
         .ok_or_else(|| "Percorso configurazione companion non disponibile".to_string())?;
     let json = serde_json::to_string_pretty(&state)
         .map_err(|e| format!("Serializzazione stato companion fallita: {}", e))?;
-    fs::write(&path, json)
-        .map_err(|e| format!("Scrittura stato companion fallita: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("Scrittura stato companion fallita: {}", e))?;
     Ok(())
+}
+
+/// Crea la finestra Companion.
+///
+/// Non puo' essere invocata dal thread principale: la creazione di una finestra
+/// dispaccia un messaggio all'event loop e attende la risposta, quindi sul main
+/// thread si blocca. Va chiamata da un comando `async` o da un thread dedicato.
+fn create_companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    WebviewWindowBuilder::new(app, "companion", WebviewUrl::App("/companion".into()))
+        .title("OMP Studio Companion")
+        .inner_size(560.0, 520.0)
+        .min_inner_size(420.0, 360.0)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .visible(false)
+        .on_page_load(|window, payload| {
+            // Il primo summon arriva prima che la vista sia pronta ad ascoltare:
+            // lo si ripete a fine caricamento per mettere a fuoco l'input.
+            if payload.event() == PageLoadEvent::Finished {
+                let _ = window.emit("companion-summon", ());
+            }
+        })
+        .build()
+        .map_err(|e| format!("Creazione finestra companion fallita: {}", e))
+}
+
+/// Restituisce la finestra Companion, creandola alla prima richiesta.
+fn companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    match app.get_webview_window("companion") {
+        Some(window) => Ok(window),
+        None => create_companion_window(app),
+    }
+}
+
+
+fn show_companion_window(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .unminimize()
+        .map_err(|e| format!("Ripristino finestra companion fallito: {}", e))?;
+    window
+        .show()
+        .map_err(|e| format!("Apertura finestra companion fallita: {}", e))?;
+    window
+        .set_focus()
+        .map_err(|e| format!("Focus finestra companion fallito: {}", e))?;
+    window
+        .emit("companion-summon", ())
+        .map_err(|e| format!("Attivazione finestra companion fallita: {}", e))
 }
 
 /// Mostra o nasconde la finestra Companion applicando la geometria appropriata.
 pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
-    let window = match app.get_webview_window("companion") {
-        Some(w) => w,
-        None => return Err("Finestra companion non trovata".to_string()),
-    };
+    let state = get_companion_state().unwrap_or_default();
+    let window = companion_window(app)?;
 
     let is_visible = window.is_visible().unwrap_or(false);
-    let state = get_companion_state().unwrap_or_default();
 
     if is_visible {
         let is_focused = window.is_focused().unwrap_or(false);
         if is_focused && !state.is_pinned {
             // In modalita Spotlight, se la finestra e' a fuoco la scorciatoia la chiude
-            let _ = window.hide();
+            window
+                .hide()
+                .map_err(|e| format!("Chiusura finestra companion fallita: {}", e))?;
             return Ok(());
         }
         // Se visibile ma non a fuoco, o pinnata, la porta in primo piano
-        let _ = window.show();
-        let _ = window.set_focus();
-        let _ = window.emit("companion-summon", ());
-        return Ok(());
+        return show_companion_window(&window);
     }
 
     // Ripristina dimensioni e posizione salvata se disponibili
     if let (Some(w), Some(h)) = (state.width, state.height) {
-        let _ = window.set_size(PhysicalSize::new(w, h));
+        window
+            .set_size(PhysicalSize::new(w, h))
+            .map_err(|e| format!("Dimensionamento finestra companion fallito: {}", e))?;
     }
 
     if state.is_pinned {
         if let (Some(x), Some(y)) = (state.x, state.y) {
-            let _ = window.set_position(PhysicalPosition::new(x, y));
+            window
+                .set_position(PhysicalPosition::new(x, y))
+                .map_err(|e| format!("Posizionamento finestra companion fallito: {}", e))?;
         }
     } else {
         // Spotlight mode: centra sul monitor attivo
-        let _ = window.center();
+        window
+            .center()
+            .map_err(|e| format!("Centratura finestra companion fallita: {}", e))?;
     }
 
-    let _ = window.show();
-    let _ = window.set_focus();
-    let _ = window.emit("companion-summon", ());
-    Ok(())
+    show_companion_window(&window)
 }
 
 #[command]
-pub fn toggle_companion_window(app: AppHandle) -> Result<(), String> {
+pub async fn toggle_companion_window(app: AppHandle) -> Result<(), String> {
     toggle_companion_window_internal(&app)
 }
 
@@ -194,11 +246,20 @@ pub fn init_global_shortcut(app: &AppHandle) {
     for candidate in candidates {
         if let Ok(shortcut) = candidate.parse::<Shortcut>() {
             let app_cb = app_handle.clone();
-            let result = app.global_shortcut().on_shortcut(shortcut, move |_app, _sc, event| {
-                if event.state() == ShortcutState::Pressed {
-                    let _ = toggle_companion_window_internal(&app_cb);
-                }
-            });
+            let result = app
+                .global_shortcut()
+                .on_shortcut(shortcut, move |_app, _sc, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        // La prima pressione puo' dover creare la finestra: fuori
+                        // dal thread dell'event loop, altrimenti si blocca.
+                        let app_toggle = app_cb.clone();
+                        std::thread::spawn(move || {
+                            if let Err(err) = toggle_companion_window_internal(&app_toggle) {
+                                eprintln!("[companion] {}", err);
+                            }
+                        });
+                    }
+                });
 
             if result.is_ok() {
                 registered_shortcut = Some(shortcut);
@@ -210,7 +271,9 @@ pub fn init_global_shortcut(app: &AppHandle) {
     if let Some(sc) = registered_shortcut {
         let _ = sc;
     } else {
-        eprintln!("[companion] Impossibile registrare la scorciatoia globale per la finestra Companion");
+        eprintln!(
+            "[companion] Impossibile registrare la scorciatoia globale per la finestra Companion"
+        );
     }
 }
 
