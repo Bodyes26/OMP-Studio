@@ -1204,7 +1204,7 @@ export class AgentSession {
 				// Stessa ragione dell'entry assistant: nella mappa va l'istanza
 				// reattiva, non quella grezza appena costruita.
 				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
-				this.agentState = 'working';
+				this.markWorking();
 				// La richiesta della prima domanda puo' arrivare prima di questo
 				// evento: omp la scrive per conto suo mentre gli eventi di
 				// sessione passano dallo stream dell'agent-loop. La card che
@@ -1247,7 +1247,7 @@ export class AgentSession {
 				if (this.isAborting) return;
 				this.suggestions.invalidate();
 				this.isStreaming = true;
-				this.agentState = 'working';
+				this.markWorking();
 				return;
 
 			case 'agent_end': {
@@ -1269,7 +1269,7 @@ export class AgentSession {
 			case 'turn_start':
 				if (this.isAborting) return;
 				this.suggestions.invalidate();
-				this.agentState = 'working';
+				this.markWorking();
 				return;
 			case 'turn_end':
 				this.isAborting = false;
@@ -1790,6 +1790,20 @@ export class AgentSession {
 		this.pendingUi = null;
 		this.askFlush = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
+	}
+
+	/**
+	 * Passa a `working` solo se non c'e' una domanda aperta. Gli eventi del
+	 * ciclo di vita (`tool_execution_start` di `ask`, `agent_start`,
+	 * `turn_start`) possono arrivare dopo la richiesta interattiva, perche'
+	 * omp scrive `extension_ui_request` per conto suo mentre gli altri eventi
+	 * passano dallo stream dell'agent-loop: senza questa guardia lo stato
+	 * tornerebbe "in esecuzione" mentre l'agente aspetta l'utente, spegnendo
+	 * l'anello di attenzione nella barra progetti e l'allerta sull'icona.
+	 */
+	private markWorking() {
+		if (this.pendingUi) return;
+		this.agentState = 'working';
 	}
 
 	/**
