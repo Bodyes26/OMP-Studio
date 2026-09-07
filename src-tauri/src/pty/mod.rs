@@ -26,8 +26,8 @@ impl WindowsJob {
     pub fn create_for_process(pid: u32) -> Result<Self, String> {
         use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
         use windows_sys::Win32::System::JobObjects::{
-            AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
-            JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         };
         use windows_sys::Win32::System::Threading::{
@@ -65,7 +65,10 @@ impl WindowsJob {
 
             if assign_res == 0 {
                 CloseHandle(job_handle);
-                return Err(format!("Assegnazione processo {} al Job Object fallita", pid));
+                return Err(format!(
+                    "Assegnazione processo {} al Job Object fallita",
+                    pid
+                ));
             }
 
             Ok(Self { handle: job_handle })
@@ -229,10 +232,7 @@ fn read_session_configuration(path: &Path) -> (Option<String>, Option<String>) {
                 }
             }
             Some("thinking_level_change") => {
-                if let Some(level) = value
-                    .get("thinkingLevel")
-                    .and_then(|level| level.as_str())
-                {
+                if let Some(level) = value.get("thinkingLevel").and_then(|level| level.as_str()) {
                     thinking_level = Some(level.to_string());
                 }
             }
@@ -465,9 +465,7 @@ pub async fn pty_open(
     // Il `--resume` arriva dal frontend con l'id della sessione da cui si sta
     // passando: se quella sessione non ha ancora un transcript, omp esce con
     // «Session not found» e nel pannello resta la shell nuda invece del TUI.
-    let args = drop_unresumable_resume(args, |id| {
-        crate::omp_ops::session_transcript_exists(id)
-    });
+    let args = drop_unresumable_resume(args, crate::omp_ops::session_transcript_exists);
 
     #[cfg(target_os = "windows")]
     let mut cmd = {
@@ -756,16 +754,19 @@ mod tests {
         let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 
         assert_eq!(
-            drop_unresumable_resume(args(&["--resume", "sessione-viva", "--cwd", "C:/p"]), |id| id
-                == "sessione-viva"),
+            drop_unresumable_resume(
+                args(&["--resume", "sessione-viva", "--cwd", "C:/p"]),
+                |id| id == "sessione-viva"
+            ),
             args(&["--resume", "sessione-viva", "--cwd", "C:/p"])
         );
 
         // Sessione senza transcript: resta il resto della riga di comando.
         assert_eq!(
-            drop_unresumable_resume(args(&["--cwd", "C:/p", "--resume", "sessione-fresh"]), |_| {
-                false
-            }),
+            drop_unresumable_resume(
+                args(&["--cwd", "C:/p", "--resume", "sessione-fresh"]),
+                |_| { false }
+            ),
             args(&["--cwd", "C:/p"])
         );
 

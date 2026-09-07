@@ -19,8 +19,21 @@
 		cropImageElement,
 		mapClientToViewportCoords,
 		mapWheelToViewportScroll,
-		extractOrigin
+		extractOrigin,
+		type BrowserDialogState,
+		type BrowserDownloadState,
+		type BrowserFileChooserState,
+		type BrowserCapabilityState,
+		type BrowserCapability,
+		type BrowserCapabilityDecision,
+		type BrowserRecordingState,
+		type BrowserRelayProbe,
+		type BrowserRelayTarget,
+		BROWSER_CAPABILITIES
 	} from '$lib/agent/browser-live';
+	import { untrack } from 'svelte';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
+	import { trapFocus } from '$lib/focusTrap';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import {
 		IconArrowLeft,
@@ -41,7 +54,8 @@
 		IconClear,
 		IconSearch,
 		IconChevronDown,
-		IconChevronRight
+		IconChevronRight,
+		IconPlus
 	} from '$lib/icons';
 	let {
 		session,
@@ -59,6 +73,7 @@
 	// Tab aperte dalla sessione corrente
 	const tabs = $derived<BrowserTabState[]>(session?.browserLiveTabs ?? []);
 	let selectedTabId = $state<string | null>(null);
+	let currentTabId = $state<string | null>(null);
 
 	const activeTab = $derived.by<BrowserTabState | null>(() => {
 		if (!tabs.length) return null;
@@ -73,6 +88,7 @@
 	let currentFrame = $state<{ meta: BrowserFrameMeta; imageBase64: string } | null>(null);
 	let streamStatus = $state<'idle' | 'connecting' | 'live' | 'disconnected' | 'error'>('idle');
 	let streamError = $state<string | null>(null);
+	let retryNonce = $state(0);
 	let copiedScreenshot = $state(false);
 
 	// Viewport responsive (allineato al pattern di PreviewViewer)
@@ -85,13 +101,11 @@
 	let device = $state<Device>('desktop');
 
 	// Coordinate e puntatore
+	let viewportEl = $state<HTMLElement | null>(null);
 	let imageEl = $state<HTMLImageElement | null>(null);
 	let hoverPoint = $state<ViewportPoint | null>(null);
 	let lastInputEvent = $state<BrowserInputEvent | null>(null);
 	let isHovering = $state(false);
-
-	// Funzione di cleanup dello stream live
-	let disconnectFn = $state<(() => void) | null>(null);
 
 	// Stato Inspector mirato e Ring Buffer (S44)
 	let isPickerActive = $state(false);
@@ -124,6 +138,197 @@
 	let contextAttachedNotice = $state<string | null>(null);
 	let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
+	/* ------------------- dialoghi, download, upload, recording (S45) */
+
+	let dialogs = $state<BrowserDialogState[]>([]);
+	let downloads = $state<BrowserDownloadState[]>([]);
+	let fileChoosers = $state<BrowserFileChooserState[]>([]);
+	let capabilities = $state<BrowserCapabilityState[]>([]);
+	let recording = $state<BrowserRecordingState | null>(null);
+	let promptAnswer = $state('');
+	let isCapabilityMenuOpen = $state(false);
+	let uploadBusy = $state(false);
+	let relayPickerOpen = $state(false);
+	let relayBusy = $state(false);
+	let relayTargets = $state<BrowserRelayTarget[]>([]);
+	let relayProbe = $state<BrowserRelayProbe | null>(null);
+	let relayDiagnostic = $state<string | null>(null);
+	let originBusy = $state(false);
+	/** Dialogo per cui la risposta e' gia' partita: evita il doppio invio. */
+	let respondedDialogId = $state<string | null>(null);
+	/** Il focus da tastiera appartiene alla superficie live, anche dopo un rimontaggio. */
+	let surfaceHasKeyboard = $state(false);
+	/** `code` dei tasti gia' inoltrati: serve a non perdere mai il key_up. */
+	const pressedKeys = new Set<string>();
+
+
+	const CAPABILITY_LABELS: Record<BrowserCapability, string> = {
+		'clipboard-read': 'Lettura appunti',
+		'clipboard-write': 'Scrittura appunti',
+		geolocation: 'Geolocalizzazione',
+		notifications: 'Notifiche'
+	};
+
+	/** Un solo dialogo per volta puo' essere aperto: la pagina resta bloccata. */
+	const openDialog = $derived(dialogs.find((d) => d.status === 'open') ?? null);
+	const pendingDownloads = $derived(downloads.filter((d) => d.status === 'pending-consent'));
+	const runningDownloads = $derived(downloads.filter((d) => d.status === 'in-progress'));
+	const finishedDownloads = $derived(
+		downloads.filter((d) => d.status === 'completed' || d.status === 'denied' || d.status === 'failed')
+	);
+	const pendingChooser = $derived(fileChoosers.find((c) => c.status === 'pending-choice') ?? null);
+	const isRecording = $derived(recording?.status === 'recording' || recording?.status === 'stopping');
+	/** Takeover privato: nessun pixel ne' dato della pagina puo' uscire da qui. */
+	const isPrivateTakeover = $derived(
+		activeTab?.controller === 'private-user' || currentFrame?.meta.privacy === 'private'
+	);
+	/** Risposta al dialogo gia' inviata: il runtime rifiuta la seconda con DIALOG_ALREADY_SETTLED. */
+	const dialogBusy = $derived(openDialog !== null && respondedDialogId === openDialog.dialogId);
+
+	function capabilityDecision(capability: BrowserCapability): BrowserCapabilityDecision {
+		// Senza `capability_state` dal runtime la decisione e' quella di default del
+		// contratto, cioe' `prompt`: dichiarare `denied` mostrerebbe come attivo uno
+		// stato che nessuno ha scelto.
+		return capabilities.find((c) => c.capability === capability)?.decision ?? 'prompt';
+	}
+
+	/** Sostituisce lo stato con lo stesso id e limita la memoria degli eventi conclusi. */
+	function upsertBounded<T>(list: T[], next: T, key: (item: T) => string, capacity: number): T[] {
+		const id = key(next);
+		const idx = list.findIndex((item) => key(item) === id);
+		if (idx === -1) return [...list.slice(-(capacity - 1)), next];
+		const copy = [...list];
+		copy[idx] = next;
+		return copy;
+	}
+
+	/** Un solo invio per dialogo, e nessun click silenziosamente perso. */
+	async function respondDialog(accept: boolean) {
+		const dialog = openDialog;
+		if (!dialog || !activeTab || !session || dialogBusy) return;
+		respondedDialogId = dialog.dialogId;
+		const sent = await session.sendLiveMessage(activeTab, {
+			type: 'dialog_respond',
+			dialogId: dialog.dialogId,
+			accept,
+			...(dialog.kind === 'prompt' && accept ? { promptText: promptAnswer } : {})
+		});
+		if (!sent) {
+			respondedDialogId = null;
+			showNotice('Canale live non disponibile: riprova');
+			return;
+		}
+		promptAnswer = '';
+	}
+
+	async function decideDownload(downloadId: string, allow: boolean) {
+		if (!activeTab || !session) return;
+		const sent = await session.sendLiveMessage(activeTab, { type: 'download_decide', downloadId, allow });
+		if (!sent) showNotice('Canale live non disponibile: riprova');
+	}
+
+	async function chooseUploadFiles() {
+		const chooser = pendingChooser;
+		if (!chooser || !activeTab || !session || uploadBusy) return;
+		uploadBusy = true;
+		try {
+			const count = await session.pickUploadFiles(activeTab, chooser.chooserId, chooser.mode === 'multiple');
+			showNotice(count > 0 ? `${count} file autorizzati per il caricamento` : 'Selezione file annullata');
+		} catch (err) {
+			showNotice(`Selettore file non disponibile: ${String(err)}`);
+		} finally {
+			uploadBusy = false;
+		}
+	}
+
+	async function cancelChooser() {
+		const chooser = pendingChooser;
+		if (!chooser || !activeTab || !session) return;
+		const sent = await session.sendLiveMessage(activeTab, {
+			type: 'cancel_file_chooser',
+			chooserId: chooser.chooserId
+		});
+		if (!sent) showNotice('Canale live non disponibile: riprova');
+	}
+
+	async function changeCapability(capability: BrowserCapability, decision: BrowserCapabilityDecision) {
+		if (!activeTab || !session) return;
+		const sent = await session.sendLiveMessage(activeTab, { type: 'set_capability', capability, decision });
+		if (!sent) showNotice('Canale live non disponibile: riprova');
+	}
+
+	async function toggleRecording() {
+		if (!activeTab || !session) return;
+		const sent = await session.sendLiveMessage(activeTab, {
+			type: isRecording ? 'stop_recording' : 'start_recording'
+		});
+		if (!sent) showNotice('Canale live non disponibile: riprova');
+	}
+
+	async function revealArtifact(path: string) {
+		try {
+			await revealItemInDir(path);
+		} catch (err) {
+			showNotice(`Impossibile aprire la cartella: ${String(err)}`);
+		}
+	}
+
+	async function openRelayPicker() {
+		if (!session || relayBusy) return;
+		relayBusy = true;
+		relayDiagnostic = null;
+		try {
+			const result = await session.listBrowserRelayTargets();
+			relayTargets = result.targets;
+			relayProbe = result.probe;
+			relayPickerOpen = true;
+		} catch (error) {
+			relayDiagnostic = String(error);
+			relayPickerOpen = true;
+		} finally {
+			relayBusy = false;
+		}
+	}
+
+	async function authorizeRelayTarget(targetId: string) {
+		if (!session || relayBusy) return;
+		relayBusy = true;
+		relayDiagnostic = null;
+		try {
+			const result = await session.authorizeBrowserRelayTarget(targetId);
+			relayProbe = result.probe;
+			selectedTabId = result.state.tabId;
+			relayPickerOpen = false;
+			relayTargets = [];
+		} catch (error) {
+			relayDiagnostic = String(error);
+		} finally {
+			relayBusy = false;
+		}
+	}
+
+	async function disconnectRelay() {
+		if (!session || activeTab?.mode !== 'chrome-relay' || relayBusy) return;
+		relayBusy = true;
+		try {
+			await session.revokeBrowserRelayTarget(activeTab.browserSessionId);
+			currentFrame = null;
+			streamStatus = 'disconnected';
+			selectedTabId = null;
+		} catch (error) {
+			relayDiagnostic = String(error);
+		} finally {
+			relayBusy = false;
+		}
+	}
+
+
+	function formatBytes(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	}
+
 	function showNotice(msg: string) {
 		contextAttachedNotice = msg;
 		if (noticeTimer) clearTimeout(noticeTimer);
@@ -133,87 +338,210 @@
 		}, 2200);
 	}
 
-	// Gestione connessione live stream deterministica
+	/**
+	 * Identita' del canale live come chiave primitiva. L'effetto di connessione
+	 * NON puo' dipendere dall'oggetto tab: il riduttore RPC lo sostituisce a ogni
+	 * `tab_state` (navigazione, loading, takeover, epoch), e ogni sostituzione
+	 * farebbe ripartire la connessione da zero bruciando un ticket monouso.
+	 */
+	const liveKey = $derived(activeTab ? `${activeTab.browserSessionId}::${activeTab.tabId}` : null);
+
+	/** Azzera tutto cio' che appartiene alla tab precedente. */
+	function resetTabSurface() {
+		currentFrame = null;
+		dialogs = [];
+		downloads = [];
+		fileChoosers = [];
+		capabilities = [];
+		recording = null;
+		promptAnswer = '';
+		respondedDialogId = null;
+		consoleBuffer.clear();
+		networkBuffer.clear();
+		actionBuffer.clear();
+		consoleEntries = [];
+		networkEntries = [];
+		actionEntries = [];
+		inspectedElement = null;
+		inspectedCropBase64 = null;
+		hoveredInspectElement = null;
+		selectedNetworkRequestId = null;
+		isPickerActive = false;
+	}
+
+	// Gestione connessione live con ticket fresco e backoff limitato.
 	$effect(() => {
-		const tab = activeTab;
-		const s = session;
+		const key = liveKey;
+		retryNonce;
+		// Lo stato precedente e l'oggetto tab si leggono fuori dal grafo: senza
+		// `untrack` la scrittura di `currentTabId` rischedulerebbe questo stesso
+		// effetto, aprendo due sessioni live per ogni montaggio.
+		const previousKey = untrack(() => currentTabId);
+		const tab = untrack(() => activeTab);
+		const s = untrack(() => session);
 
-		// Disconnette lo stream precedente
-		if (disconnectFn) {
-			disconnectFn();
-			disconnectFn = null;
-		}
-
-		if (!tab || !s) {
-			currentFrame = null;
+		if (!key || !tab || !s) {
+			currentTabId = null;
 			streamStatus = 'idle';
 			streamError = null;
+			resetTabSurface();
 			return;
 		}
 
 		streamStatus = 'connecting';
 		streamError = null;
+		if (key !== previousKey) {
+			currentTabId = key;
+			resetTabSurface();
+		}
 
 		let active = true;
-		void s
-			.connectLiveTab(
-				tab,
-				(frame) => {
-					if (!active) return;
-					currentFrame = frame;
-					streamStatus = 'live';
-				},
-				(event) => {
-					if (!active) return;
-					if (event.type === 'inspected_element') {
-						if (isPickerActive) {
-							hoveredInspectElement = event.element;
-						} else {
-							inspectedElement = event.element;
-						}
-					} else if (event.type === 'console_entry') {
-						consoleBuffer.push(event.entry);
-						consoleEntries = [...consoleBuffer.items];
-					} else if (event.type === 'network_entry') {
-						networkBuffer.push(event.entry);
-						networkEntries = [...networkBuffer.items];
-					} else if (event.type === 'network_body_response') {
-						if (event.body) {
-							networkBuffer.setBody(event.requestId, event.body);
+		let liveHandle: (() => void) | null = null;
+		let retryTimer: ReturnType<typeof setTimeout> | null = null;
+		let attempt = 0;
+
+		const scheduleReconnect = (message: string) => {
+			if (!active) return;
+			liveHandle?.();
+			liveHandle = null;
+			// L'ultimo frame resta a schermo sotto l'overlay di stato: smontarlo
+			// distruggerebbe il nodo che possiede il focus da tastiera.
+			streamError = message;
+			if (attempt >= 5) {
+				streamStatus = 'error';
+				return;
+			}
+			const delay = Math.min(4000, 250 * 2 ** attempt);
+			attempt += 1;
+			streamStatus = 'disconnected';
+			retryTimer = setTimeout(() => {
+				retryTimer = null;
+				void connect();
+			}, delay);
+		};
+
+		const connect = async () => {
+			if (!active) return;
+			streamStatus = attempt === 0 ? 'connecting' : 'disconnected';
+			try {
+				const handle = await s.connectLiveTab(
+					tab,
+					(frame) => {
+						if (!active) return;
+						currentFrame = frame;
+						streamStatus = 'live';
+						streamError = null;
+						attempt = 0;
+					},
+					(event) => {
+						if (!active) return;
+						if (event.type === 'inspected_element') {
+							if (isPickerActive) hoveredInspectElement = event.element;
+							else inspectedElement = event.element;
+						} else if (event.type === 'console_entry') {
+							consoleBuffer.push(event.entry);
+							consoleEntries = [...consoleBuffer.items];
+						} else if (event.type === 'network_entry') {
+							networkBuffer.push(event.entry);
 							networkEntries = [...networkBuffer.items];
+						} else if (event.type === 'network_body_response') {
+							if (event.body) {
+								networkBuffer.setBody(event.requestId, event.body);
+								networkEntries = [...networkBuffer.items];
+							}
+						} else if (event.type === 'action_entry') {
+							actionBuffer.push(event.entry);
+							actionEntries = [...actionBuffer.items];
+						} else if (event.type === 'dialog_state') {
+							dialogs = upsertBounded(dialogs, event.dialog, (d) => d.dialogId, 32);
+							if (event.dialog.status === 'open') promptAnswer = event.dialog.defaultPrompt;
+						} else if (event.type === 'download_state') {
+							downloads = upsertBounded(downloads, event.download, (d) => d.downloadId, 100);
+						} else if (event.type === 'file_chooser_state') {
+							fileChoosers = upsertBounded(fileChoosers, event.chooser, (c) => c.chooserId, 16);
+						} else if (event.type === 'capability_state') {
+							capabilities = upsertBounded(capabilities, event.capability, (c) => c.capability, BROWSER_CAPABILITIES.length);
+						} else if (event.type === 'recording_state') {
+							recording = event.recording;
+						} else if (event.type === 'error') {
+							streamError = event.message;
+						} else if (event.type === 'disconnected') {
+							scheduleReconnect(streamError || 'Canale live interrotto');
 						}
-					} else if (event.type === 'action_entry') {
-						actionBuffer.push(event.entry);
-						actionEntries = [...actionBuffer.items];
 					}
-				}
-			)
-			.then((cleanup) => {
+				);
 				if (!active) {
-					cleanup?.();
+					handle?.();
 					return;
 				}
-				if (!cleanup) {
-					streamStatus = 'disconnected';
-					streamError = 'Canale live non disponibile';
-				} else {
-					disconnectFn = cleanup;
+				if (!handle) {
+					scheduleReconnect('Canale live non disponibile');
+					return;
 				}
-			})
-			.catch((err) => {
-				if (!active) return;
-				streamStatus = 'error';
-				streamError = String(err);
-			});
-
-		return () => {
-			active = false;
-			if (disconnectFn) {
-				disconnectFn();
-				disconnectFn = null;
+				liveHandle = handle;
+			} catch (error) {
+				scheduleReconnect(String(error));
 			}
 		};
+
+		void connect();
+		return () => {
+			active = false;
+			if (retryTimer) clearTimeout(retryTimer);
+			liveHandle?.();
+		};
 	});
+
+	function retryStream() {
+		retryNonce += 1;
+	}
+	function handleBack() {
+		if (!activeTab) return;
+		emitInput({
+			type: 'key_down',
+			key: 'ArrowLeft',
+			code: 'ArrowLeft',
+			modifiers: { alt: true, ctrl: false, meta: false, shift: false }
+		});
+		emitInput({
+			type: 'key_up',
+			key: 'ArrowLeft',
+			code: 'ArrowLeft',
+			modifiers: { alt: true, ctrl: false, meta: false, shift: false }
+		});
+	}
+
+	function handleForward() {
+		if (!activeTab) return;
+		emitInput({
+			type: 'key_down',
+			key: 'ArrowRight',
+			code: 'ArrowRight',
+			modifiers: { alt: true, ctrl: false, meta: false, shift: false }
+		});
+		emitInput({
+			type: 'key_up',
+			key: 'ArrowRight',
+			code: 'ArrowRight',
+			modifiers: { alt: true, ctrl: false, meta: false, shift: false }
+		});
+	}
+
+	function handleReload() {
+		if (!activeTab) return;
+		emitInput({
+			type: 'key_down',
+			key: 'F5',
+			code: 'F5',
+			modifiers: { alt: false, ctrl: false, meta: false, shift: false }
+		});
+		emitInput({
+			type: 'key_up',
+			key: 'F5',
+			code: 'F5',
+			modifiers: { alt: false, ctrl: false, meta: false, shift: false }
+		});
+	}
 
 	/** Calcola le coordinate in pixel CSS del viewport dal puntatore client. */
 	function getViewportCoords(clientX: number, clientY: number): ViewportPoint | null {
@@ -228,13 +556,17 @@
 	function emitInput(event: BrowserInputEvent) {
 		lastInputEvent = event;
 		onInput?.(event);
-		if (activeTab && session) {
-			if (activeTab.controller === 'agent') {
-				// Takeover atomico al primo input umano con input bufferizzato inviato una volta sola
-				void session.requestTakeover(activeTab, event);
-			} else {
-				void session.sendTabInput(activeTab, event);
-			}
+		if (!activeTab || !session) return;
+		// Con lo stream non attivo il frame a schermo e' l'ultimo ricevuto: le
+		// coordinate non corrispondono piu' a nulla di vivo.
+		if (streamStatus !== 'live') return;
+		if (activeTab.controller === 'agent') {
+			// Il takeover interrompe fail-closed il comando dell'agente: deve
+			// nascere da un gesto deliberato, non dal puntatore che passa sopra.
+			if (event.type === 'mouse_move') return;
+			void session.requestTakeover(activeTab, event);
+		} else {
+			void session.sendTabInput(activeTab, event);
 		}
 	}
 
@@ -249,6 +581,7 @@
 		await session.setPrivacy(activeTab, next);
 	}
 	function handlePointerDown(e: PointerEvent) {
+		viewportEl?.focus();
 		const pt = getViewportCoords(e.clientX, e.clientY);
 		if (!pt) return;
 		const event: BrowserInputEvent = {
@@ -308,7 +641,9 @@
 				void session.inspectPoint(activeTab, pt.x, pt.y);
 			}
 
-			if (inspectedElement && currentFrame) {
+			// In takeover privato il frame resta solo qui: nessun ritaglio, perche'
+			// il ritaglio e' allegabile al prompt e finirebbe al modello.
+			if (inspectedElement && currentFrame && !isPrivateTakeover) {
 				try {
 					inspectedCropBase64 = await cropImageElement(
 						currentFrame.imageBase64,
@@ -318,6 +653,8 @@
 				} catch {
 					inspectedCropBase64 = null;
 				}
+			} else {
+				inspectedCropBase64 = null;
 			}
 
 			isPickerActive = false;
@@ -368,12 +705,62 @@
 		emitInput(event);
 	}
 
+	function isViewportKeyboardTarget(target: EventTarget | null): boolean {
+		return target instanceof HTMLElement && target.closest('.viewport-frame') !== null;
+	}
+
+	/**
+	 * Il solo `e.target` non basta: la superficie puo' essere rimontata (cambio
+	 * tab, riconnessione) e il focus tornare a `body`, lasciando la tastiera
+	 * muta fino al click successivo. Qui si ricorda che il focus appartiene alla
+	 * superficie e lo si restituisce al nodo appena ricompare.
+	 */
+	function handleFocusIn(e: FocusEvent) {
+		const target = e.target as HTMLElement | null;
+		if (isViewportKeyboardTarget(target)) {
+			surfaceHasKeyboard = true;
+			return;
+		}
+		if (target instanceof HTMLElement && target.tagName !== 'BODY') {
+			surfaceHasKeyboard = false;
+		}
+	}
+
+	$effect(() => {
+		if (!currentFrame || !viewportEl || !surfaceHasKeyboard) return;
+		if (document.activeElement === viewportEl) return;
+		viewportEl.focus({ preventScroll: true });
+	});
+
+	// Entrando in takeover privato niente della pagina resta allegabile.
+	$effect(() => {
+		if (!isPrivateTakeover) return;
+		inspectedCropBase64 = null;
+		hoveredInspectElement = null;
+		isPickerActive = false;
+	});
+
 	function handleKeydown(e: KeyboardEvent) {
 		const target = e.target as HTMLElement | null;
 		const isInsideInspector = target?.closest('.inspector-dock') !== null;
 		const isTextTarget = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
 		if (e.key === 'Escape') {
+			if (openDialog && activeTab) {
+				// `e.repeat` a Escape tenuto premuto produrrebbe due risposte, e la
+				// seconda torna come DIALOG_ALREADY_SETTLED.
+				if (!e.repeat && !dialogBusy) void respondDialog(openDialog.kind === 'alert');
+				return;
+			}
+			if (relayPickerOpen) {
+				relayPickerOpen = false;
+				relayTargets = [];
+				return;
+			}
+			if (isCapabilityMenuOpen) {
+				isCapabilityMenuOpen = false;
+				return;
+			}
 			if (isPickerActive) {
 				isPickerActive = false;
 				hoveredInspectElement = null;
@@ -388,17 +775,15 @@
 			return;
 		}
 
-		// Alt+I / Ctrl+Shift+C: toggle element picker
 		if ((e.altKey && (e.key === 'i' || e.key === 'I')) || (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C'))) {
 			e.preventDefault();
 			togglePicker();
 			return;
 		}
 
-		// Se il target e' dentro l'inspector o un campo di testo locale, non inoltrare a Chromium
-		if (isInsideInspector || isTextTarget) {
-			return;
-		}
+		if (isInsideInspector || isTextTarget) return;
+		if (!isViewportKeyboardTarget(e.target) && !surfaceHasKeyboard) return;
+		pressedKeys.add(e.code);
 
 		const event: BrowserInputEvent = {
 			type: 'key_down',
@@ -415,6 +800,10 @@
 	}
 
 	function handleKeyUp(e: KeyboardEvent) {
+		// Il key_up parte anche se il focus e' cambiato tra i due eventi: altrimenti
+		// la pagina resterebbe con il tasto o il modificatore logicamente premuto.
+		const wasPressed = pressedKeys.delete(e.code);
+		if (!wasPressed && !isViewportKeyboardTarget(e.target)) return;
 		const event: BrowserInputEvent = {
 			type: 'key_up',
 			key: e.key,
@@ -455,44 +844,48 @@
 	}
 
 	function formatTabLabel(tab: BrowserTabState): string {
+		if (tab.mode === 'chrome-relay') return 'Chrome personale';
 		const parts = tab.tabId.split('::');
 		return parts[1] || parts[0] || 'main';
 	}
 
-	function handleGrantOrigin() {
-		if (!activeTab) return;
-		const origin = extractOrigin(activeTab.url);
+	/**
+	 * La decisione va al runtime, che possiede l'allow-list rispettata
+	 * dall'agente: lo store di progetto e' solo la copia consultabile dalle
+	 * impostazioni. Il badge non viene forzato a mano, arriva con `tab_state`.
+	 */
+	async function decideOrigin(decision: 'grant' | 'revoke') {
+		const tab = activeTab;
+		if (!tab || !session || originBusy) return;
+		const origin = extractOrigin(tab.url);
 		if (!origin) return;
-		const pid = activeTab.projectId || projectStore.activeId;
-		if (pid) {
-			projectStore.grantBrowserOrigin(pid, origin);
+		originBusy = true;
+		try {
+			await session.setBrowserOriginDecision(tab.projectId, origin, decision);
+			const pid = tab.projectId || projectStore.activeId;
+			if (pid) {
+				if (decision === 'grant') projectStore.grantBrowserOrigin(pid, origin);
+				else projectStore.revokeBrowserOrigin(pid, origin);
+			}
+		} catch (error) {
+			// Un runtime che non conosce ancora il comando va detto, non nascosto:
+			// senza applicazione lato broker il consenso non vale nulla.
+			const detail = String(error);
+			showNotice(
+				/unknown|not supported|sconosciut/i.test(detail)
+					? 'Il runtime omp in uso non applica le decisioni sulle origini: aggiornalo'
+					: `Decisione sull'origine non applicata: ${detail}`
+			);
+		} finally {
+			originBusy = false;
 		}
-		activeTab.originPermission = 'granted';
-	}
-
-	function handleDenyOrigin() {
-		if (!activeTab) return;
-		const origin = extractOrigin(activeTab.url);
-		if (!origin) return;
-		const pid = activeTab.projectId || projectStore.activeId;
-		if (pid) {
-			projectStore.revokeBrowserOrigin(pid, origin);
-		}
-		activeTab.originPermission = 'denied';
-	}
-
-	function handleRevokeOrigin() {
-		if (!activeTab) return;
-		const origin = extractOrigin(activeTab.url);
-		if (!origin) return;
-		const pid = activeTab.projectId || projectStore.activeId;
-		if (pid) {
-			projectStore.revokeBrowserOrigin(pid, origin);
-		}
-		activeTab.originPermission = 'denied';
 	}
 
 	function togglePicker() {
+		if (!isPickerActive && isPrivateTakeover) {
+			showNotice('Takeover privato attivo: ispezione della pagina disabilitata');
+			return;
+		}
 		isPickerActive = !isPickerActive;
 		if (isPickerActive) {
 			hoveredInspectElement = null;
@@ -520,6 +913,10 @@
 	}
 
 	function attachContextToPrompt(type: 'element' | 'console' | 'network' | 'all') {
+		if (isPrivateTakeover) {
+			showNotice('Takeover privato attivo: nulla di questa pagina viene inviato all\'agente');
+			return;
+		}
 		let formattedText = '';
 		const images: { type: 'image'; data: string; mimeType: string }[] = [];
 
@@ -655,7 +1052,7 @@
 	});
 </script>
 
-<svelte:window onkeydown={handleKeydown} onkeyup={handleKeyUp} />
+<svelte:window onkeydown={handleKeydown} onkeyup={handleKeyUp} onfocusin={handleFocusIn} />
 
 <div class="browser-viewer">
 	<!-- Toolbar Browser Studio (S41) -->
@@ -666,7 +1063,8 @@
 				type="button"
 				class="tool-btn icon-btn"
 				disabled={!activeTab}
-				title="Indietro"
+				onclick={handleBack}
+				title="Indietro (Alt+Freccia Sinistra)"
 				aria-label="Indietro"
 			>
 				<IconArrowLeft />
@@ -675,7 +1073,8 @@
 				type="button"
 				class="tool-btn icon-btn"
 				disabled={!activeTab}
-				title="Avanti"
+				onclick={handleForward}
+				title="Avanti (Alt+Freccia Destra)"
 				aria-label="Avanti"
 			>
 				<IconArrowRight />
@@ -685,7 +1084,8 @@
 				class="tool-btn icon-btn"
 				class:loading={activeTab?.loading}
 				disabled={!activeTab}
-				title="Ricarica pagina"
+				onclick={handleReload}
+				title="Ricarica pagina (F5)"
 				aria-label="Ricarica"
 			>
 				<IconRefresh />
@@ -745,7 +1145,8 @@
 					<button
 						type="button"
 						class="revoke-origin-btn"
-						onclick={handleRevokeOrigin}
+						onclick={() => decideOrigin('revoke')}
+						disabled={originBusy}
 						title="Revoca immediatamente l'autorizzazione a questa origine remota"
 					>
 						Revoca
@@ -773,10 +1174,20 @@
 			<span class="tab-single-badge" title="Scheda attiva">{formatTabLabel(activeTab)}</span>
 		{/if}
 
-		<!-- Modalita: Browser Studio / Chrome personale -->
+		<!-- Modalita e selezione esplicita Chrome personale (S46) -->
 		<span class="mode-badge" class:relay={activeTab?.mode === 'chrome-relay'}>
 			{activeTab?.mode === 'chrome-relay' ? 'Chrome Relay' : 'Browser Studio'}
 		</span>
+		{#if activeTab?.mode === 'chrome-relay'}
+			<button type="button" class="tool-btn" disabled={relayBusy} onclick={disconnectRelay}>
+				Disconnetti
+			</button>
+		{:else}
+			<button type="button" class="tool-btn" disabled={relayBusy || !session?.browserLive?.features.includes('chrome-relay')} onclick={openRelayPicker}>
+				<IconPlus /> Usa il mio Chrome
+			</button>
+		{/if}
+
 
 		<!-- Viewport responsive selector -->
 		<div class="device-group" role="group" aria-label="Larghezza viewport">
@@ -880,6 +1291,78 @@
 			{/if}
 		</button>
 
+		<!-- Capability della pagina e registrazione locale (S45) -->
+		{#if activeTab}
+			<div class="capability-menu-wrap">
+				<button
+					type="button"
+					class="tool-btn capability-btn"
+					class:active={isCapabilityMenuOpen}
+					onclick={() => (isCapabilityMenuOpen = !isCapabilityMenuOpen)}
+					title="Permessi della pagina: appunti, geolocalizzazione, notifiche"
+					aria-expanded={isCapabilityMenuOpen}
+				>
+					<IconLock /> Permessi
+				</button>
+				{#if isCapabilityMenuOpen}
+					<div class="capability-menu" role="group" aria-label="Permessi della pagina">
+						<p class="capability-menu-origin">{extractOrigin(activeTab.url) || activeTab.url}</p>
+						{#each BROWSER_CAPABILITIES as capability}
+							<div class="capability-row">
+								<span class="capability-name">{CAPABILITY_LABELS[capability]}</span>
+								<div class="capability-choices">
+									<button
+										type="button"
+										class="capability-choice"
+										class:active={capabilityDecision(capability) === 'denied'}
+										onclick={() => changeCapability(capability, 'denied')}
+									>
+										Nega
+									</button>
+									<button
+										type="button"
+										class="capability-choice"
+										class:active={capabilityDecision(capability) === 'prompt'}
+										onclick={() => changeCapability(capability, 'prompt')}
+									>
+										Chiedi
+									</button>
+									<button
+										type="button"
+										class="capability-choice"
+										class:active={capabilityDecision(capability) === 'granted'}
+										onclick={() => changeCapability(capability, 'granted')}
+									>
+										Consenti
+									</button>
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
+			<button
+				type="button"
+				class="tool-btn recording-btn"
+				class:active={isRecording}
+				onclick={toggleRecording}
+				disabled={recording?.status === 'stopping'}
+				title={isRecording
+					? 'Interrompi la registrazione locale della scheda'
+					: 'Registra la scheda in un artifact video locale'}
+			>
+				<span class="recording-dot" class:live={isRecording} aria-hidden="true"></span>
+				{#if recording?.status === 'stopping'}
+					Chiusura...
+				{:else if isRecording}
+					Stop ({recording?.frameCount ?? 0} fotogrammi)
+				{:else}
+					Registra
+				{/if}
+			</button>
+		{/if}
+
 		<span class="toolbar-spacer"></span>
 		<button
 			type="button"
@@ -907,6 +1390,44 @@
 		</button>
 	</div>
 
+	{#if relayPickerOpen}
+		<div
+			class="relay-picker"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="relay-picker-title"
+			use:trapFocus={{
+				onEscape: () => {
+					relayPickerOpen = false;
+					relayTargets = [];
+				}
+			}}
+		>
+			<div class="relay-picker-head">
+				<div>
+					<strong id="relay-picker-title">Scegli una scheda Chrome</strong>
+					<span>Studio potra leggere e controllare soltanto la scheda concessa.</span>
+				</div>
+				<button type="button" class="tool-btn" aria-label="Chiudi selettore" onclick={() => { relayPickerOpen = false; relayTargets = []; }}><IconClose /></button>
+			</div>
+			{#if relayDiagnostic}
+				<p class="relay-diagnostic"><IconWarning /> {relayDiagnostic}</p>
+		{:else if relayTargets.length === 0}
+				<p class="relay-empty">Nessuna scheda collegabile. Verifica che il Relay OMP esistente sia attivo.</p>
+			{:else}
+				<div class="relay-targets" role="list">
+					{#each relayTargets as target (target.targetId)}
+						<button type="button" class="relay-target" disabled={relayBusy} onclick={() => authorizeRelayTarget(target.targetId)}>
+							<span>{target.title || 'Scheda senza titolo'}</span>
+							<small>{target.origin}{target.active ? ' · attiva' : ''}</small>
+						</button>
+					{/each}
+				</div>
+			{/if}
+			{#if relayProbe?.diagnostic}<p class="relay-diagnostic"><IconWarning /> {relayProbe.diagnostic}</p>{/if}
+		</div>
+	{/if}
+
 	<!-- Stage di visualizzazione live -->
 	<div class="browser-stage" class:with-inspector={isInspectorOpen} class:picker-active={isPickerActive}>
 		<!-- Toast notifica contesto allegato -->
@@ -916,7 +1437,8 @@
 			</div>
 		{/if}
 
-		<!-- Banner di consenso per nuova origine remota (S43) -->
+		<!-- Pila dei consensi: origine remota (S43), file e download (S45) -->
+		<div class="consent-stack">
 		{#if activeTab?.originPermission === 'pending'}
 			<div class="origin-consent-banner" role="alert">
 				<div class="origin-consent-info">
@@ -929,13 +1451,160 @@
 					</div>
 				</div>
 				<div class="origin-consent-actions">
-					<button type="button" class="btn-consent-grant" onclick={handleGrantOrigin}>
+					<button
+						type="button"
+						class="btn-consent-grant"
+						onclick={() => decideOrigin('grant')}
+						disabled={originBusy}
+					>
 						Consenti per questo progetto
 					</button>
-					<button type="button" class="btn-consent-deny" onclick={handleDenyOrigin}>
+					<button
+						type="button"
+						class="btn-consent-deny"
+						onclick={() => decideOrigin('revoke')}
+						disabled={originBusy}
+					>
 						Rifiuta
 					</button>
 				</div>
+			</div>
+		{/if}
+		<!-- Selettore file intercettato: solo dal dialogo nativo (S45) -->
+		{#if pendingChooser}
+			<div class="origin-consent-banner" role="alert">
+				<div class="origin-consent-info">
+					<span class="origin-consent-icon" aria-hidden="true"><IconWarning /></span>
+					<div class="origin-consent-text">
+						<p class="origin-consent-title">
+							La pagina chiede {pendingChooser.mode === 'multiple' ? 'dei file' : 'un file'}
+						</p>
+						<p class="origin-consent-desc">
+							Nessun percorso viene concesso automaticamente: scegli tu i file nel dialogo di sistema.
+						</p>
+					</div>
+				</div>
+				<div class="origin-consent-actions">
+					<button type="button" class="btn-consent-grant" disabled={uploadBusy} onclick={chooseUploadFiles}>
+						{uploadBusy ? 'Selezione in corso...' : 'Scegli file'}
+					</button>
+					<button type="button" class="btn-consent-deny" onclick={cancelChooser}>Annulla</button>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Download in attesa di consenso su origine remota (S45) -->
+		{#each pendingDownloads as download (download.downloadId)}
+			<div class="origin-consent-banner" role="alert">
+				<div class="origin-consent-info">
+					<span class="origin-consent-icon" aria-hidden="true"><IconWarning /></span>
+					<div class="origin-consent-text">
+						<p class="origin-consent-title">Download da origine remota</p>
+						<p class="origin-consent-desc">
+							<strong>{download.suggestedFilename}</strong> ({formatBytes(download.receivedBytes)}) da
+							<strong>{download.origin || download.url}</strong>. Il file e' in quarantena e non e' ancora un
+							artifact della chat.
+						</p>
+					</div>
+				</div>
+				<div class="origin-consent-actions">
+					<button type="button" class="btn-consent-grant" onclick={() => decideDownload(download.downloadId, true)}>
+						Salva negli artifact
+					</button>
+					<button type="button" class="btn-consent-deny" onclick={() => decideDownload(download.downloadId, false)}>
+						Elimina
+					</button>
+				</div>
+			</div>
+		{/each}
+		</div>
+		{#if openDialog}
+			<div class="js-dialog-backdrop" role="alertdialog" aria-modal="true" aria-label="Dialogo della pagina">
+				<div
+					class="js-dialog"
+					use:trapFocus={{
+						onEscape: () => respondDialog(openDialog.kind === 'alert')
+					}}
+				>
+					<p class="js-dialog-kind">
+						{#if openDialog.kind === 'beforeunload'}
+							La pagina chiede conferma prima di lasciarla
+						{:else if openDialog.kind === 'confirm'}
+							Conferma richiesta dalla pagina
+						{:else if openDialog.kind === 'prompt'}
+							Richiesta di inserimento dalla pagina
+						{:else}
+							Avviso della pagina
+						{/if}
+					</p>
+					<p class="js-dialog-origin">{extractOrigin(openDialog.url) || openDialog.url}</p>
+					<p class="js-dialog-message">{openDialog.message || '(nessun messaggio)'}</p>
+					{#if openDialog.kind === 'prompt'}
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							type="text"
+							class="js-dialog-input"
+							bind:value={promptAnswer}
+							autofocus
+							aria-label="Risposta al prompt della pagina"
+						/>
+					{/if}
+					<p class="js-dialog-note">
+						L'esecuzione dell'agente su questa scheda e' stata interrotta: la pagina resta bloccata finche' non rispondi.
+					</p>
+					<div class="js-dialog-actions">
+						{#if openDialog.kind !== 'alert'}
+							<button type="button" class="btn-consent-deny" onclick={() => respondDialog(false)}>
+								{openDialog.kind === 'beforeunload' ? 'Resta sulla pagina' : 'Annulla'}
+							</button>
+						{/if}
+						<button type="button" class="btn-consent-grant" onclick={() => respondDialog(true)}>
+							{openDialog.kind === 'beforeunload' ? 'Lascia la pagina' : 'OK'}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Avanzamento download e artifact conclusi (S45) -->
+		{#if runningDownloads.length || finishedDownloads.length || recording}
+			<div class="artifact-strip">
+				{#each runningDownloads as download (download.downloadId)}
+					<span class="artifact-chip in-progress">
+						{download.suggestedFilename}
+						{download.totalBytes > 0
+							? `${Math.round((download.receivedBytes / download.totalBytes) * 100)}%`
+							: formatBytes(download.receivedBytes)}
+					</span>
+				{/each}
+				{#each finishedDownloads as download (download.downloadId)}
+					{#if download.status === 'completed' && download.artifactPath}
+						<button
+							type="button"
+							class="artifact-chip done"
+							onclick={() => revealArtifact(download.artifactPath as string)}
+							title={download.artifactPath}
+						>
+							{download.suggestedFilename} · {formatBytes(download.receivedBytes)}
+						</button>
+					{:else}
+						<span class="artifact-chip rejected" title={download.error ?? ''}>
+							{download.suggestedFilename} · {download.status === 'denied' ? 'eliminato' : 'fallito'}
+						</span>
+					{/if}
+				{/each}
+				{#if recording && recording.status === 'completed' && recording.path}
+					<button
+						type="button"
+						class="artifact-chip done"
+						onclick={() => revealArtifact(recording?.path as string)}
+						title={recording.path}
+					>
+						Registrazione · {recording.frameCount} fotogrammi · {formatBytes(recording.bytes)}
+					</button>
+				{:else if recording && recording.status === 'failed'}
+					<span class="artifact-chip rejected" title={recording.error ?? ''}>Registrazione fallita</span>
+				{/if}
 			</div>
 		{/if}
 		{#if !tabs.length}
@@ -946,26 +1615,16 @@
 					Avvia un comando o task che utilizza il tool <code>browser</code> per visualizzare lo stream live della pagina.
 				</p>
 			</div>
-		{:else if streamStatus === 'connecting'}
-			<div class="center-note">
-				<span class="spinner"></span>
-				<p class="note-title">Connessione allo stream live in corso...</p>
-				<p class="note-desc">Aggancio al canale loopback autenticato di Chromium gestito.</p>
-			</div>
-		{:else if streamStatus === 'error'}
-			<div class="center-note error" role="alert">
-				<span class="note-icon error"><IconWarning /></span>
-				<p class="note-title">Errore stream live</p>
-				<p class="note-desc">{streamError || 'Impossibile connettersi al WebSocket live'}</p>
-			</div>
 		{:else if currentFrame}
 			<!-- Contenitore Responsive Viewport -->
-			<!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events, a11y_no_noninteractive_tabindex -->
 			<div
+				bind:this={viewportEl}
 				class="viewport-frame"
 				style:width={DEVICE_WIDTHS[device]}
 				role="application"
-				aria-label="Superficie live browser"
+				tabindex="0"
+				aria-label="Superficie live browser. Premi per interagire con mouse o tastiera"
 				onpointerenter={() => (isHovering = true)}
 				onpointerleave={() => {
 					isHovering = false;
@@ -1025,11 +1684,54 @@
 						<span class="meta-item picker-indicator">Picker Attivo (clicca per selezionare, Esc per uscire)</span>
 					{/if}
 				</div>
+
+				<!--
+					Lo stato dello stream e' un overlay: sostituire il frame smonterebbe
+					il nodo che possiede il focus da tastiera e coprirebbe la pagina di
+					spinner a ogni riconnessione. L'overlay intercetta anche il puntatore,
+					quindi nessun input parte su coordinate non piu' vive.
+				-->
+				{#if streamStatus !== 'live'}
+					<div class="stream-overlay" role="status">
+						{#if streamStatus === 'error'}
+							<span class="note-icon error"><IconWarning /></span>
+							<p class="note-title">Errore stream live</p>
+						{:else}
+							<span class="spinner"></span>
+							<p class="note-title">
+								{streamStatus === 'disconnected' ? 'Stream live interrotto' : 'Riconnessione allo stream live'}
+							</p>
+						{/if}
+						<p class="note-desc">{streamError || 'Fotogramma non aggiornato: in attesa del canale live.'}</p>
+						<button type="button" class="tool-btn" onclick={retryStream}>
+							<IconRefresh /> Riprova ora
+						</button>
+					</div>
+				{/if}
+			</div>
+		{:else if streamStatus === 'error'}
+			<div class="center-note error" role="alert">
+				<span class="note-icon error"><IconWarning /></span>
+				<p class="note-title">Errore stream live</p>
+				<p class="note-desc">{streamError || 'Impossibile connettersi al WebSocket live'}</p>
+				<button type="button" class="tool-btn" onclick={retryStream} style="margin-top: var(--space-3);">
+					<IconRefresh /> Riprova connessione
+				</button>
+			</div>
+		{:else if streamStatus === 'disconnected'}
+			<div class="center-note" role="status">
+				<span class="spinner"></span>
+				<p class="note-title">Stream live disconnesso</p>
+				<p class="note-desc">{streamError || 'Riconnessione automatica in corso...'}</p>
+				<button type="button" class="tool-btn" onclick={retryStream} style="margin-top: var(--space-3);">
+					<IconRefresh /> Riprova ora
+				</button>
 			</div>
 		{:else}
 			<div class="center-note">
 				<span class="spinner"></span>
-				<p class="note-title">In attesa del primo frame...</p>
+				<p class="note-title">Connessione allo stream live in corso...</p>
+				<p class="note-desc">Aggancio al canale loopback autenticato di Chromium gestito.</p>
 			</div>
 		{/if}
 	</div>
@@ -1745,6 +2447,26 @@
 		cursor: crosshair;
 	}
 
+	/* Stato dello stream sopra il frame, senza smontarlo */
+	.stream-overlay {
+		position: absolute;
+		inset: 0;
+		z-index: 60;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-4);
+		text-align: center;
+		background: color-mix(in srgb, var(--bg-base) 78%, transparent);
+		backdrop-filter: blur(6px);
+	}
+
+	.stream-overlay .note-desc {
+		max-width: 42ch;
+	}
+
 	/* Overlay metadati e coordinate */
 	.frame-meta-bar {
 		position: absolute;
@@ -1928,11 +2650,6 @@
 	}
 
 	.origin-consent-banner {
-		position: absolute;
-		top: 12px;
-		left: 50%;
-		transform: translateX(-50%);
-		z-index: 100;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -1942,8 +2659,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-		max-width: 600px;
-		width: calc(100% - 32px);
+		width: 100%;
 	}
 
 	.origin-consent-info {
@@ -2010,6 +2726,25 @@
 		color: var(--ink);
 	}
 
+	/* Una sola colonna per tutti i consensi: nessun banner ne copre un altro. */
+	.consent-stack {
+		position: absolute;
+		top: 12px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 100;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		max-width: 600px;
+		width: calc(100% - 32px);
+		pointer-events: none;
+	}
+
+	.consent-stack > :global(*) {
+		pointer-events: auto;
+	}
+
 	/* S44 — Inspector mirato, Element Picker e Dock */
 	.tool-btn.picker-btn.active {
 		background: var(--accent-dim, rgba(59, 130, 246, 0.15));
@@ -2019,7 +2754,7 @@
 	}
 
 	.tool-btn.inspector-btn.active {
-		background: var(--bg-hover);
+		background: var(--accent-dim, rgba(59, 130, 246, 0.15));
 		color: var(--ink);
 		border-color: var(--line);
 		font-weight: 500;
@@ -2771,4 +3506,223 @@
 		from { opacity: 0; transform: translateY(-4px); }
 		to { opacity: 1; transform: translateY(0); }
 	}
+
+	/* S45 — dialoghi, permessi, download e registrazione */
+	.js-dialog-backdrop {
+		position: absolute;
+		inset: 0;
+		z-index: 200;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(0, 0, 0, 0.45);
+	}
+
+	.js-dialog {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		width: min(460px, calc(100% - 48px));
+		padding: var(--space-4);
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+	}
+
+	.js-dialog-kind {
+		margin: 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.js-dialog-origin {
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--ink-faint);
+	}
+
+	.js-dialog-message {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--ink);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		max-height: 220px;
+		overflow-y: auto;
+	}
+
+	.js-dialog-input {
+		padding: 6px 8px;
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		font-size: var(--text-sm);
+	}
+
+	.js-dialog-note {
+		margin: 0;
+		font-size: 11px;
+		color: var(--ink-muted);
+	}
+
+	.js-dialog-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: var(--space-2);
+	}
+
+	.capability-menu-wrap {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.capability-menu {
+		position: absolute;
+		top: calc(100% + 6px);
+		right: 0;
+		z-index: 150;
+		min-width: 260px;
+		padding: var(--space-3);
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+	}
+
+	.capability-menu-origin {
+		margin: 0 0 var(--space-2) 0;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--ink-faint);
+		overflow-wrap: anywhere;
+	}
+
+	.capability-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		padding: 3px 0;
+	}
+
+	.capability-name {
+		font-size: var(--text-xs);
+		color: var(--ink);
+	}
+
+	.capability-choices {
+		display: inline-flex;
+		gap: 2px;
+	}
+
+	.capability-choice {
+		padding: 2px 6px;
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		font-size: 10px;
+		cursor: pointer;
+	}
+
+	.capability-choice.active {
+		background: var(--accent-dim, rgba(59, 130, 246, 0.15));
+		border-color: var(--accent, #3b82f6);
+		color: var(--accent, #3b82f6);
+		font-weight: 600;
+	}
+
+	.recording-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: var(--radius-full);
+		background: var(--ink-faint);
+		display: inline-block;
+	}
+
+	.recording-dot.live {
+		background: #dc2626;
+		animation: recordingPulse 1.4s ease-in-out infinite;
+	}
+
+	@keyframes recordingPulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.35; }
+	}
+
+	.artifact-strip {
+		position: absolute;
+		left: 12px;
+		bottom: 12px;
+		z-index: 90;
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		max-width: calc(100% - 24px);
+	}
+
+	.artifact-chip {
+		padding: 3px 8px;
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		color: var(--ink-muted);
+		font-size: 11px;
+		max-width: 320px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	button.artifact-chip {
+		cursor: pointer;
+	}
+
+	.artifact-chip.done {
+		color: var(--ink);
+		border-color: var(--accent, #3b82f6);
+	}
+
+	.artifact-chip.rejected {
+		color: #dc2626;
+		border-color: rgba(220, 38, 38, 0.4);
+	}
+	.relay-picker {
+		position: absolute;
+		inset: 44px 12px auto auto;
+		z-index: var(--z-dialog);
+		width: min(420px, calc(100% - 24px));
+		max-height: calc(100% - 56px);
+		overflow: auto;
+		padding: var(--space-3);
+		background: var(--bg-overlay);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
+	}
+	.relay-picker-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+	.relay-picker-head > div { display: flex; flex-direction: column; gap: var(--space-1); }
+	.relay-picker-head span, .relay-empty { color: var(--ink-muted); font-size: var(--text-sm); }
+	.relay-targets { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3); }
+	.relay-target {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+		padding: var(--space-2);
+		background: var(--bg-base);
+		color: var(--ink);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		text-align: left;
+		cursor: pointer;
+	}
+	.relay-target:hover { background: var(--bg-hover); }
+	.relay-target:disabled { opacity: .55; cursor: default; }
+	.relay-target small { color: var(--ink-faint); }
+	.relay-diagnostic { display: flex; gap: var(--space-2); align-items: flex-start; color: var(--warn); font-size: var(--text-sm); }
 </style>

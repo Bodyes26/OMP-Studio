@@ -51,7 +51,16 @@ export type RpcCommand =
 	| { type: 'get_login_providers' }
 	| { type: 'login'; providerId: string }
 	| { type: 'negotiate_capabilities'; capabilities: RpcCapability[] }
-	| ({ type: 'browser_live_ticket' } & BrowserSessionIdentity);
+	| ({ type: 'browser_live_ticket' } & BrowserSessionIdentity)
+	| { type: 'browser_relay_targets' }
+	| { type: 'browser_relay_authorize'; targetId: string }
+	| { type: 'browser_relay_revoke'; browserSessionId: string }
+	| {
+			type: 'browser_origin_decision';
+			projectId: string;
+			origin: string;
+			decision: 'grant' | 'revoke';
+	  };
 
 /** Risposta a un comando: `code` e' presente sui fallimenti tipizzati. */
 export interface RpcResponse {

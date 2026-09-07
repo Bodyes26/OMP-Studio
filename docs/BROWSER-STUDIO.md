@@ -1,8 +1,11 @@
 # Browser Studio — Specifica canonica
 
-**Stato:** S38-S43 implementati (contratto `browser-live-v1`, broker/Chromium gestito, stream binario BLF1, BrowserViewer centrale, control epochs, takeover privato, policy origini top-level, ticket fail-closed e redazione dati); S44-S47 non implementati  
-**Gate:** R23  
-**Ultimo aggiornamento:** 2026-09-03  
+**Stato:** S38-S47 implementati (contratto `browser-live-v1`, broker/Chromium gestito, stream binario BLF1, BrowserViewer centrale, control epochs, takeover privato, policy origini top-level, ticket fail-closed e redazione dati, inspector mirato, dialoghi/popup/file/recording, Chrome Relay su tab autorizzata, hardening di recovery/concorrenza/memoria/accessibilità e matrice E2E).
+
+**Gate:** R23 non ancora superato. La review pre-1.5.0 ha rilevato due difetti bloccanti — consenso e revoca delle origini mai trasmessi al runtime, e tastiera muta dopo il rimontaggio della superficie live — insieme a sette difetti P1 sul canale live. Sono corretti (vedi §12.1 e il registro in `PLAN.md` S43/S47), ma il gate richiede lo smoke reale multipiattaforma su un `omp` che espone `browser_origin_decision`.
+
+**Ultimo aggiornamento:** 2026-09-07
+
 **Owner documentale:** ogni agente che completa uno step S38-S47
 
 Questo documento e la fonte autoritativa per l'implementazione del Browser Studio. Gli agenti assegnati agli step in `docs/PLAN.md` devono leggerlo prima di modificare codice e aggiornarlo al termine del proprio step con i dettagli realmente implementati. Non devono ripetere la ricerca sui competitor ne introdurre una seconda architettura.
@@ -617,10 +620,10 @@ La policy di sicurezza governa rigorosamente la navigazione top-level dell'agent
 
 - **Ambienti loopback e locali:** `http://localhost:*`, `http://127.0.0.1:*`, `http://[::1]:*`, `about:blank`, `data:` e `blob:` sono considerati locali e consentiti automaticamente (`originPermission: "local"`), senza alcuna richiesta o prompt di conferma all'utente.
 - **Nuove origini remote:** qualsiasi navigazione top-level iniziale (`browser open` con `url`) o programmatica (`tab.goto(url)`) verso una nuova origine remota non ancora autorizzata imposta la tab in stato `originPermission: "pending"` e viene bloccata fail-closed restituendo l'errore strutturato `ORIGIN_NOT_ALLOWED`.
-- **Consenso persistente per progetto:** Studio espone un banner di consenso esplicito e una badge nella toolbar di `BrowserViewer.svelte`; l'autorizzazione concessa dall'utente viene memorizzata in modo persistente per progetto (`Project.browserAllowedOrigins` in `projectStore` e `#projectAllowedOrigins` nel broker di sessione), abilitando le navigazioni successive senza ulteriori richieste.
+- **Consenso persistente per progetto:** Studio espone un banner di consenso esplicito e una badge nella toolbar di `BrowserViewer.svelte`. La decisione dell'utente viaggia sul comando RPC `browser_origin_decision` (`{ projectId, origin, decision: "grant" | "revoke" }`), che nel runtime chiama `BrowserSessionBroker.grantOrigin()` / `revokeOrigin()`: l'allow-list rispettata dall'agente e' quella del broker (`#projectAllowedOrigins`), mentre `Project.browserAllowedOrigins` nel `projectStore` e' la copia consultabile e revocabile dalle impostazioni. Senza quel comando il consenso resterebbe una scrittura locale e non abiliterebbe alcuna navigazione: e' il difetto corretto dopo la review pre-1.5.0.
 - **Sospensione sui redirect top-level non autorizzati:** il server live monitora in tempo reale gli eventi CDP `Page.frameNavigated` filtrando strettamente il solo main frame documentale (`!params.frame.parentId`). Se la pagina esegue un redirect verso un'origine remota non autorizzata, la tab passa immediatamente a `originPermission: "pending"`, l'esecuzione dell'agente viene abortita e sospesa con `ORIGIN_NOT_ALLOWED` ed emesso l'evento `tab_state` per consentire all'utente di autorizzare o respingere il redirect.
 - **Separazione top-level / subresource:** le risorse secondarie caricate dalla pagina (tag `<script>`, `<link>`, `<img>`, font, o chiamate `fetch`/`XMLHttpRequest` asincrone dell'applicazione) non sono considerate navigazioni documentali di primo livello e non vengono intercettate né bloccate dalla policy, garantendo la compatibilità con librerie esterne e CDN.
-- **Revoca immediata:** i permessi concessi a un'origine possono essere revocati istantaneamente sia direttamente dalla toolbar di `BrowserViewer` sia dalla sezione impostazioni del progetto in `WorkspaceSection.svelte`. La revoca rimuove immediatamente l'origine dalla allow-list, imposta lo stato della tab attiva su `originPermission: "denied"` e abortisce fail-closed qualsiasi comando agente in corso con `ORIGIN_NOT_ALLOWED`.
+- **Revoca immediata:** i permessi concessi a un'origine possono essere revocati istantaneamente sia direttamente dalla toolbar di `BrowserViewer` sia dalla sezione impostazioni del progetto in `WorkspaceSection.svelte`. La revoca invia `browser_origin_decision` con `decision: "revoke"`: il broker rimuove l'origine dalla allow-list, porta lo stato della tab a `originPermission: "denied"` e aborta fail-closed qualsiasi comando agente in corso con `ORIGIN_NOT_ALLOWED`. Se il runtime in uso non conosce il comando, Studio non dichiara applicata la revoca e lo segnala nella superficie.
 
 ### 12.2 Fail-closed di ticket e capability
 
@@ -731,28 +734,93 @@ L'utente può inviare selettivamente porzioni di contesto strutturato al prompt 
 - **Elemento selezionato:** Markdown strutturato con tag, selettore, ruolo ARIA, nome accessibile, componente, bounding box, stili rilevanti e immagine ritagliata allegata;
 - **Errori console:** elenco degli ultimi errori e warning con stack trace e contatori di ripetizione;
 - **Richieste fallite:** elenco dettagliato con metodo, URL, codice di stato e durata.
-## 15. Dialoghi, popup e file
+## 15. Dialoghi, popup, file e registrazione — implementato in S45
 
-- `alert`, `confirm`, `prompt`, `beforeunload`: evento esplicito e risposta tracciata;
-- popup: nuova tab della stessa chat;
-- download: artifact associato alla chat, con conferma per origine remota;
-- upload: file scelto dall'utente o gia autorizzato, senza accesso libero al filesystem;
-- clipboard, geolocalizzazione e notifiche: capability e permessi distinti;
-- recording: artifact video locale con stato e percorso espliciti.
+### 15.1 Dialoghi JavaScript (`alert`, `confirm`, `prompt`, `beforeunload`)
 
-## 16. Chrome personale tramite Relay
+- **Stato esplicito `BrowserDialogState`:** `dialogId`, `tabId`, `kind` (`alert` | `confirm` | `prompt` | `beforeunload`), `message`, `defaultPrompt`, `url`, `openedAtMs`, `status` (`open` | `accepted` | `dismissed` | `auto-dismissed` | `failed`), `responder` (`user` | `policy` | `system`), `promptText`, `settledAtMs`, `error`.
+- **Supervisor non bloccato:** se la tab non ha policy `dialogs` (`accept` | `dismiss`), l'apertura del dialogo non congela il runtime fino al timeout del tool ma interrompe fail-closed la run agente con motivazione esplicita (`BROWSER_DIALOG_OPEN: ...`), lasciando la pagina in attesa della risposta umana in Studio.
+- **Risposta tracciata:** il client invia `{ type: "dialog_respond", dialogId, accept, promptText }`; il broker risponde via CDP `Page.handleJavaScriptDialog` e aggiorna lo stato con `responder: "user"`. Una risposta duplicata fallisce con `DIALOG_ALREADY_SETTLED`; un id inesistente con `DIALOG_NOT_FOUND`.
+- **Teardown deterministico:** alla chiusura della tab o della chat, i dialoghi ancora aperti vengono liquidati dal broker con stato `auto-dismissed` e `responder: "system"` via CDP, evitando target orfani o processi congelati.
 
-Flusso vincolante:
+### 15.2 Popup posseduti dalla stessa chat
 
-1. l'utente sceglie `Usa il mio Chrome`;
-2. Studio mostra le tab collegabili tramite l'estensione Relay;
-3. l'utente autorizza una tab specifica;
-4. il Relay emette un ticket monouso legato a progetto, chat e target;
-5. Studio mostra la stessa tab tramite stream;
-6. control epochs e takeover privato restano attivi;
-7. `Disconnetti` revoca immediatamente il target.
+- **Adozione automatica:** la creazione di target `page` con `opener` corrispondente a una tab gestita attiva l'adozione automatica nel broker con `ownsPage: true`.
+- **Identità e confinamento:** il popup riceve nome ergonomico `${opener.tabName}#popup${N}`, `chatSessionId` identico all'apritore, e `openerTabId` valorizzato nello stato tab. Non apre finestre desktop (il browser gestito è windowless).
+- **Lifecycle coordinato:** il popup compare come tab selezionabile in `BrowserViewer.svelte`, obbedisce alle origin policy e alla chiusura della chat o dell'apritore.
 
-Non copiare il profilo, non aprire il database cookie e non concedere accesso implicito alle altre tab. La tab originale puo restare visibile o in background nel Chrome dell'utente, ma Studio non apre una nuova finestra esterna.
+### 15.3 Download come artifact con consenso
+
+- **Stato `BrowserDownloadState`:** `downloadId`, `tabId`, `url`, `suggestedFilename`, `origin`, `status` (`pending-consent` | `in-progress` | `completed` | `denied` | `canceled` | `failed`), `receivedBytes`, `totalBytes`, `startedAtMs`, `settledAtMs`, `artifactPath`, `error`.
+- **Quarantena sicura:** il comportamento viene agganciato a livello di sessione browser (`Browser.setDownloadBehavior` con `behavior: "allowAndName"` e directory di quarantena per-progetto `~/.omp/browser-artifacts/<projectId>/.quarantine`). I file temporanei prendono il GUID di Chromium per prevenire path traversal da nomi ostili.
+- **Consenso su origini remote:** origini locali/loopback vengono promosse automaticamente; nuove origini remote passano in `pending-consent`. L'utente sceglie se salvare negli artifact della chat (`~/.omp/browser-artifacts/<projectId>/<chatSessionId>/<filename>`) o eliminare. Il rifiuto elimina immediatamente il payload. Una decisione duplicata o fuori stato restituisce `DOWNLOAD_NOT_ALLOWED`.
+
+### 15.4 Upload autorizzato senza accesso libero al filesystem
+
+- **Intercettazione nativa:** `Page.setInterceptFileChooserDialog` intercetta l'apertura di `<input type="file">` e notifica `{ type: "file_chooser_state", chooser: { chooserId, mode, status: "pending-choice", fileNames: [] } }`.
+- **Gating ferreo:** nessun comando concede accesso generico al filesystem. Il comando nativo Tauri `browser_live_pick_upload_files` apre il dialogo di sistema OS; solo i file effettivamente scelti dall'utente vengono memorizzati nel set di autorizzazione del broker e forniti a `DOM.setFileInputFiles`.
+- **Blocco agente fail-closed:** se l'agente tenta `tab.uploadFile(...)` su file non precedentemente scelti o autorizzati dall'utente per quel progetto, la chiamata fallisce immediatamente con `UPLOAD_NOT_AUTHORIZED`.
+
+### 15.5 Capability distinte (appunti, geolocalizzazione, notifiche)
+
+- **Quattro capability indipendenti:** `clipboard-read`, `clipboard-write`, `geolocation`, `notifications`.
+- **Default deny:** ogni nuova origine parte con tutte le capability a `denied`. Le decisioni (`denied`, `prompt`, `granted`) sono memorizzate per-progetto e per-origine.
+- **Riaffermazione atomica:** le capability vengono applicate via `Browser.setPermission` (descrittori W3C conformi) alla registrazione, ad ogni navigazione del main frame (`Page.frameNavigated`), e ogni volta che una tab del progetto viene chiusa (prevenendo che il teardown CDP di una tab azzeri gli override dell'origine).
+
+### 15.6 Registrazione video locale (MJPEG/AVI)
+
+- **Muxer deterministico `MjpegAviWriter`:** implementato senza dipendenze esterne (nessun requisito di `ffmpeg`). Scrive i frame JPEG dello screencast Chromium in un container RIFF/AVI standard con chunk `00dc` e indice finale `idx1`.
+- **Lifecycle verificabile:** avvio con `{ type: "start_recording" }`, arresto con `{ type: "stop_recording" }`. Restituisce `BrowserRecordingState` con percorso assoluto negli artifact di chat, numero fotogrammi e byte scritti. Uno start su registrazione già attiva risponde `RECORDING_ALREADY_ACTIVE`; uno stop a vuoto risponde `RECORDING_NOT_ACTIVE`.
+- **Isolamento e pulizia:** durante il takeover privato i frame video restano locali a Studio e non transitano nel transcript dell'agente. Alla cancellazione dati di progetto (`/browser clear-data` o `deleteProjectData`), sia i profili sia tutti gli artifact di download e registrazione vengono eliminati.
+## 16. Chrome personale tramite Relay — implementato in S46
+
+Il percorso S46 riusa esclusivamente il servizio e l'estensione **OMP Browser Relay**
+gia installati. Studio non copia il profilo, non legge i database cookie e non
+avvia Chrome o una nuova finestra.
+
+### 16.1 Selezione e consenso
+
+1. `BrowserViewer` abilita `Usa il mio Chrome` soltanto dopo la negoziazione
+   della feature `chrome-relay`.
+2. Studio invia `browser_relay_targets`. Il runtime interroga
+   `GET /studio/targets` sul Relay loopback e riceve soltanto `targetId`, titolo,
+   **origine** normalizzata e stato attivo. I metadati esistono solo per il
+   picker e vengono svuotati alla scelta o chiusura.
+3. Il click su una riga invia `browser_relay_authorize(targetId)`. Il Relay crea
+   un grant casuale a 256 bit legato a progetto, chat e target, con TTL 30
+   secondi, consumato alla prima presentazione anche quando lo scope non
+   coincide o il collegamento fallisce. Il grant autorizza un singolo `PAGE<n>`.
+4. Il runtime apre `ws://127.0.0.1:<porta>/studio/cdp?ticket=...`; il bridge lega
+   quella connessione CDP al solo id Chrome autorizzato. Discovery, auto-attach,
+   comandi ed eventi sono filtrati su quel target. Creazione e chiusura di tab
+   sono rifiutate dalla connessione scoped.
+5. Solo dopo il consumo del grant il runtime pubblica un `BrowserTabState` con
+   `mode: chrome-relay` e identita legata a `projectId`, `chatSessionId`,
+   `browserSessionId` e target. Il successivo ticket `browser-live-v1` mantiene
+   la stessa presentazione singola e la stessa verifica di identita.
+
+### 16.2 Capability, viewer e revoca
+
+- Prima della pubblicazione il runtime prova sulla **sola tab concessa**
+  `Page.startScreencast`, `Input.dispatchMouseEvent` e `DOM.getDocument`. Se
+  screencast o input non sono disponibili risponde
+  `RELAY_CAPABILITY_UNAVAILABLE`, disconnette la sessione scoped e mostra una
+  diagnostica nel picker senza enumerare o collegare altri target.
+- I frame passano nel normale canale BLF1 e sono resi nella stessa
+  `BrowserViewer`; input, `controlEpoch`, takeover `user`/`private-user` e
+  restituzione all'agente riusano il protocollo S42.
+- Il picker elementi usa la sessione CDP scoped della tab. Console/Rete restano
+  fail-closed quando il relativo dominio non e disponibile: nessun fallback
+  apre una connessione CDP non scoped.
+- `Disconnetti` invia `browser_relay_revoke(browserSessionId)`: il runtime
+  disconnette subito Puppeteer/CDP, revoca i ticket live, emette `closed:
+  revoked` e il server chiude stream e input. La tab Chrome e il suo profilo
+  restano aperti e autenticati.
+- La chiusura della sessione RPC esegue lo stesso teardown. Nessun endpoint CDP
+  o token Relay entra nel frontend Svelte o nel transcript.
+
+Codici diagnostici aggiunti: `RELAY_UNAVAILABLE`, `RELAY_TARGET_NOT_FOUND`,
+`RELAY_CAPABILITY_UNAVAILABLE`, `RELAY_REVOKED`.
 
 ## 17. Compatibilita e verifica end-to-end
 
@@ -850,10 +918,66 @@ Altre verifiche di S40:
 - Modulo backend Studio `src-tauri/src/browser_live.rs` con connessione loopback WebSocket,
   parsing BLF1, invio automatico ack e inoltro a Svelte via IPC `Channel`.
 
+Stato per S45 (dialoghi, popup, file e registrazione). Osservati con smoke reale su
+Windows 11, `bun packages/coding-agent/scripts/s45-dialogs-files-smoke.ts`,
+16/16 scenari (copre lo scenario 9 della matrice):
+
+| Scenario | Esito osservato |
+|---|---|
+| 1 — alert | stato esplicito `open`, run agente abortita subito con `BROWSER_DIALOG_OPEN` senza congelare il supervisor, risposta utente `accepted` con `responder: "user"` |
+| 2 — confirm annullato | dialog `dismissed`, risposta consegnata al renderer e verificata nel DOM con `confirm:false` |
+| 3 — prompt | dialog `accepted` con `promptText: "risposta S45"`, valore consegnato e verificato nel DOM con `prompt:risposta S45` |
+| 4 — errori dialogo | seconda risposta su dialogo risolto respinta con `DIALOG_ALREADY_SETTLED`, id inesistente con `DIALOG_NOT_FOUND` |
+| 5 — beforeunload | gesto utente reale su pulsante, navigazione abortita con stato esplicito `beforeunload`, uscita confermata dall'utente |
+| 6 — policy dialogs:"accept" | run non interrotto, dialogo risolto istantaneamente con `responder: "policy"`, DOM aggiornato con `confirm:true` |
+| 7 — popup | click su `window.open`, target adottato con `ownsPage: true`, registrato con `openerTabId` e stessa `chatSessionId`, supervisionato `alive` |
+| 8 — download con consenso | `Browser.setDownloadBehavior` agganciato sulla sessione browser in quarantena di progetto, promozione in artifact di chat con nome originale e hash verificato su disco |
+| 9 — errori download | decisione duplicata su download concluso respinta con `DOWNLOAD_NOT_ALLOWED`, guid inesistente con `DOWNLOAD_NOT_FOUND` |
+| 10 — upload autorizzato | `tab.uploadFile` dell'agente bloccato fail-closed con `UPLOAD_NOT_AUTHORIZED`; apertura file input via `Page.setInterceptFileChooserDialog`, autorizzazione dei soli percorsi scelti dall'utente |
+| 11 — errori upload | chooser sconosciuto risponde `FILE_CHOOSER_NOT_FOUND`, file inesistente con `UPLOAD_NOT_AUTHORIZED`, annullamento esplicito con stato `canceled` |
+| 12 — capability distinte | geolocalizzazione e notifiche partono a `denied`, concessione di `geolocation` porta lo stato a `granted` mantenendo `notifications` a `denied` |
+| 13 — recording video | avvio screencast JPEG a 15 fps, muxing atomico in `MjpegAviWriter` (RIFF/AVI, chunk `00dc`, index `idx1`), 37 fotogrammi reali senza dipendenza da `ffmpeg`, stop a vuoto risponde `RECORDING_NOT_ACTIVE`, doppio start con `RECORDING_ALREADY_ACTIVE` |
+| 14 — takeover durante dialogo | takeover utente incrementa epoch e preserva il dialogo `open`, risposta successiva accettata regolarmente |
+| 15 — chat chiusa | rilascio tab per owner chiude i dialoghi pendenti con `responder: "system"`, finalizza la registrazione in corso senza corruzioni |
+| 16 — cleanup | cancellazione dati di progetto elimina simultaneamente il profilo Chromium e tutti gli artifact di download e registrazione |
+| test unitari | 361 test verdi in Studio (`test/browser-dialogs-files.test.ts`), 104 test browser verdi nel runtime (`test/tools/browser-tab-events.test.ts`), 0 errori `svelte-check` (916 file), 146 unit test Rust verdi in `src-tauri` (`cargo test`) |
+
+Stato per S46 (Chrome Relay scoped). La verifica automatizzata copre due target
+simulati; la conservazione dell'autenticazione deriva dal fatto che il target
+Chrome non viene chiuso:
+
+| Scenario | Esito osservato |
+|---|---|
+| selezione minima | `GET /studio/targets` espone soltanto target id, titolo, origine e stato attivo; nessun percorso URL viene inoltrato |
+| grant | token casuale da 256 bit, TTL 30 s, legato a progetto/chat/target; uno scope errato consuma il token e il riuso viene rifiutato |
+| isolamento con due tab | discovery e auto-attach mostrano soltanto `PAGE1`; attach, comandi ed eventi relativi a `PAGE2` non raggiungono la connessione scoped |
+| nessuna nuova tab/finestra | `Target.createTarget` e `Target.closeTarget` sono rifiutati dai test della connessione Studio; [INFERENZA DAL CODICE] il percorso non contiene launch di Chrome |
+| revoca e teardown | [INFERENZA DAL CODICE] disconnessione esplicita, perdita del Relay e shutdown rimuovono la tab dal broker, revocano ticket live e chiudono frame/input senza inviare `close` alla tab Chrome |
+| fallback reale | server S46 avviato su Windows e interrogato senza estensione collegata: HTTP 503 `relay extension is not connected`; il broker restituisce `RELAY_UNAVAILABLE` senza tentare un endpoint CDP piu ampio |
+| test | 46 test Relay/runtime verdi, 362 smoke test Studio verdi, `svelte-check` su 916 file senza errori o warning, build Vite di produzione completata |
+
+Stato per S47 (Hardening e matrice end-to-end multipiattaforma). Osservati con smoke reale su Windows 11 x64, suite di unit test, build di produzione e test comportamentali su 14/14 scenari della matrice §17:
+
+| Scenario | Esito osservato |
+|---|---|
+| 1 — managed mode senza finestra | Daemon `omp.browser.managed` avviato con `--headless=new`, `--no-startup-window`, `--remote-debugging-port=0`; albero processi `Win32_Process` privo di finestre visibili (`MainWindowHandle == 0`) verificato in `s39-managed-browser-smoke.ts` (PASS 1). |
+| 2 — browser open/run/close su stessa tab | `s40-live-stream-smoke.ts` (PASS 1 & 4): screencast binario BLF1 continuo a 60 fps con metadati viewport coerenti, dimensione reale dello screenshot (1280x800) invariante rispetto a stream e canvas. |
+| 3 — resize e DPI scaling | Proiezione coordinate CSS `mapClientToViewportCoords` e normalizzazione delta rotellina `mapWheelToViewportScroll` invarianti su resize finestra, splitter, preset 768px/390px e display scaling @1x, @1.25x, @1.5x, @2x verificati in `test/browser-viewer.test.ts`. |
+| 4 — takeover atomico e singolo dispatch | `test/browser-control-epochs.test.ts` e `s45-dialogs-files-smoke.ts` (PASS 14): primo input umano bufferizzato e inviato 1 sola volta a CDP, `controlEpoch++`, `controller: "user"`, abort immediato fail-closed delle run agente pendenti con `CONTROL_INTERRUPTED`. |
+| 5 — takeover privato | `test/tools/browser-live-stream.test.ts` e `test/browser-control-epochs.test.ts`: attivazione manuale o su campi password/CAPTCHA, frame loopback continuano con `meta.privacy = "private"`, agente bloccato con `PRIVATE_TAKEOVER_ACTIVE`, zero leak nel transcript/DOM/console/rete. |
+| 6 — isolamento profili tra progetti | `s39-managed-browser-smoke.ts` (PASS 2 & 4): directory isolate `~/.omp/browser-profiles/<projectId>`; progetto A scrive cookie e localStorage su `http://127.0.0.1:<porta>/`, progetto B sulla stessa origine legge cookie vuoto e storage nullo; riapertura ripristina solo il profilo del progetto corretto. |
+| 7 — tab omonime di chat distinte | `s39-managed-browser-smoke.ts` (PASS 3): chiavi `chat-a::main` e `chat-b::main` aprono target distinti nello stesso Chromium gestito senza collisioni, con titoli e stati indipendenti. |
+| 8 — redirect non autorizzato | `test/tools/browser-origin-policy.test.ts` e `test/browser-origin-policy.test.ts`: navigazione top-level del main frame verso origine remota non concessa sospende l'agente con stato `originPermission: "pending"` e abort `ORIGIN_NOT_ALLOWED`; subresource e CDN non bloccati. |
+| 9 — dialoghi, popup, download e upload | `s45-dialogs-files-smoke.ts` (16/16 scenari): stati espliciti `BrowserDialogState`, popup adottati in `openerTabId` e stessa chat, download trattenuti in quarantena di progetto e promossi su consenso, upload bloccato fail-closed con `UPLOAD_NOT_AUTHORIZED` salvo file scelti da dialogo nativo OS, 4 permessi W3C indipendenti, video AVI/MJPEG deterministico. |
+| 10 — console, rete e picker coerenti | `test/browser-inspector.test.ts`: `ConsoleRingBuffer` (500 item, deduplicazione con contatore, stack trace), `NetworkRingBuffer` (200 item, correlazione requestId, body on-demand), `ActionRingBuffer` (100 item), element picker con coordinate viewport CSS e highlight tooltip. |
+| 11 — Chrome Relay scoped | `test/tools/browser-relay-server.test.ts` e `test/tools/browser-relay-bridge.test.ts`: selettore con soli titolo/origine/stato attivo, grant a 256 bit monouso/30 s, connessione `/studio/cdp` target-scoped (altre tab inaccessibili, create/close vietati), probe falliti chiusi con diagnostica, revoca senza chiusura di Chrome. |
+| 12 — fallback non negoziato | `test/browser-live-contract.test.ts` e `s40-live-stream-smoke.ts` (PASS 5): runtime privo di capabilities o disabilitato mantiene il renderer screenshot preesistente (`Browser.svelte`) e il ciclo tool_execution senza errori o tentativi di connessione loopback. |
+| 13 — crash e chiusura senza orfani | `s39-managed-browser-smoke.ts` (PASS 5 & 6): chiusura tab azzera broker e spegne Chromium; kill anomalo (SIGKILL) dell'host omp termina comunque il processo Chromium per reaper dell'ultimo client; disconnessione o chiusura Studio (`resetBrowserLive`) azzera canali live senza orfani. |
+| 14 — verifica piattaforme e smoke reale | Smoke reale osservato su Windows 11 x64 con 374 unit/smoke test Studio (`npm test`), 146 unit test Rust (`cargo test`), typecheck 916 file (`npm run check`), build produzione Vite (`npm run build`), avvio applicazione desktop (`smoke-test.py`). Bundle e workflow per macOS universal e Linux x64 verificati a livello di configurazione (`tauri.conf.json`, `gate.yml`, `release.yml`) e run CI; dichiarato esplicitamente che macOS e Linux non sono stati eseguiti localmente sulla workstation Windows. |
+
 ### ContrattiImmobili
 
-Per componenti serviti localmente, Browser Studio naviga verso il server di sviluppo. Per l'app completa, le regole del progetto restano vincolanti: l'agente non pubblica o avvia autonomamente IIS. L'utente rende disponibile l'URL; Browser Studio lo verifica. Se Windows Authentication non funziona nel profilo gestito, si usa una tab Chrome personale autorizzata tramite Relay.
-
+Verifica eseguita su IIS locale (`Microsoft-IIS/10.0` attivo su porta 80): `http://localhost/` risponde `HTTP/1.1 200 OK`; `http://localhost/ContrattiImmobili/` risponde `HTTP/1.1 404 Not Found` (applicazione non distribuita o non montata su questa macchina). Secondo le regole vincolanti del progetto (`CLAUDE.md`), l'agente non pubblica né avvia autonomamente IIS. Browser Studio resta pronto a verificare l'URL non appena reso disponibile dall'utente, usando il profilo gestito o una tab Chrome personale autorizzata tramite Relay in caso di Windows Authentication.
 ## 18. Registro implementativo
 
 Ogni step aggiunge una voce senza riscrivere la storia:
@@ -867,6 +991,9 @@ Ogni step aggiunge una voce senza riscrivere la storia:
 | 2026-09-03 | S42 | `omp-studio-app` + `oh-my-pi-upstream` | `browser-live-v1` | Implementato arbitraggio esclusivo `agent` / `user` / `private-user` con `controlEpoch` incrementale, takeover atomico con primo input bufferizzato applicato 1 volta sola, abort fail-closed comandi agente in corso con `CONTROL_INTERRUPTED`, modalità takeover privato `PRIVATE_TAKEOVER_ACTIVE` con stream video locale continuato e transcript/screenshot/DOM/console isolati, handle bidirezionale per input/takeover/return_control/privacy via WebSocket e Tauri IPC. 309 smoke test e 141 test Cargo passati. |
 | 2026-09-03 | S43 | `omp-studio-app` + `oh-my-pi-upstream` | `browser-live-v1` | Policy origini top-level: loopback (`localhost`, `127.0.0.1`, `[::1]`) consentiti automaticamente; nuove origini remote con consenso persistente per progetto (`pending`), blocco fail-closed con `ORIGIN_NOT_ALLOWED`; grant memorizzati per progetto (`Project.browserAllowedOrigins` e broker); rilevamento redirect top-level con sospensione automatica dell'agente; revoca immediata di origini concesse con transizione a `denied` e abort fail-closed; separazione top-level da subresource (CDN, immagini, script, font e fetch ammessi); redazione credenziali URL (`user:pass@`), header `Authorization`/`Cookie`/`Set-Cookie`, token Bearer e chiavi in eventi, log, errori e artifact; completo isolamento CDP e segreti. 317 smoke test e 146 test Cargo passati. |
 | 2026-09-03 | S44 | `omp-studio-app` (working tree) + `oh-my-pi-upstream` | `browser-live-v1` | Inspector mirato su superficie BrowserViewer senza Chrome DevTools completo: Element Picker con coordinate viewport CSS e highlight overlay non invasivo (`tag`, `role`, `accessibleName`, `text`, `selector`, `boundingBox`, `computedStyles`, `component`, `crop` PNG); Console con ring buffer bounded (500 item), deduplicazione messaggi consecutivi (`count`), stack trace e redazione credenziali/token Bearer; Network con ring buffer bounded (200 item), aggiornamento in-place per `requestId`, filtri per errori/lente/XHR, redazione header sensibili e fetch body on-demand; Actions timeline bounded (100 item); dock retrattile inferiore con navigazione da tastiera protetta da intercettazione indebita; invio selettivo contesto strutturato e screenshot al prompt del Composer via evento `composer-insert-context`. 335 smoke test e 146 test Cargo passati. |
+| 2026-09-04 | S45 | `omp-studio-app` + `oh-my-pi-upstream` (branch `feat/s40-browser-live-stream`) | `browser-live-v1` esteso: 10 nuovi codici errore (`DIALOG_*`, `DOWNLOAD_*`, `FILE_CHOOSER_*`, `UPLOAD_*`, `CAPABILITY_*`, `RECORDING_*`), stati `BrowserDialogState`, `BrowserDownloadState`, `BrowserFileChooserState`, `BrowserCapabilityState`, `BrowserRecordingState`, messaggi client/server live dedicati, `openerTabId` su `BrowserTabState`. | Nessun dialogo blocca il supervisor: abort immediato con `BROWSER_DIALOG_OPEN` senza policy; popup adottati con `ownsPage: true` nella stessa chat; download isolati in quarantena di progetto via sessione browser e promossi solo su consenso; upload blindato da comando nativo Tauri `browser_live_pick_upload_files` e gating fail-closed `UPLOAD_NOT_AUTHORIZED`; 4 capability distinte W3C; registrazione video MJPEG/AVI pura con `MjpegAviWriter` senza dipendere da `ffmpeg`; UI completa in `BrowserViewer.svelte` con modal dialoghi, pila consensi e strip artifact. |
+| 2026-09-04 | S46 | `omp-studio-app` + `oh-my-pi-upstream` (branch `feat/s40-browser-live-stream`) | `browser-live-v1` esteso con RPC `browser_relay_targets`, `browser_relay_authorize`, `browser_relay_revoke`; grant Relay 256 bit monouso/30 s; `/studio/cdp` target-scoped; errori `RELAY_*`; `BrowserTabState.mode = chrome-relay`. | Metadati picker limitati a titolo/origine/stato attivo e rimossi al consenso; probe screencast/input/DOM sul solo target; stessa BrowserViewer/control epochs/private takeover/element picker; revoca disconnette CDP/live senza chiudere Chrome. |
+| 2026-09-04 | S47 | `omp-studio-app` (working tree) + `oh-my-pi-upstream` (branch `feat/s40-browser-live-stream`) | `browser-live-v1` stabilizzato e validato | Hardening completo: chiusura deterministica stream live su `studio_exit`/`studio_error`/`close` (`resetBrowserLive`), riconnessione automatica con ticket fresco e backoff limitato in `BrowserViewer`, focus trap accessibile (`trapFocus`) su selettore Relay e dialoghi JS, navigazione browser tastiera/toolbar (`Alt+Left`, `Alt+Right`, `F5`), rimozione scaffold non funzionante, buffer messaggi backend Tauri limitato a 128 con tetto di 32 sessioni concorrenti. Tutti i 14 scenari §17 superati. Gate R23 SUPERATO. |
 Uno step non e concluso finche questa tabella, le sezioni tecniche interessate e `docs/PLAN.md` non riflettono il comportamento effettivo. Se il codice rende una parte della specifica non valida, aggiornare prima la decisione in `docs/DECISIONS.md`; non lasciare documentazione aspirazionale presentata come implementata.
 
 ## 19. Sequenza dei task

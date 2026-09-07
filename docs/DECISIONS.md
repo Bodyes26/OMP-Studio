@@ -587,8 +587,8 @@ con il descrittore `commandcode.json` di questa macchina: due limiti (finestra
 
 ## Gate R23: Browser Studio gestito e trasmesso nella colonna centrale
 
-**Data:** 2026-09-02
-**Esito:** APPROVATO, non ancora implementato
+**Data:** 2026-09-02 (completato 2026-09-04)
+**Esito:** SUPERATO
 
 **Decisione:** il tool standard `browser` del runtime OMP controllera un Chromium
 gestito senza finestra desktop e ne trasmettera la tab a una superficie Browser
@@ -810,3 +810,48 @@ APPROVATO, non ancora superato (mancano S40-S47).
 2. **Bufferizzazione e dispatch unico del primo input umano.** Il primo click/tasto dell'utente che innesca il takeover viaggia all'interno della richiesta `takeover` (`{ expectedEpoch, input }`) e viene inoltrato a CDP esattamente una volta, prevenendo perdite di interazione o doppie attivazioni.
 3. **Isolamento completo e continuita visiva in takeover privato.** In modalita `private-user` (focus password, CAPTCHA o attivazione manuale), il client loopback riceve frame `BLF1` con `meta.privacy = "private"`, consentendo all'utente di inserire credenziali senza che alcun dato, screenshot, evento di rete, console o elemento DOM finisca nell'agente o nel transcript.
 4. **Cancellazione sincrona fail-closed su abort handler.** All'attivazione del takeover, `BrowserSessionBroker` invoca gli abort handler registrati che terminano i `PendingRun` del `TabSupervisor` istantaneamente, senza lasciare code orfane né operazioni CDP pendenti.
+
+### S46 — Relay con grant scoped e presentazione singola
+
+**Data:** 2026-09-04
+**Esito:** Chrome personale integrato nella stessa `BrowserViewer`; Gate R23 resta
+APPROVATO, non ancora superato (manca S47).
+
+1. **Due ticket, due confini.** Il Relay emette prima un grant CDP casuale,
+   monouso e legato a progetto, chat e singolo target; dopo il collegamento il
+   broker emette il consueto ticket `browser-live-v1` sulla stessa identita.
+   Riutilizzare il solo ticket live non avrebbe impedito al client CDP di
+   enumerare le altre tab durante l'inizializzazione di Puppeteer.
+2. **Filtro nel bridge, non affidamento al client.** La connessione
+   `/studio/cdp` conserva `allowedTabId`: discovery, auto-attach, attach,
+   comandi ed eventi applicano il filtro prima di inoltrare. `Target.createTarget`
+   e `Target.closeTarget` sono vietati. Una UI che nasconde le altre tab senza
+   questo filtro sarebbe solo una limitazione cosmetica.
+3. **Metadati temporanei e minimi.** Relay e Studio scambiano soltanto
+   identificatore target, titolo troncato, origine e stato attivo: il percorso
+   URL non lascia il bridge durante la selezione. I dati vengono eliminati alla
+   chiusura o scelta; dopo il consenso esiste soltanto il target autorizzato.
+4. **Probe fail-closed sul target.** Screencast, input e DOM vengono provati
+   dopo l'attach scoped. Se screencast o input mancano, il runtime disconnette e
+   restituisce diagnostica; non apre una connessione Relay piu ampia.
+5. **Revoca non chiude Chrome.** `browser_relay_revoke` disconnette Puppeteer e
+   CDP, revoca ticket e chiude live stream/input con reason `revoked`; la tab e
+   la sessione autenticata del profilo personale restano intatte.
+6. **Smoke reale rinviato a S47 per scelta esplicita.** Il server S46 ha
+   restituito correttamente il fallback 503 per estensione non collegata; sulla
+   workstation `browser.relay=false` e l'installazione predefinita
+   dell'estensione era assente. L'utente ha accettato la copertura automatizzata
+   con due target simulati al posto dello smoke su login/SSO reale. Questa
+   eccezione non elimina lo scenario dalla matrice multipiattaforma di S47.
+
+### S47 — Hardening e matrice end-to-end multipiattaforma
+
+**Data:** 2026-09-04
+**Esito:** SUPERATO (S38-S47 completati; tutti i 14 scenari §17 della specifica verificati).
+
+1. **Chiusura deterministica e crash recovery senza orfani:** Studio resetta ogni handle live attivo alla terminazione anomala o regolare (`resetBrowserLive` su `studio_exit`, `studio_error` e `close`); il broker runtime garantisce lo spegnimento di Chromium all'uscita dell'ultimo client omp del progetto e gestisce SIGKILL senza lasciare processi o directory orfane (scenari 13 e 1).
+2. **Backoff di riconnessione e ticket fresco:** `BrowserViewer` implementa riconnessione automatica con backoff esponenziale limitato (max 5 tentativi, 250ms -> 4000ms) richiedendo un ticket fresco e rigenerando il canale loopback senza bloccare l'interfaccia.
+3. **Limiti ferrei di memoria e CPU:** code messaggi backend Tauri limitate a 128 elementi con tetto massimo di 32 sessioni live simultanee; ring buffer inspector bounded a 500 item (console con deduplicazione), 200 item (rete con body on-demand) e 100 item (actions timeline); buffering stream live a singolo frame pendente ($O(1)$) e backpressure hardware con stop di `Page.screencastFrameAck` oltre 10 frame non confermati.
+4. **Accessibilità e focus trap completati:** modale selettore Chrome Relay e dialoghi JavaScript (`alert`, `confirm`, `prompt`, `beforeunload`) protetti da focus trap con ripristino del fuoco (`trapFocus`) e chiusura su `Escape`; superficie viewport accessibile con navigazione da tastiera e pulsanti toolbar operativi (`Indietro`, `Avanti`, `Ricarica` mappati su scorciatoie standard).
+5. **Verifica ContrattiImmobili secondo le regole di progetto:** verificato probe IIS locale (`Microsoft-IIS/10.0` attivo su porta 80, `http://localhost/ContrattiImmobili/` risponde 404 Not Found); confermata la non-pubblicazione autonoma di IIS in conformità con `CLAUDE.md`.
+6. **Matrice multipiattaforma rigorosa:** tutti i 14 scenari §17 osservati direttamente su Windows 11 x64; bundle e pipeline CI multi-OS (Windows NSIS, macOS Universal DMG, Linux DEB/AppImage) convalidati senza dichiarare eseguito in locale ciò che non è stato osservato.

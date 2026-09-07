@@ -1,7 +1,7 @@
 {
 	"contract": "browser-live-v1",
-	"revision": "2026-09-03",
-	"description": "Shared compatibility fixture for the browser-live-v1 contract. Byte-identical copies live in omp-studio-app (test/fixtures) and in the OMP runtime (packages/coding-agent/test/fixtures). Both test suites drive their own implementation against these cases; any drift between the two copies is a contract break.",
+	"revision": "2026-09-05",
+	"description": "Shared compatibility fixture for the browser-live-v1 contract, including scoped Chrome Relay authorization. Byte-identical copies live in omp-studio-app (test/fixtures) and in the OMP runtime (packages/coding-agent/test/fixtures). Both test suites drive their own implementation against these cases; any drift between the two copies is a contract break.",
 	"capability": {
 		"name": "browser-live",
 		"version": 1,
@@ -28,7 +28,21 @@
 		"TAB_NOT_FOUND",
 		"CONTROL_INTERRUPTED",
 		"PRIVATE_TAKEOVER_ACTIVE",
-		"ORIGIN_NOT_ALLOWED"
+		"ORIGIN_NOT_ALLOWED",
+		"DIALOG_NOT_FOUND",
+		"DIALOG_ALREADY_SETTLED",
+		"DOWNLOAD_NOT_FOUND",
+		"DOWNLOAD_NOT_ALLOWED",
+		"FILE_CHOOSER_NOT_FOUND",
+		"UPLOAD_NOT_AUTHORIZED",
+		"CAPABILITY_NOT_GRANTED",
+		"RECORDING_ALREADY_ACTIVE",
+		"RECORDING_NOT_ACTIVE",
+		"RECORDING_FAILED",
+		"RELAY_UNAVAILABLE",
+		"RELAY_TARGET_NOT_FOUND",
+		"RELAY_CAPABILITY_UNAVAILABLE",
+		"RELAY_REVOKED"
 	],
 	"ticket": {
 		"ttlMs": 30000,

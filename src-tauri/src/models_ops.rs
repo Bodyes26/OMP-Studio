@@ -1477,7 +1477,7 @@ fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
             && candidate[1..]
                 .chars()
                 .next()
-                .map_or(false, |c| c.is_ascii_digit())
+                .is_some_and(|c| c.is_ascii_digit())
         {
             prefix = "v";
             candidate = &candidate[1..];
@@ -1486,7 +1486,7 @@ fn parse_model_signature(model_id: &str) -> (String, Vec<f64>, Option<u64>) {
             && candidate[1..]
                 .chars()
                 .next()
-                .map_or(false, |c| c.is_ascii_digit())
+                .is_some_and(|c| c.is_ascii_digit())
         {
             prefix = "k";
             candidate = &candidate[1..];
@@ -1552,11 +1552,10 @@ fn is_version_newer(
             if ver_b[ver_a.len()..].iter().any(|&x| x > 0.0) {
                 return true;
             }
-        } else if ver_a.len() > ver_b.len() {
-            if ver_a[ver_b.len()..].iter().any(|&x| x > 0.0) {
+        } else if ver_a.len() > ver_b.len()
+            && ver_a[ver_b.len()..].iter().any(|&x| x > 0.0) {
                 return false;
             }
-        }
 
         // Se le versioni numeriche sono identiche, confronta la data di snapshot
         if let (Some(da), Some(db)) = (date_a, date_b) {
@@ -1625,8 +1624,8 @@ pub async fn check_model_health(
         .collect();
 
     // 3. Risoluzione configurazione ruoli e catene di riserva
-    let (roles_map, fallback_map) = if roles.as_ref().map_or(true, |r| r.is_empty())
-        || fallback_chains.as_ref().map_or(true, |f| f.is_empty())
+    let (roles_map, fallback_map) = if roles.as_ref().is_none_or(|r| r.is_empty())
+        || fallback_chains.as_ref().is_none_or(|f| f.is_empty())
     {
         let config = get_model_config()
             .await
@@ -1670,8 +1669,8 @@ pub async fn check_model_health(
         };
 
         let p_info = providers_map.get(&current_provider);
-        let is_configured = p_info.map_or(false, |p| p.configured);
-        let is_enabled = p_info.map_or(false, |p| p.enabled);
+        let is_configured = p_info.is_some_and(|p| p.configured);
+        let is_enabled = p_info.is_some_and(|p| p.enabled);
 
         let (severity, code, reason) = if !is_configured {
             (
@@ -1766,15 +1765,16 @@ pub async fn check_model_health(
                     continue;
                 }
 
-                if let Some((best_m, best_ver, best_date)) = &best_replacement {
-                    if is_version_newer(best_ver, *best_date, &ver_cand, date_cand) {
-                        best_replacement = Some((m, ver_cand, date_cand));
-                    } else if !is_version_newer(&ver_cand, date_cand, best_ver, *best_date) {
-                        if m.provider == current_provider && best_m.provider != current_provider {
-                            best_replacement = Some((m, ver_cand, date_cand));
-                        }
+                let replace = match &best_replacement {
+                    Some((best_m, best_ver, best_date)) => {
+                        is_version_newer(best_ver, *best_date, &ver_cand, date_cand)
+                            || (!is_version_newer(&ver_cand, date_cand, best_ver, *best_date)
+                                && m.provider == current_provider
+                                && best_m.provider != current_provider)
                     }
-                } else {
+                    None => true,
+                };
+                if replace {
                     best_replacement = Some((m, ver_cand, date_cand));
                 }
             }

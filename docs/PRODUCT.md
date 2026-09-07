@@ -8,7 +8,7 @@ dell'agente come cittadino di prima classe, e ci mette un editor accanto.
 
 Una sola finestra, tre colonne flessibili:
 - **Sinistra**: Albero dei file, pannello Git (branch, diff, commit, history) e Agente (Coda task, Storico sessioni con ricerca full-text e scheda Regole con censimento di regole di contesto e skill più proposte nate dall'attrito ricorrente).
-- **Centro**: Editor Monaco multi-modello (con visualizzatore diff affiancato, sintassi estesa, ripristino cursore/scroll), Whiteboard per diagrammi Mermaid (`studio_diagram`), Anteprima prototipi UI HTML/SVG in sandbox isolata (`studio_preview`), e Task Editor a sezioni con ruoli, thinking effort, direttive speciali e allegati visivi.
+- **Centro**: Editor Monaco multi-modello (con visualizzatore diff affiancato, sintassi estesa, ripristino cursore/scroll), Browser Studio live integrato per visualizzare e controllare Chromium gestito o Chrome Relay senza finestre esterne (con takeover immediato, modalità privata, gestione dialoghi/file e inspector mirato), Whiteboard per diagrammi Mermaid (`studio_diagram`), Anteprima prototipi UI HTML/SVG in sandbox isolata (`studio_preview`), e Task Editor a sezioni con ruoli, thinking effort, direttive speciali e allegati visivi.
 - **Destra**: Superficie duale a schede `TERMINAL | GUI` (Terminale xterm.js Canvas + ConPTY/POSIX PTY ad alte prestazioni, e Chat GUI nativa Svelte 5 su `omp --mode rpc-ui` con 30+ card tool dedicate, raggruppamento semantico tool/thinking, gestione subagent e comandi slash).
 
 In alto, la barra dei progetti permette lo switch istantaneo tra workspace con ordine manuale stabile o per priorità/MRU/alfabetico, badge numerico della coda e indicatore di stato reattivo per ogni agente.
@@ -58,6 +58,8 @@ o completa un task mentre l'app è in background, Studio invia notifiche toast n
 (Windows/macOS) con AUMID registrato, aggiunge il pallino rosso/flash sulla barra delle
 applicazioni Windows o il badge numerico con rimbalzo nel Dock di macOS, portando l'utente
 direttamente al progetto attivo con un click.
+
+**8. Testare e guidare il browser dell'agente direttamente a schermo.** Quando l'agente usa il browser, Studio non apre finestre esterne che rubano il fuoco: la pagina compare dal vivo nella colonna centrale con stream video fluido. L'utente può interagire con mouse o tastiera per interrompere atomicamente l'agente e assumere il controllo, attivare la modalità privata per inserire credenziali o superare CAPTCHA senza che alcun dato o screenshot finisca nel modello, ispezionare elementi, log console e chiamate di rete senza aprire DevTools completi, e collegare una singola scheda del proprio Chrome personale per riusare sessioni autenticate.
 
 **Successo si misura così:** passare da progetto a progetto non richiede di ricordare
 nulla; conoscere la quota residua non richiede di interrompere niente; il prossimo

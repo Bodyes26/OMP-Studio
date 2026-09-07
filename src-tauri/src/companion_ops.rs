@@ -91,11 +91,7 @@ fn get_companion_state_file() -> Option<PathBuf> {
             .or_else(|| std::env::var("HOME").ok().map(|h| format!("{}/.config", h)))
     }?;
 
-    let dir = PathBuf::from(base).join(if cfg!(target_os = "windows") {
-        "omp-studio"
-    } else {
-        "omp-studio"
-    });
+    let dir = PathBuf::from(base).join("omp-studio");
 
     let _ = fs::create_dir_all(&dir);
     Some(dir.join("companion-state.json"))

@@ -185,6 +185,8 @@ export interface BrowserTabState extends BrowserSessionIdentity {
 	originPermission: BrowserOriginPermission;
 	viewport: BrowserViewport;
 	streamState: BrowserStreamState;
+	/** Valorizzato su una tab aperta dalla pagina: il popup appartiene alla chat dell'apritore. */
+	openerTabId?: string;
 }
 
 /** Metadati di ogni frame live. Viaggiano sul canale dedicato, mai sull'RPC. */
@@ -202,6 +204,22 @@ export interface BrowserFrameMeta {
 	privacy: 'normal' | 'private';
 	mimeType: 'image/jpeg' | 'image/png';
 }
+/** Metadati minimi, visibili soltanto nel selettore esplicito del Relay. */
+export interface BrowserRelayTarget {
+	targetId: string;
+	title: string;
+	origin: string;
+	active: boolean;
+}
+
+export interface BrowserRelayProbe {
+	available: boolean;
+	screencast: boolean;
+	input: boolean;
+	inspector: boolean;
+	diagnostic?: string;
+}
+
 
 /* ------------------------------------------- inspector mirato types (S44) */
 
@@ -262,6 +280,129 @@ export interface ActionEntry {
 	label: string;
 	details?: string;
 }
+
+/* ------------- dialoghi, popup, file, capability e recording (S45) */
+
+export type BrowserDialogKind = 'alert' | 'confirm' | 'prompt' | 'beforeunload';
+export type BrowserDialogStatus = 'open' | 'accepted' | 'dismissed' | 'auto-dismissed' | 'failed';
+export type BrowserDialogResponder = 'user' | 'policy' | 'system';
+
+export interface BrowserDialogState {
+	dialogId: string;
+	tabId: string;
+	kind: BrowserDialogKind;
+	message: string;
+	defaultPrompt: string;
+	url: string;
+	openedAtMs: number;
+	status: BrowserDialogStatus;
+	responder?: BrowserDialogResponder;
+	promptText?: string;
+	settledAtMs?: number;
+	error?: string;
+}
+
+export type BrowserDownloadStatus =
+	| 'pending-consent'
+	| 'in-progress'
+	| 'completed'
+	| 'denied'
+	| 'canceled'
+	| 'failed';
+
+export interface BrowserDownloadState {
+	downloadId: string;
+	tabId: string;
+	url: string;
+	suggestedFilename: string;
+	origin: string;
+	status: BrowserDownloadStatus;
+	receivedBytes: number;
+	totalBytes: number;
+	startedAtMs: number;
+	settledAtMs?: number;
+	artifactPath?: string;
+	error?: string;
+}
+
+export type BrowserFileChooserMode = 'single' | 'multiple';
+export type BrowserFileChooserStatus = 'pending-choice' | 'authorized' | 'canceled' | 'failed';
+
+export interface BrowserFileChooserState {
+	chooserId: string;
+	tabId: string;
+	mode: BrowserFileChooserMode;
+	status: BrowserFileChooserStatus;
+	fileNames: string[];
+	openedAtMs: number;
+	settledAtMs?: number;
+	error?: string;
+}
+
+export type BrowserCapability = 'clipboard-read' | 'clipboard-write' | 'geolocation' | 'notifications';
+
+export const BROWSER_CAPABILITIES: readonly BrowserCapability[] = [
+	'clipboard-read',
+	'clipboard-write',
+	'geolocation',
+	'notifications'
+];
+
+export type BrowserCapabilityDecision = 'prompt' | 'granted' | 'denied';
+
+export interface BrowserCapabilityState {
+	capability: BrowserCapability;
+	origin: string;
+	decision: BrowserCapabilityDecision;
+	decidedAtMs: number;
+}
+
+export type BrowserRecordingStatus = 'idle' | 'recording' | 'stopping' | 'completed' | 'failed';
+
+export interface BrowserRecordingState {
+	recordingId: string;
+	tabId: string;
+	status: BrowserRecordingStatus;
+	path?: string;
+	startedAtMs: number;
+	stoppedAtMs?: number;
+	frameCount: number;
+	bytes: number;
+	error?: string;
+}
+
+const DIALOG_KINDS: readonly BrowserDialogKind[] = ['alert', 'confirm', 'prompt', 'beforeunload'];
+const DIALOG_STATUSES: readonly BrowserDialogStatus[] = [
+	'open',
+	'accepted',
+	'dismissed',
+	'auto-dismissed',
+	'failed'
+];
+const DIALOG_RESPONDERS: readonly BrowserDialogResponder[] = ['user', 'policy', 'system'];
+const DOWNLOAD_STATUSES: readonly BrowserDownloadStatus[] = [
+	'pending-consent',
+	'in-progress',
+	'completed',
+	'denied',
+	'canceled',
+	'failed'
+];
+const CHOOSER_MODES: readonly BrowserFileChooserMode[] = ['single', 'multiple'];
+const CHOOSER_STATUSES: readonly BrowserFileChooserStatus[] = [
+	'pending-choice',
+	'authorized',
+	'canceled',
+	'failed'
+];
+const CAPABILITY_DECISIONS: readonly BrowserCapabilityDecision[] = ['prompt', 'granted', 'denied'];
+const RECORDING_STATUSES: readonly BrowserRecordingStatus[] = [
+	'idle',
+	'recording',
+	'stopping',
+	'completed',
+	'failed'
+];
 const MODES: readonly BrowserMode[] = ['managed', 'chrome-relay'];
 const CONTROLLERS: readonly BrowserController[] = ['agent', 'user', 'private-user'];
 const ORIGIN_PERMISSIONS: readonly BrowserOriginPermission[] = ['local', 'granted', 'pending', 'denied'];
@@ -281,6 +422,128 @@ function member<T extends string>(value: unknown, allowed: readonly T[]): T | nu
 
 function positive(value: unknown): number | null {
 	return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function counter(value: unknown): number | null {
+	return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+export function parseBrowserDialogState(value: unknown): BrowserDialogState | null {
+	const source = record(value);
+	if (!source) return null;
+	const dialogId = nonEmpty(source.dialogId);
+	const tabId = nonEmpty(source.tabId);
+	const kind = member(source.kind, DIALOG_KINDS);
+	const status = member(source.status, DIALOG_STATUSES);
+	const openedAtMs = counter(source.openedAtMs);
+	if (!dialogId || !tabId || !kind || !status || openedAtMs === null) return null;
+	if (typeof source.message !== 'string' || typeof source.defaultPrompt !== 'string') return null;
+	if (typeof source.url !== 'string') return null;
+	const responder = member(source.responder, DIALOG_RESPONDERS);
+	const settledAtMs = counter(source.settledAtMs);
+	return {
+		dialogId,
+		tabId,
+		kind,
+		message: source.message,
+		defaultPrompt: source.defaultPrompt,
+		url: source.url,
+		openedAtMs,
+		status,
+		...(responder ? { responder } : {}),
+		...(typeof source.promptText === 'string' ? { promptText: source.promptText } : {}),
+		...(settledAtMs !== null ? { settledAtMs } : {}),
+		...(typeof source.error === 'string' ? { error: source.error } : {})
+	};
+}
+
+export function parseBrowserDownloadState(value: unknown): BrowserDownloadState | null {
+	const source = record(value);
+	if (!source) return null;
+	const downloadId = nonEmpty(source.downloadId);
+	const tabId = nonEmpty(source.tabId);
+	const status = member(source.status, DOWNLOAD_STATUSES);
+	const receivedBytes = counter(source.receivedBytes);
+	const totalBytes = counter(source.totalBytes);
+	const startedAtMs = counter(source.startedAtMs);
+	if (!downloadId || !tabId || !status) return null;
+	if (receivedBytes === null || totalBytes === null || startedAtMs === null) return null;
+	if (typeof source.url !== 'string' || typeof source.suggestedFilename !== 'string') return null;
+	if (typeof source.origin !== 'string') return null;
+	const settledAtMs = counter(source.settledAtMs);
+	return {
+		downloadId,
+		tabId,
+		url: source.url,
+		suggestedFilename: source.suggestedFilename,
+		origin: source.origin,
+		status,
+		receivedBytes,
+		totalBytes,
+		startedAtMs,
+		...(settledAtMs !== null ? { settledAtMs } : {}),
+		...(typeof source.artifactPath === 'string' ? { artifactPath: source.artifactPath } : {}),
+		...(typeof source.error === 'string' ? { error: source.error } : {})
+	};
+}
+
+export function parseBrowserFileChooserState(value: unknown): BrowserFileChooserState | null {
+	const source = record(value);
+	if (!source) return null;
+	const chooserId = nonEmpty(source.chooserId);
+	const tabId = nonEmpty(source.tabId);
+	const mode = member(source.mode, CHOOSER_MODES);
+	const status = member(source.status, CHOOSER_STATUSES);
+	const openedAtMs = counter(source.openedAtMs);
+	if (!chooserId || !tabId || !mode || !status || openedAtMs === null) return null;
+	if (!Array.isArray(source.fileNames) || source.fileNames.some((name) => typeof name !== 'string')) return null;
+	const settledAtMs = counter(source.settledAtMs);
+	return {
+		chooserId,
+		tabId,
+		mode,
+		status,
+		fileNames: source.fileNames as string[],
+		openedAtMs,
+		...(settledAtMs !== null ? { settledAtMs } : {}),
+		...(typeof source.error === 'string' ? { error: source.error } : {})
+	};
+}
+
+export function parseBrowserCapabilityState(value: unknown): BrowserCapabilityState | null {
+	const source = record(value);
+	if (!source) return null;
+	const capability = member(source.capability, BROWSER_CAPABILITIES);
+	const decision = member(source.decision, CAPABILITY_DECISIONS);
+	const origin = nonEmpty(source.origin);
+	const decidedAtMs = counter(source.decidedAtMs);
+	if (!capability || !decision || !origin || decidedAtMs === null) return null;
+	return { capability, origin, decision, decidedAtMs };
+}
+
+export function parseBrowserRecordingState(value: unknown): BrowserRecordingState | null {
+	const source = record(value);
+	if (!source) return null;
+	const recordingId = nonEmpty(source.recordingId);
+	const tabId = nonEmpty(source.tabId);
+	const status = member(source.status, RECORDING_STATUSES);
+	const startedAtMs = counter(source.startedAtMs);
+	const frameCount = counter(source.frameCount);
+	const bytes = counter(source.bytes);
+	if (!recordingId || !tabId || !status) return null;
+	if (startedAtMs === null || frameCount === null || bytes === null) return null;
+	const stoppedAtMs = counter(source.stoppedAtMs);
+	return {
+		recordingId,
+		tabId,
+		status,
+		...(typeof source.path === 'string' ? { path: source.path } : {}),
+		startedAtMs,
+		...(stoppedAtMs !== null ? { stoppedAtMs } : {}),
+		frameCount,
+		bytes,
+		...(typeof source.error === 'string' ? { error: source.error } : {})
+	};
 }
 
 export function parseBrowserSessionIdentity(value: unknown): BrowserSessionIdentity | null {
@@ -336,7 +599,8 @@ export function parseBrowserTabState(value: unknown): BrowserTabState | null {
 		loading: source.loading,
 		originPermission,
 		viewport: { width, height, deviceScaleFactor },
-		streamState
+		streamState,
+		...(nonEmpty(source.openerTabId) ? { openerTabId: source.openerTabId as string } : {})
 	};
 }
 
@@ -364,7 +628,21 @@ export const BROWSER_LIVE_ERROR_CODES = [
 	'TAB_NOT_FOUND',
 	'CONTROL_INTERRUPTED',
 	'PRIVATE_TAKEOVER_ACTIVE',
-	'ORIGIN_NOT_ALLOWED'
+	'ORIGIN_NOT_ALLOWED',
+	'DIALOG_NOT_FOUND',
+	'DIALOG_ALREADY_SETTLED',
+	'DOWNLOAD_NOT_FOUND',
+	'DOWNLOAD_NOT_ALLOWED',
+	'FILE_CHOOSER_NOT_FOUND',
+	'UPLOAD_NOT_AUTHORIZED',
+	'CAPABILITY_NOT_GRANTED',
+	'RECORDING_ALREADY_ACTIVE',
+	'RECORDING_NOT_ACTIVE',
+	'RECORDING_FAILED',
+	'RELAY_UNAVAILABLE',
+	'RELAY_TARGET_NOT_FOUND',
+	'RELAY_CAPABILITY_UNAVAILABLE',
+	'RELAY_REVOKED'
 ] as const;
 
 export type BrowserLiveErrorCode = (typeof BROWSER_LIVE_ERROR_CODES)[number];
@@ -537,6 +815,13 @@ export type BrowserLiveClientMessage =
 	| { type: 'set_inspector'; enabled: boolean; console?: boolean; network?: boolean }
 	| { type: 'request_network_body'; requestId: string }
 	| { type: 'clear_buffer'; target: 'console' | 'network' | 'actions' | 'all' }
+	| { type: 'dialog_respond'; dialogId: string; accept: boolean; promptText?: string }
+	| { type: 'download_decide'; downloadId: string; allow: boolean }
+	| { type: 'authorize_upload'; chooserId: string; paths: string[] }
+	| { type: 'cancel_file_chooser'; chooserId: string }
+	| { type: 'set_capability'; capability: BrowserCapability; decision: BrowserCapabilityDecision }
+	| { type: 'start_recording' }
+	| { type: 'stop_recording' }
 	| { type: 'ping' };
 
 export type BrowserLiveServerMessage =
@@ -551,7 +836,13 @@ export type BrowserLiveServerMessage =
 	| { type: 'network_entry'; entry: NetworkEntry }
 	| { type: 'network_body_response'; requestId: string; body?: string; error?: string }
 	| { type: 'action_entry'; entry: ActionEntry }
+	| { type: 'dialog_state'; dialog: BrowserDialogState }
+	| { type: 'download_state'; download: BrowserDownloadState }
+	| { type: 'file_chooser_state'; chooser: BrowserFileChooserState }
+	| { type: 'capability_state'; capability: BrowserCapabilityState }
+	| { type: 'recording_state'; recording: BrowserRecordingState }
 	| { type: 'pong' };
+
 export function parseBrowserInputEvent(value: unknown): BrowserInputEvent | null {
 	const source = record(value);
 	if (!source || typeof source.type !== 'string') return null;
@@ -670,6 +961,45 @@ export function parseBrowserLiveClientMessage(value: unknown): BrowserLiveClient
 		const target = member(source.target, ['console', 'network', 'actions', 'all'] as const);
 		if (!target) return null;
 		return { type: 'clear_buffer', target };
+	}
+	if (source.type === 'dialog_respond') {
+		const dialogId = nonEmpty(source.dialogId);
+		if (!dialogId || typeof source.accept !== 'boolean') return null;
+		if (source.promptText !== undefined && typeof source.promptText !== 'string') return null;
+		return {
+			type: 'dialog_respond',
+			dialogId,
+			accept: source.accept,
+			...(typeof source.promptText === 'string' ? { promptText: source.promptText } : {})
+		};
+	}
+	if (source.type === 'download_decide') {
+		const downloadId = nonEmpty(source.downloadId);
+		if (!downloadId || typeof source.allow !== 'boolean') return null;
+		return { type: 'download_decide', downloadId, allow: source.allow };
+	}
+	if (source.type === 'authorize_upload') {
+		const chooserId = nonEmpty(source.chooserId);
+		if (!chooserId || !Array.isArray(source.paths) || source.paths.length === 0) return null;
+		if (source.paths.some((entry) => typeof entry !== 'string' || entry.length === 0)) return null;
+		return { type: 'authorize_upload', chooserId, paths: source.paths as string[] };
+	}
+	if (source.type === 'cancel_file_chooser') {
+		const chooserId = nonEmpty(source.chooserId);
+		if (!chooserId) return null;
+		return { type: 'cancel_file_chooser', chooserId };
+	}
+	if (source.type === 'set_capability') {
+		const capability = member(source.capability, BROWSER_CAPABILITIES);
+		const decision = member(source.decision, CAPABILITY_DECISIONS);
+		if (!capability || !decision) return null;
+		return { type: 'set_capability', capability, decision };
+	}
+	if (source.type === 'start_recording') {
+		return { type: 'start_recording' };
+	}
+	if (source.type === 'stop_recording') {
+		return { type: 'stop_recording' };
 	}
 	if (source.type === 'ping') {
 		return { type: 'ping' };
@@ -846,6 +1176,31 @@ export function parseBrowserLiveServerMessage(value: unknown): BrowserLiveServer
 		if (!entry) return null;
 		return { type: 'action_entry', entry };
 	}
+	if (source.type === 'dialog_state') {
+		const dialog = parseBrowserDialogState(source.dialog);
+		if (!dialog) return null;
+		return { type: 'dialog_state', dialog };
+	}
+	if (source.type === 'download_state') {
+		const download = parseBrowserDownloadState(source.download);
+		if (!download) return null;
+		return { type: 'download_state', download };
+	}
+	if (source.type === 'file_chooser_state') {
+		const chooser = parseBrowserFileChooserState(source.chooser);
+		if (!chooser) return null;
+		return { type: 'file_chooser_state', chooser };
+	}
+	if (source.type === 'capability_state') {
+		const capability = parseBrowserCapabilityState(source.capability);
+		if (!capability) return null;
+		return { type: 'capability_state', capability };
+	}
+	if (source.type === 'recording_state') {
+		const recording = parseBrowserRecordingState(source.recording);
+		if (!recording) return null;
+		return { type: 'recording_state', recording };
+	}
 	if (source.type === 'pong') {
 		return { type: 'pong' };
 	}
@@ -866,6 +1221,11 @@ export type BrowserLiveEvent =
 	| { type: 'network_entry'; entry: NetworkEntry }
 	| { type: 'network_body_response'; requestId: string; body?: string; error?: string }
 	| { type: 'action_entry'; entry: ActionEntry }
+	| { type: 'dialog_state'; dialog: BrowserDialogState }
+	| { type: 'download_state'; download: BrowserDownloadState }
+	| { type: 'file_chooser_state'; chooser: BrowserFileChooserState }
+	| { type: 'capability_state'; capability: BrowserCapabilityState }
+	| { type: 'recording_state'; recording: BrowserRecordingState }
 	| { type: 'disconnected' };
 
 export type BrowserLiveStreamHandle = (() => void) & {
@@ -880,7 +1240,88 @@ export type BrowserLiveStreamHandle = (() => void) & {
 	requestNetworkBody: (requestId: string) => Promise<void>;
 	clearBuffer: (target: 'console' | 'network' | 'actions' | 'all') => Promise<void>;
 	sendMessage: (msg: BrowserLiveClientMessage) => Promise<void>;
+	/**
+	 * Apre il selettore file nativo del sistema e autorizza i percorsi scelti.
+	 *
+	 * Non passa dal webview di proposito: il messaggio `authorize_upload` viene
+	 * costruito e spedito dal backend Rust, quindi la UI non puo' inventare un
+	 * percorso ne' concedere accesso libero al filesystem.
+	 */
+	pickUploadFiles: (chooserId: string, multiple: boolean) => Promise<number>;
 };
+
+/**
+ * Normalizza un evento proveniente dal backend Rust con gli stessi parser
+ * severi del trasporto WebSocket.
+ *
+ * Il tipo TypeScript dell'`ipc::Channel` e' solo un'asserzione: i payload
+ * annidati (`state`, `dialog`, `download`, `chooser`, `capability`, `recording`,
+ * `meta`, voci di console e rete) attraversano il backend come JSON libero.
+ * Senza questo passaggio il percorso realmente usato in Tauri sarebbe l'unico
+ * a disegnare stati fuori contratto, cioe' esattamente cio' che il parsing
+ * severo doveva impedire.
+ */
+export function normalizeBrowserLiveEvent(event: BrowserLiveEvent): BrowserLiveEvent | null {
+	switch (event.type) {
+		case 'connected': {
+			const identity = parseBrowserSessionIdentity(event.identity);
+			const state = parseBrowserTabState(event.state);
+			return identity && state ? { type: 'connected', identity, state } : null;
+		}
+		case 'tab_state': {
+			const state = parseBrowserTabState(event.state);
+			return state ? { type: 'tab_state', state } : null;
+		}
+		case 'closed': {
+			const identity = parseBrowserSessionIdentity(event.identity);
+			return identity ? { type: 'closed', identity, reason: event.reason } : null;
+		}
+		case 'frame': {
+			const meta = parseBrowserFrameMeta(event.meta);
+			return meta && typeof event.imageBase64 === 'string'
+				? { type: 'frame', meta, imageBase64: event.imageBase64 }
+				: null;
+		}
+		case 'inspected_element': {
+			const element = parseInspectedElementData(event.element);
+			return element ? { type: 'inspected_element', element } : null;
+		}
+		case 'console_entry': {
+			const entry = parseConsoleEntry(event.entry);
+			return entry ? { type: 'console_entry', entry } : null;
+		}
+		case 'network_entry': {
+			const entry = parseNetworkEntry(event.entry);
+			return entry ? { type: 'network_entry', entry } : null;
+		}
+		case 'action_entry': {
+			const entry = parseActionEntry(event.entry);
+			return entry ? { type: 'action_entry', entry } : null;
+		}
+		case 'dialog_state': {
+			const dialog = parseBrowserDialogState(event.dialog);
+			return dialog ? { type: 'dialog_state', dialog } : null;
+		}
+		case 'download_state': {
+			const download = parseBrowserDownloadState(event.download);
+			return download ? { type: 'download_state', download } : null;
+		}
+		case 'file_chooser_state': {
+			const chooser = parseBrowserFileChooserState(event.chooser);
+			return chooser ? { type: 'file_chooser_state', chooser } : null;
+		}
+		case 'capability_state': {
+			const capability = parseBrowserCapabilityState(event.capability);
+			return capability ? { type: 'capability_state', capability } : null;
+		}
+		case 'recording_state': {
+			const recording = parseBrowserRecordingState(event.recording);
+			return recording ? { type: 'recording_state', recording } : null;
+		}
+		default:
+			return event;
+	}
+}
 
 /**
  * Avvia lo stream live tramite il backend Rust (Tauri).
@@ -893,7 +1334,8 @@ export async function startBrowserLiveTauriStream(
 ): Promise<BrowserLiveStreamHandle> {
 	const channel = new Channel<BrowserLiveEvent>();
 	channel.onmessage = (event) => {
-		onEvent(event);
+		const normalized = normalizeBrowserLiveEvent(event);
+		if (normalized) onEvent(normalized);
 	};
 	const sessionId = await invoke<number>('browser_live_connect', {
 		endpoint: ticket.endpoint,
@@ -957,7 +1399,9 @@ export async function startBrowserLiveTauriStream(
 		setInspector,
 		requestNetworkBody,
 		clearBuffer,
-		sendMessage
+		sendMessage,
+		pickUploadFiles: async (chooserId: string, multiple: boolean): Promise<number> =>
+			await invoke<number>('browser_live_pick_upload_files', { sessionId, chooserId, multiple })
 	});
 	return handle;
 }
@@ -1058,6 +1502,16 @@ export async function startBrowserLiveWebSocketStream(
 				onEvent({ type: 'network_body_response', requestId: msg.requestId, body: msg.body, error: msg.error });
 			} else if (msg.type === 'action_entry') {
 				onEvent({ type: 'action_entry', entry: msg.entry });
+			} else if (msg.type === 'dialog_state') {
+				onEvent({ type: 'dialog_state', dialog: msg.dialog });
+			} else if (msg.type === 'download_state') {
+				onEvent({ type: 'download_state', download: msg.download });
+			} else if (msg.type === 'file_chooser_state') {
+				onEvent({ type: 'file_chooser_state', chooser: msg.chooser });
+			} else if (msg.type === 'capability_state') {
+				onEvent({ type: 'capability_state', capability: msg.capability });
+			} else if (msg.type === 'recording_state') {
+				onEvent({ type: 'recording_state', recording: msg.recording });
 			}
 			return;
 		}
@@ -1117,7 +1571,12 @@ export async function startBrowserLiveWebSocketStream(
 		setInspector,
 		requestNetworkBody,
 		clearBuffer,
-		sendMessage
+		sendMessage,
+		// Nessun selettore nativo fuori da Tauri: senza dialogo di sistema non
+		// esiste un percorso che l'utente abbia davvero scelto.
+		pickUploadFiles: async (): Promise<number> => {
+			throw new Error('Il selettore file nativo richiede il backend Tauri');
+		}
 	});
 	return handle;
 }

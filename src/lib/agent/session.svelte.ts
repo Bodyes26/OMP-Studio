@@ -603,6 +603,29 @@ export class AgentSession {
 	}
 
 	/**
+	 * Comunica al runtime la decisione dell'utente su un'origine remota.
+	 * L'allow-list che l'agente rispetta vive nel broker: senza questa chiamata
+	 * il consenso resterebbe una scrittura locale di Studio e la tab continuerebbe
+	 * a essere `pending` per il runtime, cioe' il grant non sbloccherebbe nulla
+	 * e la revoca non fermerebbe nulla. Il nuovo stato torna via `tab_state`.
+	 */
+	async setBrowserOriginDecision(
+		projectId: string,
+		origin: string,
+		decision: 'grant' | 'revoke'
+	): Promise<string[]> {
+		const result = await this.client.send<{ allowedOrigins?: unknown }>({
+			type: 'browser_origin_decision',
+			projectId,
+			origin,
+			decision
+		});
+		return Array.isArray(result.allowedOrigins)
+			? result.allowedOrigins.filter((value): value is string => typeof value === 'string')
+			: [];
+	}
+
+	/**
 	 * Connette lo stream live autenticato per la tab indicata.
 	 * Restituisce la funzione di disconnessione o null se il live non e' negoziato.
 	 */

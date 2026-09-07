@@ -496,23 +496,29 @@ comportamento osservato, non quello ancora aspirazionale.
   selector, bounding box e ritaglio coerenti; console/rete sono filtrabili,
   limitate e redatte; nessun Chrome DevTools completo viene incorporato.
   **Implementato:** implementato Element Picker su coordinate viewport CSS con highlight overlay non invasivo e tooltip semantico (`tag`, `role`, `accessibleName`, `text`, `selector`, `boundingBox`, `computedStyles`, `component`, `crop` PNG); `ConsoleRingBuffer` bounded a 500 item con deduplicazione messaggi consecutivi (`count`), stack trace e redazione credenziali/token Bearer; `NetworkRingBuffer` bounded a 200 item con correlazione in-place per `requestId`, filtri per errori/lente/XHR, redazione header sensibili e fetch body on-demand; `ActionRingBuffer` timeline bounded a 100 item; dock retrattile inferiore con 4 tab (Elementi, Console, Rete, Actions), filtri e ricerca testuale istantanea, gestione tastiera protetta da intercettazione indebita dello stream e invio selettivo del contesto strutturato e screenshot ritagliato direttamente al `Composer` via evento `composer-insert-context`. 335 smoke test e 146 test Cargo passati.
-- [ ] **S45 — Dialoghi, popup, file e registrazione** (`Main`)
+- [x] **S45 — Dialoghi, popup, file e registrazione** (`Main`)
   Gestire `alert`, `confirm`, `prompt`, `beforeunload`, nuove tab della chat,
   download come artifact, upload autorizzati, clipboard/permessi e recording
   locale con stati espliciti.
   **Accettazione:** nessun dialogo blocca il supervisor senza stato visibile,
   popup e file rispettano ownership e origini, upload non concede accesso libero
   al filesystem e ogni registrazione ha lifecycle e percorso verificabili.
-
-- [ ] **S46 — Chrome Relay su tab autorizzata** (`Main`, runtime OMP + Studio)
+  **Implementato:** implementati stati espliciti `BrowserDialogState` per `alert`, `confirm`, `prompt`, `beforeunload` senza bloccare il supervisor (`BROWSER_DIALOG_OPEN` fail-closed immediato per run agente senza policy); adozione automatica popup `ownsPage: true` come tab possedute dalla stessa chat con `openerTabId`; download isolati in quarantena di progetto e promossi ad artifact di chat solo su consenso per origini remote (`BrowserDownloadState`, `DOWNLOAD_NOT_ALLOWED`); upload blindato da dialogo OS nativo con comando Tauri `browser_live_pick_upload_files` e gating fail-closed `UPLOAD_NOT_AUTHORIZED` per l'agente; 4 capability distinte W3C (`clipboard-read`, `clipboard-write`, `geolocation`, `notifications`) con default deny, persistenza per origine e riaffermazione atomica; registrazione video locale deterministica con `MjpegAviWriter` puro (RIFF/AVI, chunk `00dc`, index `idx1`) a 15 fps senza `ffmpeg`; UI completa in `BrowserViewer.svelte` con modale dialoghi, pila consensi e strip artifact; 10 nuovi codici di errore nel contratto condiviso; 361 test Studio (`npm test`), 146 unit test Rust (`cargo test`), 104 test browser nel runtime upstream e tutti i 16/16 scenari di smoke reale passati (`s45-dialogs-files-smoke.ts`).
+- [x] **S46 — Chrome Relay su tab autorizzata** (`Main`, runtime OMP + Studio)
   Collegare una tab scelta del Chrome personale tramite ticket monouso, mostrarla
   nella stessa UI live e riusare control epochs, privacy e inspector senza
   copiare il profilo o enumerare implicitamente altre tab.
   **Accettazione:** soltanto il target autorizzato e controllabile, disconnect
   revoca subito stream e input, login/SSO restano disponibili e Studio non apre
   una nuova finestra Chrome.
+  **Implementato:** picker esplicito con metadati minimi e temporanei; grant Relay
+  a 256 bit monouso con TTL 30 s; connessione CDP `/studio/cdp` filtrata nel
+  bridge su un solo target; probe scoped di screencast/input/DOM con diagnostica
+  fail-closed; rendering nella stessa `BrowserViewer`; riuso di control epochs,
+  takeover privato e picker elementi; revoca immediata che disconnette CDP e
+  chiude frame/input senza chiudere la tab o il profilo Chrome personale.
 
-- [ ] **S47 — Hardening e matrice end-to-end multipiattaforma** (`Main` + reviewer)
+- [x] **S47 — Hardening e matrice end-to-end multipiattaforma** (`Main` + reviewer)
   Coprire recovery, concorrenza multi-chat/progetto, performance, compatibilita,
   ContrattiImmobili su IIS/Windows Authentication e smoke sulle piattaforme
   supportate; eliminare scaffold e aggiornare definitivamente architettura,
@@ -520,10 +526,48 @@ comportamento osservato, non quello ancora aspirazionale.
   **Accettazione:** tutti i 14 scenari di `BROWSER-STUDIO.md` sono osservati o
   coperti da test comportamentali, il Gate R23 passa a SUPERATO e i documenti non
   descrivono moduli o garanzie non presenti nel codice.
-
+  **Implementato:** completato l'hardening end-to-end con chiusura deterministica degli stream live alla terminazione o errore di sessione (`resetBrowserLive`), riconnessione automatica con ticket fresco e backoff limitato (max 5 tentativi), focus trap accessibile (`trapFocus`) su selettore Relay e dialoghi JS, abilitazione dei controlli di navigazione toolbar (`Indietro`, `Avanti`, `Ricarica` con scorciatoie standard), limiti ferrei di memoria e CPU (code messaggi a 128 elementi, max 32 sessioni live, ring buffer inspector e streaming $O(1)$ con backpressure CDP); eliminato lo scaffold; verificati tutti i 14 scenari §17 della specifica, probe locale IIS/ContrattiImmobili conforme alle regole del progetto e suite completa verde (374 test Studio, 146 unit test Rust, typecheck 916 file, build produzione Vite); Gate R23 marcato SUPERATO.
 **Gate Browser Studio:** S38-S47 completati in ordine, compatibilita verificata con
 runtime precedente, nessuna finestra esterna in managed mode e nessuna perdita di
 isolamento o dati durante takeover.
+
+### S48 — Remediation della review pre-1.5.0 (`Main` + reviewer)
+
+La review di valutazione per la 1.5.0 stabile ha rilevato difetti che le spunte
+S38-S47 non coprivano, perche' erano coperti da test che chiamavano API senza
+chiamanti nel prodotto. Corretti, con test mirati:
+
+- **P0 — consenso origini scollegato dal runtime.** `grantOrigin`/`revokeOrigin`
+  del broker non avevano alcun chiamante fuori dai test: i pulsanti di Studio
+  scrivevano solo nello store locale, quindi nessuna origine remota era
+  navigabile e la revoca non fermava nulla. Aggiunto il comando RPC
+  `browser_origin_decision` (runtime: `rpc-types.ts`, `rpc-mode.ts`; Studio:
+  `wire.ts`, `session.svelte.ts`, `BrowserViewer.svelte`).
+- **P0 — panic da pagina remota.** `redact_sensitive_string` calcolava l'indice
+  su `to_lowercase()` e affettava la stringa originale: `alert("\u0130 Bearer ")`
+  usciva dai limiti e, con `panic = "abort"`, terminava Studio. Riscritta con
+  ricerca ASCII case-insensitive sugli stessi byte affettati.
+- **P0 — tastiera muta dopo il rimontaggio.** Lo stato dello stream sostituiva il
+  frame, smontando il nodo con il focus. Ora e' un overlay sopra l'ultimo frame,
+  il focus viene restituito e i `key_up` partono sempre.
+- **P1** — effetto di connessione ancorato all'oggetto tab (riconnessione e
+  ticket bruciato a ogni `tab_state`) e scrittura di `currentTabId` dentro
+  l'effetto che lo rilegge (due sessioni live per montaggio); errori per-azione
+  trattati come fatali dal trasporto Tauri; parser severi mai applicati sul
+  trasporto di produzione; redazione Bearer limitata al primo token; ritaglio del
+  takeover privato allegabile al prompt; `authorize_upload` falsificabile dal
+  webview; dialogo fantasma dopo la morte della tab; comandi silenziosamente
+  persi a canale giu'.
+
+**Residuo dichiarato (P2, non bloccante):** `isLocalOrigin` classifica come
+locale qualunque host con prefisso `127.` e gli schemi `data:`/`blob:`/`about:`;
+`browser_live_pick_upload_files` non verifica che esista un chooser pendente; i
+frame non vengono confrontati con l'identita' del ticket riscattato; `checkTicket`
+non impone un tetto alla TTL.
+
+**Prerequisito del Gate R23:** lo smoke reale richiede un `omp` che espone
+`browser_origin_decision`; con un runtime precedente Studio segnala che la
+decisione non e' stata applicata invece di darla per fatta.
 
 ---
 
