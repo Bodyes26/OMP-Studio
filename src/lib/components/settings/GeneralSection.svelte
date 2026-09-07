@@ -5,7 +5,6 @@
 		type DefaultSurface,
 		type CloseWithQueuedTasks,
 		type ChatWidth,
-		type LayoutMode,
 		type StreamingBehavior,
 		type QueueMode,
 		type InterruptMode
@@ -74,23 +73,6 @@
 	</div>
 
 	<div class="section-group">
-		<div class="form-row">
-			<div class="form-row-copy">
-				<span class="form-row-label">Disposizione finestra</span>
-				<span class="form-row-desc">Configurazione dei pannelli: 3 colonne affiancate o vista a stack per monitor verticali.</span>
-			</div>
-			<div class="form-row-control">
-				<select
-					value={settingsStore.general.layoutMode}
-					onchange={(e) => settingsStore.patchGeneral({ layoutMode: (e.currentTarget as HTMLSelectElement).value as LayoutMode })}
-				>
-					<option value="auto">Automatico (in base alla finestra)</option>
-					<option value="horizontal">Orizzontale (3 colonne)</option>
-					<option value="vertical">Verticale (stack editor e chat)</option>
-				</select>
-			</div>
-		</div>
-
 		<div class="form-row">
 			<div class="form-row-copy">
 				<span class="form-row-label">Barra laterale (File / Git / Agente)</span>

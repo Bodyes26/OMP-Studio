@@ -4,6 +4,7 @@
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import {
 		settingsStore,
+		type LayoutMode,
 		type QuotaChipVariant,
 		type QuotaPopoverVariant
 	} from '$lib/stores/settings.svelte';
@@ -33,6 +34,10 @@
 
 	function selectTheme(name: string) {
 		void themeStore.select(name);
+	}
+
+	function setLayoutMode(mode: LayoutMode) {
+		settingsStore.patchGeneral({ layoutMode: mode });
 	}
 
 	function setChipVariant(variant: QuotaChipVariant) {
@@ -96,7 +101,115 @@
 </script>
 
 <div class="settings-section">
+	<!-- BLOCCO: DISPOSIZIONE FINESTRA -->
+	<div class="section-block">
+		<div class="block-head-row">
+			<div class="block-titles">
+				<h4>Disposizione Finestra</h4>
+				<span class="block-desc">
+					Configurazione dei pannelli dell'interfaccia: 3 colonne affiancate, vista a stack per monitor verticali o adattamento automatico (modificabile al volo con Ctrl+Alt+L).
+				</span>
+			</div>
+		</div>
+
+		<!-- Selettore layout (cards con preview live) -->
+		<div class="layout-variant-grid" role="radiogroup" aria-label="Disposizione finestra">
+			<!-- Card 1: Automatico -->
+			<button
+				type="button"
+				class="variant-card"
+				class:selected={settingsStore.general.layoutMode === 'auto'}
+				role="radio"
+				aria-checked={settingsStore.general.layoutMode === 'auto'}
+				onclick={() => setLayoutMode('auto')}
+			>
+				<div class="card-radio-head">
+					<div class="radio-indicator">
+						{#if settingsStore.general.layoutMode === 'auto'}
+							<span class="radio-dot"></span>
+						{/if}
+					</div>
+					<span class="variant-title">Automatico</span>
+				</div>
+				<p class="variant-desc">
+					Rileva le dimensioni della finestra: 3 colonne su schermi larghi, stack verticale se l'altezza supera la larghezza o sotto i 1100px.
+				</p>
+				<div class="variant-preview">
+					<div class="layout-mini-preview">
+						<div class="mini-col side" title="Barra laterale"></div>
+						<div class="mini-auto-body">
+							<span>Auto</span>
+						</div>
+					</div>
+				</div>
+			</button>
+
+			<!-- Card 2: Orizzontale -->
+			<button
+				type="button"
+				class="variant-card"
+				class:selected={settingsStore.general.layoutMode === 'horizontal'}
+				role="radio"
+				aria-checked={settingsStore.general.layoutMode === 'horizontal'}
+				onclick={() => setLayoutMode('horizontal')}
+			>
+				<div class="card-radio-head">
+					<div class="radio-indicator">
+						{#if settingsStore.general.layoutMode === 'horizontal'}
+							<span class="radio-dot"></span>
+						{/if}
+					</div>
+					<span class="variant-title">Orizzontale</span>
+				</div>
+				<p class="variant-desc">
+					3 colonne affiancate: albero dei file/Git a sinistra, editor al centro e terminale o chat agente a destra.
+				</p>
+				<div class="variant-preview">
+					<div class="layout-mini-preview horizontal">
+						<div class="mini-col side" title="Barra laterale"></div>
+						<div class="mini-col editor" title="Editor"></div>
+						<div class="mini-col terminal" title="Terminale / Chat"></div>
+					</div>
+				</div>
+			</button>
+
+			<!-- Card 3: Verticale -->
+			<button
+				type="button"
+				class="variant-card"
+				class:selected={settingsStore.general.layoutMode === 'vertical'}
+				role="radio"
+				aria-checked={settingsStore.general.layoutMode === 'vertical'}
+				onclick={() => setLayoutMode('vertical')}
+			>
+				<div class="card-radio-head">
+					<div class="radio-indicator">
+						{#if settingsStore.general.layoutMode === 'vertical'}
+							<span class="radio-dot"></span>
+						{/if}
+					</div>
+					<span class="variant-title">Verticale</span>
+				</div>
+				<p class="variant-desc">
+					Vista a stack: albero a sinistra, editor in alto e terminale o chat in basso. Ottimizzato per monitor verticali.
+				</p>
+				<div class="variant-preview">
+					<div class="layout-mini-preview vertical">
+						<div class="mini-col side" title="Barra laterale"></div>
+						<div class="mini-stack">
+							<div class="mini-row editor" title="Editor"></div>
+							<div class="mini-row terminal" title="Terminale / Chat"></div>
+						</div>
+					</div>
+				</div>
+			</button>
+		</div>
+	</div>
+
+	<!-- SEPARATORE TRA BLOCCHI -->
+	<div class="block-divider"></div>
 	<!-- BLOCCO 1: CHIP QUOTA TOPBAR -->
+	
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
@@ -1029,5 +1142,112 @@
 		text-align: center;
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
+	}
+
+	/* --- Layout Variant Grid & Mini Previews --- */
+
+	.layout-variant-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: var(--space-3);
+	}
+
+	@media (max-width: 640px) {
+		.layout-variant-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	.layout-mini-preview {
+		width: 100%;
+		height: 48px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 4px;
+		display: flex;
+		gap: 3px;
+		box-sizing: border-box;
+		transition: border-color 0.15s ease;
+	}
+
+	.variant-card:hover .layout-mini-preview {
+		border-color: var(--line-strong);
+	}
+
+	.variant-card.selected .layout-mini-preview {
+		border-color: var(--brand);
+		background: color-mix(in srgb, var(--brand-tint) 15%, var(--bg-sunken));
+	}
+
+	.mini-col {
+		height: 100%;
+		border-radius: 2px;
+		background: var(--bg-surface);
+		border: 1px solid var(--line);
+		box-sizing: border-box;
+		transition: all 0.15s ease;
+	}
+
+	.mini-col.side {
+		width: 22%;
+		background: var(--bg-raised);
+	}
+
+	.mini-col.editor {
+		flex: 1;
+	}
+
+	.mini-col.terminal {
+		flex: 1;
+		background: var(--bg-raised);
+	}
+
+	.mini-stack {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		height: 100%;
+	}
+
+	.mini-row {
+		width: 100%;
+		flex: 1;
+		border-radius: 2px;
+		background: var(--bg-surface);
+		border: 1px solid var(--line);
+		box-sizing: border-box;
+		transition: all 0.15s ease;
+	}
+
+	.mini-row.terminal {
+		background: var(--bg-raised);
+	}
+
+	.mini-auto-body {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--bg-surface);
+		border-radius: 2px;
+		border: 1px dashed var(--line);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		color: var(--ink-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.variant-card.selected .mini-auto-body {
+		color: var(--brand);
+		border-color: var(--brand);
+	}
+
+	.variant-card.selected .mini-col.editor,
+	.variant-card.selected .mini-row.editor {
+		border-color: var(--brand-dim);
 	}
 </style>

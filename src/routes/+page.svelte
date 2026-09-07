@@ -1599,7 +1599,6 @@
 
 <div class="app-layout">
 	<TopBar
-		{effectiveLayout}
 		onUsageClick={() => usageOpen = !usageOpen}
 		onNewProject={() => pickerOpen = true}
 		onSettingsClick={(section) => settingsStore.openSection(section)}

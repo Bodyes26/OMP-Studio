@@ -31,6 +31,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Colori semaforo opzionali per la quota in «Impostazioni → Aspetto»: verde quando la quota è abbondante, giallo sotto il 30%, rosso sotto il 10% o a quota esaurita, con palette dedicate per tema chiaro e scuro. L'opzione è disattivata di default e, se non la si attiva, la chip continua a seguire i colori del tema.
 - La chip quota segnala con un piccolo pallino quando una finestra più lunga (per esempio quella settimanale) è quasi esaurita mentre quella di sessione è ancora libera, senza alterare la percentuale mostrata.
 
+### Changed
+- Spostata la configurazione della disposizione finestra da «Impostazioni → Generale» a «Impostazioni → Aspetto» con nuovo selettore visuale a schede (Automatico, Orizzontale a 3 colonne, Verticale a stack) con anteprima grafica integrata, e rimossa la chip layout dalla barra superiore per alleggerire l'intestazione dell'applicazione (la scorciatoia Ctrl+Alt+L resta attiva per la commutazione rapida).
+
 ### Fixed
 
 - La finestra Companion torna ad aprirsi correttamente al clic sulla chip nella barra superiore e con la scorciatoia da tastiera: risolto il fallimento della creazione della webview nativa su Windows dovuto a parametri del browser disallineati tra le finestre, e garantito il ripristino visivo e del focus a ogni richiamo.

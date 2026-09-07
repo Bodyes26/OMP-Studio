@@ -19,12 +19,10 @@
 		IconChevronDown,
 		IconChevronLeft,
 		IconChevronRight,
-		IconColumns3,
 		IconGhost,
 		IconPlus,
 		IconPin,
 		IconQuota,
-		IconRows2,
 		IconSettings,
 		IconWarning
 	} from '$lib/icons';
@@ -32,10 +30,8 @@
 	let {
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
 		setupIncomplete = false,
-		effectiveLayout = 'horizontal',
 		onRunTask, onEditTask, onNewTask, canRunTask, runReason
 	} = $props<{
-		effectiveLayout?: 'horizontal' | 'vertical';
 		onUsageClick?: () => void;
 		onNewProject?: () => void;
 		onSettingsClick?: (section?: SettingsSection) => void;
@@ -417,15 +413,6 @@
 		}
 	}
 
-	const layoutMode = $derived(settingsStore.general.layoutMode);
-	const layoutChipLabel = $derived(
-		layoutMode === 'auto'
-			? (effectiveLayout === 'vertical' ? 'Auto: Vert' : 'Auto: Oriz')
-			: (layoutMode === 'vertical' ? 'Verticale' : 'Orizzontale')
-	);
-	const layoutChipTitle = $derived(
-		`Layout: ${layoutMode === 'auto' ? `Automatico (${effectiveLayout === 'vertical' ? 'Verticale' : 'Orizzontale'})` : (layoutMode === 'vertical' ? 'Verticale (forzato)' : 'Orizzontale (forzato)')} — Clicca per cambiare (Ctrl+Alt+L)`
-	);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -675,25 +662,6 @@
 		>
 			<IconPin /> Companion
 		</button>
-
-		<button
-			class="settings-chip layout-chip"
-			class:active={layoutMode !== 'auto'}
-			onclick={(e) => {
-				e.stopPropagation();
-				settingsStore.cycleLayoutMode();
-			}}
-			title={layoutChipTitle}
-			aria-label={layoutChipTitle}
-		>
-			{#if effectiveLayout === 'vertical'}
-				<IconRows2 />
-			{:else}
-				<IconColumns3 />
-			{/if}
-			<span>{layoutChipLabel}</span>
-		</button>
-
 
 		{#if taskStore.totalQueued > 0}
 			<button
@@ -1349,12 +1317,6 @@
 		background: var(--brand-tint);
 	}
 
-
-	.layout-chip.active {
-		color: var(--brand);
-		border-color: var(--brand);
-		background: var(--brand-tint);
-	}
 	.queue-chip {
 		background: transparent;
 		border: 1px solid var(--brand-dim);
