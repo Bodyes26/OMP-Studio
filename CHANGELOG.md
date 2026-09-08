@@ -9,7 +9,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
-## [1.5.0] - 2026-09-07
+## [1.5.0] - 2026-09-08
 
 ### Added
 - Layout personalizzabile con supporto a monitor verticali (portrait) e collasso della barra laterale: commutazione automatica o manuale tra vista orizzontale a 3 colonne e vista verticale con editor in alto e terminale/chat in basso divisi da splitter orizzontale, scorciatoia `Ctrl+Alt+L` e chip di stato nella barra superiore per ciclare la modalità, e possibilità di nascondere o mostrare la barra laterale (File/Git/Agente) con `Ctrl+Alt+B` o cliccando sul logo &pi; in alto a sinistra per dedicare tutta la larghezza all'editor e alla conversazione.

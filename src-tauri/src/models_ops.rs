@@ -1552,10 +1552,9 @@ fn is_version_newer(
             if ver_b[ver_a.len()..].iter().any(|&x| x > 0.0) {
                 return true;
             }
-        } else if ver_a.len() > ver_b.len()
-            && ver_a[ver_b.len()..].iter().any(|&x| x > 0.0) {
-                return false;
-            }
+        } else if ver_a.len() > ver_b.len() && ver_a[ver_b.len()..].iter().any(|&x| x > 0.0) {
+            return false;
+        }
 
         // Se le versioni numeriche sono identiche, confronta la data di snapshot
         if let (Some(da), Some(db)) = (date_a, date_b) {
@@ -1612,17 +1611,6 @@ pub async fn check_model_health(
     };
     let providers_summary = get_model_providers().await?;
 
-    let known_selectors: std::collections::HashSet<String> =
-        catalog.iter().map(|m| m.selector.clone()).collect();
-    let available_selectors: std::collections::HashSet<String> = available_models
-        .as_ref()
-        .map(|list| list.iter().map(|m| m.selector.clone()).collect())
-        .unwrap_or_default();
-    let providers_map: HashMap<String, &ProviderSummaryDto> = providers_summary
-        .iter()
-        .map(|p| (p.id.clone(), p))
-        .collect();
-
     // 3. Risoluzione configurazione ruoli e catene di riserva
     let (roles_map, fallback_map) = if roles.as_ref().is_none_or(|r| r.is_empty())
         || fallback_chains.as_ref().is_none_or(|f| f.is_empty())
@@ -1642,6 +1630,52 @@ pub async fn check_model_health(
     } else {
         (roles.unwrap(), fallback_chains.unwrap())
     };
+
+    let findings = evaluate_model_health(
+        roles_map,
+        fallback_map,
+        &catalog,
+        available_models.as_deref(),
+        catalog_error.as_deref(),
+        &providers_summary,
+    );
+
+    let checked_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let catalog_age_days = catalog_age_hours().map(|h| h / 24.0);
+
+    Ok(ModelHealthReport {
+        checked_at,
+        catalog_age_days,
+        catalog_error,
+        findings,
+    })
+}
+
+/// Valuta ruoli e catene di riserva contro sorgenti gia lette.
+///
+/// Puro: nessuna lettura di disco, catalogo o credenziali. Il referto
+/// dipende solo dagli argomenti, quindi il comportamento e verificabile
+/// senza dipendere dalla configurazione della macchina che esegue i test.
+fn evaluate_model_health(
+    roles_map: HashMap<String, String>,
+    fallback_map: HashMap<String, Vec<String>>,
+    catalog: &[ModelDto],
+    available_models: Option<&[ModelDto]>,
+    catalog_error: Option<&str>,
+    providers_summary: &[ProviderSummaryDto],
+) -> Vec<ModelFinding> {
+    let known_selectors: std::collections::HashSet<String> =
+        catalog.iter().map(|m| m.selector.clone()).collect();
+    let available_selectors: std::collections::HashSet<String> = available_models
+        .map(|list| list.iter().map(|m| m.selector.clone()).collect())
+        .unwrap_or_default();
+    let providers_map: HashMap<String, &ProviderSummaryDto> = providers_summary
+        .iter()
+        .map(|p| (p.id.clone(), p))
+        .collect();
 
     let mut slots = Vec::new();
     for (role, selector) in roles_map {
@@ -1702,7 +1736,7 @@ pub async fn check_model_health(
             let norm_cur = normalize_family_template(&tpl_cur);
 
             let mut best_upgrade: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
-            for m in &catalog {
+            for m in catalog {
                 if m.provider != current_provider || m.id == current_model_id {
                     continue;
                 }
@@ -1750,7 +1784,7 @@ pub async fn check_model_health(
         let mut suggested_selector = None;
         let mut suggested_model_name = None;
 
-        if let Some(avail) = &available_models {
+        if let Some(avail) = available_models {
             let (tpl_cur, _ver_cur, _date_cur) = parse_model_signature(&current_model_id);
             let norm_cur = normalize_family_template(&tpl_cur);
 
@@ -1820,18 +1854,7 @@ pub async fn check_model_health(
             .then_with(|| a.index.cmp(&b.index))
     });
 
-    let checked_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    let catalog_age_days = catalog_age_hours().map(|h| h / 24.0);
-
-    Ok(ModelHealthReport {
-        checked_at,
-        catalog_age_days,
-        catalog_error,
-        findings,
-    })
+    findings
 }
 
 /// Applica le modifiche alla configurazione in modo puro e atomico.
@@ -3108,41 +3131,107 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_check_model_health_finds_gemini_38() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let mut roles = HashMap::new();
-            roles.insert(
-                "smol".to_string(),
-                "google-antigravity/gemini-3.7-flash:high".to_string(),
-            );
-            roles.insert(
-                "task".to_string(),
-                "google-antigravity/gemini-3.7-flash:high".to_string(),
-            );
-
-            let report = check_model_health(Some(roles), None, Some(false), None)
-                .await
-                .expect("check_model_health");
-
-            let upgrades: Vec<_> = report
-                .findings
-                .iter()
-                .filter(|f| f.kind == "primary" && (f.role == "smol" || f.role == "task"))
-                .collect();
-
-            assert_eq!(upgrades.len(), 2);
-            for finding in upgrades {
-                assert_eq!(finding.current_model_id, "gemini-3.7-flash");
-                assert_eq!(finding.code, "upgrade");
-                assert_eq!(
-                    finding.suggested_selector.as_deref(),
-                    Some("google-antigravity/gemini-3.8-flash:high")
-                );
-            }
-        });
+    /// DTO minimo di catalogo: solo i campi che la valutazione legge.
+    fn catalog_model(provider: &str, id: &str, name: &str) -> ModelDto {
+        ModelDto {
+            id: id.to_string(),
+            name: name.to_string(),
+            provider: provider.to_string(),
+            selector: format!("{}/{}", provider, id),
+            context_window: None,
+            max_tokens: None,
+            reasoning: None,
+            thinking: None,
+            input: None,
+            cost: None,
+            is_custom: false,
+        }
     }
+
+    fn provider_summary(id: &str, configured: bool, enabled: bool) -> ProviderSummaryDto {
+        ProviderSummaryDto {
+            id: id.to_string(),
+            name: id.to_string(),
+            source: "builtin".to_string(),
+            enabled,
+            configured,
+            auth_origin: None,
+            available_model_count: 0,
+            account_count: 0,
+            has_oauth: false,
+            is_custom: false,
+        }
+    }
+
+    #[test]
+    fn una_versione_piu_recente_della_stessa_famiglia_diventa_un_upgrade() {
+        let providers = vec![provider_summary("google-antigravity", true, true)];
+        let catalog = vec![
+            catalog_model("google-antigravity", "gemini-3.7-flash", "Gemini 3.7 Flash"),
+            catalog_model("google-antigravity", "gemini-3.8-flash", "Gemini 3.8 Flash"),
+        ];
+
+        let mut roles = HashMap::new();
+        roles.insert(
+            "smol".to_string(),
+            "google-antigravity/gemini-3.7-flash:high".to_string(),
+        );
+        roles.insert(
+            "task".to_string(),
+            "google-antigravity/gemini-3.7-flash:high".to_string(),
+        );
+
+        let findings = evaluate_model_health(
+            roles,
+            HashMap::new(),
+            &catalog,
+            Some(&catalog),
+            None,
+            &providers,
+        );
+
+        assert_eq!(findings.len(), 2);
+        for finding in &findings {
+            assert_eq!(finding.current_model_id, "gemini-3.7-flash");
+            assert_eq!(finding.code, "upgrade");
+            assert_eq!(finding.severity, "info");
+            assert_eq!(
+                finding.suggested_selector.as_deref(),
+                Some("google-antigravity/gemini-3.8-flash:high"),
+                "lo sforzo di ragionamento scelto va conservato nel suggerimento"
+            );
+        }
+    }
+
+    #[test]
+    fn senza_credenziali_il_ruolo_e_bloccante_e_non_un_upgrade() {
+        let providers = vec![provider_summary("google-antigravity", false, true)];
+        let catalog = vec![catalog_model(
+            "google-antigravity",
+            "gemini-3.7-flash",
+            "Gemini 3.7 Flash",
+        )];
+
+        let mut roles = HashMap::new();
+        roles.insert(
+            "smol".to_string(),
+            "google-antigravity/gemini-3.7-flash:high".to_string(),
+        );
+
+        let findings = evaluate_model_health(
+            roles,
+            HashMap::new(),
+            &catalog,
+            Some(&catalog),
+            None,
+            &providers,
+        );
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "provider_unconfigured");
+        assert_eq!(findings[0].severity, "error");
+    }
+
     #[test]
     fn test_benchmark_profile_ratings() {
         let (tier1, elo1) = get_model_benchmark_profile("claude-opus-5", "Claude Opus 5");
