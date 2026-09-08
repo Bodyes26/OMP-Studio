@@ -24,12 +24,14 @@
 		IconPin,
 		IconQuota,
 		IconSettings,
-		IconWarning
+		IconWarning,
+		IconLab
 	} from '$lib/icons';
 
 	let {
-		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
+		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick, onLabClick,
 		setupIncomplete = false,
+		labActive = false,
 		onRunTask, onEditTask, onNewTask, canRunTask, runReason
 	} = $props<{
 		onUsageClick?: () => void;
@@ -37,6 +39,8 @@
 		onSettingsClick?: (section?: SettingsSection) => void;
 		onSetupClick?: () => void;
 		onQueueClick?: () => void;
+		onLabClick?: () => void;
+		labActive?: boolean;
 		/** Vero quando manca qualcosa perche' la GUI funzioni: il chip di
 		 *  setup compare solo allora, e sparisce quando non ha piu' niente da
 		 *  dire. */
@@ -578,6 +582,7 @@
 		<div class="tabs-actions">
 			<button class="tab-add" onclick={() => onNewProject?.()} title="Nuovo progetto (Ctrl+Alt+N)" aria-label="Nuovo progetto (Ctrl+Alt+N)"><IconPlus /></button>
 			<button class="tab-add" onclick={() => projectStore.openScratchpad()} title="Scratchpad (Ctrl+Alt+S)" aria-label="Scratchpad (Ctrl+Alt+S)"><IconGhost /></button>
+			<button class="tab-add" class:active={labActive} onclick={() => onLabClick?.()} title="Laboratorio prototipi (Ctrl+Alt+P)" aria-label="Laboratorio prototipi (Ctrl+Alt+P)"><IconLab /></button>
 
 			<div class="order-control">
 				<button
@@ -661,6 +666,16 @@
 			aria-label="Finestra Companion (Alt+Spazio)"
 		>
 			<IconPin /> Companion
+		</button>
+
+		<button
+			class="settings-chip lab-chip"
+			class:active={labActive}
+			onclick={(e) => { e.stopPropagation(); onLabClick?.(); }}
+			title="Laboratorio prototipi frontend (Ctrl+Alt+P)"
+			aria-label="Laboratorio prototipi frontend (Ctrl+Alt+P)"
+		>
+			<IconLab /> Laboratorio
 		</button>
 
 		{#if taskStore.totalQueued > 0}
@@ -1287,6 +1302,12 @@
 	.settings-chip.info:hover {
 		border-color: var(--brand);
 		background: var(--bg-hover);
+	}
+
+	.lab-chip.active {
+		background: color-mix(in srgb, var(--brand) 18%, transparent);
+		border-color: var(--brand);
+		color: var(--brand-ink);
 	}
 
 	.settings-badge {

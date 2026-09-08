@@ -393,8 +393,12 @@ I file `stats.db`, `history.db` e `agent.db` contengono informazioni sensibili s
 - Pragma forzato `PRAGMA query_only = ON;`.
 - Query validate per garantire che non contengano istruzioni di mutazione (`INSERT`, `UPDATE`, `DELETE`, `DROP`).
 
-### 7.3 Sandbox Isolato per Anteprime Vettoriali e Prototipi UI
-I prototipi generati dall'agente o i file SVG vengono renderizzati tramite `PreviewViewer.svelte` e `svgSandbox.ts`:
+### 7.3 Sandbox e Isolamento: Anteprime Vettoriali vs Laboratorio Prototipi
+
+OMP Studio distingue nettamente due superfici di anteprima con requisiti di sicurezza differenti:
+
+#### 7.3.1 Sandbox Statico per Anteprime Vettoriali e Prototipi HTML Legacy
+I diagrammi Mermaid (`studio_diagram`), le anteprime statiche SVG e i vecchi prototipi HTML generati da `studio_preview` vengono renderizzati tramite `PreviewViewer.svelte` e `svgSandbox.ts`:
 1. **Sanitizzazione primaria:** passaggio su `DOMPurify` per eliminare tag `<script>`, `<foreignObject>`, `<iframe>`, attributi `on*` e URI `javascript:`.
 2. **Content Security Policy ermetica:**
    ```
@@ -402,6 +406,14 @@ I prototipi generati dall'agente o i file SVG vengono renderizzati tramite `Prev
    ```
 3. **Iframe Sandboxing:** l'anteprima risiede all'interno di un `<iframe sandbox="">` privo di `allow-scripts` e `allow-same-origin`, con origine `null`. Il motore del browser disabilita l'esecuzione JavaScript alla radice e impedisce qualunque accesso a `window.parent` o alle API privilegiate Tauri `window.__TAURI__`.
 
+#### 7.3.2 Architettura di Confinamento del Laboratorio Prototipi React
+A differenza dei file statici, il Laboratorio prototipi richiede l'esecuzione di codice JavaScript reale (React 19, Tailwind v4, Recharts, Motion, Radix). La sicurezza non viene affidata a un iframe statico o a promesse del prompt, ma a una difesa a strati insuperabile:
+1. **Processo Chromium gestito e versionato:** esecuzione all'interno di un binario Chrome for Testing dedicato, separato dai browser personali dell'utente, con profilo temporaneo in cache locale privo di cronologia, cookie o credenziali dell'utente.
+2. **Origine virtuale in-memory:** il documento risiede su `http://lab.virtual` senza alcun server HTTP esposto sulla rete locale e senza accesso a `file://`.
+3. **Assenza totale di IPC Tauri:** nel contesto del prototipo `window.__TAURI__` e i bridge nativi sono categoricamente assenti.
+4. **Policy di rete nel controller CDP (Fetch domain):** poiché la sola CSP non impedisce la navigazione tramite `location.href`, il controller CDP intercetta tutte le richieste a livello di protocollo. Qualsiasi navigazione esterna o richiesta verso domini non esplicitamente autorizzati viene bloccata dal controller con `Fetch.failRequest` (`BlockedByClient`).
+5. **Watchdog runtime e recupero crash:** il controller monitora la responsività del target; cicli infiniti sincroni (`while(true)`) vengono interrotti in meno di 2 ms tramite `Runtime.terminateExecution`. In caso di stallo grave, il target viene riciclato (`Target.closeTarget` e `Target.createTarget`) ripristinando la piena usabilità senza riavviare Studio né toccare la sessione principale.
+6. **Broker di scrittura confinata (`extensions/studio-lab.ts`):** l'agente del Laboratorio e i subagenti autori operano con allowlist rigida di 8 tool (`lab_write_file`, `lab_read_file`, `lab_list_files`, `lab_delete_file`, `task`, `hub`, `todo`, `ask`). Shell (`bash`), interpreti (`eval`), scritture generiche (`write`, `edit`), browser host, debugger e MCP sono bloccati per difetto (deny-by-default, fail-closed). Tutti i percorsi sono validati canonicamente con `realpathSync` contro traversal `..`, percorsi assoluti, confini fra prototipi e symlink/junction esterni.
 ### 7.4 Integrità degli Aggiornamenti e Installer
 Sia `studio_updater.rs` sia l'installer di OMP in `setup.rs`:
 - Scaricano esclusivamente da repository ufficiali GitHub (`Bodyes26/OMP-Studio` e `can1357/oh-my-pi`).
@@ -430,7 +442,9 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 | RAM a riposo (1 progetto) | < 250 MB | **~145 MB** | Processo Rust (~85 MB) + WebView (~60 MB) |
 | RAM con 3 progetti attivi | < 500 MB | **~220 MB** | 3 sessioni PTY/RPC vive concorrenti |
 | Apertura popover usage | < 100 ms | **< 16 ms** | Lettura cache reattiva Svelte senza chiamate di rete |
-
+| Apertura renderer Laboratorio | < 2.0 s | **~1.1 s** (1096 ms) | Avvio processo Chromium dedicato e handshake WebSocket CDP |
+| Generazione prototipo iniziale | < 1.5 s | **~0.55 s** (546 ms) | Template + 3 varianti + compilazione esbuild-wasm + revisione |
+| Iterazione su variante C | < 1.0 s | **~0.53 s** (535 ms) | Selezione elemento + modifica TSX mirata + ricompilazione |
 ---
 
 ## 9. Registro delle Decisioni e dei Rischi (Gate R1 - R18)
@@ -451,7 +465,7 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 | **R17** | Notifiche OS e Allerte Icona | Registrazione AUMID `sh.omp.studio`, notifiche toast OS, dot rosso taskbar Windows e badge Dock macOS. | SUPERATO |
 | **R18** | Suggerimenti dinamici effimeri vs residenti | Processo effimero e non residente via `omp -p` (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti; generazione opt-in (`dynamicEnabled: false` di default) per non consumare chiamate a modello non richieste ad ogni fine turno. | SUPERATO |
 | **R23** | Browser Studio gestito e trasmesso nella colonna centrale | Superficie dedicata BrowserViewer centrale, broker gestito windowless, stream binario BLF1 loopback con backpressure hardware/software, control epochs, takeover atomico e privato, inspector mirato (ring buffer bounded), dialoghi/popup/file/recording espliciti, Chrome Relay target-scoped e teardown crash-safe senza orfani. | SUPERATO |
-
+| **R24** | Laboratorio prototipi frontend React 19 + Tailwind v4 | Spazio GUI dedicato per esplorare UX/UI con frontend React reali e dati simulati. Concorrenza con il principale, broker confinato `extensions/studio-lab.ts`, VFS chiuso, bundler offline locale (`static/lab/`), controller Chromium gestito con allowlist CDP, watchdog loop < 2ms, revisioni locali atomiche, export autonomo Vite e handoff al principale. | SUPERATO |
 ### 9.1 Browser Studio (Gate R23 — S38-S47 completati, SUPERATO)
 
 Il Gate R23 introduce la superficie Browser nella colonna centrale, alimentata da
@@ -464,6 +478,19 @@ Relay. Entrambi usano il canale loopback autenticato WebSocket e il wire format 
 
 La specifica autoritativa e il registro implementativo completo sono in [`BROWSER-STUDIO.md`](BROWSER-STUDIO.md).
 
+
+### 9.2 Laboratorio Prototipi Frontend (Gate R24 — 18 Criteri completati, SUPERATO)
+
+Il Gate R24 introduce il Laboratorio Prototipi dentro OMP Studio, consentendo di ideare, confrontare 3-5 varianti e iterare flussi multischermata React 19 + Tailwind v4 senza inquinare il codice del progetto:
+1. **Concorrenza e Isolamento:** sessione Laboratorio dedicata (`rpc_open_lab`) con identità separata rispetto al principale; eventi, streaming, token, richieste `ask` e abort restano totalmente disaccoppiati nello stesso progetto.
+2. **Broker di Scrittura Confinata (`extensions/studio-lab.ts`):** estensione autonoma iniettata all'avvio con allowlist stretta (8 tool) e validazione canonica su percorsi reali (`proto/<id>/` o bozze in `studio-data/`). I subagenti autori ereditano i medesimi vincoli insuperabili.
+3. **Contesto Stabile e Rilevamento Deriva:** snapshot congelato del working tree del progetto (incluse modifiche non committate); esclusione rigorosa di credenziali e file segreti; rilevamento del drift senza rigenerazione automatica e aggiornamento solo su richiesta esplicita dell'utente.
+4. **Compilazione Offline con VFS Chiuso:** bundle fidato in `static/lab/` (React 19.2.8, Tailwind v4.3.3, Lucide, Radix, Recharts, Motion, esbuild-wasm) senza alcuna dipendenza da CDN esterne a runtime; compilazione TSX/JSX in worker isolato senza bloccare il thread UI.
+5. **Renderer Chromium Gestito e Watchdog:** controller CDP con profilo isolato, blocco navigazioni `location.href` e domini non autorizzati, terminazione istantanea cicli infiniti (< 2 ms) e riciclo del target.
+6. **Strumenti Visuali e Revisioni Locali:** selezione elementi a schermo con redazione automatica credenziali/token, creazione annotazioni legate alla revisione osservata, rifiuto categorico di riferimenti obsoleti, ripristino di stati storici e duplicazione indipendente.
+7. **Export e Handoff:** esportazione della revisione come progetto autonomo standard Vite + Tailwind v4 e consegna pacchetto strutturato al principale senza auto-merge forzato e senza imporre il runtime React nel progetto target.
+
+La specifica e i 18 criteri di accettazione verificati sono documentati in [`ricerca/laboratorio-prototipi-piano.md`](../ricerca/laboratorio-prototipi-piano.md).
 ---
 
 ## 10. Prerequisiti di Build e Compilazione

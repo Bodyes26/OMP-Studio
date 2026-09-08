@@ -406,7 +406,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				if (gitignoreExists) {
 					gi = readFileSync(gitignorePath, "utf8");
 				}
-				if (!/(^|\n)\s*\/?proto\/?(\s*|\n|$)/i.test(gi)) {
+				if (!/(^|\n)\s*\/?proto(\/|\/\*\.html)?(\s*|\n|$)/i.test(gi) && !gi.includes('# OMP Studio prototypes')) {
 					const prefix = gi && !gi.endsWith("\n") ? "\n" : "";
 					const newContent = gi + prefix + "# OMP Studio prototypes\nproto/\n";
 					const tmpGitignore = join(canonicalCwd, `.gitignore.tmp.${process.pid}.${Date.now()}`);

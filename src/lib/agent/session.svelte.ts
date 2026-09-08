@@ -229,9 +229,29 @@ function stripIntent(args: Record<string, unknown> | undefined): Record<string, 
 	return rest;
 }
 
+export interface AgentSessionConfig {
+	cwd: string;
+	scope?: 'main' | 'lab';
+	prototypeId?: string | null;
+	projectKey?: string | null;
+	observedRevisionId?: string | null;
+}
+
 export class AgentSession {
 	readonly client = new OmpRpcClient();
 	readonly suggestions: SessionSuggestions = new SessionSuggestions(this);
+
+	readonly scope: 'main' | 'lab';
+	readonly prototypeId: string | null;
+	readonly projectKey: string;
+	observedRevisionId = $state<string | null>(null);
+
+	get sessionKey(): string {
+		if (this.scope === 'lab' && this.prototypeId) {
+			return `lab:${this.projectKey}:${this.prototypeId}`;
+		}
+		return `main:${this.projectKey}`;
+	}
 
 
 	entries = $state<TranscriptEntry[]>([]);
@@ -297,7 +317,7 @@ export class AgentSession {
 	private nextQueueId = 1;
 	private assistantEntry: AssistantEntry | null = null;
 	private readonly toolEntries = new Map<string, ToolEntry>();
-	private readonly cwd: string;
+	readonly cwd: string;
 	private stateRefresh: Promise<void> | null = null;
 	private opening: Promise<void> | null = null;
 	/**
@@ -341,8 +361,20 @@ export class AgentSession {
 	get isResuming(): boolean {
 		return this.isLoading && (!!this.requestedResume || (this.entries.length === 0 && !this.isAttached));
 	}
-	constructor(cwd: string) {
-		this.cwd = cwd;
+	constructor(cwdOrConfig: string | AgentSessionConfig) {
+		if (typeof cwdOrConfig === 'string') {
+			this.cwd = cwdOrConfig;
+			this.scope = 'main';
+			this.prototypeId = null;
+			this.projectKey = cwdOrConfig;
+			this.observedRevisionId = null;
+		} else {
+			this.cwd = cwdOrConfig.cwd;
+			this.scope = cwdOrConfig.scope ?? 'main';
+			this.prototypeId = cwdOrConfig.prototypeId ?? null;
+			this.projectKey = cwdOrConfig.projectKey ?? cwdOrConfig.cwd;
+			this.observedRevisionId = cwdOrConfig.observedRevisionId ?? null;
+		}
 		this.unsubscribeEvent = this.client.onEvent((event) => this.reduce(event));
 	}
 
@@ -427,7 +459,16 @@ export class AgentSession {
 			this.exited = false;
 			this.requestedResume = requestedResume;
 			try {
-				await this.client.open(this.cwd, requestedResume);
+				if (this.scope === 'lab' && this.prototypeId) {
+					await this.client.openLab({
+						projectPath: this.cwd,
+						prototypeId: this.prototypeId,
+						projectKey: this.projectKey,
+						resume: requestedResume
+					});
+				} else {
+					await this.client.open(this.cwd, requestedResume);
+				}
 			} catch (error) {
 				if (this.requestedResume === requestedResume) this.requestedResume = null;
 				throw error;
@@ -1085,6 +1126,18 @@ export class AgentSession {
 
 	/* ------------------------------------------------------------ riduttore */
 	private reduce(event: AgentSessionEvent) {
+		// Protezione da eventi per sessioni/prototipi diversi o revisioni superate
+		// ("un evento in ritardo non aggiorna l'oggetto sbagliato")
+		if (this.scope === 'lab') {
+			const rec: Record<string, unknown> = event;
+			const proto = typeof rec.prototypeId === 'string' ? rec.prototypeId : undefined;
+			if (proto && this.prototypeId && proto !== this.prototypeId) return;
+			const pkey = typeof rec.projectKey === 'string' ? rec.projectKey : undefined;
+			if (pkey && this.projectKey && pkey !== this.projectKey) return;
+			const rev = typeof rec.revisionId === 'string' ? rec.revisionId : undefined;
+			if (rev && this.observedRevisionId && rev !== this.observedRevisionId) return;
+		}
+
 		// Se la sessione e' in fase di attach, accoda tutti gli eventi in ordine FIFO
 		// tranne quelli di terminazione/errore critico che interrompono l'attach.
 		if (this.isAttaching) {

@@ -61,6 +61,7 @@
 			return [
 				{ key: 'Ctrl+Alt+N', label: 'Apri cartella progetto' },
 				{ key: 'Ctrl+Alt+S', label: 'Nuova chat rapida (Scratchpad)' },
+				{ key: 'Ctrl+Alt+P', label: 'Laboratorio prototipi (Bozze)' },
 				{ key: 'Ctrl+Alt+U', label: 'Quota e consumi API' },
 				{ key: 'Ctrl+Alt+,', label: 'Impostazioni Studio' }
 			];

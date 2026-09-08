@@ -22,10 +22,13 @@ identifier = "allow-agent-rpc"
 description = "Seconda superficie GUI: trasporto NDJSON verso omp in modalita' rpc-ui"
 commands.allow = [
     "rpc_open",
+    "rpc_open_lab",
     "rpc_send",
     "rpc_close",
     "rpc_stderr",
-    "rpc_protocol"
+    "rpc_protocol",
+    "rpc_abort",
+    "rpc_list_sessions"
 ]
 
 [[permission]]

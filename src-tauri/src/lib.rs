@@ -4,7 +4,10 @@ mod previews;
 mod pty;
 use pty::{pty_close, pty_open, pty_resize, pty_session_info, pty_write, PtyManager};
 mod rpc;
-use rpc::{rpc_close, rpc_open, rpc_protocol, rpc_send, rpc_stderr, RpcManager};
+use rpc::{
+    rpc_abort, rpc_close, rpc_list_sessions, rpc_open, rpc_open_lab, rpc_protocol, rpc_send,
+    rpc_stderr, RpcManager,
+};
 mod projects;
 use projects::{
     file_git_head, file_git_rev, file_read, file_read_bytes, file_write, git_branch_checkout,
@@ -101,10 +104,13 @@ pub fn run() {
             pty_close,
             pty_session_info,
             rpc_open,
+            rpc_open_lab,
             rpc_send,
             rpc_close,
             rpc_stderr,
             rpc_protocol,
+            rpc_abort,
+            rpc_list_sessions,
             browser_live_connect,
             browser_live_send_message,
             browser_live_disconnect,

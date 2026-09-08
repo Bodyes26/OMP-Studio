@@ -522,8 +522,19 @@ Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente 
   - `Shift+Invio` e `Ctrl+Invio`: inseriscono un'interruzione di riga senza inviare.
   - Nessun popover ingranaggio sul composer: la configurazione dei modi di coda (`all` / `one-at-a-time`, interruzione `immediate` / `wait`) e del comportamento di invio predefinito è centralizzata nelle Impostazioni Generali di Studio.
 
----
+### 7.11 Vista Laboratorio prototipi (LabView)
 
+- **Collocazione e layout**: vista dedicata a tutta altezza nella colonna centrale per l'esplorazione frontend, con anteprima interattiva dominante al centro e colonna laterale con la conversazione dedicata del prototipo (una chat per prototipo, indipendente dalla sessione principale).
+- **Cornice vs Canvas del prototipo**: il tema della cornice di Studio (chiaro o scuro) non impone il tema del prototipo; il prototipo vive in un canvas isolato con stili Tailwind v4 indipendenti.
+- **Toolbar superiore del Laboratorio (`LabVisualToolbar.svelte`)**:
+  - **Alternanza modalità**: controllo segmentato `role="radiogroup"` tra modalità **Interazione** (mouse e tastiera guidano il prototipo React) e modalità **Selezione** (ispezione ed evidenziazione elementi a schermo con highlight box e tooltip).
+  - **Preset Viewport responsive**: pulsanti per commutare istantaneamente il canvas su Desktop (1280x800), Tablet (768x1024) e Mobile (375x667) con indicazione visiva dei pixel e centratura automatica con barra di scorrimento.
+  - **Controlli operativi**: pulsante di ricarica (`reload`), cattura screenshot rapido e indicatore dello stato di responsività del renderer gestito.
+- **Overlay di ispezione ed annotazioni**: al passaggio del cursore in modalità Selezione, un rettangolo semitrasparente evidenzia l'elemento puntato estraendo tag, selettore CSS univoco e bounding box; il clic apre il popup di annotazione con commento testuale e redazione automatica dei dati sensibili (password, token, bearer), collegato in modo vincolante alla revisione osservata.
+- **Card revisioni e timeline**: le revisioni create dall'orchestratore mostrano chip di stato esplicite (`rendering-ready` per l'anteprima immediata, `verified` dopo la verifica mirata, `interrupted` in caso di stop o abort); azioni contestuali rapide per ripristinare la revisione o duplicarla in un nuovo esperimento indipendente.
+- **Pannello di contesto (`LabContextPanel.svelte`)**: cassetto retrattile per consultare i file del progetto inclusi nello snapshot stabile, visualizzare lo stato di deriva (drift) con badge di avviso non bloccante in caso di modifiche esterne da parte del principale, e pulsanti di azione per l'aggiornamento esplicito del contesto, l'esportazione autonoma Vite o la consegna (handoff) al principale.
+
+---
 ## 8. Token CSS pronti
 
 ```css

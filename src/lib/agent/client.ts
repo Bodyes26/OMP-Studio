@@ -128,6 +128,35 @@ export class OmpRpcClient {
 		return rpcId;
 	}
 
+	async openLab(opts: {
+		projectPath: string;
+		prototypeId: string;
+		projectKey?: string | null;
+		resume?: string | null;
+	}): Promise<number> {
+		const epoch = ++this.openEpoch;
+		const channel = new Channel<string>();
+		channel.onmessage = (line) => {
+			if (epoch !== this.openEpoch) return;
+			this.receive(line);
+		};
+		this.rpcId = null;
+		this.closed = false;
+		const rpcId = await invoke<number>('rpc_open_lab', {
+			projectPath: opts.projectPath,
+			prototypeId: opts.prototypeId,
+			projectKey: opts.projectKey ?? null,
+			resume: opts.resume ?? null,
+			onEvent: channel
+		});
+		if (this.closed || epoch !== this.openEpoch) {
+			void invoke('rpc_close', { rpcId }).catch(() => {});
+			return rpcId;
+		}
+		this.rpcId = rpcId;
+		return rpcId;
+	}
+
 	/**
 	 * Manda un comando e risolve con il suo `data`. La correlazione e' per
 	 * `id`, mai per ordine: `bash` e' dispatchato in concorrenza e l'ordine di
@@ -198,10 +227,12 @@ export class OmpRpcClient {
 		const abortId = `s${++this.seq}`;
 		const abortBashId = `s${++this.seq}`;
 		try {
-			await Promise.allSettled([
-				invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortId, type: 'abort' }) }),
-				invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortBashId, type: 'abort_bash' }) })
-			]);
+			await invoke('rpc_abort', { rpcId }).catch(() =>
+				Promise.allSettled([
+					invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortId, type: 'abort' }) }),
+					invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortBashId, type: 'abort_bash' }) })
+				])
+			);
 		} catch (error) {
 			console.warn('Errore invio frame abort su RPC:', error);
 		}
@@ -256,6 +287,7 @@ export class OmpRpcClient {
 	}
 
 	private receive(line: string) {
+		if (this.closed) return;
 		let frame: unknown;
 		try {
 			frame = JSON.parse(line);
@@ -269,6 +301,11 @@ export class OmpRpcClient {
 		if (event.type === 'response') {
 			this.settle(frame as RpcResponse);
 			return;
+		}
+		if (event.type === 'studio_exit') {
+			this.closed = true;
+			this.rpcId = null;
+			this.abortPendingRequests('Sessione OMP terminata');
 		}
 		this.eventHandler?.(event);
 	}

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "catalog": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "@tailwindcss/browser": "4.3.3",
+    "@radix-ui/react-dialog": "1.1.23",
+    "recharts": "3.10.1",
+    "motion": "13.2.0",
+    "lucide-react": "1.42.0",
+    "esbuild-wasm": "0.28.2"
+  },
+  "artifacts": {
+    "vendor.js": {
+      "size": 720687,
+      "sha256": "e6a19ebd1775afaeaf36ce8b0f3e25c59a2c92b7cc375de5b0a0c3af7b09601f"
+    },
+    "tailwind.js": {
+      "size": 282289,
+      "sha256": "a60c785630a06196808cbe79e6f7bdb4abcc8f4421a47b56f29338fc84805e3b"
+    },
+    "esbuild.js": {
+      "size": 54035,
+      "sha256": "99b95743dee12457a052902ee9eba66d256b7b954e4ad33557a64bff6093ce2d"
+    },
+    "esbuild.wasm": {
+      "size": 13978850,
+      "sha256": "b1831a5c0f6cf688034fb94d0419812f165ea316a3380d3fc00a151e562d2eaf"
+    }
+  }
+}

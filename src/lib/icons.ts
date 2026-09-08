@@ -60,6 +60,7 @@ export { default as IconCloseOthers } from '@lucide/svelte/icons/square-x';
 export { default as IconGitBranch } from '@lucide/svelte/icons/git-branch';
 export { default as IconRule } from '@lucide/svelte/icons/scroll-text';
 export { default as IconSkill } from '@lucide/svelte/icons/wand-sparkles';
+export { default as IconDownload } from '@lucide/svelte/icons/download';
 
 // Editor: viste del file e barra delle schede.
 export { default as IconViewCode } from '@lucide/svelte/icons/code';
@@ -117,3 +118,6 @@ export { default as IconColumns3 } from '@lucide/svelte/icons/columns-3';
 export { default as IconRows2 } from '@lucide/svelte/icons/rows-2';
 export { default as IconPanelLeft } from '@lucide/svelte/icons/panel-left';
 export { default as IconPanelLeftClose } from '@lucide/svelte/icons/panel-left-close';
+
+// Laboratorio prototipi.
+export { default as IconLab } from '@lucide/svelte/icons/flask-conical';

@@ -855,3 +855,58 @@ APPROVATO, non ancora superato (manca S47).
 4. **Accessibilità e focus trap completati:** modale selettore Chrome Relay e dialoghi JavaScript (`alert`, `confirm`, `prompt`, `beforeunload`) protetti da focus trap con ripristino del fuoco (`trapFocus`) e chiusura su `Escape`; superficie viewport accessibile con navigazione da tastiera e pulsanti toolbar operativi (`Indietro`, `Avanti`, `Ricarica` mappati su scorciatoie standard).
 5. **Verifica ContrattiImmobili secondo le regole di progetto:** verificato probe IIS locale (`Microsoft-IIS/10.0` attivo su porta 80, `http://localhost/ContrattiImmobili/` risponde 404 Not Found); confermata la non-pubblicazione autonoma di IIS in conformità con `CLAUDE.md`.
 6. **Matrice multipiattaforma rigorosa:** tutti i 14 scenari §17 osservati direttamente su Windows 11 x64; bundle e pipeline CI multi-OS (Windows NSIS, macOS Universal DMG, Linux DEB/AppImage) convalidati senza dichiarare eseguito in locale ciò che non è stato osservato.
+
+---
+
+## Gate R24: Laboratorio prototipi frontend React 19 + Tailwind v4
+
+**Data:** 2026-09-08
+**Esito:** SUPERATO (16 step completati; 18 criteri di accettazione della Sezione 11 del piano verificati su superficie reale; 547 test passati).
+
+### Decisioni vincolanti dell'utente (ricerca/laboratorio-prototipi-piano.md § 2)
+
+1. **Superficie e Perimetro:** solo GUI dentro Studio; nessun requisito di parità TUI o funzionamento OMP standalone; perimetro focalizzato su frontend React interattivi, non generatore di applicazioni full-stack.
+2. **Stack tecnico invariante:** sempre React + Tailwind v4 per tutti i prototipi, anche quando il progetto ospite usa Svelte 5 o altri framework.
+3. **Dati e azioni simulate:** dati mock in-memory (`src/mockData.ts` o `src/data.ts`); nessun collegamento operativo o credenziale verso backend di produzione.
+4. **Concorrenza simultanea:** la sessione del Laboratorio e l'agente principale operano contemporaneamente nello stesso progetto senza blocchi o alternanze forzate; chat, streaming token, input utente (`ask`) e segnali di abort restano rigorosamente isolati.
+5. **Scrittura confinata nel solo prototipo:** l'agente del Laboratorio può scrivere ESCLUSIVAMENTE dentro `proto/<id>/` (nel progetto) o nell'archivio locale delle bozze in `studio-data/` (se senza progetto). Il resto del progetto è contesto in sola lettura.
+6. **Subagenti anche autori:** i subagenti restano disponibili per la ricerca e per la scrittura quando il lavoro è separabile (es. varianti o schermate distinte); ereditano i medesimi vincoli insuperabili di confinamento.
+7. **Una chat dedicata per prototipo:** ogni esperimento ha una conversazione isolata, persistita e riprendibile; le idee nate come bozze senza progetto restano salvate e recuperabili dopo la chiusura di Studio.
+
+### Architettura di sicurezza e confini tecnici (ricerca/laboratorio-prototipi-piano.md §§ 5-9)
+
+1. **Broker di scrittura confinata (`extensions/studio-lab.ts`):** estensione autonoma iniettata per-sessione con hook `tool_call` fail-closed; allowlist stretta di soli 8 tool ammessi (`lab_write_file`, `lab_read_file`, `lab_list_files`, `lab_delete_file`, `task`, `hub`, `todo`, `ask`); blocco immediato per difetto di shell (`bash`), interpreti (`eval`), scritture generiche (`write`, `edit`), browser host, debugger e server MCP; validazione dei percorsi con `realpathSync` contro traversal `..`, percorsi assoluti, collisioni tra prototipi e symlink/junction esterni.
+2. **Isolamento del renderer:** esecuzione in processo Chromium dedicato e versionato (Chrome for Testing) con profilo temporaneo privo di dati personali; origine virtuale `http://lab.virtual` senza porte di rete esposte sull'host; assenza totale del bridge nativo Tauri `window.__TAURI__`; controller CDP con policy di rete attiva che intercetta e blocca tentativi di navigazione `location.href` e richieste esterne con errore `BlockedByClient`.
+3. **Watchdog runtime e crash recovery:** interruzione immediata dei cicli sincroni infiniti in meno di 2 ms tramite `Runtime.terminateExecution`; riciclo del target CDP (`Target.closeTarget` e `Target.createTarget`) in caso di stallo, garantendo il recupero della piena reattività senza terminare l'agente principale o Studio.
+4. **Esecuzione offline senza CDN (`static/lab/`):** catalogo dipendenze a versioni fissate (React 19.2.8, Tailwind v4.3.3, Lucide 1.42.0, Radix Dialog 1.1.23, Recharts 3.10.1, Motion 13.2.0, esbuild-wasm 0.28.2); bundle fidati precompilati in locale che consentono l'avvio immediato e la riapertura dei prototipi anche in assenza totale di connettività internet.
+5. **Contesto stabile e rilevamento deriva (drift):** acquisizione congelata del working tree (comprese modifiche non committate dell'utente); esclusione categorica di credenziali, file `.env*` e chiavi private; verifica di coerenza a più passaggi; rilevamento del drift senza rigenerazione automatica del prototipo e aggiornamento solo su richiesta esplicita dell'utente con storico tracciato.
+6. **Revisioni locali e strumenti visuali:** snapshot atomici per richiesta di modifica con stati tipizzati (`rendering-ready` per l'anteprima immediata, `verified` dopo la verifica mirata, `interrupted` in caso di interruzione/stop); ripristino non distruttivo e duplicazione indipendente con tracciamento della provenienza fuori da Git; selezione elementi a schermo con redazione automatica di password/token e blocco categorico di annotazioni inviate su revisioni obsolete.
+7. **Export autonomo e Handoff adattivo:** esportazione della revisione scelta come progetto standard React + Vite + Tailwind v4; consegna al principale tramite pacchetto di handoff strutturato con esplicitazione vincolante dei limiti delle simulazioni e adattamento allo stack nativo del progetto (anche Svelte 5) senza forzare l'importazione del runtime React nel target.
+8. **Retrocompatibilità e migrazione `.gitignore`:** i vecchi prototipi HTML generati da `studio_preview` (`proto/*.html`) restano consultabili e apribili senza alterazioni; la regola automatica `.gitignore` viene migrata da `proto/` a `proto/*.html` in modo reversibile, preservando integralmente tutte le regole personali scritte dall'utente.
+
+### Esito dei 18 criteri di accettazione e metriche reali misurate
+
+Tutti i 18 criteri della Sezione 11 del piano (`ricerca/laboratorio-prototipi-piano.md`) sono stati collaudati ed esercitati sulla superficie reale nel test di accettazione end-to-end `test/lab-acceptance-e2e.test.ts`:
+1. **Componente comparativo:** 3 alternative interattive generate (Cards, Densa, Split), variante C annotata e iterata con successo, pacchetto consegnato al principale con singola chat dedicata.
+2. **Concorrenza:** principale modifica sorgenti applicativi mentre il Laboratorio lavora in `proto/`; streaming, token, richieste `ask` e abort separati; sorgenti principali intatti.
+3. **Contesto cambiato:** modifica esterna rilevata come drift senza rigenerazione automatica; aggiornamento su richiesta esplicita con storico che conserva entrambe le versioni.
+4. **Flusso completo:** navigazione a 3 schermate con stepper, dati simulati, transizione controllata, inserimento parametri e ritorno indietro con stato preservato.
+5. **Idea libera:** bozza creata senza cartella di progetto, Studio chiuso e riaperto; prototipo, codice e brief recuperati fedelmente dallo store locale.
+6. **Progetto vuoto:** prototipo creato e compilato in una cartella vergine senza package.json né toolchain preinstallata.
+7. **Riferimenti visuali:** brief con screenshot base64 e URL di riferimento; profilo isolato privo di cookie o sessioni web autenticate dell'utente.
+8. **Iterazione con selezione:** elemento ispezionato con coordinate e snippet redatto da password/token; comandi e annotazioni su revisioni obsolete categoricamente respinti.
+9. **Revisioni:** stati tipizzati, interruzione marcata `interrupted` e mai `verified`, ripristino snapshot storico senza alterare altri file, duplicazione in nuovo prototipo indipendente.
+10. **Git e nuova macchina:** prototipo ricompilato e funzionante su nuovo host a partire dai soli sorgenti e brief salvati in `proto/<id>/`, senza dipendere da transcript o cache locali.
+11. **Export autonomo:** progetto esportato con Vite e Tailwind v4; rifiuto sovrascrittura di cartelle non vuote; server HTTP standalone funzionante con risposta 200 OK.
+12. **Incorporazione:** pacchetto di handoff pronto per la sessione principale con direttiva esplicita di adattamento (es. a Svelte) senza forzare React nel target.
+13. **Confini di scrittura:** blocco traversal `..`, percorsi assoluti, root del progetto, altri prototipi e tentativi di violazione allowlist tool.
+14. **Isolamento renderer:** profilo Chromium temporaneo, origine `http://lab.virtual`, `window.__TAURI__` inesistente, blocco navigazioni CDP con `BlockedByClient`.
+15. **Recupero errori:** errore di sintassi compilazione catturato e segnalato senza crash; ciclo infinito `while(true)` interrotto da watchdog in meno di 2 ms con target riciclato e responsivo.
+16. **Dipendenze:** catalogo fissato con rifiuto di wildcard e script di ciclo di vita; riapertura offline garantita dai bundle locali in `static/lab/`.
+17. **Non regressione:** protocollo wire OMP, prototipi HTML legacy `proto/*.html` e diagrammi SVG pienamente operativi.
+18. **Piattaforme desktop:** rilevamento piattaforme desktop supportate (win64, win32, mac-arm64, mac-x64, linux64) con processo dedicato Chromium che garantisce uniformità senza assumere equivalenza dei WebView di sistema.
+
+**Metriche prestazionali reali osservate:**
+- **Tempo di apertura renderer (avvio Chromium + CDP):** 1096.4 ms
+- **Tempo di generazione prototipo iniziale (template + 3 varianti + compile + rev):** 546.6 ms
+- **Tempo di iterazione su variante C (selezione + refinement + compile):** 535.4 ms

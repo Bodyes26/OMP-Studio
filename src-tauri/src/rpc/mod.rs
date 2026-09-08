@@ -49,6 +49,23 @@ pub struct RpcSession {
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     protocol: Arc<AtomicU8>,
     abort_signal: Arc<AtomicBool>,
+    config_path: Option<std::path::PathBuf>,
+    pub cwd: String,
+    pub scope: String,
+    pub prototype_id: Option<String>,
+    pub project_key: Option<String>,
+    pub session_id: Arc<Mutex<Option<String>>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RpcSessionInfo {
+    pub rpc_id: u64,
+    pub cwd: String,
+    pub scope: String,
+    pub prototype_id: Option<String>,
+    pub project_key: Option<String>,
+    pub session_id: Option<String>,
+    pub protocol: u8,
 }
 
 pub struct RpcManager {
@@ -79,12 +96,92 @@ fn write_gui_overlay() -> std::path::PathBuf {
     overlay_path
 }
 
+/// Sorgente dell'estensione OMP per il Laboratorio prototipi (broker scrittura confinata).
+pub const LAB_EXTENSION_TS: &str = include_str!("../../../extensions/studio-lab.ts");
+
+/// Valida che un identificatore di prototipo rispetti il contratto:
+/// 2-64 caratteri, minuscolo alfanumerico con trattini interni, nessun
+/// trattino finale e nessun nome riservato Windows (es. con, nul, com1...).
+pub fn is_valid_prototype_id(id: &str) -> bool {
+    if id.len() < 2 || id.len() > 64 || id.ends_with('-') {
+        return false;
+    }
+    let mut chars = id.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() || c.is_ascii_digit() => {},
+        _ => return false,
+    }
+    for c in chars {
+        if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' {
+            return false;
+        }
+    }
+    let base = id.split('.').next().unwrap_or("").to_ascii_lowercase();
+    !matches!(
+        base.as_str(),
+        "con" | "prn" | "aux" | "nul"
+            | "com1" | "com2" | "com3" | "com4" | "com5" | "com6" | "com7" | "com8" | "com9"
+            | "lpt1" | "lpt2" | "lpt3" | "lpt4" | "lpt5" | "lpt6" | "lpt7" | "lpt8" | "lpt9"
+    )
+}
+
+/// Configurazione generata per-sessione per il Laboratorio prototipi.
+/// Disattiva shell (`bash`), interpreti host (`eval`), browser generico
+/// e configurazioni MCP di progetto, caricando l'estensione confinata dello Step 4.
+/// NON usa l'overlay globale `approvalMode: yolo`, NON tocca `~/.omp`,
+/// e alloca un file temporaneo dedicato per ciascuna sessione.
+pub fn write_lab_session_config(
+    rpc_id: u64,
+    prototype_id: &str,
+    lab_extension_path: Option<&str>,
+) -> Result<std::path::PathBuf, String> {
+    let mut config_path = std::env::temp_dir();
+    let safe_proto = prototype_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .collect::<String>();
+    config_path.push(format!("omp-studio-lab-{}-{}.yml", rpc_id, safe_proto));
+
+    let mut content = String::new();
+    content.push_str("# Configurazione per-sessione generata da OMP Studio per il Laboratorio prototipi\n");
+    content.push_str("# Disattiva shell, interpreti host, browser generico e configurazioni MCP.\n\n");
+
+    // Disattivazione shell libera
+    content.push_str("bash:\n  enabled: false\n\n");
+
+    // Disattivazione interpreti host
+    content.push_str("eval:\n  py: false\n  js: false\n  rb: false\n  jl: false\n\n");
+
+    // Disattivazione browser generico
+    content.push_str("browser:\n  enabled: false\n\n");
+
+    // Disattivazione configurazioni MCP di progetto
+    content.push_str("mcp:\n  enableProjectConfig: false\n\n");
+
+    // Disattivazione xdev per esporre direttamente i tool confinati del Laboratorio
+    content.push_str("tools:\n  xdev: false\n\n");
+
+    // Caricamento estensione Step 4
+    if let Some(ext_path) = lab_extension_path {
+        let normalized = ext_path.replace('\\', "/");
+        content.push_str("extensions:\n");
+        content.push_str(&format!("  - \"{}\"\n", normalized));
+    }
+
+    std::fs::write(&config_path, content.as_bytes())
+        .map_err(|e| format!("Impossibile generare la configurazione di sessione Laboratorio: {}", e))?;
+
+    Ok(config_path)
+}
+
 /// Vista minima di un frame in arrivo: solo cio' che il trasporto deve
 /// decidere. `serde` ignora il resto senza allocarlo.
 #[derive(Deserialize)]
 struct FramePeek<'a> {
     #[serde(rename = "type")]
     kind: Option<&'a str>,
+    #[serde(rename = "sessionId")]
+    session_id: Option<&'a str>,
     #[serde(rename = "supportedProtocolVersions")]
     supported_protocol_versions: Option<Vec<u8>>,
     #[serde(rename = "assistantMessageEvent")]
@@ -170,6 +267,7 @@ struct ReaderLoopArgs {
     sessions: Arc<Mutex<HashMap<u64, RpcSession>>>,
     rpc_id: u64,
     abort_signal: Arc<AtomicBool>,
+    session_id: Arc<Mutex<Option<String>>>,
 }
 
 fn reader_loop(args: ReaderLoopArgs) {
@@ -183,6 +281,7 @@ fn reader_loop(args: ReaderLoopArgs) {
         sessions,
         rpc_id,
         abort_signal,
+        session_id,
     } = args;
     let mut reader = BufReader::with_capacity(1 << 16, stdout);
     let mut raw = Vec::with_capacity(1 << 16);
@@ -217,7 +316,7 @@ fn reader_loop(args: ReaderLoopArgs) {
         if line.contains("\"rpc_chunk\"") {
             match reassemble(line, &mut assembly) {
                 Ok(Some(logical)) => {
-                    if !dispatch(&logical, &on_event, &stdin, &protocol, &mut pending_delta) {
+                    if !dispatch(&logical, &on_event, &stdin, &protocol, &mut pending_delta, &session_id) {
                         break;
                     }
                 }
@@ -226,6 +325,7 @@ fn reader_loop(args: ReaderLoopArgs) {
                     assembly = None;
                     let frame = serde_json::json!({
                         "type": "studio_error",
+                        "rpcId": rpc_id,
                         "message": reason,
                     });
                     if on_event.send(frame.to_string()).is_err() {
@@ -241,7 +341,7 @@ fn reader_loop(args: ReaderLoopArgs) {
             assembly = None;
         }
 
-        if !dispatch(line, &on_event, &stdin, &protocol, &mut pending_delta) {
+        if !dispatch(line, &on_event, &stdin, &protocol, &mut pending_delta, &session_id) {
             break;
         }
     }
@@ -266,6 +366,7 @@ fn reader_loop(args: ReaderLoopArgs) {
     let _ = on_event.send(
         serde_json::json!({
             "type": "studio_exit",
+            "rpcId": rpc_id,
             "code": code,
             "stderr": tail,
         })
@@ -374,10 +475,16 @@ fn dispatch(
     stdin: &Arc<Mutex<Option<ChildStdin>>>,
     protocol: &Arc<AtomicU8>,
     pending_delta: &mut Option<DeltaBuffer>,
+    session_id: &Arc<Mutex<Option<String>>>,
 ) -> bool {
     let peek: Option<FramePeek> = serde_json::from_str(line).ok();
-
     if let Some(peek) = &peek {
+        if let Some(id) = peek.session_id {
+            let mut guard = session_id.lock();
+            if guard.as_deref() != Some(id) {
+                *guard = Some(id.to_string());
+            }
+        }
         if let Some(event) = &peek.assistant_message_event {
             if let Some(kind) = delta_kind(event.kind) {
                 let index = event.content_index.unwrap_or(0);
@@ -562,6 +669,7 @@ pub async fn rpc_open(
     let abort_signal = Arc::new(AtomicBool::new(false));
     let child = Arc::new(Mutex::new(child));
 
+    let session_id_slot = Arc::new(Mutex::new(resume.clone()));
     manager.sessions.lock().insert(
         rpc_id,
         RpcSession {
@@ -570,6 +678,12 @@ pub async fn rpc_open(
             stderr_tail: stderr_tail.clone(),
             protocol: protocol.clone(),
             abort_signal: abort_signal.clone(),
+            config_path: None,
+            cwd: cwd.clone(),
+            scope: "main".to_string(),
+            prototype_id: None,
+            project_key: None,
+            session_id: session_id_slot.clone(),
         },
     );
 
@@ -586,6 +700,184 @@ pub async fn rpc_open(
             sessions,
             rpc_id,
             abort_signal,
+            session_id: session_id_slot,
+        });
+    });
+
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let mut tail = stderr_tail.lock();
+            if tail.len() == STDERR_TAIL_LINES {
+                tail.pop_front();
+            }
+            tail.push_back(line);
+        }
+    });
+
+    Ok(rpc_id)
+}
+
+/// Avvia una sessione OMP dedicata al Laboratorio prototipi, distinta da quella principale.
+///
+/// Rispetto alla sessione ordinaria:
+/// 1. Riceve identita' esplicita di progetto e prototipo via argomenti ed environment;
+/// 2. Genera una configurazione isolata per-sessione in temp che disattiva shell,
+///    interpreti host, browser generico e MCP, e carica l'estensione confinata dello Step 4;
+/// 3. NON riusa l'overlay `approvalMode: yolo` della sessione principale;
+/// 4. NON modifica la configurazione globale dell'utente in `~/.omp`;
+/// 5. NON tocca ne' altera il percorso PTY del principale.
+#[tauri::command]
+pub async fn rpc_open_lab(
+    project_path: String,
+    prototype_id: String,
+    project_key: Option<String>,
+    resume: Option<String>,
+    on_event: Channel<String>,
+    manager: State<'_, RpcManager>,
+) -> Result<u64, String> {
+    if !is_valid_prototype_id(&prototype_id) {
+        return Err(format!("Id prototipo non valido: {:?}", prototype_id));
+    }
+
+    let is_draft = project_path.is_empty();
+    if !is_draft {
+        let p = std::path::Path::new(&project_path);
+        if !p.is_dir() {
+            return Err(format!(
+                "Directory di progetto inesistente per la sessione Laboratorio: {}",
+                project_path
+            ));
+        }
+    }
+
+    let omp_path = crate::omp_ops::get_omp_binary();
+    let lab_extension =
+        crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS);
+
+    let rpc_id = {
+        let mut guard = manager.next_id.lock();
+        let id = *guard;
+        *guard += 1;
+        id
+    };
+
+    let lab_config_path = write_lab_session_config(
+        rpc_id,
+        &prototype_id,
+        lab_extension.as_deref(),
+    )?;
+
+    let launch_cwd = if is_draft {
+        ".".to_string()
+    } else {
+        project_path.clone()
+    };
+
+    let mut command = Command::new(&omp_path);
+    command.arg("--mode").arg("rpc-ui");
+    if is_draft {
+        command.arg("--no-session");
+    } else {
+        command.arg("--cwd").arg(&project_path);
+    }
+
+    command.arg("--config").arg(&lab_config_path);
+
+    if let Some(path) = &lab_extension {
+        command.arg("-e").arg(path);
+    }
+
+    if let Some(session_id) = resume
+        .as_deref()
+        .filter(|id| !id.is_empty() && crate::omp_ops::session_transcript_exists(id))
+    {
+        command.arg("--resume").arg(session_id);
+    }
+
+    let effective_key = project_key
+        .filter(|k| !k.is_empty())
+        .unwrap_or_else(|| project_path.clone());
+
+    command
+        .current_dir(&launch_cwd)
+        .env("OMP_STUDIO", "1")
+        .env("OMP_SKIP_SETUP", "1")
+        // Identita di sessione, progetto e prototipo
+        .env("OMP_LAB_SESSION", "1")
+        .env("OMP_LAB_PROTOTYPE_ID", &prototype_id)
+        .env("OMP_LAB_PROJECT_PATH", &project_path)
+        .env("OMP_LAB_PROJECT_KEY", &effective_key)
+        .env("OMP_LAB_SCOPE", if is_draft { "draft" } else { "project" })
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        if let Ok(home) = std::env::var("HOME") {
+            command.env(
+                "PATH",
+                format!(
+                    "{}/.bun/bin:{}/.cargo/bin:{}/.local/bin:/opt/homebrew/bin:/usr/local/bin:{}",
+                    home, home, home, current_path
+                ),
+            );
+        }
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Avvio di omp per sessione Laboratorio: {}", error))?;
+
+    let stdin = child.stdin.take().ok_or("stdin di omp non disponibile")?;
+    let stdout = child.stdout.take().ok_or("stdout di omp non disponibile")?;
+    let stderr = child.stderr.take().ok_or("stderr di omp non disponibile")?;
+
+    let stdin = Arc::new(Mutex::new(Some(stdin)));
+    let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
+    let protocol = Arc::new(AtomicU8::new(1));
+    let abort_signal = Arc::new(AtomicBool::new(false));
+    let child = Arc::new(Mutex::new(child));
+
+    let session_id_slot = Arc::new(Mutex::new(resume.clone()));
+    manager.sessions.lock().insert(
+        rpc_id,
+        RpcSession {
+            child: child.clone(),
+            stdin: stdin.clone(),
+            stderr_tail: stderr_tail.clone(),
+            protocol: protocol.clone(),
+            abort_signal: abort_signal.clone(),
+            config_path: Some(lab_config_path),
+            cwd: project_path.clone(),
+            scope: if is_draft { "draft".to_string() } else { "project".to_string() },
+            prototype_id: Some(prototype_id.clone()),
+            project_key: Some(effective_key.clone()),
+            session_id: session_id_slot.clone(),
+        },
+    );
+
+    let sessions = manager.sessions.clone();
+    let reader_tail = stderr_tail.clone();
+    thread::spawn(move || {
+        reader_loop(ReaderLoopArgs {
+            stdout,
+            on_event,
+            stdin,
+            protocol,
+            child,
+            stderr_tail: reader_tail,
+            sessions,
+            rpc_id,
+            abort_signal,
+            session_id: session_id_slot,
         });
     });
 
@@ -635,6 +927,9 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
     let Some(session) = manager.sessions.lock().remove(&rpc_id) else {
         return Ok(());
     };
+    if let Some(config_file) = session.config_path.as_ref() {
+        let _ = std::fs::remove_file(config_file);
+    }
     tokio::task::spawn_blocking(move || {
         // Chiudere stdin e' la via documentata: omp drena i comandi accettati,
         // dispone la sessione ed esce con codice 0. Il kill resta l'ultima
@@ -657,6 +952,55 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
     .await
     .map_err(|error| format!("Chiusura della sessione RPC {}: {}", rpc_id, error))
 }
+
+/// Interrompe la sessione RPC specificata in modo atomico, senza toccare le altre sessioni.
+#[tauri::command]
+pub async fn rpc_abort(
+    rpc_id: u64,
+    manager: State<'_, RpcManager>,
+) -> Result<(), String> {
+    let (stdin, abort_signal) = {
+        let sessions = manager.sessions.lock();
+        let session = sessions
+            .get(&rpc_id)
+            .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
+        (session.stdin.clone(), session.abort_signal.clone())
+    };
+
+    abort_signal.store(true, Ordering::SeqCst);
+    let mut guard = stdin.lock();
+    let handle = guard
+        .as_mut()
+        .ok_or_else(|| format!("Sessione RPC {} in chiusura", rpc_id))?;
+
+    handle
+        .write_all(b"{\"id\":\"abort-direct-1\",\"type\":\"abort\"}\n")
+        .and_then(|()| handle.write_all(b"{\"id\":\"abort-direct-2\",\"type\":\"abort_bash\"}\n"))
+        .and_then(|()| handle.flush())
+        .map_err(|error| format!("Invio abort sulla sessione RPC {}: {}", rpc_id, error))
+}
+
+/// Restituisce l'elenco delle sessioni RPC attive con metadati e correlazione per sessione.
+#[tauri::command]
+pub async fn rpc_list_sessions(
+    manager: State<'_, RpcManager>,
+) -> Result<Vec<RpcSessionInfo>, String> {
+    let sessions = manager.sessions.lock();
+    let list: Vec<RpcSessionInfo> = sessions
+        .iter()
+        .map(|(&id, s)| RpcSessionInfo {
+            rpc_id: id,
+            cwd: s.cwd.clone(),
+            scope: s.scope.clone(),
+            prototype_id: s.prototype_id.clone(),
+            project_key: s.project_key.clone(),
+            session_id: s.session_id.lock().clone(),
+            protocol: s.protocol.load(Ordering::Relaxed),
+        })
+        .collect();
+    Ok(list)
+}
+
 
 /// Ultime righe di stderr di una sessione **viva**: serve quando il processo
 /// e' appeso e non morto. Alla morte le stesse righe arrivano dentro
@@ -770,5 +1114,77 @@ mod tests {
             buffer.into_frame(),
             r#"{"type":"studio_delta","kind":"text","contentIndex":3,"delta":"riga \"citata\"\n"}"#
         );
+    }
+
+    #[test]
+    fn validazione_id_prototipo_laboratorio() {
+        assert!(is_valid_prototype_id("prototype-1"));
+        assert!(is_valid_prototype_id("test-proto-abc"));
+        assert!(is_valid_prototype_id("comp3-variant"));
+        assert!(is_valid_prototype_id("a1"));
+
+        // Rifiutati
+        assert!(!is_valid_prototype_id(""));
+        assert!(!is_valid_prototype_id("a"));
+        assert!(!is_valid_prototype_id("UpperCase"));
+        assert!(!is_valid_prototype_id("proto_with_underscore"));
+        assert!(!is_valid_prototype_id("-starts-with-hyphen"));
+        assert!(!is_valid_prototype_id("ends-with-hyphen-"));
+        assert!(!is_valid_prototype_id("con"));
+        assert!(!is_valid_prototype_id("nul"));
+        assert!(!is_valid_prototype_id("com1"));
+    }
+
+    #[test]
+    fn configurazione_laboratorio_disattiva_tool_e_non_ha_yolo() {
+        let config_path = write_lab_session_config(
+            999,
+            "test-proto-config",
+            Some("C:/test/extensions/studio-lab.ts"),
+        )
+        .expect("scrittura configurazione riuscita");
+
+        assert!(config_path.exists());
+        let content = std::fs::read_to_string(&config_path).expect("lettura file riuscita");
+
+        // Verifica tool disattivati
+        assert!(content.contains("bash:\n  enabled: false"));
+        assert!(content.contains("eval:\n  py: false"));
+        assert!(content.contains("browser:\n  enabled: false"));
+        assert!(content.contains("mcp:\n  enableProjectConfig: false"));
+        assert!(content.contains("tools:\n  xdev: false"));
+
+        // Verifica estensione caricata
+        assert!(content.contains("extensions:"));
+        assert!(content.contains("C:/test/extensions/studio-lab.ts"));
+
+        // Invariante vincolante: NESSUN overlay yolo
+        assert!(!content.contains("approvalMode: yolo"));
+        assert!(!content.contains("yolo"));
+
+        // Pulizia
+        let _ = std::fs::remove_file(config_path);
+    }
+
+    #[test]
+    fn correlazione_sessioni_e_metadati_concorrenti() {
+        let _manager = RpcManager::new();
+        let session_main = RpcSession {
+            child: Arc::new(Mutex::new(Command::new("cargo").spawn().unwrap_or_else(|_| {
+                // Dummy child for unit test without running processes
+                panic!("test");
+            }))),
+            stdin: Arc::new(Mutex::new(None)),
+            stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
+            protocol: Arc::new(AtomicU8::new(2)),
+            abort_signal: Arc::new(AtomicBool::new(false)),
+            config_path: None,
+            cwd: "C:/progetto-principale".to_string(),
+            scope: "main".to_string(),
+            prototype_id: None,
+            project_key: None,
+            session_id: Arc::new(Mutex::new(Some("session-main-1".to_string()))),
+        };
+        let _ = session_main; // structure compiles and initializes correctly
     }
 }

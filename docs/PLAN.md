@@ -571,6 +571,79 @@ decisione non e' stata applicata invece di darla per fatta.
 
 ---
 
+## Piano Laboratorio Prototipi Frontend — Gate R24
+
+Spazio GUI dedicato dentro OMP Studio per ideare, confrontare 3-5 alternative e iterare
+flussi frontend completi in React 19 + Tailwind v4 con dati simulati, in modo isolato e
+concorrente rispetto alla sessione principale.
+
+- [x] **Step 1 — Contratti tipizzati** (`src/lib/lab/contracts.ts`)
+  Identità dei prototipi, collocazione progetto vs bozza, manifest, contratti delle revisioni
+  con stati tipizzati (`rendering-ready`, `verified`, `interrupted`), eventi del renderer,
+  comandi tipizzati e involucri per contesto e annotazioni visuali.
+- [x] **Step 2 — Persistenza prototipi** (`src/lib/lab/storage.ts`)
+  Struttura `proto/<id>/` nel progetto e `lab/drafts/<id>/` nell'archivio locale di Studio;
+  scritture atomiche con file temporanei e rename crash-safe; validazione rigorosa dei percorsi.
+- [x] **Step 3 — Revisioni locali** (`src/lib/lab/revisions.ts`)
+  Apertura per richiesta, chiusura con esito esplicito, scatto di snapshot atomici dei soli file di
+  testo del prototipo; ripristino senza cancellazione della storia; duplicazione con tracciamento
+  della provenienza fuori da Git.
+- [x] **Step 4 — Broker di scrittura confinata e allowlist tool** (`extensions/studio-lab.ts`)
+  Estensione autonoma per OMP con hook `tool_call` fail-closed; allowlist di 8 soli tool
+  (`lab_write_file`, `lab_read_file`, `lab_list_files`, `lab_delete_file`, `task`, `hub`, `todo`, `ask`);
+  blocco di shell, interpreti, scritture arbitrarie, browser host, debugger e MCP; validazione su
+  percorsi reali (`realpathSync`) contro traversal `..`, percorsi assoluti, root e symlink esterni.
+- [x] **Step 5 — Prova adversariale permessi (GATE BLOCCANTE)**
+  Verifica della tenuta dei confini: orchestratore, subagenti autori e discendenza rimangono confinati
+  nel solo prototipo assegnato; tentativi di directory traversal, scritture fuori perimetro ed
+  escalation dei permessi vengono categoricamente bloccati.
+- [x] **Step 6 — Sessione Lab dedicata** (`src-tauri/src/rpc/mod.rs`, `client.ts`, `session.svelte.ts`)
+  Canale RPC dedicato per il Laboratorio (`rpc_open_lab`) con sessione isolata e configurazione
+  per-sessione; iniezione sicura dell'estensione `-e extensions/studio-lab.ts`.
+- [x] **Step 7 — Concorrenza principale e Laboratorio (GATE BLOCCANTE)**
+  Esecuzione simultanea nello stesso progetto; separazione ermetica di chiavi sessione, stream
+  dei token, richieste interattive (`ask`), code comandi e segnali di abort (interrompere il Lab
+  non tocca il principale e viceversa).
+- [x] **Step 8 — Catalogo dipendenze e compiler locale** (`src/lib/lab/catalog.ts`, `compiler.ts`)
+  Catalogo a versioni fissate (React 19.2.8, Tailwind v4.3.3, Lucide, Radix, Recharts, Motion);
+  compilatore `esbuild-wasm` con resolver a VFS chiuso; bundle fidati precompilati in `static/lab/`
+  per garantire riapertura ed esecuzione al 100% offline senza CDN esterna; compilazione in worker thread.
+- [x] **Step 9 — Renderer Chromium gestito e policy di rete** (`src/lib/lab/renderer.ts`)
+  Processo Chrome for Testing dedicato con profilo temporaneo isolato; origine virtuale `http://lab.virtual`;
+  assenza di bridge `window.__TAURI__`; policy di rete CDP nel controller che intercetta e blocca
+  `location.href` e richieste esterne con `BlockedByClient`; watchdog cicli infiniti con terminazione
+  in meno di 2 ms (`Runtime.terminateExecution`) e riciclo del target.
+- [x] **Step 10 — Selezione elementi e annotazioni legate alla revisione** (`src/lib/lab/visual-tools.ts`)
+  Alternanza interazione/selezione; ispezione coordinate e bounding box con redazione automatica di
+  password e token; annotazioni testuali vincolate all'ID revisione osservata; blocco categorico di
+  riferimenti su revisioni obsolete.
+- [x] **Step 11 — Contesto stabile dal progetto** (`src/lib/lab/context.ts`)
+  Snapshot congelato del working tree (comprese modifiche non committate dell'utente); esclusione
+  rigorosa di file segreti (`.env`, chiavi private, `.git`); verifica di coerenza su scritture concorrenti;
+  rilevamento deriva (drift) e aggiornamento solo su richiesta esplicita senza rigenerazione automatica.
+- [x] **Step 12 — Orchestrazione del prototipo** (`src/lib/lab/orchestration.ts`)
+  Template tecnico di sistema istantaneo senza chiamate a modello; generazione 3-5 varianti o flussi
+  multipagina; isolamento CSS tramite `data-variant`; subagenti autori pianificati su percorsi separati;
+  anteprima disponibile come `rendering-ready` prima della fine della verifica mirata.
+- [x] **Step 13 — Vista Laboratorio in Studio** (`src/lib/lab/LabView.svelte`, `LabVisualToolbar.svelte`, `LabContextPanel.svelte`)
+  Interfaccia completa per la colonna centrale di Studio: canvas di anteprima con controlli responsive,
+  chat contestuale per prototipo, timeline revisioni e cassetto per contesto, drift ed esportazione.
+- [x] **Step 14 — Export autonomo e consegna al principale** (`src/lib/lab/export-handoff.ts`)
+  Esportazione come progetto autonomo React standard con configurazione Vite + Tailwind v4; nessuna
+  sovrascrittura accidentale; pacchetto di handoff strutturato per il principale con esplicitazione
+  dei limiti delle simulazioni e rispetto dello stack target (anche Svelte) senza auto-merge.
+- [x] **Step 15 — Migrazione preesistente e compatibilità legacy** (`src/lib/lab/migration.ts`)
+  I vecchi prototipi HTML `proto/*.html` restano leggibili e apribili senza perdita; migrazione reversibile
+  della regola `.gitignore` per consentire il versionamento di `proto/<id>/` senza toccare le righe dell'utente.
+- [x] **Step 16 — GATE: Accettazione end-to-end e documentazione** (`test/lab-acceptance-e2e.test.ts`)
+  Verifica rigorosa di tutti i 18 criteri della Sezione 11 del piano con misurazioni reali dei tempi di
+  apertura (1096 ms), generazione (546 ms) e iterazione (535 ms); aggiornamento completo della documentazione.
+
+**Gate Laboratorio Prototipi (Gate R24):** Tutti i 16 step completati con successo; 18 criteri osservabili
+verificati su superficie reale; test suite verde (547 test passati); perimetro chiuso e confini rispettati.
+
+---
+
 ## Cosa NON entra in questo piano
 
 In linea con i principi di `PRODUCT.md`:

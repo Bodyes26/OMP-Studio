@@ -8,8 +8,7 @@ dell'agente come cittadino di prima classe, e ci mette un editor accanto.
 
 Una sola finestra, tre colonne flessibili:
 - **Sinistra**: Albero dei file, pannello Git (branch, diff, commit, history) e Agente (Coda task, Storico sessioni con ricerca full-text e scheda Regole con censimento di regole di contesto e skill più proposte nate dall'attrito ricorrente).
-- **Centro**: Editor Monaco multi-modello (con visualizzatore diff affiancato, sintassi estesa, ripristino cursore/scroll), Browser Studio live integrato per visualizzare e controllare Chromium gestito o Chrome Relay senza finestre esterne (con takeover immediato, modalità privata, gestione dialoghi/file e inspector mirato), Whiteboard per diagrammi Mermaid (`studio_diagram`), Anteprima prototipi UI HTML/SVG in sandbox isolata (`studio_preview`), e Task Editor a sezioni con ruoli, thinking effort, direttive speciali e allegati visivi.
-- **Destra**: Superficie duale a schede `TERMINAL | GUI` (Terminale xterm.js Canvas + ConPTY/POSIX PTY ad alte prestazioni, e Chat GUI nativa Svelte 5 su `omp --mode rpc-ui` con 30+ card tool dedicate, raggruppamento semantico tool/thinking, gestione subagent e comandi slash).
+- **Centro**: Editor Monaco multi-modello (con visualizzatore diff affiancato, sintassi estesa, ripristino cursore/scroll), Browser Studio live integrato per visualizzare e controllare Chromium gestito o Chrome Relay senza finestre esterne (con takeover immediato, modalità privata, gestione dialoghi/file e inspector mirato), Laboratorio prototipi frontend React 19 + Tailwind v4 per ideare, confrontare 3-5 alternative e iterare flussi multischermata con dati simulati e annotazioni visuali, Whiteboard per diagrammi Mermaid (`studio_diagram`), Anteprima prototipi UI HTML/SVG in sandbox isolata (`studio_preview`), e Task Editor a sezioni con ruoli, thinking effort, direttive speciali e allegati visivi.
 
 In alto, la barra dei progetti permette lo switch istantaneo tra workspace con ordine manuale stabile o per priorità/MRU/alfabetico, badge numerico della coda e indicatore di stato reattivo per ogni agente.
 
@@ -61,6 +60,7 @@ direttamente al progetto attivo con un click.
 
 **8. Testare e guidare il browser dell'agente direttamente a schermo.** Quando l'agente usa il browser, Studio non apre finestre esterne che rubano il fuoco: la pagina compare dal vivo nella colonna centrale con stream video fluido. L'utente può interagire con mouse o tastiera per interrompere atomicamente l'agente e assumere il controllo, attivare la modalità privata per inserire credenziali o superare CAPTCHA senza che alcun dato o screenshot finisca nel modello, ispezionare elementi, log console e chiamate di rete senza aprire DevTools completi, e collegare una singola scheda del proprio Chrome personale per riusare sessioni autenticate.
 
+**9. Esplorare e iterare UX/UI con frontend React reali senza sporcare il progetto.** Creare prototipi interattivi non richiede di alterare l'albero sorgente del progetto o di allestire toolchain esterne. Il Laboratorio prototipi permette di generare 3-5 varianti confrontabili o flussi multipagina completi in React 19 e Tailwind v4 con dati e azioni simulate, lavorando in concorrenza con l'agente principale. L'utente interagisce con il renderer Chromium isolato, seleziona elementi, annota feedback legati a revisioni temporali certe, recupera stati precedenti, esporta l'esperimento come progetto Vite autonomo o ne affida l'adattamento (anche verso Svelte o altri stack) alla sessione principale tramite pacchetti di handoff strutturati.
 **Successo si misura così:** passare da progetto a progetto non richiede di ricordare
 nulla; conoscere la quota residua non richiede di interrompere niente; il prossimo
 prompt resta nella coda del progetto; riprendere una sessione di ieri richiede un click;
@@ -78,6 +78,9 @@ ispezionare il codice o un'anteprima avviene direttamente nel flusso di lavoro.
   processo per progetto, e il passaggio riapre la **stessa** sessione con `--resume`.
   Studio non reimplementa l'agente: nessun client ACP verso terzi, nessuna logica di modello
   o prompt hardcoded dentro l'app.
+- **Non è un generatore full-stack.** Il Laboratorio prototipi è dedicato all'esplorazione
+  frontend in React + Tailwind v4 con dati simulati in-memory: non genera server applicativi,
+  database, autenticazioni reali o integrazioni operative con backend di produzione.
 - **Non è un servizio cloud né un dashboard di analytics.** Nessun server remoto, nessun
   account obbligatorio oltre a quelli configurati in `omp`. L'usage risponde a "quanto resta e
   quando si resetta", non produce reportistica aziendale.

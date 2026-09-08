@@ -3,6 +3,7 @@
 	import Terminal from '$lib/terminal/Terminal.svelte';
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
+	import { sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
 	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import { IconNewChat } from '$lib/icons';
@@ -17,6 +18,7 @@
 	import PreviewViewer from '$lib/components/PreviewViewer.svelte';
 	import BrowserViewer from '$lib/components/BrowserViewer.svelte';
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
+	import LabView from '$lib/lab/LabView.svelte';
 	import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
 	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
 	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
@@ -46,6 +48,7 @@
 	let diagramOpen = $state(false);
 	let previewFile = $state<string | null>(null);
 	let browserOpen = $state(false);
+	let labOpen = $state(false);
 	let agentAnnouncement = $state('');
 	const prevAgentStates = new Map<string, string>();
 
@@ -155,6 +158,7 @@
 	// Passare da una superficie all'altra chiude il processo e lo riapre con --resume.
 	const terminalSessions = new Map<string, import('$lib/terminal/terminal').TerminalSession>();
 	const agentSessions = new Map<string, AgentSession>();
+	sessionRegistry.setFactory((config) => new AgentSession(config));
 	let terminalMeta = $state<Record<string, { inputPending: boolean; sessionId: string | null }>>({});
 	let terminalBusy = $state<Record<string, boolean>>({});
 	let switchingSurface = $state<Record<string, boolean>>({});
@@ -175,11 +179,8 @@
 
 	const guiHosts = $derived.by(() => {
 		const list: ProviderHost[] = [];
-		for (const project of projectStore.projects) {
-			const session = agentSessions.get(project.id);
-			if (!session) continue;
-
-			// Un progetto consuma quota GUI solo se sta effettivamente generando
+		for (const session of sessionRegistry.getAllSessions()) {
+			// Un progetto o prototipo consuma quota GUI solo se sta effettivamente generando
 			// o se ha subagenti in esecuzione in questo momento.
 			const isGenerating = session.isStreaming || session.agentState === 'working';
 			const activeSubagents = (session.subagents || []).filter(
@@ -190,8 +191,12 @@
 				continue;
 			}
 
-			const projectName = project.label?.trim() || project.name;
-
+			const project = projectStore.projects.find((p) => p.id === session.projectKey || p.path === session.cwd);
+			const baseName = project?.label?.trim() || project?.name || (session.scope === 'lab' ? 'Laboratorio' : 'Progetto');
+			const projectName = session.scope === 'lab' && session.prototypeId
+				? `${baseName} [Lab: ${session.prototypeId}]`
+				: baseName;
+			const projectPath = project?.path || session.cwd;
 			// 1. Modello primario attivo nella sessione GUI (solo se sta generando)
 			if (isGenerating && session.model) {
 				let provider = session.model.provider || '';
@@ -207,7 +212,7 @@
 						model: modelId,
 						host: 'OMP Studio',
 						project: projectName,
-						project_path: project.path,
+						project_path: projectPath,
 						last_active_ms: Date.now()
 					});
 				}
@@ -223,7 +228,7 @@
 							model: parts.slice(1).join('/'),
 							host: 'OMP Studio',
 							project: projectName,
-							project_path: project.path,
+							project_path: projectPath,
 							last_active_ms: Date.now()
 						});
 					}
@@ -364,10 +369,15 @@
 	function agentSessionFor(p: Project): AgentSession {
 		let session = agentSessions.get(p.id);
 		if (!session) {
-			session = new AgentSession(p.path);
+			session = sessionRegistry.getOrCreateMainSession(p);
 			agentSessions.set(p.id, session);
 		}
 		return session;
+	}
+
+	function labSessionFor(project: Project | string, prototypeId: string): AgentSession {
+		const p = typeof project === 'string' ? { id: project, path: project } : project;
+		return sessionRegistry.getOrCreateLabSession(p, prototypeId);
 	}
 
 	/**
@@ -418,28 +428,8 @@
 	// Risposte rapide arrivate dalla finestra Companion o da scorciatoia esterna
 	$effect(() => {
 		let unlisten: (() => void) | undefined;
-		void listen<{
-			projectId: string;
-			response: {
-				action: 'select' | 'confirm' | 'wizard' | 'cancel';
-				value?: string;
-				confirmed?: boolean;
-				plan?: import('$lib/agent/askAnswers').AskFlushStep[];
-			};
-		}>('studio-respond-ui', async (event) => {
-			const { projectId, response } = event.payload;
-			const session = agentSessions.get(projectId);
-			if (session && session.pendingUi) {
-				if (response.action === 'select' && typeof response.value === 'string') {
-					await session.answerSelect(response.value);
-				} else if (response.action === 'confirm' && typeof response.confirmed === 'boolean') {
-					await session.answerConfirm(response.confirmed);
-				} else if (response.action === 'wizard' && response.plan) {
-					await session.submitAskWizard(response.plan);
-				} else if (response.action === 'cancel') {
-					await session.cancelPendingUi();
-				}
-			}
+		void listen<UiResponsePayload>('studio-respond-ui', async (event) => {
+			await sessionRegistry.routeUiResponse(event.payload);
 		}).then((fn) => { unlisten = fn; });
 		return () => { unlisten?.(); };
 	});
@@ -471,8 +461,8 @@
 		const _steering = settingsStore.general.steeringMode;
 		const _followUp = settingsStore.general.followUpMode;
 		const _interrupt = settingsStore.general.interruptMode;
-		for (const session of agentSessions.values()) {
-			void session.applyQueueModes();
+		for (const session of sessionRegistry.getAllSessions()) {
+			void session.applyQueueModes?.();
 		}
 	});
 
@@ -1089,10 +1079,8 @@
 
 	/** Il processo omp muore con la scheda: senza questo resta orfano. */
 	function disposeAgentSession(projectId: string) {
-		const session = agentSessions.get(projectId);
-		if (!session) return;
 		agentSessions.delete(projectId);
-		void session.close();
+		void sessionRegistry.disposeProjectSessions(projectId);
 	}
 
 	onMount(() => {
@@ -1105,10 +1093,8 @@
 	});
 
 	onDestroy(() => {
-		for (const session of agentSessions.values()) {
-			void session.close();
-		}
 		agentSessions.clear();
+		void sessionRegistry.clearAll();
 	});
 
 	function handleGitPanelDiff(filePath: string, mode: 'working' | 'commit', hash?: string) {
@@ -1507,6 +1493,11 @@
 	function handleKeydown(e: KeyboardEvent) {
 		// Esc chiude il dialogo piu' esterno, dal piu' recente al piu' vecchio.
 		if (e.key === 'Escape') {
+			if (labOpen) {
+				e.preventDefault();
+				labOpen = false;
+				return;
+			}
 			if (shortcutsModalStore.isOpen) {
 				e.preventDefault();
 				shortcutsModalStore.close();
@@ -1569,6 +1560,9 @@
 		} else if (e.key.toLowerCase() === 'l') {
 			e.preventDefault();
 			settingsStore.cycleLayoutMode();
+		} else if (e.key.toLowerCase() === 'p') {
+			e.preventDefault();
+			labOpen = !labOpen;
 		} else if (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'r') {
 			e.preventDefault();
 			void companionStore.toggleCompanion();
@@ -1604,6 +1598,8 @@
 		onSettingsClick={(section) => settingsStore.openSection(section)}
 		onSetupClick={openSetup}
 		onQueueClick={() => queueOpen = !queueOpen}
+		onLabClick={() => (labOpen = !labOpen)}
+		labActive={labOpen}
 		{setupIncomplete}
 		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, follow)}
 		onEditTask={openTaskOfProject}
@@ -1628,7 +1624,16 @@
 		{agentAnnouncement}
 	</div>
 
-	{#if projectStore.projects.length === 0}
+	{#if labOpen}
+		<LabView
+			projectPath={projectStore.activeProject?.path || ''}
+			projectKey={projectStore.activeProject?.id || ''}
+			projectName={projectStore.activeProject?.label?.trim() || projectStore.activeProject?.name || 'Bozza locale'}
+			agentState={projectStore.activeProject?.agentState || 'idle'}
+			onBackToMain={() => (labOpen = false)}
+			onClose={() => (labOpen = false)}
+		/>
+	{:else if projectStore.projects.length === 0}
 		<main class="empty-workspace">
 			<EmptyState
 				variant="no-projects"
@@ -1647,6 +1652,7 @@
 				shortcuts={[
 					{ key: 'Ctrl+Alt+N', label: 'Apri cartella progetto', action: () => pickerOpen = true },
 					{ key: 'Ctrl+Alt+S', label: 'Nuova chat rapida', action: () => projectStore.openScratchpad() },
+					{ key: 'Ctrl+Alt+P', label: 'Laboratorio prototipi', action: () => (labOpen = true) },
 					{ key: 'Ctrl+Alt+U', label: 'Quota e consumi API', action: () => usageOpen = true },
 					{ key: 'Ctrl+Alt+,', label: 'Impostazioni Studio', action: () => settingsStore.openSection() },
 					{ key: 'Ctrl+Alt+M', label: 'Modelli e provider', action: () => settingsStore.openSection('models') }
