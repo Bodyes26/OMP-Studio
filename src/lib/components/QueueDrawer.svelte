@@ -114,22 +114,32 @@
 					{@const blocked = !canRunTask?.(group.project.id)}
 					<div class="group" role="listitem">
 						<div class="group-header">
-							<span class="group-dot" style="--proj-hue: {projectHue(group.project)}">{projectLabel(group.project)}</span>
-							<span class="group-name" title={group.project.name}>{group.project.name}</span>
-							<span class="group-count">{group.tasks.length}</span>
-						</div>
-						<div class="group-sub">
-							<span class="group-reason" title={reason}>{reason}</span>
-							<button
-								type="button"
-								class="run-first"
-								disabled={blocked}
-								title={blocked ? reason : `Avvia: ${taskTitle(group.tasks[0])}`}
-								aria-label={`Avvia il primo task in coda per ${group.project.name}`}
-								onclick={(event) => runTask(event, group.project.id, group.tasks[0].id)}
+							<span
+								class="group-chip"
+								style="--proj-hue: {projectHue(group.project)}"
+								title={group.project.label ? `Sigla: ${group.project.label}` : `Progetto: ${group.project.name}`}
 							>
-								Avvia il primo
-							</button>
+								{projectLabel(group.project)}
+							</span>
+							<div class="group-info">
+								<div class="group-title-row">
+									<span class="group-name" title={group.project.name}>{group.project.name}</span>
+									<span class="group-count">{group.tasks.length}</span>
+								</div>
+								<div class="group-sub">
+									<span class="group-reason" title={reason}>{reason}</span>
+									<button
+										type="button"
+										class="run-first"
+										disabled={blocked}
+										title={blocked ? reason : `Avvia: ${taskTitle(group.tasks[0])}`}
+										aria-label={`Avvia il primo task in coda per ${group.project.name}`}
+										onclick={(event) => runTask(event, group.project.id, group.tasks[0].id)}
+									>
+										Avvia il primo
+									</button>
+								</div>
+							</div>
 						</div>
 						<div class="task-list" class:queue-cards={isCardView} role="list" aria-label={`Task in coda per ${group.project.name}`}>
 							{#each group.tasks as task (task.id)}
@@ -290,23 +300,47 @@
 
 	.group-header {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: var(--space-2);
 	}
 
-	.group-dot {
-		width: 20px;
-		height: 20px;
-		flex-shrink: 0;
-		border-radius: var(--radius-full);
-		display: flex;
+	.group-chip {
+		display: inline-flex;
 		align-items: center;
 		justify-content: center;
+		height: 20px;
+		min-width: 22px;
+		max-width: 96px;
+		padding: 0 6px;
+		border-radius: var(--radius-sm);
 		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
 		color: var(--on-project);
-		font-size: 9px;
+		font-family: var(--font-mono);
+		font-size: 10px;
 		font-weight: 700;
+		letter-spacing: 0.02em;
+		line-height: 1;
 		text-transform: uppercase;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+
+	.group-info {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.group-title-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
 	}
 
 	.group-name {
@@ -318,6 +352,7 @@
 		color: var(--ink);
 		font-size: var(--text-sm);
 		font-weight: 500;
+		line-height: 20px;
 	}
 
 	.group-count {
@@ -337,11 +372,10 @@
 	}
 
 	.group-sub {
-		margin-top: var(--space-1);
-		padding-left: 28px;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		min-width: 0;
 	}
 
 	.group-reason {
@@ -352,6 +386,7 @@
 		white-space: nowrap;
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
+		line-height: 22px;
 	}
 
 	.run-first {
