@@ -32,7 +32,8 @@
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick, onLabClick,
 		setupIncomplete = false,
 		labActive = false,
-		onRunTask, onEditTask, onNewTask, canRunTask, runReason
+		onRunTask, onEditTask, onNewTask, canRunTask, runReason,
+		onRequestCloseProject, onRequestCloseApp
 	} = $props<{
 		onUsageClick?: () => void;
 		onNewProject?: () => void;
@@ -51,6 +52,8 @@
 		onNewTask?: (projectId: string) => void;
 		canRunTask?: (projectId: string) => boolean;
 		runReason?: (projectId: string) => string;
+		onRequestCloseProject?: (projectId: string) => void;
+		onRequestCloseApp?: () => void;
 	}>();
 
 	const PROJECT_BAR_ORDER_OPTIONS: { value: ProjectBarOrder; label: string }[] = [
@@ -401,7 +404,11 @@
 
 	function handleClose(e: MouseEvent) {
 		e.stopPropagation();
-		appWindow.close().catch(err => console.error("Close error:", err));
+		if (onRequestCloseApp) {
+			onRequestCloseApp();
+		} else {
+			appWindow.close().catch(err => console.error("Close error:", err));
+		}
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -747,6 +754,7 @@
 		{onQueueClick}
 		{canRunTask}
 		{runReason}
+		{onRequestCloseProject}
 	/>
 {/if}
 

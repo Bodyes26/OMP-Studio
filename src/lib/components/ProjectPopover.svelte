@@ -56,6 +56,7 @@
 		onEditTask?: (projectId: string, taskId: string) => void;
 		onNewTask?: (projectId: string) => void;
 		onQueueClick?: () => void;
+		onRequestCloseProject?: (projectId: string) => void;
 		canRunTask?: (projectId: string) => boolean;
 		runReason?: (projectId: string) => string;
 	}
@@ -72,6 +73,7 @@
 		onEditTask,
 		onNewTask,
 		onQueueClick,
+		onRequestCloseProject,
 		canRunTask,
 		runReason
 	}: Props = $props();
@@ -207,8 +209,13 @@
 		projectStore.shiftProject(project.id, delta);
 	}
 
-	/** La sorte della coda alla chiusura segue le impostazioni generali. */
+	/** La sorte della coda alla chiusura segue il modale o le impostazioni generali. */
 	function requestClose() {
+		if (onRequestCloseProject) {
+			onClose();
+			onRequestCloseProject(project.id);
+			return;
+		}
 		const queued = project.path ? taskStore.queuedCountFor(project.path) : 0;
 		if (queued === 0 || settingsStore.general.closeWithQueuedTasks === 'keep') {
 			closeProject(false);
@@ -230,8 +237,12 @@
 	function closeOthers() {
 		for (const other of [...projectStore.projects]) {
 			if (other.id === project.id) continue;
-			if (other.path && settingsStore.general.closeWithQueuedTasks === 'discard') {
-				taskStore.clearProject(other.path);
+			if (other.path) {
+				if (settingsStore.general.closeWithQueuedTasks === 'discard') {
+					taskStore.clearProject(other.path);
+				} else if (other.agentState === 'working') {
+					void taskStore.requeueInterruptedTask(other.path);
+				}
 			}
 			projectStore.closeProject(other.id);
 		}

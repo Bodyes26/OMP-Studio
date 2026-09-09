@@ -47,6 +47,9 @@ export interface TaskSessionOrigin {
 	sessionId: string;
 	taskId: string;
 	title: string;
+	prompt?: string;
+	images?: ImageContent[];
+	options?: StudioTaskOptions;
 	launchedAt: number;
 	modelSelector?: string;
 	thinkingLevel?: string;
@@ -106,6 +109,9 @@ export function isTaskSessionOrigin(entry: unknown): entry is TaskSessionOrigin 
 		typeof origin.taskId === 'string' &&
 		typeof origin.title === 'string' &&
 		typeof origin.launchedAt === 'number' &&
+		(origin.prompt === undefined || typeof origin.prompt === 'string') &&
+		(origin.images === undefined || Array.isArray(origin.images)) &&
+		(origin.options === undefined || (typeof origin.options === 'object' && origin.options !== null)) &&
 		(origin.modelSelector === undefined || typeof origin.modelSelector === 'string') &&
 		(origin.thinkingLevel === undefined || typeof origin.thinkingLevel === 'string')
 	);

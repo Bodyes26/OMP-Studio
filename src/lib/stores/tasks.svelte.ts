@@ -51,6 +51,7 @@ class TaskStore {
 	tasks = $state<StudioTask[]>([]);
 	origins = $state<TaskSessionOrigin[]>([]);
 	views = $state<Record<string, AgentView>>({});
+	activeTaskByProject = $state<Record<string, StudioTask>>({});
 	private store: Store | null = null;
 	private initialized = false;
 	private loadedProjects = new Set<string>();
@@ -147,6 +148,24 @@ class TaskStore {
 		await this.store.save();
 	}, 250);
 
+	async saveProjectImmediate(projectPath: string): Promise<void> {
+		if (!projectPath) return;
+		const key = projectKey(projectPath);
+		const pending = this.pendingProjectSaves.get(key);
+		if (pending) {
+			clearTimeout(pending);
+			this.pendingProjectSaves.delete(key);
+		}
+		if (!this.isTauri) return;
+		try {
+			const tasks = this.tasksFor(projectPath);
+			const content = serializeProjectTasksFile(tasks);
+			await invoke('project_tasks_write', { projectPath, content });
+		} catch (err) {
+			console.error(`Errore salvataggio immediato task per ${projectPath}:`, err);
+		}
+	}
+
 	private saveProject(projectPath: string) {
 		if (!projectPath) return;
 		const key = projectKey(projectPath);
@@ -154,14 +173,7 @@ class TaskStore {
 
 		const timer = setTimeout(async () => {
 			this.pendingProjectSaves.delete(key);
-			if (!this.isTauri) return;
-			try {
-				const tasks = this.tasksFor(projectPath);
-				const content = serializeProjectTasksFile(tasks);
-				await invoke('project_tasks_write', { projectPath, content });
-			} catch (err) {
-				console.error(`Errore salvataggio task per ${projectPath}:`, err);
-			}
+			await this.saveProjectImmediate(projectPath);
 		}, 150);
 
 		this.pendingProjectSaves.set(key, timer);
@@ -336,10 +348,15 @@ class TaskStore {
 			sessionId,
 			taskId: task.id,
 			title,
+			prompt: task.prompt,
+			images: task.images ? [...task.images] : undefined,
+			options: task.options ? { ...task.options } : undefined,
 			launchedAt: Date.now(),
 			modelSelector: task.options?.modelSelector,
 			thinkingLevel: task.options?.thinkingLevel || 'auto'
 		});
+		// Memorizza il task attivo per recupero in caso di chiusura accidentale
+		this.activeTaskByProject[projectKey(task.projectPath)] = { ...task };
 		const path = task.projectPath;
 		this.tasks = this.tasks.filter((candidate) => candidate.id !== id);
 		this.reindex(path);
@@ -364,6 +381,88 @@ class TaskStore {
 	setView(projectPath: string, view: AgentView) {
 		this.views[projectKey(projectPath)] = view;
 		this.saveGlobal();
+	}
+
+	setActiveTask(projectPath: string, task: StudioTask | null) {
+		const key = projectKey(projectPath);
+		if (!task) {
+			delete this.activeTaskByProject[key];
+		} else {
+			this.activeTaskByProject[key] = { ...task };
+		}
+	}
+
+
+	/**
+	 * Se un progetto viene chiuso mentre l'agente o il terminale stava ancora
+	 * lavorando su un task, reinserisce il task in cima alla coda (status 'queued')
+	 * e ripristina qualsiasi task rimasto in 'dispatching'.
+	 * Salva immediatamente su disco (.omp/tasks.json) per non perdere nulla.
+	 */
+	async requeueInterruptedTask(projectPath: string, sessionId?: string | null): Promise<StudioTask | null> {
+		if (!projectPath) return null;
+		const key = projectKey(projectPath);
+		let changed = false;
+
+		// 1. Ripristina lo stato queued per qualsiasi task rimasto in 'dispatching'
+		for (const task of this.tasks) {
+			if (task.projectPath === key && task.status === 'dispatching') {
+				task.status = 'queued';
+				task.updatedAt = Date.now();
+				changed = true;
+			}
+		}
+
+		// 2. Cerca il task attivo in memoria o l'ultimo origin con prompt per questo progetto
+		const activeTask = this.activeTaskByProject[key];
+		let promptToRestore = activeTask?.prompt;
+		let imagesToRestore = activeTask?.images;
+		let optionsToRestore = activeTask?.options;
+		let originalTaskId = activeTask?.id;
+
+		if (!promptToRestore) {
+			const origins = this.originsFor(projectPath);
+			const origin = sessionId
+				? origins.find((o) => o.sessionId === sessionId && Boolean(o.prompt))
+				: origins.filter((o) => Boolean(o.prompt)).sort((a, b) => b.launchedAt - a.launchedAt)[0];
+			if (origin && origin.prompt) {
+				promptToRestore = origin.prompt;
+				imagesToRestore = origin.images;
+				optionsToRestore = origin.options;
+				originalTaskId = origin.taskId;
+			}
+		}
+
+		let restoredTask: StudioTask | null = null;
+		if (promptToRestore && promptToRestore.trim()) {
+			const alreadyQueued = this.tasks.some(
+				(t) => t.projectPath === key && t.prompt.trim() === promptToRestore!.trim() && t.status === 'queued'
+			);
+			if (!alreadyQueued) {
+				restoredTask = {
+					id: originalTaskId || crypto.randomUUID(),
+					projectPath: key,
+					prompt: promptToRestore,
+					images: imagesToRestore ? [...imagesToRestore] : [],
+					options: optionsToRestore ? { ...optionsToRestore } : undefined,
+					position: 0,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+					status: 'queued'
+				};
+				this.tasks.unshift(restoredTask);
+				changed = true;
+			}
+		}
+
+		delete this.activeTaskByProject[key];
+
+		if (changed) {
+			this.reindex(projectPath);
+			await this.saveProjectImmediate(projectPath);
+			this.saveGlobal();
+		}
+		return restoredTask;
 	}
 
 	private reindex(projectPath: string) {

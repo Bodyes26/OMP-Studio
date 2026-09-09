@@ -71,6 +71,22 @@ describe('Store tasks.json: validazione e parsing', () => {
 			assert.equal(isTaskSessionOrigin(origin), true);
 		});
 
+		it('accetta una origine con prompt, immagini e opzioni per il ripristino', () => {
+			const origin = {
+				projectPath: 'C:\\Projects\\App',
+				sessionId: 'sess-restore',
+				taskId: 'task-restore',
+				title: 'Task da ripristinare',
+				prompt: 'Prompt da non perdere',
+				images: [{ type: 'image', mediaType: 'image/png', data: 'abc' }],
+				options: { role: 'frontend', thinkingLevel: 'high' },
+				launchedAt: 1700000000000,
+				modelSelector: 'anthropic/claude-opus',
+				thinkingLevel: 'high'
+			};
+			assert.equal(isTaskSessionOrigin(origin), true);
+		});
+
 		it('rifiuta origini incomplete', () => {
 			assert.equal(isTaskSessionOrigin(null), false);
 			assert.equal(isTaskSessionOrigin({ sessionId: '123' }), false);
@@ -389,6 +405,39 @@ describe('Store tasks.json: validazione e parsing', () => {
 			assert.deepEqual(parseProjectTasksFile(''), []);
 			assert.deepEqual(parseProjectTasksFile('   '), []);
 			assert.deepEqual(parseProjectTasksFile('{ not json }'), []);
+		});
+	});
+
+	describe('ripristino e reinserimento task interrotto', () => {
+		it('permette la ricostruzione corretta di un task queued da una origine interrotta', () => {
+			const origin: TaskSessionOrigin = {
+				projectPath: 'c:\\projects\\app',
+				sessionId: 'sess-interrupted',
+				taskId: 't-int',
+				title: 'Task interrotto a metà',
+				prompt: 'Correggi il bug dei task in coda',
+				images: [],
+				options: { role: 'engineer' },
+				launchedAt: 1700000050000
+			};
+
+			// Ricostruisce il task come StudioTask in stato queued
+			const restored: StudioTask = {
+				id: origin.taskId,
+				projectPath: origin.projectPath,
+				prompt: origin.prompt!,
+				images: origin.images ? [...origin.images] : [],
+				options: origin.options ? { ...origin.options } : undefined,
+				position: 0,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+				status: 'queued'
+			};
+
+			assert.equal(isStudioTask(restored), true);
+			assert.equal(restored.status, 'queued');
+			assert.equal(restored.prompt, 'Correggi il bug dei task in coda');
+			assert.equal(restored.position, 0);
 		});
 	});
 });

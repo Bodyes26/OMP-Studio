@@ -20,6 +20,8 @@
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
 	import LabView from '$lib/lab/LabView.svelte';
 	import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
+	import CloseConfirmModal, { type ProjectCloseTarget, type CloseConfirmMode } from '$lib/components/CloseConfirmModal.svelte';
+	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
 	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
 	import ShortcutsHelpModal from '$lib/agent/components/ShortcutsHelpModal.svelte';
@@ -1159,6 +1161,163 @@
 		void sessionRegistry.clearAll();
 	});
 
+	let closeConfirmModalState = $state<{
+		open: boolean;
+		mode: CloseConfirmMode;
+		project?: ProjectCloseTarget;
+		affectedProjects?: ProjectCloseTarget[];
+	}>({
+		open: false,
+		mode: 'project'
+	});
+	let allowAppClose = false;
+
+	function getAffectedProjectsForClose(): ProjectCloseTarget[] {
+		const list: ProjectCloseTarget[] = [];
+		for (const p of projectStore.projects) {
+			const queuedCount = p.path ? taskStore.queuedCountFor(p.path) : 0;
+			const isWorking = p.agentState === 'working' || Boolean(terminalBusy[p.id]);
+			if (queuedCount > 0 || isWorking) {
+				list.push({
+					id: p.id,
+					name: p.label?.trim() || p.name || 'Progetto',
+					path: p.path,
+					queuedCount,
+					isWorking
+				});
+			}
+		}
+		return list;
+	}
+
+	function handleRequestCloseProject(projectId: string) {
+		const project = projectStore.projects.find((p) => p.id === projectId);
+		if (!project) return;
+		const queuedCount = project.path ? taskStore.queuedCountFor(project.path) : 0;
+		const isWorking = project.agentState === 'working' || Boolean(terminalBusy[project.id]);
+
+		if (queuedCount === 0 && !isWorking) {
+			projectStore.closeProject(projectId);
+			return;
+		}
+
+		if (!isWorking && settingsStore.general.closeWithQueuedTasks === 'keep') {
+			projectStore.closeProject(projectId);
+			return;
+		}
+
+		if (!isWorking && settingsStore.general.closeWithQueuedTasks === 'discard') {
+			if (project.path) taskStore.clearProject(project.path);
+			projectStore.closeProject(projectId);
+			return;
+		}
+
+		closeConfirmModalState = {
+			open: true,
+			mode: 'project',
+			project: {
+				id: project.id,
+				name: project.label?.trim() || project.name || 'Progetto',
+				path: project.path,
+				queuedCount,
+				isWorking
+			}
+		};
+	}
+
+	function handleRequestCloseApp() {
+		const affected = getAffectedProjectsForClose();
+		if (affected.length === 0) {
+			allowAppClose = true;
+			const appWindow = getCurrentWindow();
+			appWindow.close().catch(err => console.error("Close error:", err));
+			return;
+		}
+		closeConfirmModalState = {
+			open: true,
+			mode: 'app',
+			affectedProjects: affected
+		};
+	}
+
+	async function handleConfirmKeepClose() {
+		if (closeConfirmModalState.mode === 'project' && closeConfirmModalState.project) {
+			const target = closeConfirmModalState.project;
+			if (target.isWorking && target.path) {
+				await taskStore.requeueInterruptedTask(target.path);
+			} else if (target.path) {
+				await taskStore.saveProjectImmediate(target.path);
+			}
+			projectStore.closeProject(target.id);
+			closeConfirmModalState = { open: false, mode: 'project' };
+		} else if (closeConfirmModalState.mode === 'app') {
+			for (const p of projectStore.projects) {
+				if (!p.path) continue;
+				if (p.agentState === 'working' || terminalBusy[p.id]) {
+					await taskStore.requeueInterruptedTask(p.path);
+				} else {
+					await taskStore.saveProjectImmediate(p.path);
+				}
+			}
+			allowAppClose = true;
+			closeConfirmModalState = { open: false, mode: 'app' };
+			const appWindow = getCurrentWindow();
+			try {
+				await appWindow.destroy();
+			} catch {
+				await appWindow.close();
+			}
+		}
+	}
+
+	async function handleConfirmDiscardClose() {
+		if (closeConfirmModalState.mode === 'project' && closeConfirmModalState.project) {
+			const target = closeConfirmModalState.project;
+			if (target.path) {
+				taskStore.clearProject(target.path);
+			}
+			projectStore.closeProject(target.id);
+			closeConfirmModalState = { open: false, mode: 'project' };
+		} else if (closeConfirmModalState.mode === 'app') {
+			allowAppClose = true;
+			closeConfirmModalState = { open: false, mode: 'app' };
+			const appWindow = getCurrentWindow();
+			try {
+				await appWindow.destroy();
+			} catch {
+				await appWindow.close();
+			}
+		}
+	}
+
+	function handleCancelCloseModal() {
+		closeConfirmModalState = { open: false, mode: 'project' };
+	}
+
+	onMount(() => {
+		let unlistenClose: (() => void) | undefined;
+		if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+			const appWindow = getCurrentWindow();
+			void appWindow.onCloseRequested((event) => {
+				if (allowAppClose) return;
+				const affected = getAffectedProjectsForClose();
+				if (affected.length > 0) {
+					event.preventDefault();
+					closeConfirmModalState = {
+						open: true,
+						mode: 'app',
+						affectedProjects: affected
+					};
+				}
+			}).then((unlisten) => {
+				unlistenClose = unlisten;
+			});
+		}
+		return () => {
+			unlistenClose?.();
+		};
+	});
+
 	function handleGitPanelDiff(filePath: string, mode: 'working' | 'commit', hash?: string) {
 		if (!projectStore.activeId) return;
 		projectStore.openFile(projectStore.activeId, filePath);
@@ -1668,11 +1827,22 @@
 		onNewTask={openNewTaskOfProject}
 		canRunTask={canAutomate}
 		runReason={automationReason}
+		onRequestCloseProject={handleRequestCloseProject}
+		onRequestCloseApp={handleRequestCloseApp}
 	/>
 	<SetupWizard open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
 	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
 	<SettingsModal />
+	<CloseConfirmModal
+		open={closeConfirmModalState.open}
+		mode={closeConfirmModalState.mode}
+		project={closeConfirmModalState.project}
+		affectedProjects={closeConfirmModalState.affectedProjects}
+		onConfirmKeep={handleConfirmKeepClose}
+		onConfirmDiscard={handleConfirmDiscardClose}
+		onCancel={handleCancelCloseModal}
+	/>
 	<QueueDrawer
 		open={queueOpen}
 		onClose={() => queueOpen = false}
