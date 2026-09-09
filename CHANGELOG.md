@@ -27,6 +27,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Fixed
 - L'inserimento rapido dei task nel Companion interpreta localmente progetto, direttive e ruolo mentre si scrive e avvia il modello `smol` solo al salvataggio quando serve, evitando processi continui e l'errore Windows 206 causato da argomenti troppo lunghi.
 - Il monitor del Companion mostra ora lo stato effettivo di ogni progetto e, solo per gli agenti al lavoro o in attesa di risposta, la quota del modello e dell'account realmente in uso.
+- I delta delle chiamate agli strumenti (toolcall) durante lo streaming non vengono più scambiati per blocchi di pensiero, eliminando la comparsa di falsi riquadri «Ragionamento · 1 riga» intervallati tra risposte e tool.
 
 ## [1.5.0] - 2026-09-08
 

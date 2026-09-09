@@ -6,8 +6,10 @@ import {
 	isWireResponse,
 	isAnswerableUiMethod,
 	formatWireCommand,
+	StreamBatcher,
 	type RpcCommand,
-	type AgentSessionEvent
+	type AgentSessionEvent,
+	type DeltaBatchItem
 } from '../src/lib/agent/wire.ts';
 import {
 	STUDIO_SLASH_COMMANDS,
@@ -295,6 +297,95 @@ describe('Wire OMP e comandi', () => {
 
 		it('gestisce valori null o undefined', () => {
 			assert.equal(formatTokens(undefined), '0');
+		});
+	});
+
+	describe('StreamBatcher e classificazione delta', () => {
+		it('raggruppa delta consecutivi con la stessa chiave', () => {
+			const flushed: DeltaBatchItem[][] = [];
+			let rafCb: (() => void) | null = null;
+			Reflect.set(globalThis, 'window', {
+				requestAnimationFrame: (cb: () => void) => {
+					rafCb = cb;
+					return 1;
+				},
+				setTimeout: () => 1,
+				clearTimeout: () => {},
+				cancelAnimationFrame: () => {}
+			});
+			try {
+				const batcher = new StreamBatcher((items) => flushed.push(items), 100);
+				batcher.push('text', 0, 'Ciao ');
+				batcher.push('text', 0, 'mondo');
+				assert.equal(flushed.length, 0);
+				rafCb?.();
+				assert.equal(flushed.length, 1);
+				assert.equal(flushed[0].length, 1);
+				assert.equal(flushed[0][0].kind, 'text');
+				assert.equal(flushed[0][0].contentIndex, 0);
+				assert.equal(flushed[0][0].delta, 'Ciao mondo');
+			} finally {
+				Reflect.deleteProperty(globalThis, 'window');
+			}
+		});
+
+		it('distingue indici e tipologie diverse nello stesso ciclo di batch', () => {
+			const flushed: DeltaBatchItem[][] = [];
+			let rafCb: (() => void) | null = null;
+			Reflect.set(globalThis, 'window', {
+				requestAnimationFrame: (cb: () => void) => {
+					rafCb = cb;
+					return 1;
+				},
+				setTimeout: () => 1,
+				clearTimeout: () => {},
+				cancelAnimationFrame: () => {}
+			});
+			try {
+				const batcher = new StreamBatcher((items) => flushed.push(items), 1000);
+				batcher.push('thinking', 0, 'Sto pensando...');
+				batcher.push('text', 1, 'Risposta parziale');
+				rafCb?.();
+				assert.equal(flushed.length, 1);
+				assert.equal(flushed[0].length, 2);
+				assert.equal(flushed[0][0].kind, 'thinking');
+				assert.equal(flushed[0][0].contentIndex, 0);
+				assert.equal(flushed[0][1].kind, 'text');
+				assert.equal(flushed[0][1].contentIndex, 1);
+			} finally {
+				Reflect.deleteProperty(globalThis, 'window');
+			}
+		});
+
+		it('filtra delta di tipo toolcall evitando la creazione di falsi blocchi di ragionamento', () => {
+			// Simula il comportamento di filtering adottato in session.svelte.ts:
+			// solo 'text' e 'thinking' vengono propagati nei blocchi assistente.
+			const assistantBlocks: Array<{ type: 'text' | 'thinking'; text: string }> = [];
+			function applyDeltaFilter(kind: string, index: number, delta: string) {
+				if (kind !== 'text' && kind !== 'thinking') return;
+				const existing = assistantBlocks[index];
+				if (existing && existing.type === kind) {
+					existing.text += delta;
+					return;
+				}
+				assistantBlocks[index] = { type: kind, text: delta };
+			}
+
+			// 1. Thinking delta
+			applyDeltaFilter('thinking', 0, 'Analisi in corso...');
+			// 2. Text delta
+			applyDeltaFilter('text', 1, 'Risultato trovato.');
+			// 3. Toolcall deltas (generati quando il modello emette gli argomenti JSON del tool)
+			applyDeltaFilter('toolcall', 2, '{"command": "git status"}');
+			applyDeltaFilter('toolcall', 3, '{"path": "foo.txt"}');
+
+			// Verifichiamo che i toolcall non abbiano creato blocchi fantasma
+			assert.equal(assistantBlocks.length, 2);
+			assert.equal(assistantBlocks[0].type, 'thinking');
+			assert.equal(assistantBlocks[0].text, 'Analisi in corso...');
+			assert.equal(assistantBlocks[1].type, 'text');
+			assert.equal(assistantBlocks[1].text, 'Risultato trovato.');
+			assert.equal(assistantBlocks[2], undefined);
 		});
 	});
 });

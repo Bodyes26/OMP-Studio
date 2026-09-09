@@ -1680,6 +1680,7 @@ export class AgentSession {
 	private applyDelta(event: AgentSessionEvent) {
 		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
 		const kind = event.kind ?? 'text';
+		if (kind !== 'text' && kind !== 'thinking') return;
 		const delta = typeof event.delta === 'string' ? event.delta : '';
 		const index = typeof event.contentIndex === 'number' ? event.contentIndex : 0;
 		this.deltaBatcher.push(kind, index, delta);
@@ -1687,13 +1688,14 @@ export class AgentSession {
 
 	private applyBufferedDelta(kind: string, index: number, delta: string) {
 		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
+		if (kind !== 'text' && kind !== 'thinking') return;
 		const entry = this.ensureAssistant();
 		const existing = entry.blocks[index];
-		if (existing && (existing.type === 'text' || existing.type === 'thinking') && existing.type === kind) {
+		if (existing && existing.type === kind) {
 			existing.text += delta;
 			return;
 		}
-		this.setBlock(index, kind === 'text' ? { type: 'text', text: delta } : { type: 'thinking', text: delta });
+		this.setBlock(index, { type: kind, text: delta });
 	}
 
 	private ensureAssistant(): AssistantEntry {
