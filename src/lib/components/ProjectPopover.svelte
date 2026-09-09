@@ -736,7 +736,7 @@
 
 	.quick-action-btn.confirm {
 		background: var(--brand);
-		color: var(--brand-contrast);
+		color: var(--on-brand);
 		border-color: var(--brand);
 	}
 

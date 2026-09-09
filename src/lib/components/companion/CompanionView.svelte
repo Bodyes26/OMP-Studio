@@ -8,7 +8,8 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEMES, anchorsFor } from '$lib/theme';
+	import { THEMES, anchorsFor, automaticProjectHue } from '$lib/theme';
+	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { computeQuotaInfo } from '$lib/quota/projectQuota';
 	import QuotaChip from '$lib/components/quota/QuotaChip.svelte';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
@@ -19,6 +20,7 @@
 		type LocalQuickTask
 	} from '$lib/companion/quickTaskLocal';
 	import {
+		IconArrowUp,
 		IconCheck,
 		IconClose,
 		IconPin,
@@ -26,11 +28,21 @@
 		IconStatusPending,
 		IconStatusRunning,
 		IconWarning,
-		IconSparkles,
-		IconPlus
+		IconSparkles
 	} from '$lib/icons';
 
 	const ROLES = ['smol', 'default', 'slow', 'plan'];
+
+	/**
+	 * Prefissi del linguaggio del campo: sono i soli comandi visibili, e stanno
+	 * sulla riga bassa del composer perche' un placeholder che li elenca tutti
+	 * diventa illeggibile appena si scrive il primo carattere.
+	 */
+	const TOKEN_HINTS = [
+		{ char: '@', label: 'progetto', title: 'Scegli il progetto di destinazione' },
+		{ char: '/', label: 'direttiva', title: 'Aggiungi una direttiva al task' },
+		{ char: '!', label: 'ruolo', title: 'Forza il ruolo o il modello' }
+	];
 
 	/** Ordine di urgenza con cui si leggono i progetti nell'elenco. */
 	const STATE_RANK: Record<string, number> = {
@@ -42,6 +54,7 @@
 	};
 
 	let inputEl = $state<HTMLTextAreaElement | null>(null);
+	let composerEl = $state<HTMLElement | null>(null);
 	let taskInput = $state('');
 	let caret = $state(0);
 	let mentionIndex = $state(0);
@@ -98,6 +111,9 @@
 
 	const mentionOpen = $derived(mention.kind !== null && mentionItems.length > 0);
 
+	const isBusy = $derived(isSaving || companionStore.isParsingTask);
+	const canSave = $derived(taskInput.trim().length > 0 && !isBusy);
+
 	/** Progetti ordinati per urgenza: chi chiede risposta sta in cima, chi e' fermo in fondo. */
 	const monitorProjects = $derived.by<Project[]>(() => {
 		const list = knownProjects.filter((p) => p.path);
@@ -115,6 +131,16 @@
 
 	function runtimeFor(projectId: string) {
 		return companionStore.projectRuntimes.find((r) => r.projectId === projectId);
+	}
+
+	/**
+	 * Tinta del progetto identica a quella della barra nella finestra
+	 * principale: in modalita' automatica non e' il valore salvato ma quello
+	 * che il tema corrente assegna al percorso.
+	 */
+	function hueFor(project: Project): number {
+		if (!project.path || project.colorMode === 'custom') return project.hue;
+		return automaticProjectHue(THEMES[themeStore.current] ?? THEMES['titanium'], project.path);
 	}
 
 	function stateLabel(state: string): string {
@@ -167,6 +193,43 @@
 		});
 	}
 
+	/**
+	 * Il campo cresce con il testo invece di occupare tre righe fisse: a vuoto
+	 * e' una riga sola, come nel composer della finestra principale. Oltre il
+	 * tetto scorre al proprio interno.
+	 */
+	const INPUT_MAX_HEIGHT = 160;
+
+	$effect(() => {
+		const el = inputEl;
+		// Dipendenza esplicita: l'altezza si ricalcola a ogni cambio di testo.
+		const text = taskInput;
+		if (!el) return;
+		el.style.height = 'auto';
+		const target = text ? Math.min(el.scrollHeight, INPUT_MAX_HEIGHT) : 0;
+		el.style.height = target > 0 ? `${target}px` : '';
+		el.style.overflowY = text && el.scrollHeight > INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
+	});
+
+	/** Inserisce un prefisso al punto di inserimento e apre il suggeritore. */
+	function insertToken(char: string) {
+		const el = inputEl;
+		const at = el?.selectionStart ?? taskInput.length;
+		const before = taskInput.slice(0, at);
+		const needsSpace = before.length > 0 && !/\s$/.test(before);
+		const insert = `${needsSpace ? ' ' : ''}${char}`;
+		taskInput = before + insert + taskInput.slice(el?.selectionEnd ?? at);
+		const next = at + insert.length;
+		aiParsed = null;
+		companionStore.parseError = null;
+		mentionIndex = 0;
+		void tick().then(() => {
+			inputEl?.focus();
+			inputEl?.setSelectionRange(next, next);
+			caret = next;
+		});
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			e.preventDefault();
@@ -186,9 +249,18 @@
 		}
 	}
 
-	/** Tasti gestiti dalla textarea quando il suggeritore e' aperto. */
+	/**
+	 * Tasti della textarea. Invio salva (Maiusc+Invio va a capo) come nel
+	 * composer della chat; quando il suggeritore e' aperto vince lui, perche'
+	 * Invio deve prima confermare la voce selezionata.
+	 */
 	function handleInputKeydown(e: KeyboardEvent) {
 		if (!mentionOpen) {
+			if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+				e.preventDefault();
+				void handleSaveTask();
+				return;
+			}
 			syncCaret();
 			return;
 		}
@@ -198,7 +270,7 @@
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
 			mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length;
-		} else if (e.key === 'Tab' || (e.key === 'Enter' && !e.ctrlKey && !e.metaKey)) {
+		} else if (e.key === 'Tab' || (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey)) {
 			e.preventDefault();
 			chooseMention(mentionItems[Math.min(mentionIndex, mentionItems.length - 1)].value);
 		}
@@ -261,6 +333,9 @@
 			const ok = await companionStore.saveTask(toSave);
 			if (ok) {
 				successNotice = `Task aggiunto a ${toSave.projectName || 'progetto'}!`;
+				// L'avviso di un tentativo precedente non descrive piu' nulla: il
+				// campo e' vuoto e non basterebbe piu' scrivere per farlo sparire.
+				companionStore.parseError = null;
 				taskInput = '';
 				caret = 0;
 				aiParsed = null;
@@ -463,31 +538,18 @@
 
 		<!-- Sezione Inserimento Rapido Task in Linguaggio Naturale -->
 		<section class="quick-task-section">
-			<div class="task-input-box">
-				{#if mentionOpen}
-					<!-- Suggeritore locale: filtra in memoria, nessuna latenza e nessun costo -->
-					<div class="mention-popover" role="listbox" aria-label="Suggerimenti">
-						{#each mentionItems as item, idx (item.value)}
-							<button
-								type="button"
-								class="mention-item"
-								class:selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
-								role="option"
-								aria-selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
-								onmousedown={(e) => {
-									e.preventDefault();
-									chooseMention(item.value);
-								}}
-							>
-								<span class="mention-label">{item.label}</span>
-								{#if item.hint && item.hint !== item.label}
-									<span class="mention-hint">{item.hint}</span>
-								{/if}
-							</button>
-						{/each}
-					</div>
-				{/if}
-
+			<!--
+				Composer: una sola superficie arrotondata, il campo cresce con il
+				testo e i comandi stanno sulla riga bassa. Cliccare in qualunque
+				punto della superficie mette a fuoco il campo.
+			-->
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div
+				class="composer"
+				bind:this={composerEl}
+				role="presentation"
+				onclick={() => inputEl?.focus()}
+			>
 				<textarea
 					bind:this={inputEl}
 					bind:value={taskInput}
@@ -495,29 +557,91 @@
 					onkeydown={handleInputKeydown}
 					onclick={syncCaret}
 					onkeyup={syncCaret}
-					rows="3"
-					placeholder="Cosa c'è da fare? Usa @progetto, /direttiva, !ruolo"
+					rows="1"
+					class="composer-input"
+					placeholder="Cosa c'è da fare?"
 					aria-label="Testo del task in linguaggio naturale"
 				></textarea>
 
-				<div class="input-actions">
-					<span class="kbd-hint">Ctrl+Invio per salvare</span>
+				<div class="composer-rail">
+					<div class="token-hints">
+						{#each TOKEN_HINTS as hint (hint.char)}
+							<button
+								type="button"
+								class="token-hint"
+								title={hint.title}
+								onclick={(e) => {
+									e.stopPropagation();
+									insertToken(hint.char);
+								}}
+							>
+								<span class="token-char">{hint.char}</span>{hint.label}
+							</button>
+						{/each}
+					</div>
+
 					<button
 						type="button"
-						class="save-task-btn"
-						disabled={!taskInput.trim() || isSaving || companionStore.isParsingTask}
-						onclick={handleSaveTask}
+						class="send-btn"
+						class:busy={isBusy}
+						disabled={!canSave}
+						title={isBusy
+							? 'Salvataggio in corso'
+							: 'Salva il task (Invio · Maiusc+Invio va a capo)'}
+						aria-label="Salva task"
+						onclick={(e) => {
+							e.stopPropagation();
+							void handleSaveTask();
+						}}
 					>
-						{#if isSaving || companionStore.isParsingTask}
+						{#if isBusy}
 							<span class="spinner"></span>
-							<span>{companionStore.isParsingTask ? 'Interpretazione AI...' : 'Salvataggio...'}</span>
 						{:else}
-							<IconPlus />
-							<span>Salva task</span>
+							<IconArrowUp />
 						{/if}
 					</button>
 				</div>
 			</div>
+
+			{#if isBusy}
+				<p class="composer-status">
+					{companionStore.isParsingTask ? 'Interpretazione con AI…' : 'Salvataggio…'}
+				</p>
+			{/if}
+
+			{#if mentionOpen}
+				<!--
+					Suggeritore locale: filtra in memoria, nessuna latenza e nessun
+					costo. Vive nel top layer, altrimenti lo `overflow` del corpo lo
+					taglierebbe appena il composer sta in cima alla finestra.
+				-->
+				<div
+					class="mention-popover"
+					role="listbox"
+					aria-label="Suggerimenti"
+					popover="manual"
+					use:anchoredPopover={{ anchor: composerEl, offset: 6, matchWidth: true, constrainHeight: true }}
+				>
+					{#each mentionItems as item, idx (item.value)}
+						<button
+							type="button"
+							class="mention-item"
+							class:selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
+							role="option"
+							aria-selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
+							onmousedown={(e) => {
+								e.preventDefault();
+								chooseMention(item.value);
+							}}
+						>
+							<span class="mention-label">{item.label}</span>
+							{#if item.hint && item.hint !== item.label}
+								<span class="mention-hint">{item.hint}</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+			{/if}
 
 			<!-- Notifica di successo -->
 			{#if successNotice}
@@ -535,7 +659,11 @@
 				</div>
 			{/if}
 
-			<!-- Anteprima dell'interpretazione: locale e gratuita, oppure quella dell'AI dopo il salvataggio -->
+			<!--
+				Anteprima dell'interpretazione: locale e gratuita mentre si scrive,
+				quella dell'AI dopo il salvataggio. E' una striscia, non una scheda:
+				sta sotto il composer come una riga di stato.
+			-->
 			{#if taskInput.trim()}
 				{@const preview = aiParsed ?? {
 					projectName: local.projectName,
@@ -546,53 +674,45 @@
 					directiveIds: local.directiveIds,
 					ambiguities: []
 				}}
-				<div class="parsed-preview" transition:slide={{ duration: 180 }}>
-					<div class="parsed-header">
-						<div class="parsed-tags">
-							{#if preview.projectName}
-								<span class="parsed-tag project">{preview.projectName}</span>
-							{:else}
-								<span class="parsed-tag missing">Progetto da scegliere</span>
-							{/if}
+				<div class="parsed-strip" transition:slide={{ duration: 180 }}>
+					<div class="parsed-tags">
+						{#if preview.projectName}
+							<span class="parsed-tag project">{preview.projectName}</span>
+						{:else}
+							<span class="parsed-tag pending">Progetto da scegliere</span>
+						{/if}
 
-							{#if preview.role}
-								<span class="parsed-tag role">Ruolo: {preview.role}</span>
-							{/if}
+						{#if preview.role}
+							<span class="parsed-tag">{preview.role}</span>
+						{/if}
 
-							{#if preview.modelSelector}
-								<span class="parsed-tag model">Modello: {preview.modelSelector}</span>
-							{/if}
+						{#if preview.modelSelector}
+							<span class="parsed-tag">{preview.modelSelector}</span>
+						{/if}
 
-							{#each preview.directiveIds as dId (dId)}
-								{@const dir = knownDirectives.find((d) => d.id === dId)}
-								<span class="parsed-tag directive">+{dir?.name ?? dId}</span>
-							{/each}
-						</div>
+						{#each preview.directiveIds as dId (dId)}
+							{@const dir = knownDirectives.find((d) => d.id === dId)}
+							<span class="parsed-tag">+{dir?.name ?? dId}</span>
+						{/each}
 
 						{#if aiParsed}
-							<span class="badge-title"><IconSparkles /> interpretato con AI</span>
+							<span class="parsed-ai"><IconSparkles /> AI</span>
 						{/if}
 					</div>
 
 					{#if preview.taskPrompt}
-						<div class="parsed-prompt">
-							<span class="prompt-label">Prompt:</span>
-							<p>{preview.taskPrompt}</p>
-						</div>
+						<p class="parsed-prompt">{preview.taskPrompt}</p>
 					{/if}
 
 					{#if preview.ambiguities && preview.ambiguities.length > 0}
-						<div class="ambiguities-box">
-							{#each preview.ambiguities as amb, idx (idx)}
-								<p class="ambiguity-item"><IconWarning /> {amb}</p>
-							{/each}
-						</div>
+						{#each preview.ambiguities as amb, idx (idx)}
+							<p class="parsed-note"><IconWarning /><span>{amb}</span></p>
+						{/each}
 					{:else if !preview.projectPath}
-						<div class="ambiguities-box">
-							<p class="ambiguity-item">
-								<IconWarning /> Nessun progetto riconosciuto: scrivi @progetto oppure salva e lascia decidere all'AI.
-							</p>
-						</div>
+						<p class="parsed-note">
+							<IconWarning />
+							<span>Scrivi <span class="token-char">@</span>progetto, oppure salva e lascia decidere all'AI.</span>
+						</p>
 					{/if}
 				</div>
 			{/if}
@@ -610,7 +730,7 @@
 					{#each visibleProjects as p (p.id)}
 						{@const rt = runtimeFor(p.id)}
 						{@const busy = p.agentState === 'working' || p.agentState === 'attention'}
-						<div class="project-row" style="--proj-hue: {p.hue}" class:busy>
+						<div class="project-row" style="--proj-hue: {hueFor(p)}" class:busy>
 							<span class="p-dot" class:pulsing={p.agentState === 'working'}></span>
 							<span class="p-name">{p.label?.trim() || p.name}</span>
 
@@ -670,7 +790,21 @@
 		user-select: none;
 	}
 
+	/*
+		Tinte e bordi accentati derivati dai token reali del tema.
+		Il sistema definisce solo `--brand`, `--warn` e `--danger`: le loro
+		versioni traslucide vivono qui, in un posto solo, invece di essere
+		nomi inventati in ogni regola (che il browser scarterebbe, lasciando
+		fondi trasparenti e testo del colore ereditato).
+	*/
 	.companion-shell {
+		--brand-tint: color-mix(in srgb, var(--brand) 14%, transparent);
+		--brand-line: color-mix(in srgb, var(--brand) 38%, transparent);
+		--warn-tint: color-mix(in srgb, var(--warn) 16%, transparent);
+		--warn-line: color-mix(in srgb, var(--warn) 40%, transparent);
+		--danger-tint: color-mix(in srgb, var(--danger) 14%, transparent);
+		--danger-line: color-mix(in srgb, var(--danger) 38%, transparent);
+
 		position: relative;
 		display: flex;
 		flex-direction: column;
@@ -679,8 +813,8 @@
 		background: color-mix(in srgb, var(--bg-raised) 94%, transparent);
 		color: var(--ink);
 		border: 1px solid var(--line-strong);
-		border-radius: 12px;
-		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--line);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
 		overflow: hidden;
 		font-family: var(--font-ui);
 		font-size: var(--text-sm);
@@ -689,7 +823,7 @@
 
 	/* Comparsa: la finestra e' un richiamo, non deve apparire di scatto. */
 	.companion-shell.just-opened {
-		animation: companion-pop 180ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+		animation: companion-pop var(--dur-base) var(--ease-out) both;
 	}
 
 	@keyframes companion-pop {
@@ -711,7 +845,7 @@
 
 	.companion-shell.pinned {
 		border-color: var(--brand);
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--brand-line);
+		box-shadow: var(--shadow-overlay), 0 0 0 1px var(--brand-line);
 	}
 
 	.companion-header {
@@ -735,10 +869,10 @@
 	.attention-counter {
 		font-size: var(--text-xs);
 		padding: 1px 6px;
-		border-radius: 999px;
-		background: var(--warning-tint);
-		color: var(--warning);
-		border: 1px solid var(--warning-line);
+		border-radius: var(--radius-full);
+		background: var(--warn-tint);
+		color: var(--warn);
+		border: 1px solid var(--warn-line);
 	}
 
 	.spotlight-drag-region {
@@ -833,11 +967,15 @@
 		margin-bottom: var(--space-2);
 	}
 
-	/* Card Richiesta di Attenzione */
+	/*
+		Card Richiesta di Attenzione. L'identita' del progetto e' il punto
+		colorato accanto al nome, non una fascia sul bordo: la tinta arriva da
+		`--proj-hue` nella stessa rampa OKLCH della barra dei progetti, cosi'
+		lo stesso progetto ha lo stesso colore nelle due finestre.
+	*/
 	.attention-card {
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-left: 4px solid hsl(var(--proj-hue, 220), 80%, 55%);
 		border-radius: var(--radius-md);
 		padding: var(--space-3);
 		display: flex;
@@ -853,9 +991,20 @@
 	}
 
 	.project-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
 		font-weight: 600;
 		font-size: var(--text-sm);
 		color: var(--ink);
+	}
+
+	.project-pill::before {
+		content: '';
+		width: 7px;
+		height: 7px;
+		border-radius: var(--radius-full);
+		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260));
 	}
 
 	.model-badge {
@@ -981,7 +1130,7 @@
 
 	.action-btn.confirm {
 		background: var(--brand);
-		color: var(--brand-contrast);
+		color: var(--on-brand);
 		border-color: var(--brand);
 	}
 
@@ -997,67 +1146,138 @@
 		gap: var(--space-2);
 	}
 
-	.task-input-box {
-		position: relative;
+	/*
+		Composer: una superficie sola, non un campo con una barra sotto.
+		Il testo e i comandi condividono lo stesso riquadro, che sale di un
+		gradino rispetto al guscio invece di scavare un pozzo: e' l'oggetto
+		attivo della finestra, non un modulo da riempire.
+	*/
+	.composer {
 		display: flex;
 		flex-direction: column;
-		background: var(--bg-sunken);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-2) var(--space-1);
+		background: var(--bg-overlay);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: var(--space-2);
-		transition: border-color var(--dur-fast);
+		border-radius: var(--radius-lg);
+		cursor: text;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.task-input-box:focus-within {
-		border-color: var(--brand);
-		box-shadow: 0 0 0 1px var(--brand-line);
+	.composer:focus-within {
+		border-color: var(--brand-line);
 	}
 
-	.task-input-box textarea {
+	.composer-input {
 		width: 100%;
+		min-height: 22px;
+		max-height: 160px;
+		padding: var(--space-1) var(--space-1) 0;
 		border: none;
 		background: transparent;
 		color: var(--ink);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
+		font-size: var(--text-base);
+		line-height: 1.45;
 		resize: none;
 		outline: none;
+		overflow-y: hidden;
 		box-sizing: border-box;
 	}
 
-	.input-actions {
+	.composer-input::placeholder {
+		color: var(--ink-faint);
+	}
+
+	.composer-rail {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		margin-top: var(--space-2);
-		padding-top: var(--space-2);
-		border-top: 1px solid var(--line);
+		gap: var(--space-2);
 	}
 
-	.kbd-hint {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		font-family: var(--font-mono);
-	}
-
-	.save-task-btn {
-		display: inline-flex;
+	/* I tre prefissi del linguaggio: pastiglie cliccabili, non testo di aiuto. */
+	.token-hints {
+		display: flex;
 		align-items: center;
 		gap: var(--space-1);
-		padding: var(--space-1) var(--space-3);
-		background: var(--brand);
-		color: var(--brand-contrast);
-		border: none;
-		border-radius: var(--radius-sm);
-		font-weight: 600;
-		font-size: var(--text-xs);
-		cursor: pointer;
-		transition: opacity var(--dur-fast);
+		min-width: 0;
+		overflow: hidden;
 	}
 
-	.save-task-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
+	.token-hint {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 2px var(--space-2);
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		color: var(--ink-muted);
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		line-height: 1.5;
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+	}
+
+	.token-hint:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.token-char {
+		font-family: var(--font-mono);
+		color: var(--brand);
+		font-weight: 600;
+	}
+
+	/* Invio: pastiglia tonda in basso a destra, come nelle app di chat. */
+	.send-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		background: var(--brand);
+		color: var(--on-brand);
+		border: 1px solid var(--brand);
+		border-radius: var(--radius-full);
+		cursor: pointer;
+		--icon-size: 16px;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.send-btn:hover:not(:disabled) {
+		background: var(--brand-ink);
+		border-color: var(--brand-ink);
+	}
+
+	.send-btn:active:not(:disabled) {
+		background: var(--brand-dim);
+	}
+
+	.send-btn:disabled {
+		background: var(--bg-hover);
+		border-color: var(--line);
+		color: var(--ink-faint);
+		cursor: default;
+	}
+
+	/* In lavorazione non e' spento: il pulsante resta acceso e gira. */
+	.send-btn.busy:disabled {
+		background: var(--brand);
+		border-color: var(--brand);
+		color: var(--on-brand);
+	}
+
+	.composer-status {
+		margin: 0;
+		padding-left: var(--space-1);
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
 	}
 
 	.notice {
@@ -1069,10 +1289,11 @@
 		font-size: var(--text-xs);
 	}
 
+	/* Conferma: il salvataggio e' l'esito atteso, quindi parla con l'accento. */
 	.notice.success {
-		background: var(--success-tint);
-		color: var(--success);
-		border: 1px solid var(--success-line);
+		background: var(--brand-tint);
+		color: var(--brand);
+		border: 1px solid var(--brand-line);
 	}
 
 	.notice.error {
@@ -1081,105 +1302,91 @@
 		border: 1px solid var(--danger-line);
 	}
 
-	/* Anteprima Task Interpretato */
-	.parsed-preview {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: var(--space-3);
+	/*
+		Anteprima dell'interpretazione. E' una striscia sotto il composer, non
+		una scheda: una scheda dentro il corpo della finestra creerebbe un
+		secondo riquadro in competizione con il campo, e con la scatola degli
+		avvisi dentro diventerebbe una scheda dentro una scheda.
+	*/
+	.parsed-strip {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-	}
-
-	.parsed-header {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-
-	.badge-title {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--brand);
+		padding: 0 var(--space-1);
 	}
 
 	.parsed-tags {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: center;
 		gap: var(--space-1);
 	}
 
 	.parsed-tag {
+		padding: 2px 7px;
+		border-radius: var(--radius-full);
+		background: var(--bg-hover);
+		border: 1px solid transparent;
+		color: var(--ink-muted);
 		font-size: var(--text-xs);
-		padding: 2px 6px;
-		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
+		line-height: 1.5;
 	}
 
 	.parsed-tag.project {
 		background: var(--brand-tint);
+		border-color: var(--brand-line);
 		color: var(--brand);
-		border: 1px solid var(--brand-line);
+		font-family: var(--font-ui);
+		font-weight: 600;
 	}
 
-	.parsed-tag.missing {
-		background: var(--danger-tint);
-		color: var(--danger);
-		border: 1px solid var(--danger-line);
+	/*
+		Progetto mancante non e' un errore: il task si salva comunque e decide
+		l'AI. Quindi attenzione, non pericolo.
+	*/
+	.parsed-tag.pending {
+		background: var(--warn-tint);
+		border-color: var(--warn-line);
+		color: var(--warn);
+		font-family: var(--font-ui);
 	}
 
-	.parsed-tag.role {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border: 1px solid var(--line);
-	}
-
-	.parsed-tag.model {
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-		border: 1px solid var(--line);
-	}
-
-	.parsed-tag.directive {
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-		border: 1px solid var(--line);
+	.parsed-ai {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--brand);
 	}
 
 	.parsed-prompt {
-		font-size: var(--text-xs);
-		line-height: 1.4;
-	}
-
-	.prompt-label {
-		color: var(--ink-faint);
-		font-weight: 600;
-		margin-right: var(--space-1);
-	}
-
-	.parsed-prompt p {
-		margin: 2px 0 0 0;
-		color: var(--ink);
-	}
-
-	.ambiguities-box {
-		padding: var(--space-2);
-		background: var(--warning-tint);
-		border: 1px solid var(--warning-line);
-		border-radius: var(--radius-sm);
-	}
-
-	.ambiguity-item {
 		margin: 0;
 		font-size: var(--text-xs);
-		color: var(--warning);
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
+		line-height: 1.45;
+		color: var(--ink);
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		overflow: hidden;
+	}
+
+	/* Icona in colonna propria: un avviso lungo va a capo allineato, non sotto l'icona. */
+	.parsed-note {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		align-items: start;
+		gap: 5px;
+		margin: 0;
+		font-size: var(--text-xs);
+		line-height: 1.45;
+		color: var(--warn);
+	}
+
+	.parsed-note .token-char {
+		color: inherit;
 	}
 
 	/* Live Monitor */
@@ -1211,27 +1418,33 @@
 		background: var(--bg-base);
 	}
 
+	/*
+		Punto identita' progetto: stessa rampa OKLCH della barra nella finestra
+		principale. Con `hsl()` la tinta veniva letta come gradi HSL e lo stesso
+		progetto usciva di un altro colore; l'alone, scritto come quarto
+		argomento di `hsl()` legacy, era una dichiarazione non valida.
+	*/
 	.p-dot {
 		width: 8px;
 		height: 8px;
 		flex: none;
-		border-radius: 50%;
-		background: hsl(var(--proj-hue, 220), 80%, 55%);
+		border-radius: var(--radius-full);
+		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260));
 	}
 
 	.p-dot.pulsing {
-		animation: dot-pulse 1.4s ease-in-out infinite;
+		animation: dot-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 
 	@keyframes dot-pulse {
 		0%,
 		100% {
 			opacity: 1;
-			box-shadow: 0 0 0 0 hsl(var(--proj-hue, 220), 80%, 55%, 0.5);
+			box-shadow: 0 0 0 0 oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260) / 0.5);
 		}
 		50% {
 			opacity: 0.55;
-			box-shadow: 0 0 0 4px hsl(var(--proj-hue, 220), 80%, 55%, 0);
+			box-shadow: 0 0 0 4px oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260) / 0);
 		}
 	}
 
@@ -1260,11 +1473,11 @@
 	}
 
 	.p-state.state-working {
-		color: var(--success);
+		color: var(--brand);
 	}
 
 	.p-state.state-attention {
-		color: var(--warning);
+		color: var(--warn);
 	}
 
 	.p-state.state-finished {
@@ -1285,20 +1498,26 @@
 		color: var(--ink);
 	}
 
-	/* Suggeritore @progetto e /direttiva: si apre sopra la textarea */
+	/*
+		Suggeritore @progetto e /direttiva. Vive nel top layer e si piazza in JS:
+		dentro il corpo scorrevole veniva tagliato, e con il composer in cima
+		alla finestra si apriva fuori dallo schermo.
+	*/
 	.mention-popover {
-		position: absolute;
-		bottom: calc(100% + 4px);
-		left: 0;
-		right: 0;
-		z-index: 5;
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		padding: 0;
+		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-overlay);
+		color: var(--ink);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
-		overflow: hidden;
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-overlay);
+		max-height: min(200px, var(--anchored-space, 200px));
+		overflow-y: auto;
 	}
 
 	.mention-item {
@@ -1327,9 +1546,9 @@
 	.spinner {
 		width: 12px;
 		height: 12px;
-		border: 2px solid var(--brand-contrast);
+		border: 2px solid currentColor;
 		border-top-color: transparent;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		animation: spin 0.8s linear infinite;
 	}
 

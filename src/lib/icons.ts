@@ -25,6 +25,7 @@ export { default as IconChevronDown } from '@lucide/svelte/icons/chevron-down';
 export { default as IconArrowRight } from '@lucide/svelte/icons/arrow-right';
 export { default as IconArrowLeft } from '@lucide/svelte/icons/arrow-left';
 export { default as IconArrowDown } from '@lucide/svelte/icons/arrow-down';
+export { default as IconArrowUp } from '@lucide/svelte/icons/arrow-up';
 export { default as IconExternalLink } from '@lucide/svelte/icons/external-link';
 export { default as IconRefresh } from '@lucide/svelte/icons/refresh-cw';
 export { default as IconLoop } from '@lucide/svelte/icons/rotate-ccw';

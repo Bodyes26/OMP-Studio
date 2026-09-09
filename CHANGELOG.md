@@ -23,11 +23,16 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Changed
 - Alleggerita la finestra Companion: la modalità Spotlight è senza barra, mentre la modalità fissata usa un'intestazione minima con il logo di Studio; i progetti restano sempre visibili e sono ordinati per urgenza.
+- Il campo per i task del Companion ha ora la forma di un composer da chat: una sola superficie arrotondata che cresce con il testo (una riga a vuoto, fino a otto), Invio per salvare e Maiusc+Invio per andare a capo, pastiglie cliccabili `@progetto`, `/direttiva` e `!ruolo` al posto del testo di aiuto, e pulsante di invio tondo che gira mentre salva. L'anteprima dell'interpretazione è diventata una striscia sotto il campo invece di una scheda con una scatola dentro, e un progetto non ancora riconosciuto è segnalato come avviso e non come errore.
 
 ### Fixed
 - L'inserimento rapido dei task nel Companion interpreta localmente progetto, direttive e ruolo mentre si scrive e avvia il modello `smol` solo al salvataggio quando serve, evitando processi continui e l'errore Windows 206 causato da argomenti troppo lunghi.
 - Il monitor del Companion mostra ora lo stato effettivo di ogni progetto e, solo per gli agenti al lavoro o in attesa di risposta, la quota del modello e dell'account realmente in uso.
 - I delta delle chiamate agli strumenti (toolcall) durante lo streaming non vengono più scambiati per blocchi di pensiero, eliminando la comparsa di falsi riquadri «Ragionamento · 1 riga» intervallati tra risposte e tool.
+- Colori del Companion ripristinati: pastiglie, avvisi, conferme e bordi accentati usavano nomi di colore inesistenti nel tema e venivano scartati dal browser, lasciando testo del colore ereditato su fondi trasparenti (il progetto mancante appariva come testo rosso nudo e l'avviso in blu senza riquadro).
+- Il suggeritore `@progetto` e `/direttiva` del Companion non viene più tagliato: si apre sotto il campo nel livello superiore della finestra, mentre prima si apriva verso l'alto e finiva fuori dallo schermo o dentro l'area a scorrimento.
+- Il punto colorato dei progetti nel Companion ha ora la stessa tinta della barra dei progetti nella finestra principale: la tinta del tema veniva interpretata come gradi HSL e ogni progetto usciva di un altro colore.
+- Dopo un salvataggio riuscito nel Companion l'avviso di un tentativo precedente non resta più a schermo.
 
 ## [1.5.0] - 2026-09-08
 
