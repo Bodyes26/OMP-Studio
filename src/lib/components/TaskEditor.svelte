@@ -71,7 +71,6 @@
 	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
 	let fileInputEl = $state<HTMLInputElement | null>(null);
 	let isDraggingOver = $state(false);
-	let advancedOpen = $state(false);
 
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session?.availableCommands ?? []));
 	const title = $derived(prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task');
@@ -169,11 +168,6 @@
 		{ id: 'plan', label: 'Architettura', badge: 'plan', icon: IconRolePlan, desc: 'Pianificazione e progettazione strutturale' }
 	] as const;
 
-	const currentRoleDisplay = $derived.by(() => {
-		if (options.role === 'custom') return { badge: 'custom', label: 'Personalizzato', icon: null };
-		const found = DIFFICULTY_ROLES.find((r) => r.id === options.role);
-		return found ? { badge: found.badge, label: found.label, icon: found.icon } : { badge: options.role || 'default', label: options.role || 'Default', icon: null };
-	});
 
 	const availableDirectives = $derived.by(() => {
 		const catalog = settingsStore.taskDirectives;
@@ -198,10 +192,6 @@
 		return list.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 	});
 
-	const activeModifiersCount = $derived(
-		(options.directives?.length ?? 0) +
-		(options.includeEditorContext === false ? 1 : 0)
-	);
 
 	$effect(() => {
 		void modelSettingsStore.ensureLoaded();
@@ -232,18 +222,6 @@
 			paletteOpen = false;
 			currentSlashMatch = null;
 
-			// Apri automaticamente opzioni avanzate se il task usa configurazioni non
-			// predefinite. Modello e thinking non contano quando coincidono con quelli
-			// del ruolo scelto: li' sono solo il riflesso del ruolo, non una scelta.
-			const roleConfig = resolveRoleConfig(task.options?.role || 'default');
-			advancedOpen = Boolean(
-				(task.options?.role && task.options.role !== 'default') ||
-				(task.options?.directives && task.options.directives.length > 0) ||
-				(task.options?.modelSelector && task.options.modelSelector !== roleConfig.model) ||
-				(task.options?.thinkingLevel &&
-					task.options.thinkingLevel !== 'auto' &&
-					task.options.thinkingLevel !== roleConfig.thinking)
-			);
 
 			void tick().then(() => {
 				adjustTextareaHeight();
@@ -752,219 +730,198 @@
 			</div>
 		</section>
 
-		<!-- Sezione 2: Opzioni Avanzate (Collassabile e compatta) -->
-		<section class="advanced-section" aria-label="Opzioni avanzate del task">
-			<button
-				type="button"
-				class="advanced-toggle-btn"
-				onclick={() => (advancedOpen = !advancedOpen)}
-				aria-expanded={advancedOpen}
-				aria-controls="advanced-controls-panel"
-			>
-				<div class="advanced-toggle-left">
-					<svg
-						class="chevron-icon"
-						class:rotated={advancedOpen}
-						viewBox="0 0 16 16"
-						aria-hidden="true"
-					>
-						<path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-					</svg>
-					<span class="advanced-title">Opzioni avanzate</span>
-					<div class="advanced-summary">
-						<span class="summary-chip">{#if currentRoleDisplay.icon}{@const Icon = currentRoleDisplay.icon}<Icon /> {/if}{currentRoleDisplay.badge}</span>
-						{#if options.thinkingLevel && options.thinkingLevel !== 'auto'}
-							<span class="summary-chip">thinking: {options.thinkingLevel}</span>
-						{/if}
-						{#if activeModifiersCount > 0}
-							<span class="summary-chip active-count">{activeModifiersCount} {activeModifiersCount === 1 ? 'modalità attiva' : 'modalità attive'}</span>
-						{/if}
+		<!-- Sezione Opzioni Task (Sempre visibili, integrate direttamente sotto la textarea) -->
+		<section class="task-options-section" aria-label="Opzioni del task">
+			<!-- Gruppo 1: Profilo & Modello -->
+			<div class="options-group">
+				<div class="group-header">
+					<div class="group-header-text">
+						<span class="group-title">Profilo & Modello</span>
+						<span class="group-sub">Ruolo operativo, modello di ragionamento e intensità di thinking</span>
 					</div>
 				</div>
-				<span class="advanced-toggle-hint">{advancedOpen ? 'Comprimi' : 'Espandi'}</span>
-			</button>
 
-			{#if advancedOpen}
-				<div id="advanced-controls-panel" class="advanced-panel-content">
-					<!-- Ruolo / Livello complessità -->
-					<div class="config-block">
-						<div class="block-header">
-							<span class="block-label">Ruolo & Complessità</span>
-							<span class="block-sub">Profilo di ragionamento e modello associato</span>
-						</div>
-						<div class="role-pills-row" role="radiogroup" aria-label="Ruolo e complessità">
-							{#each DIFFICULTY_ROLES as r (r.id)}
-								{@const active = options.role === r.id}
-								{@const Icon = r.icon}
-								<button
-									type="button"
-									class="role-pill-btn"
-									class:active
-									role="radio"
-									aria-checked={active}
-									aria-label={`Ruolo: ${r.label}. ${r.desc}`}
-									title={r.desc}
-									onclick={() => selectRole(r.id)}
-								>
-									<span class="role-pill-badge"><Icon /> {r.badge}</span>
-									<span class="role-pill-label">{r.label}</span>
-								</button>
-							{/each}
-
+				<!-- Scelta rapida Ruolo -->
+				<div class="role-selection-area">
+					<div class="role-pills-row" role="radiogroup" aria-label="Ruolo e complessità">
+						{#each DIFFICULTY_ROLES as r (r.id)}
+							{@const active = options.role === r.id}
+							{@const Icon = r.icon}
 							<button
 								type="button"
 								class="role-pill-btn"
-								class:active={options.role === 'custom'}
+								class:active
 								role="radio"
-								aria-checked={options.role === 'custom'}
-								aria-label="Ruolo: Personalizzato. Modello e thinking specifici"
-								title="Personalizza manualmente modello e livello di thinking"
-								onclick={() => selectRole('custom')}
+								aria-checked={active}
+								aria-label={`Ruolo: ${r.label}. ${r.desc}`}
+								title={r.desc}
+								onclick={() => selectRole(r.id)}
 							>
-								<span class="role-pill-badge">custom</span>
-								<span class="role-pill-label">Personalizzato</span>
+								<span class="role-pill-badge"><Icon /> {r.badge}</span>
+								<span class="role-pill-label">{r.label}</span>
 							</button>
-						</div>
-					</div>
+						{/each}
 
-					<!-- Modello e Thinking Effort -->
-					<div class="config-block">
-						<div class="model-thinking-grid">
-							<div class="model-col">
-								<label for="task-model-picker" class="block-label">Modello specifico</label>
-								<ModelPickerDropdown
-									catalog={modelSettingsStore.assignableCatalog}
-									value={options.modelSelector || ''}
-									placeholder="Usa modello predefinito del ruolo..."
-									onSelect={handleModelSelect}
-								/>
-								{#if selectedModelContext && (selectedModelContext.detail || selectedModelContext.usage)}
-									<div class="model-context-line">
-										{#if selectedModelContext.detail}
-											<span title={selectedModelContext.detailTitle}>{selectedModelContext.detail}</span>
-										{/if}
-										{#if selectedModelContext.usage}
-											<span
-												class="model-usage-note"
-												title={selectedModelContext.usageTitle}
-											>{selectedModelContext.usage}</span>
-										{/if}
-									</div>
-								{/if}
-								{#if frequentModelConfigurations.length > 0}
-									<div class="frequent-configurations" aria-label="Configurazioni modello usate spesso">
-										<span class="frequent-label">Usati spesso</span>
-										<div class="frequent-chips">
-											{#each frequentModelConfigurations as configuration (`${configuration.modelSelector}:${configuration.thinkingLevel}`)}
-												{@const thinkingLabel = THINKING_LEVELS.find((level) => level.id === configuration.thinkingLevel)?.label ?? configuration.thinkingLevel}
-												<button
-													type="button"
-													class="frequent-chip"
-													class:active={options.modelSelector === configuration.modelSelector && (options.thinkingLevel || 'auto') === configuration.thinkingLevel}
-													title={`${configuration.model.provider} · ${configuration.model.name} · Thinking ${thinkingLabel} · ${configuration.count} utilizzi recenti`}
-													onclick={() => applyFrequentConfiguration(configuration.modelSelector, configuration.thinkingLevel)}
-												>
-													<span>{configuration.model.name}</span>
-													<small>{thinkingLabel}</small>
-												</button>
-											{/each}
-										</div>
-									</div>
-								{/if}
-							</div>
-
-							<div class="thinking-col">
-								<div class="block-label">Thinking effort</div>
-								<ReasoningSlider
-									value={options.thinkingLevel || 'auto'}
-									onChange={handleThinkingChange}
-								/>
-							</div>
-						</div>
-					</div>
-
-					<!-- Modalità e Direttive Speciali -->
-					<div class="config-block">
-						<div class="block-header">
-							<div class="block-header-text">
-								<span class="block-label">Modalità & Direttive Speciali</span>
-								<span class="block-sub">Vincoli operativi e automatismi durante l'esecuzione del task</span>
-							</div>
-							<button
-								type="button"
-								class="btn-manage-directives"
-								onclick={() => settingsStore.openSection('tasks')}
-								title="Configura o crea nuove direttive nel catalogo impostazioni"
-							>
-								Gestisci direttive
-							</button>
-						</div>
-						<div class="modifiers-grid">
-							{#each availableDirectives as dir (dir.id)}
-								{@const activeSnapshot = options.directives?.find((d) => d.id === dir.id)}
-								{@const isChecked = Boolean(activeSnapshot)}
-								{@const revStatus = activeSnapshot ? compareDirectiveRevision(activeSnapshot, settingsStore.taskDirectives) : 'up_to_date'}
-								<label class="modifier-card" class:checked={isChecked}>
-									<input
-										type="checkbox"
-										checked={isChecked}
-										onchange={() => toggleDirective(dir)}
-									/>
-									<div class="modifier-body">
-										<div class="modifier-top">
-											<span class="modifier-title">{dir.name}</span>
-											<div class="modifier-badges">
-												{#if dir.placement === 'after'}
-													<span class="modifier-placement" title="Posizionata dopo il prompt">dopo</span>
-												{/if}
-												{#if dir.tag}
-													<span class="modifier-tag">{dir.tag}</span>
-												{/if}
-											</div>
-										</div>
-										{#if dir.description}
-											<p class="modifier-desc">{dir.description}</p>
-										{/if}
-										{#if isChecked && revStatus === 'upgrade_available'}
-											<div class="modifier-upgrade-row">
-												<span class="upgrade-badge">Aggiornamento v{settingsStore.taskDirectives.find((d) => d.id === dir.id)?.revision}</span>
-												<button
-													type="button"
-													class="btn-upgrade-directive"
-													onclick={(e) => { e.stopPropagation(); upgradeDirective(dir.id); }}
-													title="Sostituisce lo snapshot congelato con la versione più recente del catalogo"
-												>
-													Aggiorna
-												</button>
-											</div>
-										{:else if isChecked && revStatus === 'orphan'}
-											<div class="modifier-upgrade-row">
-												<span class="orphan-badge">Non in catalogo</span>
-											</div>
-										{/if}
-									</div>
-								</label>
-							{/each}
-							<label class="modifier-card" class:checked={options.includeEditorContext !== false}>
-								<input
-									type="checkbox"
-									checked={options.includeEditorContext !== false}
-									onchange={toggleIncludeEditorContext}
-								/>
-								<div class="modifier-body">
-									<div class="modifier-top">
-										<span class="modifier-title">Contesto Editor</span>
-										<span class="modifier-tag">File aperti</span>
-									</div>
-									<p class="modifier-desc">
-										Allega l'elenco dei file correntemente aperti e la selezione attiva nell'editor.
-									</p>
-								</div>
-							</label>
-						</div>
+						<button
+							type="button"
+							class="role-pill-btn"
+							class:active={options.role === 'custom'}
+							role="radio"
+							aria-checked={options.role === 'custom'}
+							aria-label="Ruolo: Personalizzato. Modello e thinking specifici"
+							title="Personalizza manualmente modello e livello di thinking"
+							onclick={() => selectRole('custom')}
+						>
+							<span class="role-pill-badge">custom</span>
+							<span class="role-pill-label">Personalizzato</span>
+						</button>
 					</div>
 				</div>
-			{/if}
+
+				<!-- Griglia Modello & Thinking Effort -->
+				<div class="model-thinking-grid">
+					<div class="model-col">
+						<label for="task-model-picker" class="field-label">Modello specifico</label>
+						<ModelPickerDropdown
+							catalog={modelSettingsStore.assignableCatalog}
+							value={options.modelSelector || ''}
+							placeholder="Usa modello predefinito del ruolo..."
+							onSelect={handleModelSelect}
+						/>
+						{#if selectedModelContext && (selectedModelContext.detail || selectedModelContext.usage)}
+							<div class="model-context-line">
+								{#if selectedModelContext.detail}
+									<span title={selectedModelContext.detailTitle}>{selectedModelContext.detail}</span>
+								{/if}
+								{#if selectedModelContext.usage}
+									<span
+										class="model-usage-note"
+										title={selectedModelContext.usageTitle}
+									>{selectedModelContext.usage}</span>
+								{/if}
+							</div>
+						{/if}
+						{#if frequentModelConfigurations.length > 0}
+							<div class="frequent-configurations" aria-label="Configurazioni modello usate spesso">
+								<span class="frequent-label">Usati spesso</span>
+								<div class="frequent-chips">
+									{#each frequentModelConfigurations as configuration (`${configuration.modelSelector}:${configuration.thinkingLevel}`)}
+										{@const thinkingLabel = THINKING_LEVELS.find((level) => level.id === configuration.thinkingLevel)?.label ?? configuration.thinkingLevel}
+										<button
+											type="button"
+											class="frequent-chip"
+											class:active={options.modelSelector === configuration.modelSelector && (options.thinkingLevel || 'auto') === configuration.thinkingLevel}
+											title={`${configuration.model.provider} · ${configuration.model.name} · Thinking ${thinkingLabel} · ${configuration.count} utilizzi recenti`}
+											onclick={() => applyFrequentConfiguration(configuration.modelSelector, configuration.thinkingLevel)}
+										>
+											<span>{configuration.model.name}</span>
+											<small>{thinkingLabel}</small>
+										</button>
+									{/each}
+								</div>
+							</div>
+						{/if}
+					</div>
+
+					<div class="thinking-col">
+						<span class="field-label">Thinking effort</span>
+						<ReasoningSlider
+							value={options.thinkingLevel || 'auto'}
+							onChange={handleThinkingChange}
+						/>
+					</div>
+				</div>
+			</div>
+
+			<!-- Gruppo 2: Direttive & Contesto -->
+			<div class="options-group with-divider">
+				<div class="group-header">
+					<div class="group-header-text">
+						<div class="group-title-row">
+							<span class="group-title">Direttive & Contesto</span>
+							{#if (options.directives?.length ?? 0) > 0}
+								<span class="active-count-badge">
+									{(options.directives?.length ?? 0)} {(options.directives?.length ?? 0) === 1 ? 'direttiva attiva' : 'direttive attive'}
+								</span>
+							{/if}
+						</div>
+						<span class="group-sub">Vincoli operativi e inclusioni durante l'esecuzione del task</span>
+					</div>
+					<button
+						type="button"
+						class="btn-manage-directives"
+						onclick={() => settingsStore.openSection('tasks')}
+						title="Configura o crea nuove direttive nel catalogo impostazioni"
+					>
+						Gestisci direttive
+					</button>
+				</div>
+
+				<div class="modifiers-grid">
+					{#each availableDirectives as dir (dir.id)}
+						{@const activeSnapshot = options.directives?.find((d) => d.id === dir.id)}
+						{@const isChecked = Boolean(activeSnapshot)}
+						{@const revStatus = activeSnapshot ? compareDirectiveRevision(activeSnapshot, settingsStore.taskDirectives) : 'up_to_date'}
+						<label class="modifier-card" class:checked={isChecked}>
+							<input
+								type="checkbox"
+								checked={isChecked}
+								onchange={() => toggleDirective(dir)}
+							/>
+							<div class="modifier-body">
+								<div class="modifier-top">
+									<span class="modifier-title">{dir.name}</span>
+									<div class="modifier-badges">
+										{#if dir.placement === 'after'}
+											<span class="modifier-placement" title="Posizionata dopo il prompt">dopo</span>
+										{/if}
+										{#if dir.tag}
+											<span class="modifier-tag">{dir.tag}</span>
+										{/if}
+									</div>
+								</div>
+								{#if dir.description}
+									<p class="modifier-desc">{dir.description}</p>
+								{/if}
+								{#if isChecked && revStatus === 'upgrade_available'}
+									<div class="modifier-upgrade-row">
+										<span class="upgrade-badge">Aggiornamento v{settingsStore.taskDirectives.find((d) => d.id === dir.id)?.revision}</span>
+										<button
+											type="button"
+											class="btn-upgrade-directive"
+											onclick={(e) => { e.stopPropagation(); upgradeDirective(dir.id); }}
+											title="Sostituisce lo snapshot congelato con la versione più recente del catalogo"
+										>
+											Aggiorna
+										</button>
+									</div>
+								{:else if isChecked && revStatus === 'orphan'}
+									<div class="modifier-upgrade-row">
+										<span class="orphan-badge">Non in catalogo</span>
+									</div>
+								{/if}
+							</div>
+						</label>
+					{/each}
+
+					<label class="modifier-card" class:checked={options.includeEditorContext !== false}>
+						<input
+							type="checkbox"
+							checked={options.includeEditorContext !== false}
+							onchange={toggleIncludeEditorContext}
+						/>
+						<div class="modifier-body">
+							<div class="modifier-top">
+								<span class="modifier-title">Contesto Editor</span>
+								<span class="modifier-tag">File aperti</span>
+							</div>
+							<p class="modifier-desc">
+								Allega l'elenco dei file correntemente aperti e la selezione attiva nell'editor.
+							</p>
+						</div>
+					</label>
+				</div>
+			</div>
 		</section>
 	</div>
 </div>
@@ -1399,129 +1356,81 @@
 		color: var(--ink-muted);
 	}
 
-	/* Advanced Section (Collapsible) */
-	.advanced-section {
+	/* Task Options Section (Always visible, non-card layout) */
+	.task-options-section {
 		display: flex;
-		/* Idem: l'`overflow: hidden` serve solo ad arrotondare gli angoli, e
-		   su un flex item comprimibile diventava una forbice sul contenuto. */
 		flex: 0 0 auto;
 		flex-direction: column;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		overflow: hidden;
+		gap: var(--space-4);
+		padding-top: var(--space-1);
+		padding-bottom: var(--space-5);
 	}
 
-	.advanced-toggle-btn {
-		width: 100%;
-		padding: var(--space-2) var(--space-3);
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		background: var(--bg-raised);
-		border: none;
-		color: var(--ink);
-		cursor: pointer;
-		font-family: var(--font-ui);
-		text-align: left;
-		transition: background var(--dur-fast) var(--ease-out);
-	}
-
-	.advanced-toggle-btn:hover {
-		background: var(--bg-hover);
-	}
-
-	.advanced-toggle-left {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		flex-wrap: wrap;
-	}
-
-	.chevron-icon {
-		width: 14px;
-		height: 14px;
-		color: var(--ink-faint);
-		transition: transform var(--dur-fast) var(--ease-out);
-		flex-shrink: 0;
-	}
-
-	.chevron-icon.rotated {
-		transform: rotate(90deg);
-	}
-
-	.advanced-title {
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.advanced-summary {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		flex-wrap: wrap;
-	}
-
-	.summary-chip {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		padding: 1px 6px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		color: var(--ink-muted);
-		line-height: 1.3;
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		--icon-size: 12px;
-	}
-
-	.summary-chip.active-count {
-		color: var(--brand-ink);
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
-		background: color-mix(in srgb, var(--brand) 8%, var(--bg-sunken));
-	}
-
-	.advanced-toggle-hint {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		flex-shrink: 0;
-	}
-
-	.advanced-panel-content {
-		padding: var(--space-3);
+	.options-group {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
+	}
+
+	.options-group.with-divider {
+		padding-top: var(--space-3);
 		border-top: 1px solid var(--line);
 	}
 
-	.config-block {
+	.group-header {
 		display: flex;
-		flex-direction: column;
+		align-items: flex-start;
+		justify-content: space-between;
 		gap: var(--space-2);
 	}
 
-	.block-header {
+	.group-header-text {
 		display: flex;
 		flex-direction: column;
-		gap: 1px;
+		gap: 2px;
 	}
 
-	.block-label {
-		font-size: var(--text-xs);
+	.group-title-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.group-title {
+		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--ink);
+		letter-spacing: -0.01em;
 	}
 
-	.block-sub {
+	.group-sub {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
+		line-height: 1.35;
 	}
 
+	.active-count-badge {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 500;
+		padding: 1px 6px;
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--brand) 12%, var(--bg-sunken));
+		border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line));
+		color: var(--brand-ink);
+	}
+
+	.role-selection-area {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+
+	.field-label {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink-muted);
+	}
 	/* Role Pills */
 	.role-pills-row {
 		display: flex;
@@ -1738,11 +1647,6 @@
 		line-height: 1.35;
 	}
 
-	.block-header-text {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
 
 	.btn-manage-directives {
 		font-size: var(--text-xs);
@@ -1820,8 +1724,7 @@
 
 	@media (max-width: 800px) {
 		.save-state,
-		.hint-text,
-		.advanced-toggle-hint {
+		.hint-text {
 			display: none;
 		}
 	}

@@ -22,7 +22,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Retrocompatibilità e migrazione reversibile di `.gitignore`: i vecchi prototipi HTML generati da `studio_preview` (`proto/*.html`) restano leggibili e apribili, mentre la regola automatica `.gitignore` viene aggiornata a `proto/*.html` per consentire il tracciamento in Git dei nuovi prototipi in `proto/<id>/` senza toccare le regole scritte dall'utente.
 
 ### Changed
-- Alleggerita la finestra Companion: la modalità Spotlight è senza barra, mentre la modalità fissata usa un'intestazione minima con il logo di Studio; i progetti restano sempre visibili e sono ordinati per urgenza.
+- Opzioni di configurazione del task sempre visibili e integrate nel layout: rimosso l'accordion comprimibile e il contenitore a scheda del TaskEditor in favore di un flusso naturale direttamente sotto l'area di testo del prompt, con sezioni dedicate per profilo/ruolo, modello specifico, livello di thinking effort e griglia delle direttive con conteggio attivo.
 - Il campo per i task del Companion ha ora la forma di un composer da chat: una sola superficie arrotondata che cresce con il testo (una riga a vuoto, fino a otto), Invio per salvare e Maiusc+Invio per andare a capo, pastiglie cliccabili `@progetto`, `/direttiva` e `!ruolo` al posto del testo di aiuto, e pulsante di invio tondo che gira mentre salva. L'anteprima dell'interpretazione è diventata una striscia sotto il campo invece di una scheda con una scatola dentro, e un progetto non ancora riconosciuto è segnalato come avviso e non come errore.
 
 ### Fixed
