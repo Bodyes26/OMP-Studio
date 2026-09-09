@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { PieceTreeTextBufferBuilder } from '../node_modules/monaco-editor/esm/vs/editor/common/model/pieceTreeTextBuffer/pieceTreeTextBufferBuilder.js';
+import { Range } from '../node_modules/monaco-editor/esm/vs/editor/common/core/range.js';
 import {
 	EDITOR_CONTEXT_MARKER,
 	formatEditorContext,
@@ -7,7 +9,6 @@ import {
 	splitMessageAndEditorContext,
 	stripEditorContext
 } from '../src/lib/editor/editorContextParsing.ts';
-
 describe('Editor Context: parsing, split e formattazione', () => {
 	describe('formatEditorContext', () => {
 		it('ritorna null se non ci sono file aperti né file attivo', () => {
@@ -134,6 +135,41 @@ export function login() {}
 		it('non altera messaggi privi del marcatore', () => {
 			const text = 'Messaggio semplice';
 			assert.equal(stripEditorContext(text), 'Messaggio semplice');
+		});
+	});
+
+	describe('Preservazione BOM e baseline dirty check', () => {
+		it('preserva il BOM UTF-8 (\\uFEFF) evitando falsi positivi di modifica al caricamento', () => {
+			const bom = '\uFEFF';
+			const rawContentWithBom = `${bom}Public Class Form1\r\nEnd Class\r\n`;
+
+			const builder = new PieceTreeTextBufferBuilder();
+			builder.acceptChunk(rawContentWithBom);
+			const factory = builder.finish();
+			const { textBuffer } = factory.create(1);
+
+			const range = new Range(1, 1, textBuffer.getLineCount(), textBuffer.getLineLength(textBuffer.getLineCount()) + 1);
+
+			// Senza preservazione del BOM (comportamento predefinito errato di Monaco):
+			const strippedContent = textBuffer.getValueInRange(range, 0);
+			assert.notEqual(strippedContent, rawContentWithBom, 'Il testo senza BOM differisce da quello letto da disco');
+
+			// Con preservazione del BOM (comportamento corretto di getCurrentFileContent):
+			const preservedContent = textBuffer.getBOM() + textBuffer.getValueInRange(range, 0);
+			assert.equal(preservedContent, rawContentWithBom, 'Il testo con BOM preservato coincide esattamente con il file');
+		});
+
+		it('non aggiunge BOM a file che ne sono privi', () => {
+			const plainText = 'console.log("hello");\n';
+
+			const builder = new PieceTreeTextBufferBuilder();
+			builder.acceptChunk(plainText);
+			const factory = builder.finish();
+			const { textBuffer } = factory.create(1);
+
+			const range = new Range(1, 1, textBuffer.getLineCount(), textBuffer.getLineLength(textBuffer.getLineCount()) + 1);
+			const content = textBuffer.getBOM() + textBuffer.getValueInRange(range, 0);
+			assert.equal(content, plainText);
 		});
 	});
 });

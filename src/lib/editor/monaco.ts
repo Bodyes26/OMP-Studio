@@ -192,7 +192,7 @@ export function revealLineInEditor(line: number) {
 
 export function getCurrentFileContent(absPath: string): string | null {
 	const model = models.get(absPath);
-	return model ? model.getValue() : null;
+	return model ? model.getValue(undefined, true) : null;
 }
 export interface EditorSelectionInfo {
 	selectionText: string;

@@ -265,13 +265,18 @@
 		diffEditorInstance = null;
 	}
 
-	function activateLoadedFile(project: string, path: string, key: string, state: FileState) {
+	function activateLoadedFile(project: string, path: string, key: string, state: FileState, isFresh = false) {
 		loadedKey = key;
-		initialContent = state.initialContent;
-		gitHeadContent = state.gitHeadContent;
 		openFileModel(joinProjectPath(project, path), state.initialContent, languageFor(path));
 
 		const content = getCurrentFileContent(joinProjectPath(project, path)) ?? state.currentText;
+		if (isFresh) {
+			// All'apertura da disco il testo effettivo istanziato nel modello fa da baseline canonica,
+			// prevenendo falsi dirty se Monaco effettua normalizzazioni interne.
+			state.initialContent = content;
+		}
+		initialContent = state.initialContent;
+		gitHeadContent = state.gitHeadContent;
 		state.currentText = content;
 		currentText = content;
 		setDirty(key, content !== state.initialContent);
@@ -294,7 +299,7 @@
 	async function load(project: string, path: string, key: string) {
 		const cached = fileStates.get(key);
 		if (cached) {
-			activateLoadedFile(project, path, key, cached);
+			activateLoadedFile(project, path, key, cached, false);
 			return;
 		}
 
@@ -319,7 +324,7 @@
 				decorationIds: []
 			};
 			fileStates.set(key, state);
-			if (requestedKey === key) activateLoadedFile(project, path, key, state);
+			if (requestedKey === key) activateLoadedFile(project, path, key, state, true);
 		} catch (error) {
 			console.error('Failed to load file', error);
 		} finally {
