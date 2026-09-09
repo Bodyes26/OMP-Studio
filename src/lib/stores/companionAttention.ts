@@ -16,7 +16,7 @@
  * finisce mai di caricare.
  */
 
-import type { AttentionRequest, RecentChatMessage } from './companion.svelte';
+import type { AttentionRequest, PendingUiPayload, RecentChatMessage } from './companion.svelte';
 
 /**
  * Uguaglianza strutturale su valori serializzabili in JSON.
@@ -89,12 +89,46 @@ export function sameAttentionRequest(a: AttentionRequest, b: AttentionRequest): 
 		left.title === right.title &&
 		left.message === right.message &&
 		left.method === right.method &&
+		left.placeholder === right.placeholder &&
+		left.prefill === right.prefill &&
 		left.questionIndex === right.questionIndex &&
 		left.totalQuestions === right.totalQuestions &&
 		jsonEqual(left.options, right.options) &&
+		jsonEqual(left.optionDetails, right.optionDetails) &&
 		jsonEqual(left.questions, right.questions) &&
 		sameRecentMessages(a.recentMessages, b.recentMessages)
 	);
+}
+
+/**
+ * Traduce una sessione con domanda aperta nella richiesta che la companion
+ * mostra. Restituisce `null` quando non c'e' nulla da chiedere all'utente.
+ *
+ * L'unica condizione e' la presenza della richiesta interattiva. In
+ * particolare **non** si pretende `message`: nel protocollo la domanda sta in
+ * `title` e `message` e' un dettaglio facoltativo, quindi filtrare su
+ * `message` faceva sparire la quasi totalita' delle domande dalla companion,
+ * che restava con il solo stato "chiede risposta" e nessun modo di
+ * rispondere.
+ */
+export function buildAttentionRequest(
+	project: { id: string; name: string; hue: number },
+	session: {
+		pendingUi?: PendingUiPayload | null;
+		model?: { id?: string; name?: string } | null;
+		recentMessages: RecentChatMessage[];
+	}
+): AttentionRequest | null {
+	const pendingUi = session.pendingUi;
+	if (!pendingUi || pendingUi.kind !== 'ask') return null;
+	return {
+		projectId: project.id,
+		projectName: project.name,
+		projectHue: project.hue,
+		modelName: session.model ? session.model.name || session.model.id : undefined,
+		recentMessages: session.recentMessages,
+		pendingUi
+	};
 }
 
 /**

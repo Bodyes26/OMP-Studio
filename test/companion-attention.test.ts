@@ -15,10 +15,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+	buildAttentionRequest,
 	removeAttentionRequest,
 	sameAttentionRequest,
 	upsertAttentionRequest
 } from '../src/lib/stores/companionAttention.ts';
+import { askQuestionText, parseAskTitle } from '../src/lib/agent/askTitle.ts';
 import type { AttentionRequest } from '../src/lib/stores/companion.svelte.ts';
 
 /**
@@ -146,4 +148,59 @@ test('upsert scrive quando cambiano i messaggi recenti o il modello', () => {
 
 	const otherModel = upsertAttentionRequest([stored], buildRequest({ modelName: 'GPT-5.6 Sol' }));
 	assert.ok(otherModel, 'il cambio di modello va propagato');
+});
+
+test('buildAttentionRequest pubblica la domanda anche senza `message`', () => {
+	// La regressione che ha reso muta la companion: il testo della domanda sta
+	// in `title` e `message` e' facoltativo. Pretenderlo lasciava il progetto
+	// con il solo stato "chiede risposta" e nessuna domanda da leggere.
+	const request = buildAttentionRequest(
+		{ id: 'proj-1', name: 'AreaIT', hue: 210 },
+		{
+			pendingUi: {
+				kind: 'ask',
+				requestId: 'req-1',
+				title: 'Quale zona sistemare? (1/2)',
+				method: 'select',
+				options: ['Cuneo', 'Alba']
+			},
+			model: { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+			recentMessages: []
+		}
+	);
+
+	assert.ok(request, 'una richiesta senza `message` deve arrivare alla companion');
+	assert.equal(request.projectName, 'AreaIT');
+	assert.equal(request.modelName, 'GPT-5.6 Sol');
+	assert.deepEqual(request.pendingUi.options, ['Cuneo', 'Alba']);
+	assert.equal(askQuestionText(request.pendingUi), 'Quale zona sistemare?');
+});
+
+test('buildAttentionRequest non pubblica nulla senza richiesta interattiva', () => {
+	const base = { id: 'proj-1', name: 'AreaIT', hue: 210 };
+	assert.equal(buildAttentionRequest(base, { pendingUi: null, recentMessages: [] }), null);
+	assert.equal(
+		buildAttentionRequest(base, {
+			pendingUi: { kind: 'notify', requestId: 'req-2' },
+			recentMessages: []
+		}),
+		null,
+		'solo le richieste `ask` vogliono una risposta'
+	);
+});
+
+test('il titolo perde i marcatori di posizione, non la domanda', () => {
+	assert.deepEqual(parseAskTitle('Procedo con il rilascio? (2/3)'), {
+		counter: '2/3',
+		text: 'Procedo con il rilascio?'
+	});
+	assert.deepEqual(parseAskTitle('(1 selected) Quali zone includere? (1/2)'), {
+		counter: '1 selected',
+		text: 'Quali zone includere?'
+	});
+	assert.deepEqual(parseAskTitle(undefined), { counter: null, text: '' });
+
+	// Senza titolo si mostra il dettaglio; senza nulla, un testo onesto.
+	assert.equal(askQuestionText({ message: 'Serve la conferma' }), 'Serve la conferma');
+	assert.equal(askQuestionText({}), 'Richiesta di risposta');
 });

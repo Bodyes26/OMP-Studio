@@ -35,6 +35,8 @@
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
 	import { companionStore, type CompanionProjectRuntime } from '$lib/stores/companion.svelte';
+	import { buildAttentionRequest } from '$lib/stores/companionAttention';
+	import { askQuestionText } from '$lib/agent/askTitle';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
 	import { onDestroy } from 'svelte';
@@ -469,16 +471,20 @@
 			if (session.agentState !== 'unknown') {
 				projectStore.setAgentState(p.id, session.agentState);
 			}
-			if (session.pendingUi?.kind === 'ask' && session.pendingUi.message) {
-				notificationManager.setProjectAskMessage(p.id, session.pendingUi.message);
-				companionStore.setAttentionRequest({
-					projectId: p.id,
-					projectName: p.name,
-					projectHue: p.hue,
-					modelName: session.model ? (session.model.name || session.model.id) : undefined,
-					recentMessages: session.recentMessages,
-					pendingUi: $state.snapshot(session.pendingUi)
-				});
+			// La domanda si pubblica sempre che ci sia una richiesta aperta: il
+			// testo sta in `title`, `message` e' facoltativo e pretenderlo
+			// lasciava la companion con il solo stato "chiede risposta".
+			const attention = buildAttentionRequest(
+				{ id: p.id, name: p.name, hue: p.hue },
+				{
+					pendingUi: session.pendingUi ? $state.snapshot(session.pendingUi) : null,
+					model: session.model,
+					recentMessages: session.recentMessages
+				}
+			);
+			if (attention) {
+				notificationManager.setProjectAskMessage(p.id, askQuestionText(attention.pendingUi));
+				companionStore.setAttentionRequest(attention);
 			} else {
 				notificationManager.clearProjectAskMessage(p.id);
 				companionStore.clearAttentionRequest(p.id);

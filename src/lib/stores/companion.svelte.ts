@@ -15,13 +15,25 @@ export interface RecentChatMessage {
 	timestamp?: number;
 }
 
+/**
+ * Richiesta interattiva cosi' come viaggia verso la finestra companion.
+ *
+ * Ricalca i campi di `extension_ui_request` che servono a rispondere senza
+ * tornare nella finestra principale: la domanda sta in `title` (con i
+ * marcatori `(k/N)`), `message` e' il dettaglio facoltativo, `optionDetails`
+ * porta le descrizioni delle opzioni e `placeholder`/`prefill` servono ai
+ * metodi `input` ed `editor`, che si rispondono con testo libero.
+ */
 export interface PendingUiPayload {
 	kind: string;
 	requestId: string;
 	title?: string;
 	message?: string;
 	options?: string[];
+	optionDetails?: { description?: string }[];
 	method?: 'select' | 'confirm' | 'input' | 'editor';
+	placeholder?: string;
+	prefill?: string;
 	questions?: unknown[];
 	questionIndex?: number;
 	totalQuestions?: number;

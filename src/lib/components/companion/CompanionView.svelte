@@ -2,7 +2,8 @@
 	import { onMount, tick } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-	import { companionStore, type QuickTaskAiParsed } from '$lib/stores/companion.svelte';
+	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '$lib/stores/companion.svelte';
+	import { askQuestionText, parseAskTitle } from '$lib/agent/askTitle';
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { quotaStore } from '$lib/stores/quota.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -62,6 +63,8 @@
 	let isSaving = $state(false);
 	let successNotice = $state<string | null>(null);
 	let expandedHistory = $state<Record<string, boolean>>({});
+	/** Testo in corso di scrittura per le richieste a risposta libera. */
+	let replyDrafts = $state<Record<string, string>>({});
 	let usageOpen = $state(false);
 	let justOpened = $state(false);
 
@@ -363,6 +366,27 @@
 		await companionStore.respondUi(projectId, { action: 'cancel' });
 	}
 
+	/**
+	 * Risposta libera per i metodi `input` ed `editor`: sul filo e' lo stesso
+	 * frame di una scelta, con il testo al posto dell'opzione.
+	 */
+	async function handleQuickReplyText(projectId: string) {
+		const value = (replyDrafts[projectId] ?? '').trim();
+		if (!value) return;
+		delete replyDrafts[projectId];
+		await companionStore.respondUi(projectId, { action: 'select', value });
+	}
+
+	function draftFor(req: AttentionRequest): string {
+		return replyDrafts[req.projectId] ?? req.pendingUi.prefill ?? '';
+	}
+
+	/** Vero quando la richiesta vuole testo libero e non una scelta. */
+	function wantsText(pending: AttentionRequest['pendingUi']): boolean {
+		if (pending.options && pending.options.length > 0) return false;
+		return pending.method === 'input' || pending.method === 'editor';
+	}
+
 	function toggleHistory(projectId: string) {
 		expandedHistory[projectId] = !expandedHistory[projectId];
 	}
@@ -451,6 +475,8 @@
 				</div>
 
 				{#each attentionList as req (req.projectId)}
+					{@const parsed = parseAskTitle(req.pendingUi.title)}
+					{@const detail = parsed.text && req.pendingUi.message ? req.pendingUi.message : null}
 					<div class="attention-card" style="--proj-hue: {req.projectHue}">
 						<div class="card-header">
 							<span class="project-pill">{req.projectName}</span>
@@ -486,19 +512,33 @@
 
 						<!-- Domanda / Richiesta interattiva -->
 						<div class="ask-box">
-							<p class="ask-question">{req.pendingUi.message || req.pendingUi.title || 'Seleziona un’opzione:'}</p>
+							<div class="ask-head">
+								<p class="ask-question">{askQuestionText(req.pendingUi, 'Seleziona un’opzione:')}</p>
+								{#if parsed.counter}
+									<span class="ask-counter">{parsed.counter}</span>
+								{/if}
+							</div>
+							{#if detail}
+								<p class="ask-detail">{detail}</p>
+							{/if}
 
 							<!-- Opzioni Select -->
 							{#if req.pendingUi.options && req.pendingUi.options.length > 0}
 								<div class="options-grid">
 									{#each req.pendingUi.options as opt, idx (opt)}
+										{@const description = req.pendingUi.optionDetails?.[idx]?.description}
 										<button
 											type="button"
 											class="option-btn"
 											onclick={() => void handleQuickReplySelect(req.projectId, opt)}
 										>
 											<span class="opt-num">{idx + 1}</span>
-											<span class="opt-label">{opt}</span>
+											<span class="opt-body">
+												<span class="opt-label">{opt}</span>
+												{#if description}
+													<span class="opt-desc">{description}</span>
+												{/if}
+											</span>
 										</button>
 									{/each}
 								</div>
@@ -518,6 +558,41 @@
 									>
 										<IconClose /> <span>No, annulla</span>
 									</button>
+								</div>
+							{:else if wantsText(req.pendingUi)}
+								<!--
+									`input` ed `editor` vogliono testo libero: senza questo campo
+									la companion mostrava la domanda e la sola uscita "Ignora".
+								-->
+								<div class="text-reply">
+									<textarea
+										class="reply-input"
+										rows="2"
+										placeholder={req.pendingUi.placeholder || 'Scrivi la risposta…'}
+										value={draftFor(req)}
+										oninput={(e) => (replyDrafts[req.projectId] = e.currentTarget.value)}
+										onkeydown={(e) => {
+											if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
+												e.preventDefault();
+												e.stopPropagation();
+												void handleQuickReplyText(req.projectId);
+											}
+										}}
+									></textarea>
+									<div class="reply-actions">
+										<span class="reply-hint">Invio per inviare</span>
+										<button
+											type="button"
+											class="action-btn cancel"
+											onclick={() => void handleQuickReplyCancel(req.projectId)}
+										>Ignora</button>
+										<button
+											type="button"
+											class="action-btn confirm"
+											disabled={!draftFor(req).trim()}
+											onclick={() => void handleQuickReplyText(req.projectId)}
+										><IconArrowUp /> <span>Invia</span></button>
+									</div>
 								</div>
 							{:else}
 								<div class="generic-actions">
@@ -1065,11 +1140,39 @@
 		margin-top: var(--space-1);
 	}
 
+	.ask-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
 	.ask-question {
 		font-weight: 500;
 		font-size: var(--text-sm);
 		margin: 0 0 var(--space-2) 0;
 		color: var(--ink);
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	/* Posizione nella sequenza (`k/N` o `(N selected)`), dichiarata dal protocollo. */
+	.ask-counter {
+		flex: none;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		padding: 1px var(--space-1);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+	}
+
+	.ask-detail {
+		margin: calc(-1 * var(--space-1)) 0 var(--space-2) 0;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	.options-grid {
@@ -1080,7 +1183,7 @@
 
 	.option-btn {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
 		background: var(--bg-base);
@@ -1091,6 +1194,23 @@
 		cursor: pointer;
 		font-size: var(--text-sm);
 		transition: background var(--dur-fast), border-color var(--dur-fast);
+	}
+
+	.opt-body {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.opt-label {
+		word-break: break-word;
+	}
+
+	.opt-desc {
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		word-break: break-word;
 	}
 
 	.option-btn:hover {
@@ -1137,6 +1257,48 @@
 	.action-btn.cancel {
 		background: var(--bg-hover);
 		color: var(--ink-muted);
+	}
+
+	/* Risposta libera: metodi `input` ed `editor`. */
+	.text-reply {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.reply-input {
+		width: 100%;
+		resize: vertical;
+		padding: var(--space-2);
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		font-family: inherit;
+		font-size: var(--text-sm);
+		line-height: 1.4;
+	}
+
+	.reply-input:focus {
+		outline: none;
+		border-color: var(--brand-line);
+	}
+
+	.reply-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.reply-hint {
+		margin-right: auto;
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+	}
+
+	.action-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	/* Sezione Input Rapido Task */

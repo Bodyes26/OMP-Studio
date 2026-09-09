@@ -41,6 +41,7 @@
 		type AskQuestion,
 		type AskQuestionOption
 	} from '../askAnswers';
+	import { parseAskTitle } from '../askTitle';
 let { session, pending, visible = true } = $props<{ session: AgentSession; pending: PendingAsk; visible?: boolean }>();
 
 	// Prefisso unico per gli id ARIA: piu' sessioni possono avere una card
@@ -99,28 +100,10 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 
 	const showCountdown = $derived(remainingSeconds !== null && remainingSeconds > 0);
 
-	// Parsing del titolo: omp premette `(N selected)` nei round a scelta
-	// multipla e aggiunge in coda `(k/N)` nelle sequenze multi-domanda. Le due
-	// cose convivono, quindi si togliono entrambe dal testo della domanda.
-	const parsedTitle = $derived.by(() => {
-		const raw = pending.title || '';
-		let text = raw;
-		let counter: string | null = null;
-
-		const selectedMatch = text.match(/^\(([^)]+)\)\s*(.*)$/);
-		if (selectedMatch) {
-			counter = selectedMatch[1].trim();
-			text = selectedMatch[2].trim() || raw;
-		}
-
-		const progMatch = text.match(/\s*\((\d+)\/(\d+)\)\s*$/);
-		if (progMatch) {
-			text = text.slice(0, progMatch.index).trim();
-			counter ??= `${progMatch[1]}/${progMatch[2]}`;
-		}
-
-		return { counter, text };
-	});
+	// Il titolo porta i marcatori di posizione del protocollo: la lettura sta in
+	// `askTitle.ts` perche' la stessa domanda si mostra anche nel popover del
+	// progetto e nella finestra companion.
+	const parsedTitle = $derived(parseAskTitle(pending.title));
 
 	/**
 	 * Posizione dichiarata dal protocollo, non dal wizard locale: rispondere

@@ -19,6 +19,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { companionStore } from '$lib/stores/companion.svelte';
+	import { askQuestionText } from '$lib/agent/askTitle';
 	import HuePicker from './HuePicker.svelte';
 	import {
 		IconArrowLeft,
@@ -386,7 +387,7 @@
 					</div>
 				{/if}
 
-				<p class="quick-ask-prompt">{attentionReq.pendingUi.message || attentionReq.pendingUi.title || 'Richiesta di risposta:'}</p>
+				<p class="quick-ask-prompt">{askQuestionText(attentionReq.pendingUi, 'Richiesta di risposta:')}</p>
 
 				{#if attentionReq.pendingUi.options && attentionReq.pendingUi.options.length > 0}
 					<div class="quick-options">
