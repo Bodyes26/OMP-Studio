@@ -19,6 +19,14 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Acquisizione del contesto stabile dal progetto con selezione mirata: lettura del working tree effettivo comprese modifiche non committate dell'utente, impronte crittografiche SHA-256 e provenienza, esclusione rigorosa di credenziali e file di segreti, verifica della coerenza a più passaggi contro scritture concorrenti del principale, lettura congelata per i tool di contesto e rilevamento della deriva (drift) con aggiornamento solo su richiesta esplicita dell'utente senza rigenerare il prototipo.
 - Export autonomo e handoff adattivo al principale: esportazione di qualsiasi revisione come progetto React indipendente standard con build Vite + Tailwind v4, e pacchetto di consegna strutturato per l'adattamento da parte dell'agente principale allo stack reale del progetto (anche Svelte 5) senza auto-merge forzato.
 - Retrocompatibilità e migrazione reversibile di `.gitignore`: i vecchi prototipi HTML generati da `studio_preview` (`proto/*.html`) restano leggibili e apribili, mentre la regola automatica `.gitignore` viene aggiornata a `proto/*.html` per consentire il tracciamento in Git dei nuovi prototipi in `proto/<id>/` senza toccare le regole scritte dall'utente.
+
+### Changed
+- Alleggerita la finestra Companion: la modalità Spotlight è senza barra, mentre la modalità fissata usa un'intestazione minima con il logo di Studio; i progetti restano sempre visibili e sono ordinati per urgenza.
+
+### Fixed
+- L'inserimento rapido dei task nel Companion interpreta localmente progetto, direttive e ruolo mentre si scrive e avvia il modello `smol` solo al salvataggio quando serve, evitando processi continui e l'errore Windows 206 causato da argomenti troppo lunghi.
+- Il monitor del Companion mostra ora lo stato effettivo di ogni progetto e, solo per gli agenti al lavoro o in attesa di risposta, la quota del modello e dell'account realmente in uso.
+
 ## [1.5.0] - 2026-09-08
 
 ### Added

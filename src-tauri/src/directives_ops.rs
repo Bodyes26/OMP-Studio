@@ -9,8 +9,10 @@
 use crate::omp_ops::{get_omp_binary, open_readonly_db};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use tauri::command;
 
 #[cfg(target_os = "windows")]
@@ -135,12 +137,79 @@ pub fn extract_json_payload(raw: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
+/// Guardia per garantire la cancellazione automatica di un file temporaneo su qualsiasi via d'uscita (Drop).
+struct TempFileGuard {
+    path: std::path::PathBuf,
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Esito di una chiamata effimera a `omp`.
+pub(crate) enum EphemeralOutcome {
+    /// Il processo ha risposto correttamente.
+    Ok(String),
+    /// Il processo e' uscito con codice non zero: il messaggio e' quello di stderr.
+    Failed(String),
+    /// Il processo non ha risposto entro il tempo massimo ed e' stato terminato.
+    TimedOut,
+}
+
+/// Tempo massimo concesso a una chiamata effimera prima della terminazione forzata.
+pub(crate) const EPHEMERAL_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// Esegue una chiamata effimera a `omp -p --no-session` e raccoglie l'output standard.
-pub(crate) fn run_ephemeral_omp_raw(
+///
+/// Su Windows, l'API Win32 `CreateProcessW` impone un limite rigido di 32.767 caratteri
+/// per l'intera riga di comando. Quando `context` è fornito, viene salvato in un file
+/// temporaneo e passato come argomento `@<percorso>` prima di `user_prompt`, garantendo
+/// che in argv viaggino solo stringhe costanti e brevi per evitare `os error 206`.
+///
+/// Il processo viene terminato allo scadere di `timeout`: senza questa rete un `omp`
+/// bloccato terrebbe occupato per sempre il thread che ha invocato il comando.
+pub(crate) fn run_ephemeral_omp(
     system_prompt: &str,
+    context: Option<&str>,
     user_prompt: &str,
     model_selector: Option<&str>,
-) -> Result<String, String> {
+    timeout: Duration,
+) -> Result<EphemeralOutcome, String> {
+    // Guardia difensiva: se la combinazione di system_prompt e user_prompt supera 24.000 byte,
+    // restituiamo un errore esplicito in italiano spiegando che il contenuto voluminoso va passato
+    // nel contesto su file temporaneo, anziché far fallire CreateProcessW con os error 206.
+    if system_prompt.len() + user_prompt.len() > 24_000 {
+        return Err(
+            "La dimensione combinata di system_prompt e user_prompt supera la soglia di sicurezza (24.000 byte). \
+             Il contenuto voluminoso o variabile deve essere passato tramite il parametro `context` su file temporaneo \
+             per rispettare il limite Win32 di 32.767 caratteri per la riga di comando.".to_string()
+        );
+    }
+
+    // Se context è presente, viene scritto in un file temporaneo con nome univoco.
+    // La guardia TempFileGuard ne assicura la cancellazione automatica su qualsiasi via d'uscita.
+    let (_guard, context_file_arg) = if let Some(ctx) = context.filter(|c| !c.trim().is_empty()) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let pid = std::process::id();
+        let filename = format!("omp-studio-ctx-{}-{}.md", now, pid);
+        let temp_path = std::env::temp_dir().join(filename);
+
+        std::fs::write(&temp_path, ctx)
+            .map_err(|e| format!("Scrittura file temporaneo di contesto fallita: {}", e))?;
+
+        let normalized_path = temp_path.to_string_lossy().replace('\\', "/");
+        let arg = format!("@{}", normalized_path);
+        let guard = TempFileGuard { path: temp_path };
+        (Some(guard), Some(arg))
+    } else {
+        (None, None)
+    };
+
     let omp_path = get_omp_binary();
     let mut cmd = Command::new(&omp_path);
 
@@ -156,31 +225,104 @@ pub(crate) fn run_ephemeral_omp_raw(
         cmd.arg("--model").arg(model);
     }
 
+    if let Some(ctx_arg) = context_file_arg {
+        cmd.arg(ctx_arg);
+    }
+
     cmd.arg(user_prompt);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
 
     #[cfg(target_os = "windows")]
     {
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
 
-    let output = cmd
-        .output()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("Avvio processo omp fallito: {}", e))?;
 
-    if !output.status.success() {
-        let stderr_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr_msg.is_empty() {
-            format!(
-                "omp è terminato con codice di errore {:?}",
-                output.status.code()
-            )
+    // Le pipe si leggono su thread dedicati: riempiendosi bloccherebbero il child
+    // prima ancora che possa terminare, e l'attesa non scadrebbe mai.
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+    let stdout_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = stdout_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = stderr_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    // Terminazione forzata piu' attesa, per non lasciare processi orfani
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(format!("Attesa del processo omp fallita: {}", e)),
+        }
+    };
+
+    let stdout_bytes = stdout_reader.join().unwrap_or_default();
+    let stderr_bytes = stderr_reader.join().unwrap_or_default();
+
+    let Some(status) = status else {
+        return Ok(EphemeralOutcome::TimedOut);
+    };
+
+    if !status.success() {
+        let stderr_msg = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
+        return Ok(EphemeralOutcome::Failed(if stderr_msg.is_empty() {
+            format!("omp è terminato con codice di errore {:?}", status.code())
         } else {
             stderr_msg
-        });
+        }));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(EphemeralOutcome::Ok(
+        String::from_utf8_lossy(&stdout_bytes).trim().to_string(),
+    ))
 }
+
+/// Variante che considera errore qualunque esito diverso da una risposta valida.
+pub(crate) fn run_ephemeral_omp_raw(
+    system_prompt: &str,
+    context: Option<&str>,
+    user_prompt: &str,
+    model_selector: Option<&str>,
+) -> Result<String, String> {
+    match run_ephemeral_omp(
+        system_prompt,
+        context,
+        user_prompt,
+        model_selector,
+        EPHEMERAL_TIMEOUT,
+    )? {
+        EphemeralOutcome::Ok(out) => Ok(out),
+        EphemeralOutcome::Failed(msg) => Err(msg),
+        EphemeralOutcome::TimedOut => Err(format!(
+            "omp non ha risposto entro {} secondi ed è stato interrotto",
+            EPHEMERAL_TIMEOUT.as_secs()
+        )),
+    }
+}
+
 
 /// Genera una nuova direttiva per task a partire da un obiettivo o argomento descritto dall'utente.
 #[command]
@@ -207,21 +349,39 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo introdutt
   "reason": "Spiegazione sintetica del perché è utile"
 }"#;
 
-    let mut user_prompt = format!(
-        "Crea una direttiva di prompt per questo obiettivo:\n\"{}\"",
-        topic_trimmed
-    );
-    if let Some(ctx) = context.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        user_prompt.push_str(&format!("\n\nContesto aggiuntivo o vincoli:\n{}", ctx));
-    }
+    let (context_payload, user_prompt) = match context.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(ctx) => {
+            let md = format!(
+                "# Obiettivo Direttiva\n{}\n\n# Contesto o Vincoli Aggiuntivi\n{}",
+                topic_trimmed, ctx
+            );
+            (
+                Some(md),
+                "Crea una direttiva di prompt per l'obiettivo e i vincoli specificati nel file allegato.".to_string(),
+            )
+        }
+        None => {
+            (
+                None,
+                format!(
+                    "Crea una direttiva di prompt per questo obiettivo:\n\"{}\"",
+                    topic_trimmed
+                ),
+            )
+        }
+    };
 
     let resolved_model = resolve_assistant_model(model_selector.as_deref()).await;
     let raw_response = tokio::task::spawn_blocking(move || {
-        run_ephemeral_omp_raw(system_prompt, &user_prompt, resolved_model.as_deref())
+        run_ephemeral_omp_raw(
+            system_prompt,
+            context_payload.as_deref(),
+            &user_prompt,
+            resolved_model.as_deref(),
+        )
     })
     .await
     .map_err(|e| format!("Task thread interrotto: {}", e))??;
-
     let json_text = extract_json_payload(&raw_response)?;
     let proposal: TaskDirectiveAiProposal = serde_json::from_str(&json_text).map_err(|e| {
         format!(
@@ -253,8 +413,8 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido con la seguente strutt
   "reason": "Spiegazione delle modifiche e miglioramenti apportati"
 }"#;
 
-    let user_prompt = format!(
-        "Direttiva attuale:\n- Nome: {}\n- Tag: {}\n- Posizione: {}\n- Descrizione: {}\n- Prompt:\n{}\n\nFeedback / Istruzioni di miglioramento:\n{}",
+    let context_md = format!(
+        "# Direttiva Attuale\n- Nome: {}\n- Tag: {}\n- Posizione: {}\n- Descrizione: {}\n- Prompt:\n{}\n\n# Feedback / Istruzioni di Miglioramento\n{}",
         directive.name,
         directive.tag,
         directive.placement,
@@ -266,14 +426,19 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido con la seguente strutt
             feedback.trim()
         }
     );
+    let user_prompt = "Perfeziona la direttiva descritta nel file allegato secondo il feedback fornito e rispondi solo con il JSON richiesto.";
 
     let resolved_model = resolve_assistant_model(model_selector.as_deref()).await;
     let raw_response = tokio::task::spawn_blocking(move || {
-        run_ephemeral_omp_raw(system_prompt, &user_prompt, resolved_model.as_deref())
+        run_ephemeral_omp_raw(
+            system_prompt,
+            Some(&context_md),
+            user_prompt,
+            resolved_model.as_deref(),
+        )
     })
     .await
     .map_err(|e| format!("Task thread interrotto: {}", e))??;
-
     let json_text = extract_json_payload(&raw_response)?;
     let mut proposal: TaskDirectiveAiProposal = serde_json::from_str(&json_text).map_err(|e| {
         format!(
@@ -385,19 +550,28 @@ Devi rispondere ESCLUSIVAMENTE con un array JSON di proposte (da 0 a 3 elementi)
         .collect::<Vec<_>>()
         .join("\n");
 
-    let user_prompt = format!(
-        "Direttive attualmente già esistenti nel catalogo:\n{}\n\nPrompt recenti dell'utente in questo progetto:\n{}",
-        if existing_desc.is_empty() { "Nessuna direttiva personalizzata." } else { &existing_desc },
+    let context_md = format!(
+        "# Direttive Attualmente Esistenti\n{}\n\n# Prompt Recenti nel Progetto\n{}",
+        if existing_desc.is_empty() {
+            "Nessuna direttiva personalizzata."
+        } else {
+            &existing_desc
+        },
         prompts_list
     );
+    let user_prompt = "Analizza i prompt e le direttive esistenti descritte nel file allegato e proponi da 0 a 3 direttive ricorrenti in formato JSON.";
 
     let resolved_model = resolve_assistant_model(model_selector.as_deref()).await;
     let raw_response = tokio::task::spawn_blocking(move || {
-        run_ephemeral_omp_raw(system_prompt, &user_prompt, resolved_model.as_deref())
+        run_ephemeral_omp_raw(
+            system_prompt,
+            Some(&context_md),
+            user_prompt,
+            resolved_model.as_deref(),
+        )
     })
     .await
     .map_err(|e| format!("Task thread interrotto: {}", e))??;
-
     let json_text = extract_json_payload(&raw_response)?;
     let proposals: Vec<TaskDirectiveAiProposal> =
         serde_json::from_str(&json_text).map_err(|e| {

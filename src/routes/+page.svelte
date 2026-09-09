@@ -32,7 +32,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
-	import { companionStore } from '$lib/stores/companion.svelte';
+	import { companionStore, type CompanionProjectRuntime } from '$lib/stores/companion.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
 	import { onDestroy } from 'svelte';
@@ -242,14 +242,18 @@
 	const sessionPinsInFlight = new Set<string>();
 	const prevGeneratingBySession = new Map<string, boolean>();
 
-	// Mantiene la quota contestuale allineata al modello e provider del progetto attivo.
-	$effect(() => {
-		const project = projectStore.activeProject;
-		if (!project) {
-			activeQuotaStore.setActiveModel(undefined, undefined);
-			return;
-		}
-
+	/**
+	 * Ricava provider, modello e pin credenziale realmente in uso da un progetto.
+	 *
+	 * Serve a due consumatori: la chip di quota della topbar (solo progetto attivo)
+	 * e l'elenco della finestra companion (tutti i progetti). Una sola funzione,
+	 * cosi' le due superfici non possono divergere.
+	 */
+	function resolveProjectRuntime(project: Project): {
+		provider?: string;
+		modelId?: string;
+		credentialPin?: string;
+	} {
 		let provider: string | undefined;
 		let modelId: string | undefined;
 
@@ -292,7 +296,7 @@
 			}
 		}
 
-		// Recupero del pin credenziale per il provider del progetto attivo
+		// Recupero del pin credenziale per il provider del progetto
 		let credentialPin: string | undefined;
 		if (provider) {
 			const sessionKey =
@@ -357,7 +361,65 @@
 			}
 		}
 
+		return { provider, modelId, credentialPin };
+	}
+
+	/**
+	 * Etichetta corta del modello per le righe della companion: ultimo segmento
+	 * del selettore, senza prefisso provider e senza suffisso di thinking.
+	 */
+	function shortModelLabel(modelId: string | undefined): string | undefined {
+		if (!modelId) return undefined;
+		const base = modelId.split(':')[0];
+		const tail = base.includes('/') ? base.slice(base.lastIndexOf('/') + 1) : base;
+		return tail || undefined;
+	}
+
+	// Mantiene la quota contestuale allineata al modello e provider del progetto attivo.
+	$effect(() => {
+		const project = projectStore.activeProject;
+		if (!project) {
+			activeQuotaStore.setActiveModel(undefined, undefined);
+			return;
+		}
+
+		const { provider, modelId, credentialPin } = resolveProjectRuntime(project);
 		activeQuotaStore.setActiveModel(provider, modelId, credentialPin);
+	});
+
+	// Ritrasmette alla finestra companion stato e modello di OGNI progetto.
+	// Senza questo, la companion resta ferma allo snapshot ricevuto all'apertura
+	// (dove `agentState` vale ancora 'unknown') perche' `broadcastState()` veniva
+	// invocato solo all'arrivo o alla chiusura di una richiesta di attenzione.
+	let runtimeBroadcastDigest = '';
+	let runtimeBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+	$effect(() => {
+		const runtimes: CompanionProjectRuntime[] = projectStore.projects.map((p) => {
+			const { provider, modelId, credentialPin } = resolveProjectRuntime(p);
+			return {
+				projectId: p.id,
+				provider,
+				modelId,
+				modelLabel: shortModelLabel(modelId),
+				credentialPin
+			};
+		});
+
+		// Digest sui soli campi che la companion mostra: durante lo streaming lo stato
+		// sfarfalla e senza confronto si inonderebbe l'IPC a ogni token.
+		const digest = projectStore.projects
+			.map((p, i) => `${p.id}:${p.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}`)
+			.join('|');
+		if (digest === runtimeBroadcastDigest) return;
+		runtimeBroadcastDigest = digest;
+
+		// Throttle a valle: l'ultimo valore vince sempre, gli intermedi si scartano.
+		if (runtimeBroadcastTimer) clearTimeout(runtimeBroadcastTimer);
+		runtimeBroadcastTimer = setTimeout(() => {
+			runtimeBroadcastTimer = null;
+			companionStore.publishProjectRuntimes(runtimes);
+			companionStore.broadcastState();
+		}, 250);
 	});
 
 

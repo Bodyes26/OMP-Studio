@@ -36,6 +36,19 @@ export interface AttentionRequest {
 	pendingUi: PendingUiPayload;
 }
 
+/**
+ * Modello e provider realmente in uso da un progetto, calcolati nella finestra
+ * principale (l'unica che possiede le sessioni) e trasmessi alla companion.
+ * Lo stato dell'agente viaggia gia' dentro `Project.agentState`.
+ */
+export interface CompanionProjectRuntime {
+	projectId: string;
+	provider?: string;
+	modelId?: string;
+	modelLabel?: string;
+	credentialPin?: string;
+}
+
 export interface CompanionStateDto {
 	isPinned: boolean;
 	x?: number;
@@ -54,24 +67,19 @@ export interface QuickTaskAiParsed {
 	ambiguities: string[];
 }
 
-export interface QuotaWarning {
-	roleOrModel: string;
-	provider: string;
-	remainingPercent: number;
-	resetsAt?: number | null;
-	isExhausted: boolean;
-}
-
 class CompanionStore {
 	isCompanionWindow = $state(false);
 	isPinned = $state(false);
 	attentionRequests = $state<AttentionRequest[]>([]);
 	projects = $state<Project[]>([]);
+	projectRuntimes = $state<CompanionProjectRuntime[]>([]);
 	isParsingTask = $state(false);
 	parseError = $state<string | null>(null);
 
 	private unlisteners: UnlistenFn[] = [];
 	private initialized = false;
+	/** Ultimo elenco pubblicato dalla finestra principale, ritrasmesso alle risincronizzazioni. */
+	private publishedRuntimes: CompanionProjectRuntime[] = [];
 
 	constructor() {
 		if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
@@ -111,6 +119,11 @@ class CompanionStore {
 			});
 			this.unlisteners.push(u2);
 
+			const u4 = await listen<CompanionProjectRuntime[]>('studio-project-runtime', (event) => {
+				this.projectRuntimes = event.payload ?? [];
+			});
+			this.unlisteners.push(u4);
+
 			const u3 = await listen('studio-request-attention-sync', () => {
 				if (!this.isCompanionWindow) {
 					this.broadcastState();
@@ -136,6 +149,18 @@ class CompanionStore {
 	broadcastState() {
 		void emit('studio-attention-update', $state.snapshot(this.attentionRequests));
 		void emit('studio-projects-update', $state.snapshot(projectStore.projects));
+		void emit('studio-project-runtime', this.publishedRuntimes);
+	}
+
+	/**
+	 * Pubblica modello e provider per progetto (solo finestra principale).
+	 * L'elenco viene memorizzato perche' la companion, riaprendosi, chiede una
+	 * risincronizzazione e deve ricevere anche i runtime, non solo le attenzioni.
+	 */
+	publishProjectRuntimes(list: CompanionProjectRuntime[]) {
+		this.publishedRuntimes = list;
+		this.projectRuntimes = list;
+		void emit('studio-project-runtime', list);
 	}
 
 	/**
@@ -249,7 +274,24 @@ class CompanionStore {
 				}));
 
 			const roles = ['smol', 'default', 'slow', 'plan'];
-			const catalogModels = modelSettingsStore.catalog.map((m) => m.selector || m.id || m.name);
+
+			// Il catalogo completo vale decine di migliaia di caratteri: spedirlo intero
+			// gonfiava il contesto del parser senza aggiungere nulla, perche' un task puo'
+			// citare solo modelli che l'utente ha davvero configurato. Restano i modelli
+			// assegnati ai ruoli, quelli del ciclo rapido e quelli delle catene di fallback.
+			const config = modelSettingsStore.config;
+			const catalogModels = [
+				...Object.values(config?.modelRoles ?? {}),
+				...(config?.cycleOrder ?? []),
+				...Object.values(config?.fallbackChains ?? {}).flat()
+			]
+				.map((selector) => selector?.trim())
+				.filter((selector): selector is string => Boolean(selector))
+				.filter((selector, index, all) => all.indexOf(selector) === index);
+
+			// Il parser e' un'estrazione JSON da una frase: gira sul modello del ruolo
+			// `smol`, non su quello buono.
+			const parserModel = config?.modelRoles?.smol?.trim() || undefined;
 
 			const parsed = await invoke<QuickTaskAiParsed>('parse_quick_task_ai', {
 				input,
@@ -257,7 +299,7 @@ class CompanionStore {
 				directives: knownDirectives,
 				roles,
 				catalogModels,
-				modelSelector: undefined
+				modelSelector: parserModel
 			});
 
 			return parsed;
@@ -268,59 +310,6 @@ class CompanionStore {
 		} finally {
 			this.isParsingTask = false;
 		}
-	}
-
-	/**
-	 * Verifica se il ruolo o modello assegnato ha quota esaurita o critica.
-	 */
-	checkQuota(roleOrModel: string | null | undefined): QuotaWarning | null {
-		if (!roleOrModel) return null;
-		const roleTrimmed = roleOrModel.trim();
-
-		// Cerca il modello effettivo
-		let modelSelector: string | undefined;
-		if (['smol', 'default', 'slow', 'plan'].includes(roleTrimmed.toLowerCase())) {
-			modelSelector = modelSettingsStore.config?.modelRoles?.[roleTrimmed.toLowerCase()];
-		} else {
-			modelSelector = roleTrimmed;
-		}
-
-		if (!modelSelector) return null;
-
-		const model = modelSettingsStore.catalog.find(
-			(m) => m.selector === modelSelector || m.id === modelSelector || m.name === modelSelector
-		);
-		if (!model) return null;
-
-		const reports = quotaStore.reports.filter((r) => providersMatch(r.provider, model.provider));
-		if (reports.length === 0) return null;
-
-		const windows = reports.flatMap((report) =>
-			(report.limits ?? []).flatMap((limit) => {
-				const remaining = limit.amount?.remainingFraction ??
-					(limit.amount?.usedFraction === undefined ? undefined : 1 - limit.amount.usedFraction);
-				if (remaining === undefined) return [];
-				const resetsAt = limit.window?.resetsAt ?? limit.resetsAt;
-				return [{
-					label: limit.label,
-					remainingPercent: Math.round(Math.max(0, Math.min(1, remaining)) * 100),
-					resetsAt
-				}];
-			})
-		);
-
-		if (windows.length === 0) return null;
-
-		const minRemaining = Math.min(...windows.map((w) => w.remainingPercent));
-		const lowestWindow = windows.find((w) => w.remainingPercent === minRemaining);
-
-		return {
-			roleOrModel: roleTrimmed,
-			provider: model.provider,
-			remainingPercent: minRemaining,
-			resetsAt: lowestWindow?.resetsAt,
-			isExhausted: minRemaining <= 0
-		};
 	}
 
 	/**

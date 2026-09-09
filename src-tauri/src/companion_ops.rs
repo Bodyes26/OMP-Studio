@@ -273,6 +273,33 @@ pub fn init_global_shortcut(app: &AppHandle) {
     }
 }
 
+/// Prompt di sistema compatto per il parsing intelligente di un Quick Task.
+/// Rimane statico e sotto i 2.000 caratteri: tutti gli elenchi variabili (progetti,
+/// direttive, ruoli, modelli) e il testo digitato dall'utente confluiscono nel
+/// file di contesto allegato, rispettando il limite Win32 di 32.767 caratteri in argv.
+const QUICK_TASK_PARSER_SYSTEM_PROMPT: &str = r#"Sei un parser intelligente di task per l'orchestratore di agenti OMP Studio.
+Il tuo compito è analizzare una richiesta utente in linguaggio naturale ed estrarre i parametri del task da accodare, consultando il contesto fornito nel file allegato.
+
+REGOLE DI ESTRAZIONE RIGIDE:
+1. "project_name": individua il progetto a cui si riferisce l'utente tramite corrispondenza esatta, parziale o sinonimi evidenti (es. "contratti affitto" -> "ContrattiImmobili", "tarature" -> "Cruscotto Tarature", "psr" -> "Cruscotto PSR"). Se chiaro, restituisci il nome esatto del progetto presente nella lista. Se non corrisponde a nessun progetto noto o è del tutto assente, imposta null e aggiungi una spiegazione in "ambiguities".
+2. "project_path": imposta il percorso esatto 'path' del progetto associato al 'project_name' trovato. Se il progetto è nullo, imposta null.
+3. "task_prompt": estrai SOLO il vero corpo/descrizione del lavoro da compiere, rimuovendo le parole accessorie utilizzate per indicare il progetto, il ruolo o le direttive (es. da "contratti affitto cambiare colore pulsante nuovo contratto per metterlo soft agente smol ponytail" estrai "cambiare colore pulsante nuovo contratto per metterlo soft"). Il prompt deve essere chiaro, conciso e pronto per l'agente.
+4. "role": se l'utente nomina esplicitamente un ruolo (es. "agente smol", "ruolo default", "slow", "plan"), restituisci uno tra i ruoli disponibili. Se non è specificato, restituisci null.
+5. "model_selector": se l'utente specifica un modello (es. "usa gpt 5.6 sol", "modello claude sonnet"), cerca la migliore corrispondenza nel catalogo modelli e restituisci il selettore esatto. Se non è specificato un modello, restituisci null.
+6. "directive_ids": array contenente gli ID delle direttive richieste (es. se menziona "ponytail", "piano", "discussione", "ricerca online", "grill-me", ecc.). Includi solo ID validi presenti nell'elenco.
+7. "ambiguities": array di stringhe. Se il testo contiene elementi poco chiari, riferimenti a progetti inesistenti o comandi contraddittori, inserisci brevi avvisi esplicativi in italiano. Se tutto è chiaro e ben determinato, lascia l'array vuoto [].
+
+RISPONDI ESCLUSIVAMENTE con un oggetto JSON valido privo di testo introduttivo o conclusivo con questa struttura:
+{
+  "project_name": "NomeProgetto" | null,
+  "project_path": "PercorsoProgetto" | null,
+  "task_prompt": "Testo pulito del task",
+  "role": "smol" | "default" | "slow" | "plan" | null,
+  "model_selector": "selettore-modello" | null,
+  "directive_ids": ["id_direttiva_1"],
+  "ambiguities": []
+}"#;
+
 /// Parser intelligente per Quick Task in linguaggio naturale.
 #[command]
 pub async fn parse_quick_task_ai(
@@ -297,45 +324,31 @@ pub async fn parse_quick_task_ai(
     let catalog_models_json = serde_json::to_string(&catalog_models)
         .map_err(|e| format!("Serializzazione catalogo modelli fallita: {}", e))?;
 
-    let system_prompt = format!(
-        r#"Sei un parser intelligente di task per l'orchestratore di agenti OMP Studio.
-Il tuo compito è analizzare una richiesta utente in linguaggio naturale ed estrarre i parametri del task da accodare.
-
-ELENCO PROGETTI DISPONIBILI:
-{}
-
-DIRETTIVE SPECIALI DISPONIBILI:
-{}
-
-RUOLI STANDARD DISPONIBILI:
-{}
-
-MODELLI DISPONIBILI NEL CATALOGO:
-{}
-
-REGOLE DI ESTRAZIONE RIGIDE:
-1. "project_name": individua il progetto a cui si riferisce l'utente tramite corrispondenza esatta, parziale o sinonimi evidenti (es. "contratti affitto" -> "ContrattiImmobili", "tarature" -> "Cruscotto Tarature", "psr" -> "Cruscotto PSR"). Se chiaro, restituisci il nome esatto del progetto presente nella lista. Se non corrisponde a nessun progetto noto o è del tutto assente, imposta null e aggiungi una spiegazione in "ambiguities".
-2. "project_path": imposta il percorso esatto 'path' del progetto associato al 'project_name' trovato. Se il progetto è nullo, imposta null.
-3. "task_prompt": estrai SOLO il vero corpo/descrizione del lavoro da compiere, rimuovendo le parole accessorie utilizzate per indicare il progetto, il ruolo o le direttive (es. da "contratti affitto cambiare colore pulsante nuovo contratto per metterlo soft agente smol ponytail" estrai "cambiare colore pulsante nuovo contratto per metterlo soft"). Il prompt deve essere chiaro, conciso e pronto per l'agente.
-4. "role": se l'utente nomina esplicitamente un ruolo (es. "agente smol", "ruolo default", "slow", "plan"), restituisci uno tra i ruoli disponibili. Se non è specificato, restituisci null.
-5. "model_selector": se l'utente specifica un modello (es. "usa gpt 5.6 sol", "modello claude sonnet"), cerca la migliore corrispondenza nel catalogo modelli e restituisci il selettore esatto. Se non è specificato un modello, restituisci null.
-6. "directive_ids": array contenente gli ID delle direttive richieste (es. se menziona "ponytail", "piano", "discussione", "ricerca online", "grill-me", ecc.). Includi solo ID validi presenti nell'elenco.
-7. "ambiguities": array di stringhe. Se il testo contiene elementi poco chiari, riferimenti a progetti inesistenti o comandi contraddittori, inserisci brevi avvisi esplicativi in italiano. Se tutto è chiaro e ben determinato, lascia l'array vuoto [].
-
-RISPONDI ESCLUSIVAMENTE con un oggetto JSON valido privo di testo introduttivo o conclusivo con questa struttura:
-{{
-  "project_name": "NomeProgetto" | null,
-  "project_path": "PercorsoProgetto" | null,
-  "task_prompt": "Testo pulito del task",
-  "role": "smol" | "default" | "slow" | "plan" | null,
-  "model_selector": "selettore-modello" | null,
-  "directive_ids": ["id_direttiva_1"],
-  "ambiguities": []
-}}"#,
-        projects_json, directives_json, roles_json, catalog_models_json
+    // Su Windows CreateProcessW ha un limite di 32.767 caratteri: cataloghi e testo utente
+    // confluiscono tutti nel file di contesto allegato via sintassi @ di omp.
+    let context_markdown = format!(
+        "# Richiesta Utente\n{}\n\n# Elenco Progetti Disponibili\n```json\n{}\n```\n\n# Direttive Speciali Disponibili\n```json\n{}\n```\n\n# Ruoli Standard Disponibili\n```json\n{}\n```\n\n# Modelli Disponibili nel Catalogo\n```json\n{}\n```\n",
+        trimmed,
+        projects_json,
+        directives_json,
+        roles_json,
+        catalog_models_json
     );
 
-    let raw_output = run_ephemeral_omp_raw(&system_prompt, trimmed, model_selector.as_deref())?;
+    let user_prompt = "Analizza la richiesta utente contenuta nel file allegato e rispondi solo con il JSON richiesto.";
+
+    let model_sel = model_selector.clone();
+    let raw_output = tokio::task::spawn_blocking(move || {
+        run_ephemeral_omp_raw(
+            QUICK_TASK_PARSER_SYSTEM_PROMPT,
+            Some(&context_markdown),
+            user_prompt,
+            model_sel.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("Task thread interrotto: {}", e))??;
+
     let json_text = extract_json_payload(&raw_output)?;
 
     let parsed: QuickTaskAiParsed = serde_json::from_str(&json_text).map_err(|e| {
@@ -347,3 +360,4 @@ RISPONDI ESCLUSIVAMENTE con un oggetto JSON valido privo di testo introduttivo o
 
     Ok(parsed)
 }
+

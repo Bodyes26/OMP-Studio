@@ -1,68 +1,143 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { fade, slide } from 'svelte/transition';
+	import { slide } from 'svelte/transition';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-	import { companionStore, type AttentionRequest, type QuickTaskAiParsed, type QuotaWarning } from '$lib/stores/companion.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
+	import { companionStore, type QuickTaskAiParsed } from '$lib/stores/companion.svelte';
+	import { projectStore, type Project } from '$lib/stores/projects.svelte';
+	import { quotaStore } from '$lib/stores/quota.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { themeStore } from '$lib/stores/theme.svelte';
+	import { THEMES, anchorsFor } from '$lib/theme';
+	import { computeQuotaInfo } from '$lib/quota/projectQuota';
+	import QuotaChip from '$lib/components/quota/QuotaChip.svelte';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
+	import {
+		parseQuickTaskLocal,
+		mentionStateAt,
+		applyMention,
+		type LocalQuickTask
+	} from '$lib/companion/quickTaskLocal';
 	import {
 		IconCheck,
 		IconClose,
 		IconPin,
 		IconPinned,
-		IconQueue,
 		IconStatusPending,
 		IconStatusRunning,
 		IconWarning,
 		IconSparkles,
-		IconArrowRight,
 		IconPlus
 	} from '$lib/icons';
 
+	const ROLES = ['smol', 'default', 'slow', 'plan'];
+
+	/** Ordine di urgenza con cui si leggono i progetti nell'elenco. */
+	const STATE_RANK: Record<string, number> = {
+		attention: 0,
+		working: 1,
+		finished: 2,
+		idle: 3,
+		unknown: 4
+	};
+
 	let inputEl = $state<HTMLTextAreaElement | null>(null);
 	let taskInput = $state('');
-	let parsedTask = $state<QuickTaskAiParsed | null>(null);
-	let quotaWarning = $state<QuotaWarning | null>(null);
+	let caret = $state(0);
+	let mentionIndex = $state(0);
+	let aiParsed = $state<QuickTaskAiParsed | null>(null);
 	let isSaving = $state(false);
 	let successNotice = $state<string | null>(null);
 	let expandedHistory = $state<Record<string, boolean>>({});
 	let usageOpen = $state(false);
-	let usageAnchorEl = $state<HTMLElement | null>(null);
+	let justOpened = $state(false);
 
-	let parseDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let unlistenSummon: UnlistenFn | null = null;
 
+	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 	const attentionList = $derived(companionStore.attentionRequests);
-	const activeProjects = $derived(
-		(companionStore.projects.length > 0 ? companionStore.projects : projectStore.projects).filter((p) => p.path)
+
+	const knownProjects = $derived(
+		companionStore.projects.length > 0 ? companionStore.projects : projectStore.projects
+	);
+	const knownDirectives = $derived(settingsStore.taskDirectives.filter((d) => !d.hidden));
+
+	/**
+	 * Interpretazione del testo mentre si scrive: e' puramente locale e sincrona.
+	 * Nessun processo `omp` viene avviato durante la digitazione; l'AI entra in
+	 * gioco solo al salvataggio e solo se il progetto resta indeterminato.
+	 */
+	const local = $derived<LocalQuickTask>(
+		parseQuickTaskLocal(taskInput, {
+			projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.path })),
+			directives: knownDirectives.map((d) => ({ id: d.id, name: d.name, tag: d.tag, hidden: d.hidden })),
+			roles: ROLES
+		})
 	);
 
-	// Quota minima tra tutti i provider per il badge compatto
-	const overallQuota = $derived.by(() => {
-		const windows = quotaStore.reports.flatMap((r) =>
-			(r.limits ?? []).flatMap((l) => {
-				const rem = l.amount?.remainingFraction ??
-					(l.amount?.usedFraction === undefined ? undefined : 1 - l.amount.usedFraction);
-				if (rem === undefined) return [];
-				return [Math.round(Math.max(0, Math.min(1, rem)) * 100)];
-			})
-		);
-		if (windows.length === 0) return null;
-		return Math.min(...windows);
+	const mention = $derived(mentionStateAt(taskInput, caret));
+
+	const mentionItems = $derived.by<Array<{ value: string; label: string; hint?: string }>>(() => {
+		if (mention.kind === 'project') {
+			const q = mention.query.toLowerCase();
+			return knownProjects
+				.filter((p) => p.path)
+				.filter((p) => !q || (p.label ?? p.name).toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
+				.slice(0, 6)
+				.map((p) => ({ value: p.name, label: p.label?.trim() || p.name, hint: p.name }));
+		}
+		if (mention.kind === 'directive') {
+			const q = mention.query.toLowerCase();
+			return knownDirectives
+				.filter((d) => !q || d.name.toLowerCase().includes(q) || (d.tag ?? '').toLowerCase().includes(q))
+				.slice(0, 6)
+				.map((d) => ({ value: (d.tag ?? d.name).replace(/^\//, ''), label: d.name, hint: d.tag }));
+		}
+		return [];
 	});
+
+	const mentionOpen = $derived(mention.kind !== null && mentionItems.length > 0);
+
+	/** Progetti ordinati per urgenza: chi chiede risposta sta in cima, chi e' fermo in fondo. */
+	const monitorProjects = $derived.by<Project[]>(() => {
+		const list = knownProjects.filter((p) => p.path);
+		return [...list].sort((a, b) => {
+			const ra = STATE_RANK[a.agentState] ?? 9;
+			const rb = STATE_RANK[b.agentState] ?? 9;
+			if (ra !== rb) return ra - rb;
+			return (a.label?.trim() || a.name).localeCompare(b.label?.trim() || b.name);
+		});
+	});
+
+	// In Spotlight la finestra e' una barra di comando: si mostrano poche righe.
+	const visibleProjects = $derived(companionStore.isPinned ? monitorProjects : monitorProjects.slice(0, 3));
+	const hiddenProjectsCount = $derived(monitorProjects.length - visibleProjects.length);
+
+	function runtimeFor(projectId: string) {
+		return companionStore.projectRuntimes.find((r) => r.projectId === projectId);
+	}
+
+	function stateLabel(state: string): string {
+		if (state === 'attention') return 'Chiede risposta';
+		if (state === 'working') return 'Al lavoro';
+		if (state === 'finished') return 'Completato';
+		if (state === 'idle') return 'Fermo';
+		return 'Non avviato';
+	}
 
 	onMount(() => {
 		void companionStore.init();
 		void quotaStore.init();
+		void settingsStore.init();
 		void modelSettingsStore.loadAll();
 
 		// Focus automatico del campo input
 		void tick().then(() => inputEl?.focus());
+		playOpenAnimation();
 
 		// Ascolta l'evento di summon globale da Rust
 		void listen('companion-summon', () => {
+			playOpenAnimation();
 			void tick().then(() => inputEl?.focus());
 		}).then((fn) => {
 			unlistenSummon = fn;
@@ -80,15 +155,28 @@
 		return () => {
 			window.removeEventListener('blur', handleBlur);
 			unlistenSummon?.();
-			if (parseDebounceTimer) clearTimeout(parseDebounceTimer);
 		};
 	});
+
+	/** Rilancia l'animazione di comparsa a ogni richiamo della finestra. */
+	function playOpenAnimation() {
+		justOpened = false;
+		void tick().then(() => {
+			justOpened = true;
+			setTimeout(() => (justOpened = false), 220);
+		});
+	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			e.preventDefault();
 			if (usageOpen) {
 				usageOpen = false;
+				return;
+			}
+			if (mentionOpen) {
+				// Chiude solo il suggeritore: la finestra resta aperta
+				caret = -1;
 				return;
 			}
 			void companionStore.hideCompanion();
@@ -98,23 +186,47 @@
 		}
 	}
 
-	function handleInputChange() {
-		if (parseDebounceTimer) clearTimeout(parseDebounceTimer);
-		const text = taskInput.trim();
-		if (!text) {
-			parsedTask = null;
-			quotaWarning = null;
+	/** Tasti gestiti dalla textarea quando il suggeritore e' aperto. */
+	function handleInputKeydown(e: KeyboardEvent) {
+		if (!mentionOpen) {
+			syncCaret();
 			return;
 		}
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			mentionIndex = (mentionIndex + 1) % mentionItems.length;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length;
+		} else if (e.key === 'Tab' || (e.key === 'Enter' && !e.ctrlKey && !e.metaKey)) {
+			e.preventDefault();
+			chooseMention(mentionItems[Math.min(mentionIndex, mentionItems.length - 1)].value);
+		}
+	}
 
-		// Debounce parsing NL di 400ms per non spammare chiamate effimere durante la digitazione veloce
-		parseDebounceTimer = setTimeout(async () => {
-			const res = await companionStore.parseQuickTask(text);
-			if (res) {
-				parsedTask = res;
-				quotaWarning = companionStore.checkQuota(res.role || res.modelSelector);
-			}
-		}, 450);
+	function syncCaret() {
+		void tick().then(() => {
+			caret = inputEl?.selectionStart ?? taskInput.length;
+		});
+	}
+
+	function handleInput() {
+		caret = inputEl?.selectionStart ?? taskInput.length;
+		mentionIndex = 0;
+		// L'anteprima AI precedente non descrive piu' il testo corrente
+		aiParsed = null;
+		companionStore.parseError = null;
+	}
+
+	function chooseMention(value: string) {
+		const next = applyMention(taskInput, mention, value);
+		taskInput = next.text;
+		mentionIndex = 0;
+		void tick().then(() => {
+			inputEl?.focus();
+			inputEl?.setSelectionRange(next.caret, next.caret);
+			caret = next.caret;
+		});
 	}
 
 	async function handleSaveTask() {
@@ -123,27 +235,35 @@
 
 		isSaving = true;
 		try {
-			// Se il parsing non e' ancora avvenuto, esegui subito
-			let taskToSave = parsedTask;
-			if (!taskToSave) {
-				taskToSave = await companionStore.parseQuickTask(text);
-				parsedTask = taskToSave;
+			let toSave: QuickTaskAiParsed | null = null;
+
+			if (!local.needsAi && local.projectPath) {
+				// Interpretazione locale sufficiente: nessuna chiamata al modello
+				toSave = {
+					projectPath: local.projectPath,
+					projectName: local.projectName,
+					taskPrompt: local.taskPrompt || text,
+					role: local.role,
+					modelSelector: local.modelSelector,
+					directiveIds: local.directiveIds,
+					ambiguities: []
+				};
+			} else {
+				const res = await companionStore.parseQuickTask(text);
+				if (!res || !res.projectPath) {
+					aiParsed = res;
+					return;
+				}
+				aiParsed = res;
+				toSave = res;
 			}
 
-			if (!taskToSave) {
-				return;
-			}
-
-			if (!taskToSave.projectPath) {
-				return;
-			}
-
-			const ok = await companionStore.saveTask(taskToSave);
+			const ok = await companionStore.saveTask(toSave);
 			if (ok) {
-				successNotice = `Task aggiunto a ${taskToSave.projectName || 'progetto'}!`;
+				successNotice = `Task aggiunto a ${toSave.projectName || 'progetto'}!`;
 				taskInput = '';
-				parsedTask = null;
-				quotaWarning = null;
+				caret = 0;
+				aiParsed = null;
 				setTimeout(() => {
 					successNotice = null;
 					if (!companionStore.isPinned) {
@@ -179,57 +299,69 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="companion-shell" class:pinned={companionStore.isPinned}>
-	<!-- Header con drag region, status, quota e pin -->
-	<header class="companion-header" data-tauri-drag-region>
-		<div class="header-left" data-tauri-drag-region>
-			<span class="app-logo">OMP</span>
-			<span class="companion-badge">{companionStore.isPinned ? 'Widget' : 'Spotlight'}</span>
-		</div>
+<div
+	class="companion-shell"
+	class:pinned={companionStore.isPinned}
+	class:just-opened={justOpened}
+>
+	<!--
+		In Spotlight la finestra non ha barra: e' una superficie di comando con
+		una sottile area invisibile di trascinamento in alto. La barra compare
+		solo quando la finestra resta appesa allo schermo.
+	-->
+	{#if companionStore.isPinned}
+		<header class="companion-header" data-tauri-drag-region="deep">
+			<div class="header-left" data-tauri-drag-region="deep">
+				<img
+					src={isLightTheme ? '/logo-topbar-light.png' : '/logo-topbar.png'}
+					alt="OMP Studio"
+					class="brand-logo-img"
+					draggable="false"
+				/>
+				{#if attentionList.length > 0}
+					<span class="attention-counter">{attentionList.length} in attesa</span>
+				{/if}
+			</div>
 
-		<div class="header-right">
-			{#if overallQuota !== null}
+			<div class="header-right">
 				<button
 					type="button"
-					class="quota-pill"
-					class:low={overallQuota <= 20}
-					class:exhausted={overallQuota <= 0}
-					bind:this={usageAnchorEl}
-					onclick={() => (usageOpen = !usageOpen)}
-					title="Quota minima rimanente tra i modelli attivi"
+					class="icon-btn active"
+					onclick={togglePinned}
+					title="Sblocca finestra (torna in modalità Spotlight)"
+					aria-label="Sblocca finestra"
 				>
-					<span>Quota {overallQuota}%</span>
+					<IconPinned />
 				</button>
-			{/if}
 
+				<button
+					type="button"
+					class="icon-btn close-btn"
+					onclick={() => void companionStore.hideCompanion()}
+					title="Chiudi (Esc)"
+					aria-label="Chiudi finestra"
+				>
+					<IconClose />
+				</button>
+			</div>
+		</header>
+	{:else}
+		<div class="spotlight-drag-region" data-tauri-drag-region></div>
+		<!-- In Spotlight l'unico comando visibile e' il pin, discreto finche' non serve. -->
+		<div class="floating-controls">
 			<button
 				type="button"
 				class="icon-btn"
-				class:active={companionStore.isPinned}
 				onclick={togglePinned}
-				title={companionStore.isPinned ? 'Sblocca finestra (modalità Spotlight)' : 'Fissa su questo monitor (modalità Widget persistente)'}
-				aria-label={companionStore.isPinned ? 'Sblocca finestra' : 'Fissa finestra'}
+				title="Fissa su questo monitor (modalità Widget persistente)"
+				aria-label="Fissa finestra"
 			>
-				{#if companionStore.isPinned}
-					<IconPinned />
-				{:else}
-					<IconPin />
-				{/if}
-			</button>
-
-			<button
-				type="button"
-				class="icon-btn close-btn"
-				onclick={() => void companionStore.hideCompanion()}
-				title="Chiudi (Esc)"
-				aria-label="Chiudi finestra"
-			>
-				<IconClose />
+				<IconPin />
 			</button>
 		</div>
-	</header>
+	{/if}
 
-	<!-- Popover quota ancorato al badge -->
+	<!-- Popover con il dettaglio dei consumi, aperto dalle chip di quota -->
 	{#if usageOpen}
 		<UsagePopover open={usageOpen} onClose={() => (usageOpen = false)} />
 	{/if}
@@ -332,12 +464,39 @@
 		<!-- Sezione Inserimento Rapido Task in Linguaggio Naturale -->
 		<section class="quick-task-section">
 			<div class="task-input-box">
+				{#if mentionOpen}
+					<!-- Suggeritore locale: filtra in memoria, nessuna latenza e nessun costo -->
+					<div class="mention-popover" role="listbox" aria-label="Suggerimenti">
+						{#each mentionItems as item, idx (item.value)}
+							<button
+								type="button"
+								class="mention-item"
+								class:selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
+								role="option"
+								aria-selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
+								onmousedown={(e) => {
+									e.preventDefault();
+									chooseMention(item.value);
+								}}
+							>
+								<span class="mention-label">{item.label}</span>
+								{#if item.hint && item.hint !== item.label}
+									<span class="mention-hint">{item.hint}</span>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				{/if}
+
 				<textarea
 					bind:this={inputEl}
 					bind:value={taskInput}
-					oninput={handleInputChange}
+					oninput={handleInput}
+					onkeydown={handleInputKeydown}
+					onclick={syncCaret}
+					onkeyup={syncCaret}
 					rows="3"
-					placeholder="Descrivi il task in linguaggio naturale... es: 'contratti affitto cambiare colore pulsante nuovo contratto agente smol ponytail'"
+					placeholder="Cosa c'è da fare? Usa @progetto, /direttiva, !ruolo"
 					aria-label="Testo del task in linguaggio naturale"
 				></textarea>
 
@@ -351,7 +510,7 @@
 					>
 						{#if isSaving || companionStore.isParsingTask}
 							<span class="spinner"></span>
-							<span>Elaborazione...</span>
+							<span>{companionStore.isParsingTask ? 'Interpretazione AI...' : 'Salvataggio...'}</span>
 						{:else}
 							<IconPlus />
 							<span>Salva task</span>
@@ -376,86 +535,127 @@
 				</div>
 			{/if}
 
-			<!-- Anteprima Task Interpretato -->
-			{#if parsedTask}
+			<!-- Anteprima dell'interpretazione: locale e gratuita, oppure quella dell'AI dopo il salvataggio -->
+			{#if taskInput.trim()}
+				{@const preview = aiParsed ?? {
+					projectName: local.projectName,
+					projectPath: local.projectPath,
+					taskPrompt: local.taskPrompt,
+					role: local.role,
+					modelSelector: local.modelSelector,
+					directiveIds: local.directiveIds,
+					ambiguities: []
+				}}
 				<div class="parsed-preview" transition:slide={{ duration: 180 }}>
 					<div class="parsed-header">
-						<span class="badge-title"><IconSparkles /> Interpretazione AI:</span>
 						<div class="parsed-tags">
-							{#if parsedTask.projectName}
-								<span class="parsed-tag project">{parsedTask.projectName}</span>
+							{#if preview.projectName}
+								<span class="parsed-tag project">{preview.projectName}</span>
 							{:else}
-								<span class="parsed-tag missing">Progetto mancante</span>
+								<span class="parsed-tag missing">Progetto da scegliere</span>
 							{/if}
 
-							{#if parsedTask.role}
-								<span class="parsed-tag role">Ruolo: {parsedTask.role}</span>
+							{#if preview.role}
+								<span class="parsed-tag role">Ruolo: {preview.role}</span>
 							{/if}
 
-							{#if parsedTask.modelSelector}
-								<span class="parsed-tag model">Modello: {parsedTask.modelSelector}</span>
+							{#if preview.modelSelector}
+								<span class="parsed-tag model">Modello: {preview.modelSelector}</span>
 							{/if}
 
-							{#each parsedTask.directiveIds as dId (dId)}
-								<span class="parsed-tag directive">+{dId}</span>
+							{#each preview.directiveIds as dId (dId)}
+								{@const dir = knownDirectives.find((d) => d.id === dId)}
+								<span class="parsed-tag directive">+{dir?.name ?? dId}</span>
 							{/each}
 						</div>
+
+						{#if aiParsed}
+							<span class="badge-title"><IconSparkles /> interpretato con AI</span>
+						{/if}
 					</div>
 
-					<div class="parsed-prompt">
-						<span class="prompt-label">Prompt:</span>
-						<p>{parsedTask.taskPrompt}</p>
-					</div>
-
-					<!-- Errori di ambiguita' individuati dal modello -->
-					{#if parsedTask.ambiguities && parsedTask.ambiguities.length > 0}
-						<div class="ambiguities-box">
-							{#each parsedTask.ambiguities as amb, idx (idx)}
-								<p class="ambiguity-item"><IconWarning /> {amb}</p>
-							{/each}
+					{#if preview.taskPrompt}
+						<div class="parsed-prompt">
+							<span class="prompt-label">Prompt:</span>
+							<p>{preview.taskPrompt}</p>
 						</div>
 					{/if}
 
-					<!-- Allerta Quota Modello/Ruolo esaurita -->
-					{#if quotaWarning && quotaWarning.isExhausted}
-						<div class="quota-exhausted-alert">
-							<IconWarning />
-							<div>
-								<strong>Quota esaurita per {quotaWarning.roleOrModel} ({quotaWarning.provider})</strong>
-								<p>Il modello selezionato ha esaurito la quota disponibile. Puoi comunque salvare il task o indicare un altro modello nel testo (es. 'usa gpt 5.6 sol').</p>
-							</div>
+					{#if preview.ambiguities && preview.ambiguities.length > 0}
+						<div class="ambiguities-box">
+							{#each preview.ambiguities as amb, idx (idx)}
+								<p class="ambiguity-item"><IconWarning /> {amb}</p>
+							{/each}
+						</div>
+					{:else if !preview.projectPath}
+						<div class="ambiguities-box">
+							<p class="ambiguity-item">
+								<IconWarning /> Nessun progetto riconosciuto: scrivi @progetto oppure salva e lascia decidere all'AI.
+							</p>
 						</div>
 					{/if}
 				</div>
 			{/if}
 		</section>
 
-		<!-- Live Monitor Agenti dei progetti aperti (visibile soprattutto quando pinnato) -->
-		{#if companionStore.isPinned && activeProjects.length > 0}
+		<!-- Stato in tempo reale dei progetti aperti -->
+		{#if monitorProjects.length > 0}
 			<section class="live-monitor-section">
 				<div class="section-title">
 					<IconStatusRunning />
-					<span>Progetti attivi ({activeProjects.length})</span>
+					<span>Progetti ({monitorProjects.length})</span>
 				</div>
 
 				<div class="projects-list">
-					{#each activeProjects as p (p.id)}
-						<div class="project-row" style="--proj-hue: {p.hue}">
-							<span class="p-dot"></span>
-							<span class="p-name">{p.name}</span>
+					{#each visibleProjects as p (p.id)}
+						{@const rt = runtimeFor(p.id)}
+						{@const busy = p.agentState === 'working' || p.agentState === 'attention'}
+						<div class="project-row" style="--proj-hue: {p.hue}" class:busy>
+							<span class="p-dot" class:pulsing={p.agentState === 'working'}></span>
+							<span class="p-name">{p.label?.trim() || p.name}</span>
+
+							{#if busy && rt?.provider}
+								{@const info = computeQuotaInfo(rt.provider, rt.modelId, rt.credentialPin)}
+								<QuotaChip
+									variant="ringHalo"
+									showProvider={true}
+									alwaysShowPct={true}
+									semanticColors={true}
+									status={info.status}
+									remainingPct={info.remainingPct}
+									usedPct={info.usedPct}
+									shortName={rt.modelLabel ?? info.shortName}
+									hasLimits={info.hasLimits}
+									title={info.tooltip}
+									ariaLabel={info.tooltip}
+									longWindowAlert={info.longWindowAlert}
+									accountEmail={info.accountEmail}
+									onclick={(e) => {
+										e.stopPropagation();
+										usageOpen = !usageOpen;
+									}}
+								/>
+							{/if}
+
 							<span class="p-state state-{p.agentState}">
 								{#if p.agentState === 'working'}
-									<IconStatusRunning /> In esecuzione
+									<IconStatusRunning /> {stateLabel(p.agentState)}
 								{:else if p.agentState === 'attention'}
-									<IconWarning /> Richiede risposta
+									<IconWarning /> {stateLabel(p.agentState)}
 								{:else if p.agentState === 'finished'}
-									<IconCheck /> Completato
+									<IconCheck /> {stateLabel(p.agentState)}
 								{:else}
-									<IconStatusPending /> In attesa
+									<IconStatusPending /> {stateLabel(p.agentState)}
 								{/if}
 							</span>
 						</div>
 					{/each}
+
+					{#if hiddenProjectsCount > 0}
+						<button type="button" class="more-projects" onclick={togglePinned}>
+							+{hiddenProjectsCount} altri — fissa la finestra per vederli tutti
+						</button>
+					{/if}
 				</div>
 			</section>
 		{/if}
@@ -471,19 +671,42 @@
 	}
 
 	.companion-shell {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		width: 100vw;
 		height: 100vh;
-		background: var(--bg-base);
+		background: color-mix(in srgb, var(--bg-raised) 94%, transparent);
 		color: var(--ink);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
+		border-radius: 12px;
 		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--line);
 		overflow: hidden;
 		font-family: var(--font-ui);
 		font-size: var(--text-sm);
 		box-sizing: border-box;
+	}
+
+	/* Comparsa: la finestra e' un richiamo, non deve apparire di scatto. */
+	.companion-shell.just-opened {
+		animation: companion-pop 180ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+	}
+
+	@keyframes companion-pop {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.companion-shell.just-opened {
+			animation: none;
+		}
 	}
 
 	.companion-shell.pinned {
@@ -495,10 +718,52 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-2) var(--space-3);
-		background: var(--bg-sunken);
+		height: 30px;
+		padding: 0 var(--space-2);
+		background: var(--bg-raised);
 		border-bottom: 1px solid var(--line);
 		cursor: grab;
+	}
+
+	.brand-logo-img {
+		height: 18px;
+		width: auto;
+		display: block;
+		-webkit-user-drag: none;
+	}
+
+	.attention-counter {
+		font-size: var(--text-xs);
+		padding: 1px 6px;
+		border-radius: 999px;
+		background: var(--warning-tint);
+		color: var(--warning);
+		border: 1px solid var(--warning-line);
+	}
+
+	.spotlight-drag-region {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 40px;
+		height: 24px;
+		z-index: 2;
+		cursor: grab;
+	}
+
+	/* In Spotlight non c'e' barra: il solo comando galleggia in alto a destra. */
+	.floating-controls {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		z-index: 3;
+		opacity: 0.35;
+		transition: opacity var(--dur-fast);
+	}
+
+	.companion-shell:hover .floating-controls,
+	.floating-controls:focus-within {
+		opacity: 1;
 	}
 
 	.header-left {
@@ -507,53 +772,15 @@
 		gap: var(--space-2);
 	}
 
-	.app-logo {
-		font-family: var(--font-mono);
-		font-weight: 700;
-		font-size: var(--text-xs);
-		color: var(--brand);
-		letter-spacing: 0.05em;
-	}
-
-	.companion-badge {
-		font-size: var(--text-xs);
-		padding: 2px 6px;
-		background: var(--bg-hover);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-	}
-
 	.header-right {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
 	}
 
-	.quota-pill {
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		padding: 2px 8px;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: 999px;
-		color: var(--ink-muted);
-		cursor: pointer;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.quota-pill:hover {
-		background: var(--bg-base);
-		color: var(--ink);
-	}
-
-	.quota-pill.low {
-		border-color: var(--warning);
-		color: var(--warning);
-	}
-
-	.quota-pill.exhausted {
-		border-color: var(--danger);
-		color: var(--danger);
+	.companion-header .icon-btn {
+		width: 22px;
+		height: 22px;
 	}
 
 	.icon-btn {
@@ -771,6 +998,7 @@
 	}
 
 	.task-input-box {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-sunken);
@@ -954,22 +1182,6 @@
 		gap: var(--space-1);
 	}
 
-	.quota-exhausted-alert {
-		display: flex;
-		gap: var(--space-2);
-		padding: var(--space-2);
-		background: var(--danger-tint);
-		border: 1px solid var(--danger-line);
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-		color: var(--danger);
-	}
-
-	.quota-exhausted-alert p {
-		margin: 2px 0 0 0;
-		color: var(--ink-muted);
-	}
-
 	/* Live Monitor */
 	.live-monitor-section {
 		border-top: 1px solid var(--line);
@@ -985,36 +1197,70 @@
 	.project-row {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: var(--space-2);
 		padding: var(--space-1) var(--space-2);
 		background: var(--bg-sunken);
+		border: 1px solid transparent;
 		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
+	}
+
+	/* Un progetto con un agente vivo si stacca dalla lista dei progetti fermi. */
+	.project-row.busy {
+		border-color: var(--line);
+		background: var(--bg-base);
 	}
 
 	.p-dot {
 		width: 8px;
 		height: 8px;
+		flex: none;
 		border-radius: 50%;
 		background: hsl(var(--proj-hue, 220), 80%, 55%);
 	}
 
+	.p-dot.pulsing {
+		animation: dot-pulse 1.4s ease-in-out infinite;
+	}
+
+	@keyframes dot-pulse {
+		0%,
+		100% {
+			opacity: 1;
+			box-shadow: 0 0 0 0 hsl(var(--proj-hue, 220), 80%, 55%, 0.5);
+		}
+		50% {
+			opacity: 0.55;
+			box-shadow: 0 0 0 4px hsl(var(--proj-hue, 220), 80%, 55%, 0);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.p-dot.pulsing {
+			animation: none;
+		}
+	}
+
 	.p-name {
 		flex: 1;
-		margin-left: var(--space-2);
+		min-width: 0;
 		font-weight: 500;
 		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.p-state {
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
-		color: var(--ink-muted);
+		flex: none;
+		color: var(--ink-faint);
 	}
 
 	.p-state.state-working {
-		color: var(--brand);
+		color: var(--success);
 	}
 
 	.p-state.state-attention {
@@ -1022,7 +1268,60 @@
 	}
 
 	.p-state.state-finished {
-		color: var(--success);
+		color: var(--ink-muted);
+	}
+
+	.more-projects {
+		align-self: flex-start;
+		background: none;
+		border: none;
+		padding: 2px 0;
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		cursor: pointer;
+	}
+
+	.more-projects:hover {
+		color: var(--ink);
+	}
+
+	/* Suggeritore @progetto e /direttiva: si apre sopra la textarea */
+	.mention-popover {
+		position: absolute;
+		bottom: calc(100% + 4px);
+		left: 0;
+		right: 0;
+		z-index: 5;
+		display: flex;
+		flex-direction: column;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-sm);
+		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+		overflow: hidden;
+	}
+
+	.mention-item {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		padding: 4px var(--space-2);
+		background: none;
+		border: none;
+		text-align: left;
+		font-size: var(--text-xs);
+		color: var(--ink);
+		cursor: pointer;
+	}
+
+	.mention-item.selected,
+	.mention-item:hover {
+		background: var(--bg-hover);
+	}
+
+	.mention-hint {
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
 	}
 
 	.spinner {

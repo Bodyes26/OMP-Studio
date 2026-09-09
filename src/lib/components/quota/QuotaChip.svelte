@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { QuotaChipVariant } from '$lib/stores/settings.svelte';
-	import type { QuotaSemanticStatus, QuotaLongWindowAlert } from '$lib/stores/activeQuota.svelte';
+	import type { QuotaSemanticStatus, QuotaLongWindowAlert } from '$lib/quota/projectQuota';
 	import { IconWarning, IconQuota } from '$lib/icons';
 
 	let {

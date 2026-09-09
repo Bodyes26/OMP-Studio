@@ -9,12 +9,10 @@
 //! 4. **Fallimento silenzioso.** Qualsiasi errore di timeout o di parsing restituisce un array vuoto, evitando di mostrare toast o errori
 //!    invisibili per una funzionalita' accessoria.
 
+use crate::directives_ops::EphemeralOutcome;
 use std::collections::HashSet;
 use std::time::Duration;
 use tauri::command;
-use tokio::io::AsyncReadExt;
-use tokio::process::Command;
-
 /// Timeout massimo di sicurezza (secondi) per l'esecuzione del processo omp effimero.
 const SUGGESTIONS_TIMEOUT_SECS: u64 = 30;
 
@@ -89,65 +87,6 @@ pub(crate) fn parse_and_clean_suggestions(raw_response: &str, max_items: usize) 
     cleaned
 }
 
-/// Esegue un processo child con timeout di sicurezza, leggendo stdout e stderr in modo concorrente
-/// per evitare deadlock sui buffer di pipe e terminando con kill + wait al timeout.
-async fn run_child_with_timeout(
-    mut child: tokio::process::Child,
-    timeout_duration: Duration,
-) -> Result<Option<String>, String> {
-    let stdout_pipe = child.stdout.take();
-    let stderr_pipe = child.stderr.take();
-
-    let stdout_task = tokio::spawn(async move {
-        let mut buf = Vec::new();
-        if let Some(mut pipe) = stdout_pipe {
-            let _ = pipe.read_to_end(&mut buf).await;
-        }
-        buf
-    });
-
-    let stderr_task = tokio::spawn(async move {
-        let mut buf = Vec::new();
-        if let Some(mut pipe) = stderr_pipe {
-            let _ = pipe.read_to_end(&mut buf).await;
-        }
-        buf
-    });
-
-    let wait_res = tokio::time::timeout(timeout_duration, child.wait()).await;
-
-    let status = match wait_res {
-        Ok(Ok(status)) => status,
-        Ok(Err(_io_err)) => {
-            let _ = stdout_task.await;
-            let _ = stderr_task.await;
-            return Ok(None);
-        }
-        Err(_timeout) => {
-            // Timeout scaduto: terminazione forzata (kill) e attesa del child (wait) per evitare processi orfani
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            let _ = stdout_task.await;
-            let _ = stderr_task.await;
-            return Ok(None);
-        }
-    };
-
-    let stdout_bytes = stdout_task.await.unwrap_or_default();
-    let stderr_bytes = stderr_task.await.unwrap_or_default();
-
-    if !status.success() {
-        let stderr_msg = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
-        if stderr_msg.starts_with("Avvio processo omp fallito") {
-            return Err(stderr_msg);
-        }
-        return Ok(None);
-    }
-
-    Ok(Some(
-        String::from_utf8_lossy(&stdout_bytes).trim().to_string(),
-    ))
-}
 
 /// Genera suggerimenti contestuali per il composer a partire dall'ultimo messaggio dell'assistente.
 #[command]
@@ -170,58 +109,49 @@ pub async fn generate_prompt_suggestions(
     let user_trimmed = last_user.trim();
     let truncated_user = truncate_prefix_chars(user_trimmed, 500);
 
-    let mut user_prompt = String::new();
+    // Su Windows CreateProcessW ha un limite di 32.767 caratteri: messaggi di testo e trascritti
+    // viaggiano all'interno di un file di contesto temporaneo (gestito da run_ephemeral_omp_raw),
+    // lasciando in argv solo un'istruzione breve e costante.
+    let mut context_md = String::new();
     if !truncated_user.is_empty() {
-        user_prompt.push_str(&format!(
-            "Prompt precedente dell'utente:\n\"\"\"\n{}\n\"\"\"\n\n",
+        context_md.push_str(&format!(
+            "# Prompt precedente dell'utente\n{}\n\n",
             truncated_user
         ));
     }
-    user_prompt.push_str(&format!(
-        "Ultimo messaggio dell'agente:\n\"\"\"\n{}\n\"\"\"\n\nGenera al massimo {} risposte suggerite in formato array JSON.",
-        truncated_assistant,
-        max_items_clamped
+    context_md.push_str(&format!(
+        "# Ultimo messaggio dell'agente\n{}\n",
+        truncated_assistant
     ));
+
+    let user_prompt = format!(
+        "Genera al massimo {} risposte suggerite in formato array JSON basandoti sui messaggi nel file allegato.",
+        max_items_clamped
+    );
 
     let resolved_model =
         crate::directives_ops::resolve_assistant_model(model_selector.as_deref()).await;
 
-    let omp_path = crate::omp_ops::get_omp_binary();
-    let mut cmd = Command::new(&omp_path);
+    // Runner condiviso: il timeout vive dentro il runner, cosi' allo scadere il processo
+    // viene davvero terminato invece di restare orfano in background.
+    let spawned = tokio::task::spawn_blocking(move || {
+        crate::directives_ops::run_ephemeral_omp(
+            SYSTEM_PROMPT,
+            Some(&context_md),
+            &user_prompt,
+            resolved_model.as_deref(),
+            Duration::from_secs(SUGGESTIONS_TIMEOUT_SECS),
+        )
+    })
+    .await;
 
-    cmd.arg("-p")
-        .arg("--no-session")
-        .arg("--no-tools")
-        .arg("--no-skills")
-        .arg("--no-rules")
-        .arg("--no-title")
-        .arg("--system-prompt")
-        .arg(SYSTEM_PROMPT);
-
-    if let Some(model) = resolved_model.as_deref() {
-        cmd.arg("--model").arg(model);
-    }
-
-    cmd.arg(&user_prompt);
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    {
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-
-    let child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => return Err(format!("Avvio processo omp fallito: {}", e)),
+    let raw_response = match spawned {
+        // Avvio impossibile o payload fuori soglia: e' un difetto di configurazione, va mostrato.
+        Ok(Err(err_msg)) => return Err(err_msg),
+        Ok(Ok(EphemeralOutcome::Ok(output))) => output,
+        // Principio 4: timeout, uscita non zero o panico del task degradano a lista vuota.
+        _ => return Ok(Vec::new()),
     };
-
-    // Attende l'uscita del processo con timeout di sicurezza e gestione pipe/orfani.
-    let raw_response =
-        match run_child_with_timeout(child, Duration::from_secs(SUGGESTIONS_TIMEOUT_SECS)).await? {
-            Some(output) => output,
-            None => return Ok(Vec::new()),
-        };
 
     Ok(parse_and_clean_suggestions(
         &raw_response,
