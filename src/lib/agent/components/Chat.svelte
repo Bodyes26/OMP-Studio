@@ -156,7 +156,7 @@
 					transition:chatReveal={{ duration: 220, blur: 4, distance: 3 }}
 				>
 					{#key cardKey}
-						<AskCard {session} pending={session.pendingUi} />
+						<AskCard {session} pending={session.pendingUi} {visible} />
 					{/key}
 				</div>
 			{/if}

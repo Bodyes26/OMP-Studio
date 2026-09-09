@@ -682,15 +682,17 @@ $effect(() => {
 		);
 
 		// Type-to-focus: se l'utente inizia a scrivere (lettera/simbolo normale) e il focus non e' in un altro input
-		// ne' ci sono dialoghi/menu aperti o elementi interattivi a fuoco
+		// ne' ci sono dialoghi/menu aperti. Vale solo partendo dal vuoto (body) o dall'interno del composer:
+		// se il fuoco e' su un controllo di un'altra superficie (bottoni del TaskEditor, albero file, tessere)
+		// la digitazione resta li' invece di venire dirottata nella chat del progetto attivo.
 		if (!isComposerTextarea && !activeMenu && !paletteOpen && !hasOpenOverlay) {
 			if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && !event.isComposing) {
 				if (event.key === ' ' && isInteractiveElement) {
 					// Lascia che lo spazio attivi l'elemento con focus
 					return;
 				}
-				if (isInteractiveElement && activeEl?.closest('.ask-card')) {
-					// Non rubare il fuoco alla card di ask
+				if (isInteractiveElement && !composerEl?.contains(activeEl ?? null)) {
+					// Non rubare il fuoco ai controlli fuori dal composer (card di ask inclusa)
 					return;
 				}
 				textareaEl?.focus();
@@ -724,7 +726,6 @@ $effect(() => {
 			}
 			return;
 		}
-
 
 		// Se il modale di aiuto e' aperto, non processare scorciatoie di composer
 		if (shortcutsModalStore.isOpen) return;

@@ -729,6 +729,10 @@
 	$effect(() => {
 		if (!currentFrame || !viewportEl || !surfaceHasKeyboard) return;
 		if (document.activeElement === viewportEl) return;
+		// La superficie ricorda il fuoco solo quando e' andato perso nel vuoto
+		// (rimontaggio con focus tornato a body): mai strapparlo a un input o
+		// a un controllo dove l'utente sta scrivendo o operando.
+		if (document.activeElement !== null && document.activeElement !== document.body) return;
 		viewportEl.focus({ preventScroll: true });
 	});
 

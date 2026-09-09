@@ -32,7 +32,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Colori del Companion ripristinati: pastiglie, avvisi, conferme e bordi accentati usavano nomi di colore inesistenti nel tema e venivano scartati dal browser, lasciando testo del colore ereditato su fondi trasparenti (il progetto mancante appariva come testo rosso nudo e l'avviso in blu senza riquadro).
 - Il suggeritore `@progetto` e `/direttiva` del Companion non viene più tagliato: si apre sotto il campo nel livello superiore della finestra, mentre prima si apriva verso l'alto e finiva fuori dallo schermo o dentro l'area a scorrimento.
 - Il punto colorato dei progetti nel Companion ha ora la stessa tinta della barra dei progetti nella finestra principale: la tinta del tema veniva interpretata come gradi HSL e ogni progetto usciva di un altro colore.
-- Dopo un salvataggio riuscito nel Companion l'avviso di un tentativo precedente non resta più a schermo.
+- Il focus non viene più strappato mentre si scrive un prompt: le domande dell'agente arrivate da progetti in background non rubano più il fuoco al composer o al TaskEditor, il type-to-focus globale non dirotta più la digitazione dai controlli di altre superfici, il viewport del browser live riprende il fuoco solo se è andato perso nel vuoto dopo un rimontaggio, e i tasti Esc/Ctrl+Invio premuti fuori dal TaskEditor non lo chiudono più.
 
 ## [1.5.0] - 2026-09-08
 

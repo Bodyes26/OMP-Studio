@@ -65,6 +65,7 @@
 	let deleteArmed = $state(false);
 	let deleteTimer: number | null = null;
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
+	let rootEl = $state<HTMLElement | null>(null);
 	let paletteOpen = $state(false);
 	let paletteQuery = $state('');
 	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
@@ -501,6 +502,14 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Gestore confinato al pannello: senza questo controllo Esc e Ctrl+Invio
+		// premuti altrove nell'app (es. nel composer della chat) chiudevano il
+		// task e spostavano il fuoco, interrompendo la digitazione in corso.
+		const target = e.target instanceof Node ? e.target : null;
+		const inside = rootEl !== null && target !== null && rootEl.contains(target);
+		const onBody = target === null || (target instanceof HTMLElement && target.tagName === 'BODY');
+		if (!inside && !onBody) return;
+
 		if (e.key === 'Escape') {
 			if (paletteOpen) {
 				paletteOpen = false;
@@ -549,9 +558,7 @@
 	});
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-<div class="task-editor" role="region" aria-label="Editor del task">
+<div class="task-editor" role="region" aria-label="Editor del task" bind:this={rootEl}>
 	<header class="task-toolbar">
 		<div class="task-heading">
 			<span class="task-badge">TASK</span>
