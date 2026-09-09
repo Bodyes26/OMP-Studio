@@ -48,17 +48,45 @@
 		);
 	}
 
-	function isExecutionEntry(entry: TranscriptEntry): boolean {
-		if (entry.kind === 'tool') return true;
-		if (entry.kind === 'assistant' && !hasResponseContent(entry)) return true;
+	function isIntermediateAssistantEntry(
+		entry: AssistantEntry,
+		index: number,
+		entries: TranscriptEntry[]
+	): boolean {
+		// Se ha solo thinking o non ha testo/immagini, e' un blocco di ragionamento esecutivo.
+		if (!hasResponseContent(entry)) return true;
+
+		// Se ha testo/immagini (es. commento intermedio o CoT in chiaro di muse-spark/contributor),
+		// e' un passaggio intermedio verso uno strumento se dopo di esso, nello stesso turno
+		// prima del prossimo messaggio utente o compattazione, e' presente almeno una chiamata tool.
+		for (let j = index + 1; j < entries.length; j++) {
+			const next = entries[j];
+			if (next.kind === 'tool') return true;
+			if (next.kind === 'user' || next.kind === 'compaction') break;
+		}
 		return false;
 	}
 
-	// Raggruppa chiamate tool e blocchi di thinking consecutivi o alternati in un unico blocco.
-	// Se una sequenza di esecuzione contiene tool, viene accorpata in un unico ToolGroup elegante.
+	function isExecutionEntry(
+		entry: TranscriptEntry,
+		index: number,
+		entries: TranscriptEntry[]
+	): boolean {
+		if (entry.kind === 'tool') return true;
+		if (entry.kind === 'assistant') {
+			return isIntermediateAssistantEntry(entry, index, entries);
+		}
+		return false;
+	}
+
+	// Raggruppa chiamate tool e blocchi di ragionamento/commenti intermedi consecutivi
+	// o alternati in un unico blocco. Se una sequenza di esecuzione contiene tool, viene
+	// accorpata in un unico ToolGroup elegante, evitando frammentazioni con modelli
+	// che emettono spiegazioni testuali prima di ogni tool (come muse-spark).
 	const displayItems = $derived.by<DisplayItem[]>(() => {
 		const items: DisplayItem[] = [];
 		let currentSegment: ToolGroupEntry[] = [];
+		const entries = session.visibleEntries;
 
 		function flushSegment() {
 			if (currentSegment.length === 0) return;
@@ -77,8 +105,9 @@
 			currentSegment = [];
 		}
 
-		for (const entry of session.visibleEntries) {
-			if (isExecutionEntry(entry)) {
+		for (let i = 0; i < entries.length; i++) {
+			const entry = entries[i];
+			if (isExecutionEntry(entry, i, entries)) {
 				currentSegment.push(entry as ToolGroupEntry);
 			} else {
 				flushSegment();
@@ -89,6 +118,16 @@
 		flushSegment();
 		return items;
 	});
+
+	function shouldShowAssistantFooter(index: number, items: DisplayItem[]): boolean {
+		// Se il display item successivo e' anch'esso un messaggio dell'assistente,
+		// omette il footer per evitare badge duplicati a cascata.
+		const next = items[index + 1];
+		if (next && next.kind === 'single' && next.entry.kind === 'assistant') {
+			return false;
+		}
+		return true;
+	}
 	function entryKind(item: DisplayItem): 'user' | 'system' | 'content' {
 		// Classifica l'item per il ritmo verticale: il confine di turno
 		// (messaggio utente) merita piu' distacco dal turno precedente; le
@@ -209,7 +248,11 @@
 				{:else if item.entry.kind === 'user'}
 					<UserMessage entry={item.entry} />
 				{:else if item.entry.kind === 'assistant'}
-					<AssistantText entry={item.entry} streaming={item.entry.id === session.activeAssistantId} />
+					<AssistantText
+						entry={item.entry}
+						streaming={item.entry.id === session.activeAssistantId}
+						showFooter={shouldShowAssistantFooter(i, displayItems)}
+					/>
 				{:else if item.entry.kind === 'tool'}
 					<ToolCard entry={item.entry} />
 				{:else if item.entry.kind === 'notice'}

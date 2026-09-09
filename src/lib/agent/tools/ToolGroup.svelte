@@ -9,6 +9,8 @@
 	import type { AssistantEntry, ToolEntry } from '../session.svelte';
 	import { chatReveal } from '../motion';
 	import ThinkingBlock from '../components/ThinkingBlock.svelte';
+	import Markdown from '../components/Markdown.svelte';
+	import { lexMarkdown } from '../markdown';
 	import ToolCard from './ToolCard.svelte';
 	import { formatDuration, extractToolErrorReason } from './types';
 	import { IconChevronRight } from '$lib/icons';
@@ -188,6 +190,17 @@
 									text={block.text}
 									streaming={entry.id === activeAssistantId && i === entry.blocks.length - 1}
 								/>
+							{:else if block.type === 'text' && block.text.trim().length > 0}
+								<div class="group-assistant-comment">
+									<Markdown tokens={lexMarkdown(block.text)} />
+								</div>
+							{:else if block.type === 'image'}
+								<div class="group-assistant-image">
+									<img
+										src={`data:${block.mimeType};base64,${block.data}`}
+										alt="Immagine generata dall'assistente"
+									/>
+								</div>
 							{/if}
 						{/each}
 					{/if}
@@ -415,5 +428,22 @@
 
 	.group-entry {
 		min-width: 0;
+	}
+
+	.group-assistant-comment {
+		padding: var(--space-1) var(--space-2);
+		color: var(--ink-muted);
+		font-size: var(--text-sm);
+		line-height: var(--leading-normal);
+	}
+
+	.group-assistant-image {
+		padding: var(--space-1) var(--space-2);
+	}
+
+	.group-assistant-image img {
+		max-width: 100%;
+		max-height: 240px;
+		border-radius: var(--radius-sm);
 	}
 </style>

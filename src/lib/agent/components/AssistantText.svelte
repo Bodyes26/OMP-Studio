@@ -14,10 +14,12 @@
 
 	let {
 		entry,
-		streaming = false
+		streaming = false,
+		showFooter = true
 	}: {
 		entry: AssistantEntry;
 		streaming?: boolean;
+		showFooter?: boolean;
 	} = $props();
 
 	const hooks = agentUiHooks();
@@ -225,7 +227,7 @@
 	}
 
 	const formattedCost = $derived(formatCost(entry.usage?.cost?.total));
-	const hasFooter = $derived(Boolean(entry.model || formattedCost));
+	const hasFooter = $derived(showFooter && Boolean(entry.model || formattedCost));
 </script>
 
 <div class="assistant-entry" class:streaming={streaming || isPresentingLastText}>
