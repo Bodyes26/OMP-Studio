@@ -11,6 +11,7 @@
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import { THEMES, anchorsFor, automaticProjectHue } from '$lib/theme';
 	import { anchoredPopover } from '$lib/anchoredPopover';
+	import { matchesLooseQuery } from '$lib/looseSearch';
 	import { computeQuotaInfo } from '$lib/quota/projectQuota';
 	import QuotaChip from '$lib/components/quota/QuotaChip.svelte';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
@@ -180,7 +181,7 @@
 				kind: 'model',
 				search: `${model.selector} ${model.name} ${model.provider}`.toLowerCase()
 			}));
-			return [...roles, ...models].filter((item) => !q || item.search.includes(q));
+			return [...roles, ...models].filter((item) => matchesLooseQuery(mention.query, item.search));
 		}
 		return [];
 	});

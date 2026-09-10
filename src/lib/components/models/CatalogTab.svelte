@@ -5,6 +5,7 @@
 		type ModelDto
 	} from '$lib/stores/modelSettings.svelte';
 	import { anchoredPopover } from '$lib/anchoredPopover';
+	import { matchesLooseQuery } from '$lib/looseSearch';
 
 	let searchQuery = $state('');
 	let filterVision = $state(false);
@@ -54,15 +55,9 @@
 			list = list.filter((m) => isFree(m));
 		}
 
-		const q = searchQuery.trim().toLowerCase();
+		const q = searchQuery.trim();
 		if (q) {
-			list = list.filter(
-				(m) =>
-					m.name.toLowerCase().includes(q) ||
-					m.id.toLowerCase().includes(q) ||
-					m.provider.toLowerCase().includes(q) ||
-					m.selector.toLowerCase().includes(q)
-			);
+			list = list.filter((m) => matchesLooseQuery(q, m.name, m.id, m.provider, m.selector));
 		}
 
 		return list;

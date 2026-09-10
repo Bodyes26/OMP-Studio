@@ -27,6 +27,7 @@ import './tool-errors.test.ts';
 import './prompt-suggestions.test.ts';
 import './agent-interaction.test.ts';
 import './model-settings.test.ts';
+import './loose-search.test.ts';
 import './studio-preview.test.ts';
 import './browser-live-contract.test.ts';
 import './markdown-filepaths.test.ts';

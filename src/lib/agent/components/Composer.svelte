@@ -48,6 +48,7 @@ import {
 	IconRoleVision
 } from '$lib/icons';
 import { anchoredPopover } from '$lib/anchoredPopover';
+import { matchesLooseQuery } from '$lib/looseSearch';
 import { getCaretCoordinates } from './caretCoordinates';
 	let {
 		session,
@@ -116,15 +117,10 @@ let sendCaretEl = $state<HTMLElement | null>(null);
 
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session.availableCommands));
 	const filteredModels = $derived.by(() => {
-		const q = modelFilterQuery.trim().toLowerCase();
+		const q = modelFilterQuery.trim();
 		if (!q) return availableModels;
-		return availableModels.filter(
-			(m) =>
-				(m.name && m.name.toLowerCase().includes(q))
-				|| (m.id && m.id.toLowerCase().includes(q))
-				|| (m.provider && m.provider.toLowerCase().includes(q))
-		);
-});
+		return availableModels.filter((m) => matchesLooseQuery(q, m.name, m.id, m.provider));
+	});
 
 // Il protocollo di sessione manda solo id, nome, provider e contesto: vision
 // e thinking si leggono dal catalogo, cosi' questa lista mostra le stesse

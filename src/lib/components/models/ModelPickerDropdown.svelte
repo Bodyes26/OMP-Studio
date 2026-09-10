@@ -3,6 +3,7 @@
 	import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
 	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { IconContextWindow, IconRoleSlow, IconRoleVision } from '$lib/icons';
+	import { matchesLooseQuery } from '$lib/looseSearch';
 
 	let {
 		catalog = [],
@@ -43,13 +44,10 @@
 	});
 
 	const filteredModels = $derived.by(() => {
-		const q = filterQuery.trim().toLowerCase();
+		const q = filterQuery.trim();
 		if (!q) return catalog as ModelDto[];
 		return (catalog as ModelDto[]).filter((m: ModelDto) =>
-			m.name.toLowerCase().includes(q) ||
-			m.id.toLowerCase().includes(q) ||
-			m.provider.toLowerCase().includes(q) ||
-			m.selector.toLowerCase().includes(q)
+			matchesLooseQuery(q, m.name, m.id, m.provider, m.selector)
 		);
 	});
 
