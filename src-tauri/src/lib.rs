@@ -53,7 +53,8 @@ use suggestions_ops::generate_prompt_suggestions;
 mod companion_ops;
 use companion_ops::{
     get_companion_state, hide_companion_window, init_global_shortcut, parse_quick_task_ai,
-    save_companion_state, toggle_companion_window,
+    persist_companion_geometry, set_companion_pinned, toggle_companion_window,
+    track_companion_geometry,
 };
 
 pub mod browser_live;
@@ -89,6 +90,11 @@ pub fn run() {
                     tauri_plugin_window_state::StateFlags::all()
                         & !tauri_plugin_window_state::StateFlags::DECORATIONS,
                 )
+                // La Companion ha una persistenza propria (`companion_ops`) con
+                // due modalita': centrata in Spotlight, a coordinate fisse in
+                // Widget. Lasciarla al plugin significava due proprietari della
+                // stessa geometria e la finestra riaperta a sorpresa all'avvio.
+                .with_denylist(&["companion"])
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
@@ -189,17 +195,26 @@ pub fn run() {
             toggle_companion_window,
             hide_companion_window,
             get_companion_state,
-            save_companion_state,
+            set_companion_pinned,
             parse_quick_task_ai,
         ])
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Destroyed => {
                 if window.label() == "main" {
                     if let Some(pty_manager) = window.try_state::<PtyManager>() {
                         pty_manager.close_all();
                     }
                 }
             }
+            // La geometria della Companion si annota in memoria mentre l'utente
+            // la trascina: all'uscita la finestra puo' essere gia' distrutta e
+            // non rispondere piu' a `inner_size`.
+            tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+                if window.label() == "companion" {
+                    track_companion_geometry(window);
+                }
+            }
+            _ => {}
         })
         .setup(|app| {
             init_windows_aumid();
@@ -218,6 +233,10 @@ pub fn run() {
                 if let Some(pty_manager) = app_handle.try_state::<PtyManager>() {
                     pty_manager.close_all();
                 }
+                // Ultimo istante in cui la geometria della Companion aperta e'
+                // ancora leggibile: senza questo, chi ridimensiona e chiude
+                // l'app senza prima nascondere la finestra perde la dimensione.
+                persist_companion_geometry(app_handle);
             }
         });
 }

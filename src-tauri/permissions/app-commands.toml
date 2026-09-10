@@ -187,7 +187,7 @@ commands.allow = [
     "toggle_companion_window",
     "hide_companion_window",
     "get_companion_state",
-    "save_companion_state",
+    "set_companion_pinned",
     "parse_quick_task_ai"
 ]
 

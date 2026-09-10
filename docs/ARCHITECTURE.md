@@ -24,7 +24,7 @@ Documento tecnico. Le versioni, i contratti IPC, gli schemi di persistenza e le 
 ### Plugin Tauri registrati
 
 1. `tauri-plugin-single-instance`: registrato **obbligatoriamente per primo**, impedisce doppie istanze concorrenti sullo stesso `stats.db` e porta in primo piano la finestra esistente aprendo il progetto passato per argomento.
-2. `tauri-plugin-window-state`: persistenza trasparente di coordinate, massimizzazione e dimensioni della finestra escludendo i flag decorazione (`StateFlags::all() & !DECORATIONS`).
+2. `tauri-plugin-window-state`: persistenza trasparente di coordinate, massimizzazione e dimensioni della finestra escludendo i flag decorazione (`StateFlags::all() & !DECORATIONS`). La finestra `companion` è nella *denylist*: la sua geometria ha un proprietario unico in `companion_ops` (`%LOCALAPPDATA%/omp-studio/companion-state.json`), che distingue la modalità Spotlight (centrata a ogni apertura) da quella fissata (coordinate ricordate) e non deve subire il ripristino automatico del plugin, incluso quello della visibilità.
 3. `tauri-plugin-store`: gestione della persistenza locale atomica con file separati `settings.json` e `tasks.json`.
 4. `tauri-plugin-dialog`: dialoghi nativi di sistema per selezione cartella e apertura file.
 5. `tauri-plugin-opener`: apertura sicura di percorsi esterni e URL nel browser predefinito di sistema.

@@ -16,17 +16,26 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::{
     command,
     webview::PageLoadEvent,
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+    WebviewWindowBuilder, Window,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::directives_ops::{extract_json_payload, run_ephemeral_omp_raw};
 
+/// La finestra Companion e' stata mostrata almeno una volta in questa sessione.
+static COMPANION_SHOWN: AtomicBool = AtomicBool::new(false);
+
 /// Stato di persistenza della finestra Companion (posizione, dimensioni e fissaggio).
+///
+/// La geometria e' in pixel fisici: e' la stessa unita' con cui la si rilegge
+/// (`inner_size`) e la si riapplica (`set_size`), quindi il giro di andata e
+/// ritorno non introduce conversioni.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompanionState {
@@ -39,12 +48,17 @@ pub struct CompanionState {
 
 impl Default for CompanionState {
     fn default() -> Self {
+        // Nessuna dimensione predefinita: senza geometria salvata la finestra
+        // resta a quella di creazione (`tauri.conf.json`, unita' logiche).
+        // Riempire questi campi con 560x520 li faceva applicare come pixel
+        // fisici, cambiando la larghezza a ogni riapertura sui monitor con
+        // scalatura diversa dal 100%.
         Self {
             is_pinned: false,
             x: None,
             y: None,
-            width: Some(560),
-            height: Some(520),
+            width: None,
+            height: None,
         }
     }
 }
@@ -114,14 +128,109 @@ pub fn get_companion_state() -> Result<CompanionState, String> {
     Ok(state)
 }
 
-#[command]
-pub fn save_companion_state(state: CompanionState) -> Result<(), String> {
+fn write_companion_state(state: &CompanionState) -> Result<(), String> {
     let path = get_companion_state_file()
         .ok_or_else(|| "Percorso configurazione companion non disponibile".to_string())?;
-    let json = serde_json::to_string_pretty(&state)
+    let json = serde_json::to_string_pretty(state)
         .map_err(|e| format!("Serializzazione stato companion fallita: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("Scrittura stato companion fallita: {}", e))?;
     Ok(())
+}
+
+/// Geometria letta dalla finestra, in pixel fisici.
+#[derive(Debug, Clone, Copy)]
+struct CompanionGeometry {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+/// Ultima geometria vista mentre la finestra era aperta.
+///
+/// All'uscita dell'applicazione la finestra puo' essere gia' distrutta e non
+/// rispondere piu': senza questa copia in memoria chi ridimensiona e chiude
+/// l'app perderebbe la dimensione. Si aggiorna su `Resized`/`Moved` senza
+/// toccare il disco, perche' durante il trascinamento dei bordi quegli eventi
+/// arrivano a ogni pixel.
+static LAST_GEOMETRY: Mutex<Option<CompanionGeometry>> = Mutex::new(None);
+
+/// Legge la geometria dalla finestra viva, se e' in uno stato significativo.
+///
+/// Si legge `inner_size`, non `outer_size`, perche' il ripristino usa
+/// `set_size`, che dimensiona l'area interna: salvare l'esterna e riapplicarla
+/// come interna allargava la finestra dello spessore dei bordi (16x9 px su
+/// Windows) a ogni chiusura e riapertura.
+fn read_live_geometry(window: &Window) -> Option<CompanionGeometry> {
+    if window.is_minimized().unwrap_or(false) {
+        return None;
+    }
+    let size = window.inner_size().ok()?;
+    let pos = window.outer_position().ok()?;
+    if size.width == 0 || size.height == 0 {
+        return None;
+    }
+    Some(CompanionGeometry {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
+/// Aggiorna la copia in memoria della geometria. Nessuna scrittura su disco.
+pub fn track_companion_geometry(window: &Window) {
+    if !COMPANION_SHOWN.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(geometry) = read_live_geometry(window) {
+        if let Ok(mut slot) = LAST_GEOMETRY.lock() {
+            *slot = Some(geometry);
+        }
+    }
+}
+
+/// Salva la geometria della finestra conservando il flag di fissaggio.
+///
+/// Va invocata prima di ogni nascondimento e all'uscita: sono gli unici momenti
+/// in cui la dimensione scelta dall'utente esiste ancora. La guardia su
+/// `COMPANION_SHOWN` evita che una finestra creata e mai aperta sovrascriva la
+/// geometria salvata con la dimensione di creazione.
+pub fn persist_companion_geometry(app: &AppHandle) {
+    if !COMPANION_SHOWN.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let live = app
+        .get_webview_window("companion")
+        .and_then(|window| read_live_geometry(&window.as_ref().window()));
+    if let (Some(geometry), Ok(mut slot)) = (live, LAST_GEOMETRY.lock()) {
+        *slot = Some(geometry);
+    }
+
+    let Some(geometry) = LAST_GEOMETRY.lock().ok().and_then(|slot| *slot) else {
+        return;
+    };
+
+    let mut state = get_companion_state().unwrap_or_default();
+    state.x = Some(geometry.x);
+    state.y = Some(geometry.y);
+    state.width = Some(geometry.width);
+    state.height = Some(geometry.height);
+    let _ = write_companion_state(&state);
+}
+
+/// Commuta la modalita' Spotlight/Widget senza toccare la geometria salvata.
+///
+/// Il comando non accetta piu' dimensioni dal frontend: la TopBar della finestra
+/// principale non puo' conoscerle e le inviava vuote, azzerando la larghezza
+/// memorizzata. Qui la geometria si rilegge dalla finestra vera.
+#[command]
+pub fn set_companion_pinned(app: AppHandle, pinned: bool) -> Result<(), String> {
+    persist_companion_geometry(&app);
+    let mut state = get_companion_state().unwrap_or_default();
+    state.is_pinned = pinned;
+    write_companion_state(&state)
 }
 
 /// Crea la finestra Companion.
@@ -160,6 +269,9 @@ fn companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
 
 
 fn show_companion_window(window: &WebviewWindow) -> Result<(), String> {
+    // Da qui in avanti la geometria della finestra e' quella che vede l'utente:
+    // solo dopo la prima apertura ha senso salvarla.
+    COMPANION_SHOWN.store(true, Ordering::Relaxed);
     window
         .unminimize()
         .map_err(|e| format!("Ripristino finestra companion fallito: {}", e))?;
@@ -185,6 +297,7 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
         let is_focused = window.is_focused().unwrap_or(false);
         if is_focused && !state.is_pinned {
             // In modalita Spotlight, se la finestra e' a fuoco la scorciatoia la chiude
+            persist_companion_geometry(app);
             window
                 .hide()
                 .map_err(|e| format!("Chiusura finestra companion fallita: {}", e))?;
@@ -194,7 +307,8 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
         return show_companion_window(&window);
     }
 
-    // Ripristina dimensioni e posizione salvata se disponibili
+    // Ripristina la dimensione salvata (in pixel fisici, come letta): senza
+    // valori memorizzati si lascia la finestra come e' stata creata.
     if let (Some(w), Some(h)) = (state.width, state.height) {
         window
             .set_size(PhysicalSize::new(w, h))
@@ -224,6 +338,9 @@ pub async fn toggle_companion_window(app: AppHandle) -> Result<(), String> {
 
 #[command]
 pub fn hide_companion_window(app: AppHandle) -> Result<(), String> {
+    // La dimensione va salvata mentre la finestra e' ancora quella che
+    // l'utente ha ridimensionato: dopo `hide()` non c'e' altro momento utile.
+    persist_companion_geometry(&app);
     if let Some(window) = app.get_webview_window("companion") {
         let _ = window.hide();
     }

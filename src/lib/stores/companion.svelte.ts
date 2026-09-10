@@ -203,34 +203,17 @@ class CompanionStore {
 		await emit('studio-respond-ui', { projectId, response });
 	}
 
-	/** Commuta la modalita' tra Spotlight (effimera) e Widget (pinnata persistente). */
+	/**
+	 * Commuta la modalita' tra Spotlight (effimera) e Widget (pinnata persistente).
+	 *
+	 * Non invia geometria: la legge Rust dalla finestra vera. Inviarla da qui
+	 * significava perderla ogni volta che il pin partiva dalla TopBar della
+	 * finestra principale, che non conosce le dimensioni della Companion.
+	 */
 	async setPinned(pinned: boolean) {
 		this.isPinned = pinned;
 		try {
-			let x: number | undefined;
-			let y: number | undefined;
-			let width: number | undefined;
-			let height: number | undefined;
-
-			if (this.isCompanionWindow) {
-				const win = getCurrentWindow();
-				const pos = await win.outerPosition();
-				const size = await win.outerSize();
-				x = pos.x;
-				y = pos.y;
-				width = size.width;
-				height = size.height;
-			}
-
-			await invoke('save_companion_state', {
-				state: {
-					isPinned: pinned,
-					x,
-					y,
-					width,
-					height
-				}
-			});
+			await invoke('set_companion_pinned', { pinned });
 		} catch (err) {
 			console.warn('[companionStore] Salvataggio stato pinned fallito:', err);
 		}
