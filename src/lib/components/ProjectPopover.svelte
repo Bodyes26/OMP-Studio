@@ -213,8 +213,8 @@
 	/** La sorte della coda alla chiusura segue il modale o le impostazioni generali. */
 	function requestClose() {
 		if (onRequestCloseProject) {
-			onClose();
 			onRequestCloseProject(project.id);
+			onClose();
 			return;
 		}
 		const queued = project.path ? taskStore.queuedCountFor(project.path) : 0;
