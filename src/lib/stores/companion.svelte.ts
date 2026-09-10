@@ -3,11 +3,12 @@ import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { projectStore, type Project } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
-import { modelSettingsStore } from './modelSettings.svelte';
+import { modelSettingsStore, STANDARD_ROLES, splitModelSelector } from './modelSettings.svelte';
 import { quotaStore, providersMatch } from './quota.svelte';
 import { parseProjectTasksFile, serializeProjectTasksFile, type StudioTask, type StudioTaskOptions } from './taskSerialization';
 import { createDirectiveSnapshot } from './taskDirectives';
 import { removeAttentionRequest, upsertAttentionRequest } from './companionAttention';
+import type { ImageContent } from '$lib/agent/wire';
 
 export interface RecentChatMessage {
 	role: 'user' | 'assistant' | 'tool';
@@ -37,6 +38,27 @@ export interface PendingUiPayload {
 	questions?: unknown[];
 	questionIndex?: number;
 	totalQuestions?: number;
+	blockedQuota?: {
+		reasonKind: 'quota_exhausted' | 'provider_error';
+		rawError?: string;
+		failedProvider?: string;
+		failedModelId?: string;
+		failedSelector?: string;
+		suggestedModel?: {
+			selector: string;
+			modelName: string;
+			roleLabel?: string;
+			provider: string;
+			modelId: string;
+		} | null;
+		availableRecoveryModels?: Array<{
+			selector: string;
+			modelName: string;
+			roleLabel?: string;
+			provider: string;
+			modelId: string;
+		}>;
+	};
 }
 
 export interface AttentionRequest {
@@ -203,6 +225,18 @@ class CompanionStore {
 		await emit('studio-respond-ui', { projectId, response });
 	}
 
+	/** Invia la richiesta di cambio modello e ripresa (one-click) per quota bloccata. */
+	async resolveQuotaBlocked(projectId: string, targetSelector?: string, thinkingLevel?: string) {
+		this.clearAttentionRequest(projectId);
+		await emit('studio-resolve-quota-blocked', { projectId, targetSelector, thinkingLevel });
+	}
+
+	/** Archivia l'avviso di blocco quota senza eseguire switch o ripresa. */
+	async dismissQuotaBlocked(projectId: string) {
+		this.clearAttentionRequest(projectId);
+		await emit('studio-dismiss-quota-blocked', { projectId });
+	}
+
 	/**
 	 * Commuta la modalita' tra Spotlight (effimera) e Widget (pinnata persistente).
 	 *
@@ -268,13 +302,15 @@ class CompanionStore {
 					description: d.description
 				}));
 
-			const roles = ['smol', 'default', 'slow', 'plan'];
+			const config = modelSettingsStore.config;
+			const roles = STANDARD_ROLES
+				.filter((role) => Boolean(config?.modelRoles?.[role.id]?.trim()))
+				.map((role) => role.id);
 
 			// Il catalogo completo vale decine di migliaia di caratteri: spedirlo intero
 			// gonfiava il contesto del parser senza aggiungere nulla, perche' un task puo'
 			// citare solo modelli che l'utente ha davvero configurato. Restano i modelli
 			// assegnati ai ruoli, quelli del ciclo rapido e quelli delle catene di fallback.
-			const config = modelSettingsStore.config;
 			const catalogModels = [
 				...Object.values(config?.modelRoles ?? {}),
 				...(config?.cycleOrder ?? []),
@@ -310,13 +346,18 @@ class CompanionStore {
 	/**
 	 * Salva il task interpretato direttamente nel file .omp/tasks.json del progetto target.
 	 */
-	async saveTask(parsed: QuickTaskAiParsed): Promise<boolean> {
-		if (!parsed.projectPath || !parsed.taskPrompt) {
-			this.parseError = 'Percorso progetto o prompt mancante';
+	async saveTask(parsed: QuickTaskAiParsed, images: ImageContent[] = []): Promise<boolean> {
+		if (!parsed.projectPath || (!parsed.taskPrompt.trim() && images.length === 0)) {
+			this.parseError = 'Percorso progetto o contenuto del task mancante';
 			return false;
 		}
 
 		try {
+			await settingsStore.init();
+			if (!modelSettingsStore.config) {
+				await modelSettingsStore.loadAll();
+			}
+
 			// Leggi file esistente o inizializza
 			let existingTasks: StudioTask[] = [];
 			try {
@@ -333,6 +374,13 @@ class CompanionStore {
 				(p) => p.path && p.path.toLowerCase() === parsed.projectPath!.toLowerCase()
 			);
 			const defaults = { ...settingsStore.taskDefaults, ...(project?.taskDefaults ?? {}) };
+			const config = modelSettingsStore.config;
+			const configuredRoleSelector = parsed.role
+				? config?.modelRoles?.[parsed.role]?.trim() ?? ''
+				: '';
+			const knownModelSelectors = new Set(modelSettingsStore.catalog.map((model) => model.selector));
+			const configuredRole = splitModelSelector(configuredRoleSelector, knownModelSelectors);
+			const explicitModelSelector = parsed.modelSelector?.trim() || '';
 
 			// Mappa le direttive selezionate
 			const directiveSnapshots = settingsStore.taskDirectives
@@ -340,9 +388,11 @@ class CompanionStore {
 				.map(createDirectiveSnapshot);
 
 			const options: StudioTaskOptions = {
-				role: (parsed.role as StudioTaskOptions['role']) || defaults.role,
-				modelSelector: parsed.modelSelector || undefined,
-				thinkingLevel: defaults.thinkingLevel,
+				role: explicitModelSelector ? 'custom' : parsed.role || defaults.role,
+				modelSelector: explicitModelSelector || configuredRole.base || undefined,
+				thinkingLevel: explicitModelSelector
+					? defaults.thinkingLevel
+					: configuredRole.thinking || defaults.thinkingLevel,
 				includeEditorContext: defaults.includeEditorContext,
 				directives: directiveSnapshots.length > 0 ? directiveSnapshots : undefined
 			};
@@ -352,7 +402,7 @@ class CompanionStore {
 				id: crypto.randomUUID(),
 				projectPath: parsed.projectPath.toLowerCase(),
 				prompt: parsed.taskPrompt,
-				images: [],
+				images: [...images],
 				options,
 				position: existingTasks.length,
 				createdAt: now,

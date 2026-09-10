@@ -478,6 +478,7 @@
 				{ id: p.id, name: p.name, hue: p.hue },
 				{
 					pendingUi: session.pendingUi ? $state.snapshot(session.pendingUi) : null,
+					blockedQuotaState: session.blockedQuotaState ? $state.snapshot(session.blockedQuotaState) : null,
 					model: session.model,
 					recentMessages: session.recentMessages
 				}
@@ -497,13 +498,26 @@
 
 	// Risposte rapide arrivate dalla finestra Companion o da scorciatoia esterna
 	$effect(() => {
-		let unlisten: (() => void) | undefined;
+		const unlistens: Array<() => void> = [];
 		void listen<UiResponsePayload>('studio-respond-ui', async (event) => {
 			await sessionRegistry.routeUiResponse(event.payload);
-		}).then((fn) => { unlisten = fn; });
-		return () => { unlisten?.(); };
-	});
+		}).then((fn) => { unlistens.push(fn); });
 
+		void listen<{ projectId: string; targetSelector?: string; thinkingLevel?: string }>(
+			'studio-resolve-quota-blocked',
+			async (event) => {
+				await handleResolveQuotaBlocked(event.payload.projectId, event.payload.targetSelector, event.payload.thinkingLevel);
+			}
+		).then((fn) => { unlistens.push(fn); });
+
+		void listen<{ projectId: string }>('studio-dismiss-quota-blocked', (event) => {
+			handleDismissQuotaBlocked(event.payload.projectId);
+		}).then((fn) => { unlistens.push(fn); });
+
+		return () => {
+			for (const unlisten of unlistens) unlisten();
+		};
+	});
 	// Notifiche di sistema e allerta sull'icona dell'app (Dock / Taskbar)
 	$effect(() => {
 		for (const p of projectStore.projects) {
@@ -810,6 +824,31 @@
 		} finally {
 			switchingSurface[projectId] = false;
 		}
+	}
+
+	async function handleResolveQuotaBlocked(projectId: string, targetSelector?: string, thinkingLevel?: string) {
+		const project = projectStore.projects.find((p) => p.id === projectId);
+		if (!project) return;
+
+		// Se il progetto si trova attualmente in superficie terminale, esegui l'handoff automatico alla GUI (Decisione Q6)
+		if (project.layout.rightSection === 'terminal') {
+			await switchSurface(project.id, 'gui');
+		}
+
+		const session = agentSessionFor(project);
+		await session.ensureOpen();
+		const success = await session.applyQuotaRecovery(targetSelector, thinkingLevel);
+		if (success) {
+			companionStore.clearAttentionRequest(projectId);
+		}
+	}
+
+	function handleDismissQuotaBlocked(projectId: string) {
+		const session = agentSessions.get(projectId);
+		if (session) {
+			session.dismissBlockedQuota();
+		}
+		companionStore.clearAttentionRequest(projectId);
 	}
 
 	/**
@@ -2093,6 +2132,9 @@
 							cwd={p.path}
 							visible={p.id === projectStore.activeId}
 							resumeSessionId={terminalMeta[p.id]?.sessionId ?? null}
+							blockedQuota={agentSessions.get(p.id)?.blockedQuotaState ?? null}
+							onDismissBlockedQuota={() => agentSessions.get(p.id)?.dismissBlockedQuota()}
+							onSwitchToGui={() => void switchSurface(p.id, 'gui')}
 							sessionRef={(s) => {
 								if (s) terminalSessions.set(p.id, s);
 								else terminalSessions.delete(p.id);

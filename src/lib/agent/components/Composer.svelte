@@ -8,6 +8,7 @@
 	// di comportamento streaming (steer / follow-up), i chip di stato cliccabili
 	// (modello, thinking, gauge contesto, costo) e la palette dei comandi slash.
 	import type { AgentSession } from '../session.svelte';
+	import { hasEffectiveReserves } from '../quotaRecovery';
 	import {
 		type AvailableCommand,
 		type ImageContent,
@@ -203,6 +204,14 @@ const activeRoleInfo = $derived.by(() => {
 		}
 	}
 	return null;
+});
+
+const isCoveredByReserves = $derived.by(() => {
+	if (!session.model?.id) return true;
+	const provider = session.model.provider || '';
+	const selector = provider ? `${provider}/${session.model.id}` : session.model.id;
+	const config = modelSettingsStore.config || modelSettingsStore.draftConfig;
+	return hasEffectiveReserves(selector, activeRoleInfo?.id ?? null, config);
 });
 
 $effect(() => {
@@ -1289,6 +1298,9 @@ $effect(() => {
 					{:else}
 						personalizzato
 					{/if}
+					{#if !isCoveredByReserves}
+						<span class="no-reserves-badge" title="Nessuna riserva configurata per questo modello: se esaurisce la quota la richiesta fallirà. Clicca per configurare riserve (Ctrl+Alt+M)">senza riserve</span>
+					{/if}
 				</span>
 			</button>
 
@@ -2023,6 +2035,18 @@ $effect(() => {
 		font-size: var(--text-xs);
 		font-variant-numeric: tabular-nums;
 		color: var(--ink);
+	}
+
+	.no-reserves-badge {
+		margin-left: var(--space-1);
+		font-size: 10px;
+		line-height: 1;
+		padding: 2px 4px;
+		border-radius: var(--radius-xs);
+		background: color-mix(in srgb, var(--amber-fg, #f59e0b) 16%, transparent);
+		color: var(--amber-fg, #f59e0b);
+		font-weight: 500;
+		letter-spacing: 0.02em;
 	}
 
 	.chip-val.starting {

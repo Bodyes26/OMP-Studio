@@ -7,13 +7,17 @@
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { quotaStore } from '$lib/stores/quota.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '$lib/stores/modelSettings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import { THEMES, anchorsFor, automaticProjectHue } from '$lib/theme';
 	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { computeQuotaInfo } from '$lib/quota/projectQuota';
 	import QuotaChip from '$lib/components/quota/QuotaChip.svelte';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
+	import { taskStore } from '$lib/stores/tasks.svelte';
+	import { rankFrequentTaskModels } from '$lib/stores/taskSerialization';
+	import { extractImageFiles, isImageFile, prepareImage } from '$lib/agent/images';
+	import type { ImageContent } from '$lib/agent/wire';
 	import {
 		parseQuickTaskLocal,
 		mentionStateAt,
@@ -22,6 +26,7 @@
 	} from '$lib/companion/quickTaskLocal';
 	import {
 		IconArrowUp,
+		IconAttach,
 		IconCheck,
 		IconClose,
 		IconPin,
@@ -32,7 +37,6 @@
 		IconSparkles
 	} from '$lib/icons';
 
-	const ROLES = ['smol', 'default', 'slow', 'plan'];
 
 	/**
 	 * Prefissi del linguaggio del campo: sono i soli comandi visibili, e stanno
@@ -56,6 +60,7 @@
 
 	let inputEl = $state<HTMLTextAreaElement | null>(null);
 	let composerEl = $state<HTMLElement | null>(null);
+	let fileInputEl = $state<HTMLInputElement | null>(null);
 	let taskInput = $state('');
 	let caret = $state(0);
 	let mentionIndex = $state(0);
@@ -67,6 +72,11 @@
 	let replyDrafts = $state<Record<string, string>>({});
 	let usageOpen = $state(false);
 	let justOpened = $state(false);
+	let attachedImages = $state<ImageContent[]>([]);
+	let isDraggingOver = $state(false);
+	let imageProcessingCount = $state(0);
+	let isFileDialogOpen = false;
+	let attachmentError = $state<string | null>(null);
 
 	let unlistenSummon: UnlistenFn | null = null;
 
@@ -78,6 +88,40 @@
 	);
 	const knownDirectives = $derived(settingsStore.taskDirectives.filter((d) => !d.hidden));
 
+	type MentionItem = {
+		value: string;
+		label: string;
+		hint?: string;
+		kind: 'project' | 'directive' | 'role' | 'model';
+		search: string;
+	};
+
+	const configuredRoles = $derived.by(() => {
+		const rolesMap = modelSettingsStore.config?.modelRoles ?? modelSettingsStore.draftConfig?.modelRoles ?? {};
+		return STANDARD_ROLES.flatMap((role) => {
+			const selector = rolesMap[role.id]?.trim();
+			if (!selector) return [];
+			const model = resolveCatalogModel(modelSettingsStore.catalog, selector);
+			return [{
+				id: role.id,
+				label: role.label,
+				selector,
+				modelLabel: model?.name ?? selector
+			}];
+		});
+	});
+
+	const frequentModels = $derived.by(() =>
+		rankFrequentTaskModels(taskStore.origins, 4).flatMap((entry) => {
+			const model = resolveCatalogModel(modelSettingsStore.assignableCatalog, entry.modelSelector);
+			return model ? [{ ...entry, model }] : [];
+		})
+	);
+
+	const knownModelSelectors = $derived(
+		modelSettingsStore.assignableCatalog.map((model) => model.selector)
+	);
+
 	/**
 	 * Interpretazione del testo mentre si scrive: e' puramente locale e sincrona.
 	 * Nessun processo `omp` viene avviato durante la digitazione; l'AI entra in
@@ -87,35 +131,64 @@
 		parseQuickTaskLocal(taskInput, {
 			projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.path })),
 			directives: knownDirectives.map((d) => ({ id: d.id, name: d.name, tag: d.tag, hidden: d.hidden })),
-			roles: ROLES
+			roles: configuredRoles.map((role) => role.id),
+			modelSelectors: knownModelSelectors
 		})
 	);
 
 	const mention = $derived(mentionStateAt(taskInput, caret));
 
-	const mentionItems = $derived.by<Array<{ value: string; label: string; hint?: string }>>(() => {
+	const mentionItems = $derived.by<MentionItem[]>(() => {
+		const q = mention.query.toLowerCase();
 		if (mention.kind === 'project') {
-			const q = mention.query.toLowerCase();
 			return knownProjects
 				.filter((p) => p.path)
 				.filter((p) => !q || (p.label ?? p.name).toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
 				.slice(0, 6)
-				.map((p) => ({ value: p.name, label: p.label?.trim() || p.name, hint: p.name }));
+				.map((p) => ({
+					value: p.name,
+					label: p.label?.trim() || p.name,
+					hint: p.name,
+					kind: 'project' as const,
+					search: `${p.label ?? ''} ${p.name}`.toLowerCase()
+				}));
 		}
 		if (mention.kind === 'directive') {
-			const q = mention.query.toLowerCase();
 			return knownDirectives
 				.filter((d) => !q || d.name.toLowerCase().includes(q) || (d.tag ?? '').toLowerCase().includes(q))
 				.slice(0, 6)
-				.map((d) => ({ value: (d.tag ?? d.name).replace(/^\//, ''), label: d.name, hint: d.tag }));
+				.map((d) => ({
+					value: (d.tag ?? d.name).replace(/^\//, ''),
+					label: d.name,
+					hint: d.tag,
+					kind: 'directive' as const,
+					search: `${d.name} ${d.tag ?? ''}`.toLowerCase()
+				}));
+		}
+		if (mention.kind === 'role') {
+			const roles: MentionItem[] = configuredRoles.map((role) => ({
+				value: role.id,
+				label: role.label,
+				hint: role.modelLabel,
+				kind: 'role',
+				search: `${role.id} ${role.label} ${role.selector} ${role.modelLabel}`.toLowerCase()
+			}));
+			const models: MentionItem[] = frequentModels.map(({ model, count }) => ({
+				value: model.selector,
+				label: model.name,
+				hint: `${model.provider} · ${count} ${count === 1 ? 'uso' : 'usi'}`,
+				kind: 'model',
+				search: `${model.selector} ${model.name} ${model.provider}`.toLowerCase()
+			}));
+			return [...roles, ...models].filter((item) => !q || item.search.includes(q));
 		}
 		return [];
 	});
 
 	const mentionOpen = $derived(mention.kind !== null && mentionItems.length > 0);
 
-	const isBusy = $derived(isSaving || companionStore.isParsingTask);
-	const canSave = $derived(taskInput.trim().length > 0 && !isBusy);
+	const isBusy = $derived(isSaving || companionStore.isParsingTask || imageProcessingCount > 0);
+	const canSave = $derived((taskInput.trim().length > 0 || attachedImages.length > 0) && !isBusy);
 
 	/** Progetti ordinati per urgenza: chi chiede risposta sta in cima, chi e' fermo in fondo. */
 	const monitorProjects = $derived.by<Project[]>(() => {
@@ -146,8 +219,12 @@
 		return automaticProjectHue(THEMES[themeStore.current] ?? THEMES['titanium'], project.path);
 	}
 
-	function stateLabel(state: string): string {
-		if (state === 'attention') return 'Chiede risposta';
+	function stateLabel(state: string, projectId?: string): string {
+		if (state === 'attention') {
+			const bq = attentionList.find((a) => a.projectId === projectId && a.pendingUi.kind === 'quota_blocked');
+			if (bq) return bq.pendingUi.blockedQuota?.reasonKind === 'quota_exhausted' ? 'Quota esaurita' : 'Blocco provider';
+			return 'Chiede risposta';
+		}
 		if (state === 'working') return 'Al lavoro';
 		if (state === 'finished') return 'Completato';
 		if (state === 'idle') return 'Fermo';
@@ -172,18 +249,23 @@
 			unlistenSummon = fn;
 		});
 
-		// Auto-chiusura su blur solo se non pinnato
+		// Auto-chiusura su blur solo se non pinnato. Il dialogo file nativo
+		// toglie temporaneamente il focus alla WebView ma non e' una chiusura.
 		const handleBlur = () => {
-			if (!companionStore.isPinned && !usageOpen) {
+			if (!companionStore.isPinned && !usageOpen && !isFileDialogOpen) {
 				void companionStore.hideCompanion();
 			}
 		};
+		const handleFocus = () => {
+			isFileDialogOpen = false;
+		};
 
 		window.addEventListener('blur', handleBlur);
+		window.addEventListener('focus', handleFocus);
 
 		return () => {
 			window.removeEventListener('blur', handleBlur);
-			unlistenSummon?.();
+			window.removeEventListener('focus', handleFocus);
 		};
 	});
 
@@ -293,6 +375,76 @@
 		companionStore.parseError = null;
 	}
 
+	async function handleProcessFiles(files: FileList | File[]) {
+		const candidates = Array.from(files);
+		if (candidates.length === 0) return;
+		imageProcessingCount += 1;
+		attachmentError = null;
+		try {
+			for (const file of candidates) {
+				if (!isImageFile(file)) {
+					attachmentError = 'Sono supportati solo file immagine.';
+					continue;
+				}
+				const result = await prepareImage(file);
+				if ('error' in result) {
+					attachmentError = result.error;
+				} else {
+					attachedImages = [...attachedImages, result];
+				}
+			}
+		} finally {
+			imageProcessingCount -= 1;
+		}
+	}
+
+	function handlePaste(event: ClipboardEvent) {
+		const imageFiles = extractImageFiles(event.clipboardData);
+		if (imageFiles.length === 0) return;
+		event.preventDefault();
+		void handleProcessFiles(imageFiles);
+	}
+
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault();
+		isDraggingOver = true;
+	}
+
+	function handleDragLeave(event: DragEvent) {
+		event.preventDefault();
+		isDraggingOver = false;
+	}
+
+	function handleDrop(event: DragEvent) {
+		event.preventDefault();
+		isDraggingOver = false;
+		const imageFiles = extractImageFiles(event.dataTransfer);
+		if (imageFiles.length > 0) {
+			void handleProcessFiles(imageFiles);
+		} else if (event.dataTransfer?.files.length) {
+			attachmentError = 'Sono supportati solo file immagine.';
+		}
+	}
+
+	function removeImage(index: number) {
+		attachedImages = attachedImages.filter((_, imageIndex) => imageIndex !== index);
+	}
+
+	function triggerFileInput() {
+		if (!fileInputEl) return;
+		isFileDialogOpen = true;
+		fileInputEl.click();
+	}
+
+	function onFileInputChange(event: Event) {
+		isFileDialogOpen = false;
+		const input = event.currentTarget as HTMLInputElement;
+		if (input.files?.length) {
+			void handleProcessFiles(input.files);
+		}
+		input.value = '';
+	}
+
 	function chooseMention(value: string) {
 		const next = applyMention(taskInput, mention, value);
 		taskInput = next.text;
@@ -306,18 +458,22 @@
 
 	async function handleSaveTask() {
 		const text = taskInput.trim();
-		if (!text || isSaving) return;
+		if ((!text && attachedImages.length === 0) || isBusy) return;
+		if (!text && local.needsAi) {
+			companionStore.parseError = 'Indica il progetto con @ prima di salvare le immagini.';
+			return;
+		}
 
 		isSaving = true;
 		try {
 			let toSave: QuickTaskAiParsed | null = null;
 
 			if (!local.needsAi && local.projectPath) {
-				// Interpretazione locale sufficiente: nessuna chiamata al modello
+				// Interpretazione locale sufficiente: nessuna chiamata al modello.
 				toSave = {
 					projectPath: local.projectPath,
 					projectName: local.projectName,
-					taskPrompt: local.taskPrompt || text,
+					taskPrompt: local.taskPrompt,
 					role: local.role,
 					modelSelector: local.modelSelector,
 					directiveIds: local.directiveIds,
@@ -330,16 +486,22 @@
 					return;
 				}
 				aiParsed = res;
-				toSave = res;
+				toSave = {
+					...res,
+					role: local.role ?? res.role,
+					modelSelector: local.modelSelector ?? res.modelSelector,
+					directiveIds: [...new Set([...res.directiveIds, ...local.directiveIds])]
+				};
 			}
 
-			const ok = await companionStore.saveTask(toSave);
+			const ok = await companionStore.saveTask(toSave, attachedImages);
 			if (ok) {
 				successNotice = `Task aggiunto a ${toSave.projectName || 'progetto'}!`;
-				// L'avviso di un tentativo precedente non descrive piu' nulla: il
-				// campo e' vuoto e non basterebbe piu' scrivere per farlo sparire.
+				// Gli avvisi del tentativo precedente non descrivono piu' il composer vuoto.
 				companionStore.parseError = null;
+				attachmentError = null;
 				taskInput = '';
+				attachedImages = [];
 				caret = 0;
 				aiParsed = null;
 				setTimeout(() => {
@@ -523,7 +685,55 @@
 							{/if}
 
 							<!-- Opzioni Select -->
-							{#if req.pendingUi.options && req.pendingUi.options.length > 0}
+							{#if req.pendingUi.kind === 'quota_blocked'}
+								{@const bq = req.pendingUi.blockedQuota}
+								{@const suggested = bq?.suggestedModel}
+								<div class="quota-blocked-box">
+									<p class="qb-msg">
+										{req.pendingUi.message || 'L’agente si è arrestato per limite di quota o crediti del provider.'}
+									</p>
+									{#if suggested}
+										<button
+											type="button"
+											class="action-btn qb-primary-cta"
+											onclick={() => void companionStore.resolveQuotaBlocked(req.projectId, suggested.selector)}
+										>
+											<IconSparkles />
+											<span>Passa a {suggested.modelName} e riprendi</span>
+										</button>
+									{/if}
+									{#if bq?.availableRecoveryModels && bq.availableRecoveryModels.length > 1}
+										<div class="qb-alternatives">
+											<span class="qb-alt-label">Oppure seleziona un'altra riserva:</span>
+											<div class="qb-alt-grid">
+												{#each bq.availableRecoveryModels.filter(m => m.selector !== suggested?.selector) as alt}
+													<button
+														type="button"
+														class="option-btn qb-alt-btn"
+														onclick={() => void companionStore.resolveQuotaBlocked(req.projectId, alt.selector)}
+													>
+														<span class="opt-body">
+															<span class="opt-label">{alt.modelName}</span>
+															{#if alt.roleLabel}
+																<span class="opt-desc">{alt.roleLabel}</span>
+															{/if}
+														</span>
+													</button>
+												{/each}
+											</div>
+										</div>
+									{/if}
+									<div class="qb-footer">
+										<button
+											type="button"
+											class="action-btn cancel"
+											onclick={() => void companionStore.dismissQuotaBlocked(req.projectId)}
+										>
+											Archivia avviso
+										</button>
+									</div>
+								</div>
+							{:else if req.pendingUi.options && req.pendingUi.options.length > 0}
 								<div class="options-grid">
 									{#each req.pendingUi.options as opt, idx (opt)}
 										{@const description = req.pendingUi.optionDetails?.[idx]?.description}
@@ -621,8 +831,12 @@
 			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 			<div
 				class="composer"
+				class:dragging={isDraggingOver}
 				bind:this={composerEl}
 				role="presentation"
+				ondragover={handleDragOver}
+				ondragleave={handleDragLeave}
+				ondrop={handleDrop}
 				onclick={() => inputEl?.focus()}
 			>
 				<textarea
@@ -632,11 +846,41 @@
 					onkeydown={handleInputKeydown}
 					onclick={syncCaret}
 					onkeyup={syncCaret}
+					onpaste={handlePaste}
 					rows="1"
 					class="composer-input"
 					placeholder="Cosa c'è da fare?"
 					aria-label="Testo del task in linguaggio naturale"
+					aria-autocomplete="list"
+					aria-controls={mentionOpen ? 'companion-mention-listbox' : undefined}
+					aria-activedescendant={mentionOpen ? `companion-mention-${Math.min(mentionIndex, mentionItems.length - 1)}` : undefined}
 				></textarea>
+
+				{#if attachedImages.length > 0}
+					<div class="image-previews" role="region" aria-label="Immagini allegate">
+						{#each attachedImages as image, idx (idx)}
+							<div class="image-thumb-wrap">
+								<img
+									src="data:{image.mimeType};base64,{image.data}"
+									alt="Allegato task {idx + 1}"
+									class="image-thumb"
+								/>
+								<button
+									type="button"
+									class="image-remove-btn"
+									aria-label="Rimuovi immagine {idx + 1}"
+									title="Rimuovi immagine"
+									onclick={(event) => {
+										event.stopPropagation();
+										removeImage(idx);
+									}}
+								>
+									<IconClose />
+								</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
 
 				<div class="composer-rail">
 					<div class="token-hints">
@@ -655,32 +899,60 @@
 						{/each}
 					</div>
 
-					<button
-						type="button"
-						class="send-btn"
-						class:busy={isBusy}
-						disabled={!canSave}
-						title={isBusy
-							? 'Salvataggio in corso'
-							: 'Salva il task (Invio · Maiusc+Invio va a capo)'}
-						aria-label="Salva task"
-						onclick={(e) => {
-							e.stopPropagation();
-							void handleSaveTask();
-						}}
-					>
-						{#if isBusy}
-							<span class="spinner"></span>
-						{:else}
-							<IconArrowUp />
-						{/if}
-					</button>
+					<div class="composer-actions">
+						<input
+							type="file"
+							accept="image/*"
+							multiple
+							bind:this={fileInputEl}
+							onchange={onFileInputChange}
+							hidden
+						/>
+						<button
+							type="button"
+							class="attach-btn"
+							title="Allega screenshot o immagini"
+							aria-label="Allega screenshot o immagini al task"
+							onclick={(event) => {
+								event.stopPropagation();
+								triggerFileInput();
+							}}
+						>
+							<IconAttach />
+						</button>
+						<button
+							type="button"
+							class="send-btn"
+							class:busy={isBusy}
+							disabled={!canSave}
+							title={isBusy
+								? imageProcessingCount > 0
+									? 'Preparazione immagini'
+									: 'Salvataggio in corso'
+								: 'Salva il task (Invio · Maiusc+Invio va a capo)'}
+							aria-label="Salva task"
+							onclick={(event) => {
+								event.stopPropagation();
+								void handleSaveTask();
+							}}
+						>
+							{#if isBusy}
+								<span class="spinner"></span>
+							{:else}
+								<IconArrowUp />
+							{/if}
+						</button>
+					</div>
 				</div>
 			</div>
 
 			{#if isBusy}
 				<p class="composer-status">
-					{companionStore.isParsingTask ? 'Interpretazione con AI…' : 'Salvataggio…'}
+					{imageProcessingCount > 0
+						? 'Preparazione immagini…'
+						: companionStore.isParsingTask
+							? 'Interpretazione con AI…'
+							: 'Salvataggio…'}
 				</p>
 			{/if}
 
@@ -691,15 +963,17 @@
 					taglierebbe appena il composer sta in cima alla finestra.
 				-->
 				<div
+					id="companion-mention-listbox"
 					class="mention-popover"
 					role="listbox"
 					aria-label="Suggerimenti"
 					popover="manual"
 					use:anchoredPopover={{ anchor: composerEl, offset: 6, matchWidth: true, constrainHeight: true }}
 				>
-					{#each mentionItems as item, idx (item.value)}
+					{#each mentionItems as item, idx (`${item.kind}:${item.value}`)}
 						<button
 							type="button"
+							id="companion-mention-{idx}"
 							class="mention-item"
 							class:selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
 							role="option"
@@ -713,6 +987,9 @@
 							{#if item.hint && item.hint !== item.label}
 								<span class="mention-hint">{item.hint}</span>
 							{/if}
+							{#if item.kind === 'model' || item.kind === 'role'}
+								<span class="mention-kind">{item.kind === 'model' ? 'modello' : 'ruolo'}</span>
+							{/if}
 						</button>
 					{/each}
 				</div>
@@ -723,6 +1000,13 @@
 				<div class="notice success" transition:slide={{ duration: 180 }}>
 					<IconCheck />
 					<span>{successNotice}</span>
+				</div>
+			{/if}
+
+			{#if attachmentError}
+				<div class="notice error" transition:slide={{ duration: 180 }}>
+					<IconWarning />
+					<span>{attachmentError}</span>
 				</div>
 			{/if}
 
@@ -739,7 +1023,7 @@
 				quella dell'AI dopo il salvataggio. E' una striscia, non una scheda:
 				sta sotto il composer come una riga di stato.
 			-->
-			{#if taskInput.trim()}
+			{#if taskInput.trim() || attachedImages.length > 0}
 				{@const preview = aiParsed ?? {
 					projectName: local.projectName,
 					projectPath: local.projectPath,
@@ -834,13 +1118,13 @@
 
 							<span class="p-state state-{p.agentState}">
 								{#if p.agentState === 'working'}
-									<IconStatusRunning /> {stateLabel(p.agentState)}
+									<IconStatusRunning /> {stateLabel(p.agentState, p.id)}
 								{:else if p.agentState === 'attention'}
-									<IconWarning /> {stateLabel(p.agentState)}
+									<IconWarning /> {stateLabel(p.agentState, p.id)}
 								{:else if p.agentState === 'finished'}
-									<IconCheck /> {stateLabel(p.agentState)}
+									<IconCheck /> {stateLabel(p.agentState, p.id)}
 								{:else}
-									<IconStatusPending /> {stateLabel(p.agentState)}
+									<IconStatusPending /> {stateLabel(p.agentState, p.id)}
 								{/if}
 							</span>
 						</div>
@@ -1175,6 +1459,72 @@
 		word-break: break-word;
 	}
 
+	.quota-blocked-box {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg-surface);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+	}
+
+	.qb-msg {
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		margin: 0;
+		line-height: 1.4;
+	}
+
+	.qb-primary-cta {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		background: var(--brand);
+		color: var(--brand-contrast, #fff);
+		font-weight: 500;
+		border: none;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		font-size: var(--text-xs);
+	}
+
+	.qb-primary-cta:hover {
+		opacity: 0.95;
+	}
+
+	.qb-alternatives {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		margin-top: var(--space-1);
+	}
+
+	.qb-alt-label {
+		font-size: var(--text-2xs);
+		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.qb-alt-grid {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+
+	.qb-alt-btn {
+		padding: var(--space-1) var(--space-2);
+	}
+
+	.qb-footer {
+		display: flex;
+		justify-content: flex-end;
+		margin-top: var(--space-1);
+	}
+
 	.options-grid {
 		display: flex;
 		flex-direction: column;
@@ -1330,6 +1680,11 @@
 		border-color: var(--brand-line);
 	}
 
+	.composer.dragging {
+		border-color: var(--brand);
+		background: color-mix(in srgb, var(--brand) 8%, var(--bg-overlay));
+	}
+
 	.composer-input {
 		width: 100%;
 		min-height: 22px;
@@ -1351,11 +1706,82 @@
 		color: var(--ink-faint);
 	}
 
+	.image-previews {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		padding: 0 var(--space-1) var(--space-1);
+	}
+
+	.image-thumb-wrap {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.image-thumb {
+		display: block;
+		height: 42px;
+		max-width: 84px;
+		object-fit: cover;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+	}
+
+	.image-remove-btn {
+		position: absolute;
+		top: -5px;
+		right: -5px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		padding: 0;
+		background: var(--bg-raised);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-full);
+		color: var(--ink-faint);
+		cursor: pointer;
+		--icon-size: 10px;
+	}
+
+	.image-remove-btn:hover {
+		background: var(--brand-dim);
+		color: var(--ink);
+	}
+
 	.composer-rail {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-2);
+	}
+
+	.composer-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.attach-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-full);
+		color: var(--ink-muted);
+		cursor: pointer;
+		--icon-size: 15px;
+	}
+
+	.attach-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--line);
+		color: var(--ink);
 	}
 
 	/* I tre prefissi del linguaggio: pastiglie cliccabili, non testo di aiuto. */
@@ -1661,9 +2087,8 @@
 	}
 
 	/*
-		Suggeritore @progetto e /direttiva. Vive nel top layer e si piazza in JS:
-		dentro il corpo scorrevole veniva tagliato, e con il composer in cima
-		alla finestra si apriva fuori dallo schermo.
+		Suggeritore @progetto, /direttiva e !ruolo/modello. Vive nel top layer:
+		dentro il corpo scorrevole verrebbe tagliato.
 	*/
 	.mention-popover {
 		position: fixed;
@@ -1684,8 +2109,9 @@
 
 	.mention-item {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: var(--space-2);
+		min-width: 0;
 		padding: 4px var(--space-2);
 		background: none;
 		border: none;
@@ -1700,9 +2126,23 @@
 		background: var(--bg-hover);
 	}
 
+	.mention-label {
+		flex: none;
+	}
+
 	.mention-hint {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
+	}
+
+	.mention-kind {
+		flex: none;
+		color: var(--ink-faint);
 	}
 
 	.spinner {

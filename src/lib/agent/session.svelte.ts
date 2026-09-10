@@ -47,6 +47,13 @@ import {
 	type TodoPhase,
 	StreamBatcher
 } from './wire';
+import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+import { computeQuotaInfo } from '$lib/quota/projectQuota';
+import {
+	type BlockedQuotaState,
+	classifyFailureReason,
+	recommendRecoveryModel
+} from './quotaRecovery';
 import {
 	STUDIO_BROWSER_LIVE_OFFER,
 	browserLiveFrom,
@@ -294,6 +301,8 @@ export class AgentSession {
 	#activeLiveHandles = new Map<string, BrowserLiveStreamHandle>();
 	/** Stato per la tessera di progetto: derivato, non inventato. */
 	agentState = $state<AgentSurfaceState>('unknown');
+	/** Stato di blocco per esaurimento quota o errore irreversibile del provider. */
+	blockedQuotaState = $state<BlockedQuotaState | null>(null);
 
 	/**
 	 * Piano di consegna del wizard: le risposte gia' compilate dall'utente che
@@ -1335,7 +1344,7 @@ export class AgentSession {
 				this.isCompacting = false;
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
-				this.agentState = this.pendingUi ? 'attention' : 'idle';
+				this.agentState = this.resolveSettledState();
 				void this.reconcile();
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
@@ -1353,7 +1362,7 @@ export class AgentSession {
 				this.isCompacting = false;
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
-				this.agentState = this.pendingUi ? 'attention' : 'idle';
+				this.agentState = this.resolveSettledState();
 				void this.reconcile();
 				return;
 
@@ -1404,7 +1413,7 @@ export class AgentSession {
 					last.message = 'Contesto compattato';
 				}
 				if (!this.isStreaming) {
-					this.agentState = this.pendingUi ? 'attention' : 'idle';
+					this.agentState = this.resolveSettledState();
 				}
 				void this.refreshState();
 				void this.rebuildTranscript();
@@ -1421,6 +1430,17 @@ export class AgentSession {
 				return;
 
 			case 'auto_retry_end':
+				if (event.success === false) {
+					const failureReason =
+						typeof event.finalError === 'string'
+							? event.finalError
+							: typeof event.errorMessage === 'string'
+								? event.errorMessage
+								: 'Tentativi automatici di chiamata al modello esauriti';
+					this.checkAndSetQuotaBlocked(failureReason);
+				} else if (event.success === true && this.blockedQuotaState) {
+					this.blockedQuotaState = null;
+				}
 				return;
 
 			case 'retry_fallback_applied':
@@ -1539,7 +1559,8 @@ export class AgentSession {
 						}
 					}
 				}
-				this.agentState = this.pendingUi ? 'attention' : 'idle';
+				this.checkAndSetQuotaBlocked(msg);
+				this.agentState = this.resolveSettledState();
 				this.pushNotice('error', msg);
 				void this.reconcile();
 				return;
@@ -1653,6 +1674,46 @@ export class AgentSession {
 	private retryText(event: AgentSessionEvent, fallback: string): string {
 		const reason = event.reason ?? event.message ?? event.error;
 		return typeof reason === 'string' && reason ? reason : fallback;
+	}
+
+	private resolveSettledState(): AgentSurfaceState {
+		if (this.pendingUi) return 'attention';
+		if (this.blockedQuotaState && !this.blockedQuotaState.dismissed) return 'attention';
+		return 'idle';
+	}
+
+	private checkAndSetQuotaBlocked(rawError: string) {
+		const currentModel = this.model;
+		const provider = currentModel?.provider || '';
+		const modelId = currentModel?.id || '';
+		const qInfo = computeQuotaInfo(provider, modelId, undefined);
+		const classification = classifyFailureReason(rawError, qInfo.status);
+
+		const recovery = recommendRecoveryModel({
+			failedProvider: provider,
+			failedModelId: modelId,
+			config: modelSettingsStore.config,
+			catalog: modelSettingsStore.catalog,
+			knownSelectors: modelSettingsStore.knownSelectors,
+			checkQuota: (p, m) => computeQuotaInfo(p, m, undefined).status
+		});
+
+		this.blockedQuotaState = {
+			id: `quota-blocked-${Date.now()}`,
+			reasonKind: classification.kind,
+			title: classification.title,
+			message: classification.summary,
+			rawError,
+			failedProvider: provider,
+			failedModelId: modelId,
+			failedSelector: provider && modelId ? `${provider}/${modelId}` : modelId,
+			timestamp: Date.now(),
+			dismissed: false,
+			suggestedModel: recovery.primary,
+			availableRecoveryModels: recovery.all
+		};
+
+		this.agentState = 'attention';
 	}
 
 	private applyAssistantEvent(event: AgentSessionEvent) {
@@ -2179,6 +2240,47 @@ export class AgentSession {
 		if (text.includes('mounted mcp__')) return true;
 		if (source === 'xd://' && text.includes('mounted')) return true;
 		return false;
+	}
+
+	dismissBlockedQuota() {
+		if (this.blockedQuotaState) {
+			this.blockedQuotaState.dismissed = true;
+			if (this.agentState === 'attention' && !this.pendingUi) {
+				this.agentState = 'idle';
+			}
+		}
+	}
+
+	async applyQuotaRecovery(targetSelector?: string, thinkingLevel?: string): Promise<boolean> {
+		const target = targetSelector || this.blockedQuotaState?.suggestedModel?.selector;
+		if (!target) return false;
+		const slashIdx = target.indexOf('/');
+		const provider = slashIdx >= 0 ? target.slice(0, slashIdx) : '';
+		const modelId = slashIdx >= 0 ? target.slice(slashIdx + 1) : target;
+		if (!modelId) return false;
+
+		try {
+			await this.client.send({
+				type: 'set_model',
+				provider: provider || this.model?.provider || '',
+				modelId
+			});
+			if (thinkingLevel && thinkingLevel !== 'auto') {
+				await this.client.send({
+					type: 'set_thinking_level',
+					level: thinkingLevel as ThinkingLevel
+				});
+			}
+			await this.refreshState();
+			if (this.blockedQuotaState) {
+				this.blockedQuotaState.dismissed = true;
+			}
+			await this.prompt('/retry');
+			return true;
+		} catch (err) {
+			this.pushNotice('error', `Errore durante il cambio modello e ripresa: ${this.reason(err)}`);
+			return false;
+		}
 	}
 
 	async abort() {

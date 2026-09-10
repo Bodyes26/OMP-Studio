@@ -176,3 +176,31 @@ export function resolveCatalogModel(
 		catalog.find((m) => m.id === base)
 	);
 }
+
+export interface RoleDefinition {
+	id: string;
+	label: string;
+	abbr: string;
+	desc: string;
+}
+
+export const STANDARD_ROLE_METAS: readonly RoleDefinition[] = [
+	{ id: 'default', label: 'Default / Chat', abbr: 'CH', desc: 'Modello principale per conversazione e attivita generali' },
+	{ id: 'plan', label: 'Architectural Plan', abbr: 'PL', desc: 'Modello per pianificazione e analisi architetturale' },
+	{ id: 'smol', label: 'Smol (Fast)', abbr: 'SM', desc: 'Modello ultra-rapido per compiti leggeri, esplorazione e scouting' },
+	{ id: 'slow', label: 'Slow (Reasoning)', abbr: 'SL', desc: 'Modello per ragionamenti complessi e deduzioni approfondite' },
+	{ id: 'vision', label: 'Vision / Images', abbr: 'VI', desc: 'Modello multimodale per ispezione e comprensione immagini' },
+	{ id: 'task', label: 'Task Subagents', abbr: 'TS', desc: 'Modello delegato per subagenti ed esecuzioni parallele' },
+	{ id: 'commit', label: 'Git Commit', abbr: 'CM', desc: 'Modello per generazione messaggi di commit e changelog' },
+	{ id: 'advisor', label: 'Advisor (Reviewer)', abbr: 'AD', desc: 'Modello di revisione e controllo passivo di qualita' }
+];
+
+export interface ModelConfigDto {
+	modelRoles: Record<string, string>;
+	cycleOrder: string[];
+	disabledProviders: string[];
+	fallbackChains: Record<string, string[]>;
+	defaultThinkingLevel?: string;
+}
+
+export type QuotaSemanticStatus = 'ok' | 'warn' | 'critical' | 'exhausted' | 'unconfigured' | 'offline';

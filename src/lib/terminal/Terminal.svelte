@@ -4,6 +4,8 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import { IconCopy, IconPaste, IconSelectAll, IconClear } from '$lib/icons';
+	import { IconWarning, IconClose } from '$lib/icons';
+	import type { BlockedQuotaState } from '$lib/agent/quotaRecovery';
 	import { IS_MAC as isMac, MOD_LABEL as mod } from '$lib/utils/platform';
 	import '@xterm/xterm/css/xterm.css';
 
@@ -16,7 +18,10 @@
 		onOpenFile,
 		onInputPendingChange,
 		onSessionChange,
-		sessionRef
+		sessionRef,
+		blockedQuota = null,
+		onDismissBlockedQuota,
+		onSwitchToGui,
 	} = $props<{
 		cwd?: string;
 		visible?: boolean;
@@ -29,6 +34,9 @@
 		onInputPendingChange?: (pending: boolean) => void;
 		onSessionChange?: (session: TerminalSessionInfo | null) => void;
 		sessionRef?: (session: TerminalSession | null) => void;
+		blockedQuota?: BlockedQuotaState | null;
+		onDismissBlockedQuota?: () => void;
+		onSwitchToGui?: () => void;
 	}>();
 
 	let container: HTMLElement;
@@ -154,6 +162,32 @@
 	oncontextmenu={handleContextMenu}
 ></div>
 
+{#if visible && blockedQuota && !blockedQuota.dismissed}
+	<div class="terminal-quota-banner" class:is-quota={blockedQuota.reasonKind === 'quota_exhausted'}>
+		<div class="tqb-icon">
+			<IconWarning />
+		</div>
+		<div class="tqb-body">
+			<span class="tqb-title">{blockedQuota.title}</span>
+			<span class="tqb-text">
+				L'agente si è fermato. Allinea il modello nel terminale (<kbd>Ctrl+P</kbd>) e rilancia con <kbd>/retry</kbd>, oppure passa alla GUI per il recupero assistito.
+			</span>
+		</div>
+		<div class="tqb-actions">
+			{#if onSwitchToGui}
+				<button type="button" class="tqb-btn" onclick={onSwitchToGui}>
+					Passa alla GUI
+				</button>
+			{/if}
+			{#if onDismissBlockedQuota}
+				<button type="button" class="tqb-close" onclick={onDismissBlockedQuota} title="Chiudi avviso">
+					<IconClose />
+				</button>
+			{/if}
+		</div>
+	</div>
+{/if}
+
 <style>
 	.terminal-container {
 		width: 100%;
@@ -167,5 +201,104 @@
 	/* Force canvas renderer to respect our CSS variables if needed, though we set hex in JS */
 	:global(.xterm-viewport) {
 		background-color: transparent !important;
+	}
+
+	.terminal-quota-banner {
+		position: absolute;
+		top: var(--space-2);
+		left: var(--space-2);
+		right: var(--space-2);
+		z-index: 10;
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg-surface-elevated, #242730);
+		border: 1px solid var(--border-subtle);
+		border-left: 3px solid var(--amber-fg, #f59e0b);
+		border-radius: var(--radius-sm);
+		box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.25));
+		pointer-events: auto;
+	}
+
+	.terminal-quota-banner.is-quota {
+		border-left-color: var(--danger, #ef4444);
+	}
+
+	.tqb-icon {
+		display: flex;
+		align-items: center;
+		color: var(--amber-fg, #f59e0b);
+		flex-shrink: 0;
+	}
+
+	.terminal-quota-banner.is-quota .tqb-icon {
+		color: var(--danger, #ef4444);
+	}
+
+	.tqb-body {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.tqb-title {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.tqb-text {
+		font-size: var(--text-2xs);
+		color: var(--ink-muted);
+	}
+
+	.tqb-text kbd {
+		font-family: var(--font-mono);
+		background: var(--bg-surface);
+		padding: 1px 4px;
+		border-radius: 3px;
+		border: 1px solid var(--border-subtle);
+		color: var(--ink);
+	}
+
+	.tqb-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-shrink: 0;
+	}
+
+	.tqb-btn {
+		font-size: var(--text-xs);
+		padding: 3px 8px;
+		border-radius: var(--radius-xs);
+		background: var(--brand);
+		color: var(--brand-contrast, #fff);
+		font-weight: 500;
+		cursor: pointer;
+		border: none;
+	}
+
+	.tqb-btn:hover {
+		opacity: 0.9;
+	}
+
+	.tqb-close {
+		background: transparent;
+		border: none;
+		color: var(--ink-muted);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		padding: 4px;
+		border-radius: var(--radius-xs);
+	}
+
+	.tqb-close:hover {
+		color: var(--ink);
+		background: var(--bg-hover);
 	}
 </style>

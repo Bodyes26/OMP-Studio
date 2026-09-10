@@ -17,6 +17,7 @@
  */
 
 import type { AttentionRequest, PendingUiPayload, RecentChatMessage } from './companion.svelte';
+import type { BlockedQuotaState } from '../agent/quotaRecovery';
 
 /**
  * Uguaglianza strutturale su valori serializzabili in JSON.
@@ -96,7 +97,8 @@ export function sameAttentionRequest(a: AttentionRequest, b: AttentionRequest): 
 		jsonEqual(left.options, right.options) &&
 		jsonEqual(left.optionDetails, right.optionDetails) &&
 		jsonEqual(left.questions, right.questions) &&
-		sameRecentMessages(a.recentMessages, b.recentMessages)
+		sameRecentMessages(a.recentMessages, b.recentMessages) &&
+		jsonEqual(left.blockedQuota, right.blockedQuota)
 	);
 }
 
@@ -115,20 +117,72 @@ export function buildAttentionRequest(
 	project: { id: string; name: string; hue: number },
 	session: {
 		pendingUi?: PendingUiPayload | null;
+		blockedQuotaState?: BlockedQuotaState | null;
 		model?: { id?: string; name?: string } | null;
 		recentMessages: RecentChatMessage[];
 	}
 ): AttentionRequest | null {
 	const pendingUi = session.pendingUi;
-	if (!pendingUi || pendingUi.kind !== 'ask') return null;
-	return {
-		projectId: project.id,
-		projectName: project.name,
-		projectHue: project.hue,
-		modelName: session.model ? session.model.name || session.model.id : undefined,
-		recentMessages: session.recentMessages,
-		pendingUi
-	};
+	if (pendingUi && pendingUi.kind === 'ask') {
+		return {
+			projectId: project.id,
+			projectName: project.name,
+			projectHue: project.hue,
+			modelName: session.model ? session.model.name || session.model.id : undefined,
+			recentMessages: session.recentMessages,
+			pendingUi
+		};
+	}
+
+	const bq = session.blockedQuotaState;
+	if (bq && !bq.dismissed) {
+		const suggested = bq.suggestedModel
+			? {
+					selector: bq.suggestedModel.selector,
+					modelName: bq.suggestedModel.modelName,
+					roleLabel: bq.suggestedModel.roleLabel,
+					provider: bq.suggestedModel.provider,
+					modelId: bq.suggestedModel.modelId
+				}
+			: null;
+
+		const available = (bq.availableRecoveryModels || []).map((m) => ({
+			selector: m.selector,
+			modelName: m.modelName,
+			roleLabel: m.roleLabel,
+			provider: m.provider,
+			modelId: m.modelId
+		}));
+
+		const recoveryUi: PendingUiPayload = {
+			kind: 'quota_blocked',
+			requestId: bq.id,
+			title: bq.title,
+			message: bq.message,
+			method: 'select',
+			options: available.map((m) => m.selector),
+			blockedQuota: {
+				reasonKind: bq.reasonKind,
+				rawError: bq.rawError,
+				failedProvider: bq.failedProvider,
+				failedModelId: bq.failedModelId,
+				failedSelector: bq.failedSelector,
+				suggestedModel: suggested,
+				availableRecoveryModels: available
+			}
+		};
+
+		return {
+			projectId: project.id,
+			projectName: project.name,
+			projectHue: project.hue,
+			modelName: session.model ? session.model.name || session.model.id : undefined,
+			recentMessages: session.recentMessages,
+			pendingUi: recoveryUi
+		};
+	}
+
+	return null;
 }
 
 /**

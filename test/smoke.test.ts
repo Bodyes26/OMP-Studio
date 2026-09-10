@@ -51,3 +51,4 @@ import './lab-orchestration.test.ts';
 import './lab-export-handoff.test.ts';
 import './lab-migration.test.ts';
 import './lab-acceptance-e2e.test.ts';
+import './quota-recovery.test.ts';

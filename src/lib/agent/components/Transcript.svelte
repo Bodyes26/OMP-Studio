@@ -16,8 +16,12 @@
 	import RetryRow from './RetryRow.svelte';
 	import TtsrRow from './TtsrRow.svelte';
 	import UserMessage from './UserMessage.svelte';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
+	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 
 	let { session } = $props<{ session: AgentSession }>();
+
+	let recovering = $state(false);
 
 	const projectName = $derived(
 		projectStore.activeProject?.name ?? session.sessionName ?? 'Progetto'
@@ -266,6 +270,46 @@
 				{/if}
 			</div>
 		{/each}
+	{/if}
+
+	{#if session.blockedQuotaState && !session.blockedQuotaState.dismissed}
+		{@const bq = session.blockedQuotaState}
+		{@const suggested = bq.suggestedModel}
+		<div class="entry-row quota-blocked-row">
+			<AlertBanner
+				variant={bq.reasonKind === 'quota_exhausted' ? 'error' : 'warning'}
+				title={bq.title}
+				message={bq.message}
+				diagnostic={bq.rawError}
+				dismissible={true}
+				onDismiss={() => session.dismissBlockedQuota()}
+				actions={[
+					...(suggested
+						? [
+								{
+									label: `Passa a ${suggested.modelName} e riprendi`,
+									onClick: async () => {
+										if (recovering) return;
+										recovering = true;
+										try {
+											await session.applyQuotaRecovery(suggested.selector, suggested.thinking);
+										} finally {
+											recovering = false;
+										}
+									},
+									variant: 'primary' as const,
+									loading: recovering
+								}
+						  ]
+						: []),
+					{
+						label: 'Scegli altro modello...',
+						onClick: () => modelSettingsStore.openModal('catalog'),
+						variant: 'secondary' as const
+					}
+				]}
+			/>
+		</div>
 	{/if}
 
 	{#if showActivity}
