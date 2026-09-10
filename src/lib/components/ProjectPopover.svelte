@@ -336,7 +336,13 @@
 		</form>
 	{:else}
 		<header class="head">
-			<span class="tile" class:scratchpad={isScratchpad} style="--tile-hue: {effectiveHue}" aria-hidden="true">
+			<span
+				class="proj-chip"
+				class:scratchpad={isScratchpad}
+				style="--proj-hue: {effectiveHue}"
+				title={project.label ? `Sigla: ${project.label}` : `Progetto: ${project.name}`}
+				aria-hidden="true"
+			>
 				{#if isScratchpad}
 					<IconGhost />
 				{:else}
@@ -344,8 +350,8 @@
 				{/if}
 			</span>
 			<span class="titles">
-				<span class="name">{project.name}</span>
-				<span class="path">{isScratchpad ? 'Chat temporanea' : truncateMiddle(project.path)}</span>
+				<span class="name" title={project.name}>{project.name}</span>
+				<span class="path" title={project.path}>{isScratchpad ? 'Chat temporanea' : truncateMiddle(project.path)}</span>
 			</span>
 			<button
 				type="button"
@@ -762,23 +768,34 @@
 		gap: var(--space-2);
 	}
 
-	.tile {
-		display: grid;
-		place-items: center;
-		flex: none;
-		width: 26px;
-		height: 26px;
-		border-radius: var(--radius-md);
-		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--tile-hue));
+	.proj-chip {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 20px;
+		min-width: 22px;
+		max-width: 96px;
+		padding: 0 6px;
+		border-radius: var(--radius-sm);
+		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
 		color: var(--on-project);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: 10px;
 		font-weight: 700;
+		letter-spacing: 0.02em;
+		line-height: 1;
+		text-transform: uppercase;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		flex-shrink: 0;
+		margin-top: 1px;
 	}
 
-	.tile.scratchpad {
+	.proj-chip.scratchpad {
 		background: var(--bg-hover);
 		color: var(--ink-muted);
+		padding: 0 4px;
 	}
 
 	.titles {
@@ -786,11 +803,13 @@
 		flex-direction: column;
 		min-width: 0;
 		flex: 1;
+		gap: 2px;
 	}
 
 	.name {
 		font-size: var(--text-sm);
 		font-weight: 600;
+		line-height: 20px;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -800,6 +819,7 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
+		line-height: 1.4;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;

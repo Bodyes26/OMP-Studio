@@ -98,7 +98,7 @@ test('Capabilities e permessi per la finestra Companion', () => {
 	assert.ok(toml.includes('"hide_companion_window"'), 'hide_companion_window deve essere presente nei comandi consentiti');
 	assert.ok(toml.includes('"parse_quick_task_ai"'), 'parse_quick_task_ai deve essere presente nei comandi consentiti');
 	assert.ok(toml.includes('"get_companion_state"'), 'get_companion_state deve essere presente nei comandi consentiti');
-	assert.ok(toml.includes('"save_companion_state"'), 'save_companion_state deve essere presente nei comandi consentiti');
+	assert.ok(toml.includes('"set_companion_pinned"'), 'set_companion_pinned deve essere presente nei comandi consentiti');
 });
 
 test('Struttura dati e contratto QuickTaskAiParsed', () => {
