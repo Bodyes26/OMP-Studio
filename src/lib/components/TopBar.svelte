@@ -797,12 +797,20 @@
 		border-radius: var(--radius-sm);
 		padding: 2px 4px;
 		cursor: pointer;
-		transition: background-color var(--duration-fast), border-color var(--duration-fast), opacity var(--duration-fast);
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out),
+			opacity var(--dur-base) var(--ease-out),
+			transform var(--dur-fast) var(--ease-out);
 	}
 
 	.app-icon-btn:hover {
 		background: var(--bg-hover);
 		border-color: var(--line-dim);
+	}
+
+	.app-icon-btn:active {
+		transform: scale(0.92);
 	}
 
 	.app-icon-btn:focus-visible {
@@ -822,6 +830,13 @@
 		height: 26px;
 		width: auto;
 		object-fit: contain;
+		transition:
+			filter var(--dur-base) var(--ease-out),
+			opacity var(--dur-base) var(--ease-out);
+	}
+
+	.app-icon-btn.collapsed .brand-logo-img {
+		filter: grayscale(0.2);
 	}
 
 	.tabs-nav {

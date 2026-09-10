@@ -479,6 +479,7 @@
 				{
 					pendingUi: session.pendingUi ? $state.snapshot(session.pendingUi) : null,
 					blockedQuotaState: session.blockedQuotaState ? $state.snapshot(session.blockedQuotaState) : null,
+					inferredAttention: session.inferredAttention ? $state.snapshot(session.inferredAttention) : null,
 					model: session.model,
 					recentMessages: session.recentMessages
 				}
@@ -1946,16 +1947,26 @@
 		bind:this={columnsEl}
 		style:grid-template-columns={gridColumns}
 		style:grid-template-rows={gridRows}
+		ontransitionend={(e) => {
+			if (e.target === columnsEl && e.propertyName === 'grid-template-columns') {
+				window.dispatchEvent(new Event('resize'));
+			}
+		}}
 	>
-		<aside class="col-left" aria-hidden={settingsStore.general.sidebarCollapsed}>
-			<div class="col-header tabs-header" role="tablist" aria-label="Pannelli laterali">
-				<button type="button" role="tab" aria-selected={leftSection === 'files'} class:active={leftSection === 'files'} onclick={() => leftSection = 'files'} aria-label="Pannello file">FILE</button>
-				<button type="button" role="tab" aria-selected={leftSection === 'git'} class:active={leftSection === 'git'} onclick={() => leftSection = 'git'} aria-label="Pannello git">GIT</button>
-				<button type="button" role="tab" aria-selected={leftSection === 'agent'} class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'} aria-label="Pannello agente">AGENTE</button>
-			</div>
-			<div class="col-content" class:agent-content={leftSection === 'agent'}>
-				{#if projectStore.activeProject}
-					{@const proj = projectStore.activeProject}
+		<aside
+			class="col-left"
+			aria-hidden={settingsStore.general.sidebarCollapsed}
+			style:--sidebar-width="{leftWidth}px"
+		>
+			<div class="col-left-inner">
+				<div class="col-header tabs-header" role="tablist" aria-label="Pannelli laterali">
+					<button type="button" role="tab" aria-selected={leftSection === 'files'} class:active={leftSection === 'files'} onclick={() => leftSection = 'files'} aria-label="Pannello file">FILE</button>
+					<button type="button" role="tab" aria-selected={leftSection === 'git'} class:active={leftSection === 'git'} onclick={() => leftSection = 'git'} aria-label="Pannello git">GIT</button>
+					<button type="button" role="tab" aria-selected={leftSection === 'agent'} class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'} aria-label="Pannello agente">AGENTE</button>
+				</div>
+				<div class="col-content" class:agent-content={leftSection === 'agent'}>
+					{#if projectStore.activeProject}
+						{@const proj = projectStore.activeProject}
 					{#if proj.path === ''}
 						<div style="padding: var(--space-2); color: var(--ink-faint);">
 							Chat temporanea: nessuna cartella collegata
@@ -2007,6 +2018,7 @@
 						/>
 					{/if}
 				{/if}
+				</div>
 			</div>
 		</aside>
 
@@ -2292,6 +2304,10 @@
 		min-width: 0;
 	}
 
+	.columns:not(.dragging) {
+		transition: grid-template-columns var(--dur-slow) var(--ease-out);
+	}
+
 	.columns.dragging {
 		user-select: none;
 	}
@@ -2361,16 +2377,34 @@
 
 	/* Sidebar collassata */
 	.columns.sidebar-collapsed .col-left {
-		width: 0 !important;
-		min-width: 0 !important;
-		max-width: 0 !important;
-		overflow: hidden !important;
-		pointer-events: none !important;
-		visibility: hidden !important;
+		overflow: hidden;
+		pointer-events: none;
+		visibility: hidden;
+		transition: visibility 0s linear var(--dur-slow);
 	}
+
+	.columns.sidebar-collapsed .col-left-inner {
+		opacity: 0;
+		transform: translateX(-16px);
+	}
+
 	.columns.sidebar-collapsed .splitter-left {
-		display: none !important;
-		pointer-events: none !important;
+		overflow: hidden;
+		pointer-events: none;
+		visibility: hidden;
+		transition: visibility 0s linear var(--dur-slow);
+	}
+
+	:root[data-animations="false"] .columns.sidebar-collapsed .col-left,
+	:root[data-animations="false"] .columns.sidebar-collapsed .splitter-left {
+		transition-delay: 0ms !important;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.columns.sidebar-collapsed .col-left,
+		.columns.sidebar-collapsed .splitter-left {
+			transition-delay: 0ms !important;
+		}
 	}
 
 	.col-left {
@@ -2379,6 +2413,34 @@
 		background: var(--bg-base);
 		min-width: 0;
 		overflow: hidden;
+		visibility: visible;
+		pointer-events: auto;
+		transition: visibility 0s linear;
+	}
+
+	.col-left-inner {
+		width: var(--sidebar-width, 260px);
+		min-width: var(--sidebar-width, 260px);
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		overflow: hidden;
+		transform: translateX(0);
+		opacity: 1;
+	}
+
+	.columns:not(.dragging) .col-left-inner {
+		transition:
+			opacity var(--dur-slow) var(--ease-out),
+			transform var(--dur-slow) var(--ease-out);
+	}
+
+	.splitter-left {
+		overflow: hidden;
+		visibility: visible;
+		pointer-events: auto;
+		transition: visibility 0s linear;
 	}
 
 	/* Le colonne si separano per luminanza, non per riga: il pozzo scuro di
