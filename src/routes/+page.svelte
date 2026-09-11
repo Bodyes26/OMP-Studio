@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { attachEditorContext } from '$lib/editor/editorContext';
 	import Terminal from '$lib/terminal/Terminal.svelte';
 	import Chat from '$lib/agent/components/Chat.svelte';
@@ -90,11 +91,11 @@
 			const curr = p.agentState;
 			if (prev && prev !== curr) {
 				if (curr === 'working') {
-					agentAnnouncement = `L'agente ha iniziato l'elaborazione per il progetto ${p.name}`;
+					agentAnnouncement = m.page_agent_announcement_working({ name: p.name });
 				} else if (curr === 'attention') {
-					agentAnnouncement = `L'agente richiede il tuo intervento per il progetto ${p.name}`;
+					agentAnnouncement = m.page_agent_announcement_attention({ name: p.name });
 				} else if (curr === 'finished') {
-					agentAnnouncement = `L'agente ha completato il lavoro per il progetto ${p.name}`;
+					agentAnnouncement = m.page_agent_announcement_finished({ name: p.name });
 				}
 			}
 			prevAgentStates.set(p.id, curr);
@@ -103,11 +104,11 @@
 
 	function agentStateLabel(state?: string): string {
 		switch (state) {
-			case 'working': return 'In esecuzione';
-			case 'attention': return 'Richiede risposta';
-			case 'finished': return 'Completato';
-			case 'idle': return 'In attesa';
-			default: return 'Pronto';
+			case 'working': return m.page_agent_state_working();
+			case 'attention': return m.page_agent_state_attention();
+			case 'finished': return m.page_agent_state_finished();
+			case 'idle': return m.page_agent_state_idle();
+			default: return m.page_agent_state_ready();
 		}
 	}
 
@@ -196,7 +197,7 @@
 			}
 
 			const project = projectStore.projects.find((p) => p.id === session.projectKey || p.path === session.cwd);
-			const baseName = project?.label?.trim() || project?.name || (session.scope === 'lab' ? 'Laboratorio' : 'Progetto');
+			const baseName = project?.label?.trim() || project?.name || (session.scope === 'lab' ? m.ui__page_laboratorio_d67e() : 'Progetto');
 			const projectName = session.scope === 'lab' && session.prototypeId
 				? `${baseName} [Lab: ${session.prototypeId}]`
 				: baseName;
@@ -568,24 +569,24 @@
 
 	function automationReason(projectId: string) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		if (terminalBusy[projectId]) return 'Operazione in corso';
+		if (terminalBusy[projectId]) return m.ui__page_operazione_in_corso_6690();
 		if (project?.layout.rightSection === 'gui') {
 			const session = agentSessions.get(projectId);
 			if (!session?.isReady || !session?.isAttached) return 'OMP in avvio...';
 			if (session?.isStreaming) return 'OMP sta lavorando';
-			if (session?.isCompacting) return 'Compattazione in corso';
-			if (project.agentState === 'attention') return 'OMP aspetta una risposta';
-			return 'Pronto';
+			if (session?.isCompacting) return m.ui__page_compattazione_in_corso_538c();
+			if (project.agentState === 'attention') return m.ui__page_omp_aspetta_una_risposta_1202();
+			return m.page_agent_state_ready();
 		}
-		if (terminalMeta[projectId]?.inputPending) return 'Completa il testo nel terminale';
+		if (terminalMeta[projectId]?.inputPending) return m.ui__page_completa_il_testo_nel_terminale_a985();
 		if (project?.agentState === 'working') return 'OMP sta lavorando';
-		if (project?.agentState === 'attention') return 'OMP aspetta una risposta';
-		if (project?.agentState !== 'idle') return 'Stato OMP non disponibile';
-		return 'Pronto';
+		if (project?.agentState === 'attention') return m.ui__page_omp_aspetta_una_risposta_1202();
+		if (project?.agentState !== 'idle') return m.ui__page_stato_omp_non_disponibile_194d();
+		return m.page_agent_state_ready();
 	}
 
 	function canAutomate(projectId: string) {
-		return automationReason(projectId) === 'Pronto';
+		return automationReason(projectId) === m.page_agent_state_ready();
 	}
 
 	function openNewTask(projectPath: string) {
@@ -688,7 +689,7 @@
 				}));
 			} else {
 				const term = terminalSessions.get(projectId);
-				if (!term) throw new Error('Terminale non pronto');
+				if (!term) throw new Error(m.ui__page_terminale_non_pronto_6be5());
 				const fullPrompt = formatTaskPrompt(task, project.path);
 				const configuration = task.options?.modelSelector
 					? {
@@ -730,7 +731,7 @@
 			if (autoDispatching.has(project.id)) continue;
 			const next = taskStore.tasksFor(project.path).find((task) => task.status === 'queued');
 			if (!next) continue;
-			if (automationReason(project.id) !== 'Pronto') continue;
+			if (automationReason(project.id) !== m.page_agent_state_ready()) continue;
 			candidates.push({ projectId: project.id, taskId: next.id });
 		}
 
@@ -763,7 +764,7 @@
 				}));
 			} else {
 				const term = terminalSessions.get(projectId);
-				if (!term) throw new Error('Terminale non pronto');
+				if (!term) throw new Error(m.ui__page_terminale_non_pronto_6be5());
 				await term.resumeSession(sessionId);
 				taskStore.setView(project.path, 'sessions');
 				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
@@ -901,9 +902,9 @@
 			void (async () => {
 				try {
 					const newId = await session.forkSession();
-					session.pushNotice('info', `Sessione ramificata in un nuovo branch: ${newId ?? ''}`, 'studio');
+					session.pushNotice('info', m.page_slash_cmd_fork_success({ id: newId ?? '' }), 'studio');
 				} catch (error) {
-					session.pushNotice('error', `Errore durante il fork: ${error instanceof Error ? error.message : String(error)}`, 'studio');
+					session.pushNotice('error', m.page_slash_cmd_fork_error({ error: error instanceof Error ? error.message : String(error) }), 'studio');
 				}
 			})();
 			return true;
@@ -911,7 +912,7 @@
 		if (lowerCmd === '/drop') {
 			leftSection = 'agent';
 			taskStore.setView(project.path, 'sessions');
-			session.pushNotice('info', 'Usa il menu contestuale nella lista sessioni a sinistra per archiviare o eliminare un ramo.', 'studio');
+			session.pushNotice('info', m.page_slash_cmd_drop_hint(), 'studio');
 			return true;
 		}
 		if (lowerCmd === '/quit' || lowerCmd === '/exit') {
@@ -936,9 +937,9 @@
 				.join('\n\n');
 			if (transcriptText) {
 				void navigator.clipboard.writeText(transcriptText);
-				session.pushNotice('info', 'Trascrizione della sessione copiata negli appunti.', 'studio');
+				session.pushNotice('info', m.page_slash_cmd_copy_success(), 'studio');
 			} else {
-				session.pushNotice('warning', 'Nessun messaggio da copiare nella sessione corrente.', 'studio');
+				session.pushNotice('warning', m.page_slash_cmd_copy_empty(), 'studio');
 			}
 			return true;
 		}
@@ -983,10 +984,10 @@
 		if (lowerCmd === '/thinking' || lowerCmd === '/reasoning') {
 			const level = argument.toLowerCase();
 			if (!THINKING_LEVELS.includes(level as ThinkingLevel)) {
-				session.pushNotice('warning', `Livelli di thinking: ${THINKING_LEVELS.join(', ')}`, 'studio');
+				session.pushNotice('warning', m.page_slash_cmd_thinking_levels({ levels: THINKING_LEVELS.join(', ') }), 'studio');
 				return true;
 			}
-			void runSessionCommand(session, `Thinking impostato su ${level}`, {
+			void runSessionCommand(session, m.page_slash_cmd_thinking_set({ level: level }), {
 				type: 'set_thinking_level',
 				level: level as ThinkingLevel
 			});
@@ -1009,7 +1010,7 @@
 						: Object.keys(rolesMap);
 					const configured = cycleOrder.filter(r => Boolean(rolesMap[r]));
 					if (configured.length === 0) {
-						session.pushNotice('warning', 'Nessun ruolo configurato con un modello valido.', 'studio');
+						session.pushNotice('warning', m.page_slash_cmd_no_configured_roles(), 'studio');
 						return;
 					}
 					const curId = session.model?.id || '';
@@ -1031,13 +1032,13 @@
 						await session.client.send({ type: 'set_thinking_level', level: thinking as any });
 					}
 					await session.refreshState();
-					session.pushNotice('info', `Ruolo attivo: ${nextRole} (${session.model?.name || mId})`, 'studio');
+					session.pushNotice('info', m.page_slash_cmd_active_role({ role: nextRole, model: session.model?.name || mId }), 'studio');
 					return;
 				}
 
 				const full = rolesMap[arg];
 				if (!full) {
-					session.pushNotice('warning', `Il ruolo "${arg}" non è configurato. Usa /role per aprire la configurazione.`, 'studio');
+					session.pushNotice('warning', m.page_slash_cmd_unconfigured_role({ role: arg }), 'studio');
 					return;
 				}
 				const [rawSelector, thinking] = full.split(':');
@@ -1047,7 +1048,7 @@
 					await session.client.send({ type: 'set_thinking_level', level: thinking as any });
 				}
 				await session.refreshState();
-				session.pushNotice('info', `Ruolo attivo: ${arg} (${session.model?.name || mId})`, 'studio');
+				session.pushNotice('info', m.page_slash_cmd_active_role({ role: arg, model: session.model?.name || mId }), 'studio');
 			})();
 			return true;
 		}
@@ -1083,29 +1084,29 @@
 							await session.client.send({ type: 'set_thinking_level', level: thinking as any });
 						}
 						await session.refreshState();
-						session.pushNotice('info', `Ruolo attivo: ${nextRole} (${session.model?.name || mId})`, 'studio');
+						session.pushNotice('info', m.page_slash_cmd_active_role({ role: nextRole, model: session.model?.name || mId }), 'studio');
 					} else {
 						await session.client.send({ type: 'cycle_model' });
 						await session.refreshState();
 						const current = session.model?.name || session.model?.id || 'default';
-						session.pushNotice('info', `Modello attivo: ${current}`, 'studio');
+						session.pushNotice('info', m.page_slash_cmd_active_model({ model: current }), 'studio');
 					}
 				})();
 				return true;
 			}
 			session.pushNotice(
 				'info',
-				'Per scegliere un modello preciso usa il chip «modello» sotto il campo di scrittura, oppure /role next per ciclare i ruoli.',
+				m.page_slash_cmd_model_hint(),
 				'studio'
 			);
 			return true;
 		}
 		if (lowerCmd === '/name' || lowerCmd === '/rename') {
 			if (!argument) {
-				session.pushNotice('warning', 'Uso: /name <titolo della sessione>', 'studio');
+				session.pushNotice('warning', m.page_slash_cmd_name_usage(), 'studio');
 				return true;
 			}
-			void runSessionCommand(session, `Sessione rinominata in «${argument}»`, {
+			void runSessionCommand(session, m.page_slash_cmd_name_set({ name: argument }), {
 				type: 'set_session_name',
 				name: argument
 			});
@@ -1136,7 +1137,7 @@
 		} catch (error) {
 			session.pushNotice(
 				'error',
-				`Comando non eseguito: ${error instanceof Error ? error.message : String(error)}`,
+				m.page_slash_cmd_command_failed({ error: error instanceof Error ? error.message : String(error) }),
 				'studio'
 			);
 		}
@@ -1145,18 +1146,18 @@
 	async function reportSessionStats(session: AgentSession) {
 		try {
 			const stats = await session.client.send<Record<string, unknown>>({ type: 'get_session_stats' });
-			const cost = typeof stats?.cost === 'number' ? `$${stats.cost.toFixed(4)}` : 'non disponibile';
+			const cost = typeof stats?.cost === 'number' ? `$${stats.cost.toFixed(4)}` : m.page_slash_cmd_cost_unavailable();
 			const messages = typeof stats?.totalMessages === 'number' ? stats.totalMessages : '?';
 			const tools = typeof stats?.toolCalls === 'number' ? stats.toolCalls : '?';
 			session.pushNotice(
 				'info',
-				`Sessione ${session.sessionName ?? session.sessionId ?? ''} — ${messages} messaggi, ${tools} chiamate a strumenti, costo ${cost}.`,
+				m.page_slash_cmd_stats_summary({ session: session.sessionName ?? session.sessionId ?? '', messages: messages, tools: tools, cost: cost }),
 				'studio'
 			);
 		} catch (error) {
 			session.pushNotice(
 				'error',
-				`Statistiche non disponibili: ${error instanceof Error ? error.message : String(error)}`,
+				m.page_slash_cmd_stats_unavailable({ error: error instanceof Error ? error.message : String(error) }),
 				'studio'
 			);
 		}
@@ -1165,21 +1166,21 @@
 	function guiHelpText(session: AgentSession): string {
 		const lines = [
 			'Comandi disponibili nella superficie GUI:',
-			'/new, /clear — avvia una nuova sessione',
-			'/resume [id] — riprende una sessione, o apre lo storico',
+			m.ui__page_new_clear_avvia_una_nuova_sessione_f67b(),
+			m.ui__page_resume_id_riprende_una_sessione_o_apre_97fd(),
 			'/compact [istruzioni] — compatta il contesto',
-			'/handoff [istruzioni] — passa il testimone a una sessione nuova',
+			m.ui__page_handoff_istruzioni_passa_il_testimone_a_una_1f1b(),
 			'/thinking <off|minimal|low|medium|high|xhigh|max>',
-			'/model [next] — apre le impostazioni modelli o cicla',
-			'/name <titolo> — rinomina la sessione',
-			'/cost, /stats, /status — riepilogo della sessione',
+			m.ui__page_model_next_apre_le_impostazioni_modelli_o_70f9(),
+			m.ui__page_name_titolo_rinomina_la_sessione_0a14(),
+			m.ui__page_cost_stats_status_riepilogo_della_sessione_9df5(),
 			'/git, /settings, /usage, /switch, /terminal — pannelli del guscio',
 			'',
 			'Scorciatoie principali (Alt+H per la guida completa):',
-			'Alt+P: cambia modello rapido • Ctrl+P: cicla modello',
+			m.ui__page_alt_p_cambia_modello_rapido_ctrl_p_66d1(),
 			'Alt+M: menu thinking • Alt+T: cicla thinking',
-			'Alt+Invio: invia con la modalita alternativa',
-			'Alt+C: interrompi/cancella • Alt+E: fuoco su composer'
+			m.ui__page_alt_invio_invia_con_la_modalita_alternativa_4b23(),
+			m.ui__page_alt_c_interrompi_cancella_alt_e_fuoco_0496()
 		];
 		if (session.availableCommands.length > 0) {
 			lines.push('', `Altri ${session.availableCommands.length} comandi registrati da omp ed estensioni.`);
@@ -1463,7 +1464,7 @@
 			}
 			setupOpen = true;
 		} catch (e) {
-			console.error('Verifica del contratto omp', e);
+			console.error(m.ui__page_verifica_del_contratto_omp_545e(), e);
 		}
 	}
 
@@ -1488,7 +1489,7 @@
 			const status = await invoke<{ missing: string[] }>('setup_status');
 			setupIncomplete = status.missing.length > 0;
 		} catch (e) {
-			console.error('Verifica del contratto omp', e);
+			console.error(m.ui__page_verifica_del_contratto_omp_545e(), e);
 		}
 	}
 
@@ -1505,7 +1506,7 @@
 			}
 			if (res.has_update) {
 				pendingUpdateCheck = res;
-				updateMessage = 'Nuova versione!';
+				updateMessage = m.page_omp_update_status_new_version();
 				ompBadgeType = 'warn';
 			}
 		} catch {
@@ -1532,7 +1533,7 @@
 			return;
 		}
 		isCheckingUpdate = true;
-		updateMessage = 'Verifica...';
+		updateMessage = m.page_omp_update_status_checking();
 		ompBadgeType = null;
 		try {
 			const res: {
@@ -1546,12 +1547,12 @@
 			}
 			if (res.has_update) {
 				pendingUpdateCheck = res;
-				updateMessage = 'Nuova versione!';
+				updateMessage = m.page_omp_update_status_new_version();
 				ompBadgeType = 'warn';
 				showUpdatePromptModal = true;
 			} else {
 				pendingUpdateCheck = null;
-				updateMessage = 'OMP aggiornato';
+				updateMessage = m.page_omp_update_status_up_to_date();
 				ompBadgeType = 'success';
 				setTimeout(() => {
 					if (!pendingUpdateCheck?.has_update) {
@@ -1562,7 +1563,7 @@
 			}
 		} catch (e) {
 			console.error("Update check failed", e);
-			updateMessage = 'Errore verifica';
+			updateMessage = m.page_omp_update_status_check_error();
 			ompBadgeType = 'error';
 			setTimeout(() => {
 				if (!pendingUpdateCheck?.has_update) {
@@ -1578,18 +1579,18 @@
 	async function handlePerformUpdate() {
 		showUpdatePromptModal = false;
 		isInstallingUpdate = true;
-		updateMessage = 'Installazione...';
+		updateMessage = m.page_omp_update_status_installing();
 		ompBadgeType = null;
 		try {
 			await invoke('run_omp_update');
 			await fetchOmpVersion();
 			pendingUpdateCheck = null;
-			updateMessage = 'Aggiornato!';
+			updateMessage = m.page_omp_update_status_installed();
 			ompBadgeType = 'success';
 			showRestartModal = true;
 		} catch (e) {
 			console.error("Update failed", e);
-			updateMessage = 'Errore aggiornamento';
+			updateMessage = m.page_omp_update_status_update_error();
 			ompBadgeType = 'error';
 			setTimeout(() => {
 				if (!pendingUpdateCheck?.has_update) {
@@ -1918,22 +1919,22 @@
 				setupIncomplete={setupIncomplete}
 				onSetupClick={() => { setupOpen = true; setupStartAt = 'wizard'; }}
 				primaryAction={{
-					label: 'Apri progetto',
+					label: m.page_empty_open_project(),
 					shortcut: 'Ctrl+Alt+N',
 					onClick: () => pickerOpen = true
 				}}
 				secondaryAction={{
-					label: 'Avvia Scratchpad',
+					label: m.page_empty_open_scratchpad(),
 					shortcut: 'Ctrl+Alt+S',
 					onClick: () => projectStore.openScratchpad()
 				}}
 				shortcuts={[
-					{ key: 'Ctrl+Alt+N', label: 'Apri cartella progetto', action: () => pickerOpen = true },
-					{ key: 'Ctrl+Alt+S', label: 'Nuova chat rapida', action: () => projectStore.openScratchpad() },
-					{ key: 'Ctrl+Alt+P', label: 'Laboratorio prototipi', action: () => (labOpen = true) },
-					{ key: 'Ctrl+Alt+U', label: 'Quota e consumi API', action: () => usageOpen = true },
-					{ key: 'Ctrl+Alt+,', label: 'Impostazioni Studio', action: () => settingsStore.openSection() },
-					{ key: 'Ctrl+Alt+M', label: 'Modelli e provider', action: () => settingsStore.openSection('models') }
+					{ key: 'Ctrl+Alt+N', label: m.page_empty_open_folder_shortcut(), action: () => pickerOpen = true },
+					{ key: 'Ctrl+Alt+S', label: m.page_empty_new_chat_shortcut(), action: () => projectStore.openScratchpad() },
+					{ key: 'Ctrl+Alt+P', label: m.page_empty_lab_shortcut(), action: () => (labOpen = true) },
+					{ key: 'Ctrl+Alt+U', label: m.page_empty_quota_shortcut(), action: () => usageOpen = true },
+					{ key: 'Ctrl+Alt+,', label: m.page_empty_settings_shortcut(), action: () => settingsStore.openSection() },
+					{ key: 'Ctrl+Alt+M', label: m.page_empty_models_shortcut(), action: () => settingsStore.openSection('models') }
 				]}
 			/>
 		</main>
@@ -1959,17 +1960,17 @@
 			style:--sidebar-width="{leftWidth}px"
 		>
 			<div class="col-left-inner">
-				<div class="col-header tabs-header" role="tablist" aria-label="Pannelli laterali">
-					<button type="button" role="tab" aria-selected={leftSection === 'files'} class:active={leftSection === 'files'} onclick={() => leftSection = 'files'} aria-label="Pannello file">FILE</button>
-					<button type="button" role="tab" aria-selected={leftSection === 'git'} class:active={leftSection === 'git'} onclick={() => leftSection = 'git'} aria-label="Pannello git">GIT</button>
-					<button type="button" role="tab" aria-selected={leftSection === 'agent'} class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'} aria-label="Pannello agente">AGENTE</button>
+				<div class="col-header tabs-header" role="tablist" aria-label={m.page_tabs_sidebar_panels()}>
+					<button type="button" role="tab" aria-selected={leftSection === 'files'} class:active={leftSection === 'files'} onclick={() => leftSection = 'files'} aria-label={m.page_tabs_files_panel_label()}>{m.page_tabs_files_panel()}</button>
+					<button type="button" role="tab" aria-selected={leftSection === 'git'} class:active={leftSection === 'git'} onclick={() => leftSection = 'git'} aria-label={m.page_tabs_git_panel_label()}>{m.page_tabs_git_panel()}</button>
+					<button type="button" role="tab" aria-selected={leftSection === 'agent'} class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'} aria-label={m.page_tabs_agent_panel_label()}>{m.page_tabs_agent_panel()}</button>
 				</div>
 				<div class="col-content" class:agent-content={leftSection === 'agent'}>
 					{#if projectStore.activeProject}
 						{@const proj = projectStore.activeProject}
 					{#if proj.path === ''}
 						<div style="padding: var(--space-2); color: var(--ink-faint);">
-							Chat temporanea: nessuna cartella collegata
+							{m.page_scratchpad_notice()}
 						</div>
 					{:else if leftSection === 'files'}
 						{#key proj.id}
@@ -2026,13 +2027,13 @@
 			class="splitter splitter-left"
 			role="separator"
 			aria-orientation="vertical"
-			aria-label="Ridimensiona pannello file"
+			aria-label={m.page_splitter_files_resize()}
 			onpointerdown={(e) => startDrag(e, 'left')}
 			ondblclick={() => resetSplit('left')}
 		></div>
 
 		<section class="col-center">
-			<div class="col-header">{activeTaskEditor ? 'TASK' : diagramOpen ? 'DIAGRAMMA' : previewFile ? 'ANTEPRIMA' : browserOpen ? 'BROWSER' : 'EDITOR'}</div>
+			<div class="col-header">{activeTaskEditor ? m.page_columns_header_task() : diagramOpen ? m.page_columns_header_diagram() : previewFile ? m.page_columns_header_preview() : browserOpen ? m.page_columns_header_browser() : m.page_columns_header_editor()}</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#if projectStore.activeProject}
 					{#if activeTaskEditor}
@@ -2087,22 +2088,22 @@
 			class="splitter splitter-center"
 			role="separator"
 			aria-orientation={effectiveLayout === 'vertical' ? 'horizontal' : 'vertical'}
-			aria-label={effectiveLayout === 'vertical' ? 'Ridimensiona altezza editor' : 'Ridimensiona editor'}
+			aria-label={effectiveLayout === 'vertical' ? m.page_splitter_editor_resize_vertical() : m.page_splitter_editor_resize_horizontal()}
 			onpointerdown={(e) => startDrag(e, 'center')}
 			ondblclick={() => resetSplit('center')}
 		></div>
 
 		<section class="col-right">
 			<div class="col-header tabs-header">
-				<div class="tab-group" role="tablist" aria-label="Superfici di interazione">
+				<div class="tab-group" role="tablist" aria-label={m.page_tabs_surfaces_group()}>
 					<button
 						type="button"
 						role="tab"
 						aria-selected={projectStore.activeProject?.layout.rightSection !== 'gui'}
 						class:active={projectStore.activeProject?.layout.rightSection !== 'gui'}
 						disabled={activeSwitching}
-						title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie terminale (Ctrl+Alt+A)'}
-						aria-label="Superficie terminale (Ctrl+Alt+A)"
+						title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_terminal_label()}
+						aria-label={m.page_tabs_terminal_label()}
 						onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
 					>TERMINAL</button>
 					<button
@@ -2111,8 +2112,8 @@
 						aria-selected={projectStore.activeProject?.layout.rightSection === 'gui'}
 						class:active={projectStore.activeProject?.layout.rightSection === 'gui'}
 						disabled={activeSwitching}
-						title={activeSwitching ? 'Passaggio di superficie in corso' : 'Superficie grafica (Ctrl+Alt+A)'}
-						aria-label="Superficie grafica (Ctrl+Alt+A)"
+						title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_gui_label()}
+						aria-label={m.page_tabs_gui_label()}
 						onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
 					>GUI</button>
 				</div>
@@ -2121,8 +2122,8 @@
 					<button
 						type="button"
 						class="header-action"
-						title="Nuova chat (Alt+N)"
-						aria-label="Nuova chat (Alt+N)"
+						title={m.page_actions_new_chat()}
+						aria-label={m.page_actions_new_chat()}
 						onclick={() => projectStore.activeProject && void handleNewChat(projectStore.activeProject.id)}
 					><IconNewChat /></button>
 				{/if}
@@ -2165,8 +2166,8 @@
 
 	<footer class="statusbar">
 		<div class="statusbar-left">
-			<span class="sb-label">Progetto:</span>
-			<span class="sb-value">{projectStore.activeProject?.name || 'Nessuno'}</span>
+			<span class="sb-label">{m.page_statusbar_project_label()}</span>
+			<span class="sb-value">{projectStore.activeProject?.name || m.page_statusbar_project_none()}</span>
 		</div>
 		<div class="statusbar-right">
 			<button 
@@ -2179,8 +2180,8 @@
 						studioUpdaterStore.checkUpdate(true);
 					}
 				}}
-				title={studioUpdaterStore.currentVersion ? `OMP Studio v${studioUpdaterStore.currentVersion} — Clicca per verificare aggiornamenti` : 'Clicca per verificare aggiornamenti OMP Studio'}
-				aria-label="Verifica aggiornamenti OMP Studio"
+				title={studioUpdaterStore.currentVersion ? m.page_statusbar_studio_version_title({ version: studioUpdaterStore.currentVersion }) : m.page_statusbar_studio_version_check()}
+				aria-label={m.ui__page_verifica_aggiornamenti_omp_studio_e895()}
 			>
 				{studioUpdaterStore.currentVersion ? `Studio ${formatVersion(studioUpdaterStore.currentVersion, { prefix: true, compact: true })}` : 'Studio'}
 				{#if studioUpdaterStore.updateBadge}
@@ -2198,8 +2199,8 @@
 				class="version-btn"
 				class:spinning={isCheckingUpdate || isInstallingUpdate}
 				onclick={handleCheckUpdate}
-				title="Clicca per verificare aggiornamenti OMP CLI"
-				aria-label="Verifica aggiornamenti OMP CLI"
+				title={m.page_statusbar_omp_version_check()}
+				aria-label={m.ui__page_verifica_aggiornamenti_omp_cli_c90f()}
 			>
 				{ompVersion ? `OMP v${ompVersion}` : 'OMP'}
 				{#if updateMessage}
@@ -2220,49 +2221,49 @@
 				title="Stato agente: {agentStateLabel(projectStore.activeProject?.agentState)}"
 			>
 				<span class="status-led {projectStore.activeProject?.agentState || 'idle'}" aria-hidden="true"></span>
-				<span>Stato: {agentStateLabel(projectStore.activeProject?.agentState)}</span>
+				<span>{m.ui__page_stato_ab3d()} {agentStateLabel(projectStore.activeProject?.agentState)}</span>
 			</div>
 		</div>
 	</footer>
 
 	{#if showUpdatePromptModal}
-		<button type="button" class="modal-backdrop" onclick={() => showUpdatePromptModal = false} aria-label="Chiudi finestra aggiornamento" tabindex="-1"></button>
+		<button type="button" class="modal-backdrop" onclick={() => showUpdatePromptModal = false} aria-label={m.ui__page_chiudi_finestra_aggiornamento_6690()} tabindex="-1"></button>
 		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-update-title" use:trapFocus={{ onEscape: () => showUpdatePromptModal = false }}>
 			<div class="modal-header">
-				<h3 id="omp-update-title">Aggiornamento OMP disponibile</h3>
+				<h3 id="omp-update-title">{m.page_modal_update_title()}</h3>
 			</div>
 			<div class="modal-body">
-				<p>È disponibile una nuova versione di OMP CLI.</p>
+				<p>{m.page_modal_update_desc()}</p>
 				<p class="modal-sub">Versione attualmente installata: <strong>v{ompVersion || 'sconosciuta'}</strong></p>
 				{#if pendingUpdateCheck?.latest_version}
-					<p class="modal-sub">Nuova versione disponibile: <strong>v{pendingUpdateCheck.latest_version}</strong></p>
+					<p class="modal-sub">{m.ui__page_nuova_versione_disponibile_3e16()} <strong>v{pendingUpdateCheck.latest_version}</strong></p>
 				{/if}
 				{#if pendingUpdateCheck?.message}
 					<pre class="update-log">{pendingUpdateCheck.message}</pre>
 				{/if}
 			</div>
 			<div class="modal-footer">
-				<button class="btn btn-secondary" onclick={() => showUpdatePromptModal = false}>Annulla</button>
+				<button class="btn btn-secondary" onclick={() => showUpdatePromptModal = false}>{m.page_modal_update_btn_cancel()}</button>
 				<!-- svelte-ignore a11y_autofocus -->
-				<button class="btn btn-primary" autofocus onclick={handlePerformUpdate}>Scarica e aggiorna</button>
+				<button class="btn btn-primary" autofocus onclick={handlePerformUpdate}>{m.page_modal_update_btn_update()}</button>
 			</div>
 		</div>
 	{/if}
 
 	{#if showRestartModal}
-		<button type="button" class="modal-backdrop" onclick={() => showRestartModal = false} aria-label="Chiudi finestra riavvio" tabindex="-1"></button>
+		<button type="button" class="modal-backdrop" onclick={() => showRestartModal = false} aria-label={m.ui__page_chiudi_finestra_riavvio_c689()} tabindex="-1"></button>
 		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-restart-title" use:trapFocus={{ onEscape: () => showRestartModal = false }}>
 			<div class="modal-header">
-				<h3 id="omp-restart-title">Aggiornamento completato</h3>
+				<h3 id="omp-restart-title">{m.page_modal_restart_title()}</h3>
 			</div>
 			<div class="modal-body">
-				<p>L'aggiornamento di OMP è stato installato con successo.</p>
-				<p>Per applicare le modifiche a tutti i terminali attivi dell'applicazione, è consigliato ricaricare l'interfaccia.</p>
+				<p>{m.page_modal_restart_desc()}</p>
+				<p>{m.page_modal_restart_sub()}</p>
 			</div>
 			<div class="modal-footer">
-				<button class="btn btn-secondary" onclick={() => showRestartModal = false}>Chiudi</button>
+				<button class="btn btn-secondary" onclick={() => showRestartModal = false}>{m.page_modal_restart_btn_close()}</button>
 				<!-- svelte-ignore a11y_autofocus -->
-				<button class="btn btn-primary" autofocus onclick={handleRestartApp}>Riavvia applicazione</button>
+				<button class="btn btn-primary" autofocus onclick={handleRestartApp}>{m.page_modal_restart_btn_restart()}</button>
 			</div>
 		</div>
 	{/if}

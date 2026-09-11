@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { onDestroy } from 'svelte';
 	import * as monaco from 'monaco-editor';
 	import {
@@ -770,7 +771,7 @@
 				icon: IconSave,
 				shortcut: IS_MAC ? 'Cmd+S' : 'Ctrl+S',
 				disabled: !isTabDirty || isTabImage,
-				hint: !isTabDirty ? 'Nessuna modifica da salvare' : isTabImage ? 'File non modificabile' : undefined,
+				hint: !isTabDirty ? m.ui_editor_nessuna_modifica_da_salvare_f9aa() : isTabImage ? m.ui_editor_file_non_modificabile_0083() : undefined,
 				run: () => void saveFileByPath(tabPath)
 			},
 			{
@@ -784,7 +785,7 @@
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Copia percorso relativo',
+				label: m.file_tree_menu_copy_rel_path(),
 				icon: IconCopy,
 				run: async () => {
 					await navigator.clipboard.writeText(tabPath);
@@ -792,7 +793,7 @@
 			},
 			{
 				kind: 'item',
-				label: 'Copia percorso completo',
+				label: m.file_tree_menu_copy_full_path(),
 				icon: IconCopy,
 				run: async () => {
 					await navigator.clipboard.writeText(joinProjectPath(projectPath, tabPath));
@@ -806,29 +807,29 @@
 					try {
 						await revealItemInDir(joinProjectPath(projectPath, tabPath));
 					} catch (error) {
-						console.error('Impossibile mostrare il file nel file manager:', error);
+						console.error(m.ui_editor_impossibile_mostrare_il_file_nel_file_manager_f718(), error);
 					}
 				}
 			},
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Chiudi',
+				label: m.common_close(),
 				icon: IconClose,
 				shortcut: IS_MAC ? 'Cmd+W' : 'Ctrl+W',
 				run: () => closeFile(tabPath)
 			},
 			{
 				kind: 'item',
-				label: 'Chiudi gli altri',
+				label: m.ui_editor_chiudi_gli_altri_f1f6(),
 				icon: IconCloseOthers,
 				disabled: filePaths.length <= 1,
-				hint: filePaths.length <= 1 ? 'Nessun altro file aperto' : undefined,
+				hint: filePaths.length <= 1 ? m.ui_editor_nessun_altro_file_aperto_95c6() : undefined,
 				run: () => closeOtherFiles(tabPath)
 			},
 			{
 				kind: 'item',
-				label: 'Chiudi tutti',
+				label: m.ui_editor_chiudi_tutti_c0bf(),
 				icon: IconCloseOthers,
 				shortcut: IS_MAC ? 'Cmd+Shift+W' : 'Ctrl+Shift+W',
 				disabled: filePaths.length === 0,
@@ -857,12 +858,12 @@
 		const selection = ed.getSelection?.();
 		const hasSelection = selection ? !selection.isEmpty() : false;
 		const isDiffOriginal = isReadOnly && showDiff;
-		const readOnlyHint = isDiffOriginal ? 'Originale non modificabile' : 'File in sola lettura';
+		const readOnlyHint = isDiffOriginal ? 'Originale non modificabile' : m.ui_editor_file_in_sola_lettura_63b0();
 
 		const items: ContextMenuEntry[] = [
 			{
 				kind: 'item',
-				label: 'Annulla',
+				label: m.common_cancel(),
 				icon: IconUndo,
 				shortcut: IS_MAC ? 'Cmd+Z' : 'Ctrl+Z',
 				disabled: isReadOnly,
@@ -911,7 +912,7 @@
 			},
 			{
 				kind: 'item',
-				label: 'Copia',
+				label: m.context_menu_item_copy(),
 				icon: IconCopy,
 				shortcut: IS_MAC ? 'Cmd+C' : 'Ctrl+C',
 				disabled: !hasSelection,
@@ -936,7 +937,7 @@
 			},
 			{
 				kind: 'item',
-				label: 'Incolla',
+				label: m.context_menu_item_paste(),
 				icon: IconPaste,
 				shortcut: IS_MAC ? 'Cmd+V' : 'Ctrl+V',
 				disabled: isReadOnly,
@@ -961,7 +962,7 @@
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Seleziona tutto',
+				label: m.context_menu_item_select_all(),
 				icon: IconSelectAll,
 				shortcut: IS_MAC ? 'Cmd+A' : 'Ctrl+A',
 				run: () => {
@@ -981,7 +982,7 @@
 					: isReadOnly
 						? readOnlyHint
 						: !isDirty
-							? 'Nessuna modifica da salvare'
+							? m.ui_editor_nessuna_modifica_da_salvare_f9aa()
 							: undefined,
 				run: () => {
 					void saveCurrentFile();
@@ -989,7 +990,7 @@
 			},
 			{
 				kind: 'item',
-				label: showDiff ? 'Chiudi confronto' : 'Confronta con HEAD',
+				label: showDiff ? m.ui_editor_chiudi_confronto_2e83() : 'Confronta con HEAD',
 				icon: IconDiff,
 				disabled: isImage,
 				hint: isImage ? 'Diff non disponibile per le immagini' : undefined,
@@ -1003,7 +1004,7 @@
 				icon: IconViewPreview,
 				shortcut: IS_MAC ? 'Cmd+Shift+V' : 'Ctrl+Shift+V',
 				disabled: !previewCapable,
-				hint: !previewCapable ? 'Nessuna anteprima per questo tipo di file' : undefined,
+				hint: !previewCapable ? m.ui_editor_nessuna_anteprima_per_questo_tipo_di_file_1a0b() : undefined,
 				run: () => {
 					cycleViewMode();
 				}
@@ -1051,14 +1052,14 @@
 					type="button"
 					class="tab-scroll-btn"
 					onclick={() => scrollTabs(-180)}
-					title="Scorri le schede a sinistra"
-					aria-label="Scorri le schede a sinistra"
+					title={m.editor_scroll_tabs_left()}
+					aria-label={m.editor_scroll_tabs_left()}
 				><IconChevronLeft /></button>
 			{/if}
 			<div
 				class="editor-tabs"
 				role="group"
-				aria-label="File aperti"
+				aria-label={m.editor_open_files_group()}
 				bind:this={tabsTrackEl}
 				onscroll={updateTabScrollState}
 				onwheel={handleTabsWheel}
@@ -1113,8 +1114,8 @@
 					type="button"
 					class="tab-scroll-btn"
 					onclick={() => scrollTabs(180)}
-					title="Scorri le schede a destra"
-					aria-label="Scorri le schede a destra"
+					title={m.editor_scroll_tabs_right()}
+					aria-label={m.editor_scroll_tabs_right()}
 				><IconChevronRight /></button>
 			{/if}
 
@@ -1123,13 +1124,13 @@
 					{#if previewCapable}
 						<!-- La vista vale per la scheda attiva: un solo controllo,
 						     non un pulsante per ogni linguetta. -->
-						<div class="segmented" role="group" aria-label="Vista del file">
+						<div class="segmented" role="group" aria-label={m.ui_editor_vista_del_file_66d9()}>
 							<button
 								class="seg-btn"
 								class:active={viewMode === 'code' && !showDiff}
 								onclick={() => setViewMode('code')}
 								title="Solo codice (Ctrl+Shift+V cicla)"
-								aria-label="Solo codice"
+								aria-label={m.editor_view_code()}
 								aria-pressed={viewMode === 'code' && !showDiff}
 							><IconViewCode /></button>
 							<button
@@ -1137,7 +1138,7 @@
 								class:active={viewMode === 'split' && !showDiff}
 								onclick={() => setViewMode('split')}
 								title="Codice e anteprima (Ctrl+Shift+V cicla)"
-								aria-label="Codice e anteprima"
+								aria-label={m.editor_view_split()}
 								aria-pressed={viewMode === 'split' && !showDiff}
 							><IconViewSplit /></button>
 							<button
@@ -1145,7 +1146,7 @@
 								class:active={viewMode === 'preview' && !showDiff}
 								onclick={() => setViewMode('preview')}
 								title="Solo anteprima (Ctrl+Shift+V cicla)"
-								aria-label="Solo anteprima"
+								aria-label={m.editor_view_preview()}
 								aria-pressed={viewMode === 'preview' && !showDiff}
 							><IconViewPreview /></button>
 						</div>
@@ -1155,8 +1156,8 @@
 							class="icon-btn"
 							class:active={showDiff}
 							onclick={toggleGitDiff}
-							title={showDiff ? 'Chiudi il confronto con HEAD' : 'Confronta con HEAD'}
-							aria-label={showDiff ? 'Chiudi il confronto con HEAD' : 'Confronta con HEAD'}
+							title={showDiff ? m.ui_editor_chiudi_il_confronto_con_head_9d0b() : 'Confronta con HEAD'}
+							aria-label={showDiff ? m.ui_editor_chiudi_il_confronto_con_head_9d0b() : 'Confronta con HEAD'}
 							aria-pressed={showDiff}
 						><IconDiff /></button>
 					{/if}
@@ -1164,14 +1165,14 @@
 						<button
 							class="action-btn"
 							onclick={() => onPreviewRequest?.(filePath)}
-							title="Apri anteprima live in sandbox"
+							title={m.ui_editor_apri_anteprima_live_in_sandbox_d6b9()}
 						>
-							Anteprima
+							{m.editor_open_preview_btn()}
 						</button>
 					{/if}
 					{#if isDirty && !isImage}
-						<button class="action-btn save-btn" onclick={() => void saveCurrentFile()} title="Salva modifiche (Ctrl+S)">
-							Salva
+						<button class="action-btn save-btn" onclick={() => void saveCurrentFile()} title={m.ui_editor_salva_modifiche_ctrl_s_5f4d()}>
+							{m.project_popover_btn_save()}
 						</button>
 					{/if}
 				</div>
@@ -1181,13 +1182,13 @@
 
 	<div class="editor-body">
 		{#if loading}
-			<div class="loading-overlay">Caricamento in corso...</div>
+			<div class="loading-overlay">{m.ui_editor_caricamento_in_corso_5dfd()}</div>
 		{/if}
 
 		{#if !filePath}
 			<div class="empty-state">
-				<div class="empty-text">Seleziona un file dall'albero per modificarlo</div>
-				<div class="empty-hint">Ctrl+S salva · Ctrl+W chiude la scheda</div>
+				<div class="empty-text">{m.ui_editor_seleziona_un_file_dall_albero_per_modificarlo_96fb()}</div>
+				<div class="empty-hint">{m.ui_editor_ctrl_s_salva_ctrl_w_chiude_la_5466()}</div>
 			</div>
 		{:else if isImage}
 			<ImageViewer projectPath={projectPath} filePath={filePath} />
@@ -1221,7 +1222,7 @@
 					></div>
 				</div>
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="splitter-bar" onmousedown={startResize} title="Trascina per ridimensionare">
+				<div class="splitter-bar" onmousedown={startResize} title={m.editor_resize_splitter_title()}>
 					<div class="splitter-line"></div>
 				</div>
 				<div class="split-bottom" style="height: {100 - splitPercent}%;">

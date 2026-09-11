@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Riga TTSR (Turn-by-Turn System Prompt Rules / Regole di contesto).
 	// Mostra le regole richiamate per il turno corrente in monospazio.
 	import type { TtsrEntry } from '../session.svelte';
@@ -16,7 +17,7 @@
 				{/each}
 			</div>
 		{:else}
-			<span class="empty">nessuna</span>
+			<span class="empty">{m.ui_ttsrrow_nessuna_c7b1()}</span>
 		{/if}
 	</div>
 </div>

@@ -9,6 +9,7 @@ import { parseProjectTasksFile, serializeProjectTasksFile, type StudioTask, type
 import { createDirectiveSnapshot } from './taskDirectives';
 import { removeAttentionRequest, upsertAttentionRequest } from './companionAttention';
 import type { ImageContent } from '$lib/agent/wire';
+import { m as messages } from '$lib/paraglide/messages.js';
 
 export interface RecentChatMessage {
 	role: 'user' | 'assistant' | 'tool';
@@ -138,7 +139,7 @@ class CompanionStore {
 				this.isPinned = saved.isPinned ?? false;
 			}
 		} catch (err) {
-			console.warn('[companionStore] Caricamento stato companion fallito:', err);
+			console.warn(messages.ui_ts_companion_companionstore_caricamento_stato_companion_fallito_5487(), err);
 		}
 
 		// Ascolta eventi sincronizzazione inter-finestra
@@ -170,7 +171,7 @@ class CompanionStore {
 				void emit('studio-request-attention-sync');
 			}
 		} catch (err) {
-			console.warn('[companionStore] Registrazione listener fallita:', err);
+			console.warn(messages.ui_ts_companion_companionstore_registrazione_listener_fallita_342a(), err);
 		}
 	}
 
@@ -249,7 +250,7 @@ class CompanionStore {
 		try {
 			await invoke('set_companion_pinned', { pinned });
 		} catch (err) {
-			console.warn('[companionStore] Salvataggio stato pinned fallito:', err);
+			console.warn(messages.ui_ts_companion_companionstore_salvataggio_stato_pinned_fallito_4cfb(), err);
 		}
 	}
 
@@ -258,7 +259,7 @@ class CompanionStore {
 		try {
 			await invoke('toggle_companion_window');
 		} catch (err) {
-			console.error('[companionStore] Toggle finestra companion fallito:', err);
+			console.error(messages.ui_ts_companion_companionstore_toggle_finestra_companion_fallito_870b(), err);
 		}
 	}
 
@@ -267,7 +268,7 @@ class CompanionStore {
 		try {
 			await invoke('hide_companion_window');
 		} catch (err) {
-			console.error('[companionStore] Chiusura finestra companion fallita:', err);
+			console.error(messages.ui_ts_companion_companionstore_chiusura_finestra_companion_fallita_4941(), err);
 		}
 	}
 
@@ -348,7 +349,7 @@ class CompanionStore {
 	 */
 	async saveTask(parsed: QuickTaskAiParsed, images: ImageContent[] = []): Promise<boolean> {
 		if (!parsed.projectPath || (!parsed.taskPrompt.trim() && images.length === 0)) {
-			this.parseError = 'Percorso progetto o contenuto del task mancante';
+			this.parseError = messages.ui_ts_companion_percorso_progetto_o_contenuto_del_task_mancante_085e();
 			return false;
 		}
 
@@ -421,7 +422,7 @@ class CompanionStore {
 			return true;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			this.parseError = `Salvataggio task fallito: ${msg}`;
+			this.parseError = messages.ui_ts_companion_salvataggio_task_fallito_value1_783d({ value1: msg });
 			return false;
 		}
 	}

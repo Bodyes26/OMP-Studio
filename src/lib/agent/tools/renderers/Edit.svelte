@@ -7,6 +7,7 @@
   diff non e' disponibile nei dettagli, ripiega su JsonBlock per gli argomenti.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import Diff from '../parts/Diff.svelte';
 	import JsonBlock from '../parts/JsonBlock.svelte';
@@ -76,7 +77,7 @@
 		{#if diffText}
 			<Diff diff={diffText} />
 		{:else if running}
-			<div class="running-indicator">Modifica in corso...</div>
+			<div class="running-indicator">{m.ui_edit_modifica_in_corso_0b2d()}</div>
 		{:else}
 			<JsonBlock value={args} label="argomenti edit" />
 			{#if fallbackText}

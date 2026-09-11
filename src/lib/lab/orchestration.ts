@@ -37,6 +37,7 @@ import {
 } from './revisions.ts';
 import { compileLabPrototype, type LabCompileResult } from './compiler.ts';
 import type { LabRendererController } from './renderer.ts';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 /* ------------------------------------------------------------- tipi principali */
 
@@ -229,10 +230,10 @@ export default function App() {
     <div className="min-h-screen p-6 bg-slate-50 text-slate-900">
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          ${options.title ?? 'Prototipo Laboratorio'}
+          ${options.title ?? msg.ui_ts_orchestration_prototipo_laboratorio_7a51()}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          ${options.brief ? options.brief.split('\\n')[0] : 'Inizializzazione completata con template tecnico standard.'}
+          ${options.brief ? options.brief.split('\\n')[0] : msg.ui_ts_orchestration_inizializzazione_completata_con_template_tecnico_standard_2e23()}
         </p>
       </header>
       <main className="p-4 bg-white rounded-xl shadow-sm border border-slate-200">
@@ -345,7 +346,7 @@ export function interpretBrief(
 	if (lower.includes('fattur') || lower.includes('pagament')) domainEntities.push('Invoice');
 	if (domainEntities.length === 0) domainEntities.push('Item');
 	const functionalGoals: string[] = [];
-	if (lower.includes('filtr') || targetKind === 'component_variants') functionalGoals.push('Filtro per stato');
+	if (lower.includes('filtr') || targetKind === 'component_variants') functionalGoals.push(msg.ui_ts_orchestration_filtro_per_stato_1c35());
 	if (lower.includes('ordinament') || lower.includes('sort')) functionalGoals.push('Ordinamento per colonna');
 	if (lower.includes('selezion') || targetKind === 'component_variants') functionalGoals.push('Selezione riga/scheda');
 	if (lower.includes('dettaglio') || hasFlowIntent) functionalGoals.push('Ispezione dettagli');
@@ -353,7 +354,7 @@ export function interpretBrief(
 
 	return {
 		title: options.title ?? 'Prototipo Studio',
-		summary: brief.trim().split('\n')[0] ?? 'Brief Laboratorio',
+		summary: brief.trim().split('\n')[0] ?? msg.ui_ts_orchestration_brief_laboratorio_aa37(),
 		targetKind,
 		workScope,
 		strategy,
@@ -459,7 +460,7 @@ export function defineSharedContractsAndVisualDirections(
 			},
 			{
 				name: 'Variante B — Schede Visuali (Visual Cards)',
-				dir: 'Approccio a schede gerarchiche: avatar di stato, indicatori visivi colorati, maggiore spaziatura e risalto dell importo.',
+				dir: msg.ui_ts_orchestration_approccio_a_schede_gerarchiche_avatar_di_stato_7b0f(),
 				density: 'balanced',
 				token: 'variant-cards',
 				file: '/src/variants/VariantCards.tsx',
@@ -483,7 +484,7 @@ export function defineSharedContractsAndVisualDirections(
 			},
 			{
 				name: 'Variante E — Kanban a Stati',
-				dir: 'Disposizione per colonne di avanzamento: drag & drop simulato e contatori per stato operativo.',
+				dir: msg.ui_ts_orchestration_disposizione_per_colonne_di_avanzamento_drag_drop_c1f2(),
 				density: 'spacious',
 				token: 'variant-kanban',
 				file: '/src/variants/VariantKanban.tsx',
@@ -506,19 +507,19 @@ export function defineSharedContractsAndVisualDirections(
 				title: 'Selezione ed Elenco Pratiche',
 				file: '/src/screens/ScreenCatalog.tsx',
 				subagent: 'AuthorScreenCatalog',
-				goals: ['Esplorazione elementi', 'Filtro per stato', 'Selezione elemento attivo']
+				goals: ['Esplorazione elementi', msg.ui_ts_orchestration_filtro_per_stato_1c35(), 'Selezione elemento attivo']
 			},
 			{
 				title: 'Configurazione e Dati',
 				file: '/src/screens/ScreenConfig.tsx',
 				subagent: 'AuthorScreenConfig',
-				goals: ['Form con validazione simulata', 'Input note e priorita', 'Gestione stato errore/corretto']
+				goals: ['Form con validazione simulata', 'Input note e priorita', msg.ui_ts_orchestration_gestione_stato_errore_corretto_c66f()]
 			},
 			{
-				title: 'Riepilogo e Conferma Azione',
+				title: msg.ui_ts_orchestration_riepilogo_e_conferma_azione_5655(),
 				file: '/src/screens/ScreenConfirm.tsx',
 				subagent: 'AuthorScreenConfirm',
-				goals: ['Riepilogo dati inseriti', 'Azione simulata di invio', 'Feedback caricamento e successo']
+				goals: ['Riepilogo dati inseriti', 'Azione simulata di invio', msg.ui_ts_orchestration_feedback_caricamento_e_successo_d519()]
 			}
 		];
 
@@ -573,7 +574,7 @@ export function planAuthorSubagents(contracts: LabSharedContracts): LabAuthorSub
 				role: 'author',
 				targetSlice: 'screen',
 				assignedFilePath: screen.assignedFilePath,
-				contractRequirements: `Schermata passo ${screen.stepNumber}: '${screen.title}'. Obiettivi: ${screen.transitionGoals.join(', ')}. Riceve lo stato del flusso e i callback di transizione avanti/indietro.`,
+				contractRequirements: msg.ui_ts_orchestration_schermata_passo_value1_value2_obiettivi_value3_riceve_f4b3({ value1: screen.stepNumber, value2: screen.title, value3: screen.transitionGoals.join(', ') }),
 				visualDirection: `Stile chiaro e accessibile con controlli espliciti, pulsanti di avanzamento e validazione visiva degli stati.`,
 				modelInherited: true
 			});
@@ -1468,7 +1469,7 @@ export async function integrateAndMakePreviewReady(
 		await rendererController.renderRevision(readyEntry.revision.id, {
 			js: compileResult.js!,
 			css: compileResult.css || '',
-			title: title ?? 'Prototipo Laboratorio'
+			title: title ?? msg.ui_ts_orchestration_prototipo_laboratorio_7a51()
 		});
 		previewRendered = true;
 	}
@@ -1504,7 +1505,7 @@ export async function verifyTargetedPrototype(
 		checks.push({
 			id: 'chk-controller-active',
 			category: 'interaction',
-			description: 'Il controller del renderer deve essere attivo per la verifica',
+			description: msg.ui_ts_orchestration_il_controller_del_renderer_deve_essere_attivo_8a9b(),
 			passed: false,
 			details: 'Controller chiuso'
 		});
@@ -1513,7 +1514,7 @@ export async function verifyTargetedPrototype(
 			revisionId,
 			allPassed: false,
 			checks,
-			summary: 'Verifica fallita: controller non disponibile'
+			summary: msg.ui_ts_orchestration_verifica_fallita_controller_non_disponibile_9506()
 		};
 	}
 
@@ -1524,7 +1525,7 @@ export async function verifyTargetedPrototype(
 		category: 'accessibility',
 		description: 'Presenza di un titolo principale accessibile (h1)',
 		passed: titleElement !== null && (titleElement.textSnippet?.length ?? 0) > 0,
-		details: titleElement ? `Titolo trovato: "${titleElement.textSnippet}"` : 'Elemento h1 assente'
+		details: titleElement ? msg.ui_ts_orchestration_titolo_trovato_value1_0e8d({ value1: titleElement.textSnippet ?? '' }) : 'Elemento h1 assente'
 	});
 
 	if (targetKind === 'component_variants') {
@@ -1558,7 +1559,7 @@ export async function verifyTargetedPrototype(
 			category: 'data_consistency',
 			description: 'La variante A rende la tabella con i dati simulati condivisi',
 			passed: denseTable !== null,
-			details: denseTable ? 'Variante A renderizzata correttamente' : 'Contenitore variante A non trovato'
+			details: denseTable ? 'Variante A renderizzata correttamente' : msg.ui_ts_orchestration_contenitore_variante_a_non_trovato_31fd()
 		});
 
 		// 4. Verifica Isolamento CSS
@@ -1611,7 +1612,7 @@ export async function verifyTargetedPrototype(
 		allPassed,
 		checks,
 		summary: allPassed
-			? `Verifica mirata superata con successo (${checks.length}/${checks.length} controlli). Revisione promossa a 'verified'.`
-			: `Verifica mirata completata con rilievi (${checks.filter((c) => c.passed).length}/${checks.length} controlli superati).`
+			? msg.ui_ts_orchestration_verifica_mirata_superata_con_successo_value1_value2_5ce3({ value1: checks.length, value2: checks.length })
+			: msg.ui_ts_orchestration_verifica_mirata_completata_con_rilievi_value1_value2_180f({ value1: checks.filter((c) => c.passed).length, value2: checks.length })
 	};
 }

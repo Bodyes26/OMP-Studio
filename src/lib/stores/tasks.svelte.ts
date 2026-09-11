@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
 import { normalizeProjectPath, projectStore } from './projects.svelte';
@@ -20,6 +20,7 @@ import {
 	parseProjectTasksFile,
 	serializeProjectTasksFile
 } from './taskSerialization';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export type {
 	AgentView,
@@ -56,6 +57,7 @@ class TaskStore {
 	private initialized = false;
 	private loadedProjects = new Set<string>();
 	private unlistenTasksChanged: UnlistenFn | null = null;
+	private unlistenOriginsChanged: UnlistenFn | null = null;
 	private pendingProjectSaves = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor() {
@@ -91,6 +93,17 @@ class TaskStore {
 				);
 			} catch (err) {
 				console.warn('Listener project-tasks-changed non registrato:', err);
+			}
+
+			try {
+				this.unlistenOriginsChanged = await listen<TaskSessionOrigin[]>(
+					'studio-task-origins-update',
+					(event) => {
+						this.origins = event.payload ?? [];
+					}
+				);
+			} catch (err) {
+				console.warn('Listener storico task non registrato:', err);
 			}
 		}
 
@@ -133,7 +146,7 @@ class TaskStore {
 				this.tasks = this.tasks.filter((t) => t.projectPath !== key).concat(projectTasks);
 			}
 		} catch (err) {
-			console.warn(`Errore reload task per ${projectPath}:`, err);
+			console.warn(msg.ui_ts_tasks_errore_reload_task_per_value1_fe1d({ value1: projectPath }), err);
 		}
 	}
 
@@ -162,7 +175,7 @@ class TaskStore {
 			const content = serializeProjectTasksFile(tasks);
 			await invoke('project_tasks_write', { projectPath, content });
 		} catch (err) {
-			console.error(`Errore salvataggio immediato task per ${projectPath}:`, err);
+			console.error(msg.ui_ts_tasks_errore_salvataggio_immediato_task_per_value1_8f04({ value1: projectPath }), err);
 		}
 	}
 
@@ -362,6 +375,7 @@ class TaskStore {
 		this.reindex(path);
 		this.saveProject(path);
 		this.saveGlobal();
+		void emit('studio-task-origins-update', $state.snapshot(this.origins));
 	}
 
 	originsFor(projectPath: string): TaskSessionOrigin[] {

@@ -12,6 +12,8 @@
  * macOS, WebView2 su Windows), quindi la stringa non e' ambigua.
  */
 
+import { m as msg } from '$lib/paraglide/messages.js';
+
 export type ShellPlatform = 'macos' | 'windows' | 'other';
 
 /**
@@ -38,9 +40,9 @@ export const MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl+';
 
 /** Etichetta dell'azione per mostrare file/cartelle nel file manager di sistema. */
 export function getRevealLabel(platform: ShellPlatform = SHELL_PLATFORM): string {
-	if (platform === 'macos') return 'Mostra nel Finder';
-	if (platform === 'windows') return 'Mostra in Esplora file';
-	return 'Mostra nel gestore file';
+	if (platform === 'macos') return msg.ui_ts_platform_mostra_nel_finder_927d();
+	if (platform === 'windows') return msg.ui_ts_platform_mostra_in_esplora_file_4e18();
+	return msg.ui_ts_platform_mostra_nel_gestore_file_0511();
 }
 
 export const REVEAL_LABEL = getRevealLabel();

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Visualizzatore a schermo intero per immagini prodotte dai tool o incollate.
 	import { IconClose } from '$lib/icons';
 	let {
@@ -46,7 +47,7 @@
 >
 	<div class="image-container" onclick={(e) => e.stopPropagation()}>
 		<img src={`data:${mimeType};base64,${data}`} alt="Anteprima immagine" />
-		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi"><IconClose /></button>
+		<button type="button" class="btn-close" onclick={onClose} aria-label={m.page_modal_restart_btn_close()}><IconClose /></button>
 	</div>
 </div>
 

@@ -1,5 +1,7 @@
 # Scorciatoie da tastiera
 
+*Italiano: questo file · English: [SHORTCUTS.en.md](SHORTCUTS.en.md)*
+
 OMP Studio delega l'intero blocco di tasti e scorciatoie convenzionali (incluse quelle con `Ctrl` e `Alt`) al terminale PTY, tranne quando il fuoco e' nell'editor Monaco. In quel caso le scorciatoie di gestione file agiscono solo sul file attivo, senza intercettare input del terminale.
 
 Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+Alt`** e la guida di aiuto **`Alt+H` / `Alt+K` / `F1`**, che non collidono con le combinazioni primarie di `omp`.
@@ -33,7 +35,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Invio` | Composer GUI | Invia con la modalità predefinita; con la palette aperta seleziona il comando evidenziato |
 | `Alt+Invio` | Composer GUI | Invia con la modalità di accodamento alternativa (opposta al default) |
 | `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |
-| `Esc` | Composer GUI | Chiude palette/menu/modale aiuto; durante lo streaming interrompe la risposta |
+| `Esc` | Composer GUI | Chiude palette/menu/modale aiuto |
 | `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
 | `Ctrl+W` | Editor | Chiude il file corrente |

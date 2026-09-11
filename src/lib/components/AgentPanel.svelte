@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import SessionList from './SessionList.svelte';
 	import RulesPanel from './RulesPanel.svelte';
 	import EmptyState from './EmptyState.svelte';
@@ -50,7 +51,7 @@
 	}
 
 	function taskTitle(task: StudioTask) {
-		return task.prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task';
+		return task.prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || m.agent_panel_new_task_btn();
 	}
 
 	function taskExcerpt(task: StudioTask) {
@@ -59,7 +60,7 @@
 		if (task.images && task.images.length > 0) {
 			return `${task.images.length} ${task.images.length === 1 ? 'immagine allegata' : 'immagini allegate'}`;
 		}
-		return 'Prompt ancora vuoto';
+		return m.agent_panel_empty_prompt();
 	}
 
 	function dropOn(targetId: string) {
@@ -86,7 +87,7 @@
 </script>
 
 <div class="agent-panel">
-	<div class="agent-tabs" role="tablist" aria-label="Pannello agente">
+	<div class="agent-tabs" role="tablist" aria-label={m.page_tabs_agent_panel_label()}>
 		<button
 			type="button"
 			role="tab"
@@ -96,7 +97,7 @@
 			class:active={view === 'queue'}
 			onclick={() => setView('queue')}
 		>
-			Coda
+			{m.agent_panel_tab_queue()}
 			{#if tasks.length > 0}<span class="count">{tasks.length}</span>{/if}
 		</button>
 		<button
@@ -108,7 +109,7 @@
 			class:active={view === 'sessions'}
 			onclick={() => setView('sessions')}
 		>
-			Sessioni
+			{m.agent_panel_tab_sessions()}
 		</button>
 		<button
 			type="button"
@@ -119,7 +120,7 @@
 			class:active={view === 'rules'}
 			onclick={() => setView('rules')}
 		>
-			Regole
+			{m.agent_panel_tab_rules()}
 			{#if frictionCount > 0}<span class="count alert">{frictionCount}</span>{/if}
 		</button>
 	</div>
@@ -131,23 +132,23 @@
 	{#if view === 'queue'}
 		<div id="panel-agent-queue" role="tabpanel" aria-labelledby="tab-agent-queue" class="panel-tab-body">
 			<div class="queue-toolbar">
-				<button type="button" class="new-task" onclick={onCreateTask} aria-label="Crea nuovo task">
+				<button type="button" class="new-task" onclick={onCreateTask} aria-label={m.ui_agentpanel_crea_nuovo_task_eca5()}>
 					<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
-					Nuovo task
+					{m.agent_panel_new_task_btn()}
 				</button>
 				{#if !canAutomate && automationReason}
 					<span class="automation-state" role="status" aria-live="polite" title={automationReason}>{automationReason}</span>
 				{/if}
 			</div>
 
-			<ul class="queue-list" class:queue-cards={isCardView} aria-label="Task in coda">
+			<ul class="queue-list" class:queue-cards={isCardView} aria-label={m.queue_drawer_heading()}>
 				{#if tasks.length === 0}
 					<li class="empty-task-container">
 						<EmptyState
 							variant="no-tasks"
 							compact={true}
 							primaryAction={{
-								label: 'Nuovo task',
+								label: m.agent_panel_new_task_btn(),
 								onClick: onCreateTask
 							}}
 							shortcuts={[
@@ -169,8 +170,8 @@
 							<button
 								type="button"
 								class="drag-handle"
-								aria-label={`Riordina ${taskTitle(task)}. Alt più freccia su o giù.`}
-								title="Trascina oppure usa Alt+freccia"
+								aria-label={m.agent_panel_reorder_handle_aria({ title: taskTitle(task) })}
+								title={m.agent_panel_reorder_handle_title()}
 								onkeydown={(event) => handleMoveKey(event, task.id)}
 							>
 								<svg viewBox="0 0 12 16" aria-hidden="true">
@@ -183,19 +184,19 @@
 								type="button"
 								class="task-launch"
 								disabled={!canAutomate || (!task.prompt.trim() && (!task.images || task.images.length === 0)) || task.status === 'dispatching'}
-								title={canAutomate ? `Avvia: ${taskTitle(task)}` : automationReason}
-								aria-label={`Avvia task: ${taskTitle(task)}`}
+								title={canAutomate ? m.ui_agentpanel_avvia_value1_18da({ value1: taskTitle(task) }) : automationReason}
+								aria-label={m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })}
 								onclick={() => onRunTask(task.id)}
 							>
 								<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
-								<span class="task-excerpt" role="status" aria-live={task.status === 'dispatching' ? 'polite' : 'off'}>{task.status === 'dispatching' ? 'Avvio della nuova sessione...' : taskExcerpt(task)}</span>
+								<span class="task-excerpt" role="status" aria-live={task.status === 'dispatching' ? 'polite' : 'off'}>{task.status === 'dispatching' ? m.agent_panel_dispatching_label() : taskExcerpt(task)}</span>
 								<div class="task-chips">
 									{#if task.status === 'in_progress'}
-										<span class="task-chip status-chip in-progress">in corso</span>
+										<span class="task-chip status-chip in-progress">{m.queue_drawer_status_in_progress()}</span>
 									{:else if task.status === 'completed'}
-										<span class="task-chip status-chip completed">fatto</span>
+										<span class="task-chip status-chip completed">{m.queue_drawer_status_completed()}</span>
 									{:else if task.status === 'abandoned'}
-										<span class="task-chip status-chip abandoned">abbandonato</span>
+										<span class="task-chip status-chip abandoned">{m.queue_drawer_status_abandoned()}</span>
 									{/if}
 									{#if task.options?.role}
 										{@const badge = roleBadge(task.options.role)}
@@ -220,8 +221,8 @@
 								type="button"
 								class="edit-task"
 								onclick={() => onEditTask(task.id)}
-								aria-label={`Modifica task: ${taskTitle(task)}`}
-								title="Modifica task"
+								aria-label={m.agent_panel_edit_task_aria({ title: taskTitle(task) })}
+								title={m.queue_drawer_edit_btn_title()}
 							>
 								<svg viewBox="0 0 16 16" aria-hidden="true">
 									<path d="m10.8 3.2 2 2-7.2 7.2-2.6.6.6-2.6 7.2-7.2ZM9.5 4.5l2 2" />

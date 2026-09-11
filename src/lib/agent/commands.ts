@@ -3,36 +3,37 @@
 // in routes/+page.svelte e non vengono inoltrati a omp come prompt.
 
 import type { AvailableCommand } from './wire';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	{
 		name: 'new',
-		description: 'Avvia una nuova sessione pulita',
+		get description() { return msg.ui_ts_commands_avvia_una_nuova_sessione_pulita_fa61(); },
 		aliases: ['clear'],
 		source: 'studio'
 	},
 	{
 		name: 'resume',
-		description: 'Riprende una sessione precedente o apre lo storico',
+		get description() { return msg.ui_ts_commands_riprende_una_sessione_precedente_o_apre_lo_d684(); },
 		aliases: [],
 		source: 'studio',
 		input: { hint: '[id]' }
 	},
 	{
 		name: 'compact',
-		description: 'Compatta la cronologia e il contesto della sessione',
+		get description() { return msg.ui_ts_commands_compatta_la_cronologia_e_il_contesto_della_2157(); },
 		source: 'studio',
 		input: { hint: '[istruzioni]' }
 	},
 	{
 		name: 'handoff',
-		description: 'Passa il riassunto a una nuova sessione pulita',
+		get description() { return msg.ui_ts_commands_passa_il_riassunto_a_una_nuova_sessione_8ecf(); },
 		source: 'studio',
 		input: { hint: '[istruzioni]' }
 	},
 	{
 		name: 'thinking',
-		description: 'Imposta il livello di ragionamento del modello',
+		get description() { return msg.ui_ts_commands_imposta_il_livello_di_ragionamento_del_modello_7da6(); },
 		aliases: ['reasoning'],
 		source: 'studio',
 		input: { hint: '<livello>' },
@@ -52,37 +53,37 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio',
 		input: { hint: '[next]' },
 		subcommands: [
-			{ name: 'next', description: 'Passa al modello successivo configurato' }
+			{ name: 'next', get description() { return msg.ui_ts_commands_passa_al_modello_successivo_configurato_1c74(); } }
 		]
 	},
 	{
 		name: 'role',
-		description: 'Apre la configurazione ruoli o imposta un ruolo specifico',
+		get description() { return msg.ui_ts_commands_apre_la_configurazione_ruoli_o_imposta_un_9162(); },
 		aliases: ['roles'],
 		source: 'studio',
 		input: { hint: '[default|plan|smol|slow|vision|task|commit|advisor]' },
 		subcommands: [
-			{ name: 'default', description: 'Imposta il ruolo Default / Chat' },
-			{ name: 'plan', description: 'Imposta il ruolo Architectural Plan' },
-			{ name: 'smol', description: 'Imposta il ruolo Smol (Fast)' },
-			{ name: 'slow', description: 'Imposta il ruolo Slow (Reasoning)' },
-			{ name: 'vision', description: 'Imposta il ruolo Vision / Images' },
-			{ name: 'task', description: 'Imposta il ruolo Task Subagents' },
-			{ name: 'commit', description: 'Imposta il ruolo Git Commit' },
-			{ name: 'advisor', description: 'Imposta il ruolo Advisor (Reviewer)' },
+			{ name: 'default', get description() { return msg.ui_ts_commands_imposta_il_ruolo_default_chat_3385(); } },
+			{ name: 'plan', get description() { return msg.ui_ts_commands_imposta_il_ruolo_architectural_plan_01f7(); } },
+			{ name: 'smol', get description() { return msg.ui_ts_commands_imposta_il_ruolo_smol_fast_e7b1(); } },
+			{ name: 'slow', get description() { return msg.ui_ts_commands_imposta_il_ruolo_slow_reasoning_a02e(); } },
+			{ name: 'vision', get description() { return msg.ui_ts_commands_imposta_il_ruolo_vision_images_9f21(); } },
+			{ name: 'task', get description() { return msg.ui_ts_commands_imposta_il_ruolo_task_subagents_20af(); } },
+			{ name: 'commit', get description() { return msg.ui_ts_commands_imposta_il_ruolo_git_commit_2b53(); } },
+			{ name: 'advisor', get description() { return msg.ui_ts_commands_imposta_il_ruolo_advisor_reviewer_d3fc(); } },
 			{ name: 'next', description: 'Passa al ruolo successivo nella sequenza' }
 		]
 	},
 	{
 		name: 'name',
-		description: 'Rinomina la sessione corrente',
+		get description() { return msg.ui_ts_commands_rinomina_la_sessione_corrente_9566(); },
 		aliases: ['rename'],
 		source: 'studio',
 		input: { hint: '<titolo>' }
 	},
 	{
 		name: 'cost',
-		description: 'Mostra token, chiamate a strumenti e costi della sessione',
+		get description() { return msg.ui_ts_commands_mostra_token_chiamate_a_strumenti_e_costi_0ebf(); },
 		aliases: ['stats', 'status'],
 		source: 'studio'
 	},
@@ -111,12 +112,12 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	},
 	{
 		name: 'terminal',
-		description: 'Passa alla visualizzazione terminale TUI',
+		get description() { return msg.ui_ts_commands_passa_alla_visualizzazione_terminale_tui_d812(); },
 		source: 'studio'
 	},
 	{
 		name: 'help',
-		description: 'Mostra i comandi disponibili nella superficie GUI',
+		get description() { return msg.ui_ts_commands_mostra_i_comandi_disponibili_nella_superficie_gui_88cd(); },
 		source: 'studio'
 	},
 	{
@@ -128,28 +129,28 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	},
 	{
 		name: 'copy',
-		description: 'Copia l\'intera trascrizione della sessione corrente negli appunti',
+		get description() { return msg.ui_ts_commands_copia_l_intera_trascrizione_della_sessione_corrente_e2a0(); },
 		source: 'studio'
 	},
 	{
 		name: 'tree',
-		description: 'Mostra l\'albero e lo storico delle sessioni del progetto',
+		get description() { return msg.ui_ts_commands_mostra_l_albero_e_lo_storico_delle_0376(); },
 		aliases: ['sessions'],
 		source: 'studio'
 	},
 	{
 		name: 'fork',
-		description: 'Crea una nuova diramazione (fork) della sessione corrente',
+		get description() { return msg.ui_ts_commands_crea_una_nuova_diramazione_fork_della_sessione_8343(); },
 		source: 'studio'
 	},
 	{
 		name: 'drop',
-		description: 'Apre lo storico per gestire ed eliminare rami di sessione',
+		get description() { return msg.ui_ts_commands_apre_lo_storico_per_gestire_ed_eliminare_f7c8(); },
 		source: 'studio'
 	},
 	{
 		name: 'quit',
-		description: 'Azzera la vista attiva e avvia una nuova sessione pulita',
+		get description() { return msg.ui_ts_commands_azzera_la_vista_attiva_e_avvia_una_1f33(); },
 		aliases: ['exit'],
 		source: 'studio'
 	}

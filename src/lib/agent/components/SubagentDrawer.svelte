@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Cassetto del transcript di un subagent.
 	//
 	// Lettura incrementale: invia `get_subagent_messages { subagentId, fromByte }`,
@@ -8,19 +9,19 @@
 	// All'apertura alza la sottoscrizione a `events`, alla chiusura la riporta
 	// a `progress`: `events` inoltra ogni evento annidato di ogni subagent ed e'
 	// costoso durante un fan-out a 32 worker.
-	import type { AgentSession } from '../session.svelte';
+	import type { AgentSession, SystemChipEntry } from '../session.svelte';
 	import type { AgentMessage } from '../wire';
 	import { IconSubagents, IconClose } from '$lib/icons';
+	import { classifySystemMessage, stripNoticeWrapper } from '../notices';
+	import SystemChip from './SystemChip.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 
-	// Etichette di ruolo in italiano, stessa mappa di session.svelte.ts
-	// (custom -> sistema, developer -> promemoria). Ruoli non mappati
-	// (tipo aperto) restano visibili col valore grezzo.
+	// Etichette di ruolo in italiano. Ruoli di sistema (custom e developer)
+	// vengono gestiti separatamente come chip e non passano da qui.
 	const ROLE_LABEL: Record<string, string> = {
 		user: 'utente',
 		assistant: 'assistente',
-		toolResult: 'risultato tool',
-		developer: 'promemoria',
-		custom: 'sistema'
+		toolResult: 'risultato tool'
 	};
 
 	function roleLabel(role: string): string {
@@ -47,6 +48,138 @@
 
 	let messages = $state<AgentMessage[]>([]);
 	let errorText = $state<string | null>(null);
+
+	function textOf(content: AgentMessage['content']): string {
+		if (!content) return '';
+		if (typeof content === 'string') return content;
+		if (!Array.isArray(content)) return '';
+		return content
+			.filter((block) => block.type === 'text' && typeof block.text === 'string')
+			.map((block) => block.text ?? '')
+			.join('\n');
+	}
+
+	type DrawerItem =
+		| { type: 'system'; id: number; entry: SystemChipEntry }
+		| { type: 'message'; id: number; msg: AgentMessage };
+
+	const drawerItems = $derived.by(() => {
+		const items: DrawerItem[] = [];
+		for (let i = 0; i < messages.length; i++) {
+			const msg = messages[i];
+			if (msg.role === 'custom' || msg.role === 'developer') {
+				const text = textOf(msg.content);
+				const classified = classifySystemMessage({
+					role: msg.role,
+					customType: msg.customType,
+					display: msg.display,
+					details: msg.details,
+					text
+				});
+
+				if (!classified) {
+					const stripped = stripNoticeWrapper(text).trim();
+					if (stripped) {
+						items.push({
+							type: 'system',
+							id: i,
+							entry: {
+								id: i,
+								kind: 'system-chip',
+								customType: 'custom-message',
+								title: msg.role === 'developer' ? 'Promemoria' : 'Sistema',
+								body: stripped
+							}
+						});
+					}
+					continue;
+				}
+
+				if (classified.kind === 'todo-reminder') {
+					// I promemoria sui todo duplicano lo stato gia' visibile e vanno omessi
+					continue;
+				}
+
+				if (classified.kind === 'hidden') {
+					// I messaggi marcati display: false si mostrano solo se l'utente ha attivato la diagnosi
+					if (!settingsStore.general.showInternalAgentMessages) {
+						continue;
+					}
+					items.push({
+						type: 'system',
+						id: i,
+						entry: {
+							id: i,
+							kind: 'system-chip',
+							customType: classified.customType,
+							title: classified.title,
+							body: classified.body,
+							internal: true
+						}
+					});
+					continue;
+				}
+
+				if (classified.kind === 'chip') {
+					items.push({
+						type: 'system',
+						id: i,
+						entry: {
+							id: i,
+							kind: 'system-chip',
+							customType: classified.customType,
+							title: classified.title,
+							body: classified.body
+						}
+					});
+					continue;
+				}
+
+				if (classified.kind === 'subagent-result') {
+					const body = classified.jobs.length > 0
+						? classified.jobs.map((j) => j.envelope?.summaryLine ?? j.label ?? j.jobId).join(' | ')
+						: stripNoticeWrapper(text);
+					items.push({
+						type: 'system',
+						id: i,
+						entry: {
+							id: i,
+							kind: 'system-chip',
+							customType: 'async-result',
+							title: 'Risultato in background',
+							body
+						}
+					});
+					continue;
+				}
+
+				if (classified.kind === 'irc') {
+					const isIncoming = classified.direction === 'in';
+					items.push({
+						type: 'system',
+						id: i,
+						entry: {
+							id: i,
+							kind: 'system-chip',
+							customType: isIncoming ? 'irc:incoming' : 'irc:autoreply',
+							title: isIncoming
+								? (classified.peer ? m.ui_subagentdrawer_messaggio_da_value1_5617({ value1: classified.peer }) : m.ui_subagentdrawer_messaggio_da_un_agente_6808())
+								: m.ui_subagentdrawer_risposta_automatica_f42e(),
+							body: classified.body
+						}
+					});
+					continue;
+				}
+			} else {
+				items.push({
+					type: 'message',
+					id: i,
+					msg
+				});
+			}
+		}
+		return items;
+	});
 
 	// Polling con guardia di concorrenza, reset al cambio di subagentId e pulizia al dismount.
 	$effect(() => {
@@ -121,13 +254,13 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="drawer-backdrop" onclick={onClose}></div>
 
-<div class="subagent-drawer" role="dialog" aria-modal="true" aria-label="Transcript subagent">
+<div class="subagent-drawer" role="dialog" aria-modal="true" aria-label={m.subagents_transcript_aria()}>
 	<div class="drawer-head">
 		<div class="head-info">
 			<span class="glyph"><IconSubagents aria-hidden="true" /></span>
 			<span class="title">{subagentId}</span>
 		</div>
-		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi"><IconClose /></button>
+		<button type="button" class="btn-close" onclick={onClose} aria-label={m.page_modal_restart_btn_close()}><IconClose /></button>
 	</div>
 
 	{#if errorText}
@@ -135,26 +268,33 @@
 	{/if}
 
 	<div class="messages-area">
-		{#each messages as msg, idx (idx)}
-			<div class="msg-row {msg.role}">
-				<div class="msg-role">{roleLabel(msg.role)}</div>
-				<div class="msg-body">
-					{#each Array.isArray(msg.content) ? msg.content : [] as block, bIdx (bIdx)}
-						{#if block.type === 'text' && block.text}
-							<pre class="text-content">{block.text}</pre>
-						{:else if block.type === 'toolCall'}
-							<div class="tool-call-mini">
-								<span class="tool-name">{block.name}</span>
-								{#if block.arguments}
-									<span class="tool-args">{JSON.stringify(block.arguments)}</span>
-								{/if}
-							</div>
-						{/if}
-					{/each}
+		{#each drawerItems as item (item.id)}
+			{#if item.type === 'system'}
+				<div class="system-chip-wrap">
+					<SystemChip entry={item.entry} />
 				</div>
-			</div>
+			{:else}
+				{@const msg = item.msg}
+				<div class="msg-row {msg.role}">
+					<div class="msg-role">{roleLabel(msg.role)}</div>
+					<div class="msg-body">
+						{#each Array.isArray(msg.content) ? msg.content : [] as block, bIdx (bIdx)}
+							{#if block.type === 'text' && block.text}
+								<pre class="text-content">{block.text}</pre>
+							{:else if block.type === 'toolCall'}
+								<div class="tool-call-mini">
+									<span class="tool-name">{block.name}</span>
+									{#if block.arguments}
+										<span class="tool-args">{JSON.stringify(block.arguments)}</span>
+									{/if}
+								</div>
+							{/if}
+						{/each}
+					</div>
+				</div>
+			{/if}
 		{:else}
-			<div class="empty">In attesa dei messaggi del subagent...</div>
+			<div class="empty">{m.ui_subagentdrawer_in_attesa_dei_messaggi_del_subagent_76d6()}</div>
 		{/each}
 	</div>
 </div>
@@ -240,6 +380,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+	}
+
+	.system-chip-wrap {
+		display: flex;
+		flex-direction: column;
 	}
 
 	.msg-row {

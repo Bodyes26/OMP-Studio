@@ -56,6 +56,7 @@ import {
 	type AgentSessionLike,
 	type SessionRegistry
 } from '../agent/sessionRegistry.ts';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 /* ------------------------------------------------------------- costanti build */
 
@@ -179,7 +180,7 @@ export default defineConfig({
 	// 5. README.md descrittivo
 	const readmeContent = `# ${manifest.title}
 
-> ${manifest.brief.split('\n')[0] || 'Progetto esportato dal Laboratorio prototipi.'}
+> ${manifest.brief.split('\n')[0] || msg.ui_ts_export_handoff_progetto_esportato_dal_laboratorio_prototipi_045a()}
 
 Progetto frontend React autonomo esportato dal Laboratorio prototipi di OMP Studio.
 Questo codice utilizza una configurazione di compilazione ordinaria basata su Vite e Tailwind CSS v4,
@@ -310,7 +311,7 @@ async function loadFilesFromRevision(
 	// Se la revisione è aperta o manca lo snapshot ma è la revisione attiva, leggiamo i file dal prototipo
 	const stored = await readLabPrototype(context.store, context.prototypeId);
 	if (!stored) {
-		throw new Error(`Prototipo '${context.prototypeId}' non trovato nel filesystem.`);
+		throw new Error(msg.ui_ts_export_handoff_prototipo_value1_non_trovato_nel_filesystem_f0df({ value1: context.prototypeId }));
 	}
 	const fileListing = await listLabPrototypeFiles(context.store, context.prototypeId);
 	const files = new Map<string, string>();
@@ -365,7 +366,7 @@ export async function exportLabPrototypeRevision(
 			exportedFiles: [],
 			manifest: { id: context.prototypeId, title: '', brief: '', templateVersion: '1.0.0', dependencies: [] },
 			errorCode: 'destination-exists',
-			error: `La cartella di destinazione '${destinationPath}' esiste già e non e vuota. Per sovrascriverla e necessario confermare esplicitamente.`
+			error: msg.ui_ts_export_handoff_la_cartella_di_destinazione_value1_esiste_gia_9874({ value1: destinationPath })
 		};
 	}
 
@@ -423,7 +424,7 @@ export async function exportLabPrototypeRevision(
 			exportedFiles: writtenPaths,
 			manifest: revisionData.manifest,
 			errorCode: 'export-failed',
-			error: `Scrittura dei file nella cartella di destinazione fallita: ${error instanceof Error ? error.message : String(error)}`
+			error: msg.ui_ts_export_handoff_scrittura_dei_file_nella_cartella_di_destinazione_1b4c({ value1: error instanceof Error ? error.message : String(error) })
 		};
 	}
 
@@ -488,9 +489,9 @@ export async function createLabHandoffPackage(
 export function formatHandoffPrompt(ref: LabHandoffReference): string {
 	const sections: string[] = [];
 
-	sections.push('# Consegna Prototipo dal Laboratorio (Handoff)');
+	sections.push(msg.ui_ts_export_handoff_consegna_prototipo_dal_laboratorio_handoff_d307());
 	sections.push(
-		`L'utente ha selezionato e consegnato questo prototipo dal Laboratorio affinché venga valutato e incorporato nel progetto ordinario.`
+		msg.ui_ts_export_handoff_l_utente_ha_selezionato_e_consegnato_questo_70f8()
 	);
 
 	sections.push('## Riferimento stabile');
@@ -531,16 +532,16 @@ export function formatHandoffPrompt(ref: LabHandoffReference): string {
 
 	sections.push('## Regole e istruzioni per l\'agente principale:');
 	sections.push(
-		'1. **Nessun auto-merge indiscriminato**: Esamina i file attuali del progetto prima di qualsiasi modifica.'
+		msg.ui_ts_export_handoff_1_nessun_auto_merge_indiscriminato_esamina_i_a41b()
 	);
 	sections.push(
-		'2. **Rispetta lo stack nativo del progetto**: Se il progetto corrente usa Svelte / SvelteKit (o altro), adatta e converti i componenti e la logica nello stack del progetto; NON importare React nel progetto se non e gia un progetto React.'
+		msg.ui_ts_export_handoff_2_rispetta_lo_stack_nativo_del_progetto_cd44()
 	);
 	sections.push(
 		'3. **Sostituisci i dati fittizi con sorgenti reali**: Collega le API, gli store, le query e le azioni del backend vero del progetto al posto dei mock del prototipo.'
 	);
 	sections.push(
-		'4. **Preserva il prototipo**: I file sotto `proto/` e le revisioni del Laboratorio devono restare intatti e non essere sovrascritti o cancellati.'
+		msg.ui_ts_export_handoff_4_preserva_il_prototipo_i_file_sotto_6462()
 	);
 
 	return sections.join('\n\n');
@@ -586,7 +587,7 @@ export async function deliverLabHandoff(
 			targetSessionKey: mainSessionKey(projectKey),
 			deliveredPrompt: handoffPackage.formattedPrompt,
 			enqueued: false,
-			error: `Nessuna sessione principale attiva o registrabile trovata per il progetto '${projectKey}'.`
+			error: msg.ui_ts_export_handoff_nessuna_sessione_principale_attiva_o_registrabile_trovata_6093({ value1: projectKey })
 		};
 	}
 
@@ -620,7 +621,7 @@ export async function deliverLabHandoff(
 			targetSessionKey: mainSession.sessionKey || mainSessionKey(projectKey),
 			deliveredPrompt: handoffPackage.formattedPrompt,
 			enqueued: false,
-			error: `Invio del prompt di handoff al principale fallito: ${error instanceof Error ? error.message : String(error)}`
+			error: msg.ui_ts_export_handoff_invio_del_prompt_di_handoff_al_principale_24b6({ value1: error instanceof Error ? error.message : String(error) })
 		};
 	}
 }

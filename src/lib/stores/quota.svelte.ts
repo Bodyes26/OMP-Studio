@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export type ProviderHost = {
 	provider: string;
@@ -149,7 +150,7 @@ class QuotaStore {
 			case 'unconfigured':
 				return 'Nessun provider AI configurato con credenziali attive. Clicca per impostare i modelli (Ctrl+Alt+U)';
 			case 'exhausted':
-				return 'Limite di quota raggiunto su uno o più provider. Clicca per dettagli (Ctrl+Alt+U)';
+				return msg.ui_ts_quota_limite_di_quota_raggiunto_su_uno_o_b96d();
 			case 'warning':
 				return `Quota in esaurimento (${this.lowestRemainingPercent ?? '< 15'}% rimanente). Clicca per dettagli (Ctrl+Alt+U)`;
 			default:

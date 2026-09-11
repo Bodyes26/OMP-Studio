@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { onMount, tick } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '$lib/stores/companion.svelte';
-	import { askQuestionText, parseAskTitle } from '$lib/agent/askTitle';
+	import { askQuestionText, parseAskTitle, sanitizeAskDetail } from '$lib/agent/askTitle';
+	import { cleanOptionLabel, isOtherOption } from '$lib/agent/askAnswers';
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { quotaStore } from '$lib/stores/quota.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -23,7 +25,9 @@
 		parseQuickTaskLocal,
 		mentionStateAt,
 		applyMention,
-		type LocalQuickTask
+		tokenizeForDisplay,
+		type LocalQuickTask,
+		type DisplayToken
 	} from '$lib/companion/quickTaskLocal';
 	import {
 		IconArrowUp,
@@ -45,9 +49,9 @@
 	 * diventa illeggibile appena si scrive il primo carattere.
 	 */
 	const TOKEN_HINTS = [
-		{ char: '@', label: 'progetto', title: 'Scegli il progetto di destinazione' },
-		{ char: '/', label: 'direttiva', title: 'Aggiungi una direttiva al task' },
-		{ char: '!', label: 'ruolo', title: 'Forza il ruolo o il modello' }
+		{ char: '@', label: 'progetto', title: m.ui_companionview_scegli_il_progetto_di_destinazione_254a() },
+		{ char: '/', label: 'direttiva', title: m.ui_companionview_aggiungi_una_direttiva_al_task_e689() },
+		{ char: '!', label: 'ruolo', title: m.ui_companionview_forza_il_ruolo_o_il_modello_32cf() }
 	];
 
 	/** Ordine di urgenza con cui si leggono i progetti nell'elenco. */
@@ -61,6 +65,7 @@
 
 	let inputEl = $state<HTMLTextAreaElement | null>(null);
 	let composerEl = $state<HTMLElement | null>(null);
+	let backdropEl = $state<HTMLDivElement | null>(null);
 	let fileInputEl = $state<HTMLInputElement | null>(null);
 	let taskInput = $state('');
 	let caret = $state(0);
@@ -71,6 +76,8 @@
 	let expandedHistory = $state<Record<string, boolean>>({});
 	/** Testo in corso di scrittura per le richieste a risposta libera. */
 	let replyDrafts = $state<Record<string, string>>({});
+	let customReplyProjects = $state<Record<string, boolean>>({});
+	let replyInputEls = $state<Record<string, HTMLTextAreaElement | null>>({});
 	let usageOpen = $state(false);
 	let justOpened = $state(false);
 	let attachedImages = $state<ImageContent[]>([]);
@@ -128,14 +135,15 @@
 	 * Nessun processo `omp` viene avviato durante la digitazione; l'AI entra in
 	 * gioco solo al salvataggio e solo se il progetto resta indeterminato.
 	 */
-	const local = $derived<LocalQuickTask>(
-		parseQuickTaskLocal(taskInput, {
-			projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.path })),
-			directives: knownDirectives.map((d) => ({ id: d.id, name: d.name, tag: d.tag, hidden: d.hidden })),
-			roles: configuredRoles.map((role) => role.id),
-			modelSelectors: knownModelSelectors
-		})
-	);
+	const parseInput = $derived({
+		projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.path })),
+		directives: knownDirectives.map((d) => ({ id: d.id, name: d.name, tag: d.tag, hidden: d.hidden })),
+		roles: configuredRoles.map((role) => role.id),
+		modelSelectors: knownModelSelectors
+	});
+
+	const local = $derived<LocalQuickTask>(parseQuickTaskLocal(taskInput, parseInput));
+	const displayTokens = $derived<DisplayToken[]>(tokenizeForDisplay(taskInput, parseInput));
 
 	const mention = $derived(mentionStateAt(taskInput, caret));
 
@@ -224,10 +232,10 @@
 		if (state === 'attention') {
 			const bq = attentionList.find((a) => a.projectId === projectId && a.pendingUi.kind === 'quota_blocked');
 			if (bq) return bq.pendingUi.blockedQuota?.reasonKind === 'quota_exhausted' ? 'Quota esaurita' : 'Blocco provider';
-			return 'Chiede risposta';
+			return m.ui_companionview_chiede_risposta_de18();
 		}
 		if (state === 'working') return 'Al lavoro';
-		if (state === 'finished') return 'Completato';
+		if (state === 'finished') return m.page_agent_state_finished();
 		if (state === 'idle') return 'Fermo';
 		return 'Non avviato';
 	}
@@ -295,7 +303,18 @@
 		const target = text ? Math.min(el.scrollHeight, INPUT_MAX_HEIGHT) : 0;
 		el.style.height = target > 0 ? `${target}px` : '';
 		el.style.overflowY = text && el.scrollHeight > INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
+		if (backdropEl) {
+			backdropEl.scrollTop = el.scrollTop;
+			backdropEl.scrollLeft = el.scrollLeft;
+		}
 	});
+
+	function handleInputScroll() {
+		if (backdropEl && inputEl) {
+			backdropEl.scrollTop = inputEl.scrollTop;
+			backdropEl.scrollLeft = inputEl.scrollLeft;
+		}
+	}
 
 	/** Inserisce un prefisso al punto di inserimento e apre il suggeritore. */
 	function insertToken(char: string) {
@@ -384,7 +403,7 @@
 		try {
 			for (const file of candidates) {
 				if (!isImageFile(file)) {
-					attachmentError = 'Sono supportati solo file immagine.';
+					attachmentError = m.ui_companionview_sono_supportati_solo_file_immagine_f024();
 					continue;
 				}
 				const result = await prepareImage(file);
@@ -423,7 +442,7 @@
 		if (imageFiles.length > 0) {
 			void handleProcessFiles(imageFiles);
 		} else if (event.dataTransfer?.files.length) {
-			attachmentError = 'Sono supportati solo file immagine.';
+			attachmentError = m.ui_companionview_sono_supportati_solo_file_immagine_f024();
 		}
 	}
 
@@ -461,7 +480,7 @@
 		const text = taskInput.trim();
 		if ((!text && attachedImages.length === 0) || isBusy) return;
 		if (!text && local.needsAi) {
-			companionStore.parseError = 'Indica il progetto con @ prima di salvare le immagini.';
+			companionStore.parseError = m.ui_companionview_indica_il_progetto_con_prima_di_salvare_4185();
 			return;
 		}
 
@@ -518,25 +537,32 @@
 	}
 
 	async function handleQuickReplySelect(projectId: string, value: string) {
+		delete replyDrafts[projectId];
+		delete customReplyProjects[projectId];
 		await companionStore.respondUi(projectId, { action: 'select', value });
 	}
 
 	async function handleQuickReplyConfirm(projectId: string, confirmed: boolean) {
+		delete replyDrafts[projectId];
+		delete customReplyProjects[projectId];
 		await companionStore.respondUi(projectId, { action: 'confirm', confirmed });
 	}
 
 	async function handleQuickReplyCancel(projectId: string) {
+		delete replyDrafts[projectId];
+		delete customReplyProjects[projectId];
 		await companionStore.respondUi(projectId, { action: 'cancel' });
 	}
 
 	/**
-	 * Risposta libera per i metodi `input` ed `editor`: sul filo e' lo stesso
+	 * Risposta libera per i metodi `input` ed `editor` o opzione "Altro": sul filo e' lo stesso
 	 * frame di una scelta, con il testo al posto dell'opzione.
 	 */
 	async function handleQuickReplyText(projectId: string) {
 		const value = (replyDrafts[projectId] ?? '').trim();
 		if (!value) return;
 		delete replyDrafts[projectId];
+		delete customReplyProjects[projectId];
 		await companionStore.respondUi(projectId, { action: 'select', value });
 	}
 
@@ -581,7 +607,7 @@
 					draggable="false"
 				/>
 				{#if attentionList.length > 0}
-					<span class="attention-counter">{attentionList.length} in attesa</span>
+					<span class="attention-counter">{attentionList.length} {m.ui_companionview_in_attesa_e1a0()}</span>
 				{/if}
 			</div>
 
@@ -590,7 +616,7 @@
 					type="button"
 					class="icon-btn active"
 					onclick={togglePinned}
-					title="Sblocca finestra (torna in modalità Spotlight)"
+					title={m.companion_unpin_title()}
 					aria-label="Sblocca finestra"
 				>
 					<IconPinned />
@@ -600,8 +626,8 @@
 					type="button"
 					class="icon-btn close-btn"
 					onclick={() => void companionStore.hideCompanion()}
-					title="Chiudi (Esc)"
-					aria-label="Chiudi finestra"
+					title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()}
+					aria-label={m.settings_close_window()}
 				>
 					<IconClose />
 				</button>
@@ -615,7 +641,7 @@
 				type="button"
 				class="icon-btn"
 				onclick={togglePinned}
-				title="Fissa su questo monitor (modalità Widget persistente)"
+				title={m.companion_pin_title()}
 				aria-label="Fissa finestra"
 			>
 				<IconPin />
@@ -639,7 +665,7 @@
 
 				{#each attentionList as req (req.projectId)}
 					{@const parsed = parseAskTitle(req.pendingUi.title)}
-					{@const detail = parsed.text && req.pendingUi.message ? req.pendingUi.message : null}
+					{@const detail = parsed.text && req.pendingUi.message ? sanitizeAskDetail(req.pendingUi.message) : null}
 					<div class="attention-card" style="--proj-hue: {req.projectHue}">
 						<div class="card-header">
 							<span class="project-pill">{req.projectName}</span>
@@ -667,7 +693,7 @@
 										class="history-toggle-btn"
 										onclick={() => toggleHistory(req.projectId)}
 									>
-										{expandedHistory[req.projectId] ? 'Mostra meno contesto' : `Mostra altri ${req.recentMessages.length - 2} messaggi`}
+										{expandedHistory[req.projectId] ? m.ui_companionview_mostra_meno_contesto_560a() : m.ui_companionview_mostra_altri_value1_messaggi_90ae({ value1: req.recentMessages.length - 2 })}
 									</button>
 								{/if}
 							</div>
@@ -676,7 +702,7 @@
 						<!-- Domanda / Richiesta interattiva -->
 						<div class="ask-box">
 							<div class="ask-head">
-								<p class="ask-question">{askQuestionText(req.pendingUi, 'Seleziona un’opzione:')}</p>
+								<p class="ask-question">{askQuestionText(req.pendingUi, m.ui_companionview_seleziona_un_opzione_d398())}</p>
 								{#if parsed.counter}
 									<span class="ask-counter">{parsed.counter}</span>
 								{/if}
@@ -691,7 +717,7 @@
 								{@const suggested = bq?.suggestedModel}
 								<div class="quota-blocked-box">
 									<p class="qb-msg">
-										{req.pendingUi.message || 'L’agente si è arrestato per limite di quota o crediti del provider.'}
+										{req.pendingUi.message || m.ui_companionview_l_agente_si_e_arrestato_per_limite_7e38()}
 									</p>
 									{#if suggested}
 										<button
@@ -705,7 +731,7 @@
 									{/if}
 									{#if bq?.availableRecoveryModels && bq.availableRecoveryModels.length > 1}
 										<div class="qb-alternatives">
-											<span class="qb-alt-label">Oppure seleziona un'altra riserva:</span>
+											<span class="qb-alt-label">{m.ui_companionview_oppure_seleziona_un_altra_riserva_50ef()}</span>
 											<div class="qb-alt-grid">
 												{#each bq.availableRecoveryModels.filter(m => m.selector !== suggested?.selector) as alt}
 													<button
@@ -735,24 +761,84 @@
 									</div>
 								</div>
 							{:else if req.pendingUi.options && req.pendingUi.options.length > 0}
-								<div class="options-grid">
-									{#each req.pendingUi.options as opt, idx (opt)}
-										{@const description = req.pendingUi.optionDetails?.[idx]?.description}
-										<button
-											type="button"
-											class="option-btn"
-											onclick={() => void handleQuickReplySelect(req.projectId, opt)}
-										>
-											<span class="opt-num">{idx + 1}</span>
-											<span class="opt-body">
-												<span class="opt-label">{opt}</span>
-												{#if description}
-													<span class="opt-desc">{description}</span>
-												{/if}
-											</span>
-										</button>
-									{/each}
-								</div>
+								{#if customReplyProjects[req.projectId]}
+									<div class="text-reply custom-reply">
+										<textarea
+											class="reply-input"
+											rows="2"
+											placeholder={m.ui_companionview_scrivi_qui_la_tua_risposta_personalizzata_9d6c()}
+											value={draftFor(req)}
+											bind:this={replyInputEls[req.projectId]}
+											oninput={(e) => (replyDrafts[req.projectId] = e.currentTarget.value)}
+											onkeydown={(e) => {
+												if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
+													e.preventDefault();
+													e.stopPropagation();
+													void handleQuickReplyText(req.projectId);
+												} else if (e.key === 'Escape') {
+													e.preventDefault();
+													e.stopPropagation();
+													customReplyProjects[req.projectId] = false;
+												}
+											}}
+										></textarea>
+										<div class="reply-actions">
+											<span class="reply-hint">Invio per inviare</span>
+											<button
+												type="button"
+												class="action-btn cancel"
+												onclick={() => {
+													customReplyProjects[req.projectId] = false;
+												}}
+											>Torna alle opzioni</button>
+											<button
+												type="button"
+												class="action-btn confirm"
+												disabled={!draftFor(req).trim()}
+												onclick={() => void handleQuickReplyText(req.projectId)}
+											><IconArrowUp /> <span>{m.ui_askcard_invia_f401()}</span></button>
+										</div>
+									</div>
+								{:else}
+									<div class="options-grid">
+										{#each req.pendingUi.options as opt, idx (opt)}
+											{@const isOther = isOtherOption(opt)}
+											{@const isRec = opt.endsWith(' (Recommended)')}
+											{@const clean = isOther ? m.ui_askcard_altro_scrivi_la_tua_risposta_3c62() : cleanOptionLabel(opt)}
+											{@const description = isOther && !req.pendingUi.optionDetails?.[idx]?.description
+												? m.ui_askcard_inserisci_una_risposta_personalizzata_f9dc()
+												: req.pendingUi.optionDetails?.[idx]?.description}
+											<button
+												type="button"
+												class="option-btn"
+												class:is-other={isOther}
+												onclick={() => {
+													if (isOther) {
+														customReplyProjects[req.projectId] = true;
+														void tick().then(() => {
+															replyInputEls[req.projectId]?.focus();
+														});
+													} else {
+														void handleQuickReplySelect(req.projectId, opt);
+													}
+												}}
+											>
+												<span class="opt-num">{isOther ? '✎' : idx + 1}</span>
+												<span class="opt-body">
+													<span class="opt-label">
+														{clean}
+														{#if isRec}
+															<span class="opt-recommended-badge">Consigliata</span>
+														{/if}
+													</span>
+													{#if description}
+														<span class="opt-desc">{description}</span>
+													{/if}
+												</span>
+											</button>
+										{/each}
+									</div>
+								{/if}
 							{:else if req.pendingUi.method === 'confirm'}
 								<div class="confirm-actions">
 									<button
@@ -760,14 +846,14 @@
 										class="action-btn confirm"
 										onclick={() => void handleQuickReplyConfirm(req.projectId, true)}
 									>
-										<IconCheck /> <span>Sì, procedi</span>
+										<IconCheck /> <span>{m.project_popover_btn_confirm_yes()}</span>
 									</button>
 									<button
 										type="button"
 										class="action-btn cancel"
 										onclick={() => void handleQuickReplyConfirm(req.projectId, false)}
 									>
-										<IconClose /> <span>No, annulla</span>
+										<IconClose /> <span>{m.ui_companionview_no_annulla_20e1()}</span>
 									</button>
 								</div>
 							{:else if wantsText(req.pendingUi)}
@@ -779,7 +865,7 @@
 									<textarea
 										class="reply-input"
 										rows="2"
-										placeholder={req.pendingUi.placeholder || 'Scrivi la risposta…'}
+										placeholder={sanitizeAskDetail(req.pendingUi.placeholder) || m.ui_companionview_scrivi_la_risposta_f401()}
 										value={draftFor(req)}
 										oninput={(e) => (replyDrafts[req.projectId] = e.currentTarget.value)}
 										onkeydown={(e) => {
@@ -796,13 +882,13 @@
 											type="button"
 											class="action-btn cancel"
 											onclick={() => void handleQuickReplyCancel(req.projectId)}
-										>Ignora</button>
+										>{m.rules_dismiss()}</button>
 										<button
 											type="button"
 											class="action-btn confirm"
 											disabled={!draftFor(req).trim()}
 											onclick={() => void handleQuickReplyText(req.projectId)}
-										><IconArrowUp /> <span>Invia</span></button>
+										><IconArrowUp /> <span>{m.ui_askcard_invia_f401()}</span></button>
 									</div>
 								</div>
 							{:else}
@@ -812,7 +898,7 @@
 										class="action-btn cancel"
 										onclick={() => void handleQuickReplyCancel(req.projectId)}
 									>
-										Ignora / Chiudi
+										{m.ui_companionview_ignora_chiudi_5d67()}
 									</button>
 								</div>
 							{/if}
@@ -840,25 +926,44 @@
 				ondrop={handleDrop}
 				onclick={() => inputEl?.focus()}
 			>
-				<textarea
-					bind:this={inputEl}
-					bind:value={taskInput}
-					oninput={handleInput}
-					onkeydown={handleInputKeydown}
-					onclick={syncCaret}
-					onkeyup={syncCaret}
-					onpaste={handlePaste}
-					rows="1"
-					class="composer-input"
-					placeholder="Cosa c'è da fare?"
-					aria-label="Testo del task in linguaggio naturale"
-					aria-autocomplete="list"
-					aria-controls={mentionOpen ? 'companion-mention-listbox' : undefined}
-					aria-activedescendant={mentionOpen ? `companion-mention-${Math.min(mentionIndex, mentionItems.length - 1)}` : undefined}
-				></textarea>
+				<div class="composer-stage">
+					<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>
+						{#each displayTokens as token}
+							{#if token.kind === 'project'}
+								<span class="inline-token project">{token.text}</span>
+							{:else if token.kind === 'directive'}
+								<span class="inline-token directive">{token.text}</span>
+							{:else if token.kind === 'role'}
+								<span class="inline-token role">{token.text}</span>
+							{:else}
+								<span>{token.text}</span>
+							{/if}
+						{/each}
+						{#if taskInput.endsWith('\n')}
+							<span aria-hidden="true">&#8203;</span>
+						{/if}
+					</div>
+					<textarea
+						bind:this={inputEl}
+						bind:value={taskInput}
+						oninput={handleInput}
+						onkeydown={handleInputKeydown}
+						onclick={syncCaret}
+						onkeyup={syncCaret}
+						onpaste={handlePaste}
+						onscroll={handleInputScroll}
+						rows="1"
+						class="composer-input"
+						placeholder={m.companion_composer_placeholder()}
+						aria-label={m.companion_composer_aria()}
+						aria-autocomplete="list"
+						aria-controls={mentionOpen ? 'companion-mention-listbox' : undefined}
+						aria-activedescendant={mentionOpen ? `companion-mention-${Math.min(mentionIndex, mentionItems.length - 1)}` : undefined}
+					></textarea>
+				</div>
 
 				{#if attachedImages.length > 0}
-					<div class="image-previews" role="region" aria-label="Immagini allegate">
+					<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
 						{#each attachedImages as image, idx (idx)}
 							<div class="image-thumb-wrap">
 								<img
@@ -870,7 +975,7 @@
 									type="button"
 									class="image-remove-btn"
 									aria-label="Rimuovi immagine {idx + 1}"
-									title="Rimuovi immagine"
+									title={m.task_editor_remove_image_title()}
 									onclick={(event) => {
 										event.stopPropagation();
 										removeImage(idx);
@@ -913,7 +1018,7 @@
 							type="button"
 							class="attach-btn"
 							title="Allega screenshot o immagini"
-							aria-label="Allega screenshot o immagini al task"
+							aria-label={m.companion_attach_images()}
 							onclick={(event) => {
 								event.stopPropagation();
 								triggerFileInput();
@@ -929,9 +1034,9 @@
 							title={isBusy
 								? imageProcessingCount > 0
 									? 'Preparazione immagini'
-									: 'Salvataggio in corso'
-								: 'Salva il task (Invio · Maiusc+Invio va a capo)'}
-							aria-label="Salva task"
+									: m.ui_companionview_salvataggio_in_corso_dbfc()
+								: m.ui_companionview_salva_il_task_invio_maiusc_invio_va_7235()}
+							aria-label={m.companion_save_task()}
 							onclick={(event) => {
 								event.stopPropagation();
 								void handleSaveTask();
@@ -967,7 +1072,7 @@
 					id="companion-mention-listbox"
 					class="mention-popover"
 					role="listbox"
-					aria-label="Suggerimenti"
+					aria-label={m.companion_suggestions_aria()}
 					popover="manual"
 					use:anchoredPopover={{ anchor: composerEl, offset: 6, matchWidth: true, constrainHeight: true }}
 				>
@@ -989,7 +1094,7 @@
 								<span class="mention-hint">{item.hint}</span>
 							{/if}
 							{#if item.kind === 'model' || item.kind === 'role'}
-								<span class="mention-kind">{item.kind === 'model' ? 'modello' : 'ruolo'}</span>
+								<span class="mention-kind">{item.kind === 'model' ? m.ui_companionview_modello_fa78() : 'ruolo'}</span>
 							{/if}
 						</button>
 					{/each}
@@ -1034,47 +1139,22 @@
 					directiveIds: local.directiveIds,
 					ambiguities: []
 				}}
-				<div class="parsed-strip" transition:slide={{ duration: 180 }}>
-					<div class="parsed-tags">
-						{#if preview.projectName}
-							<span class="parsed-tag project">{preview.projectName}</span>
-						{:else}
-							<span class="parsed-tag pending">Progetto da scegliere</span>
-						{/if}
-
-						{#if preview.role}
-							<span class="parsed-tag">{preview.role}</span>
-						{/if}
-
-						{#if preview.modelSelector}
-							<span class="parsed-tag">{preview.modelSelector}</span>
-						{/if}
-
-						{#each preview.directiveIds as dId (dId)}
-							{@const dir = knownDirectives.find((d) => d.id === dId)}
-							<span class="parsed-tag">+{dir?.name ?? dId}</span>
-						{/each}
-
-						{#if aiParsed}
-							<span class="parsed-ai"><IconSparkles /> AI</span>
+				{@const hasAmbiguities = Boolean(preview.ambiguities && preview.ambiguities.length > 0)}
+				{@const hasMissingProject = !preview.projectPath}
+				{#if hasAmbiguities || hasMissingProject}
+					<div class="parsed-strip" transition:slide={{ duration: 180 }}>
+						{#if hasAmbiguities}
+							{#each preview.ambiguities as amb, idx (idx)}
+								<p class="parsed-note"><IconWarning /><span>{amb}</span></p>
+							{/each}
+						{:else if hasMissingProject}
+							<p class="parsed-note">
+								<IconWarning />
+								<span>Scrivi <span class="token-char">@</span>{m.ui_companionview_progetto_oppure_salva_e_lascia_decidere_all_cea9()}</span>
+							</p>
 						{/if}
 					</div>
-
-					{#if preview.taskPrompt}
-						<p class="parsed-prompt">{preview.taskPrompt}</p>
-					{/if}
-
-					{#if preview.ambiguities && preview.ambiguities.length > 0}
-						{#each preview.ambiguities as amb, idx (idx)}
-							<p class="parsed-note"><IconWarning /><span>{amb}</span></p>
-						{/each}
-					{:else if !preview.projectPath}
-						<p class="parsed-note">
-							<IconWarning />
-							<span>Scrivi <span class="token-char">@</span>progetto, oppure salva e lascia decidere all'AI.</span>
-						</p>
-					{/if}
-				</div>
+				{/if}
 			{/if}
 		</section>
 
@@ -1083,7 +1163,7 @@
 			<section class="live-monitor-section">
 				<div class="section-title">
 					<IconStatusRunning />
-					<span>Progetti ({monitorProjects.length})</span>
+					<span>{m.ui_companionview_progetti_9979()}{monitorProjects.length})</span>
 				</div>
 
 				<div class="projects-list">
@@ -1582,6 +1662,28 @@
 		color: var(--ink-muted);
 	}
 
+	.opt-recommended-badge {
+		background: var(--brand-subtle, rgba(234, 88, 12, 0.12));
+		color: var(--brand);
+		border: 1px solid var(--brand);
+		border-radius: var(--radius-sm);
+		padding: 1px 5px;
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		margin-left: var(--space-1);
+		vertical-align: middle;
+	}
+
+	.option-btn.is-other {
+		border-style: dashed;
+	}
+
+	.option-btn.is-other:hover {
+		border-style: solid;
+	}
+
 	.confirm-actions {
 		display: flex;
 		gap: var(--space-2);
@@ -1686,25 +1788,88 @@
 		background: color-mix(in srgb, var(--brand) 8%, var(--bg-overlay));
 	}
 
+	.composer-stage {
+		position: relative;
+		width: 100%;
+	}
+
+	.composer-backdrop,
 	.composer-input {
 		width: 100%;
 		min-height: 22px;
 		max-height: 160px;
 		padding: var(--space-1) var(--space-1) 0;
 		border: none;
-		background: transparent;
-		color: var(--ink);
 		font-family: var(--font-ui);
 		font-size: var(--text-base);
 		line-height: 1.45;
+		letter-spacing: normal;
+		word-spacing: normal;
+		tab-size: 4;
+		white-space: pre-wrap;
+		word-break: break-word;
+		overflow-wrap: break-word;
+		box-sizing: border-box;
+	}
+
+	.composer-backdrop {
+		position: absolute;
+		inset: 0;
+		background: transparent;
+		color: var(--ink);
+		overflow: hidden;
+		pointer-events: none;
+		user-select: none;
+	}
+
+	.composer-input {
+		position: relative;
+		background: transparent;
+		color: transparent;
+		caret-color: var(--ink);
 		resize: none;
 		outline: none;
 		overflow-y: hidden;
-		box-sizing: border-box;
+		z-index: 1;
 	}
 
 	.composer-input::placeholder {
 		color: var(--ink-faint);
+		opacity: 1;
+	}
+
+	.composer-input::selection {
+		background: color-mix(in srgb, var(--brand) 28%, transparent);
+		color: transparent;
+	}
+
+	.inline-token {
+		display: inline;
+		border-radius: var(--radius-sm);
+		font-weight: 500;
+		box-decoration-break: clone;
+		-webkit-box-decoration-break: clone;
+		padding: 1px 4px;
+		margin: 0 -4px;
+		border: 1px solid transparent;
+	}
+
+	.inline-token.project {
+		background: color-mix(in srgb, #3b82f6 15%, transparent);
+		border-color: color-mix(in srgb, #3b82f6 38%, transparent);
+		color: #3b82f6;
+	}
+
+	.inline-token.directive {
+		background: color-mix(in srgb, #10b981 15%, transparent);
+		border-color: color-mix(in srgb, #10b981 38%, transparent);
+		color: #10b981;
+	}
+
+	.inline-token.role {
+		background: color-mix(in srgb, #a855f7 15%, transparent);
+		border-color: color-mix(in srgb, #a855f7 38%, transparent);
+		color: #a855f7;
 	}
 
 	.image-previews {
@@ -1904,64 +2069,6 @@
 		padding: 0 var(--space-1);
 	}
 
-	.parsed-tags {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
-	.parsed-tag {
-		padding: 2px 7px;
-		border-radius: var(--radius-full);
-		background: var(--bg-hover);
-		border: 1px solid transparent;
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		line-height: 1.5;
-	}
-
-	.parsed-tag.project {
-		background: var(--brand-tint);
-		border-color: var(--brand-line);
-		color: var(--brand);
-		font-family: var(--font-ui);
-		font-weight: 600;
-	}
-
-	/*
-		Progetto mancante non e' un errore: il task si salva comunque e decide
-		l'AI. Quindi attenzione, non pericolo.
-	*/
-	.parsed-tag.pending {
-		background: var(--warn-tint);
-		border-color: var(--warn-line);
-		color: var(--warn);
-		font-family: var(--font-ui);
-	}
-
-	.parsed-ai {
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--brand);
-	}
-
-	.parsed-prompt {
-		margin: 0;
-		font-size: var(--text-xs);
-		line-height: 1.45;
-		color: var(--ink);
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 3;
-		line-clamp: 3;
-		overflow: hidden;
-	}
-
 	/* Icona in colonna propria: un avviso lungo va a capo allineato, non sotto l'icona. */
 	.parsed-note {
 		display: grid;
@@ -1978,37 +2085,9 @@
 		color: inherit;
 	}
 
-	/* Live Monitor */
-	.live-monitor-section {
-		border-top: 1px solid var(--line);
-		padding-top: var(--space-2);
-	}
-
-	.projects-list {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-
-	.project-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-	}
-
-	/* Un progetto con un agente vivo si stacca dalla lista dei progetti fermi. */
-	.project-row.busy {
-		border-color: var(--line);
-		background: var(--bg-base);
-	}
-
 	/*
-		Punto identita' progetto: stessa rampa OKLCH della barra nella finestra
+		Punti di stato dei progetti: usano lo spazio colore OKLCH per garantire
+		luminanza uniforme tra tinte diverse, allineati con la finestra
 		principale. Con `hsl()` la tinta veniva letta come gradi HSL e lo stesso
 		progetto usciva di un altro colore; l'alone, scritto come quarto
 		argomento di `hsl()` legacy, era una dichiarazione non valida.

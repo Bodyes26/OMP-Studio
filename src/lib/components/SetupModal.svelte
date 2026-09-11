@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	/**
 	 * Primo avvio guidato (docs/PLAN.md Fase 8, docs/DECISIONS.md Gate R11).
 	 *
@@ -87,9 +88,9 @@
 	let pollTimer: number | null = null;
 
 	const REQUIREMENT_LABEL: Record<string, string> = {
-		omp: 'omp non è installato',
-		credentials: 'nessun provider collegato',
-		model: 'nessun modello predefinito'
+		omp: m.setup_req_missing_omp(),
+		credentials: m.setup_req_missing_credentials(),
+		model: m.setup_req_missing_model()
 	};
 
 	const ready = $derived(
@@ -203,7 +204,7 @@
 		} catch (e) {
 			installError = String(e);
 			if (!installDiagnostic) {
-				installDiagnostic = 'L\'installazione non è riuscita. Verifica la connessione a GitHub, la disponibilità dell\'impronta SHA-256 ufficiale o che un antivirus non stia bloccando il download.';
+				installDiagnostic = m.ui_setupmodal_l_installazione_non_e_riuscita_verifica_la_31be();
 			}
 		} finally {
 			installing = false;
@@ -259,7 +260,7 @@
 		void listen<InstallProgress>('setup://install-progress', (event) => {
 			progress = event.payload;
 			if (event.payload.status === 'error') {
-				installError = event.payload.error ?? 'Errore durante l\'installazione.';
+				installError = event.payload.error ?? m.ui_setupmodal_errore_durante_l_installazione_fba9();
 				installDiagnostic = event.payload.diagnostic ?? null;
 			}
 		}).then((fn) => {
@@ -294,15 +295,14 @@
 		>
 			<header class="setup-head">
 				<div class="titles">
-				<h1 id="setup-title">Primo avvio</h1>
+				<h1 id="setup-title">{m.setup_title()}</h1>
 				<p class="subtitle">
 					{#if step === 'install'}
 						Studio ha bisogno di <code>omp</code>: lo installa qui, senza uscire dall'app.
 					{:else if step === 'wizard'}
-						Il setup qui sotto è quello di <code>omp</code>: provider, modello, glifi,
-						composer, tema.
+						{m.ui_setupmodal_il_setup_qui_sotto_e_quello_di_6309()} <code>omp</code>{m.ui_setupmodal_provider_modello_glifi_composer_tema_f65c()}
 					{:else}
-						Dove tieni i tuoi repository.
+						{m.setup_step_project_sub()}
 					{/if}
 				</p>
 			</div>
@@ -310,20 +310,20 @@
 				<ol class="steps" aria-label="Avanzamento">
 					<li class:done={step !== 'install'} class:current={step === 'install'}>omp</li>
 					<li class:done={step === 'project'} class:current={step === 'wizard'}>setup</li>
-					<li class:current={step === 'project'}>progetti</li>
+					<li class:current={step === 'project'}>{m.ui_setupmodal_progetti_cbed()}</li>
 				</ol>
 				<button
 					type="button"
 					class="btn-refresh"
 					onclick={() => void refreshStatus()}
 					disabled={checkingStatus || installing}
-					title="Aggiorna e verifica lo stato del setup"
-					aria-label="Aggiorna e verifica stato configurazione"
+					title={m.ui_setupmodal_aggiorna_e_verifica_lo_stato_del_setup_921a()}
+					aria-label={m.ui_setupmodal_aggiorna_e_verifica_stato_configurazione_d0ed()}
 				>
-					{#if checkingStatus}...{:else}<IconRefresh /> Verifica{/if}
+					{#if checkingStatus}...{:else}<IconRefresh /> {m.setup_btn_refresh()}{/if}
 				</button>
-				<button type="button" class="quiet" onclick={() => onClose?.()} disabled={installing} aria-label="Chiudi configurazione guidata">
-					Chiudi
+				<button type="button" class="quiet" onclick={() => onClose?.()} disabled={installing} aria-label={m.ui_setupmodal_chiudi_configurazione_guidata_3f44()}>
+					{m.setup_btn_close()}
 				</button>
 			</div>
 		</header>
@@ -331,9 +331,7 @@
 			{#if step === 'install'}
 				<div class="card">
 					<p class="lead">
-						Studio installa il binario delle release ufficiali di <code>oh-my-pi</code> solo dopo
-						averne verificato l'impronta SHA-256 pubblicata da GitHub. Se l'impronta manca,
-						non è valida o non coincide, il binario esistente resta intatto. Nessuno script remoto viene eseguito.
+						Studio installa il binario delle release ufficiali di <code>oh-my-pi</code> {m.ui_setupmodal_solo_dopo_averne_verificato_l_impronta_sha_9763()}
 					</p>
 					{#if status?.installDir}
 						<p class="lead">
@@ -361,17 +359,17 @@
 					{#if installError}
 						<AlertBanner
 							variant="error"
-							title="Installazione di OMP interrotta"
+							title={m.setup_install_error_title()}
 							message={installError}
 							diagnostic={installDiagnostic ?? undefined}
 							onRetry={runInstall}
-							retryLabel="Riprova installazione"
+							retryLabel={m.setup_btn_retry_install()}
 						/>
 					{/if}
 
 					<div class="actions">
 						<button type="button" class="primary" onclick={runInstall} disabled={installing}>
-							{installing ? 'Installazione in corso...' : 'Installa omp'}
+							{installing ? m.setup_btn_installing() : m.setup_btn_install_omp()}
 						</button>
 					</div>
 				</div>
@@ -383,20 +381,20 @@
 					{#if ready}
 						<p class="ok">
 							<span class="dot" aria-hidden="true"></span>
-							{status?.credentialProviders.length ?? 0} provider collegati, modello
+							{status?.credentialProviders.length ?? 0} {m.ui_setupmodal_provider_collegati_modello_526f()}
 							<code>{status?.defaultModel}</code>
 						</p>
-						<button type="button" class="primary" onclick={goToProjects}>Continua</button>
+						<button type="button" class="primary" onclick={goToProjects}>{m.setup_btn_continue()}</button>
 					{:else if wizardIncomplete}
 						<div class="incomplete-banner-wrap">
 							<AlertBanner
 								variant="warning"
-								title="Setup incompleto"
-								message="Il wizard nativo si è chiuso prima di completare i requisiti minimi."
+								title={m.setup_incomplete_title()}
+								message={m.setup_incomplete_message()}
 								diagnostic={status?.missing?.length ? `Requisiti mancanti: ${status.missing.map(m => REQUIREMENT_LABEL[m] ?? m).join(', ')}` : undefined}
 								actions={[
-									{ label: 'Riapri setup provider', onClick: reopenProviderSetup, variant: 'primary' },
-									{ label: 'Verifica stato', onClick: () => void refreshStatus(), variant: 'secondary' }
+									{ label: m.setup_btn_reopen_provider(), onClick: reopenProviderSetup, variant: 'primary' },
+									{ label: m.setup_btn_check_status(), onClick: () => void refreshStatus(), variant: 'secondary' }
 								]}
 							/>
 						</div>
@@ -426,27 +424,27 @@
 						</ul>
 					{:else}
 						<p class="lead">
-							Nessuna cartella di repository trovata nei percorsi soliti. Scegline una.
+							{m.setup_no_repos_found()}
 						</p>
 					{/if}
 
 					<div class="actions">
-						<button type="button" onclick={browseRoot}>Sfoglia…</button>
+						<button type="button" onclick={browseRoot}>{m.setup_btn_browse()}</button>
 						<button type="button" class="primary" onclick={() => finish()} disabled={!chosenRoot}>
-							Usa questa cartella
+							{m.setup_btn_use_folder()}
 						</button>
 					</div>
 
 					{#if reposError}
 						<AlertBanner
 							variant="error"
-							title="Errore lettura cartella"
+							title={m.setup_read_error_title()}
 							message={reposError}
 							onRetry={() => (chosenRoot ? void chooseRoot(chosenRoot) : void loadRoots())}
-							retryLabel="Riprova lettura"
+							retryLabel={m.setup_retry_read()}
 						/>
 					{:else if repos.length > 0}
-						<p class="repos-title">Apri subito un progetto</p>
+						<p class="repos-title">{m.setup_quick_open_title()}</p>
 						<ul class="repos">
 							{#each repos as repo (repo.path)}
 								<li>
@@ -464,9 +462,9 @@
 				<div class="broken-db-wrap">
 					<AlertBanner
 						variant="warning"
-						title="Database OMP non leggibili"
-						message={`Database danneggiati o non accessibili: ${brokenDatabases.map((db) => db.name).join(', ')}. Storico e statistiche resteranno vuoti.`}
-						diagnostic="Verifica i permessi di lettura della cartella ~/.omp/agent o l'integrità dei file SQLite."
+						title={m.setup_broken_db_title()}
+						message={m.setup_broken_db_message({ dbs: brokenDatabases.map((db) => db.name).join(', ') })}
+						diagnostic={m.setup_broken_db_diagnostic()}
 					/>
 				</div>
 			{/if}

@@ -56,15 +56,18 @@ La versione è in **quattro file** che devono restare allineati:
 `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`.
 Non modificarli a mano: usa `npm run release -- <versione>`.
 
-Il changelog è `CHANGELOG.md` (formato *Keep a Changelog*, versioning *SemVer*).
-La sezione `## [Unreleased]` è il **parcheggio**: ogni lavoro finito ma non ancora
-rilasciato si annota lì subito, con la sua voce.
+Il changelog è bilingue e vive in **due file allineati**: `CHANGELOG.md` (italiano)
+e `CHANGELOG.en.md` (inglese), stesso formato *Keep a Changelog*, stessa sequenza
+di heading di versione. La sezione `## [Unreleased]` è il **parcheggio**: ogni
+lavoro finito ma non ancora rilasciato si annota lì subito, **in entrambe le
+lingue**, con la sua voce. `npm run release -- <versione>` rifiuta il bump se una
+delle due è vuota o se la versione esiste già in uno dei due file.
 
 ### Protocollo obbligatorio a fine di ogni modifica al codice
 
 1. Verifica che la modifica funzioni (smoke test / test mirato).
 2. Aggiungi la voce sotto `## [Unreleased]` nella categoria giusta
-   (`Added`, `Changed`, `Fixed`, `Removed`).
+   (`Added`, `Changed`, `Fixed`, `Removed`) sia in `CHANGELOG.md` sia in `CHANGELOG.en.md`.
 3. **Chiedi all'utente cosa pubblicare usando sempre il tool `ask`** (MAI solo come testo in chat), proponendo le opzioni nell'ordine:
    - **A — Pubblica Nightly (predefinita)** (`recommended: 0`): non cambia la versione stabile e
      lascia il changelog in `[Unreleased]`. L'agente committa i soli percorsi
@@ -125,8 +128,8 @@ multipiattaforma completa in cloud è sempre possibile avviare manualmente
 
 ```
 npm run release -- --check          # valida allineamento perfetto dei 4 file di versione
-npm run release -- 0.2.0            # bump dei 4 file + chiude [Unreleased] con data
-node scripts/release.mjs --notes    # note dell'ultima versione rilasciata
+npm run release -- 0.2.0            # bump dei 4 file + chiude [Unreleased] nei due changelog
+node scripts/release.mjs --notes    # note bilingui dell'ultima versione rilasciata
 ```
 
 Quando l'utente richiede o conferma il rilascio, l'agente esegue la pipeline:
@@ -139,7 +142,7 @@ npm run release -- 0.2.0
 { echo v0.2.0; echo; node scripts/release.mjs --notes; } > .release-notes.md
 
 # 3. Commit e tag; il push avvia il workflow multipiattaforma
-git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
+git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md CHANGELOG.en.md
 git commit -m "release: v0.2.0"
 git tag -a v0.2.0 -F .release-notes.md
 git push --follow-tags
@@ -174,8 +177,10 @@ Le note si estraggono con `node scripts/release.mjs --notes`, **non** con
 `npm run release -- --notes`: npm aggiunge il proprio banner allo stdout e finirebbe
 dentro il messaggio del tag.
 Le voci di changelog sono **rivolte all'utente finale**: cosa cambia per chi usa
-l'app, non quali file sono stati toccati. Una riga per cambiamento, in italiano,
-all'imperativo/indicativo presente.
+l'app, non quali file sono stati toccati. Una riga per cambiamento,
+all'imperativo/indicativo presente, in italiano in `CHANGELOG.md` e in inglese in
+`CHANGELOG.en.md`. Le note di release estratte da `--notes` contengono entrambe le
+lingue, sotto le intestazioni `## Italiano` e `## English`.
 
 ## 4. Convenzioni di codice
 

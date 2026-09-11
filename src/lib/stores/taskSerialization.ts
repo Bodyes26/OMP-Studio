@@ -62,6 +62,12 @@ export interface FrequentTaskModelConfiguration {
 	lastUsedAt: number;
 }
 
+export interface FrequentTaskModel {
+	modelSelector: string;
+	count: number;
+	lastUsedAt: number;
+}
+
 export interface PersistedTaskState {
 	tasks: StudioTask[];
 	origins: TaskSessionOrigin[];
@@ -156,6 +162,46 @@ export function rankFrequentTaskModelConfigurations(
 			right.lastUsedAt - left.lastUsedAt ||
 			left.modelSelector.localeCompare(right.modelSelector) ||
 			left.thinkingLevel.localeCompare(right.thinkingLevel)
+		)
+		.slice(0, limit);
+}
+
+/**
+ * Classifica i modelli usati globalmente ignorando il livello di thinking.
+ * Il Companion suggerisce un modello, non una configurazione completa: usi
+ * dello stesso modello con livelli diversi devono quindi concorrere insieme.
+ */
+export function rankFrequentTaskModels(
+	origins: TaskSessionOrigin[],
+	limit = 4,
+	windowSize = 50
+): FrequentTaskModel[] {
+	const recent = origins
+		.filter((origin) => Boolean(origin.modelSelector?.trim()))
+		.sort((left, right) => right.launchedAt - left.launchedAt)
+		.slice(0, windowSize);
+	const grouped = new Map<string, FrequentTaskModel>();
+
+	for (const origin of recent) {
+		const modelSelector = origin.modelSelector!.trim();
+		const existing = grouped.get(modelSelector);
+		if (existing) {
+			existing.count += 1;
+			existing.lastUsedAt = Math.max(existing.lastUsedAt, origin.launchedAt);
+		} else {
+			grouped.set(modelSelector, {
+				modelSelector,
+				count: 1,
+				lastUsedAt: origin.launchedAt
+			});
+		}
+	}
+
+	return [...grouped.values()]
+		.sort((left, right) =>
+			right.count - left.count ||
+			right.lastUsedAt - left.lastUsedAt ||
+			left.modelSelector.localeCompare(right.modelSelector)
 		)
 		.slice(0, limit);
 }

@@ -15,6 +15,7 @@ import {
 	getFactorySuggestion
 } from './promptSuggestions';
 import type { StreamingBehavior, QueueMode, InterruptMode } from '$lib/agent/wire';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 
 /**
@@ -138,11 +139,20 @@ export interface TaskDefaults {
 	selectedDirectiveIds: string[];
 }
 
+export type LanguagePreference = 'system' | 'it' | 'en';
+
 export interface GeneralSettings {
+	language: LanguagePreference;
 	defaultSurface: DefaultSurface;
 	closeWithQueuedTasks: CloseWithQueuedTasks;
 	/** Larghezza e allineamento della chat: centrata con larghezza massima leggibile o a tutta colonna. */
 	chatWidth: ChatWidth;
+	/**
+	 * Mostra nella timeline e nei cassetti i messaggi interni che omp marca
+	 * come non destinati all'utente (display: false). Di default restano nascosti
+	 * per non intasare la vista; questo interruttore li riporta a schermo per diagnosi.
+	 */
+	showInternalAgentMessages: boolean;
 	/**
 	 * Modalita layout della finestra principale:
 	 * 'auto' (adatta in base all'orientamento e larghezza finestra),
@@ -230,9 +240,11 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		timeoutMs: 20000
 	},
 	general: {
+		language: 'system',
 		defaultSurface: 'terminal',
 		closeWithQueuedTasks: 'ask',
 		chatWidth: 'readable',
+		showInternalAgentMessages: false,
 		layoutMode: 'auto',
 		sidebarCollapsed: false,
 		defaultStreamingBehavior: 'steer',
@@ -354,9 +366,11 @@ export function parseSettings(value: unknown): StudioSettings {
 			timeoutMs: clamp(rawSuggestions.timeoutMs as number, 5000, 60000, d.suggestions.timeoutMs)
 		},
 		general: {
+			language: pick(general.language, ['system', 'it', 'en'] as const, d.general.language),
 			defaultSurface: pick(general.defaultSurface, ['terminal', 'gui'] as const, d.general.defaultSurface),
 			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks),
 			chatWidth: pick(general.chatWidth, ['readable', 'full'] as const, d.general.chatWidth),
+			showInternalAgentMessages: bool(general.showInternalAgentMessages, d.general.showInternalAgentMessages),
 			layoutMode: pick(general.layoutMode, ['auto', 'horizontal', 'vertical'] as const, d.general.layoutMode),
 			sidebarCollapsed: bool(general.sidebarCollapsed, d.general.sidebarCollapsed),
 			defaultStreamingBehavior: pick(
@@ -656,7 +670,7 @@ class SettingsStore {
 		const original = list[index];
 		const duplicateId = `sug_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 		const baseLabel = original.label.slice(0, 20).trim();
-		const duplicateLabel = `${baseLabel} (copia)`.slice(0, 28);
+		const duplicateLabel = msg.ui_ts_settings_value1_copia_ebaf({ value1: baseLabel }).slice(0, 28);
 		const duplicate: PromptSuggestion = {
 			id: duplicateId,
 			factoryKey: null,

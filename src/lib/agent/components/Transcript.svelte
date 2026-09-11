@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { tick } from 'svelte';
 	// Transcript: itera `entries` con chiavi stabili (`e.id`, contatore monotono
 	// assegnato all'inserimento, mai l'indice). Delega il rendering per `kind`.
@@ -6,7 +7,15 @@
 	// Rendering a finestre: se ci sono piu' di 300 entry mostra le ultime 300
 	// e un bottone «Carica precedenti» in cima che ne scopre altre 300 preservando la viewport.
 	import { projectStore } from '../../stores/projects.svelte';
-	import type { AgentSession, AssistantEntry, Block, ToolEntry, TranscriptEntry } from '../session.svelte';
+	import type {
+		AgentSession,
+		AssistantEntry,
+		Block,
+		NoticeEntry,
+		SystemChipEntry,
+		ToolEntry,
+		TranscriptEntry
+	} from '../session.svelte';
 	import { chatReveal } from '../motion';
 	import ToolCard from '../tools/ToolCard.svelte';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
@@ -16,8 +25,13 @@
 	import RetryRow from './RetryRow.svelte';
 	import TtsrRow from './TtsrRow.svelte';
 	import UserMessage from './UserMessage.svelte';
+	import SubagentResultCard from './SubagentResultCard.svelte';
+	import IrcMessageCard from './IrcMessageCard.svelte';
+	import SystemChip from './SystemChip.svelte';
+	import NoticeGroup from './NoticeGroup.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 
 	let { session } = $props<{ session: AgentSession }>();
 
@@ -44,8 +58,8 @@
 
 	type DisplayItem =
 		| { kind: 'single'; entry: TranscriptEntry }
-		| { kind: 'tool-group'; id: number; entries: ToolGroupEntry[] };
-
+		| { kind: 'tool-group'; id: number; entries: ToolGroupEntry[] }
+		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] };
 	function hasResponseContent(entry: AssistantEntry): boolean {
 		return entry.blocks.some(
 			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
@@ -120,7 +134,61 @@
 		}
 
 		flushSegment();
-		return items;
+
+		// Secondo passaggio:
+		// 1. Scarta le entry `system-chip` con `internal === true` quando l'impostazione
+		//    diagnostica `showInternalAgentMessages` e' disattivata.
+		// 2. Accorpa le righe di sistema consecutive in un `system-group` quando sono
+		//    3 o piu'. Con 1 o 2 restano `single`. Contano come riga di sistema solo
+		//    `system-chip` e `notice`. Tessere come `subagent-result` e `irc` non
+		//    entrano nel gruppo: sono contenuto primario e interrompono la sequenza.
+		const showInternal = Boolean(settingsStore.general?.showInternalAgentMessages);
+		const filteredItems: DisplayItem[] = [];
+		for (const item of items) {
+			if (
+				item.kind === 'single' &&
+				item.entry.kind === 'system-chip' &&
+				item.entry.internal &&
+				!showInternal
+			) {
+				continue;
+			}
+			filteredItems.push(item);
+		}
+
+		const finalItems: DisplayItem[] = [];
+		let systemSegment: (SystemChipEntry | NoticeEntry)[] = [];
+
+		function flushSystemSegment() {
+			if (systemSegment.length === 0) return;
+			if (systemSegment.length >= 3) {
+				finalItems.push({
+					kind: 'system-group',
+					id: systemSegment[0].id,
+					entries: [...systemSegment]
+				});
+			} else {
+				for (const entry of systemSegment) {
+					finalItems.push({ kind: 'single', entry });
+				}
+			}
+			systemSegment = [];
+		}
+
+		for (const item of filteredItems) {
+			if (
+				item.kind === 'single' &&
+				(item.entry.kind === 'system-chip' || item.entry.kind === 'notice')
+			) {
+				systemSegment.push(item.entry as SystemChipEntry | NoticeEntry);
+			} else {
+				flushSystemSegment();
+				finalItems.push(item);
+			}
+		}
+
+		flushSystemSegment();
+		return finalItems;
 	});
 
 	function shouldShowAssistantFooter(index: number, items: DisplayItem[]): boolean {
@@ -135,12 +203,15 @@
 	function entryKind(item: DisplayItem): 'user' | 'system' | 'content' {
 		// Classifica l'item per il ritmo verticale: il confine di turno
 		// (messaggio utente) merita piu' distacco dal turno precedente; le
-		// righe di sistema consecutive (notice/retry/ttsr/compaction) restano
-		// ravvicinate, sono note a margine, non contenuto.
+		// righe di sistema consecutive (notice/system-chip/system-group/retry/ttsr/compaction)
+		// restano ravvicinate perche' sono note a margine; le tessere di contenuto
+		// (tool-group, subagent-result, irc) prendono il respiro pieno di --space-3.
 		if (item.kind === 'tool-group') return 'content';
+		if (item.kind === 'system-group') return 'system';
 		const k = item.entry.kind;
 		if (k === 'user') return 'user';
-		if (k === 'notice' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
+		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
+		if (k === 'subagent-result' || k === 'irc') return 'content';
 		return 'content';
 	}
 
@@ -200,7 +271,7 @@
 		<div class="resume-loading-state" aria-live="polite" aria-busy="true">
 			<div class="resume-header">
 				<div class="resume-spinner" aria-hidden="true"></div>
-				<span class="resume-title">Caricamento sessione in corso...</span>
+				<span class="resume-title">{m.ui_transcript_caricamento_sessione_in_corso_d8f1()}</span>
 			</div>
 			<div class="skeleton-stream">
 				<div class="skeleton-card skeleton-user">
@@ -226,18 +297,17 @@
 			<div class="empty-header">
 				<h2 class="project-title">{projectName}</h2>
 				<p class="project-desc">
-					Spazio di lavoro dell'agente per esplorare il codice, eseguire modifiche e lanciare task.
+					{m.ui_transcript_spazio_di_lavoro_dell_agente_per_esplorare_6625()}
 				</p>
 			</div>
 
 			<div class="shortcuts-row">
 				<span class="shortcut"><kbd>/</kbd> comandi</span>
-				<span class="shortcut"><kbd>Invio</kbd> invia</span>
-				<span class="shortcut"><kbd>Esc</kbd> interrompi</span>
+				<span class="shortcut"><kbd>Invio</kbd> {m.ui_transcript_invia_0fa2()}</span>
 			</div>
 		</div>
 	{:else}
-		{#each displayItems as item, i (item.kind === 'single' ? item.entry.id : `group-${item.id}`)}
+		{#each displayItems as item, i (item.kind === 'single' ? item.entry.id : `${item.kind}-${item.id}`)}
 			{@const kind = entryKind(item)}
 			{@const prevKind = i > 0 ? entryKind(displayItems[i - 1]) : null}
 			<div
@@ -249,6 +319,8 @@
 			>
 				{#if item.kind === 'tool-group'}
 					<ToolGroup entries={item.entries} activeAssistantId={session.activeAssistantId} />
+				{:else if item.kind === 'system-group'}
+					<NoticeGroup entries={item.entries} />
 				{:else if item.entry.kind === 'user'}
 					<UserMessage entry={item.entry} />
 				{:else if item.entry.kind === 'assistant'}
@@ -259,6 +331,12 @@
 					/>
 				{:else if item.entry.kind === 'tool'}
 					<ToolCard entry={item.entry} />
+				{:else if item.entry.kind === 'subagent-result'}
+					<SubagentResultCard entry={item.entry} />
+				{:else if item.entry.kind === 'irc'}
+					<IrcMessageCard entry={item.entry} />
+				{:else if item.entry.kind === 'system-chip'}
+					<SystemChip entry={item.entry} />
 				{:else if item.entry.kind === 'notice'}
 					<NoticeRow entry={item.entry} />
 				{:else if item.entry.kind === 'compaction'}
@@ -303,7 +381,7 @@
 						  ]
 						: []),
 					{
-						label: 'Scegli altro modello...',
+						label: m.ui_transcript_scegli_altro_modello_610f(),
 						onClick: () => modelSettingsStore.openModal('catalog'),
 						variant: 'secondary' as const
 					}

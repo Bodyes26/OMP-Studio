@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { wrapPrototypeCode } from '$lib/prototype/wrapper';
 	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '$lib/editor/svgSandbox';
@@ -53,7 +54,7 @@
 			}
 		} catch (e) {
 			// Conserviamo l'errore reale per non confondere errori di I/O con file mancante
-			loadError = `Errore durante il caricamento del file: ${String(e)}`;
+			loadError = m.ui_previewviewer_errore_durante_il_caricamento_del_file_value1_71d5({ value1: String(e) });
 			rawContent = '';
 			htmlDoc = '';
 		} finally {
@@ -137,17 +138,17 @@
 
 		<span class="toolbar-spacer"></span>
 
-		<button class="tool-btn" onclick={copyCode} title="Copia il codice sorgente negli appunti" aria-label="Copia codice sorgente negli appunti">
-			{#if copied}<IconCheck /> Copiato!{:else}Copia{/if}
+		<button class="tool-btn" onclick={copyCode} title={m.ui_previewviewer_copia_il_codice_sorgente_negli_appunti_3dc5()} aria-label={m.ui_previewviewer_copia_codice_sorgente_negli_appunti_360b()}>
+			{#if copied}<IconCheck /> Copiato!{:else}{m.context_menu_item_copy()}{/if}
 		</button>
 		<button class="tool-btn" onclick={() => void load()} title="Ricarica il file" aria-label="Ricarica file anteprima">Ricarica</button>
-		<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)" aria-label="Chiudi anteprima"><IconClose /></button>
+		<button class="tool-btn close" onclick={() => onClose?.()} title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} aria-label={m.ui_previewviewer_chiudi_anteprima_d65a()}><IconClose /></button>
 	</div>
 
 	{#if loading}
-		<div class="center-note">Caricamento prototipo...</div>
+		<div class="center-note">{m.ui_previewviewer_caricamento_prototipo_a97b()}</div>
 	{:else if missing}
-		<div class="center-note">File non trovato: {filePath}</div>
+		<div class="center-note">{m.ui_previewviewer_file_non_trovato_952c()} {filePath}</div>
 	{:else if loadError}
 		<div class="center-note error" role="alert">
 			<span>{loadError}</span>

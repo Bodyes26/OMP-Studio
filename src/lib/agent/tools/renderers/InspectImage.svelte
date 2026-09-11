@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Renderer per `inspect_image`.
 	//
 	// Cosa mostra:
@@ -40,7 +41,7 @@
 
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (model) rows.push({ key: 'modello', value: model });
+		if (model) rows.push({ key: m.ui_companionview_modello_fa78(), value: model });
 		if (mimeType) rows.push({ key: 'tipo', value: mimeType });
 		if (imagePath && imagePath !== path) rows.push({ key: 'risolto', value: imagePath });
 		return rows;

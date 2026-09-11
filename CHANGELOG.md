@@ -1,5 +1,7 @@
 # Changelog
 
+*Italiano: questo file · English: [CHANGELOG.en.md](CHANGELOG.en.md)*
+
 Tutte le modifiche rilevanti a omp-studio-app.
 Formato basato su [Keep a Changelog](https://keepachangelog.com/it/1.1.0/),
 versionamento secondo [Semantic Versioning](https://semver.org/lang/it/).
@@ -10,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Interfaccia bilingue italiano/inglese con selettore in «Impostazioni → Generale»: la lingua segue di default quella del sistema operativo e può essere fissata a mano su Italiano o Inglese. Il cambio è immediato e non ricarica la finestra, quindi sessioni dell'agente, terminali e anteprime live restano attivi mentre i testi si riscrivono. Date, orari, numeri e importi seguono la regione dell'utente, e la documentazione utente (README, scorciatoie, changelog) è disponibile nelle due lingue.
 - Rilevamento automatico dell'attesa di input e risposte rapide post-turno via Companion e notifiche OS: estesa l'analisi del turno con modello leggero `smol` per riconoscere quando l'agente termina formulando domande, conferme di piani o richieste di decisione senza invocare formalmente il tool `ask`; il progetto passa immediatamente allo stato di attenzione «Chiede risposta», evidenziandosi nella barra progetti e facendo comparire in cima al Companion la card interattiva con la domanda estratta e le opzioni cliccabili, inoltrate direttamente come nuovo prompt alla chat; se l'app è in background, scatta immediatamente la notifica desktop OS con il testo della domanda per consentire all'utente di rispondere entro i 5 minuti preservando la cache hit di Anthropic.
 - Modale di sicurezza alla chiusura di progetti e applicazione con protezione dei task in esecuzione e in coda: intercetta la chiusura del singolo progetto e dell'intera finestra (tramite onCloseRequested e pulsante di chiusura), avvisando l'utente se sono presenti task in coda o elaborazioni attive; permette di scegliere se conservare o eliminare le code e, in caso di chiusura con elaborazione in corso, interrompe il processo reinserendo automaticamente il prompt e le impostazioni del task interrotto in cima a .omp/tasks.json per ritrovarlo intatto alla riapertura.
 - Laboratorio prototipi frontend React 19 + Tailwind v4: nuovo spazio GUI dedicato nella colonna centrale di Studio per ideare, confrontare 3-5 varianti di componenti e iterare flussi multischermata con dati simulati in modo isolato e sicuro, operando in concorrenza simultanea con l'agente principale nello stesso progetto.

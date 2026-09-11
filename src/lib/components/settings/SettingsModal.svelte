@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { IconClose } from '$lib/icons';
 	import { settingsStore, type SettingsSection } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
@@ -20,14 +21,14 @@
 	// Navigazione di primo livello: ogni voce apre una sezione del centro
 	// impostazioni. "Modelli" e' l'unica con le tre schede orizzontali storiche.
 	const NAV_SECTIONS: { id: SettingsSection; label: string }[] = [
-		{ id: 'general', label: 'Generale' },
-		{ id: 'appearance', label: 'Aspetto' },
-		{ id: 'accessibility', label: 'Accessibilità' },
-		{ id: 'notifications', label: 'Notifiche' },
-		{ id: 'projectBar', label: 'Barra progetti' },
-		{ id: 'workspace', label: 'Editor & Terminale' },
+		{ id: 'general', label: m.settings_nav_general() },
+		{ id: 'appearance', label: m.settings_nav_appearance() },
+		{ id: 'accessibility', label: m.settings_nav_accessibility() },
+		{ id: 'notifications', label: m.settings_nav_notifications() },
+		{ id: 'projectBar', label: m.ui_settingsmodal_barra_progetti_1fc0() },
+		{ id: 'workspace', label: m.ui_settingsmodal_editor_terminale_8f5d() },
 		{ id: 'tasks', label: 'Task & Agenti' },
-		{ id: 'suggestions', label: 'Suggerimenti' },
+		{ id: 'suggestions', label: m.settings_nav_suggestions() },
 		{ id: 'models', label: 'Modelli' }
 	];
 
@@ -156,7 +157,7 @@
 						<circle cx="8" cy="8" r="2.5" />
 						<path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
 					</svg>
-					<span>Impostazioni</span>
+					<span>{m.ui_settingsmodal_impostazioni_d713()}</span>
 					<span class="title-sep">·</span>
 					<span class="title-section">{sectionLabel}</span>
 				</h3>
@@ -169,7 +170,7 @@
 						class:loading={modelSettingsStore.isCheckingHealth}
 						disabled={modelSettingsStore.isCheckingHealth}
 						onclick={handleCheckHealth}
-						title="Verifica disponibilita e versioni dei modelli configurati per ogni ruolo e riserva"
+						title={m.ui_settingsmodal_verifica_disponibilita_e_versioni_dei_modelli_configurati_02ef()}
 					>
 						{#if modelSettingsStore.isCheckingHealth}
 							<span class="btn-spinner" aria-hidden="true"></span>
@@ -179,7 +180,7 @@
 								<path d="M10.5 10.5L14 14" stroke-linecap="round" />
 							</svg>
 						{/if}
-						<span>{modelSettingsStore.isCheckingHealth ? 'Verifica...' : 'Verifica Modelli'}</span>
+						<span>{modelSettingsStore.isCheckingHealth ? m.page_omp_update_status_checking() : m.ui_settingsmodal_verifica_modelli_3b0a()}</span>
 						{#if modelSettingsStore.healthReport && modelSettingsStore.blockingFindings && modelSettingsStore.blockingFindings.length > 0}
 							<span class="header-action-badge">{modelSettingsStore.blockingFindings.length}</span>
 						{/if}
@@ -197,13 +198,13 @@
 					</button>
 				{/if}
 
-				<button class="btn-close" onclick={requestClose} aria-label="Chiudi finestra"><IconClose /></button>
+				<button class="btn-close" onclick={requestClose} aria-label={m.settings_close_window()}><IconClose /></button>
 			</div>
 		</div>
 
 		<div class="modal-layout">
 			<!-- Nav di primo livello -->
-			<nav class="section-nav" aria-label="Sezioni impostazioni">
+			<nav class="section-nav" aria-label={m.ui_settingsmodal_sezioni_impostazioni_7e84()}>
 				{#each NAV_SECTIONS as s (s.id)}
 					<button
 						type="button"
@@ -227,7 +228,7 @@
 			<div class="section-content">
 				{#if settingsStore.section === 'models'}
 					<!-- Nav Tabs orizzontali: solo dentro la sezione Modelli -->
-					<div class="modal-nav" role="tablist" aria-label="Sezioni impostazioni modelli">
+					<div class="modal-nav" role="tablist" aria-label={m.ui_settingsmodal_sezioni_impostazioni_modelli_b9dd()}>
 						<button
 							class="nav-tab"
 							role="tab"
@@ -268,7 +269,7 @@
 						{#if modelSettingsStore.loading}
 							<div class="loading-state">
 								<span class="spinner"></span>
-								<span>Caricamento configurazione modelli OMP...</span>
+								<span>{m.ui_settingsmodal_caricamento_configurazione_modelli_omp_71c9()}</span>
 							</div>
 						{:else if modelSettingsStore.activeTab === 'roles'}
 							<div id="panel-roles" role="tabpanel" aria-labelledby="tab-roles" class="tab-panel">
@@ -310,7 +311,7 @@
 									Reimposta
 								</button>
 							{/if}
-							<button class="btn btn-secondary" onclick={requestClose}>Chiudi</button>
+							<button class="btn btn-secondary" onclick={requestClose}>{m.page_modal_restart_btn_close()}</button>
 							<button
 								class="btn btn-primary"
 								disabled={!modelSettingsStore.hasUnsavedChanges || modelSettingsStore.saving}
@@ -319,7 +320,7 @@
 								{#if modelSettingsStore.saving}
 									Salvataggio...
 								{:else}
-									Salva Modifiche
+									{m.ui_settingsmodal_salva_modifiche_891d()}
 								{/if}
 							</button>
 						</div>
@@ -365,10 +366,10 @@
 			<div class="confirm-overlay" transition:fade={{ duration: 100 }}>
 				<div class="confirm-box" transition:fly={{ y: -8, duration: 150 }}>
 					<h4>Scartare le modifiche non salvate?</h4>
-					<p>Hai apportato modifiche alla configurazione dei modelli che andranno perse se chiudi ora.</p>
+					<p>{m.ui_settingsmodal_hai_apportato_modifiche_alla_configurazione_dei_modelli_171d()}</p>
 					<div class="confirm-actions">
 						<button class="btn btn-secondary" onclick={cancelDiscard}>Continua a modificare</button>
-						<button class="btn btn-primary" onclick={forceClose}>Scarta e chiudi</button>
+						<button class="btn btn-primary" onclick={forceClose}>{m.ui_settingsmodal_scarta_e_chiudi_3a7c()}</button>
 					</div>
 				</div>
 			</div>

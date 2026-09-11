@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
@@ -57,20 +58,20 @@
 	}>();
 
 	const PROJECT_BAR_ORDER_OPTIONS: { value: ProjectBarOrder; label: string }[] = [
-		{ value: 'fixed', label: 'Manuale' },
-		{ value: 'mru', label: 'Ultimo aperto' },
-		{ value: 'priority', label: 'Priorità task' },
-		{ value: 'alpha', label: 'Alfabetico' }
+		{ value: 'fixed', label: m.topbar_order_fixed() },
+		{ value: 'mru', label: m.topbar_order_mru() },
+		{ value: 'priority', label: m.topbar_order_priority() },
+		{ value: 'alpha', label: m.topbar_order_alpha() }
 	];
 
 	// Lo stato di una tessera e' un anello e un colore: senza queste etichette
 	// dentro l'`aria-label` sarebbe un'informazione affidata al solo colore.
 	const AGENT_STATE_LABEL: Record<Project['agentState'], string> = {
-		idle: 'nessun agente',
-		working: 'agente al lavoro',
-		attention: 'attende una risposta',
-		finished: 'ha finito il lavoro',
-		unknown: 'stato non disponibile'
+		idle: m.topbar_agent_state_idle(),
+		working: m.topbar_agent_state_working(),
+		attention: m.topbar_agent_state_attention(),
+		finished: m.topbar_agent_state_finished(),
+		unknown: m.topbar_agent_state_unknown()
 	};
 
 	const appWindow = getCurrentWindow();
@@ -122,8 +123,8 @@
 	 *  dei modelli, antepone il riassunto alla descrizione con la scorciatoia. */
 	const settingsChipTitle = $derived(
 		modelSettingsStore.attentionLevel !== 'none' && modelSettingsStore.attentionTooltip
-			? `${modelSettingsStore.attentionTooltip} — Impostazioni di Studio (Ctrl+Alt+,)`
-			: 'Impostazioni di Studio (Ctrl+Alt+,)'
+			? m.ui_topbar_value1_impostazioni_di_studio_ctrl_alt_f8aa({ value1: modelSettingsStore.attentionTooltip })
+			: m.ui_topbar_impostazioni_di_studio_ctrl_alt_3e0d()
 	);
 
 	function updateScrollState() {
@@ -384,7 +385,7 @@
 	function queueBadgeTitle(project: Project, queued: number, ready: boolean): string {
 		const base = `${queued} task in coda`;
 		if (settingsStore.projectBar.queueBadge !== 'count-state') return base;
-		return ready ? `${base} · pronti a partire` : `${base} · ${runReason?.(project.id) ?? 'non lanciabili ora'}`;
+		return ready ? `${base} · pronti a partire` : `${base} · ${runReason?.(project.id) ?? m.topbar_queue_not_runnable()}`;
 	}
 
 	function handleMinimize(e: MouseEvent) {
@@ -439,11 +440,11 @@
 				settingsStore.toggleSidebar();
 			}}
 			title={settingsStore.general.sidebarCollapsed
-				? 'Mostra barra laterale (Ctrl+Alt+B)'
-				: 'Nascondi barra laterale (Ctrl+Alt+B)'}
+				? m.ui_topbar_mostra_barra_laterale_ctrl_alt_b_1e8b()
+				: m.ui_topbar_nascondi_barra_laterale_ctrl_alt_b_093c()}
 			aria-label={settingsStore.general.sidebarCollapsed
-				? 'Mostra barra laterale (Ctrl+Alt+B)'
-				: 'Nascondi barra laterale (Ctrl+Alt+B)'}
+				? m.ui_topbar_mostra_barra_laterale_ctrl_alt_b_1e8b()
+				: m.ui_topbar_nascondi_barra_laterale_ctrl_alt_b_093c()}
 			aria-expanded={!settingsStore.general.sidebarCollapsed}
 		>
 			<img
@@ -460,8 +461,8 @@
 				type="button"
 				class="tab-scroll-btn left"
 				onclick={() => scrollTabs(-180)}
-				title="Scorri progetti a sinistra"
-				aria-label="Scorri progetti a sinistra"
+				title={m.topbar_scroll_left()}
+				aria-label={m.topbar_scroll_left()}
 			><IconChevronLeft /></button>
 		{/if}
 
@@ -475,7 +476,7 @@
 			     della finestra sotto. Il pannello non ha un id stabile a cui
 			     agganciare `aria-controls`, e inventarne uno che non punta a
 			     niente sarebbe peggio dell'assenza. -->
-			<div class="tabs" role="tablist" aria-orientation="horizontal" aria-label="Progetti aperti">
+			<div class="tabs" role="tablist" aria-orientation="horizontal" aria-label={m.topbar_open_projects()}>
 		{#each projectOrder.list as p (p.id)}
 			{@const queued = p.path ? taskStore.queuedCountFor(p.path) : 0}
 			{@const ready = canRunTask?.(p.id) ?? false}
@@ -528,7 +529,7 @@
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-label={`${p.path ? 'Progetto' : 'Scratchpad'}: ${p.name} · ${AGENT_STATE_LABEL[p.agentState]}${queued > 0 ? ` · ${queued} task in coda` : ''}`}
+					aria-label={m.topbar_tab_aria_label({ type: p.path ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[p.agentState], queued: queued > 0 ? ` · ${queued} task in coda` : '' })}
 				>
 					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
 					     raggio; il rimontaggio con `#key` riavvia l'animazione. -->
@@ -581,29 +582,29 @@
 				type="button"
 				class="tab-scroll-btn right"
 				onclick={() => scrollTabs(180)}
-				title="Scorri progetti a destra"
-				aria-label="Scorri progetti a destra"
+				title={m.topbar_scroll_right()}
+				aria-label={m.topbar_scroll_right()}
 			><IconChevronRight /></button>
 		{/if}
 
 		<div class="tabs-actions">
-			<button class="tab-add" onclick={() => onNewProject?.()} title="Nuovo progetto (Ctrl+Alt+N)" aria-label="Nuovo progetto (Ctrl+Alt+N)"><IconPlus /></button>
-			<button class="tab-add" onclick={() => projectStore.openScratchpad()} title="Scratchpad (Ctrl+Alt+S)" aria-label="Scratchpad (Ctrl+Alt+S)"><IconGhost /></button>
-			<button class="tab-add" class:active={labActive} onclick={() => onLabClick?.()} title="Laboratorio prototipi (Ctrl+Alt+P)" aria-label="Laboratorio prototipi (Ctrl+Alt+P)"><IconLab /></button>
+			<button class="tab-add" onclick={() => onNewProject?.()} title={m.topbar_action_new_project()} aria-label={m.topbar_action_new_project()}><IconPlus /></button>
+			<button class="tab-add" onclick={() => projectStore.openScratchpad()} title={m.topbar_action_scratchpad()} aria-label={m.topbar_action_scratchpad()}><IconGhost /></button>
+			<button class="tab-add" class:active={labActive} onclick={() => onLabClick?.()} title={m.topbar_action_lab()} aria-label={m.topbar_action_lab()}><IconLab /></button>
 
 			<div class="order-control">
 				<button
 					type="button"
 					class="tab-add"
 					onclick={(event) => { event.stopPropagation(); orderMenuOpen = !orderMenuOpen; }}
-					title="Ordina i progetti"
-					aria-label="Ordina i progetti"
+					title={m.topbar_action_sort_projects()}
+					aria-label={m.topbar_action_sort_projects()}
 					aria-haspopup="menu"
 					aria-expanded={orderMenuOpen}
 				><IconChevronDown /></button>
 				{#if orderMenuOpen}
-					<button type="button" class="order-backdrop" onclick={() => orderMenuOpen = false} aria-label="Chiudi menu ordinamento" tabindex="-1"></button>
-					<div class="order-popover" role="menu" aria-label="Ordinamento progetti" use:trapFocus={{ onEscape: () => orderMenuOpen = false }}>
+					<button type="button" class="order-backdrop" onclick={() => orderMenuOpen = false} aria-label={m.topbar_sort_menu_close()} tabindex="-1"></button>
+					<div class="order-popover" role="menu" aria-label={m.topbar_sort_menu_title()} use:trapFocus={{ onEscape: () => orderMenuOpen = false }}>
 						{#each PROJECT_BAR_ORDER_OPTIONS as option (option.value)}
 							<button
 								type="button"
@@ -619,7 +620,7 @@
 							class="order-option"
 							role="menuitem"
 							onclick={() => { orderMenuOpen = false; onSettingsClick?.('projectBar'); }}
-						>Tutte le impostazioni della barra...</button>
+						>{m.topbar_all_bar_settings()}</button>
 					</div>
 				{/if}
 			</div>
@@ -636,8 +637,8 @@
 			<button
 				class="setup-chip"
 				onclick={(e) => { e.stopPropagation(); onSetupClick?.(); }}
-				title="Completa la configurazione di omp"
-				aria-label="Completa configurazione OMP"
+				title={m.topbar_setup_chip_title()}
+				aria-label={m.topbar_setup_chip_aria()}
 			>
 				<IconWarning /> Setup
 			</button>
@@ -657,7 +658,7 @@
 			title={settingsChipTitle}
 			aria-label={settingsChipTitle}
 		>
-			<IconSettings /> Impostazioni
+			<IconSettings /> {m.ui_settingsmodal_impostazioni_d713()}
 			{#if modelSettingsStore.attentionLevel === 'warn'}
 				<span class="settings-badge warn" aria-hidden="true">!</span>
 			{:else if modelSettingsStore.attentionLevel === 'info'}
@@ -669,7 +670,7 @@
 			class="settings-chip companion-chip"
 			class:active={companionStore.isPinned}
 			onclick={(e) => { e.stopPropagation(); void companionStore.toggleCompanion(); }}
-			title="Apri o fissa la finestra Companion (Alt+Spazio)"
+			title={m.topbar_companion_chip_title()}
 			aria-label="Finestra Companion (Alt+Spazio)"
 		>
 			<IconPin /> Companion
@@ -679,17 +680,17 @@
 			class="settings-chip lab-chip"
 			class:active={labActive}
 			onclick={(e) => { e.stopPropagation(); onLabClick?.(); }}
-			title="Laboratorio prototipi frontend (Ctrl+Alt+P)"
-			aria-label="Laboratorio prototipi frontend (Ctrl+Alt+P)"
+			title={m.topbar_lab_chip_title()}
+			aria-label={m.topbar_lab_chip_title()}
 		>
-			<IconLab /> Laboratorio
+			<IconLab /> {m.ui__page_laboratorio_d67e()}
 		</button>
 
 		{#if taskStore.totalQueued > 0}
 			<button
 				class="queue-chip"
 				onclick={(e) => { e.stopPropagation(); onQueueClick?.(); }}
-				title="Task in attesa su tutti i progetti (Ctrl+Alt+T)"
+				title={m.topbar_queue_chip_title()}
 				aria-label="Task in coda su tutti i progetti: {taskStore.totalQueued} (Ctrl+Alt+T)"
 			>
 				Coda ({taskStore.totalQueued})
@@ -715,10 +716,10 @@
 			<!-- Su Windows Studio disegna i tre controlli personalizzati;
 			     su macOS e Linux le decorazioni sono native per evitare doppie barre. -->
 			<div class="window-controls">
-				<button class="win-btn" onclick={handleMinimize} title="Riduci a icona" aria-label="Riduci a icona">
+				<button class="win-btn" onclick={handleMinimize} title={m.topbar_win_minimize()} aria-label={m.topbar_win_minimize()}>
 					<svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
 				</button>
-				<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? "Ripristina" : "Ingrandisci"} aria-label={isMaximized ? "Ripristina finestra" : "Ingrandisci finestra"}>
+				<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? m.topbar_win_restore() : m.topbar_win_maximize()} aria-label={isMaximized ? m.ui_topbar_ripristina_finestra_a21a() : "Ingrandisci finestra"}>
 					{#if isMaximized}
 						<svg width="10" height="10" viewBox="0 0 10 10">
 							<path d="M2.5 1h6v6h-1v-5h-5v-1zm-1.5 2.5h6v6h-6v-6zm1 1v4h4v-4h-4z" fill="currentColor"/>
@@ -729,7 +730,7 @@
 						</svg>
 					{/if}
 				</button>
-				<button class="win-btn close" onclick={handleClose} title="Chiudi" aria-label="Chiudi applicazione">
+				<button class="win-btn close" onclick={handleClose} title={m.topbar_win_close()} aria-label={m.topbar_win_close_app_aria()}>
 					<svg width="10" height="10" viewBox="0 0 10 10">
 						<path d="M1 1l8 8m0-8l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
 					</svg>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	/**
 	 * Pannello di una tessera progetto: anteprima al passaggio del mouse e menu
 	 * contestuale sul click destro, con lo stesso contenuto.
@@ -82,11 +83,11 @@
 	type View = 'default' | 'rename' | 'close' | 'close-others';
 
 	const AGENT_STATE_LABEL: Record<Project['agentState'], string> = {
-		working: 'Agente al lavoro',
-		attention: 'Attende una risposta',
+		working: m.ui_projectpopover_agente_al_lavoro_200b(),
+		attention: m.ui_projectpopover_attende_una_risposta_b102(),
 		finished: 'Ha finito il lavoro',
-		idle: 'In attesa di istruzioni',
-		unknown: 'Nessuna sessione aperta'
+		idle: m.ui_projectpopover_in_attesa_di_istruzioni_eca6(),
+		unknown: m.ui_projectpopover_nessuna_sessione_aperta_18f8()
 	};
 
 	const QUEUE_PEEK_LIMIT = 5;
@@ -135,7 +136,7 @@
 		const line = task.prompt.split(/\r?\n/).find((entry) => entry.trim())?.trim();
 		if (line) return line;
 		if (task.images && task.images.length > 0) return '(solo immagini)';
-		return 'Nuovo task';
+		return m.project_popover_new_task();
 	}
 
 	function flash(message: string) {
@@ -166,9 +167,9 @@
 	async function copyPath() {
 		try {
 			await navigator.clipboard.writeText(project.path);
-			flash('Percorso copiato negli appunti');
+			flash(m.project_popover_toast_copied());
 		} catch {
-			flash('Copia negli appunti non riuscita');
+			flash(m.project_popover_toast_copy_failed());
 		}
 	}
 
@@ -182,7 +183,7 @@
 			await invoke('open_project_external', { projectPath: project.path, target });
 			onClose();
 		} catch (error) {
-			flash(typeof error === 'string' ? error : 'Apertura non riuscita');
+			flash(typeof error === 'string' ? error : m.project_popover_toast_open_failed());
 		}
 	}
 
@@ -299,7 +300,7 @@
 	role="dialog"
 	aria-modal="false"
 	tabindex="-1"
-	aria-label={`Progetto ${project.name}: dettagli e azioni`}
+	aria-label={m.project_popover_aria_label({ name: project.name })}
 	class:flipped
 	use:anchoredPopover={{ anchor, offset: 6, onFlip: (value) => (flipped = value) }}
 	onpointerenter={() => onHoverChange(true)}
@@ -315,23 +316,23 @@
 			}}
 		>
 			<label>
-				<span>Nome</span>
-				<input bind:value={nameDraft} aria-label="Nome progetto" onkeydown={handleRenameKeydown} />
+				<span>{m.project_popover_name_field()}</span>
+				<input bind:value={nameDraft} aria-label={m.project_popover_name_aria()} onkeydown={handleRenameKeydown} />
 			</label>
 			{#if !isScratchpad}
 				<label>
 					<span>Sigla</span>
 					<input
 						bind:value={labelDraft}
-						aria-label="Sigla progetto"
+						aria-label={m.project_popover_code_aria()}
 						placeholder={initials(project.name)}
 						onkeydown={handleRenameKeydown}
 					/>
 				</label>
 			{/if}
 			<div class="rename-actions">
-				<button type="button" class="btn-ghost" onclick={() => (view = 'default')}>Annulla</button>
-				<button type="submit" class="btn-primary">Salva</button>
+				<button type="button" class="btn-ghost" onclick={() => (view = 'default')}>{m.project_popover_btn_cancel()}</button>
+				<button type="submit" class="btn-primary">{m.project_popover_btn_save()}</button>
 			</div>
 		</form>
 	{:else}
@@ -351,7 +352,7 @@
 			</span>
 			<span class="titles">
 				<span class="name" title={project.name}>{project.name}</span>
-				<span class="path" title={project.path}>{isScratchpad ? 'Chat temporanea' : truncateMiddle(project.path)}</span>
+				<span class="path" title={project.path}>{isScratchpad ? m.project_popover_badge_scratchpad() : truncateMiddle(project.path)}</span>
 			</span>
 			<button
 				type="button"
@@ -361,8 +362,8 @@
 					labelDraft = project.label ?? '';
 					view = 'rename';
 				}}
-				aria-label="Modifica nome e sigla"
-				title="Modifica nome e sigla"
+				aria-label={m.project_popover_edit_name_title()}
+				title={m.project_popover_edit_name_title()}
 			>
 				<IconRename />
 			</button>
@@ -386,14 +387,14 @@
 					<div class="quick-context">
 						{#each attentionReq.recentMessages.slice(-2) as msg, i (i)}
 							<div class="context-item {msg.role}">
-								<strong>{msg.role === 'user' ? 'Tu' : 'Agente'}:</strong>
+								<strong>{msg.role === 'user' ? m.project_popover_speaker_you() : m.project_popover_speaker_agent()}:</strong>
 								<span>{msg.text}</span>
 							</div>
 						{/each}
 					</div>
 				{/if}
 
-				<p class="quick-ask-prompt">{askQuestionText(attentionReq.pendingUi, 'Richiesta di risposta:')}</p>
+				<p class="quick-ask-prompt">{askQuestionText(attentionReq.pendingUi, m.project_popover_quick_ask_title())}</p>
 
 				{#if attentionReq.pendingUi.options && attentionReq.pendingUi.options.length > 0}
 					<div class="quick-options">
@@ -415,14 +416,14 @@
 							class="quick-action-btn confirm"
 							onclick={() => void handleQuickReplyConfirm(true)}
 						>
-							<IconCheck /> Sì, procedi
+							<IconCheck /> {m.project_popover_btn_confirm_yes()}
 						</button>
 						<button
 							type="button"
 							class="quick-action-btn cancel"
 							onclick={() => void handleQuickReplyConfirm(false)}
 						>
-							<IconClose /> No
+							<IconClose /> {m.project_popover_btn_confirm_no()}
 						</button>
 					</div>
 				{/if}
@@ -432,25 +433,25 @@
 
 	{#if view === 'close'}
 		<div class="confirm">
-			<p>Ci sono task in coda su questo progetto.</p>
+			<p>{m.project_popover_close_has_queue()}</p>
 			<button type="button" class="row" onclick={() => closeProject(false)}>
-				<IconCheck /> <span class="row-label">Chiudi e conserva la coda</span>
+				<IconCheck /> <span class="row-label">{m.project_popover_close_keep_queue()}</span>
 			</button>
 			<button type="button" class="row danger" onclick={() => closeProject(true)}>
-				<IconClose /> <span class="row-label">Chiudi ed elimina i task</span>
+				<IconClose /> <span class="row-label">{m.project_popover_close_discard_queue()}</span>
 			</button>
 			<button type="button" class="row" onclick={() => (view = 'default')}>
-				<span class="row-label indent">Annulla</span>
+				<span class="row-label indent">{m.project_popover_btn_cancel()}</span>
 			</button>
 		</div>
 	{:else if view === 'close-others'}
 		<div class="confirm">
-			<p>Chiudo gli altri {otherProjectCount} progetti aperti?</p>
+			<p>Chiudo gli altri {otherProjectCount} {m.ui_projectpopover_progetti_aperti_18ab()}</p>
 			<button type="button" class="row danger" onclick={closeOthers}>
-				<IconCloseOthers /> <span class="row-label">Chiudi gli altri {otherProjectCount}</span>
+				<IconCloseOthers /> <span class="row-label">{m.ui_editor_chiudi_gli_altri_f1f6()} {otherProjectCount}</span>
 			</button>
 			<button type="button" class="row" onclick={() => (view = 'default')}>
-				<span class="row-label indent">Annulla</span>
+				<span class="row-label indent">{m.project_popover_btn_cancel()}</span>
 			</button>
 		</div>
 	{:else if view === 'default'}
@@ -468,9 +469,9 @@
 							class="icon-btn"
 							disabled={!ready}
 							onclick={(event) => runTask(task, event.ctrlKey || event.metaKey)}
-							aria-label={`Avvia task: ${taskLabel(task)}`}
+							aria-label={m.project_popover_run_task_aria({ task: taskLabel(task) })}
 							title={ready
-								? 'Avvia in background. Ctrl+click: avvia e passa al progetto.'
+								? m.ui_projectpopover_avvia_in_background_ctrl_click_avvia_e_6a02()
 								: reason}
 						>
 							<IconPlay />
@@ -479,8 +480,8 @@
 							type="button"
 							class="icon-btn"
 							onclick={() => editTask(task)}
-							aria-label={`Modifica task: ${taskLabel(task)}`}
-							title="Modifica il task"
+							aria-label={m.project_popover_edit_task_aria({ task: taskLabel(task) })}
+							title={m.project_popover_edit_task_title()}
 						>
 							<IconRename />
 						</button>
@@ -497,14 +498,14 @@
 		<section class="block">
 			{#if !isActive}
 				<button type="button" class="row" onclick={select}>
-					<IconCheck /> <span class="row-label">Seleziona progetto</span>
+					<IconCheck /> <span class="row-label">{m.project_popover_select_project()}</span>
 				</button>
 			{/if}
 			<button type="button" class="row" onclick={newTask}>
-				<IconPlus /> <span class="row-label">Nuovo task</span>
+				<IconPlus /> <span class="row-label">{m.project_popover_new_task()}</span>
 			</button>
 			<button type="button" class="row" onclick={openQueue}>
-				<IconQueue /> <span class="row-label">Coda di tutti i progetti</span>
+				<IconQueue /> <span class="row-label">{m.project_popover_all_projects_queue()}</span>
 				<kbd>Ctrl+Alt+T</kbd>
 			</button>
 			{#if !isScratchpad}
@@ -514,8 +515,8 @@
 					onclick={() => projectStore.setAutoDispatch(project.id, !project.autoDispatch)}
 					aria-pressed={project.autoDispatch}
 				>
-					<IconAuto /> <span class="row-label">Avvio automatico dei task</span>
-					<span class="row-state">{project.autoDispatch ? 'attivo' : 'spento'}</span>
+					<IconAuto /> <span class="row-label">{m.project_popover_auto_dispatch()}</span>
+					<span class="row-state">{project.autoDispatch ? m.project_popover_auto_dispatch_on() : m.project_popover_auto_dispatch_off()}</span>
 				</button>
 			{/if}
 		</section>
@@ -523,21 +524,21 @@
 		{#if !isScratchpad}
 			<section class="block">
 				<button type="button" class="row" onclick={copyPath}>
-					<IconCopy /> <span class="row-label">Copia percorso</span>
+					<IconCopy /> <span class="row-label">{m.project_popover_copy_path()}</span>
 				</button>
 				<button type="button" class="row" onclick={reveal}>
-					<IconFolderOpen /> <span class="row-label">Mostra nella cartella</span>
+					<IconFolderOpen /> <span class="row-label">{m.project_popover_reveal_folder()}</span>
 				</button>
 				<button type="button" class="row" onclick={() => void openExternal('terminal')}>
-					<IconTerminal /> <span class="row-label">Apri nel terminale</span>
+					<IconTerminal /> <span class="row-label">{m.project_popover_open_terminal()}</span>
 				</button>
 				<button type="button" class="row" onclick={() => void openExternal('editor')}>
-					<IconEditor /> <span class="row-label">Apri nell'editor esterno</span>
+					<IconEditor /> <span class="row-label">{m.project_popover_open_editor()}</span>
 				</button>
 			</section>
 
 			<section class="block">
-				<h4>Colore</h4>
+				<h4>{m.project_popover_color_title()}</h4>
 				<HuePicker
 					hue={project.hue}
 					mode={project.colorMode}
@@ -551,14 +552,14 @@
 		<section class="block">
 			{#if canReorder}
 				<div class="row static">
-					<span class="row-label indent">Sposta tessera</span>
+					<span class="row-label indent">{m.project_popover_shift_tab()}</span>
 					<span class="row-tools">
 						<button
 							type="button"
 							class="icon-btn"
 							onclick={() => shift(-1)}
 							aria-label="Sposta la tessera a sinistra"
-							title="Sposta a sinistra (Ctrl+Alt+Shift+←)"
+							title={m.project_popover_shift_left()}
 						>
 							<IconArrowLeft />
 						</button>
@@ -567,7 +568,7 @@
 							class="icon-btn"
 							onclick={() => shift(1)}
 							aria-label="Sposta la tessera a destra"
-							title="Sposta a destra (Ctrl+Alt+Shift+→)"
+							title={m.project_popover_shift_right()}
 						>
 							<IconArrowRight />
 						</button>
@@ -575,11 +576,11 @@
 				</div>
 			{/if}
 			<button type="button" class="row danger" onclick={requestClose}>
-				<IconClose /> <span class="row-label">Chiudi progetto</span>
+				<IconClose /> <span class="row-label">{m.project_popover_close_project()}</span>
 			</button>
 			{#if otherProjectCount > 0}
 				<button type="button" class="row danger" onclick={() => (view = 'close-others')}>
-					<IconCloseOthers /> <span class="row-label">Chiudi gli altri progetti</span>
+					<IconCloseOthers /> <span class="row-label">{m.project_popover_close_others()}</span>
 				</button>
 			{/if}
 		</section>

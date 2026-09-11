@@ -44,6 +44,7 @@ import {
 	type LabPrototypeLocation,
 	type LabPrototypeManifest
 } from './contracts.ts';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 /* ------------------------------------------------------------- struttura */
 
@@ -298,7 +299,7 @@ export async function writeLabFileAtomic(
 	} catch (error) {
 		throw new LabStorageError(
 			'host-failure',
-			`Scrittura del temporaneo '${temporary}' in ${host.label} fallita.`,
+			msg.ui_ts_storage_scrittura_del_temporaneo_value1_in_value2_fallita_18eb({ value1: temporary, value2: host.label }),
 			{ cause: error }
 		);
 	}
@@ -313,7 +314,7 @@ export async function writeLabFileAtomic(
 		}
 		throw new LabStorageError(
 			'host-failure',
-			`Sostituzione di '${path}' in ${host.label} fallita.`,
+			msg.ui_ts_storage_sostituzione_di_value1_in_value2_fallita_db9a({ value1: path, value2: host.label }),
 			{ cause: error }
 		);
 	}
@@ -432,7 +433,7 @@ export async function readLabPrototype(
 	if (manifest.id !== id) {
 		throw new LabStorageError(
 			'invalid-manifest',
-			`L'id '${manifest.id}' in ${manifestPath} non corrisponde alla cartella '${id}'.`
+			msg.ui_ts_storage_l_id_value1_in_value2_non_corrisponde_ea5c({ value1: manifest.id, value2: manifestPath, value3: id })
 		);
 	}
 
@@ -463,7 +464,7 @@ export async function listLabPrototypes(store: LabStore): Promise<LabPrototypeLi
 		if (!isLabPrototypeId(name)) {
 			// I temporanei e le cartelle nascoste non sono prototipi rotti.
 			if (!hidden) {
-				listing.unreadable.push({ name, reason: 'nome di cartella non valido come id' });
+				listing.unreadable.push({ name, reason: msg.ui_ts_storage_nome_di_cartella_non_valido_come_id_9b56() });
 			}
 			continue;
 		}
@@ -719,7 +720,7 @@ export async function removeLabPrototypeFile(
 	try {
 		await store.host.removeFile(path);
 	} catch (error) {
-		throw new LabStorageError('host-failure', `Rimozione di '${path}' in ${store.host.label} fallita.`, {
+		throw new LabStorageError('host-failure', msg.ui_ts_storage_rimozione_di_value1_in_value2_fallita_b563({ value1: path, value2: store.host.label }), {
 			cause: error
 		});
 	}

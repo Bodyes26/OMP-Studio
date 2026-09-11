@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Specchio dei messaggi in coda durante lo streaming (sola lettura).
 	//
 	// La modalita (steer / follow-up) viene trasmessa a omp nell'istante
@@ -35,7 +36,7 @@
 					class="chip-badge"
 					class:steer={item.behavior === 'steer'}
 					class:follow-up={item.behavior === 'followUp'}
-					title="La modalita si sceglie all'invio: Invio o Alt+Invio. omp non permette di modificarla ne di annullare il messaggio dopo l'accodamento."
+					title={m.ui_queuechips_la_modalita_si_sceglie_all_invio_invio_c059()}
 				>
 					{item.behavior === 'steer' ? 'Steer' : 'Follow-up'}
 				</span>

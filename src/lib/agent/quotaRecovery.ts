@@ -17,6 +17,7 @@ import {
 	splitModelSelector,
 	resolveCatalogModel
 } from '../stores/modelSettingsHelpers.ts';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export type BlockedQuotaReason = 'quota_exhausted' | 'provider_error';
 
@@ -95,7 +96,7 @@ export function classifyFailureReason(
 			kind: 'quota_exhausted',
 			title: 'Quota o crediti esauriti',
 			summary:
-				'L’agente si è arrestato perché il provider ha esaurito la quota disponibile o il saldo crediti e non sono presenti riserve applicabili.'
+				msg.ui_ts_quotarecovery_l_agente_si_e_arrestato_perche_il_7a43()
 		};
 	}
 
@@ -103,7 +104,7 @@ export function classifyFailureReason(
 		kind: 'provider_error',
 		title: 'Richiesta non recuperabile dal provider',
 		summary:
-			'L’agente si è arrestato perché i tentativi automatici di chiamata al modello sono falliti senza poter applicare un modello di riserva.'
+			msg.ui_ts_quotarecovery_l_agente_si_e_arrestato_perche_i_3da2()
 	};
 }
 

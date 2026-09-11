@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { formatVersion, type FormatVersionOptions } from '$lib/utils/version';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export { formatVersion, type FormatVersionOptions };
 
@@ -58,7 +59,7 @@ function extractErrorMessage(error: unknown): string {
 	if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
 		return error.message;
 	}
-	return 'Errore imprevisto';
+	return msg.ui_ts_studioupdater_errore_imprevisto_0405();
 }
 
 class StudioUpdaterStore {
@@ -115,8 +116,8 @@ class StudioUpdaterStore {
 					this.setBadge('Scaricato', 'success', 6000);
 				} else if (data.status === 'error') {
 					this.isDownloading = false;
-					this.errorMessage = data.error || 'Errore sconosciuto durante il download';
-					this.setBadge('Errore download', 'error', 5000);
+					this.errorMessage = data.error || msg.ui_ts_studioupdater_errore_sconosciuto_durante_il_download_dc0e();
+					this.setBadge(msg.ui_ts_studioupdater_errore_download_ca1b(), 'error', 5000);
 				} else if (data.status === 'cancelled') {
 					this.isDownloading = false;
 					this.downloadProgress = null;
@@ -180,7 +181,7 @@ class StudioUpdaterStore {
 		this.errorMessage = null;
 
 		if (manual) {
-			this.setBadge('Verifica...', 'info');
+			this.setBadge(msg.ui_ts_studioupdater_verifica_a26a(), 'info');
 		}
 
 		try {
@@ -203,11 +204,11 @@ class StudioUpdaterStore {
 				}
 			}
 		} catch (e: unknown) {
-			console.error('Verifica aggiornamenti Studio fallita', e);
+			console.error(msg.ui_ts_studioupdater_verifica_aggiornamenti_studio_fallita_2dcd(), e);
 			const errStr = extractErrorMessage(e);
 			this.errorMessage = errStr;
 			if (manual) {
-				this.setBadge('Errore', 'error', 4000);
+				this.setBadge(msg.ui_ts_studioupdater_errore_5fe4(), 'error', 4000);
 				this.showModal = true;
 			}
 		} finally {
@@ -217,7 +218,7 @@ class StudioUpdaterStore {
 
 	async startDownload() {
 		if (!this.updateInfo?.asset?.download_url) {
-			this.errorMessage = 'Nessun installer scaricabile trovato negli asset di questa release.';
+			this.errorMessage = msg.ui_ts_studioupdater_nessun_installer_scaricabile_trovato_negli_asset_di_eb53();
 			return;
 		}
 
@@ -249,7 +250,7 @@ class StudioUpdaterStore {
 			const errStr = extractErrorMessage(e);
 			this.errorMessage = errStr;
 			this.downloadProgress = null;
-			this.setBadge('Errore', 'error', 4000);
+			this.setBadge(msg.ui_ts_studioupdater_errore_5fe4(), 'error', 4000);
 		}
 	}
 
@@ -257,7 +258,7 @@ class StudioUpdaterStore {
 		try {
 			await invoke('cancel_studio_update_download');
 		} catch (e) {
-			console.error('Errore durante cancellazione download', e);
+			console.error(msg.ui_ts_studioupdater_errore_durante_cancellazione_download_7725(), e);
 		}
 		this.isDownloading = false;
 		this.downloadProgress = null;

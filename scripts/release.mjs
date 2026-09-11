@@ -12,7 +12,16 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CHANGELOG = join(ROOT, 'CHANGELOG.md');
+
+/**
+ * Il changelog vive in due lingue allineate: stessi heading di versione, stesso
+ * ordine. Il rilascio le chiude insieme, cosi' le note pubblicate non restano
+ * indietro di una versione in una delle due.
+ */
+export const CHANGELOG_FILES = [
+	{ locale: 'it', path: 'CHANGELOG.md' },
+	{ locale: 'en', path: 'CHANGELOG.en.md' }
+];
 
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 const write = (rel, text) => writeFileSync(join(ROOT, rel), text);
@@ -104,6 +113,17 @@ function section(changelog, heading) {
 	return (end === -1 ? rest : rest.slice(0, end)).join('\n').trim();
 }
 
+/** Note di una versione in entrambe le lingue, gia' impaginate per il tag git. */
+export function bilingualNotes(version) {
+	const blocks = [];
+	for (const { locale, path } of CHANGELOG_FILES) {
+		const body = section(read(path), version);
+		if (!body) return null;
+		blocks.push(`## ${locale === 'it' ? 'Italiano' : 'English'}\n\n${body}`);
+	}
+	return blocks.join('\n\n');
+}
+
 function latestVersion(changelog) {
 	const m = changelog.match(/^## \[(\d+\.\d+\.\d+)\]/m);
 	return m ? m[1] : null;
@@ -121,14 +141,15 @@ export function runCli(argv = process.argv.slice(2)) {
 		process.exit(result.ok ? 0 : 1);
 	}
 	if (arg === '--notes' || arg === '-n') {
-		const changelog = read('CHANGELOG.md');
-		const version = argv[1] ?? latestVersion(changelog);
-		const body = version && section(changelog, version);
-		if (!body) {
-			console.error(`Nessuna sezione per la versione ${version ?? '(nessuna)'} in CHANGELOG.md`);
+		const version = argv[1] ?? latestVersion(read('CHANGELOG.md'));
+		const notes = version && bilingualNotes(version);
+		if (!notes) {
+			console.error(
+				`Nessuna sezione per la versione ${version ?? '(nessuna)'} in CHANGELOG.md e CHANGELOG.en.md`
+			);
 			process.exit(1);
 		}
-		console.log(body);
+		console.log(notes);
 		process.exit(0);
 	}
 
@@ -156,16 +177,23 @@ if (smokeCheck.status !== 0) {
 	process.exit(1);
 }
 
-const changelog = read('CHANGELOG.md');
-if (section(changelog, version) !== null) {
-	console.error(`La versione ${version} è già presente in CHANGELOG.md`);
-	process.exit(1);
+// Entrambi i changelog devono avere qualcosa da chiudere e non contenere gia' la versione:
+// pubblicare note solo in una lingua e' peggio che non pubblicarle.
+const pendingByFile = new Map();
+for (const { path } of CHANGELOG_FILES) {
+	const changelog = read(path);
+	if (section(changelog, version) !== null) {
+		console.error(`La versione ${version} è già presente in ${path}`);
+		process.exit(1);
+	}
+	const pendingSection = section(changelog, 'Unreleased');
+	if (!pendingSection) {
+		console.error(`[Unreleased] è vuota in ${path}: nulla da rilasciare. Annota prima le modifiche.`);
+		process.exit(1);
+	}
+	pendingByFile.set(path, pendingSection);
 }
-const pending = section(changelog, 'Unreleased');
-if (!pending) {
-	console.error('[Unreleased] è vuota: nulla da rilasciare. Annota prima le modifiche.');
-	process.exit(1);
-}
+const pending = pendingByFile.get('CHANGELOG.md');
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -182,11 +210,11 @@ const bumps = [
 	],
 	// Tollerante al fine riga: un CHANGELOG in CRLF non deve far fallire la
 	// sostituzione in silenzio.
-	[
-		'CHANGELOG.md',
+	...CHANGELOG_FILES.map(({ path }) => [
+		path,
 		/## \[Unreleased\][\s\S]*?(?=\r?\n## \[)/,
-		`## [Unreleased]\n\n## [${version}] - ${today}\n\n${pending}`
-	]
+		`## [Unreleased]\n\n## [${version}] - ${today}\n\n${pendingByFile.get(path)}`
+	])
 ];
 
 // Prima si valida tutto, poi si scrive: un fallimento a metà lascerebbe le
@@ -202,7 +230,8 @@ const edits = bumps.map(([rel, pattern, replacement]) => {
 });
 for (const [rel, content] of edits) {
 	write(rel, content);
-	console.log(`  ${rel} -> ${rel === 'CHANGELOG.md' ? `sezione [${version}] - ${today}` : version}`);
+	const isChangelog = CHANGELOG_FILES.some((file) => file.path === rel);
+	console.log(`  ${rel} -> ${isChangelog ? `sezione [${version}] - ${today}` : version}`);
 }
 
 // Verifica di coerenza finale: controlla che tutti i file siano allineati alla nuova versione
@@ -218,7 +247,7 @@ ${pending.split('\n').map((l) => `  ${l}`).join('\n')}
 
 Comandi da eseguire:
   { echo v${version}; echo; node scripts/release.mjs --notes; } > .release-notes.md
-  git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md
+  git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md CHANGELOG.en.md
   git commit -m "release: v${version}"
   git tag -a v${version} -F .release-notes.md
   git push --follow-tags

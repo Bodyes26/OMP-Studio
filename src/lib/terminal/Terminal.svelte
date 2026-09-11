@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { onMount, onDestroy } from 'svelte';
 	import { TerminalSession, type TerminalAgentState, type TerminalSessionInfo } from './terminal';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -109,7 +110,7 @@
 		const items: ContextMenuEntry[] = [
 			{
 				kind: 'item',
-				label: 'Copia',
+				label: m.context_menu_item_copy(),
 				icon: IconCopy,
 				shortcut: `${mod}C`,
 				disabled: !hasSel,
@@ -118,14 +119,14 @@
 			},
 			{
 				kind: 'item',
-				label: 'Incolla',
+				label: m.context_menu_item_paste(),
 				icon: IconPaste,
 				shortcut: `${mod}V`,
 				run: () => void session?.paste()
 			},
 			{
 				kind: 'item',
-				label: 'Seleziona tutto',
+				label: m.context_menu_item_select_all(),
 				icon: IconSelectAll,
 				shortcut: `${mod}A`,
 				run: () => session?.selectAll()
@@ -143,7 +144,7 @@
 		];
 
 		contextMenu.open(event, {
-			label: 'Terminale',
+			label: m.ui_terminal_terminale_cb00(),
 			items,
 			invoker: container
 		});
@@ -170,7 +171,7 @@
 		<div class="tqb-body">
 			<span class="tqb-title">{blockedQuota.title}</span>
 			<span class="tqb-text">
-				L'agente si è fermato. Allinea il modello nel terminale (<kbd>Ctrl+P</kbd>) e rilancia con <kbd>/retry</kbd>, oppure passa alla GUI per il recupero assistito.
+				{m.ui_terminal_l_agente_si_e_fermato_allinea_il_fc3c()}<kbd>Ctrl+P</kbd>) e rilancia con <kbd>/retry</kbd>, oppure passa alla GUI per il recupero assistito.
 			</span>
 		</div>
 		<div class="tqb-actions">
@@ -180,7 +181,7 @@
 				</button>
 			{/if}
 			{#if onDismissBlockedQuota}
-				<button type="button" class="tqb-close" onclick={onDismissBlockedQuota} title="Chiudi avviso">
+				<button type="button" class="tqb-close" onclick={onDismissBlockedQuota} title={m.terminal_close_quota_alert()}>
 					<IconClose />
 				</button>
 			{/if}

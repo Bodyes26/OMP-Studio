@@ -31,6 +31,7 @@ import {
 	type LabVisualContextAttachment
 } from './contracts.ts';
 import type { LabRendererController } from './renderer.ts';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export type LabInteractionMode = 'interact' | 'select';
 
@@ -303,7 +304,7 @@ export class LabVisualTools {
 
 		const res = await this.renderer.executeCommand(cmd);
 		if (!res.ok || typeof res.data !== 'string') {
-			throw new Error(`Cattura screenshot fallita: ${res.error || 'Dati non validi'}`);
+			throw new Error(msg.ui_ts_visual_tools_cattura_screenshot_fallita_value1_87ed({ value1: res.error || 'Dati non validi' }));
 		}
 
 		return res.data;
@@ -510,7 +511,7 @@ export class LabVisualTools {
 			return {
 				ok: false,
 				code: 'not_found',
-				message: `L elemento con selettore '${selector}' non esiste nella nuova revisione '${this.observedRevisionId}'. È necessaria una nuova selezione.`
+				message: msg.ui_ts_visual_tools_l_elemento_con_selettore_value1_non_esiste_77f6({ value1: selector, value2: this.observedRevisionId })
 			};
 		}
 
@@ -522,7 +523,7 @@ export class LabVisualTools {
 			return {
 				ok: false,
 				code: 'tag_mismatch',
-				message: `L elemento '${selector}' e' cambiato da <${previousElement.tagName}> a <${currentElement.tagName}> nella revisione '${this.observedRevisionId}'. È necessaria una nuova selezione.`
+				message: msg.ui_ts_visual_tools_l_elemento_value1_e_cambiato_da_value2_0038({ value1: selector, value2: previousElement.tagName, value3: currentElement.tagName, value4: this.observedRevisionId })
 			};
 		}
 
@@ -591,7 +592,7 @@ export function createIframeRendererAdapter(
 						}
 					}
 				} catch {}
-				return { ok: false, error: 'Elemento non trovato' };
+				return { ok: false, error: msg.ui_ts_visual_tools_elemento_non_trovato_5c72() };
 			}
 
 			if (cmd.type === 'capture') {

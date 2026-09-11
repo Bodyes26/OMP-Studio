@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
@@ -93,16 +94,16 @@
 			<div class="header-text">
 				<h3 id="close-confirm-title">
 					{#if mode === 'project'}
-						Chiudi {project?.name || 'progetto'}
+						{m.page_modal_restart_btn_close()} {project?.name || 'progetto'}
 					{:else}
-						Conferma chiusura OMP Studio
+						{m.close_confirm_title_app()}
 					{/if}
 				</h3>
 				<p class="subtitle">
 					{#if hasWorking}
-						Elaborazione in corso che andrebbe interrotta
+						{m.close_confirm_sub_has_working()}
 					{:else}
-						Task in coda presenti sul disco
+						{m.close_confirm_sub_has_queued()}
 					{/if}
 				</p>
 			</div>
@@ -110,7 +111,7 @@
 				type="button"
 				class="btn-close"
 				onclick={onCancel}
-				aria-label="Annulla e torna al lavoro"
+				aria-label={m.close_confirm_cancel_aria()}
 			>
 				<IconClose />
 			</button>
@@ -123,12 +124,10 @@
 					<div class="alert-banner warning">
 						<div class="alert-title">
 							<span class="pulse-dot"></span>
-							<strong>L'agente sta lavorando su questo progetto</strong>
+							<strong>{m.close_confirm_working_banner_title()}</strong>
 						</div>
 						<p class="alert-desc">
-							Chiudendo ora, il processo attivo verrà interrotto.
-							Il prompt e la configurazione del task verranno reinseriti automaticamente
-							in cima alla coda (<code>.omp/tasks.json</code>) per consentirti di riprendere alla riapertura.
+							{m.ui_closeconfirmmodal_chiudendo_ora_il_processo_attivo_verra_interrotto_2370()}<code>.omp/tasks.json</code>) per consentirti di riprendere alla riapertura.
 						</p>
 					</div>
 				{/if}
@@ -140,7 +139,7 @@
 							<span>
 								<strong>{project.queuedCount}</strong>
 								{project.queuedCount === 1 ? 'task in coda' : 'task in coda'}
-								conservati per questo progetto.
+								{m.ui_closeconfirmmodal_conservati_per_questo_progetto_d077()}
 							</span>
 						</div>
 					</div>
@@ -148,18 +147,18 @@
 
 				<p class="question-text">
 					{#if project.isWorking}
-						Vuoi interrompere e conservare il task nella coda per la riapertura?
+						{m.close_confirm_project_working_question()}
 					{:else}
-						Cosa desideri fare con i task in coda di questo progetto?
+						{m.close_confirm_project_queued_question()}
 					{/if}
 				</p>
 			{:else}
 				<!-- Mode: App -->
 				<p class="app-intro">
 					{#if hasWorking}
-						Ci sono progetti con <strong>elaborazioni in corso</strong> o con <strong>task in coda</strong>:
+						{m.ui_closeconfirmmodal_ci_sono_progetti_con_8f06()} <strong>{m.ui_closeconfirmmodal_elaborazioni_in_corso_abfe()}</strong> o con <strong>task in coda</strong>:
 					{:else}
-						Ci sono progetti con <strong>task in coda</strong> non ancora eseguiti:
+						{m.ui_closeconfirmmodal_ci_sono_progetti_con_8f06()} <strong>task in coda</strong> non ancora eseguiti:
 					{/if}
 				</p>
 
@@ -171,7 +170,7 @@
 								{#if p.isWorking}
 									<span class="badge working">
 										<span class="pulse-dot"></span>
-										In esecuzione
+										{m.close_confirm_badge_working()}
 									</span>
 								{/if}
 								{#if p.queuedCount > 0}
@@ -186,8 +185,7 @@
 				</div>
 
 				<p class="question-text">
-					Se chiudi conservando le code, gli eventuali task interrotti torneranno in cima alle rispettive code
-					e li ritroverai pronti alla prossima riapertura.
+					{m.ui_closeconfirmmodal_se_chiudi_conservando_le_code_gli_eventuali_f159()}
 				</p>
 			{/if}
 		</div>
@@ -195,19 +193,19 @@
 		<!-- Footer -->
 		<div class="modal-footer">
 			<button type="button" class="btn btn-secondary" onclick={onCancel}>
-				Annulla
+				{m.close_confirm_btn_cancel()}
 			</button>
 
 			<button
 				type="button"
 				class="btn btn-danger"
 				onclick={onConfirmDiscard}
-				title="Chiude ed elimina i task in coda dal file .omp/tasks.json"
+				title={m.ui_closeconfirmmodal_chiude_ed_elimina_i_task_in_coda_7d6d()}
 			>
 				{#if mode === 'project'}
-					Chiudi ed elimina coda
+					{m.close_confirm_btn_discard_project()}
 				{:else}
-					Scarta ed esci comunque
+					{m.close_confirm_btn_discard_app()}
 				{/if}
 			</button>
 
@@ -221,9 +219,9 @@
 				<IconCheck />
 				<span>
 					{#if mode === 'project'}
-						Conserva coda e chiudi
+						{m.close_confirm_btn_keep_project()}
 					{:else}
-						Conserva le code ed esci
+						{m.close_confirm_btn_keep_app()}
 					{/if}
 				</span>
 			</button>

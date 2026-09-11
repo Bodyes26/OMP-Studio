@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { modelSettingsStore, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
 	import { anchoredPopover } from '$lib/anchoredPopover';
@@ -8,7 +9,7 @@
 	let {
 		catalog = [],
 		value = '',
-		placeholder = 'Seleziona un modello...',
+		placeholder = m.ui_modelpickerdropdown_seleziona_un_modello_fc75(),
 		disabled = false,
 		onSelect
 	} = $props<{
@@ -166,7 +167,7 @@
 					<span class="provider-line">{selectedModel.provider}</span>
 					<span class="model-name" title={selectedModel.selector}>{selectedModel.name}</span>
 				</span>
-				<span class="selection-capabilities" aria-label="Capacità del modello">
+				<span class="selection-capabilities" aria-label={m.models_picker_capabilities_label()}>
 					{#if selectedModel.contextWindow}
 						<span
 							class="capability-icon context-capability"
@@ -178,12 +179,12 @@
 						</span>
 					{/if}
 					{#if selectedModel.input?.includes('image')}
-						<span class="capability-icon" title="Supporta immagini" aria-label="Supporta immagini">
+						<span class="capability-icon" title={m.models_picker_vision_cap()} aria-label={m.models_picker_vision_cap()}>
 							<IconRoleVision />
 						</span>
 					{/if}
 					{#if selectedModel.reasoning}
-						<span class="capability-icon" title="Supporta reasoning" aria-label="Supporta reasoning">
+						<span class="capability-icon" title={m.models_picker_reasoning_cap()} aria-label={m.models_picker_reasoning_cap()}>
 							<IconRoleSlow />
 						</span>
 					{/if}
@@ -228,7 +229,7 @@
 					type="text"
 					bind:this={inputRef}
 					bind:value={filterQuery}
-					placeholder="Cerca modello o provider..."
+					placeholder={m.models_picker_search_placeholder()}
 					aria-label="Filtra modelli disponibili"
 					onclick={(e) => e.stopPropagation()}
 					oninput={() => highlightedIndex = 0}
@@ -246,7 +247,7 @@
 			<div class="results-list" role="listbox" id="picker-listbox" aria-label="Elenco modelli disponibili">
 				{#if filteredModels.length === 0}
 					<div class="empty-results">
-						Nessun modello trovato per "{filterQuery}"
+						{m.ui_modelpickerdropdown_nessun_modello_trovato_per_4acc()}{filterQuery}"
 					</div>
 				{:else}
 					{#each groupedModels as [provider, models] (provider)}

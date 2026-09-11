@@ -10,25 +10,75 @@
 //!    invisibili per una funzionalita' accessoria.
 
 use crate::directives_ops::EphemeralOutcome;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::time::Duration;
 use tauri::command;
 /// Timeout massimo di sicurezza (secondi) per l'esecuzione del processo omp effimero.
 const SUGGESTIONS_TIMEOUT_SECS: u64 = 30;
 
-/// Prompt di sistema per la generazione delle risposte rapide.
-const SYSTEM_PROMPT: &str = r#"Sei un assistente specializzato nel suggerire le risposte rapide piu' probabili che uno sviluppatore darebbe al proprio agente di coding (Oh My Pi / OMP).
+/// Risultato strutturato dell'analisi rapida post-turno dell'assistente.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptSuggestionsResult {
+    /// Risposte rapide consigliate per il composer o la card interattiva.
+    pub suggestions: Vec<String>,
+    /// Indica se l'agente e' fermo in attesa di una risposta, decisione o conferma dell'utente.
+    pub awaits_user_input: bool,
+    /// Sintesi breve della domanda o richiesta posta dall'agente (es. "Confermi e procedo?").
+    pub question_summary: Option<String>,
+}
+
+impl PromptSuggestionsResult {
+    pub fn empty() -> Self {
+        Self {
+            suggestions: Vec::new(),
+            awaits_user_input: false,
+            question_summary: None,
+        }
+    }
+}
+
+/// Payload grezzo atteso dal modello (con tolleranza e camelCase).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawStructuredSuggestions {
+    #[serde(default)]
+    awaits_user_input: Option<bool>,
+    #[serde(default)]
+    question_summary: Option<String>,
+    #[serde(default)]
+    suggestions: Vec<String>,
+}
+
+/// Prompt di sistema per l'analisi del turno e la generazione di risposte rapide.
+const SYSTEM_PROMPT: &str = r#"Sei un assistente specializzato nell'analizzare l'ultimo messaggio di un agente di coding (Oh My Pi / OMP) e suggerire le risposte rapide piu' probabili che lo sviluppatore darebbe.
 Ricevi l'ultimo messaggio dell'agente e il prompt precedente dell'utente.
 
 Regole tassative:
-1. Rispondi ESCLUSIVAMENTE con un array JSON di stringhe (es. ["Procedi pure", "Mostrami prima il diff"]). Nessun testo introduttivo, nessun commento, nessun blocco markdown o chiave extra.
-2. Ogni stringa e' una risposta pronta da inviare, scritta in PRIMA PERSONA come la scriverebbe l'utente, imperativa e concreta.
-3. Massimo 60 caratteri per ogni stringa.
-4. Scrivi nella STESSA LINGUA dell'ultimo messaggio dell'agente.
-5. Se l'agente ha presentato un piano o chiede conferma, la prima risposta deve essere l'approvazione (es. "Procedi pure").
-6. Se l'agente ha posto una domanda diretta, le risposte devono essere risposte plausibili a quella domanda.
-7. Niente risposte generiche tipo "Dimmi di piu": ogni risposta deve essere ancorata al contenuto del messaggio.
-8. Se non hai nulla di utile da proporre, rispondi con []"#;
+1. Rispondi ESCLUSIVAMENTE con un oggetto JSON valido avente questa struttura esatta:
+{
+  "awaitsUserInput": true | false,
+  "questionSummary": "domanda o richiesta di conferma sintetica (max 120 caratteri) oppure null",
+  "suggestions": ["risposta 1", "risposta 2"]
+}
+Nessun testo introduttivo, nessun commento, nessun blocco markdown prima o dopo.
+
+2. Campo "awaitsUserInput":
+   - Deve essere TRUE se l'agente ha terminato il turno ponendo una domanda diretta, chiedendo conferma per procedere (es. "Confermi e procedo?", "Vuoi che applichi le modifiche?"), presentando opzioni tra cui scegliere, o sollecitando un input/decisione dell'utente.
+   - Deve essere FALSE se l'agente ha semplicemente terminato un compito informativo o esecutivo senza richiedere nulla (es. "Ho corretto il file", "Ecco il risultato").
+
+3. Campo "questionSummary":
+   - Se awaitsUserInput e' true, estrai la domanda o richiesta di conferma principale in modo conciso e pulito (max 120 caratteri, es. "Confermi e procedo dalla Fase 1?", "Quale approccio preferisci tra A e B?").
+   - Se awaitsUserInput e' false, imposta questionSummary a null.
+
+4. Campo "suggestions":
+   - Array con al massimo N stringhe di risposta pronta da inviare, scritte in PRIMA PERSONA come la scriverebbe l'utente (es. "Procedi pure", "Spiega la scelta", "Mostrami prima il diff").
+   - Massimo 60 caratteri per ogni stringa.
+   - Scrivi nella STESSA LINGUA dell'ultimo messaggio dell'agente.
+   - Se l'agente ha presentato un piano o chiede conferma, la prima risposta deve essere l'approvazione (es. "Procedi pure").
+   - Se l'agente ha posto una domanda a scelta multipla, includi opzioni plausibili.
+   - Se non hai nulla di utile da proporre, usa []."#;
 
 /// Tronca una stringa preservando gli ultimi `max_chars` caratteri (la coda) su confini UTF-8 validi.
 fn truncate_suffix_chars(s: &str, max_chars: usize) -> &str {
@@ -52,27 +102,14 @@ fn truncate_prefix_chars(s: &str, max_chars: usize) -> &str {
         .unwrap_or(s)
 }
 
-/// Estrae e ripulisce le risposte suggerite dal testo grezzo prodotto dal modello.
-pub(crate) fn parse_and_clean_suggestions(raw_response: &str, max_items: usize) -> Vec<String> {
-    let json_text = match crate::directives_ops::extract_json_payload(raw_response) {
-        Ok(j) => j,
-        Err(_) => return Vec::new(),
-    };
-
-    let parsed: Vec<String> = match serde_json::from_str(&json_text) {
-        Ok(items) => items,
-        Err(_) => return Vec::new(),
-    };
-
+/// Ripulisce e deduplica le stringhe dei suggerimenti.
+fn clean_suggestion_strings(raw_items: Vec<String>, max_items: usize) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut cleaned = Vec::with_capacity(max_items);
 
-    for item in parsed {
+    for item in raw_items {
         let trimmed = item.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed.chars().count() > 90 {
+        if trimmed.is_empty() || trimmed.chars().count() > 90 {
             continue;
         }
         let lower = trimmed.to_lowercase();
@@ -87,6 +124,52 @@ pub(crate) fn parse_and_clean_suggestions(raw_response: &str, max_items: usize) 
     cleaned
 }
 
+/// Estrae e ripulisce il risultato strutturato dal testo grezzo prodotto dal modello.
+pub(crate) fn parse_and_clean_suggestions(
+    raw_response: &str,
+    max_items: usize,
+) -> PromptSuggestionsResult {
+    let json_text = match crate::directives_ops::extract_json_payload(raw_response) {
+        Ok(j) => j,
+        Err(_) => return PromptSuggestionsResult::empty(),
+    };
+
+    // Caso 1: Oggetto JSON strutturato (formato primario)
+    if let Ok(structured) = serde_json::from_str::<RawStructuredSuggestions>(&json_text) {
+        let cleaned_suggestions = clean_suggestion_strings(structured.suggestions, max_items);
+        let awaits = structured.awaits_user_input.unwrap_or_else(|| {
+            // Euristica di riserva: se questionSummary e' presente o i suggerimenti iniziano con approvazione
+            structured.question_summary.is_some()
+        });
+        let summary = structured.question_summary.and_then(|q| {
+            let trimmed = q.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(truncate_prefix_chars(trimmed, 120).to_string())
+            }
+        });
+
+        return PromptSuggestionsResult {
+            suggestions: cleaned_suggestions,
+            awaits_user_input: awaits,
+            question_summary: summary,
+        };
+    }
+
+    // Caso 2: Fallback retrocompatibile - array semplice di stringhe
+    if let Ok(items) = serde_json::from_str::<Vec<String>>(&json_text) {
+        let cleaned = clean_suggestion_strings(items, max_items);
+        return PromptSuggestionsResult {
+            suggestions: cleaned,
+            awaits_user_input: false,
+            question_summary: None,
+        };
+    }
+
+    PromptSuggestionsResult::empty()
+}
+
 
 /// Genera suggerimenti contestuali per il composer a partire dall'ultimo messaggio dell'assistente.
 #[command]
@@ -95,10 +178,10 @@ pub async fn generate_prompt_suggestions(
     last_user: String,
     model_selector: Option<String>,
     max_items: u8,
-) -> Result<Vec<String>, String> {
+) -> Result<PromptSuggestionsResult, String> {
     let assistant_trimmed = last_assistant.trim();
     if assistant_trimmed.is_empty() {
-        return Ok(Vec::new());
+        return Ok(PromptSuggestionsResult::empty());
     }
 
     let max_items_clamped = max_items.clamp(1, 3) as usize;
@@ -149,8 +232,8 @@ pub async fn generate_prompt_suggestions(
         // Avvio impossibile o payload fuori soglia: e' un difetto di configurazione, va mostrato.
         Ok(Err(err_msg)) => return Err(err_msg),
         Ok(Ok(EphemeralOutcome::Ok(output))) => output,
-        // Principio 4: timeout, uscita non zero o panico del task degradano a lista vuota.
-        _ => return Ok(Vec::new()),
+        // Principio 4: timeout, uscita non zero o panico del task degradano a risultato vuoto.
+        _ => return Ok(PromptSuggestionsResult::empty()),
     };
 
     Ok(parse_and_clean_suggestions(
@@ -182,43 +265,64 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_clean_suggestions_valid_json() {
-        let raw = r#"["Procedi pure", "Mostrami prima il diff", "Annulla"]"#;
-        let suggestions = parse_and_clean_suggestions(raw, 3);
+    fn test_parse_and_clean_suggestions_structured_json() {
+        let raw = r#"{
+            "awaitsUserInput": true,
+            "questionSummary": "Confermi e procedo dalla Fase 1?",
+            "suggestions": ["Procedi pure", "Mostrami prima il diff", "Annulla"]
+        }"#;
+        let res = parse_and_clean_suggestions(raw, 3);
+        assert!(res.awaits_user_input);
+        assert_eq!(res.question_summary.as_deref(), Some("Confermi e procedo dalla Fase 1?"));
         assert_eq!(
-            suggestions,
+            res.suggestions,
+            vec!["Procedi pure", "Mostrami prima il diff", "Annulla"]
+        );
+    }
+
+    #[test]
+    fn test_parse_and_clean_suggestions_fallback_array() {
+        let raw = r#"["Procedi pure", "Mostrami prima il diff", "Annulla"]"#;
+        let res = parse_and_clean_suggestions(raw, 3);
+        assert!(!res.awaits_user_input);
+        assert_eq!(res.question_summary, None);
+        assert_eq!(
+            res.suggestions,
             vec!["Procedi pure", "Mostrami prima il diff", "Annulla"]
         );
     }
 
     #[test]
     fn test_parse_and_clean_suggestions_markdown_fence() {
-        let raw = "Ecco i suggerimenti:\n```json\n[\"Procedi pure\", \"Esegui i test\"]\n```\n";
-        let suggestions = parse_and_clean_suggestions(raw, 2);
-        assert_eq!(suggestions, vec!["Procedi pure", "Esegui i test"]);
+        let raw = "Ecco l'analisi:\n```json\n{\n  \"awaitsUserInput\": true,\n  \"questionSummary\": \"Vuoi procedere?\",\n  \"suggestions\": [\"Procedi pure\", \"Esegui i test\"]\n}\n```\n";
+        let res = parse_and_clean_suggestions(raw, 2);
+        assert!(res.awaits_user_input);
+        assert_eq!(res.question_summary.as_deref(), Some("Vuoi procedere?"));
+        assert_eq!(res.suggestions, vec!["Procedi pure", "Esegui i test"]);
     }
 
     #[test]
     fn test_parse_and_clean_suggestions_deduplication_and_limits() {
         let too_long = "a".repeat(95);
         let raw = format!(
-            r#"["Procedi pure", "procedi pure", "  ", "{}", "Esegui i test", "Altro"]"#,
+            r#"{{"awaitsUserInput": false, "suggestions": ["Procedi pure", "procedi pure", "  ", "{}", "Esegui i test", "Altro"]}}"#,
             too_long
         );
-        let suggestions = parse_and_clean_suggestions(&raw, 2);
-        assert_eq!(suggestions, vec!["Procedi pure", "Esegui i test"]);
+        let res = parse_and_clean_suggestions(&raw, 2);
+        assert!(!res.awaits_user_input);
+        assert_eq!(res.suggestions, vec!["Procedi pure", "Esegui i test"]);
     }
 
     #[test]
     fn test_parse_and_clean_suggestions_invalid_json() {
-        assert!(parse_and_clean_suggestions("non è un json", 3).is_empty());
-        assert!(parse_and_clean_suggestions("", 3).is_empty());
-        assert!(parse_and_clean_suggestions("[]", 3).is_empty());
+        assert_eq!(parse_and_clean_suggestions("non è un json", 3), PromptSuggestionsResult::empty());
+        assert_eq!(parse_and_clean_suggestions("", 3), PromptSuggestionsResult::empty());
+        assert_eq!(parse_and_clean_suggestions("[]", 3), PromptSuggestionsResult::empty());
     }
 
     #[tokio::test]
     async fn test_empty_assistant_returns_empty() {
         let res = generate_prompt_suggestions("   ".to_string(), "ciao".to_string(), None, 3).await;
-        assert_eq!(res.unwrap(), Vec::<String>::new());
+        assert_eq!(res.unwrap(), PromptSuggestionsResult::empty());
     }
 }

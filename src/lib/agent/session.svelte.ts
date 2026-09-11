@@ -75,6 +75,8 @@ import {
 	type BrowserTabState,
 	connectBrowserLive
 } from './browser-live';
+import { classifySystemMessage, noticeDedupKey, type JobResult, type ClassifiedNotice } from './notices';
+import { m as messages } from '$lib/paraglide/messages.js';
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
 export type AgentSurfaceState = 'idle' | 'working' | 'attention' | 'unknown';
 
@@ -148,6 +150,40 @@ export interface TtsrEntry {
 	rules: string[];
 }
 
+/**
+ * Risultato di uno o piu' job asincroni eseguiti in background (subagenti task,
+ * comandi bash, script eval).
+ */
+export interface SubagentResultEntry {
+	id: number;
+	kind: 'subagent-result';
+	jobs: JobResult[];
+}
+
+/** Messaggio del protocollo IRC tra agenti o auto-risposta. */
+export interface IrcEntry {
+	id: number;
+	kind: 'irc';
+	direction: 'in' | 'out';
+	peer: string;
+	body: string;
+	replyTo?: string;
+}
+
+/**
+ * Notifica di sistema compatta (chip), visibile normalmente o solo con
+ * l'interruttore diagnostico per i messaggi interni upstream.
+ */
+export interface SystemChipEntry {
+	id: number;
+	kind: 'system-chip';
+	customType: string;
+	title: string;
+	body: string;
+	/** true per i messaggi che upstream marca `display: false`: la timeline li mostra solo con l'interruttore diagnostico attivo. */
+	internal?: boolean;
+}
+
 export type TranscriptEntry =
 	| UserEntry
 	| AssistantEntry
@@ -155,7 +191,10 @@ export type TranscriptEntry =
 	| NoticeEntry
 	| CompactionEntry
 	| RetryEntry
-	| TtsrEntry;
+	| TtsrEntry
+	| SubagentResultEntry
+	| IrcEntry
+	| SystemChipEntry;
 
 export interface QueuedMessage {
 	id: number;
@@ -284,6 +323,7 @@ export class AgentSession {
 
 	todoPhases = $state<TodoPhase[]>([]);
 	subagents = $state<AgentProgress[]>([]);
+	todoReminder = $state<{ attempt: number; max: number } | null>(null);
 	availableCommands = $state<AvailableCommand[]>([]);
 	queued = $state<QueuedMessage[]>([]);
 	pendingUi = $state<PendingUiRequest | null>(null);
@@ -303,7 +343,8 @@ export class AgentSession {
 	agentState = $state<AgentSurfaceState>('unknown');
 	/** Stato di blocco per esaurimento quota o errore irreversibile del provider. */
 	blockedQuotaState = $state<BlockedQuotaState | null>(null);
-
+	/** Attenzione dedotta dall'analisi semantica del turno (domanda/richiesta di conferma senza tool ask). */
+	inferredAttention = $state<{ question: string; suggestions: string[] } | null>(null);
 	/**
 	 * Piano di consegna del wizard: le risposte gia' compilate dall'utente che
 	 * aspettano la richiesta a cui appartengono. Il protocollo di `ask` e'
@@ -326,6 +367,7 @@ export class AgentSession {
 	private nextQueueId = 1;
 	private assistantEntry: AssistantEntry | null = null;
 	private readonly toolEntries = new Map<string, ToolEntry>();
+	private renderedCustomKeys = new Set<string>();
 	readonly cwd: string;
 	private stateRefresh: Promise<void> | null = null;
 	private opening: Promise<void> | null = null;
@@ -539,7 +581,7 @@ export class AgentSession {
 			void this.refreshCost();
 			void this.refreshCommands();
 		} catch (error) {
-			this.pushNotice('error', `Insediamento della sessione non completato: ${this.reason(error)}`);
+			this.pushNotice('error', messages.ui_ts_session_insediamento_della_sessione_non_completato_value1_bce4({ value1: this.reason(error) }));
 		}
 
 		// 1. Svuota e sincronizza in ordine FIFO la coda eventi accumulata durante l'insediamento
@@ -557,7 +599,7 @@ export class AgentSession {
 			this.recoveredResume = null;
 			this.pushNotice(
 				'warning',
-				`La sessione ${recoveredResume} non è più disponibile. È stata avviata una nuova chat.`
+				messages.ui_ts_session_la_sessione_value1_non_e_piu_disponibile_49b9({ value1: recoveredResume })
 			);
 		}
 
@@ -635,7 +677,7 @@ export class AgentSession {
 			targetId
 		});
 		const state = parseBrowserTabState(result.state);
-		if (!state || state.mode !== 'chrome-relay') throw new Error('Stato Relay non valido');
+		if (!state || state.mode !== 'chrome-relay') throw new Error(messages.ui_ts_session_stato_relay_non_valido_ac32());
 		const idx = this.browserLiveTabs.findIndex((tab) => tab.browserSessionId === state.browserSessionId);
 		if (idx === -1) this.browserLiveTabs.push(state);
 		else this.browserLiveTabs[idx] = state;
@@ -728,7 +770,7 @@ export class AgentSession {
 			await handle.sendTakeover(tab.controlEpoch, input);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante requestTakeover:', err);
+			console.warn(messages.ui_ts_session_errore_durante_requesttakeover_97f2(), err);
 			return false;
 		}
 	}
@@ -742,7 +784,7 @@ export class AgentSession {
 			await handle.sendInput(tab.controlEpoch, input);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante sendTabInput:', err);
+			console.warn(messages.ui_ts_session_errore_durante_sendtabinput_97c3(), err);
 			return false;
 		}
 	}
@@ -756,7 +798,7 @@ export class AgentSession {
 			await handle.returnControl(tab.controlEpoch);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante returnControl:', err);
+			console.warn(messages.ui_ts_session_errore_durante_returncontrol_d100(), err);
 			return false;
 		}
 	}
@@ -770,7 +812,7 @@ export class AgentSession {
 			await handle.setPrivacy(privacy);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante setPrivacy:', err);
+			console.warn(messages.ui_ts_session_errore_durante_setprivacy_3ae6(), err);
 			return false;
 		}
 	}
@@ -784,7 +826,7 @@ export class AgentSession {
 			await handle.inspectPoint(x, y);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante inspectPoint:', err);
+			console.warn(messages.ui_ts_session_errore_durante_inspectpoint_93d3(), err);
 			return false;
 		}
 	}
@@ -798,7 +840,7 @@ export class AgentSession {
 			await handle.inspectElement(selector, point);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante inspectElement:', err);
+			console.warn(messages.ui_ts_session_errore_durante_inspectelement_5292(), err);
 			return false;
 		}
 	}
@@ -816,7 +858,7 @@ export class AgentSession {
 			await handle.setInspector(enabled, options);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante setInspector:', err);
+			console.warn(messages.ui_ts_session_errore_durante_setinspector_dbfd(), err);
 			return false;
 		}
 	}
@@ -830,7 +872,7 @@ export class AgentSession {
 			await handle.requestNetworkBody(requestId);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante requestNetworkBody:', err);
+			console.warn(messages.ui_ts_session_errore_durante_requestnetworkbody_35b5(), err);
 			return false;
 		}
 	}
@@ -847,7 +889,7 @@ export class AgentSession {
 			await handle.clearBuffer(target);
 			return true;
 		} catch (err) {
-			console.warn('Errore durante clearInspectorBuffer:', err);
+			console.warn(messages.ui_ts_session_errore_durante_clearinspectorbuffer_49a7(), err);
 			return false;
 		}
 	}
@@ -864,7 +906,7 @@ export class AgentSession {
 			await handle.sendMessage(message);
 			return true;
 		} catch (err) {
-			console.warn(`Errore durante l'invio del messaggio live ${message.type}:`, err);
+			console.warn(messages.ui_ts_session_errore_durante_l_invio_del_messaggio_live_9512({ value1: message.type }), err);
 			return false;
 		}
 	}
@@ -892,7 +934,7 @@ export class AgentSession {
 			await this.client.send({ type: 'set_follow_up_mode', mode: followUpMode });
 			await this.client.send({ type: 'set_interrupt_mode', mode: interruptMode });
 		} catch (error) {
-			this.pushNotice('warning', `Impossibile sincronizzare le modalità di coda: ${this.reason(error)}`);
+			this.pushNotice('warning', messages.ui_ts_session_impossibile_sincronizzare_le_modalita_di_coda_value1_1e87({ value1: this.reason(error) }));
 		}
 	}
 	async refreshCommands() {
@@ -915,7 +957,12 @@ export class AgentSession {
 		if (typeof state.sessionId === 'string') this.sessionId = state.sessionId;
 		if (typeof state.sessionFile === 'string') this.sessionFile = state.sessionFile;
 		if (typeof state.sessionName === 'string') this.sessionName = state.sessionName;
-		if (Array.isArray(state.todoPhases)) this.todoPhases = state.todoPhases;
+		if (Array.isArray(state.todoPhases)) {
+			this.todoPhases = state.todoPhases;
+			if (!this.hasActiveTodos()) {
+				this.todoReminder = null;
+			}
+		}
 		if (typeof state.isStreaming === 'boolean') {
 			this.isStreaming = state.isStreaming;
 			if (!state.isStreaming && this.agentState === 'working') {
@@ -1002,7 +1049,7 @@ export class AgentSession {
 				window.setTimeout(resolve, 400 * attempt);
 				await promise;
 			}
-			this.pushNotice('warning', 'Transcript storico non ricostruito: la sessione e\u2019 occupata');
+			this.pushNotice('warning', messages.ui_ts_session_transcript_storico_non_ricostruito_la_sessione_e_1030());
 		} finally {
 			this.isRebuildingTranscript = false;
 		}
@@ -1010,6 +1057,7 @@ export class AgentSession {
 
 	/** Storico -> entry. Stessa forma della diretta: nessun percorso separato. */
 	private mapHistory(messages: AgentMessage[]): TranscriptEntry[] {
+		this.renderedCustomKeys.clear();
 		const entries: TranscriptEntry[] = [];
 		const tools = new Map<string, ToolEntry>();
 		this.toolEntries.clear();
@@ -1050,18 +1098,9 @@ export class AgentSession {
 				continue;
 			}
 			if (message.role === 'custom' || message.role === 'developer') {
-				// Esiti dei job in background e promemoria dei todo: nello
-				// storico valgono quanto in diretta, altrimenti riprendendo una
-				// sessione sparirebbero.
-				const text = textOf(message.content);
-				if (text && !this.isNoiseNotice(text, message.role === 'custom' ? 'sistema' : 'promemoria')) {
-					entries.push({
-						id: this.nextEntryId++,
-						kind: 'notice',
-						level: 'info',
-						message: text,
-						source: message.role === 'custom' ? 'sistema' : 'promemoria'
-					});
+				const entry = this.classifiedEntry(message);
+				if (entry) {
+					entries.push(entry);
 				}
 				continue;
 			}
@@ -1244,11 +1283,9 @@ export class AgentSession {
 					}) as AssistantEntry;
 					this.activeAssistantId = this.assistantEntry.id;
 				} else if (message.role === 'custom' || message.role === 'developer') {
-					// Esiti dei job in background e promemoria: senza questo ramo
-					// il completamento di un subagent non lascia traccia.
-					const text = textOf(message.content);
-					if (text && !this.isNoiseNotice(text, message.role === 'custom' ? 'sistema' : 'promemoria')) {
-						this.pushNotice('info', text, message.role === 'custom' ? 'sistema' : 'promemoria');
+					const entry = this.classifiedEntry(message);
+					if (entry) {
+						this.push(entry);
 					}
 				}
 				return;
@@ -1368,7 +1405,7 @@ export class AgentSession {
 
 			case 'notice': {
 				const text = typeof event.message === 'string' ? event.message : '';
-				if (!text || this.isNoiseNotice(text, typeof event.source === 'string' ? event.source : undefined)) return;
+				if (!text) return;
 				const level = this.noticeLevel(event.level);
 				this.pushNotice(level, text, typeof event.source === 'string' ? event.source : undefined);
 				if (level === 'error') {
@@ -1382,8 +1419,17 @@ export class AgentSession {
 			}
 
 			case 'irc_message': {
-				const text = typeof event.message === 'string' ? event.message : '';
-				if (text) this.pushNotice('info', text, 'irc');
+				const message = this.asMessage(event.message);
+				if (message) {
+					const normalized: AgentMessage = {
+						...message,
+						role: message.role || 'custom'
+					};
+					const entry = this.classifiedEntry(normalized);
+					if (entry) {
+						this.push(entry);
+					}
+				}
 				return;
 			}
 
@@ -1402,7 +1448,7 @@ export class AgentSession {
 
 			case 'auto_compaction_start':
 				this.isCompacting = true;
-				this.push({ id: this.nextEntryId++, kind: 'compaction', message: 'Compattazione del contesto in corso', running: true });
+				this.push({ id: this.nextEntryId++, kind: 'compaction', message: messages.ui_ts_session_compattazione_del_contesto_in_corso_845b(), running: true });
 				return;
 
 			case 'auto_compaction_end': {
@@ -1425,7 +1471,7 @@ export class AgentSession {
 				this.push({
 					id: this.nextEntryId++,
 					kind: 'retry',
-					message: this.retryText(event, 'Nuovo tentativo in corso')
+					message: this.retryText(event, messages.ui_ts_session_nuovo_tentativo_in_corso_7c38())
 				});
 				return;
 
@@ -1436,7 +1482,7 @@ export class AgentSession {
 							? event.finalError
 							: typeof event.errorMessage === 'string'
 								? event.errorMessage
-								: 'Tentativi automatici di chiamata al modello esauriti';
+								: messages.ui_ts_session_tentativi_automatici_di_chiamata_al_modello_esauriti_0155();
 					this.checkAndSetQuotaBlocked(failureReason);
 				} else if (event.success === true && this.blockedQuotaState) {
 					this.blockedQuotaState = null;
@@ -1448,7 +1494,7 @@ export class AgentSession {
 				this.push({
 					id: this.nextEntryId++,
 					kind: 'retry',
-					message: this.retryText(event, 'Modello di riserva applicato')
+					message: this.retryText(event, messages.ui_ts_session_modello_di_riserva_applicato_c194())
 				});
 				return;
 
@@ -1461,6 +1507,9 @@ export class AgentSession {
 			}
 
 			case 'todo_reminder':
+				if (typeof event.attempt === 'number' && typeof event.maxAttempts === 'number') {
+					this.todoReminder = { attempt: event.attempt, max: event.maxAttempts };
+				}
 				// `todo_reminder.todos` e' una lista piatta senza fasi: per le
 				// fasi serve `get_state`, che e' l'unica fonte completa.
 				void this.refreshState();
@@ -1468,6 +1517,7 @@ export class AgentSession {
 
 			case 'todo_auto_clear':
 				this.todoPhases = [];
+				this.todoReminder = null;
 				return;
 
 			case 'model_changed':
@@ -1499,14 +1549,14 @@ export class AgentSession {
 
 			case 'extension_error': {
 				const path = typeof event.extensionPath === 'string' ? event.extensionPath : 'estensione';
-				const detail = typeof event.error === 'string' ? event.error : 'errore non descritto';
+				const detail = typeof event.error === 'string' ? event.error : messages.ui_ts_session_errore_non_descritto_567a();
 				this.pushNotice('warning', `${path}: ${detail}`, 'estensione');
 				return;
 			}
 
 			case 'studio_error': {
 				this.resetBrowserLive();
-				const msg = typeof event.message === 'string' ? event.message : 'Errore del trasporto RPC';
+				const msg = typeof event.message === 'string' ? event.message : messages.ui_ts_session_errore_del_trasporto_rpc_b9d7();
 				this.isAborting = false;
 				this.isStreaming = false;
 				this.isCompacting = false;
@@ -1539,7 +1589,7 @@ export class AgentSession {
 						? event.error
 						: typeof event.message === 'string'
 							? event.message
-							: 'Errore durante l\u2019esecuzione di OMP';
+							: messages.ui_ts_session_errore_durante_l_esecuzione_di_omp_ac74();
 				this.isAborting = false;
 				this.isStreaming = false;
 				this.isCompacting = false;
@@ -1616,7 +1666,7 @@ export class AgentSession {
 						if (idx !== -1) this.entries.splice(idx, 1);
 					}
 					this.pendingStartupPrompts = [];
-					this.pushNotice('error', 'Prompt non inviato: la sessione OMP e\u2019 terminata prima del completamento dell’avvio');
+					this.pushNotice('error', messages.ui_ts_session_prompt_non_inviato_la_sessione_omp_e_f327());
 				}
 				if (resumeMissing) {
 					this.requestedResume = null;
@@ -1632,8 +1682,8 @@ export class AgentSession {
 					level: code === 0 ? 'info' : 'error',
 					message:
 						code === 0
-							? 'La sessione omp e\u2019 terminata'
-							: `La sessione omp e\u2019 terminata (codice ${code ?? 'sconosciuto'})`,
+							? messages.ui_ts_session_la_sessione_omp_e_terminata_58c0()
+							: messages.ui_ts_session_la_sessione_omp_e_terminata_codice_value1_5c24({ value1: code ?? 'sconosciuto' }),
 					detail: stderr.slice(-12),
 					offerTerminal: code !== 0
 				});
@@ -1665,6 +1715,143 @@ export class AgentSession {
 		return value && typeof value === 'object' ? value : null;
 	}
 
+	/**
+	 * Traduce un messaggio di sistema di `omp` nella entry che la timeline sa
+	 * disegnare. Unico punto di verita': live e replay storico devono produrre
+	 * la stessa cosa, altrimenti riprendere una sessione cambia quello che vedi.
+	 */
+	private classifiedEntry(message: AgentMessage): TranscriptEntry | null {
+		const dedupKey = noticeDedupKey({
+			role: message.role,
+			customType: message.customType,
+			timestamp: message.timestamp
+		});
+		if (dedupKey && this.renderedCustomKeys.has(dedupKey)) {
+			return null;
+		}
+
+		const text = textOf(message.content);
+		const classified = classifySystemMessage({
+			role: message.role,
+			customType: message.customType,
+			display: message.display,
+			details: message.details,
+			text
+		});
+
+		if (!classified) {
+			return null;
+		}
+
+		if (dedupKey) {
+			this.renderedCustomKeys.add(dedupKey);
+		}
+
+		switch (classified.kind) {
+			case 'subagent-result': {
+				this.reconcileSubagentsFromJobs(classified.jobs);
+				return {
+					id: this.nextEntryId++,
+					kind: 'subagent-result',
+					jobs: classified.jobs
+				};
+			}
+
+			case 'irc': {
+				return {
+					id: this.nextEntryId++,
+					kind: 'irc',
+					direction: classified.direction,
+					peer: classified.peer,
+					body: classified.body,
+					replyTo: classified.replyTo
+				};
+			}
+
+			case 'chip': {
+				return {
+					id: this.nextEntryId++,
+					kind: 'system-chip',
+					customType: classified.customType,
+					title: classified.title,
+					body: classified.body,
+					internal: false
+				};
+			}
+
+			case 'hidden': {
+				return {
+					id: this.nextEntryId++,
+					kind: 'system-chip',
+					customType: classified.customType,
+					title: classified.title,
+					body: classified.body,
+					internal: true
+				};
+			}
+
+			case 'todo-reminder': {
+				if (typeof classified.attempt === 'number' && typeof classified.maxAttempts === 'number') {
+					this.todoReminder = { attempt: classified.attempt, max: classified.maxAttempts };
+				}
+				return null;
+			}
+		}
+	}
+
+	/**
+	 * Riconcilia lo stato dei subagenti nello store `subagents` con gli esiti
+	 * arrivati nei job asincroni. Se il risultato arriva dopo la fine del turno,
+	 * i conteggi di SubagentBar altrimenti resterebbero fermi a `running`.
+	 */
+	private reconcileSubagentsFromJobs(jobs: JobResult[]) {
+		for (const job of jobs) {
+			if (!job.envelope) continue;
+			const env = job.envelope;
+			const key = env.id;
+			if (!key) continue;
+
+			const mappedStatus: AgentProgress['status'] | undefined =
+				env.statusKind === 'completed'
+					? 'completed'
+					: env.statusKind === 'failed'
+						? 'failed'
+						: env.statusKind === 'aborted'
+							? 'aborted'
+							: undefined;
+
+			const existing = this.subagents.findIndex((candidate) => candidate.id === key);
+			if (existing === -1) {
+				const entry: AgentProgress = {
+					id: key,
+					agent: env.agent,
+					status: mappedStatus ?? 'completed'
+				};
+				if (typeof job.durationMs === 'number') {
+					entry.durationMs = job.durationMs;
+				}
+				this.subagents.push(entry);
+			} else {
+				const current = this.subagents[existing];
+				this.subagents[existing] = {
+					...current,
+					status: mappedStatus ?? current.status,
+					durationMs: typeof job.durationMs === 'number' ? job.durationMs : current.durationMs
+				};
+			}
+		}
+	}
+
+	/**
+	 * Verifica se ci sono ancora task pendenti o in corso nelle fasi dei todo.
+	 */
+	private hasActiveTodos(): boolean {
+		return this.todoPhases.some((phase) =>
+			Array.isArray(phase.tasks) &&
+			phase.tasks.some((task) => task.status === 'pending' || task.status === 'in_progress')
+		);
+	}
+
 	private noticeLevel(level: unknown): 'info' | 'warning' | 'error' {
 		if (level === 'error') return 'error';
 		if (level === 'warn' || level === 'warning') return 'warning';
@@ -1679,7 +1866,31 @@ export class AgentSession {
 	private resolveSettledState(): AgentSurfaceState {
 		if (this.pendingUi) return 'attention';
 		if (this.blockedQuotaState && !this.blockedQuotaState.dismissed) return 'attention';
+		if (this.inferredAttention) return 'attention';
 		return 'idle';
+	}
+
+	/**
+	 * Registra un'attenzione dedotta post-turno quando l'agente pone una domanda
+	 * o attende conferma senza aver invocato il tool ask.
+	 */
+	setInferredAttention(question: string, suggestions: string[]) {
+		this.inferredAttention = { question, suggestions };
+		if (!this.isStreaming && !this.pendingUi) {
+			this.agentState = 'attention';
+		}
+	}
+
+	/**
+	 * Azzera l'attenzione dedotta quando l'utente risponde o invia un nuovo prompt.
+	 */
+	clearInferredAttention() {
+		if (this.inferredAttention) {
+			this.inferredAttention = null;
+			if (!this.isStreaming) {
+				this.agentState = this.resolveSettledState();
+			}
+		}
 	}
 
 	private checkAndSetQuotaBlocked(rawError: string) {
@@ -1942,6 +2153,7 @@ export class AgentSession {
 	 */
 	private markWorking() {
 		if (this.pendingUi) return;
+		this.inferredAttention = null;
 		this.agentState = 'working';
 	}
 
@@ -2028,7 +2240,7 @@ export class AgentSession {
 			if (sameCall || flush.toolCallId === null) {
 				this.pushNotice(
 					'warning',
-					'La richiesta dell\u2019agente non corrisponde al piano di risposte preparato: il resto del piano e\u2019 stato interrotto per sicurezza. Rispondi a mano da questa domanda.',
+					messages.ui_ts_session_la_richiesta_dell_agente_non_corrisponde_al_adca(),
 					'domande'
 				);
 			}
@@ -2146,6 +2358,7 @@ export class AgentSession {
 	async prompt(message: string, images: ImageContent[] = [], behavior: StreamingBehavior = 'steer') {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return;
+		this.todoReminder = null;
 		this.isAborting = false;
 		this.suggestions.invalidate();
 		const fullMessage = attachEditorContext(trimmed, this.cwd);
@@ -2234,13 +2447,6 @@ export class AgentSession {
 		if (index !== -1) this.entries.splice(index, 1);
 	}
 
-	private isNoiseNotice(text: string, source?: string): boolean {
-		if (!text) return false;
-		if (text.startsWith('xd://: mounted') || text.startsWith('xd:// mounted')) return true;
-		if (text.includes('mounted mcp__')) return true;
-		if (source === 'xd://' && text.includes('mounted')) return true;
-		return false;
-	}
 
 	dismissBlockedQuota() {
 		if (this.blockedQuotaState) {
@@ -2278,7 +2484,7 @@ export class AgentSession {
 			await this.prompt('/retry');
 			return true;
 		} catch (err) {
-			this.pushNotice('error', `Errore durante il cambio modello e ripresa: ${this.reason(err)}`);
+			this.pushNotice('error', messages.ui_ts_session_errore_durante_il_cambio_modello_e_ripresa_1694({ value1: this.reason(err) }));
 			return false;
 		}
 	}
@@ -2347,6 +2553,8 @@ export class AgentSession {
 		this.optimisticUser = null;
 		this.subagents = [];
 		this.todoPhases = [];
+		this.todoReminder = null;
+		this.renderedCustomKeys.clear();
 		this.queued = [];
 		this.isStreaming = false;
 		this.isCompacting = false;
@@ -2369,6 +2577,8 @@ export class AgentSession {
 		this.optimisticUser = null;
 		this.subagents = [];
 		this.todoPhases = [];
+		this.todoReminder = null;
+		this.renderedCustomKeys.clear();
 		this.queued = [];
 		this.isStreaming = false;
 		this.isCompacting = false;
@@ -2386,7 +2596,7 @@ export class AgentSession {
 		const entry = this.push<CompactionEntry>({
 			id: entryId,
 			kind: 'compaction',
-			message: 'Compattazione del contesto in corso...',
+			message: messages.ui_ts_session_compattazione_del_contesto_in_corso_5036(),
 			running: true
 		});
 
@@ -2423,7 +2633,7 @@ export class AgentSession {
 			await this.rebuildTranscript();
 			await this.refreshState();
 			void this.refreshCost();
-			this.pushNotice('info', 'Compattazione del contesto completata con successo.', 'studio');
+			this.pushNotice('info', messages.ui_ts_session_compattazione_del_contesto_completata_con_successo_fb0e(), 'studio');
 			return true;
 		} catch (error) {
 			const idx = this.entries.findIndex((e) => e.id === entryId);
@@ -2432,7 +2642,7 @@ export class AgentSession {
 			}
 			const errStr = error instanceof Error ? error.message : String(error);
 			if (errStr.includes('Nothing to compact') || errStr.includes('session too small') || errStr.includes('no messages')) {
-				this.pushNotice('info', 'Nessun contenuto da compattare: la sessione è troppo breve o non ha abbastanza contesto.', 'studio');
+				this.pushNotice('info', messages.ui_ts_session_nessun_contenuto_da_compattare_la_sessione_e_322e(), 'studio');
 			} else {
 				this.pushNotice('error', `Compattazione non riuscita: ${this.reason(error)}`, 'studio');
 			}
@@ -2449,7 +2659,7 @@ export class AgentSession {
 	async handoff(customInstructions?: string): Promise<boolean> {
 		if (this.isCompacting) return false;
 		this.isCompacting = true;
-		this.pushNotice('info', 'Passaggio delle consegne (handoff) in corso...', 'studio');
+		this.pushNotice('info', messages.ui_ts_session_passaggio_delle_consegne_handoff_in_corso_bce8(), 'studio');
 
 		try {
 			await this.client.send({
@@ -2464,18 +2674,20 @@ export class AgentSession {
 			this.optimisticUser = null;
 			this.subagents = [];
 			this.todoPhases = [];
+			this.todoReminder = null;
+			this.renderedCustomKeys.clear();
 			this.queued = [];
 			this.visibleCount = RENDER_WINDOW;
 
 			await this.rebuildTranscript();
 			await this.refreshState();
 			void this.refreshCost();
-			this.pushNotice('info', 'Handoff completato: nuova sessione avviata con il riassunto della precedente.', 'studio');
+			this.pushNotice('info', messages.ui_ts_session_handoff_completato_nuova_sessione_avviata_con_il_e2ff(), 'studio');
 			return true;
 		} catch (error) {
 			const errStr = error instanceof Error ? error.message : String(error);
 			if (errStr.includes('Nothing to hand off') || errStr.includes('no messages')) {
-				this.pushNotice('info', 'Nessun contenuto per l’handoff: la sessione corrente non contiene messaggi.', 'studio');
+				this.pushNotice('info', messages.ui_ts_session_nessun_contenuto_per_l_handoff_la_sessione_129e(), 'studio');
 			} else {
 				this.pushNotice('error', `Handoff non riuscito: ${this.reason(error)}`, 'studio');
 			}
@@ -2507,7 +2719,7 @@ export class AgentSession {
 	async login(providerId: string): Promise<boolean> {
 		try {
 			await this.client.login(providerId);
-			this.pushNotice('info', `Login completato per il provider "${providerId}".`, 'studio');
+			this.pushNotice('info', messages.ui_ts_session_login_completato_per_il_provider_value1_796e({ value1: providerId }), 'studio');
 			await this.refreshState();
 			return true;
 		} catch (error) {

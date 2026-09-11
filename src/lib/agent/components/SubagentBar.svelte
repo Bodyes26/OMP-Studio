@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Barra riassuntiva dei subagent attivi/completati, sopra il composer.
 	// Clic apre il pannello dei subagent.
 	import type { AgentProgress } from '../wire';
@@ -23,7 +24,7 @@
 			<span class="label">Subagent ({subagents.length})</span>
 			<span class="counts">
 				{#if runningCount > 0}
-					<span class="count-running">{runningCount} in corso</span>
+					<span class="count-running">{runningCount} {m.queue_drawer_status_in_progress()}</span>
 				{/if}
 				{#if completedCount > 0}
 					<span class="count-done">{completedCount} completati</span>

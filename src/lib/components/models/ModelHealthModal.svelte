@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { untrack } from 'svelte';
 	import {
 		modelSettingsStore,
@@ -174,7 +176,7 @@
 	}
 
 	function formatCheckDate(ts: number): string {
-		return new Date(ts).toLocaleString('it-IT', {
+		return i18n.formatDate(ts, {
 			day: '2-digit',
 			month: '2-digit',
 			year: 'numeric',
@@ -184,13 +186,9 @@
 	}
 
 	function formatCatalogAge(days: number): string {
-		if (days < 0.1) return 'recente (<2 ore)';
-		if (days < 1) {
-			const hours = Math.round(days * 24);
-			return `${hours} ore fa`;
-		}
-		const d = Math.round(days);
-		return d === 1 ? '1 giorno fa' : `${d} giorni fa`;
+		if (days < 0.1) return i18n.formatRelativeTime(-2, 'hour');
+		if (days < 1) return i18n.formatRelativeTime(-Math.round(days * 24), 'hour');
+		return i18n.formatRelativeTime(-Math.round(days), 'day');
 	}
 </script>
 
@@ -214,7 +212,7 @@
 				<h3 id="health-dialog-title">Salute dei Modelli Configurati</h3>
 				{#if modelSettingsStore.healthReport}
 					<p>
-						Ultima verifica: {formatCheckDate(modelSettingsStore.healthReport.checkedAt)}
+						{m.ui_modelhealthmodal_ultima_verifica_aab9()} {formatCheckDate(modelSettingsStore.healthReport.checkedAt)}
 						{#if modelSettingsStore.healthReport.catalogAgeDays != null}
 							· Catalogo aggiornato {formatCatalogAge(modelSettingsStore.healthReport.catalogAgeDays)}
 						{/if}
@@ -223,14 +221,14 @@
 					<p>Referto di salute dei modelli primari e delle catene di riserva.</p>
 				{/if}
 			</div>
-			<button class="btn-close" aria-label="Chiudi finestra" onclick={handleClose}><IconClose /></button>
+			<button class="btn-close" aria-label={m.settings_close_window()} onclick={handleClose}><IconClose /></button>
 		</div>
 
 		<div class="dialog-body">
 			{#if modelSettingsStore.healthReport?.catalogError}
 				<AlertBanner
 					variant="warning"
-					title="Verifica disponibilita incompleta"
+					title={m.models_health_incomplete_title()}
 					message="Non e stato possibile contattare il catalogo remoto ({modelSettingsStore.healthReport.catalogError}). L'elenco dei modelli non offerti potrebbe non essere affidabile."
 				/>
 			{/if}
@@ -244,7 +242,7 @@
 							indeterminate={someSelected}
 							onchange={toggleSelectAll}
 						/>
-						<span>Seleziona tutti ({selectedKeys.length}/{allActionableFindings.length})</span>
+						<span>{m.ui_modelhealthmodal_seleziona_tutti_cd22()}{selectedKeys.length}/{allActionableFindings.length})</span>
 					</label>
 				</div>
 			{/if}
@@ -309,7 +307,7 @@
 											{#if finding.suggestedSelector}
 												Sostituisci
 											{:else if finding.kind === 'fallback'}
-												Rimuovi riserva
+												{m.ui_modelhealthmodal_rimuovi_riserva_447f()}
 											{:else}
 												Configurazione manuale
 											{/if}
@@ -346,7 +344,7 @@
 									{:else}
 										<div class="diff-row single">
 											<div class="model-box old invalid-target">
-												<span class="box-label">Modello attuale non valido</span>
+												<span class="box-label">{m.ui_modelhealthmodal_modello_attuale_non_valido_10a2()}</span>
 												<span class="box-val">{finding.currentSelector}</span>
 											</div>
 										</div>
@@ -355,7 +353,7 @@
 									<div class="reason-note">
 										<span class="reason-text">{finding.reason}</span>
 										{#if !actionable && finding.kind === 'primary'}
-											<span class="manual-hint">· Scegli un modello attivo nella scheda Ruoli & Fallback.</span>
+											<span class="manual-hint">{m.ui_modelhealthmodal_scegli_un_modello_attivo_nella_scheda_ruoli_9727()}</span>
 										{/if}
 									</div>
 								</div>
@@ -455,14 +453,14 @@
 				I livelli di reasoning configurati verranno preservati per i modelli sostituiti.
 			</div>
 			<div class="footer-actions">
-				<button class="btn btn-secondary" onclick={handleClose}>Annulla</button>
+				<button class="btn btn-secondary" onclick={handleClose}>{m.common_cancel()}</button>
 				<button
 					class="btn btn-secondary"
 					disabled={modelSettingsStore.saving}
 					onclick={handleDismiss}
-					title="Nasconde gli avvisi fino alla prossima verifica con nuovi problemi"
+					title={m.ui_modelhealthmodal_nasconde_gli_avvisi_fino_alla_prossima_verifica_3dbb()}
 				>
-					Ignora questi avvisi
+					{m.models_health_dismiss_btn()}
 				</button>
 				<button
 					class="btn btn-primary"

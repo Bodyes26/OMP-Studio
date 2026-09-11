@@ -1,5 +1,10 @@
 <script lang="ts">
 	import {
+		m,
+		ui_catalogtab_aggiungi_come_fallback_6dd1 as addAsFallbackLabel,
+		ui_catalogtab_costo_1m_7226 as costPerMillionLabel
+	} from '$lib/paraglide/messages.js';
+	import {
 		modelSettingsStore,
 		STANDARD_ROLES,
 		type ModelDto
@@ -117,7 +122,7 @@
 		modelSettingsStore.setRoleModel(roleId, model.selector);
 		openAssignMenuFor = null;
 		assignTriggerRef = null;
-		modelSettingsStore.showToast(`Modello assegnato al ruolo ${roleId}`);
+		modelSettingsStore.showToast(m.ui_catalogtab_modello_assegnato_al_ruolo_value1_6cd2({ value1: roleId }));
 	}
 
 	function handleAddAsFallback(roleId: string, model: ModelDto) {
@@ -147,7 +152,7 @@
 
 <div class="catalog-tab">
 	<!-- Sidebar sinistra: filtro per ambito/provider -->
-	<aside class="catalog-sidebar" aria-label="Filtro per provider">
+	<aside class="catalog-sidebar" aria-label={m.models_catalog_scope_sidebar()}>
 		<div class="sidebar-title">Ambito</div>
 		<nav class="scope-list">
 			<button
@@ -188,12 +193,12 @@
 				<input
 					type="text"
 					bind:value={searchQuery}
-					placeholder="Cerca per nome, ID, provider o selettore..."
-					aria-label="Cerca nel catalogo modelli"
+					placeholder={m.models_catalog_search_placeholder()}
+					aria-label={m.ui_catalogtab_cerca_nel_catalogo_modelli_2515()}
 					onclick={(e) => e.stopPropagation()}
 				/>
 				{#if searchQuery}
-					<button type="button" class="btn-clear" aria-label="Cancella ricerca" onclick={() => (searchQuery = '')}>
+					<button type="button" class="btn-clear" aria-label={m.file_tree_clear_search()} onclick={() => (searchQuery = '')}>
 						<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
 							<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
 						</svg>
@@ -233,7 +238,7 @@
 					onclick={() => modelSettingsStore.refreshCatalog(modelSettingsStore.catalogFilterProviderId ?? undefined)}
 					title={modelSettingsStore.catalogFilterProviderId
 						? `Aggiorna catalogo per ${providerName(modelSettingsStore.catalogFilterProviderId)}`
-						: 'Aggiorna catalogo da tutti i provider attivi'}
+						: m.ui_catalogtab_aggiorna_catalogo_da_tutti_i_provider_attivi_c6bb()}
 				>
 					<svg
 						class="refresh-icon"
@@ -248,7 +253,7 @@
 						<path d="M2 8a6 6 0 0 1 10.2-4.2M14 8a6 6 0 0 1-10.2 4.2" stroke-linecap="round" />
 						<path d="M12.5 1v3h-3M3.5 15v-3h3" stroke-linecap="round" stroke-linejoin="round" />
 					</svg>
-					<span>{modelSettingsStore.isRefreshingCatalog ? 'Aggiornamento...' : 'Aggiorna catalogo'}</span>
+					<span>{modelSettingsStore.isRefreshingCatalog ? 'Aggiornamento...' : m.ui_catalogtab_aggiorna_catalogo_7a49()}</span>
 				</button>
 			</div>
 		</div>
@@ -260,14 +265,14 @@
 		<div class="catalog-list">
 			{#if effectiveCatalog.length === 0 && !modelSettingsStore.loading}
 				<div class="empty-state">
-					<p>Nessun modello disponibile nel catalogo.</p>
+					<p>{m.ui_catalogtab_nessun_modello_disponibile_nel_catalogo_611a()}</p>
 					<button type="button" class="btn-retry" onclick={() => modelSettingsStore.refreshCatalog()}>
 						Ricarica catalogo provider
 					</button>
 				</div>
 			{:else if filteredCatalog.length === 0}
 				<div class="empty-state">
-					<p>Nessun modello trovato per i filtri selezionati.</p>
+					<p>{m.ui_catalogtab_nessun_modello_trovato_per_i_filtri_selezionati_9d95()}</p>
 					<button type="button" class="btn-retry" onclick={clearSearchFilters}>
 						Cancella filtri di ricerca
 					</button>
@@ -302,7 +307,7 @@
 						</div>
 
 						<div class="cost-cell">
-							<span class="cost-label">Costo /1M</span>
+							<span class="cost-label">{costPerMillionLabel()}</span>
 							<span class="cost-val" class:free={isFree(m)}>{formatCostPair(m)}</span>
 						</div>
 
@@ -361,7 +366,7 @@
 
 									<div class="assign-divider"></div>
 
-									<div class="assign-section-title">Aggiungi come Fallback</div>
+									<div class="assign-section-title">{addAsFallbackLabel()}</div>
 									<div class="assign-grid">
 										{#each STANDARD_ROLES as r (r.id)}
 											<button

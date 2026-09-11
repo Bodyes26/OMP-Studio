@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Ispettore delle regole di contesto e delle skill dell'agente, piu' le
 	// proposte nate dall'attrito ricorrente nei prompt recenti.
 	//
@@ -49,8 +50,8 @@
 	});
 
 	function scopeLabel(scope: SkillItem['scope']): string {
-		if (scope === 'project') return 'progetto';
-		return scope === 'managed' ? 'managed' : 'globale';
+		if (scope === 'project') return m.rules_scope_project();
+		return scope === 'managed' ? 'managed' : m.rules_scope_global();
 	}
 
 	async function refresh() {
@@ -134,23 +135,23 @@
 						onclick={() => onOpenFile(suggestion.target_file)}
 					>
 						<IconRename />
-						Modifica
+						{m.queue_drawer_edit_btn()}
 					</button>
 					<button type="button" class="btn" onclick={() => rulesStore.dismissSuggestion(suggestion.id)}>
 						<IconClose />
-						Ignora
+						{m.rules_dismiss()}
 					</button>
 				</div>
 				{#if suggestions.length === 2}
-					<p class="queued">Un'altra proposta in attesa.</p>
+					<p class="queued">{m.rules_another_queued()}</p>
 				{:else if suggestions.length > 2}
-					<p class="queued">Altre {suggestions.length - 1} proposte in attesa.</p>
+					<p class="queued">Altre {suggestions.length - 1} {m.ui_rulespanel_proposte_in_attesa_0c30()}</p>
 				{/if}
 			</article>
 		{/if}
 
 		<div class="section-label">
-			Regole di contesto
+			{m.rules_context_rules_title()}
 			{#if busy}<span class="rules-spinner" aria-hidden="true"></span>{/if}
 			{#if activeRulesCount > 0}<span class="count">{activeRulesCount}</span>{/if}
 		</div>
@@ -169,24 +170,23 @@
 			{:else}
 				<div class="missing">
 					<p class="missing-text">
-						Questo progetto non ha <code>AGENTS.md</code>: l'agente lavora senza convenzioni
-						scritte.
+						{m.ui_rulespanel_questo_progetto_non_ha_ac09()} <code>AGENTS.md</code>{m.ui_rulespanel_l_agente_lavora_senza_convenzioni_scritte_9f6b()}
 					</p>
 					<button type="button" class="btn primary" onclick={() => void initAgentsMd()}>
 						<IconPlus />
-						Inizializza AGENTS.md
+						{m.rules_init_agents_md()}
 					</button>
 				</div>
 			{/if}
 		{/each}
 
 		<div class="section-label">
-			Skill del progetto
+			{m.rules_project_skills_title()}
 			{#if projectSkills.length > 0}<span class="count">{projectSkills.length}</span>{/if}
 		</div>
 
 		{#if projectSkills.length === 0}
-			<div class="empty">Nessuna skill in <code>.omp/skills</code>.</div>
+			<div class="empty">{m.ui_rulespanel_nessuna_skill_in_3df8()} <code>.omp/skills</code>.</div>
 		{:else}
 			{#each projectSkills as skill, i (skill.path)}
 				<button
@@ -210,19 +210,19 @@
 		{/if}
 
 		<div class="section-label">
-			Skill globali
+			{m.rules_global_skills_title()}
 			{#if globalSkills.length > 0}<span class="count">{globalSkills.length}</span>{/if}
 		</div>
 
 		{#if globalSkills.length === 0}
-			<div class="empty">Nessuna skill in <code>~/.omp/agent</code>.</div>
+			<div class="empty">{m.ui_rulespanel_nessuna_skill_in_3df8()} <code>~/.omp/agent</code>.</div>
 		{:else}
 			{#each globalSkills as skill, i (skill.path)}
 				<button
 					type="button"
 					class="row rules-item-animated"
 					style:--index={Math.min(i, 8)}
-					title="Fuori dal progetto: si apre nel file manager, non nell'editor"
+					title={m.ui_rulespanel_fuori_dal_progetto_si_apre_nel_file_d6b3()}
 					onclick={() => void revealSkill(skill)}
 				>
 					<span class="row-icon"><IconSkill /></span>
@@ -249,7 +249,7 @@
 			onclick={() => void refresh()}
 		>
 			<IconRefresh />
-			{busy ? 'Analisi in corso...' : 'Aggiorna regole e analisi'}
+			{busy ? m.rules_analyzing_btn() : m.rules_refresh_btn()}
 		</button>
 	</div>
 </div>

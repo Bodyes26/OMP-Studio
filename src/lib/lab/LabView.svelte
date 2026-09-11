@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import {
 		IconLab,
 		IconTerminal,
@@ -98,7 +100,7 @@
 	let {
 		projectPath = '',
 		projectKey = '',
-		projectName = 'Progetto corrente',
+		projectName = m.ui_labview_progetto_corrente_cf11(),
 		agentState = 'idle',
 		onBackToMain,
 		onClose,
@@ -252,7 +254,7 @@
 				showToast(res.error || 'Migrazione .gitignore non riuscita');
 			}
 		} catch (err) {
-			showToast(`Errore migrazione .gitignore: ${String(err)}`);
+			showToast(m.ui_labview_errore_migrazione_gitignore_value1_13ad({ value1: String(err) }));
 		} finally {
 			gitignoreMigrating = false;
 		}
@@ -269,7 +271,7 @@
 				showToast(res.error || 'Rollback .gitignore non riuscito');
 			}
 		} catch (err) {
-			showToast(`Errore rollback .gitignore: ${String(err)}`);
+			showToast(m.ui_labview_errore_rollback_gitignore_value1_f6fe({ value1: String(err) }));
 		} finally {
 			gitignoreMigrating = false;
 		}
@@ -315,7 +317,7 @@
 				exportResult = res;
 				showToast(`Progetto React esportato con successo in '${exportDestinationPath}'!`);
 			} else {
-				exportError = res.error || 'Errore durante l\'esportazione.';
+				exportError = res.error || m.ui_labview_errore_durante_l_esportazione_bd77();
 			}
 		} catch (err) {
 			exportError = err instanceof Error ? err.message : String(err);
@@ -383,12 +385,12 @@
 					ok: true,
 					enqueued: res.enqueued,
 					message: res.enqueued
-						? 'La consegna è stata accodata nella sessione principale in background.'
-						: 'La consegna è stata inviata con successo alla sessione principale.'
+						? m.ui_labview_la_consegna_e_stata_accodata_nella_sessione_76af()
+						: m.ui_labview_la_consegna_e_stata_inviata_con_successo_84a1()
 				};
-				showToast('Consegna al principale completata!');
+				showToast(m.ui_labview_consegna_al_principale_completata_91b5());
 			} else {
-				handoffError = res.error || 'Errore durante la consegna al principale.';
+				handoffError = res.error || m.ui_labview_errore_durante_la_consegna_al_principale_f48a();
 			}
 		} catch (err) {
 			handoffError = err instanceof Error ? err.message : String(err);
@@ -452,7 +454,7 @@
 				dialogMode = 'create';
 			}
 		} catch (err) {
-			console.error('Errore caricamento prototipi:', err);
+			console.error(m.ui_labview_errore_caricamento_prototipi_9cb6(), err);
 		} finally {
 			loadingPrototypes = false;
 		}
@@ -519,7 +521,7 @@
 					{
 						id: 'init-msg',
 						sender: 'assistant',
-						text: `Ho predisposto l'ambiente per il prototipo **${stored.manifest.title}**. L'anteprima visuale e' attiva. Puoi interagire direttamente con i componenti, selezionare elementi con lo strumento Ispeziona per annotarli, oppure chiedermi qualsiasi modifica.`,
+						text: m.ui_labview_ho_predisposto_l_ambiente_per_il_prototipo_1c07({ value1: stored.manifest.title }),
 						timestamp: Date.now()
 					}
 				];
@@ -529,7 +531,7 @@
 			await compileAndRender();
 			showPrototypeDialog = false;
 		} catch (err) {
-			console.error(`Errore selezione prototipo '${id}':`, err);
+			console.error(m.ui_labview_errore_selezione_prototipo_value1_20b8({ value1: id }), err);
 		}
 	}
 
@@ -644,7 +646,7 @@ if (container) {
 			});
 
 			if (!res.ok) {
-				compileError = res.errors?.join('\n') || 'Errore di compilazione sconosciuto';
+				compileError = res.errors?.join('\n') || m.ui_labview_errore_di_compilazione_sconosciuto_a08f();
 				return;
 			}
 
@@ -744,7 +746,7 @@ if (container) {
 			await selectPrototype(created.id);
 			showToast(`Prototipo '${created.manifest.title}' creato con successo!`);
 		} catch (err) {
-			creationError = `Creazione fallita: ${String(err)}`;
+			creationError = m.ui_labview_creazione_fallita_value1_1c7e({ value1: String(err) });
 		} finally {
 			isCreatingPrototype = false;
 		}
@@ -769,8 +771,8 @@ if (container) {
 			observedRevisionId = rev.revision.id;
 			showToast(`Ripristinata con successo la revisione ${rev.revision.id}`);
 		} catch (err) {
-			console.error(`Errore ripristino revisione '${rev.revision.id}':`, err);
-			showToast(`Errore durante il ripristino: ${String(err)}`);
+			console.error(m.ui_labview_errore_ripristino_revisione_value1_75f7({ value1: rev.revision.id }), err);
+			showToast(m.ui_labview_errore_durante_il_ripristino_value1_673a({ value1: String(err) }));
 		}
 	}
 
@@ -855,7 +857,7 @@ if (container) {
 					{
 						id: `asst-${Date.now()}`,
 						sender: 'assistant',
-						text: `Ho applicato la modifica richiesta alla nuova revisione **${newRevId}**. Ho integrato il feedback visuale e aggiornato l'anteprima React con Tailwind v4.`,
+						text: m.ui_labview_ho_applicato_la_modifica_richiesta_alla_nuova_e14c({ value1: newRevId }),
 						timestamp: Date.now()
 					}
 				];
@@ -863,7 +865,7 @@ if (container) {
 				showToast(`Nuova revisione ${newRevId} renderizzata nell'anteprima!`);
 			}, 900);
 		} catch (err) {
-			console.error('Errore invio messaggio:', err);
+			console.error(m.ui_labview_errore_invio_messaggio_652a(), err);
 			isGenerating = false;
 		}
 	}
@@ -876,7 +878,7 @@ if (container) {
 		const comment = att.comment || '';
 		const hint = `[Annotazione visuale su <${elemTag}> (${elemSel}) nella revisione ${att.revisionId}]: ${comment}`;
 		chatInput = chatInput ? `${chatInput}\n\n${hint}` : hint;
-		showToast('Annotazione visuale inserita nel messaggio.');
+		showToast(m.ui_labview_annotazione_visuale_inserita_nel_messaggio_25a5());
 	}
 
 	// Copia codice selezionato negli appunti
@@ -926,22 +928,22 @@ if (container) {
 	}}
 />
 
-<div class="lab-root" role="region" aria-label="Laboratorio Prototipi Frontend">
+<div class="lab-root" role="region" aria-label={m.lab_root_aria()}>
 	<!-- HEADER DELLA VISTA DEDICATA -->
 	<header class="lab-topbar">
 		<div class="topbar-left">
-			<div class="lab-logo" title="Laboratorio Prototipi Studio">
+			<div class="lab-logo" title={m.ui_labview_laboratorio_prototipi_studio_d064()}>
 				<IconLab />
-				<span class="logo-text">LABORATORIO PROTOTIPI</span>
+				<span class="logo-text">{m.lab_logo_text()}</span>
 			</div>
 
 			<!-- Indicatore collocazione: Progetto attivo, Progetto vuoto o Bozze -->
 			<div class="location-chip" class:draft={isDraft}>
 				{#if isDraft}
 					<span class="location-badge draft">Bozza locale</span>
-					<span class="location-name">Archivio senza progetto</span>
+					<span class="location-name">{m.ui_labview_archivio_senza_progetto_66e7()}</span>
 				{:else}
-					<span class="location-badge project">Progetto</span>
+					<span class="location-badge project">{m.topbar_tab_project()}</span>
 					<span class="location-name" title={projectPath}>{projectName}</span>
 				{/if}
 			</div>
@@ -955,11 +957,11 @@ if (container) {
 						showPrototypeDialog = true;
 						dialogMode = 'list';
 					}}
-					title="Seleziona o crea prototipo"
+					title={m.ui_labview_seleziona_o_crea_prototipo_00bf()}
 					aria-label="Selettore prototipo: {activePrototype?.manifest.title || 'Nessuno'}"
 				>
-					<span class="proto-label">Prototipo:</span>
-					<strong class="proto-title">{activePrototype?.manifest.title || 'Seleziona...'}</strong>
+					<span class="proto-label">{m.lab_proto_label()}</span>
+					<strong class="proto-title">{activePrototype?.manifest.title || m.ui_labview_seleziona_81f2()}</strong>
 					<span class="proto-badge">{observedRevisionId}</span>
 				</button>
 			</div>
@@ -978,9 +980,9 @@ if (container) {
 						{#if agentState === 'working'}
 							Principale al lavoro...
 						{:else if agentState === 'attention'}
-							Principale richiede risposta
+							{m.ui_labview_principale_richiede_risposta_6762()}
 						{:else}
-							Principale in attesa
+							{m.ui_labview_principale_in_attesa_7628()}
 						{/if}
 					</span>
 
@@ -989,10 +991,10 @@ if (container) {
 						class="btn-switch-main"
 						onclick={onBackToMain}
 						title="Passa alla vista principale senza interrompere il lavoro (Esc)"
-						aria-label="Torna al progetto principale"
+						aria-label={m.ui_labview_torna_al_progetto_principale_861a()}
 					>
 						<IconTerminal />
-						<span>Torna al principale (Esc)</span>
+						<span>{m.lab_back_to_main()}</span>
 					</button>
 				</div>
 			{/if}
@@ -1006,11 +1008,11 @@ if (container) {
 					type="button"
 					class="btn-topbar-action"
 					onclick={() => openExportDialog()}
-					title="Esporta questa revisione come progetto React autonomo"
-					aria-label="Esporta progetto autonomo"
+					title={m.ui_labview_esporta_questa_revisione_come_progetto_react_autonomo_f654()}
+					aria-label={m.ui_labview_esporta_progetto_autonomo_6ab6()}
 				>
 					<IconDownload />
-					<span>Esporta</span>
+					<span>{m.lab_export_btn()}</span>
 				</button>
 
 				{#if !isDraft}
@@ -1018,11 +1020,11 @@ if (container) {
 						type="button"
 						class="btn-topbar-action handoff"
 						onclick={() => openHandoffDialog()}
-						title="Consegna questa revisione alla sessione principale del progetto"
-						aria-label="Consegna alla sessione principale"
+						title={m.ui_labview_consegna_questa_revisione_alla_sessione_principale_del_2230()}
+						aria-label={m.ui_labview_consegna_alla_sessione_principale_6523()}
 					>
 						<IconArrowRight />
-						<span>Consegna</span>
+						<span>{m.lab_handoff_btn()}</span>
 					</button>
 				{/if}
 			</div>
@@ -1040,7 +1042,7 @@ if (container) {
 					title="Sorgenti React e configurazione del prototipo"
 				>
 					<IconViewCode />
-					<span>Codice</span>
+					<span>{m.lab_tab_code()}</span>
 				</button>
 
 				<button
@@ -1065,10 +1067,10 @@ if (container) {
 					aria-selected={activeInspectorTab === 'context'}
 					onclick={() =>
 						(activeInspectorTab = activeInspectorTab === 'context' ? 'none' : 'context')}
-					title="Contesto stabile e drift del progetto"
+					title={m.ui_labview_contesto_stabile_e_drift_del_progetto_a3d0()}
 				>
 					<IconContextWindow />
-					<span>Contesto</span>
+					<span>{m.lab_tab_context()}</span>
 				</button>
 
 				<button
@@ -1091,8 +1093,8 @@ if (container) {
 				type="button"
 				class="btn-close-lab"
 				onclick={onClose || onBackToMain}
-				title="Chiudi Laboratorio e torna a Studio"
-				aria-label="Chiudi Laboratorio"
+				title={m.lab_close_lab()}
+				aria-label={m.ui_labview_chiudi_laboratorio_8177()}
 			>
 				<IconClose />
 			</button>
@@ -1124,7 +1126,7 @@ if (container) {
 			<div class="canvas-wrapper">
 				<!-- Controlli del canvas (Sfondo isolato per non imporre il tema di Studio) -->
 				<div class="canvas-controls" role="toolbar" aria-label="Controlli superficie prototipo">
-					<span class="control-label">Sfondo prototipo:</span>
+					<span class="control-label">{m.lab_bg_label()}</span>
 					<div class="theme-toggle-group">
 						<button
 							type="button"
@@ -1170,7 +1172,7 @@ if (container) {
 						title="Ricompila bundle React e Tailwind"
 					>
 						<IconRefresh />
-						<span>{isCompiling ? 'Compilazione...' : 'Ricarica'}</span>
+						<span>{isCompiling ? m.lab_compiling_btn() : m.lab_reload_btn()}</span>
 					</button>
 				</div>
 
@@ -1180,11 +1182,11 @@ if (container) {
 						<div class="compile-error-card" role="alert">
 							<div class="error-header">
 								<IconWarning />
-								<h4>Errore durante la compilazione del prototipo</h4>
+								<h4>{m.ui_labview_errore_durante_la_compilazione_del_prototipo_dc67()}</h4>
 							</div>
 							<pre class="error-pre">{compileError}</pre>
 							<button type="button" class="btn-retry" onclick={compileAndRender}>
-								<IconRefresh /> Riprova compilazione
+								<IconRefresh /> {m.ui_labview_riprova_compilazione_4377()}
 							</button>
 						</div>
 					{:else}
@@ -1197,7 +1199,7 @@ if (container) {
 							{#if isCompiling}
 								<div class="compiling-overlay">
 									<div class="spinner"></div>
-									<p>Compilazione bundle React 19 e Tailwind v4 in corso...</p>
+									<p>{m.ui_labview_compilazione_bundle_react_19_e_tailwind_v4_a44a()}</p>
 								</div>
 							{/if}
 
@@ -1224,7 +1226,7 @@ if (container) {
 						<p title={activePrototype?.manifest.brief || ''}>{activePrototype?.manifest.brief || 'Itera e perfeziona questo componente frontend'}</p>
 					</div>
 				</div>
-				<span class="session-scope-badge">Sessione Lab</span>
+				<span class="session-scope-badge">{m.ui_labview_sessione_lab_2c09()}</span>
 			</header>
 
 			<!-- TRANSCRIPT MESSAGGI -->
@@ -1232,8 +1234,8 @@ if (container) {
 				{#each chatMessages as msg (msg.id)}
 					<div class="chat-bubble {msg.sender}">
 						<div class="bubble-header">
-							<span class="bubble-author">{msg.sender === 'user' ? 'Tu' : 'Laboratorio AI'}</span>
-							<span class="bubble-time">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+							<span class="bubble-author">{msg.sender === 'user' ? 'Tu' : m.ui_labview_laboratorio_ai_9649()}</span>
+							<span class="bubble-time">{i18n.formatDate(msg.timestamp, { hour: '2-digit', minute: '2-digit' })}</span>
 						</div>
 
 						<div class="bubble-content">
@@ -1253,14 +1255,14 @@ if (container) {
 				{#if isGenerating}
 					<div class="chat-bubble assistant generating">
 						<div class="bubble-header">
-							<span class="bubble-author">Laboratorio AI</span>
+							<span class="bubble-author">{m.ui_labview_laboratorio_ai_9649()}</span>
 							<span class="bubble-time">elaborazione...</span>
 						</div>
 						<div class="bubble-content">
 							<div class="typing-indicator">
 								<span></span><span></span><span></span>
 							</div>
-							<span class="typing-label">Iterazione e aggiornamento prototipo in corso...</span>
+							<span class="typing-label">{m.ui_labview_iterazione_e_aggiornamento_prototipo_in_corso_78de()}</span>
 						</div>
 					</div>
 				{/if}
@@ -1290,7 +1292,7 @@ if (container) {
 			<footer class="chat-composer">
 				<textarea
 					bind:value={chatInput}
-					placeholder="Descrivi una modifica o chiedi di iterare una variante..."
+					placeholder={m.lab_chat_placeholder()}
 					rows={3}
 					onkeydown={(e) => {
 						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -1309,7 +1311,7 @@ if (container) {
 						onclick={handleSendMessage}
 					>
 						<IconSend />
-						<span>Invia all'agente</span>
+						<span>{m.ui_labview_invia_all_agente_c5f8()}</span>
 					</button>
 				</div>
 			</footer>
@@ -1334,7 +1336,7 @@ if (container) {
 						type="button"
 						class="btn-close-drawer"
 						onclick={() => (activeInspectorTab = 'none')}
-						aria-label="Chiudi pannello"
+						aria-label={m.ui_labview_chiudi_pannello_c33c()}
 					>
 						<IconClose />
 					</button>
@@ -1364,7 +1366,7 @@ if (container) {
 								<div class="pane-bar">
 									<span class="viewing-filename">{selectedFileForViewing}</span>
 									<button type="button" class="btn-copy" onclick={handleCopyCode}>
-										<IconCopy /> {copyFeedback ? 'Copiato!' : 'Copia'}
+										<IconCopy /> {copyFeedback ? 'Copiato!' : m.context_menu_item_copy()}
 									</button>
 								</div>
 								<pre class="code-pre"><code>{selectedFileContent}</code></pre>
@@ -1375,7 +1377,7 @@ if (container) {
 					{:else if activeInspectorTab === 'revisions'}
 						<div class="revisions-tab-layout">
 							{#if revisions.length === 0}
-								<p class="empty-msg">Nessuna revisione registrata.</p>
+								<p class="empty-msg">{m.ui_labview_nessuna_revisione_registrata_bb1b()}</p>
 							{:else}
 								<div class="revisions-list">
 									{#each revisions as rev (rev.revision.id)}
@@ -1383,9 +1385,9 @@ if (container) {
 											<div class="rev-meta">
 												<strong class="rev-id">{rev.revision.id}</strong>
 												<span class="rev-state state-{rev.revision.state}">{rev.revision.state}</span>
-												<span class="rev-time">{new Date(rev.revision.createdAt).toLocaleTimeString()}</span>
+												<span class="rev-time">{i18n.formatDate(rev.revision.createdAt, { hour: '2-digit', minute: '2-digit' })}</span>
 											</div>
-											<p class="rev-summary">{rev.summary || 'Nessuna descrizione'}</p>
+											<p class="rev-summary">{rev.summary || m.ui_labview_nessuna_descrizione_9f94()}</p>
 
 											<div class="rev-actions">
 												{#if observedRevisionId !== rev.revision.id}
@@ -1403,24 +1405,24 @@ if (container) {
 													class="btn-rev-action restore"
 													onclick={() => handleRestoreRevision(rev)}
 												>
-													<IconUndo /> Ripristina
+													<IconUndo /> {m.topbar_win_restore()}
 												</button>
 												<button
 													type="button"
 													class="btn-rev-action export"
 													onclick={() => openExportDialog(rev.revision.id)}
-													title="Esporta questa revisione in una cartella"
+													title={m.ui_labview_esporta_questa_revisione_in_una_cartella_8873()}
 												>
-													<IconDownload /> Esporta
+													<IconDownload /> {m.lab_export_btn()}
 												</button>
 												{#if !isDraft}
 													<button
 														type="button"
 														class="btn-rev-action handoff"
 														onclick={() => openHandoffDialog(rev.revision.id)}
-														title="Consegna questa revisione all'agente principale"
+														title={m.ui_labview_consegna_questa_revisione_all_agente_principale_4c95()}
 													>
-														<IconArrowRight /> Consegna
+														<IconArrowRight /> {m.lab_handoff_btn()}
 													</button>
 												{/if}
 											</div>
@@ -1435,7 +1437,7 @@ if (container) {
 						<LabContextPanel
 							snapshot={contextSnapshot}
 							onRefreshContext={() => {
-								showToast('Contesto progetto aggiornato.');
+								showToast(m.ui_labview_contesto_progetto_aggiornato_f310());
 							}}
 						/>
 
@@ -1454,7 +1456,7 @@ if (container) {
 											<span class="sub-role">{sub.role} ({sub.targetSlice})</span>
 										</div>
 										<div class="sub-details">
-											<p><strong>File assegnato:</strong> <code>{sub.assignedFilePath}</code></p>
+											<p><strong>{m.ui_labview_file_assegnato_179d()}</strong> <code>{sub.assignedFilePath}</code></p>
 											<p><strong>Direzione:</strong> {sub.visualDirection}</p>
 											<p><strong>Requisiti contratto:</strong> {sub.contractRequirements}</p>
 										</div>
@@ -1500,7 +1502,7 @@ if (container) {
 							class="dialog-tab"
 							class:active={dialogMode === 'create'}
 							onclick={() => (dialogMode = 'create')}
-						>+ Nuovo Prototipo</button>
+						>{m.ui_labview_nuovo_prototipo_742b()}</button>
 					</div>
 					<button
 						type="button"
@@ -1518,7 +1520,7 @@ if (container) {
 								<span class="banner-icon">⚠️</span>
 								<div class="banner-text">
 									<strong>Esclusione Git legacy attiva:</strong>
-									<span>La vecchia regola in .gitignore esclude tutta la cartella <code>proto/</code>. I nuovi prototipi non vengono tracciati da Git.</span>
+									<span>{m.ui_labview_la_vecchia_regola_in_gitignore_esclude_tutta_1d00()} <code>proto/</code>. I nuovi prototipi non vengono tracciati da Git.</span>
 								</div>
 								<button
 									type="button"
@@ -1541,20 +1543,20 @@ if (container) {
 									class="btn-sm btn-rollback"
 									onclick={handleRollbackGitignore}
 									disabled={gitignoreMigrating}
-									title="Ripristina l'esclusione totale di proto/ in .gitignore"
+									title={m.ui_labview_ripristina_l_esclusione_totale_di_proto_in_6096()}
 								>
-									{gitignoreMigrating ? '...' : 'Ripristina esclusione'}
+									{gitignoreMigrating ? '...' : m.ui_labview_ripristina_esclusione_386e()}
 								</button>
 							</div>
 						{/if}
 						{#if prototypes.length === 0}
 							<div class="empty-dialog">
-								<p>Nessun prototipo trovato per questo percorso.</p>
+								<p>{m.ui_labview_nessun_prototipo_trovato_per_questo_percorso_8351()}</p>
 								<button
 									type="button"
 									class="btn-primary"
 									onclick={() => (dialogMode = 'create')}
-								>Crea il primo prototipo</button>
+								>{m.ui_labview_crea_il_primo_prototipo_b2a2()}</button>
 							</div>
 						{:else}
 							<div class="proto-grid">
@@ -1603,13 +1605,13 @@ if (container) {
 														}
 													}}
 												>
-													Apri
+													{m.file_tree_menu_open()}
 												</button>
 												<button
 													type="button"
 													class="btn-secondary btn-reconstruct"
 													onclick={() => startReconstructLegacy(leg)}
-													title="Crea una nuova proposta React ispirata a questo file (non una conversione fedele)"
+													title={m.ui_labview_crea_una_nuova_proposta_react_ispirata_a_bcca()}
 												>
 													Ricostruisci in React
 												</button>
@@ -1671,13 +1673,13 @@ if (container) {
 									type="button"
 									class="btn-secondary"
 									onclick={() => (showPrototypeDialog = false)}
-								>Annulla</button>
+								>{m.common_cancel()}</button>
 								<button
 									type="submit"
 									class="btn-primary"
 									disabled={isCreatingPrototype}
 								>
-									{isCreatingPrototype ? 'Creazione in corso...' : 'Crea Prototipo'}
+									{isCreatingPrototype ? m.ui_labview_creazione_in_corso_8bc8() : m.ui_labview_crea_prototipo_dfde()}
 								</button>
 							</div>
 						</form>
@@ -1702,16 +1704,16 @@ if (container) {
 				class="modal-dialog export-dialog"
 				role="dialog"
 				tabindex="-1"
-				aria-label="Esporta Progetto Autonomo"
+				aria-label={m.ui_labview_esporta_progetto_autonomo_25e6()}
 				onclick={(e) => e.stopPropagation()}
 			>
 				<header class="dialog-header">
-					<h3>Esporta Progetto Autonomo (React + Tailwind v4)</h3>
+					<h3>{m.ui_labview_esporta_progetto_autonomo_react_tailwind_v4_1e7b()}</h3>
 					<button
 						type="button"
 						class="btn-close-dialog"
 						onclick={() => (showExportDialog = false)}
-						aria-label="Chiudi finestra"
+						aria-label={m.settings_close_window()}
 					>
 						<IconClose />
 					</button>
@@ -1722,13 +1724,13 @@ if (container) {
 						<div class="export-success-box">
 							<div class="success-header">
 								<IconCheck />
-								<h4>Progetto esportato con successo!</h4>
+								<h4>{m.ui_labview_progetto_esportato_con_successo_6b7b()}</h4>
 							</div>
 							<p class="export-path-note">
-								Cartella di destinazione: <code>{exportResult.destinationPath}</code>
+								{m.ui_labview_cartella_di_destinazione_d963()} <code>{exportResult.destinationPath}</code>
 							</p>
 							<div class="exported-files-summary">
-								<span class="summary-label">File generati ({exportResult.exportedFiles.length}):</span>
+								<span class="summary-label">{m.ui_labview_file_generati_80eb()}{exportResult.exportedFiles.length}):</span>
 								<ul class="files-list">
 									{#each exportResult.exportedFiles as f}
 										<li><code>{f}</code></li>
@@ -1736,7 +1738,7 @@ if (container) {
 								</ul>
 							</div>
 							<div class="export-instructions">
-								<p>Il progetto è pronto per essere eseguito fuori da Studio senza dipendenze CDN:</p>
+								<p>{m.ui_labview_il_progetto_e_pronto_per_essere_eseguito_af2b()}</p>
 								<pre class="cmd-snippet"><code>cd {exportResult.destinationPath}
 npm install
 npm run dev</code></pre>
@@ -1746,7 +1748,7 @@ npm run dev</code></pre>
 									type="button"
 									class="btn-primary"
 									onclick={() => (showExportDialog = false)}
-								>Chiudi</button>
+								>{m.page_modal_restart_btn_close()}</button>
 							</div>
 						</div>
 					{:else}
@@ -1776,16 +1778,16 @@ npm run dev</code></pre>
 							</div>
 
 							<div class="form-group">
-								<label for="export-dest-path">Cartella di destinazione</label>
+								<label for="export-dest-path">{m.ui_labview_cartella_di_destinazione_2cd6()}</label>
 								<input
 									id="export-dest-path"
 									type="text"
 									bind:value={exportDestinationPath}
-									placeholder="es. C:/Progetti/mio-componente-react"
+									placeholder={m.ui_labview_es_c_progetti_mio_componente_react_40ac()}
 									required
 								/>
 								<span class="field-hint">
-									Verrà generato un progetto React ordinario con Vite, TypeScript, Tailwind v4 e dipendenze fissate.
+									{m.ui_labview_verra_generato_un_progetto_react_ordinario_con_9adf()}
 								</span>
 							</div>
 
@@ -1795,7 +1797,7 @@ npm run dev</code></pre>
 										type="checkbox"
 										bind:checked={exportOverwrite}
 									/>
-									<span>Sovrascrivi file se la cartella di destinazione esiste già</span>
+									<span>{m.ui_labview_sovrascrivi_file_se_la_cartella_di_destinazione_3e5b()}</span>
 								</label>
 							</div>
 
@@ -1804,13 +1806,13 @@ npm run dev</code></pre>
 									type="button"
 									class="btn-secondary"
 									onclick={() => (showExportDialog = false)}
-								>Annulla</button>
+								>{m.common_cancel()}</button>
 								<button
 									type="submit"
 									class="btn-primary"
 									disabled={isExporting}
 								>
-									{isExporting ? 'Esportazione in corso...' : 'Esporta Progetto'}
+									{isExporting ? m.ui_labview_esportazione_in_corso_32c5() : m.ui_labview_esporta_progetto_b834()}
 								</button>
 							</div>
 						</form>
@@ -1844,7 +1846,7 @@ npm run dev</code></pre>
 						type="button"
 						class="btn-close-dialog"
 						onclick={() => (showHandoffDialog = false)}
-						aria-label="Chiudi finestra"
+						aria-label={m.settings_close_window()}
 					>
 						<IconClose />
 					</button>
@@ -1861,9 +1863,9 @@ npm run dev</code></pre>
 							<div class="handoff-rules-summary">
 								<span class="summary-label">Garanzie osservate:</span>
 								<ul>
-									<li>Nessun auto-merge implicito nel codice del progetto ospite.</li>
+									<li>{m.ui_labview_nessun_auto_merge_implicito_nel_codice_del_c048()}</li>
 									<li>Il prototipo in <code>proto/{activePrototype?.id}</code> rimane intatto.</li>
-									<li>L'agente principale adatterà la soluzione nello stack nativo del progetto.</li>
+									<li>{m.ui_labview_l_agente_principale_adattera_la_soluzione_nello_8309()}</li>
 								</ul>
 							</div>
 							<div class="dialog-actions">
@@ -1871,7 +1873,7 @@ npm run dev</code></pre>
 									type="button"
 									class="btn-primary"
 									onclick={() => (showHandoffDialog = false)}
-								>Chiudi</button>
+								>{m.page_modal_restart_btn_close()}</button>
 							</div>
 						</div>
 					{:else}
@@ -1891,8 +1893,7 @@ npm run dev</code></pre>
 
 							<div class="info-banner">
 								<p>
-									Prepara un riferimento stabile (brief, sorgenti, dipendenze e limiti espliciti delle simulazioni)
-									e lo invia alla sessione del principale usando il suo normale meccanismo di coda, senza auto-merge.
+									{m.ui_labview_prepara_un_riferimento_stabile_brief_sorgenti_dipendenze_eb95()}
 								</p>
 							</div>
 
@@ -1939,7 +1940,7 @@ npm run dev</code></pre>
 										</ul>
 									</div>
 									<div class="preview-item">
-										<strong>File inclusi:</strong>
+										<strong>{m.ui_labview_file_inclusi_4b2c()}</strong>
 										<span>{Array.from(handoffPackagePreview.files.keys()).filter(p => !p.endsWith('.json') && !p.endsWith('.md')).join(', ')}</span>
 									</div>
 								</div>
@@ -1950,13 +1951,13 @@ npm run dev</code></pre>
 									type="button"
 									class="btn-secondary"
 									onclick={() => (showHandoffDialog = false)}
-								>Annulla</button>
+								>{m.common_cancel()}</button>
 								<button
 									type="submit"
 									class="btn-primary"
 									disabled={isDeliveringHandoff}
 								>
-									{isDeliveringHandoff ? 'Consegna in corso...' : 'Consegna al Principale'}
+									{isDeliveringHandoff ? m.ui_labview_consegna_in_corso_b854() : 'Consegna al Principale'}
 								</button>
 							</div>
 						</form>

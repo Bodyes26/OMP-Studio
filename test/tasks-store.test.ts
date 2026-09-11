@@ -10,6 +10,7 @@ import {
 	parseProjectTasksFile,
 	serializeProjectTasksFile,
 	rankFrequentTaskModelConfigurations,
+	rankFrequentTaskModels,
 	type StudioTask,
 	type PersistedTaskState
 } from '../src/lib/stores/taskSerialization.ts';
@@ -128,6 +129,28 @@ describe('Store tasks.json: validazione e parsing', () => {
 				}
 			]);
 			assert.deepEqual(ranked, []);
+		});
+	});
+
+	describe('rankFrequentTaskModels', () => {
+		it('somma gli usi dello stesso modello con livelli di thinking diversi', () => {
+			const base = {
+				projectPath: 'C:\\Projects\\App',
+				taskId: 'task-1',
+				title: 'Task'
+			};
+			const ranked = rankFrequentTaskModels([
+				{ ...base, sessionId: 'a1', launchedAt: 100, modelSelector: 'provider/model-a', thinkingLevel: 'high' },
+				{ ...base, sessionId: 'b1', launchedAt: 200, modelSelector: 'provider/model-b', thinkingLevel: 'high' },
+				{ ...base, sessionId: 'a2', launchedAt: 300, modelSelector: 'provider/model-a', thinkingLevel: 'low' },
+				{ ...base, sessionId: 'b2', launchedAt: 400, modelSelector: 'provider/model-b', thinkingLevel: 'high' },
+				{ ...base, sessionId: 'a3', launchedAt: 500, modelSelector: 'provider/model-a', thinkingLevel: 'high' }
+			]);
+
+			assert.deepEqual(ranked.map((item) => [item.modelSelector, item.count]), [
+				['provider/model-a', 3],
+				['provider/model-b', 2]
+			]);
 		});
 	});
 

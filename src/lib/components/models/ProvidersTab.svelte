@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import {
 		modelSettingsStore,
 		isAuthAccountActive,
@@ -177,7 +179,7 @@
 		const name = newProviderName.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
 		if (!name) return;
 		if (displayProviders.some((p) => p.id === name)) {
-			modelSettingsStore.showToast('Un provider con questo identificativo esiste già');
+			modelSettingsStore.showToast(m.ui_providerstab_un_provider_con_questo_identificativo_esiste_gia_5fdf());
 			return;
 		}
 		modelSettingsStore.setDraftCustomProvider(name, {
@@ -273,13 +275,13 @@
 	function accountStatus(a: AuthAccount): AccountStatus {
 		if (!a.hasCredential) {
 			return {
-				label: 'Credenziale mancante',
+				label: m.ui_providerstab_credenziale_mancante_195a(),
 				variant: 'danger',
-				message: 'Nessuna credenziale valida salvata per questo account.'
+				message: m.ui_providerstab_nessuna_credenziale_valida_salvata_per_questo_account_4e7a()
 			};
 		}
 		if (a.disabledCause) {
-			return { label: 'Disabilitato', variant: 'warn', message: a.disabledCause };
+			return { label: m.models_providers_disabled(), variant: 'warn', message: a.disabledCause };
 		}
 		return { label: 'Connesso', variant: 'ok' };
 	}
@@ -293,7 +295,7 @@
 		// Convenzione SQLite: unix epoch in secondi; alcune sorgenti potrebbero gia' essere in ms.
 		const ms = ts > 1e12 ? ts : ts * 1000;
 		try {
-			return new Date(ms).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+			return i18n.formatDate(ms, { day: '2-digit', month: 'short', year: 'numeric' });
 		} catch {
 			return null;
 		}
@@ -327,9 +329,9 @@
 		const cmd = `omp auth-broker login ${providerId}`;
 		try {
 			await navigator.clipboard.writeText(cmd);
-			modelSettingsStore.showToast(`Comando copiato: esegui "${cmd}" in un terminale per accedere`);
+			modelSettingsStore.showToast(m.ui_providerstab_comando_copiato_esegui_value1_in_un_terminale_341f({ value1: cmd }));
 		} catch {
-			modelSettingsStore.showToast(`Esegui "${cmd}" in un terminale per accedere`);
+			modelSettingsStore.showToast(m.ui_providerstab_esegui_value1_in_un_terminale_per_accedere_ee9b({ value1: cmd }));
 		}
 	}
 
@@ -359,11 +361,11 @@
 					class="search-input"
 					bind:value={searchQuery}
 					onkeydown={handleSearchKeydown}
-					placeholder="Cerca provider per nome o ID..."
-					aria-label="Cerca provider"
+					placeholder={m.models_providers_search_placeholder()}
+					aria-label={m.ui_providerstab_cerca_provider_feaf()}
 				/>
 				{#if searchQuery}
-					<button type="button" class="btn-clear-search" onclick={() => searchQuery = ''} aria-label="Cancella ricerca">
+					<button type="button" class="btn-clear-search" onclick={() => searchQuery = ''} aria-label={m.file_tree_clear_search()}>
 						<IconClose />
 					</button>
 				{/if}
@@ -398,7 +400,7 @@
 					</div>
 					<div class="provider-item-id">{p.id}</div>
 					<div class="provider-item-bottom">
-						<span class="state-badge" class:off={!enabled}>{enabled ? 'Abilitato' : 'Disabilitato'}</span>
+						<span class="state-badge" class:off={!enabled}>{enabled ? m.models_providers_enabled() : m.models_providers_disabled()}</span>
 						<span class="count-pill" title="Account collegati">
 							<svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5.5" r="2.5" /><path d="M2.5 14c0-2.8 2.4-5 5.5-5s5.5 2.2 5.5 5" stroke-linecap="round" /></svg>
 							{activeAccountCountFor(p)}
@@ -419,7 +421,7 @@
 		<div class="sidebar-footer">
 			<button type="button" class="btn-add-provider" bind:this={addMenuBtnEl} onclick={openAddMenu}>
 				<IconPlus />
-				<span>Aggiungi provider</span>
+				<span>{m.ui_providerstab_aggiungi_provider_5da0()}</span>
 			</button>
 
 			{#if addMenuOpen}
@@ -437,7 +439,7 @@
 					{#if addMenuMode === 'pick'}
 						<span class="add-menu-title">Provider non configurati</span>
 						{#if unconfiguredProviders.length === 0}
-							<div class="add-menu-empty">Tutti i provider conosciuti sono già configurati.</div>
+							<div class="add-menu-empty">{m.ui_providerstab_tutti_i_provider_conosciuti_sono_gia_configurati_6438()}</div>
 						{:else}
 							<div class="add-menu-list">
 								{#each unconfiguredProviders as p (p.id)}
@@ -449,21 +451,21 @@
 							</div>
 						{/if}
 						<button type="button" class="add-menu-switch" onclick={() => addMenuMode = 'custom'}>
-							+ Crea provider Custom...
+							{m.ui_providerstab_crea_provider_custom_d873()}
 						</button>
 					{:else}
-						<span class="add-menu-title">Nuovo provider Custom</span>
+						<span class="add-menu-title">{m.ui_providerstab_nuovo_provider_custom_f3ff()}</span>
 						<div class="add-menu-custom-form">
 							<input
 								type="text"
 								bind:value={newProviderName}
 								placeholder="Identificativo (es. my-ollama)"
-								aria-label="Identificativo nuovo provider Custom"
+								aria-label={m.ui_providerstab_identificativo_nuovo_provider_custom_c72d()}
 								onkeydown={(e) => { if (e.key === 'Enter') handleCreateCustomProvider(); }}
 							/>
 							<div class="add-menu-actions">
-								<button type="button" class="btn btn-sm btn-secondary" onclick={() => addMenuMode = 'pick'}>Indietro</button>
-								<button type="button" class="btn btn-sm btn-primary" onclick={handleCreateCustomProvider}>Crea</button>
+								<button type="button" class="btn btn-sm btn-secondary" onclick={() => addMenuMode = 'pick'}>{m.browser_btn_back()}</button>
+								<button type="button" class="btn btn-sm btn-primary" onclick={handleCreateCustomProvider}>{m.ui_providerstab_crea_383b()}</button>
 							</div>
 						</div>
 					{/if}
@@ -492,7 +494,7 @@
 							class="btn btn-sm btn-danger-outline"
 							onclick={() => confirmDeleteCustomProvider(selectedProvider.id)}
 						>
-							Rimuovi provider
+							{m.ui_providerstab_rimuovi_provider_fba3()}
 						</button>
 					{/if}
 					<button
@@ -501,7 +503,7 @@
 						disabled={modelSettingsStore.isRefreshingCatalog}
 						onclick={() => handleRefreshModels(selectedProvider.id)}
 					>
-						{modelSettingsStore.isRefreshingCatalog ? 'Aggiornamento...' : 'Aggiorna modelli'}
+						{modelSettingsStore.isRefreshingCatalog ? 'Aggiornamento...' : m.ui_providerstab_aggiorna_modelli_919e()}
 					</button>
 					<label class="switch" for="switch-{selectedProvider.id}">
 						<input
@@ -546,7 +548,7 @@
 							<div class="cm-header">
 								<span class="cm-title">Modelli definiti</span>
 								<button type="button" class="btn btn-sm btn-secondary" onclick={() => handleAddCustomModel(selectedProvider.id)}>
-									+ Aggiungi modello
+									{m.ui_providerstab_aggiungi_modello_6f3c()}
 								</button>
 							</div>
 
@@ -557,15 +559,15 @@
 											type="text"
 											class="inp-id"
 											bind:value={model.id}
-											placeholder="ID Modello (es. qwen2.5-coder)"
-											aria-label="ID Modello"
+											placeholder={m.ui_providerstab_id_modello_es_qwen2_5_coder_aa8f()}
+											aria-label={m.ui_providerstab_id_modello_a333()}
 										/>
 										<input
 											type="text"
 											class="inp-name"
 											bind:value={model.name}
 											placeholder="Nome visualizzato"
-											aria-label="Nome visualizzato modello"
+											aria-label={m.ui_providerstab_nome_visualizzato_modello_9a65()}
 										/>
 										<input
 											type="number"
@@ -589,8 +591,8 @@
 											type="button"
 											class="btn-del-model"
 											onclick={() => handleDeleteCustomModel(selectedProvider.id, mIdx)}
-											title="Elimina modello"
-											aria-label="Elimina modello"
+											title={m.models_providers_delete_model()}
+											aria-label={m.models_providers_delete_model()}
 										>
 											<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
 												<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
@@ -600,7 +602,7 @@
 								{/each}
 
 								{#if pDef.models.length === 0}
-									<div class="empty-models">Nessun modello definito per questo provider.</div>
+									<div class="empty-models">{m.ui_providerstab_nessun_modello_definito_per_questo_provider_2e4c()}</div>
 								{/if}
 							</div>
 						</div>
@@ -614,10 +616,10 @@
 							<button
 								type="button"
 								class="btn btn-sm btn-secondary"
-								title="Copia il comando per collegare un nuovo account via terminale"
+								title={m.ui_providerstab_copia_il_comando_per_collegare_un_nuovo_0b02()}
 								onclick={() => handleLoginAction(selectedProvider.id)}
 							>
-								+ Aggiungi un altro account
+								{m.models_providers_add_account()}
 							</button>
 						{/if}
 					</div>
@@ -638,12 +640,12 @@
 									{#if envHint}
 										Configura la variabile <code>{envHint}</code> o esegui il setup iniziale in OMP.
 									{:else}
-										Configura la chiave API nelle impostazioni ambiente di OMP.
+										{m.ui_providerstab_configura_la_chiave_api_nelle_impostazioni_ambiente_8930()}
 									{/if}
 								</p>
 								{#if envHint}
 									<button type="button" class="btn btn-sm btn-secondary" onclick={() => handleCopyEnvHint(envHint)}>
-										Copia nome variabile ({envHint})
+										{m.ui_providerstab_copia_nome_variabile_1f23()}{envHint})
 									</button>
 								{/if}
 							{/if}
@@ -691,7 +693,7 @@
 									<div class="account-actions">
 										{#if status.variant !== 'ok' && isOAuthProvider}
 											<button type="button" class="btn btn-xs btn-secondary" onclick={() => handleLoginAction(account.provider)}>
-												Accedi di nuovo
+												{m.ui_providerstab_accedi_di_nuovo_5726()}
 											</button>
 										{/if}
 										<button
@@ -700,7 +702,7 @@
 											disabled={removingAccountId === account.id}
 											onclick={() => requestRemoveAccount(account)}
 										>
-											Disconnetti
+											{m.browser_btn_disconnect_relay()}
 										</button>
 									</div>
 								</div>
@@ -711,7 +713,7 @@
 			</div>
 		{:else}
 			<div class="empty-detail">
-				<p>Seleziona un provider dall'elenco per vederne i dettagli.</p>
+				<p>{m.ui_providerstab_seleziona_un_provider_dall_elenco_per_vederne_5522()}</p>
 			</div>
 		{/if}
 	</main>
@@ -727,8 +729,8 @@
 				<h4 id="del-provider-title">Rimuovere il provider "{providerToDelete}"?</h4>
 				<p>Il provider e i suoi modelli definiti verranno rimossi dalla bozza.</p>
 				<div class="confirm-actions">
-					<button type="button" class="btn btn-secondary" onclick={cancelDeleteCustomProvider}>Annulla</button>
-					<button type="button" class="btn btn-danger" onclick={executeDeleteCustomProvider}>Rimuovi</button>
+					<button type="button" class="btn btn-secondary" onclick={cancelDeleteCustomProvider}>{m.common_cancel()}</button>
+					<button type="button" class="btn btn-danger" onclick={executeDeleteCustomProvider}>{m.ui_providerstab_rimuovi_68f6()}</button>
 				</div>
 			</div>
 		</div>
@@ -745,8 +747,8 @@
 				<h4 id="del-account-title">Disconnettere l'account "{accountDisplayName(accountToRemove)}"?</h4>
 				<p>Le credenziali salvate per questo account verranno rimosse. Potrai ricollegarlo in qualunque momento.</p>
 				<div class="confirm-actions">
-					<button type="button" class="btn btn-secondary" onclick={cancelRemoveAccount}>Annulla</button>
-					<button type="button" class="btn btn-danger" onclick={executeRemoveAccount}>Disconnetti</button>
+					<button type="button" class="btn btn-secondary" onclick={cancelRemoveAccount}>{m.common_cancel()}</button>
+					<button type="button" class="btn btn-danger" onclick={executeRemoveAccount}>{m.browser_btn_disconnect_relay()}</button>
 				</div>
 			</div>
 		</div>

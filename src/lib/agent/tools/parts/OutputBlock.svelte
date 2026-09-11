@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Output monospazio con troncamento: l'output di un tool puo' essere
 	// arbitrariamente lungo e la colonna e' larga ~820px su 1920.
 	let {
@@ -19,7 +20,7 @@
 		<pre>{shown}</pre>
 		{#if hidden > 0}
 			<button type="button" onclick={() => (expanded = !expanded)}>
-				{expanded ? `Comprimi ${label}` : `${hidden} righe in più`}
+				{expanded ? `Comprimi ${label}` : m.ui_outputblock_value1_righe_in_piu_d8e9({ value1: hidden })}
 			</button>
 		{/if}
 	</div>

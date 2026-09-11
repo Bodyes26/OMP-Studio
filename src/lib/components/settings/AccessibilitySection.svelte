@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 </script>
 
 <div class="settings-section">
 	<div class="section-header">
-		<h4>Accessibilità e Movimento</h4>
+		<h4>{m.ui_accessibilitysection_accessibilita_e_movimento_1c87()}</h4>
 		<button type="button" class="btn btn-secondary" onclick={() => settingsStore.reset('accessibility')}>Ripristina</button>
 	</div>
 

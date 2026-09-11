@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Pannello roster dei subagent: stato, modello, tool corrente, token, durata.
 	// Clic apre `SubagentDrawer`.
 	//
@@ -82,20 +83,20 @@
 
 <div class="subagent-panel" role="dialog" aria-modal="true" aria-label="Elenco subagent" use:trapFocus>
 	<div class="panel-head">
-		<span class="title">Subagent del progetto ({subagents.length})</span>
-		<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi"><IconClose /></button>
+		<span class="title">{m.ui_subagentpanel_subagent_del_progetto_6548()}{subagents.length})</span>
+		<button type="button" class="btn-close" onclick={onClose} aria-label={m.page_modal_restart_btn_close()}><IconClose /></button>
 	</div>
 
 	<div class="roster">
 		{#each subagents as progress (progress.id ?? progress.index)}
 			<AgentLink {progress} />
 		{:else}
-			<div class="empty">Nessun subagent registrato in questa sessione.</div>
+			<div class="empty">{m.ui_subagentpanel_nessun_subagent_registrato_in_questa_sessione_6201()}</div>
 		{/each}
 	</div>
 
 	<div class="readonly-notice">
-		<span>Per steerare o terminare un subagent passa al terminale (Alt+A).</span>
+		<span>{m.ui_subagentpanel_per_steerare_o_terminare_un_subagent_passa_c501()}</span>
 	</div>
 </div>
 

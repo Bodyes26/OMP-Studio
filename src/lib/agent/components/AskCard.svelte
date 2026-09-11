@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Card per richieste interattive dall'agente (ask: select, input, editor, confirm).
 	// Supporta:
 	// 1. Scelta singola (radio) e multipla (checkbox) con spunte chiare.
@@ -41,7 +42,7 @@
 		type AskQuestion,
 		type AskQuestionOption
 	} from '../askAnswers';
-	import { parseAskTitle } from '../askTitle';
+	import { parseAskTitle, sanitizeAskDetail } from '../askTitle';
 let { session, pending, visible = true } = $props<{ session: AgentSession; pending: PendingAsk; visible?: boolean }>();
 
 	// Prefisso unico per gli id ARIA: piu' sessioni possono avere una card
@@ -104,6 +105,7 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 	// `askTitle.ts` perche' la stessa domanda si mostra anche nel popover del
 	// progetto e nella finestra companion.
 	const parsedTitle = $derived(parseAskTitle(pending.title));
+	const detailMessage = $derived(sanitizeAskDetail(pending.message));
 
 	/**
 	 * Posizione dichiarata dal protocollo, non dal wizard locale: rispondere
@@ -151,8 +153,8 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 				if (!opts.some((o) => o.isOther)) {
 					opts.push({
 						label: 'Other (type your own)',
-						cleanLabel: 'Altro (scrivi la tua risposta)',
-						description: 'Inserisci una risposta personalizzata',
+						cleanLabel: m.ui_askcard_altro_scrivi_la_tua_risposta_3c62(),
+						description: m.ui_askcard_inserisci_una_risposta_personalizzata_f9dc(),
 						isRecommended: false,
 						isOther: true,
 						isDoneSentinel: false
@@ -193,7 +195,7 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 			const isDone = isDoneOption(o);
 			return {
 				label: o,
-				cleanLabel: isOth ? 'Altro (scrivi la tua risposta)' : clean,
+				cleanLabel: isOth ? m.ui_askcard_altro_scrivi_la_tua_risposta_3c62() : clean,
 				description: rawDetails[oIdx]?.description,
 				isRecommended: isRec,
 				isOther: isOth,
@@ -210,7 +212,7 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 		return [
 			{
 				id: 'q1',
-				question: parsedTitle.text || pending.title || 'Richiesta agente',
+				question: parsedTitle.text || pending.title || m.ui_askcard_richiesta_agente_3a00(),
 				header: undefined,
 				number: askedNumber,
 				options: opts,
@@ -590,14 +592,14 @@ $effect(() => {
 <div
 	class="ask-card"
 	role="region"
-	aria-label={parsedTitle.text || 'Richiesta agente'}
+	aria-label={parsedTitle.text || m.ui_askcard_richiesta_agente_3a00()}
 	tabindex="-1"
 	bind:this={cardEl}
 >
 	<!-- Header con Stepper Multi-Domanda e Countdown -->
 	<div class="header">
 		{#if sentQuestions.length + questions.length > 1}
-			<nav class="stepper-bar" aria-label="Passaggi domande">
+			<nav class="stepper-bar" aria-label={m.ask_stepper_aria()}>
 				<!-- Domande la cui risposta e' gia' partita: restano visibili e
 				     non cliccabili, perche' il protocollo non permette di
 				     tornare indietro su una risposta consegnata. -->
@@ -623,7 +625,7 @@ $effect(() => {
 						onclick={() => void goToStep(idx)}
 						title={q.question}
 						aria-current={isCurrent ? 'step' : undefined}
-						aria-label={`Domanda ${q.number} di ${askedTotal}: ${q.header || q.question}, ${isAnswered ? 'completata' : 'ancora senza risposta'}`}
+						aria-label={`Domanda ${q.number} di ${askedTotal}: ${q.header || q.question}, ${isAnswered ? m.ui_askcard_completata_4026() : m.ui_askcard_ancora_senza_risposta_4b23()}`}
 					>
 						<span class="step-badge" aria-hidden="true">
 							{#if isAnswered && !isCurrent}
@@ -663,7 +665,7 @@ $effect(() => {
 				<!-- Sequenza in corso di cui la card vede una sola domanda: il
 				     numero va detto, o l'utente crede di stare rispondendo a
 				     tutto. -->
-				<span class="counter-badge">Domanda {askedNumber} di {askedTotal}</span>
+				<span class="counter-badge">{m.ui_askcard_domanda_839c()} {askedNumber} di {askedTotal}</span>
 			{:else if parsedTitle.counter && questions.length <= 1}
 				<span class="counter-badge">{parsedTitle.counter}</span>
 			{/if}
@@ -681,8 +683,8 @@ $effect(() => {
 			{/if}
 		</div>
 
-		{#if pending.message && !isReviewStep}
-			<p class="message-text">{pending.message}</p>
+		{#if detailMessage && !isReviewStep}
+			<p class="message-text">{detailMessage}</p>
 		{/if}
 	</div>
 
@@ -692,7 +694,7 @@ $effect(() => {
 			{#if isReviewStep}
 				<!-- Vista Riepilogo Finale -->
 				<div class="review-container">
-					<p class="review-intro">Verifica le risposte selezionate prima di confermare:</p>
+					<p class="review-intro">{m.ui_askcard_verifica_le_risposte_selezionate_prima_di_confermare_8376()}</p>
 					<div class="review-list">
 						{#each questions as q, idx}
 							<div class="review-item">
@@ -703,10 +705,10 @@ $effect(() => {
 										type="button"
 										class="btn-edit-step"
 										onclick={() => void goToStep(idx)}
-										title="Modifica questa risposta"
-										aria-label={`Modifica la risposta alla domanda ${q.number}`}
+										title={m.ui_askcard_modifica_questa_risposta_62d2()}
+										aria-label={m.ui_askcard_modifica_la_risposta_alla_domanda_value1_4a6d({ value1: q.number })}
 									>
-										<IconRename /> Modifica
+										<IconRename /> {m.ask_edit_answer_btn()}
 									</button>
 								</div>
 								<div class="review-item-answer">
@@ -714,7 +716,7 @@ $effect(() => {
 										<!-- Domanda mai aperta: l'opzione consigliata e' gia'
 										     selezionata, ma qui non va spacciata per una scelta
 										     dell'utente. -->
-										<span class="answer-empty">Risposta mancante: apri la domanda e scegli</span>
+										<span class="answer-empty">{m.ui_askcard_risposta_mancante_apri_la_domanda_e_scegli_28fb()}</span>
 									{:else if q.isCustom && q.customInput.trim()}
 										<span class="answer-text custom">“{q.customInput.trim()}”</span>
 									{:else if q.selectedOptions.size > 0}
@@ -724,7 +726,7 @@ $effect(() => {
 											{/each}
 										</div>
 									{:else}
-										<span class="answer-text">Nessuna opzione: risposta "nessuna"</span>
+										<span class="answer-text">{m.ui_askcard_nessuna_opzione_risposta_nessuna_5693()}</span>
 									{/if}
 									{#if q.note.trim()}
 										<div class="review-note">
@@ -741,7 +743,7 @@ $effect(() => {
 						<!-- L'invio e' bloccato: il perche' va detto a parole, non solo
 						     col pulsante disabilitato. -->
 						<p class="review-warning" role="status">
-							Manca la risposta alla domanda {questions[missingIndex]?.number ?? missingIndex + 1}:
+							{m.ui_askcard_manca_la_risposta_alla_domanda_6ab6()} {questions[missingIndex]?.number ?? missingIndex + 1}:
 							aprila e scegli un'opzione prima di inviare.
 						</p>
 					{/if}
@@ -751,17 +753,17 @@ $effect(() => {
 							type="button"
 							class="btn-cancel"
 							onclick={() => session.cancelPendingUi()}
-							title="Annulla richiesta (Esc)"
+							title={m.ui_askcard_annulla_richiesta_esc_0316()}
 						>
-							Annulla <span class="kbd">Esc</span>
+							{m.common_cancel()} <span class="kbd">Esc</span>
 						</button>
 						<button
 							type="button"
 							class="btn-nav"
 							onclick={() => prevStep()}
-							title="Torna alla domanda precedente"
+							title={m.ui_askcard_torna_alla_domanda_precedente_30c7()}
 						>
-							<IconArrowLeft /> Indietro
+							<IconArrowLeft /> {m.ask_prev_btn()}
 						</button>
 						<button
 							type="button"
@@ -769,10 +771,10 @@ $effect(() => {
 							disabled={submitting || missingIndex !== -1}
 							onclick={() => void submitAllAnswers()}
 							title={missingIndex === -1
-								? 'Invia tutte le risposte (Enter)'
+								? m.ui_askcard_invia_tutte_le_risposte_enter_a896()
 								: `Manca la risposta alla domanda ${questions[missingIndex]?.number ?? missingIndex + 1}`}
 						>
-							<IconCheck /> Invia tutte le risposte <span class="kbd">↵</span>
+							<IconCheck /> {m.ui_askcard_invia_tutte_le_risposte_ebf3()} <span class="kbd">↵</span>
 						</button>
 					</div>
 				</div>
@@ -781,8 +783,8 @@ $effect(() => {
 				<div class="question-container">
 					{#if currentQuestion.multi}
 						<div class="multi-indicator">
-							<span class="badge-multi">Scelta multipla</span>
-							<span class="multi-hint">Usa Spazio o clicca per spuntare più opzioni</span>
+							<span class="badge-multi">{m.ui_askcard_scelta_multipla_1fca()}</span>
+							<span class="multi-hint">{m.ui_askcard_usa_spazio_o_clicca_per_spuntare_piu_5914()}</span>
 						</div>
 					{/if}
 
@@ -864,12 +866,12 @@ $effect(() => {
 						     resta un campo raggiungibile con Tab e con etichetta propria. -->
 						<div class="custom-input-box">
 							<label class="custom-label" for={`${uid}-custom`}>
-								La tua risposta personalizzata
+								{m.ui_askcard_la_tua_risposta_personalizzata_afcd()}
 							</label>
 							<textarea
 								id={`${uid}-custom`}
 								class="custom-textarea"
-								placeholder="Scrivi qui la tua risposta personalizzata..."
+								placeholder={m.ask_custom_placeholder()}
 								bind:value={currentQuestion.customInput}
 								bind:this={customTextareaEl}
 								rows="2"
@@ -885,9 +887,9 @@ $effect(() => {
 								type="button"
 								class="btn-note-toggle"
 								onclick={() => toggleNoteInput()}
-								title="Aggiungi una nota alla risposta (N)"
+								title={m.ui_askcard_aggiungi_una_nota_alla_risposta_n_033a()}
 							>
-								<IconNote /> Aggiungi nota <span class="kbd">N</span>
+								<IconNote /> {m.ui_askcard_aggiungi_nota_2875()} <span class="kbd">N</span>
 							</button>
 						</div>
 					{/if}
@@ -896,22 +898,22 @@ $effect(() => {
 					{#if currentQuestion.showNoteInput}
 						<div class="note-input-drawer">
 							<div class="note-header">
-								<span class="note-title"><IconNote /> Nota per la risposta:</span>
+								<span class="note-title"><IconNote /> {m.ui_askcard_nota_per_la_risposta_6afa()}</span>
 								<button
 									type="button"
 									class="btn-close-note"
 									onclick={() => {
 										if (currentQuestion) currentQuestion.showNoteInput = false;
 									}}
-									title="Chiudi campo nota"
+									title={m.ui_askcard_chiudi_campo_nota_5a01()}
 								>
-									Chiudi
+									{m.page_modal_restart_btn_close()}
 								</button>
 							</div>
 							<input
 								type="text"
 								class="note-text-input"
-								placeholder="Aggiungi dettagli, vincoli o specifiche opzionali..."
+								placeholder={m.ask_note_placeholder()}
 								bind:value={currentQuestion.note}
 								bind:this={noteInputEl}
 							/>
@@ -924,9 +926,9 @@ $effect(() => {
 								type="button"
 								class="btn-edit-note-inline"
 								onclick={() => toggleNoteInput()}
-								title="Modifica nota"
+								title={m.ui_askcard_modifica_nota_454b()}
 							>
-								Modifica
+								{m.ask_edit_answer_btn()}
 							</button>
 						</div>
 					{/if}
@@ -938,12 +940,12 @@ $effect(() => {
 								<span class="kbd">↑</span> <span class="kbd">↓</span>
 								{currentQuestion.multi ? 'sposta' : 'scegli'}
 							</span>
-							<span><span class="kbd">Spazio</span> {currentQuestion.multi ? 'seleziona/deseleziona' : 'scegli'}</span>
+							<span><span class="kbd">Spazio</span> {currentQuestion.multi ? m.ui_askcard_seleziona_deseleziona_80ec() : 'scegli'}</span>
 							<span><span class="kbd">N</span> nota</span>
 							{#if questions.length > 1}
 								<span><span class="kbd">←</span> <span class="kbd">→</span> domande</span>
 							{/if}
-							<span><span class="kbd">Esc</span> annulla</span>
+							<span><span class="kbd">Esc</span> {m.ui_askcard_annulla_4ed7()}</span>
 						</div>
 
 						<div class="actions">
@@ -951,9 +953,9 @@ $effect(() => {
 								type="button"
 								class="btn-cancel"
 								onclick={() => session.cancelPendingUi()}
-								title="Annulla (Esc)"
+								title={m.ui_askcard_annulla_esc_0d72()}
 							>
-								Annulla <span class="kbd">Esc</span>
+								{m.common_cancel()} <span class="kbd">Esc</span>
 							</button>
 
 							{#if activeStep > 0}
@@ -961,9 +963,9 @@ $effect(() => {
 									type="button"
 									class="btn-nav"
 									onclick={() => prevStep()}
-									title="Domanda precedente (←)"
+									title={m.ui_askcard_domanda_precedente_f76d()}
 								>
-									<IconArrowLeft /> Indietro
+									<IconArrowLeft /> {m.ask_prev_btn()}
 								</button>
 							{/if}
 
@@ -974,13 +976,13 @@ $effect(() => {
 									disabled={!currentAnswered}
 									onclick={() => nextStep()}
 									title={currentAnswered
-										? 'Domanda successiva o riepilogo (Enter / →)'
-										: 'Scegli una risposta per continuare'}
+										? m.ui_askcard_domanda_successiva_o_riepilogo_enter_a07f()
+										: m.ui_askcard_scegli_una_risposta_per_continuare_2f16()}
 								>
 									{#if activeStep === questions.length - 1}
 										Riepilogo <IconArrowRight />
 									{:else}
-										Avanti <IconArrowRight />
+										{m.browser_btn_forward()} <IconArrowRight />
 									{/if}
 								</button>
 							{:else}
@@ -994,14 +996,14 @@ $effect(() => {
 									onclick={() => void submitAllAnswers()}
 									title={currentAnswered
 										? moreQuestionsFollow
-											? `Invia la risposta alla domanda ${askedNumber} di ${askedTotal}: non potrai tornare indietro a questa domanda (Enter)`
-											: 'Invia risposta (Enter)'
-										: 'Scegli una risposta o scrivine una in "Altro"'}
+											? m.ui_askcard_invia_la_risposta_alla_domanda_value1_di_04ff({ value1: askedNumber, value2: askedTotal })
+											: m.ask_submit_single()
+										: m.ask_submit_disabled_hint()}
 								>
 									{#if moreQuestionsFollow}
-										Invia risposta ({askedNumber}/{askedTotal}) <IconArrowRight />
+										{m.ui_askcard_invia_risposta_d6f0()}{askedNumber}/{askedTotal}) <IconArrowRight />
 									{:else}
-										Conferma <span class="kbd">↵</span>
+										{m.ui_askcard_conferma_d370()} <span class="kbd">↵</span>
 									{/if}
 								</button>
 							{/if}
@@ -1032,18 +1034,18 @@ $effect(() => {
 						type="button"
 						class="btn-cancel"
 						onclick={() => session.cancelPendingUi()}
-						title="Annulla (Esc)"
+						title={m.ui_askcard_annulla_esc_0d72()}
 					>
-						Annulla <span class="kbd">Esc</span>
+						{m.common_cancel()} <span class="kbd">Esc</span>
 					</button>
 					<button
 						type="button"
 						class="btn-submit"
 						disabled={submitting}
 						onclick={() => void session.answerSelect(plainInputValue)}
-						title="Invia risposta (Enter)"
+						title={m.ask_submit_single()}
 					>
-						Invia <span class="kbd">↵</span>
+						{m.ui_askcard_invia_f401()} <span class="kbd">↵</span>
 					</button>
 				</div>
 			</div>
@@ -1069,18 +1071,18 @@ $effect(() => {
 						type="button"
 						class="btn-cancel"
 						onclick={() => session.cancelPendingUi()}
-						title="Annulla (Esc)"
+						title={m.ui_askcard_annulla_esc_0d72()}
 					>
-						Annulla <span class="kbd">Esc</span>
+						{m.common_cancel()} <span class="kbd">Esc</span>
 					</button>
 					<button
 						type="button"
 						class="btn-submit"
 						disabled={submitting}
 						onclick={() => void session.answerSelect(plainEditorValue)}
-						title="Invia risposta (Ctrl+Enter)"
+						title={m.ui_askcard_invia_risposta_ctrl_enter_6a01()}
 					>
-						Invia <span class="kbd">Ctrl+↵</span>
+						{m.ui_askcard_invia_f401()} <span class="kbd">Ctrl+↵</span>
 					</button>
 				</div>
 			</div>
@@ -1091,18 +1093,18 @@ $effect(() => {
 						type="button"
 						class="btn-cancel"
 						onclick={() => session.answerConfirm(false)}
-						title="Nega / Annulla (Esc)"
+						title={m.ui_askcard_nega_annulla_esc_60f1()}
 					>
-						No <span class="kbd">Esc</span>
+						{m.project_popover_btn_confirm_no()} <span class="kbd">Esc</span>
 					</button>
 					<button
 						type="button"
 						class="btn-submit"
 						disabled={submitting}
 						onclick={() => void session.answerConfirm(true)}
-						title="Conferma (Enter)"
+						title={m.ui_askcard_conferma_enter_a402()}
 					>
-						Sì <span class="kbd">↵</span>
+						{m.ui_askcard_si_175d()} <span class="kbd">↵</span>
 					</button>
 				</div>
 			</div>

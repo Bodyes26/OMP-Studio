@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
 	import { settingsStore, type NotificationStyle } from '$lib/stores/settings.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
@@ -16,8 +17,8 @@
 		},
 		{
 			id: 'detailed',
-			label: 'Completa con messaggio',
-			desc: 'Include la domanda specifica o la richiesta di conferma'
+			label: m.ui_notificationssection_completa_con_messaggio_1bd6(),
+			desc: m.ui_notificationssection_include_la_domanda_specifica_o_la_richiesta_bb4d()
 		}
 	];
 
@@ -39,20 +40,20 @@
 			if (res.ok) {
 				testResult = {
 					ok: true,
-					message: 'Notifica inviata con successo al sistema operativo. Se non la vedi, controlla la modalità Non Disturbare o Focus di Windows.'
+					message: m.ui_notificationssection_notifica_inviata_con_successo_al_sistema_operativo_f0fb()
 				};
 			} else {
 				testResult = {
 					ok: false,
 					message: 'Impossibile recapitare la notifica di sistema.',
-					diagnostic: res.error ?? 'Errore sconosciuto nel canale notifiche.'
+					diagnostic: res.error ?? m.ui_notificationssection_errore_sconosciuto_nel_canale_notifiche_247a()
 				};
 			}
 			await checkPermission();
 		} catch (e) {
 			testResult = {
 				ok: false,
-				message: 'Errore durante l\'invio della notifica di prova.',
+				message: m.ui_notificationssection_errore_durante_l_invio_della_notifica_di_ebdc(),
 				diagnostic: String(e)
 			};
 		} finally {
@@ -78,7 +79,7 @@
 					settingsStore.patchNotifications({ enabled: false });
 				}
 			} catch (e) {
-				console.warn('Errore autorizzazione notifiche:', e);
+				console.warn(m.ui_notificationssection_errore_autorizzazione_notifiche_0900(), e);
 				settingsStore.patchNotifications({ enabled: true });
 			}
 		} else {
@@ -102,14 +103,14 @@
 			variant="warning"
 			title="Notifiche disabilitate dal sistema operativo"
 			message="Il sistema operativo sta bloccando le notifiche per OMP Studio."
-			diagnostic="Su Windows 11: apri Impostazioni > Sistema > Notifiche e assicurati che 'OMP Studio' sia impostato su 'Attivato'.&#10;Su macOS: apri Impostazioni di Sistema > Notifiche > OMP Studio > Consenti notifiche."
+			diagnostic={m.ui_notificationssection_su_windows_11_apri_impostazioni_sistema_notifiche_acaa()}
 		/>
 	{/if}
 
 	{#if testResult}
 		<AlertBanner
 			variant={testResult.ok ? 'success' : 'error'}
-			title={testResult.ok ? 'Test notifica completato' : 'Test notifica fallito'}
+			title={testResult.ok ? m.ui_notificationssection_test_notifica_completato_365b() : m.ui_notificationssection_test_notifica_fallito_9b03()}
 			message={testResult.message}
 			diagnostic={testResult.diagnostic}
 			dismissible={true}
@@ -128,16 +129,16 @@
 				onclick={runTestNotification}
 				disabled={sendingTest || !settingsStore.notifications.enabled}
 			>
-				{sendingTest ? 'Invio in corso...' : 'Invia notifica di prova'}
+				{sendingTest ? m.ui_notificationssection_invio_in_corso_d2e7() : m.ui_notificationssection_invia_notifica_di_prova_3ac9()}
 			</button>
 		</div>
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Banner di notifica del sistema operativo</span>
-					<span class="form-row-desc">Mostra un banner toast di Windows o macOS quando un agente ha bisogno di attenzione o input.</span>
+					<span class="form-row-desc">{m.ui_notificationssection_mostra_un_banner_toast_di_windows_o_bcfb()}</span>
 					{#if permissionStatus === 'denied'}
-						<span class="perm-warning">Permesso notifiche negato nelle impostazioni di sistema.</span>
+						<span class="perm-warning">{m.ui_notificationssection_permesso_notifiche_negato_nelle_impostazioni_di_sistema_01bd()}</span>
 					{/if}
 				</div>
 				<div class="form-row-control">
@@ -195,7 +196,7 @@
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Avviso visivo sull'icona</span>
-					<span class="form-row-desc">Su Windows aggiunge il dot rosso (stile Teams/Outlook) nell'angolo dell'icona e lampeggia brevemente; su macOS mostra il badge numerico nel Dock e fa rimbalzare l'icona.</span>
+					<span class="form-row-desc">{m.ui_notificationssection_su_windows_aggiunge_il_dot_rosso_stile_856b()}</span>
 				</div>
 				<div class="form-row-control">
 					<label class="switch">

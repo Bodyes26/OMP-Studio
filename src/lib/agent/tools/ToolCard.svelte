@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Cornice di una chiamata a tool: intestazione sempre visibile (stato,
 	// nome, sommario del renderer, durata) e corpo espandibile.
 	//
@@ -50,7 +51,7 @@
 			<span class="state" aria-hidden="true"></span>
 			<span class="name">{entry.toolName}</span>
 			{#if isError}
-				<span class="failed-tag">fallito</span>
+				<span class="failed-tag">{m.ui_browserviewer_fallito_ca59()}</span>
 			{/if}
 		</button>
 		<span class="summary">
@@ -74,7 +75,7 @@
 			class="failure-microcopy"
 			in:chatReveal={{ duration: 160, blur: 2, distance: -1 }}
 		>
-			<span class="failure-prefix">tool <strong class="failure-tool-name">{entry.toolName}</strong> fallito per:</span>
+			<span class="failure-prefix">tool <strong class="failure-tool-name">{entry.toolName}</strong> {m.ui_toolcard_fallito_per_b620()}</span>
 			<span class="failure-reason" title={extractToolErrorReason(entry)}>{extractToolErrorReason(entry)}</span>
 		</div>
 	{/if}

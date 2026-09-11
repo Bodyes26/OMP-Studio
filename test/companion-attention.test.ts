@@ -20,7 +20,8 @@ import {
 	sameAttentionRequest,
 	upsertAttentionRequest
 } from '../src/lib/stores/companionAttention.ts';
-import { askQuestionText, parseAskTitle } from '../src/lib/agent/askTitle.ts';
+import { askQuestionText, parseAskTitle, sanitizeAskDetail } from '../src/lib/agent/askTitle.ts';
+import { cleanOptionLabel, isOtherOption } from '../src/lib/agent/askAnswers.ts';
 import type { AttentionRequest } from '../src/lib/stores/companion.svelte.ts';
 
 /**
@@ -203,4 +204,74 @@ test('il titolo perde i marcatori di posizione, non la domanda', () => {
 	// Senza titolo si mostra il dettaglio; senza nulla, un testo onesto.
 	assert.equal(askQuestionText({ message: 'Serve la conferma' }), 'Serve la conferma');
 	assert.equal(askQuestionText({}), 'Richiesta di risposta');
+});
+
+test('sanitizeAskDetail pulisce artefatti CLI da fallback terminale', () => {
+	const cliDump = `▮ Contestuale (Recommended)
+Sempre badge/tab e card Companion; notifica desktop solo se il prog...
+▮ Sempre evidente
+Badge/tab, card Companion, apertura Spotlight e notifica desktop in...
+▮ Solo dentro Studio
+Badge/tab, banner e card Companion senza notifica desktop né apertu...
+▮ Other (type your own)
+
+Enter your response:`;
+
+	assert.equal(sanitizeAskDetail(cliDump), null, 'un dump intero di opzioni CLI non deve sporcare il dettaglio');
+
+	const promptOnly = 'Enter your response:';
+	assert.equal(sanitizeAskDetail(promptOnly), null);
+
+	const genuineNote = 'Attenzione: questa modifica riavvierà il servizio.';
+	assert.equal(sanitizeAskDetail(genuineNote), genuineNote);
+
+	const noteWithDump = `Nota introduttiva legittima.
+
+▮ Scelta 1
+▮ Scelta 2
+
+Enter your response:`;
+	assert.equal(sanitizeAskDetail(noteWithDump), 'Nota introduttiva legittima.');
+});
+
+test('askQuestionText non usa dump CLI come titolo se manca il titolo', () => {
+	const cliDump = `▮ Option 1
+▮ Other (type your own)
+
+Enter your response:`;
+
+	assert.equal(
+		askQuestionText({ message: cliDump }),
+		'Richiesta di risposta',
+		'se il messaggio e solo un dump CLI e manca il titolo, deve scattare il fallback'
+	);
+});
+
+test('gestione opzioni Altro e Consigliata per la companion', () => {
+	assert.equal(isOtherOption('Other (type your own)'), true);
+	assert.equal(isOtherOption('other (custom)'), true);
+	assert.equal(isOtherOption('Altro (scrivi la tua risposta)'), true);
+	assert.equal(isOtherOption('Normale opzione'), false);
+
+	assert.equal(cleanOptionLabel('Contestuale (Recommended)'), 'Contestuale');
+	assert.equal(cleanOptionLabel('Sempre evidente'), 'Sempre evidente');
+});
+
+test('buildAttentionRequest pubblica richiesta per inferredAttention quando manca ask formale', () => {
+	const base = { id: 'proj-1', name: 'Studio OMP', hue: 195 };
+	const request = buildAttentionRequest(base, {
+		pendingUi: null,
+		inferredAttention: {
+			question: 'Confermi e procedo dalla Fase 1?',
+			suggestions: ['Procedi pure', 'Spiega la scelta']
+		},
+		model: { name: 'Claude Opus 5' },
+		recentMessages: []
+	});
+
+	assert.ok(request, 'deve pubblicare la richiesta di attenzione');
+	assert.equal(request.pendingUi.kind, 'inferred_input');
+	assert.equal(request.pendingUi.title, 'Confermi e procedo dalla Fase 1?');
+	assert.deepEqual(request.pendingUi.options, ['Procedi pure', 'Spiega la scelta']);
+	assert.equal(askQuestionText(request.pendingUi), 'Confermi e procedo dalla Fase 1?');
 });

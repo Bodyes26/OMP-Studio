@@ -7,6 +7,7 @@
   Segnala se l'elenco e' stato troncato a monte dal server.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';
@@ -59,7 +60,7 @@
 					class="toggle-button"
 					onclick={() => (expanded = !expanded)}
 				>
-					{expanded ? 'Comprimi elenco' : `Mostra altri ${hiddenCount} file`}
+					{expanded ? 'Comprimi elenco' : m.ui_glob_mostra_altri_value1_file_5cf9({ value1: hiddenCount })}
 				</button>
 			{/if}
 		{:else if textFallback}

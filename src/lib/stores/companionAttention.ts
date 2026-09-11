@@ -118,6 +118,7 @@ export function buildAttentionRequest(
 	session: {
 		pendingUi?: PendingUiPayload | null;
 		blockedQuotaState?: BlockedQuotaState | null;
+		inferredAttention?: { question: string; suggestions: string[] } | null;
 		model?: { id?: string; name?: string } | null;
 		recentMessages: RecentChatMessage[];
 	}
@@ -179,6 +180,26 @@ export function buildAttentionRequest(
 			modelName: session.model ? session.model.name || session.model.id : undefined,
 			recentMessages: session.recentMessages,
 			pendingUi: recoveryUi
+		};
+	}
+
+	const inf = session.inferredAttention;
+	if (inf && inf.question) {
+		const inferredUi: PendingUiPayload = {
+			kind: 'inferred_input',
+			requestId: `inferred-${project.id}`,
+			title: inf.question,
+			method: 'select',
+			options: inf.suggestions && inf.suggestions.length > 0 ? inf.suggestions : ['Procedi pure']
+		};
+
+		return {
+			projectId: project.id,
+			projectName: project.name,
+			projectHue: project.hue,
+			modelName: session.model ? session.model.name || session.model.id : undefined,
+			recentMessages: session.recentMessages,
+			pendingUi: inferredUi
 		};
 	}
 

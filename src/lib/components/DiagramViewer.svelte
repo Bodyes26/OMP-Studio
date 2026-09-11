@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { sanitizeSvg } from '$lib/editor/svgSandbox';
@@ -203,7 +204,7 @@
 			<button class="tool-btn" onclick={() => (scale = clampScale(scale * 1.25))} title="Zoom in" aria-label="Ingrandisci diagramma (Zoom in)"><IconZoomIn /></button>
 			<button class="tool-btn" onclick={() => (scale = clampScale(scale / 1.25))} title="Zoom out" aria-label="Riduci diagramma (Zoom out)"><IconZoomOut /></button>
 			<span class="zoom-label">{Math.round(scale * 100)}%</span>
-			<button class="tool-btn close" onclick={() => onClose?.()} title="Chiudi (Esc)" aria-label="Chiudi visualizzatore diagramma (Esc)"><IconClose /></button>
+			<button class="tool-btn close" onclick={() => onClose?.()} title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} aria-label={m.ui_diagramviewer_chiudi_visualizzatore_diagramma_esc_b2eb()}><IconClose /></button>
 		</div>
 		<div
 			class="diagram-viewport"
@@ -226,12 +227,12 @@
 				<div class="render-note">Rendering...</div>
 			{/if}
 			{#if renderError}
-				<div class="render-error">Errore Mermaid: {renderError}</div>
+				<div class="render-error">{m.ui_diagramviewer_errore_mermaid_d820()} {renderError}</div>
 			{/if}
 		</div>
 	{:else}
 		<div class="empty-state">
-			<div class="empty-text">Nessun diagramma in questa sessione</div>
+			<div class="empty-text">{m.ui_diagramviewer_nessun_diagramma_in_questa_sessione_fd81()}</div>
 			<div class="empty-hint">
 				Chiedi all'agente di usare il tool <code>studio_diagram</code> per visualizzare un diagramma qui
 			</div>

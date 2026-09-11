@@ -39,6 +39,33 @@ export function parseAskTitle(raw: string | null | undefined): ParsedAskTitle {
 }
 
 /**
+ * Pulisce il messaggio di dettaglio di una richiesta UI da artefatti del prompt CLI.
+ *
+ * Quando omp o una CLI gestisce un prompt interattivo su terminale (es. selezione
+ * di "Other / write your own"), `message` puo' contenere l'intero dump delle
+ * opzioni formattate per terminale (prefissate da '▮' o '■') e il prompt
+ * di chiusura "Enter your response:".
+ * Questo testo non e' una nota o un chiarimento della domanda: se mostrato come
+ * dettaglio sporca la grafica con blocchi non stilizzati e duplica opzioni e input.
+ */
+export function sanitizeAskDetail(raw: string | null | undefined): string | null {
+	if (!raw) return null;
+	let text = raw.trim();
+	if (!text) return null;
+
+	// Taglia via il blocco menu CLI se presente (dall'inizio del primo elemento ▮ o ■)
+	const menuIndex = text.search(/(?:^|\n)\s*[▮■]/);
+	if (menuIndex !== -1) {
+		text = text.slice(0, menuIndex).trim();
+	}
+
+	// Rimuove prompt terminale residuo tipo "Enter your response:" o "Type your response:"
+	text = text.replace(/(?:^|\n)\s*(?:enter|type)\s+(?:your\s+)?response:?\s*$/i, '').trim();
+
+	return text.length > 0 ? text : null;
+}
+
+/**
  * Testo con cui una domanda si annuncia fuori dalla chat (notifiche di
  * sistema, popover del progetto, companion).
  *
@@ -55,6 +82,9 @@ export function askQuestionText(
 	const fromTitle = parseAskTitle(pending.title).text.trim();
 	if (fromTitle) return fromTitle;
 	const fromMessage = (pending.message ?? '').trim();
-	if (fromMessage) return fromMessage;
+	if (fromMessage) {
+		const clean = sanitizeAskDetail(fromMessage);
+		if (clean) return clean;
+	}
 	return fallback;
 }

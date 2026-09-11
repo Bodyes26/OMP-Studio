@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Messaggio dell'utente nel transcript.
 	// Evidenziato come blocco utente con indicatore 'Tu' / badge di attribuzione,
 	// superficie `--bg-raised`, bordo discreto e MarkdownInline.
@@ -69,7 +70,7 @@
 					type="button"
 					class="image-chip"
 					onclick={() => hooks.openImage(img.data, img.mimeType)}
-					title="Apri immagine allegata"
+					title={m.user_message_open_image()}
 				>
 					<img src={`data:${img.mimeType};base64,${img.data}`} alt="Allegato utente" />
 				</button>
@@ -83,9 +84,9 @@
 	{/if}
 
 	{#if parsed.context}
-		<div class="editor-context" role="region" aria-label="File aperti nell'editor inclusi nel contesto">
+		<div class="editor-context" role="region" aria-label={m.user_message_context_editor_aria()}>
 			<div class="context-chips-row">
-				<span class="context-tag" title="File aperti nell'editor inclusi nel contesto del prompt">
+				<span class="context-tag" title={m.ui_usermessage_file_aperti_nell_editor_inclusi_nel_contesto_75cd()}>
 					<svg class="context-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 						<path d="M9 1.5H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5.5L9 1.5z" />
 						<polyline points="9 1.5 9 5.5 13 5.5" />
@@ -115,8 +116,8 @@
 									:{parsed.context.cursor.line}
 								</span>
 							{:else if isActive}
-								<span class="chip-badge active-badge" title="File attivo nell'editor">
-									attivo
+								<span class="chip-badge active-badge" title={m.ui_usermessage_file_attivo_nell_editor_7b31()}>
+									{m.user_message_active_file_badge()}
 								</span>
 							{/if}
 						</button>
@@ -127,14 +128,14 @@
 								class="snippet-toggle-btn"
 								class:open={showSelectionCode}
 								onclick={() => (showSelectionCode = !showSelectionCode)}
-								title={showSelectionCode ? 'Nascondi codice selezionato' : 'Visualizza codice selezionato'}
+								title={showSelectionCode ? m.ui_usermessage_nascondi_codice_selezionato_f3bb() : 'Visualizza codice selezionato'}
 								aria-expanded={showSelectionCode}
-								aria-label="Mostra o nascondi codice selezionato"
+								aria-label={m.ui_usermessage_mostra_o_nascondi_codice_selezionato_47d2()}
 							>
 								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 									<polyline points={showSelectionCode ? '4 10 8 6 12 10' : '4 6 8 10 12 6'} />
 								</svg>
-								<span>{showSelectionCode ? 'Nascondi' : 'Codice'}</span>
+								<span>{showSelectionCode ? m.ui_usermessage_nascondi_82ca() : 'Codice'}</span>
 							</button>
 						{/if}
 					</div>
@@ -151,7 +152,7 @@
 							type="button"
 							class="snippet-close"
 							onclick={() => (showSelectionCode = false)}
-							title="Chiudi visualizzazione codice"
+							title={m.ui_usermessage_chiudi_visualizzazione_codice_602d()}
 						>
 							<IconClose aria-hidden="true" />
 						</button>

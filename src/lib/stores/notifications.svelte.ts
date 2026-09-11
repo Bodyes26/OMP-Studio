@@ -11,6 +11,7 @@ import {
 } from '@tauri-apps/plugin-notification';
 import { projectStore } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
+import { m } from '$lib/paraglide/messages.js';
 
 class NotificationManager {
 	/** Progetti per cui l'utente ha preso visione portando il progetto a fuoco. */
@@ -33,7 +34,7 @@ class NotificationManager {
 			await createChannel({
 				id: 'omp-studio-alerts',
 				name: 'OMP Studio',
-				description: 'Avvisi per richieste di intervento e completamento task degli agenti',
+				description: m.notify_os_channel_desc(),
 				importance: Importance.High,
 				visibility: Visibility.Public,
 				sound: 'default'
@@ -168,14 +169,13 @@ class NotificationManager {
 			const isDetailed = settingsStore.notifications.style === 'detailed';
 			const askMsg = this.askMessages.get(project.id)?.trim();
 
-			let title = 'OMP Studio';
-			let body = `OMP ha bisogno di te su ${project.name}`;
+			let title = `OMP Studio · ${project.name}`;
+			let body = askMsg || `OMP ha bisogno di te su ${project.name}`;
 
-			if (isDetailed && askMsg) {
-				title = `OMP Studio · ${project.name}`;
-				body = askMsg;
+			if (!isDetailed) {
+				title = 'OMP Studio';
+				body = askMsg ? `${project.name}: ${askMsg}` : `OMP ha bisogno di te su ${project.name}`;
 			}
-
 			sendNotification({
 				title,
 				body,
@@ -242,12 +242,12 @@ class NotificationManager {
 				granted = status === 'granted';
 			}
 			if (!granted) {
-				return { ok: false, error: 'Permesso di invio notifiche negato dal sistema operativo.' };
+				return { ok: false, error: m.notify_permission_denied() };
 			}
 
 			sendNotification({
-				title: 'OMP Studio · Notifica di prova',
-				body: 'Le notifiche desktop e gli avvisi di sistema sono configurati correttamente.',
+				title: m.notify_test_title(),
+				body: m.notify_test_body(),
 				channelId: 'omp-studio-alerts',
 				silent: !settingsStore.notifications.sound
 			});

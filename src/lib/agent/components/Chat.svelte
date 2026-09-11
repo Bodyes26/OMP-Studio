@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Contenuto della colonna destra in modalita' GUI.
 	//
 	// Autoscroll ancorato in basso: se l'utente si allontana dal fondo,
@@ -169,7 +170,7 @@
 			class="scroll-bottom-btn"
 			class:readable={settingsStore.general.chatWidth === 'readable'}
 			onclick={scrollToBottom}
-			title="Torna in fondo"
+			title={m.chat_scroll_to_bottom()}
 			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
 		>
 			<IconArrowDown aria-hidden="true" />
@@ -187,7 +188,7 @@
 			{/if}
 
 			{#if session.todoPhases.length > 0}
-				<TodoStrip phases={session.todoPhases} />
+				<TodoStrip phases={session.todoPhases} reminder={session.todoReminder} />
 			{/if}
 
 			<Composer

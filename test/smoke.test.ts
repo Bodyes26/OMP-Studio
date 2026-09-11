@@ -53,3 +53,5 @@ import './lab-export-handoff.test.ts';
 import './lab-migration.test.ts';
 import './lab-acceptance-e2e.test.ts';
 import './quota-recovery.test.ts';
+import './notices.test.ts';
+import './i18n-catalog.test.ts';

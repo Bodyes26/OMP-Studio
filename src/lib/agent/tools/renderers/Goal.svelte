@@ -12,6 +12,7 @@
   e l'output testuale in OutputBlock se presente.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -40,9 +41,9 @@
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (status) rows.push({ key: 'Stato', value: status });
+		if (status) rows.push({ key: m.ui_goal_stato_89af(), value: status });
 		if (category) rows.push({ key: 'Categoria', value: category });
-		if (priority) rows.push({ key: 'Priorità', value: priority });
+		if (priority) rows.push({ key: m.ui_goal_priorita_e480(), value: priority });
 		return rows;
 	});
 </script>

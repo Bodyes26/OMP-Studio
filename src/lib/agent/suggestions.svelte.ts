@@ -3,6 +3,14 @@ import { settingsStore } from '$lib/stores/settings.svelte';
 import type { AgentSession, TranscriptEntry } from './session.svelte';
 
 /**
+ * Risultato strutturato restituito dal comando Tauri `generate_prompt_suggestions`.
+ */
+export interface PromptSuggestionsResult {
+	suggestions: string[];
+	awaitsUserInput: boolean;
+	questionSummary: string | null;
+}
+/**
  * Esegue una promise con un limite massimo di tempo sul frontend.
  */
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -58,7 +66,10 @@ function extractLastTurnContext(entries: TranscriptEntry[]): {
 export class SessionSuggestions {
 	/** Lista reattiva dei testi di suggerimento dinamico correnti */
 	items = $state<string[]>([]);
-
+	/** Indica se l'agente e' fermo in attesa di risposta o conferma dell'utente */
+	awaitsUserInput = $state<boolean>(false);
+	/** Domanda o richiesta sintetica posta dall'agente */
+	questionSummary = $state<string | null>(null);
 	private session: AgentSession;
 	private visible = true;
 	private requestToken = 0;
@@ -98,16 +109,16 @@ export class SessionSuggestions {
 		// Se i dinamici sono disabilitati nelle impostazioni, non generare
 		if (!settingsStore.suggestions.dynamicEnabled) {
 			this.items = [];
+			this.awaitsUserInput = false;
+			this.questionSummary = null;
 			this.pendingTurnKey = null;
+			this.session.clearInferredAttention();
 			return;
 		}
 
-		// Se la sessione non e' visibile, rimanda la generazione a quando tornera' visibile
-		if (!this.visible) {
-			this.pendingTurnKey = turnKey;
-			return;
-		}
-
+		// L'analisi rapida viene avviata anche per i progetti in background,
+		// cosi' da poter determinare subito se l'agente aspetta l'utente e
+		// allertarlo via notifica OS o Companion prima della scadenza della cache.
 		void this.generate(turnKey);
 	}
 
@@ -117,8 +128,11 @@ export class SessionSuggestions {
 	invalidate() {
 		this.requestToken++;
 		this.items = [];
+		this.awaitsUserInput = false;
+		this.questionSummary = null;
 		this.currentTurnKey = null;
 		this.pendingTurnKey = null;
+		this.session.clearInferredAttention();
 	}
 
 	/**
@@ -129,7 +143,7 @@ export class SessionSuggestions {
 		if (this.generatedTurnKey === turnKey) return;
 
 		const { lastAssistant, lastUser } = extractLastTurnContext(this.session.entries);
-		if (!lastAssistant || !settingsStore.suggestions.dynamicEnabled || !this.visible) {
+		if (!lastAssistant || !settingsStore.suggestions.dynamicEnabled) {
 			return;
 		}
 
@@ -141,7 +155,7 @@ export class SessionSuggestions {
 
 		try {
 			const res = await withTimeout(
-				invoke<string[]>('generate_prompt_suggestions', {
+				invoke<PromptSuggestionsResult | string[]>('generate_prompt_suggestions', {
 					lastAssistant,
 					lastUser,
 					modelSelector,
@@ -156,15 +170,41 @@ export class SessionSuggestions {
 			}
 
 			this.generatedTurnKey = turnKey;
-			this.items = Array.isArray(res)
-				? res
-						.map((s) => (typeof s === 'string' ? s.trim() : ''))
-						.filter((s) => s.length > 0)
-				: [];
+			const structured: PromptSuggestionsResult = Array.isArray(res)
+				? {
+						suggestions: res.map((s) => (typeof s === 'string' ? s.trim() : '')).filter((s) => s.length > 0),
+						awaitsUserInput: false,
+						questionSummary: null
+					}
+				: {
+						suggestions: Array.isArray(res?.suggestions)
+							? res.suggestions.map((s) => (typeof s === 'string' ? s.trim() : '')).filter((s) => s.length > 0)
+							: [],
+						awaitsUserInput: Boolean(res?.awaitsUserInput),
+						questionSummary: typeof res?.questionSummary === 'string' && res.questionSummary.trim()
+							? res.questionSummary.trim()
+							: null
+					};
+
+			this.items = structured.suggestions;
+			this.awaitsUserInput = structured.awaitsUserInput;
+			this.questionSummary = structured.questionSummary;
+
+			if (structured.awaitsUserInput) {
+				this.session.setInferredAttention(
+					structured.questionSummary || 'L\'agente attende una risposta per procedere.',
+					structured.suggestions
+				);
+			} else {
+				this.session.clearInferredAttention();
+			}
 		} catch {
 			// Fallimento silenzioso: nessun log rumoroso in produzione, nessun errore alla UI
 			if (token === this.requestToken) {
 				this.items = [];
+				this.awaitsUserInput = false;
+				this.questionSummary = null;
+				this.session.clearInferredAttention();
 			}
 		} finally {
 			if (this.pendingTurnKey === turnKey) {
@@ -173,3 +213,5 @@ export class SessionSuggestions {
 		}
 	}
 }
+
+export { extractLastTurnContext };

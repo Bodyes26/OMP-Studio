@@ -4,6 +4,8 @@
 
 # OMP Studio
 
+*Italiano: [README.it.md](README.it.md) · English: this file*
+
 **The high-performance desktop workbench for the `omp` coding agent.**
 Multi-project workspace, dual Terminal / Chat GUI surfaces, Monaco editor with Git diff, visual sandboxes, task orchestration, and real-time AI quota monitoring.
 

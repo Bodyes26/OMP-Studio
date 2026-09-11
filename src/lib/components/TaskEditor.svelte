@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { onDestroy, tick } from 'svelte';
 	import { taskStore, type StudioTask, type StudioTaskStatus, type StudioTaskOptions } from '$lib/stores/tasks.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -114,20 +116,20 @@
 				detailTitle = windows
 					.map((window) => {
 						const reset = window.resetsAt
-							? ` · reset ${new Date(window.resetsAt).toLocaleString()}`
+							? ` · reset ${i18n.formatDate(window.resetsAt, { dateStyle: 'short', timeStyle: 'short' })}`
 							: '';
 						return `${window.label}: ${window.remainingPercent}%${reset}`;
 					})
 					.join('\n');
 			} else {
-				detail = 'Quota non disponibile';
+				detail = m.task_editor_quota_unavailable();
 				detailTitle = 'Provider in abbonamento, ma OMP non espone finestre di quota.';
 			}
 		} else if (selectedModel.cost) {
 			const formatCost = (value: number | undefined) =>
-				`$${(value ?? 0).toLocaleString('en-US', { maximumFractionDigits: 4 })}`;
+				i18n.formatNumber(value ?? 0, { style: 'currency', currency: 'USD', maximumFractionDigits: 4 });
 			detail = `${formatCost(selectedModel.cost.input)} input · ${formatCost(selectedModel.cost.output)} output / 1M token`;
-			detailTitle = 'Costo API indicativo per un milione di token.';
+			detailTitle = m.ui_taskeditor_costo_api_indicativo_per_un_milione_di_7767();
 		}
 
 		const currentProjectPath = task.projectPath.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
@@ -155,17 +157,17 @@
 		return {
 			detail,
 			detailTitle,
-			usage: projects.length > 0 ? 'In uso altrove' : '',
-			usageTitle: projects.length > 0 ? `In uso in: ${projects.join(', ')}` : ''
+			usage: projects.length > 0 ? m.task_editor_quota_used_elsewhere() : '',
+			usageTitle: projects.length > 0 ? m.task_editor_quota_used_in({ projects: projects.join(', ') }) : ''
 		};
 	});
 
 	// Ruoli principali disponibili per la barra di selezione rapida
 	const DIFFICULTY_ROLES = [
-		{ id: 'smol', label: 'Rapido', badge: 'smol', icon: IconRoleSmol, desc: 'Fix rapidi, compiti semplici e modelli veloci' },
-		{ id: 'default', label: 'Standard', badge: 'default', icon: IconRoleDefault, desc: 'Sviluppo normale e interazione standard' },
-		{ id: 'slow', label: 'Deep Reasoning', badge: 'slow', icon: IconRoleSlow, desc: 'Ragionamento approfondito e problemi complessi' },
-		{ id: 'plan', label: 'Architettura', badge: 'plan', icon: IconRolePlan, desc: 'Pianificazione e progettazione strutturale' }
+		{ id: 'smol', label: m.task_editor_role_fast_label(), badge: 'smol', icon: IconRoleSmol, desc: m.task_editor_role_fast_desc() },
+		{ id: 'default', label: m.task_editor_role_std_label(), badge: 'default', icon: IconRoleDefault, desc: m.task_editor_role_std_desc() },
+		{ id: 'slow', label: m.task_editor_role_deep_label(), badge: 'slow', icon: IconRoleSlow, desc: m.task_editor_role_deep_desc() },
+		{ id: 'plan', label: m.task_editor_role_plan_label(), badge: 'plan', icon: IconRolePlan, desc: m.task_editor_role_plan_desc() }
 	] as const;
 
 
@@ -536,28 +538,28 @@
 	});
 </script>
 
-<div class="task-editor" role="region" aria-label="Editor del task" bind:this={rootEl}>
+<div class="task-editor" role="region" aria-label={m.task_editor_region_aria()} bind:this={rootEl}>
 	<header class="task-toolbar">
 		<div class="task-heading">
-			<span class="task-badge">TASK</span>
+			<span class="task-badge">{m.page_columns_header_task()}</span>
 			<button
 				type="button"
 				class="status-toggle-btn {task.status}"
 				onclick={cycleStatus}
-				title="Clicca per cambiare lo stato del task"
+				title={m.task_editor_status_toggle_title()}
 			>
 				{#if task.status === 'in_progress'}
-					<IconStatusRunning /> In corso
+					<IconStatusRunning /> {m.task_editor_status_in_progress()}
 				{:else if task.status === 'completed'}
-					<IconStatusDone /> Fatto
+					<IconStatusDone /> {m.task_editor_status_completed()}
 				{:else if task.status === 'abandoned'}
-					<IconStatusFailed /> Abbandonato
+					<IconStatusFailed /> {m.task_editor_status_abandoned()}
 				{:else}
-					<IconStatusPending /> In coda
+					<IconStatusPending /> {m.task_editor_status_queued()}
 				{/if}
 			</button>
 			<span class="task-title" title={title}>{title}</span>
-			<span class="save-state" aria-live="polite">Salvato</span>
+			<span class="save-state" aria-live="polite">{m.task_editor_state_saved()}</span>
 		</div>
 
 		<div class="task-actions">
@@ -567,16 +569,16 @@
 				class="action-btn btn-danger"
 				class:confirm-delete={deleteArmed}
 				onclick={requestDelete}
-				aria-label={deleteArmed ? 'Conferma eliminazione task' : 'Elimina task'}
-				title={deleteArmed ? 'Clicca ancora per eliminare definitivamente' : 'Elimina questo task'}
+				aria-label={deleteArmed ? m.ui_taskeditor_conferma_eliminazione_task_43a9() : m.ui_taskeditor_elimina_task_f0ee()}
+				title={deleteArmed ? 'Clicca ancora per eliminare definitivamente' : m.ui_taskeditor_elimina_questo_task_867e()}
 			>
 				{#if deleteArmed}
-					<span>Conferma elimina</span>
+					<span>{m.ui_taskeditor_conferma_elimina_d2f5()}</span>
 				{:else}
 					<svg viewBox="0 0 16 16" aria-hidden="true">
 						<path d="M3 4.5h10M6 2.5h4l.7 2H5.3l.7-2ZM5 6.5v6M8 6.5v6M11 6.5v6M4.5 4.5l.6 9h5.8l.6-9" />
 					</svg>
-					<span>Elimina</span>
+					<span>{m.task_editor_delete_btn()}</span>
 				{/if}
 			</button>
 
@@ -587,13 +589,13 @@
 					class="action-btn btn-secondary"
 					onclick={runNow}
 					disabled={!prompt.trim() && attachedImages.length === 0}
-					aria-label="Esegui subito questo task"
-					title="Esegui subito questo task"
+					aria-label={m.task_editor_run_now_aria()}
+					title={m.task_editor_run_now_aria()}
 				>
 					<svg viewBox="0 0 16 16" aria-hidden="true">
 						<path d="M4 3.5l9 4.5-9 4.5V3.5z" />
 					</svg>
-					<span>Esegui</span>
+					<span>{m.task_editor_run_now_btn()}</span>
 				</button>
 			{/if}
 
@@ -602,13 +604,13 @@
 				type="button"
 				class="action-btn btn-primary"
 				onclick={closeEditor}
-				aria-label="Salva e chiudi editor task (Ctrl+Invio)"
-				title="Salva modifiche e chiudi editor (Ctrl+Invio)"
+				aria-label={m.task_editor_save_close_aria()}
+				title={m.ui_taskeditor_salva_modifiche_e_chiudi_editor_ctrl_invio_3c58()}
 			>
 				<svg viewBox="0 0 16 16" aria-hidden="true">
 					<path d="M3.5 8.5l3 3 6-6" />
 				</svg>
-				<span>Salva</span>
+				<span>{m.task_editor_save_close_btn()}</span>
 				<kbd>Ctrl+↵</kbd>
 			</button>
 
@@ -619,8 +621,8 @@
 				type="button"
 				class="action-btn btn-close"
 				onclick={closeEditor}
-				aria-label="Chiudi editor (Esc)"
-				title="Chiudi editor (Esc)"
+				aria-label={m.task_editor_close_aria()}
+				title={m.task_editor_close_aria()}
 			>
 				<svg viewBox="0 0 16 16" aria-hidden="true">
 					<path d="M4 4l8 8M12 4L4 12" />
@@ -637,7 +639,7 @@
 			ondragover={handleDragOver}
 			ondragleave={handleDragLeave}
 			ondrop={handleDrop}
-			aria-label="Area prompt task"
+			aria-label={m.task_editor_prompt_area_aria()}
 		>
 			<div class="palette-anchor">
 				<CommandPalette
@@ -651,7 +653,7 @@
 			</div>
 
 			<div class="input-card">
-				<label for="task-prompt" class="sr-only">Prompt del task</label>
+				<label for="task-prompt" class="sr-only">{m.task_editor_prompt_label()}</label>
 				<textarea
 					id="task-prompt"
 					bind:this={textareaEl}
@@ -667,19 +669,19 @@
 						}
 					}}
 					onpaste={handlePaste}
-					placeholder="Descrivi cosa deve fare l'agente... digita / per inserire skill e comandi..."
+					placeholder={m.task_editor_prompt_placeholder()}
 					spellcheck="true"
 				></textarea>
 
 				{#if attachedImages.length > 0}
-					<div class="image-previews" role="region" aria-label="Immagini allegate">
+					<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
 						{#each attachedImages as img, idx (idx)}
 							<div class="image-thumb-wrap">
 								<button
 									type="button"
 									class="image-thumb-btn"
 									onclick={() => onOpenImage?.(img.data, img.mimeType)}
-									title="Ingrandisci immagine"
+									title={m.task_editor_zoom_image_title()}
 								>
 									<img
 										src="data:{img.mimeType};base64,{img.data}"
@@ -690,9 +692,9 @@
 								<button
 									type="button"
 									class="image-remove-btn"
-									title="Rimuovi immagine"
+									title={m.task_editor_remove_image_title()}
 									onclick={() => removeImage(idx)}
-									aria-label="Rimuovi immagine"
+									aria-label={m.task_editor_remove_image_title()}
 								>
 									<IconClose />
 								</button>
@@ -715,16 +717,16 @@
 						class="attach-btn"
 						onclick={triggerFileInput}
 						aria-label="Allega screenshot o immagine al task"
-						title="Allega screenshot o immagine"
+						title={m.task_editor_attach_image_title()}
 					>
 						<svg viewBox="0 0 16 16" aria-hidden="true">
 							<path d="M6 3.5a2.5 2.5 0 0 1 5 0v7a4 4 0 0 1-8 0V4.5a1 1 0 0 1 2 0v6a2 2 0 0 0 4 0v-7a1 1 0 0 0-2 0v6" />
 						</svg>
-						<span>Allega immagine</span>
+						<span>{m.task_editor_attach_image_btn()}</span>
 					</button>
 
 					<div class="footer-hints">
-						<span class="hint-text"><kbd>Ctrl+V</kbd> incolla screenshot · digita <code>/</code> per le skill</span>
+						<span class="hint-text"><kbd>Ctrl+V</kbd> {m.ui_taskeditor_incolla_screenshot_digita_d13d()} <code>/</code> per le skill</span>
 					</div>
 				</div>
 			</div>
@@ -736,14 +738,14 @@
 			<div class="options-group">
 				<div class="group-header">
 					<div class="group-header-text">
-						<span class="group-title">Profilo & Modello</span>
-						<span class="group-sub">Ruolo operativo, modello di ragionamento e intensità di thinking</span>
+						<span class="group-title">{m.task_editor_options_heading()}</span>
+						<span class="group-sub">{m.task_editor_options_subheading()}</span>
 					</div>
 				</div>
 
 				<!-- Scelta rapida Ruolo -->
 				<div class="role-selection-area">
-					<div class="role-pills-row" role="radiogroup" aria-label="Ruolo e complessità">
+					<div class="role-pills-row" role="radiogroup" aria-label={m.task_editor_roles_radiogroup()}>
 						{#each DIFFICULTY_ROLES as r (r.id)}
 							{@const active = options.role === r.id}
 							{@const Icon = r.icon}
@@ -768,12 +770,12 @@
 							class:active={options.role === 'custom'}
 							role="radio"
 							aria-checked={options.role === 'custom'}
-							aria-label="Ruolo: Personalizzato. Modello e thinking specifici"
-							title="Personalizza manualmente modello e livello di thinking"
+							aria-label={m.ui_taskeditor_ruolo_personalizzato_modello_e_thinking_specifici_d4c4()}
+							title={m.task_editor_role_custom_desc()}
 							onclick={() => selectRole('custom')}
 						>
 							<span class="role-pill-badge">custom</span>
-							<span class="role-pill-label">Personalizzato</span>
+							<span class="role-pill-label">{m.task_editor_role_custom_label()}</span>
 						</button>
 					</div>
 				</div>
@@ -781,11 +783,11 @@
 				<!-- Griglia Modello & Thinking Effort -->
 				<div class="model-thinking-grid">
 					<div class="model-col">
-						<label for="task-model-picker" class="field-label">Modello specifico</label>
+						<label for="task-model-picker" class="field-label">{m.task_editor_specific_model_label()}</label>
 						<ModelPickerDropdown
 							catalog={modelSettingsStore.assignableCatalog}
 							value={options.modelSelector || ''}
-							placeholder="Usa modello predefinito del ruolo..."
+							placeholder={m.task_editor_specific_model_placeholder()}
 							onSelect={handleModelSelect}
 						/>
 						{#if selectedModelContext && (selectedModelContext.detail || selectedModelContext.usage)}
@@ -802,8 +804,8 @@
 							</div>
 						{/if}
 						{#if frequentModelConfigurations.length > 0}
-							<div class="frequent-configurations" aria-label="Configurazioni modello usate spesso">
-								<span class="frequent-label">Usati spesso</span>
+							<div class="frequent-configurations" aria-label={m.ui_taskeditor_configurazioni_modello_usate_spesso_37dd()}>
+								<span class="frequent-label">{m.task_editor_frequent_label()}</span>
 								<div class="frequent-chips">
 									{#each frequentModelConfigurations as configuration (`${configuration.modelSelector}:${configuration.thinkingLevel}`)}
 										{@const thinkingLabel = THINKING_LEVELS.find((level) => level.id === configuration.thinkingLevel)?.label ?? configuration.thinkingLevel}
@@ -824,7 +826,7 @@
 					</div>
 
 					<div class="thinking-col">
-						<span class="field-label">Thinking effort</span>
+						<span class="field-label">{m.task_editor_thinking_effort_label()}</span>
 						<ReasoningSlider
 							value={options.thinkingLevel || 'auto'}
 							onChange={handleThinkingChange}
@@ -838,22 +840,22 @@
 				<div class="group-header">
 					<div class="group-header-text">
 						<div class="group-title-row">
-							<span class="group-title">Direttive & Contesto</span>
+							<span class="group-title">{m.task_editor_directives_heading()}</span>
 							{#if (options.directives?.length ?? 0) > 0}
 								<span class="active-count-badge">
 									{(options.directives?.length ?? 0)} {(options.directives?.length ?? 0) === 1 ? 'direttiva attiva' : 'direttive attive'}
 								</span>
 							{/if}
 						</div>
-						<span class="group-sub">Vincoli operativi e inclusioni durante l'esecuzione del task</span>
+						<span class="group-sub">{m.task_editor_directives_subheading()}</span>
 					</div>
 					<button
 						type="button"
 						class="btn-manage-directives"
 						onclick={() => settingsStore.openSection('tasks')}
-						title="Configura o crea nuove direttive nel catalogo impostazioni"
+						title={m.ui_taskeditor_configura_o_crea_nuove_direttive_nel_catalogo_bcdc()}
 					>
-						Gestisci direttive
+						{m.task_editor_manage_directives_btn()}
 					</button>
 				</div>
 
@@ -873,7 +875,7 @@
 									<span class="modifier-title">{dir.name}</span>
 									<div class="modifier-badges">
 										{#if dir.placement === 'after'}
-											<span class="modifier-placement" title="Posizionata dopo il prompt">dopo</span>
+											<span class="modifier-placement" title="Posizionata dopo il prompt">{m.task_editor_directive_after_badge()}</span>
 										{/if}
 										{#if dir.tag}
 											<span class="modifier-tag">{dir.tag}</span>
@@ -890,14 +892,14 @@
 											type="button"
 											class="btn-upgrade-directive"
 											onclick={(e) => { e.stopPropagation(); upgradeDirective(dir.id); }}
-											title="Sostituisce lo snapshot congelato con la versione più recente del catalogo"
+											title={m.ui_taskeditor_sostituisce_lo_snapshot_congelato_con_la_versione_b86f()}
 										>
-											Aggiorna
+											{m.task_editor_directive_upgrade_btn()}
 										</button>
 									</div>
 								{:else if isChecked && revStatus === 'orphan'}
 									<div class="modifier-upgrade-row">
-										<span class="orphan-badge">Non in catalogo</span>
+										<span class="orphan-badge">{m.task_editor_directive_orphan_badge()}</span>
 									</div>
 								{/if}
 							</div>
@@ -912,11 +914,11 @@
 						/>
 						<div class="modifier-body">
 							<div class="modifier-top">
-								<span class="modifier-title">Contesto Editor</span>
-								<span class="modifier-tag">File aperti</span>
+								<span class="modifier-title">{m.task_editor_context_editor_title()}</span>
+								<span class="modifier-tag">{m.task_editor_context_editor_tag()}</span>
 							</div>
 							<p class="modifier-desc">
-								Allega l'elenco dei file correntemente aperti e la selezione attiva nell'editor.
+								{m.task_editor_context_editor_desc()}
 							</p>
 						</div>
 					</label>

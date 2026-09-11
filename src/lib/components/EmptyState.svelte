@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { IconWarning } from '$lib/icons';
 	export interface EmptyStateAction {
 		label: string;
@@ -39,18 +40,18 @@
 
 	const resolvedTitle = $derived.by(() => {
 		if (title) return title;
-		if (variant === 'no-projects') return 'Nessun progetto aperto';
-		if (variant === 'no-tasks') return 'Nessun task in coda';
-		return 'Nessun elemento';
+		if (variant === 'no-projects') return m.empty_state_title_no_projects();
+		if (variant === 'no-tasks') return m.empty_state_title_no_tasks();
+		return m.empty_state_title_generic();
 	});
 
 	const resolvedDescription = $derived.by(() => {
 		if (description) return description;
 		if (variant === 'no-projects') {
-			return 'Apri una cartella locale per lavorare con gli agenti, oppure avvia uno Scratchpad temporaneo per una sessione rapida senza salvare su disco.';
+			return m.empty_state_desc_no_projects();
 		}
 		if (variant === 'no-tasks') {
-			return 'Crea il prossimo compito da eseguire per questo progetto. Puoi accodare più prompt con diversi ruoli e modelli.';
+			return m.empty_state_desc_no_tasks();
 		}
 		return '';
 	});
@@ -59,16 +60,16 @@
 		if (shortcuts.length > 0) return shortcuts;
 		if (variant === 'no-projects') {
 			return [
-				{ key: 'Ctrl+Alt+N', label: 'Apri cartella progetto' },
-				{ key: 'Ctrl+Alt+S', label: 'Nuova chat rapida (Scratchpad)' },
-				{ key: 'Ctrl+Alt+P', label: 'Laboratorio prototipi (Bozze)' },
-				{ key: 'Ctrl+Alt+U', label: 'Quota e consumi API' },
-				{ key: 'Ctrl+Alt+,', label: 'Impostazioni Studio' }
+				{ key: 'Ctrl+Alt+N', label: m.empty_state_shortcut_open_folder() },
+				{ key: 'Ctrl+Alt+S', label: m.empty_state_shortcut_scratchpad() },
+				{ key: 'Ctrl+Alt+P', label: m.empty_state_shortcut_lab() },
+				{ key: 'Ctrl+Alt+U', label: m.empty_state_shortcut_quota() },
+				{ key: 'Ctrl+Alt+,', label: m.empty_state_shortcut_settings() }
 			];
 		}
 		if (variant === 'no-tasks') {
 			return [
-				{ key: 'Alt+E', label: 'Scrivi nel Composer' }
+				{ key: 'Alt+E', label: m.empty_state_shortcut_composer() }
 			];
 		}
 		return [];
@@ -120,10 +121,10 @@
 		{#if setupIncomplete}
 			<div class="setup-notice">
 				<span class="notice-icon" aria-hidden="true"><IconWarning /></span>
-				<span class="notice-text">Configurazione di OMP incompleta o modelli mancanti.</span>
+				<span class="notice-text">{m.empty_state_setup_notice()}</span>
 				{#if onSetupClick}
 					<button type="button" class="btn-setup" onclick={onSetupClick}>
-						Configura ora
+						{m.empty_state_btn_setup()}
 					</button>
 				{/if}
 			</div>
@@ -161,7 +162,7 @@
 
 		{#if defaultShortcuts.length > 0}
 			<div class="shortcuts-section">
-				<span class="shortcuts-heading">Scorciatoie rapide</span>
+				<span class="shortcuts-heading">{m.empty_state_shortcuts_heading()}</span>
 				<div class="shortcuts-grid">
 					{#each defaultShortcuts as sc}
 						{#if sc.action}

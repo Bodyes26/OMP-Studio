@@ -7,10 +7,12 @@
 		type ChatWidth,
 		type StreamingBehavior,
 		type QueueMode,
-		type InterruptMode
+		type InterruptMode,
+		type LanguagePreference
 	} from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
+	import { m } from '$lib/paraglide/messages.js';
 
 	async function browseProjectRoot() {
 		const sel = await openDialog({ directory: true, defaultPath: projectStore.projectRoot });
@@ -24,50 +26,85 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Superficie di avvio</span>
-				<span class="form-row-desc">Con quale vista nasce un progetto aperto per la prima volta: terminale OMP o editor grafico.</span>
+				<span class="form-row-label">{m.settings_language_title()}</span>
+				<span class="form-row-desc">{m.settings_language_description()}</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					value={settingsStore.general.language}
+					aria-label={m.settings_language_title()}
+					onchange={(e) => settingsStore.patchGeneral({ language: (e.currentTarget as HTMLSelectElement).value as LanguagePreference })}
+				>
+					<option value="system">{m.settings_language_system()}</option>
+					<option value="it">{m.settings_language_italian()}</option>
+					<option value="en">{m.settings_language_english()}</option>
+				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">{m.settings_general_start_surface_title()}</span>
+				<span class="form-row-desc">{m.settings_general_start_surface_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
 					value={settingsStore.general.defaultSurface}
 					onchange={(e) => settingsStore.patchGeneral({ defaultSurface: (e.currentTarget as HTMLSelectElement).value as DefaultSurface })}
 				>
-					<option value="terminal">Terminale</option>
-					<option value="gui">Editor (GUI)</option>
+					<option value="terminal">{m.settings_general_terminal()}</option>
+					<option value="gui">{m.settings_general_editor_gui()}</option>
 				</select>
 			</div>
 		</div>
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Chiusura con task in coda</span>
-				<span class="form-row-desc">Cosa fare della coda quando chiudi un progetto che ha ancora task in attesa.</span>
+				<span class="form-row-label">{m.settings_general_close_queue_title()}</span>
+				<span class="form-row-desc">{m.settings_general_close_queue_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
 					value={settingsStore.general.closeWithQueuedTasks}
 					onchange={(e) => settingsStore.patchGeneral({ closeWithQueuedTasks: (e.currentTarget as HTMLSelectElement).value as CloseWithQueuedTasks })}
 				>
-					<option value="ask">Chiedi conferma</option>
-					<option value="keep">Mantieni la coda</option>
-					<option value="discard">Scarta la coda</option>
+					<option value="ask">{m.settings_general_ask_confirmation()}</option>
+					<option value="keep">{m.settings_general_keep_queue()}</option>
+					<option value="discard">{m.settings_general_discard_queue()}</option>
 				</select>
 			</div>
 		</div>
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Larghezza chat</span>
-				<span class="form-row-desc">Distribuzione dei messaggi: centrata con margini bilanciati per la lettura o estesa a tutta la colonna.</span>
+				<span class="form-row-label">{m.settings_general_chat_width_title()}</span>
+				<span class="form-row-desc">{m.settings_general_chat_width_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
 					value={settingsStore.general.chatWidth}
 					onchange={(e) => settingsStore.patchGeneral({ chatWidth: (e.currentTarget as HTMLSelectElement).value as ChatWidth })}
 				>
-					<option value="readable">Centrata (leggibile)</option>
-					<option value="full">Tutta la colonna</option>
+					<option value="readable">{m.settings_general_chat_readable()}</option>
+					<option value="full">{m.settings_general_chat_full()}</option>
 				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">{m.settings_general_internal_messages_title()}</span>
+				<span class="form-row-desc">{m.settings_general_internal_messages_desc()}</span>
+			</div>
+			<div class="form-row-control">
+				<label class="switch">
+					<input
+						type="checkbox"
+						checked={settingsStore.general.showInternalAgentMessages}
+						onchange={(e) => settingsStore.patchGeneral({ showInternalAgentMessages: (e.currentTarget as HTMLInputElement).checked })}
+					/>
+					<span class="slider"></span>
+				</label>
 			</div>
 		</div>
 	</div>
@@ -75,8 +112,8 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Barra laterale (File / Git / Agente)</span>
-				<span class="form-row-desc">Mostra o nascondi la barra laterale (Ctrl+Alt+B o clic sul logo &pi; in alto a sinistra).</span>
+				<span class="form-row-label">{m.settings_general_sidebar_title()}</span>
+				<span class="form-row-desc">{m.settings_general_sidebar_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<label class="switch">
@@ -94,12 +131,12 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Cartella progetti</span>
-				<span class="form-row-desc">Dove Studio cerca le cartelle da proporre come nuovo progetto.</span>
+				<span class="form-row-label">{m.settings_general_project_folder_title()}</span>
+				<span class="form-row-desc">{m.settings_general_project_folder_desc()}</span>
 				<span class="form-row-path" title={projectStore.projectRoot}>{projectStore.projectRoot}</span>
 			</div>
 			<div class="form-row-control">
-				<button type="button" class="btn btn-secondary" onclick={browseProjectRoot}>Cambia...</button>
+				<button type="button" class="btn btn-secondary" onclick={browseProjectRoot}>{m.settings_general_change_folder()}</button>
 			</div>
 		</div>
 	</div>
@@ -107,8 +144,8 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Canale aggiornamenti</span>
-				<span class="form-row-desc">Stabile per release verificate, Nightly per l'ultima build (può essere instabile).</span>
+				<span class="form-row-label">{m.settings_general_update_channel_title()}</span>
+				<span class="form-row-desc">{m.settings_general_update_channel_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<fieldset class="channel-options" disabled={studioUpdaterStore.channelChangeDisabled}>
@@ -120,7 +157,7 @@
 							checked={studioUpdaterStore.channel === 'stable'}
 							onchange={() => void studioUpdaterStore.setChannel('stable')}
 						/>
-						<span class="channel-name">Stabile</span>
+						<span class="channel-name">{m.settings_general_stable()}</span>
 					</label>
 					<label class="channel-option" class:checked={studioUpdaterStore.channel === 'nightly'}>
 						<input
@@ -140,64 +177,64 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Invio durante l'elaborazione</span>
-				<span class="form-row-desc">Decide il comportamento del tasto Invio quando l'agente sta lavorando. Alt+Invio usa sempre l'altra modalita.</span>
+				<span class="form-row-label">{m.settings_general_submit_behavior_title()}</span>
+				<span class="form-row-desc">{m.settings_general_submit_behavior_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
 					value={settingsStore.general.defaultStreamingBehavior}
 					onchange={(e) => settingsStore.patchGeneral({ defaultStreamingBehavior: (e.currentTarget as HTMLSelectElement).value as StreamingBehavior })}
 				>
-					<option value="steer">Steer (interrompe il turno in corso)</option>
-					<option value="followUp">Follow-up (attende la fine del turno)</option>
+					<option value="steer">{m.settings_general_steer_option()}</option>
+					<option value="followUp">{m.settings_general_follow_up_option()}</option>
 				</select>
 			</div>
 		</div>
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Estrazione messaggi steer</span>
-				<span class="form-row-desc">Quanti messaggi steer OMP preleva per ciascun turno di elaborazione.</span>
+				<span class="form-row-label">{m.settings_general_steer_dequeue_title()}</span>
+				<span class="form-row-desc">{m.settings_general_steer_dequeue_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
 					value={settingsStore.general.steeringMode}
 					onchange={(e) => settingsStore.patchGeneral({ steeringMode: (e.currentTarget as HTMLSelectElement).value as QueueMode })}
 				>
-					<option value="one-at-a-time">Uno per turno</option>
-					<option value="all">Tutti insieme</option>
+					<option value="one-at-a-time">{m.settings_general_one_per_turn()}</option>
+					<option value="all">{m.settings_general_all_together()}</option>
 				</select>
 			</div>
 		</div>
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Estrazione messaggi follow-up</span>
-				<span class="form-row-desc">Quanti messaggi follow-up OMP preleva per ciascun turno di elaborazione.</span>
+				<span class="form-row-label">{m.settings_general_follow_up_dequeue_title()}</span>
+				<span class="form-row-desc">{m.settings_general_follow_up_dequeue_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
 					value={settingsStore.general.followUpMode}
 					onchange={(e) => settingsStore.patchGeneral({ followUpMode: (e.currentTarget as HTMLSelectElement).value as QueueMode })}
 				>
-					<option value="one-at-a-time">Uno per turno</option>
-					<option value="all">Tutti insieme</option>
+					<option value="one-at-a-time">{m.settings_general_one_per_turn()}</option>
+					<option value="all">{m.settings_general_all_together()}</option>
 				</select>
 			</div>
 		</div>
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Interruzione durante i tool</span>
-				<span class="form-row-desc">Comportamento quando un messaggio interrompe l'elaborazione: interruzione immediata dei tool rimanenti o attesa a fine turno.</span>
+				<span class="form-row-label">{m.settings_general_tool_interrupt_title()}</span>
+				<span class="form-row-desc">{m.settings_general_tool_interrupt_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
 					value={settingsStore.general.interruptMode}
 					onchange={(e) => settingsStore.patchGeneral({ interruptMode: (e.currentTarget as HTMLSelectElement).value as InterruptMode })}
 				>
-					<option value="immediate">Immediata</option>
-					<option value="wait">Attendi fine turno</option>
+					<option value="immediate">{m.settings_general_immediate()}</option>
+					<option value="wait">{m.settings_general_wait_turn_end()}</option>
 				</select>
 			</div>
 		</div>

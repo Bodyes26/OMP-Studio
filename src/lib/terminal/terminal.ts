@@ -17,6 +17,7 @@ import {
 	describeConfigurationMismatch,
 	type TerminalTaskConfiguration
 } from './taskConfiguration';
+import { m as msg } from '$lib/paraglide/messages.js';
 const TITLE_STATE_REGEX = /^\u03c0 ([>:!])(?: |$)/;
 
 // Deve essere uno stack di font letterale: xterm/Monaco lo usano anche per
@@ -290,7 +291,7 @@ export class TerminalSession {
 	}
 
 	private async writePty(data: string) {
-		if (this.ptyId === null) throw new Error('Terminale OMP non pronto');
+		if (this.ptyId === null) throw new Error(msg.ui_ts_terminal_terminale_omp_non_pronto_c22b());
 		const encoded = new TextEncoder().encode(data);
 		await invoke('pty_write', { ptyId: this.ptyId, data: Array.from(encoded) });
 	}
@@ -315,7 +316,7 @@ export class TerminalSession {
 		try {
 			this.updateSessionInfo(await this.readSessionInfo());
 		} catch (error) {
-			console.warn('Lettura sessione terminale:', error);
+			console.warn(msg.ui_ts_terminal_lettura_sessione_terminale_6367(), error);
 		}
 	}
 
@@ -335,9 +336,9 @@ export class TerminalSession {
 	}
 
 	private assertAutomationReady() {
-		if (this.disposed || this.ptyId === null) throw new Error('Terminale OMP non pronto');
-		if (this.currentState !== 'idle') throw new Error('OMP deve essere in attesa prima di cambiare sessione');
-		if (this.pendingInputLength > 0) throw new Error('Completa o cancella il testo presente nel terminale');
+		if (this.disposed || this.ptyId === null) throw new Error(msg.ui_ts_terminal_terminale_omp_non_pronto_c22b());
+		if (this.currentState !== 'idle') throw new Error(msg.ui_ts_terminal_omp_deve_essere_in_attesa_prima_di_6479());
+		if (this.pendingInputLength > 0) throw new Error(msg.ui_ts_terminal_completa_o_cancella_il_testo_presente_nel_6a90());
 	}
 
 	/** Invia un comando slash nella scheda corrente, senza ricreare il PTY.
@@ -355,7 +356,7 @@ export class TerminalSession {
 		if (prompt.includes('\x1b[201~')) throw new Error('Il prompt contiene una sequenza di controllo non supportata');
 		this.assertAutomationReady();
 		const previous = await this.readSessionInfo();
-		if (!previous) throw new Error('OMP non ha ancora pubblicato la sessione corrente');
+		if (!previous) throw new Error(msg.ui_ts_terminal_omp_non_ha_ancora_pubblicato_la_sessione_494e());
 
 		// Il controllo guarda la sessione corrente, non quella che nascera' da
 		// `/new`: il modello appartiene al processo omp e resta lo stesso, mentre
@@ -368,7 +369,7 @@ export class TerminalSession {
 		await this.writePty('/new\r');
 		const next = await this.waitForSession(
 			(info) => info.sessionId !== previous.sessionId,
-			'OMP non ha confermato la nuova sessione'
+			msg.ui_ts_terminal_omp_non_ha_confermato_la_nuova_sessione_6f27()
 		);
 		await this.writePty(`\x1b[200~${prompt}\x1b[201~\r`);
 		this.setInputPending(0);
@@ -376,7 +377,7 @@ export class TerminalSession {
 	}
 
 	public async resumeSession(sessionId: string) {
-		if (!/^[A-Za-z0-9._-]+$/.test(sessionId)) throw new Error('Identificativo sessione non valido');
+		if (!/^[A-Za-z0-9._-]+$/.test(sessionId)) throw new Error(msg.ui_ts_terminal_identificativo_sessione_non_valido_5525());
 		this.assertAutomationReady();
 		const current = await this.readSessionInfo();
 		if (current?.sessionId === sessionId) {
@@ -387,7 +388,7 @@ export class TerminalSession {
 		this.setInputPending(0);
 		return this.waitForSession(
 			(info) => info.sessionId === sessionId,
-			'OMP non ha confermato la ripresa della sessione'
+			msg.ui_ts_terminal_omp_non_ha_confermato_la_ripresa_della_ec86()
 		);
 	}
 
@@ -498,7 +499,7 @@ export class TerminalSession {
 	 *  rilegge il transcript da disco ed e' l'attesa piu' lunga delle tre. */
 	private bootHintText(): string {
 		if (this.launchArgs?.includes('setup')) return 'preparazione della configurazione guidata';
-		if (this.pendingResume) return 'ripresa della sessione';
+		if (this.pendingResume) return msg.ui_ts_terminal_ripresa_della_sessione_80e3();
 		return 'avvio ambiente';
 	}
 
@@ -524,7 +525,7 @@ export class TerminalSession {
 			this.endBootHint();
 			this.term.write(
 				"\x1b[33mL'ambiente non ha risposto entro 10 secondi.\x1b[0m\r\n" +
-					'\x1b[2mVerifica che `omp` sia installato e raggiungibile, poi riavvia il terminale.\x1b[0m\r\n'
+					msg.ui_ts_terminal_2mverifica_che_omp_sia_installato_e_raggiungibile_cdb3()
 			);
 		}, TerminalSession.BOOT_TIMEOUT_MS);
 	}
@@ -660,7 +661,7 @@ export class TerminalSession {
 				await navigator.clipboard.writeText(text);
 			}
 		} catch (error) {
-			console.warn('Copia negli appunti non riuscita:', error);
+			console.warn(msg.ui_ts_terminal_copia_negli_appunti_non_riuscita_3d13(), error);
 		}
 	}
 
@@ -681,7 +682,7 @@ export class TerminalSession {
 				this.term.focus();
 			}
 		} catch (error) {
-			console.warn('Incolla dagli appunti non riuscito:', error);
+			console.warn(msg.ui_ts_terminal_incolla_dagli_appunti_non_riuscito_4225(), error);
 		}
 	}
 
@@ -719,7 +720,7 @@ export class TerminalSession {
 			oscillator.start();
 			oscillator.stop(ctx.currentTime + 0.08);
 		} catch (error) {
-			console.warn('Campanello terminale:', error);
+			console.warn(msg.ui_ts_terminal_campanello_terminale_08e4(), error);
 		}
 	}
 
@@ -778,7 +779,7 @@ export class TerminalSession {
 		try {
 			this.term.dispose();
 		} catch (error) {
-			console.warn("Terminale gia' disposto:", error);
+			console.warn(msg.ui_ts_terminal_terminale_gia_disposto_df55(), error);
 		}
 	}
 

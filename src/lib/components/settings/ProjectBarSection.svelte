@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import {
 		settingsStore,
 		type ProjectBarOrder,
@@ -10,7 +11,7 @@
 	const ORDER_OPTIONS: { id: ProjectBarOrder; label: string; desc: string }[] = [
 		{ id: 'fixed', label: 'Manuale', desc: "Le tessere non si spostano da sole: riordinabili trascinando." },
 		{ id: 'mru', label: 'Ultimo aperto', desc: 'Il progetto che apri va in prima posizione.' },
-		{ id: 'priority', label: 'Priorità task', desc: 'Chi ha task in coda o chiede attenzione va a sinistra.' },
+		{ id: 'priority', label: m.topbar_order_priority(), desc: 'Chi ha task in coda o chiede attenzione va a sinistra.' },
 		{ id: 'alpha', label: 'Alfabetico', desc: "Le tessere seguono l'ordine alfabetico del nome." }
 	];
 
@@ -18,9 +19,9 @@
 	// altri progetti restano mute per scelta, e il conto complessivo sta nel
 	// chip "Coda" della barra.
 	const QUEUE_BADGE_OPTIONS: { id: QueueBadgeStyle; label: string; desc: string }[] = [
-		{ id: 'count-state', label: 'Numero e stato', desc: 'Quanti task attendono nel progetto aperto, tinti quando sono pronti a partire.' },
+		{ id: 'count-state', label: m.ui_projectbarsection_numero_e_stato_1099(), desc: 'Quanti task attendono nel progetto aperto, tinti quando sono pronti a partire.' },
 		{ id: 'count', label: 'Solo numero', desc: 'Quanti task attendono nel progetto aperto, senza indicazione di prontezza.' },
-		{ id: 'dot', label: 'Puntino', desc: "Un puntino se c'è almeno un task in coda, senza contarli." },
+		{ id: 'dot', label: 'Puntino', desc: m.ui_projectbarsection_un_puntino_se_c_e_almeno_un_4aff() },
 		{ id: 'off', label: 'Nessuno', desc: 'Nessun indicatore di coda sulla tessera.' }
 	];
 </script>
@@ -85,7 +86,7 @@
 		<div class="form-row">
 			<div class="form-row-copy">
 				<span class="form-row-label">Nome sulle tessere</span>
-				<span class="form-row-desc">La sigla c'è sempre. Il nome del progetto compare solo sulla tessera aperta, oppure su tutte.</span>
+				<span class="form-row-desc">{m.ui_projectbarsection_la_sigla_c_e_sempre_il_nome_839b()}</span>
 			</div>
 			<div class="form-row-control">
 				<div class="segmented">
@@ -109,7 +110,7 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Segno di stato agente</span>
+				<span class="form-row-label">{m.ui_projectbarsection_segno_di_stato_agente_b812()}</span>
 				<span class="form-row-desc">Anello ambra che pulsa quando l'agente attende una risposta, anello fermo quando ha finito il lavoro.</span>
 			</div>
 			<div class="form-row-control">
@@ -127,7 +128,7 @@
 		<div class="form-row">
 			<div class="form-row-copy">
 				<span class="form-row-label">Anteprima coda al passaggio</span>
-				<span class="form-row-desc">Mostra l'elenco dei task in coda nel popover della tessera.</span>
+				<span class="form-row-desc">{m.ui_projectbarsection_mostra_l_elenco_dei_task_in_coda_cd99()}</span>
 			</div>
 			<div class="form-row-control">
 				<label class="switch">

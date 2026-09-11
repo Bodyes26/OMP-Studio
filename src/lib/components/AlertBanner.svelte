@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { fade, slide } from 'svelte/transition';
 	import type { Snippet } from 'svelte';
 	import { IconChevronRight, IconClose } from '$lib/icons';
@@ -112,10 +113,10 @@
 						class="btn-text"
 						onclick={() => (showDetails = !showDetails)}
 						aria-expanded={showDetails}
-						aria-label={showDetails ? 'Nascondi dettagli diagnostici' : 'Mostra dettagli diagnostici'}
+						aria-label={showDetails ? m.ui_alertbanner_nascondi_dettagli_diagnostici_5c68() : m.ui_alertbanner_mostra_dettagli_diagnostici_67fe()}
 					>
 						<span class="chevron" class:open={showDetails}><IconChevronRight /></span>
-						{showDetails ? 'Nascondi dettagli diagnostici' : 'Mostra dettagli diagnostici'}
+						{showDetails ? m.ui_alertbanner_nascondi_dettagli_diagnostici_5c68() : m.ui_alertbanner_mostra_dettagli_diagnostici_67fe()}
 					</button>
 				</div>
 
@@ -127,9 +128,9 @@
 								type="button"
 								class="btn-copy"
 								onclick={copyDiagnostic}
-								aria-label={copied ? 'Dettagli diagnostici copiati negli appunti' : 'Copia dettagli diagnostici negli appunti'}
+								aria-label={copied ? 'Dettagli diagnostici copiati negli appunti' : m.ui_alertbanner_copia_dettagli_diagnostici_negli_appunti_6191()}
 							>
-								{copied ? 'Copiato!' : 'Copia'}
+								{copied ? 'Copiato!' : m.context_menu_item_copy()}
 							</button>
 						</div>
 						<pre class="diagnostic-code"><code>{diagnostic}</code></pre>
@@ -146,7 +147,7 @@
 					onclick={handleRetry}
 					disabled={retrying}
 				>
-					{retrying ? 'Ripristino in corso...' : retryLabel}
+					{retrying ? m.ui_alertbanner_ripristino_in_corso_6d9b() : retryLabel}
 				</button>
 			{/if}
 
@@ -166,7 +167,7 @@
 					type="button"
 					class="btn-close"
 					onclick={onDismiss}
-					aria-label="Chiudi avviso"
+					aria-label={m.terminal_close_quota_alert()}
 				>
 					<IconClose />
 				</button>

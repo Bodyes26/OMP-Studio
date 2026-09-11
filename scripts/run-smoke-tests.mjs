@@ -15,17 +15,19 @@
  */
 
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TEST_FILE = join(ROOT, 'test', 'smoke.test.ts');
+// L'alias `$lib` dei moduli localizzati non esiste per Node: va registrato prima dei test.
+const ALIAS_REGISTER = pathToFileURL(join(ROOT, 'test', 'register-alias.mjs')).href;
 
 console.log('=== OMP Studio Smoke Tests ===\n');
 
 const child = spawn(
 	process.execPath,
-	['--no-warnings', '--experimental-strip-types', '--test', TEST_FILE],
+	['--no-warnings', '--experimental-strip-types', '--import', ALIAS_REGISTER, '--test', TEST_FILE],
 	{
 		cwd: ROOT,
 		stdio: 'inherit',

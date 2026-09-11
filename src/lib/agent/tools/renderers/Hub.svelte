@@ -14,6 +14,7 @@
   KeyValue degli argomenti e l'output testuale in OutputBlock per messaggi e processi.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -79,10 +80,10 @@
 			parts.push(countLabel(jobCounts.completed, 'completato', 'completati'));
 		}
 		if (jobCounts.running > 0) {
-			parts.push(countLabel(jobCounts.running, 'in corso', 'in corso'));
+			parts.push(countLabel(jobCounts.running, m.queue_drawer_status_in_progress(), m.queue_drawer_status_in_progress()));
 		}
 		if (jobCounts.failed > 0) {
-			parts.push(countLabel(jobCounts.failed, 'fallito', 'falliti'));
+			parts.push(countLabel(jobCounts.failed, m.ui_browserviewer_fallito_ca59(), 'falliti'));
 		}
 		return parts.length > 0 ? parts.join(', ') : countLabel(jobCounts.total, 'job', 'job');
 	});
@@ -94,7 +95,7 @@
 		if (from) rows.push({ key: 'Mittente', value: from });
 		if (name) rows.push({ key: 'Processo', value: name });
 		if (ids.length > 0) rows.push({ key: 'Job IDs', value: ids.join(', ') });
-		if (message) rows.push({ key: 'Messaggio', value: message });
+		if (message) rows.push({ key: m.ui_hub_messaggio_4371(), value: message });
 		if (stdinText) rows.push({ key: 'Testo stdin', value: stdinText });
 		if (signal) rows.push({ key: 'Segnale', value: signal });
 		if (keys.length > 0) rows.push({ key: 'Tasti', value: keys.join(', ') });

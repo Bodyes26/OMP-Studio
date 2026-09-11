@@ -12,6 +12,8 @@
   la risposta completa in OutputBlock.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -44,12 +46,12 @@
 		if (method) rows.push({ key: 'Metodo', value: method });
 		if (status !== undefined) {
 			rows.push({
-				key: 'Stato',
+				key: m.ui_goal_stato_89af(),
 				value: statusText ? `${status} ${statusText}` : String(status)
 			});
 		}
 		if (charCount > 0) {
-			rows.push({ key: 'Dimensione', value: `${charCount.toLocaleString('it-IT')} caratteri` });
+			rows.push({ key: 'Dimensione', value: `${i18n.formatNumber(charCount)} caratteri` });
 		}
 		return rows;
 	});

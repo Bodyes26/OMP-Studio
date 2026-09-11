@@ -28,6 +28,7 @@ import {
 	sanitizeMaxDynamic,
 	splitModelSelector
 } from './modelSettingsHelpers';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export type {
 	ModelCost,
@@ -129,19 +130,19 @@ export function computeFindingsFingerprint(findings: ModelFinding[]): string {
 }
 
 export const STANDARD_ROLES = [
-	{ id: 'default', label: 'Default / Chat', icon: IconRoleDefault, abbr: 'CH', desc: 'Modello principale per conversazione e attivita generali' },
-	{ id: 'plan', label: 'Architectural Plan', icon: IconRolePlan, abbr: 'PL', desc: 'Modello per pianificazione e analisi architetturale' },
-	{ id: 'smol', label: 'Smol (Fast)', icon: IconRoleSmol, abbr: 'SM', desc: 'Modello ultra-rapido per compiti leggeri, esplorazione e scouting' },
-	{ id: 'slow', label: 'Slow (Reasoning)', icon: IconRoleSlow, abbr: 'SL', desc: 'Modello per ragionamenti complessi e deduzioni approfondite' },
-	{ id: 'vision', label: 'Vision / Images', icon: IconRoleVision, abbr: 'VI', desc: 'Modello multimodale per ispezione e comprensione immagini' },
-	{ id: 'task', label: 'Task Subagents', icon: IconRoleTask, abbr: 'TS', desc: 'Modello delegato per subagenti ed esecuzioni parallele' },
-	{ id: 'commit', label: 'Git Commit', icon: IconRoleCommit, abbr: 'CM', desc: 'Modello per generazione messaggi di commit e changelog' },
-	{ id: 'advisor', label: 'Advisor (Reviewer)', icon: IconRoleAdvisor, abbr: 'AD', desc: 'Modello di revisione e controllo passivo di qualita' }
+	{ id: 'default', label: 'Default / Chat', icon: IconRoleDefault, abbr: 'CH', get desc() { return msg.ui_ts_modelsettings_modello_principale_per_conversazione_e_attivita_generali_5d00(); } },
+	{ id: 'plan', label: 'Architectural Plan', icon: IconRolePlan, abbr: 'PL', get desc() { return msg.ui_ts_modelsettings_modello_per_pianificazione_e_analisi_architetturale_b3e1(); } },
+	{ id: 'smol', label: 'Smol (Fast)', icon: IconRoleSmol, abbr: 'SM', get desc() { return msg.ui_ts_modelsettings_modello_ultra_rapido_per_compiti_leggeri_esplorazione_24a7(); } },
+	{ id: 'slow', label: 'Slow (Reasoning)', icon: IconRoleSlow, abbr: 'SL', get desc() { return msg.ui_ts_modelsettings_modello_per_ragionamenti_complessi_e_deduzioni_approfondite_6f2d(); } },
+	{ id: 'vision', label: 'Vision / Images', icon: IconRoleVision, abbr: 'VI', get desc() { return msg.ui_ts_modelsettings_modello_multimodale_per_ispezione_e_comprensione_immagini_a594(); } },
+	{ id: 'task', label: 'Task Subagents', icon: IconRoleTask, abbr: 'TS', get desc() { return msg.ui_ts_modelsettings_modello_delegato_per_subagenti_ed_esecuzioni_parallele_427f(); } },
+	{ id: 'commit', label: 'Git Commit', icon: IconRoleCommit, abbr: 'CM', get desc() { return msg.ui_ts_modelsettings_modello_per_generazione_messaggi_di_commit_e_44fc(); } },
+	{ id: 'advisor', label: 'Advisor (Reviewer)', icon: IconRoleAdvisor, abbr: 'AD', get desc() { return msg.ui_ts_modelsettings_modello_di_revisione_e_controllo_passivo_di_f294(); } }
 ] as const;
 
 export const THINKING_LEVELS = [
-	{ id: 'auto', label: 'Auto', desc: 'Deciso dal modello' },
-	{ id: 'off', label: 'Off', desc: 'Disabilitato' },
+	{ id: 'auto', label: 'Auto', get desc() { return msg.ui_ts_modelsettings_deciso_dal_modello_a27c(); } },
+	{ id: 'off', label: 'Off', get desc() { return msg.ui_ts_modelsettings_disabilitato_de7e(); } },
 	{ id: 'minimal', label: 'Minimal', desc: 'Ragionamento minimo' },
 	{ id: 'low', label: 'Low', desc: 'Ragionamento basso' },
 	{ id: 'medium', label: 'Medium', desc: 'Ragionamento medio' },
@@ -246,7 +247,7 @@ class ModelSettingsStore {
 		if (this.blockingFindings.length > 0) {
 			const count = this.blockingFindings.length;
 			const label =
-				count === 1 ? '1 modello non piu utilizzabile' : `${count} modelli non piu utilizzabili`;
+				count === 1 ? msg.ui_ts_modelsettings_1_modello_non_piu_utilizzabile_2912() : `${count} modelli non piu utilizzabili`;
 			const details = this.blockingFindings
 				.map((f) => (f.kind === 'fallback' ? `${f.role} #${(f.index ?? 0) + 1}` : f.role))
 				.join(', ');
@@ -255,8 +256,8 @@ class ModelSettingsStore {
 		if (this.upgradeFindings.length > 0) {
 			const count = this.upgradeFindings.length;
 			return count === 1
-				? '1 aggiornamento modello disponibile'
-				: `${count} aggiornamenti modello disponibili`;
+				? msg.ui_ts_modelsettings_1_aggiornamento_modello_disponibile_5605()
+				: msg.ui_ts_modelsettings_value1_aggiornamenti_modello_disponibili_eae9({ value1: count });
 		}
 		return '';
 	});
@@ -334,7 +335,7 @@ class ModelSettingsStore {
 			this.authProviders = auth;
 		} catch (e) {
 			console.error('Failed to load model settings:', e);
-			this.showToast(`Errore caricamento impostazioni: ${e}`);
+			this.showToast(msg.ui_ts_modelsettings_errore_caricamento_impostazioni_value1_1361({ value1: String(e) }));
 		} finally {
 			this.loading = false;
 		}
@@ -376,7 +377,7 @@ class ModelSettingsStore {
 			this.showToast('Account rimosso');
 		} catch (e) {
 			console.error('Failed to remove auth account:', e);
-			this.showToast(`Errore rimozione account: ${e}`);
+			this.showToast(msg.ui_ts_modelsettings_errore_rimozione_account_value1_077a({ value1: String(e) }));
 		}
 	}
 
@@ -459,7 +460,7 @@ class ModelSettingsStore {
 			return true;
 		} catch (e) {
 			console.error('Failed to save model config:', e);
-			this.showToast(`Errore salvataggio: ${e}`);
+			this.showToast(msg.ui_ts_modelsettings_errore_salvataggio_value1_1433({ value1: String(e) }));
 			return false;
 		} finally {
 			this.saving = false;
@@ -492,7 +493,7 @@ class ModelSettingsStore {
 			}
 		} catch (e) {
 			console.error('Failed to refresh models catalog:', e);
-			this.showToast(`Errore aggiornamento catalogo: ${e}`);
+			this.showToast(msg.ui_ts_modelsettings_errore_aggiornamento_catalogo_value1_d489({ value1: String(e) }));
 		} finally {
 			this.isRefreshingCatalog = false;
 		}
@@ -579,7 +580,7 @@ class ModelSettingsStore {
 				}
 			}
 		} catch (e) {
-			console.error('Errore lettura impostazioni modelHealth da settings.json', e);
+			console.error(msg.ui_ts_modelsettings_errore_lettura_impostazioni_modelhealth_da_settings_json_a058(), e);
 		}
 	}
 
@@ -593,7 +594,7 @@ class ModelSettingsStore {
 			});
 			await store.save();
 		} catch (e) {
-			console.error('Errore salvataggio impostazioni modelHealth in settings.json', e);
+			console.error(msg.ui_ts_modelsettings_errore_salvataggio_impostazioni_modelhealth_in_settings_json_e934(), e);
 		}
 	}
 
@@ -643,7 +644,7 @@ class ModelSettingsStore {
 		} catch (e) {
 			if (!silent) {
 				console.error('Failed to check model health:', e);
-				this.showToast(`Errore verifica modelli: ${e}`);
+				this.showToast(msg.ui_ts_modelsettings_errore_verifica_modelli_value1_27f1({ value1: String(e) }));
 			} else {
 				console.error('Failed to check model health (silent):', e);
 			}
@@ -664,12 +665,12 @@ class ModelSettingsStore {
 			const count = fixes.length;
 			this.showToast(
 				count === 1
-					? 'Correzione modello applicata'
+					? msg.ui_ts_modelsettings_correzione_modello_applicata_4a31()
 					: `Applicate ${count} correzioni ai modelli`
 			);
 		} catch (e) {
 			console.error('Failed to apply model fixes:', e);
-			this.showToast(`Errore applicazione correzioni: ${e}`);
+			this.showToast(msg.ui_ts_modelsettings_errore_applicazione_correzioni_value1_d4bc({ value1: String(e) }));
 		} finally {
 			this.saving = false;
 		}

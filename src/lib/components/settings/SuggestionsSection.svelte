@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	import type { PromptSuggestion, FactorySuggestionKey } from '$lib/stores/promptSuggestions';
@@ -162,7 +163,7 @@
 						Genera automaticamente opzioni di prompt contestuali al termine di ogni risposta dell'agente.
 					</span>
 					<span class="form-row-warning">
-						Costo e privacy: alla fine di ogni turno viene inviata una richiesta a un modello leggero, consumando quota del provider e trasmettendo l'ultimo messaggio dell'agente e il tuo ultimo prompt.
+						{m.ui_suggestionssection_costo_e_privacy_alla_fine_di_ogni_f94a()}
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -185,9 +186,9 @@
 			<!-- Selettore del modello -->
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="suggestion-model-selector" class="form-row-label">Modello per suggerimenti</label>
+					<label for="suggestion-model-selector" class="form-row-label">{m.ui_suggestionssection_modello_per_suggerimenti_13bc()}</label>
 					<span class="form-row-desc">
-						Modello leggero delegato alla formulazione dei suggerimenti rapidi.
+						{m.ui_suggestionssection_modello_leggero_delegato_alla_formulazione_dei_suggerimenti_dd58()}
 					</span>
 					<span class="form-row-help">
 						Un suffisso come <code>:minimal</code> o <code>:low</code> riduce la latenza di generazione.
@@ -226,7 +227,7 @@
 							class="text-input"
 							value={settingsStore.suggestions.modelSelector}
 							disabled={!settingsStore.suggestions.dynamicEnabled}
-							placeholder="provider/modello[:thinking]"
+							placeholder={m.ui_suggestionssection_provider_modello_thinking_17aa()}
 							oninput={(e) =>
 								settingsStore.patchSuggestions({
 									modelSelector: (e.currentTarget as HTMLInputElement).value.trim()
@@ -268,7 +269,7 @@
 				<div class="form-row-copy">
 					<label for="suggestion-timeout" class="form-row-label">Timeout di generazione (secondi)</label>
 					<span class="form-row-desc">
-						Tempo limite di attesa per la risposta del modello (fra 5 e 60 secondi).
+						{m.ui_suggestionssection_tempo_limite_di_attesa_per_la_risposta_a885()}
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -326,13 +327,13 @@
 			<div class="inline-editor-card" role="region" aria-label="Editor suggerimento">
 				<div class="editor-header">
 					<span class="editor-title">
-						{editingSuggestionId === 'new' ? 'Crea nuovo suggerimento' : 'Modifica suggerimento'}
+						{editingSuggestionId === 'new' ? m.settings_suggestions_create_title() : m.settings_suggestions_edit_title()}
 					</span>
 					<button
 						type="button"
 						class="btn-icon-close"
 						onclick={cancelEdit}
-						aria-label="Annulla"
+						aria-label={m.common_cancel()}
 					>
 						<IconClose />
 					</button>
@@ -352,7 +353,7 @@
 							class="text-input"
 							maxlength="28"
 							bind:value={editLabel}
-							placeholder="Es. Procedi, Spiega, Verifica..."
+							placeholder={m.ui_suggestionssection_es_procedi_spiega_verifica_094c()}
 						/>
 					</div>
 
@@ -379,7 +380,7 @@
 							<span>Salva suggerimento</span>
 						</button>
 						<button type="button" class="btn-action" onclick={cancelEdit}>
-							Annulla
+							{m.common_cancel()}
 						</button>
 					</div>
 
@@ -432,8 +433,8 @@
 								class="order-btn"
 								disabled={idx === (settingsStore.promptSuggestions || []).length - 1}
 								onclick={() => handleMove(s.id, 1)}
-								title="Sposta giù"
-								aria-label="Sposta giù"
+								title={m.ui_suggestionssection_sposta_giu_10cf()}
+								aria-label={m.ui_suggestionssection_sposta_giu_10cf()}
 							>
 								▼
 							</button>
@@ -464,8 +465,8 @@
 								type="button"
 								class="btn-row-action"
 								onclick={() => openEditForm(s)}
-								title="Modifica suggerimento"
-								aria-label={`Modifica ${s.label}`}
+								title={m.settings_suggestions_edit_title()}
+								aria-label={m.ui_suggestionssection_modifica_value1_1535({ value1: s.label })}
 							>
 								<IconRename />
 							</button>
@@ -483,10 +484,10 @@
 								class="btn-row-action"
 								class:active-hidden={s.hidden}
 								onclick={() => handleToggleHidden(s)}
-								title={s.hidden ? 'Mostra nel composer' : 'Nascondi dal composer'}
-								aria-label={s.hidden ? 'Mostra nel composer' : 'Nascondi dal composer'}
+								title={s.hidden ? m.ui_suggestionssection_mostra_nel_composer_4e18() : m.ui_suggestionssection_nascondi_dal_composer_a7ac()}
+								aria-label={s.hidden ? m.ui_suggestionssection_mostra_nel_composer_4e18() : m.ui_suggestionssection_nascondi_dal_composer_a7ac()}
 							>
-								{s.hidden ? 'Mostra' : 'Nascondi'}
+								{s.hidden ? m.ui_suggestionssection_mostra_4e74() : m.ui_usermessage_nascondi_82ca()}
 							</button>
 							{#if s.factoryKey}
 								<button
@@ -504,8 +505,8 @@
 									class="btn-row-action danger"
 									class:armed={deleteArmedId === s.id}
 									onclick={() => handleDelete(s.id)}
-									title={deleteArmedId === s.id ? 'Clicca di nuovo per confermare eliminazione' : 'Elimina suggerimento'}
-									aria-label={deleteArmedId === s.id ? 'Conferma eliminazione' : `Elimina ${s.label}`}
+									title={deleteArmedId === s.id ? 'Clicca di nuovo per confermare eliminazione' : m.ui_suggestionssection_elimina_suggerimento_4996()}
+									aria-label={deleteArmedId === s.id ? m.ui_suggestionssection_conferma_eliminazione_7049() : m.ui_suggestionssection_elimina_value1_ac11({ value1: s.label })}
 								>
 									{#if deleteArmedId === s.id}
 										<span>Sicuro?</span>

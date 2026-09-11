@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Rendering del messaggio dell'assistente: itera i blocchi (testo,
 	// ragionamento, immagini).
 	// Durante lo streaming il testo in coda e' drenato con un ritardo
@@ -266,7 +267,7 @@
 							type="button"
 							class="image-btn"
 							onclick={() => hooks.openImage(block.data, block.mimeType)}
-							title="Apri immagine"
+							title={m.ui_assistanttext_apri_immagine_f45c()}
 						>
 							<img
 								src={`data:${block.mimeType};base64,${block.data}`}

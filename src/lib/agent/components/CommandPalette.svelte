@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Palette dei comandi censiti da omp. Il dato autorevole contiene nome,
 	// alias, firma degli argomenti e sottocomandi: la GUI non inventa un
 	// catalogo parallelo e non inoltra i comandi come prompt.
@@ -72,11 +73,11 @@
 
 	function originDescription(source?: string): string {
 		if (source === 'studio') return 'Guscio GUI (azione locale di Studio)';
-		if (source === 'skill') return 'Skill agente (eseguita con prompt e tool dedicati)';
+		if (source === 'skill') return m.ui_commandpalette_skill_agente_eseguita_con_prompt_e_tool_61b9();
 		if (source === 'extension') return 'Estensione omp';
 		if (source === 'custom') return 'Prompt personalizzato';
-		if (source === 'file') return 'Template prompt da file';
-		return 'Agente / omp (inviato via RPC)';
+		if (source === 'file') return m.ui_commandpalette_template_prompt_da_file_0760();
+		return m.ui_commandpalette_agente_omp_inviato_via_rpc_12c1();
 	}
 	function rank(value: string, description: string | undefined, aliases: string[] | undefined, needle: string): number {
 		const name = value.toLowerCase();
@@ -209,7 +210,7 @@
 				</div>
 			{:else}
 				<div class="palette-empty">
-					<strong>Nessuna corrispondenza</strong>
+					<strong>{m.ui_commandpalette_nessuna_corrispondenza_f704()}</strong>
 					<span>Premi Invio per mandare comunque il testo.</span>
 				</div>
 			{/if}
@@ -259,7 +260,7 @@
 		</div>
 		<div class="palette-help">
 			<span>↑↓ naviga</span>
-			<span>Invio seleziona</span>
+			<span>{m.ui_commandpalette_invio_seleziona_417b()}</span>
 			<span>Esc chiude</span>
 		</div>
 	</div>

@@ -184,6 +184,13 @@ export interface ContentBlock {
 
 export interface AgentMessage {
 	role: 'user' | 'assistant' | 'toolResult' | 'developer' | 'custom' | string;
+	/** Tipo personalizzato inviato da omp su ogni messaggio `role: "custom"`. */
+	customType?: string;
+	/**
+	 * Se false, il messaggio e' una direttiva interna per il modello e non
+	 * un'informazione diretta per l'utente (mostrato solo in modalita' diagnostica).
+	 */
+	display?: boolean;
 	/** I messaggi `custom` portano una stringa, non blocchi. */
 	content?: ContentBlock[] | string;
 	model?: string;
@@ -286,6 +293,30 @@ export interface SubagentProgressPayload extends SubagentLifecyclePayload {
 	progress?: AgentProgress;
 }
 
+export interface AsyncResultJobDetails {
+	jobId: string;
+	type?: 'bash' | 'task' | 'eval';
+	label?: string;
+	durationMs?: number;
+}
+
+export interface AsyncResultDetails {
+	jobs: AsyncResultJobDetails[];
+}
+
+export interface IrcIncomingDetails {
+	id: string;
+	from: string;
+	message: string;
+	replyTo?: string;
+}
+
+export interface IrcAutoreplyDetails {
+	to: string;
+	body: string;
+	replyTo?: string;
+}
+
 /**
  * Frame in uscita da `omp`, piu' i due coniati dal trasporto di Studio.
  * Volutamente aperto: una versione di `omp` che aggiunge un frame non deve
@@ -296,8 +327,9 @@ export interface AgentSessionEvent {
 	/** `message_update` */
 	assistantMessageEvent?: AssistantMessageEvent;
 	/**
-	 * `message_*` e `turn_end` portano un `AgentMessage`; `notice`,
-	 * `irc_message` e `command_output` portano una stringa sulla stessa
+	 * `message_*`, `turn_end` e `irc_message` portano un `AgentMessage`
+	 * (per `irc_message` un messaggio custom con `customType` e `details`);
+	 * solo `notice` e `command_output` portano una stringa sulla stessa
 	 * chiave. Il riduttore restringe caso per caso invece di fidarsi.
 	 */
 	message?: AgentMessage | string;
@@ -318,6 +350,10 @@ export interface AgentSessionEvent {
 	source?: string;
 	/** `todo_reminder` */
 	todos?: TodoItem[];
+	/** `todo_reminder` */
+	attempt?: number;
+	/** `todo_reminder` */
+	maxAttempts?: number;
 	/** `model_changed`, `thinking_level_changed` */
 	model?: ModelInfo | string;
 	thinkingLevel?: ThinkingLevel;

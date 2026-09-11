@@ -130,6 +130,10 @@ jobs:
             for f in "$dir"/*; do
               [ -f "$f" ] || continue
               fname=$(basename "$f")
+              case "$fname" in
+                *.exe|*.dmg|*.deb|*.AppImage) ;;
+                *) continue ;;
+              esac
               dotted="${fname// /.}"
               cp -f "$f" "staging/$dotted"
               echo "Staging: $fname -> $dotted"

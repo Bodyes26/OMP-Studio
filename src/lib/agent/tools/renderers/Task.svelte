@@ -8,6 +8,7 @@
   e i blocchi di testo dei risultati prodotti al completamento.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import AgentLink from '../parts/AgentLink.svelte';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -98,7 +99,7 @@
 		}
 		const parts: string[] = [];
 		parts.push(countLabel(stats.total, 'subagent', 'subagent'));
-		if (stats.running > 0) parts.push(`${stats.running} in corso`);
+		if (stats.running > 0) parts.push(m.ui_task_value1_in_corso_8e50({ value1: stats.running }));
 		if (stats.completed > 0) parts.push(`${stats.completed} completati`);
 		if (stats.failed > 0) parts.push(`${stats.failed} falliti`);
 		return parts.join(' · ');

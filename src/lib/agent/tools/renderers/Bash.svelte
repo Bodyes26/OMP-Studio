@@ -7,6 +7,7 @@
   directory di lavoro (cwd) e flag pty/async se configurati.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -43,13 +44,13 @@
 			rows.push({ key: 'Timeout', value: `${timeoutSec}s` });
 		}
 		if (cwd) {
-			rows.push({ key: 'Cartella', value: cwd });
+			rows.push({ key: m.ui_filetree_cartella_ee2c(), value: cwd });
 		}
 		if (pty !== undefined) {
 			rows.push({ key: 'PTY', value: pty ? 'abilitato' : 'disabilitato' });
 		}
 		if (isAsync !== undefined) {
-			rows.push({ key: 'Async', value: isAsync ? 'sì' : 'no' });
+			rows.push({ key: 'Async', value: isAsync ? m.ui_bash_si_ef73() : 'no' });
 		}
 		return rows;
 	});
@@ -62,7 +63,7 @@
 		{#if text}
 			<OutputBlock {text} label="output bash" />
 		{:else if running}
-			<div class="running-indicator">Esecuzione in corso...</div>
+			<div class="running-indicator">{m.ui_bash_esecuzione_in_corso_b1d6()}</div>
 		{:else}
 			<div class="empty-output">(nessun output)</div>
 		{/if}

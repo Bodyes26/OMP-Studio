@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { contextMenu, type ContextMenuItem } from '$lib/contextMenu.svelte';
 
 	let menuEl = $state<HTMLElement | null>(null);
@@ -146,7 +147,7 @@
 		try {
 			await item.run();
 		} catch (err) {
-			console.error('Errore durante l\'esecuzione dell\'azione del menu contestuale:', err);
+			console.error(m.ui_contextmenu_errore_durante_l_esecuzione_dell_azione_del_15b3(), err);
 		}
 	}
 
@@ -233,7 +234,7 @@
 			bind:this={menuEl}
 			popover="manual"
 			role="menu"
-			aria-label={contextMenu.label || 'Menu contestuale'}
+			aria-label={contextMenu.label || m.context_menu_default_label()}
 			tabindex="-1"
 			class="context-menu"
 			use:popoverAction

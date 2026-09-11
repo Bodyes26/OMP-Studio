@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { tick } from 'svelte';
 	import { formatTokens } from '$lib/utils/format';
 	// Superficie di inserimento comandi e prompt per l'agente.
@@ -474,7 +475,7 @@ $effect(() => {
 			});
 			await session.refreshState();
 		} catch (err) {
-			session.pushNotice('warning', `Errore selezione modello: ${err instanceof Error ? err.message : String(err)}`);
+			session.pushNotice('warning', m.ui_composer_errore_selezione_modello_value1_b687({ value1: err instanceof Error ? err.message : String(err) }));
 		}
 	}
 
@@ -485,7 +486,7 @@ $effect(() => {
 		const fullSelector = rolesMap[roleId];
 		const roleMeta = STANDARD_ROLES.find(r => r.id === roleId);
 		if (!fullSelector) {
-			session.pushNotice('warning', `Il ruolo "${roleMeta?.label || roleId}" non è ancora configurato. Configuralo in Gestione Modelli (Ctrl+Alt+M).`, 'studio');
+			session.pushNotice('warning', m.ui_composer_il_ruolo_value1_non_e_ancora_configurato_1b00({ value1: roleMeta?.label || roleId }), 'studio');
 			return;
 		}
 
@@ -511,7 +512,7 @@ $effect(() => {
 			const currentModel = session.model?.name || session.model?.id || modelId;
 			session.pushNotice('info', `Ruolo attivo: ${roleLabel} (${currentModel})`, 'studio');
 		} catch (err) {
-			session.pushNotice('warning', `Errore applicazione ruolo ${roleId}: ${err instanceof Error ? err.message : String(err)}`);
+			session.pushNotice('warning', m.ui_composer_errore_applicazione_ruolo_value1_value2_0fb5({ value1: roleId, value2: err instanceof Error ? err.message : String(err) }));
 		}
 	}
 
@@ -532,9 +533,9 @@ $effect(() => {
 				await session.client.send({ type: 'cycle_model' });
 				await session.refreshState();
 				const current = session.model?.name || session.model?.id || 'default';
-				session.pushNotice('info', `Modello attivo: ${current}`, 'studio');
+				session.pushNotice('info', m.ui_composer_modello_attivo_value1_ecf1({ value1: current }), 'studio');
 			} catch (err) {
-				session.pushNotice('warning', `Errore passaggio modello: ${err instanceof Error ? err.message : String(err)}`);
+				session.pushNotice('warning', m.ui_composer_errore_passaggio_modello_value1_6214({ value1: err instanceof Error ? err.message : String(err) }));
 			}
 			return;
 		}
@@ -573,7 +574,7 @@ $effect(() => {
 			});
 			await session.refreshState();
 		} catch (err) {
-			session.pushNotice('warning', `Errore impostazione livello di thinking: ${err instanceof Error ? err.message : String(err)}`);
+			session.pushNotice('warning', m.ui_composer_errore_impostazione_livello_di_thinking_value1_363e({ value1: err instanceof Error ? err.message : String(err) }));
 		}
 	}
 
@@ -704,7 +705,7 @@ $effect(() => {
 				// Lascia propagare l'evento per inserire il carattere nella textarea
 			}
 		}
-		// Escape: chiusura a cascata o abort streaming
+		// Escape: chiusura a cascata di modal, menu e palette
 		if (event.key === 'Escape') {
 			if (shortcutsModalStore.isOpen) {
 				event.preventDefault();
@@ -722,11 +723,6 @@ $effect(() => {
 				event.preventDefault();
 				paletteOpen = false;
 				textareaEl?.focus();
-				return;
-			}
-			if (session.isStreaming) {
-				event.preventDefault();
-				void session.abort();
 				return;
 			}
 			return;
@@ -1080,7 +1076,7 @@ $effect(() => {
 
 	<!-- Miniature delle immagini allegate -->
 	{#if attachedImages.length > 0}
-		<div class="image-previews" role="region" aria-label="Immagini allegate">
+		<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
 			{#each attachedImages as img, idx (idx)}
 				<div class="image-thumb-wrap">
 					<img
@@ -1091,7 +1087,7 @@ $effect(() => {
 					<button
 						type="button"
 						class="image-remove-btn"
-						title="Rimuovi immagine"
+						title={m.task_editor_remove_image_title()}
 						onclick={() => removeImage(idx)}
 					>
 						<IconClose />
@@ -1129,11 +1125,11 @@ $effect(() => {
 						blinkTimer = null;
 					}
 				}}
-				placeholder={session.isStarting ? "Avvio di OMP in corso... puoi già scrivere" : "Scrivi un messaggio... digita / per i comandi (Alt+H scorciatoie)"}
+				placeholder={session.isStarting ? m.composer_placeholder_starting() : m.composer_placeholder_ready()}
 				rows="1"
 				class="composer-textarea"
 				class:has-smooth-cursor={isCursorFocused}
-				aria-label="Messaggio per l'assistente"
+				aria-label={m.composer_textarea_aria()}
 			></textarea>
 
 			<div
@@ -1152,8 +1148,8 @@ $effect(() => {
 				<button
 					type="button"
 					class="send-btn stop"
-					title="Interrompi risposta (Esc / Alt+C)"
-					aria-label="Interrompi generazione (Esc)"
+					title={m.composer_abort_btn()}
+					aria-label={m.ui_composer_interrompi_generazione_fe84()}
 					onclick={() => session.abort()}
 				>
 					<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
@@ -1161,7 +1157,7 @@ $effect(() => {
 					</svg>
 				</button>
 			{:else if session.isStreaming}
-				<div class="send-split-wrap" role="group" aria-label="Invio messaggio in coda">
+				<div class="send-split-wrap" role="group" aria-label={m.ui_composer_invio_messaggio_in_coda_72cd()}>
 					<button
 						type="button"
 						class="send-btn send-btn-split"
@@ -1179,10 +1175,10 @@ $effect(() => {
 						type="button"
 						bind:this={sendCaretEl}
 						class="send-btn send-caret-btn"
-						title="Altre modalità di invio"
+						title={m.composer_other_send_modes()}
 						aria-haspopup="menu"
 						aria-expanded={activeMenu === 'send'}
-						aria-label="Altre modalità di invio"
+						aria-label={m.composer_other_send_modes()}
 						disabled={!text.trim() && attachedImages.length === 0}
 						onclick={(e) => {
 							e.stopPropagation();
@@ -1198,12 +1194,12 @@ $effect(() => {
 						<div
 							class="dropdown-menu send-menu"
 							role="menu"
-							aria-label="Modalità di invio"
+							aria-label={m.composer_send_modes_menu()}
 							popover="manual"
 							use:anchoredPopover={{ anchor: sendCaretEl, offset: 6, placement: 'bottom-end', constrainHeight: true }}
 						>
 							<div class="menu-header">
-								<span>Modalità di accodamento</span>
+								<span>{m.ui_composer_modalita_di_accodamento_f615()}</span>
 							</div>
 							<div class="menu-body">
 								<button
@@ -1221,7 +1217,7 @@ $effect(() => {
 											<span class="send-mode-name">Steer</span>
 											<kbd class="key-shortcut-tag">{defaultBehavior === 'steer' ? 'Invio' : 'Alt+Invio'}</kbd>
 										</div>
-										<span class="send-mode-desc">Interrompe il turno in corso e subentra subito</span>
+										<span class="send-mode-desc">{m.ui_composer_interrompe_il_turno_in_corso_e_subentra_2a65()}</span>
 									</div>
 									{#if defaultBehavior === 'steer'}
 										<span class="item-check"><IconCheck /></span>
@@ -1242,7 +1238,7 @@ $effect(() => {
 											<span class="send-mode-name">Follow-up</span>
 											<kbd class="key-shortcut-tag">{defaultBehavior === 'followUp' ? 'Invio' : 'Alt+Invio'}</kbd>
 										</div>
-										<span class="send-mode-desc">Attende il completamento del turno in corso</span>
+										<span class="send-mode-desc">{m.ui_composer_attende_il_completamento_del_turno_in_corso_9ce8()}</span>
 									</div>
 									{#if defaultBehavior === 'followUp'}
 										<span class="item-check"><IconCheck /></span>
@@ -1256,8 +1252,8 @@ $effect(() => {
 				<button
 					type="button"
 					class="send-btn"
-					title={session.isStarting ? 'Invia messaggio (verrà recapitato appena OMP è pronto)' : 'Invia messaggio (Invio)'}
-					aria-label="Invia messaggio (Invio)"
+					title={session.isStarting ? m.ui_composer_invia_messaggio_verra_recapitato_appena_omp_e_4a84() : m.ui_composer_invia_messaggio_invio_fc08()}
+					aria-label={m.ui_composer_invia_messaggio_invio_fc08()}
 					disabled={!text.trim() && attachedImages.length === 0}
 					onclick={() => handleSubmit()}
 				>
@@ -1270,14 +1266,14 @@ $effect(() => {
 	</div>
 
 	<!-- Barra dei chip di stato sotto la textarea -->
-	<div class="status-bar" aria-label="Stato della sessione">
+	<div class="status-bar" aria-label={m.composer_status_bar_aria()}>
 		<!-- Chip Ruolo -->
 		<div class="status-item-wrap">
 			<button
 				type="button"
 				bind:this={roleChipEl}
 				class="status-chip echo role-chip"
-				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Ruolo attivo (Alt+R per aprire il menu ruoli, Ctrl+P per ciclarlo)'}
+				title={session.isStarting ? m.ui_composer_avvio_di_omp_in_corso_5837() : 'Ruolo attivo (Alt+R per aprire il menu ruoli, Ctrl+P per ciclarlo)'}
 				aria-haspopup="listbox"
 				aria-expanded={activeMenu === 'role'}
 				disabled={session.isStarting}
@@ -1295,7 +1291,7 @@ $effect(() => {
 						personalizzato
 					{/if}
 					{#if !isCoveredByReserves}
-						<span class="no-reserves-badge" title="Nessuna riserva configurata per questo modello: se esaurisce la quota la richiesta fallirà. Clicca per configurare riserve (Ctrl+Alt+M)">senza riserve</span>
+						<span class="no-reserves-badge" title={m.ui_composer_nessuna_riserva_configurata_per_questo_modello_se_207b()}>senza riserve</span>
 					{/if}
 				</span>
 			</button>
@@ -1320,13 +1316,13 @@ $effect(() => {
 						</div>
 					</div>
 					<div class="menu-search-wrap">
-						<span class="search-icon">cerca</span>
+						<span class="search-icon">{m.ui_composer_cerca_74f6()}</span>
 						<input
 							bind:this={roleSearchInputEl}
 							bind:value={roleFilterQuery}
 							type="text"
 							class="menu-search-input"
-							placeholder="Filtra ruoli..."
+							placeholder={m.composer_roles_filter()}
 							aria-autocomplete="list"
 							aria-controls="role-listbox"
 							aria-activedescendant={configuredRolesList[highlightedRoleIndex] ? `role-opt-${highlightedRoleIndex}` : undefined}
@@ -1337,7 +1333,7 @@ $effect(() => {
 								type="button"
 								class="menu-search-clear"
 								onclick={() => { roleFilterQuery = ''; highlightedRoleIndex = 0; }}
-								title="Cancella filtro"
+								title={m.settings_appearance_clear_filter()}
 							>
 								<IconClose />
 							</button>
@@ -1385,8 +1381,8 @@ $effect(() => {
 					</div>
 					<div class="menu-footer-hint">
 						<span>↑↓ naviga</span>
-						<span>↵ seleziona</span>
-						<span>Esc chiudi</span>
+						<span>{m.ui_composer_seleziona_4b88()}</span>
+						<span>{m.ui_composer_esc_chiudi_6252()}</span>
 					</div>
 				</div>
 			{/if}
@@ -1398,7 +1394,7 @@ $effect(() => {
 				type="button"
 				bind:this={modelChipEl}
 				class="status-chip echo model-chip"
-				title={session.isStarting ? 'Avvio di OMP in corso...' : 'Modello corrente (Alt+P per aprire il catalogo modelli)'}
+				title={session.isStarting ? m.ui_composer_avvio_di_omp_in_corso_5837() : m.ui_composer_modello_corrente_alt_p_per_aprire_il_ace3()}
 				aria-haspopup="listbox"
 				aria-expanded={activeMenu === 'model'}
 				disabled={session.isStarting}
@@ -1434,13 +1430,13 @@ $effect(() => {
 						</div>
 					</div>
 					<div class="menu-search-wrap">
-						<span class="search-icon">cerca</span>
+						<span class="search-icon">{m.ui_composer_cerca_74f6()}</span>
 						<input
 							bind:this={modelSearchInputEl}
 							bind:value={modelFilterQuery}
 							type="text"
 							class="menu-search-input"
-							placeholder="Filtra modelli..."
+							placeholder={m.composer_models_filter()}
 							aria-autocomplete="list"
 							aria-controls="model-listbox"
 							aria-activedescendant={filteredModels[highlightedModelIndex] ? `model-opt-${highlightedModelIndex}` : undefined}
@@ -1451,7 +1447,7 @@ $effect(() => {
 								type="button"
 								class="menu-search-clear"
 								onclick={() => { modelFilterQuery = ''; highlightedModelIndex = 0; }}
-								title="Cancella filtro"
+								title={m.settings_appearance_clear_filter()}
 							>
 								<IconClose />
 							</button>
@@ -1459,7 +1455,7 @@ $effect(() => {
 					</div>
 					<div class="menu-body" id="model-listbox" bind:this={modelListEl} role="listbox" aria-label="Modelli">
 						{#if loadingModels}
-							<div class="menu-loading">Caricamento modelli...</div>
+							<div class="menu-loading">{m.composer_models_loading()}</div>
 						{:else if filteredModels.length > 0}
 							{#each filteredModels as m, idx (m.provider + ':' + m.id)}
 								{@const isSelected = session.model?.id === m.id && session.model?.provider === m.provider}
@@ -1516,13 +1512,13 @@ $effect(() => {
 								</div>
 							{/each}
 						{:else}
-							<div class="menu-empty">Nessun modello corrispondente</div>
+							<div class="menu-empty">{m.ui_composer_nessun_modello_corrispondente_bce5()}</div>
 						{/if}
 					</div>
 					<div class="menu-footer-hint">
 						<span>↑↓ naviga</span>
 						<span>↵ scegli</span>
-						<span>Esc chiudi</span>
+						<span>{m.ui_composer_esc_chiudi_6252()}</span>
 					</div>
 				</div>
 			{/if}
@@ -1585,7 +1581,7 @@ $effect(() => {
 					<div class="menu-footer-hint">
 						<span>↑↓ naviga</span>
 						<span>↵ scegli</span>
-						<span>Esc chiudi</span>
+						<span>{m.ui_composer_esc_chiudi_6252()}</span>
 					</div>
 				</div>
 			{/if}
@@ -1607,7 +1603,7 @@ $effect(() => {
 		</div>
 
 		<!-- Chip Costo -->
-		<div class="status-readout cost-chip" role="status" title="Costo stimato della sessione">
+		<div class="status-readout cost-chip" role="status" title={m.ui_composer_costo_stimato_della_sessione_67ef()}>
 			
 			<span class="chip-val">{formatCost(session.sessionCost)}</span>
 		</div>

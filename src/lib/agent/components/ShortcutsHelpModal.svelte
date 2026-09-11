@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
@@ -69,16 +70,16 @@
 			title: 'Composer & Chat (Superficie GUI)',
 			column: 1,
 			items: [
-				{ keys: ['Invio'], description: 'Invia il messaggio o seleziona il comando nella palette' },
-				{ keys: ['Alt+Invio'], description: 'Invia con la modalità di accodamento alternativa' },
-				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: 'Inserisce una nuova riga nel campo di scrittura' },
+				{ keys: ['Invio'], description: m.ui_shortcutshelpmodal_invia_il_messaggio_o_seleziona_il_comando_af10() },
+				{ keys: ['Alt+Invio'], description: m.ui_shortcutshelpmodal_invia_con_la_modalita_di_accodamento_alternativa_4022() },
+				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: m.ui_shortcutshelpmodal_inserisce_una_nuova_riga_nel_campo_di_6250() },
 				{ keys: ['/'], description: 'Apre la palette dei comandi slash disponibili' },
-				{ keys: ['Alt+1…6'], description: 'Precompila il composer con il suggerimento in quella posizione (non invia)' },
+				{ keys: ['Alt+1…6'], description: m.ui_shortcutshelpmodal_precompila_il_composer_con_il_suggerimento_in_f5fb() },
 				{ keys: ['Alt+E'], description: 'Mette a fuoco il campo di scrittura del Composer' },
-				{ keys: ['Alt+N'], description: 'Apre una nuova chat nel progetto attivo' },
-				{ keys: ['Alt+C'], description: 'Interrompe la risposta in streaming o cancella il testo' },
-				{ keys: ['Ctrl+C'], description: 'Interrompe la risposta in streaming (senza testo evidenziato)' },
-				{ keys: ['Esc'], description: 'Chiude menu/palette a comparsa o interrompe lo streaming' }
+				{ keys: ['Alt+N'], description: m.ui_shortcutshelpmodal_apre_una_nuova_chat_nel_progetto_attivo_3acb() },
+				{ keys: ['Alt+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_o_cancella_6699() },
+				{ keys: ['Ctrl+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_senza_testo_37ce() },
+				{ keys: ['Esc'], description: 'Chiude menu o palette a comparsa' }
 			]
 		},
 		{
@@ -87,26 +88,26 @@
 			column: 2,
 			items: [
 				{ keys: ['Alt+H', 'Alt+K', 'F1'], description: 'Apre questa guida alle scorciatoie da tastiera' },
-				{ keys: ['Ctrl+Alt+A'], description: 'Passa tra la superficie GUI (Chat) e il Terminale TUI' },
-				{ keys: ['Ctrl+Alt+N'], description: 'Nuovo progetto (apre il selettore cartella)' },
+				{ keys: ['Ctrl+Alt+A'], description: m.ui_shortcutshelpmodal_passa_tra_la_superficie_gui_chat_e_0c21() },
+				{ keys: ['Ctrl+Alt+N'], description: m.ui_shortcutshelpmodal_nuovo_progetto_apre_il_selettore_cartella_01ff() },
 				{ keys: ['Ctrl+Alt+S'], description: 'Apre una chat Scratchpad temporanea (--no-session)' },
 				{ keys: ['Ctrl+Alt+U'], description: 'Apre e chiude il pannello consumi e quote API' },
-				{ keys: ['Ctrl+Alt+M'], description: 'Apre le impostazioni modelli (Ruoli, Catalogo, Provider)' },
-				{ keys: ['Ctrl+Alt+,'], description: 'Apre le impostazioni generali di Studio' },
-				{ keys: ['Ctrl+Alt+T'], description: 'Apre la vista aggregata dei task in attesa su tutti i progetti' },
-				{ keys: ['Ctrl+Alt+→', 'Ctrl+Alt+←'], description: 'Passa al progetto aperto successivo / precedente' },
-				{ keys: ['Ctrl+Alt+Shift+→/←'], description: 'Sposta la posizione della tessera del progetto attivo' }
+				{ keys: ['Ctrl+Alt+M'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_modelli_ruoli_catalogo_provider_9786() },
+				{ keys: ['Ctrl+Alt+,'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_generali_di_studio_0d93() },
+				{ keys: ['Ctrl+Alt+T'], description: m.ui_shortcutshelpmodal_apre_la_vista_aggregata_dei_task_in_94ef() },
+				{ keys: ['Ctrl+Alt+→', 'Ctrl+Alt+←'], description: m.ui_shortcutshelpmodal_passa_al_progetto_aperto_successivo_precedente_7793() },
+				{ keys: ['Ctrl+Alt+Shift+→/←'], description: m.ui_shortcutshelpmodal_sposta_la_posizione_della_tessera_del_progetto_5853() }
 			]
 		},
 		{
 			id: 'editor-files',
-			title: 'Editor, File & Varie',
+			title: m.ui_shortcutshelpmodal_editor_file_varie_472a(),
 			column: 2,
 			items: [
-				{ keys: ['Ctrl+S'], description: 'Salva il file corrente nell\'editor' },
-				{ keys: ['Ctrl+W', 'Ctrl+F4'], description: 'Chiude la scheda del file corrente' },
+				{ keys: ['Ctrl+S'], description: m.ui_shortcutshelpmodal_salva_il_file_corrente_nell_editor_adfb() },
+				{ keys: ['Ctrl+W', 'Ctrl+F4'], description: m.ui_shortcutshelpmodal_chiude_la_scheda_del_file_corrente_2d67() },
 				{ keys: ['Ctrl+Shift+W'], description: 'Chiude tutte le schede aperte nell\'editor' },
-				{ keys: ['Ctrl+Shift+V'], description: 'Cicla la vista dei file con anteprima: codice, affiancata, solo anteprima' },
+				{ keys: ['Ctrl+Shift+V'], description: m.ui_shortcutshelpmodal_cicla_la_vista_dei_file_con_anteprima_d587() },
 				{ keys: ['Clic centrale'], description: 'Chiude la scheda dell\'editor sotto il puntatore' },
 				{ keys: ['Ctrl+0'], description: 'Adatta il diagramma a tutto schermo (viewer)' },
 				{ keys: ['Click destro', 'Shift+F10'], description: 'Apre il menu contestuale dedicato dell\'elemento a fuoco' }
@@ -179,16 +180,16 @@
 					<input
 						type="text"
 						class="search-input"
-						placeholder="Filtra scorciatoie o comandi... (es. Modelli, Ctrl+Alt, Salva)"
+						placeholder={m.ui_shortcutshelpmodal_filtra_scorciatoie_o_comandi_es_modelli_ctrl_618e()}
 						bind:value={searchQuery}
-						aria-label="Filtra scorciatoie"
+						aria-label={m.shortcuts_filter_placeholder()}
 					/>
 					{#if searchQuery}
 						<button
 							type="button"
 							class="clear-search-btn"
 							onclick={() => (searchQuery = '')}
-							title="Cancella filtro"
+							title={m.settings_appearance_clear_filter()}
 							aria-label="Cancella filtro ricerca"
 						>
 							&times;
@@ -202,8 +203,8 @@
 					type="button"
 					class="btn-close"
 					onclick={handleClose}
-					title="Chiudi (Esc)"
-					aria-label="Chiudi finestra"
+					title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()}
+					aria-label={m.settings_close_window()}
 				>
 					<IconClose />
 				</button>
@@ -215,13 +216,13 @@
 			{#if !hasResults}
 				<div class="empty-results">
 					<span class="empty-icon"><IconSearch /></span>
-					<p class="empty-text">Nessuna scorciatoia trovata per "<strong>{searchQuery}</strong>"</p>
+					<p class="empty-text">{m.ui_shortcutshelpmodal_nessuna_scorciatoia_trovata_per_84cd()}<strong>{searchQuery}</strong>"</p>
 					<button
 						type="button"
 						class="reset-search-btn"
 						onclick={() => (searchQuery = '')}
 					>
-						Mostra tutte le scorciatoie
+						{m.ui_shortcutshelpmodal_mostra_tutte_le_scorciatoie_d3d2()}
 					</button>
 				</div>
 			{:else}

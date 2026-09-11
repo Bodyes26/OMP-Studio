@@ -15,7 +15,8 @@ import { dirname, join } from 'node:path';
 import {
 	parseQuickTaskLocal,
 	mentionStateAt,
-	applyMention
+	applyMention,
+	tokenizeForDisplay
 } from '../src/lib/companion/quickTaskLocal.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -136,7 +137,12 @@ const PARSE_DIRECTIVES = [
 	{ id: 'd-old', name: 'Direttiva Ritirata', tag: 'ritirata', hidden: true }
 ];
 
-const PARSE_INPUT = { projects: PARSE_PROJECTS, directives: PARSE_DIRECTIVES, roles: ['smol', 'default', 'slow', 'plan'] };
+const PARSE_INPUT = {
+	projects: PARSE_PROJECTS,
+	directives: PARSE_DIRECTIVES,
+	roles: ['smol', 'default', 'slow', 'plan'],
+	modelSelectors: ['openai-codex/gpt-5.6', 'provider/modello:preview']
+};
 
 test('Parser locale: @progetto risolve il progetto e ripulisce il prompt', () => {
 	const res = parseQuickTaskLocal('@cruscotto sistema il bottone', PARSE_INPUT);
@@ -175,6 +181,30 @@ test('Parser locale: ruolo riconosciuto rimosso, ruolo inventato lasciato nel pr
 	);
 });
 
+test('Parser locale: un modello suggerito con slash o due punti diventa configurazione esplicita', () => {
+	const slash = parseQuickTaskLocal(
+		'@flotta !openai-codex/gpt-5.6 analizza lo screenshot',
+		PARSE_INPUT
+	);
+	assert.equal(slash.role, null);
+	assert.equal(slash.modelSelector, 'openai-codex/gpt-5.6');
+	assert.equal(slash.taskPrompt, 'analizza lo screenshot');
+
+	const colon = parseQuickTaskLocal(
+		'@flotta !provider/modello:preview controlla i dati',
+		PARSE_INPUT
+	);
+	assert.equal(colon.modelSelector, 'provider/modello:preview');
+
+	const ultimoVince = parseQuickTaskLocal(
+		'@flotta !smol !openai-codex/gpt-5.6 esegui il task',
+		PARSE_INPUT
+	);
+	assert.equal(ultimoVince.role, null);
+	assert.equal(ultimoVince.modelSelector, 'openai-codex/gpt-5.6');
+	assert.equal(ultimoVince.taskPrompt, 'esegui il task');
+});
+
 test('Parser locale: direttive multiple in ordine, quelle nascoste mai selezionate', () => {
 	const res = parseQuickTaskLocal('@flotta /piano /ricerca rivedi la home', PARSE_INPUT);
 	assert.deepEqual(res.directiveIds, ['d-piano', 'd-ricerca']);
@@ -197,4 +227,108 @@ test('Parser locale: suggeritore di menzioni durante la digitazione', () => {
 
 	const nessuna = mentionStateAt('nessun token qui', 16);
 	assert.equal(nessuna.kind, null);
+});
+
+test('Suggeritore locale: ! accetta ruoli e selettori modello completi', () => {
+	const text = 'usa !openai-codex/gpt-5.6';
+	const state = mentionStateAt(text, text.length);
+
+	assert.equal(state.kind, 'role');
+	assert.equal(state.query, 'openai-codex/gpt-5.6');
+
+	const applied = applyMention(text, state, 'openai-codex/gpt-5.6');
+	assert.equal(applied.text, 'usa !openai-codex/gpt-5.6 ');
+	assert.equal(applied.caret, applied.text.length);
+});
+
+test('tokenizeForDisplay: rispetta rigidamente l\'invariante di concatenazione del testo sorgente', () => {
+	const sample = '@cruscotto /piano !smol verifica la funzione con \n a capo multipli   e spazi';
+	const tokens = tokenizeForDisplay(sample, PARSE_INPUT);
+
+	const reconstructed = tokens.map((t) => t.text).join('');
+	assert.equal(reconstructed, sample, 'la concatenazione di tutti i segmenti deve essere identica al 100%');
+});
+
+test('tokenizeForDisplay: classifica progetti, direttive e ruoli/modelli riconosciuti lasciando inalterato il resto', () => {
+	const input = '@flotta /piano !openai-codex/gpt-5.6 fai la revisione @nonEsiste /ritirata !turbo fine';
+	const tokens = tokenizeForDisplay(input, PARSE_INPUT);
+
+	// Token 0: @flotta (project)
+	assert.equal(tokens[0].text, '@flotta');
+	assert.equal(tokens[0].kind, 'project');
+	assert.equal(tokens[0].label, 'GestioneFlotta');
+
+	// Token 1: ' ' (plain)
+	assert.equal(tokens[1].text, ' ');
+	assert.equal(tokens[1].kind, undefined);
+
+	// Token 2: /piano (directive)
+	assert.equal(tokens[2].text, '/piano');
+	assert.equal(tokens[2].kind, 'directive');
+
+	// Token 3: ' ' (plain)
+	assert.equal(tokens[3].text, ' ');
+
+	// Token 4: !openai-codex/gpt-5.6 (role/model)
+	assert.equal(tokens[4].text, '!openai-codex/gpt-5.6');
+	assert.equal(tokens[4].kind, 'role');
+
+	// Il resto del testo (" fai la revisione @nonEsiste /ritirata !turbo fine")
+	// resta un unico segmento di testo non formattato (kind: undefined)
+	const remainder = tokens.slice(5).map((t) => t.text).join('');
+	assert.ok(remainder.includes('@nonEsiste'));
+	assert.ok(remainder.includes('/ritirata'));
+	assert.ok(remainder.includes('!turbo'));
+	for (const t of tokens.slice(5)) {
+		assert.equal(t.kind, undefined, 'nessun token non valido deve ricevere kind');
+	}
+});
+
+test('tokenizeForDisplay: stringhe vuote restituiscono array vuoto', () => {
+	assert.deepEqual(tokenizeForDisplay('', PARSE_INPUT), []);
+	assert.deepEqual(tokenizeForDisplay(null as unknown as string, PARSE_INPUT), []);
+});
+
+test('tokenizeForDisplay: gestisce fedelmente testi lunghi, caratteri accentati e ritorni a capo', () => {
+	const inputWithProjects = {
+		...PARSE_INPUT,
+		projects: [
+			...PARSE_PROJECTS,
+			{ id: 'p-ci', name: 'ContrattiImmobili', label: 'Contratti Immobili', path: 'c:/repos/contratti' }
+		]
+	};
+
+	const longPrompt =
+		'@ContrattiImmobili comparsa anagrafiche da ricerca su popover anagrafica su schermata nuovo contratto step 2.\n' +
+		'/piano Animare anche cambio d\'altezza e contenuto in ingresso.\n' +
+		'!smol codice fiscale deve essere l\'ultimo campo di quel blocco.';
+
+	const tokens = tokenizeForDisplay(longPrompt, inputWithProjects);
+
+	// Invariante di ricostruzione fedele byte per byte
+	assert.equal(tokens.map((t) => t.text).join(''), longPrompt);
+
+	// Token 0: @ContrattiImmobili -> project
+	assert.equal(tokens[0].text, '@ContrattiImmobili');
+	assert.equal(tokens[0].kind, 'project');
+	assert.equal(tokens[0].label, 'ContrattiImmobili');
+
+	// Trova /piano -> directive
+	const pianoToken = tokens.find((t) => t.text === '/piano');
+	assert.ok(pianoToken);
+	assert.equal(pianoToken?.kind, 'directive');
+
+	// Trova !smol -> role
+	const smolToken = tokens.find((t) => t.text === '!smol');
+	assert.ok(smolToken);
+	assert.equal(smolToken?.kind, 'role');
+});
+
+test('tokenizeForDisplay: testo che termina con ritorno a capo preserva il newline finale', () => {
+	const textWithTrailingNewline = '@cruscotto verifica tutto\n';
+	const tokens = tokenizeForDisplay(textWithTrailingNewline, PARSE_INPUT);
+
+	const reconstructed = tokens.map((t) => t.text).join('');
+	assert.equal(reconstructed, textWithTrailingNewline);
+	assert.ok(reconstructed.endsWith('\n'));
 });

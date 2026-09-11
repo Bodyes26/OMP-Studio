@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import {
 		settingsStore,
 		EDITOR_FONT_SIZE_RANGE,
@@ -7,6 +8,7 @@
 		TAB_SIZE_RANGE
 	} from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 
 	const activeProject = $derived(projectStore.projects.find((p) => p.id === projectStore.activeId) ?? null);
 
@@ -20,7 +22,7 @@
 
 <div class="settings-section">
 	<div class="section-header">
-		<h4>Editor & Terminale</h4>
+		<h4>{m.ui_settingsmodal_editor_terminale_8f5d()}</h4>
 		<button type="button" class="btn btn-secondary" onclick={() => settingsStore.reset('workspace')}>Ripristina</button>
 	</div>
 
@@ -61,7 +63,7 @@
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Minimappa</span>
-					<span class="form-row-desc">Mostra la mappa in miniatura del file sul lato destro dell'editor.</span>
+					<span class="form-row-desc">{m.ui_workspacesection_mostra_la_mappa_in_miniatura_del_file_256f()}</span>
 				</div>
 				<div class="form-row-control">
 					<label class="switch">
@@ -111,7 +113,7 @@
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Numeri di riga</span>
-					<span class="form-row-desc">Mostra la numerazione delle righe sul bordo sinistro.</span>
+					<span class="form-row-desc">{m.ui_workspacesection_mostra_la_numerazione_delle_righe_sul_bordo_7bb2()}</span>
 				</div>
 				<div class="form-row-control">
 					<label class="switch">
@@ -128,7 +130,7 @@
 	</div>
 
 	<div class="section-block">
-		<span class="block-title">Terminale</span>
+		<span class="block-title">{m.settings_general_terminal()}</span>
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
@@ -164,7 +166,7 @@
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Scrollback</span>
-					<span class="form-row-desc">Righe di cronologia tenute in memoria, da {SCROLLBACK_RANGE.min.toLocaleString('it-IT')} a {SCROLLBACK_RANGE.max.toLocaleString('it-IT')}.</span>
+					<span class="form-row-desc">Righe di cronologia tenute in memoria, da {i18n.formatNumber(SCROLLBACK_RANGE.min)} a {i18n.formatNumber(SCROLLBACK_RANGE.max)}.</span>
 				</div>
 				<div class="form-row-control">
 					<input
@@ -198,7 +200,7 @@
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Cursore lampeggiante</span>
-					<span class="form-row-desc">Il cursore del terminale lampeggia invece di restare fisso.</span>
+					<span class="form-row-desc">{m.ui_workspacesection_il_cursore_del_terminale_lampeggia_invece_di_0335()}</span>
 				</div>
 				<div class="form-row-control">
 					<label class="switch">
@@ -253,7 +255,7 @@
 				<div class="form-row">
 					<div class="form-row-copy">
 						<span class="form-row-label">Nessun progetto attivo</span>
-						<span class="form-row-desc">Seleziona un progetto per visualizzare e gestire le origini browser autorizzate.</span>
+						<span class="form-row-desc">{m.ui_workspacesection_seleziona_un_progetto_per_visualizzare_e_gestire_6b13()}</span>
 					</div>
 				</div>
 			{/if}

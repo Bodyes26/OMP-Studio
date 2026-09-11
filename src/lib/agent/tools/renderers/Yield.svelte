@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Renderer per `yield` (consegna del risultato finale da parte di un subagent).
 	//
 	// Cosa mostra:
@@ -51,7 +52,7 @@
 	});
 
 	const firstLine = $derived.by(() => {
-		if (errorMessage) return `Errore: ${errorMessage.split('\n', 1)[0]}`;
+		if (errorMessage) return m.ui_yield_errore_value1_fe4b({ value1: errorMessage.split('\n', 1)[0] });
 		if (mainText) return mainText.split('\n', 1)[0] ?? '';
 		if (structuredData) return '(Dati strutturati)';
 		return '(Nessun output)';
@@ -68,7 +69,7 @@
 	<div class="yield-body">
 		{#if errorMessage}
 			<div class="error-banner">
-				<span class="error-label">Errore subagent</span>
+				<span class="error-label">{m.ui_yield_errore_subagent_5b6a()}</span>
 				<p class="error-text">{errorMessage}</p>
 			</div>
 		{/if}

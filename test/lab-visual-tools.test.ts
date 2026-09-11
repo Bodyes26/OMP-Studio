@@ -15,6 +15,7 @@ import {
 	redactSensitiveText,
 	type LabVisualContextAttachment
 } from '../src/lib/lab/contracts.ts';
+import { useLocale } from './locale.ts';
 
 describe('Laboratorio prototipi — Step 10: Selezione elementi e annotazioni legate alla revisione', () => {
 	let controller: LabRendererController;
@@ -201,6 +202,7 @@ describe('Laboratorio prototipi — Step 10: Selezione elementi e annotazioni le
 	// --------------------------------------------------------------------------
 	describe('4. Accettazione: allegato con revisione corretta e rifiuto riferimenti obsoleti', () => {
 		it('seleziona un elemento, annota, invia con successo; rendendo obsoleta la revisione, l invio alla cieca viene BLOCCATO', async () => {
+			useLocale('it');
 			// FASE 1: Revisione 1 attiva ('rev-step10-v1')
 			await controller.renderRevision('rev-step10-v1', {
 				js: `

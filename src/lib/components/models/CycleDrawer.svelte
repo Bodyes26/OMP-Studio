@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { modelSettingsStore, resolveCatalogModel, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	import { IconArrowRight, IconLoop } from '$lib/icons';
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
@@ -51,8 +52,8 @@
 				type="button"
 				class="btn-close-drawer"
 				onclick={onClose}
-				aria-label="Chiudi pannello ciclo"
-				title="Chiudi pannello ciclo rapido"
+				aria-label={m.ui_cycledrawer_chiudi_pannello_ciclo_a7be()}
+				title={m.models_cycle_close_aria()}
 			>
 				<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6">
 					<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
@@ -62,7 +63,7 @@
 
 		<div class="drawer-content">
 			<p class="drawer-desc">
-				Premendo la scorciatoia, il modello attivo avanza sequenzialmente in questa lista circolare senza aprire il catalogo.
+				{m.ui_cycledrawer_premendo_la_scorciatoia_il_modello_attivo_avanza_8c15()}
 			</p>
 
 			<!-- Cycle Items List -->
@@ -106,7 +107,7 @@
 								type="button"
 								class="btn-action delete"
 								onclick={() => remove(i)}
-								title="Rimuovi dal ciclo"
+								title={m.ui_cycledrawer_rimuovi_dal_ciclo_d1bc()}
 							>
 								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
 									<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
@@ -118,7 +119,7 @@
 
 				{#if cycle.length === 0}
 					<div class="empty-cycle">
-						Nessun modello inserito nel ciclo rapido.
+						{m.ui_cycledrawer_nessun_modello_inserito_nel_ciclo_rapido_63e4()}
 					</div>
 				{/if}
 			</div>
@@ -129,7 +130,7 @@
 					<div class="inline-picker">
 						<ModelPickerDropdown
 							catalog={modelSettingsStore.assignableCatalog}
-							placeholder="Scegli modello per ciclo..."
+							placeholder={m.models_cycle_placeholder()}
 							onSelect={(sel) => handleAddSelect(sel)}
 						/>
 						<button
@@ -137,7 +138,7 @@
 							class="btn-cancel"
 							onclick={() => isAdding = false}
 						>
-							Annulla
+							{m.common_cancel()}
 						</button>
 					</div>
 				{:else}
@@ -146,7 +147,7 @@
 						class="btn-add-cycle"
 						onclick={() => isAdding = true}
 					>
-						+ Aggiungi Modello al Ciclo
+						{m.ui_cycledrawer_aggiungi_modello_al_ciclo_8323()}
 					</button>
 				{/if}
 			</div>
@@ -165,7 +166,7 @@
 								<span class="preview-arrow"><IconArrowRight /></span>
 							{/if}
 						{/each}
-						<span class="preview-loop" title="Ciclo continuo"><IconLoop /></span>
+						<span class="preview-loop" title={m.models_cycle_loop_title()}><IconLoop /></span>
 					</div>
 				</div>
 			{/if}

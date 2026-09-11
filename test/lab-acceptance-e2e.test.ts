@@ -152,6 +152,7 @@ import {
 import { parseWireEvent, formatWireCommand } from '../src/lib/agent/wire.ts';
 import { nodeHost } from './lab-host.ts';
 import type { AgentSessionLike } from '../src/lib/agent/sessionRegistry.ts';
+import { useLocale } from './locale.ts';
 
 const TEMPLATE_VERSION = '1.0.0';
 
@@ -801,6 +802,7 @@ describe('Laboratorio prototipi — Step 16: GATE Accettazione End-to-End e 18 C
 	// CRITERIO 12: Incorporazione (handoff pacchetto al principale, nessun auto-merge forzato)
 	// --------------------------------------------------------------------------
 	it('Criterio 12: Incorporazione (pacchetto handoff per principale, adattabile a Svelte, no importazione React forzata)', async () => {
+		useLocale('it');
 		const protoId = 'proto-incorporation-c12';
 		await createLabPrototype(store, {
 			id: protoId,

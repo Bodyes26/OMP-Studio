@@ -8,6 +8,7 @@
   abbandonato (barrato, faint) e bloccato (warning, con tooltip del blocker).
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -96,7 +97,7 @@
 		const parts: string[] = [];
 		parts.push(`${stats.completed}/${stats.total} completati`);
 		if (stats.inProgress > 0) {
-			parts.push(`${stats.inProgress} in corso`);
+			parts.push(m.ui_task_value1_in_corso_8e50({ value1: stats.inProgress }));
 		}
 		if (stats.blocked > 0) {
 			parts.push(`${stats.blocked} bloccati`);

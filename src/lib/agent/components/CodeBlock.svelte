@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// CodeBlock: blocco di codice per le risposte dell'assistente con evidenziazione
 	// sintattica Monaco, intestazione a fisarmonica (accordion) e copia rapida.
 	// Il codice scorre con il transcript (nessun tetto di altezza interno).
@@ -113,7 +114,7 @@
 				<button
 					type="button"
 					class="file-chip-copy"
-					title="Copia percorso negli appunti"
+					title={m.ui_codeblock_copia_percorso_negli_appunti_d113()}
 					onclick={(e) => handleCopyItem(e, item.raw, idx)}
 				>
 					{#if copiedItemIndex === idx}
@@ -147,12 +148,12 @@
 				type="button"
 				class="copy-btn"
 				onclick={handleCopy}
-				title="Copia codice negli appunti"
+				title={m.ui_codeblock_copia_codice_negli_appunti_d9e1()}
 			>
 				{#if copied}
-					<span class="copied-indicator"><IconCheck aria-hidden="true" />Copiato!</span>
+					<span class="copied-indicator"><IconCheck aria-hidden="true" />{m.browser_copied()}</span>
 				{:else}
-					<span>Copia</span>
+					<span>{m.context_menu_item_copy()}</span>
 				{/if}
 			</button>
 		</div>

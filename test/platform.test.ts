@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectShellPlatform, getRevealLabel } from '../src/lib/utils/platform.ts';
+import { overwriteGetLocale } from '../src/lib/paraglide/runtime.js';
 
 // Stringhe reali delle due webview che Studio usa: da queste dipende se la
 // barra disegna i controlli finestra di Windows o lascia spazio ai semafori
@@ -45,9 +46,15 @@ describe('Piattaforma del guscio', () => {
 });
 
 describe('Etichette del file manager per piattaforma', () => {
-	it('restituisce l’etichetta corretta per ciascuna piattaforma', () => {
+	it('restituisce l’etichetta corretta per ciascuna piattaforma, nella lingua attiva', () => {
+		overwriteGetLocale(() => 'it');
 		assert.equal(getRevealLabel('macos'), 'Mostra nel Finder');
 		assert.equal(getRevealLabel('windows'), 'Mostra in Esplora file');
 		assert.equal(getRevealLabel('other'), 'Mostra nel gestore file');
+
+		overwriteGetLocale(() => 'en');
+		assert.equal(getRevealLabel('macos'), 'Reveal in Finder');
+		assert.equal(getRevealLabel('windows'), 'Show in File Explorer');
+		assert.equal(getRevealLabel('other'), 'Show in file manager');
 	});
 });

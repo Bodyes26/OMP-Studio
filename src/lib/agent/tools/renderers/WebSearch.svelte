@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Renderer per `web_search` (ricerche sul web).
 	//
 	// Cosa mostra:
@@ -97,7 +98,7 @@
 		<div class="header-row">
 			{#if query}
 				<div class="query-box">
-					<span class="query-label">Cerca:</span>
+					<span class="query-label">{m.ui_websearch_cerca_6394()}</span>
 					<span class="query-text">{query}</span>
 				</div>
 			{/if}

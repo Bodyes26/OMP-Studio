@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { onMount, untrack } from 'svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
@@ -101,11 +103,11 @@
 
 	function formatRelative(seconds: number) {
 		const delta = Math.max(0, Math.floor(Date.now() / 1000) - seconds);
-		if (delta < 60) return 'adesso';
-		if (delta < 3600) return `${Math.floor(delta / 60)} min fa`;
-		if (delta < 86400) return `${Math.floor(delta / 3600)} h fa`;
-		if (delta < 604800) return `${Math.floor(delta / 86400)} g fa`;
-		return new Date(seconds * 1000).toLocaleDateString();
+		if (delta < 60) return i18n.formatRelativeTime(0, 'second');
+		if (delta < 3600) return i18n.formatRelativeTime(-Math.floor(delta / 60), 'minute');
+		if (delta < 86400) return i18n.formatRelativeTime(-Math.floor(delta / 3600), 'hour');
+		if (delta < 604800) return i18n.formatRelativeTime(-Math.floor(delta / 86400), 'day');
+		return i18n.formatDate(seconds * 1000);
 	}
 
 	function handleQueryInput(event: Event) {
@@ -165,7 +167,7 @@
 
 <div class="session-list">
 	<form onsubmit={handleSearch} class="search-form">
-		<label for="session-search">Cerca nelle sessioni</label>
+		<label for="session-search">{m.session_list_search_label()}</label>
 		<div class="search-row">
 			{#if loading && displaySessions.length > 0}
 				<div class="search-spinner" aria-hidden="true"></div>
@@ -180,22 +182,22 @@
 				type="search"
 				value={query}
 				oninput={handleQueryInput}
-				placeholder="Cerca nello storico..."
-				aria-label="Cerca nello storico delle sessioni"
+				placeholder={m.session_list_search_placeholder()}
+				aria-label={m.session_list_search_aria()}
 			/>
 		</div>
 	</form>
 
-	<ul class="list" aria-label="Elenco sessioni" aria-busy={loading}>
+	<ul class="list" aria-label={m.session_list_list_aria()} aria-busy={loading}>
 		{#if loading && displaySessions.length === 0}
 			<li class="loading-state" aria-live="polite">
 				<div class="spinner" aria-hidden="true"></div>
-				<span class="loading-label">Caricamento sessioni...</span>
+				<span class="loading-label">{m.session_list_loading()}</span>
 			</li>
 		{:else if loadError}
 			<li class="msg error" role="alert">{loadError}</li>
 		{:else if displaySessions.length === 0}
-			<li class="msg">Nessuna sessione trovata per questo progetto.</li>
+			<li class="msg">{m.session_list_empty()}</li>
 		{:else}
 			{#each displaySessions as session, i (session.id)}
 				{@const isCurrent = session.id === currentSessionId}
@@ -206,25 +208,25 @@
 						class:current={isCurrent}
 						disabled={isCurrent || !canAutomate}
 						title={isCurrent
-							? 'Sessione attiva'
+							? m.ui_sessionlist_sessione_attiva_1526()
 							: session.optimistic
-								? 'La sessione si sta sincronizzando con lo storico'
+								? m.ui_sessionlist_la_sessione_si_sta_sincronizzando_con_lo_82e6()
 								: canAutomate
 									? `Riprendi: ${session.title}`
 									: automationReason}
-						aria-label={isCurrent ? `Sessione attiva: ${session.title || 'senza titolo'}` : `Riprendi sessione: ${session.title || 'senza titolo'}, ${formatRelative(session.created_at)}`}
+						aria-label={isCurrent ? m.ui_sessionlist_sessione_attiva_value1_dd4e({ value1: session.title || 'senza titolo' }) : m.session_list_resume_aria({ title: session.title || 'senza titolo', age: formatRelative(session.created_at) })}
 						onclick={() => onResume(session.id)}
 					>
-						<span class="title">{session.title || 'Sessione senza titolo'}</span>
+						<span class="title">{session.title || m.session_list_untitled()}</span>
 						<span class="meta">
 							{formatRelative(session.created_at)}
 							{#if taskStore.isTaskSession(projectPath, session.id)}
-								<span class="badge">TASK</span>
+								<span class="badge">{m.page_columns_header_task()}</span>
 							{/if}
 							{#if isCurrent}
-								<span class="current-label">ATTIVA</span>
+								<span class="current-label">{m.session_list_active_badge()}</span>
 							{:else if session.optimistic}
-								<span>in sincronizzazione</span>
+								<span>{m.session_list_syncing()}</span>
 							{/if}
 						</span>
 					</button>

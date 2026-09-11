@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Riga di avviso (notifica di sistema, errore di runtime o warning).
 	// A tutta larghezza con bordi sottili e colori semantici.
 	import { agentUiHooks } from '../ui-context';
@@ -29,7 +30,7 @@
 					class="action-btn"
 					onclick={() => (detailExpanded = !detailExpanded)}
 				>
-					{detailExpanded ? 'Nascondi dettagli' : `Dettagli (${entry.detail?.length ?? 0})`}
+					{detailExpanded ? m.ui_noticerow_nascondi_dettagli_3ea0() : `Dettagli (${entry.detail?.length ?? 0})`}
 				</button>
 			{/if}
 			{#if entry.offerTerminal}
@@ -38,7 +39,7 @@
 					class="action-btn terminal-btn"
 					onclick={() => hooks.switchToTerminal()}
 				>
-					Apri nel terminale
+					{m.project_popover_open_terminal()}
 				</button>
 			{/if}
 		</div>

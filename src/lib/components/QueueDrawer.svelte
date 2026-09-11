@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
@@ -52,8 +53,8 @@
 	function taskTitle(task: StudioTask): string {
 		const line = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim();
 		if (line) return line;
-		if (task.images && task.images.length > 0) return '(solo immagini)';
-		return 'Nuovo task';
+		if (task.images && task.images.length > 0) return m.queue_drawer_title_only_images();
+		return m.queue_drawer_title_new_task();
 	}
 
 	function taskExcerpt(task: StudioTask): string {
@@ -62,7 +63,7 @@
 		if (task.images && task.images.length > 0) {
 			return `${task.images.length} ${task.images.length === 1 ? 'immagine allegata' : 'immagini allegate'}`;
 		}
-		return 'Prompt ancora vuoto';
+		return m.queue_drawer_excerpt_empty();
 	}
 
 	function roleBadge(role?: string): string | null {
@@ -92,22 +93,22 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-	<button type="button" class="backdrop" onclick={onClose} aria-label="Chiudi cassetto coda" tabindex="-1" transition:fade={{ duration: 180 }}></button>
+	<button type="button" class="backdrop" onclick={onClose} aria-label={m.queue_drawer_close_aria()} tabindex="-1" transition:fade={{ duration: 180 }}></button>
 	<div
 		class="drawer"
 		role="dialog"
 		aria-modal="true"
-		aria-label="Coda di tutti i progetti"
+		aria-label={m.queue_drawer_modal_aria()}
 		use:trapFocus={{ onEscape: onClose }}
 		transition:fly={{ y: -12, duration: 220, easing: cubicOut }}
 	>
 		<div class="header">
-			<h3>Task in coda</h3>
-			<button type="button" class="close-btn" onclick={onClose} aria-label="Chiudi cassetto coda"><IconClose /></button>
+			<h3>{m.queue_drawer_heading()}</h3>
+			<button type="button" class="close-btn" onclick={onClose} aria-label={m.queue_drawer_close_aria()}><IconClose /></button>
 		</div>
-		<div class="body" role="list" aria-label="Progetti con task in coda">
+		<div class="body" role="list" aria-label={m.queue_drawer_projects_list_aria()}>
 			{#if groups.length === 0}
-				<div class="empty-row">Nessun task in attesa</div>
+				<div class="empty-row">{m.queue_drawer_empty_state()}</div>
 			{:else}
 				{#each groups as group (group.project.id)}
 					{@const reason = runReason?.(group.project.id) ?? ''}
@@ -132,11 +133,11 @@
 										type="button"
 										class="run-first"
 										disabled={blocked}
-										title={blocked ? reason : `Avvia: ${taskTitle(group.tasks[0])}`}
-										aria-label={`Avvia il primo task in coda per ${group.project.name}`}
+										title={blocked ? reason : m.queue_drawer_run_first_title({ title: taskTitle(group.tasks[0]) })}
+										aria-label={m.queue_drawer_run_first_aria({ project: group.project.name })}
 										onclick={(event) => runTask(event, group.project.id, group.tasks[0].id)}
 									>
-										Avvia il primo
+										{m.queue_drawer_run_first_btn()}
 									</button>
 								</div>
 							</div>
@@ -149,11 +150,11 @@
 										<span class="task-excerpt">{taskExcerpt(task)}</span>
 										<div class="task-chips">
 											{#if task.status === 'in_progress'}
-												<span class="task-chip status-chip in-progress">in corso</span>
+												<span class="task-chip status-chip in-progress">{m.queue_drawer_status_in_progress()}</span>
 											{:else if task.status === 'completed'}
-												<span class="task-chip status-chip completed">fatto</span>
+												<span class="task-chip status-chip completed">{m.queue_drawer_status_completed()}</span>
 											{:else if task.status === 'abandoned'}
-												<span class="task-chip status-chip abandoned">abbandonato</span>
+												<span class="task-chip status-chip abandoned">{m.queue_drawer_status_abandoned()}</span>
 											{/if}
 											{#if task.options?.role}
 												{@const badge = roleBadge(task.options.role)}
@@ -179,20 +180,20 @@
 											type="button"
 											class="task-run"
 											disabled={blocked}
-											title={blocked ? reason : `Avvia: ${taskTitle(task)}`}
-											aria-label={`Avvia task: ${taskTitle(task)}`}
+											title={blocked ? reason : m.queue_drawer_run_first_title({ title: taskTitle(task) })}
+											aria-label={m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })}
 											onclick={(event) => runTask(event, group.project.id, task.id)}
 										>
-											Avvia
+											{m.queue_drawer_run_btn()}
 										</button>
 										<button
 											type="button"
 											class="task-edit"
-											title="Modifica task"
-											aria-label={`Modifica task: ${taskTitle(task)}`}
+											title={m.queue_drawer_edit_btn_title()}
+											aria-label={m.ui_queuedrawer_modifica_task_value1_4d12({ value1: taskTitle(task) })}
 											onclick={() => onEditTask?.(group.project.id, task.id)}
 										>
-											Modifica
+											{m.queue_drawer_edit_btn()}
 										</button>
 									</div>
 								</div>

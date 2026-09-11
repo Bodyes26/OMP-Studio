@@ -5,9 +5,20 @@
 	// espande la lista completa, fase per fase. Cinque stati:
 	// `pending` cerchio vuoto, `in_progress` cerchio pieno in `--brand`,
 	import type { TodoItem, TodoPhase } from '../wire';
-	import { IconChevronRight, IconStatusPending, IconStatusRunning, IconStatusDone, IconStatusFailed, IconWarning } from '$lib/icons';
+	import {
+		IconChevronRight,
+		IconLoop,
+		IconStatusPending,
+		IconStatusRunning,
+		IconStatusDone,
+		IconStatusFailed,
+		IconWarning
+	} from '$lib/icons';
 
-	let { phases } = $props<{ phases: TodoPhase[] }>();
+	let { phases, reminder = null } = $props<{
+		phases: TodoPhase[];
+		reminder?: { attempt: number; max: number } | null;
+	}>();
 
 	let expanded = $state(false);
 
@@ -46,6 +57,16 @@
 			<span class="phase-name">{currentPhase?.name ?? 'Todo'}</span>
 			{#if hasBlocked}
 				<span class="blocked-badge" title="Ci sono task bloccati">!</span>
+			{/if}
+			{#if reminder}
+				<span
+					class="reminder-badge"
+					class:stalled={reminder.attempt >= reminder.max}
+					title={`L'agente si e' fermato con dei todo aperti: il sistema lo ha risvegliato ${reminder.attempt} volte su ${reminder.max}`}
+				>
+					<span class="reminder-icon" aria-hidden="true"><IconLoop /></span>
+					<span class="reminder-text">{reminder.attempt}/{reminder.max}</span>
+				</span>
 			{/if}
 			<span class="tally">{completedCount}/{totalCount}</span>
 		</button>
@@ -133,6 +154,44 @@
 		color: var(--warn);
 		background: transparent;
 		line-height: 1.2;
+	}
+
+	.reminder-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 1px var(--space-1);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		line-height: 1.2;
+		color: var(--ink-muted);
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+	}
+
+	.reminder-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 11px;
+		height: 11px;
+		flex-shrink: 0;
+	}
+
+	.reminder-icon :global(svg) {
+		width: 11px;
+		height: 11px;
+	}
+
+	.reminder-text {
+		font-variant-numeric: tabular-nums;
+	}
+
+	.reminder-badge.stalled {
+		color: var(--warn);
+		border-color: var(--warn);
 	}
 
 	.tally {

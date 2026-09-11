@@ -13,6 +13,7 @@
 
 import type { AgentSession, AgentSessionConfig } from './session.svelte';
 import type { AskFlushStep } from './askAnswers';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export function mainSessionKey(projectKey: string): string {
 	return `main:${projectKey.trim().toLowerCase()}`;
@@ -45,6 +46,7 @@ export interface AgentSessionLike {
 	pendingUi?: { kind: string; message?: string } | null;
 	isStreaming?: boolean;
 	agentState?: string;
+	inferredAttention?: { question: string; suggestions: string[] } | null;
 	subagents?: Array<{ status?: string; resolvedModel?: string }>;
 	model?: { provider?: string; id?: string; name?: string } | null;
 	open(resume?: string | null): Promise<void>;
@@ -55,6 +57,8 @@ export interface AgentSessionLike {
 	answerConfirm?(confirmed: boolean): Promise<void>;
 	submitAskWizard?(plan: AskFlushStep[]): Promise<void>;
 	cancelPendingUi?(): Promise<void>;
+	clearInferredAttention?(): void;
+	prompt?(message: string, images?: unknown[], behavior?: unknown): Promise<void>;
 }
 
 export type SessionFactory<T extends AgentSessionLike> = (config: AgentSessionConfig) => T;
@@ -274,33 +278,54 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		}
 		if (!target) {
 			const main = this.getMainSession(projectId);
-			if (main?.pendingUi) {
+			if (main?.pendingUi || main?.inferredAttention) {
 				target = main;
 			} else {
 				const projectSessions = this.getSessionsForProject(projectId);
-				target = projectSessions.find((s) => s.pendingUi);
+				target = projectSessions.find((s) => s.pendingUi || s.inferredAttention);
 			}
 		}
 
-		if (!target || !target.pendingUi) {
+		if (!target) {
 			return false;
 		}
 
-		if (response.action === 'select' && typeof response.value === 'string') {
-			await target.answerSelect?.(response.value);
-			return true;
+		// Se c'e' una richiesta formale aperta (ask/select/confirm/wizard),
+		// inoltriamo ai responder standard di extension_ui_request.
+		if (target.pendingUi) {
+			if (response.action === 'select' && typeof response.value === 'string') {
+				await target.answerSelect?.(response.value);
+				return true;
+			}
+			if (response.action === 'confirm' && typeof response.confirmed === 'boolean') {
+				await target.answerConfirm?.(response.confirmed);
+				return true;
+			}
+			if (response.action === 'wizard' && response.plan) {
+				await target.submitAskWizard?.(response.plan);
+				return true;
+			}
+			if (response.action === 'cancel') {
+				await target.cancelPendingUi?.();
+				return true;
+			}
+			return false;
 		}
-		if (response.action === 'confirm' && typeof response.confirmed === 'boolean') {
-			await target.answerConfirm?.(response.confirmed);
-			return true;
-		}
-		if (response.action === 'wizard' && response.plan) {
-			await target.submitAskWizard?.(response.plan);
-			return true;
-		}
-		if (response.action === 'cancel') {
-			await target.cancelPendingUi?.();
-			return true;
+
+		// Se l'agente attendeva risposta dedotta (inferred_input),
+		// inviamo il testo direttamente come nuovo messaggio prompt alla chat.
+		if (target.inferredAttention) {
+			target.clearInferredAttention?.();
+			let text = '';
+			if (response.action === 'select' && typeof response.value === 'string') {
+				text = response.value;
+			} else if (response.action === 'confirm' && typeof response.confirmed === 'boolean') {
+				text = response.confirmed ? msg.ui_ts_sessionregistry_si_procedi_d749() : msg.ui_ts_sessionregistry_no_annulla_3400();
+			}
+			if (text.trim() && target.prompt) {
+				await target.prompt(text.trim());
+				return true;
+			}
 		}
 
 		return false;

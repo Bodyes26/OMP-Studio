@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// ToolGroup: raggruppa una sequenza di chiamate tool e blocchi di ragionamento
 	// (thinking) consecutivi o alternati in un unico blocco compatto ed elegante.
 	//
@@ -147,10 +148,10 @@
 				{:else if isStreamingThinking}
 					<span class="active-intent">sta pensando...</span>
 				{:else}
-					<span class="status-tag running">{totalDuration ?? 'in corso'}</span>
+					<span class="status-tag running">{totalDuration ?? m.queue_drawer_status_in_progress()}</span>
 				{/if}
 			{:else if hasError}
-				<span class="status-tag error">fallito</span>
+				<span class="status-tag error">{m.ui_browserviewer_fallito_ca59()}</span>
 			{:else if totalDuration}
 				<span class="duration">{totalDuration}</span>
 			{/if}
@@ -163,7 +164,7 @@
 		>
 			{#each failedTools as tool (tool.id)}
 				<div class="failure-line">
-					<span class="failure-prefix">tool <strong class="failure-tool-name">{tool.toolName}</strong> fallito per:</span>
+					<span class="failure-prefix">tool <strong class="failure-tool-name">{tool.toolName}</strong> {m.ui_toolcard_fallito_per_b620()}</span>
 					<span class="failure-reason" title={extractToolErrorReason(tool)}>{extractToolErrorReason(tool)}</span>
 				</div>
 			{/each}

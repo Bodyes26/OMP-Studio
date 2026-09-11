@@ -1,4 +1,5 @@
-/**
+
+import { m as msg } from '$lib/paraglide/messages.js';/**
  * Confronto tra la configurazione richiesta da un task e quella pubblicata
  * dalla sessione del terminale.
  *
@@ -32,12 +33,12 @@ export function describeConfigurationMismatch(
 	if (!session.modelSelector) return null;
 
 	if (session.modelSelector !== configuration.modelSelector) {
-		return `Il task richiede ${configuration.modelSelector}, il terminale usa ${session.modelSelector}: allinea il modello nel terminale (Ctrl+P) oppure lancia il task dalla scheda GUI`;
+		return msg.ui_ts_taskconfiguration_il_task_richiede_value1_il_terminale_usa_b103({ value1: configuration.modelSelector, value2: session.modelSelector });
 	}
 
 	const thinkingLevel = configuration.thinkingLevel || 'auto';
 	if (thinkingLevel !== 'auto' && session.thinkingLevel && session.thinkingLevel !== thinkingLevel) {
-		return `Il task richiede thinking ${thinkingLevel}, il terminale usa ${session.thinkingLevel}: allinealo nel terminale (Alt+T) oppure lancia il task dalla scheda GUI`;
+		return msg.ui_ts_taskconfiguration_il_task_richiede_thinking_value1_il_terminale_0eec({ value1: thinkingLevel, value2: session.thinkingLevel });
 	}
 
 	return null;

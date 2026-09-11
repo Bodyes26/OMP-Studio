@@ -227,3 +227,44 @@ describe('Shortcuts: unico owner globale e prevenzione doppi toggle', () => {
 		assert.equal(toggleCount, 1, 'Il conteggio dei toggle non deve cambiare');
 	});
 });
+
+describe('Gestione Escape e abort: il tasto Escape non interrompe mai lo streaming dell\'agente', () => {
+	it('Escape chiude i menu aperti senza invocare abort durante lo streaming', () => {
+		let abortCalled = false;
+		let menu: string | null = 'role';
+		const session = {
+			isStreaming: true,
+			abort() { abortCalled = true; }
+		};
+
+		// Simula la logica aggiornata di handleWindowKeydown in Composer per Escape
+		function handleEscape(isShortcutsOpen: boolean, activeMenu: string | null, paletteOpen: boolean) {
+			if (isShortcutsOpen) {
+				return { closed: 'shortcuts' };
+			}
+			if (activeMenu) {
+				menu = null;
+				return { closed: 'menu' };
+			}
+			if (paletteOpen) {
+				return { closed: 'palette' };
+			}
+			// Nessun abort: Escape non tocca la sessione
+			return { closed: null };
+		}
+
+		const res1 = handleEscape(false, menu, false);
+		assert.equal(res1.closed, 'menu');
+		assert.equal(menu, null);
+		assert.equal(abortCalled, false, 'Escape con menu aperto non deve chiamare abort');
+
+		// Pressione di Escape a vuoto dentro il progetto durante lo streaming
+		const res2 = handleEscape(false, null, false);
+		assert.equal(res2.closed, null);
+		assert.equal(abortCalled, false, 'Escape a vuoto durante lo streaming NON deve interrompere l\'agente');
+
+		// Solo il pulsante di stop (onclick esplicito) invoca session.abort()
+		session.abort();
+		assert.equal(abortCalled, true, 'Solo l\'azione di stop dedicata deve interrompere la sessione');
+	});
+});

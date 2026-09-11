@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Riga di compattazione della sessione.
 	// Se la compattazione e' in corso il pallino pulsa con `--brand`.
 	// Se e' disponibile un riassunto dettagliato, permette di espanderlo.
@@ -25,9 +26,9 @@
 							class="toggle-btn"
 							onclick={() => (expanded = !expanded)}
 							aria-expanded={expanded}
-							title={expanded ? 'Nascondi dettagli riassunto' : 'Mostra dettagli riassunto'}
+							title={expanded ? m.ui_compactionrow_nascondi_dettagli_riassunto_120b() : m.ui_compactionrow_mostra_dettagli_riassunto_1f7c()}
 						>
-							{expanded ? 'Nascondi riassunto' : 'Mostra riassunto'}
+							{expanded ? m.ui_compactionrow_nascondi_riassunto_26c5() : m.ui_compactionrow_mostra_riassunto_7e1b()}
 						</button>
 					{/if}
 				</div>

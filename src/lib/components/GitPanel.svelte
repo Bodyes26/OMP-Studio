@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { IconGitBranch, IconChevronDown, IconDiamond, IconCheck, IconPlus } from '$lib/icons';
 
@@ -68,15 +70,15 @@
 	}
 
 	function relTime(t: number): string {
-		const s = Math.max(0, Math.floor(Date.now() / 1000 - t));
-		if (s < 60) return 'adesso';
-		const m = Math.floor(s / 60);
-		if (m < 60) return `${m} min`;
-		const h = Math.floor(m / 60);
-		if (h < 24) return `${h} h`;
-		const d = Math.floor(h / 24);
-		if (d < 7) return `${d} g`;
-		return new Date(t * 1000).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+		const seconds = Math.max(0, Math.floor(Date.now() / 1000 - t));
+		if (seconds < 60) return i18n.formatRelativeTime(0, 'second');
+		const minutes = Math.floor(seconds / 60);
+		if (minutes < 60) return i18n.formatRelativeTime(-minutes, 'minute');
+		const hours = Math.floor(minutes / 60);
+		if (hours < 24) return i18n.formatRelativeTime(-hours, 'hour');
+		const days = Math.floor(hours / 24);
+		if (days < 7) return i18n.formatRelativeTime(-days, 'day');
+		return i18n.formatDate(t * 1000, { day: '2-digit', month: 'short' });
 	}
 
 	async function refresh() {
@@ -252,19 +254,19 @@
 
 <div class="git-panel">
 	{#if notRepo}
-		<div class="empty">Nessun repository git in questo progetto</div>
+		<div class="empty">{m.git_no_repo()}</div>
 	{:else if refreshError}
 		<div class="git-error" role="alert">
-			<span class="git-error-text" title={refreshError}>Errore git: {refreshError}</span>
-			<button type="button" class="retry-btn" onclick={() => void refresh()}>Riprova</button>
+			<span class="git-error-text" title={refreshError}>{m.ui_gitpanel_errore_git_dc97()} {refreshError}</span>
+			<button type="button" class="retry-btn" onclick={() => void refresh()}>{m.git_btn_retry()}</button>
 		</div>
 	{:else}
-		<div class="branch-row" title="Branch corrente">
+		<div class="branch-row" title={m.git_current_branch()}>
 			<button
 				bind:this={branchBtnEl}
 				class="branch-btn"
 				onclick={() => (branchMenuOpen = !branchMenuOpen)}
-				title="Cambia branch"
+				title={m.git_change_branch()}
 				aria-haspopup="menu"
 				aria-expanded={branchMenuOpen}
 			>
@@ -275,12 +277,12 @@
 		</div>
 
 		<div class="section-label">
-			Non committate
+			{m.git_uncommitted()}
 			{#if isRefreshing}<span class="git-spinner" aria-hidden="true"></span>{/if}
 			{#if workingFiles.length > 0}<span class="count">{workingFiles.length}</span>{/if}
 		</div>
 		{#if workingFiles.length === 0}
-			<div class="empty">Albero pulito</div>
+			<div class="empty">{m.git_clean_tree()}</div>
 		{:else}
 			{#each workingFiles as f, i (f.path)}
 				<button
@@ -301,20 +303,20 @@
 			{/each}
 		{/if}
 
-		<div class="section-label">Sessioni recenti</div>
+		<div class="section-label">{m.git_recent_sessions()}</div>
 		{#if sessions.length === 0}
-			<div class="empty">Nessuna sessione</div>
+			<div class="empty">{m.git_no_sessions()}</div>
 		{:else}
 			{#each sessions.slice(0, 8) as s, i (s.id)}
 				<button
 					class="row session-row git-row-animated"
 					style:--index={Math.min(i, 8)}
 					disabled={!canResume}
-					title={canResume ? `${s.title} — clicca per riprendere questa sessione` : resumeReason}
+					title={canResume ? m.ui_gitpanel_value1_clicca_per_riprendere_questa_sessione_968c({ value1: s.title }) : resumeReason}
 					onclick={() => onResumeSession?.(s.id)}
 				>
 					<span class="badge session-badge" aria-hidden="true"><IconDiamond /></span>
-					<span class="name">{s.title || 'Sessione senza titolo'}</span>
+					<span class="name">{s.title || m.session_list_untitled()}</span>
 					<span class="nums"><span class="session-time">{relTime(s.created_at)}</span></span>
 				</button>
 			{/each}
@@ -327,7 +329,7 @@
 						class:current={b.current}
 						onclick={() => checkout(b.name)}
 						disabled={b.current}
-						title={b.current ? 'Branch attivo' : `Passa a ${b.name}`}
+						title={b.current ? m.git_active_branch() : m.git_switch_to_branch({ name: b.name })}
 						role="menuitem"
 					>
 						<span class="branch-check">{#if b.current}<IconCheck />{/if}</span>
@@ -337,13 +339,13 @@
 				<div class="branch-new">
 					<input
 						class="branch-input"
-						placeholder="feature/nuova-idea"
+						placeholder={m.ui_gitpanel_feature_nuova_idea_d0a3()}
 						bind:value={newBranchName}
 						onkeydown={(e) => {
 							if (e.key === 'Enter') void createBranch();
 						}}
 					/>
-					<button class="branch-create" onclick={() => void createBranch()} title="Crea e passa al nuovo branch"><IconPlus /></button>
+					<button class="branch-create" onclick={() => void createBranch()} title={m.git_btn_create_branch()}><IconPlus /></button>
 				</div>
 			</div>
 		{/if}
@@ -351,7 +353,7 @@
 			<div class="action-error" title={actionError}>{actionError}</div>
 		{/if}
 		{#if lastCommit}
-			<div class="section-label">Ultimo commit</div>
+			<div class="section-label">{m.git_last_commit()}</div>
 			<div class="commit-card">
 				<button class="commit-head" title={lastCommit.hash} onclick={() => toggleCommit(lastCommit!.hash)}>
 					<span class="subject">{lastCommit.subject}</span>
@@ -377,7 +379,7 @@
 		{/if}
 
 		{#if commits.length > 1}
-			<div class="section-label">Storico</div>
+			<div class="section-label">{m.git_history()}</div>
 			{#each commits.slice(1) as c, i (c.hash)}
 				<div class="commit-card git-row-animated" style:--index={Math.min(i, 8)}>
 					<button class="commit-head" title={c.hash} onclick={() => toggleCommit(c.hash)}>

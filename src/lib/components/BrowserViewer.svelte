@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { AgentSession } from '$lib/agent/session.svelte';
 	import {
 		type BrowserFrameMeta,
@@ -163,10 +165,10 @@
 
 
 	const CAPABILITY_LABELS: Record<BrowserCapability, string> = {
-		'clipboard-read': 'Lettura appunti',
-		'clipboard-write': 'Scrittura appunti',
-		geolocation: 'Geolocalizzazione',
-		notifications: 'Notifiche'
+		'clipboard-read': m.browser_cap_clipboard_read(),
+		'clipboard-write': m.browser_cap_clipboard_write(),
+		geolocation: m.browser_cap_geolocation(),
+		notifications: m.browser_cap_notifications()
 	};
 
 	/** Un solo dialogo per volta puo' essere aperto: la pagina resta bloccata. */
@@ -215,7 +217,7 @@
 		});
 		if (!sent) {
 			respondedDialogId = null;
-			showNotice('Canale live non disponibile: riprova');
+			showNotice(m.ui_browserviewer_canale_live_non_disponibile_riprova_f377());
 			return;
 		}
 		promptAnswer = '';
@@ -224,7 +226,7 @@
 	async function decideDownload(downloadId: string, allow: boolean) {
 		if (!activeTab || !session) return;
 		const sent = await session.sendLiveMessage(activeTab, { type: 'download_decide', downloadId, allow });
-		if (!sent) showNotice('Canale live non disponibile: riprova');
+		if (!sent) showNotice(m.ui_browserviewer_canale_live_non_disponibile_riprova_f377());
 	}
 
 	async function chooseUploadFiles() {
@@ -233,7 +235,7 @@
 		uploadBusy = true;
 		try {
 			const count = await session.pickUploadFiles(activeTab, chooser.chooserId, chooser.mode === 'multiple');
-			showNotice(count > 0 ? `${count} file autorizzati per il caricamento` : 'Selezione file annullata');
+			showNotice(count > 0 ? m.ui_browserviewer_value1_file_autorizzati_per_il_caricamento_1e76({ value1: count }) : m.ui_browserviewer_selezione_file_annullata_5351());
 		} catch (err) {
 			showNotice(`Selettore file non disponibile: ${String(err)}`);
 		} finally {
@@ -248,13 +250,13 @@
 			type: 'cancel_file_chooser',
 			chooserId: chooser.chooserId
 		});
-		if (!sent) showNotice('Canale live non disponibile: riprova');
+		if (!sent) showNotice(m.ui_browserviewer_canale_live_non_disponibile_riprova_f377());
 	}
 
 	async function changeCapability(capability: BrowserCapability, decision: BrowserCapabilityDecision) {
 		if (!activeTab || !session) return;
 		const sent = await session.sendLiveMessage(activeTab, { type: 'set_capability', capability, decision });
-		if (!sent) showNotice('Canale live non disponibile: riprova');
+		if (!sent) showNotice(m.ui_browserviewer_canale_live_non_disponibile_riprova_f377());
 	}
 
 	async function toggleRecording() {
@@ -262,14 +264,14 @@
 		const sent = await session.sendLiveMessage(activeTab, {
 			type: isRecording ? 'stop_recording' : 'start_recording'
 		});
-		if (!sent) showNotice('Canale live non disponibile: riprova');
+		if (!sent) showNotice(m.ui_browserviewer_canale_live_non_disponibile_riprova_f377());
 	}
 
 	async function revealArtifact(path: string) {
 		try {
 			await revealItemInDir(path);
 		} catch (err) {
-			showNotice(`Impossibile aprire la cartella: ${String(err)}`);
+			showNotice(m.ui_browserviewer_impossibile_aprire_la_cartella_value1_5c22({ value1: String(err) }));
 		}
 	}
 
@@ -887,7 +889,7 @@
 
 	function togglePicker() {
 		if (!isPickerActive && isPrivateTakeover) {
-			showNotice('Takeover privato attivo: ispezione della pagina disabilitata');
+			showNotice(m.ui_browserviewer_takeover_privato_attivo_ispezione_della_pagina_disabilitata_825f());
 			return;
 		}
 		isPickerActive = !isPickerActive;
@@ -918,7 +920,7 @@
 
 	function attachContextToPrompt(type: 'element' | 'console' | 'network' | 'all') {
 		if (isPrivateTakeover) {
-			showNotice('Takeover privato attivo: nulla di questa pagina viene inviato all\'agente');
+			showNotice(m.ui_browserviewer_takeover_privato_attivo_nulla_di_questa_pagina_506a());
 			return;
 		}
 		let formattedText = '';
@@ -1062,14 +1064,14 @@
 	<!-- Toolbar Browser Studio (S41) -->
 	<div class="browser-toolbar">
 		<!-- Navigazione: Back, Forward, Reload -->
-		<div class="nav-group" role="group" aria-label="Navigazione browser">
+		<div class="nav-group" role="group" aria-label={m.browser_nav_aria()}>
 			<button
 				type="button"
 				class="tool-btn icon-btn"
 				disabled={!activeTab}
 				onclick={handleBack}
 				title="Indietro (Alt+Freccia Sinistra)"
-				aria-label="Indietro"
+				aria-label={m.browser_btn_back()}
 			>
 				<IconArrowLeft />
 			</button>
@@ -1079,7 +1081,7 @@
 				disabled={!activeTab}
 				onclick={handleForward}
 				title="Avanti (Alt+Freccia Destra)"
-				aria-label="Avanti"
+				aria-label={m.browser_btn_forward()}
 			>
 				<IconArrowRight />
 			</button>
@@ -1090,7 +1092,7 @@
 				disabled={!activeTab}
 				onclick={handleReload}
 				title="Ricarica pagina (F5)"
-				aria-label="Ricarica"
+				aria-label={m.browser_btn_reload()}
 			>
 				<IconRefresh />
 			</button>
@@ -1109,12 +1111,12 @@
 				type="text"
 				class="url-input"
 				readonly
-				value={activeTab?.url || (tabs.length ? 'about:blank' : 'Nessuna sessione')}
-				title={activeTab?.url || 'URL della pagina'}
-				aria-label="URL pagina corrente"
+				value={activeTab?.url || (tabs.length ? 'about:blank' : m.browser_no_session())}
+				title={activeTab?.url || m.browser_url_page_title()}
+				aria-label={m.browser_url_input_aria()}
 			/>
 			{#if activeTab?.loading}
-				<span class="loading-dot" title="Caricamento in corso"></span>
+				<span class="loading-dot" title={m.browser_loading_dot()}></span>
 			{/if}
 		</div>
 
@@ -1130,9 +1132,9 @@
 					title={activeTab.originPermission === 'local'
 						? 'Origine locale autorizzata automaticamente'
 						: activeTab.originPermission === 'granted'
-							? 'Origine remota autorizzata per questo progetto'
+							? m.ui_browserviewer_origine_remota_autorizzata_per_questo_progetto_0481()
 							: activeTab.originPermission === 'pending'
-								? 'In attesa di consenso per origine remota'
+								? m.ui_browserviewer_in_attesa_di_consenso_per_origine_remota_41de()
 								: 'Origine bloccata o revocata'}
 				>
 					{#if activeTab.originPermission === 'local'}
@@ -1140,7 +1142,7 @@
 					{:else if activeTab.originPermission === 'granted'}
 						Consentita
 					{:else if activeTab.originPermission === 'pending'}
-						In attesa
+						{m.page_agent_state_idle()}
 					{:else}
 						Bloccata
 					{/if}
@@ -1151,9 +1153,9 @@
 						class="revoke-origin-btn"
 						onclick={() => decideOrigin('revoke')}
 						disabled={originBusy}
-						title="Revoca immediatamente l'autorizzazione a questa origine remota"
+						title={m.browser_revoke_origin_title()}
 					>
-						Revoca
+						{m.browser_revoke_btn()}
 					</button>
 				{/if}
 			</div>
@@ -1161,7 +1163,7 @@
 
 		<!-- Selettore Tab se multiple -->
 		{#if tabs.length > 1}
-			<div class="tabs-group" role="group" aria-label="Selettore schede">
+			<div class="tabs-group" role="group" aria-label={m.browser_tabs_selector_aria()}>
 				{#each tabs as tab}
 					<button
 						type="button"
@@ -1175,7 +1177,7 @@
 				{/each}
 			</div>
 		{:else if activeTab}
-			<span class="tab-single-badge" title="Scheda attiva">{formatTabLabel(activeTab)}</span>
+			<span class="tab-single-badge" title={m.browser_tab_active_badge()}>{formatTabLabel(activeTab)}</span>
 		{/if}
 
 		<!-- Modalita e selezione esplicita Chrome personale (S46) -->
@@ -1184,17 +1186,17 @@
 		</span>
 		{#if activeTab?.mode === 'chrome-relay'}
 			<button type="button" class="tool-btn" disabled={relayBusy} onclick={disconnectRelay}>
-				Disconnetti
+				{m.browser_btn_disconnect_relay()}
 			</button>
 		{:else}
 			<button type="button" class="tool-btn" disabled={relayBusy || !session?.browserLive?.features.includes('chrome-relay')} onclick={openRelayPicker}>
-				<IconPlus /> Usa il mio Chrome
+				<IconPlus /> {m.browser_btn_use_my_chrome()}
 			</button>
 		{/if}
 
 
 		<!-- Viewport responsive selector -->
-		<div class="device-group" role="group" aria-label="Larghezza viewport">
+		<div class="device-group" role="group" aria-label={m.browser_viewport_aria()}>
 			<button
 				type="button"
 				class="device-btn"
@@ -1230,14 +1232,14 @@
 			class:agent={activeTab?.controller === 'agent' || !activeTab}
 			class:user={activeTab?.controller === 'user'}
 			class:private={activeTab?.controller === 'private-user'}
-			title="Stato controllo della sessione"
+			title={m.browser_controller_title()}
 		>
 			{#if activeTab?.controller === 'private-user'}
-				Privato
+				{m.browser_controller_private()}
 			{:else if activeTab?.controller === 'user'}
 				Utente
 			{:else}
-				Agente
+				{m.project_popover_speaker_agent()}
 			{/if}
 		</span>
 
@@ -1247,9 +1249,9 @@
 				type="button"
 				class="tool-btn return-control-btn"
 				onclick={handleReturnControl}
-				title="Restituisci il controllo della scheda all'agente"
+				title={m.ui_browserviewer_restituisci_il_controllo_della_scheda_all_agente_c47d()}
 			>
-				<IconArrowLeft /> Rilascia all'Agente
+				<IconArrowLeft /> {m.browser_btn_release_to_agent()}
 			</button>
 		{/if}
 
@@ -1260,10 +1262,10 @@
 				class:active={activeTab.controller === 'private-user'}
 				onclick={handleTogglePrivacy}
 				title={activeTab.controller === 'private-user'
-					? "Disattiva modalità privata (ripristina visibilità utente standard)"
-					: "Attiva modalità privata (oscura transcript, screenshot e dati all'agente)"}
+					? m.ui_browserviewer_disattiva_modalita_privata_ripristina_visibilita_utente_standard_8136()
+					: m.ui_browserviewer_attiva_modalita_privata_oscura_transcript_screenshot_e_f83c()}
 			>
-				<IconLock /> {activeTab.controller === 'private-user' ? 'Privato' : 'Privato'}
+				<IconLock /> {activeTab.controller === 'private-user' ? m.browser_controller_private() : m.browser_controller_private()}
 			</button>
 		{/if}
 
@@ -1276,7 +1278,7 @@
 			title="Ispeziona elemento (Alt+I)"
 			aria-label="Ispeziona elemento"
 		>
-			<IconInspect /> Ispeziona
+			<IconInspect /> {m.browser_inspect_element_btn()}
 		</button>
 
 		<button
@@ -1284,10 +1286,10 @@
 			class="tool-btn inspector-btn"
 			class:active={isInspectorOpen}
 			onclick={toggleInspector}
-			title="Apri Inspector mirato (Console, Network, Actions)"
+			title={m.ui_browserviewer_apri_inspector_mirato_console_network_actions_00be()}
 			aria-label="Inspector mirato"
 		>
-			<IconTerminal /> Inspector
+			<IconTerminal /> {m.browser_inspector_btn()}
 			{#if errorCount > 0}
 				<span class="inspector-err-badge" title="{errorCount} errori console">{errorCount}</span>
 			{:else if failedNetworkCount > 0}
@@ -1306,10 +1308,10 @@
 					title="Permessi della pagina: appunti, geolocalizzazione, notifiche"
 					aria-expanded={isCapabilityMenuOpen}
 				>
-					<IconLock /> Permessi
+					<IconLock /> {m.browser_permissions_btn()}
 				</button>
 				{#if isCapabilityMenuOpen}
-					<div class="capability-menu" role="group" aria-label="Permessi della pagina">
+					<div class="capability-menu" role="group" aria-label={m.browser_permissions_menu_aria()}>
 						<p class="capability-menu-origin">{extractOrigin(activeTab.url) || activeTab.url}</p>
 						{#each BROWSER_CAPABILITIES as capability}
 							<div class="capability-row">
@@ -1353,12 +1355,12 @@
 				onclick={toggleRecording}
 				disabled={recording?.status === 'stopping'}
 				title={isRecording
-					? 'Interrompi la registrazione locale della scheda'
+					? m.ui_browserviewer_interrompi_la_registrazione_locale_della_scheda_9af8()
 					: 'Registra la scheda in un artifact video locale'}
 			>
 				<span class="recording-dot" class:live={isRecording} aria-hidden="true"></span>
 				{#if recording?.status === 'stopping'}
-					Chiusura...
+					{m.browser_recording_stopping()}
 				{:else if isRecording}
 					Stop ({recording?.frameCount ?? 0} fotogrammi)
 				{:else}
@@ -1373,11 +1375,11 @@
 			class="tool-btn"
 			disabled={!currentFrame}
 			onclick={copyScreenshot}
-			title="Copia screenshot negli appunti"
-			aria-label="Copia screenshot"
+			title={m.ui_browserviewer_copia_screenshot_negli_appunti_e888()}
+			aria-label={m.browser_copy_screenshot()}
 		>
 			{#if copiedScreenshot}
-				<IconCheck /> Copiato!
+				<IconCheck /> {m.browser_copied()}
 			{:else}
 				<IconCamera /> Cattura
 			{/if}
@@ -1387,8 +1389,8 @@
 			type="button"
 			class="tool-btn close"
 			onclick={() => onClose?.()}
-			title="Chiudi (Esc)"
-			aria-label="Chiudi visualizzatore browser"
+			title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()}
+			aria-label={m.browser_close_viewer()}
 		>
 			<IconClose />
 		</button>
@@ -1409,20 +1411,20 @@
 		>
 			<div class="relay-picker-head">
 				<div>
-					<strong id="relay-picker-title">Scegli una scheda Chrome</strong>
-					<span>Studio potra leggere e controllare soltanto la scheda concessa.</span>
+					<strong id="relay-picker-title">{m.browser_relay_picker_title()}</strong>
+					<span>{m.browser_relay_picker_sub()}</span>
 				</div>
-				<button type="button" class="tool-btn" aria-label="Chiudi selettore" onclick={() => { relayPickerOpen = false; relayTargets = []; }}><IconClose /></button>
+				<button type="button" class="tool-btn" aria-label={m.ui_browserviewer_chiudi_selettore_f279()} onclick={() => { relayPickerOpen = false; relayTargets = []; }}><IconClose /></button>
 			</div>
 			{#if relayDiagnostic}
 				<p class="relay-diagnostic"><IconWarning /> {relayDiagnostic}</p>
 		{:else if relayTargets.length === 0}
-				<p class="relay-empty">Nessuna scheda collegabile. Verifica che il Relay OMP esistente sia attivo.</p>
+				<p class="relay-empty">{m.browser_relay_empty()}</p>
 			{:else}
 				<div class="relay-targets" role="list">
 					{#each relayTargets as target (target.targetId)}
 						<button type="button" class="relay-target" disabled={relayBusy} onclick={() => authorizeRelayTarget(target.targetId)}>
-							<span>{target.title || 'Scheda senza titolo'}</span>
+							<span>{target.title || m.browser_relay_untitled_tab()}</span>
 							<small>{target.origin}{target.active ? ' · attiva' : ''}</small>
 						</button>
 					{/each}
@@ -1448,9 +1450,9 @@
 				<div class="origin-consent-info">
 					<span class="origin-consent-icon" aria-hidden="true"><IconWarning /></span>
 					<div class="origin-consent-text">
-						<p class="origin-consent-title">Autorizzazione origine remota richiesta</p>
+						<p class="origin-consent-title">{m.browser_consent_origin_title()}</p>
 						<p class="origin-consent-desc">
-							L'agente richiede di navigare verso l'origine <strong>{extractOrigin(activeTab.url) || activeTab.url}</strong>.
+							{m.ui_browserviewer_l_agente_richiede_di_navigare_verso_l_1e06()} <strong>{extractOrigin(activeTab.url) || activeTab.url}</strong>.
 						</p>
 					</div>
 				</div>
@@ -1461,7 +1463,7 @@
 						onclick={() => decideOrigin('grant')}
 						disabled={originBusy}
 					>
-						Consenti per questo progetto
+						{m.ui_browserviewer_consenti_per_questo_progetto_6b61()}
 					</button>
 					<button
 						type="button"
@@ -1481,18 +1483,18 @@
 					<span class="origin-consent-icon" aria-hidden="true"><IconWarning /></span>
 					<div class="origin-consent-text">
 						<p class="origin-consent-title">
-							La pagina chiede {pendingChooser.mode === 'multiple' ? 'dei file' : 'un file'}
+							La pagina chiede {pendingChooser.mode === 'multiple' ? m.ui_browserviewer_dei_file_33d3() : m.ui_browserviewer_un_file_1251()}
 						</p>
 						<p class="origin-consent-desc">
-							Nessun percorso viene concesso automaticamente: scegli tu i file nel dialogo di sistema.
+							{m.browser_consent_file_desc()}
 						</p>
 					</div>
 				</div>
 				<div class="origin-consent-actions">
 					<button type="button" class="btn-consent-grant" disabled={uploadBusy} onclick={chooseUploadFiles}>
-						{uploadBusy ? 'Selezione in corso...' : 'Scegli file'}
+						{uploadBusy ? m.browser_consent_choose_file_busy() : m.browser_consent_choose_file()}
 					</button>
-					<button type="button" class="btn-consent-deny" onclick={cancelChooser}>Annulla</button>
+					<button type="button" class="btn-consent-deny" onclick={cancelChooser}>{m.common_cancel()}</button>
 				</div>
 			</div>
 		{/if}
@@ -1503,27 +1505,26 @@
 				<div class="origin-consent-info">
 					<span class="origin-consent-icon" aria-hidden="true"><IconWarning /></span>
 					<div class="origin-consent-text">
-						<p class="origin-consent-title">Download da origine remota</p>
+						<p class="origin-consent-title">{m.browser_consent_download_title()}</p>
 						<p class="origin-consent-desc">
 							<strong>{download.suggestedFilename}</strong> ({formatBytes(download.receivedBytes)}) da
-							<strong>{download.origin || download.url}</strong>. Il file e' in quarantena e non e' ancora un
-							artifact della chat.
+							<strong>{download.origin || download.url}</strong>{m.ui_browserviewer_il_file_e_in_quarantena_e_non_34e1()}
 						</p>
 					</div>
 				</div>
 				<div class="origin-consent-actions">
 					<button type="button" class="btn-consent-grant" onclick={() => decideDownload(download.downloadId, true)}>
-						Salva negli artifact
+						{m.browser_consent_download_save()}
 					</button>
 					<button type="button" class="btn-consent-deny" onclick={() => decideDownload(download.downloadId, false)}>
-						Elimina
+						{m.browser_consent_download_delete()}
 					</button>
 				</div>
 			</div>
 		{/each}
 		</div>
 		{#if openDialog}
-			<div class="js-dialog-backdrop" role="alertdialog" aria-modal="true" aria-label="Dialogo della pagina">
+			<div class="js-dialog-backdrop" role="alertdialog" aria-modal="true" aria-label={m.browser_dialog_page_title()}>
 				<div
 					class="js-dialog"
 					use:trapFocus={{
@@ -1532,9 +1533,9 @@
 				>
 					<p class="js-dialog-kind">
 						{#if openDialog.kind === 'beforeunload'}
-							La pagina chiede conferma prima di lasciarla
+							{m.browser_dialog_beforeunload()}
 						{:else if openDialog.kind === 'confirm'}
-							Conferma richiesta dalla pagina
+							{m.ui_browserviewer_conferma_richiesta_dalla_pagina_1c4b()}
 						{:else if openDialog.kind === 'prompt'}
 							Richiesta di inserimento dalla pagina
 						{:else}
@@ -1542,7 +1543,7 @@
 						{/if}
 					</p>
 					<p class="js-dialog-origin">{extractOrigin(openDialog.url) || openDialog.url}</p>
-					<p class="js-dialog-message">{openDialog.message || '(nessun messaggio)'}</p>
+					<p class="js-dialog-message">{openDialog.message || m.browser_dialog_no_message()}</p>
 					{#if openDialog.kind === 'prompt'}
 						<!-- svelte-ignore a11y_autofocus -->
 						<input
@@ -1550,20 +1551,20 @@
 							class="js-dialog-input"
 							bind:value={promptAnswer}
 							autofocus
-							aria-label="Risposta al prompt della pagina"
+							aria-label={m.browser_dialog_prompt_aria()}
 						/>
 					{/if}
 					<p class="js-dialog-note">
-						L'esecuzione dell'agente su questa scheda e' stata interrotta: la pagina resta bloccata finche' non rispondi.
+						{m.browser_dialog_paused_note()}
 					</p>
 					<div class="js-dialog-actions">
 						{#if openDialog.kind !== 'alert'}
 							<button type="button" class="btn-consent-deny" onclick={() => respondDialog(false)}>
-								{openDialog.kind === 'beforeunload' ? 'Resta sulla pagina' : 'Annulla'}
+								{openDialog.kind === 'beforeunload' ? m.browser_dialog_stay() : m.common_cancel()}
 							</button>
 						{/if}
 						<button type="button" class="btn-consent-grant" onclick={() => respondDialog(true)}>
-							{openDialog.kind === 'beforeunload' ? 'Lascia la pagina' : 'OK'}
+							{openDialog.kind === 'beforeunload' ? m.browser_dialog_leave() : 'OK'}
 						</button>
 					</div>
 				</div>
@@ -1593,7 +1594,7 @@
 						</button>
 					{:else}
 						<span class="artifact-chip rejected" title={download.error ?? ''}>
-							{download.suggestedFilename} · {download.status === 'denied' ? 'eliminato' : 'fallito'}
+							{download.suggestedFilename} · {download.status === 'denied' ? 'eliminato' : m.ui_browserviewer_fallito_ca59()}
 						</span>
 					{/if}
 				{/each}
@@ -1607,16 +1608,16 @@
 						Registrazione · {recording.frameCount} fotogrammi · {formatBytes(recording.bytes)}
 					</button>
 				{:else if recording && recording.status === 'failed'}
-					<span class="artifact-chip rejected" title={recording.error ?? ''}>Registrazione fallita</span>
+					<span class="artifact-chip rejected" title={recording.error ?? ''}>{m.ui_browserviewer_registrazione_fallita_d34b()}</span>
 				{/if}
 			</div>
 		{/if}
 		{#if !tabs.length}
 			<div class="center-note">
 				<span class="note-icon"><IconGlobe /></span>
-				<p class="note-title">Nessuna sessione browser attiva</p>
+				<p class="note-title">{m.browser_empty_title()}</p>
 				<p class="note-desc">
-					Avvia un comando o task che utilizza il tool <code>browser</code> per visualizzare lo stream live della pagina.
+					{m.ui_browserviewer_avvia_un_comando_o_task_che_utilizza_f0ce()} <code>browser</code> per visualizzare lo stream live della pagina.
 				</p>
 			</div>
 		{:else if currentFrame}
@@ -1628,7 +1629,7 @@
 				style:width={DEVICE_WIDTHS[device]}
 				role="application"
 				tabindex="0"
-				aria-label="Superficie live browser. Premi per interagire con mouse o tastiera"
+				aria-label={m.browser_stage_aria()}
 				onpointerenter={() => (isHovering = true)}
 				onpointerleave={() => {
 					isHovering = false;
@@ -1685,7 +1686,7 @@
 						</span>
 					{/if}
 					{#if isPickerActive}
-						<span class="meta-item picker-indicator">Picker Attivo (clicca per selezionare, Esc per uscire)</span>
+						<span class="meta-item picker-indicator">{m.browser_picker_indicator()}</span>
 					{/if}
 				</div>
 
@@ -1699,16 +1700,16 @@
 					<div class="stream-overlay" role="status">
 						{#if streamStatus === 'error'}
 							<span class="note-icon error"><IconWarning /></span>
-							<p class="note-title">Errore stream live</p>
+							<p class="note-title">{m.browser_stream_err_title()}</p>
 						{:else}
 							<span class="spinner"></span>
 							<p class="note-title">
-								{streamStatus === 'disconnected' ? 'Stream live interrotto' : 'Riconnessione allo stream live'}
+								{streamStatus === 'disconnected' ? m.browser_stream_disconnected_title() : m.browser_stream_reconnect_title()}
 							</p>
 						{/if}
-						<p class="note-desc">{streamError || 'Fotogramma non aggiornato: in attesa del canale live.'}</p>
+						<p class="note-desc">{streamError || m.ui_browserviewer_fotogramma_non_aggiornato_in_attesa_del_canale_2649()}</p>
 						<button type="button" class="tool-btn" onclick={retryStream}>
-							<IconRefresh /> Riprova ora
+							<IconRefresh /> {m.browser_stream_retry_btn()}
 						</button>
 					</div>
 				{/if}
@@ -1716,25 +1717,25 @@
 		{:else if streamStatus === 'error'}
 			<div class="center-note error" role="alert">
 				<span class="note-icon error"><IconWarning /></span>
-				<p class="note-title">Errore stream live</p>
+				<p class="note-title">{m.browser_stream_err_title()}</p>
 				<p class="note-desc">{streamError || 'Impossibile connettersi al WebSocket live'}</p>
 				<button type="button" class="tool-btn" onclick={retryStream} style="margin-top: var(--space-3);">
-					<IconRefresh /> Riprova connessione
+					<IconRefresh /> {m.browser_stream_retry_conn()}
 				</button>
 			</div>
 		{:else if streamStatus === 'disconnected'}
 			<div class="center-note" role="status">
 				<span class="spinner"></span>
 				<p class="note-title">Stream live disconnesso</p>
-				<p class="note-desc">{streamError || 'Riconnessione automatica in corso...'}</p>
+				<p class="note-desc">{streamError || m.ui_browserviewer_riconnessione_automatica_in_corso_f7ab()}</p>
 				<button type="button" class="tool-btn" onclick={retryStream} style="margin-top: var(--space-3);">
-					<IconRefresh /> Riprova ora
+					<IconRefresh /> {m.browser_stream_retry_btn()}
 				</button>
 			</div>
 		{:else}
 			<div class="center-note">
 				<span class="spinner"></span>
-				<p class="note-title">Connessione allo stream live in corso...</p>
+				<p class="note-title">{m.ui_browserviewer_connessione_allo_stream_live_in_corso_3962()}</p>
 				<p class="note-desc">Aggancio al canale loopback autenticato di Chromium gestito.</p>
 			</div>
 		{/if}
@@ -1766,7 +1767,7 @@
 						aria-selected={activeInspectorTab === 'console'}
 						onclick={() => (activeInspectorTab = 'console')}
 					>
-						<IconTerminal /> Console
+						<IconTerminal /> {m.browser_tab_console()}
 						{#if errorCount > 0}
 							<span class="tab-badge error">{errorCount}</span>
 						{:else if consoleEntries.length > 0}
@@ -1781,7 +1782,7 @@
 						aria-selected={activeInspectorTab === 'network'}
 						onclick={() => (activeInspectorTab = 'network')}
 					>
-						<IconNetwork /> Rete
+						<IconNetwork /> {m.browser_tab_network()}
 						{#if failedNetworkCount > 0}
 							<span class="tab-badge error">{failedNetworkCount}</span>
 						{:else if networkEntries.length > 0}
@@ -1796,7 +1797,7 @@
 						aria-selected={activeInspectorTab === 'actions'}
 						onclick={() => (activeInspectorTab = 'actions')}
 					>
-						<IconHistory /> Actions
+						<IconHistory /> {m.browser_tab_actions()}
 						{#if actionEntries.length > 0}
 							<span class="tab-badge">{actionEntries.length}</span>
 						{/if}
@@ -1810,9 +1811,9 @@
 							type="button"
 							class="inspector-action-btn attach-btn"
 							onclick={() => attachContextToPrompt('element')}
-							title="Invia dettagli e ritaglio dell'elemento al prompt"
+							title={m.ui_browserviewer_invia_dettagli_e_ritaglio_dell_elemento_al_b1eb()}
 						>
-							<IconSend /> Allega elemento al prompt
+							<IconSend /> {m.browser_btn_attach_element()}
 						</button>
 					{:else if activeInspectorTab === 'console' && consoleEntries.length > 0}
 						<button
@@ -1830,7 +1831,7 @@
 							onclick={() => handleClearBuffer('console')}
 							title="Cancella log console"
 						>
-							<IconClear /> Svuota
+							<IconClear /> {m.browser_btn_clear()}
 						</button>
 					{:else if activeInspectorTab === 'network' && networkEntries.length > 0}
 						<button
@@ -1848,7 +1849,7 @@
 							onclick={() => handleClearBuffer('network')}
 							title="Cancella log di rete"
 						>
-							<IconClear /> Svuota
+							<IconClear /> {m.browser_btn_clear()}
 						</button>
 					{:else if activeInspectorTab === 'actions' && actionEntries.length > 0}
 						<button
@@ -1857,7 +1858,7 @@
 							onclick={() => handleClearBuffer('actions')}
 							title="Cancella timeline azioni"
 						>
-							<IconClear /> Svuota
+							<IconClear /> {m.browser_btn_clear()}
 						</button>
 					{/if}
 
@@ -1865,8 +1866,8 @@
 						type="button"
 						class="tool-btn icon-btn"
 						onclick={() => (isInspectorOpen = false)}
-						title="Chiudi pannello Inspector"
-						aria-label="Chiudi Inspector"
+						title={m.ui_browserviewer_chiudi_pannello_inspector_c43d()}
+						aria-label={m.ui_browserviewer_chiudi_inspector_e1dd()}
 					>
 						<IconClose />
 					</button>
@@ -1891,12 +1892,12 @@
 										type="button"
 										class="mini-copy-btn"
 										onclick={copySelectorText}
-										title="Copia selettore CSS negli appunti"
+										title={m.ui_browserviewer_copia_selettore_css_negli_appunti_3f94()}
 									>
 										{#if copiedSelector}
-											<IconCheck /> Copiato!
+											<IconCheck /> {m.browser_copied()}
 										{:else}
-											<IconCopy /> Copia selettore
+											<IconCopy /> {m.browser_btn_copy_selector()}
 										{/if}
 									</button>
 								</div>
@@ -1909,11 +1910,11 @@
 
 							<div class="element-meta-grid">
 								<div class="meta-field">
-									<span class="field-label">Ruolo ARIA</span>
+									<span class="field-label">{m.browser_field_aria_role()}</span>
 									<span class="field-val">{inspectedElement.role || '—'}</span>
 								</div>
 								<div class="meta-field">
-									<span class="field-label">Nome accessibile</span>
+									<span class="field-label">{m.browser_field_accessible_name()}</span>
 									<span class="field-val">{inspectedElement.accessibleName || '—'}</span>
 								</div>
 								<div class="meta-field">
@@ -1923,14 +1924,14 @@
 									</span>
 								</div>
 								<div class="meta-field">
-									<span class="field-label">Testo</span>
+									<span class="field-label">{m.browser_field_text()}</span>
 									<span class="field-val text-truncate">{inspectedElement.text || '—'}</span>
 								</div>
 							</div>
 
 							{#if Object.keys(inspectedElement.computedStyles).length > 0}
 								<div class="element-styles-section">
-									<span class="section-sub-title">Stili rilevanti:</span>
+									<span class="section-sub-title">{m.browser_field_relevant_styles()}</span>
 									<div class="styles-chip-cloud">
 										{#each Object.entries(inspectedElement.computedStyles) as [prop, val]}
 											<span class="style-chip">
@@ -1944,9 +1945,9 @@
 					{:else}
 						<div class="inspector-empty-state">
 							<span class="empty-icon"><IconInspect /></span>
-							<p class="empty-text">Nessun elemento selezionato</p>
+							<p class="empty-text">{m.browser_no_element_selected()}</p>
 							<p class="empty-hint">
-								Attiva <strong>Ispeziona</strong> (Alt+I) nella barra superiore o clicca su qualsiasi punto della pagina live.
+								Attiva <strong>{m.browser_inspect_element_btn()}</strong> (Alt+I) nella barra superiore o clicca su qualsiasi punto della pagina live.
 							</p>
 						</div>
 					{/if}
@@ -1993,7 +1994,7 @@
 							<input
 								type="text"
 								class="filter-search-input"
-								placeholder="Cerca nei log..."
+								placeholder={m.browser_filter_search_placeholder()}
 								bind:value={consoleSearchQuery}
 							/>
 						</div>
@@ -2002,7 +2003,7 @@
 					<div class="tab-list-scroll">
 						{#if filteredConsoleEntries.length === 0}
 							<div class="inspector-empty-state mini">
-								<p class="empty-text">Nessun messaggio console</p>
+								<p class="empty-text">{m.browser_no_console_messages()}</p>
 							</div>
 						{:else}
 							{#each filteredConsoleEntries as item (item.id)}
@@ -2064,7 +2065,7 @@
 							<input
 								type="text"
 								class="filter-search-input"
-								placeholder="Filtra URL..."
+								placeholder={m.browser_filter_url_placeholder()}
 								bind:value={networkSearchQuery}
 							/>
 						</div>
@@ -2073,7 +2074,7 @@
 					<div class="tab-list-scroll">
 						{#if filteredNetworkEntries.length === 0}
 							<div class="inspector-empty-state mini">
-								<p class="empty-text">Nessuna richiesta di rete</p>
+								<p class="empty-text">{m.browser_no_network_requests()}</p>
 							</div>
 						{:else}
 							{#each filteredNetworkEntries as req (req.id)}
@@ -2100,11 +2101,11 @@
 								{#if selectedNetworkRequestId === req.requestId}
 									<div class="network-detail-pane">
 										{#if req.errorText}
-											<div class="detail-err-banner">Errore: {req.errorText}</div>
+											<div class="detail-err-banner">{m.ui_browserviewer_errore_873d()} {req.errorText}</div>
 										{/if}
 										{#if req.headers}
 											<div class="detail-section">
-												<span class="detail-label">Headers (redatti):</span>
+												<span class="detail-label">{m.browser_headers_label()}</span>
 												<div class="detail-headers">
 													{#each Object.entries(req.headers) as [hk, hv]}
 														<div class="header-line"><strong>{hk}:</strong> {hv}</div>
@@ -2114,12 +2115,12 @@
 										{/if}
 										{#if req.body}
 											<div class="detail-section">
-												<span class="detail-label">Corpo risposta:</span>
+												<span class="detail-label">{m.browser_response_body_label()}</span>
 												<pre class="body-pre">{req.body}</pre>
 											</div>
 										{:else if req.hasBody}
 											<div class="detail-section">
-												<span class="detail-label muted">Corpo disponibile su richiesta (clicca per ricaricare)</span>
+												<span class="detail-label muted">{m.browser_response_body_available()}</span>
 											</div>
 										{/if}
 									</div>
@@ -2136,7 +2137,7 @@
 							<input
 								type="text"
 								class="filter-search-input"
-								placeholder="Cerca nella timeline azioni..."
+								placeholder={m.browser_search_actions_placeholder()}
 								bind:value={actionSearchQuery}
 							/>
 						</div>
@@ -2145,12 +2146,12 @@
 					<div class="tab-list-scroll">
 						{#if filteredActionEntries.length === 0}
 							<div class="inspector-empty-state mini">
-								<p class="empty-text">Nessuna azione registrata</p>
+								<p class="empty-text">{m.browser_no_recorded_actions()}</p>
 							</div>
 						{:else}
 							{#each filteredActionEntries as act (act.id)}
 								<div class="action-row">
-									<span class="action-time">{new Date(act.timestamp).toLocaleTimeString()}</span>
+									<span class="action-time">{i18n.formatDate(act.timestamp, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
 									<span class="action-kind-pill {act.kind}">{act.kind}</span>
 									<span class="action-label">{act.label}</span>
 									{#if act.details}

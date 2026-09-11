@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import {
 		IconInspect,
 		IconCamera,
@@ -67,7 +68,7 @@
 		try {
 			currentVp = await visualTools.setViewport(preset);
 		} catch (err) {
-			console.error('Errore cambio viewport:', err);
+			console.error(m.ui_labvisualtoolbar_errore_cambio_viewport_779c(), err);
 		}
 	}
 
@@ -80,7 +81,7 @@
 			isStale = false;
 			activeSelection = visualTools.getActiveSelection();
 		} else {
-			revalidationFeedback = `Rivalidazione fallita: ${res.message}`;
+			revalidationFeedback = m.ui_labvisualtoolbar_rivalidazione_fallita_value1_3f23({ value1: res.message });
 			isStale = true;
 			activeSelection = null;
 		}
@@ -94,7 +95,7 @@
 		try {
 			await visualTools.captureScreenshot(activeSelection ? 'element' : 'viewport');
 		} catch (err) {
-			console.error('Errore cattura:', err);
+			console.error(m.ui_labvisualtoolbar_errore_cattura_4dd7(), err);
 		} finally {
 			isCapturing = false;
 		}
@@ -173,7 +174,7 @@
 			}}
 			title="Modalita Interazione: usa il prototipo come un utente reale"
 		>
-			Interazione
+			{m.lab_visual_interaction_mode()}
 		</button>
 		<button
 			type="button"
@@ -183,10 +184,10 @@
 				visualTools.setMode('select');
 				mode = 'select';
 			}}
-			title="Modalita Selezione: ispeziona elementi DOM in sola lettura"
+			title={m.ui_labvisualtoolbar_modalita_selezione_ispeziona_elementi_dom_in_sola_f48c()}
 		>
 			<IconInspect />
-			<span>Seleziona elemento</span>
+			<span>{m.lab_visual_selection_mode()}</span>
 		</button>
 	</div>
 
@@ -243,14 +244,14 @@
 					onclick={handleRevalidate}
 					title="Rivalida l elemento sulla revisione osservata corrente"
 				>
-					<IconRefresh /> Rivalida
+					<IconRefresh /> {m.lab_visual_revalidate_btn()}
 				</button>
 			{/if}
 			<button
 				type="button"
 				class="btn-chip-close"
 				onclick={() => visualTools.clearSelection()}
-				title="Annulla selezione"
+				title={m.lab_visual_cancel_selection()}
 			>
 				<IconClose />
 			</button>
@@ -274,16 +275,16 @@
 			title="Cattura screenshot del viewport o elemento selezionato"
 		>
 			<IconCamera />
-			<span>{isCapturing ? 'Cattura...' : 'Screenshot'}</span>
+			<span>{isCapturing ? 'Cattura...' : m.lab_visual_screenshot_btn()}</span>
 		</button>
 		<button
 			type="button"
 			class="btn-action primary"
 			onclick={handleOpenAnnotate}
-			title="Aggiungi un annotazione e inviala con la richiesta all agente"
+			title={m.ui_labvisualtoolbar_aggiungi_un_annotazione_e_inviala_con_la_106a()}
 		>
 			<IconSend />
-			<span>Annota</span>
+			<span>{m.lab_visual_annotate_btn()}</span>
 		</button>
 	</div>
 </div>
@@ -342,18 +343,18 @@
 				{/if}
 
 				<div class="field-wrap">
-					<label for="annotation-text">Cosa vuoi modificare o chiedere all'agente?</label>
+					<label for="annotation-text">{m.ui_labvisualtoolbar_cosa_vuoi_modificare_o_chiedere_all_agente_d36c()}</label>
 					<textarea
 						id="annotation-text"
 						bind:value={annotationComment}
-						placeholder="Es. Riduci il padding, usa un colore piu caldo o cambia il testo in..."
+						placeholder={m.lab_visual_annotate_placeholder()}
 						rows="3"
 					></textarea>
 				</div>
 
 				<label class="checkbox-label">
 					<input type="checkbox" bind:checked={includeScreenshot} />
-					<span>Includi cattura schermata nello stato attuale</span>
+					<span>{m.ui_labvisualtoolbar_includi_cattura_schermata_nello_stato_attuale_5e57()}</span>
 				</label>
 			</div>
 
@@ -370,10 +371,10 @@
 				{/if}
 				<div class="spacer"></div>
 				<button type="button" class="btn-secondary" onclick={() => (showAnnotateModal = false)}>
-					Annulla
+					{m.common_cancel()}
 				</button>
 				<button type="button" class="btn-primary" onclick={handleSubmitAnnotation}>
-					<IconSend /> Invia con richiesta
+					<IconSend /> {m.ui_labvisualtoolbar_invia_con_richiesta_2a63()}
 				</button>
 			</div>
 		</div>

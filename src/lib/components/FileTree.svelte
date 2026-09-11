@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { slide } from 'svelte/transition';
@@ -363,16 +364,16 @@
 	function getStatusTitle(status: string | null, isDirectory: boolean): string {
 		if (!status) return '';
 		if (isDirectory) {
-			return status === 'U' ? 'Contiene file non tracciati' : 'Contiene modifiche git (in attesa di commit)';
+			return status === 'U' ? m.ui_filetree_contiene_file_non_tracciati_9bb3() : m.ui_filetree_contiene_modifiche_git_in_attesa_di_commit_7cb6();
 		}
 		switch (status) {
-			case 'M': return 'Modificato (in attesa di commit)';
-			case 'A': return 'Aggiunto (in attesa di commit)';
-			case 'U': return 'Non tracciato (in attesa di commit)';
-			case 'D': return 'Rimosso (in attesa di commit)';
-			case 'R': return 'Rinominato (in attesa di commit)';
+			case 'M': return m.ui_filetree_modificato_in_attesa_di_commit_45d7();
+			case 'A': return m.ui_filetree_aggiunto_in_attesa_di_commit_3d4a();
+			case 'U': return m.ui_filetree_non_tracciato_in_attesa_di_commit_36ca();
+			case 'D': return m.ui_filetree_rimosso_in_attesa_di_commit_e3cf();
+			case 'R': return m.ui_filetree_rinominato_in_attesa_di_commit_f9b2();
 			case 'C': return 'Conflitto git';
-			default: return 'Modificato (in attesa di commit)';
+			default: return m.ui_filetree_modificato_in_attesa_di_commit_45d7();
 		}
 	}
 
@@ -395,7 +396,7 @@
 		try {
 			await navigator.clipboard.writeText(text);
 		} catch (err) {
-			console.error('Errore copia negli appunti:', err);
+			console.error(m.ui_filetree_errore_copia_negli_appunti_7b94(), err);
 		}
 	}
 
@@ -412,7 +413,7 @@
 				...(targetRel ? { rel: targetRel } : {})
 			});
 		} catch (err) {
-			console.error('Errore apertura terminale:', err);
+			console.error(m.ui_filetree_errore_apertura_terminale_ce02(), err);
 		}
 	}
 
@@ -612,7 +613,7 @@
 		const items: ContextMenuEntry[] = [
 			{
 				kind: 'item',
-				label: 'Apri',
+				label: m.file_tree_menu_open(),
 				icon: IconFile,
 				run: () => onFileSelect?.(relPath)
 			}
@@ -621,7 +622,7 @@
 		if (fileStatus && onFileDiff) {
 			items.push({
 				kind: 'item',
-				label: 'Diff Git',
+				label: m.file_tree_menu_git_diff(),
 				icon: IconGitBranch,
 				run: () => onFileDiff?.(relPath)
 			});
@@ -631,13 +632,13 @@
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Copia percorso relativo',
+				label: m.file_tree_menu_copy_rel_path(),
 				icon: IconCopy,
 				run: () => void copyText(relPath)
 			},
 			{
 				kind: 'item',
-				label: 'Copia percorso completo',
+				label: m.file_tree_menu_copy_full_path(),
 				icon: IconCopy,
 				run: () => void copyText(fullPath)
 			},
@@ -650,19 +651,19 @@
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Rinomina…',
+				label: m.file_tree_menu_rename(),
 				icon: IconRename,
 				disabled: isDirty,
-				hint: isDirty ? 'Salva le modifiche prima di rinominare' : undefined,
+				hint: isDirty ? m.ui_filetree_salva_le_modifiche_prima_di_rinominare_60a1() : undefined,
 				run: () => void startRename()
 			},
 			{
 				kind: 'item',
-				label: 'Sposta nel Cestino',
+				label: m.file_tree_menu_trash(),
 				icon: IconTrash,
 				danger: true,
 				disabled: isDirty,
-				hint: isDirty ? 'Salva le modifiche prima di eliminare' : undefined,
+				hint: isDirty ? m.ui_filetree_salva_le_modifiche_prima_di_eliminare_9cd7() : undefined,
 				run: () => void trashItem()
 			}
 		);
@@ -681,39 +682,39 @@
 		const items: ContextMenuEntry[] = [
 			{
 				kind: 'item',
-				label: 'Nuovo file…',
+				label: m.file_tree_menu_new_file(),
 				icon: IconNewFile,
 				run: () => void startCreation('file')
 			},
 			{
 				kind: 'item',
-				label: 'Nuova cartella…',
+				label: m.file_tree_menu_new_folder(),
 				icon: IconNewFolder,
 				run: () => void startCreation('dir')
 			},
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Aggiorna',
+				label: m.file_tree_menu_refresh(),
 				icon: IconRefresh,
 				run: () => void loadEntries(true)
 			},
 			{
 				kind: 'item',
-				label: 'Apri nel terminale',
+				label: m.file_tree_menu_open_terminal(),
 				icon: IconTerminal,
 				run: () => void openInTerminal(relPath)
 			},
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Copia percorso relativo',
+				label: m.file_tree_menu_copy_rel_path(),
 				icon: IconCopy,
 				run: () => void copyText(relPath)
 			},
 			{
 				kind: 'item',
-				label: 'Copia percorso completo',
+				label: m.file_tree_menu_copy_full_path(),
 				icon: IconCopy,
 				run: () => void copyText(fullPath)
 			},
@@ -726,25 +727,25 @@
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Rinomina…',
+				label: m.file_tree_menu_rename(),
 				icon: IconRename,
 				disabled: isDirty,
-				hint: isDirty ? 'Salva le modifiche prima di rinominare' : undefined,
+				hint: isDirty ? m.ui_filetree_salva_le_modifiche_prima_di_rinominare_60a1() : undefined,
 				run: () => void startRename()
 			},
 			{
 				kind: 'item',
-				label: 'Sposta nel Cestino',
+				label: m.file_tree_menu_trash(),
 				icon: IconTrash,
 				danger: true,
 				disabled: isDirty,
-				hint: isDirty ? 'Salva le modifiche prima di eliminare' : undefined,
+				hint: isDirty ? m.ui_filetree_salva_le_modifiche_prima_di_eliminare_9cd7() : undefined,
 				run: () => void trashItem()
 			}
 		];
 
 		contextMenu.open(event, {
-			label: `Cartella: ${name}`,
+			label: m.ui_filetree_cartella_value1_7a84({ value1: name }),
 			items,
 			invoker: event.currentTarget as HTMLElement
 		});
@@ -756,26 +757,26 @@
 		const items: ContextMenuEntry[] = [
 			{
 				kind: 'item',
-				label: 'Nuovo file…',
+				label: m.file_tree_menu_new_file(),
 				icon: IconNewFile,
 				run: () => void startCreation('file')
 			},
 			{
 				kind: 'item',
-				label: 'Nuova cartella…',
+				label: m.file_tree_menu_new_folder(),
 				icon: IconNewFolder,
 				run: () => void startCreation('dir')
 			},
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Aggiorna',
+				label: m.file_tree_menu_refresh(),
 				icon: IconRefresh,
 				run: () => void refreshRoot()
 			},
 			{
 				kind: 'item',
-				label: 'Copia percorso completo',
+				label: m.file_tree_menu_copy_full_path(),
 				icon: IconCopy,
 				run: () => void copyText(projectPath)
 			},
@@ -787,7 +788,7 @@
 			},
 			{
 				kind: 'item',
-				label: 'Apri nel terminale',
+				label: m.file_tree_menu_open_terminal(),
 				icon: IconTerminal,
 				run: () => void openInTerminal('')
 			}
@@ -836,7 +837,7 @@
 		if (['png', 'jpg', 'jpeg', 'gif', 'ico', 'webp', 'bmp'].includes(ext)) return 'image';
 		if (['zip', 'tar', 'gz', '7z', 'rar'].includes(ext)) return 'archive';
 		if (ext === 'pdf') return 'pdf';
-		return 'file';
+		return m.ui_filetree_file_aa71();
 	}
 	function getParentDirectory(path: string): string {
 		const lastSlash = path.lastIndexOf('/');
@@ -1016,7 +1017,7 @@
 		const items: ContextMenuEntry[] = [
 			{
 				kind: 'item',
-				label: 'Apri',
+				label: m.file_tree_menu_open(),
 				icon: IconFile,
 				run: () => onFileSelect?.(res.path)
 			}
@@ -1025,7 +1026,7 @@
 		if (resStatus && onFileDiff) {
 			items.push({
 				kind: 'item',
-				label: 'Diff Git',
+				label: m.file_tree_menu_git_diff(),
 				icon: IconGitBranch,
 				run: () => onFileDiff?.(res.path)
 			});
@@ -1035,13 +1036,13 @@
 			{ kind: 'separator' },
 			{
 				kind: 'item',
-				label: 'Copia percorso relativo',
+				label: m.file_tree_menu_copy_rel_path(),
 				icon: IconCopy,
 				run: () => void copyText(res.path)
 			},
 			{
 				kind: 'item',
-				label: 'Copia percorso completo',
+				label: m.file_tree_menu_copy_full_path(),
 				icon: IconCopy,
 				run: () => void copyText(fullPath)
 			},
@@ -1056,14 +1057,14 @@
 		if (res.is_dir) {
 			items.push({
 				kind: 'item',
-				label: 'Apri nel terminale',
+				label: m.file_tree_menu_open_terminal(),
 				icon: IconTerminal,
 				run: () => void openInTerminal(res.path)
 			});
 		}
 
 		contextMenu.open(event, {
-			label: `${res.is_dir ? 'Cartella' : 'File'}: ${res.name}`,
+			label: `${res.is_dir ? m.ui_filetree_cartella_ee2c() : m.ui_filetree_file_8635()}: ${res.name}`,
 			items,
 			invoker: event.currentTarget as HTMLElement
 		});
@@ -1199,8 +1200,8 @@
 					value={searchQuery}
 					oninput={handleSearchInput}
 					onkeydown={handleSearchKeyDown}
-					placeholder="Filtra file nel progetto..."
-					aria-label="Filtra file nel progetto"
+					placeholder={m.file_tree_search_placeholder()}
+					aria-label={m.file_tree_search_aria()}
 					aria-controls="file-search-results"
 					spellcheck="false"
 					autocomplete="off"
@@ -1211,7 +1212,7 @@
 						class="clear-search-btn"
 						onclick={clearSearch}
 						title="Cancella ricerca (Esc)"
-						aria-label="Cancella ricerca"
+						aria-label={m.file_tree_clear_search()}
 					>
 						<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
 							<path d="M3 3l10 10M13 3L3 13" />
@@ -1222,12 +1223,12 @@
 			{#if searchQuery.trim()}
 				<div class="search-meta">
 					{#if searchLoading}
-						<span class="meta-label">Ricerca in corso...</span>
+						<span class="meta-label">{m.file_tree_searching()}</span>
 					{:else if searchError}
 						<span class="meta-label error">{searchError}</span>
 					{:else}
 						<span class="meta-label">
-							{searchResults.length === 1 ? '1 file trovato' : `${searchResults.length} file trovati`}
+							{searchResults.length === 1 ? m.ui_filetree_1_file_trovato_d26d() : `${searchResults.length} file trovati`}
 						</span>
 					{/if}
 				</div>
@@ -1237,21 +1238,21 @@
 
 	{#if level === 0 && searchQuery.trim()}
 		<!-- Vista Lista Risultati Ricerca -->
-		<div class="search-results" id="file-search-results" role="listbox" aria-label="Risultati ricerca file">
+		<div class="search-results" id="file-search-results" role="listbox" aria-label={m.file_tree_results_aria()}>
 			{#if searchLoading && searchResults.length === 0}
 				<div class="search-state loading">
 					<div class="search-spinner"></div>
-					<span>Ricerca file in corso...</span>
+					<span>{m.ui_filetree_ricerca_file_in_corso_c572()}</span>
 				</div>
 			{:else if searchError}
 				<div class="search-state error" role="alert">
 					<span>{searchError}</span>
-					<button type="button" class="retry-btn" onclick={() => void executeSearch(searchQuery)}>Riprova</button>
+					<button type="button" class="retry-btn" onclick={() => void executeSearch(searchQuery)}>{m.file_tree_retry()}</button>
 				</div>
 			{:else if searchResults.length === 0}
 				<div class="search-state empty">
-					<span>Nessun file corrisponde a "<strong>{searchQuery}</strong>"</span>
-					<button type="button" class="reset-btn" onclick={clearSearch}>Azzera filtro</button>
+					<span>{m.ui_filetree_nessun_file_corrisponde_a_b494()}<strong>{searchQuery}</strong>"</span>
+					<button type="button" class="reset-btn" onclick={clearSearch}>{m.file_tree_reset_filter()}</button>
 				</div>
 			{:else}
 				{#each searchResults as res, i (res.path)}
@@ -1411,10 +1412,10 @@
 								type="text"
 								class="inline-input"
 								class:has-error={!!creationError}
-								placeholder={creatingType === 'dir' ? 'Nome cartella' : 'Nome file'}
+								placeholder={creatingType === 'dir' ? m.file_tree_input_folder_placeholder() : m.file_tree_input_file_placeholder()}
 								onkeydown={handleCreationKeyDown}
 								onblur={handleCreationBlur}
-								aria-label={creatingType === 'dir' ? 'Nome nuova cartella' : 'Nome nuovo file'}
+								aria-label={creatingType === 'dir' ? m.ui_filetree_nome_nuova_cartella_6114() : m.ui_filetree_nome_nuovo_file_1264()}
 							/>
 						</form>
 					</div>
@@ -1453,7 +1454,7 @@
 				{:else if loadError}
 					<div class="load-error" style="padding-left: {(level + 1) * 12 + 24}px;">
 						<span class="error-text" title={loadError}>{loadError}</span>
-						<button type="button" class="retry-btn" onclick={() => void loadEntries(true)}>Riprova</button>
+						<button type="button" class="retry-btn" onclick={() => void loadEntries(true)}>{m.file_tree_retry()}</button>
 					</div>
 				{:else}
 					<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">Loading...</div>

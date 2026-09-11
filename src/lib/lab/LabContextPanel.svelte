@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import {
 		IconWarning,
 		IconRefresh,
@@ -36,12 +38,12 @@
 		updating = true;
 		try {
 			await onRefreshContext();
-			checkMessage = 'Contesto aggiornato con successo alla versione corrente del progetto.';
+			checkMessage = m.ui_labcontextpanel_contesto_aggiornato_con_successo_alla_versione_corrente_e654();
 			setTimeout(() => {
 				checkMessage = null;
 			}, 4000);
 		} catch (err) {
-			console.error('Errore aggiornamento contesto:', err);
+			console.error(m.ui_labcontextpanel_errore_aggiornamento_contesto_4742(), err);
 		} finally {
 			updating = false;
 		}
@@ -52,12 +54,12 @@
 		try {
 			await onCheckDrift();
 		} catch (err) {
-			console.error('Errore controllo drift contesto:', err);
+			console.error(m.ui_labcontextpanel_errore_controllo_drift_contesto_79db(), err);
 		}
 	}
 
 	function formatDate(ts: number): string {
-		return new Date(ts).toLocaleTimeString([], {
+		return i18n.formatDate(ts, {
 			hour: '2-digit',
 			minute: '2-digit',
 			second: '2-digit'
@@ -69,11 +71,11 @@
 	}
 </script>
 
-<div class="lab-context-panel" role="region" aria-label="Contesto stabile del progetto">
+<div class="lab-context-panel" role="region" aria-label={m.ui_labcontextpanel_contesto_stabile_del_progetto_7389()}>
 	<header class="panel-header">
 		<div class="title-row">
 			<IconContextWindow />
-			<h3>Contesto stabile del progetto</h3>
+			<h3>{m.ui_labcontextpanel_contesto_stabile_del_progetto_7389()}</h3>
 		</div>
 		<div class="header-actions">
 			{#if onCheckDrift}
@@ -82,10 +84,10 @@
 					class="btn-action"
 					onclick={handleCheckClick}
 					disabled={isLoading || updating}
-					title="Controlla se i file del progetto sono stati modificati nel working tree"
+					title={m.ui_labcontextpanel_controlla_se_i_file_del_progetto_sono_4268()}
 				>
 					<IconRefresh />
-					<span>Verifica modifiche</span>
+					<span>{m.ui_labcontextpanel_verifica_modifiche_128b()}</span>
 				</button>
 			{/if}
 		</div>
@@ -100,9 +102,9 @@
 
 	{#if !snapshot}
 		<div class="empty-state">
-			<p>Nessun contesto di progetto acquisito per questo prototipo.</p>
+			<p>{m.ui_labcontextpanel_nessun_contesto_di_progetto_acquisito_per_questo_2e89()}</p>
 			<p class="subtext">
-				Il Laboratorio puo acquisire file mirati del progetto in una versione stabile e congelata.
+				{m.ui_labcontextpanel_il_laboratorio_puo_acquisire_file_mirati_del_1447()}
 			</p>
 		</div>
 	{:else}
@@ -116,7 +118,7 @@
 					<strong>Acquisito alle:</strong> {formatDate(snapshot.capturedAt)}
 				</span>
 				<span class="meta-item">
-					<strong>File:</strong> {snapshot.files.length}
+					<strong>{m.ui_labcontextpanel_file_6900()}</strong> {snapshot.files.length}
 				</span>
 			</div>
 
@@ -137,9 +139,9 @@
 				<div class="drift-header">
 					<IconWarning />
 					<div class="drift-text">
-						<strong>File modificati nel progetto</strong>
+						<strong>{m.ui_labcontextpanel_file_modificati_nel_progetto_aea7()}</strong>
 						<p>
-							I seguenti {driftReport.changedPaths.length} file acquisiti sono stati modificati o rimossi nel working tree del progetto:
+							I seguenti {driftReport.changedPaths.length} {m.ui_labcontextpanel_file_acquisiti_sono_stati_modificati_o_rimossi_a9e1()}
 						</p>
 					</div>
 				</div>
@@ -166,14 +168,14 @@
 					>
 						{#if updating}
 							<IconRefresh />
-							<span>Aggiornamento in corso...</span>
+							<span>{m.quota_updating()}</span>
 						{:else}
 							<IconRefresh />
-							<span>Aggiorna contesto adesso</span>
+							<span>{m.ui_labcontextpanel_aggiorna_contesto_adesso_b924()}</span>
 						{/if}
 					</button>
 					<span class="drift-note">
-						L'aggiornamento congela la nuova versione dei file del progetto. Il codice del prototipo non viene rigenerato.
+						{m.ui_labcontextpanel_l_aggiornamento_congela_la_nuova_versione_dei_3907()}
 					</span>
 				</div>
 			</div>
@@ -182,7 +184,7 @@
 		<!-- 3. Tabella / elenco dei file acquisiti -->
 		<div class="files-container">
 			<div class="files-header">
-				<span>File acquisiti ({snapshot.files.length})</span>
+				<span>{m.ui_labcontextpanel_file_acquisiti_0123()}{snapshot.files.length})</span>
 				<span class="files-sub">I tool di contesto leggono questa versione stabile</span>
 			</div>
 
@@ -208,11 +210,11 @@
 
 								{#if drift}
 									{#if drift.status === 'unchanged'}
-										<span class="status-badge unchanged" title="Invariato rispetto al progetto">Stabile</span>
+										<span class="status-badge unchanged" title={m.ui_labcontextpanel_invariato_rispetto_al_progetto_a885()}>{m.studio_update_channel_stable()}</span>
 									{:else if drift.status === 'modified'}
-										<span class="status-badge modified" title="Modificato nel working tree del progetto">Modificato</span>
+										<span class="status-badge modified" title={m.ui_labcontextpanel_modificato_nel_working_tree_del_progetto_faac()}>Modificato</span>
 									{:else if drift.status === 'deleted'}
-										<span class="status-badge deleted" title="Eliminato nel working tree del progetto">Rimosso</span>
+										<span class="status-badge deleted" title={m.ui_labcontextpanel_eliminato_nel_working_tree_del_progetto_183e()}>Rimosso</span>
 									{/if}
 								{/if}
 							</div>
@@ -232,11 +234,11 @@
 
 								{#if drift}
 									{#if drift.status === 'unchanged'}
-										<span class="status-badge unchanged" title="Invariato rispetto al progetto">Stabile</span>
+										<span class="status-badge unchanged" title={m.ui_labcontextpanel_invariato_rispetto_al_progetto_a885()}>{m.studio_update_channel_stable()}</span>
 									{:else if drift.status === 'modified'}
-										<span class="status-badge modified" title="Modificato nel working tree del progetto">Modificato</span>
+										<span class="status-badge modified" title={m.ui_labcontextpanel_modificato_nel_working_tree_del_progetto_faac()}>Modificato</span>
 									{:else if drift.status === 'deleted'}
-										<span class="status-badge deleted" title="Eliminato nel working tree del progetto">Rimosso</span>
+										<span class="status-badge deleted" title={m.ui_labcontextpanel_eliminato_nel_working_tree_del_progetto_183e()}>Rimosso</span>
 									{/if}
 								{/if}
 							</div>

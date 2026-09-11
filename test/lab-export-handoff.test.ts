@@ -59,6 +59,7 @@ import {
 import { LAB_CATALOG_PACKAGES } from '../src/lib/lab/catalog.ts';
 import { nodeHost } from './lab-host.ts';
 import type { AgentSessionLike } from '../src/lib/agent/sessionRegistry.ts';
+import { useLocale } from './locale.ts';
 
 const TEMPLATE_VERSION = '1.0.0';
 
@@ -237,6 +238,7 @@ describe('Laboratorio prototipi — Step 14: Export autonomo e consegna al princ
 		});
 
 		it('rifiuta la sovrascrittura implicita se la cartella di destinazione esiste già e contiene file', async () => {
+			useLocale('it');
 			const collisionDest = join(baseDir, 'collision-folder');
 			const collisionHost = nodeHost(collisionDest);
 
@@ -386,6 +388,7 @@ describe('Laboratorio prototipi — Step 14: Export autonomo e consegna al princ
 
 	describe('3. Consegna al principale (Handoff)', () => {
 		it('costruisce un riferimento stabile completo con brief, sorgenti, dipendenze e limiti espliciti', async () => {
+			useLocale('it');
 			const handoffPkg = await createLabHandoffPackage(context, {
 				revisionId,
 				variant: 'cards'

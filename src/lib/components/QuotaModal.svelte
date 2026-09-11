@@ -3,6 +3,8 @@
 </script>
 
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
@@ -35,30 +37,30 @@
 	function formatAge(ts: number | undefined) {
 		if (!ts) return '';
 		const diffSec = Math.max(0, Math.floor((now - ts) / 1000));
-		if (diffSec < 10) return 'ora';
-		if (diffSec < 60) return `${diffSec}s fa`;
+		if (diffSec < 10) return m.quota_time_now();
+		if (diffSec < 60) return m.quota_time_seconds_ago({ sec: diffSec });
 		const diffMin = Math.floor(diffSec / 60);
-		if (diffMin < 60) return `${diffMin}m fa`;
+		if (diffMin < 60) return m.quota_time_minutes_ago({ min: diffMin });
 		const diffHours = Math.floor(diffMin / 60);
-		return `${diffHours}h fa`;
+		return m.quota_time_hours_ago({ hours: diffHours });
 	}
 
 	function formatReset(resetsAt: number | undefined) {
 		if (!resetsAt) return '';
 		const diffMs = resetsAt - now;
-		if (diffMs <= 0) return 'reset ora';
+		if (diffMs <= 0) return m.quota_reset_now();
 		const diffSec = Math.floor(diffMs / 1000);
-		if (diffSec < 60) return `tra ${diffSec}s`;
+		if (diffSec < 60) return m.quota_reset_in_seconds({ sec: diffSec });
 		const diffMin = Math.floor(diffSec / 60);
-		if (diffMin < 60) return `tra ${diffMin}m`;
+		if (diffMin < 60) return m.quota_reset_in_minutes({ min: diffMin });
 		const diffHours = Math.floor(diffMin / 60);
 		const remMin = diffMin % 60;
 		if (diffHours < 24) {
-			return remMin > 0 ? `tra ${diffHours}h ${remMin}m` : `tra ${diffHours}h`;
+			return remMin > 0 ? m.quota_reset_in_hours({ hours: diffHours, min: remMin }) : `tra ${diffHours}h`;
 		}
 		const diffDays = Math.floor(diffHours / 24);
 		const remHours = diffHours % 24;
-		return remHours > 0 ? `tra ${diffDays}g ${remHours}h` : `tra ${diffDays}g`;
+		return remHours > 0 ? m.quota_reset_in_days({ days: diffDays, hours: remHours }) : `tra ${diffDays}g`;
 	}
 
 	$effect(() => {
@@ -88,7 +90,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-	<button type="button" class="backdrop" onclick={onClose} aria-label="Chiudi limiti utilizzo" tabindex="-1" transition:fade={{ duration: 180 }}></button>
+	<button type="button" class="backdrop" onclick={onClose} aria-label={m.ui_quotamodal_chiudi_limiti_utilizzo_160a()} tabindex="-1" transition:fade={{ duration: 180 }}></button>
 	<div
 		class="popover"
 		class:quota-semantic={popover.semanticColors}
@@ -101,10 +103,10 @@
 	>
 		<div class="header">
 			<div class="title-group">
-				<h3>Limiti di Utilizzo e Quote</h3>
+				<h3>{m.quota_heading()}</h3>
 				{#if quotaStore.rawJson?.generatedAt}
-					<span class="freshness" title={new Date(quotaStore.rawJson.generatedAt).toLocaleString()}>
-						{quotaStore.loading ? 'Aggiornamento in corso...' : `Aggiornato ${formatAge(quotaStore.rawJson.generatedAt)}`}
+					<span class="freshness" title={i18n.formatDate(quotaStore.rawJson.generatedAt, { dateStyle: 'short', timeStyle: 'medium' })}>
+						{quotaStore.loading ? m.quota_updating() : m.quota_updated_age({ age: formatAge(quotaStore.rawJson.generatedAt) })}
 					</span>
 				{/if}
 			</div>
@@ -112,13 +114,13 @@
 				<button
 					class="icon-btn refresh-btn"
 					onclick={() => void quotaStore.refresh(true)}
-					title="Aggiorna dati (forza)"
-					aria-label="Aggiorna dati utilizzo API"
+					title={m.quota_force_refresh()}
+					aria-label={m.ui_quotamodal_aggiorna_dati_utilizzo_api_6f79()}
 					disabled={quotaStore.loading}
 				>
 					<span class="refresh-icon" class:spinning={quotaStore.loading}><IconRefresh /></span>
 				</button>
-				<button class="close-btn" onclick={onClose} aria-label="Chiudi finestra limiti utilizzo"><IconClose /></button>
+				<button class="close-btn" onclick={onClose} aria-label={m.quota_close()}><IconClose /></button>
 			</div>
 		</div>
 
@@ -141,14 +143,14 @@
 						</svg>
 					</div>
 					<div class="alert-body">
-						<strong class="alert-title">Provider AI non raggiungibili</strong>
-						<p class="alert-desc">Impossibile verificare i consumi in tempo reale. Verifica la connessione a Internet o riprova più tardi.</p>
+						<strong class="alert-title">{m.quota_unreachable_title()}</strong>
+						<p class="alert-desc">{m.quota_unreachable_desc()}</p>
 						{#if quotaStore.error}
 							<div class="error-detail" title={quotaStore.error}>{quotaStore.error}</div>
 						{/if}
 					</div>
 					<button type="button" class="action-btn" onclick={() => void quotaStore.refresh(true)} disabled={quotaStore.loading}>
-						{quotaStore.loading ? 'Verifica...' : 'Riprova'}
+						{quotaStore.loading ? m.page_omp_update_status_checking() : m.quota_retry()}
 					</button>
 				</div>
 			{/if}
@@ -157,8 +159,8 @@
 				<div class="quota-alert unconfigured">
 					<div class="alert-icon" aria-hidden="true"><IconWarning /></div>
 					<div class="alert-body">
-						<strong class="alert-title">Nessun provider attivo con quote</strong>
-						<p class="alert-desc">Non risultano credenziali o limiti configurati per i provider AI. Aggiungi API key o account OAuth nelle impostazioni.</p>
+						<strong class="alert-title">{m.quota_unconfigured_title()}</strong>
+						<p class="alert-desc">{m.quota_unconfigured_desc()}</p>
 					</div>
 					{#if onOpenSettings}
 						<button
@@ -166,7 +168,7 @@
 							class="action-btn primary"
 							onclick={() => { onClose?.(); onOpenSettings('models'); }}
 						>
-							Configura
+							{m.quota_configure()}
 						</button>
 					{/if}
 				</div>
@@ -197,7 +199,7 @@
 			{#if quotaStore.loading && !quotaStore.rawJson}
 				<div class="loading-state">
 					<span class="spinner"></span>
-					<span>Interrogazione quote in corso...</span>
+					<span>{m.quota_querying()}</span>
 				</div>
 			{:else if quotaStore.reports && quotaStore.reports.length > 0}
 				{#key popover.variant}
@@ -226,7 +228,7 @@
 										{@const remainingPercent = Math.round(remainingFrac * 100)}
 										{@const resetsAt = limit.window?.resetsAt ?? limit.resetsAt}
 										{@const resetCountdown = formatReset(resetsAt)}
-										{@const resetExact = resetsAt ? new Date(resetsAt).toLocaleString() : ''}
+										{@const resetExact = resetsAt ? i18n.formatDate(resetsAt, { dateStyle: 'short', timeStyle: 'medium' }) : ''}
 										{@const valueText =
 											limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number' && typeof limit.amount?.limit === 'number'
 												? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)} / $${limit.amount.limit.toFixed(2)})`
@@ -250,7 +252,7 @@
 					</div>
 				{/key}
 			{:else if quotaStore.status !== 'offline' && quotaStore.status !== 'unconfigured'}
-				<div class="msg">Nessun dato di utilizzo disponibile</div>
+				<div class="msg">{m.quota_no_data()}</div>
 			{/if}
 		</div>
 	</div>

@@ -238,6 +238,10 @@ jobs:
             for f in "$dir"/*; do
               [ -f "$f" ] || continue
               fname=$(basename "$f")
+              case "$fname" in
+                *.exe|*.dmg|*.deb|*.AppImage) ;;
+                *) continue ;;
+              esac
               dotted="${fname// /.}"
               cp -f "$f" "staging/$dotted"
               echo "Staging: $fname -> $dotted"
@@ -313,8 +317,8 @@ jobs:
             echo "Release $RELEASE_TAG" > release-notes.md
           fi
 
-          # Rigenera la tabella dei checksum SHA256 dei soli file regolari pubblicati
-          (cd release-assets && rm -f SHA256SUMS.txt && find . -maxdepth 1 -type f -exec sha256sum {} + | sed 's|^\./||' | sort -k2 > SHA256SUMS.txt)
+          # Rigenera la tabella dei checksum SHA256 dei soli file regolari pubblicati (escludendo SHA256SUMS.txt)
+          (cd release-assets && rm -f SHA256SUMS.txt && find . -maxdepth 1 -type f ! -name "SHA256SUMS.txt" -exec sha256sum {} + | sed 's|^\./||' | sort -k2 > SHA256SUMS.txt)
           echo "=== CHECKSUM RELEASE ==="
           cat release-assets/SHA256SUMS.txt
 

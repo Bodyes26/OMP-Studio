@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { themeStore } from '$lib/stores/theme.svelte';
@@ -167,13 +168,13 @@
 					<span class="variant-title">Orizzontale</span>
 				</div>
 				<p class="variant-desc">
-					3 colonne affiancate: albero dei file/Git a sinistra, editor al centro e terminale o chat agente a destra.
+					{m.ui_appearancesection_3_colonne_affiancate_albero_dei_file_git_f8d1()}
 				</p>
 				<div class="variant-preview">
 					<div class="layout-mini-preview horizontal">
 						<div class="mini-col side" title="Barra laterale"></div>
 						<div class="mini-col editor" title="Editor"></div>
-						<div class="mini-col terminal" title="Terminale / Chat"></div>
+						<div class="mini-col terminal" title={m.ui_appearancesection_terminale_chat_8a30()}></div>
 					</div>
 				</div>
 			</button>
@@ -196,14 +197,14 @@
 					<span class="variant-title">Verticale</span>
 				</div>
 				<p class="variant-desc">
-					Vista a stack: albero a sinistra, editor in alto e terminale o chat in basso. Ottimizzato per monitor verticali.
+					{m.ui_appearancesection_vista_a_stack_albero_a_sinistra_editor_7c6e()}
 				</p>
 				<div class="variant-preview">
 					<div class="layout-mini-preview vertical">
 						<div class="mini-col side" title="Barra laterale"></div>
 						<div class="mini-stack">
 							<div class="mini-row editor" title="Editor"></div>
-							<div class="mini-row terminal" title="Terminale / Chat"></div>
+							<div class="mini-row terminal" title={m.ui_appearancesection_terminale_chat_8a30()}></div>
 						</div>
 					</div>
 				</div>
@@ -311,7 +312,7 @@
 					<span class="variant-title">Anello progressivo</span>
 				</div>
 				<p class="variant-desc">
-					Indicatore circolare che mostra la quota ancora disponibile e segnala gli stati di allarme con alone colorato.
+					{m.ui_appearancesection_indicatore_circolare_che_mostra_la_quota_ancora_6df1()}
 				</p>
 				<div class="variant-preview">
 					<QuotaChip
@@ -368,7 +369,7 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Mostra sempre la percentuale</span>
+					<span class="form-row-label">{m.ui_appearancesection_mostra_sempre_la_percentuale_2958()}</span>
 					<span class="form-row-desc">
 						Se disattivata, la percentuale numerica viene mostrata solo quando la quota scende al 30% o meno (avviso o critico).
 					</span>
@@ -387,7 +388,7 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Mostra nome del provider</span>
+					<span class="form-row-label">{m.ui_appearancesection_mostra_nome_del_provider_b467()}</span>
 					<span class="form-row-desc">
 						Visualizza il provider AI in uso dal progetto attivo (es. · Google, · Anthropic).
 					</span>
@@ -457,7 +458,7 @@
 					<span class="variant-title">Telemetria</span>
 				</div>
 				<p class="variant-desc">
-					Barra sottile con zona consumata rigata e lettura di stato OK / WARN / CRIT, ad alta densita' informativa.
+					{m.ui_appearancesection_barra_sottile_con_zona_consumata_rigata_e_0c9f()}
 				</p>
 				<div class="variant-preview">
 					<div class="popover-mini-container">
@@ -507,7 +508,7 @@
 					<span class="variant-title">Anello</span>
 				</div>
 				<p class="variant-desc">
-					Un indicatore circolare per finestra, che si scarica senza direzione da interpretare, con pastiglia di stato quando la quota scende.
+					{m.ui_appearancesection_un_indicatore_circolare_per_finestra_che_si_3943()}
 				</p>
 				<div class="variant-preview">
 					<div class="popover-mini-container">
@@ -585,7 +586,7 @@
 		</div>
 
 		<div class="theme-toolbar">
-			<div class="mode-tabs" role="tablist" aria-label="Filtro modalità tema">
+			<div class="mode-tabs" role="tablist" aria-label={m.ui_appearancesection_filtro_modalita_tema_6f07()}>
 				{#each THEME_GROUPS as group (group.mode)}
 					<button
 						type="button"
@@ -611,7 +612,7 @@
 					class="filter-input"
 					placeholder="Cerca tra i {activeGroup.names.length} temi..."
 					bind:value={filterQuery}
-					aria-label="Cerca e filtra temi"
+					aria-label={m.ui_appearancesection_cerca_e_filtra_temi_b7aa()}
 				/>
 				{#if filterQuery}
 					<button
@@ -668,7 +669,7 @@
 				</button>
 			{:else}
 				<div class="empty-state">
-					<p>Nessun tema trovato per "<strong>{filterQuery}</strong>" nella categoria {activeGroup.label.toLowerCase()}.</p>
+					<p>{m.ui_appearancesection_nessun_tema_trovato_per_19d9()}<strong>{filterQuery}</strong>" nella categoria {activeGroup.label.toLowerCase()}.</p>
 					<button type="button" class="btn btn-secondary" onclick={() => (filterQuery = '')}>
 						Azzera ricerca
 					</button>

@@ -35,6 +35,7 @@ export { default as IconSearch } from '@lucide/svelte/icons/search';
 export { default as IconGlobe } from '@lucide/svelte/icons/globe';
 export { default as IconLock } from '@lucide/svelte/icons/lock';
 export { default as IconCamera } from '@lucide/svelte/icons/camera';
+export { default as IconAttach } from '@lucide/svelte/icons/paperclip';
 export { default as IconPin } from '@lucide/svelte/icons/pin';
 export { default as IconPinned } from '@lucide/svelte/icons/pin-off';
 export { default as IconSparkles } from '@lucide/svelte/icons/sparkles';

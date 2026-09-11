@@ -11,6 +11,7 @@
   Mostra gli altri parametri di generazione in KeyValue e le immagini in ImageBlock.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import ImageBlock from '../parts/ImageBlock.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
@@ -55,7 +56,7 @@
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
 		if (provider) rows.push({ key: 'Provider', value: provider });
-		if (model) rows.push({ key: 'Modello', value: model });
+		if (model) rows.push({ key: m.ui_generateimage_modello_b6ca(), value: model });
 		if (style) rows.push({ key: 'Stile', value: style });
 		if (aspectRatio) rows.push({ key: 'Proporzioni', value: aspectRatio });
 		if (imageSize) rows.push({ key: 'Dimensioni', value: imageSize });

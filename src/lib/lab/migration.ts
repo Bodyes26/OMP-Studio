@@ -25,16 +25,20 @@ import {
 	type LabLegacyReconstruction,
 	type LabPrototypeId
 } from './contracts.ts';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 /**
  * Avviso vincolante da includere in ogni brief o proposta di ricostruzione.
  * Invariante (ricerca/laboratorio-prototipi-piano.md § 10.E): non spacciare
  * una ricostruzione per conversione fedele.
+ *
+ * E' una funzione e non una costante: valutata all'import congelerebbe la
+ * lingua scelta all'avvio dell'app, e un cambio di lingua lascerebbe l'avviso
+ * nell'idioma precedente.
  */
-export const LAB_LEGACY_RECONSTRUCTION_NOTICE =
-	'AVVISO VINCOLANTE: Questa proposta è una ricostruzione visuale e interattiva moderna in React + Tailwind CSS v4, ' +
-	'ispirata all\'anteprima del vecchio prototipo HTML. NON è una conversione fedele, identica o automatica del codice sorgente ' +
-	'originale (che impiegava UMD monolitico e Babel inline). Tutti i dati e le azioni sono simulati localmente nel client.';
+export function labLegacyReconstructionNotice(): string {
+	return msg.lab_legacy_reconstruction_notice();
+}
 
 /**
  * Estrae un titolo leggibile dal file HTML legacy (tag <title> o slug formattato).
@@ -129,16 +133,16 @@ export function reconstructLegacyPrototypeBrief(
 	const briefLines = [
 		`# Ricostruzione React: ${legacy.title}`,
 		'',
-		`> **${LAB_LEGACY_RECONSTRUCTION_NOTICE}**`,
+		`> **${labLegacyReconstructionNotice()}**`,
 		'',
-		`Questo prototipo ricostruisce l'interfaccia dell'originale '${legacy.fileName}' usando la nuova architettura del Laboratorio:`,
+		msg.ui_ts_migration_questo_prototipo_ricostruisce_l_interfaccia_dell_originale_2494({ value1: legacy.fileName }),
 		'- Framework: React con Tailwind CSS v4 e componenti accessibili.',
 		'- Dati e flussi: interamente simulati con mock realistici nel client (nessun backend operativo).',
 		'- Scopo: esplorazione interattiva e iterazione visuale con selezione di elementi e annotazioni.',
 		'',
 		'## Linee guida per l\'autore:',
 		`1. Cattura gli elementi chiave della UX/UI del vecchio file HTML ('${legacy.fileName}') ma riscrivili con componenti React modulari e puliti.`,
-		'2. Non copiare codice Babel UMD né dipendenze UMD non gestite: usa i pacchetti approvati del catalogo del Laboratorio.',
+		msg.ui_ts_migration_2_non_copiare_codice_babel_umd_ne_95f4(),
 		'3. Struttura il codice su file separati (`src/App.tsx`, `src/mockData.ts`, eventuali varianti o schermate collegate).'
 	];
 
@@ -148,7 +152,7 @@ export function reconstructLegacyPrototypeBrief(
 		suggestedPrototypeTitle,
 		suggestedPrototypeId,
 		isFaithfulConversion: false,
-		notice: LAB_LEGACY_RECONSTRUCTION_NOTICE,
+		notice: labLegacyReconstructionNotice(),
 		brief: briefLines.join('\n')
 	};
 }
@@ -231,7 +235,7 @@ export function inspectGitignoreContent(content: string): GitignoreInspectionRes
 			matchedRule: null,
 			lineIndex: -1,
 			userLinesCount: 0,
-			explanation: 'Il file .gitignore è vuoto o non contiene regole per proto/.'
+			explanation: msg.ui_ts_migration_il_file_gitignore_e_vuoto_o_non_6d68()
 		};
 	}
 
@@ -296,7 +300,7 @@ export function inspectGitignoreContent(content: string): GitignoreInspectionRes
 			lineIndex: studioHeaderIndex,
 			userLinesCount: lines.length - blockLength,
 			explanation:
-				'Regola Studio legacy rilevata: l\'intera cartella proto/ è esclusa da Git dalla vecchia estensione studio_preview.'
+				msg.ui_ts_migration_regola_studio_legacy_rilevata_l_intera_cartella_6664()
 		};
 	}
 
@@ -359,8 +363,8 @@ export function migrateGitignoreContent(
 				diff: '',
 				error:
 					"Trovata regola 'proto/' personalizzata dall'utente senza il marcatore automatico '# OMP Studio prototypes'. " +
-					"Le righe scritte dall'utente non vengono rimosse né modificate alla cieca. " +
-					"Per applicare comunque la migrazione, conferma esplicitamente con l'opzione 'forceUserOverride: true'."
+					msg.ui_ts_migration_le_righe_scritte_dall_utente_non_vengono_cb8a() +
+					msg.ui_ts_migration_per_applicare_comunque_la_migrazione_conferma_esplicitamente_056d()
 			};
 		}
 		// Con override esplicito dell'utente: sostituisce la sola riga utente
@@ -429,7 +433,7 @@ export function rollbackGitignoreContent(content: string): GitignoreRollbackResu
 			content,
 			diff: '',
 			error:
-				"Il file .gitignore non contiene la regola migrata del Laboratorio: impossibile eseguire il rollback."
+				msg.ui_ts_migration_il_file_gitignore_non_contiene_la_regola_7348()
 		};
 	}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { projectStore, normalizeProjectPath, joinProjectPath } from '$lib/stores/projects.svelte';
@@ -92,12 +93,12 @@
 </script>
 
 {#if open}
-	<button type="button" class="backdrop" onclick={() => onClose?.()} aria-label="Chiudi selettore progetto" tabindex="-1"></button>
+	<button type="button" class="backdrop" onclick={() => onClose?.()} aria-label={m.project_picker_close_aria()} tabindex="-1"></button>
 	<div
 		class="palette"
 		role="dialog"
 		aria-modal="true"
-		aria-label="Apri cartella progetto"
+		aria-label={m.project_picker_dialog_aria()}
 		use:trapFocus={{ onEscape: () => onClose?.() }}
 	>
 		<input
@@ -105,10 +106,10 @@
 			bind:value={query}
 			onkeydown={onKeydown}
 			placeholder="Cerca una cartella in {projectStore.projectRoot}"
-			aria-label="Cerca cartella progetto"
+			aria-label={m.project_picker_search_aria()}
 			spellcheck="false"
 		/>
-		<div class="rows" role="listbox" aria-label="Cartelle progetto">
+		<div class="rows" role="listbox" aria-label={m.project_picker_list_aria()}>
 			{#if error}
 				<div class="error" role="alert">Impossibile leggere {projectStore.projectRoot}: {error}</div>
 			{/if}
@@ -119,13 +120,13 @@
 					class:sel={i === selectedIndex}
 					role="option"
 					aria-selected={i === selectedIndex}
-					aria-label={`${c.name} - ${c.path}${openKeys.has(c.path.toLowerCase()) ? ' (già aperto)' : ''}`}
+					aria-label={`${c.name} - ${c.path}${openKeys.has(c.path.toLowerCase()) ? m.ui_projectpicker_gia_aperto_c1ca() : ''}`}
 					onmouseenter={() => index = i}
 					onclick={() => pick(i)}
 				>
 					<span class="name">{c.name}</span>
 					{#if openKeys.has(c.path.toLowerCase())}
-						<span class="badge">già aperto</span>
+						<span class="badge">{m.project_picker_already_open()}</span>
 					{/if}
 					<span class="path">{c.path}</span>
 				</button>
@@ -136,12 +137,12 @@
 				class:sel={selectedIndex === filtered.length}
 				role="option"
 				aria-selected={selectedIndex === filtered.length}
-				aria-label="Sfoglia un'altra cartella"
+				aria-label={m.project_picker_browse_other_aria()}
 				onmouseenter={() => index = filtered.length}
 				onclick={() => browse()}
 			>
-				<span class="name">Sfoglia…</span>
-				<span class="path">Apri una cartella fuori da {projectStore.projectRoot}</span>
+				<span class="name">{m.project_picker_browse_btn()}</span>
+				<span class="path">{m.ui_projectpicker_apri_una_cartella_fuori_da_fcbd()} {projectStore.projectRoot}</span>
 			</button>
 		</div>
 	</div>

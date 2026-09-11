@@ -18,6 +18,7 @@ import {
 	IconSelectAll
 } from '$lib/icons';
 import { IS_MAC, MOD_LABEL as MOD } from '$lib/utils/platform';
+import { m } from '$lib/paraglide/messages.js';
 
 export interface ContextMenuItem {
 	kind: 'item';
@@ -201,17 +202,17 @@ function buildTextEntryMenu(target: HTMLElement): ContextMenuEntry[] {
 		}
 	}
 
-	const readonlyHint = 'Campo in sola lettura';
-	const disabledHint = 'Campo disabilitato';
-	const noSelectionHint = 'Nessun testo selezionato';
-	const noContentHint = 'Nessun testo';
+	const readonlyHint = m.context_menu_hint_readonly();
+	const disabledHint = m.context_menu_hint_disabled();
+	const noSelectionHint = m.context_menu_hint_no_selection();
+	const noContentHint = m.context_menu_hint_no_content();
 
 	const items: ContextMenuEntry[] = [];
 
 	// Annulla
 	items.push({
 		kind: 'item',
-		label: 'Annulla',
+		label: m.context_menu_item_undo(),
 		icon: IconUndo,
 		shortcut: `${MOD}Z`,
 		disabled: isDisabled || isReadOnly,
@@ -228,7 +229,7 @@ function buildTextEntryMenu(target: HTMLElement): ContextMenuEntry[] {
 	// Ripeti
 	items.push({
 		kind: 'item',
-		label: 'Ripeti',
+		label: m.context_menu_item_redo(),
 		icon: IconRedo,
 		shortcut: IS_MAC ? '⇧⌘Z' : 'Ctrl+Y',
 		disabled: isDisabled || isReadOnly,
@@ -248,7 +249,7 @@ function buildTextEntryMenu(target: HTMLElement): ContextMenuEntry[] {
 	if (!isPassword) {
 		items.push({
 			kind: 'item',
-			label: 'Taglia',
+			label: m.context_menu_item_cut(),
 			icon: IconCut,
 			shortcut: `${MOD}X`,
 			disabled: isDisabled || isReadOnly || !hasSelection,
@@ -296,7 +297,7 @@ function buildTextEntryMenu(target: HTMLElement): ContextMenuEntry[] {
 
 		items.push({
 			kind: 'item',
-			label: 'Copia',
+			label: m.context_menu_item_copy(),
 			icon: IconCopy,
 			shortcut: `${MOD}C`,
 			disabled: isDisabled ? true : !hasSelection,
@@ -322,7 +323,7 @@ function buildTextEntryMenu(target: HTMLElement): ContextMenuEntry[] {
 	// Incolla
 	items.push({
 		kind: 'item',
-		label: 'Incolla',
+		label: m.context_menu_item_paste(),
 		icon: IconPaste,
 		shortcut: `${MOD}V`,
 		disabled: isDisabled || isReadOnly,
@@ -374,7 +375,7 @@ function buildTextEntryMenu(target: HTMLElement): ContextMenuEntry[] {
 	// Seleziona tutto
 	items.push({
 		kind: 'item',
-		label: 'Seleziona tutto',
+		label: m.context_menu_item_select_all(),
 		icon: IconSelectAll,
 		shortcut: `${MOD}A`,
 		disabled: isDisabled || !hasContent,
@@ -445,7 +446,7 @@ export function installContextMenuHandling(): () => void {
 			event.preventDefault();
 			const items = buildTextEntryMenu(field);
 			contextMenu.open(event, {
-				label: 'Modifica testo',
+				label: m.context_menu_label_text_edit(),
 				items,
 				invoker: field
 			});
@@ -459,11 +460,11 @@ export function installContextMenuHandling(): () => void {
 			if (selectedText) {
 				event.preventDefault();
 				contextMenu.open(event, {
-					label: 'Testo selezionato',
+					label: m.context_menu_label_selected_text(),
 					items: [
 						{
 							kind: 'item',
-							label: 'Copia',
+							label: m.context_menu_item_copy(),
 							icon: IconCopy,
 							shortcut: `${MOD}C`,
 							run: async () => {

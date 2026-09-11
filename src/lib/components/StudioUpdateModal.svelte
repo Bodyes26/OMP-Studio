@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { studioUpdaterStore, formatBytes, formatSpeed, formatVersion } from '$lib/stores/studioUpdater.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { IconRefresh, IconClose, IconArrowRight, IconCheck, IconExternalLink } from '$lib/icons';
@@ -64,8 +66,7 @@
 	function formatDate(dateStr?: string): string {
 		if (!dateStr) return '';
 		try {
-			const d = new Date(dateStr);
-			return d.toLocaleDateString('it-IT', {
+			return i18n.formatDate(dateStr, {
 				day: 'numeric',
 				month: 'short',
 				year: 'numeric'
@@ -92,7 +93,7 @@
 			<div class="modal-header">
 				<div class="header-left">
 					<h3 id="studio-update-title">
-						{studioUpdaterStore.hasUpdate ? 'Aggiornamento OMP Studio' : 'OMP Studio è aggiornato'}
+						{studioUpdaterStore.hasUpdate ? m.studio_update_title_update() : m.studio_update_title_up_to_date()}
 					</h3>
 				</div>
 				<div class="header-actions">
@@ -101,16 +102,16 @@
 							class="refresh-icon-btn"
 							disabled={studioUpdaterStore.isChecking}
 							onclick={() => studioUpdaterStore.checkUpdate(true)}
-							title="Verifica se ci sono versioni più recenti su GitHub"
-							aria-label="Verifica aggiornamenti"
+							title={m.studio_update_check_title()}
+							aria-label={m.ui_studioupdatemodal_verifica_aggiornamenti_ef56()}
 						>
 							<span class="refresh-symbol"><IconRefresh /></span>
 						</button>
 						<button
 							class="close-btn"
 							onclick={() => studioUpdaterStore.closeModal()}
-							title="Chiudi"
-							aria-label="Chiudi"
+							title={m.studio_update_close()}
+							aria-label={m.studio_update_close()}
 						>
 							<IconClose />
 						</button>
@@ -120,7 +121,7 @@
 
 			<div class="modal-body">
 				<fieldset class="channel-picker" disabled={studioUpdaterStore.channelChangeDisabled}>
-					<legend>Canale aggiornamenti</legend>
+					<legend>{m.studio_update_channel_legend()}</legend>
 					<div class="channel-options">
 						<label class="channel-option" class:checked={studioUpdaterStore.channel === 'stable'}>
 							<input
@@ -132,10 +133,10 @@
 							/>
 							<span class="channel-copy">
 								<span class="channel-title-row">
-									<strong>Stabile</strong>
-									<span class="channel-badge stable">Consigliato</span>
+									<strong>{m.studio_update_channel_stable()}</strong>
+									<span class="channel-badge stable">{m.studio_update_channel_stable_recommended()}</span>
 								</span>
-								<small>Release ufficiali verificate</small>
+								<small>{m.studio_update_channel_stable_sub()}</small>
 							</span>
 						</label>
 						<label class="channel-option" class:checked={studioUpdaterStore.channel === 'nightly'}>
@@ -148,10 +149,10 @@
 							/>
 							<span class="channel-copy">
 								<span class="channel-title-row">
-									<strong>Nightly</strong>
-									<span class="channel-badge nightly">Anteprima</span>
+									<strong>{m.studio_update_channel_nightly()}</strong>
+									<span class="channel-badge nightly">{m.studio_update_channel_nightly_badge()}</span>
 								</span>
-								<small>Ultima build, può essere instabile</small>
+								<small>{m.studio_update_channel_nightly_sub()}</small>
 							</span>
 						</label>
 					</div>
@@ -160,26 +161,26 @@
 				<!-- Versione Corrente e Nuova -->
 				<div class="version-banner">
 					<div class="version-item" title={studioUpdaterStore.currentVersion ? `v${studioUpdaterStore.currentVersion}` : ''}>
-						<span class="v-label">Installata</span>
+						<span class="v-label">{m.studio_update_installed_label()}</span>
 						<span class="v-badge current">v{formatVersion(studioUpdaterStore.currentVersion) || '...'}</span>
 						{#if studioUpdaterStore.currentVersion?.includes('-nightly.')}
-							<span class="channel-tag">Nightly</span>
+							<span class="channel-tag">{m.studio_update_channel_nightly()}</span>
 						{/if}
 					</div>
 					{#if studioUpdaterStore.hasUpdate && studioUpdaterStore.updateInfo}
 						<span class="v-arrow"><IconArrowRight /></span>
 						<div class="version-item" title="v{studioUpdaterStore.updateInfo.latest_version}">
-							<span class="v-label">Nuova</span>
+							<span class="v-label">{m.studio_update_new_label()}</span>
 							<span class="v-badge target">v{formatVersion(studioUpdaterStore.updateInfo.latest_version)}</span>
 						</div>
 					{:else}
-						<span class="up-to-date-tag"><IconCheck /> Ultima versione</span>
+						<span class="up-to-date-tag"><IconCheck /> {m.studio_update_latest_tag()}</span>
 					{/if}
 				</div>
 
 				{#if studioUpdaterStore.updateInfo?.ahead_of_channel && studioUpdaterStore.channel === 'stable'}
 					<div class="channel-waiting">
-						La build installata è più recente dell’ultima stabile. Riceverai il prossimo rilascio stabile disponibile.
+						{m.studio_update_ahead_message()}
 					</div>
 				{/if}
 
@@ -192,7 +193,7 @@
 									{studioUpdaterStore.updateInfo.release_name}
 								</span>
 								{#if studioUpdaterStore.updateInfo.release_channel === 'nightly'}
-									<span class="channel-tag">Nightly</span>
+									<span class="channel-tag">{m.studio_update_channel_nightly()}</span>
 								{/if}
 							</span>
 							{#if studioUpdaterStore.updateInfo.published_at}
@@ -203,7 +204,7 @@
 
 					{#if studioUpdaterStore.updateInfo.release_notes}
 						<div class="notes-container">
-							<div class="notes-heading">Novità e modifiche:</div>
+							<div class="notes-heading">{m.studio_update_release_notes_heading()}</div>
 							<pre class="release-notes">{studioUpdaterStore.updateInfo.release_notes}</pre>
 						</div>
 					{/if}
@@ -225,7 +226,7 @@
 							</div>
 						{:else}
 							<div class="no-asset-notice">
-								<span>Nessun pacchetto binario pre-compilato allegato a questa release. Puoi scaricarla o consultarla su GitHub.</span>
+								<span>{m.studio_update_no_binary_notice()}</span>
 							</div>
 						{/if}
 					{/if}
@@ -235,7 +236,7 @@
 				{#if studioUpdaterStore.isDownloading && studioUpdaterStore.downloadProgress}
 					<div class="progress-section" role="status" aria-live="polite">
 						<div class="progress-header">
-							<span class="progress-title">Scaricamento in corso...</span>
+							<span class="progress-title">{m.studio_update_downloading()}</span>
 							<span class="progress-pct">{studioUpdaterStore.downloadProgress.percentage.toFixed(0)}%</span>
 						</div>
 						<div class="progress-bar-bg">
@@ -259,8 +260,8 @@
 				{#if studioUpdaterStore.downloadProgress?.status === 'finished'}
 					<div class="finished-banner" role="status" aria-live="polite">
 						<div class="finished-text">
-							<strong>Pacchetto scaricato con successo!</strong>
-							<span>Clicca su "Riavvia e Installa" per completare l'aggiornamento e riaprire OMP Studio.</span>
+							<strong>{m.studio_update_finished_title()}</strong>
+							<span>{m.studio_update_finished_desc()}</span>
 						</div>
 					</div>
 				{/if}
@@ -279,17 +280,17 @@
 					onclick={() => studioUpdaterStore.openReleaseInBrowser()}
 					title="Visualizza la release su GitHub"
 				>
-					Vedi su GitHub <IconExternalLink />
+					{m.studio_update_see_on_github()} <IconExternalLink />
 				</button>
 
 				<div class="footer-actions">
 					{#if studioUpdaterStore.isDownloading}
 						<button class="btn btn-secondary" onclick={() => studioUpdaterStore.cancelDownload()}>
-							Annulla download
+							{m.studio_update_cancel_download()}
 						</button>
 					{:else if studioUpdaterStore.downloadProgress?.status === 'finished'}
 						<button class="btn btn-secondary" onclick={() => studioUpdaterStore.closeModal()}>
-							Più tardi
+							{m.studio_update_later()}
 						</button>
 						<button
 							class="btn btn-primary"
@@ -297,9 +298,9 @@
 							onclick={() => studioUpdaterStore.installAndRestart()}
 						>
 							{#if studioUpdaterStore.isInstalling}
-								Avvio installazione...
+								{m.studio_update_starting_install()}
 							{:else}
-								Riavvia e Installa
+								{m.studio_update_restart_and_install()}
 							{/if}
 						</button>
 					{:else if studioUpdaterStore.hasUpdate && studioUpdaterStore.updateInfo?.asset}
@@ -307,16 +308,16 @@
 							class="btn btn-secondary"
 							onclick={() => studioUpdaterStore.checkUpdate(true)}
 							disabled={studioUpdaterStore.isChecking}
-							title="Controlla se è uscita una versione ancora più recente su GitHub"
+							title={m.ui_studioupdatemodal_controlla_se_e_uscita_una_versione_ancora_9917()}
 						>
 							<span class="refresh-symbol"><IconRefresh /></span>
-							{studioUpdaterStore.isChecking ? 'Verifica...' : 'Ricontrolla'}
+							{studioUpdaterStore.isChecking ? m.page_omp_update_status_checking() : m.studio_update_recheck()}
 						</button>
 						<button class="btn btn-secondary" onclick={() => studioUpdaterStore.closeModal()}>
-							Annulla
+							{m.common_cancel()}
 						</button>
 						<button class="btn btn-primary" onclick={() => studioUpdaterStore.startDownload()}>
-							Scarica Aggiornamento
+							{m.studio_update_download_update()}
 						</button>
 					{:else}
 						<button
@@ -326,13 +327,13 @@
 						>
 							<span class="refresh-symbol"><IconRefresh /></span>
 							{#if studioUpdaterStore.isChecking}
-								Verifica in corso...
+								{m.ui_studioupdatemodal_verifica_in_corso_13da()}
 							{:else}
-								Controlla di nuovo
+								{m.ui_studioupdatemodal_controlla_di_nuovo_ec12()}
 							{/if}
 						</button>
 						<button class="btn btn-primary" onclick={() => studioUpdaterStore.closeModal()}>
-							Chiudi
+							{m.studio_update_close()}
 						</button>
 					{/if}
 				</div>

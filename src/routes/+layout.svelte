@@ -2,6 +2,7 @@
 	import '../app.css';
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { THEMES, anchorsFor } from '$lib/theme';
 	import { installContextMenuHandling } from '$lib/contextMenu.svelte';
 	import ContextMenu from '$lib/components/ContextMenu.svelte';
@@ -15,6 +16,13 @@
 	// task) vanno lette prima che i pannelli si disegnino: gli store che ne
 	// dipendono attendono la stessa promessa memoizzata.
 	void settingsStore.init();
+	i18n.initialize();
+
+	// La preferenza persistita governa Paraglide senza ricaricare la WebView:
+	// cambiare lingua non deve interrompere RPC, terminali o sessioni in corso.
+	$effect(() => {
+		i18n.setPreference(settingsStore.general.language);
+	});
 
 	// Un unico listener sopprime il menu nativo della WebView e inoltra il
 	// click alle superfici con menu tematizzato: input, Monaco, xterm e file tree.

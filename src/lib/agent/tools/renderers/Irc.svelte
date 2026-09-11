@@ -11,6 +11,7 @@
   testuale di risposta in OutputBlock.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -41,7 +42,7 @@
 		if (from) rows.push({ key: 'Mittente', value: from });
 		if (replyTo) rows.push({ key: 'In risposta a', value: replyTo });
 		if (awaitReply !== undefined) {
-			rows.push({ key: 'Attesa risposta', value: awaitReply ? 'sì' : 'no' });
+			rows.push({ key: 'Attesa risposta', value: awaitReply ? m.ui_bash_si_ef73() : 'no' });
 		}
 		if (timeoutMs !== undefined) {
 			const dur = formatDuration(timeoutMs);
@@ -62,7 +63,7 @@
 	<div class="irc-body">
 		{#if message}
 			<div class="msg-card">
-				<span class="msg-label">Messaggio:</span>
+				<span class="msg-label">{m.ui_irc_messaggio_d997()}</span>
 				<p class="msg-full-text">{message}</p>
 			</div>
 		{/if}

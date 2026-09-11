@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	// Renderer per `job` e operazioni sui processi/task asincroni.
 	//
 	// Cosa mostra:
@@ -106,7 +107,7 @@
 					<thead>
 						<tr>
 							<th>ID</th>
-							<th>Stato</th>
+							<th>{m.ui_goal_stato_89af()}</th>
 							<th>Durata</th>
 							<th>Dettagli</th>
 						</tr>

@@ -1,12 +1,22 @@
 // @ts-nocheck
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { paraglideVitePlugin } from "@inlang/paraglide-js";
 
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(({ isSsrBuild }) => ({
-  plugins: [sveltekit()],
+  plugins: [
+    sveltekit(),
+    paraglideVitePlugin({
+      project: "./project.inlang",
+      outdir: "./src/lib/paraglide",
+      strategy: ["baseLocale"],
+      emitTsDeclarations: true,
+      disableAsyncLocalStorage: true,
+    }),
+  ],
 
   build: {
     chunkSizeWarningLimit: 1000,

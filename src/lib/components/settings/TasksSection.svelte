@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
@@ -127,11 +128,11 @@
 		const name = editName.trim();
 		const prompt = editPrompt.trim();
 		if (!name) {
-			editFormError = 'Il nome della direttiva non può essere vuoto.';
+			editFormError = m.ui_taskssection_il_nome_della_direttiva_non_puo_essere_74b4();
 			return;
 		}
 		if (!prompt) {
-			editFormError = 'Il prompt della direttiva non può essere vuoto.';
+			editFormError = m.ui_taskssection_il_prompt_della_direttiva_non_puo_essere_2869();
 			return;
 		}
 
@@ -168,7 +169,7 @@
 	function duplicateDirective(d: TaskDirective) {
 		const copy: TaskDirective = {
 			id: `dir_custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-			name: `${d.name} (Copia)`,
+			name: m.ui_taskssection_value1_copia_f056({ value1: d.name }),
 			description: d.description,
 			tag: d.tag ? `${d.tag}-copy` : 'copy',
 			prompt: d.prompt,
@@ -395,7 +396,7 @@
 					<span class="scope-pill project">Progetto: {currentProject?.name}</span>
 					{#if effectiveDefaults.hasOverride}
 						<button type="button" class="btn-reset-scope" onclick={resetProjectScopeDefaults}>
-							Ripristina ereditarietà
+							{m.ui_taskssection_ripristina_ereditarieta_312c()}
 						</button>
 					{/if}
 				</div>
@@ -408,7 +409,7 @@
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Ambito di configurazione</span>
-					<span class="form-row-desc">Modifica i valori globali di default o personalizza l'avvio per un repository aperto.</span>
+					<span class="form-row-desc">{m.ui_taskssection_modifica_i_valori_globali_di_default_o_8c48()}</span>
 				</div>
 				<div class="form-row-control">
 					<select
@@ -430,7 +431,7 @@
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Ruolo iniziale</span>
-					<span class="form-row-desc">Profilo e modello assegnato ai nuovi task appena creati.</span>
+					<span class="form-row-desc">{m.ui_taskssection_profilo_e_modello_assegnato_ai_nuovi_task_13f1()}</span>
 				</div>
 				<div class="form-row-control">
 					<select
@@ -447,7 +448,7 @@
 			<div class="form-row">
 				<div class="form-row-copy">
 					<span class="form-row-label">Livello di ragionamento (Thinking)</span>
-					<span class="form-row-desc">Sforzo di pensiero predefinito inviato al modello.</span>
+					<span class="form-row-desc">{m.ui_taskssection_sforzo_di_pensiero_predefinito_inviato_al_modello_c8f1()}</span>
 				</div>
 				<div class="form-row-control">
 					<select
@@ -484,7 +485,7 @@
 	<div class="section-block">
 		<div class="directives-header">
 			<div class="header-left">
-				<span class="block-title">Libreria direttive & modalità del task</span>
+				<span class="block-title">{m.ui_taskssection_libreria_direttive_modalita_del_task_0c5a()}</span>
 				<p class="section-subtitle">
 					Regole e vincoli operativi applicati al prompt. La spunta indica le direttive attive di default per l'ambito corrente ({isProjectScope ? currentProject?.name : 'Globale'}).
 				</p>
@@ -527,12 +528,12 @@
 						<IconWarning />
 						<span class="panel-title">Proposte AI da prompt e richieste recenti</span>
 					</div>
-					<button type="button" class="btn-icon-close" onclick={() => (aiMode = 'idle')} aria-label="Chiudi"><IconClose /></button>
+					<button type="button" class="btn-icon-close" onclick={() => (aiMode = 'idle')} aria-label={m.common_close()}><IconClose /></button>
 				</div>
 				{#if aiLoading}
 					<div class="ai-loading-state">
 						<span class="spinner"></span>
-						<span>Analisi dello storico prompt del progetto in corso...</span>
+						<span>{m.ui_taskssection_analisi_dello_storico_prompt_del_progetto_in_13b6()}</span>
 					</div>
 				{:else if aiError}
 					<div class="ai-msg error">{aiError}</div>
@@ -556,7 +557,7 @@
 									</button>
 									<button type="button" class="btn-proposal-action" onclick={() => { openCreateForm(); applyAiProposalToForm(proposal); }}>
 										<IconRename />
-										<span>Modifica e aggiungi</span>
+										<span>{m.ui_taskssection_modifica_e_aggiungi_711d()}</span>
 									</button>
 									<button type="button" class="btn-proposal-action dismiss" onclick={() => dismissFrictionProposal(proposal)}>
 										<IconClose />
@@ -574,8 +575,8 @@
 		{#if editingDirectiveId !== null}
 			<div class="inline-editor-card" role="region" aria-label="Editor direttiva">
 				<div class="editor-header">
-					<span class="editor-title">{editingDirectiveId === 'new' ? 'Crea nuova direttiva' : 'Modifica direttiva'}</span>
-					<button type="button" class="btn-icon-close" onclick={cancelEdit} aria-label="Annulla"><IconClose /></button>
+					<span class="editor-title">{editingDirectiveId === 'new' ? m.ui_taskssection_crea_nuova_direttiva_9717() : m.ui_taskssection_modifica_direttiva_dcc7()}</span>
+					<button type="button" class="btn-icon-close" onclick={cancelEdit} aria-label={m.common_cancel()}><IconClose /></button>
 				</div>
 
 				{#if aiMode === 'generating' || aiMode === 'refining'}
@@ -587,14 +588,14 @@
 						<div class="assistant-body">
 							<div class="form-field">
 								<label for="ai-prompt-input" class="field-label">
-									{aiMode === 'generating' ? 'Descrivi cosa deve fare o imporre questa modalità:' : 'Istruzioni opzionali per il miglioramento (es. rendilo più rigido, aggiungi vincolo di compilazione):'}
+									{aiMode === 'generating' ? m.ui_taskssection_descrivi_cosa_deve_fare_o_imporre_questa_9573() : m.ui_taskssection_istruzioni_opzionali_per_il_miglioramento_es_rendilo_0a16()}
 								</label>
 								<textarea
 									id="ai-prompt-input"
 									class="text-input"
 									rows="2"
 									bind:value={aiPromptInput}
-									placeholder={aiMode === 'generating' ? 'Es. Forza sempre l\'esecuzione dei test prima di dichiarare finito il task...' : 'Es. Rendi il prompt più sintetico ed esplicito...'}
+									placeholder={aiMode === 'generating' ? 'Es. Forza sempre l\'esecuzione dei test prima di dichiarare finito il task...' : m.ui_taskssection_es_rendi_il_prompt_piu_sintetico_ed_bc8e()}
 								></textarea>
 							</div>
 
@@ -627,7 +628,7 @@
 									{/if}
 								</button>
 								<button type="button" class="btn-action" onclick={() => { aiMode = 'idle'; currentAiProposal = null; }}>
-									Chiudi assistente
+									{m.ui_taskssection_chiudi_assistente_dfa2()}
 								</button>
 							</div>
 
@@ -670,7 +671,7 @@
 							type="text"
 							class="text-input"
 							bind:value={editName}
-							placeholder="Es. Verifica Rigorosa"
+							placeholder={m.ui_taskssection_es_verifica_rigorosa_30e1()}
 						/>
 					</div>
 
@@ -692,7 +693,7 @@
 							type="text"
 							class="text-input"
 							bind:value={editDescription}
-							placeholder="Spiega sinteticamente cosa impone la modalità..."
+							placeholder={m.ui_taskssection_spiega_sinteticamente_cosa_impone_la_modalita_2fa8()}
 						/>
 					</div>
 
@@ -746,7 +747,7 @@
 							<span>Salva direttiva</span>
 						</button>
 						<button type="button" class="btn-action" onclick={cancelEdit}>
-							Annulla
+							{m.common_cancel()}
 						</button>
 					</div>
 
@@ -795,8 +796,8 @@
 							class="order-btn"
 							disabled={idx === settingsStore.taskDirectives.length - 1}
 							onclick={() => moveDirective(d.id, 1)}
-							title="Sposta giù"
-							aria-label="Sposta giù"
+							title={m.ui_suggestionssection_sposta_giu_10cf()}
+							aria-label={m.ui_suggestionssection_sposta_giu_10cf()}
 						>
 							▼
 						</button>
@@ -826,7 +827,7 @@
 
 					<!-- Azioni sulla riga -->
 					<div class="col-actions">
-						<button type="button" class="btn-row-action" onclick={() => openEditForm(d)} title="Modifica direttiva">
+						<button type="button" class="btn-row-action" onclick={() => openEditForm(d)} title={m.ui_taskssection_modifica_direttiva_dcc7()}>
 							<IconRename />
 						</button>
 						<button type="button" class="btn-row-action" onclick={() => duplicateDirective(d)} title="Duplica direttiva">
@@ -837,9 +838,9 @@
 							class="btn-row-action"
 							class:active-hidden={d.hidden}
 							onclick={() => toggleDirectiveHidden(d)}
-							title={d.hidden ? 'Mostra nei nuovi task' : 'Nascondi dai nuovi task'}
+							title={d.hidden ? m.ui_taskssection_mostra_nei_nuovi_task_ea98() : m.ui_taskssection_nascondi_dai_nuovi_task_3cad()}
 						>
-							{d.hidden ? 'Mostra' : 'Nascondi'}
+							{d.hidden ? m.ui_suggestionssection_mostra_4e74() : m.ui_usermessage_nascondi_82ca()}
 						</button>
 						{#if d.factoryKey}
 							<button
@@ -856,7 +857,7 @@
 								class="btn-row-action danger"
 								class:armed={deleteArmedId === d.id}
 								onclick={() => handleDelete(d.id)}
-								title={deleteArmedId === d.id ? 'Clicca di nuovo per confermare eliminazione' : 'Elimina direttiva'}
+								title={deleteArmedId === d.id ? 'Clicca di nuovo per confermare eliminazione' : m.ui_taskssection_elimina_direttiva_ca0d()}
 							>
 								{#if deleteArmedId === d.id}
 									<span>Sicuro?</span>
@@ -882,10 +883,10 @@
 					<div class="project-row">
 						<div class="form-row-copy">
 							<span class="form-row-label">{p.label || p.name}</span>
-							<span class="form-row-desc">Avvia automaticamente il prossimo task in coda quando l'agente è libero. Vale solo per questo progetto.</span>
+							<span class="form-row-desc">{m.ui_taskssection_avvia_automaticamente_il_prossimo_task_in_coda_2e2a()}</span>
 							{#if p.taskDefaults}
 								<button type="button" class="override-reset" onclick={() => projectStore.setTaskDefaults(p.id, null)}>
-									Default personalizzati attivi · Ripristina ereditarietà
+									{m.ui_taskssection_default_personalizzati_attivi_ripristina_ereditarieta_ca4a()}
 								</button>
 							{/if}
 						</div>

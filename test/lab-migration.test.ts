@@ -38,7 +38,7 @@ import {
 	STUDIO_LEGACY_GITIGNORE_RULE,
 	STUDIO_MIGRATED_GITIGNORE_RULE,
 	STUDIO_MIGRATED_GITIGNORE_HEADER,
-	LAB_LEGACY_RECONSTRUCTION_NOTICE
+	labLegacyReconstructionNotice
 } from '../src/lib/lab/migration.ts';
 import {
 	createLabPrototype,
@@ -48,6 +48,7 @@ import {
 	type LabStore
 } from '../src/lib/lab/storage.ts';
 import { nodeHost } from './lab-host.ts';
+import { useLocale } from './locale.ts';
 
 describe('Laboratorio prototipi — Step 15: Migrazione del preesistente e compatibilità legacy', () => {
 	let baseDir: string;
@@ -155,6 +156,7 @@ describe('Laboratorio prototipi — Step 15: Migrazione del preesistente e compa
 	});
 
 	it('3. Non modifica alla cieca le righe scritte dall\'utente', () => {
+		useLocale('it');
 		const userGi = [
 			'# Gitignore personale dello sviluppatore',
 			'node_modules/',
@@ -252,6 +254,7 @@ describe('Laboratorio prototipi — Step 15: Migrazione del preesistente e compa
 	});
 
 	it('6. Non presenta mai una ricostruzione come conversione fedele', () => {
+		useLocale('it');
 		const legacyProto = {
 			id: 'quota-widget',
 			fileName: 'quota-widget.html',
@@ -265,7 +268,7 @@ describe('Laboratorio prototipi — Step 15: Migrazione del preesistente e compa
 		assert.equal(recon.isFaithfulConversion, false, 'La ricostruzione non può essere fedele');
 		assert.ok(recon.notice.includes('AVVISO VINCOLANTE'));
 		assert.ok(recon.notice.includes('NON è una conversione fedele'));
-		assert.ok(recon.brief.includes(LAB_LEGACY_RECONSTRUCTION_NOTICE));
+		assert.ok(recon.brief.includes(labLegacyReconstructionNotice()));
 		assert.ok(recon.suggestedPrototypeTitle.includes('Ricostruzione React'));
 	});
 

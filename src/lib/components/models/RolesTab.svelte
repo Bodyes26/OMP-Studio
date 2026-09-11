@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import {
 		modelSettingsStore,
 		resolveCatalogModel,
@@ -191,7 +192,7 @@
 					type="text"
 					class="search-input"
 					bind:value={roleFilterQuery}
-					placeholder="Filtra ruoli..."
+					placeholder={m.models_roles_filter_placeholder()}
 					aria-label="Filtra ruoli"
 				/>
 				{#if roleFilterQuery}
@@ -199,7 +200,7 @@
 						type="button"
 						class="btn-clear-search"
 						onclick={() => roleFilterQuery = ''}
-						aria-label="Cancella filtro"
+						aria-label={m.settings_appearance_clear_filter()}
 					>
 						<IconClose />
 					</button>
@@ -241,11 +242,11 @@
 						<div class="role-nav-top">
 							<span class="role-nav-name">{role.label}</span>
 							{#if !isConfigured}
-								<span class="status-indicator warning" title="Non configurato"><IconWarning /></span>
+								<span class="status-indicator warning" title={m.models_roles_not_configured()}><IconWarning /></span>
 							{:else if isPrimaryBlocking}
 								<span class="status-indicator error" title={primaryFinding?.reason}><IconWarning /></span>
 							{:else}
-								<span class="status-indicator configured" title="Configurato"><IconCheck /></span>
+								<span class="status-indicator configured" title={m.models_roles_configured()}><IconCheck /></span>
 							{/if}
 						</div>
 
@@ -266,7 +267,7 @@
 									</span>
 								{/if}
 							{:else}
-								<span class="role-nav-empty">Non configurato</span>
+								<span class="role-nav-empty">{m.models_roles_not_configured()}</span>
 							{/if}
 						</div>
 					</div>
@@ -291,7 +292,7 @@
 				class="btn-toggle-cycle"
 				class:active={cycleDrawerOpen}
 				onclick={() => cycleDrawerOpen = !cycleDrawerOpen}
-				title="Apri pannello Sequenza Ciclo Rapido (Ctrl+P)"
+				title={m.ui_rolestab_apri_pannello_sequenza_ciclo_rapido_ctrl_p_a514()}
 			>
 				<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4">
 					<path d="M2 8a6 6 0 0 1 10.2-4.2M14 8a6 6 0 0 1-10.2 4.2" stroke-linecap="round" />
@@ -321,9 +322,9 @@
 					type="button"
 					class="btn-clear-role"
 					onclick={() => modelSettingsStore.removeRole(selectedRole.id)}
-					title="Rimuovi la configurazione per questo ruolo"
+					title={m.ui_rolestab_rimuovi_la_configurazione_per_questo_ruolo_1eaa()}
 				>
-					Rimuovi Assegnazione
+					{m.models_roles_remove_assignment()}
 				</button>
 			{/if}
 		</header>
@@ -332,7 +333,7 @@
 			<!-- Sezione 1: Modello Primario -->
 			<section class="config-section">
 				<div class="section-heading">
-					<h3 class="section-title">Modello Primario</h3>
+					<h3 class="section-title">{m.ui_rolestab_modello_primario_793e()}</h3>
 					<span class="section-subtitle">
 						Instradamento predefinito a cui vengono delegate le richieste per questo ruolo.
 					</span>
@@ -394,7 +395,7 @@
 				{#if isFetchingSuggestions && (!currentSuggestions || currentSuggestions.roleId !== selectedRole.id)}
 					<div class="suggestions-loading">
 						<span class="sug-spinner"></span>
-						<span>Analisi modelli ottimali con AI in corso...</span>
+						<span>{m.ui_rolestab_analisi_modelli_ottimali_con_ai_in_corso_f222()}</span>
 					</div>
 				{:else if currentSuggestions && currentSuggestions.primary.length > 0}
 					<div class="suggestions-row">
@@ -423,7 +424,7 @@
 							{#each currentSuggestions.primary as sug (sug.selector)}
 								{@const modelDto = getModelDto(sug.selector)}
 								{@const isAlreadySelected = selectedRoleModelRaw === sug.selector}
-								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? ` • Velocità: ${Math.round(sug.tokensPerSec)} tok/s` : ''} (${sug.selector})`}
+								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? m.ui_rolestab_velocita_value1_tok_s_ea3b({ value1: Math.round(sug.tokensPerSec) }) : ''} (${sug.selector})`}
 								{@const sugClean = splitModelSelector(sug.selector, modelSettingsStore.knownSelectors).base}
 								{@const sugSlash = sugClean.indexOf('/')}
 								<button
@@ -471,7 +472,7 @@
 						{/if}
 					</div>
 					<span class="section-subtitle">
-						Intervengono in sequenza ordinata in caso di rate-limit, timeout o indisponibilità del modello primario.
+						{m.ui_rolestab_intervengono_in_sequenza_ordinata_in_caso_di_8cde()}
 					</span>
 				</div>
 
@@ -534,7 +535,7 @@
 									class="btn-fb-action"
 									disabled={idx === 0}
 									onclick={() => moveFallback(selectedRole.id, idx, -1)}
-									title="Aumenta priorità (sposta su)"
+									title={m.ui_rolestab_aumenta_priorita_sposta_su_ef3d()}
 								>
 									<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
 										<path d="M3.5 10L8 5.5l4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -545,7 +546,7 @@
 									class="btn-fb-action"
 									disabled={idx === selectedRoleFallbacks.length - 1}
 									onclick={() => moveFallback(selectedRole.id, idx, 1)}
-									title="Riduci priorità (sposta giù)"
+									title={m.ui_rolestab_riduci_priorita_sposta_giu_357a()}
 								>
 									<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
 										<path d="M3.5 6L8 10.5l4.5-4.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -555,7 +556,7 @@
 									type="button"
 									class="btn-fb-action delete"
 									onclick={() => removeFallback(selectedRole.id, idx)}
-									title="Rimuovi modello di riserva"
+									title={m.ui_rolestab_rimuovi_modello_di_riserva_cdcc()}
 								>
 									<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
 										<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
@@ -570,7 +571,7 @@
 							<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
 								<path d="M8 2l6 11H2L8 2zM8 6.5v3M8 11.5v.5" stroke-linecap="round" stroke-linejoin="round" />
 							</svg>
-							<span>Nessuna riserva configurata: se il modello primario va in errore o rate-limit, la richiesta fallirà.</span>
+							<span>{m.ui_rolestab_nessuna_riserva_configurata_se_il_modello_primario_0d8e()}</span>
 						</div>
 					{/if}
 				</div>
@@ -581,7 +582,7 @@
 						<div class="inline-fallback-picker">
 							<ModelPickerDropdown
 								catalog={modelSettingsStore.assignableCatalog}
-								placeholder="Scegli modello di riserva..."
+								placeholder={m.models_roles_fallback_placeholder()}
 								onSelect={(sel) => handleAddFallback(selectedRole.id, sel)}
 							/>
 							<button
@@ -589,7 +590,7 @@
 								class="btn-cancel-fb"
 								onclick={() => isAddingFallback = false}
 							>
-								Annulla
+								{m.common_cancel()}
 							</button>
 						</div>
 					{:else}
@@ -598,7 +599,7 @@
 							class="btn-add-fallback"
 							onclick={() => isAddingFallback = true}
 						>
-							+ Aggiungi Modello di Riserva
+							{m.ui_rolestab_aggiungi_modello_di_riserva_f96b()}
 						</button>
 					{/if}
 				</div>
@@ -613,7 +614,7 @@
 							{#each currentSuggestions.fallback as sug (sug.selector)}
 								{@const fbModel = getModelDto(sug.selector)}
 								{@const alreadyInFallback = selectedRoleFallbacks.includes(sug.selector)}
-								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? ` • Velocità: ${Math.round(sug.tokensPerSec)} tok/s` : ''} (${sug.selector})`}
+								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? m.ui_rolestab_velocita_value1_tok_s_ea3b({ value1: Math.round(sug.tokensPerSec) }) : ''} (${sug.selector})`}
 								{@const sugClean = splitModelSelector(sug.selector, modelSettingsStore.knownSelectors).base}
 								{@const sugSlash = sugClean.indexOf('/')}
 								{#if !alreadyInFallback && sug.selector !== selectedRoleModelRaw}
