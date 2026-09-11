@@ -21,7 +21,7 @@
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
 	import LabView from '$lib/lab/LabView.svelte';
 	import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
-	import CloseConfirmModal, { type ProjectCloseTarget, type CloseConfirmMode } from '$lib/components/CloseConfirmModal.svelte';
+	import CloseConfirmModal, { type ProjectCloseTarget } from '$lib/components/CloseConfirmModal.svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
 	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
@@ -1210,31 +1210,31 @@
 
 	let closeConfirmModalState = $state<{
 		open: boolean;
-		mode: CloseConfirmMode;
 		project?: ProjectCloseTarget;
-		affectedProjects?: ProjectCloseTarget[];
-	}>({
-		open: false,
-		mode: 'project'
-	});
-	let allowAppClose = false;
+	}>({ open: false });
 
-	function getAffectedProjectsForClose(): ProjectCloseTarget[] {
-		const list: ProjectCloseTarget[] = [];
+	/**
+	 * Uscita da Studio: il task interrotto di ogni progetto al lavoro torna in
+	 * cima alla sua coda e le scritture ritardate vengono svuotate subito.
+	 *
+	 * Nessuna domanda all'utente: le code vivono in `.omp/tasks.json` dentro
+	 * ogni progetto, quindi chiudere l'app non perde nulla. "Conservo o scarto
+	 * la coda?" ha senso solo chiudendo un singolo progetto, che sparisce dalla
+	 * barra e porta via la coda dalla vista.
+	 */
+	async function persistWorkBeforeQuit() {
 		for (const p of projectStore.projects) {
-			const queuedCount = p.path ? taskStore.queuedCountFor(p.path) : 0;
-			const isWorking = p.agentState === 'working' || Boolean(terminalBusy[p.id]);
-			if (queuedCount > 0 || isWorking) {
-				list.push({
-					id: p.id,
-					name: p.label?.trim() || p.name || 'Progetto',
-					path: p.path,
-					queuedCount,
-					isWorking
-				});
+			if (!p.path) continue;
+			try {
+				if (p.agentState === 'working' || terminalBusy[p.id]) {
+					await taskStore.requeueInterruptedTask(p.path);
+				} else {
+					await taskStore.saveProjectImmediate(p.path);
+				}
+			} catch (error) {
+				console.error('Salvataggio della coda in uscita fallito:', p.path, error);
 			}
 		}
-		return list;
 	}
 
 	function handleRequestCloseProject(projectId: string) {
@@ -1261,7 +1261,6 @@
 
 		closeConfirmModalState = {
 			open: true,
-			mode: 'project',
 			project: {
 				id: project.id,
 				name: project.label?.trim() || project.name || 'Progetto',
@@ -1272,90 +1271,41 @@
 		};
 	}
 
-	function handleRequestCloseApp() {
-		const affected = getAffectedProjectsForClose();
-		if (affected.length === 0) {
-			allowAppClose = true;
-			const appWindow = getCurrentWindow();
-			appWindow.close().catch(err => console.error("Close error:", err));
-			return;
-		}
-		closeConfirmModalState = {
-			open: true,
-			mode: 'app',
-			affectedProjects: affected
-		};
-	}
-
 	async function handleConfirmKeepClose() {
-		if (closeConfirmModalState.mode === 'project' && closeConfirmModalState.project) {
-			const target = closeConfirmModalState.project;
-			if (target.isWorking && target.path) {
-				await taskStore.requeueInterruptedTask(target.path);
-			} else if (target.path) {
-				await taskStore.saveProjectImmediate(target.path);
-			}
-			projectStore.closeProject(target.id);
-			closeConfirmModalState = { open: false, mode: 'project' };
-		} else if (closeConfirmModalState.mode === 'app') {
-			for (const p of projectStore.projects) {
-				if (!p.path) continue;
-				if (p.agentState === 'working' || terminalBusy[p.id]) {
-					await taskStore.requeueInterruptedTask(p.path);
-				} else {
-					await taskStore.saveProjectImmediate(p.path);
-				}
-			}
-			allowAppClose = true;
-			closeConfirmModalState = { open: false, mode: 'app' };
-			const appWindow = getCurrentWindow();
-			try {
-				await appWindow.destroy();
-			} catch {
-				await appWindow.close();
-			}
+		const target = closeConfirmModalState.project;
+		if (!target) return;
+		if (target.isWorking && target.path) {
+			await taskStore.requeueInterruptedTask(target.path);
+		} else if (target.path) {
+			await taskStore.saveProjectImmediate(target.path);
 		}
+		projectStore.closeProject(target.id);
+		closeConfirmModalState = { open: false };
 	}
 
-	async function handleConfirmDiscardClose() {
-		if (closeConfirmModalState.mode === 'project' && closeConfirmModalState.project) {
-			const target = closeConfirmModalState.project;
-			if (target.path) {
-				taskStore.clearProject(target.path);
-			}
-			projectStore.closeProject(target.id);
-			closeConfirmModalState = { open: false, mode: 'project' };
-		} else if (closeConfirmModalState.mode === 'app') {
-			allowAppClose = true;
-			closeConfirmModalState = { open: false, mode: 'app' };
-			const appWindow = getCurrentWindow();
-			try {
-				await appWindow.destroy();
-			} catch {
-				await appWindow.close();
-			}
-		}
+	function handleConfirmDiscardClose() {
+		const target = closeConfirmModalState.project;
+		if (!target) return;
+		if (target.path) taskStore.clearProject(target.path);
+		projectStore.closeProject(target.id);
+		closeConfirmModalState = { open: false };
 	}
 
 	function handleCancelCloseModal() {
-		closeConfirmModalState = { open: false, mode: 'project' };
+		closeConfirmModalState = { open: false };
 	}
 
 	onMount(() => {
 		let unlistenClose: (() => void) | undefined;
 		if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
 			const appWindow = getCurrentWindow();
-			void appWindow.onCloseRequested((event) => {
-				if (allowAppClose) return;
-				const affected = getAffectedProjectsForClose();
-				if (affected.length > 0) {
-					event.preventDefault();
-					closeConfirmModalState = {
-						open: true,
-						mode: 'app',
-						affectedProjects: affected
-					};
-				}
+			// Tauri annulla sempre la chiusura nativa quando la webview ha un
+			// ascoltatore di `close-requested`: da qui in poi distruggere la
+			// finestra spetta al wrapper JS, che lo fa appena l'handler
+			// termina senza `preventDefault()`. Quindi l'unica cosa da fare e'
+			// attendere il salvataggio delle code.
+			void appWindow.onCloseRequested(async () => {
+				await persistWorkBeforeQuit();
 			}).then((unlisten) => {
 				unlistenClose = unlisten;
 			});
@@ -1875,7 +1825,6 @@
 		canRunTask={canAutomate}
 		runReason={automationReason}
 		onRequestCloseProject={handleRequestCloseProject}
-		onRequestCloseApp={handleRequestCloseApp}
 	/>
 	<SetupWizard open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
 	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} {guiHosts} />
@@ -1883,9 +1832,7 @@
 	<SettingsModal />
 	<CloseConfirmModal
 		open={closeConfirmModalState.open}
-		mode={closeConfirmModalState.mode}
 		project={closeConfirmModalState.project}
-		affectedProjects={closeConfirmModalState.affectedProjects}
 		onConfirmKeep={handleConfirmKeepClose}
 		onConfirmDiscard={handleConfirmDiscardClose}
 		onCancel={handleCancelCloseModal}

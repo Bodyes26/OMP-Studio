@@ -376,7 +376,6 @@
   "browser_cap_geolocation": "Geolocation",
   "browser_cap_notifications": "Notifications",
   "close_confirm_title_project": "Close {name}",
-  "close_confirm_title_app": "Confirm OMP Studio exit",
   "close_confirm_sub_has_working": "Active execution that would be interrupted",
   "close_confirm_sub_has_queued": "Queued tasks present on disk",
   "close_confirm_cancel_aria": "Cancel and return to work",
@@ -399,30 +398,9 @@
   ],
   "close_confirm_project_working_question": "Do you want to interrupt and keep the task in queue for reopening?",
   "close_confirm_project_queued_question": "What do you want to do with queued tasks for this project?",
-  "close_confirm_app_intro_working": "There are projects with <strong>tasks in progress</strong> or <strong>queued tasks</strong>:",
-  "close_confirm_app_intro_queued": "There are projects with <strong>queued tasks</strong> not yet executed:",
-  "close_confirm_badge_working": "Running",
-  "close_confirm_badge_queued": [
-    {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
-      "match": {
-        "countPlural=one": "{count} queued",
-        "countPlural=other": "{count} queued"
-      }
-    }
-  ],
-  "close_confirm_app_requeue_note": "If you close keeping queues, any interrupted tasks will return to the top of their queues and be ready next time.",
   "close_confirm_btn_cancel": "Cancel",
   "close_confirm_btn_discard_project": "Close and delete queue",
-  "close_confirm_btn_discard_app": "Discard and exit anyway",
   "close_confirm_btn_keep_project": "Keep queue and close",
-  "close_confirm_btn_keep_app": "Keep queues and exit",
   "empty_state_title_no_projects": "No open projects",
   "empty_state_title_no_tasks": "No queued tasks",
   "empty_state_title_generic": "No items",
@@ -891,11 +869,6 @@
   "ui_browserviewer_canale_live_non_disponibile_riprova_f377": "Live channel unavailable: please try again",
   "ui_browserviewer_selezione_file_annullata_5351": "File selection canceled",
   "ui_browserviewer_takeover_privato_attivo_nulla_di_questa_pagina_506a": "Private takeover active: nothing on this page is sent to the agent",
-  "ui_closeconfirmmodal_chiudendo_ora_il_processo_attivo_verra_interrotto_2370": "If you close now, the active process will be interrupted.\n\t\t\t\t\t\t\tThe prompt and task configuration will be automatically moved\n\t\t\t\t\t\t\tto the top of the queue (",
-  "ui_closeconfirmmodal_conservati_per_questo_progetto_d077": "preserved for this project.",
-  "ui_closeconfirmmodal_ci_sono_progetti_con_8f06": "There are projects with",
-  "ui_closeconfirmmodal_elaborazioni_in_corso_abfe": "processes in progress",
-  "ui_closeconfirmmodal_se_chiudi_conservando_le_code_gli_eventuali_f159": "If you close and preserve queues, any interrupted tasks will return to the top of their queues\n\t\t\t\t\tand be ready when you reopen.",
   "ui_closeconfirmmodal_chiude_ed_elimina_i_task_in_coda_7d6d": "Closes and deletes queued tasks from .omp/tasks.json",
   "ui_agentpanel_crea_nuovo_task_eca5": "Create new task",
   "ui_sessionlist_sessione_attiva_1526": "Active session",

@@ -34,7 +34,7 @@
 		setupIncomplete = false,
 		labActive = false,
 		onRunTask, onEditTask, onNewTask, canRunTask, runReason,
-		onRequestCloseProject, onRequestCloseApp
+		onRequestCloseProject
 	} = $props<{
 		onUsageClick?: () => void;
 		onNewProject?: () => void;
@@ -54,7 +54,6 @@
 		canRunTask?: (projectId: string) => boolean;
 		runReason?: (projectId: string) => string;
 		onRequestCloseProject?: (projectId: string) => void;
-		onRequestCloseApp?: () => void;
 	}>();
 
 	const PROJECT_BAR_ORDER_OPTIONS: { value: ProjectBarOrder; label: string }[] = [
@@ -405,11 +404,9 @@
 
 	function handleClose(e: MouseEvent) {
 		e.stopPropagation();
-		if (onRequestCloseApp) {
-			onRequestCloseApp();
-		} else {
-			appWindow.close().catch(err => console.error("Close error:", err));
-		}
+		// Unica via d'uscita: `close()` passa per `close-requested`, dove la
+		// pagina principale salva le code e lascia distruggere la finestra.
+		appWindow.close().catch((err) => console.error('Close error:', err));
 	}
 
 	function handleKeydown(event: KeyboardEvent) {

@@ -376,7 +376,6 @@
   "browser_cap_geolocation": "Geolocalizzazione",
   "browser_cap_notifications": "Notifiche",
   "close_confirm_title_project": "Chiudi {name}",
-  "close_confirm_title_app": "Conferma chiusura OMP Studio",
   "close_confirm_sub_has_working": "Elaborazione in corso che andrebbe interrotta",
   "close_confirm_sub_has_queued": "Task in coda presenti sul disco",
   "close_confirm_cancel_aria": "Annulla e torna al lavoro",
@@ -399,30 +398,9 @@
   ],
   "close_confirm_project_working_question": "Vuoi interrompere e conservare il task nella coda per la riapertura?",
   "close_confirm_project_queued_question": "Cosa desideri fare con i task in coda di questo progetto?",
-  "close_confirm_app_intro_working": "Ci sono progetti con <strong>elaborazioni in corso</strong> o con <strong>task in coda</strong>:",
-  "close_confirm_app_intro_queued": "Ci sono progetti con <strong>task in coda</strong> non ancora eseguiti:",
-  "close_confirm_badge_working": "In esecuzione",
-  "close_confirm_badge_queued": [
-    {
-      "declarations": [
-        "input count",
-        "local countPlural = count: plural"
-      ],
-      "selectors": [
-        "countPlural"
-      ],
-      "match": {
-        "countPlural=one": "{count} in coda",
-        "countPlural=other": "{count} in coda"
-      }
-    }
-  ],
-  "close_confirm_app_requeue_note": "Se chiudi conservando le code, gli eventuali task interrotti torneranno in cima alle rispettive code e li ritroverai pronti alla prossima riapertura.",
   "close_confirm_btn_cancel": "Annulla",
   "close_confirm_btn_discard_project": "Chiudi ed elimina coda",
-  "close_confirm_btn_discard_app": "Scarta ed esci comunque",
   "close_confirm_btn_keep_project": "Conserva coda e chiudi",
-  "close_confirm_btn_keep_app": "Conserva le code ed esci",
   "empty_state_title_no_projects": "Nessun progetto aperto",
   "empty_state_title_no_tasks": "Nessun task in coda",
   "empty_state_title_generic": "Nessun elemento",
@@ -891,11 +869,6 @@
   "ui_browserviewer_canale_live_non_disponibile_riprova_f377": "Canale live non disponibile: riprova",
   "ui_browserviewer_selezione_file_annullata_5351": "Selezione file annullata",
   "ui_browserviewer_takeover_privato_attivo_nulla_di_questa_pagina_506a": "Takeover privato attivo: nulla di questa pagina viene inviato all'agente",
-  "ui_closeconfirmmodal_chiudendo_ora_il_processo_attivo_verra_interrotto_2370": "Chiudendo ora, il processo attivo verrà interrotto.\n\t\t\t\t\t\t\tIl prompt e la configurazione del task verranno reinseriti automaticamente\n\t\t\t\t\t\t\tin cima alla coda (",
-  "ui_closeconfirmmodal_conservati_per_questo_progetto_d077": "conservati per questo progetto.",
-  "ui_closeconfirmmodal_ci_sono_progetti_con_8f06": "Ci sono progetti con",
-  "ui_closeconfirmmodal_elaborazioni_in_corso_abfe": "elaborazioni in corso",
-  "ui_closeconfirmmodal_se_chiudi_conservando_le_code_gli_eventuali_f159": "Se chiudi conservando le code, gli eventuali task interrotti torneranno in cima alle rispettive code\n\t\t\t\t\te li ritroverai pronti alla prossima riapertura.",
   "ui_closeconfirmmodal_chiude_ed_elimina_i_task_in_coda_7d6d": "Chiude ed elimina i task in coda dal file .omp/tasks.json",
   "ui_agentpanel_crea_nuovo_task_eca5": "Crea nuovo task",
   "ui_sessionlist_sessione_attiva_1526": "Sessione attiva",

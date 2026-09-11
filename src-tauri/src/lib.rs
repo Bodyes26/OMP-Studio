@@ -204,6 +204,10 @@ pub fn run() {
                     if let Some(pty_manager) = window.try_state::<PtyManager>() {
                         pty_manager.close_all();
                     }
+                    // La Companion viene solo nascosta (`hide()`), non chiusa:
+                    // resta una finestra aperta per Tauri e terrebbe vivo il
+                    // processo dopo la distruzione della finestra principale.
+                    window.app_handle().exit(0);
                 }
             }
             // La geometria della Companion si annota in memoria mentre l'utente

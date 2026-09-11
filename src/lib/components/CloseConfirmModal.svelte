@@ -14,21 +14,15 @@
 		runningTaskPrompt?: string;
 	}
 
-	export type CloseConfirmMode = 'project' | 'app';
-
 	let {
 		open = false,
-		mode = 'project',
 		project,
-		affectedProjects = [],
 		onConfirmKeep,
 		onConfirmDiscard,
 		onCancel
 	} = $props<{
 		open?: boolean;
-		mode?: CloseConfirmMode;
 		project?: ProjectCloseTarget;
-		affectedProjects?: ProjectCloseTarget[];
 		onConfirmKeep: () => void;
 		onConfirmDiscard: () => void;
 		onCancel: () => void;
@@ -54,22 +48,15 @@
 		}
 	});
 
-	const hasWorking = $derived(
-		mode === 'project'
-			? Boolean(project?.isWorking)
-			: affectedProjects.some((p: ProjectCloseTarget) => p.isWorking)
-	);
-
-	const totalQueued = $derived(
-		mode === 'project'
-			? (project?.queuedCount ?? 0)
-			: affectedProjects.reduce((acc: number, p: ProjectCloseTarget) => acc + p.queuedCount, 0)
-	);
+	// La chiusura di un progetto e' l'unico momento in cui la sorte della coda
+	// va decisa: chiudendo Studio le code restano nei rispettivi
+	// `.omp/tasks.json` e non c'e' niente da chiedere.
+	const hasWorking = $derived(Boolean(project?.isWorking));
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#if open}
+{#if open && project}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
@@ -93,11 +80,7 @@
 			</div>
 			<div class="header-text">
 				<h3 id="close-confirm-title">
-					{#if mode === 'project'}
-						{m.page_modal_restart_btn_close()} {project?.name || 'progetto'}
-					{:else}
-						{m.close_confirm_title_app()}
-					{/if}
+					{m.close_confirm_title_project({ name: project.name || 'progetto' })}
 				</h3>
 				<p class="subtitle">
 					{#if hasWorking}
@@ -119,75 +102,34 @@
 
 		<!-- Body -->
 		<div class="modal-body">
-			{#if mode === 'project' && project}
-				{#if project.isWorking}
-					<div class="alert-banner warning">
-						<div class="alert-title">
-							<span class="pulse-dot"></span>
-							<strong>{m.close_confirm_working_banner_title()}</strong>
-						</div>
-						<p class="alert-desc">
-							{m.ui_closeconfirmmodal_chiudendo_ora_il_processo_attivo_verra_interrotto_2370()}<code>.omp/tasks.json</code>) per consentirti di riprendere alla riapertura.
-						</p>
+			{#if project.isWorking}
+				<div class="alert-banner warning">
+					<div class="alert-title">
+						<span class="pulse-dot"></span>
+						<strong>{m.close_confirm_working_banner_title()}</strong>
 					</div>
-				{/if}
-
-				{#if project.queuedCount > 0}
-					<div class="queue-info">
-						<div class="queue-icon"><IconQueue /></div>
-						<div class="queue-text">
-							<span>
-								<strong>{project.queuedCount}</strong>
-								{project.queuedCount === 1 ? 'task in coda' : 'task in coda'}
-								{m.ui_closeconfirmmodal_conservati_per_questo_progetto_d077()}
-							</span>
-						</div>
-					</div>
-				{/if}
-
-				<p class="question-text">
-					{#if project.isWorking}
-						{m.close_confirm_project_working_question()}
-					{:else}
-						{m.close_confirm_project_queued_question()}
-					{/if}
-				</p>
-			{:else}
-				<!-- Mode: App -->
-				<p class="app-intro">
-					{#if hasWorking}
-						{m.ui_closeconfirmmodal_ci_sono_progetti_con_8f06()} <strong>{m.ui_closeconfirmmodal_elaborazioni_in_corso_abfe()}</strong> o con <strong>task in coda</strong>:
-					{:else}
-						{m.ui_closeconfirmmodal_ci_sono_progetti_con_8f06()} <strong>task in coda</strong> non ancora eseguiti:
-					{/if}
-				</p>
-
-				<div class="project-list">
-					{#each affectedProjects as p (p.id)}
-						<div class="project-row">
-							<span class="project-name">{p.name}</span>
-							<div class="project-badges">
-								{#if p.isWorking}
-									<span class="badge working">
-										<span class="pulse-dot"></span>
-										{m.close_confirm_badge_working()}
-									</span>
-								{/if}
-								{#if p.queuedCount > 0}
-									<span class="badge queued">
-										<IconQueue />
-										{p.queuedCount} {p.queuedCount === 1 ? 'in coda' : 'in coda'}
-									</span>
-								{/if}
-							</div>
-						</div>
-					{/each}
+					<p class="alert-desc">
+						{m.close_confirm_working_banner_desc()}
+					</p>
 				</div>
-
-				<p class="question-text">
-					{m.ui_closeconfirmmodal_se_chiudi_conservando_le_code_gli_eventuali_f159()}
-				</p>
 			{/if}
+
+			{#if project.queuedCount > 0}
+				<div class="queue-info">
+					<div class="queue-icon"><IconQueue /></div>
+					<div class="queue-text">
+						<span>{m.close_confirm_project_queued_info({ count: project.queuedCount })}</span>
+					</div>
+				</div>
+			{/if}
+
+			<p class="question-text">
+				{#if project.isWorking}
+					{m.close_confirm_project_working_question()}
+				{:else}
+					{m.close_confirm_project_queued_question()}
+				{/if}
+			</p>
 		</div>
 
 		<!-- Footer -->
@@ -202,11 +144,7 @@
 				onclick={onConfirmDiscard}
 				title={m.ui_closeconfirmmodal_chiude_ed_elimina_i_task_in_coda_7d6d()}
 			>
-				{#if mode === 'project'}
-					{m.close_confirm_btn_discard_project()}
-				{:else}
-					{m.close_confirm_btn_discard_app()}
-				{/if}
+				{m.close_confirm_btn_discard_project()}
 			</button>
 
 			<button
@@ -217,13 +155,7 @@
 				title="Chiude conservando tutti i task (compreso quello interrotto) per la prossima volta"
 			>
 				<IconCheck />
-				<span>
-					{#if mode === 'project'}
-						{m.close_confirm_btn_keep_project()}
-					{:else}
-						{m.close_confirm_btn_keep_app()}
-					{/if}
-				</span>
+				<span>{m.close_confirm_btn_keep_project()}</span>
 			</button>
 		</div>
 	</div>
@@ -354,14 +286,6 @@
 		line-height: 1.45;
 	}
 
-	.alert-desc code {
-		background: var(--bg-hover);
-		padding: 1px 4px;
-		border-radius: 3px;
-		font-family: inherit;
-		font-size: 0.95em;
-	}
-
 	.pulse-dot {
 		width: 8px;
 		height: 8px;
@@ -402,72 +326,6 @@
 		display: flex;
 		align-items: center;
 		color: var(--ink-muted);
-	}
-
-	.app-intro {
-		margin: 0;
-		font-size: var(--text-sm, 13px);
-		color: var(--ink);
-		line-height: 1.4;
-	}
-
-	.project-list {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		max-height: 200px;
-		overflow-y: auto;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md, 6px);
-		padding: 6px;
-	}
-
-	.project-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		padding: 6px 10px;
-		background: var(--bg-overlay);
-		border-radius: var(--radius-sm, 4px);
-	}
-
-	.project-name {
-		font-size: var(--text-sm, 13px);
-		font-weight: 500;
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.project-badges {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		flex-shrink: 0;
-	}
-
-	.badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		padding: 2px 7px;
-		border-radius: 999px;
-		font-size: var(--text-xs, 11px);
-		font-weight: 500;
-	}
-
-	.badge.working {
-		background: color-mix(in srgb, var(--warn) 20%, transparent);
-		color: var(--warn);
-	}
-
-	.badge.queued {
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-		border: 1px solid var(--line);
 	}
 
 	.question-text {
