@@ -25,3 +25,7 @@ detect_*.json
 detect_*.stderr.txt
 .impeccable/
 .omp/
+
+# prototipi e revisioni del Laboratorio: archivio locale di Studio, non si pubblica
+/lab
+/proto
