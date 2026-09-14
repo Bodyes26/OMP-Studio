@@ -81,6 +81,13 @@
 		}
 	});
 
+	// Gli account vivono in `agent.db` e cambiano fuori da Studio (login da CLI,
+	// scadenza token): `ensureLoaded()` non li carica, quindi li leggiamo qui a
+	// ogni apertura della tab, cosi' la lista e' sempre quella reale.
+	$effect(() => {
+		void modelSettingsStore.loadAccounts();
+	});
+
 	function isEnabled(id: string): boolean {
 		return !(modelSettingsStore.draftConfig?.disabledProviders.includes(id) ?? false);
 	}

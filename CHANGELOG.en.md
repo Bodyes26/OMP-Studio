@@ -56,6 +56,7 @@ it is closed into a version with `npm run release -- <version>`.
 - Focus is no longer stolen while typing a prompt: agent questions arriving from background projects no longer steal focus from the composer or TaskEditor, global type-to-focus no longer hijacks keystrokes from controls on other surfaces, live browser viewport reclaims focus only when lost following remounting, and Esc/Ctrl+Enter pressed outside TaskEditor no longer dismisses it.
 - Fixed false modified state when opening documents in editor: Monaco now preserves the UTF-8 BOM (`﻿`) and aligns initial baseline on load, preventing unjustified dirty indicators and "Save" button visibility on freshly opened files from the filetree or GUI links.
 - Companion window remembers its configured size: previously widened upon every reopen. Dimensions were saved only upon pinning (including invisible resize borders that accumulated with each cycle), while pinning via the top bar button in the main window completely cleared saved dimensions back to 560x520. Window position and size now persist when closing the window and quitting the app, persisting upon reopen in both Spotlight and pinned modes.
+- "Settings → Models → Providers & Custom" shows linked accounts again: the tab claimed "No account linked to this provider" and counted zero accounts for every provider, because opening settings never read the credential list (only the Companion did). The tab now reloads accounts each time it opens, so accounts added from the terminal after Studio started appear right away.
 
 ## [1.5.0] - 2026-09-08
 
