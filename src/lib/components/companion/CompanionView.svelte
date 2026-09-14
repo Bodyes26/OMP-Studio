@@ -927,22 +927,12 @@
 				onclick={() => inputEl?.focus()}
 			>
 				<div class="composer-stage">
-					<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>
-						{#each displayTokens as token}
-							{#if token.kind === 'project'}
-								<span class="inline-token project">{token.text}</span>
-							{:else if token.kind === 'directive'}
-								<span class="inline-token directive">{token.text}</span>
-							{:else if token.kind === 'role'}
-								<span class="inline-token role">{token.text}</span>
-							{:else}
-								<span>{token.text}</span>
-							{/if}
-						{/each}
-						{#if taskInput.endsWith('\n')}
-							<span aria-hidden="true">&#8203;</span>
-						{/if}
-					</div>
+					<!--
+						Backdrop: dipinge il testo che la textarea tiene trasparente. I segmenti
+						stanno tutti su una riga sola, senza spazi di indentazione fra i tag:
+						qualunque carattere in piu' disallineerebbe il caret.
+					-->
+					<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>{#each displayTokens as token, idx (idx)}<span class="tok" class:project={token.kind === 'project'} class:directive={token.kind === 'directive'} class:role={token.kind === 'role'}>{token.text}</span>{/each}{#if taskInput.endsWith('\n')}<span>&#8203;</span>{/if}</div>
 					<textarea
 						bind:this={inputEl}
 						bind:value={taskInput}
@@ -1843,32 +1833,42 @@
 		color: transparent;
 	}
 
-	.inline-token {
+	/*
+		Pillole dei token riconosciuti. Vincolo assoluto: zero pixel orizzontali.
+		Il backdrop deve avere le stesse metriche del testo (trasparente) della
+		textarea, altrimenti il caret finisce dove non si scrive. Percio':
+		- nessun padding o margine orizzontale (il vecchio padding 4px con margine
+		  -4px lasciava comunque i 2px del bordo e i token vicini si sovrapponevano);
+		- nessun grassetto: il peso 500 allarga i glifi rispetto alla textarea;
+		- bordo disegnato con box-shadow, che non occupa spazio nel flusso;
+		- respiro solo verticale, che non altera l'avanzamento dei caratteri.
+	*/
+	.tok.project,
+	.tok.directive,
+	.tok.role {
 		display: inline;
 		border-radius: var(--radius-sm);
-		font-weight: 500;
+		padding-block: 1px;
+		box-shadow: 0 0 0 1px var(--tok-line);
 		box-decoration-break: clone;
 		-webkit-box-decoration-break: clone;
-		padding: 1px 4px;
-		margin: 0 -4px;
-		border: 1px solid transparent;
 	}
 
-	.inline-token.project {
+	.tok.project {
+		--tok-line: color-mix(in srgb, #3b82f6 38%, transparent);
 		background: color-mix(in srgb, #3b82f6 15%, transparent);
-		border-color: color-mix(in srgb, #3b82f6 38%, transparent);
 		color: #3b82f6;
 	}
 
-	.inline-token.directive {
+	.tok.directive {
+		--tok-line: color-mix(in srgb, #10b981 38%, transparent);
 		background: color-mix(in srgb, #10b981 15%, transparent);
-		border-color: color-mix(in srgb, #10b981 38%, transparent);
 		color: #10b981;
 	}
 
-	.inline-token.role {
+	.tok.role {
+		--tok-line: color-mix(in srgb, #a855f7 38%, transparent);
 		background: color-mix(in srgb, #a855f7 15%, transparent);
-		border-color: color-mix(in srgb, #a855f7 38%, transparent);
 		color: #a855f7;
 	}
 
