@@ -19,6 +19,7 @@ import {
 	isGlobalShellShortcut,
 	type KeyboardEventLike
 } from '../src/lib/shortcuts/shortcutMatch.ts';
+import { shouldAutoFocusAskCard } from '../src/lib/agent/askFocus.ts';
 
 function makeMockEntries(count: number): Array<{ id: number; text: string }> {
 	const result = new Array(count);
@@ -266,5 +267,17 @@ describe('Gestione Escape e abort: il tasto Escape non interrompe mai lo streami
 		// Solo il pulsante di stop (onclick esplicito) invoca session.abort()
 		session.abort();
 		assert.equal(abortCalled, true, 'Solo l\'azione di stop dedicata deve interrompere la sessione');
+	});
+});
+
+describe('Focus delle richieste interattive', () => {
+	it('non focalizza la AskCard quando Studio non e\' la finestra attiva', () => {
+		const body = { tagName: 'BODY', isContentEditable: false };
+
+		assert.equal(
+			shouldAutoFocusAskCard(true, false, body, body, false),
+			false,
+			'Una domanda dell\'agente non deve riportare Studio in primo piano'
+		);
 	});
 });

@@ -43,6 +43,7 @@
 		type AskQuestionOption
 	} from '../askAnswers';
 	import { parseAskTitle, sanitizeAskDetail } from '../askTitle';
+	import { shouldAutoFocusAskCard } from '../askFocus';
 let { session, pending, visible = true } = $props<{ session: AgentSession; pending: PendingAsk; visible?: boolean }>();
 
 	// Prefisso unico per gli id ARIA: piu' sessioni possono avere una card
@@ -287,19 +288,20 @@ $effect(() => {
 	submitting = false;
 
 	// Mai rubare il fuoco: la card di un progetto in background e' montata
-	// ma invisibile, e l'utente potrebbe stare scrivendo in un altro prompt.
-	// Senza questo controllo ogni domanda dell'agente strappava il focus dal
-	// composer o dal TaskEditor, anche da progetti diversi da quello aperto.
-	if (!visible) return;
+	// ma invisibile, e l'utente potrebbe stare scrivendo in un altro prompt
+	// o in un'altra finestra.
 	const active = document.activeElement as HTMLElement | null;
-	const typingElsewhere =
-		active !== null &&
-		active !== document.body &&
-		!cardEl?.contains(active) &&
-		(active.tagName === 'INPUT' ||
-			active.tagName === 'TEXTAREA' ||
-			active.isContentEditable);
-	if (typingElsewhere) return;
+	const documentHasFocus =
+		typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+	if (
+		!shouldAutoFocusAskCard(
+			visible,
+			documentHasFocus,
+			active,
+			document.body,
+			cardEl?.contains(active) ?? false
+		)
+	) return;
 
 	if (pending.method === 'input' && plainInputEl) {
 		plainInputEl.focus();
