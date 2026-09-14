@@ -128,7 +128,8 @@ const PARSE_PROJECTS = [
 	{ id: 'p1', name: 'Cruscotto PSR', label: 'Cruscotto PSR', path: 'c:/repos/cruscotto-psr' },
 	{ id: 'p2', name: 'GestioneFlotta', label: 'Flotta', path: 'c:/repos/gestioneflotta' },
 	{ id: 'p3', name: 'AmbraUno', label: 'AmbraUno', path: 'c:/repos/ambrauno' },
-	{ id: 'p4', name: 'AmbraDue', label: 'AmbraDue', path: 'c:/repos/ambradue' }
+	{ id: 'p4', name: 'AmbraDue', label: 'AmbraDue', path: 'c:/repos/ambradue' },
+	{ id: 'p5', name: 'Studio OMP', label: 'Studio OMP', path: 'c:/repos/omp-studio-app' }
 ];
 
 const PARSE_DIRECTIVES = [
@@ -151,6 +152,25 @@ test('Parser locale: @progetto risolve il progetto e ripulisce il prompt', () =>
 	assert.equal(res.projectPath, 'c:/repos/cruscotto-psr');
 	assert.equal(res.taskPrompt, 'sistema il bottone');
 	assert.equal(res.needsAi, false, 'con il progetto risolto non serve interpellare il modello');
+});
+
+test('Parser locale: un nome progetto con spazi viene consumato per intero', () => {
+	// Il suggeritore inserisce il nome esatto ("@Studio OMP "): fermarsi al primo
+	// spazio lascerebbe "OMP" dentro il prompt come se fosse prosa dell'utente.
+	const res = parseQuickTaskLocal('@Studio OMP perché il badge non prende il nome completo', PARSE_INPUT);
+
+	assert.equal(res.projectId, 'p5');
+	assert.equal(res.taskPrompt, 'perché il badge non prende il nome completo');
+	assert.equal(res.needsAi, false);
+});
+
+test('Parser locale: la ricerca multi-parola non inghiotte la prosa successiva', () => {
+	// "@Flotta" risolve da sola: le parole dopo non devono entrare nel token,
+	// altrimenti spariscono dal prompt salvato.
+	const res = parseQuickTaskLocal('@Flotta gestione veicoli da rivedere', PARSE_INPUT);
+
+	assert.equal(res.projectId, 'p2');
+	assert.equal(res.taskPrompt, 'gestione veicoli da rivedere');
 });
 
 test('Parser locale: testo senza progetto riconoscibile richiede l’AI', () => {
@@ -282,6 +302,17 @@ test('tokenizeForDisplay: classifica progetti, direttive e ruoli/modelli riconos
 	for (const t of tokens.slice(5)) {
 		assert.equal(t.kind, undefined, 'nessun token non valido deve ricevere kind');
 	}
+});
+
+test('tokenizeForDisplay: la pillola del progetto copre anche i nomi con spazi', () => {
+	const input = '@Studio OMP perché il badge prende solo la prima parola?';
+	const tokens = tokenizeForDisplay(input, PARSE_INPUT);
+
+	assert.equal(tokens[0].text, '@Studio OMP', 'la pillola deve coprire il nome completo');
+	assert.equal(tokens[0].kind, 'project');
+	assert.equal(tokens[0].label, 'Studio OMP');
+	assert.equal(tokens[1].kind, undefined, 'il resto della frase resta testo normale');
+	assert.equal(tokens.map((t) => t.text).join(''), input);
 });
 
 test('tokenizeForDisplay: stringhe vuote restituiscono array vuoto', () => {

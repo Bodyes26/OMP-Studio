@@ -128,22 +128,12 @@
 			<p class="composer-expand-hint">{m.companion_composer_collapsed_hint()}</p>
 		{:else}
 			<div class="composer-stage">
-				<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>
-					{#each displayTokens as token}
-						{#if token.kind === 'project'}
-							<span class="inline-token project">{token.text}</span>
-						{:else if token.kind === 'directive'}
-							<span class="inline-token directive">{token.text}</span>
-						{:else if token.kind === 'role'}
-							<span class="inline-token role">{token.text}</span>
-						{:else}
-							<span>{token.text}</span>
-						{/if}
-					{/each}
-					{#if taskInput.endsWith('\n')}
-						<span aria-hidden="true">&#8203;</span>
-					{/if}
-				</div>
+				<!--
+					Backdrop: dipinge il testo che la textarea tiene trasparente. I segmenti
+					stanno tutti su una riga sola, senza spazi di indentazione fra i tag:
+					qualunque carattere in piu' disallineerebbe il caret.
+				-->
+				<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>{#each displayTokens as token, idx (idx)}<span class="tok" class:project={token.kind === 'project'} class:directive={token.kind === 'directive'} class:role={token.kind === 'role'}>{token.text}</span>{/each}{#if taskInput.endsWith('\n')}<span>&#8203;</span>{/if}</div>
 				<textarea
 					bind:this={inputEl}
 					bind:value={taskInput}

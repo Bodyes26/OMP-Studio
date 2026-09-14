@@ -88,6 +88,110 @@ interface ConsumedSpan {
 }
 
 /**
+ * Numero massimo di parole che un token `@progetto` puo' abbracciare.
+ * I nomi progetto reali arrivano a due o tre parole ("Studio OMP",
+ * "Cruscotto PSR", "Gestione Storni Quote"); oltre si tratta di prosa.
+ */
+const MAX_PROJECT_TOKEN_WORDS = 6;
+
+/**
+ * Un token `@progetto` individuato nel testo, con lo span esatto che occupa.
+ * `project === null` significa token presente ma non risolvibile in modo univoco.
+ */
+interface ProjectTokenMatch {
+	start: number;
+	end: number;
+	project: LocalProjectRef | null;
+}
+
+/**
+ * Risoluzione a cascata di una chiave normalizzata sui progetti noti:
+ * 1. uguaglianza esatta su name o label
+ * 2. prefisso su name o label
+ * 3. sottostringa su name o label
+ * Restituisce i candidati del primo livello non vuoto: chi chiama decide se
+ * un singolo candidato basta (match univoco) o se c'e' ambiguita'.
+ */
+function resolveProjectCandidates(
+	normToken: string,
+	projects: LocalProjectRef[]
+): LocalProjectRef[] {
+	const exactMatches: LocalProjectRef[] = [];
+	const prefixMatches: LocalProjectRef[] = [];
+	const substringMatches: LocalProjectRef[] = [];
+
+	for (const p of projects) {
+		const normName = normalizeTokenKey(p.name);
+		const normLabel = p.label ? normalizeTokenKey(p.label) : '';
+
+		if (normName === normToken || normLabel === normToken) {
+			exactMatches.push(p);
+		} else if (normName.startsWith(normToken) || (normLabel && normLabel.startsWith(normToken))) {
+			prefixMatches.push(p);
+		} else if (normName.includes(normToken) || (normLabel && normLabel.includes(normToken))) {
+			substringMatches.push(p);
+		}
+	}
+
+	if (exactMatches.length > 0) return exactMatches;
+	if (prefixMatches.length > 0) return prefixMatches;
+	return substringMatches;
+}
+
+/**
+ * Individua i token `@progetto` e lo span di testo che ciascuno occupa.
+ *
+ * PERCHE' MULTI-PAROLA:
+ * il suggeritore inserisce il nome esatto del progetto, spazi inclusi
+ * (`@Studio OMP `). Fermarsi al primo spazio spezzerebbe il token: la pillola
+ * coprirebbe solo "@Studio" e "OMP" resterebbe nel prompt come parola di prosa.
+ * Si prova quindi la sequenza di parole piu' lunga e si accorcia finche' un
+ * solo progetto resta in gara; le parole successive al nome ("perche' anche
+ * se...") non concatenano mai chiavi che assomigliano a un progetto noto.
+ */
+function findProjectTokens(rawText: string, projects: LocalProjectRef[]): ProjectTokenMatch[] {
+	// La corsa parte da '@' e prosegue su parole separate da spazi orizzontali:
+	// mai a capo, mai oltre punteggiatura (che chiude naturalmente il nome).
+	const runRegex = /(?:^|\s)(@([\w.\-]+(?:[ \t]+[\w.\-]+)*))/g;
+	const matches: ProjectTokenMatch[] = [];
+	let runMatch: RegExpExecArray | null;
+
+	while ((runMatch = runRegex.exec(rawText)) !== null) {
+		const fullToken = runMatch[1];
+		const at = runMatch.index + runMatch[0].indexOf(fullToken);
+		const runStart = at + 1;
+		const run = runMatch[2];
+
+		// Offset assoluti di fine di ogni parola della corsa
+		const wordEnds: number[] = [];
+		const wordRegex = /[\w.\-]+/g;
+		let wordMatch: RegExpExecArray | null;
+		while ((wordMatch = wordRegex.exec(run)) !== null) {
+			wordEnds.push(runStart + wordMatch.index + wordMatch[0].length);
+		}
+		if (wordEnds.length === 0) continue;
+
+		let resolved: ProjectTokenMatch | null = null;
+		for (let words = Math.min(wordEnds.length, MAX_PROJECT_TOKEN_WORDS); words >= 1; words--) {
+			const end = wordEnds[words - 1];
+			const normToken = normalizeTokenKey(rawText.slice(runStart, end));
+			if (!normToken) continue;
+			const candidates = resolveProjectCandidates(normToken, projects);
+			if (candidates.length === 1) {
+				resolved = { start: at, end, project: candidates[0] };
+				break;
+			}
+		}
+
+		// Nessuna risoluzione univoca: il token resta, ma senza progetto. Lo span
+		// si limita alla prima parola, cosi' il resto della frase non viene inghiottito.
+		matches.push(resolved ?? { start: at, end: wordEnds[0], project: null });
+	}
+
+	return matches;
+}
+
+/**
  * Analizza il testo del Quick Task in modo puramente deterministico e locale.
  */
 export function parseQuickTaskLocal(text: string, input: LocalParseInput): LocalQuickTask {
@@ -173,77 +277,27 @@ export function parseQuickTaskLocal(text: string, input: LocalParseInput): Local
 	// --------------------------------------------------------------------------
 	// 3. Estrazione e matching del progetto (@progetto o riconoscimento prudente)
 	// --------------------------------------------------------------------------
-	const projectTokenRegex = /(?:^|\s)(@([\w.\-]+))/g;
-	const projectTokens: Array<{
-		fullToken: string;
-		tokenValue: string;
-		start: number;
-		end: number;
-	}> = [];
-
-	let projMatch: RegExpExecArray | null;
-	while ((projMatch = projectTokenRegex.exec(rawText)) !== null) {
-		const fullToken = projMatch[1];
-		const tokenValue = projMatch[2];
-		const tokenStart = projMatch.index + projMatch[0].indexOf(fullToken);
-		const tokenEnd = tokenStart + fullToken.length;
-		projectTokens.push({ fullToken, tokenValue, start: tokenStart, end: tokenEnd });
-	}
-
 	const projects = input.projects ?? [];
+	const projectTokens = findProjectTokens(rawText, projects);
 	let resolvedProject: LocalProjectRef | null = null;
 	let projectResolutionFailed = false;
 
 	if (projectTokens.length > 0) {
 		// Abbiamo uno o piu' token espliciti con '@'
 		for (const pt of projectTokens) {
-			const normToken = normalizeTokenKey(pt.tokenValue);
-			if (!normToken) continue;
-
-			// Risoluzione a cascata per livello di priorita':
-			// 1. Uguaglianza esatta su label o name
-			// 2. Prefisso su label o name
-			// 3. Sottostringa su label o name
-			const exactMatches: LocalProjectRef[] = [];
-			const prefixMatches: LocalProjectRef[] = [];
-			const substringMatches: LocalProjectRef[] = [];
-
-			for (const p of projects) {
-				const normName = normalizeTokenKey(p.name);
-				const normLabel = p.label ? normalizeTokenKey(p.label) : '';
-
-				if (normName === normToken || normLabel === normToken) {
-					exactMatches.push(p);
-				} else if (normName.startsWith(normToken) || (normLabel && normLabel.startsWith(normToken))) {
-					prefixMatches.push(p);
-				} else if (normName.includes(normToken) || (normLabel && normLabel.includes(normToken))) {
-					substringMatches.push(p);
-				}
-			}
-
-			let candidates: LocalProjectRef[] = [];
-			if (exactMatches.length > 0) {
-				candidates = exactMatches;
-			} else if (prefixMatches.length > 0) {
-				candidates = prefixMatches;
-			} else if (substringMatches.length > 0) {
-				candidates = substringMatches;
-			}
-
-			if (candidates.length === 1) {
-				// Match univoco trovato per questo token
-				if (!resolvedProject) {
-					resolvedProject = candidates[0];
-					spansToRemove.push({ start: pt.start, end: pt.end });
-				} else if (resolvedProject.id === candidates[0].id) {
-					// Token ripetuto o coincidente, rimuoviamo anch'esso
-					spansToRemove.push({ start: pt.start, end: pt.end });
-				} else {
-					// Piu' token che puntano a progetti differenti: conflitto/ambiguita'
-					projectResolutionFailed = true;
-				}
-			} else {
+			if (!pt.project) {
 				// Zero match o match multiplo ambiguo allo stesso livello
+				projectResolutionFailed = true;
+				continue;
+			}
+			if (!resolvedProject) {
+				resolvedProject = pt.project;
+				spansToRemove.push({ start: pt.start, end: pt.end });
+			} else if (resolvedProject.id === pt.project.id) {
+				// Token ripetuto o coincidente, rimuoviamo anch'esso
+				spansToRemove.push({ start: pt.start, end: pt.end });
+			} else {
+				// Piu' token che puntano a progetti differenti: conflitto/ambiguita'
 				projectResolutionFailed = true;
 			}
 		}
@@ -486,51 +540,16 @@ export function tokenizeForDisplay(text: string, input: LocalParseInput): Displa
 	}
 
 	// 3. Progetti (@progetto)
-	const projectTokenRegex = /(?:^|\s)(@([\w.\-]+))/g;
-	const projects = input.projects ?? [];
-	let projMatch: RegExpExecArray | null;
-	while ((projMatch = projectTokenRegex.exec(rawText)) !== null) {
-		const fullToken = projMatch[1];
-		const tokenValue = projMatch[2];
-		const tokenStart = projMatch.index + projMatch[0].indexOf(fullToken);
-		const tokenEnd = tokenStart + fullToken.length;
-		const normToken = normalizeTokenKey(tokenValue);
-		if (!normToken) continue;
-
-		const exactMatches: LocalProjectRef[] = [];
-		const prefixMatches: LocalProjectRef[] = [];
-		const substringMatches: LocalProjectRef[] = [];
-
-		for (const p of projects) {
-			const normName = normalizeTokenKey(p.name);
-			const normLabel = p.label ? normalizeTokenKey(p.label) : '';
-
-			if (normName === normToken || normLabel === normToken) {
-				exactMatches.push(p);
-			} else if (normName.startsWith(normToken) || (normLabel && normLabel.startsWith(normToken))) {
-				prefixMatches.push(p);
-			} else if (normName.includes(normToken) || (normLabel && normLabel.includes(normToken))) {
-				substringMatches.push(p);
-			}
-		}
-
-		let candidates: LocalProjectRef[] = [];
-		if (exactMatches.length > 0) {
-			candidates = exactMatches;
-		} else if (prefixMatches.length > 0) {
-			candidates = prefixMatches;
-		} else if (substringMatches.length > 0) {
-			candidates = substringMatches;
-		}
-
-		if (candidates.length === 1) {
-			spans.push({
-				start: tokenStart,
-				end: tokenEnd,
-				kind: 'project',
-				label: candidates[0].name
-			});
-		}
+	// La stessa risoluzione del parser: la pillola copre esattamente lo span che
+	// il salvataggio consumera', nomi con spazi inclusi.
+	for (const pt of findProjectTokens(rawText, input.projects ?? [])) {
+		if (!pt.project) continue;
+		spans.push({
+			start: pt.start,
+			end: pt.end,
+			kind: 'project',
+			label: pt.project.name
+		});
 	}
 
 	// Ordiniamo gli span crescenti per indice di inizio
