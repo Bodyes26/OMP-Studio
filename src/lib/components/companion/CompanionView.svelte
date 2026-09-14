@@ -1,21 +1,16 @@
 <script lang="ts">
+	import './companion.css';
 	import { m } from '$lib/paraglide/messages.js';
 	import { onMount, tick } from 'svelte';
-	import { slide } from 'svelte/transition';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '$lib/stores/companion.svelte';
-	import { askQuestionText, parseAskTitle, sanitizeAskDetail } from '$lib/agent/askTitle';
-	import { cleanOptionLabel, isOtherOption } from '$lib/agent/askAnswers';
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { quotaStore } from '$lib/stores/quota.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '$lib/stores/modelSettings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEMES, anchorsFor, automaticProjectHue } from '$lib/theme';
-	import { anchoredPopover } from '$lib/anchoredPopover';
+	import { THEMES, anchorsFor } from '$lib/theme';
 	import { matchesLooseQuery } from '$lib/looseSearch';
-	import { computeQuotaInfo } from '$lib/quota/projectQuota';
-	import QuotaChip from '$lib/components/quota/QuotaChip.svelte';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	import { rankFrequentTaskModels } from '$lib/stores/taskSerialization';
@@ -29,32 +24,12 @@
 		type LocalQuickTask,
 		type DisplayToken
 	} from '$lib/companion/quickTaskLocal';
-	import {
-		IconArrowUp,
-		IconAttach,
-		IconCheck,
-		IconClose,
-		IconPin,
-		IconPinned,
-		IconStatusPending,
-		IconStatusRunning,
-		IconWarning,
-		IconSparkles
-	} from '$lib/icons';
+	import CompanionShell from './CompanionShell.svelte';
+	import CompanionAttentionSection from './CompanionAttentionSection.svelte';
+	import CompanionComposer from './CompanionComposer.svelte';
+	import CompanionMonitor from './CompanionMonitor.svelte';
+	import CompanionStatusStrip from './CompanionStatusStrip.svelte';
 
-
-	/**
-	 * Prefissi del linguaggio del campo: sono i soli comandi visibili, e stanno
-	 * sulla riga bassa del composer perche' un placeholder che li elenca tutti
-	 * diventa illeggibile appena si scrive il primo carattere.
-	 */
-	const TOKEN_HINTS = [
-		{ char: '@', label: 'progetto', title: m.ui_companionview_scegli_il_progetto_di_destinazione_254a() },
-		{ char: '/', label: 'direttiva', title: m.ui_companionview_aggiungi_una_direttiva_al_task_e689() },
-		{ char: '!', label: 'ruolo', title: m.ui_companionview_forza_il_ruolo_o_il_modello_32cf() }
-	];
-
-	/** Ordine di urgenza con cui si leggono i progetti nell'elenco. */
 	const STATE_RANK: Record<string, number> = {
 		attention: 0,
 		working: 1,
@@ -74,10 +49,8 @@
 	let isSaving = $state(false);
 	let successNotice = $state<string | null>(null);
 	let expandedHistory = $state<Record<string, boolean>>({});
-	/** Testo in corso di scrittura per le richieste a risposta libera. */
 	let replyDrafts = $state<Record<string, string>>({});
 	let customReplyProjects = $state<Record<string, boolean>>({});
-	let replyInputEls = $state<Record<string, HTMLTextAreaElement | null>>({});
 	let usageOpen = $state(false);
 	let justOpened = $state(false);
 	let attachedImages = $state<ImageContent[]>([]);
@@ -85,12 +58,15 @@
 	let imageProcessingCount = $state(0);
 	let isFileDialogOpen = false;
 	let attachmentError = $state<string | null>(null);
+	let expandedProjectId = $state<string | null>(null);
+	let composerExpanded = $state(true);
+	let attentionPageIndex = $state(0);
 
 	let unlistenSummon: UnlistenFn | null = null;
 
 	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 	const attentionList = $derived(companionStore.attentionRequests);
-
+	const layout = $derived(settingsStore.appearance.companionLayout);
 	const knownProjects = $derived(
 		companionStore.projects.length > 0 ? companionStore.projects : projectStore.projects
 	);
@@ -130,11 +106,6 @@
 		modelSettingsStore.assignableCatalog.map((model) => model.selector)
 	);
 
-	/**
-	 * Interpretazione del testo mentre si scrive: e' puramente locale e sincrona.
-	 * Nessun processo `omp` viene avviato durante la digitazione; l'AI entra in
-	 * gioco solo al salvataggio e solo se il progetto resta indeterminato.
-	 */
 	const parseInput = $derived({
 		projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.path })),
 		directives: knownDirectives.map((d) => ({ id: d.id, name: d.name, tag: d.tag, hidden: d.hidden })),
@@ -144,7 +115,6 @@
 
 	const local = $derived<LocalQuickTask>(parseQuickTaskLocal(taskInput, parseInput));
 	const displayTokens = $derived<DisplayToken[]>(tokenizeForDisplay(taskInput, parseInput));
-
 	const mention = $derived(mentionStateAt(taskInput, caret));
 
 	const mentionItems = $derived.by<MentionItem[]>(() => {
@@ -195,11 +165,9 @@
 	});
 
 	const mentionOpen = $derived(mention.kind !== null && mentionItems.length > 0);
-
 	const isBusy = $derived(isSaving || companionStore.isParsingTask || imageProcessingCount > 0);
 	const canSave = $derived((taskInput.trim().length > 0 || attachedImages.length > 0) && !isBusy);
 
-	/** Progetti ordinati per urgenza: chi chiede risposta sta in cima, chi e' fermo in fondo. */
 	const monitorProjects = $derived.by<Project[]>(() => {
 		const list = knownProjects.filter((p) => p.path);
 		return [...list].sort((a, b) => {
@@ -210,47 +178,61 @@
 		});
 	});
 
-	// In Spotlight la finestra e' una barra di comando: si mostrano poche righe.
-	const visibleProjects = $derived(companionStore.isPinned ? monitorProjects : monitorProjects.slice(0, 3));
-	const hiddenProjectsCount = $derived(monitorProjects.length - visibleProjects.length);
-
-	function runtimeFor(projectId: string) {
-		return companionStore.projectRuntimes.find((r) => r.projectId === projectId);
-	}
-
-	/**
-	 * Tinta del progetto identica a quella della barra nella finestra
-	 * principale: in modalita' automatica non e' il valore salvato ma quello
-	 * che il tema corrente assegna al percorso.
-	 */
-	function hueFor(project: Project): number {
-		if (!project.path || project.colorMode === 'custom') return project.hue;
-		return automaticProjectHue(THEMES[themeStore.current] ?? THEMES['titanium'], project.path);
-	}
-
-	function stateLabel(state: string, projectId?: string): string {
-		if (state === 'attention') {
-			const bq = attentionList.find((a) => a.projectId === projectId && a.pendingUi.kind === 'quota_blocked');
-			if (bq) return bq.pendingUi.blockedQuota?.reasonKind === 'quota_exhausted' ? 'Quota esaurita' : 'Blocco provider';
-			return m.ui_companionview_chiede_risposta_de18();
+	const workingCount = $derived(monitorProjects.filter((p) => p.agentState === 'working').length);
+	const queuedCount = $derived.by(() => {
+		let total = 0;
+		for (const project of monitorProjects) {
+			if (!project.path) continue;
+			total += taskStore.tasksFor(project.path).filter((t) => t.status === 'queued').length;
 		}
-		if (state === 'working') return 'Al lavoro';
-		if (state === 'finished') return m.page_agent_state_finished();
-		if (state === 'idle') return 'Fermo';
-		return 'Non avviato';
-	}
+		return total;
+	});
+
+	const composerCollapsed = $derived(layout === 'inbox' && attentionList.length > 0 && !composerExpanded);
+	const composerSize = $derived<'default' | 'hero' | 'compact'>(
+		layout === 'launcher' ? 'hero' : layout === 'dashboard' || layout === 'compact' ? 'compact' : 'default'
+	);
+
+	const INPUT_MAX_HEIGHT = 160;
+
+	$effect(() => {
+		for (const project of knownProjects) {
+			if (project.path) {
+				void taskStore.loadProject(project.path);
+			}
+		}
+	});
+
+	$effect(() => {
+		if (attentionPageIndex >= attentionList.length) {
+			attentionPageIndex = Math.max(0, attentionList.length - 1);
+		}
+	});
+
+	$effect(() => {
+		const el = inputEl;
+		const text = taskInput;
+		if (!el) return;
+		el.style.height = 'auto';
+		const target = text ? Math.min(el.scrollHeight, INPUT_MAX_HEIGHT) : 0;
+		el.style.height = target > 0 ? `${target}px` : '';
+		el.style.overflowY = text && el.scrollHeight > INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
+		if (backdropEl) {
+			backdropEl.scrollTop = el.scrollTop;
+			backdropEl.scrollLeft = el.scrollLeft;
+		}
+	});
 
 	onMount(() => {
 		void companionStore.init();
 		void quotaStore.init();
 		void settingsStore.init();
 		void modelSettingsStore.loadAll();
+		void taskStore.tasks;
 
-		// Focus automatico del campo input
 		void tick().then(() => inputEl?.focus());
 		playOpenAnimation();
 
-		// Ascolta l'evento di summon globale da Rust
 		void listen('companion-summon', () => {
 			playOpenAnimation();
 			void tick().then(() => inputEl?.focus());
@@ -258,10 +240,13 @@
 			unlistenSummon = fn;
 		});
 
-		// Auto-chiusura su blur solo se non pinnato. Il dialogo file nativo
-		// toglie temporaneamente il focus alla WebView ma non e' una chiusura.
 		const handleBlur = () => {
-			if (!companionStore.isPinned && !usageOpen && !isFileDialogOpen) {
+			if (
+				!companionStore.isPinned &&
+				!usageOpen &&
+				!isFileDialogOpen &&
+				settingsStore.appearance.companionSpotlightDismiss === 'esc-and-blur'
+			) {
 				void companionStore.hideCompanion();
 			}
 		};
@@ -275,10 +260,10 @@
 		return () => {
 			window.removeEventListener('blur', handleBlur);
 			window.removeEventListener('focus', handleFocus);
+			unlistenSummon?.();
 		};
 	});
 
-	/** Rilancia l'animazione di comparsa a ogni richiamo della finestra. */
 	function playOpenAnimation() {
 		justOpened = false;
 		void tick().then(() => {
@@ -287,28 +272,6 @@
 		});
 	}
 
-	/**
-	 * Il campo cresce con il testo invece di occupare tre righe fisse: a vuoto
-	 * e' una riga sola, come nel composer della finestra principale. Oltre il
-	 * tetto scorre al proprio interno.
-	 */
-	const INPUT_MAX_HEIGHT = 160;
-
-	$effect(() => {
-		const el = inputEl;
-		// Dipendenza esplicita: l'altezza si ricalcola a ogni cambio di testo.
-		const text = taskInput;
-		if (!el) return;
-		el.style.height = 'auto';
-		const target = text ? Math.min(el.scrollHeight, INPUT_MAX_HEIGHT) : 0;
-		el.style.height = target > 0 ? `${target}px` : '';
-		el.style.overflowY = text && el.scrollHeight > INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
-		if (backdropEl) {
-			backdropEl.scrollTop = el.scrollTop;
-			backdropEl.scrollLeft = el.scrollLeft;
-		}
-	});
-
 	function handleInputScroll() {
 		if (backdropEl && inputEl) {
 			backdropEl.scrollTop = inputEl.scrollTop;
@@ -316,7 +279,6 @@
 		}
 	}
 
-	/** Inserisce un prefisso al punto di inserimento e apre il suggeritore. */
 	function insertToken(char: string) {
 		const el = inputEl;
 		const at = el?.selectionStart ?? taskInput.length;
@@ -343,7 +305,6 @@
 				return;
 			}
 			if (mentionOpen) {
-				// Chiude solo il suggeritore: la finestra resta aperta
 				caret = -1;
 				return;
 			}
@@ -354,11 +315,6 @@
 		}
 	}
 
-	/**
-	 * Tasti della textarea. Invio salva (Maiusc+Invio va a capo) come nel
-	 * composer della chat; quando il suggeritore e' aperto vince lui, perche'
-	 * Invio deve prima confermare la voce selezionata.
-	 */
 	function handleInputKeydown(e: KeyboardEvent) {
 		if (!mentionOpen) {
 			if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
@@ -390,7 +346,6 @@
 	function handleInput() {
 		caret = inputEl?.selectionStart ?? taskInput.length;
 		mentionIndex = 0;
-		// L'anteprima AI precedente non descrive piu' il testo corrente
 		aiParsed = null;
 		companionStore.parseError = null;
 	}
@@ -489,7 +444,6 @@
 			let toSave: QuickTaskAiParsed | null = null;
 
 			if (!local.needsAi && local.projectPath) {
-				// Interpretazione locale sufficiente: nessuna chiamata al modello.
 				toSave = {
 					projectPath: local.projectPath,
 					projectName: local.projectName,
@@ -517,7 +471,6 @@
 			const ok = await companionStore.saveTask(toSave, attachedImages);
 			if (ok) {
 				successNotice = `Task aggiunto a ${toSave.projectName || 'progetto'}!`;
-				// Gli avvisi del tentativo precedente non descrivono piu' il composer vuoto.
 				companionStore.parseError = null;
 				attachmentError = null;
 				taskInput = '';
@@ -554,10 +507,6 @@
 		await companionStore.respondUi(projectId, { action: 'cancel' });
 	}
 
-	/**
-	 * Risposta libera per i metodi `input` ed `editor` o opzione "Altro": sul filo e' lo stesso
-	 * frame di una scelta, con il testo al posto dell'opzione.
-	 */
 	async function handleQuickReplyText(projectId: string) {
 		const value = (replyDrafts[projectId] ?? '').trim();
 		if (!value) return;
@@ -570,7 +519,6 @@
 		return replyDrafts[req.projectId] ?? req.pendingUi.prefill ?? '';
 	}
 
-	/** Vero quando la richiesta vuole testo libero e non una scelta. */
 	function wantsText(pending: AttentionRequest['pendingUi']): boolean {
 		if (pending.options && pending.options.length > 0) return false;
 		return pending.method === 'input' || pending.method === 'editor';
@@ -583,644 +531,186 @@
 	function togglePinned() {
 		void companionStore.setPinned(!companionStore.isPinned);
 	}
+
+	function handleRunTask(projectId: string, taskId: string) {
+		void companionStore.runTask(projectId, taskId);
+	}
+
+	const attentionProps = $derived({
+		attentionList,
+		expandedHistory,
+		replyDrafts,
+		customReplyProjects,
+		onToggleHistory: toggleHistory,
+		onReplyDraftChange: (projectId: string, value: string) => {
+			replyDrafts[projectId] = value;
+		},
+		onCustomReplyToggle: (projectId: string, open: boolean) => {
+			customReplyProjects[projectId] = open;
+		},
+		onQuickReplySelect: handleQuickReplySelect,
+		onQuickReplyConfirm: handleQuickReplyConfirm,
+		onQuickReplyCancel: handleQuickReplyCancel,
+		onQuickReplyText: handleQuickReplyText,
+		onResolveQuotaBlocked: (projectId: string, selector: string) =>
+			companionStore.resolveQuotaBlocked(projectId, selector),
+		onDismissQuotaBlocked: (projectId: string) => companionStore.dismissQuotaBlocked(projectId),
+		draftFor,
+		wantsText
+	});
+
+	const composerProps = $derived({
+		displayTokens,
+		attachedImages,
+		isDraggingOver,
+		isBusy,
+		canSave,
+		imageProcessingCount,
+		isParsingTask: companionStore.isParsingTask,
+		mentionOpen,
+		mentionItems,
+		mentionIndex,
+		local,
+		aiParsed,
+		parseError: companionStore.parseError,
+		successNotice,
+		attachmentError,
+		onInsertToken: insertToken,
+		onInput: handleInput,
+		onInputKeydown: handleInputKeydown,
+		onSyncCaret: syncCaret,
+		onInputScroll: handleInputScroll,
+		onPaste: handlePaste,
+		onDragOver: handleDragOver,
+		onDragLeave: handleDragLeave,
+		onDrop: handleDrop,
+		onRemoveImage: removeImage,
+		onTriggerFileInput: triggerFileInput,
+		onFileInputChange,
+		onSaveTask: handleSaveTask,
+		onChooseMention: chooseMention
+	});
+
+	const monitorProps = $derived({
+		projects: monitorProjects,
+		runtimes: companionStore.projectRuntimes,
+		attentionList,
+		isPinned: companionStore.isPinned,
+		selectedProjectId: expandedProjectId,
+		onSelectProject: layout === 'dashboard' ? (id: string | null) => { expandedProjectId = id; } : undefined,
+		onRunTask: handleRunTask,
+		onToggleUsage: () => { usageOpen = !usageOpen; },
+		onTogglePin: togglePinned,
+		detailPanel: layout === 'dashboard'
+	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div
-	class="companion-shell"
-	class:pinned={companionStore.isPinned}
-	class:just-opened={justOpened}
+<CompanionShell
+	isPinned={companionStore.isPinned}
+	{isLightTheme}
+	attentionCount={attentionList.length}
+	{justOpened}
+	onTogglePin={togglePinned}
+	onClose={() => void companionStore.hideCompanion()}
 >
-	<!--
-		In Spotlight la finestra non ha barra: e' una superficie di comando con
-		una sottile area invisibile di trascinamento in alto. La barra compare
-		solo quando la finestra resta appesa allo schermo.
-	-->
-	{#if companionStore.isPinned}
-		<header class="companion-header" data-tauri-drag-region="deep">
-			<div class="header-left" data-tauri-drag-region="deep">
-				<img
-					src={isLightTheme ? '/logo-topbar-light.png' : '/logo-topbar.png'}
-					alt="OMP Studio"
-					class="brand-logo-img"
-					draggable="false"
-				/>
-				{#if attentionList.length > 0}
-					<span class="attention-counter">{attentionList.length} {m.ui_companionview_in_attesa_e1a0()}</span>
-				{/if}
-			</div>
-
-			<div class="header-right">
-				<button
-					type="button"
-					class="icon-btn active"
-					onclick={togglePinned}
-					title={m.companion_unpin_title()}
-					aria-label="Sblocca finestra"
-				>
-					<IconPinned />
-				</button>
-
-				<button
-					type="button"
-					class="icon-btn close-btn"
-					onclick={() => void companionStore.hideCompanion()}
-					title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()}
-					aria-label={m.settings_close_window()}
-				>
-					<IconClose />
-				</button>
-			</div>
-		</header>
-	{:else}
-		<div class="spotlight-drag-region" data-tauri-drag-region></div>
-		<!-- In Spotlight l'unico comando visibile e' il pin, discreto finche' non serve. -->
-		<div class="floating-controls">
-			<button
-				type="button"
-				class="icon-btn"
-				onclick={togglePinned}
-				title={m.companion_pin_title()}
-				aria-label="Fissa finestra"
-			>
-				<IconPin />
-			</button>
-		</div>
-	{/if}
-
-	<!-- Popover con il dettaglio dei consumi, aperto dalle chip di quota -->
 	{#if usageOpen}
 		<UsagePopover open={usageOpen} onClose={() => (usageOpen = false)} />
 	{/if}
 
-	<main class="companion-body">
-		<!-- Sezione Richieste di Attenzione Prioritarie (Quick Reply) -->
-		{#if attentionList.length > 0}
-			<section class="attention-section">
-				<div class="section-title">
-					<IconWarning />
-					<span>Richieste di intervento ({attentionList.length})</span>
-				</div>
+	<main class="companion-body layout-{layout}">
+		{#if layout === 'balanced'}
+			<CompanionAttentionSection variant="full" {...attentionProps} />
+			<CompanionComposer
+				size="default"
+				collapsed={false}
+				{...composerProps}
+				bind:taskInput
+				bind:inputEl
+				bind:composerEl
+				bind:backdropEl
+				bind:fileInputEl
+			/>
+			<CompanionMonitor variant="full" {...monitorProps} />
 
-				{#each attentionList as req (req.projectId)}
-					{@const parsed = parseAskTitle(req.pendingUi.title)}
-					{@const detail = parsed.text && req.pendingUi.message ? sanitizeAskDetail(req.pendingUi.message) : null}
-					<div class="attention-card" style="--proj-hue: {req.projectHue}">
-						<div class="card-header">
-							<span class="project-pill">{req.projectName}</span>
-							{#if req.modelName}
-								<span class="model-badge">{req.modelName}</span>
-							{/if}
-						</div>
+		{:else if layout === 'dashboard'}
+			<CompanionMonitor variant="full" {...monitorProps} />
+			<CompanionComposer
+				size="compact"
+				collapsed={false}
+				{...composerProps}
+				bind:taskInput
+				bind:inputEl
+				bind:composerEl
+				bind:backdropEl
+				bind:fileInputEl
+			/>
 
-						<!-- Contesto Chat (ultimi messaggi) -->
-						{#if req.recentMessages && req.recentMessages.length > 0}
-							{@const messagesToShow = expandedHistory[req.projectId]
-								? req.recentMessages
-								: req.recentMessages.slice(-2)}
-							<div class="chat-context">
-								{#each messagesToShow as msg, i (i)}
-									<div class="context-bubble {msg.role}">
-										<span class="role-tag">{msg.role === 'user' ? 'Tu' : 'Agente'}:</span>
-										<span class="bubble-text">{msg.text}</span>
-									</div>
-								{/each}
+		{:else if layout === 'inbox'}
+			<CompanionAttentionSection
+				variant="focused"
+				pageIndex={attentionPageIndex}
+				onPrevPage={() => { if (attentionPageIndex > 0) attentionPageIndex -= 1; }}
+				onNextPage={() => { if (attentionPageIndex < attentionList.length - 1) attentionPageIndex += 1; }}
+				{...attentionProps}
+			/>
+			<CompanionStatusStrip
+				workingCount={workingCount}
+				attentionCount={attentionList.length}
+				queuedCount={queuedCount}
+			/>
+			<CompanionComposer
+				size="default"
+				collapsed={composerCollapsed}
+				onExpand={() => { composerExpanded = true; void tick().then(() => inputEl?.focus()); }}
+				{...composerProps}
+				bind:taskInput
+				bind:inputEl
+				bind:composerEl
+				bind:backdropEl
+				bind:fileInputEl
+			/>
 
-								{#if req.recentMessages.length > 2}
-									<button
-										type="button"
-										class="history-toggle-btn"
-										onclick={() => toggleHistory(req.projectId)}
-									>
-										{expandedHistory[req.projectId] ? m.ui_companionview_mostra_meno_contesto_560a() : m.ui_companionview_mostra_altri_value1_messaggi_90ae({ value1: req.recentMessages.length - 2 })}
-									</button>
-								{/if}
-							</div>
-						{/if}
-
-						<!-- Domanda / Richiesta interattiva -->
-						<div class="ask-box">
-							<div class="ask-head">
-								<p class="ask-question">{askQuestionText(req.pendingUi, m.ui_companionview_seleziona_un_opzione_d398())}</p>
-								{#if parsed.counter}
-									<span class="ask-counter">{parsed.counter}</span>
-								{/if}
-							</div>
-							{#if detail}
-								<p class="ask-detail">{detail}</p>
-							{/if}
-
-							<!-- Opzioni Select -->
-							{#if req.pendingUi.kind === 'quota_blocked'}
-								{@const bq = req.pendingUi.blockedQuota}
-								{@const suggested = bq?.suggestedModel}
-								<div class="quota-blocked-box">
-									<p class="qb-msg">
-										{req.pendingUi.message || m.ui_companionview_l_agente_si_e_arrestato_per_limite_7e38()}
-									</p>
-									{#if suggested}
-										<button
-											type="button"
-											class="action-btn qb-primary-cta"
-											onclick={() => void companionStore.resolveQuotaBlocked(req.projectId, suggested.selector)}
-										>
-											<IconSparkles />
-											<span>Passa a {suggested.modelName} e riprendi</span>
-										</button>
-									{/if}
-									{#if bq?.availableRecoveryModels && bq.availableRecoveryModels.length > 1}
-										<div class="qb-alternatives">
-											<span class="qb-alt-label">{m.ui_companionview_oppure_seleziona_un_altra_riserva_50ef()}</span>
-											<div class="qb-alt-grid">
-												{#each bq.availableRecoveryModels.filter(m => m.selector !== suggested?.selector) as alt}
-													<button
-														type="button"
-														class="option-btn qb-alt-btn"
-														onclick={() => void companionStore.resolveQuotaBlocked(req.projectId, alt.selector)}
-													>
-														<span class="opt-body">
-															<span class="opt-label">{alt.modelName}</span>
-															{#if alt.roleLabel}
-																<span class="opt-desc">{alt.roleLabel}</span>
-															{/if}
-														</span>
-													</button>
-												{/each}
-											</div>
-										</div>
-									{/if}
-									<div class="qb-footer">
-										<button
-											type="button"
-											class="action-btn cancel"
-											onclick={() => void companionStore.dismissQuotaBlocked(req.projectId)}
-										>
-											Archivia avviso
-										</button>
-									</div>
-								</div>
-							{:else if req.pendingUi.options && req.pendingUi.options.length > 0}
-								{#if customReplyProjects[req.projectId]}
-									<div class="text-reply custom-reply">
-										<textarea
-											class="reply-input"
-											rows="2"
-											placeholder={m.ui_companionview_scrivi_qui_la_tua_risposta_personalizzata_9d6c()}
-											value={draftFor(req)}
-											bind:this={replyInputEls[req.projectId]}
-											oninput={(e) => (replyDrafts[req.projectId] = e.currentTarget.value)}
-											onkeydown={(e) => {
-												if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
-													e.preventDefault();
-													e.stopPropagation();
-													void handleQuickReplyText(req.projectId);
-												} else if (e.key === 'Escape') {
-													e.preventDefault();
-													e.stopPropagation();
-													customReplyProjects[req.projectId] = false;
-												}
-											}}
-										></textarea>
-										<div class="reply-actions">
-											<span class="reply-hint">Invio per inviare</span>
-											<button
-												type="button"
-												class="action-btn cancel"
-												onclick={() => {
-													customReplyProjects[req.projectId] = false;
-												}}
-											>Torna alle opzioni</button>
-											<button
-												type="button"
-												class="action-btn confirm"
-												disabled={!draftFor(req).trim()}
-												onclick={() => void handleQuickReplyText(req.projectId)}
-											><IconArrowUp /> <span>{m.ui_askcard_invia_f401()}</span></button>
-										</div>
-									</div>
-								{:else}
-									<div class="options-grid">
-										{#each req.pendingUi.options as opt, idx (opt)}
-											{@const isOther = isOtherOption(opt)}
-											{@const isRec = opt.endsWith(' (Recommended)')}
-											{@const clean = isOther ? m.ui_askcard_altro_scrivi_la_tua_risposta_3c62() : cleanOptionLabel(opt)}
-											{@const description = isOther && !req.pendingUi.optionDetails?.[idx]?.description
-												? m.ui_askcard_inserisci_una_risposta_personalizzata_f9dc()
-												: req.pendingUi.optionDetails?.[idx]?.description}
-											<button
-												type="button"
-												class="option-btn"
-												class:is-other={isOther}
-												onclick={() => {
-													if (isOther) {
-														customReplyProjects[req.projectId] = true;
-														void tick().then(() => {
-															replyInputEls[req.projectId]?.focus();
-														});
-													} else {
-														void handleQuickReplySelect(req.projectId, opt);
-													}
-												}}
-											>
-												<span class="opt-num">{isOther ? '✎' : idx + 1}</span>
-												<span class="opt-body">
-													<span class="opt-label">
-														{clean}
-														{#if isRec}
-															<span class="opt-recommended-badge">Consigliata</span>
-														{/if}
-													</span>
-													{#if description}
-														<span class="opt-desc">{description}</span>
-													{/if}
-												</span>
-											</button>
-										{/each}
-									</div>
-								{/if}
-							{:else if req.pendingUi.method === 'confirm'}
-								<div class="confirm-actions">
-									<button
-										type="button"
-										class="action-btn confirm"
-										onclick={() => void handleQuickReplyConfirm(req.projectId, true)}
-									>
-										<IconCheck /> <span>{m.project_popover_btn_confirm_yes()}</span>
-									</button>
-									<button
-										type="button"
-										class="action-btn cancel"
-										onclick={() => void handleQuickReplyConfirm(req.projectId, false)}
-									>
-										<IconClose /> <span>{m.ui_companionview_no_annulla_20e1()}</span>
-									</button>
-								</div>
-							{:else if wantsText(req.pendingUi)}
-								<!--
-									`input` ed `editor` vogliono testo libero: senza questo campo
-									la companion mostrava la domanda e la sola uscita "Ignora".
-								-->
-								<div class="text-reply">
-									<textarea
-										class="reply-input"
-										rows="2"
-										placeholder={sanitizeAskDetail(req.pendingUi.placeholder) || m.ui_companionview_scrivi_la_risposta_f401()}
-										value={draftFor(req)}
-										oninput={(e) => (replyDrafts[req.projectId] = e.currentTarget.value)}
-										onkeydown={(e) => {
-											if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
-												e.preventDefault();
-												e.stopPropagation();
-												void handleQuickReplyText(req.projectId);
-											}
-										}}
-									></textarea>
-									<div class="reply-actions">
-										<span class="reply-hint">Invio per inviare</span>
-										<button
-											type="button"
-											class="action-btn cancel"
-											onclick={() => void handleQuickReplyCancel(req.projectId)}
-										>{m.rules_dismiss()}</button>
-										<button
-											type="button"
-											class="action-btn confirm"
-											disabled={!draftFor(req).trim()}
-											onclick={() => void handleQuickReplyText(req.projectId)}
-										><IconArrowUp /> <span>{m.ui_askcard_invia_f401()}</span></button>
-									</div>
-								</div>
-							{:else}
-								<div class="generic-actions">
-									<button
-										type="button"
-										class="action-btn cancel"
-										onclick={() => void handleQuickReplyCancel(req.projectId)}
-									>
-										{m.ui_companionview_ignora_chiudi_5d67()}
-									</button>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{/each}
-			</section>
-		{/if}
-
-		<!-- Sezione Inserimento Rapido Task in Linguaggio Naturale -->
-		<section class="quick-task-section">
-			<!--
-				Composer: una sola superficie arrotondata, il campo cresce con il
-				testo e i comandi stanno sulla riga bassa. Cliccare in qualunque
-				punto della superficie mette a fuoco il campo.
-			-->
-			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-			<div
-				class="composer"
-				class:dragging={isDraggingOver}
-				bind:this={composerEl}
-				role="presentation"
-				ondragover={handleDragOver}
-				ondragleave={handleDragLeave}
-				ondrop={handleDrop}
-				onclick={() => inputEl?.focus()}
-			>
-				<div class="composer-stage">
-					<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>
-						{#each displayTokens as token}
-							{#if token.kind === 'project'}
-								<span class="inline-token project">{token.text}</span>
-							{:else if token.kind === 'directive'}
-								<span class="inline-token directive">{token.text}</span>
-							{:else if token.kind === 'role'}
-								<span class="inline-token role">{token.text}</span>
-							{:else}
-								<span>{token.text}</span>
-							{/if}
-						{/each}
-						{#if taskInput.endsWith('\n')}
-							<span aria-hidden="true">&#8203;</span>
-						{/if}
-					</div>
-					<textarea
-						bind:this={inputEl}
-						bind:value={taskInput}
-						oninput={handleInput}
-						onkeydown={handleInputKeydown}
-						onclick={syncCaret}
-						onkeyup={syncCaret}
-						onpaste={handlePaste}
-						onscroll={handleInputScroll}
-						rows="1"
-						class="composer-input"
-						placeholder={m.companion_composer_placeholder()}
-						aria-label={m.companion_composer_aria()}
-						aria-autocomplete="list"
-						aria-controls={mentionOpen ? 'companion-mention-listbox' : undefined}
-						aria-activedescendant={mentionOpen ? `companion-mention-${Math.min(mentionIndex, mentionItems.length - 1)}` : undefined}
-					></textarea>
-				</div>
-
-				{#if attachedImages.length > 0}
-					<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
-						{#each attachedImages as image, idx (idx)}
-							<div class="image-thumb-wrap">
-								<img
-									src="data:{image.mimeType};base64,{image.data}"
-									alt="Allegato task {idx + 1}"
-									class="image-thumb"
-								/>
-								<button
-									type="button"
-									class="image-remove-btn"
-									aria-label="Rimuovi immagine {idx + 1}"
-									title={m.task_editor_remove_image_title()}
-									onclick={(event) => {
-										event.stopPropagation();
-										removeImage(idx);
-									}}
-								>
-									<IconClose />
-								</button>
-							</div>
-						{/each}
-					</div>
-				{/if}
-
-				<div class="composer-rail">
-					<div class="token-hints">
-						{#each TOKEN_HINTS as hint (hint.char)}
-							<button
-								type="button"
-								class="token-hint"
-								title={hint.title}
-								onclick={(e) => {
-									e.stopPropagation();
-									insertToken(hint.char);
-								}}
-							>
-								<span class="token-char">{hint.char}</span>{hint.label}
-							</button>
-						{/each}
-					</div>
-
-					<div class="composer-actions">
-						<input
-							type="file"
-							accept="image/*"
-							multiple
-							bind:this={fileInputEl}
-							onchange={onFileInputChange}
-							hidden
-						/>
-						<button
-							type="button"
-							class="attach-btn"
-							title="Allega screenshot o immagini"
-							aria-label={m.companion_attach_images()}
-							onclick={(event) => {
-								event.stopPropagation();
-								triggerFileInput();
-							}}
-						>
-							<IconAttach />
-						</button>
-						<button
-							type="button"
-							class="send-btn"
-							class:busy={isBusy}
-							disabled={!canSave}
-							title={isBusy
-								? imageProcessingCount > 0
-									? 'Preparazione immagini'
-									: m.ui_companionview_salvataggio_in_corso_dbfc()
-								: m.ui_companionview_salva_il_task_invio_maiusc_invio_va_7235()}
-							aria-label={m.companion_save_task()}
-							onclick={(event) => {
-								event.stopPropagation();
-								void handleSaveTask();
-							}}
-						>
-							{#if isBusy}
-								<span class="spinner"></span>
-							{:else}
-								<IconArrowUp />
-							{/if}
-						</button>
-					</div>
-				</div>
-			</div>
-
-			{#if isBusy}
-				<p class="composer-status">
-					{imageProcessingCount > 0
-						? 'Preparazione immagini…'
-						: companionStore.isParsingTask
-							? 'Interpretazione con AI…'
-							: 'Salvataggio…'}
-				</p>
+		{:else if layout === 'compact'}
+			<CompanionMonitor variant="dense" {...monitorProps} />
+			<CompanionComposer
+				size="compact"
+				collapsed={false}
+				{...composerProps}
+				bind:taskInput
+				bind:inputEl
+				bind:composerEl
+				bind:backdropEl
+				bind:fileInputEl
+			/>
+			{#if attentionList.length > 0}
+				<CompanionAttentionSection variant="compact" {...attentionProps} />
 			{/if}
 
-			{#if mentionOpen}
-				<!--
-					Suggeritore locale: filtra in memoria, nessuna latenza e nessun
-					costo. Vive nel top layer, altrimenti lo `overflow` del corpo lo
-					taglierebbe appena il composer sta in cima alla finestra.
-				-->
-				<div
-					id="companion-mention-listbox"
-					class="mention-popover"
-					role="listbox"
-					aria-label={m.companion_suggestions_aria()}
-					popover="manual"
-					use:anchoredPopover={{ anchor: composerEl, offset: 6, matchWidth: true, constrainHeight: true }}
-				>
-					{#each mentionItems as item, idx (`${item.kind}:${item.value}`)}
-						<button
-							type="button"
-							id="companion-mention-{idx}"
-							class="mention-item"
-							class:selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
-							role="option"
-							aria-selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
-							onmousedown={(e) => {
-								e.preventDefault();
-								chooseMention(item.value);
-							}}
-						>
-							<span class="mention-label">{item.label}</span>
-							{#if item.hint && item.hint !== item.label}
-								<span class="mention-hint">{item.hint}</span>
-							{/if}
-							{#if item.kind === 'model' || item.kind === 'role'}
-								<span class="mention-kind">{item.kind === 'model' ? m.ui_companionview_modello_fa78() : 'ruolo'}</span>
-							{/if}
-						</button>
-					{/each}
-				</div>
+		{:else if layout === 'launcher'}
+			<CompanionComposer
+				size="hero"
+				collapsed={false}
+				{...composerProps}
+				bind:taskInput
+				bind:inputEl
+				bind:composerEl
+				bind:backdropEl
+				bind:fileInputEl
+			/>
+			<CompanionStatusStrip
+				workingCount={workingCount}
+				attentionCount={attentionList.length}
+				queuedCount={queuedCount}
+			/>
+			{#if attentionList.length > 0}
+				<CompanionAttentionSection variant="banner" {...attentionProps} />
 			{/if}
-
-			<!-- Notifica di successo -->
-			{#if successNotice}
-				<div class="notice success" transition:slide={{ duration: 180 }}>
-					<IconCheck />
-					<span>{successNotice}</span>
-				</div>
-			{/if}
-
-			{#if attachmentError}
-				<div class="notice error" transition:slide={{ duration: 180 }}>
-					<IconWarning />
-					<span>{attachmentError}</span>
-				</div>
-			{/if}
-
-			<!-- Avvisi di parsing o ambiguita' -->
-			{#if companionStore.parseError}
-				<div class="notice error" transition:slide={{ duration: 180 }}>
-					<IconWarning />
-					<span>{companionStore.parseError}</span>
-				</div>
-			{/if}
-
-			<!--
-				Anteprima dell'interpretazione: locale e gratuita mentre si scrive,
-				quella dell'AI dopo il salvataggio. E' una striscia, non una scheda:
-				sta sotto il composer come una riga di stato.
-			-->
-			{#if taskInput.trim() || attachedImages.length > 0}
-				{@const preview = aiParsed ?? {
-					projectName: local.projectName,
-					projectPath: local.projectPath,
-					taskPrompt: local.taskPrompt,
-					role: local.role,
-					modelSelector: local.modelSelector,
-					directiveIds: local.directiveIds,
-					ambiguities: []
-				}}
-				{@const hasAmbiguities = Boolean(preview.ambiguities && preview.ambiguities.length > 0)}
-				{@const hasMissingProject = !preview.projectPath}
-				{#if hasAmbiguities || hasMissingProject}
-					<div class="parsed-strip" transition:slide={{ duration: 180 }}>
-						{#if hasAmbiguities}
-							{#each preview.ambiguities as amb, idx (idx)}
-								<p class="parsed-note"><IconWarning /><span>{amb}</span></p>
-							{/each}
-						{:else if hasMissingProject}
-							<p class="parsed-note">
-								<IconWarning />
-								<span>Scrivi <span class="token-char">@</span>{m.ui_companionview_progetto_oppure_salva_e_lascia_decidere_all_cea9()}</span>
-							</p>
-						{/if}
-					</div>
-				{/if}
-			{/if}
-		</section>
-
-		<!-- Stato in tempo reale dei progetti aperti -->
-		{#if monitorProjects.length > 0}
-			<section class="live-monitor-section">
-				<div class="section-title">
-					<IconStatusRunning />
-					<span>{m.ui_companionview_progetti_9979()}{monitorProjects.length})</span>
-				</div>
-
-				<div class="projects-list">
-					{#each visibleProjects as p (p.id)}
-						{@const rt = runtimeFor(p.id)}
-						{@const busy = p.agentState === 'working' || p.agentState === 'attention'}
-						<div class="project-row" style="--proj-hue: {hueFor(p)}" class:busy>
-							<span class="p-dot" class:pulsing={p.agentState === 'working'}></span>
-							<span class="p-name">{p.label?.trim() || p.name}</span>
-
-							{#if busy && rt?.provider}
-								{@const info = computeQuotaInfo(rt.provider, rt.modelId, rt.credentialPin)}
-								<QuotaChip
-									variant="ringHalo"
-									showProvider={true}
-									alwaysShowPct={true}
-									semanticColors={true}
-									status={info.status}
-									remainingPct={info.remainingPct}
-									usedPct={info.usedPct}
-									shortName={rt.modelLabel ?? info.shortName}
-									hasLimits={info.hasLimits}
-									title={info.tooltip}
-									ariaLabel={info.tooltip}
-									longWindowAlert={info.longWindowAlert}
-									accountEmail={info.accountEmail}
-									onclick={(e) => {
-										e.stopPropagation();
-										usageOpen = !usageOpen;
-									}}
-								/>
-							{/if}
-
-							<span class="p-state state-{p.agentState}">
-								{#if p.agentState === 'working'}
-									<IconStatusRunning /> {stateLabel(p.agentState, p.id)}
-								{:else if p.agentState === 'attention'}
-									<IconWarning /> {stateLabel(p.agentState, p.id)}
-								{:else if p.agentState === 'finished'}
-									<IconCheck /> {stateLabel(p.agentState, p.id)}
-								{:else}
-									<IconStatusPending /> {stateLabel(p.agentState, p.id)}
-								{/if}
-							</span>
-						</div>
-					{/each}
-
-					{#if hiddenProjectsCount > 0}
-						<button type="button" class="more-projects" onclick={togglePinned}>
-							+{hiddenProjectsCount} altri — fissa la finestra per vederli tutti
-						</button>
-					{/if}
-				</div>
-			</section>
+			<CompanionMonitor variant="strip" {...monitorProps} />
 		{/if}
 	</main>
-</div>
+</CompanionShell>
 
 <style>
 	:global(body) {
@@ -1228,1015 +718,5 @@
 		padding: 0;
 		background: transparent !important;
 		user-select: none;
-	}
-
-	/*
-		Tinte e bordi accentati derivati dai token reali del tema.
-		Il sistema definisce solo `--brand`, `--warn` e `--danger`: le loro
-		versioni traslucide vivono qui, in un posto solo, invece di essere
-		nomi inventati in ogni regola (che il browser scarterebbe, lasciando
-		fondi trasparenti e testo del colore ereditato).
-	*/
-	.companion-shell {
-		--brand-tint: color-mix(in srgb, var(--brand) 14%, transparent);
-		--brand-line: color-mix(in srgb, var(--brand) 38%, transparent);
-		--warn-tint: color-mix(in srgb, var(--warn) 16%, transparent);
-		--warn-line: color-mix(in srgb, var(--warn) 40%, transparent);
-		--danger-tint: color-mix(in srgb, var(--danger) 14%, transparent);
-		--danger-line: color-mix(in srgb, var(--danger) 38%, transparent);
-
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		width: 100vw;
-		height: 100vh;
-		background: color-mix(in srgb, var(--bg-raised) 94%, transparent);
-		color: var(--ink);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		overflow: hidden;
-		font-family: var(--font-ui);
-		font-size: var(--text-sm);
-		box-sizing: border-box;
-	}
-
-	/* Comparsa: la finestra e' un richiamo, non deve apparire di scatto. */
-	.companion-shell.just-opened {
-		animation: companion-pop var(--dur-base) var(--ease-out) both;
-	}
-
-	@keyframes companion-pop {
-		from {
-			opacity: 0;
-			transform: translateY(8px);
-		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.companion-shell.just-opened {
-			animation: none;
-		}
-	}
-
-	.companion-shell.pinned {
-		border-color: var(--brand);
-		box-shadow: var(--shadow-overlay), 0 0 0 1px var(--brand-line);
-	}
-
-	.companion-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		height: 30px;
-		padding: 0 var(--space-2);
-		background: var(--bg-raised);
-		border-bottom: 1px solid var(--line);
-		cursor: grab;
-	}
-
-	.brand-logo-img {
-		height: 18px;
-		width: auto;
-		display: block;
-		-webkit-user-drag: none;
-	}
-
-	.attention-counter {
-		font-size: var(--text-xs);
-		padding: 1px 6px;
-		border-radius: var(--radius-full);
-		background: var(--warn-tint);
-		color: var(--warn);
-		border: 1px solid var(--warn-line);
-	}
-
-	.spotlight-drag-region {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 40px;
-		height: 24px;
-		z-index: 2;
-		cursor: grab;
-	}
-
-	/* In Spotlight non c'e' barra: il solo comando galleggia in alto a destra. */
-	.floating-controls {
-		position: absolute;
-		top: 6px;
-		right: 6px;
-		z-index: 3;
-		opacity: 0.35;
-		transition: opacity var(--dur-fast);
-	}
-
-	.companion-shell:hover .floating-controls,
-	.floating-controls:focus-within {
-		opacity: 1;
-	}
-
-	.header-left {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.header-right {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.companion-header .icon-btn {
-		width: 22px;
-		height: 22px;
-	}
-
-	.icon-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 28px;
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-	}
-
-	.icon-btn:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.icon-btn.active {
-		color: var(--brand);
-		background: var(--brand-tint);
-		border-color: var(--brand-line);
-	}
-
-	.close-btn:hover {
-		color: var(--danger);
-		background: var(--danger-tint);
-	}
-
-	.companion-body {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		padding: var(--space-3);
-		overflow-y: auto;
-	}
-
-	.section-title {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		margin-bottom: var(--space-2);
-	}
-
-	/*
-		Card Richiesta di Attenzione. L'identita' del progetto e' il punto
-		colorato accanto al nome, non una fascia sul bordo: la tinta arriva da
-		`--proj-hue` nella stessa rampa OKLCH della barra dei progetti, cosi'
-		lo stesso progetto ha lo stesso colore nelle due finestre.
-	*/
-	.attention-card {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: var(--space-3);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		margin-bottom: var(--space-2);
-	}
-
-	.card-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.project-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-weight: 600;
-		font-size: var(--text-sm);
-		color: var(--ink);
-	}
-
-	.project-pill::before {
-		content: '';
-		width: 7px;
-		height: 7px;
-		border-radius: var(--radius-full);
-		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260));
-	}
-
-	.model-badge {
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		padding: 1px 6px;
-		background: var(--bg-hover);
-		border-radius: var(--radius-sm);
-		color: var(--ink-faint);
-	}
-
-	.chat-context {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		background: var(--bg-base);
-		padding: var(--space-2);
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		max-height: 160px;
-		overflow-y: auto;
-	}
-
-	.context-bubble {
-		display: flex;
-		gap: var(--space-2);
-		font-size: var(--text-xs);
-		line-height: 1.4;
-	}
-
-	.context-bubble.user .role-tag {
-		color: var(--brand);
-		font-weight: 600;
-	}
-
-	.context-bubble.assistant .role-tag {
-		color: var(--ink-muted);
-		font-weight: 600;
-	}
-
-	.bubble-text {
-		color: var(--ink-muted);
-		white-space: pre-wrap;
-		word-break: break-word;
-	}
-
-	.history-toggle-btn {
-		align-self: flex-start;
-		background: none;
-		border: none;
-		color: var(--brand);
-		font-size: var(--text-xs);
-		padding: 2px 0;
-		cursor: pointer;
-	}
-
-	.ask-box {
-		margin-top: var(--space-1);
-	}
-
-	.ask-head {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
-
-	.ask-question {
-		font-weight: 500;
-		font-size: var(--text-sm);
-		margin: 0 0 var(--space-2) 0;
-		color: var(--ink);
-		white-space: pre-wrap;
-		word-break: break-word;
-	}
-
-	/* Posizione nella sequenza (`k/N` o `(N selected)`), dichiarata dal protocollo. */
-	.ask-counter {
-		flex: none;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		padding: 1px var(--space-1);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-	}
-
-	.ask-detail {
-		margin: calc(-1 * var(--space-1)) 0 var(--space-2) 0;
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		white-space: pre-wrap;
-		word-break: break-word;
-	}
-
-	.quota-blocked-box {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-	}
-
-	.qb-msg {
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		margin: 0;
-		line-height: 1.4;
-	}
-
-	.qb-primary-cta {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		background: var(--brand);
-		color: var(--brand-contrast, #fff);
-		font-weight: 500;
-		border: none;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		font-size: var(--text-xs);
-	}
-
-	.qb-primary-cta:hover {
-		opacity: 0.95;
-	}
-
-	.qb-alternatives {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		margin-top: var(--space-1);
-	}
-
-	.qb-alt-label {
-		font-size: var(--text-2xs);
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-
-	.qb-alt-grid {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-
-	.qb-alt-btn {
-		padding: var(--space-1) var(--space-2);
-	}
-
-	.qb-footer {
-		display: flex;
-		justify-content: flex-end;
-		margin-top: var(--space-1);
-	}
-
-	.options-grid {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-
-	.option-btn {
-		display: flex;
-		align-items: flex-start;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		text-align: left;
-		cursor: pointer;
-		font-size: var(--text-sm);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.opt-body {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-
-	.opt-label {
-		word-break: break-word;
-	}
-
-	.opt-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		word-break: break-word;
-	}
-
-	.option-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-	}
-
-	.opt-num {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 18px;
-		height: 18px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-	}
-
-	.opt-recommended-badge {
-		background: var(--brand-subtle, rgba(234, 88, 12, 0.12));
-		color: var(--brand);
-		border: 1px solid var(--brand);
-		border-radius: var(--radius-sm);
-		padding: 1px 5px;
-		font-size: 10px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
-		margin-left: var(--space-1);
-		vertical-align: middle;
-	}
-
-	.option-btn.is-other {
-		border-style: dashed;
-	}
-
-	.option-btn.is-other:hover {
-		border-style: solid;
-	}
-
-	.confirm-actions {
-		display: flex;
-		gap: var(--space-2);
-	}
-
-	.action-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		border-radius: var(--radius-sm);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		cursor: pointer;
-		border: 1px solid var(--line);
-	}
-
-	.action-btn.confirm {
-		background: var(--brand);
-		color: var(--on-brand);
-		border-color: var(--brand);
-	}
-
-	.action-btn.cancel {
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-	}
-
-	/* Risposta libera: metodi `input` ed `editor`. */
-	.text-reply {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.reply-input {
-		width: 100%;
-		resize: vertical;
-		padding: var(--space-2);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-family: inherit;
-		font-size: var(--text-sm);
-		line-height: 1.4;
-	}
-
-	.reply-input:focus {
-		outline: none;
-		border-color: var(--brand-line);
-	}
-
-	.reply-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.reply-hint {
-		margin-right: auto;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.action-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	/* Sezione Input Rapido Task */
-	.quick-task-section {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	/*
-		Composer: una superficie sola, non un campo con una barra sotto.
-		Il testo e i comandi condividono lo stesso riquadro, che sale di un
-		gradino rispetto al guscio invece di scavare un pozzo: e' l'oggetto
-		attivo della finestra, non un modulo da riempire.
-	*/
-	.composer {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-2) var(--space-1);
-		background: var(--bg-overlay);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-lg);
-		cursor: text;
-		transition: border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.composer:focus-within {
-		border-color: var(--brand-line);
-	}
-
-	.composer.dragging {
-		border-color: var(--brand);
-		background: color-mix(in srgb, var(--brand) 8%, var(--bg-overlay));
-	}
-
-	.composer-stage {
-		position: relative;
-		width: 100%;
-	}
-
-	.composer-backdrop,
-	.composer-input {
-		width: 100%;
-		min-height: 22px;
-		max-height: 160px;
-		padding: var(--space-1) var(--space-1) 0;
-		border: none;
-		font-family: var(--font-ui);
-		font-size: var(--text-base);
-		line-height: 1.45;
-		letter-spacing: normal;
-		word-spacing: normal;
-		tab-size: 4;
-		white-space: pre-wrap;
-		word-break: break-word;
-		overflow-wrap: break-word;
-		box-sizing: border-box;
-	}
-
-	.composer-backdrop {
-		position: absolute;
-		inset: 0;
-		background: transparent;
-		color: var(--ink);
-		overflow: hidden;
-		pointer-events: none;
-		user-select: none;
-	}
-
-	.composer-input {
-		position: relative;
-		background: transparent;
-		color: transparent;
-		caret-color: var(--ink);
-		resize: none;
-		outline: none;
-		overflow-y: hidden;
-		z-index: 1;
-	}
-
-	.composer-input::placeholder {
-		color: var(--ink-faint);
-		opacity: 1;
-	}
-
-	.composer-input::selection {
-		background: color-mix(in srgb, var(--brand) 28%, transparent);
-		color: transparent;
-	}
-
-	.inline-token {
-		display: inline;
-		border-radius: var(--radius-sm);
-		font-weight: 500;
-		box-decoration-break: clone;
-		-webkit-box-decoration-break: clone;
-		padding: 1px 4px;
-		margin: 0 -4px;
-		border: 1px solid transparent;
-	}
-
-	.inline-token.project {
-		background: color-mix(in srgb, #3b82f6 15%, transparent);
-		border-color: color-mix(in srgb, #3b82f6 38%, transparent);
-		color: #3b82f6;
-	}
-
-	.inline-token.directive {
-		background: color-mix(in srgb, #10b981 15%, transparent);
-		border-color: color-mix(in srgb, #10b981 38%, transparent);
-		color: #10b981;
-	}
-
-	.inline-token.role {
-		background: color-mix(in srgb, #a855f7 15%, transparent);
-		border-color: color-mix(in srgb, #a855f7 38%, transparent);
-		color: #a855f7;
-	}
-
-	.image-previews {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		padding: 0 var(--space-1) var(--space-1);
-	}
-
-	.image-thumb-wrap {
-		position: relative;
-		display: inline-flex;
-	}
-
-	.image-thumb {
-		display: block;
-		height: 42px;
-		max-width: 84px;
-		object-fit: cover;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-	}
-
-	.image-remove-btn {
-		position: absolute;
-		top: -5px;
-		right: -5px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 16px;
-		height: 16px;
-		padding: 0;
-		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-full);
-		color: var(--ink-faint);
-		cursor: pointer;
-		--icon-size: 10px;
-	}
-
-	.image-remove-btn:hover {
-		background: var(--brand-dim);
-		color: var(--ink);
-	}
-
-	.composer-rail {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
-
-	.composer-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
-	.attach-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 28px;
-		padding: 0;
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-full);
-		color: var(--ink-muted);
-		cursor: pointer;
-		--icon-size: 15px;
-	}
-
-	.attach-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--line);
-		color: var(--ink);
-	}
-
-	/* I tre prefissi del linguaggio: pastiglie cliccabili, non testo di aiuto. */
-	.token-hints {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	.token-hint {
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-		padding: 2px var(--space-2);
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		color: var(--ink-muted);
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		line-height: 1.5;
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-	}
-
-	.token-hint:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.token-char {
-		font-family: var(--font-mono);
-		color: var(--brand);
-		font-weight: 600;
-	}
-
-	/* Invio: pastiglia tonda in basso a destra, come nelle app di chat. */
-	.send-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		flex: none;
-		width: 28px;
-		height: 28px;
-		padding: 0;
-		background: var(--brand);
-		color: var(--on-brand);
-		border: 1px solid var(--brand);
-		border-radius: var(--radius-full);
-		cursor: pointer;
-		--icon-size: 16px;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.send-btn:hover:not(:disabled) {
-		background: var(--brand-ink);
-		border-color: var(--brand-ink);
-	}
-
-	.send-btn:active:not(:disabled) {
-		background: var(--brand-dim);
-	}
-
-	.send-btn:disabled {
-		background: var(--bg-hover);
-		border-color: var(--line);
-		color: var(--ink-faint);
-		cursor: default;
-	}
-
-	/* In lavorazione non e' spento: il pulsante resta acceso e gira. */
-	.send-btn.busy:disabled {
-		background: var(--brand);
-		border-color: var(--brand);
-		color: var(--on-brand);
-	}
-
-	.composer-status {
-		margin: 0;
-		padding-left: var(--space-1);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-	}
-
-	.notice {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-	}
-
-	/* Conferma: il salvataggio e' l'esito atteso, quindi parla con l'accento. */
-	.notice.success {
-		background: var(--brand-tint);
-		color: var(--brand);
-		border: 1px solid var(--brand-line);
-	}
-
-	.notice.error {
-		background: var(--danger-tint);
-		color: var(--danger);
-		border: 1px solid var(--danger-line);
-	}
-
-	/*
-		Anteprima dell'interpretazione. E' una striscia sotto il composer, non
-		una scheda: una scheda dentro il corpo della finestra creerebbe un
-		secondo riquadro in competizione con il campo, e con la scatola degli
-		avvisi dentro diventerebbe una scheda dentro una scheda.
-	*/
-	.parsed-strip {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding: 0 var(--space-1);
-	}
-
-	/* Icona in colonna propria: un avviso lungo va a capo allineato, non sotto l'icona. */
-	.parsed-note {
-		display: grid;
-		grid-template-columns: auto 1fr;
-		align-items: start;
-		gap: 5px;
-		margin: 0;
-		font-size: var(--text-xs);
-		line-height: 1.45;
-		color: var(--warn);
-	}
-
-	.parsed-note .token-char {
-		color: inherit;
-	}
-
-	/*
-		Punti di stato dei progetti: usano lo spazio colore OKLCH per garantire
-		luminanza uniforme tra tinte diverse, allineati con la finestra
-		principale. Con `hsl()` la tinta veniva letta come gradi HSL e lo stesso
-		progetto usciva di un altro colore; l'alone, scritto come quarto
-		argomento di `hsl()` legacy, era una dichiarazione non valida.
-	*/
-	.p-dot {
-		width: 8px;
-		height: 8px;
-		flex: none;
-		border-radius: var(--radius-full);
-		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260));
-	}
-
-	.p-dot.pulsing {
-		animation: dot-pulse var(--dur-pulse) var(--ease-in-out) infinite;
-	}
-
-	@keyframes dot-pulse {
-		0%,
-		100% {
-			opacity: 1;
-			box-shadow: 0 0 0 0 oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260) / 0.5);
-		}
-		50% {
-			opacity: 0.55;
-			box-shadow: 0 0 0 4px oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260) / 0);
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.p-dot.pulsing {
-			animation: none;
-		}
-	}
-
-	.p-name {
-		flex: 1;
-		min-width: 0;
-		font-weight: 500;
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.p-state {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		flex: none;
-		color: var(--ink-faint);
-	}
-
-	.p-state.state-working {
-		color: var(--brand);
-	}
-
-	.p-state.state-attention {
-		color: var(--warn);
-	}
-
-	.p-state.state-finished {
-		color: var(--ink-muted);
-	}
-
-	.more-projects {
-		align-self: flex-start;
-		background: none;
-		border: none;
-		padding: 2px 0;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		cursor: pointer;
-	}
-
-	.more-projects:hover {
-		color: var(--ink);
-	}
-
-	/*
-		Suggeritore @progetto, /direttiva e !ruolo/modello. Vive nel top layer:
-		dentro il corpo scorrevole verrebbe tagliato.
-	*/
-	.mention-popover {
-		position: fixed;
-		inset: auto;
-		margin: 0;
-		padding: 0;
-		z-index: var(--z-overlay);
-		display: flex;
-		flex-direction: column;
-		background: var(--bg-overlay);
-		color: var(--ink);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-overlay);
-		max-height: min(200px, var(--anchored-space, 200px));
-		overflow-y: auto;
-	}
-
-	.mention-item {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		padding: 4px var(--space-2);
-		background: none;
-		border: none;
-		text-align: left;
-		font-size: var(--text-xs);
-		color: var(--ink);
-		cursor: pointer;
-	}
-
-	.mention-item.selected,
-	.mention-item:hover {
-		background: var(--bg-hover);
-	}
-
-	.mention-label {
-		flex: none;
-	}
-
-	.mention-hint {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--ink-faint);
-		font-family: var(--font-mono);
-	}
-
-	.mention-kind {
-		flex: none;
-		color: var(--ink-faint);
-	}
-
-	.spinner {
-		width: 12px;
-		height: 12px;
-		border: 2px solid currentColor;
-		border-top-color: transparent;
-		border-radius: var(--radius-full);
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
 	}
 </style>
