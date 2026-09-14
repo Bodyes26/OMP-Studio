@@ -5,6 +5,18 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OMP Studio</title>
+    <script>
+      // Pre-paint del tema. Il tema vero vive in `settings.json` e arriva via
+      // IPC, cioe' dopo il primo frame: senza questa riga la finestra si apre
+      // con i token di default di `app.css` e ridipinge quando il disco
+      // risponde. La stringa la scrive `applyAnchors` (src/lib/theme.ts).
+      try {
+        var ompThemeCss = localStorage.getItem('omp-studio-theme-css');
+        if (ompThemeCss) document.documentElement.style.cssText = ompThemeCss;
+      } catch (e) {
+        /* storage non disponibile: si parte dai default */
+      }
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

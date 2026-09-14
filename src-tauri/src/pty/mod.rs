@@ -153,8 +153,28 @@ impl PtySession {
     }
 }
 
-/// Cita un argomento per la riga di comando di PowerShell (single-quoted).
-#[allow(dead_code)]
+/// Cita un argomento per il singolo passaggio di parsing di `cmd.exe`.
+///
+/// `portable-pty` cita gia' in stile MSVC chi contiene spazi: dentro quei
+/// doppi apici i metacaratteri di `cmd` sono letterali. Chi non contiene
+/// spazi passa invece nudo e va neutralizzato con il caret.
+#[cfg(target_os = "windows")]
+fn cmd_arg(s: &str) -> String {
+    if s.is_empty() || s.contains(' ') || s.contains('\t') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if matches!(c, '&' | '|' | '<' | '>' | '^' | '(' | ')' | '!') {
+            out.push('^');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Cita un argomento PowerShell per il raro fallback che contiene `%` o `"`.
+#[cfg(target_os = "windows")]
 fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
@@ -469,29 +489,52 @@ pub async fn pty_open(
 
     #[cfg(target_os = "windows")]
     let mut cmd = {
-        let mut c = CommandBuilder::new("powershell.exe");
-        let mut launch = format!("& {}", ps_quote(&omp_path));
-        launch.push_str(" --config ");
-        launch.push_str(&ps_quote(&overlay_path.to_string_lossy()));
+        let mut launch_args = vec![
+            omp_path.clone(),
+            "--config".to_string(),
+            overlay_path.to_string_lossy().to_string(),
+        ];
         if let Some(ext) = &extension_arg {
-            launch.push_str(" -e ");
-            launch.push_str(&ps_quote(ext));
+            launch_args.push("-e".to_string());
+            launch_args.push(ext.clone());
         }
         if let Some(ext) = &tasks_extension_arg {
-            launch.push_str(" -e ");
-            launch.push_str(&ps_quote(ext));
+            launch_args.push("-e".to_string());
+            launch_args.push(ext.clone());
         }
-        for arg in &args {
-            launch.push(' ');
-            launch.push_str(&ps_quote(arg));
-        }
+        launch_args.extend(args.iter().cloned());
 
-        c.arg("-NoLogo");
-        c.arg("-NoProfile");
-        c.arg("-NoExit");
-        c.arg("-Command");
-        c.arg(&launch);
-        c
+        // `cmd.exe` costa ~45 ms contro i ~700 di PowerShell e con `/k`
+        // lascia comunque una shell usabile quando `omp` esce. `start /b
+        // /wait` mantiene il processo figlio nello stesso ConPTY, aspetta la
+        // sua uscita e, soprattutto, evita il secondo parsing di `call`: un
+        // percorso legale come `C:\R&D\omp.exe` conserva cosi' l'ampersand.
+        //
+        // `%` viene espanso da `cmd` persino dentro i doppi apici, mentre un
+        // apice doppio non e' rappresentabile nella sua riga di comando.
+        // Per quei soli argomenti patologici resta il wrapper PowerShell:
+        // correttezza prima dell'ottimizzazione, senza penalizzare il caso
+        // normale.
+        if launch_args
+            .iter()
+            .any(|arg| arg.contains('%') || arg.contains('"'))
+        {
+            let mut c = CommandBuilder::new("powershell.exe");
+            let mut launch = format!("& {}", ps_quote(&launch_args[0]));
+            for arg in &launch_args[1..] {
+                launch.push(' ');
+                launch.push_str(&ps_quote(arg));
+            }
+            c.args(["-NoLogo", "-NoProfile", "-NoExit", "-Command", &launch]);
+            c
+        } else {
+            let mut c = CommandBuilder::new("cmd.exe");
+            c.args(["/d", "/v:off", "/k", "start", "", "/b", "/wait"]);
+            for arg in &launch_args {
+                c.arg(cmd_arg(arg));
+            }
+            c
+        }
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -788,6 +831,43 @@ mod tests {
         let manager = PtyManager::new();
         manager.close_all();
         assert!(manager.sessions.lock().is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cmd_start_preserva_percorsi_quotati_e_metacaratteri() {
+        use std::process::Command;
+
+        assert_eq!(cmd_arg(r"C:\R&D\omp.exe"), r"C:\R^&D\omp.exe");
+        assert_eq!(cmd_arg(r"C:\R&D space\omp.exe"), r"C:\R&D space\omp.exe");
+
+        let dir =
+            std::env::temp_dir().join(format!("omp-studio-cmd-R&D space-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("creazione cartella smoke cmd");
+        let executable = dir.join("whoami.exe");
+        let system_root = std::env::var_os("SystemRoot").expect("SystemRoot Windows");
+        std::fs::copy(
+            std::path::PathBuf::from(system_root)
+                .join("System32")
+                .join("whoami.exe"),
+            &executable,
+        )
+        .expect("copia executable smoke cmd");
+
+        let output = Command::new("cmd.exe")
+            .args(["/d", "/v:off", "/c", "start", "", "/b", "/wait"])
+            .arg(cmd_arg(&executable.to_string_lossy()))
+            .output()
+            .expect("avvio executable via cmd start");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(
+            output.status.success(),
+            "cmd start fallito: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!output.stdout.is_empty());
     }
 
     #[cfg(target_os = "windows")]

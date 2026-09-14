@@ -443,6 +443,20 @@ export function withFontFamily(preferred: string, fallbackStack: string): string
 	return `${quoted}, ${fallbackStack}`;
 }
 
+/**
+ * Chiave della copia sincrona delle impostazioni: serve a dipingere il primo
+ * frame con le preferenze dell'utente invece che con i default.
+ */
+const SETTINGS_CACHE_KEY = 'omp-studio-settings';
+
+function cacheSnapshot(snapshot: StudioSettings) {
+	try {
+		localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(snapshot));
+	} catch {
+		// Storage assente o pieno: si perde solo il pre-paint.
+	}
+}
+
 class SettingsStore {
 	projectBar = $state<ProjectBarSettings>({ ...DEFAULT_SETTINGS.projectBar });
 	editor = $state<EditorSettings>({ ...DEFAULT_SETTINGS.editor });
@@ -471,6 +485,23 @@ class SettingsStore {
 	private store: Store | null = null;
 	private initialized = false;
 	private initPromise: Promise<void> | null = null;
+
+	/**
+	 * Le impostazioni arrivano da `settings.json` via IPC, cioe' dopo il primo
+	 * paint: fino a quel momento valgono i default, e ogni preferenza che
+	 * decide una forma - la variante della pastiglia quota, il layout della
+	 * Companion, l'ordine della barra progetti - si vede cambiare sotto gli
+	 * occhi. Questa copia sincrona riparte dall'ultimo stato noto; il disco
+	 * resta la verita' e sovrascrive appena risponde.
+	 */
+	constructor() {
+		try {
+			const cached = localStorage.getItem(SETTINGS_CACHE_KEY);
+			if (cached) this.apply(parseSettings(JSON.parse(cached)));
+		} catch {
+			// Cache assente o illeggibile: si parte dai default come prima.
+		}
+	}
 
 	/**
 	 * Idempotente e memoizzata: la chiamano sia il guscio all'avvio sia gli
@@ -516,6 +547,7 @@ class SettingsStore {
 		this.notifications = parsed.notifications;
 		this.accessibility = parsed.accessibility;
 		this.appearance = parsed.appearance;
+		cacheSnapshot(parsed);
 	}
 
 	private save = debounce(async () => {
@@ -535,6 +567,7 @@ class SettingsStore {
 		};
 		await this.store.set('studioSettings', snapshot);
 		await this.store.save();
+		cacheSnapshot(snapshot);
 		// Le altre finestre non rileggono il file: la modifica va annunciata.
 		await broadcastToWindows(SETTINGS_CHANGED_EVENT, snapshot);
 	}, 250);

@@ -1869,6 +1869,12 @@
 			onBackToMain={() => (labOpen = false)}
 			onClose={() => (labOpen = false)}
 		/>
+	{:else if !projectStore.ready}
+		<!-- I progetti salvati non sono ancora arrivati dal disco: `projects` e'
+		     vuoto perche' non si sa niente, non perche' non ce ne siano. Qui va
+		     lo sfondo del tema e nient'altro, altrimenti si vede la schermata
+		     «nessun progetto» per tutta la lettura e poi sparire. -->
+		<main class="empty-workspace" aria-busy="true"></main>
 	{:else if projectStore.projects.length === 0}
 		<main class="empty-workspace">
 			<EmptyState

@@ -1,5 +1,5 @@
 import { load, type Store } from '@tauri-apps/plugin-store';
-import { homeDir, join } from '@tauri-apps/api/path';
+import { homeDir } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
 import { extractOrigin, isLocalOrigin } from '$lib/agent/browser-live';
@@ -86,25 +86,40 @@ class ProjectStore {
 	 * salvati (per esempio il contratto di setup all'avvio).
 	 */
 	init(): Promise<void> {
-		if (!this.initPromise) this.initPromise = this.initStore();
+		if (!this.initPromise) {
+			this.initPromise = this.initStore().catch((err) => {
+				// Un file o il plugin path illeggibile non deve lasciare il
+				// primo paint bloccato per sempre sul guscio vuoto. Si espone
+				// lo stato senza progetti, come prima del gate `ready`, e le
+				// scritture restano disabilitate (`initialized === false`).
+				console.error('Caricamento progetti fallito:', err);
+				this.ready = true;
+			});
+		}
 		return this.initPromise;
 	}
 
 	private async initStore() {
-		// L'ordinamento (`mru` o no) decide se qui sotto si riordina o no:
-		// va letto da disco prima, altrimenti si legge sempre il default.
-		await settingsStore.init();
-		const store = await load('settings.json', { autoSave: false });
+		// Erano otto IPC in fila, e fino all'ultima la finestra mostrava lo
+		// stato «nessun progetto»: qui l'unico ordine obbligatorio e' avere lo
+		// store aperto prima di leggerlo. L'ordinamento (`mru` o no) decide se
+		// piu' sotto si riordina: va letto da disco, non dal default.
+		const [, store] = await Promise.all([
+			settingsStore.init(),
+			load('settings.json', { autoSave: false })
+		]);
 		this.store = store;
-		const storedProjects = await store.get<Project[]>('projects');
-		const storedActiveId = await store.get<string>('activeProjectId');
-		const storedRoot = await store.get<string>('projectRoot');
-		let defaultRoot = await homeDir();
-		if (isWindows) {
-			defaultRoot = await join(defaultRoot, 'source', 'repos');
-		} else {
-			defaultRoot = await join(defaultRoot, 'dev');
-		}
+		const [storedProjects, storedActiveId, storedRoot, home] = await Promise.all([
+			store.get<Project[]>('projects'),
+			store.get<string>('activeProjectId'),
+			store.get<string>('projectRoot'),
+			homeDir()
+		]);
+		// `join` del plugin path e' un altro giro di IPC per concatenare
+		// segmenti gia' noti: `joinProjectPath` fa lo stesso in memoria.
+		const defaultRoot = isWindows
+			? joinProjectPath(normalizeProjectPath(home), 'source\\repos')
+			: joinProjectPath(normalizeProjectPath(home), 'dev');
 		this.projectRoot = normalizeProjectPath(storedRoot || defaultRoot);
 
 		if (storedProjects) {

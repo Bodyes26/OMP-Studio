@@ -185,12 +185,23 @@ class CompanionStore {
 			this.unlisteners.push(u5);
 
 			if (this.isCompanionWindow) {
-				// Chiede alla finestra principale lo stato attuale
-				void emit('studio-request-attention-sync');
+				this.requestSync();
+			} else {
+				// La richiesta iniziale della Companion puo' arrivare mentre i
+				// progetti persistiti sono ancora vuoti. A lettura completata
+				// la finestra principale ribatte lo snapshot definitivo:
+				// nessuna finestra resta dipendente dall'ordine dei listener.
+				void projectStore.init().then(() => this.broadcastState());
 			}
 		} catch (err) {
 			console.warn(messages.ui_ts_companion_companionstore_registrazione_listener_fallita_342a(), err);
 		}
+	}
+
+	/** Chiede alla finestra principale lo snapshot inter-finestra corrente. */
+	requestSync() {
+		if (!this.isCompanionWindow) return;
+		void emit('studio-request-attention-sync');
 	}
 
 	destroy() {
@@ -444,6 +455,10 @@ class CompanionStore {
 			await invoke('project_tasks_write', { projectPath: parsed.projectPath, content });
 
 			// Notifica il cambio a tutti i watcher
+			// Anche il mittente deve rileggere: questo percorso scrive il file
+			// direttamente e non ha ancora aggiunto il task al proprio
+			// `taskStore`. A differenza di `saveProjectImmediate`, quindi,
+			// l'evento non porta `source` e non viene filtrato.
 			await emit('project-tasks-changed', { projectPath: parsed.projectPath });
 			return true;
 		} catch (err) {

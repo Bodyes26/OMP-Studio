@@ -287,7 +287,6 @@ fn win_clear_overlay_icon(window: &WebviewWindow) {
 #[cfg(target_os = "windows")]
 pub fn init_windows_aumid() {
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::process::CommandExt;
 
     const AUMID_STR: &str = "sh.omp.studio";
     let aumid: Vec<u16> = std::ffi::OsStr::new(AUMID_STR)
@@ -306,30 +305,92 @@ pub fn init_windows_aumid() {
         }
     }
 
-    // Registra nel registro HKCU\Software\Classes\AppUserModelId\sh.omp.studio
-    if let Ok(exe) = std::env::current_exe() {
-        let exe_path = exe.to_string_lossy().to_string();
-        let script = format!(
-            "$path = 'HKCU:\\Software\\Classes\\AppUserModelId\\{}';\
-             if (-not (Test-Path $path)) {{ New-Item -Path $path -Force | Out-Null }};\
-             Set-ItemProperty -Path $path -Name 'DisplayName' -Value 'OMP Studio' -Force;\
-             Set-ItemProperty -Path $path -Name 'IconBackgroundColor' -Value '0' -Force;\
-             Set-ItemProperty -Path $path -Name 'ShowInSettings' -Value 1 -Type DWord -Force;\
-             Set-ItemProperty -Path $path -Name 'IconUri' -Value '{}' -Force;",
-            AUMID_STR,
-            exe_path.replace('\'', "''")
+    register_aumid_metadata(AUMID_STR);
+}
+
+/// Stringa larga con terminatore nul, come vuole l'API del registro.
+#[cfg(target_os = "windows")]
+fn wide(value: &str) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    std::ffi::OsStr::new(value)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+/// Scrive `HKCU\Software\Classes\AppUserModelId\<aumid>` con le API native.
+///
+/// Prima qui girava `powershell.exe -Command Set-ItemProperty`: ~700 ms di
+/// avvio del runtime PowerShell pagati sul thread principale dentro
+/// `setup()`, cioe' prima che la finestra fosse utilizzabile. Le stesse
+/// quattro chiavi si scrivono in meno di un millisecondo senza processi figli.
+#[cfg(target_os = "windows")]
+fn register_aumid_metadata(aumid: &str) {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE,
+        REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ,
+    };
+
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let exe_path = exe.to_string_lossy().to_string();
+    let subkey = wide(&format!("Software\\Classes\\AppUserModelId\\{}", aumid));
+
+    unsafe {
+        let mut key: HKEY = std::ptr::null_mut();
+        let status = RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            0,
+            std::ptr::null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            std::ptr::null(),
+            &mut key,
+            std::ptr::null_mut(),
         );
-        let mut cmd = std::process::Command::new("powershell.exe");
-        cmd.args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ]);
-        cmd.creation_flags(0x0800_0000);
-        let _ = cmd.output();
+        if status != ERROR_SUCCESS {
+            eprintln!("[Alerts] RegCreateKeyExW AppUserModelId: errore {}", status);
+            return;
+        }
+
+        let set_sz = |name: &str, value: &str| {
+            let name_w = wide(name);
+            let value_w = wide(value);
+            let bytes = std::mem::size_of_val(&value_w[..]) as u32;
+            let status = RegSetValueExW(
+                key,
+                name_w.as_ptr(),
+                0,
+                REG_SZ,
+                value_w.as_ptr().cast(),
+                bytes,
+            );
+            if status != ERROR_SUCCESS {
+                eprintln!("[Alerts] RegSetValueExW {}: errore {}", name, status);
+            }
+        };
+        set_sz("DisplayName", "OMP Studio");
+        set_sz("IconBackgroundColor", "0");
+        set_sz("IconUri", &exe_path);
+
+        let show_in_settings: u32 = 1;
+        let name_w = wide("ShowInSettings");
+        let status = RegSetValueExW(
+            key,
+            name_w.as_ptr(),
+            0,
+            REG_DWORD,
+            (&show_in_settings as *const u32).cast(),
+            std::mem::size_of::<u32>() as u32,
+        );
+        if status != ERROR_SUCCESS {
+            eprintln!("[Alerts] RegSetValueExW ShowInSettings: errore {}", status);
+        }
+
+        RegCloseKey(key);
     }
 }
 

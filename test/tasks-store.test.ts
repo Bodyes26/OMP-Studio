@@ -23,7 +23,7 @@ import {
 	sanitizeDirectivesCatalog,
 	applyTaskDirectives
 } from '../src/lib/stores/taskDirectives.ts';
-import { QueueHydration } from '../src/lib/stores/taskHydration.ts';
+import { QueueHydration, mergeHydratedTasks } from '../src/lib/stores/taskHydration.ts';
 
 describe('Store tasks.json: validazione e parsing', () => {
 	const validTask: StudioTask = {
@@ -521,5 +521,31 @@ describe('Idratazione delle code di progetto', () => {
 
 		await hydration.ensure('c:/progetto', read);
 		assert.equal(letture, 2);
+	});
+
+	it('non cancella una coda idratata mentre termina la lettura dello store globale', () => {
+		const hydrated: StudioTask = {
+			id: 'hydrated',
+			projectPath: 'c:\\projects\\app',
+			prompt: 'gia letto da .omp/tasks.json',
+			position: 0,
+			createdAt: 1700000000000,
+			updatedAt: 1700000001000,
+			status: 'queued'
+		};
+		const legacyUnique: StudioTask = {
+			...hydrated,
+			id: 'legacy',
+			prompt: 'residuo dello store globale'
+		};
+		const staleDuplicate: StudioTask = {
+			...hydrated,
+			prompt: 'copia vecchia da non ripristinare'
+		};
+
+		const merged = mergeHydratedTasks([hydrated], [staleDuplicate, legacyUnique]);
+
+		assert.deepEqual(merged, [hydrated, legacyUnique]);
+		assert.equal(merged[0].prompt, 'gia letto da .omp/tasks.json');
 	});
 });

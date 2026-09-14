@@ -1,3 +1,5 @@
+import type { StudioTask } from './taskSerialization';
+
 /**
  * Registro di idratazione delle code di progetto.
  *
@@ -51,4 +53,15 @@ export class QueueHydration {
 	forget(key: string): void {
 		this.hydrated.delete(key);
 	}
+}
+
+/**
+ * Unisce il residuo dello store globale con code che possono essere arrivate
+ * prima, mentre `tasks.json` era ancora in lettura. Le code gia' idratate
+ * vincono: sono la copia piu' recente del file di progetto.
+ */
+export function mergeHydratedTasks(current: StudioTask[], persisted: StudioTask[]): StudioTask[] {
+	if (persisted.length === 0) return current;
+	const known = new Set(current.map((task) => task.id));
+	return current.concat(persisted.filter((task) => !known.has(task.id)));
 }

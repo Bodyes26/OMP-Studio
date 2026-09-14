@@ -20,7 +20,8 @@ import {
 	parseProjectTasksFile,
 	serializeProjectTasksFile
 } from './taskSerialization';
-import { QueueHydration } from './taskHydration';
+import { QueueHydration, mergeHydratedTasks } from './taskHydration';
+import { windowLabel } from './windowBridge';
 import { m as msg } from '$lib/paraglide/messages.js';
 
 export type {
@@ -76,19 +77,30 @@ class TaskStore {
 		this.store = await load('tasks.json', { autoSave: false });
 		const persisted = parsePersistedState(await this.store.get<unknown>('taskState'));
 		if (persisted) {
-			this.tasks = sanitizeLoadedTasks(persisted.tasks ?? []);
+			// Le code di progetto vivono in `.omp/tasks.json`: qui resta solo il
+			// residuo delle versioni che le tenevano nello store globale.
+			// Sovrascrivere `tasks` non e' un'opzione: un `$effect` (la
+			// Companion) puo' aver gia' idratato una coda mentre questa lettura
+			// era in volo, e quei task andrebbero persi senza rilettura
+			// possibile, perche' la chiave resta marcata come idratata.
+			const legacy = sanitizeLoadedTasks(persisted.tasks ?? []);
+			this.tasks = mergeHydratedTasks(this.tasks, legacy);
 			this.origins = persisted.origins ?? [];
 			this.views = persisted.views ?? {};
 		}
 		this.initialized = true;
 
-		// Ascolta gli eventi di modifica provenienti da OMP (TUI / Tool)
+		// Ascolta gli eventi di modifica provenienti da OMP (TUI / Tool) e
+		// dalle altre finestre di Studio.
 		if (this.isTauri) {
 			try {
-				this.unlistenTasksChanged = await listen<{ projectPath: string }>(
+				this.unlistenTasksChanged = await listen<{ projectPath: string; source?: string }>(
 					'project-tasks-changed',
 					async (event) => {
 						const path = event.payload?.projectPath;
+						// `emit` consegna anche al mittente: rileggere il file
+						// che si e' appena scritto e' solo un giro di IPC in piu'.
+						if (event.payload?.source && event.payload.source === windowLabel) return;
 						if (path) {
 							await this.reloadProject(path);
 						}
@@ -206,6 +218,10 @@ class TaskStore {
 			if (this.lastWritten.get(key) === content) return;
 			await invoke('project_tasks_write', { projectPath, content });
 			this.lastWritten.set(key, content);
+			// Il watcher Rust scarta volutamente l'eco delle scritture Studio
+			// per 450 ms. Senza un annuncio esplicito l'altra webview non vede
+			// mai questa coda fino a una modifica esterna o al riavvio.
+			await emit('project-tasks-changed', { projectPath, source: windowLabel });
 		} catch (err) {
 			console.error(msg.ui_ts_tasks_errore_salvataggio_immediato_task_per_value1_8f04({ value1: projectPath }), err);
 		}

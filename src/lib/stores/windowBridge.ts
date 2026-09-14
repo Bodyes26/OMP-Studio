@@ -29,6 +29,14 @@ const selfLabel: string | null = (() => {
 /** Vero quando il ponte e' utilizzabile: fuori da Tauri le chiamate sono no-op. */
 export const windowBridgeAvailable = selfLabel !== null;
 
+/**
+ * Etichetta della finestra corrente per i canali che non possono usare la
+ * busta di questo modulo, perche' li alimenta anche Rust con un payload
+ * proprio (`project-tasks-changed`). Chi emette ci mette la propria
+ * etichetta, chi ascolta scarta i messaggi che portano la sua.
+ */
+export const windowLabel = selfLabel;
+
 /** Annuncia un cambiamento alle altre finestre. Fuori da Tauri non fa nulla. */
 export async function broadcastToWindows<T>(event: string, payload: T): Promise<void> {
 	if (selfLabel === null) return;

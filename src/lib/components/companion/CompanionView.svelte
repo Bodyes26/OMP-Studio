@@ -227,8 +227,19 @@
 		}
 	});
 
+	function refreshCompanionState() {
+		companionStore.requestSync();
+		// La finestra resta viva ma nascosta: mentre non e' visibile puo' aver
+		// perso una scrittura di Studio (il watcher Rust scarta le auto-eco).
+		// Al summon si rilegge il file, non la cache d'idratazione iniziale.
+		for (const project of knownProjects) {
+			if (project.path) void taskStore.reloadProject(project.path);
+		}
+	}
+
 	onMount(() => {
 		void companionStore.init();
+		refreshCompanionState();
 		void quotaStore.init();
 		void settingsStore.init();
 		void modelSettingsStore.loadAll();
@@ -237,6 +248,7 @@
 		playOpenAnimation();
 
 		void listen('companion-summon', () => {
+			refreshCompanionState();
 			playOpenAnimation();
 			void tick().then(() => inputEl?.focus());
 		}).then((fn) => {

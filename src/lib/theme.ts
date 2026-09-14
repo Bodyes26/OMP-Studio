@@ -309,27 +309,60 @@ export function onThemeChange(fn: () => void): () => void {
 	return () => listeners.delete(fn);
 }
 
+/**
+ * Chiave della copia sincrona del tema. La scrive `applyAnchors`, la rilegge
+ * lo script inline in `src/app.html` prima del primo paint.
+ */
+export const THEME_CACHE_KEY = 'omp-studio-theme-css';
+
+/**
+ * Le dichiarazioni che il tema mette su `:root`. Unica fonte: le consuma sia
+ * il DOM sia la copia di pre-paint, cosi' le due non possono divergere.
+ */
+function anchorDeclarations(anchors: ThemeAnchors): [string, string][] {
+	const light = anchors.isLight;
+	return [
+		['--bg-base', anchors.bgBase],
+		['--bg-sunken', anchors.bgSunken],
+		['--brand-h', String(anchors.brandH)],
+		['--brand-c', String(anchors.brandC)],
+		['--warn-h', String(anchors.warnH)],
+		['--warn-c', String(anchors.warnC)],
+		['--ink', light ? 'oklch(0.240 0 0)' : 'oklch(0.970 0 0)'],
+		['--ink-muted', light ? 'oklch(0.400 0 0)' : 'oklch(0.760 0 0)'],
+		['--ink-faint', light ? 'oklch(0.460 0 0)' : 'oklch(0.655 0 0)'],
+		['--brand-ink-l', light ? '0.400' : '0.720'],
+		['--brand-dim-l', light ? '0.880' : '0.440'],
+		['--warn-l', light ? '0.420' : '0.780'],
+		['--warn-dim-l', light ? '0.880' : '0.560'],
+		['--on-brand', light ? 'var(--ink)' : 'var(--bg-sunken)'],
+		['--on-project', light ? 'var(--ink)' : 'var(--bg-sunken)'],
+		['--proj-l-ink', light ? '0.430' : '0.780'],
+		['--proj-l-fill', light ? '0.600' : '0.620'],
+		['color-scheme', light ? 'light' : 'dark']
+	];
+}
+
 export function applyAnchors(anchors: ThemeAnchors) {
 	currentAnchors = anchors;
 	const root = document.documentElement.style;
-	root.setProperty('--bg-base', anchors.bgBase);
-	root.setProperty('--bg-sunken', anchors.bgSunken);
-	root.setProperty('--brand-h', String(anchors.brandH));
-	root.setProperty('--brand-c', String(anchors.brandC));
-	root.setProperty('--warn-h', String(anchors.warnH));
-	root.setProperty('--warn-c', String(anchors.warnC));
-	root.setProperty('--ink', anchors.isLight ? 'oklch(0.240 0 0)' : 'oklch(0.970 0 0)');
-	root.setProperty('--ink-muted', anchors.isLight ? 'oklch(0.400 0 0)' : 'oklch(0.760 0 0)');
-	root.setProperty('--ink-faint', anchors.isLight ? 'oklch(0.460 0 0)' : 'oklch(0.655 0 0)');
-	root.setProperty('--brand-ink-l', anchors.isLight ? '0.400' : '0.720');
-	root.setProperty('--brand-dim-l', anchors.isLight ? '0.880' : '0.440');
-	root.setProperty('--warn-l', anchors.isLight ? '0.420' : '0.780');
-	root.setProperty('--warn-dim-l', anchors.isLight ? '0.880' : '0.560');
-	root.setProperty('--on-brand', anchors.isLight ? 'var(--ink)' : 'var(--bg-sunken)');
-	root.setProperty('--on-project', anchors.isLight ? 'var(--ink)' : 'var(--bg-sunken)');
-	root.setProperty('--proj-l-ink', anchors.isLight ? '0.430' : '0.780');
-	root.setProperty('--proj-l-fill', anchors.isLight ? '0.600' : '0.620');
-	root.setProperty('color-scheme', anchors.isLight ? 'light' : 'dark');
+	const declarations = anchorDeclarations(anchors);
+	// `setProperty` e non `cssText`: su `:root` vivono anche i colori
+	// semantici della quota, che una riscrittura in blocco cancellerebbe.
+	for (const [property, value] of declarations) root.setProperty(property, value);
+
+	// Il tema vero arriva da `settings.json` via IPC, che risponde dopo il
+	// primo frame: senza questa copia la finestra si apre col tema di default
+	// e ridipinge appena il disco risponde.
+	try {
+		localStorage.setItem(
+			THEME_CACHE_KEY,
+			declarations.map(([property, value]) => `${property}:${value}`).join(';')
+		);
+	} catch {
+		// Storage non disponibile: si perde solo il pre-paint, non il tema.
+	}
+
 	for (const fn of listeners) fn();
 }
 
