@@ -56,7 +56,7 @@ export type ChatWidth = 'readable' | 'full';
 export type { StreamingBehavior, QueueMode, InterruptMode };
 
 
-export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -97,10 +97,18 @@ export interface QuotaPopoverSettings {
 /** Vista delle righe task in coda: compatta su 3 piani o card ariosa. */
 export type QueueViewVariant = 'compact' | 'cards';
 
+/** Preset di layout della finestra companion. */
+export type CompanionLayoutVariant = 'balanced' | 'dashboard' | 'inbox' | 'compact' | 'launcher';
+
+/** Come si chiude la companion in modalita Spotlight. */
+export type CompanionSpotlightDismiss = 'esc-only' | 'esc-and-blur';
+
 export interface AppearanceSettings {
 	quotaChip: QuotaChipSettings;
 	quotaPopover: QuotaPopoverSettings;
 	queueView: QueueViewVariant;
+	companionLayout: CompanionLayoutVariant;
+	companionSpotlightDismiss: CompanionSpotlightDismiss;
 }
 
 export interface ProjectBarSettings {
@@ -272,7 +280,9 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 			variant: 'telemetry',
 			semanticColors: false
 		},
-		queueView: 'compact'
+		queueView: 'compact',
+		companionLayout: 'balanced',
+		companionSpotlightDismiss: 'esc-only'
 	}
 };
 
@@ -402,7 +412,17 @@ export function parseSettings(value: unknown): StudioSettings {
 				variant: pick(quotaPopover.variant, ['telemetry', 'radial'] as const, d.appearance.quotaPopover.variant),
 				semanticColors: bool(quotaPopover.semanticColors, d.appearance.quotaPopover.semanticColors)
 			},
-			queueView: pick(appearance.queueView, ['compact', 'cards'] as const, d.appearance.queueView)
+			queueView: pick(appearance.queueView, ['compact', 'cards'] as const, d.appearance.queueView),
+			companionLayout: pick(
+				appearance.companionLayout,
+				['balanced', 'dashboard', 'inbox', 'compact', 'launcher'] as const,
+				d.appearance.companionLayout
+			),
+			companionSpotlightDismiss: pick(
+				appearance.companionSpotlightDismiss,
+				['esc-only', 'esc-and-blur'] as const,
+				d.appearance.companionSpotlightDismiss
+			)
 		}
 	};
 }
@@ -433,7 +453,9 @@ class SettingsStore {
 	appearance = $state<AppearanceSettings>({
 		quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip },
 		quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover },
-		queueView: DEFAULT_SETTINGS.appearance.queueView
+		queueView: DEFAULT_SETTINGS.appearance.queueView,
+		companionLayout: DEFAULT_SETTINGS.appearance.companionLayout,
+		companionSpotlightDismiss: DEFAULT_SETTINGS.appearance.companionSpotlightDismiss
 	});
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
 	ready = $state(false);
@@ -550,6 +572,16 @@ class SettingsStore {
 
 	patchQueueView(queueView: QueueViewVariant) {
 		this.appearance.queueView = queueView;
+		this.save();
+	}
+
+	patchCompanionLayout(companionLayout: CompanionLayoutVariant) {
+		this.appearance.companionLayout = companionLayout;
+		this.save();
+	}
+
+	patchCompanionSpotlightDismiss(companionSpotlightDismiss: CompanionSpotlightDismiss) {
+		this.appearance.companionSpotlightDismiss = companionSpotlightDismiss;
 		this.save();
 	}
 
@@ -764,8 +796,14 @@ class SettingsStore {
 			this.appearance = {
 				quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip },
 				quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover },
-				queueView: DEFAULT_SETTINGS.appearance.queueView
+				queueView: DEFAULT_SETTINGS.appearance.queueView,
+				companionLayout: DEFAULT_SETTINGS.appearance.companionLayout,
+				companionSpotlightDismiss: DEFAULT_SETTINGS.appearance.companionSpotlightDismiss
 			};
+		}
+		if (section === 'companion') {
+			this.appearance.companionLayout = DEFAULT_SETTINGS.appearance.companionLayout;
+			this.appearance.companionSpotlightDismiss = DEFAULT_SETTINGS.appearance.companionSpotlightDismiss;
 		}
 		this.save();
 	}

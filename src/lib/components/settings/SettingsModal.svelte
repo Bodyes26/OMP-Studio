@@ -15,6 +15,7 @@
 	import TasksSection from './TasksSection.svelte';
 	import SuggestionsSection from './SuggestionsSection.svelte';
 	import AccessibilitySection from './AccessibilitySection.svelte';
+	import CompanionSection from './CompanionSection.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
@@ -23,6 +24,7 @@
 	const NAV_SECTIONS: { id: SettingsSection; label: string }[] = [
 		{ id: 'general', label: m.settings_nav_general() },
 		{ id: 'appearance', label: m.settings_nav_appearance() },
+		{ id: 'companion', label: m.settings_nav_companion() },
 		{ id: 'accessibility', label: m.settings_nav_accessibility() },
 		{ id: 'notifications', label: m.settings_nav_notifications() },
 		{ id: 'projectBar', label: m.ui_settingsmodal_barra_progetti_1fc0() },
@@ -332,6 +334,10 @@
 				{:else if settingsStore.section === 'appearance'}
 					<div class="modal-body">
 						<AppearanceSection />
+					</div>
+				{:else if settingsStore.section === 'companion'}
+					<div class="modal-body">
+						<CompanionSection />
 					</div>
 				{:else if settingsStore.section === 'accessibility'}
 					<div class="modal-body">
