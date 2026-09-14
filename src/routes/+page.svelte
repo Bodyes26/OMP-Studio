@@ -414,9 +414,11 @@
 		});
 
 		// Digest sui soli campi che la companion mostra: durante lo streaming lo stato
-		// sfarfalla e senza confronto si inonderebbe l'IPC a ogni token.
+		// sfarfalla e senza confronto si inonderebbe l'IPC a ogni token. Nome, etichetta
+		// e tinta ci stanno perche' la companion disegna anche quelli: senza, un
+		// progetto rinominato restava col vecchio nome fino al riavvio.
 		const digest = projectStore.projects
-			.map((p, i) => `${p.id}:${p.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}`)
+			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}`)
 			.join('|');
 		if (digest === runtimeBroadcastDigest) return;
 		runtimeBroadcastDigest = digest;

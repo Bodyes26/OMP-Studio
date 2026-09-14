@@ -160,6 +160,16 @@
 	min-height: 0;
 }
 
+/*
+	Da non fissata la maniglia di trascinamento (`.spotlight-drag-region`) copre
+	i primi 24px della finestra: senza questo spazio il sistema operativo
+	inghiotte i click sul primo elemento del layout (il composer di `launcher`,
+	la prima riga progetto di `compact`).
+*/
+.companion-shell:not(.pinned) .companion-body {
+	padding-top: 28px;
+}
+
 .companion-body.layout-dashboard {
 	gap: var(--space-2);
 }
@@ -214,14 +224,12 @@
 	gap: var(--space-2);
 }
 
-.attention-section.variant-banner .attention-card {
-	padding: var(--space-2);
-	margin-bottom: 0;
-}
-
-.attention-section.variant-banner .chat-context,
-.attention-section.variant-banner .ask-detail {
-	display: none;
+/* Dalla pastiglia espansa nasce la lista compatta sotto: i due blocchi si
+   saldano visivamente arrotondando solo i lati esterni. */
+.attention-banner.expanded {
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+	background: color-mix(in srgb, var(--warn) 22%, transparent);
 }
 
 .attention-section.variant-compact .attention-card {
@@ -697,9 +705,16 @@
 
 .composer-collapsed .composer-expand-hint {
 	display: block;
+	width: 100%;
 	margin: 0;
+	padding: 0;
+	background: none;
+	border: none;
+	text-align: left;
+	font-family: inherit;
 	font-size: var(--text-sm);
 	color: var(--ink-faint);
+	cursor: pointer;
 }
 
 .composer-expand-hint {
@@ -1010,10 +1025,6 @@
 	gap: var(--space-2);
 }
 
-.live-monitor-section.variant-strip .section-title {
-	margin-bottom: 0;
-	flex: none;
-}
 
 .live-monitor-section.variant-strip .projects-list {
 	flex: 1;
@@ -1041,23 +1052,21 @@
 	padding: var(--space-1) var(--space-2);
 	border-radius: var(--radius-sm);
 	border: 1px solid transparent;
-}
-
-.project-row.clickable {
 	cursor: pointer;
 }
 
-.project-row.clickable:hover {
+.project-row:hover {
 	background: var(--bg-hover);
+}
+
+.project-row:focus-visible {
+	outline: 2px solid var(--brand);
+	outline-offset: 1px;
 }
 
 .project-row.selected {
 	background: var(--bg-sunken);
 	border-color: var(--line);
-}
-
-.project-row.busy {
-	/* mantiene il layout compatto anche con chip quota */
 }
 
 .p-dot {

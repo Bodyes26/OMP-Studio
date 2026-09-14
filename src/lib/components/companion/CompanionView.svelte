@@ -59,11 +59,14 @@
 	let isFileDialogOpen = false;
 	let attachmentError = $state<string | null>(null);
 	let expandedProjectId = $state<string | null>(null);
-	let composerExpanded = $state(true);
+	// In inbox il composer parte chiuso quando ci sono richieste da smaltire:
+	// la finestra e' piccola e la risposta all'agente viene prima.
+	let composerExpanded = $state(false);
 	let attentionPageIndex = $state(0);
 	let launcherAttentionExpanded = $state(false);
 
 	let unlistenSummon: UnlistenFn | null = null;
+	let viewDisposed = false;
 
 	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 	const attentionList = $derived(companionStore.attentionRequests);
@@ -237,7 +240,10 @@
 			playOpenAnimation();
 			void tick().then(() => inputEl?.focus());
 		}).then((fn) => {
-			unlistenSummon = fn;
+			// La registrazione e' asincrona: se la vista e' gia' smontata il
+			// listener va chiuso subito, altrimenti resterebbe appeso.
+			if (viewDisposed) fn();
+			else unlistenSummon = fn;
 		});
 
 		const handleBlur = () => {
@@ -258,6 +264,7 @@
 		window.addEventListener('focus', handleFocus);
 
 		return () => {
+			viewDisposed = true;
 			window.removeEventListener('blur', handleBlur);
 			window.removeEventListener('focus', handleFocus);
 			unlistenSummon?.();
@@ -597,7 +604,7 @@
 		attentionList,
 		isPinned: companionStore.isPinned,
 		selectedProjectId: expandedProjectId,
-		onSelectProject: layout === 'dashboard' ? (id: string | null) => { expandedProjectId = id; } : undefined,
+		onSelectProject: (id: string | null) => { expandedProjectId = id; },
 		onRunTask: handleRunTask,
 		onToggleUsage: () => { usageOpen = !usageOpen; },
 		onTogglePin: togglePinned,
@@ -623,7 +630,7 @@
 		{#if layout === 'balanced'}
 			<CompanionAttentionSection variant="full" {...attentionProps} />
 			<CompanionComposer
-				size="default"
+				size={composerSize}
 				collapsed={false}
 				{...composerProps}
 				bind:taskInput
@@ -635,9 +642,12 @@
 			<CompanionMonitor variant="full" {...monitorProps} />
 
 		{:else if layout === 'dashboard'}
+			{#if attentionList.length > 0}
+				<CompanionAttentionSection variant="compact" {...attentionProps} />
+			{/if}
 			<CompanionMonitor variant="full" {...monitorProps} />
 			<CompanionComposer
-				size="compact"
+				size={composerSize}
 				collapsed={false}
 				{...composerProps}
 				bind:taskInput
@@ -660,8 +670,9 @@
 				attentionCount={attentionList.length}
 				queuedCount={queuedCount}
 			/>
+			<CompanionMonitor variant="dense" {...monitorProps} />
 			<CompanionComposer
-				size="default"
+				size={composerSize}
 				collapsed={composerCollapsed}
 				onExpand={() => { composerExpanded = true; void tick().then(() => inputEl?.focus()); }}
 				{...composerProps}
@@ -675,7 +686,7 @@
 		{:else if layout === 'compact'}
 			<CompanionMonitor variant="dense" {...monitorProps} />
 			<CompanionComposer
-				size="compact"
+				size={composerSize}
 				collapsed={false}
 				{...composerProps}
 				bind:taskInput
@@ -690,7 +701,7 @@
 
 		{:else if layout === 'launcher'}
 			<CompanionComposer
-				size="hero"
+				size={composerSize}
 				collapsed={false}
 				{...composerProps}
 				bind:taskInput
@@ -705,14 +716,16 @@
 				queuedCount={queuedCount}
 			/>
 			{#if attentionList.length > 0}
+				<!-- La pastiglia resta visibile anche da espansa: e' l'unico
+				     comando per richiudere l'elenco delle richieste. -->
+				<CompanionAttentionSection
+					variant="banner"
+					expanded={launcherAttentionExpanded}
+					onExpandBanner={() => { launcherAttentionExpanded = !launcherAttentionExpanded; }}
+					{...attentionProps}
+				/>
 				{#if launcherAttentionExpanded}
 					<CompanionAttentionSection variant="compact" {...attentionProps} />
-				{:else}
-					<CompanionAttentionSection
-						variant="banner"
-						onExpandBanner={() => { launcherAttentionExpanded = true; }}
-						{...attentionProps}
-					/>
 				{/if}
 			{/if}
 			<CompanionMonitor variant="strip" {...monitorProps} />

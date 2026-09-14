@@ -1,6 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { load, type Store } from '@tauri-apps/plugin-store';
+import { broadcastToWindows, listenFromWindows } from './windowBridge';
 import { DEFAULT_THEME, THEMES, THEME_NAMES, anchorsFor, applyAnchors, type ThemeMode } from '$lib/theme';
+
+/** Annuncio inter-finestra del tema scelto. */
+const THEME_CHANGED_EVENT = 'studio-theme-changed';
 
 /**
  * Un tema solo per Studio e per la TUI.
@@ -54,6 +58,19 @@ class ThemeStore {
 		}
 
 		applyAnchors(anchorsFor(THEMES[this.current]));
+
+		// La Companion vive in un'altra webview con la propria copia di questo
+		// store: senza questo ascolto resterebbe del colore di partenza finche'
+		// l'applicazione non viene riavviata.
+		void listenFromWindows<{ theme: string; pickerMode: ThemeMode }>(THEME_CHANGED_EVENT, (remote) => {
+			if (remote.theme && THEMES[remote.theme] && remote.theme !== this.current) {
+				this.current = remote.theme;
+				applyAnchors(anchorsFor(THEMES[remote.theme]));
+			}
+			if (remote.pickerMode === 'dark' || remote.pickerMode === 'light') {
+				this.pickerMode = remote.pickerMode;
+			}
+		});
 	}
 
 	/**
@@ -93,12 +110,14 @@ class ThemeStore {
 
 		await this.store?.set('theme', name);
 		await this.store?.save();
+		await broadcastToWindows(THEME_CHANGED_EVENT, { theme: name, pickerMode: this.pickerMode });
 	}
 
 	async setPickerMode(mode: ThemeMode) {
 		this.pickerMode = mode;
 		await this.store?.set('themePickerMode', mode);
 		await this.store?.save();
+		await broadcastToWindows(THEME_CHANGED_EVENT, { theme: this.current, pickerMode: mode });
 	}
 }
 

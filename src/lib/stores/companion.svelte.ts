@@ -176,6 +176,14 @@ class CompanionStore {
 			});
 			this.unlisteners.push(u3);
 
+			// Il pin si comanda sia dalla TopBar sia dall'header della Companion:
+			// l'evento arriva da Rust dopo la scrittura su disco, cosi' entrambe
+			// le finestre mostrano lo stesso stato.
+			const u5 = await listen<boolean>('companion-pinned-changed', (event) => {
+				this.isPinned = event.payload === true;
+			});
+			this.unlisteners.push(u5);
+
 			if (this.isCompanionWindow) {
 				// Chiede alla finestra principale lo stato attuale
 				void emit('studio-request-attention-sync');

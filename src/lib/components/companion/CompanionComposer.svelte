@@ -125,7 +125,10 @@
 		onclick={handleComposerClick}
 	>
 		{#if collapsed}
-			<p class="composer-expand-hint">{m.companion_composer_collapsed_hint()}</p>
+			<!-- Bottone vero: da tastiera il composer chiuso deve essere raggiungibile. -->
+			<button type="button" class="composer-expand-hint" onclick={() => onExpand?.()}>
+				{m.companion_composer_collapsed_hint()}
+			</button>
 		{:else}
 			<div class="composer-stage">
 				<!--

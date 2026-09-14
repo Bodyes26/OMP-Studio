@@ -34,18 +34,30 @@
 		variant?: 'full' | 'dense' | 'strip' | 'hidden';
 		isPinned?: boolean;
 		selectedProjectId?: string | null;
-		onSelectProject?: (projectId: string | null) => void;
+		/** Espande o chiude la coda del progetto: ogni layout la offre. */
+		onSelectProject: (projectId: string | null) => void;
 		onRunTask?: (projectId: string, taskId: string) => void;
 		onToggleUsage?: () => void;
 		onTogglePin?: () => void;
 		detailPanel?: boolean;
 	}>();
 
+	/**
+	 * Quanti progetti stanno nella finestra effimera prima dell'invito a
+	 * fissarla. Da fissata si mostrano tutti: la finestra e' ridimensionabile e
+	 * troncare avrebbe proposto di fissare cio' che e' gia' fissato.
+	 */
+	const SPOTLIGHT_LIMITS: Record<string, number> = {
+		full: 3,
+		dense: 3,
+		strip: 5,
+		hidden: 0
+	};
+
 	const visibleProjects = $derived(
-		variant === 'full' && isPinned ? projects : projects.slice(0, variant === 'strip' ? 5 : 3)
+		isPinned ? projects : projects.slice(0, SPOTLIGHT_LIMITS[variant] ?? 3)
 	);
 	const hiddenProjectsCount = $derived(projects.length - visibleProjects.length);
-	const clickable = $derived(Boolean(onSelectProject));
 
 	function runtimeFor(projectId: string) {
 		return runtimes.find((r: CompanionProjectRuntime) => r.projectId === projectId);
@@ -82,15 +94,15 @@
 	}
 
 	function shouldShowQueue(project: Project): boolean {
-		const queued = queuedTasksFor(project);
-		if (queued.length === 0) return false;
+		if (queuedTasksFor(project).length === 0) return false;
+		// In dashboard la coda del progetto scelto vive nel pannello di
+		// dettaglio: sotto la riga sarebbe duplicata.
 		if (detailPanel && selectedProjectId === project.id) return false;
 		if (selectedProjectId === project.id) return true;
-		return variant === 'full' && hasAttention(project.id);
+		return hasAttention(project.id);
 	}
 
 	function handleRowClick(project: Project) {
-		if (!onSelectProject) return;
 		onSelectProject(selectedProjectId === project.id ? null : project.id);
 	}
 
@@ -113,18 +125,18 @@
 				{@const rt = runtimeFor(p.id)}
 				{@const busy = p.agentState === 'working' || p.agentState === 'attention'}
 				{@const queued = queuedTasksFor(p)}
-				<!-- svelte-ignore a11y_no_static_element_interactions a11y_no_noninteractive_tabindex -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="project-row"
 					class:busy
-					class:clickable
 					class:selected={selectedProjectId === p.id}
 					style="--proj-hue: {hueFor(p)}"
-					role={clickable ? 'button' : undefined}
-					tabindex={clickable ? 0 : undefined}
+					role="button"
+					tabindex="0"
+					aria-expanded={selectedProjectId === p.id}
 					onclick={() => handleRowClick(p)}
 					onkeydown={(e) => {
-						if (clickable && (e.key === 'Enter' || e.key === ' ')) {
+						if (e.key === 'Enter' || e.key === ' ') {
 							e.preventDefault();
 							handleRowClick(p);
 						}
@@ -187,8 +199,13 @@
 			{/each}
 
 			{#if hiddenProjectsCount > 0}
-				<button type="button" class="more-projects" onclick={() => onTogglePin?.()}>
-					+{hiddenProjectsCount} altri — fissa la finestra per vederli tutti
+				<button
+					type="button"
+					class="more-projects"
+					title={m.companion_more_projects_title()}
+					onclick={() => onTogglePin?.()}
+				>
+					{m.companion_more_projects({ count: hiddenProjectsCount })}
 				</button>
 			{/if}
 		</div>

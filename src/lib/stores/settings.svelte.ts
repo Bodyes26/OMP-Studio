@@ -16,6 +16,10 @@ import {
 } from './promptSuggestions';
 import type { StreamingBehavior, QueueMode, InterruptMode } from '$lib/agent/wire';
 import { m as msg } from '$lib/paraglide/messages.js';
+import { broadcastToWindows, listenFromWindows } from './windowBridge';
+
+/** Annuncio inter-finestra di un salvataggio delle impostazioni. */
+const SETTINGS_CHANGED_EVENT = 'studio-settings-changed';
 
 
 /**
@@ -481,18 +485,7 @@ class SettingsStore {
 	private async load() {
 		try {
 			this.store = await load('settings.json', { autoSave: false });
-			const parsed = parseSettings(await this.store.get<unknown>('studioSettings'));
-			this.projectBar = parsed.projectBar;
-			this.editor = parsed.editor;
-			this.terminal = parsed.terminal;
-			this.taskDefaults = parsed.taskDefaults;
-			this.taskDirectives = parsed.taskDirectives;
-			this.promptSuggestions = parsed.promptSuggestions;
-			this.suggestions = parsed.suggestions;
-			this.general = parsed.general;
-			this.notifications = parsed.notifications;
-			this.accessibility = parsed.accessibility;
-			this.appearance = parsed.appearance;
+			this.apply(parseSettings(await this.store.get<unknown>('studioSettings')));
 		} catch {
 			// Impostazioni illeggibili: si lavora con i default, senza bloccare
 			// l'avvio. Il costo di un errore qui deve restare zero.
@@ -500,6 +493,29 @@ class SettingsStore {
 		}
 		this.initialized = true;
 		this.ready = true;
+
+		// La Companion e' una webview separata con la propria copia di questo
+		// store: senza questo ascolto una preferenza cambiata nel centro
+		// impostazioni (per esempio il layout della Companion) arriverebbe solo
+		// al riavvio dell'applicazione.
+		void listenFromWindows<StudioSettings>(SETTINGS_CHANGED_EVENT, (remote) => {
+			this.apply(parseSettings(remote));
+		});
+	}
+
+	/** Riversa uno snapshot validato nello stato reattivo. Nessuna scrittura su disco. */
+	private apply(parsed: StudioSettings) {
+		this.projectBar = parsed.projectBar;
+		this.editor = parsed.editor;
+		this.terminal = parsed.terminal;
+		this.taskDefaults = parsed.taskDefaults;
+		this.taskDirectives = parsed.taskDirectives;
+		this.promptSuggestions = parsed.promptSuggestions;
+		this.suggestions = parsed.suggestions;
+		this.general = parsed.general;
+		this.notifications = parsed.notifications;
+		this.accessibility = parsed.accessibility;
+		this.appearance = parsed.appearance;
 	}
 
 	private save = debounce(async () => {
@@ -519,6 +535,8 @@ class SettingsStore {
 		};
 		await this.store.set('studioSettings', snapshot);
 		await this.store.save();
+		// Le altre finestre non rileggono il file: la modifica va annunciata.
+		await broadcastToWindows(SETTINGS_CHANGED_EVENT, snapshot);
 	}, 250);
 
 	openSection(section: SettingsSection = 'general') {

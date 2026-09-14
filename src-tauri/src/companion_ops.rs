@@ -225,12 +225,19 @@ pub fn persist_companion_geometry(app: &AppHandle) {
 /// Il comando non accetta piu' dimensioni dal frontend: la TopBar della finestra
 /// principale non puo' conoscerle e le inviava vuote, azzerando la larghezza
 /// memorizzata. Qui la geometria si rilegge dalla finestra vera.
+///
+/// L'esito viene annunciato a tutte le webview: main e Companion hanno copie
+/// separate dello stato e senza l'evento chi non ha premuto il pulsante
+/// resterebbe convinto del contrario (pastiglia della TopBar spenta, elenco
+/// progetti troncato con l'invito a fissare una finestra gia' fissata).
 #[command]
 pub fn set_companion_pinned(app: AppHandle, pinned: bool) -> Result<(), String> {
     persist_companion_geometry(&app);
     let mut state = get_companion_state().unwrap_or_default();
     state.is_pinned = pinned;
-    write_companion_state(&state)
+    write_companion_state(&state)?;
+    let _ = app.emit("companion-pinned-changed", pinned);
+    Ok(())
 }
 
 /// Crea la finestra Companion.
