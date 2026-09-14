@@ -374,15 +374,18 @@ class CompanionStore {
 				await modelSettingsStore.loadAll();
 			}
 
-			// Leggi file esistente o inizializza
+			// Il file assente torna stringa vuota: un errore vero, invece, non
+			// vale coda vuota, perche' la scrittura seguente la cancellerebbe.
 			let existingTasks: StudioTask[] = [];
 			try {
 				const raw = await invoke<string>('project_tasks_read', { projectPath: parsed.projectPath });
 				if (raw && raw.trim()) {
 					existingTasks = parseProjectTasksFile(raw, parsed.projectPath.toLowerCase());
 				}
-			} catch {
-				existingTasks = [];
+			} catch (err) {
+				const detail = err instanceof Error ? err.message : String(err);
+				this.parseError = messages.ui_ts_companion_salvataggio_task_fallito_value1_783d({ value1: detail });
+				return false;
 			}
 
 			// Prepara opzioni task

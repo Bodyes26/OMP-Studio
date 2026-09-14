@@ -1262,7 +1262,7 @@
 		}
 
 		if (!isWorking && settingsStore.general.closeWithQueuedTasks === 'discard') {
-			if (project.path) taskStore.clearProject(project.path);
+			if (project.path) void taskStore.clearProject(project.path);
 			projectStore.closeProject(projectId);
 			return;
 		}
@@ -1291,12 +1291,12 @@
 		closeConfirmModalState = { open: false };
 	}
 
-	function handleConfirmDiscardClose() {
+	async function handleConfirmDiscardClose() {
 		const target = closeConfirmModalState.project;
 		if (!target) return;
-		if (target.path) taskStore.clearProject(target.path);
-		projectStore.closeProject(target.id);
 		closeConfirmModalState = { open: false };
+		projectStore.closeProject(target.id);
+		if (target.path) await taskStore.clearProject(target.path);
 	}
 
 	function handleCancelCloseModal() {

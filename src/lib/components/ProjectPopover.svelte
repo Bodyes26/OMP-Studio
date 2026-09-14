@@ -231,7 +231,7 @@
 	}
 
 	function closeProject(discardQueue: boolean) {
-		if (discardQueue && project.path) taskStore.clearProject(project.path);
+		if (discardQueue && project.path) void taskStore.clearProject(project.path);
 		projectStore.closeProject(project.id);
 		onClose();
 	}
@@ -241,7 +241,7 @@
 			if (other.id === project.id) continue;
 			if (other.path) {
 				if (settingsStore.general.closeWithQueuedTasks === 'discard') {
-					taskStore.clearProject(other.path);
+					void taskStore.clearProject(other.path);
 				} else if (other.agentState === 'working') {
 					void taskStore.requeueInterruptedTask(other.path);
 				}

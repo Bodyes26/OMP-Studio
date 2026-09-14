@@ -242,6 +242,10 @@ export function ensureProjectOmpDir(cwd: string): string {
 
 /**
  * Legge e valida i task da `.omp/tasks.json`.
+ *
+ * File assente: coda vuota. Qualsiasi altro errore (lettura fallita, JSON
+ * illeggibile) viene propagato: trattarlo come coda vuota farebbe cancellare
+ * la coda al primo salvataggio successivo.
  */
 export function loadProjectTasks(cwd: string): ProjectTask[] {
 	const filePath = join(cwd, ".omp", "tasks.json");
@@ -277,8 +281,9 @@ export function loadProjectTasks(cwd: string): ProjectTask[] {
 				options: normalizeTaskOptions(t.options as TaskOptions | undefined)
 			}))
 			.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
-	} catch {
-		return [];
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return [];
+		throw err;
 	}
 }
 

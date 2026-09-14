@@ -20,6 +20,7 @@ import {
 	parseProjectTasksFile,
 	serializeProjectTasksFile
 } from './taskSerialization';
+import { QueueHydration } from './taskHydration';
 import { m as msg } from '$lib/paraglide/messages.js';
 
 export type {
@@ -55,7 +56,9 @@ class TaskStore {
 	activeTaskByProject = $state<Record<string, StudioTask>>({});
 	private store: Store | null = null;
 	private initialized = false;
-	private loadedProjects = new Set<string>();
+	private readonly hydration = new QueueHydration();
+	/** Ultimo contenuto scritto per progetto: evita riscritture identiche. */
+	private readonly lastWritten = new Map<string, string>();
 	private unlistenTasksChanged: UnlistenFn | null = null;
 	private unlistenOriginsChanged: UnlistenFn | null = null;
 	private pendingProjectSaves = new Map<string, ReturnType<typeof setTimeout>>();
@@ -107,47 +110,68 @@ class TaskStore {
 			}
 		}
 
-		// Carica i task per tutti i progetti aperti
-		for (const project of projectStore.projects) {
-			if (project.path) {
-				void this.loadProject(project.path);
-			}
-		}
+		// Le code vivono in `.omp/tasks.json` dentro ogni progetto: vanno lette
+		// prima che un qualsiasi salvataggio possa scriverle. `projectStore` e'
+		// asincrono, quindi senza attenderlo qui la lista sarebbe ancora vuota
+		// e nessuna coda verrebbe idratata.
+		await projectStore.init();
+		await Promise.all(
+			projectStore.projects.filter((project) => project.path).map((project) => this.loadProject(project.path))
+		);
 	}
 
-	async loadProject(projectPath: string) {
-		if (!projectPath || !projectPath.trim() || !this.isTauri) return;
+	/**
+	 * Idratazione idempotente della coda di un progetto: legge il file una
+	 * sola volta, condivide il tentativo fra chiamate concorrenti e ritorna
+	 * `false` se la lettura non e' riuscita (allora la coda non va scritta).
+	 */
+	async loadProject(projectPath: string): Promise<boolean> {
+		if (!projectPath || !projectPath.trim() || !this.isTauri) return false;
 		const key = projectKey(projectPath);
-		try {
-			const content = await invoke<string>('project_tasks_read', { projectPath });
-			if (content && content.trim()) {
-				const projectTasks = parseProjectTasksFile(content, key);
-				this.tasks = this.tasks.filter((t) => t.projectPath !== key).concat(projectTasks);
-			} else {
-				// Migrazione automatica se presenti task nel vecchio store globale
-				const existing = this.tasksFor(projectPath);
-				const toWrite = serializeProjectTasksFile(existing);
-				await invoke('project_tasks_write', { projectPath, content: toWrite });
-			}
-			await invoke('project_tasks_watch', { projectPath });
-			this.loadedProjects.add(key);
-		} catch (err) {
-			console.warn(`Impossibile caricare .omp/tasks.json per ${projectPath}:`, err);
-		}
+		return this.hydration.ensure(key, () => this.readProject(projectPath, key));
 	}
 
+	private async readProject(projectPath: string, key: string): Promise<void> {
+		const content = await invoke<string>('project_tasks_read', { projectPath });
+		if (content && content.trim()) {
+			const fromDisk = parseProjectTasksFile(content, key);
+			this.lastWritten.set(key, serializeProjectTasksFile(fromDisk));
+			this.tasks = this.mergeProjectTasks(key, fromDisk);
+		} else {
+			// File assente o vuoto: la memoria e' l'unica copia della coda.
+			const inMemory = this.tasks.filter((task) => task.projectPath === key);
+			if (inMemory.length > 0) {
+				const toWrite = serializeProjectTasksFile(inMemory);
+				await invoke('project_tasks_write', { projectPath, content: toWrite });
+				this.lastWritten.set(key, toWrite);
+			}
+		}
+		await invoke('project_tasks_watch', { projectPath });
+	}
+
+	/**
+	 * Il file e' la fonte, ma un task creato mentre la lettura era in volo non
+	 * puo' sparire solo perche' il disco ha risposto dopo: resta in coda.
+	 */
+	private mergeProjectTasks(key: string, fromDisk: StudioTask[]): StudioTask[] {
+		const stored = new Set(fromDisk.map((task) => task.id));
+		const unsaved = this.tasks.filter((task) => task.projectPath === key && !stored.has(task.id));
+		const merged = fromDisk.concat(unsaved);
+		merged.forEach((task, index) => task.position = index);
+		return this.tasks.filter((task) => task.projectPath !== key).concat(merged);
+	}
+
+	/** Rilettura forzata: il file e' cambiato da fuori (TUI, tool, altro omp). */
 	async reloadProject(projectPath: string) {
 		if (!projectPath || !this.isTauri) return;
 		const key = projectKey(projectPath);
-		try {
+		this.hydration.forget(key);
+		await this.hydration.ensure(key, async () => {
 			const content = await invoke<string>('project_tasks_read', { projectPath });
-			if (content !== undefined) {
-				const projectTasks = parseProjectTasksFile(content, key);
-				this.tasks = this.tasks.filter((t) => t.projectPath !== key).concat(projectTasks);
-			}
-		} catch (err) {
-			console.warn(msg.ui_ts_tasks_errore_reload_task_per_value1_fe1d({ value1: projectPath }), err);
-		}
+			const fromDisk = parseProjectTasksFile(content ?? '', key);
+			this.lastWritten.set(key, serializeProjectTasksFile(fromDisk));
+			this.tasks = this.tasks.filter((task) => task.projectPath !== key).concat(fromDisk);
+		});
 	}
 
 	private saveGlobal = debounce(async () => {
@@ -170,10 +194,18 @@ class TaskStore {
 			this.pendingProjectSaves.delete(key);
 		}
 		if (!this.isTauri) return;
+		// Mai scrivere una coda che non e' stata letta: si sovrascriverebbe il
+		// file con lo stato vuoto della memoria. Era questa la perdita delle
+		// code alla chiusura di Studio.
+		if (!(await this.loadProject(projectPath))) {
+			console.error(`Coda non letta da disco: salvataggio annullato per ${projectPath}`);
+			return;
+		}
 		try {
-			const tasks = this.tasksFor(projectPath);
-			const content = serializeProjectTasksFile(tasks);
+			const content = serializeProjectTasksFile(this.tasksFor(projectPath));
+			if (this.lastWritten.get(key) === content) return;
 			await invoke('project_tasks_write', { projectPath, content });
+			this.lastWritten.set(key, content);
 		} catch (err) {
 			console.error(msg.ui_ts_tasks_errore_salvataggio_immediato_task_per_value1_8f04({ value1: projectPath }), err);
 		}
@@ -233,8 +265,9 @@ class TaskStore {
 
 	tasksFor(projectPath: string): StudioTask[] {
 		const key = projectKey(projectPath);
-		if (this.initialized && !this.loadedProjects.has(key)) {
-			this.loadedProjects.add(key);
+		// Solo innesco: la lettura resta asincrona e non marca nulla finche'
+		// non e' riuscita davvero.
+		if (this.initialized && !this.hydration.isHydrated(key)) {
 			void this.loadProject(projectPath);
 		}
 		return this.tasks
@@ -303,12 +336,18 @@ class TaskStore {
 		this.saveProject(path);
 	}
 
-	/** Svuota la coda di un progetto. Le `origins` restano: sono lo storico
-	 *  delle sessioni gia' lanciate, non task ancora da eseguire. */
-	clearProject(projectPath: string) {
+	/**
+	 * Svuota la coda di un progetto. Le `origins` restano: sono lo storico
+	 * delle sessioni gia' lanciate, non task ancora da eseguire.
+	 *
+	 * Attende l'idratazione prima di svuotare, altrimenti una lettura ancora
+	 * in volo rimetterebbe in coda proprio i task appena scartati.
+	 */
+	async clearProject(projectPath: string): Promise<void> {
 		const key = projectKey(projectPath);
+		await this.loadProject(projectPath);
 		this.tasks = this.tasks.filter((task) => task.projectPath !== key);
-		this.saveProject(projectPath);
+		await this.saveProjectImmediate(projectPath);
 	}
 
 	moveTask(id: string, targetId: string) {
@@ -416,6 +455,9 @@ class TaskStore {
 	async requeueInterruptedTask(projectPath: string, sessionId?: string | null): Promise<StudioTask | null> {
 		if (!projectPath) return null;
 		const key = projectKey(projectPath);
+		// La coda su disco va letta prima di rimetterci dentro il task
+		// interrotto: altrimenti il salvataggio finale la cancellerebbe.
+		await this.loadProject(projectPath);
 		let changed = false;
 
 		// 1. Ripristina lo stato queued per qualsiasi task rimasto in 'dispatching'

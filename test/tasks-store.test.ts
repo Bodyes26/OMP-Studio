@@ -23,6 +23,7 @@ import {
 	sanitizeDirectivesCatalog,
 	applyTaskDirectives
 } from '../src/lib/stores/taskDirectives.ts';
+import { QueueHydration } from '../src/lib/stores/taskHydration.ts';
 
 describe('Store tasks.json: validazione e parsing', () => {
 	const validTask: StudioTask = {
@@ -462,5 +463,63 @@ describe('Store tasks.json: validazione e parsing', () => {
 			assert.equal(restored.prompt, 'Correggi il bug dei task in coda');
 			assert.equal(restored.position, 0);
 		});
+	});
+});
+
+describe('Idratazione delle code di progetto', () => {
+	it('legge una sola volta anche con richieste concorrenti', async () => {
+		const hydration = new QueueHydration();
+		// La lettura resta sospesa finche' il test non la sblocca: le tre
+		// richieste sono cosi' davvero concorrenti, senza attese a tempo.
+		const lettura = Promise.withResolvers<void>();
+		let letture = 0;
+		const read = async () => {
+			letture++;
+			await lettura.promise;
+		};
+
+		const esiti = Promise.all([
+			hydration.ensure('c:/progetto', read),
+			hydration.ensure('c:/progetto', read),
+			hydration.ensure('c:/progetto', read)
+		]);
+		lettura.resolve();
+
+		assert.deepEqual(await esiti, [true, true, true]);
+		assert.equal(letture, 1);
+		assert.equal(hydration.isHydrated('c:/progetto'), true);
+		assert.equal(await hydration.ensure('c:/progetto', read), true);
+		assert.equal(letture, 1);
+	});
+
+	it('una lettura fallita non risulta idratata e viene ritentata', async () => {
+		const hydration = new QueueHydration();
+		let tentativi = 0;
+		const read = async () => {
+			tentativi++;
+			if (tentativi === 1) throw new Error('disco occupato');
+		};
+
+		assert.equal(await hydration.ensure('c:/progetto', read), false);
+		assert.equal(hydration.isHydrated('c:/progetto'), false);
+
+		assert.equal(await hydration.ensure('c:/progetto', read), true);
+		assert.equal(tentativi, 2);
+		assert.equal(hydration.isHydrated('c:/progetto'), true);
+	});
+
+	it('forget forza la rilettura del file cambiato da fuori', async () => {
+		const hydration = new QueueHydration();
+		let letture = 0;
+		const read = async () => {
+			letture++;
+		};
+
+		await hydration.ensure('c:/progetto', read);
+		hydration.forget('c:/progetto');
+		assert.equal(hydration.isHydrated('c:/progetto'), false);
+
+		await hydration.ensure('c:/progetto', read);
+		assert.equal(letture, 2);
 	});
 });
