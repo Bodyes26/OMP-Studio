@@ -82,6 +82,16 @@ export interface CompanionProjectRuntime {
 	modelId?: string;
 	modelLabel?: string;
 	credentialPin?: string;
+	/** True quando la finestra principale puo' avviare un task in coda. */
+	canRunTask?: boolean;
+	/** Motivo del blocco, se `canRunTask` e' falso. */
+	runBlockReason?: string;
+}
+
+export interface CompanionRunTaskPayload {
+	projectId: string;
+	taskId: string;
+	follow?: boolean;
 }
 
 export interface CompanionStateDto {
@@ -270,6 +280,11 @@ class CompanionStore {
 		} catch (err) {
 			console.error(messages.ui_ts_companion_companionstore_chiusura_finestra_companion_fallita_4941(), err);
 		}
+	}
+
+	/** Chiede alla finestra principale di avviare un task in coda. */
+	async runTask(projectId: string, taskId: string, follow = false) {
+		await emit('studio-run-task', { projectId, taskId, follow });
 	}
 
 	/**

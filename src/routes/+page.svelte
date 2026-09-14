@@ -401,19 +401,22 @@
 	$effect(() => {
 		const runtimes: CompanionProjectRuntime[] = projectStore.projects.map((p) => {
 			const { provider, modelId, credentialPin } = resolveProjectRuntime(p);
+			const reason = automationReason(p.id);
 			return {
 				projectId: p.id,
 				provider,
 				modelId,
 				modelLabel: shortModelLabel(modelId),
-				credentialPin
+				credentialPin,
+				canRunTask: reason === m.page_agent_state_ready(),
+				runBlockReason: reason === m.page_agent_state_ready() ? undefined : reason
 			};
 		});
 
 		// Digest sui soli campi che la companion mostra: durante lo streaming lo stato
 		// sfarfalla e senza confronto si inonderebbe l'IPC a ogni token.
 		const digest = projectStore.projects
-			.map((p, i) => `${p.id}:${p.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}`)
+			.map((p, i) => `${p.id}:${p.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}`)
 			.join('|');
 		if (digest === runtimeBroadcastDigest) return;
 		runtimeBroadcastDigest = digest;
@@ -514,6 +517,11 @@
 
 		void listen<{ projectId: string }>('studio-dismiss-quota-blocked', (event) => {
 			handleDismissQuotaBlocked(event.payload.projectId);
+		}).then((fn) => { unlistens.push(fn); });
+
+		void listen<{ projectId: string; taskId: string; follow?: boolean }>('studio-run-task', (event) => {
+			const { projectId, taskId, follow } = event.payload;
+			void handleRunTask(projectId, taskId, follow ?? false);
 		}).then((fn) => { unlistens.push(fn); });
 
 		return () => {

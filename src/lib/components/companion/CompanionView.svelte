@@ -61,6 +61,7 @@
 	let expandedProjectId = $state<string | null>(null);
 	let composerExpanded = $state(true);
 	let attentionPageIndex = $state(0);
+	let launcherAttentionExpanded = $state(false);
 
 	let unlistenSummon: UnlistenFn | null = null;
 
@@ -228,7 +229,6 @@
 		void quotaStore.init();
 		void settingsStore.init();
 		void modelSettingsStore.loadAll();
-		void taskStore.tasks;
 
 		void tick().then(() => inputEl?.focus());
 		playOpenAnimation();
@@ -705,7 +705,15 @@
 				queuedCount={queuedCount}
 			/>
 			{#if attentionList.length > 0}
-				<CompanionAttentionSection variant="banner" {...attentionProps} />
+				{#if launcherAttentionExpanded}
+					<CompanionAttentionSection variant="compact" {...attentionProps} />
+				{:else}
+					<CompanionAttentionSection
+						variant="banner"
+						onExpandBanner={() => { launcherAttentionExpanded = true; }}
+						{...attentionProps}
+					/>
+				{/if}
 			{/if}
 			<CompanionMonitor variant="strip" {...monitorProps} />
 		{/if}

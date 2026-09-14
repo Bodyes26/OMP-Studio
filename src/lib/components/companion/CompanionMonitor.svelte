@@ -179,6 +179,8 @@
 					<CompanionProjectQueue
 						projectName={p.label?.trim() || p.name}
 						tasks={queued}
+						disabled={rt?.canRunTask === false}
+						disabledReason={rt?.runBlockReason}
 						onRunNext={(taskId) => onRunTask?.(p.id, taskId)}
 					/>
 				{/if}
@@ -193,6 +195,7 @@
 	</section>
 
 	{#if detailPanel && selectedProject}
+		{@const selectedRuntime = runtimeFor(selectedProject.id)}
 		<div class="project-detail-panel">
 			<div class="section-title">
 				<span>{selectedProject.label?.trim() || selectedProject.name}</span>
@@ -203,6 +206,8 @@
 			<CompanionProjectQueue
 				projectName={selectedProject.label?.trim() || selectedProject.name}
 				tasks={queuedTasksFor(selectedProject)}
+				disabled={selectedRuntime?.canRunTask === false}
+				disabledReason={selectedRuntime?.runBlockReason}
 				onRunNext={(taskId) => onRunTask?.(selectedProject.id, taskId)}
 			/>
 		</div>

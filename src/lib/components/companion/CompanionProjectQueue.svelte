@@ -6,12 +6,14 @@
 		projectName,
 		tasks,
 		onRunNext,
-		disabled = false
+		disabled = false,
+		disabledReason
 	} = $props<{
 		projectName: string;
 		tasks: StudioTask[];
 		onRunNext: (taskId: string) => void;
 		disabled?: boolean;
+		disabledReason?: string;
 	}>();
 
 	function taskTitle(task: StudioTask): string {
@@ -42,6 +44,7 @@
 				type="button"
 				class="run-next-btn"
 				disabled={disabled}
+				title={disabled ? disabledReason : undefined}
 				onclick={() => onRunNext(nextTask.id)}
 			>
 				{m.companion_run_next()}

@@ -31,7 +31,8 @@
 		onResolveQuotaBlocked,
 		onDismissQuotaBlocked,
 		draftFor,
-		wantsText
+		wantsText,
+		onExpandBanner
 	} = $props<{
 		attentionList: AttentionRequest[];
 		variant?: 'full' | 'banner' | 'compact' | 'focused';
@@ -52,6 +53,7 @@
 		onDismissQuotaBlocked: (projectId: string) => void | Promise<void>;
 		draftFor: (req: AttentionRequest) => string;
 		wantsText: (pending: AttentionRequest['pendingUi']) => boolean;
+		onExpandBanner?: () => void;
 	}>();
 
 	const visibleRequests = $derived.by(() => {
@@ -78,10 +80,10 @@
 
 {#if attentionList.length > 0}
 	{#if variant === 'banner'}
-		<div class="attention-banner" role="status">
+		<button type="button" class="attention-banner" onclick={() => onExpandBanner?.()}>
 			<IconWarning />
 			<span>{m.companion_attention_banner({ count: attentionList.length })}</span>
-		</div>
+		</button>
 	{:else}
 		<section class="attention-section variant-{variant}">
 			{#if variant !== 'compact'}
