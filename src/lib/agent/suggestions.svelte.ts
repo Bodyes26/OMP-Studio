@@ -70,6 +70,8 @@ export class SessionSuggestions {
 	awaitsUserInput = $state<boolean>(false);
 	/** Domanda o richiesta sintetica posta dall'agente */
 	questionSummary = $state<string | null>(null);
+	/** Analisi post-turno in corso: l'auto-dispatch aspetta il verdetto. */
+	isAnalyzing = $state(false);
 	private session: AgentSession;
 	private visible = true;
 	private requestToken = 0;
@@ -112,6 +114,7 @@ export class SessionSuggestions {
 			this.awaitsUserInput = false;
 			this.questionSummary = null;
 			this.pendingTurnKey = null;
+			this.isAnalyzing = false;
 			this.session.clearInferredAttention();
 			return;
 		}
@@ -132,6 +135,7 @@ export class SessionSuggestions {
 		this.questionSummary = null;
 		this.currentTurnKey = null;
 		this.pendingTurnKey = null;
+		this.isAnalyzing = false;
 		this.session.clearInferredAttention();
 	}
 
@@ -140,10 +144,14 @@ export class SessionSuggestions {
 	 */
 	private async generate(turnKey: string) {
 		// Idempotenza: non generare due volte per lo stesso turno
-		if (this.generatedTurnKey === turnKey) return;
+		if (this.generatedTurnKey === turnKey) {
+			this.isAnalyzing = false;
+			return;
+		}
 
 		const { lastAssistant, lastUser } = extractLastTurnContext(this.session.entries);
 		if (!lastAssistant || !settingsStore.suggestions.dynamicEnabled) {
+			this.isAnalyzing = false;
 			return;
 		}
 
@@ -152,6 +160,7 @@ export class SessionSuggestions {
 		const timeoutMs = Math.max(5000, Math.min(60000, settingsStore.suggestions.timeoutMs || 20000));
 
 		const token = ++this.requestToken;
+		this.isAnalyzing = true;
 
 		try {
 			const res = await withTimeout(
@@ -207,6 +216,9 @@ export class SessionSuggestions {
 				this.session.clearInferredAttention();
 			}
 		} finally {
+			if (token === this.requestToken) {
+				this.isAnalyzing = false;
+			}
 			if (this.pendingTurnKey === turnKey) {
 				this.pendingTurnKey = null;
 			}

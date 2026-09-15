@@ -65,8 +65,9 @@ Regole tassative:
 Nessun testo introduttivo, nessun commento, nessun blocco markdown prima o dopo.
 
 2. Campo "awaitsUserInput":
-   - Deve essere TRUE se l'agente ha terminato il turno ponendo una domanda diretta, chiedendo conferma per procedere (es. "Confermi e procedo?", "Vuoi che applichi le modifiche?"), presentando opzioni tra cui scegliere, o sollecitando un input/decisione dell'utente.
-   - Deve essere FALSE se l'agente ha semplicemente terminato un compito informativo o esecutivo senza richiedere nulla (es. "Ho corretto il file", "Ecco il risultato").
+   - Deve essere TRUE solo se il lavoro e' incompleto o l'agente non puo' proseguire senza una decisione/input dell'utente: requisito ambiguo, scelta tra alternative con conseguenze diverse, autorizzazione necessaria o conferma esplicitamente richiesta prima di eseguire.
+   - Deve essere FALSE se il lavoro richiesto e' gia' concluso, anche quando l'agente chiude proponendo un extra facoltativo o una domanda di cortesia (es. "Vuoi che cambi anche il nome del contributor?", "Vuoi che approfondisca?", "Fammi sapere se vuoi altro"). Queste frasi possono generare risposte rapide, ma non rappresentano un'attesa bloccante.
+   - Se non e' chiaro che una risposta sia necessaria per completare il lavoro corrente, scegli FALSE.
 
 3. Campo "questionSummary":
    - Se awaitsUserInput e' true, estrai la domanda o richiesta di conferma principale in modo conciso e pulito (max 120 caratteri, es. "Confermi e procedo dalla Fase 1?", "Quale approccio preferisci tra A e B?").

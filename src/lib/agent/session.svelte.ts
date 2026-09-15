@@ -22,6 +22,8 @@ import {
 	type AskQuestion
 } from './askAnswers';
 import { SessionSuggestions } from './suggestions.svelte';
+import { askQuestionText } from './askTitle';
+import type { GuiGateSnapshot } from './automationGate';
 import {
 	RENDER_WINDOW,
 	clampVisibleCount,
@@ -413,6 +415,29 @@ export class AgentSession {
 	get isResuming(): boolean {
 		return this.isLoading && (!!this.requestedResume || (this.entries.length === 0 && !this.isAttached));
 	}
+
+	/**
+	 * Cio' che la coda dei task deve sapere per decidere se un nuovo lavoro
+	 * puo' partire. Il confine e' qui perche' solo la sessione conosce la
+	 * differenza tra le due attese: `pendingUi` sospende il processo omp
+	 * (aspetta il frame di risposta su stdin) mentre `inferredAttention` e'
+	 * una domanda dedotta a fine turno, con il processo libero. La seconda
+	 * sospende l'auto-dispatch finche' l'utente non decide, ma non gli toglie
+	 * la possibilita' di avviare manualmente un altro lavoro.
+	 */
+	get automationSnapshot(): GuiGateSnapshot {
+		const quota = this.blockedQuotaState;
+		return {
+			ready: this.isReady,
+			attached: this.isAttached,
+			streaming: this.isStreaming,
+			compacting: this.isCompacting,
+			blockingQuestion: this.pendingUi ? askQuestionText(this.pendingUi) : null,
+			quotaBlock: quota && !quota.dismissed ? quota.title : null,
+			inferencePending: this.suggestions.isAnalyzing,
+			inferredQuestion: this.inferredAttention?.question ?? null
+		};
+	}
 	constructor(cwdOrConfig: string | AgentSessionConfig) {
 		if (typeof cwdOrConfig === 'string') {
 			this.cwd = cwdOrConfig;
@@ -545,8 +570,9 @@ export class AgentSession {
 		// sessione appena chiusa e la ripresa non aprirebbe nulla.
 		this.opening = null;
 		this.openTarget = null;
-		this.resetBrowserLive();
-		await this.client.close();
+		// La chiusura e' osservabile dagli effetti: si marca la sessione non
+		// pronta prima di invalidare l'analisi, altrimenti per un frame la coda
+		// risulterebbe libera e l'auto-dispatch potrebbe correre contro close().
 		this.isReady = false;
 		this.isAttached = false;
 		this.isAttaching = false;
@@ -554,7 +580,13 @@ export class AgentSession {
 		this.requestedResume = null;
 		this.isAborting = false;
 		this.pendingStartupPrompts = [];
+		this.resetBrowserLive();
+		// Analisi e domanda dedotta appartengono al transcript che si chiude:
+		// senza invalidarle una ripresa mostrerebbe la domanda della sessione
+		// precedente e terrebbe sospeso l'auto-dispatch del progetto nuovo.
+		this.suggestions.invalidate();
 		this.deltaBatcher.clear();
+		await this.client.close();
 	}
 
 	/** Chiude ogni canale effimero del processo precedente e dimentica le sue capability. */

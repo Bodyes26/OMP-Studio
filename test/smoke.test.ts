@@ -39,6 +39,7 @@ import './browser-dialogs-files.test.ts';
 import './browser-hardening-matrix.test.ts';
 import './companion-quick-task.test.ts';
 import './companion-attention.test.ts';
+import './automation-gate.test.ts';
 import './lab-contracts.test.ts';
 import './lab-persistence.test.ts';
 import './lab-revisions.test.ts';

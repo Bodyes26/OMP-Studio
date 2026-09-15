@@ -10,21 +10,24 @@
 	import type { Project } from '$lib/stores/projects.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { IconClose } from '$lib/icons';
+	import type { AutomationGate } from '$lib/agent/automationGate';
 	let {
 		open = false,
 		onClose,
 		onRunTask,
 		onEditTask,
-		canRunTask,
-		runReason
+		onOpenProject,
+		gateFor
 	} = $props<{
 		open?: boolean;
 		onClose?: () => void;
 		onRunTask?: (projectId: string, taskId: string, follow: boolean) => void;
 		onEditTask?: (projectId: string, taskId: string) => void;
-		canRunTask?: (projectId: string) => boolean;
-		runReason?: (projectId: string) => string;
+		onOpenProject?: (projectId: string) => void;
+		gateFor: (projectId: string) => AutomationGate;
 	}>();
+
+	let explainedProjectId = $state<string | null>(null);
 
 	// Un gruppo per progetto reale (gli scratchpad hanno path vuoto e non
 	// hanno coda) con almeno un task in attesa. L'ordine segue projectOrder,
@@ -78,7 +81,13 @@
 	}
 	// Ctrl+click porta il focus sul progetto dopo l'avvio; il click semplice
 	// lancia in background, come deciso per tutti i punti di avvio condivisi.
-	function runTask(event: MouseEvent, projectId: string, taskId: string) {
+	// Un task bloccato resta cliccabile: il click apre la spiegazione invece di
+	// sparire dentro un <button disabled>, che per contratto non emette eventi.
+	function runTask(event: MouseEvent, projectId: string, taskId: string, gate: AutomationGate) {
+		if (!gate.ready) {
+			explainedProjectId = projectId;
+			return;
+		}
 		onRunTask?.(projectId, taskId, event.ctrlKey);
 	}
 
@@ -111,8 +120,9 @@
 				<div class="empty-row">{m.queue_drawer_empty_state()}</div>
 			{:else}
 				{#each groups as group (group.project.id)}
-					{@const reason = runReason?.(group.project.id) ?? ''}
-					{@const blocked = !canRunTask?.(group.project.id)}
+					{@const gate = gateFor(group.project.id)}
+					{@const blocked = !gate.ready}
+					{@const attention = gate.block === 'question' || gate.block === 'quota'}
 					<div class="group" role="listitem">
 						<div class="group-header">
 							<span
@@ -128,20 +138,58 @@
 									<span class="group-count">{group.tasks.length}</span>
 								</div>
 								<div class="group-sub">
-									<span class="group-reason" title={reason}>{reason}</span>
+									{#if blocked}
+										<button
+											type="button"
+											class="group-reason blocked"
+											aria-expanded={explainedProjectId === group.project.id}
+											aria-controls={`queue-gate-${group.project.id}`}
+											aria-label={m.gate_state_aria({ label: gate.label })}
+											class:attention
+											title={`${gate.detail} ${gate.hint}`.trim()}
+											onclick={() => explainedProjectId = explainedProjectId === group.project.id ? null : group.project.id}
+										>
+											<span class="state-dot" aria-hidden="true"></span>
+											{gate.label}
+										</button>
+									{:else}
+										<span class="group-reason">{gate.label}</span>
+									{/if}
 									<button
 										type="button"
 										class="run-first"
-										disabled={blocked}
-										title={blocked ? reason : m.queue_drawer_run_first_title({ title: taskTitle(group.tasks[0]) })}
-										aria-label={m.queue_drawer_run_first_aria({ project: group.project.name })}
-										onclick={(event) => runTask(event, group.project.id, group.tasks[0].id)}
+										class:blocked
+										class:attention
+										aria-expanded={blocked ? explainedProjectId === group.project.id : undefined}
+										aria-controls={blocked ? `queue-gate-${group.project.id}` : undefined}
+										title={blocked ? `${gate.detail} ${gate.hint}`.trim() : m.queue_drawer_run_first_title({ title: taskTitle(group.tasks[0]) })}
+										aria-label={blocked
+											? m.gate_explain_first_aria({ project: group.project.name })
+											: m.queue_drawer_run_first_aria({ project: group.project.name })}
+										onclick={(event) => runTask(event, group.project.id, group.tasks[0].id, gate)}
 									>
 										{m.queue_drawer_run_first_btn()}
 									</button>
 								</div>
 							</div>
 						</div>
+						{#if blocked && explainedProjectId === group.project.id}
+							<div id={`queue-gate-${group.project.id}`} class="gate-notice" class:attention role="status" aria-live="polite">
+								<strong>{m.gate_notice_title()}</strong>
+								<span>{gate.detail}</span>
+								{#if gate.hint}<span class="gate-hint">{gate.hint}</span>{/if}
+								<div class="gate-actions">
+									<button type="button" onclick={() => onOpenProject?.(group.project.id)}>
+										{m.gate_notice_open_project()}
+									</button>
+									<button type="button" onclick={() => explainedProjectId = null}>
+										{m.gate_notice_dismiss()}
+									</button>
+								</div>
+							</div>
+						{:else if gate.note}
+							<div class="gate-note" role="status">{gate.note}</div>
+						{/if}
 						<div class="task-list" class:queue-cards={isCardView} role="list" aria-label={`Task in coda per ${group.project.name}`}>
 							{#each group.tasks as task (task.id)}
 								<div class="task-row" role="listitem">
@@ -179,10 +227,15 @@
 										<button
 											type="button"
 											class="task-run"
-											disabled={blocked}
-											title={blocked ? reason : m.queue_drawer_run_first_title({ title: taskTitle(task) })}
-											aria-label={m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })}
-											onclick={(event) => runTask(event, group.project.id, task.id)}
+											class:blocked
+											class:attention
+											aria-expanded={blocked ? explainedProjectId === group.project.id : undefined}
+											aria-controls={blocked ? `queue-gate-${group.project.id}` : undefined}
+											title={blocked ? `${gate.detail} ${gate.hint}`.trim() : m.queue_drawer_run_first_title({ title: taskTitle(task) })}
+											aria-label={blocked
+												? m.gate_explain_task_aria({ title: taskTitle(task) })
+												: m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })}
+											onclick={(event) => runTask(event, group.project.id, task.id, gate)}
 										>
 											{m.queue_drawer_run_btn()}
 										</button>
@@ -290,6 +343,8 @@
 	}
 
 	.group {
+		min-width: 0;
+		flex-shrink: 0;
 		padding-bottom: var(--space-3);
 		border-bottom: 1px solid var(--line);
 	}
@@ -382,12 +437,36 @@
 	.group-reason {
 		flex: 1;
 		min-width: 0;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 		overflow: hidden;
+		border: 0;
+		background: transparent;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
 		line-height: 22px;
+		text-align: left;
+	}
+
+	button.group-reason.blocked {
+		color: var(--ink-faint);
+		cursor: pointer;
+	}
+
+	button.group-reason.blocked.attention {
+		color: var(--warn);
+	}
+
+	.state-dot {
+		width: 6px;
+		height: 6px;
+		flex: 0 0 auto;
+		border-radius: var(--radius-full);
+		background: currentColor;
 	}
 
 	.run-first {
@@ -402,14 +481,84 @@
 		cursor: pointer;
 	}
 
-	.run-first:hover:not(:disabled) {
+	.run-first:hover:not(.blocked) {
 		background: var(--bg-hover);
 		color: var(--ink);
 	}
 
-	.run-first:disabled {
+	.run-first.blocked,
+	.task-run.blocked {
 		color: var(--ink-faint);
-		cursor: default;
+		border-color: var(--line);
+		cursor: help;
+	}
+
+	.run-first.blocked:hover,
+	.task-run.blocked:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.run-first.blocked.attention:hover,
+	.task-run.blocked.attention:hover {
+		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+		background: color-mix(in srgb, var(--warn) 8%, transparent);
+		color: var(--warn);
+	}
+
+	.gate-notice,
+	.gate-note {
+		margin: var(--space-2) 0 0 30px;
+		padding: var(--space-2);
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: var(--space-1);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-raised);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		line-height: 1.45;
+		overflow-wrap: anywhere;
+	}
+
+	.gate-notice.attention {
+		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+		background: color-mix(in srgb, var(--warn) 8%, var(--bg-raised));
+	}
+
+	.gate-notice strong,
+	.gate-hint {
+		color: var(--ink);
+	}
+
+	.gate-actions {
+		margin-top: var(--space-1);
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+	}
+
+	.gate-actions button {
+		height: 24px;
+		padding: 0 var(--space-2);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--ink);
+		font-size: var(--text-xs);
+		cursor: pointer;
+	}
+
+	.gate-actions button:hover {
+		background: var(--bg-hover);
+	}
+
+	.gate-note {
+		border-color: var(--line);
+		background: var(--bg-raised);
+		color: var(--ink-faint);
 	}
 
 	.task-list {
@@ -438,6 +587,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		min-height: 88px;
+		flex-shrink: 0;
 	}
 
 	.task-list.queue-cards .task-row:hover {
@@ -450,6 +600,7 @@
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
+		overflow: hidden;
 		gap: var(--space-1);
 	}
 
@@ -457,6 +608,9 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		width: 100%;
+		min-width: 0;
+		overflow-wrap: anywhere;
 		color: var(--ink);
 		font-size: var(--text-sm);
 		font-weight: 600;
@@ -480,6 +634,7 @@
 		-webkit-box-orient: vertical;
 		-webkit-line-clamp: 2;
 		line-clamp: 2;
+		overflow-wrap: anywhere;
 	}
 
 	.task-list.queue-cards .task-excerpt {
@@ -495,6 +650,7 @@
 		align-items: center;
 		justify-content: flex-start;
 		gap: 4px;
+		min-width: 0;
 	}
 
 	.task-chips:empty {
@@ -511,6 +667,9 @@
 		color: var(--ink-muted);
 		line-height: 1.2;
 		white-space: nowrap;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.task-chip.role-chip {
@@ -543,15 +702,9 @@
 		cursor: pointer;
 	}
 
-	.task-run:hover:not(:disabled),
+	.task-run:hover:not(.blocked),
 	.task-edit:hover {
 		background: var(--bg-hover);
-	}
-
-	.task-run:disabled {
-		color: var(--ink-faint);
-		border-color: var(--line);
-		cursor: default;
 	}
 	.status-chip.in-progress {
 		background: var(--brand-dim);

@@ -6,11 +6,11 @@
 	import { taskStore, type AgentView, type StudioTask } from '$lib/stores/tasks.svelte';
 	import { rulesStore } from '$lib/stores/rules.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import type { AutomationBlock, AutomationGate } from '$lib/agent/automationGate';
 
 	let {
 		projectPath,
-		canAutomate,
-		automationReason,
+		gate,
 		actionError,
 		currentSessionId,
 		onCreateTask,
@@ -20,8 +20,7 @@
 		onOpenFile
 	}: {
 		projectPath: string;
-		canAutomate: boolean;
-		automationReason: string;
+		gate: AutomationGate;
 		actionError: string | null;
 		currentSessionId: string | null;
 		onCreateTask: () => void;
@@ -35,6 +34,16 @@
 	const view = $derived(taskStore.viewFor(projectPath));
 	const frictionCount = $derived(rulesStore.suggestionsFor(projectPath).length);
 	const isCardView = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
+
+	/**
+	 * Blocco di cui si sta mostrando la spiegazione. Si confronta con quello
+	 * corrente invece di tenere un booleano: se il motivo cambia o si scioglie
+	 * mentre il riquadro e' aperto, il riquadro non resta a spiegare un blocco
+	 * che non esiste piu'.
+	 */
+	let explained = $state<AutomationBlock | null>(null);
+	const gateAttention = $derived(gate.block === 'question' || gate.block === 'quota');
+	const noticeOpen = $derived(!gate.ready && explained === gate.block);
 
 	// L'analisi dell'attrito e' una singola query in sola lettura sullo storico:
 	// gira al montaggio del pannello perche' il conteggio sulla scheda deve
@@ -61,6 +70,14 @@
 			return `${task.images.length} ${task.images.length === 1 ? 'immagine allegata' : 'immagini allegate'}`;
 		}
 		return m.agent_panel_empty_prompt();
+	}
+
+	function runOrExplain(taskId: string) {
+		if (!gate.ready) {
+			explained = gate.block;
+			return;
+		}
+		onRunTask(taskId);
 	}
 
 	function dropOn(targetId: string) {
@@ -136,10 +153,34 @@
 					<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
 					{m.agent_panel_new_task_btn()}
 				</button>
-				{#if !canAutomate && automationReason}
-					<span class="automation-state" role="status" aria-live="polite" title={automationReason}>{automationReason}</span>
+				{#if !gate.ready}
+					<button
+						type="button"
+						class="automation-state"
+						class:attention={gateAttention}
+						class:active={noticeOpen}
+						aria-expanded={noticeOpen}
+						aria-controls="agent-queue-gate-notice"
+						aria-label={m.gate_state_aria({ label: gate.label })}
+						title={`${gate.detail} ${gate.hint}`.trim()}
+						onclick={() => explained = noticeOpen ? null : gate.block}
+					>
+						<span class="state-dot" aria-hidden="true"></span>
+						{gate.label}
+					</button>
 				{/if}
 			</div>
+
+			{#if noticeOpen}
+				<div id="agent-queue-gate-notice" class="automation-notice" class:attention={gateAttention} role="status" aria-live="polite">
+					<strong>{m.gate_notice_title()}</strong>
+					<span>{gate.detail}</span>
+					{#if gate.hint}<span class="automation-hint">{gate.hint}</span>{/if}
+					<button type="button" onclick={() => explained = null}>{m.gate_notice_dismiss()}</button>
+				</div>
+			{:else if gate.note}
+				<div class="automation-note" role="status" aria-live="polite">{gate.note}</div>
+			{/if}
 
 			<ul class="queue-list" class:queue-cards={isCardView} aria-label={m.queue_drawer_heading()}>
 				{#if tasks.length === 0}
@@ -183,10 +224,15 @@
 							<button
 								type="button"
 								class="task-launch"
-								disabled={!canAutomate || (!task.prompt.trim() && (!task.images || task.images.length === 0)) || task.status === 'dispatching'}
-								title={canAutomate ? m.ui_agentpanel_avvia_value1_18da({ value1: taskTitle(task) }) : automationReason}
-								aria-label={m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })}
-								onclick={() => onRunTask(task.id)}
+								class:blocked={!gate.ready}
+								disabled={(!task.prompt.trim() && (!task.images || task.images.length === 0)) || task.status === 'dispatching'}
+								aria-expanded={gate.ready ? undefined : noticeOpen}
+								aria-controls={gate.ready ? undefined : 'agent-queue-gate-notice'}
+								title={gate.ready ? m.ui_agentpanel_avvia_value1_18da({ value1: taskTitle(task) }) : `${gate.detail} ${gate.hint}`.trim()}
+								aria-label={gate.ready
+									? m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })
+									: m.gate_explain_task_aria({ title: taskTitle(task) })}
+								onclick={() => runOrExplain(task.id)}
 							>
 								<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
 								<span class="task-excerpt" role="status" aria-live={task.status === 'dispatching' ? 'polite' : 'off'}>{task.status === 'dispatching' ? m.agent_panel_dispatching_label() : taskExcerpt(task)}</span>
@@ -237,8 +283,8 @@
 		<div id="panel-agent-sessions" role="tabpanel" aria-labelledby="tab-agent-sessions" class="panel-tab-body">
 			<SessionList
 				{projectPath}
-				{canAutomate}
-				{automationReason}
+				canAutomate={gate.ready}
+				automationReason={gate.label}
 				{currentSessionId}
 				onResume={onResumeSession}
 			/>
@@ -365,11 +411,91 @@
 
 	.automation-state {
 		min-width: 0;
+		padding: 3px var(--space-2);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		background: transparent;
 		color: var(--ink-faint);
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		cursor: pointer;
+	}
+
+	.automation-state:hover,
+	.automation-state.active {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.automation-state.attention {
+		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+		background: color-mix(in srgb, var(--warn) 8%, transparent);
+		color: var(--warn);
+	}
+
+	.automation-state.attention:hover,
+	.automation-state.attention.active {
+		background: color-mix(in srgb, var(--warn) 15%, transparent);
+		color: var(--warn);
+	}
+
+	.state-dot {
+		width: 6px;
+		height: 6px;
+		flex: 0 0 auto;
+		border-radius: var(--radius-full);
+		background: currentColor;
+	}
+
+	.automation-notice,
+	.automation-note {
+		margin: 0 var(--space-2) var(--space-2);
+		padding: var(--space-2);
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: var(--space-1);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-raised);
+		color: var(--ink-muted);
 		font-size: var(--text-xs);
+		line-height: 1.45;
+		overflow-wrap: anywhere;
+	}
+
+
+	.automation-notice.attention {
+		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+		background: color-mix(in srgb, var(--warn) 8%, var(--bg-raised));
+	}
+	.automation-notice strong {
+		color: var(--ink);
+	}
+
+	.automation-hint {
+		color: var(--ink);
+	}
+
+	.automation-notice button {
+		margin-top: var(--space-1);
+		padding: 2px var(--space-2);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--ink);
+		font-size: var(--text-xs);
+		cursor: pointer;
+	}
+
+	.automation-note {
+		border-color: var(--line);
+		background: var(--bg-raised);
+		color: var(--ink-faint);
 	}
 	.panel-tab-body {
 		display: flex;
@@ -455,6 +581,7 @@
 
 	.task-launch {
 		min-width: 0;
+		overflow: hidden;
 		padding: var(--space-1);
 		display: flex;
 		flex-direction: column;
@@ -469,12 +596,17 @@
 		cursor: default;
 	}
 
+	.task-launch.blocked {
+		cursor: help;
+	}
+
 	.task-chips {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		justify-content: flex-start;
 		gap: var(--space-1);
+		min-width: 0;
 	}
 
 	.task-chips:empty {
@@ -511,6 +643,9 @@
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 		line-height: 1.2;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.task-chip.role-chip {
@@ -538,6 +673,7 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		min-width: 0;
+		overflow-wrap: anywhere;
 		color: var(--ink);
 		font-size: var(--text-base);
 		font-weight: 600;
@@ -559,6 +695,7 @@
 
 	.queue-list.queue-cards .task-row {
 		min-height: 88px;
+		flex-shrink: 0;
 		padding: var(--space-2);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
@@ -574,12 +711,17 @@
 		border-color: var(--brand-dim);
 	}
 
+	.queue-list.queue-cards .task-launch {
+		justify-content: flex-start;
+	}
+
 	.queue-list.queue-cards .task-title {
 		white-space: normal;
 		display: -webkit-box;
 		-webkit-box-orient: vertical;
 		-webkit-line-clamp: 2;
 		line-clamp: 2;
+		overflow-wrap: anywhere;
 	}
 
 	.queue-list.queue-cards .task-excerpt {
@@ -597,7 +739,8 @@
 		}
 	}
 
-	.task-launch:disabled .task-title {
+	.task-launch:disabled .task-title,
+	.task-launch.blocked .task-title {
 		color: var(--ink-muted);
 	}
 </style>

@@ -39,6 +39,7 @@
 	import { buildAttentionRequest } from '$lib/stores/companionAttention';
 	import { askQuestionText } from '$lib/agent/askTitle';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
+	import { resolveAutomationGate, type AutomationGate } from '$lib/agent/automationGate';
 	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type Project } from '$lib/stores/projects.svelte';
@@ -403,15 +404,17 @@
 	$effect(() => {
 		const runtimes: CompanionProjectRuntime[] = projectStore.projects.map((p) => {
 			const { provider, modelId, credentialPin } = resolveProjectRuntime(p);
-			const reason = automationReason(p.id);
+			const gate = automationGate(p.id);
 			return {
 				projectId: p.id,
 				provider,
 				modelId,
 				modelLabel: shortModelLabel(modelId),
 				credentialPin,
-				canRunTask: reason === m.page_agent_state_ready(),
-				runBlockReason: reason === m.page_agent_state_ready() ? undefined : reason
+				canRunTask: gate.ready,
+				// La companion ha solo il tooltip: spiegazione e rimedio insieme,
+				// altrimenti resta con un'etichetta che non dice cosa fare.
+				runBlockReason: gate.ready ? undefined : `${gate.detail} ${gate.hint}`.trim()
 			};
 		});
 
@@ -579,26 +582,36 @@
 		terminalMeta[projectId] = { inputPending, sessionId };
 	}
 
-	function automationReason(projectId: string) {
+	/**
+	 * Perche' la coda di questo progetto puo' o non puo' partire. Il motivo
+	 * completo (etichetta, spiegazione, rimedio) vive in `automationGate.ts`:
+	 * qui si raccoglie solo lo stato delle due superfici.
+	 */
+	function automationGate(projectId: string): AutomationGate {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		if (terminalBusy[projectId]) return m.ui__page_operazione_in_corso_6690();
+		const busy = terminalBusy[projectId] === true;
 		if (project?.layout.rightSection === 'gui') {
 			const session = agentSessions.get(projectId);
-			if (!session?.isReady || !session?.isAttached) return 'OMP in avvio...';
-			if (session?.isStreaming) return 'OMP sta lavorando';
-			if (session?.isCompacting) return m.ui__page_compattazione_in_corso_538c();
-			if (project.agentState === 'attention') return m.ui__page_omp_aspetta_una_risposta_1202();
-			return m.page_agent_state_ready();
+			return resolveAutomationGate({
+				surface: 'gui',
+				busy,
+				session: session ? session.automationSnapshot : null
+			});
 		}
-		if (terminalMeta[projectId]?.inputPending) return m.ui__page_completa_il_testo_nel_terminale_a985();
-		if (project?.agentState === 'working') return 'OMP sta lavorando';
-		if (project?.agentState === 'attention') return m.ui__page_omp_aspetta_una_risposta_1202();
-		if (project?.agentState !== 'idle') return m.ui__page_stato_omp_non_disponibile_194d();
-		return m.page_agent_state_ready();
+		return resolveAutomationGate({
+			surface: 'terminal',
+			busy,
+			inputPending: terminalMeta[projectId]?.inputPending === true,
+			agentState: project?.agentState ?? 'unknown'
+		});
+	}
+
+	function automationReason(projectId: string) {
+		return automationGate(projectId).label;
 	}
 
 	function canAutomate(projectId: string) {
-		return automationReason(projectId) === m.page_agent_state_ready();
+		return automationGate(projectId).ready;
 	}
 
 	function openNewTask(projectPath: string) {
@@ -639,6 +652,12 @@
 		queueOpen = false;
 		leftSection = 'agent';
 		openNewTask(project.path);
+	}
+
+	/** Porta alla chat che contiene il blocco spiegato nel drawer globale. */
+	function openProjectFromQueue(projectId: string) {
+		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		queueOpen = false;
 	}
 
 	/**
@@ -743,7 +762,10 @@
 			if (autoDispatching.has(project.id)) continue;
 			const next = taskStore.tasksFor(project.path).find((task) => task.status === 'queued');
 			if (!next) continue;
-			if (automationReason(project.id) !== m.page_agent_state_ready()) continue;
+			const gate = automationGate(project.id);
+			// Il click manuale puo' scavalcare una domanda testuale; l'auto-run
+			// aspetta invece sia la classificazione sia la decisione dell'utente.
+			if (!gate.autoDispatchReady) continue;
 			candidates.push({ projectId: project.id, taskId: next.id });
 		}
 
@@ -1854,8 +1876,8 @@
 		onClose={() => queueOpen = false}
 		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, follow)}
 		onEditTask={openTaskOfProject}
-		canRunTask={canAutomate}
-		runReason={automationReason}
+		onOpenProject={openProjectFromQueue}
+		gateFor={automationGate}
 	/>
 
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
@@ -1967,8 +1989,7 @@
 					{:else}
 						<AgentPanel
 							projectPath={proj.path}
-							canAutomate={canAutomate(proj.id)}
-							automationReason={automationReason(proj.id)}
+							gate={automationGate(proj.id)}
 							actionError={agentErrors[proj.id] ?? null}
 							currentSessionId={terminalMeta[proj.id]?.sessionId ?? null}
 							onCreateTask={() => openNewTask(proj.path)}
