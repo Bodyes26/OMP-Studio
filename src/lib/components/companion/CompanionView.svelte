@@ -489,7 +489,9 @@
 
 			const ok = await companionStore.saveTask(toSave, attachedImages);
 			if (ok) {
-				successNotice = `Task aggiunto a ${toSave.projectName || 'progetto'}!`;
+				successNotice = m.companion_task_saved({
+					project: toSave.projectName || m.companion_task_saved_fallback()
+				});
 				companionStore.parseError = null;
 				attachmentError = null;
 				taskInput = '';

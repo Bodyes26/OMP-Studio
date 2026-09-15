@@ -117,8 +117,8 @@
 }
 
 .companion-header .icon-btn {
-	width: 22px;
-	height: 22px;
+	width: 24px;
+	height: 24px;
 }
 
 .icon-btn {
@@ -334,7 +334,7 @@
 }
 
 .context-bubble.user .role-tag {
-	color: var(--brand);
+	color: var(--brand-ink);
 	font-weight: 600;
 }
 
@@ -353,7 +353,7 @@
 	align-self: flex-start;
 	background: none;
 	border: none;
-	color: var(--brand);
+	color: var(--brand-ink);
 	font-size: var(--text-xs);
 	padding: 2px 0;
 	cursor: pointer;
@@ -403,8 +403,8 @@
 	flex-direction: column;
 	gap: var(--space-2);
 	padding: var(--space-2) var(--space-3);
-	background: var(--bg-surface);
-	border: 1px solid var(--border-subtle);
+	background: var(--bg-sunken);
+	border: 1px solid var(--line);
 	border-radius: var(--radius-sm);
 }
 
@@ -422,7 +422,7 @@
 	gap: var(--space-2);
 	padding: var(--space-2) var(--space-3);
 	background: var(--brand);
-	color: var(--brand-contrast, #fff);
+	color: var(--on-brand);
 	font-weight: 500;
 	border: none;
 	border-radius: var(--radius-sm);
@@ -442,7 +442,7 @@
 }
 
 .qb-alt-label {
-	font-size: var(--text-2xs);
+	font-size: var(--text-xs);
 	color: var(--ink-faint);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
@@ -521,15 +521,13 @@
 }
 
 .opt-recommended-badge {
-	background: var(--brand-subtle, rgba(234, 88, 12, 0.12));
-	color: var(--brand);
-	border: 1px solid var(--brand);
+	background: var(--brand-tint);
+	color: var(--brand-ink);
+	border: 1px solid var(--brand-line);
 	border-radius: var(--radius-sm);
 	padding: 1px 5px;
-	font-size: 10px;
+	font-size: var(--text-xs);
 	font-weight: 600;
-	text-transform: uppercase;
-	letter-spacing: 0.3px;
 	margin-left: var(--space-1);
 	vertical-align: middle;
 }
@@ -672,7 +670,7 @@
 
 .composer-hero .composer {
 	padding: var(--space-3);
-	border-radius: var(--radius-xl);
+	border-radius: var(--radius-lg);
 }
 
 .composer-hero .composer-backdrop,
@@ -849,6 +847,15 @@
 	--icon-size: 10px;
 }
 
+/* Il bersaglio deve valere 24px (WCAG 2.2 SC 2.5.8) ma la pastiglia visibile
+   resta 16px: crescerla coprirebbe l'anteprima che sta annullando. */
+.image-remove-btn::after {
+	content: '';
+	position: absolute;
+	inset: -4px;
+	border-radius: inherit;
+}
+
 .image-remove-btn:hover {
 	background: var(--brand-dim);
 	color: var(--ink);
@@ -900,6 +907,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 3px;
+	min-height: 24px;
 	padding: 2px var(--space-2);
 	background: transparent;
 	border: 1px solid var(--line);
@@ -919,7 +927,7 @@
 
 .token-char {
 	font-family: var(--font-mono);
-	color: var(--brand);
+	color: var(--brand-ink);
 	font-weight: 600;
 }
 
@@ -980,7 +988,7 @@
 
 .notice.success {
 	background: var(--brand-tint);
-	color: var(--brand);
+	color: var(--brand-ink);
 	border: 1px solid var(--brand-line);
 }
 
@@ -1061,7 +1069,7 @@
 
 .project-row:focus-visible {
 	outline: 2px solid var(--brand);
-	outline-offset: 1px;
+	outline-offset: 2px;
 }
 
 .project-row.selected {
@@ -1129,7 +1137,7 @@
 }
 
 .p-state.state-working {
-	color: var(--brand);
+	color: var(--brand-ink);
 }
 
 .p-state.state-attention {
@@ -1142,6 +1150,9 @@
 
 .more-projects {
 	align-self: flex-start;
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
 	background: none;
 	border: none;
 	padding: 2px 0;
@@ -1179,16 +1190,60 @@
 	margin-bottom: var(--space-1);
 }
 
+.queue-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+/* Oltre quattro righe la coda scorre dentro di se': la finestra e' alta 520px
+   e una coda lunga non puo' spingere fuori schermo i progetti sottostanti. */
+.queue-rows.scrolls {
+	max-height: 116px;
+	overflow-y: auto;
+}
+
 .queue-row {
 	display: flex;
 	flex-direction: row;
 	align-items: center;
 	gap: var(--space-2);
+	width: 100%;
 	min-height: 28px;
 	padding: var(--space-1) var(--space-2);
+	background: transparent;
+	border: 1px solid transparent;
 	border-radius: var(--radius-sm);
+	font-family: inherit;
 	font-size: var(--text-xs);
 	color: var(--ink-muted);
+	text-align: left;
+	cursor: pointer;
+	transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.queue-row:hover:not(:disabled) {
+	background: var(--bg-hover);
+	color: var(--ink);
+}
+
+.queue-row:disabled {
+	cursor: not-allowed;
+	color: var(--ink-faint);
+}
+
+.queue-row-index {
+	flex: none;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-faint);
+}
+
+/* Il prossimo a partire e' marcato sulla riga, non dedotto da un bottone
+   unico posato accanto a un elenco. */
+.queue-row.is-next .queue-row-index {
+	color: var(--brand-ink);
+	font-weight: 600;
 }
 
 .queue-row-title {
@@ -1199,29 +1254,29 @@
 	white-space: nowrap;
 }
 
-.run-next-btn {
-	align-self: flex-start;
+.queue-row-run {
+	flex: none;
 	display: inline-flex;
-	align-items: center;
-	gap: var(--space-2);
-	margin-top: var(--space-1);
-	padding: var(--space-1) var(--space-3);
-	background: var(--brand);
-	color: var(--on-brand);
-	border: none;
-	border-radius: var(--radius-sm);
+	opacity: 0;
+	color: var(--brand-ink);
+	--icon-size: 12px;
+}
+
+.queue-row:hover:not(:disabled) .queue-row-run,
+.queue-row:focus-visible .queue-row-run {
+	opacity: 1;
+}
+
+.queue-more,
+.queue-blocked {
+	margin: 0;
+	padding: 0 var(--space-2);
 	font-size: var(--text-xs);
-	font-weight: 500;
-	cursor: pointer;
+	color: var(--ink-faint);
 }
 
-.run-next-btn:hover {
-	opacity: 0.95;
-}
-
-.run-next-btn:disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
+.queue-blocked {
+	color: var(--warn);
 }
 
 .status-strip {

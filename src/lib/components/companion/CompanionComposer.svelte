@@ -162,13 +162,13 @@
 						<div class="image-thumb-wrap">
 							<img
 								src="data:{image.mimeType};base64,{image.data}"
-								alt="Allegato task {idx + 1}"
+								alt={m.companion_attachment_alt({ index: idx + 1 })}
 								class="image-thumb"
 							/>
 							<button
 								type="button"
 								class="image-remove-btn"
-								aria-label="Rimuovi immagine {idx + 1}"
+								aria-label={m.companion_attachment_remove({ index: idx + 1 })}
 								title={m.task_editor_remove_image_title()}
 								onclick={(event) => {
 									event.stopPropagation();
@@ -211,7 +211,7 @@
 					<button
 						type="button"
 						class="attach-btn"
-						title="Allega screenshot o immagini"
+						title={m.companion_attach_images()}
 						aria-label={m.companion_attach_images()}
 						onclick={(event) => {
 							event.stopPropagation();

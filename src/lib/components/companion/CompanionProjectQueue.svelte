@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
+	import { IconPlay } from '$lib/icons';
 	import type { StudioTask } from '$lib/stores/tasks.svelte';
 
 	let {
@@ -16,6 +17,13 @@
 		disabledReason?: string;
 	}>();
 
+	/**
+	 * Quante righe restano a vista prima di dichiarare il residuo. Oltre questa
+	 * soglia l'elenco scorre: la finestra e' alta 520px e una coda lunga non
+	 * puo' spingere fuori schermo i progetti sotto.
+	 */
+	const VISIBLE_TASKS = 4;
+
 	function taskTitle(task: StudioTask): string {
 		const line = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim();
 		if (line) return line;
@@ -23,8 +31,7 @@
 		return m.queue_drawer_title_new_task();
 	}
 
-	const visibleTasks = $derived(tasks.slice(0, 3));
-	const nextTask = $derived(tasks[0] ?? null);
+	const hiddenCount = $derived(Math.max(0, tasks.length - VISIBLE_TASKS));
 </script>
 
 {#if tasks.length > 0}
@@ -33,22 +40,34 @@
 			<span>{m.companion_queue_title({ count: tasks.length })}</span>
 		</div>
 
-		{#each visibleTasks as task (task.id)}
-			<div class="queue-row">
-				<span class="queue-row-title" title={taskTitle(task)}>{taskTitle(task)}</span>
-			</div>
-		{/each}
+		<!-- Ogni riga avvia il proprio task: con un solo bottone "Avvia prossimo"
+		     accanto a tre righe il legame con quale parte resta implicito. -->
+		<div class="queue-rows" class:scrolls={tasks.length > VISIBLE_TASKS}>
+			{#each tasks as task, index (task.id)}
+				{@const title = taskTitle(task)}
+				<button
+					type="button"
+					class="queue-row"
+					class:is-next={index === 0}
+					{disabled}
+					aria-label={m.companion_run_task({ title })}
+					onclick={() => onRunNext(task.id)}
+				>
+					<span class="queue-row-index">{index + 1}</span>
+					<span class="queue-row-title">{title}</span>
+					<span class="queue-row-run"><IconPlay /></span>
+				</button>
+			{/each}
+		</div>
 
-		{#if nextTask}
-			<button
-				type="button"
-				class="run-next-btn"
-				disabled={disabled}
-				title={disabled ? disabledReason : undefined}
-				onclick={() => onRunNext(nextTask.id)}
-			>
-				{m.companion_run_next()}
-			</button>
+		{#if hiddenCount > 0}
+			<p class="queue-more">{m.companion_queue_more({ count: hiddenCount })}</p>
+		{/if}
+
+		{#if disabled && disabledReason}
+			<!-- Il motivo non puo' vivere in un `title` su elementi disabilitati:
+			     la tastiera non li raggiunge e il puntatore non li interroga. -->
+			<p class="queue-blocked">{m.companion_run_blocked({ reason: disabledReason })}</p>
 		{/if}
 	</section>
 {/if}

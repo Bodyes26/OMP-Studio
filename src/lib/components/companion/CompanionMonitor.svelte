@@ -73,15 +73,15 @@
 			const bq = attentionList.find((a: AttentionRequest) => a.projectId === projectId && a.pendingUi.kind === 'quota_blocked');
 			if (bq) {
 				return bq.pendingUi.blockedQuota?.reasonKind === 'quota_exhausted'
-					? 'Quota esaurita'
-					: 'Blocco provider';
+					? m.companion_state_quota_exhausted()
+					: m.companion_state_provider_error();
 			}
 			return m.ui_companionview_chiede_risposta_de18();
 		}
-		if (state === 'working') return 'Al lavoro';
+		if (state === 'working') return m.companion_state_working();
 		if (state === 'finished') return m.page_agent_state_finished();
-		if (state === 'idle') return 'Fermo';
-		return 'Non avviato';
+		if (state === 'idle') return m.companion_state_idle();
+		return m.companion_state_unknown();
 	}
 
 	function queuedTasksFor(project: Project) {
@@ -191,7 +191,7 @@
 					<CompanionProjectQueue
 						projectName={p.label?.trim() || p.name}
 						tasks={queued}
-						disabled={rt?.canRunTask === false}
+						disabled={rt?.canRunTask !== true}
 						disabledReason={rt?.runBlockReason}
 						onRunNext={(taskId) => onRunTask?.(p.id, taskId)}
 					/>
@@ -223,7 +223,7 @@
 			<CompanionProjectQueue
 				projectName={selectedProject.label?.trim() || selectedProject.name}
 				tasks={queuedTasksFor(selectedProject)}
-				disabled={selectedRuntime?.canRunTask === false}
+				disabled={selectedRuntime?.canRunTask !== true}
 				disabledReason={selectedRuntime?.runBlockReason}
 				onRunNext={(taskId) => onRunTask?.(selectedProject.id, taskId)}
 			/>

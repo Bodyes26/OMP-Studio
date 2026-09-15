@@ -47,7 +47,7 @@
 					class="icon-btn active"
 					onclick={onTogglePin}
 					title={m.companion_unpin_title()}
-					aria-label="Sblocca finestra"
+					aria-label={m.companion_unpin_window()}
 				>
 					<IconPinned />
 				</button>
@@ -71,7 +71,7 @@
 				class="icon-btn"
 				onclick={onTogglePin}
 				title={m.companion_pin_title()}
-				aria-label="Fissa finestra"
+				aria-label={m.companion_pin_window()}
 			>
 				<IconPin />
 			</button>
