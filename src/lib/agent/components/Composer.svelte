@@ -28,6 +28,7 @@
 		type SuggestionChipItem
 	} from '$lib/stores/promptSuggestions';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { traceFocus } from '$lib/focusTracer';
 import CommandPalette from './CommandPalette.svelte';
 import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 import {
@@ -701,6 +702,7 @@ $effect(() => {
 					// Non rubare il fuoco ai controlli fuori dal composer (card di ask inclusa)
 					return;
 				}
+				traceFocus('composer-type-to-focus', `key=${event.key}`);
 				textareaEl?.focus();
 				// Lascia propagare l'evento per inserire il carattere nella textarea
 			}
@@ -1069,6 +1071,7 @@ $effect(() => {
 		open={visible && paletteOpen}
 		commands={allCommands}
 		query={paletteQuery}
+		anchor={composerEl}
 		onPick={handlePalettePick}
 		onClose={() => (paletteOpen = false)}
 		onSubmitFallback={() => void handleSubmit()}

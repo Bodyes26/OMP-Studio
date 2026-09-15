@@ -186,7 +186,10 @@ export function revealLineInEditor(line: number) {
 	if (!editorInstance || !editorInstance.getModel()) return false;
 	editorInstance.revealLineInCenter(line);
 	editorInstance.setPosition({ lineNumber: line, column: 1 });
-	editorInstance.focus();
+	// Il salto a una riga arriva da un click dell'utente: se la finestra non e'
+	// in primo piano il click non c'e' stato, e prendersi il fuoco farebbe
+	// risalire Studio sopra l'applicazione in uso.
+	if (document.hasFocus()) editorInstance.focus();
 	return true;
 }
 

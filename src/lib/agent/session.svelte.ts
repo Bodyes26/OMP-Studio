@@ -1,6 +1,7 @@
 import { attachEditorContext } from '$lib/editor/editorContext';
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { formatTokens } from '$lib/utils/format';
+import { traceAgent } from '$lib/focusTracer';
 // Stato della superficie GUI: un'istanza per progetto.
 //
 // Il riduttore e' esplicito e volutamente noioso: ogni frame del protocollo
@@ -1313,6 +1314,7 @@ export class AgentSession {
 			case 'tool_execution_start': {
 				if (typeof event.toolCallId !== 'string' || typeof event.toolName !== 'string') return;
 				if (!this.isStreaming || this.isAborting) return;
+				traceAgent(`tool-start:${event.toolName}`);
 				const entry: ToolEntry = {
 					id: this.nextEntryId++,
 					kind: 'tool',
@@ -1351,6 +1353,7 @@ export class AgentSession {
 					entry.running = false;
 					entry.endedAt = Date.now();
 				}
+				traceAgent(`tool-end:${entry?.toolName ?? '?'}`);
 				// La chiamata e' finita: qualunque passo non consegnato non ha
 				// piu' una domanda a cui appartenere.
 				if (this.askFlush && this.askFlush.toolCallId === event.toolCallId) {

@@ -4,6 +4,8 @@
  * Ripristina automaticamente il focus all'elemento precedentemente attivo alla chiusura.
  */
 
+import { traceFocus } from '$lib/focusTracer';
+
 export interface FocusTrapOptions {
 	/** Callback invocata quando l'utente preme il tasto Escape all'interno dell'elemento */
 	onEscape?: () => void;
@@ -27,9 +29,14 @@ export function trapFocus(node: HTMLElement, options?: FocusTrapOptions | (() =>
 		);
 	}
 
-	// Focus iniziale: rispetta autofocus -> initialFocus -> primo focusabile -> nodo
+	// Focus iniziale: rispetta autofocus -> initialFocus -> primo focusabile -> nodo.
+	// Se Studio e' in secondo piano il fuoco non si tocca: un modale che compare
+	// da solo (aggiornamento, controllo modelli) riporterebbe la finestra davanti
+	// all'applicazione che l'utente sta usando.
 	setTimeout(() => {
 		if (!node.isConnected) return;
+		if (!document.hasFocus()) return;
+		traceFocus('focus-trap-initial', `node=${node.className || node.tagName.toLowerCase()}`);
 		if (currentOpts.initialFocus) {
 			const target =
 				typeof currentOpts.initialFocus === 'string'

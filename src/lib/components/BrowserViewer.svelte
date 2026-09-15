@@ -36,6 +36,7 @@
 	import { untrack } from 'svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { trapFocus } from '$lib/focusTrap';
+	import { traceFocus } from '$lib/focusTracer';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import {
 		IconArrowLeft,
@@ -733,8 +734,12 @@
 		if (document.activeElement === viewportEl) return;
 		// La superficie ricorda il fuoco solo quando e' andato perso nel vuoto
 		// (rimontaggio con focus tornato a body): mai strapparlo a un input o
-		// a un controllo dove l'utente sta scrivendo o operando.
+		// a un controllo dove l'utente sta scrivendo o operando, e mai mentre
+		// Studio e' in secondo piano, dove un focus programmatico puo' far
+		// risalire la finestra sopra l'applicazione che l'utente sta usando.
 		if (document.activeElement !== null && document.activeElement !== document.body) return;
+		if (!document.hasFocus()) return;
+		traceFocus('browser-viewport-refocus');
 		viewportEl.focus({ preventScroll: true });
 	});
 

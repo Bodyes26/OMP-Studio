@@ -4,6 +4,7 @@
 	// alias, firma degli argomenti e sottocomandi: la GUI non inventa un
 	// catalogo parallelo e non inoltra i comandi come prompt.
 	import type { AvailableCommand } from '../wire';
+	import { anchoredPopover } from '$lib/anchoredPopover';
 
 	interface PaletteOption {
 		key: string;
@@ -26,6 +27,7 @@
 		open,
 		commands = [],
 		query = '',
+		anchor = null,
 		onPick,
 		onClose,
 		onSubmitFallback
@@ -33,6 +35,10 @@
 		open: boolean;
 		commands: AvailableCommand[];
 		query: string;
+		/** Campo a cui agganciare il pannello: la palette vive nel top layer e
+		 *  si piazza sopra o sotto in base allo spazio reale, senza mai coprire
+		 *  il testo che si sta scrivendo. */
+		anchor?: HTMLElement | null;
 		onPick: (value: string, keepsOpen: boolean, submitImmediately: boolean) => void;
 		onClose: () => void;
 		onSubmitFallback: () => void;
@@ -182,7 +188,14 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-	<div class="palette-container" role="dialog" tabindex="-1" aria-label="Comandi disponibili">
+	<div
+		class="palette-container"
+		role="dialog"
+		tabindex="-1"
+		aria-label="Comandi disponibili"
+		popover="manual"
+		use:anchoredPopover={{ anchor, offset: 6, matchWidth: true, constrainHeight: true }}
+	>
 		<div class="palette-main">
 			{#if options.length > 0}
 				<div class="palette-list" bind:this={listEl} role="listbox" aria-label="Comandi">
@@ -267,13 +280,19 @@
 {/if}
 
 <style>
+	/* Nel top layer il pannello non e' ritagliato da nessun `overflow` e non
+	 * partecipa alla gara degli z-index: le coordinate le scrive
+	 * `anchoredPopover`, che lo ribalta sopra il campo quando sotto non c'e'
+	 * spazio. `--anchored-space` e' lo spazio reale sul lato scelto. */
 	.palette-container {
-		position: absolute;
-		bottom: 100%;
-		left: var(--space-3);
-		right: var(--space-3);
-		margin-bottom: var(--space-1);
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		padding: 0;
+		border: 1px solid var(--line-strong);
+		min-width: 420px;
 		max-width: calc(100vw - 2 * var(--space-4));
+		max-height: min(420px, var(--anchored-space, 420px));
 		background: var(--bg-raised);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-overlay);
@@ -287,8 +306,8 @@
 		display: grid;
 		grid-template-columns: minmax(180px, 0.9fr) minmax(220px, 1.1fr);
 		grid-template-rows: minmax(0, 1fr);
-		min-height: 150px;
-		max-height: 380px;
+		min-height: 0;
+		flex: 1 1 auto;
 		overflow: hidden;
 	}
 

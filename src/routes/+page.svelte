@@ -48,6 +48,7 @@
 	import { listen } from '@tauri-apps/api/event';
 	import { onMount } from 'svelte';
 	import { trapFocus } from '$lib/focusTrap';
+	import { startFocusTracer } from '$lib/focusTracer';
 
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
 	let diagramOpen = $state(false);
@@ -113,6 +114,7 @@
 	}
 
 	onMount(() => {
+		void startFocusTracer();
 		void notificationManager.init();
 		const unlistenDiagram = listen<{ cwd?: string }>('diagram://new', (e) => {
 			const targetCwd = e.payload?.cwd;

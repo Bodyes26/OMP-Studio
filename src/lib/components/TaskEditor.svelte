@@ -68,6 +68,7 @@
 	let deleteTimer: number | null = null;
 	let textareaEl = $state<HTMLTextAreaElement | null>(null);
 	let rootEl = $state<HTMLElement | null>(null);
+	let inputCardEl = $state<HTMLElement | null>(null);
 	let paletteOpen = $state(false);
 	let paletteQuery = $state('');
 	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
@@ -641,18 +642,17 @@
 			ondrop={handleDrop}
 			aria-label={m.task_editor_prompt_area_aria()}
 		>
-			<div class="palette-anchor">
-				<CommandPalette
-					open={paletteOpen}
-					commands={allCommands}
-					query={paletteQuery}
-					onPick={handlePalettePick}
-					onClose={() => (paletteOpen = false)}
-					onSubmitFallback={() => (paletteOpen = false)}
-				/>
-			</div>
+			<CommandPalette
+				open={paletteOpen}
+				commands={allCommands}
+				query={paletteQuery}
+				anchor={inputCardEl}
+				onPick={handlePalettePick}
+				onClose={() => (paletteOpen = false)}
+				onSubmitFallback={() => (paletteOpen = false)}
+			/>
 
-			<div class="input-card">
+			<div class="input-card" bind:this={inputCardEl}>
 				<label for="task-prompt" class="sr-only">{m.task_editor_prompt_label()}</label>
 				<textarea
 					id="task-prompt"
@@ -1169,21 +1169,6 @@
 		outline: 2px dashed var(--brand);
 		outline-offset: -2px;
 		border-radius: var(--radius-md);
-	}
-
-	.palette-anchor {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		z-index: var(--z-overlay);
-		pointer-events: none;
-	}
-
-	.palette-anchor :global(.palette-container) {
-		pointer-events: auto;
-		position: static;
-		margin-bottom: var(--space-2);
 	}
 
 	.input-card {

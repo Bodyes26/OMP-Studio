@@ -119,7 +119,6 @@ commands.allow = [
     "refresh_models_catalog",
     "get_custom_providers",
     "save_custom_providers",
-    "get_auth_providers_summary",
     "get_model_providers",
     "get_auth_accounts",
     "remove_auth_account",
@@ -145,6 +144,14 @@ description = "Segnalazione di attenzione su taskbar Windows e Dock macOS"
 commands.allow = [
     "set_app_attention",
     "clear_app_attention"
+]
+
+[[permission]]
+identifier = "allow-focus-trace"
+description = "Traccia diagnostica dei salti di fuoco: scrittura del file di log dedicato e lettura del suo percorso"
+commands.allow = [
+    "focus_trace_append",
+    "focus_trace_path"
 ]
 
 [[permission]]
@@ -205,6 +212,7 @@ permissions = [
     "allow-models",
     "allow-setup",
     "allow-attention",
+    "allow-focus-trace",
     "allow-external-open",
     "allow-rules-and-skills",
     "allow-task-directives",

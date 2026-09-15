@@ -19,6 +19,7 @@
 
 	import { tick } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { traceFocus } from '$lib/focusTracer';
 	import {
 		IconArrowLeft,
 		IconArrowRight,
@@ -301,7 +302,11 @@ $effect(() => {
 			document.body,
 			cardEl?.contains(active) ?? false
 		)
-	) return;
+	) {
+		traceFocus('ask-card-focus-skipped', `visible=${visible}`);
+		return;
+	}
+	traceFocus('ask-card-focus');
 
 	if (pending.method === 'input' && plainInputEl) {
 		plainInputEl.focus();

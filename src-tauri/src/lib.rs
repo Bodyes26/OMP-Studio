@@ -29,7 +29,7 @@ use studio_updater::{
 };
 mod models_ops;
 use models_ops::{
-    apply_model_fixes, check_model_health, get_auth_accounts, get_auth_providers_summary,
+    apply_model_fixes, check_model_health, get_auth_accounts,
     get_available_models_catalog, get_custom_providers, get_model_config, get_model_providers,
     get_models_catalog, get_role_suggestions, refresh_model_provider, refresh_models_catalog,
     remove_auth_account, save_custom_providers, save_model_config,
@@ -38,6 +38,8 @@ mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
 mod alerts;
 use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
+mod focus_trace;
+use focus_trace::{focus_trace_append, focus_trace_path};
 mod external;
 use external::open_project_external;
 mod rules_ops;
@@ -104,6 +106,8 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             greet,
+            focus_trace_append,
+            focus_trace_path,
             pty_open,
             pty_write,
             pty_resize,
@@ -169,7 +173,6 @@ pub fn run() {
             refresh_models_catalog,
             get_custom_providers,
             save_custom_providers,
-            get_auth_providers_summary,
             get_model_providers,
             get_auth_accounts,
             remove_auth_account,
