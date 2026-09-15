@@ -221,6 +221,34 @@
 		}
 	});
 
+	// Il backdrop dipinge il testo che la textarea tiene trasparente: i due strati
+	// devono avvolgere le righe alla stessa larghezza, altrimenti il caret (nativo
+	// della textarea) deriva rispetto ai glifi visibili. Quando il testo supera
+	// l'altezza massima compare la scrollbar verticale della textarea, che ruba
+	// ~10px alla sua content-box mentre il backdrop (overflow hidden) resta largo:
+	// si compensa con un padding-right pari alla larghezza della scrollbar.
+	function syncBackdropGeometry() {
+		const el = inputEl;
+		const backdrop = backdropEl;
+		if (!el || !backdrop) return;
+		const scrollbarWidth = el.offsetWidth - el.clientWidth;
+		backdrop.style.paddingRight =
+			scrollbarWidth > 0 ? `calc(var(--space-1) + ${scrollbarWidth}px)` : '';
+		backdrop.scrollTop = el.scrollTop;
+		backdrop.scrollLeft = el.scrollLeft;
+	}
+
+	$effect(() => {
+		const el = inputEl;
+		if (!el || typeof ResizeObserver === 'undefined') return;
+		// La scrollbar puo' comparire/sparire anche senza digitazione (resize finestra):
+		// la compensazione segue la geometria reale della textarea.
+		const geometryObserver = new ResizeObserver(() => syncBackdropGeometry());
+		geometryObserver.observe(el);
+		syncBackdropGeometry();
+		return () => geometryObserver.disconnect();
+	});
+
 	$effect(() => {
 		const el = inputEl;
 		const text = taskInput;
@@ -229,10 +257,7 @@
 		const target = text ? Math.min(el.scrollHeight, INPUT_MAX_HEIGHT) : 0;
 		el.style.height = target > 0 ? `${target}px` : '';
 		el.style.overflowY = text && el.scrollHeight > INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
-		if (backdropEl) {
-			backdropEl.scrollTop = el.scrollTop;
-			backdropEl.scrollLeft = el.scrollLeft;
-		}
+		syncBackdropGeometry();
 	});
 
 	function refreshCompanionState() {
@@ -305,10 +330,7 @@
 	}
 
 	function handleInputScroll() {
-		if (backdropEl && inputEl) {
-			backdropEl.scrollTop = inputEl.scrollTop;
-			backdropEl.scrollLeft = inputEl.scrollLeft;
-		}
+		syncBackdropGeometry();
 	}
 
 	function insertToken(char: string) {

@@ -66,14 +66,6 @@ export interface CustomProvidersFile {
 	providers: Record<string, CustomProviderDef>;
 }
 
-export interface AuthProviderSummary {
-	provider: string;
-	credentialType: string;
-	identityKey?: string;
-	hasCredential: boolean;
-	disabledCause?: string;
-}
-
 
 export interface ModelConfigDto {
 	modelRoles: Record<string, string>;
@@ -186,7 +178,6 @@ class ModelSettingsStore {
 	availableCatalogLoaded = $state(false);
 	customProviders = $state<Record<string, CustomProviderDef>>({});
 	draftCustomProviders = $state<Record<string, CustomProviderDef>>({});
-	authProviders = $state<AuthProviderSummary[]>([]);
 	providers = $state<ProviderSummary[]>([]);
 	authAccounts = $state<AuthAccount[]>([]);
 	selectedProviderId = $state<string | null>(null);
@@ -312,7 +303,7 @@ class ModelSettingsStore {
 	async loadAll() {
 		this.loading = true;
 		try {
-			const [cfg, cat, available, custom, auth] = await Promise.all([
+			const [cfg, cat, available, custom] = await Promise.all([
 				invoke<ModelConfigDto>('get_model_config'),
 				invoke<ModelDto[]>('get_models_catalog'),
 				invoke<ModelDto[]>('get_available_models_catalog').catch((error) => {
@@ -320,7 +311,6 @@ class ModelSettingsStore {
 					return [];
 				}),
 				invoke<CustomProvidersFile>('get_custom_providers'),
-				invoke<AuthProviderSummary[]>('get_auth_providers_summary'),
 				this.loadProviders(),
 				this.loadAccounts()
 			]);
@@ -332,7 +322,6 @@ class ModelSettingsStore {
 			this.availableCatalogLoaded = true;
 			this.customProviders = custom.providers || {};
 			this.draftCustomProviders = JSON.parse(JSON.stringify(custom.providers || {}));
-			this.authProviders = auth;
 		} catch (e) {
 			console.error('Failed to load model settings:', e);
 			this.showToast(msg.ui_ts_modelsettings_errore_caricamento_impostazioni_value1_1361({ value1: String(e) }));

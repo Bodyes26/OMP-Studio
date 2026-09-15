@@ -206,8 +206,9 @@ Tutti i comandi bash devono rispettare l'ambiente Windows della workstation (usa
   `cargo check --manifest-path src-tauri/Cargo.toml` per verificare la compilazione.
   `cargo test --manifest-path src-tauri/Cargo.toml` per i test unitari.
   **Non eseguire `cargo fmt --check` globale**: il workspace `src-tauri` contiene file preesistenti con stili disallineati; eseguire rustfmt solo sui file specifici modificati.
-- **Tauri CLI**:
-  Usare sempre lo script npm delegato: `npm run tauri -- <comando>` (es. `npm run tauri -- icon assets/app-icon.png`, `npm run tauri -- dev`). Non usare `npx tauri` (fallisce in ambiente Windows/Bun con `could not determine executable`).
+- **Tauri CLI e divieto di seconda istanza**:
+  Usare lo script npm delegato: `npm run tauri -- <comando>` (es. `npm run tauri -- icon assets/app-icon.png`, `npm run tauri -- build`). Non usare `npx tauri` (fallisce in ambiente Windows/Bun).
+  **MAI lanciare `npm run tauri -- dev`, `cargo run` o eseguire `omp-studio-app.exe`**: Studio è l'applicazione in cui l'utente sta già lavorando; avviare una seconda istanza innesca il controllo nativo `single_instance` e ruba il focus del sistema operativo mentre l'utente sta scrivendo altrove (Chrome, editor, Word, ecc.). Per verificare le modifiche usare esclusivamente `npm test`, `npm run check`, `cargo test`, o al più Vite nel browser (`npm run dev`), mai il binario desktop completo.
 - **File locking Windows**:
   Non tentare di eliminare o sovrascrivere file `.exe` o artefatti di build mentre l'applicazione OMP Studio o altri processi correlati sono in esecuzione.
 

@@ -81,10 +81,16 @@ pub fn run() {
         .manage(projects::ProjectTasksState::new())
         .manage(BrowserLiveManager::new())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = app
-                .get_webview_window("main")
-                .expect("no main window")
-                .set_focus();
+            if let Some(window) = app.get_webview_window("main") {
+                // Se la finestra e' ridotta a icona, ripristinala. Mai chiamare
+                // `set_focus()` incondizionatamente: se l'utente sta scrivendo in
+                // un'altra applicazione e un processo figlio (agente, build, test)
+                // tenta di avviare una seconda istanza, ruberebbe la finestra attiva
+                // del sistema operativo interrompendo la digitazione. Un flash
+                // informativo sulla barra delle applicazioni e' sufficiente e sicuro.
+                let _ = window.unminimize();
+                let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
+            }
         }))
         .plugin(
             tauri_plugin_window_state::Builder::new()

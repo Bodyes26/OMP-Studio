@@ -254,14 +254,10 @@ pub struct CustomProvidersFile {
     pub providers: HashMap<String, CustomProviderDef>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthProviderSummary {
-    pub provider: String,
-    pub credential_type: String,
-    pub identity_key: Option<String>,
-    pub has_credential: bool,
-    pub disabled_cause: Option<String>,
+#[derive(Debug, Clone)]
+struct AuthCredentialRow {
+    provider: String,
+    credential_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -971,36 +967,35 @@ pub async fn save_custom_providers(data: CustomProvidersFile) -> Result<(), Stri
 // Autenticazione Provider (agent.db)
 // -----------------------------------------------------------------------------
 
-#[command]
-pub async fn get_auth_providers_summary() -> Result<Vec<AuthProviderSummary>, String> {
-    let conn = open_readonly_db("agent.db")?;
+/// Credenziali **attive** in `agent.db`: `disabled_cause` valorizzato indica
+/// una credenziale spenta (disconnessa dall'utente o marcata non valida da
+/// `omp`), che non puo' autenticare nulla e non deve far risultare attivo il
+/// suo provider.
+fn active_credentials(conn: &Connection) -> Result<Vec<AuthCredentialRow>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT provider, credential_type, identity_key, disabled_cause FROM auth_credentials",
+            "SELECT provider, credential_type FROM auth_credentials WHERE disabled_cause IS NULL",
         )
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
         .query_map([], |row| {
-            let provider: String = row.get(0)?;
-            let credential_type: String = row.get(1)?;
-            let identity_key: Option<String> = row.get(2)?;
-            let disabled_cause: Option<String> = row.get(3)?;
-            Ok(AuthProviderSummary {
-                provider,
-                credential_type,
-                identity_key,
-                has_credential: true,
-                disabled_cause,
+            Ok(AuthCredentialRow {
+                provider: row.get(0)?,
+                credential_type: row.get(1)?,
             })
         })
         .map_err(|e| e.to_string())?;
 
-    let mut list = Vec::new();
-    for r in rows.flatten() {
-        list.push(r);
-    }
-    Ok(list)
+    Ok(rows.flatten().collect())
+}
+
+/// Come `active_credentials`, sul database reale. Uso interno di
+/// `get_role_suggestions`: la GUI legge gli stessi dati, piu' ricchi, da
+/// `get_model_providers` (conteggi per provider) e `get_auth_accounts`
+/// (singoli account, spenti compresi, per mostrarne lo stato).
+fn read_active_credentials() -> Result<Vec<AuthCredentialRow>, String> {
+    active_credentials(&open_readonly_db("agent.db")?)
 }
 
 /// Metadati identificativi ricavati da `identity_key` (mai un segreto: e'
@@ -1281,18 +1276,16 @@ fn extract_credential_source(data: &str) -> Option<String> {
         .and_then(|value| extract_json_string(&value, &["source"]))
 }
 
-/// Aggrega gli account per provider. Legge la colonna `data` solo per capire
-/// come e' stata ottenuta una `api_key` (`source: "env"` vs interattiva);
-/// nessun campo estratto qui attraversa mai un DTO verso il frontend.
-/// Fallisce in silenzio (mappa vuota) se `agent.db` manca o non e' leggibile:
-/// la lista provider resta comunque utile senza lo stato delle credenziali.
-fn read_provider_account_aggregates() -> HashMap<String, ProviderAccountAggregate> {
+/// Aggrega le credenziali **attive** per provider (`disabled_cause IS NULL`:
+/// una credenziale disconnessa o scaduta non rende configurato il provider).
+/// Legge la colonna `data` solo per capire come e' stata ottenuta una
+/// `api_key` (`source: "env"` vs interattiva); nessun campo estratto qui
+/// attraversa mai un DTO verso il frontend.
+fn provider_account_aggregates(conn: &Connection) -> HashMap<String, ProviderAccountAggregate> {
     let mut aggregates: HashMap<String, ProviderAccountAggregate> = HashMap::new();
-    let Ok(conn) = open_readonly_db("agent.db") else {
-        return aggregates;
-    };
-    let Ok(mut stmt) = conn.prepare("SELECT provider, credential_type, data FROM auth_credentials")
-    else {
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT provider, credential_type, data FROM auth_credentials WHERE disabled_cause IS NULL",
+    ) else {
         return aggregates;
     };
     let Ok(rows) = stmt.query_map([], |row| {
@@ -1321,6 +1314,16 @@ fn read_provider_account_aggregates() -> HashMap<String, ProviderAccountAggregat
         }
     }
     aggregates
+}
+
+/// Come `provider_account_aggregates`, sul database reale. Fallisce in
+/// silenzio (mappa vuota) se `agent.db` manca o non e' leggibile: la lista
+/// provider resta comunque utile senza lo stato delle credenziali.
+fn read_provider_account_aggregates() -> HashMap<String, ProviderAccountAggregate> {
+    match open_readonly_db("agent.db") {
+        Ok(conn) => provider_account_aggregates(&conn),
+        Err(_) => HashMap::new(),
+    }
 }
 
 /// Catalogo live (`omp models --json`) arricchito dai provider custom, che
@@ -2209,7 +2212,7 @@ pub async fn get_role_suggestions(
 ) -> Result<RoleSuggestionsResponse, String> {
     let config = get_model_config().await?;
     let catalog = get_models_catalog().await?;
-    let auth_summary = get_auth_providers_summary().await?;
+    let credentials = read_active_credentials()?;
     let custom_defs = get_custom_providers()
         .await
         .unwrap_or_else(|_| CustomProvidersFile {
@@ -2219,12 +2222,11 @@ pub async fn get_role_suggestions(
 
     // 1. Individua provider attivi e abilitati. I provider custom di
     // `models.json` tengono baseUrl e chiave nel proprio file e non hanno
-    // riga in `auth_credentials`: pesarli solo su `auth_summary` li
+    // riga in `auth_credentials`: pesarli solo sulle credenziali li
     // escludeva sempre, e chi ha soltanto provider locali non vedeva mai un
     // suggerimento.
-    let active_providers: Vec<String> = auth_summary
+    let active_providers: Vec<String> = credentials
         .iter()
-        .filter(|a| a.has_credential)
         .map(|a| a.provider.clone())
         .chain(custom_defs.providers.keys().cloned())
         .filter(|provider| !config.disabled_providers.contains(provider))
@@ -2239,12 +2241,10 @@ pub async fn get_role_suggestions(
     }
 
     // Provider con abbonamento OAuth / flat (costo extra per chiamata: 0€)
-    let subscription_providers: Vec<String> = auth_summary
+    let subscription_providers: Vec<String> = credentials
         .iter()
         .filter(|a| {
-            a.has_credential
-                && a.credential_type == "oauth"
-                && !config.disabled_providers.contains(&a.provider)
+            a.credential_type == "oauth" && !config.disabled_providers.contains(&a.provider)
         })
         .map(|a| a.provider.clone())
         .collect();
@@ -2828,6 +2828,76 @@ mod tests {
                 },
             )]),
         }
+    }
+
+    /// `agent.db` in memoria con la sola tabella che interessa qui.
+    fn credentials_db(rows: &[(&str, &str, Option<&str>, &str)]) -> Connection {
+        let conn = Connection::open_in_memory().expect("db in memoria");
+        conn.execute_batch(
+            "CREATE TABLE auth_credentials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                credential_type TEXT NOT NULL,
+                data TEXT NOT NULL,
+                disabled_cause TEXT DEFAULT NULL
+            )",
+        )
+        .expect("schema credenziali");
+        for (provider, credential_type, disabled_cause, data) in rows {
+            conn.execute(
+                "INSERT INTO auth_credentials (provider, credential_type, data, disabled_cause) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![provider, credential_type, data, disabled_cause],
+            )
+            .expect("inserimento credenziale");
+        }
+        conn
+    }
+
+    #[test]
+    fn disabled_credentials_never_count_as_active() {
+        let conn = credentials_db(&[
+            ("anthropic", "oauth", None, "{}"),
+            ("cursor", "oauth", Some("deleted by user"), "{}"),
+            ("cerebras", "api_key", Some("invalid_grant"), "{}"),
+        ]);
+
+        let active = active_credentials(&conn).expect("lettura credenziali");
+        let providers: Vec<&str> = active.iter().map(|c| c.provider.as_str()).collect();
+        assert_eq!(providers, vec!["anthropic"]);
+    }
+
+    #[test]
+    fn provider_aggregates_ignore_disabled_and_mcp_credentials() {
+        let conn = credentials_db(&[
+            ("anthropic", "oauth", None, "{}"),
+            ("anthropic", "oauth", Some("deleted by user"), "{}"),
+            ("cursor", "oauth", Some("deleted by user"), "{}"),
+            ("groq", "api_key", None, r#"{"source":"env"}"#),
+            (
+                "mcp_oauth:profile:default:https://mcp.example/mcp",
+                "oauth",
+                None,
+                "{}",
+            ),
+        ]);
+
+        let aggregates = provider_account_aggregates(&conn);
+
+        let anthropic = aggregates.get("anthropic").expect("provider anthropic");
+        assert_eq!(anthropic.total, 1);
+        assert!(anthropic.has_oauth);
+
+        // Unica credenziale spenta: il provider non e' piu' configurato.
+        assert!(aggregates.get("cursor").is_none());
+
+        let groq = aggregates.get("groq").expect("provider groq");
+        assert_eq!(groq.origin.as_deref(), Some("env"));
+        assert!(!groq.has_oauth);
+
+        assert!(aggregates
+            .keys()
+            .all(|provider| !provider.starts_with("mcp_oauth:")));
     }
 
     #[test]
