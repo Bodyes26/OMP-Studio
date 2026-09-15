@@ -19,7 +19,7 @@ import {
 	isGlobalShellShortcut,
 	type KeyboardEventLike
 } from '../src/lib/shortcuts/shortcutMatch.ts';
-import { shouldAutoFocusAskCard } from '../src/lib/agent/askFocus.ts';
+import { shouldAutoFocusAskCard, isTypingSurface } from '../src/lib/agent/askFocus.ts';
 
 function makeMockEntries(count: number): Array<{ id: number; text: string }> {
 	const result = new Array(count);
@@ -279,5 +279,42 @@ describe('Focus delle richieste interattive', () => {
 			false,
 			'Una domanda dell\'agente non deve riportare Studio in primo piano'
 		);
+	});
+});
+
+describe('Superfici di digitazione esterne al composer', () => {
+	it('riconosce Monaco, terminale e campi nativi', () => {
+		const monacoHost = {
+			tagName: 'DIV',
+			isContentEditable: false,
+			className: 'monaco-editor',
+			closest(selector: string) {
+				return selector.includes('.monaco-editor') ? monacoHost : null;
+			}
+		};
+		const monacoInner = {
+			tagName: 'DIV',
+			isContentEditable: false,
+			closest(selector: string) {
+				return selector.includes('.monaco-editor') ? monacoHost : null;
+			}
+		};
+		const terminal = {
+			tagName: 'DIV',
+			isContentEditable: false,
+			closest(selector: string) {
+				return selector.includes('.xterm') ? terminal : null;
+			}
+		};
+		const textarea = { tagName: 'TEXTAREA', isContentEditable: false };
+
+		assert.equal(isTypingSurface(null), false);
+		assert.equal(
+			isTypingSurface(monacoInner as EventTarget),
+			true,
+			'Un click dentro Monaco deve bloccare il type-to-focus'
+		);
+		assert.equal(isTypingSurface(terminal as EventTarget), true);
+		assert.equal(isTypingSurface(textarea as EventTarget), true);
 	});
 });

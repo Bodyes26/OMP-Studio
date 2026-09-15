@@ -28,7 +28,8 @@
 		type SuggestionChipItem
 	} from '$lib/stores/promptSuggestions';
 	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { traceFocus } from '$lib/focusTracer';
+	import { traceFocus } from '$lib/focusTracer';
+	import { isTypingSurface } from '../askFocus';
 import CommandPalette from './CommandPalette.svelte';
 import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 import {
@@ -646,27 +647,29 @@ $effect(() => {
 	});
 
 
+	function isComposerOwnedInput(el: EventTarget | null): boolean {
+		return el === textareaEl || el === modelSearchInputEl || el === roleSearchInputEl;
+	}
+
+	function isExternalTypingSurface(el: EventTarget | null): boolean {
+		return !isComposerOwnedInput(el) && isTypingSurface(el);
+	}
+
 	function handleWindowKeydown(event: KeyboardEvent) {
 		if (!visible) return;
 
 		const target = event.target;
 		const isComposerTextarea = target === textareaEl;
-		const isModelSearchInput = target === modelSearchInputEl;
-		const isRoleSearchInput = target === roleSearchInputEl;
-		const isOtherInput = !isComposerTextarea && !isModelSearchInput && !isRoleSearchInput && (
-			target instanceof HTMLInputElement
-			|| target instanceof HTMLTextAreaElement
-			|| (target instanceof HTMLElement && target.isContentEditable)
-		);
-		// Se il fuoco e' in un altro campo input/textarea esterno, non intercettare
-		if (isOtherInput) return;
+		const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+		// Se l'utente sta digitando altrove (editor Monaco, terminale, AskCard, ...),
+		// non dirottare i tasti nel composer. Controllare anche activeElement: Monaco
+		// spesso ha la textarea in focus ma il keydown puo' avere target diverso.
+		if (isExternalTypingSurface(target) || isExternalTypingSurface(activeEl)) return;
 
 		const isAltOnly = event.altKey && !event.ctrlKey && !event.metaKey;
 		const isCtrlOrCmd = (event.ctrlKey || event.metaKey) && !event.altKey;
 		const keyLower = event.key.toLowerCase();
 		const code = event.code;
-
-		const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
 		const isInteractiveElement = activeEl instanceof HTMLElement && (
 			activeEl instanceof HTMLButtonElement
 			|| activeEl instanceof HTMLSelectElement
