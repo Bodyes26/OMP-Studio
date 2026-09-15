@@ -163,49 +163,48 @@
 /*
 	Da non fissata la maniglia di trascinamento (`.spotlight-drag-region`) copre
 	i primi 24px della finestra: senza questo spazio il sistema operativo
-	inghiotte i click sul primo elemento del layout (il composer di `launcher`,
-	la prima riga progetto di `compact`).
+	inghiotte i click sul primo elemento della superficie.
 */
 .companion-shell:not(.pinned) .companion-body {
 	padding-top: 28px;
 }
 
-.companion-body.layout-dashboard {
-	gap: var(--space-2);
-}
-
-.companion-body.layout-dashboard .live-monitor-section {
-	flex: 1;
-	min-height: 0;
-}
-
-.companion-body.layout-dashboard .quick-task-section {
-	margin-top: auto;
-	flex: none;
-}
-
-.companion-body.layout-inbox {
-	gap: var(--space-2);
-}
-
-.companion-body.layout-inbox .attention-section {
-	flex: 1;
-	min-height: 0;
-	overflow-y: auto;
-}
-
-.companion-body.layout-compact {
-	gap: var(--space-2);
-	padding: var(--space-2);
-}
-
-.companion-body.layout-launcher {
+/* A finestra vuota il campo e' la superficie e resta in alto: non si centra,
+   perche' il fuoco e' gia' dentro e il cursore non deve spostarsi. */
+.companion-body.surface-hero {
 	justify-content: flex-start;
-	gap: var(--space-2);
 }
 
-.companion-body.layout-launcher .quick-task-section {
+/*
+	Quando qualcosa sta sopra (domanda aperta o coda pronta), quel blocco ha
+	la precedenza naturale: non si schiaccia a zero se sotto ci sono progetti.
+	E' il body intero a scorrere quando il contenuto supera l'altezza della
+	finestra.
+*/
+.companion-body:not(.surface-hero) .attention-section.variant-open,
+.companion-body:not(.surface-hero) .ready-queue {
 	flex: none;
+}
+
+.companion-body:not(.surface-hero) .quick-task-section {
+	flex: none;
+}
+
+.companion-body:not(.surface-hero) .live-monitor-section {
+	flex: none;
+}
+
+.companion-empty {
+	margin: var(--space-5) auto 0;
+	max-width: 46ch;
+	text-align: center;
+	font-size: var(--text-sm);
+	color: var(--ink-faint);
+}
+
+.ready-queue {
+	display: flex;
+	flex-direction: column;
 }
 
 .section-title {
@@ -224,45 +223,17 @@
 	gap: var(--space-2);
 }
 
-/* Dalla pastiglia espansa nasce la lista compatta sotto: i due blocchi si
-   saldano visivamente arrotondando solo i lati esterni. */
-.attention-banner.expanded {
-	border-bottom-left-radius: 0;
-	border-bottom-right-radius: 0;
-	background: color-mix(in srgb, var(--warn) 22%, transparent);
-}
-
-.attention-section.variant-compact .attention-card {
+.attention-section.variant-list .attention-card {
 	padding: var(--space-2);
 	margin-bottom: var(--space-1);
 }
 
-.attention-section.variant-compact .chat-context {
+.attention-section.variant-list .chat-context {
 	max-height: 80px;
 }
 
-.attention-section.variant-focused .attention-card {
+.attention-section.variant-open .attention-card {
 	margin-bottom: 0;
-}
-
-.attention-banner {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-	width: 100%;
-	padding: var(--space-2) var(--space-3);
-	background: var(--warn-tint);
-	border: 1px solid var(--warn-line);
-	border-radius: var(--radius-md);
-	color: var(--warn);
-	font-size: var(--text-sm);
-	font-weight: 500;
-	text-align: left;
-	cursor: pointer;
-}
-
-.attention-banner:hover {
-	background: color-mix(in srgb, var(--warn) 22%, transparent);
 }
 
 .attention-card {
@@ -679,44 +650,16 @@
 	min-height: 28px;
 }
 
-.composer-compact .composer {
+/* Quando qualcosa di piu' urgente sta sopra, il campo si ritira a una riga
+   senza perdere nessuna capacita': resta scrivibile, incollabile, inviabile. */
+.composer-row .composer {
 	padding: var(--space-1) var(--space-2);
-	border-radius: var(--radius-md);
 }
 
-.composer-compact .composer-backdrop,
-.composer-compact .composer-input {
-	font-size: var(--text-sm);
+.composer-row .composer-backdrop,
+.composer-row .composer-input {
+	font-size: var(--text-base);
 	min-height: 20px;
-}
-
-.composer-collapsed .composer-stage,
-.composer-collapsed .composer-rail,
-.composer-collapsed .image-previews {
-	display: none;
-}
-
-.composer-collapsed .composer {
-	cursor: pointer;
-	padding: var(--space-2) var(--space-3);
-}
-
-.composer-collapsed .composer-expand-hint {
-	display: block;
-	width: 100%;
-	margin: 0;
-	padding: 0;
-	background: none;
-	border: none;
-	text-align: left;
-	font-family: inherit;
-	font-size: var(--text-sm);
-	color: var(--ink-faint);
-	cursor: pointer;
-}
-
-.composer-expand-hint {
-	display: none;
 }
 
 .composer-stage {
@@ -1026,23 +969,11 @@
 	gap: var(--space-2);
 }
 
-.live-monitor-section.variant-strip {
-	flex-direction: row;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: var(--space-2);
-}
-
-
-.live-monitor-section.variant-strip .projects-list {
-	flex: 1;
-	min-width: 0;
-}
-
 .live-monitor-section.variant-dense .project-row {
 	min-height: 28px;
 	padding: 2px var(--space-2);
 }
+
 
 .projects-list {
 	display: flex;
@@ -1077,32 +1008,53 @@
 	border-color: var(--line);
 }
 
+/*
+	Vocabolario di stato identico alla barra progetti (DESIGN.md §7.1):
+	solo anelli inset, nessun alone. Il punto identita' dice «c'e' un agente»,
+	l'anello ambra che respira dice «aspetta te». E' l'unico movimento
+	persistente ammesso in tutta l'applicazione.
+*/
 .p-dot {
 	width: 8px;
 	height: 8px;
 	flex: none;
 	border-radius: var(--radius-full);
+	background: color-mix(in srgb, var(--ink-faint) 50%, transparent);
+}
+
+.p-dot.lit {
 	background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260));
 }
 
-.p-dot.pulsing {
-	animation: dot-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+.project-row.attention {
+	position: relative;
 }
 
-@keyframes dot-pulse {
-	0%,
-	100% {
-		opacity: 1;
-		box-shadow: 0 0 0 0 oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260) / 0.5);
-	}
-	50% {
-		opacity: 0.55;
-		box-shadow: 0 0 0 4px oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260) / 0);
-	}
+.project-row.attention::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	box-shadow: inset 0 0 0 1.5px var(--warn);
+	pointer-events: none;
+	animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+}
+
+.project-row.finished::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	box-shadow: inset 0 0 0 1px var(--brand);
+	pointer-events: none;
+}
+
+.project-row.finished {
+	position: relative;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.p-dot.pulsing {
+	.project-row.attention::after {
 		animation: none;
 	}
 }
@@ -1277,19 +1229,6 @@
 
 .queue-blocked {
 	color: var(--warn);
-}
-
-.status-strip {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	padding: var(--space-1) var(--space-2);
-	font-size: var(--text-xs);
-	color: var(--ink-faint);
-	font-family: var(--font-mono);
-	border-top: 1px solid var(--line);
-	border-bottom: 1px solid var(--line);
-	background: var(--bg-sunken);
 }
 
 .mention-popover {

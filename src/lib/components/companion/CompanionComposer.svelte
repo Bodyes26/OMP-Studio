@@ -16,9 +16,7 @@
 	};
 
 	let {
-		size = 'default',
-		collapsed = false,
-		onExpand,
+		size = 'hero',
 		taskInput = $bindable(''),
 		inputEl = $bindable(null as HTMLTextAreaElement | null),
 		composerEl = $bindable(null as HTMLElement | null),
@@ -54,9 +52,11 @@
 		onSaveTask,
 		onChooseMention
 	} = $props<{
-		size?: 'default' | 'hero' | 'compact';
-		collapsed?: boolean;
-		onExpand?: () => void;
+		/**
+		 * `hero`: nulla in sospeso, il campo e' la superficie. `row`: qualcosa di
+		 * piu' urgente sta sopra, il campo si ritira a una riga.
+		 */
+		size?: 'hero' | 'row';
 		taskInput?: string;
 		inputEl?: HTMLTextAreaElement | null;
 		composerEl?: HTMLElement | null;
@@ -99,20 +99,14 @@
 		{ char: '!', label: 'ruolo', title: m.ui_companionview_forza_il_ruolo_o_il_modello_32cf() }
 	];
 
-	const sizeClass = $derived(
-		size === 'hero' ? 'composer-hero' : size === 'compact' ? 'composer-compact' : ''
-	);
+	const sizeClass = $derived(size === 'hero' ? 'composer-hero' : 'composer-row');
 
 	function handleComposerClick() {
-		if (collapsed) {
-			onExpand?.();
-			return;
-		}
 		inputEl?.focus();
 	}
 </script>
 
-<section class="quick-task-section {sizeClass}" class:composer-collapsed={collapsed}>
+<section class="quick-task-section {sizeClass}">
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div
 		class="composer"
@@ -124,221 +118,212 @@
 		ondrop={onDrop}
 		onclick={handleComposerClick}
 	>
-		{#if collapsed}
-			<!-- Bottone vero: da tastiera il composer chiuso deve essere raggiungibile. -->
-			<button type="button" class="composer-expand-hint" onclick={() => onExpand?.()}>
-				{m.companion_composer_collapsed_hint()}
-			</button>
-		{:else}
-			<div class="composer-stage">
-				<!--
-					Backdrop: dipinge il testo che la textarea tiene trasparente. I segmenti
-					stanno tutti su una riga sola, senza spazi di indentazione fra i tag:
-					qualunque carattere in piu' disallineerebbe il caret.
-				-->
-				<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>{#each displayTokens as token, idx (idx)}<span class="tok" class:project={token.kind === 'project'} class:directive={token.kind === 'directive'} class:role={token.kind === 'role'}>{token.text}</span>{/each}{#if taskInput.endsWith('\n')}<span>&#8203;</span>{/if}</div>
-				<textarea
-					bind:this={inputEl}
-					bind:value={taskInput}
-					oninput={onInput}
-					onkeydown={onInputKeydown}
-					onclick={onSyncCaret}
-					onkeyup={onSyncCaret}
-					onpaste={onPaste}
-					onscroll={onInputScroll}
-					rows="1"
-					class="composer-input"
-					placeholder={m.companion_composer_placeholder()}
-					aria-label={m.companion_composer_aria()}
-					aria-autocomplete="list"
-					aria-controls={mentionOpen ? 'companion-mention-listbox' : undefined}
-					aria-activedescendant={mentionOpen ? `companion-mention-${Math.min(mentionIndex, mentionItems.length - 1)}` : undefined}
-				></textarea>
-			</div>
+		<div class="composer-stage">
+			<!--
+				Backdrop: dipinge il testo che la textarea tiene trasparente. I segmenti
+				stanno tutti su una riga sola, senza spazi di indentazione fra i tag:
+				qualunque carattere in piu' disallineerebbe il caret.
+			-->
+			<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>{#each displayTokens as token, idx (idx)}<span class="tok" class:project={token.kind === 'project'} class:directive={token.kind === 'directive'} class:role={token.kind === 'role'}>{token.text}</span>{/each}{#if taskInput.endsWith('\n')}<span>&#8203;</span>{/if}</div>
+			<textarea
+				bind:this={inputEl}
+				bind:value={taskInput}
+				oninput={onInput}
+				onkeydown={onInputKeydown}
+				onclick={onSyncCaret}
+				onkeyup={onSyncCaret}
+				onpaste={onPaste}
+				onscroll={onInputScroll}
+				rows="1"
+				class="composer-input"
+				placeholder={m.companion_composer_placeholder()}
+				aria-label={m.companion_composer_aria()}
+				aria-autocomplete="list"
+				aria-controls={mentionOpen ? 'companion-mention-listbox' : undefined}
+				aria-activedescendant={mentionOpen ? `companion-mention-${Math.min(mentionIndex, mentionItems.length - 1)}` : undefined}
+			></textarea>
+		</div>
 
-			{#if attachedImages.length > 0}
-				<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
-					{#each attachedImages as image, idx (idx)}
-						<div class="image-thumb-wrap">
-							<img
-								src="data:{image.mimeType};base64,{image.data}"
-								alt={m.companion_attachment_alt({ index: idx + 1 })}
-								class="image-thumb"
-							/>
-							<button
-								type="button"
-								class="image-remove-btn"
-								aria-label={m.companion_attachment_remove({ index: idx + 1 })}
-								title={m.task_editor_remove_image_title()}
-								onclick={(event) => {
-									event.stopPropagation();
-									onRemoveImage(idx);
-								}}
-							>
-								<IconClose />
-							</button>
-						</div>
-					{/each}
-				</div>
-			{/if}
-
-			<div class="composer-rail">
-				<div class="token-hints">
-					{#each TOKEN_HINTS as hint (hint.char)}
+		{#if attachedImages.length > 0}
+			<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
+				{#each attachedImages as image, idx (idx)}
+					<div class="image-thumb-wrap">
+						<img
+							src="data:{image.mimeType};base64,{image.data}"
+							alt={m.companion_attachment_alt({ index: idx + 1 })}
+							class="image-thumb"
+						/>
 						<button
 							type="button"
-							class="token-hint"
-							title={hint.title}
-							onclick={(e) => {
-								e.stopPropagation();
-								onInsertToken(hint.char);
+							class="image-remove-btn"
+							aria-label={m.companion_attachment_remove({ index: idx + 1 })}
+							title={m.task_editor_remove_image_title()}
+							onclick={(event) => {
+								event.stopPropagation();
+								onRemoveImage(idx);
 							}}
 						>
-							<span class="token-char">{hint.char}</span>{hint.label}
+							<IconClose />
 						</button>
-					{/each}
-				</div>
-
-				<div class="composer-actions">
-					<input
-						type="file"
-						accept="image/*"
-						multiple
-						bind:this={fileInputEl}
-						onchange={onFileInputChange}
-						hidden
-					/>
-					<button
-						type="button"
-						class="attach-btn"
-						title={m.companion_attach_images()}
-						aria-label={m.companion_attach_images()}
-						onclick={(event) => {
-							event.stopPropagation();
-							onTriggerFileInput();
-						}}
-					>
-						<IconAttach />
-					</button>
-					<button
-						type="button"
-						class="send-btn"
-						class:busy={isBusy}
-						disabled={!canSave}
-						title={isBusy
-							? imageProcessingCount > 0
-								? 'Preparazione immagini'
-								: m.ui_companionview_salvataggio_in_corso_dbfc()
-							: m.ui_companionview_salva_il_task_invio_maiusc_invio_va_7235()}
-						aria-label={m.companion_save_task()}
-						onclick={(event) => {
-							event.stopPropagation();
-							void onSaveTask();
-						}}
-					>
-						{#if isBusy}
-							<span class="spinner"></span>
-						{:else}
-							<IconArrowUp />
-						{/if}
-					</button>
-				</div>
-			</div>
-		{/if}
-	</div>
-
-	{#if !collapsed}
-		{#if isBusy}
-			<p class="composer-status">
-				{imageProcessingCount > 0
-					? 'Preparazione immagini…'
-					: isParsingTask
-						? 'Interpretazione con AI…'
-						: 'Salvataggio…'}
-			</p>
-		{/if}
-
-		{#if mentionOpen}
-			<div
-				id="companion-mention-listbox"
-				class="mention-popover"
-				role="listbox"
-				aria-label={m.companion_suggestions_aria()}
-				popover="manual"
-				use:anchoredPopover={{ anchor: composerEl, offset: 6, matchWidth: true, constrainHeight: true }}
-			>
-				{#each mentionItems as item, idx (`${item.kind}:${item.value}`)}
-					<button
-						type="button"
-						id="companion-mention-{idx}"
-						class="mention-item"
-						class:selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
-						role="option"
-						aria-selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
-						onmousedown={(e) => {
-							e.preventDefault();
-							onChooseMention(item.value);
-						}}
-					>
-						<span class="mention-label">{item.label}</span>
-						{#if item.hint && item.hint !== item.label}
-							<span class="mention-hint">{item.hint}</span>
-						{/if}
-						{#if item.kind === 'model' || item.kind === 'role'}
-							<span class="mention-kind">{item.kind === 'model' ? m.ui_companionview_modello_fa78() : 'ruolo'}</span>
-						{/if}
-					</button>
+					</div>
 				{/each}
 			</div>
 		{/if}
 
-		{#if successNotice}
-			<div class="notice success" transition:slide={{ duration: 180 }}>
-				<IconCheck />
-				<span>{successNotice}</span>
+		<div class="composer-rail">
+			<div class="token-hints">
+				{#each TOKEN_HINTS as hint (hint.char)}
+					<button
+						type="button"
+						class="token-hint"
+						title={hint.title}
+						onclick={(e) => {
+							e.stopPropagation();
+							onInsertToken(hint.char);
+						}}
+					>
+						<span class="token-char">{hint.char}</span>{hint.label}
+					</button>
+				{/each}
 			</div>
-		{/if}
 
-		{#if attachmentError}
-			<div class="notice error" transition:slide={{ duration: 180 }}>
-				<IconWarning />
-				<span>{attachmentError}</span>
-			</div>
-		{/if}
-
-		{#if parseError}
-			<div class="notice error" transition:slide={{ duration: 180 }}>
-				<IconWarning />
-				<span>{parseError}</span>
-			</div>
-		{/if}
-
-		{#if taskInput.trim() || attachedImages.length > 0}
-			{@const preview = aiParsed ?? {
-				projectName: local.projectName,
-				projectPath: local.projectPath,
-				taskPrompt: local.taskPrompt,
-				role: local.role,
-				modelSelector: local.modelSelector,
-				directiveIds: local.directiveIds,
-				ambiguities: []
-			}}
-			{@const hasAmbiguities = Boolean(preview.ambiguities && preview.ambiguities.length > 0)}
-			{@const hasMissingProject = !preview.projectPath}
-			{#if hasAmbiguities || hasMissingProject}
-				<div class="parsed-strip" transition:slide={{ duration: 180 }}>
-					{#if hasAmbiguities}
-						{#each preview.ambiguities as amb, idx (idx)}
-							<p class="parsed-note"><IconWarning /><span>{amb}</span></p>
-						{/each}
-					{:else if hasMissingProject}
-						<p class="parsed-note">
-							<IconWarning />
-							<span>Scrivi <span class="token-char">@</span>{m.ui_companionview_progetto_oppure_salva_e_lascia_decidere_all_cea9()}</span>
-						</p>
+			<div class="composer-actions">
+				<input
+					type="file"
+					accept="image/*"
+					multiple
+					bind:this={fileInputEl}
+					onchange={onFileInputChange}
+					hidden
+				/>
+				<button
+					type="button"
+					class="attach-btn"
+					title={m.companion_attach_images()}
+					aria-label={m.companion_attach_images()}
+					onclick={(event) => {
+						event.stopPropagation();
+						onTriggerFileInput();
+					}}
+				>
+					<IconAttach />
+				</button>
+				<button
+					type="button"
+					class="send-btn"
+					class:busy={isBusy}
+					disabled={!canSave}
+					title={isBusy
+						? imageProcessingCount > 0
+							? 'Preparazione immagini'
+							: m.ui_companionview_salvataggio_in_corso_dbfc()
+						: m.ui_companionview_salva_il_task_invio_maiusc_invio_va_7235()}
+					aria-label={m.companion_save_task()}
+					onclick={(event) => {
+						event.stopPropagation();
+						void onSaveTask();
+					}}
+				>
+					{#if isBusy}
+						<span class="spinner"></span>
+					{:else}
+						<IconArrowUp />
 					{/if}
-				</div>
-			{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+
+	{#if isBusy}
+		<p class="composer-status">
+			{imageProcessingCount > 0
+				? 'Preparazione immagini…'
+				: isParsingTask
+					? 'Interpretazione con AI…'
+					: 'Salvataggio…'}
+		</p>
+	{/if}
+
+	{#if mentionOpen}
+		<div
+			id="companion-mention-listbox"
+			class="mention-popover"
+			role="listbox"
+			aria-label={m.companion_suggestions_aria()}
+			popover="manual"
+			use:anchoredPopover={{ anchor: composerEl, offset: 6, matchWidth: true, constrainHeight: true }}
+		>
+			{#each mentionItems as item, idx (`${item.kind}:${item.value}`)}
+				<button
+					type="button"
+					id="companion-mention-{idx}"
+					class="mention-item"
+					class:selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
+					role="option"
+					aria-selected={idx === Math.min(mentionIndex, mentionItems.length - 1)}
+					onmousedown={(e) => {
+						e.preventDefault();
+						onChooseMention(item.value);
+					}}
+				>
+					<span class="mention-label">{item.label}</span>
+					{#if item.hint && item.hint !== item.label}
+						<span class="mention-hint">{item.hint}</span>
+					{/if}
+					{#if item.kind === 'model' || item.kind === 'role'}
+						<span class="mention-kind">{item.kind === 'model' ? m.ui_companionview_modello_fa78() : 'ruolo'}</span>
+					{/if}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
+	{#if successNotice}
+		<div class="notice success" transition:slide={{ duration: 180 }}>
+			<IconCheck />
+			<span>{successNotice}</span>
+		</div>
+	{/if}
+
+	{#if attachmentError}
+		<div class="notice error" transition:slide={{ duration: 180 }}>
+			<IconWarning />
+			<span>{attachmentError}</span>
+		</div>
+	{/if}
+
+	{#if parseError}
+		<div class="notice error" transition:slide={{ duration: 180 }}>
+			<IconWarning />
+			<span>{parseError}</span>
+		</div>
+	{/if}
+
+	{#if taskInput.trim() || attachedImages.length > 0}
+		{@const preview = aiParsed ?? {
+			projectName: local.projectName,
+			projectPath: local.projectPath,
+			taskPrompt: local.taskPrompt,
+			role: local.role,
+			modelSelector: local.modelSelector,
+			directiveIds: local.directiveIds,
+			ambiguities: []
+		}}
+		{@const hasAmbiguities = Boolean(preview.ambiguities && preview.ambiguities.length > 0)}
+		{@const hasMissingProject = !preview.projectPath}
+		{#if hasAmbiguities || hasMissingProject}
+			<div class="parsed-strip" transition:slide={{ duration: 180 }}>
+				{#if hasAmbiguities}
+					{#each preview.ambiguities as amb, idx (idx)}
+						<p class="parsed-note"><IconWarning /><span>{amb}</span></p>
+					{/each}
+				{:else if hasMissingProject}
+					<p class="parsed-note">
+						<IconWarning />
+						<span>Scrivi <span class="token-char">@</span>{m.ui_companionview_progetto_oppure_salva_e_lascia_decidere_all_cea9()}</span>
+					</p>
+				{/if}
+			</div>
 		{/if}
 	{/if}
 </section>

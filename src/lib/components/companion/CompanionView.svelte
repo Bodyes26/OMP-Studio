@@ -28,7 +28,8 @@
 	import CompanionAttentionSection from './CompanionAttentionSection.svelte';
 	import CompanionComposer from './CompanionComposer.svelte';
 	import CompanionMonitor from './CompanionMonitor.svelte';
-	import CompanionStatusStrip from './CompanionStatusStrip.svelte';
+	import CompanionProjectQueue from './CompanionProjectQueue.svelte';
+	import { IconPlay } from '$lib/icons';
 
 	const STATE_RANK: Record<string, number> = {
 		attention: 0,
@@ -59,18 +60,13 @@
 	let isFileDialogOpen = false;
 	let attachmentError = $state<string | null>(null);
 	let expandedProjectId = $state<string | null>(null);
-	// In inbox il composer parte chiuso quando ci sono richieste da smaltire:
-	// la finestra e' piccola e la risposta all'agente viene prima.
-	let composerExpanded = $state(false);
 	let attentionPageIndex = $state(0);
-	let launcherAttentionExpanded = $state(false);
 
 	let unlistenSummon: UnlistenFn | null = null;
 	let viewDisposed = false;
 
 	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 	const attentionList = $derived(companionStore.attentionRequests);
-	const layout = $derived(settingsStore.appearance.companionLayout);
 	const knownProjects = $derived(
 		companionStore.projects.length > 0 ? companionStore.projects : projectStore.projects
 	);
@@ -192,9 +188,21 @@
 		return total;
 	});
 
-	const composerCollapsed = $derived(layout === 'inbox' && attentionList.length > 0 && !composerExpanded);
-	const composerSize = $derived<'default' | 'hero' | 'compact'>(
-		layout === 'launcher' ? 'hero' : layout === 'dashboard' || layout === 'compact' ? 'compact' : 'default'
+	/**
+	 * Lo slot in cima non e' una preferenza: e' una conseguenza dello stato,
+	 * ricalcolata a ogni evocazione. Chi ti aspetta batte il lavoro pronto,
+	 * che batte il campo vuoto.
+	 */
+	const readyProject = $derived(
+		monitorProjects.find((p) => {
+			if (!p.path) return false;
+			const rt = companionStore.projectRuntimes.find((r) => r.projectId === p.id);
+			if (rt?.canRunTask !== true) return false;
+			return taskStore.tasksFor(p.path).some((t) => t.status === 'queued');
+		}) ?? null
+	);
+	const surface = $derived<'attention' | 'queue' | 'hero'>(
+		attentionList.length > 0 ? 'attention' : readyProject ? 'queue' : 'hero'
 	);
 
 	const INPUT_MAX_HEIGHT = 160;
@@ -242,15 +250,20 @@
 		refreshCompanionState();
 		void quotaStore.init();
 		void settingsStore.init();
-		void modelSettingsStore.loadAll();
-
-		void tick().then(() => inputEl?.focus());
+		void tick().then(() => {
+			// Il fuoco va nel campo solo se non c'e' nulla di urgente sopra:
+			// altrimenti la scrollbar porta il campo in vista e spinge la domanda
+			// fuori dallo schermo.
+			if (surface === 'hero') inputEl?.focus();
+		});
 		playOpenAnimation();
 
 		void listen('companion-summon', () => {
 			refreshCompanionState();
 			playOpenAnimation();
-			void tick().then(() => inputEl?.focus());
+			void tick().then(() => {
+				if (surface === 'hero') inputEl?.focus();
+			});
 		}).then((fn) => {
 			// La registrazione e' asincrona: se la vista e' gia' smontata il
 			// listener va chiuso subito, altrimenti resterebbe appeso.
@@ -621,8 +634,7 @@
 		onSelectProject: (id: string | null) => { expandedProjectId = id; },
 		onRunTask: handleRunTask,
 		onToggleUsage: () => { usageOpen = !usageOpen; },
-		onTogglePin: togglePinned,
-		detailPanel: layout === 'dashboard'
+		onTogglePin: togglePinned
 	});
 </script>
 
@@ -640,109 +652,51 @@
 		<UsagePopover open={usageOpen} onClose={() => (usageOpen = false)} />
 	{/if}
 
-	<main class="companion-body layout-{layout}">
-		{#if layout === 'balanced'}
-			<CompanionAttentionSection variant="full" {...attentionProps} />
-			<CompanionComposer
-				size={composerSize}
-				collapsed={false}
-				{...composerProps}
-				bind:taskInput
-				bind:inputEl
-				bind:composerEl
-				bind:backdropEl
-				bind:fileInputEl
-			/>
-			<CompanionMonitor variant="full" {...monitorProps} />
-
-		{:else if layout === 'dashboard'}
-			{#if attentionList.length > 0}
-				<CompanionAttentionSection variant="compact" {...attentionProps} />
-			{/if}
-			<CompanionMonitor variant="full" {...monitorProps} />
-			<CompanionComposer
-				size={composerSize}
-				collapsed={false}
-				{...composerProps}
-				bind:taskInput
-				bind:inputEl
-				bind:composerEl
-				bind:backdropEl
-				bind:fileInputEl
-			/>
-
-		{:else if layout === 'inbox'}
+	<main class="companion-body" class:surface-hero={surface === 'hero'}>
+		{#if surface === 'attention'}
+			<!-- Chi ti aspetta sta in cima, gia' aperto: la finestra non chiama
+			     mai da sola, quindi quando la guardi deve essere gia' pronta. -->
 			<CompanionAttentionSection
-				variant="focused"
+				variant="open"
 				pageIndex={attentionPageIndex}
 				onPrevPage={() => { if (attentionPageIndex > 0) attentionPageIndex -= 1; }}
 				onNextPage={() => { if (attentionPageIndex < attentionList.length - 1) attentionPageIndex += 1; }}
 				{...attentionProps}
 			/>
-			<CompanionStatusStrip
-				workingCount={workingCount}
-				attentionCount={attentionList.length}
-				queuedCount={queuedCount}
-			/>
-			<CompanionMonitor variant="dense" {...monitorProps} />
-			<CompanionComposer
-				size={composerSize}
-				collapsed={composerCollapsed}
-				onExpand={() => { composerExpanded = true; void tick().then(() => inputEl?.focus()); }}
-				{...composerProps}
-				bind:taskInput
-				bind:inputEl
-				bind:composerEl
-				bind:backdropEl
-				bind:fileInputEl
-			/>
-
-		{:else if layout === 'compact'}
-			<CompanionMonitor variant="dense" {...monitorProps} />
-			<CompanionComposer
-				size={composerSize}
-				collapsed={false}
-				{...composerProps}
-				bind:taskInput
-				bind:inputEl
-				bind:composerEl
-				bind:backdropEl
-				bind:fileInputEl
-			/>
-			{#if attentionList.length > 0}
-				<CompanionAttentionSection variant="compact" {...attentionProps} />
-			{/if}
-
-		{:else if layout === 'launcher'}
-			<CompanionComposer
-				size={composerSize}
-				collapsed={false}
-				{...composerProps}
-				bind:taskInput
-				bind:inputEl
-				bind:composerEl
-				bind:backdropEl
-				bind:fileInputEl
-			/>
-			<CompanionStatusStrip
-				workingCount={workingCount}
-				attentionCount={attentionList.length}
-				queuedCount={queuedCount}
-			/>
-			{#if attentionList.length > 0}
-				<!-- La pastiglia resta visibile anche da espansa: e' l'unico
-				     comando per richiudere l'elenco delle richieste. -->
-				<CompanionAttentionSection
-					variant="banner"
-					expanded={launcherAttentionExpanded}
-					onExpandBanner={() => { launcherAttentionExpanded = !launcherAttentionExpanded; }}
-					{...attentionProps}
+		{:else if surface === 'queue' && readyProject}
+			<!-- Nessuno ti aspetta ma c'e' lavoro pronto a partire. -->
+			<section class="ready-queue">
+				<div class="section-title">
+					<IconPlay />
+					<span>{m.companion_ready_title({ project: readyProject.label?.trim() || readyProject.name })}</span>
+				</div>
+				<CompanionProjectQueue
+					projectName={readyProject.label?.trim() || readyProject.name}
+					tasks={taskStore.tasksFor(readyProject.path).filter((t) => t.status === 'queued')}
+					disabled={false}
+					onRunNext={(taskId) => handleRunTask(readyProject.id, taskId)}
 				/>
-				{#if launcherAttentionExpanded}
-					<CompanionAttentionSection variant="compact" {...attentionProps} />
-				{/if}
-			{/if}
-			<CompanionMonitor variant="strip" {...monitorProps} />
+			</section>
+		{/if}
+
+		<CompanionComposer
+			size={surface === 'hero' ? 'hero' : 'row'}
+			{...composerProps}
+			bind:taskInput
+			bind:inputEl
+			bind:composerEl
+			bind:backdropEl
+			bind:fileInputEl
+		/>
+
+		{#if surface === 'attention'}
+			<CompanionAttentionSection variant="list" pageIndex={attentionPageIndex} {...attentionProps} />
+		{/if}
+
+		<CompanionMonitor variant={surface === 'hero' ? 'list' : 'dense'} {...monitorProps} />
+
+		{#if surface === 'hero' && monitorProjects.length === 0}
+			<p class="companion-empty">{m.companion_empty()}</p>
 		{/if}
 	</main>
 </CompanionShell>

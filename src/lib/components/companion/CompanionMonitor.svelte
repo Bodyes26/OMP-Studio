@@ -19,19 +19,18 @@
 		projects,
 		runtimes,
 		attentionList,
-		variant = 'full',
+		variant = 'list',
 		isPinned = false,
 		selectedProjectId = null,
 		onSelectProject,
 		onRunTask,
 		onToggleUsage,
-		onTogglePin,
-		detailPanel = false
+		onTogglePin
 	} = $props<{
 		projects: Project[];
 		runtimes: CompanionProjectRuntime[];
 		attentionList: AttentionRequest[];
-		variant?: 'full' | 'dense' | 'strip' | 'hidden';
+		variant?: 'list' | 'dense';
 		isPinned?: boolean;
 		selectedProjectId?: string | null;
 		/** Espande o chiude la coda del progetto: ogni layout la offre. */
@@ -39,7 +38,6 @@
 		onRunTask?: (projectId: string, taskId: string) => void;
 		onToggleUsage?: () => void;
 		onTogglePin?: () => void;
-		detailPanel?: boolean;
 	}>();
 
 	/**
@@ -48,10 +46,8 @@
 	 * troncare avrebbe proposto di fissare cio' che e' gia' fissato.
 	 */
 	const SPOTLIGHT_LIMITS: Record<string, number> = {
-		full: 3,
-		dense: 3,
-		strip: 5,
-		hidden: 0
+		list: 5,
+		dense: 3
 	};
 
 	const visibleProjects = $derived(
@@ -95,9 +91,6 @@
 
 	function shouldShowQueue(project: Project): boolean {
 		if (queuedTasksFor(project).length === 0) return false;
-		// In dashboard la coda del progetto scelto vive nel pannello di
-		// dettaglio: sotto la riga sarebbe duplicata.
-		if (detailPanel && selectedProjectId === project.id) return false;
 		if (selectedProjectId === project.id) return true;
 		return hasAttention(project.id);
 	}
@@ -106,14 +99,11 @@
 		onSelectProject(selectedProjectId === project.id ? null : project.id);
 	}
 
-	const selectedProject = $derived(
-		selectedProjectId ? projects.find((p: Project) => p.id === selectedProjectId) : undefined
-	);
 </script>
 
-{#if variant !== 'hidden' && projects.length > 0}
+{#if projects.length > 0}
 	<section class="live-monitor-section variant-{variant}">
-		{#if variant !== 'strip'}
+		{#if variant === 'dense'}
 			<div class="section-title">
 				<IconStatusRunning />
 				<span>{m.ui_companionview_progetti_9979()}{projects.length})</span>
@@ -129,6 +119,8 @@
 				<div
 					class="project-row"
 					class:busy
+					class:attention={p.agentState === 'attention'}
+					class:finished={p.agentState === 'finished'}
 					class:selected={selectedProjectId === p.id}
 					style="--proj-hue: {hueFor(p)}"
 					role="button"
@@ -142,7 +134,10 @@
 						}
 					}}
 				>
-					<span class="p-dot" class:pulsing={p.agentState === 'working'}></span>
+					<!-- Stesso vocabolario della barra progetti (DESIGN.md §7.1): punto
+					     identita' pieno quando un agente c'e', anello ambra inset che
+					     respira quando aspetta te. Il punto non si anima mai. -->
+					<span class="p-dot" class:lit={busy}></span>
 					<span class="p-name">{p.label?.trim() || p.name}</span>
 
 					{#if queued.length > 0}
@@ -210,23 +205,4 @@
 			{/if}
 		</div>
 	</section>
-
-	{#if detailPanel && selectedProject}
-		{@const selectedRuntime = runtimeFor(selectedProject.id)}
-		<div class="project-detail-panel">
-			<div class="section-title">
-				<span>{selectedProject.label?.trim() || selectedProject.name}</span>
-			</div>
-			<span class="p-state state-{selectedProject.agentState}">
-				{stateLabel(selectedProject.agentState, selectedProject.id)}
-			</span>
-			<CompanionProjectQueue
-				projectName={selectedProject.label?.trim() || selectedProject.name}
-				tasks={queuedTasksFor(selectedProject)}
-				disabled={selectedRuntime?.canRunTask !== true}
-				disabledReason={selectedRuntime?.runBlockReason}
-				onRunNext={(taskId) => onRunTask?.(selectedProject.id, taskId)}
-			/>
-		</div>
-	{/if}
 {/if}

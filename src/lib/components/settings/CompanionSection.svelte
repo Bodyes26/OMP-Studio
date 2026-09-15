@@ -1,42 +1,6 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import {
-		settingsStore,
-		type CompanionLayoutVariant,
-		type CompanionSpotlightDismiss
-	} from '$lib/stores/settings.svelte';
-
-	const LAYOUT_OPTIONS: {
-		id: CompanionLayoutVariant;
-		label: () => string;
-		desc: () => string;
-	}[] = [
-		{
-			id: 'balanced',
-			label: () => m.settings_companion_layout_balanced(),
-			desc: () => m.settings_companion_layout_balanced_desc()
-		},
-		{
-			id: 'dashboard',
-			label: () => m.settings_companion_layout_dashboard(),
-			desc: () => m.settings_companion_layout_dashboard_desc()
-		},
-		{
-			id: 'inbox',
-			label: () => m.settings_companion_layout_inbox(),
-			desc: () => m.settings_companion_layout_inbox_desc()
-		},
-		{
-			id: 'compact',
-			label: () => m.settings_companion_layout_compact(),
-			desc: () => m.settings_companion_layout_compact_desc()
-		},
-		{
-			id: 'launcher',
-			label: () => m.settings_companion_layout_launcher(),
-			desc: () => m.settings_companion_layout_launcher_desc()
-		}
-	];
+	import { settingsStore, type CompanionSpotlightDismiss } from '$lib/stores/settings.svelte';
 
 	const SPOTLIGHT_OPTIONS: {
 		id: CompanionSpotlightDismiss;
@@ -55,9 +19,6 @@
 		}
 	];
 
-	function setLayout(variant: CompanionLayoutVariant) {
-		settingsStore.patchCompanionLayout(variant);
-	}
 
 	function setSpotlightDismiss(mode: CompanionSpotlightDismiss) {
 		settingsStore.patchCompanionSpotlightDismiss(mode);
@@ -65,64 +26,6 @@
 </script>
 
 <div class="settings-section">
-	<div class="section-block">
-		<div class="block-head-row">
-			<div class="block-titles">
-				<h4>{m.settings_companion_layout_title()}</h4>
-				<span class="block-desc">{m.settings_companion_layout_desc()}</span>
-			</div>
-		</div>
-
-		<div class="layout-variant-grid companion-layout-grid" role="radiogroup" aria-label={m.settings_companion_layout_title()}>
-			{#each LAYOUT_OPTIONS as opt (opt.id)}
-				<button
-					type="button"
-					class="variant-card"
-					class:selected={settingsStore.appearance.companionLayout === opt.id}
-					role="radio"
-					aria-checked={settingsStore.appearance.companionLayout === opt.id}
-					onclick={() => setLayout(opt.id)}
-				>
-					<div class="card-radio-head">
-						<div class="radio-indicator">
-							{#if settingsStore.appearance.companionLayout === opt.id}
-								<span class="radio-dot"></span>
-							{/if}
-						</div>
-						<span class="variant-title">{opt.label()}</span>
-					</div>
-					<p class="variant-desc">{opt.desc()}</p>
-					<div class="variant-preview">
-						<div class="companion-mini-preview {opt.id}" aria-hidden="true">
-							{#if opt.id === 'balanced'}
-								<div class="mini-pane attention"></div>
-								<div class="mini-pane composer"></div>
-							{:else if opt.id === 'dashboard'}
-								<div class="mini-tile quota"></div>
-								<div class="mini-tile attention"></div>
-								<div class="mini-tile queue"></div>
-								<div class="mini-tile composer"></div>
-							{:else if opt.id === 'inbox'}
-								<div class="mini-inbox-list">
-									<span></span><span></span><span></span>
-								</div>
-								<div class="mini-inbox-detail"></div>
-							{:else if opt.id === 'compact'}
-								<div class="mini-stack-line"></div>
-								<div class="mini-stack-line short"></div>
-								<div class="mini-stack-composer"></div>
-							{:else}
-								<div class="mini-launcher-composer"></div>
-							{/if}
-						</div>
-					</div>
-				</button>
-			{/each}
-		</div>
-	</div>
-
-	<div class="block-divider"></div>
-
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
@@ -221,10 +124,6 @@
 		gap: var(--space-3);
 	}
 
-	.companion-layout-grid {
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-	}
-
 	.spotlight-grid {
 		grid-template-columns: repeat(2, 1fr);
 	}
@@ -310,126 +209,13 @@
 		width: 100%;
 	}
 
-	.companion-mini-preview {
-		width: 100%;
-		height: 52px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 4px;
-		display: flex;
-		gap: 3px;
-		box-sizing: border-box;
-		transition: border-color 0.15s ease;
-	}
-
-	.variant-card:hover .companion-mini-preview,
 	.variant-card:hover .spotlight-mini-preview {
 		border-color: var(--line-strong);
 	}
 
-	.variant-card.selected .companion-mini-preview,
 	.variant-card.selected .spotlight-mini-preview {
 		border-color: var(--brand);
 		background: color-mix(in srgb, var(--brand-tint) 15%, var(--bg-sunken));
-	}
-
-	.companion-mini-preview.balanced .mini-pane {
-		flex: 1;
-		border-radius: 2px;
-		border: 1px solid var(--line);
-		background: var(--bg-surface);
-	}
-
-	.companion-mini-preview.balanced .mini-pane.attention {
-		background: var(--bg-raised);
-	}
-
-	.companion-mini-preview.balanced .mini-pane.composer {
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
-	}
-
-	.companion-mini-preview.dashboard {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		grid-template-rows: 1fr 1fr;
-	}
-
-	.companion-mini-preview .mini-tile {
-		border-radius: 2px;
-		border: 1px solid var(--line);
-		background: var(--bg-surface);
-	}
-
-	.companion-mini-preview .mini-tile.attention {
-		background: var(--bg-raised);
-	}
-
-	.companion-mini-preview .mini-tile.composer {
-		grid-column: 1 / -1;
-		height: 12px;
-	}
-
-	.companion-mini-preview.inbox .mini-inbox-list {
-		width: 38%;
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.companion-mini-preview.inbox .mini-inbox-list span {
-		height: 6px;
-		border-radius: 2px;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-	}
-
-	.companion-mini-preview.inbox .mini-inbox-detail {
-		flex: 1;
-		border-radius: 2px;
-		border: 1px solid var(--line);
-		background: var(--bg-surface);
-	}
-
-	.companion-mini-preview.compact {
-		flex-direction: column;
-		gap: 2px;
-		padding: 3px;
-	}
-
-	.companion-mini-preview .mini-stack-line {
-		height: 5px;
-		width: 85%;
-		border-radius: 2px;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-	}
-
-	.companion-mini-preview .mini-stack-line.short {
-		width: 55%;
-	}
-
-	.companion-mini-preview .mini-stack-composer {
-		margin-top: auto;
-		height: 10px;
-		border-radius: 2px;
-		border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line));
-		background: var(--bg-surface);
-	}
-
-	.companion-mini-preview.launcher {
-		align-items: center;
-		justify-content: center;
-		padding: 6px;
-	}
-
-	.companion-mini-preview .mini-launcher-composer {
-		width: 78%;
-		height: 14px;
-		border-radius: var(--radius-full);
-		border: 1px solid color-mix(in srgb, var(--brand) 45%, var(--line));
-		background: var(--bg-surface);
-		box-shadow: 0 1px 0 color-mix(in srgb, var(--brand) 20%, transparent);
 	}
 
 	.spotlight-mini-preview {

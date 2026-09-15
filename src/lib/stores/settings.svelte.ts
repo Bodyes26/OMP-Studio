@@ -101,9 +101,6 @@ export interface QuotaPopoverSettings {
 /** Vista delle righe task in coda: compatta su 3 piani o card ariosa. */
 export type QueueViewVariant = 'compact' | 'cards';
 
-/** Preset di layout della finestra companion. */
-export type CompanionLayoutVariant = 'balanced' | 'dashboard' | 'inbox' | 'compact' | 'launcher';
-
 /** Come si chiude la companion in modalita Spotlight. */
 export type CompanionSpotlightDismiss = 'esc-only' | 'esc-and-blur';
 
@@ -111,7 +108,6 @@ export interface AppearanceSettings {
 	quotaChip: QuotaChipSettings;
 	quotaPopover: QuotaPopoverSettings;
 	queueView: QueueViewVariant;
-	companionLayout: CompanionLayoutVariant;
 	companionSpotlightDismiss: CompanionSpotlightDismiss;
 }
 
@@ -285,7 +281,6 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 			semanticColors: false
 		},
 		queueView: 'compact',
-		companionLayout: 'balanced',
 		companionSpotlightDismiss: 'esc-only'
 	}
 };
@@ -417,11 +412,6 @@ export function parseSettings(value: unknown): StudioSettings {
 				semanticColors: bool(quotaPopover.semanticColors, d.appearance.quotaPopover.semanticColors)
 			},
 			queueView: pick(appearance.queueView, ['compact', 'cards'] as const, d.appearance.queueView),
-			companionLayout: pick(
-				appearance.companionLayout,
-				['balanced', 'dashboard', 'inbox', 'compact', 'launcher'] as const,
-				d.appearance.companionLayout
-			),
 			companionSpotlightDismiss: pick(
 				appearance.companionSpotlightDismiss,
 				['esc-only', 'esc-and-blur'] as const,
@@ -472,7 +462,6 @@ class SettingsStore {
 		quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip },
 		quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover },
 		queueView: DEFAULT_SETTINGS.appearance.queueView,
-		companionLayout: DEFAULT_SETTINGS.appearance.companionLayout,
 		companionSpotlightDismiss: DEFAULT_SETTINGS.appearance.companionSpotlightDismiss
 	});
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
@@ -623,11 +612,6 @@ class SettingsStore {
 
 	patchQueueView(queueView: QueueViewVariant) {
 		this.appearance.queueView = queueView;
-		this.save();
-	}
-
-	patchCompanionLayout(companionLayout: CompanionLayoutVariant) {
-		this.appearance.companionLayout = companionLayout;
 		this.save();
 	}
 
@@ -848,12 +832,10 @@ class SettingsStore {
 				quotaChip: { ...DEFAULT_SETTINGS.appearance.quotaChip },
 				quotaPopover: { ...DEFAULT_SETTINGS.appearance.quotaPopover },
 				queueView: DEFAULT_SETTINGS.appearance.queueView,
-				companionLayout: DEFAULT_SETTINGS.appearance.companionLayout,
 				companionSpotlightDismiss: DEFAULT_SETTINGS.appearance.companionSpotlightDismiss
 			};
 		}
 		if (section === 'companion') {
-			this.appearance.companionLayout = DEFAULT_SETTINGS.appearance.companionLayout;
 			this.appearance.companionSpotlightDismiss = DEFAULT_SETTINGS.appearance.companionSpotlightDismiss;
 		}
 		this.save();

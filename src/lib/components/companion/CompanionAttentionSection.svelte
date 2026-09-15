@@ -14,7 +14,7 @@
 
 	let {
 		attentionList,
-		variant = 'full',
+		variant = 'open',
 		pageIndex = 0,
 		expandedHistory,
 		replyDrafts,
@@ -31,12 +31,14 @@
 		onResolveQuotaBlocked,
 		onDismissQuotaBlocked,
 		draftFor,
-		wantsText,
-		onExpandBanner,
-		expanded = false
+		wantsText
 	} = $props<{
 		attentionList: AttentionRequest[];
-		variant?: 'full' | 'banner' | 'compact' | 'focused';
+		/**
+		 * `open`: la richiesta corrente, aperta e rispondibile senza un click di
+		 * scoperta. `list`: le altre richieste in forma compatta.
+		 */
+		variant?: 'open' | 'list';
 		pageIndex?: number;
 		expandedHistory: Record<string, boolean>;
 		replyDrafts: Record<string, string>;
@@ -54,17 +56,15 @@
 		onDismissQuotaBlocked: (projectId: string) => void | Promise<void>;
 		draftFor: (req: AttentionRequest) => string;
 		wantsText: (pending: AttentionRequest['pendingUi']) => boolean;
-		onExpandBanner?: () => void;
-		expanded?: boolean;
 	}>();
 
 	const visibleRequests = $derived.by(() => {
-		if (variant === 'banner') return [];
-		if (variant === 'focused') {
+		if (variant === 'open') {
 			const req = attentionList[pageIndex];
 			return req ? [req] : [];
 		}
-		return attentionList;
+		// Nell'elenco la richiesta gia' aperta sopra non si ripete.
+		return attentionList.filter((_: AttentionRequest, i: number) => i !== pageIndex);
 	});
 
 	const totalPages = $derived(Math.max(1, attentionList.length));
@@ -80,27 +80,14 @@
 	}
 </script>
 
-{#if attentionList.length > 0}
-	{#if variant === 'banner'}
-		<button
-			type="button"
-			class="attention-banner"
-			class:expanded
-			aria-expanded={expanded}
-			title={expanded ? m.companion_attention_collapse() : undefined}
-			onclick={() => onExpandBanner?.()}
-		>
-			<IconWarning />
-			<span>{m.companion_attention_banner({ count: attentionList.length })}</span>
-		</button>
-	{:else}
-		<section class="attention-section variant-{variant}">
-			{#if variant !== 'compact'}
-				<div class="section-title">
-					<IconWarning />
-					<span>{m.companion_attention_title({ count: attentionList.length })}</span>
-				</div>
-			{/if}
+{#if visibleRequests.length > 0}
+	<section class="attention-section variant-{variant}">
+		{#if variant === 'list'}
+			<div class="section-title">
+				<IconWarning />
+				<span>{m.companion_attention_others({ count: visibleRequests.length })}</span>
+			</div>
+		{/if}
 
 			{#each visibleRequests as req (req.projectId)}
 				{@const parsed = parseAskTitle(req.pendingUi.title)}
@@ -338,25 +325,24 @@
 				</div>
 			{/each}
 
-			{#if variant === 'focused' && attentionList.length > 1}
-				<div class="inbox-pagination">
-					<button
-						type="button"
-						class="inbox-page-btn"
-						disabled={pageIndex <= 0}
-						aria-label={m.companion_inbox_prev()}
-						onclick={() => onPrevPage?.()}
-					>‹</button>
-					<span class="inbox-page-label">{pageIndex + 1}/{totalPages}</span>
-					<button
-						type="button"
-						class="inbox-page-btn"
-						disabled={pageIndex >= attentionList.length - 1}
-						aria-label={m.companion_inbox_next()}
-						onclick={() => onNextPage?.()}
-					>›</button>
-				</div>
-			{/if}
-		</section>
-	{/if}
+		{#if variant === 'open' && attentionList.length > 1}
+			<div class="inbox-pagination">
+				<button
+					type="button"
+					class="inbox-page-btn"
+					disabled={pageIndex <= 0}
+					aria-label={m.companion_inbox_prev()}
+					onclick={() => onPrevPage?.()}
+				>‹</button>
+				<span class="inbox-page-label">{pageIndex + 1}/{totalPages}</span>
+				<button
+					type="button"
+					class="inbox-page-btn"
+					disabled={pageIndex >= attentionList.length - 1}
+					aria-label={m.companion_inbox_next()}
+					onclick={() => onNextPage?.()}
+				>›</button>
+			</div>
+		{/if}
+	</section>
 {/if}
