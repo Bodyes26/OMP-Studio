@@ -308,6 +308,10 @@ export class AgentSession {
 	visibleCount = $state(RENDER_WINDOW);
 
 	isStreaming = $state(false);
+	// Ancora del cronometro di attesa mostrato in chat; misura il turno intero,
+	// non la singola tratta, perche l'indicatore appare e sparisce piu volte
+	// mentre l'agente alterna pensiero, testo e tool.
+	turnStartedAt: number | null = $state(null);
 	isCompacting = $state(false);
 	isReady = $state(false);
 	isAttached = $state(false);
@@ -1410,6 +1414,7 @@ export class AgentSession {
 
 			case 'agent_start':
 				if (this.isAborting) return;
+				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
 				this.isStreaming = true;
 				this.markWorking();
@@ -1421,6 +1426,7 @@ export class AgentSession {
 				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato richiesto un abort
 				if (event.isTerminal === false && !wasAborting) return;
 				this.isStreaming = false;
+				this.turnStartedAt = null;
 				this.isCompacting = false;
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
@@ -1433,12 +1439,14 @@ export class AgentSession {
 			}
 			case 'turn_start':
 				if (this.isAborting) return;
+				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
 				this.markWorking();
 				return;
 			case 'turn_end':
 				this.isAborting = false;
 				this.isStreaming = false;
+				this.turnStartedAt = null;
 				this.isCompacting = false;
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
@@ -1455,6 +1463,7 @@ export class AgentSession {
 					const hasRunningTools = Array.from(this.toolEntries.values()).some((t) => t.running);
 					if (!hasRunningTools && !this.assistantEntry) {
 						this.isStreaming = false;
+						this.turnStartedAt = null;
 						this.agentState = this.pendingUi ? 'attention' : 'idle';
 					}
 				}
@@ -1602,6 +1611,7 @@ export class AgentSession {
 				const msg = typeof event.message === 'string' ? event.message : messages.ui_ts_session_errore_del_trasporto_rpc_b9d7();
 				this.isAborting = false;
 				this.isStreaming = false;
+				this.turnStartedAt = null;
 				this.isCompacting = false;
 				if (this.assistantEntry) {
 					if (!this.assistantEntry.stopReason) {
@@ -1635,6 +1645,7 @@ export class AgentSession {
 							: messages.ui_ts_session_errore_durante_l_esecuzione_di_omp_ac74();
 				this.isAborting = false;
 				this.isStreaming = false;
+				this.turnStartedAt = null;
 				this.isCompacting = false;
 				if (this.assistantEntry) {
 					if (!this.assistantEntry.stopReason) {
@@ -1670,6 +1681,7 @@ export class AgentSession {
 					requestedResume !== null && isMissingSessionError(stderr, requestedResume);
 				this.isAborting = false;
 				this.isStreaming = false;
+				this.turnStartedAt = null;
 				this.isCompacting = false;
 				this.activeAssistantId = null;
 				this.assistantEntry = null;
@@ -2542,6 +2554,7 @@ export class AgentSession {
 		this.isAborting = true;
 		this.suggestions.invalidate();
 		this.isStreaming = false;
+		this.turnStartedAt = null;
 		this.isCompacting = false;
 		this.agentState = 'idle';
 		this.deltaBatcher.clear();
@@ -2605,6 +2618,7 @@ export class AgentSession {
 		this.renderedCustomKeys.clear();
 		this.queued = [];
 		this.isStreaming = false;
+		this.turnStartedAt = null;
 		this.isCompacting = false;
 		this.agentState = 'idle';
 		this.visibleCount = RENDER_WINDOW;
@@ -2629,6 +2643,7 @@ export class AgentSession {
 		this.renderedCustomKeys.clear();
 		this.queued = [];
 		this.isStreaming = false;
+		this.turnStartedAt = null;
 		this.isCompacting = false;
 		this.agentState = 'idle';
 		this.visibleCount = RENDER_WINDOW;

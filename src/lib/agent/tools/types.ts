@@ -98,6 +98,30 @@ export function formatDuration(ms: number | undefined): string | undefined {
 	return `${minutes}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
+/**
+ * Formatta il tempo trascorso per l'indicatore di attivita.
+ * Separata da formatDuration perche durante il tick a 100ms i millisecondi
+ * produrrebbero tre cifre che saltano continuamente e una larghezza instabile.
+ * Mostra un decimale sotto i 60s (es. 0.3s, 12.4s) e secondi interi oltre (es. 1m 5s).
+ */
+export function formatElapsed(ms: number): string {
+	if (!Number.isFinite(ms) || ms <= 0) return '0.0s';
+	if (ms < 60_000) {
+		const secStr = (ms / 1000).toFixed(1);
+		if (secStr === '60.0') {
+			return '1m 0s';
+		}
+		return `${secStr}s`;
+	}
+	let minutes = Math.floor(ms / 60_000);
+	let seconds = Math.round((ms % 60_000) / 1000);
+	if (seconds === 60) {
+		minutes += 1;
+		seconds = 0;
+	}
+	return `${minutes}m ${seconds}s`;
+}
+
 /** Conteggio con plurale italiano: `1 file`, `3 file`, `1 riga`, `2 righe`. */
 export function countLabel(count: number, singular: string, plural: string): string {
 	return `${count} ${count === 1 ? singular : plural}`;

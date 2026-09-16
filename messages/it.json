@@ -1591,5 +1591,7 @@
   "gate_explain_first_aria": "Mostra perché il primo task di {project} non può partire ora",
   "companion_attention_others": "Altre richieste ({count})",
   "companion_ready_title": "Pronto a partire su {project}",
-  "companion_empty": "Nessun progetto aperto. Scrivi qui sopra per accodare un task, oppure apri un progetto da Studio."
+  "companion_empty": "Nessun progetto aperto. Scrivi qui sopra per accodare un task, oppure apri un progetto da Studio.",
+  "ui_activity_sta_pensando": "Sta pensando",
+  "ui_toolgroup_sto_usando": "Sto usando {tool}"
 }

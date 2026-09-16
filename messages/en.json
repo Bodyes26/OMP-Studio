@@ -1591,5 +1591,7 @@
   "gate_explain_first_aria": "Show why the first task for {project} cannot start now",
   "companion_attention_others": "Other requests ({count})",
   "companion_ready_title": "Ready to start on {project}",
-  "companion_empty": "No project open. Write above to queue a task, or open a project from Studio."
+  "companion_empty": "No project open. Write above to queue a task, or open a project from Studio.",
+  "ui_activity_sta_pensando": "Thinking",
+  "ui_toolgroup_sto_usando": "Using {tool}"
 }

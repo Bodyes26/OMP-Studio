@@ -11,6 +11,7 @@
 	import { chatReveal } from '../motion';
 	import ThinkingBlock from '../components/ThinkingBlock.svelte';
 	import Markdown from '../components/Markdown.svelte';
+	import PixelGrid from '../components/PixelGrid.svelte';
 	import { lexMarkdown } from '../markdown';
 	import ToolCard from './ToolCard.svelte';
 	import { formatDuration, extractToolErrorReason } from './types';
@@ -116,7 +117,7 @@
 	>
 		<div class="header-left">
 			<span class="chevron" class:expanded={isExpanded} aria-hidden="true"><IconChevronRight /></span>
-			<span class="state-dot" aria-hidden="true"></span>
+			<PixelGrid size="sm" state={hasError ? 'error' : isRunning ? 'running' : 'idle'} />
 			<span class="title">{headerLabel}</span>
 
 			<div class="tool-chips" aria-label="Strumenti usati">
@@ -146,8 +147,9 @@
 						{currentOrLastError.intent}
 					</span>
 				{:else if isStreamingThinking}
-					<span class="active-intent">sta pensando...</span>
+					<span class="active-intent text-shimmer">{m.ui_activity_sta_pensando()}</span>
 				{:else}
+					<span class="active-intent text-shimmer">{m.ui_toolgroup_sto_usando({ tool: currentOrLastError?.toolName ?? '' })}</span>
 					<span class="status-tag running">{totalDuration ?? m.queue_drawer_status_in_progress()}</span>
 				{/if}
 			{:else if hasError}
@@ -279,22 +281,6 @@
 		transform: rotate(90deg);
 	}
 
-	.state-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--ink-faint);
-		flex-shrink: 0;
-	}
-
-	.running .state-dot {
-		background: var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
-	}
-
-	.error .state-dot {
-		background: var(--danger);
-	}
 
 	.title {
 		font-weight: 500;
@@ -333,6 +319,7 @@
 		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
+	/* Flex con gap per affiancare il testo di stato (active-intent) e il cronometro (status-tag) */
 	.header-right {
 		display: flex;
 		align-items: center;

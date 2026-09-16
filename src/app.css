@@ -170,6 +170,62 @@
   100%      { opacity: 1; }
 }
 
+/* Accensione della singola cella del loader a griglia 3x3.
+   Come state-pulse, usa steps(6) per limitare i frame su GPU integrata
+   e anima solo opacity per compositing hardware senza repaint.
+   Il picco al 38% crea l'effetto onda asimmetrica che scorre verso destra. */
+@keyframes pixel-on {
+  0%   { opacity: 0.18; animation-timing-function: steps(6); }
+  38%  { opacity: 1;    animation-timing-function: steps(6); }
+  100% { opacity: 0.18; }
+}
+
+@keyframes shimmer-text {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Eccezione deliberata alla convenzione CSS-scoped: usata in modo identico
+   sia nell'indicatore globale che nell'header dei tool group, duplicarla
+   garantirebbe divergenza stilistica. */
+.text-shimmer {
+  background: linear-gradient(90deg, var(--ink-muted) 35%, var(--ink) 50%, var(--ink-muted) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-text 1.4s linear infinite;
+}
+
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .text-shimmer {
+    color: var(--ink-muted);
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* Override esplicito per reduced-motion e disattivazione animazioni:
+   la regola globale azzera solo la durata, lasciando il testo fermo su un frame
+   arbitrario e potenzialmente trasparente del gradiente. Questo ripristina la leggibilita. */
+@media (prefers-reduced-motion: reduce) {
+  .text-shimmer {
+    animation: none !important;
+    color: var(--ink-muted);
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+:root[data-animations="false"] .text-shimmer {
+  animation: none !important;
+  color: var(--ink-muted);
+  -webkit-text-fill-color: currentColor;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }

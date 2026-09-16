@@ -29,6 +29,7 @@
 	import IrcMessageCard from './IrcMessageCard.svelte';
 	import SystemChip from './SystemChip.svelte';
 	import NoticeGroup from './NoticeGroup.svelte';
+	import ActivityIndicator from './ActivityIndicator.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -393,12 +394,9 @@
 	{#if showActivity}
 		<div
 			class="agent-activity"
-			role="status"
-			aria-live="polite"
 			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
 		>
-			<span class="activity-dot" aria-hidden="true"></span>
-			<span>Sta pensando</span>
+			<ActivityIndicator startedAt={session.turnStartedAt} />
 		</div>
 	{/if}
 </div>
@@ -442,16 +440,6 @@
 		gap: var(--space-2);
 		width: fit-content;
 		padding: var(--space-1) var(--space-2);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-	}
-
-	.activity-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
 	}
 
 
