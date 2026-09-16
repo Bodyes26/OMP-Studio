@@ -85,13 +85,14 @@ impl RpcManager {
 /// Overlay `--config` del percorso GUI. `tools.approvalMode: yolo`:
 /// permette l'esecuzione automatica e diretta di tutti i tool senza
 /// blocchi o prompt di autorizzazione, allineando la GUI alla TUI.
+/// `read.defaultLimit: 1200`: espande il limite di lettura mantenendo attivo summarize.
 /// Niente `tui.*` (non c'e' terminale) e niente `theme.*` (non c'e'
 /// rendering ANSI).
-fn write_gui_overlay() -> std::path::PathBuf {
+pub(crate) fn write_gui_overlay() -> std::path::PathBuf {
     let mut overlay_path = std::env::temp_dir();
     overlay_path.push("omp-studio-gui-overlay.yml");
     if let Ok(mut file) = std::fs::File::create(&overlay_path) {
-        let _ = file.write_all(b"tools:\n  approvalMode: yolo\n");
+        let _ = file.write_all(b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\n");
     }
     overlay_path
 }
@@ -108,7 +109,7 @@ pub fn is_valid_prototype_id(id: &str) -> bool {
     }
     let mut chars = id.chars();
     match chars.next() {
-        Some(c) if c.is_ascii_lowercase() || c.is_ascii_digit() => {},
+        Some(c) if c.is_ascii_lowercase() || c.is_ascii_digit() => {}
         _ => return false,
     }
     for c in chars {
@@ -119,9 +120,28 @@ pub fn is_valid_prototype_id(id: &str) -> bool {
     let base = id.split('.').next().unwrap_or("").to_ascii_lowercase();
     !matches!(
         base.as_str(),
-        "con" | "prn" | "aux" | "nul"
-            | "com1" | "com2" | "com3" | "com4" | "com5" | "com6" | "com7" | "com8" | "com9"
-            | "lpt1" | "lpt2" | "lpt3" | "lpt4" | "lpt5" | "lpt6" | "lpt7" | "lpt8" | "lpt9"
+        "con"
+            | "prn"
+            | "aux"
+            | "nul"
+            | "com1"
+            | "com2"
+            | "com3"
+            | "com4"
+            | "com5"
+            | "com6"
+            | "com7"
+            | "com8"
+            | "com9"
+            | "lpt1"
+            | "lpt2"
+            | "lpt3"
+            | "lpt4"
+            | "lpt5"
+            | "lpt6"
+            | "lpt7"
+            | "lpt8"
+            | "lpt9"
     )
 }
 
@@ -138,13 +158,22 @@ pub fn write_lab_session_config(
     let mut config_path = std::env::temp_dir();
     let safe_proto = prototype_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>();
     config_path.push(format!("omp-studio-lab-{}-{}.yml", rpc_id, safe_proto));
 
     let mut content = String::new();
-    content.push_str("# Configurazione per-sessione generata da OMP Studio per il Laboratorio prototipi\n");
-    content.push_str("# Disattiva shell, interpreti host, browser generico e configurazioni MCP.\n\n");
+    content.push_str(
+        "# Configurazione per-sessione generata da OMP Studio per il Laboratorio prototipi\n",
+    );
+    content
+        .push_str("# Disattiva shell, interpreti host, browser generico e configurazioni MCP.\n\n");
 
     // Disattivazione shell libera
     content.push_str("bash:\n  enabled: false\n\n");
@@ -168,8 +197,12 @@ pub fn write_lab_session_config(
         content.push_str(&format!("  - \"{}\"\n", normalized));
     }
 
-    std::fs::write(&config_path, content.as_bytes())
-        .map_err(|e| format!("Impossibile generare la configurazione di sessione Laboratorio: {}", e))?;
+    std::fs::write(&config_path, content.as_bytes()).map_err(|e| {
+        format!(
+            "Impossibile generare la configurazione di sessione Laboratorio: {}",
+            e
+        )
+    })?;
 
     Ok(config_path)
 }
@@ -316,7 +349,14 @@ fn reader_loop(args: ReaderLoopArgs) {
         if line.contains("\"rpc_chunk\"") {
             match reassemble(line, &mut assembly) {
                 Ok(Some(logical)) => {
-                    if !dispatch(&logical, &on_event, &stdin, &protocol, &mut pending_delta, &session_id) {
+                    if !dispatch(
+                        &logical,
+                        &on_event,
+                        &stdin,
+                        &protocol,
+                        &mut pending_delta,
+                        &session_id,
+                    ) {
                         break;
                     }
                 }
@@ -341,7 +381,14 @@ fn reader_loop(args: ReaderLoopArgs) {
             assembly = None;
         }
 
-        if !dispatch(line, &on_event, &stdin, &protocol, &mut pending_delta, &session_id) {
+        if !dispatch(
+            line,
+            &on_event,
+            &stdin,
+            &protocol,
+            &mut pending_delta,
+            &session_id,
+        ) {
             break;
         }
     }
@@ -608,6 +655,9 @@ pub async fn rpc_open(
         command.arg("--cwd").arg(&cwd);
     }
     command.arg("--config").arg(&overlay_path);
+    command
+        .arg("--append-system-prompt")
+        .arg(crate::pty::STUDIO_SYSTEM_PROMPT);
     if let Some(path) = &diagram_extension {
         command.arg("-e").arg(path);
     }
@@ -751,8 +801,7 @@ pub async fn rpc_open_lab(
     }
 
     let omp_path = crate::omp_ops::get_omp_binary();
-    let lab_extension =
-        crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS);
+    let lab_extension = crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS);
 
     let rpc_id = {
         let mut guard = manager.next_id.lock();
@@ -761,11 +810,8 @@ pub async fn rpc_open_lab(
         id
     };
 
-    let lab_config_path = write_lab_session_config(
-        rpc_id,
-        &prototype_id,
-        lab_extension.as_deref(),
-    )?;
+    let lab_config_path =
+        write_lab_session_config(rpc_id, &prototype_id, lab_extension.as_deref())?;
 
     let launch_cwd = if is_draft {
         ".".to_string()
@@ -782,6 +828,9 @@ pub async fn rpc_open_lab(
     }
 
     command.arg("--config").arg(&lab_config_path);
+    command
+        .arg("--append-system-prompt")
+        .arg(crate::pty::STUDIO_SYSTEM_PROMPT);
 
     if let Some(path) = &lab_extension {
         command.arg("-e").arg(path);
@@ -857,7 +906,11 @@ pub async fn rpc_open_lab(
             abort_signal: abort_signal.clone(),
             config_path: Some(lab_config_path),
             cwd: project_path.clone(),
-            scope: if is_draft { "draft".to_string() } else { "project".to_string() },
+            scope: if is_draft {
+                "draft".to_string()
+            } else {
+                "project".to_string()
+            },
             prototype_id: Some(prototype_id.clone()),
             project_key: Some(effective_key.clone()),
             session_id: session_id_slot.clone(),
@@ -955,10 +1008,7 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
 
 /// Interrompe la sessione RPC specificata in modo atomico, senza toccare le altre sessioni.
 #[tauri::command]
-pub async fn rpc_abort(
-    rpc_id: u64,
-    manager: State<'_, RpcManager>,
-) -> Result<(), String> {
+pub async fn rpc_abort(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<(), String> {
     let (stdin, abort_signal) = {
         let sessions = manager.sessions.lock();
         let session = sessions
@@ -1000,7 +1050,6 @@ pub async fn rpc_list_sessions(
         .collect();
     Ok(list)
 }
-
 
 /// Ultime righe di stderr di una sessione **viva**: serve quando il processo
 /// e' appeso e non morto. Alla morte le stesse righe arrivano dentro
@@ -1170,10 +1219,12 @@ mod tests {
     fn correlazione_sessioni_e_metadati_concorrenti() {
         let _manager = RpcManager::new();
         let session_main = RpcSession {
-            child: Arc::new(Mutex::new(Command::new("cargo").spawn().unwrap_or_else(|_| {
-                // Dummy child for unit test without running processes
-                panic!("test");
-            }))),
+            child: Arc::new(Mutex::new(Command::new("cargo").spawn().unwrap_or_else(
+                |_| {
+                    // Dummy child for unit test without running processes
+                    panic!("test");
+                },
+            ))),
             stdin: Arc::new(Mutex::new(None)),
             stderr_tail: Arc::new(Mutex::new(VecDeque::new())),
             protocol: Arc::new(AtomicU8::new(2)),
@@ -1186,5 +1237,55 @@ mod tests {
             session_id: Arc::new(Mutex::new(Some("session-main-1".to_string()))),
         };
         let _ = session_main; // structure compiles and initializes correctly
+    }
+
+    #[test]
+    fn overlay_gui_applica_yolo_e_limite_senza_disattivare_la_sintesi() {
+        #[derive(Deserialize)]
+        struct Overlay {
+            tools: OverlayTools,
+            read: OverlayRead,
+        }
+
+        #[derive(Deserialize)]
+        struct OverlayTools {
+            #[serde(rename = "approvalMode")]
+            approval_mode: String,
+        }
+
+        #[derive(Deserialize)]
+        struct OverlayRead {
+            #[serde(rename = "defaultLimit")]
+            default_limit: usize,
+            summarize: Option<serde_yaml::Value>,
+        }
+
+        let overlay_path = write_gui_overlay();
+        let content = std::fs::read_to_string(&overlay_path).expect("overlay GUI leggibile");
+        let overlay: Overlay = serde_yaml::from_str(&content).expect("overlay GUI YAML valido");
+
+        assert_eq!(overlay.tools.approval_mode, "yolo");
+        assert_eq!(overlay.read.default_limit, 1200);
+        assert!(overlay.read.summarize.is_none());
+    }
+
+    #[test]
+    fn direttiva_round_trip_copre_tutti_gli_invarianti_obbligatori() {
+        let prompt = crate::pty::STUDIO_SYSTEM_PROMPT;
+        assert!(prompt.contains(
+            "Batch every already-identifiable independent read, grep, glob, and LSP call"
+        ));
+        assert!(prompt.contains("search the entire workspace for the most distinctive exact literal before opening files"));
+        assert!(prompt.contains("read only matching files and targeted line ranges"));
+        assert!(prompt.contains("Handle a single-file or single-concern task directly"));
+        assert!(prompt.contains("never delegate mere reading or file localization"));
+        assert!(prompt.contains("at least two substantial independent workstreams"));
+        assert!(prompt
+            .contains("dispatch them together and continue useful direct work instead of polling"));
+        assert!(prompt.contains("Perform one targeted verification after the final edit"));
+        assert!(prompt.contains(
+            "extract the most distinctive visible text and run one literal workspace search"
+        ));
+        assert!(prompt.contains("Never promise provider parallelism; use correct serial execution when parallel tool calls are unavailable"));
     }
 }

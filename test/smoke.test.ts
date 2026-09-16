@@ -56,3 +56,4 @@ import './lab-acceptance-e2e.test.ts';
 import './quota-recovery.test.ts';
 import './notices.test.ts';
 import './i18n-catalog.test.ts';
+import './prompt-preflight.test.ts';

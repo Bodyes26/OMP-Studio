@@ -343,6 +343,10 @@ fn write_overlay() -> std::path::PathBuf {
 pub const DIAGRAM_EXTENSION_TS: &str = include_str!("../../../extensions/studio-diagram.ts");
 pub const TASKS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-tasks.ts");
 
+/// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,
+/// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.
+pub const STUDIO_SYSTEM_PROMPT: &str = "Round-trip economy. Batch every already-identifiable independent read, grep, glob, and LSP call in one assistant response. For UI labels, visible text, quoted strings, and screenshot text, search the entire workspace for the most distinctive exact literal before opening files, then read only matching files and targeted line ranges. For screenshots, first extract the most distinctive visible text and run one literal workspace search. Handle a single-file or single-concern task directly; never delegate mere reading or file localization. Delegate only when there are at least two substantial independent workstreams; dispatch them together and continue useful direct work instead of polling. Perform one targeted verification after the final edit. Never promise provider parallelism; use correct serial execution when parallel tool calls are unavailable.";
+
 /// Cartella delle estensioni di Studio: `%LOCALAPPDATA%/omp-studio/extensions`
 /// su Windows, `~/.omp-studio/extensions` altrove. Mai dentro `~/.omp`.
 fn extensions_dir() -> Option<std::path::PathBuf> {
@@ -493,6 +497,8 @@ pub async fn pty_open(
             omp_path.clone(),
             "--config".to_string(),
             overlay_path.to_string_lossy().to_string(),
+            "--append-system-prompt".to_string(),
+            STUDIO_SYSTEM_PROMPT.to_string(),
         ];
         if let Some(ext) = &extension_arg {
             launch_args.push("-e".to_string());
@@ -548,9 +554,10 @@ pub async fn pty_open(
         let mut c = CommandBuilder::new(&shell);
         let mut launch = if std::path::Path::new(&omp_path).exists() {
             format!(
-                "{} --config {}",
+                "{} --config {} --append-system-prompt {}",
                 sh_quote(&omp_path),
-                sh_quote(&overlay_path.to_string_lossy())
+                sh_quote(&overlay_path.to_string_lossy()),
+                sh_quote(STUDIO_SYSTEM_PROMPT)
             )
         } else {
             format!("exec {} -l", sh_quote(&shell))

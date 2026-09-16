@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 #[cfg(target_os = "windows")]
@@ -7,6 +7,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tauri::command;
 use tauri::ipc::Response;
 
@@ -44,6 +45,35 @@ pub struct FileSearchResult {
     pub score: i64,
     pub name_indices: Vec<usize>,
     pub path_indices: Vec<usize>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectContentMatch {
+    pub path: String,
+    pub line: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
+    pub matched_text: String,
+    pub excerpt: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectContentSearchResult {
+    pub literal: String,
+    pub matches: Vec<ProjectContentMatch>,
+    pub omitted: usize,
+}
+
+impl ProjectContentSearchResult {
+    pub fn empty() -> Self {
+        Self {
+            literal: String::new(),
+            matches: Vec::new(),
+            omitted: 0,
+        }
+    }
 }
 
 pub const IGNORED_SEARCH_DIRS: &[&str] = &[
@@ -836,6 +866,364 @@ pub async fn project_files_search(
     Ok(results)
 }
 
+const MAX_CONTENT_FILE_SIZE: u64 = 1024 * 1024; // 1 MiB
+
+fn is_excluded_search_dir(name: &str) -> bool {
+    IGNORED_SEARCH_DIRS
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(name))
+}
+
+fn path_has_excluded_component(path: &Path) -> bool {
+    path.components().any(|comp| {
+        let s = comp.as_os_str().to_string_lossy();
+        is_excluded_search_dir(&s)
+    })
+}
+
+fn is_valid_text_file(path: &Path, canonical_base: &Path) -> Option<(PathBuf, String)> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    if !meta.file_type().is_file() || meta.file_type().is_symlink() {
+        return None;
+    }
+    if meta.len() > MAX_CONTENT_FILE_SIZE {
+        return None;
+    }
+    let canonical = path.canonicalize().ok()?;
+    if !canonical.starts_with(canonical_base) {
+        return None;
+    }
+    let bytes = fs::read(&canonical).ok()?;
+    if bytes.contains(&0) {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    Some((canonical, text))
+}
+
+fn make_excerpt(lines: &[&str], line_1_indexed: usize) -> String {
+    if lines.is_empty() || line_1_indexed == 0 || line_1_indexed > lines.len() {
+        return String::new();
+    }
+    let start_idx = if line_1_indexed > 2 {
+        line_1_indexed - 3
+    } else {
+        0
+    };
+    let end_idx = (line_1_indexed + 2).min(lines.len());
+    lines[start_idx..end_idx].join("\n")
+}
+async fn is_git_worktree(canonical_base: &Path, timeout: Duration) -> bool {
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.current_dir(canonical_base);
+    cmd.args(["rev-parse", "--is-inside-work-tree"]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    cmd.kill_on_drop(true);
+    match tokio::time::timeout(timeout, cmd.output()).await {
+        Ok(Ok(out)) => out.status.success(),
+        _ => false,
+    }
+}
+
+async fn run_git_grep(
+    canonical_base: &Path,
+    candidate: &str,
+    timeout_remaining: Duration,
+) -> Result<Option<Vec<ProjectContentMatch>>, ()> {
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.current_dir(canonical_base);
+    cmd.args([
+        "grep",
+        "--untracked",
+        "--fixed-strings",
+        "--line-number",
+        "--no-color",
+        "-I",
+        "-e",
+        candidate,
+    ]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    cmd.kill_on_drop(true);
+
+    let output = match tokio::time::timeout(timeout_remaining, cmd.output()).await {
+        Ok(Ok(out)) => out,
+        _ => return Err(()),
+    };
+    let status_code = output.status.code();
+    if status_code == Some(1) {
+        return Ok(Some(Vec::new()));
+    }
+    if status_code != Some(0) {
+        return Err(());
+    }
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut file_cache: HashMap<String, Option<(PathBuf, String)>> = HashMap::new();
+    let mut raw_matches = Vec::new();
+
+    for line in stdout_str.lines() {
+        let Some(colon1) = line.find(':') else {
+            continue;
+        };
+        let rel_path_raw = &line[..colon1];
+        let rest = &line[colon1 + 1..];
+        let Some(colon2) = rest.find(':') else {
+            continue;
+        };
+        let line_num_str = &rest[..colon2];
+        let Ok(line_num) = line_num_str.parse::<usize>() else {
+            continue;
+        };
+
+        let norm_path = rel_path_raw.replace('\\', "/");
+        if path_has_excluded_component(Path::new(&norm_path)) {
+            continue;
+        }
+
+        let full_path = canonical_base.join(Path::new(&norm_path));
+        let cached = file_cache
+            .entry(norm_path.clone())
+            .or_insert_with(|| is_valid_text_file(&full_path, canonical_base));
+
+        let Some((_, text)) = cached else {
+            continue;
+        };
+
+        let lines: Vec<&str> = text.lines().collect();
+        if line_num == 0 || line_num > lines.len() {
+            continue;
+        }
+        let line_str = lines[line_num - 1];
+        let col = line_str
+            .find(candidate)
+            .map(|b| line_str[..b].chars().count() + 1);
+        let excerpt = make_excerpt(&lines, line_num);
+
+        raw_matches.push(ProjectContentMatch {
+            path: norm_path,
+            line: line_num,
+            column: col,
+            matched_text: candidate.to_string(),
+            excerpt,
+        });
+    }
+
+    Ok(Some(raw_matches))
+}
+
+fn search_filesystem(
+    canonical_base: &Path,
+    candidate: &str,
+    start_time: Instant,
+    deadline: Duration,
+) -> Vec<ProjectContentMatch> {
+    let mut matches = Vec::new();
+    let mut stack = vec![(canonical_base.to_path_buf(), String::new())];
+
+    while let Some((current_dir, current_rel)) = stack.pop() {
+        if start_time.elapsed() >= deadline {
+            break;
+        }
+
+        let dir_entries = match fs::read_dir(&current_dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in dir_entries.flatten() {
+            if start_time.elapsed() >= deadline {
+                break;
+            }
+
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+
+            if file_type.is_symlink() {
+                continue;
+            }
+
+            let name = entry.file_name().to_string_lossy().to_string();
+            let is_dir = file_type.is_dir();
+
+            if is_dir {
+                if is_excluded_search_dir(&name) {
+                    continue;
+                }
+                let rel = if current_rel.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", current_rel, name)
+                };
+                stack.push((entry.path(), rel));
+            } else if file_type.is_file() {
+                let rel = if current_rel.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", current_rel, name)
+                };
+                let norm_path = rel.replace('\\', "/");
+                if path_has_excluded_component(Path::new(&norm_path)) {
+                    continue;
+                }
+
+                let file_path = entry.path();
+                if let Some((_, text)) = is_valid_text_file(&file_path, canonical_base) {
+                    if text.contains(candidate) {
+                        let lines: Vec<&str> = text.lines().collect();
+                        for (idx, line_str) in lines.iter().enumerate() {
+                            if let Some(byte_idx) = line_str.find(candidate) {
+                                let line_num = idx + 1;
+                                let col = line_str[..byte_idx].chars().count() + 1;
+                                let excerpt = make_excerpt(&lines, line_num);
+                                matches.push(ProjectContentMatch {
+                                    path: norm_path.clone(),
+                                    line: line_num,
+                                    column: Some(col),
+                                    matched_text: candidate.to_string(),
+                                    excerpt,
+                                });
+                                if matches.len() >= 100 {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    matches
+}
+
+fn bound_search_results(
+    candidate: &str,
+    mut matches: Vec<ProjectContentMatch>,
+) -> ProjectContentSearchResult {
+    if matches.is_empty() {
+        return ProjectContentSearchResult::empty();
+    }
+
+    matches.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then_with(|| a.line.cmp(&b.line))
+            .then_with(|| a.column.cmp(&b.column))
+    });
+
+    matches.dedup_by(|a, b| a.path == b.path && a.line == b.line && a.column == b.column);
+
+    let mut accepted = Vec::new();
+    let mut files_seen = HashSet::new();
+    let mut omitted_count = 0;
+
+    for m in matches {
+        let is_new_file = !files_seen.contains(&m.path);
+        if is_new_file && files_seen.len() >= 5 {
+            omitted_count += 1;
+            continue;
+        }
+        if accepted.len() >= 12 {
+            omitted_count += 1;
+            continue;
+        }
+        files_seen.insert(m.path.clone());
+        accepted.push(m);
+    }
+
+    let mut result = ProjectContentSearchResult {
+        literal: candidate.to_string(),
+        matches: accepted,
+        omitted: omitted_count,
+    };
+
+    while !result.matches.is_empty() {
+        if let Ok(bytes) = serde_json::to_vec(&result) {
+            if bytes.len() <= 8192 {
+                break;
+            }
+        }
+        result.matches.pop();
+        result.omitted += 1;
+    }
+
+    result
+}
+
+/// Tetto complessivo del preflight: oltre questo la ricerca degrada a vuoto
+/// invece di far attendere il prompt.
+const CONTENT_SEARCH_DEADLINE: Duration = Duration::from_millis(250);
+
+/// Corpo della ricerca con scadenza esplicita: il comando usa
+/// `CONTENT_SEARCH_DEADLINE`, i test una scadenza generosa per restare
+/// deterministici anche sotto carico parallelo.
+async fn content_search_within(
+    project_path: &str,
+    candidates: Vec<String>,
+    deadline: Duration,
+) -> ProjectContentSearchResult {
+    let start_time = Instant::now();
+
+    let Ok(canonical_base) = canonical_project_base(project_path) else {
+        return ProjectContentSearchResult::empty();
+    };
+
+    if candidates.is_empty() {
+        return ProjectContentSearchResult::empty();
+    }
+
+    let mut git_available = is_git_worktree(&canonical_base, deadline).await;
+
+    for candidate in candidates.into_iter().take(8) {
+        let trimmed = candidate.trim();
+        if !(4..=120).contains(&trimmed.len()) {
+            continue;
+        }
+        let elapsed = start_time.elapsed();
+        if elapsed >= deadline {
+            return ProjectContentSearchResult::empty();
+        }
+        let remaining = deadline.saturating_sub(elapsed);
+        let git_result = if git_available {
+            match run_git_grep(&canonical_base, trimmed, remaining).await {
+                // `git grep` vede solo il worktree indicizzato: un file
+                // ignorato resta invisibile, quindi zero match non e' una
+                // risposta definitiva e il walk bounded la conferma.
+                Ok(Some(git_matches)) if git_matches.is_empty() => None,
+                Ok(Some(git_matches)) => Some(git_matches),
+                _ => {
+                    git_available = false;
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let found = match git_result {
+            Some(found) => found,
+            None => search_filesystem(&canonical_base, trimmed, start_time, deadline),
+        };
+
+        if !found.is_empty() {
+            return bound_search_results(trimmed, found);
+        }
+    }
+
+    ProjectContentSearchResult::empty()
+}
+
+#[command]
+pub async fn project_content_search(
+    project_path: String,
+    candidates: Vec<String>,
+) -> Result<ProjectContentSearchResult, String> {
+    Ok(content_search_within(&project_path, candidates, CONTENT_SEARCH_DEADLINE).await)
+}
+
 #[command]
 pub async fn file_read(project_path: String, rel: String) -> Result<FileContent, String> {
     let target = resolve_path(&project_path, &rel)?;
@@ -1603,11 +1991,13 @@ mod tests {
     #[cfg(windows)]
     use super::resolve_parent_dir;
     use super::{
-        file_git_rev, fuzzy_match_str, git_last_commit, git_recent_commits,
+        content_search_within, file_git_rev, fuzzy_match_str, git_last_commit, git_recent_commits,
         merge_name_status_numstat, path_create_directory, path_create_file, path_rename,
         project_files_search, rename_via_temp, resolve_existing_entry, resolve_new_destination,
         resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
+        ProjectContentSearchResult,
     };
+    use std::collections::HashSet;
     use std::fs;
     #[cfg(windows)]
     use std::process::Command;
@@ -2437,5 +2827,202 @@ mod tests {
         assert_eq!(d_ren.name, "file:meta:v2");
         assert!(root.join("file:meta:v2").is_file());
         assert!(!root.join("file:meta").exists());
+    }
+
+    /// Scadenza generosa: i contratti sotto test sono confini e ordinamenti,
+    /// non il tetto temporale, che ha un test dedicato. Con i 250 ms di
+    /// produzione questi test diventerebbero flaky sotto carico parallelo.
+    fn search(root: &std::path::Path, candidates: &[&str]) -> ProjectContentSearchResult {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(content_search_within(
+            root.to_str().unwrap(),
+            candidates.iter().map(|c| c.to_string()).collect(),
+            std::time::Duration::from_secs(30),
+        ))
+    }
+
+    #[test]
+    fn content_search_exact_path_line_column_and_excerpt() {
+        let root = temp_dir("cs-exact");
+        let src_dir = root.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        let file_body = "fn line1() {}\nfn line2() {}\nconst UNIQUE_NEEDLE: &str = \"found_it\";\nfn line4() {}\nfn line5() {}\n";
+        fs::write(src_dir.join("main.rs"), file_body).unwrap();
+
+        let res = search(&root, &["UNIQUE_NEEDLE"]);
+
+        assert_eq!(res.literal, "UNIQUE_NEEDLE");
+        assert_eq!(res.matches.len(), 1);
+        let m = &res.matches[0];
+        assert_eq!(m.path, "src/main.rs");
+        assert_eq!(m.line, 3);
+        assert_eq!(m.column, Some(7));
+        assert_eq!(m.matched_text, "UNIQUE_NEEDLE");
+        assert!(m.excerpt.contains("fn line1()"));
+        assert!(m.excerpt.contains("const UNIQUE_NEEDLE"));
+        assert!(m.excerpt.contains("fn line5()"));
+        assert_eq!(res.omitted, 0);
+    }
+
+    #[test]
+    fn content_search_longest_first_and_early_stop() {
+        let root = temp_dir("cs-longest");
+        fs::write(
+            root.join("file.rs"),
+            "let alpha_beta_gamma = 1;\nlet alpha_beta = 2;\n",
+        )
+        .unwrap();
+
+        // Il primo candidato utile vince e ferma la ricerca.
+        let res = search(&root, &["alpha_beta_gamma", "alpha_beta"]);
+        assert_eq!(res.literal, "alpha_beta_gamma");
+        assert_eq!(res.matches.len(), 1);
+
+        // Un candidato senza match non interrompe la scala verso il successivo.
+        let res2 = search(&root, &["non_existent_token", "alpha_beta"]);
+        assert_eq!(res2.literal, "alpha_beta");
+        assert_eq!(res2.matches.len(), 2);
+    }
+
+    #[test]
+    fn content_search_exclusions() {
+        let root = temp_dir("cs-exclusions");
+        let dirs = &[
+            ".git",
+            ".vs",
+            "bin",
+            "obj",
+            "packages",
+            "node_modules",
+            "dist",
+            "build",
+            "target",
+        ];
+        for d in dirs {
+            let p = root.join(d);
+            fs::create_dir_all(&p).unwrap();
+            fs::write(p.join("dummy.txt"), "target_token_forbidden").unwrap();
+        }
+        let src = root.join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("valid.txt"), "target_token_forbidden").unwrap();
+
+        let res = search(&root, &["target_token_forbidden"]);
+
+        assert_eq!(res.matches.len(), 1);
+        assert_eq!(res.matches[0].path, "src/valid.txt");
+    }
+
+    #[test]
+    fn content_search_binary_file_skipped() {
+        let root = temp_dir("cs-binary");
+        fs::write(root.join("binary.dat"), b"hello\x00binary_token_world").unwrap();
+        fs::write(root.join("text.txt"), "hello binary_token_world").unwrap();
+
+        let res = search(&root, &["binary_token_world"]);
+
+        assert_eq!(res.matches.len(), 1);
+        assert_eq!(res.matches[0].path, "text.txt");
+    }
+
+    #[test]
+    fn content_search_bounds_and_omitted_count() {
+        let root = temp_dir("cs-bounds");
+        for i in 1..=7 {
+            fs::write(root.join(format!("file_{}.txt", i)), "repeated_token").unwrap();
+        }
+
+        // Tetto di 5 file distinti, con conteggio degli scartati.
+        let res = search(&root, &["repeated_token"]);
+        let unique_files: HashSet<_> = res.matches.iter().map(|m| m.path.clone()).collect();
+        assert_eq!(unique_files.len(), 5);
+        assert_eq!(res.matches.len(), 5);
+        assert_eq!(res.omitted, 2);
+
+        let mut content = String::new();
+        for _ in 0..20 {
+            content.push_str("line_needle\n");
+        }
+        fs::write(root.join("many_lines.txt"), content).unwrap();
+
+        // Tetto di 12 match complessivi e payload entro 8 KiB.
+        let res_matches = search(&root, &["line_needle"]);
+        assert_eq!(res_matches.matches.len(), 12);
+        assert_eq!(res_matches.omitted, 8);
+        assert!(serde_json::to_vec(&res_matches).unwrap().len() <= 8192);
+    }
+
+    #[test]
+    fn content_search_confinement_and_symlink_escape() {
+        let root = temp_dir("cs-confinement");
+        let outside = temp_dir("cs-outside");
+        fs::write(outside.join("secret.txt"), "outside_secret_token").unwrap();
+
+        let link_path = root.join("link_outside");
+        #[cfg(windows)]
+        let link_created = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&link_path)
+            .arg(&outside)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        #[cfg(not(windows))]
+        let link_created = std::os::unix::fs::symlink(&outside, &link_path).is_ok();
+
+        let res = search(&root, &["outside_secret_token"]);
+
+        if link_created {
+            assert_eq!(res.matches.len(), 0);
+        }
+    }
+
+    #[test]
+    fn content_search_fallback_non_git() {
+        let root = temp_dir("cs-non-git");
+        fs::write(root.join("plain.txt"), "non_git_plain_token").unwrap();
+
+        let res = search(&root, &["non_git_plain_token"]);
+
+        assert_eq!(res.literal, "non_git_plain_token");
+        assert_eq!(res.matches.len(), 1);
+        assert_eq!(res.matches[0].path, "plain.txt");
+    }
+
+    #[test]
+    fn content_search_degrada_a_vuoto_su_errori_e_scadenza() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let generous = std::time::Duration::from_secs(30);
+
+        // Radice inesistente: nessun errore mostrato all'utente.
+        let res = rt.block_on(content_search_within(
+            "Z:/non/existent/path/for/sure",
+            vec!["token".to_string()],
+            generous,
+        ));
+        assert_eq!(res, ProjectContentSearchResult::empty());
+
+        let root = temp_dir("cs-empty-cand");
+        let root_str = root.to_str().unwrap();
+
+        let res2 = rt.block_on(content_search_within(root_str, vec![], generous));
+        assert_eq!(res2, ProjectContentSearchResult::empty());
+
+        // Candidati vuoti o troppo corti non producono ricerche.
+        let res3 = rt.block_on(content_search_within(
+            root_str,
+            vec!["   ".to_string(), "".to_string(), "abc".to_string()],
+            generous,
+        ));
+        assert_eq!(res3, ProjectContentSearchResult::empty());
+
+        // Scadenza gia' esaurita: risultato vuoto invece di attesa.
+        fs::write(root.join("hit.txt"), "deadline_probe_token").unwrap();
+        let res4 = rt.block_on(content_search_within(
+            root_str,
+            vec!["deadline_probe_token".to_string()],
+            std::time::Duration::ZERO,
+        ));
+        assert_eq!(res4, ProjectContentSearchResult::empty());
     }
 }

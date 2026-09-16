@@ -13,9 +13,9 @@ use projects::{
     file_git_head, file_git_rev, file_read, file_read_bytes, file_write, git_branch_checkout,
     git_branch_create, git_branch_list, git_branch_merge, git_current_branch, git_last_commit,
     git_recent_commits, git_working_numstat, path_create_directory, path_create_file, path_rename,
-    path_trash, preview_file, project_files_search, project_git_status, project_tasks_read,
-    project_tasks_unwatch, project_tasks_watch, project_tasks_write, resolve_project_file,
-    tree_read,
+    path_trash, preview_file, project_content_search, project_files_search, project_git_status,
+    project_tasks_read, project_tasks_unwatch, project_tasks_watch, project_tasks_write,
+    resolve_project_file, tree_read,
 };
 mod omp_ops;
 use omp_ops::{
@@ -29,10 +29,10 @@ use studio_updater::{
 };
 mod models_ops;
 use models_ops::{
-    apply_model_fixes, check_model_health, get_auth_accounts,
-    get_available_models_catalog, get_custom_providers, get_model_config, get_model_providers,
-    get_models_catalog, get_role_suggestions, refresh_model_provider, refresh_models_catalog,
-    remove_auth_account, save_custom_providers, save_model_config,
+    apply_model_fixes, check_model_health, get_auth_accounts, get_available_models_catalog,
+    get_custom_providers, get_model_config, get_model_providers, get_models_catalog,
+    get_role_suggestions, refresh_model_provider, refresh_models_catalog, remove_auth_account,
+    save_custom_providers, save_model_config,
 };
 mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
@@ -89,7 +89,8 @@ pub fn run() {
                 // del sistema operativo interrompendo la digitazione. Un flash
                 // informativo sulla barra delle applicazioni e' sufficiente e sicuro.
                 let _ = window.unminimize();
-                let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
+                let _ =
+                    window.request_user_attention(Some(tauri::UserAttentionType::Informational));
             }
         }))
         .plugin(
@@ -133,6 +134,7 @@ pub fn run() {
             browser_live_pick_upload_files,
             tree_read,
             project_files_search,
+            project_content_search,
             path_create_file,
             path_create_directory,
             path_rename,

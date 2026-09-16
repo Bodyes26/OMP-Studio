@@ -7,6 +7,9 @@ export interface EditorContextOptions {
 
 export {
 	EDITOR_CONTEXT_MARKER,
+	SOURCE_HINTS_MARKER,
+	GIT_CONTEXT_MARKER,
+	PREFLIGHT_MARKERS,
 	type ParsedEditorCursor,
 	type ParsedEditorSelection,
 	type ParsedEditorContext,

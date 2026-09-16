@@ -1,4 +1,5 @@
 import { attachEditorContext } from '$lib/editor/editorContext';
+import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { formatTokens } from '$lib/utils/format';
 import { traceAgent } from '$lib/focusTracer';
@@ -332,6 +333,13 @@ export class AgentSession {
 	pendingUi = $state<PendingUiRequest | null>(null);
 	statusText = $state<string | null>(null);
 	exited = $state(false);
+
+	private preflightDeps: PromptPreflightDeps | null = null;
+
+	/** Test seam per iniettare mock o configurazioni preflight */
+	setPreflightDeps(deps: PromptPreflightDeps | null) {
+		this.preflightDeps = deps;
+	}
 
 	/**
 	 * Esito di `browser-live-v1` per questo processo: `null` finche' la
@@ -2396,7 +2404,12 @@ export class AgentSession {
 		this.todoReminder = null;
 		this.isAborting = false;
 		this.suggestions.invalidate();
-		const fullMessage = attachEditorContext(trimmed, this.cwd);
+		const enriched = await orchestratePromptPreflight(
+			trimmed,
+			{ images, projectPath: this.cwd },
+			this.preflightDeps ?? undefined
+		);
+		const fullMessage = attachEditorContext(enriched, this.cwd);
 
 		// Se OMP e' ancora in fase di avvio, accoda il messaggio e mostra subito l'entry ottimistica
 		if (!this.isReady || !this.isAttached) {

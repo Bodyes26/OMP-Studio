@@ -47,6 +47,7 @@ description = "Albero dei file e operazioni confinate alla radice del progetto: 
 commands.allow = [
     "tree_read",
     "project_files_search",
+    "project_content_search",
     "path_create_file",
     "path_create_directory",
     "path_rename",

@@ -1,4 +1,11 @@
+export const SOURCE_HINTS_MARKER = '[Source Hints]';
+export const GIT_CONTEXT_MARKER = '[Git Context]';
 export const EDITOR_CONTEXT_MARKER = '[Editor Context]';
+export const PREFLIGHT_MARKERS = [
+	SOURCE_HINTS_MARKER,
+	GIT_CONTEXT_MARKER,
+	EDITOR_CONTEXT_MARKER
+] as const;
 
 export interface ParsedEditorCursor {
 	line: number;
@@ -135,21 +142,40 @@ export function parseEditorContext(rawContext: string): ParsedEditorContext | nu
  * il testo pulito per la visualizzazione nella GUI e il contesto analizzato a parte.
  */
 export function splitMessageAndEditorContext(content: string): SplitMessageContextResult {
-	const idx = content.indexOf(EDITOR_CONTEXT_MARKER);
-	if (idx === -1) {
+	let earliestIdx = -1;
+	for (const marker of PREFLIGHT_MARKERS) {
+		const idx = content.indexOf(marker);
+		if (idx !== -1 && (earliestIdx === -1 || idx < earliestIdx)) {
+			earliestIdx = idx;
+		}
+	}
+
+	if (earliestIdx === -1) {
 		return { userMessage: content, context: null, rawContext: null };
 	}
-	const userMessage = content.slice(0, idx).trim();
-	const rawContext = content.slice(idx).trim();
+
+	const userMessage = content.slice(0, earliestIdx).trim();
+	const editorIdx = content.indexOf(EDITOR_CONTEXT_MARKER);
+	if (editorIdx === -1) {
+		return { userMessage, context: null, rawContext: null };
+	}
+
+	const rawContext = content.slice(editorIdx).trim();
 	const context = parseEditorContext(rawContext);
 	return { userMessage, context, rawContext };
 }
 
 /**
- * Rimuove il blocco [Editor Context] da un testo (es. per anteprime in coda).
+ * Rimuove i blocchi di contesto (Source Hints, Git Context, Editor Context) da un testo (es. per anteprime in coda).
  */
 export function stripEditorContext(content: string): string {
-	const idx = content.indexOf(EDITOR_CONTEXT_MARKER);
-	if (idx === -1) return content;
-	return content.slice(0, idx).trim();
+	let earliestIdx = -1;
+	for (const marker of PREFLIGHT_MARKERS) {
+		const idx = content.indexOf(marker);
+		if (idx !== -1 && (earliestIdx === -1 || idx < earliestIdx)) {
+			earliestIdx = idx;
+		}
+	}
+	if (earliestIdx === -1) return content;
+	return content.slice(0, earliestIdx).trim();
 }

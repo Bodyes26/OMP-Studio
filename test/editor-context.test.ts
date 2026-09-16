@@ -4,6 +4,8 @@ import { PieceTreeTextBufferBuilder } from '../node_modules/monaco-editor/esm/vs
 import { Range } from '../node_modules/monaco-editor/esm/vs/editor/common/core/range.js';
 import {
 	EDITOR_CONTEXT_MARKER,
+	SOURCE_HINTS_MARKER,
+	GIT_CONTEXT_MARKER,
 	formatEditorContext,
 	parseEditorContext,
 	splitMessageAndEditorContext,
@@ -124,6 +126,14 @@ export function login() {}
 			assert.ok(res.context);
 			assert.deepEqual(res.context.openFiles, ['test.py']);
 		});
+
+		it('taglia al marcatore piu precoce tra Source Hints, Git ed Editor Context continuando a parsare l Editor Context', () => {
+			const text = `Messaggio utente\n\n${SOURCE_HINTS_MARKER}\nNote: ...\n\n${GIT_CONTEXT_MARKER}\n- [M] file.ts\n\n${EDITOR_CONTEXT_MARKER}\n- Open files: \`src/a.ts\``;
+			const res = splitMessageAndEditorContext(text);
+			assert.equal(res.userMessage, 'Messaggio utente');
+			assert.ok(res.context);
+			assert.deepEqual(res.context.openFiles, ['src/a.ts']);
+		});
 	});
 
 	describe('stripEditorContext', () => {
@@ -135,6 +145,11 @@ export function login() {}
 		it('non altera messaggi privi del marcatore', () => {
 			const text = 'Messaggio semplice';
 			assert.equal(stripEditorContext(text), 'Messaggio semplice');
+		});
+
+		it('rimuove i blocchi tagliando al marcatore piu precoce di Source Hints o Git Context', () => {
+			const text = `Messaggio utente\n\n${SOURCE_HINTS_MARKER}\nNote: ...\n\n${GIT_CONTEXT_MARKER}\n- [M] file.ts`;
+			assert.equal(stripEditorContext(text), 'Messaggio utente');
 		});
 	});
 
