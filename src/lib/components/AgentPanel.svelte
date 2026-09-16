@@ -166,7 +166,7 @@
 						onclick={() => explained = noticeOpen ? null : gate.block}
 					>
 						<span class="state-dot" aria-hidden="true"></span>
-						{gate.label}
+						<span class="state-label">{gate.label}</span>
 					</button>
 				{/if}
 			</div>
@@ -368,18 +368,24 @@
 		line-height: 1.4;
 	}
 
+	/* Due righe: il pannello Agente e' una colonna strettissima e affiancare
+	   "Nuovo task" al chip di stato spezzava l'etichetta del pulsante su due
+	   righe. Pulsante a piena larghezza, stato sotto, entrambi centrati. */
 	.queue-toolbar {
 		padding: 0 var(--space-2) var(--space-2);
 		display: flex;
-		align-items: center;
-		gap: var(--space-2);
+		flex-direction: column;
+		align-items: stretch;
+		gap: var(--space-1);
 	}
 
 	.new-task {
+		width: 100%;
 		height: 28px;
 		padding: 0 var(--space-2);
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 		gap: var(--space-1);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
@@ -387,6 +393,7 @@
 		color: var(--ink);
 		font-size: var(--text-sm);
 		font-weight: 500;
+		white-space: nowrap;
 		cursor: pointer;
 	}
 
@@ -410,19 +417,27 @@
 	}
 
 	.automation-state {
+		width: 100%;
 		min-width: 0;
+		min-height: 22px;
 		padding: 3px var(--space-2);
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 		gap: var(--space-1);
-		overflow: hidden;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-full);
 		background: transparent;
 		color: var(--ink-faint);
+		cursor: pointer;
+	}
+
+	/* L'ellissi vive sull'etichetta: su un contenitore flex non si applica. */
+	.state-label {
+		min-width: 0;
+		overflow: hidden;
 		white-space: nowrap;
 		text-overflow: ellipsis;
-		cursor: pointer;
 	}
 
 	.automation-state:hover,
