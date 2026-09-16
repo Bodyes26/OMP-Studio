@@ -1,8 +1,7 @@
 <script lang="ts">
+	import { flip } from 'svelte/animate';
 	import { m } from '$lib/paraglide/messages.js';
 	// Pannello roster dei subagent: stato, modello, tool corrente, token, durata.
-	// Clic apre `SubagentDrawer`.
-	//
 	// In sola lettura: il protocollo RPC non espone comandi per steerare
 	// o uccidere un subagent. Lo dichiara in fondo invece di inventare bottoni.
 	import AgentLink from '../tools/parts/AgentLink.svelte';
@@ -21,7 +20,10 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		const target = e.target as HTMLElement | null;
-		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+		if (
+			target &&
+			(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+		) {
 			return;
 		}
 		if (e.key === 'Escape') {
@@ -79,20 +81,54 @@
 <!-- Bottone decorativo: chiude al clic ma resta fuori da tab e albero di
      accessibilita'; il fuoco vero passa dal pannello (fuoco iniziale +
      trap) e da Esc, non dal backdrop. -->
-<button type="button" class="panel-backdrop" onclick={onClose} aria-hidden="true" tabindex="-1"></button>
+<button
+	type="button"
+	class="panel-backdrop"
+	onclick={onClose}
+	aria-hidden="true"
+	tabindex="-1"
+></button>
 
-<div class="subagent-panel" role="dialog" aria-modal="true" aria-label="Elenco subagent" use:trapFocus>
+<div
+	class="subagent-panel"
+	role="dialog"
+	aria-modal="true"
+	aria-label="Elenco subagent"
+	use:trapFocus
+>
 	<div class="panel-head">
-		<span class="title">{m.ui_subagentpanel_subagent_del_progetto_6548()}{subagents.length})</span>
-		<button type="button" class="btn-close" onclick={onClose} aria-label={m.page_modal_restart_btn_close()}><IconClose /></button>
+		<span class="title">
+			{m.ui_subagentpanel_subagent_del_progetto_6548()}{subagents.length})
+		</span>
+		<button
+			type="button"
+			class="btn-close"
+			onclick={onClose}
+			aria-label={m.page_modal_restart_btn_close()}
+		>
+			<IconClose size={16} />
+		</button>
 	</div>
 
-	<div class="roster">
-		{#each subagents as progress (progress.id ?? progress.index)}
-			<AgentLink {progress} />
+	<div class="roster-container">
+		{#if subagents.length > 0}
+			<div class="roster" role="list">
+				{#each subagents as progress, idx (progress.id ?? progress.index ?? idx)}
+					<div
+						animate:flip={{ duration: 200 }}
+						class="roster-item"
+						role="listitem"
+						style="--stagger-delay: {idx * 30}ms"
+					>
+						<AgentLink {progress} index={idx} />
+					</div>
+				{/each}
+			</div>
 		{:else}
-			<div class="empty">{m.ui_subagentpanel_nessun_subagent_registrato_in_questa_sessione_6201()}</div>
-		{/each}
+			<div class="empty">
+				{m.ui_subagentpanel_nessun_subagent_registrato_in_questa_sessione_6201()}
+			</div>
+		{/if}
 	</div>
 
 	<div class="readonly-notice">
@@ -158,15 +194,49 @@
 		color: var(--ink);
 	}
 
-	.roster {
+	.roster-container {
 		flex: 1;
-		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del proprio contenuto, quindi il contenitore lo taglia invece di far comparire la barra di scorrimento */
 		min-height: 0;
 		overflow-y: auto;
 		padding: var(--space-2) var(--space-3);
+	}
+
+	.roster {
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
+		background: var(--bg-raised);
+		overflow: hidden;
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+	}
+
+	.roster-item {
+		animation: roster-stagger 200ms ease-out var(--stagger-delay, 0ms) both;
+	}
+
+	.roster-item + .roster-item {
+		border-top: 1px solid var(--line);
+	}
+
+	@keyframes roster-stagger {
+		from {
+			opacity: 0;
+			transform: translateY(2px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.roster-item {
+			animation: none;
+		}
+	}
+
+	:root[data-animations="false"] .roster-item {
+		animation: none;
 	}
 
 	.empty {

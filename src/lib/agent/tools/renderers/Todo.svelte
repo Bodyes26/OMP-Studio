@@ -2,22 +2,18 @@
   Renderer per il tool `todo`.
 
   Mostra l'operazione (es. init, update, complete) e il riepilogo dello stato
-  dei task nel sommario. Nel corpo visualizza le fasi (senza id sul filo,
-  quindi indicizzate per posizione) con l'elenco dei task e i rispettivi
-  icone di stato: pendente, in corso (brand), completato (faint),
-  abbandonato (barrato, faint) e bloccato (warning, con tooltip del blocker).
+  dei task nel sommario. Nel corpo visualizza le fasi tramite il primitivo TaskRow,
+  con indice fase nell'anello, metrica completed/total e dettagli espandibili con
+  stato dei singoli task e blocker inline.
 -->
 <script lang="ts">
+	import { flip } from 'svelte/animate';
 	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
-	import {
-		IconStatusPending,
-		IconStatusRunning,
-		IconStatusDone,
-		IconStatusFailed,
-		IconWarning
-	} from '$lib/icons';
+	import TaskRow from '../../components/TaskRow.svelte';
+	import { todoPhaseToTaskRow } from '../../taskRow';
+	import type { TodoStatus } from '../../wire';
 	import {
 		asRecord,
 		recordList,
@@ -95,23 +91,33 @@
 	const summaryStats = $derived.by(() => {
 		if (stats.total === 0) return undefined;
 		const parts: string[] = [];
-		parts.push(`${stats.completed}/${stats.total} completati`);
+		parts.push(`${stats.completed}/${stats.total} ${m.task_row_status_completed().toLowerCase()}`);
 		if (stats.inProgress > 0) {
 			parts.push(m.ui_task_value1_in_corso_8e50({ value1: stats.inProgress }));
 		}
 		if (stats.blocked > 0) {
-			parts.push(`${stats.blocked} bloccati`);
+			parts.push(`${stats.blocked} ${m.task_row_status_blocked().toLowerCase()}`);
 		}
 		return parts.join(', ');
 	});
 
-	const STATUS_ICON: Record<TaskItem['status'], typeof IconStatusPending> = {
-		pending: IconStatusPending,
-		in_progress: IconStatusRunning,
-		completed: IconStatusDone,
-		abandoned: IconStatusFailed,
-		blocked: IconWarning
-	};
+	const phaseModels = $derived(
+		phases.map((phase, idx) =>
+			todoPhaseToTaskRow(
+				{
+					id: `phase-${idx}`,
+					name: phase.name,
+					tasks: phase.tasks.map((t, tIdx) => ({
+						id: `task-${idx}-${tIdx}`,
+						content: t.content,
+						status: t.status as TodoStatus,
+						blocker: t.blocker
+					}))
+				},
+				idx
+			)
+		)
+	);
 
 	const textFallback = $derived(resultText(result));
 </script>
@@ -126,30 +132,15 @@
 {:else}
 	<div class="todo-body">
 		{#if phases.length > 0}
-			<div class="phases-container">
-				{#each phases as phase, phaseIdx (phaseIdx)}
-					<div class="phase-section">
-						<div class="phase-header">{phase.name}</div>
-						<ul class="task-list">
-							{#each phase.tasks as task, taskIdx (taskIdx)}
-								{@const StatusIcon = STATUS_ICON[task.status] ?? IconStatusPending}
-								<li class="task-row {task.status}">
-									<span
-										class="glyph"
-										title={task.status === 'blocked' ? (task.blocker ?? 'Bloccato') : undefined}
-									>
-										<StatusIcon />
-									</span>
-									<span
-										class="task-text"
-										class:strikethrough={task.status === 'abandoned'}
-										title={task.blocker ? `Bloccante: ${task.blocker}` : undefined}
-									>
-										{task.content}
-									</span>
-								</li>
-							{/each}
-						</ul>
+			<div class="phases-container" role="list">
+				{#each phaseModels as model, idx (model.key)}
+					<div
+						animate:flip={{ duration: 200 }}
+						class="phase-item"
+						role="listitem"
+						style="--stagger-delay: {idx * 30}ms"
+					>
+						<TaskRow {model} />
 					</div>
 				{/each}
 			</div>
@@ -180,82 +171,43 @@
 	.todo-body {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: var(--space-2);
 		min-width: 0;
 	}
 
 	.phases-container {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		border-top: 1px solid var(--line);
+		border-bottom: 1px solid var(--line);
 	}
 
-	.phase-section {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
+	.phase-item {
+		animation: todo-stagger 200ms ease-out var(--stagger-delay, 0ms) both;
 	}
 
-	.phase-header {
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink-faint);
+	.phase-item + .phase-item {
+		border-top: 1px solid var(--line);
 	}
 
-	.task-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
+	@keyframes todo-stagger {
+		from {
+			opacity: 0;
+			transform: translateY(2px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
-	.task-row {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-		font-size: var(--text-sm);
-		line-height: 1.4;
+	@media (prefers-reduced-motion: reduce) {
+		.phase-item {
+			animation: none;
+		}
 	}
 
-	.glyph {
-		--icon-size: 12px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		color: var(--ink-faint);
-		width: 14px;
-		flex-shrink: 0;
-	}
-	.task-row.in_progress .glyph {
-		color: var(--brand-ink);
-	}
-
-	.task-row.completed .glyph {
-		color: var(--ink-faint);
-	}
-
-	.task-row.completed .task-text {
-		color: var(--ink-muted);
-	}
-
-	.task-row.blocked .glyph {
-		color: var(--warn);
-	}
-
-	.task-row.abandoned .glyph {
-		color: var(--ink-faint);
-	}
-
-	.task-text {
-		color: var(--ink);
-		overflow-wrap: anywhere;
-		user-select: text;
-	}
-
-	.strikethrough {
-		text-decoration: line-through;
-		color: var(--ink-faint);
+	:root[data-animations="false"] .phase-item {
+		animation: none;
 	}
 </style>

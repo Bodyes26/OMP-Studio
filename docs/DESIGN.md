@@ -81,11 +81,27 @@ leggibili anche quando le superfici arrivano da `export.pageBg` e
 | `--warn` | `oklch(0.780 0.150 75)` | `#EFA831` | **7.83:1** | Testo e icona di soglia quota. |
 | `--warn-dim` | `oklch(0.560 0.120 75)` | `#9D6800` | 3.37:1 | Riempimento barra quota in avviso. |
 
-### 2.6 Cosa NON esiste nella palette
+### 2.6 Stati operativi espliciti — verde success e rosso danger
 
-**Nessun verde-successo. Nessun rosso-errore.** Decisione deliberata: gli errori dell'agente appaiono dentro il terminale, con i colori ANSI, dove l'utente li legge già. Duplicarli nel guscio è rumore e crea ambiguità (un anello cremisi accanto a testo rosso ANSI: quale dei due è l'errore?). Il guscio segnala tre soli stati per progetto e nessuno di questi è "errore".
+Nel guscio generale non esistono sfondi o accenti decorativi di successo ed errore generici. **Verde success e rosso danger sono ammessi nel guscio esclusivamente per stati operativi espliciti** (l'esito concluso o fallito di una fase TODO o di un subagente nelle Task Rows, §7.12) e **sempre e solo accompagnati da un'icona e da testo esplicativo**. Non compaiono mai come solo colore e mai come sfondo generico.
 
-La severità della quota usa una scala di tre livelli che riusa la palette esistente invece di allargarla:
+Gli errori dell'agente nel codice e nei comandi continuano ad apparire dentro la viewport del terminale con i propri colori ANSI, che restano separati dal guscio (§2.8). I token semantici del guscio non invadono il terminale e la palette ANSI non pilota il guscio.
+
+I token `--success` e `--danger` sono parametrici (tinta, luminanza e croma) esattamente come `--warn`, sovrascritti dinamicamente da `theme.ts` insieme agli anchor del tema `omp` e inclusi nel CSS persistito pre-paint:
+
+| Token | Tinta | Dark default | Light default | Contrasto da verificare | Uso |
+|---|---|---|---|---|---|
+| `--success` | 145 | `oklch(0.740 0.180 145)` | `oklch(0.420 0.160 145)` | **≥ 4.5:1** su sfondi base/raised | Icona, testo e bordo stato completato nelle Task Rows. |
+| `--danger` | 27 | `oklch(0.680 0.185 27)` | `oklch(0.420 0.150 27)` | **≥ 4.5:1** su sfondi base/raised | Icona, testo e bordo stato fallito nelle Task Rows. |
+| `--danger-dim-l` | — | `0.480` | `0.880` | — | Luminanza attenuata per superfici e toni danger. |
+
+Regole di applicazione per badge e pillole operative:
+- **Tint delle pillole:** al 15% di opacità su trasparente (`oklch(... / 0.15)`).
+- **Superfici ed evidenziazioni:** massimo 10% di opacità su `--bg-raised`.
+- **Bordi:** 30% di opacità (`oklch(... / 0.30)`).
+- **Contrasto WCAG AA:** il testo e le icone di stato devono essere sempre verificati per superare 4.5:1 rispetto alla superficie effettiva sottostante (sia su tema scuro sia su tema chiaro).
+
+La severità della quota usa la scala di tre livelli che riusa la palette base invece di allargarla con un rosso generico:
 
 | Stato quota | Riempimento barra | Soglia |
 |---|---|---|
@@ -311,13 +327,17 @@ Nessun bounce, nessun elastic, nessun overshoot.
 
    L'attesa di avvio non è un'eccezione: il messaggio che compare mentre la shell e `omp` partono è **testo scritto nel buffer di xterm**, non un velo sopra la viewport, e non anima nulla (`DECISIONS.md` Gate R20).
 
-3. **Un solo movimento persistente in tutta l'app**: il respiro dell'anello ambra sulla tessera di un progetto che **aspetta una risposta**. Opacità `1 → 0.35 → 1` su un anello inset da 1.5px in `--warn`, 1800ms, `--ease-in-out`, infinito. Il movimento serve a chiamare qualcuno: lo stato che ha bisogno dell'utente è il solo che ha diritto di muoversi, mentre «sta lavorando» non chiede niente a nessuno e si accontenta di un punto pieno.
+3. **Il movimento persistente resta rigorosamente limitato**: l'unico elemento che pulsa indefinitamente nell'intera interfaccia è il respiro dell'anello ambra sulla tessera di un progetto che **aspetta una risposta**. Opacità `1 → 0.35 → 1` su un anello inset da 1.5px in `--warn`, 1800ms, `--ease-in-out`, infinito. Il movimento serve a chiamare qualcuno: lo stato che ha bisogno dell'utente è il solo che ha diritto di muoversi, mentre «sta lavorando» non chiede niente a nessuno e si accontenta di un punto pieno.
 
-   L'arco che gira sulla tessera **aperta** in `working` non è un'eccezione a questa regola: è un'animazione locale a un solo elemento visibile solo sul progetto che si sta già guardando, e scompare quando la tessera si chiude.
+   **Archi indeterminati e confini di visibilità:** gli archi rotanti di avanzamento indeterminato (come l'arco sulla tessera aperta in `working` o l'arco SVG al 28% nelle Task Rows in stato `running`, §7.12) sono ammessi **soltanto nelle righe di un pannello o di una lista attualmente aperto**, dove l'utente osserva attivamente l'avanzamento. Non sono mai ammessi nei riepiloghi chiusi, nelle tessere compresse o in sezioni collassate: quando il contenitore si chiude o si ritira, l'arco scompare o torna a indicatore statico.
 
 Il respiro è a **duty-cycle**: due plateau (opacità 1 e 0.35) collegati da rampe `steps(6)`. Il compositor aggiorna 12 frame discreti per ciclo invece di uno per vsync — su GPU integrata è la differenza tra un'animazione gratuita e un costo fisso a riposo. Il keyframe è `state-pulse`, globale in `src/app.css`; `tab-spin` e `tab-flash` vivono dentro `TopBar.svelte`, dove sono usati.
 
 ### Reduced motion — obbligatorio
+
+Sia con la media query di sistema `prefers-reduced-motion: reduce` sia con la disattivazione esplicita delle animazioni (`:root[data-animations="false"]`), tutti i movimenti persistenti e le transizioni decadono a valori istantanei.
+
+Gli archi indeterminati in rotazione (sulla tessera aperta e nelle righe di task `running`) **degradano tassativamente a un anello intero statico**: un arco congelato ad angolatura arbitraria sembrerebbe un elemento rotto o un errore di caricamento, non uno stato di avanzamento.
 
 ```css
 @media (prefers-reduced-motion: reduce) {
@@ -326,9 +346,16 @@ Il respiro è a **duty-cycle**: due plateau (opacità 1 e 0.35) collegati da ram
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
-  /* L'arco che gira degrada a un anello intero: fermo a un angolo qualsiasi
-     sembrerebbe un anello rotto, non uno stato. */
+  /* L'arco che gira degrada a un anello intero statico: fermo a un angolo qualsiasi
+     sembrerebbe un anello rotto, non uno stato. Vale per tessere e Task Rows. */
   .tab-spin { border-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue)); }
+  .task-ring-running { stroke-dasharray: none; }
+}
+
+:root[data-animations="false"] .task-ring-running,
+:root[data-animations="false"] .tab-spin {
+  animation: none !important;
+  stroke-dasharray: none !important;
 }
 ```
 
@@ -534,6 +561,27 @@ Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente 
 - **Card revisioni e timeline**: le revisioni create dall'orchestratore mostrano chip di stato esplicite (`rendering-ready` per l'anteprima immediata, `verified` dopo la verifica mirata, `interrupted` in caso di stop o abort); azioni contestuali rapide per ripristinare la revisione o duplicarla in un nuovo esperimento indipendente.
 - **Pannello di contesto (`LabContextPanel.svelte`)**: cassetto retrattile per consultare i file del progetto inclusi nello snapshot stabile, visualizzare lo stato di deriva (drift) con badge di avviso non bloccante in caso di modifiche esterne da parte del principale, e pulsanti di azione per l'aggiornamento esplicito del contesto, l'esportazione autonoma Vite o la consegna (handoff) al principale.
 
+
+### 7.12 Task Rows (TODO e subagenti)
+
+Linguaggio visivo unificato per rappresentare le fasi operative pianificate (TODO) e l'avanzamento dei subagenti o job asincroni in background, basato sul modello dati neutro `TaskRowModel`.
+
+- **Variante List**: layout a lista densa orientato alla sequenza cronologica o gerarchica delle attività. Nessuna card gonfia, nessuna shadow, nessuna spaziatura ridondante.
+- **Dividers**: righe separate da divisori sottili di 1px (`--line`), che scandiscono il ritmo verticale senza frammentare la lista in tessere isolate.
+- **Raggi e contenimento**: raggio massimo di 10px (`--radius-lg`) applicato **esclusivamente dove la lista è priva di una cornice perimetrale esterna**; dentro contenitori, drawer o pannelli già provvisti di bordo o sfondo proprio, le righe hanno spigoli vivi (`0px`) o si conformano al raggio del contenitore.
+- **Disclosure manuale ed effimera**: l'espansione dei dettagli aggiuntivi (parametri, metriche, messaggi di output, transcript) avviene unicamente su click esplicito dell'utente sulla riga o sul chevron. La transizione usa `transition:slide`. Lo stato di apertura è puramente locale ed effimero.
+- **Niente auto-open**: le righe non si espandono mai automaticamente al passaggio di stato o all'avvio del task. L'apertura non richiesta causa disorientamento visivo, salti di layout (*layout shift*) e perdita del punto di lettura o del fuoco da tastiera.
+- **Righe non interattive**: le righe che non possiedono dettagli aggiuntivi o azioni secondarie non sono interattive (`expandable: false`), non espongono il chevron e non mostrano stati hover ingannevoli.
+- **Nessun retry placebo**: nessun pulsante fittizio di retry, ripetizione o interruzione è incorporato all'interno del componente primitivo. Le azioni lecite (es. consultazione transcript o navigazione) sono passate come callback o snippet dal contesto chiamante e mappate solo su capacità effettive del backend.
+- **Live region aggregata**: per garantire un'accessibilità ottimale con screen reader senza cacofonia durante esecuzioni ad alta frequenza, le variazioni di stato non usano annunci atomici per-riga ma una **live region aggregata** (`aria-live="polite"`), che riassume periodicamente lo stato complessivo della sequenza.
+- **Mappa degli stati operativi**:
+  - `pending`: anello statico neutro in `--ink-faint`, indica attività programmata o in attesa.
+  - `running`: arco SVG indeterminato (28% di circonferenza) in rotazione continua; degrada ad anello circolare intero statico sia con `prefers-reduced-motion` sia con `:root[data-animations="false"]`.
+  - `completed`: pillola verde `--success` con icona di spunta (check).
+  - `failed`: pillola rossa `--danger` con icona a croce (X).
+  - `blocked`: pillola ambra `--warn` con icona triangolare di avviso.
+  - `abandoned` / `aborted`: pillola neutra `--ink-muted` (fondo trasparente 15%) con icona a croce (X).
+  - **Pillole di stato**: sono riservate rigorosamente agli stati terminali (`completed`, `failed`, `abandoned`, `aborted`) o allo stato `blocked`. Gli stati `pending` e `running` mostrano soltanto l'anello indicatore a sinistra per non appesantire la gerarchia visiva.
 ---
 ## 8. Token CSS pronti
 
@@ -562,6 +610,11 @@ Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente 
   /* Attenzione */
   --warn:        oklch(0.780 0.150 75);
   --warn-dim:    oklch(0.560 0.120 75);
+
+  /* Stati operativi espliciti (Task Rows) */
+  --success:     oklch(0.740 0.180 145);
+  --danger:      oklch(0.680 0.185 27);
+  --danger-dim-l: 0.480;
 
   /* Identità progetto: L/C fissi, tinta dall'hash del path */
   --proj-l-idle: 0.42;  --proj-c-idle: 0.130;

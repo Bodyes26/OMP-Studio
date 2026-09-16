@@ -59,6 +59,15 @@
   --focus:       var(--brand);
   --focus-ring:  0 0 0 2px var(--brand);
   --focus-inset: inset 0 0 0 2px var(--brand);
+  /* Successo — parametrico come `--warn`, tinta verde fissa (145) */
+  --success-h:     145;
+  --success-c:     0.180;
+  --success-l:     0.740;
+  --success:       oklch(var(--success-l) var(--success-c) var(--success-h));
+  --success-dim-l: 0.520;
+  --success-dim:   oklch(var(--success-dim-l) calc(var(--success-c) * 0.800) var(--success-h));
+  --on-success:    var(--bg-sunken);
+
   /* Attenzione */
   --warn-h:      75;
   --warn-c:      0.150;
@@ -70,10 +79,13 @@
   /* Errore — distinto da `--warn`: l'attenzione avverte, l'errore dice che
      qualcosa non e' avvenuto. Tinta rossa fissa, indipendente dal tema di
      omp: il brand puo' essere rosso o verde, un errore no. */
-  --danger:      oklch(0.680 0.185 27);
-  --danger-dim:  oklch(0.480 0.150 27);
-  --on-danger:   var(--bg-sunken);
-
+  --danger-h:      27;
+  --danger-c:      0.185;
+  --danger-l:      0.680;
+  --danger:        oklch(var(--danger-l) var(--danger-c) var(--danger-h));
+  --danger-dim-l:  0.480;
+  --danger-dim:    oklch(var(--danger-dim-l) calc(var(--danger-c) * 0.800) var(--danger-h));
+  --on-danger:     var(--bg-sunken);
   /* Identità progetto: tinta dall'hash del path. Due soli usi: la lettera
      della tessera a riposo, il riempimento della tessera attiva. Un solo
      progetto per volta e' colorato pieno, gli altri sono neutri. */

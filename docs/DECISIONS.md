@@ -910,3 +910,65 @@ Tutti i 18 criteri della Sezione 11 del piano (`ricerca/laboratorio-prototipi-pi
 - **Tempo di apertura renderer (avvio Chromium + CDP):** 1096.4 ms
 - **Tempo di generazione prototipo iniziale (template + 3 varianti + compile + rev):** 546.6 ms
 - **Tempo di iterazione su variante C (selezione + refinement + compile):** 535.4 ms
+
+---
+
+## Gate R25: Linguaggio visuale unificato Task Rows per TODO e subagenti
+
+**Data:** 2026-09-16  
+**Esito:** APPROVATO (Fondazione Svelte 5, design token semantici operativi e isolamento delle azioni)  
+
+**Decisione:** adozione di un componente e modello dati neutro unificato `TaskRow` (`TaskRowModel`) per rappresentare lo stato e l'avanzamento delle fasi dei TODO plan e dei subagenti in background/job asincroni. Formalizzazione nel design system del guscio dei token semantici operativi `--success` (tinta 145) e `--danger` (tinta 27), con rampa parametrizzata per modalità scura e chiara, riservati esclusivamente a stati operativi espliciti accompagnati da testo o icone. Rigido divieto di controlli placebo di retry o abort non supportati dal runtime e divieto di auto-espansione delle disclosure.
+
+### Il problema risolto
+
+La rappresentazione dello stato di avanzamento delle attività operative in Studio era finora frammentata tra superfici eterogenee (`TodoStrip`, collegamenti e card dei subagenti, notifiche di sistema):
+1. **Frammentazione visiva ed ergonomica:** stili ad hoc, badge con forme e pesi disomogenei e differenti grammatiche per comunicare esecuzioni in corso o terminate tra fasi di pianificazione e processi asincroni.
+2. **Ambiguità semantica dei colori:** assenza di token standardizzati per successo e fallimento operativo nel guscio; l'interfaccia ricorreva impropriamente al colore di brand o demandava la comprensione unicamente ai codici ANSI della viewport del terminale.
+3. **Rischio di controlli placebo:** tendenza nei componenti di interfaccia a includere pulsanti di retry o cancellazione non supportati dal backend RPC di `omp`, che non espone primitive di retry o abort atomico a livello di singolo sotto-task.
+4. **Instabilità del layout (layout shift):** componenti con apertura automatica all'avvio o al cambio di stato, che provocavano salti improvvisi nello scroll e perdita del contesto di lettura o del fuoco da tastiera.
+
+### Decisioni architetturali e principi di progettazione
+
+1. **Modello dati neutro e disaccoppiato (`TaskRowModel`):**
+   `TaskRow.svelte` opera su una struttura dati pura (`key`, `label`, `status`, `ringNumber`, `metric`, `details`, `expandable`), totalmente agnostica rispetto al DOM e ai tipi specifici del server. Adattatori funzionali puri trasformano `TodoPhase`, `AgentProgress` e stati dei job in background verso `TaskRowModel` senza dipendenze incrociate.
+2. **Mappa dei 7 stati operativi deterministici:**
+   - `pending`: anello statico neutro (`--ink-faint`).
+   - `running`: arco SVG rotante indeterminato (28% di circonferenza); degrada ad anello intero statico con `prefers-reduced-motion` o `:root[data-animations="false"]`.
+   - `completed`: pillola verde `--success` con icona check.
+   - `failed`: pillola rossa `--danger` con icona X.
+   - `blocked`: pillola ambra `--warn` con icona triangolo di avviso.
+   - `abandoned` e `aborted`: pillola neutra `--ink-muted` con icona X.
+   Le pillole sono riservate esclusivamente agli stati terminali o bloccati; gli stati `pending` e `running` impiegano unicamente l'anello per preservare la pulizia visiva.
+3. **Token semantici espliciti `--success` e `--danger`:**
+   Introdotti in `src/app.css`, sovrascritti dinamicamente da `theme.ts` insieme agli anchor del tema `omp` e inclusi nel CSS persistito pre-paint:
+   - `--success`: tinta 145 (dark `L=0.740, C=0.180`; light `L=0.420, C=0.160`).
+   - `--danger`: tinta 27 (dark `L=0.680, C=0.185`; light `L=0.420, C=0.150`; `--danger-dim-l` dark 0.480, light 0.880).
+   - Superfici pillola al 15% di opacità su trasparente, bordi al 30%; contrasto verificato WCAG AA (≥ 4.5:1).
+   - Nel guscio verde e rosso sono ammessi unicamente per questi stati operativi espliciti, lasciando separata e inalterata la palette ANSI del terminale (§2.8).
+4. **Disclosure manuale ed effimera:**
+   L'espansione dei dettagli avviene solo su click deliberato dell'utente (`{#if}` + `transition:slide`). Nessun auto-open consentito. Le righe senza dettagli non sono interattive e non mostrano chevron.
+5. **Nessun retry o abort placebo:**
+   Il componente primitivo non integra pulsanti di retry o abort né logica RPC interna. Eventuali azioni lecite sono iniettate come callback o snippet dal chiamante.
+6. **Separazione delle responsabilità d'animazione:**
+   Le animazioni di lista (`animate:flip`) e lo stagger a 30ms sono a carico del contenitore chiamante. TaskRow incapsula unicamente lo stato locale e la transizione del pannello dettagli.
+7. **Accessibilità e live region aggregata:**
+   Per evitare spam vocale con screen reader durante esecuzioni concorrenti, le transizioni di stato sono notificate tramite una live region aggregata centralizzata (`aria-live="polite"`).
+
+### Perché NON le strade alternative
+
+1. **Componenti separati per TODO, subagenti e job:**
+   Scartata perché avrebbe perpetuato la divergenza stilistica, duplicato il codice e confuso l'utente nel passaggio tra pianificazione ed esecuzione.
+2. **Uso del colore di brand per il successo:**
+   Scartata perché il colore di brand è l'identità visiva dell'applicazione e il segnale critico per quota esaurita. Associarlo al successo operativo avrebbe generato ambiguità.
+3. **Pulsanti di retry o abort inline nel primitivo:**
+   Scartata perché il protocollo di backend non fornisce primitive di retry atomico per i singoli task secondari. Creare controlli privi di riscontro operativo concreto rappresenta un anti-pattern ingannevole (placebo UI).
+4. **Auto-apertura del pannello dettagli all'avvio del task:**
+   Scartata perché provoca layout shift continui, salti di scorrimento e perdita di orientamento durante l'esecuzione di più attività in parallelo.
+
+### Conseguenze e garanzie
+
+- Linguaggio visivo unificato, sobrio e consistente per ogni attività operativa in Studio.
+- Nessuna alterazione o sovrapposizione con i colori ANSI del terminale.
+- Contrasto e leggibilità verificati su ogni tema chiaro e scuro.
+- Piena accessibilità con supporto automatico a screen reader e movimento ridotto.

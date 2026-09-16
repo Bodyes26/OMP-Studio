@@ -10,8 +10,12 @@
 		onOpen: () => void;
 	}>();
 
-	const runningCount = $derived(subagents.filter((s: AgentProgress) => s.status === 'running').length);
-	const completedCount = $derived(subagents.filter((s: AgentProgress) => s.status === 'completed').length);
+	const runningCount = $derived(
+		subagents.filter((s: AgentProgress) => s.status === 'running').length
+	);
+	const completedCount = $derived(
+		subagents.filter((s: AgentProgress) => s.status === 'completed').length
+	);
 	const failedCount = $derived(
 		subagents.filter((s: AgentProgress) => s.status === 'failed' || s.status === 'aborted').length
 	);
@@ -19,21 +23,32 @@
 
 {#if subagents.length > 0}
 	<div class="subagent-bar">
+		<!-- Annuncio aggregato accessibile per screen reader -->
+		<div class="sr-only" aria-live="polite" aria-atomic="true">
+			{m.task_row_aggregate_subagents({ running: runningCount, completed: completedCount, failed: failedCount, total: subagents.length })}
+		</div>
+
 		<button type="button" class="bar-btn" onclick={onOpen}>
 			<span class="dot" class:running={runningCount > 0}></span>
 			<span class="label">Subagent ({subagents.length})</span>
 			<span class="counts">
 				{#if runningCount > 0}
-					<span class="count-running">{runningCount} {m.queue_drawer_status_in_progress()}</span>
+					<span class="count-running">
+						{runningCount} {m.task_row_status_running().toLowerCase()}
+					</span>
 				{/if}
 				{#if completedCount > 0}
-					<span class="count-done">{completedCount} completati</span>
+					<span class="count-done">
+						{completedCount} {m.task_row_status_completed().toLowerCase()}
+					</span>
 				{/if}
 				{#if failedCount > 0}
-					<span class="count-failed">{failedCount} falliti</span>
+					<span class="count-failed">
+						{failedCount} {m.task_row_status_failed().toLowerCase()}
+					</span>
 				{/if}
 			</span>
-			<span class="arrow"><IconChevronRight aria-hidden="true" /></span>
+			<span class="arrow"><IconChevronRight size={12} aria-hidden="true" /></span>
 		</button>
 	</div>
 {/if}
@@ -92,6 +107,11 @@
 
 	.count-running {
 		color: var(--brand-ink);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.count-done {
+		color: var(--ink-muted);
 		font-variant-numeric: tabular-nums;
 	}
 

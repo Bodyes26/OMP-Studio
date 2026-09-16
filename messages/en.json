@@ -1593,5 +1593,19 @@
   "companion_ready_title": "Ready to start on {project}",
   "companion_empty": "No project open. Write above to queue a task, or open a project from Studio.",
   "ui_activity_sta_pensando": "Thinking",
-  "ui_toolgroup_sto_usando": "Using {tool}"
+  "ui_toolgroup_sto_usando": "Using {tool}",
+  "task_row_status_pending": "Pending",
+  "task_row_status_running": "Running",
+  "task_row_status_completed": "Completed",
+  "task_row_status_failed": "Failed",
+  "task_row_status_blocked": "Blocked",
+  "task_row_status_abandoned": "Abandoned",
+  "task_row_status_aborted": "Aborted",
+  "task_row_label_tokens": "Tokens",
+  "task_row_label_cost": "Cost",
+  "task_row_label_model": "Model",
+  "task_row_open_transcript": "Open transcript",
+  "task_row_terminal_hint": "To steer or terminate a subagent switch to terminal (Alt+A).",
+  "task_row_aggregate_announcement": "{completed} completed, {blocked} blocked, {total} total",
+  "task_row_aggregate_subagents": "{running} running, {completed} completed, {failed} failed, {total} total"
 }

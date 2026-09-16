@@ -1,19 +1,14 @@
 <script lang="ts">
 	// Striscia dei todo sopra il composer.
 	//
-	// Mostra solo la fase corrente e il conteggio sintetico `3/7`. Il clic
-	// espande la lista completa, fase per fase. Cinque stati:
-	// `pending` cerchio vuoto, `in_progress` cerchio pieno in `--brand`,
+	// Mostra la fase corrente, il reminder eventuale e il conteggio sintetico completati/totali.
+	// Il clic espande la lista completa delle fasi come TaskRow unificate.
+	import { flip } from 'svelte/animate';
+	import { m } from '$lib/paraglide/messages.js';
 	import type { TodoItem, TodoPhase } from '../wire';
-	import {
-		IconChevronRight,
-		IconLoop,
-		IconStatusPending,
-		IconStatusRunning,
-		IconStatusDone,
-		IconStatusFailed,
-		IconWarning
-	} from '$lib/icons';
+	import { todoPhaseToTaskRow } from '../taskRow';
+	import TaskRow from './TaskRow.svelte';
+	import { IconChevronRight, IconLoop } from '$lib/icons';
 
 	let { phases, reminder = null } = $props<{
 		phases: TodoPhase[];
@@ -24,39 +19,43 @@
 
 	const allTasks = $derived(phases.flatMap((p: TodoPhase) => p.tasks ?? []));
 	const completedCount = $derived(
-		allTasks.filter((t: TodoItem) => t.status === 'completed' || t.status === 'abandoned').length
+		allTasks.filter((t: TodoItem) => t.status === 'completed').length
 	);
 	const totalCount = $derived(allTasks.length);
-	const hasBlocked = $derived(allTasks.some((t: TodoItem) => t.status === 'blocked'));
-	// Fase corrente: la prima con almeno un task non completato/abbandonato.
+	const blockedCount = $derived(allTasks.filter((t: TodoItem) => t.status === 'blocked').length);
+	const hasBlocked = $derived(blockedCount > 0);
+
+	// Fase corrente: la prima con almeno un task non completato/abbandonato
 	const currentPhase = $derived(
-		phases.find((p: TodoPhase) => (p.tasks ?? []).some((t: TodoItem) => t.status !== 'completed' && t.status !== 'abandoned')) ??
-			phases[phases.length - 1]
+		phases.find((p: TodoPhase) =>
+			(p.tasks ?? []).some((t: TodoItem) => t.status !== 'completed' && t.status !== 'abandoned')
+		) ?? phases[phases.length - 1]
 	);
 
-	// Bloccato e abbandonato hanno una forma propria: il CSS li colora, ma senza
-	// un segno distinto restavano cerchi identici a "in attesa".
-	const STATUS_ICON: Record<string, typeof IconStatusPending> = {
-		pending: IconStatusPending,
-		in_progress: IconStatusRunning,
-		completed: IconStatusDone,
-		blocked: IconWarning,
-		abandoned: IconStatusFailed
-	};
+	const phaseModels = $derived(
+		phases.map((phase: TodoPhase, idx: number) => todoPhaseToTaskRow(phase, idx))
+	);
 </script>
 
 {#if phases.length > 0 && totalCount > 0}
 	<div class="todo-strip" class:expanded>
+		<!-- Annuncio aggregato per screen reader -->
+		<div class="sr-only" aria-live="polite" aria-atomic="true">
+			{m.task_row_aggregate_announcement({ completed: completedCount, blocked: blockedCount, total: totalCount })}
+		</div>
+
 		<button
 			type="button"
 			class="strip-header"
 			aria-expanded={expanded}
 			onclick={() => (expanded = !expanded)}
 		>
-			<span class="chevron" class:expanded aria-hidden="true"><IconChevronRight /></span>
+			<span class="chevron" class:expanded aria-hidden="true">
+				<IconChevronRight size={12} />
+			</span>
 			<span class="phase-name">{currentPhase?.name ?? 'Todo'}</span>
 			{#if hasBlocked}
-				<span class="blocked-badge" title="Ci sono task bloccati">!</span>
+				<span class="blocked-badge">!</span>
 			{/if}
 			{#if reminder}
 				<span
@@ -64,29 +63,23 @@
 					class:stalled={reminder.attempt >= reminder.max}
 					title={`L'agente si e' fermato con dei todo aperti: il sistema lo ha risvegliato ${reminder.attempt} volte su ${reminder.max}`}
 				>
-					<span class="reminder-icon" aria-hidden="true"><IconLoop /></span>
+					<span class="reminder-icon" aria-hidden="true"><IconLoop size={11} /></span>
 					<span class="reminder-text">{reminder.attempt}/{reminder.max}</span>
 				</span>
 			{/if}
 			<span class="tally">{completedCount}/{totalCount}</span>
 		</button>
+
 		{#if expanded}
-			<div class="phases-list">
-				{#each phases as phase, phaseIdx (phase.id ?? phaseIdx)}
-					<div class="phase-group">
-						<div class="phase-title">{phase.name}</div>
-						<ul class="task-list">
-							{#each phase.tasks ?? [] as task, taskIdx (task.id ?? taskIdx)}
-								{@const StatusIcon = STATUS_ICON[task.status] ?? IconStatusPending}
-								<li
-									class="task-row {task.status}"
-									title={task.blocker ? `Bloccato: ${task.blocker}` : undefined}
-								>
-									<span class="status-glyph"><StatusIcon /></span>
-									<span class="content">{task.content}</span>
-								</li>
-							{/each}
-						</ul>
+			<div class="phases-list" role="list">
+				{#each phaseModels as model, idx (model.key)}
+					<div
+						animate:flip={{ duration: 200 }}
+						class="phase-row-wrap"
+						role="listitem"
+						style="--stagger-delay: {idx * 30}ms"
+					>
+						<TaskRow {model} />
 					</div>
 				{/each}
 			</div>
@@ -180,11 +173,6 @@
 		flex-shrink: 0;
 	}
 
-	.reminder-icon :global(svg) {
-		width: 11px;
-		height: 11px;
-	}
-
 	.reminder-text {
 		font-variant-numeric: tabular-nums;
 	}
@@ -205,84 +193,38 @@
 	.phases-list {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3) var(--space-3);
 		max-height: 240px;
 		overflow-y: auto;
-	}
-
-	.phase-group {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.phase-title {
-		font-weight: 600;
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-	}
-
-	.task-list {
-		list-style: none;
-		margin: 0;
 		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
+		border-top: 1px solid var(--line);
 	}
 
-	.task-row {
-		display: grid;
-		grid-template-columns: 14px 1fr;
-		gap: var(--space-1);
-		align-items: baseline;
-		line-height: 1.4;
-		color: var(--ink-muted);
+	.phase-row-wrap {
+		animation: strip-stagger 200ms ease-out var(--stagger-delay, 0ms) both;
 	}
 
-	.status-glyph {
-		--icon-size: 12px;
-		font-family: var(--font-mono);
-		color: var(--ink-faint);
-		display: inline-flex;
-		align-items: center;
+	.phase-row-wrap + .phase-row-wrap {
+		border-top: 1px solid var(--line);
 	}
 
-	.task-row.in_progress {
-		color: var(--ink);
-		font-weight: 500;
-	}
-	.task-row.in_progress .status-glyph {
-		color: var(--brand-ink);
-	}
-	.task-row.completed {
-		color: var(--ink-faint);
-	}
-
-	.task-row.completed .content {
-		text-decoration: line-through;
+	@keyframes strip-stagger {
+		from {
+			opacity: 0;
+			transform: translateY(2px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
-	.task-row.abandoned {
-		color: var(--ink-faint);
-		opacity: 0.6;
+	@media (prefers-reduced-motion: reduce) {
+		.phase-row-wrap {
+			animation: none;
+		}
 	}
 
-	.task-row.abandoned .content {
-		text-decoration: line-through;
-	}
-
-	.task-row.blocked {
-		color: var(--warn);
-	}
-
-	.task-row.blocked .status-glyph {
-		color: var(--warn);
-		font-weight: 700;
-	}
-
-	.content {
-		overflow-wrap: anywhere;
+	:root[data-animations="false"] .phase-row-wrap {
+		animation: none;
 	}
 </style>

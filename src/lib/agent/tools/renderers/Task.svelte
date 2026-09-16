@@ -3,11 +3,12 @@
 
   Rappresenta il fan-out di subagent coordinati dal modello principale.
   Nel sommario mostra il conteggio dei subagent per stato. Nel corpo
-  visualizza ogni subagent tramite AgentLink cliccabile (che apre il
-  cassetto del transcript corrispondente), l'eventuale stato asincrono del job
-  e i blocchi di testo dei risultati prodotti al completamento.
+  visualizza ogni subagent tramite AgentLink integrato con TaskRow (che espande
+  la disclosure dei dettagli con azione per aprire il transcript),
+  l'eventuale stato asincrono del job e i blocchi di testo dei risultati.
 -->
 <script lang="ts">
+	import { flip } from 'svelte/animate';
 	import { m } from '$lib/paraglide/messages.js';
 	import AgentLink from '../parts/AgentLink.svelte';
 	import CountBadge from '../parts/CountBadge.svelte';
@@ -100,8 +101,8 @@
 		const parts: string[] = [];
 		parts.push(countLabel(stats.total, 'subagent', 'subagent'));
 		if (stats.running > 0) parts.push(m.ui_task_value1_in_corso_8e50({ value1: stats.running }));
-		if (stats.completed > 0) parts.push(`${stats.completed} completati`);
-		if (stats.failed > 0) parts.push(`${stats.failed} falliti`);
+		if (stats.completed > 0) parts.push(`${stats.completed} ${m.task_row_status_completed().toLowerCase()}`);
+		if (stats.failed > 0) parts.push(`${stats.failed} ${m.task_row_status_failed().toLowerCase()}`);
 		return parts.join(' · ');
 	});
 
@@ -144,9 +145,16 @@
 		{/if}
 
 		{#if progressList.length > 0}
-			<div class="agent-list">
-				{#each progressList as agentProgress, idx (agentProgress.id ?? idx)}
-					<AgentLink progress={agentProgress} />
+			<div class="agent-list" role="list">
+				{#each progressList as agentProgress, idx (agentProgress.id ?? agentProgress.index ?? idx)}
+					<div
+						animate:flip={{ duration: 200 }}
+						class="agent-item"
+						role="listitem"
+						style="--stagger-delay: {idx * 30}ms"
+					>
+						<AgentLink progress={agentProgress} index={idx} />
+					</div>
 				{/each}
 			</div>
 		{/if}
@@ -204,7 +212,37 @@
 	.agent-list {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		border-top: 1px solid var(--line);
+		border-bottom: 1px solid var(--line);
+	}
+
+	.agent-item {
+		animation: task-stagger 200ms ease-out var(--stagger-delay, 0ms) both;
+	}
+
+	.agent-item + .agent-item {
+		border-top: 1px solid var(--line);
+	}
+
+	@keyframes task-stagger {
+		from {
+			opacity: 0;
+			transform: translateY(2px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.agent-item {
+			animation: none;
+		}
+	}
+
+	:root[data-animations="false"] .agent-item {
+		animation: none;
 	}
 
 	.results-section {

@@ -1,48 +1,37 @@
 <script lang="ts">
+	import { flip } from 'svelte/animate';
 	import { m } from '$lib/paraglide/messages.js';
 	// Tessera per i risultati dei job eseguiti in background (task, bash, eval).
 	// Permette di leggere lo stato, la durata e il sommario di ogni operazione
-	// asincrona senza ingombrare la chat con blocchi XML o dump chilometrici.
+	// asincrona tramite il primitivo unificato TaskRow.
 	import { agentUiHooks } from '../ui-context';
 	import type { SubagentResultEntry } from '../session.svelte';
 	import type { JobResult } from '../notices';
 	import { formatDuration } from '../tools/types';
 	import OutputBlock from '../tools/parts/OutputBlock.svelte';
+	import TaskRow from './TaskRow.svelte';
 	import {
-		IconStatusPending,
-		IconStatusRunning,
-		IconStatusDone,
-		IconStatusFailed,
-		IconChevronRight
-	} from '$lib/icons';
+		asyncJobToTaskRow,
+		type AsyncJobData,
+		type TaskRowModel
+	} from '../taskRow';
+	import { IconFile, IconTerminal } from '$lib/icons';
 
 	let { entry }: { entry: SubagentResultEntry } = $props();
 
 	const hooks = agentUiHooks();
 
-	// Mappa dello stato di espansione per singolo job
-	let expandedJobs = $state<Record<string, boolean>>({});
-
-	function toggleJob(key: string) {
-		expandedJobs[key] = !expandedJobs[key];
-	}
-
-	const STATUS_ICON: Record<string, typeof IconStatusPending> = {
-		completed: IconStatusDone,
-		failed: IconStatusFailed,
-		aborted: IconStatusFailed,
-		running: IconStatusRunning,
-		pending: IconStatusPending,
-		unknown: IconStatusPending
-	};
-
-	function resolveStatusKind(job: JobResult): 'completed' | 'failed' | 'aborted' | 'unknown' {
+	function resolveStatusKind(
+		job: JobResult
+	): 'completed' | 'failed' | 'aborted' | 'running' | 'pending' {
 		if (job.envelope?.statusKind) {
-			return job.envelope.statusKind;
+			const sk = job.envelope.statusKind;
+			if (sk === 'completed' || sk === 'failed' || sk === 'aborted') return sk;
 		}
 		const statusText = job.envelope?.status?.toLowerCase() ?? '';
 		if (statusText.includes('fail')) return 'failed';
 		if (statusText.includes('abort') || statusText.includes('cancel')) return 'aborted';
+		if (statusText.includes('running')) return 'running';
 		if (statusText.includes('complete')) return 'completed';
 		return 'completed';
 	}
@@ -97,6 +86,53 @@
 		}
 		return rawText;
 	}
+
+	function buildTaskRowModel(job: JobResult, idx: number): TaskRowModel {
+		const key = job.jobId || job.envelope?.id || String(idx);
+		const jobName = job.envelope?.id || job.jobId || `job-${idx + 1}`;
+		const statusKind = resolveStatusKind(job);
+		const duration = resolveDuration(job);
+		const summary = resolveSummary(job);
+		const bodyContent = job.envelope?.body || job.raw;
+		const metaSize = resolveMetaSize(job.envelope?.lines, job.envelope?.size);
+
+		const asyncData: AsyncJobData = {
+			id: key,
+			name: jobName,
+			status: statusKind,
+			summary,
+			durationMs: job.durationMs
+		};
+
+		const base = asyncJobToTaskRow(asyncData, idx);
+
+		// Controlla se esistono dettagli da mostrare nella disclosure
+		const hasDetails = Boolean(
+			bodyContent ||
+				job.envelope?.abortReason ||
+				job.envelope?.mergeSummary ||
+				job.jobType === 'task' ||
+				job.jobType === 'bash' ||
+				metaSize
+		);
+
+		const subtitle = job.envelope?.agent ? `[${job.envelope.agent}]` : undefined;
+
+		return {
+			...base,
+			key,
+			label: jobName,
+			subtitle,
+			ringNumber: idx + 1,
+			metric: duration,
+			expandable: hasDetails,
+			details: {
+				...base.details,
+				description: summary || undefined,
+				durationMs: job.durationMs
+			}
+		};
+	}
 </script>
 
 <div class="subagent-result-card">
@@ -106,88 +142,69 @@
 		</div>
 	{/if}
 
-	<div class="jobs-list">
+	<div class="jobs-list" role="list">
 		{#each entry.jobs as job, idx (job.jobId || job.envelope?.id || idx)}
-			{@const key = job.jobId || job.envelope?.id || String(idx)}
-			{@const isExpanded = Boolean(expandedJobs[key])}
-			{@const statusKind = resolveStatusKind(job)}
-			{@const StatusIcon = STATUS_ICON[statusKind] ?? IconStatusDone}
-			{@const jobName = job.envelope?.id || job.jobId}
-			{@const duration = resolveDuration(job)}
-			{@const metaSize = resolveMetaSize(job.envelope?.lines, job.envelope?.size)}
-			{@const summary = resolveSummary(job)}
+			{@const model = buildTaskRowModel(job, idx)}
 			{@const bodyContent = job.envelope?.body || job.raw}
+			{@const metaSize = resolveMetaSize(job.envelope?.lines, job.envelope?.size)}
+			<div
+				animate:flip={{ duration: 200 }}
+				class="job-item"
+				role="listitem"
+				style="--stagger-delay: {idx * 30}ms"
+			>
+				<TaskRow {model}>
+					{#if metaSize}
+						<div class="meta-row size">
+							<span class="meta-label">Dimensione:</span>
+							<span class="meta-value">{metaSize}</span>
+						</div>
+					{/if}
 
-			<div class="job-row" class:failed={statusKind === 'failed' || statusKind === 'aborted'}>
-				<div class="header-line">
-					<button
-						type="button"
-						class="toggle-btn"
-						aria-expanded={isExpanded}
-						onclick={() => toggleJob(key)}
-						title={isExpanded ? 'Comprimi dettagli job' : 'Espandi dettagli job'}
-					>
-						<span class="chevron" class:expanded={isExpanded} aria-hidden="true">
-							<IconChevronRight />
-						</span>
-						<span class="glyph" class:failed={statusKind === 'failed' || statusKind === 'aborted'}>
-							<StatusIcon />
-						</span>
-						<span class="name">{jobName}</span>
-						{#if job.envelope?.agent}
-							<span class="agent">[{job.envelope.agent}]</span>
-						{/if}
-						{#if duration}
-							<span class="numbers">· {duration}</span>
-						{/if}
-						{#if metaSize}
-							<span class="numbers">· {metaSize}</span>
-						{/if}
-						{#if summary}
-							<span class="summary" title={summary}>{summary}</span>
-						{/if}
-					</button>
+					{#if job.envelope?.abortReason}
+						<div class="meta-row abort">
+							<span class="meta-label">Interrotto:</span>
+							<span class="meta-value">{job.envelope.abortReason}</span>
+						</div>
+					{/if}
 
-					<div class="actions">
-						{#if job.jobType === 'task'}
-							<button
-								type="button"
-								class="action-btn"
-								onclick={() => hooks.openSubagent(job.envelope?.id ?? job.jobId)}
-							>
-								{m.ui_subagentresultcard_apri_transcript_e1cb()}
-							</button>
-						{:else if job.jobType === 'bash'}
-							<button
-								type="button"
-								class="action-btn terminal-btn"
-								onclick={() => hooks.switchToTerminal()}
-							>
-								{m.project_popover_open_terminal()}
-							</button>
-						{/if}
-					</div>
-				</div>
+					{#if job.envelope?.mergeSummary}
+						<div class="meta-row merge">
+							<span class="meta-label">Merge:</span>
+							<span class="meta-value">{job.envelope.mergeSummary}</span>
+						</div>
+					{/if}
 
-				{#if job.envelope?.abortReason}
-					<div class="meta-row abort">
-						<span class="meta-label">Interrotto:</span>
-						<span class="meta-value">{job.envelope.abortReason}</span>
-					</div>
-				{/if}
+					{#if job.jobType === 'task' || job.jobType === 'bash'}
+						<div class="job-actions">
+							{#if job.jobType === 'task'}
+								<button
+									type="button"
+									class="action-btn"
+									onclick={() => hooks.openSubagent(job.envelope?.id ?? job.jobId)}
+								>
+									<IconFile size={13} aria-hidden="true" />
+									<span>{m.ui_subagentresultcard_apri_transcript_e1cb()}</span>
+								</button>
+							{:else if job.jobType === 'bash'}
+								<button
+									type="button"
+									class="action-btn terminal-btn"
+									onclick={() => hooks.switchToTerminal()}
+								>
+									<IconTerminal size={13} aria-hidden="true" />
+									<span>{m.project_popover_open_terminal()}</span>
+								</button>
+							{/if}
+						</div>
+					{/if}
 
-				{#if job.envelope?.mergeSummary}
-					<div class="meta-row merge">
-						<span class="meta-label">Merge:</span>
-						<span class="meta-value">{job.envelope.mergeSummary}</span>
-					</div>
-				{/if}
-
-				{#if isExpanded}
-					<div class="job-body">
-						<OutputBlock text={formatBody(bodyContent)} label="risultato" />
-					</div>
-				{/if}
+					{#if bodyContent}
+						<div class="job-output">
+							<OutputBlock text={formatBody(bodyContent)} label="risultato" />
+						</div>
+					{/if}
+				</TaskRow>
 			</div>
 		{/each}
 	</div>
@@ -196,159 +213,82 @@
 <style>
 	.subagent-result-card {
 		width: 100%;
-		border-top: 1px solid var(--line);
-		padding: var(--space-1) 0;
-		font-size: var(--text-xs);
-		line-height: 1.4;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
+		min-width: 0;
 	}
 
 	.group-header {
-		font-weight: 600;
+		padding: var(--space-1) var(--space-2);
+		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		padding: 2px var(--space-1);
+		font-weight: 500;
 	}
 
 	.group-title {
-		font-variant-numeric: tabular-nums;
+		letter-spacing: 0.02em;
 	}
 
 	.jobs-list {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
-		min-width: 0;
+		border-top: 1px solid var(--line);
+		border-bottom: 1px solid var(--line);
 	}
 
-	.job-row {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
+	.job-item {
+		animation: job-stagger 200ms ease-out var(--stagger-delay, 0ms) both;
 	}
 
-	.header-line {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		min-width: 0;
-		width: 100%;
+	.job-item + .job-item {
+		border-top: 1px solid var(--line);
 	}
 
-	.toggle-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		min-width: 0;
-		flex: 1;
-		background: transparent;
-		border: none;
-		padding: 2px var(--space-1);
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		text-align: left;
-		color: inherit;
+	@keyframes job-stagger {
+		from {
+			opacity: 0;
+			transform: translateY(2px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
-	.toggle-btn:hover {
-		background: var(--bg-hover);
+	@media (prefers-reduced-motion: reduce) {
+		.job-item {
+			animation: none;
+		}
 	}
 
-	.chevron {
-		--icon-size: 12px;
-		color: var(--ink-faint);
-		display: inline-flex;
-		align-items: center;
-		transition: transform var(--dur-fast) var(--ease-out);
-		flex-shrink: 0;
-	}
-
-	.chevron.expanded {
-		transform: rotate(90deg);
-	}
-
-	.glyph {
-		--icon-size: 12px;
-		display: inline-flex;
-		align-items: center;
-		color: var(--ink-faint);
-		flex-shrink: 0;
-	}
-
-	.glyph.failed {
-		color: var(--danger);
-	}
-
-	.name {
-		font-family: var(--font-mono);
-		color: var(--ink);
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-
-	.agent {
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-
-	.numbers {
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		white-space: nowrap;
-		font-variant-numeric: tabular-nums;
-		flex-shrink: 0;
-	}
-
-	.summary {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		min-width: 0;
-		flex: 1;
-	}
-
-	.actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		flex-shrink: 0;
-	}
-
-	.action-btn {
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px var(--space-2);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-		color: var(--ink-muted);
-		cursor: pointer;
-		white-space: nowrap;
-	}
-
-	.action-btn:hover {
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.terminal-btn {
-		color: var(--brand-ink);
+	:root[data-animations="false"] .job-item {
+		animation: none;
 	}
 
 	.meta-row {
 		display: flex;
-		align-items: baseline;
-		gap: var(--space-1);
-		padding-left: calc(12px + var(--space-2));
+		gap: var(--space-2);
 		font-size: var(--text-xs);
-		line-height: 1.4;
+		margin-top: var(--space-1);
+		padding: 2px var(--space-2);
+		border-radius: var(--radius-sm);
+	}
+
+	.meta-row.size {
+		color: var(--ink-faint);
+		background: transparent;
+	}
+
+	.meta-row.abort {
+		background: var(--bg-sunken);
+		color: var(--danger);
+		border: 1px solid var(--line);
+	}
+
+	.meta-row.merge {
+		background: var(--bg-sunken);
+		color: var(--brand-ink);
+		border: 1px solid var(--line);
 	}
 
 	.meta-label {
@@ -356,29 +296,46 @@
 		flex-shrink: 0;
 	}
 
-	.meta-row.abort .meta-label {
-		color: var(--danger);
-	}
-
-	.meta-row.abort .meta-value {
-		color: var(--danger);
-	}
-
-	.meta-row.merge .meta-label {
-		color: var(--ink-faint);
-	}
-
-	.meta-row.merge .meta-value {
-		color: var(--ink-muted);
-	}
-
 	.meta-value {
-		word-break: break-word;
+		overflow-wrap: anywhere;
 	}
 
-	.job-body {
-		padding-left: calc(12px + var(--space-2));
-		padding-top: var(--space-1);
-		padding-bottom: var(--space-1);
+	.job-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+	}
+
+	.action-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		padding: 3px var(--space-2);
+		font-size: var(--text-xs);
+		font-family: inherit;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		background: var(--bg-raised);
+		color: var(--ink-muted);
+		cursor: pointer;
+		line-height: 1.2;
+		transition:
+			background var(--dur-fast),
+			color var(--dur-fast);
+	}
+
+	.action-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.terminal-btn:hover {
+		color: var(--brand-ink);
+		border-color: var(--brand-line);
+	}
+
+	.job-output {
+		margin-top: var(--space-2);
 	}
 </style>

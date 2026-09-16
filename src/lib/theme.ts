@@ -321,6 +321,13 @@ export const THEME_CACHE_KEY = 'omp-studio-theme-css';
  */
 function anchorDeclarations(anchors: ThemeAnchors): [string, string][] {
 	const light = anchors.isLight;
+	const successL = light ? '0.420' : '0.740';
+	const successC = light ? '0.160' : '0.180';
+	const successDimL = light ? '0.880' : '0.520';
+	const dangerL = light ? '0.420' : '0.680';
+	const dangerC = light ? '0.150' : '0.185';
+	const dangerDimL = light ? '0.880' : '0.480';
+
 	return [
 		['--bg-base', anchors.bgBase],
 		['--bg-sunken', anchors.bgSunken],
@@ -335,6 +342,18 @@ function anchorDeclarations(anchors: ThemeAnchors): [string, string][] {
 		['--brand-dim-l', light ? '0.880' : '0.440'],
 		['--warn-l', light ? '0.420' : '0.780'],
 		['--warn-dim-l', light ? '0.880' : '0.560'],
+		['--success-h', '145'],
+		['--success-c', successC],
+		['--success-l', successL],
+		['--success-dim-l', successDimL],
+		['--success', `oklch(${successL} ${successC} 145)`],
+		['--success-dim', `oklch(${successDimL} calc(${successC} * 0.800) 145)`],
+		['--danger-h', '27'],
+		['--danger-c', dangerC],
+		['--danger-l', dangerL],
+		['--danger-dim-l', dangerDimL],
+		['--danger', `oklch(${dangerL} ${dangerC} 27)`],
+		['--danger-dim', `oklch(${dangerDimL} calc(${dangerC} * 0.800) 27)`],
 		['--on-brand', light ? 'var(--ink)' : 'var(--bg-sunken)'],
 		['--on-project', light ? 'var(--ink)' : 'var(--bg-sunken)'],
 		['--proj-l-ink', light ? '0.430' : '0.780'],
