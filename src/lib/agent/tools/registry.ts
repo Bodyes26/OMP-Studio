@@ -41,7 +41,7 @@ import Yield from './renderers/Yield.svelte';
 const GENERIC: ToolRenderer = { component: Generic, expandable: true };
 
 const REGISTRY: Record<string, ToolRenderer> = {
-	ask: { component: Ask, expandable: true },
+	ask: { component: Ask, expandable: true, groupInExecution: false },
 	ast_edit: { component: AstEdit, expandable: true },
 	ast_grep: { component: AstGrep, expandable: true },
 	bash: { component: Bash, expandable: true },
@@ -106,4 +106,8 @@ export function rendererFor(toolName: string): ToolRenderer {
 	const aliased = ALIASES[toolName.toLowerCase()];
 	if (aliased) return REGISTRY[aliased] ?? GENERIC;
 	return GENERIC;
+}
+
+export function groupsInExecution(toolName: string): boolean {
+	return rendererFor(toolName).groupInExecution !== false;
 }

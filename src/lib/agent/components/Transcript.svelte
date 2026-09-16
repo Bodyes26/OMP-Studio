@@ -9,7 +9,6 @@
 	import { projectStore } from '../../stores/projects.svelte';
 	import type {
 		AgentSession,
-		AssistantEntry,
 		Block,
 		NoticeEntry,
 		SystemChipEntry,
@@ -18,7 +17,8 @@
 	} from '../session.svelte';
 	import { chatReveal } from '../motion';
 	import ToolCard from '../tools/ToolCard.svelte';
-	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
+	import ToolGroup from '../tools/ToolGroup.svelte';
+	import { groupsInExecution } from '../tools/registry';
 	import AssistantText from './AssistantText.svelte';
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
@@ -59,58 +59,23 @@
 
 	type DisplayItem =
 		| { kind: 'single'; entry: TranscriptEntry }
-		| { kind: 'tool-group'; id: number; entries: ToolGroupEntry[] }
+		| { kind: 'tool-group'; id: number; entries: ToolEntry[] }
 		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] };
-	function hasResponseContent(entry: AssistantEntry): boolean {
-		return entry.blocks.some(
-			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
-		);
+	function isGroupedWorkTool(entry: TranscriptEntry): entry is ToolEntry {
+		return entry.kind === 'tool' && groupsInExecution(entry.toolName);
 	}
 
-	function isIntermediateAssistantEntry(
-		entry: AssistantEntry,
-		index: number,
-		entries: TranscriptEntry[]
-	): boolean {
-		// Se ha solo thinking o non ha testo/immagini, e' un blocco di ragionamento esecutivo.
-		if (!hasResponseContent(entry)) return true;
-
-		// Se ha testo/immagini (es. commento intermedio o CoT in chiaro di muse-spark/contributor),
-		// e' un passaggio intermedio verso uno strumento se dopo di esso, nello stesso turno
-		// prima del prossimo messaggio utente o compattazione, e' presente almeno una chiamata tool.
-		for (let j = index + 1; j < entries.length; j++) {
-			const next = entries[j];
-			if (next.kind === 'tool') return true;
-			if (next.kind === 'user' || next.kind === 'compaction') break;
-		}
-		return false;
-	}
-
-	function isExecutionEntry(
-		entry: TranscriptEntry,
-		index: number,
-		entries: TranscriptEntry[]
-	): boolean {
-		if (entry.kind === 'tool') return true;
-		if (entry.kind === 'assistant') {
-			return isIntermediateAssistantEntry(entry, index, entries);
-		}
-		return false;
-	}
-
-	// Raggruppa chiamate tool e blocchi di ragionamento/commenti intermedi consecutivi
-	// o alternati in un unico blocco. Se una sequenza di esecuzione contiene tool, viene
-	// accorpata in un unico ToolGroup elegante, evitando frammentazioni con modelli
-	// che emettono spiegazioni testuali prima di ogni tool (come muse-spark).
+	// Raggruppa solo i tool operativi consecutivi. Messaggi dell'assistente e
+	// interazioni con l'utente (come `ask`) restano nella timeline e separano
+	// i gruppi, cosi' non vengono nascosti dentro un accordion di lavoro.
 	const displayItems = $derived.by<DisplayItem[]>(() => {
 		const items: DisplayItem[] = [];
-		let currentSegment: ToolGroupEntry[] = [];
+		let currentSegment: ToolEntry[] = [];
 		const entries = session.visibleEntries;
 
 		function flushSegment() {
 			if (currentSegment.length === 0) return;
-			const hasTools = currentSegment.some((e) => e.kind === 'tool');
-			if (hasTools && currentSegment.length > 1) {
+			if (currentSegment.length > 1) {
 				items.push({
 					kind: 'tool-group',
 					id: currentSegment[0].id,
@@ -124,10 +89,9 @@
 			currentSegment = [];
 		}
 
-		for (let i = 0; i < entries.length; i++) {
-			const entry = entries[i];
-			if (isExecutionEntry(entry, i, entries)) {
-				currentSegment.push(entry as ToolGroupEntry);
+		for (const entry of entries) {
+			if (isGroupedWorkTool(entry)) {
+				currentSegment.push(entry);
 			} else {
 				flushSegment();
 				items.push({ kind: 'single', entry });
@@ -319,7 +283,7 @@
 				transition:chatReveal={{ duration: disableAnimations ? 0 : 210 }}
 			>
 				{#if item.kind === 'tool-group'}
-					<ToolGroup entries={item.entries} activeAssistantId={session.activeAssistantId} />
+					<ToolGroup entries={item.entries} />
 				{:else if item.kind === 'system-group'}
 					<NoticeGroup entries={item.entries} />
 				{:else if item.entry.kind === 'user'}

@@ -1,69 +1,47 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// ToolGroup: raggruppa una sequenza di chiamate tool e blocchi di ragionamento
-	// (thinking) consecutivi o alternati in un unico blocco compatto ed elegante.
+	// ToolGroup: raggruppa una sequenza di chiamate a tool operativi consecutive.
 	//
 	// Mostra un'intestazione riassuntiva con conteggio operazioni, chip dei tool usati,
-	// stato di esecuzione e durata totale. Il corpo è collassabile e resta chiuso
-	// durante l'esecuzione e in caso di errore (mostrando un microcopy con il motivo
-	// del fallimento), espandendosi solo su clic manuale dell'utente.
-	import type { AssistantEntry, ToolEntry } from '../session.svelte';
+	// stato di esecuzione e durata totale. Il corpo resta collassato finche' l'utente
+	// non lo espande; messaggi dell'assistente e tool interattivi vivono fuori dal gruppo.
+	import type { ToolEntry } from '../session.svelte';
 	import { chatReveal } from '../motion';
-	import ThinkingBlock from '../components/ThinkingBlock.svelte';
-	import Markdown from '../components/Markdown.svelte';
 	import PixelGrid from '../components/PixelGrid.svelte';
-	import { lexMarkdown } from '../markdown';
 	import ToolCard from './ToolCard.svelte';
 	import { formatDuration, extractToolErrorReason } from './types';
 	import { IconChevronRight } from '$lib/icons';
 
-	export type ToolGroupEntry = ToolEntry | AssistantEntry;
+	let { entries }: { entries: ToolEntry[] } = $props();
 
-	let {
-		entries,
-		activeAssistantId = null
-	}: {
-		entries: ToolGroupEntry[];
-		activeAssistantId?: number | null;
-	} = $props();
-
-	// Filtra gli strumenti effettivi
-	const toolEntries = $derived(entries.filter((e): e is ToolEntry => e.kind === 'tool'));
-	const assistantEntries = $derived(entries.filter((e): e is AssistantEntry => e.kind === 'assistant'));
-
-	// Stato aggregato
-	const isToolRunning = $derived(toolEntries.some((e) => e.running));
-	const isStreamingThinking = $derived(
-		activeAssistantId != null && assistantEntries.some((e) => e.id === activeAssistantId)
-	);
-	const isRunning = $derived(isToolRunning || isStreamingThinking);
-	const hasError = $derived(toolEntries.some((e) => e.result?.isError === true));
+	const isRunning = $derived(entries.some((e) => e.running));
+	const hasError = $derived(entries.some((e) => e.result?.isError === true));
 
 	// Cronometro: mentre almeno un tool è in esecuzione il totale si aggiorna
 	// ogni secondo dal primo avvio; a esecuzione conclusa resta la durata finale.
 	let now = $state(Date.now());
 	$effect(() => {
-		if (!isToolRunning) return;
+		if (!isRunning) return;
 		const id = setInterval(() => (now = Date.now()), 1000);
 		return () => clearInterval(id);
 	});
 
 	const totalDuration = $derived.by(() => {
-		if (toolEntries.length === 0) return undefined;
-		const start = Math.min(...toolEntries.map((e) => e.startedAt));
-		if (isToolRunning) {
+		if (entries.length === 0) return undefined;
+		const start = Math.min(...entries.map((e) => e.startedAt));
+		if (isRunning) {
 			return now > start ? formatDuration(now - start) : undefined;
 		}
-		const finished = toolEntries.every((e) => e.endedAt);
+		const finished = entries.every((e) => e.endedAt);
 		if (!finished) return undefined;
-		const end = Math.max(...toolEntries.map((e) => e.endedAt ?? e.startedAt));
+		const end = Math.max(...entries.map((e) => e.endedAt ?? e.startedAt));
 		return end > start ? formatDuration(end - start) : undefined;
 	});
 
 	// Strumenti unici utilizzati per i chip di anteprima nel badge/header
 	const toolSummaryList = $derived.by(() => {
 		const counts = new Map<string, number>();
-		for (const e of toolEntries) {
+		for (const e of entries) {
 			counts.set(e.toolName, (counts.get(e.toolName) ?? 0) + 1);
 		}
 		return Array.from(counts.entries()).map(([name, count]) => ({
@@ -74,23 +52,20 @@
 
 	// Ultimo tool attivo o fallito per il summary text
 	const currentOrLastError = $derived.by(() => {
-		const running = toolEntries.find((e) => e.running);
+		const running = entries.find((e) => e.running);
 		if (running) return running;
-		const error = toolEntries.find((e) => e.result?.isError);
+		const error = entries.find((e) => e.result?.isError);
 		if (error) return error;
-		return toolEntries[toolEntries.length - 1];
+		return entries[entries.length - 1];
 	});
 
 	// Espansione manuale: di default resta collassato per evitare flash/salti fastidiosi,
 	// anche in caso di errore (l'errore viene segnalato con microcopy sotto l'header).
 	let isExpanded = $state(false);
-	const visibleEntries = $derived(entries);
-
-	// Tool falliti all'interno del gruppo per il microcopy
-	const failedTools = $derived(toolEntries.filter((e) => e.result?.isError === true));
+	const failedTools = $derived(entries.filter((e) => e.result?.isError === true));
 
 	const headerLabel = $derived.by(() => {
-		const totalTools = toolEntries.length;
+		const totalTools = entries.length;
 		const labelStep = totalTools === 1 ? '1 operazione' : `${totalTools} operazioni`;
 		if (isRunning) {
 			return `Esecuzione strumenti (${labelStep})`;
@@ -146,8 +121,6 @@
 					<span class="active-intent" title={currentOrLastError.intent}>
 						{currentOrLastError.intent}
 					</span>
-				{:else if isStreamingThinking}
-					<span class="active-intent text-shimmer">{m.ui_activity_sta_pensando()}</span>
 				{:else}
 					<span class="active-intent text-shimmer">{m.ui_toolgroup_sto_usando({ tool: currentOrLastError?.toolName ?? '' })}</span>
 					<span class="status-tag running">{totalDuration ?? m.queue_drawer_status_in_progress()}</span>
@@ -179,34 +152,12 @@
 			class="group-body"
 			transition:chatReveal={{ duration: 240, blur: 4, distance: -3 }}
 		>
-			{#each visibleEntries as entry (entry.id)}
+			{#each entries as entry (entry.id)}
 				<div
 					class="group-entry"
 					in:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
 				>
-					{#if entry.kind === 'tool'}
-						<ToolCard {entry} />
-					{:else if entry.kind === 'assistant'}
-						{#each entry.blocks as block, i (`${entry.id}-${block.type}-${i}`)}
-							{#if block.type === 'thinking'}
-								<ThinkingBlock
-									text={block.text}
-									streaming={entry.id === activeAssistantId && i === entry.blocks.length - 1}
-								/>
-							{:else if block.type === 'text' && block.text.trim().length > 0}
-								<div class="group-assistant-comment">
-									<Markdown tokens={lexMarkdown(block.text)} />
-								</div>
-							{:else if block.type === 'image'}
-								<div class="group-assistant-image">
-									<img
-										src={`data:${block.mimeType};base64,${block.data}`}
-										alt="Immagine generata dall'assistente"
-									/>
-								</div>
-							{/if}
-						{/each}
-					{/if}
+					<ToolCard {entry} />
 				</div>
 			{/each}
 		</div>
@@ -418,20 +369,4 @@
 		min-width: 0;
 	}
 
-	.group-assistant-comment {
-		padding: var(--space-1) var(--space-2);
-		color: var(--ink-muted);
-		font-size: var(--text-sm);
-		line-height: var(--leading-normal);
-	}
-
-	.group-assistant-image {
-		padding: var(--space-1) var(--space-2);
-	}
-
-	.group-assistant-image img {
-		max-width: 100%;
-		max-height: 240px;
-		border-radius: var(--radius-sm);
-	}
 </style>

@@ -29,6 +29,8 @@ export interface ToolRenderer {
 	component: Component<ToolRenderProps>;
 	/** `false` quando il tool non ha un corpo: la card non si apre. */
 	expandable: boolean;
+	/** `false` per le interazioni con l'utente, che restano nella timeline. Default `true`. */
+	groupInExecution?: boolean;
 }
 
 /* ------------------------------------------------- letture difensive ---- */
