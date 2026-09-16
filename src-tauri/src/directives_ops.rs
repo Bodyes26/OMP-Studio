@@ -323,7 +323,6 @@ pub(crate) fn run_ephemeral_omp_raw(
     }
 }
 
-
 /// Genera una nuova direttiva per task a partire da un obiettivo o argomento descritto dall'utente.
 #[command]
 pub async fn generate_task_directive_ai(
@@ -349,7 +348,11 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo introdutt
   "reason": "Spiegazione sintetica del perché è utile"
 }"#;
 
-    let (context_payload, user_prompt) = match context.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let (context_payload, user_prompt) = match context
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(ctx) => {
             let md = format!(
                 "# Obiettivo Direttiva\n{}\n\n# Contesto o Vincoli Aggiuntivi\n{}",
@@ -360,15 +363,13 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo introdutt
                 "Crea una direttiva di prompt per l'obiettivo e i vincoli specificati nel file allegato.".to_string(),
             )
         }
-        None => {
-            (
-                None,
-                format!(
-                    "Crea una direttiva di prompt per questo obiettivo:\n\"{}\"",
-                    topic_trimmed
-                ),
-            )
-        }
+        None => (
+            None,
+            format!(
+                "Crea una direttiva di prompt per questo obiettivo:\n\"{}\"",
+                topic_trimmed
+            ),
+        ),
     };
 
     let resolved_model = resolve_assistant_model(model_selector.as_deref()).await;

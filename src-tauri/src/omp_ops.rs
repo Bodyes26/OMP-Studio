@@ -10,7 +10,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::LazyLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::command;
 fn get_user_home() -> Option<String> {
     if let Ok(home) = std::env::var("HOME") {
@@ -91,6 +91,169 @@ pub fn get_omp_binary() -> String {
             }
         }
         "omp".to_string()
+    }
+}
+
+// --- Igiene dei log di `omp` ---
+//
+// `omp` apre un log per processo, `omp.<data>.<pid>.log`, e il suo prune
+// interno (retention cinque giorni) salta i file il cui PID risulta ancora
+// vivo: con migliaia di processi brevi al giorno il PID di un file vecchio e'
+// quasi sempre stato riciclato, quindi quei file restano sul disco per sempre.
+// In piu' quel prune e' un `setImmediate` senza `ref`, che un processo appena
+// avviato e subito uscito non esegue nemmeno. Ogni interrogazione breve di
+// Studio (`usage --json`, `models --json`, `--version`, `update --check`)
+// lasciava cosi' un file orfano a testa. Studio cancella il log del processo
+// figlio che ha generato lui e, all'avvio, i file che `omp` considera scaduti.
+
+/// Retention dei log dichiarata da `omp`.
+const OMP_LOG_RETENTION: Duration = Duration::from_secs(5 * 24 * 60 * 60);
+
+/// Radice di configurazione di `omp`: `~/.omp`, spostata da `PI_CONFIG_DIR` e
+/// annidata in `profiles/<nome>` quando e' attivo un profilo.
+fn omp_config_root() -> Option<PathBuf> {
+    let mut root = match std::env::var("PI_CONFIG_DIR") {
+        Ok(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => {
+            let mut path = PathBuf::from(get_user_home()?);
+            path.push(".omp");
+            path
+        }
+    };
+    let profile = std::env::var("PI_PROFILE")
+        .ok()
+        .or_else(|| std::env::var("OMP_PROFILE").ok())
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty());
+    if let Some(profile) = profile {
+        root.push("profiles");
+        root.push(profile);
+    }
+    Some(root)
+}
+
+fn omp_logs_dir() -> Option<PathBuf> {
+    let mut path = omp_config_root()?;
+    path.push("logs");
+    Some(path)
+}
+
+/// PID scritto nel nome di un log (`omp.<data>.<pid>.log`, con eventuale
+/// suffisso numerico di rotazione) o del suo file di audit
+/// (`.omp.<pid>-audit.json`). Qualunque altro nome resta fuori, compresi i log
+/// storici senza PID (`omp.<data>.log.gz`).
+fn omp_log_pid(name: &str) -> Option<u32> {
+    if let Some(rest) = name.strip_prefix(".omp.") {
+        return rest.strip_suffix("-audit.json")?.parse().ok();
+    }
+    let mut parts = name.split('.');
+    if parts.next()? != "omp" {
+        return None;
+    }
+    let date = parts.next()?;
+    if date.len() != 10 || date.bytes().any(|b| !(b.is_ascii_digit() || b == b'-')) {
+        return None;
+    }
+    let pid: u32 = parts.next()?.parse().ok()?;
+    if parts.next()? != "log" {
+        return None;
+    }
+    match parts.next() {
+        None => Some(pid),
+        Some(rotation)
+            if !rotation.is_empty()
+                && rotation.bytes().all(|b| b.is_ascii_digit())
+                && parts.next().is_none() =>
+        {
+            Some(pid)
+        }
+        _ => None,
+    }
+}
+
+/// Cancella log e audit del figlio appena terminato. Il confronto con
+/// l'istante di avvio evita di toccare il file di un processo precedente che
+/// aveva lo stesso PID, poi riciclato dal sistema.
+fn discard_child_log(pid: u32, spawned_at: SystemTime) {
+    let Some(dir) = omp_logs_dir() else {
+        return;
+    };
+    discard_child_log_in(&dir, pid, spawned_at);
+}
+
+fn discard_child_log_in(dir: &Path, pid: u32, spawned_at: SystemTime) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if omp_log_pid(name) != Some(pid) {
+            continue;
+        }
+        let nostro = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .map(|modified| modified + Duration::from_secs(2) >= spawned_at)
+            .unwrap_or(false);
+        if !nostro {
+            continue;
+        }
+        let _ = std::fs::remove_file(entry.path());
+    }
+}
+
+/// Esegue una interrogazione breve a `omp` catturandone lo stdout e rimuove il
+/// log per-PID che il figlio ha lasciato dietro di se'.
+pub(crate) fn omp_capture(mut cmd: Command) -> std::io::Result<std::process::Output> {
+    // `spawn` eredita gli stream, a differenza di `output`: senza queste tre
+    // righe lo stdout del figlio finirebbe su quello di Studio e il chiamante
+    // leggerebbe un buffer vuoto.
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let spawned_at = SystemTime::now();
+    let child = cmd.spawn()?;
+    let pid = child.id();
+    let output = child.wait_with_output();
+    discard_child_log(pid, spawned_at);
+    output
+}
+
+/// Ripassata all'avvio sui log che `omp` considera scaduti ma non riconosce
+/// piu' come propri per il riciclo dei PID. Un file ancora aperto da un
+/// processo vivo non viene cancellato: l'handle lo protegge e l'errore viene
+/// ignorato.
+pub fn sweep_stale_logs() {
+    let Some(dir) = omp_logs_dir() else {
+        return;
+    };
+    sweep_stale_logs_in(&dir, SystemTime::now());
+}
+
+fn sweep_stale_logs_in(dir: &Path, now: SystemTime) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if omp_log_pid(name).is_none() {
+            continue;
+        }
+        let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) else {
+            continue;
+        };
+        let Ok(age) = now.duration_since(modified) else {
+            continue;
+        };
+        if age > OMP_LOG_RETENTION {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }
 
@@ -213,7 +376,7 @@ fn usage_snapshot_sync() -> Result<UsageReport, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd.output().map_err(|e| e.to_string())?;
+    let output = omp_capture(cmd).map_err(|e| e.to_string())?;
 
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
@@ -225,15 +388,51 @@ fn usage_snapshot_sync() -> Result<UsageReport, String> {
     }
 }
 
+/// Le finestre di Studio chiedono la quota con timer propri e quasi
+/// sincronizzati: senza cache condivisa ogni finestra genera un processo
+/// `omp usage` a testa, cioe' un log per PID e una riga in `usage_history` del
+/// database di `omp` per finestra. Il valore vive un minuto; il pulsante di
+/// aggiornamento manuale (`force`) ha comunque un pavimento di dieci secondi.
+static USAGE_CACHE: LazyLock<Mutex<Option<(Instant, serde_json::Value)>>> =
+    LazyLock::new(|| Mutex::new(None));
+/// Un solo processo `omp usage` per volta: chi arriva durante la lettura
+/// aspetta e riusa il risultato appena prodotto.
+static USAGE_FETCH: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+const USAGE_CACHE_TTL: Duration = Duration::from_secs(60);
+const USAGE_FORCE_FLOOR: Duration = Duration::from_secs(10);
+
+fn cached_usage(max_age: Duration) -> Option<serde_json::Value> {
+    let guard = USAGE_CACHE.lock();
+    let (at, value) = guard.as_ref()?;
+    (at.elapsed() <= max_age).then(|| value.clone())
+}
+
 /// Le sorgenti di quota aggiuntive (sotto) si fondono qui: il popover mostra
 /// qualunque provider trovi in `reports[]`, senza conoscerne nessuno.
 #[command]
-pub async fn usage_snapshot(_force: bool) -> Result<UsageReport, String> {
+pub async fn usage_snapshot(force: bool) -> Result<UsageReport, String> {
+    let max_age = if force {
+        USAGE_FORCE_FLOOR
+    } else {
+        USAGE_CACHE_TTL
+    };
+    if let Some(raw_json) = cached_usage(max_age) {
+        return Ok(UsageReport { raw_json });
+    }
+
+    let _serializzato = USAGE_FETCH.lock().await;
+    // Dopo l'attesa il dato puo' essere gia' arrivato da chi era davanti.
+    if let Some(raw_json) = cached_usage(max_age) {
+        return Ok(UsageReport { raw_json });
+    }
+
     let mut report = tokio::task::spawn_blocking(usage_snapshot_sync)
         .await
         .map_err(|e| format!("Task usage_snapshot: {}", e))??;
     let extra = extra_usage_reports().await;
     merge_extra_reports(&mut report.raw_json, extra, now_ms());
+    *USAGE_CACHE.lock() = Some((Instant::now(), report.raw_json.clone()));
     Ok(report)
 }
 
@@ -1388,9 +1587,7 @@ fn get_omp_version_sync() -> Result<String, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run omp: {}", e))?;
+    let output = omp_capture(cmd).map_err(|e| format!("Failed to run omp: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let trimmed = stdout.trim();
     let ver = trimmed
@@ -1582,9 +1779,8 @@ fn check_omp_update_sync() -> Result<OmpUpdateCheck, String> {
 
     let current_version = get_omp_version_sync().unwrap_or_else(|_| "unknown".to_string());
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Impossibile verificare aggiornamenti OMP: {}", e))?;
+    let output =
+        omp_capture(cmd).map_err(|e| format!("Impossibile verificare aggiornamenti OMP: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1658,6 +1854,75 @@ mod tests {
         assert!(reports_from_source_output(b"non json").is_empty());
         assert!(reports_from_source_output(br#"{"provider":"  "}"#).is_empty());
         assert!(reports_from_source_output(b"42").is_empty());
+    }
+
+    #[test]
+    fn riconosce_solo_i_log_per_pid_di_omp() {
+        assert_eq!(omp_log_pid("omp.2026-09-16.9896.log"), Some(9896));
+        // Rotazione: stesso PID, indice numerico in coda.
+        assert_eq!(omp_log_pid("omp.2026-09-16.9896.log.2"), Some(9896));
+        assert_eq!(omp_log_pid(".omp.9896-audit.json"), Some(9896));
+
+        // Log storici senza PID, archivi compressi e file di altri: intoccabili.
+        assert_eq!(omp_log_pid("omp.2026-07-17.log.gz"), None);
+        assert_eq!(omp_log_pid("omp.2026-09-16.9896.log.gz"), None);
+        assert_eq!(omp_log_pid("native-panic-1-2.log"), None);
+        assert_eq!(omp_log_pid("http-42-requests"), None);
+        assert_eq!(omp_log_pid("omp.log"), None);
+        assert_eq!(omp_log_pid(".omp.9896-audit.json.bak"), None);
+    }
+
+    /// Cancellare il file sbagliato qui vuol dire perdere diagnostica di un
+    /// processo vivo: il perimetro va verificato nome per nome.
+    #[test]
+    fn cancella_solo_i_file_del_figlio_appena_terminato() {
+        let dir = std::env::temp_dir().join(format!("omp-studio-log-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("cartella di prova");
+        let scrivi = |nome: &str| {
+            let path = dir.join(nome);
+            std::fs::write(&path, b"x").expect("file di prova");
+            path
+        };
+
+        let nostro = scrivi("omp.2026-09-16.4242.log");
+        let nostra_rotazione = scrivi("omp.2026-09-16.4242.log.1");
+        let nostro_audit = scrivi(".omp.4242-audit.json");
+        let altro_processo = scrivi("omp.2026-09-16.4343.log");
+        let senza_pid = scrivi("omp.2026-09-16.log.gz");
+
+        // Un file del PID riciclato, scritto prima del nostro avvio: non e' nostro.
+        let riciclato = scrivi("omp.2026-09-10.4242.log");
+        let vecchio = SystemTime::now() - Duration::from_secs(6 * 24 * 60 * 60);
+        filetime_set(&riciclato, vecchio);
+
+        discard_child_log_in(&dir, 4242, SystemTime::now() - Duration::from_secs(1));
+
+        assert!(!nostro.exists(), "il log del figlio resta sul disco");
+        assert!(!nostra_rotazione.exists(), "la rotazione resta sul disco");
+        assert!(!nostro_audit.exists(), "l'audit del figlio resta sul disco");
+        assert!(altro_processo.exists(), "cancellato il log di un altro PID");
+        assert!(senza_pid.exists(), "cancellato un archivio senza PID");
+        assert!(riciclato.exists(), "cancellato il log di un PID riciclato");
+
+        // La ripassata all'avvio prende solo cio' che ha superato la retention.
+        sweep_stale_logs_in(&dir, SystemTime::now());
+        assert!(!riciclato.exists(), "il file scaduto non e' stato raccolto");
+        assert!(
+            altro_processo.exists(),
+            "raccolto un file ancora nella finestra"
+        );
+        assert!(senza_pid.exists(), "raccolto un archivio senza PID");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Invecchia un file di prova riportando indietro il suo mtime.
+    fn filetime_set(path: &Path, when: SystemTime) {
+        let file = File::options()
+            .write(true)
+            .open(path)
+            .expect("apertura file di prova");
+        file.set_modified(when).expect("mtime file di prova");
     }
 
     #[test]

@@ -339,6 +339,65 @@ export function serializeProjectTasksFile(tasks: StudioTask[]): string {
 	return JSON.stringify(payload, null, 2);
 }
 
+/** Tetto di lanci conservati per progetto e di lanci con payload completo. */
+const ORIGINS_PER_PROJECT = 50;
+const ORIGINS_WITH_PAYLOAD = 3;
+
+/**
+ * Le origini sono lo storico dei lanci: danno il titolo alla sessione appena
+ * nata e sono l'unica copia del prompt di un task uscito dalla coda. Prompt e
+ * immagini pesano quanto il task (uno screenshot vale centinaia di KB) e lo
+ * store globale viene riscritto per intero a ogni modifica di coda: oltre i
+ * lanci recenti si conserva quindi solo l'identita' del lancio.
+ */
+export function pruneOrigins(origins: TaskSessionOrigin[]): TaskSessionOrigin[] {
+	const byProject = new Map<string, TaskSessionOrigin[]>();
+	for (const origin of origins) {
+		const bucket = byProject.get(origin.projectPath);
+		if (bucket) bucket.push(origin);
+		else byProject.set(origin.projectPath, [origin]);
+	}
+
+	const kept: TaskSessionOrigin[] = [];
+	for (const bucket of byProject.values()) {
+		bucket.sort((left, right) => right.launchedAt - left.launchedAt);
+		for (const [index, origin] of bucket.slice(0, ORIGINS_PER_PROJECT).entries()) {
+			if (index < ORIGINS_WITH_PAYLOAD) {
+				kept.push(origin);
+				continue;
+			}
+			kept.push({ ...origin, prompt: undefined, images: undefined, options: undefined });
+		}
+	}
+	return kept;
+}
+
+/**
+ * Fonde lo storico dei lanci di un'altra finestra con quello locale.
+ *
+ * L'array arriva completo ma puo' essere piu' vecchio: sostituirlo
+ * cancellerebbe il lancio appena registrato in questa finestra, cioe' l'unica
+ * copia del prompt di un task che ha lasciato la coda. A parita' di lancio
+ * vince la copia piu' recente, e a parita' di istante quella che porta ancora
+ * il prompt.
+ */
+export function mergeOriginRecords(
+	local: TaskSessionOrigin[],
+	incoming: TaskSessionOrigin[]
+): TaskSessionOrigin[] {
+	const byKey = new Map<string, TaskSessionOrigin>();
+	for (const origin of [...local, ...incoming]) {
+		const key = `${origin.projectPath}\u0000${origin.sessionId}`;
+		const known = byKey.get(key);
+		const wins =
+			!known ||
+			origin.launchedAt > known.launchedAt ||
+			(origin.launchedAt === known.launchedAt && Boolean(origin.prompt) && !known.prompt);
+		if (wins) byKey.set(key, origin);
+	}
+	return pruneOrigins([...byKey.values()]);
+}
+
 /**
  * Serializza lo stato per la scrittura in tasks.json globale.
  */

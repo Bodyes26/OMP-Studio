@@ -972,3 +972,58 @@ La rappresentazione dello stato di avanzamento delle attività operative in Stud
 - Nessuna alterazione o sovrapposizione con i colori ANSI del terminale.
 - Contrasto e leggibilità verificati su ogni tema chiaro e scuro.
 - Piena accessibilità con supporto automatico a screen reader e movimento ridotto.
+
+---
+
+## Gate R26: Studio raccoglie i log dei processi `omp` che genera lui
+
+**Data:** 2026-09-16
+**Esito:** DEROGA CONCESSA, con perimetro
+**Decisione:** Studio cancella in `~/.omp/logs` solo il log del processo figlio
+che ha appena eseguito e, all'avvio, i log che `omp` considera già scaduti.
+Nessun'altra scrittura o cancellazione dentro `~/.omp`.
+
+**Motivazione:**
+`omp` apre un file di log per processo, `omp.<data>.<pid>.log`, con audit
+`.omp.<pid>-audit.json` e rotazione per PID. Il suo prune interno (retention
+cinque giorni) ha due limiti verificati sul binario 17.2.1:
+
+1. Salta i file il cui PID risulta ancora vivo (`process.kill(pid, 0)`). Su
+   Windows i PID vengono riciclati in fretta e, con migliaia di processi brevi
+   al giorno, il PID di un file vecchio appartiene quasi sempre a un altro
+   processo vivo: quel file non viene più cancellato da nessuno.
+2. È schedulato con `setImmediate(...).unref()`: un processo che scrive lo
+   stdout ed esce subito, come `omp usage --json`, non lo esegue mai.
+
+Misura sul profilo dell'utente prima dell'intervento: 9.684 file per 32 MB,
+2.904 generati in un giorno, di cui 1.762 dal solo polling delle quote (7,2 MB
+su 8,3 MB). Nella stessa giornata 716 intervalli fra due letture erano sotto i
+5 secondi: più finestre di Studio interrogavano `omp usage` quasi nello stesso
+istante, ognuna con il proprio processo.
+
+**Perimetro:**
+1. `omp_capture` (in `src-tauri/src/omp_ops.rs`) esegue le interrogazioni brevi
+   (`usage --json`, `models --json`, `models refresh`, `--version`,
+   `update --check`) tramite `spawn`, conosce quindi il PID del figlio e a
+   processo terminato cancella i file che portano quel PID. Il confronto con
+   l'istante di avvio protegge dal PID riciclato: un file più vecchio dello
+   spawn non è nostro e resta.
+2. `sweep_stale_logs` passa una volta all'avvio e tocca solo i file più vecchi
+   della retention dichiarata da `omp` (cinque giorni), cioè quelli che `omp`
+   stesso considera spazzatura. Un file ancora aperto da un processo vivo è
+   protetto dall'handle e l'errore di cancellazione viene ignorato.
+3. Le sessioni vere (`--mode rpc-ui`, terminale, run `-p`) non passano da
+   `omp_capture`: i loro log restano, sono diagnostica.
+4. Il nome viene riconosciuto da `omp_log_pid`, che accetta solo
+   `omp.<data-10-caratteri>.<pid>.log[.<n>]` e `.omp.<pid>-audit.json`; i log
+   storici senza PID e gli archivi `.gz` restano fuori (test
+   `riconosce_solo_i_log_per_pid_di_omp`).
+
+**Cosa NON facciamo:** `usage_history` di `~/.omp/agent/agent.db` contiene
+9.108 righe sul profilo di prova, ma la misura mostra una cadenza fissa di 20
+righe/ora (480/giorno), indipendente dal numero di letture di Studio. Quel
+database resta quindi in sola lettura. La cache riduce processi, log, scansioni
+della cartella e chiamate alle API dei provider: `usage_snapshot` serve tutte
+le finestre dallo stesso valore (60s di TTL, pavimento di 10s sul refresh
+manuale, una sola lettura per volta) e il timer del chip non interroga a
+finestra nascosta.

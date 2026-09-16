@@ -18,7 +18,9 @@ import {
 	sanitizeLoadedTasks,
 	applyTaskModeDirectives,
 	parseProjectTasksFile,
-	serializeProjectTasksFile
+	serializeProjectTasksFile,
+	pruneOrigins,
+	mergeOriginRecords
 } from './taskSerialization';
 import { QueueHydration, mergeHydratedTasks } from './taskHydration';
 import { windowLabel } from './windowBridge';
@@ -114,7 +116,7 @@ class TaskStore {
 				this.unlistenOriginsChanged = await listen<TaskSessionOrigin[]>(
 					'studio-task-origins-update',
 					(event) => {
-						this.origins = event.payload ?? [];
+						this.absorbOrigins(event.payload ?? []);
 					}
 				);
 			} catch (err) {
@@ -182,7 +184,7 @@ class TaskStore {
 			const content = await invoke<string>('project_tasks_read', { projectPath });
 			const fromDisk = parseProjectTasksFile(content ?? '', key);
 			this.lastWritten.set(key, serializeProjectTasksFile(fromDisk));
-			this.tasks = this.tasks.filter((task) => task.projectPath !== key).concat(fromDisk);
+			this.tasks = this.mergeProjectTasks(key, fromDisk);
 		});
 	}
 
@@ -296,6 +298,21 @@ class TaskStore {
 		let count = 0;
 		for (const task of this.tasks) {
 			if (task.projectPath === key && task.status === 'queued') count++;
+		}
+		return count;
+	}
+
+	/**
+	 * Lavoro ancora da consegnare: include i task in spedizione, che non
+	 * hanno ancora una sessione e sparirebbero senza traccia se la chiusura
+	 * guardasse solo lo stato 'queued'.
+	 */
+	pendingCountFor(projectPath: string): number {
+		const key = projectKey(projectPath);
+		let count = 0;
+		for (const task of this.tasks) {
+			if (task.projectPath !== key) continue;
+			if (task.status === 'queued' || task.status === 'dispatching') count++;
 		}
 		return count;
 	}
@@ -423,6 +440,7 @@ class TaskStore {
 			modelSelector: task.options?.modelSelector,
 			thinkingLevel: task.options?.thinkingLevel || 'auto'
 		});
+		this.origins = pruneOrigins(this.origins);
 		// Memorizza il task attivo per recupero in caso di chiusura accidentale
 		this.activeTaskByProject[projectKey(task.projectPath)] = { ...task };
 		const path = task.projectPath;
@@ -436,6 +454,11 @@ class TaskStore {
 	originsFor(projectPath: string): TaskSessionOrigin[] {
 		const key = projectKey(projectPath);
 		return this.origins.filter((origin) => origin.projectPath === key);
+	}
+
+	/** Vedi `mergeOriginRecords`: la sostituzione secca perdeva i lanci locali. */
+	private absorbOrigins(incoming: TaskSessionOrigin[]) {
+		this.origins = mergeOriginRecords(this.origins, incoming);
 	}
 
 	isTaskSession(projectPath: string, sessionId: string): boolean {

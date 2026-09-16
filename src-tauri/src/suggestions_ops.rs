@@ -171,7 +171,6 @@ pub(crate) fn parse_and_clean_suggestions(
     PromptSuggestionsResult::empty()
 }
 
-
 /// Genera suggerimenti contestuali per il composer a partire dall'ultimo messaggio dell'assistente.
 #[command]
 pub async fn generate_prompt_suggestions(
@@ -274,7 +273,10 @@ mod tests {
         }"#;
         let res = parse_and_clean_suggestions(raw, 3);
         assert!(res.awaits_user_input);
-        assert_eq!(res.question_summary.as_deref(), Some("Confermi e procedo dalla Fase 1?"));
+        assert_eq!(
+            res.question_summary.as_deref(),
+            Some("Confermi e procedo dalla Fase 1?")
+        );
         assert_eq!(
             res.suggestions,
             vec!["Procedi pure", "Mostrami prima il diff", "Annulla"]
@@ -316,9 +318,18 @@ mod tests {
 
     #[test]
     fn test_parse_and_clean_suggestions_invalid_json() {
-        assert_eq!(parse_and_clean_suggestions("non è un json", 3), PromptSuggestionsResult::empty());
-        assert_eq!(parse_and_clean_suggestions("", 3), PromptSuggestionsResult::empty());
-        assert_eq!(parse_and_clean_suggestions("[]", 3), PromptSuggestionsResult::empty());
+        assert_eq!(
+            parse_and_clean_suggestions("non è un json", 3),
+            PromptSuggestionsResult::empty()
+        );
+        assert_eq!(
+            parse_and_clean_suggestions("", 3),
+            PromptSuggestionsResult::empty()
+        );
+        assert_eq!(
+            parse_and_clean_suggestions("[]", 3),
+            PromptSuggestionsResult::empty()
+        );
     }
 
     #[tokio::test]

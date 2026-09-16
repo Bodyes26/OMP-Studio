@@ -58,7 +58,8 @@ export interface AgentSessionLike {
 	submitAskWizard?(plan: AskFlushStep[]): Promise<void>;
 	cancelPendingUi?(): Promise<void>;
 	clearInferredAttention?(): void;
-	prompt?(message: string, images?: unknown[], behavior?: unknown): Promise<void>;
+	/** L'esito della consegna interessa solo la coda dei task: qui basta attendere. */
+	prompt?(message: string, images?: unknown[], behavior?: unknown): Promise<unknown>;
 }
 
 export type SessionFactory<T extends AgentSessionLike> = (config: AgentSessionConfig) => T;

@@ -414,6 +414,14 @@ export class AgentSession {
 		optimisticUser: UserEntry;
 	}[] = [];
 
+	/**
+	 * Notifica che i prompt in attesa dell'insediamento sono stati buttati via
+	 * perche' il processo omp e' morto prima di riceverli. Chi lancia i task
+	 * ci rimette il lavoro in coda: il prompt esiste solo qui dentro, e il
+	 * task e' gia' uscito dalla coda.
+	 */
+	onStartupPromptsDropped: (() => void) | null = null;
+
 	get isStarting(): boolean {
 		return !this.isAttached && !this.exited;
 	}
@@ -1722,6 +1730,7 @@ export class AgentSession {
 					}
 					this.pendingStartupPrompts = [];
 					this.pushNotice('error', messages.ui_ts_session_prompt_non_inviato_la_sessione_omp_e_f327());
+					this.onStartupPromptsDropped?.();
 				}
 				if (resumeMissing) {
 					this.requestedResume = null;
@@ -2409,10 +2418,20 @@ export class AgentSession {
 	/**
 	 * Invio di un prompt. Durante lo streaming `streamingBehavior` e'
 	 * obbligatorio: senza, il comando fallisce lato omp. Predefinito a 'steer'.
+	 *
+	 * L'esito e' parte del contratto: chi dipende dalla consegna (la coda dei
+	 * task, che toglie il task dalla coda solo se il prompt e' partito) non
+	 * puo' dedurla dal fatto che la chiamata sia ritornata. `sent` omp lo ha
+	 * accettato, `deferred` parte alla fine dell'insediamento, `failed` omp
+	 * lo ha rifiutato, `empty` non c'era niente da inviare.
 	 */
-	async prompt(message: string, images: ImageContent[] = [], behavior: StreamingBehavior = 'steer') {
+	async prompt(
+		message: string,
+		images: ImageContent[] = [],
+		behavior: StreamingBehavior = 'steer'
+	): Promise<'sent' | 'deferred' | 'failed' | 'empty'> {
 		const trimmed = message.trim();
-		if (!trimmed && images.length === 0) return;
+		if (!trimmed && images.length === 0) return 'empty';
 		this.todoReminder = null;
 		this.isAborting = false;
 		this.suggestions.invalidate();
@@ -2437,7 +2456,7 @@ export class AgentSession {
 				behavior,
 				optimisticUser: optimistic
 			});
-			return;
+			return 'deferred';
 		}
 
 		const streaming = this.isStreaming;
@@ -2465,9 +2484,10 @@ export class AgentSession {
 			if (streaming) this.queued = this.queued.filter((entry) => entry.text !== fullMessage);
 			this.dropOptimisticUser();
 			this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
-			return;
+			return 'failed';
 		}
 		if (streaming) void this.reconcile();
+		return 'sent';
 	}
 
 	private async flushStartupPrompts() {

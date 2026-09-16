@@ -109,6 +109,13 @@ export interface QuotaSnapshotRaw {
 	[key: string]: unknown;
 }
 
+/**
+ * Cadenza del polling. Il backend serve tutte le finestre dalla stessa cache
+ * (60s di TTL), quindi piu' finestre aperte non moltiplicano piu' i processi
+ * `omp usage`.
+ */
+const QUOTA_POLL_MS = 90_000;
+
 class QuotaStore {
 	status = $state<QuotaStatus>('idle');
 	loading = $state(false);
@@ -159,6 +166,7 @@ class QuotaStore {
 	});
 
 	private timer: number | null = null;
+	private onVisibility: (() => void) | null = null;
 	private initialized = false;
 
 	init() {
@@ -167,9 +175,21 @@ class QuotaStore {
 		void this.refresh(false);
 
 		if (typeof window !== 'undefined') {
+			// A finestra nascosta (minimizzata) il chip non e' visibile: interrogare
+			// `omp usage` la' serve solo a generare un log per processo e una riga di
+			// storico nel database di omp. Al ritorno in primo piano si rilegge
+			// subito, se il dato e' scaduto.
 			this.timer = window.setInterval(() => {
+				if (document.visibilityState === 'hidden') return;
 				void this.refresh(false);
-			}, 90_000);
+			}, QUOTA_POLL_MS);
+
+			this.onVisibility = () => {
+				if (document.visibilityState !== 'visible') return;
+				const stale = this.lastFetchedAt === null || Date.now() - this.lastFetchedAt > QUOTA_POLL_MS;
+				if (stale) void this.refresh(false);
+			};
+			document.addEventListener('visibilitychange', this.onVisibility);
 		}
 	}
 
@@ -177,6 +197,10 @@ class QuotaStore {
 		if (this.timer !== null) {
 			clearInterval(this.timer);
 			this.timer = null;
+		}
+		if (this.onVisibility) {
+			document.removeEventListener('visibilitychange', this.onVisibility);
+			this.onVisibility = null;
 		}
 		this.initialized = false;
 	}

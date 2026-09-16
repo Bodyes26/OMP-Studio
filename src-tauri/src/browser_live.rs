@@ -859,7 +859,10 @@ mod tests {
         let text = "Authorization: Bearer AAA111 poi retry con bearer BBB222 e fine";
         let clean = redact_sensitive_string(text);
         assert!(!clean.contains("AAA111"), "primo token in chiaro: {clean}");
-        assert!(!clean.contains("BBB222"), "secondo token in chiaro: {clean}");
+        assert!(
+            !clean.contains("BBB222"),
+            "secondo token in chiaro: {clean}"
+        );
         assert!(clean.contains("Bearer [REDACTED]"));
         assert!(clean.contains("bearer [REDACTED]"));
     }

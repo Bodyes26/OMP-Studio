@@ -166,7 +166,17 @@
 	// Passare da una superficie all'altra chiude il processo e lo riapre con --resume.
 	const terminalSessions = new Map<string, import('$lib/terminal/terminal').TerminalSession>();
 	const agentSessions = new Map<string, AgentSession>();
-	sessionRegistry.setFactory((config) => new AgentSession(config));
+	sessionRegistry.setFactory((config) => {
+		const session = new AgentSession(config);
+		// Processo omp morto prima di ricevere il prompt: il task e' gia'
+		// uscito dalla coda e il suo testo vive solo nel prompt perduto.
+		// Rimetterlo in cima alla coda e' l'unico recupero possibile.
+		session.onStartupPromptsDropped = () => {
+			if (session.scope !== 'main' || !session.cwd) return;
+			void taskStore.requeueInterruptedTask(session.cwd, session.sessionId);
+		};
+		return session;
+	});
 	let terminalMeta = $state<Record<string, { inputPending: boolean; sessionId: string | null }>>({});
 	let terminalBusy = $state<Record<string, boolean>>({});
 	let switchingSurface = $state<Record<string, boolean>>({});
@@ -708,11 +718,19 @@
 				}
 
 				const fullPrompt = formatTaskPrompt(task, project.path);
-				await session.prompt(fullPrompt, task.images ?? [], 'steer');
-				const resolvedSid = sid ?? session.sessionId;
-				if (resolvedSid) {
-					taskStore.completeDispatch(taskId, resolvedSid);
+				// Il task esce dalla coda solo a consegna avvenuta: `prompt()`
+				// riporta il rifiuto di omp senza sollevare, e senza sessione
+				// pubblicata non esiste nemmeno la riga di storico da cui
+				// recuperarlo. In entrambi i casi il posto del task e' la coda.
+				const delivery = await session.prompt(fullPrompt, task.images ?? [], 'steer');
+				if (delivery === 'failed' || delivery === 'empty') {
+					throw new Error(m.ui_ts_session_prompt_non_inviato_la_sessione_omp_e_f327());
 				}
+				const resolvedSid = sid ?? session.sessionId;
+				if (!resolvedSid) {
+					throw new Error(m.ui_ts_terminal_omp_non_ha_ancora_pubblicato_la_sessione_494e());
+				}
+				taskStore.completeDispatch(taskId, resolvedSid);
 				taskStore.setView(project.path, 'sessions');
 				if (taskEditorId === taskId) taskEditorId = null;
 				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
@@ -1274,7 +1292,9 @@
 	function handleRequestCloseProject(projectId: string) {
 		const project = projectStore.projects.find((p) => p.id === projectId);
 		if (!project) return;
-		const queuedCount = project.path ? taskStore.queuedCountFor(project.path) : 0;
+		// Un task in spedizione non e' ancora una sessione: conta come lavoro
+		// in coda, altrimenti la chiusura lo porta via senza chiedere nulla.
+		const queuedCount = project.path ? taskStore.pendingCountFor(project.path) : 0;
 		const isWorking = project.agentState === 'working' || Boolean(terminalBusy[project.id]);
 
 		if (queuedCount === 0 && !isWorking) {

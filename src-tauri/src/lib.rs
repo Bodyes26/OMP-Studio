@@ -20,7 +20,8 @@ use projects::{
 mod omp_ops;
 use omp_ops::{
     check_omp_update, get_omp_version, omp_user_theme, provider_hosts, run_omp_update,
-    session_credential_pins, sessions_list, sessions_search, theme_apply, usage_snapshot,
+    session_credential_pins, sessions_list, sessions_search, sweep_stale_logs, theme_apply,
+    usage_snapshot,
 };
 mod studio_updater;
 use studio_updater::{
@@ -239,6 +240,10 @@ pub fn run() {
             diagrams::spawn_watcher(app.handle().clone());
             previews::spawn_watcher(app.handle().clone());
             init_global_shortcut(app.handle());
+            // `omp` non riesce a togliere i propri log quando il PID del file e'
+            // stato riciclato: Studio ci ripassa una volta, fuori dal thread
+            // dell'interfaccia (vedi omp_ops::sweep_stale_logs).
+            std::thread::spawn(sweep_stale_logs);
             Ok(())
         })
         .build(tauri::generate_context!())

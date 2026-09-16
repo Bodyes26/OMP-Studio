@@ -11,7 +11,10 @@ import {
 	serializeProjectTasksFile,
 	rankFrequentTaskModelConfigurations,
 	rankFrequentTaskModels,
+	pruneOrigins,
+	mergeOriginRecords,
 	type StudioTask,
+	type TaskSessionOrigin,
 	type PersistedTaskState
 } from '../src/lib/stores/taskSerialization.ts';
 import {
@@ -547,5 +550,69 @@ describe('Idratazione delle code di progetto', () => {
 
 		assert.deepEqual(merged, [hydrated, legacyUnique]);
 		assert.equal(merged[0].prompt, 'gia letto da .omp/tasks.json');
+	});
+});
+
+describe('Storico dei lanci: fusione e tetto', () => {
+	const origin = (over: Partial<TaskSessionOrigin> = {}): TaskSessionOrigin => ({
+		projectPath: 'c:\\projects\\app',
+		sessionId: 'sess-1',
+		taskId: 'task-1',
+		title: 'lancio',
+		launchedAt: 1700000000000,
+		...over
+	});
+
+	it('non cancella il lancio locale quando un’altra finestra manda il suo elenco', () => {
+		const locale = origin({ sessionId: 'nuovo', prompt: 'testo da recuperare', launchedAt: 1700000900000 });
+		const stantio = origin({ sessionId: 'vecchio', launchedAt: 1700000100000 });
+
+		const merged = mergeOriginRecords([stantio, locale], [stantio]);
+
+		const survivor = merged.find((entry) => entry.sessionId === 'nuovo');
+		assert.equal(survivor?.prompt, 'testo da recuperare');
+		assert.equal(merged.filter((entry) => entry.sessionId === 'nuovo').length, 1);
+	});
+
+	it('a parita di lancio conserva la copia che porta ancora il prompt', () => {
+		const completo = origin({ prompt: 'prompt del task' });
+		const svuotato = origin({ prompt: undefined });
+
+		assert.equal(mergeOriginRecords([completo], [svuotato])[0].prompt, 'prompt del task');
+		assert.equal(mergeOriginRecords([svuotato], [completo])[0].prompt, 'prompt del task');
+	});
+
+	it('tiene il prompt solo per i lanci recenti e non supera il tetto per progetto', () => {
+		const storico = Array.from({ length: 80 }, (_, index) =>
+			origin({
+				sessionId: `sess-${index}`,
+				launchedAt: 1700000000000 + index,
+				prompt: `prompt ${index}`,
+				images: [{ data: 'AAAA', mimeType: 'image/png' }]
+			})
+		);
+
+		const pruned = pruneOrigins(storico);
+
+		assert.equal(pruned.length, 50);
+		const recuperabili = pruned.filter((entry) => entry.prompt !== undefined);
+		assert.deepEqual(
+			recuperabili.map((entry) => entry.sessionId).sort(),
+			['sess-77', 'sess-78', 'sess-79']
+		);
+		assert.ok(pruned.every((entry) => entry.images === undefined || entry.prompt !== undefined));
+		// Identita' del lancio: la lista sessioni la usa per titolo e badge.
+		assert.ok(pruned.every((entry) => entry.sessionId && entry.title && entry.taskId));
+	});
+
+	it('tiene i lanci di progetti diversi separati', () => {
+		const altri = Array.from({ length: 60 }, (_, index) =>
+			origin({ projectPath: 'c:\\projects\\altro', sessionId: `altro-${index}`, launchedAt: 1700000000000 + index })
+		);
+
+		const pruned = pruneOrigins([origin({ sessionId: 'solo-app' }), ...altri]);
+
+		assert.equal(pruned.filter((entry) => entry.projectPath === 'c:\\projects\\app').length, 1);
+		assert.equal(pruned.filter((entry) => entry.projectPath === 'c:\\projects\\altro').length, 50);
 	});
 });

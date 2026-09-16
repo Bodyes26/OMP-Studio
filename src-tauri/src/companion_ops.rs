@@ -19,10 +19,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{
-    command,
-    webview::PageLoadEvent,
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, Window,
+    command, webview::PageLoadEvent, AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize,
+    WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -274,7 +272,6 @@ fn companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     }
 }
 
-
 fn show_companion_window(window: &WebviewWindow) -> Result<(), String> {
     // Da qui in avanti la geometria della finestra e' quella che vede l'utente:
     // solo dopo la prima apertura ha senso salvarla.
@@ -484,4 +481,3 @@ pub async fn parse_quick_task_ai(
 
     Ok(parsed)
 }
-

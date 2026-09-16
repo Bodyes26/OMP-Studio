@@ -682,7 +682,7 @@ pub async fn get_available_models_catalog() -> Result<Vec<ModelDto>, String> {
         cmd.arg("models").arg("--json");
         #[cfg(target_os = "windows")]
         cmd.creation_flags(0x08000000);
-        cmd.output()
+        crate::omp_ops::omp_capture(cmd)
     })
     .await
     .map_err(|error| format!("Esecuzione di `omp models --json` interrotta: {}", error))?
@@ -709,7 +709,7 @@ pub async fn refresh_models_catalog() -> Result<Vec<ModelDto>, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let _ = cmd.output();
+    let _ = crate::omp_ops::omp_capture(cmd);
     get_models_catalog().await
 }
 

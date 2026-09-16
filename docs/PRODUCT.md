@@ -174,8 +174,9 @@ silenzioso, preciso**.
    lo stato di errore con opzione di riprova, mai un placeholder plausibile.
 
 8. **Il costo di un errore dell'app deve essere zero.** OMP Studio non scrive dati distruttivi
-   dentro `~/.omp` (unica deroga controllata: `themes/omp-studio.json` per allineamento cromatico
-   e `shellPath` in merge per Git Bash se assente) e apre i database di `omp` in sola lettura
+   dentro `~/.omp` (deroghe controllate: `themes/omp-studio.json` per allineamento cromatico,
+   `shellPath` in merge per Git Bash se assente e la raccolta dei propri log in `logs/`,
+   Gate R26) e apre i database di `omp` in sola lettura
    rigorosa (`PRAGMA query_only = ON` e `SQLITE_OPEN_READONLY`). Nel caso peggiore l'app è un
    guscio chiuso attorno a dati intatti, recuperabili riaprendo `omp` da terminale.
 
