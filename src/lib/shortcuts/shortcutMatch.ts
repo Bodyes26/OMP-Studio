@@ -34,3 +34,11 @@ export function isShortcutsHelpKey(e: KeyboardEventLike): boolean {
 export function isGlobalShellShortcut(e: KeyboardEventLike): boolean {
 	return e.altKey && (e.ctrlKey || e.metaKey);
 }
+
+/**
+ * Riconosce la scorciatoia per passare al progetto aperto successivo o precedente:
+ * Ctrl+Tab (o Cmd+Tab) / Ctrl+Shift+Tab (o Cmd+Shift+Tab).
+ */
+export function isProjectCycleShortcut(e: KeyboardEventLike): boolean {
+	return !e.altKey && (e.ctrlKey || e.metaKey) && (e.key === 'Tab' || e.code === 'Tab');
+}

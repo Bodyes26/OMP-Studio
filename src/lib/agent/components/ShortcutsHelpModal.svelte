@@ -95,6 +95,7 @@
 				{ keys: ['Ctrl+Alt+M'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_modelli_ruoli_catalogo_provider_9786() },
 				{ keys: ['Ctrl+Alt+,'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_generali_di_studio_0d93() },
 				{ keys: ['Ctrl+Alt+T'], description: m.ui_shortcutshelpmodal_apre_la_vista_aggregata_dei_task_in_94ef() },
+				{ keys: ['Ctrl+Tab', 'Ctrl+Shift+Tab'], description: m.ui_shortcutshelpmodal_passa_al_progetto_aperto_successivo_precedente_7793() },
 				{ keys: ['Ctrl+Alt+→', 'Ctrl+Alt+←'], description: m.ui_shortcutshelpmodal_passa_al_progetto_aperto_successivo_precedente_7793() },
 				{ keys: ['Ctrl+Alt+Shift+→/←'], description: m.ui_shortcutshelpmodal_sposta_la_posizione_della_tessera_del_progetto_5853() }
 			]

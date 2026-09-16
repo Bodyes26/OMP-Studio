@@ -68,7 +68,7 @@ export function trapFocus(node: HTMLElement, options?: FocusTrapOptions | (() =>
 			return;
 		}
 
-		if (e.key !== 'Tab') return;
+		if (e.key !== 'Tab' || e.ctrlKey || e.altKey || e.metaKey) return;
 
 		const focusables = getFocusables();
 		if (focusables.length === 0) {

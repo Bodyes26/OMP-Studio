@@ -4,7 +4,7 @@
 
 OMP Studio delega l'intero blocco di tasti e scorciatoie convenzionali (incluse quelle con `Ctrl` e `Alt`) al terminale PTY, tranne quando il fuoco e' nell'editor Monaco. In quel caso le scorciatoie di gestione file agiscono solo sul file attivo, senza intercettare input del terminale.
 
-Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+Alt`** e la guida di aiuto **`Alt+H` / `Alt+K` / `F1`**, che non collidono con le combinazioni primarie di `omp`.
+Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+Alt`**, la navigazione schede **`Ctrl+Tab`** e la guida di aiuto **`Alt+H` / `Alt+K` / `F1`**, che non collidono con le combinazioni primarie di `omp`.
 
 | Scorciatoia | Contesto | Azione |
 |---|---|---|
@@ -18,6 +18,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+Alt+A` | Globale | Passa tra la superficie TERMINAL e la superficie GUI conservando la sessione |
 | `Ctrl+Alt+B` | Globale | Mostra o nasconde la barra laterale sinistra (File, Git, Agente) |
 | `Ctrl+Alt+L` | Globale | Cicla la modalita di layout della finestra (`Auto` → `Orizzontale` → `Verticale`) |
+| `Ctrl+Tab` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra |
+| `Ctrl+Shift+Tab` | Globale | Passa al progetto aperto precedente, nell'ordine mostrato in barra |
 | `Ctrl+Alt+Freccia Destra` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Passa al progetto aperto precedente, nell'ordine mostrato in barra |
 | `Ctrl+Alt+Maiusc+Freccia` | Globale | Sposta la tessera del progetto attivo a destra o a sinistra (ordinamento manuale) |

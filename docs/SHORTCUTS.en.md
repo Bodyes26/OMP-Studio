@@ -4,7 +4,7 @@
 
 OMP Studio passes standard keys and conventional shortcuts (including those with `Ctrl` and `Alt`) directly through to the PTY terminal, except when focus is inside the Monaco editor. In that case, file management shortcuts operate only on the active file without intercepting terminal input.
 
-Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modifier and the **`Alt+H` / `Alt+K` / `F1`** help cheat sheet, avoiding conflicts with primary `omp` key combinations.
+Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modifier, tab switching **`Ctrl+Tab`**, and the **`Alt+H` / `Alt+K` / `F1`** help cheat sheet, avoiding conflicts with primary `omp` key combinations.
 
 | Shortcut | Context | Action |
 |---|---|---|
@@ -18,6 +18,8 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+Alt+A` | Global | Switch between TERMINAL and GUI surfaces preserving the session |
 | `Ctrl+Alt+B` | Global | Toggle left sidebar (Files, Git, Agent) |
 | `Ctrl+Alt+L` | Global | Cycle window layout mode (`Auto` → `Horizontal` → `Vertical`) |
+| `Ctrl+Tab` | Global | Switch to next open project, in project bar order |
+| `Ctrl+Shift+Tab` | Global | Switch to previous open project, in project bar order |
 | `Ctrl+Alt+Arrow Right` | Global | Switch to next open project, in project bar order |
 | `Ctrl+Alt+Arrow Left` | Global | Switch to previous open project, in project bar order |
 | `Ctrl+Alt+Shift+Arrow` | Global | Move active project tile left or right (manual reordering) |

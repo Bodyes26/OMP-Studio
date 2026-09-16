@@ -27,7 +27,7 @@
 	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
 	import ShortcutsHelpModal from '$lib/agent/components/ShortcutsHelpModal.svelte';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
-	import { isShortcutsHelpKey } from '$lib/shortcuts/shortcutMatch';
+	import { isShortcutsHelpKey, isProjectCycleShortcut } from '$lib/shortcuts/shortcutMatch';
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { studioUpdaterStore, formatVersion } from '$lib/stores/studioUpdater.svelte';
@@ -1742,6 +1742,17 @@
 		};
 	});
 
+	function cycleProject(direction: 1 | -1) {
+		const projects = projectOrder.list;
+		if (projects.length < 2) return;
+		const idx = projects.findIndex(p => p.id === projectStore.activeId);
+		const currentIdx = idx >= 0 ? idx : 0;
+		const nextIdx = direction === 1
+			? (currentIdx + 1) % projects.length
+			: (currentIdx - 1 + projects.length) % projects.length;
+		projectStore.setActive(projects[nextIdx].id);
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
 		// Esc chiude il dialogo piu' esterno, dal piu' recente al piu' vecchio.
 		if (e.key === 'Escape') {
@@ -1772,6 +1783,13 @@
 		if (isShortcutsHelpKey(e)) {
 			e.preventDefault();
 			shortcutsModalStore.toggle();
+			return;
+		}
+
+		// Ctrl+Tab / Ctrl+Shift+Tab: passa al progetto aperto successivo o precedente
+		if (isProjectCycleShortcut(e)) {
+			e.preventDefault();
+			cycleProject(e.shiftKey ? -1 : 1);
 			return;
 		}
 
@@ -1835,8 +1853,7 @@
 				projectStore.shiftProject(projects[idx].id, e.key === 'ArrowRight' ? 1 : -1);
 				return;
 			}
-			const nextIdx = e.key === 'ArrowRight' ? (idx + 1) % projects.length : (idx - 1 + projects.length) % projects.length;
-			projectStore.setActive(projects[nextIdx].id);
+			cycleProject(e.key === 'ArrowRight' ? 1 : -1);
 		}
 	}
 </script>
