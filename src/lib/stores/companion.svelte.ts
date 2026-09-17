@@ -8,6 +8,7 @@ import { quotaStore, providersMatch } from './quota.svelte';
 import { parseProjectTasksFile, serializeProjectTasksFile, type StudioTask, type StudioTaskOptions } from './taskSerialization';
 import { createDirectiveSnapshot } from './taskDirectives';
 import { removeAttentionRequest, upsertAttentionRequest } from './companionAttention';
+import { broadcastToWindows, listenFromWindows } from './windowBridge';
 import type { ImageContent } from '$lib/agent/wire';
 import { m as messages } from '$lib/paraglide/messages.js';
 
@@ -154,20 +155,33 @@ class CompanionStore {
 
 		// Ascolta eventi sincronizzazione inter-finestra
 		try {
-			const u1 = await listen<AttentionRequest[]>('studio-attention-update', (event) => {
-				this.attentionRequests = event.payload ?? [];
-			});
-			this.unlisteners.push(u1);
+			// I tre canali di stato viaggiano nella busta di `windowBridge`:
+			// `emit` consegna anche al mittente, e la finestra principale --
+			// che e' la sorgente -- si riapplicava il proprio payload. Passato
+			// da JSON quel payload perde le chiavi con valore `undefined`,
+			// quindi il confronto lo giudicava diverso dallo stato appena
+			// pubblicato: l'effetto riscriveva, ritrasmetteva e la Companion
+			// ridisegnava la card a ogni giro, senza fermarsi.
+			const u1 = await listenFromWindows<AttentionRequest[]>(
+				'studio-attention-update',
+				(payload) => {
+					this.attentionRequests = payload ?? [];
+				}
+			);
+			if (u1) this.unlisteners.push(u1);
 
-			const u2 = await listen<Project[]>('studio-projects-update', (event) => {
-				this.projects = event.payload ?? [];
+			const u2 = await listenFromWindows<Project[]>('studio-projects-update', (payload) => {
+				this.projects = payload ?? [];
 			});
-			this.unlisteners.push(u2);
+			if (u2) this.unlisteners.push(u2);
 
-			const u4 = await listen<CompanionProjectRuntime[]>('studio-project-runtime', (event) => {
-				this.projectRuntimes = event.payload ?? [];
-			});
-			this.unlisteners.push(u4);
+			const u4 = await listenFromWindows<CompanionProjectRuntime[]>(
+				'studio-project-runtime',
+				(payload) => {
+					this.projectRuntimes = payload ?? [];
+				}
+			);
+			if (u4) this.unlisteners.push(u4);
 
 			const u3 = await listen('studio-request-attention-sync', () => {
 				if (!this.isCompanionWindow) {
@@ -211,9 +225,9 @@ class CompanionStore {
 
 	/** Notifica a tutte le finestre lo stato attuale dei progetti e delle attenzioni. */
 	broadcastState() {
-		void emit('studio-attention-update', $state.snapshot(this.attentionRequests));
-		void emit('studio-projects-update', $state.snapshot(projectStore.projects));
-		void emit('studio-project-runtime', this.publishedRuntimes);
+		void broadcastToWindows('studio-attention-update', $state.snapshot(this.attentionRequests));
+		void broadcastToWindows('studio-projects-update', $state.snapshot(projectStore.projects));
+		void broadcastToWindows('studio-project-runtime', this.publishedRuntimes);
 	}
 
 	/**
@@ -224,7 +238,7 @@ class CompanionStore {
 	publishProjectRuntimes(list: CompanionProjectRuntime[]) {
 		this.publishedRuntimes = list;
 		this.projectRuntimes = list;
-		void emit('studio-project-runtime', list);
+		void broadcastToWindows('studio-project-runtime', list);
 	}
 
 	/**
@@ -388,10 +402,11 @@ class CompanionStore {
 		}
 
 		try {
-			await settingsStore.init();
-			if (!modelSettingsStore.config) {
-				await modelSettingsStore.loadAll();
-			}
+			// Il salvataggio ha bisogno dei ruoli configurati e dei selettori
+			// del catalogo: sono letture di `config.yml` e `models.db`.
+			// `loadAll` avvia anche `omp models --json`, un processo da
+			// secondi, e teneva il primo salvataggio in attesa per nulla.
+			await Promise.all([settingsStore.init(), modelSettingsStore.ensureConfigAndCatalog()]);
 
 			// Il file assente torna stringa vuota: un errore vero, invece, non
 			// vale coda vuota, perche' la scrittura seguente la cancellerebbe.

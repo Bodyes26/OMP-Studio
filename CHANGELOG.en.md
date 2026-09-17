@@ -105,6 +105,8 @@ it is closed into a version with `npm run release -- <version>`.
 - Togglable file previews: for Markdown and SVG, the editor displays a three-state toggle in the top bar (code only, side-by-side code and preview, preview only) remembering preference per tab. `Ctrl+Shift+V` cycles through the three views.
 - Editor tabs can be reordered by dragging, closed with middle-click, scrolled via mouse wheel, and show scroll arrows when open files exceed the tab bar; active tab always remains in view.
 - New "Close All" option in tab context menu, with `Ctrl+Shift+W` shortcut.
+- The Companion no longer flashes while you answer a multi-question sequence in the main window. Attention state travels over `emit`, which also delivers to the sender: the main window re-applied its own announcement and, since the JSON round-trip drops the empty fields that `ask` questions carry, judged it different from the state it had just published. The result was a continuous bounce between the two windows: the card was redrawn dozens of times per second, the content jumped up and down and always fell back to the first question. Each window now discards its own announcements, and the comparison treats a missing field and an empty field as identical.
+- Saving a task from the Companion is instant, first time included. The save used to wait for the full model load, which runs `omp models --json` (about two seconds) for a list the task does not need: it now reads only the configured roles and the local catalog, while the full list of available models loads in the background when the window opens, where the `!role` and `!model` mentions need it.
 
 ### Changed
 

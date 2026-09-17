@@ -194,6 +194,7 @@ class ModelSettingsStore {
 	private healthSettingsStore: Store | null = null;
 	private loadProvidersPromise: Promise<void> | null = null;
 	private ensureLoadedPromise: Promise<void> | null = null;
+	private configCatalogPromise: Promise<void> | null = null;
 	private providersRequested = false;
 
 
@@ -419,6 +420,39 @@ class ModelSettingsStore {
 		})();
 
 		return this.ensureLoadedPromise;
+	}
+
+	/**
+	 * Carica solo quel che serve a comporre le opzioni di un task: i ruoli
+	 * configurati e il catalogo dei modelli, cioe' `config.yml` e
+	 * `models.db`. Non chiama `get_available_models_catalog`, che avvia
+	 * `omp models --json`: chi salva un task non puo' aspettare un processo.
+	 */
+	async ensureConfigAndCatalog(): Promise<void> {
+		if (this.config && this.catalog.length > 0) return;
+		if (this.configCatalogPromise) return this.configCatalogPromise;
+
+		this.configCatalogPromise = (async () => {
+			try {
+				const [cfg, cat] = await Promise.all([
+					invoke<ModelConfigDto>('get_model_config'),
+					invoke<ModelDto[]>('get_models_catalog')
+				]);
+				if (!this.config) {
+					this.config = cfg;
+					this.draftConfig = JSON.parse(JSON.stringify(cfg));
+				}
+				if (this.catalog.length === 0) {
+					this.catalog = cat;
+				}
+			} catch (e) {
+				console.error('ensureConfigAndCatalog failed:', e);
+			} finally {
+				this.configCatalogPromise = null;
+			}
+		})();
+
+		return this.configCatalogPromise;
 	}
 
 	async saveConfig() {

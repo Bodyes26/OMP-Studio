@@ -81,6 +81,50 @@ test('upsert converge su una richiesta ricostruita ma equivalente', () => {
 	assert.equal(upsertAttentionRequest([stored], rebuilt), null);
 });
 
+test('upsert converge sull\'eco IPC serializzata in JSON', () => {
+	// `emit` consegna anche al mittente e il payload passa da JSON, che
+	// scarta le chiavi con valore `undefined`: le domande di `ask` ne hanno
+	// (`header`, `recommended`, `description`). Se l'eco risultasse diversa,
+	// la finestra principale riscriverebbe e ritrasmetterebbe lo stato a ogni
+	// giro e la Companion ridisegnerebbe la card senza fermarsi.
+	const multiQuestion = buildRequest({
+		pendingUi: {
+			kind: 'ask',
+			requestId: 'req-9',
+			title: 'Zona (1/2)',
+			message: 'Quale zona?',
+			method: 'select',
+			options: ['Cuneo', 'Alba'],
+			optionDetails: [{ description: 'Sede centrale' }, { description: undefined }],
+			questions: [
+				{
+					id: 'zona',
+					question: 'Quale zona?',
+					header: undefined,
+					multi: false,
+					recommended: undefined,
+					options: [{ label: 'Cuneo', description: undefined }]
+				},
+				{
+					id: 'quando',
+					question: 'Quando?',
+					header: undefined,
+					multi: true,
+					recommended: undefined,
+					options: [{ label: 'Subito', description: undefined }]
+				}
+			],
+			questionIndex: 0,
+			totalQuestions: 2
+		}
+	});
+	const echoed = JSON.parse(JSON.stringify(multiQuestion)) as AttentionRequest;
+
+	assert.ok(sameAttentionRequest(multiQuestion, echoed), 'l\'eco descrive lo stesso stato');
+	assert.equal(upsertAttentionRequest([multiQuestion], echoed), null);
+	assert.equal(upsertAttentionRequest([echoed], multiQuestion), null);
+});
+
 test('upsert inserisce una richiesta per un progetto non ancora presente', () => {
 	const next = upsertAttentionRequest([], buildRequest());
 

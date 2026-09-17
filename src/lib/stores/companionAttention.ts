@@ -48,11 +48,16 @@ function jsonEqual(a: unknown, b: unknown): boolean {
 
 	const left = a as Record<string, unknown>;
 	const right = b as Record<string, unknown>;
-	const leftKeys = Object.keys(left);
-	if (leftKeys.length !== Object.keys(right).length) return false;
-	for (const key of leftKeys) {
-		if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+	// Chiave assente e chiave con valore `undefined` descrivono lo stesso
+	// stato: l'eco IPC passa da JSON, che scarta le seconde (le domande di
+	// `ask` ne hanno diverse: `header`, `recommended`, `description`).
+	// Confrontare il numero di chiavi rendeva diverso un payload identico, e
+	// l'effetto che lo produce riscriveva e ritrasmetteva senza fine.
+	for (const key of Object.keys(left)) {
 		if (!jsonEqual(left[key], right[key])) return false;
+	}
+	for (const key of Object.keys(right)) {
+		if (!(key in left) && right[key] !== undefined) return false;
 	}
 	return true;
 }

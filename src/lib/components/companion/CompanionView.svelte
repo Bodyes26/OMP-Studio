@@ -275,6 +275,9 @@
 		refreshCompanionState();
 		void quotaStore.init();
 		void settingsStore.init();
+		// Cataloghi completi in background: il salvataggio di un task non deve
+		// mai aspettarli, ma le menzioni `!ruolo` e `!modello` li vogliono.
+		void modelSettingsStore.ensureLoaded();
 		void tick().then(() => {
 			// Il fuoco va nel campo solo se non c'e' nulla di urgente sopra:
 			// altrimenti la scrollbar porta il campo in vista e spinge la domanda
