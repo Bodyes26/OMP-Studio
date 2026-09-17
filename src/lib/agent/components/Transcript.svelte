@@ -9,6 +9,7 @@
 	import { projectStore } from '../../stores/projects.svelte';
 	import type {
 		AgentSession,
+		AssistantEntry,
 		Block,
 		NoticeEntry,
 		SystemChipEntry,
@@ -17,7 +18,7 @@
 	} from '../session.svelte';
 	import { chatReveal } from '../motion';
 	import ToolCard from '../tools/ToolCard.svelte';
-	import ToolGroup from '../tools/ToolGroup.svelte';
+	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
 	import { groupsInExecution } from '../tools/registry';
 	import AssistantText from './AssistantText.svelte';
 	import CompactionRow from './CompactionRow.svelte';
@@ -59,23 +60,40 @@
 
 	type DisplayItem =
 		| { kind: 'single'; entry: TranscriptEntry }
-		| { kind: 'tool-group'; id: number; entries: ToolEntry[] }
+		| { kind: 'tool-group'; id: number; entries: ToolGroupEntry[] }
 		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] };
-	function isGroupedWorkTool(entry: TranscriptEntry): entry is ToolEntry {
-		return entry.kind === 'tool' && groupsInExecution(entry.toolName);
+	function hasResponseContent(entry: AssistantEntry): boolean {
+		return entry.blocks.some(
+			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
+		);
 	}
 
-	// Raggruppa solo i tool operativi consecutivi. Messaggi dell'assistente e
-	// interazioni con l'utente (come `ask`) restano nella timeline e separano
-	// i gruppi, cosi' non vengono nascosti dentro un accordion di lavoro.
+	function isExecutionEntry(entry: TranscriptEntry): boolean {
+		if (entry.kind === 'tool') {
+			return groupsInExecution(entry.toolName);
+		}
+		if (entry.kind === 'assistant') {
+			// Se l'assistente non ha emesso testo per l'utente ne immagini,
+			// si tratta di un passaggio di ragionamento interno (thinking) o
+			// dell'invocazione di uno strumento operativo: appartiene al flusso di esecuzione.
+			// I commenti testuali e le spiegazioni restano invece nella timeline principale.
+			return !hasResponseContent(entry);
+		}
+		return false;
+	}
+
+	// Raggruppa chiamate tool operativi e relativi passaggi di ragionamento interno
+	// (thinking / turni intermedi senza testo) in un blocco compatto. Messaggi narrativi
+	// dell'assistente e interazioni utente (come `ask`) restano nella timeline principale.
 	const displayItems = $derived.by<DisplayItem[]>(() => {
 		const items: DisplayItem[] = [];
-		let currentSegment: ToolEntry[] = [];
+		let currentSegment: ToolGroupEntry[] = [];
 		const entries = session.visibleEntries;
 
 		function flushSegment() {
 			if (currentSegment.length === 0) return;
-			if (currentSegment.length > 1) {
+			const hasTools = currentSegment.some((e) => e.kind === 'tool');
+			if (hasTools) {
 				items.push({
 					kind: 'tool-group',
 					id: currentSegment[0].id,
@@ -90,8 +108,8 @@
 		}
 
 		for (const entry of entries) {
-			if (isGroupedWorkTool(entry)) {
-				currentSegment.push(entry);
+			if (isExecutionEntry(entry)) {
+				currentSegment.push(entry as ToolGroupEntry);
 			} else {
 				flushSegment();
 				items.push({ kind: 'single', entry });
@@ -161,6 +179,12 @@
 		// omette il footer per evitare badge duplicati a cascata.
 		const next = items[index + 1];
 		if (next && next.kind === 'single' && next.entry.kind === 'assistant') {
+			return false;
+		}
+		// Se il display item successivo e' un tool group (l'assistente ha emesso
+		// un commento o spiegazione prima di avviare l'esecuzione dei tool),
+		// omette il footer: modello e costo compariranno in fondo alla risposta finale.
+		if (next && next.kind === 'tool-group') {
 			return false;
 		}
 		return true;
@@ -283,7 +307,7 @@
 				transition:chatReveal={{ duration: disableAnimations ? 0 : 210 }}
 			>
 				{#if item.kind === 'tool-group'}
-					<ToolGroup entries={item.entries} />
+					<ToolGroup entries={item.entries} activeAssistantId={session.activeAssistantId} />
 				{:else if item.kind === 'system-group'}
 					<NoticeGroup entries={item.entries} />
 				{:else if item.entry.kind === 'user'}

@@ -393,3 +393,172 @@ describe('Superfici di digitazione esterne al composer', () => {
 		assert.equal(isTypingSurface(textarea as EventTarget), true);
 	});
 });
+describe('Raggruppamento tool ed esecuzione nella timeline (Transcript grouping)', () => {
+	function hasResponseContent(entry: { blocks?: Array<{ type: string; text?: string }> }): boolean {
+		if (!entry.blocks || !Array.isArray(entry.blocks)) return false;
+		return entry.blocks.some(
+			(b) => (b.type === 'text' && typeof b.text === 'string' && b.text.trim().length > 0) || b.type === 'image'
+		);
+	}
+
+	function isExecutionEntry(
+		entry: { kind: string; toolName?: string; blocks?: Array<{ type: string; text?: string }> },
+		isGroupableTool: (toolName: string) => boolean
+	): boolean {
+		if (entry.kind === 'tool') {
+			return isGroupableTool(entry.toolName ?? '');
+		}
+		if (entry.kind === 'assistant') {
+			return !hasResponseContent(entry);
+		}
+		return false;
+	}
+
+	function groupDisplayItems<T extends { id: number; kind: string; toolName?: string; blocks?: Array<{ type: string; text?: string }> }>(
+		entries: T[],
+		isGroupableTool: (toolName: string) => boolean = (t) => t !== 'ask'
+	) {
+		const items: Array<{ kind: 'single' | 'tool-group'; entry?: T; entries?: T[]; id?: number }> = [];
+		let currentSegment: T[] = [];
+
+		function flushSegment() {
+			if (currentSegment.length === 0) return;
+			const hasTools = currentSegment.some((e) => e.kind === 'tool');
+			if (hasTools) {
+				items.push({
+					kind: 'tool-group',
+					id: currentSegment[0].id,
+					entries: [...currentSegment]
+				});
+			} else {
+				for (const entry of currentSegment) {
+					items.push({ kind: 'single', entry });
+				}
+			}
+			currentSegment = [];
+		}
+
+		for (const entry of entries) {
+			if (isExecutionEntry(entry, isGroupableTool)) {
+				currentSegment.push(entry);
+			} else {
+				flushSegment();
+				items.push({ kind: 'single', entry });
+			}
+		}
+
+		flushSegment();
+		return items;
+	}
+
+	function shouldShowAssistantFooter(
+		index: number,
+		items: Array<{ kind: string; entry?: { kind: string } }>
+	): boolean {
+		const next = items[index + 1];
+		if (next && next.kind === 'single' && next.entry?.kind === 'assistant') {
+			return false;
+		}
+		if (next && next.kind === 'tool-group') {
+			return false;
+		}
+		return true;
+	}
+
+	it('raggruppa sequenza multi-step di tool operativi e thinking (scenario Gemini)', () => {
+		// Simula la sequenza dallo screenshot: write, read, edit, read, edit, todo, write
+		const entries = [
+			{ id: 1, kind: 'assistant', blocks: [] },
+			{ id: 2, kind: 'tool', toolName: 'write' },
+			{ id: 3, kind: 'assistant', blocks: [] },
+			{ id: 4, kind: 'tool', toolName: 'read' },
+			{ id: 5, kind: 'assistant', blocks: [] },
+			{ id: 6, kind: 'tool', toolName: 'edit' },
+			{ id: 7, kind: 'assistant', blocks: [] },
+			{ id: 8, kind: 'tool', toolName: 'read' },
+			{ id: 9, kind: 'assistant', blocks: [] },
+			{ id: 10, kind: 'tool', toolName: 'edit' },
+			{ id: 11, kind: 'assistant', blocks: [{ type: 'thinking', text: 'aggiorno todo...' }] },
+			{ id: 12, kind: 'tool', toolName: 'todo' },
+			{ id: 13, kind: 'assistant', blocks: [{ type: 'thinking', text: 'scrivo tabelle...' }] },
+			{ id: 14, kind: 'tool', toolName: 'write' },
+			{ id: 15, kind: 'assistant', blocks: [{ type: 'text', text: 'Ho completato la configurazione.' }] }
+		];
+
+		const items = groupDisplayItems(entries);
+		assert.equal(items.length, 2, 'Deve produrre esattamente 1 tool-group e 1 messaggio finale');
+		assert.equal(items[0].kind, 'tool-group');
+		assert.equal(items[0].entries?.length, 14, 'Tutti i 7 tool e relativi passaggi interni devono essere accorpati');
+		assert.equal(items[1].kind, 'single');
+		assert.equal(items[1].entry?.id, 15);
+	});
+
+	it('raggruppa anche una singola operazione operativa con thinking evitando badge isolati', () => {
+		const entries = [
+			{ id: 1, kind: 'assistant', blocks: [{ type: 'thinking', text: 'devo leggere...' }] },
+			{ id: 2, kind: 'tool', toolName: 'read' },
+			{ id: 3, kind: 'assistant', blocks: [{ type: 'text', text: 'Ecco il contenuto del file.' }] }
+		];
+
+		const items = groupDisplayItems(entries);
+		assert.equal(items.length, 2);
+		assert.equal(items[0].kind, 'tool-group');
+		assert.equal(items[0].entries?.length, 2);
+		assert.equal(items[1].kind, 'single');
+	});
+
+	it('preserva i commenti testuali dell\'agente nella timeline prima dei tool', () => {
+		const entries = [
+			{ id: 1, kind: 'assistant', blocks: [{ type: 'text', text: 'Ora modifico i parametri di configurazione.' }] },
+			{ id: 2, kind: 'tool', toolName: 'edit' },
+			{ id: 3, kind: 'assistant', blocks: [] },
+			{ id: 4, kind: 'tool', toolName: 'bash' },
+			{ id: 5, kind: 'assistant', blocks: [{ type: 'text', text: 'Configurazione completata con successo.' }] }
+		];
+
+		const items = groupDisplayItems(entries);
+		assert.equal(items.length, 3);
+		assert.equal(items[0].kind, 'single', 'Il commento narrativo iniziale resta nella timeline');
+		assert.equal(items[0].entry?.id, 1);
+		assert.equal(items[1].kind, 'tool-group', 'I tool intermedi vengono raggruppati');
+		assert.equal(items[1].entries?.length, 3);
+		assert.equal(items[2].kind, 'single', 'La risposta finale resta nella timeline');
+		assert.equal(items[2].entry?.id, 5);
+	});
+
+	it('non raggruppa tool interattivi come ask che richiedono risposta utente', () => {
+		const entries = [
+			{ id: 1, kind: 'assistant', blocks: [] },
+			{ id: 2, kind: 'tool', toolName: 'read' },
+			{ id: 3, kind: 'assistant', blocks: [] },
+			{ id: 4, kind: 'tool', toolName: 'ask' },
+			{ id: 5, kind: 'user', text: 'Risposta utente' }
+		];
+
+		const items = groupDisplayItems(entries);
+		assert.equal(items.length, 3);
+		assert.equal(items[0].kind, 'tool-group', 'Il read precedente e nel gruppo');
+		assert.equal(items[1].kind, 'single', 'ask resta standalone nella timeline per interazione');
+		assert.equal(items[1].entry?.id, 4);
+		assert.equal(items[2].kind, 'single', 'Il messaggio utente resta standalone');
+	});
+
+	it('deduplica il footer modello omettendolo prima di un tool-group e mostrandolo alla risposta finale', () => {
+		const items = [
+			{ kind: 'single', entry: { kind: 'assistant' } },
+			{ kind: 'tool-group' },
+			{ kind: 'single', entry: { kind: 'assistant' } }
+		];
+
+		assert.equal(
+			shouldShowAssistantFooter(0, items),
+			false,
+			'Nessun footer prima di un tool-group'
+		);
+		assert.equal(
+			shouldShowAssistantFooter(2, items),
+			true,
+			'Footer mostrato sulla risposta finale'
+		);
+	});
+});
