@@ -52,7 +52,7 @@
 		items: ShortcutItem[];
 	}
 
-	const categories: ShortcutCategory[] = [
+	const categories = $derived.by((): ShortcutCategory[] => [
 		{
 			id: 'models-roles',
 			title: 'Modelli & Ruoli (Superficie GUI)',
@@ -114,10 +114,10 @@
 				{ keys: ['Click destro', 'Shift+F10'], description: 'Apre il menu contestuale dedicato dell\'elemento a fuoco' }
 			]
 		}
-	];
+	]);
 
 	// Conteggio totale scorciatoie
-	const totalShortcutsCount = categories.reduce((sum, cat) => sum + cat.items.length, 0);
+	const totalShortcutsCount = $derived(categories.reduce((sum, cat) => sum + cat.items.length, 0));
 
 	// Filtro in tempo reale
 	const filteredCategories = $derived.by(() => {

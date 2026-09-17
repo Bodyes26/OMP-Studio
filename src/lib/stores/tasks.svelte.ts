@@ -22,7 +22,7 @@ import {
 	pruneOrigins,
 	mergeOriginRecords
 } from './taskSerialization';
-import { QueueHydration, mergeHydratedTasks } from './taskHydration';
+import { QueueHydration, mergeHydratedTasks, mergeReloadedTasks } from './taskHydration';
 import { resolveDroppedTask, type InFlightTask } from './taskRecovery';
 import { windowLabel } from './windowBridge';
 import { m as msg } from '$lib/paraglide/messages.js';
@@ -191,7 +191,7 @@ class TaskStore {
 			const content = await invoke<string>('project_tasks_read', { projectPath });
 			const fromDisk = parseProjectTasksFile(content ?? '', key);
 			this.lastWritten.set(key, serializeProjectTasksFile(fromDisk));
-			this.tasks = this.mergeProjectTasks(key, fromDisk);
+			this.tasks = mergeReloadedTasks(this.tasks, key, fromDisk);
 		});
 	}
 
@@ -385,7 +385,11 @@ class TaskStore {
 	 */
 	async clearProject(projectPath: string): Promise<void> {
 		const key = projectKey(projectPath);
-		await this.loadProject(projectPath);
+		const loaded = await this.loadProject(projectPath);
+		if (!loaded) {
+			console.error(`Coda non letta da disco: svuotamento annullato per ${projectPath}`);
+			return;
+		}
 		this.tasks = this.tasks.filter((task) => task.projectPath !== key);
 		await this.saveProjectImmediate(projectPath);
 	}

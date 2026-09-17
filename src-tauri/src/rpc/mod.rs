@@ -80,6 +80,24 @@ impl RpcManager {
             next_id: Mutex::new(1),
         }
     }
+
+    /// Chiude tutte le sessioni RPC attive rilasciando stdin e terminando i processi figli.
+    pub fn close_all(&self) {
+        let sessions: Vec<RpcSession> = {
+            let mut guard = self.sessions.lock();
+            guard.drain().map(|(_, session)| session).collect()
+        };
+
+        for session in sessions {
+            if let Some(config_file) = session.config_path.as_ref() {
+                let _ = std::fs::remove_file(config_file);
+            }
+            session.stdin.lock().take();
+            let mut child = session.child.lock();
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 /// Overlay `--config` del percorso GUI. `tools.approvalMode: yolo`:

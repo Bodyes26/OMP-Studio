@@ -65,3 +65,27 @@ export function mergeHydratedTasks(current: StudioTask[], persisted: StudioTask[
 	const known = new Set(current.map((task) => task.id));
 	return current.concat(persisted.filter((task) => !known.has(task.id)));
 }
+
+/**
+ * Unisce lo stato su disco letto da reloadProject con i task in memoria.
+ *
+ * Il disco e' autoritativo: qualsiasi task rimosso esternamente non deve
+ * risorgere. Si conservano solo eventuali task in stato `dispatching`, che
+ * non risiedono piu' nel file ma sono in volo verso l'agente.
+ */
+export function mergeReloadedTasks(
+	current: StudioTask[],
+	projectKey: string,
+	fromDisk: StudioTask[]
+): StudioTask[] {
+	const dispatching = current.filter(
+		(task) => task.projectPath === projectKey && task.status === 'dispatching'
+	);
+	const diskIds = new Set(fromDisk.map((task) => task.id));
+	const keptDispatching = dispatching.filter((task) => !diskIds.has(task.id));
+	const merged = fromDisk.concat(keptDispatching);
+	merged.forEach((task, index) => {
+		task.position = index;
+	});
+	return current.filter((task) => task.projectPath !== projectKey).concat(merged);
+}

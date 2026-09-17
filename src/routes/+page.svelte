@@ -19,7 +19,6 @@
 	import PreviewViewer from '$lib/components/PreviewViewer.svelte';
 	import BrowserViewer from '$lib/components/BrowserViewer.svelte';
 	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
-	import LabView from '$lib/lab/LabView.svelte';
 	import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
 	import CloseConfirmModal, { type ProjectCloseTarget } from '$lib/components/CloseConfirmModal.svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -56,6 +55,35 @@
 	let previewFile = $state<string | null>(null);
 	let browserOpen = $state(false);
 	let labOpen = $state(false);
+	// Il Laboratorio prototipi e' alpha e disattivato per difetto: il suo codice
+	// (compiler, renderer, orchestrazione) non entra nel bundle iniziale e viene
+	// caricato solo quando l'utente lo apre davvero.
+	type LabSurfaceComponent = (typeof import('$lib/lab/LabView.svelte'))['default'];
+	let LabSurface = $state<LabSurfaceComponent | null>(null);
+	let labLoadError = $state('');
+
+	/** Apre o chiude il Laboratorio. Con la funzione alpha spenta il comando non
+	 *  e' un vicolo cieco: porta dove la si attiva. */
+	async function toggleLab() {
+		labLoadError = '';
+		if (labOpen) {
+			labOpen = false;
+			return;
+		}
+		if (!settingsStore.general.labAlphaEnabled) {
+			settingsStore.openSection('general');
+			return;
+		}
+		if (!LabSurface) {
+			try {
+				LabSurface = (await import('$lib/lab/LabView.svelte')).default;
+			} catch (err) {
+				labLoadError = err instanceof Error ? err.message : String(err);
+				return;
+			}
+		}
+		labOpen = true;
+	}
 	let agentAnnouncement = $state('');
 	const prevAgentStates = new Map<string, string>();
 
@@ -1824,6 +1852,28 @@
 
 		// Ctrl+Tab / Ctrl+Shift+Tab: passa al progetto aperto successivo o precedente
 		if (isProjectCycleShortcut(e)) {
+			const hasOpenModal =
+				settingsStore.open ||
+				shortcutsModalStore.isOpen ||
+				closeConfirmModalState.open ||
+				setupOpen ||
+				usageOpen ||
+				pickerOpen ||
+				queueOpen ||
+				showRestartModal ||
+				showUpdatePromptModal ||
+				labOpen;
+
+			const target = e.target;
+			const isTargetEditable =
+				target instanceof HTMLInputElement ||
+				target instanceof HTMLTextAreaElement ||
+				(target instanceof HTMLElement &&
+					(target.isContentEditable || Boolean(target.closest('.monaco-editor'))));
+
+			if (hasOpenModal || isTargetEditable) {
+				return;
+			}
 			e.preventDefault();
 			cycleProject(e.shiftKey ? -1 : 1);
 			return;
@@ -1868,7 +1918,7 @@
 			settingsStore.cycleLayoutMode();
 		} else if (e.key.toLowerCase() === 'p') {
 			e.preventDefault();
-			labOpen = !labOpen;
+			void toggleLab();
 		} else if (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'r') {
 			e.preventDefault();
 			void companionStore.toggleCompanion();
@@ -1903,7 +1953,7 @@
 		onSettingsClick={(section) => settingsStore.openSection(section)}
 		onSetupClick={openSetup}
 		onQueueClick={() => queueOpen = !queueOpen}
-		onLabClick={() => (labOpen = !labOpen)}
+		onLabClick={() => void toggleLab()}
 		labActive={labOpen}
 		{setupIncomplete}
 		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, follow)}
@@ -1936,9 +1986,26 @@
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 		{agentAnnouncement}
 	</div>
+	{#if labLoadError}
+		<div
+			role="alert"
+			style="position: fixed; inset-inline: 0; bottom: 10px; margin-inline: auto; width: fit-content; max-width: 80vw; z-index: 90; padding: 6px 12px; border-radius: var(--radius-md); border: 1px solid var(--danger-dim); background: var(--bg-overlay); color: var(--danger); font-size: var(--text-xs);"
+		>
+			{m.page_lab_load_error({ reason: labLoadError })}
+		</div>
+	{/if}
+	{#if projectStore.loadError}
+		<div
+			role="alert"
+			style="position: fixed; inset-inline: 0; bottom: 10px; margin-inline: auto; width: fit-content; max-width: 80vw; z-index: 90; padding: 6px 12px; border-radius: var(--radius-md); border: 1px solid var(--danger-dim); background: var(--bg-overlay); color: var(--danger); font-size: var(--text-xs);"
+		>
+			{m.page_projects_load_error({ reason: projectStore.loadError })}
+		</div>
+	{/if}
 
-	{#if labOpen}
-		<LabView
+
+	{#if labOpen && LabSurface}
+		<LabSurface
 			projectPath={projectStore.activeProject?.path || ''}
 			projectKey={projectStore.activeProject?.id || ''}
 			projectName={projectStore.activeProject?.label?.trim() || projectStore.activeProject?.name || 'Bozza locale'}
@@ -1971,7 +2038,7 @@
 				shortcuts={[
 					{ key: 'Ctrl+Alt+N', label: m.page_empty_open_folder_shortcut(), action: () => pickerOpen = true },
 					{ key: 'Ctrl+Alt+S', label: m.page_empty_new_chat_shortcut(), action: () => projectStore.openScratchpad() },
-					{ key: 'Ctrl+Alt+P', label: m.page_empty_lab_shortcut(), action: () => (labOpen = true) },
+					{ key: 'Ctrl+Alt+P', label: m.page_empty_lab_shortcut(), action: () => void toggleLab() },
 					{ key: 'Ctrl+Alt+U', label: m.page_empty_quota_shortcut(), action: () => usageOpen = true },
 					{ key: 'Ctrl+Alt+,', label: m.page_empty_settings_shortcut(), action: () => settingsStore.openSection() },
 					{ key: 'Ctrl+Alt+M', label: m.page_empty_models_shortcut(), action: () => settingsStore.openSection('models') }

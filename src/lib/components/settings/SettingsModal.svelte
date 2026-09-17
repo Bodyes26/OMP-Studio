@@ -21,18 +21,18 @@
 
 	// Navigazione di primo livello: ogni voce apre una sezione del centro
 	// impostazioni. "Modelli" e' l'unica con le tre schede orizzontali storiche.
-	const NAV_SECTIONS: { id: SettingsSection; label: string }[] = [
+	const NAV_SECTIONS = $derived.by((): { id: SettingsSection; label: string }[] => [
 		{ id: 'general', label: m.settings_nav_general() },
 		{ id: 'appearance', label: m.settings_nav_appearance() },
 		{ id: 'companion', label: m.settings_nav_companion() },
 		{ id: 'accessibility', label: m.settings_nav_accessibility() },
 		{ id: 'notifications', label: m.settings_nav_notifications() },
-		{ id: 'projectBar', label: m.ui_settingsmodal_barra_progetti_1fc0() },
-		{ id: 'workspace', label: m.ui_settingsmodal_editor_terminale_8f5d() },
-		{ id: 'tasks', label: 'Task & Agenti' },
+		{ id: 'projectBar', label: m.settings_nav_project_bar() },
+		{ id: 'workspace', label: m.settings_nav_workspace() },
+		{ id: 'tasks', label: m.settings_nav_tasks() },
 		{ id: 'suggestions', label: m.settings_nav_suggestions() },
-		{ id: 'models', label: 'Modelli' }
-	];
+		{ id: 'models', label: m.settings_nav_models() }
+	]);
 
 	let showDiscardConfirm = $state(false);
 

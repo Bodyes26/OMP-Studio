@@ -162,6 +162,13 @@ export interface GeneralSettings {
 	 */
 	showInternalAgentMessages: boolean;
 	/**
+	 * Abilita il Laboratorio prototipi, funzione alpha incompleta: con il flag
+	 * spento i due ingressi nella barra in alto e la scorciatoia Ctrl+Alt+P
+	 * portano qui invece di aprire una superficie non finita, e il codice del
+	 * Laboratorio non viene nemmeno caricato.
+	 */
+	labAlphaEnabled: boolean;
+	/**
 	 * Modalita layout della finestra principale:
 	 * 'auto' (adatta in base all'orientamento e larghezza finestra),
 	 * 'horizontal' (3 colonne affiancate),
@@ -253,6 +260,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		closeWithQueuedTasks: 'ask',
 		chatWidth: 'readable',
 		showInternalAgentMessages: false,
+		labAlphaEnabled: false,
 		layoutMode: 'auto',
 		sidebarCollapsed: false,
 		defaultStreamingBehavior: 'steer',
@@ -380,6 +388,7 @@ export function parseSettings(value: unknown): StudioSettings {
 			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks),
 			chatWidth: pick(general.chatWidth, ['readable', 'full'] as const, d.general.chatWidth),
 			showInternalAgentMessages: bool(general.showInternalAgentMessages, d.general.showInternalAgentMessages),
+			labAlphaEnabled: bool(general.labAlphaEnabled, d.general.labAlphaEnabled),
 			layoutMode: pick(general.layoutMode, ['auto', 'horizontal', 'vertical'] as const, d.general.layoutMode),
 			sidebarCollapsed: bool(general.sidebarCollapsed, d.general.sidebarCollapsed),
 			defaultStreamingBehavior: pick(

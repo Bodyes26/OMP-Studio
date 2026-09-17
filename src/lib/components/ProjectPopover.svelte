@@ -82,13 +82,13 @@
 
 	type View = 'default' | 'rename' | 'close' | 'close-others';
 
-	const AGENT_STATE_LABEL: Record<Project['agentState'], string> = {
-		working: m.ui_projectpopover_agente_al_lavoro_200b(),
-		attention: m.ui_projectpopover_attende_una_risposta_b102(),
-		finished: 'Ha finito il lavoro',
-		idle: m.ui_projectpopover_in_attesa_di_istruzioni_eca6(),
-		unknown: m.ui_projectpopover_nessuna_sessione_aperta_18f8()
-	};
+	const AGENT_STATE_LABEL = $derived.by((): Record<Project['agentState'], string> => ({
+		working: m.topbar_agent_state_working(),
+		attention: m.topbar_agent_state_attention(),
+		finished: m.topbar_agent_state_finished(),
+		idle: m.topbar_agent_state_idle(),
+		unknown: m.topbar_agent_state_unknown()
+	}));
 
 	const QUEUE_PEEK_LIMIT = 5;
 

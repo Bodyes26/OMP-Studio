@@ -26,7 +26,7 @@ import {
 	sanitizeDirectivesCatalog,
 	applyTaskDirectives
 } from '../src/lib/stores/taskDirectives.ts';
-import { QueueHydration, mergeHydratedTasks } from '../src/lib/stores/taskHydration.ts';
+import { QueueHydration, mergeHydratedTasks, mergeReloadedTasks } from '../src/lib/stores/taskHydration.ts';
 
 describe('Store tasks.json: validazione e parsing', () => {
 	const validTask: StudioTask = {
@@ -614,5 +614,51 @@ describe('Storico dei lanci: fusione e tetto', () => {
 
 		assert.equal(pruned.filter((entry) => entry.projectPath === 'c:\\projects\\app').length, 1);
 		assert.equal(pruned.filter((entry) => entry.projectPath === 'c:\\projects\\altro').length, 50);
+	});
+});
+
+describe('mergeReloadedTasks: rilettura autoritativa da disco', () => {
+	const key = 'c:\\projects\\app';
+	const task = (id: string, status: StudioTask['status'] = 'queued', position = 0): StudioTask => ({
+		id,
+		projectPath: key,
+		prompt: `Task ${id}`,
+		position,
+		createdAt: 1700000000000,
+		updatedAt: 1700000000000,
+		status
+	});
+
+	it('elimina i task cancellati da disco senza resuscitarli', () => {
+		const inMemory = [task('t1'), task('t2'), task('t3')];
+		// Su disco t2 e' stato cancellato esternamente
+		const fromDisk = [task('t1', 'queued', 0), task('t3', 'queued', 1)];
+
+		const result = mergeReloadedTasks(inMemory, key, fromDisk);
+		assert.deepEqual(result.map((t) => t.id), ['t1', 't3']);
+		assert.deepEqual(result.map((t) => t.position), [0, 1]);
+	});
+
+	it('preserva i task in stato dispatching non ancora presenti su disco', () => {
+		const inMemory = [task('t1'), task('t2', 'dispatching')];
+		// Su disco t2 e' gia' stato estratto/rimosso prima del reload
+		const fromDisk = [task('t1', 'queued', 0)];
+
+		const result = mergeReloadedTasks(inMemory, key, fromDisk);
+		assert.deepEqual(result.map((t) => t.id), ['t1', 't2']);
+		assert.equal(result.find((t) => t.id === 't2')?.status, 'dispatching');
+	});
+
+	it('non tocca i task di altri progetti', () => {
+		const otherTask: StudioTask = {
+			...task('other-1'),
+			projectPath: 'c:\\projects\\other'
+		};
+		const inMemory = [otherTask, task('t1')];
+		const fromDisk = [task('t1', 'queued', 0), task('t2', 'queued', 1)];
+
+		const result = mergeReloadedTasks(inMemory, key, fromDisk);
+		assert.equal(result.some((t) => t.id === 'other-1' && t.projectPath === 'c:\\projects\\other'), true);
+		assert.deepEqual(result.filter((t) => t.projectPath === key).map((t) => t.id), ['t1', 't2']);
 	});
 });

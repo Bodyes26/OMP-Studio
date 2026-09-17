@@ -216,6 +216,9 @@ pub fn run() {
                     if let Some(pty_manager) = window.try_state::<PtyManager>() {
                         pty_manager.close_all();
                     }
+                    if let Some(rpc_manager) = window.try_state::<rpc::RpcManager>() {
+                        rpc_manager.close_all();
+                    }
                     // La Companion viene solo nascosta (`hide()`), non chiusa:
                     // resta una finestra aperta per Tauri e terrebbe vivo il
                     // processo dopo la distruzione della finestra principale.
@@ -252,6 +255,9 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
                 if let Some(pty_manager) = app_handle.try_state::<PtyManager>() {
                     pty_manager.close_all();
+                }
+                if let Some(rpc_manager) = app_handle.try_state::<rpc::RpcManager>() {
+                    rpc_manager.close_all();
                 }
                 // Ultimo istante in cui la geometria della Companion aperta e'
                 // ancora leggibile: senza questo, chi ridimensiona e chiude

@@ -72,6 +72,7 @@ class ProjectStore {
 	 *  allora `projects` e' vuoto perche' non si sa ancora niente, non perche'
 	 *  l'utente non abbia progetti. */
 	ready = $state(false);
+	loadError = $state<string | null>(null);
 	private store: Store | null = null;
 	private initialized = false;
 	private initPromise: Promise<void> | null = null;
@@ -88,11 +89,9 @@ class ProjectStore {
 	init(): Promise<void> {
 		if (!this.initPromise) {
 			this.initPromise = this.initStore().catch((err) => {
-				// Un file o il plugin path illeggibile non deve lasciare il
-				// primo paint bloccato per sempre sul guscio vuoto. Si espone
-				// lo stato senza progetti, come prima del gate `ready`, e le
-				// scritture restano disabilitate (`initialized === false`).
+				const errorMsg = err instanceof Error ? err.message : String(err);
 				console.error('Caricamento progetti fallito:', err);
+				this.loadError = errorMsg;
 				this.ready = true;
 			});
 		}
@@ -177,10 +176,14 @@ class ProjectStore {
 		this.initialized = true;
 		this.ready = true;
 	}
-
 	private save = debounce(async () => {
-		if (!this.initialized || !this.store) return;
-		const toSave = this.projects.filter(p => p.path !== '').map(p => ({
+		if (!this.initialized || !this.store) {
+			if (this.loadError) {
+				console.warn('Salvataggio progetti rifiutato: store in errore di caricamento preliminare.');
+			}
+			return;
+		}
+		const toSave = this.projects.filter((p) => p.path !== '').map((p) => ({
 			id: p.id,
 			name: p.name,
 			label: p.label,

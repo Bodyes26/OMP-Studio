@@ -112,6 +112,25 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
+				<span class="form-row-label">{m.settings_general_lab_alpha_title()}</span>
+				<span class="form-row-desc">{m.settings_general_lab_alpha_desc()}</span>
+			</div>
+			<div class="form-row-control">
+				<label class="switch">
+					<input
+						type="checkbox"
+						checked={settingsStore.general.labAlphaEnabled}
+						onchange={(e) => settingsStore.patchGeneral({ labAlphaEnabled: (e.currentTarget as HTMLInputElement).checked })}
+					/>
+					<span class="slider"></span>
+				</label>
+			</div>
+		</div>
+	</div>
+
+	<div class="section-group">
+		<div class="form-row">
+			<div class="form-row-copy">
 				<span class="form-row-label">{m.settings_general_sidebar_title()}</span>
 				<span class="form-row-desc">{m.settings_general_sidebar_desc()}</span>
 			</div>

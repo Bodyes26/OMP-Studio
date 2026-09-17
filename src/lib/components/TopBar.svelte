@@ -56,22 +56,29 @@
 		onRequestCloseProject?: (projectId: string) => void;
 	}>();
 
-	const PROJECT_BAR_ORDER_OPTIONS: { value: ProjectBarOrder; label: string }[] = [
+	// Il Laboratorio prototipi e' una funzione alpha: i suoi due ingressi
+	// restano visibili ma inerti finche' l'utente non la attiva. Un pulsante
+	// `disabled` non si puo' interrogare ne' col mouse ne' con la tastiera,
+	// quindi qui resta raggiungibile e porta dove si attiva.
+	const labEnabled = $derived(settingsStore.general.labAlphaEnabled);
+	const labTitle = $derived(labEnabled ? m.topbar_action_lab() : m.topbar_lab_disabled_title());
+
+	const PROJECT_BAR_ORDER_OPTIONS = $derived.by((): { value: ProjectBarOrder; label: string }[] => [
 		{ value: 'fixed', label: m.topbar_order_fixed() },
 		{ value: 'mru', label: m.topbar_order_mru() },
 		{ value: 'priority', label: m.topbar_order_priority() },
 		{ value: 'alpha', label: m.topbar_order_alpha() }
-	];
+	]);
 
 	// Lo stato di una tessera e' un anello e un colore: senza queste etichette
 	// dentro l'`aria-label` sarebbe un'informazione affidata al solo colore.
-	const AGENT_STATE_LABEL: Record<Project['agentState'], string> = {
+	const AGENT_STATE_LABEL = $derived.by((): Record<Project['agentState'], string> => ({
 		idle: m.topbar_agent_state_idle(),
 		working: m.topbar_agent_state_working(),
 		attention: m.topbar_agent_state_attention(),
 		finished: m.topbar_agent_state_finished(),
 		unknown: m.topbar_agent_state_unknown()
-	};
+	}));
 
 	const appWindow = getCurrentWindow();
 
@@ -382,9 +389,9 @@
 	}
 
 	function queueBadgeTitle(project: Project, queued: number, ready: boolean): string {
-		const base = `${queued} task in coda`;
+		const base = m.topbar_queue_count_label({ count: queued });
 		if (settingsStore.projectBar.queueBadge !== 'count-state') return base;
-		return ready ? `${base} · pronti a partire` : `${base} · ${runReason?.(project.id) ?? m.topbar_queue_not_runnable()}`;
+		return ready ? `${base} · ${m.topbar_queue_ready()}` : `${base} · ${runReason?.(project.id) ?? m.topbar_queue_not_runnable()}`;
 	}
 
 	function handleMinimize(e: MouseEvent) {
@@ -587,7 +594,15 @@
 		<div class="tabs-actions">
 			<button class="tab-add" onclick={() => onNewProject?.()} title={m.topbar_action_new_project()} aria-label={m.topbar_action_new_project()}><IconPlus /></button>
 			<button class="tab-add" onclick={() => projectStore.openScratchpad()} title={m.topbar_action_scratchpad()} aria-label={m.topbar_action_scratchpad()}><IconGhost /></button>
-			<button class="tab-add" class:active={labActive} onclick={() => onLabClick?.()} title={m.topbar_action_lab()} aria-label={m.topbar_action_lab()}><IconLab /></button>
+			<button
+				class="tab-add"
+				class:active={labActive}
+				class:alpha-off={!labEnabled}
+				aria-disabled={!labEnabled}
+				onclick={() => onLabClick?.()}
+				title={labTitle}
+				aria-label={labTitle}
+			><IconLab /></button>
 
 			<div class="order-control">
 				<button
@@ -676,9 +691,11 @@
 		<button
 			class="settings-chip lab-chip"
 			class:active={labActive}
+			class:alpha-off={!labEnabled}
+			aria-disabled={!labEnabled}
 			onclick={(e) => { e.stopPropagation(); onLabClick?.(); }}
-			title={m.topbar_lab_chip_title()}
-			aria-label={m.topbar_lab_chip_title()}
+			title={labEnabled ? m.topbar_lab_chip_title() : m.topbar_lab_disabled_title()}
+			aria-label={labEnabled ? m.topbar_lab_chip_title() : m.topbar_lab_disabled_title()}
 		>
 			<IconLab /> {m.ui__page_laboratorio_d67e()}
 		</button>
@@ -688,7 +705,7 @@
 				class="queue-chip"
 				onclick={(e) => { e.stopPropagation(); onQueueClick?.(); }}
 				title={m.topbar_queue_chip_title()}
-				aria-label="Task in coda su tutti i progetti: {taskStore.totalQueued} (Ctrl+Alt+T)"
+				aria-label={m.topbar_queue_chip_aria({ count: taskStore.totalQueued })}
 			>
 				Coda ({taskStore.totalQueued})
 			</button>
@@ -1038,6 +1055,11 @@
 		color: var(--ink);
 		background-color: var(--bg-hover);
 	}
+	/* Funzione alpha non attiva: il comando resta leggibile e interrogabile,
+	   ma si annuncia come non operativo. */
+	.tab-add.alpha-off {
+		opacity: 0.45;
+	}
 
 	.order-control {
 		position: relative;
@@ -1329,6 +1351,10 @@
 		background: color-mix(in srgb, var(--brand) 18%, transparent);
 		border-color: var(--brand);
 		color: var(--brand-ink);
+	}
+	.lab-chip.alpha-off {
+		opacity: 0.55;
+		border-style: dashed;
 	}
 
 	.settings-badge {

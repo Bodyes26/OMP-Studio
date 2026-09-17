@@ -169,12 +169,15 @@ class NotificationManager {
 			const isDetailed = settingsStore.notifications.style === 'detailed';
 			const askMsg = this.askMessages.get(project.id)?.trim();
 
-			let title = `OMP Studio · ${project.name}`;
-			let body = askMsg || `OMP ha bisogno di te su ${project.name}`;
+			let title: string;
+			let body: string;
 
-			if (!isDetailed) {
+			if (isDetailed) {
+				title = `OMP Studio · ${project.name}`;
+				body = askMsg || `OMP ha bisogno di te su ${project.name}`;
+			} else {
 				title = 'OMP Studio';
-				body = askMsg ? `${project.name}: ${askMsg}` : `OMP ha bisogno di te su ${project.name}`;
+				body = `OMP ha bisogno di te su ${project.name}`;
 			}
 			sendNotification({
 				title,

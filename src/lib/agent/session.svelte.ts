@@ -1543,7 +1543,7 @@ export class AgentSession {
 							: typeof event.errorMessage === 'string'
 								? event.errorMessage
 								: messages.ui_ts_session_tentativi_automatici_di_chiamata_al_modello_esauriti_0155();
-					this.checkAndSetQuotaBlocked(failureReason);
+					this.checkAndSetQuotaBlocked(failureReason, true);
 				} else if (event.success === true && this.blockedQuotaState) {
 					this.blockedQuotaState = null;
 				}
@@ -1671,7 +1671,7 @@ export class AgentSession {
 						}
 					}
 				}
-				this.checkAndSetQuotaBlocked(msg);
+				this.checkAndSetQuotaBlocked(msg, false);
 				this.agentState = this.resolveSettledState();
 				this.pushNotice('error', msg);
 				void this.reconcile();
@@ -1957,12 +1957,20 @@ export class AgentSession {
 		}
 	}
 
-	private checkAndSetQuotaBlocked(rawError: string) {
+	private checkAndSetQuotaBlocked(rawError: string, force = false) {
 		const currentModel = this.model;
 		const provider = currentModel?.provider || '';
 		const modelId = currentModel?.id || '';
 		const qInfo = computeQuotaInfo(provider, modelId, undefined);
 		const classification = classifyFailureReason(rawError, qInfo.status);
+
+		// Se non e' un esaurimento effettivo di quota/crediti e non e' forzato
+		// (ad esempio dal completamento dei tentativi automatici auto_retry_end),
+		// non bloccare la quota del progetto: un semplice errore di esecuzione
+		// o tool non deve congelare la coda ne' mostrare il banner di cambio modello.
+		if (!force && classification.kind !== 'quota_exhausted') {
+			return;
+		}
 
 		const recovery = recommendRecoveryModel({
 			failedProvider: provider,
@@ -2218,6 +2226,7 @@ export class AgentSession {
 	private markWorking() {
 		if (this.pendingUi) return;
 		this.inferredAttention = null;
+		this.blockedQuotaState = null;
 		this.agentState = 'working';
 	}
 
@@ -2433,6 +2442,7 @@ export class AgentSession {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return 'empty';
 		this.todoReminder = null;
+		this.blockedQuotaState = null;
 		this.isAborting = false;
 		this.suggestions.invalidate();
 		const enriched = await orchestratePromptPreflight(
@@ -2531,9 +2541,8 @@ export class AgentSession {
 	dismissBlockedQuota() {
 		if (this.blockedQuotaState) {
 			this.blockedQuotaState.dismissed = true;
-			if (this.agentState === 'attention' && !this.pendingUi) {
-				this.agentState = 'idle';
-			}
+			this.blockedQuotaState = null;
+			this.agentState = this.resolveSettledState();
 		}
 	}
 

@@ -93,11 +93,11 @@
 		onChooseMention: (value: string) => void;
 	}>();
 
-	const TOKEN_HINTS = [
-		{ char: '@', label: 'progetto', title: m.ui_companionview_scegli_il_progetto_di_destinazione_254a() },
-		{ char: '/', label: 'direttiva', title: m.ui_companionview_aggiungi_una_direttiva_al_task_e689() },
-		{ char: '!', label: 'ruolo', title: m.ui_companionview_forza_il_ruolo_o_il_modello_32cf() }
-	];
+	const TOKEN_HINTS = $derived.by(() => [
+		{ char: '@', label: m.companion_token_project(), title: m.ui_companionview_scegli_il_progetto_di_destinazione_254a() },
+		{ char: '/', label: m.companion_token_directive(), title: m.ui_companionview_aggiungi_una_direttiva_al_task_e689() },
+		{ char: '!', label: m.companion_token_role(), title: m.ui_companionview_forza_il_ruolo_o_il_modello_32cf() }
+	]);
 
 	const sizeClass = $derived(size === 'hero' ? 'composer-hero' : 'composer-row');
 
@@ -237,10 +237,10 @@
 	{#if isBusy}
 		<p class="composer-status">
 			{imageProcessingCount > 0
-				? 'Preparazione immagini…'
+				? m.companion_status_processing_images()
 				: isParsingTask
-					? 'Interpretazione con AI…'
-					: 'Salvataggio…'}
+					? m.companion_status_interpreting_ai()
+					: m.companion_status_saving()}
 		</p>
 	{/if}
 

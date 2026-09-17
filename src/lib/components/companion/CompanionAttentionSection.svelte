@@ -107,7 +107,7 @@
 						<div class="chat-context">
 							{#each messagesToShow as msg, i (i)}
 								<div class="context-bubble {msg.role}">
-									<span class="role-tag">{msg.role === 'user' ? 'Tu' : 'Agente'}:</span>
+									<span class="role-tag">{msg.role === 'user' ? m.companion_role_user() : m.companion_role_agent()}:</span>
 									<span class="bubble-text">{msg.text}</span>
 								</div>
 							{/each}
@@ -151,7 +151,7 @@
 										onclick={() => void onResolveQuotaBlocked(req.projectId, suggested.selector)}
 									>
 										<IconSparkles />
-										<span>Passa a {suggested.modelName} e riprendi</span>
+										<span>{m.companion_quota_switch_and_resume({ model: suggested.modelName })}</span>
 									</button>
 								{/if}
 								{#if bq?.availableRecoveryModels && bq.availableRecoveryModels.length > 1}
@@ -181,7 +181,7 @@
 										class="action-btn cancel"
 										onclick={() => void onDismissQuotaBlocked(req.projectId)}
 									>
-										Archivia avviso
+										{m.companion_quota_dismiss()}
 									</button>
 								</div>
 							</div>
@@ -208,12 +208,12 @@
 										}}
 									></textarea>
 									<div class="reply-actions">
-										<span class="reply-hint">Invio per inviare</span>
+										<span class="reply-hint">{m.companion_reply_enter_hint()}</span>
 										<button
 											type="button"
 											class="action-btn cancel"
 											onclick={() => onCustomReplyToggle(req.projectId, false)}
-										>Torna alle opzioni</button>
+										>{m.companion_options_back()}</button>
 										<button
 											type="button"
 											class="action-btn confirm"
@@ -251,7 +251,7 @@
 												<span class="opt-label">
 													{clean}
 													{#if isRec}
-														<span class="opt-recommended-badge">Consigliata</span>
+														<span class="opt-recommended-badge">{m.companion_option_recommended()}</span>
 													{/if}
 												</span>
 												{#if description}
