@@ -482,13 +482,35 @@ class ProjectStore {
 	setAgentState(id: string, state: AgentState) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p) return;
-		if (p.agentState === 'working' && state === 'idle' && this.activeId !== id) {
-			p.agentState = 'finished';
-		} else if (state === 'idle' && this.activeId === id) {
-			p.agentState = 'idle';
-		} else if (state !== 'idle' || p.agentState !== 'finished') {
-			p.agentState = state;
+		if (p.agentState === 'working' && state === 'idle') {
+			// Ha finito. Resta `finished` a meno che tu lo stia davvero
+			// guardando: la companion deve poter distinguere "ho finito, leggi
+			// cosa ho fatto" da "sono fermo, dammi un compito", e senza il
+			// controllo sul fuoco della finestra un lavoro concluso mentre eri
+			// in un'altra applicazione risultava identico a un progetto inerte
+			// da ore.
+			const watching =
+				this.activeId === id && typeof document !== 'undefined' && document.hasFocus();
+			p.agentState = watching ? 'idle' : 'finished';
+			return;
 		}
+		// `finished` non retrocede a `idle` da solo: lo chiude l'utente
+		// aprendo il progetto (`setActive`) o riportando il fuoco sulla
+		// finestra (`acknowledgeFinished`).
+		if (state === 'idle' && p.agentState === 'finished') return;
+		p.agentState = state;
+	}
+
+	/**
+	 * Chiude lo stato "ha finito" del progetto indicato.
+	 *
+	 * Chiamata quando la finestra principale riprende il fuoco con quel
+	 * progetto aperto: l'utente sta guardando il risultato, il segnale ha
+	 * esaurito il suo scopo.
+	 */
+	acknowledgeFinished(id: string) {
+		const p = this.projects.find(p => p.id === id);
+		if (p && p.agentState === 'finished') p.agentState = 'idle';
 	}
 
 	setProjectHue(id: string, hue: number) {

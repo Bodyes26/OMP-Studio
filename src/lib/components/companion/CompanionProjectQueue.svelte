@@ -18,11 +18,11 @@
 	}>();
 
 	/**
-	 * Quante righe restano a vista prima di dichiarare il residuo. Oltre questa
-	 * soglia l'elenco scorre: la finestra e' alta 520px e una coda lunga non
-	 * puo' spingere fuori schermo i progetti sotto.
+	 * Quante righe restano a vista prima di dichiarare il residuo. Oltre
+	 * questa soglia l'elenco non scorre: la card di un progetto fermo non
+	 * puo' spingere fuori schermo le card dei progetti che stanno lavorando.
 	 */
-	const VISIBLE_TASKS = 4;
+	const VISIBLE_TASKS = 3;
 
 	function taskTitle(task: StudioTask): string {
 		const line = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim();
@@ -42,8 +42,8 @@
 
 		<!-- Ogni riga avvia il proprio task: con un solo bottone "Avvia prossimo"
 		     accanto a tre righe il legame con quale parte resta implicito. -->
-		<div class="queue-rows" class:scrolls={tasks.length > VISIBLE_TASKS}>
-			{#each tasks as task, index (task.id)}
+		<div class="queue-rows">
+			{#each tasks.slice(0, VISIBLE_TASKS) as task, index (task.id)}
 				{@const title = taskTitle(task)}
 				<button
 					type="button"

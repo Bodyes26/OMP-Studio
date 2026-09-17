@@ -87,6 +87,13 @@ export interface CompanionProjectRuntime {
 	canRunTask?: boolean;
 	/** Motivo del blocco, se `canRunTask` e' falso. */
 	runBlockReason?: string;
+	/**
+	 * Ultima riga di attivita' dell'agente: l'intento del tool in corso
+	 * mentre lavora, l'estratto di cio' che ha detto quando ha finito. E' la
+	 * differenza tra una card che dice "Completato" e una che dice cosa e'
+	 * stato completato.
+	 */
+	activity?: { text: string; at: number; kind: 'intent' | 'assistant' };
 }
 
 export interface CompanionRunTaskPayload {
@@ -121,6 +128,13 @@ class CompanionStore {
 	projectRuntimes = $state<CompanionProjectRuntime[]>([]);
 	isParsingTask = $state(false);
 	parseError = $state<string | null>(null);
+	/**
+	 * Vero quando la finestra companion e' sullo schermo. Lo sa anche la
+	 * finestra principale, che su questo decide se trasmettere: la riga di
+	 * attivita' cambia a ogni tool e trasmetterla a una finestra nascosta e'
+	 * lavoro pagato da chi sta compilando altrove.
+	 */
+	isCompanionVisible = $state(false);
 
 	private unlisteners: UnlistenFn[] = [];
 	private initialized = false;
@@ -197,6 +211,18 @@ class CompanionStore {
 				this.isPinned = event.payload === true;
 			});
 			this.unlisteners.push(u5);
+
+			// Visibilita' della companion: Rust la annuncia a tutte le finestre
+			// mostrandola (`companion-summon`) e nascondendola.
+			const u6 = await listen('companion-summon', () => {
+				this.isCompanionVisible = true;
+			});
+			this.unlisteners.push(u6);
+
+			const u7 = await listen('companion-hidden', () => {
+				this.isCompanionVisible = false;
+			});
+			this.unlisteners.push(u7);
 
 			if (this.isCompanionWindow) {
 				this.requestSync();
@@ -318,6 +344,35 @@ class CompanionStore {
 	/** Chiede alla finestra principale di avviare un task in coda. */
 	async runTask(projectId: string, taskId: string, follow = false) {
 		await emit('studio-run-task', { projectId, taskId, follow });
+	}
+
+	/**
+	 * Porta la finestra principale in primo piano sul progetto indicato.
+	 *
+	 * Serve al caso che la sola coda non copriva: un agente che ha finito e'
+	 * "fermo" esattamente come uno in attesa di un compito, ma nel primo caso
+	 * quello che vuoi e' leggere il risultato, non far partire altro lavoro.
+	 * In modalita' Spotlight la companion si ritira: ha finito il suo compito.
+	 */
+	async focusProject(projectId: string) {
+		await emit('studio-focus-project', { projectId });
+		if (!this.isPinned) await this.hideCompanion();
+	}
+
+	/**
+	 * Adatta l'altezza della finestra al contenuto (solo Spotlight).
+	 *
+	 * Lato Rust il comando esce da solo quando la finestra e' pinnata: la
+	 * geometria del widget la decide l'utente trascinandone il bordo.
+	 */
+	async fitToContent(height: number) {
+		if (this.isPinned) return;
+		try {
+			await invoke('fit_companion_to_content', { height });
+		} catch {
+			// Finestra non ancora pronta o piattaforma senza ridimensionamento:
+			// il layout resta valido, si perde solo l'adattamento.
+		}
 	}
 
 	/**

@@ -24,6 +24,12 @@ import {
 } from './askAnswers';
 import { SessionSuggestions } from './suggestions.svelte';
 import { askQuestionText } from './askTitle';
+import type { RecentChatMessage } from '$lib/stores/companion.svelte';
+import {
+	ACTIVITY_MAX_CHARS,
+	RECENT_MESSAGE_MAX_CHARS,
+	tailOfText
+} from '$lib/stores/companionText';
 import type { GuiGateSnapshot } from './automationGate';
 import {
 	RENDER_WINDOW,
@@ -279,6 +285,16 @@ function stripIntent(args: Record<string, unknown> | undefined): Record<string, 
 	return rest;
 }
 
+/** Solo i blocchi di testo di una risposta: il pensiero e le immagini restano fuori. */
+function assistantEntryText(entry: AssistantEntry): string {
+	return entry.blocks
+		.filter((b) => b.type === 'text')
+		.map((b) => b.text)
+		.filter(Boolean)
+		.join('\n')
+		.trim();
+}
+
 export interface AgentSessionConfig {
 	cwd: string;
 	scope?: 'main' | 'lab';
@@ -360,6 +376,14 @@ export class AgentSession {
 	blockedQuotaState = $state<BlockedQuotaState | null>(null);
 	/** Attenzione dedotta dall'analisi semantica del turno (domanda/richiesta di conferma senza tool ask). */
 	inferredAttention = $state<{ question: string; suggestions: string[] } | null>(null);
+	/**
+	 * Riga di attivita' per le superfici esterne (finestra companion).
+	 *
+	 * Aggiornata a eventi discreti -- inizio di un tool, fine del turno -- e
+	 * mai a ogni token: un `$derived` sul transcript avrebbe invalidato
+	 * l'effetto di trasmissione a ogni delta dello streaming.
+	 */
+	activityLine = $state<{ text: string; at: number; kind: 'intent' | 'assistant' } | null>(null);
 	/**
 	 * Piano di consegna del wizard: le risposte gia' compilate dall'utente che
 	 * aspettano la richiesta a cui appartengono. Il protocollo di `ask` e'
@@ -492,25 +516,57 @@ export class AgentSession {
 		this.visibleCount = clampVisibleCount(this.entries.length, this.visibleCount, step);
 	}
 
-	/** Ultimi messaggi utente e assistente per dare contesto alle richieste esterne (Companion / TopBar). */
-	get recentMessages(): import('$lib/stores/companion.svelte').RecentChatMessage[] {
-		const result: import('$lib/stores/companion.svelte').RecentChatMessage[] = [];
+	/**
+	 * Ultimi messaggi utente e assistente per dare contesto alle richieste
+	 * esterne (Companion / TopBar).
+	 *
+	 * Ogni testo e' limitato a `RECENT_MESSAGE_MAX_CHARS` dalla coda: questo
+	 * elenco attraversa l'IPC a ogni aggiornamento di attenzione, e un
+	 * messaggio da centinaia di kilobyte lo attraverserebbe per intero senza
+	 * che nessuno lo legga. Si taglia la testa, non la coda: la conclusione e'
+	 * la parte che serve a rispondere.
+	 */
+	get recentMessages(): RecentChatMessage[] {
+		const result: RecentChatMessage[] = [];
 		for (let i = this.entries.length - 1; i >= 0 && result.length < 10; i--) {
 			const entry = this.entries[i];
 			if (entry.kind === 'user') {
-				result.unshift({ role: 'user', text: entry.content });
+				result.unshift({
+					role: 'user',
+					text: tailOfText(entry.content, RECENT_MESSAGE_MAX_CHARS)
+				});
 			} else if (entry.kind === 'assistant') {
-				const text = entry.blocks
-					.filter((b) => b.type === 'text')
-					.map((b) => b.text)
-					.filter(Boolean)
-					.join('\n');
-				if (text.trim()) {
-					result.unshift({ role: 'assistant', text });
+				const text = assistantEntryText(entry);
+				if (text) {
+					result.unshift({
+						role: 'assistant',
+						text: tailOfText(text, RECENT_MESSAGE_MAX_CHARS)
+					});
 				}
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * Fissa nella riga di attivita' l'ultima cosa detta dall'agente a fine
+	 * turno. E' il testo che la companion mostra sulle card "ha finito": senza
+	 * di lui resta solo l'etichetta di stato, e per sapere se il risultato
+	 * interessa bisogna comunque aprire la finestra principale.
+	 */
+	private captureAssistantActivity() {
+		for (let i = this.entries.length - 1; i >= 0; i--) {
+			const entry = this.entries[i];
+			if (entry.kind !== 'assistant') continue;
+			const text = assistantEntryText(entry);
+			if (!text) continue;
+			this.activityLine = {
+				text: tailOfText(text, ACTIVITY_MAX_CHARS),
+				at: Date.now(),
+				kind: 'assistant'
+			};
+			return;
+		}
 	}
 
 	/**
@@ -1381,6 +1437,13 @@ export class AgentSession {
 				// reattiva, non quella grezza appena costruita.
 				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
 				this.markWorking();
+				// Riga di attivita' per la companion: l'intento dichiarato dice
+				// cosa sta facendo l'agente, il nome del tool e' il ripiego.
+				this.activityLine = {
+					text: event.intent?.trim() || event.toolName,
+					at: Date.now(),
+					kind: 'intent'
+				};
 				// La richiesta della prima domanda puo' arrivare prima di questo
 				// evento: omp la scrive per conto suo mentre gli eventi di
 				// sessione passano dallo stream dell'agent-loop. La card che
@@ -1440,6 +1503,7 @@ export class AgentSession {
 				this.activeAssistantId = null;
 				this.agentState = this.resolveSettledState();
 				void this.reconcile();
+				this.captureAssistantActivity();
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
 				}
@@ -1460,6 +1524,7 @@ export class AgentSession {
 				this.activeAssistantId = null;
 				this.agentState = this.resolveSettledState();
 				void this.reconcile();
+				this.captureAssistantActivity();
 				return;
 
 			case 'notice': {
@@ -2640,6 +2705,7 @@ export class AgentSession {
 		this.toolEntries.clear();
 		this.assistantEntry = null;
 		this.activeAssistantId = null;
+		this.activityLine = null;
 		this.optimisticUser = null;
 		this.subagents = [];
 		this.todoPhases = [];
@@ -2665,6 +2731,7 @@ export class AgentSession {
 		this.toolEntries.clear();
 		this.assistantEntry = null;
 		this.activeAssistantId = null;
+		this.activityLine = null;
 		this.optimisticUser = null;
 		this.subagents = [];
 		this.todoPhases = [];
@@ -2763,6 +2830,7 @@ export class AgentSession {
 			this.toolEntries.clear();
 			this.assistantEntry = null;
 			this.activeAssistantId = null;
+			this.activityLine = null;
 			this.optimisticUser = null;
 			this.subagents = [];
 			this.todoPhases = [];

@@ -196,7 +196,8 @@ commands.allow = [
     "hide_companion_window",
     "get_companion_state",
     "set_companion_pinned",
-    "parse_quick_task_ai"
+    "parse_quick_task_ai",
+    "fit_companion_to_content"
 ]
 
 [[set]]

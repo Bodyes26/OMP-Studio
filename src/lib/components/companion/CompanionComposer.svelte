@@ -16,7 +16,6 @@
 	};
 
 	let {
-		size = 'hero',
 		taskInput = $bindable(''),
 		inputEl = $bindable(null as HTMLTextAreaElement | null),
 		composerEl = $bindable(null as HTMLElement | null),
@@ -52,11 +51,6 @@
 		onSaveTask,
 		onChooseMention
 	} = $props<{
-		/**
-		 * `hero`: nulla in sospeso, il campo e' la superficie. `row`: qualcosa di
-		 * piu' urgente sta sopra, il campo si ritira a una riga.
-		 */
-		size?: 'hero' | 'row';
 		taskInput?: string;
 		inputEl?: HTMLTextAreaElement | null;
 		composerEl?: HTMLElement | null;
@@ -99,14 +93,15 @@
 		{ char: '!', label: m.companion_token_role(), title: m.ui_companionview_forza_il_ruolo_o_il_modello_32cf() }
 	]);
 
-	const sizeClass = $derived(size === 'hero' ? 'composer-hero' : 'composer-row');
+	// Nessuna variante di dimensione: il campo del task e' sempre la superficie
+	// principale della finestra, anche con domande o code sotto.
 
 	function handleComposerClick() {
 		inputEl?.focus();
 	}
 </script>
 
-<section class="quick-task-section {sizeClass}">
+<section class="quick-task-section composer-hero">
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div
 		class="composer"

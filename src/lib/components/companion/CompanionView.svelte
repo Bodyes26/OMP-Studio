@@ -9,7 +9,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '$lib/stores/modelSettings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEMES, anchorsFor, automaticProjectHue } from '$lib/theme';
+	import { THEMES, anchorsFor } from '$lib/theme';
 	import { matchesLooseQuery } from '$lib/looseSearch';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
@@ -25,13 +25,9 @@
 		type DisplayToken
 	} from '$lib/companion/quickTaskLocal';
 	import CompanionShell from './CompanionShell.svelte';
-	import CompanionAttentionSection from './CompanionAttentionSection.svelte';
 	import CompanionComposer from './CompanionComposer.svelte';
 	import CompanionMonitor from './CompanionMonitor.svelte';
-	import CompanionProjectQueue from './CompanionProjectQueue.svelte';
-	import CompanionQueueBoard from './CompanionQueueBoard.svelte';
-	import { sortQueueGroups, type CompanionQueueGroup } from './companionQueue';
-	import { IconPlay } from '$lib/icons';
+	import type { CompanionAskHandlers } from './companionAsk';
 
 	const STATE_RANK: Record<string, number> = {
 		attention: 0,
@@ -61,8 +57,7 @@
 	let imageProcessingCount = $state(0);
 	let isFileDialogOpen = false;
 	let attachmentError = $state<string | null>(null);
-	let expandedProjectId = $state<string | null>(null);
-	let attentionPageIndex = $state(0);
+	let bodyEl = $state<HTMLElement | null>(null);
 
 	let unlistenSummon: UnlistenFn | null = null;
 	let viewDisposed = false;
@@ -180,43 +175,6 @@
 		});
 	});
 
-	/**
-	 * Le code di tutti i progetti, nell'ordine in cui vanno guardate. Con piu'
-	 * di una coda la vista per singolo progetto raccontava solo la prima e
-	 * lasciava le altre a un numero accanto al nome.
-	 */
-	const queueGroups = $derived.by<CompanionQueueGroup[]>(() => {
-		const theme = THEMES[themeStore.current] ?? THEMES['titanium'];
-		const groups: CompanionQueueGroup[] = [];
-		for (const project of monitorProjects) {
-			if (!project.path) continue;
-			const tasks = taskStore.tasksFor(project.path).filter((t) => t.status === 'queued');
-			if (tasks.length === 0) continue;
-			const runtime = companionStore.projectRuntimes.find((r) => r.projectId === project.id);
-			groups.push({
-				projectId: project.id,
-				name: project.label?.trim() || project.name,
-				hue: project.colorMode === 'custom'
-					? project.hue
-					: automaticProjectHue(theme, project.path),
-				tasks,
-				ready: runtime?.canRunTask === true,
-				blockReason: runtime?.runBlockReason
-			});
-		}
-		return sortQueueGroups(groups);
-	});
-
-	/**
-	 * Lo slot in cima non e' una preferenza: e' una conseguenza dello stato,
-	 * ricalcolata a ogni evocazione. Chi ti aspetta batte il lavoro pronto,
-	 * che batte il campo vuoto.
-	 */
-	const readyGroup = $derived(queueGroups.find((group) => group.ready) ?? null);
-	const surface = $derived<'attention' | 'queue' | 'hero'>(
-		attentionList.length > 0 ? 'attention' : readyGroup ? 'queue' : 'hero'
-	);
-
 	const INPUT_MAX_HEIGHT = 160;
 
 	$effect(() => {
@@ -227,10 +185,39 @@
 		}
 	});
 
+	/**
+	 * Altezza della finestra in modalita' Spotlight: la decide il contenuto.
+	 *
+	 * Si misura il corpo reale e si chiede a Rust di ridimensionare senza
+	 * ricentrare: la finestra cresce verso il basso come una barra di ricerca
+	 * di sistema. Ricentrare a ogni riga scritta l'avrebbe fatta saltare sotto
+	 * le mani di chi digita.
+	 */
 	$effect(() => {
-		if (attentionPageIndex >= attentionList.length) {
-			attentionPageIndex = Math.max(0, attentionList.length - 1);
-		}
+		const el = bodyEl;
+		if (!el || typeof ResizeObserver === 'undefined') return;
+		if (companionStore.isPinned) return;
+
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const measure = () => {
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(() => {
+				timer = null;
+				// `scrollHeight` del corpo piu' il resto del guscio (maniglia di
+				// trascinamento e bordi): l'elemento misurato non copre la
+				// finestra intera.
+				const chrome = window.innerHeight - el.clientHeight;
+				void companionStore.fitToContent(el.scrollHeight + chrome);
+			}, 80);
+		};
+
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		measure();
+		return () => {
+			if (timer) clearTimeout(timer);
+			observer.disconnect();
+		};
 	});
 
 	// Il backdrop dipinge il testo che la textarea tiene trasparente: i due strati
@@ -291,19 +278,17 @@
 		// mai aspettarli, ma le menzioni `!ruolo` e `!modello` li vogliono.
 		void modelSettingsStore.ensureLoaded();
 		void tick().then(() => {
-			// Il fuoco va nel campo solo se non c'e' nulla di urgente sopra:
-			// altrimenti la scrollbar porta il campo in vista e spinge la domanda
-			// fuori dallo schermo.
-			if (surface === 'hero') inputEl?.focus();
+			// Il campo del task e' la prima cosa e prende sempre il fuoco:
+			// qualunque cosa ci sia sotto (una domanda, una coda pronta), il
+			// punto dove si scrive non cambia mai sotto le mani.
+			inputEl?.focus();
 		});
 		playOpenAnimation();
 
 		void listen('companion-summon', () => {
 			refreshCompanionState();
 			playOpenAnimation();
-			void tick().then(() => {
-				if (surface === 'hero') inputEl?.focus();
-			});
+			void tick().then(() => inputEl?.focus());
 		}).then((fn) => {
 			// La registrazione e' asincrona: se la vista e' gia' smontata il
 			// listener va chiuso subito, altrimenti resterebbe appeso.
@@ -607,10 +592,28 @@
 		void companionStore.runTask(projectId, taskId);
 	}
 
-	const attentionProps = $derived({
-		attentionList,
+	/**
+	 * Precompila il campo con la menzione del progetto e riporta il fuoco:
+	 * accodare al progetto che stai guardando non deve costare la digitazione
+	 * del suo nome.
+	 */
+	function prefillProject(project: Project) {
+		const mentionText = `@${project.name} `;
+		taskInput = taskInput.trimStart().startsWith('@')
+			? taskInput.replace(/^\s*@\S*\s*/, mentionText)
+			: mentionText + taskInput.trimStart();
+		aiParsed = null;
+		companionStore.parseError = null;
+		void tick().then(() => {
+			inputEl?.focus();
+			const end = taskInput.length;
+			inputEl?.setSelectionRange(end, end);
+			caret = end;
+		});
+	}
+
+	const askHandlers = $derived<CompanionAskHandlers>({
 		expandedHistory,
-		replyDrafts,
 		customReplyProjects,
 		onToggleHistory: toggleHistory,
 		onReplyDraftChange: (projectId: string, value: string) => {
@@ -666,12 +669,11 @@
 		projects: monitorProjects,
 		runtimes: companionStore.projectRuntimes,
 		attentionList,
-		isPinned: companionStore.isPinned,
-		selectedProjectId: expandedProjectId,
-		onSelectProject: (id: string | null) => { expandedProjectId = id; },
+		ask: askHandlers,
+		onFocusProject: (projectId: string) => void companionStore.focusProject(projectId),
+		onNewTask: prefillProject,
 		onRunTask: handleRunTask,
-		onToggleUsage: () => { usageOpen = !usageOpen; },
-		onTogglePin: togglePinned
+		onToggleUsage: () => { usageOpen = !usageOpen; }
 	});
 </script>
 
@@ -689,45 +691,11 @@
 		<UsagePopover open={usageOpen} onClose={() => (usageOpen = false)} />
 	{/if}
 
-	<main class="companion-body" class:surface-hero={surface === 'hero'}>
-		{#if surface === 'attention'}
-			<!-- Chi ti aspetta sta in cima, gia' aperto: la finestra non chiama
-			     mai da sola, quindi quando la guardi deve essere gia' pronta. -->
-			<CompanionAttentionSection
-				variant="open"
-				pageIndex={attentionPageIndex}
-				onPrevPage={() => { if (attentionPageIndex > 0) attentionPageIndex -= 1; }}
-				onNextPage={() => { if (attentionPageIndex < attentionList.length - 1) attentionPageIndex += 1; }}
-				{...attentionProps}
-			/>
-		{:else if surface === 'queue' && readyGroup}
-			<!-- Nessuno ti aspetta ma c'e' lavoro pronto a partire. Con una sola
-			     coda si vedono i suoi task; con piu' code il riepilogo per
-			     progetto, perche' l'elenco di una sola nascondeva le altre. -->
-			{#if queueGroups.length > 1}
-				<CompanionQueueBoard
-					groups={queueGroups}
-					onRunNext={handleRunTask}
-					onOpenProject={(projectId) => { expandedProjectId = projectId; }}
-				/>
-			{:else}
-				<section class="ready-queue">
-					<div class="section-title">
-						<IconPlay />
-						<span>{m.companion_ready_title({ project: readyGroup.name })}</span>
-					</div>
-					<CompanionProjectQueue
-						projectName={readyGroup.name}
-						tasks={readyGroup.tasks}
-						disabled={false}
-						onRunNext={(taskId) => handleRunTask(readyGroup.projectId, taskId)}
-					/>
-				</section>
-			{/if}
-		{/if}
-
+	<main class="companion-body" bind:this={bodyEl}>
+		<!-- Il campo del nuovo task e' sempre la prima cosa e sempre grande:
+		     e' la ragione per cui la finestra si apre. Domande, code e stato
+		     dei progetti stanno sotto, dentro le card. -->
 		<CompanionComposer
-			size={surface === 'hero' ? 'hero' : 'row'}
 			{...composerProps}
 			bind:taskInput
 			bind:inputEl
@@ -736,13 +704,9 @@
 			bind:fileInputEl
 		/>
 
-		{#if surface === 'attention'}
-			<CompanionAttentionSection variant="list" pageIndex={attentionPageIndex} {...attentionProps} />
-		{/if}
+		<CompanionMonitor {...monitorProps} />
 
-		<CompanionMonitor variant={surface === 'hero' ? 'list' : 'dense'} {...monitorProps} />
-
-		{#if surface === 'hero' && monitorProjects.length === 0}
+		{#if monitorProjects.length === 0}
 			<p class="companion-empty">{m.companion_empty()}</p>
 		{/if}
 	</main>

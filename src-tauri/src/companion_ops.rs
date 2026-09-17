@@ -194,6 +194,11 @@ pub fn track_companion_geometry(window: &Window) {
 /// in cui la dimensione scelta dall'utente esiste ancora. La guardia su
 /// `COMPANION_SHOWN` evita che una finestra creata e mai aperta sovrascriva la
 /// geometria salvata con la dimensione di creazione.
+///
+/// In modalita' Spotlight **l'altezza non si salva**: la decide il contenuto
+/// (`fit_companion_to_content`), e memorizzarla farebbe ereditare al widget
+/// pinnato un'altezza che nessuno ha scelto. La larghezza invece resta
+/// dell'utente in entrambe le modalita'.
 pub fn persist_companion_geometry(app: &AppHandle) {
     if !COMPANION_SHOWN.load(Ordering::Relaxed) {
         return;
@@ -214,8 +219,56 @@ pub fn persist_companion_geometry(app: &AppHandle) {
     state.x = Some(geometry.x);
     state.y = Some(geometry.y);
     state.width = Some(geometry.width);
-    state.height = Some(geometry.height);
+    if state.is_pinned {
+        state.height = Some(geometry.height);
+    }
     let _ = write_companion_state(&state);
+}
+
+/// Adatta l'altezza della finestra Spotlight al contenuto.
+///
+/// `height` e' in unita' logiche, le stesse del CSS da cui viene misurata.
+/// Non si tocca la posizione: il ridimensionamento cresce verso il basso come
+/// una barra di ricerca di sistema, mentre una ricentratura a ogni riga
+/// scritta farebbe saltare la finestra sotto le mani di chi digita.
+///
+/// Da pinnata il comando esce senza fare nulla: la geometria del widget e'
+/// dell'utente.
+#[command]
+pub fn fit_companion_to_content(app: AppHandle, height: f64) -> Result<(), String> {
+    if !height.is_finite() || height <= 0.0 {
+        return Ok(());
+    }
+    let state = get_companion_state().unwrap_or_default();
+    if state.is_pinned {
+        return Ok(());
+    }
+    let Some(window) = app.get_webview_window("companion") else {
+        return Ok(());
+    };
+
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let max_logical = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| monitor.size().height as f64 / monitor.scale_factor() * 0.7)
+        .unwrap_or(720.0);
+    let target = height.clamp(180.0, max_logical.max(180.0));
+
+    let current = window
+        .inner_size()
+        .map_err(|e| format!("Lettura dimensione companion fallita: {}", e))?;
+    let target_physical = (target * scale).round() as u32;
+    // Tolleranza di un pixel fisico: senza, l'arrotondamento su schermi con
+    // scalatura non intera genererebbe un ridimensionamento a ogni misura.
+    if target_physical.abs_diff(current.height) <= 1 {
+        return Ok(());
+    }
+
+    window
+        .set_size(PhysicalSize::new(current.width, target_physical))
+        .map_err(|e| format!("Adattamento altezza companion fallito: {}", e))
 }
 
 /// Commuta la modalita' Spotlight/Widget senza toccare la geometria salvata.
@@ -305,6 +358,7 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
             window
                 .hide()
                 .map_err(|e| format!("Chiusura finestra companion fallita: {}", e))?;
+            let _ = app.emit("companion-hidden", ());
             return Ok(());
         }
         // Se visibile ma non a fuoco, o pinnata, la porta in primo piano
@@ -312,11 +366,25 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
     }
 
     // Ripristina la dimensione salvata (in pixel fisici, come letta): senza
-    // valori memorizzati si lascia la finestra come e' stata creata.
-    if let (Some(w), Some(h)) = (state.width, state.height) {
-        window
-            .set_size(PhysicalSize::new(w, h))
-            .map_err(|e| format!("Dimensionamento finestra companion fallito: {}", e))?;
+    // valori memorizzati si lascia la finestra come e' stata creata. In
+    // Spotlight si riapplica la sola larghezza: l'altezza la fissa il
+    // frontend sul contenuto appena la vista e' pronta, e riapplicare quella
+    // salvata avrebbe prodotto un salto visibile a ogni apertura.
+    match (state.width, state.height, state.is_pinned) {
+        (Some(w), Some(h), true) => {
+            window
+                .set_size(PhysicalSize::new(w, h))
+                .map_err(|e| format!("Dimensionamento finestra companion fallito: {}", e))?;
+        }
+        (Some(w), _, false) => {
+            let current = window
+                .inner_size()
+                .map_err(|e| format!("Lettura dimensione companion fallita: {}", e))?;
+            window
+                .set_size(PhysicalSize::new(w, current.height))
+                .map_err(|e| format!("Dimensionamento finestra companion fallito: {}", e))?;
+        }
+        _ => {}
     }
 
     if state.is_pinned {
@@ -348,6 +416,10 @@ pub fn hide_companion_window(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("companion") {
         let _ = window.hide();
     }
+    // La finestra principale sospende la trasmissione della riga di attivita'
+    // quando la companion non e' sullo schermo: senza questo annuncio
+    // continuerebbe a pagarla per nessuno.
+    let _ = app.emit("companion-hidden", ());
     Ok(())
 }
 

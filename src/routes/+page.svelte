@@ -433,16 +433,20 @@
 		activeQuotaStore.setActiveModel(provider, modelId, credentialPin);
 	});
 
-	// Ritrasmette alla finestra companion stato e modello di OGNI progetto.
-	// Senza questo, la companion resta ferma allo snapshot ricevuto all'apertura
-	// (dove `agentState` vale ancora 'unknown') perche' `broadcastState()` veniva
-	// invocato solo all'arrivo o alla chiusura di una richiesta di attenzione.
-	let runtimeBroadcastDigest = '';
+	// Ritrasmette alla finestra companion stato, modello e riga di attivita' di
+	// OGNI progetto. Senza questo, la companion resta ferma allo snapshot
+	// ricevuto all'apertura (dove `agentState` vale ancora 'unknown') perche'
+	// `broadcastState()` veniva invocato solo all'arrivo o alla chiusura di una
+	// richiesta di attenzione.
+	let runtimeStructuralDigest = '';
+	let runtimeActivityDigest = '';
 	let runtimeBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
+		const companionVisible = companionStore.isCompanionVisible;
 		const runtimes: CompanionProjectRuntime[] = projectStore.projects.map((p) => {
 			const { provider, modelId, credentialPin } = resolveProjectRuntime(p);
 			const gate = automationGate(p.id);
+			const activity = agentSessions.get(p.id)?.activityLine;
 			return {
 				projectId: p.id,
 				provider,
@@ -452,7 +456,8 @@
 				canRunTask: gate.ready,
 				// La companion ha solo il tooltip: spiegazione e rimedio insieme,
 				// altrimenti resta con un'etichetta che non dice cosa fare.
-				runBlockReason: gate.ready ? undefined : `${gate.detail} ${gate.hint}`.trim()
+				runBlockReason: gate.ready ? undefined : `${gate.detail} ${gate.hint}`.trim(),
+				activity: activity ? { ...activity } : undefined
 			};
 		});
 
@@ -460,19 +465,37 @@
 		// sfarfalla e senza confronto si inonderebbe l'IPC a ogni token. Nome, etichetta
 		// e tinta ci stanno perche' la companion disegna anche quelli: senza, un
 		// progetto rinominato restava col vecchio nome fino al riavvio.
-		const digest = projectStore.projects
+		const structural = projectStore.projects
 			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}`)
 			.join('|');
-		if (digest === runtimeBroadcastDigest) return;
-		runtimeBroadcastDigest = digest;
+		const activityOnly = runtimes
+			.map((r) => (r.activity ? `${r.activity.kind}:${r.activity.at}` : ''))
+			.join('|');
 
-		// Throttle a valle: l'ultimo valore vince sempre, gli intermedi si scartano.
+		// Finestra nascosta: non si trasmette nulla e i digest si azzerano, cosi'
+		// alla riapertura il primo giro pubblica lo stato completo.
+		if (!companionVisible) {
+			runtimeStructuralDigest = '';
+			runtimeActivityDigest = '';
+			return;
+		}
+
+		const structuralChanged = structural !== runtimeStructuralDigest;
+		const activityChanged = activityOnly !== runtimeActivityDigest;
+		if (!structuralChanged && !activityChanged) return;
+		runtimeStructuralDigest = structural;
+		runtimeActivityDigest = activityOnly;
+
+		// Throttle a valle: l'ultimo valore vince sempre, gli intermedi si
+		// scartano. La sola riga di attivita' cambia a ogni tool e vale un
+		// secondo di attesa; uno stato o un modello diverso e' un cambio che
+		// l'utente sta guardando adesso.
 		if (runtimeBroadcastTimer) clearTimeout(runtimeBroadcastTimer);
 		runtimeBroadcastTimer = setTimeout(() => {
 			runtimeBroadcastTimer = null;
 			companionStore.publishProjectRuntimes(runtimes);
 			companionStore.broadcastState();
-		}, 250);
+		}, structuralChanged ? 250 : 1000);
 	});
 
 
@@ -576,6 +599,14 @@
 		void listen<{ projectId: string; taskId: string; follow?: boolean }>('studio-run-task', (event) => {
 			const { projectId, taskId, follow } = event.payload;
 			void handleRunTask(projectId, taskId, follow ?? false);
+		}).then((fn) => { unlistens.push(fn); });
+
+		// La companion chiede di portare qui il fuoco su un progetto: e' la
+		// strada rapida per "ha finito, fammi vedere cosa ha fatto". Riusa il
+		// percorso del click sulle notifiche di sistema, che sa gia' come
+		// ripristinare la finestra e selezionare il progetto.
+		void listen<{ projectId: string }>('studio-focus-project', (event) => {
+			void notificationManager.handleNotificationClick(event.payload.projectId);
 		}).then((fn) => { unlistens.push(fn); });
 
 		return () => {

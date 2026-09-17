@@ -15,6 +15,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+	ACTIVITY_FRESH_MS,
+	shortAge,
+	tailOfText
+} from '../src/lib/stores/companionText.ts';
+import {
 	buildAttentionRequest,
 	removeAttentionRequest,
 	sameAttentionRequest,
@@ -318,4 +323,54 @@ test('buildAttentionRequest pubblica richiesta per inferredAttention quando manc
 	assert.equal(request.pendingUi.title, 'Confermi e procedo dalla Fase 1?');
 	assert.deepEqual(request.pendingUi.options, ['Procedi pure', 'Spiega la scelta']);
 	assert.equal(askQuestionText(request.pendingUi), 'Confermi e procedo dalla Fase 1?');
+});
+
+/**
+ * Il contesto della card mostra la *coda* del messaggio: un agente che chiede
+ * qualcosa dopo mille parole di ragionamento va letto dalla fine. Il taglio
+ * deve cadere a confine di riga, o il lexer del markdown renderebbe un
+ * frammento di elenco o di blocco di codice che nel messaggio non esiste.
+ */
+test('tailOfText taglia la testa a confine di riga', () => {
+	const corto = 'una riga sola';
+	assert.equal(tailOfText(corto, 50), corto, 'un testo sotto il tetto resta intatto');
+
+	const lungo = ['preambolo lunghissimo da buttare', '- prima opzione', '- seconda opzione'].join(
+		'\n'
+	);
+	const tagliato = tailOfText(lungo, 36);
+	assert.ok(tagliato.startsWith('\u2026\n'), 'il taglio va marcato');
+	assert.ok(
+		tagliato.includes('- seconda opzione'),
+		'la fine del messaggio non si perde mai'
+	);
+	for (const riga of tagliato.split('\n').slice(1)) {
+		assert.ok(
+			lungo.split('\n').includes(riga),
+			`la riga "${riga}" non esiste nel messaggio originale: taglio a meta' riga`
+		);
+	}
+});
+
+test('tailOfText non perde il testo quando la riga e piu lunga del tetto', () => {
+	const rigaUnica = 'x'.repeat(200);
+	const tagliato = tailOfText(rigaUnica, 20);
+	assert.ok(tagliato.replace('\u2026\n', '').length > 0, 'meglio una riga incompleta che nulla');
+});
+
+/**
+ * L'eta' accanto all'estratto risponde a "e' ancora quello che aspettavo?".
+ * La soglia di freschezza decide se l'estratto si mostra: oltre, il lavoro e'
+ * da considerare chiuso.
+ */
+test('shortAge e soglia di freschezza dell attivita', () => {
+	const now = 1_700_000_000_000;
+	assert.equal(shortAge(now - 30_000, now), '30s');
+	assert.equal(shortAge(now - 18 * 60_000, now), '18m');
+	assert.equal(shortAge(now - 2 * 3_600_000, now), '2h');
+	assert.equal(shortAge(now - 3 * 24 * 3_600_000, now), '3g');
+
+	assert.ok(ACTIVITY_FRESH_MS === 3 * 60 * 60 * 1000, 'tre ore, come deciso');
+	assert.ok(now - (now - ACTIVITY_FRESH_MS + 1) < ACTIVITY_FRESH_MS, 'entro la soglia si mostra');
+	assert.ok(now - (now - ACTIVITY_FRESH_MS - 1) > ACTIVITY_FRESH_MS, 'oltre la soglia si tace');
 });

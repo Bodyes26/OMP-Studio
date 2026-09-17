@@ -55,9 +55,9 @@ mod suggestions_ops;
 use suggestions_ops::generate_prompt_suggestions;
 mod companion_ops;
 use companion_ops::{
-    get_companion_state, hide_companion_window, init_global_shortcut, parse_quick_task_ai,
-    persist_companion_geometry, set_companion_pinned, toggle_companion_window,
-    track_companion_geometry,
+    fit_companion_to_content, get_companion_state, hide_companion_window, init_global_shortcut,
+    parse_quick_task_ai, persist_companion_geometry, set_companion_pinned,
+    toggle_companion_window, track_companion_geometry,
 };
 
 pub mod browser_live;
@@ -206,6 +206,7 @@ pub fn run() {
             generate_prompt_suggestions,
             toggle_companion_window,
             hide_companion_window,
+            fit_companion_to_content,
             get_companion_state,
             set_companion_pinned,
             parse_quick_task_ai,

@@ -131,7 +131,9 @@ class NotificationManager {
 
 	/**
 	 * Verifica se il progetto attivo e' in attention e, se la finestra ha il focus,
-	 * lo marca come riconosciuto.
+	 * lo marca come riconosciuto. Alla stessa condizione chiude lo stato "ha
+	 * finito": se stai guardando il progetto, il segnale ha esaurito il suo
+	 * scopo e la companion non deve piu' proporlo come lavoro da leggere.
 	 */
 	checkFocusAcknowledgement() {
 		const isAppFocused = typeof document !== 'undefined' && document.hasFocus();
@@ -144,6 +146,7 @@ class NotificationManager {
 		if (activeProject && activeProject.agentState === 'attention') {
 			this.acknowledge(activeId);
 		}
+		projectStore.acknowledgeFinished(activeId);
 	}
 
 	/**
