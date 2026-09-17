@@ -182,6 +182,7 @@
 	finestra.
 */
 .companion-body:not(.surface-hero) .attention-section.variant-open,
+.companion-body:not(.surface-hero) .queue-board,
 .companion-body:not(.surface-hero) .ready-queue {
 	flex: none;
 }
@@ -1229,6 +1230,117 @@
 
 .queue-blocked {
 	color: var(--warn);
+}
+
+/* Vista aggregata: una riga per progetto con coda. Il riquadro e' lo stesso
+   della coda per singolo progetto, perche' occupa lo stesso slot. */
+.queue-board {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	padding: var(--space-2);
+	background: var(--bg-base);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+}
+
+.board-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.board-row {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+/* Il corpo della riga e' il bottone di avvio: il bersaglio grande e' l'azione
+   frequente, il contatore accanto apre la coda completa. */
+.board-run {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	align-items: center;
+	gap: var(--space-2);
+	min-height: 30px;
+	padding: var(--space-1) var(--space-2);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: var(--radius-sm);
+	font-family: inherit;
+	font-size: var(--text-xs);
+	color: var(--ink-muted);
+	text-align: left;
+	cursor: pointer;
+	transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.board-run:hover:not(:disabled) {
+	background: var(--bg-hover);
+	color: var(--ink);
+}
+
+.board-run:disabled {
+	cursor: not-allowed;
+	color: var(--ink-faint);
+}
+
+.board-project {
+	flex: none;
+	max-width: 40%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 500;
+	color: var(--ink);
+}
+
+.board-row.blocked .board-project {
+	color: var(--ink-muted);
+}
+
+.board-next {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.board-play {
+	flex: none;
+	display: inline-flex;
+	opacity: 0;
+	color: var(--brand-ink);
+	--icon-size: 12px;
+}
+
+.board-run:hover:not(:disabled) .board-play,
+.board-run:focus-visible .board-play {
+	opacity: 1;
+}
+
+.board-count {
+	flex: none;
+	min-width: 22px;
+	min-height: 22px;
+	padding: 0 var(--space-1);
+	background: transparent;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+	font-size: var(--text-xs);
+	color: var(--ink-faint);
+	cursor: pointer;
+}
+
+.board-count:hover {
+	color: var(--ink);
+	border-color: var(--line-strong);
 }
 
 .mention-popover {

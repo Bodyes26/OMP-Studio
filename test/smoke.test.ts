@@ -58,3 +58,4 @@ import './notices.test.ts';
 import './i18n-catalog.test.ts';
 import './prompt-preflight.test.ts';
 import './task-row.test.ts';
+import './task-recovery.test.ts';

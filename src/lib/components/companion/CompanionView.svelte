@@ -9,7 +9,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '$lib/stores/modelSettings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEMES, anchorsFor } from '$lib/theme';
+	import { THEMES, anchorsFor, automaticProjectHue } from '$lib/theme';
 	import { matchesLooseQuery } from '$lib/looseSearch';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
@@ -29,6 +29,8 @@
 	import CompanionComposer from './CompanionComposer.svelte';
 	import CompanionMonitor from './CompanionMonitor.svelte';
 	import CompanionProjectQueue from './CompanionProjectQueue.svelte';
+	import CompanionQueueBoard from './CompanionQueueBoard.svelte';
+	import { sortQueueGroups, type CompanionQueueGroup } from './companionQueue';
 	import { IconPlay } from '$lib/icons';
 
 	const STATE_RANK: Record<string, number> = {
@@ -178,14 +180,31 @@
 		});
 	});
 
-	const workingCount = $derived(monitorProjects.filter((p) => p.agentState === 'working').length);
-	const queuedCount = $derived.by(() => {
-		let total = 0;
+	/**
+	 * Le code di tutti i progetti, nell'ordine in cui vanno guardate. Con piu'
+	 * di una coda la vista per singolo progetto raccontava solo la prima e
+	 * lasciava le altre a un numero accanto al nome.
+	 */
+	const queueGroups = $derived.by<CompanionQueueGroup[]>(() => {
+		const theme = THEMES[themeStore.current] ?? THEMES['titanium'];
+		const groups: CompanionQueueGroup[] = [];
 		for (const project of monitorProjects) {
 			if (!project.path) continue;
-			total += taskStore.tasksFor(project.path).filter((t) => t.status === 'queued').length;
+			const tasks = taskStore.tasksFor(project.path).filter((t) => t.status === 'queued');
+			if (tasks.length === 0) continue;
+			const runtime = companionStore.projectRuntimes.find((r) => r.projectId === project.id);
+			groups.push({
+				projectId: project.id,
+				name: project.label?.trim() || project.name,
+				hue: project.colorMode === 'custom'
+					? project.hue
+					: automaticProjectHue(theme, project.path),
+				tasks,
+				ready: runtime?.canRunTask === true,
+				blockReason: runtime?.runBlockReason
+			});
 		}
-		return total;
+		return sortQueueGroups(groups);
 	});
 
 	/**
@@ -193,16 +212,9 @@
 	 * ricalcolata a ogni evocazione. Chi ti aspetta batte il lavoro pronto,
 	 * che batte il campo vuoto.
 	 */
-	const readyProject = $derived(
-		monitorProjects.find((p) => {
-			if (!p.path) return false;
-			const rt = companionStore.projectRuntimes.find((r) => r.projectId === p.id);
-			if (rt?.canRunTask !== true) return false;
-			return taskStore.tasksFor(p.path).some((t) => t.status === 'queued');
-		}) ?? null
-	);
+	const readyGroup = $derived(queueGroups.find((group) => group.ready) ?? null);
 	const surface = $derived<'attention' | 'queue' | 'hero'>(
-		attentionList.length > 0 ? 'attention' : readyProject ? 'queue' : 'hero'
+		attentionList.length > 0 ? 'attention' : readyGroup ? 'queue' : 'hero'
 	);
 
 	const INPUT_MAX_HEIGHT = 160;
@@ -688,20 +700,30 @@
 				onNextPage={() => { if (attentionPageIndex < attentionList.length - 1) attentionPageIndex += 1; }}
 				{...attentionProps}
 			/>
-		{:else if surface === 'queue' && readyProject}
-			<!-- Nessuno ti aspetta ma c'e' lavoro pronto a partire. -->
-			<section class="ready-queue">
-				<div class="section-title">
-					<IconPlay />
-					<span>{m.companion_ready_title({ project: readyProject.label?.trim() || readyProject.name })}</span>
-				</div>
-				<CompanionProjectQueue
-					projectName={readyProject.label?.trim() || readyProject.name}
-					tasks={taskStore.tasksFor(readyProject.path).filter((t) => t.status === 'queued')}
-					disabled={false}
-					onRunNext={(taskId) => handleRunTask(readyProject.id, taskId)}
+		{:else if surface === 'queue' && readyGroup}
+			<!-- Nessuno ti aspetta ma c'e' lavoro pronto a partire. Con una sola
+			     coda si vedono i suoi task; con piu' code il riepilogo per
+			     progetto, perche' l'elenco di una sola nascondeva le altre. -->
+			{#if queueGroups.length > 1}
+				<CompanionQueueBoard
+					groups={queueGroups}
+					onRunNext={handleRunTask}
+					onOpenProject={(projectId) => { expandedProjectId = projectId; }}
 				/>
-			</section>
+			{:else}
+				<section class="ready-queue">
+					<div class="section-title">
+						<IconPlay />
+						<span>{m.companion_ready_title({ project: readyGroup.name })}</span>
+					</div>
+					<CompanionProjectQueue
+						projectName={readyGroup.name}
+						tasks={readyGroup.tasks}
+						disabled={false}
+						onRunNext={(taskId) => handleRunTask(readyGroup.projectId, taskId)}
+					/>
+				</section>
+			{/if}
 		{/if}
 
 		<CompanionComposer

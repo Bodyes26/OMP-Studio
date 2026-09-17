@@ -243,7 +243,7 @@
 				if (settingsStore.general.closeWithQueuedTasks === 'discard') {
 					void taskStore.clearProject(other.path);
 				} else if (other.agentState === 'working') {
-					void taskStore.requeueInterruptedTask(other.path);
+					void taskStore.resetDispatchingTasks(other.path);
 				}
 			}
 			projectStore.closeProject(other.id);

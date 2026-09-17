@@ -23,6 +23,7 @@ import {
 	mergeOriginRecords
 } from './taskSerialization';
 import { QueueHydration, mergeHydratedTasks } from './taskHydration';
+import { resolveDroppedTask, type InFlightTask } from './taskRecovery';
 import { windowLabel } from './windowBridge';
 import { m as msg } from '$lib/paraglide/messages.js';
 
@@ -56,7 +57,13 @@ class TaskStore {
 	tasks = $state<StudioTask[]>([]);
 	origins = $state<TaskSessionOrigin[]>([]);
 	views = $state<Record<string, AgentView>>({});
-	activeTaskByProject = $state<Record<string, StudioTask>>({});
+	/**
+	 * Task in volo per progetto: usciti dalla coda, non ancora comparsi in
+	 * sessione. Vedi `taskRecovery.ts`: appena omp da' segno di vita
+	 * l'entrata sparisce, perche' da quel momento il prompt vive nel
+	 * transcript e rimetterlo in coda sarebbe lavoro svolto due volte.
+	 */
+	private readonly inFlight = new Map<string, InFlightTask>();
 	private store: Store | null = null;
 	private initialized = false;
 	private readonly hydration = new QueueHydration();
@@ -441,8 +448,12 @@ class TaskStore {
 			thinkingLevel: task.options?.thinkingLevel || 'auto'
 		});
 		this.origins = pruneOrigins(this.origins);
-		// Memorizza il task attivo per recupero in caso di chiusura accidentale
-		this.activeTaskByProject[projectKey(task.projectPath)] = { ...task };
+		// Lo snapshot vive finche' omp non conferma la consegna: e' l'unica
+		// copia del prompt in quella finestra (vedi `restoreDroppedTask`).
+		this.inFlight.set(projectKey(task.projectPath), {
+			task: { ...task, images: task.images ? [...task.images] : [] },
+			sessionId
+		});
 		const path = task.projectPath;
 		this.tasks = this.tasks.filter((candidate) => candidate.id !== id);
 		this.reindex(path);
@@ -475,89 +486,60 @@ class TaskStore {
 		this.saveGlobal();
 	}
 
-	setActiveTask(projectPath: string, task: StudioTask | null) {
-		const key = projectKey(projectPath);
-		if (!task) {
-			delete this.activeTaskByProject[key];
-		} else {
-			this.activeTaskByProject[key] = { ...task };
-		}
+	/**
+	 * omp ha dato segno di vita per questo progetto: il prompt del task e'
+	 * arrivato in sessione, il transcript lo conserva e lo storico lo
+	 * riprende. Lo snapshot in volo non serve piu' e deve sparire: e' la
+	 * copia che, rimessa in coda, faceva ricomparire come "da fare" un
+	 * lavoro gia' svolto.
+	 */
+	confirmTaskDelivered(projectPath: string) {
+		if (!projectPath) return;
+		this.inFlight.delete(projectKey(projectPath));
 	}
 
+	/**
+	 * Chiusura di un progetto o uscita da Studio: un task rimasto in
+	 * spedizione non ha ancora una sessione, quindi torna in coda. I task
+	 * consegnati restano fuori, perche' vivono nella loro sessione.
+	 *
+	 * Salva sempre e subito: e' anche l'ultima occasione per svuotare le
+	 * scritture ritardate su `.omp/tasks.json`.
+	 */
+	async resetDispatchingTasks(projectPath: string): Promise<void> {
+		if (!projectPath) return;
+		const key = projectKey(projectPath);
+		// La coda su disco va letta prima di riscriverla: altrimenti il
+		// salvataggio finale la sostituirebbe con la memoria parziale.
+		await this.loadProject(projectPath);
+		for (const task of this.tasks) {
+			if (task.projectPath !== key || task.status !== 'dispatching') continue;
+			task.status = 'queued';
+			task.updatedAt = Date.now();
+		}
+		this.reindex(projectPath);
+		await this.saveProjectImmediate(projectPath);
+	}
 
 	/**
-	 * Se un progetto viene chiuso mentre l'agente o il terminale stava ancora
-	 * lavorando su un task, reinserisce il task in cima alla coda (status 'queued')
-	 * e ripristina qualsiasi task rimasto in 'dispatching'.
-	 * Salva immediatamente su disco (.omp/tasks.json) per non perdere nulla.
+	 * Il processo omp e' morto prima di ricevere il prompt: il task e' gia'
+	 * uscito dalla coda e il suo testo vive solo nello snapshot in volo.
+	 * Rimetterlo in cima alla coda e' l'unico recupero possibile.
 	 */
-	async requeueInterruptedTask(projectPath: string, sessionId?: string | null): Promise<StudioTask | null> {
+	async restoreDroppedTask(projectPath: string, sessionId?: string | null): Promise<StudioTask | null> {
 		if (!projectPath) return null;
 		const key = projectKey(projectPath);
-		// La coda su disco va letta prima di rimetterci dentro il task
-		// interrotto: altrimenti il salvataggio finale la cancellerebbe.
 		await this.loadProject(projectPath);
-		let changed = false;
-
-		// 1. Ripristina lo stato queued per qualsiasi task rimasto in 'dispatching'
-		for (const task of this.tasks) {
-			if (task.projectPath === key && task.status === 'dispatching') {
-				task.status = 'queued';
-				task.updatedAt = Date.now();
-				changed = true;
-			}
+		const queuedIds = new Set(
+			this.tasks.filter((task) => task.projectPath === key).map((task) => task.id)
+		);
+		const restored = resolveDroppedTask(this.inFlight.get(key), sessionId, queuedIds);
+		if (restored) {
+			this.inFlight.delete(key);
+			this.tasks.unshift(restored);
 		}
-
-		// 2. Cerca il task attivo in memoria o l'ultimo origin con prompt per questo progetto
-		const activeTask = this.activeTaskByProject[key];
-		let promptToRestore = activeTask?.prompt;
-		let imagesToRestore = activeTask?.images;
-		let optionsToRestore = activeTask?.options;
-		let originalTaskId = activeTask?.id;
-
-		if (!promptToRestore) {
-			const origins = this.originsFor(projectPath);
-			const origin = sessionId
-				? origins.find((o) => o.sessionId === sessionId && Boolean(o.prompt))
-				: origins.filter((o) => Boolean(o.prompt)).sort((a, b) => b.launchedAt - a.launchedAt)[0];
-			if (origin && origin.prompt) {
-				promptToRestore = origin.prompt;
-				imagesToRestore = origin.images;
-				optionsToRestore = origin.options;
-				originalTaskId = origin.taskId;
-			}
-		}
-
-		let restoredTask: StudioTask | null = null;
-		if (promptToRestore && promptToRestore.trim()) {
-			const alreadyQueued = this.tasks.some(
-				(t) => t.projectPath === key && t.prompt.trim() === promptToRestore!.trim() && t.status === 'queued'
-			);
-			if (!alreadyQueued) {
-				restoredTask = {
-					id: originalTaskId || crypto.randomUUID(),
-					projectPath: key,
-					prompt: promptToRestore,
-					images: imagesToRestore ? [...imagesToRestore] : [],
-					options: optionsToRestore ? { ...optionsToRestore } : undefined,
-					position: 0,
-					createdAt: Date.now(),
-					updatedAt: Date.now(),
-					status: 'queued'
-				};
-				this.tasks.unshift(restoredTask);
-				changed = true;
-			}
-		}
-
-		delete this.activeTaskByProject[key];
-
-		if (changed) {
-			this.reindex(projectPath);
-			await this.saveProjectImmediate(projectPath);
-			this.saveGlobal();
-		}
-		return restoredTask;
+		await this.resetDispatchingTasks(projectPath);
+		return restored;
 	}
 
 	private reindex(projectPath: string) {

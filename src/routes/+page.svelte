@@ -42,7 +42,7 @@
 	import { resolveAutomationGate, type AutomationGate } from '$lib/agent/automationGate';
 	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
 	import { onDestroy } from 'svelte';
-	import { normalizeProjectPath, projectStore, type Project } from '$lib/stores/projects.svelte';
+	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, formatTaskPrompt } from '$lib/stores/tasks.svelte';
 	import type { TerminalSessionInfo } from '$lib/terminal/terminal';
 	import { invoke } from '@tauri-apps/api/core';
@@ -173,7 +173,7 @@
 		// Rimetterlo in cima alla coda e' l'unico recupero possibile.
 		session.onStartupPromptsDropped = () => {
 			if (session.scope !== 'main' || !session.cwd) return;
-			void taskStore.requeueInterruptedTask(session.cwd, session.sessionId);
+			void taskStore.restoreDroppedTask(session.cwd, session.sessionId);
 		};
 		return session;
 	});
@@ -492,6 +492,15 @@
 			if (session.agentState !== 'unknown') {
 				projectStore.setAgentState(p.id, session.agentState);
 			}
+			// Segno di vita del processo: il prompt del task e' arrivato in
+			// sessione e il transcript lo conserva. Da qui in avanti
+			// rimetterlo in coda sarebbe lavoro svolto due volte.
+			if (
+				p.path
+				&& (session.isStreaming || session.agentState === 'working' || session.agentState === 'attention')
+			) {
+				taskStore.confirmTaskDelivered(p.path);
+			}
 			// La domanda si pubblica sempre che ci sia una richiesta aperta: il
 			// testo sta in `title`, `message` e' facoltativo e pretenderlo
 			// lasciava la companion con il solo stato "chiede risposta".
@@ -590,6 +599,18 @@
 		const sessionId = patch.sessionId !== undefined ? patch.sessionId : (current?.sessionId ?? null);
 		if (current && current.inputPending === inputPending && current.sessionId === sessionId) return;
 		terminalMeta[projectId] = { inputPending, sessionId };
+	}
+
+	/**
+	 * Stato del terminale: oltre a rispecchiarlo sulla tessera, un omp che
+	 * lavora conferma che il prompt del task e' arrivato nel PTY. Dopo la
+	 * conferma il task non torna piu' in coda: il suo posto e' la sessione.
+	 */
+	function handleTerminalState(project: Project, state: AgentState) {
+		projectStore.setAgentState(project.id, state);
+		if (project.path && (state === 'working' || state === 'attention')) {
+			taskStore.confirmTaskDelivered(project.path);
+		}
 	}
 
 	/**
@@ -1266,8 +1287,9 @@
 	}>({ open: false });
 
 	/**
-	 * Uscita da Studio: il task interrotto di ogni progetto al lavoro torna in
-	 * cima alla sua coda e le scritture ritardate vengono svuotate subito.
+	 * Uscita da Studio: il task rimasto in spedizione torna in coda e le
+	 * scritture ritardate vengono svuotate subito. Un task consegnato non
+	 * torna in coda: la sua sessione esiste e si riprende dallo storico.
 	 *
 	 * Nessuna domanda all'utente: le code vivono in `.omp/tasks.json` dentro
 	 * ogni progetto, quindi chiudere l'app non perde nulla. "Conservo o scarto
@@ -1278,11 +1300,7 @@
 		for (const p of projectStore.projects) {
 			if (!p.path) continue;
 			try {
-				if (p.agentState === 'working' || terminalBusy[p.id]) {
-					await taskStore.requeueInterruptedTask(p.path);
-				} else {
-					await taskStore.saveProjectImmediate(p.path);
-				}
+				await taskStore.resetDispatchingTasks(p.path);
 			} catch (error) {
 				console.error('Salvataggio della coda in uscita fallito:', p.path, error);
 			}
@@ -1328,10 +1346,8 @@
 	async function handleConfirmKeepClose() {
 		const target = closeConfirmModalState.project;
 		if (!target) return;
-		if (target.isWorking && target.path) {
-			await taskStore.requeueInterruptedTask(target.path);
-		} else if (target.path) {
-			await taskStore.saveProjectImmediate(target.path);
+		if (target.path) {
+			await taskStore.resetDispatchingTasks(target.path);
 		}
 		projectStore.closeProject(target.id);
 		closeConfirmModalState = { open: false };
@@ -2175,7 +2191,7 @@
 								if (s) terminalSessions.set(p.id, s);
 								else terminalSessions.delete(p.id);
 							}}
-							onStateChange={(state) => projectStore.setAgentState(p.id, state)}
+							onStateChange={(state) => handleTerminalState(p, state)}
 							onInputPendingChange={(inputPending) => updateTerminalMeta(p.id, { inputPending })}
 							onSessionChange={(session: TerminalSessionInfo | null) => updateTerminalMeta(p.id, { sessionId: session?.sessionId ?? null })}
 							onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
