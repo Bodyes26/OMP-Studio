@@ -769,12 +769,19 @@
 		try {
 			if (project.layout.rightSection === 'gui') {
 				const session = agentSessionFor(project);
+				const isCurrentActive = projectStore.activeId === projectId;
+				const fullPrompt = formatTaskPrompt(task, project.path);
+				if (isCurrentActive) {
+					// Semina ottimistica: mostra immediatamente il prompt come primo messaggio
+					// nella chat con transizione fluida (chatReveal), nascondendo i tempi tecnici
+					// di spawn del processo omp, handshake e roundtrip RPC.
+					session.seedPrompt(fullPrompt, task.images ?? []);
+				}
 				// Una sola apertura, attesa: `newSession()` ha bisogno del
 				// processo vivo, e aprirne un secondo qui lo farebbe partire
 				// mentre il primo sta ancora nascendo.
 				await session.ensureOpen(terminalMeta[project.id]?.sessionId ?? null);
 				const sid = await session.newSession();
-
 				// Una configurazione esplicita e' parte del contratto del task:
 				// se non si applica, il task resta in coda invece di partire col
 				// modello sbagliato.
@@ -797,7 +804,6 @@
 					});
 				}
 
-				const fullPrompt = formatTaskPrompt(task, project.path);
 				// Il task esce dalla coda solo a consegna avvenuta: `prompt()`
 				// riporta il rifiuto di omp senza sollevare, e senza sessione
 				// pubblicata non esiste nemmeno la riga di storico da cui
@@ -835,6 +841,13 @@
 				}));
 			}
 		} catch (error) {
+			if (project.layout.rightSection === 'gui') {
+				try {
+					agentSessionFor(project).clearSeed();
+				} catch {
+					// ignora se la sessione non e' reperibile
+				}
+			}
 			taskStore.rollbackDispatch(taskId);
 			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
 		} finally {

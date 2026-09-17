@@ -102,6 +102,14 @@
 		lastSessionId = currentSessionId;
 	});
 
+	// Quando viene seminato un nuovo prompt (lancio da coda), garantisce l'ancoraggio in fondo.
+	$effect(() => {
+		if (session.seededPrompt) {
+			userScrolledUp = false;
+			scrollToBottom();
+		}
+	});
+
 	// Autoscroll ancorato in fondo tramite ResizeObserver e MutationObserver:
 	// segue lo streaming del testo e l'arrivo di nuove entry senza scatti o timeout non gestiti.
 	$effect(() => {

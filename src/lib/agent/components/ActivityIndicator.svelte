@@ -5,7 +5,7 @@
 	import PixelGrid from './PixelGrid.svelte';
 	import { formatElapsed } from '../tools/types';
 
-	let { startedAt = null }: { startedAt?: number | null } = $props();
+	let { startedAt = null, label = null }: { startedAt?: number | null; label?: string | null } = $props();
 
 	let now = $state(Date.now());
 	const elapsed = $derived(startedAt != null ? Math.max(0, now - startedAt) : 0);
@@ -46,7 +46,7 @@
 
 <div class="activity" role="status" aria-live="polite">
 	<PixelGrid size="md" state="running" />
-	<span class="label text-shimmer">{m.ui_activity_sta_pensando()}</span>
+	<span class="label text-shimmer">{label ?? m.ui_activity_sta_pensando()}</span>
 	{#if showTimer}<span class="elapsed" aria-hidden="true">{formatElapsed(elapsed)}</span>{/if}
 </div>
 

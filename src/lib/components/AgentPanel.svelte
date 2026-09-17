@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { slide } from 'svelte/transition';
+	import { flip } from 'svelte/animate';
 	import { m } from '$lib/paraglide/messages.js';
 	import SessionList from './SessionList.svelte';
 	import RulesPanel from './RulesPanel.svelte';
@@ -30,7 +32,8 @@
 		onOpenFile: (relPath: string) => void;
 	} = $props();
 
-	const tasks = $derived(taskStore.tasksFor(projectPath));
+	const disableAnimations = $derived(!settingsStore.accessibility.animations);
+	const tasks = $derived(taskStore.tasksFor(projectPath).filter((t) => t.status !== 'dispatching'));
 	const view = $derived(taskStore.viewFor(projectPath));
 	const frictionCount = $derived(rulesStore.suggestionsFor(projectPath).length);
 	const isCardView = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
@@ -201,13 +204,19 @@
 					{#each tasks as task (task.id)}
 						<li
 							class="task-row"
-							class:dispatching={task.status === 'dispatching'}
 							draggable={task.status === 'queued'}
+							transition:slide={{ duration: disableAnimations ? 0 : 180 }}
+							animate:flip={{ duration: disableAnimations ? 0 : 180 }}
 							ondragstart={() => draggedId = task.id}
 							ondragend={() => draggedId = null}
 							ondragover={(event) => event.preventDefault()}
 							ondrop={() => dropOn(task.id)}
 						>
+							{#if taskStore.rollbackSeq[task.id]}
+								{#key taskStore.rollbackSeq[task.id]}
+									<span class="task-flash" aria-hidden="true"></span>
+								{/key}
+							{/if}
 							<button
 								type="button"
 								class="drag-handle"
@@ -225,7 +234,7 @@
 								type="button"
 								class="task-launch"
 								class:blocked={!gate.ready}
-								disabled={(!task.prompt.trim() && (!task.images || task.images.length === 0)) || task.status === 'dispatching'}
+								disabled={!task.prompt.trim() && (!task.images || task.images.length === 0)}
 								aria-expanded={gate.ready ? undefined : noticeOpen}
 								aria-controls={gate.ready ? undefined : 'agent-queue-gate-notice'}
 								title={gate.ready ? m.ui_agentpanel_avvia_value1_18da({ value1: taskTitle(task) }) : `${gate.detail} ${gate.hint}`.trim()}
@@ -235,7 +244,7 @@
 								onclick={() => runOrExplain(task.id)}
 							>
 								<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
-								<span class="task-excerpt" role="status" aria-live={task.status === 'dispatching' ? 'polite' : 'off'}>{task.status === 'dispatching' ? m.agent_panel_dispatching_label() : taskExcerpt(task)}</span>
+								<span class="task-excerpt">{taskExcerpt(task)}</span>
 								<div class="task-chips">
 									{#if task.status === 'in_progress'}
 										<span class="task-chip status-chip in-progress">{m.queue_drawer_status_in_progress()}</span>
@@ -542,6 +551,8 @@
 
 
 	.task-row {
+		position: relative;
+		overflow: hidden;
 		display: grid;
 		grid-template-columns: 24px minmax(0, 1fr) 30px;
 		align-items: stretch;
@@ -554,8 +565,20 @@
 		background: var(--bg-hover);
 	}
 
-	.task-row.dispatching {
-		background: var(--bg-active);
+	.task-flash {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		border-radius: inherit;
+		background: color-mix(in srgb, var(--brand) 35%, transparent);
+		animation: task-flash var(--dur-flash) var(--ease-out) forwards;
+		z-index: 1;
+	}
+
+	@keyframes task-flash {
+		0% { opacity: 0; }
+		25% { opacity: 0.85; }
+		100% { opacity: 0; }
 	}
 
 	.drag-handle,
@@ -722,9 +745,6 @@
 		border-color: var(--line-strong);
 	}
 
-	.queue-list.queue-cards .task-row.dispatching {
-		border-color: var(--brand-dim);
-	}
 
 	.queue-list.queue-cards .task-launch {
 		justify-content: flex-start;

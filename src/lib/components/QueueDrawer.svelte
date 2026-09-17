@@ -36,7 +36,7 @@
 	const groups = $derived(
 		projectOrder.list
 			.filter((p: Project) => p.path)
-			.map((p: Project) => ({ project: p, tasks: taskStore.tasksFor(p.path) }))
+			.map((p: Project) => ({ project: p, tasks: taskStore.tasksFor(p.path).filter((t) => t.status !== 'dispatching') }))
 			.filter((g: { project: Project; tasks: StudioTask[] }) => g.tasks.length > 0)
 	);
 	// Stessa vista scelta in Aspetto per la Coda: compatta di default,

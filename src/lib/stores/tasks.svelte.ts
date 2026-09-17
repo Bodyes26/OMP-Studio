@@ -57,6 +57,7 @@ class TaskStore {
 	tasks = $state<StudioTask[]>([]);
 	origins = $state<TaskSessionOrigin[]>([]);
 	views = $state<Record<string, AgentView>>({});
+	rollbackSeq = $state<Record<string, number>>({});
 	/**
 	 * Task in volo per progetto: usciti dalla coda, non ancora comparsi in
 	 * sessione. Vedi `taskRecovery.ts`: appena omp da' segno di vita
@@ -429,6 +430,7 @@ class TaskStore {
 		const task = this.taskById(id);
 		if (!task) return;
 		task.status = 'queued';
+		this.rollbackSeq[id] = (this.rollbackSeq[id] ?? 0) + 1;
 		this.saveProject(task.projectPath);
 	}
 
@@ -520,6 +522,7 @@ class TaskStore {
 			if (task.projectPath !== key || task.status !== 'dispatching') continue;
 			task.status = 'queued';
 			task.updatedAt = Date.now();
+			this.rollbackSeq[task.id] = (this.rollbackSeq[task.id] ?? 0) + 1;
 		}
 		this.reindex(projectPath);
 		await this.saveProjectImmediate(projectPath);
@@ -541,6 +544,7 @@ class TaskStore {
 		if (restored) {
 			this.inFlight.delete(key);
 			this.tasks.unshift(restored);
+			this.rollbackSeq[restored.id] = (this.rollbackSeq[restored.id] ?? 0) + 1;
 		}
 		await this.resetDispatchingTasks(projectPath);
 		return restored;

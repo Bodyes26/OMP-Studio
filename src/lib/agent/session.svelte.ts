@@ -95,6 +95,13 @@ export type Block =
 	| { type: 'thinking'; text: string }
 	| { type: 'image'; data: string; mimeType: string };
 
+export interface SeededPrompt {
+	id: number;
+	content: string;
+	images: { data: string; mimeType: string }[];
+	createdAt: number;
+}
+
 export interface UserEntry {
 	id: number;
 	kind: 'user';
@@ -352,6 +359,8 @@ export class AgentSession {
 	queued = $state<QueuedMessage[]>([]);
 	pendingUi = $state<PendingUiRequest | null>(null);
 	statusText = $state<string | null>(null);
+	seededPrompt = $state<SeededPrompt | null>(null);
+	startupPhase = $state<'idle' | 'starting' | 'ready'>('idle');
 	exited = $state(false);
 
 	private preflightDeps: PromptPreflightDeps | null = null;
@@ -500,7 +509,17 @@ export class AgentSession {
 	}
 
 	get visibleEntries(): TranscriptEntry[] {
-		return sliceVisibleEntries(this.entries, this.visibleCount);
+		const visible = sliceVisibleEntries(this.entries, this.visibleCount);
+		if (this.seededPrompt && !this.entries.some((e) => e.id === this.seededPrompt!.id)) {
+			const seededUserEntry: UserEntry = {
+				id: this.seededPrompt.id,
+				kind: 'user',
+				content: this.seededPrompt.content,
+				images: this.seededPrompt.images
+			};
+			return [...visible, seededUserEntry];
+		}
+		return visible;
 	}
 
 	get hasEarlier(): boolean {
@@ -1787,6 +1806,9 @@ export class AgentSession {
 				}
 
 				this.client.markExited();
+				if (this.seededPrompt) {
+					this.clearSeed();
+				}
 
 				if (this.pendingStartupPrompts.length > 0) {
 					for (const pending of this.pendingStartupPrompts) {
@@ -2499,6 +2521,30 @@ export class AgentSession {
 	 * accettato, `deferred` parte alla fine dell'insediamento, `failed` omp
 	 * lo ha rifiutato, `empty` non c'era niente da inviare.
 	 */
+	/**
+	 * Semina preventivamente il prompt nella chat all'avvio del task dalla coda,
+	 * prima che il processo omp sia pronto o inizializzato.
+	 * Questo elimina la latenza percepita mostrando immediatamente il messaggio
+	 * con la transizione fluida, con lo stesso ID che avra la entry finale.
+	 */
+	seedPrompt(content: string, images: ImageContent[] = []) {
+		this.startupPhase = 'starting';
+		this.seededPrompt = {
+			id: this.nextEntryId++,
+			content,
+			images: images.map((image) => ({ data: image.data, mimeType: image.mimeType })),
+			createdAt: Date.now()
+		};
+	}
+
+	/**
+	 * Rimuove il prompt seminato e ripristina lo stato se il lancio del task fallisce.
+	 */
+	clearSeed() {
+		this.seededPrompt = null;
+		this.startupPhase = 'idle';
+	}
+
 	async prompt(
 		message: string,
 		images: ImageContent[] = [],
@@ -2517,10 +2563,17 @@ export class AgentSession {
 		);
 		const fullMessage = attachEditorContext(enriched, this.cwd);
 
+		const seed = this.seededPrompt;
+		const entryId = seed ? seed.id : this.nextEntryId++;
+		if (seed) {
+			this.seededPrompt = null;
+			this.startupPhase = 'ready';
+		}
+
 		// Se OMP e' ancora in fase di avvio, accoda il messaggio e mostra subito l'entry ottimistica
 		if (!this.isReady || !this.isAttached) {
 			const optimistic = this.push({
-				id: this.nextEntryId++,
+				id: entryId,
 				kind: 'user',
 				content: fullMessage,
 				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType }))
@@ -2542,7 +2595,7 @@ export class AgentSession {
 			// lo completera' invece di duplicarlo. Durante lo streaming il
 			// posto del messaggio e' il chip della coda, non il transcript.
 			this.optimisticUser = this.push({
-				id: this.nextEntryId++,
+				id: entryId,
 				kind: 'user',
 				content: fullMessage,
 				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType }))

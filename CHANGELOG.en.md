@@ -12,6 +12,7 @@ it is closed into a version with `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- Fluid task dispatch from the queue: clicking Run immediately collapses the task row from the queue and smoothly reveals the prompt as the first chat message (progressive blur, fade, and real-height expansion via `chatReveal`), masking the technical latency of `omp` process spawning, RPC handshake, and session initialization; if startup takes longer than 400ms a subtle "Launching new session..." activity indicator appears with shimmer effect, and if startup fails or the process exits the prompt retracts symmetrically while the task snaps back to the top of the queue with a visual flash.
 - Keyboard shortcut Ctrl+Tab (and Ctrl+Shift+Tab) to quickly switch to the next or previous open project, with cyclic navigation following the project bar order and seamless support from both chat and integrated terminal.
 
 - Unified task progress display for TODO phases and subagents: work stages and background processes are presented in compact rows with clear and consistent status indicators (green checkmark for completed, red cross for failed, amber warning for blocked, neutral grey for abandoned or aborted), a smooth loading ring for active tasks, and technical details expandable on demand with a click, avoiding intrusive auto-expansion and fully honoring reduced-motion settings.

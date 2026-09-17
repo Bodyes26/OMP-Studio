@@ -441,6 +441,7 @@
   "agent_panel_reorder_handle_aria": "Reorder {title}. Alt plus up or down arrow.",
   "agent_panel_reorder_handle_title": "Drag or use Alt+arrow",
   "agent_panel_dispatching_label": "Launching new session...",
+  "chat_session_starting_label": "Launching new session...",
   "agent_panel_edit_task_aria": "Edit task: {title}",
   "session_list_search_label": "Search sessions",
   "session_list_search_placeholder": "Search history...",

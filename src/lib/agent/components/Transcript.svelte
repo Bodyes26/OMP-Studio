@@ -54,8 +54,26 @@
 	const hasRunningTool = $derived(
 		session.visibleEntries.some((entry: TranscriptEntry) => entry.kind === 'tool' && entry.running)
 	);
+	// Timer adattivo di 400ms: se l'avvio della sessione omp richiede tempo (spawn/handshake),
+	// mostra l'indicatore di attivita' con il testo di avvio senza fliccherii nei casi rapidi.
+	let showStartupIndicator = $state(false);
+	$effect(() => {
+		if (session.startupPhase === 'starting') {
+			const timer = setTimeout(() => {
+				showStartupIndicator = true;
+			}, 400);
+			return () => {
+				clearTimeout(timer);
+				showStartupIndicator = false;
+			};
+		} else {
+			showStartupIndicator = false;
+		}
+	});
+
 	const showActivity = $derived(
-		session.isStreaming && !activeAssistantHasContent && !hasRunningTool && !session.pendingUi
+		showStartupIndicator ||
+		(session.isStreaming && !activeAssistantHasContent && !hasRunningTool && !session.pendingUi)
 	);
 
 	type DisplayItem =
@@ -384,7 +402,10 @@
 			class="agent-activity"
 			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
 		>
-			<ActivityIndicator startedAt={session.turnStartedAt} />
+			<ActivityIndicator
+				startedAt={session.startupPhase === 'starting' ? session.seededPrompt?.createdAt : session.turnStartedAt}
+				label={session.startupPhase === 'starting' ? m.chat_session_starting_label() : null}
+			/>
 		</div>
 	{/if}
 </div>

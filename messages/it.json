@@ -441,6 +441,7 @@
   "agent_panel_reorder_handle_aria": "Riordina {title}. Alt più freccia su o giù.",
   "agent_panel_reorder_handle_title": "Trascina oppure usa Alt+freccia",
   "agent_panel_dispatching_label": "Avvio della nuova sessione...",
+  "chat_session_starting_label": "Avvio della nuova sessione...",
   "agent_panel_edit_task_aria": "Modifica task: {title}",
   "session_list_search_label": "Cerca nelle sessioni",
   "session_list_search_placeholder": "Cerca nello storico...",
