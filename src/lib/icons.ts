@@ -105,6 +105,13 @@ export { default as IconRoleTask } from '@lucide/svelte/icons/split';
 export { default as IconRoleCommit } from '@lucide/svelte/icons/git-commit-horizontal';
 export { default as IconRoleAdvisor } from '@lucide/svelte/icons/shield-check';
 
+// Intelligenza e ragionamento (Thinking effort)
+export { default as IconBrain } from '@lucide/svelte/icons/brain';
+
+// Manipolazione e trascinamento
+export { default as IconGrip } from '@lucide/svelte/icons/grip-vertical';
+export { default as IconPencil } from '@lucide/svelte/icons/pencil';
+
 // Varie.
 export { default as IconDiamond } from '@lucide/svelte/icons/diamond';
 export { default as IconSubagents } from '@lucide/svelte/icons/split';

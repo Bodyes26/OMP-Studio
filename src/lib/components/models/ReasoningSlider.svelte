@@ -5,6 +5,7 @@
 	// attratto verso il pallino piu' vicino (effetto magnetico), cosi' la
 	// selezione resta discreta ma il gesto rimane continuo.
 	import { THINKING_LEVELS } from '$lib/stores/modelSettings.svelte';
+	import { IconBrain } from '$lib/icons';
 
 	let {
 		value = 'auto',
@@ -128,9 +129,9 @@
 <div class="reasoning-slider-box" class:disabled>
 	<div class="slider-header">
 		<div class="header-left">
-			<svg class="brain-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4">
-				<path d="M4.5 9.5a2.5 2.5 0 0 1-2.5-2.5c0-1.2.8-2.2 2-2.4a3 3 0 0 1 5.5-1.1 3 3 0 0 1 4.5 3.5c.9.4 1.5 1.4 1.5 2.5a2.5 2.5 0 0 1-2.5 2.5M8 3.5V14M5.5 14h5" stroke-linecap="round" stroke-linejoin="round" />
-			</svg>
+			<span class="brain-icon" aria-hidden="true">
+				<IconBrain />
+			</span>
 			<span class="level-chip">{currentLevel.id}</span>
 		</div>
 		<span class="level-desc">{currentLevel.desc}</span>
@@ -202,7 +203,11 @@
 	}
 
 	.brain-icon {
+		--icon-size: 13px;
 		color: var(--brand-ink);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		flex-shrink: 0;
 	}
 

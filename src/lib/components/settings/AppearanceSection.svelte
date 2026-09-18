@@ -12,10 +12,12 @@
 	} from '$lib/stores/settings.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
-	import { IconCheck } from '$lib/icons';
+	import { IconCheck, IconSparkles } from '$lib/icons';
+	import IconInspectorModal from './IconInspectorModal.svelte';
 	import QuotaChip from '../quota/QuotaChip.svelte';
 	import QuotaLimitRow from '../quota/QuotaLimitRow.svelte';
 	let filterQuery = $state('');
+	let isIconInspectorOpen = $state(false);
 
 	const activeGroup = $derived(
 		THEME_GROUPS.find((group) => group.mode === themeStore.pickerMode) ?? THEME_GROUPS[0]
@@ -677,6 +679,31 @@
 			{/each}
 		</div>
 	</div>
+
+	<!-- SEPARATORE TRA BLOCCHI -->
+	<div class="block-divider"></div>
+
+	<!-- BLOCCO: REGISTRO & CONTROLLO QUALITÀ ICONE -->
+	<div class="section-block">
+		<div class="block-head-row">
+			<div class="block-titles">
+				<h4>Icone & Qualità Visiva</h4>
+				<span class="block-desc">
+					Controllo qualità, ispezione visiva e scalatura di tutte le icone dell'interfaccia (src/lib/icons.ts) per verificare coerenza dello stroke, contrasto e glifi Lucide.
+				</span>
+			</div>
+			<button
+				type="button"
+				class="btn btn-secondary"
+				onclick={() => (isIconInspectorOpen = true)}
+			>
+				<IconSparkles />
+				<span>Ispeziona Registro Icone</span>
+			</button>
+		</div>
+	</div>
+
+	<IconInspectorModal open={isIconInspectorOpen} onClose={() => (isIconInspectorOpen = false)} />
 </div>
 
 <style>

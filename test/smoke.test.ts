@@ -59,3 +59,4 @@ import './i18n-catalog.test.ts';
 import './prompt-preflight.test.ts';
 import './task-row.test.ts';
 import './task-recovery.test.ts';
+import './icons.test.ts';

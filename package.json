@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "check:icons": "node scripts/check-icons.mjs",
     "tauri": "tauri",
     "tauri:cdp": "set \"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222\" && tauri dev",
     "test": "node scripts/run-smoke-tests.mjs",
