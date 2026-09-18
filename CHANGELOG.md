@@ -19,7 +19,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Quando nomini un testo dell'interfaccia — «label Dati dell'immobile da ridurre di dimensione», «riduci il testo Totale contributo», il badge citato fra virgolette o backtick — Studio cerca da solo quel testo nel progetto prima di inviare il messaggio e allega all'agente il file e la riga esatti, con due righe di contesto. L'agente parte già dal punto giusto: una lettura mirata, una modifica, una verifica, senza aprire file a caso. La ricerca è locale e a tempo (si ferma entro un quarto di secondo), usa `git grep` dove disponibile, salta cartelle come `bin`, `obj`, `node_modules` e `.git`, ignora i file binari e non esce mai dalla cartella del progetto; se non trova nulla o non riesce, il messaggio parte identico a prima. Insieme al testo viene allegato anche l'elenco compatto dei file modificati nel progetto (solo nomi e stato, nessun diff e nessun contenuto), assente quando non c'è nulla di modificato.
 - Interfaccia bilingue italiano/inglese con selettore in «Impostazioni → Generale»: la lingua segue di default quella del sistema operativo e può essere fissata a mano su Italiano o Inglese. Il cambio è immediato e non ricarica la finestra, quindi sessioni dell'agente, terminali e anteprime live restano attivi mentre i testi si riscrivono. Date, orari, numeri e importi seguono la regione dell'utente, e la documentazione utente (README, scorciatoie, changelog) è disponibile nelle due lingue.
 - Rilevamento automatico dell'attesa di input e risposte rapide post-turno via Companion e notifiche OS: estesa l'analisi del turno con modello leggero `smol` per riconoscere quando l'agente termina formulando domande, conferme di piani o richieste di decisione senza invocare formalmente il tool `ask`; il progetto passa immediatamente allo stato di attenzione «Chiede risposta», evidenziandosi nella barra progetti e facendo comparire in cima al Companion la card interattiva con la domanda estratta e le opzioni cliccabili, inoltrate direttamente come nuovo prompt alla chat; se l'app è in background, scatta immediatamente la notifica desktop OS con il testo della domanda per consentire all'utente di rispondere entro i 5 minuti preservando la cache hit di Anthropic.
-- Modale di sicurezza alla chiusura di un progetto con protezione dei task in esecuzione e in coda: intercetta la chiusura del singolo progetto e avvisa se sono presenti task in coda o un'elaborazione attiva, lasciando scegliere se conservare o eliminare la coda; chiudendo con un'elaborazione in corso il processo viene interrotto e prompt e impostazioni del task finiscono in cima a `.omp/tasks.json`, intatti alla riapertura. La chiusura dell'applicazione invece non fa domande: le code restano nei rispettivi progetti, l'eventuale task interrotto torna in cima alla sua coda e la finestra si chiude subito.
+- Modale di sicurezza alla chiusura di un progetto con protezione dei task in esecuzione e in coda: intercetta la chiusura del singolo progetto e avvisa se sono presenti task in coda o un'elaborazione attiva, lasciando scegliere se conservare o eliminare la coda; chiudendo con un task in avvio (dispatching) il task viene riportato in cima a .omp/tasks.json, intatto alla riapertura. La chiusura dell'applicazione invece non fa domande: le code restano nei rispettivi progetti, i task in dispatching tornano in cima alla propria coda e la finestra si chiude subito.
 - Laboratorio prototipi frontend React 19 + Tailwind v4: nuovo spazio GUI dedicato nella colonna centrale di Studio per ideare, confrontare 3-5 varianti di componenti e iterare flussi multischermata con dati simulati in modo isolato e sicuro, operando in concorrenza simultanea con l'agente principale nello stesso progetto.
 - Anteprima interattiva con selezione elementi e annotazioni legate alla revisione: toolbar responsive con preset Desktop (1280x800), Tablet (768x1024) e Mobile (375x667), zoom, ricarica e modalità di ispezione visuale a schermo con redazione automatica di password e token Bearer, e blocco preventivo di annotazioni inviate su revisioni non più attive.
 - Compilazione ed esecuzione offline senza CDN esterna: compilatore locale `esbuild-wasm` con resolver a VFS chiuso, worker thread isolato e catalogo dipendenze fissate (React 19.2.8, Tailwind v4.3.3, Lucide, Radix Dialog, Recharts, Motion) con bundle fidati precompilati in locale per l'avvio immediato senza connessione internet.
@@ -50,6 +50,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - I messaggi di sistema dell'agente non sono più muri di testo con XML in chiaro. Il risultato di un subagente in background diventa una riga compatta con stato, ruolo, durata, peso della risposta e la sua sintesi, e un click apre il transcript completo nel cassetto; i messaggi scambiati tra agenti mostrano mittente, corpo formattato e a cosa rispondono, senza il testo di servizio destinato al modello; i promemoria e le istruzioni interne che `omp` scrive per l'agente e non per te restano nascosti, e il nuovo interruttore «Mostra i messaggi interni dell'agente» in Impostazioni → Generale li riporta a schermo come righe compatte quando serve capire cosa sta guidando l'agente. Tre o più avvisi di sistema di fila si raccolgono in una sola riga espandibile. Il promemoria dei todo rimasti aperti non viene più stampato in chat: la striscia dei todo mostra invece un contatore dei solleciti (`1/3`), che diventa ambra all'ultimo tentativo quando l'agente è in stallo. Lo stesso trattamento vale dentro il cassetto del transcript di un subagente.
 
 ### Fixed
+- La risposta rapida con testo precompilato (prefill) nella finestra Companion inoltra correttamente la risposta anche senza modifiche manuali, evitando lo stallo dell'agente in attesa di input.
 - Il contesto della conversazione nelle domande della Companion non e' piu' testo grezzo: grassetto, elenchi, titoli, citazioni e blocchi di codice sono resi come nella chat, e il riquadro nasce sulla **fine** del messaggio invece che sul suo inizio. La parte che serve a rispondere e' la conclusione, non il preambolo; risalire il messaggio resta possibile scorrendo.
 - Raggruppamento dei tool e de-duplicazione dei footer modello nella timeline: le chiamate a tool operativi consecutivi (con i relativi passaggi di thinking/ragionamento interno privi di testo o immagini per l'utente) vengono ora correttamente accorpate in un unico gruppo compatto anziché generare card isolate con footer modello ripetuti a ogni turno; i commenti narrativi e le spiegazioni dell'agente restano leggibili nella timeline principale e il footer con modello e costo ricompare unicamente alla risposta finale.
 - I task eliminati esternamente non risorgono più alla rilettura del progetto: la sincronizzazione da file su disco (watcher, finestra Companion o comando /tasks) sostituisce ora la lista in memoria preservando esclusivamente i task in spedizione non ancora consegnati ad omp, evitando che task cancellati ricompaiano al salvataggio successivo.
@@ -67,7 +68,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Lo storico dei lanci non viene più cancellato dall'altra finestra e non cresce senza limiti. L'elenco che arriva dalla Companion viene fuso con quello locale invece di sostituirlo: una copia più vecchia cancellava il lancio appena registrato, cioè l'unica copia del prompt di un task che ha lasciato la coda. Si conservano i cinquanta lanci più recenti per progetto, con prompt e immagini solo per gli ultimi tre, perché lo store globale dei task viene riscritto per intero a ogni modifica di coda: sul profilo di prova è passato da 3,5 MB a 171 KB.
 - Rileggendo la coda di un progetto dopo una modifica esterna (terminale, comando `/tasks`, altra finestra di Studio) i task creati nel frattempo non vengono più scartati: il file resta la fonte, ma un task non ancora salvato rimane in coda invece di sparire.
 - Nella scheda Coda del pannello Agente il pulsante «Nuovo task» occupa tutta la larghezza con testo centrato e il badge di stato («OMP sta lavorando», «Sessione OMP non aperta») sta sulla riga sotto, a piena larghezza: prima i due elementi si dividevano una colonna strettissima e l'etichetta del pulsante si spezzava su due righe. Le etichette di stato troppo lunghe vengono ora troncate con i puntini invece di sfondare il chip.
-- La coda della Companion si comanda riga per riga: ogni task in attesa è ora avviabile con un click, il primo della fila è marcato, le code lunghe scorrono dentro il proprio riquadro e una riga dichiara quanti lavori restano oltre i quattro mostrati. Prima si vedevano tre titoli e un solo pulsante «Avvia prossimo», senza sapere quale dei tre sarebbe partito né quanti altri ci fossero.
+- La coda della Companion si comanda riga per riga: ogni task in attesa ha il suo pulsante per farlo partire subito e il suo cestino per toglierlo, le code lunghe mostrano i primi tre task e il residuo conteggiato senza scorrimento per non occultare i progetti che stanno lavorando.
 - Il motivo per cui un lavoro non può partire si legge a schermo, in ambra sotto la coda, invece di stare in un suggerimento su un pulsante disabilitato che né il mouse né la tastiera riescono a interrogare. E il pulsante non è più attivo quando lo stato dell'agente è ancora sconosciuto: prima in quel caso il click non produceva nulla, in silenzio.
 - La Companion parla una lingua sola: stato dei progetti, conferma di salvataggio, etichette dei pulsanti finestra e degli allegati passano dalla traduzione come il resto dell'applicazione. Prima, con l'interfaccia in inglese, nello stesso elenco convivevano «Awaiting response» e «Al lavoro».
 - Corretti gli angoli del campo di scrittura nel layout Launcher, che risultavano vivi mentre tutto il resto della finestra è raccordato, e ripristinato il riquadro della scheda di recupero quota, che era senza sfondo né bordo: tre valori di stile riferivano nomi inesistenti e si azzeravano in silenzio.
@@ -99,7 +100,141 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Il monitor del Companion mostra ora lo stato effettivo di ogni progetto e, solo per gli agenti al lavoro o in attesa di risposta, la quota del modello e dell'account realmente in uso.
 - I delta delle chiamate agli strumenti (toolcall) durante lo streaming non vengono più scambiati per blocchi di pensiero, eliminando la comparsa di falsi riquadri «Ragionamento · 1 riga» intervallati tra risposte e tool.
 - Colori del Companion ripristinati: pastiglie, avvisi, conferme e bordi accentati usavano nomi di colore inesistenti nel tema e venivano scartati dal browser, lasciando testo del colore ereditato su fondi trasparenti (il progetto mancante appariva come testo rosso nudo e l'avviso in blu senza riquadro).
-[…137ln elided…]
+- Il suggeritore `@progetto` e `/direttiva` del Companion non viene più tagliato: si apre sotto il campo nel livello superiore della finestra, mentre prima si apriva verso l'alto e finiva fuori dallo schermo o dentro l'area a scorrimento.
+- Il punto colorato dei progetti nel Companion ha ora la stessa tinta della barra dei progetti nella finestra principale: la tinta del tema veniva interpretata come gradi HSL e ogni progetto usciva di un altro colore.
+- Il focus non viene più strappato mentre si scrive un prompt: le domande dell'agente arrivate da progetti in background non rubano più il fuoco al composer o al TaskEditor, il type-to-focus globale non dirotta più la digitazione dai controlli di altre superfici, il viewport del browser live riprende il fuoco solo se è andato perso nel vuoto dopo un rimontaggio, e i tasti Esc/Ctrl+Invio premuti fuori dal TaskEditor non lo chiudono più.
+- Le richieste di risposta dell'agente non riportano più Studio in primo piano mentre stai scrivendo in un'altra applicazione o nella Companion: la card riceve il focus solo se la finestra principale è già attiva.
+- Risolto il falso stato di modifica all'apertura dei documenti nell'editor: Monaco ora preserva il BOM UTF-8 (`\uFEFF`) e allinea la baseline iniziale al caricamento, evitando la comparsa ingiustificata del pallino di non salvato e del pulsante «Salva» su file appena aperti dal filetree o dai link della GUI.
+- La finestra Companion ricorda la dimensione che le hai dato: prima tornava più larga a ogni riapertura. La misura veniva salvata solo nell'istante in cui la fissavi (e comprendeva i bordi invisibili di ridimensionamento, che si sommavano a ogni giro), mentre fissarla dal pulsante nella barra superiore della finestra principale cancellava del tutto la dimensione memorizzata riportandola a 560x520. Ora posizione e dimensione si salvano quando chiudi la finestra e quando esci dall'applicazione, e restano quelle alla riapertura in entrambe le modalità (Spotlight e fissata).
+- La Companion non lampeggia più mentre rispondi a una sequenza di domande nella finestra principale. Lo stato delle attenzioni viaggia con `emit`, che consegna anche a chi lo manda: la finestra principale si riapplicava il proprio annuncio e, poiché il passaggio da JSON toglie i campi vuoti che le domande `ask` portano con sé, lo giudicava diverso da quello appena pubblicato. Ne seguiva un rimbalzo continuo fra le due finestre: la card veniva ridisegnata decine di volte al secondo, il contenuto saltava su e giù e tornava sempre alla prima domanda. Ora ogni finestra scarta i propri annunci e il confronto considera identici un campo assente e un campo vuoto.
+- Salvare un task dalla Companion è immediato anche la prima volta. Il salvataggio aspettava il caricamento completo dei modelli, che avvia `omp models --json` (circa due secondi) per un elenco che al task non serve: ora legge solo i ruoli configurati e il catalogo locale, mentre l'elenco completo dei modelli disponibili si carica in sottofondo all'apertura della finestra, dove serve alle menzioni `!ruolo` e `!modello`.
+
+## [1.5.0] - 2026-09-08
+
+### Added
+- Layout personalizzabile con supporto a monitor verticali (portrait) e collasso della barra laterale: commutazione automatica o manuale tra vista orizzontale a 3 colonne e vista verticale con editor in alto e terminale/chat in basso divisi da splitter orizzontale, scorciatoia `Ctrl+Alt+L` e chip di stato nella barra superiore per ciclare la modalità, e possibilità di nascondere o mostrare la barra laterale (File/Git/Agente) con `Ctrl+Alt+B` o cliccando sul logo &pi; in alto a sinistra per dedicare tutta la larghezza all'editor e alla conversazione.
+- Due stili per il popover delle quote, selezionabili in «Impostazioni → Aspetto» accanto a quello della chip: «Telemetria», con barra sottile, zona già consumata rigata e lettura di stato `OK / WARN / CRIT` per ogni finestra, e «Anello», con un indicatore circolare per finestra che si scarica e mostra una pastiglia di stato quando la quota scende. Le due card mostrano un'anteprima reale che cambia con la scelta, e lo stile vale sia nella finestra principale sia nel Companion.
+- Colori semaforo attivabili separatamente per il popover delle quote: ora chip e popover hanno interruttori indipendenti, così si può tenere la barra superiore sui colori del tema e leggere invece verde/ambra/rosso nel dettaglio dei limiti (o viceversa).
+- Il controllo dei modelli in «Impostazioni → Modelli» verifica ora anche le riserve di ogni ruolo e non solo i modelli primari, e non si limita più a cercare versioni più recenti: segnala i modelli che non è più possibile usare — ritirati dal catalogo del provider, non più offerti dalle credenziali attive, appartenenti a un provider disabilitato o senza credenziali — così una quota esaurita non porta più a un blocco inspiegabile su una riserva che nel frattempo è scomparsa. Il referto propone la sostituzione con il modello equivalente disponibile o la rimozione della riserva morta, e non modifica mai la configurazione senza conferma.
+- Controllo dei modelli in background: parte all'avvio di Studio e si ripete ogni 12 ore, aggiornando il catalogo dai provider solo se ha più di un giorno. L'avviso non interrompe il lavoro: la chip «Impostazioni» mostra un punto esclamativo arancione quando un modello configurato non è più utilizzabile e un pallino blu quando sono disponibili solo aggiornamenti di versione; il clic porta direttamente alla sezione Modelli, dove ogni ruolo e ogni riserva con problemi è evidenziato con il motivo.
+- Finestra Companion con doppia modalità Spotlight e Widget persistente (`Alt+Spazio`), Risposta Rapida (Quick Reply) con contesto chat per le richieste dell'agente e inserimento rapido dei task in linguaggio naturale: permette di rispondere alle domande di un agente in background e di catturare task per qualsiasi progetto senza interrompere la lettura o la navigazione su altre applicazioni; include interpretazione AI del testo (estrazione automatica di progetto, ruolo, modello e direttive), verifica preventiva dell'esaurimento quota con avvisi espliciti, memoria multi-monitor di posizione e dimensioni della finestra pinnata, pulsante Companion dedicato nella barra superiore di Studio e popover interattivo rapido sulle tessere di progetto in attenzione senza mai dover cambiare workspace o vista attiva.
+- Hardening completo, ripristino automatico e accessibilità per Browser Studio: riconnessione automatica dello stream live con backoff limitato e pulsante di riprova immediata in caso di interruzioni, chiusura pulita e deterministica di tutti i canali del browser alla terminazione o errore della chat per evitare processi o file orfani, isolamento della tastiera alla superficie attiva con supporto alla navigazione (indietro, avanti, ricarica con scorciatoie standard), focus trap completo con gestione del tasto Escape sui dialoghi della pagina e sul selettore di schede Chrome Relay, e limiti rigorosi di memoria e messaggi in coda per garantire fluidità e stabilità in lunghe sessioni multi-progetto.
+- Collegamento esplicito di una singola scheda del Chrome personale a Browser Studio tramite il Relay OMP esistente: il selettore mostra solo titolo, origine e stato necessari alla scelta; un grant monouso lega progetto, chat e target; screencast, input e inspector riusano la stessa `BrowserViewer`, i control epochs e il takeover privato; la revoca interrompe subito frame e controlli senza chiudere Chrome o perdere login e sessioni SSO; le capability Relay mancanti producono una diagnostica limitata alla scheda concessa.
+- Gestione esplicita di dialoghi, popup, file, permessi e registrazione video per Browser Studio: gli alert, confirm, prompt e prima dell'uscita (beforeunload) generati dalle pagine sono visualizzati con modale dedicato in `BrowserViewer` senza bloccare il supervisor del runtime (interruzione immediata e sicura delle azioni dell'agente in assenza di policy automatica e risposta tracciata); le nuove finestre e popup aperti dalla pagina vengono adottati automaticamente come schede appartenenti alla stessa chat; i download da origini remote vengono trattenuti in quarantena sicura di progetto e trasformati in artifact di conversazione solo su consenso esplicito dell'utente; il caricamento file (`<input type="file">`) è vincolato all'apertura del selettore nativo del sistema operativo escludendo accessi generici o non supervisionati al filesystem da parte dell'agente (`UPLOAD_NOT_AUTHORIZED`); quattro capability distinte a livello di origine (lettura/scrittura appunti, geolocalizzazione, notifiche) configurabili direttamente dalla toolbar; registrazione video locale della scheda in container standard MJPEG/AVI tramite un generatore deterministico puro senza requisiti di `ffmpeg` esterno, con percorsi di salvataggio e cancellazione coordinati.
+- Inspector mirato per Browser Studio: integrato direttamente nella superficie `BrowserViewer` senza incorporare Chrome DevTools completo; include Element Picker con highlight overlay non invasivo e tooltip semantico su coordinate CSS del viewport nativo per estrarre tag, ruolo ARIA, nome accessibile, testo, selettore CSS univoco, bounding box, stili computati rilevanti, componente React/Svelte e ritaglio PNG dello screenshot; pannelli Console (500 item con deduplicazione dei messaggi consecutivi e stack trace), Rete (200 item con aggiornamento in-place, filtri avanzati e download del corpo risposta on-demand) e timeline Actions (100 item) gestiti con ring buffer a memoria limitata e redazione automatica di credenziali URL, header sensibili e token Bearer; dock retrattile inferiore con navigazione da tastiera protetta dall'inoltro indebito di input al browser e pulsanti per l'invio selettivo del contesto strutturato e dello screenshot ritagliato direttamente nel prompt del Composer.
+- Policy delle origini top-level, consenso persistente per progetto e redazione di sicurezza per Browser Studio: navigazione automatica per origini locali e loopback (localhost, 127.0.0.1, [::1]), consenso esplicito preventivo per nuove origini remote con banner e badge di stato in BrowserViewer, memorizzazione persistente per progetto con possibilità di revoca immediata dalle impostazioni o dalla toolbar, sospensione automatica delle azioni dell'agente in caso di redirect top-level verso origini non autorizzate, separazione netta tra navigazioni documentali e caricamento di risorse secondarie (immagini, script, CDN, API), redazione automatica di credenziali URL, header Authorization, cookie e token nei log, eventi e artifact, e completo isolamento del frontend Svelte da endpoint CDP grezzi e segreti interni.
+
+- Arbitraggio esclusivo del controllo della pagina e takeover privato per Browser Studio: gestione rigorosa dell'alternanza tra controllo dell'agente e dell'utente tramite epoche di controllo crescenti (control epochs), takeover atomico al primo clic o tasto umano con bufferizzazione e invio dell'interazione una sola volta verso Chromium, interruzione immediata con errore strutturato CONTROL_INTERRUPTED di qualsiasi operazione dell'agente in corso e blocco di nuovi comandi, pulsante dedicato nella toolbar per restituire esplicitamente il controllo all'agente con nuovo snapshot della pagina, e modalità di takeover privato (attivabile manualmente o automaticamente su campi password/CAPTCHA) che continua a mostrare lo stream video all'utente nel visualizzatore locale oscurando e bonificando completamente transcript, screenshot, DOM, console e rete all'agente.
+- Nuova superficie Browser nella colonna centrale (`BrowserViewer`) per Browser Studio: si apre automaticamente all'avvio del tool `browser` o all'apertura di una scheda gestita preservando lo stato dell'editor Monaco, dei file aperti e delle anteprime statiche; include toolbar con URL, navigazione (indietro, avanti, ricarica), selettore schede, modalità operativa, selettore responsive del viewport (Desktop, Tablet 768px, Mobile 390px), badge dello stato controller (Agente, Utente, Privato) e cattura istantanea dello screenshot negli appunti; renderizza lo stream video live JPEG appena i fotogrammi arrivano, con la politica «vince il fotogramma più recente» e mapping geometrico esatto delle coordinate del puntatore e dello scroll in pixel CSS nativi del viewport Chromium invariante rispetto a ridimensionamento della finestra, zoom e DPI scaling.
+- Nuova chip quota contestuale al progetto attivo nella barra superiore con stili selezionabili ("Anello progressivo" e "Pill riempita"), opzione per mostrare sempre la percentuale o solo in allarme, toggle per il nome del provider e riorganizzazione della sezione «Impostazioni → Aspetto» con sincronizzazione automatica della galleria temi.
+- Studio e il runtime `omp` concordano ora una capability versionata `browser-live-v1` all'avvio della sessione: e la base del futuro Browser Studio. Finche il runtime non offre il canale live non cambia nulla di visibile — il tool `browser` continua a mostrare riepilogo e screenshot come oggi — e con un runtime privo della capability Studio non tenta alcuna connessione.
+- Il runtime `omp` dispone ora del broker delle sessioni browser (`BrowserSessionBroker`) e di un motore Chromium gestito sempre senza finestra desktop: isola cookie e archiviazione per singolo progetto in cartelle dedicate, indirizza le schede tramite identificativi legati alla specifica sessione di chat (evitando collisioni tra schede con lo stesso nome in conversazioni diverse), instrada l'intero controllo CDP attraverso il broker e termina i processi senza lasciare orfani.
+- Canale live loopback binario e backpressure per Browser Studio: lo stream video ad alta frequenza viaggia fuori dal canale RPC tramite un formato binario compatto a lunghezza prefissata (BLF1), con gestione della memoria rigorosamente limitata e scarto deterministico dei frame obsoleti in caso di client lento, riconnessione immediata senza perdite di stato e acquisizione diretta degli screenshot alle dimensioni reali del viewport.
+- Colori semaforo opzionali per la quota in «Impostazioni → Aspetto»: verde quando la quota è abbondante, giallo sotto il 30%, rosso sotto il 10% o a quota esaurita, con palette dedicate per tema chiaro e scuro. L'opzione è disattivata di default e, se non la si attiva, la chip continua a seguire i colori del tema.
+- La chip quota segnala con un piccolo pallino quando una finestra più lunga (per esempio quella settimanale) è quasi esaurita mentre quella di sessione è ancora libera, senza alterare la percentuale mostrata.
+- Righe dei task in coda piu leggibili con due viste selezionabili in «Impostazioni → Aspetto»: «Compatta» (predefinita) con titolo ed estratto a tutta larghezza su tre piani e tutti i badge sotto il testo, ed estratto su due righe; «Card» con ogni task come scheda separata, titolo su due righe ed estratto su tre. Vale sia per la scheda Coda sia per il cassetto globale.
+
+### Changed
+- Spostata la configurazione della disposizione finestra da «Impostazioni → Generale» a «Impostazioni → Aspetto» con nuovo selettore visuale a schede (Automatico, Orizzontale a 3 colonne, Verticale a stack) con anteprima grafica integrata, e rimossa la chip layout dalla barra superiore per alleggerire l'intestazione dell'applicazione (la scorciatoia Ctrl+Alt+L resta attiva per la commutazione rapida).
+
+### Fixed
+
+- Studio non si chiude più all'improvviso per colpa di una pagina web: un dialogo, un messaggio di console o il nome di un download che contenevano determinate lettere maiuscole non latine facevano terminare l'intera applicazione durante il mascheramento dei dati sensibili, con perdita del lavoro non salvato.
+- Il mascheramento dei dati sensibili nei log del browser copre ora tutti i token di autorizzazione presenti in un messaggio (prima solo il primo restava nascosto e gli altri comparivano in chiaro in transcript e artifact) e si applica anche all'origine dei permessi richiesti dalla pagina.
+- Il consenso alle origini remote di Browser Studio ha effetto: «Consenti per questo progetto», «Rifiuta» e «Revoca» vengono ora comunicati al runtime `omp`, che possiede l'elenco delle origini rispettato dall'agente. Prima erano scritture locali di Studio, quindi il consenso non sbloccava la navigazione, la revoca non fermava l'agente e il badge dichiarava uno stato che nessuno applicava. Con un runtime `omp` che non conosce ancora la richiesta, la decisione non viene più data per applicata: Studio lo dice esplicitamente e invita ad aggiornarlo.
+- La tastiera non muore più dopo un cambio di stato della pagina: la superficie live non viene più smontata a ogni riconnessione o aggiornamento della scheda (lo stato dello stream è ora un velo sopra l'ultimo fotogramma), il focus torna alla superficie quando ricompare e il rilascio di un tasto viene sempre inoltrato, così la pagina non resta con un tasto o un modificatore premuto.
+- Ogni aggiornamento della scheda (navigazione, caricamento, presa di controllo) non riapre più il canale live da zero: prima ogni evento consumava un ticket monouso, apriva una nuova sessione verso il limite di 32 e azzerava il conteggio dei tentativi di riconnessione, e all'apertura del pannello le sessioni aperte erano due invece di una.
+- Un rifiuto della singola azione (dialogo già risolto, download non consentito, registrazione non attiva) non abbatte più tutto lo stream costringendo a una riconnessione completa: solo gli errori di ticket, sessione o stream chiudono il canale.
+- Il takeover privato non lascia più uscire nulla della pagina: il ritaglio dell'elemento ispezionato non viene prodotto né allegato al prompt, l'ispezione è disabilitata e i dati già raccolti vengono scartati appena la modalità privata si attiva.
+- Un dialogo della pagina non resta più a coprire il pannello dopo la fine della chat o la chiusura della scheda, non si può più rispondere due volte allo stesso dialogo (Escape tenuto premuto compreso) e i comandi inviati mentre il canale è giù ora lo dicono invece di non fare nulla in silenzio.
+- Il semplice passaggio del puntatore sulla pagina non interrompe più il comando dell'agente: il controllo passa all'utente solo con un gesto deliberato (clic, tasto, rotellina).
+- Il menu dei permessi non mostra più «Nega» come scelta attiva per permessi su cui nessuno ha ancora deciso: senza risposta della pagina lo stato mostrato è «Chiedi», come prevede il contratto.
+- La finestra Companion torna ad aprirsi correttamente al clic sulla chip nella barra superiore e con la scorciatoia da tastiera: risolto il fallimento della creazione della webview nativa su Windows dovuto a parametri del browser disallineati tra le finestre, e garantito il ripristino visivo e del focus a ogni richiamo.
+- Riconoscimento corretto dell'account attivo per la chip della quota: quando una conversazione impiega credenziali specifiche di un provider (es. un secondo account con residuo differente), la chip recupera puntualmente il pin dal transcript sia su chat grafica che su terminale senza fermarsi a cache vuote né perdere l'associazione al termine della generazione o alla scadenza delle sessioni recenti.
+- Le barre del popover quote non si aggiornavano più dopo la prima apertura: l'animazione partiva una sola volta al montaggio, quindi un aggiornamento dei consumi a popover aperto cambiava la percentuale scritta ma non la barra. Ora barra e anello seguono il valore con la stessa animazione, in comparsa e a ogni aggiornamento.
+- Le quote residue vengono ora annunciate ai lettori di schermo come indicatori di livello (con percentuale e tempo di ripristino) e non più come barre di avanzamento, che descrivevano un caricamento inesistente.
+- L'anello di attenzione sulla tessera del progetto e la voce «In attesa» nella barra di stato ora compaiono sempre quando l'agente fa una domanda: se la richiesta arrivava prima dell'evento del tool `ask` — cosa che succede a intervalli casuali — lo stato veniva subito riportato a «In esecuzione», la tessera restava senza anello e l'allerta sull'icona dell'app veniva azzerata pur avendo già inviato la notifica di sistema.
+- Studio non resta più bloccato con tutti i pannelli in caricamento all'avvio: la sincronizzazione della finestra Companion riscriveva l'elenco delle richieste di attenzione a ogni passata anche quando non era cambiato nulla, e siccome quella scrittura avveniva dentro l'effetto che rilegge lo stesso elenco, l'effetto si richiamava da solo fino a interrompere il disegno dell'interfaccia. Ora si scrive soltanto quando lo stato cambia davvero.
+- Risolta l'animazione anomala sul pulsante «Verifica Modelli» in «Impostazioni → Modelli»: durante il controllo la lente d'ingrandimento viene ora sostituita da un indicatore di caricamento circolare dedicato, evitando la rotazione impropria dell'icona statica.
+- Corretto il ritaglio (clipping) degli anelli di focus da tastiera in tutta l'applicazione: le tessere del selettore temi, i pulsanti della barra della finestra, le schede aperte, le righe della cronologia sessioni e i menu contestuali utilizzano ora anelli interni (inset) o margini perimetrali dedicati per garantire che l'indicatore di fuoco non venga mai tagliato dai bordi dei contenitori a scorrimento, e ripristinato l'indicatore visivo di focus da tastiera sui toggle switch e sui menu a discesa dei modelli.
+- Nomi dei provider corretti nel menu di selezione agente/modello: i modelli pubblicati da un gateway con identificativi del tipo `provider/modello` non vengono piu confusi con quelli del provider nativo, e ruoli, fallback e cassetto del ciclo rapido mostrano il provider giusto.
+- I percorsi file emessi dall'assistente come blocchi di codice (fenced code block) vengono ora renderizzati come chip compatti e cliccabili per aprirli direttamente nell'editor (con supporto per elenchi multi-riga e pulsante di copia dedicato), risolvendo percorsi complessi e numeri di riga tramite `resolve_project_file`.
+- Riconoscimento intelligente delle nuove versioni dei modelli nella stessa famiglia (es. passaggio da Gemini 3.7 Flash a Gemini 3.8 Flash): la verifica aggiornamenti rinfresca ora automaticamente il catalogo, rispetta i ruoli attivi nel modal impostazioni anche prima del salvataggio, normalizza i formati di numerazione e preview ed evita che le date di snapshot prevalgano sulla versione semantica.
+- Rimosso l'anello di focus (outline ring) indesiderato sulle righe dell'albero file e sulla cartella radice all'apertura dell'applicazione, allineando lo stile di focus da tastiera all'evidenziazione di sfondo.
+- La chip quota mostrava una percentuale che non corrispondeva alla finestra in corso: con la finestra Anthropic di 5 ore intatta al 100% la barra si fermava a due terzi perché stava riportando la finestra di 7 giorni. Ora barra e percentuale si riferiscono sempre alla finestra più breve, cioè quella che limita il lavoro in quel momento; se una finestra qualsiasi risulta esaurita la chip lo dichiara, perché in quel caso le richieste vengono comunque rifiutate.
+- La chip e il popover della quota riempivano le barre in direzioni opposte: la chip indicava la quota disponibile, il popover quella consumata. Ora entrambe si riempiono con la quota ancora disponibile e si svuotano man mano che la si consuma.
+- Con più account dello stesso provider la quota mostrata poteva appartenere a un account diverso da quello effettivamente in uso, e l'etichetta «In uso da» compariva su tutti gli account del provider. Studio riconosce ora l'account che la sessione sta realmente utilizzando.
+- Sui provider che raggruppano più famiglie di modelli (come Google Antigravity, che tiene contatori separati per Gemini, Claude e GPT) la chip mostra ora il contatore della famiglia del modello in uso, invece del più basso fra tutti.
+- La chip non segnala più "Quota esaurita" quando un account inutilizzato ha una finestra esaurita ma un altro account dello stesso provider ha ancora quota disponibile.
+## [1.4.0] - 2026-09-02
+
+### Added
+
+- Scelta immediata della modalità di accodamento al momento dell'invio: durante lo streaming dell'agente il pulsante di invio si sdoppia (split button) per inviare con il comportamento predefinito o aprire il menu a tendina e forzare la modalità Steer o Follow-up, con scorciatoie da tastiera `Invio` (modalità predefinita) e `Alt+Invio` (modalità opposta).
+- Nuove preferenze di accodamento in «Impostazioni → Generali» per scegliere il comportamento di invio predefinito (Steer o Follow-up), le modalità di estrazione dei messaggi (singolo o tutti insieme) e la modalità di interruzione.
+- Pulsante "Nuova chat" nell'intestazione della colonna destra, con scorciatoia `Alt+N`.
+- Il popover della quota può mostrare anche provider che `omp` non sa interrogare da solo (per esempio quelli aggiunti da un plugin): basta descrivere la sorgente in un file JSON dentro `%LOCALAPPDATA%/omp-studio/usage-sources/` indicando il comando da eseguire, e le sue quote compaiono accanto alle altre. Senza quella cartella nulla cambia.
+
+### Changed
+
+- I chip dei messaggi in coda nella chat sono ora badge informativi di sola lettura con spiegazione contestuale, rispecchiando con chiarezza che i messaggi già presi in carico da `omp` non possono essere modificati né riordinati.
+
+### Removed
+
+- Rimosso il popover di configurazione della coda con icona a ingranaggio dal campo di scrittura della chat e le scorciatoie `Alt+Q` e `Alt+S`, sostituite dalle impostazioni generali e dalla selezione rapida all'invio.
+- Rimossa la scorciatoia orfana non funzionante `Alt+Q Opzioni coda` dallo stato vuoto della colonna dei task.
+
+### Fixed
+
+- Sincronizzazione affidabile del focus e digitazione diretta nella chat: il cursore animato (smooth cursor) si spegne tempestivamente quando la finestra o l'applicazione perde il focus evitando falsi lampeggi a vuoto, l'intera area del riquadro di input trasferisce il focus alla casella di scrittura al clic, la digitazione non intercetta i tasti quando sono aperti modali o dialoghi preservando l'uso della barra spaziatrice sugli elementi interattivi, e la posizione del cursore resta allineata durante lo scorrimento.
+- Completamento affidabile delle scelte multiple con opzione personalizzata («Altro»): la risposta a testo libero su domande a scelta multipla viene instradata con il passo di chiusura corretto preservando l'esecuzione dell'intero piano di risposte per tutte le domande del wizard.
+- Caricamento coalescente dei modelli e provider: l'inizializzazione in background elimina le chiamate concorrenti duplicate a `omp models` all'avvio dell'applicazione e azzera i cicli reattivi di ricarica in caso di errore.
+- Sicurezza e robustezza delle sorgenti di quota: confinamento rigoroso dei percorsi con fallback protetto in caso di variabili d'ambiente vuote, limitazione a flusso del buffer di output dei processi figli e validazione difensiva dei valori numerici nel popover delle quote.
+- Modulo unico e navigazione libera per le domande multiple dell'agente (`ask`): la card riceve ed espone tutte le domande fin dalla prima richiesta grazie all'arricchimento bidirezionale immediato all'arrivo degli argomenti del tool, consentendo di spostarsi liberamente avanti e indietro tra i passaggi e di verificare il riepilogo prima dell'invio definitivo, azzerando le card frammentate e la perdita di navigazione sulle domande precedenti.
+- Preservazione delle note nelle scelte multiple e validazione rigorosa della coda di consegna: l'aggiunta di note a risposte a scelta multipla viene instradata correttamente senza generare opzioni fantasma per l'agente, e i passi automatici in coda vengono verificati per metodo, firma delle opzioni e identificativo di chiamata prima di essere consegnati a `omp`, arrestando la sequenza con avviso chiaro in caso di disallineamento.
+- I menu dei modelli mostrano le capacità come icone: accanto a ogni modello compaiono la finestra di contesto, l'occhio per il supporto alle immagini e il simbolo del ragionamento esteso, con i livelli di sforzo nel suggerimento. Prima l'elenco aperto scriveva «Vision» e «Reasoning» a parole solo nel selettore del task, e nel menu rapido della chat non diceva nulla.
+- Le opzioni avanzate del task restano raggiungibili anche con un prompt lungo: quando la casella di testo cresce, il corpo dell'editor scorre invece di tagliare l'accordion, quindi le ultime modalità tornano selezionabili.
+- I menu a comparsa non vengono più tagliati: selettore del modello, menu di assegnazione ai ruoli del catalogo, menu «Aggiungi provider» e i menu di ruolo, modello, thinking e modalità di invio della chat si aprono sopra tutto il resto, si ribaltano quando manca spazio sotto e scorrono al proprio interno.
+- Le riserve dei ruoli, il modello primario, il ciclo rapido e il modello dei suggerimenti propongono soltanto i modelli dei provider effettivamente configurati e abilitati, non l'intero catalogo di OMP.
+- I suggerimenti AI per i ruoli non propongono più modelli di provider che non hai: la validazione avviene sull'elenco realmente disponibile e i provider personalizzati definiti in `models.json` (compresi i server locali) ora vengono inclusi invece di essere sempre esclusi.
+- Pannelli e liste ad altezza vincolata scorrono invece di troncare il contenuto: elenco ruoli e dettaglio ruolo, elenco provider e dettaglio provider, cassetto del ciclo rapido, pannello e cassetto dei subagenti, selettore di progetto e popover delle quote.
+## [1.3.0] - 2026-09-01
+
+### Added
+
+- Supporto completo alla compilazione e distribuzione per sistemi Linux (x86_64): generazione automatica dei pacchetti Debian (`.deb`) e portabili universali (`.AppImage`) nei canali Nightly e Release stabili di GitHub Actions con promozione candidate senza ricompilazione, script di build locale e ottimizzazione del fallback shell POSIX.
+- I suggerimenti di risposta nel composer: chip cliccabili sopra il campo di scrittura che precompilano il prompt con un click o con Alt+1, Alt+2, Alt+3; l'invio resta un tuo gesto esplicito.
+- La nuova sezione «Suggerimenti» delle impostazioni per creare, modificare, riordinare, nascondere o ripristinare i suggerimenti fissi.
+- I suggerimenti generati dal modello leggero al termine di ogni risposta dell'agente, che leggono l'ultimo messaggio e propongono fino a tre risposte pronte; disattivati per impostazione predefinita, con scelta del modello e del limite.
+- Ricerca fuzzy nel filetree di progetto: barra di ricerca sempre accessibile in cima al pannello FILE con filtro istantaneo, evidenziazione dei caratteri corrispondenti nel nome e percorso del file, navigazione rapida da tastiera (Frecce, Invio, Esc) e menu contestuale sui risultati.
+- Direttive e modalità del task completamente personalizzabili: nuova libreria in «Impostazioni → Task & Agenti» per creare, modificare, riordinare, nascondere o ripristinare le modalità di prompt (inclusi i preset Piano, Discussione, Minimale e Ricerca), impostandone il posizionamento prima o dopo il testo principale.
+- Assistente AI per le direttive: generazione guidata di nuove modalità da una descrizione in linguaggio naturale, miglioramento e affinamento del prompt con anteprima delle modifiche e analisi su richiesta delle ricorrenze nei prompt recenti del progetto per suggerire nuove direttive utili.
+- Snapshot deterministici e aggiornamento controllato: ogni task in coda congela la versione esatta delle direttive al momento della creazione, con avviso visivo e pulsante «Aggiorna» quando la libreria contiene una versione più recente.
+- Nuova sezione «Aspetto» nel modale Impostazioni con galleria visiva a griglia di tutti i temi disponibili (scuri e chiari), ricerca in tempo reale, anteprima grafica con campioni di colore (sfondo, accento, testo) e indicatore del tema attivo con applicazione immediata.
+- Gestione avanzata dei provider e supporto completo ai plugin: la sezione «Impostazioni → Modelli → Provider» adotta un layout a due colonne che rileva dinamicamente tutti i provider built-in, plugin (come Command Code) e custom, mostrando lo stato di abilitazione, il conteggio dei modelli disponibili e gli account associati.
+- Gestione multi-account con identificativi e disconnessione selettiva: visualizzazione trasparente di email, ID account e organizzazione/piano per ogni credenziale memorizzata, con possibilità di disconnettere singoli account tramite dialogo di conferma protetto senza invalidare l'intero provider.
+- Catalogo modelli basato sui modelli realmente disponibili: la scheda «Catalogo» organizza i modelli per provider con badge contestuali (finestra di contesto, token massimi di output, reasoning con livelli di thinking e costi), filtri rapidi (Vision, Reasoning, Gratis), ricerca full-text e aggiornamento mirato del catalogo.
+- Il terminale dice cosa sta facendo mentre parte: durante l'avvio dell'ambiente compare una riga di attesa attenuata al posto del riquadro nero, con testo diverso a seconda del contesto (avvio, ripresa di una sessione, configurazione guidata). Sparisce da sé al primo output e, se l'ambiente non risponde entro dieci secondi, lascia il posto a un avviso con l'indicazione di cosa verificare.
+- Anteprima dei file apribile e chiudibile: per Markdown e SVG l'editor mostra un selettore a tre stati nella barra superiore (solo codice, codice e anteprima affiancate, solo anteprima) che ricorda la scelta scheda per scheda. `Ctrl+Shift+V` cicla tra le tre viste.
+- Le schede dell'editor si riordinano trascinandole, si chiudono col clic centrale del mouse, scorrono con la rotellina e mostrano le frecce di scorrimento quando i file aperti non stanno nella barra; la scheda attiva resta sempre in vista.
+- Nuova voce «Chiudi tutti» nel menu contestuale delle schede, con scorciatoia `Ctrl+Shift+W`.
+
+### Changed
+
+- Popover della quota d'utilizzo: l'indicazione dei progetti attivi per ciascun provider mostra ora direttamente il solo nome del progetto (es. «ContrattiImmobili»), eliminando il prefisso ridondante dell'applicativo («OMP Studio»).
+- Disattivata l'espansione automatica dell'accordion e delle card dei tool in caso di errore: i passaggi rimangono compatti e sotto l'accordion chiuso compare un microcopy che indica il tool fallito e la breve descrizione del motivo, lasciando l'apertura completa al clic manuale.
+- Ottimizzati i tempi di compilazione e pubblicazione: adozione di Thin LTO e generazione di codice parallela nel profilo Rust release, eliminazione dei chunk ridondanti nella build Vite frontend e introduzione della cache delle dipendenze Rust (rust-cache) nei workflow GitHub Actions, riducendo drasticamente i tempi di build locali e cloud.
+- Rimossa la barra di evidenziazione sinistra e il testo in grassetto sulla voce di sezione attiva nella colonna sinistra della finestra Impostazioni, per una navigazione più pulita e uniforme.
+- Spostata la selezione del tema dalla barra superiore (TopBar) alla nuova sezione dedicata nelle Impostazioni, rimuovendo il badge e il popover galleggiante per una barra più pulita ed essenziale.
+- I controlli di scelta singola (radio button) in tutta l'applicazione sono stati ridisegnati con uno stile personalizzato coerente con il tema attivo (anello reattivo e punto interno centrato nel colore del brand), rinnovando il selettore del canale aggiornamenti (nelle impostazioni generali e nel dialogo di aggiornamento dalla barra inferiore, con schede dedicate e badge «Consigliato»/«Anteprima») e le opzioni di ordinamento della barra dei progetti.
+- Semplificata la descrizione dell'opzione di ordinamento «Ultimo aperto» nelle impostazioni della barra progetti, rimuovendo il prefisso ridondante «Comportamento storico:».
+- Le schede dell'editor non hanno più il pulsante «Diff» dentro la linguetta: il confronto con HEAD è ora un'icona nella barra superiore, attiva solo sul file in primo piano, e resta nel menu contestuale della scheda come «Confronta con HEAD». La linguetta mostra il nome del file in corsivo quando ci sono modifiche non salvate e sostituisce il pallino con il pulsante di chiusura al passaggio del mouse, così la sua larghezza non cambia mai; la scheda attiva è segnata da una barra colorata in alto.
+- L'anteprima Markdown dell'editor usa lo stesso motore della chat: tabelle, blocchi di codice con colorazione della sintassi, elenchi annidati, link e citazioni sono resi correttamente, dove prima venivano ignorati.
+
+- I comandi slash `/login` e `/logout` supportano l'indicazione opzionale del provider (es. `/login anthropic`, `/logout openai-codex`) per aprire direttamente la scheda Provider con il provider di destinazione pre-selezionato.
+
+### Fixed
+- Confinamento e sicurezza delle operazioni file: bloccata la creazione o rinomina di percorsi con prefissi di disco Windows (`C:`) o componenti non normali al di fuori della radice di progetto, con protezione deterministica contro la perdita accidentale di file.
 - Ricerca file resiliente a caratteri Unicode: il fuzzy matching gestisce correttamente l'espansione a lunghezza variabile dei caratteri minuscoli (es. `İ`), eliminando i crash per indice fuori limite e garantendo l'evidenziazione esatta dei caratteri corrispondenti.
 - Navigazione ad albero accessibile da tastiera: abilitata l'esplorazione completa del file tree tramite standard ARIA (`role="tree"`, `role="treeitem"`, `aria-expanded`, roving tabindex) con navigazione fluida (`Frecce Su/Giù/Destra/Sinistra`, `Home`, `End`, `Invio`) e visualizzazione chiara dell'errore in caso di mancato spostamento nel Cestino.
 - Salvataggio protetto delle impostazioni e delle API key: le scritture atomiche su macOS e Linux preservano i permessi restrittivi `0600` prevenendo l'esposizione accidentale delle credenziali nel filesystem locale.
@@ -123,8 +258,6 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Riprendere una chat dallo storico subito dopo l'avvio di Studio non lascia più la conversazione vuota: cliccare una sessione mentre il processo del progetto stava ancora partendo ne avviava un secondo, la chat si insediava su quello sbagliato (una sessione nuova, senza messaggi) e i messaggi non comparivano mai, benché l'agente rispondesse conoscendo tutto lo storico. Ora la ripresa scelta dall'utente ha la precedenza, il processo superato viene chiuso invece di restare vivo in background e il transcript viene ricostruito a ogni nuovo agganciamento.
 - Nelle domande a più risposte le altre domande non risultano più «ok» prima di essere lette: l'opzione consigliata resta pre-selezionata come proposta, ma vale come risposta solo dopo che la domanda è stata aperta. Il riepilogo indica le domande ancora da vedere e l'invio resta bloccato finché ne manca una, così non partono più scelte mai viste dall'utente.
 - Le domande già inviate di una sequenza `ask` restano visibili nella barra dei passaggi, contrassegnate come «inviata» e non modificabili: prima sparivano del tutto e la numerazione delle domande rimaste risultava incomprensibile.
-- La Companion non lampeggia più mentre rispondi a una sequenza di domande nella finestra principale. Lo stato delle attenzioni viaggia con `emit`, che consegna anche a chi lo manda: la finestra principale si riapplicava il proprio annuncio e, poiché il passaggio da JSON toglie i campi vuoti che le domande `ask` portano con sé, lo giudicava diverso da quello appena pubblicato. Ne seguiva un rimbalzo continuo fra le due finestre: la card veniva ridisegnata decine di volte al secondo, il contenuto saltava su e giù e tornava sempre alla prima domanda. Ora ogni finestra scarta i propri annunci e il confronto considera identici un campo assente e un campo vuoto.
-- Salvare un task dalla Companion è immediato anche la prima volta. Il salvataggio aspettava il caricamento completo dei modelli, che avvia `omp models --json` (circa due secondi) per un elenco che al task non serve: ora legge solo i ruoli configurati e il catalogo locale, mentre l'elenco completo dei modelli disponibili si carica in sottofondo all'apertura della finestra, dove serve alle menzioni `!ruolo` e `!modello`.
 ## [1.2.1] - 2026-08-28
 
 ### Added
@@ -197,5 +330,377 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Riprendere una sessione dallo storico nella chat grafica torna a funzionare: la chat non resta più su «OMP in avvio...» con il transcript vuoto, ma ricarica davvero i messaggi della sessione ripresa. Stesso rimedio per il passaggio tra TERMINAL e GUI.
 ## [1.2.0] - 2026-08-26
 
+### Added
 
-[Showing lines 1-68 and 206-300 of 300; 137 middle lines (37.4KB) elided. Use :301 to continue. Read artifact://24 for full output]
+- I task di ogni progetto vivono in `.omp/tasks.json` dentro il progetto stesso: restano accanto al codice, si escludono da git da soli e i task già presenti in Studio vengono migrati automaticamente.
+- Studio e il terminale condividono la stessa coda in tempo reale: ciò che aggiungi da una parte compare subito dall'altra, senza conflitti di scrittura.
+- Nuovo comando `/tasks` nel terminale: overlay a schermo intero per scorrere i task con le frecce, cambiarne lo stato con `Spazio`, aggiungerne con `A`, eliminarne con `D`, riordinarli con `J`/`K` e avviarli con `Invio`.
+- L'agente gestisce la coda del progetto da sé con il nuovo strumento `project_tasks` (elenco, aggiunta, modifica, eliminazione, riordino), disponibile in tutte le sessioni.
+- I task hanno stati reali — in corso, completato, abbandonato — con indicatori visibili nel pannello agente e nel cassetto delle code.
+- Nuovo editor dei task a sezioni: prompt al centro, scelta del profilo di ruolo (`smol`, `default`, `slow`, `plan`, personalizzato), regolazione dello sforzo di ragionamento e pulsanti «Salva e chiudi» (`Esc`) e «Salva e avvia subito» (`Ctrl+Invio`).
+- Direttive rapide per i task: Modalità Piano, Discussione & Requisiti, Soluzione Minimale e Ricerca Online, con inclusione facoltativa del contesto dell'editor (file aperti, selezione, posizione del cursore).
+- Allegati visivi nei prompt: incolla uno screenshot con `Ctrl+V`, trascina un file o scegline uno dal pulsante, sia nell'editor dei task sia nella chat.
+- Completamento automatico dei comandi `/` con l'elenco delle skill installate, distinguendo i comandi di Studio da quelli dell'agente.
+- Vista unica delle code di tutti i progetti (`Ctrl+Alt+T`, o il chip in barra col totale dei task in attesa): avvii il prompt di un altro progetto senza cambiare workspace e vedi il motivo quando un progetto non è pronto.
+- Avvio automatico dei task in coda, attivabile progetto per progetto, che parte solo quando l'agente è davvero pronto.
+- Barra dei progetti configurabile: ordine manuale, ultimo aperto, priorità dei task o alfabetico, con contatore dei task in attesa in quattro stili e anteprima ad avvio immediato al passaggio del mouse.
+- Cambio rapido dei ruoli nella chat (`Ctrl+P` e `Alt+R`) fra `default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit` e `advisor`, con modello e livello di ragionamento associati.
+- Percorsi di file cliccabili in tutta la chat: dai chip dei tool, dai link markdown o dai blocchi di codice il file si apre direttamente nell'editor.
+- Le sequenze di esecuzione dell'agente sono raccolte in un unico blocco espandibile con cronometro, così la risposta finale resta in primo piano.
+- Tutti i comandi `/` e le skill funzionano anche nella chat grafica, comprese le operazioni sulle sessioni (`/login`, `/logout`, `/copy`, `/fork`, `/tree`, `/sessions`, `/drop`).
+- La chat mostra lo stato di avvio dell'agente e accoda i prompt scritti durante l'inizializzazione, inoltrandoli appena è pronto.
+- Il contesto dell'editor allegato ai messaggi diventa un chip cliccabile con anteprima richiudibile, al posto del testo grezzo nel fumetto.
+- Primo avvio guidato: Studio rileva ciò che manca, scarica e installa `omp`, configura Git Bash, installa il font monospazio e ospita la configurazione di credenziali e modelli in una scheda protetta.
+- Chip «⚠ Setup» nella barra superiore quando la configurazione è incompleta, per riaprire la procedura guidata in qualsiasi momento.
+- Notifiche di sistema su Windows 10/11 e macOS quando l'agente chiede attenzione o completa un task con l'app in secondo piano, con clic diretto sul progetto interessato.
+- Segnale visivo sull'icona dell'app: pallino rosso lampeggiante sulla barra delle applicazioni di Windows e badge numerato con rimbalzo nel Dock di macOS.
+- Nuova sezione «Notifiche» nelle impostazioni: attivazione, testo sintetico o completo, allerta sull'icona, segnale sonoro e invio di una notifica di prova.
+- Centro impostazioni unificato (`Ctrl+Alt+,`) con sei sezioni: Generale, Notifiche, Barra progetti, Workspace, Task & Agenti e Modelli.
+- Editor e terminale personalizzabili — carattere, dimensione, minimappa, ritorno a capo, tabulazione, numeri di riga, scrollback, campanello e cursore — applicati subito, senza riavviare.
+- Valori predefiniti dei nuovi task impostabili globalmente e sovrascrivibili per singolo progetto.
+- Pannello consumi in finestra dedicata, con quote più critiche, conto alla rovescia al ripristino, andamento nelle 24 ore e velocità stimata.
+- Anteprima dedicata per i file SVG aperti nell'editor.
+- Schermate iniziali utili in workspace e pannello agenti, con azioni consigliate e griglia delle scorciatoie da tastiera.
+- Avvisi di sistema uniformi che spiegano la causa dell'errore e offrono un pulsante per riprovare, al posto di pannelli vuoti o bloccati su «Caricamento».
+- Nuova icona dell'applicazione per Windows e macOS.
+
+### Changed
+
+- Avvio più rapido e streaming più fluido: bundle suddiviso fra editor, terminale e diagrammi, aggiornamenti sincronizzati al refresh dello schermo e binario compilato con ottimizzazioni complete.
+- Editor dei task e chat riorganizzati: prompt al centro, opzioni avanzate in un pannello richiudibile con riassunto, pulsanti di azione uniformi.
+- Trascritto della chat più leggibile: indentazione e luminanza al posto dei bordi colorati decorativi, nessun limite di altezza sui blocchi di codice, prosa limitata a 65 caratteri per riga.
+- Comparsa, espansione e chiusura dei blocchi avvengono con animazioni fluide, disattivate quando il sistema richiede movimento ridotto.
+- La chat esegue direttamente i comandi standard (bash, write, edit, eval) senza chiedere approvazione, allineandosi al terminale.
+
+### Fixed
+
+- Accessibilità: etichette su tutti i controlli, `Tab` che resta dentro modali e cassetti, chiusura con `Esc`, contrasti conformi e annunci dei cambi di stato dell'agente.
+- Alla chiusura di una scheda o dell'applicazione vengono terminati anche tutti i processi figli: niente più processi orfani in background.
+- Il tasto di stop interrompe l'agente all'istante (`Esc`, `Alt+C`, `Ctrl+C`).
+- Lo storico unisce le sessioni su disco e la cronologia, così anche le sessioni nate da un task si riprendono correttamente.
+- Nessun disallineamento dei messaggi quando ci si aggancia a una sessione già in corso.
+- Il pannello consumi non segnala più progetti attivi che non lo sono e ripulisce le tracce rimaste indietro.
+- La chat resta ancorata in fondo durante lo streaming e si riaggancia da sola quando ti riavvicini al fondo.
+- L'editor conserva posizione di scorrimento e cursore di ogni file al cambio di scheda o di progetto.
+- Corretti il doppio anello di focus sul prompt, l'altezza della casella di testo dopo l'invio, la barra di aiuto della palette dei comandi, le immagini incollate due volte e gli avvisi spuri all'avvio.
+- Il controllo aggiornamenti di `omp` legge la versione corretta anche quando l'output contiene sequenze di colore, e gestisce gli errori di rete.
+- Canale Nightly: l'aggiornamento propone sempre l'installer della build annunciata, e quelli delle build precedenti vengono rimossi alla pubblicazione.
+
+### Security
+
+- Le anteprime SVG e i prototipi HTML vengono aperti in un contenitore isolato, privo di script e di accesso all'applicazione, con il contenuto ripulito prima del rendering.
+- L'aggiornamento di Studio rifiuta qualsiasi pacchetto privo di impronta SHA-256 verificata, ricontrolla il file su disco subito prima di eseguirlo e cancella sempre i file temporanei.
+- L'installazione di `omp` si interrompe se l'impronta pubblicata su GitHub non corrisponde al file scaricato.
+- I database di `omp` vengono aperti in sola lettura, senza possibilità di modificarli o bloccarli, e le interrogazioni non bloccano l'interfaccia.
+- Ogni percorso richiesto viene risolto e verificato dentro la radice del progetto, bloccando le uscite tramite `..` o collegamenti simbolici.
+- Dall'interfaccia sono raggiungibili solo i comandi dichiarati nei permessi dell'applicazione; su Windows Studio registra la propria identità per le notifiche di sistema.
+## [1.1.0] - 2026-08-24
+
+### Added
+
+- La chat GUI mostra uno stato iniziale utile e una palette slash completa di
+  firma, alias, descrizione e sottocomandi.
+- I pannelli FILE, GIT, quote e anteprima mostrano gli errori reali e consentono
+  di riprovare, invece di restare vuoti o su «Caricamento».
+- Gli aggiornamenti possono seguire il canale stabile oppure Nightly, che riceve
+  automaticamente le build più recenti senza esporle agli utenti stabili.
+
+### Changed
+
+- Le risposte, il ragionamento e i risultati degli strumenti si aggiornano
+  progressivamente in Markdown mantenendo la vista agganciata in fondo.
+- Le card degli strumenti mostrano già durante l'esecuzione percorsi, opzioni,
+  task e dati strutturati; gli errori hanno uno stato visivo distinto.
+- Dialoghi, menu e scorciatoie rispettano il fuoco attivo, si chiudono con
+  `Esc` e usano i livelli e i colori semantici dell'interfaccia.
+
+### Fixed
+
+- La superficie GUI non si congela più appena omp pubblica l'identificativo
+  della sessione: invio, transcript e menu restano reattivi.
+- I messaggi dell'assistente, i delta di streaming e i risultati dei tool
+  compaiono nel transcript invece di restare invisibili o perennemente attivi.
+- I comandi slash vengono eseguiti una volta sola con `Invio`; quelli non
+  disponibili nella GUI indirizzano esplicitamente alla scheda TERMINAL.
+- `Invio` nel composer non approva più accidentalmente una chiamata a uno
+  strumento mentre è visibile una richiesta di conferma.
+- Il passaggio tra GUI e TERMINAL conserva la stessa sessione in entrambi i
+  versi e la chiusura di un progetto termina il relativo processo omp.
+- Le sessioni lunghe non perdono richieste RPC valide per risposte senza
+  identificativo e i comandi shell dispongono del timeout esteso.
+## [1.0.1] - 2026-08-24
+
+### Fixed
+
+- La scheda GUI resta utilizzabile quando la sessione da riprendere non esiste
+  più: apre automaticamente una nuova chat invece di lasciare `omp` terminato.
+## [1.0.0] - 2026-08-24
+
+### Added
+
+- Seconda superficie nativa per l'agente: la colonna destra diventa a schede
+  `TERMINAL | GUI`, con handoff esplicito e conservazione della stessa sessione
+  tramite `--resume`.
+- Client nativo Svelte 5 che pilota `omp --mode rpc-ui` su stdio NDJSON con
+  trasporto Rust a coalescenza di delta e riassemblaggio di chunk protocollo v2.
+- Transcript nativo con rendering markdown, blocchi di ragionamento collassabili,
+  30 card dedicate per i tool di sistema, gestione subagent e visualizzazione todo.
+- Gate di approvazione strutturato con policy configurabile (`ask-writes`,
+  `ask-all`, `yolo`) nel pannello impostazioni, salvata in locale senza toccare `~/.omp`.
+- Intercettazione intelligente dei comandi slash e gestione della coda di prompt
+  con interruttore steer/follow-up.
+## [0.9.0] - 2026-08-24
+
+### Added
+
+- Ogni progetto dispone di una coda ordinabile di prompt: un task avvia una
+  sessione pulita, passa automaticamente allo storico e mantiene il badge `TASK`.
+- Le sessioni storiche si riprendono con un click nello stesso terminale, senza
+  riavviare il processo `omp`.
+
+### Fixed
+
+- Gli aggiornamenti di Studio non propongono più installer destinati a un altro
+  sistema operativo quando nella release manca il pacchetto compatibile.
+- Ogni nuova release viene pubblicata solo dopo aver generato sia l'installer
+  Windows x64 sia il DMG universale per Mac Intel e Apple Silicon.
+## [0.8.1] - 2026-08-21
+
+### Changed
+
+- Il terminale su macOS tratta Option come Meta: le scorciatoie Alt di `omp`
+  (es. Option+P per il selettore modelli) funzionano invece di inserire i
+  caratteri speciali della mappatura italiana.
+
+### Fixed
+
+- Il terminale su macOS mostra di nuovo le icone Nerd Font: Studio include ora
+  il proprio font monospazio con glifi Nerd e non dipende più dal font matching
+  di sistema di WebKit, che su macOS 27 disegna i glifi privati come quadretti.
+## [0.8.0] - 2026-08-21
+
+### Added
+
+- Nuovo tool `studio_preview` per l'agente: permette a `omp` di creare prototipi di
+  componenti UI (React, Tailwind CSS, Lucide) e aprirli istantaneamente nella
+  sandbox interattiva al centro dell'app durante il vibecoding.
+- Salvataggio automatico dei prototipi generati nella cartella `proto/` del progetto,
+  con aggiunta automatica a `.gitignore` per evitare di sporcare il working tree.
+- Supporto per rendering e compilazione a caldo di componenti TSX/JSX, visualizzatore
+  del codice sorgente con pulsante di copia rapida e switch del viewport (Desktop, Tablet, Mobile).
+## [0.7.1] - 2026-08-21
+
+### Fixed
+
+- Il tool `studio_diagram` per la whiteboard dei diagrammi è ora caricato
+  automaticamente in ogni sessione `omp` avviata da Studio: non serve più
+  passare l'estensione a mano con `-e`.
+## [0.7.0] - 2026-08-21
+
+### Added
+
+- Nuovo pannello GIT nella colonna sinistra: mostra il branch corrente, i file con
+  modifiche non committate (con righe aggiunte/rimosse), l'ultimo commit dell'agente
+  e lo storico recente. Un click su un file apre il confronto affiancato nell'editor,
+  anche per le modifiche già committate — non serve più cercare a mano cosa ha
+  toccato l'agente quando il suo lavoro finisce con un commit.
+- Cambio branch e creazione di un nuovo branch direttamente dal pannello GIT,
+  con blocco automatico quando ci sono modifiche non committate.
+- Le sessioni recenti dell'agente compaiono nella timeline del pannello GIT:
+  un click le riprende nel terminale del progetto con `--resume`.
+- Whiteboard dei diagrammi: l'agente può usare il tool `studio_diagram` per
+  disegnare un diagramma Mermaid che compare renderizzato e ingrandibile
+  nella colonna centrale, al posto dell'ASCII art nel terminale.
+- Anteprima live in sandbox per i file HTML: il pulsante "Anteprima"
+  nell'editor apre il prototipo interattivo (desktop/tablet/mobile) senza
+  uscire dall'app, isolato dal resto del sistema.
+## [0.6.5] - 2026-08-20
+
+### Changed
+
+- Riprogettata la logica di raccomandazione dei modelli per i ruoli operativi: priorità assoluta ai modelli Tier 1/Top ELO dagli account in abbonamento (OAuth flat) per i ruoli principali e riserve cross-provider con safety-net gratuita (Zero-Cost).
+- Integrazione delle metriche di velocità reali (token/sec misurati da `agent.db`) per la selezione ottimale dei ruoli veloci (`smol`, `commit`).
+- Protezione totale dai costi imprevisti: esclusione automatica di modelli a consumo pay-per-token non inclusi negli abbonamenti dell'utente.
+- Arricchiti i chip di suggerimento e i tooltip con badge informativi su Coding ELO stimato, velocità effettiva misurata (tok/s), provider in abbonamento e riserva a costo zero.
+- Introdotto un motore di fallback deterministico basato sulla matrice ELO che garantisce raccomandazioni istantanee e resilienti anche in caso di latenza o disservizio temporaneo del motore AI.
+## [0.6.4] - 2026-08-20
+
+### Added
+
+- Raccomandazione intelligente dei modelli per i ruoli operativi OMP basata su analisi AI one-shot in background: selezione contestuale dei migliori modelli primari e riserve di fallback cross-provider per garantire resilienza a rate-limit (429) e disservizi.
+- Cache reattiva per le raccomandazioni AI con pre-filtraggio anti-obsolescenza e pulsante per forzare la rianalisi su richiesta.
+## [0.6.3] - 2026-08-20
+
+### Changed
+
+- Riprogettata la gestione dei ruoli operativi OMP nel modale modelli con layout Master-Detail a due colonne e cassetto laterale dedicato al Ciclo Rapido (Ctrl+P).
+- Introdotti suggerimenti intelligenti a 1-click basati sul catalogo reale per i modelli primari e le riserve di ciascun ruolo.
+- Sostituito il menu a tendina del reasoning con il nuovo componente ReasoningSlider interattivo a gradini, con snapping, supporto da tastiera e indicazione visiva del budget token.
+- Gestione riordinabile e potenziata delle catene di fallback con badge di provider, metriche di contesto/funzionalità e avvisi di ridondanza.
+## [0.6.2] - 2026-08-20
+
+### Changed
+
+- Passaggio dall'installer Windows standard .msi al setup NSIS (.exe) leggero con modalità per-utente (`currentUser`), eliminando le richieste di permessi amministratore (UAC) e velocizzando l'installazione iniziale.
+- Aggiornamento in-app completamente silenzioso: l'applicazione esegue il setup in background con riavvio automatico senza aprire procedure guidate esterne.
+- Riprogettazione completa dell'interfaccia di gestione modelli e ruoli: rimossi tutti gli emoji decorativi e colori semantici non conformi in favore di badge tipografici monocolore, token di sistema e icone SVG pulite.
+- Unificato il modello di persistenza nella gestione modelli: aggiunta la gestione a bozza per i provider personalizzati e protezione contro la perdita accidentale di modifiche non salvate alla chiusura del modale.
+- Accessibilità e navigazione da tastiera nel selettore modelli e nei modali di sistema: aggiunta semantica WAI-ARIA (`role="dialog"`, `role="tablist"`, `role="listbox"`), supporto ai tasti freccia nel menu a discesa dei modelli e chiusura con `Esc`.
+- Estesa l'assegnazione rapida dei fallback nel catalogo a tutti gli 8 ruoli operativi di OMP.
+## [0.6.1] - 2026-08-19
+
+### Added
+
+- Aggiunto il pulsante "Ricontrolla" nell'intestazione e nel piè di pagina del modale di aggiornamento di OMP Studio, per consentire di verificare in qualsiasi momento la presenza di versioni ancora più recenti su GitHub bypassando la cache HTTP.
+## [0.6.0] - 2026-08-19
+
+### Added
+
+- Gestione completa di provider, modelli e ruoli OMP integrata nella GUI: modale dedicato accessibile dalla barra superiore o con scorciatoia `Ctrl+Alt+M` (`Ctrl+Alt+,`).
+- Assegnazione visiva dei modelli ai ruoli operativi OMP (`default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit`, `advisor`), livello di reasoning/thinking e ordinamento della sequenza di ciclo rapido (`Ctrl+P`).
+- Gestione semplificata delle catene di fallback per ciascun ruolo con aggiunta rapida, eliminazione e riordinamento della priorità dei modelli di riserva.
+- Rilevamento automatico e intelligente di nuove versioni dei modelli: pulsante dedicato per verificare la disponibilità di aggiornamenti (es. `opus-5` → `opus-5.1`, `gemini-3.6` → `gemini-3.7`) con finestra di riepilogo comparativa e applicazione in blocco a tutti i ruoli confermati.
+- Esploratore del catalogo modelli OMP con ricerca full-text, filtri per provider e capacità (Vision, Reasoning), specifiche tecniche e azione rapida di assegnazione ai ruoli.
+- Gestione dei provider supportati (attivazione/disattivazione e stato credenziali autenticate) e configurazione visiva di provider ed endpoint custom (OpenAI-compatibili, Ollama locali, proxy) in `models.json`.
+- Pulsante per il riavvio immediato delle sessioni OMP nei terminali dei progetti aperti per applicare all'istante le modifiche alla configurazione dei modelli.
+- Rilevamento dei provider e modelli utilizzati dai subagenti e dai fallback di `omp` nel popover dei consumi, mostrando il progetto in uso sotto ciascun fornitore attivo.
+## [0.5.1] - 2026-08-19
+
+### Added
+
+- Evidenziazione della sintassi per i file SQL e formati di configurazione/script (.sql, .xml, .config, .csproj, .vbproj, .props, .targets, .resx, .py, .yaml, .toml, .ini, .sh, .ps1, .bat) nell'editor Monaco.
+- Riconoscimento automatico e clic diretto sui percorsi di file e nomi menzionati nel terminale (es. "agents.md", percorsi relativi/assoluti, diff Git, tag snapshot `[file#tag:riga]` e numeri di riga `:riga:col`) per aprirli direttamente nell'editor.
+
+### Fixed
+
+- Apertura corretta dei link web cliccati nel terminale nel browser di sistema predefinito tramite il plugin opener.
+## [0.5.0] - 2026-08-19
+
+### Added
+
+- Mostra il conto alla rovescia al reset per ciascun limite nel popover dei consumi (es. "· tra 1h 25m"), con data e ora esatta nel tooltip.
+
+### Changed
+
+- Nel popover dei consumi l'indicazione dei progetti in uso è mostrata una sola volta sotto l'intestazione del provider anziché sotto ogni singola barra di limite.
+
+### Fixed
+
+- Nella barra superiore il pallino di stato delle tessere di progetto (completato o attenzione richiesta) non viene più tagliato dal bordo arrotondato.
+- Nel popover dei consumi l'animazione di aggiornamento ruota esclusivamente l'icona interna senza ruotare l'intero pulsante.
+## [0.4.0] - 2026-08-17
+
+### Added
+
+- Controllo e installazione degli aggiornamenti di OMP Studio direttamente in app dalla barra inferiore, con verifica da GitHub Releases, download tracciato in percentuale e velocità, visualizzazione note di rilascio e riavvio per l'installazione.
+
+### Changed
+
+- Nell'editor le righe lunghe non vanno più a capo: scorrono in orizzontale mantenendo visibili i numeri di riga.
+- Nel pannello consumi l'indicazione dei progetti che usano un provider mostra solo i nomi dei progetti.
+
+## [0.3.1] - 2026-08-13
+
+### Added
+
+- Supporto completo cross-platform per macOS (Apple Silicon e Intel): shell PTY nativa ($SHELL zsh/bash), risoluzione automatica del binario `omp`, scorciatoie da tastiera con `Cmd` (⌘) e gestione percorsi POSIX.
+- Iniezione automatica dei percorsi binari utente (`~/.bun/bin`, `~/.cargo/bin`, `/opt/homebrew/bin`, ecc.) nella variabile `$PATH` per le sessioni PTY su macOS.
+
+### Fixed
+
+- Corretto errore di compilazione `libsqlite3-sys` con versioni recenti del compilatore Rust.
+- Risolto limite di memoria V8 durante la build frontend di Monaco Editor.
+## [0.3.0] - 2026-08-03
+
+### Added
+
+- Apri più file nello stesso progetto come schede dell'editor, con diff e chiusura su ogni scheda; `Ctrl+W` e `Ctrl+F4` chiudono il file attivo.
+- Rinomina un progetto e imposta una sigla personale di più caratteri dal suo riquadro.
+
+### Changed
+
+- Il selettore temi separa chiari e scuri in due tab, riapre sull'ultima tab usata e mostra il nome del tema applicato accanto al colore.
+- I colori automatici dei progetti seguono ora la palette e la luminanza del tema attivo; le scelte manuali restano invariate.
+- Il percorso nel riquadro di un progetto viene ellissato senza uscire dal bordo.
+## [0.2.1] - 2026-08-03
+
+### Added
+
+- Aggiunge i 48 temi chiari builtin di `omp` e li separa dai 52 temi scuri nello
+  switcher; la scelta aggiorna insieme guscio, editor, terminale e sessioni `omp`.
+
+### Changed
+
+- All'avvio riconosce anche `theme.light` quando `theme.dark` non è impostato.
+
+## [0.2.0] - 2026-08-03
+
+### Added
+
+- Il pannello consumi si apre e si chiude con `Ctrl+Alt+U`, senza staccare le mani
+  dalla tastiera. La scorciatoia è indicata anche nel suggerimento del pulsante.
+- Sotto ogni barra del pannello consumi c'è ora scritto chi sta usando quella quota
+  in questo momento — per esempio "In uso da: OMP Studio · AreaIT, Windows Terminal ·
+  GestioneFlotta" — così si sa subito se il conto lo sta facendo salire un'altra
+  finestra. Se nessuno la sta usando non compare niente.
+- Selettore di tema nella barra superiore: 52 temi scuri di `omp`, con filtro.
+  Cambia insieme i colori di Studio e quelli della TUI, che d'ora in poi partono
+  dallo stesso tema. All'avvio Studio adotta da solo il tema già scelto in `omp`.
+- `Ctrl+click` su un percorso di file stampato dall'agente lo apre nell'editor, alla
+  riga indicata. I percorsi fuori dalla cartella del progetto vengono ignorati.
+
+### Changed
+
+- Interfaccia più silenziosa: gli stati dell'agente non usano più aloni luminosi
+  colorati né verde e blu. Restano un anello e un punto in due soli colori —
+  cremisi quando lavora o ha finito, ambra quando aspetta una risposta.
+- La barra superiore non si ingrandisce più al passaggio del mouse: schede, logo e
+  spaziature restano fermi. È ora alta 48px, con schede e logo proporzionati.
+- Un solo progetto colorato per volta: la scheda attiva è piena nel colore del
+  progetto, le altre sono neutre con la sola iniziale tinta. Prima ogni progetto
+  aperto era un blocco saturo.
+- Una sola animazione continua in tutta l'app, al posto di sette: il respiro della
+  scheda "al lavoro", ridisegnato per non tenere occupata la scheda video a riposo.
+- Nel riquadro della scheda il percorso viene troncato al centro invece di scorrere
+  avanti e indietro: la coda del percorso è la parte che serve.
+- Colori e raggi dell'interfaccia derivano ora da poche costanti, quindi stati come
+  "riga sotto il mouse" o "riga selezionata" si comportano allo stesso modo in ogni
+  pannello, anche sopra il terminale e dentro i popover.
+- Le colonne si separano per differenza di sfondo invece che per linee: spariti i
+  divisori verticali e i bordi sotto le intestazioni. Le righe dell'albero
+  svaniscono passando sotto l'intestazione, e il divisore trascinabile compare in
+  cremisi solo quando ci passi sopra.
+
+### Removed
+
+- Sfocatura di sfondo dietro le finestre di dialogo: costava un ridisegno continuo
+  del terminale sottostante senza aggiungere informazione.
+## [0.1.0] - 2026-07-30
+
+### Added
+
+- Prima versione pubblica: guscio desktop multi-progetto per l'agente `omp`, con
+  terminale integrato, albero dei file, editor e pannello consumi in una sola finestra.
+- Barra dei progetti in alto: ogni progetto è una scheda con il proprio terminale
+  sempre vivo, ordinamento automatico per ultimo uso e colore personalizzabile
+  (palette di otto tonalità o selettore libero).
+- Stato dell'agente leggibile a colpo d'occhio sulla scheda e nella barra inferiore:
+  inattivo, al lavoro, in attesa di una risposta, lavoro concluso.
+- Selettore di progetti dal pulsante `+` o con `Ctrl+Alt+N`: elenca le cartelle nella
+  radice dei repository segnalando quelle già aperte, e permette di sfogliarne altre.
+- Albero dei file con icone per tipo, indicatori di stato Git (modificato, aggiunto,
+  non tracciato, rimosso, rinominato) e aggiornamento automatico quando l'agente
+  tocca un file.
+- Editor Monaco con confronto affiancato rispetto alla versione in Git, marcatori nel
+  margine per le righe cambiate, indicatore di modifiche non salvate e salvataggio
+  con `Ctrl+S`. Ogni progetto ricorda il file che aveva aperto.
+- Anteprima dal vivo per Markdown e SVG accanto all'editor, con divisorio trascinabile,
+  e visualizzatore dedicato per le immagini con zoom, spostamento e ripristino 1:1.
+- Elenco e ricerca full-text delle sessioni dell'agente, per riprendere un lavoro
+  interrotto senza cercarlo a mano.
+- Pannello consumi con quota residua per fornitore, aggiornamento manuale, indicazione
+  dell'ultimo aggiornamento e animazioni di riempimento delle barre.
+- Controllo e installazione degli aggiornamenti di `omp` dalla barra inferiore, con
+  conferma, log e proposta di riavvio.
+- Controlli finestra nativi integrati nella barra superiore e ripristino di posizione
+  e dimensione all'avvio.

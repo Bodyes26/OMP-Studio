@@ -491,20 +491,12 @@ export class AgentSession {
 			inferredQuestion: this.inferredAttention?.question ?? null
 		};
 	}
-	constructor(cwdOrConfig: string | AgentSessionConfig) {
-		if (typeof cwdOrConfig === 'string') {
-			this.cwd = cwdOrConfig;
-			this.scope = 'main';
-			this.prototypeId = null;
-			this.projectKey = cwdOrConfig;
-			this.observedRevisionId = null;
-		} else {
-			this.cwd = cwdOrConfig.cwd;
-			this.scope = cwdOrConfig.scope ?? 'main';
-			this.prototypeId = cwdOrConfig.prototypeId ?? null;
-			this.projectKey = cwdOrConfig.projectKey ?? cwdOrConfig.cwd;
-			this.observedRevisionId = cwdOrConfig.observedRevisionId ?? null;
-		}
+	constructor(config: AgentSessionConfig) {
+		this.cwd = config.cwd;
+		this.scope = config.scope ?? 'main';
+		this.prototypeId = config.prototypeId ?? null;
+		this.projectKey = config.projectKey ?? config.cwd;
+		this.observedRevisionId = config.observedRevisionId ?? null;
 		this.unsubscribeEvent = this.client.onEvent((event) => this.reduce(event));
 	}
 
@@ -2537,12 +2529,19 @@ export class AgentSession {
 		};
 	}
 
+	/** Revoca eventuali prompt di avvio accodati in attesa dell'aggancio. */
+	clearPendingStartupPrompts() {
+		this.pendingStartupPrompts = [];
+		this.dropOptimisticUser();
+	}
+
 	/**
 	 * Rimuove il prompt seminato e ripristina lo stato se il lancio del task fallisce.
 	 */
 	clearSeed() {
 		this.seededPrompt = null;
 		this.startupPhase = 'idle';
+		this.clearPendingStartupPrompts();
 	}
 
 	async prompt(
@@ -2642,6 +2641,8 @@ export class AgentSession {
 				const idx = this.entries.findIndex((e) => e.id === pending.optimisticUser.id);
 				if (idx !== -1) this.entries.splice(idx, 1);
 				this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
+				this.onStartupPromptsDropped?.();
+				break;
 			}
 		}
 	}
@@ -2685,10 +2686,13 @@ export class AgentSession {
 				});
 			}
 			await this.refreshState();
+			const delivery = await this.prompt('/retry');
+			if (delivery !== 'sent' && delivery !== 'deferred') {
+				return false;
+			}
 			if (this.blockedQuotaState) {
 				this.blockedQuotaState.dismissed = true;
 			}
-			await this.prompt('/retry');
 			return true;
 		} catch (err) {
 			this.pushNotice('error', messages.ui_ts_session_errore_durante_il_cambio_modello_e_ripresa_1694({ value1: this.reason(err) }));

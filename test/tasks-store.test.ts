@@ -526,6 +526,35 @@ describe('Idratazione delle code di progetto', () => {
 		assert.equal(letture, 2);
 	});
 
+	it('forget durante una lettura in volo invalida il risultato e forza una nuova lettura', async () => {
+		const hydration = new QueueHydration();
+		const lettura1 = Promise.withResolvers<void>();
+		let letture = 0;
+		let valoreLetto = 0;
+
+		const p1 = hydration.ensure('c:/progetto', async () => {
+			letture++;
+			await lettura1.promise;
+			valoreLetto = 1;
+		});
+
+		// Mentre la prima lettura e' ancora sospesa, arriva forget() e una seconda ensure()
+		hydration.forget('c:/progetto');
+		const p2 = hydration.ensure('c:/progetto', async () => {
+			letture++;
+			valoreLetto = 2;
+		});
+
+		// Sblocchiamo la prima lettura
+		lettura1.resolve();
+		await Promise.all([p1, p2]);
+
+		// Entrambe le letture sono state gestite e il valore finale e' quello della seconda lettura
+		assert.equal(letture, 2);
+		assert.equal(valoreLetto, 2);
+		assert.equal(hydration.isHydrated('c:/progetto'), true);
+	});
+
 	it('non cancella una coda idratata mentre termina la lettura dello store globale', () => {
 		const hydrated: StudioTask = {
 			id: 'hydrated',

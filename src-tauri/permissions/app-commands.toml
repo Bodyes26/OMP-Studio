@@ -27,8 +27,7 @@ commands.allow = [
     "rpc_close",
     "rpc_stderr",
     "rpc_protocol",
-    "rpc_abort",
-    "rpc_list_sessions"
+    "rpc_abort"
 ]
 
 [[permission]]

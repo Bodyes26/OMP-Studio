@@ -58,9 +58,23 @@
 	let isFileDialogOpen = false;
 	let attachmentError = $state<string | null>(null);
 	let bodyEl = $state<HTMLElement | null>(null);
+	let autoHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function cancelAutoHide() {
+		if (autoHideTimer) {
+			clearTimeout(autoHideTimer);
+			autoHideTimer = null;
+		}
+	}
 
 	let unlistenSummon: UnlistenFn | null = null;
 	let viewDisposed = false;
+
+	$effect(() => {
+		return () => {
+			cancelAutoHide();
+		};
+	});
 
 	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 	const attentionList = $derived(companionStore.attentionRequests);
@@ -398,6 +412,7 @@
 	}
 
 	function handleInput() {
+		cancelAutoHide();
 		caret = inputEl?.selectionStart ?? taskInput.length;
 		mentionIndex = 0;
 		aiParsed = null;
@@ -486,6 +501,7 @@
 	}
 
 	async function handleSaveTask() {
+		cancelAutoHide();
 		const text = taskInput.trim();
 		if ((!text && attachedImages.length === 0) || isBusy) return;
 		if (!text && local.needsAi) {
@@ -533,9 +549,11 @@
 				attachedImages = [];
 				caret = 0;
 				aiParsed = null;
-				setTimeout(() => {
+				cancelAutoHide();
+				autoHideTimer = setTimeout(() => {
+					autoHideTimer = null;
 					successNotice = null;
-					if (!companionStore.isPinned) {
+					if (!companionStore.isPinned && taskInput.trim().length === 0) {
 						void companionStore.hideCompanion();
 					}
 				}, 1200);
@@ -564,7 +582,8 @@
 	}
 
 	async function handleQuickReplyText(projectId: string) {
-		const value = (replyDrafts[projectId] ?? '').trim();
+		const request = companionStore.attentionRequests.find((req) => req.projectId === projectId);
+		const value = (replyDrafts[projectId] ?? request?.pendingUi.prefill ?? '').trim();
 		if (!value) return;
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];

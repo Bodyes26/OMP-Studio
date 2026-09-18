@@ -475,6 +475,10 @@
 		// Finestra nascosta: non si trasmette nulla e i digest si azzerano, cosi'
 		// alla riapertura il primo giro pubblica lo stato completo.
 		if (!companionVisible) {
+			if (runtimeBroadcastTimer) {
+				clearTimeout(runtimeBroadcastTimer);
+				runtimeBroadcastTimer = null;
+			}
 			runtimeStructuralDigest = '';
 			runtimeActivityDigest = '';
 			return;
@@ -496,6 +500,13 @@
 			companionStore.publishProjectRuntimes(runtimes);
 			companionStore.broadcastState();
 		}, structuralChanged ? 250 : 1000);
+
+		return () => {
+			if (runtimeBroadcastTimer) {
+				clearTimeout(runtimeBroadcastTimer);
+				runtimeBroadcastTimer = null;
+			}
+		};
 	});
 
 

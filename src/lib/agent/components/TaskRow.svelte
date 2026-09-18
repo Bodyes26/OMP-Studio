@@ -211,7 +211,9 @@
 									<span class="mini-running-dot"></span>
 								{:else if item.status === 'blocked'}
 									<IconWarning size={12} />
-								{:else if item.status === 'abandoned'}
+								{:else if item.status === 'abandoned' || item.status === 'aborted'}
+									<IconClose size={12} />
+								{:else if item.status === 'failed'}
 									<IconClose size={12} />
 								{:else}
 									<span class="mini-pending-dot"></span>
@@ -609,9 +611,14 @@
 		color: var(--warn);
 	}
 
-	.task-item.status-abandoned {
+	.task-item.status-abandoned,
+	.task-item.status-aborted {
 		color: var(--ink-faint);
 		text-decoration: line-through;
+	}
+
+	.task-item.status-failed {
+		color: var(--danger, #ef4444);
 	}
 
 	.item-glyph {
@@ -635,8 +642,13 @@
 		color: var(--warn);
 	}
 
-	.task-item.status-abandoned .item-glyph {
+	.task-item.status-abandoned .item-glyph,
+	.task-item.status-aborted .item-glyph {
 		color: var(--ink-faint);
+	}
+
+	.task-item.status-failed .item-glyph {
+		color: var(--danger, #ef4444);
 	}
 
 	.mini-running-dot {

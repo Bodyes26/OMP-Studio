@@ -5,8 +5,7 @@ mod pty;
 use pty::{pty_close, pty_open, pty_resize, pty_session_info, pty_write, PtyManager};
 mod rpc;
 use rpc::{
-    rpc_abort, rpc_close, rpc_list_sessions, rpc_open, rpc_open_lab, rpc_protocol, rpc_send,
-    rpc_stderr, RpcManager,
+    rpc_abort, rpc_close, rpc_open, rpc_open_lab, rpc_protocol, rpc_send, rpc_stderr, RpcManager,
 };
 mod projects;
 use projects::{
@@ -128,7 +127,6 @@ pub fn run() {
             rpc_stderr,
             rpc_protocol,
             rpc_abort,
-            rpc_list_sessions,
             browser_live_connect,
             browser_live_send_message,
             browser_live_disconnect,

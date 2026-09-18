@@ -50,22 +50,16 @@ pub struct RpcSession {
     protocol: Arc<AtomicU8>,
     abort_signal: Arc<AtomicBool>,
     config_path: Option<std::path::PathBuf>,
+    #[allow(dead_code)]
     pub cwd: String,
+    #[allow(dead_code)]
     pub scope: String,
+    #[allow(dead_code)]
     pub prototype_id: Option<String>,
+    #[allow(dead_code)]
     pub project_key: Option<String>,
+    #[allow(dead_code)]
     pub session_id: Arc<Mutex<Option<String>>>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RpcSessionInfo {
-    pub rpc_id: u64,
-    pub cwd: String,
-    pub scope: String,
-    pub prototype_id: Option<String>,
-    pub project_key: Option<String>,
-    pub session_id: Option<String>,
-    pub protocol: u8,
 }
 
 pub struct RpcManager {
@@ -899,13 +893,38 @@ pub async fn rpc_open_lab(
         }
     }
 
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Avvio di omp per sessione Laboratorio: {}", error))?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = std::fs::remove_file(&lab_config_path);
+            return Err(format!("Avvio di omp per sessione Laboratorio: {}", error));
+        }
+    };
 
-    let stdin = child.stdin.take().ok_or("stdin di omp non disponibile")?;
-    let stdout = child.stdout.take().ok_or("stdout di omp non disponibile")?;
-    let stderr = child.stderr.take().ok_or("stderr di omp non disponibile")?;
+    let stdin = match child.stdin.take() {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::remove_file(&lab_config_path);
+            let _ = child.kill();
+            return Err("stdin di omp non disponibile".to_string());
+        }
+    };
+    let stdout = match child.stdout.take() {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::remove_file(&lab_config_path);
+            let _ = child.kill();
+            return Err("stdout di omp non disponibile".to_string());
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::remove_file(&lab_config_path);
+            let _ = child.kill();
+            return Err("stderr di omp non disponibile".to_string());
+        }
+    };
 
     let stdin = Arc::new(Mutex::new(Some(stdin)));
     let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
@@ -1048,26 +1067,6 @@ pub async fn rpc_abort(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
         .map_err(|error| format!("Invio abort sulla sessione RPC {}: {}", rpc_id, error))
 }
 
-/// Restituisce l'elenco delle sessioni RPC attive con metadati e correlazione per sessione.
-#[tauri::command]
-pub async fn rpc_list_sessions(
-    manager: State<'_, RpcManager>,
-) -> Result<Vec<RpcSessionInfo>, String> {
-    let sessions = manager.sessions.lock();
-    let list: Vec<RpcSessionInfo> = sessions
-        .iter()
-        .map(|(&id, s)| RpcSessionInfo {
-            rpc_id: id,
-            cwd: s.cwd.clone(),
-            scope: s.scope.clone(),
-            prototype_id: s.prototype_id.clone(),
-            project_key: s.project_key.clone(),
-            session_id: s.session_id.lock().clone(),
-            protocol: s.protocol.load(Ordering::Relaxed),
-        })
-        .collect();
-    Ok(list)
-}
 
 /// Ultime righe di stderr di una sessione **viva**: serve quando il processo
 /// e' appeso e non morto. Alla morte le stesse righe arrivano dentro

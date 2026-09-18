@@ -1,13 +1,13 @@
 # Changelog
 
-*Italiano: [CHANGELOG.md](CHANGELOG.md) · English: this file*
+*English: this file · Italiano: [CHANGELOG.md](CHANGELOG.md)*
 
 All notable changes to omp-studio-app.
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+versioning adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The `[Unreleased]` section tracks completed work not yet released:
-it is closed into a version with `npm run release -- <version>`.
+The `[Unreleased]` section is the staging area for completed work not yet
+released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
@@ -15,7 +15,6 @@ it is closed into a version with `npm run release -- <version>`.
 - Icon quality and registry audit tool: new `npm run check:icons` audit script (`scripts/check-icons.mjs`) to inventory all icons in the `$lib/icons` registry, ensure proper Lucide resolution, enforce the architectural ban on direct imports, and detect unmigrated raw inline SVGs; interactive inspection modal in "Settings → Appearance" featuring multi-scale previews (14px, 16px, 20px, 24px), contrast verification, quick import copying, and migration tracking.
 - Fluid task dispatch from the queue: clicking Run immediately collapses the task row from the queue and smoothly reveals the prompt as the first chat message (progressive blur, fade, and real-height expansion via `chatReveal`), masking the technical latency of `omp` process spawning, RPC handshake, and session initialization; if startup takes longer than 400ms a subtle "Launching new session..." activity indicator appears with shimmer effect, and if startup fails or the process exits the prompt retracts symmetrically while the task snaps back to the top of the queue with a visual flash.
 - Keyboard shortcut Ctrl+Tab (and Ctrl+Shift+Tab) to quickly switch to the next or previous open project, with cyclic navigation following the project bar order and seamless support from both chat and integrated terminal.
-
 - Unified task progress display for TODO phases and subagents: work stages and background processes are presented in compact rows with clear and consistent status indicators (green checkmark for completed, red cross for failed, amber warning for blocked, neutral grey for abandoned or aborted), a smooth loading ring for active tasks, and technical details expandable on demand with a click, avoiding intrusive auto-expansion and fully honoring reduced-motion settings.
 - When you name a piece of interface text — "label Dati dell'immobile da ridurre di dimensione", "shrink the Totale contributo text", a badge quoted with quotes or backticks — Studio searches the project for that text itself before sending the message and attaches the exact file and line to the agent, with two lines of context. The agent starts from the right place: one targeted read, one edit, one verification, with no random file browsing. The search is local and time-boxed (it stops within a quarter of a second), uses `git grep` where available, skips folders such as `bin`, `obj`, `node_modules`, and `.git`, ignores binary files, and never leaves the project folder; when it finds nothing or fails, the message is sent exactly as before. Alongside the text, a compact list of the project's changed files is attached too (names and status only, no diffs and no file contents), omitted when nothing has changed.
 - Bilingual Italian/English interface with a selector in "Settings → General": the language follows the operating system by default and can be pinned to Italian or English. Switching is immediate and never reloads the window, so agent sessions, terminals, and live previews stay alive while the text rewrites itself. Dates, times, numbers, and amounts follow the user's region, and the user documentation (README, shortcuts, changelog) is available in both languages.
@@ -42,7 +41,6 @@ it is closed into a version with `npm run release -- <version>`.
 - The agent's waiting state has a new indicator: a nine-dot grid whose lights sweep from left to right, a "Thinking" label crossed by a moving highlight, and — after the first second and a half — the elapsed time in fixed-width figures (`0.3s`, `12.4s`, `2m 5s`). The stopwatch measures the whole turn, so it does not restart every time the agent switches between thinking, writing, and running tools. The same grid replaces the status dot in tool group headers, where it stays permanently visible and changes color instead of appearing and disappearing: grey once the work is done, red on failure. When a tool is running and the model declared no intent, the header now names the tool in use instead of showing a bare number. With animations turned off, or with the system's reduced-motion setting, the grid stays still and legible while the stopwatch keeps running.
 - Agent sessions started from Studio read files in larger chunks (1200 lines instead of the default) and receive a permanent economy directive: batch already-identified independent searches into a single response, search for the literal text before opening files, read only the useful files and ranges, handle single-file work directly, delegate only when there are at least two genuinely independent workstreams (dispatched together, with no idle waiting), and run a single targeted verification at the end. The result is fewer wasted round trips before the first edit. This applies only to processes started by Studio: your personal configuration in `~/.omp` is left untouched, and sessions already open pick up the new values when reopened.
 - Faster, steadier Studio and terminal-tab startup: removed a blocking PowerShell process from Windows notification setup, replaced the terminal's PowerShell wrapper with `cmd.exe`, parallelized the initial project read, and reused the resolved theme and preferences before the first frame, preventing both the false "no project" screen and the visible quota switch from the old ring to the configured bar.
-
 - Companion redesigned with dedicated subcomponents: more readable agent questions, composer tokens aligned to the neutral design system; Spotlight blur-to-close is off by default (Esc only, configurable).
 - Smooth animation for opening and closing the sidebar: sidebar appearance and dismissal triggered by the Pi icon in the top left (and the `Ctrl+Alt+B` shortcut) is now animated with a smooth grid layout transition, fade, and content slide without stutter or reflow recalculations, featuring tactile feedback when pressing the icon and automatic respect for reduced motion preferences.
 - Inline token rendering and removal of duplicate text in Companion: recognized tokens (`@project`, `/directive`, `!role`, or `!model`) are rendered directly as colored semantic pills (blue for projects, green for directives, purple for roles and models) inside the writing area, maintaining perfect cursor alignment and smooth text editing; eliminates duplicate prompt and tag displays beneath the field, reserving the bottom area solely for genuine warnings or ambiguities.
@@ -52,6 +50,7 @@ it is closed into a version with `npm run release -- <version>`.
 - Agent system messages are no longer walls of text with raw XML. Background subagent results become a compact row displaying status, role, duration, response size, and summary, with a click opening the full transcript in the drawer; messages exchanged between agents display sender, formatted body, and what they reply to, omitting service text intended for the model; reminders and internal instructions that `omp` writes for the agent rather than the user remain hidden, and the new "Show agent internal messages" toggle under Settings → General displays them as compact rows when needed to understand what guides the agent. Three or more consecutive system notices collapse into a single expandable row. Unresolved todo reminders are no longer printed in chat; the todo strip instead shows a reminder counter (`1/3`), turning amber on the final attempt when the agent stalls. The same treatment applies inside the subagent transcript drawer.
 
 ### Fixed
+- Quick reply with prefilled text in the Companion window properly submits the answer without requiring manual edits, preventing the agent from remaining suspended awaiting input.
 - Conversation context in Companion questions is no longer raw text: bold, lists, headings, quotes, and code blocks are rendered as in the chat, and the box opens on the **end** of the message instead of its beginning. What you need in order to answer is the conclusion, not the preamble; scrolling back up the message still works.
 - Tool grouping and model footer deduplication in the chat timeline: consecutive operational tool calls (along with their internal thinking/reasoning turns that contain no text or images for the user) are now properly consolidated into a single compact tool group rather than producing isolated cards with repeated model footers at every turn; agent narrative comments and explanations remain readable in the main timeline and the model/cost footer appears only on the final response.
 - Externally deleted tasks no longer resurrect upon project reload: disk file synchronization (watcher, Companion window, or /tasks command) now replaces in-memory lists while preserving only in-flight dispatching tasks, preventing deleted tasks from reappearing on subsequent saves.
@@ -69,7 +68,7 @@ it is closed into a version with `npm run release -- <version>`.
 - Launch history is no longer wiped by the other window and no longer grows without bound. The list arriving from the Companion is merged with the local one instead of replacing it: an older copy used to delete the launch just recorded here, which is the only copy of the prompt of a task that left the queue. The fifty most recent launches per project are kept, with prompt and images only for the last three, because the global task store is rewritten in full on every queue change: on the test profile it went from 3.5 MB to 171 KB.
 - Re-reading a project queue after an external change (terminal, `/tasks` command, another Studio window) no longer discards tasks created in the meantime: the file remains the source, but a task not yet saved stays in the queue instead of vanishing.
 - In the Agent panel's Queue tab the "New task" button now spans the full width with centered text, and the state badge ("OMP is working", "No OMP session") sits on the row below, also full width: previously the two shared one very narrow column and the button label broke across two lines. Over-long state labels are now truncated with an ellipsis instead of bursting out of the chip.
-- The Companion queue is now driven row by row: every waiting task starts with a click, the next one in line is marked, long queues scroll inside their own panel, and a line states how many jobs remain beyond the four on screen. Previously you saw three titles and a single "Run next" button, with no way to tell which of the three would start or how many others existed.
+- The Companion queue is now driven row by row: every waiting task has its own button to run it immediately and its own trash can to remove it, long queues show the first three tasks and the counted remainder without scrolling to avoid obscuring active projects.
 - The reason a job cannot start is readable on screen, in amber below the queue, instead of hiding in a tooltip on a disabled button that neither the pointer nor the keyboard can interrogate. And the button is no longer active while the agent state is still unknown: in that case the click used to do nothing, silently.
 - The Companion speaks one language: project states, save confirmation, window button labels, and attachment labels now go through translation like the rest of the application. Previously, with the interface in English, the same list mixed "Awaiting response" with "Al lavoro".
 - Fixed the square corners on the Launcher layout's writing field, which clashed with the rounded rest of the window, and restored the frame around the quota-recovery card, which had neither background nor border: three style values referenced names that do not exist and silently collapsed.
@@ -81,7 +80,6 @@ it is closed into a version with `npm run release -- <version>`.
 - Typing in the editor while an agent is active no longer redirects keystrokes to the chat composer: the "type-to-focus" shortcut now respects Monaco, the terminal, and other writing surfaces.
 - Launching a second instance of the application (for example from tests, builds, or commands run by an agent) no longer steals focus from the user's active window: instead of forcing Studio to the foreground over other open applications, the event is signaled discreetly with an informational taskbar alert.
 - The Companion immediately displays queued tasks for projects already open, including after startup or reopening: synchronization is repeated whenever the window appears, queues already read are no longer erased by a late global-store read, and changes made in the main window reach the other webview.
-
 - The Companion layout changes immediately: picking a preset in "Settings → Companion" redraws the window at once, with no need to close and reopen Studio. The same applies to every setting and to the theme: what you change in the main window reaches the Companion while it is open.
 - In all five layouts you can click a project to open and close its task queue, with the "Run next" button: previously only the Dashboard layout responded and clicks did nothing elsewhere. Project rows are now reachable from the keyboard (Tab, Enter, or Space) too, and the Inbox and Dashboard layouts also show the project list.
 - With the window pinned the project list is complete: the "+N more projects — pin the window" hint no longer shows on an already pinned window, and in ephemeral mode that button now really pins it instead of unpinning. The pinned state is shared between both windows, so the top bar chip and the Companion header no longer contradict each other.
@@ -108,7 +106,110 @@ it is closed into a version with `npm run release -- <version>`.
 - Agent reply requests no longer bring Studio to the foreground while you are typing in another application or in the Companion: the card receives focus only when the main window is already active.
 - Fixed false modified state when opening documents in editor: Monaco now preserves the UTF-8 BOM (`﻿`) and aligns initial baseline on load, preventing unjustified dirty indicators and "Save" button visibility on freshly opened files from the filetree or GUI links.
 - Companion window remembers its configured size: previously widened upon every reopen. Dimensions were saved only upon pinning (including invisible resize borders that accumulated with each cycle), while pinning via the top bar button in the main window completely cleared saved dimensions back to 560x520. Window position and size now persist when closing the window and quitting the app, persisting upon reopen in both Spotlight and pinned modes.
-[…106ln elided…]
+- The Companion no longer flashes while you answer a multi-question sequence in the main window. Attention state travels over `emit`, which also delivers to the sender: the main window re-applied its own announcement and, since the JSON round-trip drops the empty fields that `ask` questions carry, judged it different from the state it had just published. The result was a continuous bounce between the two windows: the card was redrawn dozens of times per second, the content jumped up and down and always fell back to the first question. Each window now discards its own announcements, and the comparison treats a missing field and an empty field as identical.
+- Saving a task from the Companion is instant, first time included. The save used to wait for the full model load, which runs `omp models --json` (about two seconds) for a list the task does not need: it now reads only the configured roles and the local catalog, while the full list of available models loads in the background when the window opens, where the `!role` and `!model` mentions need it.
+
+## [1.5.0] - 2026-09-08
+
+### Added
+
+- Customizable layout supporting vertical (portrait) displays and sidebar collapsing: automatic or manual switching between a 3-column horizontal view and a vertical view with editor on top and terminal/chat on the bottom separated by a horizontal splitter; `Ctrl+Alt+L` shortcut and status chip in the top bar to cycle modes; and the ability to hide or show the sidebar (File/Git/Agent) via `Ctrl+Alt+B` or by clicking the &pi; logo in the top left to dedicate full width to the editor and conversation.
+- Two styles for the quota popover, selectable under "Settings → Appearance" alongside chip styling: "Telemetry", featuring a thin bar, hatched consumed area, and `OK / WARN / CRIT` status readouts for each window; and "Ring", with a circular meter per window that drains and displays a status pill as quota drops. Both cards render a live preview that updates with your choice, applying to both the main window and the Companion.
+- Separately toggleable traffic light colors for the quota popover: chips and popovers now feature independent toggles, allowing the top bar to follow theme colors while displaying green/amber/red in limit details (or vice versa).
+- Model check under "Settings → Models" now verifies each role's fallbacks in addition to primary models, and goes beyond seeking newer versions: flags models that can no longer be used—withdrawn from provider catalogs, no longer offered under active credentials, belonging to disabled providers, or lacking credentials—preventing quota exhaustion from leading to unexplained failures on missing fallbacks. The diagnostic report suggests replacement with available equivalent models or removal of obsolete fallbacks, never altering configuration without confirmation.
+- Background model check: runs on Studio startup and repeats every 12 hours, refreshing provider catalogs only when older than one day. Warnings do not interrupt workflow: the "Settings" chip displays an orange exclamation mark when a configured model is unusable and a blue dot when only version updates are available; clicking opens the Models section directly, highlighting each affected role and fallback with the reason.
+- Companion window featuring dual Spotlight and persistent Widget modes (`Alt+Space`), Quick Reply with chat context for agent inquiries, and natural language quick task entry: answer background agent questions and capture tasks for any project without interrupting reading or navigation in other applications; includes AI text parsing (automatic extraction of project, role, model, and directives), preventive quota exhaustion checks with explicit alerts, multi-monitor memory for pinned window position and size, dedicated Companion button in Studio's top bar, and quick interactive popovers on flagged project cards without switching workspaces or active views.
+- Comprehensive hardening, automatic recovery, and accessibility for Browser Studio: automatic live stream reconnection with bounded backoff and instant retry button on disconnections; clean, deterministic teardown of all browser channels on chat termination or failure to eliminate orphan processes or files; keyboard isolation to the active surface supporting navigation (back, forward, reload with standard shortcuts); complete focus trap handling Escape on in-page dialogs and the Chrome Relay tab picker; and strict memory and queue message limits ensuring smooth, stable multi-project sessions.
+- Explicit connection of a single personal Chrome tab to Browser Studio via the existing OMP Relay: picker displays only title, origin, and state necessary for selection; single-use grant binds project, chat, and target; screencast, input, and inspector reuse the same `BrowserViewer`, control epochs, and private takeover; revocation instantly halts frames and controls without closing Chrome or dropping login and SSO sessions; missing Relay capabilities yield targeted diagnostics limited to the granted tab.
+- Explicit handling of dialogs, popups, files, permissions, and video recording for Browser Studio: alerts, confirms, prompts, and beforeunload dialogs triggered by pages display in a dedicated modal within `BrowserViewer` without blocking the runtime supervisor (immediate, safe interruption of agent actions in the absence of automated policy and tracked responses); new windows and popups opened by the page are automatically adopted as tabs within the same chat; downloads from remote origins are held in secure project quarantine and converted to conversation artifacts only upon explicit user consent; file uploads (`<input type="file">`) are restricted to opening the native OS file picker, preventing unmonitored or broad filesystem access by the agent (`UPLOAD_NOT_AUTHORIZED`); four distinct origin-level capabilities (clipboard read/write, geolocation, notifications) configurable directly from the toolbar; local tab video recording into standard MJPEG/AVI containers via a pure deterministic generator requiring no external `ffmpeg`, with coordinated save and purge paths.
+- Targeted inspector for Browser Studio: integrated directly into the `BrowserViewer` surface without embedding the full Chrome DevTools; features Element Picker with non-invasive highlight overlay and semantic tooltip on native viewport CSS coordinates extracting tag, ARIA role, accessible name, text, unique CSS selector, bounding box, relevant computed styles, React/Svelte component, and cropped PNG screenshot; Console (500 items with consecutive message deduplication and stack traces), Network (200 items with in-place updates, advanced filtering, and on-demand response body download), and Actions timeline (100 items) panels managed via bounded ring buffers with automatic redaction of URL credentials, sensitive headers, and Bearer tokens; collapsible bottom dock with keyboard navigation shielded from leaking input to the browser and buttons to selectively insert structured context and cropped screenshots directly into the Composer prompt.
+- Top-level origin policy, persistent per-project consent, and security redaction for Browser Studio: automatic navigation for local and loopback origins (localhost, 127.0.0.1, [::1]); explicit upfront consent for new remote origins via banner and status badge in BrowserViewer; persistent per-project storage with instant revocation from settings or toolbar; automatic suspension of agent actions upon top-level redirects to unauthorized origins; strict separation between document navigations and secondary resource loading (images, scripts, CDNs, APIs); automatic redaction of URL credentials, Authorization headers, cookies, and tokens across logs, events, and artifacts; and complete isolation of the Svelte frontend from raw CDP endpoints and internal secrets.
+- Exclusive page control arbitration and private takeover for Browser Studio: rigorous management of alternating control between agent and user via monotonically increasing control epochs; atomic takeover on first human click or keystroke with buffered, single-dispatch interaction forwarding to Chromium; instant cancellation with structured CONTROL_INTERRUPTED error for any running agent operation alongside blocking of new commands; dedicated toolbar button to explicitly return control to the agent with a fresh page snapshot; and private takeover mode (activated manually or automatically on password/CAPTCHA fields) that continues streaming video to the user in the local viewer while completely blanking and sanitizing transcripts, screenshots, DOM, console, and network for the agent.
+- New Browser surface in central column (`BrowserViewer`) for Browser Studio: opens automatically upon launching the `browser` tool or opening a managed tab, preserving Monaco editor state, open files, and static previews; includes toolbar with URL, navigation (back, forward, reload), tab selector, operating mode, responsive viewport selector (Desktop, Tablet 768px, Mobile 390px), controller status badge (Agent, User, Private), and instant screenshot capture to clipboard; renders live JPEG video stream as frames arrive using a latest-frame-wins policy and exact geometric coordinate mapping for cursor and scroll in native Chromium viewport CSS pixels invariant to window resizing, zoom, and DPI scaling.
+- New contextual quota chip for the active project in the top bar with selectable styles ("Progressive ring" and "Filled pill"), option to always display percentage or only during alerts, toggle for provider name, and reorganized "Settings → Appearance" section with automatic theme gallery synchronization.
+- Studio and the `omp` runtime now negotiate a versioned `browser-live-v1` capability upon session startup: serving as the foundation for the upcoming Browser Studio. Until the runtime exposes the live channel, nothing changes visually—the `browser` tool continues displaying summaries and screenshots as before—and Studio attempts no connection when the capability is absent from the runtime.
+- The `omp` runtime now includes a browser session broker (`BrowserSessionBroker`) and a headless managed Chromium engine: isolates cookies and storage per project in dedicated directories, addresses tabs via identifiers tied to the specific chat session (preventing tab collisions across concurrent conversations), routes all CDP control through the broker, and cleanly terminates processes without leaving orphans.
+- Binary loopback live channel and backpressure for Browser Studio: high-frequency video streams bypass the RPC channel via a compact fixed-length binary framing protocol (BLF1), featuring strictly bounded memory management and deterministic frame dropping for slow clients, instant reconnection without state loss, and direct screenshot capture at native viewport dimensions.
+- Optional traffic light colors for quota under "Settings → Appearance": green when quota is plentiful, yellow below 30%, red below 10% or when exhausted, with dedicated palettes for light and dark themes. Disabled by default; when off, the chip continues following theme colors.
+- Quota chip indicates via a small dot when a longer window (such as weekly) is nearly exhausted while the session window remains open, without altering the displayed percentage.
+- More legible queued task rows with two selectable views under "Settings → Appearance": "Compact" (default) featuring full-width title and summary across three tiers with all badges beneath text and a two-line summary; and "Card" presenting each task as a separate card with a two-line title and three-line summary. Applies to both the Queue tab and global drawer.
+
+### Changed
+
+- Moved window layout configuration from "Settings → General" to "Settings → Appearance" with a new visual tabbed selector (Automatic, 3-Column Horizontal, Stacked Vertical) featuring integrated graphical previews, and removed layout chip from the top bar to streamline the application header (the `Ctrl+Alt+L` shortcut remains active for quick toggling).
+
+### Fixed
+
+- Studio no longer crashes abruptly due to web page content: dialogs, console messages, or download filenames containing specific non-Latin uppercase letters previously caused the application to crash during sensitive data masking, resulting in loss of unsaved work.
+- Sensitive data masking in browser logs now covers all authorization tokens in a message (previously only the first was redacted while subsequent tokens appeared in plaintext in transcripts and artifacts) and also applies to the origin of permissions requested by pages.
+- Browser Studio remote origin consent takes effect: "Allow for this project", "Deny", and "Revoke" are now propagated to the `omp` runtime, which enforces the agent's origin allowlist. Previously these were purely local Studio writes, meaning consent failed to unblock navigation, revocation failed to stop the agent, and badges reported states that were not actually enforced. When running against an `omp` runtime that does not yet recognize the request, decisions are no longer treated as applied; Studio explicitly warns and prompts to update the runtime.
+- Keyboard no longer becomes unresponsive after page state changes: live surface is no longer unmounted on tab reconnections or reloads (stream status is now an overlay atop the last frame), focus returns to the surface upon reappearance, and key release events are reliably forwarded, preventing pages from getting stuck with pressed keys or modifiers.
+- Tab updates (navigation, loading, taking control) no longer re-establish the live channel from scratch: previously each event consumed a single-use ticket, opened a new session counting toward the limit of 32, and reset the reconnect retry counter, leaving two open sessions instead of one upon opening the panel.
+- Single-action rejections (already handled dialog, disallowed download, inactive recording) no longer tear down the entire stream forcing a full reconnection: only ticket, session, or stream errors close the channel.
+- Private takeover no longer leaks page data: inspected element crop is neither produced nor attached to the prompt, inspection is disabled, and collected data is discarded as soon as private mode activates.
+- Page dialogs no longer remain covering the panel after chat ends or tabs close, users can no longer double-reply to the same dialog (including holding down Escape), and commands sent while the channel is down now provide explicit feedback rather than failing silently.
+- Merely hovering over the page no longer interrupts agent commands: control yields to the user only upon deliberate gestures (clicks, keystrokes, scroll wheel).
+- Permissions menu no longer displays "Deny" as active for unconfigured permissions: without a page response, status displays as "Ask" per protocol specification.
+- Companion window reliably reopens when clicking the top bar chip and via keyboard shortcut: resolved native webview creation failures on Windows caused by misaligned browser parameters between windows, guaranteeing visual and focus restoration on every invocation.
+- Accurate active account detection for the quota chip: when conversations use specific provider credentials (e.g., a secondary account with different limits), the chip retrieves the exact pin from transcripts in both graphical chat and terminal without falling back to empty caches or losing associations when generation ends or recent sessions expire.
+- Quota popover bars update consistently after initial opening: animation previously triggered only once on mount, so refreshing usage while the popover was open updated text percentages but left bars static. Bars and rings now track values with consistent animations both on appearance and subsequent updates.
+- Remaining quotas are now announced to screen readers as level meters (with percentage and reset time) rather than progress bars, which previously suggested non-existent file downloads or operations.
+- Attention ring on project cards and "Waiting" entry in the status bar now reliably trigger on agent questions: if inquiries arrived before the `ask` tool event—which occurs intermittently—status previously reverted to "Running", leaving cards without rings and resetting app icon badges despite having dispatched system notifications.
+- Studio no longer hangs on startup with loading spinners across all panels: Companion window synchronization previously rewrote attention requests on every pass even when unchanged, and because that write occurred within the effect observing the list, it triggered recursive rerenders halting UI drawing. Writes now execute only when state genuinely changes.
+- Fixed abnormal icon animation on "Verify Models" button under "Settings → Models": checking models now replaces the magnifying glass with a dedicated circular loading indicator, preventing improper rotation of static icons.
+- Corrected keyboard focus ring clipping across the application: theme picker cards, window titlebar buttons, open tabs, session history rows, and context menus now utilize inset rings or dedicated margins to ensure focus indicators are never clipped by scroll containers, and restored visual keyboard focus indicators on toggle switches and model dropdowns.
+- Accurate provider names in agent/model selector menu: models served through gateways with identifiers like `provider/model` are no longer conflated with native providers, correctly attributing providers in roles, fallbacks, and quick cycle drawers.
+- File paths output by the assistant in fenced code blocks now render as compact clickable chips opening directly in the editor (supporting multi-line lists with dedicated copy buttons), resolving complex paths and line numbers via `resolve_project_file`.
+- Intelligent version detection for model families (e.g., upgrading Gemini 3.7 Flash to Gemini 3.8 Flash): update checks now automatically refresh catalogs, respect active roles in the settings modal before saving, normalize numbering and preview formats, and ensure snapshot dates do not override semantic versions.
+- Removed unwanted outline rings on file tree rows and root folder upon launching the application, aligning keyboard focus styles with background highlights.
+- Quota chip percentage now matches current operational window: with Anthropic 5-hour windows intact at 100%, the bar previously showed two-thirds due to reporting the 7-day window. Bars and percentages now track the shortest limiting window; if any window is exhausted, the chip indicates exhaustion as requests will be rejected.
+- Quota chip and popover bars now fill in consistent directions: previously the chip showed available quota while the popover showed consumed quota. Both now fill based on remaining quota and drain as it is consumed.
+- When using multiple accounts for the same provider, displayed quota could belong to an account other than the one actively in use, and the "In use by" label appeared across all provider accounts. Studio now accurately identifies the account active in the session.
+- For providers grouping multiple model families (such as Google Antigravity, which tracks separate counters for Gemini, Claude, and GPT), the chip now displays the counter for the active model family rather than the lowest across all families.
+- Chip no longer reports "Quota exhausted" when an inactive account has an exhausted window while another account under the same provider retains available quota.
+
+## [1.4.0] - 2026-09-02
+
+### Added
+
+- Instant queue mode selection when sending: while the agent is streaming, the submit button splits (split button) to send using default behavior or open a dropdown to force Steer or Follow-up mode, with `Enter` (default mode) and `Alt+Enter` (opposite mode) keyboard shortcuts.
+- New queue preferences under "Settings → General" to select default submission behavior (Steer or Follow-up), message extraction modes (single or all at once), and interruption mode.
+- "New chat" button in the right column header, with `Alt+N` shortcut.
+- Quota popover can also display providers that `omp` cannot query on its own (e.g. those added via a plugin): describe the source in a JSON file under `%LOCALAPPDATA%/omp-studio/usage-sources/` specifying the command to run, and its quotas will appear alongside the others. Without that directory, behavior remains unchanged.
+
+### Changed
+
+- Queued message chips in chat are now read-only informational badges with contextual explanations, clearly indicating that messages already picked up by `omp` cannot be modified or reordered.
+
+### Removed
+
+- Removed queue configuration popover with gear icon from the chat composer and `Alt+Q` / `Alt+S` shortcuts, superseded by general settings and quick submission selection.
+- Removed orphan, non-functional `Alt+Q Queue options` shortcut from the empty state of the task column.
+
+### Fixed
+
+- Reliable focus synchronization and direct typing in chat: smooth animated cursor shuts off promptly when the window or application loses focus, preventing false blank blinking; clicking anywhere in the input box area transfers focus to the textarea; typing does not intercept keys when modals or dialogs are open, preserving spacebar usage on interactive elements; and cursor position remains aligned during scrolling.
+- Reliable completion of multiple-choice questions with custom option ("Other"): freeform text replies to multiple-choice questions are routed with the correct closing step, preserving the execution of the entire response plan for all wizard questions.
+- Coalesced loading of models and providers: background initialization eliminates duplicate concurrent calls to `omp models` on application startup and eliminates reactive reload loops on error.
+- Security and resilience of quota sources: strict path confinement with safe fallback for empty environment variables, streaming bounded output buffers for child processes, and defensive validation of numeric values in the quota popover.
+- Unified form and unrestricted navigation for multiple agent questions (`ask`): the card receives and displays all questions from the initial prompt through immediate bidirectional enrichment as tool arguments arrive, allowing free navigation back and forth between steps and verifying summaries before final submission, eliminating fragmented cards and lost navigation across previous questions.
+- Preservation of notes in multiple choices and strict delivery queue validation: adding notes to multiple-choice answers is correctly routed without generating phantom options for the agent, and queued automated steps are validated by method, option signature, and call ID before delivery to `omp`, halting the sequence with a clear warning on mismatch.
+- Model menus display capabilities as icons: context window, eye icon for image support, and extended reasoning symbol appear next to each model, with effort levels in tooltips. Previously the expanded list spelled out "Vision" and "Reasoning" as text only in the task selector and displayed nothing in the chat quick menu.
+- Advanced task options remain accessible even with long prompts: as the prompt box grows, the editor body scrolls rather than clipping the accordion, restoring access to all modes.
+- Dropdown menus are no longer clipped: model picker, catalog role assignment menu, "Add provider" menu, and chat role, model, thinking, and send mode menus open above other content, flip when space below is insufficient, and scroll internally.
+- Role fallbacks, primary model, quick cycle, and suggestion model only suggest models from actively configured and enabled providers, rather than the entire OMP catalog.
+- AI suggestions for roles no longer propose models from unconfigured providers: validation evaluates against the genuinely available list, and custom providers defined in `models.json` (including local servers) are now included rather than systematically excluded.
+- Panels and lists with bounded height scroll instead of truncating content: role list and role detail, provider list and provider detail, quick cycle drawer, subagent panel and drawer, project selector, and quota popover.
+
+## [1.3.0] - 2026-09-01
+
+### Added
+
+- Full build and distribution support for Linux systems (x86_64): automated packaging for Debian (`.deb`) and universal portable (`.AppImage`) in GitHub Actions Nightly and stable Release channels with candidate promotion without recompilation, local build scripts, and POSIX shell fallback optimization.
+- Suggested replies in composer: clickable chips above the input field that prefill the prompt with a click or via Alt+1, Alt+2, Alt+3; sending remains an explicit user action.
+- New "Suggestions" settings section to create, edit, reorder, hide, or restore pinned suggestions.
+- Suggestions generated by lightweight model at the end of each agent response, reading the latest message and offering up to three ready-to-use replies; disabled by default, with configurable model and limit.
+- Fuzzy search in project file tree: search bar always accessible at the top of the FILE panel with instant filtering, matching character highlights in filename and path, rapid keyboard navigation (Arrows, Enter, Esc), and context menus on results.
 - Fully customizable task directives and modes: new library under "Settings → Tasks & Agents" to create, edit, reorder, hide, or restore prompt modes (including Plan, Discussion, Minimal, and Research presets), configuring placement before or after main text.
 - AI Assistant for directives: guided generation of new modes from natural language descriptions, prompt enhancement and refinement with change previews, and on-demand frequency analysis of recent project prompts to suggest useful new directives.
 - Deterministic snapshots and controlled upgrades: each queued task freezes the exact directive version at creation time, with visual warnings and an "Update" button when the library contains a newer version.
@@ -120,8 +221,6 @@ it is closed into a version with `npm run release -- <version>`.
 - Togglable file previews: for Markdown and SVG, the editor displays a three-state toggle in the top bar (code only, side-by-side code and preview, preview only) remembering preference per tab. `Ctrl+Shift+V` cycles through the three views.
 - Editor tabs can be reordered by dragging, closed with middle-click, scrolled via mouse wheel, and show scroll arrows when open files exceed the tab bar; active tab always remains in view.
 - New "Close All" option in tab context menu, with `Ctrl+Shift+W` shortcut.
-- The Companion no longer flashes while you answer a multi-question sequence in the main window. Attention state travels over `emit`, which also delivers to the sender: the main window re-applied its own announcement and, since the JSON round-trip drops the empty fields that `ask` questions carry, judged it different from the state it had just published. The result was a continuous bounce between the two windows: the card was redrawn dozens of times per second, the content jumped up and down and always fell back to the first question. Each window now discards its own announcements, and the comparison treats a missing field and an empty field as identical.
-- Saving a task from the Companion is instant, first time included. The save used to wait for the full model load, which runs `omp models --json` (about two seconds) for a list the task does not need: it now reads only the configured roles and the local catalog, while the full list of available models loads in the background when the window opens, where the `!role` and `!model` mentions need it.
 
 ### Changed
 
@@ -227,5 +326,328 @@ it is closed into a version with `npm run release -- <version>`.
 - Keyboard accessible navigation with ARIA standards (`role="listbox"`, `role="tablist"`, `role="tree"`) across question wizard, project bar, and file tree.
 - Startup time and initial bundle size optimizations: Monaco Editor and Mermaid load on demand only when respective surfaces are rendered.
 - Updated frontend security dependencies and cleared vulnerabilities in application runtime.
+- Opening theme picker or sort menu in top bar no longer turns Studio window solid gray: backdrop under popovers was a full-window button inheriting system gray background and borders. Fixed same issue for project picker and queue drawer.
+- Switching between GUI chat and terminal with zero-message session no longer shows bare shell with "Session not found": session resumed only if disk transcript exists, otherwise surface initializes a fresh session.
+- Removed rigid 65-character paragraph limit in chat Markdown that caused premature text wrapping leaving empty space beside tool cards.
+- Session history opens instantly instead of taking over a minute: Studio previously read the start of every transcript across projects (hundreds of files, tens of megabytes); now reads only header line and caches it.
+- Switching projects no longer briefly flashes previous project history: late-arriving responses discarded and old list clears immediately.
+- Resuming session from history in GUI chat works reliably again: chat no longer hangs on "OMP starting..." with empty transcript, reloading actual messages of resumed session. Applied same fix when switching between TERMINAL and GUI.
 
-[Showing lines 1-78 and 185-300 of 300; 106 middle lines (25.6KB) elided. Use :301 to continue. Read artifact://25 for full output]
+## [1.2.0] - 2026-08-26
+
+### Added
+
+- Project tasks live in `.omp/tasks.json` within each project: stored alongside code, self-excluded from git, and existing Studio tasks are migrated automatically.
+- Studio and terminal share the exact same queue in real time: additions on one side immediately appear on the other without write conflicts.
+- New `/tasks` command in terminal: full-screen overlay to browse tasks with arrows, toggle status with `Space`, add with `A`, delete with `D`, reorder with `J`/`K`, and launch with `Enter`.
+- Agent manages project queue autonomously via new `project_tasks` tool (list, add, edit, delete, reorder), available in all sessions.
+- Tasks feature genuine states—in progress, completed, abandoned—with visual indicators in agent panel and queue drawer.
+- New sectioned task editor: prompt at center, role profile selection (`smol`, `default`, `slow`, `plan`, custom), reasoning effort slider, and "Save & close" (`Esc`) / "Save & run now" (`Ctrl+Enter`) buttons.
+- Quick task directives: Plan Mode, Discussion & Requirements, Minimal Solution, and Online Research, with optional inclusion of editor context (open files, selection, cursor position).
+- Visual attachments in prompts: paste screenshots with `Ctrl+V`, drag and drop files, or choose files via button in both task editor and chat.
+- Automatic completion for `/` commands with list of installed skills, distinguishing Studio commands from agent commands.
+- Unified cross-project queue view (`Ctrl+Alt+T`, or top bar chip with pending task total): launch prompts for other projects without switching workspaces and view diagnostic reasons when projects are not ready.
+- Automated queued task launch, toggleable per project, starting only when agent is genuinely ready.
+- Configurable project bar: manual order, last opened, task priority, or alphabetical, with pending task counters in four styles and immediate launch previews on hover.
+- Quick role switching in chat (`Ctrl+P` and `Alt+R`) between `default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit`, and `advisor`, with associated model and reasoning level.
+- Clickable file paths across entire chat: open files directly in editor from tool chips, markdown links, or code blocks.
+- Agent execution sequences grouped into a single collapsible block with timer, keeping final responses front and center.
+- All `/` commands and skills work in GUI chat, including session operations (`/login`, `/logout`, `/copy`, `/fork`, `/tree`, `/sessions`, `/drop`).
+- Chat displays agent startup state and queues prompts submitted during initialization, dispatching them once ready.
+- Editor context attached to messages becomes a clickable chip with collapsible preview rather than raw text in speech bubble.
+- First-run guided setup: Studio detects missing prerequisites, downloads and installs `omp`, configures Git Bash, installs monospace font, and hosts credentials and model setup in a secure tab.
+- "⚠ Setup" chip in top bar when configuration is incomplete, allowing reopening setup wizard at any time.
+- System notifications on Windows 10/11 and macOS when agent requests attention or completes a task with app in background, with direct click to affected project.
+- Visual badge on app icon: flashing red dot on Windows taskbar and numbered badge with bounce in macOS Dock.
+- New "Notifications" settings section: toggle, summary or full text, icon alert, sound alert, and test notification dispatch.
+- Unified Settings center (`Ctrl+Alt+,`) with six sections: General, Notifications, Project Bar, Workspace, Tasks & Agents, and Models.
+- Customizable editor and terminal—font family, font size, minimap, word wrap, tab size, line numbers, scrollback, bell, and cursor style—applied immediately without restarts.
+- New task defaults configurable globally and overridable per project.
+- Dedicated usage panel window with critical quotas, reset countdowns, 24-hour trends, and estimated burn rate.
+- Dedicated preview for SVG files opened in editor.
+- Helpful empty states in workspace and agent panel with suggested actions and keyboard shortcut grids.
+- Consistent system alerts explaining error causes with retry buttons, replacing blank or stuck "Loading" panels.
+- New application icon for Windows and macOS.
+
+### Changed
+
+- Faster startup and smoother streaming: bundle split across editor, terminal, and diagrams; updates synced to display refresh rate; binary compiled with full optimizations.
+- Reorganized task editor and chat: prompt centered, advanced options in collapsible panel with summary, unified action buttons.
+- More readable chat transcript: indentation and luminance replacing decorative colored borders, no height limits on code blocks, prose capped at 65 characters per line.
+- Block appearances, expansions, and dismissals feature fluid animations, automatically disabled when system requests reduced motion.
+- Chat executes standard commands (bash, write, edit, eval) directly without approval prompts, aligning with terminal behavior.
+
+### Fixed
+
+- Accessibility: labels on all controls, `Tab` contained within modals and drawers, `Esc` dismissal, compliant contrast ratios, and screen reader announcements for agent state changes.
+- Closing tabs or application terminates all child processes: no orphan background processes.
+- Stop button cancels agent instantly (`Esc`, `Alt+C`, `Ctrl+C`).
+- History unifies disk sessions and timeline, ensuring sessions spawned from tasks resume cleanly.
+- Eliminated message desynchronization when attaching to running sessions.
+- Usage panel no longer flags inactive projects and cleans up lingering records.
+- Chat remains pinned to bottom during streaming and auto-scrolls when nearing bottom.
+- Editor preserves scroll position and cursor location per file when switching tabs or projects.
+- Corrected double focus ring on prompt, textarea height after submit, command palette help bar, duplicate pasted images, and spurious startup warnings.
+- `omp` update check reads correct version even when output contains ANSI color codes, handling network failures gracefully.
+- Nightly channel: updates always present installer for announced build, removing older build installers upon release.
+
+### Security
+
+- SVG previews and HTML prototypes open in an isolated container without scripts or app access, sanitizing content prior to rendering.
+- Studio update rejects packages lacking verified SHA-256 digests, re-verifying disk files immediately prior to execution and deleting temporary files.
+- `omp` installation aborts if digest published on GitHub does not match downloaded file.
+- `omp` databases open in read-only mode without write or lock capabilities, ensuring queries never block UI.
+- All requested paths resolved and validated within project root, preventing traversal via `..` or symlinks.
+- Interface exposes only commands declared in application permissions; Studio registers OS identity on Windows for system notifications.
+
+## [1.1.0] - 2026-08-24
+
+### Added
+
+- GUI chat displays useful initial state and full slash command palette with signatures, aliases, descriptions, and subcommands.
+- FILE, GIT, quota, and preview panels display genuine errors with retry options instead of remaining empty or stuck on "Loading".
+- Updates support stable and Nightly channels, the latter receiving cutting-edge builds automatically without exposing stable users.
+
+### Changed
+
+- Responses, reasoning, and tool outputs stream progressively in Markdown while keeping view pinned to bottom.
+- Tool cards display paths, options, tasks, and structured data during execution; errors feature distinct visual state.
+- Dialogs, menus, and shortcuts respect active focus, close with `Esc`, and utilize interface semantic layers and colors.
+
+### Fixed
+
+- GUI surface no longer freezes when omp publishes session ID: submission, transcript, and menus remain responsive.
+- Assistant messages, streaming deltas, and tool results appear in transcript rather than remaining invisible or perpetually pending.
+- Slash commands execute once with `Enter`; commands unsupported in GUI explicitly guide user to TERMINAL tab.
+- `Enter` in composer no longer accidentally approves tool calls while confirmation prompts are visible.
+- Switching between GUI and TERMINAL preserves same session bidirectionally, and closing projects terminates corresponding omp process.
+- Long-running sessions do not drop valid RPC requests due to unkeyed responses, and shell commands benefit from extended timeouts.
+
+## [1.0.1] - 2026-08-24
+
+### Fixed
+
+- GUI tab remains usable when resumed session no longer exists: automatically opens new chat instead of leaving `omp` terminated.
+
+## [1.0.0] - 2026-08-24
+
+### Added
+
+- Second native surface for agent: right column becomes tabbed `TERMINAL | GUI`, with explicit handoff and session preservation via `--resume`.
+- Native Svelte 5 client driving `omp --mode rpc-ui` over stdio NDJSON with Rust transport providing delta coalescing and protocol v2 chunk reassembly.
+- Native transcript with markdown rendering, collapsible reasoning blocks, 30 dedicated cards for system tools, subagent management, and todo tracking.
+- Structured approval gate with configurable policy (`ask-writes`, `ask-all`, `yolo`) in settings panel, persisted locally without touching `~/.omp`.
+- Intelligent slash command interception and prompt queue management with steer/follow-up toggle.
+
+## [0.9.0] - 2026-08-24
+
+### Added
+
+- Each project includes a reorderable prompt queue: a task launches a clean session, automatically transitions to history, and maintains the `TASK` badge.
+- Historical sessions can be resumed with a click within the same terminal, without restarting the `omp` process.
+
+### Fixed
+
+- Studio updates no longer suggest installers intended for different operating systems when compatible packages are missing from release assets.
+- New releases publish only after generating both Windows x64 installers and universal DMGs for Intel and Apple Silicon Macs.
+
+## [0.8.1] - 2026-08-21
+
+### Changed
+
+- Terminal on macOS treats Option as Meta: `omp` Alt shortcuts (such as Option+P for model picker) function properly instead of inserting Italian layout special characters.
+
+### Fixed
+
+- Terminal on macOS displays Nerd Font icons again: Studio now bundles its own monospace font with Nerd glyphs, removing reliance on WebKit system font matching which rendered private-use glyphs as boxes on macOS 27.
+
+## [0.8.0] - 2026-08-21
+
+### Added
+
+- New `studio_preview` agent tool: enables `omp` to build UI component prototypes (React, Tailwind CSS, Lucide) and open them immediately in the interactive sandbox in the center column during vibecoding.
+- Automatic persistence of generated prototypes in project `proto/` folder, with automatic addition to `.gitignore` to keep working tree clean.
+- Support for live rendering and hot compilation of TSX/JSX components, source code viewer with quick copy button, and viewport switcher (Desktop, Tablet, Mobile).
+
+## [0.7.1] - 2026-08-21
+
+### Fixed
+
+- The `studio_diagram` tool for diagram whiteboard is now loaded automatically in every `omp` session started by Studio: no longer necessary to pass the extension manually via `-e`.
+
+## [0.7.0] - 2026-08-21
+
+### Added
+
+- New GIT panel in left column: displays current branch, uncommitted modified files (with added/removed line counts), latest agent commit, and recent history. Clicking a file opens side-by-side diff in editor even for committed changes—eliminating manual hunting for files modified by agent commits.
+- Branch switching and new branch creation directly from GIT panel, with automatic guardrails when uncommitted changes exist.
+- Recent agent sessions appear in GIT panel timeline: click to resume them in project terminal with `--resume`.
+- Diagram whiteboard: agent can use `studio_diagram` tool to render Mermaid diagrams in central column with zoom support, replacing terminal ASCII art.
+- Live sandboxed preview for HTML files: "Preview" button in editor opens interactive prototype (desktop/tablet/mobile) within the app, isolated from the rest of the system.
+
+## [0.6.5] - 2026-08-20
+
+### Changed
+
+- Redesigned model recommendation logic for operational roles: top priority given to Tier 1/Top ELO models from flat-rate subscription accounts (OAuth flat) for primary roles, with cross-provider zero-cost safety nets.
+- Integrated real-world throughput metrics (tokens/sec measured by `agent.db`) for optimal fast role selection (`smol`, `commit`).
+- Comprehensive unexpected cost protection: automatic exclusion of pay-per-token models not covered by user subscriptions.
+- Enriched suggestion chips and tooltips with badges for estimated Coding ELO, measured effective throughput (tok/s), subscription provider status, and zero-cost fallbacks.
+- Introduced deterministic fallback engine based on ELO matrix providing instant, resilient recommendations during AI engine latency or outages.
+
+## [0.6.4] - 2026-08-20
+
+### Added
+
+- Intelligent model recommendation for OMP operational roles based on background one-shot AI analysis: contextual selection of optimal primary models and cross-provider fallbacks to ensure resilience against rate limits (429) and outages.
+- Reactive cache for AI recommendations with staleness pre-filtering and on-demand re-analysis button.
+
+## [0.6.3] - 2026-08-20
+
+### Changed
+
+- Redesigned OMP operational roles management in models modal with two-column Master-Detail layout and dedicated Quick Cycle drawer (Ctrl+P).
+- Introduced 1-click intelligent suggestions based on active catalog for primary models and fallbacks of each role.
+- Replaced reasoning dropdown with new interactive stepped ReasoningSlider component featuring snapping, keyboard support, and visual token budget readout.
+- Reorderable, enhanced fallback chain management with provider badges, context/capability metrics, and redundancy warnings.
+
+## [0.6.2] - 2026-08-20
+
+### Changed
+
+- Migrated from standard Windows .msi installer to lightweight per-user NSIS (.exe) setup (`currentUser`), eliminating administrator prompts (UAC) and speeding up initial installation.
+- Fully silent in-app updates: application runs background setup with automatic restart without launching external wizards.
+- Complete redesign of model and role management interface: removed decorative emojis and non-compliant semantic colors in favor of monochromatic typographic badges, system tokens, and clean SVG icons.
+- Unified persistence model in model management: added draft support for custom providers with protection against losing unsaved changes on modal close.
+- Accessibility and keyboard navigation in model picker and system modals: added WAI-ARIA semantics (`role="dialog"`, `role="tablist"`, `role="listbox"`), arrow key support in model dropdowns, and `Esc` dismissal.
+- Extended rapid fallback assignment in catalog to all 8 OMP operational roles.
+
+## [0.6.1] - 2026-08-19
+
+### Added
+
+- Added "Recheck" button in header and footer of OMP Studio update modal to check GitHub for newer versions at any time, bypassing HTTP cache.
+
+## [0.6.0] - 2026-08-19
+
+### Added
+
+- Full OMP provider, model, and role management integrated into GUI: dedicated modal accessible from top bar or via `Ctrl+Alt+M` (`Ctrl+Alt+,`).
+- Visual model assignment to OMP operational roles (`default`, `plan`, `smol`, `slow`, `vision`, `task`, `commit`, `advisor`), reasoning/thinking level, and quick cycle sequence ordering (`Ctrl+P`).
+- Streamlined fallback chain management per role with quick add, remove, and priority reordering for reserve models.
+- Intelligent, automatic detection of new model versions: dedicated button to check for updates (e.g. `opus-5` → `opus-5.1`, `gemini-3.6` → `gemini-3.7`) with comparative summary dialog and bulk apply to confirmed roles.
+- OMP model catalog explorer with full-text search, provider and capability filters (Vision, Reasoning), technical specifications, and quick role assignment action.
+- Supported provider management (toggle activation and authenticated credentials state) and visual configuration of custom providers and endpoints (OpenAI-compatible, local Ollama, proxies) in `models.json`.
+- Instant restart button for OMP sessions in open project terminals to apply model configuration changes immediately.
+- Detection of providers and models used by `omp` subagents and fallbacks in usage popover, indicating active project beneath each active provider.
+
+## [0.5.1] - 2026-08-19
+
+### Added
+
+- Syntax highlighting for SQL files and configuration/script formats (.sql, .xml, .config, .csproj, .vbproj, .props, .targets, .resx, .py, .yaml, .toml, .ini, .sh, .ps1, .bat) in Monaco Editor.
+- Automatic recognition and direct clicking for file paths and names in the terminal (e.g. "agents.md", relative/absolute paths, Git diffs, snapshot tags `[file#tag:line]`, and line numbers `:line:col`) to open them directly in the editor.
+
+### Fixed
+
+- Web links clicked in the terminal open properly in the default system browser via the opener plugin.
+
+## [0.5.0] - 2026-08-19
+
+### Added
+
+- Reset countdown displayed for each limit in the usage popover (e.g. "· in 1h 25m"), with exact date and time in the tooltip.
+
+### Changed
+
+- Active project indication in usage popover is displayed once beneath provider header rather than under each individual limit bar.
+
+### Fixed
+
+- Status dot on project cards in top bar (completed or attention required) is no longer clipped by the rounded border.
+- Refresh animation in usage popover rotates solely the inner icon without spinning the entire button.
+
+## [0.4.0] - 2026-08-17
+
+### Added
+
+- Check and install OMP Studio updates directly in-app from bottom bar, with verification from GitHub Releases, percentage and speed tracking for downloads, release notes display, and restart to install.
+
+### Changed
+
+- Long lines in editor no longer soft wrap: they scroll horizontally while keeping line numbers visible.
+- Active project indicator in usage panel displays only project names.
+
+## [0.3.1] - 2026-08-13
+
+### Added
+
+- Complete cross-platform support for macOS (Apple Silicon and Intel): native PTY shell ($SHELL zsh/bash), automatic `omp` binary resolution, keyboard shortcuts with `Cmd` (⌘), and POSIX path handling.
+- Automatic injection of user binary paths (`~/.bun/bin`, `~/.cargo/bin`, `/opt/homebrew/bin`, etc.) into `$PATH` for PTY sessions on macOS.
+
+### Fixed
+
+- Fixed `libsqlite3-sys` compilation error with recent versions of Rust compiler.
+- Resolved V8 memory limit during Monaco Editor frontend build.
+
+## [0.3.0] - 2026-08-03
+
+### Added
+
+- Open multiple files in same project as editor tabs, with diff and close on each tab; `Ctrl+W` and `Ctrl+F4` close active file.
+- Rename projects and set multi-character custom abbreviations from the project card.
+
+### Changed
+
+- Theme switcher separates light and dark themes into two tabs, reopens on last used tab, and displays applied theme name beside color.
+- Automatic project colors now follow active theme palette and luminance; manual choices remain unchanged.
+- Project path in project card is ellipsized without overflowing border.
+
+## [0.2.1] - 2026-08-03
+
+### Added
+
+- Added 48 built-in light themes from `omp`, separated from 52 dark themes in switcher; selection updates shell, editor, terminal, and `omp` sessions together.
+
+### Changed
+
+- Recognizes `theme.light` on startup when `theme.dark` is not set.
+
+## [0.2.0] - 2026-08-03
+
+### Added
+
+- Usage panel opens and closes with `Ctrl+Alt+U`, keeping hands on keyboard. Shortcut is also displayed in button tooltip.
+- Under each usage panel bar, active consumers are displayed—for example "In use by: OMP Studio · AreaIT, Windows Terminal · GestioneFlotta"—so you know immediately if another window is driving usage. If unused, nothing is shown.
+- Theme picker in top bar: 52 dark themes from `omp`, with filtering. Updates Studio and TUI colors simultaneously, which now start from the same theme. Studio automatically adopts theme chosen in `omp` on startup.
+- `Ctrl+click` on file path printed by agent opens it in editor at indicated line. Paths outside project directory are ignored.
+
+### Changed
+
+- Quieter interface: agent states no longer use colored luminous glows or green and blue. Only a ring and dot remain in two colors—crimson when working or finished, amber when awaiting response.
+- Top bar no longer expands on hover: tabs, logo, and spacing stay fixed. Now 48px high with proportional tabs and logo.
+- Single colored project at a time: active tab is filled with project color, others are neutral with only initial letter tinted. Previously every open project was a saturated block.
+- Single continuous animation across the entire app instead of seven: gentle pulse on "working" tab, redesigned to avoid keeping GPU busy at idle.
+- Path in tab card is truncated in center rather than scrolling back and forth: tail of path is the relevant part.
+- Interface colors and radii derive from a small set of constants, so states like "hovered row" or "selected row" behave consistently across every panel, including above terminal and inside popovers.
+- Columns separated by background contrast rather than border lines: removed vertical dividers and borders below headers. Tree rows fade when passing under headers, and draggable divider appears in crimson only on hover.
+
+### Removed
+
+- Background blur behind dialog windows: caused continuous repainting of underlying terminal without adding information.
+
+## [0.1.0] - 2026-07-30
+
+### Added
+
+- First public release: multi-project desktop shell for the `omp` agent, featuring integrated terminal, file tree, editor, and usage panel in a single window.
+- Project bar at top: each project is a tab with its own persistent terminal, automatically sorted by last used, with customizable color (eight-tone palette or free picker).
+- Agent status visible at a glance on tab and in bottom bar: idle, working, awaiting response, completed.
+- Project selector via `+` button or `Ctrl+Alt+N`: lists folders in repository root indicating already open projects, and allows browsing others.
+- File tree with icons by type, Git status indicators (modified, added, untracked, removed, renamed), and automatic updates when agent modifies files.
+- Monaco Editor with side-by-side Git diff, gutter markers for modified lines, unsaved changes indicator, and saving via `Ctrl+S`. Each project remembers its open file.
+- Live preview for Markdown and SVG beside editor with draggable divider, and dedicated image viewer with zoom, pan, and 1:1 reset.
+- Full-text search and listing of agent sessions, allowing resumption of interrupted work without manual searching.
+- Usage panel with remaining quota per provider, manual refresh, last updated timestamp, and animated fill bars.
+- Check and install `omp` updates from bottom bar with confirmation, logs, and restart prompt.
+- Native window controls integrated into top bar with window position and size restoration on launch.

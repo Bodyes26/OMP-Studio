@@ -16,6 +16,7 @@ import type { StudioTask } from './taskSerialization';
 export class QueueHydration {
 	private readonly hydrated = new Set<string>();
 	private readonly pending = new Map<string, Promise<boolean>>();
+	private readonly epochs = new Map<string, number>();
 
 	/** Vero se la coda e' gia' stata letta con successo: nessuna allocazione. */
 	isHydrated(key: string): boolean {
@@ -26,25 +27,41 @@ export class QueueHydration {
 	 * Esegue `read` al massimo una volta per chiave; le chiamate concorrenti
 	 * condividono lo stesso tentativo. Ritorna `false` se la lettura fallisce,
 	 * lasciando la chiave non idratata perche' il prossimo tentativo riprovi.
+	 * Se `forget` viene invocata mentre una lettura e' in corso, l'esito obsoleto
+	 * viene scartato e il tentativo successivo esegue una nuova lettura.
 	 */
-	ensure(key: string, read: () => Promise<void>): Promise<boolean> {
-		if (this.hydrated.has(key)) return Promise.resolve(true);
-		const running = this.pending.get(key);
-		if (running) return running;
+	async ensure(key: string, read: () => Promise<void>): Promise<boolean> {
+		if (this.hydrated.has(key)) return true;
 
-		const attempt = read()
-			.then(() => {
-				this.hydrated.add(key);
+		const running = this.pending.get(key);
+		if (running) {
+			const callEpoch = this.epochs.get(key) ?? 0;
+			await running;
+			if (this.hydrated.has(key) && (this.epochs.get(key) ?? 0) === callEpoch) {
 				return true;
-			})
-			.catch((err) => {
+			}
+		}
+
+		const epoch = this.epochs.get(key) ?? 0;
+		let currentAttempt: Promise<boolean> | null = null;
+		const execute = async (): Promise<boolean> => {
+			try {
+				await read();
+				if ((this.epochs.get(key) ?? 0) === epoch) {
+					this.hydrated.add(key);
+				}
+				return true;
+			} catch (err) {
 				console.warn(`Lettura della coda fallita per ${key}:`, err);
 				return false;
-			})
-			.finally(() => {
-				this.pending.delete(key);
-			});
-
+			} finally {
+				if (this.pending.get(key) === currentAttempt) {
+					this.pending.delete(key);
+				}
+			}
+		};
+		const attempt = execute();
+		currentAttempt = attempt;
 		this.pending.set(key, attempt);
 		return attempt;
 	}
@@ -52,6 +69,7 @@ export class QueueHydration {
 	/** La prossima `ensure` rilegge: il file e' cambiato da fuori Studio. */
 	forget(key: string): void {
 		this.hydrated.delete(key);
+		this.epochs.set(key, (this.epochs.get(key) ?? 0) + 1);
 	}
 }
 
