@@ -13,7 +13,8 @@
 	import PixelGrid from '../components/PixelGrid.svelte';
 	import { lexMarkdown } from '../markdown';
 	import ToolCard from './ToolCard.svelte';
-	import { formatDuration, extractToolErrorReason } from './types';
+	import { formatElapsed, extractToolErrorReason } from './types';
+	import { stopwatchNow, subscribeStopwatch } from './stopwatch.svelte';
 	import { IconChevronRight } from '$lib/icons';
 
 	export type ToolGroupEntry = ToolEntry | AssistantEntry;
@@ -38,25 +39,27 @@
 	const isRunning = $derived(isToolRunning || isStreamingThinking);
 	const hasError = $derived(toolEntries.some((e) => e.result?.isError === true));
 
-	// Cronometro: mentre almeno un tool è in esecuzione il totale si aggiorna
-	// ogni secondo dal primo avvio; a esecuzione conclusa resta la durata finale.
-	let now = $state(Date.now());
+	// Cronometro del gruppo: mentre almeno un tool e' in esecuzione il totale
+	// scorre a decimi di secondo dal primo avvio sull'orologio condiviso della
+	// chat; concluse le chiamate resta la durata finale. Il solo ragionamento in
+	// streaming non accende l'orologio: senza tool attivi non c'e' nulla da
+	// contare e l'intervallo non deve restare vivo.
 	$effect(() => {
-		if (!isRunning) return;
-		const id = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(id);
+		if (!isToolRunning) return;
+		return subscribeStopwatch();
 	});
 
 	const totalDuration = $derived.by(() => {
 		if (toolEntries.length === 0) return undefined;
 		const start = Math.min(...toolEntries.map((e) => e.startedAt));
 		if (isToolRunning) {
-			return now > start ? formatDuration(now - start) : undefined;
+			const now = stopwatchNow();
+			return now > start ? formatElapsed(now - start) : undefined;
 		}
 		const finished = toolEntries.every((e) => e.endedAt);
 		if (!finished) return undefined;
 		const end = Math.max(...toolEntries.map((e) => e.endedAt ?? e.startedAt));
-		return end > start ? formatDuration(end - start) : undefined;
+		return end > start ? formatElapsed(end - start) : undefined;
 	});
 
 	// Strumenti unici utilizzati per i chip di anteprima nel badge/header
@@ -146,6 +149,10 @@
 					<span class="active-intent text-shimmer">{m.ui_activity_sta_pensando()}</span>
 				{:else}
 					<span class="active-intent text-shimmer">{m.ui_toolgroup_sto_usando({ tool: currentOrLastError?.toolName ?? '' })}</span>
+				{/if}
+				<!-- Il cronometro accompagna qualunque testo di stato: con il gruppo
+				     chiuso e' l'unica prova che il comando sta ancora girando. -->
+				{#if isToolRunning}
 					<span class="status-tag running">{totalDuration ?? m.queue_drawer_status_in_progress()}</span>
 				{/if}
 			{:else if hasError}
@@ -342,9 +349,13 @@
 		font-variant-numeric: tabular-nums;
 	}
 
+	/* Larghezza minima sull'intervallo comune (`0.1s` ... `1m 00s`) allineata a
+	   destra: le cifre che scorrono non spostano il testo di stato accanto. */
 	.status-tag.running {
 		color: var(--brand-ink);
 		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		min-width: 6ch;
+		text-align: right;
 	}
 
 	.status-tag.error {
@@ -357,6 +368,8 @@
 		color: var(--ink-faint);
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
+		min-width: 6ch;
+		text-align: right;
 	}
 
 	.group-body {

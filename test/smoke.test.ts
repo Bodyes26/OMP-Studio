@@ -60,3 +60,4 @@ import './prompt-preflight.test.ts';
 import './task-row.test.ts';
 import './task-recovery.test.ts';
 import './icons.test.ts';
+import './tool-stopwatch.test.ts';

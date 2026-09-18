@@ -9,28 +9,24 @@
 	import type { ToolEntry } from '../session.svelte';
 	import { chatReveal } from '../motion';
 	import { rendererFor } from './registry';
-	import { formatDuration, extractToolErrorReason } from './types';
+	import { extractToolErrorReason } from './types';
+	import { stopwatchLabel, subscribeStopwatch } from './stopwatch.svelte';
 	import { IconChevronRight } from '$lib/icons';
 	let { entry } = $props<{ entry: ToolEntry }>();
 
 	const renderer = $derived(rendererFor(entry.toolName));
 	const isError = $derived(entry.result?.isError === true);
 
-	// Cronometro: mentre il tool e' in esecuzione il tempo trascorso si
-	// aggiorna ogni secondo; a esecuzione conclusa resta la durata finale.
-	let now = $state(Date.now());
+	// Cronometro live: finche' il tool e' in esecuzione il tempo trascorso
+	// scorre a decimi di secondo sull'orologio condiviso della chat (un solo
+	// intervallo per tutte le chiamate). Alla ricezione del risultato la
+	// sottoscrizione viene rilasciata e il valore si congela sulla differenza
+	// reale fra `tool_call` e `tool_result`.
 	$effect(() => {
 		if (!entry.running) return;
-		const id = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(id);
+		return subscribeStopwatch();
 	});
-	const duration = $derived(
-		entry.running
-			? formatDuration(now - entry.startedAt)
-			: entry.endedAt && entry.startedAt
-				? formatDuration(entry.endedAt - entry.startedAt)
-				: undefined
-	);
+	const duration = $derived(stopwatchLabel(entry.startedAt, entry.endedAt, entry.running));
 
 	let open = $state(false);
 	const canOpen = $derived(renderer.expandable);
@@ -64,7 +60,7 @@
 			/>
 		</span>
 		{#if duration}
-			<span class="tail">{duration}</span>
+			<span class="tail" class:live={entry.running}>{duration}</span>
 		{/if}
 	</div>
 	{#if entry.intent}
@@ -179,12 +175,23 @@
 		overflow: hidden;
 	}
 
+	/* La larghezza minima copre l'intero intervallo comune del cronometro
+	   (`0.1s` ... `1m 00s`) allineato a destra: mentre le cifre scorrono la
+	   colonna del sommario non si muove di un pixel. */
 	.tail {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
+		min-width: 6ch;
+		text-align: right;
+	}
+
+	/* In esecuzione il cronometro sale di un gradino di contrasto: visibile
+	   guardandolo, muto nella visione periferica. */
+	.tail.live {
+		color: var(--ink-muted);
 	}
 
 	.intent {

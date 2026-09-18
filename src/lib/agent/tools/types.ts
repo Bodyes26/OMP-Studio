@@ -101,27 +101,26 @@ export function formatDuration(ms: number | undefined): string | undefined {
 }
 
 /**
- * Formatta il tempo trascorso per l'indicatore di attivita.
+ * Formatta il tempo trascorso dei cronometri della chat: indicatore di
+ * attivita del turno e chiamate ai tool.
  * Separata da formatDuration perche durante il tick a 100ms i millisecondi
  * produrrebbero tre cifre che saltano continuamente e una larghezza instabile.
- * Mostra un decimale sotto i 60s (es. 0.3s, 12.4s) e secondi interi oltre (es. 1m 5s).
+ * Sotto il minuto mostra un decimale (`0.1s`, `12.8s`); oltre, minuti e
+ * secondi con lo zero di riempimento (`1m 14s`, `2m 05s`): il decimale non
+ * porta informazione e la larghezza resta ferma mentre i secondi scorrono.
+ * Il tempo e troncato, non arrotondato: un cronometro non mostra un istante
+ * non ancora raggiunto. Sotto il decimo di secondo resta `0.1s`, cosi una
+ * chiamata istantanea si congela su un valore leggibile e non su `0.0s`.
  */
 export function formatElapsed(ms: number): string {
 	if (!Number.isFinite(ms) || ms <= 0) return '0.0s';
 	if (ms < 60_000) {
-		const secStr = (ms / 1000).toFixed(1);
-		if (secStr === '60.0') {
-			return '1m 0s';
-		}
-		return `${secStr}s`;
+		const tenths = Math.max(1, Math.floor(ms / 100));
+		return `${Math.floor(tenths / 10)}.${tenths % 10}s`;
 	}
-	let minutes = Math.floor(ms / 60_000);
-	let seconds = Math.round((ms % 60_000) / 1000);
-	if (seconds === 60) {
-		minutes += 1;
-		seconds = 0;
-	}
-	return `${minutes}m ${seconds}s`;
+	const minutes = Math.floor(ms / 60_000);
+	const seconds = Math.floor((ms % 60_000) / 1000);
+	return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
 /** Conteggio con plurale italiano: `1 file`, `3 file`, `1 riga`, `2 righe`. */
