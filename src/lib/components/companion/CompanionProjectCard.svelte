@@ -95,69 +95,71 @@
 	style="--proj-hue: {hue}"
 >
 	<header class="card-top">
-		<!-- Stesso vocabolario della barra progetti (DESIGN.md §7.1): punto
-		     identita' pieno quando un agente c'e', anello ambra inset che
-		     respira quando aspetta te. Il punto non si anima mai. -->
-		<button
-			type="button"
-			class="card-identity"
-			title={m.companion_card_open_title({ project: name })}
-			onclick={() => onFocusProject(project.id)}
-		>
-			<span class="p-dot" class:lit={busy}></span>
-			<span class="p-name">{name}</span>
-		</button>
+		<!-- Riga superiore: punto identita' + nome progetto + pulsante nuovo task -->
+		<div class="card-row-name">
+			<button
+				type="button"
+				class="card-identity"
+				title={m.companion_card_open_title({ project: name })}
+				onclick={() => onFocusProject(project.id)}
+			>
+				<span class="p-dot" class:lit={busy}></span>
+				<span class="p-name">{name}</span>
+			</button>
+			<button
+				type="button"
+				class="card-new-task"
+				title={m.companion_card_new_task_title({ project: name })}
+				aria-label={m.companion_card_new_task_title({ project: name })}
+				onclick={() => onNewTask(project)}
+			>
+				<IconPlus />
+			</button>
+		</div>
 
-		{#if queued.length > 0}
-			<span class="p-queue-count" title={m.companion_queue_count({ count: queued.length })}>
-				{queued.length}
-			</span>
-		{/if}
-
-		{#if busy && runtime?.provider}
-			{@const info = computeQuotaInfo(runtime.provider, runtime.modelId, runtime.credentialPin)}
-			<QuotaChip
-				variant="ringHalo"
-				showProvider={true}
-				alwaysShowPct={true}
-				semanticColors={true}
-				status={info.status}
-				remainingPct={info.remainingPct}
-				usedPct={info.usedPct}
-				shortName={runtime.modelLabel ?? info.shortName}
-				hasLimits={info.hasLimits}
-				title={info.tooltip}
-				ariaLabel={info.tooltip}
-				longWindowAlert={info.longWindowAlert}
-				accountEmail={info.accountEmail}
-				onclick={(e) => {
-					e.stopPropagation();
-					onToggleUsage?.();
-				}}
-			/>
-		{/if}
-
-		<span class="p-state state-{project.agentState}">
-			{#if project.agentState === 'working'}
-				<IconStatusRunning /> {stateLabel()}
-			{:else if project.agentState === 'attention'}
-				<IconWarning /> {stateLabel()}
-			{:else if project.agentState === 'finished'}
-				<IconCheck /> {stateLabel()}
-			{:else}
-				<IconStatusPending /> {stateLabel()}
+		<!-- Riga inferiore: quota, stato e contatore coda -->
+		<div class="card-row-meta">
+			{#if queued.length > 0}
+				<span class="p-queue-count" title={m.companion_queue_count({ count: queued.length })}>
+					{queued.length}
+				</span>
 			{/if}
-		</span>
 
-		<button
-			type="button"
-			class="card-new-task"
-			title={m.companion_card_new_task_title({ project: name })}
-			aria-label={m.companion_card_new_task_title({ project: name })}
-			onclick={() => onNewTask(project)}
-		>
-			<IconPlus />
-		</button>
+			{#if busy && runtime?.provider}
+				{@const info = computeQuotaInfo(runtime.provider, runtime.modelId, runtime.credentialPin)}
+				<QuotaChip
+					variant="ringHalo"
+					showProvider={true}
+					alwaysShowPct={true}
+					semanticColors={true}
+					status={info.status}
+					remainingPct={info.remainingPct}
+					usedPct={info.usedPct}
+					shortName={runtime.modelLabel ?? info.shortName}
+					hasLimits={info.hasLimits}
+					title={info.tooltip}
+					ariaLabel={info.tooltip}
+					longWindowAlert={info.longWindowAlert}
+					accountEmail={info.accountEmail}
+					onclick={(e) => {
+						e.stopPropagation();
+						onToggleUsage?.();
+					}}
+				/>
+			{/if}
+
+			<span class="p-state state-{project.agentState}">
+				{#if project.agentState === 'working'}
+					<IconStatusRunning /> {stateLabel()}
+				{:else if project.agentState === 'attention'}
+					<IconWarning /> {stateLabel()}
+				{:else if project.agentState === 'finished'}
+					<IconCheck /> {stateLabel()}
+				{:else}
+					<IconStatusPending /> {stateLabel()}
+				{/if}
+			</span>
+		</div>
 	</header>
 
 	{#if attention}

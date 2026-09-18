@@ -6,8 +6,7 @@
 	// prima riga di un prompt) non si legge piu' (DESIGN.md §7.8).
 	//
 	// L'ordine arriva gia' deciso dalla vista (attention, working, finished,
-	// idle). Qui si decide solo quanto mostrare: chi ti riguarda sempre tutto,
-	// i progetti fermi e senza niente da dire due alla volta.
+	// idle). Tutti i progetti sono sempre visibili.
 	import { m } from '$lib/paraglide/messages.js';
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
@@ -37,27 +36,6 @@
 		onToggleUsage?: () => void;
 	}>();
 
-	/** Quante card di progetti fermi restano a vista prima del residuo. */
-	const QUIET_LIMIT = 2;
-
-	let showAllQuiet = $state(false);
-
-	function isQuiet(project: Project): boolean {
-		return project.agentState === 'idle' || project.agentState === 'unknown';
-	}
-
-	const visibleProjects = $derived.by(() => {
-		if (showAllQuiet) return projects;
-		let quiet = 0;
-		return projects.filter((p: Project) => {
-			if (!isQuiet(p)) return true;
-			quiet += 1;
-			return quiet <= QUIET_LIMIT;
-		});
-	});
-
-	const hiddenCount = $derived(projects.length - visibleProjects.length);
-
 	function runtimeFor(projectId: string) {
 		return runtimes.find((r: CompanionProjectRuntime) => r.projectId === projectId);
 	}
@@ -79,7 +57,7 @@
 
 {#if projects.length > 0}
 	<section class="project-cards" aria-label={m.companion_cards_aria()}>
-		{#each visibleProjects as p (p.id)}
+		{#each projects as p (p.id)}
 			<CompanionProjectCard
 				project={p}
 				hue={hueFor(p)}
@@ -93,16 +71,5 @@
 				{onToggleUsage}
 			/>
 		{/each}
-
-		{#if hiddenCount > 0}
-			<button
-				type="button"
-				class="more-projects"
-				title={m.companion_more_projects_title()}
-				onclick={() => (showAllQuiet = true)}
-			>
-				{m.companion_more_projects({ count: hiddenCount })}
-			</button>
-		{/if}
 	</section>
 {/if}
