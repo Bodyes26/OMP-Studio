@@ -11,6 +11,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Fixed
+- Preserved natural chronological ordering between assistant narrative text and tool calls: chat history reconstruction no longer appends all tools to the bottom of the aggregated turn, but interleaves explanations, interactive questions (`ask`), and operational executions in their true temporal sequence, omitting redundant model badges before tool invocations.
+
+
 ### Added
 - Fuzzy `@file` mention autocomplete in the Chat GUI Composer: typing `@` (at line start or after space) opens a smooth popover anchored to the caret with fuzzy file search powered by `looseSearch`, excluding build and noise directories (`.git`, `node_modules`, `bin`, `obj`, `dist`, `target`), prioritizing the active Monaco file, open tabs, and agent-touched files, featuring arrow key ↑/↓ navigation, relative path insertion with Enter or Tab, and Escape dismissal without interfering with `/` slash commands or standard message submission.
 - Git `+X -Y` micro-badges on project tabs, their popovers, and completed tasks: they immediately show lines added and removed from HEAD, include new text files, and refresh after agent writes, commits, saves, and branch changes without bright colors or shifting digits.

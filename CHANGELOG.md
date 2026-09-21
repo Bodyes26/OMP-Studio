@@ -11,6 +11,10 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Fixed
+- Preservato l'ordine cronologico naturale tra testo dell'assistente e chiamate tool: la ricostruzione dello storico della chat non accoda più tutti i tool al fondo del messaggio aggregato, ma intercala spiegazioni, domande interattive (`ask`) ed esecuzioni operative nella loro reale sequenza temporale, omettendo badge modello duplicati prima delle invocazioni dei tool.
+
+
 ### Added
 - Autocompletamento fuzzy `@file` nel Composer della Chat GUI: digitando `@` (a inizio riga o dopo spazio) si apre un popover fluido ancorato al cursore con la ricerca fuzzy dei file del progetto tramite `looseSearch`, escludendo directory di build e rumore (`.git`, `node_modules`, `bin`, `obj`, `dist`, `target`), con priorità per file attivo Monaco, file aperti e file modificati dall'agente, navigazione tramite frecce ↑/↓, inserimento del percorso relativo con Invio o Tab e chiusura con Esc senza interferire con i comandi slash `/` o con l'invio ordinario del messaggio.
 - Micro-badge Git `+X -Y` nelle tessere dei progetti, nel relativo pannello e sui task completati: mostrano subito le righe aggiunte e rimosse rispetto a HEAD, includono i nuovi file di testo e si aggiornano dopo scritture dell'agente, commit, salvataggi e cambi di branch senza colori accesi né spostamenti delle cifre.

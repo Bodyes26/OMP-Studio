@@ -199,10 +199,13 @@
 		if (next && next.kind === 'single' && next.entry.kind === 'assistant') {
 			return false;
 		}
-		// Se il display item successivo e' un tool group (l'assistente ha emesso
+		// Se il display item successivo e' un tool group o una card di tool singolo (l'assistente ha emesso
 		// un commento o spiegazione prima di avviare l'esecuzione dei tool),
 		// omette il footer: modello e costo compariranno in fondo alla risposta finale.
-		if (next && next.kind === 'tool-group') {
+		if (
+			next &&
+			(next.kind === 'tool-group' || (next.kind === 'single' && next.entry.kind === 'tool'))
+		) {
 			return false;
 		}
 		return true;

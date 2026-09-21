@@ -1226,16 +1226,34 @@ export class AgentSession {
 				continue;
 			}
 			if (message.role === 'assistant') {
-				const blocks: Block[] = [];
-				const calls: ToolEntry[] = [];
-				for (const block of Array.isArray(message.content) ? message.content : []) {
+				const currentBlocks: Block[] = [];
+				const flushBlocks = (isLast: boolean) => {
+					if (currentBlocks.length === 0) return;
+					entries.push({
+						id: this.nextEntryId++,
+						kind: 'assistant',
+						blocks: [...currentBlocks],
+						model: message.model,
+						usage: isLast ? message.usage : undefined,
+						stopReason: isLast ? message.stopReason : undefined
+					});
+					currentBlocks.length = 0;
+				};
+
+				const content = Array.isArray(message.content) ? message.content : [];
+				for (let i = 0; i < content.length; i++) {
+					const block = content[i];
 					if (block.type === 'text' && typeof block.text === 'string') {
-						blocks.push({ type: 'text', text: block.text });
+						currentBlocks.push({ type: 'text', text: block.text });
 					} else if (block.type === 'thinking' && typeof block.thinking === 'string') {
-						blocks.push({ type: 'thinking', text: block.thinking });
+						currentBlocks.push({ type: 'thinking', text: block.thinking });
 					} else if (block.type === 'image' && typeof block.data === 'string') {
-						blocks.push({ type: 'image', data: block.data, mimeType: block.mimeType ?? 'image/png' });
+						currentBlocks.push({ type: 'image', data: block.data, mimeType: block.mimeType ?? 'image/png' });
 					} else if (block.type === 'toolCall' && typeof block.id === 'string' && typeof block.name === 'string') {
+						const hasSubsequentBlocks = content
+							.slice(i + 1)
+							.some((b) => b.type === 'text' || b.type === 'thinking' || b.type === 'image');
+						flushBlocks(!hasSubsequentBlocks);
 						const entry: ToolEntry = {
 							id: this.nextEntryId++,
 							kind: 'tool',
@@ -1246,21 +1264,11 @@ export class AgentSession {
 							running: false,
 							startedAt: message.timestamp ?? 0
 						};
-						calls.push(entry);
+						entries.push(entry);
 						tools.set(block.id, entry);
 					}
 				}
-				if (blocks.length > 0) {
-					entries.push({
-						id: this.nextEntryId++,
-						kind: 'assistant',
-						blocks,
-						usage: message.usage,
-						model: message.model,
-						stopReason: message.stopReason
-					});
-				}
-				entries.push(...calls);
+				flushBlocks(true);
 				continue;
 			}
 			if (message.role === 'toolResult' && typeof message.toolCallId === 'string') {
@@ -1435,6 +1443,10 @@ export class AgentSession {
 				if (typeof event.toolCallId !== 'string' || typeof event.toolName !== 'string') return;
 				if (!this.isStreaming || this.isAborting) return;
 				traceAgent(`tool-start:${event.toolName}`);
+				// Se un'entry assistant era ancora aperta, chiudila: l'esecuzione
+				// del tool appartiene al passo successivo del flusso di esecuzione.
+				this.assistantEntry = null;
+				this.activeAssistantId = null;
 				const entry: ToolEntry = {
 					id: this.nextEntryId++,
 					kind: 'tool',

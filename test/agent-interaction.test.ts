@@ -459,7 +459,10 @@ describe('Raggruppamento tool ed esecuzione nella timeline (Transcript grouping)
 		if (next && next.kind === 'single' && next.entry?.kind === 'assistant') {
 			return false;
 		}
-		if (next && next.kind === 'tool-group') {
+		if (
+			next &&
+			(next.kind === 'tool-group' || (next.kind === 'single' && next.entry?.kind === 'tool'))
+		) {
 			return false;
 		}
 		return true;
@@ -543,22 +546,112 @@ describe('Raggruppamento tool ed esecuzione nella timeline (Transcript grouping)
 		assert.equal(items[2].kind, 'single', 'Il messaggio utente resta standalone');
 	});
 
-	it('deduplica il footer modello omettendolo prima di un tool-group e mostrandolo alla risposta finale', () => {
-		const items = [
+	it('deduplica il footer modello omettendolo prima di un tool-group o tool singolo e mostrandolo alla risposta finale', () => {
+		const itemsWithGroup = [
 			{ kind: 'single', entry: { kind: 'assistant' } },
 			{ kind: 'tool-group' },
 			{ kind: 'single', entry: { kind: 'assistant' } }
 		];
 
 		assert.equal(
-			shouldShowAssistantFooter(0, items),
+			shouldShowAssistantFooter(0, itemsWithGroup),
 			false,
 			'Nessun footer prima di un tool-group'
 		);
 		assert.equal(
-			shouldShowAssistantFooter(2, items),
+			shouldShowAssistantFooter(2, itemsWithGroup),
 			true,
 			'Footer mostrato sulla risposta finale'
 		);
+
+		const itemsWithSingleTool = [
+			{ kind: 'single', entry: { kind: 'assistant' } },
+			{ kind: 'single', entry: { kind: 'tool' } },
+			{ kind: 'single', entry: { kind: 'assistant' } }
+		];
+
+		assert.equal(
+			shouldShowAssistantFooter(0, itemsWithSingleTool),
+			false,
+			'Nessun footer prima di un tool singolo (come ask)'
+		);
+		assert.equal(
+			shouldShowAssistantFooter(2, itemsWithSingleTool),
+			true,
+			'Footer mostrato sulla risposta finale dopo il tool'
+		);
+	});
+
+	it('preserva l ordine cronologico intervallando testo e chiamate tool invece di accodare tutti i tool alla fine', () => {
+		// Simula un messaggio assistant in arrivo dallo storico omp con 2 round di ask e testo finale
+		const rawMessage = {
+			role: 'assistant',
+			model: 'cursor-grok-4.6',
+			usage: { cost: { total: 0.05 } },
+			content: [
+				{ type: 'thinking', thinking: 'ragionamento round 1' },
+				{ type: 'text', text: 'Ripeto le 4 domande:' },
+				{ type: 'toolCall', id: 'call-1', name: 'ask' },
+				{ type: 'thinking', thinking: 'ragionamento round 2' },
+				{ type: 'text', text: 'Confermate: procediamo con round 2' },
+				{ type: 'toolCall', id: 'call-2', name: 'ask' },
+				{ type: 'thinking', thinking: 'ragionamento finale' },
+				{ type: 'text', text: 'Frontier vuota: ecco il riepilogo finale.' }
+			]
+		};
+
+		const entries: Array<{
+			id: number;
+			kind: string;
+			toolName?: string;
+			blocks?: Array<{ type: string; text?: string }>;
+			usage?: unknown;
+		}> = [];
+		let currentBlocks: Array<{ type: string; text?: string }> = [];
+		let nextId = 1;
+
+		const flush = (isLast: boolean) => {
+			if (currentBlocks.length === 0) return;
+			entries.push({
+				id: nextId++,
+				kind: 'assistant',
+				blocks: [...currentBlocks],
+				usage: isLast ? rawMessage.usage : undefined
+			});
+			currentBlocks = [];
+		};
+
+		for (let i = 0; i < rawMessage.content.length; i++) {
+			const b = rawMessage.content[i];
+			if (b.type === 'text' || b.type === 'thinking') {
+				currentBlocks.push(b);
+			} else if (b.type === 'toolCall') {
+				const hasSubsequent = rawMessage.content
+					.slice(i + 1)
+					.some((x) => x.type === 'text' || x.type === 'thinking');
+				flush(!hasSubsequent);
+				entries.push({
+					id: nextId++,
+					kind: 'tool',
+					toolName: b.name
+				});
+			}
+		}
+		flush(true);
+
+		// 1. Devono essere prodotte 5 entry ordinate cronologicamente
+		assert.equal(entries.length, 5);
+		assert.equal(entries[0].kind, 'assistant');
+		assert.equal(entries[1].kind, 'tool');
+		assert.equal(entries[1].toolName, 'ask');
+		assert.equal(entries[2].kind, 'assistant');
+		assert.equal(entries[3].kind, 'tool');
+		assert.equal(entries[3].toolName, 'ask');
+		assert.equal(entries[4].kind, 'assistant');
+
+		// 2. Solo l'ultima risposta dell'assistente porta l'usage (costo/footer finale)
+		assert.equal(entries[0].usage, undefined);
+		assert.equal(entries[2].usage, undefined);
+		assert.deepEqual(entries[4].usage, { cost: { total: 0.05 } });
 	});
 });
