@@ -14,8 +14,14 @@
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import QuotaChip from './quota/QuotaChip.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
+	import GitDiffBadge from './GitDiffBadge.svelte';
 	import { companionStore } from '$lib/stores/companion.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import {
+		gitDiffStore,
+		hasGitChanges,
+		type GitStatusRefreshDetail
+	} from '$lib/stores/gitDiff.svelte';
 	import {
 		IconChevronDown,
 		IconChevronLeft,
@@ -184,6 +190,37 @@
 		quotaStore.init();
 		return () => {
 			quotaStore.destroy();
+		};
+	});
+
+	$effect(() => {
+		const paths = projectStore.projects.map((project) => project.path).filter(Boolean);
+		void gitDiffStore.loadMany(paths);
+
+		const handleGitRefresh = (event: Event) => {
+			const projectPath = (event as CustomEvent<GitStatusRefreshDetail>).detail?.projectPath;
+			if (projectPath) {
+				gitDiffStore.requestRefresh(projectPath);
+				return;
+			}
+			for (const path of paths) gitDiffStore.requestRefresh(path);
+		};
+		const handleFocus = () => {
+			for (const path of paths) gitDiffStore.requestRefresh(path);
+		};
+		const interval = window.setInterval(() => {
+			const activePath = projectStore.projects.find(
+				(project) => project.id === projectStore.activeId
+			)?.path;
+			if (activePath) gitDiffStore.requestRefresh(activePath);
+		}, 15_000);
+
+		window.addEventListener('git-status-refresh', handleGitRefresh);
+		window.addEventListener('focus', handleFocus);
+		return () => {
+			window.removeEventListener('git-status-refresh', handleGitRefresh);
+			window.removeEventListener('focus', handleFocus);
+			clearInterval(interval);
 		};
 	});
 
@@ -487,6 +524,8 @@
 			{@const isActive = projectStore.activeId === p.id}
 			{@const showName = isActive || settingsStore.projectBar.label === 'name'}
 			{@const queueStyle = settingsStore.projectBar.queueBadge}
+			{@const gitDiff = p.path ? gitDiffStore.forPath(p.path) : null}
+			{@const gitDiffLabel = gitDiff && hasGitChanges(gitDiff) ? ` · Git +${gitDiff.additions} -${gitDiff.deletions}` : ''}
 			<!-- Il contenitore esiste solo per trascinamento, hover e menu
 			     contestuale: con `role="presentation"` sparisce dall'albero
 			     accessibile e la tessera resta figlia diretta del tablist, come
@@ -533,7 +572,7 @@
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-label={m.topbar_tab_aria_label({ type: p.path ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[p.agentState], queued: queued > 0 ? ` · ${queued} task in coda` : '' })}
+					aria-label={m.topbar_tab_aria_label({ type: p.path ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[p.agentState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + gitDiffLabel}
 				>
 					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
 					     raggio; il rimontaggio con `#key` riavvia l'animazione. -->
@@ -572,6 +611,15 @@
 									>{queued}</span>
 								{/if}
 							</span>
+						</span>
+					{/if}
+					{#if gitDiff && hasGitChanges(gitDiff)}
+						<span class="tab-git-diff" aria-hidden="true">
+							<GitDiffBadge
+								additions={gitDiff.additions}
+								deletions={gitDiff.deletions}
+								compact
+							/>
 						</span>
 					{/if}
 				</button>
@@ -1231,6 +1279,14 @@
 		flex: none;
 		border-radius: 1px;
 		background-color: var(--ink-faint);
+	}
+
+	.tab-git-diff {
+		display: flex;
+		align-items: center;
+		margin-left: 6px;
+		position: relative;
+		z-index: 1;
 	}
 
 	/* Stato: un anello, mai un alone. L'unico anello che si muove e' quello che

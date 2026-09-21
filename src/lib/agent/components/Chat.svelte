@@ -7,6 +7,7 @@
 	// Unico punto di innesto per i ganci verso il guscio (`setAgentUiHooks`).
 
 	import type { AgentSession } from '../session.svelte';
+	import { setContext } from 'svelte';
 	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
 	import { IconArrowDown } from '$lib/icons';
@@ -38,6 +39,7 @@
 		onNewChat?: () => void;
 	}>();
 
+	setContext<() => string>('git-diff-project-path', () => session.cwd);
 	// Ganci condivisi passati via contesto: i componenti annidati non hanno
 	// bisogno di callback inoltrate a mano.
 	setAgentUiHooks({

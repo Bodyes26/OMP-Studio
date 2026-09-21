@@ -6,7 +6,7 @@
 	 * Supporta Svelte 5 runes, markup disclosure accessibile, anello SVG 24px,
 	 * pillola di stato terminale/bloccato, metrica tabulare e dettagli generici.
 	 */
-	import type { Snippet } from 'svelte';
+	import { getContext, type Snippet } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { m } from '$lib/paraglide/messages.js';
 	import {
@@ -16,6 +16,8 @@
 		IconChevronRight,
 		IconFile
 	} from '$lib/icons';
+	import GitDiffBadge from '$lib/components/GitDiffBadge.svelte';
+	import { gitDiffStore, hasGitChanges } from '$lib/stores/gitDiff.svelte';
 	import {
 		type TaskRowModel,
 		type TaskRowStatus,
@@ -45,6 +47,9 @@
 
 	let internalExpanded = $state(false);
 	const isExpanded = $derived(expanded !== undefined ? expanded : internalExpanded);
+	const getProjectPath = getContext<(() => string) | undefined>('git-diff-project-path');
+	const gitDiff = $derived(getProjectPath ? gitDiffStore.forPath(getProjectPath()) : null);
+	const showGitDiff = $derived(model.status === 'completed' && gitDiff && hasGitChanges(gitDiff));
 
 	// ID univoco per il binding ARIA disclosure
 	const uid = $props.id();
@@ -157,6 +162,10 @@
 					<span class="row-metric">{model.metric}</span>
 				{/if}
 
+				{#if showGitDiff && gitDiff}
+					<GitDiffBadge additions={gitDiff.additions} deletions={gitDiff.deletions} />
+				{/if}
+
 				{#if isPillStatus(model.status)}
 					<span class="status-pill status-{model.status}">
 						{statusLabel(model.status)}
@@ -174,6 +183,10 @@
 
 				{#if model.metric}
 					<span class="row-metric">{model.metric}</span>
+				{/if}
+
+				{#if showGitDiff && gitDiff}
+					<GitDiffBadge additions={gitDiff.additions} deletions={gitDiff.deletions} />
 				{/if}
 
 				{#if isPillStatus(model.status)}

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
@@ -1371,6 +1371,15 @@ pub struct NumStat {
     pub deletions: Option<u32>,
 }
 
+#[derive(Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffStats {
+    pub additions: u64,
+    pub deletions: u64,
+    pub files: u32,
+    pub is_repo: bool,
+}
+
 #[derive(Serialize)]
 pub struct GitRevContent {
     pub content: String,
@@ -1391,6 +1400,96 @@ fn run_git(project_path: &str, args: &[&str]) -> Option<Vec<u8>> {
         return None;
     }
     Some(out.stdout)
+}
+
+fn parse_git_diff_stats(out: &[u8]) -> GitDiffStats {
+    let mut stats = GitDiffStats {
+        is_repo: true,
+        ..GitDiffStats::default()
+    };
+    for line in String::from_utf8_lossy(out).lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (additions, deletions, path) = (parts.next(), parts.next(), parts.next());
+        if path.is_none() {
+            continue;
+        }
+        stats.files = stats.files.saturating_add(1);
+        if let Some(value) = additions.and_then(|value| value.parse::<u64>().ok()) {
+            stats.additions = stats.additions.saturating_add(value);
+        }
+        if let Some(value) = deletions.and_then(|value| value.parse::<u64>().ok()) {
+            stats.deletions = stats.deletions.saturating_add(value);
+        }
+    }
+    stats
+}
+
+/// Conta le righe di un file non tracciato senza caricarlo interamente.
+/// I file binari restano nel conteggio dei file ma non inventano righe.
+fn count_untracked_text_lines(path: &Path) -> Option<u64> {
+    let metadata = fs::symlink_metadata(path).ok()?;
+    if !metadata.file_type().is_file() {
+        return None;
+    }
+    let mut file = fs::File::open(path).ok()?;
+    let mut buffer = [0_u8; 8192];
+    let mut lines = 0_u64;
+    let mut saw_bytes = false;
+    let mut ends_with_newline = false;
+    loop {
+        let read = file.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        let chunk = &buffer[..read];
+        if chunk.contains(&0) {
+            return None;
+        }
+        saw_bytes = true;
+        lines = lines.saturating_add(chunk.iter().filter(|byte| **byte == b'\n').count() as u64);
+        ends_with_newline = chunk.last() == Some(&b'\n');
+    }
+    Some(lines.saturating_add(u64::from(saw_bytes && !ends_with_newline)))
+}
+
+fn git_diff_stats_sync(project_path: &str) -> GitDiffStats {
+    if run_git(project_path, &["rev-parse", "--is-inside-work-tree"]).is_none() {
+        return GitDiffStats::default();
+    }
+
+    let mut stats = run_git(project_path, &["diff", "HEAD", "--numstat", "-M"])
+        .map(|out| parse_git_diff_stats(&out))
+        .unwrap_or(GitDiffStats {
+            is_repo: true,
+            ..GitDiffStats::default()
+        });
+
+    if let Some(untracked) = run_git(
+        project_path,
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+    ) {
+        for raw_path in untracked.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+            let Ok(relative) = std::str::from_utf8(raw_path) else {
+                continue;
+            };
+            stats.files = stats.files.saturating_add(1);
+            if let Some(lines) = count_untracked_text_lines(&Path::new(project_path).join(relative))
+            {
+                stats.additions = stats.additions.saturating_add(lines);
+            }
+        }
+    }
+
+    stats
+}
+
+/// Totale compatto del working tree rispetto a HEAD. Git e la lettura degli
+/// untracked girano sul pool bloccante, mai sul runtime asincrono di Tauri.
+#[command]
+pub async fn git_diff_stats(project_path: String) -> Result<GitDiffStats, String> {
+    tokio::task::spawn_blocking(move || git_diff_stats_sync(&project_path))
+        .await
+        .map_err(|error| format!("Task git_diff_stats: {error}"))
 }
 
 /// Unisce `--name-status` e `--numstat` sulla stessa lista di path.
@@ -1991,10 +2090,11 @@ mod tests {
     #[cfg(windows)]
     use super::resolve_parent_dir;
     use super::{
-        content_search_within, file_git_rev, fuzzy_match_str, git_last_commit, git_recent_commits,
-        merge_name_status_numstat, path_create_directory, path_create_file, path_rename,
-        project_files_search, rename_via_temp, resolve_existing_entry, resolve_new_destination,
-        resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
+        content_search_within, count_untracked_text_lines, file_git_rev, fuzzy_match_str,
+        git_last_commit, git_recent_commits, merge_name_status_numstat, parse_git_diff_stats,
+        path_create_directory, path_create_file, path_rename, project_files_search,
+        rename_via_temp, resolve_existing_entry, resolve_new_destination, resolve_path,
+        resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
         ProjectContentSearchResult,
     };
     use std::collections::HashSet;
@@ -2008,6 +2108,28 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn git_diff_stats_somma_testo_e_ignora_righe_binarie() {
+        let stats = parse_git_diff_stats(b"12\t3\tsrc/main.rs\n-\t-\tstatic/icon.png\n4\t0\tREADME.md\n");
+
+        assert_eq!(stats.additions, 16);
+        assert_eq!(stats.deletions, 3);
+        assert_eq!(stats.files, 3);
+        assert!(stats.is_repo);
+    }
+
+    #[test]
+    fn git_diff_stats_untracked_conta_ultima_riga_senza_newline() {
+        let root = temp_dir("git-diff-untracked");
+        let text = root.join("new.txt");
+        let binary = root.join("new.bin");
+        fs::write(&text, b"prima\nseconda").unwrap();
+        fs::write(&binary, b"testo\0binario").unwrap();
+
+        assert_eq!(count_untracked_text_lines(&text), Some(2));
+        assert_eq!(count_untracked_text_lines(&binary), None);
     }
 
     #[test]

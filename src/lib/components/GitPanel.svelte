@@ -3,6 +3,7 @@
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { IconGitBranch, IconChevronDown, IconDiamond, IconCheck, IconPlus } from '$lib/icons';
+	import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
 
 	let {
 		projectPath,
@@ -231,7 +232,7 @@
 		try {
 			await invoke('git_branch_checkout', { projectPath, name });
 			branchMenuOpen = false;
-			void refresh();
+			notifyGitStatusRefresh(projectPath);
 		} catch (e) {
 			actionError = String(e);
 		}
@@ -245,7 +246,7 @@
 			await invoke('git_branch_create', { projectPath, name });
 			newBranchName = '';
 			branchMenuOpen = false;
-			void refresh();
+			notifyGitStatusRefresh(projectPath);
 		} catch (e) {
 			actionError = String(e);
 		}

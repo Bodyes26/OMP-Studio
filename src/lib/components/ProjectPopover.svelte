@@ -22,6 +22,7 @@
 	import { companionStore } from '$lib/stores/companion.svelte';
 	import { askQuestionText } from '$lib/agent/askTitle';
 	import HuePicker from './HuePicker.svelte';
+	import GitDiffBadge from './GitDiffBadge.svelte';
 	import {
 		IconArrowLeft,
 		IconArrowRight,
@@ -43,6 +44,7 @@
 		IconWarning
 	} from '$lib/icons';
 	import { invoke } from '@tauri-apps/api/core';
+	import { gitDiffStore, hasGitChanges } from '$lib/stores/gitDiff.svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
 	interface Props {
@@ -106,6 +108,7 @@
 	const reason = $derived(runReason?.(project.id) ?? '');
 	const queueTasks = $derived(project.path ? taskStore.tasksFor(project.path) : []);
 	const attentionReq = $derived(companionStore.attentionRequests.find((r) => r.projectId === project.id));
+	const gitDiff = $derived(project.path ? gitDiffStore.forPath(project.path) : null);
 
 	async function handleQuickReplySelect(value: string) {
 		await companionStore.respondUi(project.id, { action: 'select', value });
@@ -352,7 +355,12 @@
 			</span>
 			<span class="titles">
 				<span class="name" title={project.name}>{project.name}</span>
-				<span class="path" title={project.path}>{isScratchpad ? m.project_popover_badge_scratchpad() : truncateMiddle(project.path)}</span>
+				<span class="path-row">
+					<span class="path" title={project.path}>{isScratchpad ? m.project_popover_badge_scratchpad() : truncateMiddle(project.path)}</span>
+					{#if gitDiff && hasGitChanges(gitDiff)}
+						<GitDiffBadge additions={gitDiff.additions} deletions={gitDiff.deletions} />
+					{/if}
+				</span>
 			</span>
 			<button
 				type="button"
@@ -816,6 +824,13 @@
 		text-overflow: ellipsis;
 	}
 
+	.path-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
 	.path {
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
@@ -824,6 +839,7 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		min-width: 0;
 	}
 
 	.state {

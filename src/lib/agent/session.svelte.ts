@@ -3,6 +3,7 @@ import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPr
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { formatTokens } from '$lib/utils/format';
 import { traceAgent } from '$lib/focusTracer';
+import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
 // Stato della superficie GUI: un'istanza per progetto.
 //
 // Il riduttore e' esplicito e volutamente noioso: ogni frame del protocollo
@@ -1479,6 +1480,13 @@ export class AgentSession {
 					entry.running = false;
 					entry.endedAt = Date.now();
 				}
+				if (
+					entry &&
+					(entry.toolName === 'edit' || entry.toolName === 'write') &&
+					entry.result?.isError !== true
+				) {
+					notifyGitStatusRefresh(this.cwd);
+				}
 				traceAgent(`tool-end:${entry?.toolName ?? '?'}`);
 				// La chiamata e' finita: qualunque passo non consegnato non ha
 				// piu' una domanda a cui appartenere.
@@ -1515,6 +1523,7 @@ export class AgentSession {
 				this.agentState = this.resolveSettledState();
 				void this.reconcile();
 				this.captureAssistantActivity();
+				notifyGitStatusRefresh(this.cwd);
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
 				}
@@ -1536,6 +1545,7 @@ export class AgentSession {
 				this.agentState = this.resolveSettledState();
 				void this.reconcile();
 				this.captureAssistantActivity();
+				notifyGitStatusRefresh(this.cwd);
 				return;
 
 			case 'notice': {

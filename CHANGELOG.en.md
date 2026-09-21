@@ -11,6 +11,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Added
+- Git `+X -Y` micro-badges on project tabs, their popovers, and completed tasks: they immediately show lines added and removed from HEAD, include new text files, and refresh after agent writes, commits, saves, and branch changes without bright colors or shifting digits.
+
 ## [1.6.0] - 2026-09-21
 
 ### Added
