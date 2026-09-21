@@ -67,3 +67,12 @@ export async function listenFromWindows<T>(
 		return null;
 	}
 }
+
+/** Nomi degli eventi usati dal PromptBus per la sincronizzazione inter-finestra. */
+export const PROMPT_BUS_EVENTS = {
+	REGISTERED: 'studio-prompt-registered',
+	RESOLVED: 'studio-prompt-resolved',
+	CANCELLED: 'studio-prompt-cancelled',
+	SYNC_REQUEST: 'studio-prompt-sync-request',
+	SYNC_RESPONSE: 'studio-prompt-sync-response'
+} as const;

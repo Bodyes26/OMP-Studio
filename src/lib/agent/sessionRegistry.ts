@@ -13,6 +13,7 @@
 
 import type { AgentSession, AgentSessionConfig } from './session.svelte';
 import type { AskFlushStep } from './askAnswers';
+import { promptBus } from './promptBus.ts';
 import { m as msg } from '$lib/paraglide/messages.js';
 
 export function mainSessionKey(projectKey: string): string {
@@ -294,6 +295,10 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		// Se c'e' una richiesta formale aperta (ask/select/confirm/wizard),
 		// inoltriamo ai responder standard di extension_ui_request.
 		if (target.pendingUi) {
+			const reqId = (target.pendingUi as { requestId?: string }).requestId;
+			if (reqId && promptBus.hasPending(reqId)) {
+				return await promptBus.resolveRequest(reqId, response);
+			}
 			if (response.action === 'select' && typeof response.value === 'string') {
 				await target.answerSelect?.(response.value);
 				return true;

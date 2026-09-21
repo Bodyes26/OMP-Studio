@@ -41,6 +41,7 @@ const DELTA_WINDOW: Duration = Duration::from_millis(8);
 /// si manifesterebbe solo come stdin chiuso.
 const STDERR_TAIL_LINES: usize = 200;
 
+#[derive(Clone)]
 pub struct RpcSession {
     child: Arc<Mutex<Child>>,
     /// `None` dopo `rpc_close`: chiudere stdin e' il modo documentato di far
@@ -50,6 +51,10 @@ pub struct RpcSession {
     protocol: Arc<AtomicU8>,
     abort_signal: Arc<AtomicBool>,
     config_path: Option<std::path::PathBuf>,
+    pub pid: Option<u32>,
+    #[cfg(target_os = "windows")]
+    pub job: Option<Arc<crate::process_tree::WindowsJob>>,
+    killed: Arc<AtomicBool>,
     #[allow(dead_code)]
     pub cwd: String,
     #[allow(dead_code)]
@@ -60,6 +65,29 @@ pub struct RpcSession {
     pub project_key: Option<String>,
     #[allow(dead_code)]
     pub session_id: Arc<Mutex<Option<String>>>,
+}
+
+impl RpcSession {
+    pub fn kill_tree(&self) {
+        if self.killed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.abort_signal.store(true, Ordering::SeqCst);
+        self.stdin.lock().take();
+
+        if let Some(config_file) = self.config_path.as_ref() {
+            let _ = std::fs::remove_file(config_file);
+        }
+
+        #[cfg(target_os = "windows")]
+        crate::process_tree::kill_process_tree(self.pid, self.job.as_deref());
+        #[cfg(not(target_os = "windows"))]
+        crate::process_tree::kill_process_tree(self.pid);
+
+        let mut child = self.child.lock();
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 pub struct RpcManager {
@@ -83,13 +111,7 @@ impl RpcManager {
         };
 
         for session in sessions {
-            if let Some(config_file) = session.config_path.as_ref() {
-                let _ = std::fs::remove_file(config_file);
-            }
-            session.stdin.lock().take();
-            let mut child = session.child.lock();
-            let _ = child.kill();
-            let _ = child.wait();
+            session.kill_tree();
         }
     }
 }
@@ -721,6 +743,16 @@ pub async fn rpc_open(
         .spawn()
         .map_err(|error| format!("Avvio di omp in modalita' RPC: {}", error))?;
 
+    let pid = child.id();
+    #[cfg(target_os = "windows")]
+    let job = match crate::process_tree::WindowsJob::create_for_process(pid) {
+        Ok(j) => Some(Arc::new(j)),
+        Err(e) => {
+            eprintln!("[RPC] Avviso: associazione a Job Object fallita: {}", e);
+            None
+        }
+    };
+
     let stdin = child.stdin.take().ok_or("stdin di omp non disponibile")?;
     let stdout = child.stdout.take().ok_or("stdout di omp non disponibile")?;
     let stderr = child.stderr.take().ok_or("stderr di omp non disponibile")?;
@@ -741,6 +773,10 @@ pub async fn rpc_open(
             protocol: protocol.clone(),
             abort_signal: abort_signal.clone(),
             config_path: None,
+            pid: Some(pid),
+            #[cfg(target_os = "windows")]
+            job,
+            killed: Arc::new(AtomicBool::new(false)),
             cwd: cwd.clone(),
             scope: "main".to_string(),
             prototype_id: None,
@@ -901,6 +937,16 @@ pub async fn rpc_open_lab(
         }
     };
 
+    let pid = child.id();
+    #[cfg(target_os = "windows")]
+    let job = match crate::process_tree::WindowsJob::create_for_process(pid) {
+        Ok(j) => Some(Arc::new(j)),
+        Err(e) => {
+            eprintln!("[RPC-Lab] Avviso: associazione a Job Object fallita: {}", e);
+            None
+        }
+    };
+
     let stdin = match child.stdin.take() {
         Some(s) => s,
         None => {
@@ -942,6 +988,10 @@ pub async fn rpc_open_lab(
             protocol: protocol.clone(),
             abort_signal: abort_signal.clone(),
             config_path: Some(lab_config_path),
+            pid: Some(pid),
+            #[cfg(target_os = "windows")]
+            job,
+            killed: Arc::new(AtomicBool::new(false)),
             cwd: project_path.clone(),
             scope: if is_draft {
                 "draft".to_string()
@@ -1065,6 +1115,35 @@ pub async fn rpc_abort(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
         .and_then(|()| handle.write_all(b"{\"id\":\"abort-direct-2\",\"type\":\"abort_bash\"}\n"))
         .and_then(|()| handle.flush())
         .map_err(|error| format!("Invio abort sulla sessione RPC {}: {}", rpc_id, error))
+}
+
+/// Termina forzatamente la sessione RPC e l'intero albero dei processi figli (SIGKILL/taskkill).
+#[tauri::command]
+pub async fn rpc_force_kill(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<(), String> {
+    let session = manager.sessions.lock().get(&rpc_id).cloned();
+    let session = session.ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
+    tokio::task::spawn_blocking(move || {
+        session.kill_tree();
+    })
+    .await
+    .map_err(|error| format!("Terminazione forzata sessione RPC {}: {}", rpc_id, error))
+}
+
+/// Termina forzatamente una sessione agente (RPC o PTY) e il relativo albero di processi figli (SIGKILL / Job Object / taskkill).
+#[tauri::command]
+pub async fn force_kill_session(
+    rpc_id: Option<u64>,
+    pty_id: Option<u64>,
+    rpc_manager: State<'_, RpcManager>,
+    pty_manager: State<'_, crate::pty::PtyManager>,
+) -> Result<(), String> {
+    if let Some(id) = rpc_id {
+        return rpc_force_kill(id, rpc_manager).await;
+    }
+    if let Some(id) = pty_id {
+        return crate::pty::pty_force_kill(id, pty_manager).await;
+    }
+    Err("Specificare rpc_id o pty_id per force_kill_session".to_string())
 }
 
 
@@ -1247,6 +1326,10 @@ mod tests {
             protocol: Arc::new(AtomicU8::new(2)),
             abort_signal: Arc::new(AtomicBool::new(false)),
             config_path: None,
+            pid: None,
+            #[cfg(target_os = "windows")]
+            job: None,
+            killed: Arc::new(AtomicBool::new(false)),
             cwd: "C:/progetto-principale".to_string(),
             scope: "main".to_string(),
             prototype_id: None,

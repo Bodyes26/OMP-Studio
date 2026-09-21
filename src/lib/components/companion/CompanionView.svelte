@@ -27,6 +27,7 @@
 	import CompanionShell from './CompanionShell.svelte';
 	import CompanionComposer from './CompanionComposer.svelte';
 	import CompanionMonitor from './CompanionMonitor.svelte';
+	import { promptBus } from '$lib/agent/promptBus';
 	import type { CompanionAskHandlers } from './companionAsk';
 
 	const STATE_RANK: Record<string, number> = {
@@ -566,18 +567,34 @@
 	async function handleQuickReplySelect(projectId: string, value: string) {
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
+		const req = companionStore.attentionRequests.find((r) => r.projectId === projectId);
+		if (req?.pendingUi?.requestId) {
+			const handled = await companionStore.respondPrompt(req.pendingUi.requestId, { action: 'select', value });
+			if (handled) return;
+		}
 		await companionStore.respondUi(projectId, { action: 'select', value });
 	}
 
 	async function handleQuickReplyConfirm(projectId: string, confirmed: boolean) {
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
+		const req = companionStore.attentionRequests.find((r) => r.projectId === projectId);
+		if (req?.pendingUi?.requestId) {
+			const handled = await companionStore.respondPrompt(req.pendingUi.requestId, { action: 'confirm', confirmed });
+			if (handled) return;
+		}
 		await companionStore.respondUi(projectId, { action: 'confirm', confirmed });
 	}
 
 	async function handleQuickReplyCancel(projectId: string) {
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
+		const req = companionStore.attentionRequests.find((r) => r.projectId === projectId);
+		if (req?.pendingUi?.requestId) {
+			const handled = await promptBus.cancelRequest(req.pendingUi.requestId);
+			companionStore.clearAttentionRequest(projectId);
+			if (handled) return;
+		}
 		await companionStore.respondUi(projectId, { action: 'cancel' });
 	}
 
@@ -587,6 +604,10 @@
 		if (!value) return;
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
+		if (request?.pendingUi?.requestId) {
+			const handled = await companionStore.respondPrompt(request.pendingUi.requestId, { action: 'select', value });
+			if (handled) return;
+		}
 		await companionStore.respondUi(projectId, { action: 'select', value });
 	}
 

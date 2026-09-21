@@ -180,6 +180,53 @@ export type AskFlushStep =
 	  }
 	| { method: 'editor'; value: string };
 
+/**
+ * Risposta dell'utente o del wizard a una richiesta interattiva.
+ * Accetta sia il formato ad azione esplicita (`action`) sia i payload normali
+ * `{ value }`, `{ confirmed }`, `{ cancelled }`.
+ */
+export type PromptAnswer =
+	| { action: 'select'; value: string }
+	| { action: 'confirm'; confirmed: boolean }
+	| { action: 'input' | 'editor'; value: string }
+	| { action: 'wizard'; plan: AskFlushStep[]; value?: string }
+	| { action: 'cancel' }
+	| {
+			action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'cancel';
+			value?: string;
+			confirmed?: boolean;
+			plan?: AskFlushStep[];
+	  }
+	| { value: string }
+	| { confirmed: boolean }
+	| { cancelled: true };
+
+export interface NormalizedPromptAnswer {
+	action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'cancel';
+	value?: string;
+	confirmed?: boolean;
+	plan?: AskFlushStep[];
+}
+
+/**
+ * Normalizza qualsiasi variante di risposta nel contratto canonico.
+ */
+export function normalizePromptAnswer(answer: PromptAnswer): NormalizedPromptAnswer {
+	if ('action' in answer) {
+		return answer;
+	}
+	if ('cancelled' in answer && answer.cancelled) {
+		return { action: 'cancel' };
+	}
+	if ('confirmed' in answer && typeof answer.confirmed === 'boolean') {
+		return { action: 'confirm', confirmed: answer.confirmed };
+	}
+	if ('value' in answer && typeof answer.value === 'string') {
+		return { action: 'select', value: answer.value };
+	}
+	return { action: 'cancel' };
+}
+
 /** Firma delle opzioni dichiarate per una domanda del wizard. */
 export function answerableSignature(question: AnswerableQuestion): string {
 	return optionSignature(question.options.map((option) => option.label));

@@ -1,11 +1,13 @@
 mod diagrams;
 mod fs_atomic;
+pub mod process_tree;
 mod previews;
 mod pty;
-use pty::{pty_close, pty_open, pty_resize, pty_session_info, pty_write, PtyManager};
+use pty::{pty_close, pty_force_kill, pty_open, pty_resize, pty_session_info, pty_write, PtyManager};
 mod rpc;
 use rpc::{
-    rpc_abort, rpc_close, rpc_open, rpc_open_lab, rpc_protocol, rpc_send, rpc_stderr, RpcManager,
+    force_kill_session, rpc_abort, rpc_close, rpc_force_kill, rpc_open, rpc_open_lab,
+    rpc_protocol, rpc_send, rpc_stderr, RpcManager,
 };
 mod projects;
 use projects::{
@@ -120,6 +122,7 @@ pub fn run() {
             pty_write,
             pty_resize,
             pty_close,
+            pty_force_kill,
             pty_session_info,
             rpc_open,
             rpc_open_lab,
@@ -128,6 +131,8 @@ pub fn run() {
             rpc_stderr,
             rpc_protocol,
             rpc_abort,
+            rpc_force_kill,
+            force_kill_session,
             browser_live_connect,
             browser_live_send_message,
             browser_live_disconnect,

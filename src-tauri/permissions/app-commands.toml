@@ -14,6 +14,7 @@ commands.allow = [
     "pty_write",
     "pty_resize",
     "pty_close",
+    "pty_force_kill",
     "pty_session_info"
 ]
 
@@ -27,7 +28,9 @@ commands.allow = [
     "rpc_close",
     "rpc_stderr",
     "rpc_protocol",
-    "rpc_abort"
+    "rpc_abort",
+    "rpc_force_kill",
+    "force_kill_session"
 ]
 
 [[permission]]

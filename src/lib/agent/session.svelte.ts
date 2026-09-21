@@ -20,9 +20,12 @@ import {
 	optionSignature,
 	parseAskQuestions,
 	stepAcceptsRequest,
+	normalizePromptAnswer,
 	type AskFlushStep,
-	type AskQuestion
+	type AskQuestion,
+	type PromptAnswer
 } from './askAnswers';
+import { promptBus, type PromptRequest } from './promptBus';
 import { SessionSuggestions } from './suggestions.svelte';
 import { askQuestionText } from './askTitle';
 import type { RecentChatMessage } from '$lib/stores/companion.svelte';
@@ -668,9 +671,9 @@ export class AgentSession {
 		this.requestedResume = null;
 		this.isAborting = false;
 		this.pendingStartupPrompts = [];
+		this.clearPendingUi();
 		this.resetBrowserLive();
 		// Analisi e domanda dedotta appartengono al transcript che si chiude:
-		// senza invalidarle una ripresa mostrerebbe la domanda della sessione
 		// precedente e terrebbe sospeso l'auto-dispatch del progetto nuovo.
 		this.suggestions.invalidate();
 		this.deltaBatcher.clear();
@@ -714,6 +717,12 @@ export class AgentSession {
 		}
 
 		this.isAttached = true;
+		if (!this.pendingUi) {
+			const pendingPrompts = promptBus.getPendingsForProject(this.projectKey);
+			if (pendingPrompts.length > 0) {
+				this.restorePendingUiFromPrompt(pendingPrompts[0]);
+			}
+		}
 
 		const recoveredResume = this.recoveredResume;
 		if (recoveredResume) {
@@ -2207,7 +2216,13 @@ export class AgentSession {
 
 		if (method === 'cancel') {
 			const target = typeof event.targetId === 'string' ? event.targetId : null;
-			if (!target || this.pendingUi?.requestId === target) this.clearPendingUi();
+			if (!target || this.pendingUi?.requestId === target) {
+				const cancelId = target ?? this.pendingUi?.requestId;
+				if (cancelId && promptBus.hasPending(cancelId)) {
+					void promptBus.cancelRequest(cancelId);
+				}
+				this.clearPendingUi();
+			}
 			return;
 		}
 		if (method === 'notify') {
@@ -2307,12 +2322,39 @@ export class AgentSession {
 			totalQuestions
 		};
 		this.agentState = 'attention';
+
+		promptBus.registerRequest({
+			requestId: id,
+			projectId: this.projectKey,
+			sessionId: this.sessionId,
+			prototypeId: this.prototypeId,
+			toolCallId: runningAsk?.toolCallId,
+			kind: 'ask',
+			method: this.pendingUi.method,
+			title: this.pendingUi.title,
+			message: this.pendingUi.message,
+			options: this.pendingUi.options,
+			optionDetails: this.pendingUi.optionDetails,
+			placeholder: this.pendingUi.placeholder,
+			prefill: this.pendingUi.prefill,
+			deadline: this.pendingUi.deadline,
+			questions: parsedQuestions,
+			questionIndex,
+			totalQuestions,
+			responder: async (answer) => {
+				return this.handlePromptAnswer(id, answer);
+			}
+		});
 	}
 
 	private clearPendingUi() {
+		const reqId = this.pendingUi?.requestId;
 		this.pendingUi = null;
 		this.askFlush = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
+		if (reqId && promptBus.hasPending(reqId)) {
+			void promptBus.cancelRequest(reqId);
+		}
 	}
 
 	/**
@@ -2354,6 +2396,29 @@ export class AgentSession {
 			questionIndex: matched,
 			totalQuestions: questions.length
 		};
+
+		promptBus.registerRequest({
+			requestId: pending.requestId,
+			projectId: this.projectKey,
+			sessionId: this.sessionId,
+			prototypeId: this.prototypeId,
+			toolCallId: entry.toolCallId,
+			kind: 'ask',
+			method: pending.method,
+			title: pending.title,
+			message: pending.message,
+			options: pending.options,
+			optionDetails: pending.optionDetails,
+			placeholder: pending.placeholder,
+			prefill: pending.prefill,
+			deadline: pending.deadline,
+			questions,
+			questionIndex: matched,
+			totalQuestions: questions.length,
+			responder: async (answer) => {
+				return this.handlePromptAnswer(pending.requestId, answer);
+			}
+		});
 	}
 
 	/**
@@ -2466,6 +2531,13 @@ export class AgentSession {
 							}
 						: { type: 'extension_ui_response', id: pending.requestId, value: answer.value }
 			);
+			if (promptBus.hasPending(pending.requestId)) {
+				if ('cancelled' in answer) {
+					void promptBus.cancelRequest(pending.requestId);
+				} else {
+					void promptBus.resolveRequest(pending.requestId, answer as PromptAnswer);
+				}
+			}
 			return true;
 		} catch (error) {
 			this.askFlush = null;
@@ -2521,6 +2593,65 @@ export class AgentSession {
 		const pending = this.pendingUi;
 		if (!pending) return;
 		await this.respond(pending, { cancelled: true }, null);
+	}
+
+	/**
+	 * Ripristina lo stato di una richiesta pendente da PromptBus (es. dopo reload o riapertura).
+	 */
+	restorePendingUiFromPrompt(promptReq: PromptRequest) {
+		this.pendingUi = {
+			kind: 'ask',
+			requestId: promptReq.requestId,
+			toolCallId: promptReq.toolCallId ?? undefined,
+			method: promptReq.method,
+			title: promptReq.title,
+			message: promptReq.message,
+			options: [...promptReq.options],
+			optionDetails: [...promptReq.optionDetails],
+			placeholder: promptReq.placeholder,
+			prefill: promptReq.prefill,
+			deadline: promptReq.deadline,
+			questions: promptReq.questions as AskQuestion[] | undefined,
+			questionIndex: promptReq.questionIndex,
+			totalQuestions: promptReq.totalQuestions
+		};
+		this.agentState = 'attention';
+		promptBus.attachResponder(promptReq.requestId, async (answer) => {
+			return this.handlePromptAnswer(promptReq.requestId, answer);
+		});
+	}
+
+	/**
+	 * Risponde a una richiesta interattiva instradata da PromptBus (da qualsiasi finestra).
+	 */
+	async handlePromptAnswer(requestId: string, answer: PromptAnswer): Promise<boolean> {
+		if (!this.pendingUi || this.pendingUi.requestId !== requestId) {
+			const stored = promptBus.getRequest(requestId);
+			if (stored && stored.projectId.trim().toLowerCase() === this.projectKey.trim().toLowerCase()) {
+				this.restorePendingUiFromPrompt(stored);
+			}
+		}
+		const current = this.pendingUi;
+		if (!current || current.requestId !== requestId) return false;
+
+		const normalized = normalizePromptAnswer(answer);
+		if (normalized.action === 'wizard' && normalized.plan) {
+			await this.submitAskWizard(normalized.plan);
+			return true;
+		}
+		if (normalized.action === 'confirm' && typeof normalized.confirmed === 'boolean') {
+			await this.answerConfirm(normalized.confirmed);
+			return true;
+		}
+		if (normalized.action === 'cancel') {
+			await this.cancelPendingUi();
+			return true;
+		}
+		if (typeof normalized.value === 'string') {
+			await this.answerSelect(normalized.value);
+			return true;
+		}
+		return false;
 	}
 
 	/* ------------------------------------------------------------- comandi */
@@ -2723,13 +2854,11 @@ export class AgentSession {
 	}
 
 	async abort() {
-		// 1. Reset istantaneo dello stato locale (priorita' massima e latenza 0 per la GUI)
+		// 1. Notifica lo stato di interruzione e blocca l'accettazione di nuovi delta/messaggi
 		this.isAborting = true;
 		this.suggestions.invalidate();
-		this.isStreaming = false;
 		this.turnStartedAt = null;
 		this.isCompacting = false;
-		this.agentState = 'idle';
 		this.deltaBatcher.clear();
 
 		if (this.assistantEntry) {
@@ -2766,11 +2895,74 @@ export class AgentSession {
 		this.attachEventQueue = [];
 		this.dropOptimisticUser();
 
-		// 2. Invio prioritario al client RPC per interrompere processi/tool sottostanti
+		// Fallback di sicurezza: se il backend non risponde entro la finestra di escalation,
+		// disattiva lo streaming per non lasciare l'UI bloccata.
+		window.setTimeout(() => {
+			if (this.isAborting) {
+				this.isAborting = false;
+				this.isStreaming = false;
+				this.agentState = 'idle';
+			}
+		}, 2500);
+
+		// 2. Invio prioritario al client RPC per richiedere il soft abort (SIGINT/abort)
 		try {
 			await this.client.abort();
 		} catch (error) {
 			console.warn('Invio comando abort:', error);
+		}
+	}
+
+	/**
+	 * Fase 2 dell'escalation: forza l'arresto immediato del processo e dell'albero dei figli (SIGKILL).
+	 */
+	async forceKill() {
+		this.isAborting = false;
+		this.isStreaming = false;
+		this.turnStartedAt = null;
+		this.isCompacting = false;
+		this.agentState = 'idle';
+		this.suggestions.invalidate();
+		this.deltaBatcher.clear();
+
+		if (this.assistantEntry) {
+			if (!this.assistantEntry.stopReason) {
+				this.assistantEntry.stopReason = 'aborted';
+			}
+			this.assistantEntry = null;
+		}
+		this.activeAssistantId = null;
+
+		for (const entry of this.toolEntries.values()) {
+			if (entry.running) {
+				entry.running = false;
+				entry.endedAt = Date.now();
+				if (!entry.result) {
+					entry.result = {
+						isError: true,
+						content: [{ type: 'text', text: 'Arresto forzato (SIGKILL)' }]
+					};
+				}
+			}
+		}
+
+		for (let i = 0; i < this.subagents.length; i++) {
+			const sub = this.subagents[i];
+			if (sub.status === 'running' || sub.status === 'pending') {
+				this.subagents[i] = { ...sub, status: 'aborted' };
+			}
+		}
+
+		this.clearPendingUi();
+		this.queued = [];
+		this.pendingStartupPrompts = [];
+		this.attachEventQueue = [];
+		this.dropOptimisticUser();
+
+		try {
+			await this.client.forceKill();
+		} catch (error) {
+			console.warn('Invio comando forceKill:', error);
 		}
 	}
 

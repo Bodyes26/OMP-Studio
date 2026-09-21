@@ -11,16 +11,17 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
-### Fixed
-- Preserved natural chronological ordering between assistant narrative text and tool calls: chat history reconstruction no longer appends all tools to the bottom of the aggregated turn, but interleaves explanations, interactive questions (`ask`), and operational executions in their true temporal sequence, omitting redundant model badges before tool invocations.
-
-
 ### Added
+- Centralized and resilient PromptBus architecture for all pending user interactions (ask prompts, multi-choice selections, yes/no confirmations, text inputs): requests are tracked with a unique requestId and temporarily persisted to local storage to survive WebView2 reloads, temporary disconnections, and interface crashes without leaving the agent indefinitely blocked. Atomic first-response-wins synchronization between Main and Companion windows via windowBridge, with instant recovery and rendering of pending questions even upon late Companion opening.
+- Two-Step Force Kill Escalation on the agent stop button: a first click sends a controlled soft abort (SIGINT) and arms the button with a pulsing crimson outline for 2.0 seconds; a second click within the window immediately terminates the process and its entire child process tree (SIGKILL, Windows Job Object, POSIX process group kill, and taskkill), freeing the session even from infinite loops or stuck bash commands without restarting Studio. If the agent completes normally within 2 seconds, the armed state clears automatically. Available in both Chat GUI and the integrated terminal.
 - Fuzzy `@file` mention autocomplete in the Chat GUI Composer: typing `@` (at line start or after space) opens a smooth popover anchored to the caret with fuzzy file search powered by `looseSearch`, excluding build and noise directories (`.git`, `node_modules`, `bin`, `obj`, `dist`, `target`), prioritizing the active Monaco file, open tabs, and agent-touched files, featuring arrow key ↑/↓ navigation, relative path insertion with Enter or Tab, and Escape dismissal without interfering with `/` slash commands or standard message submission.
 - Git `+X -Y` micro-badges on project tabs, their popovers, and completed tasks: they immediately show lines added and removed from HEAD, include new text files, and refresh after agent writes, commits, saves, and branch changes without bright colors or shifting digits.
 
 ### Changed
 - Breathing easing transition on the amber attention ring for agent input and `ask` prompts: replaced the stepped on/off blinking with a smooth sinusoidal breathing pulse on an organic `cubic-bezier(0.4, 0, 0.2, 1)` 1.9s curve smoothly interpolating opacity and inset expansion, consistent across top bar tabs and Companion cards, freezing to a static 100% visible ring when reduced motion is preferred.
+
+### Fixed
+- Preserved natural chronological ordering between assistant narrative text and tool calls: chat history reconstruction no longer appends all tools to the bottom of the aggregated turn, but interleaves explanations, interactive questions (`ask`), and operational executions in their true temporal sequence, omitting redundant model badges before tool invocations.
 
 ## [1.6.0] - 2026-09-21
 

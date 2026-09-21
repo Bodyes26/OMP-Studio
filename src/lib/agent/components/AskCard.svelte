@@ -41,10 +41,12 @@
 		isQuestionAnswered,
 		type AnswerableQuestion,
 		type AskQuestion,
-		type AskQuestionOption
+		type AskQuestionOption,
+		type AskFlushStep
 	} from '../askAnswers';
 	import { parseAskTitle, sanitizeAskDetail } from '../askTitle';
 	import { shouldAutoFocusAskCard } from '../askFocus';
+	import { promptBus } from '../promptBus';
 let { session, pending, visible = true } = $props<{ session: AgentSession; pending: PendingAsk; visible?: boolean }>();
 
 	// Prefisso unico per gli id ARIA: piu' sessioni possono avere una card
@@ -465,16 +467,47 @@ $effect(() => {
 			if (missingIndex >= 0) goToStep(missingIndex);
 			return;
 		}
-
 		submitting = true;
 		try {
 			// Anche una domanda sola puo' produrre piu' righe (spunte multiple
 			// piu' la sentinella di fine selezione): mandarne una e buttare le
 			// altre lasciava omp a chiedere di nuovo la stessa cosa.
-			await session.submitAskWizard(plan);
+			await submitPlan(plan);
 		} finally {
 			submitting = false;
 		}
+	}
+
+	async function submitPlan(plan: AskFlushStep[]) {
+		if (pending.requestId && promptBus.hasPending(pending.requestId)) {
+			const handled = await promptBus.resolveRequest(pending.requestId, { action: 'wizard', plan });
+			if (handled) return;
+		}
+		await session.submitAskWizard(plan);
+	}
+
+	async function submitSelect(value: string) {
+		if (pending.requestId && promptBus.hasPending(pending.requestId)) {
+			const handled = await promptBus.resolveRequest(pending.requestId, { action: 'select', value });
+			if (handled) return;
+		}
+		await session.answerSelect(value);
+	}
+
+	async function submitConfirm(confirmed: boolean) {
+		if (pending.requestId && promptBus.hasPending(pending.requestId)) {
+			const handled = await promptBus.resolveRequest(pending.requestId, { action: 'confirm', confirmed });
+			if (handled) return;
+		}
+		await session.answerConfirm(confirmed);
+	}
+
+	async function cancelUi() {
+		if (pending.requestId && promptBus.hasPending(pending.requestId)) {
+			const handled = await promptBus.cancelRequest(pending.requestId);
+			if (handled) return;
+		}
+		await session.cancelPendingUi();
 	}
 
 	// Gestore tastiera unificato
@@ -482,10 +515,10 @@ $effect(() => {
 		if (pending.method === 'confirm') {
 			if (e.key === 'Enter') {
 				e.preventDefault();
-				void session.answerConfirm(true);
+				void submitConfirm(true);
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
-				void session.answerConfirm(false);
+				void submitConfirm(false);
 			}
 			return;
 		}
@@ -493,7 +526,7 @@ $effect(() => {
 		if (pending.method === 'input' || pending.method === 'editor') {
 			if (e.key === 'Escape') {
 				e.preventDefault();
-				void session.cancelPendingUi();
+				void cancelUi();
 			}
 			return;
 		}
@@ -520,7 +553,7 @@ $effect(() => {
 
 		if (e.key === 'Escape') {
 			e.preventDefault();
-			void session.cancelPendingUi();
+			void cancelUi();
 			return;
 		}
 
@@ -759,7 +792,7 @@ $effect(() => {
 						<button
 							type="button"
 							class="btn-cancel"
-							onclick={() => session.cancelPendingUi()}
+							onclick={() => void cancelUi()}
 							title={m.ui_askcard_annulla_richiesta_esc_0316()}
 						>
 							{m.common_cancel()} <span class="kbd">Esc</span>
@@ -959,7 +992,7 @@ $effect(() => {
 							<button
 								type="button"
 								class="btn-cancel"
-								onclick={() => session.cancelPendingUi()}
+								onclick={() => void cancelUi()}
 								title={m.ui_askcard_annulla_esc_0d72()}
 							>
 								{m.common_cancel()} <span class="kbd">Esc</span>
@@ -1029,10 +1062,10 @@ $effect(() => {
 					onkeydown={(e) => {
 						if (e.key === 'Enter') {
 							e.preventDefault();
-							void session.answerSelect(plainInputValue);
+							void submitSelect(plainInputValue);
 						} else if (e.key === 'Escape') {
 							e.preventDefault();
-							void session.cancelPendingUi();
+							void cancelUi();
 						}
 					}}
 				/>
@@ -1040,7 +1073,7 @@ $effect(() => {
 					<button
 						type="button"
 						class="btn-cancel"
-						onclick={() => session.cancelPendingUi()}
+						onclick={() => void cancelUi()}
 						title={m.ui_askcard_annulla_esc_0d72()}
 					>
 						{m.common_cancel()} <span class="kbd">Esc</span>
@@ -1049,7 +1082,7 @@ $effect(() => {
 						type="button"
 						class="btn-submit"
 						disabled={submitting}
-						onclick={() => void session.answerSelect(plainInputValue)}
+						onclick={() => void submitSelect(plainInputValue)}
 						title={m.ask_submit_single()}
 					>
 						{m.ui_askcard_invia_f401()} <span class="kbd">↵</span>
@@ -1066,10 +1099,10 @@ $effect(() => {
 					onkeydown={(e) => {
 						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 							e.preventDefault();
-							void session.answerSelect(plainEditorValue);
+							void submitSelect(plainEditorValue);
 						} else if (e.key === 'Escape') {
 							e.preventDefault();
-							void session.cancelPendingUi();
+							void cancelUi();
 						}
 					}}
 				></textarea>
@@ -1077,7 +1110,7 @@ $effect(() => {
 					<button
 						type="button"
 						class="btn-cancel"
-						onclick={() => session.cancelPendingUi()}
+						onclick={() => void cancelUi()}
 						title={m.ui_askcard_annulla_esc_0d72()}
 					>
 						{m.common_cancel()} <span class="kbd">Esc</span>
@@ -1086,7 +1119,7 @@ $effect(() => {
 						type="button"
 						class="btn-submit"
 						disabled={submitting}
-						onclick={() => void session.answerSelect(plainEditorValue)}
+						onclick={() => void submitSelect(plainEditorValue)}
 						title={m.ui_askcard_invia_risposta_ctrl_enter_6a01()}
 					>
 						{m.ui_askcard_invia_f401()} <span class="kbd">Ctrl+↵</span>
@@ -1099,7 +1132,7 @@ $effect(() => {
 					<button
 						type="button"
 						class="btn-cancel"
-						onclick={() => session.answerConfirm(false)}
+						onclick={() => void submitConfirm(false)}
 						title={m.ui_askcard_nega_annulla_esc_60f1()}
 					>
 						{m.project_popover_btn_confirm_no()} <span class="kbd">Esc</span>
@@ -1108,7 +1141,7 @@ $effect(() => {
 						type="button"
 						class="btn-submit"
 						disabled={submitting}
-						onclick={() => void session.answerConfirm(true)}
+						onclick={() => void submitConfirm(true)}
 						title={m.ui_askcard_conferma_enter_a402()}
 					>
 						{m.ui_askcard_si_175d()} <span class="kbd">↵</span>

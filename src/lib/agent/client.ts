@@ -238,6 +238,23 @@ export class OmpRpcClient {
 		}
 	}
 
+	/**
+	 * Forza l'arresto immediato dell'agente e dell'intero albero di processi figli (SIGKILL / taskkill).
+	 */
+	async forceKill(): Promise<void> {
+		if (this.rpcId === null || this.closed) return;
+		this.abortEpoch++;
+		this.abortPendingRequests('Arresto forzato immediato (SIGKILL)');
+		const rpcId = this.rpcId;
+		try {
+			await invoke('rpc_force_kill', { rpcId }).catch(() =>
+				invoke('force_kill_session', { rpcId })
+			);
+		} catch (error) {
+			console.warn('Errore invocazione force kill su RPC:', error);
+		}
+	}
+
 	/** Fa fallire tutte le richieste ordinarie in volo con stato abortito. */
 	abortPendingRequests(reason: string) {
 		for (const [id, entry] of this.pending.entries()) {

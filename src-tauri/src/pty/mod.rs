@@ -12,91 +12,9 @@ use tauri::ipc::{Channel, Response};
 use tauri::State;
 
 #[cfg(target_os = "windows")]
-pub struct WindowsJob {
-    handle: windows_sys::Win32::Foundation::HANDLE,
-}
+pub use crate::process_tree::WindowsJob;
 
-#[cfg(target_os = "windows")]
-unsafe impl Send for WindowsJob {}
-#[cfg(target_os = "windows")]
-unsafe impl Sync for WindowsJob {}
-
-#[cfg(target_os = "windows")]
-impl WindowsJob {
-    pub fn create_for_process(pid: u32) -> Result<Self, String> {
-        use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
-        use windows_sys::Win32::System::JobObjects::{
-            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-            SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-        };
-        use windows_sys::Win32::System::Threading::{
-            OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
-        };
-
-        unsafe {
-            let job_handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-            if job_handle.is_null() {
-                return Err("Creazione Job Object fallita".to_string());
-            }
-
-            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-
-            let res = SetInformationJobObject(
-                job_handle,
-                JobObjectExtendedLimitInformation,
-                &info as *const _ as *const _,
-                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-            );
-            if res == 0 {
-                CloseHandle(job_handle);
-                return Err("Configurazione Job Object (KILL_ON_JOB_CLOSE) fallita".to_string());
-            }
-
-            let proc_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, pid);
-            if proc_handle.is_null() {
-                CloseHandle(job_handle);
-                return Err(format!("Apertura processo PID {} fallita", pid));
-            }
-
-            let assign_res = AssignProcessToJobObject(job_handle, proc_handle);
-            CloseHandle(proc_handle);
-
-            if assign_res == 0 {
-                CloseHandle(job_handle);
-                return Err(format!(
-                    "Assegnazione processo {} al Job Object fallita",
-                    pid
-                ));
-            }
-
-            Ok(Self { handle: job_handle })
-        }
-    }
-
-    pub fn terminate(&self) {
-        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
-        unsafe {
-            if !self.handle.is_null() {
-                let _ = TerminateJobObject(self.handle, 1);
-            }
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-impl Drop for WindowsJob {
-    fn drop(&mut self) {
-        use windows_sys::Win32::Foundation::CloseHandle;
-        unsafe {
-            if !self.handle.is_null() {
-                CloseHandle(self.handle);
-            }
-        }
-    }
-}
-
+#[derive(Clone)]
 pub struct PtySession {
     pub pty_id: u64,
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
@@ -115,35 +33,9 @@ impl PtySession {
         }
 
         #[cfg(target_os = "windows")]
-        {
-            // 1. Termina l'intero Windows Job Object: il kernel uccide ricorsivamente
-            // tutti i processi child e grandchild (PowerShell, omp, node, ecc.)
-            if let Some(job) = &self.job {
-                job.terminate();
-            }
-            // 2. Ridondanza di sicurezza: taskkill /F /T per garantire la pulizia
-            // anche in caso di processi dissociati
-            if let Some(pid) = self.pid {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x08000000;
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/T", "/PID", &pid.to_string()])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output();
-            }
-        }
-
+        crate::process_tree::kill_process_tree(self.pid, self.job.as_deref());
         #[cfg(not(target_os = "windows"))]
-        {
-            if let Some(pid) = self.pid {
-                let _ = std::process::Command::new("kill")
-                    .args(["-TERM", &format!("-{}", pid)])
-                    .output();
-                let _ = std::process::Command::new("kill")
-                    .args(["-KILL", &format!("-{}", pid)])
-                    .output();
-            }
-        }
+        crate::process_tree::kill_process_tree(self.pid);
 
         let mut child = self.child.lock();
         let _ = child.kill();
@@ -737,6 +629,20 @@ pub async fn pty_close(pty_id: u64, manager: State<'_, PtyManager>) -> Result<()
     })
     .await
     .map_err(|e| format!("Chiusura PTY {}: {}", pty_id, e))?;
+    Ok(())
+}
+
+/// Termina forzatamente la sessione PTY e l'intero albero dei processi figli (SIGKILL/taskkill).
+#[tauri::command]
+pub async fn pty_force_kill(pty_id: u64, manager: State<'_, PtyManager>) -> Result<(), String> {
+    let session = manager.sessions.lock().get(&pty_id).cloned();
+    let session = session.ok_or_else(|| format!("Sessione PTY {} non trovata", pty_id))?;
+    tokio::task::spawn_blocking(move || {
+        session.kill_tree();
+        remove_breadcrumb(pty_id);
+    })
+    .await
+    .map_err(|e| format!("Terminazione forzata PTY {}: {}", pty_id, e))?;
     Ok(())
 }
 

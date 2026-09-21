@@ -11,7 +11,8 @@ import { removeAttentionRequest, upsertAttentionRequest } from './companionAtten
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
 import type { ImageContent } from '$lib/agent/wire';
 import { m as messages } from '$lib/paraglide/messages.js';
-
+import { promptBus, type PromptRequest } from '$lib/agent/promptBus';
+import type { PromptAnswer } from '$lib/agent/askAnswers';
 export interface RecentChatMessage {
 	role: 'user' | 'assistant' | 'tool';
 	text: string;
@@ -37,6 +38,7 @@ export interface PendingUiPayload {
 	method?: 'select' | 'confirm' | 'input' | 'editor';
 	placeholder?: string;
 	prefill?: string;
+	deadline?: number;
 	questions?: unknown[];
 	questionIndex?: number;
 	totalQuestions?: number;
@@ -223,8 +225,17 @@ class CompanionStore {
 				this.isCompanionVisible = false;
 			});
 			this.unlisteners.push(u7);
+			// Sincronizzazione continua con PromptBus
+			const uPrompt = promptBus.subscribe((pendings) => {
+				if (this.isCompanionWindow) {
+					this.syncWithPromptBus(pendings);
+				}
+			});
+			this.unlisteners.push(uPrompt);
+
 
 			if (this.isCompanionWindow) {
+				this.syncWithPromptBus(promptBus.getPendings());
 				this.requestSync();
 			} else {
 				// La richiesta iniziale della Companion puo' arrivare mentre i
@@ -289,10 +300,24 @@ class CompanionStore {
 		this.broadcastState();
 	}
 
-	/** Invia la risposta all'agente in background. */
+	/** Invia la risposta all'agente in background (tramite PromptBus o evento fallback). */
 	async respondUi(projectId: string, response: unknown) {
 		this.clearAttentionRequest(projectId);
+		const pendings = promptBus.getPendingsForProject(projectId);
+		if (pendings.length > 0) {
+			const handled = await promptBus.resolveRequest(pendings[0].requestId, response as PromptAnswer);
+			if (handled) return;
+		}
 		await emit('studio-respond-ui', { projectId, response });
+	}
+
+	/** Invia la risposta all'agente tramite requestId esatto su PromptBus (first-response-wins). */
+	async respondPrompt(requestId: string, answer: PromptAnswer): Promise<boolean> {
+		const req = promptBus.getRequest(requestId);
+		if (req) {
+			this.clearAttentionRequest(req.projectId);
+		}
+		return await promptBus.resolveRequest(requestId, answer);
 	}
 
 	/** Invia la richiesta di cambio modello e ripresa (one-click) per quota bloccata. */
@@ -305,6 +330,66 @@ class CompanionStore {
 	async dismissQuotaBlocked(projectId: string) {
 		this.clearAttentionRequest(projectId);
 		await emit('studio-dismiss-quota-blocked', { projectId });
+	}
+
+	/**
+	 * Sincronizza lo stato delle richieste di attenzione con i prompt pendenti sul PromptBus.
+	 * Garantisce che all'apertura tardiva della Companion le domande pendenti siano
+	 * immediatamente renderizzate, e che le domande risolte vengano rimosse.
+	 */
+	private syncWithPromptBus(pendings: PromptRequest[]) {
+		if (pendings.length === 0) {
+			const nonAsk = this.attentionRequests.filter((r) => r.pendingUi.kind !== 'ask');
+			if (nonAsk.length !== this.attentionRequests.length) {
+				this.attentionRequests = nonAsk;
+			}
+			return;
+		}
+
+		for (const p of pendings) {
+			const existing = this.attentionRequests.find(
+				(r) => r.projectId.toLowerCase() === p.projectId.toLowerCase()
+			);
+			if (!existing || existing.pendingUi.requestId !== p.requestId || existing.pendingUi.title !== p.title) {
+				const project = this.projects.find((prj) => prj.id.toLowerCase() === p.projectId.toLowerCase()) ?? {
+					id: p.projectId,
+					name: p.projectId,
+					hue: 200
+				};
+				const attentionReq: AttentionRequest = {
+					projectId: project.id,
+					projectName: project.name,
+					projectHue: (project as Project).hue ?? 200,
+					recentMessages: existing?.recentMessages ?? [],
+					pendingUi: {
+						kind: p.kind || 'ask',
+						requestId: p.requestId,
+						title: p.title,
+						message: p.message,
+						options: [...p.options],
+						optionDetails: [...p.optionDetails],
+						method: p.method,
+						placeholder: p.placeholder,
+						prefill: p.prefill,
+						deadline: p.deadline,
+						questions: p.questions,
+						questionIndex: p.questionIndex,
+						totalQuestions: p.totalQuestions
+					}
+				};
+				const next = upsertAttentionRequest(this.attentionRequests, attentionReq);
+				if (next) this.attentionRequests = next;
+			}
+		}
+
+		const activeProjectIds = new Set(pendings.map((p) => p.projectId.toLowerCase()));
+		const filtered = this.attentionRequests.filter((r) => {
+			if (r.pendingUi.kind !== 'ask') return true;
+			return activeProjectIds.has(r.projectId.toLowerCase());
+		});
+		if (filtered.length !== this.attentionRequests.length) {
+			this.attentionRequests = filtered;
+		}
 	}
 
 	/**

@@ -11,16 +11,17 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
-### Fixed
-- Preservato l'ordine cronologico naturale tra testo dell'assistente e chiamate tool: la ricostruzione dello storico della chat non accoda più tutti i tool al fondo del messaggio aggregato, ma intercala spiegazioni, domande interattive (`ask`) ed esecuzioni operative nella loro reale sequenza temporale, omettendo badge modello duplicati prima delle invocazioni dei tool.
-
-
 ### Added
+- PromptBus centralizzato e resiliente per tutte le interazioni utente pendenti (domande ask, selezioni multiple, conferme sì/no, input di testo): le richieste sono identificate da un requestId univoco e persistite temporaneamente nello storage locale per sopravvivere a ricaricamenti della WebView2, disconnessioni temporanee o crash senza bloccare l'agente in attesa indefinita. Sincronizzazione atomica first-response-wins tra Finestra Principale e Companion tramite windowBridge, con recupero e rendering istantaneo delle domande pendenti anche all'apertura tardiva della Companion.
+- Escalation a due stadi per l'arresto forzato (Two-Step Force Kill Escalation) sul pulsante di interruzione: un primo click invia un soft abort controllato (SIGINT) e attiva il pulsante in uno stato armato con contorno cremisi pulsante per 2,0 secondi; un secondo click entro la finestra abbatte immediatamente il processo e l'intero albero dei processi figli (SIGKILL, Job Object su Windows, kill del process group su POSIX e taskkill), liberando la sessione anche in caso di loop infiniti o comandi bash bloccati senza dover riavviare Studio. Se l'agente termina regolarmente entro i 2 secondi, lo stato armato decade automaticamente. Disponibile sia nella Chat GUI che nel terminale integrato.
 - Autocompletamento fuzzy `@file` nel Composer della Chat GUI: digitando `@` (a inizio riga o dopo spazio) si apre un popover fluido ancorato al cursore con la ricerca fuzzy dei file del progetto tramite `looseSearch`, escludendo directory di build e rumore (`.git`, `node_modules`, `bin`, `obj`, `dist`, `target`), con priorità per file attivo Monaco, file aperti e file modificati dall'agente, navigazione tramite frecce ↑/↓, inserimento del percorso relativo con Invio o Tab e chiusura con Esc senza interferire con i comandi slash `/` o con l'invio ordinario del messaggio.
 - Micro-badge Git `+X -Y` nelle tessere dei progetti, nel relativo pannello e sui task completati: mostrano subito le righe aggiunte e rimosse rispetto a HEAD, includono i nuovi file di testo e si aggiornano dopo scritture dell'agente, commit, salvataggi e cambi di branch senza colori accesi né spostamenti delle cifre.
 
 ### Changed
 - Transizione respirante (breathing easing) sull'anello ambra nello stato di attenzione dell'agente (`ask` e attesa input): sostituito il lampeggio a gradino intermittente con una pulsazione sinusoidale organica morbida su curva `cubic-bezier(0.4, 0, 0.2, 1)` da 1.9s che varia con continuità opacità ed espansione inset, uniforme tra barra principale e schede del Companion, con blocco statico al 100% di visibilità in modalità movimento ridotto.
+
+### Fixed
+- Preservato l'ordine cronologico naturale tra testo dell'assistente e chiamate tool: la ricostruzione dello storico della chat non accoda più tutti i tool al fondo del messaggio aggregato, ma intercala spiegazioni, domande interattive (`ask`) ed esecuzioni operative nella loro reale sequenza temporale, omettendo badge modello duplicati prima delle invocazioni dei tool.
 
 ## [1.6.0] - 2026-09-21
 

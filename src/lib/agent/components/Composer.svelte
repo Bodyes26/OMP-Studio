@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import { tick } from 'svelte';
+	import { tick, onDestroy } from 'svelte';
 	import { formatTokens } from '$lib/utils/format';
 	// Superficie di inserimento comandi e prompt per l'agente.
 	//
@@ -677,9 +677,49 @@ $effect(() => {
 	}
 
 
-	function handleCancelOrClear() {
-		if (session.isStreaming) {
+	let stopArmed = $state(false);
+	let stopArmedTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearStopArmed() {
+		if (stopArmedTimer) {
+			clearTimeout(stopArmedTimer);
+			stopArmedTimer = null;
+		}
+		stopArmed = false;
+	}
+
+	function handleStopClick() {
+		if (!stopArmed) {
+			// Fase 1 (al primo click): soft abort e finestra armed di 2.0s
 			void session.abort();
+			stopArmed = true;
+			if (stopArmedTimer) clearTimeout(stopArmedTimer);
+			stopArmedTimer = setTimeout(() => {
+				stopArmed = false;
+				stopArmedTimer = null;
+			}, 2000);
+		} else {
+			// Fase 2 (secondo click entro 2.0s): forza arresto immediato (SIGKILL)
+			clearStopArmed();
+			void session.forceKill();
+		}
+	}
+
+	// Reset naturale: se l'agente risponde al soft abort e termina entro i 2s,
+	// lo stato armed decade automaticamente senza necessita' del secondo click.
+	$effect(() => {
+		if (!session.isStreaming && stopArmed) {
+			clearStopArmed();
+		}
+	});
+
+	onDestroy(() => {
+		if (stopArmedTimer) clearTimeout(stopArmedTimer);
+	});
+
+	function handleCancelOrClear() {
+		if (session.isStreaming || stopArmed) {
+			handleStopClick();
 			return;
 		}
 		if (text || attachedImages.length > 0) {
@@ -964,11 +1004,11 @@ $effect(() => {
 		}
 
 		// Ctrl+C: interrompi streaming se non c'e' testo selezionato
-		if (isCtrlOrCmd && (keyLower === 'c' || code === 'KeyC') && session.isStreaming) {
+		if (isCtrlOrCmd && (keyLower === 'c' || code === 'KeyC') && (session.isStreaming || stopArmed)) {
 			const selection = window.getSelection()?.toString();
 			if (!selection) {
 				event.preventDefault();
-				void session.abort();
+				handleStopClick();
 				return;
 			}
 		}
@@ -1324,13 +1364,14 @@ $effect(() => {
 
 		<div class="actions-group">
 			<!-- Pulsante Invio / Stop / Split Button -->
-			{#if session.isStreaming && !text.trim() && attachedImages.length === 0}
+			{#if stopArmed || (session.isStreaming && !text.trim() && attachedImages.length === 0)}
 				<button
 					type="button"
 					class="send-btn stop"
-					title={m.composer_abort_btn()}
-					aria-label={m.ui_composer_interrompi_generazione_fe84()}
-					onclick={() => session.abort()}
+					class:armed={stopArmed}
+					title={stopArmed ? m.force_kill_session_btn() : m.composer_abort_btn()}
+					aria-label={stopArmed ? m.force_kill_session_btn() : m.ui_composer_interrompi_generazione_fe84()}
+					onclick={handleStopClick}
 				>
 					<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
 						<rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="currentColor" />
@@ -2009,6 +2050,9 @@ $effect(() => {
 		background: var(--bg-base);
 		border: 1px solid var(--danger);
 		color: var(--danger);
+		transition: border-color var(--transition-fast, 120ms ease),
+		            background var(--transition-fast, 120ms ease),
+		            box-shadow var(--transition-fast, 120ms ease);
 	}
 
 	.send-btn.stop:hover {
@@ -2020,6 +2064,31 @@ $effect(() => {
 	.send-btn.stop:active {
 		background: var(--danger);
 		color: var(--on-danger);
+	}
+
+	.send-btn.stop.armed {
+		background: var(--danger-dim);
+		border-color: var(--danger);
+		color: var(--danger);
+		animation: stop-armed-pulse 0.8s ease-in-out infinite alternate;
+	}
+
+	@keyframes stop-armed-pulse {
+		0% {
+			box-shadow: 0 0 0 1px var(--danger), 0 0 5px color-mix(in srgb, var(--danger) 45%, transparent);
+			border-color: var(--danger);
+		}
+		100% {
+			box-shadow: 0 0 0 2.5px var(--danger), 0 0 14px 2px color-mix(in srgb, var(--danger) 85%, transparent);
+			border-color: var(--danger);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.send-btn.stop.armed {
+			animation: none;
+			box-shadow: 0 0 0 2px var(--danger);
+		}
 	}
 
 	.btn-icon {

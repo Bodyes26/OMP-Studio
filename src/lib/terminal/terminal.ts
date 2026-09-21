@@ -748,6 +748,33 @@ export class TerminalSession {
 	}
 
 	/**
+	 * Invia un segnale di interruzione educata (SIGINT / Ctrl+C) alla sessione PTY.
+	 */
+	public async interrupt(): Promise<void> {
+		if (this.disposed || this.ptyId === null) return;
+		try {
+			await this.writePty('\x03');
+		} catch (error) {
+			console.warn('Invio SIGINT su PTY:', error);
+		}
+	}
+
+	/**
+	 * Fase 2 dell'escalation: forza l'arresto immediato dell'albero dei processi PTY (SIGKILL / taskkill).
+	 */
+	public async forceKill(): Promise<void> {
+		if (this.disposed || this.ptyId === null) return;
+		const ptyId = this.ptyId;
+		try {
+			await invoke('pty_force_kill', { ptyId }).catch(() =>
+				invoke('force_kill_session', { ptyId })
+			);
+		} catch (error) {
+			console.warn('Errore invocazione force kill su PTY:', error);
+		}
+	}
+
+	/**
 	 * Rilascia soltanto il processo omp. Serve all'handoff: la superficie
 	 * resta montata fino al cambio di layout, quindi disporre xterm qui
 	 * attiverebbe callback degli addon su un terminale gia' distrutto.

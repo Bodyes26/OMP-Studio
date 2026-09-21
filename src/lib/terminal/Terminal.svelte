@@ -44,12 +44,49 @@
 	// Reattiva: l'`$effect` sulla visibilita' legge `session`, e con un `let`
 	// semplice non si sarebbe mai riattivato dopo l'assegnazione in `onMount`.
 	let session = $state<TerminalSession | null>(null);
-	onMount(() => {
+	let agentState = $state<TerminalAgentState>('unknown');
+	let stopArmed = $state(false);
+	let stopArmedTimer: ReturnType<typeof setTimeout> | null = null;
 
+	function clearTerminalStopArmed() {
+		if (stopArmedTimer) {
+			clearTimeout(stopArmedTimer);
+			stopArmedTimer = null;
+		}
+		stopArmed = false;
+	}
+
+	function handleTerminalStopClick() {
+		if (!stopArmed) {
+			// Fase 1: Soft abort (SIGINT/Ctrl+C)
+			void session?.interrupt();
+			stopArmed = true;
+			if (stopArmedTimer) clearTimeout(stopArmedTimer);
+			stopArmedTimer = setTimeout(() => {
+				stopArmed = false;
+				stopArmedTimer = null;
+			}, 2000);
+		} else {
+			// Fase 2: Forza arresto immediato (SIGKILL / taskkill)
+			clearTerminalStopArmed();
+			void session?.forceKill();
+		}
+	}
+
+	$effect(() => {
+		if (agentState !== 'working' && stopArmed) {
+			clearTerminalStopArmed();
+		}
+	});
+
+	onMount(() => {
 		session = new TerminalSession(
 			container,
 			cwd,
-			(state) => onStateChange?.(state),
+			(state) => {
+				agentState = state;
+				onStateChange?.(state);
+			},
 			(relPath, line) => onOpenFile?.(relPath, line),
 			(pending) => onInputPendingChange?.(pending),
 			(info) => onSessionChange?.(info),
@@ -70,11 +107,13 @@
 		return () => {
 			window.removeEventListener('omp-terminals-restart', handleRestart);
 			sessionRef?.(null);
+			if (stopArmedTimer) clearTimeout(stopArmedTimer);
 			if (session) session.destroy();
 		};
 	});
 
 	onDestroy(() => {
+		if (stopArmedTimer) clearTimeout(stopArmedTimer);
 		if (session) session.destroy();
 	});
 
@@ -107,7 +146,22 @@
 
 		const hasSel = session.hasSelection();
 
-		const items: ContextMenuEntry[] = [
+		const items: ContextMenuEntry[] = [];
+
+		if (agentState === 'working' || stopArmed) {
+			items.push(
+				{
+					kind: 'item',
+					label: stopArmed ? m.force_kill_session_btn() : m.terminal_stop_agent_btn(),
+					icon: IconClear,
+					shortcut: stopArmed ? 'SIGKILL' : `${mod}C`,
+					run: handleTerminalStopClick
+				},
+				{ kind: 'separator' }
+			);
+		}
+
+		items.push(
 			{
 				kind: 'item',
 				label: m.context_menu_item_copy(),
@@ -141,7 +195,7 @@
 				shortcut: isMac ? '⌘K' : 'Ctrl+L',
 				run: () => session?.clear()
 			}
-		];
+		);
 
 		contextMenu.open(event, {
 			label: m.ui_terminal_terminale_cb00(),
@@ -162,6 +216,24 @@
 	style:inset="0"
 	oncontextmenu={handleContextMenu}
 ></div>
+
+{#if visible && (agentState === 'working' || stopArmed)}
+	<div class="terminal-stop-bar">
+		<button
+			type="button"
+			class="terminal-stop-btn"
+			class:armed={stopArmed}
+			onclick={handleTerminalStopClick}
+			title={stopArmed ? m.force_kill_session_btn() : m.terminal_stop_agent_btn()}
+			aria-label={stopArmed ? m.force_kill_session_btn() : m.terminal_stop_agent_btn()}
+		>
+			<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
+				<rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="currentColor" />
+			</svg>
+			<span class="btn-text">{stopArmed ? m.force_kill_session_short() : m.terminal_stop_agent_short()}</span>
+		</button>
+	</div>
+{/if}
 
 {#if visible && blockedQuota && !blockedQuota.dismissed}
 	<div class="terminal-quota-banner" class:is-quota={blockedQuota.reasonKind === 'quota_exhausted'}>
@@ -301,5 +373,70 @@
 	.tqb-close:hover {
 		color: var(--ink);
 		background: var(--bg-hover);
+	}
+
+	.terminal-stop-bar {
+		position: absolute;
+		top: var(--space-3);
+		right: var(--space-3);
+		z-index: 15;
+		pointer-events: auto;
+	}
+
+	.terminal-stop-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		height: 28px;
+		padding: 0 var(--space-2);
+		background: var(--bg-overlay, var(--bg-raised));
+		border: 1px solid var(--danger);
+		border-radius: var(--radius-sm);
+		color: var(--danger);
+		font-size: var(--text-xs);
+		font-weight: 500;
+		cursor: pointer;
+		backdrop-filter: blur(8px);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+		transition: border-color var(--transition-fast, 120ms ease),
+		            background var(--transition-fast, 120ms ease),
+		            box-shadow var(--transition-fast, 120ms ease);
+	}
+
+	.terminal-stop-btn:hover {
+		background: var(--danger-dim);
+		border-color: var(--danger);
+		color: var(--ink);
+	}
+
+	.terminal-stop-btn.armed {
+		background: var(--danger-dim);
+		border-color: var(--danger);
+		color: var(--danger);
+		animation: stop-armed-pulse 0.8s ease-in-out infinite alternate;
+	}
+
+	.terminal-stop-btn .btn-icon {
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
+	}
+
+	@keyframes stop-armed-pulse {
+		0% {
+			box-shadow: 0 0 0 1px var(--danger), 0 0 5px color-mix(in srgb, var(--danger) 45%, transparent);
+			border-color: var(--danger);
+		}
+		100% {
+			box-shadow: 0 0 0 2.5px var(--danger), 0 0 14px 2px color-mix(in srgb, var(--danger) 85%, transparent);
+			border-color: var(--danger);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.terminal-stop-btn.armed {
+			animation: none;
+			box-shadow: 0 0 0 2px var(--danger);
+		}
 	}
 </style>
