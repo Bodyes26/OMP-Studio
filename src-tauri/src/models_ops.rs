@@ -2889,7 +2889,7 @@ mod tests {
         assert!(anthropic.has_oauth);
 
         // Unica credenziale spenta: il provider non e' piu' configurato.
-        assert!(aggregates.get("cursor").is_none());
+        assert!(!aggregates.contains_key("cursor"));
 
         let groq = aggregates.get("groq").expect("provider groq");
         assert_eq!(groq.origin.as_deref(), Some("env"));

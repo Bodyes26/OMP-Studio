@@ -34,31 +34,16 @@ static COMPANION_SHOWN: AtomicBool = AtomicBool::new(false);
 /// La geometria e' in pixel fisici: e' la stessa unita' con cui la si rilegge
 /// (`inner_size`) e la si riapplica (`set_size`), quindi il giro di andata e
 /// ritorno non introduce conversioni.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompanionState {
+    // Nessuna dimensione predefinita: senza geometria salvata la finestra
+    // resta a quella di creazione (`tauri.conf.json`, unita' logiche).
     pub is_pinned: bool,
     pub x: Option<i32>,
     pub y: Option<i32>,
     pub width: Option<u32>,
     pub height: Option<u32>,
-}
-
-impl Default for CompanionState {
-    fn default() -> Self {
-        // Nessuna dimensione predefinita: senza geometria salvata la finestra
-        // resta a quella di creazione (`tauri.conf.json`, unita' logiche).
-        // Riempire questi campi con 560x520 li faceva applicare come pixel
-        // fisici, cambiando la larghezza a ogni riapertura sui monitor con
-        // scalatura diversa dal 100%.
-        Self {
-            is_pinned: false,
-            x: None,
-            y: None,
-            width: None,
-            height: None,
-        }
-    }
 }
 
 /// Metadati di un progetto noto per il matching del linguaggio naturale.

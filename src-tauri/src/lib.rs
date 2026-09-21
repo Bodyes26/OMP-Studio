@@ -227,10 +227,10 @@ pub fn run() {
             // La geometria della Companion si annota in memoria mentre l'utente
             // la trascina: all'uscita la finestra puo' essere gia' distrutta e
             // non rispondere piu' a `inner_size`.
-            tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
-                if window.label() == "companion" {
-                    track_companion_geometry(window);
-                }
+            tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_)
+                if window.label() == "companion" =>
+            {
+                track_companion_geometry(window);
             }
             _ => {}
         })
