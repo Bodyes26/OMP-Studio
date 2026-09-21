@@ -14,6 +14,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Added
 - Micro-badge Git `+X -Y` nelle tessere dei progetti, nel relativo pannello e sui task completati: mostrano subito le righe aggiunte e rimosse rispetto a HEAD, includono i nuovi file di testo e si aggiornano dopo scritture dell'agente, commit, salvataggi e cambi di branch senza colori accesi né spostamenti delle cifre.
 
+### Changed
+- Transizione respirante (breathing easing) sull'anello ambra nello stato di attenzione dell'agente (`ask` e attesa input): sostituito il lampeggio a gradino intermittente con una pulsazione sinusoidale organica morbida su curva `cubic-bezier(0.4, 0, 0.2, 1)` da 1.9s che varia con continuità opacità ed espansione inset, uniforme tra barra principale e schede del Companion, con blocco statico al 100% di visibilità in modalità movimento ridotto.
+
 ## [1.6.0] - 2026-09-21
 
 ### Added

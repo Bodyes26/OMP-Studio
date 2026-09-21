@@ -1304,7 +1304,8 @@
 
 	.tab.attention::after {
 		box-shadow: inset 0 0 0 1.5px var(--warn);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+		animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
+		will-change: opacity, box-shadow;
 	}
 
 	.tab.finished::after {
@@ -1339,6 +1340,17 @@
 		.tab-spin {
 			border-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
 		}
+		.tab.attention::after {
+			animation: none;
+			opacity: 1;
+			box-shadow: inset 0 0 0 1.5px var(--warn);
+		}
+	}
+
+	:global(:root[data-animations="false"]) .tab.attention::after {
+		animation: none;
+		opacity: 1;
+		box-shadow: inset 0 0 0 1.5px var(--warn);
 	}
 
 	/* Il divisore serve ancora al menu di ordinamento. */

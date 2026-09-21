@@ -14,6 +14,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 ### Added
 - Git `+X -Y` micro-badges on project tabs, their popovers, and completed tasks: they immediately show lines added and removed from HEAD, include new text files, and refresh after agent writes, commits, saves, and branch changes without bright colors or shifting digits.
 
+### Changed
+- Breathing easing transition on the amber attention ring for agent input and `ask` prompts: replaced the stepped on/off blinking with a smooth sinusoidal breathing pulse on an organic `cubic-bezier(0.4, 0, 0.2, 1)` 1.9s curve smoothly interpolating opacity and inset expansion, consistent across top bar tabs and Companion cards, freezing to a static 100% visible ring when reduced motion is preferred.
+
 ## [1.6.0] - 2026-09-21
 
 ### Added

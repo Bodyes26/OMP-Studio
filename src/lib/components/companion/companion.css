@@ -1071,7 +1071,8 @@
 	border-radius: inherit;
 	box-shadow: inset 0 0 0 1.5px var(--warn);
 	pointer-events: none;
-	animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
+	animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
+	will-change: opacity, box-shadow;
 }
 
 .project-card.finished::after {
@@ -1086,7 +1087,15 @@
 @media (prefers-reduced-motion: reduce) {
 	.project-card.attention::after {
 		animation: none;
+		opacity: 1;
+		box-shadow: inset 0 0 0 1.5px var(--warn);
 	}
+}
+
+:root[data-animations="false"] .project-card.attention::after {
+	animation: none;
+	opacity: 1;
+	box-shadow: inset 0 0 0 1.5px var(--warn);
 }
 
 .p-name {

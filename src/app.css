@@ -75,6 +75,7 @@
   --warn:        oklch(var(--warn-l) var(--warn-c) var(--warn-h));
   --warn-dim-l:  0.560;
   --warn-dim:    oklch(var(--warn-dim-l) calc(var(--warn-c) * 0.800) var(--warn-h));
+  --color-amber: var(--warn);
 
   /* Errore — distinto da `--warn`: l'attenzione avverte, l'errore dice che
      qualcosa non e' avvenuto. Tinta rossa fissa, indipendente dal tema di
@@ -118,6 +119,7 @@
   /* Movimento */
   --dur-instant: 0ms; --dur-fast: 120ms; --dur-base: 180ms;
   --dur-slow: 240ms;  --dur-pulse: 1800ms;
+  --dur-breathing: 1.9s;
   /* Due durate lunghe, e solo per la barra progetti: il cambio di stato di un
      agente non e' un hover, e a 120ms sarebbe uno scatto che l'occhio legge
      come un errore di rendering invece che come un evento. */
@@ -125,6 +127,7 @@
   --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.30, 1);
   --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-breathing: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Z-index semantico */
   --z-base: 0;     --z-splitter: 10; --z-sticky: 20; --z-topbar: 30;
@@ -137,6 +140,12 @@
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
+  .tab.attention::after,
+  .project-card.attention::after {
+    animation: none !important;
+    opacity: 1 !important;
+    box-shadow: inset 0 0 0 1.5px var(--warn) !important;
+  }
 }
 
 :root[data-animations="false"] *,
@@ -145,6 +154,13 @@
   animation-duration: 1ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 1ms !important;
+}
+
+:root[data-animations="false"] .tab.attention::after,
+:root[data-animations="false"] .project-card.attention::after {
+  animation: none !important;
+  opacity: 1 !important;
+  box-shadow: inset 0 0 0 1.5px var(--warn) !important;
 }
 
 @keyframes spin-fast {
@@ -180,6 +196,22 @@
   0%, 38%   { opacity: 1;    animation-timing-function: steps(6); }
   50%, 88%  { opacity: 0.35; animation-timing-function: steps(6); }
   100%      { opacity: 1; }
+}
+
+/* Respiro dell'anello ambra nello stato 'attention' (attesa input utente / ask).
+   Curva sinusoidale organica (breathing easing) che varia con continuita'
+   l'opacita' e l'espansione dell'anello inset, senza costosi repaint. */
+@keyframes breathing-amber-ring {
+  0%, 100% {
+    opacity: 0.35;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-amber, var(--warn)) 40%, transparent);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-amber, var(--warn)) 90%, transparent);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
 }
 
 /* Accensione della singola cella del loader a griglia 3x3.

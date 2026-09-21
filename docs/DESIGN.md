@@ -327,12 +327,11 @@ Nessun bounce, nessun elastic, nessun overshoot.
 
    L'attesa di avvio non è un'eccezione: il messaggio che compare mentre la shell e `omp` partono è **testo scritto nel buffer di xterm**, non un velo sopra la viewport, e non anima nulla (`DECISIONS.md` Gate R20).
 
-3. **Il movimento persistente resta rigorosamente limitato**: l'unico elemento che pulsa indefinitamente nell'intera interfaccia è il respiro dell'anello ambra sulla tessera di un progetto che **aspetta una risposta**. Opacità `1 → 0.35 → 1` su un anello inset da 1.5px in `--warn`, 1800ms, `--ease-in-out`, infinito. Il movimento serve a chiamare qualcuno: lo stato che ha bisogno dell'utente è il solo che ha diritto di muoversi, mentre «sta lavorando» non chiede niente a nessuno e si accontenta di un punto pieno.
+3. **Il movimento persistente resta rigorosamente limitato**: l'unico elemento che pulsa indefinitamente nell'intera interfaccia è il respiro dell'anello ambra sulla tessera di un progetto che **aspetta una risposta**. Opacità `0.35 → 1 → 0.35` ed espansione inset `1px → 2px` in `--warn`, 1.9s, curva respirante organica `cubic-bezier(0.4, 0, 0.2, 1)` (`breathing-amber-ring`), infinito. Il movimento serve a chiamare qualcuno: lo stato che ha bisogno dell'utente è il solo che ha diritto di muoversi, mentre «sta lavorando» non chiede niente a nessuno e si accontenta di un punto pieno.
 
    **Archi indeterminati e confini di visibilità:** gli archi rotanti di avanzamento indeterminato (come l'arco sulla tessera aperta in `working` o l'arco SVG al 28% nelle Task Rows in stato `running`, §7.12) sono ammessi **soltanto nelle righe di un pannello o di una lista attualmente aperto**, dove l'utente osserva attivamente l'avanzamento. Non sono mai ammessi nei riepiloghi chiusi, nelle tessere compresse o in sezioni collassate: quando il contenitore si chiude o si ritira, l'arco scompare o torna a indicatore statico.
 
-Il respiro è a **duty-cycle**: due plateau (opacità 1 e 0.35) collegati da rampe `steps(6)`. Il compositor aggiorna 12 frame discreti per ciclo invece di uno per vsync — su GPU integrata è la differenza tra un'animazione gratuita e un costo fisso a riposo. Il keyframe è `state-pulse`, globale in `src/app.css`; `tab-spin` e `tab-flash` vivono dentro `TopBar.svelte`, dove sono usati.
-
+Il respiro dell'anello ambra usa un keyframe dedicato (`breathing-amber-ring` in `src/app.css`) con transizione sinusoidale morbida a curva respirante organica (`cubic-bezier(0.4, 0, 0.2, 1)`), interpolando opacità ed espansione inset dell'anello (`1px` a 0.35 fino a `2px` a 0.9–1.0) senza scatti a gradino e senza repaint costosi della GPU. `tab-spin` e `tab-flash` vivono dentro `TopBar.svelte`, dove sono usati.
 ### Reduced motion — obbligatorio
 
 Sia con la media query di sistema `prefers-reduced-motion: reduce` sia con la disattivazione esplicita delle animazioni (`:root[data-animations="false"]`), tutti i movimenti persistenti e le transizioni decadono a valori istantanei.
@@ -395,8 +394,8 @@ Altezza 48px, sfondo `--bg-raised`. Nessun bordo inferiore: la separazione dal c
   - `idle` e `unknown` — punto neutro `--ink-faint` al 50%, sigla
     `--ink-faint`. La tessera si ritira senza sparire. Una tessera **aperta**
     non si spegne mai: la sua sigla resta `--ink` anche senza agente.
-  - `attention` — anello 1.5px `--warn` inset sull'intera tessera, che pulsa
-    con `state-pulse`. **È il solo elemento animato in modo persistente
+  - `attention` — anello `--warn` inset sull'intera tessera, che respira morbidamente
+    con `breathing-amber-ring`. **È il solo elemento animato in modo persistente
     dell'app**: il movimento serve a chiamare qualcuno, e "sta lavorando" non
     chiama nessuno.
   - `finished` — anello fermo 1px `--brand`. Ha finito, nessuna urgenza.

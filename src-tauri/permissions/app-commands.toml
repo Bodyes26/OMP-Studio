@@ -69,6 +69,7 @@ commands.allow = [
     "git_recent_commits",
     "git_current_branch",
     "git_working_numstat",
+    "git_diff_stats",
     "git_branch_list",
     "git_branch_checkout",
     "git_branch_create",
