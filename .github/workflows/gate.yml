@@ -39,7 +39,7 @@ jobs:
         run: node scripts/release.mjs --check
 
       - name: Compila dizionari i18n
-        run: node node_modules/@inlang/paraglide-js/dist/cli/index.js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy baseLocale --emit-ts-declarations --disable-async-local-storage
+        run: node node_modules/@inlang/paraglide-js/bin/run.js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy baseLocale --emit-ts-declarations --disable-async-local-storage
 
       - name: Tipi del frontend
         run: bun run check
