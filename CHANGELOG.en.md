@@ -11,6 +11,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-21
+
 ### Added
 - Live stopwatch on every running tool: next to the tool name the elapsed time ticks in tenths of a second (`0.1s`, `12.8s`, and past the minute `1m 14s`), then freezes on the call's real duration in a dimmer tint. During a long command — build, tests, dependency install — you can tell at a glance that work is progressing, even with the tool group collapsed, where the stopwatch now sits beside the status text. Digits are fixed-width and the time column is reserved: nothing shifts while the numbers change. A single clock serves every call in the session and switches off when no tool is running.
 - Icon quality and registry audit tool: new `npm run check:icons` audit script (`scripts/check-icons.mjs`) to inventory all icons in the `$lib/icons` registry, ensure proper Lucide resolution, enforce the architectural ban on direct imports, and detect unmigrated raw inline SVGs; interactive inspection modal in "Settings → Appearance" featuring multi-scale previews (14px, 16px, 20px, 24px), contrast verification, quick import copying, and migration tracking.
@@ -110,7 +112,6 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Companion window remembers its configured size: previously widened upon every reopen. Dimensions were saved only upon pinning (including invisible resize borders that accumulated with each cycle), while pinning via the top bar button in the main window completely cleared saved dimensions back to 560x520. Window position and size now persist when closing the window and quitting the app, persisting upon reopen in both Spotlight and pinned modes.
 - The Companion no longer flashes while you answer a multi-question sequence in the main window. Attention state travels over `emit`, which also delivers to the sender: the main window re-applied its own announcement and, since the JSON round-trip drops the empty fields that `ask` questions carry, judged it different from the state it had just published. The result was a continuous bounce between the two windows: the card was redrawn dozens of times per second, the content jumped up and down and always fell back to the first question. Each window now discards its own announcements, and the comparison treats a missing field and an empty field as identical.
 - Saving a task from the Companion is instant, first time included. The save used to wait for the full model load, which runs `omp models --json` (about two seconds) for a list the task does not need: it now reads only the configured roles and the local catalog, while the full list of available models loads in the background when the window opens, where the `!role` and `!model` mentions need it.
-
 ## [1.5.0] - 2026-09-08
 
 ### Added

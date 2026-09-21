@@ -11,6 +11,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-21
+
 ### Added
 - Cronometro live su ogni strumento in esecuzione: accanto al nome del tool il tempo trascorso scorre a decimi di secondo (`0.1s`, `12.8s`, e oltre il minuto `1m 14s`) e al termine si ferma sulla durata reale della chiamata, in tinta più attenuata. Durante un comando lungo — build, test, installazione di dipendenze — si vede a colpo d'occhio che il lavoro procede, anche con il gruppo di strumenti chiuso, dove il cronometro compare ora accanto al testo di stato. Le cifre sono a larghezza fissa e la colonna del tempo è riservata: nulla si sposta mentre i numeri cambiano. Un solo orologio serve tutte le chiamate della sessione e si spegne quando nessuno strumento è in esecuzione.
 - Strumento di audit e ispezione qualitativa delle icone: nuovo script di verifica `npm run check:icons` (`scripts/check-icons.mjs`) per censire tutte le icone del registro `$lib/icons`, garantire la risoluzione corretta in Lucide, prevenire import diretti non autorizzati e rilevare SVG inline grezzi nei componenti; nuova modale interattiva di ispezione accessibile da «Impostazioni → Aspetto» con anteprima multi-scala (14px, 16px, 20px, 24px), verifica contrasto, copia rapida dell'import e tracciamento dello stato di migrazione.
@@ -110,7 +112,6 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La finestra Companion ricorda la dimensione che le hai dato: prima tornava più larga a ogni riapertura. La misura veniva salvata solo nell'istante in cui la fissavi (e comprendeva i bordi invisibili di ridimensionamento, che si sommavano a ogni giro), mentre fissarla dal pulsante nella barra superiore della finestra principale cancellava del tutto la dimensione memorizzata riportandola a 560x520. Ora posizione e dimensione si salvano quando chiudi la finestra e quando esci dall'applicazione, e restano quelle alla riapertura in entrambe le modalità (Spotlight e fissata).
 - La Companion non lampeggia più mentre rispondi a una sequenza di domande nella finestra principale. Lo stato delle attenzioni viaggia con `emit`, che consegna anche a chi lo manda: la finestra principale si riapplicava il proprio annuncio e, poiché il passaggio da JSON toglie i campi vuoti che le domande `ask` portano con sé, lo giudicava diverso da quello appena pubblicato. Ne seguiva un rimbalzo continuo fra le due finestre: la card veniva ridisegnata decine di volte al secondo, il contenuto saltava su e giù e tornava sempre alla prima domanda. Ora ogni finestra scarta i propri annunci e il confronto considera identici un campo assente e un campo vuoto.
 - Salvare un task dalla Companion è immediato anche la prima volta. Il salvataggio aspettava il caricamento completo dei modelli, che avvia `omp models --json` (circa due secondi) per un elenco che al task non serve: ora legge solo i ruoli configurati e il catalogo locale, mentre l'elenco completo dei modelli disponibili si carica in sottofondo all'apertura della finestra, dove serve alle menzioni `!ruolo` e `!modello`.
-
 ## [1.5.0] - 2026-09-08
 
 ### Added
