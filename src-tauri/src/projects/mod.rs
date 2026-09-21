@@ -710,6 +710,62 @@ pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>,
 }
 
 #[command]
+pub async fn project_files_list(
+    project_path: String,
+    limit: Option<usize>,
+) -> Result<Vec<String>, String> {
+    let base = canonical_project_base(&project_path)?;
+    let max_results = limit.unwrap_or(2000).clamp(1, 10000);
+
+    let mut files = Vec::new();
+    let mut stack = vec![(base, String::new())];
+
+    while let Some((current_dir, current_rel)) = stack.pop() {
+        let dir_entries = match fs::read_dir(&current_dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in dir_entries.flatten() {
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+
+            let name = entry.file_name().to_string_lossy().to_string();
+            let is_dir = file_type.is_dir();
+
+            if is_dir {
+                if IGNORED_SEARCH_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                let rel = if current_rel.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", current_rel, name)
+                };
+                stack.push((entry.path(), rel));
+            } else {
+                let rel = if current_rel.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{}/{}", current_rel, name)
+                };
+                files.push(rel);
+                if files.len() >= max_results {
+                    break;
+                }
+            }
+        }
+        if files.len() >= max_results {
+            break;
+        }
+    }
+
+    Ok(files)
+}
+
+#[command]
 pub async fn project_files_search(
     project_path: String,
     query: String,
@@ -2092,7 +2148,7 @@ mod tests {
     use super::{
         content_search_within, count_untracked_text_lines, file_git_rev, fuzzy_match_str,
         git_last_commit, git_recent_commits, merge_name_status_numstat, parse_git_diff_stats,
-        path_create_directory, path_create_file, path_rename, project_files_search,
+        path_create_directory, path_create_file, path_rename, project_files_list, project_files_search,
         rename_via_temp, resolve_existing_entry, resolve_new_destination, resolve_path,
         resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
         ProjectContentSearchResult,
@@ -2819,6 +2875,33 @@ mod tests {
             .block_on(project_files_search(root_str, "".to_string(), None))
             .unwrap();
         assert!(results_empty.is_empty());
+    }
+
+    #[test]
+    fn lista_file_progetto_con_esclusioni() {
+        let dir = temp_dir("project-files-list");
+        let root_str = dir.to_str().unwrap().to_string();
+
+        fs::create_dir_all(dir.join("src/lib")).unwrap();
+        fs::create_dir_all(dir.join("node_modules/pkg")).unwrap();
+        fs::create_dir_all(dir.join(".git/objects")).unwrap();
+        fs::create_dir_all(dir.join("dist/bundle")).unwrap();
+
+        fs::write(dir.join("src/lib/auth.ts"), "auth").unwrap();
+        fs::write(dir.join("src/main.ts"), "main").unwrap();
+        fs::write(dir.join("node_modules/pkg/index.js"), "noise").unwrap();
+        fs::write(dir.join(".git/config"), "noise").unwrap();
+        fs::write(dir.join("dist/bundle/app.js"), "noise").unwrap();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let files = rt
+            .block_on(project_files_list(root_str, None))
+            .unwrap();
+
+        assert_eq!(files.len(), 2);
+        let set: HashSet<String> = files.into_iter().collect();
+        assert!(set.contains("src/lib/auth.ts"));
+        assert!(set.contains("src/main.ts"));
     }
 
     #[test]

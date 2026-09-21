@@ -28,9 +28,21 @@
 		type SuggestionChipItem
 	} from '$lib/stores/promptSuggestions';
 	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { traceFocus } from '$lib/focusTracer';
+	import { traceFocus } from '$lib/focusTracer';
+
 	import { isTypingSurface } from '../askFocus';
 import CommandPalette from './CommandPalette.svelte';
+import FileMentionPalette from './FileMentionPalette.svelte';
+import {
+	extractFileMentionAtCursor,
+	insertFileMentionAtCursor,
+	rankFileCandidates,
+	loadProjectFiles,
+	extractTouchedFilesFromTranscript,
+	type FileMentionMatch,
+	type RankedFileItem
+} from '../fileMention';
+import { projectStore } from '$lib/stores/projects.svelte';
 import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 import {
 	STUDIO_SLASH_COMMANDS,
@@ -75,6 +87,15 @@ import { getCaretCoordinates } from './caretCoordinates';
 	let paletteOpen = $state(false);
 	let paletteQuery = $state('');
 	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
+
+	// Stato per menzioni file (@file con ricerca fuzzy)
+	let fileMentionOpen = $state(false);
+	let fileMentionQuery = $state('');
+	let currentFileMentionMatch = $state<FileMentionMatch | null>(null);
+	let fileMentionCandidates = $state<RankedFileItem[]>([]);
+	let fileMentionSelectedIndex = $state(0);
+	let projectFilesList = $state<string[]>([]);
+	let fileMentionCaretAnchor = $state<HTMLElement | null>(null);
 
 	// Stato per smooth cursor (cursore fluido animato sulla textarea di chat)
 	let cursorX = $state(0);
@@ -228,6 +249,17 @@ $effect(() => {
 	const item = modelListEl.children[highlightedModelIndex] as HTMLElement | undefined;
 	item?.scrollIntoView({ block: 'nearest' });
 });
+	$effect(() => {
+		const pPath = projectStore.activeProject?.path;
+		if (pPath) {
+			void loadProjectFiles(pPath).then((files) => {
+				projectFilesList = files;
+			});
+		} else {
+			projectFilesList = [];
+		}
+	});
+
 	function updateSlashState() {
 		if (!textareaEl) return;
 		const cursor = textareaEl.selectionStart ?? text.length;
@@ -235,14 +267,68 @@ $effect(() => {
 		currentSlashMatch = match;
 		paletteQuery = match?.query ?? '';
 		paletteOpen = shouldOpenSlashPaletteAtCursor(match, allCommands);
+		if (paletteOpen) {
+			fileMentionOpen = false;
+			currentFileMentionMatch = null;
+		}
 
 		if (match && session.availableCommands.length === 0) {
 			void loadAvailableCommands().then(() => {
 				if (visible) {
 					paletteOpen = shouldOpenSlashPaletteAtCursor(currentSlashMatch, allCommands);
+					if (paletteOpen) {
+						fileMentionOpen = false;
+						currentFileMentionMatch = null;
+					}
 				}
 			});
 		}
+	}
+
+	async function updateFileMentionState() {
+		if (!textareaEl) return;
+		if (paletteOpen) {
+			fileMentionOpen = false;
+			currentFileMentionMatch = null;
+			return;
+		}
+
+		const cursor = textareaEl.selectionStart ?? text.length;
+		const match = extractFileMentionAtCursor(text, cursor);
+		currentFileMentionMatch = match;
+
+		if (!match) {
+			fileMentionOpen = false;
+			fileMentionQuery = '';
+			fileMentionCandidates = [];
+			fileMentionSelectedIndex = 0;
+			return;
+		}
+
+		fileMentionQuery = match.query;
+
+		const activeProj = projectStore.activeProject;
+		if (activeProj?.path && projectFilesList.length === 0) {
+			projectFilesList = await loadProjectFiles(activeProj.path);
+		}
+
+		const touched = extractTouchedFilesFromTranscript(session.entries);
+		const ranked = rankFileCandidates(
+			match.query,
+			projectFilesList,
+			{
+				activeFile: activeProj?.activeFile,
+				openFiles: activeProj?.openFiles,
+				touchedFiles: touched
+			},
+			8
+		);
+
+		fileMentionCandidates = ranked;
+		if (fileMentionSelectedIndex >= ranked.length) {
+			fileMentionSelectedIndex = 0;
+		}
+		fileMentionOpen = true;
 	}
 	function isComposerActiveAndFocused(): boolean {
 		if (!textareaEl || typeof document === 'undefined') return false;
@@ -397,11 +483,13 @@ $effect(() => {
 	function handleComposerInput() {
 		adjustTextareaHeight();
 		updateSlashState();
+		void updateFileMentionState();
 		updateSmoothCursor();
 	}
 
 	function handleCursorMovement() {
 		updateSlashState();
+		void updateFileMentionState();
 		updateSmoothCursor();
 	}
 	function handleInputRowClick(event: MouseEvent) {
@@ -634,11 +722,12 @@ $effect(() => {
 
 
 	function closeMenus(event: MouseEvent) {
-		if (!visible || (!activeMenu && !paletteOpen)) return;
+		if (!visible || (!activeMenu && !paletteOpen && !fileMentionOpen)) return;
 		const target = event.target;
-		if (target instanceof Element && target.closest('.dropdown-menu, .palette-container')) return;
+		if (target instanceof Element && target.closest('.dropdown-menu, .palette-container, .file-mention-container')) return;
 		activeMenu = null;
 		paletteOpen = false;
+		fileMentionOpen = false;
 	}
 	$effect(() => {
 		if (!session.isStreaming && activeMenu === 'send') {
@@ -695,7 +784,7 @@ $effect(() => {
 		// ne' ci sono dialoghi/menu aperti. Vale solo partendo dal vuoto (body) o dall'interno del composer:
 		// se il fuoco e' su un controllo di un'altra superficie (bottoni del TaskEditor, albero file, tessere)
 		// la digitazione resta li' invece di venire dirottata nella chat del progetto attivo.
-		if (!isComposerTextarea && !activeMenu && !paletteOpen && !hasOpenOverlay) {
+		if (!isComposerTextarea && !activeMenu && !paletteOpen && !fileMentionOpen && !hasOpenOverlay) {
 			if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && !event.isComposing) {
 				if (event.key === ' ' && isInteractiveElement) {
 					// Lascia che lo spazio attivi l'elemento con focus
@@ -721,6 +810,12 @@ $effect(() => {
 			if (activeMenu) {
 				event.preventDefault();
 				activeMenu = null;
+				textareaEl?.focus();
+				return;
+			}
+			if (fileMentionOpen) {
+				event.preventDefault();
+				fileMentionOpen = false;
 				textareaEl?.focus();
 				return;
 			}
@@ -938,6 +1033,7 @@ $effect(() => {
 			if (handled) {
 				text = '';
 				paletteOpen = false;
+				fileMentionOpen = false;
 				adjustTextareaHeight();
 				return;
 			}
@@ -947,15 +1043,76 @@ $effect(() => {
 		text = '';
 		attachedImages = [];
 		paletteOpen = false;
+		fileMentionOpen = false;
 		adjustTextareaHeight();
 		await session.prompt(raw, imagesToSend, behavior ?? settingsStore.general.defaultStreamingBehavior);
 	}
 
+	function handleFileMentionPick(item: RankedFileItem) {
+		if (!currentFileMentionMatch) {
+			fileMentionOpen = false;
+			return;
+		}
+
+		const res = insertFileMentionAtCursor(
+			text,
+			currentFileMentionMatch.startIndex,
+			currentFileMentionMatch.endIndex,
+			item.path
+		);
+		text = res.newText;
+		fileMentionOpen = false;
+		currentFileMentionMatch = null;
+		adjustTextareaHeight();
+
+		void tick().then(() => {
+			if (textareaEl) {
+				adjustTextareaHeight();
+				textareaEl.focus();
+				textareaEl.setSelectionRange(res.newCursorPos, res.newCursorPos);
+				updateSmoothCursor(true);
+			}
+		});
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
+		// Gestione navigazione e selezione popover menzione file @
+		if (fileMentionOpen) {
+			if (event.key === 'ArrowDown') {
+				event.preventDefault();
+				if (fileMentionCandidates.length > 0) {
+					fileMentionSelectedIndex = (fileMentionSelectedIndex + 1) % fileMentionCandidates.length;
+				}
+				return;
+			}
+			if (event.key === 'ArrowUp') {
+				event.preventDefault();
+				if (fileMentionCandidates.length > 0) {
+					fileMentionSelectedIndex = (fileMentionSelectedIndex - 1 + fileMentionCandidates.length) % fileMentionCandidates.length;
+				}
+				return;
+			}
+			if (event.key === 'Enter' || event.key === 'Tab') {
+				event.preventDefault();
+				if (fileMentionCandidates.length > 0 && fileMentionCandidates[fileMentionSelectedIndex]) {
+					handleFileMentionPick(fileMentionCandidates[fileMentionSelectedIndex]);
+				} else {
+					fileMentionOpen = false;
+				}
+				return;
+			}
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				fileMentionOpen = false;
+				textareaEl?.focus();
+				return;
+			}
+		}
+
 		// Alt+Enter: invia con la modalita' opposta al default
 		if (event.key === 'Enter' && event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
-			if (paletteOpen) {
-				// Se la palette e' aperta, lascia che sia essa a gestire l'Enter
+			if (paletteOpen || fileMentionOpen) {
+				// Se la palette o il popover file e' aperto, lascia che sia esso a gestire l'Enter
 				return;
 			}
 			event.preventDefault();
@@ -965,8 +1122,8 @@ $effect(() => {
 
 		// Enter: invia con la modalita' predefinita da impostazioni
 		if (event.key === 'Enter' && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
-			if (paletteOpen) {
-				// Se la palette e' aperta, lascia che sia essa a gestire l'Enter
+			if (paletteOpen || fileMentionOpen) {
+				// Se la palette o il popover file e' aperto, lascia che sia esso a gestire l'Enter
 				return;
 			}
 			event.preventDefault();
@@ -1080,6 +1237,16 @@ $effect(() => {
 		onSubmitFallback={() => void handleSubmit()}
 	/>
 
+	<!-- Palette menzioni file @ -->
+	<FileMentionPalette
+		open={visible && fileMentionOpen}
+		items={fileMentionCandidates}
+		selectedIndex={fileMentionSelectedIndex}
+		anchor={fileMentionCaretAnchor || composerEl}
+		onSelect={handleFileMentionPick}
+		onClose={() => (fileMentionOpen = false)}
+	/>
+
 	<!-- Miniature delle immagini allegate -->
 	{#if attachedImages.length > 0}
 		<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
@@ -1146,6 +1313,13 @@ $effect(() => {
 				style="transform: translate3d({cursorX}px, {cursorY}px, 0); height: {cursorHeight}px;"
 				aria-hidden="true"
 			></div>
+
+			<span
+				bind:this={fileMentionCaretAnchor}
+				class="file-mention-caret-anchor"
+				style="transform: translate3d({cursorX}px, {cursorY}px, 0); height: {cursorHeight}px;"
+				aria-hidden="true"
+			></span>
 		</div>
 
 		<div class="actions-group">
@@ -2428,5 +2602,15 @@ $effect(() => {
 	.shortcut-hint {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
+	}
+
+	.file-mention-caret-anchor {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 1px;
+		pointer-events: none;
+		opacity: 0;
+		visibility: hidden;
 	}
 </style>

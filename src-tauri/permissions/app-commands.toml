@@ -45,6 +45,7 @@ identifier = "allow-workspace-files"
 description = "Albero dei file e operazioni confinate alla radice del progetto: lettura, scrittura, creazione, rinomina, cestino e anteprime"
 commands.allow = [
     "tree_read",
+    "project_files_list",
     "project_files_search",
     "project_content_search",
     "path_create_file",

@@ -13,7 +13,7 @@ use projects::{
     git_branch_create, git_branch_list, git_branch_merge, git_current_branch, git_diff_stats,
     git_last_commit, git_recent_commits, git_working_numstat, path_create_directory,
     path_create_file, path_rename, path_trash, preview_file, project_content_search,
-    project_files_search, project_git_status, project_tasks_read, project_tasks_unwatch,
+    project_files_list, project_files_search, project_git_status, project_tasks_read, project_tasks_unwatch,
     project_tasks_watch, project_tasks_write,
     resolve_project_file, tree_read,
 };
@@ -133,6 +133,7 @@ pub fn run() {
             browser_live_disconnect,
             browser_live_pick_upload_files,
             tree_read,
+            project_files_list,
             project_files_search,
             project_content_search,
             path_create_file,

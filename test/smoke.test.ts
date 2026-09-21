@@ -62,3 +62,4 @@ import './task-recovery.test.ts';
 import './icons.test.ts';
 import './tool-stopwatch.test.ts';
 import './breathing-ring.test.ts';
+import './file-mention.test.ts';
