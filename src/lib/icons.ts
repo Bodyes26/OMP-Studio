@@ -63,6 +63,7 @@ export { default as IconGitBranch } from '@lucide/svelte/icons/git-branch';
 export { default as IconRule } from '@lucide/svelte/icons/scroll-text';
 export { default as IconSkill } from '@lucide/svelte/icons/wand-sparkles';
 export { default as IconDownload } from '@lucide/svelte/icons/download';
+export { default as IconGithub } from './icons/IconGithub.svelte';
 
 // Editor: viste del file e barra delle schede.
 export { default as IconViewCode } from '@lucide/svelte/icons/code';

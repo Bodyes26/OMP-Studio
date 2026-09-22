@@ -22,6 +22,8 @@
 		hasGitChanges,
 		type GitStatusRefreshDetail
 	} from '$lib/stores/gitDiff.svelte';
+	import { githubStore } from '$lib/stores/github.svelte';
+	import { normalizeProjectPath } from '$lib/stores/projects.svelte';
 	import {
 		IconChevronDown,
 		IconChevronLeft,
@@ -78,7 +80,7 @@
 
 	// Lo stato di una tessera e' un anello e un colore: senza queste etichette
 	// dentro l'`aria-label` sarebbe un'informazione affidata al solo colore.
-	const AGENT_STATE_LABEL = $derived.by((): Record<Project['agentState'], string> => ({
+	const AGENT_STATE_LABEL = $derived.by((): Record<Project['lane']['agentState'], string> => ({
 		idle: m.topbar_agent_state_idle(),
 		working: m.topbar_agent_state_working(),
 		attention: m.topbar_agent_state_attention(),
@@ -115,7 +117,7 @@
 	 *  l'overlay e riavvia l'animazione. */
 	let flashSeq = $state<Record<string, number>>({});
 	const flashCount = new Map<string, number>();
-	const lastSeenState = new Map<string, Project['agentState']>();
+	const lastSeenState = new Map<string, Project['lane']['agentState']>();
 
 	const panelProject = $derived(
 		panel ? projectStore.projects.find((candidate) => candidate.id === panel!.projectId) ?? null : null
@@ -194,25 +196,38 @@
 	});
 
 	$effect(() => {
-		const paths = projectStore.projects.map((project) => project.path).filter(Boolean);
+		const paths = projectStore.projects.flatMap((project) =>
+			project.lane.workspacePath ? [project.lane.workspacePath] : []
+		);
 		void gitDiffStore.loadMany(paths);
+		for (const path of paths) void githubStore.loadUpstreamStatus(path);
 
 		const handleGitRefresh = (event: Event) => {
 			const projectPath = (event as CustomEvent<GitStatusRefreshDetail>).detail?.projectPath;
 			if (projectPath) {
 				gitDiffStore.requestRefresh(projectPath);
+				void githubStore.loadUpstreamStatus(projectPath);
 				return;
 			}
-			for (const path of paths) gitDiffStore.requestRefresh(path);
+			for (const path of paths) {
+				gitDiffStore.requestRefresh(path);
+				void githubStore.loadUpstreamStatus(path);
+			}
 		};
 		const handleFocus = () => {
-			for (const path of paths) gitDiffStore.requestRefresh(path);
+			for (const path of paths) {
+				gitDiffStore.requestRefresh(path);
+				void githubStore.loadUpstreamStatus(path);
+			}
 		};
 		const interval = window.setInterval(() => {
 			const activePath = projectStore.projects.find(
 				(project) => project.id === projectStore.activeId
-			)?.path;
-			if (activePath) gitDiffStore.requestRefresh(activePath);
+			)?.lane.workspacePath;
+			if (activePath) {
+				gitDiffStore.requestRefresh(activePath);
+				void githubStore.loadUpstreamStatus(activePath);
+			}
 		}, 15_000);
 
 		window.addEventListener('git-status-refresh', handleGitRefresh);
@@ -233,11 +248,15 @@
 	$effect(() => {
 		for (const p of projectStore.projects) {
 			const previous = lastSeenState.get(p.id);
-			lastSeenState.set(p.id, p.agentState);
+			lastSeenState.set(p.id, p.lane.agentState);
 			// Il primo stato osservato non e' una transizione, e 'unknown' e' il
 			// valore prima che la sessione si attacchi: all'avvio non lampeggia
 			// niente.
-			if (previous === undefined || previous === 'unknown' || previous === p.agentState) continue;
+			if (
+				previous === undefined ||
+				previous === 'unknown' ||
+				previous === p.lane.agentState
+			) continue;
 			const next = (flashCount.get(p.id) ?? 0) + 1;
 			flashCount.set(p.id, next);
 			// Scrittura pura: `flashSeq` non viene mai letto qui dentro, quindi
@@ -248,15 +267,15 @@
 
 
 	function projectHue(project: Project): number {
-		if (!project.path || project.colorMode === 'custom') return project.hue;
-		return automaticProjectHue(THEMES[themeStore.current], project.path);
+		if (!project.canonicalProjectPath || project.colorMode === 'custom') return project.hue;
+		return automaticProjectHue(THEMES[themeStore.current], project.canonicalProjectPath);
 	}
 
 	/** Tinta che il tema assegnerebbe: serve al selettore per mostrare cosa si
 	 *  ottiene tornando alla modalita' automatica. */
 	function themeHue(project: Project): number {
-		if (!project.path) return 0;
-		return automaticProjectHue(THEMES[themeStore.current], project.path);
+		if (!project.canonicalProjectPath) return 0;
+		return automaticProjectHue(THEMES[themeStore.current], project.canonicalProjectPath);
 	}
 
 	/** Sigla della tessera: sempre visibile, e' l'ancora spaziale della barra.
@@ -519,13 +538,14 @@
 			     niente sarebbe peggio dell'assenza. -->
 			<div class="tabs" role="tablist" aria-orientation="horizontal" aria-label={m.topbar_open_projects()}>
 		{#each projectOrder.list as p (p.id)}
-			{@const queued = p.path ? taskStore.queuedCountFor(p.path) : 0}
+			{@const queued = p.canonicalProjectPath ? taskStore.queuedCountFor(p.canonicalProjectPath) : 0}
 			{@const ready = canRunTask?.(p.id) ?? false}
 			{@const isActive = projectStore.activeId === p.id}
 			{@const showName = isActive || settingsStore.projectBar.label === 'name'}
 			{@const queueStyle = settingsStore.projectBar.queueBadge}
-			{@const gitDiff = p.path ? gitDiffStore.forPath(p.path) : null}
+			{@const gitDiff = p.lane.workspacePath ? gitDiffStore.forPath(p.lane.workspacePath) : null}
 			{@const gitDiffLabel = gitDiff && hasGitChanges(gitDiff) ? ` · Git +${gitDiff.additions} -${gitDiff.deletions}` : ''}
+			{@const upstream = p.lane.workspacePath ? githubStore.upstreamByPath[normalizeProjectPath(p.lane.workspacePath).toLowerCase()] : null}
 			<!-- Il contenitore esiste solo per trascinamento, hover e menu
 			     contestuale: con `role="presentation"` sparisce dall'albero
 			     accessibile e la tessera resta figlia diretta del tablist, come
@@ -562,17 +582,17 @@
 					ondragstart={(event) => handleProjectDragStart(event, p.id)}
 					ondragend={handleProjectDragEnd}
 					class:active={isActive}
-					class:attention={settingsStore.projectBar.showAgentDot && p.agentState === 'attention'}
-					class:finished={settingsStore.projectBar.showAgentDot && p.agentState === 'finished'}
-					class:quiet={p.agentState === 'idle' || p.agentState === 'unknown'}
-					class:scratchpad={!p.path}
+					class:attention={settingsStore.projectBar.showAgentDot && p.lane.agentState === 'attention'}
+					class:finished={settingsStore.projectBar.showAgentDot && p.lane.agentState === 'finished'}
+					class:quiet={p.lane.agentState === 'idle' || p.lane.agentState === 'unknown'}
+					class:scratchpad={!p.canonicalProjectPath}
 					style="--proj-hue: {projectHue(p)}"
 					onclick={() => projectStore.setActive(p.id)}
 					onkeydown={handleTabKeydown}
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-label={m.topbar_tab_aria_label({ type: p.path ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[p.agentState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + gitDiffLabel}
+					aria-label={m.topbar_tab_aria_label({ type: p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[p.lane.agentState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + gitDiffLabel}
 				>
 					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
 					     raggio; il rimontaggio con `#key` riavvia l'animazione. -->
@@ -582,7 +602,7 @@
 						{/key}
 					{/if}
 
-					{#if p.path}
+					{#if p.canonicalProjectPath}
 						<span class="tab-dot" aria-hidden="true"></span>
 						<span class="tab-code">{projectCode(p)}</span>
 					{:else}
@@ -593,11 +613,11 @@
 						<span class="tab-reveal-inner"><span class="tab-name">{p.name}</span></span>
 					</span>
 
-					<span class="tab-reveal" class:show={isActive && p.agentState === 'working'}>
+					<span class="tab-reveal" class:show={isActive && p.lane.agentState === 'working'}>
 						<span class="tab-reveal-inner"><span class="tab-spin" aria-hidden="true"></span></span>
 					</span>
 
-					{#if p.path && queueStyle !== 'off'}
+					{#if p.canonicalProjectPath && queueStyle !== 'off'}
 						<span class="tab-reveal" class:show={isActive && queued > 0}>
 							<span class="tab-reveal-inner">
 								{#if queueStyle === 'dot'}
@@ -620,6 +640,16 @@
 								deletions={gitDiff.deletions}
 								compact
 							/>
+						</span>
+					{/if}
+					{#if settingsStore.github.showUpstreamBadges && upstream && (upstream.ahead > 0 || upstream.behind > 0)}
+						<span class="tab-upstream" aria-hidden="true">
+							{#if upstream.behind > 0}
+								<span class="upstream-pill behind" title={`${upstream.behind} commit da scaricare da GitHub`}>↓{upstream.behind}</span>
+							{/if}
+							{#if upstream.ahead > 0}
+								<span class="upstream-pill ahead" title={`${upstream.ahead} commit locali da inviare a GitHub`}>↑{upstream.ahead}</span>
+							{/if}
 						</span>
 					{/if}
 				</button>
@@ -1529,5 +1559,33 @@
 	.win-btn.close:hover {
 		background-color: var(--brand-dim);
 		color: var(--ink);
+	}
+
+	.tab-upstream {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		margin-left: 2px;
+	}
+
+	.upstream-pill {
+		font-family: var(--font-mono);
+		font-size: 0.65rem;
+		font-weight: 600;
+		padding: 1px 4px;
+		border-radius: var(--radius-sm);
+		line-height: 1;
+	}
+
+	.upstream-pill.behind {
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand);
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+	}
+
+	.upstream-pill.ahead {
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand);
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
 	}
 </style>

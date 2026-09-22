@@ -81,6 +81,18 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "allow-worktrees"
+description = "Corsie isolate: gestione Git Worktree e persistenza atomica machine-local"
+commands.allow = [
+    "worktree_inspect",
+    "worktree_create",
+    "worktree_list",
+    "worktree_remove",
+    "lanes_store_read",
+    "lanes_store_write_atomic"
+]
+
+[[permission]]
 identifier = "allow-project-tasks"
 description = "Coda dei task di progetto persistita in .omp/tasks.json e relativo watcher"
 commands.allow = [
@@ -204,6 +216,23 @@ commands.allow = [
     "fit_companion_to_content"
 ]
 
+[[permission]]
+identifier = "allow-github"
+description = "Integrazione GitHub: auth, repository remoti, sync upstream e feedback build CI"
+commands.allow = [
+    "github_get_status",
+    "github_set_token",
+    "github_logout",
+    "github_install_cli",
+    "project_detect_github_remotes",
+    "github_list_remote_repos",
+    "github_clone_repo",
+    "github_create_repo",
+    "git_upstream_status",
+    "git_sync_repo",
+    "github_get_actions_status"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -212,6 +241,7 @@ permissions = [
     "allow-agent-rpc",
     "allow-workspace-files",
     "allow-git",
+    "allow-worktrees",
     "allow-project-tasks",
     "allow-usage-and-sessions",
     "allow-omp-runtime",
@@ -224,5 +254,6 @@ permissions = [
     "allow-task-directives",
     "allow-prompt-suggestions",
     "allow-browser-live",
-    "allow-companion"
+    "allow-companion",
+    "allow-github"
 ]

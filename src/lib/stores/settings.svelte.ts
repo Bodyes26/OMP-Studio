@@ -60,7 +60,7 @@ export type ChatWidth = 'readable' | 'full';
 export type { StreamingBehavior, QueueMode, InterruptMode };
 
 
-export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -73,6 +73,13 @@ export interface NotificationSettings {
 	appBadge: boolean;
 	/** Segnale sonoro alla notifica. */
 	sound: boolean;
+}
+
+export interface GithubSettings {
+	cloneProtocol: 'https' | 'ssh';
+	autoFetch: boolean;
+	showUpstreamBadges: boolean;
+	notifyActionsFailure: boolean;
 }
 
 export interface AccessibilitySettings {
@@ -212,6 +219,7 @@ export interface StudioSettings {
 	notifications: NotificationSettings;
 	accessibility: AccessibilitySettings;
 	appearance: AppearanceSettings;
+	github: GithubSettings;
 }
 export const DEFAULT_SETTINGS: StudioSettings = {
 	projectBar: {
@@ -222,6 +230,12 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		label: 'initials',
 		showAgentDot: true,
 		showQueuePeek: true
+	},
+	github: {
+		cloneProtocol: 'https',
+		autoFetch: true,
+		showUpstreamBadges: true,
+		notifyActionsFailure: true
 	},
 	editor: {
 		fontSize: 14,
@@ -337,6 +351,7 @@ export function parseSettings(value: unknown): StudioSettings {
 	const quotaChip = (appearance.quotaChip && typeof appearance.quotaChip === 'object' ? appearance.quotaChip : {}) as Record<string, unknown>;
 	const quotaPopover = (appearance.quotaPopover && typeof appearance.quotaPopover === 'object' ? appearance.quotaPopover : {}) as Record<string, unknown>;
 	const d = DEFAULT_SETTINGS;
+	const github = (record.github && typeof record.github === 'object' ? record.github : {}) as Record<string, unknown>;
 
 	return {
 		projectBar: {
@@ -409,6 +424,12 @@ export function parseSettings(value: unknown): StudioSettings {
 		accessibility: {
 			animations: bool(access.animations, d.accessibility.animations)
 		},
+		github: {
+			cloneProtocol: pick(github.cloneProtocol, ['https', 'ssh'] as const, d.github.cloneProtocol),
+			autoFetch: bool(github.autoFetch, d.github.autoFetch),
+			showUpstreamBadges: bool(github.showUpstreamBadges, d.github.showUpstreamBadges),
+			notifyActionsFailure: bool(github.notifyActionsFailure, d.github.notifyActionsFailure)
+		},
 		appearance: {
 			quotaChip: {
 				variant: pick(quotaChip.variant, ['ringHalo', 'fillWave'] as const, d.appearance.quotaChip.variant),
@@ -473,6 +494,7 @@ class SettingsStore {
 		queueView: DEFAULT_SETTINGS.appearance.queueView,
 		companionSpotlightDismiss: DEFAULT_SETTINGS.appearance.companionSpotlightDismiss
 	});
+	github = $state<GithubSettings>({ ...DEFAULT_SETTINGS.github });
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
 	ready = $state(false);
 
@@ -545,6 +567,7 @@ class SettingsStore {
 		this.notifications = parsed.notifications;
 		this.accessibility = parsed.accessibility;
 		this.appearance = parsed.appearance;
+		this.github = parsed.github;
 		cacheSnapshot(parsed);
 	}
 
@@ -561,7 +584,8 @@ class SettingsStore {
 			notifications: $state.snapshot(this.notifications),
 			general: $state.snapshot(this.general),
 			accessibility: $state.snapshot(this.accessibility),
-			appearance: $state.snapshot(this.appearance)
+			appearance: $state.snapshot(this.appearance),
+			github: $state.snapshot(this.github)
 		};
 		await this.store.set('studioSettings', snapshot);
 		await this.store.save();
@@ -695,6 +719,11 @@ class SettingsStore {
 			patch.timeoutMs = Number.isFinite(val) ? Math.min(60000, Math.max(5000, Math.round(val))) : DEFAULT_SETTINGS.suggestions.timeoutMs;
 		}
 		Object.assign(this.suggestions, patch);
+		this.save();
+	}
+
+	patchGithub(patch: Partial<GithubSettings>) {
+		Object.assign(this.github, patch);
 		this.save();
 	}
 
@@ -847,6 +876,7 @@ class SettingsStore {
 		if (section === 'companion') {
 			this.appearance.companionSpotlightDismiss = DEFAULT_SETTINGS.appearance.companionSpotlightDismiss;
 		}
+		if (!section || section === 'github') this.github = { ...DEFAULT_SETTINGS.github };
 		this.save();
 	}
 }

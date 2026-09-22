@@ -32,7 +32,9 @@
 		{ id: 'max', label: 'Max' }
 	];
 
-	const openProjects = $derived(projectStore.projects.filter((p) => p.path !== ''));
+	const openProjects = $derived(
+		projectStore.projects.filter((p) => p.canonicalProjectPath !== null)
+	);
 
 	// Ambito selezionato per la configurazione dei default ('global' oppure projectId)
 	let selectedScopeId = $state<'global' | string>('global');
@@ -324,7 +326,7 @@
 
 	async function runAnalyzeFriction() {
 		const targetProject = currentProject ?? openProjects[0];
-		if (!targetProject || !targetProject.path) {
+		if (!targetProject || !targetProject.canonicalProjectPath) {
 			aiError = 'Nessun progetto aperto disponibile per analizzare i prompt recenti.';
 			return;
 		}
@@ -334,7 +336,7 @@
 		frictionProposals = [];
 		try {
 			const res = await invoke<AiProposal[]>('analyze_task_directives_friction', {
-				projectPath: targetProject.path,
+				projectPath: targetProject.canonicalProjectPath,
 				existingDirectives: settingsStore.taskDirectives,
 				modelSelector: null
 			});

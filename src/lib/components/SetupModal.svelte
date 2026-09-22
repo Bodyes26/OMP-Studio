@@ -22,7 +22,8 @@
 	import type { TerminalSession } from '$lib/terminal/terminal';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import { trapFocus } from '$lib/focusTrap';
-	import { IconRefresh } from '$lib/icons';
+	import { IconRefresh, IconGithub } from '$lib/icons';
+	import { githubStore } from '$lib/stores/github.svelte';
 
 	export type Step = 'install' | 'wizard' | 'project';
 
@@ -455,6 +456,36 @@
 							{/each}
 						</ul>
 					{/if}
+
+					<div class="github-onboarding-card">
+						<div class="gh-onboarding-left">
+							<div class="gh-onboarding-icon"><IconGithub /></div>
+							<div class="gh-onboarding-info">
+								<span class="gh-onboarding-title">Integrazione GitHub</span>
+								{#if githubStore.status.authenticated}
+									<span class="gh-onboarding-desc connected">
+										✓ Connesso come <strong>@{githubStore.status.username}</strong>
+									</span>
+								{:else if githubStore.status.installed}
+									<span class="gh-onboarding-desc">
+										GitHub CLI rilevata. Puoi accedere tramite <code>gh auth login</code> o dalle Impostazioni.
+									</span>
+								{:else}
+									<span class="gh-onboarding-desc">
+										Opzionale: puoi collegare GitHub in qualsiasi momento dalle Impostazioni di Studio.
+									</span>
+								{/if}
+							</div>
+						</div>
+						<button
+							type="button"
+							class="btn-gh-status"
+							onclick={() => void githubStore.loadStatus()}
+							title="Ricarica stato GitHub"
+						>
+							<IconRefresh />
+						</button>
+					</div>
 				</div>
 			{/if}
 
@@ -738,6 +769,55 @@
 		border-color: var(--brand);
 	}
 
+	.github-onboarding-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		margin-top: var(--space-3);
+		padding: var(--space-3);
+		background: var(--surface-2, rgba(255, 255, 255, 0.04));
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+	}
+	.gh-onboarding-left {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+	}
+	.gh-onboarding-icon {
+		font-size: 1.3rem;
+		color: var(--ink);
+	}
+	.gh-onboarding-info {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.gh-onboarding-title {
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--ink);
+	}
+	.gh-onboarding-desc {
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+	}
+	.gh-onboarding-desc.connected {
+		color: var(--success, #2ecc71);
+	}
+	.btn-gh-status {
+		padding: 6px;
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		cursor: pointer;
+	}
+	.btn-gh-status:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
 	.root-path {
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);

@@ -16,6 +16,7 @@
 	import SuggestionsSection from './SuggestionsSection.svelte';
 	import AccessibilitySection from './AccessibilitySection.svelte';
 	import CompanionSection from './CompanionSection.svelte';
+	import GithubSection from './GithubSection.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
@@ -31,7 +32,8 @@
 		{ id: 'workspace', label: m.settings_nav_workspace() },
 		{ id: 'tasks', label: m.settings_nav_tasks() },
 		{ id: 'suggestions', label: m.settings_nav_suggestions() },
-		{ id: 'models', label: m.settings_nav_models() }
+		{ id: 'models', label: m.settings_nav_models() },
+		{ id: 'github', label: 'GitHub' }
 	]);
 
 	let showDiscardConfirm = $state(false);
@@ -362,6 +364,10 @@
 				{:else if settingsStore.section === 'suggestions'}
 					<div class="modal-body">
 						<SuggestionsSection />
+					</div>
+				{:else if settingsStore.section === 'github'}
+					<div class="modal-body">
+						<GithubSection />
 					</div>
 				{/if}
 			</div>

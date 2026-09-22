@@ -1,5 +1,13 @@
 mod diagrams;
 mod fs_atomic;
+mod lanes_store;
+use lanes_store::{lanes_store_read, lanes_store_write_atomic};
+mod github;
+use github::{
+    github_clone_repo, github_create_repo, github_get_actions_status, github_get_status,
+    github_install_cli, github_list_remote_repos, github_logout, github_set_token,
+    git_sync_repo, git_upstream_status, project_detect_github_remotes,
+};
 pub mod process_tree;
 mod previews;
 mod pty;
@@ -18,6 +26,7 @@ use projects::{
     project_files_list, project_files_search, project_git_status, project_tasks_read, project_tasks_unwatch,
     project_tasks_watch, project_tasks_write,
     resolve_project_file, tree_read,
+    worktree_create, worktree_inspect, worktree_list, worktree_remove,
 };
 mod omp_ops;
 use omp_ops::{
@@ -166,6 +175,12 @@ pub fn run() {
             project_tasks_watch,
             project_tasks_unwatch,
             resolve_project_file,
+            worktree_inspect,
+            worktree_create,
+            worktree_list,
+            worktree_remove,
+            lanes_store_read,
+            lanes_store_write_atomic,
             usage_snapshot,
             sessions_list,
             sessions_search,
@@ -216,6 +231,17 @@ pub fn run() {
             get_companion_state,
             set_companion_pinned,
             parse_quick_task_ai,
+            github_get_status,
+            github_set_token,
+            github_logout,
+            github_install_cli,
+            project_detect_github_remotes,
+            github_list_remote_repos,
+            github_clone_repo,
+            github_create_repo,
+            git_upstream_status,
+            git_sync_repo,
+            github_get_actions_status,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {

@@ -2,8 +2,11 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { IconGitBranch, IconChevronDown, IconDiamond, IconCheck, IconPlus } from '$lib/icons';
+	import { IconGitBranch, IconChevronDown, IconDiamond, IconCheck, IconPlus, IconExternalLink } from '$lib/icons';
 	import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
+	import { githubStore } from '$lib/stores/github.svelte';
+	import { normalizeProjectPath } from '$lib/stores/projects.svelte';
+	import { openUrl } from '@tauri-apps/plugin-opener';
 
 	let {
 		projectPath,
@@ -61,6 +64,27 @@
 	let isRefreshing = $state(false);
 	let sessions = $state<{ id: string; title: string; created_at: number }[]>([]);
 	let actionError = $state<string | null>(null);
+	let syncMessage = $state<string | null>(null);
+	let showIncomingCommits = $state(false);
+
+	const normalizedKey = $derived(normalizeProjectPath(projectPath).toLowerCase());
+	const upstream = $derived(githubStore.upstreamByPath[normalizedKey] ?? null);
+	const isSyncing = $derived(githubStore.isSyncingByPath[normalizedKey] ?? false);
+	const actionsRuns = $derived(githubStore.actionsByPath[normalizedKey] ?? []);
+	const latestAction = $derived(actionsRuns.length > 0 ? actionsRuns[0] : null);
+
+	async function handleSync(action: 'pull' | 'push' | 'sync' | 'fetch') {
+		syncMessage = null;
+		actionError = null;
+		try {
+			const res = await githubStore.syncRepo(projectPath, action);
+			syncMessage = res;
+			await refresh();
+			notifyGitStatusRefresh(projectPath);
+		} catch (e) {
+			actionError = String(e);
+		}
+	}
 	function baseName(p: string): string {
 		return p.split('/').pop() || p;
 	}
@@ -127,6 +151,8 @@
 				.sort((a, b) => a.path.localeCompare(b.path));
 			lastCommit = last;
 			commits = rec;
+			void githubStore.loadUpstreamStatus(targetPath);
+			void githubStore.loadActionsStatus(targetPath, b || undefined);
 		} catch (e) {
 			if (projectPath !== targetPath) return;
 			const msg = String(e);
@@ -276,6 +302,138 @@
 				<span class="branch-caret" aria-hidden="true"><IconChevronDown /></span>
 			</button>
 		</div>
+
+		<!-- Sezione GitHub Sync & Upstream -->
+		{#if upstream && upstream.isGit}
+			<div class="sync-card">
+				<div class="sync-status-row">
+					<div class="sync-info">
+						<span class="sync-branch">
+							{#if upstream.upstream}
+								<span class="upstream-name" title={`Traccia ${upstream.upstream}`}>
+									☁️ {upstream.upstream}
+								</span>
+							{:else}
+								<span class="upstream-none">Nessun upstream</span>
+							{/if}
+						</span>
+						{#if upstream.ahead > 0 || upstream.behind > 0}
+							<div class="divergence-pills">
+								{#if upstream.behind > 0}
+									<button
+										type="button"
+										class="div-pill behind clickable"
+										onclick={() => (showIncomingCommits = !showIncomingCommits)}
+										title="Visualizza i commit in arrivo"
+									>
+										↓ {upstream.behind}
+									</button>
+								{/if}
+								{#if upstream.ahead > 0}
+									<span class="div-pill ahead" title={`${upstream.ahead} commit locali da inviare`}>
+										↑ {upstream.ahead}
+									</span>
+								{/if}
+							</div>
+						{:else if upstream.upstream}
+							<span class="sync-aligned">✓ Allineato</span>
+						{/if}
+					</div>
+
+					<div class="sync-actions">
+						{#if upstream.behind > 0 && upstream.ahead === 0}
+							<button
+								type="button"
+								class="btn-sync"
+								onclick={() => handleSync('pull')}
+								disabled={isSyncing}
+								title="Scarica i commit da GitHub (pull rebase)"
+							>
+								{isSyncing ? '...' : `Pull (↓${upstream.behind})`}
+							</button>
+						{:else if upstream.ahead > 0 && upstream.behind === 0}
+							<button
+								type="button"
+								class="btn-sync"
+								onclick={() => handleSync('push')}
+								disabled={isSyncing}
+								title="Invia i commit a GitHub (push)"
+							>
+								{isSyncing ? '...' : `Push (↑${upstream.ahead})`}
+							</button>
+						{:else if upstream.ahead > 0 && upstream.behind > 0}
+							<button
+								type="button"
+								class="btn-sync btn-sync-dual"
+								onclick={() => handleSync('sync')}
+								disabled={isSyncing}
+								title="Pull e push combinati"
+							>
+								{isSyncing ? '...' : `Sync (↑${upstream.ahead} ↓${upstream.behind})`}
+							</button>
+						{:else}
+							<button
+								type="button"
+								class="btn-sync btn-sync-idle"
+								onclick={() => handleSync('fetch')}
+								disabled={isSyncing}
+								title="Controlla nuovi commit su GitHub (fetch)"
+							>
+								{isSyncing ? '...' : 'Fetch'}
+							</button>
+						{/if}
+					</div>
+				</div>
+
+				{#if syncMessage}
+					<div class="sync-feedback">{syncMessage}</div>
+				{/if}
+
+				<!-- Commit in arrivo espandibili -->
+				{#if showIncomingCommits && upstream.incomingCommits.length > 0}
+					<div class="incoming-commits-list">
+						<div class="incoming-head">Commit in arrivo da GitHub:</div>
+						{#each upstream.incomingCommits as c (c.hash)}
+							<div class="incoming-commit-row" title={`${c.author} · ${c.date}`}>
+								<span class="commit-hash">{c.shortHash}</span>
+								<span class="commit-subject">{c.subject}</span>
+								<span class="commit-date">{c.date}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+
+				<!-- GitHub Actions CI Status -->
+				{#if latestAction}
+					<div class="actions-status-row">
+						<span class="ci-label">CI:</span>
+						<span
+							class="ci-badge"
+							class:success={latestAction.conclusion === 'success'}
+							class:failure={latestAction.conclusion === 'failure'}
+							class:running={latestAction.status === 'in_progress' || latestAction.status === 'queued'}
+						>
+							{#if latestAction.conclusion === 'success'}
+								✓ Pass
+							{:else if latestAction.conclusion === 'failure'}
+								✕ Fail
+							{:else}
+								⟳ Run
+							{/if}
+						</span>
+						<span class="ci-name" title={latestAction.name}>{latestAction.name}</span>
+						<button
+							type="button"
+							class="ci-link"
+							onclick={() => void openUrl(latestAction!.url)}
+							title="Apri su GitHub"
+						>
+							<IconExternalLink />
+						</button>
+					</div>
+				{/if}
+			</div>
+		{/if}
 
 		<div class="section-label">
 			{m.git_uncommitted()}
@@ -760,5 +918,223 @@
 	.git-row-animated {
 		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
 		animation-delay: min(calc(var(--index, 0) * 20ms), 200ms);
+	}
+
+	/* Stili Sync Card e GitHub Actions */
+	.sync-card {
+		margin: var(--space-2) 0;
+		padding: var(--space-2) var(--space-3);
+		background: var(--surface-2, rgba(255, 255, 255, 0.03));
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.sync-status-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
+	.sync-info {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+	}
+
+	.upstream-name {
+		font-family: var(--font-mono);
+		font-size: 0.72rem;
+		color: var(--ink-muted);
+	}
+
+	.upstream-none {
+		font-size: 0.72rem;
+		color: var(--ink-faint);
+		font-style: italic;
+	}
+
+	.sync-aligned {
+		font-size: 0.72rem;
+		color: var(--success, #2ecc71);
+	}
+
+	.divergence-pills {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+	}
+
+	.div-pill {
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		font-weight: 600;
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+	}
+
+	.div-pill.behind {
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand);
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+	}
+
+	.div-pill.ahead {
+		background: color-mix(in srgb, var(--accent, #3498db) 15%, transparent);
+		color: var(--accent, #3498db);
+		border: 1px solid color-mix(in srgb, var(--accent, #3498db) 30%, transparent);
+	}
+
+	.div-pill.clickable {
+		cursor: pointer;
+	}
+
+	.btn-sync {
+		padding: 2px 8px;
+		font-size: 0.74rem;
+		font-weight: 500;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--brand);
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand);
+		cursor: pointer;
+		white-space: nowrap;
+		transition: all 0.15s ease;
+	}
+
+	.btn-sync:hover:not(:disabled) {
+		background: var(--brand);
+		color: #ffffff;
+	}
+
+	.btn-sync:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	.btn-sync-idle {
+		border-color: var(--line);
+		background: transparent;
+		color: var(--ink-muted);
+	}
+
+	.btn-sync-idle:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.sync-feedback {
+		font-size: 0.72rem;
+		color: var(--ink-muted);
+		line-height: 1.3;
+	}
+
+	.incoming-commits-list {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		padding-top: var(--space-1);
+		border-top: 1px solid var(--line);
+	}
+
+	.incoming-head {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: var(--ink-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.incoming-commit-row {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		font-size: 0.75rem;
+	}
+
+	.commit-hash {
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		color: var(--brand);
+		flex-shrink: 0;
+	}
+
+	.commit-subject {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink);
+	}
+
+	.commit-date {
+		font-size: 0.68rem;
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.actions-status-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding-top: var(--space-1);
+		border-top: 1px solid var(--line);
+		font-size: 0.74rem;
+	}
+
+	.ci-label {
+		font-weight: 600;
+		color: var(--ink-muted);
+	}
+
+	.ci-badge {
+		padding: 1px 6px;
+		border-radius: var(--radius-sm);
+		font-size: 0.68rem;
+		font-weight: 600;
+	}
+
+	.ci-badge.success {
+		background: color-mix(in srgb, var(--success, #2ecc71) 15%, transparent);
+		color: var(--success, #2ecc71);
+		border: 1px solid color-mix(in srgb, var(--success, #2ecc71) 30%, transparent);
+	}
+
+	.ci-badge.failure {
+		background: color-mix(in srgb, var(--danger, #e74c3c) 15%, transparent);
+		color: var(--danger, #e74c3c);
+		border: 1px solid color-mix(in srgb, var(--danger, #e74c3c) 30%, transparent);
+	}
+
+	.ci-badge.running {
+		background: color-mix(in srgb, var(--warn, #f39c12) 15%, transparent);
+		color: var(--warn, #f39c12);
+		border: 1px solid color-mix(in srgb, var(--warn, #f39c12) 30%, transparent);
+	}
+
+	.ci-name {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink);
+	}
+
+	.ci-link {
+		background: none;
+		border: none;
+		padding: 2px;
+		color: var(--ink-muted);
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+	}
+
+	.ci-link:hover {
+		color: var(--ink);
 	}
 </style>
