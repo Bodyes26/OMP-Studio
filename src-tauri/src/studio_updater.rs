@@ -57,6 +57,10 @@ pub struct GithubAsset {
     pub name: String,
     pub size: u64,
     pub browser_download_url: String,
+    /// Endpoint API dell'asset (`releases/assets/{id}`): indirizza il file per id,
+    /// senza passare dalla cache legata al nome del tag.
+    #[serde(default)]
+    pub url: String,
     pub content_type: Option<String>,
     #[serde(default)]
     pub digest: Option<String>,
@@ -64,6 +68,7 @@ pub struct GithubAsset {
 
 #[derive(Debug, Deserialize)]
 pub struct GithubRelease {
+    pub id: u64,
     pub tag_name: String,
     pub name: Option<String>,
     pub body: Option<String>,
@@ -415,9 +420,13 @@ fn pick_best_asset_for(assets: &[GithubAsset], os: &str, arch: &str) -> Option<S
 /// priorita' per sistema operativo: una release puo' conservare installer di build
 /// precedenti (asset nightly non ancora rimossi) e sceglierne uno significherebbe
 /// installare silenziosamente una build piu' vecchia di quella dichiarata.
+/// Il ripiego sugli altri installer vale solo per lo stabile: nella nightly gli
+/// installer delle build precedenti vengono cancellati a ogni pubblicazione, e
+/// sceglierne uno portava a un download in 404.
 fn pick_versioned_asset_for(
     assets: &[GithubAsset],
     version: &str,
+    channel: StudioUpdateChannel,
     os: &str,
     arch: &str,
 ) -> Option<StudioReleaseAsset> {
@@ -433,13 +442,21 @@ fn pick_versioned_asset_for(
         }
     }
 
+    if channel == StudioUpdateChannel::Nightly {
+        return None;
+    }
     pick_best_asset_for(assets, os, arch)
 }
 
-fn pick_versioned_asset(assets: &[GithubAsset], version: &str) -> Option<StudioReleaseAsset> {
+fn pick_versioned_asset(
+    assets: &[GithubAsset],
+    version: &str,
+    channel: StudioUpdateChannel,
+) -> Option<StudioReleaseAsset> {
     pick_versioned_asset_for(
         assets,
         version,
+        channel,
         std::env::consts::OS,
         std::env::consts::ARCH,
     )
@@ -534,27 +551,58 @@ async fn fetch_nightly_release(
         ));
     }
 
-    let release = response
+    let listed = response
         .json::<GithubRelease>()
         .await
         .map_err(|e| format!("Errore nel parsing della release nightly: {}", e))?;
-    if release.draft {
+    if listed.draft {
         return Ok(None);
     }
-    if !release.prerelease {
+    if !listed.prerelease {
         return Err("La release nightly non e' marcata come prerelease".to_string());
     }
+
+    // `releases/tags/nightly` risponde con una copia in cache degli asset che
+    // resta indietro anche di decine di minuti dopo una pubblicazione: elenca
+    // installer gia' cancellati (download in 404) oppure nessun asset. La
+    // stessa release letta per id e' aggiornata.
+    let fresh_url = format!(
+        "https://api.github.com/repos/{}/releases/{}",
+        GITHUB_REPO, listed.id
+    );
+    let fresh_response = github_get(client, &fresh_url, current_version)
+        .send()
+        .await
+        .map_err(|e| format!("Impossibile contattare GitHub per la nightly: {}", e))?;
+    if !fresh_response.status().is_success() {
+        return Err(format!(
+            "GitHub API ha risposto con errore HTTP {} per la release nightly",
+            fresh_response.status()
+        ));
+    }
+    let release = fresh_response
+        .json::<GithubRelease>()
+        .await
+        .map_err(|e| format!("Errore nel parsing della release nightly: {}", e))?;
 
     let manifest_asset = release
         .assets
         .iter()
         .find(|asset| asset.name.eq_ignore_ascii_case("nightly.json"))
         .ok_or_else(|| "La release nightly non contiene nightly.json".to_string())?;
-    let manifest_response = github_get(
-        client,
-        &manifest_asset.browser_download_url,
-        current_version,
-    )
+    // Anche `releases/download/nightly/nightly.json` passa da una cache legata
+    // al tag e puo' servire il manifest di una build precedente: il manifest
+    // si scarica per id dall'API.
+    let manifest_response = if manifest_asset.url.is_empty() {
+        github_get(client, &manifest_asset.browser_download_url, current_version)
+    } else {
+        client
+            .get(&manifest_asset.url)
+            .header("User-Agent", format!("omp-studio-app/{}", current_version))
+            .header("Accept", "application/octet-stream")
+            .header("Cache-Control", "no-cache, no-store, must-revalidate")
+            .header("Pragma", "no-cache")
+    }
     .send()
     .await
     .map_err(|e| format!("Impossibile scaricare il manifest nightly: {}", e))?;
@@ -769,7 +817,11 @@ pub async fn check_studio_update(
         None => candidate.version != normalize_version(current_version),
     };
     let ahead_of_channel = relation == Some(std::cmp::Ordering::Less);
-    let mut best_asset = pick_versioned_asset(&candidate.release.assets, &candidate.version);
+    let mut best_asset = pick_versioned_asset(
+        &candidate.release.assets,
+        &candidate.version,
+        candidate.channel,
+    );
 
     if let Some(asset) = &mut best_asset {
         let empty_checksums = std::collections::HashMap::new();
@@ -1632,6 +1684,7 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
                 name: "OMP-Studio_0.3.1_x64-setup.exe".to_string(),
                 size: 65432100,
                 browser_download_url: "https://github.com/Bodyes26/OMP-Studio/releases/download/v0.3.1/OMP-Studio_0.3.1_x64-setup.exe".to_string(),
+                url: String::new(),
                 content_type: Some("application/octet-stream".to_string()),
                 digest: Some("sha256:1d96d74b47e829718217d7ff68bd3ff727924c203a6eb294cbe2fbf20d4006ad".to_string()),
             },
@@ -1639,6 +1692,7 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
                 name: "OMP-Studio_0.3.1_x64.msi".to_string(),
                 size: 67432100,
                 browser_download_url: "https://github.com/Bodyes26/OMP-Studio/releases/download/v0.3.1/OMP-Studio_0.3.1_x64.msi".to_string(),
+                url: String::new(),
                 content_type: Some("application/octet-stream".to_string()),
                 digest: None,
             },
@@ -1661,6 +1715,7 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
             size: 12_000_000,
             browser_download_url: "https://example.invalid/OMP.Studio_0.8.1_aarch64.dmg"
                 .to_string(),
+            url: String::new(),
             content_type: Some("application/x-apple-diskimage".to_string()),
             digest: None,
         }];
@@ -1669,6 +1724,7 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
             size: 15_000_000,
             browser_download_url: "https://example.invalid/OMP-Studio_0.8.1_x64-setup.exe"
                 .to_string(),
+            url: String::new(),
             content_type: Some("application/octet-stream".to_string()),
             digest: None,
         }];
@@ -1687,6 +1743,7 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
                 name: "OMP.Studio_1.1.1-nightly.1787735049853_x64-setup.exe".to_string(),
                 size: 11_616_362,
                 browser_download_url: "https://example.invalid/vecchio_x64-setup.exe".to_string(),
+                url: String::new(),
                 content_type: Some("application/x-msdownload".to_string()),
                 digest: Some(
                     "sha256:dd86554bb75e9bdb802a6d0edafac2bd20cce602c605a69d35e7d03837c820c8"
@@ -1697,6 +1754,7 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
                 name: "OMP.Studio_1.1.1-nightly.1787753960479_x64-setup.exe".to_string(),
                 size: 9_803_289,
                 browser_download_url: "https://example.invalid/nuovo_x64-setup.exe".to_string(),
+                url: String::new(),
                 content_type: Some("application/x-msdownload".to_string()),
                 digest: Some(
                     "sha256:878c0fa0dad081109b6f1cad9583d4dea5403fbaafbfb9e3065fbffb5718ae3f"
@@ -1705,9 +1763,14 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
             },
         ];
 
-        let picked =
-            pick_versioned_asset_for(&assets, "1.1.1-nightly.1787753960479", "windows", "x86_64")
-                .expect("asset selezionato");
+        let picked = pick_versioned_asset_for(
+            &assets,
+            "1.1.1-nightly.1787753960479",
+            StudioUpdateChannel::Nightly,
+            "windows",
+            "x86_64",
+        )
+        .expect("asset selezionato");
         assert_eq!(
             picked.name,
             "OMP.Studio_1.1.1-nightly.1787753960479_x64-setup.exe"
@@ -1717,10 +1780,28 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
             Some("878c0fa0dad081109b6f1cad9583d4dea5403fbaafbfb9e3065fbffb5718ae3f".to_string())
         );
 
-        // Nessun asset della versione annunciata: si torna alla scelta per sistema
-        // operativo invece di lasciare l'utente senza aggiornamento.
-        let fallback = pick_versioned_asset_for(&assets, "9.9.9", "windows", "x86_64")
-            .expect("fallback per sistema operativo");
+        // Nightly senza l'installer della versione annunciata (elenco asset in
+        // cache, pubblicazione in corso): nessun download, invece di un installer
+        // di una build precedente gia' cancellato da GitHub (404).
+        assert!(pick_versioned_asset_for(
+            &assets,
+            "1.1.1-nightly.9999999999999",
+            StudioUpdateChannel::Nightly,
+            "windows",
+            "x86_64",
+        )
+        .is_none());
+
+        // Stabile: si torna alla scelta per sistema operativo invece di lasciare
+        // l'utente senza aggiornamento.
+        let fallback = pick_versioned_asset_for(
+            &assets,
+            "9.9.9",
+            StudioUpdateChannel::Stable,
+            "windows",
+            "x86_64",
+        )
+        .expect("fallback per sistema operativo");
         assert!(fallback.name.ends_with("_x64-setup.exe"));
     }
 

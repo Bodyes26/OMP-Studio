@@ -28,6 +28,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ### Fixed
 - Preserved natural chronological ordering between assistant narrative text and tool calls: chat history reconstruction no longer appends all tools to the bottom of the aggregated turn, but interleaves explanations, interactive questions (`ask`), and operational executions in their true temporal sequence, omitting redundant model badges before tool invocations.
 - The bar under the composer no longer gets stuck on "starting..." while the agent is working: a repeated startup signal from the same process, an event that cannot be applied while the chat loads, or a load superseded by a resume or a new chat no longer detach the session, and the model picker shows the model in use again.
+- Updating on the Nightly channel no longer fails with a 404 error right after a publication: Studio reads the nightly file list and manifest directly from the release instead of GitHub's cached copy, which for tens of minutes pointed at installers already removed, and no longer falls back to the installer of an older build.
 
 ## [1.6.0] - 2026-09-21
 

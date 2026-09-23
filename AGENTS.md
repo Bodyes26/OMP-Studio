@@ -116,8 +116,9 @@ git push origin main
 # 3. Build locale e aggiornamento prerelease GitHub
 npm run nightly
 
-# 4. Verifica
-gh release view nightly --json assets,isPrerelease,name,tagName,url
+# 4. Verifica: gli asset si leggono dalla release per id. `gh release view` e
+#    `releases/tags/nightly` servono un elenco in cache, indietro anche di decine di minuti.
+gh api "repos/{owner}/{repo}/releases/$(gh api 'repos/{owner}/{repo}/releases/tags/nightly' --jq .id)" --jq '{name, prerelease, assets: [.assets[].name]}'
 ```
 
 La verifica è completa quando la prerelease `nightly` contiene l'installer del sistema

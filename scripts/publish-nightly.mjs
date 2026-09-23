@@ -337,14 +337,39 @@ async function main() {
 			const releaseExists = releaseCheck.status === 0;
 
 			if (releaseExists) {
-				console.log(`Caricamento nuovi asset nella prerelease 'nightly'...`);
-				runCommand('gh', [
-					'release',
-					'upload',
-					'nightly',
-					...uploadFiles,
-					'--clobber'
-				]);
+				// `gh release upload --clobber` e `gh release view` leggono gli asset da
+				// `releases/tags/nightly`, una copia in cache che resta indietro anche di
+				// decine di minuti dopo una pubblicazione: elenca asset gia' cancellati
+				// (il clobber va in 404) oppure nessun asset (l'upload va in 422
+				// «already exists»). `releases/{id}` e' aggiornato: gli asset si
+				// leggono e si cancellano per id da li'.
+				const releaseId = String(
+					runCommand('gh', ['api', 'repos/{owner}/{repo}/releases/tags/nightly', '--jq', '.id'], {
+						stdio: 'pipe'
+					}).stdout
+				).trim();
+				const listRemoteAssets = () =>
+					JSON.parse(
+						String(
+							runCommand('gh', ['api', `repos/{owner}/{repo}/releases/${releaseId}/assets?per_page=100`], {
+								stdio: 'pipe'
+							}).stdout
+						)
+					);
+				// GitHub sostituisce gli spazi dei nomi file con punti.
+				const currentNames = new Set(
+					[...stagedInstallers.map((i) => i.name), 'SHA256SUMS.txt', 'nightly.json'].map((n) =>
+						n.replace(/ /g, '.')
+					)
+				);
+
+				console.log(`Sostituzione asset nella prerelease 'nightly' (release ${releaseId})...`);
+				for (const asset of listRemoteAssets()) {
+					if (currentNames.has(asset.name)) {
+						runCommand('gh', ['api', '-X', 'DELETE', `repos/{owner}/{repo}/releases/assets/${asset.id}`]);
+					}
+				}
+				runCommand('gh', ['release', 'upload', 'nightly', ...uploadFiles]);
 
 				console.log(`Aggiornamento metadati prerelease 'nightly'...`);
 				runCommand('gh', [
@@ -360,29 +385,12 @@ async function main() {
 
 				// Rimuove solo gli asset obsoleti non appartenenti al set appena caricato
 				console.log(`Pulizia asset obsoleti dalla prerelease 'nightly'...`);
-				const currentNames = new Set(
-					[...stagedInstallers.map((i) => i.name), 'SHA256SUMS.txt', 'nightly.json'].map((n) =>
-						n.replace(/ /g, '.')
-					)
-				);
-				const assetsOutput = runCommand(
-					'gh',
-					['release', 'view', 'nightly', '--json', 'assets', '--jq', '.assets[].name'],
-					{ stdio: 'pipe', allowFailure: true }
-				);
-				if (assetsOutput.status === 0 && assetsOutput.stdout) {
-					const remoteAssets = String(assetsOutput.stdout)
-						.split('\n')
-						.map((n) => n.trim())
-						.filter(Boolean);
-					for (const assetName of remoteAssets) {
-						const norm = assetName.replace(/ /g, '.');
-						if (!currentNames.has(norm) && !norm.includes(version)) {
-							console.log(`Eliminazione asset obsoleto: ${assetName}`);
-							runCommand('gh', ['release', 'delete-asset', 'nightly', assetName, '--yes'], {
-								allowFailure: true
-							});
-						}
+				for (const asset of listRemoteAssets()) {
+					if (!currentNames.has(asset.name) && !asset.name.includes(version)) {
+						console.log(`Eliminazione asset obsoleto: ${asset.name}`);
+						runCommand('gh', ['api', '-X', 'DELETE', `repos/{owner}/{repo}/releases/assets/${asset.id}`], {
+							allowFailure: true
+						});
 					}
 				}
 			} else {
@@ -406,7 +414,7 @@ async function main() {
 			runCommand('git', ['push', 'origin', 'refs/tags/nightly', '--force']);
 
 			console.log(`\nPrerelease Nightly pubblicata con successo!`);
-			runCommand('gh', ['release', 'view', 'nightly', '--json', 'url,assets'], {
+			runCommand('gh', ['api', `repos/{owner}/{repo}/releases/tags/nightly`, '--jq', '.html_url'], {
 				allowFailure: true
 			});
 		} else {

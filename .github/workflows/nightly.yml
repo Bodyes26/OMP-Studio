@@ -241,8 +241,21 @@ jobs:
           set -euo pipefail
 
           if gh release view nightly >/dev/null 2>&1; then
-            echo "Aggiornamento asset della prerelease nightly..."
-            gh release upload nightly release-assets/* nightly.json --clobber
+            # `gh release upload --clobber` e `gh release view` leggono gli asset da
+            # `releases/tags/nightly`, una copia in cache che resta indietro anche di
+            # decine di minuti: asset gia' cancellati (clobber in 404) o nessun asset
+            # (upload in 422). `releases/{id}` e' aggiornato: si lavora per id.
+            RELEASE_ID=$(gh api "repos/$GH_REPO/releases/tags/nightly" --jq '.id')
+            CURRENT_NAMES=$( (find release-assets -maxdepth 1 -type f -exec basename {} \; ; echo nightly.json) | sed 's/ /./g')
+
+            echo "Sostituzione asset della prerelease nightly (release $RELEASE_ID)..."
+            gh api "repos/$GH_REPO/releases/$RELEASE_ID/assets?per_page=100" --jq '.[] | "\(.id) \(.name)"' |
+              while read -r asset_id asset_name; do
+                if echo "$CURRENT_NAMES" | grep -qxF "$asset_name"; then
+                  gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id"
+                fi
+              done
+            gh release upload nightly release-assets/* nightly.json
 
             gh release edit nightly \
               --title "Nightly $NIGHTLY_VERSION" \
@@ -250,15 +263,13 @@ jobs:
               --prerelease
 
             echo "Pulizia asset obsoleti dalla release nightly..."
-            CURRENT_NAMES=$(find release-assets -maxdepth 1 -type f -exec basename {} \;)
-            REMOTE_ASSETS=$(gh release view nightly --json assets --jq '.assets[].name' 2>/dev/null || true)
-            for asset in $REMOTE_ASSETS; do
-              [ -n "$asset" ] || continue
-              if ! echo "$CURRENT_NAMES" | grep -qx "$asset" && [ "$asset" != "nightly.json" ] && [ "$asset" != "SHA256SUMS.txt" ]; then
-                echo "Eliminazione asset obsoleto: $asset"
-                gh release delete-asset nightly "$asset" --yes || true
-              fi
-            done
+            gh api "repos/$GH_REPO/releases/$RELEASE_ID/assets?per_page=100" --jq '.[] | "\(.id) \(.name)"' |
+              while read -r asset_id asset_name; do
+                if ! echo "$CURRENT_NAMES" | grep -qxF "$asset_name"; then
+                  echo "Eliminazione asset obsoleto: $asset_name"
+                  gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" || true
+                fi
+              done
           else
             echo "Creazione nuova prerelease nightly..."
             gh release create nightly release-assets/* nightly.json \
