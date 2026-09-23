@@ -74,7 +74,9 @@ class NotificationManager {
 	 * stati messi a fuoco dall'utente.
 	 */
 	get unacknowledgedAttentionCount(): number {
-		const attentionProjects = projectStore.projects.filter((p) => p.agentState === 'attention');
+		const attentionProjects = projectStore.projects.filter(
+			(p) => p.lane.agentState === 'attention'
+		);
 		return attentionProjects.filter((p) => !this.acknowledgedIds.has(p.id)).length;
 	}
 
@@ -143,7 +145,7 @@ class NotificationManager {
 		if (!activeId) return;
 
 		const activeProject = projectStore.projects.find((p) => p.id === activeId);
-		if (activeProject && activeProject.agentState === 'attention') {
+		if (activeProject && activeProject.lane.agentState === 'attention') {
 			this.acknowledge(activeId);
 		}
 		projectStore.acknowledgeFinished(activeId);

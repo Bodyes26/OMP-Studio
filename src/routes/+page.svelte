@@ -4,7 +4,7 @@
 	import Terminal from '$lib/terminal/Terminal.svelte';
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
-	import { sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
+	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
 	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import { IconNewChat } from '$lib/icons';
@@ -42,7 +42,31 @@
 	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '$lib/stores/projects.svelte';
-	import { taskStore, formatTaskPrompt } from '$lib/stores/tasks.svelte';
+	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '$lib/stores/tasks.svelte';
+	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
+	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
+	import {
+		buildConcurrencyWarning,
+		decideAutoDispatch,
+		decideQueueRoute,
+		resolveQueueRoot,
+		type ConcurrencyWarning
+	} from '$lib/lanes/queueDispatch';
+	import LaneStrip from '$lib/components/LaneStrip.svelte';
+	import LaneDispatchDialog from '$lib/components/LaneDispatchDialog.svelte';
+	import LaneProfileDialog from '$lib/components/LaneProfileDialog.svelte';
+	import LaneReviewModal from '$lib/components/LaneReviewModal.svelte';
+	import {
+		recordAllowlistDecision,
+		reviewProjectProfile,
+		type ProjectProfileReview
+	} from '$lib/lanes/laneProfile';
+	import { MAIN_LANE_ID, type AgentLane, type ProjectId } from '$lib/types/lanes';
+	import {
+		laneSurfaceStore,
+		type LaneDiagramPayload,
+		type LanePreviewPayload
+	} from '$lib/stores/laneSurfaces.svelte';
 	import type { TerminalSessionInfo } from '$lib/terminal/terminal';
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
@@ -51,9 +75,30 @@
 	import { startFocusTracer } from '$lib/focusTracer';
 
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
-	let diagramOpen = $state(false);
-	let previewFile = $state<string | null>(null);
-	let browserOpen = $state(false);
+	const currentLaneSurface = $derived.by(() => {
+		const proj = projectStore.activeProject;
+		if (!proj) {
+			return { surface: 'editor' as const, diagramPayload: null, previewFile: null };
+		}
+		return laneSurfaceStore.getLaneSurface(proj.id, proj.lane.laneId);
+	});
+	const diagramOpen = $derived(currentLaneSurface.surface === 'diagram');
+	const previewFile = $derived(currentLaneSurface.surface === 'preview' ? currentLaneSurface.previewFile : null);
+	const browserOpen = $derived(currentLaneSurface.surface === 'browser');
+
+	function closeActiveSurface() {
+		const proj = projectStore.activeProject;
+		if (proj) {
+			laneSurfaceStore.closeLaneSurface(proj.id, proj.lane.laneId);
+		}
+	}
+
+	function openPreview(filePath: string) {
+		const proj = projectStore.activeProject;
+		if (proj) {
+			laneSurfaceStore.setLanePreview(proj.id, proj.lane.laneId, filePath);
+		}
+	}
 	let labOpen = $state(false);
 	// Il Laboratorio prototipi e' alpha e disattivato per difetto: il suo codice
 	// (compiler, renderer, orchestrazione) non entra nel bundle iniziale e viene
@@ -86,7 +131,57 @@
 	}
 	let agentAnnouncement = $state('');
 	const prevAgentStates = new Map<string, string>();
+	let announcementQueue: Array<{ name: string; state: string }> = [];
+	let announcementTimer: ReturnType<typeof setTimeout> | null = null;
 
+	function flushAnnouncements() {
+		if (announcementQueue.length === 0) return;
+		const queue = announcementQueue;
+		announcementQueue = [];
+		announcementTimer = null;
+
+		if (queue.length === 1) {
+			const item = queue[0];
+			if (item.state === 'working') {
+				agentAnnouncement = m.page_agent_announcement_working({ name: item.name });
+			} else if (item.state === 'attention') {
+				agentAnnouncement = m.page_agent_announcement_attention({ name: item.name });
+			} else if (item.state === 'finished') {
+				agentAnnouncement = m.page_agent_announcement_finished({ name: item.name });
+			}
+			return;
+		}
+
+		const byState: Record<string, string[]> = {};
+		for (const item of queue) {
+			if (!byState[item.state]) byState[item.state] = [];
+			if (!byState[item.state].includes(item.name)) {
+				byState[item.state].push(item.name);
+			}
+		}
+
+		const parts: string[] = [];
+		if (byState['attention']?.length) {
+			parts.push(`${byState['attention'].length} progetti richiedono attenzione: ${byState['attention'].join(', ')}`);
+		}
+		if (byState['finished']?.length) {
+			parts.push(`${byState['finished'].length} progetti hanno completato il lavoro: ${byState['finished'].join(', ')}`);
+		}
+		if (byState['working']?.length) {
+			parts.push(`${byState['working'].length} progetti in esecuzione: ${byState['working'].join(', ')}`);
+		}
+
+		if (parts.length > 0) {
+			agentAnnouncement = parts.join(' · ');
+		}
+	}
+
+	function queueAnnouncement(name: string, state: string) {
+		announcementQueue.push({ name, state });
+		if (!announcementTimer) {
+			announcementTimer = setTimeout(flushAnnouncements, 150);
+		}
+	}
 	/**
 	 * L'editor porta con se' Monaco: da solo pesa quanto tutto il resto del
 	 * guscio. Un import statico lo metterebbe davanti al primo frame, quindi qui
@@ -102,34 +197,32 @@
 	});
 
 	// Apertura automatica della superficie Browser al rilevamento di una tab live (S41)
-	let lastSeenBrowserTabCount = 0;
 	$effect(() => {
-		if (!projectStore.activeProject) return;
-		const session = agentSessions.get(projectStore.activeProject.id);
-		const tabCount = session?.browserLiveTabs.length ?? 0;
-		if (tabCount > 0 && lastSeenBrowserTabCount === 0 && !activeTaskEditor) {
-			browserOpen = true;
-			diagramOpen = false;
-			previewFile = null;
+		for (const p of projectStore.projects) {
+			const session = sessionRegistry.getLaneSession(p.id, p.lane.laneId);
+			const tabCount = session?.browserLiveTabs.length ?? 0;
+			const isEditorActive = Boolean(activeTaskEditor);
+			laneSurfaceStore.syncBrowserTabCount(p.id, p.lane.laneId, tabCount, isEditorActive);
 		}
-		lastSeenBrowserTabCount = tabCount;
 	});
 
 	$effect(() => {
 		for (const p of projectStore.projects) {
 			const prev = prevAgentStates.get(p.id);
-			const curr = p.agentState;
+			const curr = p.lane.agentState;
 			if (prev && prev !== curr) {
-				if (curr === 'working') {
-					agentAnnouncement = m.page_agent_announcement_working({ name: p.name });
-				} else if (curr === 'attention') {
-					agentAnnouncement = m.page_agent_announcement_attention({ name: p.name });
-				} else if (curr === 'finished') {
-					agentAnnouncement = m.page_agent_announcement_finished({ name: p.name });
+				if (curr === 'working' || curr === 'attention' || curr === 'finished') {
+					queueAnnouncement(p.name, curr);
 				}
 			}
 			prevAgentStates.set(p.id, curr);
 		}
+		return () => {
+			if (announcementTimer) {
+				clearTimeout(announcementTimer);
+				announcementTimer = null;
+			}
+		};
 	});
 
 	function agentStateLabel(state?: string): string {
@@ -145,24 +238,26 @@
 	onMount(() => {
 		void startFocusTracer();
 		void notificationManager.init();
-		const unlistenDiagram = listen<{ cwd?: string }>('diagram://new', (e) => {
-			const targetCwd = e.payload?.cwd;
-			if (!targetCwd || !projectStore.activeProject || targetCwd.toLowerCase() === projectStore.activeProject.path.toLowerCase()) {
-				diagramOpen = true;
-				browserOpen = false;
-				previewFile = null;
-			}
+		function buildResolutionContext() {
+			return {
+				projects: projectStore.projects,
+				lanes: laneStore.lanes,
+				sessions: sessionRegistry.getAllSessions(),
+				activeProjectId: projectStore.activeId,
+				activeLaneId: projectStore.activeProject?.lane.laneId ?? 'main'
+			};
+		}
+
+		const unlistenDiagram = listen<LaneDiagramPayload>('diagram://new', (e) => {
+			if (!e.payload) return;
+			const context = buildResolutionContext();
+			laneSurfaceStore.routeDiagramEvent(e.payload, context);
 		});
 
-		const unlistenPreview = listen<{ cwd?: string; file_path?: string }>('preview://new', (e) => {
-			const targetCwd = e.payload?.cwd;
-			if (!targetCwd || !projectStore.activeProject || targetCwd.toLowerCase() === projectStore.activeProject.path.toLowerCase()) {
-				if (e.payload?.file_path) {
-					previewFile = e.payload.file_path;
-					diagramOpen = false;
-					browserOpen = false;
-				}
-			}
+		const unlistenPreview = listen<LanePreviewPayload>('preview://new', (e) => {
+			if (!e.payload) return;
+			const context = buildResolutionContext();
+			laneSurfaceStore.routePreviewEvent(e.payload, context);
 		});
 
 		return () => {
@@ -190,35 +285,94 @@
 	} | null>(null);
 	let editorDiffRequestId = 0;
 
-	// Il processo OMP resta uno per progetto: o gira in Terminal (PTY) o in Chat (RPC).
-	// Passare da una superficie all'altra chiude il processo e lo riapre con --resume.
-	const terminalSessions = new Map<string, import('$lib/terminal/terminal').TerminalSession>();
-	const agentSessions = new Map<string, AgentSession>();
+	// Ogni chiave identifica una corsia. PTY e GUI sono adapter alternativi
+	// della stessa sessione logica e non condividono stato con le altre corsie.
+	const terminalSessions = laneOrchestrator.terminalSessions;
+
+	function runtimeKey(project: Project, laneId: string = project.lane.laneId): string {
+		return laneOrchestrator.runtimeKey(project.id, laneId);
+	}
+
+	function registeredSessionFor(
+		project: Project,
+		laneId: string = project.lane.laneId
+	): AgentSession | undefined {
+		return laneOrchestrator.getLaneSession(project.id, laneId);
+	}
+
+	function terminalSessionFor(project: Project, laneId: string = project.lane.laneId) {
+		return laneOrchestrator.getTerminalSession(runtimeKey(project, laneId));
+	}
+
 	sessionRegistry.setFactory((config) => {
 		const session = new AgentSession(config);
 		// Processo omp morto prima di ricevere il prompt: il task e' gia'
 		// uscito dalla coda e il suo testo vive solo nel prompt perduto.
 		// Rimetterlo in cima alla coda e' l'unico recupero possibile.
 		session.onStartupPromptsDropped = () => {
-			if (session.scope !== 'main' || !session.cwd) return;
-			void taskStore.restoreDroppedTask(session.cwd, session.sessionId);
+			if (session.scope !== 'lane' || !session.cwd) return;
+			// La coda vive solo nella radice canonica: il cwd di una corsia e' il
+			// worktree fratello e non deve mai ricevere un tasks.json.
+			const owner = projectStore.projects.find((p) => p.id === session.projectKey);
+			if (!owner?.canonicalProjectPath) return;
+			void taskStore.restoreDroppedTask(owner.canonicalProjectPath, session.sessionId);
 		};
 		return session;
 	});
-	let terminalMeta = $state<Record<string, { inputPending: boolean; sessionId: string | null }>>({});
-	let terminalBusy = $state<Record<string, boolean>>({});
-	let switchingSurface = $state<Record<string, boolean>>({});
-	const activeSwitching = $derived(
-		projectStore.activeId ? switchingSurface[projectStore.activeId] === true : false
-	);
-	let agentErrors = $state<Record<string, string | null>>({});
+	const terminalMeta = laneOrchestrator.terminalMeta;
+	const terminalBusy = laneOrchestrator.terminalBusy;
+	const switchingSurface = laneOrchestrator.switchingSurface;
+	const activeSwitching = $derived(laneOrchestrator.activeSwitching);
+	const agentErrors = laneOrchestrator.agentErrors;
 	let viewingImage = $state<{ data: string; mimeType: string } | null>(null);
 	let taskEditorId = $state<string | null>(null);
+	/**
+	 * Richiesta di conferma per il routing della coda: `Principale` al lavoro
+	 * oppure soft-cap dei tre agenti simultanei superato.
+	 */
+	let laneDispatchPrompt = $state<{
+		projectId: string;
+		taskId: string;
+		mode: 'busy-main' | 'concurrency';
+		taskTitle: string;
+		warning: ConcurrencyWarning | null;
+		follow: boolean;
+	} | null>(null);
+	/**
+	 * Consenso una tantum sui file locali non versionati prima di aprire il
+	 * worktree (Gate R27 / PLAN W10). Riguarda solo le corsie chieste
+	 * dall'utente: l'auto-avvio non interrompe mai con un dialogo.
+	 */
+	let laneProfilePrompt = $state<{
+		projectId: string;
+		taskId: string;
+		review: ProjectProfileReview;
+		follow: boolean;
+	} | null>(null);
+	let reviewingLane = $state<AgentLane | LaneRecord | null>(null);
+
+	async function askLaneToResolveConflicts(prompt: string) {
+		const project = projectStore.activeProject;
+		const lane = reviewingLane;
+		if (!project || !lane) return;
+		reviewingLane = null;
+		await laneOrchestrator.switchLane(project.id as ProjectId, lane.laneId);
+		let refreshed = projectStore.projects.find((candidate) => candidate.id === project.id);
+		if (!refreshed || refreshed.lane.laneId !== lane.laneId) return;
+		if (refreshed.lane.surface !== 'gui') {
+			await laneOrchestrator.switchSurface(project.id, 'gui');
+			refreshed = projectStore.projects.find((candidate) => candidate.id === project.id);
+		}
+		if (!refreshed || refreshed.lane.laneId !== lane.laneId || refreshed.lane.surface !== 'gui') return;
+		const session = laneOrchestrator.getOrCreateAgentSession(refreshed, refreshed.lane);
+		await session.ensureOpen(session.sessionId);
+		await session.prompt(prompt);
+	}
 	const taskEditor = $derived(taskStore.taskById(taskEditorId));
 	const activeTaskEditor = $derived(
 		taskEditor
-		&& projectStore.activeProject
-		&& taskEditor.projectPath === normalizeProjectPath(projectStore.activeProject.path).toLowerCase()
+		&& projectStore.activeProject?.canonicalProjectPath
+		&& taskEditor.projectPath === normalizeProjectPath(projectStore.activeProject.canonicalProjectPath).toLowerCase()
 			? taskEditor
 			: undefined
 	);
@@ -237,12 +391,14 @@
 				continue;
 			}
 
-			const project = projectStore.projects.find((p) => p.id === session.projectKey || p.path === session.cwd);
+			const project = projectStore.projects.find(
+				(p) => p.id === session.projectKey || p.lane.workspacePath === session.cwd
+			);
 			const baseName = project?.label?.trim() || project?.name || (session.scope === 'lab' ? m.ui__page_laboratorio_d67e() : 'Progetto');
 			const projectName = session.scope === 'lab' && session.prototypeId
 				? `${baseName} [Lab: ${session.prototypeId}]`
 				: baseName;
-			const projectPath = project?.path || session.cwd;
+			const projectPath = project?.canonicalProjectPath ?? session.cwd;
 			// 1. Modello primario attivo nella sessione GUI (solo se sta generando)
 			if (isGenerating && session.model) {
 				let provider = session.model.provider || '';
@@ -303,8 +459,11 @@
 		let provider: string | undefined;
 		let modelId: string | undefined;
 
-		if (project.layout.rightSection === 'gui') {
-			const session = agentSessions.get(project.id);
+		const laneKey = runtimeKey(project);
+		const agentSession = registeredSessionFor(project);
+		const terminalSession = terminalSessionFor(project);
+		if (project.lane.surface === 'gui') {
+			const session = agentSession;
 			if (session?.model) {
 				provider = session.model.provider;
 				modelId = session.model.id || session.model.name;
@@ -315,7 +474,7 @@
 				}
 			}
 		} else {
-			const term = terminalSessions.get(project.id);
+			const term = terminalSession;
 			const selector = term?.currentSessionInfo?.modelSelector;
 			if (selector) {
 				const clean = selector.split(':')[0];
@@ -346,17 +505,17 @@
 		let credentialPin: string | undefined;
 		if (provider) {
 			const sessionKey =
-				project.layout.rightSection === 'gui'
-					? agentSessions.get(project.id)?.sessionId || agentSessions.get(project.id)?.sessionFile || undefined
-					: terminalSessions.get(project.id)?.currentSessionInfo?.sessionId ||
-						terminalSessions.get(project.id)?.currentSessionInfo?.sessionPath ||
+				project.lane.surface === 'gui'
+					? agentSession?.sessionId || agentSession?.sessionFile || undefined
+					: terminalSession?.currentSessionInfo?.sessionId ||
+						terminalSession?.currentSessionInfo?.sessionPath ||
 						undefined;
 
 			if (sessionKey) {
 				const isGenerating =
-					project.layout.rightSection === 'gui'
-						? (agentSessions.get(project.id)?.isStreaming || agentSessions.get(project.id)?.agentState === 'working')
-						: (terminalBusy[project.id] || project.agentState === 'working');
+					project.lane.surface === 'gui'
+						? (agentSession?.isStreaming || agentSession?.agentState === 'working')
+						: (terminalBusy[laneKey] || project.lane.agentState === 'working');
 
 				const wasGenerating = prevGeneratingBySession.get(sessionKey) ?? false;
 				prevGeneratingBySession.set(sessionKey, !!isGenerating);
@@ -395,7 +554,9 @@
 			// Fallback su providerHosts (es. terminale senza sessionKey nota o finche' session_credential_pins non risponde)
 			if (!credentialPin) {
 				const projectName = project.label?.trim() || project.name;
-				const normActivePath = project.path ? normalizeProjectPath(project.path).toLowerCase() : '';
+				const normActivePath = project.lane.workspacePath
+					? normalizeProjectPath(project.lane.workspacePath).toLowerCase()
+					: '';
 				const host = quotaStore.providerHosts.find((h) => {
 					if (!providersMatch(h.provider, provider)) return false;
 					const normHostPath = h.project_path ? normalizeProjectPath(h.project_path).toLowerCase() : '';
@@ -446,7 +607,7 @@
 		const runtimes: CompanionProjectRuntime[] = projectStore.projects.map((p) => {
 			const { provider, modelId, credentialPin } = resolveProjectRuntime(p);
 			const gate = automationGate(p.id);
-			const activity = agentSessions.get(p.id)?.activityLine;
+			const activity = registeredSessionFor(p)?.activityLine;
 			return {
 				projectId: p.id,
 				provider,
@@ -466,7 +627,7 @@
 		// e tinta ci stanno perche' la companion disegna anche quelli: senza, un
 		// progetto rinominato restava col vecchio nome fino al riavvio.
 		const structural = projectStore.projects
-			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}`)
+			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}`)
 			.join('|');
 		const activityOnly = runtimes
 			.map((r) => (r.activity ? `${r.activity.kind}:${r.activity.at}` : ''))
@@ -515,17 +676,23 @@
 	 * durante il rendering: l'apertura del processo omp e' un effetto
 	 * collaterale e vive nell'`$effect` qui sotto, non nel disegno.
 	 */
-	function agentSessionFor(p: Project): AgentSession {
-		let session = agentSessions.get(p.id);
-		if (!session) {
-			session = sessionRegistry.getOrCreateMainSession(p);
-			agentSessions.set(p.id, session);
-		}
-		return session;
+	function agentSessionFor(p: Project, lane: AgentLane | LaneRecord = p.lane): AgentSession {
+		return laneOrchestrator.getOrCreateAgentSession(p, lane);
+	}
+
+	/** Corsia non archiviata del progetto: l'attiva vive in `p.lane`, le altre nel laneStore. */
+	function laneOf(p: Project, laneId: string): AgentLane | LaneRecord | undefined {
+		if (p.lane.laneId === laneId) return p.lane;
+		return laneStore
+			.lanesFor(p.id as ProjectId)
+			.find((lane) => lane.laneId === laneId && lane.status !== 'archived');
 	}
 
 	function labSessionFor(project: Project | string, prototypeId: string): AgentSession {
-		const p = typeof project === 'string' ? { id: project, path: project } : project;
+		const p =
+			typeof project === 'string'
+				? { id: project, path: project }
+				: { id: project.id, path: project.canonicalProjectPath ?? '' };
 		return sessionRegistry.getOrCreateLabSession(p, prototypeId);
 	}
 
@@ -536,7 +703,7 @@
 	 */
 	function getOrCreateAgentSession(p: Project): AgentSession {
 		const session = agentSessionFor(p);
-		void session.ensureOpen(terminalMeta[p.id]?.sessionId ?? null);
+		void session.ensureOpen(terminalMeta[runtimeKey(p)]?.sessionId ?? null);
 		return session;
 	}
 
@@ -545,46 +712,90 @@
 	// un valore uguale e `updateTerminalMeta` scrive solo se qualcosa cambia.
 	$effect(() => {
 		for (const p of projectStore.projects) {
-			if (p.layout.rightSection !== 'gui') continue;
-			const session = agentSessions.get(p.id);
-			if (!session) continue;
-			if (!session.exited) {
-				void session.ensureOpen(terminalMeta[p.id]?.sessionId ?? null);
+			const activeSession = registeredSessionFor(p);
+			if (p.lane.surface === 'gui' && activeSession) {
+				if (!activeSession.exited) {
+					void activeSession.ensureOpen(terminalMeta[runtimeKey(p)]?.sessionId ?? null);
+				}
+				if (activeSession.sessionId) {
+					updateTerminalMeta(p, { sessionId: activeSession.sessionId });
+				}
 			}
-			if (session.agentState !== 'unknown') {
-				projectStore.setAgentState(p.id, session.agentState);
-			}
+
 			// Segno di vita del processo: il prompt del task e' arrivato in
 			// sessione e il transcript lo conserva. Da qui in avanti
 			// rimetterlo in coda sarebbe lavoro svolto due volte.
 			if (
-				p.path
-				&& (session.isStreaming || session.agentState === 'working' || session.agentState === 'attention')
+				p.canonicalProjectPath &&
+				activeSession &&
+				(activeSession.isStreaming || activeSession.agentState === 'working' || activeSession.agentState === 'attention')
 			) {
-				taskStore.confirmTaskDelivered(p.path);
+				taskStore.confirmTaskDelivered(p.canonicalProjectPath);
 			}
-			// La domanda si pubblica sempre che ci sia una richiesta aperta: il
-			// testo sta in `title`, `message` e' facoltativo e pretenderlo
-			// lasciava la companion con il solo stato "chiede risposta".
-			const attention = buildAttentionRequest(
-				{ id: p.id, name: p.name, hue: p.hue },
-				{
-					pendingUi: session.pendingUi ? $state.snapshot(session.pendingUi) : null,
-					blockedQuotaState: session.blockedQuotaState ? $state.snapshot(session.blockedQuotaState) : null,
-					inferredAttention: session.inferredAttention ? $state.snapshot(session.inferredAttention) : null,
-					model: session.model,
-					recentMessages: session.recentMessages
+
+			// Raccogli tutte le sessioni di questo progetto per sincronizzare attenzioni e stato aggregato
+			const projectSessions = sessionRegistry.getSessionsForProject(p.id);
+			const sessionsToCheck = projectSessions.length > 0 ? projectSessions : (activeSession ? [activeSession] : []);
+
+			// Sincronizza le attenzioni per ciascuna corsia con Companion
+			const projectAttentionMessages: string[] = [];
+
+			for (const s of sessionsToCheck) {
+				const laneId = s.laneId ?? 'main';
+				const laneRecord = laneStore.lanes.find((l) => l.projectId === p.id && l.laneId === laneId);
+				const laneTitle = laneRecord?.title ?? (laneId !== 'main' ? laneId : 'Principale');
+
+				const attention = buildAttentionRequest(
+					{ id: p.id, name: p.name, hue: p.hue },
+					{
+						laneId,
+						laneTitle,
+						pendingUi: s.pendingUi ? $state.snapshot(s.pendingUi) : null,
+						blockedQuotaState: s.blockedQuotaState ? $state.snapshot(s.blockedQuotaState) : null,
+						inferredAttention: s.inferredAttention ? $state.snapshot(s.inferredAttention) : null,
+						model: s.model,
+						recentMessages: s.recentMessages
+					}
+				);
+
+				if (attention) {
+					projectAttentionMessages.push(askQuestionText(attention.pendingUi));
+					companionStore.setAttentionRequest(attention);
+				} else {
+					companionStore.clearAttentionRequest(p.id, laneId);
 				}
-			);
-			if (attention) {
-				notificationManager.setProjectAskMessage(p.id, askQuestionText(attention.pendingUi));
-				companionStore.setAttentionRequest(attention);
+			}
+
+			if (projectAttentionMessages.length > 0) {
+				notificationManager.setProjectAskMessage(p.id, projectAttentionMessages[0]);
 			} else {
 				notificationManager.clearProjectAskMessage(p.id);
-				companionStore.clearAttentionRequest(p.id);
 			}
-			if (session.sessionId) {
-				updateTerminalMeta(p.id, { sessionId: session.sessionId });
+
+			// Calcola lo stato aggregato del progetto: attention > working > finished > idle
+			const candidateStates: string[] = [];
+			for (const s of sessionsToCheck) {
+				if (s.agentState && s.agentState !== 'unknown') {
+					candidateStates.push(s.agentState);
+				}
+			}
+			if (p.lane.surface === 'terminal' && terminalMeta[runtimeKey(p)]?.inputPending) {
+				candidateStates.push('attention');
+			}
+
+			let aggregateState: AgentState = 'idle';
+			if (candidateStates.includes('attention')) {
+				aggregateState = 'attention';
+			} else if (candidateStates.includes('working')) {
+				aggregateState = 'working';
+			} else if (candidateStates.includes('finished')) {
+				aggregateState = 'finished';
+			} else if (candidateStates.includes('idle')) {
+				aggregateState = 'idle';
+			}
+
+			if (candidateStates.length > 0) {
+				projectStore.setAgentState(p.id, aggregateState);
 			}
 		}
 	});
@@ -596,20 +807,21 @@
 			await sessionRegistry.routeUiResponse(event.payload);
 		}).then((fn) => { unlistens.push(fn); });
 
-		void listen<{ projectId: string; targetSelector?: string; thinkingLevel?: string }>(
+		void listen<{ projectId: string; laneId?: string; targetSelector?: string; thinkingLevel?: string }>(
 			'studio-resolve-quota-blocked',
 			async (event) => {
-				await handleResolveQuotaBlocked(event.payload.projectId, event.payload.targetSelector, event.payload.thinkingLevel);
+				const { projectId, laneId, targetSelector, thinkingLevel } = event.payload;
+				await handleResolveQuotaBlocked(projectId, laneId, targetSelector, thinkingLevel);
 			}
 		).then((fn) => { unlistens.push(fn); });
 
-		void listen<{ projectId: string }>('studio-dismiss-quota-blocked', (event) => {
-			handleDismissQuotaBlocked(event.payload.projectId);
+		void listen<{ projectId: string; laneId?: string }>('studio-dismiss-quota-blocked', (event) => {
+			handleDismissQuotaBlocked(event.payload.projectId, event.payload.laneId);
 		}).then((fn) => { unlistens.push(fn); });
 
 		void listen<{ projectId: string; taskId: string; follow?: boolean }>('studio-run-task', (event) => {
 			const { projectId, taskId, follow } = event.payload;
-			void handleRunTask(projectId, taskId, follow ?? false);
+			void handleRunTask(projectId, taskId, { follow: follow ?? false });
 		}).then((fn) => { unlistens.push(fn); });
 
 		// La companion chiede di portare qui il fuoco su un progetto: e' la
@@ -627,7 +839,7 @@
 	// Notifiche di sistema e allerta sull'icona dell'app (Dock / Taskbar)
 	$effect(() => {
 		for (const p of projectStore.projects) {
-			void notificationManager.onProjectStateChanged(p.id, p.agentState);
+			void notificationManager.onProjectStateChanged(p.id, p.lane.agentState);
 		}
 	});
 
@@ -646,7 +858,6 @@
 	});
 
 	// Riapplica le modalita' di coda a tutte le sessioni agenti attive quando cambiano le preferenze generali.
-	// Necessario perche' agentSessions e' locale a questo componente e non accessibile direttamente dallo store.
 	$effect(() => {
 		const _steering = settingsStore.general.steeringMode;
 		const _followUp = settingsStore.general.followUpMode;
@@ -663,12 +874,8 @@
 	 * alzava `effect_update_depth_exceeded` e abbandonava il ciclo di
 	 * aggiornamento dell'intera applicazione.
 	 */
-	function updateTerminalMeta(projectId: string, patch: Partial<{ inputPending: boolean; sessionId: string | null }>) {
-		const current = terminalMeta[projectId];
-		const inputPending = patch.inputPending ?? current?.inputPending ?? false;
-		const sessionId = patch.sessionId !== undefined ? patch.sessionId : (current?.sessionId ?? null);
-		if (current && current.inputPending === inputPending && current.sessionId === sessionId) return;
-		terminalMeta[projectId] = { inputPending, sessionId };
+	function updateTerminalMeta(project: Project, patch: Partial<{ inputPending: boolean; sessionId: string | null }>, laneId = project.lane.laneId) {
+		laneOrchestrator.updateTerminalMeta(runtimeKey(project, laneId), patch);
 	}
 
 	/**
@@ -676,23 +883,29 @@
 	 * lavora conferma che il prompt del task e' arrivato nel PTY. Dopo la
 	 * conferma il task non torna piu' in coda: il suo posto e' la sessione.
 	 */
-	function handleTerminalState(project: Project, state: AgentState) {
-		projectStore.setAgentState(project.id, state);
-		if (project.path && (state === 'working' || state === 'attention')) {
-			taskStore.confirmTaskDelivered(project.path);
-		}
+	function handleTerminalState(project: Project, state: AgentState, laneId = project.lane.laneId) {
+		laneOrchestrator.handleTerminalState(project, laneId, state);
 	}
 
 	/**
 	 * Perche' la coda di questo progetto puo' o non puo' partire. Il motivo
 	 * completo (etichetta, spiegazione, rimedio) vive in `automationGate.ts`:
 	 * qui si raccoglie solo lo stato delle due superfici.
+	 *
+	 * Il cancello e' per corsia: la coda puo' partire su `Principale` mentre
+	 * una corsia secondaria e' al lavoro, e viceversa.
 	 */
-	function automationGate(projectId: string): AutomationGate {
+	function automationGate(projectId: string, targetLaneId?: string): AutomationGate {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		const busy = terminalBusy[projectId] === true;
-		if (project?.layout.rightSection === 'gui') {
-			const session = agentSessions.get(projectId);
+		if (!project) return resolveAutomationGate({ surface: 'terminal', busy: false, inputPending: false, agentState: 'unknown' });
+		const laneId = targetLaneId ?? project.lane.laneId;
+		const isActiveLane = project.lane.laneId === laneId;
+		const lane = isActiveLane ? project.lane : laneOrchestrator.laneRecord(project, laneId);
+		if (!lane) return resolveAutomationGate({ surface: 'terminal', busy: false, inputPending: false, agentState: 'unknown' });
+		const key = runtimeKey(project, laneId);
+		const busy = terminalBusy[key] === true;
+		if (lane.surface === 'gui') {
+			const session = registeredSessionFor(project, laneId);
 			return resolveAutomationGate({
 				surface: 'gui',
 				busy,
@@ -702,8 +915,8 @@
 		return resolveAutomationGate({
 			surface: 'terminal',
 			busy,
-			inputPending: terminalMeta[projectId]?.inputPending === true,
-			agentState: project?.agentState ?? 'unknown'
+			inputPending: terminalMeta[key]?.inputPending === true,
+			agentState: lane.agentState
 		});
 	}
 
@@ -718,16 +931,12 @@
 	function openNewTask(projectPath: string) {
 		const task = taskStore.createTask(projectPath);
 		taskEditorId = task.id;
-		diagramOpen = false;
-		previewFile = null;
-		browserOpen = false;
+		closeActiveSurface();
 	}
 
 	function openTask(taskId: string) {
 		taskEditorId = taskId;
-		diagramOpen = false;
-		previewFile = null;
-		browserOpen = false;
+		closeActiveSurface();
 	}
 
 	/**
@@ -748,11 +957,11 @@
 	 */
 	function openNewTaskOfProject(projectId: string) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		if (!project) return;
+		if (!project?.canonicalProjectPath) return;
 		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
 		queueOpen = false;
 		leftSection = 'agent';
-		openNewTask(project.path);
+		openNewTask(project.canonicalProjectPath);
 	}
 
 	/** Porta alla chat che contiene il blocco spiegato nel drawer globale. */
@@ -761,28 +970,173 @@
 		queueOpen = false;
 	}
 
+	interface RunTaskOptions {
+		/** Porta il fuoco sulla corsia lanciata (Ctrl+click, "Avvia e apri"). */
+		follow?: boolean;
+		/** Shift+click: nuova corsia isolata senza passare dal dialog. */
+		shiftKey?: boolean;
+		/** Corsia gia' decisa: conferma del dialog, auto-dispatch o ripresa. */
+		laneId?: string;
+		/** Creazione corsia gia' autorizzata: salta prompt e soft-cap. */
+		newLane?: boolean;
+		/** La spedizione nasce dall'auto-dispatch: la corsia occupa lo slot unico. */
+		auto?: boolean;
+	}
+
+	function taskTitleOf(task: StudioTask): string {
+		return task.prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || m.agent_panel_new_task_btn();
+	}
+
+	/** Titolo della corsia per obiettivo: il branch tecnico resta `omp/lane-<id>`. */
+	function laneTitleFromTask(task: StudioTask): string {
+		const title = taskTitleOf(task);
+		return title.length > 48 ? `${title.slice(0, 47)}\u2026` : title;
+	}
+
 	/**
-	 * `follow` vero porta il fuoco sul progetto lanciato (Ctrl+click, o
-	 * "Avvia e apri"). Falso lascia l'utente dove sta: il task parte in
-	 * background e la tessera racconta lo stato.
+	 * Routing deterministico della coda (Gate R27 / PLAN W09).
+	 *
+	 * Il bersaglio non e' mai la corsia semplicemente visibile: o `Principale`
+	 * (se libera), o una corsia creata apposta per quel task. `Shift` + click
+	 * salta il dialog; il dialog compare solo quando `Principale` lavora.
 	 */
-	async function handleRunTask(projectId: string, taskId: string, follow = false) {
+	async function handleRunTask(projectId: string, taskId: string, options: RunTaskOptions = {}) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		const task = taskStore.taskById(taskId);
-		if (!project || !task || !canAutomate(projectId)) return;
-		if (follow && projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		if (!project?.canonicalProjectPath || !task) return;
+
+		if (options.newLane) {
+			await dispatchInNewLane(project, task, options);
+			return;
+		}
+		if (options.laneId) {
+			const lane = laneOrchestrator.laneRecord(project, options.laneId);
+			if (!lane) return;
+			await dispatchTaskInLane(project, lane, task, options);
+			return;
+		}
+
+		const lanes = laneOrchestrator.laneDispatchSnapshots(project);
+		const route = decideQueueRoute({
+			shiftKey: options.shiftKey === true,
+			lanes,
+			worktreeCapable: Boolean(project.canonicalProjectPath)
+		});
+
+		if (route.kind === 'main') {
+			await dispatchTaskInLane(project, laneOrchestrator.mainLaneRecord(project), task, options);
+			return;
+		}
+		if (route.kind === 'blocked') {
+			agentErrors[runtimeKey(project)] = m.lane_dispatch_blocked_detail();
+			return;
+		}
+		laneDispatchPrompt = {
+			projectId,
+			taskId,
+			mode: route.kind === 'prompt' ? 'busy-main' : 'concurrency',
+			taskTitle: taskTitleOf(task),
+			warning: route.confirmConcurrency ? buildConcurrencyWarning(lanes) : null,
+			follow: options.follow === true
+		};
+	}
+
+	/**
+	 * Crea la corsia isolata e ci spedisce il task. Se la consegna fallisce la
+	 * corsia viene archiviata subito: un worktree vuoto terrebbe occupato lo
+	 * slot dell'auto-dispatch senza che nessun lavoro sia partito.
+	 */
+	async function dispatchInNewLane(project: Project, task: StudioTask, options: RunTaskOptions) {
+		const key = runtimeKey(project);
+		if (!options.auto) {
+			const review = await reviewProjectProfile(project).catch((error) => {
+				console.error('Analisi del profilo di progetto fallita:', error);
+				return null;
+			});
+			if (review?.needsConsent) {
+				laneProfilePrompt = {
+					projectId: project.id,
+					taskId: task.id,
+					review,
+					follow: options.follow === true
+				};
+				return;
+			}
+		}
+		let created: LaneRecord;
+		try {
+			created = await laneOrchestrator.createNewLane(project, {
+				origin: options.auto ? 'auto' : 'manual',
+				// La corsia nasce senza xterm montato: la chat parte subito,
+				// il terminale richiederebbe di attendere il DOM.
+				surface: 'gui',
+				title: laneTitleFromTask(task),
+				// La corsia nasce in secondo piano: il workspace visibile cambia
+				// solo se l'utente ha chiesto di seguirla (Ctrl+click).
+				activate: options.follow === true
+			});
+		} catch (error) {
+			agentErrors[key] = error instanceof Error ? error.message : String(error);
+			return;
+		}
+
+		const delivered = await dispatchTaskInLane(project, created, task, {
+			...options,
+			skipGate: true
+		});
+		if (!delivered) {
+			await laneOrchestrator
+				.archiveLane(project.id as ProjectId, created.laneId, 'rejected')
+				.catch(() => undefined);
+			return;
+		}
+		if (options.follow) {
+			if (projectStore.activeId !== project.id) projectStore.setActive(project.id);
+			await laneOrchestrator.switchLane(project.id as ProjectId, created.laneId);
+		}
+	}
+
+	/**
+	 * Spedizione vera e propria dentro una corsia precisa. La coda letta e
+	 * riscritta resta sempre quella canonica del progetto: una corsia worktree
+	 * non possiede un proprio `.omp/tasks.json`.
+	 */
+	async function dispatchTaskInLane(
+		project: Project,
+		lane: AgentLane | LaneRecord,
+		task: StudioTask,
+		options: RunTaskOptions & { skipGate?: boolean }
+	): Promise<boolean> {
+		const queue = resolveQueueRoot(project, lane.workspacePath);
+		if (!queue.path) return false;
+		if (!options.skipGate && !automationGate(project.id, lane.laneId).ready) return false;
+
+		const taskId = task.id;
+		const key = runtimeKey(project, lane.laneId);
+		const isVisibleLane =
+			projectStore.activeId === project.id && project.lane.laneId === lane.laneId;
+		if (options.follow && projectStore.activeId !== project.id) projectStore.setActive(project.id);
 		queueOpen = false;
 
-		terminalBusy[projectId] = true;
-		agentErrors[projectId] = null;
+		const laneContext: TaskRunLaneContext = {
+			laneId: lane.laneId,
+			laneTitle: lane.title,
+			laneKind: lane.laneId === MAIN_LANE_ID ? 'main' : 'worktree',
+			workspacePath: lane.workspacePath,
+			branch: lane.branch,
+			targetBranch: lane.targetBranch
+		};
+
+		terminalBusy[key] = true;
+		agentErrors[key] = null;
 		taskStore.markDispatching(taskId);
 
 		try {
-			if (project.layout.rightSection === 'gui') {
-				const session = agentSessionFor(project);
-				const isCurrentActive = projectStore.activeId === projectId;
-				const fullPrompt = formatTaskPrompt(task, project.path);
-				if (isCurrentActive) {
+			const surface = isVisibleLane ? project.lane.surface : lane.surface;
+			if (surface === 'gui') {
+				const session = laneOrchestrator.getOrCreateAgentSession(project, lane);
+				const fullPrompt = formatTaskPrompt(task, queue.path);
+				if (isVisibleLane) {
 					// Semina ottimistica: mostra immediatamente il prompt come primo messaggio
 					// nella chat con transizione fluida (chatReveal), nascondendo i tempi tecnici
 					// di spawn del processo omp, handshake e roundtrip RPC.
@@ -791,7 +1145,7 @@
 				// Una sola apertura, attesa: `newSession()` ha bisogno del
 				// processo vivo, e aprirne un secondo qui lo farebbe partire
 				// mentre il primo sta ancora nascendo.
-				await session.ensureOpen(terminalMeta[project.id]?.sessionId ?? null);
+				await session.ensureOpen(terminalMeta[key]?.sessionId ?? null);
 				const sid = await session.newSession();
 				// Una configurazione esplicita e' parte del contratto del task:
 				// se non si applica, il task resta in coda invece di partire col
@@ -827,16 +1181,16 @@
 				if (!resolvedSid) {
 					throw new Error(m.ui_ts_terminal_omp_non_ha_ancora_pubblicato_la_sessione_494e());
 				}
-				taskStore.completeDispatch(taskId, resolvedSid);
-				taskStore.setView(project.path, 'sessions');
+				taskStore.completeDispatch(taskId, resolvedSid, laneContext);
+				taskStore.setView(queue.path, 'sessions');
 				if (taskEditorId === taskId) taskEditorId = null;
 				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
-					detail: { projectPath: project.path, sessionId: resolvedSid }
+					detail: { projectPath: queue.path, sessionId: resolvedSid }
 				}));
 			} else {
-				const term = terminalSessions.get(projectId);
+				const term = terminalSessionFor(project, lane.laneId);
 				if (!term) throw new Error(m.ui__page_terminale_non_pronto_6be5());
-				const fullPrompt = formatTaskPrompt(task, project.path);
+				const fullPrompt = formatTaskPrompt(task, queue.path);
 				const configuration = task.options?.modelSelector
 					? {
 							modelSelector: task.options.modelSelector,
@@ -844,26 +1198,62 @@
 						}
 					: undefined;
 				const session = await term.startTask(fullPrompt, configuration);
-				taskStore.completeDispatch(taskId, session.sessionId);
-				taskStore.setView(project.path, 'sessions');
+				taskStore.completeDispatch(taskId, session.sessionId, laneContext);
+				taskStore.setView(queue.path, 'sessions');
 				if (taskEditorId === taskId) taskEditorId = null;
 				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
-					detail: { projectPath: project.path, sessionId: session.sessionId }
+					detail: { projectPath: queue.path, sessionId: session.sessionId }
 				}));
 			}
+			return true;
 		} catch (error) {
-			if (project.layout.rightSection === 'gui') {
+			if (lane.surface === 'gui') {
 				try {
-					agentSessionFor(project).clearSeed();
+					laneOrchestrator.getOrCreateAgentSession(project, lane).clearSeed();
 				} catch {
 					// ignora se la sessione non e' reperibile
 				}
 			}
 			taskStore.rollbackDispatch(taskId);
-			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
+			agentErrors[key] = error instanceof Error ? error.message : String(error);
+			return false;
 		} finally {
-			terminalBusy[projectId] = false;
+			terminalBusy[key] = false;
 		}
+	}
+
+	function confirmLaneDispatch() {
+		const request = laneDispatchPrompt;
+		if (!request) return;
+		laneDispatchPrompt = null;
+		void handleRunTask(request.projectId, request.taskId, {
+			newLane: true,
+			follow: request.follow
+		});
+	}
+
+	/**
+	 * Decisione presa: registra l'allowlist (anche vuota) e riprende la
+	 * spedizione, che ora trova il profilo confermato e non chiede piu' nulla.
+	 */
+	async function confirmLaneProfile(accepted: string[]) {
+		const request = laneProfilePrompt;
+		if (!request) return;
+		laneProfilePrompt = null;
+		const project = projectStore.projects.find((candidate) => candidate.id === request.projectId);
+		if (!project) return;
+		try {
+			await recordAllowlistDecision(project, {
+				accepted,
+				reviewed: request.review.pendingCandidates.map((candidate) => candidate.relativePath)
+			});
+		} catch (error) {
+			console.error('Registrazione del consenso sui file locali fallita:', error);
+		}
+		await handleRunTask(request.projectId, request.taskId, {
+			newLane: true,
+			follow: request.follow
+		});
 	}
 
 	/**
@@ -871,66 +1261,103 @@
 	 * R12): quando l'agente di un progetto con l'interruttore acceso torna
 	 * `Pronto` e ha task in coda, il primo parte da solo.
 	 *
+	 * Con `Principale` occupata l'auto-avvio apre al massimo **una** corsia
+	 * worktree per progetto (Gate R27): lo slot resta impegnato finche' quella
+	 * corsia non viene archiviata, e le corsie create a mano lo sospendono del
+	 * tutto. Un task che ha gia' fatto fallire un auto-avvio non viene
+	 * ritentato da solo: rispedirlo genererebbe una seconda corsia per lo
+	 * stesso lavoro.
+	 *
 	 * La spedizione esce dall'effetto con `queueMicrotask` e passa da un lock
 	 * per progetto: `handleRunTask` scrive `terminalBusy` e `markDispatching`,
 	 * cioe' proprio lo stato che l'effetto legge, e scriverlo qui dentro
 	 * riaccenderebbe l'effetto che l'ha prodotto (`effect_update_depth_exceeded`).
 	 */
 	const autoDispatching = new Set<string>();
+	const autoDispatchFailed = new Set<string>();
 	$effect(() => {
-		const candidates: Array<{ projectId: string; taskId: string }> = [];
+		const candidates: Array<{ projectId: string; taskId: string; newLane: boolean }> = [];
 		for (const project of projectStore.projects) {
-			if (!project.autoDispatch || !project.path) continue;
+			if (!project.autoDispatch || !project.canonicalProjectPath) continue;
 			if (autoDispatching.has(project.id)) continue;
-			const next = taskStore.tasksFor(project.path).find((task) => task.status === 'queued');
+			const next = taskStore
+				.tasksFor(project.canonicalProjectPath)
+				.find((task) => task.status === 'queued' && !autoDispatchFailed.has(task.id));
 			if (!next) continue;
-			const gate = automationGate(project.id);
-			// Il click manuale puo' scavalcare una domanda testuale; l'auto-run
-			// aspetta invece sia la classificazione sia la decisione dell'utente.
-			if (!gate.autoDispatchReady) continue;
-			candidates.push({ projectId: project.id, taskId: next.id });
+			const decision = decideAutoDispatch({
+				lanes: laneOrchestrator.laneDispatchSnapshots(project),
+				worktreeCapable: Boolean(project.canonicalProjectPath)
+			});
+			if (decision.kind === 'wait') continue;
+			if (decision.kind === 'main') {
+				const gate = automationGate(project.id, MAIN_LANE_ID);
+				// Il click manuale puo' scavalcare una domanda testuale; l'auto-run
+				// aspetta invece sia la classificazione sia la decisione dell'utente.
+				if (!gate.autoDispatchReady) continue;
+			}
+			candidates.push({
+				projectId: project.id,
+				taskId: next.id,
+				newLane: decision.kind === 'new-lane'
+			});
 		}
 
 		for (const candidate of candidates) {
 			autoDispatching.add(candidate.projectId);
 			queueMicrotask(() => {
-				void handleRunTask(candidate.projectId, candidate.taskId)
+				void handleRunTask(candidate.projectId, candidate.taskId, {
+					auto: true,
+					newLane: candidate.newLane,
+					laneId: candidate.newLane ? undefined : MAIN_LANE_ID
+				})
+					.then(() => {
+						// Solo i tentativi che hanno creato una corsia restano fuori
+						// dall'auto-avvio: riprovarli genererebbe un secondo worktree
+						// per lo stesso lavoro. Un fallimento su `Principale` non
+						// lascia risorse dietro di se' e puo' ripartire da solo.
+						if (candidate.newLane && taskStore.taskById(candidate.taskId)) {
+							autoDispatchFailed.add(candidate.taskId);
+						}
+					})
 					.finally(() => autoDispatching.delete(candidate.projectId));
 			});
 		}
 	});
 
-	async function handleResumeSession(projectId: string, sessionId: string) {
+	async function handleResumeSession(projectId: string, sessionId: string, laneId?: string) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		if (!project || !canAutomate(projectId)) return;
+		if (!project?.canonicalProjectPath || !canAutomate(projectId)) return;
+		const lane = laneOf(project, laneId ?? project.lane.laneId);
+		if (!lane) return;
+		const key = runtimeKey(project, lane.laneId);
 
-		terminalBusy[projectId] = true;
-		agentErrors[projectId] = null;
+		terminalBusy[key] = true;
+		agentErrors[key] = null;
 		try {
-			if (project.layout.rightSection === 'gui') {
+			if (lane.surface === 'gui') {
 				// `agentSessionFor` e non `getOrCreateAgentSession`: quest'ultimo
 				// avvierebbe un processo sulla sessione precedente proprio mentre
 				// la stiamo chiudendo per riprenderne un'altra.
-				const session = agentSessionFor(project);
+				const session = agentSessionFor(project, lane);
 				await session.close();
 				await session.open(sessionId);
-				taskStore.setView(project.path, 'sessions');
+				taskStore.setView(project.canonicalProjectPath, 'sessions');
 				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
-					detail: { projectPath: project.path, sessionId }
+					detail: { projectPath: project.canonicalProjectPath, sessionId }
 				}));
 			} else {
-				const term = terminalSessions.get(projectId);
+				const term = terminalSessionFor(project, lane.laneId);
 				if (!term) throw new Error(m.ui__page_terminale_non_pronto_6be5());
 				await term.resumeSession(sessionId);
-				taskStore.setView(project.path, 'sessions');
+				taskStore.setView(project.canonicalProjectPath, 'sessions');
 				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
-					detail: { projectPath: project.path, sessionId }
+					detail: { projectPath: project.canonicalProjectPath, sessionId }
 				}));
 			}
 		} catch (error) {
-			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
+			agentErrors[key] = error instanceof Error ? error.message : String(error);
 		} finally {
-			terminalBusy[projectId] = false;
+			terminalBusy[key] = false;
 		}
 	}
 
@@ -941,72 +1368,45 @@
 	 * terminale lo riceve il PTY tramite la prop `resumeSessionId`.
 	 */
 	async function switchSurface(projectId: string, target: 'terminal' | 'gui') {
-		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		if (!project || project.layout.rightSection === target) return;
-		// Il cambio smonta un processo e ne avvia un altro: due clic ravvicinati
-		// lascerebbero una sessione zombie senza nessuno che la chiude.
-		if (switchingSurface[projectId]) return;
-		switchingSurface[projectId] = true;
-
-		try {
-			const currentSessionId = terminalMeta[projectId]?.sessionId ?? agentSessions.get(projectId)?.sessionId ?? null;
-
-			if (project.layout.rightSection === 'gui') {
-				const session = agentSessions.get(projectId);
-				if (session) {
-					if (session.isStreaming) {
-						await session.abort();
-					}
-					await session.close();
-				}
-			} else {
-				// Il PTY deve aver rilasciato la sessione prima che rpc-ui la riprenda.
-				// Affidarsi al cleanup del componente crea una gara tra release e --resume.
-				await terminalSessions.get(projectId)?.release();
-			}
-
-			// Il terminale legge `resumeSessionId` al montaggio: il valore deve
-			// essere gia' scritto quando il layout cambia.
-			updateTerminalMeta(projectId, { sessionId: currentSessionId });
-
-			projectStore.updateLayout(projectId, (l) => {
-				l.rightSection = target;
-			});
-
-			if (target === 'gui') {
-				const session = agentSessionFor(project);
-				await session.open(currentSessionId);
-			}
-		} catch (error) {
-			agentErrors[projectId] = error instanceof Error ? error.message : String(error);
-		} finally {
-			switchingSurface[projectId] = false;
-		}
+		await laneOrchestrator.switchSurface(projectId, target);
 	}
 
-	async function handleResolveQuotaBlocked(projectId: string, targetSelector?: string, thinkingLevel?: string) {
+	async function handleResolveQuotaBlocked(
+		projectId: string,
+		laneId?: string,
+		targetSelector?: string,
+		thinkingLevel?: string
+	) {
 		const project = projectStore.projects.find((p) => p.id === projectId);
 		if (!project) return;
+		const lane = laneOf(project, laneId ?? project.lane.laneId);
+		if (!lane) return;
 
-		// Se il progetto si trova attualmente in superficie terminale, esegui l'handoff automatico alla GUI (Decisione Q6)
-		if (project.layout.rightSection === 'terminal') {
+		// Il recupero passa dalla GUI (Decisione Q6) e l'handoff di superficie
+		// agisce solo sulla corsia attiva: una corsia in background al terminale
+		// va prima portata in primo piano, altrimenti si aprirebbe un secondo
+		// processo omp sulla stessa sessione del PTY.
+		if (lane.surface === 'terminal') {
+			if (project.lane.laneId !== lane.laneId) {
+				await laneOrchestrator.switchLane(project.id as ProjectId, lane.laneId);
+			}
 			await switchSurface(project.id, 'gui');
 		}
 
-		const session = agentSessionFor(project);
+		const session = agentSessionFor(project, laneOf(project, lane.laneId) ?? lane);
 		await session.ensureOpen();
 		const success = await session.applyQuotaRecovery(targetSelector, thinkingLevel);
 		if (success) {
-			companionStore.clearAttentionRequest(projectId);
+			companionStore.clearAttentionRequest(projectId, lane.laneId);
 		}
 	}
 
-	function handleDismissQuotaBlocked(projectId: string) {
-		const session = agentSessions.get(projectId);
-		if (session) {
-			session.dismissBlockedQuota();
-		}
-		companionStore.clearAttentionRequest(projectId);
+	function handleDismissQuotaBlocked(projectId: string, laneId?: string) {
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		const targetLaneId = laneId ?? project?.lane.laneId;
+		const session = project && targetLaneId ? registeredSessionFor(project, targetLaneId) : undefined;
+		if (session) session.dismissBlockedQuota();
+		companionStore.clearAttentionRequest(projectId, targetLaneId);
 	}
 
 	/**
@@ -1019,10 +1419,11 @@
 	 * silenzio. Un testo che inizia per `/` ma non nomina un comando conosciuto
 	 * (un percorso assoluto, per esempio) resta un prompt normale.
 	 */
-	async function handleNewChat(projectId: string) {
+	async function handleNewChat(projectId: string, laneId?: string) {
 		const project = projectStore.projects.find((p) => p.id === projectId);
-		if (!project) return;
-		const session = agentSessionFor(project);
+		const lane = project ? laneOf(project, laneId ?? project.lane.laneId) : undefined;
+		if (!project || !lane) return;
+		const session = agentSessionFor(project, lane);
 		// newSession() azzera isStreaming solo localmente e non inoltra l'abort al
 		// processo omp: senza questo, i token della risposta in corso finirebbero
 		// dentro la chat appena creata.
@@ -1030,10 +1431,10 @@
 		await session.newSession();
 	}
 
-	function handleGuiSlashCommand(projectId: string, raw: string): boolean {
+	function handleGuiSlashCommand(projectId: string, laneId: string, raw: string): boolean {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		const session = agentSessions.get(projectId);
-		if (!project || !session) return false;
+		const session = project ? registeredSessionFor(project, laneId) : undefined;
+		if (!project?.canonicalProjectPath || !session) return false;
 
 		const trimmed = raw.trim();
 		const [cmd, ...rest] = trimmed.split(/\s+/);
@@ -1042,15 +1443,15 @@
 
 		// --- comandi del guscio: li serve Studio, non omp ---------------------
 		if (lowerCmd === '/new' || lowerCmd === '/clear') {
-			void handleNewChat(projectId);
+			void handleNewChat(projectId, laneId);
 			return true;
 		}
 		if (lowerCmd === '/resume' || lowerCmd === '/sessions' || lowerCmd === '/tree') {
 			if (argument && lowerCmd === '/resume') {
-				void handleResumeSession(projectId, argument);
+				void handleResumeSession(projectId, argument, laneId);
 			} else {
 				leftSection = 'agent';
-				taskStore.setView(project.path, 'sessions');
+				taskStore.setView(project.canonicalProjectPath, 'sessions');
 			}
 			return true;
 		}
@@ -1067,7 +1468,7 @@
 		}
 		if (lowerCmd === '/drop') {
 			leftSection = 'agent';
-			taskStore.setView(project.path, 'sessions');
+			taskStore.setView(project.canonicalProjectPath, 'sessions');
 			session.pushNotice('info', m.page_slash_cmd_drop_hint(), 'studio');
 			return true;
 		}
@@ -1346,7 +1747,6 @@
 
 	/** Il processo omp muore con la scheda: senza questo resta orfano. */
 	function disposeAgentSession(projectId: string) {
-		agentSessions.delete(projectId);
 		void sessionRegistry.disposeProjectSessions(projectId);
 	}
 
@@ -1360,7 +1760,6 @@
 	});
 
 	onDestroy(() => {
-		agentSessions.clear();
 		void sessionRegistry.clearAll();
 	});
 
@@ -1381,11 +1780,15 @@
 	 */
 	async function persistWorkBeforeQuit() {
 		for (const p of projectStore.projects) {
-			if (!p.path) continue;
+			if (!p.canonicalProjectPath) continue;
 			try {
-				await taskStore.resetDispatchingTasks(p.path);
+				await taskStore.resetDispatchingTasks(p.canonicalProjectPath);
 			} catch (error) {
-				console.error('Salvataggio della coda in uscita fallito:', p.path, error);
+				console.error(
+					'Salvataggio della coda in uscita fallito:',
+					p.canonicalProjectPath,
+					error
+				);
 			}
 		}
 	}
@@ -1395,8 +1798,11 @@
 		if (!project) return;
 		// Un task in spedizione non e' ancora una sessione: conta come lavoro
 		// in coda, altrimenti la chiusura lo porta via senza chiedere nulla.
-		const queuedCount = project.path ? taskStore.pendingCountFor(project.path) : 0;
-		const isWorking = project.agentState === 'working' || Boolean(terminalBusy[project.id]);
+		const queuedCount = project.canonicalProjectPath
+			? taskStore.pendingCountFor(project.canonicalProjectPath)
+			: 0;
+		const isWorking =
+			project.lane.agentState === 'working' || Boolean(terminalBusy[runtimeKey(project)]);
 
 		if (queuedCount === 0 && !isWorking) {
 			projectStore.closeProject(projectId);
@@ -1409,7 +1815,7 @@
 		}
 
 		if (!isWorking && settingsStore.general.closeWithQueuedTasks === 'discard') {
-			if (project.path) void taskStore.clearProject(project.path);
+			if (project.canonicalProjectPath) void taskStore.clearProject(project.canonicalProjectPath);
 			projectStore.closeProject(projectId);
 			return;
 		}
@@ -1419,7 +1825,7 @@
 			project: {
 				id: project.id,
 				name: project.label?.trim() || project.name || 'Progetto',
-				path: project.path,
+				path: project.canonicalProjectPath ?? '',
 				queuedCount,
 				isWorking
 			}
@@ -1471,9 +1877,7 @@
 	function handleGitPanelDiff(filePath: string, mode: 'working' | 'commit', hash?: string) {
 		if (!projectStore.activeId) return;
 		projectStore.openFile(projectStore.activeId, filePath);
-		diagramOpen = false;
-		previewFile = null;
-		browserOpen = false;
+		closeActiveSurface();
 		editorDiffRequest = { filePath, mode, hash, id: ++editorDiffRequestId };
 	}
 
@@ -1493,10 +1897,10 @@
 		let targetLine = line;
 
 		const proj = projectStore.projects.find((p) => p.id === projectId);
-		if (proj?.path) {
+		if (proj?.lane.workspacePath) {
 			try {
 				const res: { rel_path: string; line: number | null } | null = await invoke('resolve_project_file', {
-					projectPath: proj.path,
+					projectPath: proj.lane.workspacePath,
 					candidate: filePath
 				});
 				if (res?.rel_path) {
@@ -1553,7 +1957,7 @@
 			// I progetti salvati arrivano dal disco in modo asincrono: senza
 			// attendere, un utente con progetti vedrebbe il wizard solo perche'
 			// la lista e' ancora vuota.
-			await projectStore.init();
+			await Promise.all([projectStore.init(), laneStore.init()]);
 			const status = await invoke<{ missing: string[] }>('setup_status');
 			setupIncomplete = status.missing.length > 0;
 			if (status.missing.includes('omp')) {
@@ -1980,11 +2384,21 @@
 		} else if (e.key.toLowerCase() === 'a') {
 			e.preventDefault();
 			if (projectStore.activeProject) {
-				const next = projectStore.activeProject.layout.rightSection === 'gui' ? 'terminal' : 'gui';
+				const next = projectStore.activeProject.lane.surface === 'gui' ? 'terminal' : 'gui';
 				void switchSurface(projectStore.activeProject.id, next);
 			}
 		} else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
 			e.preventDefault();
+			const activeProj = projectStore.activeProject;
+			const secondaryLanes = activeProj
+				? laneStore.lanesFor(activeProj.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')
+				: [];
+
+			if (activeProj && secondaryLanes.length > 0 && !e.shiftKey) {
+				void laneOrchestrator.cycleLane(activeProj.id as ProjectId, e.key === 'ArrowRight' ? 'next' : 'prev');
+				return;
+			}
+
 			// La navigazione segue l'ordine mostrato, non quello dell'array:
 			// con ordinamento per priorita' o alfabetico i due divergono.
 			const projects = projectOrder.list;
@@ -2011,13 +2425,19 @@
 		onLabClick={() => void toggleLab()}
 		labActive={labOpen}
 		{setupIncomplete}
-		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, follow)}
+		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, { follow })}
 		onEditTask={openTaskOfProject}
 		onNewTask={openNewTaskOfProject}
-		canRunTask={canAutomate}
-		runReason={automationReason}
+		canRunTask={(projectId) => automationGate(projectId, MAIN_LANE_ID).ready}
+		runReason={(projectId) => automationGate(projectId, MAIN_LANE_ID).label}
 		onRequestCloseProject={handleRequestCloseProject}
 	/>
+	{#if projectStore.activeProject && projectStore.activeProject.canonicalProjectPath}
+		{@const secondaryLanes = laneStore.lanesFor(projectStore.activeProject.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')}
+		{#if secondaryLanes.length > 0}
+			<LaneStrip project={projectStore.activeProject} onReviewLane={(lane) => (reviewingLane = lane)} />
+		{/if}
+	{/if}
 	<SetupWizard open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
 	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
@@ -2029,13 +2449,37 @@
 		onConfirmDiscard={handleConfirmDiscardClose}
 		onCancel={handleCancelCloseModal}
 	/>
+	<LaneDispatchDialog
+		open={laneDispatchPrompt !== null}
+		mode={laneDispatchPrompt?.mode ?? 'busy-main'}
+		taskTitle={laneDispatchPrompt?.taskTitle ?? ''}
+		warning={laneDispatchPrompt?.warning ?? null}
+		onConfirm={confirmLaneDispatch}
+		onCancel={() => (laneDispatchPrompt = null)}
+	/>
+	<LaneProfileDialog
+		open={laneProfilePrompt !== null}
+		detection={laneProfilePrompt?.review.detection ?? null}
+		candidates={laneProfilePrompt?.review.pendingCandidates ?? []}
+		onConfirm={(accepted) => void confirmLaneProfile(accepted)}
+		onCancel={() => (laneProfilePrompt = null)}
+	/>
+	{#if projectStore.activeProject}
+		<LaneReviewModal
+			open={reviewingLane !== null}
+			lane={reviewingLane}
+			project={projectStore.activeProject}
+			onClose={() => (reviewingLane = null)}
+			onResolveConflicts={(prompt) => void askLaneToResolveConflicts(prompt)}
+		/>
+	{/if}
 	<QueueDrawer
 		open={queueOpen}
 		onClose={() => queueOpen = false}
-		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, follow)}
+		onRunTask={(projectId, taskId, options) => void handleRunTask(projectId, taskId, options)}
 		onEditTask={openTaskOfProject}
 		onOpenProject={openProjectFromQueue}
-		gateFor={automationGate}
+		gateFor={(projectId: string) => automationGate(projectId, MAIN_LANE_ID)}
 	/>
 
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
@@ -2061,10 +2505,10 @@
 
 	{#if labOpen && LabSurface}
 		<LabSurface
-			projectPath={projectStore.activeProject?.path || ''}
+			projectPath={projectStore.activeProject?.lane.workspacePath ?? ''}
 			projectKey={projectStore.activeProject?.id || ''}
 			projectName={projectStore.activeProject?.label?.trim() || projectStore.activeProject?.name || 'Bozza locale'}
-			agentState={projectStore.activeProject?.agentState || 'idle'}
+			agentState={projectStore.activeProject?.lane.agentState || 'idle'}
 			onBackToMain={() => (labOpen = false)}
 			onClose={() => (labOpen = false)}
 		/>
@@ -2130,20 +2574,18 @@
 				<div class="col-content" class:agent-content={leftSection === 'agent'}>
 					{#if projectStore.activeProject}
 						{@const proj = projectStore.activeProject}
-					{#if proj.path === ''}
+					{#if !proj.lane.workspacePath}
 						<div style="padding: var(--space-2); color: var(--ink-faint);">
 							{m.page_scratchpad_notice()}
 						</div>
 					{:else if leftSection === 'files'}
-						{#key proj.id}
+						{#key `${proj.id}:${proj.lane.laneId}:${proj.lane.workspacePath}`}
 							<FileTree
-								projectPath={proj.path}
+								projectPath={proj.lane.workspacePath}
 								name={proj.name}
 								onFileSelect={(file: string) => {
 									projectStore.openFile(proj.id, file);
-									diagramOpen = false;
-									previewFile = null;
-									browserOpen = false;
+									closeActiveSurface();
 								}}
 								onFileDiff={(path: string) => handleGitPanelDiff(path, 'working')}
 								dirtyFilePaths={activeDirtyFiles}
@@ -2152,30 +2594,30 @@
 							/>
 						{/key}
 					{:else if leftSection === 'git'}
-						<GitPanel
-							projectPath={proj.path}
-							agentState={proj.agentState}
-							onOpenWorkingDiff={(p) => handleGitPanelDiff(p, 'working')}
-							onOpenCommitDiff={(p, hash) => handleGitPanelDiff(p, 'commit', hash)}
-							onResumeSession={(sid) => handleResumeSession(proj.id, sid)}
-							canResume={canAutomate(proj.id)}
-							resumeReason={automationReason(proj.id)}
-						/>
-					{:else}
+						{#key `${proj.id}:${proj.lane.laneId}:${proj.lane.workspacePath}`}
+							<GitPanel
+								projectPath={proj.lane.workspacePath}
+								agentState={proj.lane.agentState}
+								onOpenWorkingDiff={(p) => handleGitPanelDiff(p, 'working')}
+								onOpenCommitDiff={(p, hash) => handleGitPanelDiff(p, 'commit', hash)}
+								onResumeSession={(sid) => handleResumeSession(proj.id, sid)}
+								canResume={canAutomate(proj.id)}
+								resumeReason={automationReason(proj.id)}
+							/>
+						{/key}
+					{:else if proj.canonicalProjectPath}
 						<AgentPanel
-							projectPath={proj.path}
+							projectPath={proj.canonicalProjectPath}
 							gate={automationGate(proj.id)}
-							actionError={agentErrors[proj.id] ?? null}
-							currentSessionId={terminalMeta[proj.id]?.sessionId ?? null}
-							onCreateTask={() => openNewTask(proj.path)}
-							onEditTask={openTask}
-							onRunTask={(taskId) => void handleRunTask(proj.id, taskId)}
+							actionError={agentErrors[runtimeKey(proj)] ?? null}
+							currentSessionId={terminalMeta[runtimeKey(proj)]?.sessionId ?? null}
+							onCreateTask={() => openNewTask(proj.canonicalProjectPath!)}
+							onRunTask={(taskId, shiftKey) => void handleRunTask(proj.id, taskId, { shiftKey })}
+							onEditTask={(taskId) => openTask(taskId)}
 							onResumeSession={(sessionId) => void handleResumeSession(proj.id, sessionId)}
 							onOpenFile={(relPath) => {
 								projectStore.openFile(proj.id, relPath);
-								diagramOpen = false;
-								previewFile = null;
-								browserOpen = false;
+								closeActiveSurface();
 							}}
 						/>
 					{/if}
@@ -2200,7 +2642,7 @@
 					{#if activeTaskEditor}
 						<TaskEditor
 							task={activeTaskEditor}
-							session={agentSessions.get(projectStore.activeProject.id) ?? null}
+							session={registeredSessionFor(projectStore.activeProject) ?? null}
 							guiHosts={guiHosts}
 							onClose={() => taskEditorId = null}
 							onRunTask={(taskId: string) => void handleRunTask(projectStore.activeProject!.id, taskId)}
@@ -2208,33 +2650,34 @@
 						/>
 					{:else if diagramOpen}
 						<DiagramViewer
-							projectPath={projectStore.activeProject.path}
-							onClose={() => (diagramOpen = false)}
+							projectPath={projectStore.activeProject.lane.workspacePath ?? ''}
+							initialDiagram={currentLaneSurface.diagramPayload}
+							laneId={projectStore.activeProject.lane.laneId}
+							projectId={projectStore.activeProject.id}
+							onClose={() => closeActiveSurface()}
 						/>
 					{:else if previewFile}
 						<PreviewViewer
-							projectPath={projectStore.activeProject.path}
+							projectPath={projectStore.activeProject.lane.workspacePath ?? ''}
 							filePath={previewFile}
-							onClose={() => (previewFile = null)}
+							onClose={() => closeActiveSurface()}
 						/>
 					{:else if browserOpen}
 						<BrowserViewer
-							session={agentSessions.get(projectStore.activeProject.id) ?? null}
-							projectPath={projectStore.activeProject.path}
-							onClose={() => (browserOpen = false)}
+							session={registeredSessionFor(projectStore.activeProject) ?? null}
+							projectPath={projectStore.activeProject.lane.workspacePath ?? ''}
+							onClose={() => closeActiveSurface()}
 						/>
 					{:else if EditorComponent}
 						<EditorComponent
-							projectPath={projectStore.activeProject.path}
-							filePaths={projectStore.activeProject.openFiles}
-							filePath={projectStore.activeProject.activeFile}
+							projectPath={projectStore.activeProject.lane.workspacePath ?? ''}
+							filePaths={projectStore.activeProject.lane.openFiles}
+							filePath={projectStore.activeProject.lane.activeFile}
 							openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
 							editorDiffRequest={editorDiffRequest}
 							onDirtyFilesChange={(paths: string[]) => (activeDirtyFiles = paths)}
 							onPreviewRequest={(fp: string) => {
-								previewFile = fp;
-								browserOpen = false;
-								diagramOpen = false;
+								openPreview(fp);
 							}}
 							onFileSaved={() => {
 								window.dispatchEvent(new CustomEvent('git-status-refresh'));
@@ -2260,8 +2703,8 @@
 					<button
 						type="button"
 						role="tab"
-						aria-selected={projectStore.activeProject?.layout.rightSection !== 'gui'}
-						class:active={projectStore.activeProject?.layout.rightSection !== 'gui'}
+						aria-selected={projectStore.activeProject?.lane.surface !== 'gui'}
+						class:active={projectStore.activeProject?.lane.surface !== 'gui'}
 						disabled={activeSwitching}
 						title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_terminal_label()}
 						aria-label={m.page_tabs_terminal_label()}
@@ -2270,8 +2713,8 @@
 					<button
 						type="button"
 						role="tab"
-						aria-selected={projectStore.activeProject?.layout.rightSection === 'gui'}
-						class:active={projectStore.activeProject?.layout.rightSection === 'gui'}
+						aria-selected={projectStore.activeProject?.lane.surface === 'gui'}
+						class:active={projectStore.activeProject?.lane.surface === 'gui'}
 						disabled={activeSwitching}
 						title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_gui_label()}
 						aria-label={m.page_tabs_gui_label()}
@@ -2279,7 +2722,7 @@
 					>GUI</button>
 				</div>
 				<!-- I figli di un tablist devono avere role="tab": l'azione sta fuori dal tablist e si mostra solo per la GUI. -->
-				{#if projectStore.activeProject?.layout.rightSection === 'gui'}
+				{#if projectStore.activeProject?.lane.surface === 'gui'}
 					<button
 						type="button"
 						class="header-action"
@@ -2291,34 +2734,42 @@
 			</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#each projectStore.projects as p (p.id)}
-					{#if p.layout.rightSection === 'gui'}
-						<Chat
-							session={agentSessionFor(p)}
-							visible={p.id === projectStore.activeId}
-							onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
-							onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
-							onSwitchToTerminal={() => void switchSurface(p.id, 'terminal')}
-							onSlashCommand={(raw) => handleGuiSlashCommand(p.id, raw)}
-							onNewChat={() => void handleNewChat(p.id)}
-						/>
-					{:else}
-						<Terminal
-							cwd={p.path}
-							visible={p.id === projectStore.activeId}
-							resumeSessionId={terminalMeta[p.id]?.sessionId ?? null}
-							blockedQuota={agentSessions.get(p.id)?.blockedQuotaState ?? null}
-							onDismissBlockedQuota={() => agentSessions.get(p.id)?.dismissBlockedQuota()}
-							onSwitchToGui={() => void switchSurface(p.id, 'gui')}
-							sessionRef={(s) => {
-								if (s) terminalSessions.set(p.id, s);
-								else terminalSessions.delete(p.id);
-							}}
-							onStateChange={(state) => handleTerminalState(p, state)}
-							onInputPendingChange={(inputPending) => updateTerminalMeta(p.id, { inputPending })}
-							onSessionChange={(session: TerminalSessionInfo | null) => updateTerminalMeta(p.id, { sessionId: session?.sessionId ?? null })}
-							onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
-						/>
-					{/if}
+					{@const mountedLanes = laneOrchestrator.getMountedLanes(p)}
+					{#each mountedLanes as lane (lane.laneId)}
+						{@const key = laneSessionKey(p.id, lane.laneId)}
+						{@const isLaneActive = p.id === projectStore.activeId && p.lane.laneId === lane.laneId}
+						{@const currentSurface = isLaneActive ? p.lane.surface : lane.surface}
+						{#if currentSurface === 'gui'}
+							<Chat
+								session={laneOrchestrator.getOrCreateAgentSession(p, lane)}
+								visible={isLaneActive}
+								onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
+								onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
+								onSwitchToTerminal={() => void switchSurface(p.id, 'terminal')}
+								onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
+								onNewChat={() => void handleNewChat(p.id, lane.laneId)}
+							/>
+						{:else}
+							<Terminal
+								cwd={lane.workspacePath ?? p.canonicalProjectPath ?? ''}
+								laneId={lane.laneId}
+								projectId={p.id}
+								visible={isLaneActive}
+								resumeSessionId={terminalMeta[key]?.sessionId ?? null}
+								blockedQuota={laneOrchestrator.getLaneSession(p.id, lane.laneId)?.blockedQuotaState ?? null}
+								onDismissBlockedQuota={() => laneOrchestrator.getLaneSession(p.id, lane.laneId)?.dismissBlockedQuota()}
+								onSwitchToGui={() => void switchSurface(p.id, 'gui')}
+								sessionRef={(s) => {
+									if (s) terminalSessions.set(key, s);
+									else terminalSessions.delete(key);
+								}}
+								onStateChange={(state) => handleTerminalState(p, state, lane.laneId)}
+								onInputPendingChange={(inputPending) => laneOrchestrator.updateTerminalMeta(key, { inputPending })}
+								onSessionChange={(session: TerminalSessionInfo | null) => laneOrchestrator.updateTerminalMeta(key, { sessionId: session?.sessionId ?? null })}
+								onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
+							/>
+						{/if}
+					{/each}
 				{/each}
 			</div>
 		</section>
@@ -2379,10 +2830,10 @@
 				class="status-indicator"
 				role="status"
 				aria-live="polite"
-				title="Stato agente: {agentStateLabel(projectStore.activeProject?.agentState)}"
+				title="Stato agente: {agentStateLabel(projectStore.activeProject?.lane.agentState)}"
 			>
-				<span class="status-led {projectStore.activeProject?.agentState || 'idle'}" aria-hidden="true"></span>
-				<span>{m.ui__page_stato_ab3d()} {agentStateLabel(projectStore.activeProject?.agentState)}</span>
+				<span class="status-led {projectStore.activeProject?.lane.agentState || 'idle'}" aria-hidden="true"></span>
+				<span>{m.ui__page_stato_ab3d()} {agentStateLabel(projectStore.activeProject?.lane.agentState)}</span>
 			</div>
 		</div>
 	</footer>

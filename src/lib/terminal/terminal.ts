@@ -70,6 +70,8 @@ export class TerminalSession {
 	 *  progetto: il modal di primo avvio lancia `omp setup`. Sostituiscono del
 	 *  tutto la derivazione da `cwd`/`--resume`. */
 	private launchArgs: string[] | null;
+	private laneId: string | null = null;
+	private projectId: string | null = null;
 	/** Contesto WebAudio per il campanello, creato al primo bell e riusato:
 	 *  aprirne uno per ogni bell sarebbe inutile e piu' lento. */
 	private audioCtx: AudioContext | null = null;
@@ -114,11 +116,15 @@ export class TerminalSession {
 		onInputPendingChange: (pending: boolean) => void,
 		onSessionChange: (session: TerminalSessionInfo | null) => void,
 		resumeSessionId: string | null = null,
-		launchArgs: string[] | null = null
+		launchArgs: string[] | null = null,
+		laneId: string | null = null,
+		projectId: string | null = null
 	) {
+		this.container = container;
 		this.pendingResume = resumeSessionId;
 		this.launchArgs = launchArgs;
-		this.container = container;
+		this.laneId = laneId;
+		this.projectId = projectId;
 		this.cwd = cwd;
 		this.onStateChange = onStateChange;
 		this.onOpenFile = onOpenFile;
@@ -606,6 +612,8 @@ export class TerminalSession {
 				args,
 				cols,
 				rows,
+				laneId: this.laneId ?? null,
+				projectId: this.projectId ?? null,
 				onOutput
 			});
 

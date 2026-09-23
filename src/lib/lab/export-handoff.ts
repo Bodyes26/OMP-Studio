@@ -575,7 +575,10 @@ export async function deliverLabHandoff(
 	if (!mainSession) {
 		// Se non esiste ancora, proviamo a crearla tramite la factory del registro se disponibile
 		try {
-			mainSession = registry.getOrCreateMainSession({ id: projectKey, path: projectKey });
+			mainSession = registry.getOrCreateMainSession({
+				id: projectKey,
+				lane: { workspacePath: projectKey }
+			});
 		} catch {
 			// Nessuna sessione disponibile
 		}

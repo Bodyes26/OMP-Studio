@@ -87,11 +87,13 @@ export function sameAttentionRequest(a: AttentionRequest, b: AttentionRequest): 
 	const right = b.pendingUi;
 	return (
 		a.projectId === b.projectId &&
+		(a.laneId ?? 'main').toLowerCase() === (b.laneId ?? 'main').toLowerCase() &&
 		a.projectName === b.projectName &&
 		a.projectHue === b.projectHue &&
 		a.modelName === b.modelName &&
 		left.kind === right.kind &&
 		left.requestId === right.requestId &&
+		(left.laneId ?? 'main').toLowerCase() === (right.laneId ?? 'main').toLowerCase() &&
 		left.title === right.title &&
 		left.message === right.message &&
 		left.method === right.method &&
@@ -121,6 +123,8 @@ export function sameAttentionRequest(a: AttentionRequest, b: AttentionRequest): 
 export function buildAttentionRequest(
 	project: { id: string; name: string; hue: number },
 	session: {
+		laneId?: string | null;
+		laneTitle?: string | null;
 		pendingUi?: PendingUiPayload | null;
 		blockedQuotaState?: BlockedQuotaState | null;
 		inferredAttention?: { question: string; suggestions: string[] } | null;
@@ -128,15 +132,22 @@ export function buildAttentionRequest(
 		recentMessages: RecentChatMessage[];
 	}
 ): AttentionRequest | null {
+	const laneId = session.laneId ?? 'main';
+	const laneTitle = session.laneTitle ?? (laneId !== 'main' ? laneId : 'Principale');
 	const pendingUi = session.pendingUi;
 	if (pendingUi && pendingUi.kind === 'ask') {
 		return {
 			projectId: project.id,
+			laneId,
+			laneTitle,
 			projectName: project.name,
 			projectHue: project.hue,
 			modelName: session.model ? session.model.name || session.model.id : undefined,
 			recentMessages: session.recentMessages,
-			pendingUi
+			pendingUi: {
+				...pendingUi,
+				laneId: pendingUi.laneId ?? laneId
+			}
 		};
 	}
 
@@ -163,6 +174,7 @@ export function buildAttentionRequest(
 		const recoveryUi: PendingUiPayload = {
 			kind: 'quota_blocked',
 			requestId: bq.id,
+			laneId,
 			title: bq.title,
 			message: bq.message,
 			method: 'select',
@@ -180,6 +192,8 @@ export function buildAttentionRequest(
 
 		return {
 			projectId: project.id,
+			laneId,
+			laneTitle,
 			projectName: project.name,
 			projectHue: project.hue,
 			modelName: session.model ? session.model.name || session.model.id : undefined,
@@ -192,7 +206,8 @@ export function buildAttentionRequest(
 	if (inf && inf.question) {
 		const inferredUi: PendingUiPayload = {
 			kind: 'inferred_input',
-			requestId: `inferred-${project.id}`,
+			requestId: `inferred-${project.id}-${laneId}`,
+			laneId,
 			title: inf.question,
 			method: 'select',
 			options: inf.suggestions && inf.suggestions.length > 0 ? inf.suggestions : ['Procedi pure']
@@ -200,6 +215,8 @@ export function buildAttentionRequest(
 
 		return {
 			projectId: project.id,
+			laneId,
+			laneTitle,
 			projectName: project.name,
 			projectHue: project.hue,
 			modelName: session.model ? session.model.name || session.model.id : undefined,
@@ -207,7 +224,6 @@ export function buildAttentionRequest(
 			pendingUi: inferredUi
 		};
 	}
-
 	return null;
 }
 
@@ -221,7 +237,12 @@ export function upsertAttentionRequest(
 	list: readonly AttentionRequest[],
 	request: AttentionRequest
 ): AttentionRequest[] | null {
-	const index = list.findIndex((entry) => entry.projectId === request.projectId);
+	const targetLane = (request.laneId ?? 'main').toLowerCase();
+	const index = list.findIndex(
+		(entry) =>
+			entry.projectId.toLowerCase() === request.projectId.toLowerCase() &&
+			(entry.laneId ?? 'main').toLowerCase() === targetLane
+	);
 	if (index >= 0) {
 		if (sameAttentionRequest(list[index], request)) return null;
 		const next = list.slice();
@@ -232,7 +253,7 @@ export function upsertAttentionRequest(
 }
 
 /**
- * Rimuove la richiesta del progetto.
+ * Rimuove la richiesta del progetto (facoltativamente ristretta a una specifica corsia).
  *
  * Restituisce `null` quando non c'era nulla da rimuovere: e' il caso normale a
  * ogni avvio, quando nessun progetto ha una domanda pendente, ed e' proprio
@@ -240,8 +261,30 @@ export function upsertAttentionRequest(
  */
 export function removeAttentionRequest(
 	list: readonly AttentionRequest[],
-	projectId: string
+	projectId: string,
+	laneId?: string | null
 ): AttentionRequest[] | null {
-	if (!list.some((entry) => entry.projectId === projectId)) return null;
-	return list.filter((entry) => entry.projectId !== projectId);
+	const pKey = projectId.toLowerCase();
+	if (laneId !== undefined && laneId !== null) {
+		const lKey = laneId.toLowerCase();
+		if (
+			!list.some(
+				(entry) =>
+					entry.projectId.toLowerCase() === pKey &&
+					(entry.laneId ?? 'main').toLowerCase() === lKey
+			)
+		) {
+			return null;
+		}
+		return list.filter(
+			(entry) =>
+				!(
+					entry.projectId.toLowerCase() === pKey &&
+					(entry.laneId ?? 'main').toLowerCase() === lKey
+				)
+		);
+	}
+	if (!list.some((entry) => entry.projectId.toLowerCase() === pKey)) return null;
+	return list.filter((entry) => entry.projectId.toLowerCase() !== pKey);
 }
+

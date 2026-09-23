@@ -189,8 +189,7 @@ Desktop, Cursor, Windsurf) e scelte di roadmap condivise con l'utente.
 
 - **Task HUD esterno** (Modulo 2): la TUI ha già il suo tracker todo;
   si rivaluta solo con una eventuale GUI completa dell'agente.
-- **Multi-thread / worktree per progetto** (Modulo 3): rifiutato. I progetti
-  restano single-threaded per decisione dell'utente.
+- **Multi-thread / worktree per progetto** (Modulo 3): inizialmente rifiutato; **scongelato e approvato il 2026-09-22** alla luce dell'evoluzione multi-tasking e isolamento branch (vedi ADR `DECISIONS.md` Gate R27 e piano operativo `PLAN.md`).
 - **Quick Switcher / Context Gauge** (Modulo 6): non richiesto.
 
 ### Note tecniche verificate sul binario omp installato

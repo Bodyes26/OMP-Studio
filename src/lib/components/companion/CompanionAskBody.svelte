@@ -39,12 +39,12 @@
 		customReplyOpen?: boolean;
 		onCustomReplyToggle: (projectId: string, open: boolean) => void;
 		onReplyDraftChange: (projectId: string, value: string) => void;
-		onQuickReplySelect: (projectId: string, value: string) => void | Promise<void>;
-		onQuickReplyConfirm: (projectId: string, confirmed: boolean) => void | Promise<void>;
-		onQuickReplyCancel: (projectId: string) => void | Promise<void>;
-		onQuickReplyText: (projectId: string) => void | Promise<void>;
-		onResolveQuotaBlocked: (projectId: string, selector: string) => void | Promise<void>;
-		onDismissQuotaBlocked: (projectId: string) => void | Promise<void>;
+		onQuickReplySelect: (projectId: string, value: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
+		onQuickReplyConfirm: (projectId: string, confirmed: boolean, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
+		onQuickReplyCancel: (projectId: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
+		onQuickReplyText: (projectId: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
+		onResolveQuotaBlocked: (projectId: string, selector: string, laneId?: string | null) => void | Promise<void>;
+		onDismissQuotaBlocked: (projectId: string, laneId?: string | null) => void | Promise<void>;
 		draft: string;
 		wantsText: (pending: AttentionRequest['pendingUi']) => boolean;
 	}>();
@@ -148,7 +148,7 @@
 				<button
 					type="button"
 					class="action-btn qb-primary-cta"
-					onclick={() => void onResolveQuotaBlocked(req.projectId, suggested.selector)}
+					onclick={() => void onResolveQuotaBlocked(req.projectId, suggested.selector, req.laneId)}
 				>
 					<IconSparkles />
 					<span>{m.companion_quota_switch_and_resume({ model: suggested.modelName })}</span>
@@ -162,7 +162,7 @@
 							<button
 								type="button"
 								class="option-btn qb-alt-btn"
-								onclick={() => void onResolveQuotaBlocked(req.projectId, alt.selector)}
+								onclick={() => void onResolveQuotaBlocked(req.projectId, alt.selector, req.laneId)}
 							>
 								<span class="opt-body">
 									<span class="opt-label">{alt.modelName}</span>
@@ -179,7 +179,7 @@
 				<button
 					type="button"
 					class="action-btn cancel"
-					onclick={() => void onDismissQuotaBlocked(req.projectId)}
+					onclick={() => void onDismissQuotaBlocked(req.projectId, req.laneId)}
 				>
 					{m.companion_quota_dismiss()}
 				</button>
@@ -199,7 +199,7 @@
 						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
 							e.preventDefault();
 							e.stopPropagation();
-							void onQuickReplyText(req.projectId);
+							void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId);
 						} else if (e.key === 'Escape') {
 							e.preventDefault();
 							e.stopPropagation();
@@ -218,7 +218,7 @@
 						type="button"
 						class="action-btn confirm"
 						disabled={!draft.trim()}
-						onclick={() => void onQuickReplyText(req.projectId)}
+						onclick={() => void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId)}
 					><IconArrowUp /> <span>{m.ui_askcard_invia_f401()}</span></button>
 				</div>
 			</div>
@@ -240,7 +240,7 @@
 								onCustomReplyToggle(req.projectId, true);
 								void tick().then(() => replyEl?.focus());
 							} else {
-								void onQuickReplySelect(req.projectId, opt);
+								void onQuickReplySelect(req.projectId, opt, req.laneId, req.pendingUi.requestId);
 							}
 						}}
 					>
@@ -265,14 +265,14 @@
 			<button
 				type="button"
 				class="action-btn confirm"
-				onclick={() => void onQuickReplyConfirm(req.projectId, true)}
+				onclick={() => void onQuickReplyConfirm(req.projectId, true, req.laneId, req.pendingUi.requestId)}
 			>
 				<IconCheck /> <span>{m.project_popover_btn_confirm_yes()}</span>
 			</button>
 			<button
 				type="button"
 				class="action-btn cancel"
-				onclick={() => void onQuickReplyConfirm(req.projectId, false)}
+				onclick={() => void onQuickReplyConfirm(req.projectId, false, req.laneId, req.pendingUi.requestId)}
 			>
 				<IconClose /> <span>{m.ui_companionview_no_annulla_20e1()}</span>
 			</button>
@@ -289,7 +289,7 @@
 					if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
 						e.preventDefault();
 						e.stopPropagation();
-						void onQuickReplyText(req.projectId);
+						void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId);
 					}
 				}}
 			></textarea>
@@ -298,13 +298,13 @@
 				<button
 					type="button"
 					class="action-btn cancel"
-					onclick={() => void onQuickReplyCancel(req.projectId)}
+					onclick={() => void onQuickReplyCancel(req.projectId, req.laneId, req.pendingUi.requestId)}
 				>{m.rules_dismiss()}</button>
 				<button
 					type="button"
 					class="action-btn confirm"
 					disabled={!draft.trim()}
-					onclick={() => void onQuickReplyText(req.projectId)}
+					onclick={() => void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId)}
 				><IconArrowUp /> <span>{m.ui_askcard_invia_f401()}</span></button>
 			</div>
 		</div>
@@ -313,7 +313,7 @@
 			<button
 				type="button"
 				class="action-btn cancel"
-				onclick={() => void onQuickReplyCancel(req.projectId)}
+				onclick={() => void onQuickReplyCancel(req.projectId, req.laneId, req.pendingUi.requestId)}
 			>
 				{m.ui_companionview_ignora_chiudi_5d67()}
 			</button>

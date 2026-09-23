@@ -1027,3 +1027,86 @@ della cartella e chiamate alle API dei provider: `usage_snapshot` serve tutte
 le finestre dallo stesso valore (60s di TTL, pavimento di 10s sul refresh
 manuale, una sola lettura per volta) e il timer del chip non interroga a
 finestra nascosta.
+
+---
+
+## Gate R27: Concorrenza multi-agente isolata tramite Git Worktrees e corsie per obiettivo
+
+**Data:** 2026-09-22  
+**Esito:** APPROVATO (Ricerca architetturale completata, intervista di design e invarianti operative confermate)  
+**Decisione:** Adozione del modello a **Corsie per Obiettivo** (`AgentLane`) isolate tramite Git Worktrees allocati come cartelle sorelle del repository, con disaccoppiamento esplicito tra identità del progetto (`Project`), workspace attivo della corsia (`AgentLane`) e legame storico dei task (`TaskRun`).
+
+### Il problema risolto
+
+Fino alla versione 1.2, OMP Studio applicava il principio "un progetto = una cartella = un agente". Questo modello presentava tre limiti strutturali:
+1. **Monotematicità del working tree:** l'utente non poteva delegare un task lungo o di manutenzione a un secondo agente in background senza sporcare il working tree locale su cui continuava a lavorare, bloccando l'editor e rischiando collisioni accidentali di file.
+2. **Sovraccarico architetturale di `projectPath`:** nel codice del frontend e del backend Rust, `projectPath` svolgeva simultaneamente quattro ruoli incompatibili: identità univoca del progetto in TopBar, radice di esecuzione (`cwd`) del processo `omp`, radice dell'albero file/Git e percorso del file della coda `.omp/tasks.json`.
+3. **Attrito dell'orchestrazione monolitica ("Chief"):** tentare di far gestire più task a un unico agente supervisore nella medesima conversazione avrebbe introdotto interruzioni asincrone continue nel transcript (completamenti o richieste `ask` di sotto-task non correlate al dialogo in corso), compromettendo la concentrazione dell'utente.
+
+### Decisioni architetturali vincolanti
+
+1. **Gerarchia di dominio a tre livelli:**
+   - `Project`: identità primaria stabile in TopBar, radice canonica del repository (`canonicalProjectPath`), configurazione globale, coda task unica (`.omp/tasks.json`) e impostazioni di auto-dispatch.
+   - `AgentLane`: unità di esecuzione e conversazione isolata (`laneId`, `title`, `workspacePath`, `branch`, `baseCommit`, `targetBranch`, `createdAt`, `status`). La corsia `Principale` punta al working tree standard; le corsie secondarie puntano ai rispettivi worktree.
+   - `TaskRun`: record storico machine-local che associa un task della coda comune a una corsia, al suo `sessionId` e al relativo branch/worktree.
+2. **Esperienza visiva a corsie annidate e riga contestuale:**
+   - La TopBar conserva una sola tessera per progetto con stato aggregato (`attention` > `working` > `finished` > `idle`) e contatore globale della coda.
+   - Quando un progetto possiede una o più corsie worktree attive o da revisionare, sotto la TopBar compare una riga contestuale compatta: prima tab fissa `Principale`, seguita dalle tab delle corsie per obiettivo con titolo, badge di stato e anello ambra in caso di richiesta input (`ask`). Nello scenario ordinario a singolo agente la riga non compare.
+3. **Switch atomico di workspace:**
+   - La selezione di una corsia riorienta istantaneamente e simultaneamente: albero dei file, pannello Git, modelli e tab aperti dell'editor Monaco, superficie dell'agente (Terminale PTY o Chat GUI), Browser Studio e anteprima sandbox.
+   - La geometria delle tre colonne (larghezze, stato di collasso) e le preferenze d'interfaccia restano invece proprietà del Progetto, evitando salti visivi di layout durante il passaggio tra corsie.
+4. **Coda task comune e routing deterministico:**
+   - Il file `.omp/tasks.json` vive esclusivamente nella radice canonica del progetto principale. Tutte le corsie vedono e gestiscono la medesima coda; le corsie isolate non creano file `.omp/tasks.json` locali.
+   - Click su un task in coda: se `Principale` è inattivo, il task parte su `Principale`. Se `Principale` è occupato (`working`), Studio presenta un prompt rapido: *"Agente al lavoro. Avviare in una nuova corsia isolata?"*.
+   - `Shift` + click su un task in coda: forza l'avvio immediato in una nuova corsia isolata saltando il prompt.
+   - Auto-dispatch (`autoDispatch`): massimo **uno** slot worktree automatico per progetto; lo slot resta impegnato fino all'archiviazione (merge o rifiuto) della corsia generata per evitare raffiche di branch da revisionare. Corsie manuali attive mettono in pausa l'auto-avvio.
+5. **Creazione manuale immediata (`+ Nuova corsia`):**
+   - Un click sul pulsante `+` genera subito la corsia basata su `HEAD` del branch corrente, associando un branch tecnico stabile `omp/lane-<id>` e un nome provvisorio `Worktree N`.
+   - Al primo messaggio di chat, Studio aggiorna automaticamente il titolo visibile della corsia con l'argomento sintetizzato da `omp`, preservando intatto il nome del branch Git sottostante.
+   - Soft-cap di sicurezza: dal terzo agente contemporaneamente attivo nello stesso progetto, Studio mostra un avviso non bloccante su consumi di quota e processi attivi, superabile con conferma esplicita.
+6. **Collocazione dei worktree come cartelle sorelle:**
+   - I worktree vengono creati nella directory genitore del repository con prefisso identificativo: `<parent>/.omp-wt-<nome-repo>-<id>`.
+   - *Motivazione tecnica:* garantisce l'ereditarietà di file di regole collocati nei parent (es. `CLAUDE.md` nella radice repos), preserva i percorsi relativi verso soluzioni o repository fratelli (fondamentale per architetture enterprise ASP.NET), evita l'annidamento ricorsivo nei file watcher e previene il superamento del limite `MAX_PATH` (260 caratteri) tipico di Windows.
+7. **Isolamento rigoroso degli artefatti .NET / C#:**
+   - Le cartelle `bin/`, `obj/`, `.vs/` e `packages/` rimangono rigorosamente separate per ciascun worktree: è fatto assoluto divieto di creare junction, hardlink o symlink tra queste directory per evitare corruzioni di build e file locking da MSBuild o `dotnet watch`.
+   - Con `PackageReference`, NuGet sfrutta nativamente la cache globale `%USERPROFILE%\.nuget\packages`: ogni worktree ricrea localmente solo `obj/project.assets.json` senza duplicare spazio su disco.
+   - Con `packages.config` (legacy .NET Framework), NuGet copia i binari nella cartella `packages/` della soluzione: Studio rileva la presenza di questo formato e notifica l'impatto stimato su disco prima del primo restore.
+   - Processi runtime a lunga vita (`dotnet watch`, IIS Express, dev server locali): rimangono figli della sessione della corsia (Job Object / albero processi). Studio ne richiede la terminazione prima di rimuovere il worktree e non effettua riscritture o virtualizzazioni arbitrarie delle porte di rete.
+8. **Profilo worktree di progetto e allowlist file non versionati:**
+   - Alla prima creazione di un worktree su un progetto, Studio effettua l'analisi automatica dello stack (ASP.NET, .NET Core, Vite/Svelte, Node).
+   - Eventuali file non versionati necessari all'esecuzione locale (es. `Parametri.ini`, `.env`) vengono proposti all'utente in una allowlist confermata una tantum e memorizzata nel profilo locale. Nessun file ignorato o segreto viene duplicato sulla base di euristiche non verificate.
+9. **Workflow "Review & Integrate" (Nessun Auto-Merge):**
+   - L'agente di una corsia può effettuare commit esclusivamente sul branch della propria corsia (`omp/lane-<id>`). Al termine, la corsia passa allo stato `review_ready`.
+   - Il merge nel branch principale è consentito esclusivamente tramite gesto esplicito dell'utente dentro la vista dedicata "Review & Integrate": diff Monaco side-by-side tra corsia e target, commit inclusi, evidenze di verifica (comandi eseguiti con exit code).
+   - Gate bloccante: l'integrazione è disabilitata se il working tree di destinazione presenta modifiche non committate (target dirty) o se risultano processi attivi nel worktree.
+   - Strategia di merge predefinita: **Squash per obiettivo** (un unico commit logico sul branch target). Preservazione della storia come opzione avanzata.
+   - Gestione conflitti: se il branch target è avanzato, il target non viene mai lasciato in stato di conflitto. Studio applica il target dentro la corsia (`git merge <target>`); se sorgono conflitti, la corsia passa a `conflict` e l'utente può delegare la risoluzione all'agente della corsia con un prompt contestuale o intervenire manualmente.
+10. **Persistenza locale e tolleranza ai crash:**
+    - Lo stato delle corsie e il profilo di progetto sono memorizzati nel file locale atomico `lanes.json` gestito con `tauri-plugin-store`, isolato sia da `settings.json` sia dalla coda `.omp/tasks.json`.
+    - In caso di crash o chiusura dell'app, nessun worktree viene eliminato. Al riavvio, Studio interroga `git worktree list --porcelain`, riconcilia il registro `lanes.json` e ripristina le corsie con stato e transcript pronti per la ripresa.
+    - La rimozione fisica del worktree avviene automaticamente solo dopo un'integrazione completata con successo. Il rifiuto esplicito di una corsia richiede una conferma di sicurezza prima dell'eliminazione.
+
+### Perché NON le strade alternative
+
+1. **Tessere di pari grado nella TopBar:**
+   Scartata perché avrebbe saturato rapidamente la barra dei progetti, duplicato i pannelli informativi per lo stesso repository e distrutto il principio ergonomico fondamentale di Studio: "una tessera stabile per progetto, zero costo mentale al cambio di contesto".
+2. **Orchestratore unico "Chief" con subagenti invisibili:**
+   Scartata perché la commistione di notifiche asincrone e flussi di dialogo all'interno della stessa chat produce distrazione e frustrazione. Il modello a corsie indipendenti fornisce conversazioni pulite e mirate; un eventuale Chief potrà essere introdotto come livello superiore solo dopo aver consolidato un bus eventi asincrono dedicato.
+3. **Auto-merge automatico al termine del task:**
+   Scartata perché l'uscita con successo di un agente non equivale a codice collaudato e approvato. Consentire scritture automatiche sul branch principale mentre l'utente lavora avrebbe violato l'inviolabilità del working tree locale.
+4. **Worktree annidati dentro `.omp/worktrees/` o in `%LOCALAPPDATA%`:**
+   Scartata: posizionarli dentro il repository avrebbe innescato ricorsioni nei file watcher e allungato i percorsi; posizionarli in AppData avrebbe spezzato l'ereditarietà delle regole di contesto nei parent (es. `CLAUDE.md`) e rotto i collegamenti relativi tra repository fratelli.
+5. **Condivisione delle cartelle `bin/` e `obj/` tramite junction:**
+   Scartata perché i processi di compilazione MSBuild e runtime .NET mantengono lock esclusivi sui file intermedi e generano file strettamente vincolati ai percorsi assoluti: la condivisione avrebbe causato fallimenti casuali e deadlock durante compilazioni concorrenti.
+
+### Conseguenze e garanzie
+
+- Concorrenza multi-agente reale e sicura: 2 o più agenti lavorano contemporaneamente sullo stesso progetto senza collisioni nel filesystem.
+- Conservazione assoluta del lavoro dell'utente sul branch principale: nessun auto-merge, nessun auto-stash distruttivo.
+- Supporto nativo e verificato per stack complessi .NET Framework e .NET Core.
+- Piena reversibilità: ogni corsia è un ramo Git standard con transcript persistito, consultabile e riprendibile in qualsiasi momento.
+- Isolamento dichiarato: cooperativo e deterministico a livello di filesystem e processi di Studio; non costituisce una sandbox OS contro codice malevolo intenzionale.
+
+### Nota di implementazione (2026-09-23)
+
+La scrittura di `lanes.json` non passa dal `save` del plugin store: quel save usa `fs::write`. `lanes_store_write_atomic` tiene un lock tra le webview e sostituisce il file in modo atomico; il plugin viene aperto e chiuso all'avvio proprio per non lasciare una riscrittura non atomica in uscita. Il resto del gate e' implementato come sopra: nessun auto-merge, nessun junction su `bin`/`obj`/`packages`, conflitti confinati alla corsia.

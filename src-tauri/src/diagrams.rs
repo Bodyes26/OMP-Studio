@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher};
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 /// Cartella di scambio condivisa con l'estensione. Deve restare allineata
@@ -26,13 +26,17 @@ pub fn diagrams_dir() -> Option<PathBuf> {
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DiagramPayload {
     pub id: String,
     pub title: String,
     pub mermaid: String,
     pub cwd: String,
     pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lane_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
 }
 
 fn read_diagram(path: &std::path::Path) -> Option<DiagramPayload> {
@@ -60,12 +64,26 @@ fn read_diagram(path: &std::path::Path) -> Option<DiagramPayload> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let lane_id = value
+        .get("lane_id")
+        .or_else(|| value.get("laneId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let project_id = value
+        .get("project_id")
+        .or_else(|| value.get("projectId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     Some(DiagramPayload {
         id,
         title,
         mermaid,
         cwd,
         session_id,
+        lane_id,
+        project_id,
     })
 }
 
@@ -161,4 +179,75 @@ pub fn spawn_watcher(app: AppHandle) {
             std::thread::sleep(Duration::from_millis(500));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_diagram_with_lane_and_project_id() {
+        let dir = std::env::temp_dir().join(format!("omp-test-diag-1-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_diagram.json");
+        let content = serde_json::json!({
+            "id": "diag-123",
+            "title": "Architettura Flusso",
+            "mermaid": "graph TD\nA-->B",
+            "cwd": "C:/repos/portalino",
+            "session_id": "sess-456",
+            "lane_id": "wt-feature",
+            "project_id": "proj-coldiretti"
+        });
+        std::fs::write(&path, content.to_string()).unwrap();
+        let payload = read_diagram(&path).expect("lettura diagramma fallita");
+        assert_eq!(payload.id, "diag-123");
+        assert_eq!(payload.title, "Architettura Flusso");
+        assert_eq!(payload.mermaid, "graph TD\nA-->B");
+        assert_eq!(payload.cwd, "C:/repos/portalino");
+        assert_eq!(payload.session_id, "sess-456");
+        assert_eq!(payload.lane_id, Some("wt-feature".to_string()));
+        assert_eq!(payload.project_id, Some("proj-coldiretti".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_diagram_supports_camel_case_identifiers() {
+        let dir = std::env::temp_dir().join(format!("omp-test-diag-2-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_diagram_camel.json");
+        let content = serde_json::json!({
+            "id": "diag-camel",
+            "title": "Diagramma Camel",
+            "mermaid": "flowchart LR\nX-->Y",
+            "cwd": "C:/repos/.omp-wt-portalino-lane",
+            "session_id": "sess-789",
+            "laneId": "lane-secondaria",
+            "projectId": "proj-main"
+        });
+        std::fs::write(&path, content.to_string()).unwrap();
+        let payload = read_diagram(&path).expect("lettura diagramma fallita");
+        assert_eq!(payload.lane_id, Some("lane-secondaria".to_string()));
+        assert_eq!(payload.project_id, Some("proj-main".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_diagram_legacy_without_lane_fields() {
+        let dir = std::env::temp_dir().join(format!("omp-test-diag-3-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_diagram_legacy.json");
+        let content = serde_json::json!({
+            "id": "diag-legacy",
+            "title": "Legacy",
+            "mermaid": "stateDiagram-v2\n[*]-->S1",
+            "cwd": "C:/repos/portalino",
+            "session_id": "sess-legacy"
+        });
+        std::fs::write(&path, content.to_string()).unwrap();
+        let payload = read_diagram(&path).expect("lettura diagramma legacy fallita");
+        assert_eq!(payload.lane_id, None);
+        assert_eq!(payload.project_id, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -37,11 +37,36 @@ impl PtySession {
         #[cfg(not(target_os = "windows"))]
         crate::process_tree::kill_process_tree(self.pid);
 
-        let mut child = self.child.lock();
-        let _ = child.kill();
-        let _ = child.wait();
+        // Il lock del figlio vive solo qui dentro: il registro delle corsie
+        // interroga `is_alive` tenendo il proprio lock, e conservare i due
+        // lock in ordine opposto sarebbe un abbraccio mortale.
+        {
+            let mut child = self.child.lock();
+            let _ = child.kill();
+            let _ = child.wait();
+        }
 
+        crate::process_tree::unregister_lane_process(
+            crate::process_tree::LaneProcessKind::Terminal,
+            self.pty_id,
+        );
         remove_breadcrumb(self.pty_id);
+    }
+}
+
+/// Proprieta' del terminale di corsia: il registro (PLAN W11) non apre handle
+/// propri, chiede alla sessione che ha avviato l'albero.
+impl crate::process_tree::LaneProcessControl for PtySession {
+    fn is_alive(&self) -> bool {
+        self.child
+            .lock()
+            .try_wait()
+            .map(|status| status.is_none())
+            .unwrap_or(false)
+    }
+
+    fn stop_and_wait(&self) {
+        self.kill_tree();
     }
 }
 
@@ -343,6 +368,8 @@ pub async fn pty_open(
     args: Vec<String>,
     cols: u16,
     rows: u16,
+    lane_id: Option<String>,
+    project_id: Option<String>,
     on_output: Channel<Response>,
     manager: State<'_, PtyManager>,
 ) -> Result<u64, String> {
@@ -485,6 +512,12 @@ pub async fn pty_open(
     // e ignora questa variabile. Fuori da Studio l'onboarding nativo resta
     // intatto.
     cmd.env("OMP_SKIP_SETUP", "1");
+    if let Some(lane) = &lane_id {
+        cmd.env("OMP_LANE_ID", lane);
+    }
+    if let Some(proj) = &project_id {
+        cmd.env("OMP_PROJECT_ID", proj);
+    }
 
     #[cfg(not(target_os = "windows"))]
     {
@@ -551,7 +584,28 @@ pub async fn pty_open(
         killed: Arc::new(AtomicBool::new(false)),
     };
 
-    manager.sessions.lock().insert(pty_id, session);
+    manager.sessions.lock().insert(pty_id, session.clone());
+
+    // Proprieta' della corsia (PLAN W11): il terminale e tutto cio' che vi si
+    // avvia dentro (`dotnet watch`, `npm run dev`, IIS Express) restano dentro
+    // il Job Object di questa sessione e vengono attribuiti alla corsia che li
+    // ha chiesti. Senza id di progetto non c'e' corsia da servire.
+    if let Some(project) = project_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        crate::process_tree::register_lane_process(crate::process_tree::LaneProcessRegistration {
+            kind: crate::process_tree::LaneProcessKind::Terminal,
+            owner_id: pty_id,
+            project_id: project.to_string(),
+            lane_id: lane_id.clone().unwrap_or_default(),
+            workspace_root: cwd.clone(),
+            pid,
+            label: "Terminale".to_string(),
+            control: Arc::new(session),
+        });
+    }
 
     // Read thread
     thread::spawn(move || {

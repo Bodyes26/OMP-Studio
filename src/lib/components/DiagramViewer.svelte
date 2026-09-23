@@ -3,13 +3,20 @@
 	import { onMount } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { sanitizeSvg } from '$lib/editor/svgSandbox';
+	import { normalizeRoutingPath } from '$lib/agent/laneRouting';
 	import { IconClose, IconZoomIn, IconZoomOut } from '$lib/icons';
 
 	let {
 		projectPath,
+		initialDiagram = null,
+		laneId = null,
+		projectId = null,
 		onClose
 	}: {
 		projectPath: string;
+		initialDiagram?: DiagramPayload | null;
+		laneId?: string | null;
+		projectId?: string | null;
 		onClose?: () => void;
 	} = $props();
 
@@ -19,6 +26,8 @@
 		mermaid: string;
 		cwd: string;
 		session_id: string;
+		lane_id?: string;
+		project_id?: string;
 	}
 
 	let diagram = $state<DiagramPayload | null>(null);
@@ -164,15 +173,31 @@
 		}
 	}
 
+	$effect(() => {
+		if (initialDiagram && initialDiagram.id !== diagram?.id) {
+			diagram = initialDiagram;
+			void render(initialDiagram.mermaid);
+		}
+	});
+
 	onMount(() => {
 		let disposed = false;
+		if (diagram) {
+			void render(diagram.mermaid);
+		}
 		void listen<DiagramPayload>('diagram://new', (event) => {
 			const payload = event.payload;
-			// Solo i diagrammi del progetto attivo: una sessione in background
-			// non deve rubare la whiteboard della colonna centrale.
-			const active = projectPath.replace(/\\/g, '/').toLowerCase();
-			const from = (payload.cwd || '').replace(/\\/g, '/').toLowerCase();
-			if (active && from && !from.startsWith(active)) return;
+			// Se il diagramma e' destinato a un'altra corsia o progetto, ignoralo
+			if (laneId && payload.lane_id && payload.lane_id !== laneId) return;
+			if (projectId && payload.project_id && payload.project_id !== projectId) return;
+
+			// Normalizzazione percorsi: verifica appartenenza alla radice di questa corsia
+			// senza assumere che i worktree stiano dentro la cartella del progetto.
+			if (payload.cwd && projectPath) {
+				const active = normalizeRoutingPath(projectPath);
+				const from = normalizeRoutingPath(payload.cwd);
+				if (from && active && from !== active && !from.startsWith(`${active}/`)) return;
+			}
 			diagram = payload;
 			void render(payload.mermaid);
 		}).then((fn) => {

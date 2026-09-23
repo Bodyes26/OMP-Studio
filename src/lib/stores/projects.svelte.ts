@@ -3,6 +3,16 @@ import { homeDir } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
 import { extractOrigin, isLocalOrigin } from '$lib/agent/browser-live';
+import {
+	canonicalProjectPath,
+	createMainLane,
+	projectId,
+	type AgentLane,
+	type AgentState,
+	type AgentSurface,
+	type CanonicalProjectPath,
+	type ProjectId
+} from '$lib/types/lanes';
 
 import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/utils/paths';
 import {
@@ -15,7 +25,7 @@ import {
 } from './projectTabHelpers';
 export { normalizeProjectPath, joinProjectPath, pathKey, isWindows, isPathUnder, remapPath };
 
-export type AgentState = 'idle' | 'working' | 'attention' | 'finished' | 'unknown';
+export type { AgentState } from '$lib/types/lanes';
 export type ProjectColorMode = 'auto' | 'custom';
 
 export interface ProjectLayout {
@@ -23,26 +33,16 @@ export interface ProjectLayout {
 	center: number;
 	leftSection: 'files' | 'sessions';
 	editorOpen: boolean;
-	/**
-	 * Superficie della colonna destra. Un progetto esistente riparte in
-	 * `terminal`: aggiornare Studio non deve spostare nessuno su una
-	 * superficie che non ha scelto.
-	 */
-	rightSection: 'terminal' | 'gui';
 }
 
 export interface Project {
-	id: string;
+	id: ProjectId;
 	name: string;
 	label: string | null;
-	path: string;
+	canonicalProjectPath: CanonicalProjectPath | null;
 	hue: number;
 	colorMode: ProjectColorMode;
-	ptyId?: number;
-	agentState: AgentState;
-	/** File aperti nell'editor per questo progetto. Stato di sessione: non persistito. */
-	openFiles: string[];
-	activeFile: string | null;
+	lane: AgentLane;
 	layout: ProjectLayout;
 	lastOpened: number;
 	/** Il primo task in coda parte da solo appena il terminale e' libero. */
@@ -50,6 +50,22 @@ export interface Project {
 	/** Default dei task di questo progetto: sovrascrivono taskDefaults globali. */
 	taskDefaults: Partial<TaskDefaults> | null;
 	/** Origini remote autorizzate per Browser Studio (S43). Persistite per progetto. */
+	browserAllowedOrigins?: string[];
+}
+
+interface StoredProject {
+	id: string;
+	name: string;
+	label?: string | null;
+	path?: string;
+	canonicalProjectPath?: string | null;
+	hue?: number;
+	colorMode?: ProjectColorMode;
+	lane?: { surface?: AgentSurface };
+	layout?: Partial<ProjectLayout> & { rightSection?: AgentSurface };
+	lastOpened?: number;
+	autoDispatch?: boolean;
+	taskDefaults?: Partial<TaskDefaults> | null;
 	browserAllowedOrigins?: string[];
 }
 
@@ -109,7 +125,7 @@ class ProjectStore {
 		]);
 		this.store = store;
 		const [storedProjects, storedActiveId, storedRoot, home] = await Promise.all([
-			store.get<Project[]>('projects'),
+			store.get<StoredProject[]>('projects'),
 			store.get<string>('activeProjectId'),
 			store.get<string>('projectRoot'),
 			homeDir()
@@ -125,31 +141,41 @@ class ProjectStore {
 			const seen = new Set<string>();
 			this.projects = [];
 			for (const p of storedProjects) {
-				const path = normalizeProjectPath(p.path);
+				const rawPath =
+					typeof p.canonicalProjectPath === 'string' ? p.canonicalProjectPath : p.path;
+				const normalizedPath = normalizeProjectPath(rawPath ?? '');
 				// I doppioni nati prima della normalizzazione (stessa cartella con
 				// separatori o maiuscole diverse) vanno collassati sul primo.
-				if (!path || seen.has(pathKey(path))) continue;
-				seen.add(pathKey(path));
+				if (!normalizedPath || seen.has(pathKey(normalizedPath))) continue;
+				seen.add(pathKey(normalizedPath));
+				const id = projectId(p.id);
+				const canonicalPath = canonicalProjectPath(normalizedPath);
+				const surface =
+					p.lane?.surface === 'gui' || p.layout?.rightSection === 'gui' ? 'gui' : 'terminal';
 				this.projects.push({
-					...p,
-					path,
+					id,
+					name: p.name,
 					label: typeof p.label === 'string' && p.label.trim() ? p.label.trim() : null,
-					hue: typeof p.hue === 'number' ? p.hue : getProjectHue(path),
+					canonicalProjectPath: canonicalPath,
+					hue: typeof p.hue === 'number' ? p.hue : getProjectHue(normalizedPath),
 					// Le versioni precedenti non salvavano l'origine. Se la tinta
 					// coincide con quella deterministica, puo' seguire il tema.
-					colorMode: p.colorMode === 'custom' || (typeof p.hue === 'number' && p.hue !== getProjectHue(path)) ? 'custom' : 'auto',
-					agentState: 'unknown',
-					openFiles: [],
-					activeFile: null,
+					colorMode:
+						p.colorMode === 'custom' ||
+						(typeof p.hue === 'number' && p.hue !== getProjectHue(normalizedPath))
+							? 'custom'
+							: 'auto',
+					lane: createMainLane(id, canonicalPath, surface),
 					layout: {
 						left: typeof p.layout?.left === 'number' ? p.layout.left : 260,
 						center: typeof p.layout?.center === 'number' ? p.layout.center : 0.5,
 						leftSection: p.layout?.leftSection === 'sessions' ? 'sessions' : 'files',
-						editorOpen: p.layout?.editorOpen !== false,
-						rightSection: p.layout?.rightSection === 'gui' ? 'gui' : 'terminal'
+						editorOpen: p.layout?.editorOpen !== false
 					},
+					lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : 0,
 					autoDispatch: p.autoDispatch === true,
-					taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null
+					taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null,
+					browserAllowedOrigins: p.browserAllowedOrigins
 				});
 			}
 			// L'ordine salvato e' l'unica verita' fuori da `mru`: solo li'
@@ -183,18 +209,22 @@ class ProjectStore {
 			}
 			return;
 		}
-		const toSave = this.projects.filter((p) => p.path !== '').map((p) => ({
-			id: p.id,
-			name: p.name,
-			label: p.label,
-			path: p.path,
-			hue: p.hue,
-			colorMode: p.colorMode,
-			layout: $state.snapshot(p.layout),
-			lastOpened: p.lastOpened,
-			autoDispatch: p.autoDispatch,
-			taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null
-		}));
+		const toSave = this.projects
+			.filter((p) => p.canonicalProjectPath !== null)
+			.map((p) => ({
+				id: p.id,
+				name: p.name,
+				label: p.label,
+				canonicalProjectPath: p.canonicalProjectPath,
+				hue: p.hue,
+				colorMode: p.colorMode,
+				lane: { surface: p.lane.surface },
+				layout: $state.snapshot(p.layout),
+				lastOpened: p.lastOpened,
+				autoDispatch: p.autoDispatch,
+				taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
+				browserAllowedOrigins: p.browserAllowedOrigins
+			}));
 		await this.store.set('projects', toSave);
 		await this.store.set('activeProjectId', this.activeId);
 		await this.store.set('projectRoot', this.projectRoot);
@@ -202,10 +232,12 @@ class ProjectStore {
 	}, 500);
 
 	openProject(path: string) {
-		const canonical = normalizeProjectPath(path);
-		if (!canonical) return null;
-		const key = pathKey(canonical);
-		const existing = this.projects.find(p => p.path && pathKey(p.path) === key);
+		const normalizedPath = normalizeProjectPath(path);
+		if (!normalizedPath) return null;
+		const key = pathKey(normalizedPath);
+		const existing = this.projects.find(
+			(p) => p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key
+		);
 		if (existing) {
 			existing.lastOpened = Date.now();
 			this.activeId = existing.id;
@@ -220,25 +252,23 @@ class ProjectStore {
 			return existing.id;
 		}
 
-		const name = canonical.split(/[\\/]/).pop() || 'Unknown';
-		const id = crypto.randomUUID();
+		const name = normalizedPath.split(/[\\/]/).pop() || 'Unknown';
+		const id = projectId(crypto.randomUUID());
+		const canonicalPath = canonicalProjectPath(normalizedPath);
 
 		const newProj: Project = {
 			id,
 			name,
 			label: null,
-			path: canonical,
-			hue: getProjectHue(canonical),
+			canonicalProjectPath: canonicalPath,
+			hue: getProjectHue(normalizedPath),
 			colorMode: 'auto',
-			agentState: 'unknown',
-			openFiles: [],
-			activeFile: null,
+			lane: createMainLane(id, canonicalPath, settingsStore.general.defaultSurface),
 			layout: {
 				left: 260,
 				center: 0.5,
 				leftSection: 'files',
-				editorOpen: true,
-				rightSection: settingsStore.general.defaultSurface
+				editorOpen: true
 			},
 			lastOpened: Date.now(),
 			autoDispatch: false,
@@ -294,23 +324,20 @@ class ProjectStore {
 	}
 
 	openScratchpad() {
-		const id = crypto.randomUUID();
+		const id = projectId(crypto.randomUUID());
 		const scratchpadProj: Project = {
 			id,
 			name: 'Scratchpad',
 			label: null,
-			path: '', // empty path signifies scratchpad
+			canonicalProjectPath: null,
 			hue: 0,
 			colorMode: 'auto',
-			agentState: 'unknown',
-			openFiles: [],
-			activeFile: null,
+			lane: createMainLane(id, null, settingsStore.general.defaultSurface),
 			layout: {
 				left: 260,
 				center: 0.5,
 				leftSection: 'files',
-				editorOpen: false,
-				rightSection: settingsStore.general.defaultSurface
+				editorOpen: false
 			},
 			lastOpened: Date.now(),
 			autoDispatch: false,
@@ -347,8 +374,8 @@ class ProjectStore {
 		if (idx === -1) return;
 		const p = this.projects[idx];
 		p.lastOpened = Date.now();
-		if (p.agentState === 'finished') {
-			p.agentState = 'idle';
+		if (p.lane.agentState === 'finished') {
+			p.lane.agentState = 'idle';
 		}
 		// L'ordine dell'array e' l'unica verita' fuori da `mru`: qui si tocca
 		// solo lo stato del progetto, mai la sua posizione.
@@ -398,18 +425,18 @@ class ProjectStore {
 		const p = this.projects.find(p => p.id === id);
 		if (!p || !file) return;
 		// Nessun save(): i tab sono stato di sessione, non configurazione.
-		if (!p.openFiles.includes(file)) p.openFiles.push(file);
-		p.activeFile = file;
+		if (!p.lane.openFiles.includes(file)) p.lane.openFiles.push(file);
+		p.lane.activeFile = file;
 	}
 
 	closeFile(id: string, file: string) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p) return;
-		const index = p.openFiles.indexOf(file);
+		const index = p.lane.openFiles.indexOf(file);
 		if (index === -1) return;
-		p.openFiles.splice(index, 1);
-		if (p.activeFile === file) {
-			p.activeFile = p.openFiles[index] ?? p.openFiles[index - 1] ?? null;
+		p.lane.openFiles.splice(index, 1);
+		if (p.lane.activeFile === file) {
+			p.lane.activeFile = p.lane.openFiles[index] ?? p.lane.openFiles[index - 1] ?? null;
 		}
 	}
 
@@ -419,11 +446,11 @@ class ProjectStore {
 	moveFile(id: string, file: string, beforeFile: string) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p || file === beforeFile) return;
-		const from = p.openFiles.indexOf(file);
-		const to = p.openFiles.indexOf(beforeFile);
+		const from = p.lane.openFiles.indexOf(file);
+		const to = p.lane.openFiles.indexOf(beforeFile);
 		if (from === -1 || to === -1) return;
-		p.openFiles.splice(from, 1);
-		p.openFiles.splice(to, 0, file);
+		p.lane.openFiles.splice(from, 1);
+		p.lane.openFiles.splice(to, 0, file);
 	}
 
 	private isPathUnder(filePath: string, targetPath: string, isDir: boolean): boolean {
@@ -441,9 +468,9 @@ class ProjectStore {
 	renamePath(id: string, from: string, to: string, isDir: boolean) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p || !from || !to) return;
-		const res = applyTabRename(p.openFiles, p.activeFile, from, to, isDir);
-		p.openFiles = res.openFiles;
-		p.activeFile = res.activeFile;
+		const res = applyTabRename(p.lane.openFiles, p.lane.activeFile, from, to, isDir);
+		p.lane.openFiles = res.openFiles;
+		p.lane.activeFile = res.activeFile;
 	}
 
 	/**
@@ -454,35 +481,60 @@ class ProjectStore {
 	trashPath(id: string, path: string, isDir: boolean) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p || !path) return;
-		const res = applyTabTrash(p.openFiles, p.activeFile, path, isDir);
-		p.openFiles = res.openFiles;
-		p.activeFile = res.activeFile;
+		const res = applyTabTrash(p.lane.openFiles, p.lane.activeFile, path, isDir);
+		p.lane.openFiles = res.openFiles;
+		p.lane.activeFile = res.activeFile;
 	}
 
 	closeOtherFiles(id: string, keepFile: string) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p || !keepFile) return;
-		if (!p.openFiles.includes(keepFile)) return;
-		p.openFiles = [keepFile];
-		p.activeFile = keepFile;
+		if (!p.lane.openFiles.includes(keepFile)) return;
+		p.lane.openFiles = [keepFile];
+		p.lane.activeFile = keepFile;
 	}
 
 	closeAllFiles(id: string) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p) return;
-		p.openFiles = [];
-		p.activeFile = null;
+		p.lane.openFiles = [];
+		p.lane.activeFile = null;
 	}
 
 	setPtyId(id: string, ptyId: number) {
 		const p = this.projects.find(p => p.id === id);
-		if (p) p.ptyId = ptyId;
+		if (p) p.lane.ptyId = ptyId;
+	}
+
+	setProjectLane(id: string, target: AgentLane) {
+		const p = this.projects.find((candidate) => candidate.id === id);
+		if (!p) return;
+		if (p.lane.laneId === target.laneId && p.lane.workspacePath === target.workspacePath) {
+			return;
+		}
+		p.lane = {
+			projectId: target.projectId,
+			laneId: target.laneId,
+			title: target.title,
+			workspacePath: target.workspacePath,
+			branch: target.branch,
+			baseCommit: target.baseCommit,
+			targetBranch: target.targetBranch,
+			createdAt: target.createdAt,
+			status: target.status,
+			origin: target.origin,
+			agentState: target.agentState,
+			openFiles: [...target.openFiles],
+			activeFile: target.activeFile,
+			surface: target.surface,
+			ptyId: target.ptyId
+		};
 	}
 
 	setAgentState(id: string, state: AgentState) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p) return;
-		if (p.agentState === 'working' && state === 'idle') {
+		if (p.lane.agentState === 'working' && state === 'idle') {
 			// Ha finito. Resta `finished` a meno che tu lo stia davvero
 			// guardando: la companion deve poter distinguere "ho finito, leggi
 			// cosa ho fatto" da "sono fermo, dammi un compito", e senza il
@@ -491,14 +543,14 @@ class ProjectStore {
 			// da ore.
 			const watching =
 				this.activeId === id && typeof document !== 'undefined' && document.hasFocus();
-			p.agentState = watching ? 'idle' : 'finished';
+			p.lane.agentState = watching ? 'idle' : 'finished';
 			return;
 		}
 		// `finished` non retrocede a `idle` da solo: lo chiude l'utente
 		// aprendo il progetto (`setActive`) o riportando il fuoco sulla
 		// finestra (`acknowledgeFinished`).
-		if (state === 'idle' && p.agentState === 'finished') return;
-		p.agentState = state;
+		if (state === 'idle' && p.lane.agentState === 'finished') return;
+		p.lane.agentState = state;
 	}
 
 	/**
@@ -510,7 +562,7 @@ class ProjectStore {
 	 */
 	acknowledgeFinished(id: string) {
 		const p = this.projects.find(p => p.id === id);
-		if (p && p.agentState === 'finished') p.agentState = 'idle';
+		if (p && p.lane.agentState === 'finished') p.lane.agentState = 'idle';
 	}
 
 	setProjectHue(id: string, hue: number) {
@@ -551,6 +603,13 @@ class ProjectStore {
 			layoutFn(p.layout);
 			this.save();
 		}
+	}
+
+	setSurface(id: string, surface: AgentSurface) {
+		const p = this.projects.find(p => p.id === id);
+		if (!p || p.lane.surface === surface) return;
+		p.lane.surface = surface;
+		this.save();
 	}
 
 	get activeProject(): Project | undefined {

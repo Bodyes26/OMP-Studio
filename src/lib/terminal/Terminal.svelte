@@ -15,6 +15,8 @@
 		visible = true,
 		resumeSessionId = null,
 		launchArgs = null,
+		laneId = null,
+		projectId = null,
 		onStateChange,
 		onOpenFile,
 		onInputPendingChange,
@@ -30,6 +32,8 @@
 		resumeSessionId?: string | null;
 		/** Argomenti espliciti per `omp` (il modal di setup lancia `omp setup`). */
 		launchArgs?: string[] | null;
+		laneId?: string | null;
+		projectId?: string | null;
 		onStateChange?: (state: TerminalAgentState) => void;
 		onOpenFile?: (relPath: string, line: number | null) => void;
 		onInputPendingChange?: (pending: boolean) => void;
@@ -91,7 +95,9 @@
 			(pending) => onInputPendingChange?.(pending),
 			(info) => onSessionChange?.(info),
 			resumeSessionId,
-			launchArgs
+			launchArgs,
+			laneId,
+			projectId
 		);
 		sessionRef?.(session);
 

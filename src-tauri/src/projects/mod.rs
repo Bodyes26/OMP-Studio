@@ -13,6 +13,8 @@ use tauri::ipc::Response;
 
 pub mod tasks;
 pub use tasks::*;
+pub mod worktrees;
+pub use worktrees::*;
 
 #[derive(Serialize, Deserialize)]
 pub struct Dirent {
@@ -1482,7 +1484,7 @@ fn parse_git_diff_stats(out: &[u8]) -> GitDiffStats {
 
 /// Conta le righe di un file non tracciato senza caricarlo interamente.
 /// I file binari restano nel conteggio dei file ma non inventano righe.
-fn count_untracked_text_lines(path: &Path) -> Option<u64> {
+pub(crate) fn count_untracked_text_lines(path: &Path) -> Option<u64> {
     let metadata = fs::symlink_metadata(path).ok()?;
     if !metadata.file_type().is_file() {
         return None;
@@ -1524,7 +1526,10 @@ fn git_diff_stats_sync(project_path: &str) -> GitDiffStats {
         project_path,
         &["ls-files", "--others", "--exclude-standard", "-z"],
     ) {
-        for raw_path in untracked.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+        for raw_path in untracked
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+        {
             let Ok(relative) = std::str::from_utf8(raw_path) else {
                 continue;
             };
@@ -1550,7 +1555,10 @@ pub async fn git_diff_stats(project_path: String) -> Result<GitDiffStats, String
 
 /// Unisce `--name-status` e `--numstat` sulla stessa lista di path.
 /// Le rinomine ("R100\tvecchio\tnuovo") vengono attribuite al nuovo nome.
-fn merge_name_status_numstat(status_out: &[u8], numstat_out: &[u8]) -> Vec<CommitFileEntry> {
+pub(crate) fn merge_name_status_numstat(
+    status_out: &[u8],
+    numstat_out: &[u8],
+) -> Vec<CommitFileEntry> {
     use std::collections::BTreeMap;
     let mut files: BTreeMap<String, (String, Option<u32>, Option<u32>)> = BTreeMap::new();
 
@@ -2148,9 +2156,9 @@ mod tests {
     use super::{
         content_search_within, count_untracked_text_lines, file_git_rev, fuzzy_match_str,
         git_last_commit, git_recent_commits, merge_name_status_numstat, parse_git_diff_stats,
-        path_create_directory, path_create_file, path_rename, project_files_list, project_files_search,
-        rename_via_temp, resolve_existing_entry, resolve_new_destination, resolve_path,
-        resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
+        path_create_directory, path_create_file, path_rename, project_files_list,
+        project_files_search, rename_via_temp, resolve_existing_entry, resolve_new_destination,
+        resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
         ProjectContentSearchResult,
     };
     use std::collections::HashSet;
@@ -2168,7 +2176,8 @@ mod tests {
 
     #[test]
     fn git_diff_stats_somma_testo_e_ignora_righe_binarie() {
-        let stats = parse_git_diff_stats(b"12\t3\tsrc/main.rs\n-\t-\tstatic/icon.png\n4\t0\tREADME.md\n");
+        let stats =
+            parse_git_diff_stats(b"12\t3\tsrc/main.rs\n-\t-\tstatic/icon.png\n4\t0\tREADME.md\n");
 
         assert_eq!(stats.additions, 16);
         assert_eq!(stats.deletions, 3);
@@ -2894,9 +2903,7 @@ mod tests {
         fs::write(dir.join("dist/bundle/app.js"), "noise").unwrap();
 
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let files = rt
-            .block_on(project_files_list(root_str, None))
-            .unwrap();
+        let files = rt.block_on(project_files_list(root_str, None)).unwrap();
 
         assert_eq!(files.len(), 2);
         let set: HashSet<String> = files.into_iter().collect();

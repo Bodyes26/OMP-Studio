@@ -98,7 +98,11 @@ export class OmpRpcClient {
 		this.eventHandler = null;
 	}
 
-	async open(cwd: string, resume?: string | null): Promise<number> {
+	async open(
+		cwd: string,
+		resume?: string | null,
+		opts?: { laneId?: string | null; projectId?: string | null }
+	): Promise<number> {
 		const epoch = ++this.openEpoch;
 		const channel = new Channel<string>();
 		channel.onmessage = (line) => {
@@ -114,6 +118,8 @@ export class OmpRpcClient {
 		const rpcId = await invoke<number>('rpc_open', {
 			cwd,
 			resume: resume ?? null,
+			laneId: opts?.laneId ?? null,
+			projectId: opts?.projectId ?? null,
 			onEvent: channel
 		});
 		// Un processo che fallisce in avvio puo' emettere `studio_exit` prima

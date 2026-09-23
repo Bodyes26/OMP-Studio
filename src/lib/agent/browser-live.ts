@@ -159,6 +159,7 @@ export function shouldNegotiate(advertised: readonly RpcCapability[]): boolean {
 
 export interface BrowserSessionIdentity {
 	projectId: string;
+	laneId?: string;
 	chatSessionId: string;
 	browserSessionId: string;
 	tabId: string;
@@ -554,10 +555,12 @@ export function parseBrowserSessionIdentity(value: unknown): BrowserSessionIdent
 	const browserSessionId = nonEmpty(source.browserSessionId);
 	const tabId = nonEmpty(source.tabId);
 	if (!projectId || !chatSessionId || !browserSessionId || !tabId) return null;
-	return { projectId, chatSessionId, browserSessionId, tabId };
+	const laneId = typeof source.laneId === 'string' && source.laneId.trim() ? source.laneId.trim() : undefined;
+	return { projectId, ...(laneId ? { laneId } : {}), chatSessionId, browserSessionId, tabId };
 }
 
 export function sameIdentity(a: BrowserSessionIdentity, b: BrowserSessionIdentity): boolean {
+	if (a.laneId && b.laneId && a.laneId !== b.laneId) return false;
 	return (
 		a.projectId === b.projectId &&
 		a.chatSessionId === b.chatSessionId &&

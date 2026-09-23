@@ -119,7 +119,7 @@
 	);
 
 	const parseInput = $derived({
-		projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.path })),
+		projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.canonicalProjectPath ?? '' })),
 		directives: knownDirectives.map((d) => ({ id: d.id, name: d.name, tag: d.tag, hidden: d.hidden })),
 		roles: configuredRoles.map((role) => role.id),
 		modelSelectors: knownModelSelectors
@@ -133,7 +133,7 @@
 		const q = mention.query.toLowerCase();
 		if (mention.kind === 'project') {
 			return knownProjects
-				.filter((p) => p.path)
+				.filter((p) => p.canonicalProjectPath)
 				.filter((p) => !q || (p.label ?? p.name).toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
 				.slice(0, 6)
 				.map((p) => ({
@@ -181,10 +181,10 @@
 	const canSave = $derived((taskInput.trim().length > 0 || attachedImages.length > 0) && !isBusy);
 
 	const monitorProjects = $derived.by<Project[]>(() => {
-		const list = knownProjects.filter((p) => p.path);
+		const list = knownProjects.filter((p) => p.canonicalProjectPath);
 		return [...list].sort((a, b) => {
-			const ra = STATE_RANK[a.agentState] ?? 9;
-			const rb = STATE_RANK[b.agentState] ?? 9;
+			const ra = STATE_RANK[a.lane.agentState] ?? 9;
+			const rb = STATE_RANK[b.lane.agentState] ?? 9;
 			if (ra !== rb) return ra - rb;
 			return (a.label?.trim() || a.name).localeCompare(b.label?.trim() || b.name);
 		});
@@ -194,8 +194,8 @@
 
 	$effect(() => {
 		for (const project of knownProjects) {
-			if (project.path) {
-				void taskStore.loadProject(project.path);
+			if (project.canonicalProjectPath) {
+				void taskStore.loadProject(project.canonicalProjectPath);
 			}
 		}
 	});
@@ -280,7 +280,9 @@
 		// perso una scrittura di Studio (il watcher Rust scarta le auto-eco).
 		// Al summon si rilegge il file, non la cache d'idratazione iniziale.
 		for (const project of knownProjects) {
-			if (project.path) void taskStore.reloadProject(project.path);
+			if (project.canonicalProjectPath) {
+				void taskStore.reloadProject(project.canonicalProjectPath);
+			}
 		}
 	}
 
@@ -564,51 +566,84 @@
 		}
 	}
 
-	async function handleQuickReplySelect(projectId: string, value: string) {
+	async function handleQuickReplySelect(
+		projectId: string,
+		value: string,
+		laneId?: string | null,
+		requestId?: string | null
+	) {
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
-		const req = companionStore.attentionRequests.find((r) => r.projectId === projectId);
-		if (req?.pendingUi?.requestId) {
-			const handled = await companionStore.respondPrompt(req.pendingUi.requestId, { action: 'select', value });
+		const targetReqId =
+			requestId ??
+			companionStore.attentionRequests.find(
+				(r) => r.projectId === projectId && (!laneId || (r.laneId ?? 'main') === laneId)
+			)?.pendingUi?.requestId;
+		if (targetReqId) {
+			const handled = await companionStore.respondPrompt(targetReqId, { action: 'select', value }, laneId);
 			if (handled) return;
 		}
-		await companionStore.respondUi(projectId, { action: 'select', value });
+		await companionStore.respondUi(projectId, { action: 'select', value }, laneId, targetReqId);
 	}
 
-	async function handleQuickReplyConfirm(projectId: string, confirmed: boolean) {
+	async function handleQuickReplyConfirm(
+		projectId: string,
+		confirmed: boolean,
+		laneId?: string | null,
+		requestId?: string | null
+	) {
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
-		const req = companionStore.attentionRequests.find((r) => r.projectId === projectId);
-		if (req?.pendingUi?.requestId) {
-			const handled = await companionStore.respondPrompt(req.pendingUi.requestId, { action: 'confirm', confirmed });
+		const targetReqId =
+			requestId ??
+			companionStore.attentionRequests.find(
+				(r) => r.projectId === projectId && (!laneId || (r.laneId ?? 'main') === laneId)
+			)?.pendingUi?.requestId;
+		if (targetReqId) {
+			const handled = await companionStore.respondPrompt(targetReqId, { action: 'confirm', confirmed }, laneId);
 			if (handled) return;
 		}
-		await companionStore.respondUi(projectId, { action: 'confirm', confirmed });
+		await companionStore.respondUi(projectId, { action: 'confirm', confirmed }, laneId, targetReqId);
 	}
 
-	async function handleQuickReplyCancel(projectId: string) {
+	async function handleQuickReplyCancel(
+		projectId: string,
+		laneId?: string | null,
+		requestId?: string | null
+	) {
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
-		const req = companionStore.attentionRequests.find((r) => r.projectId === projectId);
-		if (req?.pendingUi?.requestId) {
-			const handled = await promptBus.cancelRequest(req.pendingUi.requestId);
-			companionStore.clearAttentionRequest(projectId);
+		const targetReqId =
+			requestId ??
+			companionStore.attentionRequests.find(
+				(r) => r.projectId === projectId && (!laneId || (r.laneId ?? 'main') === laneId)
+			)?.pendingUi?.requestId;
+		if (targetReqId) {
+			const handled = await promptBus.cancelRequest(targetReqId, { projectId, laneId });
+			companionStore.clearAttentionRequest(projectId, laneId);
 			if (handled) return;
 		}
-		await companionStore.respondUi(projectId, { action: 'cancel' });
+		await companionStore.respondUi(projectId, { action: 'cancel' }, laneId, targetReqId);
 	}
 
-	async function handleQuickReplyText(projectId: string) {
-		const request = companionStore.attentionRequests.find((req) => req.projectId === projectId);
+	async function handleQuickReplyText(
+		projectId: string,
+		laneId?: string | null,
+		requestId?: string | null
+	) {
+		const request = companionStore.attentionRequests.find(
+			(req) => req.projectId === projectId && (!laneId || (req.laneId ?? 'main') === laneId)
+		);
 		const value = (replyDrafts[projectId] ?? request?.pendingUi.prefill ?? '').trim();
 		if (!value) return;
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
-		if (request?.pendingUi?.requestId) {
-			const handled = await companionStore.respondPrompt(request.pendingUi.requestId, { action: 'select', value });
+		const targetReqId = requestId ?? request?.pendingUi?.requestId;
+		if (targetReqId) {
+			const handled = await companionStore.respondPrompt(targetReqId, { action: 'select', value }, laneId);
 			if (handled) return;
 		}
-		await companionStore.respondUi(projectId, { action: 'select', value });
+		await companionStore.respondUi(projectId, { action: 'select', value }, laneId, targetReqId);
 	}
 
 	function draftFor(req: AttentionRequest): string {
@@ -666,9 +701,10 @@
 		onQuickReplyConfirm: handleQuickReplyConfirm,
 		onQuickReplyCancel: handleQuickReplyCancel,
 		onQuickReplyText: handleQuickReplyText,
-		onResolveQuotaBlocked: (projectId: string, selector: string) =>
-			companionStore.resolveQuotaBlocked(projectId, selector),
-		onDismissQuotaBlocked: (projectId: string) => companionStore.dismissQuotaBlocked(projectId),
+		onResolveQuotaBlocked: (projectId: string, selector: string, laneId?: string | null) =>
+			companionStore.resolveQuotaBlocked(projectId, selector, undefined, laneId),
+		onDismissQuotaBlocked: (projectId: string, laneId?: string | null) =>
+			companionStore.dismissQuotaBlocked(projectId, laneId),
 		draftFor,
 		wantsText
 	});

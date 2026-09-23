@@ -10,7 +10,7 @@
 	import type { Project } from '$lib/stores/projects.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { IconClose } from '$lib/icons';
-	import type { AutomationGate } from '$lib/agent/automationGate';
+	import { isLaneRoutable, type AutomationGate } from '$lib/agent/automationGate';
 	let {
 		open = false,
 		onClose,
@@ -21,7 +21,11 @@
 	} = $props<{
 		open?: boolean;
 		onClose?: () => void;
-		onRunTask?: (projectId: string, taskId: string, follow: boolean) => void;
+		onRunTask?: (
+			projectId: string,
+			taskId: string,
+			options: { follow: boolean; shiftKey: boolean }
+		) => void;
 		onEditTask?: (projectId: string, taskId: string) => void;
 		onOpenProject?: (projectId: string) => void;
 		gateFor: (projectId: string) => AutomationGate;
@@ -35,8 +39,11 @@
 	// per la barra in alto.
 	const groups = $derived(
 		projectOrder.list
-			.filter((p: Project) => p.path)
-			.map((p: Project) => ({ project: p, tasks: taskStore.tasksFor(p.path).filter((t) => t.status !== 'dispatching') }))
+			.flatMap((p: Project) =>
+				p.canonicalProjectPath
+					? [{ project: p, tasks: taskStore.tasksFor(p.canonicalProjectPath).filter((t) => t.status !== 'dispatching') }]
+					: []
+			)
 			.filter((g: { project: Project; tasks: StudioTask[] }) => g.tasks.length > 0)
 	);
 	// Stessa vista scelta in Aspetto per la Coda: compatta di default,
@@ -45,8 +52,8 @@
 	// Stessa logica di TopBar.svelte: la tinta segue il tema del progetto
 	// finche' l'utente non sceglie un colore personalizzato.
 	function projectHue(project: Project): number {
-		if (!project.path || project.colorMode === 'custom') return project.hue;
-		return automaticProjectHue(THEMES[themeStore.current], project.path);
+		if (!project.canonicalProjectPath || project.colorMode === 'custom') return project.hue;
+		return automaticProjectHue(THEMES[themeStore.current], project.canonicalProjectPath);
 	}
 
 	function projectLabel(project: Project): string {
@@ -81,14 +88,17 @@
 	}
 	// Ctrl+click porta il focus sul progetto dopo l'avvio; il click semplice
 	// lancia in background, come deciso per tutti i punti di avvio condivisi.
+	// Shift+click forza una corsia isolata nuova (Gate R27 / W09).
 	// Un task bloccato resta cliccabile: il click apre la spiegazione invece di
 	// sparire dentro un <button disabled>, che per contratto non emette eventi.
+	// Un agente semplicemente occupato non e' un blocco: il routing della coda
+	// decide se il task va in `Principale` o in una nuova corsia.
 	function runTask(event: MouseEvent, projectId: string, taskId: string, gate: AutomationGate) {
-		if (!gate.ready) {
+		if (!event.shiftKey && !isLaneRoutable(gate)) {
 			explainedProjectId = projectId;
 			return;
 		}
-		onRunTask?.(projectId, taskId, event.ctrlKey);
+		onRunTask?.(projectId, taskId, { follow: event.ctrlKey, shiftKey: event.shiftKey });
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -121,7 +131,7 @@
 			{:else}
 				{#each groups as group (group.project.id)}
 					{@const gate = gateFor(group.project.id)}
-					{@const blocked = !gate.ready}
+					{@const blocked = !isLaneRoutable(gate)}
 					{@const attention = gate.block === 'question' || gate.block === 'quota'}
 					<div class="group" role="listitem">
 						<div class="group-header">

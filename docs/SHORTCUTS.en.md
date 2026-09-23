@@ -20,8 +20,8 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+Alt+L` | Global | Cycle window layout mode (`Auto` → `Horizontal` → `Vertical`) |
 | `Ctrl+Tab` | Global | Switch to next open project, in project bar order |
 | `Ctrl+Shift+Tab` | Global | Switch to previous open project, in project bar order |
-| `Ctrl+Alt+Arrow Right` | Global | Switch to next open project, in project bar order |
-| `Ctrl+Alt+Arrow Left` | Global | Switch to previous open project, in project bar order |
+| `Ctrl+Alt+Arrow Right` | Global | If the active project has secondary lanes, switch to the next lane; otherwise switch to the next open project |
+| `Ctrl+Alt+Arrow Left` | Global | If the active project has secondary lanes, switch to the previous lane; otherwise switch to the previous open project |
 | `Ctrl+Alt+Shift+Arrow` | Global | Move active project tile left or right (manual reordering) |
 | `Ctrl+P` | GUI Surface | Sequentially cycle through configured roles (`default` → `plan` → `smol`...) |
 | `Alt+R` | GUI Surface | Open quick role selector with filter and navigation |

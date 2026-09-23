@@ -90,6 +90,33 @@ impl RpcSession {
     }
 }
 
+/// Proprieta' della corsia per la sessione agente (Gate R27 / PLAN W11). Il
+/// registro dei processi non apre handle propri: interroga e ferma la sessione
+/// che ha avviato l'albero, quindi non puo' toccare processi altrui.
+struct LaneAgentProcess {
+    rpc_id: u64,
+    session: RpcSession,
+}
+
+impl crate::process_tree::LaneProcessControl for LaneAgentProcess {
+    fn is_alive(&self) -> bool {
+        self.session
+            .child
+            .lock()
+            .try_wait()
+            .map(|status| status.is_none())
+            .unwrap_or(false)
+    }
+
+    fn stop_and_wait(&self) {
+        self.session.kill_tree();
+        crate::process_tree::unregister_lane_process(
+            crate::process_tree::LaneProcessKind::Agent,
+            self.rpc_id,
+        );
+    }
+}
+
 pub struct RpcManager {
     sessions: Arc<Mutex<HashMap<u64, RpcSession>>>,
     next_id: Mutex<u64>,
@@ -655,6 +682,8 @@ fn dispatch(
 pub async fn rpc_open(
     cwd: String,
     resume: Option<String>,
+    lane_id: Option<String>,
+    project_id: Option<String>,
     on_event: Channel<String>,
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
@@ -712,7 +741,14 @@ pub async fn rpc_open(
         .current_dir(&launch_cwd)
         .env("OMP_STUDIO", "1")
         // Come per il PTY: nessun wizard dentro una sessione di lavoro.
-        .env("OMP_SKIP_SETUP", "1")
+        .env("OMP_SKIP_SETUP", "1");
+    if let Some(lane) = &lane_id {
+        command.env("OMP_LANE_ID", lane);
+    }
+    if let Some(proj) = &project_id {
+        command.env("OMP_PROJECT_ID", proj);
+    }
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -784,6 +820,32 @@ pub async fn rpc_open(
             session_id: session_id_slot.clone(),
         },
     );
+
+    // Proprieta' della corsia (PLAN W11): la sessione agente e i processi che
+    // avvia restano nel proprio Job Object e sono attribuiti alla corsia che
+    // li ha chiesti. Le sessioni Laboratorio non appartengono a una corsia e
+    // non vengono registrate.
+    if let Some(project) = project_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        let session = manager.sessions.lock().get(&rpc_id).cloned();
+        if let Some(session) = session {
+            crate::process_tree::register_lane_process(
+                crate::process_tree::LaneProcessRegistration {
+                    kind: crate::process_tree::LaneProcessKind::Agent,
+                    owner_id: rpc_id,
+                    project_id: project.to_string(),
+                    lane_id: lane_id.clone().unwrap_or_default(),
+                    workspace_root: cwd.clone(),
+                    pid: Some(pid),
+                    label: "Agente".to_string(),
+                    control: Arc::new(LaneAgentProcess { rpc_id, session }),
+                },
+            );
+        }
+    }
 
     let sessions = manager.sessions.clone();
     let reader_tail = stderr_tail.clone();
@@ -1145,7 +1207,6 @@ pub async fn force_kill_session(
     }
     Err("Specificare rpc_id o pty_id per force_kill_session".to_string())
 }
-
 
 /// Ultime righe di stderr di una sessione **viva**: serve quando il processo
 /// e' appeso e non morto. Alla morte le stesse righe arrivano dentro

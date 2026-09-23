@@ -40,18 +40,26 @@
 		return runtimes.find((r: CompanionProjectRuntime) => r.projectId === projectId);
 	}
 
-	function attentionFor(projectId: string) {
-		return attentionList.find((a: AttentionRequest) => a.projectId === projectId) ?? null;
+	function attentionsFor(projectId: string): AttentionRequest[] {
+		return attentionList.filter(
+			(a: AttentionRequest) => a.projectId.toLowerCase() === projectId.toLowerCase()
+		);
 	}
 
+	function attentionFor(projectId: string) {
+		return attentionsFor(projectId)[0] ?? null;
+	}
 	function hueFor(project: Project): number {
-		if (!project.path || project.colorMode === 'custom') return project.hue;
-		return automaticProjectHue(THEMES[themeStore.current] ?? THEMES['titanium'], project.path);
+		if (!project.canonicalProjectPath || project.colorMode === 'custom') return project.hue;
+		return automaticProjectHue(
+			THEMES[themeStore.current] ?? THEMES['titanium'],
+			project.canonicalProjectPath
+		);
 	}
 
 	function queuedFor(project: Project) {
-		if (!project.path) return [];
-		return taskStore.tasksFor(project.path).filter((t) => t.status === 'queued');
+		if (!project.canonicalProjectPath) return [];
+		return taskStore.tasksFor(project.canonicalProjectPath).filter((t) => t.status === 'queued');
 	}
 </script>
 
@@ -63,6 +71,7 @@
 				hue={hueFor(p)}
 				runtime={runtimeFor(p.id)}
 				attention={attentionFor(p.id)}
+				attentions={attentionsFor(p.id)}
 				queued={queuedFor(p)}
 				{ask}
 				{onFocusProject}

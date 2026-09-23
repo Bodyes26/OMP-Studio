@@ -243,7 +243,16 @@ export function getActiveEditorInfo(): {
 		}
 	};
 }
-export function createDiffEditorInstance(container: HTMLElement, originalContent: string, modifiedContent: string, language: string) {
+
+export { languageForFile } from './languages';
+
+export function createDiffEditorInstance(
+	container: HTMLElement,
+	originalContent: string,
+	modifiedContent: string,
+	language: string,
+	readOnly = false
+) {
 	const sharedOptions = editorSettingsOptions();
 	const diffEditor = monaco.editor.createDiffEditor(container, {
 		...sharedOptions,
@@ -251,7 +260,7 @@ export function createDiffEditorInstance(container: HTMLElement, originalContent
 		theme: 'omp-studio',
 		lineHeight: 1.2,
 		automaticLayout: true,
-		readOnly: false,
+		readOnly,
 		originalEditable: false,
 		renderSideBySide: true,
 		smoothScrolling: true
@@ -268,8 +277,8 @@ export function createDiffEditorInstance(container: HTMLElement, originalContent
 	// `tabSize` e' un'opzione di modello (IGlobalEditorOptions), fuori dalle
 	// opzioni di costruzione del diff editor: va applicata sui due editor
 	// interni, non su `diffEditor` stesso.
-	diffEditor.getOriginalEditor().updateOptions(sharedOptions);
-	diffEditor.getModifiedEditor().updateOptions(sharedOptions);
+	diffEditor.getOriginalEditor().updateOptions({ ...sharedOptions, readOnly: true });
+	diffEditor.getModifiedEditor().updateOptions({ ...sharedOptions, readOnly });
 
 	return diffEditor;
 }

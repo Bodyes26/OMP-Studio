@@ -250,7 +250,7 @@ $effect(() => {
 	item?.scrollIntoView({ block: 'nearest' });
 });
 	$effect(() => {
-		const pPath = projectStore.activeProject?.path;
+		const pPath = projectStore.activeProject?.lane.workspacePath;
 		if (pPath) {
 			void loadProjectFiles(pPath).then((files) => {
 				projectFilesList = files;
@@ -308,8 +308,8 @@ $effect(() => {
 		fileMentionQuery = match.query;
 
 		const activeProj = projectStore.activeProject;
-		if (activeProj?.path && projectFilesList.length === 0) {
-			projectFilesList = await loadProjectFiles(activeProj.path);
+		if (activeProj?.lane.workspacePath && projectFilesList.length === 0) {
+			projectFilesList = await loadProjectFiles(activeProj.lane.workspacePath);
 		}
 
 		const touched = extractTouchedFilesFromTranscript(session.entries);
@@ -317,8 +317,8 @@ $effect(() => {
 			match.query,
 			projectFilesList,
 			{
-				activeFile: activeProj?.activeFile,
-				openFiles: activeProj?.openFiles,
+				activeFile: activeProj?.lane.activeFile,
+				openFiles: activeProj?.lane.openFiles,
 				touchedFiles: touched
 			},
 			8

@@ -9,6 +9,15 @@
 
 import './paths.test.ts';
 import './tasks-store.test.ts';
+import './lanes-store.test.ts';
+import './lanes-concurrency.test.ts';
+import './lanes-routing.test.ts';
+import './lanes-dispatch.test.ts';
+import './lanes-surfaces.test.ts';
+import './lanes-stack.test.ts';
+import './lanes-processes.test.ts';
+import './lanes-review.test.ts';
+import './lanes-w07.test.ts';
 import './terminal-task-config.test.ts';
 import './wire-omp.test.ts';
 import './rpc-open-lifecycle.test.ts';

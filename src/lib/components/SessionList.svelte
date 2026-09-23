@@ -9,6 +9,9 @@
 		title: string;
 		created_at: number;
 		optimistic?: boolean;
+		/** Corsia che ha eseguito il task, quando la sessione nasce dalla coda. */
+		laneKind?: 'main' | 'worktree';
+		laneTitle?: string;
 	}
 
 	let {
@@ -27,6 +30,8 @@
 
 	let sessions = $state<SessionEntry[]>([]);
 	let query = $state('');
+	/** Filtro dello storico per corsia di esecuzione (Gate R27 / W09). */
+	let laneFilter = $state<'all' | 'main' | 'worktree'>('all');
 	let loading = $state(false);
 	let loadError = $state<string | null>(null);
 	let reconciliationTimer: number | null = null;
@@ -50,7 +55,21 @@
 					optimistic: isRecent
 				};
 			});
-		return [...optimistic, ...sessions].sort((left, right) => right.created_at - left.created_at);
+		return [...optimistic, ...sessions]
+			.map((session): SessionEntry => {
+				// Il record di lancio sopravvive alla corsia: dopo l'integrazione
+				// il worktree sparisce dal disco, il badge resta nello storico.
+				const run = taskStore.taskRunFor(projectPath, session.id);
+				return run
+					? { ...session, laneKind: run.laneKind, laneTitle: run.laneTitle }
+					: session;
+			})
+			.filter((session) => {
+				if (laneFilter === 'all') return true;
+				const kind = session.laneKind ?? 'main';
+				return kind === laneFilter;
+			})
+			.sort((left, right) => right.created_at - left.created_at);
 	});
 
 	function scheduleReconciliation() {
@@ -188,6 +207,33 @@
 		</div>
 	</form>
 
+	<div class="lane-filter" role="group" aria-label={m.session_list_lane_filter_aria()}>
+		<button
+			type="button"
+			class:active={laneFilter === 'all'}
+			aria-pressed={laneFilter === 'all'}
+			onclick={() => (laneFilter = 'all')}
+		>
+			{m.session_list_lane_filter_all()}
+		</button>
+		<button
+			type="button"
+			class:active={laneFilter === 'main'}
+			aria-pressed={laneFilter === 'main'}
+			onclick={() => (laneFilter = 'main')}
+		>
+			{m.session_list_lane_filter_main()}
+		</button>
+		<button
+			type="button"
+			class:active={laneFilter === 'worktree'}
+			aria-pressed={laneFilter === 'worktree'}
+			onclick={() => (laneFilter = 'worktree')}
+		>
+			{m.session_list_lane_filter_worktree()}
+		</button>
+	</div>
+
 	<ul class="list" aria-label={m.session_list_list_aria()} aria-busy={loading}>
 		{#if loading && displaySessions.length === 0}
 			<li class="loading-state" aria-live="polite">
@@ -222,6 +268,11 @@
 							{formatRelative(session.created_at)}
 							{#if taskStore.isTaskSession(projectPath, session.id)}
 								<span class="badge">{m.page_columns_header_task()}</span>
+							{/if}
+							{#if session.laneKind === 'worktree'}
+								<span class="badge worktree" title={session.laneTitle ?? ''}>
+									{m.session_list_lane_badge_worktree()}
+								</span>
 							{/if}
 							{#if isCurrent}
 								<span class="current-label">{m.session_list_active_badge()}</span>
@@ -451,6 +502,39 @@
 	}
 
 	.current-label {
+		color: var(--brand-ink);
+	}
+
+	.badge.worktree {
+		background: color-mix(in srgb, var(--brand-ink, currentColor) 18%, transparent);
+		color: var(--brand-ink);
+		letter-spacing: 0.04em;
+	}
+
+	.lane-filter {
+		display: flex;
+		gap: var(--space-1);
+		padding: 0 var(--space-2) var(--space-2);
+	}
+
+	.lane-filter button {
+		flex: 1;
+		padding: 2px var(--space-2);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		background: transparent;
+		color: var(--ink-muted);
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		cursor: pointer;
+	}
+
+	.lane-filter button:hover {
+		background: var(--bg-raised);
+	}
+
+	.lane-filter button.active {
+		border-color: var(--brand-ink);
 		color: var(--brand-ink);
 	}
 </style>

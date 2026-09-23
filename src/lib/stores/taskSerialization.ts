@@ -12,6 +12,13 @@ import {
 	applyTaskDirectives,
 	isTaskDirectiveSnapshot
 } from './taskDirectives.ts';
+import {
+	MAIN_LANE_ID,
+	laneId as toLaneId,
+	projectId as toProjectId,
+	workspacePath as toWorkspacePath,
+	type TaskRunRecord
+} from '../types/lanes.ts';
 export const AGENT_VIEWS = ['queue', 'sessions', 'rules'] as const;
 export type AgentView = (typeof AGENT_VIEWS)[number];
 
@@ -42,6 +49,12 @@ export interface ProjectTaskFile {
 	tasks: StudioTask[];
 }
 
+/**
+ * Lo storico machine-local di un lancio (il `TaskRun` del Gate R27): lega il
+ * task della coda comune alla corsia che lo ha eseguito, con il workspace e il
+ * branch di allora. Serve al badge `WORKTREE` e al filtro dello storico, e
+ * resta leggibile anche quando la corsia e' stata archiviata.
+ */
 export interface TaskSessionOrigin {
 	projectPath: string;
 	sessionId: string;
@@ -53,6 +66,14 @@ export interface TaskSessionOrigin {
 	launchedAt: number;
 	modelSelector?: string;
 	thinkingLevel?: string;
+	/** Corsia che ha eseguito il task; assente nei lanci precedenti a W09. */
+	laneId?: string;
+	laneTitle?: string;
+	laneKind?: 'main' | 'worktree';
+	/** Workspace e branch della corsia al momento del lancio. */
+	workspacePath?: string;
+	branch?: string;
+	targetBranch?: string;
 }
 
 export interface FrequentTaskModelConfiguration {
@@ -119,8 +140,42 @@ export function isTaskSessionOrigin(entry: unknown): entry is TaskSessionOrigin 
 		(origin.images === undefined || Array.isArray(origin.images)) &&
 		(origin.options === undefined || (typeof origin.options === 'object' && origin.options !== null)) &&
 		(origin.modelSelector === undefined || typeof origin.modelSelector === 'string') &&
-		(origin.thinkingLevel === undefined || typeof origin.thinkingLevel === 'string')
+		(origin.thinkingLevel === undefined || typeof origin.thinkingLevel === 'string') &&
+		(origin.laneId === undefined || typeof origin.laneId === 'string') &&
+		(origin.laneTitle === undefined || typeof origin.laneTitle === 'string') &&
+		(origin.laneKind === undefined || origin.laneKind === 'main' || origin.laneKind === 'worktree') &&
+		(origin.workspacePath === undefined || typeof origin.workspacePath === 'string') &&
+		(origin.branch === undefined || typeof origin.branch === 'string') &&
+		(origin.targetBranch === undefined || typeof origin.targetBranch === 'string')
 	);
+}
+
+/**
+ * Proiezione di un lancio sullo schema `TaskRunRecord` del Gate R27.
+ *
+ * I lanci precedenti a W09 non conoscono le corsie: valgono come esecuzioni
+ * sulla `Principale`, che e' esattamente dove sono avvenuti.
+ */
+export function taskRunFromOrigin(
+	origin: TaskSessionOrigin,
+	ownerProjectId: string
+): TaskRunRecord {
+	const lane = origin.laneId?.trim() || MAIN_LANE_ID;
+	const laneKind = origin.laneKind ?? (lane === MAIN_LANE_ID ? 'main' : 'worktree');
+	return {
+		runId: origin.sessionId,
+		taskId: origin.taskId,
+		projectId: toProjectId(ownerProjectId),
+		laneId: toLaneId(lane),
+		laneTitle: origin.laneTitle?.trim() || lane,
+		laneKind,
+		sessionId: origin.sessionId,
+		workspacePath: toWorkspacePath(origin.workspacePath?.trim() || origin.projectPath),
+		targetBranch: origin.targetBranch ?? null,
+		branch: origin.branch ?? null,
+		startedAt: origin.launchedAt,
+		finishedAt: null
+	};
 }
 
 /**

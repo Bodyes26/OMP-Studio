@@ -102,6 +102,26 @@ function excerpt(text: string, max = 180): string {
 	return `${compact.slice(0, max - 1).trimEnd()}\u2026`;
 }
 
+/**
+ * Il blocco dipende dall'agente della corsia, non dal task: `Principale` e'
+ * viva ma occupata. In questo caso la coda non si ferma, si sposta (W09): il
+ * click apre il prompt della nuova corsia invece della spiegazione del blocco.
+ * Domande in attesa, quota e sessioni assenti restano blocchi da risolvere.
+ */
+export function isLaneRoutable(gate: AutomationGate): boolean {
+	switch (gate.block) {
+		case 'ready':
+		case 'busy':
+		case 'working':
+		case 'starting':
+		case 'compacting':
+		case 'terminal-input':
+			return true;
+		default:
+			return false;
+	}
+}
+
 export function resolveAutomationGate(input: AutomationGateInput): AutomationGate {
 	if (input.busy) {
 		return gate(

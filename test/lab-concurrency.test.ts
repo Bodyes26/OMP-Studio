@@ -201,14 +201,14 @@ describe('Laboratorio prototipi — Step 7: Concorrenza e isolamento', () => {
 
 	it('1. Chiavi e identita separate per sessioni nello stesso progetto', () => {
 		const registry = new SessionRegistry<MockSession>((cfg) => new MockSession(cfg));
-		const project = { id: 'proj-42', path: 'C:/repos/test-app' };
+		const project = { id: 'proj-42', path: 'C:/repos/test-app', lane: { workspacePath: 'C:/repos/test-app' } };
 
 		const mainSession = registry.getOrCreateMainSession(project);
 		const labSession = registry.getOrCreateLabSession(project, 'tabella-varianti');
 
 		assert.equal(mainSession.scope, 'main');
 		assert.equal(mainSession.prototypeId, null);
-		assert.equal(mainSession.sessionKey, 'main:proj-42');
+		assert.equal(mainSession.sessionKey, mainSessionKey('proj-42'));
 
 		assert.equal(labSession.scope, 'lab');
 		assert.equal(labSession.prototypeId, 'tabella-varianti');
@@ -225,7 +225,7 @@ describe('Laboratorio prototipi — Step 7: Concorrenza e isolamento', () => {
 
 	it('2. Apertura simultanea con rpc_open (main) e rpc_open_lab (lab)', async () => {
 		const registry = new SessionRegistry<MockSession>((cfg) => new MockSession(cfg));
-		const project = { id: 'proj-42', path: 'C:/repos/test-app' };
+		const project = { id: 'proj-42', path: 'C:/repos/test-app', lane: { workspacePath: 'C:/repos/test-app' } };
 
 		const mainSession = registry.getOrCreateMainSession(project);
 		const labSession = registry.getOrCreateLabSession(project, 'scheda-prodotto');
@@ -251,7 +251,7 @@ describe('Laboratorio prototipi — Step 7: Concorrenza e isolamento', () => {
 
 	it('3. Streaming e token non si mescolano tra principale e Laboratorio', async () => {
 		const registry = new SessionRegistry<MockSession>((cfg) => new MockSession(cfg));
-		const project = { id: 'proj-42', path: 'C:/repos/test-app' };
+		const project = { id: 'proj-42', path: 'C:/repos/test-app', lane: { workspacePath: 'C:/repos/test-app' } };
 
 		const mainSession = registry.getOrCreateMainSession(project);
 		const labSession = registry.getOrCreateLabSession(project, 'filtro-avanzato');
@@ -279,7 +279,7 @@ describe('Laboratorio prototipi — Step 7: Concorrenza e isolamento', () => {
 
 	it('4. Richieste di input (ask) e risposte non si mescolano', async () => {
 		const registry = new SessionRegistry<MockSession>((cfg) => new MockSession(cfg));
-		const project = { id: 'proj-42', path: 'C:/repos/test-app' };
+		const project = { id: 'proj-42', path: 'C:/repos/test-app', lane: { workspacePath: 'C:/repos/test-app' } };
 
 		const mainSession = registry.getOrCreateMainSession(project);
 		const labSession = registry.getOrCreateLabSession(project, 'form-wizard');
@@ -323,7 +323,7 @@ describe('Laboratorio prototipi — Step 7: Concorrenza e isolamento', () => {
 
 	it('5. GATE BLOCCANTE: Interrompere solo il Laboratorio non ferma il principale', async () => {
 		const registry = new SessionRegistry<MockSession>((cfg) => new MockSession(cfg));
-		const project = { id: 'proj-42', path: 'C:/repos/test-app' };
+		const project = { id: 'proj-42', path: 'C:/repos/test-app', lane: { workspacePath: 'C:/repos/test-app' } };
 
 		const mainSession = registry.getOrCreateMainSession(project);
 		const labSession = registry.getOrCreateLabSession(project, 'concurrency-gate');
@@ -374,7 +374,7 @@ describe('Laboratorio prototipi — Step 7: Concorrenza e isolamento', () => {
 
 	it('6. Chiudere il Laboratorio non chiude ne altera il principale', async () => {
 		const registry = new SessionRegistry<MockSession>((cfg) => new MockSession(cfg));
-		const project = { id: 'proj-42', path: 'C:/repos/test-app' };
+		const project = { id: 'proj-42', path: 'C:/repos/test-app', lane: { workspacePath: 'C:/repos/test-app' } };
 
 		const mainSession = registry.getOrCreateMainSession(project);
 		const labSession = registry.getOrCreateLabSession(project, 'test-close');

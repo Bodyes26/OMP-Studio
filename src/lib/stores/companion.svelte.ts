@@ -31,6 +31,7 @@ export interface RecentChatMessage {
 export interface PendingUiPayload {
 	kind: string;
 	requestId: string;
+	laneId?: string | null;
 	title?: string;
 	message?: string;
 	options?: string[];
@@ -67,6 +68,8 @@ export interface PendingUiPayload {
 
 export interface AttentionRequest {
 	projectId: string;
+	laneId?: string | null;
+	laneTitle?: string | null;
 	projectName: string;
 	projectHue: number;
 	modelName?: string;
@@ -77,7 +80,7 @@ export interface AttentionRequest {
 /**
  * Modello e provider realmente in uso da un progetto, calcolati nella finestra
  * principale (l'unica che possiede le sessioni) e trasmessi alla companion.
- * Lo stato dell'agente viaggia gia' dentro `Project.agentState`.
+ * Lo stato dell'agente viaggia dentro la corsia principale del progetto.
  */
 export interface CompanionProjectRuntime {
 	projectId: string;
@@ -293,43 +296,87 @@ class CompanionStore {
 	}
 
 	/** Rimuove la richiesta di attenzione quando risolta. Converge come `setAttentionRequest`. */
-	clearAttentionRequest(projectId: string) {
-		const next = removeAttentionRequest(this.attentionRequests, projectId);
+	clearAttentionRequest(projectId: string, laneId?: string | null) {
+		const next = removeAttentionRequest(this.attentionRequests, projectId, laneId);
 		if (!next) return;
 		this.attentionRequests = next;
 		this.broadcastState();
 	}
 
 	/** Invia la risposta all'agente in background (tramite PromptBus o evento fallback). */
-	async respondUi(projectId: string, response: unknown) {
-		this.clearAttentionRequest(projectId);
-		const pendings = promptBus.getPendingsForProject(projectId);
-		if (pendings.length > 0) {
-			const handled = await promptBus.resolveRequest(pendings[0].requestId, response as PromptAnswer);
+	async respondUi(
+		projectId: string,
+		response: unknown,
+		laneId?: string | null,
+		requestId?: string | null,
+		sessionId?: string | null
+	) {
+		this.clearAttentionRequest(projectId, laneId);
+		if (requestId && promptBus.hasPending(requestId)) {
+			const handled = await promptBus.resolveRequest(requestId, response as PromptAnswer, {
+				projectId,
+				laneId: laneId ?? undefined,
+				sessionId: sessionId ?? undefined
+			});
 			if (handled) return;
 		}
-		await emit('studio-respond-ui', { projectId, response });
+		if (laneId) {
+			const pendings = promptBus.getPendingsForLane(projectId, laneId);
+			if (pendings.length === 1) {
+				const handled = await promptBus.resolveRequest(pendings[0].requestId, response as PromptAnswer, {
+					projectId,
+					laneId,
+					sessionId: sessionId ?? undefined
+				});
+				if (handled) return;
+			}
+		} else {
+			const pendings = promptBus.getPendingsForProject(projectId);
+			if (pendings.length === 1) {
+				const handled = await promptBus.resolveRequest(pendings[0].requestId, response as PromptAnswer, {
+					projectId,
+					sessionId: sessionId ?? undefined
+				});
+				if (handled) return;
+			}
+		}
+		await emit('studio-respond-ui', {
+			projectId,
+			laneId: laneId ?? undefined,
+			requestId: requestId ?? undefined,
+			sessionId: sessionId ?? undefined,
+			response
+		});
 	}
 
 	/** Invia la risposta all'agente tramite requestId esatto su PromptBus (first-response-wins). */
-	async respondPrompt(requestId: string, answer: PromptAnswer): Promise<boolean> {
+	async respondPrompt(requestId: string, answer: PromptAnswer, laneId?: string | null): Promise<boolean> {
 		const req = promptBus.getRequest(requestId);
 		if (req) {
-			this.clearAttentionRequest(req.projectId);
+			this.clearAttentionRequest(req.projectId, req.laneId ?? laneId);
 		}
-		return await promptBus.resolveRequest(requestId, answer);
+		return await promptBus.resolveRequest(requestId, answer, { laneId: laneId ?? undefined });
 	}
-
 	/** Invia la richiesta di cambio modello e ripresa (one-click) per quota bloccata. */
-	async resolveQuotaBlocked(projectId: string, targetSelector?: string, thinkingLevel?: string) {
-		this.clearAttentionRequest(projectId);
-		await emit('studio-resolve-quota-blocked', { projectId, targetSelector, thinkingLevel });
+	async resolveQuotaBlocked(
+		projectId: string,
+		targetSelector?: string,
+		thinkingLevel?: string,
+		laneId?: string | null
+	) {
+		this.clearAttentionRequest(projectId, laneId);
+		await emit('studio-resolve-quota-blocked', {
+			projectId,
+			laneId: laneId ?? undefined,
+			targetSelector,
+			thinkingLevel
+		});
 	}
 
 	/** Archivia l'avviso di blocco quota senza eseguire switch o ripresa. */
-	async dismissQuotaBlocked(projectId: string) {
-		this.clearAttentionRequest(projectId);
-		await emit('studio-dismiss-quota-blocked', { projectId });
+	async dismissQuotaBlocked(projectId: string, laneId?: string | null) {
+		this.clearAttentionRequest(projectId, laneId);
+		await emit('studio-dismiss-quota-blocked', { projectId, laneId: laneId ?? undefined });
 	}
 
 	/**
@@ -345,10 +392,12 @@ class CompanionStore {
 			}
 			return;
 		}
-
 		for (const p of pendings) {
+			const pLane = (p.laneId ?? 'main').toLowerCase();
 			const existing = this.attentionRequests.find(
-				(r) => r.projectId.toLowerCase() === p.projectId.toLowerCase()
+				(r) =>
+					r.projectId.toLowerCase() === p.projectId.toLowerCase() &&
+					(r.laneId ?? 'main').toLowerCase() === pLane
 			);
 			if (!existing || existing.pendingUi.requestId !== p.requestId || existing.pendingUi.title !== p.title) {
 				const project = this.projects.find((prj) => prj.id.toLowerCase() === p.projectId.toLowerCase()) ?? {
@@ -356,14 +405,18 @@ class CompanionStore {
 					name: p.projectId,
 					hue: 200
 				};
+				const laneId = p.laneId ?? 'main';
 				const attentionReq: AttentionRequest = {
 					projectId: project.id,
+					laneId,
+					laneTitle: laneId !== 'main' ? laneId : 'Principale',
 					projectName: project.name,
 					projectHue: (project as Project).hue ?? 200,
 					recentMessages: existing?.recentMessages ?? [],
 					pendingUi: {
 						kind: p.kind || 'ask',
 						requestId: p.requestId,
+						laneId,
 						title: p.title,
 						message: p.message,
 						options: [...p.options],
@@ -382,16 +435,18 @@ class CompanionStore {
 			}
 		}
 
-		const activeProjectIds = new Set(pendings.map((p) => p.projectId.toLowerCase()));
+		const activeKeys = new Set(
+			pendings.map((p) => `${p.projectId.toLowerCase()}\u0000${(p.laneId ?? 'main').toLowerCase()}`)
+		);
 		const filtered = this.attentionRequests.filter((r) => {
 			if (r.pendingUi.kind !== 'ask') return true;
-			return activeProjectIds.has(r.projectId.toLowerCase());
+			const key = `${r.projectId.toLowerCase()}\u0000${(r.laneId ?? 'main').toLowerCase()}`;
+			return activeKeys.has(key);
 		});
 		if (filtered.length !== this.attentionRequests.length) {
 			this.attentionRequests = filtered;
 		}
 	}
-
 	/**
 	 * Commuta la modalita' tra Spotlight (effimera) e Widget (pinnata persistente).
 	 *
@@ -473,13 +528,16 @@ class CompanionStore {
 
 			// Prepara metadati progetti noti
 			const knownProjects = (this.projects.length > 0 ? this.projects : projectStore.projects)
-				.filter((p) => p.path)
-				.map((p) => ({
-					id: p.id,
-					name: p.name,
-					label: p.label,
-					path: p.path
-				}));
+				.flatMap((p) =>
+					p.canonicalProjectPath
+						? [{
+								id: p.id,
+								name: p.name,
+								label: p.label,
+								path: p.canonicalProjectPath
+							}]
+						: []
+				);
 
 			// Prepara direttive note
 			const knownDirectives = settingsStore.taskDirectives
@@ -564,7 +622,9 @@ class CompanionStore {
 
 			// Prepara opzioni task
 			const project = (this.projects.length > 0 ? this.projects : projectStore.projects).find(
-				(p) => p.path && p.path.toLowerCase() === parsed.projectPath!.toLowerCase()
+				(p) =>
+					p.canonicalProjectPath &&
+					p.canonicalProjectPath.toLowerCase() === parsed.projectPath!.toLowerCase()
 			);
 			const defaults = { ...settingsStore.taskDefaults, ...(project?.taskDefaults ?? {}) };
 			const config = modelSettingsStore.config;

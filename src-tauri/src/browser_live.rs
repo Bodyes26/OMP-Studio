@@ -30,6 +30,8 @@ pub struct BrowserSessionIdentity {
     pub chat_session_id: String,
     pub browser_session_id: String,
     pub tab_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -23,11 +23,13 @@ class ProjectOrder {
 
 		if (order === 'priority') {
 			const entries = projectStore.projects.map((p, index) => {
-				const queued = taskStore.queuedCountFor(p.path);
+				const queued = p.canonicalProjectPath
+					? taskStore.queuedCountFor(p.canonicalProjectPath)
+					: 0;
 				let rank: number;
-				if (p.agentState === 'attention') rank = 0;
+				if (p.lane.agentState === 'attention') rank = 0;
 				else if (queued > 0) rank = 1;
-				else if (p.agentState === 'working') rank = 2;
+				else if (p.lane.agentState === 'working') rank = 2;
 				else rank = 3;
 				return { p, index, rank, queued };
 			});

@@ -34,13 +34,18 @@ import {
  */
 export function buildEditorContext(projectPath?: string): string | null {
 	const activeProj = projectPath
-		? projectStore.projects.find((p) => normalizeProjectPath(p.path).toLowerCase() === normalizeProjectPath(projectPath).toLowerCase())
+		? projectStore.projects.find(
+				(p) =>
+					p.lane.workspacePath !== null &&
+					normalizeProjectPath(p.lane.workspacePath).toLowerCase() ===
+						normalizeProjectPath(projectPath).toLowerCase()
+			)
 		: projectStore.activeProject;
 
 	if (!activeProj) return null;
 
-	const openFiles = activeProj.openFiles || [];
-	const activeFile = activeProj.activeFile;
+	const openFiles = activeProj.lane.openFiles;
+	const activeFile = activeProj.lane.activeFile;
 	const editorInfo = getActiveEditorInfo();
 
 	const hasOpenFiles = openFiles.length > 0;

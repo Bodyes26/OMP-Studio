@@ -4,6 +4,10 @@ import { settingsStore } from '$lib/stores/settings.svelte';
 import { formatTokens } from '$lib/utils/format';
 import { traceAgent } from '$lib/focusTracer';
 import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
+import { synthesizeProvisionalLaneTitle } from '$lib/lanes/laneTitle';
+import { laneStore } from '$lib/stores/lanes.svelte';
+import { projectStore } from '$lib/stores/projects.svelte';
+import type { LaneId, ProjectId } from '$lib/types/lanes';
 // Stato della superficie GUI: un'istanza per progetto.
 //
 // Il riduttore e' esplicito e volutamente noioso: ogni frame del protocollo
@@ -26,6 +30,7 @@ import {
 	type PromptAnswer
 } from './askAnswers';
 import { promptBus, type PromptRequest } from './promptBus';
+import { labSessionKey, laneSessionKey } from './sessionKeys';
 import { SessionSuggestions } from './suggestions.svelte';
 import { askQuestionText } from './askTitle';
 import type { RecentChatMessage } from '$lib/stores/companion.svelte';
@@ -308,7 +313,8 @@ function assistantEntryText(entry: AssistantEntry): string {
 
 export interface AgentSessionConfig {
 	cwd: string;
-	scope?: 'main' | 'lab';
+	scope?: 'lane' | 'main' | 'lab';
+	laneId?: string | null;
 	prototypeId?: string | null;
 	projectKey?: string | null;
 	observedRevisionId?: string | null;
@@ -318,16 +324,17 @@ export class AgentSession {
 	readonly client = new OmpRpcClient();
 	readonly suggestions: SessionSuggestions = new SessionSuggestions(this);
 
-	readonly scope: 'main' | 'lab';
+	readonly scope: 'lane' | 'main' | 'lab';
+	readonly laneId: string | null;
 	readonly prototypeId: string | null;
 	readonly projectKey: string;
 	observedRevisionId = $state<string | null>(null);
 
 	get sessionKey(): string {
 		if (this.scope === 'lab' && this.prototypeId) {
-			return `lab:${this.projectKey}:${this.prototypeId}`;
+			return labSessionKey(this.projectKey, this.prototypeId);
 		}
-		return `main:${this.projectKey}`;
+		return laneSessionKey(this.projectKey, this.laneId ?? 'main');
 	}
 
 
@@ -497,7 +504,8 @@ export class AgentSession {
 	}
 	constructor(config: AgentSessionConfig) {
 		this.cwd = config.cwd;
-		this.scope = config.scope ?? 'main';
+		this.scope = config.scope ?? 'lane';
+		this.laneId = this.scope === 'lab' ? null : (config.laneId ?? 'main');
 		this.prototypeId = config.prototypeId ?? null;
 		this.projectKey = config.projectKey ?? config.cwd;
 		this.observedRevisionId = config.observedRevisionId ?? null;
@@ -635,7 +643,10 @@ export class AgentSession {
 						resume: requestedResume
 					});
 				} else {
-					await this.client.open(this.cwd, requestedResume);
+					await this.client.open(this.cwd, requestedResume, {
+						laneId: this.laneId ?? null,
+						projectId: this.projectKey ?? null
+					});
 				}
 			} catch (error) {
 				if (this.requestedResume === requestedResume) this.requestedResume = null;
@@ -718,9 +729,19 @@ export class AgentSession {
 
 		this.isAttached = true;
 		if (!this.pendingUi) {
-			const pendingPrompts = promptBus.getPendingsForProject(this.projectKey);
-			if (pendingPrompts.length > 0) {
-				this.restorePendingUiFromPrompt(pendingPrompts[0]);
+			const projectPrompts = promptBus.getPendingsForProject(this.projectKey);
+			const matching = projectPrompts.filter((p) => {
+				if (this.scope === 'lab') {
+					return p.prototypeId === this.prototypeId;
+				}
+				const targetLane = (this.laneId ?? 'main').toLowerCase();
+				const promptLane = (p.laneId ?? 'main').toLowerCase();
+				if (targetLane !== promptLane) return false;
+				if (this.sessionId && p.sessionId && this.sessionId !== p.sessionId) return false;
+				return true;
+			});
+			if (matching.length === 1) {
+				this.restorePendingUiFromPrompt(matching[0]);
 			}
 		}
 
@@ -2326,6 +2347,7 @@ export class AgentSession {
 		promptBus.registerRequest({
 			requestId: id,
 			projectId: this.projectKey,
+			laneId: this.laneId ?? (this.scope === 'lab' ? null : 'main'),
 			sessionId: this.sessionId,
 			prototypeId: this.prototypeId,
 			toolCallId: runningAsk?.toolCallId,
@@ -2400,6 +2422,7 @@ export class AgentSession {
 		promptBus.registerRequest({
 			requestId: pending.requestId,
 			projectId: this.projectKey,
+			laneId: this.laneId ?? (this.scope === 'lab' ? null : 'main'),
 			sessionId: this.sessionId,
 			prototypeId: this.prototypeId,
 			toolCallId: entry.toolCallId,
@@ -2628,7 +2651,13 @@ export class AgentSession {
 		if (!this.pendingUi || this.pendingUi.requestId !== requestId) {
 			const stored = promptBus.getRequest(requestId);
 			if (stored && stored.projectId.trim().toLowerCase() === this.projectKey.trim().toLowerCase()) {
-				this.restorePendingUiFromPrompt(stored);
+				const promptLane = (stored.laneId ?? 'main').toLowerCase();
+				const myLane = (this.laneId ?? 'main').toLowerCase();
+				const isLab = this.scope === 'lab';
+				const laneMatch = isLab ? stored.prototypeId === this.prototypeId : promptLane === myLane;
+				if (laneMatch) {
+					this.restorePendingUiFromPrompt(stored);
+				}
 			}
 		}
 		const current = this.pendingUi;
@@ -2697,6 +2726,25 @@ export class AgentSession {
 		this.clearPendingStartupPrompts();
 	}
 
+	private synthesizeLaneTitleOnFirstPrompt(message: string): void {
+		if (!this.laneId || this.laneId === 'main') return;
+		const lane = laneStore.lanes.find(
+			(l) => l.projectId === this.projectKey && l.laneId === this.laneId
+		);
+		if (!lane) return;
+		const synthesized = synthesizeProvisionalLaneTitle(lane.title, message);
+		if (!synthesized) return;
+		void laneStore.updateLane(this.projectKey as ProjectId, this.laneId as LaneId, {
+			title: synthesized
+		}).catch(() => undefined);
+		if (
+			projectStore.activeProject?.id === this.projectKey &&
+			projectStore.activeProject.lane.laneId === this.laneId
+		) {
+			projectStore.activeProject.lane.title = synthesized;
+		}
+	}
+
 	async prompt(
 		message: string,
 		images: ImageContent[] = [],
@@ -2704,6 +2752,9 @@ export class AgentSession {
 	): Promise<'sent' | 'deferred' | 'failed' | 'empty'> {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return 'empty';
+		if (this.laneId && this.laneId !== 'main') {
+			this.synthesizeLaneTitleOnFirstPrompt(trimmed);
+		}
 		this.todoReminder = null;
 		this.blockedQuotaState = null;
 		this.isAborting = false;

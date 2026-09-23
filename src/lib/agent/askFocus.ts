@@ -1,12 +1,12 @@
 export interface FocusElementLike {
 	tagName: string;
 	isContentEditable: boolean;
+	closest?: (selector: string) => Element | null;
 }
 
 /** Selettori di superfici dove l'utente puo' digitare senza passare dal composer. */
 const TYPING_SURFACE_SELECTORS =
-	'.monaco-editor, .xterm, .ask-card, .task-editor, .viewport-frame';
-
+	'.monaco-editor, .xterm, .ask-card, .task-editor, .viewport-frame, .chat-composer';
 /**
  * True se l'elemento e' (o sta dentro) una superficie di digitazione esterna al composer.
  * Usa sia il target dell'evento sia `document.activeElement`: Monaco e xterm non sempre
@@ -44,7 +44,8 @@ export function shouldAutoFocusAskCard(
 		!activeInsideCard &&
 		(activeElement.tagName === 'INPUT' ||
 			activeElement.tagName === 'TEXTAREA' ||
-			activeElement.isContentEditable);
+			Boolean(activeElement.isContentEditable) ||
+			isTypingSurface(activeElement as unknown as EventTarget));
 
 	return !typingElsewhere;
 }

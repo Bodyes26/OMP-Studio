@@ -109,7 +109,7 @@
 		projectPath?: string;
 		projectKey?: string;
 		projectName?: string;
-		agentState?: Project['agentState'];
+		agentState?: Project['lane']['agentState'];
 		onBackToMain?: () => void;
 		onClose?: () => void;
 		initialPrototypeId?: string;

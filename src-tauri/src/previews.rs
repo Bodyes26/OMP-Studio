@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher};
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 /// Cartella di scambio condivisa con l'estensione.
@@ -26,13 +26,17 @@ pub fn previews_dir() -> Option<PathBuf> {
     }
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PreviewPayload {
     pub id: String,
     pub title: String,
     pub file_path: String,
     pub cwd: String,
     pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lane_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
 }
 
 fn read_preview(path: &std::path::Path) -> Option<PreviewPayload> {
@@ -62,12 +66,26 @@ fn read_preview(path: &std::path::Path) -> Option<PreviewPayload> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let lane_id = value
+        .get("lane_id")
+        .or_else(|| value.get("laneId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let project_id = value
+        .get("project_id")
+        .or_else(|| value.get("projectId"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     Some(PreviewPayload {
         id,
         title,
         file_path,
         cwd,
         session_id,
+        lane_id,
+        project_id,
     })
 }
 
@@ -148,4 +166,75 @@ pub fn spawn_watcher(app: AppHandle) {
             std::thread::sleep(Duration::from_millis(500));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_preview_with_lane_and_project_id() {
+        let dir = std::env::temp_dir().join(format!("omp-test-prev-1-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_preview.json");
+        let content = serde_json::json!({
+            "id": "prev-123",
+            "title": "Card Widget",
+            "file_path": "proto/card-widget.html",
+            "cwd": "C:/repos/portalino",
+            "session_id": "sess-456",
+            "lane_id": "lane-worktree-1",
+            "project_id": "proj-1"
+        });
+        std::fs::write(&path, content.to_string()).unwrap();
+        let payload = read_preview(&path).expect("lettura preview fallita");
+        assert_eq!(payload.id, "prev-123");
+        assert_eq!(payload.title, "Card Widget");
+        assert_eq!(payload.file_path, "proto/card-widget.html");
+        assert_eq!(payload.cwd, "C:/repos/portalino");
+        assert_eq!(payload.session_id, "sess-456");
+        assert_eq!(payload.lane_id, Some("lane-worktree-1".to_string()));
+        assert_eq!(payload.project_id, Some("proj-1".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_preview_supports_camel_case_identifiers() {
+        let dir = std::env::temp_dir().join(format!("omp-test-prev-2-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_preview_camel.json");
+        let content = serde_json::json!({
+            "id": "prev-camel",
+            "title": "Card Camel",
+            "file_path": "proto/camel.html",
+            "cwd": "C:/repos/.omp-wt-portalino-lane",
+            "session_id": "sess-789",
+            "laneId": "wt-ui",
+            "projectId": "proj-ui"
+        });
+        std::fs::write(&path, content.to_string()).unwrap();
+        let payload = read_preview(&path).expect("lettura preview fallita");
+        assert_eq!(payload.lane_id, Some("wt-ui".to_string()));
+        assert_eq!(payload.project_id, Some("proj-ui".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_preview_legacy_without_lane_fields() {
+        let dir = std::env::temp_dir().join(format!("omp-test-prev-3-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_preview_legacy.json");
+        let content = serde_json::json!({
+            "id": "prev-legacy",
+            "title": "Legacy Preview",
+            "file_path": "proto/legacy.html",
+            "cwd": "C:/repos/portalino",
+            "session_id": "sess-legacy"
+        });
+        std::fs::write(&path, content.to_string()).unwrap();
+        let payload = read_preview(&path).expect("lettura preview legacy fallita");
+        assert_eq!(payload.lane_id, None);
+        assert_eq!(payload.project_id, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

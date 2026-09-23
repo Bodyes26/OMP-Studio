@@ -55,8 +55,8 @@ graph TB
     end
     subgraph WV["Frontend WebView (Svelte 5)"]
       PAGE["routes/+page.svelte (Orchestratore 3 Colonne)"]
-      STORES["Stores Svelte ($state: projects, tasks, settings, models)"]
-      XT["xterm.js Canvas (Istanze Terminal per Progetto)"]
+      STORES["Stores Svelte ($state: projects, lanes, tasks, settings, models)"]
+      XT["xterm.js Canvas (Istanze Terminal per Corsia)"]
       CHAT["Chat GUI (Transcript, ToolGroup, Thinking, Composer)"]
       MON["Monaco Editor (Single Instance, Multi-Model, Diff)"]
       PREV["PreviewViewer (Sandboxed Iframe null-origin + CSP 'none')"]
@@ -116,6 +116,11 @@ rpc/
   mod.rs                RpcManager, RpcSession, trasporto stdio NDJSON, riassemblaggio chunk, overlay GUI
 projects/
   mod.rs                Gestione filesystem con resolve_path (canonicalize), operazioni Git e branch
+  worktrees.rs          Worktree fratelli, scan dello stack, review e comandi di integrazione
+  worktrees/
+    lane_integrate.rs   Squash e fast-forward: il target non resta mai in conflitto
+lanes_store.rs          Scrittura atomica di lanes.json (app data, chiave laneState)
+process_tree.rs         Job Object e registro degli alberi di processo per corsia
 omp_ops.rs              Query protette SQLite (usage, storico sessioni), verifica/aggiornamento OMP, temi, sorgenti di quota dichiarate dall'utente
 rules_ops.rs            Censimento regole di contesto e skill, analisi attrito in sola lettura su history.db
 models_ops.rs           Gestione catalogo modelli, ruoli operativi, catene di fallback e raccomandazioni
@@ -138,6 +143,9 @@ lib/
   focusTrap.ts          Utility WAI-ARIA per gestione focus trap e navigazione tastiera
   stores/
     projects.svelte.ts  Stato reattivo progetti aperti, attivo, configurazioni per-progetto
+    lanes.svelte.ts     Corsie del progetto: creazione, riconciliazione Git, archiviazione
+    lanePersistence.ts  Schema versionato di lanes.json e riconciliazione crash-safe
+    laneSurfaces.svelte.ts Superfici centrali (diagramma, anteprima, browser) per corsia
     tasks.svelte.ts     Store reattivo code task (persistenza su tasks.json via Tauri store)
     taskSerialization.ts Validazione, parsing e formattazione prompt con direttive speciali
     settings.svelte.ts  Impostazioni del guscio (persistenza su settings.json via Tauri store)
@@ -167,6 +175,10 @@ lib/
       renderers/        30+ card dedicate (Bash, Edit, Write, Read, Lsp, AstEdit, Eval, Debug, Browser, Ask, Task, Hub, Job, WebSearch...)
   components/
     TopBar.svelte       Barra progetti con tessere riordinabili, badge coda, chip usage e setup
+    LaneStrip.svelte    Riga corsie, visibile solo con almeno una corsia secondaria
+    LaneReviewModal.svelte Revisione e integrazione di una corsia isolata
+    LaneDispatchDialog.svelte Conferma di corsia, soft-cap e arresto processi
+    LaneProfileDialog.svelte Consenso una tantum sui file locali del worktree
     FileTree.svelte     Albero file pigro con filtro incrementale
     GitPanel.svelte     Pannello Git: branch, diff modifiche, commit recenti e sessioni
     AgentPanel.svelte   Tre viste del progetto: coda task, storico sessioni e regole/skill
@@ -348,6 +360,26 @@ Al momento del dispatch, la funzione `formatTaskPrompt` arricchisce il prompt ap
 L'avvio automatico dei task in coda è configurabile per singolo progetto (`autoDispatch: true`). Per evitare loop di reattività e race condition:
 1. Lo stato dell'agente viene validato (`automationReason() === 'Pronto'`: agente idle, nessun input pendente, nessuna transizione di cambio scheda in corso).
 2. L'invio viene eseguito all'interno di un `queueMicrotask` protetto da un lock per progetto (`dispatchingProjects`).
+3. Con le corsie, il bersaglio non e' la corsia visibile: Principale se libera, altrimenti al massimo una corsia worktree automatica (vedi §5.4).
+
+
+### 5.4 Corsie di lavoro (Gate R27)
+
+Un progetto resta una tessera. Una corsia (`AgentLane`) e' il workspace su cui gira un agente: `Principale` usa la radice canonica del repository, una corsia secondaria usa un worktree Git fratello.
+
+- **Percorso.** `worktree_create` risolve la radice Git anche se e' aperta una sottocartella, crea `<genitore>/.omp-wt-<slug>-<laneId>` e il branch `omp/lane-<laneId>` ancorato allo SHA di `HEAD` confermato. Il sottopercorso operativo (la cartella che l'utente aveva aperta) viene ricostruito dentro il worktree. La rimozione rifiuta percorsi non registrati da Studio, traversal, worktree sporchi e alberi di processi ancora vivi. Non esiste `--force`.
+- **Coda.** `.omp/tasks.json` resta nella radice canonica. Il click manda il task a Principale se e' libera; se Principale lavora, Studio chiede una corsia nuova. Maiusc+click la crea senza dialogo. L'auto-dispatch occupa al massimo uno slot worktree per progetto, finche' quella corsia non e' integrata o rifiutata; una corsia creata a mano sospende l'auto-avvio. Dal terzo agente simultaneo compare un avviso con modelli, provider e processi vivi.
+- **Sessione.** La chiave e' `lane:<projectKey>:<laneId>`. PTY e RPC di corsie diverse non condividono transcript, abort ne' handoff. Terminale e GUI della stessa corsia restano un solo processo, ripreso con `--resume`.
+- **Routing.** `ask`, select, confirm e wizard sono vincolati a `projectId` + `laneId`. Un payload senza bersaglio univoco fallisce chiuso. Una domanda in background non cambia progetto, non ruba il fuoco e non entra nella chat attiva.
+- **Superfici.** Diagrammi, anteprime e tab del Browser Live si legano alla corsia tramite `laneId` o tramite la radice del worktree, non con `cwd.startsWith(projectPath)`: i worktree sono cartelle sorelle, non sottocartelle.
+- **Switch.** Selezionare una corsia riallinea file tree, Git, modelli Monaco e agente sul `workspacePath` di quella corsia. I buffer sporchi sono chiave `workspace + path`. I PTY gia' avviati restano montati.
+- **Profilo.** `worktree_profile_scan` classifica i sottoprogetti (ASP.NET/.NET Framework, .NET SDK, Node, Vite, Svelte, frontend statico) e distingue `PackageReference` da `packages.config`. `bin`, `obj`, `.vs`, `packages`, `node_modules` e `dist` non si copiano e non si collegano con junction: lo scan non li attraversa e l'allowlist rifiuta ogni percorso che li contiene. I file locali piccoli (`Parametri.ini`, `.env`) si copiano solo dopo conferma; la decisione, solo percorsi, sta nel profilo dentro `lanes.json`.
+- **Processi.** PTY e RPC registrano l'albero su `projectId` + `laneId` e sulla radice del workspace. La rimozione con processi vivi risponde `processes_active`. «Arresta processi e rimuovi» ferma solo quell'albero. Un lock o un rifiuto di Git lascia la corsia in `cleanup_pending`, non `archived`. Porte, `launchSettings.json` e IIS Express non vengono riscritti.
+- **Integrazione.** `worktree_review_inspect` legge il diff verso `targetBranch` senza scrivere sul target. `worktree_integrate` rifiuta target sporco, SHA non piu' confermati, processi vivi, conflitti e corsia sporca. Lo squash crea un solo commit sul branch di destinazione, con il titolo della corsia e il trailer `OMP-Lane-Head`. Se il target e' avanzato, l'aggiornamento (`git merge`) avviene solo nel worktree della corsia: i conflitti restano li' e la corsia passa a `conflict`. Un secondo integrate sullo stesso SHA non crea un altro commit. Cancellare il branch `omp/lane-*` e' un comando distinto, spento senza conferma.
+- **Persistenza.** `lanes.json` vive nella directory dati dell'app, chiave `laneState`. `lanes_store_write_atomic` serializza le webview e sostituisce il file con scrittura atomica. Il plugin store viene aperto e chiuso subito: la sua `save` usa `fs::write` e non deve riscrivere questo file in uscita. All'avvio Studio riconcilia il registro con `git worktree list --porcelain`: un worktree assente o `prunable` archivia il record con causa, un worktree Studio non registrato viene recuperato senza cancellare nulla.
+
+Comandi IPC aggiunti: `worktree_inspect`, `worktree_create`, `worktree_list`, `worktree_remove`, `worktree_profile_scan`, `worktree_apply_allowlist`, `worktree_review_inspect`, `worktree_update_from_target`, `worktree_integrate`, `worktree_delete_lane_branch`, `lanes_store_read`, `lanes_store_write_atomic`, `lane_processes_list`, `lane_processes_stop`.
+
 
 ---
 

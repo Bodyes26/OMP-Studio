@@ -34,8 +34,12 @@
 		IconQuota,
 		IconSettings,
 		IconWarning,
-		IconLab
+		IconLab,
+		IconGitBranch
 	} from '$lib/icons';
+	import { laneStore } from '$lib/stores/lanes.svelte';
+	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
+	import { sessionRegistry } from '$lib/agent/sessionRegistry';
 
 	let {
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick, onLabClick,
@@ -245,17 +249,53 @@
 	 *  diverso: un lampo nella tinta del progetto lo rende percepibile con la
 	 *  coda dell'occhio, che e' l'unico modo in cui questa barra viene
 	 *  guardata mentre si lavora. */
+	function getAggregatedState(p: Project): Project['lane']['agentState'] {
+		const projectLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.status !== 'archived');
+		const sessions = sessionRegistry.getSessionsForProject(p.id);
+		const candidateStates: string[] = [];
+
+		if (p.lane.agentState && p.lane.agentState !== 'unknown') {
+			candidateStates.push(p.lane.agentState);
+		}
+
+		for (const l of projectLanes) {
+			if (l.status === 'conflict') {
+				candidateStates.push('attention');
+			}
+			if (l.agentState && l.agentState !== 'unknown') {
+				candidateStates.push(l.agentState);
+			}
+		}
+
+		for (const s of sessions) {
+			if (s.agentState && s.agentState !== 'unknown') {
+				candidateStates.push(s.agentState);
+			}
+			if (s.pendingUi) {
+				candidateStates.push('attention');
+			}
+		}
+
+		if (candidateStates.includes('attention')) return 'attention';
+		if (candidateStates.includes('working')) return 'working';
+		if (candidateStates.includes('finished')) return 'finished';
+		if (candidateStates.includes('idle')) return 'idle';
+		return p.lane.agentState ?? 'unknown';
+	}
+
 	$effect(() => {
+
 		for (const p of projectStore.projects) {
+			const agg = getAggregatedState(p);
 			const previous = lastSeenState.get(p.id);
-			lastSeenState.set(p.id, p.lane.agentState);
+			lastSeenState.set(p.id, agg);
 			// Il primo stato osservato non e' una transizione, e 'unknown' e' il
 			// valore prima che la sessione si attacchi: all'avvio non lampeggia
 			// niente.
 			if (
 				previous === undefined ||
 				previous === 'unknown' ||
-				previous === p.lane.agentState
+				previous === agg
 			) continue;
 			const next = (flashCount.get(p.id) ?? 0) + 1;
 			flashCount.set(p.id, next);
@@ -546,6 +586,9 @@
 			{@const gitDiff = p.lane.workspacePath ? gitDiffStore.forPath(p.lane.workspacePath) : null}
 			{@const gitDiffLabel = gitDiff && hasGitChanges(gitDiff) ? ` · Git +${gitDiff.additions} -${gitDiff.deletions}` : ''}
 			{@const upstream = p.lane.workspacePath ? githubStore.upstreamByPath[normalizeProjectPath(p.lane.workspacePath).toLowerCase()] : null}
+			{@const aggState = getAggregatedState(p)}
+			{@const secondaryLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')}
+			{@const secondaryCount = secondaryLanes.length}
 			<!-- Il contenitore esiste solo per trascinamento, hover e menu
 			     contestuale: con `role="presentation"` sparisce dall'albero
 			     accessibile e la tessera resta figlia diretta del tablist, come
@@ -582,9 +625,9 @@
 					ondragstart={(event) => handleProjectDragStart(event, p.id)}
 					ondragend={handleProjectDragEnd}
 					class:active={isActive}
-					class:attention={settingsStore.projectBar.showAgentDot && p.lane.agentState === 'attention'}
-					class:finished={settingsStore.projectBar.showAgentDot && p.lane.agentState === 'finished'}
-					class:quiet={p.lane.agentState === 'idle' || p.lane.agentState === 'unknown'}
+					class:attention={settingsStore.projectBar.showAgentDot && aggState === 'attention'}
+					class:finished={settingsStore.projectBar.showAgentDot && aggState === 'finished'}
+					class:quiet={aggState === 'idle' || aggState === 'unknown'}
 					class:scratchpad={!p.canonicalProjectPath}
 					style="--proj-hue: {projectHue(p)}"
 					onclick={() => projectStore.setActive(p.id)}
@@ -592,7 +635,7 @@
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-label={m.topbar_tab_aria_label({ type: p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[p.lane.agentState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + gitDiffLabel}
+					aria-label={m.topbar_tab_aria_label({ type: p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + (secondaryCount > 0 ? ` · ${secondaryCount} corsie` : '') + gitDiffLabel}
 				>
 					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
 					     raggio; il rimontaggio con `#key` riavvia l'animazione. -->
@@ -613,7 +656,7 @@
 						<span class="tab-reveal-inner"><span class="tab-name">{p.name}</span></span>
 					</span>
 
-					<span class="tab-reveal" class:show={isActive && p.lane.agentState === 'working'}>
+					<span class="tab-reveal" class:show={isActive && aggState === 'working'}>
 						<span class="tab-reveal-inner"><span class="tab-spin" aria-hidden="true"></span></span>
 					</span>
 
@@ -631,6 +674,16 @@
 									>{queued}</span>
 								{/if}
 							</span>
+						</span>
+					{/if}
+					{#if secondaryCount > 0}
+						<span
+							class="tab-lanes-badge"
+							aria-hidden="true"
+							title={m.topbar_lanes_badge_title({ count: secondaryCount })}
+						>
+							<IconGitBranch />
+							<span>{secondaryCount}</span>
 						</span>
 					{/if}
 					{#if gitDiff && hasGitChanges(gitDiff)}
@@ -1318,6 +1371,29 @@
 		position: relative;
 		z-index: 1;
 	}
+	.tab-lanes-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		margin-left: var(--space-2);
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		color: var(--ink-muted);
+		background-color: color-mix(in srgb, var(--ink) 8%, transparent);
+		border: 1px solid var(--line);
+		line-height: 1;
+		flex-shrink: 0;
+	}
+
+	.tab-lanes-badge :global(svg) {
+		width: 10px;
+		height: 10px;
+		flex-shrink: 0;
+	}
+
 
 	/* Stato: un anello, mai un alone. L'unico anello che si muove e' quello che
 	   chiede una risposta, perche' il movimento serve a chiamare qualcuno e

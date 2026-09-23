@@ -20,8 +20,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+Alt+L` | Globale | Cicla la modalita di layout della finestra (`Auto` → `Orizzontale` → `Verticale`) |
 | `Ctrl+Tab` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra |
 | `Ctrl+Shift+Tab` | Globale | Passa al progetto aperto precedente, nell'ordine mostrato in barra |
-| `Ctrl+Alt+Freccia Destra` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra |
-| `Ctrl+Alt+Freccia Sinistra` | Globale | Passa al progetto aperto precedente, nell'ordine mostrato in barra |
+| `Ctrl+Alt+Freccia Destra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia successiva; altrimenti al progetto aperto successivo |
+| `Ctrl+Alt+Freccia Sinistra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia precedente; altrimenti al progetto aperto precedente |
 | `Ctrl+Alt+Maiusc+Freccia` | Globale | Sposta la tessera del progetto attivo a destra o a sinistra (ordinamento manuale) |
 | `Ctrl+P` | Superficie GUI | Cicla sequenzialmente tra i ruoli configurati (`default` → `plan` → `smol`...) |
 | `Alt+R` | Superficie GUI | Apre il menu rapido di selezione del ruolo con filtro e navigazione |

@@ -4,18 +4,21 @@ mod lanes_store;
 use lanes_store::{lanes_store_read, lanes_store_write_atomic};
 mod github;
 use github::{
-    github_clone_repo, github_create_repo, github_get_actions_status, github_get_status,
-    github_install_cli, github_list_remote_repos, github_logout, github_set_token,
-    git_sync_repo, git_upstream_status, project_detect_github_remotes,
+    git_sync_repo, git_upstream_status, github_clone_repo, github_create_repo,
+    github_get_actions_status, github_get_status, github_install_cli, github_list_remote_repos,
+    github_logout, github_set_token, project_detect_github_remotes,
 };
 pub mod process_tree;
+use process_tree::{lane_processes_list, lane_processes_stop};
 mod previews;
 mod pty;
-use pty::{pty_close, pty_force_kill, pty_open, pty_resize, pty_session_info, pty_write, PtyManager};
+use pty::{
+    pty_close, pty_force_kill, pty_open, pty_resize, pty_session_info, pty_write, PtyManager,
+};
 mod rpc;
 use rpc::{
-    force_kill_session, rpc_abort, rpc_close, rpc_force_kill, rpc_open, rpc_open_lab,
-    rpc_protocol, rpc_send, rpc_stderr, RpcManager,
+    force_kill_session, rpc_abort, rpc_close, rpc_force_kill, rpc_open, rpc_open_lab, rpc_protocol,
+    rpc_send, rpc_stderr, RpcManager,
 };
 mod projects;
 use projects::{
@@ -23,10 +26,11 @@ use projects::{
     git_branch_create, git_branch_list, git_branch_merge, git_current_branch, git_diff_stats,
     git_last_commit, git_recent_commits, git_working_numstat, path_create_directory,
     path_create_file, path_rename, path_trash, preview_file, project_content_search,
-    project_files_list, project_files_search, project_git_status, project_tasks_read, project_tasks_unwatch,
-    project_tasks_watch, project_tasks_write,
-    resolve_project_file, tree_read,
-    worktree_create, worktree_inspect, worktree_list, worktree_remove,
+    project_files_list, project_files_search, project_git_status, project_tasks_read,
+    project_tasks_unwatch, project_tasks_watch, project_tasks_write, resolve_project_file,
+    tree_read, worktree_apply_allowlist, worktree_create, worktree_delete_lane_branch,
+    worktree_inspect, worktree_integrate, worktree_list, worktree_profile_scan, worktree_remove,
+    worktree_review_inspect, worktree_update_from_target,
 };
 mod omp_ops;
 use omp_ops::{
@@ -67,8 +71,8 @@ use suggestions_ops::generate_prompt_suggestions;
 mod companion_ops;
 use companion_ops::{
     fit_companion_to_content, get_companion_state, hide_companion_window, init_global_shortcut,
-    parse_quick_task_ai, persist_companion_geometry, set_companion_pinned,
-    toggle_companion_window, track_companion_geometry,
+    parse_quick_task_ai, persist_companion_geometry, set_companion_pinned, toggle_companion_window,
+    track_companion_geometry,
 };
 
 pub mod browser_live;
@@ -179,6 +183,14 @@ pub fn run() {
             worktree_create,
             worktree_list,
             worktree_remove,
+            worktree_profile_scan,
+            worktree_apply_allowlist,
+            worktree_review_inspect,
+            worktree_update_from_target,
+            worktree_integrate,
+            worktree_delete_lane_branch,
+            lane_processes_list,
+            lane_processes_stop,
             lanes_store_read,
             lanes_store_write_atomic,
             usage_snapshot,

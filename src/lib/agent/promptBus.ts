@@ -15,9 +15,16 @@ export interface PromptOptionDetail {
 	description?: string;
 }
 
+export interface PromptTargetFilter {
+	projectId?: string;
+	laneId?: string | null;
+	sessionId?: string | null;
+}
+
 export interface PromptRequestPayload {
 	requestId: string;
 	projectId: string;
+	laneId?: string | null;
 	sessionId?: string | null;
 	prototypeId?: string | null;
 	toolCallId?: string | null;
@@ -40,6 +47,7 @@ export interface PromptRequestPayload {
 export interface PromptRequest {
 	readonly requestId: string;
 	readonly projectId: string;
+	readonly laneId?: string | null;
 	readonly sessionId?: string | null;
 	readonly prototypeId?: string | null;
 	readonly toolCallId?: string | null;
@@ -236,6 +244,7 @@ export class PromptBus {
 			// Arricchimento della richiesta esistente
 			const enriched: PromptRequest = {
 				...existing,
+				laneId: payload.laneId !== undefined ? payload.laneId : existing.laneId,
 				toolCallId: payload.toolCallId ?? existing.toolCallId,
 				questions: payload.questions ?? existing.questions,
 				questionIndex: payload.questionIndex ?? existing.questionIndex,
@@ -250,7 +259,6 @@ export class PromptBus {
 				responder: payload.responder ?? existing.responder
 			};
 			this.requests.set(requestId, enriched);
-			this.saveToStorage();
 			this.broadcastRegistration(enriched);
 			this.notifySubscribers();
 			return enriched;
@@ -259,6 +267,7 @@ export class PromptBus {
 		const request: PromptRequest = {
 			requestId,
 			projectId,
+			laneId: payload.laneId ?? null,
 			sessionId: payload.sessionId ?? null,
 			prototypeId: payload.prototypeId ?? null,
 			toolCallId: payload.toolCallId ?? null,
@@ -292,12 +301,27 @@ export class PromptBus {
 	 * Semantica 'first-response-wins': se la richiesta e' gia' risolta o non esiste,
 	 * l'invocazione ritorna `false` senza eseguire azioni.
 	 */
-	async resolveRequest(requestId: string, answer: PromptAnswer): Promise<boolean> {
+	async resolveRequest(
+		requestId: string,
+		answer: PromptAnswer,
+		target?: PromptTargetFilter
+	): Promise<boolean> {
 		const request = this.requests.get(requestId);
 		if (!request || request.status !== 'pending') {
 			return false;
 		}
 
+		if (target) {
+			if (target.projectId && request.projectId.trim().toLowerCase() !== target.projectId.trim().toLowerCase()) {
+				return false;
+			}
+			if (target.laneId && (request.laneId ?? 'main').trim().toLowerCase() !== target.laneId.trim().toLowerCase()) {
+				return false;
+			}
+			if (target.sessionId && request.sessionId && request.sessionId !== target.sessionId) {
+				return false;
+			}
+		}
 		request.status = 'resolved';
 		request.resolvedAt = Date.now();
 		request.answer = answer;
@@ -330,12 +354,23 @@ export class PromptBus {
 	 * Semantica atomica identica a `resolveRequest`: restituisce `false` se gia'
 	 * chiusa o inesistente.
 	 */
-	async cancelRequest(requestId: string): Promise<boolean> {
+	async cancelRequest(requestId: string, target?: PromptTargetFilter): Promise<boolean> {
 		const request = this.requests.get(requestId);
 		if (!request || request.status !== 'pending') {
 			return false;
 		}
 
+		if (target) {
+			if (target.projectId && request.projectId.trim().toLowerCase() !== target.projectId.trim().toLowerCase()) {
+				return false;
+			}
+			if (target.laneId && (request.laneId ?? 'main').trim().toLowerCase() !== target.laneId.trim().toLowerCase()) {
+				return false;
+			}
+			if (target.sessionId && request.sessionId && request.sessionId !== target.sessionId) {
+				return false;
+			}
+		}
 		request.status = 'cancelled';
 		request.resolvedAt = Date.now();
 
@@ -375,6 +410,19 @@ export class PromptBus {
 		const pKey = projectId.trim().toLowerCase();
 		return this.getPendings().filter(
 			(r) => r.projectId.trim().toLowerCase() === pKey
+		);
+	}
+
+	/**
+	 * Restituisce le richieste pendenti associate a una determinata corsia di un progetto.
+	 */
+	getPendingsForLane(projectId: string, laneId: string): PromptRequest[] {
+		const pKey = projectId.trim().toLowerCase();
+		const lKey = laneId.trim().toLowerCase();
+		return this.getPendings().filter(
+			(r) =>
+				r.projectId.trim().toLowerCase() === pKey &&
+				(r.laneId ?? 'main').trim().toLowerCase() === lKey
 		);
 	}
 
@@ -478,6 +526,7 @@ export class PromptBus {
 			if (existing.status !== 'pending') return;
 			const enriched: PromptRequest = {
 				...existing,
+				laneId: serialized.laneId !== undefined ? serialized.laneId : existing.laneId,
 				toolCallId: serialized.toolCallId ?? existing.toolCallId,
 				questions: serialized.questions ?? existing.questions,
 				questionIndex: serialized.questionIndex ?? existing.questionIndex,
@@ -491,7 +540,6 @@ export class PromptBus {
 				title: serialized.title || existing.title
 			};
 			this.requests.set(serialized.requestId, enriched);
-			this.saveToStorage();
 			this.notifySubscribers();
 			return;
 		}
@@ -563,6 +611,7 @@ export class PromptBus {
 				if (item.questions && (!existing.questions || existing.questions.length === 0)) {
 					const updated: PromptRequest = {
 						...existing,
+						laneId: item.laneId !== undefined ? item.laneId : existing.laneId,
 						questions: item.questions,
 						questionIndex: item.questionIndex ?? existing.questionIndex,
 						totalQuestions: item.totalQuestions ?? existing.totalQuestions,

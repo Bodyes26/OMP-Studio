@@ -84,7 +84,7 @@
 
 	type View = 'default' | 'rename' | 'close' | 'close-others';
 
-	const AGENT_STATE_LABEL = $derived.by((): Record<Project['agentState'], string> => ({
+	const AGENT_STATE_LABEL = $derived.by((): Record<Project['lane']['agentState'], string> => ({
 		working: m.topbar_agent_state_working(),
 		attention: m.topbar_agent_state_attention(),
 		finished: m.topbar_agent_state_finished(),
@@ -102,13 +102,17 @@
 	let notice = $state('');
 	let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
-	const isScratchpad = $derived(!project.path);
+	const isScratchpad = $derived(!project.canonicalProjectPath);
 	const isActive = $derived(projectStore.activeId === project.id);
 	const ready = $derived(canRunTask?.(project.id) ?? false);
 	const reason = $derived(runReason?.(project.id) ?? '');
-	const queueTasks = $derived(project.path ? taskStore.tasksFor(project.path) : []);
+	const queueTasks = $derived(
+		project.canonicalProjectPath ? taskStore.tasksFor(project.canonicalProjectPath) : []
+	);
 	const attentionReq = $derived(companionStore.attentionRequests.find((r) => r.projectId === project.id));
-	const gitDiff = $derived(project.path ? gitDiffStore.forPath(project.path) : null);
+	const gitDiff = $derived(
+		project.lane.workspacePath ? gitDiffStore.forPath(project.lane.workspacePath) : null
+	);
 
 	async function handleQuickReplySelect(value: string) {
 		await companionStore.respondUi(project.id, { action: 'select', value });
@@ -168,8 +172,9 @@
 	}
 
 	async function copyPath() {
+		if (!project.canonicalProjectPath) return;
 		try {
-			await navigator.clipboard.writeText(project.path);
+			await navigator.clipboard.writeText(project.canonicalProjectPath);
 			flash(m.project_popover_toast_copied());
 		} catch {
 			flash(m.project_popover_toast_copy_failed());
@@ -177,13 +182,18 @@
 	}
 
 	function reveal() {
-		void revealItemInDir(project.path);
+		if (!project.canonicalProjectPath) return;
+		void revealItemInDir(project.canonicalProjectPath);
 		onClose();
 	}
 
 	async function openExternal(target: 'terminal' | 'editor') {
+		if (!project.canonicalProjectPath) return;
 		try {
-			await invoke('open_project_external', { projectPath: project.path, target });
+			await invoke('open_project_external', {
+				projectPath: project.canonicalProjectPath,
+				target
+			});
 			onClose();
 		} catch (error) {
 			flash(typeof error === 'string' ? error : m.project_popover_toast_open_failed());
@@ -221,7 +231,9 @@
 			onClose();
 			return;
 		}
-		const queued = project.path ? taskStore.queuedCountFor(project.path) : 0;
+		const queued = project.canonicalProjectPath
+			? taskStore.queuedCountFor(project.canonicalProjectPath)
+			: 0;
 		if (queued === 0 || settingsStore.general.closeWithQueuedTasks === 'keep') {
 			closeProject(false);
 			return;
@@ -234,7 +246,9 @@
 	}
 
 	function closeProject(discardQueue: boolean) {
-		if (discardQueue && project.path) void taskStore.clearProject(project.path);
+		if (discardQueue && project.canonicalProjectPath) {
+			void taskStore.clearProject(project.canonicalProjectPath);
+		}
 		projectStore.closeProject(project.id);
 		onClose();
 	}
@@ -242,11 +256,11 @@
 	function closeOthers() {
 		for (const other of [...projectStore.projects]) {
 			if (other.id === project.id) continue;
-			if (other.path) {
+			if (other.canonicalProjectPath) {
 				if (settingsStore.general.closeWithQueuedTasks === 'discard') {
-					void taskStore.clearProject(other.path);
-				} else if (other.agentState === 'working') {
-					void taskStore.resetDispatchingTasks(other.path);
+					void taskStore.clearProject(other.canonicalProjectPath);
+				} else if (other.lane.agentState === 'working') {
+					void taskStore.resetDispatchingTasks(other.canonicalProjectPath);
 				}
 			}
 			projectStore.closeProject(other.id);
@@ -356,7 +370,7 @@
 			<span class="titles">
 				<span class="name" title={project.name}>{project.name}</span>
 				<span class="path-row">
-					<span class="path" title={project.path}>{isScratchpad ? m.project_popover_badge_scratchpad() : truncateMiddle(project.path)}</span>
+					<span class="path" title={project.canonicalProjectPath ?? ''}>{isScratchpad ? m.project_popover_badge_scratchpad() : truncateMiddle(project.canonicalProjectPath ?? '')}</span>
 					{#if gitDiff && hasGitChanges(gitDiff)}
 						<GitDiffBadge additions={gitDiff.additions} deletions={gitDiff.deletions} />
 					{/if}
@@ -377,17 +391,17 @@
 			</button>
 		</header>
 
-		<div class="state" class:working={project.agentState === 'working'} class:attention={project.agentState === 'attention'}>
-			{#if project.agentState === 'working'}
+		<div class="state" class:working={project.lane.agentState === 'working'} class:attention={project.lane.agentState === 'attention'}>
+			{#if project.lane.agentState === 'working'}
 				<IconStatusRunning />
-			{:else if project.agentState === 'attention'}
+			{:else if project.lane.agentState === 'attention'}
 				<IconWarning />
-			{:else if project.agentState === 'finished'}
+			{:else if project.lane.agentState === 'finished'}
 				<IconCheck />
 			{:else}
 				<IconStatusPending />
 			{/if}
-			<span>{AGENT_STATE_LABEL[project.agentState]}</span>
+			<span>{AGENT_STATE_LABEL[project.lane.agentState]}</span>
 		</div>
 		{#if attentionReq}
 			<div class="popover-quick-reply">

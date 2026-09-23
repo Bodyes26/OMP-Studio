@@ -8,7 +8,7 @@
 	import { taskStore, type AgentView, type StudioTask } from '$lib/stores/tasks.svelte';
 	import { rulesStore } from '$lib/stores/rules.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
-	import type { AutomationBlock, AutomationGate } from '$lib/agent/automationGate';
+	import { isLaneRoutable, type AutomationBlock, type AutomationGate } from '$lib/agent/automationGate';
 
 	let {
 		projectPath,
@@ -27,7 +27,7 @@
 		currentSessionId: string | null;
 		onCreateTask: () => void;
 		onEditTask: (taskId: string) => void;
-		onRunTask: (taskId: string) => void;
+		onRunTask: (taskId: string, shiftKey: boolean) => void;
 		onResumeSession: (sessionId: string) => void;
 		onOpenFile: (relPath: string) => void;
 	} = $props();
@@ -46,7 +46,7 @@
 	 */
 	let explained = $state<AutomationBlock | null>(null);
 	const gateAttention = $derived(gate.block === 'question' || gate.block === 'quota');
-	const noticeOpen = $derived(!gate.ready && explained === gate.block);
+	const noticeOpen = $derived(!isLaneRoutable(gate) && explained === gate.block);
 
 	// L'analisi dell'attrito e' una singola query in sola lettura sullo storico:
 	// gira al montaggio del pannello perche' il conteggio sulla scheda deve
@@ -75,12 +75,18 @@
 		return m.agent_panel_empty_prompt();
 	}
 
-	function runOrExplain(taskId: string) {
-		if (!gate.ready) {
+	/**
+	 * Un agente occupato non blocca piu' la coda: il routing (W09) decide se il
+	 * task parte su `Principale` o in una corsia isolata. `Shift` salta anche
+	 * la spiegazione: l'utente ha gia' chiesto una corsia nuova.
+	 */
+	function runOrExplain(taskId: string, event?: MouseEvent) {
+		const shiftKey = event?.shiftKey === true;
+		if (!shiftKey && !isLaneRoutable(gate)) {
 			explained = gate.block;
 			return;
 		}
-		onRunTask(taskId);
+		onRunTask(taskId, shiftKey);
 	}
 
 	function dropOn(targetId: string) {
@@ -233,15 +239,15 @@
 							<button
 								type="button"
 								class="task-launch"
-								class:blocked={!gate.ready}
+								class:blocked={!isLaneRoutable(gate)}
 								disabled={!task.prompt.trim() && (!task.images || task.images.length === 0)}
-								aria-expanded={gate.ready ? undefined : noticeOpen}
-								aria-controls={gate.ready ? undefined : 'agent-queue-gate-notice'}
-								title={gate.ready ? m.ui_agentpanel_avvia_value1_18da({ value1: taskTitle(task) }) : `${gate.detail} ${gate.hint}`.trim()}
-								aria-label={gate.ready
+								aria-expanded={isLaneRoutable(gate) ? undefined : noticeOpen}
+								aria-controls={isLaneRoutable(gate) ? undefined : 'agent-queue-gate-notice'}
+								title={isLaneRoutable(gate) ? m.ui_agentpanel_avvia_value1_18da({ value1: taskTitle(task) }) : `${gate.detail} ${gate.hint}`.trim()}
+								aria-label={isLaneRoutable(gate)
 									? m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })
 									: m.gate_explain_task_aria({ title: taskTitle(task) })}
-								onclick={() => runOrExplain(task.id)}
+								onclick={(event) => runOrExplain(task.id, event)}
 							>
 								<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
 								<span class="task-excerpt">{taskExcerpt(task)}</span>

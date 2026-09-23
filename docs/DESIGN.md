@@ -402,6 +402,11 @@ Altezza 48px, sfondo `--bg-raised`. Nessun bordo inferiore: la separazione dal c
 
   Nessun alone, nessuna ombra: solo anelli inset. I due anelli si spengono
   insieme con l'impostazione «Segno di stato agente».
+- **Corsie sulla tessera.** Lo stato mostrato e' il peggiore tra Principale e le
+  corsie non archiviate: attenzione, poi al lavoro, poi completato, poi in attesa.
+  Un conflitto conta come attenzione. Con almeno una corsia secondaria la tessera
+  porta un chip branch e il conteggio. `Ctrl+Alt+←/→` scorre le corsie finche'
+  il chip c'e'; senza corsie secondarie le stesse frecce scorrono i progetti.
 - **Contatore della coda**: mono 10px/700 `tabular-nums`, dentro la tessera
   aperta. `--ink-faint` quando i task non possono partire, tinta del progetto
   quando sono pronti. Le tessere chiuse restano mute: il conto complessivo di
@@ -480,7 +485,7 @@ Vale per tutta l'app: **nessun bordo verticale nel corpo**, e nessun bordo sotto
 
 `--brand` su `--bg-base` misura 4.63:1, oltre il minimo di 3:1 per indicatori non testuali. Nessun elemento interattivo senza stato di fuoco visibile. Nessun `outline: none` senza sostituto.
 
-Le scorciatoie globali vivono su `Ctrl+Alt`, che la TUI di `omp` non usa. Nell'editor Monaco, `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` agiscono solo quando il fuoco e' nel codice; il terminale continua a ricevere senza eccezioni le proprie combinazioni.
+Le scorciatoie globali vivono su `Ctrl+Alt`, che la TUI di `omp` non usa. Nell'editor Monaco, `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` agiscono solo quando il fuoco e' nel codice; il terminale continua a ricevere senza eccezioni le proprie combinazioni. `Ctrl+Alt+←/→` scorre le corsie del progetto attivo quando ne ha di secondarie, altrimenti i progetti in barra.
 
 ### 7.8 Pannello della tessera progetto
 
@@ -582,6 +587,23 @@ Linguaggio visivo unificato per rappresentare le fasi operative pianificate (TOD
   - `abandoned` / `aborted`: pillola neutra `--ink-muted` (fondo trasparente 15%) con icona a croce (X).
   - **Pillole di stato**: sono riservate rigorosamente agli stati terminali (`completed`, `failed`, `abandoned`, `aborted`) o allo stato `blocked`. Gli stati `pending` e `running` mostrano soltanto l'anello indicatore a sinistra per non appesantire la gerarchia visiva.
 ---
+### 7.13 Riga delle corsie
+
+Alta 34px, fondo `--bg-base`, bordo inferiore `--line`, sotto la barra progetti (`z-index: calc(var(--z-topbar) - 1)`). Non esiste nello scenario a singolo agente: compare solo se il progetto attivo ha almeno una corsia secondaria non archiviata.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ [● Principale] [● Calcolo IVA  da revisionare]  [+ Nuova corsia]      │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Tab.** Altezza 26px, `--radius-sm`, testo 11px. La selezionata ha fondo `--bg-raised`, bordo `--line-strong` e peso 600. Le altre sono `--ink-muted` e al passaggio del mouse prendono `--bg-hover`.
+- **Stato, non solo colore.** Un punto da 6px piu' un'etichetta: in attesa, al lavoro, richiede input, da revisionare, conflitto, integrazione, completato. La tab in attenzione ha bordo `--warn`. «Da revisionare» e' un'azione verde con l'icona del diff, non un badge colorato senza testo.
+- **Processi vivi.** Un punto da 5px `--success`, senza testo che allarghi la tab. Il cleanup bloccato da un lock mostra l'icona di avviso `--warn`.
+- **Principale** e' sempre la prima tab e non si archivia. `+` e' un pulsante tratteggiato. La chiusura di una corsia con processi vivi non archivia: chiede «Arresta processi e rimuovi».
+- **Tastiera.** Roving tabindex dentro la riga. `Ctrl+Alt+←/→` scorre le corsie quando la riga e' visibile; altrimenti scorre i progetti. Con movimento ridotto le transizioni da 120ms si spengono.
+- **Revisiona e integra.** Modale sul diff Monaco affiancato tra la corsia e il branch di destinazione: SHA, ahead/behind, file con `+X / -Y`, comandi del transcript con exit code e durata misurata. Il pulsante Integra e' spento, con il motivo scritto, se il target e' sporco, se la corsia ha processi, se non e' pronta o se ci sono conflitti. Nessun merge parte da solo.
+
 ## 8. Token CSS pronti
 
 ```css

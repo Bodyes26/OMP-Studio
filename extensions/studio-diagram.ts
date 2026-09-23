@@ -292,6 +292,9 @@ export default function studioExtension(pi: StudioExtensionApi) {
 			const file = join(base, `${slug}.json`);
 			const tmpFile = join(base, `.${slug}.json.tmp.${process.pid}.${Date.now()}`);
 
+			const laneId = process.env.OMP_LANE_ID?.trim() || undefined;
+			const projectId = process.env.OMP_PROJECT_ID?.trim() || undefined;
+
 			const payload = {
 				version: 1,
 				id: slug,
@@ -299,10 +302,11 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				mermaid,
 				cwd,
 				session_id: sessionId,
+				lane_id: laneId,
+				project_id: projectId,
 				tool_call_id: toolCallId,
 				created_at: new Date().toISOString()
 			};
-
 			try {
 				writeFileSync(tmpFile, JSON.stringify(payload, null, 2), "utf8");
 				try {
@@ -521,6 +525,9 @@ export default function studioExtension(pi: StudioExtensionApi) {
 			const exchangeFile = join(base, `${exchangeSlug}.json`);
 			const tmpExchangeFile = join(base, `.${exchangeSlug}.json.tmp.${process.pid}.${Date.now()}`);
 
+			const laneId = process.env.OMP_LANE_ID?.trim() || undefined;
+			const projectId = process.env.OMP_PROJECT_ID?.trim() || undefined;
+
 			const payload = {
 				version: 1,
 				id: exchangeSlug,
@@ -528,10 +535,11 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				file_path: relPath,
 				cwd: canonicalCwd,
 				session_id: sessionId,
+				lane_id: laneId,
+				project_id: projectId,
 				tool_call_id: toolCallId,
 				created_at: new Date().toISOString()
 			};
-
 			try {
 				writeFileSync(tmpExchangeFile, JSON.stringify(payload, null, 2), "utf8");
 				try {

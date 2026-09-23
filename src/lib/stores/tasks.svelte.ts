@@ -20,8 +20,10 @@ import {
 	parseProjectTasksFile,
 	serializeProjectTasksFile,
 	pruneOrigins,
-	mergeOriginRecords
+	mergeOriginRecords,
+	taskRunFromOrigin
 } from './taskSerialization';
+import type { TaskRunRecord } from '$lib/types/lanes';
 import { QueueHydration, mergeHydratedTasks, mergeReloadedTasks } from './taskHydration';
 import { resolveDroppedTask, type InFlightTask } from './taskRecovery';
 import { windowLabel } from './windowBridge';
@@ -36,6 +38,20 @@ export type {
 	PersistedTaskState
 };
 export { parsePersistedState, sanitizeLoadedTasks };
+
+/**
+ * Corsia che esegue un task: viaggia con la spedizione e finisce nel record di
+ * lancio, cosi' lo storico distingue `Principale` e worktree anche dopo che la
+ * corsia e' stata archiviata.
+ */
+export interface TaskRunLaneContext {
+	laneId: string;
+	laneTitle: string;
+	laneKind: 'main' | 'worktree';
+	workspacePath?: string | null;
+	branch?: string | null;
+	targetBranch?: string | null;
+}
 
 /**
  * Formatta il prompt del task applicando le direttive speciali e il contesto editor.
@@ -138,7 +154,9 @@ class TaskStore {
 		// e nessuna coda verrebbe idratata.
 		await projectStore.init();
 		await Promise.all(
-			projectStore.projects.filter((project) => project.path).map((project) => this.loadProject(project.path))
+			projectStore.projects
+				.filter((project) => project.canonicalProjectPath)
+				.map((project) => this.loadProject(project.canonicalProjectPath!))
 		);
 	}
 
@@ -255,7 +273,9 @@ class TaskStore {
 		const now = Date.now();
 		// I default del progetto sovrascrivono quelli globali, non li sostituiscono:
 		// un progetto puo' scegliere solo il ruolo e lasciare il resto ai default.
-		const project = projectStore.projects.find((p) => projectKey(p.path) === key);
+		const project = projectStore.projects.find(
+			(p) => p.canonicalProjectPath && projectKey(p.canonicalProjectPath) === key
+		);
 		const defaults: TaskDefaults = { ...settingsStore.taskDefaults, ...(project?.taskDefaults ?? {}) };
 		const catalog = settingsStore.taskDirectives;
 		const selectedIds = new Set(defaults.selectedDirectiveIds ?? []);
@@ -345,8 +365,8 @@ class TaskStore {
 		const counts = this.queuedCountByProject;
 		let total = 0;
 		for (const project of projectStore.projects) {
-			if (!project.path) continue;
-			total += counts[projectKey(project.path)] ?? 0;
+			if (!project.canonicalProjectPath) continue;
+			total += counts[projectKey(project.canonicalProjectPath)] ?? 0;
 		}
 		return total;
 	}
@@ -434,14 +454,19 @@ class TaskStore {
 		this.saveProject(task.projectPath);
 	}
 
-	completeDispatch(id: string, sessionId: string) {
+	/**
+	 * Il task ha raggiunto la sua sessione. Il record di lancio conserva anche
+	 * la corsia che lo ha eseguito: e' l'unica traccia che resta quando il
+	 * worktree viene rimosso dopo l'integrazione.
+	 */
+	completeDispatch(id: string, sessionId: string, lane?: TaskRunLaneContext) {
 		const task = this.taskById(id);
 		if (!task) return;
 		this.origins = this.origins.filter((origin) =>
 			origin.projectPath !== task.projectPath || origin.sessionId !== sessionId
 		);
 		const title = task.prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task';
-		this.origins.push({
+		const origin: TaskSessionOrigin = {
 			projectPath: task.projectPath,
 			sessionId,
 			taskId: task.id,
@@ -452,7 +477,18 @@ class TaskStore {
 			launchedAt: Date.now(),
 			modelSelector: task.options?.modelSelector,
 			thinkingLevel: task.options?.thinkingLevel || 'auto'
-		});
+		};
+		// I campi di corsia compaiono solo quando la spedizione li conosce: un
+		// record senza corsia resta identico a quelli scritti prima di W09.
+		if (lane) {
+			origin.laneId = lane.laneId;
+			origin.laneTitle = lane.laneTitle;
+			origin.laneKind = lane.laneKind;
+			if (lane.workspacePath) origin.workspacePath = lane.workspacePath;
+			if (lane.branch) origin.branch = lane.branch;
+			if (lane.targetBranch) origin.targetBranch = lane.targetBranch;
+		}
+		this.origins.push(origin);
 		this.origins = pruneOrigins(this.origins);
 		// Lo snapshot vive finche' omp non conferma la consegna: e' l'unica
 		// copia del prompt in quella finestra (vedi `restoreDroppedTask`).
@@ -466,6 +502,32 @@ class TaskStore {
 		this.saveProject(path);
 		this.saveGlobal();
 		void emit('studio-task-origins-update', $state.snapshot(this.origins));
+	}
+
+	/** Storico dei lanci di un progetto proiettato sui `TaskRun` del Gate R27. */
+	taskRunsFor(projectPath: string): TaskRunRecord[] {
+		const key = projectKey(projectPath);
+		const owner = projectStore.projects.find(
+			(candidate) =>
+				candidate.canonicalProjectPath && projectKey(candidate.canonicalProjectPath) === key
+		);
+		return this.originsFor(projectPath).map((origin) =>
+			taskRunFromOrigin(origin, owner?.id ?? key)
+		);
+	}
+
+	/** Corsia che ha eseguito una sessione, se quella sessione nasce da un task. */
+	taskRunFor(projectPath: string, sessionId: string): TaskRunRecord | undefined {
+		const key = projectKey(projectPath);
+		const origin = this.origins.find(
+			(candidate) => candidate.projectPath === key && candidate.sessionId === sessionId
+		);
+		if (!origin) return undefined;
+		const owner = projectStore.projects.find(
+			(candidate) =>
+				candidate.canonicalProjectPath && projectKey(candidate.canonicalProjectPath) === key
+		);
+		return taskRunFromOrigin(origin, owner?.id ?? key);
 	}
 
 	originsFor(projectPath: string): TaskSessionOrigin[] {

@@ -457,6 +457,127 @@
 	cursor: pointer;
 }
 
+/* Pannello multi-corsia quando più corsie dello stesso progetto richiedono attenzione */
+.multi-lane-panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-2);
+	background: var(--bg-surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	margin-top: var(--space-1);
+}
+
+.multi-lane-header {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.multi-lane-title {
+	font-size: var(--text-xs);
+	font-weight: 600;
+	color: var(--warn);
+}
+
+.multi-lane-hint {
+	font-size: var(--text-xs);
+	color: var(--text-muted);
+}
+
+.multi-lane-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+.multi-lane-item {
+	display: flex;
+	width: 100%;
+}
+
+.lane-pick-btn {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	width: 100%;
+	padding: var(--space-1) var(--space-2);
+	background: var(--bg-sunken);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	color: var(--ink);
+	font-family: inherit;
+	text-align: left;
+	transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.lane-pick-btn:hover {
+	background: var(--bg-hover);
+	border-color: var(--line-strong);
+}
+
+.lane-name-badge {
+	font-size: 11px;
+	font-weight: 600;
+	padding: 2px 6px;
+	border-radius: var(--radius-xs);
+	background: var(--bg-surface);
+	border: 1px solid var(--line);
+	color: var(--ink);
+	white-space: nowrap;
+}
+
+.lane-question-text {
+	font-size: var(--text-xs);
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.lane-action-arrow {
+	font-size: var(--text-xs);
+	color: var(--text-muted);
+}
+
+.lane-selection-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	padding: 2px 0;
+	margin-bottom: var(--space-1);
+}
+
+.back-to-lanes-btn {
+	font-size: 11px;
+	color: var(--brand-ink);
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 2px 4px;
+	border-radius: var(--radius-xs);
+}
+
+.back-to-lanes-btn:hover {
+	text-decoration: underline;
+}
+
+.active-lane-chip {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--warn);
+	background: var(--bg-surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-xs);
+	padding: 2px 6px;
+}
 .ask-box {
 	margin-top: var(--space-1);
 }

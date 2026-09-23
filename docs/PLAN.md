@@ -644,6 +644,192 @@ verificati su superficie reale; test suite verde (547 test passati); perimetro c
 
 ---
 
+## Piano Concorrenza Multi-Agente e Git Worktrees — Gate R27
+
+**Stato:** attuato (W01-W14 verificati il 2026-09-23, pubblicazione Nightly). Attua l'ADR del Gate R27 per consentire l'esecuzione concorrente di più agenti autonomi su branch isolati dello stesso repository tramite Git Worktrees fratelli, garantendo l'integrità del working tree principale e la compatibilità con progetti enterprise ASP.NET e .NET Core.
+
+### Principi architetturali del piano
+
+1. **Disaccoppiamento `Project` vs `AgentLane` vs `TaskRun`:** la radice canonica del repository resta l'identità primaria; le corsie sono unità operative effimere con proprio workspace isolato; i task della coda comune si associano alle corsie al momento del lancio.
+2. **Zero collisioni nel filesystem:** ogni agente opera nel proprio worktree allocato come cartella sorella (`<parent>/.omp-wt-<nome-repo>-<id>`). `bin/`, `obj/`, `.vs/` e `packages/` sono rigorosamente isolati senza junction.
+3. **Switch atomico e layout stabile:** la corsia selezionata governa simultaneamente file tree, Git panel, editor Monaco, terminale/chat, browser e anteprima; le dimensioni e le sezioni del layout a tre colonne restano proprietà stabili del Progetto.
+4. **Nessun auto-merge:** l'integrazione nel branch principale richiede sempre il passaggio dal wizard "Review & Integrate" con target branch pulito e strategia predefinita squash per obiettivo.
+
+---
+
+### Fase 1 — Fondazione di Dominio, Worktree Manager e Persistenza Rust
+
+- [x] **W01 — Modello di dominio e tipi TypeScript per le corsie** (`src/lib/types/lanes.ts`, `src/lib/stores/projects.svelte.ts`)
+  Definire le interfacce `AgentLane`, `LaneStatus` (`'active' | 'review_ready' | 'conflict' | 'integrating' | 'archived'`), `ProjectWorktreeProfile` e `TaskRunRecord`. Separare nel tipo `Project` l'identità stabile (`id`, `canonicalProjectPath`) dallo stato volatile di esecuzione, spostando file aperti, file attivo e superficie (`terminal` vs `gui`) dentro `AgentLane`.
+  **Accettazione:** `npm run check` compila con i nuovi tipi senza rompere i progetti esistenti a corsia singola (retrocompatibilità trasparente con `lane: 'main'`).
+
+- [x] **W02 — Modulo backend Rust `worktrees.rs`** (`src-tauri/src/projects/worktrees.rs`, `src-tauri/src/projects/mod.rs`)
+  Implementare i comandi nativi Tauri per la gestione dei worktree Git tramite CLI o libgit2:
+  - `worktree_create(project_path, base_commit, branch_name) -> WorktreeInfo`: crea la directory sorella `<parent>/.omp-wt-<nome-repo>-<id>`, genera il branch `omp/lane-<id>` ancorato a `base_commit` (SHA esplicito di `HEAD`) ed esegue `git worktree add`.
+  - `worktree_list(project_path) -> Vec<WorktreeInfo>`: interroga `git worktree list --porcelain` e restituisce percorsi, commit e branch collegati.
+  - `worktree_remove(project_path, worktree_path, force) -> Result<(), String>`: verifica l'assenza di processi Windows attivi, esegue `git worktree remove` e pulisce i metadati con `git worktree prune`.
+  - Validazione di sicurezza: registrazione rigida delle sole radici create da Studio; blocco tassativo di directory traversal (`..`) o path esterni al parent del repository.
+  **Accettazione:** test unitari Rust in `worktrees.rs` per creazione, listing, percorsi Windows/POSIX con spazi e rimozione sicura; fallimento controllato se la cartella target esiste già o è lockata.
+
+- [x] **W03 — Store reattivo `lanes.svelte.ts` e crash recovery** (`src/lib/stores/lanes.svelte.ts`)
+  Persistere corsie, titoli, branch target e profilo in `lanes.json` (directory dati dell'app). La scrittura e' `lanes_store_write_atomic`: il plugin store viene solo aperto e chiuso, perche' la sua save non e' atomica.
+  All'inizializzazione di Studio, eseguire la riconciliazione tra `lanes.json` e l'output reale di `worktree_list`:
+  - I worktree rimossi manualmente da riga di comando vengono marcati come `archived`;
+  - I worktree ancora presenti su disco ma non registrati nello store vengono re-idratati come corsie recuperabili con opzione "Riprendi".
+  **Accettazione:** chiusura forzata dell'app con corsia aperta; alla riapertura lo stato della corsia, il percorso del worktree e il branch vengono ripristinati senza perdite.
+
+---
+
+### Fase 2 — SessionRegistry Multi-Corsia, Routing Eventi e Lifecycle Processi
+
+- [x] **W04 — Generalizzazione di `SessionRegistry` per corsie** (`src/lib/agent/sessionRegistry.ts`, `src/lib/agent/session.svelte.ts`)
+  Estendere `SessionRegistry` per supportare chiavi di sessione strutturate:
+  `laneSessionKey(projectKey, laneId) -> "lane:<projectKey>:<laneId>"`.
+  Garantire l'avvio e l'arresto indipendente dei processi `omp` (PTY e RPC) per ciascuna corsia, vincolando ciascun processo al `workspacePath` del rispettivo worktree e agganciando l'albero processi a un Windows Job Object dedicato (`KILL_ON_JOB_CLOSE`).
+  Mantenere per ogni singola corsia la doppia superficie (Terminale PTY e Chat GUI) con handoff trasparente via `--resume <sessionId>`.
+  **Accettazione:** due corsie dello stesso progetto generano risposte contemporaneamente; l'arresto (`abort`) o il passaggio Terminale/GUI su una corsia non influenza minimamente l'altra.
+
+- [x] **W05 — Routing esatto per PromptBus, Companion, Ask e notifiche OS** (`src/lib/agent/promptBus.ts`, `src/lib/components/companion/companionStore.ts`, `src/routes/+page.svelte`)
+  Riformulare la risoluzione delle richieste interattive (`ask`, confirm, select):
+  - Correlazione vincolante per `sessionId` e `laneId`; eliminazione definitiva del fallback "prima sessione del progetto con input pendente".
+  - Isolamento delle interruzioni: una richiesta `ask` o il completamento di un task in una corsia in background **non ruba mai il focus** e non inietta testo o avvisi nella chat della corsia attiva.
+  - Lo stato di attesa si riflette esclusivamente con l'anello respirante ambra sulla tab della corsia e con l'aggregazione sulla tessera progetto in TopBar. Notifiche desktop native inviate solo quando l'applicazione o il progetto non sono a fuoco.
+  **Accettazione:** agente A su corsia 1 chiede una scelta con `ask` mentre l'utente digita nella chat della corsia Principale: nessun cambio di fuoco, nessun popup invasivo; la tab della corsia 1 pulsa in ambra; un clic sulla tab porta alla domanda intatta.
+
+- [x] **W06 — Isolamento watcher per Browser Studio, diagrammi e anteprime** (`src-tauri/src/diagrams.rs`, `src-tauri/src/previews.rs`, `src/lib/components/BrowserViewer.svelte`)
+  Sostituire il controllo `cwd.startsWith(projectPath)` (inadatto per worktree collocati come cartelle sorelle) con il controllo di appartenenza alla radice registrata della corsia attiva.
+  Garantire che Browser Studio, diagrammi Mermaid (`studio_diagram`) e anteprime UI (`studio_preview`) generati da un agente in worktree vengano associati e visualizzati esclusivamente nella corsia di competenza.
+  **Accettazione:** agente in worktree genera un diagramma Mermaid: la whiteboard della corsia Principale non subisce interferenze; commutando sulla corsia secondaria il diagramma compare immediatamente.
+
+---
+
+### Fase 3 — Workspace Switcher Atomico, UI Corsie e Coda Condivisa
+
+- [x] **W07 — Riga contestuale delle corsie (`LaneStrip.svelte`) e TopBar** (`src/lib/components/LaneStrip.svelte`, `src/lib/components/TopBar.svelte`)
+  Implementare il componente `LaneStrip.svelte` collocato sotto la TopBar:
+  - Visibile esclusivamente quando il progetto attivo possiede almeno una corsia secondaria (zero rumore nello scenario ordinario).
+  - Tab fissa `Principale` in prima posizione, seguita dalle tab delle corsie per obiettivo con nome sintetizzato, indicatore di stato (`working`, `idle`, `attention`, `review_ready`, `conflict`) e pulsante di chiusura/archiviazione.
+  - Pulsante `+ Nuova corsia` per la creazione manuale immediata.
+  - TopBar: la tessera progetto mostra lo stato aggregato peggiore (`attention` > `working` > `finished` > `idle`) e un chip con il conteggio delle corsie secondarie attive.
+  **Accettazione:** navigazione rapida da tastiera tra corsie con scorciatoia dedicata (`Ctrl+Alt+Left` / `Ctrl+Alt+Right`); rispetto dei contrasti WCAG AA e delle animazioni ridotte (`prefers-reduced-motion`).
+
+- [x] **W08 — Switch atomico del workspace su tre colonne** (`src/routes/+page.svelte`, `src/lib/components/FileTree.svelte`, `src/lib/components/GitPanel.svelte`, `src/lib/editor/Editor.svelte`)
+  Implementare la commutazione atomica e istantanea di workspace:
+  - Al cambio corsia, aggiornare sincronizzati: radice del FileTree (`projectPath` = `workspacePath`), stato del GitPanel (branch, diff, commit della corsia), modelli e tab aperti dell'editor Monaco, viewport dell'agente (chat o terminale ConPTY associato).
+  - Preservare inalterata la geometria delle tre colonne (larghezza pannello sinistro, larghezza colonna centrale, stato editor aperto/chiuso), evitando layout shift.
+  - Ripristino perfetto del contesto di lavoro: tornando alla corsia Principale o a una corsia secondaria, i file aperti e la posizione del cursore nell'editor tornano esattamente come lasciati.
+  **Accettazione:** passare dalla corsia Principale a una corsia secondaria e viceversa richiede meno di 50 ms percepiti, senza salti visivi e mostrando i file corretti di ciascun albero.
+
+- [x] **W09 — Routing deterministico della coda task e auto-dispatch coordinato** (`src/lib/lanes/queueDispatch.ts`, `src/lib/stores/tasks.svelte.ts`, `src/lib/components/AgentPanel.svelte`, `src/lib/components/LaneDispatchDialog.svelte`)
+  Ancorare definitivamente il file `.omp/tasks.json` alla sola radice canonica del progetto principale:
+  - Click su un task in coda: se `Principale` è inattiva, il task viene inviato a `Principale`; se `Principale` è al lavoro, compare il prompt *"Agente al lavoro. Avviare in una nuova corsia isolata?"*.
+  - `Shift` + click su un task in coda: crea istantaneamente una nuova corsia ed esegue il task senza dialog.
+  - Auto-dispatch (`autoDispatch`): consente al massimo **uno** slot worktree automatico per progetto; finché la corsia creata non viene archiviata (integrata o scartata), nessun ulteriore task parte automaticamente in worktree. Se l'utente crea corsie manuali, l'auto-avvio resta in pausa.
+  - Soft-cap: all'avvio del 3° agente simultaneo nello stesso progetto, Studio mostra un warning di sicurezza con il riepilogo delle risorse/quote prima di confermare.
+  **Accettazione:** 5 task in coda con auto-dispatch attivo: il primo parte su Principale; se occupato parte 1 worktree automatico; i restanti 3 attendono senza inondare il sistema di processi concorrenti.
+
+---
+
+### Fase 4 — Profilo di Progetto, Rilevamento Stack (.NET/Node) e Gestione File Locali
+
+- [x] **W10 — Stack Detector e profilo worktree di progetto** (`src/lib/lanes/stackDetector.ts`, `src/lib/lanes/laneProfile.ts`, `src/lib/components/LaneProfileDialog.svelte`, `src-tauri/src/projects/worktrees.rs`)
+  Analizzatore automatico dello stack alla prima creazione di corsia:
+  - Comando nativo `worktree_profile_scan`: raccolta limitata delle evidenze (manifesti `.sln`, `.csproj`, `.vbproj`, `.fsproj`, `packages.config`, `package.json`, `vite.config.*`, `svelte.config.*`, `web.config`, `index.html` con SDK style, `PackageReference` e TargetFramework), cartelle rigenerabili presenti, stima di `packages/`, cache globale NuGet e candidati non versionati.
+  - `stackDetector.ts` puro: classificazione per sottoprogetto (ASP.NET/.NET Framework, .NET SDK, Node, Vite, Svelte, frontend statico) con evidenza per manifesto, restore `package_reference` / `packages_config` / `mixed` e avvisi (stima disco per `packages.config`, cache NuGet assente, analisi parziale).
+  - Divieto assoluto di junction o copie su `bin/`, `obj/`, `.vs/`, `packages/`, `node_modules/` e output: lo scan non li attraversa e `worktree_apply_allowlist` rifiuta ogni percorso che li contiene o che esce dalla radice.
+  - Consenso una tantum sui file locali (`Parametri.ini`, `.env`, impostazioni locali): proposta con dimensione e regola, copia atomica nel worktree solo dopo conferma, decisione persistita in `lanes.json` come soli percorsi relativi piu' data.
+  **Accettazione:** verificata con `cargo test` su repository fixture misto (progetto `.vbproj` legacy con `packages.config`, frontend Vite/Svelte, cartelle generate e file locali) e con i test del detector su fixture di scan; nessuna copia senza consenso e allowlist riusata dalle corsie successive.
+
+- [x] **W11 — Supervisione dei processi runtime e pre-cleanup check** (`src/lib/lanes/processSupervisor.ts`, `src-tauri/src/process_tree.rs`)
+  I processi avviati da PTY e RPC sono associati a `projectId` + `laneId` e restano confinati nel Job Object gia' posseduto dalla sessione, senza supervisori paralleli, lookup per nome o riscrittura di porte/configurazioni. La tab della corsia espone un indicatore discreto finche' il processo radice e' vivo.
+  - `worktree_remove` esegue il pre-cleanup check sul registro nativo: con alberi vivi rifiuta la rimozione con `processes_active`; l'azione esplicita **Arresta processi e rimuovi** termina e attende soltanto gli alberi posseduti dalla corsia prima di invocare Git.
+  - Principale e le altre corsie restano fuori dal perimetro di arresto. Un lock Windows o qualunque rifiuto di Git mantiene la corsia non archiviata in `cleanup_pending`, persistita e riprovabile: solo il successo della rimozione autorizza `archived`.
+  - Nessuna riscrittura di porte, `launchSettings.json` o IIS Express: eventuali conflitti di bind restano visibili nell'output naturale del processo.
+  **Accettazione:** smoke nativo con processo innocuo confinato e test di rimozione worktree: cleanup bloccato mentre vivo; conferma arresta la sola corsia bersaglio, attende l'uscita e rimuove il worktree senza toccare Principale.
+
+---
+
+### Fase 5 — Vista "Review & Integrate", Squash per Obiettivo e Risoluzione Conflitti
+
+- [x] **W12 — Vista modale/dedicata "Review & Integrate"** (`src/lib/components/LaneReviewModal.svelte`, `src/lib/editor/Editor.svelte`)
+  Realizzare la superficie di revisione prima dell'integrazione nel branch principale:
+  - Differenze aggregate tra il branch della corsia (`omp/lane-<id>`) e il branch di destinazione (`targetBranch`) tramite diff Monaco side-by-side.
+  - Elenco dei file modificati con badge numerico `+X / -Y` e filtro per file.
+  - Quadro delle evidenze: commit eseguiti nella corsia e comandi di verifica/test estratti dal transcript con rispettivo exit code e durata.
+  - Gate di sicurezza bloccanti: pulsante "Integra" disabilitato se il working tree di destinazione presenta modifiche non committate (target dirty) o se risultano processi attivi nel worktree.
+  **Accettazione:** revisione ispezionabile senza toccare i file del branch principale; blocco immediato con spiegazione se l'utente ha modifiche non salvate sul main.
+
+- [x] **W13 — Integrazione Squash e risoluzione conflitti confinata** (`src-tauri/src/projects/worktrees.rs`, `src/lib/stores/lanes.svelte.ts`)
+  Implementare l'integrazione deterministica nel branch target:
+  - Strategia predefinita: **Squash per obiettivo** che genera un unico commit pulito e tracciato sul branch di destinazione con il titolo del task e il riepilogo delle modifiche; opzione secondaria per preservare i commit singoli.
+  - Gestione del drift e conflitti: se il branch principale è avanzato durante il lavoro della corsia, Studio non tocca il main ma esegue l'aggiornamento dentro la corsia (`git merge <targetBranch>`).
+  - In presenza di conflitti Git, la corsia passa allo stato `conflict`: l'utente può risolverli manualmente nell'editor della corsia oppure inviare un prompt contestualizzato precompilato all'agente della corsia. Il branch principale non viene mai esposto a conflitti irrisolti.
+  - Cleanup post-integrazione: rimozione automatica e sicura del worktree su disco (`git worktree remove`) e archiviazione del record in `lanes.json`.
+  **Accettazione:** integrazione con squash completata con successo: il branch main riceve un commit pulito; il worktree sorella viene rimosso dal disco; il transcript della corsia resta consultabile nello storico con badge `WORKTREE`.
+
+---
+
+### Fase 6 — Test E2E, Regressioni e Accettazione
+
+- [x] **W14 — Suite automatizzata di test e accettazione end-to-end** (`test/lanes-*.test.ts`, `src-tauri/src/projects/worktrees.rs`)
+  Implementare i test automatici a protezione delle invarianti del Gate R27:
+  1. Test percorsi: verifica generazione corretta dei percorsi sorella Windows (`C:\...\repos\.omp-wt-progetto-id`), normalizzazione path e assenza di conflitti `MAX_PATH`.
+  2. Test routing task: click normale con Principale idle/busy, `Shift` + click, vincolo a slot singolo di auto-dispatch.
+  3. Test isolamento code: verifica che le corsie leggano e scrivano esclusivamente sulla `.omp/tasks.json` canonica.
+  4. Test stack .NET: verifica assenza di junction su `bin/obj` e corretta rilevazione di `PackageReference` vs `packages.config`.
+  5. Test crash recovery: simulazione interruzione brutale di Studio e verifica riconciliazione coerente con `git worktree list --porcelain`.
+  **Accettazione:** esecuzione di `npm test` verde; compilazione frontend `npm run check` con 0 errori; compilazione backend `cargo test` verde.
+
+---
+
+### Criteri di accettazione e verifica finale del Gate R27
+
+| Criterio | Metrica osservabile | Metodo di verifica |
+|---|---|---|
+| **Isolamento working tree** | Modifiche concorrenti su 2 corsie non generano collisioni né sporcano il main | Creazione file omonimi in 2 corsie; verifica indipendenza dei diff |
+| **Inviolabilità target** | Il branch principale non riceve alcuna modifica finché l'utente non preme "Integra" | Ispezione `git status` e `git log` sul main durante l'esecuzione del task |
+| **Target dirty gate** | Integrazione rifiutata se il main contiene file modificati non committati | Tentativo di integrazione con file dirty sul main; blocco confermato |
+| **Compatibilità .NET** | Compilazione concorrente di 2 corsie .NET senza lock né conflitti su `bin/obj` | Esecuzione contemporanea di `dotnet build` in Principale e in worktree |
+| **Routing task deterministico** | Un task comune non viene assegnato alla corsia sbagliata | Test combinatorio di click, shift-click e auto-dispatch su code dense |
+| **Assenza processi orfani** | Chiusura o abort di una corsia termina tutti i processi figli e runtime | Verifica da Process Explorer / Task Manager su Windows Job Object |
+| **Riconciliazione crash** | Riavvio dopo SIGKILL ripristina le corsie e i transcript senza corruzione | Uccisione processo Studio, riapertura e verifica stato in `lanes.json` |
+
+### Esito della verifica W14 (2026-09-23)
+
+I nomi di file previsti in bozza (`lanes-worktree.test.ts`, `lanes-dotnet.test.ts`) non sono stati aggiunti: gli stessi contratti sono coperti dai test gia' presenti e dal test Rust `due_worktree_concorrenti_isolano_i_file_e_distinguono_i_profili_dotnet`.
+
+| Controllo | Esito |
+|---|---|
+| Due worktree concorrenti, file distinti, main pulito, niente junction su `bin`/`packages` | test Rust sullo stesso repository temporaneo |
+| PackageReference (`net8.0`) e `packages.config` (VB `v4.6.2`) nello stesso scan | stesso test, piu' `lanes-stack.test.ts` e `profila_stack_misto` |
+| Click / Maiusc+click / uno slot di auto-dispatch / coda canonica | `test/lanes-dispatch.test.ts` |
+| Crash: directory worktree rimossa a mano, Git la marca `prunable`, l'altra corsia resta | stesso test Rust; riconciliazione del registro in `test/lanes-store.test.ts` |
+| Target dirty, squash idempotente, conflitto confinato al worktree | `review_inspect_e_update_from_target_non_mutano_il_target`, `squash_crea_un_commit_e_il_ritento_non_ne_crea_un_altro`, `drift_conflitto_e_checkout_sbagliato_non_toccano_il_target` |
+| Cleanup processi: blocco, arresto della sola corsia, Principale viva | `w11_blocca_la_rimozione_finche_la_corsia_ha_processi_attivi` |
+| UI: riga assente senza corsie secondarie, switch, stato aggregato, ask non intrusivo, Review | `LaneStrip` montata solo se `secondaryLanes.length > 0`; scorciatoia `Ctrl+Alt+←/→` condizionale; gate in `integrationGate.ts` |
+
+Correzioni emerse dall'audit di chiusura e applicate prima della pubblicazione:
+
+- `resolve_managed_worktree` accetta il workspace della corsia anche quando il progetto e' aperto in una sottocartella del repository (rimozione, revisione, aggiornamento e integrazione); test di regressione sulla rimozione tramite `workspace_path`.
+- Il task perso all'avvio del processo omp rientra nella coda della radice canonica, mai in un `tasks.json` dentro il worktree.
+- Recupero e rifiuto del blocco di quota, nuova chat, `/new`, `/resume` e ripresa sessione agiscono sulla corsia indicata, non sempre su quella attiva.
+- Lo switch di corsia non attende la scrittura di `lanes.json` e lo snapshot della corsia uscente non registra piu' lo stato aggregato del progetto come stato proprio.
+- Rimossi gli alias legacy `main:<progetto>` dal registro sessioni e i test che verificavano copie locali della logica invece del codice di produzione.
+
+Comandi di chiusura (2026-09-23):
+
+| Comando | Esito misurato |
+|---|---|
+| `npm run check` | 3042 file, 0 errori, 0 warning |
+| `npm test` | 824 test superati, 0 falliti |
+| `npm run build` | build completata (`Wrote site to "build"`) |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | 200 superati, 1 ignorato |
+| `cargo check --manifest-path src-tauri/Cargo.toml` | completato senza errori |
+
+Smoke UI su Vite con un `__TAURI_INTERNALS__` simulato (un progetto, lanes.json e `git worktree list` finti): la riga corsie non compare con la sola Principale e compare con due corsie secondarie; il clic su una corsia la seleziona in 84 ms (due frame, build dev) mentre la scrittura di `lanes.json` e' rallentata a 1,5 s, e albero file, stato Git, badge diff e `rpc_open` passano al percorso del worktree; «Revisiona e integra» interroga `worktree_review_inspect` con radice canonica e worktree della corsia, mostra drift, file e commit, e con target sporco tiene spento «Integra» scrivendo il motivo; due worktree gestiti presenti in Git ma assenti da `lanes.json` tornano come corsie «Recuperata». Non verificati sulla superficie reale, perche' richiedono il binario desktop: la non intrusivita' delle Ask (coperta da `askFocus` in `lanes-routing.test.ts`) e la sopravvivenza dei processi allo switch.
+
+---
+
 ## Cosa NON entra in questo piano
 
 In linea con i principi di `PRODUCT.md`:
