@@ -11,13 +11,15 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { IconClose } from '$lib/icons';
 	import { isLaneRoutable, type AutomationGate } from '$lib/agent/automationGate';
+	import MentionText from './MentionText.svelte';
 	let {
 		open = false,
 		onClose,
 		onRunTask,
 		onEditTask,
 		onOpenProject,
-		gateFor
+		gateFor,
+		onOpenFile
 	} = $props<{
 		open?: boolean;
 		onClose?: () => void;
@@ -29,6 +31,7 @@
 		onEditTask?: (projectId: string, taskId: string) => void;
 		onOpenProject?: (projectId: string) => void;
 		gateFor: (projectId: string) => AutomationGate;
+		onOpenFile?: (projectId: string, relPath: string) => void;
 	}>();
 
 	let explainedProjectId = $state<string | null>(null);
@@ -202,10 +205,15 @@
 						{/if}
 						<div class="task-list" class:queue-cards={isCardView} role="list" aria-label={`Task in coda per ${group.project.name}`}>
 							{#each group.tasks as task (task.id)}
+								{@const handleOpen = (path: string) => onOpenFile?.(group.project.id, path)}
 								<div class="task-row" role="listitem">
 									<div class="task-main">
-										<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
-										<span class="task-excerpt">{taskExcerpt(task)}</span>
+										<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>
+											<MentionText text={taskTitle(task)} onOpenFile={handleOpen} />
+										</span>
+										<span class="task-excerpt">
+											<MentionText text={taskExcerpt(task)} onOpenFile={handleOpen} />
+										</span>
 										<div class="task-chips">
 											{#if task.status === 'in_progress'}
 												<span class="task-chip status-chip in-progress">{m.queue_drawer_status_in_progress()}</span>

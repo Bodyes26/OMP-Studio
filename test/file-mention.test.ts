@@ -13,6 +13,8 @@ import {
 	extractTouchedFilesFromTranscript
 } from '../src/lib/agent/fileMention.ts';
 import { extractSlashQueryAtCursor } from '../src/lib/agent/commands.ts';
+import { findFileMentions } from '../src/lib/agent/fileMentionSyntax.ts';
+import { lexMarkdownInlineWithMentions, type Token } from '../src/lib/agent/markdown.ts';
 
 test('File mention: intercettazione del carattere @ al cursore', () => {
 	// A inizio testo
@@ -62,6 +64,28 @@ test('File mention: inserimento del percorso relativo nel testo al cursore', () 
 	const res2 = insertFileMentionAtCursor('@', 0, 1, 'src/main.ts');
 	assert.equal(res2.newText, '@src/main.ts ');
 	assert.equal(res2.newCursorPos, 13);
+});
+
+test('File mention: percorsi con spazi tra virgolette, andata e ritorno', () => {
+	const res = insertFileMentionAtCursor('apri @def', 5, 9, 'Cruscotto PSR\\Default.aspx');
+	assert.equal(res.newText, 'apri @"Cruscotto PSR/Default.aspx" ');
+	// Quello che si inserisce deve tornare a essere lo stesso percorso quando lo si rilegge.
+	assert.deepEqual(findFileMentions(res.newText).map((m) => m.path), ['Cruscotto PSR/Default.aspx']);
+});
+
+test('File mention: solo cio che sembra un percorso diventa menzione', () => {
+	const text = 'vedi @src/a_b_.ts e @README.md. poi @Main, pippo@esempio.it, x@a.ts, @1.5 e @v1.2.3';
+	assert.deepEqual(findFileMentions(text).map((m) => m.path), ['src/a_b_.ts', 'README.md']);
+});
+
+test('File mention: nel markdown della bolla la menzione vince sull\'enfasi', () => {
+	const paths = (tokens: Token[]): string[] =>
+		tokens.flatMap((t) => (t.type === 'fileMention' ? [t.path] : 'tokens' in t && t.tokens ? paths(t.tokens) : []));
+	assert.deepEqual(paths(lexMarkdownInlineWithMentions('@src/__init__.py e **@lib/x.ts** e `@y.ts`')), [
+		'src/__init__.py',
+		'lib/x.ts'
+	]);
+	assert.deepEqual(paths(lexMarkdownInlineWithMentions('scrivi a pippo@esempio.it')), []);
 });
 
 test('File mention: esclusione categorica directory di rumore e build', () => {

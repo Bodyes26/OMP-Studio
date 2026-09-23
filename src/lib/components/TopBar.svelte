@@ -46,7 +46,7 @@
 		setupIncomplete = false,
 		labActive = false,
 		onRunTask, onEditTask, onNewTask, canRunTask, runReason,
-		onRequestCloseProject
+		onRequestCloseProject, onOpenFile
 	} = $props<{
 		onUsageClick?: () => void;
 		onNewProject?: () => void;
@@ -66,6 +66,8 @@
 		canRunTask?: (projectId: string) => boolean;
 		runReason?: (projectId: string) => string;
 		onRequestCloseProject?: (projectId: string) => void;
+		/** Apre nell'editor un file menzionato nei task del popover di progetto. */
+		onOpenFile?: (projectId: string, relPath: string) => void;
 	}>();
 
 	// Il Laboratorio prototipi e' una funzione alpha: i suoi due ingressi
@@ -901,6 +903,7 @@
 		{canRunTask}
 		{runReason}
 		{onRequestCloseProject}
+		{onOpenFile}
 	/>
 {/if}
 

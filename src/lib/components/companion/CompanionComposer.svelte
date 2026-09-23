@@ -5,6 +5,8 @@
 	import type { QuickTaskAiParsed } from '$lib/stores/companion.svelte';
 	import type { DisplayToken, LocalQuickTask } from '$lib/companion/quickTaskLocal';
 	import type { ImageContent } from '$lib/agent/wire';
+	import type { RankedFileItem } from '$lib/agent/fileMention';
+	import FileMentionPalette from '$lib/agent/components/FileMentionPalette.svelte';
 	import { IconArrowUp, IconAttach, IconCheck, IconClose, IconWarning } from '$lib/icons';
 
 	type MentionItem = {
@@ -31,6 +33,10 @@
 		mentionOpen,
 		mentionItems,
 		mentionIndex,
+		fileMentionOpen,
+		fileMentionItems,
+		fileMentionIndex,
+		fileMentionEmpty,
 		local,
 		aiParsed,
 		parseError,
@@ -49,7 +55,9 @@
 		onTriggerFileInput,
 		onFileInputChange,
 		onSaveTask,
-		onChooseMention
+		onChooseMention,
+		onFileMentionSelect,
+		onFileMentionClose
 	} = $props<{
 		taskInput?: string;
 		inputEl?: HTMLTextAreaElement | null;
@@ -66,6 +74,10 @@
 		mentionOpen: boolean;
 		mentionItems: MentionItem[];
 		mentionIndex: number;
+		fileMentionOpen: boolean;
+		fileMentionItems: RankedFileItem[];
+		fileMentionIndex: number;
+		fileMentionEmpty: string | undefined;
 		local: LocalQuickTask;
 		aiParsed: QuickTaskAiParsed | null;
 		parseError: string | null;
@@ -85,10 +97,12 @@
 		onFileInputChange: (e: Event) => void;
 		onSaveTask: () => void | Promise<void>;
 		onChooseMention: (value: string) => void;
+		onFileMentionSelect: (item: RankedFileItem) => void;
+		onFileMentionClose: () => void;
 	}>();
 
 	const TOKEN_HINTS = $derived.by(() => [
-		{ char: '@', label: m.companion_token_project(), title: m.ui_companionview_scegli_il_progetto_di_destinazione_254a() },
+		{ char: '#', label: m.companion_token_project(), title: m.ui_companionview_scegli_il_progetto_di_destinazione_254a() },
 		{ char: '/', label: m.companion_token_directive(), title: m.ui_companionview_aggiungi_una_direttiva_al_task_e689() },
 		{ char: '!', label: m.companion_token_role(), title: m.ui_companionview_forza_il_ruolo_o_il_modello_32cf() }
 	]);
@@ -119,7 +133,7 @@
 				stanno tutti su una riga sola, senza spazi di indentazione fra i tag:
 				qualunque carattere in piu' disallineerebbe il caret.
 			-->
-			<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>{#each displayTokens as token, idx (idx)}<span class="tok" class:project={token.kind === 'project'} class:directive={token.kind === 'directive'} class:role={token.kind === 'role'}>{token.text}</span>{/each}{#if taskInput.endsWith('\n')}<span>&#8203;</span>{/if}</div>
+			<div class="composer-backdrop" aria-hidden="true" bind:this={backdropEl}>{#each displayTokens as token, idx (idx)}<span class="tok" class:project={token.kind === 'project'} class:directive={token.kind === 'directive'} class:role={token.kind === 'role'} class:file={token.kind === 'file'}>{token.text}</span>{/each}{#if taskInput.endsWith('\n')}<span>&#8203;</span>{/if}</div>
 			<textarea
 				bind:this={inputEl}
 				bind:value={taskInput}
@@ -273,6 +287,16 @@
 		</div>
 	{/if}
 
+	<FileMentionPalette
+		open={fileMentionOpen}
+		items={fileMentionItems}
+		selectedIndex={fileMentionIndex}
+		anchor={composerEl}
+		emptyMessage={fileMentionEmpty}
+		onSelect={onFileMentionSelect}
+		onClose={onFileMentionClose}
+	/>
+
 	{#if successNotice}
 		<div class="notice success" transition:slide={{ duration: 180 }}>
 			<IconCheck />
@@ -315,7 +339,7 @@
 				{:else if hasMissingProject}
 					<p class="parsed-note">
 						<IconWarning />
-						<span>Scrivi <span class="token-char">@</span>{m.ui_companionview_progetto_oppure_salva_e_lascia_decidere_all_cea9()}</span>
+						<span>Scrivi <span class="token-char">#</span>{m.ui_companionview_progetto_oppure_salva_e_lascia_decidere_all_cea9()}</span>
 					</p>
 				{/if}
 			</div>

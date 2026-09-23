@@ -1,5 +1,6 @@
 import { matchesLooseQuery } from '../looseSearch.ts';
 import { invoke } from '@tauri-apps/api/core';
+import { formatFileMention } from './fileMentionSyntax.ts';
 
 /**
  * Directory di compilazione, cache e rumore da escludere categoricamente
@@ -62,8 +63,9 @@ export function extractFileMentionAtCursor(
 		return null;
 	}
 
-	// Se l'utente ha digitato uno spazio dopo '@', la menzione e' conclusa
-	const query = beforeCursor.slice(lastAtIndex + 1);
+	// Se l'utente ha digitato uno spazio dopo '@', la menzione e' conclusa.
+	// La virgoletta iniziale di `@"percorso con spazi"` non fa parte della ricerca.
+	const query = beforeCursor.slice(lastAtIndex + 1).replace(/^"/, '');
 	if (query.includes(' ') || query.includes('\t')) {
 		return null;
 	}
@@ -93,8 +95,7 @@ export function insertFileMentionAtCursor(
 ): { newText: string; newCursorPos: number } {
 	const before = text.slice(0, startIndex);
 	const after = text.slice(endIndex);
-	const normalizedPath = filePath.replace(/\\/g, '/');
-	const mentionText = `@${normalizedPath} `;
+	const mentionText = `${formatFileMention(filePath)} `;
 	const newText = before + mentionText + after;
 	const newCursorPos = before.length + mentionText.length;
 	return {

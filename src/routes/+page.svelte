@@ -1923,6 +1923,14 @@
 		};
 	}
 
+	// Chip @file nelle anteprime dei task (coda, popover di progetto): apre il
+	// file nel progetto del task e toglie di mezzo la superficie sopra l'editor.
+	function openMentionedFile(projectId: string, relPath: string) {
+		queueOpen = false;
+		void handleTerminalOpenFile(projectId, relPath, null);
+		closeActiveSurface();
+	}
+
 	let ompVersion = $state<string | null>(null);
 	let isCheckingUpdate = $state(false);
 	let updateMessage = $state<string | null>(null);
@@ -2431,6 +2439,7 @@
 		canRunTask={(projectId) => automationGate(projectId, MAIN_LANE_ID).ready}
 		runReason={(projectId) => automationGate(projectId, MAIN_LANE_ID).label}
 		onRequestCloseProject={handleRequestCloseProject}
+		onOpenFile={openMentionedFile}
 	/>
 	{#if projectStore.activeProject && projectStore.activeProject.canonicalProjectPath}
 		{@const secondaryLanes = laneStore.lanesFor(projectStore.activeProject.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')}
@@ -2480,6 +2489,7 @@
 		onEditTask={openTaskOfProject}
 		onOpenProject={openProjectFromQueue}
 		gateFor={(projectId: string) => automationGate(projectId, MAIN_LANE_ID)}
+		onOpenFile={openMentionedFile}
 	/>
 
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
@@ -2616,7 +2626,7 @@
 							onEditTask={(taskId) => openTask(taskId)}
 							onResumeSession={(sessionId) => void handleResumeSession(proj.id, sessionId)}
 							onOpenFile={(relPath) => {
-								projectStore.openFile(proj.id, relPath);
+								void handleTerminalOpenFile(proj.id, relPath, null);
 								closeActiveSurface();
 							}}
 						/>

@@ -33,15 +33,8 @@
 	import { isTypingSurface } from '../askFocus';
 import CommandPalette from './CommandPalette.svelte';
 import FileMentionPalette from './FileMentionPalette.svelte';
-import {
-	extractFileMentionAtCursor,
-	insertFileMentionAtCursor,
-	rankFileCandidates,
-	loadProjectFiles,
-	extractTouchedFilesFromTranscript,
-	type FileMentionMatch,
-	type RankedFileItem
-} from '../fileMention';
+import { loadProjectFiles, extractTouchedFilesFromTranscript } from '../fileMention';
+import { FileMentionController } from '../fileMentionController.svelte';
 import { projectStore } from '$lib/stores/projects.svelte';
 import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 import {
@@ -88,13 +81,27 @@ import { getCaretCoordinates } from './caretCoordinates';
 	let paletteQuery = $state('');
 	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
 
-	// Stato per menzioni file (@file con ricerca fuzzy)
-	let fileMentionOpen = $state(false);
-	let fileMentionQuery = $state('');
-	let currentFileMentionMatch = $state<FileMentionMatch | null>(null);
-	let fileMentionCandidates = $state<RankedFileItem[]>([]);
-	let fileMentionSelectedIndex = $state(0);
-	let projectFilesList = $state<string[]>([]);
+	// Menzioni file (@file con ricerca fuzzy): stato e tastiera nel controller
+	// condiviso con editor dei task e companion.
+	const fileMention = new FileMentionController({
+		projectPath: () => projectStore.activeProject?.lane.workspacePath,
+		rankingContext: () => ({
+			activeFile: projectStore.activeProject?.lane.activeFile,
+			openFiles: projectStore.activeProject?.lane.openFiles,
+			touchedFiles: extractTouchedFilesFromTranscript(session.entries)
+		}),
+		apply: (newText, caret) => {
+			text = newText;
+			adjustTextareaHeight();
+			void tick().then(() => {
+				if (!textareaEl) return;
+				adjustTextareaHeight();
+				textareaEl.focus();
+				textareaEl.setSelectionRange(caret, caret);
+				updateSmoothCursor(true);
+			});
+		}
+	});
 	let fileMentionCaretAnchor = $state<HTMLElement | null>(null);
 
 	// Stato per smooth cursor (cursore fluido animato sulla textarea di chat)
@@ -249,15 +256,11 @@ $effect(() => {
 	const item = modelListEl.children[highlightedModelIndex] as HTMLElement | undefined;
 	item?.scrollIntoView({ block: 'nearest' });
 });
+	// Scalda la cache del catalogo: la prima @ dopo il cambio progetto non
+	// deve aspettare la lettura del disco.
 	$effect(() => {
 		const pPath = projectStore.activeProject?.lane.workspacePath;
-		if (pPath) {
-			void loadProjectFiles(pPath).then((files) => {
-				projectFilesList = files;
-			});
-		} else {
-			projectFilesList = [];
-		}
+		if (pPath) void loadProjectFiles(pPath);
 	});
 
 	function updateSlashState() {
@@ -267,68 +270,26 @@ $effect(() => {
 		currentSlashMatch = match;
 		paletteQuery = match?.query ?? '';
 		paletteOpen = shouldOpenSlashPaletteAtCursor(match, allCommands);
-		if (paletteOpen) {
-			fileMentionOpen = false;
-			currentFileMentionMatch = null;
-		}
+		if (paletteOpen) fileMention.close();
 
 		if (match && session.availableCommands.length === 0) {
 			void loadAvailableCommands().then(() => {
 				if (visible) {
 					paletteOpen = shouldOpenSlashPaletteAtCursor(currentSlashMatch, allCommands);
-					if (paletteOpen) {
-						fileMentionOpen = false;
-						currentFileMentionMatch = null;
-					}
+					if (paletteOpen) fileMention.close();
 				}
 			});
 		}
 	}
 
-	async function updateFileMentionState() {
+	function updateFileMentionState() {
 		if (!textareaEl) return;
+		// La palette slash ha la precedenza sulla @.
 		if (paletteOpen) {
-			fileMentionOpen = false;
-			currentFileMentionMatch = null;
+			fileMention.close();
 			return;
 		}
-
-		const cursor = textareaEl.selectionStart ?? text.length;
-		const match = extractFileMentionAtCursor(text, cursor);
-		currentFileMentionMatch = match;
-
-		if (!match) {
-			fileMentionOpen = false;
-			fileMentionQuery = '';
-			fileMentionCandidates = [];
-			fileMentionSelectedIndex = 0;
-			return;
-		}
-
-		fileMentionQuery = match.query;
-
-		const activeProj = projectStore.activeProject;
-		if (activeProj?.lane.workspacePath && projectFilesList.length === 0) {
-			projectFilesList = await loadProjectFiles(activeProj.lane.workspacePath);
-		}
-
-		const touched = extractTouchedFilesFromTranscript(session.entries);
-		const ranked = rankFileCandidates(
-			match.query,
-			projectFilesList,
-			{
-				activeFile: activeProj?.lane.activeFile,
-				openFiles: activeProj?.lane.openFiles,
-				touchedFiles: touched
-			},
-			8
-		);
-
-		fileMentionCandidates = ranked;
-		if (fileMentionSelectedIndex >= ranked.length) {
-			fileMentionSelectedIndex = 0;
-		}
-		fileMentionOpen = true;
+		void fileMention.update(text, textareaEl.selectionStart ?? text.length);
 	}
 	function isComposerActiveAndFocused(): boolean {
 		if (!textareaEl || typeof document === 'undefined') return false;
@@ -483,13 +444,13 @@ $effect(() => {
 	function handleComposerInput() {
 		adjustTextareaHeight();
 		updateSlashState();
-		void updateFileMentionState();
+		updateFileMentionState();
 		updateSmoothCursor();
 	}
 
 	function handleCursorMovement() {
 		updateSlashState();
-		void updateFileMentionState();
+		updateFileMentionState();
 		updateSmoothCursor();
 	}
 	function handleInputRowClick(event: MouseEvent) {
@@ -762,12 +723,12 @@ $effect(() => {
 
 
 	function closeMenus(event: MouseEvent) {
-		if (!visible || (!activeMenu && !paletteOpen && !fileMentionOpen)) return;
+		if (!visible || (!activeMenu && !paletteOpen && !fileMention.open)) return;
 		const target = event.target;
 		if (target instanceof Element && target.closest('.dropdown-menu, .palette-container, .file-mention-container')) return;
 		activeMenu = null;
 		paletteOpen = false;
-		fileMentionOpen = false;
+		fileMention.close();
 	}
 	$effect(() => {
 		if (!session.isStreaming && activeMenu === 'send') {
@@ -824,7 +785,7 @@ $effect(() => {
 		// ne' ci sono dialoghi/menu aperti. Vale solo partendo dal vuoto (body) o dall'interno del composer:
 		// se il fuoco e' su un controllo di un'altra superficie (bottoni del TaskEditor, albero file, tessere)
 		// la digitazione resta li' invece di venire dirottata nella chat del progetto attivo.
-		if (!isComposerTextarea && !activeMenu && !paletteOpen && !fileMentionOpen && !hasOpenOverlay) {
+		if (!isComposerTextarea && !activeMenu && !paletteOpen && !fileMention.open && !hasOpenOverlay) {
 			if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && !event.isComposing) {
 				if (event.key === ' ' && isInteractiveElement) {
 					// Lascia che lo spazio attivi l'elemento con focus
@@ -853,9 +814,9 @@ $effect(() => {
 				textareaEl?.focus();
 				return;
 			}
-			if (fileMentionOpen) {
+			if (fileMention.open) {
 				event.preventDefault();
-				fileMentionOpen = false;
+				fileMention.close();
 				textareaEl?.focus();
 				return;
 			}
@@ -1073,7 +1034,7 @@ $effect(() => {
 			if (handled) {
 				text = '';
 				paletteOpen = false;
-				fileMentionOpen = false;
+				fileMention.close();
 				adjustTextareaHeight();
 				return;
 			}
@@ -1083,75 +1044,18 @@ $effect(() => {
 		text = '';
 		attachedImages = [];
 		paletteOpen = false;
-		fileMentionOpen = false;
+		fileMention.close();
 		adjustTextareaHeight();
 		await session.prompt(raw, imagesToSend, behavior ?? settingsStore.general.defaultStreamingBehavior);
 	}
 
-	function handleFileMentionPick(item: RankedFileItem) {
-		if (!currentFileMentionMatch) {
-			fileMentionOpen = false;
-			return;
-		}
-
-		const res = insertFileMentionAtCursor(
-			text,
-			currentFileMentionMatch.startIndex,
-			currentFileMentionMatch.endIndex,
-			item.path
-		);
-		text = res.newText;
-		fileMentionOpen = false;
-		currentFileMentionMatch = null;
-		adjustTextareaHeight();
-
-		void tick().then(() => {
-			if (textareaEl) {
-				adjustTextareaHeight();
-				textareaEl.focus();
-				textareaEl.setSelectionRange(res.newCursorPos, res.newCursorPos);
-				updateSmoothCursor(true);
-			}
-		});
-	}
-
 	function handleKeydown(event: KeyboardEvent) {
-		// Gestione navigazione e selezione popover menzione file @
-		if (fileMentionOpen) {
-			if (event.key === 'ArrowDown') {
-				event.preventDefault();
-				if (fileMentionCandidates.length > 0) {
-					fileMentionSelectedIndex = (fileMentionSelectedIndex + 1) % fileMentionCandidates.length;
-				}
-				return;
-			}
-			if (event.key === 'ArrowUp') {
-				event.preventDefault();
-				if (fileMentionCandidates.length > 0) {
-					fileMentionSelectedIndex = (fileMentionSelectedIndex - 1 + fileMentionCandidates.length) % fileMentionCandidates.length;
-				}
-				return;
-			}
-			if (event.key === 'Enter' || event.key === 'Tab') {
-				event.preventDefault();
-				if (fileMentionCandidates.length > 0 && fileMentionCandidates[fileMentionSelectedIndex]) {
-					handleFileMentionPick(fileMentionCandidates[fileMentionSelectedIndex]);
-				} else {
-					fileMentionOpen = false;
-				}
-				return;
-			}
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				fileMentionOpen = false;
-				textareaEl?.focus();
-				return;
-			}
-		}
+		// Navigazione e selezione della palette menzione file @
+		if (fileMention.handleKeydown(event)) return;
 
 		// Alt+Enter: invia con la modalita' opposta al default
 		if (event.key === 'Enter' && event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
-			if (paletteOpen || fileMentionOpen) {
+			if (paletteOpen || fileMention.open) {
 				// Se la palette o il popover file e' aperto, lascia che sia esso a gestire l'Enter
 				return;
 			}
@@ -1162,7 +1066,7 @@ $effect(() => {
 
 		// Enter: invia con la modalita' predefinita da impostazioni
 		if (event.key === 'Enter' && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
-			if (paletteOpen || fileMentionOpen) {
+			if (paletteOpen || fileMention.open) {
 				// Se la palette o il popover file e' aperto, lascia che sia esso a gestire l'Enter
 				return;
 			}
@@ -1279,12 +1183,12 @@ $effect(() => {
 
 	<!-- Palette menzioni file @ -->
 	<FileMentionPalette
-		open={visible && fileMentionOpen}
-		items={fileMentionCandidates}
-		selectedIndex={fileMentionSelectedIndex}
+		open={visible && fileMention.open}
+		items={fileMention.items}
+		selectedIndex={fileMention.selectedIndex}
 		anchor={fileMentionCaretAnchor || composerEl}
-		onSelect={handleFileMentionPick}
-		onClose={() => (fileMentionOpen = false)}
+		onSelect={(item) => fileMention.pick(item)}
+		onClose={() => fileMention.close()}
 	/>
 
 	<!-- Miniature delle immagini allegate -->

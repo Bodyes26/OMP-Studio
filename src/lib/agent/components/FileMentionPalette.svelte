@@ -13,6 +13,7 @@
 		items = [],
 		selectedIndex = 0,
 		anchor = null,
+		emptyMessage = 'Nessun file corrispondente',
 		onSelect,
 		onClose
 	} = $props<{
@@ -20,6 +21,8 @@
 		items: RankedFileItem[];
 		selectedIndex: number;
 		anchor: HTMLElement | null;
+		/** Testo al posto della lista vuota (es. progetto non ancora scelto). */
+		emptyMessage?: string;
 		onSelect: (item: RankedFileItem) => void;
 		onClose: () => void;
 	}>();
@@ -88,7 +91,7 @@
 			</div>
 		{:else}
 			<div class="mention-empty">
-				<span>Nessun file corrispondente</span>
+				<span>{emptyMessage}</span>
 			</div>
 		{/if}
 

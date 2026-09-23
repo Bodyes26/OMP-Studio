@@ -6,7 +6,8 @@
 // L'unico `{@html}` dell'intero percorso e' il risultato di
 // `monaco.editor.colorize`, che produce markup nostro.
 
-import { marked, type Token, type Tokens } from 'marked';
+import { Marked, marked, type Token, type Tokens } from 'marked';
+import { findFileMentions, matchFileMentionAt } from './fileMentionSyntax.ts';
 
 export type { Token, Tokens };
 
@@ -47,6 +48,46 @@ export function lexMarkdownInline(source: string): Token[] {
 	if (!source) return [];
 	try {
 		return marked.Lexer.lexInline(source, { gfm: true, breaks: true });
+	} catch {
+		return [{ type: 'text', raw: source, text: source } as Tokens.Text];
+	}
+}
+
+/** Menzione `@percorso` riconosciuta nel testo scritto dall'utente. */
+export interface FileMentionToken {
+	type: 'fileMention';
+	raw: string;
+	path: string;
+}
+
+// Istanza separata: le menzioni valgono solo nel testo scritto dall'utente
+// (bolle, anteprime dei task), non nelle risposte del modello o dei tool.
+// Come estensione di marked, e non come passata sul testo, la menzione vince
+// sull'enfasi: `@src/__init__.py` resta un percorso e non diventa grassetto.
+const mentionMarked = new Marked({
+	gfm: true,
+	breaks: true,
+	extensions: [
+		{
+			name: 'fileMention',
+			level: 'inline',
+			start: (src: string) => findFileMentions(src)[0]?.start,
+			tokenizer(src: string, tokens: Token[]): FileMentionToken | undefined {
+				// La @ vale solo a inizio testo o dopo uno spazio (niente email).
+				const previous = tokens.at(-1)?.raw;
+				if (previous && !/\s$/.test(previous)) return undefined;
+				const match = matchFileMentionAt(src);
+				return match ? { type: 'fileMention', raw: match.raw, path: match.path } : undefined;
+			}
+		}
+	]
+});
+
+/** Come `lexMarkdownInline`, con le menzioni `@file` come token `fileMention`. */
+export function lexMarkdownInlineWithMentions(source: string): Token[] {
+	if (!source) return [];
+	try {
+		return mentionMarked.Lexer.lexInline(source, mentionMarked.defaults);
 	} catch {
 		return [{ type: 'text', raw: source, text: source } as Tokens.Text];
 	}

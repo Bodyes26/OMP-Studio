@@ -6,10 +6,12 @@
  *
  * Scopo architetturale:
  * Evitare l'avvio di processi esterni (come il CLI `omp`) mentre l'utente digita.
- * L'interpretazione dei token (@progetto, !ruolo, /direttiva) e' istantanea.
+ * L'interpretazione dei token (#progetto, !ruolo, /direttiva) e' istantanea.
  * L'intervento dell'AI (parse_quick_task_ai) e' riservato solo alla fase di salvataggio
  * e solo quando il progetto non puo' essere determinato localmente in modo univoco (needsAi === true).
  */
+
+import { findFileMentions } from '../agent/fileMentionSyntax.ts';
 
 export interface LocalProjectRef {
 	id: string;
@@ -32,7 +34,7 @@ export interface LocalQuickTask {
 	role: string | null;
 	modelSelector: string | null;
 	directiveIds: string[];
-	taskPrompt: string; // testo ripulito dai token riconosciuti (@, !, /)
+	taskPrompt: string; // testo ripulito dai token riconosciuti (#, !, /)
 	needsAi: boolean; // true se il progetto non e' determinabile localmente con percorso valido
 }
 
@@ -53,7 +55,7 @@ export interface MentionState {
 }
 export interface DisplayToken {
 	text: string;
-	kind?: 'project' | 'directive' | 'role';
+	kind?: 'project' | 'directive' | 'role' | 'file';
 	label?: string;
 }
 
@@ -62,7 +64,7 @@ export interface DisplayToken {
  * Normalizza una stringa eliminando maiuscole, spazi, trattini e underscore.
  *
  * PERCHE':
- * L'utente spesso digita token compatti come `@cruscottopsr` o `@portalinocdb`
+ * L'utente spesso digita token compatti come `#cruscottopsr` o `#portalinocdb`
  * a fronte di nomi progetto registrati come "Cruscotto PSR" o "portalino_cdb".
  * Rimuovendo i separatori e uniformando a minuscolo, il confronto risulta
  * tollerante e naturale senza richiedere digitazione mnemonica esatta.
@@ -88,17 +90,17 @@ interface ConsumedSpan {
 }
 
 /**
- * Numero massimo di parole che un token `@progetto` puo' abbracciare.
+ * Numero massimo di parole che un token `#progetto` puo' abbracciare.
  * I nomi progetto reali arrivano a due o tre parole ("Studio OMP",
  * "Cruscotto PSR", "Gestione Storni Quote"); oltre si tratta di prosa.
  */
 const MAX_PROJECT_TOKEN_WORDS = 6;
 
 /**
- * Un token `@progetto` individuato nel testo, con lo span esatto che occupa.
+ * Un token `#progetto` individuato nel testo, con lo span esatto che occupa.
  * `project === null` significa token presente ma non risolvibile in modo univoco.
  */
-interface ProjectTokenMatch {
+export interface ProjectTokenMatch {
 	start: number;
 	end: number;
 	project: LocalProjectRef | null;
@@ -139,20 +141,20 @@ function resolveProjectCandidates(
 }
 
 /**
- * Individua i token `@progetto` e lo span di testo che ciascuno occupa.
+ * Individua i token `#progetto` e lo span di testo che ciascuno occupa.
  *
  * PERCHE' MULTI-PAROLA:
  * il suggeritore inserisce il nome esatto del progetto, spazi inclusi
- * (`@Studio OMP `). Fermarsi al primo spazio spezzerebbe il token: la pillola
- * coprirebbe solo "@Studio" e "OMP" resterebbe nel prompt come parola di prosa.
+ * (`#Studio OMP `). Fermarsi al primo spazio spezzerebbe il token: la pillola
+ * coprirebbe solo "#Studio" e "OMP" resterebbe nel prompt come parola di prosa.
  * Si prova quindi la sequenza di parole piu' lunga e si accorcia finche' un
  * solo progetto resta in gara; le parole successive al nome ("perche' anche
  * se...") non concatenano mai chiavi che assomigliano a un progetto noto.
  */
-function findProjectTokens(rawText: string, projects: LocalProjectRef[]): ProjectTokenMatch[] {
-	// La corsa parte da '@' e prosegue su parole separate da spazi orizzontali:
+export function findProjectTokens(rawText: string, projects: LocalProjectRef[]): ProjectTokenMatch[] {
+	// La corsa parte da '#' e prosegue su parole separate da spazi orizzontali:
 	// mai a capo, mai oltre punteggiatura (che chiude naturalmente il nome).
-	const runRegex = /(?:^|\s)(@([\w.\-]+(?:[ \t]+[\w.\-]+)*))/g;
+	const runRegex = /(?:^|\s)(#([\w.\-]+(?:[ \t]+[\w.\-]+)*))/g;
 	const matches: ProjectTokenMatch[] = [];
 	let runMatch: RegExpExecArray | null;
 
@@ -275,7 +277,7 @@ export function parseQuickTaskLocal(text: string, input: LocalParseInput): Local
 	}
 
 	// --------------------------------------------------------------------------
-	// 3. Estrazione e matching del progetto (@progetto o riconoscimento prudente)
+	// 3. Estrazione e matching del progetto (#progetto o riconoscimento prudente)
 	// --------------------------------------------------------------------------
 	const projects = input.projects ?? [];
 	const projectTokens = findProjectTokens(rawText, projects);
@@ -283,7 +285,7 @@ export function parseQuickTaskLocal(text: string, input: LocalParseInput): Local
 	let projectResolutionFailed = false;
 
 	if (projectTokens.length > 0) {
-		// Abbiamo uno o piu' token espliciti con '@'
+		// Abbiamo uno o piu' token espliciti con '#'
 		for (const pt of projectTokens) {
 			if (!pt.project) {
 				// Zero match o match multiplo ambiguo allo stesso livello
@@ -306,7 +308,7 @@ export function parseQuickTaskLocal(text: string, input: LocalParseInput): Local
 			resolvedProject = null;
 		}
 	} else {
-		// Nessun token con '@': tentiamo un riconoscimento prudente su parola intera.
+		// Nessun token con '#': tentiamo un riconoscimento prudente su parola intera.
 		// Solo se esattamente UN SOLO progetto noto compare nel testo, lo adottiamo;
 		// altrimenti lasciamo che intervenga l'AI (needsAi = true).
 		const matchedByWholeWord: LocalProjectRef[] = [];
@@ -375,18 +377,18 @@ export function parseQuickTaskLocal(text: string, input: LocalParseInput): Local
 
 /**
  * Esamina il testo fino alla posizione del cursore per determinare se l'utente
- * sta digitando una menzione (@ progetto, / direttiva, ! ruolo o modello).
+ * sta digitando una menzione (# progetto, / direttiva, ! ruolo o modello).
  */
 export function mentionStateAt(text: string, caret: number): MentionState {
 	const safeText = text ?? '';
 	const safeCaret = Math.max(0, Math.min(caret ?? 0, safeText.length));
 	const textBeforeCaret = safeText.slice(0, safeCaret);
 
-	// Riconoscimento menzione progetto: /(^|\s)@([\w.\-]*)$/
-	const projectMatch = /(^|\s)@([\w.\-]*)$/.exec(textBeforeCaret);
-	if (projectMatch) {
-		const query = projectMatch[2];
-		const start = textBeforeCaret.length - (query.length + 1); // Indice esatto del carattere '@'
+	// Riconoscimento menzione progetto: /(^|\s)#([\w.\-]*)$/
+	const projectMatch = /(^|\s)#([\w.\-]*)$/.exec(textBeforeCaret);
+ 	if (projectMatch) {
+ 		const query = projectMatch[2];
+		const start = textBeforeCaret.length - (query.length + 1); // Indice esatto del carattere '#'
 		return {
 			kind: 'project',
 			query,
@@ -442,7 +444,7 @@ export function applyMention(
 	}
 
 	const safeText = text ?? '';
-	const prefix = state.kind === 'project' ? '@' : state.kind === 'directive' ? '/' : '!';
+	const prefix = state.kind === 'project' ? '#' : state.kind === 'directive' ? '/' : '!';
 	const replacement = `${prefix}${value} `;
 
 	const before = safeText.slice(0, state.start);
@@ -464,7 +466,7 @@ export function applyMention(
  * INVARIANTE FONDAMENTALE:
  * La concatenazione di `tokens.map(t => t.text).join('')` e' sempre rigorosamente identica
  * al testo sorgente (preservando spazi, a capo, tabulazioni e posizioni assolute dei caratteri).
- * Solo i token espliciti (@progetto, /direttiva, !ruolo o !modello) riconosciuti con successo
+ * Solo i token espliciti (#progetto, /direttiva, !ruolo o !modello, menzioni @file) riconosciuti con successo
  * vengono contrassegnati con il rispettivo `kind`, permettendo il rendering come pillola
  * senza alterare la larghezza complessiva o disallineare il caret della textarea.
  */
@@ -475,7 +477,7 @@ export function tokenizeForDisplay(text: string, input: LocalParseInput): Displa
 	interface RecognizedSpan {
 		start: number;
 		end: number;
-		kind: 'project' | 'directive' | 'role';
+		kind: 'project' | 'directive' | 'role' | 'file';
 		label?: string;
 	}
 
@@ -539,7 +541,7 @@ export function tokenizeForDisplay(text: string, input: LocalParseInput): Displa
 		}
 	}
 
-	// 3. Progetti (@progetto)
+	// 3. Progetti (#progetto)
 	// La stessa risoluzione del parser: la pillola copre esattamente lo span che
 	// il salvataggio consumera', nomi con spazi inclusi.
 	for (const pt of findProjectTokens(rawText, input.projects ?? [])) {
@@ -552,8 +554,18 @@ export function tokenizeForDisplay(text: string, input: LocalParseInput): Displa
 		});
 	}
 
+	// 4. Menzioni file (@percorso o @"percorso con spazi")
+	for (const fm of findFileMentions(rawText)) {
+		spans.push({
+			start: fm.start,
+			end: fm.end,
+			kind: 'file',
+			label: fm.path
+		});
+	}
+
 	// Ordiniamo gli span crescenti per indice di inizio
-	spans.sort((a, b) => a.start - b.start);
+	spans.sort((a, b) => a.start - b.start || b.end - a.end);
 
 	// Filtriamo eventuali overlap difensivi
 	const nonOverlapping: RecognizedSpan[] = [];

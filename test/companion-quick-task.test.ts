@@ -145,8 +145,8 @@ const PARSE_INPUT = {
 	modelSelectors: ['openai-codex/gpt-5.6', 'provider/modello:preview']
 };
 
-test('Parser locale: @progetto risolve il progetto e ripulisce il prompt', () => {
-	const res = parseQuickTaskLocal('@cruscotto sistema il bottone', PARSE_INPUT);
+test('Parser locale: #progetto risolve il progetto e ripulisce il prompt', () => {
+	const res = parseQuickTaskLocal('#cruscotto sistema il bottone', PARSE_INPUT);
 
 	assert.equal(res.projectId, 'p1');
 	assert.equal(res.projectPath, 'c:/repos/cruscotto-psr');
@@ -155,9 +155,9 @@ test('Parser locale: @progetto risolve il progetto e ripulisce il prompt', () =>
 });
 
 test('Parser locale: un nome progetto con spazi viene consumato per intero', () => {
-	// Il suggeritore inserisce il nome esatto ("@Studio OMP "): fermarsi al primo
+	// Il suggeritore inserisce il nome esatto ("#Studio OMP "): fermarsi al primo
 	// spazio lascerebbe "OMP" dentro il prompt come se fosse prosa dell'utente.
-	const res = parseQuickTaskLocal('@Studio OMP perché il badge non prende il nome completo', PARSE_INPUT);
+	const res = parseQuickTaskLocal('#Studio OMP perché il badge non prende il nome completo', PARSE_INPUT);
 
 	assert.equal(res.projectId, 'p5');
 	assert.equal(res.taskPrompt, 'perché il badge non prende il nome completo');
@@ -165,9 +165,9 @@ test('Parser locale: un nome progetto con spazi viene consumato per intero', () 
 });
 
 test('Parser locale: la ricerca multi-parola non inghiotte la prosa successiva', () => {
-	// "@Flotta" risolve da sola: le parole dopo non devono entrare nel token,
+	// "#Flotta" risolve da sola: le parole dopo non devono entrare nel token,
 	// altrimenti spariscono dal prompt salvato.
-	const res = parseQuickTaskLocal('@Flotta gestione veicoli da rivedere', PARSE_INPUT);
+	const res = parseQuickTaskLocal('#Flotta gestione veicoli da rivedere', PARSE_INPUT);
 
 	assert.equal(res.projectId, 'p2');
 	assert.equal(res.taskPrompt, 'gestione veicoli da rivedere');
@@ -182,18 +182,18 @@ test('Parser locale: testo senza progetto riconoscibile richiede l’AI', () => 
 });
 
 test('Parser locale: menzione ambigua non sceglie a caso', () => {
-	const res = parseQuickTaskLocal('@ambra aggiorna le dipendenze', PARSE_INPUT);
+	const res = parseQuickTaskLocal('#ambra aggiorna le dipendenze', PARSE_INPUT);
 
 	assert.equal(res.projectId, null, 'due progetti iniziano per "ambra": nessuna scelta arbitraria');
 	assert.equal(res.needsAi, true);
 });
 
 test('Parser locale: ruolo riconosciuto rimosso, ruolo inventato lasciato nel prompt', () => {
-	const valido = parseQuickTaskLocal('@flotta !smol aggiorna il changelog', PARSE_INPUT);
+	const valido = parseQuickTaskLocal('#flotta !smol aggiorna il changelog', PARSE_INPUT);
 	assert.equal(valido.role, 'smol');
 	assert.equal(valido.taskPrompt, 'aggiorna il changelog');
 
-	const inventato = parseQuickTaskLocal('@flotta !turbo aggiorna il changelog', PARSE_INPUT);
+	const inventato = parseQuickTaskLocal('#flotta !turbo aggiorna il changelog', PARSE_INPUT);
 	assert.equal(inventato.role, null);
 	assert.ok(
 		inventato.taskPrompt.includes('!turbo'),
@@ -203,7 +203,7 @@ test('Parser locale: ruolo riconosciuto rimosso, ruolo inventato lasciato nel pr
 
 test('Parser locale: un modello suggerito con slash o due punti diventa configurazione esplicita', () => {
 	const slash = parseQuickTaskLocal(
-		'@flotta !openai-codex/gpt-5.6 analizza lo screenshot',
+		'#flotta !openai-codex/gpt-5.6 analizza lo screenshot',
 		PARSE_INPUT
 	);
 	assert.equal(slash.role, null);
@@ -211,13 +211,13 @@ test('Parser locale: un modello suggerito con slash o due punti diventa configur
 	assert.equal(slash.taskPrompt, 'analizza lo screenshot');
 
 	const colon = parseQuickTaskLocal(
-		'@flotta !provider/modello:preview controlla i dati',
+		'#flotta !provider/modello:preview controlla i dati',
 		PARSE_INPUT
 	);
 	assert.equal(colon.modelSelector, 'provider/modello:preview');
 
 	const ultimoVince = parseQuickTaskLocal(
-		'@flotta !smol !openai-codex/gpt-5.6 esegui il task',
+		'#flotta !smol !openai-codex/gpt-5.6 esegui il task',
 		PARSE_INPUT
 	);
 	assert.equal(ultimoVince.role, null);
@@ -226,23 +226,23 @@ test('Parser locale: un modello suggerito con slash o due punti diventa configur
 });
 
 test('Parser locale: direttive multiple in ordine, quelle nascoste mai selezionate', () => {
-	const res = parseQuickTaskLocal('@flotta /piano /ricerca rivedi la home', PARSE_INPUT);
+	const res = parseQuickTaskLocal('#flotta /piano /ricerca rivedi la home', PARSE_INPUT);
 	assert.deepEqual(res.directiveIds, ['d-piano', 'd-ricerca']);
 	assert.equal(res.taskPrompt, 'rivedi la home');
 
-	const nascosta = parseQuickTaskLocal('@flotta /ritirata rivedi la home', PARSE_INPUT);
+	const nascosta = parseQuickTaskLocal('#flotta /ritirata rivedi la home', PARSE_INPUT);
 	assert.deepEqual(nascosta.directiveIds, [], 'una direttiva nascosta non è selezionabile');
 });
 
 test('Parser locale: suggeritore di menzioni durante la digitazione', () => {
-	const text = 'sistema @cru';
+	const text = 'sistema #cru';
 	const state = mentionStateAt(text, text.length);
 
 	assert.equal(state.kind, 'project');
 	assert.equal(state.query, 'cru');
 
 	const applied = applyMention(text, state, 'Cruscotto PSR');
-	assert.equal(applied.text, 'sistema @Cruscotto PSR ');
+	assert.equal(applied.text, 'sistema #Cruscotto PSR ');
 	assert.equal(applied.caret, applied.text.length, 'il cursore resta dopo lo spazio finale');
 
 	const nessuna = mentionStateAt('nessun token qui', 16);
@@ -262,7 +262,7 @@ test('Suggeritore locale: ! accetta ruoli e selettori modello completi', () => {
 });
 
 test('tokenizeForDisplay: rispetta rigidamente l\'invariante di concatenazione del testo sorgente', () => {
-	const sample = '@cruscotto /piano !smol verifica la funzione con \n a capo multipli   e spazi';
+	const sample = '#cruscotto /piano !smol verifica la funzione con \n a capo multipli   e spazi';
 	const tokens = tokenizeForDisplay(sample, PARSE_INPUT);
 
 	const reconstructed = tokens.map((t) => t.text).join('');
@@ -270,11 +270,11 @@ test('tokenizeForDisplay: rispetta rigidamente l\'invariante di concatenazione d
 });
 
 test('tokenizeForDisplay: classifica progetti, direttive e ruoli/modelli riconosciuti lasciando inalterato il resto', () => {
-	const input = '@flotta /piano !openai-codex/gpt-5.6 fai la revisione @nonEsiste /ritirata !turbo fine';
+	const input = '#flotta /piano !openai-codex/gpt-5.6 fai la revisione #nonEsiste /ritirata !turbo fine';
 	const tokens = tokenizeForDisplay(input, PARSE_INPUT);
 
-	// Token 0: @flotta (project)
-	assert.equal(tokens[0].text, '@flotta');
+	// Token 0: #flotta (project)
+	assert.equal(tokens[0].text, '#flotta');
 	assert.equal(tokens[0].kind, 'project');
 	assert.equal(tokens[0].label, 'GestioneFlotta');
 
@@ -293,10 +293,10 @@ test('tokenizeForDisplay: classifica progetti, direttive e ruoli/modelli riconos
 	assert.equal(tokens[4].text, '!openai-codex/gpt-5.6');
 	assert.equal(tokens[4].kind, 'role');
 
-	// Il resto del testo (" fai la revisione @nonEsiste /ritirata !turbo fine")
+	// Il resto del testo (" fai la revisione #nonEsiste /ritirata !turbo fine")
 	// resta un unico segmento di testo non formattato (kind: undefined)
 	const remainder = tokens.slice(5).map((t) => t.text).join('');
-	assert.ok(remainder.includes('@nonEsiste'));
+	assert.ok(remainder.includes('#nonEsiste'));
 	assert.ok(remainder.includes('/ritirata'));
 	assert.ok(remainder.includes('!turbo'));
 	for (const t of tokens.slice(5)) {
@@ -305,10 +305,10 @@ test('tokenizeForDisplay: classifica progetti, direttive e ruoli/modelli riconos
 });
 
 test('tokenizeForDisplay: la pillola del progetto copre anche i nomi con spazi', () => {
-	const input = '@Studio OMP perché il badge prende solo la prima parola?';
+	const input = '#Studio OMP perché il badge prende solo la prima parola?';
 	const tokens = tokenizeForDisplay(input, PARSE_INPUT);
 
-	assert.equal(tokens[0].text, '@Studio OMP', 'la pillola deve coprire il nome completo');
+	assert.equal(tokens[0].text, '#Studio OMP', 'la pillola deve coprire il nome completo');
 	assert.equal(tokens[0].kind, 'project');
 	assert.equal(tokens[0].label, 'Studio OMP');
 	assert.equal(tokens[1].kind, undefined, 'il resto della frase resta testo normale');
@@ -330,7 +330,7 @@ test('tokenizeForDisplay: gestisce fedelmente testi lunghi, caratteri accentati 
 	};
 
 	const longPrompt =
-		'@ContrattiImmobili comparsa anagrafiche da ricerca su popover anagrafica su schermata nuovo contratto step 2.\n' +
+		'#ContrattiImmobili comparsa anagrafiche da ricerca su popover anagrafica su schermata nuovo contratto step 2.\n' +
 		'/piano Animare anche cambio d\'altezza e contenuto in ingresso.\n' +
 		'!smol codice fiscale deve essere l\'ultimo campo di quel blocco.';
 
@@ -339,10 +339,8 @@ test('tokenizeForDisplay: gestisce fedelmente testi lunghi, caratteri accentati 
 	// Invariante di ricostruzione fedele byte per byte
 	assert.equal(tokens.map((t) => t.text).join(''), longPrompt);
 
-	// Token 0: @ContrattiImmobili -> project
-	assert.equal(tokens[0].text, '@ContrattiImmobili');
-	assert.equal(tokens[0].kind, 'project');
-	assert.equal(tokens[0].label, 'ContrattiImmobili');
+	// Token 0: #ContrattiImmobili -> project
+	assert.equal(tokens[0].text, '#ContrattiImmobili');
 
 	// Trova /piano -> directive
 	const pianoToken = tokens.find((t) => t.text === '/piano');
@@ -356,10 +354,44 @@ test('tokenizeForDisplay: gestisce fedelmente testi lunghi, caratteri accentati 
 });
 
 test('tokenizeForDisplay: testo che termina con ritorno a capo preserva il newline finale', () => {
-	const textWithTrailingNewline = '@cruscotto verifica tutto\n';
+	const textWithTrailingNewline = '#cruscotto verifica tutto\n';
 	const tokens = tokenizeForDisplay(textWithTrailingNewline, PARSE_INPUT);
-
 	const reconstructed = tokens.map((t) => t.text).join('');
 	assert.equal(reconstructed, textWithTrailingNewline);
 	assert.ok(reconstructed.endsWith('\n'));
+});
+
+test('Parser locale: @file resta nel prompt mentre #progetto viene rimosso', () => {
+	const res = parseQuickTaskLocal('#flotta rivedi @src/routes/home.svelte e @src/lib/api.ts', PARSE_INPUT);
+
+	assert.equal(res.projectId, 'p2');
+	assert.equal(res.taskPrompt, 'rivedi @src/routes/home.svelte e @src/lib/api.ts');
+	assert.equal(res.needsAi, false);
+});
+
+test('Parser locale: il token # non scatta su titoli markdown o in mezzo alle parole', () => {
+	const heading = parseQuickTaskLocal('# Titolo del task da rivedere', PARSE_INPUT);
+	assert.equal(heading.taskPrompt, '# Titolo del task da rivedere');
+
+	const midWord = parseQuickTaskLocal('chiudi issue#12 e il fix C# del modulo', PARSE_INPUT);
+	assert.equal(midWord.taskPrompt, 'chiudi issue#12 e il fix C# del modulo');
+
+	const trigger = mentionStateAt('sistema #cru', 12);
+	assert.equal(trigger.kind, 'project');
+	assert.equal(trigger.query, 'cru');
+
+	const noTrigger = mentionStateAt('sistema @src/li', 14);
+	assert.equal(noTrigger.kind, null, '@ appartiene alle menzioni file, non al suggeritore');
+});
+
+test('tokenizeForDisplay: le menzioni @file diventano pillole senza sovrapporsi al progetto', () => {
+	const input = '#flotta rivedi @src/routes/home.svelte al volo';
+	const tokens = tokenizeForDisplay(input, PARSE_INPUT);
+
+	assert.equal(tokens.map((t) => t.text).join(''), input);
+	assert.equal(tokens[0].text, '#flotta');
+	assert.equal(tokens[0].kind, 'project');
+	const fileToken = tokens.find((t) => t.text === '@src/routes/home.svelte');
+	assert.ok(fileToken, 'la menzione file deve diventare un token dedicato');
+	assert.equal(fileToken?.kind, 'file');
 });

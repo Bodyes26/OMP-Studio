@@ -4,7 +4,7 @@
 	// Evidenziato come blocco utente con indicatore 'Tu' / badge di attribuzione,
 	// superficie `--bg-raised`, bordo discreto e MarkdownInline.
 	import { agentUiHooks } from '../ui-context';
-	import { lexMarkdownInline } from '../markdown';
+	import { lexMarkdownInlineWithMentions } from '../markdown';
 	import type { UserEntry } from '../session.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
 	import { splitMessageAndEditorContext } from '$lib/editor/editorContext';
@@ -31,8 +31,9 @@
 		parsed.userMessage || (!parsed.context ? entry.content : '')
 	);
 
+	// Le menzioni @file diventano chip nel punto in cui sono scritte.
 	const inlineTokens = $derived(
-		displayMessage ? lexMarkdownInline(displayMessage) : []
+		displayMessage ? lexMarkdownInlineWithMentions(displayMessage) : []
 	);
 
 	let showSelectionCode = $state(false);

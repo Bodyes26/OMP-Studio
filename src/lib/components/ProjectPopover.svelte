@@ -23,6 +23,7 @@
 	import { askQuestionText } from '$lib/agent/askTitle';
 	import HuePicker from './HuePicker.svelte';
 	import GitDiffBadge from './GitDiffBadge.svelte';
+	import MentionText from './MentionText.svelte';
 	import {
 		IconArrowLeft,
 		IconArrowRight,
@@ -63,6 +64,8 @@
 		onRequestCloseProject?: (projectId: string) => void;
 		canRunTask?: (projectId: string) => boolean;
 		runReason?: (projectId: string) => string;
+		/** Apre nell'editor un file menzionato (`@percorso`) in un task del progetto. */
+		onOpenFile?: (projectId: string, relPath: string) => void;
 	}
 
 	let {
@@ -79,7 +82,8 @@
 		onQueueClick,
 		onRequestCloseProject,
 		canRunTask,
-		runReason
+		runReason,
+		onOpenFile
 	}: Props = $props();
 
 	type View = 'default' | 'rename' | 'close' | 'close-others';
@@ -217,6 +221,10 @@
 
 	function editTask(task: StudioTask) {
 		onEditTask?.(project.id, task.id);
+		onClose();
+	}
+	function openMentionFile(path: string) {
+		onOpenFile?.(project.id, path);
 		onClose();
 	}
 
@@ -485,7 +493,9 @@
 				{/if}
 				{#each queueTasks.slice(0, QUEUE_PEEK_LIMIT) as task (task.id)}
 					<div class="task">
-						<span class="task-label" title={taskLabel(task)}>{taskLabel(task)}</span>
+						<span class="task-label" title={taskLabel(task)}>
+							<MentionText text={taskLabel(task)} onOpenFile={openMentionFile} />
+						</span>
 						<button
 							type="button"
 							class="icon-btn"

@@ -9,10 +9,17 @@
 	import { agentUiHooks } from '../ui-context';
 	import MarkdownInline from './MarkdownInline.svelte';
 	import StreamTail from './StreamTail.svelte';
+	import FileMentionChip from './FileMentionChip.svelte';
 
 	// `fade` non nullo significa "questo e' l'ultimo frammento del testo in
 	// arrivo": scende solo lungo la catena degli ultimi figli.
-	let { tokens = [], fade = null }: { tokens?: Token[]; fade?: StreamFade | null } = $props();
+	// `onOpenFile` sostituisce i ganci dell'agente fuori dal transcript
+	// (anteprime dei task); nel transcript resta vuoto.
+	let {
+		tokens = [],
+		fade = null,
+		onOpenFile
+	}: { tokens?: Token[]; fade?: StreamFade | null; onOpenFile?: (path: string) => void } = $props();
 
 	const hooks = agentUiHooks();
 
@@ -40,18 +47,20 @@
 	{@const tail = fade && i === tokens.length - 1 ? fade : null}
 	{#if token.type === 'text'}
 		{#if 'tokens' in token && token.tokens && token.tokens.length > 0}
-			<MarkdownInline tokens={token.tokens} fade={tail} />
+			<MarkdownInline tokens={token.tokens} fade={tail} {onOpenFile} />
 		{:else if tail}
 			<StreamTail text={token.text} fade={tail} />
 		{:else}
 			{token.text}
 		{/if}
 	{:else if token.type === 'strong'}
-		<strong><MarkdownInline tokens={token.tokens} fade={tail} /></strong>
+		<strong><MarkdownInline tokens={token.tokens} fade={tail} {onOpenFile} /></strong>
 	{:else if token.type === 'em'}
-		<em><MarkdownInline tokens={token.tokens} fade={tail} /></em>
+		<em><MarkdownInline tokens={token.tokens} fade={tail} {onOpenFile} /></em>
 	{:else if token.type === 'del'}
-		<del><MarkdownInline tokens={token.tokens} fade={tail} /></del>
+		<del><MarkdownInline tokens={token.tokens} fade={tail} {onOpenFile} /></del>
+	{:else if token.type === 'fileMention'}
+		<FileMentionChip path={token.path} onOpen={onOpenFile} />
 	{:else if token.type === 'codespan'}
 		{@const isFileLike = token.text.includes('/') || token.text.includes('\\') || /\.[a-zA-Z0-9_-]+(?::\d+)?$/.test(token.text.trim())}
 		{#if isFileLike}

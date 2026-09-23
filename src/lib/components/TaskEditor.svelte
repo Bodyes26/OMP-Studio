@@ -25,6 +25,10 @@
 		type SlashCursorMatch
 	} from '$lib/agent/commands';
 	import CommandPalette from '$lib/agent/components/CommandPalette.svelte';
+	import FileMentionPalette from '$lib/agent/components/FileMentionPalette.svelte';
+	import { FileMentionController } from '$lib/agent/fileMentionController.svelte';
+	import { extractTouchedFilesFromTranscript } from '$lib/agent/fileMention';
+	import { projectStore, pathKey } from '$lib/stores/projects.svelte';
 	import ModelPickerDropdown from '$lib/components/models/ModelPickerDropdown.svelte';
 	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
 	import {
@@ -224,6 +228,7 @@
 			deleteArmed = false;
 			paletteOpen = false;
 			currentSlashMatch = null;
+			fileMention.close();
 
 
 			void tick().then(() => {
@@ -240,6 +245,38 @@
 	function saveTask() {
 		taskStore.updateTask(task.id, prompt, attachedImages, options);
 	}
+	// Menzioni file (@file con ricerca fuzzy nel progetto del task): stato e tastiera
+	// gestiti dal controller condiviso, prioritizzando i file aperti o toccati di recente.
+	const fileMention = new FileMentionController({
+		projectPath: () => task.projectPath,
+		rankingContext: () => {
+			if (!task.projectPath) return {};
+			const key = pathKey(task.projectPath);
+			const project = projectStore.projects.find((p) => {
+				return (
+					(p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key) ||
+					(p.lane.workspacePath && pathKey(p.lane.workspacePath) === key)
+				);
+			});
+			return {
+				activeFile: project?.lane.activeFile,
+				openFiles: project?.lane.openFiles,
+				touchedFiles: session?.entries ? extractTouchedFilesFromTranscript(session.entries) : undefined
+			};
+		},
+		apply: (text, caret) => {
+			prompt = text;
+			saveTask();
+			adjustTextareaHeight();
+			void tick().then(() => {
+				if (!textareaEl) return;
+				adjustTextareaHeight();
+				textareaEl.focus();
+				textareaEl.setSelectionRange(caret, caret);
+			});
+		}
+	});
+
 
 	async function loadAvailableCommands() {
 		if (!session || !session.client.isOpen) return;
@@ -262,10 +299,12 @@
 		currentSlashMatch = match;
 		paletteQuery = match?.query ?? '';
 		paletteOpen = shouldOpenSlashPaletteAtCursor(match, allCommands);
+		if (paletteOpen) fileMention.close();
 
 		if (match && session && session.availableCommands.length === 0) {
 			void loadAvailableCommands().then(() => {
 				paletteOpen = shouldOpenSlashPaletteAtCursor(currentSlashMatch, allCommands);
+				if (paletteOpen) fileMention.close();
 			});
 		}
 	}
@@ -274,13 +313,24 @@
 		saveTask();
 		adjustTextareaHeight();
 		updateSlashState();
+		if (paletteOpen) {
+			fileMention.close();
+			return;
+		}
+		void fileMention.update(prompt, textareaEl?.selectionStart ?? prompt.length);
 	}
 
 	function handleCursorMovement() {
 		updateSlashState();
+		if (paletteOpen) {
+			fileMention.close();
+			return;
+		}
+		void fileMention.update(prompt, textareaEl?.selectionStart ?? prompt.length);
 	}
 
 	function handlePalettePick(value: string, keepsOpen: boolean) {
+		fileMention.close();
 		if (!currentSlashMatch) {
 			prompt = `/${value} `;
 			saveTask();
@@ -652,6 +702,15 @@
 				onSubmitFallback={() => (paletteOpen = false)}
 			/>
 
+			<FileMentionPalette
+				open={fileMention.open}
+				items={fileMention.items}
+				selectedIndex={fileMention.selectedIndex}
+				anchor={inputCardEl}
+				onSelect={(item) => fileMention.pick(item)}
+				onClose={() => fileMention.close()}
+			/>
+
 			<div class="input-card" bind:this={inputCardEl}>
 				<label for="task-prompt" class="sr-only">{m.task_editor_prompt_label()}</label>
 				<textarea
@@ -662,6 +721,7 @@
 					onclick={handleCursorMovement}
 					onkeyup={handleCursorMovement}
 					onkeydown={(e) => {
+						if (fileMention.handleKeydown(e)) return;
 						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 							e.preventDefault();
 							e.stopPropagation();
@@ -726,7 +786,7 @@
 					</button>
 
 					<div class="footer-hints">
-						<span class="hint-text"><kbd>Ctrl+V</kbd> {m.ui_taskeditor_incolla_screenshot_digita_d13d()} <code>/</code> per le skill</span>
+						<span class="hint-text"><kbd>Ctrl+V</kbd> {m.ui_taskeditor_incolla_screenshot_digita_d13d()} <code>/</code> per le skill, <code>@</code> per i file</span>
 					</div>
 				</div>
 			</div>

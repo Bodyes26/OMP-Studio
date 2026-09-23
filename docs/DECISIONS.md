@@ -1110,3 +1110,16 @@ Fino alla versione 1.2, OMP Studio applicava il principio "un progetto = una car
 ### Nota di implementazione (2026-09-23)
 
 La scrittura di `lanes.json` non passa dal `save` del plugin store: quel save usa `fs::write`. `lanes_store_write_atomic` tiene un lock tra le webview e sostituisce il file in modo atomico; il plugin viene aperto e chiuso all'avvio proprio per non lasciare una riscrittura non atomica in uscita. Il resto del gate e' implementato come sopra: nessun auto-merge, nessun junction su `bin`/`obj`/`packages`, conflitti confinati alla corsia.
+
+## Gate R28: `@` indica sempre un file, `#` il progetto del Companion
+
+**Data:** 2026-09-23
+**Esito:** APPROVATO
+
+**Decisione.** `@` apre la palette dei file in ogni campo di testo che finisce a un agente: Composer della chat, editor dei task, Companion. Nel Companion il progetto di destinazione passa da `@progetto` a `#progetto`. Un simbolo con lo stesso significato ovunque vale più della continuità con la vecchia sintassi del Companion, che non viene mai salvata: il token del progetto viene tolto dal testo del task.
+
+**Vincoli.**
+- La menzione resta testo nel prompt (`@percorso`, `@"percorso con spazi"`): niente metadati nel protocollo RPC. Il tag nelle bolle e nelle anteprime si ricava rileggendo il testo, quindi ricompare anche quando la sessione viene ripresa.
+- Diventa tag solo ciò che sembra un percorso: una `@` a inizio testo o dopo uno spazio, seguita da un token con `/` o con un'estensione che contiene una lettera. `@Main`, `@utente` e le email restano testo. Non si controlla che il file esista: significherebbe caricare il catalogo in modo asincrono e cambiare la bolla dopo che è già stata disegnata.
+- Nel Companion i file si cercano solo nel progetto già indicato con `#`: un percorso preso da un altro progetto non esisterebbe nel progetto di destinazione.
+- La sintassi vive in `src/lib/agent/fileMentionSyntax.ts` (modulo puro), mentre stato e tastiera della palette stanno in `FileMentionController`. Chi aggiunge una nuova superficie riusa entrambi e non scrive un altro parser.

@@ -9,6 +9,7 @@
 	import { rulesStore } from '$lib/stores/rules.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { isLaneRoutable, type AutomationBlock, type AutomationGate } from '$lib/agent/automationGate';
+	import MentionText from './MentionText.svelte';
 
 	let {
 		projectPath,
@@ -208,6 +209,7 @@
 					</li>
 				{:else}
 					{#each tasks as task (task.id)}
+						{@const launchDisabled = !task.prompt.trim() && (!task.images || task.images.length === 0)}
 						<li
 							class="task-row"
 							draggable={task.status === 'queued'}
@@ -236,21 +238,38 @@
 									<circle cx="3" cy="12" r="1" /><circle cx="9" cy="12" r="1" />
 								</svg>
 							</button>
-							<button
-								type="button"
+							<div
+								role="button"
+								tabindex={launchDisabled ? -1 : 0}
 								class="task-launch"
 								class:blocked={!isLaneRoutable(gate)}
-								disabled={!task.prompt.trim() && (!task.images || task.images.length === 0)}
+								class:disabled={launchDisabled}
+								aria-disabled={launchDisabled ? 'true' : undefined}
 								aria-expanded={isLaneRoutable(gate) ? undefined : noticeOpen}
 								aria-controls={isLaneRoutable(gate) ? undefined : 'agent-queue-gate-notice'}
 								title={isLaneRoutable(gate) ? m.ui_agentpanel_avvia_value1_18da({ value1: taskTitle(task) }) : `${gate.detail} ${gate.hint}`.trim()}
 								aria-label={isLaneRoutable(gate)
 									? m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })
 									: m.gate_explain_task_aria({ title: taskTitle(task) })}
-								onclick={(event) => runOrExplain(task.id, event)}
+								onclick={(event) => {
+									if (launchDisabled) return;
+									runOrExplain(task.id, event);
+								}}
+								onkeydown={(event) => {
+									if (launchDisabled) return;
+									if (event.target !== event.currentTarget) return;
+									if (event.key === 'Enter' || event.key === ' ') {
+										event.preventDefault();
+										runOrExplain(task.id);
+									}
+								}}
 							>
-								<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>{taskTitle(task)}</span>
-								<span class="task-excerpt">{taskExcerpt(task)}</span>
+								<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>
+									<MentionText text={taskTitle(task)} {onOpenFile} />
+								</span>
+								<span class="task-excerpt">
+									<MentionText text={taskExcerpt(task)} {onOpenFile} />
+								</span>
 								<div class="task-chips">
 									{#if task.status === 'in_progress'}
 										<span class="task-chip status-chip in-progress">{m.queue_drawer_status_in_progress()}</span>
@@ -277,7 +296,7 @@
 										<span class="task-chip img-chip">img {task.images.length}</span>
 									{/if}
 								</div>
-							</button>
+							</div>
 							<button
 								type="button"
 								class="edit-task"
@@ -636,8 +655,14 @@
 		cursor: pointer;
 	}
 
-	.task-launch:disabled {
+	.task-launch:disabled,
+	.task-launch.disabled {
 		cursor: default;
+	}
+
+	.task-launch:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
 	}
 
 	.task-launch.blocked {
@@ -781,6 +806,7 @@
 	}
 
 	.task-launch:disabled .task-title,
+	.task-launch.disabled .task-title,
 	.task-launch.blocked .task-title {
 		color: var(--ink-muted);
 	}

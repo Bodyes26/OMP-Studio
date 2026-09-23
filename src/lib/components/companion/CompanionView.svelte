@@ -21,14 +21,18 @@
 		mentionStateAt,
 		applyMention,
 		tokenizeForDisplay,
+		findProjectTokens,
 		type LocalQuickTask,
-		type DisplayToken
+		type DisplayToken,
+		type ProjectTokenMatch
 	} from '$lib/companion/quickTaskLocal';
 	import CompanionShell from './CompanionShell.svelte';
 	import CompanionComposer from './CompanionComposer.svelte';
 	import CompanionMonitor from './CompanionMonitor.svelte';
-	import { promptBus } from '$lib/agent/promptBus';
 	import type { CompanionAskHandlers } from './companionAsk';
+	import { promptBus } from '$lib/agent/promptBus';
+	import { FileMentionController } from '$lib/agent/fileMentionController.svelte';
+	import type { RankedFileItem } from '$lib/agent/fileMention';
 
 	const STATE_RANK: Record<string, number> = {
 		attention: 0,
@@ -60,6 +64,25 @@
 	let attachmentError = $state<string | null>(null);
 	let bodyEl = $state<HTMLElement | null>(null);
 	let autoHideTimer: ReturnType<typeof setTimeout> | null = null;
+	// Menzioni file (@percorso) con la palette condivisa: i file arrivano solo
+	// dal progetto di destinazione risolto dal parse locale (il token #progetto).
+	// Senza progetto la palette mostra un invito a indicarlo prima.
+	const fileController = new FileMentionController({
+		projectPath: () => local.projectPath,
+		apply: (newText, newCaret) => {
+			taskInput = newText;
+			aiParsed = null;
+			companionStore.parseError = null;
+			void tick().then(() => {
+				inputEl?.focus();
+				inputEl?.setSelectionRange(newCaret, newCaret);
+				caret = newCaret;
+			});
+		}
+	});
+	const fileMentionEmpty = $derived(
+		fileController.missingProject ? m.companion_file_mention_no_project() : undefined
+	);
 
 	function cancelAutoHide() {
 		if (autoHideTimer) {
@@ -365,11 +388,15 @@
 			inputEl?.focus();
 			inputEl?.setSelectionRange(next, next);
 			caret = next;
+			syncFileMention();
 		});
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
+			// Escape consumato dal campo (palette @file o menzione) chiude solo
+			// il popover, mai la finestra nello stesso gesto.
+			if (e.defaultPrevented || fileController.open) return;
 			e.preventDefault();
 			if (usageOpen) {
 				usageOpen = false;
@@ -387,6 +414,9 @@
 	}
 
 	function handleInputKeydown(e: KeyboardEvent) {
+		// La palette @file ha la precedenza: mentre si sceglie un file Invio
+		// non salva il task ed Escape non chiude la finestra.
+		if (fileController.handleKeydown(e)) return;
 		if (!mentionOpen) {
 			if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
 				e.preventDefault();
@@ -411,7 +441,18 @@
 	function syncCaret() {
 		void tick().then(() => {
 			caret = inputEl?.selectionStart ?? taskInput.length;
+			syncFileMention();
 		});
+	}
+
+	// La palette progetti/direttive/ruoli e quella dei file non stanno mai
+	// aperte insieme: una menzione (#, /, !) chiude i file, che gestiscono '@'.
+	function syncFileMention() {
+		if (mention.kind !== null) {
+			fileController.close();
+			return;
+		}
+		void fileController.update(taskInput, caret);
 	}
 
 	function handleInput() {
@@ -420,6 +461,7 @@
 		mentionIndex = 0;
 		aiParsed = null;
 		companionStore.parseError = null;
+		syncFileMention();
 	}
 
 	async function handleProcessFiles(files: FileList | File[]) {
@@ -500,6 +542,7 @@
 			inputEl?.focus();
 			inputEl?.setSelectionRange(next.caret, next.caret);
 			caret = next.caret;
+			syncFileMention();
 		});
 	}
 
@@ -673,10 +716,14 @@
 	 * del suo nome.
 	 */
 	function prefillProject(project: Project) {
-		const mentionText = `@${project.name} `;
-		taskInput = taskInput.trimStart().startsWith('@')
-			? taskInput.replace(/^\s*@\S*\s*/, mentionText)
-			: mentionText + taskInput.trimStart();
+		const mentionText = `#${project.name} `;
+		const trimmed = taskInput.trimStart();
+		const leading = trimmed.startsWith('#') ? findProjectTokens(trimmed, parseInput.projects) : [];
+		const headToken: ProjectTokenMatch | null =
+			leading.length > 0 && leading[0].start === 0 ? leading[0] : null;
+		taskInput = headToken
+			? mentionText + trimmed.slice(headToken.end).trimStart()
+			: mentionText + trimmed;
 		aiParsed = null;
 		companionStore.parseError = null;
 		void tick().then(() => {
@@ -684,6 +731,7 @@
 			const end = taskInput.length;
 			inputEl?.setSelectionRange(end, end);
 			caret = end;
+			syncFileMention();
 		});
 	}
 
@@ -720,6 +768,10 @@
 		mentionOpen,
 		mentionItems,
 		mentionIndex,
+		fileMentionOpen: fileController.open,
+		fileMentionItems: fileController.items,
+		fileMentionIndex: fileController.selectedIndex,
+		fileMentionEmpty,
 		local,
 		aiParsed,
 		parseError: companionStore.parseError,
@@ -738,7 +790,9 @@
 		onTriggerFileInput: triggerFileInput,
 		onFileInputChange,
 		onSaveTask: handleSaveTask,
-		onChooseMention: chooseMention
+		onChooseMention: chooseMention,
+		onFileMentionSelect: (item: RankedFileItem) => fileController.pick(item),
+		onFileMentionClose: () => fileController.close()
 	});
 
 	const monitorProps = $derived({

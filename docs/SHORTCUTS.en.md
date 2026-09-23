@@ -33,6 +33,8 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Alt+E` | GUI Surface | Focus Composer input field |
 | `Alt+N` | GUI Surface | Open new chat in active project |
 | `/` | GUI Composer | Open available slash command palette |
+| `@` | GUI Composer, task editor, Companion | Open the project file palette; in the Companion after `#project` |
+| `#` | Companion | Pick the task's destination project |
 | `Alt+1` … `Alt+6` | GUI Composer | Pre-fill composer with suggestion at that position (does not send) |
 | `Enter` | GUI Composer | Send with default mode; when palette is open, selects highlighted command |
 | `Alt+Enter` | GUI Composer | Send with alternate queueing mode (opposite of default) |

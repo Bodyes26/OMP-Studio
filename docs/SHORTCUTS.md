@@ -33,6 +33,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
 | `Alt+N` | Superficie GUI | Apre una nuova chat nel progetto attivo |
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
+| `@` | Composer GUI, editor task, Companion | Apre la palette dei file del progetto; nella Companion dopo `#progetto` |
+| `#` | Companion | Sceglie il progetto di destinazione del task |
 | `Alt+1` … `Alt+6` | Composer GUI | Precompila il composer con il suggerimento in quella posizione (non invia) |
 | `Invio` | Composer GUI | Invia con la modalità predefinita; con la palette aperta seleziona il comando evidenziato |
 | `Alt+Invio` | Composer GUI | Invia con la modalità di accodamento alternativa (opposta al default) |

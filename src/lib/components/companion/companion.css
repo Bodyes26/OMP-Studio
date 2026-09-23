@@ -928,7 +928,8 @@
 */
 .tok.project,
 .tok.directive,
-.tok.role {
+.tok.role,
+.tok.file {
 	display: inline;
 	border-radius: var(--radius-sm);
 	padding-block: 1px;
@@ -953,6 +954,12 @@
 	--tok-line: color-mix(in srgb, var(--warn) 38%, transparent);
 	background: color-mix(in srgb, var(--warn) 12%, transparent);
 	color: var(--warn);
+}
+
+.tok.file {
+	--tok-line: color-mix(in srgb, var(--success) 38%, transparent);
+	background: color-mix(in srgb, var(--success) 12%, transparent);
+	color: var(--success);
 }
 
 .image-previews {
