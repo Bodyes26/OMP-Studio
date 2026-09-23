@@ -38,12 +38,8 @@ pub enum WorktreeErrorCode {
     DirtyWorktree,
     TargetDirty,
     TargetMoved,
-    TargetAdvanced,
-    LaneDirty,
-    LaneMoved,
     CheckoutMismatch,
     ConflictsPresent,
-    NothingToIntegrate,
     LaneDivergedAfterIntegrate,
     MessageInvalid,
     ConfirmationRequired,
@@ -217,23 +213,6 @@ pub struct WorktreeReviewInspectArgs {
     pub target_branch: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorktreeUpdateArgs {
-    pub project_path: String,
-    pub worktree_path: String,
-    #[serde(default)]
-    pub target_branch: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeUpdateOutcome {
-    pub success: bool,
-    pub conflicted: bool,
-    pub conflict_files: Vec<String>,
-    pub message: String,
-}
 
 #[derive(Clone, Debug)]
 struct RepositoryContext {
@@ -2301,12 +2280,6 @@ fn inspect_review_sync(
     })
 }
 
-fn update_from_target_sync(
-    args: WorktreeUpdateArgs,
-) -> Result<WorktreeUpdateOutcome, WorktreeError> {
-    // Il lock vive nell'implementazione: prenderlo anche qui sarebbe un deadlock.
-    lane_integrate::update_from_target_sync(args)
-}
 
 fn task_join_error(operation: &str, error: tokio::task::JoinError) -> WorktreeError {
     WorktreeError::with_detail(
@@ -2374,23 +2347,22 @@ pub async fn worktree_review_inspect(
 }
 
 #[command]
-pub async fn worktree_update_from_target(
-    args: WorktreeUpdateArgs,
-) -> Result<WorktreeUpdateOutcome, WorktreeError> {
-    tokio::task::spawn_blocking(move || update_from_target_sync(args))
+pub async fn worktree_land(
+    args: lane_integrate::WorktreeLandArgs,
+) -> Result<lane_integrate::WorktreeLandOutcome, WorktreeError> {
+    tokio::task::spawn_blocking(move || lane_integrate::land_sync(args))
         .await
-        .map_err(|error| task_join_error("worktree_update_from_target", error))?
+        .map_err(|error| task_join_error("worktree_land", error))?
 }
 
 #[command]
-pub async fn worktree_integrate(
-    args: lane_integrate::WorktreeIntegrateArgs,
-) -> Result<lane_integrate::WorktreeIntegrateOutcome, WorktreeError> {
-    tokio::task::spawn_blocking(move || lane_integrate::integrate_sync(args))
+pub async fn worktree_undo_land(
+    args: lane_integrate::WorktreeUndoLandArgs,
+) -> Result<lane_integrate::WorktreeUndoLandOutcome, WorktreeError> {
+    tokio::task::spawn_blocking(move || lane_integrate::undo_land_sync(args))
         .await
-        .map_err(|error| task_join_error("worktree_integrate", error))?
+        .map_err(|error| task_join_error("worktree_undo_land", error))?
 }
-
 #[command]
 pub async fn worktree_delete_lane_branch(
     args: lane_integrate::DeleteLaneBranchArgs,
@@ -2404,6 +2376,7 @@ pub async fn worktree_delete_lane_branch(
 mod tests {
     use super::*;
     use crate::process_tree::LaneProcessControl;
+    use lane_integrate::WorktreeLandOutcome;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -2455,6 +2428,9 @@ mod tests {
             &root,
             &["config", "user.email", "studio-test@example.invalid"],
         );
+        // I test confrontano byte: l'autocrlf globale dell'utente li renderebbe
+        // dipendenti dalla macchina.
+        test_git(&root, &["config", "core.autocrlf", "false"]);
         let nested = root.join("cartella con spazi");
         fs::create_dir_all(&nested).unwrap();
 
@@ -2885,7 +2861,7 @@ mod tests {
     }
 
     #[test]
-    fn review_inspect_e_update_from_target_non_mutano_il_target() {
+    fn review_inspect_non_muta_il_target() {
         let repo = repository(true);
         let created = create_sync(create_args(&repo, "lane-review")).unwrap();
         let worktree = PathBuf::from(&created.worktree_path);
@@ -2951,29 +2927,6 @@ mod tests {
         assert!(!repo.root.join("lane-file.txt").exists());
         assert!(!repo.root.join("untracked-lane.txt").exists());
 
-        // 6. Test update from target (safe merge nel solo worktree)
-        fs::remove_file(repo.root.join("dirty-target.txt")).unwrap();
-        fs::write(repo.root.join("target-feature.txt"), "dal target\n").unwrap();
-        test_git(&repo.root, &["add", "target-feature.txt"]);
-        test_git(&repo.root, &["commit", "-m", "feature sul main"]);
-
-        let update_outcome = update_from_target_sync(WorktreeUpdateArgs {
-            project_path: path_string(&repo.root).unwrap(),
-            worktree_path: created.worktree_path.clone(),
-            target_branch: Some("main".to_string()),
-        })
-        .unwrap();
-
-        assert!(update_outcome.success);
-        assert!(!update_outcome.conflicted);
-        assert!(
-            worktree.join("target-feature.txt").exists(),
-            "Worktree ha ricevuto la modifica dal target"
-        );
-        assert!(
-            !repo.root.join("lane-file.txt").exists(),
-            "Target main non deve avere i file della corsia prima dell'integrazione"
-        );
     }
 
     fn sha_of(cwd: &Path) -> String {
@@ -2997,24 +2950,19 @@ mod tests {
         test_git(cwd, &["commit", "-m", message]);
     }
 
-    fn integrate_request(
+    fn land_request(
         repo: &TestRepository,
         worktree: &str,
         lane_id: &str,
-        target: &str,
-        lane: &str,
         message: &str,
-        strategy: lane_integrate::IntegrateStrategy,
-    ) -> lane_integrate::WorktreeIntegrateArgs {
-        lane_integrate::WorktreeIntegrateArgs {
+    ) -> lane_integrate::WorktreeLandArgs {
+        lane_integrate::WorktreeLandArgs {
             project_path: path_string(&repo.root).unwrap(),
             worktree_path: worktree.to_string(),
             lane_id: lane_id.to_string(),
             target_branch: Some("main".to_string()),
-            expected_target_sha: target.to_string(),
-            expected_lane_sha: lane.to_string(),
             message: message.to_string(),
-            strategy,
+            exempt_owners: Vec::new(),
         }
     }
 
@@ -3024,22 +2972,21 @@ mod tests {
         let created = create_sync(create_args(&repo, "sq13")).unwrap();
         let worktree = PathBuf::from(&created.worktree_path);
         commit_file(&worktree, "nota.txt", "dalla corsia\n", "lavoro corsia");
-        let target = sha_of(&repo.root);
         let lane = sha_of(&worktree);
         let before = subjects_of(&repo.root);
 
-        let first = lane_integrate::integrate_sync(integrate_request(
+        let first = lane_integrate::land_sync(land_request(
             &repo,
             &created.worktree_path,
             "sq13",
-            &target,
-            &lane,
             "Obiettivo della corsia",
-            lane_integrate::IntegrateStrategy::Squash,
         ))
         .unwrap();
-        assert_eq!(first.phase, lane_integrate::IntegratePhase::Integrated);
-        assert_eq!(sha_of(&repo.root), first.commit);
+        let commit = match first {
+            WorktreeLandOutcome::Integrated { commit, .. } => commit,
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        };
+        assert_eq!(sha_of(&repo.root), commit);
         let blob = test_git(&repo.root, &["show", "HEAD:nota.txt"]);
         assert_eq!(String::from_utf8_lossy(&blob.stdout), "dalla corsia\n");
         let log = test_git(&repo.root, &["log", "-1", "--format=%B"]);
@@ -3049,48 +2996,24 @@ mod tests {
         assert_eq!(subjects_of(&repo.root).len(), before.len() + 1);
         assert!(worktree.join("nota.txt").exists());
 
-        let again = lane_integrate::integrate_sync(integrate_request(
+        let again = lane_integrate::land_sync(land_request(
             &repo,
             &created.worktree_path,
             "sq13",
-            &target,
-            &lane,
             "Obiettivo della corsia",
-            lane_integrate::IntegrateStrategy::Squash,
         ))
         .unwrap();
-        assert_eq!(
-            again.phase,
-            lane_integrate::IntegratePhase::AlreadyIntegrated
-        );
-        assert_eq!(again.commit, first.commit);
+        match again {
+            WorktreeLandOutcome::AlreadyIntegrated {
+                commit: again_commit,
+                ..
+            } => {
+                assert_eq!(again_commit, commit);
+            }
+            other => panic!("Atteso AlreadyIntegrated, ottenuto {:?}", other),
+        }
         assert_eq!(subjects_of(&repo.root).len(), before.len() + 1);
 
-        fs::write(worktree.join("sporco.txt"), "ancora qui\n").unwrap();
-        let blocked = remove_sync(RemoveWorktreeArgs {
-            project_path: path_string(&repo.root).unwrap(),
-            worktree_path: created.worktree_path.clone(),
-            stop_processes: false,
-        })
-        .unwrap_err();
-        assert_eq!(blocked.code, WorktreeErrorCode::DirtyWorktree);
-        let reconciled = lane_integrate::integrate_sync(integrate_request(
-            &repo,
-            &created.worktree_path,
-            "sq13",
-            &target,
-            &lane,
-            "non deve ripetere",
-            lane_integrate::IntegrateStrategy::Squash,
-        ))
-        .unwrap();
-        assert_eq!(
-            reconciled.phase,
-            lane_integrate::IntegratePhase::AlreadyIntegrated
-        );
-        assert_eq!(subjects_of(&repo.root).len(), before.len() + 1);
-
-        fs::remove_file(worktree.join("sporco.txt")).unwrap();
         remove_sync(RemoveWorktreeArgs {
             project_path: path_string(&repo.root).unwrap(),
             worktree_path: created.worktree_path.clone(),
@@ -3129,163 +3052,24 @@ mod tests {
             "omp/lane-sq13"
         )
         .unwrap());
-        assert_eq!(sha_of(&repo.root), first.commit);
+        assert_eq!(sha_of(&repo.root), commit);
     }
 
     #[test]
-    fn drift_conflitto_e_checkout_sbagliato_non_toccano_il_target() {
-        let repo = repository(true);
-        let created = create_sync(create_args(&repo, "dr13")).unwrap();
-        let worktree = PathBuf::from(&created.worktree_path);
-        commit_file(&worktree, "corsia.txt", "solo corsia\n", "commit corsia");
-        let lane = sha_of(&worktree);
-        let old_target = sha_of(&repo.root);
-        commit_file(&repo.root, "target.txt", "solo target\n", "commit target");
-        let new_target = sha_of(&repo.root);
-
-        let moved = lane_integrate::integrate_sync(integrate_request(
-            &repo,
-            &created.worktree_path,
-            "dr13",
-            &old_target,
-            &lane,
-            "non deve entrare",
-            lane_integrate::IntegrateStrategy::Squash,
-        ))
-        .unwrap_err();
-        assert_eq!(moved.code, WorktreeErrorCode::TargetMoved);
-        assert_eq!(sha_of(&repo.root), new_target);
-        assert!(!repo.root.join("corsia.txt").exists());
-
-        let advanced = lane_integrate::integrate_sync(integrate_request(
-            &repo,
-            &created.worktree_path,
-            "dr13",
-            &new_target,
-            &lane,
-            "non deve entrare",
-            lane_integrate::IntegrateStrategy::Squash,
-        ))
-        .unwrap_err();
-        assert_eq!(advanced.code, WorktreeErrorCode::TargetAdvanced);
-        assert_eq!(sha_of(&repo.root), new_target);
-        assert!(!repo.root.join("corsia.txt").exists());
-
-        fs::write(repo.root.join("altro.txt"), "sporco\n").unwrap();
-        let dirty = lane_integrate::integrate_sync(integrate_request(
-            &repo,
-            &created.worktree_path,
-            "dr13",
-            &new_target,
-            &lane,
-            "non deve entrare",
-            lane_integrate::IntegrateStrategy::Squash,
-        ))
-        .unwrap_err();
-        assert!(
-            dirty.code == WorktreeErrorCode::TargetDirty
-                || dirty.code == WorktreeErrorCode::TargetAdvanced
-                || dirty.code == WorktreeErrorCode::CheckoutMismatch
-        );
-        fs::remove_file(repo.root.join("altro.txt")).unwrap();
-        assert_eq!(sha_of(&repo.root), new_target);
-
-        test_git(&repo.root, &["checkout", "-b", "altro"]);
-        let wrong = lane_integrate::integrate_sync(integrate_request(
-            &repo,
-            &created.worktree_path,
-            "dr13",
-            &new_target,
-            &lane,
-            "non deve entrare",
-            lane_integrate::IntegrateStrategy::Squash,
-        ))
-        .unwrap_err();
-        assert_eq!(wrong.code, WorktreeErrorCode::CheckoutMismatch);
-        test_git(&repo.root, &["checkout", "main"]);
-        assert_eq!(sha_of(&repo.root), new_target);
-
-        let tracked = Path::new("cartella con spazi").join("tracked.txt");
-        fs::write(repo.root.join(&tracked), "lato target\n").unwrap();
-        test_git(&repo.root, &["add", "--", tracked.to_str().unwrap()]);
-        test_git(&repo.root, &["commit", "-m", "lato target"]);
-        let main_after = sha_of(&repo.root);
-        fs::write(worktree.join(&tracked), "lato corsia\n").unwrap();
-        test_git(&worktree, &["add", "--", tracked.to_str().unwrap()]);
-        test_git(&worktree, &["commit", "-m", "lato corsia"]);
-        let lane_head = sha_of(&worktree);
-
-        let update = update_from_target_sync(WorktreeUpdateArgs {
-            project_path: path_string(&repo.root).unwrap(),
-            worktree_path: created.worktree_path.clone(),
-            target_branch: Some("main".to_string()),
-        })
-        .unwrap();
-        assert!(update.conflicted);
-        assert!(!update.conflict_files.is_empty());
-        assert_eq!(sha_of(&repo.root), main_after);
-        assert_eq!(
-            fs::read_to_string(repo.root.join(&tracked)).unwrap(),
-            "lato target\n"
-        );
-        let merge_head = run_git(
-            &repo.root,
-            &git_args(&["rev-parse", "-q", "--verify", "MERGE_HEAD"]),
-        )
-        .unwrap();
-        assert!(!merge_head.status.success());
-        assert!(fs::read_to_string(worktree.join(&tracked))
-            .unwrap()
-            .contains("<<<<<<<"));
-
-        let repeated = update_from_target_sync(WorktreeUpdateArgs {
-            project_path: path_string(&repo.root).unwrap(),
-            worktree_path: created.worktree_path,
-            target_branch: Some("main".to_string()),
-        })
-        .unwrap();
-        assert!(repeated.conflicted);
-        assert_eq!(sha_of(&repo.root), main_after);
-        assert_eq!(sha_of(&worktree), lane_head);
-        assert!(fs::read_to_string(worktree.join(&tracked))
-            .unwrap()
-            .contains("<<<<<<<"));
-    }
-
-    #[test]
-    fn rifiuta_corsia_sporca_messaggio_vuoto_e_branch_non_integrato() {
+    fn rifiuta_messaggio_vuoto_e_branch_non_integrato() {
         let repo = repository(true);
         let created = create_sync(create_args(&repo, "dy13")).unwrap();
-        let worktree = PathBuf::from(&created.worktree_path);
         let target = sha_of(&repo.root);
-        let lane = sha_of(&worktree);
-        fs::write(worktree.join("libero.txt"), "non committato\n").unwrap();
-        let dirty = lane_integrate::integrate_sync(integrate_request(
-            &repo,
-            &created.worktree_path,
-            "dy13",
-            &target,
-            &lane,
-            "messaggio",
-            lane_integrate::IntegrateStrategy::Squash,
-        ))
-        .unwrap_err();
-        assert_eq!(dirty.code, WorktreeErrorCode::LaneDirty);
-        assert!(worktree.join("libero.txt").exists());
-        assert_eq!(sha_of(&repo.root), target);
 
-        fs::remove_file(worktree.join("libero.txt")).unwrap();
-        let empty = lane_integrate::integrate_sync(integrate_request(
+        let empty = lane_integrate::land_sync(land_request(
             &repo,
             &created.worktree_path,
             "dy13",
-            &target,
-            &lane,
             "   ",
-            lane_integrate::IntegrateStrategy::Squash,
         ))
         .unwrap_err();
         assert_eq!(empty.code, WorktreeErrorCode::MessageInvalid);
+        assert_eq!(sha_of(&repo.root), target);
 
         let unknown =
             lane_integrate::delete_lane_branch_sync(lane_integrate::DeleteLaneBranchArgs {
@@ -3303,68 +3087,319 @@ mod tests {
     }
 
     #[test]
-    fn preserve_tiene_i_commit_e_un_commit_successivo_non_si_riunisce_da_solo() {
+    fn land_con_modifiche_non_committate_e_target_avanzato_integra_e_ritento_idempotente() {
         let repo = repository(true);
-        let created = create_sync(create_args(&repo, "pr13")).unwrap();
+        let created = create_sync(create_args(&repo, "ln01")).unwrap();
         let worktree = PathBuf::from(&created.worktree_path);
-        commit_file(&worktree, "uno.txt", "uno\n", "primo obiettivo");
-        commit_file(&worktree, "due.txt", "due\n", "secondo obiettivo");
-        let target = sha_of(&repo.root);
-        let lane = sha_of(&worktree);
-        let integrated = lane_integrate::integrate_sync(integrate_request(
+        fs::write(
+            worktree.join("lane-uncommitted.txt"),
+            "dalla corsia uncommitted\n",
+        )
+        .unwrap();
+        commit_file(&repo.root, "target-file.txt", "dal target\n", "target commit");
+        let target_sha_before = sha_of(&repo.root);
+        let before_subjects = subjects_of(&repo.root);
+
+        let outcome = lane_integrate::land_sync(land_request(
             &repo,
             &created.worktree_path,
-            "pr13",
-            &target,
-            &lane,
-            "ignorato",
-            lane_integrate::IntegrateStrategy::Preserve,
+            "ln01",
+            "Integrazione ln01",
         ))
         .unwrap();
-        assert_eq!(integrated.commit, lane);
-        assert_eq!(sha_of(&repo.root), lane);
-        let subjects = subjects_of(&repo.root);
-        assert!(subjects.contains(&"primo obiettivo".to_string()));
-        assert!(subjects.contains(&"secondo obiettivo".to_string()));
 
-        commit_file(&worktree, "tre.txt", "tre\n", "terzo non chiesto");
-        let refused = lane_integrate::integrate_sync(integrate_request(
+        let (commit, previous_target, files) = match outcome {
+            WorktreeLandOutcome::Integrated {
+                commit,
+                previous_target,
+                files,
+                ..
+            } => (commit, previous_target, files),
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        };
+
+        assert_eq!(previous_target, target_sha_before);
+        assert_eq!(sha_of(&repo.root), commit);
+        assert_eq!(
+            fs::read_to_string(repo.root.join("target-file.txt")).unwrap(),
+            "dal target\n"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.root.join("lane-uncommitted.txt")).unwrap(),
+            "dalla corsia uncommitted\n"
+        );
+        assert_eq!(subjects_of(&repo.root).len(), before_subjects.len() + 1);
+        let log = test_git(&repo.root, &["log", "-1", "--format=%B"]);
+        let body = String::from_utf8_lossy(&log.stdout);
+        assert!(body.contains("OMP-Lane-Head:"));
+        assert!(body.contains("OMP-Lane-Id: ln01"));
+        assert!(files.iter().any(|f| f.ends_with("lane-uncommitted.txt")));
+
+        // Ritento -> already_integrated
+        let again = lane_integrate::land_sync(land_request(
             &repo,
             &created.worktree_path,
-            "pr13",
-            &target,
-            &lane,
-            "ancora",
-            lane_integrate::IntegrateStrategy::Preserve,
+            "ln01",
+            "Integrazione ln01",
         ))
-        .unwrap_err();
-        assert_eq!(refused.code, WorktreeErrorCode::LaneDivergedAfterIntegrate);
-        assert_eq!(sha_of(&repo.root), lane);
-        assert!(!repo.root.join("tre.txt").exists());
+        .unwrap();
+        match again {
+            WorktreeLandOutcome::AlreadyIntegrated {
+                commit: again_commit,
+                ..
+            } => {
+                assert_eq!(again_commit, commit);
+            }
+            other => panic!("Atteso AlreadyIntegrated, ottenuto {:?}", other),
+        }
+        assert_eq!(subjects_of(&repo.root).len(), before_subjects.len() + 1);
     }
 
     #[test]
-    fn aggiornamento_su_branch_assente_lascia_la_corsia_intatta() {
+    fn land_con_conflitto_ritorna_conflitti_e_dopo_risoluzione_integra() {
         let repo = repository(true);
-        let created = create_sync(create_args(&repo, "ms13")).unwrap();
+        commit_file(&repo.root, "shared.txt", "riga base\n", "base shared");
+        let created = create_sync(create_args(&repo, "cf02")).unwrap();
         let worktree = PathBuf::from(&created.worktree_path);
-        let lane = sha_of(&worktree);
-        let target = sha_of(&repo.root);
-        let error = update_from_target_sync(WorktreeUpdateArgs {
-            project_path: path_string(&repo.root).unwrap(),
-            worktree_path: created.worktree_path,
-            target_branch: Some("inesistente".to_string()),
-        })
-        .unwrap_err();
-        assert_eq!(error.code, WorktreeErrorCode::InvalidTargetBranch);
-        assert_eq!(sha_of(&worktree), lane);
-        assert_eq!(sha_of(&repo.root), target);
-        let merge_head = run_git(
+
+        commit_file(
+            &repo.root,
+            "shared.txt",
+            "modifica target\n",
+            "target modifica shared",
+        );
+        let target_sha_before = sha_of(&repo.root);
+
+        commit_file(
             &worktree,
-            &git_args(&["rev-parse", "-q", "--verify", "MERGE_HEAD"]),
+            "shared.txt",
+            "modifica corsia\n",
+            "lane modifica shared",
+        );
+
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "cf02",
+            "Merge conflitto",
+        ))
+        .unwrap();
+
+        match outcome {
+            WorktreeLandOutcome::Conflicts { files, .. } => {
+                assert!(files.iter().any(|f| f.ends_with("shared.txt")));
+            }
+            other => panic!("Atteso Conflicts, ottenuto {:?}", other),
+        }
+
+        assert_eq!(sha_of(&repo.root), target_sha_before);
+        assert_eq!(
+            fs::read_to_string(repo.root.join("shared.txt")).unwrap(),
+            "modifica target\n"
+        );
+        assert!(!lane_integrate::unmerged_paths(&worktree).unwrap().is_empty());
+        assert!(fs::read_to_string(worktree.join("shared.txt"))
+            .unwrap()
+            .contains("<<<<<<<"));
+
+        // Risoluzione conflitto (modifica file + git add, senza commit)
+        fs::write(worktree.join("shared.txt"), "modifica risolta insieme\n").unwrap();
+        test_git(&worktree, &["add", "shared.txt"]);
+
+        let resolved = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "cf02",
+            "Risolto conflitto",
+        ))
+        .unwrap();
+
+        match resolved {
+            WorktreeLandOutcome::Integrated { commit, .. } => {
+                assert_eq!(sha_of(&repo.root), commit);
+                assert_eq!(
+                    fs::read_to_string(repo.root.join("shared.txt")).unwrap(),
+                    "modifica risolta insieme\n"
+                );
+            }
+            other => panic!("Atteso Integrated dopo risoluzione, ottenuto {:?}", other),
+        }
+    }
+
+    #[test]
+    fn land_con_target_sporco_su_file_disgiunto_preserva_modifica_locale() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "cl03")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+
+        commit_file(
+            &worktree,
+            "lane-feature.txt",
+            "feature dalla corsia\n",
+            "feature corsia",
+        );
+        fs::write(
+            repo.root.join("target-dirty-local.txt"),
+            "modifica locale target non committata\n",
         )
         .unwrap();
-        assert!(!merge_head.status.success());
+
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "cl03",
+            "Integra feature",
+        ))
+        .unwrap();
+
+        match outcome {
+            WorktreeLandOutcome::Integrated { commit, .. } => {
+                assert_eq!(sha_of(&repo.root), commit);
+            }
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        }
+
+        assert!(repo.root.join("target-dirty-local.txt").exists());
+        assert_eq!(
+            fs::read_to_string(repo.root.join("target-dirty-local.txt")).unwrap(),
+            "modifica locale target non committata\n"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.root.join("lane-feature.txt")).unwrap(),
+            "feature dalla corsia\n"
+        );
+    }
+
+    #[test]
+    fn land_con_target_sporco_su_stesso_file_va_in_coda_senza_modificare_target() {
+        let repo = repository(true);
+        commit_file(
+            &repo.root,
+            "shared-file.txt",
+            "iniziale\n",
+            "commit iniziale shared",
+        );
+        // Base = HEAD attuale: con il commit iniziale il file nascerebbe su
+        // entrambi i lati (add/add) e l'esito sarebbe un conflitto, non la coda.
+        let mut args = create_args(&repo, "ov04");
+        args.base_commit = sha_of(&repo.root);
+        let created = create_sync(args).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+
+        commit_file(
+            &worktree,
+            "shared-file.txt",
+            "cambiato in corsia\n",
+            "corsia update shared",
+        );
+        let target_sha_before = sha_of(&repo.root);
+        fs::write(repo.root.join("shared-file.txt"), "sporco sul target\n").unwrap();
+
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "ov04",
+            "Tentativo overlap",
+        ))
+        .unwrap();
+
+        match outcome {
+            WorktreeLandOutcome::Queued { reason, files } => {
+                assert_eq!(reason, "target_overlap");
+                assert!(files.iter().any(|f| f.ends_with("shared-file.txt")));
+            }
+            other => panic!("Atteso Queued per target_overlap, ottenuto {:?}", other),
+        }
+
+        assert_eq!(sha_of(&repo.root), target_sha_before);
+        assert_eq!(
+            fs::read_to_string(repo.root.join("shared-file.txt")).unwrap(),
+            "sporco sul target\n"
+        );
+    }
+
+    #[test]
+    fn undo_land_ripristina_target_preserva_sporco_e_crea_branch_restored() {
+        let repo = repository(true);
+        let target_init = sha_of(&repo.root);
+        let created = create_sync(create_args(&repo, "un05")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+
+        commit_file(
+            &worktree,
+            "da-annullare.txt",
+            "lavoro corsia\n",
+            "lavoro corsia",
+        );
+
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "un05",
+            "Commit da annullare",
+        ))
+        .unwrap();
+
+        let (commit, previous_target) = match outcome {
+            WorktreeLandOutcome::Integrated {
+                commit,
+                previous_target,
+                ..
+            } => (commit, previous_target),
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        };
+        assert_eq!(previous_target, target_init);
+        assert_eq!(sha_of(&repo.root), commit);
+
+        fs::write(repo.root.join("disjoint-local.txt"), "non toccato\n").unwrap();
+
+        let undo_args = lane_integrate::WorktreeUndoLandArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            lane_id: "un05".to_string(),
+            target_branch: "main".to_string(),
+            commit: commit.clone(),
+            previous_target: previous_target.clone(),
+        };
+        let undo_outcome = lane_integrate::undo_land_sync(undo_args).unwrap();
+
+        assert_eq!(undo_outcome.target_branch, "main");
+        assert_eq!(undo_outcome.head, previous_target);
+        assert_eq!(undo_outcome.restored_branch, "omp/restored-un05");
+        assert_eq!(sha_of(&repo.root), previous_target);
+        assert!(!repo.root.join("da-annullare.txt").exists());
+        assert_eq!(
+            fs::read_to_string(repo.root.join("disjoint-local.txt")).unwrap(),
+            "non toccato\n"
+        );
+
+        let restored_sha = String::from_utf8_lossy(
+            &test_git(&repo.root, &["rev-parse", "refs/heads/omp/restored-un05"]).stdout,
+        )
+        .trim()
+        .to_string();
+        assert_eq!(restored_sha, commit);
+
+        // Con un commit successivo sul target -> TargetMoved
+        commit_file(&repo.root, "nuovo.txt", "nuovo target\n", "nuovo commit");
+        let moved_err = lane_integrate::undo_land_sync(lane_integrate::WorktreeUndoLandArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            lane_id: "un05".to_string(),
+            target_branch: "main".to_string(),
+            commit: commit.clone(),
+            previous_target,
+        })
+        .unwrap_err();
+        assert_eq!(moved_err.code, WorktreeErrorCode::TargetMoved);
+    }
+
+    #[test]
+    fn land_su_branch_assente_fallisce_con_invalid_target_branch() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "ms13")).unwrap();
+        let mut req = land_request(&repo, &created.worktree_path, "ms13", "test");
+        req.target_branch = Some("inesistente".to_string());
+        let err = lane_integrate::land_sync(req).unwrap_err();
+        assert_eq!(err.code, WorktreeErrorCode::InvalidTargetBranch);
     }
 
     /// Due worktree vivi insieme: file distinti, main pulito, niente junction

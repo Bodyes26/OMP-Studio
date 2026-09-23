@@ -50,6 +50,7 @@ impl PtySession {
             crate::process_tree::LaneProcessKind::Terminal,
             self.pty_id,
         );
+        crate::lane_bridge::revoke_owner("terminal", self.pty_id);
         remove_breadcrumb(self.pty_id);
     }
 }
@@ -259,6 +260,7 @@ fn write_overlay() -> std::path::PathBuf {
 /// Tauri da configurare.
 pub const DIAGRAM_EXTENSION_TS: &str = include_str!("../../../extensions/studio-diagram.ts");
 pub const TASKS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-tasks.ts");
+pub const LANES_EXTENSION_TS: &str = include_str!("../../../extensions/studio-lanes.ts");
 
 /// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,
 /// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.
@@ -404,6 +406,7 @@ pub async fn pty_open(
     // scrittura in ~/.omp, la copia sta in %LOCALAPPDATA%/omp-studio.
     let extension_arg = write_extension("studio-diagram.ts", DIAGRAM_EXTENSION_TS);
     let tasks_extension_arg = write_extension("studio-tasks.ts", TASKS_EXTENSION_TS);
+    let lanes_extension_arg = write_extension("studio-lanes.ts", LANES_EXTENSION_TS);
 
     // Il `--resume` arriva dal frontend con l'id della sessione da cui si sta
     // passando: se quella sessione non ha ancora un transcript, omp esce con
@@ -424,6 +427,10 @@ pub async fn pty_open(
             launch_args.push(ext.clone());
         }
         if let Some(ext) = &tasks_extension_arg {
+            launch_args.push("-e".to_string());
+            launch_args.push(ext.clone());
+        }
+        if let Some(ext) = &lanes_extension_arg {
             launch_args.push("-e".to_string());
             launch_args.push(ext.clone());
         }
@@ -489,6 +496,10 @@ pub async fn pty_open(
             launch.push_str(" -e ");
             launch.push_str(&sh_quote(ext));
         }
+        if let Some(ext) = &lanes_extension_arg {
+            launch.push_str(" -e ");
+            launch.push_str(&sh_quote(ext));
+        }
         for arg in &args {
             launch.push(' ');
             launch.push_str(&sh_quote(arg));
@@ -518,6 +529,25 @@ pub async fn pty_open(
     if let Some(proj) = &project_id {
         cmd.env("OMP_PROJECT_ID", proj);
     }
+    let bridge_creds = if let Some(project) = project_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        crate::lane_bridge::issue_token(crate::lane_bridge::BridgeOwner {
+            owner_kind: "terminal".to_string(),
+            owner_id: pty_id,
+            project_id: Some(project.to_string()),
+            lane_id: lane_id.clone().filter(|l| !l.trim().is_empty()),
+            cwd: cwd.clone(),
+        })
+    } else {
+        None
+    };
+    if let Some((url, token)) = &bridge_creds {
+        cmd.env("OMP_STUDIO_BRIDGE_URL", url);
+        cmd.env("OMP_STUDIO_BRIDGE_TOKEN", token);
+    }
 
     #[cfg(not(target_os = "windows"))]
     {
@@ -537,6 +567,9 @@ pub async fn pty_open(
             c
         }
         Err(e) => {
+            if bridge_creds.is_some() {
+                crate::lane_bridge::revoke_owner("terminal", pty_id);
+            }
             eprintln!("[PTY] spawn_command failed: {}", e);
             return Err(format!("spawn_command failed: {}", e));
         }
@@ -679,6 +712,7 @@ pub async fn pty_close(pty_id: u64, manager: State<'_, PtyManager>) -> Result<()
         if let Some(session) = session {
             session.kill_tree();
         }
+        crate::lane_bridge::revoke_owner("terminal", pty_id);
         remove_breadcrumb(pty_id);
     })
     .await
@@ -694,6 +728,7 @@ pub async fn pty_force_kill(pty_id: u64, manager: State<'_, PtyManager>) -> Resu
     tokio::task::spawn_blocking(move || {
         session.kill_tree();
         remove_breadcrumb(pty_id);
+        crate::lane_bridge::revoke_owner("terminal", pty_id);
     })
     .await
     .map_err(|e| format!("Terminazione forzata PTY {}: {}", pty_id, e))?;

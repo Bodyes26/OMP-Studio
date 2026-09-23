@@ -18,22 +18,22 @@ import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/
 import {
 	applyTabRename,
 	applyTabTrash,
+	buildProjectMetadata,
+	createProjectMetadataMap,
 	isPathUnder,
+	pruneProjectMetadata,
 	remapPath,
 	reorderItemsList,
-	shiftItemList
+	resolveProjectTabInfo,
+	shiftItemList,
+	type ProjectColorMode,
+	type ProjectLayout,
+	type StoredProjectMetadata
 } from './projectTabHelpers';
 export { normalizeProjectPath, joinProjectPath, pathKey, isWindows, isPathUnder, remapPath };
+export type { ProjectColorMode, ProjectLayout, StoredProjectMetadata };
 
 export type { AgentState } from '$lib/types/lanes';
-export type ProjectColorMode = 'auto' | 'custom';
-
-export interface ProjectLayout {
-	left: number;
-	center: number;
-	leftSection: 'files' | 'sessions';
-	editorOpen: boolean;
-}
 
 export interface Project {
 	id: ProjectId;
@@ -89,12 +89,18 @@ class ProjectStore {
 	 *  l'utente non abbia progetti. */
 	ready = $state(false);
 	loadError = $state<string | null>(null);
+	private metadata = new Map<string, StoredProjectMetadata>();
 	private store: Store | null = null;
 	private initialized = false;
 	private initPromise: Promise<void> | null = null;
 
 	constructor() {
 		void this.init();
+		if (typeof window !== 'undefined') {
+			window.addEventListener('beforeunload', () => {
+				void this.save.flush();
+			});
+		}
 	}
 
 	/**
@@ -124,12 +130,14 @@ class ProjectStore {
 			load('settings.json', { autoSave: false })
 		]);
 		this.store = store;
-		const [storedProjects, storedActiveId, storedRoot, home] = await Promise.all([
+		const [storedProjects, storedMetadata, storedActiveId, storedRoot, home] = await Promise.all([
 			store.get<StoredProject[]>('projects'),
+			store.get<StoredProjectMetadata[]>('projectMetadata'),
 			store.get<string>('activeProjectId'),
 			store.get<string>('projectRoot'),
 			homeDir()
 		]);
+		this.metadata = createProjectMetadataMap(storedMetadata);
 		// `join` del plugin path e' un altro giro di IPC per concatenare
 		// segmenti gia' noti: `joinProjectPath` fa lo stesso in memoria.
 		const defaultRoot = isWindows
@@ -152,7 +160,7 @@ class ProjectStore {
 				const canonicalPath = canonicalProjectPath(normalizedPath);
 				const surface =
 					p.lane?.surface === 'gui' || p.layout?.rightSection === 'gui' ? 'gui' : 'terminal';
-				this.projects.push({
+				const project: Project = {
 					id,
 					name: p.name,
 					label: typeof p.label === 'string' && p.label.trim() ? p.label.trim() : null,
@@ -176,7 +184,9 @@ class ProjectStore {
 					autoDispatch: p.autoDispatch === true,
 					taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null,
 					browserAllowedOrigins: p.browserAllowedOrigins
-				});
+				};
+				this.projects.push(project);
+				this.syncProjectMetadata(project);
 			}
 			// L'ordine salvato e' l'unica verita' fuori da `mru`: solo li'
 			// il piu' recente deve tornare in cima da solo.
@@ -202,12 +212,45 @@ class ProjectStore {
 		this.initialized = true;
 		this.ready = true;
 	}
+	private syncProjectMetadata(p: Project) {
+		const meta = buildProjectMetadata({
+			id: p.id,
+			name: p.name,
+			label: p.label,
+			canonicalProjectPath: p.canonicalProjectPath,
+			hue: p.hue,
+			colorMode: p.colorMode,
+			layout: $state.snapshot(p.layout),
+			lastOpened: p.lastOpened,
+			autoDispatch: p.autoDispatch,
+			taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
+			browserAllowedOrigins: p.browserAllowedOrigins ? [...p.browserAllowedOrigins] : undefined
+		});
+		if (!meta || !p.canonicalProjectPath) return;
+		this.metadata.set(pathKey(p.canonicalProjectPath), meta);
+	}
+
+	getProjectMetadata(path: string): StoredProjectMetadata | undefined {
+		const normalized = normalizeProjectPath(path);
+		if (!normalized) return undefined;
+		return this.metadata.get(pathKey(normalized));
+	}
+
+	async flushSave(): Promise<void> {
+		await this.save.flush();
+	}
+
 	private save = debounce(async () => {
 		if (!this.initialized || !this.store) {
 			if (this.loadError) {
 				console.warn('Salvataggio progetti rifiutato: store in errore di caricamento preliminare.');
 			}
 			return;
+		}
+		for (const p of this.projects) {
+			if (p.canonicalProjectPath) {
+				this.syncProjectMetadata(p);
+			}
 		}
 		const toSave = this.projects
 			.filter((p) => p.canonicalProjectPath !== null)
@@ -225,7 +268,9 @@ class ProjectStore {
 				taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
 				browserAllowedOrigins: p.browserAllowedOrigins
 			}));
+		const metaToSave = pruneProjectMetadata(Array.from(this.metadata.values()));
 		await this.store.set('projects', toSave);
+		await this.store.set('projectMetadata', metaToSave);
 		await this.store.set('activeProjectId', this.activeId);
 		await this.store.set('projectRoot', this.projectRoot);
 		await this.store.save();
@@ -240,6 +285,7 @@ class ProjectStore {
 		);
 		if (existing) {
 			existing.lastOpened = Date.now();
+			this.syncProjectMetadata(existing);
 			this.activeId = existing.id;
 			if (settingsStore.projectBar.order === 'mru') {
 				const idx = this.projects.findIndex(p => p.id === existing.id);
@@ -252,27 +298,29 @@ class ProjectStore {
 			return existing.id;
 		}
 
-		const name = normalizedPath.split(/[\\/]/).pop() || 'Unknown';
-		const id = projectId(crypto.randomUUID());
+		const meta = this.metadata.get(key);
+		const defaultHue = getProjectHue(normalizedPath);
+		const resolved = resolveProjectTabInfo(normalizedPath, meta, defaultHue);
+
+		const id =
+			resolved.id && !this.projects.some((p) => p.id === resolved.id)
+				? projectId(resolved.id)
+				: projectId(crypto.randomUUID());
 		const canonicalPath = canonicalProjectPath(normalizedPath);
 
 		const newProj: Project = {
 			id,
-			name,
-			label: null,
+			name: resolved.name,
+			label: resolved.label,
 			canonicalProjectPath: canonicalPath,
-			hue: getProjectHue(normalizedPath),
-			colorMode: 'auto',
+			hue: resolved.hue,
+			colorMode: resolved.colorMode,
 			lane: createMainLane(id, canonicalPath, settingsStore.general.defaultSurface),
-			layout: {
-				left: 260,
-				center: 0.5,
-				leftSection: 'files',
-				editorOpen: true
-			},
+			layout: resolved.layout,
 			lastOpened: Date.now(),
-			autoDispatch: false,
-			taskDefaults: null
+			autoDispatch: resolved.autoDispatch,
+			taskDefaults: resolved.taskDefaults,
+			browserAllowedOrigins: resolved.browserAllowedOrigins
 		};
 		// Nuovo progetto: in coda con l'ordine manuale, in testa solo se
 		// l'utente ha scelto `mru` (il piu' recente resta il piu' visibile).
@@ -282,6 +330,7 @@ class ProjectStore {
 			this.projects.push(newProj);
 		}
 		this.activeId = id;
+		this.syncProjectMetadata(newProj);
 		this.save();
 		return id;
 	}
@@ -361,6 +410,10 @@ class ProjectStore {
 	closeProject(id: string) {
 		const idx = this.projects.findIndex(p => p.id === id);
 		if (idx === -1) return;
+		const p = this.projects[idx];
+		if (p.canonicalProjectPath) {
+			this.syncProjectMetadata(p);
+		}
 		this.projects.splice(idx, 1);
 		if (this.activeId === id) {
 			this.activeId = this.projects.length > 0 ? this.projects[this.projects.length - 1].id : null;
@@ -570,6 +623,7 @@ class ProjectStore {
 		if (p) {
 			p.hue = hue;
 			p.colorMode = 'custom';
+			this.syncProjectMetadata(p);
 			this.save();
 		}
 	}
@@ -578,6 +632,7 @@ class ProjectStore {
 		const p = this.projects.find(p => p.id === id);
 		if (p) {
 			p.colorMode = 'auto';
+			this.syncProjectMetadata(p);
 			this.save();
 		}
 	}
@@ -587,6 +642,7 @@ class ProjectStore {
 		const normalized = name.trim();
 		if (!p || !normalized) return;
 		p.name = normalized;
+		this.syncProjectMetadata(p);
 		this.save();
 	}
 
@@ -594,6 +650,7 @@ class ProjectStore {
 		const p = this.projects.find(p => p.id === id);
 		if (!p) return;
 		p.label = label.trim() || null;
+		this.syncProjectMetadata(p);
 		this.save();
 	}
 

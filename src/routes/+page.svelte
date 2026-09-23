@@ -56,6 +56,7 @@
 	import LaneDispatchDialog from '$lib/components/LaneDispatchDialog.svelte';
 	import LaneProfileDialog from '$lib/components/LaneProfileDialog.svelte';
 	import LaneReviewModal from '$lib/components/LaneReviewModal.svelte';
+	import { laneLanding, type LaneBridgeRequestPayload } from '$lib/lanes/laneLanding.svelte';
 	import {
 		recordAllowlistDecision,
 		reviewProjectProfile,
@@ -235,9 +236,19 @@
 		}
 	}
 
+	// La barra di stato parla della corsia a schermo, non dell'aggregato del
+	// progetto: quello resta sulla tessera nella barra progetti.
+	const activeLaneState = $derived.by((): AgentState => {
+		const project = projectStore.activeProject;
+		if (!project) return 'idle';
+		const state = laneOrchestrator.laneAgentState(project, project.lane.laneId);
+		return state === 'unknown' ? 'idle' : state;
+	});
+
 	onMount(() => {
 		void startFocusTracer();
 		void notificationManager.init();
+		laneLanding.init();
 		function buildResolutionContext() {
 			return {
 				projects: projectStore.projects,
@@ -259,10 +270,16 @@
 			const context = buildResolutionContext();
 			laneSurfaceStore.routePreviewEvent(e.payload, context);
 		});
+		const unlistenBridge = listen<LaneBridgeRequestPayload>('lane-bridge://request', (e) => {
+			if (!e.payload) return;
+			void laneLanding.handleBridgeRequest(e.payload);
+		});
 
 		return () => {
 			void unlistenDiagram.then((un) => un());
 			void unlistenPreview.then((un) => un());
+			void unlistenBridge.then((un) => un());
+			laneLanding.dispose();
 		};
 	});
 	let usageOpen = $state(false);
@@ -337,6 +354,8 @@
 		taskTitle: string;
 		warning: ConcurrencyWarning | null;
 		follow: boolean;
+		/** Corsia aperta a schermo: l'utente puo' forzare il task li'. */
+		forceLane: { laneId: string; title: string } | null;
 	} | null>(null);
 	/**
 	 * Consenso una tantum sui file locali non versionati prima di aprire il
@@ -356,17 +375,7 @@
 		const lane = reviewingLane;
 		if (!project || !lane) return;
 		reviewingLane = null;
-		await laneOrchestrator.switchLane(project.id as ProjectId, lane.laneId);
-		let refreshed = projectStore.projects.find((candidate) => candidate.id === project.id);
-		if (!refreshed || refreshed.lane.laneId !== lane.laneId) return;
-		if (refreshed.lane.surface !== 'gui') {
-			await laneOrchestrator.switchSurface(project.id, 'gui');
-			refreshed = projectStore.projects.find((candidate) => candidate.id === project.id);
-		}
-		if (!refreshed || refreshed.lane.laneId !== lane.laneId || refreshed.lane.surface !== 'gui') return;
-		const session = laneOrchestrator.getOrCreateAgentSession(refreshed, refreshed.lane);
-		await session.ensureOpen(session.sessionId);
-		await session.prompt(prompt);
+		await laneLanding.askLaneToResolveConflicts(project.id, lane.laneId, prompt);
 	}
 	const taskEditor = $derived(taskStore.taskById(taskEditorId));
 	const activeTaskEditor = $derived(
@@ -916,7 +925,7 @@
 			surface: 'terminal',
 			busy,
 			inputPending: terminalMeta[key]?.inputPending === true,
-			agentState: lane.agentState
+			agentState: laneOrchestrator.laneAgentState(project, laneId)
 		});
 	}
 
@@ -981,6 +990,12 @@
 		newLane?: boolean;
 		/** La spedizione nasce dall'auto-dispatch: la corsia occupa lo slot unico. */
 		auto?: boolean;
+		/**
+		 * Avvio forzato sulla corsia indicata: salta il cancello e interrompe
+		 * il turno o la domanda in corso. Lo sceglie l'utente quando lo stato
+		 * dice "occupato" ma l'agente per lui ha finito.
+		 */
+		force?: boolean;
 	}
 
 	function taskTitleOf(task: StudioTask): string {
@@ -1031,13 +1046,24 @@
 			agentErrors[runtimeKey(project)] = m.lane_dispatch_blocked_detail();
 			return;
 		}
+		// `Shift` + click e' gia' la conferma esplicita: il dialog serve solo
+		// oltre il soft-cap. Senza questo ramo la richiesta cadeva nel prompt
+		// "Agenti simultanei" con un conteggio senza senso ("1° agente").
+		if (route.kind === 'new-lane' && !route.confirmConcurrency) {
+			await dispatchInNewLane(project, task, options);
+			return;
+		}
 		laneDispatchPrompt = {
 			projectId,
 			taskId,
 			mode: route.kind === 'prompt' ? 'busy-main' : 'concurrency',
 			taskTitle: taskTitleOf(task),
 			warning: route.confirmConcurrency ? buildConcurrencyWarning(lanes) : null,
-			follow: options.follow === true
+			follow: options.follow === true,
+			forceLane:
+				route.kind === 'prompt'
+					? { laneId: project.lane.laneId, title: project.lane.title }
+					: null
 		};
 	}
 
@@ -1109,7 +1135,7 @@
 	): Promise<boolean> {
 		const queue = resolveQueueRoot(project, lane.workspacePath);
 		if (!queue.path) return false;
-		if (!options.skipGate && !automationGate(project.id, lane.laneId).ready) return false;
+		if (!options.skipGate && !options.force && !automationGate(project.id, lane.laneId).ready) return false;
 
 		const taskId = task.id;
 		const key = runtimeKey(project, lane.laneId);
@@ -1135,6 +1161,12 @@
 			const surface = isVisibleLane ? project.lane.surface : lane.surface;
 			if (surface === 'gui') {
 				const session = laneOrchestrator.getOrCreateAgentSession(project, lane);
+				// Forzare vuol dire partire adesso: un turno ancora aperto o una
+				// domanda di `ask` in sospeso terrebbero il processo occupato e
+				// `newSession()` lo troverebbe a meta' lavoro.
+				if (options.force && (session.isStreaming || session.agentState === 'working' || session.pendingUi)) {
+					await session.abort();
+				}
 				const fullPrompt = formatTaskPrompt(task, queue.path);
 				if (isVisibleLane) {
 					// Semina ottimistica: mostra immediatamente il prompt come primo messaggio
@@ -1228,6 +1260,18 @@
 		laneDispatchPrompt = null;
 		void handleRunTask(request.projectId, request.taskId, {
 			newLane: true,
+			follow: request.follow
+		});
+	}
+
+	/** Il task parte nella corsia aperta anche se risulta occupata. */
+	function forceLaneDispatch() {
+		const request = laneDispatchPrompt;
+		if (!request?.forceLane) return;
+		laneDispatchPrompt = null;
+		void handleRunTask(request.projectId, request.taskId, {
+			laneId: request.forceLane.laneId,
+			force: true,
 			follow: request.follow
 		});
 	}
@@ -2463,7 +2507,9 @@
 		mode={laneDispatchPrompt?.mode ?? 'busy-main'}
 		taskTitle={laneDispatchPrompt?.taskTitle ?? ''}
 		warning={laneDispatchPrompt?.warning ?? null}
+		forceLaneTitle={laneDispatchPrompt?.forceLane?.title ?? ''}
 		onConfirm={confirmLaneDispatch}
+		onForce={laneDispatchPrompt?.forceLane ? forceLaneDispatch : undefined}
 		onCancel={() => (laneDispatchPrompt = null)}
 	/>
 	<LaneProfileDialog
@@ -2840,10 +2886,10 @@
 				class="status-indicator"
 				role="status"
 				aria-live="polite"
-				title="Stato agente: {agentStateLabel(projectStore.activeProject?.lane.agentState)}"
+				title="Stato agente: {agentStateLabel(activeLaneState)}"
 			>
-				<span class="status-led {projectStore.activeProject?.lane.agentState || 'idle'}" aria-hidden="true"></span>
-				<span>{m.ui__page_stato_ab3d()} {agentStateLabel(projectStore.activeProject?.lane.agentState)}</span>
+				<span class="status-led {activeLaneState}" aria-hidden="true"></span>
+				<span>{m.ui__page_stato_ab3d()} {agentStateLabel(activeLaneState)}</span>
 			</div>
 		</div>
 	</footer>

@@ -1123,3 +1123,37 @@ La scrittura di `lanes.json` non passa dal `save` del plugin store: quel save us
 - Diventa tag solo ciò che sembra un percorso: una `@` a inizio testo o dopo uno spazio, seguita da un token con `/` o con un'estensione che contiene una lettera. `@Main`, `@utente` e le email restano testo. Non si controlla che il file esista: significherebbe caricare il catalogo in modo asincrono e cambiare la bolla dopo che è già stata disegnata.
 - Nel Companion i file si cercano solo nel progetto già indicato con `#`: un percorso preso da un altro progetto non esisterebbe nel progetto di destinazione.
 - La sintassi vive in `src/lib/agent/fileMentionSyntax.ts` (modulo puro), mentre stato e tastiera della palette stanno in `FileMentionController`. Chi aggiunge una nuova superficie riusa entrambi e non scrive un altro parser.
+
+## Gate R29: l'integrazione di una corsia è una sola pipeline, dal pulsante o dall'agente
+
+**Data:** 2026-09-23
+**Esito:** APPROVATO (rivede il punto 9 del Gate R27)
+
+### Il problema
+
+Il 2026-09-23 una corsia di `ContrattiImmobili` non si è potuta integrare. Il lavoro della corsia non era mai stato committato (`Commit (0)`, head = base), il principale aveva appena committato sullo stesso file e il modale chiedeva, in sequenza: aggiornare dal target (un `git merge` su un worktree sporco, rifiutato da Git, con il motivo scartato dall'interfaccia), fare un commit che nessun pulsante permetteva, fermare l'agente della corsia che la chat teneva vivo. L'utente ha finito con un commit e un `git merge` fatti a mano, che hanno prodotto un merge commit al posto dello squash.
+
+### Decisioni
+
+1. **Una sola pipeline Rust (`worktree_land`) con due ingressi.** Il pulsante "Integra" del modale e il tool `studio_lane_integrate` (estensione `extensions/studio-lanes.ts`, caricata con `-e` come le altre) eseguono lo stesso codice. L'agente non fa operazioni git per integrare: chiede a Studio di farle.
+2. **Commit della corsia fatto da Studio all'integrazione**, con `git add -A` e hook disabilitati; il messaggio arriva dall'agente o dal titolo della corsia. Se un merge nella corsia era rimasto aperto e i conflitti sono stati risolti (`git add`), la pipeline lo completa.
+3. **Merge calcolato in memoria** con `git merge-tree --write-tree` fra target e corsia: il target avanzato non obbliga più ad aggiornare la corsia prima. Solo se ci sono conflitti la pipeline esegue il merge nel worktree della corsia e restituisce i file al chiamante.
+4. **Sempre squash.** Un commit sul target con i trailer `OMP-Lane-Id`, `OMP-Lane-Head`, `OMP-Strategy: squash`, mosso con `update-ref` confronta-e-scambia. La strategia `Preserve` è rimossa.
+5. **Conferma solo dopo conflitti.** Merge pulito: integra senza chiedere. Corsia che ha avuto conflitti risolti da un agente: serve un clic su una card in chat. A integrazione fatta una card mostra SHA e file con "Annulla integrazione".
+6. **Checkout principale sporco.** Si integra se i file sporchi non toccano quelli cambiati dall'integrazione, aggiornando il checkout con `git read-tree -m -u` (che rifiuta di sovrascrivere modifiche locali). Se si sovrappongono, o se l'agente principale sta lavorando, l'integrazione va in coda e riparte da sola.
+7. **Pulizia completa automatica** dopo l'integrazione: sessione della corsia chiusa (dopo la fine del turno, se è lei a chiamare il tool), worktree rimosso, branch `omp/lane-*` cancellato, corsia archiviata.
+8. **Annullamento** (`worktree_undo_land`): riporta il target allo SHA precedente solo se nessun commit è arrivato dopo, preserva le modifiche locali disgiunte e crea `omp/restored-<laneId>` sul commit annullato, così il lavoro resta raggiungibile.
+9. **Canale estensione -> Studio.** Server HTTP su `127.0.0.1` con porta effimera; ogni sessione `omp` lanciata da Studio per un progetto riceve `OMP_STUDIO_BRIDGE_URL` e un token casuale in `OMP_STUDIO_BRIDGE_TOKEN`, revocato alla chiusura. Il token identifica la sessione chiamante: il controllo "processi attivi" esclude quel processo, fermo in attesa della risposta. Le sessioni del Laboratorio non ricevono il canale.
+
+### Perchè non le alternative
+
+- **L'agente fa merge e commit da solo:** flessibile, ma non deterministico; è esattamente la strada che ha prodotto il merge commit manuale.
+- **Corsia riallineata al target in automatico mentre è ferma:** evita l'accumulo di drift, ma cambia il worktree sotto una chat ancora aperta; con il merge in memoria il drift non blocca più e questa complessità non serve.
+- **Scambio di file al posto dell'HTTP:** niente rete, ma servono polling e pulizia dei file di richiesta; il tool deve ricevere una risposta sincrona.
+
+### Rischi accettati
+
+- Fra il controllo "agente principale fermo" e `read-tree` resta una finestra di millisecondi in cui un comando manuale dell'utente potrebbe scrivere nel checkout; `read-tree` non sovrascrive comunque modifiche locali.
+- Il commit automatico include tutto cio' che `.gitignore` non esclude: la card di esito elenca i file e l'integrazione si annulla con un clic.
+- L'esclusione del processo chiamante copre anche i job in background di quell'agente, che non sono registrati singolarmente.
+- L'alternativa 3 scartata dal Gate R27 (auto-merge al termine del task) resta valido nel senso di gesto esplicito: l'integrazione parte solo da un clic o da una richiesta esplicita all'agente, mai alla fine del task.

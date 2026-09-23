@@ -11,8 +11,8 @@ pub use auth::{
 };
 #[allow(unused_imports)]
 pub use repos::{
-    github_clone_repo, github_create_repo, github_list_remote_repos,
-    project_detect_github_remotes, DetectedGithubRemote, GithubRemoteRepo,
+    github_clone_repo, github_create_repo, github_list_remote_repos, project_detect_github_remotes,
+    DetectedGithubRemote, GithubRemoteRepo,
 };
 #[allow(unused_imports)]
 pub use sync::{git_sync_repo, git_upstream_status, CommitSummary, GitUpstreamStatus};

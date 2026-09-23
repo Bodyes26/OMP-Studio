@@ -209,6 +209,15 @@ export interface SystemChipEntry {
 	/** true per i messaggi che upstream marca `display: false`: la timeline li mostra solo con l'interruttore diagnostico attivo. */
 	internal?: boolean;
 }
+/**
+ * Risultato o stato di un'operazione di integrazione corsia (Lane Landing).
+ * Lo stato vive nel servizio reattivo `laneLanding`, indicizzato per `landingId`.
+ */
+export interface LaneLandingEntry {
+	id: number;
+	kind: 'lane-landing';
+	landingId: string;
+}
 
 export type TranscriptEntry =
 	| UserEntry
@@ -220,8 +229,8 @@ export type TranscriptEntry =
 	| TtsrEntry
 	| SubagentResultEntry
 	| IrcEntry
-	| SystemChipEntry;
-
+	| SystemChipEntry
+	| LaneLandingEntry;
 export interface QueuedMessage {
 	id: number;
 	text: string;
@@ -510,7 +519,10 @@ export class AgentSession {
 		return {
 			ready: this.isReady,
 			attached: this.isAttached,
-			streaming: this.isStreaming,
+			// Fra un turno e l'altro `isStreaming` torna falso mentre l'agente
+			// continua: lo stato della sessione e' lo stesso che leggono badge
+			// e routing, cosi' il cancello non dice "pronto" a un agente al lavoro.
+			streaming: this.isStreaming || this.agentState === 'working',
 			compacting: this.isCompacting,
 			blockingQuestion: this.pendingUi ? askQuestionText(this.pendingUi) : null,
 			quotaBlock: quota && !quota.dismissed ? quota.title : null,
@@ -3273,6 +3285,17 @@ export class AgentSession {
 	private push<T extends TranscriptEntry>(entry: T): T {
 		this.entries.push(entry);
 		return this.entries[this.entries.length - 1] as T;
+	}
+
+	/**
+	 * Accoda una tessera di atterraggio corsia (Lane Landing) nel transcript.
+	 */
+	pushLaneLanding(landingId: string): LaneLandingEntry {
+		return this.push<LaneLandingEntry>({
+			id: this.nextEntryId++,
+			kind: 'lane-landing',
+			landingId
+		});
 	}
 
 	private lastOfKind(kind: 'compaction'): CompactionEntry | null {

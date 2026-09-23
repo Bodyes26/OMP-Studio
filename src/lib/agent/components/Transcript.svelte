@@ -28,6 +28,7 @@
 	import UserMessage from './UserMessage.svelte';
 	import SubagentResultCard from './SubagentResultCard.svelte';
 	import IrcMessageCard from './IrcMessageCard.svelte';
+	import LaneLandingCard from './LaneLandingCard.svelte';
 	import SystemChip from './SystemChip.svelte';
 	import NoticeGroup from './NoticeGroup.svelte';
 	import ActivityIndicator from './ActivityIndicator.svelte';
@@ -355,6 +356,8 @@
 					<RetryRow entry={item.entry} />
 				{:else if item.entry.kind === 'ttsr'}
 					<TtsrRow entry={item.entry} />
+				{:else if item.entry.kind === 'lane-landing'}
+					<LaneLandingCard entry={item.entry} />
 				{/if}
 			</div>
 		{/each}

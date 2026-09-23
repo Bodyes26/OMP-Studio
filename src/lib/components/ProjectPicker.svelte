@@ -2,7 +2,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
+	import { projectStore, joinProjectPath, type ProjectColorMode } from '$lib/stores/projects.svelte';
 	import { githubStore, type GithubRemoteRepo, type DetectedGithubRemote } from '$lib/stores/github.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { trapFocus } from '$lib/focusTrap';
@@ -14,6 +14,10 @@
 		name: string;
 		path: string;
 		githubRemote?: DetectedGithubRemote;
+		customName?: string;
+		label?: string | null;
+		hue?: number;
+		colorMode?: ProjectColorMode;
 	}
 
 	let candidates = $state<Candidate[]>([]);
@@ -32,6 +36,8 @@
 			? candidates.filter(
 					(c) =>
 						c.name.toLowerCase().includes(q) ||
+						(c.customName && c.customName.toLowerCase().includes(q)) ||
+						(c.label && c.label.toLowerCase().includes(q)) ||
 						c.path.toLowerCase().includes(q) ||
 						c.githubRemote?.fullName.toLowerCase().includes(q)
 				)
@@ -115,10 +121,15 @@
 				.map((e) => {
 					const fullPath = joinProjectPath(projectStore.projectRoot, e.name);
 					const normalizedKey = fullPath.toLowerCase().replace(/\\/g, '/');
+					const meta = projectStore.getProjectMetadata(fullPath);
 					return {
 						name: e.name,
 						path: fullPath,
-						githubRemote: remotesByPath.get(normalizedKey)
+						githubRemote: remotesByPath.get(normalizedKey),
+						customName: meta?.name && meta.name !== e.name ? meta.name : undefined,
+						label: meta?.label ?? null,
+						hue: meta?.hue,
+						colorMode: meta?.colorMode
 					};
 				});
 		} catch (e) {
@@ -264,13 +275,24 @@
 						class:sel={isSelected}
 						role="option"
 						aria-selected={isSelected}
-						aria-label={`${c.name} - ${c.path}${isAlreadyOpen ? m.ui_projectpicker_gia_aperto_c1ca() : ''}`}
+						aria-label={`${c.customName ? `${c.customName} (${c.name})` : c.name} - ${c.path}${isAlreadyOpen ? m.ui_projectpicker_gia_aperto_c1ca() : ''}`}
 						onmouseenter={() => (index = itemIndex)}
 						onclick={() => pickItem({ type: 'local', candidate: c, localIndex: i })}
 						disabled={isCloning}
 					>
 						<span class="row-icon"><IconFolderOpen /></span>
-						<span class="name">{c.name}</span>
+						<span class="name">{c.customName || c.name}</span>
+						{#if c.customName}
+							<span class="badge folder-badge">({c.name})</span>
+						{/if}
+						{#if c.label}
+							<span
+								class="badge label-badge"
+								style={c.hue !== undefined ? `--proj-hue: ${c.hue}` : undefined}
+							>
+								{c.label}
+							</span>
+						{/if}
 						{#if isAlreadyOpen}
 							<span class="badge already-open">{m.project_picker_already_open()}</span>
 						{/if}
@@ -526,6 +548,24 @@
 		color: var(--ink-faint);
 		border: 1px solid var(--line);
 	}
+	.badge.folder-badge {
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
+		font-size: 0.72rem;
+		padding: 0;
+	}
+
+	.badge.label-badge {
+		background: oklch(var(--proj-l-fill, 0.28) var(--proj-c-fill, 0.04) var(--proj-hue, 220));
+		color: var(--on-project, var(--ink));
+		font-family: var(--font-mono);
+		font-weight: 700;
+		font-size: 0.68rem;
+		padding: 1px 6px;
+		letter-spacing: 0.03em;
+		border: 1px solid oklch(var(--proj-l-fill, 0.35) var(--proj-c-fill, 0.08) var(--proj-hue, 220));
+	}
+
 
 	.badge.gh-badge {
 		display: inline-flex;

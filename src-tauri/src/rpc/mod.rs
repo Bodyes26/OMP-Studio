@@ -114,6 +114,7 @@ impl crate::process_tree::LaneProcessControl for LaneAgentProcess {
             crate::process_tree::LaneProcessKind::Agent,
             self.rpc_id,
         );
+        crate::lane_bridge::revoke_owner("agent", self.rpc_id);
     }
 }
 
@@ -471,6 +472,7 @@ fn reader_loop(args: ReaderLoopArgs) {
         .and_then(|s| s.code());
     let tail: Vec<String> = stderr_tail.lock().iter().cloned().collect();
     sessions.lock().remove(&rpc_id);
+    crate::lane_bridge::revoke_owner("agent", rpc_id);
     let _ = on_event.send(
         serde_json::json!({
             "type": "studio_exit",
@@ -693,6 +695,8 @@ pub async fn rpc_open(
         crate::pty::write_extension("studio-diagram.ts", crate::pty::DIAGRAM_EXTENSION_TS);
     let tasks_extension =
         crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
+    let lanes_extension =
+        crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
 
     let rpc_id = {
         let mut guard = manager.next_id.lock();
@@ -727,6 +731,9 @@ pub async fn rpc_open(
     if let Some(path) = &tasks_extension {
         command.arg("-e").arg(path);
     }
+    if let Some(path) = &lanes_extension {
+        command.arg("-e").arg(path);
+    }
     // Il resume di una sessione senza transcript farebbe uscire omp subito:
     // meglio aprirne una nuova, che e' esattamente cio' che la sessione vuota
     // conteneva.
@@ -747,6 +754,25 @@ pub async fn rpc_open(
     }
     if let Some(proj) = &project_id {
         command.env("OMP_PROJECT_ID", proj);
+    }
+    let bridge_creds = if let Some(project) = project_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        crate::lane_bridge::issue_token(crate::lane_bridge::BridgeOwner {
+            owner_kind: "agent".to_string(),
+            owner_id: rpc_id,
+            project_id: Some(project.to_string()),
+            lane_id: lane_id.clone().filter(|l| !l.trim().is_empty()),
+            cwd: cwd.clone(),
+        })
+    } else {
+        None
+    };
+    if let Some((url, token)) = &bridge_creds {
+        command.env("OMP_STUDIO_BRIDGE_URL", url);
+        command.env("OMP_STUDIO_BRIDGE_TOKEN", token);
     }
     command
         .stdin(Stdio::piped())
@@ -775,9 +801,15 @@ pub async fn rpc_open(
         }
     }
 
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Avvio di omp in modalita' RPC: {}", error))?;
+    let mut child = match command.spawn() {
+        Ok(c) => c,
+        Err(error) => {
+            if bridge_creds.is_some() {
+                crate::lane_bridge::revoke_owner("agent", rpc_id);
+            }
+            return Err(format!("Avvio di omp in modalita' RPC: {}", error));
+        }
+    };
 
     let pid = child.id();
     #[cfg(target_os = "windows")]
@@ -1126,6 +1158,7 @@ pub async fn rpc_send(
 
 #[tauri::command]
 pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<(), String> {
+    crate::lane_bridge::revoke_owner("agent", rpc_id);
     let Some(session) = manager.sessions.lock().remove(&rpc_id) else {
         return Ok(());
     };
@@ -1182,6 +1215,7 @@ pub async fn rpc_abort(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
 /// Termina forzatamente la sessione RPC e l'intero albero dei processi figli (SIGKILL/taskkill).
 #[tauri::command]
 pub async fn rpc_force_kill(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<(), String> {
+    crate::lane_bridge::revoke_owner("agent", rpc_id);
     let session = manager.sessions.lock().get(&rpc_id).cloned();
     let session = session.ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
     tokio::task::spawn_blocking(move || {

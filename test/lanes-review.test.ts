@@ -107,95 +107,71 @@ describe('W12 — Evidenze di verifica dal transcript (commandEvidence)', () => 
 
 describe('W12 — Valutazione gate di sicurezza integrazione (integrationGate)', () => {
 	const messages = {
-		targetDirty: (count: number) => `Target dirty (${count} file non committati)`,
-		laneDirty: (count: number) => `Corsia sporca (${count} file)`,
 		checkoutMismatch: () => 'Checkout diverso dal target',
-		liveProcesses: (count: number) => `Ci sono ${count} processi attivi nel worktree`,
 		processCheckFailed: () => 'Impossibile verificare i processi',
 		notReady: (status: string) => `Corsia non pronta per la revisione (${status})`,
-		conflicts: () => 'Conflitti Git non risolti',
-		targetAdvanced: () => 'Target avanzato'
+		conflicts: () => 'Conflitti Git non risolti'
 	};
 
 	const ready: IntegrationGateInput = {
 		laneStatus: 'review_ready',
-		isTargetDirty: false,
-		targetDirtyFilesCount: 0,
-		isLaneDirty: false,
-		laneDirtyFilesCount: 0,
 		isTargetCheckedOut: true,
-		liveProcessesCount: 0,
 		processCheckFailed: false,
-		hasUnresolvedConflicts: false,
-		driftAhead: 0
+		hasUnresolvedConflicts: false
 	};
 
-	it('consente integrazione solo quando target e pulito, 0 processi, review_ready e nessun conflitto', () => {
+	it('consente integrazione quando target e checked out, nessun conflitto e stato valido', () => {
 		const input: IntegrationGateInput = { ...ready };
 
 		const res = evaluateIntegrationGate(input, messages);
 		assert.equal(res.canIntegrate, true);
 		assert.equal(res.reasons.length, 0);
-		assert.equal(res.needsUpdateFromTarget, false);
 	});
 
-	it('blocca integrazione se il target e dirty anche se la corsia e review_ready', () => {
+	it('consente integrazione anche se la corsia e sporca o il target e avanzato (gestiti dalla pipeline)', () => {
 		const input: IntegrationGateInput = {
 			...ready,
-			isTargetDirty: true,
-			targetDirtyFilesCount: 3
+			isLaneDirty: true,
+			laneDirtyFilesCount: 2,
+			driftAhead: 5
 		};
 
 		const res = evaluateIntegrationGate(input, messages);
-		assert.equal(res.canIntegrate, false);
-		assert.ok(res.reasons.some((r) => r.includes('Target dirty')));
+		assert.equal(res.canIntegrate, true);
+		assert.equal(res.reasons.length, 0);
 	});
 
-	it('blocca integrazione se ci sono processi attivi avviati nel worktree', () => {
-		const input: IntegrationGateInput = {
-			...ready,
-			liveProcessesCount: 2
-		};
+	it('blocca integrazione se lo stato della corsia e archived o integrating', () => {
+		const blocked = ['archived', 'integrating'] as const;
 
-		const res = evaluateIntegrationGate(input, messages);
-		assert.equal(res.canIntegrate, false);
-		assert.ok(res.reasons.some((r) => r.includes('2 processi attivi')));
-	});
-
-	it('blocca integrazione se lo stato della corsia non e review_ready', () => {
-		const statuses = ['active', 'conflict', 'archived'] as const;
-
-		for (const st of statuses) {
+		for (const st of blocked) {
 			const input: IntegrationGateInput = {
 				...ready,
 				laneStatus: st
 			};
 			const res = evaluateIntegrationGate(input, messages);
 			assert.equal(res.canIntegrate, false, `Stato ${st} deve bloccare integrazione`);
-			assert.ok(res.reasons.some((r) => r.includes(st) || r.includes('Conflitti')));
+			assert.ok(res.reasons.some((r) => r.includes(st)));
 		}
 	});
 
-	it('blocca il target avanzato e consente il ritento di cleanup in integrating', () => {
-		const drifted = evaluateIntegrationGate({ ...ready, driftAhead: 4 }, messages);
-		assert.equal(drifted.canIntegrate, false);
-		assert.equal(drifted.needsUpdateFromTarget, true);
-		assert.ok(drifted.reasons.some((r) => r.includes('Target avanzato')));
-
-		const retry = evaluateIntegrationGate(
-			{ ...ready, laneStatus: 'integrating', driftAhead: 4 },
+	it('blocca integrazione in caso di conflitti non risolti o stato conflict', () => {
+		const withConflicts = evaluateIntegrationGate(
+			{ ...ready, hasUnresolvedConflicts: true },
 			messages
 		);
-		assert.equal(retry.canIntegrate, true);
-		assert.equal(retry.needsUpdateFromTarget, false);
+		assert.equal(withConflicts.canIntegrate, false);
+		assert.ok(withConflicts.reasons.some((r) => r.includes('Conflitti')));
+
+		const statusConflict = evaluateIntegrationGate(
+			{ ...ready, laneStatus: 'conflict' },
+			messages
+		);
+		assert.equal(statusConflict.canIntegrate, false);
+		assert.ok(statusConflict.reasons.some((r) => r.includes('Conflitti')));
 	});
 
-	it('blocca corsia sporca, checkout diverso e verifica processi fallita', () => {
-		assert.equal(
-			evaluateIntegrationGate({ ...ready, isLaneDirty: true, laneDirtyFilesCount: 1 }, messages)
-				.canIntegrate,
-			false
-		);
+	it('blocca checkout diverso e verifica processi fallita', () => {
 		assert.equal(
 			evaluateIntegrationGate({ ...ready, isTargetCheckedOut: false }, messages).canIntegrate,
 			false

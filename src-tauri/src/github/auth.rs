@@ -16,7 +16,7 @@ pub struct GithubAuthStatus {
     pub username: Option<String>,
     pub name: Option<String>,
     pub avatar_url: Option<String>,
-    pub method: String, // "gh_cli" | "token" | "none"
+    pub method: String,   // "gh_cli" | "token" | "none"
     pub protocol: String, // "https" | "ssh"
     pub error: Option<String>,
 }
@@ -231,7 +231,12 @@ pub async fn github_get_status() -> Result<GithubAuthStatus, String> {
 
         if authenticated && username.is_some() {
             let mut cmd = Command::new(&gh_path);
-            cmd.args(["api", "user", "--jq", "{login: .login, name: .name, avatar_url: .avatar_url}"]);
+            cmd.args([
+                "api",
+                "user",
+                "--jq",
+                "{login: .login, name: .name, avatar_url: .avatar_url}",
+            ]);
             #[cfg(target_os = "windows")]
             cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -256,7 +261,11 @@ pub async fn github_get_status() -> Result<GithubAuthStatus, String> {
             username,
             name,
             avatar_url,
-            method: if authenticated { "gh_cli".to_string() } else { "none".to_string() },
+            method: if authenticated {
+                "gh_cli".to_string()
+            } else {
+                "none".to_string()
+            },
             protocol,
             error: None,
         });
@@ -329,7 +338,9 @@ pub async fn github_install_cli() -> Result<String, String> {
                 "--silent",
             ]);
             cmd.creation_flags(CREATE_NO_WINDOW);
-            let out = cmd.output().map_err(|e| format!("Avvio winget fallito: {e}"))?;
+            let out = cmd
+                .output()
+                .map_err(|e| format!("Avvio winget fallito: {e}"))?;
             if !out.status.success() {
                 let err = String::from_utf8_lossy(&out.stderr);
                 let stdout = String::from_utf8_lossy(&out.stdout);

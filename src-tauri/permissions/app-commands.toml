@@ -91,11 +91,12 @@ commands.allow = [
     "worktree_profile_scan",
     "worktree_apply_allowlist",
     "worktree_review_inspect",
-    "worktree_update_from_target",
-    "worktree_integrate",
+    "worktree_land",
+    "worktree_undo_land",
     "worktree_delete_lane_branch",
     "lane_processes_list",
     "lane_processes_stop",
+    "lane_bridge_respond",
     "lanes_store_read",
     "lanes_store_write_atomic"
 ]

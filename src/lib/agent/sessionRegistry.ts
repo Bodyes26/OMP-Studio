@@ -15,6 +15,7 @@ import type { AskFlushStep } from './askAnswers';
 import { promptBus } from './promptBus.ts';
 import { labSessionKey, laneSessionKey } from './sessionKeys';
 import { m as msg } from '$lib/paraglide/messages.js';
+import { createSubscriber } from 'svelte/reactivity';
 
 export { labSessionKey, laneSessionKey, mainSessionKey } from './sessionKeys';
 
@@ -58,6 +59,7 @@ export interface AgentSessionLike {
 	clearInferredAttention?(): void;
 	/** L'esito della consegna interessa solo la coda dei task: qui basta attendere. */
 	prompt?(message: string, images?: unknown[], behavior?: unknown): Promise<unknown>;
+	pushLaneLanding?(landingId: string): unknown;
 }
 
 export type SessionFactory<T extends AgentSessionLike> = (config: AgentSessionConfig) => T;
@@ -65,6 +67,30 @@ export type SessionFactory<T extends AgentSessionLike> = (config: AgentSessionCo
 export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	private sessions = new Map<string, T>();
 	private factory: SessionFactory<T> | null = null;
+
+	// La mappa resta non reattiva: `getOrCreate*` viene chiamato anche dentro
+	// i template (Chat), dove scrivere stato Svelte lancerebbe
+	// `state_unsafe_mutation`. Le letture si iscrivono invece a un segnale che
+	// avanza in un microtask dopo ogni inserimento o rimozione: senza, chi ha
+	// letto una sessione ancora assente (la tab di una corsia appena creata)
+	// non si accorgeva mai del suo arrivo e restava su "In attesa".
+	private notifyMembership: (() => void) | null = null;
+	private membershipQueued = false;
+	private readonly trackMembership = createSubscriber((update) => {
+		this.notifyMembership = update;
+		return () => {
+			this.notifyMembership = null;
+		};
+	});
+
+	private membershipChanged(): void {
+		if (!this.notifyMembership || this.membershipQueued) return;
+		this.membershipQueued = true;
+		queueMicrotask(() => {
+			this.membershipQueued = false;
+			this.notifyMembership?.();
+		});
+	}
 
 	constructor(factory?: SessionFactory<T>) {
 		if (factory) this.factory = factory;
@@ -99,6 +125,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 				projectKey: project.id
 			});
 			this.sessions.set(key, session);
+			this.membershipChanged();
 		}
 		return session;
 	}
@@ -115,6 +142,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	}
 
 	getLaneSession(projectKey: string, laneId: string): T | undefined {
+		this.trackMembership();
 		return this.sessions.get(laneSessionKey(projectKey, laneId));
 	}
 
@@ -124,12 +152,16 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 
 	setLaneSession(projectKey: string, laneId: string, session: T): void {
 		this.sessions.set(laneSessionKey(projectKey, laneId), session);
+		this.membershipChanged();
 	}
 
 	removeLaneSession(projectKey: string, laneId: string): T | undefined {
 		const key = laneSessionKey(projectKey, laneId);
 		const existing = this.sessions.get(key);
-		if (existing) this.sessions.delete(key);
+		if (existing) {
+			this.sessions.delete(key);
+			this.membershipChanged();
+		}
 		return existing;
 	}
 
@@ -156,6 +188,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 				observedRevisionId: options?.observedRevisionId ?? null
 			});
 			this.sessions.set(key, session);
+			this.membershipChanged();
 		} else if (options?.observedRevisionId !== undefined) {
 			session.observedRevisionId = options.observedRevisionId;
 		}
@@ -163,17 +196,22 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	}
 
 	getLabSession(projectKey: string, prototypeId: string): T | undefined {
+		this.trackMembership();
 		return this.sessions.get(labSessionKey(projectKey, prototypeId));
 	}
 
 	setLabSession(projectKey: string, prototypeId: string, session: T): void {
 		this.sessions.set(labSessionKey(projectKey, prototypeId), session);
+		this.membershipChanged();
 	}
 
 	removeLabSession(projectKey: string, prototypeId: string): T | undefined {
 		const key = labSessionKey(projectKey, prototypeId);
 		const existing = this.sessions.get(key);
-		if (existing) this.sessions.delete(key);
+		if (existing) {
+			this.sessions.delete(key);
+			this.membershipChanged();
+		}
 		return existing;
 	}
 
@@ -195,11 +233,13 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	 * Cerca qualsiasi sessione per la sua chiave logica (`lane:...` o `lab:...`).
 	 */
 	findSessionByKey(sessionKey: string): T | undefined {
+		this.trackMembership();
 		return this.sessions.get(sessionKey.trim().toLowerCase());
 	}
 
 	/** Tutte le sessioni attive (corsie e laboratorio). */
 	getAllSessions(): T[] {
+		this.trackMembership();
 		return [...this.sessions.values()];
 	}
 
@@ -236,6 +276,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	async disposeProjectSessions(projectKey: string): Promise<void> {
 		const sessions = this.getSessionsForProject(projectKey);
 		for (const session of sessions) this.sessions.delete(session.sessionKey);
+		if (sessions.length > 0) this.membershipChanged();
 		await Promise.allSettled(sessions.map((session) => session.close()));
 	}
 
@@ -257,6 +298,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	async clearAll(): Promise<void> {
 		const all = this.getAllSessions();
 		this.sessions.clear();
+		this.membershipChanged();
 		await Promise.allSettled(all.map((session) => session.close()));
 	}
 

@@ -3,7 +3,6 @@
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-	import { sessionRegistry } from '$lib/agent/sessionRegistry';
 	import {
 		MAIN_LANE_ID,
 		type LaneId,
@@ -107,16 +106,14 @@
 	}
 
 	function resolveLaneDisplayState(lane: AgentLane | LaneRecord): DisplayState {
-		const session = sessionRegistry.getLaneSession(project.id, lane.laneId);
+		// Stessa lettura della barra di stato e del routing della coda: un badge
+		// che dice "In attesa" mentre la coda vede la corsia occupata e' un bug.
+		const state = laneOrchestrator.laneAgentState(project, lane.laneId);
 
 		if (lane.status === 'conflict') {
 			return { kind: 'conflict', label: m.lanestrip_status_conflict() };
 		}
-		if (
-			session?.pendingUi ||
-			session?.agentState === 'attention' ||
-			lane.agentState === 'attention'
-		) {
+		if (state === 'attention') {
 			return { kind: 'attention', label: m.lanestrip_status_attention() };
 		}
 		if (lane.status === 'review_ready') {
@@ -125,14 +122,10 @@
 		if (lane.status === 'integrating') {
 			return { kind: 'integrating', label: m.lanestrip_status_integrating() };
 		}
-		if (
-			session?.agentState === 'working' ||
-			session?.isStreaming ||
-			lane.agentState === 'working'
-		) {
+		if (state === 'working') {
 			return { kind: 'working', label: m.lanestrip_status_working() };
 		}
-		if (lane.agentState === 'finished') {
+		if (state === 'finished') {
 			return { kind: 'finished', label: m.lanestrip_status_finished() };
 		}
 		return { kind: 'idle', label: m.lanestrip_status_idle() };

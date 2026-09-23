@@ -9,7 +9,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
-	import { IconClose, IconWarning, IconPlus } from '$lib/icons';
+	import { IconClose, IconPlus, IconGitBranch } from '$lib/icons';
 	import type { ProjectStack, RestoreMode } from '$lib/types/lanes';
 	import type {
 		CandidateRule,
@@ -146,7 +146,7 @@
 		transition:fly={{ y: -16, duration: 200, easing: cubicOut }}
 	>
 		<div class="modal-header">
-			<div class="header-icon"><IconWarning /></div>
+			<div class="header-icon"><IconGitBranch /></div>
 			<div class="header-text">
 				<h3 id="lane-profile-title">{m.laneprofile_title()}</h3>
 				<p class="subtitle">{m.laneprofile_subtitle({ count: candidates.length })}</p>
@@ -178,7 +178,9 @@
 					<ul class="evidence">
 						{#each detection.subprojects as subproject (subproject.directory)}
 							<li>
-								<span class="path">{subproject.directory || '.'}</span>
+								{#if subproject.directory}
+									<span class="path">{subproject.directory}</span>
+								{/if}
 								<span class="manifests">{subproject.manifests.join(' · ')}</span>
 							</li>
 						{/each}
@@ -227,10 +229,12 @@
 {/if}
 
 <style>
+	/* Stessa grammatica visiva di `LaneDispatchDialog`: token di `app.css`,
+	   velo traslucido, primario sul brand. */
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: color-mix(in srgb, var(--bg-base) 80%, black);
+		background: var(--backdrop);
 		backdrop-filter: blur(2px);
 		z-index: var(--z-modal, 1000);
 	}
@@ -240,15 +244,14 @@
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		width: 520px;
+		width: 500px;
 		max-width: calc(100vw - 32px);
 		max-height: calc(100vh - 64px);
 		background: var(--bg-overlay);
+		color: var(--ink);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg, 10px);
-		box-shadow:
-			0 16px 40px rgba(0, 0, 0, 0.45),
-			0 0 0 1px var(--line-strong);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
 		z-index: calc(var(--z-modal, 1000) + 1);
 		display: flex;
 		flex-direction: column;
@@ -257,10 +260,9 @@
 
 	.modal-header {
 		display: flex;
-		align-items: center;
-		gap: var(--space-3, 12px);
-		padding: var(--space-4, 16px) var(--space-4, 16px) var(--space-3, 12px);
-		border-bottom: 1px solid var(--line);
+		align-items: flex-start;
+		gap: var(--space-3);
+		padding: var(--space-4) var(--space-4) 0;
 	}
 
 	.header-icon {
@@ -271,26 +273,29 @@
 		height: 32px;
 		flex: 0 0 auto;
 		border-radius: 50%;
-		color: var(--warning, #d29922);
-		background: color-mix(in srgb, var(--warning, #d29922) 14%, transparent);
+		color: var(--ink-muted);
+		background: var(--bg-hover);
 	}
 
 	.header-text {
 		flex: 1;
 		min-width: 0;
+		padding-top: 1px;
 	}
 
 	.header-text h3 {
 		margin: 0;
-		font-size: var(--text-base, 14px);
+		font-size: var(--text-md);
 		font-weight: 600;
-		color: var(--fg-default);
+		line-height: 1.3;
+		color: var(--ink);
 	}
 
 	.subtitle {
-		margin: 2px 0 0;
-		font-size: var(--text-sm, 12px);
-		color: var(--fg-muted);
+		margin: 3px 0 0;
+		font-size: var(--text-sm);
+		line-height: 1.4;
+		color: var(--ink-muted);
 	}
 
 	.btn-close {
@@ -302,40 +307,41 @@
 		height: 26px;
 		padding: 0;
 		border: none;
-		border-radius: var(--radius-sm, 4px);
+		border-radius: var(--radius-sm);
 		background: transparent;
-		color: var(--fg-muted);
+		color: var(--ink-faint);
 		cursor: pointer;
 	}
 
 	.btn-close:hover {
 		background: var(--bg-hover);
-		color: var(--fg-default);
+		color: var(--ink);
 	}
 
 	.modal-body {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3, 12px);
-		padding: var(--space-4, 16px);
+		gap: var(--space-3);
+		padding: var(--space-4);
 		overflow-y: auto;
 	}
 
 	.label {
-		font-size: var(--text-xs, 11px);
+		font-size: var(--text-xs);
+		font-weight: 500;
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--fg-subtle, var(--fg-muted));
+		letter-spacing: 0.05em;
+		color: var(--ink-faint);
 	}
 
 	.profile-box {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2, 8px);
-		padding: var(--space-3, 12px);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3) var(--space-3);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md, 6px);
-		background: var(--bg-subtle, var(--bg-base));
+		border-radius: var(--radius-md);
+		background: var(--bg-raised);
 	}
 
 	.chips {
@@ -346,14 +352,16 @@
 
 	.chip {
 		padding: 2px 8px;
-		border-radius: 999px;
-		border: 1px solid var(--line-strong);
-		font-size: var(--text-xs, 11px);
-		color: var(--fg-default);
+		border-radius: var(--radius-full);
+		background: var(--bg-hover);
+		font-size: var(--text-xs);
+		color: var(--ink);
 	}
 
 	.chip.muted {
-		color: var(--fg-muted);
+		background: transparent;
+		box-shadow: inset 0 0 0 1px var(--line);
+		color: var(--ink-muted);
 	}
 
 	.evidence,
@@ -363,30 +371,37 @@
 		list-style: none;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	.evidence li {
 		display: flex;
-		gap: var(--space-2, 8px);
+		gap: var(--space-2);
 		align-items: baseline;
 		min-width: 0;
-		font-size: var(--text-xs, 11px);
-		color: var(--fg-muted);
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
 	}
 
 	.files label {
 		display: flex;
-		align-items: baseline;
-		gap: var(--space-2, 8px);
+		align-items: center;
+		gap: var(--space-2);
 		min-width: 0;
+		padding: 3px 0;
 		cursor: pointer;
 	}
 
+	.files input {
+		accent-color: var(--brand);
+		margin: 0;
+	}
+
 	.path {
+		min-width: 0;
 		font-family: var(--font-mono);
-		font-size: var(--text-xs, 11px);
-		color: var(--fg-default);
+		font-size: var(--text-xs);
+		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -394,8 +409,8 @@
 
 	.manifests,
 	.meta {
-		font-size: var(--text-xs, 11px);
-		color: var(--fg-muted);
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -403,53 +418,71 @@
 
 	.warning {
 		margin: 0;
-		padding: var(--space-2, 8px) var(--space-3, 12px);
-		border-radius: var(--radius-md, 6px);
-		border: 1px solid color-mix(in srgb, var(--warning, #d29922) 40%, var(--line));
-		background: color-mix(in srgb, var(--warning, #d29922) 10%, transparent);
-		font-size: var(--text-sm, 12px);
-		color: var(--fg-default);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+		background: color-mix(in srgb, var(--warn) 10%, var(--bg-raised));
+		font-size: var(--text-sm);
+		line-height: 1.45;
+		color: var(--ink);
 	}
 
 	.hint {
 		margin: 0;
-		font-size: var(--text-sm, 12px);
-		color: var(--fg-muted);
+		font-size: var(--text-sm);
+		line-height: 1.45;
+		color: var(--ink-muted);
 	}
 
 	.modal-footer {
 		display: flex;
 		justify-content: flex-end;
-		gap: var(--space-2, 8px);
-		padding: var(--space-3, 12px) var(--space-4, 16px);
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
 		border-top: 1px solid var(--line);
-		background: var(--bg-subtle, transparent);
+		background: var(--bg-raised);
 	}
 
 	.btn {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		padding: 6px 12px;
-		border-radius: var(--radius-sm, 4px);
-		border: 1px solid var(--line-strong);
-		background: var(--bg-elevated, transparent);
-		color: var(--fg-default);
-		font-size: var(--text-sm, 12px);
+		padding: 6px 14px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--line);
+		background: var(--bg-hover);
+		color: var(--ink);
+		font-size: var(--text-sm);
+		font-weight: 500;
 		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease-out),
+			filter var(--dur-fast) var(--ease-out);
+	}
+
+	.btn :global(svg) {
+		width: 14px;
+		height: 14px;
 	}
 
 	.btn-secondary:hover {
-		background: var(--bg-hover);
+		background: var(--bg-active);
 	}
 
+	/* `--brand` non e' mai colore di testo: sopra usa `--on-brand`. */
 	.btn-primary {
-		border-color: var(--accent, var(--line-strong));
-		background: var(--accent, var(--bg-elevated));
-		color: var(--accent-fg, #fff);
+		border-color: var(--brand);
+		background: var(--brand);
+		color: var(--on-brand);
 	}
 
 	.btn-primary:hover {
 		filter: brightness(1.08);
+	}
+
+	.btn:focus-visible,
+	.btn-close:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
 	}
 </style>

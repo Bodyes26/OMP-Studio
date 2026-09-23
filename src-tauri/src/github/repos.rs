@@ -83,15 +83,17 @@ fn read_remote_origin(git_config_path: &Path) -> Option<String> {
 
 /// Rileva i repository collegati a GitHub scansionando le cartelle in `project_root`.
 #[tauri::command]
-pub async fn project_detect_github_remotes(project_root: String) -> Result<Vec<DetectedGithubRemote>, String> {
+pub async fn project_detect_github_remotes(
+    project_root: String,
+) -> Result<Vec<DetectedGithubRemote>, String> {
     tokio::task::spawn_blocking(move || {
         let root = PathBuf::from(&project_root);
         if !root.is_dir() {
             return Ok(Vec::new());
         }
 
-        let entries = std::fs::read_dir(&root)
-            .map_err(|e| format!("Lettura cartella radice: {e}"))?;
+        let entries =
+            std::fs::read_dir(&root).map_err(|e| format!("Lettura cartella radice: {e}"))?;
 
         let mut results = Vec::new();
 
@@ -114,7 +116,11 @@ pub async fn project_detect_github_remotes(project_root: String) -> Result<Vec<D
                     let trimmed = content.trim();
                     if let Some(rest) = trimmed.strip_prefix("gitdir:") {
                         let target = PathBuf::from(rest.trim());
-                        let resolved = if target.is_absolute() { target } else { path.join(target) };
+                        let resolved = if target.is_absolute() {
+                            target
+                        } else {
+                            path.join(target)
+                        };
                         resolved.join("config")
                     } else {
                         continue;
@@ -211,7 +217,10 @@ pub async fn github_list_remote_repos(limit: Option<u32>) -> Result<Vec<GithubRe
                             description: r.description,
                             url: r.url,
                             ssh_url: r.ssh_url,
-                            default_branch: r.default_branch_ref.map(|b| b.name).unwrap_or_else(|| "main".to_string()),
+                            default_branch: r
+                                .default_branch_ref
+                                .map(|b| b.name)
+                                .unwrap_or_else(|| "main".to_string()),
                             updated_at: r.updated_at.unwrap_or_default(),
                         })
                         .collect();
@@ -228,7 +237,10 @@ pub async fn github_list_remote_repos(limit: Option<u32>) -> Result<Vec<GithubRe
             .build()
             .map_err(|e| e.to_string())?;
 
-        let url = format!("https://api.github.com/user/repos?per_page={}&sort=updated", lim.min(100));
+        let url = format!(
+            "https://api.github.com/user/repos?per_page={}&sort=updated",
+            lim.min(100)
+        );
         let res = client
             .get(&url)
             .bearer_auth(token)
@@ -271,7 +283,10 @@ pub async fn github_clone_repo(repo_url: String, target_path: String) -> Result<
     tokio::task::spawn_blocking(move || {
         let target = PathBuf::from(&target_path);
         if target.exists() {
-            return Err(format!("La cartella di destinazione '{}' esiste già.", target_path));
+            return Err(format!(
+                "La cartella di destinazione '{}' esiste già.",
+                target_path
+            ));
         }
 
         let mut cmd = Command::new("git");
@@ -279,7 +294,9 @@ pub async fn github_clone_repo(repo_url: String, target_path: String) -> Result<
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
-        let out = cmd.output().map_err(|e| format!("Avvio git clone fallito: {e}"))?;
+        let out = cmd
+            .output()
+            .map_err(|e| format!("Avvio git clone fallito: {e}"))?;
 
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -320,11 +337,19 @@ pub async fn github_create_repo(
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
-        let out = cmd.output().map_err(|e| format!("Avvio gh repo create: {e}"))?;
+        let out = cmd
+            .output()
+            .map_err(|e| format!("Avvio gh repo create: {e}"))?;
         if out.status.success() {
             // Recupera il repo appena creato
             let mut info_cmd = Command::new(&gh_path);
-            info_cmd.args(["repo", "view", &name, "--json", "name,nameWithOwner,isPrivate,description,url,sshUrl,defaultBranchRef"]);
+            info_cmd.args([
+                "repo",
+                "view",
+                &name,
+                "--json",
+                "name,nameWithOwner,isPrivate,description,url,sshUrl,defaultBranchRef",
+            ]);
             #[cfg(target_os = "windows")]
             info_cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -338,7 +363,10 @@ pub async fn github_create_repo(
                             description: r.description,
                             url: r.url,
                             ssh_url: r.ssh_url,
-                            default_branch: r.default_branch_ref.map(|b| b.name).unwrap_or_else(|| "main".to_string()),
+                            default_branch: r
+                                .default_branch_ref
+                                .map(|b| b.name)
+                                .unwrap_or_else(|| "main".to_string()),
                             updated_at: String::new(),
                         });
                     }

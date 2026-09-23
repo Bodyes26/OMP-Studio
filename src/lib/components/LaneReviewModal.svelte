@@ -1,13 +1,13 @@
 <!--
-  LaneReviewModal.svelte — Superficie di revisione e integrazione di una corsia isolata (Gate R27 / PLAN W12).
+  LaneReviewModal.svelte — Superficie di revisione e integrazione di una corsia isolata in un clic.
 
   Invarianti:
   1. Revisione non muta mai il branch target ne' il working tree principale.
   2. Mostra target/base/current SHA, drift, commit, file con numstat e diff Monaco side-by-side.
   3. Include sia file tracciati sia file non tracciati rilevanti.
-  4. Evidenze dal transcript rigorosamente reali: comandi, exit code, durata misurata. Nessun "passed" inventato.
-  5. Integrazione disabilitata con motivazioni esplicite (target dirty, corsia sporca, checkout diverso, processi non verificabili o vivi, stato non review_ready, conflitti, target avanzato).
-  6. Azioni lecite: torna alla corsia, prepara commit selezionato, aggiorna dal target, integra, rifiuta.
+  4. Evidenze dal transcript rigorosamente reali: comandi, exit code, durata misurata.
+  5. Integrazione deterministica in un clic gestita dal servizio `laneLanding` (squash).
+  6. Azioni lecite: torna alla corsia, prepara commit selezionato, integra, rifiuta, chiedi all'agente di risolvere conflitti.
   7. Accessibilita' APG: dialog modale, trapFocus, navigazione tastiera, contrasti WCAG AA.
 -->
 <script lang="ts">
@@ -38,6 +38,7 @@
 	import type { Project } from '$lib/stores/projects.svelte';
 	import { laneStore } from '$lib/stores/lanes.svelte';
 	import { sessionRegistry } from '$lib/agent/sessionRegistry';
+	import { laneLanding } from '$lib/lanes/laneLanding.svelte';
 	import {
 		listLaneProcesses,
 		laneProcessesFor,
@@ -88,20 +89,6 @@
 		totalDeletions: number;
 	}
 
-	export interface WorktreeUpdateOutcome {
-		success: boolean;
-		conflicted: boolean;
-		conflictFiles: string[];
-		message: string;
-	}
-
-	export interface WorktreeIntegrateOutcome {
-		phase: 'integrated' | 'already_integrated';
-		commit: string;
-		targetBranch: string;
-		strategy: 'squash' | 'preserve';
-	}
-
 	let {
 		open = false,
 		lane = null,
@@ -136,21 +123,25 @@
 	let diffError = $state<string | null>(null);
 
 	// Stato azioni
-	let isUpdating = $state(false);
-	let updateOutcome = $state<WorktreeUpdateOutcome | null>(null);
 	let confirmReject = $state(false);
 	let confirmStopReject = $state(false);
 	let isRejecting = $state(false);
 	let rejectError = $state<string | null>(null);
-	let confirmIntegrate = $state(false);
-	let integrateStrategy = $state<'squash' | 'preserve'>('squash');
 	let integrateMessage = $state('');
-	let deleteBranch = $state(false);
 	let isIntegrating = $state(false);
 	let integrateError = $state<string | null>(null);
-	let integrateCleanup = $state<'processes' | 'pending' | null>(null);
-	let pendingBranchDelete = $state(false);
+	let integrateDetail = $state<string | null>(null);
+	let integrateOutcomeMessage = $state<string | null>(null);
 	let processCheckFailed = $state(false);
+
+	$effect(() => {
+		if (open && lane) {
+			integrateMessage = lane.title ?? '';
+			integrateError = null;
+			integrateDetail = null;
+			integrateOutcomeMessage = null;
+		}
+	});
 
 	// Evidenze reali estratte dal transcript
 	const commandEvidence = $derived.by<CommandEvidence[]>(() => {
@@ -175,30 +166,20 @@
 
 	const gateResult = $derived.by<IntegrationGateResult>(() => {
 		if (!reviewData || !liveLane) {
-			return { canIntegrate: false, reasons: [], needsUpdateFromTarget: false };
+			return { canIntegrate: false, reasons: [] };
 		}
 		return evaluateIntegrationGate(
 			{
 				laneStatus: liveLane.status,
-				isTargetDirty: reviewData.isTargetDirty,
-				targetDirtyFilesCount: reviewData.targetDirtyFiles.length,
-				isLaneDirty: reviewData.isLaneDirty,
-				laneDirtyFilesCount: reviewData.laneDirtyFiles.length,
 				isTargetCheckedOut: reviewData.isTargetCheckedOut,
-				liveProcessesCount: liveProcesses.length,
 				processCheckFailed,
-				hasUnresolvedConflicts: reviewData.hasUnresolvedConflicts,
-				driftAhead: reviewData.driftAhead
+				hasUnresolvedConflicts: reviewData.hasUnresolvedConflicts
 			},
 			{
-				targetDirty: (count) => m.lanereview_gate_target_dirty({ count }),
-				laneDirty: (count) => m.lanereview_gate_lane_dirty({ count }),
 				checkoutMismatch: () => m.lanereview_gate_checkout(),
-				liveProcesses: (count) => m.lanereview_gate_live_processes({ count }),
 				processCheckFailed: () => m.lanereview_gate_process_check(),
 				notReady: (status) => m.lanereview_gate_not_ready({ status }),
-				conflicts: () => m.lanereview_gate_conflicts(),
-				targetAdvanced: () => m.lanereview_gate_target_advanced()
+				conflicts: () => m.lanereview_gate_conflicts()
 			}
 		);
 	});
@@ -225,16 +206,11 @@
 			cleanupDiff();
 			reviewData = null;
 			selectedFilePath = null;
-			updateOutcome = null;
 			confirmReject = false;
 			confirmStopReject = false;
-			confirmIntegrate = false;
 			integrateMessage = '';
-			deleteBranch = false;
 			integrateError = null;
 			rejectError = null;
-			integrateCleanup = null;
-			pendingBranchDelete = false;
 			processCheckFailed = false;
 		}
 	});
@@ -412,40 +388,6 @@
 		}
 	}
 
-	// Azione: Aggiorna dal target
-	async function handleUpdateFromTarget() {
-		if (!lane?.workspacePath || isUpdating) return;
-		isUpdating = true;
-		updateOutcome = null;
-
-		try {
-			const outcome = await invoke<WorktreeUpdateOutcome>('worktree_update_from_target', {
-				args: {
-					projectPath: project.canonicalProjectPath,
-					worktreePath: lane.workspacePath,
-					targetBranch: reviewData?.targetBranch ?? lane.targetBranch ?? undefined
-				}
-			});
-			updateOutcome = outcome;
-
-			if (outcome.conflicted && lane) {
-				await laneStore.updateLane(project.id as ProjectId, lane.laneId, { status: 'conflict' });
-			}
-
-			// Ricarica la review per aggiornare drift e file
-			await loadReviewData();
-		} catch (err: any) {
-			updateOutcome = {
-				success: false,
-				conflicted: false,
-				conflictFiles: [],
-				message: err?.message || String(err)
-			};
-		} finally {
-			isUpdating = false;
-		}
-	}
-
 	async function handleRejectLane() {
 		if (!lane || isRejecting) return;
 		isRejecting = true;
@@ -492,113 +434,41 @@
 		onResolveConflicts?.(m.lanereview_conflict_prompt({ branch: reviewData.targetBranch }));
 	}
 
-	async function deleteIntegratedBranch(): Promise<boolean> {
-		if (!lane) return false;
-		try {
-			await invoke('worktree_delete_lane_branch', {
-				args: {
-					projectPath: project.canonicalProjectPath,
-					laneId: lane.laneId,
-					confirm: true
-				}
-			});
-			pendingBranchDelete = false;
-			return true;
-		} catch (error) {
-			integrateError = invokeErrorMessage(error);
-			pendingBranchDelete = true;
-			return false;
-		}
-	}
-
-	async function finishIntegratedArchive(stopProcesses: boolean) {
-		if (!lane) return;
-		const outcome = await laneStore.archiveLane(project.id as ProjectId, lane.laneId, 'integrated', {
-			stopProcesses
-		});
-		if (outcome.kind === 'archived') {
-			integrateCleanup = null;
-			if (deleteBranch) {
-				const deleted = await deleteIntegratedBranch();
-				if (!deleted) return;
-			}
-			onClose();
-			return;
-		}
-		integrateCleanup = outcome.kind === 'processes-active' ? 'processes' : 'pending';
-		integrateError =
-			outcome.kind === 'processes-active'
-				? m.lanereview_landed_processes()
-				: outcome.diagnosis.message || m.lanereview_landed_cleanup();
-	}
-
-	async function runIntegrate() {
-		if (!lane?.workspacePath || !reviewData || isIntegrating) return;
-		const message = (integrateMessage.trim() || lane.title).trim();
-		if (integrateStrategy === 'squash' && !message) {
-			integrateError = m.lanereview_message_required();
-			return;
-		}
-		isIntegrating = true;
-		integrateError = null;
-		const projectId = project.id as ProjectId;
-		const previous = liveLane?.status ?? lane.status;
-		let landed = false;
-		try {
-			if (previous !== 'integrating') {
-				await laneStore.updateLane(projectId, lane.laneId, { status: 'integrating' });
-			}
-			await invoke<WorktreeIntegrateOutcome>('worktree_integrate', {
-				args: {
-					projectPath: project.canonicalProjectPath,
-					worktreePath: lane.workspacePath,
-					laneId: lane.laneId,
-					targetBranch: reviewData.targetBranch,
-					expectedTargetSha: reviewData.targetSha,
-					expectedLaneSha: reviewData.currentSha,
-					message,
-					strategy: integrateStrategy
-				}
-			});
-			landed = true;
-			await finishIntegratedArchive(false);
-		} catch (error) {
-			const code = invokeErrorCode(error);
-			if (!landed && code !== 'checkout_sync_failed' && previous !== 'integrating') {
-				const revert = previous === 'conflict' ? 'conflict' : 'review_ready';
-				await laneStore.updateLane(projectId, lane.laneId, { status: revert }).catch(() => undefined);
-			}
-			integrateError = invokeErrorMessage(error);
-		} finally {
-			isIntegrating = false;
-		}
-	}
-
-	async function handleStopIntegrateProcesses() {
-		if (!lane || isIntegrating) return;
-		isIntegrating = true;
-		integrateError = null;
-		try {
-			await finishIntegratedArchive(true);
-		} catch (error) {
-			integrateError = invokeErrorMessage(error);
-		} finally {
-			isIntegrating = false;
-		}
-	}
-
-	function handleIntegrate() {
-		if (!gateResult.canIntegrate || !lane) return;
+	async function handleIntegrate() {
+		if (!gateResult.canIntegrate || !lane || isIntegrating) return;
 		confirmReject = false;
 		confirmStopReject = false;
-		if (liveLane?.status === 'integrating') {
-			void runIntegrate();
-			return;
+		isIntegrating = true;
+		integrateError = null;
+		integrateDetail = null;
+		integrateOutcomeMessage = null;
+		try {
+			const message = integrateMessage.trim() || lane.title;
+			const result = await laneLanding.land(project, lane.laneId, {
+				message,
+				caller: { kind: 'gui' }
+			});
+			if (result.kind === 'integrated' || result.kind === 'already_integrated') {
+				onClose();
+				return;
+			}
+			if (result.kind === 'error') {
+				integrateError = result.error.message;
+				integrateDetail = result.error.detail ?? null;
+			} else if (result.kind === 'conflicts') {
+				integrateError = m.lanereview_gate_conflicts();
+				integrateDetail = result.files.join(', ');
+				await loadReviewData();
+			} else if (result.kind === 'queued') {
+				integrateOutcomeMessage = result.agentText;
+			} else if (result.kind === 'nothing') {
+				integrateOutcomeMessage = result.agentText;
+			}
+		} catch (error) {
+			integrateError = invokeErrorMessage(error);
+		} finally {
+			isIntegrating = false;
 		}
-		confirmIntegrate = true;
-		integrateStrategy = 'squash';
-		deleteBranch = false;
-		if (!integrateMessage.trim()) integrateMessage = lane.title;
 	}
 
 	// Format helpers
@@ -938,124 +808,64 @@
 		<!-- Footer azioni e controlli di integrazione -->
 		<footer class="review-footer">
 			<div class="footer-left">
-				{#if reviewData?.isTargetDirty}
-					<div class="gate-warning" role="alert">
-						<IconWarning />
-						<span>{m.lanereview_gate_target_dirty({ count: reviewData.targetDirtyFiles.length })}</span>
-					</div>
-				{:else if liveProcesses.length > 0}
-					<div class="gate-warning" role="alert">
-						<IconWarning />
-						<span>{m.lanereview_gate_live_processes({ count: liveProcesses.length })}</span>
-					</div>
-				{:else if gateResult.reasons.length > 0}
+				{#if gateResult.reasons.length > 0}
 					<div class="gate-warning" role="alert">
 						<IconWarning />
 						<span>{gateResult.reasons[0]}</span>
-					</div>
-				{:else if reviewData?.driftAhead && gateResult.needsUpdateFromTarget}
-					<div class="gate-hint">
-						<IconWarning />
-						<span>{m.lanereview_gate_target_advanced()}</span>
 					</div>
 				{/if}
 
 				{#if integrateError}
 					<div class="update-outcome error" role="alert">
 						<IconWarning />
-						<span>{integrateError}</span>
+						<div class="error-stack">
+							<span>{integrateError}</span>
+							{#if integrateDetail}
+								<small class="detail-text">{integrateDetail}</small>
+							{/if}
+						</div>
 					</div>
 				{/if}
+
+				{#if integrateOutcomeMessage}
+					<div class="update-outcome info" role="status">
+						<IconCheck />
+						<span>{integrateOutcomeMessage}</span>
+					</div>
+				{/if}
+
 				{#if rejectError}
 					<div class="update-outcome error" role="alert">
 						<IconWarning />
 						<span>{rejectError}</span>
 					</div>
 				{/if}
-
-				{#if updateOutcome}
-					<div class="update-outcome" class:error={updateOutcome.conflicted || !updateOutcome.success}>
-						{#if updateOutcome.success}
-							<IconCheck />
-							<span>{m.lanereview_update_success()}</span>
-						{:else if updateOutcome.conflicted}
-							<IconWarning />
-							<span>{m.lanereview_update_conflict()}</span>
-						{:else}
-							<IconWarning />
-							<span>{updateOutcome.message}</span>
-						{/if}
-					</div>
-				{/if}
 			</div>
 
-			{#if confirmIntegrate}
-				<form
-					class="integrate-confirm"
-					onsubmit={(event) => {
-						event.preventDefault();
-						void runIntegrate();
-					}}
-				>
-					<fieldset>
-						<legend>{m.lanereview_confirm_integrate()}</legend>
-						<label>
-							<input type="radio" name="integrate-strategy" value="squash" bind:group={integrateStrategy} />
-							{m.lanereview_strategy_squash()}
-						</label>
-						<label>
-							<input type="radio" name="integrate-strategy" value="preserve" bind:group={integrateStrategy} />
-							{m.lanereview_strategy_preserve()}
-						</label>
-					</fieldset>
-					<label class="integrate-message">
-						<span>{m.lanereview_message_label()}</span>
-						<textarea rows="2" bind:value={integrateMessage}></textarea>
-					</label>
-					<label>
-						<input type="checkbox" bind:checked={deleteBranch} />
-						{m.lanereview_delete_branch()}
-					</label>
-					<p class="integrate-hint">{m.lanereview_delete_branch_hint()}</p>
-					<div class="reject-confirm-group">
-						<button type="button" class="btn-secondary" onclick={() => (confirmIntegrate = false)}>
-							{m.lanereview_confirm_cancel()}
-						</button>
-						<button type="submit" class="btn-primary" disabled={isIntegrating || !gateResult.canIntegrate}>
-							{m.lanereview_confirm_integrate()}
-						</button>
-					</div>
-				</form>
-			{/if}
+			<div class="footer-center">
+				<label class="integrate-message">
+					<span class="message-label">{m.lanereview_message_label()}</span>
+					<textarea
+						rows="2"
+						bind:value={integrateMessage}
+						placeholder={lane.title}
+						disabled={isIntegrating}
+					></textarea>
+				</label>
+			</div>
 
 			<div class="footer-right">
 				<button type="button" class="btn-secondary" onclick={onClose}>
 					{m.lanereview_action_return()}
 				</button>
 
-				{#if reviewData?.hasUnresolvedConflicts}
+				{#if reviewData?.hasUnresolvedConflicts || liveLane?.status === 'conflict'}
 					<button type="button" class="btn-secondary" onclick={handleAskAgent}>
 						{m.lanereview_conflict_ask()}
 					</button>
 				{/if}
 
-				<button
-					type="button"
-					class="btn-secondary"
-					disabled={isUpdating}
-					title={m.lanereview_action_update_title()}
-					onclick={handleUpdateFromTarget}
-				>
-					{#if isUpdating}
-						<span class="btn-spinner"><IconRefresh /></span>
-						<span>{m.lanereview_updating()}</span>
-					{:else}
-						<IconRefresh />
-						<span>{m.lanereview_action_update()}</span>
-					{/if}
-				</button>
-
-				<!-- Pulsante 3: Rifiuta corsia -->
+				<!-- Pulsante Rifiuta corsia -->
 				{#if confirmStopReject}
 					<div class="reject-confirm-group">
 						<button type="button" class="btn-danger" disabled={isRejecting} onclick={handleRejectStop}>
@@ -1094,41 +904,21 @@
 					</button>
 				{/if}
 
-				{#if integrateCleanup === 'processes'}
-					<button
-						type="button"
-						class="btn-danger"
-						disabled={isIntegrating}
-						onclick={() => void handleStopIntegrateProcesses()}
-					>
-						{m.lanereview_reject_stop()}
-					</button>
-				{/if}
-				{#if pendingBranchDelete}
-					<button type="button" class="btn-secondary" onclick={() => void deleteIntegratedBranch()}>
-						{m.lanereview_retry_delete_branch()}
-					</button>
-				{/if}
-				{#if !confirmIntegrate}
-					<button
-						type="button"
-						class="btn-primary"
-						disabled={!gateResult.canIntegrate || isIntegrating}
-						title={gateResult.canIntegrate ? '' : (gateResult.reasons[0] ?? m.lanereview_action_integrate_disabled_tooltip())}
-						onclick={handleIntegrate}
-					>
-						{#if isIntegrating}
-							<span class="btn-spinner"><IconRefresh /></span>
-							<span>{m.lanereview_integrating()}</span>
-						{:else if liveLane?.status === 'integrating'}
-							<IconCheck />
-							<span>{m.lanereview_complete_integration()}</span>
-						{:else}
-							<IconCheck />
-							<span>{m.lanereview_action_integrate({ branch: reviewData?.targetBranch ?? 'main' })}</span>
-						{/if}
-					</button>
-				{/if}
+				<button
+					type="button"
+					class="btn-primary"
+					disabled={!gateResult.canIntegrate || isIntegrating}
+					title={gateResult.canIntegrate ? '' : (gateResult.reasons[0] ?? m.lanereview_action_integrate_disabled_tooltip())}
+					onclick={handleIntegrate}
+				>
+					{#if isIntegrating}
+						<span class="btn-spinner"><IconRefresh /></span>
+						<span>{m.lanereview_integrating()}</span>
+					{:else}
+						<IconCheck />
+						<span>{m.lanereview_action_integrate({ branch: reviewData?.targetBranch ?? 'main' })}</span>
+					{/if}
+				</button>
 			</div>
 		</footer>
 	</div>
@@ -1760,62 +1550,53 @@
 		gap: var(--space-3);
 	}
 
-	.integrate-confirm {
-		flex: 1 0 100%;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		background: var(--bg-base);
-	}
-
-	.integrate-confirm fieldset {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		border: none;
-		margin: 0;
-		padding: 0;
-	}
-
-	.integrate-confirm legend {
-		font-size: var(--text-sm);
-		font-weight: 600;
-		margin-bottom: var(--space-1);
-	}
-
-	.integrate-confirm label {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		font-size: var(--text-sm);
+	.footer-center {
+		flex: 1 1 240px;
+		max-width: 440px;
 	}
 
 	.integrate-message {
 		display: flex;
 		flex-direction: column;
-		align-items: stretch;
-		gap: var(--space-1);
+		gap: 2px;
 	}
 
-	.integrate-confirm textarea {
+	.message-label {
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		font-weight: 500;
+	}
+
+	.integrate-message textarea {
 		width: 100%;
-		min-height: 3.5rem;
-		resize: vertical;
+		min-height: 2.2rem;
+		height: 2.2rem;
+		resize: none;
 		font: inherit;
+		font-size: var(--text-xs);
 		color: var(--ink);
 		background: var(--bg-overlay);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: var(--space-2);
+		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+		line-height: 1.3;
 	}
 
-	.integrate-hint {
-		margin: 0;
-		color: var(--ink-faint);
+	.integrate-message textarea:focus {
+		border-color: var(--brand-line);
+		outline: none;
+	}
+
+	.error-stack {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.error-stack .detail-text {
 		font-size: var(--text-xs);
+		opacity: 0.85;
+		word-break: break-all;
 	}
 
 	.footer-left {

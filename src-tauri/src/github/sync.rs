@@ -38,7 +38,9 @@ fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let out = cmd.output().map_err(|e| format!("Esecuzione git {:?}: {e}", args))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("Esecuzione git {:?}: {e}", args))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -96,7 +98,11 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
         let has_uncommitted = !status_out.trim().is_empty();
 
         // Upstream tracking branch
-        let upstream = run_git_in(path, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).ok();
+        let upstream = run_git_in(
+            path,
+            &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        )
+        .ok();
 
         let mut ahead = 0;
         let mut behind = 0;
@@ -105,7 +111,10 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
 
         if upstream.is_some() {
             // Conta ahead / behind
-            if let Ok(counts) = run_git_in(path, &["rev-list", "--left-right", "--count", "HEAD...@{u}"]) {
+            if let Ok(counts) = run_git_in(
+                path,
+                &["rev-list", "--left-right", "--count", "HEAD...@{u}"],
+            ) {
                 let parts: Vec<&str> = counts.split_whitespace().collect();
                 if parts.len() >= 2 {
                     ahead = parts[0].parse::<u32>().unwrap_or(0);
@@ -116,7 +125,9 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
             // Se ci sono commit incoming
             if behind > 0 {
                 let format_arg = "--pretty=format:%H\u{1f}%h\u{1f}%s\u{1f}%an\u{1f}%ar";
-                if let Ok(raw_log) = run_git_in(path, &["log", format_arg, "HEAD..@{u}", "-n", "10"]) {
+                if let Ok(raw_log) =
+                    run_git_in(path, &["log", format_arg, "HEAD..@{u}", "-n", "10"])
+                {
                     incoming = parse_commit_log(&raw_log);
                 }
             }
@@ -124,7 +135,9 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
             // Se ci sono commit outgoing
             if ahead > 0 {
                 let format_arg = "--pretty=format:%H\u{1f}%h\u{1f}%s\u{1f}%an\u{1f}%ar";
-                if let Ok(raw_log) = run_git_in(path, &["log", format_arg, "@{u}..HEAD", "-n", "10"]) {
+                if let Ok(raw_log) =
+                    run_git_in(path, &["log", format_arg, "@{u}..HEAD", "-n", "10"])
+                {
                     outgoing = parse_commit_log(&raw_log);
                 }
             }
@@ -214,7 +227,9 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
                 let push_res = run_git_in(path, &["push"])?;
                 Ok(format!("Sincronizzazione completata: {push_res}"))
             }
-            _ => Err(format!("Azione di sincronizzazione sconosciuta: '{action}'")),
+            _ => Err(format!(
+                "Azione di sincronizzazione sconosciuta: '{action}'"
+            )),
         }
     })
     .await

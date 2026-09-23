@@ -230,20 +230,60 @@ export class LaneOrchestrator {
 			.find((lane) => lane.laneId === targetLaneId);
 	}
 
+	/** Superficie della corsia: quella attiva vive su `projectStore`, aggiornata in tempo reale. */
+	private laneSurface(project: Project, laneId: string): AgentSurface | undefined {
+		if (project.lane.laneId === laneId) return project.lane.surface;
+		return this.laneRecord(project, laneId)?.surface;
+	}
+
 	/**
-	 * Una corsia e' occupata quando il suo agente sta lavorando, attende una
-	 * risposta o ha una spedizione in corso. Lo stato della corsia attiva si
-	 * legge da `projectStore`, che e' la copia aggiornata in tempo reale.
+	 * Stato proprio di una corsia: e' l'unica lettura per barra di stato,
+	 * badge delle corsie e routing della coda.
+	 *
+	 * `project.lane.agentState` non va letto qui: e' l'aggregato di tutte le
+	 * corsie del progetto e serve alla tessera nella barra progetti. Usato come
+	 * stato della corsia attiva, un worktree al lavoro faceva risultare
+	 * "in esecuzione" una `Principale` ferma, e la coda proponeva di aprire
+	 * un'altra corsia.
+	 */
+	laneAgentState(project: Project, laneId: string): AgentState {
+		const key = this.runtimeKey(project.id, laneId);
+		// Copre la finestra fra la spedizione di un task e il primo evento
+		// dell'agente, quando la sessione non trasmette ancora.
+		if (this.terminalBusy[key] === true) return 'working';
+		if (this.laneSurface(project, laneId) === 'gui') {
+			const session = sessionRegistry.getLaneSession(project.id, laneId);
+			if (!session) return 'unknown';
+			if (session.pendingUi) return 'attention';
+			if (session.isStreaming || session.isCompacting) return 'working';
+			return session.agentState;
+		}
+		if (this.terminalMeta[key]?.inputPending === true) return 'attention';
+		// Il record persistito lo scrive `handleTerminalState`, corsia per
+		// corsia. Senza record (progetto mai passato dalle corsie) l'aggregato
+		// coincide con l'unica corsia esistente.
+		const stored = laneStore
+			.lanesFor(project.id as ProjectId)
+			.find((lane) => lane.laneId === laneId);
+		if (stored) return stored.agentState;
+		return project.lane.laneId === laneId ? project.lane.agentState : 'unknown';
+	}
+
+	/**
+	 * Una corsia e' occupata quando il suo agente sta lavorando o il processo
+	 * aspetta davvero qualcosa: una domanda del tool `ask`, un blocco di quota,
+	 * un testo a meta' nel terminale. Una domanda dedotta a fine turno (un
+	 * consiglio, i suggerimenti di risposta) non occupa nulla: omp e' libero e
+	 * il task puo' partire in questa corsia.
 	 */
 	laneBusy(project: Project, lane: AgentLane | LaneRecord): boolean {
-		const key = this.runtimeKey(project.id, lane.laneId);
-		if (this.terminalBusy[key] === true) return true;
+		const state = this.laneAgentState(project, lane.laneId);
+		if (state === 'working') return true;
+		if (state !== 'attention') return false;
+		if (this.laneSurface(project, lane.laneId) !== 'gui') return true;
 		const session = sessionRegistry.getLaneSession(project.id, lane.laneId);
-		if (session?.isStreaming || session?.pendingUi) return true;
-		const state: AgentState =
-			project.lane.laneId === lane.laneId ? project.lane.agentState : lane.agentState;
-		if (state === 'working' || state === 'attention') return true;
-		return this.terminalMeta[key]?.inputPending === true;
+		const quota = session?.blockedQuotaState;
+		return Boolean(session?.pendingUi) || Boolean(quota && !quota.dismissed);
 	}
 
 	/**

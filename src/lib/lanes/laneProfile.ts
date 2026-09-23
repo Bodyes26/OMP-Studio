@@ -105,8 +105,10 @@ export async function reviewProjectProfile(project: Project): Promise<ProjectPro
 	const pendingCandidates = detection.candidates.filter(
 		(candidate) => !profile.reviewedCandidates.includes(candidate.relativePath)
 	);
-	const needsConsent =
-		pendingCandidates.length > 0 || (profile.confirmedAt === null && detection.warnings.length > 0);
+	// Il dialogo chiede un consenso sui file: senza file nuovi non c'e' nulla
+	// da decidere. Gli avvisi di restore da soli non bloccano la corsia; si
+	// vedono insieme ai file quando il dialogo ha un motivo per comparire.
+	const needsConsent = pendingCandidates.length > 0;
 
 	return { profile, detection, pendingCandidates, needsConsent };
 }

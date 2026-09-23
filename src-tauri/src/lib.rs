@@ -2,6 +2,8 @@ mod diagrams;
 mod fs_atomic;
 mod lanes_store;
 use lanes_store::{lanes_store_read, lanes_store_write_atomic};
+pub mod lane_bridge;
+use lane_bridge::lane_bridge_respond;
 mod github;
 use github::{
     git_sync_repo, git_upstream_status, github_clone_repo, github_create_repo,
@@ -29,8 +31,8 @@ use projects::{
     project_files_list, project_files_search, project_git_status, project_tasks_read,
     project_tasks_unwatch, project_tasks_watch, project_tasks_write, resolve_project_file,
     tree_read, worktree_apply_allowlist, worktree_create, worktree_delete_lane_branch,
-    worktree_inspect, worktree_integrate, worktree_list, worktree_profile_scan, worktree_remove,
-    worktree_review_inspect, worktree_update_from_target,
+    worktree_inspect, worktree_land, worktree_list, worktree_profile_scan, worktree_remove,
+    worktree_review_inspect, worktree_undo_land,
 };
 mod omp_ops;
 use omp_ops::{
@@ -129,6 +131,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             greet,
+            lane_bridge_respond,
             focus_trace_append,
             focus_trace_path,
             pty_open,
@@ -186,8 +189,8 @@ pub fn run() {
             worktree_profile_scan,
             worktree_apply_allowlist,
             worktree_review_inspect,
-            worktree_update_from_target,
-            worktree_integrate,
+            worktree_land,
+            worktree_undo_land,
             worktree_delete_lane_branch,
             lane_processes_list,
             lane_processes_stop,
@@ -282,6 +285,7 @@ pub fn run() {
         })
         .setup(|app| {
             init_windows_aumid();
+            lane_bridge::start(app.handle().clone());
             // Il watcher dei diagrammi parte subito dopo il setup: ascolta
             // la cartella di scambio e notifica il frontend via
             // `diagram://new`.

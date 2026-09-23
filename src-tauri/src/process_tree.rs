@@ -158,7 +158,7 @@ pub const MAIN_LANE_ID: &str = "main";
 
 /// Chi ha avviato l'albero. Insieme all'id della sessione forma la chiave di
 /// proprieta': un processo non registrato non viene mai toccato.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LaneProcessKind {
     /// Sessione PTY: shell della corsia e tutto cio' che vi si avvia dentro

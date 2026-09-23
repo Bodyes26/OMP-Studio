@@ -3,7 +3,8 @@
 	// e dell'arresto dei processi prima del cleanup (PLAN W11).
 	//
 	// Tre sole domande, tutte superabili:
-	// 1. `Principale` e' al lavoro: avviare il task in una nuova corsia?
+	// 1. `Principale` e' al lavoro: avviare il task in una nuova corsia, oppure
+	//    forzarlo nella corsia aperta quando per l'utente l'agente ha finito.
 	// 2. Soft-cap: dal terzo agente simultaneo mostra modelli/provider impegnati
 	//    e le corsie con un processo omp ancora vivo prima di confermare.
 	// 3. Cleanup bloccato: la corsia ha processi vivi; l'unica via avanti e'
@@ -12,7 +13,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
-	import { IconClose, IconWarning, IconPlus } from '$lib/icons';
+	import { IconClose, IconWarning, IconPlus, IconGitBranch } from '$lib/icons';
 	import type { ConcurrencyWarning } from '$lib/lanes/queueDispatch';
 	import { describeLaneProcess, type LaneProcessInfo } from '$lib/lanes/processSupervisor';
 
@@ -23,7 +24,9 @@
 		warning = null,
 		laneTitle = '',
 		processes = [],
+		forceLaneTitle = '',
 		onConfirm,
+		onForce,
 		onCancel
 	}: {
 		open?: boolean;
@@ -32,7 +35,11 @@
 		warning?: ConcurrencyWarning | null;
 		laneTitle?: string;
 		processes?: LaneProcessInfo[];
+		/** Corsia aperta a schermo, bersaglio dell'avvio forzato. */
+		forceLaneTitle?: string;
 		onConfirm: () => void;
+		/** Presente solo quando l'avvio forzato ha senso (`busy-main`). */
+		onForce?: () => void;
 		onCancel: () => void;
 	} = $props();
 
@@ -68,7 +75,13 @@
 		transition:fly={{ y: -16, duration: 200, easing: cubicOut }}
 	>
 		<div class="modal-header">
-			<div class="header-icon"><IconWarning /></div>
+			<div class="header-icon" class:warn={mode !== 'busy-main'}>
+				{#if mode === 'busy-main'}
+					<IconGitBranch />
+				{:else}
+					<IconWarning />
+				{/if}
+			</div>
 			<div class="header-text">
 				<h3 id="lane-dispatch-title">
 					{#if mode === 'busy-main'}
@@ -101,10 +114,10 @@
 
 		<div class="modal-body">
 			{#if taskTitle}
-				<p class="task-line">
+				<div class="task-card">
 					<span class="label">{m.lane_dispatch_task_label()}</span>
-					<span class="value">{taskTitle}</span>
-				</p>
+					<p class="task-title" title={taskTitle}>{taskTitle}</p>
+				</div>
 			{/if}
 
 			{#if warning}
@@ -143,12 +156,25 @@
 					? m.lane_dispatch_processes_hint()
 					: m.lane_dispatch_isolation_hint()}
 			</p>
+			{#if mode === 'busy-main' && onForce}
+				<p class="hint">{m.lane_dispatch_force_hint({ lane: forceLaneTitle })}</p>
+			{/if}
 		</div>
 
 		<div class="modal-footer">
 			<button type="button" class="btn btn-secondary" onclick={onCancel}>
 				{m.lane_dispatch_cancel()}
 			</button>
+			{#if mode === 'busy-main' && onForce}
+				<button
+					type="button"
+					class="btn btn-secondary btn-force"
+					title={m.lane_dispatch_force({ lane: forceLaneTitle })}
+					onclick={onForce}
+				>
+					<span>{m.lane_dispatch_force({ lane: forceLaneTitle })}</span>
+				</button>
+			{/if}
 			<button type="button" class="btn btn-primary" bind:this={primaryBtnEl} onclick={onConfirm}>
 				{#if mode === 'processes'}
 					<IconClose />
@@ -163,10 +189,13 @@
 {/if}
 
 <style>
+	/* Stessi token dei dialoghi di sistema (`app.css`): `--backdrop` e'
+	   traslucido, cosi' l'app resta leggibile dietro la conferma anche sui
+	   temi chiari, dove un grigio pieno la cancellava del tutto. */
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: color-mix(in srgb, var(--bg-base) 80%, black);
+		background: var(--backdrop);
 		backdrop-filter: blur(2px);
 		z-index: var(--z-modal, 1000);
 	}
@@ -176,12 +205,14 @@
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		width: 480px;
+		width: 460px;
 		max-width: calc(100vw - 32px);
+		max-height: calc(100vh - 64px);
 		background: var(--bg-overlay);
+		color: var(--ink);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg, 10px);
-		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
 		z-index: calc(var(--z-modal, 1000) + 1);
 		display: flex;
 		flex-direction: column;
@@ -190,10 +221,9 @@
 
 	.modal-header {
 		display: flex;
-		align-items: center;
-		gap: var(--space-3, 12px);
-		padding: var(--space-4, 16px) var(--space-4, 16px) var(--space-3, 12px);
-		border-bottom: 1px solid var(--line);
+		align-items: flex-start;
+		gap: var(--space-3);
+		padding: var(--space-4) var(--space-4) 0;
 	}
 
 	.header-icon {
@@ -204,26 +234,34 @@
 		height: 32px;
 		flex: 0 0 auto;
 		border-radius: 50%;
-		color: var(--warning, #d29922);
-		background: color-mix(in srgb, var(--warning, #d29922) 14%, transparent);
+		color: var(--ink-muted);
+		background: var(--bg-hover);
+	}
+
+	.header-icon.warn {
+		color: var(--warn);
+		background: color-mix(in srgb, var(--warn) 16%, transparent);
 	}
 
 	.header-text {
 		flex: 1;
 		min-width: 0;
+		padding-top: 1px;
 	}
 
 	.header-text h3 {
 		margin: 0;
-		font-size: var(--text-base, 14px);
+		font-size: var(--text-md);
 		font-weight: 600;
-		color: var(--fg-default);
+		line-height: 1.3;
+		color: var(--ink);
 	}
 
 	.subtitle {
-		margin: 2px 0 0;
-		font-size: var(--text-sm, 12px);
-		color: var(--fg-muted);
+		margin: 3px 0 0;
+		font-size: var(--text-sm);
+		line-height: 1.4;
+		color: var(--ink-muted);
 	}
 
 	.btn-close {
@@ -235,55 +273,67 @@
 		height: 26px;
 		padding: 0;
 		border: none;
-		border-radius: var(--radius-sm, 4px);
+		border-radius: var(--radius-sm);
 		background: transparent;
-		color: var(--fg-muted);
+		color: var(--ink-faint);
 		cursor: pointer;
 	}
 
 	.btn-close:hover {
 		background: var(--bg-hover);
-		color: var(--fg-default);
+		color: var(--ink);
 	}
 
 	.modal-body {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3, 12px);
-		padding: var(--space-4, 16px);
+		gap: var(--space-3);
+		padding: var(--space-4);
+		overflow-y: auto;
 	}
 
-	.task-line {
+	.task-card {
 		display: flex;
-		gap: var(--space-2, 8px);
-		align-items: baseline;
-		margin: 0;
-		min-width: 0;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--line);
+		border-left: 2px solid var(--brand);
+		border-radius: var(--radius-md);
+		background: var(--bg-raised);
 	}
 
-	.task-line .value {
-		font-size: var(--text-sm, 12px);
-		color: var(--fg-default);
+	/* Il titolo del task e' spesso il prompt intero: due righe bastano per
+	   riconoscerlo, il resto e' nel tooltip. */
+	.task-title {
+		margin: 0;
+		font-size: var(--text-base);
+		line-height: 1.4;
+		color: var(--ink);
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		overflow-wrap: anywhere;
 	}
 
 	.label {
-		font-size: var(--text-xs, 11px);
+		font-size: var(--text-xs);
+		font-weight: 500;
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--fg-subtle, var(--fg-muted));
+		letter-spacing: 0.05em;
+		color: var(--ink-faint);
 	}
 
 	.lanes-box {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2, 8px);
-		padding: var(--space-3, 12px);
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md, 6px);
-		background: var(--bg-subtle, var(--bg-base));
+		border-radius: var(--radius-md);
+		background: var(--bg-raised);
 	}
 
 	.lanes-box ul {
@@ -292,74 +342,112 @@
 		list-style: none;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	.lanes-box li {
 		display: flex;
 		align-items: baseline;
-		gap: var(--space-2, 8px);
-		font-size: var(--text-sm, 12px);
+		gap: var(--space-2);
+		font-size: var(--text-sm);
 		min-width: 0;
 	}
 
 	.lane-title {
-		color: var(--fg-default);
+		min-width: 0;
+		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
 	.lane-model {
+		margin-left: auto;
+		flex: 0 0 auto;
+		max-width: 50%;
 		font-family: var(--font-mono);
-		font-size: var(--text-xs, 11px);
-		color: var(--fg-muted);
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.lane-process {
-		font-size: var(--text-xs, 11px);
-		color: var(--accent, var(--fg-muted));
+		flex: 0 0 auto;
+		font-size: var(--text-xs);
+		color: var(--warn);
 	}
 
 	.hint {
 		margin: 0;
-		font-size: var(--text-sm, 12px);
-		color: var(--fg-muted);
+		font-size: var(--text-sm);
+		line-height: 1.45;
+		color: var(--ink-muted);
 	}
 
 	.modal-footer {
 		display: flex;
 		justify-content: flex-end;
-		gap: var(--space-2, 8px);
-		padding: var(--space-3, 12px) var(--space-4, 16px);
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
 		border-top: 1px solid var(--line);
-		background: var(--bg-subtle, transparent);
+		background: var(--bg-raised);
 	}
 
 	.btn {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		padding: 6px 12px;
-		border-radius: var(--radius-sm, 4px);
-		border: 1px solid var(--line-strong);
-		background: var(--bg-elevated, transparent);
-		color: var(--fg-default);
-		font-size: var(--text-sm, 12px);
+		padding: 6px 14px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--line);
+		background: var(--bg-hover);
+		color: var(--ink);
+		font-size: var(--text-sm);
+		font-weight: 500;
 		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease-out),
+			filter var(--dur-fast) var(--ease-out);
+	}
+
+	.btn :global(svg) {
+		width: 14px;
+		height: 14px;
 	}
 
 	.btn-secondary:hover {
-		background: var(--bg-hover);
+		background: var(--bg-active);
 	}
 
+	/* Il titolo di una corsia e' spesso il prompt del task: nel footer ne
+	   basta l'inizio, il resto e' nel tooltip. */
+	.btn-force {
+		min-width: 0;
+		max-width: 180px;
+	}
+
+	.btn-force span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* `--brand` non e' mai colore di testo: sopra usa `--on-brand`. */
 	.btn-primary {
-		border-color: var(--accent, var(--line-strong));
-		background: var(--accent, var(--bg-elevated));
-		color: var(--accent-fg, #fff);
+		border-color: var(--brand);
+		background: var(--brand);
+		color: var(--on-brand);
 	}
 
 	.btn-primary:hover {
 		filter: brightness(1.08);
+	}
+
+	.btn:focus-visible,
+	.btn-close:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
 	}
 </style>

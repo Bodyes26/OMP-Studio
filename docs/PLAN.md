@@ -830,6 +830,23 @@ Smoke UI su Vite con un `__TAURI_INTERNALS__` simulato (un progetto, lanes.json 
 
 ---
 
+## Piano Integrazione corsie in un clic — Gate R29
+
+**Stato:** attuato (2026-09-23). Sostituisce il flusso W13 "aggiorna dal target, poi integra": vedi ADR `DECISIONS.md` Gate R29.
+
+- [x] **W15 — Errori con motivo e corsia committata da Studio** (`LaneReviewModal.svelte`, `lane_integrate.rs`)
+  Il modale mostra `detail` degli errori git; la pipeline committa il lavoro della corsia prima di qualunque merge.
+  **Accettazione:** corsia con modifiche non committate e target avanzato sullo stesso file arriva a `conflicts` o `integrated`, mai a "Impossibile aggiornare la corsia".
+- [x] **W16 — Pipeline `worktree_land` e `worktree_undo_land`** (`src-tauri/src/projects/worktrees/lane_integrate.rs`)
+  Merge in memoria (`merge-tree --write-tree`), squash con `update-ref` confronta-e-scambia, checkout sporco disgiunto aggiornato con `read-tree -m -u`, esito `queued` se sovrapposto, annullamento con branch `omp/restored-<laneId>`.
+  **Accettazione:** test Rust su corsia sporca + target avanzato, conflitto e ripresa dopo `git add`, target sporco disgiunto e sovrapposto, annullamento con e senza commit successivi.
+- [x] **W17 — Canale loopback e tool `studio_lane_integrate`** (`src-tauri/src/lane_bridge.rs`, `extensions/studio-lanes.ts`, `rpc/mod.rs`, `pty/mod.rs`)
+  Token per sessione nelle env, evento `lane-bridge://request`, risposta `lane_bridge_respond`, nessuna sessione Laboratorio esposta.
+- [x] **W18 — Orchestrazione e card in chat** (`src/lib/lanes/laneLanding.svelte.ts`, `LaneLandingCard.svelte`, `LaneReviewModal.svelte`)
+  Un solo pulsante "Integra"; card integrata/annulla, conflitti, conferma dopo conflitti, in coda; coda persistente con ripresa automatica; pulizia completa rimandata a fine turno se chiama l'agente della corsia.
+- [x] **W19 — Verifica** `npm run check` 0 errori; `npm test` 829/829; `cargo test` 205 superati (escluso `test_init_windows_aumid_registers_registry_keys`, che su questa macchina termina con `STATUS_ASSERTION_FAILURE` e non tocca questo lavoro); il parser del canale è provato con richieste HTTP reali su loopback nei test `lane_bridge::tests`. Non verificato sul binario desktop: il percorso completo estensione → Studio → card in chat.
+---
+
 ## Cosa NON entra in questo piano
 
 In linea con i principi di `PRODUCT.md`:
