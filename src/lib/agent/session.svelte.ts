@@ -438,6 +438,22 @@ export class AgentSession {
 	private openTarget: string | null = null;
 	private recoveredResume: string | null = null;
 	private attachEventQueue: AgentSessionEvent[] = [];
+	/**
+	 * Generazione dell'insediamento. `close()`, `studio_exit` e ogni nuovo
+	 * `attach()` la fanno avanzare: un insediamento superato, che riprende
+	 * dopo i suoi `await`, non deve piu' toccare `isAttaching`/`isAttached`,
+	 * o spegnerebbe la coda dell'insediamento vivo e marcherebbe collegato
+	 * (o scollegato) il processo sbagliato.
+	 */
+	private attachGeneration = 0;
+	/**
+	 * Apertura del client (`client.epoch`) che ha gia' emesso `ready`. Un
+	 * processo omp emette `ready` una sola volta: un secondo `ready` sulla
+	 * stessa apertura non e' un processo nuovo, e trattarlo come tale
+	 * scollegava a meta' turno una sessione che stava lavorando, lasciando
+	 * la composer su «in avvio...» per sempre.
+	 */
+	private readyEpoch: number | null = null;
 	private isAborting = false;
 	private unsubscribeEvent: (() => void) | null = null;
 	private deltaBatcher = new StreamBatcher((items) => {
@@ -678,6 +694,7 @@ export class AgentSession {
 		this.isReady = false;
 		this.isAttached = false;
 		this.isAttaching = false;
+		this.attachGeneration++;
 		this.isRebuildingTranscript = false;
 		this.requestedResume = null;
 		this.isAborting = false;
@@ -706,6 +723,7 @@ export class AgentSession {
 	 */
 	private async attach() {
 		if (this.isAttached) return;
+		const generation = ++this.attachGeneration;
 		this.isAttaching = true;
 		this.attachEventQueue = [];
 		try {
@@ -718,14 +736,24 @@ export class AgentSession {
 		} catch (error) {
 			this.pushNotice('error', messages.ui_ts_session_insediamento_della_sessione_non_completato_value1_bce4({ value1: this.reason(error) }));
 		}
+		if (generation !== this.attachGeneration) return;
 
 		// 1. Svuota e sincronizza in ordine FIFO la coda eventi accumulata durante l'insediamento
 		this.isAttaching = false;
 		const queuedEvents = this.attachEventQueue;
 		this.attachEventQueue = [];
 		for (const queuedEvent of queuedEvents) {
-			this.reduce(queuedEvent);
+			// Un frame che il riduttore non sa applicare costa quel frame, non
+			// l'insediamento: senza questa rete `isAttached` restava falso,
+			// i prompt di avvio non partivano e la composer diceva «in avvio».
+			try {
+				this.reduce(queuedEvent);
+			} catch (error) {
+				console.error('Evento accodato durante l\u2019insediamento non applicato:', queuedEvent.type, error);
+			}
 		}
+		// Il replay puo' contenere `studio_exit`: il processo e' gia' finito.
+		if (generation !== this.attachGeneration) return;
 
 		this.isAttached = true;
 		if (!this.pendingUi) {
@@ -1363,6 +1391,11 @@ export class AgentSession {
 
 		switch (event.type) {
 			case 'ready':
+				if (this.readyEpoch === this.client.epoch) {
+					console.warn('Frame `ready` duplicato sulla stessa apertura: ignorato.');
+					return;
+				}
+				this.readyEpoch = this.client.epoch;
 				this.requestedResume = null;
 				this.isReady = true;
 				this.isAborting = false;
@@ -1825,6 +1858,7 @@ export class AgentSession {
 				this.isReady = false;
 				this.isAttached = false;
 				this.isAttaching = false;
+				this.attachGeneration++;
 				this.attachEventQueue = [];
 				this.agentState = 'idle';
 				this.pendingUi = null;

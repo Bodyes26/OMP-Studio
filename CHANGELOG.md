@@ -27,6 +27,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Fixed
 - Preservato l'ordine cronologico naturale tra testo dell'assistente e chiamate tool: la ricostruzione dello storico della chat non accoda più tutti i tool al fondo del messaggio aggregato, ma intercala spiegazioni, domande interattive (`ask`) ed esecuzioni operative nella loro reale sequenza temporale, omettendo badge modello duplicati prima delle invocazioni dei tool.
+- La barra sotto la composer non resta più bloccata su «in avvio...» mentre l'agente sta lavorando: un secondo segnale di avvio dallo stesso processo, un evento non applicabile durante il caricamento della chat o un caricamento superato da una ripresa o da una nuova chat non scollegano più la sessione, e il selettore del modello torna a mostrare il modello in uso.
 
 ## [1.6.0] - 2026-09-21
 

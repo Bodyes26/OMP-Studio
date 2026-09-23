@@ -81,6 +81,10 @@ export class OmpRpcClient {
 	get id(): number | null {
 		return this.rpcId;
 	}
+	/** Generazione dell'apertura: ogni processo omp ne ha una sua, mai riusata. */
+	get epoch(): number {
+		return this.openEpoch;
+	}
 	get isOpen(): boolean {
 		return this.rpcId !== null && !this.closed;
 	}
