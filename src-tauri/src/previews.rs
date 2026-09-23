@@ -101,12 +101,9 @@ impl PreviewWatcherState {
     }
 }
 
-fn scan_and_emit(app: &AppHandle, state: &PreviewWatcherState) {
-    let Some(dir) = previews_dir() else { return };
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return;
-    };
-
+/// JSON di anteprima piu' recente nella cartella di scambio, con il suo mtime in ms.
+fn newest_preview(dir: &std::path::Path) -> Option<(PathBuf, u64)> {
+    let entries = std::fs::read_dir(dir).ok()?;
     let mut newest: Option<(PathBuf, u64)> = None;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -125,17 +122,25 @@ fn scan_and_emit(app: &AppHandle, state: &PreviewWatcherState) {
             newest = Some((path, stamp));
         }
     }
+    newest
+}
 
-    let Some((path, stamp)) = newest else { return };
-    {
-        let guard = state.last_seen.lock();
-        if let Some((last_path, last_stamp)) = guard.as_ref() {
-            if *last_path == path && *last_stamp >= stamp {
-                return;
-            }
+/// Anteprima da inoltrare: la piu' recente, se non e' gia' stata vista.
+fn pending_preview(state: &PreviewWatcherState, dir: &std::path::Path) -> Option<(PathBuf, u64)> {
+    let (path, stamp) = newest_preview(dir)?;
+    if let Some((last_path, last_stamp)) = state.last_seen.lock().as_ref() {
+        if *last_path == path && *last_stamp >= stamp {
+            return None;
         }
     }
+    Some((path, stamp))
+}
 
+fn scan_and_emit(app: &AppHandle, state: &PreviewWatcherState) {
+    let Some(dir) = previews_dir() else { return };
+    let Some((path, stamp)) = pending_preview(state, &dir) else {
+        return;
+    };
     if let Some(payload) = read_preview(&path) {
         let _ = app.emit("preview://new", &payload);
         *state.last_seen.lock() = Some((path, stamp));
@@ -149,6 +154,11 @@ pub fn spawn_watcher(app: AppHandle) {
 
         if let Some(dir) = previews_dir() {
             let _ = std::fs::create_dir_all(&dir);
+            // I JSON rimasti da sessioni precedenti non vanno riproposti a ogni
+            // avvio: puntano spesso a file ormai spariti e riaprirebbero
+            // un'anteprima vuota che l'utente ha gia' chiuso. Si mostrano solo
+            // le anteprime prodotte dopo l'avvio.
+            *state.last_seen.lock() = newest_preview(&dir);
         }
 
         loop {
@@ -235,6 +245,40 @@ mod tests {
         let payload = read_preview(&path).expect("lettura preview legacy fallita");
         assert_eq!(payload.lane_id, None);
         assert_eq!(payload.project_id, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_startup_seed_skips_old_previews_but_emits_new_ones() {
+        let dir = std::env::temp_dir().join(format!("omp-test-prev-4-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let base = std::time::SystemTime::now() - Duration::from_secs(60);
+        let old = dir.join("old.json");
+        std::fs::write(&old, "{}").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(base)
+            .unwrap();
+
+        // Stato come dopo l'avvio: l'anteprima preesistente non va riemessa.
+        let state = PreviewWatcherState::new();
+        *state.last_seen.lock() = newest_preview(&dir);
+        assert!(pending_preview(&state, &dir).is_none());
+
+        // Un'anteprima prodotta dopo l'avvio va invece inoltrata.
+        let new = dir.join("new.json");
+        std::fs::write(&new, "{}").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&new)
+            .unwrap()
+            .set_modified(base + Duration::from_secs(30))
+            .unwrap();
+        let (path, _) = pending_preview(&state, &dir).expect("nuova anteprima non rilevata");
+        assert_eq!(path, new);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
