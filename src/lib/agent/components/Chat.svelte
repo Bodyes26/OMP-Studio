@@ -39,6 +39,10 @@
 		onNewChat?: () => void;
 	}>();
 
+	/** Inserisce testo nel composer della sessione attiva */
+	export function insertText(text: string): void {
+		session.insertComposerText(text);
+	}
 	setContext<() => string>('git-diff-project-path', () => session.cwd);
 	// Ganci condivisi passati via contesto: i componenti annidati non hanno
 	// bisogno di callback inoltrate a mano.

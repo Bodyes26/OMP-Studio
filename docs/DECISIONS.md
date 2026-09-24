@@ -1157,3 +1157,27 @@ Il 2026-09-23 una corsia di `ContrattiImmobili` non si è potuta integrare. Il l
 - Il commit automatico include tutto cio' che `.gitignore` non esclude: la card di esito elenca i file e l'integrazione si annulla con un clic.
 - L'esclusione del processo chiamante copre anche i job in background di quell'agente, che non sono registrati singolarmente.
 - L'alternativa 3 scartata dal Gate R27 (auto-merge al termine del task) resta valido nel senso di gesto esplicito: l'integrazione parte solo da un clic o da una richiesta esplicita all'agente, mai alla fine del task.
+
+## Gate R30: Il Laboratorio prototipi diventa una corsia di progetto
+
+**Data:** 2026-09-24
+**Esito:** APPROVATO (rifonda il Gate R24 sulla base delle corsie del Gate R27)
+
+### Il problema
+
+La prima implementazione del Laboratorio (Gate R24, vista separata `LabView` da ~3400 righe) soffriva di tre falle strutturali:
+1. Aprire il Laboratorio smontava `<main>` con tutti i `Terminal`, chiudendo via `pty_close` / `kill_tree` gli agenti TUI attivi;
+2. L'anteprima `srcdoc` con `sandbox="allow-scripts allow-forms allow-same-origin"` ereditava l'origine di Studio annullando l'isolamento (accesso a IPC Tauri nativo `__TAURI_INTERNALS__`);
+3. La chat era simulata con un `setTimeout` e non dialogava con la sessione OMP;
+4. Le revisioni, il contesto stabile e l'export contenevano bug logici (archivio revisioni nel repo dell'utente, `export` su nuove cartelle fallimentare, export senza stili CSS per omissione di `index.css`).
+
+### Decisioni
+
+1. **Il Laboratorio e' una corsia speciale di progetto (`kind: 'lab'`).** Vive come scheda nella `LaneStrip` accanto alla `Principale` e ai worktree. Non e' un worktree Git del repo: e' un ramo parallelo il cui workspace e' il prototipo; dal progetto originale prende solo contesto e riferimenti in sola lettura. Il cambio corsia avviene via CSS (`visibility: hidden`) senza smontare nulla.
+2. **Workspace fuori dal repository.** Collocato in `%LOCALAPPDATA%/omp-studio/lab/prototypes/<id>` con **Git interno**: ogni richiesta dell'utente chiude un commit atomico che funge da revisione recuperabile.
+3. **Indice nel progetto (`.omp/lab/prototypes.json`) e bozze globali.** Scritto solo da Rust in modo atomico. `status` (`active` | `closed`), date, `workspacePath`, `lastRevision` e `summary` (2-3 righe mantenuto dall'agente Lab). Le idee libere senza cartella vivono nell'indice bozze in app data e possono essere associate a un progetto.
+4. **Indice non versionato.** Studio aggiunge automaticamente `.omp/lab/` al `.gitignore` del progetto con un blocco marcato dedicato.
+5. **Runtime anteprima via loopback isolato.** Server HTTP in Rust su `127.0.0.1:0` avviato on-demand; iframe `sandbox="allow-scripts allow-forms allow-modals allow-popups"` con origine opaca `null` (IPC Tauri non iniettato, capability remote assenti); bundle compilato via Web Worker esbuild-wasm; pacchetti npm di terze parti risolti su CDN esm.sh con versioni fissate; React e Tailwind CSS serviti localmente.
+6. **Sessione agente confinata.** `rpc_open_lab` usa il workspace come CWD, carica l'estensione `studio-lab.ts` con hook `tool_call` fail-closed (tool nativi `read`/`write`/`edit`/`glob`/`grep` limitati ai confini, shell/eval disabilitati, browser limitato all'URL locale dell'anteprima, tool `lab_preview_status` e `lab_set_summary`).
+7. **Ingresso dal popover del progetto e scratchpad.** Rimosso il chip globale in TopBar. L'apertura avviene dal popover della scheda progetto ("Nuovo prototipo Lab" e "Prototipi Lab (n)"); le idee libere si aprono dal menu del pulsante fantasma (scratchpad) con `Ctrl+Alt+P`.
+8. **Cutover completo.** Eliminati i moduli obsoleti (`LabView.svelte`, `renderer.ts`, `revisions.ts`, `context.ts`, `migration.ts`, `export-handoff.ts`, `storage.ts`, `visual-tools.ts`).

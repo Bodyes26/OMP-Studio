@@ -68,6 +68,9 @@
 		type LaneDiagramPayload,
 		type LanePreviewPayload
 	} from '$lib/stores/laneSurfaces.svelte';
+	import LabPreview from '$lib/lab/LabPreview.svelte';
+	import { openLabEntry } from '$lib/lanes/laneActions';
+	import { labApi } from '$lib/lab/api';
 	import type { TerminalSessionInfo } from '$lib/terminal/terminal';
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
@@ -100,35 +103,15 @@
 			laneSurfaceStore.setLanePreview(proj.id, proj.lane.laneId, filePath);
 		}
 	}
-	let labOpen = $state(false);
-	// Il Laboratorio prototipi e' alpha e disattivato per difetto: il suo codice
-	// (compiler, renderer, orchestrazione) non entra nel bundle iniziale e viene
-	// caricato solo quando l'utente lo apre davvero.
-	type LabSurfaceComponent = (typeof import('$lib/lab/LabView.svelte'))['default'];
-	let LabSurface = $state<LabSurfaceComponent | null>(null);
-	let labLoadError = $state('');
+	let labCenterView = $state<'preview' | 'editor'>('preview');
 
-	/** Apre o chiude il Laboratorio. Con la funzione alpha spenta il comando non
-	 *  e' un vicolo cieco: porta dove la si attiva. */
-	async function toggleLab() {
-		labLoadError = '';
-		if (labOpen) {
-			labOpen = false;
-			return;
+	async function handleNewFreeDraft() {
+		try {
+			const entry = await labApi.createPrototype(null);
+			await openLabEntry(null, entry);
+		} catch (err) {
+			console.error('Creazione prototipo libero fallita:', err);
 		}
-		if (!settingsStore.general.labAlphaEnabled) {
-			settingsStore.openSection('general');
-			return;
-		}
-		if (!LabSurface) {
-			try {
-				LabSurface = (await import('$lib/lab/LabView.svelte')).default;
-			} catch (err) {
-				labLoadError = err instanceof Error ? err.message : String(err);
-				return;
-			}
-		}
-		labOpen = true;
 	}
 	let agentAnnouncement = $state('');
 	const prevAgentStates = new Map<string, string>();
@@ -403,10 +386,7 @@
 			const project = projectStore.projects.find(
 				(p) => p.id === session.projectKey || p.lane.workspacePath === session.cwd
 			);
-			const baseName = project?.label?.trim() || project?.name || (session.scope === 'lab' ? m.ui__page_laboratorio_d67e() : 'Progetto');
-			const projectName = session.scope === 'lab' && session.prototypeId
-				? `${baseName} [Lab: ${session.prototypeId}]`
-				: baseName;
+			const projectName = project?.label?.trim() || project?.name || 'Progetto';
 			const projectPath = project?.canonicalProjectPath ?? session.cwd;
 			// 1. Modello primario attivo nella sessione GUI (solo se sta generando)
 			if (isGenerating && session.model) {
@@ -697,13 +677,6 @@
 			.find((lane) => lane.laneId === laneId && lane.status !== 'archived');
 	}
 
-	function labSessionFor(project: Project | string, prototypeId: string): AgentSession {
-		const p =
-			typeof project === 'string'
-				? { id: project, path: project }
-				: { id: project.id, path: project.canonicalProjectPath ?? '' };
-		return sessionRegistry.getOrCreateLabSession(p, prototypeId);
-	}
 
 	/**
 	 * Come sopra, ma garantisce anche che il processo sia avviato. `ensureOpen`
@@ -1959,6 +1932,9 @@
 		}
 
 		projectStore.openFile(projectId, targetPath);
+		if (projectStore.activeProject?.lane.kind === 'lab') {
+			labCenterView = 'editor';
+		}
 		terminalOpenRequest = {
 			projectId,
 			filePath: targetPath,
@@ -2331,11 +2307,7 @@
 	function handleKeydown(e: KeyboardEvent) {
 		// Esc chiude il dialogo piu' esterno, dal piu' recente al piu' vecchio.
 		if (e.key === 'Escape') {
-			if (labOpen) {
-				e.preventDefault();
-				labOpen = false;
-				return;
-			}
+
 			if (shortcutsModalStore.isOpen) {
 				e.preventDefault();
 				shortcutsModalStore.close();
@@ -2372,8 +2344,7 @@
 				pickerOpen ||
 				queueOpen ||
 				showRestartModal ||
-				showUpdatePromptModal ||
-				labOpen;
+				showUpdatePromptModal;
 
 			const target = e.target;
 			const isTargetEditable =
@@ -2429,7 +2400,9 @@
 			settingsStore.cycleLayoutMode();
 		} else if (e.key.toLowerCase() === 'p') {
 			e.preventDefault();
-			void toggleLab();
+			if (settingsStore.general.labAlphaEnabled) {
+				void handleNewFreeDraft();
+			}
 		} else if (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'r') {
 			e.preventDefault();
 			void companionStore.toggleCompanion();
@@ -2474,8 +2447,7 @@
 		onSettingsClick={(section) => settingsStore.openSection(section)}
 		onSetupClick={openSetup}
 		onQueueClick={() => queueOpen = !queueOpen}
-		onLabClick={() => void toggleLab()}
-		labActive={labOpen}
+
 		{setupIncomplete}
 		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, { follow })}
 		onEditTask={openTaskOfProject}
@@ -2541,14 +2513,6 @@
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 		{agentAnnouncement}
 	</div>
-	{#if labLoadError}
-		<div
-			role="alert"
-			style="position: fixed; inset-inline: 0; bottom: 10px; margin-inline: auto; width: fit-content; max-width: 80vw; z-index: 90; padding: 6px 12px; border-radius: var(--radius-md); border: 1px solid var(--danger-dim); background: var(--bg-overlay); color: var(--danger); font-size: var(--text-xs);"
-		>
-			{m.page_lab_load_error({ reason: labLoadError })}
-		</div>
-	{/if}
 	{#if projectStore.loadError}
 		<div
 			role="alert"
@@ -2559,16 +2523,7 @@
 	{/if}
 
 
-	{#if labOpen && LabSurface}
-		<LabSurface
-			projectPath={projectStore.activeProject?.lane.workspacePath ?? ''}
-			projectKey={projectStore.activeProject?.id || ''}
-			projectName={projectStore.activeProject?.label?.trim() || projectStore.activeProject?.name || 'Bozza locale'}
-			agentState={projectStore.activeProject?.lane.agentState || 'idle'}
-			onBackToMain={() => (labOpen = false)}
-			onClose={() => (labOpen = false)}
-		/>
-	{:else if !projectStore.ready}
+	{#if !projectStore.ready}
 		<!-- I progetti salvati non sono ancora arrivati dal disco: `projects` e'
 		     vuoto perche' non si sa niente, non perche' non ce ne siano. Qui va
 		     lo sfondo del tema e nient'altro, altrimenti si vede la schermata
@@ -2593,7 +2548,7 @@
 				shortcuts={[
 					{ key: 'Ctrl+Alt+N', label: m.page_empty_open_folder_shortcut(), action: () => pickerOpen = true },
 					{ key: 'Ctrl+Alt+S', label: m.page_empty_new_chat_shortcut(), action: () => projectStore.openScratchpad() },
-					{ key: 'Ctrl+Alt+P', label: m.page_empty_lab_shortcut(), action: () => void toggleLab() },
+					{ key: 'Ctrl+Alt+P', label: m.page_empty_lab_shortcut(), action: () => void handleNewFreeDraft() },
 					{ key: 'Ctrl+Alt+U', label: m.page_empty_quota_shortcut(), action: () => usageOpen = true },
 					{ key: 'Ctrl+Alt+,', label: m.page_empty_settings_shortcut(), action: () => settingsStore.openSection() },
 					{ key: 'Ctrl+Alt+M', label: m.page_empty_models_shortcut(), action: () => settingsStore.openSection('models') }
@@ -2642,6 +2597,9 @@
 								onFileSelect={(file: string) => {
 									projectStore.openFile(proj.id, file);
 									closeActiveSurface();
+									if (proj.lane.kind === 'lab') {
+										labCenterView = 'editor';
+									}
 								}}
 								onFileDiff={(path: string) => handleGitPanelDiff(path, 'working')}
 								dirtyFilePaths={activeDirtyFiles}
@@ -2692,7 +2650,30 @@
 		></div>
 
 		<section class="col-center">
-			<div class="col-header">{activeTaskEditor ? m.page_columns_header_task() : diagramOpen ? m.page_columns_header_diagram() : previewFile ? m.page_columns_header_preview() : browserOpen ? m.page_columns_header_browser() : m.page_columns_header_editor()}</div>
+			<div class="col-header">
+				{#if projectStore.activeProject?.lane.kind === 'lab'}
+					<div class="lab-switcher" role="tablist" aria-label="Vista Laboratorio">
+						<button
+							type="button"
+							role="tab"
+							class="lab-switcher-btn"
+							class:active={labCenterView === 'preview'}
+							aria-selected={labCenterView === 'preview'}
+							onclick={() => (labCenterView = 'preview')}
+						>{m.lab_lane_switch_preview()}</button>
+						<button
+							type="button"
+							role="tab"
+							class="lab-switcher-btn"
+							class:active={labCenterView === 'editor'}
+							aria-selected={labCenterView === 'editor'}
+							onclick={() => (labCenterView = 'editor')}
+						>{m.lab_lane_switch_editor()}</button>
+					</div>
+				{:else}
+					{activeTaskEditor ? m.page_columns_header_task() : diagramOpen ? m.page_columns_header_diagram() : previewFile ? m.page_columns_header_preview() : browserOpen ? m.page_columns_header_browser() : m.page_columns_header_editor()}
+				{/if}
+			</div>
 			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
 				{#if projectStore.activeProject}
 					{#if activeTaskEditor}
@@ -2741,6 +2722,32 @@
 						/>
 					{/if}
 				{/if}
+
+				<!-- Livelli anteprima Laboratorio per ogni corsia Lab montata (contratto §7 e §8) -->
+				{#each projectStore.projects as p (p.id)}
+					{@const mountedLanes = laneOrchestrator.getMountedLanes(p)}
+					{#each mountedLanes as lane (lane.laneId)}
+						{#if lane.kind === 'lab' && lane.workspacePath && lane.labPrototypeId}
+							{@const isLaneActive = p.id === projectStore.activeId && p.lane.laneId === lane.laneId}
+							{@const visible = isLaneActive && labCenterView === 'preview'}
+							<div
+								class="lab-preview-layer"
+								class:visible
+								style="position: absolute; inset: 0; display: {visible ? 'block' : 'none'}; z-index: {visible ? 5 : 0}; pointer-events: {visible ? 'auto' : 'none'};"
+							>
+								<LabPreview
+									projectId={p.id}
+									laneId={lane.laneId}
+									prototypeId={lane.labPrototypeId}
+									workspacePath={lane.workspacePath}
+									projectPath={p.canonicalProjectPath}
+									{visible}
+									session={laneOrchestrator.getOrCreateAgentSession(p, lane)}
+								/>
+							</div>
+						{/if}
+					{/each}
+				{/each}
 			</div>
 		</section>
 
@@ -2755,30 +2762,31 @@
 
 		<section class="col-right">
 			<div class="col-header tabs-header">
-				<div class="tab-group" role="tablist" aria-label={m.page_tabs_surfaces_group()}>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={projectStore.activeProject?.lane.surface !== 'gui'}
-						class:active={projectStore.activeProject?.lane.surface !== 'gui'}
-						disabled={activeSwitching}
-						title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_terminal_label()}
-						aria-label={m.page_tabs_terminal_label()}
-						onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
-					>TERMINAL</button>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={projectStore.activeProject?.lane.surface === 'gui'}
-						class:active={projectStore.activeProject?.lane.surface === 'gui'}
-						disabled={activeSwitching}
-						title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_gui_label()}
-						aria-label={m.page_tabs_gui_label()}
-						onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
-					>GUI</button>
-				</div>
-				<!-- I figli di un tablist devono avere role="tab": l'azione sta fuori dal tablist e si mostra solo per la GUI. -->
-				{#if projectStore.activeProject?.lane.surface === 'gui'}
+				{#if projectStore.activeProject?.lane.kind !== 'lab'}
+					<div class="tab-group" role="tablist" aria-label={m.page_tabs_surfaces_group()}>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={projectStore.activeProject?.lane.surface !== 'gui'}
+							class:active={projectStore.activeProject?.lane.surface !== 'gui'}
+							disabled={activeSwitching}
+							title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_terminal_label()}
+							aria-label={m.page_tabs_terminal_label()}
+							onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
+						>TERMINAL</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={projectStore.activeProject?.lane.surface === 'gui'}
+							class:active={projectStore.activeProject?.lane.surface === 'gui'}
+							disabled={activeSwitching}
+							title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_gui_label()}
+							aria-label={m.page_tabs_gui_label()}
+							onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
+						>GUI</button>
+					</div>
+				{/if}
+				{#if projectStore.activeProject?.lane.surface === 'gui' || projectStore.activeProject?.lane.kind === 'lab'}
 					<button
 						type="button"
 						class="header-action"
@@ -2795,13 +2803,13 @@
 						{@const key = laneSessionKey(p.id, lane.laneId)}
 						{@const isLaneActive = p.id === projectStore.activeId && p.lane.laneId === lane.laneId}
 						{@const currentSurface = isLaneActive ? p.lane.surface : lane.surface}
-						{#if currentSurface === 'gui'}
+						{#if lane.kind === 'lab' || currentSurface === 'gui'}
 							<Chat
 								session={laneOrchestrator.getOrCreateAgentSession(p, lane)}
 								visible={isLaneActive}
 								onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
 								onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
-								onSwitchToTerminal={() => void switchSurface(p.id, 'terminal')}
+								onSwitchToTerminal={lane.kind === 'lab' ? undefined : () => void switchSurface(p.id, 'terminal')}
 								onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
 								onNewChat={() => void handleNewChat(p.id, lane.laneId)}
 							/>
@@ -3436,5 +3444,33 @@
 	}
 	.btn-primary:hover {
 		filter: brightness(1.1);
+	}
+
+	.lab-switcher {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		background: var(--bg-sunken);
+		padding: 2px;
+		border-radius: 4px;
+		border: 1px solid var(--line);
+	}
+	.lab-switcher-btn {
+		background: transparent;
+		border: none;
+		color: var(--ink-faint);
+		font-size: 11px;
+		font-weight: 500;
+		padding: 2px 8px;
+		border-radius: 3px;
+		cursor: pointer;
+	}
+	.lab-switcher-btn:hover {
+		color: var(--ink);
+	}
+	.lab-switcher-btn.active {
+		background: var(--bg);
+		color: var(--ink);
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 </style>

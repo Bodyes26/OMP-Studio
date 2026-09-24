@@ -21,7 +21,6 @@ import {
 	SessionRegistry,
 	laneSessionKey,
 	mainSessionKey,
-	labSessionKey,
 	type AgentSessionLike
 } from '../src/lib/agent/sessionRegistry.ts';
 import type { AgentSessionEvent } from '../src/lib/agent/wire.ts';
@@ -120,23 +119,11 @@ class MockLaneSession implements AgentSessionLike {
 	}
 
 	get sessionKey(): string {
-		if (this.scope === 'lab' && this.prototypeId) {
-			return labSessionKey(this.projectKey, this.prototypeId);
-		}
 		return laneSessionKey(this.projectKey, this.laneId ?? 'main');
 	}
 
 	async open(resume?: string | null): Promise<void> {
-		if (this.scope === 'lab' && this.prototypeId) {
-			await this.client.openLab({
-				projectPath: this.cwd,
-				prototypeId: this.prototypeId,
-				projectKey: this.projectKey,
-				resume: resume ?? null
-			});
-		} else {
-			await this.client.open(this.cwd, resume ?? null);
-		}
+		await this.client.open(this.cwd, resume ?? null);
 	}
 
 	async close(): Promise<void> {
@@ -172,7 +159,6 @@ describe('W04 — SessionRegistry multi-corsia e isolamento processi', () => {
 		assert.equal(laneSessionKey('Project-A', 'Main'), 'lane:project-a:main');
 		assert.equal(laneSessionKey('Project-A', 'wt-feat-1'), 'lane:project-a:wt-feat-1');
 		assert.equal(mainSessionKey('Project-A'), 'lane:project-a:main');
-		assert.equal(labSessionKey('Project-A', 'proto-1'), 'lab:project-a:proto-1');
 	});
 
 	it('2. Due corsie dello stesso progetto istanziano sessioni distinte sui rispettivi workspace', () => {

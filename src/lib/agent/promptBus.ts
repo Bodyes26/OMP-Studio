@@ -26,7 +26,6 @@ export interface PromptRequestPayload {
 	projectId: string;
 	laneId?: string | null;
 	sessionId?: string | null;
-	prototypeId?: string | null;
 	toolCallId?: string | null;
 	kind?: string;
 	method?: PromptMethod;
@@ -49,7 +48,6 @@ export interface PromptRequest {
 	readonly projectId: string;
 	readonly laneId?: string | null;
 	readonly sessionId?: string | null;
-	readonly prototypeId?: string | null;
 	readonly toolCallId?: string | null;
 	readonly kind: string;
 	readonly method: PromptMethod;
@@ -269,7 +267,6 @@ export class PromptBus {
 			projectId,
 			laneId: payload.laneId ?? null,
 			sessionId: payload.sessionId ?? null,
-			prototypeId: payload.prototypeId ?? null,
 			toolCallId: payload.toolCallId ?? null,
 			kind: payload.kind ?? 'ask',
 			method: payload.method ?? 'select',

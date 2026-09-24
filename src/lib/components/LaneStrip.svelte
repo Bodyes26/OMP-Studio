@@ -18,8 +18,12 @@
 		IconClose,
 		IconPlus,
 		IconRefresh,
-		IconDiff
+		IconDiff,
+		IconLab,
+		IconChevronDown
 	} from '$lib/icons';
+	import { contextMenu } from '$lib/contextMenu.svelte';
+	import { projectLaneActions, closeLabLane } from '$lib/lanes/laneActions';
 	import {
 		activeLanes,
 		buildConcurrencyWarning,
@@ -184,6 +188,21 @@
 	 * nasce solo dopo una conferma esplicita che mostra modelli, provider e
 	 * processi gia' impegnati.
 	 */
+	async function handleOpenNewMenu(event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		const items = await projectLaneActions(project, {
+			onProfileReview: (review) => {
+				profileReview = review as ProjectProfileReview;
+			}
+		});
+		contextMenu.open(event, {
+			label: m.lanestrip_tab_new(),
+			items,
+			invoker: event.currentTarget as HTMLElement
+		});
+	}
+
 	async function handleCreateNewLane() {
 		if (isCreating) return;
 		const lanes = laneOrchestrator.laneDispatchSnapshots(project);
@@ -337,6 +356,7 @@
 			{@const pendingCleanup =
 				cleanupPending[lane.laneId] ??
 				(lane.recoveryState === 'cleanup_pending' ? m.lanestrip_cleanup_pending() : null)}
+			{@const isLab = lane.kind === 'lab'}
 			<div
 				class="lane-tab-item"
 				class:selected={isSelected}
@@ -353,21 +373,26 @@
 					data-lane-id={lane.laneId}
 					onclick={() => selectLane(lane.laneId)}
 				>
-					<span class="lane-title" title={pendingCleanup ?? lane.title}>{lane.title}</span>
-					<span class="lane-status-badge status-{display.kind}">
-						{#if display.kind === 'working'}
-							<IconStatusRunning />
-						{:else if display.kind === 'attention' || display.kind === 'conflict'}
-							<IconWarning />
-						{:else if display.kind === 'review_ready' || display.kind === 'finished'}
-							<IconCheck />
-						{:else if display.kind === 'integrating'}
-							<IconRefresh />
-						{:else}
-							<IconStatusPending />
-						{/if}
-						<span>{display.label}</span>
-					</span>
+					{#if isLab}
+						<span class="lane-lab-icon" aria-hidden="true"><IconLab /></span>
+						<span class="lane-title">{lane.title}</span>
+					{:else}
+						<span class="lane-title" title={pendingCleanup ?? lane.title}>{lane.title}</span>
+						<span class="lane-status-badge status-{display.kind}">
+							{#if display.kind === 'working'}
+								<IconStatusRunning />
+							{:else if display.kind === 'attention' || display.kind === 'conflict'}
+								<IconWarning />
+							{:else if display.kind === 'review_ready' || display.kind === 'finished'}
+								<IconCheck />
+							{:else if display.kind === 'integrating'}
+								<IconRefresh />
+							{:else}
+								<IconStatusPending />
+							{/if}
+							<span>{display.label}</span>
+						</span>
+					{/if}
 					{#if runtime.length > 0}
 						<span class="lane-proc-dot" title={m.lanestrip_processes_title({ count: runtime.length })}>
 							<span class="visually-hidden">{m.lanestrip_processes_badge()}</span>
@@ -379,44 +404,47 @@
 						</span>
 					{/if}
 				</button>
-				<button
-					type="button"
-					class="lane-review-btn"
-					class:review-ready={display.kind === 'review_ready'}
-					title={m.lanestrip_review_title()}
-					aria-label={m.lanestrip_review_title()}
-					onclick={(e) => {
-						e.stopPropagation();
-						onReviewLane?.(lane);
-					}}
-				>
-					<IconDiff />
-					{#if display.kind === 'review_ready'}
-						<span class="review-label">{m.lanestrip_review_action()}</span>
-					{/if}
-				</button>
+				{#if !isLab}
+					<button
+						type="button"
+						class="lane-review-btn"
+						class:review-ready={display.kind === 'review_ready'}
+						title={m.lanestrip_review_title()}
+						aria-label={m.lanestrip_review_title()}
+						onclick={(e) => {
+							e.stopPropagation();
+							onReviewLane?.(lane);
+						}}
+					>
+						<IconDiff />
+						{#if display.kind === 'review_ready'}
+							<span class="review-label">{m.lanestrip_review_action()}</span>
+						{/if}
+					</button>
+				{/if}
 				<button
 					type="button"
 					class="lane-archive-btn"
-					title={m.lanestrip_archive_aria({ title: lane.title })}
-					aria-label={m.lanestrip_archive_aria({ title: lane.title })}
-					onclick={() => void archiveLane(lane.laneId)}
+					title={isLab ? m.lab_lane_close_action() : m.lanestrip_archive_aria({ title: lane.title })}
+					aria-label={isLab ? m.lab_lane_close_action() : m.lanestrip_archive_aria({ title: lane.title })}
+					onclick={() => void (isLab ? closeLabLane(project.id, lane.laneId) : archiveLane(lane.laneId))}
 				>
 					<IconClose />
 				</button>
 			</div>
 		{/each}
 
-		<!-- Pulsante + Nuova corsia -->
+		<!-- Pulsante + ▾ Nuova corsia -->
 		<button
 			type="button"
 			class="lane-new-btn"
 			title={m.lanestrip_tab_new_title()}
 			aria-label={m.lanestrip_tab_new()}
-			onclick={handleCreateNewLane}
+			onclick={handleOpenNewMenu}
 			disabled={isCreating}
 		>
 			<IconPlus />
+			<IconChevronDown />
 			<span>{m.lanestrip_tab_new()}</span>
 		</button>
 	</div>
@@ -739,6 +767,18 @@
 		width: 12px;
 		height: 12px;
 	}
+
+	.lane-lab-icon {
+		display: inline-flex;
+		align-items: center;
+		color: var(--brand);
+		flex-shrink: 0;
+	}
+	.lane-lab-icon :global(svg) {
+		width: 12px;
+		height: 12px;
+	}
+
 
 	@media (prefers-reduced-motion: reduce) {
 		.lane-tab-item,

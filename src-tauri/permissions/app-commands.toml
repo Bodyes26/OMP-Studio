@@ -242,6 +242,33 @@ commands.allow = [
     "github_get_actions_status"
 ]
 
+[[permission]]
+identifier = "allow-lab"
+description = "Laboratorio prototipi: percorsi, gestione indici, git interno, template workspace, watcher e server di anteprima"
+commands.allow = [
+    "lab_paths",
+    "lab_prototype_create",
+    "lab_index_list",
+    "lab_index_update",
+    "lab_index_remove",
+    "lab_prototype_associate",
+    "lab_prototype_duplicate",
+    "lab_git_commit",
+    "lab_git_log",
+    "lab_git_files_at",
+    "lab_git_restore",
+    "lab_workspace_snapshot",
+    "lab_workspace_exists",
+    "lab_meta_read",
+    "lab_preview_status_write",
+    "lab_watch_start",
+    "lab_watch_stop",
+    "lab_export",
+    "lab_preview_publish_shared",
+    "lab_preview_publish",
+    "lab_preview_unpublish"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -264,5 +291,6 @@ permissions = [
     "allow-prompt-suggestions",
     "allow-browser-live",
     "allow-companion",
-    "allow-github"
+    "allow-github",
+    "allow-lab"
 ]

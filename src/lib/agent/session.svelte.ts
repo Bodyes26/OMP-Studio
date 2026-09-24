@@ -30,7 +30,7 @@ import {
 	type PromptAnswer
 } from './askAnswers';
 import { promptBus, type PromptRequest } from './promptBus';
-import { labSessionKey, laneSessionKey } from './sessionKeys';
+import { laneSessionKey } from './sessionKeys';
 import { SessionSuggestions } from './suggestions.svelte';
 import { askQuestionText } from './askTitle';
 import type { RecentChatMessage } from '$lib/stores/companion.svelte';
@@ -322,27 +322,37 @@ function assistantEntryText(entry: AssistantEntry): string {
 
 export interface AgentSessionConfig {
 	cwd: string;
-	scope?: 'lane' | 'main' | 'lab';
+	scope?: 'lane' | 'main';
 	laneId?: string | null;
-	prototypeId?: string | null;
 	projectKey?: string | null;
 	observedRevisionId?: string | null;
+	lab?: { prototypeId: string; projectPath: string | null };
 }
 
 export class AgentSession {
 	readonly client = new OmpRpcClient();
 	readonly suggestions: SessionSuggestions = new SessionSuggestions(this);
 
-	readonly scope: 'lane' | 'main' | 'lab';
+	readonly scope: 'lane' | 'main';
 	readonly laneId: string | null;
-	readonly prototypeId: string | null;
+	readonly labConfig?: { prototypeId: string; projectPath: string | null };
 	readonly projectKey: string;
 	observedRevisionId = $state<string | null>(null);
 
-	get sessionKey(): string {
-		if (this.scope === 'lab' && this.prototypeId) {
-			return labSessionKey(this.projectKey, this.prototypeId);
+	private composerInsertHandlers = new Set<(text: string) => void>();
+
+	registerComposerInsertHandler(handler: (text: string) => void): () => void {
+		this.composerInsertHandlers.add(handler);
+		return () => this.composerInsertHandlers.delete(handler);
+	}
+
+	insertComposerText(text: string): void {
+		for (const handler of this.composerInsertHandlers) {
+			handler(text);
 		}
+	}
+
+	get sessionKey(): string {
 		return laneSessionKey(this.projectKey, this.laneId ?? 'main');
 	}
 
@@ -533,8 +543,8 @@ export class AgentSession {
 	constructor(config: AgentSessionConfig) {
 		this.cwd = config.cwd;
 		this.scope = config.scope ?? 'lane';
-		this.laneId = this.scope === 'lab' ? null : (config.laneId ?? 'main');
-		this.prototypeId = config.prototypeId ?? null;
+		this.laneId = config.laneId ?? 'main';
+		this.labConfig = config.lab;
 		this.projectKey = config.projectKey ?? config.cwd;
 		this.observedRevisionId = config.observedRevisionId ?? null;
 		this.unsubscribeEvent = this.client.onEvent((event) => this.reduce(event));
@@ -663,11 +673,13 @@ export class AgentSession {
 			this.exited = false;
 			this.requestedResume = requestedResume;
 			try {
-				if (this.scope === 'lab' && this.prototypeId) {
+				if (this.labConfig) {
 					await this.client.openLab({
-						projectPath: this.cwd,
-						prototypeId: this.prototypeId,
-						projectKey: this.projectKey,
+						workspacePath: this.cwd,
+						projectPath: this.labConfig.projectPath,
+						prototypeId: this.labConfig.prototypeId,
+						projectId: this.projectKey,
+						laneId: this.laneId ?? 'main',
 						resume: requestedResume
 					});
 				} else {
@@ -771,9 +783,6 @@ export class AgentSession {
 		if (!this.pendingUi) {
 			const projectPrompts = promptBus.getPendingsForProject(this.projectKey);
 			const matching = projectPrompts.filter((p) => {
-				if (this.scope === 'lab') {
-					return p.prototypeId === this.prototypeId;
-				}
 				const targetLane = (this.laneId ?? 'main').toLowerCase();
 				const promptLane = (p.laneId ?? 'main').toLowerCase();
 				if (targetLane !== promptLane) return false;
@@ -1375,15 +1384,7 @@ export class AgentSession {
 	private reduce(event: AgentSessionEvent) {
 		// Protezione da eventi per sessioni/prototipi diversi o revisioni superate
 		// ("un evento in ritardo non aggiorna l'oggetto sbagliato")
-		if (this.scope === 'lab') {
-			const rec: Record<string, unknown> = event;
-			const proto = typeof rec.prototypeId === 'string' ? rec.prototypeId : undefined;
-			if (proto && this.prototypeId && proto !== this.prototypeId) return;
-			const pkey = typeof rec.projectKey === 'string' ? rec.projectKey : undefined;
-			if (pkey && this.projectKey && pkey !== this.projectKey) return;
-			const rev = typeof rec.revisionId === 'string' ? rec.revisionId : undefined;
-			if (rev && this.observedRevisionId && rev !== this.observedRevisionId) return;
-		}
+
 
 		// Se la sessione e' in fase di attach, accoda tutti gli eventi in ordine FIFO
 		// tranne quelli di terminazione/errore critico che interrompono l'attach.
@@ -2393,9 +2394,8 @@ export class AgentSession {
 		promptBus.registerRequest({
 			requestId: id,
 			projectId: this.projectKey,
-			laneId: this.laneId ?? (this.scope === 'lab' ? null : 'main'),
+			laneId: this.laneId ?? 'main',
 			sessionId: this.sessionId,
-			prototypeId: this.prototypeId,
 			toolCallId: runningAsk?.toolCallId,
 			kind: 'ask',
 			method: this.pendingUi.method,
@@ -2468,9 +2468,8 @@ export class AgentSession {
 		promptBus.registerRequest({
 			requestId: pending.requestId,
 			projectId: this.projectKey,
-			laneId: this.laneId ?? (this.scope === 'lab' ? null : 'main'),
+			laneId: this.laneId ?? 'main',
 			sessionId: this.sessionId,
-			prototypeId: this.prototypeId,
 			toolCallId: entry.toolCallId,
 			kind: 'ask',
 			method: pending.method,
@@ -2699,9 +2698,7 @@ export class AgentSession {
 			if (stored && stored.projectId.trim().toLowerCase() === this.projectKey.trim().toLowerCase()) {
 				const promptLane = (stored.laneId ?? 'main').toLowerCase();
 				const myLane = (this.laneId ?? 'main').toLowerCase();
-				const isLab = this.scope === 'lab';
-				const laneMatch = isLab ? stored.prototypeId === this.prototypeId : promptLane === myLane;
-				if (laneMatch) {
+				if (promptLane === myLane) {
 					this.restorePendingUiFromPrompt(stored);
 				}
 			}

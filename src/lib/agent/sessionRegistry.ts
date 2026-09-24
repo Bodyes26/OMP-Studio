@@ -13,18 +13,17 @@
 import type { AgentSession, AgentSessionConfig } from './session.svelte';
 import type { AskFlushStep } from './askAnswers';
 import { promptBus } from './promptBus.ts';
-import { labSessionKey, laneSessionKey } from './sessionKeys';
+import { laneSessionKey } from './sessionKeys';
 import { m as msg } from '$lib/paraglide/messages.js';
 import { createSubscriber } from 'svelte/reactivity';
 
-export { labSessionKey, laneSessionKey, mainSessionKey } from './sessionKeys';
+export { laneSessionKey, mainSessionKey } from './sessionKeys';
 
 export interface UiResponsePayload {
 	projectId: string;
 	laneId?: string;
 	sessionId?: string;
 	requestId?: string;
-	prototypeId?: string;
 	response: {
 		action: 'select' | 'confirm' | 'wizard' | 'cancel';
 		value?: string;
@@ -35,9 +34,8 @@ export interface UiResponsePayload {
 
 export interface AgentSessionLike {
 	readonly cwd: string;
-	readonly scope: 'lane' | 'main' | 'lab';
+	readonly scope: 'lane' | 'main';
 	readonly laneId?: string | null;
-	readonly prototypeId: string | null;
 	readonly projectKey: string;
 	readonly sessionKey: string;
 	sessionId: string | null;
@@ -106,7 +104,13 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	 */
 	getOrCreateLaneSession(project: {
 		id: string;
-		lane: { laneId: string; workspacePath: string | null };
+		canonicalProjectPath?: string | null;
+		lane: {
+			laneId: string;
+			workspacePath: string | null;
+			kind?: 'git' | 'lab';
+			labPrototypeId?: string | null;
+		};
 	}): T {
 		const key = laneSessionKey(project.id, project.lane.laneId);
 		const cwd = project.lane.workspacePath ?? '';
@@ -118,11 +122,16 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 			if (!this.factory) {
 				throw new Error('Nessuna factory registrata per creare AgentSession');
 			}
+			const isLab = project.lane.kind === 'lab';
 			session = this.factory({
 				cwd,
 				scope: project.lane.laneId === 'main' ? 'main' : 'lane',
 				laneId: project.lane.laneId,
-				projectKey: project.id
+				projectKey: project.id,
+				lab: isLab && project.lane.labPrototypeId ? {
+					prototypeId: project.lane.labPrototypeId,
+					projectPath: project.canonicalProjectPath ?? null
+				} : undefined
 			});
 			this.sessions.set(key, session);
 			this.membershipChanged();
@@ -157,56 +166,6 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 
 	removeLaneSession(projectKey: string, laneId: string): T | undefined {
 		const key = laneSessionKey(projectKey, laneId);
-		const existing = this.sessions.get(key);
-		if (existing) {
-			this.sessions.delete(key);
-			this.membershipChanged();
-		}
-		return existing;
-	}
-
-	/**
-	 * Restituisce la sessione Laboratorio per un prototipo, creandola se manca.
-	 */
-	getOrCreateLabSession(
-		project: { id?: string; path: string },
-		prototypeId: string,
-		options?: { observedRevisionId?: string | null }
-	): T {
-		const effectiveKey = project.id ?? project.path;
-		const key = labSessionKey(effectiveKey, prototypeId);
-		let session = this.sessions.get(key);
-		if (!session) {
-			if (!this.factory) {
-				throw new Error('Nessuna factory registrata per creare AgentSession');
-			}
-			session = this.factory({
-				cwd: project.path,
-				scope: 'lab',
-				prototypeId,
-				projectKey: effectiveKey,
-				observedRevisionId: options?.observedRevisionId ?? null
-			});
-			this.sessions.set(key, session);
-			this.membershipChanged();
-		} else if (options?.observedRevisionId !== undefined) {
-			session.observedRevisionId = options.observedRevisionId;
-		}
-		return session;
-	}
-
-	getLabSession(projectKey: string, prototypeId: string): T | undefined {
-		this.trackMembership();
-		return this.sessions.get(labSessionKey(projectKey, prototypeId));
-	}
-
-	setLabSession(projectKey: string, prototypeId: string, session: T): void {
-		this.sessions.set(labSessionKey(projectKey, prototypeId), session);
-		this.membershipChanged();
-	}
-
-	removeLabSession(projectKey: string, prototypeId: string): T | undefined {
-		const key = labSessionKey(projectKey, prototypeId);
 		const existing = this.sessions.get(key);
 		if (existing) {
 			this.sessions.delete(key);
@@ -252,9 +211,6 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 			(session) => session.scope === 'main' || session.laneId === 'main'
 		);
 	}
-	getLabSessions(): T[] {
-		return this.getAllSessions().filter((session) => session.scope === 'lab');
-	}
 
 	/**
 	 * Restituisce tutte le sessioni legate a un determinato progetto:
@@ -265,7 +221,6 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		return this.getAllSessions().filter(
 			(session) =>
 				session.projectKey.toLowerCase() === needle ||
-				(session.scope === 'lab' && session.cwd.toLowerCase() === needle) ||
 				session.sessionKey.toLowerCase().startsWith(`lane:${needle}:`)
 		);
 	}
@@ -284,9 +239,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	 * Chiude e rimuove una singola sessione.
 	 */
 	async disposeSession(session: T): Promise<void> {
-		if (session.scope === 'lab' && session.prototypeId) {
-			this.removeLabSession(session.projectKey, session.prototypeId);
-		} else if (session.laneId) {
+		if (session.laneId) {
 			this.removeLaneSession(session.projectKey, session.laneId);
 		}
 		await session.close();
@@ -309,15 +262,14 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	 * 1. Se `requestId` e' noto, tenta la risoluzione atomica diretta via PromptBus,
 	 *    oppure cerca la sessione che espone esattamente quel `requestId`;
 	 * 2. Se `sessionId` e' noto, cerca per corrispondenza esatta di sessione OMP;
-	 * 3. Se `prototypeId` e' noto, cerca la sessione Laboratorio specifica;
-	 * 4. Se `laneId` e' noto, cerca la sessione della corsia indicata;
-	 * 5. Se nessun discriminatore e' fornito (payload legacy con solo `projectId`),
+	 * 3. Se `laneId` e' noto, cerca la sessione della corsia indicata;
+	 * 4. Se nessun discriminatore e' fornito (payload legacy con solo `projectId`),
 	 *    accetta la richiesta ESCLUSIVAMENTE se esiste una sola sessione del progetto
 	 *    con pendingUi o inferredAttention (target univoco). Se sono 0 o >1, fallisce
 	 *    chiuso per eliminare ambiguità e sovrapposizioni tra agenti concorrenti.
 	 */
 	async routeUiResponse(payload: UiResponsePayload): Promise<boolean> {
-		const { projectId, laneId, sessionId, requestId, prototypeId, response } = payload;
+		const { projectId, laneId, sessionId, requestId, response } = payload;
 
 		// 1. Risoluzione rapida tramite PromptBus se requestId e' noto
 		if (requestId && promptBus.hasPending(requestId)) {
@@ -372,15 +324,13 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 			}
 		}
 
-		if (!target && prototypeId) {
-			target = this.getLabSession(projectId, prototypeId);
-		}
+
 
 		if (!target && laneId) {
 			target = this.getLaneSession(projectId, laneId);
 		}
 
-		if (!target && !sessionId && !prototypeId && !laneId && !requestId) {
+		if (!target && !sessionId && !laneId && !requestId) {
 			// Payload legacy: verifica se il target e' univoco
 			const candidates = this.getSessionsForProject(projectId).filter(
 				(s) => s.pendingUi || s.inferredAttention

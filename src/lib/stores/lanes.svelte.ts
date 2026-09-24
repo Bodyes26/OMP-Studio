@@ -21,6 +21,7 @@ import {
 	type LaneRecord,
 	type WorktreeInfo
 } from './lanePersistence';
+import { labApi } from '$lib/lab/api';
 import {
 	classifyWorktreeRemovalError,
 	laneProcessesFor,
@@ -155,6 +156,26 @@ class LaneStore {
 			}
 		}
 		this.reconciliationErrors = errors;
+
+		// Riconciliazione corsie Lab: verifica esistenza del workspace su disco (contratto §7)
+		if (this.isTauri) {
+			const now = Date.now();
+			for (const lane of this.lanes) {
+				if (lane.kind === 'lab' && lane.status !== 'archived') {
+					const exists = lane.workspacePath
+						? await labApi.workspaceExists(lane.workspacePath).catch(() => false)
+						: false;
+					if (!exists) {
+						lane.status = 'archived';
+						lane.agentState = 'unknown';
+						lane.archiveReason = 'workspace_missing';
+						lane.archivedAt = now;
+						changed = true;
+					}
+				}
+			}
+		}
+
 		if (changed) await this.persistMutation();
 		this.ready = true;
 	}
@@ -162,7 +183,7 @@ class LaneStore {
 	private ensureMainLanes(): boolean {
 		let changed = false;
 		for (const project of projectStore.projects) {
-			if (!project.canonicalProjectPath) continue;
+			if (!project.canonicalProjectPath && !project.labDraft) continue;
 			const exists = this.lanes.some(
 				(lane) => lane.projectId === project.id && lane.laneId === MAIN_LANE_ID
 			);
@@ -399,7 +420,9 @@ class LaneStore {
 			recoveryState: 'registered',
 			archiveReason: null,
 			archivedAt: null,
-			recoveredAt: null
+			recoveredAt: null,
+			kind: 'git',
+			labPrototypeId: null
 		};
 
 		await this.upsertLane(record);
@@ -435,6 +458,25 @@ class LaneStore {
 
 		const project = projectStore.projects.find((p) => p.id === ownerProjectId);
 
+		if (lane.kind === 'lab') {
+			// Le corsie Lab non usano git worktree_remove (contratto §7)
+			lane.status = 'archived';
+			lane.archivedAt = Date.now();
+			lane.archiveReason = reason;
+			lane.recoveryState = 'registered';
+			await this.persistMutation();
+
+			if (project && project.lane.laneId === targetLaneId) {
+				const main = this.lanes.find(
+					(l) => l.projectId === ownerProjectId && l.laneId === MAIN_LANE_ID
+				);
+				projectStore.setProjectLane(
+					ownerProjectId,
+					main ?? createMainLane(ownerProjectId, project.canonicalProjectPath, project.lane.surface)
+				);
+			}
+			return { kind: 'archived' };
+		}
 		if (this.isTauri && project?.canonicalProjectPath && lane.workspacePath) {
 			try {
 				await invoke('worktree_remove', {

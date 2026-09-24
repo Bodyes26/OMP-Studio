@@ -91,6 +91,7 @@
 				{ keys: ['Ctrl+Alt+A'], description: m.ui_shortcutshelpmodal_passa_tra_la_superficie_gui_chat_e_0c21() },
 				{ keys: ['Ctrl+Alt+N'], description: m.ui_shortcutshelpmodal_nuovo_progetto_apre_il_selettore_cartella_01ff() },
 				{ keys: ['Ctrl+Alt+S'], description: 'Apre una chat Scratchpad temporanea (--no-session)' },
+				{ keys: ['Ctrl+Alt+P'], description: 'Apre un nuovo prototipo libero nel Laboratorio (con flag alpha)' },
 				{ keys: ['Ctrl+Alt+U'], description: 'Apre e chiude il pannello consumi e quote API' },
 				{ keys: ['Ctrl+Alt+M'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_modelli_ruoli_catalogo_provider_9786() },
 				{ keys: ['Ctrl+Alt+,'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_generali_di_studio_0d93() },

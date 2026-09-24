@@ -139,9 +139,11 @@ export class OmpRpcClient {
 	}
 
 	async openLab(opts: {
-		projectPath: string;
+		workspacePath: string;
+		projectPath: string | null;
 		prototypeId: string;
-		projectKey?: string | null;
+		projectId?: string | null;
+		laneId?: string | null;
 		resume?: string | null;
 	}): Promise<number> {
 		const epoch = ++this.openEpoch;
@@ -153,9 +155,11 @@ export class OmpRpcClient {
 		this.rpcId = null;
 		this.closed = false;
 		const rpcId = await invoke<number>('rpc_open_lab', {
-			projectPath: opts.projectPath,
+			workspacePath: opts.workspacePath,
+			projectPath: opts.projectPath ?? null,
 			prototypeId: opts.prototypeId,
-			projectKey: opts.projectKey ?? null,
+			projectId: opts.projectId ?? null,
+			laneId: opts.laneId ?? null,
 			resume: opts.resume ?? null,
 			onEvent: channel
 		});

@@ -1,484 +1,426 @@
 // Compiler del Laboratorio prototipi.
 //
-// Compila sorgenti multifile React/TSX in bundle isolato eseguibile nel renderer.
-// Implementa il resolver a VFS chiuso verificato nella prova tecnica (Step 8):
-//  1. Allowlist del catalogo: pacchetti non in catalogo o moduli node:* respinti;
-//  2. Confinamento VFS: import relativi o assoluti che escono dal prototipo respinti;
-//  3. Gestione multifile: TSX, TS, JSX, JS, CSS, JSON e asset (SVG/immagini dataurl);
-//  4. Esecuzione su worker per non bloccare il thread UI principale.
+// Compila sorgenti multifile React/TSX in bundle ESM eseguibile nell'anteprima.
+// Invarianti:
+//  1. Ingresso: src/main.tsx con fallback (src/main.ts, src/index.tsx, src/index.ts, src/App.tsx);
+//  2. Output ESM con JSX automatico (react/jsx-runtime);
+//  3. File locali risolti dal VFS dello snapshot, dipendenze bare esterne con import map;
+//  4. Dipendenze verificate rispetto a package.json (devono essere presenti e con versione esatta);
+//  5. CSS aggregato in tag <style type="text/tailwindcss"> con rimozione di @import "tailwindcss".
 
 import * as esbuild from 'esbuild-wasm';
 import {
-	getCatalogGlobalTarget,
-	isAllowedImportSpecifier,
-	validatePrototypeDependencies
+	buildEsmShUrl,
+	isExactVersion,
+	LOCAL_VENDOR_SPECIFIERS,
+	parsePackageSpecifier
 } from './catalog.ts';
-
-export interface LabCompileRequest {
-	/** Punto di ingresso virtuale. Predefinito: '/src/main.tsx' */
-	readonly entryPoint?: string;
-	/**
-	 * Mappa dei file virtuali del prototipo (es. {'/src/App.tsx': '...', '/assets/logo.svg': '...'}).
-	 * Accetta percorsi con o senza slash iniziale.
-	 */
-	readonly files: Readonly<Record<string, string>> | ReadonlyMap<string, string>;
-	/** Minificazione del codice generato. Predefinito: false */
-	readonly minify?: boolean;
-	/** Inclusione di sourcemap inline. Predefinito: false */
-	readonly sourceMap?: boolean;
-	/** Eventuali dipendenze dichiarate da validare preventivamente */
-	readonly declaredDependencies?: Readonly<Record<string, string>>;
-}
+import type { LabFile, LabPreviewError } from './types.ts';
 
 export interface LabCompileResult {
-	readonly ok: boolean;
-	readonly js?: string;
-	readonly css?: string;
-	readonly errors?: readonly string[];
-	readonly warnings?: readonly string[];
-	readonly elapsedMs: number;
-	readonly outputBytes?: number;
+	ok: boolean;
+	errors: LabPreviewError[];
+	compiledJs: string;
+	compiledCss: string;
+	importMap: Record<string, string>;
 }
 
-/**
- * Normalizza un percorso all'interno del VFS del prototipo.
- * Sostituisce i backslash Windows e assicura il prefisso '/'.
- */
 export function normalizeVfsPath(rawPath: string): string {
-	const forward = rawPath.replace(/\\/g, '/').trim();
-	if (forward.startsWith('/')) {
-		return forward;
-	}
-	return '/' + forward;
+	const forward = rawPath.replace(/\\/g, '/');
+	return forward.startsWith('/') ? forward : '/' + forward;
+}
+
+const ENTRY_CANDIDATES = [
+	'/src/main.tsx',
+	'/src/main.ts',
+	'/src/index.tsx',
+	'/src/index.ts',
+	'/src/App.tsx'
+];
+
+const EXTENSION_CANDIDATES = ['.tsx', '.ts', '.jsx', '.js', '.json', '.css'] as const;
+
+let esbuildInitPromise: Promise<void> | null = null;
+
+export async function ensureEsbuildInitialized(wasmUrl = '/lab/esbuild.wasm'): Promise<void> {
+	if (esbuildInitPromise) return esbuildInitPromise;
+
+	esbuildInitPromise = (async () => {
+		try {
+			const maybeGlobal: Record<string, unknown> = globalThis;
+			const hasNodeProcess = 'process' in maybeGlobal && typeof maybeGlobal.process === 'object' && maybeGlobal.process !== null;
+			if (typeof window === 'undefined' && hasNodeProcess) {
+				// In ambiente Node.js esbuild-wasm si inizializza senza opzioni
+				await esbuild.initialize({});
+			} else {
+				// In ambiente browser / Web Worker serve wasmURL
+				await esbuild.initialize({
+					wasmURL: wasmUrl
+				});
+			}
+		} catch (err: unknown) {
+			// Se gia' inizializzato (chiamate parallele o ricarica), non e' un errore bloccante
+			if (err instanceof Error && err.message.includes('initialize')) {
+				return;
+			}
+			throw err;
+		}
+	})();
+
+	return esbuildInitPromise;
+}
+function stripTailwindImports(css: string): string {
+	return css.replace(/@import\s+["']tailwindcss(?:\/[^"']*)?["']\s*;?/g, '').trim();
 }
 
 /**
- * Risolve un import relativo o assoluto rispetto al file che importa.
- * Ritorna null se l'import tenta di evadere dal perimetro VFS (/src/ o /assets/).
+ * Compila il prototipo memorizzato nello snapshot VFS in un bundle ESM
+ * e genera l'import map associata.
  */
-export function resolveVirtualImportPath(specifier: string, importerPath: string): string | null {
-	const base = importerPath.startsWith('/') ? importerPath : '/' + importerPath;
-	// Usiamo l'URL parser come barriera di normalizzazione deterministica
-	const resolved = new URL(specifier, 'https://lab.virtual' + base).pathname;
+export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileResult> {
+	const errors: LabPreviewError[] = [];
+	const importMap: Record<string, string> = { ...LOCAL_VENDOR_SPECIFIERS };
+	const vfsMap = new Map<string, string>();
 
-	// Invariante di sicurezza: consentiti solo /src/ e /assets/ del prototipo
-	if (!resolved.startsWith('/src/') && !resolved.startsWith('/assets/')) {
-		return null;
+	for (const file of files) {
+		vfsMap.set(normalizeVfsPath(file.path), file.content);
 	}
 
-	return resolved;
-}
+	// 1. Parsing package.json
+	let dependencies: Record<string, string> = {};
+	const packageJsonRaw = vfsMap.get('/package.json');
+	if (packageJsonRaw) {
+		try {
+			const parsed = JSON.parse(packageJsonRaw);
+			if (parsed && typeof parsed.dependencies === 'object' && parsed.dependencies !== null) {
+				dependencies = parsed.dependencies as Record<string, string>;
+			}
+		} catch {
+			errors.push({
+				kind: 'compile',
+				message: 'Il file package.json contiene sintassi JSON non valida.'
+			});
+		}
+	}
 
-const EXTENSION_CANDIDATES = [
-	'',
-	'.tsx',
-	'.ts',
-	'.jsx',
-	'.js',
-	'/index.tsx',
-	'/index.ts',
-	'/index.jsx',
-	'/index.js'
-] as const;
+	// 2. Ricerca entry point
+	let entryPath: string | null = null;
+	for (const candidate of ENTRY_CANDIDATES) {
+		if (vfsMap.has(candidate)) {
+			entryPath = candidate;
+			break;
+		}
+	}
 
-/**
- * Crea il plugin esbuild con resolver a VFS chiuso e shims del catalogo fidato.
- */
-export function createClosedVfsPlugin(
-	vfsFiles: ReadonlyMap<string, string>
-): esbuild.Plugin {
-	return {
-		name: 'closed-vfs',
+	if (!entryPath) {
+		errors.push({
+			kind: 'compile',
+			message:
+				'Nessun file di ingresso trovato nel prototipo. Cercati: ' +
+				ENTRY_CANDIDATES.map((c) => c.slice(1)).join(', ')
+		});
+		return {
+			ok: false,
+			errors,
+			compiledJs: '',
+			compiledCss: '',
+			importMap
+		};
+	}
+
+	// 3. Raccoglie CSS iniziale
+	const cssParts: string[] = [];
+	for (const [path, content] of vfsMap.entries()) {
+		if (path.endsWith('.css')) {
+			const stripped = stripTailwindImports(content);
+			if (stripped) cssParts.push(stripped);
+		}
+	}
+
+	// 4. Plugin VFS per esbuild
+	const vfsPlugin: esbuild.Plugin = {
+		name: 'lab-vfs-resolver',
 		setup(build) {
-			// 1. Risoluzione moduli (onResolve)
-			build.onResolve({ filter: /.*/ }, (args) => {
-				// Pacchetti autorizzati dal catalogo
-				if (isAllowedImportSpecifier(args.path)) {
-					return { path: args.path, namespace: 'catalog' };
-				}
+			// Risolve file locali
+			build.onResolve({ filter: /^\.{1,2}\/|^\// }, (args) => {
+				const importer = args.importer || '/';
+				const importerDir = importer.slice(0, importer.lastIndexOf('/') + 1) || '/';
+				let targetPath = args.path.startsWith('/')
+					? args.path
+					: normalizeVfsPath(importerDir + args.path);
 
-				// Punto di ingresso
-				if (args.kind === 'entry-point') {
-					const entry = normalizeVfsPath(args.path);
-					if (!vfsFiles.has(entry)) {
-						return {
-							errors: [
-								{
-									text: `Punto di ingresso non trovato nel VFS del prototipo: '${args.path}'`
-								}
-							]
-						};
+				// Normalizza segmenti ./ e ../
+				const segments = targetPath.split('/').filter(Boolean);
+				const resolvedSegments: string[] = [];
+				for (const seg of segments) {
+					if (seg === '.') continue;
+					if (seg === '..') {
+						resolvedSegments.pop();
+					} else {
+						resolvedSegments.push(seg);
 					}
-					return { path: entry, namespace: 'vfs' };
+				}
+				targetPath = '/' + resolvedSegments.join('/');
+
+				// Controlla corrispondenza esatta
+				if (vfsMap.has(targetPath)) {
+					return { path: targetPath, namespace: 'vfs' };
 				}
 
-				// Pacchetti npm o builtin (specifier non relativi e non assoluti)
-				if (!args.path.startsWith('.') && !args.path.startsWith('/')) {
-					return {
-						errors: [
-							{
-								text: `Pacchetto non autorizzato nel catalogo del Laboratorio: '${args.path}'`
-							}
-						]
-					};
-				}
-
-				// Import relativo o assoluto nel prototipo: verifica confinamento VFS
-				const resolved = resolveVirtualImportPath(args.path, args.importer);
-				if (!resolved) {
-					return {
-						errors: [
-							{
-								text: `Import fuori dal VFS del prototipo non consentito: '${args.path}'`
-							}
-						]
-					};
-				}
-
-				// Ricerca file con estensioni candidate
+				// Controlla estensioni candidate
 				for (const ext of EXTENSION_CANDIDATES) {
-					const candidate = resolved + ext;
-					if (vfsFiles.has(candidate)) {
-						return { path: candidate, namespace: 'vfs' };
+					if (vfsMap.has(targetPath + ext)) {
+						return { path: targetPath + ext, namespace: 'vfs' };
+					}
+				}
+
+				// Controlla directory con index
+				for (const ext of EXTENSION_CANDIDATES) {
+					const indexCandidate = targetPath + '/index' + ext;
+					if (vfsMap.has(indexCandidate)) {
+						return { path: indexCandidate, namespace: 'vfs' };
 					}
 				}
 
 				return {
 					errors: [
 						{
-							text: `File non trovato nel VFS del prototipo: '${args.path}' (risolto in: '${resolved}')`
+							text: `Modulo non trovato nel prototipo: ${args.path}`,
+							location: {
+								file: args.importer,
+								line: 1,
+								column: 0,
+								length: 0,
+								lineText: '',
+								namespace: 'vfs',
+								suggestion: ''
+							}
 						}
 					]
 				};
 			});
 
-			// 2. Caricamento moduli di catalogo (namespace: 'catalog')
-			build.onLoad({ filter: /.*/, namespace: 'catalog' }, (args) => {
-				const globalTarget = getCatalogGlobalTarget(args.path);
-				if (!globalTarget) {
-					return {
-						errors: [{ text: `Target globale mancante per il modulo di catalogo: '${args.path}'` }]
-					};
+			// Risolve bare specifiers
+			build.onResolve({ filter: /^[^./]/ }, (args) => {
+				const specifier = args.path;
+
+				// Vendor React locale
+				if (Object.prototype.hasOwnProperty.call(LOCAL_VENDOR_SPECIFIERS, specifier)) {
+					importMap[specifier] = LOCAL_VENDOR_SPECIFIERS[specifier];
+					return { path: specifier, external: true };
 				}
 
-				// Esposizione CommonJS compatibile con __toESM per import sia named che default
-				const contents = `module.exports = ${globalTarget};`;
-				return {
-					contents,
-					loader: 'js'
-				};
+				const { pkg, subpath } = parsePackageSpecifier(specifier);
+				const declaredVersion = dependencies[pkg];
+
+				if (!declaredVersion) {
+					errors.push({
+						kind: 'compile',
+						message: `Il pacchetto "${pkg}" non e' presente in package.json "dependencies". Aggiungilo con una versione esatta.`,
+						file: args.importer || 'src/main.tsx'
+					});
+					return { path: specifier, external: true };
+				}
+
+				if (!isExactVersion(declaredVersion)) {
+					errors.push({
+						kind: 'compile',
+						message: `Il pacchetto "${pkg}" ha una versione non esatta ("${declaredVersion}"). Fissa una versione esatta (es. "1.2.3") senza ^, ~ o intervalli.`,
+						file: args.importer || 'src/main.tsx'
+					});
+					return { path: specifier, external: true };
+				}
+
+				importMap[specifier] = buildEsmShUrl(pkg, declaredVersion, subpath);
+				return { path: specifier, external: true };
 			});
 
-			// 3. Caricamento file del prototipo (namespace: 'vfs')
+			// Carica il contenuto dei file dal VFS
 			build.onLoad({ filter: /.*/, namespace: 'vfs' }, (args) => {
-				const content = vfsFiles.get(args.path);
+				const content = vfsMap.get(args.path);
 				if (content === undefined) {
-					return {
-						errors: [{ text: `Contenuto non disponibile nel VFS per '${args.path}'` }]
-					};
+					return { errors: [{ text: `Contenuto mancante per ${args.path}` }] };
 				}
 
-				const ext = args.path.split('.').pop()?.toLowerCase() ?? '';
-
-				let loader: esbuild.Loader = 'text';
-				if (ext === 'tsx') loader = 'tsx';
-				else if (ext === 'ts') loader = 'ts';
-				else if (ext === 'jsx') loader = 'jsx';
-				else if (ext === 'js') loader = 'js';
-				else if (ext === 'css') loader = 'css';
-				else if (ext === 'json') loader = 'json';
-				else if (
-					ext === 'svg' ||
-					ext === 'png' ||
-					ext === 'jpg' ||
-					ext === 'jpeg' ||
-					ext === 'gif' ||
-					ext === 'webp' ||
-					ext === 'avif' ||
-					ext === 'ico'
-				) {
-					loader = 'dataurl';
+				if (args.path.endsWith('.css')) {
+					const stripped = stripTailwindImports(content);
+					if (stripped && !cssParts.includes(stripped)) {
+						cssParts.push(stripped);
+					}
+					return { contents: '', loader: 'js' };
 				}
 
-				return {
-					contents: content,
-					loader
-				};
+				if (args.path.endsWith('.json')) {
+					return { contents: content, loader: 'json' };
+				}
+
+				if (args.path.endsWith('.tsx')) {
+					return { contents: content, loader: 'tsx' };
+				}
+
+				if (args.path.endsWith('.ts')) {
+					return { contents: content, loader: 'ts' };
+				}
+
+				if (args.path.endsWith('.jsx')) {
+					return { contents: content, loader: 'jsx' };
+				}
+
+				if (args.path.endsWith('.js')) {
+					return { contents: content, loader: 'js' };
+				}
+
+				if (args.path.endsWith('.svg')) {
+					const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(content)}`;
+					return { contents: `export default ${JSON.stringify(dataUrl)};`, loader: 'js' };
+				}
+
+				return { contents: content, loader: 'text' };
 			});
 		}
 	};
-}
-
-/**
- * Converte il dizionario dei file in ingresso in una Map normalizzata con chiavi '/...'.
- */
-function normalizeFilesMap(
-	input: Readonly<Record<string, string>> | ReadonlyMap<string, string>
-): Map<string, string> {
-	const map = new Map<string, string>();
-	if (input instanceof Map) {
-		for (const [path, content] of input.entries()) {
-			map.set(normalizeVfsPath(path), content);
-		}
-	} else {
-		for (const [path, content] of Object.entries(input)) {
-			map.set(normalizeVfsPath(path), content);
-		}
-	}
-	return map;
-}
-
-let esbuildInitialized = false;
-
-/**
- * Assicura l'inizializzazione di esbuild-wasm se richiesto (es. ambiente browser).
- */
-export async function ensureEsbuildInitialized(wasmUrl?: string): Promise<void> {
-	if (esbuildInitialized) return;
-
-	// In ambiente Node esbuild si inizializza da solo all'import;
-	// in ambiente browser richiede initialize() con wasmURL o wasmModule
-	const isNode = typeof process !== 'undefined' && Boolean(process.versions?.node);
-	if (!isNode && typeof window !== 'undefined') {
-		await esbuild.initialize({
-			wasmURL: wasmUrl ?? '/lab/esbuild.wasm'
-		});
-	}
-	esbuildInitialized = true;
-}
-
-/**
- * Compila il prototipo React con esbuild-wasm e resolver a VFS chiuso.
- */
-export async function compileLabPrototype(
-	request: LabCompileRequest
-): Promise<LabCompileResult> {
-	const started = performance.now();
-	await ensureEsbuildInitialized();
-	// Validazione preventiva delle dipendenze dichiarate se fornite
-	if (request.declaredDependencies) {
-		const validation = validatePrototypeDependencies(request.declaredDependencies);
-		if (!validation.ok) {
-			return {
-				ok: false,
-				errors: validation.errors,
-				elapsedMs: Math.round(performance.now() - started)
-			};
-		}
-	}
-
-	const vfsMap = normalizeFilesMap(request.files);
-	const entryPoint = normalizeVfsPath(request.entryPoint ?? '/src/main.tsx');
-
-	const plugin = createClosedVfsPlugin(vfsMap);
 
 	try {
+		await ensureEsbuildInitialized();
 		const result = await esbuild.build({
-			entryPoints: [entryPoint],
+			entryPoints: [entryPath],
 			bundle: true,
+			format: 'esm',
+			jsx: 'automatic',
+			target: 'es2022',
 			write: false,
-			outdir: '/out',
-			format: 'iife',
-			platform: 'browser',
-			jsx: 'transform',
-			minify: request.minify ?? false,
-			sourcemap: request.sourceMap ? 'inline' : false,
-			plugins: [plugin],
-			logLevel: 'silent',
-			define: {
-				'process.env.NODE_ENV': '"production"'
-			}
+			plugins: [vfsPlugin]
 		});
 
-		const jsFile = result.outputFiles.find((f) => f.path.endsWith('.js'));
-		const cssFile = result.outputFiles.find((f) => f.path.endsWith('.css'));
+		if (result.errors.length > 0) {
+			for (const err of result.errors) {
+				errors.push({
+					kind: 'compile',
+					message: err.text,
+					file: err.location?.file ?? null,
+					line: err.location?.line ?? null,
+					column: err.location?.column ?? null
+				});
+			}
+		}
 
-		const js = jsFile?.text ?? '';
-		const css = cssFile?.text ?? '';
+		if (errors.length > 0) {
+			return {
+				ok: false,
+				errors,
+				compiledJs: '',
+				compiledCss: cssParts.join('\n\n'),
+				importMap
+			};
+		}
 
-		const warnings = result.warnings.map((w) => w.text);
-
+		const compiledJs = result.outputFiles?.[0]?.text ?? '';
 		return {
 			ok: true,
-			js,
-			css,
-			warnings: warnings.length > 0 ? warnings : undefined,
-			elapsedMs: Math.round(performance.now() - started),
-			outputBytes: js.length + css.length
+			errors: [],
+			compiledJs,
+			compiledCss: cssParts.join('\n\n'),
+			importMap
 		};
-	} catch (error) {
-		const err = error as esbuild.BuildFailure;
-		const errors = err.errors?.length
-			? err.errors.map((e) => e.text)
-			: [String(error)];
-
+	} catch (err: unknown) {
+		const message = err instanceof Error ? err.message : String(err);
+		errors.push({
+			kind: 'compile',
+			message
+		});
 		return {
 			ok: false,
 			errors,
-			elapsedMs: Math.round(performance.now() - started)
+			compiledJs: '',
+			compiledCss: cssParts.join('\n\n'),
+			importMap
 		};
 	}
-}
-
-interface NodeWorkerInstance {
-	on(event: 'message', cb: (msg: unknown) => void): void;
-	on(event: 'error', cb: (err: Error) => void): void;
-	terminate(): Promise<number>;
-}
-
-interface NodeWorkerConstructor {
-	new (
-		scriptOrPath: string,
-		options: { eval?: boolean; workerData?: unknown }
-	): NodeWorkerInstance;
 }
 
 /**
- * Esegue la compilazione all'interno di un worker isolato (worker thread in Node
- * o Web Worker nel browser) per garantire la responsivita' del thread UI di Studio.
+ * Esegue la compilazione nel Web Worker dedicato per non bloccare il thread UI.
+ * Se l'ambiente non supporta Worker, ripiega sulla compilazione diretta.
  */
 export async function compileLabPrototypeInWorker(
-	request: LabCompileRequest,
+	files: LabFile[],
 	options?: { timeoutMs?: number }
 ): Promise<LabCompileResult> {
-	const timeout = options?.timeoutMs ?? 20000;
-
-	// Ispezione sicura per Node.js compatibile sia con browser che server
-	const g = typeof globalThis !== 'undefined' ? (globalThis as Record<string, unknown>) : {};
-	const proc = g['process'] as { versions?: { node?: unknown } } | undefined;
-	const isNodeRuntime = typeof proc?.versions?.node === 'string';
-
-	// In ambiente Node.js / test usiamo node:worker_threads
-	if (isNodeRuntime) {
-		const workerModuleName = 'node:worker_threads';
-		const workerModule = (await import(/* @vite-ignore */ workerModuleName)) as {
-			Worker: NodeWorkerConstructor;
-		};
-		const WorkerConstructor = workerModule.Worker;
-		const { promise, resolve } = Promise.withResolvers<LabCompileResult>();
-
-		let settled = false;
-
-		const workerCode = `
-			const { parentPort, workerData } = require('node:worker_threads');
-			const { compileLabPrototype } = require('./src/lib/lab/compiler.ts');
-
-			(async () => {
-				try {
-					const result = await compileLabPrototype(workerData);
-					parentPort.postMessage({ ok: true, result });
-				} catch (err) {
-					parentPort.postMessage({ ok: false, error: String(err) });
-				}
-			})();
-		`;
-
-		const plainFiles: Record<string, string> = {};
-		if (request.files instanceof Map) {
-			for (const [k, v] of request.files.entries()) {
-				plainFiles[k] = v;
-			}
-		} else {
-			Object.assign(plainFiles, request.files);
-		}
-
-		const worker = new WorkerConstructor(workerCode, {
-			eval: true,
-			workerData: {
-				...request,
-				files: plainFiles
-			}
-		});
-
-		const timer = setTimeout(() => {
-			if (!settled) {
-				settled = true;
-				worker.terminate().catch(() => {});
-				resolve({
-					ok: false,
-					errors: [`Compilazione nel worker interrotta per timeout (${timeout} ms)`],
-					elapsedMs: timeout
-				});
-			}
-		}, timeout);
-
-		worker.on('message', (rawMsg: unknown) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			worker.terminate().catch(() => {});
-			const msg = rawMsg as { ok: boolean; result?: LabCompileResult; error?: string };
-			if (msg.ok && msg.result) {
-				resolve(msg.result);
-			} else {
-				resolve({
-					ok: false,
-					errors: [msg.error ?? 'Errore sconosciuto nel worker'],
-					elapsedMs: 0
-				});
-			}
-		});
-
-		worker.on('error', (err: Error) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			worker.terminate().catch(() => {});
-			resolve({
-				ok: false,
-				errors: [`Guasto nel worker di compilazione: ${err.message}`],
-				elapsedMs: 0
-			});
-		});
-
-		return promise;
+	if (typeof Worker === 'undefined') {
+		return compileLabPrototype(files);
 	}
 
-	// In ambiente Webview/browser
-	if (typeof Worker !== 'undefined') {
-		const { promise, resolve } = Promise.withResolvers<LabCompileResult>();
-		let settled = false;
+	const timeoutMs = options?.timeoutMs ?? 15_000;
 
-		const worker = new Worker(new URL('./compiler-worker.ts', import.meta.url), {
+	const { promise, resolve } = Promise.withResolvers<LabCompileResult>();
+	let finished = false;
+	let worker: Worker | null = null;
+	let timer: number | null = null;
+
+	const cleanup = () => {
+		if (timer !== null) {
+			clearTimeout(timer);
+			timer = null;
+		}
+		if (worker) {
+			worker.terminate();
+			worker = null;
+		}
+	};
+
+	try {
+		worker = new Worker(new URL('./compiler-worker.ts', import.meta.url), {
 			type: 'module'
 		});
 
-		const timer = setTimeout(() => {
-			if (!settled) {
-				settled = true;
-				worker.terminate();
-				resolve({
-					ok: false,
-					errors: [`Compilazione nel Web Worker interrotta per timeout (${timeout} ms)`],
-					elapsedMs: timeout
-				});
-			}
-		}, timeout);
-
-		worker.onmessage = (e: MessageEvent<LabCompileResult>) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			worker.terminate();
-			resolve(e.data);
-		};
-
-		worker.onerror = (e) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			worker.terminate();
+		timer = window.setTimeout(() => {
+			if (finished) return;
+			finished = true;
+			cleanup();
 			resolve({
 				ok: false,
-				errors: [`Errore nel Web Worker: ${e.message}`],
-				elapsedMs: 0
+				errors: [
+					{
+						kind: 'compile',
+						message: `Compilazione scaduta dopo ${timeoutMs}ms.`
+					}
+				],
+				compiledJs: '',
+				compiledCss: '',
+				importMap: { ...LOCAL_VENDOR_SPECIFIERS }
+			});
+		}, timeoutMs);
+
+		worker.onmessage = (event: MessageEvent<LabCompileResult>) => {
+			if (finished) return;
+			finished = true;
+			cleanup();
+			resolve(event.data);
+		};
+
+		worker.onerror = (err) => {
+			if (finished) return;
+			finished = true;
+			cleanup();
+			resolve({
+				ok: false,
+				errors: [
+					{
+						kind: 'compile',
+						message: err.message || 'Errore nel Web Worker di compilazione.'
+					}
+				],
+				compiledJs: '',
+				compiledCss: '',
+				importMap: { ...LOCAL_VENDOR_SPECIFIERS }
 			});
 		};
 
-		worker.postMessage(request);
-		return promise;
+		worker.postMessage(files);
+	} catch {
+		cleanup();
+		return compileLabPrototype(files);
 	}
 
-	// Fallback se nessun worker e' disponibile
-	return compileLabPrototype(request);
+	return promise;
 }

@@ -38,6 +38,10 @@ export interface AgentLane {
 	openFiles: string[];
 	activeFile: string | null;
 	surface: AgentSurface;
+	/** Tipo di corsia: 'git' (default worktree) oppure 'lab' (prototipo Laboratorio). */
+	kind: 'git' | 'lab';
+	/** ID del prototipo per corsie Lab (formato p-YYYYMMDD-xxxxxx). */
+	labPrototypeId?: string | null;
 }
 
 export type ProjectStack = 'aspnet' | 'dotnet' | 'vite' | 'svelte' | 'node' | 'static';
@@ -123,13 +127,21 @@ export function workspacePathFromCanonical(path: CanonicalProjectPath): Workspac
 export function createMainLane(
 	ownerProjectId: ProjectId,
 	canonicalPath: CanonicalProjectPath | null,
-	surface: AgentSurface
+	surface: AgentSurface,
+	options?: {
+		kind?: 'git' | 'lab';
+		labPrototypeId?: string | null;
+		workspacePath?: WorkspacePath | null;
+		title?: string;
+	}
 ): AgentLane {
 	return {
 		projectId: ownerProjectId,
 		laneId: MAIN_LANE_ID,
-		title: 'Principale',
-		workspacePath: canonicalPath ? workspacePathFromCanonical(canonicalPath) : null,
+		title: options?.title ?? 'Principale',
+		workspacePath:
+			options?.workspacePath ??
+			(canonicalPath ? workspacePathFromCanonical(canonicalPath) : null),
 		branch: null,
 		baseCommit: null,
 		targetBranch: null,
@@ -139,6 +151,8 @@ export function createMainLane(
 		agentState: 'unknown',
 		openFiles: [],
 		activeFile: null,
-		surface
+		surface,
+		kind: options?.kind ?? 'git',
+		labPrototypeId: options?.labPrototypeId ?? null
 	};
 }

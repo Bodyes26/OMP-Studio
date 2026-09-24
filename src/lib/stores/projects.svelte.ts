@@ -11,8 +11,11 @@ import {
 	type AgentState,
 	type AgentSurface,
 	type CanonicalProjectPath,
-	type ProjectId
+	type ProjectId,
+	workspacePath
 } from '$lib/types/lanes';
+import { labApi } from '$lib/lab/api';
+import type { LabIndexEntry } from '$lib/lab/types';
 
 import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/utils/paths';
 import {
@@ -51,6 +54,8 @@ export interface Project {
 	taskDefaults: Partial<TaskDefaults> | null;
 	/** Origini remote autorizzate per Browser Studio (S43). Persistite per progetto. */
 	browserAllowedOrigins?: string[];
+	/** Configurazione bozza libera del Laboratorio (contratto §7). */
+	labDraft?: { prototypeId: string } | null;
 }
 
 interface StoredProject {
@@ -67,6 +72,7 @@ interface StoredProject {
 	autoDispatch?: boolean;
 	taskDefaults?: Partial<TaskDefaults> | null;
 	browserAllowedOrigins?: string[];
+	labDraft?: { prototypeId: string } | null;
 }
 
 export const PRESET_HUES = [355, 25, 60, 135, 175, 220, 265, 305];
@@ -149,6 +155,49 @@ class ProjectStore {
 			const seen = new Set<string>();
 			this.projects = [];
 			for (const p of storedProjects) {
+				if (p.labDraft?.prototypeId) {
+					const prototypeId = p.labDraft.prototypeId;
+					let validEntry: LabIndexEntry | null = null;
+					try {
+						const drafts = await labApi.listIndex(null);
+						const found = drafts.find((d) => d.id === prototypeId);
+						if (found && found.workspacePath) {
+							const exists = await labApi.workspaceExists(found.workspacePath);
+							if (exists) validEntry = found;
+						}
+					} catch {
+						validEntry = null;
+					}
+					if (!validEntry) continue;
+					const id = projectId(p.id || `draft-${prototypeId}`);
+					const project: Project = {
+						id,
+						name: validEntry.title || p.name || 'Bozza Lab',
+						label: null,
+						canonicalProjectPath: null,
+						hue: typeof p.hue === 'number' ? p.hue : 0,
+						colorMode: 'auto',
+						lane: createMainLane(id, null, 'gui', {
+							kind: 'lab',
+							labPrototypeId: prototypeId,
+							workspacePath: workspacePath(validEntry.workspacePath),
+							title: validEntry.title || p.name || 'Bozza Lab'
+						}),
+						layout: {
+							left: typeof p.layout?.left === 'number' ? p.layout.left : 260,
+							center: typeof p.layout?.center === 'number' ? p.layout.center : 0.5,
+							leftSection: 'files',
+							editorOpen: false
+						},
+						lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : 0,
+						autoDispatch: false,
+						taskDefaults: null,
+						labDraft: { prototypeId }
+					};
+					this.projects.push(project);
+					continue;
+				}
+
 				const rawPath =
 					typeof p.canonicalProjectPath === 'string' ? p.canonicalProjectPath : p.path;
 				const normalizedPath = normalizeProjectPath(rawPath ?? '');
@@ -240,7 +289,7 @@ class ProjectStore {
 			}
 		}
 		const toSave = this.projects
-			.filter((p) => p.canonicalProjectPath !== null)
+			.filter((p) => p.canonicalProjectPath !== null || p.labDraft != null)
 			.map((p) => ({
 				id: p.id,
 				name: p.name,
@@ -253,7 +302,8 @@ class ProjectStore {
 				lastOpened: p.lastOpened,
 				autoDispatch: p.autoDispatch,
 				taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
-				browserAllowedOrigins: p.browserAllowedOrigins
+				browserAllowedOrigins: p.browserAllowedOrigins,
+				labDraft: p.labDraft ?? undefined
 			}));
 		const metaToSave = pruneProjectMetadata(Array.from(this.metadata.values()));
 		await this.store.set('projects', toSave);
@@ -382,6 +432,46 @@ class ProjectStore {
 		return id;
 	}
 
+	openDraft(entry: LabIndexEntry): ProjectId {
+		const existing = this.projects.find((p) => p.labDraft?.prototypeId === entry.id);
+		if (existing) {
+			this.activeId = existing.id;
+			return existing.id;
+		}
+		const id = projectId(`draft-${entry.id}`);
+		const draftProj: Project = {
+			id,
+			name: entry.title,
+			label: null,
+			canonicalProjectPath: null,
+			hue: 0,
+			colorMode: 'auto',
+			lane: createMainLane(id, null, 'gui', {
+				kind: 'lab',
+				labPrototypeId: entry.id,
+				workspacePath: workspacePath(entry.workspacePath),
+				title: entry.title
+			}),
+			layout: {
+				left: 260,
+				center: 0.5,
+				leftSection: 'files',
+				editorOpen: false
+			},
+			lastOpened: Date.now(),
+			autoDispatch: false,
+			taskDefaults: null,
+			labDraft: { prototypeId: entry.id }
+		};
+		if (settingsStore.projectBar.order === 'mru') {
+			this.projects.unshift(draftProj);
+		} else {
+			this.projects.push(draftProj);
+		}
+		this.activeId = id;
+		this.save();
+		return id;
+	}
 	/**
 	 * Chiudere una scheda deve chiudere anche il processo omp che le sta
 	 * dietro: lo store non conosce le sessioni, quindi lo annuncia e chi le
@@ -391,6 +481,11 @@ class ProjectStore {
 		const idx = this.projects.findIndex(p => p.id === id);
 		if (idx === -1) return;
 		const p = this.projects[idx];
+		if (p.labDraft?.prototypeId) {
+			void labApi.updateIndex(null, p.labDraft.prototypeId, { status: 'closed' }).catch((err) => {
+				console.warn('Aggiornamento stato bozza chiusa fallito:', err);
+			});
+		}
 		if (p.canonicalProjectPath) {
 			this.syncProjectMetadata(p);
 		}
@@ -568,8 +663,18 @@ class ProjectStore {
 			openFiles: [...target.openFiles],
 			activeFile: target.activeFile,
 			surface: target.surface,
-			ptyId: target.ptyId
+			ptyId: target.ptyId,
+			kind: target.kind,
+			labPrototypeId: target.labPrototypeId
 		};
+	}
+
+	updateProjectTitle(id: string, title: string) {
+		const p = this.projects.find((candidate) => candidate.id === id);
+		if (!p) return;
+		p.name = title;
+		p.lane.title = title;
+		this.save();
 	}
 
 	setAgentState(id: string, state: AgentState) {

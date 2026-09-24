@@ -444,10 +444,13 @@ export class LaneLandingService {
 			.lanesFor(project.id as ProjectId)
 			.find((candidate) => candidate.laneId === laneId);
 
-		if (!lane || !lane.workspacePath) {
+		if (!lane || !lane.workspacePath || lane.kind === 'lab') {
 			const errPayload: WorktreeErrorPayload = {
-				code: 'lane_not_found',
-				message: 'Corsia non trovata o priva di percorso worktree.'
+				code: 'lane_not_supported',
+				message:
+					lane?.kind === 'lab'
+						? 'Le corsie Lab non supportano il landing Git.'
+						: 'Corsia non trovata o priva di percorso worktree.'
 			};
 			return {
 				kind: 'error',

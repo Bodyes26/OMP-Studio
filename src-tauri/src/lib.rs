@@ -82,6 +82,14 @@ use browser_live::{
     browser_live_connect, browser_live_disconnect, browser_live_pick_upload_files,
     browser_live_send_message, BrowserLiveManager,
 };
+pub mod lab;
+use lab::{
+    lab_export, lab_git_commit, lab_git_files_at, lab_git_log, lab_git_restore, lab_index_list,
+    lab_index_remove, lab_index_update, lab_meta_read, lab_paths, lab_preview_publish,
+    lab_preview_publish_shared, lab_preview_status_write, lab_preview_unpublish,
+    lab_prototype_associate, lab_prototype_create, lab_prototype_duplicate, lab_watch_start,
+    lab_watch_stop, lab_workspace_exists, lab_workspace_snapshot,
+};
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -257,6 +265,27 @@ pub fn run() {
             git_upstream_status,
             git_sync_repo,
             github_get_actions_status,
+            lab_paths,
+            lab_prototype_create,
+            lab_index_list,
+            lab_index_update,
+            lab_index_remove,
+            lab_prototype_associate,
+            lab_prototype_duplicate,
+            lab_git_commit,
+            lab_git_log,
+            lab_git_files_at,
+            lab_git_restore,
+            lab_workspace_snapshot,
+            lab_workspace_exists,
+            lab_meta_read,
+            lab_preview_status_write,
+            lab_watch_start,
+            lab_watch_stop,
+            lab_export,
+            lab_preview_publish_shared,
+            lab_preview_publish,
+            lab_preview_unpublish,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
@@ -296,6 +325,9 @@ pub fn run() {
             // stato riciclato: Studio ci ripassa una volta, fuori dal thread
             // dell'interfaccia (vedi omp_ops::sweep_stale_logs).
             std::thread::spawn(sweep_stale_logs);
+            if let Ok(dir) = app.path().app_local_data_dir() {
+                lab::paths::init(dir);
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

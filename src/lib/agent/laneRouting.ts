@@ -10,6 +10,8 @@
 //    chiuso e non sostituisce la superficie attiva.
 // 4. Ripiego su legacy single-lane solo quando la corsia e' univoca nel sistema.
 
+import { isWindows } from '$lib/utils/paths';
+
 export interface LaneEventTarget {
 	projectId?: string | null;
 	laneId?: string | null;
@@ -61,7 +63,7 @@ export function normalizeRoutingPath(rawPath: string | null | undefined): string
 		normalized = normalized.slice(0, -1);
 	}
 	// Su Windows i percorsi sono case-insensitive
-	if (/^[A-Za-z]:\//.test(normalized) || process.platform === 'win32') {
+	if (/^[A-Za-z]:\//.test(normalized) || isWindows) {
 		normalized = normalized.toLowerCase();
 	}
 	return normalized;

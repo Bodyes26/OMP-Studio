@@ -406,6 +406,25 @@ $effect(() => {
 		}
 
 		window.addEventListener('composer-insert-context', handleInsertContext);
+		const unregisterSessionInsert = session.registerComposerInsertHandler((insertText: string) => {
+			const trimmed = insertText.trim();
+			if (!trimmed) return;
+			if (text.trim()) {
+				text = `${text.trim()}\n\n${trimmed}`;
+			} else {
+				text = trimmed;
+			}
+			paletteOpen = false;
+			adjustTextareaHeight();
+			void tick().then(() => {
+				if (textareaEl) {
+					adjustTextareaHeight();
+					textareaEl.focus();
+					const len = textareaEl.value.length;
+					textareaEl.setSelectionRange(len, len);
+				}
+			});
+		});
 
 		return () => {
 			document.removeEventListener('selectionchange', handleSelectionChange);
@@ -413,6 +432,7 @@ $effect(() => {
 			window.removeEventListener('blur', handleWindowBlur);
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			window.removeEventListener('composer-insert-context', handleInsertContext);
+			unregisterSessionInsert();
 			if (blinkTimer !== null) {
 				window.clearTimeout(blinkTimer);
 				blinkTimer = null;

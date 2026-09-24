@@ -42,8 +42,14 @@
 		IconStatusPending,
 		IconStatusRunning,
 		IconTerminal,
-		IconWarning
+		IconWarning,
+		IconLab
 	} from '$lib/icons';
+	import { labApi } from '$lib/lab/api';
+	import type { LabIndexEntry } from '$lib/lab/types';
+	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
+	import { openLabEntry, associateDraftToProject } from '$lib/lanes/laneActions';
+	import { reviewProjectProfile } from '$lib/lanes/laneProfile';
 	import { invoke } from '@tauri-apps/api/core';
 	import { gitDiffStore, hasGitChanges } from '$lib/stores/gitDiff.svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -86,7 +92,7 @@
 		onOpenFile
 	}: Props = $props();
 
-	type View = 'default' | 'rename' | 'close' | 'close-others';
+	type View = 'default' | 'rename' | 'close' | 'close-others' | 'associate' | 'prototypes';
 
 	const AGENT_STATE_LABEL = $derived.by((): Record<Project['lane']['agentState'], string> => ({
 		working: m.topbar_agent_state_working(),
@@ -117,6 +123,56 @@
 	const gitDiff = $derived(
 		project.lane.workspacePath ? gitDiffStore.forPath(project.lane.workspacePath) : null
 	);
+	const isDraft = $derived(Boolean(project.labDraft));
+	const isGitRepo = $derived(
+		Boolean(project.canonicalProjectPath && !project.labDraft) &&
+		gitDiffStore.forPath(project.lane.workspacePath ?? project.canonicalProjectPath ?? '').isRepo !== false
+	);
+	const realProjects = $derived(
+		projectStore.projects.filter((p) => p.canonicalProjectPath !== null && !p.labDraft)
+	);
+
+	let projectPrototypes = $state<LabIndexEntry[]>([]);
+	$effect(() => {
+		if (settingsStore.general.labAlphaEnabled && project.canonicalProjectPath && !project.labDraft) {
+			void labApi.listIndex(project.canonicalProjectPath).then((list) => {
+				projectPrototypes = list;
+			}).catch(() => {
+				projectPrototypes = [];
+			});
+		} else {
+			projectPrototypes = [];
+		}
+	});
+
+	async function handleCreateWorktreeLane() {
+		try {
+			const review = await reviewProjectProfile(project);
+			if (review?.needsConsent) {
+				// Se servisse consenso avanzato, laneOrchestrator gestira'
+			}
+		} catch (err) {
+			console.error('Analisi profilo fallita:', err);
+		}
+		await laneOrchestrator.createNewLane(project);
+		onClose();
+	}
+
+	async function handleCreateLabPrototype() {
+		if (!project.canonicalProjectPath) return;
+		try {
+			const entry = await labApi.createPrototype(project.canonicalProjectPath);
+			await openLabEntry(project.id, entry);
+			onClose();
+		} catch (err) {
+			console.error('Creazione prototipo Lab fallita:', err);
+		}
+	}
+
+	async function handleAssociate(targetPath: string) {
+		await associateDraftToProject(project, targetPath);
+		onClose();
+	}
 
 	async function handleQuickReplySelect(value: string) {
 		await companionStore.respondUi(project.id, { action: 'select', value });
@@ -369,7 +425,9 @@
 				title={project.label ? `Sigla: ${project.label}` : `Progetto: ${project.name}`}
 				aria-hidden="true"
 			>
-				{#if isScratchpad}
+				{#if project.labDraft}
+					<IconLab />
+				{:else if isScratchpad}
 					<IconGhost />
 				{:else}
 					{project.label ?? initials(project.name)}
@@ -378,7 +436,7 @@
 			<span class="titles">
 				<span class="name" title={project.name}>{project.name}</span>
 				<span class="path-row">
-					<span class="path" title={project.canonicalProjectPath ?? ''}>{isScratchpad ? m.project_popover_badge_scratchpad() : truncateMiddle(project.canonicalProjectPath ?? '')}</span>
+					<span class="path" title={project.canonicalProjectPath ?? ''}>{project.labDraft ? m.lab_lane_draft_badge() : isScratchpad ? m.project_popover_badge_scratchpad() : truncateMiddle(project.canonicalProjectPath ?? '')}</span>
 					{#if gitDiff && hasGitChanges(gitDiff)}
 						<GitDiffBadge additions={gitDiff.additions} deletions={gitDiff.deletions} />
 					{/if}
@@ -484,6 +542,39 @@
 				<span class="row-label indent">{m.project_popover_btn_cancel()}</span>
 			</button>
 		</div>
+	{:else if view === 'associate'}
+		<div class="confirm">
+			<p>{m.lab_lane_associate_project()}</p>
+			{#each realProjects as target (target.id)}
+				<button type="button" class="row" onclick={() => void handleAssociate(target.canonicalProjectPath!)}>
+					<IconFolderOpen /> <span class="row-label">{target.name}</span>
+				</button>
+			{/each}
+			<button type="button" class="row" onclick={() => (view = 'default')}>
+				<span class="row-label indent">{m.project_popover_btn_cancel()}</span>
+			</button>
+		</div>
+	{:else if view === 'prototypes'}
+		<div class="confirm">
+			<p>{m.lab_lane_prototypes_count({ count: projectPrototypes.length })}</p>
+			{#each projectPrototypes as proto (proto.id)}
+				<button
+					type="button"
+					class="row"
+					onclick={async () => {
+						await openLabEntry(project.id, proto);
+						onClose();
+					}}
+				>
+					<IconLab />
+					<span class="row-label">{proto.title}</span>
+					<span class="row-state">{proto.status === 'active' ? m.lab_lane_status_active() : m.lab_lane_status_closed()}</span>
+				</button>
+			{/each}
+			<button type="button" class="row" onclick={() => (view = 'default')}>
+				<span class="row-label indent">{m.project_popover_btn_cancel()}</span>
+			</button>
+		</div>
 	{:else if view === 'default'}
 		{#if settingsStore.projectBar.showQueuePeek && !isScratchpad && queueTasks.length > 0}
 			<section class="block">
@@ -552,6 +643,44 @@
 				</button>
 			{/if}
 		</section>
+
+		{#if project.labDraft}
+			<section class="block">
+				<button type="button" class="row" onclick={() => (view = 'associate')}>
+					<IconFolderOpen /> <span class="row-label">{m.lab_lane_associate_project()}</span>
+				</button>
+			</section>
+		{:else if !isScratchpad}
+			<section class="block">
+				<button
+					type="button"
+					class="row"
+					disabled={!isGitRepo}
+					title={!isGitRepo ? m.lab_lane_new_worktree_disabled_no_git() : undefined}
+					onclick={() => void handleCreateWorktreeLane()}
+				>
+					<IconPlus /> <span class="row-label">{m.lab_lane_new_worktree()}</span>
+				</button>
+				{#if settingsStore.general.labAlphaEnabled}
+					<button
+						type="button"
+						class="row"
+						onclick={() => void handleCreateLabPrototype()}
+					>
+						<IconLab /> <span class="row-label">{m.lab_lane_new_prototype()}</span>
+					</button>
+					{#if projectPrototypes.length > 0}
+						<button
+							type="button"
+							class="row"
+							onclick={() => (view = 'prototypes')}
+						>
+							<IconLab /> <span class="row-label">{m.lab_lane_prototypes_count({ count: projectPrototypes.length })}</span>
+						</button>
+					{/if}
+				{/if}
+			</section>
+		{/if}
 
 		{#if !isScratchpad}
 			<section class="block">

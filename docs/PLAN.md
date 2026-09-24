@@ -571,12 +571,12 @@ decisione non e' stata applicata invece di darla per fatta.
 
 ---
 
-## Piano Laboratorio Prototipi Frontend — Gate R24
+## Piano Laboratorio Prototipi Frontend — Gate R24 / Gate R30
 
-Spazio GUI dedicato dentro OMP Studio per ideare, confrontare 3-5 alternative e iterare
-flussi frontend completi in React 19 + Tailwind v4 con dati simulati, in modo isolato e
-concorrente rispetto alla sessione principale.
-
+Rifondato con il **Gate R30** (2026-09-24) come **corsia specializzata di progetto** (`kind: 'lab'`)
+con anteprima via server loopback isolato (`127.0.0.1:0`), Git interno per le revisioni, indice locale
+non versionato (`.omp/lab/prototypes.json`), supporto per bozze libere (scratchpad) e confinamento
+rigido dell'agente tramite hook `tool_call`. Sostituisce l'architettura a vista separata del Gate R24.
 - [x] **Step 1 — Contratti tipizzati** (`src/lib/lab/contracts.ts`)
   Identità dei prototipi, collocazione progetto vs bozza, manifest, contratti delle revisioni
   con stati tipizzati (`rendering-ready`, `verified`, `interrupted`), eventi del renderer,

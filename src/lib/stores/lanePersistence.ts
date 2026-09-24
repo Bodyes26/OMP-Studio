@@ -25,7 +25,11 @@ export const LANE_STORE_SCHEMA_VERSION = 1 as const;
  * resta viva e riprovabile: archiviarla sarebbe una bugia sullo stato reale.
  */
 export type LaneRecoveryState = 'registered' | 'recovered' | 'cleanup_pending';
-export type LaneArchiveReason = 'worktree_missing' | 'integrated' | 'rejected';
+export type LaneArchiveReason =
+	| 'worktree_missing'
+	| 'integrated'
+	| 'rejected'
+	| 'workspace_missing';
 
 export interface LaneRecord extends AgentLane {
 	sessionId: string | null;
@@ -56,6 +60,8 @@ interface StoredLaneV1 {
 	archiveReason: LaneArchiveReason | null;
 	archivedAt: number | null;
 	recoveredAt: number | null;
+	kind?: 'git' | 'lab';
+	labPrototypeId?: string | null;
 }
 
 interface StoredProfileV1 {
@@ -123,7 +129,8 @@ const RECOVERY_STATES: Record<LaneRecoveryState, true> = {
 const ARCHIVE_REASONS: Record<LaneArchiveReason, true> = {
 	worktree_missing: true,
 	integrated: true,
-	rejected: true
+	rejected: true,
+	workspace_missing: true
 };
 const PROJECT_STACKS: Record<ProjectStack, true> = {
 	aspnet: true,
@@ -204,7 +211,8 @@ function parseStoredLane(value: unknown): LaneRecord | null {
 				? 'main'
 				: 'manual'
 			: source.origin;
-
+	const kind: 'git' | 'lab' = source.kind === 'lab' ? 'lab' : 'git';
+	const labPrototypeId = nullableString(source.labPrototypeId) ?? null;
 	if (
 		!rawProjectId ||
 		!rawLaneId ||
@@ -257,7 +265,9 @@ function parseStoredLane(value: unknown): LaneRecord | null {
 			recoveryState: recoveryState as LaneRecoveryState,
 			archiveReason: archiveReason as LaneArchiveReason | null,
 			archivedAt,
-			recoveredAt
+			recoveredAt,
+			kind,
+			labPrototypeId
 		};
 	} catch {
 		return null;
@@ -405,7 +415,9 @@ export function serializeLaneStoreDocument(
 			recoveryState: lane.recoveryState,
 			archiveReason: lane.archiveReason,
 			archivedAt: lane.archivedAt,
-			recoveredAt: lane.recoveredAt
+			recoveredAt: lane.recoveredAt,
+			kind: lane.kind ?? 'git',
+			labPrototypeId: lane.labPrototypeId ?? null
 		})),
 		profiles: profiles.map((profile) => ({
 			projectId: profile.projectId,
@@ -444,7 +456,9 @@ export function laneRecordFromAgentLane(lane: AgentLane, sessionId: string | nul
 		recoveryState: 'registered',
 		archiveReason: null,
 		archivedAt: null,
-		recoveredAt: null
+		recoveredAt: null,
+		kind: lane.kind ?? 'git',
+		labPrototypeId: lane.labPrototypeId ?? null
 	};
 }
 
@@ -505,6 +519,10 @@ export function reconcileProjectLanes(
 	const matched = new Set<string>();
 	const next = lanes.map((lane) => {
 		if (lane.projectId !== ownerProjectId) return lane;
+		if (lane.kind === 'lab') {
+			// Le corsie Lab non passano da worktree_list (contratto §7)
+			return lane;
+		}
 		if (lane.laneId === MAIN_LANE_ID) {
 			if (!current) return lane;
 			const updated = applyGitMetadata(lane, current);
@@ -559,7 +577,9 @@ export function reconcileProjectLanes(
 			recoveryState: 'recovered',
 			archiveReason: null,
 			archivedAt: null,
-			recoveredAt: now
+			recoveredAt: now,
+			kind: 'git',
+			labPrototypeId: null
 		});
 	}
 

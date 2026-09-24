@@ -11,6 +11,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+H` / `Alt+K` / `F1` | Globale | Apre la guida alle scorciatoie da tastiera con layout a 2 colonne e filtro |
 | `Ctrl+Alt+N` | Globale | Nuovo progetto (apre selettore cartella) |
 | `Ctrl+Alt+S` | Globale | Apre una chat Scratchpad (temporanea, `--no-session`) |
+| `Ctrl+Alt+P` | Globale | Nuovo prototipo libero nel Laboratorio (con flag alpha) |
 | `Ctrl+Alt+U` | Globale | Apre e chiude il pannello consumi (quote) |
 | `Ctrl+Alt+,` | Globale | Apre le impostazioni di Studio (Generale, Barra progetti, Editor & Terminale, Task & Agenti, Modelli) |
 | `Ctrl+Alt+M` | Globale | Apre le impostazioni direttamente sulla sezione Modelli (Ruoli, Catalogo, Provider) |

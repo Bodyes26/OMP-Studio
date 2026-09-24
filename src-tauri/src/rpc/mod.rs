@@ -243,9 +243,8 @@ pub fn write_lab_session_config(
     // Disattivazione interpreti host
     content.push_str("eval:\n  py: false\n  js: false\n  rb: false\n  jl: false\n\n");
 
-    // Disattivazione browser generico
-    content.push_str("browser:\n  enabled: false\n\n");
-
+    // Browser abilitato per l'ispezione dell'anteprima (limitato dall'estensione)
+    content.push_str("browser:\n  enabled: true\n\n");
     // Disattivazione configurazioni MCP di progetto
     content.push_str("mcp:\n  enableProjectConfig: false\n\n");
 
@@ -724,7 +723,7 @@ pub async fn rpc_open(
     command.arg("--config").arg(&overlay_path);
     command
         .arg("--append-system-prompt")
-        .arg(crate::pty::STUDIO_SYSTEM_PROMPT);
+        .arg(crate::pty::main_agent_system_prompt());
     if let Some(path) = &diagram_extension {
         command.arg("-e").arg(path);
     }
@@ -909,20 +908,33 @@ pub async fn rpc_open(
     Ok(rpc_id)
 }
 
-/// Avvia una sessione OMP dedicata al Laboratorio prototipi, distinta da quella principale.
+/// Prompt di sistema per l'agente del Laboratorio prototipi.
+pub const LAB_SYSTEM_PROMPT: &str = "You are the OMP Studio Lab agent. You build an interactive frontend prototype (React 19 + TypeScript + Tailwind CSS v4) inside your working directory, a standalone Vite project owned by the Lab.\n\
+- Write only inside the working directory. The original project at $OMP_LAB_PROJECT_PATH (if set) is read-only reference: study its code and UI to match conventions, terminology and data shapes, never modify it. Shell and interpreters are disabled.\n\
+- The entry point is src/main.tsx, which imports ./index.css (starting with @import \"tailwindcss\"). Keep it a valid Vite project that runs with npm install && npm run dev.\n\
+- react and react-dom are provided. Any other npm package must be added to package.json \"dependencies\" with an exact version; the preview loads it from esm.sh. Prefer few, well-known packages.\n\
+- All data is mocked: no real backends, authentication or credentials.\n\
+- The preview recompiles after every file write. After changing files call lab_preview_status and fix every compile or runtime error before you finish. You may open the preview URL it returns with the browser tool to inspect or screenshot the result.\n\
+- When the purpose of the prototype becomes clear or changes, call lab_set_summary with a short title and a 2-3 line summary of what it does, in the user's language: the main project agent uses it to find this prototype later.\n\
+- Every user request becomes one revision: Studio commits when your turn ends. Never run git.\n\
+- To compare alternatives, build them inside the prototype with a visible variant switcher.\n\
+- Reply in the user's language.";
+
+/// Avvia una sessione OMP confinata per la corsia Laboratorio prototipi.
 ///
 /// Rispetto alla sessione ordinaria:
-/// 1. Riceve identita' esplicita di progetto e prototipo via argomenti ed environment;
-/// 2. Genera una configurazione isolata per-sessione in temp che disattiva shell,
-///    interpreti host, browser generico e MCP, e carica l'estensione confinata dello Step 4;
-/// 3. NON riusa l'overlay `approvalMode: yolo` della sessione principale;
-/// 4. NON modifica la configurazione globale dell'utente in `~/.omp`;
-/// 5. NON tocca ne' altera il percorso PTY del principale.
+/// 1. Il cwd del processo e' il workspace del prototipo;
+/// 2. Configurazione isolata per-sessione con shell/eval/mcp disattivati e browser abilitato;
+/// 3. Prompt di sistema arricchito con `LAB_SYSTEM_PROMPT`;
+/// 4. Registrazione in `process_tree` come processo `Agent` della corsia (senza token bridge);
+/// 5. Nessun `--no-session` o scope legacy: opera come corsia standard.
 #[tauri::command]
 pub async fn rpc_open_lab(
-    project_path: String,
+    workspace_path: String,
+    project_path: Option<String>,
     prototype_id: String,
-    project_key: Option<String>,
+    project_id: Option<String>,
+    lane_id: Option<String>,
     resume: Option<String>,
     on_event: Channel<String>,
     manager: State<'_, RpcManager>,
@@ -931,13 +943,25 @@ pub async fn rpc_open_lab(
         return Err(format!("Id prototipo non valido: {:?}", prototype_id));
     }
 
-    let is_draft = project_path.is_empty();
-    if !is_draft {
-        let p = std::path::Path::new(&project_path);
+    let ws_path = std::path::Path::new(&workspace_path);
+    if !ws_path.is_dir() {
+        return Err(format!(
+            "Directory del workspace inesistente per la sessione Laboratorio: {}",
+            workspace_path
+        ));
+    }
+
+    let clean_project_path = project_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    if !clean_project_path.is_empty() {
+        let p = std::path::Path::new(clean_project_path);
         if !p.is_dir() {
             return Err(format!(
                 "Directory di progetto inesistente per la sessione Laboratorio: {}",
-                project_path
+                clean_project_path
             ));
         }
     }
@@ -955,24 +979,17 @@ pub async fn rpc_open_lab(
     let lab_config_path =
         write_lab_session_config(rpc_id, &prototype_id, lab_extension.as_deref())?;
 
-    let launch_cwd = if is_draft {
-        ".".to_string()
-    } else {
-        project_path.clone()
-    };
-
     let mut command = Command::new(&omp_path);
     command.arg("--mode").arg("rpc-ui");
-    if is_draft {
-        command.arg("--no-session");
-    } else {
-        command.arg("--cwd").arg(&project_path);
-    }
-
+    command.arg("--cwd").arg(&workspace_path);
     command.arg("--config").arg(&lab_config_path);
-    command
-        .arg("--append-system-prompt")
-        .arg(crate::pty::STUDIO_SYSTEM_PROMPT);
+
+    let lab_system_prompt = format!(
+        "{}\n\n{}",
+        crate::pty::STUDIO_SYSTEM_PROMPT,
+        LAB_SYSTEM_PROMPT
+    );
+    command.arg("--append-system-prompt").arg(&lab_system_prompt);
 
     if let Some(path) = &lab_extension {
         command.arg("-e").arg(path);
@@ -985,20 +1002,27 @@ pub async fn rpc_open_lab(
         command.arg("--resume").arg(session_id);
     }
 
-    let effective_key = project_key
-        .filter(|k| !k.is_empty())
-        .unwrap_or_else(|| project_path.clone());
+    let effective_lane_id = lane_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let effective_project_id = project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
 
     command
-        .current_dir(&launch_cwd)
+        .current_dir(&workspace_path)
         .env("OMP_STUDIO", "1")
         .env("OMP_SKIP_SETUP", "1")
-        // Identita di sessione, progetto e prototipo
         .env("OMP_LAB_SESSION", "1")
+        .env("OMP_LAB_WORKSPACE", &workspace_path)
+        .env("OMP_LAB_PROJECT_PATH", clean_project_path)
         .env("OMP_LAB_PROTOTYPE_ID", &prototype_id)
-        .env("OMP_LAB_PROJECT_PATH", &project_path)
-        .env("OMP_LAB_PROJECT_KEY", &effective_key)
-        .env("OMP_LAB_SCOPE", if is_draft { "draft" } else { "project" })
+        .env("OMP_LANE_ID", effective_lane_id)
+        .env("OMP_PROJECT_ID", effective_project_id)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1073,30 +1097,47 @@ pub async fn rpc_open_lab(
     let child = Arc::new(Mutex::new(child));
 
     let session_id_slot = Arc::new(Mutex::new(resume.clone()));
-    manager.sessions.lock().insert(
-        rpc_id,
-        RpcSession {
-            child: child.clone(),
-            stdin: stdin.clone(),
-            stderr_tail: stderr_tail.clone(),
-            protocol: protocol.clone(),
-            abort_signal: abort_signal.clone(),
-            config_path: Some(lab_config_path),
-            pid: Some(pid),
-            #[cfg(target_os = "windows")]
-            job,
-            killed: Arc::new(AtomicBool::new(false)),
-            cwd: project_path.clone(),
-            scope: if is_draft {
-                "draft".to_string()
-            } else {
-                "project".to_string()
-            },
-            prototype_id: Some(prototype_id.clone()),
-            project_key: Some(effective_key.clone()),
-            session_id: session_id_slot.clone(),
+    let session = RpcSession {
+        child: child.clone(),
+        stdin: stdin.clone(),
+        stderr_tail: stderr_tail.clone(),
+        protocol: protocol.clone(),
+        abort_signal: abort_signal.clone(),
+        config_path: Some(lab_config_path),
+        pid: Some(pid),
+        #[cfg(target_os = "windows")]
+        job,
+        killed: Arc::new(AtomicBool::new(false)),
+        cwd: workspace_path.clone(),
+        scope: "lane".to_string(),
+        prototype_id: Some(prototype_id.clone()),
+        project_key: if clean_project_path.is_empty() {
+            None
+        } else {
+            Some(clean_project_path.to_string())
         },
-    );
+        session_id: session_id_slot.clone(),
+    };
+
+    manager.sessions.lock().insert(rpc_id, session.clone());
+
+    if !effective_project_id.is_empty() {
+        crate::process_tree::register_lane_process(
+            crate::process_tree::LaneProcessRegistration {
+                kind: crate::process_tree::LaneProcessKind::Agent,
+                owner_id: rpc_id,
+                project_id: effective_project_id.to_string(),
+                lane_id: effective_lane_id.to_string(),
+                workspace_root: workspace_path.clone(),
+                pid: Some(pid),
+                label: "Agente Lab".to_string(),
+                control: Arc::new(LaneAgentProcess {
+                    rpc_id,
+                    session,
+                }),
+            },
+        );
+    }
 
     let sessions = manager.sessions.clone();
     let reader_tail = stderr_tail.clone();
@@ -1390,7 +1431,7 @@ mod tests {
         // Verifica tool disattivati
         assert!(content.contains("bash:\n  enabled: false"));
         assert!(content.contains("eval:\n  py: false"));
-        assert!(content.contains("browser:\n  enabled: false"));
+        assert!(content.contains("browser:\n  enabled: true"));
         assert!(content.contains("mcp:\n  enableProjectConfig: false"));
         assert!(content.contains("tools:\n  xdev: false"));
 

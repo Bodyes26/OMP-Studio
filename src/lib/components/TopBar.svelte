@@ -40,11 +40,13 @@
 	import { laneStore } from '$lib/stores/lanes.svelte';
 	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
 	import { sessionRegistry } from '$lib/agent/sessionRegistry';
+	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
+	import { labApi } from '$lib/lab/api';
+	import { openLabEntry } from '$lib/lanes/laneActions';
 
 	let {
-		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick, onLabClick,
+		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
 		setupIncomplete = false,
-		labActive = false,
 		onRunTask, onEditTask, onNewTask, canRunTask, runReason,
 		onRequestCloseProject, onOpenFile
 	} = $props<{
@@ -53,8 +55,6 @@
 		onSettingsClick?: (section?: SettingsSection) => void;
 		onSetupClick?: () => void;
 		onQueueClick?: () => void;
-		onLabClick?: () => void;
-		labActive?: boolean;
 		/** Vero quando manca qualcosa perche' la GUI funzioni: il chip di
 		 *  setup compare solo allora, e sparisce quando non ha piu' niente da
 		 *  dire. */
@@ -70,12 +70,60 @@
 		onOpenFile?: (projectId: string, relPath: string) => void;
 	}>();
 
-	// Il Laboratorio prototipi e' una funzione alpha: i suoi due ingressi
-	// restano visibili ma inerti finche' l'utente non la attiva. Un pulsante
-	// `disabled` non si puo' interrogare ne' col mouse ne' con la tastiera,
-	// quindi qui resta raggiungibile e porta dove si attiva.
-	const labEnabled = $derived(settingsStore.general.labAlphaEnabled);
-	const labTitle = $derived(labEnabled ? m.topbar_action_lab() : m.topbar_lab_disabled_title());
+	async function handleGhostButtonClick(event: MouseEvent) {
+		if (!settingsStore.general.labAlphaEnabled) {
+			projectStore.openScratchpad();
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		const drafts = await labApi.listIndex(null).catch(() => []);
+		const items: ContextMenuEntry[] = [
+			{
+				kind: 'item',
+				label: m.lab_lane_temporary_chat(),
+				icon: IconGhost,
+				run: () => {
+					projectStore.openScratchpad();
+				}
+			},
+			{
+				kind: 'item',
+				label: m.lab_lane_draft_free(),
+				icon: IconLab,
+				run: async () => {
+					try {
+						const entry = await labApi.createPrototype(null);
+						await openLabEntry(null, entry);
+					} catch (err) {
+						console.error('Creazione prototipo libero fallita:', err);
+					}
+				}
+			}
+		];
+		if (drafts.length > 0) {
+			items.push({ kind: 'separator' });
+			for (const draft of drafts) {
+				const statusLabel =
+					draft.status === 'active'
+						? m.lab_lane_status_active()
+						: m.lab_lane_status_closed();
+				items.push({
+					kind: 'item',
+					label: `${draft.title} (${statusLabel})`,
+					icon: IconLab,
+					run: async () => {
+						await openLabEntry(null, draft);
+					}
+				});
+			}
+		}
+		contextMenu.open(event, {
+			label: m.topbar_action_scratchpad(),
+			items,
+			invoker: event.currentTarget as HTMLElement
+		});
+	}
 
 	const PROJECT_BAR_ORDER_OPTIONS = $derived.by((): { value: ProjectBarOrder; label: string }[] => [
 		{ value: 'fixed', label: m.topbar_order_fixed() },
@@ -203,7 +251,7 @@
 
 	$effect(() => {
 		const paths = projectStore.projects.flatMap((project) =>
-			project.lane.workspacePath ? [project.lane.workspacePath] : []
+			project.lane.kind !== 'lab' && project.lane.workspacePath ? [project.lane.workspacePath] : []
 		);
 		void gitDiffStore.loadMany(paths);
 		for (const path of paths) void githubStore.loadUpstreamStatus(path);
@@ -227,9 +275,10 @@
 			}
 		};
 		const interval = window.setInterval(() => {
-			const activePath = projectStore.projects.find(
+			const activeProj = projectStore.projects.find(
 				(project) => project.id === projectStore.activeId
-			)?.lane.workspacePath;
+			);
+			const activePath = activeProj?.lane.kind !== 'lab' ? activeProj?.lane.workspacePath : null;
 			if (activePath) {
 				gitDiffStore.requestRefresh(activePath);
 				void githubStore.loadUpstreamStatus(activePath);
@@ -585,9 +634,9 @@
 			{@const isActive = projectStore.activeId === p.id}
 			{@const showName = isActive || settingsStore.projectBar.label === 'name'}
 			{@const queueStyle = settingsStore.projectBar.queueBadge}
-			{@const gitDiff = p.lane.workspacePath ? gitDiffStore.forPath(p.lane.workspacePath) : null}
+			{@const gitDiff = p.lane.kind !== 'lab' && p.lane.workspacePath ? gitDiffStore.forPath(p.lane.workspacePath) : null}
 			{@const gitDiffLabel = gitDiff && hasGitChanges(gitDiff) ? ` · Git +${gitDiff.additions} -${gitDiff.deletions}` : ''}
-			{@const upstream = p.lane.workspacePath ? githubStore.upstreamByPath[normalizeProjectPath(p.lane.workspacePath).toLowerCase()] : null}
+			{@const upstream = p.lane.kind !== 'lab' && p.lane.workspacePath ? githubStore.upstreamByPath[normalizeProjectPath(p.lane.workspacePath).toLowerCase()] : null}
 			{@const aggState = getAggregatedState(p)}
 			{@const secondaryLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')}
 			{@const secondaryCount = secondaryLanes.length}
@@ -637,7 +686,7 @@
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-label={m.topbar_tab_aria_label({ type: p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + (secondaryCount > 0 ? ` · ${secondaryCount} corsie` : '') + gitDiffLabel}
+					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + (secondaryCount > 0 ? ` · ${secondaryCount} corsie` : '') + gitDiffLabel}
 				>
 					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
 					     raggio; il rimontaggio con `#key` riavvia l'animazione. -->
@@ -650,6 +699,8 @@
 					{#if p.canonicalProjectPath}
 						<span class="tab-dot" aria-hidden="true"></span>
 						<span class="tab-code">{projectCode(p)}</span>
+					{:else if p.labDraft}
+						<span class="tab-ghost" aria-hidden="true"><IconLab /></span>
 					{:else}
 						<span class="tab-ghost" aria-hidden="true"><IconGhost /></span>
 					{/if}
@@ -726,16 +777,13 @@
 
 		<div class="tabs-actions">
 			<button class="tab-add" onclick={() => onNewProject?.()} title={m.topbar_action_new_project()} aria-label={m.topbar_action_new_project()}><IconPlus /></button>
-			<button class="tab-add" onclick={() => projectStore.openScratchpad()} title={m.topbar_action_scratchpad()} aria-label={m.topbar_action_scratchpad()}><IconGhost /></button>
 			<button
+				type="button"
 				class="tab-add"
-				class:active={labActive}
-				class:alpha-off={!labEnabled}
-				aria-disabled={!labEnabled}
-				onclick={() => onLabClick?.()}
-				title={labTitle}
-				aria-label={labTitle}
-			><IconLab /></button>
+				onclick={handleGhostButtonClick}
+				title={m.topbar_action_scratchpad()}
+				aria-label={m.topbar_action_scratchpad()}
+			><IconGhost /></button>
 
 			<div class="order-control">
 				<button
@@ -821,17 +869,6 @@
 			<IconPin /> Companion
 		</button>
 
-		<button
-			class="settings-chip lab-chip"
-			class:active={labActive}
-			class:alpha-off={!labEnabled}
-			aria-disabled={!labEnabled}
-			onclick={(e) => { e.stopPropagation(); onLabClick?.(); }}
-			title={labEnabled ? m.topbar_lab_chip_title() : m.topbar_lab_disabled_title()}
-			aria-label={labEnabled ? m.topbar_lab_chip_title() : m.topbar_lab_disabled_title()}
-		>
-			<IconLab /> {m.ui__page_laboratorio_d67e()}
-		</button>
 
 		{#if taskStore.totalQueued > 0}
 			<button
@@ -1189,11 +1226,6 @@
 		color: var(--ink);
 		background-color: var(--bg-hover);
 	}
-	/* Funzione alpha non attiva: il comando resta leggibile e interrogabile,
-	   ma si annuncia come non operativo. */
-	.tab-add.alpha-off {
-		opacity: 0.45;
-	}
 
 	.order-control {
 		position: relative;
@@ -1524,15 +1556,6 @@
 		background: var(--bg-hover);
 	}
 
-	.lab-chip.active {
-		background: color-mix(in srgb, var(--brand) 18%, transparent);
-		border-color: var(--brand);
-		color: var(--brand-ink);
-	}
-	.lab-chip.alpha-off {
-		opacity: 0.55;
-		border-style: dashed;
-	}
 
 	.settings-badge {
 		display: inline-flex;

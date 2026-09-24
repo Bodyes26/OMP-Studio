@@ -31,6 +31,7 @@ export interface LaneDispatchSnapshot {
 	/** Un processo omp e' vivo in questa corsia (PTY o RPC). */
 	liveProcess?: boolean;
 	model?: { provider?: string | null; id?: string | null } | null;
+	kind?: 'git' | 'lab';
 }
 
 export interface QueueRouteInput {
@@ -70,7 +71,7 @@ export interface QueueRootResolution {
 }
 
 function isLaneActive(lane: LaneDispatchSnapshot): boolean {
-	return lane.status !== 'archived';
+	return lane.status !== 'archived' && lane.kind !== 'lab';
 }
 
 /** Corsie che tengono impegnato un agente: le archiviate non contano. */

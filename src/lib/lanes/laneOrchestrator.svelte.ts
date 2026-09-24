@@ -71,9 +71,12 @@ export class LaneOrchestrator {
 	getOrCreateAgentSession(project: Project, lane: AgentLane | LaneRecord): AgentSession {
 		return sessionRegistry.getOrCreateLaneSession({
 			id: project.id,
+			canonicalProjectPath: project.canonicalProjectPath,
 			lane: {
 				laneId: lane.laneId,
-				workspacePath: lane.workspacePath ?? project.canonicalProjectPath
+				workspacePath: lane.workspacePath ?? project.canonicalProjectPath,
+				kind: lane.kind,
+				labPrototypeId: lane.labPrototypeId
 			}
 		});
 	}
@@ -299,7 +302,9 @@ export class LaneOrchestrator {
 		)
 			? [...stored]
 			: [this.mainLaneRecord(project), ...stored];
-		return lanes.map((lane) => {
+		return lanes
+			.filter((lane) => lane.kind !== 'lab')
+			.map((lane) => {
 			const session = sessionRegistry.getLaneSession(project.id, lane.laneId);
 			const key = this.runtimeKey(project.id, lane.laneId);
 			return {
@@ -366,6 +371,10 @@ export class LaneOrchestrator {
 	async switchSurface(projectId: string, target: 'terminal' | 'gui'): Promise<void> {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		if (!project || project.lane.surface === target) return;
+		if (project.lane.kind === 'lab' && target === 'terminal') {
+			// Le corsie Lab sono esclusivamente GUI (contratto §7)
+			return;
+		}
 
 		const key = this.runtimeKey(project.id, project.lane.laneId);
 		if (this.switchingSurface[key]) return;

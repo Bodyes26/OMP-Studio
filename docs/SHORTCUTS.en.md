@@ -11,6 +11,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Alt+H` / `Alt+K` / `F1` | Global | Opens the keyboard shortcuts cheat sheet with 2-column layout and search filter |
 | `Ctrl+Alt+N` | Global | New project (opens folder picker) |
 | `Ctrl+Alt+S` | Global | Open a Scratchpad chat (temporary, `--no-session`) |
+| `Ctrl+Alt+P` | Global | New free-idea Lab prototype (when alpha flag is enabled) |
 | `Ctrl+Alt+U` | Global | Toggle quota & token usage panel |
 | `Ctrl+Alt+,` | Global | Open Studio Settings (General, Project Bar, Editor & Terminal, Tasks & Agents, Models) |
 | `Ctrl+Alt+M` | Global | Open Settings directly to the Models section (Roles, Catalog, Providers) |

@@ -266,6 +266,22 @@ pub const LANES_EXTENSION_TS: &str = include_str!("../../../extensions/studio-la
 /// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.
 pub const STUDIO_SYSTEM_PROMPT: &str = "Round-trip economy. Batch every already-identifiable independent read, grep, glob, and LSP call in one assistant response. For UI labels, visible text, quoted strings, and screenshot text, search the entire workspace for the most distinctive exact literal before opening files, then read only matching files and targeted line ranges. For screenshots, first extract the most distinctive visible text and run one literal workspace search. Handle a single-file or single-concern task directly; never delegate mere reading or file localization. Delegate only when there are at least two substantial independent workstreams; dispatch them together and continue useful direct work instead of polling. Perform one targeted verification after the final edit. Never promise provider parallelism; use correct serial execution when parallel tool calls are unavailable.";
 
+/// Costruisce il prompt di sistema completo per l'agente principale (RPC e PTY).
+///
+/// Combina `STUDIO_SYSTEM_PROMPT` con l'addendum per i prototipi del Laboratorio,
+/// includendo il percorso assoluto reale dell'indice delle bozze se disponibile.
+pub fn main_agent_system_prompt() -> String {
+    let drafts_part = match crate::lab::paths::drafts_index_path() {
+        Some(path) => format!("; free-idea drafts are listed in {}", path.display()),
+        None => String::new(),
+    };
+    let addendum = format!(
+        "OMP Studio Lab prototypes: prototypes built in the Studio Lab for this project are listed in .omp/lab/prototypes.json at the project root (it may be missing){}. Each entry has id, title, summary, status, dates, workspacePath and lastRevision. When the user refers to a Lab prototype, identify it by title, summary and dates (project index first, then drafts), read its sources from workspacePath and its history with git -C <workspacePath> log. Lab workspaces are read-only for you: never modify them. Implement the prototype in this project's own stack and conventions instead of copying the React code verbatim. If workspacePath does not exist on this machine, say so instead of guessing.",
+        drafts_part
+    );
+    format!("{}\n\n{}", STUDIO_SYSTEM_PROMPT, addendum)
+}
+
 /// Cartella delle estensioni di Studio: `%LOCALAPPDATA%/omp-studio/extensions`
 /// su Windows, `~/.omp-studio/extensions` altrove. Mai dentro `~/.omp`.
 fn extensions_dir() -> Option<std::path::PathBuf> {
@@ -420,7 +436,7 @@ pub async fn pty_open(
             "--config".to_string(),
             overlay_path.to_string_lossy().to_string(),
             "--append-system-prompt".to_string(),
-            STUDIO_SYSTEM_PROMPT.to_string(),
+            main_agent_system_prompt(),
         ];
         if let Some(ext) = &extension_arg {
             launch_args.push("-e".to_string());
@@ -478,12 +494,13 @@ pub async fn pty_open(
         };
         let shell = std::env::var("SHELL").unwrap_or_else(|_| default_shell.to_string());
         let mut c = CommandBuilder::new(&shell);
+        let main_prompt = main_agent_system_prompt();
         let mut launch = if std::path::Path::new(&omp_path).exists() {
             format!(
                 "{} --config {} --append-system-prompt {}",
                 sh_quote(&omp_path),
                 sh_quote(&overlay_path.to_string_lossy()),
-                sh_quote(STUDIO_SYSTEM_PROMPT)
+                sh_quote(&main_prompt)
             )
         } else {
             format!("exec {} -l", sh_quote(&shell))

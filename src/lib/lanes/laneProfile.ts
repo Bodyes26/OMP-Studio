@@ -148,7 +148,7 @@ export async function applyProfileToLane(
 	project: Project,
 	lane: AgentLane | LaneRecord
 ): Promise<AllowlistCopyOutcome[]> {
-	if (!isTauri() || !project.canonicalProjectPath || !lane.workspacePath) return [];
+	if (!isTauri() || !project.canonicalProjectPath || !lane.workspacePath || lane.kind === 'lab') return [];
 	const profile = laneStore.profileFor(project.id as ProjectId);
 	if (!profile || profile.confirmedAt === null || profile.untrackedFileAllowlist.length === 0) {
 		return [];

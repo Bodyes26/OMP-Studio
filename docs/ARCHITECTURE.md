@@ -513,18 +513,15 @@ Relay. Entrambi usano il canale loopback autenticato WebSocket e il wire format 
 La specifica autoritativa e il registro implementativo completo sono in [`BROWSER-STUDIO.md`](BROWSER-STUDIO.md).
 
 
-### 9.2 Laboratorio Prototipi Frontend (Gate R24 — 18 Criteri completati, SUPERATO)
+### 9.2 Laboratorio Prototipi Frontend (Gate R24 / Gate R30)
 
-Il Gate R24 introduce il Laboratorio Prototipi dentro OMP Studio, consentendo di ideare, confrontare 3-5 varianti e iterare flussi multischermata React 19 + Tailwind v4 senza inquinare il codice del progetto:
-1. **Concorrenza e Isolamento:** sessione Laboratorio dedicata (`rpc_open_lab`) con identità separata rispetto al principale; eventi, streaming, token, richieste `ask` e abort restano totalmente disaccoppiati nello stesso progetto.
-2. **Broker di Scrittura Confinata (`extensions/studio-lab.ts`):** estensione autonoma iniettata all'avvio con allowlist stretta (8 tool) e validazione canonica su percorsi reali (`proto/<id>/` o bozze in `studio-data/`). I subagenti autori ereditano i medesimi vincoli insuperabili.
-3. **Contesto Stabile e Rilevamento Deriva:** snapshot congelato del working tree del progetto (incluse modifiche non committate); esclusione rigorosa di credenziali e file segreti; rilevamento del drift senza rigenerazione automatica e aggiornamento solo su richiesta esplicita dell'utente.
-4. **Compilazione Offline con VFS Chiuso:** bundle fidato in `static/lab/` (React 19.2.8, Tailwind v4.3.3, Lucide, Radix, Recharts, Motion, esbuild-wasm) senza alcuna dipendenza da CDN esterne a runtime; compilazione TSX/JSX in worker isolato senza bloccare il thread UI.
-5. **Renderer Chromium Gestito e Watchdog:** controller CDP con profilo isolato, blocco navigazioni `location.href` e domini non autorizzati, terminazione istantanea cicli infiniti (< 2 ms) e riciclo del target.
-6. **Strumenti Visuali e Revisioni Locali:** selezione elementi a schermo con redazione automatica credenziali/token, creazione annotazioni legate alla revisione osservata, rifiuto categorico di riferimenti obsoleti, ripristino di stati storici e duplicazione indipendente.
-7. **Export e Handoff:** esportazione della revisione come progetto autonomo standard Vite + Tailwind v4 e consegna pacchetto strutturato al principale senza auto-merge forzato e senza imporre il runtime React nel progetto target.
-
-La specifica e i 18 criteri di accettazione verificati sono documentati in [`ricerca/laboratorio-prototipi-piano.md`](../ricerca/laboratorio-prototipi-piano.md).
+Rifondato con il **Gate R30** come corsia specializzata di progetto (`kind: 'lab'`) integrata nell'architettura multi-corsia (Gate R27):
+1. **Corsia di Progetto:** il Laboratorio vive come tab nella `LaneStrip` a fianco di `Principale` e dei worktree. Il passaggio tra corsie avviene via CSS (`visibility: hidden`) senza smontare nulla.
+2. **Workspace Fuori Repo e Git Interno:** cartella dedicata in `%LOCALAPPDATA%/omp-studio/lab/prototypes/<id>` con repository Git interno indipendente. Ogni richiesta dell'utente genera un commit atomico (revisione).
+3. **Indice Progetto (`.omp/lab/prototypes.json`):** file atomico nel progetto originale che traccia ID, titolo, summary descrittivo, date e revisioni dei prototipi (attivi e chiusi). Ignorato in `.gitignore` con blocco automatico.
+4. **Bozze Libere (Scratchpad):** prototipi liberi creati senza progetto associato, persistiti in locale e associabili a posteriori a un progetto aperto.
+5. **Runtime Anteprima Loopback:** server locale Rust su `127.0.0.1:0` che serve il bundle compilato da Web Worker esbuild-wasm verso un iframe `sandbox="allow-scripts allow-forms allow-modals allow-popups"` a origine opaca (zero esposizione IPC Tauri). Dipendenze esterne risolte tramite CDN esm.sh con versioni pinned in `package.json`.
+6. **Confinamento Agente:** estensione `studio-lab.ts` con hook `tool_call` fail-closed (letture ammesse solo su workspace e progetto originale, scritture solo su workspace, shell/eval bloccati, browser consentito solo su URL locale anteprima).
 ---
 
 ## 10. Prerequisiti di Build e Compilazione
