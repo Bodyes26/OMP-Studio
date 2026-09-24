@@ -302,6 +302,87 @@ describe('Shortcuts: unico owner globale e prevenzione doppi toggle', () => {
 		assert.equal(windowKeyHandler(ctrlShiftTabEvent), true);
 		assert.equal(activeId, 'proj-c', 'Deve passare all\'ultimo progetto (C) con shift');
 	});
+
+	it('con ordinamento Attività recente (mru), Ctrl+Tab scorre tutti i progetti senza oscillare tra i primi due', () => {
+		const projects = [
+			{ id: 'proj-a', name: 'Alpha', agentState: 'idle' },
+			{ id: 'proj-b', name: 'Beta', agentState: 'idle' },
+			{ id: 'proj-c', name: 'Gamma', agentState: 'idle' }
+		];
+		let activeId = 'proj-a';
+		const order = 'mru';
+
+		function setActive(id: string) {
+			const idx = projects.findIndex(p => p.id === id);
+			if (idx === -1) return;
+			// Con la nuova architettura: setActive imposta solo activeId e NON riordina l'array
+			activeId = id;
+		}
+
+		function cycleProject(direction: 1 | -1) {
+			if (projects.length < 2) return;
+			const idx = projects.findIndex(p => p.id === activeId);
+			const currentIdx = idx >= 0 ? idx : 0;
+			const nextIdx = direction === 1
+				? (currentIdx + 1) % projects.length
+				: (currentIdx - 1 + projects.length) % projects.length;
+			setActive(projects[nextIdx].id);
+		}
+
+		// Navigazione sequenziale con Ctrl+Tab
+		cycleProject(1);
+		assert.equal(activeId, 'proj-b', 'Primo Ctrl+Tab: da A a B');
+		assert.deepEqual(projects.map(p => p.id), ['proj-a', 'proj-b', 'proj-c'], 'L\'ordine delle tessere resta intatto');
+
+		cycleProject(1);
+		assert.equal(activeId, 'proj-c', 'Secondo Ctrl+Tab: da B a C (non rimbalza su A)');
+		assert.deepEqual(projects.map(p => p.id), ['proj-a', 'proj-b', 'proj-c'], 'L\'ordine delle tessere resta intatto');
+
+		cycleProject(1);
+		assert.equal(activeId, 'proj-a', 'Terzo Ctrl+Tab: da C a A');
+
+		// Un agente si attiva nel progetto C -> passa in prima posizione
+		function bringProjectToFront(id: string) {
+			if (order !== 'mru') return;
+			const idx = projects.findIndex(p => p.id === id);
+			if (idx > 0) {
+				const [proj] = projects.splice(idx, 1);
+				projects.unshift(proj);
+			}
+		}
+
+		function setAgentState(id: string, state: string) {
+			const p = projects.find(proj => proj.id === id);
+			if (!p) return;
+			const prevState = p.agentState;
+			p.agentState = state;
+			if (state === 'working' && prevState !== 'working') {
+				bringProjectToFront(id);
+			}
+		}
+
+		setAgentState('proj-c', 'working');
+		assert.equal(projects[0].id, 'proj-c', 'Progetto C al lavoro si sposta al primo posto a sinistra');
+		assert.deepEqual(projects.map(p => p.id), ['proj-c', 'proj-a', 'proj-b']);
+	});
+
+	it('ProjectPicker esclude i progetti aperti dall\'elenco dei candidati locali', () => {
+		const openProjects = [
+			{ id: '1', canonicalProjectPath: 'C:/repos/proj-a' },
+			{ id: '2', canonicalProjectPath: 'C:/repos/proj-b' }
+		];
+		const openKeys = new Set(openProjects.map(p => p.canonicalProjectPath.toLowerCase()));
+
+		const candidates = [
+			{ name: 'proj-a', path: 'C:/repos/proj-a' },
+			{ name: 'proj-b', path: 'C:/repos/proj-b' },
+			{ name: 'proj-c', path: 'C:/repos/proj-c' }
+		];
+
+		const unopened = candidates.filter(c => !openKeys.has(c.path.toLowerCase()));
+		assert.equal(unopened.length, 1);
+		assert.equal(unopened[0].name, 'proj-c');
+	});
 });
 
 describe('Gestione Escape e abort: il tasto Escape non interrompe mai lo streaming dell\'agente', () => {

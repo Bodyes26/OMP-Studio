@@ -8,12 +8,12 @@
 
 	// Ogni opzione di ordinamento porta con se' la sua spiegazione: l'utente
 	// deve capire l'effetto prima di cambiarlo, non scoprirlo per tentativi.
-	const ORDER_OPTIONS: { id: ProjectBarOrder; label: string; desc: string }[] = [
-		{ id: 'fixed', label: 'Manuale', desc: "Le tessere non si spostano da sole: riordinabili trascinando." },
-		{ id: 'mru', label: 'Ultimo aperto', desc: 'Il progetto che apri va in prima posizione.' },
-		{ id: 'priority', label: m.topbar_order_priority(), desc: 'Chi ha task in coda o chiede attenzione va a sinistra.' },
-		{ id: 'alpha', label: 'Alfabetico', desc: "Le tessere seguono l'ordine alfabetico del nome." }
-	];
+	const ORDER_OPTIONS = $derived<{ id: ProjectBarOrder; label: string; desc: string }[]>([
+		{ id: 'fixed', label: m.settings_project_bar_order_fixed(), desc: m.settings_project_bar_order_fixed_desc() },
+		{ id: 'mru', label: m.settings_project_bar_order_mru(), desc: m.settings_project_bar_order_mru_desc() },
+		{ id: 'priority', label: m.settings_project_bar_order_priority(), desc: m.settings_project_bar_order_priority_desc() },
+		{ id: 'alpha', label: m.settings_project_bar_order_alpha(), desc: m.settings_project_bar_order_alpha_desc() }
+	]);
 
 	// Il contatore vive dentro la tessera del progetto aperto: le tessere degli
 	// altri progetti restano mute per scelta, e il conto complessivo sta nel

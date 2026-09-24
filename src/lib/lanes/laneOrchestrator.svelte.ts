@@ -92,6 +92,8 @@ export class LaneOrchestrator {
 	handleTerminalState(project: Project, laneId: string, state: AgentState): void {
 		if (project.lane.laneId === laneId) {
 			projectStore.setAgentState(project.id, state);
+		} else if (state === 'working') {
+			projectStore.bringProjectToFront(project.id);
 		}
 		void laneStore.updateLane(project.id as ProjectId, laneId as LaneId, { agentState: state }).catch(() => undefined);
 		if (project.canonicalProjectPath && (state === 'working' || state === 'attention')) {

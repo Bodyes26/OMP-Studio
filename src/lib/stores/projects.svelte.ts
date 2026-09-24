@@ -188,23 +188,10 @@ class ProjectStore {
 				this.projects.push(project);
 				this.syncProjectMetadata(project);
 			}
-			// L'ordine salvato e' l'unica verita' fuori da `mru`: solo li'
-			// il piu' recente deve tornare in cima da solo.
-			if (settingsStore.projectBar.order === 'mru') {
-				this.projects.sort((a, b) => (b.lastOpened || 0) - (a.lastOpened || 0));
-			}
 		}
 
 		if (storedActiveId && this.projects.some(p => p.id === storedActiveId)) {
 			this.activeId = storedActiveId;
-			if (settingsStore.projectBar.order === 'mru') {
-				// Assicura che il progetto attivo all'avvio sia in prima posizione
-				const idx = this.projects.findIndex(p => p.id === storedActiveId);
-				if (idx > 0) {
-					const [activeProj] = this.projects.splice(idx, 1);
-					this.projects.unshift(activeProj);
-				}
-			}
 		} else if (this.projects.length > 0) {
 			this.activeId = this.projects[0].id;
 		}
@@ -287,13 +274,6 @@ class ProjectStore {
 			existing.lastOpened = Date.now();
 			this.syncProjectMetadata(existing);
 			this.activeId = existing.id;
-			if (settingsStore.projectBar.order === 'mru') {
-				const idx = this.projects.findIndex(p => p.id === existing.id);
-				if (idx > 0) {
-					const [proj] = this.projects.splice(idx, 1);
-					this.projects.unshift(proj);
-				}
-			}
 			this.save();
 			return existing.id;
 		}
@@ -430,15 +410,23 @@ class ProjectStore {
 		if (p.lane.agentState === 'finished') {
 			p.lane.agentState = 'idle';
 		}
-		// L'ordine dell'array e' l'unica verita' fuori da `mru`: qui si tocca
-		// solo lo stato del progetto, mai la sua posizione.
-		if (settingsStore.projectBar.order === 'mru' && idx > 0) {
-			this.projects.splice(idx, 1);
-			this.projects.unshift(p);
-		}
 		this.activeId = id;
 		this.save();
 	}
+	/**
+	 * Con ordinamento 'mru' ("Attività recente"), sposta il progetto in prima
+	 * posizione a sinistra quando un agente inizia a lavorare o viene aggiunto.
+	 */
+	bringProjectToFront(id: string) {
+		if (settingsStore.projectBar.order !== 'mru') return;
+		const idx = this.projects.findIndex(p => p.id === id);
+		if (idx > 0) {
+			const [proj] = this.projects.splice(idx, 1);
+			this.projects.unshift(proj);
+			this.save();
+		}
+	}
+
 
 	/** Riordino manuale (drag&drop): `id` prende il posto di `targetId`. */
 	moveProject(id: string, targetId: string) {
@@ -587,6 +575,7 @@ class ProjectStore {
 	setAgentState(id: string, state: AgentState) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p) return;
+		const previousState = p.lane.agentState;
 		if (p.lane.agentState === 'working' && state === 'idle') {
 			// Ha finito. Resta `finished` a meno che tu lo stia davvero
 			// guardando: la companion deve poter distinguere "ho finito, leggi
@@ -604,6 +593,9 @@ class ProjectStore {
 		// finestra (`acknowledgeFinished`).
 		if (state === 'idle' && p.lane.agentState === 'finished') return;
 		p.lane.agentState = state;
+		if (state === 'working' && previousState !== 'working') {
+			this.bringProjectToFront(id);
+		}
 	}
 
 	/**

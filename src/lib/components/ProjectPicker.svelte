@@ -29,11 +29,24 @@
 	let cloningName = $state<string | null>(null);
 	let cloneError = $state<string | null>(null);
 
-	// Filtra cartelle locali
+	const openKeys = $derived(
+		new Set(
+			projectStore.projects
+				.flatMap((p) => (p.canonicalProjectPath ? [p.canonicalProjectPath] : []))
+				.map((path) => path.toLowerCase())
+		)
+	);
+
+	// Cartelle locali non ancora aperte nella barra dei progetti
+	const unopenedCandidates = $derived(
+		candidates.filter((c) => !openKeys.has(c.path.toLowerCase()))
+	);
+
+	// Filtra cartelle locali non ancora aperte
 	const filteredLocal = $derived.by(() => {
 		const q = query.trim().toLowerCase();
 		return q
-			? candidates.filter(
+			? unopenedCandidates.filter(
 					(c) =>
 						c.name.toLowerCase().includes(q) ||
 						(c.customName && c.customName.toLowerCase().includes(q)) ||
@@ -41,7 +54,7 @@
 						c.path.toLowerCase().includes(q) ||
 						c.githubRemote?.fullName.toLowerCase().includes(q)
 				)
-			: candidates;
+			: unopenedCandidates;
 	});
 
 	// Repo remoti GitHub dell'utente che NON sono già presenti tra le cartelle locali
@@ -92,13 +105,6 @@
 
 	const selectedIndex = $derived(Math.max(0, Math.min(index, allItems.length - 1)));
 
-	const openKeys = $derived(
-		new Set(
-			projectStore.projects
-				.flatMap((p) => (p.canonicalProjectPath ? [p.canonicalProjectPath] : []))
-				.map((path) => path.toLowerCase())
-		)
-	);
 
 	async function loadCandidates() {
 		error = null;
@@ -268,14 +274,13 @@
 				{#each filteredLocal as c, i (c.path)}
 					{@const itemIndex = i}
 					{@const isSelected = selectedIndex === itemIndex}
-					{@const isAlreadyOpen = openKeys.has(c.path.toLowerCase())}
 					<button
 						type="button"
 						class="row"
 						class:sel={isSelected}
 						role="option"
 						aria-selected={isSelected}
-						aria-label={`${c.customName ? `${c.customName} (${c.name})` : c.name} - ${c.path}${isAlreadyOpen ? m.ui_projectpicker_gia_aperto_c1ca() : ''}`}
+						aria-label={`${c.customName ? `${c.customName} (${c.name})` : c.name} - ${c.path}`}
 						onmouseenter={() => (index = itemIndex)}
 						onclick={() => pickItem({ type: 'local', candidate: c, localIndex: i })}
 						disabled={isCloning}
@@ -292,9 +297,6 @@
 							>
 								{c.label}
 							</span>
-						{/if}
-						{#if isAlreadyOpen}
-							<span class="badge already-open">{m.project_picker_already_open()}</span>
 						{/if}
 						{#if c.githubRemote}
 							<span class="badge gh-badge" title={`Collegato a https://github.com/${c.githubRemote.fullName}`}>
@@ -542,11 +544,6 @@
 		font-size: 0.72rem;
 		border-radius: var(--radius-full);
 		padding: 1px 6px;
-	}
-
-	.badge.already-open {
-		color: var(--ink-faint);
-		border: 1px solid var(--line);
 	}
 	.badge.folder-badge {
 		color: var(--ink-faint);
