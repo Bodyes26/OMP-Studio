@@ -256,8 +256,9 @@ pub async fn lab_git_files_at(workspace_path: String, sha: String) -> Result<Vec
             show_cmd.args(["show", &target_spec]);
             let show_out = run_git_checked(&mut show_cmd, &format!("show {target_spec}"))?;
 
-            // Considera solo file di testo UTF-8 validi
-            if let Ok(content) = String::from_utf8(show_out.stdout) {
+            if let Some(content) =
+                super::workspace::decode_snapshot_text(&normalized, show_out.stdout)?
+            {
                 files.push(LabFile {
                     path: normalized,
                     content,

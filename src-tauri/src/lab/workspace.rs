@@ -125,6 +125,31 @@ pub async fn lab_prototype_create(
     .map_err(|e| e.to_string())?
 }
 
+/// Estensioni che il compiler dell'anteprima legge come sorgenti: se non sono UTF-8
+/// scartarle in silenzio farebbe sparire moduli (o l'ingresso) con errori fuorvianti.
+const SOURCE_EXTENSIONS: &[&str] = &["tsx", "ts", "jsx", "js", "mjs", "json", "css", "html"];
+
+/// Decodifica un file dello snapshot. I file binari (immagini, font) non servono al
+/// compiler e restano fuori; un sorgente non UTF-8 invece e' un errore esplicito.
+pub(super) fn decode_snapshot_text(rel_path: &str, bytes: Vec<u8>) -> Result<Option<String>, String> {
+    match String::from_utf8(bytes) {
+        Ok(content) => Ok(Some(content)),
+        Err(_) => {
+            let is_source = Path::new(rel_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| SOURCE_EXTENSIONS.iter().any(|s| s.eq_ignore_ascii_case(e)));
+            if is_source {
+                Err(format!(
+                    "Il file {rel_path} non e' codificato in UTF-8: salvalo in UTF-8 per compilarlo"
+                ))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
 /// Attraversa ricorsivamente la cartella del workspace raccogliendo i file di testo.
 fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> Result<(), String> {
     let entries = fs::read_dir(current)
@@ -137,8 +162,13 @@ fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> R
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_default();
+        // `file_type` non segue i link simbolici: una cartella collegata a un antenato
+        // porterebbe la ricorsione in un ciclo infinito.
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Tipo di {} non disponibile: {e}", path.display()))?;
 
-        if path.is_dir() {
+        if file_type.is_dir() {
             if file_name == ".git"
                 || file_name == ".lab"
                 || file_name == "node_modules"
@@ -146,6 +176,7 @@ fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> R
             {
                 continue;
             }
+            walk_snapshot_dir(root, &path, files)?;
         } else if path.is_file() {
             let rel = path
                 .strip_prefix(root)
@@ -167,7 +198,7 @@ fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> R
 
             let bytes = fs::read(&path)
                 .map_err(|e| format!("Lettura del file {normalized} fallita: {e}"))?;
-            if let Ok(content) = String::from_utf8(bytes) {
+            if let Some(content) = decode_snapshot_text(&normalized, bytes)? {
                 files.push(LabFile {
                     path: normalized,
                     content,
@@ -178,25 +209,28 @@ fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> R
     Ok(())
 }
 
-/// Scatta uno snapshot completo di tutti i file di testo del workspace (esclusi .git, .lab, node_modules, dist).
+/// Snapshot di tutti i file di testo del workspace (esclusi .git, .lab, node_modules, dist),
+/// con percorsi relativi alla radice e separatori `/`.
+fn snapshot_workspace(root: &Path) -> Result<Vec<LabFile>, String> {
+    if !root.is_dir() {
+        return Err(format!(
+            "Workspace non trovato o non cartella: {}",
+            root.display()
+        ));
+    }
+
+    let mut files = Vec::new();
+    walk_snapshot_dir(root, root, &mut files)?;
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+/// Scatta uno snapshot completo di tutti i file di testo del workspace.
 #[command]
 pub async fn lab_workspace_snapshot(workspace_path: String) -> Result<Vec<LabFile>, String> {
-    tokio::task::spawn_blocking(move || {
-        let root = Path::new(&workspace_path);
-        if !root.is_dir() {
-            return Err(format!(
-                "Workspace non trovato o non cartella: {}",
-                root.display()
-            ));
-        }
-
-        let mut files = Vec::new();
-        walk_snapshot_dir(root, root, &mut files)?;
-        files.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok(files)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || snapshot_workspace(Path::new(&workspace_path)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Verifica se la directory del workspace esiste fisicamente sul filesystem.
@@ -364,4 +398,76 @@ pub async fn lab_export(workspace_path: String, destination: String) -> Result<(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Radice temporanea unica, scritta come la passa Studio su Windows: lettera di
+    /// unita' e separatori misti (`C:\Users\...\Temp/lab-.../p-...`).
+    fn temp_workspace(tag: &str) -> (PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!(
+            "lab-snapshot-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let ws = dir.join("p-test");
+        fs::create_dir_all(&ws).unwrap();
+        let mixed = format!("{}/p-test", dir.to_string_lossy());
+        (dir, mixed)
+    }
+
+    #[test]
+    fn snapshot_includes_template_sources_in_subfolders() {
+        let (dir, mixed_root) = temp_workspace("tpl");
+        let root = Path::new(&mixed_root);
+        instantiate_template(root, "p-test", "Test", "2026-01-01T00:00:00Z").unwrap();
+        fs::create_dir_all(root.join("src/components/ui")).unwrap();
+        fs::write(root.join("src/components/ui/Button.tsx"), "export {}").unwrap();
+        fs::create_dir_all(root.join("node_modules/react")).unwrap();
+        fs::write(root.join("node_modules/react/index.js"), "x").unwrap();
+
+        let paths: Vec<String> = snapshot_workspace(root)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+        let _ = fs::remove_dir_all(&dir);
+
+        for expected in [
+            "index.html",
+            "package.json",
+            "src/App.tsx",
+            "src/index.css",
+            "src/main.tsx",
+            "src/components/ui/Button.tsx",
+        ] {
+            assert!(paths.iter().any(|p| p == expected), "manca {expected} in {paths:?}");
+        }
+        assert!(paths.iter().all(|p| !p.contains('\\')), "separatori non normalizzati: {paths:?}");
+        assert!(
+            paths.iter().all(|p| !p.starts_with("node_modules") && !p.starts_with(".lab")),
+            "cartelle escluse incluse: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn snapshot_rejects_non_utf8_source_and_skips_binary_assets() {
+        let (dir, mixed_root) = temp_workspace("utf8");
+        let root = Path::new(&mixed_root);
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/logo.png"), [0x89, b'P', b'N', b'G', 0xff, 0xfe]).unwrap();
+        let binary_ok = snapshot_workspace(root).unwrap();
+        // "caffè" in Windows-1252: non e' UTF-8 valido
+        fs::write(root.join("src/main.tsx"), b"const s = 'caff\xe8';").unwrap();
+        let err = snapshot_workspace(root).unwrap_err();
+        let _ = fs::remove_dir_all(&dir);
+
+        assert!(binary_ok.is_empty(), "asset binario incluso: {binary_ok:?}");
+        assert!(err.contains("src/main.tsx") && err.contains("UTF-8"), "{err}");
+    }
 }

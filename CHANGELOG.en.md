@@ -41,6 +41,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio records startup, file opening, session loading and every git command timings in `perf-trace.log`, in the app log folder, to measure where time goes.
 
 ### Fixed
+- Lab prototype previews compile again: reading the prototype files stopped at the top folder and skipped `src/`, so every prototype, even one freshly created from the template, failed with "No entry file found" despite having `src/main.tsx`. If a source file is not saved as UTF-8, the preview now says so and names the file instead of silently ignoring it.
+- In the Lab the agent can report misbehaving tools through `xd://report_issue`, which used to be rejected; other special schemes stay blocked.
 - On startup Studio no longer reopens the last prototype preview from a previous session: the center column no longer shows, every time it opens, an empty preview of a file that no longer exists and that could not be dismissed; only previews generated after startup appear.
 - Preserved natural chronological ordering between assistant narrative text and tool calls: chat history reconstruction no longer appends all tools to the bottom of the aggregated turn, but interleaves explanations, interactive questions (`ask`), and operational executions in their true temporal sequence, omitting redundant model badges before tool invocations.
 - The bar under the composer no longer gets stuck on "starting..." while the agent is working: a repeated startup signal from the same process, an event that cannot be applied while the chat loads, or a load superseded by a resume or a new chat no longer detach the session, and the model picker shows the model in use again.

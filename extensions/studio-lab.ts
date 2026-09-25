@@ -29,7 +29,8 @@
 //    - Scrittura consentita ESCLUSIVAMENTE dentro il workspace del prototipo (OMP_LAB_WORKSPACE).
 //    - Il progetto originale e' in SOLA LETTURA (nessuna modifica al codice sorgente dell'app).
 //    - Cartella `.git/` interna protetta: nessuna scrittura o modifica consentita in `.git/`.
-//    - `write` ammette lo schema interno `local://`; altri schemi URL sono negati.
+//    - `write` ammette lo schema interno `local://` e il canale QA `xd://report_issue`;
+//      altri schemi URL sono negati.
 //    - Per `edit`, vengono analizzate sia le intestazioni hashline `[PATH#TAG]` sia le
 //      righe di rename `MV DEST` e l'eventuale `path` nei parametri. Se nessun percorso
 //      e' riconoscibile nel testo, l'operazione viene bloccata per difetto.
@@ -650,6 +651,13 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 
 				// Scritture su local:// ammesse per artifact interni
 				if (rawPath.toLowerCase().startsWith("local://")) {
+					return undefined;
+				}
+
+				// Canale QA di omp per segnalare anomalie dei tool: non tocca file.
+				// Solo questo device: gli altri xd:// (ast_edit, debug, ...) eseguono
+				// operazioni che scavalcherebbero il confinamento del workspace.
+				if (rawPath.toLowerCase() === "xd://report_issue") {
 					return undefined;
 				}
 
