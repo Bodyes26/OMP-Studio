@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { load, type Store } from '@tauri-apps/plugin-store';
 import {
 	MAIN_LANE_ID,
 	type AgentSurface,
@@ -38,9 +37,6 @@ export type LaneArchiveOutcome =
 	| { kind: 'archived' }
 	| { kind: 'processes-active'; processes: LaneProcessInfo[]; diagnosis: LaneCleanupDiagnosis }
 	| { kind: 'cleanup-pending'; diagnosis: LaneCleanupDiagnosis };
-
-const STORE_FILE = 'lanes.json';
-const STORE_KEY = 'laneState';
 
 type LanePatch = Partial<Omit<LaneRecord, 'projectId' | 'laneId'>>;
 
@@ -104,25 +100,19 @@ class LaneStore {
 			return;
 		}
 
-		const [pluginStore, rawDocument] = await Promise.all([
-			load(STORE_FILE, { autoSave: false }),
-			invoke<unknown | null>('lanes_store_read')
-		]);
-		try {
-			if (rawDocument !== null) {
-				const parsed = parseLaneStoreDocument(rawDocument);
-				if (!parsed) {
-					throw new Error('lanes.json usa uno schema non valido o non supportato');
-				}
-				this.revision = parsed.revision;
-				this.lanes = parsed.lanes;
-				this.profiles = parsed.profiles;
+		// `lanes.json` passa solo dagli adapter atomici di `lanes_store.rs`: il
+		// plugin store non va aperto, perche' all'uscita riscrive con `fs::write`
+		// ogni store aperto, e la sua `close` sulla risorsa condivisa bloccava
+		// l'init (loadError o promessa appesa) e con essa ogni scrittura corsie.
+		const rawDocument = await invoke<unknown | null>('lanes_store_read');
+		if (rawDocument !== null) {
+			const parsed = parseLaneStoreDocument(rawDocument);
+			if (!parsed) {
+				throw new Error('lanes.json usa uno schema non valido o non supportato');
 			}
-		} finally {
-			// Il plugin salva tutti gli store aperti con `fs::write` all'uscita.
-			// Chiuderlo evita che quella scrittura non atomica tocchi lanes.json:
-			// il file canonico viene aggiornato solo dall'adapter qui sotto.
-			await pluginStore.close();
+			this.revision = parsed.revision;
+			this.lanes = parsed.lanes;
+			this.profiles = parsed.profiles;
 		}
 		this.initialized = true;
 
@@ -232,26 +222,13 @@ class LaneStore {
 				$state.snapshot(this.profiles),
 				this.revision
 			);
-			let pluginStore: Store | null = null;
 			try {
-				pluginStore = await load(STORE_FILE, { autoSave: false });
-				await pluginStore.set(STORE_KEY, document);
 				await invoke('lanes_store_write_atomic', { document });
-				await pluginStore.close();
-				pluginStore = null;
 				this.persistedGeneration = targetGeneration;
 				this.saveError = null;
 			} catch (error) {
 				this.saveError = error instanceof Error ? error.message : String(error);
 				throw error;
-			} finally {
-				if (pluginStore) {
-					try {
-						await pluginStore.close();
-					} catch (error) {
-						console.error('Chiusura store corsie fallita:', error);
-					}
-				}
 			}
 		}
 	}

@@ -8,9 +8,9 @@ use tauri::{command, AppHandle, Manager};
 const STORE_FILE_NAME: &str = "lanes.json";
 const STORE_KEY: &str = "laneState";
 
-// Il plugin store protegge la cache in memoria, ma la sua save usa fs::write.
-// Questo lock serializza anche le due webview e l'adapter sotto effettua lo
-// swap atomico con fs_atomic, senza finestre di troncamento del file canonico.
+// Unico accesso a lanes.json: il frontend non apre il plugin store su questo
+// file (la sua save usa fs::write). Il lock serializza le due webview e la
+// scrittura passa da fs_atomic, senza finestre di troncamento del file canonico.
 static LANE_STORE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
