@@ -43,7 +43,8 @@
 		IconStatusRunning,
 		IconTerminal,
 		IconWarning,
-		IconLab
+		IconLab,
+		IconChevronRight
 	} from '$lib/icons';
 	import { labApi } from '$lib/lab/api';
 	import type { LabIndexEntry } from '$lib/lab/types';
@@ -92,7 +93,7 @@
 		onOpenFile
 	}: Props = $props();
 
-	type View = 'default' | 'rename' | 'close' | 'close-others' | 'associate' | 'prototypes';
+	type View = 'default' | 'rename' | 'close' | 'close-others' | 'associate';
 
 	const AGENT_STATE_LABEL = $derived.by((): Record<Project['lane']['agentState'], string> => ({
 		working: m.topbar_agent_state_working(),
@@ -107,6 +108,14 @@
 	let panelEl = $state<HTMLElement | null>(null);
 	let view = $state<View>('default');
 	let flipped = $state(false);
+	// Sottomenu laterale dei prototipi: vive come popover figlio nel DOM del
+	// pannello, quindi il puntatore che ci entra resta "dentro" il pannello e
+	// il pannello principale non si accorcia ne' si chiude.
+	let protoRowEl = $state<HTMLElement | null>(null);
+	let protoMenuEl = $state<HTMLElement | null>(null);
+	let protoMenuOpen = $state(false);
+	let protoMenuFlipped = $state(false);
+	let protoFocusOnOpen = false;
 	let nameDraft = $state('');
 	let labelDraft = $state('');
 	let notice = $state('');
@@ -173,6 +182,60 @@
 			console.error('Creazione prototipo Lab fallita:', err);
 		}
 	}
+
+	function toggleProtoMenu(fromKeyboard: boolean) {
+		protoFocusOnOpen = fromKeyboard && !protoMenuOpen;
+		protoMenuOpen = !protoMenuOpen;
+	}
+
+	function closeProtoMenu(returnFocus: boolean) {
+		protoMenuOpen = false;
+		if (returnFocus) protoRowEl?.focus({ preventScroll: true });
+	}
+
+	function handleProtoRowKeydown(event: KeyboardEvent) {
+		if (event.key !== 'ArrowRight' || protoMenuOpen) return;
+		event.preventDefault();
+		toggleProtoMenu(true);
+	}
+
+	function handleProtoMenuKeydown(event: KeyboardEvent) {
+		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+			event.preventDefault();
+			const items = [...(protoMenuEl?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+			if (items.length === 0) return;
+			const index = items.indexOf(document.activeElement as HTMLElement);
+			const step = event.key === 'ArrowDown' ? 1 : -1;
+			const next = index < 0 ? 0 : (index + step + items.length) % items.length;
+			items[next].focus();
+			return;
+		}
+		if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+			event.preventDefault();
+			event.stopPropagation();
+			closeProtoMenu(true);
+		}
+	}
+
+	// Un click nel pannello fuori dal sottomenu lo chiude, come un menu nativo.
+	function handlePanelPointerDown(event: PointerEvent) {
+		if (!protoMenuOpen) return;
+		const target = event.target as Node | null;
+		if (target && (protoMenuEl?.contains(target) || protoRowEl?.contains(target))) return;
+		protoMenuOpen = false;
+	}
+
+	async function openPrototype(proto: LabIndexEntry) {
+		const targetId = project.id;
+		await openLabEntry(targetId, proto);
+		onClose();
+	}
+
+	$effect(() => {
+		if (!protoMenuEl || !protoFocusOnOpen) return;
+		protoFocusOnOpen = false;
+		protoMenuEl.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+	});
 
 	async function handleAssociate(targetPath: string) {
 		await associateDraftToProject(project, targetPath);
@@ -342,6 +405,10 @@
 		if (event.key !== 'Escape') return;
 		event.preventDefault();
 		event.stopPropagation();
+		if (protoMenuOpen) {
+			closeProtoMenu(true);
+			return;
+		}
 		if (view !== 'default') {
 			view = 'default';
 			return;
@@ -391,6 +458,7 @@
 	use:anchoredPopover={{ anchor, offset: 6, onFlip: (value) => (flipped = value) }}
 	onpointerenter={() => onHoverChange(true)}
 	onpointerleave={() => onHoverChange(false)}
+	onpointerdown={handlePanelPointerDown}
 	onkeydown={handleKeydown}
 >
 	{#if view === 'rename'}
@@ -559,27 +627,6 @@
 				<span class="row-label indent">{m.project_popover_btn_cancel()}</span>
 			</button>
 		</div>
-	{:else if view === 'prototypes'}
-		<div class="confirm">
-			<p>{m.lab_lane_prototypes_count({ count: projectPrototypes.length })}</p>
-			{#each projectPrototypes as proto (proto.id)}
-				<button
-					type="button"
-					class="row"
-					onclick={async () => {
-						await openLabEntry(project.id, proto);
-						onClose();
-					}}
-				>
-					<IconLab />
-					<span class="row-label">{proto.title}</span>
-					<span class="row-state">{proto.status === 'active' ? m.lab_lane_status_active() : m.lab_lane_status_closed()}</span>
-				</button>
-			{/each}
-			<button type="button" class="row" onclick={() => (view = 'default')}>
-				<span class="row-label indent">{m.project_popover_btn_cancel()}</span>
-			</button>
-		</div>
 	{:else if view === 'default'}
 		{#if settingsStore.projectBar.showQueuePeek && !isScratchpad && queueTasks.length > 0}
 			<section class="block">
@@ -676,12 +723,45 @@
 					</button>
 					{#if projectPrototypes.length > 0}
 						<button
+							bind:this={protoRowEl}
 							type="button"
 							class="row"
-							onclick={() => (view = 'prototypes')}
+							class:open={protoMenuOpen}
+							aria-haspopup="menu"
+							aria-expanded={protoMenuOpen}
+							onclick={(event) => toggleProtoMenu(event.detail === 0)}
+							onkeydown={handleProtoRowKeydown}
 						>
 							<IconLab /> <span class="row-label">{m.lab_lane_prototypes_count({ count: projectPrototypes.length })}</span>
+							<IconChevronRight />
 						</button>
+						{#if protoMenuOpen}
+							<div
+								bind:this={protoMenuEl}
+								class="proto-menu"
+								class:flipped={protoMenuFlipped}
+								popover="manual"
+								role="menu"
+								tabindex="-1"
+								aria-label={m.lab_lane_prototypes_count({ count: projectPrototypes.length })}
+								use:anchoredPopover={{
+									anchor: panelEl,
+									alignTo: protoRowEl,
+									placement: 'right-start',
+									offset: 2,
+									onFlip: (value) => (protoMenuFlipped = value)
+								}}
+								onkeydown={handleProtoMenuKeydown}
+							>
+								{#each projectPrototypes as proto (proto.id)}
+									<button type="button" class="row" role="menuitem" onclick={() => void openPrototype(proto)}>
+										<IconLab />
+										<span class="row-label" title={proto.title}>{proto.title}</span>
+										<span class="row-state">{proto.status === 'active' ? m.lab_lane_status_active() : m.lab_lane_status_closed()}</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
 					{/if}
 				{/if}
 			</section>
@@ -1068,6 +1148,55 @@
 
 	.row.subtle {
 		color: var(--ink-faint);
+	}
+
+	.row.open {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	/* Sottomenu laterale: stessa pelle del pannello, piu' stretto. Il lato lo
+	   decide `anchoredPopover` (`right-start`), che lo ribalta a sinistra
+	   quando a destra non c'e' spazio. */
+	.proto-menu {
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		width: 260px;
+		max-width: calc(100vw - 2 * var(--space-2));
+		max-height: calc(100vh - 64px);
+		overflow-x: hidden;
+		overflow-y: auto;
+		box-sizing: border-box;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
+		padding: var(--space-2);
+		color: var(--ink);
+		z-index: var(--z-overlay);
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		animation: proto-menu-in var(--dur-slow) var(--ease-out-expo);
+	}
+
+	.proto-menu.flipped {
+		animation-name: proto-menu-in-flipped;
+	}
+
+	@keyframes proto-menu-in {
+		from {
+			opacity: 0;
+			transform: translateX(-6px);
+		}
+	}
+
+	@keyframes proto-menu-in-flipped {
+		from {
+			opacity: 0;
+			transform: translateX(6px);
+		}
 	}
 
 	.row-label {

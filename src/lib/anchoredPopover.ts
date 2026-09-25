@@ -12,12 +12,13 @@
  * 2. **Piazzamento in JS.** CSS Anchor Positioning risolverebbe tutto in due
  *    righe ma non esiste su WKWebView prima di Safari 26, quindi su macOS 14 e
  *    15 il pannello finirebbe fuori posto. Le coordinate si calcolano qui:
- *    ribaltamento sull'asse verticale quando sotto non c'e' spazio, blocco
- *    dentro i bordi della finestra, e ricalcolo su scroll, resize e
- *    cambio di dimensione del pannello.
+ *    ribaltamento (verticale sotto l'ancora, orizzontale per i sottomenu
+ *    laterali) quando dal lato preferito non c'e' spazio, blocco dentro i
+ *    bordi della finestra, e ricalcolo su scroll, resize e cambio di
+ *    dimensione del pannello.
  */
 
-export type AnchorPlacement = 'bottom-start' | 'bottom-end';
+export type AnchorPlacement = 'bottom-start' | 'bottom-end' | 'right-start';
 
 export interface AnchoredOptions {
 	/** Elemento a cui agganciarsi. Se manca, il pannello resta dov'e'. */
@@ -27,14 +28,18 @@ export interface AnchoredOptions {
 	/** Margine minimo dai bordi della finestra. */
 	padding?: number;
 	placement?: AnchorPlacement;
+	/** Solo per `right-start`: elemento a cui allineare il bordo superiore.
+	 *  Un sottomenu esce dal bordo del pannello (l'ancora) ma parte all'altezza
+	 *  della riga che lo apre. Se manca, si allinea all'ancora. */
+	alignTo?: HTMLElement | null;
 	/** Larghezza del pannello uguale a quella dell'ancora: serve ai menu di
 	 *  selezione, che devono sembrare la continuazione del loro trigger. */
 	matchWidth?: boolean;
 	/** Pubblica lo spazio verticale disponibile nella variabile CSS
 	 *  `--anchored-space`, che il pannello compone con il proprio limite. */
 	constrainHeight?: boolean;
-	/** Notifica il ribaltamento: serve al pannello per spostare il ponte del
-	 *  mouse dal lato giusto. */
+	/** Notifica il ribaltamento (verticale, o orizzontale per `right-start`):
+	 *  serve al pannello per spostare il ponte del mouse dal lato giusto. */
 	onFlip?: (flipped: boolean) => void;
 }
 
@@ -103,6 +108,24 @@ export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}
 
 		const width = node.offsetWidth;
 		const height = node.offsetHeight;
+
+		if (placement === 'right-start') {
+			const row = current.alignTo?.isConnected ? current.alignTo.getBoundingClientRect() : rect;
+			const spaceRight = window.innerWidth - rect.right - offset - padding;
+			const spaceLeft = rect.left - offset - padding;
+			const flipSide = width > spaceRight && spaceLeft > spaceRight;
+			const sideLeft = flipSide
+				? Math.max(padding, rect.left - offset - width)
+				: Math.min(rect.right + offset, window.innerWidth - padding - width);
+			const sideTop = Math.min(row.top, window.innerHeight - padding - height);
+			node.style.left = `${Math.round(sideLeft)}px`;
+			node.style.top = `${Math.round(Math.max(padding, sideTop))}px`;
+			if (flipSide !== flipped) {
+				flipped = flipSide;
+				current.onFlip?.(flipSide);
+			}
+			return;
+		}
 		// Si ribalta solo se sopra c'e' davvero piu' spazio: un pannello alto
 		// che non entra da nessuna parte resta sotto l'ancora, dove l'utente
 		// lo aspetta, e scorre al proprio interno.
