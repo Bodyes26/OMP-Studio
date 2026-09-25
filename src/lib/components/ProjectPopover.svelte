@@ -145,24 +145,29 @@
 		}
 	});
 
+	// Il popover si chiude appena il puntatore esce o si clicca altrove: dopo un
+	// `await` la prop `project` del componente smontato vale null. Le azioni
+	// asincrone lavorano quindi sul progetto catturato al momento del clic.
 	async function handleCreateWorktreeLane() {
+		const target = project;
 		try {
-			const review = await reviewProjectProfile(project);
+			const review = await reviewProjectProfile(target);
 			if (review?.needsConsent) {
 				// Se servisse consenso avanzato, laneOrchestrator gestira'
 			}
 		} catch (err) {
 			console.error('Analisi profilo fallita:', err);
 		}
-		await laneOrchestrator.createNewLane(project);
+		await laneOrchestrator.createNewLane(target);
 		onClose();
 	}
 
 	async function handleCreateLabPrototype() {
-		if (!project.canonicalProjectPath) return;
+		const target = project;
+		if (!target.canonicalProjectPath) return;
 		try {
-			const entry = await labApi.createPrototype(project.canonicalProjectPath);
-			await openLabEntry(project.id, entry);
+			const entry = await labApi.createPrototype(target.canonicalProjectPath);
+			await openLabEntry(target.id, entry);
 			onClose();
 		} catch (err) {
 			console.error('Creazione prototipo Lab fallita:', err);
