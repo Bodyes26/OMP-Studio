@@ -2,6 +2,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
+	import { fetchSessionsList } from '$lib/agent/sessionsList';
 	import { onMount, untrack } from 'svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	interface SessionEntry {
@@ -108,7 +109,7 @@
 		try {
 			const result = q.trim()
 				? await invoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath: target })
-				: await invoke<SessionEntry[]>('sessions_list', { projectPath: target });
+				: await fetchSessionsList(target);
 			if (token !== requestToken || target !== projectPath) return;
 			sessions = result;
 			scheduleReconciliation();

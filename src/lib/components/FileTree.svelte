@@ -21,7 +21,8 @@
 		IconSearch
 	} from '$lib/icons';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
-	import { joinProjectPath, isWindows } from '$lib/utils/paths';
+	import { joinProjectPath, isWindows, normalizeProjectPath } from '$lib/utils/paths';
+	import type { GitStatusRefreshDetail } from '$lib/stores/gitDiff.svelte';
 	import { REVEAL_LABEL } from '$lib/utils/platform';
 
 	let {
@@ -289,10 +290,14 @@
 
 	let isDirty = $derived(isDirtyOrHasDirtyChildren(relPath, isDir));
 
-	async function loadGitStatus() {
+	let lastGitStatusLoadedAt = 0;
+
+	async function loadGitStatus(force = false) {
 		if (!projectPath) return;
+		if (!force && Date.now() - lastGitStatusLoadedAt < 5000) return;
 		try {
 			const res: { statuses: Record<string, string> } = await invoke('project_git_status', { projectPath });
+			lastGitStatusLoadedAt = Date.now();
 			rootGitStatuses = res.statuses || {};
 		} catch {
 			// Progetto non git o comando fallito: lo stato git degrada a vuoto
@@ -315,22 +320,33 @@
 					void loadEntries();
 				}
 			}
-			void loadGitStatus();
+			void loadGitStatus(true);
 
-			const handleRefresh = () => {
-				void loadGitStatus();
+			const handleGitRefresh = (event: Event) => {
+				const target = (event as CustomEvent<GitStatusRefreshDetail>).detail?.projectPath;
+				if (
+					target &&
+					normalizeProjectPath(target).toLowerCase() !== normalizeProjectPath(projectPath).toLowerCase()
+				) {
+					return;
+				}
+				void loadGitStatus(true);
 			};
 
-			window.addEventListener('git-status-refresh', handleRefresh);
-			window.addEventListener('focus', handleRefresh);
+			const handleFocus = () => {
+				void loadGitStatus(false);
+			};
+
+			window.addEventListener('git-status-refresh', handleGitRefresh);
+			window.addEventListener('focus', handleFocus);
 
 			return () => {
 				if (searchTimer !== null) {
 					window.clearTimeout(searchTimer);
 					searchTimer = null;
 				}
-				window.removeEventListener('git-status-refresh', handleRefresh);
-				window.removeEventListener('focus', handleRefresh);
+				window.removeEventListener('git-status-refresh', handleGitRefresh);
+				window.removeEventListener('focus', handleFocus);
 			};
 		}
 	});

@@ -6,8 +6,15 @@ import HtmlWorker from 'monaco-editor/language/html/html.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 import { canvasColors, onThemeChange } from '$lib/theme';
 import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
+import { perfMark } from '$lib/perf';
+
+let monacoInitialized = false;
 
 export function initMonaco() {
+	if (!monacoInitialized) {
+		monacoInitialized = true;
+		perfMark('editor', 'monaco init');
+	}
 	self.MonacoEnvironment = {
 		getWorker: function (moduleId, label) {
 			if (label === 'json') {
@@ -96,6 +103,7 @@ function attachModel(path: string, model: monaco.editor.ITextModel) {
 		attachedPath = path;
 		return;
 	}
+	clearGutterDebounce();
 	stashViewState();
 	editorInstance.setModel(model);
 	attachedPath = path;
@@ -126,6 +134,7 @@ export function getEditorInstance(container: HTMLElement) {
 		const pending = activePath ? models.get(activePath) : undefined;
 		if (pending && activePath) attachModel(activePath, pending);
 	} else if (editorInstance.getContainerDomNode() !== container) {
+		clearGutterDebounce();
 		const currentModel = editorInstance.getModel();
 		const carriedPath = attachedPath;
 		stashViewState();
@@ -172,6 +181,7 @@ export function disposeFileModel(absPath: string) {
 	const model = models.get(absPath);
 	if (model) {
 		if (editorInstance?.getModel() === model) {
+			clearGutterDebounce();
 			editorInstance.setModel(null);
 			attachedPath = null;
 		}
@@ -293,6 +303,32 @@ export function applyEditorSettings(diffEditor?: monaco.editor.IStandaloneDiffEd
 	diffEditor.updateOptions(sharedOptions);
 	diffEditor.getOriginalEditor().updateOptions(sharedOptions);
 	diffEditor.getModifiedEditor().updateOptions(sharedOptions);
+}
+
+let gutterDebounceTimer: number | null = null;
+
+/**
+ * Annulla qualsiasi aggiornamento delle decorazioni del gutter in attesa.
+ * Da chiamare al cambio modello, alla distruzione dell'editor o quando
+ * si effettua un aggiornamento immediato.
+ */
+export function clearGutterDebounce() {
+	if (gutterDebounceTimer !== null) {
+		clearTimeout(gutterDebounceTimer);
+		gutterDebounceTimer = null;
+	}
+}
+
+/**
+ * Pianifica l'aggiornamento delle decorazioni del gutter con debounce (~150 ms)
+ * per evitare di eseguire il diff completo delle righe a ogni battuta di tastiera.
+ */
+export function scheduleGutterDecorations(run: () => void, delayMs = 150) {
+	clearGutterDebounce();
+	gutterDebounceTimer = setTimeout(() => {
+		gutterDebounceTimer = null;
+		run();
+	}, delayMs);
 }
 
 export function updateGutterDecorations(

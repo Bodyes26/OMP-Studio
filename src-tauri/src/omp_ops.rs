@@ -375,9 +375,11 @@ fn usage_snapshot_sync() -> Result<UsageReport, String> {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-
+    let _span = crate::perf_trace::span(
+        "poll",
+        crate::perf_trace::command_label(&omp_path, ["usage", "--json"]),
+    );
     let output = omp_capture(cmd).map_err(|e| e.to_string())?;
-
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
         let parsed: serde_json::Value =
@@ -1144,10 +1146,11 @@ fn read_session_header(path: &Path) -> Option<CachedSession> {
     })
 }
 
-fn cached_header(path: &Path) -> Option<CachedSession> {
+fn cached_header_tracked(path: &Path, files_opened: &mut usize) -> Option<CachedSession> {
     if let Some(hit) = SESSION_HEADERS.lock().get(path) {
         return Some(hit.clone());
     }
+    *files_opened += 1;
     let header = read_session_header(path)?;
     SESSION_HEADERS
         .lock()
@@ -1213,6 +1216,96 @@ fn scan_sessions_from_disk(
     };
     scan_sessions_in(&agent.join("sessions"), project_path, query, titles)
 }
+/// Verifica se il nome della cartella puo' corrispondere al percorso del progetto.
+/// omp codifica la cartella delle sessioni per un dato cwd secondo queste regole:
+/// 1. Sotto la home utente: prefisso '-' seguito dal percorso relativo dove '/', '\\' e ':'
+///    sono sostituiti da '-' (es. `C:\Users\m\source\repos\app` -> `-source-repos-app`).
+/// 2. Sotto la cartella temporanea: prefisso '-tmp' seguito dall'eventuale relativo (es. `-tmp` o `-tmp-probe`).
+/// 3. Assoluto dcs (legacy o percorsi fuori home): `--<disco>--<percorso>--` (es. `--C--tmp--`).
+/// 4. Hashed legacy: `home-<slug>-<sha256>`, `tmp-...`, `abs-...`.
+/// 5. Tolleranza per test o percorsi parziali: il nome cartella termina con `-[basename]`
+///    o `-[basename]--` o corrisponde a `--[basename]--`.
+///
+/// Se la codifica non puo' essere calcolata o nel dubbio, ritorna `true` per non perdere sessioni.
+fn session_folder_might_match(folder_name: &str, project_path: &str) -> bool {
+    let trimmed_proj = project_path.trim_end_matches(['/', '\\']);
+    if trimmed_proj.is_empty() {
+        return true;
+    }
+
+    let folder_lower = folder_name.to_lowercase();
+
+    // 1. Tolleranza sul nome finale del progetto (basename / slug)
+    if let Some(base) = Path::new(trimmed_proj).file_name().and_then(|b| b.to_str()) {
+        let base_clean = base.trim().to_lowercase();
+        if !base_clean.is_empty() {
+            let suffix1 = format!("-{}", base_clean);
+            let suffix2 = format!("-{}--", base_clean);
+            let exact_dcs = format!("--{}--", base_clean);
+            if folder_lower == exact_dcs
+                || folder_lower.ends_with(&suffix1)
+                || folder_lower.ends_with(&suffix2)
+            {
+                return true;
+            }
+        }
+    }
+
+    // 2. Controllo contro i candidati esatti calcolati da omp
+    let mut candidates = Vec::with_capacity(6);
+
+    // Formato assoluto dcs: `--<disco>--<percorso>--`
+    let abs_raw = trimmed_proj.trim_start_matches(['/', '\\']).replace(['/', '\\', ':'], "-");
+    candidates.push(format!("--{}--", abs_raw).to_lowercase());
+
+    // Se sotto la home utente
+    if let Some(home) = get_user_home() {
+        let home_trimmed = home.trim_end_matches(['/', '\\']);
+        let p_norm = trimmed_proj.replace('\\', "/").to_lowercase();
+        let h_norm = home_trimmed.replace('\\', "/").to_lowercase();
+        if p_norm == h_norm {
+            candidates.push("-".to_string());
+        } else if let Some(rel) = p_norm.strip_prefix(&format!("{}/", h_norm)) {
+            let rel_dash = rel.replace('/', "-");
+            candidates.push(format!("-{}", rel_dash));
+        }
+    }
+
+    // Se sotto la cartella temporanea
+    let temp_dir = std::env::temp_dir();
+    let temp_str = temp_dir.to_string_lossy();
+    let temp_trimmed = temp_str.trim_end_matches(['/', '\\']);
+    let p_norm = trimmed_proj.replace('\\', "/").to_lowercase();
+    let t_norm = temp_trimmed.replace('\\', "/").to_lowercase();
+    if p_norm == t_norm {
+        candidates.push("-tmp".to_string());
+    } else if let Some(rel) = p_norm.strip_prefix(&format!("{}/", t_norm)) {
+        let rel_dash = rel.replace('/', "-");
+        candidates.push(format!("-tmp-{}", rel_dash));
+    }
+
+    // Se il nome cartella e' esattamente uno dei candidati
+    for cand in candidates {
+        if folder_lower == cand {
+            return true;
+        }
+    }
+
+    // Se la cartella inizia per "home-", "tmp-" o "abs-" (formato legacy con sha256)
+    // controlla se contiene lo slug del progetto
+    if (folder_lower.starts_with("home-") || folder_lower.starts_with("tmp-") || folder_lower.starts_with("abs-"))
+        && folder_lower.len() > 64
+    {
+        if let Some(base) = Path::new(trimmed_proj).file_name().and_then(|b| b.to_str()) {
+            let base_lower = base.to_lowercase();
+            if folder_lower.contains(&base_lower) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
 
 fn scan_sessions_in(
     sessions_root: &Path,
@@ -1220,11 +1313,15 @@ fn scan_sessions_in(
     query: Option<&str>,
     titles: &HashMap<String, String>,
 ) -> Vec<SessionEntry> {
+    let started = Instant::now();
     let target_norm = normalize_path_for_compare(project_path);
 
     let Ok(dir_entries) = std::fs::read_dir(sessions_root) else {
         return Vec::new();
     };
+
+    let mut folders_skipped = 0usize;
+    let mut files_opened = 0usize;
 
     // Fase 1: solo le intestazioni. Scartare il transcript di un altro
     // progetto costa poche centinaia di byte, non l'intero file.
@@ -1234,6 +1331,19 @@ fn scan_sessions_in(
         if !folder_path.is_dir() {
             continue;
         }
+
+        let folder_name = folder_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+
+        // Salta le cartelle il cui nome non puo' appartenere a questo progetto
+        // prima di aprire qualsiasi file, risparmiando centinaia di aperture disco.
+        if !session_folder_might_match(folder_name, project_path) {
+            folders_skipped += 1;
+            continue;
+        }
+
         let Ok(files) = std::fs::read_dir(&folder_path) else {
             continue;
         };
@@ -1242,7 +1352,7 @@ fn scan_sessions_in(
             if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
                 continue;
             }
-            let Some(header) = cached_header(&path) else {
+            let Some(header) = cached_header_tracked(&path, &mut files_opened) else {
                 continue;
             };
             if normalize_path_for_compare(&header.cwd) != target_norm {
@@ -1258,6 +1368,12 @@ fn scan_sessions_in(
             candidates.push((path, header, mtime));
         }
     }
+
+    crate::perf_trace::record(
+        "sessions",
+        &format!("list {} files opened {} folders skipped", files_opened, folders_skipped),
+        started.elapsed(),
+    );
 
     candidates.sort_by_key(|right| std::cmp::Reverse(right.2));
     // Senza ricerca la GUI mostra le piu' recenti: il titolo va risolto solo
@@ -1310,15 +1426,19 @@ fn sessions_list_sync(project_path: String) -> Result<Vec<SessionEntry>, String>
             }
         }
 
+        let path_backslash = project_path.replace('/', "\\");
+        let path_slash = project_path.replace('\\', "/");
+        let target_norm = normalize_path_for_compare(&project_path);
+
         if let Ok(mut stmt) = conn.prepare(
             "SELECT session_id, prompt, MIN(created_at) as created_at 
              FROM history 
-             WHERE cwd = ? AND prompt NOT LIKE '/%' 
+             WHERE (cwd = ?1 OR cwd = ?2 OR replace(cwd, '\\', '/') = ?3) AND prompt NOT LIKE '/%' 
              GROUP BY session_id 
              ORDER BY created_at DESC 
              LIMIT 50",
         ) {
-            if let Ok(iter) = stmt.query_map([&project_path], |row| {
+            if let Ok(iter) = stmt.query_map(rusqlite::params![path_backslash, path_slash, target_norm], |row| {
                 Ok(SessionEntry {
                     id: row.get(0)?,
                     title: row.get(1)?,
@@ -1388,21 +1508,24 @@ fn sessions_search_sync(
                 "SELECT h.session_id, h.prompt, h.created_at 
                  FROM history_fts f 
                  JOIN history h ON f.rowid = h.id 
-                 WHERE history_fts MATCH ? AND h.cwd = ? 
+                 WHERE history_fts MATCH ?1 AND (h.cwd = ?2 OR h.cwd = ?3 OR replace(h.cwd, '\\', '/') = ?4) 
                  GROUP BY h.session_id 
                  ORDER BY h.created_at DESC LIMIT 50"
             } else {
                 "SELECT h.session_id, h.prompt, h.created_at 
                  FROM history_fts f 
                  JOIN history h ON f.rowid = h.id 
-                 WHERE history_fts MATCH ? 
+                 WHERE history_fts MATCH ?1 
                  GROUP BY h.session_id 
                  ORDER BY h.created_at DESC LIMIT 50"
             };
 
             if let Ok(mut stmt) = conn.prepare(sql) {
                 if let Some(path) = &project_path {
-                    if let Ok(iter) = stmt.query_map(rusqlite::params![fts_query, path], |row| {
+                    let path_backslash = path.replace('/', "\\");
+                    let path_slash = path.replace('\\', "/");
+                    let target_norm = normalize_path_for_compare(path);
+                    if let Ok(iter) = stmt.query_map(rusqlite::params![fts_query, path_backslash, path_slash, target_norm], |row| {
                         Ok(SessionEntry {
                             id: row.get(0)?,
                             title: row.get(1)?,
@@ -1577,7 +1700,27 @@ pub async fn session_credential_pins(session_id: String) -> HashMap<String, Stri
         .unwrap_or_default()
 }
 
-fn get_omp_version_sync() -> Result<String, String> {
+static CACHED_OMP_VERSION: Mutex<Option<String>> = Mutex::new(None);
+
+/// Invalida la versione omp memorizzata nella cache (es. dopo installazione o aggiornamento).
+pub fn invalidate_cached_omp_version() {
+    *CACHED_OMP_VERSION.lock() = None;
+}
+
+/// Restituisce la versione omp memorizzata nella cache se presente.
+pub fn get_cached_omp_version() -> Option<String> {
+    CACHED_OMP_VERSION.lock().clone()
+}
+
+/// Salva la versione omp nella cache di processo.
+pub fn set_cached_omp_version(version: String) {
+    *CACHED_OMP_VERSION.lock() = Some(version);
+}
+
+pub fn get_omp_version_sync() -> Result<String, String> {
+    if let Some(cached) = get_cached_omp_version() {
+        return Ok(cached);
+    }
     let omp_path = get_omp_binary();
     let mut cmd = Command::new(&omp_path);
     cmd.arg("--version");
@@ -1587,6 +1730,10 @@ fn get_omp_version_sync() -> Result<String, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
+    let _span = crate::perf_trace::span(
+        "boot",
+        crate::perf_trace::command_label(&omp_path, ["--version"]),
+    );
     let output = omp_capture(cmd).map_err(|e| format!("Failed to run omp: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let trimmed = stdout.trim();
@@ -1598,7 +1745,9 @@ fn get_omp_version_sync() -> Result<String, String> {
     if ver.is_empty() {
         Err("Unable to parse version".to_string())
     } else {
-        Ok(ver.to_string())
+        let v = ver.to_string();
+        set_cached_omp_version(v.clone());
+        Ok(v)
     }
 }
 
@@ -1776,12 +1925,14 @@ fn check_omp_update_sync() -> Result<OmpUpdateCheck, String> {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-
+    let _span = crate::perf_trace::span(
+        "boot",
+        crate::perf_trace::command_label(&omp_path, ["update", "--check"]),
+    );
     let current_version = get_omp_version_sync().unwrap_or_else(|_| "unknown".to_string());
 
     let output =
         omp_capture(cmd).map_err(|e| format!("Impossibile verificare aggiornamenti OMP: {}", e))?;
-
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -1804,7 +1955,10 @@ fn run_omp_update_sync() -> Result<String, String> {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-
+    let _span = crate::perf_trace::span(
+        "boot",
+        crate::perf_trace::command_label(&omp_path, ["update"]),
+    );
     let output = cmd
         .output()
         .map_err(|e| format!("Impossibile eseguire l'aggiornamento di OMP: {}", e))?;
@@ -1815,6 +1969,8 @@ fn run_omp_update_sync() -> Result<String, String> {
     let cleaned = strip_ansi(&combined).trim().to_string();
 
     if output.status.success() {
+        // La versione su disco e' cambiata: invalidiamo la cache per rileggerla fresca.
+        invalidate_cached_omp_version();
         Ok(cleaned)
     } else {
         let msg = if !cleaned.is_empty() {
@@ -2211,6 +2367,28 @@ mod tests {
         assert_eq!(cercate[0].id, "bbb");
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_session_folder_might_match_vari_percorsi() {
+        assert!(session_folder_might_match(
+            "-source-repos-omp-studio-app",
+            "C:\\Users\\maurizio.actisalesin\\source\\repos\\omp-studio-app"
+        ));
+        assert!(!session_folder_might_match(
+            "-source-repos-AreaIT",
+            "C:\\Users\\maurizio.actisalesin\\source\\repos\\omp-studio-app"
+        ));
+        assert!(session_folder_might_match("--C--tmp--", "C:\\tmp"));
+        assert!(session_folder_might_match("--C--tmp-omp-probe--", "C:\\tmp\\omp-probe"));
+        assert!(session_folder_might_match(
+            "-source-repos-app",
+            "C:\\repos\\app"
+        ));
+        assert!(!session_folder_might_match(
+            "-source-repos-altro",
+            "C:\\repos\\app"
+        ));
     }
 
     #[test]

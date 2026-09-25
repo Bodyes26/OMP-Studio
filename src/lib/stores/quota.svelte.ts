@@ -167,12 +167,37 @@ class QuotaStore {
 
 	private timer: number | null = null;
 	private onVisibility: (() => void) | null = null;
+	private startupDeferTimer: number | null = null;
+	private startupCleanup: (() => void) | null = null;
 	private initialized = false;
 
 	init() {
 		if (this.initialized) return;
 		this.initialized = true;
-		void this.refresh(false);
+
+		// Il primo usage_snapshot viene differito per non competere con l'avvio della sessione:
+		// parte ~10s dopo il boot oppure quando la sessione attiva e' pronta, a seconda di cosa arriva prima.
+		if (typeof window !== 'undefined') {
+			let done = false;
+			const triggerInitial = () => {
+				if (done) return;
+				done = true;
+				if (this.startupDeferTimer !== null) {
+					window.clearTimeout(this.startupDeferTimer);
+					this.startupDeferTimer = null;
+				}
+				this.startupCleanup?.();
+				this.startupCleanup = null;
+				void this.refresh(false);
+			};
+
+			this.startupDeferTimer = window.setTimeout(triggerInitial, 10_000);
+			const onReady = () => triggerInitial();
+			window.addEventListener('studio-active-session-ready', onReady, { once: true });
+			this.startupCleanup = () => window.removeEventListener('studio-active-session-ready', onReady);
+		} else {
+			void this.refresh(false);
+		}
 
 		if (typeof window !== 'undefined') {
 			// A finestra nascosta (minimizzata) il chip non e' visibile: interrogare
@@ -194,6 +219,12 @@ class QuotaStore {
 	}
 
 	destroy() {
+		if (this.startupDeferTimer !== null) {
+			window.clearTimeout(this.startupDeferTimer);
+			this.startupDeferTimer = null;
+		}
+		this.startupCleanup?.();
+		this.startupCleanup = null;
 		if (this.timer !== null) {
 			clearInterval(this.timer);
 			this.timer = null;

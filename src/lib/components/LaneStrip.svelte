@@ -86,9 +86,12 @@
 
 	// Il registro vive nel backend: qui si campiona, senza mai duplicarne lo
 	// stato. L'intervallo e' l'unico costo dell'indicatore.
+	// Se la finestra e' nascosta o ridotta a icona, saltiamo il campionamento per
+	// azzerare il carico in background.
 	$effect(() => {
 		let cancelled = false;
 		const sample = async () => {
+			if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 			try {
 				const list = await listLaneProcesses();
 				if (!cancelled) laneProcesses = list;
@@ -98,9 +101,16 @@
 		};
 		void sample();
 		const timer = setInterval(() => void sample(), 4000);
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				void sample();
+			}
+		};
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
 			cancelled = true;
 			clearInterval(timer);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 		};
 	});
 

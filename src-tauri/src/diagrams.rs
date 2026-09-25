@@ -102,6 +102,7 @@ impl DiagramWatcherState {
 }
 
 fn scan_and_emit(app: &AppHandle, state: &DiagramWatcherState) {
+    let started = std::time::Instant::now();
     let Some(dir) = diagrams_dir() else { return };
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return;
@@ -142,41 +143,68 @@ fn scan_and_emit(app: &AppHandle, state: &DiagramWatcherState) {
         // Il frontend filtra per progetto attivo usando `cwd`.
         let _ = app.emit("diagram://new", &payload);
         *state.last_seen.lock() = Some((path, stamp));
+        crate::perf_trace::record("watch", "diagrams scan", started.elapsed());
     }
 }
 
-/// Avvia il watcher all'avvio dell'app. Un thread dedicato con polling di
-/// 500 ms su una cartella locale: nessuna dipendenza async, costo nullo.
+fn setup_diagrams_watcher(
+    dir: &std::path::Path,
+    tx: std::sync::mpsc::Sender<()>,
+) -> Option<notify::RecommendedWatcher> {
+    let mut watcher = notify::recommended_watcher(move |_res| {
+        let _ = tx.send(());
+    })
+    .ok()?;
+    // Preferiamo osservare la cartella genitrice in modo ricorsivo:
+    // se l'utente cancella la cartella `diagrams` e poi omp la ricrea,
+    // il descrittore sulla cartella padre non viene invalidato.
+    if let Some(parent) = dir.parent() {
+        if watcher.watch(parent, RecursiveMode::Recursive).is_ok() {
+            return Some(watcher);
+        }
+    }
+    if watcher.watch(dir, RecursiveMode::NonRecursive).is_ok() {
+        return Some(watcher);
+    }
+    None
+}
+
+/// Avvia il watcher all'avvio dell'app. Un thread a eventi con debounce di
+/// 150 ms e controllo di sicurezza ogni 10 s: nessun polling a 2 Hz.
 pub fn spawn_watcher(app: AppHandle) {
     std::thread::spawn(move || {
         let state = DiagramWatcherState::new();
 
-        // Se la cartella non esiste ancora (nessun diagramma mai inviato),
-        // il watcher su di essa fallirebbe: si crea subito, e' vuota e
-        // innocua, cancellabile dall'utente come qualsiasi file di Studio.
-        if let Some(dir) = diagrams_dir() {
-            let _ = std::fs::create_dir_all(&dir);
-        }
+        let Some(dir) = diagrams_dir() else { return };
+        let _ = std::fs::create_dir_all(&dir);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = setup_diagrams_watcher(&dir, tx.clone());
+
+        // Prima scansione iniziale per raccogliere eventuali diagrammi gia' pronti
+        scan_and_emit(&app, &state);
 
         loop {
-            // notify richiede che il Watcher viva per tutta la durata del
-            // loop: lo ricreiamo a ogni giro per assorbire cancellazioni
-            // della cartella da parte dell'utente.
-            if let Some(dir) = diagrams_dir() {
-                if let Ok(mut watcher) = notify::recommended_watcher(|_| {}) {
-                    if watcher.watch(&dir, RecursiveMode::NonRecursive).is_ok() {
-                        scan_and_emit(&app, &state);
-                        // Il watcher resta vivo finche' `watcher` esiste:
-                        // teniamolo in vita per il periodo di poll.
-                        std::thread::sleep(Duration::from_millis(500));
-                        drop(watcher);
-                        continue;
+            // Attende un evento dal watcher con un timeout di sicurezza di 10 s.
+            match rx.recv_timeout(Duration::from_secs(10)) {
+                Ok(()) => {
+                    // Debounce di 150 ms per raggruppare scritture rapide dello stesso file
+                    std::thread::sleep(Duration::from_millis(150));
+                    while rx.try_recv().is_ok() {}
+                    scan_and_emit(&app, &state);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Rescan di sicurezza periodico ogni 10 s
+                    if !dir.exists() || watcher.is_none() {
+                        let _ = std::fs::create_dir_all(&dir);
+                        watcher = setup_diagrams_watcher(&dir, tx.clone());
                     }
+                    scan_and_emit(&app, &state);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    break;
                 }
             }
-            // Cartella assente o watcher fallito: ripiega su polling puro.
-            scan_and_emit(&app, &state);
-            std::thread::sleep(Duration::from_millis(500));
         }
     });
 }

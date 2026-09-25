@@ -150,6 +150,9 @@ fn which_on_path(program: &str) -> Option<PathBuf> {
 }
 
 fn read_omp_version(binary: &Path) -> Option<String> {
+    if let Some(cached) = crate::omp_ops::get_cached_omp_version() {
+        return Some(cached);
+    }
     let ext = binary.extension().and_then(|e| e.to_str()).unwrap_or("");
     let mut cmd = if cfg!(target_os = "windows")
         && (ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
@@ -164,6 +167,10 @@ fn read_omp_version(binary: &Path) -> Option<String> {
     };
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
+    let _span = crate::perf_trace::span(
+        "boot",
+        crate::perf_trace::command_label(binary.to_string_lossy().as_ref(), ["--version"]),
+    );
     let output = cmd.output().ok()?;
     let stdout_text = String::from_utf8_lossy(&output.stdout);
     let raw = stdout_text.trim();
@@ -186,7 +193,13 @@ fn read_omp_version(binary: &Path) -> Option<String> {
         .unwrap_or(&text_to_parse)
         .trim_start_matches(['v', 'V'])
         .trim();
-    (!version_part.is_empty()).then(|| version_part.to_string())
+    if !version_part.is_empty() {
+        let ver = version_part.to_string();
+        crate::omp_ops::set_cached_omp_version(ver.clone());
+        Some(ver)
+    } else {
+        None
+    }
 }
 
 fn config_yml_path_in(dir: &Path) -> Option<PathBuf> {
@@ -1010,6 +1023,8 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
 
     // Riprova l'esecuzione fino a 4 volte con backoff per consentire
     // l'eventuale scansione iniziale dell'antivirus.
+    // Invalida la cache perche' il binario sul disco e' stato appena rimpiazzato
+    crate::omp_ops::invalidate_cached_omp_version();
     let mut detected_version = None;
     for attempt in 0..4 {
         if attempt > 0 {

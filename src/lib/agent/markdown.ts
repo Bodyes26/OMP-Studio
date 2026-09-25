@@ -27,10 +27,14 @@ export type StreamFade = {
 };
 
 /**
- * Tokenizza. `gfm` per tabelle e barrato, `breaks` perche' in chat un
- * ritorno a capo e' un ritorno a capo e non uno spazio.
+ * Dimensione massima della cache LRU dei token markdown.
+ * Evita ricalcoli sincroni ripetuti nel template per i blocchi di testo statici
+ * mantenendo l'occupazione di memoria contenuta (~500 messaggi recenti).
  */
-export function lexMarkdown(source: string): Token[] {
+const MAX_LEX_CACHE_SIZE = 500;
+const lexCache = new Map<string, Token[]>();
+
+function lexMarkdownUncached(source: string): Token[] {
 	if (!source) return [];
 	try {
 		return marked.lexer(source, { gfm: true, breaks: true });
@@ -39,6 +43,31 @@ export function lexMarkdown(source: string): Token[] {
 		// che un buco.
 		return [{ type: 'paragraph', raw: source, text: source, tokens: [] } as Tokens.Paragraph];
 	}
+}
+
+/**
+ * Tokenizza con cache LRU limitata a 500 voci. `gfm` per tabelle e barrato,
+ * `breaks` perche' in chat un ritorno a capo e' un ritorno a capo e non uno spazio.
+ */
+export function lexMarkdown(source: string): Token[] {
+	if (!source) return [];
+	const cached = lexCache.get(source);
+	if (cached !== undefined) {
+		// Promuove in fondo per la politica LRU di Map
+		lexCache.delete(source);
+		lexCache.set(source, cached);
+		return cached;
+	}
+
+	const tokens = lexMarkdownUncached(source);
+	if (lexCache.size >= MAX_LEX_CACHE_SIZE) {
+		const oldest = lexCache.keys().next().value;
+		if (oldest !== undefined) {
+			lexCache.delete(oldest);
+		}
+	}
+	lexCache.set(source, tokens);
+	return tokens;
 }
 
 /**

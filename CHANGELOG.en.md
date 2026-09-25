@@ -34,6 +34,11 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Isolated-lane confirmation dialogs now use the theme colors: the primary button ("Start in new lane", "Create the lane") is readable again, the app stays visible through the backdrop on light themes instead of turning solid gray, and the task title shows on two lines in its own card.
 - When the queue suggests a new lane because the agent is marked as working, the dialog also offers "Force in …": the task starts in the lane open on screen, interrupting any turn or question still open.
 - Removed the global "Laboratorio" button from the top bar: prototype access is now scoped per-project via the tab popover or the lane strip.
+- Faster startup: when Studio opens only the active project's agent starts right away; agents for the other projects start one at a time in the background, while a project with queued tasks or picked by hand starts immediately. The omp update check and usage calculation run after the first chat is ready, and `omp --version` runs only once.
+- Files open in the editor without waiting for git: the content appears immediately and the change markers in the gutter follow right after. Files over 5 MB or binary files show a notice instead of freezing the editor and cannot be overwritten by mistake.
+- The session list reads only the project's folders instead of opening the history of every project, and duplicate requests for the same list are merged into one. Reopening a long session shows the messages at once, without a cascade animation.
+- With Studio minimized or hidden no git checks run in the background; returning to the window refreshes only the active project, at most every 5 seconds, and at startup the projects' git badges fill in one at a time. New diagrams and previews are detected through file system events instead of checking the folder twice a second.
+- Studio records startup, file opening, session loading and every git command timings in `perf-trace.log`, in the app log folder, to measure where time goes.
 
 ### Fixed
 - On startup Studio no longer reopens the last prototype preview from a previous session: the center column no longer shows, every time it opens, an empty preview of a file that no longer exists and that could not be dismissed; only previews generated after startup appear.

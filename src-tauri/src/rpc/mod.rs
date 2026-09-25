@@ -151,10 +151,19 @@ impl RpcManager {
 /// Niente `tui.*` (non c'e' terminale) e niente `theme.*` (non c'e'
 /// rendering ANSI).
 pub(crate) fn write_gui_overlay() -> std::path::PathBuf {
+    const OVERLAY_CONTENT: &[u8] = b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\n";
     let mut overlay_path = std::env::temp_dir();
     overlay_path.push("omp-studio-gui-overlay.yml");
-    if let Ok(mut file) = std::fs::File::create(&overlay_path) {
-        let _ = file.write_all(b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\n");
+    // Riscrive solo se il contenuto differisce: evita riscritture inutili
+    // e allarmi dell'antivirus a ogni apertura di sessione.
+    let stale = match std::fs::read(&overlay_path) {
+        Ok(existing) => existing != OVERLAY_CONTENT,
+        Err(_) => true,
+    };
+    if stale {
+        if let Ok(mut file) = std::fs::File::create(&overlay_path) {
+            let _ = file.write_all(OVERLAY_CONTENT);
+        }
     }
     overlay_path
 }
@@ -800,6 +809,10 @@ pub async fn rpc_open(
         }
     }
 
+    let _spawn_span = crate::perf_trace::span(
+        "boot",
+        crate::perf_trace::command_label(&omp_path, ["--mode", "rpc-ui"]),
+    );
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(error) => {

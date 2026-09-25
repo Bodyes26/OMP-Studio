@@ -2,8 +2,10 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
+	import { fetchSessionsList } from '$lib/agent/sessionsList';
 	import { IconGitBranch, IconChevronDown, IconDiamond, IconCheck, IconPlus, IconExternalLink } from '$lib/icons';
-	import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
+	import { perfSpan } from '$lib/perf';
+	import { notifyGitStatusRefresh, type GitStatusRefreshDetail } from '$lib/stores/gitDiff.svelte';
 	import { githubStore } from '$lib/stores/github.svelte';
 	import { normalizeProjectPath } from '$lib/stores/projects.svelte';
 	import { openUrl } from '@tauri-apps/plugin-opener';
@@ -106,9 +108,22 @@
 		return i18n.formatDate(t * 1000, { day: '2-digit', month: 'short' });
 	}
 
-	async function refresh() {
+	let lastRefreshedAt = 0;
+
+	async function refresh(
+		reason: 'interval' | 'focus' | 'visible' | 'event' | 'boot' = 'boot',
+		force = false
+	) {
 		const targetPath = projectPath;
 		if (!targetPath) return;
+
+		// Se non forzato, rispetta la soglia di 5 s per evitare tempeste di spawn git
+		if (!force && Date.now() - lastRefreshedAt < 5000) {
+			return;
+		}
+
+		const projectName = targetPath.split(/[/\\]/).filter(Boolean).pop() || targetPath;
+		const end = perfSpan('poll', `gitpanel ${projectName} reason=${reason}`);
 		refreshError = null;
 		isRefreshing = true;
 		try {
@@ -119,6 +134,8 @@
 				invoke('git_last_commit', { projectPath: targetPath }),
 				invoke('git_recent_commits', { projectPath: targetPath, limit: 10 })
 			]);
+
+			lastRefreshedAt = Date.now();
 
 			// Scarta i risultati se nel frattempo e' stato selezionato un altro progetto
 			if (projectPath !== targetPath) return;
@@ -151,7 +168,7 @@
 				.sort((a, b) => a.path.localeCompare(b.path));
 			lastCommit = last;
 			commits = rec;
-			void githubStore.loadUpstreamStatus(targetPath);
+			void githubStore.loadUpstreamStatus(targetPath, force);
 			void githubStore.loadActionsStatus(targetPath, b || undefined);
 		} catch (e) {
 			if (projectPath !== targetPath) return;
@@ -165,26 +182,57 @@
 			}
 		} finally {
 			if (projectPath === targetPath) isRefreshing = false;
+			end();
 		}
 	}
 
 	$effect(() => {
 		if (!projectPath) return;
-		void refresh();
+		void refresh('boot', true);
 		void loadBranches();
 		void loadSessions();
+
 		const onFocus = () => {
-			void refresh();
+			const wasRecent = Date.now() - lastRefreshedAt < 5000;
+			void refresh('focus', false);
+			if (!wasRecent) {
+				void loadBranches();
+			}
+		};
+
+		const onGitRefresh = (event: Event) => {
+			const target = (event as CustomEvent<GitStatusRefreshDetail>).detail?.projectPath;
+			if (
+				target &&
+				normalizeProjectPath(target).toLowerCase() !== normalizeProjectPath(projectPath).toLowerCase()
+			) {
+				return;
+			}
+			void refresh('event', true);
 			void loadBranches();
 		};
-		window.addEventListener('git-status-refresh', onFocus);
-		window.addEventListener('focus', onFocus);
+
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				void refresh('visible', false);
+			}
+		};
+
 		// L'agente committa mentre la finestra e' gia' a fuoco: il solo evento
 		// focus non basterebbe a raccogliere i suoi commit.
-		const iv = setInterval(() => void refresh(), 15000);
+		// Salta i tick quando la finestra e' nascosta o ridotta a icona.
+		const iv = setInterval(() => {
+			if (document.visibilityState === 'hidden') return;
+			void refresh('interval', false);
+		}, 15000);
+
+		window.addEventListener('git-status-refresh', onGitRefresh);
+		window.addEventListener('focus', onFocus);
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
-			window.removeEventListener('git-status-refresh', onFocus);
+			window.removeEventListener('git-status-refresh', onGitRefresh);
 			window.removeEventListener('focus', onFocus);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 			clearInterval(iv);
 		};
 	});
@@ -213,7 +261,7 @@
 		const targetPath = projectPath;
 		if (!targetPath) return;
 		try {
-			const res = await invoke<{ id: string; title: string; created_at: number }[]>('sessions_list', { projectPath: targetPath });
+			const res = await fetchSessionsList(targetPath);
 			if (projectPath !== targetPath) return;
 			sessions = res;
 		} catch {

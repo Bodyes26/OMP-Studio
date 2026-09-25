@@ -8,6 +8,9 @@ import { synthesizeProvisionalLaneTitle } from '$lib/lanes/laneTitle';
 import { laneStore } from '$lib/stores/lanes.svelte';
 import { projectStore } from '$lib/stores/projects.svelte';
 import type { LaneId, ProjectId } from '$lib/types/lanes';
+import { perfMark, perfSpan } from '$lib/perf';
+
+let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
 //
 // Il riduttore e' esplicito e volutamente noioso: ogni frame del protocollo
@@ -356,6 +359,46 @@ export class AgentSession {
 		return laneSessionKey(this.projectKey, this.laneId ?? 'main');
 	}
 
+	private openReadySpanEnd: ((outcome?: string) => void) | null = null;
+	private readyWaiters: Array<(ready: boolean) => void> = [];
+
+	get isOpen(): boolean {
+		return this.client.isOpen;
+	}
+
+	get isOpening(): boolean {
+		return this.opening !== null;
+	}
+
+	get hasPendingStartupPrompts(): boolean {
+		return this.pendingStartupPrompts.length > 0;
+	}
+
+	/**
+	 * Attende che la sessione sia pronta (frame `ready` ricevuto da omp), o che scada il timeout.
+	 */
+	async waitUntilReady(timeoutMs = 7000): Promise<boolean> {
+		if (this.isReady) return true;
+		if (this.exited) return false;
+		return new Promise<boolean>((resolve) => {
+			let timer: number | null = null;
+			const done = (ready: boolean) => {
+				if (timer !== null) {
+					window.clearTimeout(timer);
+					timer = null;
+				}
+				const idx = this.readyWaiters.indexOf(done);
+				if (idx !== -1) this.readyWaiters.splice(idx, 1);
+				resolve(ready);
+			};
+			timer = window.setTimeout(() => {
+				const idx = this.readyWaiters.indexOf(done);
+				if (idx !== -1) this.readyWaiters.splice(idx, 1);
+				resolve(this.isReady);
+			}, timeoutMs);
+			this.readyWaiters.push(done);
+		});
+	}
 
 	entries = $state<TranscriptEntry[]>([]);
 	visibleCount = $state(RENDER_WINDOW);
@@ -650,6 +693,14 @@ export class AgentSession {
 		if (this.client.isOpen) return;
 		const requestedResume = resume ?? null;
 
+		if (this.openReadySpanEnd) {
+			this.openReadySpanEnd('sostituito');
+			this.openReadySpanEnd = null;
+		}
+		const projectName = projectStore.projects.find((p) => p.id === this.projectKey)?.name ?? this.projectKey;
+		const lane = this.laneId ?? 'main';
+		this.openReadySpanEnd = perfSpan('session', `rpc_open->ready ${projectName} ${lane}`);
+
 		if (this.opening) {
 			// Stessa sessione: una sola apertura basta.
 			if (this.openTarget === requestedResume) return this.opening;
@@ -689,6 +740,13 @@ export class AgentSession {
 					});
 				}
 			} catch (error) {
+				if (this.openReadySpanEnd) {
+					this.openReadySpanEnd('errore');
+					this.openReadySpanEnd = null;
+				}
+				const waiters = this.readyWaiters;
+				this.readyWaiters = [];
+				for (const w of waiters) w(false);
 				if (this.requestedResume === requestedResume) this.requestedResume = null;
 				throw error;
 			}
@@ -715,6 +773,13 @@ export class AgentSession {
 		// La chiusura e' osservabile dagli effetti: si marca la sessione non
 		// pronta prima di invalidare l'analisi, altrimenti per un frame la coda
 		// risulterebbe libera e l'auto-dispatch potrebbe correre contro close().
+		if (this.openReadySpanEnd) {
+			this.openReadySpanEnd('chiuso');
+			this.openReadySpanEnd = null;
+		}
+		const waiters = this.readyWaiters;
+		this.readyWaiters = [];
+		for (const w of waiters) w(false);
 		this.isReady = false;
 		this.isAttached = false;
 		this.isAttaching = false;
@@ -750,14 +815,21 @@ export class AgentSession {
 		const generation = ++this.attachGeneration;
 		this.isAttaching = true;
 		this.attachEventQueue = [];
+		const projectName = projectStore.projects.find((p) => p.id === this.projectKey)?.name ?? this.projectKey;
+		const lane = this.laneId ?? 'main';
+		const endAttachSpan = perfSpan('session', `attach ${projectName} ${lane}`);
 		try {
-			await this.refreshState();
-			await this.client.send({ type: 'set_subagent_subscription', level: 'progress' });
-			await this.applyQueueModes();
+			await Promise.all([
+				this.refreshState(),
+				this.client.send({ type: 'set_subagent_subscription', level: 'progress' }),
+				this.applyQueueModes()
+			]);
 			await this.rebuildTranscript();
 			void this.refreshCost();
 			void this.refreshCommands();
+			endAttachSpan('ok');
 		} catch (error) {
+			endAttachSpan('errore');
 			this.pushNotice('error', messages.ui_ts_session_insediamento_della_sessione_non_completato_value1_bce4({ value1: this.reason(error) }));
 		}
 		if (generation !== this.attachGeneration) return;
@@ -780,6 +852,10 @@ export class AgentSession {
 		if (generation !== this.attachGeneration) return;
 
 		this.isAttached = true;
+		if (!firstComposerReadyMarked) {
+			firstComposerReadyMarked = true;
+			perfMark('boot', `composer ready ${projectName}`);
+		}
 		if (!this.pendingUi) {
 			const projectPrompts = promptBus.getPendingsForProject(this.projectKey);
 			const matching = projectPrompts.filter((p) => {
@@ -1130,9 +1206,11 @@ export class AgentSession {
 		if (!this.isReady) return;
 		try {
 			const { steeringMode, followUpMode, interruptMode } = settingsStore.general;
-			await this.client.send({ type: 'set_steering_mode', mode: steeringMode });
-			await this.client.send({ type: 'set_follow_up_mode', mode: followUpMode });
-			await this.client.send({ type: 'set_interrupt_mode', mode: interruptMode });
+			await Promise.all([
+				this.client.send({ type: 'set_steering_mode', mode: steeringMode }),
+				this.client.send({ type: 'set_follow_up_mode', mode: followUpMode }),
+				this.client.send({ type: 'set_interrupt_mode', mode: interruptMode })
+			]);
 		} catch (error) {
 			this.pushNotice('warning', messages.ui_ts_session_impossibile_sincronizzare_le_modalita_di_coda_value1_1e87({ value1: this.reason(error) }));
 		}
@@ -1411,6 +1489,13 @@ export class AgentSession {
 				this.readyEpoch = this.client.epoch;
 				this.requestedResume = null;
 				this.isReady = true;
+				if (this.openReadySpanEnd) {
+					this.openReadySpanEnd('ok');
+					this.openReadySpanEnd = null;
+				}
+				const readyWaiters = this.readyWaiters;
+				this.readyWaiters = [];
+				for (const w of readyWaiters) w(true);
 				this.isAborting = false;
 				// `ready` e' l'handshake di un processo nuovo: l'insediamento
 				// precedente non vale piu'. Senza azzerarlo `attach()` uscirebbe
@@ -1869,6 +1954,9 @@ export class AgentSession {
 				this.assistantEntry = null;
 				this.exited = true;
 				this.isReady = false;
+				const exitWaiters = this.readyWaiters;
+				this.readyWaiters = [];
+				for (const w of exitWaiters) w(false);
 				this.isAttached = false;
 				this.isAttaching = false;
 				this.attachGeneration++;

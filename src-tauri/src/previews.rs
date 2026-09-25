@@ -137,6 +137,7 @@ fn pending_preview(state: &PreviewWatcherState, dir: &std::path::Path) -> Option
 }
 
 fn scan_and_emit(app: &AppHandle, state: &PreviewWatcherState) {
+    let started = std::time::Instant::now();
     let Some(dir) = previews_dir() else { return };
     let Some((path, stamp)) = pending_preview(state, &dir) else {
         return;
@@ -144,36 +145,70 @@ fn scan_and_emit(app: &AppHandle, state: &PreviewWatcherState) {
     if let Some(payload) = read_preview(&path) {
         let _ = app.emit("preview://new", &payload);
         *state.last_seen.lock() = Some((path, stamp));
+        crate::perf_trace::record("watch", "previews scan", started.elapsed());
     }
 }
 
-/// Avvia il watcher dei prototipi all'avvio dell'app.
+fn setup_previews_watcher(
+    dir: &std::path::Path,
+    tx: std::sync::mpsc::Sender<()>,
+) -> Option<notify::RecommendedWatcher> {
+    let mut watcher = notify::recommended_watcher(move |_res| {
+        let _ = tx.send(());
+    })
+    .ok()?;
+    // Preferiamo osservare la cartella genitrice in modo ricorsivo:
+    // se l'utente cancella la cartella `previews` e poi omp la ricrea,
+    // il descrittore sulla cartella padre non viene invalidato.
+    if let Some(parent) = dir.parent() {
+        if watcher.watch(parent, RecursiveMode::Recursive).is_ok() {
+            return Some(watcher);
+        }
+    }
+    if watcher.watch(dir, RecursiveMode::NonRecursive).is_ok() {
+        return Some(watcher);
+    }
+    None
+}
+
+/// Avvia il watcher dei prototipi all'avvio dell'app. Un thread a eventi con
+/// debounce di 150 ms e controllo di sicurezza ogni 10 s: nessun polling a 2 Hz.
 pub fn spawn_watcher(app: AppHandle) {
     std::thread::spawn(move || {
         let state = PreviewWatcherState::new();
 
-        if let Some(dir) = previews_dir() {
-            let _ = std::fs::create_dir_all(&dir);
-            // I JSON rimasti da sessioni precedenti non vanno riproposti a ogni
-            // avvio: puntano spesso a file ormai spariti e riaprirebbero
-            // un'anteprima vuota che l'utente ha gia' chiuso. Si mostrano solo
-            // le anteprime prodotte dopo l'avvio.
-            *state.last_seen.lock() = newest_preview(&dir);
-        }
+        let Some(dir) = previews_dir() else { return };
+        let _ = std::fs::create_dir_all(&dir);
+
+        // I JSON rimasti da sessioni precedenti non vanno riproposti a ogni
+        // avvio: puntano spesso a file ormai spariti e riaprirebbero
+        // un'anteprima vuota che l'utente ha gia' chiuso. Si mostrano solo
+        // le anteprime prodotte dopo l'avvio.
+        *state.last_seen.lock() = newest_preview(&dir);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = setup_previews_watcher(&dir, tx.clone());
 
         loop {
-            if let Some(dir) = previews_dir() {
-                if let Ok(mut watcher) = notify::recommended_watcher(|_| {}) {
-                    if watcher.watch(&dir, RecursiveMode::NonRecursive).is_ok() {
-                        scan_and_emit(&app, &state);
-                        std::thread::sleep(Duration::from_millis(500));
-                        drop(watcher);
-                        continue;
+            match rx.recv_timeout(Duration::from_secs(10)) {
+                Ok(()) => {
+                    // Debounce di 150 ms per raggruppare scritture rapide dello stesso file
+                    std::thread::sleep(Duration::from_millis(150));
+                    while rx.try_recv().is_ok() {}
+                    scan_and_emit(&app, &state);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Rescan di sicurezza periodico ogni 10 s
+                    if !dir.exists() || watcher.is_none() {
+                        let _ = std::fs::create_dir_all(&dir);
+                        watcher = setup_previews_watcher(&dir, tx.clone());
                     }
+                    scan_and_emit(&app, &state);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    break;
                 }
             }
-            scan_and_emit(&app, &state);
-            std::thread::sleep(Duration::from_millis(500));
         }
     });
 }

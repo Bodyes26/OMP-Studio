@@ -32,6 +32,7 @@ pub struct GitUpstreamStatus {
 }
 
 fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
+    let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", args));
     let mut cmd = Command::new("git");
     cmd.current_dir(dir);
     cmd.args(args);

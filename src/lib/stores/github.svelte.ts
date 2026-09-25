@@ -93,6 +93,10 @@ class GithubStore {
 	actionsByPath = $state<Record<string, GithubActionRun[]>>({});
 	isLoadingActionsByPath = $state<Record<string, boolean>>({});
 
+	private upstreamUpdatedAt = new Map<string, number>();
+	private upstreamPending = new Map<string, Promise<GitUpstreamStatus | null>>();
+	private UPSTREAM_CACHE_TTL_MS = 5_000;
+
 	private lastReposFetch = 0;
 	private REPOS_CACHE_TTL_MS = 60_000;
 
@@ -238,16 +242,61 @@ class GithubStore {
 		}
 	}
 
-	async loadUpstreamStatus(projectPath: string): Promise<GitUpstreamStatus | null> {
+	/** Indica se lo stato upstream per il percorso e' stato aggiornato di recente. */
+	wasUpstreamRefreshedRecently(projectPath: string, thresholdMs = this.UPSTREAM_CACHE_TTL_MS): boolean {
 		const key = normalizeProjectPath(projectPath).toLowerCase();
-		try {
-			const status = await invoke<GitUpstreamStatus>('git_upstream_status', { projectPath });
-			this.upstreamByPath[key] = status;
-			return status;
-		} catch (e) {
-			console.error('git_upstream_status', e);
-			return null;
+		if (!key) return false;
+		return Date.now() - (this.upstreamUpdatedAt.get(key) ?? 0) < thresholdMs;
+	}
+
+	/** Invalida la cache upstream per forzare una nuova verifica remota. */
+	markUpstreamStale(projectPath?: string): void {
+		if (projectPath) {
+			const key = normalizeProjectPath(projectPath).toLowerCase();
+			if (key) this.upstreamUpdatedAt.delete(key);
+		} else {
+			this.upstreamUpdatedAt.clear();
 		}
+	}
+
+	/** Marca obsoleti gli upstream di tutti i progetti tranne quello indicato. */
+	markOtherUpstreamsStale(exceptProjectPath: string): void {
+		const keepKey = normalizeProjectPath(exceptProjectPath).toLowerCase();
+		for (const key of this.upstreamUpdatedAt.keys()) {
+			if (key !== keepKey) {
+				this.upstreamUpdatedAt.delete(key);
+			}
+		}
+	}
+
+	async loadUpstreamStatus(projectPath: string, force = false): Promise<GitUpstreamStatus | null> {
+		const key = normalizeProjectPath(projectPath).toLowerCase();
+		if (!key) return null;
+
+		const cachedAt = this.upstreamUpdatedAt.get(key) ?? 0;
+		if (!force && Date.now() - cachedAt < this.UPSTREAM_CACHE_TTL_MS) {
+			return this.upstreamByPath[key] ?? null;
+		}
+
+		const current = this.upstreamPending.get(key);
+		if (current) return current;
+
+		const request = (async () => {
+			try {
+				const status = await invoke<GitUpstreamStatus>('git_upstream_status', { projectPath });
+				this.upstreamByPath[key] = status;
+				this.upstreamUpdatedAt.set(key, Date.now());
+				return status;
+			} catch (e) {
+				console.error('git_upstream_status', e);
+				return null;
+			} finally {
+				this.upstreamPending.delete(key);
+			}
+		})();
+
+		this.upstreamPending.set(key, request);
+		return request;
 	}
 
 	async syncRepo(projectPath: string, action: 'pull' | 'push' | 'sync' | 'fetch'): Promise<string> {
@@ -255,7 +304,7 @@ class GithubStore {
 		this.isSyncingByPath[key] = true;
 		try {
 			const result = await invoke<string>('git_sync_repo', { projectPath, action });
-			await this.loadUpstreamStatus(projectPath);
+			await this.loadUpstreamStatus(projectPath, true);
 			return result;
 		} catch (e) {
 			console.error('git_sync_repo', e);

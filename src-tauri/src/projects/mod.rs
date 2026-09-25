@@ -1282,15 +1282,35 @@ pub async fn project_content_search(
     Ok(content_search_within(&project_path, candidates, CONTENT_SEARCH_DEADLINE).await)
 }
 
+/// Limite di 5 MB per la lettura nell'editor: oltre questa dimensione Monaco
+/// degrada vistosamente e l'IPC JSON rischia di bloccare la webview. File piu'
+/// grandi sono solitamente dump, bundle o log generati.
+pub const MAX_EDITOR_FILE_SIZE_BYTES: u64 = 5 * 1024 * 1024;
+/// Primi 8 KB per controllare la presenza di byte NUL: se presenti, il file e' binario.
+pub const BINARY_PROBE_BYTES: usize = 8 * 1024;
+
 #[command]
 pub async fn file_read(project_path: String, rel: String) -> Result<FileContent, String> {
-    let target = resolve_path(&project_path, &rel)?;
+    tokio::task::spawn_blocking(move || {
+        let target = resolve_path(&project_path, &rel)?;
 
-    // Check encoding (simple fallback to UTF-8 lossy for now)
-    let bytes = fs::read(&target).map_err(|e| e.to_string())?;
-    let content = String::from_utf8_lossy(&bytes).to_string();
+        let meta = fs::metadata(&target).map_err(|e| e.to_string())?;
+        if meta.len() > MAX_EDITOR_FILE_SIZE_BYTES {
+            return Err("ERR_FILE_TOO_LARGE".to_string());
+        }
 
-    Ok(FileContent { content })
+        let bytes = fs::read(&target).map_err(|e| e.to_string())?;
+        let probe_len = bytes.len().min(BINARY_PROBE_BYTES);
+        if bytes[..probe_len].iter().any(|&b| b == 0) {
+            return Err("ERR_FILE_BINARY".to_string());
+        }
+
+        let content = String::from_utf8_lossy(&bytes).to_string();
+
+        Ok(FileContent { content })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Byte grezzi di un file, senza passare da JSON: `Response` viaggia sull'IPC
@@ -1312,27 +1332,35 @@ pub async fn file_write(project_path: String, rel: String, content: String) -> R
 }
 #[command]
 pub async fn file_git_head(project_path: String, rel: String) -> Result<GitHeadContent, String> {
-    let rel_norm = rel.replace('\\', "/");
-    let mut cmd = Command::new("git");
-    cmd.current_dir(&project_path);
-    cmd.args(["show", &format!("HEAD:{}", rel_norm)]);
+    tokio::task::spawn_blocking(move || {
+        let rel_norm = rel.replace('\\', "/");
+        let head_spec = format!("HEAD:{}", rel_norm);
+        let args = ["show", head_spec.as_str()];
+        let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", &args));
 
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&project_path);
+        cmd.args(args);
 
-    match cmd.output() {
-        Ok(output) if output.status.success() => {
-            let content = String::from_utf8_lossy(&output.stdout).to_string();
-            Ok(GitHeadContent {
-                content,
-                exists: true,
-            })
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+        match cmd.output() {
+            Ok(output) if output.status.success() => {
+                let content = String::from_utf8_lossy(&output.stdout).to_string();
+                Ok(GitHeadContent {
+                    content,
+                    exists: true,
+                })
+            }
+            _ => Ok(GitHeadContent {
+                content: String::new(),
+                exists: false,
+            }),
         }
-        _ => Ok(GitHeadContent {
-            content: String::new(),
-            exists: false,
-        }),
-    }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[command]
@@ -1448,6 +1476,7 @@ pub struct GitRevContent {
 /// cartella non e' un repository o il comando fallisce: il pannello degrada
 /// a vuoto senza errori, come fa `project_git_status`.
 fn run_git(project_path: &str, args: &[&str]) -> Option<Vec<u8>> {
+    let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", args));
     let mut cmd = Command::new("git");
     cmd.current_dir(project_path);
     cmd.args(args);

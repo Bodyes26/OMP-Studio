@@ -58,6 +58,8 @@ mod alerts;
 use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
 mod focus_trace;
 use focus_trace::{focus_trace_append, focus_trace_path};
+mod perf_trace;
+use perf_trace::{perf_trace_append, perf_trace_path};
 mod external;
 use external::open_project_external;
 mod rules_ops;
@@ -142,6 +144,8 @@ pub fn run() {
             lane_bridge_respond,
             focus_trace_append,
             focus_trace_path,
+            perf_trace_append,
+            perf_trace_path,
             pty_open,
             pty_write,
             pty_resize,
@@ -313,6 +317,7 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
+            perf_trace::init(app.handle());
             init_windows_aumid();
             lane_bridge::start(app.handle().clone());
             // Il watcher dei diagrammi parte subito dopo il setup: ascolta

@@ -181,6 +181,14 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "allow-perf-trace"
+description = "Traccia dei tempi: scrittura del file di log delle misure e lettura del suo percorso"
+commands.allow = [
+    "perf_trace_append",
+    "perf_trace_path"
+]
+
+[[permission]]
 identifier = "allow-external-open"
 description = "Apertura della cartella di progetto in un terminale o in un editor esterno"
 commands.allow = [
@@ -285,6 +293,7 @@ permissions = [
     "allow-setup",
     "allow-attention",
     "allow-focus-trace",
+    "allow-perf-trace",
     "allow-external-open",
     "allow-rules-and-skills",
     "allow-task-directives",

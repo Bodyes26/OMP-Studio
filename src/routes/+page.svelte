@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { attachEditorContext } from '$lib/editor/editorContext';
+	import { perfMark } from '$lib/perf';
+	import { promptBus } from '$lib/agent/promptBus';
 	import Terminal from '$lib/terminal/Terminal.svelte';
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
@@ -685,9 +687,79 @@
 	 */
 	function getOrCreateAgentSession(p: Project): AgentSession {
 		const session = agentSessionFor(p);
+		removeFromWarmupQueue(p.id);
 		void session.ensureOpen(terminalMeta[runtimeKey(p)]?.sessionId ?? null);
 		return session;
 	}
+
+	// Coda di preriscaldamento seriale per le sessioni GUI non attive all'avvio.
+	// Evita che all'apertura dell'app partano 3-5 processi omp in parallelo.
+	type WarmupItem = {
+		projectId: string;
+		session: AgentSession;
+		resumeSessionId: string | null;
+	};
+	let warmupQueue: WarmupItem[] = [];
+	let isWarmingUp = false;
+
+	function removeFromWarmupQueue(projectId: string): void {
+		const idx = warmupQueue.findIndex((item) => item.projectId === projectId);
+		if (idx !== -1) {
+			warmupQueue.splice(idx, 1);
+		}
+	}
+
+	function enqueueWarmup(projectId: string, session: AgentSession, resumeSessionId: string | null): void {
+		if (session.isOpen || session.isOpening) return;
+		if (!warmupQueue.some((item) => item.projectId === projectId)) {
+			warmupQueue.push({ projectId, session, resumeSessionId });
+		}
+		void processWarmupQueue();
+	}
+
+	async function processWarmupQueue(): Promise<void> {
+		if (isWarmingUp) return;
+		isWarmingUp = true;
+		try {
+			// Attende che la sessione attiva corrente sia pronta (o timeout di sicurezza)
+			const activeProj = projectStore.activeProject;
+			const activeSession = activeProj ? registeredSessionFor(activeProj) : undefined;
+			if (activeSession && (activeSession.isOpening || !activeSession.isReady)) {
+				await activeSession.waitUntilReady(7000);
+			}
+
+			// Preriscalda le altre sessioni una alla volta in serie
+			while (warmupQueue.length > 0) {
+				const next = warmupQueue.shift();
+				if (!next) break;
+
+				if (next.session.isOpen || next.session.isOpening || next.session.exited) {
+					continue;
+				}
+
+				void next.session.ensureOpen(next.resumeSessionId);
+				await next.session.waitUntilReady(7000);
+			}
+		} finally {
+			isWarmingUp = false;
+			if (warmupQueue.length > 0) {
+				void processWarmupQueue();
+			}
+		}
+	}
+
+	// Notifica quando la sessione attiva diventa pronta per la prima volta
+	let activeSessionReadyFired = false;
+	$effect(() => {
+		const activeProj = projectStore.activeProject;
+		const activeSession = activeProj ? registeredSessionFor(activeProj) : undefined;
+		if (activeSession?.isReady && !activeSessionReadyFired) {
+			activeSessionReadyFired = true;
+			if (typeof window !== 'undefined') {
+				window.dispatchEvent(new CustomEvent('studio-active-session-ready'));
+			}
+		}
+	});
 
 	// Apre i processi delle superfici GUI e ne rispecchia stato e sessione.
 	// Ogni scrittura qui dentro deve convergere: `setAgentState` non riassegna
@@ -697,7 +769,24 @@
 			const activeSession = registeredSessionFor(p);
 			if (p.lane.surface === 'gui' && activeSession) {
 				if (!activeSession.exited) {
-					void activeSession.ensureOpen(terminalMeta[runtimeKey(p)]?.sessionId ?? null);
+					const isCurrentProject = p.id === projectStore.activeId;
+					const hasPendingWork =
+						(p.canonicalProjectPath ? taskStore.pendingCountFor(p.canonicalProjectPath) > 0 : false) ||
+						promptBus.getPendingsForProject(p.id).length > 0 ||
+						activeSession.hasPendingStartupPrompts ||
+						activeSession.pendingUi !== null ||
+						activeSession.blockedQuotaState !== null;
+
+					const resumeSessionId = terminalMeta[runtimeKey(p)]?.sessionId ?? null;
+
+					if (isCurrentProject || hasPendingWork) {
+						// Progetto attivo o con lavoro pendente: apertura immediata, scavalca la coda
+						removeFromWarmupQueue(p.id);
+						void activeSession.ensureOpen(resumeSessionId);
+					} else {
+						// Sessione GUI inattiva senza lavoro pendente: accoda per preriscaldamento seriale
+						enqueueWarmup(p.id, activeSession, resumeSessionId);
+					}
 				}
 				if (activeSession.sessionId) {
 					updateTerminalMeta(p, { sessionId: activeSession.sessionId });
@@ -2049,9 +2138,33 @@
 		}
 	}
 
+	/**
+	 * Differisce compiti non critici all'avvio: partono quando la sessione
+	 * attiva e' pronta oppure dopo ~10s (il primo dei due).
+	 */
+	function scheduleDeferredBootTask(task: () => void): void {
+		let executed = false;
+		let timeoutId: number | null = null;
+		let cleanup: (() => void) | null = null;
+
+		const run = () => {
+			if (executed) return;
+			executed = true;
+			if (timeoutId !== null) window.clearTimeout(timeoutId);
+			cleanup?.();
+			task();
+		};
+
+		timeoutId = window.setTimeout(run, 10_000);
+		const onReady = () => run();
+		window.addEventListener('studio-active-session-ready', onReady, { once: true });
+		cleanup = () => window.removeEventListener('studio-active-session-ready', onReady);
+	}
+
 	onMount(() => {
+		perfMark('boot', 'app start');
 		fetchOmpVersion();
-		void checkOmpUpdateSilently();
+		scheduleDeferredBootTask(() => void checkOmpUpdateSilently());
 		void checkSetupContract();
 		studioUpdaterStore.init();
 		modelSettingsStore.initHealthWatch();

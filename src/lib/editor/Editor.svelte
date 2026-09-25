@@ -10,8 +10,11 @@
 		revealLineInEditor,
 		createDiffEditorInstance,
 		updateGutterDecorations,
-		applyEditorSettings
+		applyEditorSettings,
+		clearGutterDebounce,
+		scheduleGutterDecorations
 	} from './monaco';
+	import { perfSpan } from '$lib/perf';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import ImageViewer from './ImageViewer.svelte';
 	import SvgPreview from './SvgPreview.svelte';
@@ -69,6 +72,8 @@
 		return ['html', 'htm'].includes(path.split('.').pop()?.toLowerCase() || '');
 	}
 
+	type FileLoadError = 'too_large' | 'binary' | 'generic';
+
 	interface FileState {
 		initialContent: string;
 		gitHeadContent: string | null;
@@ -87,6 +92,7 @@
 	let diffContainer = $state<HTMLElement>();
 	let splitContainer = $state<HTMLElement>();
 	let dirtyFiles = $state<Record<string, boolean>>({});
+	let loadErrors = $state<Record<string, FileLoadError>>({});
 	let loadedKey: string | null = null;
 	let requestedKey: string | null = null;
 	let handledOpenFileRequest = 0;
@@ -100,7 +106,7 @@
 	let showDiff = $state(false);
 
 	let initialContent = '';
-	let gitHeadContent: string | null = null;
+	let gitHeadContent = $state<string | null>(null);
 	let currentText = $state('');
 	let diffEditorInstance: any = null;
 	let editor: any = null;
@@ -128,6 +134,10 @@
 	let dragOverAfter = $state(false);
 
 	let previewCapable = $derived(isSvg || isMarkdown);
+	let activeFileError = $derived.by<FileLoadError | null>(() => {
+		if (!filePath || !projectPath) return null;
+		return loadErrors[fileKey(projectPath, filePath)] ?? null;
+	});
 	let viewMode = $derived.by<ViewMode>(() => {
 		if (!filePath || !previewCapable) return 'code';
 		return viewModes[fileKey(projectPath, filePath)] ?? 'split';
@@ -161,15 +171,24 @@
 		const currentSet = new Set<string>(currentPaths);
 		const prefix = `${currentProject}\u0000`;
 
-		// Smaltisce fileState, vista e modelli Monaco dei file di questo progetto non piu' in filePaths
+		// Smaltisce fileState, vista, errori e modelli Monaco dei file di questo progetto non piu' in filePaths
 		for (const key of Array.from(fileStates.keys())) {
 			if (key.startsWith(prefix)) {
 				const path = key.slice(prefix.length);
 				if (!currentSet.has(path)) {
 					fileStates.delete(key);
+					delete loadErrors[key];
 					clearDirty(key);
 					clearViewMode(key);
 					disposeFileModel(joinProjectPath(currentProject, path));
+				}
+			}
+		}
+		for (const key of Object.keys(loadErrors)) {
+			if (key.startsWith(prefix)) {
+				const path = key.slice(prefix.length);
+				if (!currentSet.has(path)) {
+					delete loadErrors[key];
 				}
 			}
 		}
@@ -283,6 +302,7 @@
 		setDirty(key, content !== state.initialContent);
 
 		if (editor) {
+			clearGutterDebounce();
 			state.decorationIds = updateGutterDecorations(
 				editor,
 				state.gitHeadContent,
@@ -297,36 +317,90 @@
 		}
 	}
 
+	async function fetchGitHeadInBackground(project: string, path: string, key: string, targetState: FileState) {
+		const endHead = perfSpan('editor', `head ${path}`);
+		try {
+			const gitRes = await invoke<{ content: string; exists: boolean }>('file_git_head', {
+				projectPath: project,
+				rel: path
+			});
+			endHead(gitRes.exists ? 'ok' : 'missing');
+
+			// Se lo stato per questa chiave e' cambiato nel frattempo (es. chiusura scheda o riapertura),
+			// scartiamo il risultato obsoleto per evitare corse.
+			if (fileStates.get(key) !== targetState) {
+				return;
+			}
+
+			targetState.gitHeadContent = gitRes.exists ? gitRes.content : null;
+
+			// Se questo file e' attualmente visualizzato nell'editor, applichiamo subito le decorazioni
+			if (loadedKey === key && requestedKey === key) {
+				gitHeadContent = targetState.gitHeadContent;
+				if (editor) {
+					clearGutterDebounce();
+					targetState.decorationIds = updateGutterDecorations(
+						editor,
+						targetState.gitHeadContent,
+						targetState.currentText,
+						targetState.decorationIds
+					);
+				}
+			}
+		} catch {
+			endHead('error');
+			// Un file fuori da Git o un errore git non bloccano l'editor
+		}
+	}
+
 	async function load(project: string, path: string, key: string) {
 		const cached = fileStates.get(key);
 		if (cached) {
+			const endOpen = perfSpan('editor', `open ${path} cached`);
 			activateLoadedFile(project, path, key, cached, false);
+			endOpen('ok');
 			return;
 		}
 
 		loading = true;
+		delete loadErrors[key];
+		const endOpen = perfSpan('editor', `open ${path} uncached`);
 		try {
 			const res: { content: string } = await invoke('file_read', { projectPath: project, rel: path });
-			let headContent: string | null = null;
-			try {
-				const gitRes: { content: string; exists: boolean } = await invoke('file_git_head', {
-					projectPath: project,
-					rel: path
-				});
-				headContent = gitRes.exists ? gitRes.content : null;
-			} catch {
-				// Un file fuori da Git non ha un originale per diff e gutter.
-			}
 
 			const state: FileState = {
 				initialContent: res.content,
-				gitHeadContent: headContent,
+				gitHeadContent: null,
 				currentText: res.content,
 				decorationIds: []
 			};
 			fileStates.set(key, state);
-			if (requestedKey === key) activateLoadedFile(project, path, key, state, true);
-		} catch (error) {
+
+			if (requestedKey === key) {
+				activateLoadedFile(project, path, key, state, true);
+				endOpen('ok');
+			} else {
+				endOpen('stale');
+			}
+
+			// Recupera HEAD in background per mostrare il file all'istante
+			void fetchGitHeadInBackground(project, path, key, state);
+		} catch (error: any) {
+			endOpen('error');
+			const errStr = typeof error === 'string' ? error : error?.message || String(error);
+			let errType: FileLoadError = 'generic';
+			if (errStr.includes('ERR_FILE_TOO_LARGE')) {
+				errType = 'too_large';
+			} else if (errStr.includes('ERR_FILE_BINARY')) {
+				errType = 'binary';
+			}
+			loadErrors = { ...loadErrors, [key]: errType };
+			fileStates.delete(key);
+			clearDirty(key);
+			disposeFileModel(joinProjectPath(project, path));
+			if (requestedKey === key) {
+				loadedKey = key;
+			}
 			console.error('Failed to load file', error);
 		} finally {
 			if (requestedKey === key) loading = false;
@@ -416,19 +490,27 @@
 
 		const changeListener = editor.onDidChangeModelContent(() => {
 			if (!filePath || !projectPath || !loadedKey) return;
-			const state = fileStates.get(loadedKey);
+			const targetKey = loadedKey;
+			const state = fileStates.get(targetKey);
 			if (!state) return;
 			const abs = joinProjectPath(projectPath, filePath);
 			const value = getCurrentFileContent(abs) ?? '';
 			state.currentText = value;
 			currentText = value;
-			setDirty(loadedKey, value !== state.initialContent);
-			state.decorationIds = updateGutterDecorations(
-				editor,
-				state.gitHeadContent,
-				value,
-				state.decorationIds
-			);
+			setDirty(targetKey, value !== state.initialContent);
+
+			// Debounce (~150 ms) per evitare di ricalcolare il diff riga per riga a ogni tasto premuto
+			scheduleGutterDecorations(() => {
+				if (loadedKey !== targetKey) return;
+				const currentState = fileStates.get(targetKey);
+				if (!currentState || !editor) return;
+				currentState.decorationIds = updateGutterDecorations(
+					editor,
+					currentState.gitHeadContent,
+					currentState.currentText,
+					currentState.decorationIds
+				);
+			}, 150);
 		});
 		if (changeListener && typeof changeListener.dispose === 'function') {
 			disposables.push(changeListener);
@@ -437,6 +519,7 @@
 		editor.layout();
 
 		return () => {
+			clearGutterDebounce();
 			for (const d of disposables) {
 				d.dispose();
 			}
@@ -508,7 +591,7 @@
 			showDiff = false;
 			return;
 		}
-		if (isImage) {
+		if (isImage || activeFileError) {
 			handledOpenFileRequest = request.id;
 			return;
 		}
@@ -520,6 +603,7 @@
 	});
 
 	onDestroy(() => {
+		clearGutterDebounce();
 		disposeDiff();
 		stopResize();
 	});
@@ -527,22 +611,25 @@
 	async function saveFileByPath(targetPath: string) {
 		if (!targetPath || !projectPath || isImageFile(targetPath)) return;
 		const key = fileKey(projectPath, targetPath);
-		const abs = joinProjectPath(projectPath, targetPath);
+		// Protezione assoluta: mai salvare file rifiutati (es. troppo grandi o binari)
+		// per evitare sovrascritture distruttive su disco con contenuto vuoto.
+		if (loadErrors[key]) return;
 		const state = fileStates.get(key);
-		const content = getCurrentFileContent(abs) ?? state?.currentText;
+		if (!state) return;
+		const abs = joinProjectPath(projectPath, targetPath);
+		const content = getCurrentFileContent(abs) ?? state.currentText;
 		if (content === null || content === undefined) return;
 		try {
 			await invoke('file_write', { projectPath, rel: targetPath, content });
-			if (state) {
-				state.initialContent = content;
-				state.currentText = content;
-			}
+			state.initialContent = content;
+			state.currentText = content;
 			if (targetPath === filePath) {
 				initialContent = content;
 				currentText = content;
 			}
 			setDirty(key, false);
-			if (targetPath === filePath && editor && state) {
+			if (targetPath === filePath && editor) {
+				clearGutterDebounce();
 				state.decorationIds = updateGutterDecorations(
 					editor,
 					state.gitHeadContent,
@@ -557,7 +644,7 @@
 	}
 
 	async function saveCurrentFile() {
-		if (!filePath) return;
+		if (!filePath || activeFileError) return;
 		await saveFileByPath(filePath);
 	}
 
@@ -573,6 +660,7 @@
 			showDiff = false;
 		}
 		fileStates.delete(key);
+		delete loadErrors[key];
 		clearDirty(key);
 		clearViewMode(key);
 		disposeFileModel(joinProjectPath(projectPath, path));
@@ -585,6 +673,7 @@
 			if (p !== keepPath) {
 				const key = fileKey(projectPath, p);
 				fileStates.delete(key);
+				delete loadErrors[key];
 				clearDirty(key);
 				clearViewMode(key);
 				disposeFileModel(joinProjectPath(projectPath, p));
@@ -604,6 +693,7 @@
 			clearViewMode(key);
 			disposeFileModel(joinProjectPath(projectPath, p));
 		}
+		loadErrors = {};
 		projectStore.closeAllFiles(projectStore.activeId);
 	}
 
@@ -649,7 +739,7 @@
 		const key = event.key.toLowerCase();
 
 		if (key === 's' && !event.shiftKey) {
-			if (!filePath || isImage) return;
+			if (!filePath || isImage || activeFileError) return;
 			event.preventDefault();
 			void saveCurrentFile();
 			return;
@@ -760,8 +850,10 @@
 		event.stopPropagation();
 		if (!projectPath) return;
 
-		const isTabDirty = dirtyFiles[fileKey(projectPath, tabPath)] === true;
+		const tabKey = fileKey(projectPath, tabPath);
+		const isTabDirty = dirtyFiles[tabKey] === true;
 		const isTabImage = isImageFile(tabPath);
+		const isTabError = Boolean(loadErrors[tabKey]);
 		const revealLabel = REVEAL_LABEL;
 
 		const items: ContextMenuEntry[] = [
@@ -770,15 +862,19 @@
 				label: 'Salva',
 				icon: IconSave,
 				shortcut: IS_MAC ? 'Cmd+S' : 'Ctrl+S',
-				disabled: !isTabDirty || isTabImage,
-				hint: !isTabDirty ? m.ui_editor_nessuna_modifica_da_salvare_f9aa() : isTabImage ? m.ui_editor_file_non_modificabile_0083() : undefined,
+				disabled: !isTabDirty || isTabImage || isTabError,
+				hint: isTabError || isTabImage
+					? m.ui_editor_file_non_modificabile_0083()
+					: !isTabDirty
+						? m.ui_editor_nessuna_modifica_da_salvare_f9aa()
+						: undefined,
 				run: () => void saveFileByPath(tabPath)
 			},
 			{
 				kind: 'item',
 				label: 'Confronta con HEAD',
 				icon: IconDiff,
-				disabled: isTabImage,
+				disabled: isTabImage || isTabError,
 				hint: isTabImage ? 'Diff non disponibile per le immagini' : undefined,
 				run: () => openDiff(tabPath)
 			},
@@ -1121,7 +1217,7 @@
 
 			{#if filePath}
 				<div class="header-actions">
-					{#if previewCapable}
+					{#if previewCapable && !activeFileError}
 						<!-- La vista vale per la scheda attiva: un solo controllo,
 						     non un pulsante per ogni linguetta. -->
 						<div class="segmented" role="group" aria-label={m.ui_editor_vista_del_file_66d9()}>
@@ -1151,7 +1247,7 @@
 							><IconViewPreview /></button>
 						</div>
 					{/if}
-					{#if !isImage}
+					{#if !isImage && !activeFileError}
 						<button
 							class="icon-btn"
 							class:active={showDiff}
@@ -1161,7 +1257,7 @@
 							aria-pressed={showDiff}
 						><IconDiff /></button>
 					{/if}
-					{#if isHtmlFile(filePath)}
+					{#if isHtmlFile(filePath) && !activeFileError}
 						<button
 							class="action-btn"
 							onclick={() => onPreviewRequest?.(filePath)}
@@ -1170,7 +1266,7 @@
 							{m.editor_open_preview_btn()}
 						</button>
 					{/if}
-					{#if isDirty && !isImage}
+					{#if isDirty && !isImage && !activeFileError}
 						<button class="action-btn save-btn" onclick={() => void saveCurrentFile()} title={m.ui_editor_salva_modifiche_ctrl_s_5f4d()}>
 							{m.project_popover_btn_save()}
 						</button>
@@ -1189,6 +1285,27 @@
 			<div class="empty-state">
 				<div class="empty-text">{m.ui_editor_seleziona_un_file_dall_albero_per_modificarlo_96fb()}</div>
 				<div class="empty-hint">{m.ui_editor_ctrl_s_salva_ctrl_w_chiude_la_5466()}</div>
+			</div>
+		{:else if activeFileError}
+			<div class="empty-state">
+				<div class="empty-text">
+					{#if activeFileError === 'too_large'}
+						{m.editor_file_too_large()}
+					{:else if activeFileError === 'binary'}
+						{m.editor_file_binary()}
+					{:else}
+						{m.editor_file_load_error()}
+					{/if}
+				</div>
+				<div class="empty-hint">
+					{#if activeFileError === 'too_large'}
+						{m.editor_file_too_large_hint()}
+					{:else if activeFileError === 'binary'}
+						{m.editor_file_binary_hint()}
+					{:else}
+						{m.editor_file_load_error_hint()}
+					{/if}
+				</div>
 			</div>
 		{:else if isImage}
 			<ImageViewer projectPath={projectPath} filePath={filePath} />

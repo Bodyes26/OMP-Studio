@@ -12,7 +12,7 @@ export interface GitStatusRefreshDetail {
 	projectPath?: string;
 }
 
-const CACHE_TTL_MS = 3_000;
+const CACHE_TTL_MS = 5_000;
 const REFRESH_DEBOUNCE_MS = 180;
 const EMPTY_STATS: GitDiffStats = Object.freeze({
 	additions: 0,
@@ -30,6 +30,33 @@ class GitDiffStore {
 
 	forPath(projectPath: string): GitDiffStats {
 		return this.statsByPath[pathKey(projectPath)] ?? EMPTY_STATS;
+	}
+
+	/** Indica se le statistiche per il percorso sono state aggiornate di recente. */
+	wasRefreshedRecently(projectPath: string, thresholdMs = CACHE_TTL_MS): boolean {
+		const key = pathKey(projectPath);
+		if (!key) return false;
+		return Date.now() - (this.updatedAt.get(key) ?? 0) < thresholdMs;
+	}
+
+	/** Invalida la cache per forzare un ricaricamento alla richiesta successiva. */
+	markStale(projectPath?: string): void {
+		if (projectPath) {
+			const key = pathKey(projectPath);
+			if (key) this.updatedAt.delete(key);
+		} else {
+			this.updatedAt.clear();
+		}
+	}
+
+	/** Marca obsoleti tutti i progetti tranne quello indicato. */
+	markOthersStale(exceptProjectPath: string): void {
+		const keepKey = pathKey(exceptProjectPath);
+		for (const key of this.updatedAt.keys()) {
+			if (key !== keepKey) {
+				this.updatedAt.delete(key);
+			}
+		}
 	}
 
 	load(projectPath: string, force = false): Promise<void> {
@@ -68,15 +95,18 @@ class GitDiffStore {
 		return Promise.all(projectPaths.filter(Boolean).map((path) => this.load(path, force)));
 	}
 
-	requestRefresh(projectPath: string): void {
+	requestRefresh(projectPath: string, force = false): void {
 		const key = pathKey(projectPath);
 		if (!key) return;
+		const cachedAt = this.updatedAt.get(key) ?? 0;
+		if (!force && Date.now() - cachedAt < CACHE_TTL_MS) return;
+
 		clearTimeout(this.refreshTimers.get(key));
 		this.refreshTimers.set(
 			key,
 			window.setTimeout(() => {
 				this.refreshTimers.delete(key);
-				void this.load(projectPath, true);
+				void this.load(projectPath, force);
 			}, REFRESH_DEBOUNCE_MS)
 		);
 	}

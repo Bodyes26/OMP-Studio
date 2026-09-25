@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { tick } from 'svelte';
-	// Transcript: itera `entries` con chiavi stabili (`e.id`, contatore monotono
+	import { perfMark } from '$lib/perf';
 	// assegnato all'inserimento, mai l'indice). Delega il rendering per `kind`.
 	//
 	// Rendering a finestre: se ci sono piu' di 300 entry mostra le ultime 300
@@ -229,6 +229,39 @@
 	let transcriptEl = $state<HTMLElement | null>(null);
 	let disableAnimations = $state(false);
 
+	let lastRenderedSessionId = $state<string | null>(null);
+	let prevEntriesCount = $state(0);
+
+	/**
+	 * Disabilita le animazioni di ingresso (chatReveal) durante i caricamenti massivi:
+	 * cambio sessione iniziale, ripresa da storico (resume) o ricostruzione transcript.
+	 * Mantiene le animazioni fluide per i singoli messaggi nuovi che arrivano in tempo reale.
+	 * Registra un perf mark quando il rendering massivo e' terminato nel DOM.
+	 */
+	$effect(() => {
+		const currentSessionId = session.sessionId ?? null;
+		const currentCount = session.entries.length;
+		const isRebuilding = session.isRebuildingTranscript;
+		const isAttaching = session.isAttaching;
+		const isResuming = session.isResuming;
+
+		const isNewSession = currentSessionId !== lastRenderedSessionId;
+		const countDelta = currentCount - prevEntriesCount;
+		const isBulk = isNewSession || isRebuilding || isAttaching || isResuming || countDelta > 2;
+
+		if (isBulk && currentCount > 0) {
+			disableAnimations = true;
+			void tick().then(() => {
+				perfMark('session', `transcript rendered ${currentCount} entries`);
+				requestAnimationFrame(() => {
+					disableAnimations = false;
+				});
+			});
+		}
+
+		lastRenderedSessionId = currentSessionId;
+		prevEntriesCount = currentCount;
+	});
 	async function handleShowEarlier() {
 		if (!transcriptEl) {
 			session.showEarlier();

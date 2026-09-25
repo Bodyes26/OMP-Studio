@@ -17,6 +17,7 @@
 	import GitDiffBadge from './GitDiffBadge.svelte';
 	import { companionStore } from '$lib/stores/companion.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { perfSpan } from '$lib/perf';
 	import {
 		gitDiffStore,
 		hasGitChanges,
@@ -249,47 +250,149 @@
 		};
 	});
 
+	/**
+	 * Aggiorna le statistiche git e upstream di un singolo progetto,
+	 * proteggendo l'operazione con soglia temporale e tracciando i tempi.
+	 */
+	async function refreshTopBarProject(
+		project: Project,
+		reason: 'interval' | 'focus' | 'visible' | 'event' | 'boot',
+		force = false
+	) {
+		const path = project.lane.kind !== 'lab' ? project.lane.workspacePath : null;
+		if (!path) return;
+
+		// Se non e' forzato ed entrambi gli stati sono gia' freschi (< 5 s),
+		// saltiamo per evitare spawn git inutili e tracciamento a vuoto.
+		if (
+			!force &&
+			gitDiffStore.wasRefreshedRecently(path, 5000) &&
+			githubStore.wasUpstreamRefreshedRecently(path, 5000)
+		) {
+			return;
+		}
+
+		const end = perfSpan('poll', `topbar ${project.name} reason=${reason}`);
+		try {
+			await Promise.all([
+				gitDiffStore.load(path, force),
+				githubStore.loadUpstreamStatus(path, force)
+			]);
+		} finally {
+			end();
+		}
+	}
+
+	// Ricarica il progetto inattivo appena diventa attivo
+	let previousActiveId: string | null = null;
 	$effect(() => {
-		const paths = projectStore.projects.flatMap((project) =>
-			project.lane.kind !== 'lab' && project.lane.workspacePath ? [project.lane.workspacePath] : []
+		const currentActiveId = projectStore.activeId;
+		if (currentActiveId && currentActiveId !== previousActiveId) {
+			const isFirstRun = previousActiveId === null;
+			previousActiveId = currentActiveId;
+			if (!isFirstRun) {
+				const proj = projectStore.projects.find((p) => p.id === currentActiveId);
+				if (proj) {
+					void refreshTopBarProject(proj, 'event');
+				}
+			}
+		}
+	});
+
+	const bootedProjects = new Set<string>();
+
+	$effect(() => {
+		let cancelled = false;
+
+		// All'avvio: carica subito il progetto attivo
+		const activeProj = projectStore.projects.find((p) => p.id === projectStore.activeId);
+		if (activeProj && !bootedProjects.has(activeProj.id)) {
+			bootedProjects.add(activeProj.id);
+			void refreshTopBarProject(activeProj, 'boot', true);
+		}
+
+		// Gli altri progetti si caricano in modo scaglionato (uno alla volta, distanziati)
+		// per evitare raffiche di spawn git all'avvio dell'applicazione.
+		const otherProjects = projectStore.projects.filter(
+			(p) =>
+				p.id !== projectStore.activeId &&
+				p.lane.kind !== 'lab' &&
+				p.lane.workspacePath &&
+				!bootedProjects.has(p.id)
 		);
-		void gitDiffStore.loadMany(paths);
-		for (const path of paths) void githubStore.loadUpstreamStatus(path);
+		for (const p of otherProjects) {
+			bootedProjects.add(p.id);
+		}
+		if (otherProjects.length > 0) {
+			void (async () => {
+				for (const p of otherProjects) {
+					if (cancelled) break;
+					await new Promise((resolve) => setTimeout(resolve, 600));
+					if (cancelled) break;
+					await refreshTopBarProject(p, 'boot', true);
+				}
+			})();
+		}
 
 		const handleGitRefresh = (event: Event) => {
 			const projectPath = (event as CustomEvent<GitStatusRefreshDetail>).detail?.projectPath;
 			if (projectPath) {
-				gitDiffStore.requestRefresh(projectPath);
-				void githubStore.loadUpstreamStatus(projectPath);
+				const proj = projectStore.projects.find(
+					(p) =>
+						p.lane.workspacePath &&
+						normalizeProjectPath(p.lane.workspacePath).toLowerCase() ===
+							normalizeProjectPath(projectPath).toLowerCase()
+				);
+				if (proj) {
+					void refreshTopBarProject(proj, 'event', true);
+				}
 				return;
 			}
-			for (const path of paths) {
-				gitDiffStore.requestRefresh(path);
-				void githubStore.loadUpstreamStatus(path);
+			// Evento senza percorso: aggiorna subito solo il progetto attivo e marca obsoleti gli altri
+			const active = projectStore.projects.find((p) => p.id === projectStore.activeId);
+			if (active?.lane.workspacePath) {
+				gitDiffStore.markOthersStale(active.lane.workspacePath);
+				githubStore.markOtherUpstreamsStale(active.lane.workspacePath);
+				void refreshTopBarProject(active, 'event', true);
 			}
 		};
+
+		// Focus della finestra: aggiorna SOLO il progetto attivo, con soglia minima di 5 s
 		const handleFocus = () => {
-			for (const path of paths) {
-				gitDiffStore.requestRefresh(path);
-				void githubStore.loadUpstreamStatus(path);
+			const active = projectStore.projects.find((p) => p.id === projectStore.activeId);
+			if (active) {
+				void refreshTopBarProject(active, 'focus', false);
 			}
 		};
+
+		// Cambio visibilita': al rientro visibile aggiorna una sola volta il progetto attivo
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				const active = projectStore.projects.find((p) => p.id === projectStore.activeId);
+				if (active) {
+					void refreshTopBarProject(active, 'visible', false);
+				}
+			}
+		};
+
+		// Poller ogni 15 s: ignora i tick se la finestra e' minimizzata o nascosta
 		const interval = window.setInterval(() => {
-			const activeProj = projectStore.projects.find(
-				(project) => project.id === projectStore.activeId
-			);
-			const activePath = activeProj?.lane.kind !== 'lab' ? activeProj?.lane.workspacePath : null;
-			if (activePath) {
-				gitDiffStore.requestRefresh(activePath);
-				void githubStore.loadUpstreamStatus(activePath);
+			if (document.visibilityState === 'hidden') return;
+			const active = projectStore.projects.find((p) => p.id === projectStore.activeId);
+			if (active) {
+				void refreshTopBarProject(active, 'interval', false);
 			}
 		}, 15_000);
 
 		window.addEventListener('git-status-refresh', handleGitRefresh);
 		window.addEventListener('focus', handleFocus);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
 		return () => {
+			cancelled = true;
 			window.removeEventListener('git-status-refresh', handleGitRefresh);
 			window.removeEventListener('focus', handleFocus);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			clearInterval(interval);
 		};
 	});

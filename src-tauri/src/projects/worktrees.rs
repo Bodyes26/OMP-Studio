@@ -238,6 +238,7 @@ fn git_args(args: &[&str]) -> Vec<OsString> {
 }
 
 fn run_git(cwd: &Path, args: &[OsString]) -> Result<Output, WorktreeError> {
+    let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", args));
     let mut command = Command::new("git");
     command.current_dir(cwd).args(args);
     #[cfg(target_os = "windows")]
