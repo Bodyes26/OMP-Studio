@@ -50,8 +50,9 @@ pub fn sanitize_session_key(session_key: &str) -> String {
 
 /// Sanifica il nome del file eliminando traversal, caratteri non validi e nomi riservati.
 pub fn sanitize_attachment_filename(name: &str) -> String {
-    // Estrae solo l'ultimo componente del percorso nel caso fosse stato passato un percorso completo
-    let base_raw = Path::new(name)
+    // Normalizza i separatori di percorso per supportare percorsi Windows anche su POSIX (Linux/macOS)
+    let normalized = name.replace('\\', "/");
+    let base_raw = Path::new(&normalized)
         .file_name()
         .and_then(|f| f.to_str())
         .unwrap_or(name);

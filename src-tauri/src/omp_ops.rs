@@ -1236,7 +1236,8 @@ fn session_folder_might_match(folder_name: &str, project_path: &str) -> bool {
     let folder_lower = folder_name.to_lowercase();
 
     // 1. Tolleranza sul nome finale del progetto (basename / slug)
-    if let Some(base) = Path::new(trimmed_proj).file_name().and_then(|b| b.to_str()) {
+    let normalized_proj = trimmed_proj.replace('\\', "/");
+    if let Some(base) = Path::new(&normalized_proj).file_name().and_then(|b| b.to_str()) {
         let base_clean = base.trim().to_lowercase();
         if !base_clean.is_empty() {
             let suffix1 = format!("-{}", base_clean);
