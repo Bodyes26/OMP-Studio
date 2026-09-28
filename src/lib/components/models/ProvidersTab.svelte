@@ -11,6 +11,7 @@
 	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { IconClose, IconPlus } from '$lib/icons';
 	import { slide, fade } from 'svelte/transition';
+	import Terminal from '$lib/terminal/Terminal.svelte';
 
 	let searchQuery = $state('');
 	let listRootEl = $state<HTMLDivElement | null>(null);
@@ -24,6 +25,8 @@
 	let providerToDelete = $state<string | null>(null);
 	let accountToRemove = $state<AuthAccount | null>(null);
 	let removingAccountId = $state<number | null>(null);
+	// Provider di cui e' aperto il terminale di accesso (`omp login <id>`).
+	let loginTarget = $state<{ id: string; name: string } | null>(null);
 
 	// Elenco unificato: provider noti al backend (builtin/plugin/custom salvati) piu'
 	// eventuali provider Custom appena creati in bozza e non ancora salvati.
@@ -70,8 +73,15 @@
 		)
 	);
 
+	// `hasOauth`/`authOrigin` contano solo le credenziali attive: quando l'unico
+	// account OAuth scade (refresh token revocato) il provider li perde, ed e'
+	// proprio il caso in cui serve il pulsante per rifare l'accesso.
 	const isOAuthProvider = $derived(
-		selectedProvider ? (selectedProvider.hasOauth || selectedProvider.authOrigin === 'oauth') : false
+		selectedProvider
+			? selectedProvider.hasOauth ||
+				selectedProvider.authOrigin === 'oauth' ||
+				selectedAccounts.some((a) => a.credentialType === 'oauth')
+			: false
 	);
 
 	// Seleziona automaticamente il primo provider quando nessuno e' ancora attivo
@@ -217,7 +227,12 @@
 
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (e.key !== 'Escape') return;
-		if (accountToRemove) {
+		if (loginTarget) {
+			e.preventDefault();
+			e.stopPropagation();
+			e.stopImmediatePropagation?.();
+			void closeLogin();
+		} else if (accountToRemove) {
 			e.preventDefault();
 			e.stopPropagation();
 			e.stopImmediatePropagation?.();
@@ -330,16 +345,17 @@
 	}
 
 	// --- Accesso / nuovo account ---
-	// Studio non ha modo di avviare il flusso OAuth da questo pannello (nessuna sessione agente
-	// attiva raggiungibile da qui): prepariamo il comando CLI reale nella clipboard dell'utente.
-	async function handleLoginAction(providerId: string) {
-		const cmd = `omp auth-broker login ${providerId}`;
-		try {
-			await navigator.clipboard.writeText(cmd);
-			modelSettingsStore.showToast(m.ui_providerstab_comando_copiato_esegui_value1_in_un_terminale_341f({ value1: cmd }));
-		} catch {
-			modelSettingsStore.showToast(m.ui_providerstab_esegui_value1_in_un_terminale_per_accedere_ee9b({ value1: cmd }));
-		}
+	// Il flusso OAuth e' quello nativo di `omp login <provider>`, ospitato in un
+	// terminale come fa il setup guidato: apre il browser, attende il callback e
+	// scrive la credenziale in agent.db. Studio rilegge gli account alla chiusura.
+	function handleLoginAction(providerId: string) {
+		const name = displayProviders.find((p) => p.id === providerId)?.name ?? providerId;
+		loginTarget = { id: providerId, name };
+	}
+
+	async function closeLogin() {
+		loginTarget = null;
+		await Promise.all([modelSettingsStore.loadAccounts(), modelSettingsStore.loadProviders()]);
 	}
 
 	async function handleCopyEnvHint(envVar: string) {
@@ -623,7 +639,7 @@
 							<button
 								type="button"
 								class="btn btn-sm btn-secondary"
-								title={m.ui_providerstab_copia_il_comando_per_collegare_un_nuovo_0b02()}
+								title={m.ui_providerstab_login_new_account_title()}
 								onclick={() => handleLoginAction(selectedProvider.id)}
 							>
 								{m.models_providers_add_account()}
@@ -756,6 +772,24 @@
 				<div class="confirm-actions">
 					<button type="button" class="btn btn-secondary" onclick={cancelRemoveAccount}>{m.common_cancel()}</button>
 					<button type="button" class="btn btn-danger" onclick={executeRemoveAccount}>{m.browser_btn_disconnect_relay()}</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Dialog: accesso OAuth nel terminale -->
+	{#if loginTarget}
+		<div class="confirm-overlay" transition:fade={{ duration: 100 }}>
+			<div class="login-box" role="dialog" aria-modal="true" aria-labelledby="login-title" transition:slide={{ duration: 150 }}>
+				<h4 id="login-title">{m.ui_providerstab_login_dialog_title({ value1: loginTarget.name })}</h4>
+				<p>{m.ui_providerstab_login_dialog_hint()}</p>
+				<div class="login-terminal">
+					{#key loginTarget.id}
+						<Terminal cwd={''} launchArgs={['login', loginTarget.id]} />
+					{/key}
+				</div>
+				<div class="confirm-actions">
+					<button type="button" class="btn btn-primary" onclick={() => void closeLogin()}>{m.common_close()}</button>
 				</div>
 			</div>
 		</div>
@@ -1642,5 +1676,43 @@
 		justify-content: flex-end;
 		gap: var(--space-2);
 		margin-top: var(--space-1);
+	}
+
+	.login-box {
+		width: 92%;
+		height: 88%;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-md);
+		padding: var(--space-3) var(--space-4);
+		box-shadow: var(--shadow-overlay);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.login-box h4 {
+		margin: 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.login-box p {
+		margin: 0;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		line-height: 1.4;
+	}
+
+	/* Il terminale e' il contenuto: xterm si posiziona in assoluto sul contenitore. */
+	.login-terminal {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		overflow: hidden;
 	}
 </style>
