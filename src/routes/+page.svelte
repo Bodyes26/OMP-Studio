@@ -2856,6 +2856,13 @@
 									projectPath={p.canonicalProjectPath}
 									{visible}
 									session={laneOrchestrator.getOrCreateAgentSession(p, lane)}
+									onRunEnd={() => {
+										// La richiesta e' finita: se l'utente sta guardando questa
+										// corsia, riporta al centro l'anteprima aggiornata.
+										if (projectStore.activeId === p.id && projectStore.activeProject?.lane.laneId === lane.laneId) {
+											labCenterView = 'preview';
+										}
+									}}
 								/>
 							</div>
 						{/if}

@@ -950,7 +950,7 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 			}
 
 			const lines: string[] = [];
-			lines.push(`URL anteprima: ${status.url || "nessun URL (non pubblicata)"}`);
+			lines.push(`URL anteprima (solo per il tool browser; l'utente vede l'anteprima nella scheda Anteprima di Studio): ${status.url || "nessun URL (non pubblicata)"}`);
 			lines.push(`Esito compilazione: ${status.ok ? "SUCCESSO (OK)" : "ERRORI RILEVATI"}`);
 			if (isStale) {
 				lines.push("Stato: VECCHIO (la compilazione non ha ancora recepito l'ultima modifica ai sorgenti)");

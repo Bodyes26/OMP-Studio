@@ -19,6 +19,7 @@ import {
 	type LabChangedEvent,
 	type LabIndexPatch,
 	type LabPreviewError,
+	type LabRevision,
 	type LabServedFile
 } from './types';
 
@@ -43,6 +44,9 @@ export class LabLaneRuntime {
 
 	// Stato reattivo
 	url = $state<string | null>(null);
+	// Cresce a ogni pubblicazione riuscita. Il server riusa lo stesso URL per
+	// la stessa chiave, quindi e' questo contatore a dire all'iframe di ricaricarsi.
+	publishSeq = $state(0);
 	isCompiling = $state(false);
 	isInitialLoading = $state(true);
 	compileErrors = $state<LabPreviewError[]>([]);
@@ -89,6 +93,9 @@ export class LabLaneRuntime {
 			});
 
 			await this.recompileAndPublish();
+			// Recupera titolo e riepilogo di una fine richiesta persa (Studio
+			// chiuso o corsia smontata mentre l'agente lavorava).
+			await this.syncMeta(null);
 		} catch (err) {
 			console.error('Errore durante l\'avvio del runtime Lab:', err);
 		}
@@ -162,6 +169,7 @@ export class LabLaneRuntime {
 
 			const published = await labApi.publish(key, servedFiles);
 			this.url = published.url;
+			this.publishSeq += 1;
 			this.lastCompiledAt = Date.now();
 			this.lastSourceStamp = sourceStamp;
 
@@ -222,21 +230,32 @@ export class LabLaneRuntime {
 			}
 
 			const rev = await labApi.commit(this.workspacePath, commitMsg);
-			if (rev) {
-				const meta = await labApi.readMeta(this.workspacePath);
-				const patch: LabIndexPatch = {
-					lastRevision: rev
-				};
-				if (meta?.title) patch.title = meta.title;
-				if (meta?.summary) patch.summary = meta.summary;
-
-				await labApi.updateIndex(this.projectPath, this.prototypeId, patch);
-				if (meta?.title) {
-					syncLabTitle(this.projectId, this.laneId, meta.title);
-				}
-			}
+			await this.syncMeta(rev);
 		} catch (err) {
 			console.error('Errore durante il salvataggio a fine turno del prototipo:', err);
+		}
+	}
+
+	/**
+	 * Riporta titolo e riepilogo di `.lab/meta.json` su indice e corsia.
+	 * Non dipende dal commit: `lab_set_summary` puo' essere l'unica modifica,
+	 * e all'avvio non c'e' alcuna revisione da registrare.
+	 */
+	private async syncMeta(rev: LabRevision | null): Promise<void> {
+		const [meta, index] = await Promise.all([
+			labApi.readMeta(this.workspacePath),
+			labApi.listIndex(this.projectPath)
+		]);
+		const entry = index.find((e) => e.id === this.prototypeId);
+		const patch: LabIndexPatch = {};
+		if (rev) patch.lastRevision = rev;
+		if (meta?.title && meta.title !== entry?.title) patch.title = meta.title;
+		if (meta?.summary && meta.summary !== entry?.summary) patch.summary = meta.summary;
+		if (Object.keys(patch).length === 0) return;
+
+		await labApi.updateIndex(this.projectPath, this.prototypeId, patch);
+		if (patch.title) {
+			syncLabTitle(this.projectId, this.laneId, patch.title);
 		}
 	}
 
@@ -260,6 +279,7 @@ export class LabLaneRuntime {
 				{ path: 'app.js', content: result.compiledJs, contentType: 'application/javascript' }
 			]);
 			this.url = published.url;
+			this.publishSeq += 1;
 			this.activeRevisionSha = sha;
 			this.isViewingHistorical = true;
 		} finally {

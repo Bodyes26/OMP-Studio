@@ -42,7 +42,8 @@
 		workspacePath,
 		projectPath,
 		visible = true,
-		session
+		session,
+		onRunEnd
 	} = $props<{
 		projectId: string;
 		laneId: string;
@@ -51,6 +52,8 @@
 		projectPath: string | null;
 		visible: boolean;
 		session: AgentSession;
+		/** Fine della richiesta: revisione registrata e anteprima aggiornata. */
+		onRunEnd?: () => void;
 	}>();
 
 	// Inizializza il runtime della corsia in modo reattivo
@@ -96,16 +99,19 @@
 		};
 	});
 
-	// Rileva la fine del turno dell'agente (quando lo streaming si conclude dopo un prompt utente)
-	let wasStreaming = false;
+	// Fine della richiesta dell'utente: `agent_end` terminale. Il primo giro
+	// dell'effetto registra solo il valore corrente, cosi' montare la corsia
+	// non chiude una revisione.
+	let seenRunEndSeq: number | null = null;
 	$effect(() => {
-		const isStreamingNow = session.isStreaming;
-		if (wasStreaming && !isStreamingNow) {
+		const seq = session.runEndSeq;
+		if (seenRunEndSeq !== null && seq !== seenRunEndSeq) {
 			void runtime.handleAgentTurnEnd().then(() => {
 				void loadRevisions();
+				onRunEnd?.();
 			});
 		}
-		wasStreaming = isStreamingNow;
+		seenRunEndSeq = seq;
 	});
 
 	// Ascolto messaggi dall'iframe dell'anteprima
@@ -154,6 +160,12 @@
 			revisions = [];
 		}
 	}
+
+	// Ogni pubblicazione ricrea l'iframe, che riparte senza modalita' Seleziona.
+	$effect(() => {
+		void runtime.publishSeq;
+		isSelectModeActive = false;
+	});
 
 	function toggleSelectMode(): void {
 		isSelectModeActive = !isSelectModeActive;
@@ -454,13 +466,17 @@
 			{/if}
 
 			{#if runtime.url}
-				<iframe
-					bind:this={iframeEl}
-					sandbox="allow-scripts allow-forms allow-modals allow-popups"
-					src={runtime.url}
-					title="Laboratorio Anteprima"
-					class="preview-iframe"
-				></iframe>
+				<!-- L'URL resta lo stesso a ogni pubblicazione: senza ricreare
+				     l'iframe il riquadro mostrerebbe per sempre la prima build. -->
+				{#key runtime.publishSeq}
+					<iframe
+						bind:this={iframeEl}
+						sandbox="allow-scripts allow-forms allow-modals allow-popups"
+						src={runtime.url}
+						title="Laboratorio Anteprima"
+						class="preview-iframe"
+					></iframe>
+				{/key}
 			{/if}
 
 			{#if runtime.isCompiling && !runtime.isInitialLoading}

@@ -404,6 +404,10 @@ export class AgentSession {
 	visibleCount = $state(RENDER_WINDOW);
 
 	isStreaming = $state(false);
+	// Cresce di uno a ogni `agent_end` terminale: e' la fine della richiesta
+	// dell'utente. `isStreaming` non basta, perche `turn_end` lo spegne dopo
+	// ogni giro di tool e resta spento fino alla riconciliazione.
+	runEndSeq = $state(0);
 	// Ancora del cronometro di attesa mostrato in chat; misura il turno intero,
 	// non la singola tratta, perche l'indicatore appare e sparisce piu volte
 	// mentre l'agente alterna pensiero, testo e tool.
@@ -1693,6 +1697,7 @@ export class AgentSession {
 				this.isCompacting = false;
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
+				this.runEndSeq += 1;
 				this.agentState = this.resolveSettledState();
 				void this.reconcile();
 				this.captureAssistantActivity();
