@@ -332,3 +332,17 @@ export function invalidateProjectFilesCache(projectPath?: string) {
 		projectFilesCache.clear();
 	}
 }
+
+/**
+ * Calcola la coordinata orizzontale relativa dell'ancora per la palette di menzione
+ * basandosi sul rettangolo restituito dal Range del cursore nel DOM anziché su textarea specchio.
+ */
+export function computeCaretAnchorLeft(
+	caretRect: { left: number },
+	rootRect: { left: number; width: number },
+	paletteWidth = 380
+): number {
+	const rawX = caretRect.left - rootRect.left;
+	const maxLeft = Math.max(0, rootRect.width - paletteWidth);
+	return Math.max(0, Math.min(rawX - 12, maxLeft));
+}

@@ -89,6 +89,13 @@ export interface FileMentionToken {
 	path: string;
 }
 
+/** Menzione `/comando` o `/skill` riconosciuta nel testo scritto dall'utente. */
+export interface CommandMentionToken {
+	type: 'commandMention';
+	raw: string;
+	name: string;
+}
+
 // Istanza separata: le menzioni valgono solo nel testo scritto dall'utente
 // (bolle, anteprime dei task), non nelle risposte del modello o dei tool.
 // Come estensione di marked, e non come passata sul testo, la menzione vince
@@ -107,6 +114,22 @@ const mentionMarked = new Marked({
 				if (previous && !/\s$/.test(previous)) return undefined;
 				const match = matchFileMentionAt(src);
 				return match ? { type: 'fileMention', raw: match.raw, path: match.path } : undefined;
+			}
+		},
+		{
+			name: 'commandMention',
+			level: 'inline',
+			start: (src: string) => {
+				const match = /(?:^|\s)\/([a-zA-Z][a-zA-Z0-9_:-]*)/.exec(src);
+				if (!match) return undefined;
+				return match.index + (match[0].startsWith('/') ? 0 : 1);
+			},
+			tokenizer(src: string, tokens: Token[]): CommandMentionToken | undefined {
+				if (src.charCodeAt(0) !== 47 /* / */) return undefined;
+				const previous = tokens.at(-1)?.raw;
+				if (previous && !/\s$/.test(previous)) return undefined;
+				const match = /^\/([a-zA-Z][a-zA-Z0-9_:-]*)/.exec(src);
+				return match ? { type: 'commandMention', raw: match[0], name: match[1] } : undefined;
 			}
 		}
 	]

@@ -1,15 +1,21 @@
 <script lang="ts">
 	// Riga di retry: notifica di un tentativo ripetuto del modello o del tool.
-	// Riga a tutta larghezza con bordi sottili, coerente con NoticeRow.
+	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px).
 	import type { RetryEntry } from '../session.svelte';
 	import { IconRefresh } from '$lib/icons';
 
-	let { entry }: { entry: RetryEntry } = $props();
+	let { entry, fresh = false }: { entry: RetryEntry; fresh?: boolean } = $props();
 </script>
 
-<div class="retry-row">
+<div
+	class="retry-row"
+	class:rv-blur={fresh}
+	style={fresh ? '--dur: 400ms; --blur: 4px;' : undefined}
+>
 	<div class="main-line">
-		<span class="icon"><IconRefresh aria-hidden="true" /></span>
+		<span class="row-icon" aria-hidden="true">
+			<IconRefresh />
+		</span>
 		<span class="message">{entry.message}</span>
 	</div>
 </div>
@@ -17,31 +23,35 @@
 <style>
 	.retry-row {
 		width: 100%;
-		border-top: 1px solid var(--line);
-		padding: var(--space-1) 0;
-		font-size: var(--text-xs);
-		line-height: 1.4;
+		padding: 2px 0;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--ink-muted);
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
 	}
 
 	.main-line {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
+		gap: 6px;
 		min-width: 0;
 	}
 
-	.icon {
-		--icon-size: 12px;
+	.row-icon {
+		--icon-size: 14px;
+		width: 14px;
+		height: 14px;
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
 		flex-shrink: 0;
-		line-height: 1;
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 	}
 
 	.message {
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 		user-select: text;
 		word-break: break-word;
 	}

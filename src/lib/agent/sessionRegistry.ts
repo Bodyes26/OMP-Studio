@@ -16,6 +16,7 @@ import { promptBus } from './promptBus.ts';
 import { laneSessionKey } from './sessionKeys';
 import { m as msg } from '$lib/paraglide/messages.js';
 import { createSubscriber } from 'svelte/reactivity';
+import { invoke } from '@tauri-apps/api/core';
 
 export { laneSessionKey, mainSessionKey } from './sessionKeys';
 
@@ -53,7 +54,7 @@ export interface AgentSessionLike {
 	answerSelect?(value: string): Promise<void>;
 	answerConfirm?(confirmed: boolean): Promise<void>;
 	submitAskWizard?(plan: AskFlushStep[]): Promise<void>;
-	cancelPendingUi?(): Promise<void>;
+	cancelPendingUi?(): Promise<boolean | void>;
 	clearInferredAttention?(): void;
 	/** L'esito della consegna interessa solo la coda dei task: qui basta attendere. */
 	prompt?(message: string, images?: unknown[], behavior?: unknown): Promise<unknown>;
@@ -230,7 +231,10 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	 */
 	async disposeProjectSessions(projectKey: string): Promise<void> {
 		const sessions = this.getSessionsForProject(projectKey);
-		for (const session of sessions) this.sessions.delete(session.sessionKey);
+		for (const session of sessions) {
+			this.sessions.delete(session.sessionKey);
+			void invoke('cleanup_chat_attachments', { sessionKey: session.sessionKey }).catch(() => {});
+		}
 		if (sessions.length > 0) this.membershipChanged();
 		await Promise.allSettled(sessions.map((session) => session.close()));
 	}
@@ -242,6 +246,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		if (session.laneId) {
 			this.removeLaneSession(session.projectKey, session.laneId);
 		}
+		void invoke('cleanup_chat_attachments', { sessionKey: session.sessionKey }).catch(() => {});
 		await session.close();
 	}
 

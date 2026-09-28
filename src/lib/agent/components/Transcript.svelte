@@ -17,16 +17,19 @@
 		TranscriptEntry
 	} from '../session.svelte';
 	import { chatReveal } from '../motion';
-	import ToolCard from '../tools/ToolCard.svelte';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
 	import { groupsInExecution } from '../tools/registry';
+	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
+	import TurnFooter, { type TurnFooterData } from './TurnFooter.svelte';
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
 	import RetryRow from './RetryRow.svelte';
 	import TtsrRow from './TtsrRow.svelte';
 	import UserMessage from './UserMessage.svelte';
 	import SubagentResultCard from './SubagentResultCard.svelte';
+	import TodoTraceRow from './TodoTraceRow.svelte';
+	import SubagentTrace from './SubagentTrace.svelte';
 	import IrcMessageCard from './IrcMessageCard.svelte';
 	import LaneLandingCard from './LaneLandingCard.svelte';
 	import SystemChip from './SystemChip.svelte';
@@ -72,15 +75,35 @@
 		}
 	});
 
-	const showActivity = $derived(
-		showStartupIndicator ||
-		(session.isStreaming && !activeAssistantHasContent && !hasRunningTool && !session.pendingUi)
-	);
+	// Indicatore di attesa in-turn: compare nelle pause oltre 450ms durante lo streaming
+	// quando nessun testo sta arrivando e nessun tool e' in esecuzione (Gate R32 - C06).
+	let showInTurnIdle = $state(false);
+	$effect(() => {
+		const isIdle = session.isStreaming
+			&& session.startupPhase !== 'starting'
+			&& !activeAssistantHasContent
+			&& !hasRunningTool
+			&& !session.pendingUi;
+
+		if (isIdle) {
+			const timer = setTimeout(() => {
+				showInTurnIdle = true;
+			}, 450);
+			return () => {
+				clearTimeout(timer);
+				showInTurnIdle = false;
+			};
+		} else {
+			showInTurnIdle = false;
+		}
+	});
 
 	type DisplayItem =
 		| { kind: 'single'; entry: TranscriptEntry }
 		| { kind: 'tool-group'; id: number; entries: ToolGroupEntry[] }
-		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] };
+		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] }
+		| { kind: 'todo-trace'; id: string; entry: ToolEntry; trace: TodoTraceItem; countTool: boolean }
+		| { kind: 'subagent-trace'; id: number; entry: ToolEntry };
 	function hasResponseContent(entry: AssistantEntry): boolean {
 		return entry.blocks.some(
 			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
@@ -107,6 +130,13 @@
 	const displayItems = $derived.by<DisplayItem[]>(() => {
 		const items: DisplayItem[] = [];
 		let currentSegment: ToolGroupEntry[] = [];
+		const tracker = new TodoTraceTracker();
+		const todoTraces = new Map<number, TodoTraceItem[]>();
+		for (const entry of session.entries) {
+			if (entry.kind === 'tool' && entry.toolName === 'todo') {
+				todoTraces.set(entry.id, tracker.process({ args: entry.args, result: entry.result }));
+			}
+		}
 		const entries = session.visibleEntries;
 
 		function flushSegment() {
@@ -127,6 +157,20 @@
 		}
 
 		for (const entry of entries) {
+			if (entry.kind === 'tool' && entry.toolName === 'todo') {
+				flushSegment();
+				const traces = todoTraces.get(entry.id) ?? [];
+				if (traces.length === 0 && entry.result?.isError) items.push({ kind: 'single', entry });
+				for (const [index, trace] of traces.entries()) {
+					items.push({ kind: 'todo-trace', id: `${entry.id}-${trace.id}`, entry, trace, countTool: index === 0 });
+				}
+				continue;
+			}
+			if (entry.kind === 'tool' && entry.toolName === 'task') {
+				flushSegment();
+				items.push({ kind: 'subagent-trace', id: entry.id, entry });
+				continue;
+			}
 			if (isExecutionEntry(entry)) {
 				currentSegment.push(entry as ToolGroupEntry);
 			} else {
@@ -193,24 +237,99 @@
 		return finalItems;
 	});
 
-	function shouldShowAssistantFooter(index: number, items: DisplayItem[]): boolean {
-		// Se il display item successivo e' anch'esso un messaggio dell'assistente,
-		// omette il footer per evitare badge duplicati a cascata.
-		const next = items[index + 1];
-		if (next && next.kind === 'single' && next.entry.kind === 'assistant') {
-			return false;
+	// Piè del turno dell'agente: calcola i metadati di ogni turno concluso (Gate R32 - C07).
+	const turnFootersByIndex = $derived.by<Map<number, TurnFooterData>>(() => {
+		const map = new Map<number, TurnFooterData>();
+		if (displayItems.length === 0) return map;
+
+		let currentTurnStartIndex = -1;
+		let currentTurnAssistantTexts: string[] = [];
+		let currentTurnToolCalls = 0;
+		let currentTurnCost = 0;
+		let currentTurnModel: string | undefined;
+		let currentTurnStartMs = 0;
+		let currentTurnEndMs = 0;
+
+		function recordEntries(entries: TranscriptEntry[]) {
+			for (const entry of entries) {
+				if (entry.kind === 'assistant') {
+					for (const block of entry.blocks) {
+						if (block.type === 'text' && block.text.trim()) {
+							currentTurnAssistantTexts.push(block.text.trim());
+						}
+					}
+					if (entry.usage?.cost?.total) {
+						currentTurnCost += entry.usage.cost.total;
+					}
+					if (entry.model) {
+						currentTurnModel = entry.model;
+					}
+				} else if (entry.kind === 'tool') {
+					currentTurnToolCalls += 1;
+					if (entry.startedAt && (!currentTurnStartMs || entry.startedAt < currentTurnStartMs)) {
+						currentTurnStartMs = entry.startedAt;
+					}
+					if (entry.endedAt && entry.endedAt > currentTurnEndMs) {
+						currentTurnEndMs = entry.endedAt;
+					}
+				}
+			}
 		}
-		// Se il display item successivo e' un tool group o una card di tool singolo (l'assistente ha emesso
-		// un commento o spiegazione prima di avviare l'esecuzione dei tool),
-		// omette il footer: modello e costo compariranno in fondo alla risposta finale.
+
+		for (let i = 0; i < displayItems.length; i++) {
+			const item = displayItems[i];
+			const isUser = item.kind === 'single' && item.entry.kind === 'user';
+
+			if (isUser) {
+				if (currentTurnStartIndex >= 0 && (currentTurnAssistantTexts.length > 0 || currentTurnToolCalls > 0)) {
+					const duration = currentTurnEndMs > currentTurnStartMs ? currentTurnEndMs - currentTurnStartMs : 0;
+					map.set(i - 1, {
+						assistantText: currentTurnAssistantTexts.join('\n\n'),
+						toolCallsCount: currentTurnToolCalls,
+						durationMs: duration,
+						model: currentTurnModel,
+						cost: currentTurnCost > 0 ? currentTurnCost : undefined
+					});
+				}
+				currentTurnStartIndex = i;
+				currentTurnAssistantTexts = [];
+				currentTurnToolCalls = 0;
+				currentTurnCost = 0;
+				currentTurnModel = undefined;
+				currentTurnStartMs = 0;
+				currentTurnEndMs = 0;
+			} else {
+				if (currentTurnStartIndex === -1) {
+					currentTurnStartIndex = i;
+				}
+				if (item.kind === 'single') {
+					recordEntries([item.entry]);
+				} else if (item.kind === 'tool-group' || item.kind === 'system-group') {
+					recordEntries(item.entries as unknown as TranscriptEntry[]);
+				} else if ((item.kind === 'todo-trace' && item.countTool) || item.kind === 'subagent-trace') {
+					recordEntries([item.entry]);
+				}
+			}
+		}
+
 		if (
-			next &&
-			(next.kind === 'tool-group' || (next.kind === 'single' && next.entry.kind === 'tool'))
+			currentTurnStartIndex >= 0
+			&& !session.isStreaming
+			&& !hasRunningTool
+			&& (currentTurnAssistantTexts.length > 0 || currentTurnToolCalls > 0)
 		) {
-			return false;
+			const duration = currentTurnEndMs > currentTurnStartMs ? currentTurnEndMs - currentTurnStartMs : 0;
+			map.set(displayItems.length - 1, {
+				assistantText: currentTurnAssistantTexts.join('\n\n'),
+				toolCallsCount: currentTurnToolCalls,
+				durationMs: duration,
+				model: currentTurnModel,
+				cost: currentTurnCost > 0 ? currentTurnCost : undefined
+			});
 		}
-		return true;
-	}
+
+		return map;
+	});
 	function entryKind(item: DisplayItem): 'user' | 'system' | 'content' {
 		// Classifica l'item per il ritmo verticale: il confine di turno
 		// (messaggio utente) merita piu' distacco dal turno precedente; le
@@ -219,6 +338,7 @@
 		// (tool-group, subagent-result, irc) prendono il respiro pieno di --space-3.
 		if (item.kind === 'tool-group') return 'content';
 		if (item.kind === 'system-group') return 'system';
+		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace') return 'content';
 		const k = item.entry.kind;
 		if (k === 'user') return 'user';
 		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
@@ -337,18 +457,8 @@
 			</div>
 		</div>
 	{:else if session.visibleEntries.length === 0}
-		<div class="empty-state">
-			<div class="empty-header">
-				<h2 class="project-title">{projectName}</h2>
-				<p class="project-desc">
-					{m.ui_transcript_spazio_di_lavoro_dell_agente_per_esplorare_6625()}
-				</p>
-			</div>
-
-			<div class="shortcuts-row">
-				<span class="shortcut"><kbd>/</kbd> comandi</span>
-				<span class="shortcut"><kbd>Invio</kbd> {m.ui_transcript_invia_0fa2()}</span>
-			</div>
+		<div class="empty-state rv-blur" style="--dur: 400ms;">
+			<p class="empty-state-text">{m.chat_v2_empty_state()}</p>
 		</div>
 	{:else}
 		{#each displayItems as item, i (item.kind === 'single' ? item.entry.id : `${item.kind}-${item.id}`)}
@@ -363,36 +473,42 @@
 			>
 				{#if item.kind === 'tool-group'}
 					<ToolGroup entries={item.entries} activeAssistantId={session.activeAssistantId} />
+				{:else if item.kind === 'todo-trace'}
+					<TodoTraceRow trace={item.trace} />
+				{:else if item.kind === 'subagent-trace'}
+					<SubagentTrace entry={item.entry} subagents={session.subagents} />
 				{:else if item.kind === 'system-group'}
-					<NoticeGroup entries={item.entries} />
+					<NoticeGroup entries={item.entries} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'user'}
 					<UserMessage entry={item.entry} />
 				{:else if item.entry.kind === 'assistant'}
 					<AssistantText
 						entry={item.entry}
 						streaming={item.entry.id === session.activeAssistantId}
-						showFooter={shouldShowAssistantFooter(i, displayItems)}
 					/>
 				{:else if item.entry.kind === 'tool'}
-					<ToolCard entry={item.entry} />
+					<ToolGroup entries={[item.entry]} activeAssistantId={session.activeAssistantId} />
 				{:else if item.entry.kind === 'subagent-result'}
 					<SubagentResultCard entry={item.entry} />
 				{:else if item.entry.kind === 'irc'}
 					<IrcMessageCard entry={item.entry} />
 				{:else if item.entry.kind === 'system-chip'}
-					<SystemChip entry={item.entry} />
+					<SystemChip entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'notice'}
-					<NoticeRow entry={item.entry} />
+					<NoticeRow entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'compaction'}
-					<CompactionRow entry={item.entry} />
+					<CompactionRow entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'retry'}
-					<RetryRow entry={item.entry} />
+					<RetryRow entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'ttsr'}
-					<TtsrRow entry={item.entry} />
+					<TtsrRow entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'lane-landing'}
 					<LaneLandingCard entry={item.entry} />
 				{/if}
 			</div>
+			{#if turnFootersByIndex.get(i)}
+				<TurnFooter data={turnFootersByIndex.get(i)!} />
+			{/if}
 		{/each}
 	{/if}
 
@@ -436,15 +552,19 @@
 		</div>
 	{/if}
 
-	{#if showActivity}
+	{#if showStartupIndicator}
 		<div
 			class="agent-activity"
 			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
 		>
 			<ActivityIndicator
-				startedAt={session.startupPhase === 'starting' ? session.seededPrompt?.createdAt : session.turnStartedAt}
-				label={session.startupPhase === 'starting' ? m.chat_session_starting_label() : null}
+				startedAt={session.seededPrompt?.createdAt}
+				label={m.chat_session_starting_label()}
 			/>
+		</div>
+	{:else if showInTurnIdle}
+		<div class="agent-activity in-turn-idle rv-blur" role="status" aria-live="polite">
+			<span class="text-shimmer">{m.chat_v2_thinking_streaming()}</span>
 		</div>
 	{/if}
 </div>
@@ -488,6 +608,12 @@
 		gap: var(--space-2);
 		width: fit-content;
 		padding: var(--space-1) var(--space-2);
+	}
+
+	.agent-activity.in-turn-idle {
+		font-size: 13.5px;
+		color: var(--ink-muted);
+		user-select: none;
 	}
 
 
@@ -583,58 +709,19 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: var(--space-4);
-		max-width: 480px;
+		justify-content: center;
+		max-width: 520px;
 		margin: 0 auto;
 		width: 100%;
-		padding: var(--space-4);
+		padding: var(--space-6) var(--space-4);
 		text-align: center;
 	}
 
-	.empty-header {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-
-	.project-title {
-		margin: 0;
-		font-size: var(--text-base);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.project-desc {
-		margin: 0;
-		font-size: var(--text-xs);
+	.empty-state-text {
+		font-size: 15px;
+		line-height: 24px;
 		color: var(--ink-muted);
-		line-height: 1.4;
-	}
-
-	.shortcuts-row {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-3);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		padding-top: var(--space-1);
-	}
-
-	.shortcut {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
-	.shortcut kbd {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px var(--space-2);
-		color: var(--ink-muted);
+		margin: 0;
 	}
 
 	.earlier-bar {
@@ -656,5 +743,65 @@
 	.earlier-btn:hover {
 		color: var(--ink);
 		border-color: var(--line-strong);
+	}
+
+	.quota-blocked-row {
+		margin: var(--space-3) 0;
+	}
+
+	.quota-blocked-row :global(.alert-banner) {
+		border-radius: 16px !important;
+		border: 1px solid var(--line) !important;
+		background: var(--bg-raised) !important;
+		backdrop-filter: blur(8px);
+		box-shadow: 0 4px 16px -6px rgba(0, 0, 0, 0.08) !important;
+		padding: 12px 16px !important;
+	}
+
+	.quota-blocked-row :global(.alert-banner.variant-error) {
+		border-color: var(--line) !important;
+		border-left: 3px solid var(--danger) !important;
+	}
+
+	.quota-blocked-row :global(.alert-banner.variant-warning) {
+		border-color: var(--line) !important;
+		border-left: 3px solid var(--warn) !important;
+	}
+
+	.quota-blocked-row :global(.alert-title) {
+		font-size: 13px !important;
+		font-weight: 500 !important;
+		color: var(--ink) !important;
+	}
+
+	.quota-blocked-row :global(.alert-message) {
+		font-size: 12.5px !important;
+		line-height: 1.5 !important;
+		color: var(--ink-muted) !important;
+	}
+
+	.quota-blocked-row :global(.btn-action) {
+		border-radius: var(--radius-full) !important;
+		font-size: 12px !important;
+		padding: 4px 14px !important;
+		transition: background-color var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast) !important;
+	}
+
+	.quota-blocked-row :global(.btn-action.primary) {
+		background: var(--brand) !important;
+		color: var(--brand-ink) !important;
+		border: 1px solid transparent !important;
+		font-weight: 500 !important;
+	}
+
+	.quota-blocked-row :global(.btn-action.secondary) {
+		background: var(--bg-base) !important;
+		color: var(--ink) !important;
+		border: 1px solid var(--line) !important;
+	}
+
+	.quota-blocked-row :global(.btn-action.secondary:hover) {
+		background: var(--bg-hover) !important;
+		border-color: var(--line-strong) !important;
 	}
 </style>

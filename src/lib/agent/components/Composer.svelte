@@ -1,63 +1,56 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { tick, onDestroy } from 'svelte';
+	/**
+	 * Composer v2 (Gate R32).
+	 * Editor contenteditable a badge per @file e /comando, barra strumenti con
+	 * allegati, @, ruolo, modello, thinking, anello di contesto e pulsante Invio/Stop.
+	 */
+	import type { AgentSession } from '$lib/agent/session.svelte';
+	import type { ImageContent, ModelInfo, ThinkingLevel, AvailableCommand } from '$lib/agent/wire';
+	import { modelSupportsImages, modelSupportsReasoning } from '$lib/agent/wire';
+	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '$lib/agent/commands';
+	import {
+		loadProjectFiles,
+		rankFileCandidates,
+		extractTouchedFilesFromTranscript,
+		computeCaretAnchorLeft,
+		type RankedFileItem
+	} from '$lib/agent/fileMention';
+	import {
+		parsePlainTextToSegments,
+		createFileBadgeElement,
+		createCommandBadgeElement,
+		type ComposerSegment
+	} from '$lib/agent/composerDoc';
+	import { prepareImage, isImageFile } from '$lib/agent/images';
+	import { projectStore } from '$lib/stores/projects.svelte';
+	import { settingsStore, type StreamingBehavior } from '$lib/stores/settings.svelte';
+	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { formatTokens } from '$lib/utils/format';
-	// Superficie di inserimento comandi e prompt per l'agente.
-	//
-	// Gestisce l'auto-dimensionamento della textarea (fino a ~12 righe),
-	// la cattura e preparazione di immagini via paste/drop, l'interruttore
-	// di comportamento streaming (steer / follow-up), i chip di stato cliccabili
-	// (modello, thinking, gauge contesto, costo) e la palette dei comandi slash.
-	import type { AgentSession } from '../session.svelte';
-	import { hasEffectiveReserves } from '../quotaRecovery';
-	import {
-		type AvailableCommand,
-		type ImageContent,
-		type ModelInfo,
-		type StreamingBehavior,
-		type ThinkingLevel
-	} from '../wire';
-	import { asRecord } from '../tools/types';
-	import { prepareImage, extractImageFiles, isImageFile } from '../images';
-	import QueueChips from './QueueChips.svelte';
-	import SuggestionChips from './SuggestionChips.svelte';
-	import {
-		visibleSuggestions,
-		composeSuggestionChips,
-		MAX_STATIC_CHIPS,
-		type SuggestionChipItem
-	} from '$lib/stores/promptSuggestions';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { traceFocus } from '$lib/focusTracer';
+	import { invoke } from '@tauri-apps/api/core';
+	import { m } from '$lib/paraglide/messages.js';
 
-	import { isTypingSurface } from '../askFocus';
-import CommandPalette from './CommandPalette.svelte';
-import FileMentionPalette from './FileMentionPalette.svelte';
-import { loadProjectFiles, extractTouchedFilesFromTranscript } from '../fileMention';
-import { FileMentionController } from '../fileMentionController.svelte';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
-import {
-	STUDIO_SLASH_COMMANDS,
-	mergeCommands,
-	extractSlashQueryAtCursor,
-	shouldOpenSlashPaletteAtCursor,
-	insertSlashCommandAtCursor,
-	type SlashCursorMatch
-} from '../commands';
-import { modelSettingsStore, resolveCatalogModel, STANDARD_ROLES, type ModelDto } from '$lib/stores/modelSettings.svelte';
-import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
-import {
-	IconClose,
-	IconCheck,
-	IconKeyboard,
-	IconContextWindow,
-	IconRoleSlow,
-	IconRoleVision
-} from '$lib/icons';
-import { anchoredPopover } from '$lib/anchoredPopover';
-import { matchesLooseQuery } from '$lib/looseSearch';
-import { getCaretCoordinates } from './caretCoordinates';
+	import ComposerEditor from './ComposerEditor.svelte';
+	import MenuButton from './MenuButton.svelte';
+	import ThinkingMeter from './ThinkingMeter.svelte';
+	import ThinkingMenu from './ThinkingMenu.svelte';
+	import ModelMenu from './ModelMenu.svelte';
+	import RoleMenu, { type RoleAssignment } from './RoleMenu.svelte';
+	import ContextPanel from './ContextPanel.svelte';
+	import AttachMenu from './AttachMenu.svelte';
+	import AttachmentThumb, { type ComposerAttachment } from './AttachmentThumb.svelte';
+	import SuggestPanel, { type SuggestionItem } from './SuggestPanel.svelte';
+	import SuggestionChips from './SuggestionChips.svelte';
+
+	import {
+		IconAttach,
+		IconAt,
+		IconSend,
+		IconStop,
+		IconWarning,
+		IconChevronUp,
+		IconSparkles
+	} from '$lib/icons';
+
 	let {
 		session,
 		visible = true,
@@ -66,2544 +59,1044 @@ import { getCaretCoordinates } from './caretCoordinates';
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
-		onSlashCommand: (raw: string) => boolean;
+		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
 	}>();
 
-	$effect(() => {
-		session.suggestions.setVisible(visible);
-	});
-	let text = $state('');
-	let attachedImages = $state<ImageContent[]>([]);
-	let textareaEl = $state<HTMLTextAreaElement | null>(null);
-	let composerEl = $state<HTMLElement | null>(null);
-	let paletteOpen = $state(false);
-	let paletteQuery = $state('');
-	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
-
-	// Menzioni file (@file con ricerca fuzzy): stato e tastiera nel controller
-	// condiviso con editor dei task e companion.
-	const fileMention = new FileMentionController({
-		projectPath: () => projectStore.activeProject?.lane.workspacePath,
-		rankingContext: () => ({
-			activeFile: projectStore.activeProject?.lane.activeFile,
-			openFiles: projectStore.activeProject?.lane.openFiles,
-			touchedFiles: extractTouchedFilesFromTranscript(session.entries)
-		}),
-		apply: (newText, caret) => {
-			text = newText;
-			adjustTextareaHeight();
-			void tick().then(() => {
-				if (!textareaEl) return;
-				adjustTextareaHeight();
-				textareaEl.focus();
-				textareaEl.setSelectionRange(caret, caret);
-				updateSmoothCursor(true);
-			});
-		}
-	});
-	let fileMentionCaretAnchor = $state<HTMLElement | null>(null);
-
-	// Stato per smooth cursor (cursore fluido animato sulla textarea di chat)
-	let cursorX = $state(0);
-	let cursorY = $state(0);
-	let cursorHeight = $state(18);
-	let isCursorFocused = $state(false);
-	let isCursorBlinking = $state(false);
-	let hasTextSelection = $state(false);
-	let cursorInstantSnap = $state(false);
-	let blinkTimer: number | null = null;
-
-// Menu a comparsa per i chip di stato
-let activeMenu = $state<'role' | 'model' | 'thinking' | 'send' | null>(null);
-let availableModels = $state<ModelInfo[]>([]);
-let loadingModels = $state(false);
-
-// Ricerca e navigazione da tastiera per i menu
-let modelFilterQuery = $state('');
-let roleFilterQuery = $state('');
-let highlightedRoleIndex = $state(0);
-let highlightedModelIndex = $state(0);
-let highlightedThinkingIndex = $state(0);
-let roleListEl = $state<HTMLElement | null>(null);
-let roleSearchInputEl = $state<HTMLInputElement | null>(null);
-let modelListEl = $state<HTMLElement | null>(null);
-let modelSearchInputEl = $state<HTMLInputElement | null>(null);
-// Ancore dei menu a comparsa: i pannelli vivono nel top layer, quindi le
-// coordinate si calcolano dal chip che li apre.
-let roleChipEl = $state<HTMLElement | null>(null);
-let modelChipEl = $state<HTMLElement | null>(null);
-let thinkingChipEl = $state<HTMLElement | null>(null);
-let sendCaretEl = $state<HTMLElement | null>(null);
-	// Modalita di streaming/accodamento (predefinita e alternativa)
-	const defaultBehavior = $derived<StreamingBehavior>(settingsStore.general.defaultStreamingBehavior ?? 'steer');
-	const alternativeBehavior = $derived<StreamingBehavior>(defaultBehavior === 'steer' ? 'followUp' : 'steer');
-
-	function getBehaviorLabel(b: StreamingBehavior): string {
-		return b === 'steer' ? 'Steer' : 'Follow-up';
-	}
-	const defaultBehaviorLabel = $derived(getBehaviorLabel(defaultBehavior));
-
-	const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-
-	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session.availableCommands));
-	const filteredModels = $derived.by(() => {
-		const q = modelFilterQuery.trim();
-		if (!q) return availableModels;
-		return availableModels.filter((m) => matchesLooseQuery(q, m.name, m.id, m.provider));
-	});
-
-// Il protocollo di sessione manda solo id, nome, provider e contesto: vision
-// e thinking si leggono dal catalogo, cosi' questa lista mostra le stesse
-// icone del selettore modello del task invece di due righe di testo nudo.
-const catalogByKey = $derived.by(() => {
-	const byKey: Record<string, ModelDto> = {};
-	// Prima passata: chiavi deboli su `id` nudo. I gateway pubblicano id come
-	// `anthropic/claude-opus-5`, che collidono con il selettore `<provider>/<id>`
-	// del provider nativo: la seconda passata deve poterle sovrascrivere.
-	for (const model of modelSettingsStore.catalog) {
-		byKey[model.id] = model;
-	}
-	// Seconda passata: chiavi forti, sempre vincenti sulle collisioni.
-	for (const model of modelSettingsStore.catalog) {
-		byKey[`${model.provider}/${model.id}`] = model;
-		byKey[model.selector] = model;
-	}
-	return byKey;
-});
-
-function modelCapabilities(m: ModelInfo) {
-	const dto = catalogByKey[`${m.provider}/${m.id}`] ?? (m.id ? catalogByKey[m.id] : undefined);
-	return {
-		vision: dto?.input?.includes('image') ?? false,
-		thinking: dto?.reasoning ?? false,
-		contextWindow: m.contextWindow ?? dto?.contextWindow,
-		thinkingTitle:
-			dto?.thinking?.efforts && dto.thinking.efforts.length > 0
-				? `Thinking: ${dto.thinking.efforts.join(' · ')}`
-				: 'Thinking: supporta il ragionamento esteso'
-	};
-}
-
-const configuredRolesList = $derived.by(() => {
-	const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
-	const cycleOrder = modelSettingsStore.config?.cycleOrder || modelSettingsStore.draftConfig?.cycleOrder || [];
-	const q = roleFilterQuery.trim().toLowerCase();
-
-	return STANDARD_ROLES.map((r) => {
-		const selector = rolesMap[r.id] || '';
-		const { base: rawSelector, thinking } = splitModelSelector(selector, modelSettingsStore.knownSelectors);
-		const modelDto = resolveCatalogModel(modelSettingsStore.catalog, rawSelector);
-		const slashIdx = rawSelector.indexOf('/');
-		const fallbackProvider = slashIdx >= 0 ? rawSelector.slice(0, slashIdx) : '';
-		const fallbackName = slashIdx >= 0 ? rawSelector.slice(slashIdx + 1) : rawSelector;
+	// Convertitore esportato per trasformare ImageContent del protocollo wire in ComposerAttachment
+	export function imageContentToAttachment(img: ImageContent): ComposerAttachment {
+		const mime = img.mimeType || 'image/jpeg';
 		return {
-			...r,
-			selector,
-			rawSelector,
-			thinking: thinking ?? 'auto',
-			modelName: modelDto?.name || fallbackName,
-			provider: modelDto?.provider || fallbackProvider,
-			isConfigured: Boolean(rawSelector)
+			id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+			kind: 'image',
+			name: 'image.jpg',
+			size: Math.round((img.data.length * 3) / 4),
+			url: `data:${mime};base64,${img.data}`,
+			mimeType: mime,
+			base64: img.data,
+			tokens: 1600
 		};
-	}).filter((item) => {
-		if (!q) return true;
-		return item.label.toLowerCase().includes(q)
-			|| item.id.toLowerCase().includes(q)
-			|| item.desc.toLowerCase().includes(q)
-			|| item.modelName.toLowerCase().includes(q)
-			|| item.provider.toLowerCase().includes(q);
-	});
-});
-
-const activeRoleInfo = $derived.by(() => {
-	if (!session.model?.id) return null;
-	const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
-	const curId = session.model.id;
-	const curProvider = session.model.provider || '';
-
-	for (const r of STANDARD_ROLES) {
-		const full = rolesMap[r.id];
-		if (!full) continue;
-		const raw = splitModelSelector(full, modelSettingsStore.knownSelectors).base;
-		if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
-			return r;
-		}
 	}
-	return null;
-});
 
-const isCoveredByReserves = $derived.by(() => {
-	if (!session.model?.id) return true;
-	const provider = session.model.provider || '';
-	const selector = provider ? `${provider}/${session.model.id}` : session.model.id;
-	const config = modelSettingsStore.config || modelSettingsStore.draftConfig;
-	return hasEffectiveReserves(selector, activeRoleInfo?.id ?? null, config);
-});
+	let rootEl = $state<HTMLDivElement | null>(null);
+	let editorRef = $state<ReturnType<typeof ComposerEditor> | null>(null);
+	let fileInputEl = $state<HTMLInputElement | null>(null);
 
-$effect(() => {
-	void modelSettingsStore.ensureLoaded();
-});
+	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'context' | 'sendMode' | null;
+	let activeMenu = $state<MenuKind>(null);
 
-$effect(() => {
-	if (activeMenu !== 'role' || !roleListEl || configuredRolesList.length === 0) return;
-	const item = roleListEl.children[highlightedRoleIndex] as HTMLElement | undefined;
-	item?.scrollIntoView({ block: 'nearest' });
-});
+	let attachments = $state<ComposerAttachment[]>([]);
+	let draftRevision = $state(0);
+	let availableModels = $state<ModelInfo[]>([]);
+	let isDragging = $state(false);
 
-$effect(() => {
-	if (activeMenu !== 'model' || !modelListEl || filteredModels.length === 0) return;
-	const item = modelListEl.children[highlightedModelIndex] as HTMLElement | undefined;
-	item?.scrollIntoView({ block: 'nearest' });
-});
-	// Scalda la cache del catalogo: la prima @ dopo il cambio progetto non
-	// deve aspettare la lettura del disco.
+	let currentTrigger = $state<{
+		kind: '@' | '/';
+		query: string;
+		node: Text;
+		start: number;
+		caretRect: { left: number };
+	} | null>(null);
+
+	let suggestItems = $state<SuggestionItem[]>([]);
+	let suggestIndex = $state(0);
+
+	let sendBehaviorChoice = $state<StreamingBehavior>(settingsStore.general.defaultStreamingBehavior);
 	$effect(() => {
-		const pPath = projectStore.activeProject?.lane.workspacePath;
-		if (pPath) void loadProjectFiles(pPath);
+		sendBehaviorChoice = settingsStore.general.defaultStreamingBehavior;
 	});
 
-	function updateSlashState() {
-		if (!textareaEl) return;
-		const cursor = textareaEl.selectionStart ?? text.length;
-		const match = extractSlashQueryAtCursor(text, cursor);
-		currentSlashMatch = match;
-		paletteQuery = match?.query ?? '';
-		paletteOpen = shouldOpenSlashPaletteAtCursor(match, allCommands);
-		if (paletteOpen) fileMention.close();
+	// Catalogo unificato dei comandi
+	const allCommands = $derived.by(() => {
+		return mergeCommands(STUDIO_SLASH_COMMANDS, session.availableCommands);
+	});
 
-		if (match && session.availableCommands.length === 0) {
-			void loadAvailableCommands().then(() => {
-				if (visible) {
-					paletteOpen = shouldOpenSlashPaletteAtCursor(currentSlashMatch, allCommands);
-					if (paletteOpen) fileMention.close();
-				}
-			});
-		}
+	function isSkillCommand(name: string): boolean {
+		const clean = name.replace(/^skill:/, '');
+		const found = allCommands.find((c) => c.name.toLowerCase() === clean.toLowerCase());
+		return found?.source === 'skill' || name.startsWith('skill:');
 	}
 
-	function updateFileMentionState() {
-		if (!textareaEl) return;
-		// La palette slash ha la precedenza sulla @.
-		if (paletteOpen) {
-			fileMention.close();
-			return;
-		}
-		void fileMention.update(text, textareaEl.selectionStart ?? text.length);
-	}
-	function isComposerActiveAndFocused(): boolean {
-		if (!textareaEl || typeof document === 'undefined') return false;
-		const hasDocFocus = typeof document.hasFocus === 'function' ? document.hasFocus() : true;
-		return hasDocFocus && document.activeElement === textareaEl && !document.hidden;
-	}
-
-	function updateSmoothCursor(instant = false) {
-		if (!textareaEl) return;
-		const isFocused = isComposerActiveAndFocused();
-		isCursorFocused = isFocused;
-		if (!isFocused) {
-			isCursorBlinking = false;
-			if (blinkTimer !== null) {
-				window.clearTimeout(blinkTimer);
-				blinkTimer = null;
-			}
-			return;
-		}
-
-		const start = textareaEl.selectionStart ?? 0;
-		const end = textareaEl.selectionEnd ?? 0;
-		hasTextSelection = start !== end;
-		if (hasTextSelection) return;
-
-		const coords = getCaretCoordinates(textareaEl, start);
-		cursorX = coords.left;
-		cursorY = coords.top;
-		cursorHeight = coords.height;
-
-		if (instant) {
-			cursorInstantSnap = true;
-			void tick().then(() => {
-				cursorInstantSnap = false;
-			});
-		}
-
-		// Resetta il timer di lampeggio/respiro morbido a riposo (500ms di inattività)
-		isCursorBlinking = false;
-		if (blinkTimer !== null) {
-			window.clearTimeout(blinkTimer);
-		}
-		blinkTimer = window.setTimeout(() => {
-			if (isComposerActiveAndFocused()) {
-				isCursorBlinking = true;
-			}
-		}, 500);
-	}
-
+	// Caricamento modelli disponibili
 	$effect(() => {
-		if (typeof document === 'undefined' || typeof window === 'undefined') return;
-
-		function handleSelectionChange() {
-			if (document.activeElement === textareaEl) {
-				updateSmoothCursor();
-			}
-		}
-
-		function handleWindowFocus() {
-			if (document.activeElement === textareaEl) {
-				updateSmoothCursor(true);
-			} else {
-				isCursorFocused = false;
-				isCursorBlinking = false;
-			}
-		}
-
-		function handleWindowBlur() {
-			isCursorFocused = false;
-			isCursorBlinking = false;
-			if (blinkTimer !== null) {
-				window.clearTimeout(blinkTimer);
-				blinkTimer = null;
-			}
-		}
-
-		function handleVisibilityChange() {
-			if (document.hidden) {
-				handleWindowBlur();
-			} else if (document.activeElement === textareaEl) {
-				handleWindowFocus();
-			}
-		}
-
-		document.addEventListener('selectionchange', handleSelectionChange);
-		window.addEventListener('focus', handleWindowFocus);
-		window.addEventListener('blur', handleWindowBlur);
-		document.addEventListener('visibilitychange', handleVisibilityChange);
-
-		function handleInsertContext(e: Event) {
-			const customEv = e as CustomEvent<{ text?: string; images?: ImageContent[] }>;
-			const insertText = customEv.detail?.text?.trim();
-			const newImages = customEv.detail?.images ?? [];
-			if (insertText) {
-				if (text.trim()) {
-					text = `${text.trim()}\n\n${insertText}`;
-				} else {
-					text = insertText;
-				}
-			}
-			if (newImages.length > 0) {
-				attachedImages = [...attachedImages, ...newImages];
-			}
-			paletteOpen = false;
-			adjustTextareaHeight();
-			void tick().then(() => {
-				if (textareaEl) {
-					adjustTextareaHeight();
-					textareaEl.focus();
-					const len = textareaEl.value.length;
-					textareaEl.setSelectionRange(len, len);
-				}
-			});
-		}
-
-		window.addEventListener('composer-insert-context', handleInsertContext);
-		const unregisterSessionInsert = session.registerComposerInsertHandler((insertText: string) => {
-			const trimmed = insertText.trim();
-			if (!trimmed) return;
-			if (text.trim()) {
-				text = `${text.trim()}\n\n${trimmed}`;
-			} else {
-				text = trimmed;
-			}
-			paletteOpen = false;
-			adjustTextareaHeight();
-			void tick().then(() => {
-				if (textareaEl) {
-					adjustTextareaHeight();
-					textareaEl.focus();
-					const len = textareaEl.value.length;
-					textareaEl.setSelectionRange(len, len);
-				}
-			});
-		});
-
-		return () => {
-			document.removeEventListener('selectionchange', handleSelectionChange);
-			window.removeEventListener('focus', handleWindowFocus);
-			window.removeEventListener('blur', handleWindowBlur);
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
-			window.removeEventListener('composer-insert-context', handleInsertContext);
-			unregisterSessionInsert();
-			if (blinkTimer !== null) {
-				window.clearTimeout(blinkTimer);
-				blinkTimer = null;
-			}
-		};
-	});
-
-	$effect(() => {
-		if (!textareaEl || typeof ResizeObserver === 'undefined') return;
-		const ro = new ResizeObserver(() => {
-			if (isCursorFocused) {
-				updateSmoothCursor();
-			}
-		});
-		ro.observe(textareaEl);
-		return () => {
-			ro.disconnect();
-		};
-	});
-
-	$effect(() => {
-		// Reattività su cambi di testo esterni (es. invio prompt, slash autocomplete)
-		const _ = text;
-		if (isCursorFocused) {
-			void tick().then(() => updateSmoothCursor());
-		}
-	});
-
-	function handleComposerInput() {
-		adjustTextareaHeight();
-		updateSlashState();
-		updateFileMentionState();
-		updateSmoothCursor();
-	}
-
-	function handleCursorMovement() {
-		updateSlashState();
-		updateFileMentionState();
-		updateSmoothCursor();
-	}
-	function handleInputRowClick(event: MouseEvent) {
-		const target = event.target as HTMLElement | null;
-		if (target && (target.closest('button') || target.closest('a') || target.closest('input') || target.closest('.image-thumb-wrap'))) {
-			return;
-		}
-		if (textareaEl && document.activeElement !== textareaEl) {
-			textareaEl.focus();
-			updateSmoothCursor(true);
-		}
-	}
-	// Auto-dimensionamento della textarea fino a circa 12 righe (~240px)
-	function adjustTextareaHeight() {
-		if (!textareaEl) return;
-		if (!text) {
-			textareaEl.style.height = '';
-			textareaEl.style.overflowY = 'hidden';
-			return;
-		}
-		textareaEl.style.height = 'auto';
-		const scrollH = textareaEl.scrollHeight;
-		const maxH = 240;
-		textareaEl.style.height = `${Math.min(scrollH, maxH)}px`;
-		textareaEl.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
-	}
-
-	async function loadAvailableCommands() {
-		try {
-			const res = await session.client.send({
-				type: 'get_available_commands'
-			});
-			const rec = asRecord(res);
-			if (rec && Array.isArray(rec.commands)) {
-				session.availableCommands = rec.commands as AvailableCommand[];
-			}
-		} catch {
-			// I comandi disponibili restano quelli gia' noti
-		}
-	}
-
-	async function loadAvailableModels() {
-		if (loadingModels) return;
-		loadingModels = true;
-		try {
-			const res = await session.client.send({
-				type: 'get_available_models'
-			});
-			if (Array.isArray(res)) {
-				availableModels = res as ModelInfo[];
-			} else {
-				const rec = asRecord(res);
-				if (rec && Array.isArray(rec.models)) {
-					availableModels = rec.models as ModelInfo[];
-				}
-			}
-		} catch (err) {
-			session.pushNotice('warning', `Impossibile recuperare i modelli disponibili: ${err instanceof Error ? err.message : String(err)}`);
-		} finally {
-			loadingModels = false;
-		}
-	}
-
-
-	async function handleModelSelect(model: ModelInfo) {
-		activeMenu = null;
-		if (!model.provider || !model.id) return;
-		try {
-			await session.client.send({
-				type: 'set_model',
-				provider: model.provider,
-				modelId: model.id
-			});
-			await session.refreshState();
-		} catch (err) {
-			session.pushNotice('warning', m.ui_composer_errore_selezione_modello_value1_b687({ value1: err instanceof Error ? err.message : String(err) }));
-		}
-	}
-
-	async function handleRoleSelect(roleId: string) {
-		activeMenu = null;
-		await modelSettingsStore.ensureLoaded();
-		const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
-		const fullSelector = rolesMap[roleId];
-		const roleMeta = STANDARD_ROLES.find(r => r.id === roleId);
-		if (!fullSelector) {
-			session.pushNotice('warning', m.ui_composer_il_ruolo_value1_non_e_ancora_configurato_1b00({ value1: roleMeta?.label || roleId }), 'studio');
-			return;
-		}
-
-		const { base: rawSelector, thinking } = splitModelSelector(fullSelector, modelSettingsStore.knownSelectors);
-		const slashIdx = rawSelector.indexOf('/');
-		const provider = slashIdx >= 0 ? rawSelector.slice(0, slashIdx) : '';
-		const modelId = slashIdx >= 0 ? rawSelector.slice(slashIdx + 1) : rawSelector;
-		if (!modelId) return;
-		try {
-			await session.client.send({
-				type: 'set_model',
-				provider: provider || session.model?.provider || '',
-				modelId
-			});
-			if (thinking && thinking !== 'auto') {
-				await session.client.send({
-					type: 'set_thinking_level',
-					level: thinking as ThinkingLevel
-				});
-			}
-			await session.refreshState();
-			const roleLabel = roleMeta ? roleMeta.label : roleId;
-			const currentModel = session.model?.name || session.model?.id || modelId;
-			session.pushNotice('info', `Ruolo attivo: ${roleLabel} (${currentModel})`, 'studio');
-		} catch (err) {
-			session.pushNotice('warning', m.ui_composer_errore_applicazione_ruolo_value1_value2_0fb5({ value1: roleId, value2: err instanceof Error ? err.message : String(err) }));
-		}
-	}
-
-	async function handleCycleRole() {
-		await modelSettingsStore.ensureLoaded();
-		const cfg = modelSettingsStore.config || modelSettingsStore.draftConfig;
-		const rolesMap = cfg?.modelRoles || {};
-		const cycleOrder = cfg?.cycleOrder && cfg.cycleOrder.length > 0
-			? cfg.cycleOrder
-			: STANDARD_ROLES.map(r => r.id);
-
-		// Filtra solo i ruoli che sono effettivamente configurati con un modello
-		const configuredCycle = cycleOrder.filter(rId => Boolean(rolesMap[rId]));
-
-		if (configuredCycle.length === 0) {
-			// Se nessun ruolo è configurato, fallback su cycle_model standard
-			try {
-				await session.client.send({ type: 'cycle_model' });
-				await session.refreshState();
-				const current = session.model?.name || session.model?.id || 'default';
-				session.pushNotice('info', m.ui_composer_modello_attivo_value1_ecf1({ value1: current }), 'studio');
-			} catch (err) {
-				session.pushNotice('warning', m.ui_composer_errore_passaggio_modello_value1_6214({ value1: err instanceof Error ? err.message : String(err) }));
-			}
-			return;
-		}
-
-		// Determina il ruolo attivo corrente
-		const curId = session.model?.id || '';
-		const curProvider = session.model?.provider || '';
-		let currentIndex = -1;
-
-		for (let i = 0; i < configuredCycle.length; i++) {
-			const rId = configuredCycle[i];
-			const full = rolesMap[rId];
-			if (!full) continue;
-			const raw = splitModelSelector(full, modelSettingsStore.knownSelectors).base;
-			if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
-				currentIndex = i;
-				break;
-			}
-		}
-
-		const nextIndex = (currentIndex + 1) % configuredCycle.length;
-		const nextRoleId = configuredCycle[nextIndex];
-		await handleRoleSelect(nextRoleId);
-	}
-
-	async function handleCycleModel() {
-		await handleCycleRole();
-	}
-
-	async function handleThinkingSelect(level: ThinkingLevel) {
-		activeMenu = null;
-		try {
-			await session.client.send({
-				type: 'set_thinking_level',
-				level
-			});
-			await session.refreshState();
-		} catch (err) {
-			session.pushNotice('warning', m.ui_composer_errore_impostazione_livello_di_thinking_value1_363e({ value1: err instanceof Error ? err.message : String(err) }));
-		}
-	}
-
-	async function handleCycleThinking() {
-		const current = session.thinkingLevel || 'off';
-		const idx = THINKING_LEVELS.indexOf(current);
-		const next = THINKING_LEVELS[(idx + 1) % THINKING_LEVELS.length];
-		await handleThinkingSelect(next);
-		session.pushNotice('info', `Livello di thinking: ${next}`, 'studio');
-	}
-
-
-	let stopArmed = $state(false);
-	let stopArmedTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function clearStopArmed() {
-		if (stopArmedTimer) {
-			clearTimeout(stopArmedTimer);
-			stopArmedTimer = null;
-		}
-		stopArmed = false;
-	}
-
-	function handleStopClick() {
-		if (!stopArmed) {
-			// Fase 1 (al primo click): soft abort e finestra armed di 2.0s
-			void session.abort();
-			stopArmed = true;
-			if (stopArmedTimer) clearTimeout(stopArmedTimer);
-			stopArmedTimer = setTimeout(() => {
-				stopArmed = false;
-				stopArmedTimer = null;
-			}, 2000);
-		} else {
-			// Fase 2 (secondo click entro 2.0s): forza arresto immediato (SIGKILL)
-			clearStopArmed();
-			void session.forceKill();
-		}
-	}
-
-	// Reset naturale: se l'agente risponde al soft abort e termina entro i 2s,
-	// lo stato armed decade automaticamente senza necessita' del secondo click.
-	$effect(() => {
-		if (!session.isStreaming && stopArmed) {
-			clearStopArmed();
-		}
-	});
-
-	onDestroy(() => {
-		if (stopArmedTimer) clearTimeout(stopArmedTimer);
-	});
-
-	function handleCancelOrClear() {
-		if (session.isStreaming || stopArmed) {
-			handleStopClick();
-			return;
-		}
-		if (text || attachedImages.length > 0) {
-			text = '';
-			attachedImages = [];
-			paletteOpen = false;
-			adjustTextareaHeight();
-		}
-	}
-
-	function toggleMenu(menu: 'role' | 'model' | 'thinking' | 'send') {
-		if (activeMenu === menu) {
-			activeMenu = null;
-		} else {
-			activeMenu = menu;
-			if (menu === 'role') {
-				roleFilterQuery = '';
-				highlightedRoleIndex = 0;
-				void modelSettingsStore.ensureLoaded();
-				setTimeout(() => roleSearchInputEl?.focus(), 40);
-			}
-			if (menu === 'model') {
-				modelFilterQuery = '';
-				highlightedModelIndex = 0;
-				void loadAvailableModels();
-				setTimeout(() => modelSearchInputEl?.focus(), 40);
-			}
-			if (menu === 'thinking') {
-				const current = session.thinkingLevel || 'off';
-				const idx = THINKING_LEVELS.indexOf(current);
-				highlightedThinkingIndex = idx >= 0 ? idx : 0;
-			}
-		}
-	}
-
-	function openModelSettings() {
-		activeMenu = null;
-		modelSettingsStore.openModal('roles');
-	}
-
-
-	function closeMenus(event: MouseEvent) {
-		if (!visible || (!activeMenu && !paletteOpen && !fileMention.open)) return;
-		const target = event.target;
-		if (target instanceof Element && target.closest('.dropdown-menu, .palette-container, .file-mention-container')) return;
-		activeMenu = null;
-		paletteOpen = false;
-		fileMention.close();
-	}
-	$effect(() => {
-		if (!session.isStreaming && activeMenu === 'send') {
-			activeMenu = null;
-		}
-	});
-
-
-	function isComposerOwnedInput(el: EventTarget | null): boolean {
-		return el === textareaEl || el === modelSearchInputEl || el === roleSearchInputEl;
-	}
-
-	function isExternalTypingSurface(el: EventTarget | null): boolean {
-		return !isComposerOwnedInput(el) && isTypingSurface(el);
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
 		if (!visible) return;
-
-		const target = event.target;
-		const isComposerTextarea = target === textareaEl;
-		const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
-		// Se l'utente sta digitando altrove (editor Monaco, terminale, AskCard, ...),
-		// non dirottare i tasti nel composer. Controllare anche activeElement: Monaco
-		// spesso ha la textarea in focus ma il keydown puo' avere target diverso.
-		if (isExternalTypingSurface(target) || isExternalTypingSurface(activeEl)) return;
-
-		const isAltOnly = event.altKey && !event.ctrlKey && !event.metaKey;
-		const isCtrlOrCmd = (event.ctrlKey || event.metaKey) && !event.altKey;
-		const keyLower = event.key.toLowerCase();
-		const code = event.code;
-		const isInteractiveElement = activeEl instanceof HTMLElement && (
-			activeEl instanceof HTMLButtonElement
-			|| activeEl instanceof HTMLSelectElement
-			|| activeEl.getAttribute('role') === 'button'
-			|| activeEl.getAttribute('role') === 'option'
-			|| activeEl.getAttribute('role') === 'tab'
-			|| activeEl.getAttribute('role') === 'menuitem'
-			|| activeEl.getAttribute('role') === 'radio'
-			|| activeEl.getAttribute('role') === 'checkbox'
-			|| activeEl.closest('.ask-card') !== null
-			|| activeEl.closest('.modal-dialog') !== null
-			|| activeEl.closest('.popover') !== null
-			|| activeEl.closest('.drawer') !== null
-		);
-		const hasOpenOverlay = typeof document !== 'undefined' && Boolean(
-			settingsStore.open
-			|| modelSettingsStore.isOpen
-			|| shortcutsModalStore.isOpen
-			|| document.querySelector('.modal-dialog, .modal-backdrop, .project-picker-modal, .queue-drawer.open')
-		);
-
-		// Type-to-focus: se l'utente inizia a scrivere (lettera/simbolo normale) e il focus non e' in un altro input
-		// ne' ci sono dialoghi/menu aperti. Vale solo partendo dal vuoto (body) o dall'interno del composer:
-		// se il fuoco e' su un controllo di un'altra superficie (bottoni del TaskEditor, albero file, tessere)
-		// la digitazione resta li' invece di venire dirottata nella chat del progetto attivo.
-		if (!isComposerTextarea && !activeMenu && !paletteOpen && !fileMention.open && !hasOpenOverlay) {
-			if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && !event.isComposing) {
-				if (event.key === ' ' && isInteractiveElement) {
-					// Lascia che lo spazio attivi l'elemento con focus
-					return;
+		void (async () => {
+			try {
+				const res = await session.client.send({ type: 'get_available_models' });
+				if (Array.isArray(res)) {
+					availableModels = res as ModelInfo[];
+				} else if (res && typeof res === 'object' && 'models' in res && Array.isArray((res as { models: unknown }).models)) {
+					availableModels = (res as { models: ModelInfo[] }).models;
 				}
-				if (isInteractiveElement && !composerEl?.contains(activeEl ?? null)) {
-					// Non rubare il fuoco ai controlli fuori dal composer (card di ask inclusa)
-					return;
-				}
-				traceFocus('composer-type-to-focus', `key=${event.key}`);
-				textareaEl?.focus();
-				// Lascia propagare l'evento per inserire il carattere nella textarea
+			} catch {
+				// Fallback silente sui modelli catalogo
 			}
-		}
-		// Escape: chiusura a cascata di modal, menu e palette
-		if (event.key === 'Escape') {
-			if (shortcutsModalStore.isOpen) {
-				event.preventDefault();
-				shortcutsModalStore.close();
-				textareaEl?.focus();
-				return;
-			}
-			if (activeMenu) {
-				event.preventDefault();
-				activeMenu = null;
-				textareaEl?.focus();
-				return;
-			}
-			if (fileMention.open) {
-				event.preventDefault();
-				fileMention.close();
-				textareaEl?.focus();
-				return;
-			}
-			if (paletteOpen) {
-				event.preventDefault();
-				paletteOpen = false;
-				textareaEl?.focus();
-				return;
-			}
-			return;
-		}
-
-		// Se il modale di aiuto e' aperto, non processare scorciatoie di composer
-		if (shortcutsModalStore.isOpen) return;
-		// Navigazione da tastiera nei menu aperti
-		if (activeMenu === 'role') {
-			if (event.key === 'ArrowDown') {
-				event.preventDefault();
-				if (configuredRolesList.length > 0) {
-					highlightedRoleIndex = (highlightedRoleIndex + 1) % configuredRolesList.length;
-				}
-				return;
-			}
-			if (event.key === 'ArrowUp') {
-				event.preventDefault();
-				if (configuredRolesList.length > 0) {
-					highlightedRoleIndex = (highlightedRoleIndex - 1 + configuredRolesList.length) % configuredRolesList.length;
-				}
-				return;
-			}
-			if (event.key === 'Enter') {
-				if (configuredRolesList.length > 0 && highlightedRoleIndex < configuredRolesList.length) {
-					event.preventDefault();
-					void handleRoleSelect(configuredRolesList[highlightedRoleIndex].id);
-					textareaEl?.focus();
-					return;
-				}
-			}
-		} else if (activeMenu === 'model') {
-			if (event.key === 'ArrowDown') {
-				event.preventDefault();
-				if (filteredModels.length > 0) {
-					highlightedModelIndex = (highlightedModelIndex + 1) % filteredModels.length;
-				}
-				return;
-			}
-			if (event.key === 'ArrowUp') {
-				event.preventDefault();
-				if (filteredModels.length > 0) {
-					highlightedModelIndex = (highlightedModelIndex - 1 + filteredModels.length) % filteredModels.length;
-				}
-				return;
-			}
-			if (event.key === 'Enter') {
-				if (filteredModels.length > 0 && highlightedModelIndex < filteredModels.length) {
-					event.preventDefault();
-					void handleModelSelect(filteredModels[highlightedModelIndex]);
-					textareaEl?.focus();
-					return;
-				}
-			}
-		} else if (activeMenu === 'thinking') {
-			if (event.key === 'ArrowDown') {
-				event.preventDefault();
-				highlightedThinkingIndex = (highlightedThinkingIndex + 1) % THINKING_LEVELS.length;
-				return;
-			}
-			if (event.key === 'ArrowUp') {
-				event.preventDefault();
-				highlightedThinkingIndex = (highlightedThinkingIndex - 1 + THINKING_LEVELS.length) % THINKING_LEVELS.length;
-				return;
-			}
-			if (event.key === 'Enter') {
-				event.preventDefault();
-				void handleThinkingSelect(THINKING_LEVELS[highlightedThinkingIndex]);
-				textareaEl?.focus();
-				return;
-			}
-		}
-		// Alt+1 .. Alt+6: applica suggerimento prompt corrispondente
-		if (isAltOnly && !activeMenu && showSuggestionChips) {
-			let digit: number | null = null;
-			if (event.key >= '1' && event.key <= '6') {
-				digit = parseInt(event.key, 10);
-			} else if (code.startsWith('Digit')) {
-				const d = parseInt(code.slice(5), 10);
-				if (d >= 1 && d <= 6) digit = d;
-			} else if (code.startsWith('Numpad')) {
-				const d = parseInt(code.slice(6), 10);
-				if (d >= 1 && d <= 6) digit = d;
-			}
-
-			if (digit !== null) {
-				const targetIndex = digit - 1;
-				if (targetIndex >= 0 && targetIndex < displayedSuggestions.length) {
-					event.preventDefault();
-					applySuggestion(displayedSuggestions[targetIndex].prompt);
-					return;
-				}
-			}
-		}
-
-
-		// Alt+R: apri/chiudi menu ruoli
-		if (isAltOnly && (keyLower === 'r' || code === 'KeyR')) {
-			event.preventDefault();
-			toggleMenu('role');
-			return;
-		}
-
-		// Alt+P: apri/chiudi menu modelli
-		if (isAltOnly && (keyLower === 'p' || code === 'KeyP')) {
-			event.preventDefault();
-			toggleMenu('model');
-			return;
-		}
-
-		// Ctrl+P / Cmd+P: cicla tra i ruoli configurati
-		if (isCtrlOrCmd && (keyLower === 'p' || code === 'KeyP')) {
-			event.preventDefault();
-			void handleCycleRole();
-			return;
-		}
-		// Alt+M: apri/chiudi menu thinking
-		if (isAltOnly && (keyLower === 'm' || code === 'KeyM')) {
-			event.preventDefault();
-			toggleMenu('thinking');
-			return;
-		}
-
-		// Alt+T: cicla direttamente livello thinking
-		if (isAltOnly && (keyLower === 't' || code === 'KeyT')) {
-			event.preventDefault();
-			void handleCycleThinking();
-			return;
-		}
-
-		// Nota: Alt+Enter e' gestito direttamente in handleKeydown della textarea per inviare con la modalita' alternativa
-		// e non deve essere intercettato qui a livello di finestra.
-
-		// Alt+C: interrompi streaming o cancella input
-		if (isAltOnly && (keyLower === 'c' || code === 'KeyC')) {
-			event.preventDefault();
-			handleCancelOrClear();
-			return;
-		}
-
-		// Ctrl+C: interrompi streaming se non c'e' testo selezionato
-		if (isCtrlOrCmd && (keyLower === 'c' || code === 'KeyC') && (session.isStreaming || stopArmed)) {
-			const selection = window.getSelection()?.toString();
-			if (!selection) {
-				event.preventDefault();
-				handleStopClick();
-				return;
-			}
-		}
-
-		// Alt+E: metti a fuoco la textarea del composer
-		if (isAltOnly && (keyLower === 'e' || code === 'KeyE')) {
-			event.preventDefault();
-			textareaEl?.focus();
-			return;
-		}
-
-		// Alt+N: apre una nuova chat nel progetto attivo
-		if (isAltOnly && (keyLower === 'n' || code === 'KeyN')) {
-			event.preventDefault();
-			onNewChat?.();
-			return;
-		}
-	}
-
-	async function handleProcessFiles(files: FileList | File[]) {
-		for (const file of Array.from(files)) {
-			if (!isImageFile(file)) continue;
-			const res = await prepareImage(file);
-			if ('error' in res) {
-				session.pushNotice('warning', res.error);
-			} else {
-				attachedImages = [...attachedImages, res];
-			}
-		}
-	}
-
-	function handlePaste(event: ClipboardEvent) {
-		const imageFiles = extractImageFiles(event.clipboardData);
-		if (imageFiles.length > 0) {
-			event.preventDefault();
-			void handleProcessFiles(imageFiles);
-		}
-	}
-
-	function handleDrop(event: DragEvent) {
-		event.preventDefault();
-		const imageFiles = extractImageFiles(event.dataTransfer);
-		if (imageFiles.length > 0) {
-			void handleProcessFiles(imageFiles);
-		}
-	}
-	function handleDragOver(event: DragEvent) {
-		event.preventDefault();
-	}
-
-	function removeImage(index: number) {
-		attachedImages = attachedImages.filter((_, i) => i !== index);
-	}
-
-	async function handleSubmit(behavior?: StreamingBehavior) {
-		session.suggestions.invalidate();
-		const raw = text.trim();
-		if (!raw && attachedImages.length === 0) return;
-		// Se inizia con /, verifica prima se Studio lo intercetta
-		if (raw.startsWith('/')) {
-			const handled = onSlashCommand(raw);
-			if (handled) {
-				text = '';
-				paletteOpen = false;
-				fileMention.close();
-				adjustTextareaHeight();
-				return;
-			}
-		}
-
-		const imagesToSend = [...attachedImages];
-		text = '';
-		attachedImages = [];
-		paletteOpen = false;
-		fileMention.close();
-		adjustTextareaHeight();
-		await session.prompt(raw, imagesToSend, behavior ?? settingsStore.general.defaultStreamingBehavior);
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		// Navigazione e selezione della palette menzione file @
-		if (fileMention.handleKeydown(event)) return;
-
-		// Alt+Enter: invia con la modalita' opposta al default
-		if (event.key === 'Enter' && event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
-			if (paletteOpen || fileMention.open) {
-				// Se la palette o il popover file e' aperto, lascia che sia esso a gestire l'Enter
-				return;
-			}
-			event.preventDefault();
-			void handleSubmit(alternativeBehavior);
-			return;
-		}
-
-		// Enter: invia con la modalita' predefinita da impostazioni
-		if (event.key === 'Enter' && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
-			if (paletteOpen || fileMention.open) {
-				// Se la palette o il popover file e' aperto, lascia che sia esso a gestire l'Enter
-				return;
-			}
-			event.preventDefault();
-			void handleSubmit();
-			return;
-		}
-	}
-	function handlePalettePick(value: string, keepsOpen: boolean, submitImmediately: boolean) {
-		if (!currentSlashMatch) {
-			text = `/${value} `;
-			paletteOpen = keepsOpen;
-			textareaEl?.focus();
-			adjustTextareaHeight();
-			if (submitImmediately) void handleSubmit();
-			return;
-		}
-
-		const res = insertSlashCommandAtCursor(
-			text,
-			currentSlashMatch.startIndex,
-			currentSlashMatch.endIndex,
-			value
-		);
-		text = res.newText;
-		paletteOpen = keepsOpen;
-		currentSlashMatch = null;
-		adjustTextareaHeight();
-
-		void tick().then(() => {
-			if (textareaEl) {
-				adjustTextareaHeight();
-				textareaEl.focus();
-				textareaEl.setSelectionRange(res.newCursorPos, res.newCursorPos);
-			}
-			if (submitImmediately) void handleSubmit();
-		});
-	}
-
-
-	function formatCost(cost?: number | null): string {
-		if (typeof cost !== 'number') return '$0.0000';
-		return `$${cost.toFixed(4)}`;
-	}
-
-	const contextPercent = $derived.by(() => {
-		if (typeof session.contextUsage?.percent === 'number') {
-			return Math.min(100, Math.max(0, session.contextUsage.percent));
-		}
-		if (session.contextUsage?.tokens && session.contextUsage?.contextWindow) {
-			return Math.min(100, Math.max(0, (session.contextUsage.tokens / session.contextUsage.contextWindow) * 100));
-		}
-		return 0;
+		})();
 	});
 
-	const displayedSuggestions = $derived.by<SuggestionChipItem[]>(() =>
-		composeSuggestionChips(
-			visibleSuggestions(settingsStore.promptSuggestions, MAX_STATIC_CHIPS),
-			session.suggestions.items,
-			settingsStore.suggestions.maxDynamic
-		)
-	);
-
-	const showSuggestionChips = $derived(
-		visible &&
-		text.trim() === '' &&
-		!session.isStreaming &&
-		attachedImages.length === 0 &&
-		!paletteOpen &&
-		displayedSuggestions.length > 0
-	);
-
-	function applySuggestion(prompt: string) {
-		text = prompt;
-		paletteOpen = false;
-		adjustTextareaHeight();
-
-		void tick().then(() => {
-			if (textareaEl) {
-				adjustTextareaHeight();
-				textareaEl.focus();
-				const len = textareaEl.value.length;
-				textareaEl.setSelectionRange(len, len);
+	// Assegnazioni ruoli dal settings store
+	const roleAssignments = $derived.by(() => {
+		const out: Record<string, RoleAssignment> = {};
+		const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
+		for (const [rId, sel] of Object.entries(rolesMap)) {
+			if (typeof sel === 'string') {
+				const [base, th] = sel.split(':');
+				out[rId] = { model: base, thinking: th };
 			}
-		});
+		}
+		return out;
+	});
+	// Il ruolo e' una configurazione Studio, non uno stato del protocollo RPC.
+	const activeRole = $derived.by(() => {
+		const model = session.model;
+		if (!model) return 'default';
+		const selected = `${model.provider}/${model.id}`;
+		return Object.entries(roleAssignments).find(([, assignment]) =>
+			assignment.model === selected || assignment.model === model.id
+		)?.[0] ?? 'default';
+	});
+
+
+	// Aggiornamento suggerimenti palette
+	$effect(() => {
+		if (!currentTrigger) {
+			suggestItems = [];
+			suggestIndex = 0;
+			return;
+		}
+
+		const q = currentTrigger.query;
+		if (currentTrigger.kind === '@') {
+			const projectPath = projectStore.activeProject?.lane.workspacePath;
+			if (!projectPath) {
+				suggestItems = [];
+				return;
+			}
+
+			void loadProjectFiles(projectPath).then((files) => {
+				const context = {
+					activeFile: projectStore.activeProject?.lane.activeFile,
+					openFiles: projectStore.activeProject?.lane.openFiles,
+					touchedFiles: extractTouchedFilesFromTranscript(session.entries)
+				};
+				const ranked = rankFileCandidates(q, files, context, 8);
+				suggestItems = ranked.map((item) => ({
+					kind: 'file' as const,
+					item,
+					hits: []
+				}));
+				suggestIndex = 0;
+			});
+		} else {
+			// Comandi slash: ordinamento Comandi prima delle Skill
+			const matches = allCommands.filter((c) => {
+				if (!q) return true;
+				const lower = q.toLowerCase();
+				return (
+					c.name.toLowerCase().includes(lower) ||
+					c.aliases?.some((a) => a.toLowerCase().includes(lower))
+				);
+			});
+
+			const cmdItems: SuggestionItem[] = matches
+				.filter((c) => c.source !== 'skill')
+				.map((command) => ({ kind: 'cmd', command, isSkill: false, hits: [] }));
+
+			const skillItems: SuggestionItem[] = matches
+				.filter((c) => c.source === 'skill')
+				.map((command) => ({ kind: 'cmd', command, isSkill: true, hits: [] }));
+
+			suggestItems = [...cmdItems, ...skillItems];
+			suggestIndex = 0;
+		}
+	});
+
+	const suggestLeft = $derived.by(() => {
+		if (!currentTrigger || !rootEl) return 0;
+		if (currentTrigger.kind === '/') return 0;
+		const rootRect = rootEl.getBoundingClientRect();
+		return computeCaretAnchorLeft(currentTrigger.caretRect, rootRect, 380);
+	});
+
+	// Identificazione comando corrente nel testo per banner argomenti
+	const currentSegments = $derived.by(() => {
+		draftRevision;
+		return editorRef?.getSegments() ?? [];
+	});
+	const activeCmdSeg = $derived(currentSegments.find((s) => s.t === 'cmd') as { t: 'cmd'; name: string } | undefined);
+	const activeCmdDef = $derived.by(() => {
+		if (!activeCmdSeg) return null;
+		const clean = activeCmdSeg.name.replace(/^skill:/, '');
+		return allCommands.find((c) => c.name.toLowerCase() === clean.toLowerCase()) ?? null;
+	});
+
+	// Stima token della bozza corrente
+	const draftTokensEstimate = $derived.by(() => {
+		let total = 0;
+		for (const seg of currentSegments) {
+			if (seg.t === 'text') total += Math.round(seg.s.length / 4);
+			else if (seg.t === 'file') total += 60;
+			else if (seg.t === 'cmd') total += 30;
+		}
+		for (const att of attachments) {
+			total += att.tokens;
+		}
+		return total;
+	});
+
+	// Avviso visivo quando il modello non supporta immagini ma sono presenti immagini o video
+	const hasVisualAttachments = $derived(attachments.some((a) => a.kind === 'image' || a.kind === 'video'));
+	const visualNoVisionWarning = $derived(hasVisualAttachments && !modelSupportsImages(session.model));
+
+	// Aggiunta file generici e immagini
+	export async function addFiles(files: FileList | File[]): Promise<void> {
+		const list = Array.from(files);
+		for (const file of list) {
+			if (isImageFile(file)) {
+				const prep = await prepareImage(file);
+				if ('data' in prep) {
+					attachments = [
+						...attachments,
+						{
+							id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+							kind: 'image',
+							name: file.name,
+							size: file.size,
+							url: `data:${prep.mimeType};base64,${prep.data}`,
+							mimeType: prep.mimeType,
+							base64: prep.data,
+							tokens: 1600
+						}
+					];
+				} else {
+					session.pushNotice('warning', prep.error, 'studio');
+				}
+			} else {
+				const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
+				try {
+					const arrayBuf = await file.arrayBuffer();
+					const bytes = Array.from(new Uint8Array(arrayBuf));
+					const staged = await invoke<{ path: string; name: string; size: number }>('stage_chat_attachment', {
+						sessionKey: session.sessionKey,
+						fileName: file.name,
+						bytes
+					});
+					const objUrl = isVideo ? URL.createObjectURL(file) : undefined;
+					attachments = [
+						...attachments,
+						{
+							id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+							kind: isVideo ? 'video' : 'file',
+							name: staged.name,
+							size: staged.size,
+							url: objUrl,
+							path: staged.path,
+							tokens: isVideo ? 9000 : Math.min(40000, Math.round(staged.size / 4))
+						}
+					];
+				} catch (err) {
+					session.pushNotice('error', `Impossibile salvare l'allegato: ${err instanceof Error ? err.message : String(err)}`, 'studio');
+				}
+			}
+		}
 	}
+
+	function removeAttachment(id: string | number) {
+		attachments = attachments.filter((a) => a.id !== id);
+	}
+
+	// Selezione voce dalla tendina
+	function pickSuggestion(item: SuggestionItem) {
+		if (!currentTrigger || !editorRef) return;
+
+		if (item.kind === 'file') {
+			const badge = createFileBadgeElement(item.item.path);
+			editorRef.replaceTrigger(badge, currentTrigger);
+			currentTrigger = null;
+		} else {
+			const cmd = item.command;
+			const isImmediate =
+				!item.isSkill && ['new', 'copy', 'model', 'role', 'thinking'].includes(cmd.name);
+
+			if (isImmediate) {
+				editorRef.replaceTrigger(null, currentTrigger);
+				currentTrigger = null;
+				executeImmediateCommand(cmd.name);
+			} else {
+				const badge = createCommandBadgeElement(cmd.name);
+				editorRef.replaceTrigger(badge, currentTrigger);
+				currentTrigger = null;
+			}
+		}
+	}
+
+	function executeImmediateCommand(name: string) {
+		if (name === 'model' || name === 'role' || name === 'thinking') {
+			activeMenu = name;
+			return;
+		}
+		if (onSlashCommand?.(`/${name}`)) return;
+		if (name === 'new') {
+			clear();
+			if (onNewChat) onNewChat();
+			else void session.newSession();
+		}
+	}
+
+	function cycleThinkingLevel() {
+		const levels: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+		const current = session.thinkingLevel || 'off';
+		const next = levels[(levels.indexOf(current) + 1) % levels.length];
+		void session.client.send({
+			type: 'set_thinking_level',
+			level: next
+		}).then(() => session.refreshState());
+	}
+
+	// Filtro tasti editor
+	function handleKeydownFilter(e: KeyboardEvent): boolean {
+		if (e.altKey && e.key === 'ArrowUp' && isDraftEmpty()) {
+			const entry = session.takeLastLocalFollowUp();
+			if (entry) {
+				e.preventDefault();
+				if (!restoreDraft(entry.text, entry.images)) session.requeueLocalFollowUp(entry);
+				else focus();
+				return true;
+			}
+		}
+		if (currentTrigger && suggestItems.length > 0) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				suggestIndex = (suggestIndex + 1) % suggestItems.length;
+				return true;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				suggestIndex = (suggestIndex - 1 + suggestItems.length) % suggestItems.length;
+				return true;
+			}
+			if (e.key === 'Enter' || e.key === 'Tab') {
+				e.preventDefault();
+				const target = suggestItems[suggestIndex];
+				if (target) pickSuggestion(target);
+				return true;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				if (editorRef) editorRef.dismissCurrentTrigger(currentTrigger);
+				currentTrigger = null;
+				return true;
+			}
+		}
+
+		if (e.key === 'Tab' && e.shiftKey) {
+			e.preventDefault();
+			cycleThinkingLevel();
+			return true;
+		}
+
+		return false;
+	}
+
+	// Invio del messaggio: la bozza rimane intatta finche' omp o la coda locale accettano.
+	let submitting = false;
+	async function handleSubmit(isAlt = false) {
+		if (!editorRef || submitting || isDraftEmpty()) return;
+		submitting = true;
+		try {
+			let wireText = editorRef.getWireText(isSkillCommand);
+			const stagedNonImages = attachments.filter((a) => a.path && a.kind !== 'image');
+			if (stagedNonImages.length > 0) {
+				const pathsBlock = stagedNonImages.map((a) => `- ${a.path}`).join('\n');
+				wireText = wireText ? `${wireText}\n\nAllegati:\n${pathsBlock}` : pathsBlock;
+			}
+			const imagesToSend: ImageContent[] = attachments
+				.filter((a) => a.kind === 'image' && a.base64)
+				.map((a) => ({ type: 'image', data: a.base64!, mimeType: a.mimeType || 'image/jpeg' }));
+			let behavior: StreamingBehavior = sendBehaviorChoice;
+			if (isAlt) behavior = behavior === 'steer' ? 'followUp' : 'steer';
+			const result = await session.prompt(wireText, imagesToSend, behavior);
+			if (result === 'sent' || result === 'deferred') clear();
+		} catch (error) {
+			session.pushNotice('error', `Prompt non accettato: ${error instanceof Error ? error.message : String(error)}`, 'studio');
+		} finally {
+			submitting = false;
+		}
+	}
+
+	export function isDraftEmpty(): boolean {
+		return (!editorRef || editorRef.getIsEmpty()) && attachments.length === 0;
+	}
+
+
+	export function clear(): void {
+		if (editorRef) editorRef.clear();
+		attachments = [];
+		currentTrigger = null;
+	}
+
+	export function focus(): void {
+		editorRef?.focus();
+	}
+
+	export function insertComposerText(text: string): void {
+		if (editorRef) {
+			editorRef.setPlainText(text, isSkillCommand);
+		}
+	}
+
+	export function restoreDraft(text: string, images?: (ComposerAttachment | ImageContent)[]): boolean {
+		if (!isDraftEmpty() || !editorRef) return false;
+		insertComposerText(text);
+		attachments = images?.map((img) => 'kind' in img ? img : imageContentToAttachment(img)) ?? [];
+		return true;
+	}
+
+	const canSend = $derived(currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) || attachments.length > 0);
+	const placeholderText = $derived(
+		session.isStreaming
+			? m.chat_v2_composer_placeholder_busy()
+			: m.chat_v2_composer_placeholder_idle()
+	);
+
+	// Suggerimenti chips mostrati solo a sessione inattiva
+	const showSuggestionChips = $derived(!session.isStreaming && session.suggestions.items.length > 0);
 </script>
 
-<svelte:window onclick={closeMenus} onkeydown={handleWindowKeydown} />
-
-<div class="composer-container" bind:this={composerEl}>
-	<!-- Chip dei messaggi in coda -->
-	<QueueChips
-		queued={session.queued}
-		serverCount={session.queuedMessageCount}
-	/>
-	<!-- Suggerimenti prompt (statici e dinamici) -->
+<div
+	bind:this={rootEl}
+	class="composer-root"
+	class:hidden={!visible}
+	ondragover={(e) => {
+		if (e.dataTransfer?.types.includes('Files')) {
+			e.preventDefault();
+			isDragging = true;
+		}
+	}}
+	ondragleave={(e) => {
+		if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+		isDragging = false;
+	}}
+	ondrop={(e) => {
+		if (e.dataTransfer?.files.length) {
+			e.preventDefault();
+			isDragging = false;
+			void addFiles(e.dataTransfer.files);
+		}
+	}}
+>
+	<!-- Suggerimenti prompt (visibili solo quando l'agente è fermo) -->
 	{#if showSuggestionChips}
 		<SuggestionChips
-			chips={displayedSuggestions}
-			onSelect={applySuggestion}
+			chips={session.suggestions.items}
+			onSelect={(prompt) => {
+				insertComposerText(prompt);
+				focus();
+			}}
 		/>
 	{/if}
-	<!-- Palette comandi slash -->
-	<CommandPalette
-		open={visible && paletteOpen}
-		commands={allCommands}
-		query={paletteQuery}
-		anchor={composerEl}
-		onPick={handlePalettePick}
-		onClose={() => (paletteOpen = false)}
-		onSubmitFallback={() => void handleSubmit()}
-	/>
 
-	<!-- Palette menzioni file @ -->
-	<FileMentionPalette
-		open={visible && fileMention.open}
-		items={fileMention.items}
-		selectedIndex={fileMention.selectedIndex}
-		anchor={fileMentionCaretAnchor || composerEl}
-		onSelect={(item) => fileMention.pick(item)}
-		onClose={() => fileMention.close()}
-	/>
-
-	<!-- Miniature delle immagini allegate -->
-	{#if attachedImages.length > 0}
-		<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
-			{#each attachedImages as img, idx (idx)}
-				<div class="image-thumb-wrap">
-					<img
-						src="data:{img.mimeType};base64,{img.data}"
-						alt="Anteprima allegato {idx + 1}"
-						class="image-thumb"
-					/>
-					<button
-						type="button"
-						class="image-remove-btn"
-						title={m.task_editor_remove_image_title()}
-						onclick={() => removeImage(idx)}
-					>
-						<IconClose />
-					</button>
-				</div>
-			{/each}
-		</div>
+	<!-- Tendina suggerimenti @ o / ancorata sul Range rect del cursore -->
+	{#if currentTrigger && suggestItems.length > 0}
+		<SuggestPanel
+			kind={currentTrigger.kind}
+			query={currentTrigger.query}
+			items={suggestItems}
+			selectedIndex={suggestIndex}
+			left={suggestLeft}
+			onPick={pickSuggestion}
+			onHover={(idx) => (suggestIndex = idx)}
+		/>
 	{/if}
 
-	<!-- Area di input principale -->
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
+	<!-- Riquadro principale del composer -->
 	<div
-		class="input-row"
-		role="presentation"
-		ondrop={handleDrop}
-		ondragover={handleDragOver}
-		onclick={handleInputRowClick}
+		class="composer-box"
+		class:dragging={isDragging}
 	>
-		<div class="composer-textarea-wrap">
-			<textarea
-				bind:this={textareaEl}
-				bind:value={text}
-				oninput={handleComposerInput}
-				onclick={handleCursorMovement}
-				onkeyup={handleCursorMovement}
-				onscroll={handleCursorMovement}
-				onkeydown={handleKeydown}
-				onpaste={handlePaste}
-				onfocus={() => updateSmoothCursor(true)}
-				onblur={() => {
-					isCursorFocused = false;
-					isCursorBlinking = false;
-					if (blinkTimer !== null) {
-						window.clearTimeout(blinkTimer);
-						blinkTimer = null;
-					}
-				}}
-				placeholder={session.isStarting ? m.composer_placeholder_starting() : m.composer_placeholder_ready()}
-				rows="1"
-				class="composer-textarea"
-				class:has-smooth-cursor={isCursorFocused}
-				aria-label={m.composer_textarea_aria()}
-			></textarea>
+		<!-- Overlay di trascinamento -->
+		{#if isDragging}
+			<div class="drag-drop-overlay" aria-hidden="true">
+				<IconAttach size={16} />
+				<span>{m.chat_v2_composer_drop_overlay()}</span>
+			</div>
+		{/if}
 
-			<div
-				class="smooth-cursor"
-				class:visible={isCursorFocused && !hasTextSelection}
-				class:blinking={isCursorBlinking}
-				class:no-transition={cursorInstantSnap}
-				style="transform: translate3d({cursorX}px, {cursorY}px, 0); height: {cursorHeight}px;"
-				aria-hidden="true"
-			></div>
-
-			<span
-				bind:this={fileMentionCaretAnchor}
-				class="file-mention-caret-anchor"
-				style="transform: translate3d({cursorX}px, {cursorY}px, 0); height: {cursorHeight}px;"
-				aria-hidden="true"
-			></span>
-		</div>
-
-		<div class="actions-group">
-			<!-- Pulsante Invio / Stop / Split Button -->
-			{#if stopArmed || (session.isStreaming && !text.trim() && attachedImages.length === 0)}
-				<button
-					type="button"
-					class="send-btn stop"
-					class:armed={stopArmed}
-					title={stopArmed ? m.force_kill_session_btn() : m.composer_abort_btn()}
-					aria-label={stopArmed ? m.force_kill_session_btn() : m.ui_composer_interrompi_generazione_fe84()}
-					onclick={handleStopClick}
-				>
-					<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
-						<rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="currentColor" />
-					</svg>
-				</button>
-			{:else if session.isStreaming}
-				<div class="send-split-wrap" role="group" aria-label={m.ui_composer_invio_messaggio_in_coda_72cd()}>
-					<button
-						type="button"
-						class="send-btn send-btn-split"
-						title={`Accoda come ${defaultBehaviorLabel} (Invio)`}
-						aria-label={`Accoda come ${defaultBehaviorLabel} (Invio)`}
-						disabled={!text.trim() && attachedImages.length === 0}
-						onclick={() => handleSubmit()}
-					>
-						<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
-							<path d="M8 12.5V3.5M3.5 8L8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-						</svg>
-						<span class="send-btn-label">{defaultBehaviorLabel}</span>
-					</button>
-					<button
-						type="button"
-						bind:this={sendCaretEl}
-						class="send-btn send-caret-btn"
-						title={m.composer_other_send_modes()}
-						aria-haspopup="menu"
-						aria-expanded={activeMenu === 'send'}
-						aria-label={m.composer_other_send_modes()}
-						disabled={!text.trim() && attachedImages.length === 0}
-						onclick={(e) => {
-							e.stopPropagation();
-							toggleMenu('send');
-						}}
-					>
-						<svg viewBox="0 0 16 16" class="caret-icon" aria-hidden="true">
-							<path d="M4 6L8 10L12 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-						</svg>
-					</button>
-
-					{#if activeMenu === 'send'}
-						<div
-							class="dropdown-menu send-menu"
-							role="menu"
-							aria-label={m.composer_send_modes_menu()}
-							popover="manual"
-							use:anchoredPopover={{ anchor: sendCaretEl, offset: 6, placement: 'bottom-end', constrainHeight: true }}
-						>
-							<div class="menu-header">
-								<span>{m.ui_composer_modalita_di_accodamento_f615()}</span>
-							</div>
-							<div class="menu-body">
-								<button
-									type="button"
-									class="menu-item send-menu-item"
-									class:selected={defaultBehavior === 'steer'}
-									role="menuitem"
-									onclick={() => {
-										activeMenu = null;
-										void handleSubmit('steer');
-									}}
-								>
-									<div class="send-menu-item-main">
-										<div class="send-menu-item-title">
-											<span class="send-mode-name">Steer</span>
-											<kbd class="key-shortcut-tag">{defaultBehavior === 'steer' ? 'Invio' : 'Alt+Invio'}</kbd>
-										</div>
-										<span class="send-mode-desc">{m.ui_composer_interrompe_il_turno_in_corso_e_subentra_2a65()}</span>
-									</div>
-									{#if defaultBehavior === 'steer'}
-										<span class="item-check"><IconCheck /></span>
-									{/if}
-								</button>
-								<button
-									type="button"
-									class="menu-item send-menu-item"
-									class:selected={defaultBehavior === 'followUp'}
-									role="menuitem"
-									onclick={() => {
-										activeMenu = null;
-										void handleSubmit('followUp');
-									}}
-								>
-									<div class="send-menu-item-main">
-										<div class="send-menu-item-title">
-											<span class="send-mode-name">Follow-up</span>
-											<kbd class="key-shortcut-tag">{defaultBehavior === 'followUp' ? 'Invio' : 'Alt+Invio'}</kbd>
-										</div>
-										<span class="send-mode-desc">{m.ui_composer_attende_il_completamento_del_turno_in_corso_9ce8()}</span>
-									</div>
-									{#if defaultBehavior === 'followUp'}
-										<span class="item-check"><IconCheck /></span>
-									{/if}
-								</button>
-							</div>
-						</div>
-					{/if}
-				</div>
-			{:else}
-				<button
-					type="button"
-					class="send-btn"
-					title={session.isStarting ? m.ui_composer_invia_messaggio_verra_recapitato_appena_omp_e_4a84() : m.ui_composer_invia_messaggio_invio_fc08()}
-					aria-label={m.ui_composer_invia_messaggio_invio_fc08()}
-					disabled={!text.trim() && attachedImages.length === 0}
-					onclick={() => handleSubmit()}
-				>
-					<svg viewBox="0 0 16 16" class="btn-icon" aria-hidden="true">
-						<path d="M8 12.5V3.5M3.5 8L8 3.5 12.5 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-					</svg>
-				</button>
-			{/if}
-		</div>
-	</div>
-
-	<!-- Barra dei chip di stato sotto la textarea -->
-	<div class="status-bar" aria-label={m.composer_status_bar_aria()}>
-		<!-- Chip Ruolo -->
-		<div class="status-item-wrap">
-			<button
-				type="button"
-				bind:this={roleChipEl}
-				class="status-chip echo role-chip"
-				title={session.isStarting ? m.ui_composer_avvio_di_omp_in_corso_5837() : 'Ruolo attivo (Alt+R per aprire il menu ruoli, Ctrl+P per ciclarlo)'}
-				aria-haspopup="listbox"
-				aria-expanded={activeMenu === 'role'}
-				disabled={session.isStarting}
-				onclick={(e) => {
-					e.stopPropagation();
-					toggleMenu('role');
-				}}
-			>
-				
-				<span class="chip-val role-val">
-					{#if activeRoleInfo}
-						{@const RoleIcon = activeRoleInfo.icon}
-						<span class="role-glyph-inline"><RoleIcon /></span> {activeRoleInfo.label}
+		<!-- Striscia informativa per comando/skill attivo con argomenti -->
+		{#if activeCmdDef}
+			<div class="cmd-strip rv-blur">
+				<span class="cmd-strip-icon">
+					{#if isSkillCommand(activeCmdDef.name)}
+						<IconSparkles size={14} />
 					{:else}
-						personalizzato
-					{/if}
-					{#if !isCoveredByReserves}
-						<span class="no-reserves-badge" title={m.ui_composer_nessuna_riserva_configurata_per_questo_modello_se_207b()}>senza riserve</span>
+						<span class="font-mono">/</span>
 					{/if}
 				</span>
-			</button>
-
-			{#if activeMenu === 'role'}
-				<div
-					class="dropdown-menu role-menu"
-					role="group"
-					aria-label="Ruoli configurati"
-					popover="manual"
-					use:anchoredPopover={{ anchor: roleChipEl, offset: 6, constrainHeight: true }}
-				>
-					<div class="menu-header">
-						<span>Ruoli (Alt+R)</span>
-						<div class="menu-header-actions">
-							<button type="button" class="menu-cycle-btn" onclick={handleCycleRole} title="Cicla al ruolo successivo (Ctrl+P)">
-								Cicla (Ctrl+P)
-							</button>
-							<button type="button" class="menu-config-btn" onclick={openModelSettings} title="Gestione completa modelli e ruoli (Ctrl+Alt+M)">
-								gestisci
-							</button>
-						</div>
-					</div>
-					<div class="menu-search-wrap">
-						<span class="search-icon">{m.ui_composer_cerca_74f6()}</span>
-						<input
-							bind:this={roleSearchInputEl}
-							bind:value={roleFilterQuery}
-							type="text"
-							class="menu-search-input"
-							placeholder={m.composer_roles_filter()}
-							aria-autocomplete="list"
-							aria-controls="role-listbox"
-							aria-activedescendant={configuredRolesList[highlightedRoleIndex] ? `role-opt-${highlightedRoleIndex}` : undefined}
-							oninput={() => highlightedRoleIndex = 0}
-						/>
-						{#if roleFilterQuery}
-							<button
-								type="button"
-								class="menu-search-clear"
-								onclick={() => { roleFilterQuery = ''; highlightedRoleIndex = 0; }}
-								title={m.settings_appearance_clear_filter()}
-							>
-								<IconClose />
-							</button>
-						{/if}
-					</div>
-					<div class="menu-body" id="role-listbox" bind:this={roleListEl} role="listbox" aria-label="Ruoli">
-						{#if configuredRolesList.length > 0}
-							{#each configuredRolesList as r, idx (r.id)}
-								{@const isSelected = activeRoleInfo?.id === r.id}
-								{@const RoleItemIcon = r.icon}
-								<div
-									id="role-opt-{idx}"
-									class="menu-item role-item"
-									class:selected={isSelected}
-									class:highlighted={highlightedRoleIndex === idx}
-									class:unconfigured={!r.isConfigured}
-									role="option"
-									tabindex="-1"
-									aria-selected={isSelected}
-									onclick={() => handleRoleSelect(r.id)}
-									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleRoleSelect(r.id); } }}
-									onmouseenter={() => highlightedRoleIndex = idx}
-								>
-									<span class="role-item-glyph"><RoleItemIcon /></span>
-									<div class="role-item-main">
-										<div class="role-item-title-row">
-											<span class="role-item-name">{r.label}</span>
-											{#if isSelected}
-												<span class="item-check"><IconCheck /></span>
-											{/if}
-										</div>
-										{#if r.isConfigured}
-											<span class="role-item-sub truncate">
-												{r.modelName} {#if r.provider}<span class="provider-sub">({r.provider})</span>{/if}
-											</span>
-										{:else}
-											<span class="role-item-sub unconfigured-sub">Non configurato — clicca per aprire</span>
-										{/if}
-									</div>
-								</div>
-							{/each}
-						{:else}
-							<div class="menu-empty">Nessun ruolo corrispondente</div>
-						{/if}
-					</div>
-					<div class="menu-footer-hint">
-						<span>↑↓ naviga</span>
-						<span>{m.ui_composer_seleziona_4b88()}</span>
-						<span>{m.ui_composer_esc_chiudi_6252()}</span>
-					</div>
-				</div>
-			{/if}
-		</div>
-
-		<!-- Chip Modello -->
-		<div class="status-item-wrap">
-			<button
-				type="button"
-				bind:this={modelChipEl}
-				class="status-chip echo model-chip"
-				title={session.isStarting ? m.ui_composer_avvio_di_omp_in_corso_5837() : m.ui_composer_modello_corrente_alt_p_per_aprire_il_ace3()}
-				aria-haspopup="listbox"
-				aria-expanded={activeMenu === 'model'}
-				disabled={session.isStarting}
-				onclick={(e) => {
-					e.stopPropagation();
-					toggleMenu('model');
-				}}
-			>
-				
-				{#if session.isStarting}
-					<span class="chip-val starting">
-						<span class="starting-spinner"></span> in avvio...
-					</span>
-				{:else}
-					<span class="chip-val">{session.model?.name || session.model?.id || 'default'}</span>
+				<span class="cmd-strip-name font-mono">/{activeCmdDef.name}</span>
+				<span class="cmd-strip-desc">{activeCmdDef.description}</span>
+				{#if activeCmdDef.input?.hint}
+					<span class="cmd-strip-hint font-mono">‹{activeCmdDef.input.hint}›</span>
 				{/if}
-			</button>
+			</div>
+		{/if}
 
-			{#if activeMenu === 'model'}
-				<div
-					class="dropdown-menu model-menu"
-					role="group"
-					aria-label="Modelli disponibili"
-					popover="manual"
-					use:anchoredPopover={{ anchor: modelChipEl, offset: 6, constrainHeight: true }}
-				>
-					<div class="menu-header">
-						<span>Catalogo modelli (Alt+P)</span>
-						<div class="menu-header-actions">
-							<button type="button" class="menu-config-btn" onclick={openModelSettings} title="Gestione completa modelli (Ctrl+Alt+M)">
-								gestisci
-							</button>
-						</div>
-					</div>
-					<div class="menu-search-wrap">
-						<span class="search-icon">{m.ui_composer_cerca_74f6()}</span>
-						<input
-							bind:this={modelSearchInputEl}
-							bind:value={modelFilterQuery}
-							type="text"
-							class="menu-search-input"
-							placeholder={m.composer_models_filter()}
-							aria-autocomplete="list"
-							aria-controls="model-listbox"
-							aria-activedescendant={filteredModels[highlightedModelIndex] ? `model-opt-${highlightedModelIndex}` : undefined}
-							oninput={() => highlightedModelIndex = 0}
-						/>
-						{#if modelFilterQuery}
-							<button
-								type="button"
-								class="menu-search-clear"
-								onclick={() => { modelFilterQuery = ''; highlightedModelIndex = 0; }}
-								title={m.settings_appearance_clear_filter()}
-							>
-								<IconClose />
-							</button>
-						{/if}
-					</div>
-					<div class="menu-body" id="model-listbox" bind:this={modelListEl} role="listbox" aria-label="Modelli">
-						{#if loadingModels}
-							<div class="menu-loading">{m.composer_models_loading()}</div>
-						{:else if filteredModels.length > 0}
-							{#each filteredModels as m, idx (m.provider + ':' + m.id)}
-								{@const isSelected = session.model?.id === m.id && session.model?.provider === m.provider}
-								{@const caps = modelCapabilities(m)}
-								<div
-									id="model-opt-{idx}"
-									class="menu-item"
-									class:selected={isSelected}
-									class:highlighted={highlightedModelIndex === idx}
-									role="option"
-									tabindex="-1"
-									aria-selected={isSelected}
-									onclick={() => handleModelSelect(m)}
-									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleModelSelect(m); } }}
-									onmouseenter={() => highlightedModelIndex = idx}
-								>
-									<span class="model-item-name">{m.name || m.id}</span>
-									<span class="model-item-meta">
-										{#if m.provider}
-											<span class="model-item-provider">{m.provider}</span>
-										{/if}
-										{#if caps.contextWindow}
-											<span
-												class="cap-chip ctx"
-												role="img"
-												title={`Finestra di contesto: ${formatTokens(caps.contextWindow)} token`}
-												aria-label={`Contesto ${formatTokens(caps.contextWindow)} token`}
-											>
-												<IconContextWindow />
-												<small>{formatTokens(caps.contextWindow)}</small>
-											</span>
-										{/if}
-										{#if caps.vision}
-											<span
-												class="cap-chip vision"
-												role="img"
-												title="Vision: accetta immagini in input"
-												aria-label="Vision: accetta immagini in input"
-											>
-												<IconRoleVision />
-											</span>
-										{/if}
-										{#if caps.thinking}
-											<span
-												class="cap-chip thinking"
-												role="img"
-												title={caps.thinkingTitle}
-												aria-label={caps.thinkingTitle}
-											>
-												<IconRoleSlow />
-											</span>
-										{/if}
-									</span>
-								</div>
-							{/each}
-						{:else}
-							<div class="menu-empty">{m.ui_composer_nessun_modello_corrispondente_bce5()}</div>
-						{/if}
-					</div>
-					<div class="menu-footer-hint">
-						<span>↑↓ naviga</span>
-						<span>↵ scegli</span>
-						<span>{m.ui_composer_esc_chiudi_6252()}</span>
-					</div>
-				</div>
-			{/if}
-		</div>
+		<!-- Riquadro allegati (miniature immagini, video e file) -->
+		{#if attachments.length > 0}
+			<div class="attachments-row">
+				{#each attachments as att (att.id)}
+					<AttachmentThumb
+						attachment={att}
+						onRemove={() => removeAttachment(att.id)}
+					/>
+				{/each}
+			</div>
+		{/if}
 
+		<!-- Striscia avviso per modelli senza supporto visione -->
+		{#if visualNoVisionWarning}
+			<div class="vision-warning-strip">
+				<IconWarning size={14} />
+				<span>{m.chat_v2_composer_vision_warning({ model: session.model?.name || session.model?.id || 'Il modello' })}</span>
+				<button type="button" class="change-model-btn" onclick={() => (activeMenu = 'model')}>
+					{m.chat_v2_composer_change_model()}
+				</button>
+			</div>
+		{/if}
 
-		<!-- Chip Thinking -->
-		<div class="status-item-wrap">
+		<!-- Editor di testo a badge contenteditable -->
+		<ComposerEditor
+			bind:this={editorRef}
+			placeholder={placeholderText}
+			onSend={(isAlt) => handleSubmit(isAlt)}
+			onFilesPaste={(files) => void addFiles(files)}
+			onTriggerChange={(tr) => (currentTrigger = tr)}
+			onKeydownFilter={handleKeydownFilter}
+			onInput={() => (draftRevision += 1)}
+		/>
+
+		<!-- Barra inferiore: controlli modello, ruolo, allegati, contesto, invio -->
+		<div class="composer-toolbar">
+			<!-- Allega file -->
+			<MenuButton
+				open={activeMenu === 'attach'}
+				title={m.chat_v2_composer_attach_title()}
+				width="260px"
+				onToggle={() => (activeMenu = activeMenu === 'attach' ? null : 'attach')}
+				onClose={() => (activeMenu = null)}
+			>
+				{#snippet trigger()}
+					<IconAttach size={15} />
+				{/snippet}
+				{#snippet children()}
+					<AttachMenu
+						onPickFiles={() => {
+							activeMenu = null;
+							fileInputEl?.click();
+						}}
+					/>
+				{/snippet}
+			</MenuButton>
+
+			<!-- Menzione file @ -->
 			<button
 				type="button"
-				bind:this={thinkingChipEl}
-				class="status-chip echo thinking-chip"
-				title="Livello di thinking (Alt+M per aprire il menu, Alt+T per ciclarlo)"
-				aria-haspopup="listbox"
-				aria-expanded={activeMenu === 'thinking'}
-				onclick={(e) => {
-					e.stopPropagation();
-					toggleMenu('thinking');
-				}}
+				class="toolbar-action-btn"
+				title={m.chat_v2_composer_mention_title()}
+				onclick={() => editorRef?.insertAt()}
 			>
-				<span class="chip-val">thinking: {session.thinkingLevel || 'off'}</span>
+				<IconAt size={15} />
 			</button>
 
-			{#if activeMenu === 'thinking'}
-				<div
-					class="dropdown-menu thinking-menu"
-					role="group"
-					aria-label="Livello di thinking"
-					popover="manual"
-					use:anchoredPopover={{ anchor: thinkingChipEl, offset: 6, constrainHeight: true }}
-				>
-					<div class="menu-header">
-						<span>Thinking (Alt+M)</span>
-						<button type="button" class="menu-cycle-btn" onclick={handleCycleThinking} title="Cicla rapido (Alt+T)">
-							Cicla (Alt+T)
-						</button>
-					</div>
-					<div class="menu-body" id="thinking-listbox" role="listbox" aria-label="Livelli di thinking">
-						{#each THINKING_LEVELS as lvl, idx (lvl)}
-							{@const isSelected = (session.thinkingLevel || 'off') === lvl}
-							<div
-								id="thinking-opt-{idx}"
-								class="menu-item"
-								class:selected={isSelected}
-								class:highlighted={highlightedThinkingIndex === idx}
-								role="option"
-								tabindex="-1"
-								aria-selected={isSelected}
-								onclick={() => handleThinkingSelect(lvl)}
-								onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleThinkingSelect(lvl); } }}
-								onmouseenter={() => highlightedThinkingIndex = idx}
-							>
-								<span>{lvl}</span>
-								{#if isSelected}
-									<span class="item-check"><IconCheck /></span>
-								{/if}
-							</div>
-						{/each}
-					</div>
-					<div class="menu-footer-hint">
-						<span>↑↓ naviga</span>
-						<span>↵ scegli</span>
-						<span>{m.ui_composer_esc_chiudi_6252()}</span>
-					</div>
-				</div>
-			{/if}
-		</div>
+			<span class="toolbar-divider" aria-hidden="true"></span>
 
-		<!-- Chip Gauge del contesto -->
-		<div
-			class="status-readout context-chip"
-			role="status"
-			title="Utilizzo del contesto: {session.contextUsage?.tokens ?? 0} su {session.contextUsage?.contextWindow ?? 0} token ({contextPercent.toFixed(1)}%)"
-		>
-			
-			<span class="chip-val">
-				{formatTokens(session.contextUsage?.tokens)} / {formatTokens(session.contextUsage?.contextWindow)}
-			</span>
-			<div class="context-gauge-track" aria-hidden="true">
-				<div class="context-gauge-fill" style:transform="scaleX({contextPercent / 100})"></div>
+			<!-- Menu Ruolo -->
+			<MenuButton
+				open={activeMenu === 'role'}
+				title={m.chat_v2_composer_role_title()}
+				width="360px"
+				onToggle={() => (activeMenu = activeMenu === 'role' ? null : 'role')}
+				onClose={() => (activeMenu = null)}
+			>
+				{#snippet trigger()}
+					<span class="active-role-dot"></span>
+					<span class="role-name font-mono">{activeRole}</span>
+				{/snippet}
+				{#snippet children()}
+					<RoleMenu
+						activeRole={activeRole}
+						assignments={roleAssignments}
+						onPick={(roleId) => {
+							activeMenu = null;
+							onSlashCommand?.(`/role ${roleId}`);
+						}}
+					/>
+				{/snippet}
+			</MenuButton>
+
+			<!-- Menu Modello -->
+			<MenuButton
+				open={activeMenu === 'model'}
+				title={m.chat_v2_composer_model_title()}
+				width="340px"
+				onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
+				onClose={() => (activeMenu = null)}
+			>
+				{#snippet trigger()}
+					<span class="model-name-label">{session.model?.name || session.model?.id || 'Modello'}</span>
+					<IconChevronUp size={12} class="chevron-indicator" />
+				{/snippet}
+				{#snippet children()}
+					<ModelMenu
+						models={availableModels}
+						currentModelId={session.model?.id}
+						onPick={(mod) => {
+							activeMenu = null;
+							if (mod.provider && mod.id) {
+								void session.client.send({
+									type: 'set_model',
+									provider: mod.provider,
+									modelId: mod.id
+								}).then(() => session.refreshState());
+							}
+						}}
+					/>
+				{/snippet}
+			</MenuButton>
+
+			<!-- Menu Thinking -->
+			<MenuButton
+				open={activeMenu === 'thinking'}
+				title={m.chat_v2_composer_thinking_title()}
+				width="320px"
+				onToggle={() => (activeMenu = activeMenu === 'thinking' ? null : 'thinking')}
+				onClose={() => (activeMenu = null)}
+			>
+				{#snippet trigger()}
+					<ThinkingMeter level={session.thinkingLevel || 'off'} />
+					<span class="thinking-label font-mono">{session.thinkingLevel || 'off'}</span>
+				{/snippet}
+				{#snippet children()}
+					<ThinkingMenu
+						level={session.thinkingLevel || 'off'}
+						model={session.model}
+						onPick={(l) => {
+							activeMenu = null;
+							void session.client.send({
+								type: 'set_thinking_level',
+								level: l
+							}).then(() => session.refreshState());
+						}}
+					/>
+				{/snippet}
+			</MenuButton>
+
+			<!-- Parte destra: Finestra di contesto e Pulsante Invio/Stop -->
+			<div class="toolbar-right">
+				<!-- Anello finestra di contesto -->
+				<MenuButton
+					open={activeMenu === 'context'}
+					title={m.chat_v2_composer_context_title()}
+					align="right"
+					width="300px"
+					onToggle={() => (activeMenu = activeMenu === 'context' ? null : 'context')}
+					onClose={() => (activeMenu = null)}
+				>
+					{#snippet trigger()}
+						{@const maxCtx = session.model?.contextWindow || 128_000}
+						{@const used = (session.contextUsage?.tokens || 0) + draftTokensEstimate}
+						{@const pct = Math.min(1, used / maxCtx)}
+						{@const C = 2 * Math.PI * 7}
+						<svg viewBox="0 0 18 18" class="context-ring" aria-hidden="true">
+							<circle cx="9" cy="9" r="7" fill="none" stroke="var(--line)" stroke-width="2.2" />
+							<circle
+								cx="9"
+								cy="9"
+								r="7"
+								fill="none"
+								stroke={pct > 0.85 ? 'var(--danger)' : pct > 0.6 ? 'var(--warn)' : 'var(--ink)'}
+								stroke-width="2.2"
+								stroke-linecap="round"
+								stroke-dasharray={C}
+								stroke-dashoffset={C * (1 - pct)}
+							/>
+						</svg>
+						<span class="context-numbers font-mono tabular-nums">
+							{formatTokens(used)}<span class="context-max">/{formatTokens(maxCtx)}</span>
+						</span>
+					{/snippet}
+					{#snippet children()}
+						<ContextPanel
+							model={session.model}
+							contextUsage={session.contextUsage}
+							draftTokens={draftTokensEstimate}
+							onCompact={() => {
+								activeMenu = null;
+								void session.prompt('/compact', [], 'steer');
+							}}
+						/>
+					{/snippet}
+				</MenuButton>
+
+				<!-- Stop non disabilita l'invio: durante il turno si puo' fare steer o follow-up. -->
+				{#if session.isStreaming}
+					<button
+						type="button"
+						class="send-btn stop"
+						title={m.chat_v2_composer_stop_tooltip()}
+						onclick={() => session.abort()}
+					>
+						<IconStop size={15} />
+					</button>
+				{/if}
+				<div class="send-split-group">
+						<button
+							type="button"
+							class="send-btn main"
+							disabled={!canSend}
+							title={sendBehaviorChoice === 'steer'
+								? `${m.chat_v2_composer_send_tooltip()} — ${m.chat_v2_composer_send_steer()}`
+								: `${m.chat_v2_composer_send_tooltip()} — ${m.chat_v2_composer_send_followup()}`}
+							onclick={() => handleSubmit(false)}
+						>
+							<IconSend size={15} />
+						</button>
+
+						{#if session.isStreaming}
+						<MenuButton
+							open={activeMenu === 'sendMode'}
+							title="Modalità invio"
+							align="right"
+							width="240px"
+							className="send-mode-trigger"
+							onToggle={() => (activeMenu = activeMenu === 'sendMode' ? null : 'sendMode')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<IconChevronUp size={11} />
+							{/snippet}
+							{#snippet children()}
+								<div class="send-mode-menu">
+									<button
+										type="button"
+										class="send-mode-option"
+										class:selected={sendBehaviorChoice === 'steer'}
+										onclick={() => {
+											sendBehaviorChoice = 'steer';
+											activeMenu = null;
+										}}
+									>
+										<span class="mode-title">{m.chat_v2_composer_send_steer()}</span>
+										<span class="mode-sub">Invio predefinito con Invio</span>
+									</button>
+									<button
+										type="button"
+										class="send-mode-option"
+										class:selected={sendBehaviorChoice === 'followUp'}
+										onclick={() => {
+											sendBehaviorChoice = 'followUp';
+											activeMenu = null;
+										}}
+									>
+										<span class="mode-title">{m.chat_v2_composer_send_followup()}</span>
+										<span class="mode-sub">Alternativa con Alt+Invio</span>
+									</button>
+								</div>
+							{/snippet}
+						</MenuButton>
+						{/if}
+				</div>
 			</div>
 		</div>
-
-		<!-- Chip Costo -->
-		<div class="status-readout cost-chip" role="status" title={m.ui_composer_costo_stimato_della_sessione_67ef()}>
-			
-			<span class="chip-val">{formatCost(session.sessionCost)}</span>
-		</div>
-
-		<!-- Chip Scorciatoie da tastiera -->
-		<div class="status-item-wrap">
-			<button
-				type="button"
-				class="status-chip shortcuts-help-chip"
-				title="Scorciatoie da tastiera (Alt+H o F1)"
-				onclick={(e) => {
-					e.stopPropagation();
-					shortcutsModalStore.toggle();
-				}}
-			>
-				<span class="chip-label"><IconKeyboard /></span>
-				<span class="chip-val shortcut-hint">Alt+H</span>
-			</button>
-		</div>
 	</div>
+
+	<!-- File input nascosto -->
+	<input
+		bind:this={fileInputEl}
+		type="file"
+		multiple
+		accept="image/*,video/*,.pdf,.txt,.md,.csv,.json,.log,.zip"
+		class="hidden-file-input"
+		onchange={(e) => {
+			if (e.currentTarget.files) void addFiles(e.currentTarget.files);
+			e.currentTarget.value = '';
+		}}
+	/>
 </div>
 
-
 <style>
-	.composer-container {
+	.composer-root {
 		position: relative;
+		width: 100%;
 		display: flex;
 		flex-direction: column;
+	}
+
+	.composer-root.hidden {
+		display: none;
+	}
+
+	.composer-box {
+		position: relative;
+		width: 100%;
 		background: var(--bg-raised);
-		border-top: 1px solid var(--line-strong);
-		font-family: var(--font-ui);
-		width: 100%;
-	}
-
-	.image-previews {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		background: var(--bg-sunken);
-		border-bottom: 1px solid var(--line);
-	}
-
-	.image-thumb-wrap {
-		position: relative;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 48px;
-		height: 48px;
-		border-radius: var(--radius-sm);
-		overflow: hidden;
-		background: var(--bg-base);
-		border: 1px solid var(--line-strong);
-	}
-
-	.image-thumb {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.image-remove-btn {
-		position: absolute;
-		top: 2px;
-		right: 2px;
-		width: 16px;
-		height: 16px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		line-height: 1;
-		cursor: pointer;
-		padding: 0;
-		--icon-size: 12px;
+		border-radius: 16px;
+		box-shadow: 0 2px 10px -2px rgba(0, 0, 0, 0.15);
+		transition: border-color var(--dur-fast) var(--ease-out),
+			box-shadow var(--dur-fast) var(--ease-out);
 	}
 
-	.image-remove-btn:hover {
-		background: var(--brand);
-		color: var(--on-brand);
+	.composer-box:focus-within {
+		border-color: var(--line-strong);
 	}
 
-	.input-row {
+	.composer-box.dragging {
+		border-color: var(--brand-ink);
+		box-shadow: 0 0 0 2px color-mix(in oklch, var(--brand) 25%, transparent);
+	}
+
+	.drag-drop-overlay {
+		position: absolute;
+		inset: 0;
+		z-index: 10;
+		border-radius: 16px;
+		background: color-mix(in oklch, var(--bg-raised) 90%, var(--brand) 10%);
 		display: flex;
-		align-items: flex-end;
+		align-items: center;
+		justify-content: center;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		border-radius: var(--radius-sm);
-	}
-	.composer-textarea-wrap {
-		position: relative;
-		flex: 1;
-		display: flex;
-		min-width: 0;
-		align-self: stretch;
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--brand-ink);
+		pointer-events: none;
 	}
 
-	.composer-textarea {
-		width: 100%;
+	.cmd-strip {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin: var(--space-2) var(--space-2) 0;
+		padding: 6px 10px;
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+	}
+
+	.cmd-strip-icon {
+		color: var(--ink-muted);
+		display: inline-flex;
+	}
+
+	.cmd-strip-name {
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.cmd-strip-desc {
 		flex: 1;
-		min-height: 36px;
-		max-height: 240px;
-		padding: var(--space-1) 0;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.cmd-strip-hint {
+		color: var(--ink-faint);
+		margin-left: auto;
+	}
+
+	.attachments-row {
+		display: flex;
+		gap: var(--space-2);
+		overflow-x: auto;
+		padding: 10px 14px 2px;
+	}
+
+	.vision-warning-strip {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin: var(--space-2) var(--space-2) 0;
+		padding: 6px 10px;
+		background: color-mix(in oklch, var(--warn) 10%, transparent);
+		border: 1px solid color-mix(in oklch, var(--warn) 30%, transparent);
+		border-radius: var(--radius-md);
+		font-size: var(--text-xs);
+		color: var(--warn);
+	}
+
+	.change-model-btn {
+		margin-left: auto;
 		background: transparent;
 		border: none;
-		outline: none;
-		box-shadow: none;
-		resize: none;
-		font-family: var(--font-ui);
-		font-size: var(--text-base);
+		color: var(--warn);
+		font-weight: 600;
+		font-size: var(--text-xs);
+		text-decoration: underline;
+		cursor: pointer;
+	}
+
+	.composer-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		padding: 2px 8px 8px;
+	}
+
+	.toolbar-action-btn {
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-md);
+		background: transparent;
+		border: none;
+		color: var(--ink-muted);
+		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.toolbar-action-btn:hover {
+		background: var(--bg-hover);
 		color: var(--ink);
-		line-height: 1.45;
 	}
 
-	.composer-textarea.has-smooth-cursor {
-		caret-color: transparent;
+	.toolbar-divider {
+		width: 1px;
+		height: 16px;
+		background: var(--line);
+		margin: 0 4px;
 	}
 
-	.smooth-cursor {
-		position: absolute;
-		top: 0;
-		left: 0;
-		width: 2px;
-		border-radius: 1px;
-		background: var(--brand);
-		pointer-events: none;
-		z-index: 2;
-		opacity: 0;
-		transform: translate3d(0, 0, 0);
-		transition:
-			transform 80ms cubic-bezier(0.1, 0.9, 0.2, 1),
-			height 80ms cubic-bezier(0.1, 0.9, 0.2, 1),
-			opacity 140ms ease-out;
-		will-change: transform, height, opacity;
+	.active-role-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: var(--radius-full);
+		background: var(--brand-ink);
 	}
 
-	.smooth-cursor.visible {
-		opacity: 1;
+	.model-name-label {
+		max-width: 130px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
-	.smooth-cursor.no-transition {
-		transition: opacity 140ms ease-out !important;
+	.chevron-indicator {
+		opacity: 0.6;
 	}
 
-	.smooth-cursor.blinking {
-		animation: smooth-cursor-blink 1s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+	.thinking-label {
+		font-size: 11px;
 	}
 
-	@keyframes smooth-cursor-blink {
-		0%, 100% {
-			opacity: 1;
-		}
-		50% {
-			opacity: 0;
-		}
+	.toolbar-right {
+		margin-left: auto;
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 
-	@media (prefers-reduced-motion: reduce) {
-		.smooth-cursor {
-			transition: none !important;
-			animation: none !important;
-		}
-		.smooth-cursor.blinking {
-			opacity: 1;
-		}
+	.context-ring {
+		width: 18px;
+		height: 18px;
+		transform: rotate(-90deg);
 	}
 
-	.composer-textarea:focus,
-	.composer-textarea:focus-visible {
-		outline: none;
-		box-shadow: none;
+	.context-numbers {
+		font-size: 11px;
+		color: var(--ink);
 	}
-	.composer-textarea::placeholder {
+
+	.context-max {
 		color: var(--ink-faint);
 	}
 
-	.actions-group {
+	.send-split-group {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
-		margin-bottom: 2px;
-		user-select: none;
+		background: var(--ink);
+		border-radius: var(--radius-md);
+		overflow: hidden;
 	}
 
 	.send-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
+		display: grid;
+		place-items: center;
 		height: 28px;
-		background: var(--brand);
-		color: var(--on-brand);
-		border: 1px solid var(--brand);
-		border-radius: var(--radius-sm);
+		width: 32px;
+		background: var(--ink);
+		color: var(--bg-base);
+		border: none;
 		cursor: pointer;
-		font-weight: 600;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+		transition: opacity var(--dur-fast) var(--ease-out);
 	}
 
-	.send-btn:hover:not(:disabled) {
-		background: var(--brand-ink);
-		border-color: var(--brand-ink);
+	.send-btn.main {
+		padding-left: 2px;
 	}
 
-	.send-btn:active:not(:disabled) {
-		background: var(--brand-dim);
+	.send-btn.stop {
+		border-radius: var(--radius-md);
+		background: var(--danger);
+		color: white;
+		width: 36px;
 	}
 
 	.send-btn:disabled {
 		opacity: 0.35;
-		cursor: default;
-		background: var(--bg-hover);
-		border-color: var(--line);
-		color: var(--ink-faint);
+		cursor: not-allowed;
 	}
 
-	.send-btn.stop {
-		background: var(--bg-base);
-		border: 1px solid var(--danger);
-		color: var(--danger);
-		transition: border-color var(--transition-fast, 120ms ease),
-		            background var(--transition-fast, 120ms ease),
-		            box-shadow var(--transition-fast, 120ms ease);
+	:global(.send-mode-trigger) {
+		height: 28px !important;
+		padding: 0 4px !important;
+		background: color-mix(in oklch, var(--ink) 90%, black 10%) !important;
+		color: var(--bg-base) !important;
+		border-radius: 0 !important;
+		border-left: 1px solid color-mix(in oklch, var(--ink) 80%, black 20%) !important;
 	}
 
-	.send-btn.stop:hover {
-		background: var(--danger-dim);
-		border-color: var(--danger);
-		color: var(--ink);
-	}
-
-	.send-btn.stop:active {
-		background: var(--danger);
-		color: var(--on-danger);
-	}
-
-	.send-btn.stop.armed {
-		background: var(--danger-dim);
-		border-color: var(--danger);
-		color: var(--danger);
-		animation: stop-armed-pulse 0.8s ease-in-out infinite alternate;
-	}
-
-	@keyframes stop-armed-pulse {
-		0% {
-			box-shadow: 0 0 0 1px var(--danger), 0 0 5px color-mix(in srgb, var(--danger) 45%, transparent);
-			border-color: var(--danger);
-		}
-		100% {
-			box-shadow: 0 0 0 2.5px var(--danger), 0 0 14px 2px color-mix(in srgb, var(--danger) 85%, transparent);
-			border-color: var(--danger);
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.send-btn.stop.armed {
-			animation: none;
-			box-shadow: 0 0 0 2px var(--danger);
-		}
-	}
-
-	.btn-icon {
-		width: 14px;
-		height: 14px;
-		flex-shrink: 0;
-	}
-	/* Split button invio / accodamento */
-	.send-split-wrap {
-		position: relative;
-		display: inline-flex;
-		align-items: center;
-	}
-
-	.send-btn.send-btn-split {
-		width: auto;
-		height: 28px;
-		padding: 0 var(--space-2);
-		gap: var(--space-1);
-		border-top-right-radius: 0;
-		border-bottom-right-radius: 0;
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		font-weight: 500;
-		line-height: 1;
-	}
-
-	.send-btn-label {
-		font-size: var(--text-xs);
-		font-weight: 500;
-		line-height: 1;
-	}
-
-	.send-btn.send-caret-btn {
-		width: 20px;
-		height: 28px;
-		padding: 0;
-		border-top-left-radius: 0;
-		border-bottom-left-radius: 0;
-		border-left: 1px solid rgba(255, 255, 255, 0.25);
-	}
-
-	.send-btn.send-caret-btn:disabled {
-		border-left-color: var(--line);
-	}
-
-	.caret-icon {
-		width: 12px;
-		height: 12px;
-		flex-shrink: 0;
-	}
-
-	/* Il lato lo decide `anchoredPopover` con `placement: bottom-end`: qui
-	   resta solo la larghezza propria del pannello. */
-	.send-menu {
-		width: 260px;
-	}
-
-	.send-menu-item {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--space-2);
-		padding: var(--space-2);
-	}
-
-	.send-menu-item-main {
-		flex: 1;
+	.send-mode-menu {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		text-align: left;
-	}
-
-	.send-menu-item-title {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		width: 100%;
-	}
-
-	.send-mode-name {
-		font-weight: 600;
-		font-size: var(--text-xs);
-		color: var(--ink);
-	}
-
-	.send-mode-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		line-height: 1.3;
-	}
-
-	/* Barra di stato inferiore */
-	.status-bar {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-3) var(--space-2);
-		border-top: 1px solid var(--line);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		flex-wrap: wrap;
-	}
-
-	.status-item-wrap {
-		position: relative;
-	}
-
-	.status-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 2px 4px;
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		cursor: pointer;
-		line-height: 1;
-	}
-
-	.status-chip:hover {
-		background: var(--bg-hover);
-		border-color: var(--line);
-		color: var(--ink);
-	}
-
-	.status-chip:disabled {
-		opacity: 0.5;
-		cursor: default;
-		background: transparent;
-		border-color: transparent;
-	}
-
-	.status-chip:disabled:hover {
-		background: transparent;
-		border-color: transparent;
-		color: var(--ink-muted);
-	}
-
-	.status-chip.echo {
-		color: var(--ink-faint);
-	}
-
-	.status-chip.echo .chip-val {
-		color: var(--ink-muted);
-	}
-
-	.status-chip.echo .role-glyph-inline {
-		color: var(--ink-muted);
-	}
-
-	.status-chip.echo:hover {
-		color: var(--ink);
-	}
-
-	.status-chip.echo:hover .chip-val,
-	.status-chip.echo:hover .role-glyph-inline {
-		color: var(--ink);
-	}
-
-	.status-readout {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 2px 0;
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		line-height: 1;
-	}
-
-	.chip-label {
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		text-transform: lowercase;
-		--icon-size: 12px;
-	}
-
-	.chip-val {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-		color: var(--ink);
-	}
-
-	.no-reserves-badge {
-		margin-left: var(--space-1);
-		font-size: 10px;
-		line-height: 1;
-		padding: 2px 4px;
-		border-radius: var(--radius-xs);
-		background: color-mix(in srgb, var(--amber-fg, #f59e0b) 16%, transparent);
-		color: var(--amber-fg, #f59e0b);
-		font-weight: 500;
-		letter-spacing: 0.02em;
-	}
-
-	.chip-val.starting {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		color: var(--ink-muted);
-	}
-
-	.starting-spinner {
-		display: inline-block;
-		width: 6px;
-		height: 6px;
-		background: var(--brand);
-		border-radius: var(--radius-full);
-	}
-
-	.context-chip {
-		cursor: default;
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
-	.context-chip:hover {
-		background: transparent;
-		border-color: transparent;
-	}
-
-	.context-gauge-track {
-		width: 36px;
-		height: 2px;
-		background: var(--line-strong);
-		border-radius: var(--radius-full);
-		overflow: hidden;
-		margin-left: 2px;
-	}
-
-	.context-gauge-fill {
-		width: 100%;
-		height: 100%;
-		background: var(--brand-ink);
-		transform-origin: left;
-		transition: transform var(--dur-fast) var(--ease-out);
-	}
-
-	.cost-chip {
-		cursor: default;
-	}
-
-	.cost-chip:hover {
-		background: transparent;
-		border-color: transparent;
-	}
-
-
-	/* Menu a comparsa. Nel top layer (`popover`) non li taglia nessun
-	   `overflow`: da `absolute` con `bottom: 100%` venivano tosati da
-	   `.chat-surface` e dalla colonna quando la chat era bassa. Le coordinate
-	   e il ribaltamento li calcola `anchoredPopover`. */
-	.dropdown-menu {
-		position: fixed;
-		inset: auto;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		background: var(--bg-raised);
-		/* Lo stile UA di `[popover]` impone `color: CanvasText`. */
-		color: var(--ink);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-overlay);
-		z-index: var(--z-overlay);
-		min-width: 180px;
-		max-width: calc(100vw - 2 * var(--space-4));
-		max-height: min(360px, var(--anchored-space, 360px));
-		overflow: hidden;
-	}
-
-
-	/* Intestazione, ricerca e piede non si comprimono: quando il pannello
-	   e' limitato dallo spazio disponibile deve cedere solo il corpo. */
-	.menu-header {
-		flex-shrink: 0;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-1) var(--space-2);
-		background: var(--bg-sunken);
-		border-bottom: 1px solid var(--line);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink-faint);
-	}
-
-	.menu-header-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.menu-cycle-btn,
-	.menu-config-btn {
-		background: transparent;
-		border: none;
-		color: var(--brand-ink);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		padding: 0;
-	}
-
-	.menu-cycle-btn:hover,
-	.menu-config-btn:hover {
-		text-decoration: underline;
-	}
-
-	.role-chip .role-val {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
-	.role-glyph-inline {
-		color: var(--brand-ink);
-		font-size: var(--text-xs);
-		--icon-size: 12px;
-	}
-
-	.role-menu {
-		min-width: 250px;
-	}
-
-	.role-item {
-		align-items: flex-start;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-2);
-	}
-
-	.role-item-glyph {
-		font-size: var(--text-sm);
-		color: var(--brand-ink);
-		flex-shrink: 0;
-		margin-top: 1px;
-	}
-
-	.role-item-main {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-		overflow: hidden;
-	}
-
-	.role-item-title-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		width: 100%;
-	}
-
-	.role-item-name {
-		font-weight: 500;
-		font-size: var(--text-xs);
-	}
-
-	.role-item-sub {
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		color: var(--ink-faint);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.role-item-sub .provider-sub {
-		color: var(--ink-faint);
-		opacity: 0.8;
-	}
-
-	.role-item.unconfigured {
-		opacity: 0.65;
-	}
-
-	.role-item-sub.unconfigured-sub {
-		color: var(--warn);
-	}
-
-	/* Il corpo assorbe lo spazio residuo e scorre: con il pannello limitato
-	   allo spazio disponibile, senza `min-height: 0` non si comprimerebbe e
-	   le ultime voci resterebbero fuori. */
-	.menu-body {
-		flex: 1 1 auto;
-		min-height: 0;
-		max-height: 220px;
-		overflow-y: auto;
 		padding: var(--space-1);
+		gap: 2px;
+	}
+
+	.send-mode-option {
 		display: flex;
 		flex-direction: column;
-		gap: 1px;
-	}
-
-	.menu-item {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		width: 100%;
-		padding: var(--space-1) var(--space-2);
+		align-items: flex-start;
+		padding: 6px 10px;
+		border-radius: var(--radius-md);
 		background: transparent;
 		border: none;
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
+		color: var(--ink);
 		text-align: left;
 		cursor: pointer;
+		font-family: var(--font-ui);
 	}
 
-	.menu-item:hover {
+	.send-mode-option:hover,
+	.send-mode-option.selected {
 		background: var(--bg-hover);
-		color: var(--ink);
 	}
 
-	.menu-item.selected {
-		background: var(--bg-active);
-		color: var(--brand-ink);
+	.mode-title {
+		font-size: var(--text-xs);
 		font-weight: 500;
 	}
 
-	.model-item-name {
-		font-family: var(--font-mono);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.model-item-meta {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		flex-shrink: 0;
-	}
-
-	.model-item-provider {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		white-space: nowrap;
-	}
-
-	/* Stesse icone e stessi colori del selettore modello del task: vision e
-	   thinking si riconoscono senza leggere. */
-	.cap-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		background: var(--bg-base);
-		color: var(--ink-muted);
-		--icon-size: 11px;
-	}
-
-	.cap-chip small {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		line-height: 1;
-	}
-
-	.cap-chip.ctx {
+	.mode-sub {
+		font-size: 10.5px;
 		color: var(--ink-faint);
 	}
 
-	.cap-chip.vision {
-		border-color: color-mix(in srgb, oklch(0.68 0.16 195) 30%, transparent);
-		color: oklch(0.78 0.13 195);
-	}
-
-	.cap-chip.thinking {
-		border-color: color-mix(in srgb, oklch(0.65 0.18 290) 30%, transparent);
-		color: oklch(0.78 0.14 290);
-	}
-
-	.menu-loading,
-	.menu-empty {
-		padding: var(--space-2);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-align: center;
-	}
-
-	/* Barra di ricerca nel menu modelli */
-	.menu-search-wrap {
-		flex-shrink: 0;
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 4px var(--space-2);
-		background: var(--bg-base);
-		border-bottom: 1px solid var(--line);
-	}
-
-	.menu-search-input {
-		flex: 1;
-		background: transparent;
-		border: none;
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		color: var(--ink);
-		min-width: 0;
-		padding: 2px 0;
-	}
-
-	.menu-search-input::placeholder {
-		color: var(--ink-faint);
-	}
-
-	.menu-search-clear {
-		background: transparent;
-		border: none;
-		color: var(--ink-muted);
-		cursor: pointer;
-		font-size: var(--text-md);
-		line-height: 1;
-		padding: 0 2px;
-	}
-
-	.menu-search-clear:hover {
-		color: var(--ink);
-	}
-
-	.search-icon {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.menu-item.highlighted {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.item-check {
-		font-size: var(--text-xs);
-		color: var(--brand-ink);
-		font-weight: 600;
-		--icon-size: 12px;
-	}
-
-	.menu-footer-hint {
-		flex-shrink: 0;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-2);
-		background: var(--bg-sunken);
-		border-top: 1px solid var(--line);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		user-select: none;
-	}
-
-
-	.key-shortcut-tag {
-		display: inline-flex;
-		align-items: center;
-		padding: 1px 4px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.shortcuts-help-chip {
-		padding: 2px 5px;
-	}
-
-	.shortcut-hint {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.file-mention-caret-anchor {
-		position: absolute;
-		top: 0;
-		left: 0;
-		width: 1px;
-		pointer-events: none;
-		opacity: 0;
-		visibility: hidden;
+	.hidden-file-input {
+		display: none;
 	}
 </style>

@@ -1,161 +1,213 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	// Riga di compattazione della sessione.
-	// Se la compattazione e' in corso il pallino pulsa con `--brand`.
-	// Se e' disponibile un riassunto dettagliato, permette di espanderlo.
+	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px).
+	// Stato vivo: 'Compattazione…' con shimmer; a conclusione: riepilogo token liberati ed espansione.
 	import type { CompactionEntry } from '../session.svelte';
-	import { chatReveal } from '../motion';
+	import { formatTokens } from '$lib/utils/format';
+	import { IconContextWindow, IconChevronRight, IconRefresh } from '$lib/icons';
 
-	let { entry }: { entry: CompactionEntry } = $props();
+	let { entry, fresh = false }: { entry: CompactionEntry; fresh?: boolean } = $props();
 	let expanded = $state(false);
+
+	const freedTokens = $derived.by(() => {
+		if (typeof entry.tokensBefore === 'number' && typeof entry.tokensAfter === 'number') {
+			const diff = entry.tokensBefore - entry.tokensAfter;
+			return diff > 0 ? diff : null;
+		}
+		const match = entry.message?.match(/-([0-9.,]+[kM]?)/);
+		return match ? match[1] : null;
+	});
+
+	const compactedLabel = $derived.by(() => {
+		if (freedTokens) {
+			const tokensStr = typeof freedTokens === 'number' ? formatTokens(freedTokens) : String(freedTokens);
+			return m.chat_v2_compaction_freed({ tokens: tokensStr });
+		}
+		return m.chat_v2_compaction_done();
+	});
 </script>
 
-<div class="compaction-row" class:running={entry.running}>
+<div
+	class="compaction-row"
+	class:running={entry.running}
+	class:rv-blur={fresh}
+	style={fresh ? '--dur: 400ms; --blur: 4px;' : undefined}
+>
 	<div class="main-line">
-		<span class="dot" class:pulsing={entry.running}></span>
-		<div class="message-stack">
-			{#key entry.message}
-				<div
-					class="message-line"
-					transition:chatReveal={{ duration: 180, blur: 4, distance: 0 }}
-				>
-					<span class="message">{entry.message}</span>
-					{#if entry.summary}
-						<button
-							type="button"
-							class="toggle-btn"
-							onclick={() => (expanded = !expanded)}
-							aria-expanded={expanded}
-							title={expanded ? m.ui_compactionrow_nascondi_dettagli_riassunto_120b() : m.ui_compactionrow_mostra_dettagli_riassunto_1f7c()}
-						>
-							{expanded ? m.ui_compactionrow_nascondi_riassunto_26c5() : m.ui_compactionrow_mostra_riassunto_7e1b()}
-						</button>
-					{/if}
-				</div>
-			{/key}
-		</div>
+		<span class="row-icon" aria-hidden="true">
+			{#if entry.running}
+				<IconRefresh />
+			{:else}
+				<IconContextWindow />
+			{/if}
+		</span>
+
+		{#if entry.running}
+			<div class="message-static">
+				<span class="message text-shimmer">{m.chat_v2_compaction_running()}</span>
+			</div>
+		{:else if entry.summary}
+			<button
+				type="button"
+				class="message-btn"
+				onclick={() => (expanded = !expanded)}
+				aria-expanded={expanded}
+				title={expanded ? m.chat_v2_compaction_hide_summary() : m.chat_v2_compaction_show_summary()}
+			>
+				<span class="message">{compactedLabel}</span>
+				<span class="chevron" class:expanded aria-hidden="true">
+					<IconChevronRight />
+				</span>
+			</button>
+		{:else}
+			<div class="message-static">
+				<span class="message">{compactedLabel}</span>
+			</div>
+		{/if}
 	</div>
 
 	{#if expanded && entry.summary}
-		<div class="summary-card" transition:chatReveal={{ duration: 150, blur: 2, distance: 0 }}>
-			<div class="summary-header">Riepilogo del contesto compattato</div>
+		<div class="summary-body rv-blur" style="--dur: 200ms; --blur: 2px;">
+			<div class="summary-header">{m.chat_v2_compaction_show_summary()}</div>
 			<div class="summary-text">{entry.summary}</div>
 		</div>
 	{/if}
 </div>
+
 <style>
 	.compaction-row {
 		width: 100%;
-		border-top: 1px solid var(--line);
-		padding: var(--space-2) 0;
-		font-size: var(--text-xs);
-		line-height: 1.4;
+		padding: 2px 0;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--ink-muted);
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
 	}
 
 	.main-line {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
+		gap: 6px;
 		min-width: 0;
 	}
 
-	.message-stack {
-		display: grid;
-		min-width: 0;
-		flex: 1;
-	}
-
-	.message-stack > :global(*) {
-		grid-area: 1 / 1;
-	}
-
-	.message-line {
-		display: flex;
+	.row-icon {
+		--icon-size: 14px;
+		width: 14px;
+		height: 14px;
+		display: inline-flex;
 		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-2);
+		justify-content: center;
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.compaction-row.running .row-icon {
+		color: var(--brand);
+		animation: spin 2s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.message-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: transparent;
+		border: none;
+		padding: 2px 4px;
+		margin-left: -4px;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		text-align: left;
+		font-size: 12.5px;
+		line-height: 1.4;
+		color: var(--ink-muted);
+		min-width: 0;
+		transition: background-color var(--dur-fast), color var(--dur-fast);
+	}
+
+	.message-btn:hover {
+		color: var(--ink);
+		background: var(--bg-hover);
+	}
+
+	.message-static {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 2px 0;
+		font-size: 12.5px;
+		line-height: 1.4;
+		color: var(--ink-muted);
 		min-width: 0;
 	}
 
-	.dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--ink-faint);
+	.chevron {
+		--icon-size: 14px;
+		width: 14px;
+		height: 14px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		transition: transform var(--dur-fast) var(--ease-out);
+		color: var(--ink-faint);
 		flex-shrink: 0;
-		transition: background-color var(--dur-base) var(--ease-out);
 	}
 
-	.compaction-row.running .dot {
-		background: var(--brand);
-		animation: pulse-dot 1.2s infinite ease-in-out;
+	.message-btn:hover .chevron {
+		color: var(--ink-muted);
 	}
 
-	@keyframes pulse-dot {
-		0%, 100% {
-			opacity: 1;
-			transform: scale(1);
-		}
-		50% {
-			opacity: 0.4;
-			transform: scale(1.3);
-		}
+	.chevron.expanded {
+		transform: rotate(90deg);
 	}
 
 	.message {
-		color: var(--ink-faint);
 		user-select: text;
 		word-break: break-word;
-		transition: color var(--dur-base) var(--ease-out);
 	}
 
-	.compaction-row.running .message {
-		color: var(--ink-muted);
-	}
-
-	.toggle-btn {
-		font-size: 10px;
-		font-family: inherit;
-		color: var(--ink-muted);
-		background: var(--surface-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px 6px;
-		cursor: pointer;
-		transition: all var(--dur-base) var(--ease-out);
-	}
-
-	.toggle-btn:hover {
-		color: var(--ink);
-		border-color: var(--line-strong, var(--line));
-		background: var(--surface-3, var(--surface-2));
-	}
-
-	.summary-card {
-		margin-top: var(--space-2);
-		margin-left: calc(6px + var(--space-2));
-		padding: var(--space-2) var(--space-3);
-		background: var(--surface-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
+	.summary-body {
+		margin-top: 2px;
+		border-left: 1px solid var(--line);
+		margin-left: 3px;
+		padding-left: 10px;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
 	}
 
 	.summary-header {
 		font-weight: 500;
-		color: var(--ink-muted);
-		margin-bottom: var(--space-1);
+		color: var(--ink-faint);
 		text-transform: uppercase;
-		font-size: 9px;
+		font-size: 10px;
 		letter-spacing: 0.05em;
 	}
 
 	.summary-text {
-		color: var(--ink);
+		color: var(--ink-muted);
 		white-space: pre-wrap;
 		word-break: break-word;
 		max-height: 240px;
 		overflow-y: auto;
-		line-height: 1.5;
+		font-size: 12px;
+		line-height: 1.45;
+		padding: 4px 8px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		user-select: text;
 	}
 </style>

@@ -5,6 +5,7 @@
 		type DefaultSurface,
 		type CloseWithQueuedTasks,
 		type ChatWidth,
+		type ChatReveal,
 		type StreamingBehavior,
 		type QueueMode,
 		type InterruptMode,
@@ -87,6 +88,23 @@
 				>
 					<option value="readable">{m.settings_general_chat_readable()}</option>
 					<option value="full">{m.settings_general_chat_full()}</option>
+				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<span class="form-row-label">{m.settings_general_chat_reveal_title()}</span>
+				<span class="form-row-desc">{m.settings_general_chat_reveal_desc()}</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					value={settingsStore.general.chatReveal}
+					onchange={(e) => settingsStore.patchGeneral({ chatReveal: (e.currentTarget as HTMLSelectElement).value as ChatReveal })}
+				>
+					<option value="blur">{m.settings_general_chat_reveal_blur()}</option>
+					<option value="stream">{m.settings_general_chat_reveal_stream()}</option>
+					<option value="final">{m.settings_general_chat_reveal_final()}</option>
 				</select>
 			</div>
 		</div>

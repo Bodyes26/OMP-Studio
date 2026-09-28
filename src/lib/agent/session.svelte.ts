@@ -32,6 +32,14 @@ import {
 	type AskQuestion,
 	type PromptAnswer
 } from './askAnswers';
+import { parsePartialAskStream, streamToAskQuestions, type StreamAskState } from './askStream';
+import {
+	enqueueFollowUp,
+	removeFollowUp,
+	takeFollowUpsForTurn,
+	takeLastFollowUp,
+	type LocalFollowUp
+} from './localFollowUpQueue';
 import { promptBus, type PromptRequest } from './promptBus';
 import { laneSessionKey } from './sessionKeys';
 import { SessionSuggestions } from './suggestions.svelte';
@@ -330,10 +338,11 @@ export interface AgentSessionConfig {
 	projectKey?: string | null;
 	observedRevisionId?: string | null;
 	lab?: { prototypeId: string; projectPath: string | null };
+	client?: OmpRpcClient;
 }
 
 export class AgentSession {
-	readonly client = new OmpRpcClient();
+	readonly client: OmpRpcClient;
 	readonly suggestions: SessionSuggestions = new SessionSuggestions(this);
 
 	readonly scope: 'lane' | 'main';
@@ -434,7 +443,15 @@ export class AgentSession {
 	todoReminder = $state<{ attempt: number; max: number } | null>(null);
 	availableCommands = $state<AvailableCommand[]>([]);
 	queued = $state<QueuedMessage[]>([]);
+	localFollowUps = $state<LocalFollowUp[]>([]);
+	localFollowUpsPaused = $state(false);
+	private dispatchingLocal = false;
+	private localQueueEpoch = 0;
 	pendingUi = $state<PendingUiRequest | null>(null);
+	/** Solo anteprima: nessuna risposta parte finche' omp non emette extension_ui_request. */
+	streamAsk = $state<{ toolCallId: string | null; state: StreamAskState } | null>(null);
+	private streamAskRaw = '';
+	private streamAskIndex: number | null = null;
 	statusText = $state<string | null>(null);
 	seededPrompt = $state<SeededPrompt | null>(null);
 	startupPhase = $state<'idle' | 'starting' | 'ready'>('idle');
@@ -588,6 +605,7 @@ export class AgentSession {
 		};
 	}
 	constructor(config: AgentSessionConfig) {
+		this.client = config.client ?? new OmpRpcClient();
 		this.cwd = config.cwd;
 		this.scope = config.scope ?? 'lane';
 		this.laneId = config.laneId ?? 'main';
@@ -1644,7 +1662,7 @@ export class AgentSession {
 				// sessione passano dallo stream dell'agent-loop. La card che
 				// aspetta e' gia' aperta e va completata adesso, o resterebbe una
 				// domanda alla volta senza possibilita' di tornare indietro.
-				if (event.toolName === 'ask') this.enrichPendingAsk(entry);
+				if (event.toolName === 'ask') this.enrichPendingAsk(entry.toolCallId, entry.args);
 				return;
 			}
 
@@ -1676,6 +1694,11 @@ export class AgentSession {
 				if (this.askFlush && this.askFlush.toolCallId === event.toolCallId) {
 					this.askFlush = null;
 				}
+				if (entry?.toolName === 'ask' && this.streamAsk?.toolCallId === event.toolCallId) {
+					this.streamAsk = null;
+					this.streamAskIndex = null;
+					this.streamAskRaw = '';
+				}
 				if (!this.isStreaming) {
 					const hasRunning = Array.from(this.toolEntries.values()).some((t) => t.running);
 					if (!hasRunning) {
@@ -1698,6 +1721,7 @@ export class AgentSession {
 				this.isAborting = false;
 				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato richiesto un abort
 				if (event.isTerminal === false && !wasAborting) return;
+				this.clearStreamAsk();
 				this.isStreaming = false;
 				this.turnStartedAt = null;
 				this.isCompacting = false;
@@ -1711,6 +1735,7 @@ export class AgentSession {
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
 				}
+				if (!wasAborting && !this.localFollowUpsPaused) this.dispatchFollowUps();
 				return;
 			}
 			case 'turn_start':
@@ -1720,7 +1745,6 @@ export class AgentSession {
 				this.markWorking();
 				return;
 			case 'turn_end':
-				this.isAborting = false;
 				this.isStreaming = false;
 				this.turnStartedAt = null;
 				this.isCompacting = false;
@@ -1963,6 +1987,8 @@ export class AgentSession {
 				this.isCompacting = false;
 				this.activeAssistantId = null;
 				this.assistantEntry = null;
+				this.clearStreamAsk();
+				this.localFollowUpsPaused = true;
 				this.exited = true;
 				this.isReady = false;
 				const exitWaiters = this.readyWaiters;
@@ -2281,6 +2307,10 @@ export class AgentSession {
 		const inner = event.assistantMessageEvent;
 		if (!inner) return;
 		const index = inner.contentIndex ?? 0;
+		if (inner.type === 'toolcall_start' || inner.type === 'toolcall_delta' || inner.type === 'toolcall_end') {
+			this.applyAskToolDelta(inner);
+			return;
+		}
 
 		// I `*_end` portano il testo autorevole: rimpiazzano il blocco e sanano
 		// ogni delta perso.
@@ -2296,6 +2326,49 @@ export class AgentSession {
 			this.setBlock(index, { type: 'image', data: inner.content, mimeType: inner.mimeType ?? 'image/png' });
 			return;
 		}
+	}
+
+	private clearStreamAsk() {
+		this.streamAsk = null;
+		this.streamAskRaw = '';
+		this.streamAskIndex = null;
+	}
+
+	private applyAskToolDelta(inner: NonNullable<AgentSessionEvent['assistantMessageEvent']>) {
+		const index = inner.contentIndex ?? 0;
+		const call = inner.toolCall ?? (Array.isArray(inner.partial?.content)
+			? inner.partial.content[index]
+			: undefined);
+		if (inner.type === 'toolcall_start') {
+			if (call?.name === 'ask') {
+				this.streamAskRaw = '';
+				this.streamAskIndex = index;
+				this.streamAsk = { toolCallId: call.id ?? null, state: { questions: [], complete: false } };
+			}
+			return;
+		}
+		if (inner.type === 'toolcall_end') {
+			if (call?.name === 'ask') {
+				this.streamAskIndex = index;
+				this.streamAsk = {
+					toolCallId: call.id ?? this.streamAsk?.toolCallId ?? null,
+					state: parsePartialAskStream(call.arguments)
+				};
+				if (call.arguments && call.id) this.enrichPendingAsk(call.id, call.arguments);
+			}
+			this.streamAskRaw = '';
+			return;
+		}
+		if (this.streamAskIndex !== index && call?.name !== 'ask') return;
+		if (this.streamAskIndex !== index) {
+			this.streamAskRaw = '';
+			this.streamAskIndex = index;
+		}
+		this.streamAskRaw += inner.delta ?? '';
+		this.streamAsk = {
+			toolCallId: call?.id ?? this.streamAsk?.toolCallId ?? null,
+			state: parsePartialAskStream(this.streamAskRaw)
+		};
 	}
 
 	private applyDelta(event: AgentSessionEvent) {
@@ -2443,6 +2516,10 @@ export class AgentSession {
 		// Informazioni complete della domanda quando la richiesta proviene dal
 		// tool `ask` (`arguments.questions`).
 		let parsedQuestions = parseAskQuestions(runningAsk?.args);
+		if (!parsedQuestions && method === 'select' && this.streamAsk?.state.complete &&
+			(!runningAsk || this.streamAsk.toolCallId === runningAsk.toolCallId)) {
+			parsedQuestions = streamToAskQuestions(this.streamAsk.state.questions);
+		}
 
 		// Il titolo dichiara la posizione nella sequenza (`(k/N)`): e' l'unico
 		// dato che arriva insieme alla richiesta, quindi vale anche quando gli
@@ -2475,7 +2552,7 @@ export class AgentSession {
 		this.pendingUi = {
 			kind: 'ask',
 			requestId: id,
-			toolCallId: runningAsk?.toolCallId,
+			toolCallId: runningAsk?.toolCallId ?? this.streamAsk?.toolCallId ?? undefined,
 			method: method === 'confirm' || method === 'input' || method === 'editor' ? method : 'select',
 			title: title ?? '',
 			message: text,
@@ -2545,11 +2622,12 @@ export class AgentSession {
 	 * card gia' aperta con la lista di tutte le domande. La card e' reattiva:
 	 * la sostituzione dell'oggetto attiva il remount nel modulo completo.
 	 */
-	private enrichPendingAsk(entry: ToolEntry) {
+	private enrichPendingAsk(toolCallId: string, args: Record<string, unknown>) {
 		const pending = this.pendingUi;
 		if (!pending || pending.kind !== 'ask') return;
+		if (pending.toolCallId && pending.toolCallId !== toolCallId) return;
 		if (pending.questions && pending.questions.length > 0) return;
-		const questions = parseAskQuestions(entry.args);
+		const questions = parseAskQuestions(args);
 		if (!questions || questions.length === 0) return;
 
 		const signature = optionSignature(pending.options);
@@ -2558,7 +2636,7 @@ export class AgentSession {
 
 		this.pendingUi = {
 			...pending,
-			toolCallId: entry.toolCallId,
+			toolCallId,
 			questions,
 			questionIndex: matched,
 			totalQuestions: questions.length
@@ -2569,7 +2647,7 @@ export class AgentSession {
 			projectId: this.projectKey,
 			laneId: this.laneId ?? 'main',
 			sessionId: this.sessionId,
-			toolCallId: entry.toolCallId,
+			toolCallId,
 			kind: 'ask',
 			method: pending.method,
 			title: pending.title,
@@ -2700,9 +2778,9 @@ export class AgentSession {
 			);
 			if (promptBus.hasPending(pending.requestId)) {
 				if ('cancelled' in answer) {
-					void promptBus.cancelRequest(pending.requestId);
+					void promptBus.cancelRequest(pending.requestId, undefined, true);
 				} else {
-					void promptBus.resolveRequest(pending.requestId, answer as PromptAnswer);
+					void promptBus.resolveRequest(pending.requestId, answer as PromptAnswer, undefined, true);
 				}
 			}
 			return true;
@@ -2756,10 +2834,10 @@ export class AgentSession {
 		await this.respond(pending, { confirmed }, null);
 	}
 
-	async cancelPendingUi() {
+	async cancelPendingUi(): Promise<boolean> {
 		const pending = this.pendingUi;
-		if (!pending) return;
-		await this.respond(pending, { cancelled: true }, null);
+		if (!pending) return true;
+		return this.respond(pending, { cancelled: true }, null);
 	}
 
 	/**
@@ -2872,13 +2950,103 @@ export class AgentSession {
 		nameLaneFromPrompt(this.projectKey, this.laneId ?? 'main', message);
 	}
 
+	/** I follow-up restano locali e modificabili finche' il turno non si chiude. */
+	get localFollowUpQueue(): LocalFollowUp[] {
+		return this.localFollowUps;
+	}
+
+	removeLocalFollowUp(id: number) {
+		this.localFollowUps = removeFollowUp(this.localFollowUps, id);
+	}
+
+	takeLastLocalFollowUp(): LocalFollowUp | null {
+		const entry = this.localFollowUpQueue.at(-1);
+		if (!entry) return null;
+		this.removeLocalFollowUp(entry.id);
+		return entry;
+	}
+	requeueLocalFollowUp(entry: LocalFollowUp) {
+		this.localFollowUps = enqueueFollowUp(this.localFollowUps, entry);
+	}
+
+
+	resumeLocalFollowUps() {
+		if (!this.isReady || !this.isAttached) return;
+		this.localFollowUpsPaused = false;
+		if (!this.isStreaming) this.dispatchFollowUps();
+	}
+
+	private dispatchFollowUps() {
+		if (this.dispatchingLocal || this.isStreaming || this.isAborting ||
+			this.pendingUi || this.localFollowUpsPaused || !this.isReady || !this.isAttached ||
+			this.localFollowUps.length === 0) return;
+		if (settingsStore.general.followUpMode === 'all') {
+			void this.dispatchAllBatch();
+			return;
+		}
+		const item = this.localFollowUps[0];
+		this.dispatchingLocal = true;
+		const epoch = this.localQueueEpoch;
+		void this.prompt(item.text, item.images, 'followUp', true, item.id)
+			.catch(() => 'failed' as const)
+			.then((delivery) => {
+				if (epoch !== this.localQueueEpoch) return;
+				if (delivery === 'sent') this.removeLocalFollowUp(item.id);
+				else if (delivery === 'failed' || delivery === 'empty') this.localFollowUpsPaused = true;
+			})
+			.finally(() => {
+				this.dispatchingLocal = false;
+				if (!this.isStreaming && !this.localFollowUpsPaused) this.dispatchFollowUps();
+			});
+	}
+
+	private async dispatchAllBatch() {
+		if (this.localFollowUpsPaused || this.dispatchingLocal) return;
+		this.dispatchingLocal = true;
+		try {
+			while (this.localFollowUps.length > 0 && !this.pendingUi && !this.localFollowUpsPaused) {
+				const item = this.localFollowUps[0];
+				const epoch = this.localQueueEpoch;
+				const delivery = await this.prompt(item.text, item.images, 'followUp', true, item.id)
+					.catch(() => 'failed' as const);
+				if (epoch !== this.localQueueEpoch) break;
+				if (delivery === 'sent') this.removeLocalFollowUp(item.id);
+				else if (delivery === 'failed' || delivery === 'empty') {
+					this.localFollowUpsPaused = true;
+					break;
+				}
+			}
+		} finally {
+			this.dispatchingLocal = false;
+		}
+	}
+
 	async prompt(
 		message: string,
 		images: ImageContent[] = [],
-		behavior: StreamingBehavior = 'steer'
+		behavior: StreamingBehavior = 'steer',
+		fromLocalQueue = false,
+		localQueueEntryId?: number
 	): Promise<'sent' | 'deferred' | 'failed' | 'empty'> {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return 'empty';
+		if (fromLocalQueue && this.pendingUi) return 'failed';
+		const localQueueWasStreaming = this.isStreaming;
+		const localQueueEpoch = this.localQueueEpoch;
+		const answeringAsk = this.pendingUi !== null;
+		// In RPC "Chat about this" non e' disponibile. La richiesta bloccante
+		// va chiusa prima del messaggio, altrimenti omp resta in attesa del filo UI.
+		if (answeringAsk && !(await this.cancelPendingUi())) return 'failed';
+		if (answeringAsk && this.isStreaming) behavior = 'followUp';
+		if (fromLocalQueue && this.isStreaming && behavior === 'steer') behavior = 'followUp';
+		if (!fromLocalQueue && this.isStreaming && behavior === 'followUp') {
+			this.localFollowUps = enqueueFollowUp(this.localFollowUps, {
+				id: this.nextQueueId++,
+				text: trimmed,
+				images: images.map((image) => ({ ...image }))
+			});
+			return 'deferred';
+		}
 		if (this.laneId && this.laneId !== 'main') {
 			this.synthesizeLaneTitleOnFirstPrompt(trimmed);
 		}
@@ -2891,6 +3059,10 @@ export class AgentSession {
 			{ images, projectPath: this.cwd },
 			this.preflightDeps ?? undefined
 		);
+		if (fromLocalQueue && (localQueueEpoch !== this.localQueueEpoch || this.localFollowUpsPaused ||
+			this.isAborting || this.pendingUi || !this.isReady || !this.isAttached ||
+			this.isStreaming !== localQueueWasStreaming ||
+			(localQueueEntryId !== undefined && !this.localFollowUps.some((entry) => entry.id === localQueueEntryId)))) return 'failed';
 		const fullMessage = attachEditorContext(enriched, this.cwd);
 
 		const seed = this.seededPrompt;
@@ -3035,9 +3207,12 @@ export class AgentSession {
 		// 1. Notifica lo stato di interruzione e blocca l'accettazione di nuovi delta/messaggi
 		this.isAborting = true;
 		this.suggestions.invalidate();
+		this.localFollowUpsPaused = true;
+		this.localQueueEpoch++;
 		this.turnStartedAt = null;
 		this.isCompacting = false;
 		this.deltaBatcher.clear();
+		this.clearStreamAsk();
 
 		if (this.assistantEntry) {
 			if (!this.assistantEntry.stopReason) {
@@ -3059,6 +3234,7 @@ export class AgentSession {
 				}
 			}
 		}
+		this.localFollowUpsPaused = true;
 
 		for (let i = 0; i < this.subagents.length; i++) {
 			const sub = this.subagents[i];
@@ -3095,6 +3271,8 @@ export class AgentSession {
 	 * Fase 2 dell'escalation: forza l'arresto immediato del processo e dell'albero dei figli (SIGKILL).
 	 */
 	async forceKill() {
+		this.localFollowUpsPaused = true;
+		this.localQueueEpoch++;
 		this.isAborting = false;
 		this.isStreaming = false;
 		this.turnStartedAt = null;
@@ -3102,6 +3280,9 @@ export class AgentSession {
 		this.agentState = 'idle';
 		this.suggestions.invalidate();
 		this.deltaBatcher.clear();
+		this.clearStreamAsk();
+		this.localFollowUpsPaused = true;
+		this.localQueueEpoch++;
 
 		if (this.assistantEntry) {
 			if (!this.assistantEntry.stopReason) {
@@ -3123,6 +3304,8 @@ export class AgentSession {
 				}
 			}
 		}
+		this.localFollowUpsPaused = true;
+		this.localQueueEpoch++;
 
 		for (let i = 0; i < this.subagents.length; i++) {
 			const sub = this.subagents[i];
@@ -3145,6 +3328,8 @@ export class AgentSession {
 	}
 
 	async newSession(): Promise<string | null> {
+		this.localQueueEpoch++;
+		this.localFollowUpsPaused = true;
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
 		this.isAborting = false;
@@ -3152,7 +3337,7 @@ export class AgentSession {
 		await this.client.send({ type: 'new_session' });
 		this.entries = [];
 		this.toolEntries.clear();
-		this.assistantEntry = null;
+		this.clearStreamAsk();
 		this.activeAssistantId = null;
 		this.activityLine = null;
 		this.optimisticUser = null;
@@ -3161,6 +3346,8 @@ export class AgentSession {
 		this.todoReminder = null;
 		this.renderedCustomKeys.clear();
 		this.queued = [];
+		this.localFollowUps = [];
+		this.localFollowUpsPaused = false;
 		this.isStreaming = false;
 		this.turnStartedAt = null;
 		this.isCompacting = false;
@@ -3170,6 +3357,8 @@ export class AgentSession {
 		return this.sessionId;
 	}
 	async forkSession(): Promise<string | null> {
+		this.localFollowUpsPaused = true;
+		this.localQueueEpoch++;
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
 		this.isAborting = false;
@@ -3178,6 +3367,7 @@ export class AgentSession {
 		await this.client.send({ type: 'new_session', parentSession: parent || undefined });
 		this.entries = [];
 		this.toolEntries.clear();
+		this.clearStreamAsk();
 		this.assistantEntry = null;
 		this.activeAssistantId = null;
 		this.activityLine = null;
@@ -3187,6 +3377,8 @@ export class AgentSession {
 		this.todoReminder = null;
 		this.renderedCustomKeys.clear();
 		this.queued = [];
+		this.localFollowUps = [];
+		this.localFollowUpsPaused = false;
 		this.isStreaming = false;
 		this.turnStartedAt = null;
 		this.isCompacting = false;
@@ -3267,6 +3459,8 @@ export class AgentSession {
 	async handoff(customInstructions?: string): Promise<boolean> {
 		if (this.isCompacting) return false;
 		this.isCompacting = true;
+		this.localFollowUpsPaused = true;
+		this.localQueueEpoch++;
 		this.pushNotice('info', messages.ui_ts_session_passaggio_delle_consegne_handoff_in_corso_bce8(), 'studio');
 
 		try {
@@ -3277,6 +3471,7 @@ export class AgentSession {
 
 			this.entries = [];
 			this.toolEntries.clear();
+			this.clearStreamAsk();
 			this.assistantEntry = null;
 			this.activeAssistantId = null;
 			this.activityLine = null;
@@ -3286,6 +3481,8 @@ export class AgentSession {
 			this.todoReminder = null;
 			this.renderedCustomKeys.clear();
 			this.queued = [];
+			this.localFollowUps = [];
+			this.localFollowUpsPaused = false;
 			this.visibleCount = RENDER_WINDOW;
 
 			await this.rebuildTranscript();

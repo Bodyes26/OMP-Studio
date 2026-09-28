@@ -301,7 +301,8 @@ export class PromptBus {
 	async resolveRequest(
 		requestId: string,
 		answer: PromptAnswer,
-		target?: PromptTargetFilter
+		target?: PromptTargetFilter,
+		fromResponder = false
 	): Promise<boolean> {
 		const request = this.requests.get(requestId);
 		if (!request || request.status !== 'pending') {
@@ -327,7 +328,7 @@ export class PromptBus {
 		this.saveToStorage();
 
 		// Esegue il responder locale se configurato su questa istanza
-		if (request.responder) {
+		if (request.responder && !fromResponder) {
 			try {
 				await request.responder(answer);
 			} catch (err) {
@@ -351,7 +352,7 @@ export class PromptBus {
 	 * Semantica atomica identica a `resolveRequest`: restituisce `false` se gia'
 	 * chiusa o inesistente.
 	 */
-	async cancelRequest(requestId: string, target?: PromptTargetFilter): Promise<boolean> {
+	async cancelRequest(requestId: string, target?: PromptTargetFilter, fromResponder = false): Promise<boolean> {
 		const request = this.requests.get(requestId);
 		if (!request || request.status !== 'pending') {
 			return false;
@@ -373,7 +374,7 @@ export class PromptBus {
 
 		this.saveToStorage();
 
-		if (request.responder) {
+		if (request.responder && !fromResponder) {
 			try {
 				await request.responder({ action: 'cancel' });
 			} catch (err) {

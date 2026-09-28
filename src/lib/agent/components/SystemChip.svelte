@@ -1,27 +1,28 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// Riga singola per tutti i messaggi di sistema che non hanno una tessera propria.
-	// Rende le notifiche, i promemoria e le comunicazioni interne consultabili
-	// in modo discreto e collassabile senza interrompere il flusso della conversazione.
+	// Riga singola per messaggi di sistema senza tessera propria.
+	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px, chevron espandibile).
 	import type { SystemChipEntry } from '../session.svelte';
 	import OutputBlock from '../tools/parts/OutputBlock.svelte';
-	import { IconChevronRight } from '$lib/icons';
+	import { IconChevronRight, IconInfo } from '$lib/icons';
 
-	let { entry }: { entry: SystemChipEntry } = $props();
+	let { entry, fresh = false }: { entry: SystemChipEntry; fresh?: boolean } = $props();
 
 	let expanded = $state(false);
 
 	const hasBody = $derived(Boolean(entry.body && entry.body.trim().length > 0));
 
-	// Titoli come «Processo supervisionato terminato» si ripetono identici: senza
-	// un'anteprima del corpo due righe consecutive sono indistinguibili e l'unica
-	// informazione utile resta chiusa dietro il chevron.
 	const bodyPreview = $derived(
 		entry.body ? entry.body.replace(/\s+/g, ' ').trim().slice(0, 120) : ''
 	);
 </script>
 
-<div class="system-chip-row" class:internal={entry.internal}>
+<div
+	class="system-chip-row"
+	class:rv-blur={fresh}
+	class:internal={entry.internal}
+	style={fresh ? '--dur: 400ms; --blur: 4px;' : undefined}
+>
 	{#if hasBody}
 		<button
 			type="button"
@@ -38,11 +39,14 @@
 				<span class="internal-tag" title={m.ui_systemchip_messaggio_di_sistema_interno_nascosto_di_default_4677()}>interno</span>
 			{/if}
 			{#if !expanded && bodyPreview}
-				<span class="preview">{bodyPreview}</span>
+				<span class="preview">· {bodyPreview}</span>
 			{/if}
 		</button>
 	{:else}
 		<div class="chip-static">
+			<span class="static-icon" aria-hidden="true">
+				<IconInfo />
+			</span>
 			<span class="title">{entry.title}</span>
 			{#if entry.internal}
 				<span class="internal-tag" title={m.ui_systemchip_messaggio_di_sistema_interno_nascosto_di_default_4677()}>interno</span>
@@ -51,7 +55,7 @@
 	{/if}
 
 	{#if hasBody && expanded}
-		<div class="chip-body">
+		<div class="chip-body rv-blur" style="--dur: 200ms; --blur: 2px;">
 			<OutputBlock text={entry.body} label={m.ui_systemchip_messaggio_19f2()} />
 		</div>
 	{/if}
@@ -60,66 +64,88 @@
 <style>
 	.system-chip-row {
 		width: 100%;
-		border-top: 1px solid var(--line);
-		padding: var(--space-1) 0;
-		font-size: var(--text-xs);
-		line-height: 1.4;
+		padding: 2px 0;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--ink-muted);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
+		gap: 3px;
 	}
 
 	.chip-toggle {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
+		gap: 6px;
 		background: transparent;
 		border: none;
-		padding: 2px var(--space-1);
+		padding: 2px 4px;
+		margin-left: -4px;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
 		text-align: left;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: 12.5px;
+		line-height: 1.4;
+		color: var(--ink-muted);
 		width: 100%;
+		min-width: 0;
+		transition: background-color var(--dur-fast), color var(--dur-fast);
 	}
 
 	.chip-toggle:hover {
-		color: var(--ink-muted);
+		color: var(--ink);
 		background: var(--bg-hover);
 	}
 
 	.chip-static {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
-		padding: 2px var(--space-1);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		gap: 6px;
+		padding: 2px 0;
+		font-size: 12.5px;
+		line-height: 1.4;
+		color: var(--ink-muted);
 	}
 
 	.chevron {
-		--icon-size: 12px;
+		--icon-size: 14px;
+		width: 14px;
+		height: 14px;
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 		transition: transform var(--dur-fast) var(--ease-out);
 		color: var(--ink-faint);
 		flex-shrink: 0;
+	}
+
+	.chip-toggle:hover .chevron {
+		color: var(--ink-muted);
 	}
 
 	.chevron.expanded {
 		transform: rotate(90deg);
 	}
 
-	.title {
+	.static-icon {
+		--icon-size: 14px;
+		width: 14px;
+		height: 14px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.title {
+		color: var(--ink-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		flex-shrink: 0;
 	}
 
-	/* L'anteprima cede spazio al titolo e si tronca: la riga resta alta una riga. */
 	.preview {
 		min-width: 0;
 		flex: 1;
@@ -127,7 +153,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--ink-faint);
-		opacity: 0.75;
 	}
 
 	.internal-tag {
@@ -143,8 +168,9 @@
 	}
 
 	.chip-body {
-		padding-left: calc(12px + var(--space-2));
-		padding-top: var(--space-1);
-		padding-bottom: var(--space-1);
+		margin-top: 2px;
+		border-left: 1px solid var(--line);
+		margin-left: 3px;
+		padding-left: 10px;
 	}
 </style>

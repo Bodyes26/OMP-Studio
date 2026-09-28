@@ -57,6 +57,11 @@ export type DefaultSurface = 'terminal' | 'gui';
 
 /** Larghezza e allineamento del flusso della chat: centrata per leggibilita' o a tutta colonna. */
 export type ChatWidth = 'readable' | 'full';
+/**
+ * Comparsa del testo dell'agente: `blur` per frase (predefinita), `stream` token
+ * per token senza animazioni, `final` tutto insieme a risposta conclusa.
+ */
+export type ChatReveal = 'blur' | 'stream' | 'final';
 export type { StreamingBehavior, QueueMode, InterruptMode };
 
 
@@ -162,6 +167,8 @@ export interface GeneralSettings {
 	closeWithQueuedTasks: CloseWithQueuedTasks;
 	/** Larghezza e allineamento della chat: centrata con larghezza massima leggibile o a tutta colonna. */
 	chatWidth: ChatWidth;
+	/** Come compare il testo dell'agente durante lo streaming. */
+	chatReveal: ChatReveal;
 	/**
 	 * Mostra nella timeline e nei cassetti i messaggi interni che omp marca
 	 * come non destinati all'utente (display: false). Di default restano nascosti
@@ -275,6 +282,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		defaultSurface: 'terminal',
 		closeWithQueuedTasks: 'ask',
 		chatWidth: 'readable',
+		chatReveal: 'blur',
 		showInternalAgentMessages: false,
 		labAlphaEnabled: false,
 		layoutMode: 'auto',
@@ -405,6 +413,7 @@ export function parseSettings(value: unknown): StudioSettings {
 			defaultSurface: pick(general.defaultSurface, ['terminal', 'gui'] as const, d.general.defaultSurface),
 			closeWithQueuedTasks: pick(general.closeWithQueuedTasks, ['ask', 'keep', 'discard'] as const, d.general.closeWithQueuedTasks),
 			chatWidth: pick(general.chatWidth, ['readable', 'full'] as const, d.general.chatWidth),
+			chatReveal: pick(general.chatReveal, ['blur', 'stream', 'final'] as const, d.general.chatReveal),
 			showInternalAgentMessages: bool(general.showInternalAgentMessages, d.general.showInternalAgentMessages),
 			labAlphaEnabled: bool(general.labAlphaEnabled, d.general.labAlphaEnabled),
 			layoutMode: pick(general.layoutMode, ['auto', 'horizontal', 'vertical'] as const, d.general.layoutMode),

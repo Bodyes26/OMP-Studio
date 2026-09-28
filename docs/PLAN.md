@@ -845,6 +845,193 @@ Smoke UI su Vite con un `__TAURI_INTERNALS__` simulato (un progetto, lanes.json 
 - [x] **W18 — Orchestrazione e card in chat** (`src/lib/lanes/laneLanding.svelte.ts`, `LaneLandingCard.svelte`, `LaneReviewModal.svelte`)
   Un solo pulsante "Integra"; card integrata/annulla, conflitti, conferma dopo conflitti, in coda; coda persistente con ripresa automatica; pulizia completa rimandata a fine turno se chiama l'agente della corsia.
 - [x] **W19 — Verifica** `npm run check` 0 errori; `npm test` 829/829; `cargo test` 205 superati (escluso `test_init_windows_aumid_registers_registry_keys`, che su questa macchina termina con `STATUS_ASSERTION_FAILURE` e non tocca questo lavoro); il parser del canale è provato con richieste HTTP reali su loopback nei test `lane_bridge::tests`. Non verificato sul binario desktop: il percorso completo estensione → Studio → card in chat.
+
+## Piano Chat v2 — Gate R32 (design "CodeAgent Flow")
+
+**Stato:** pianificato (2026-09-28). Porta la chat GUI alla 2.0 seguendo il prototipo Lab
+**CodeAgent Flow** (`p-20260925-dyyhe6`, revisione `fd3b4c2`). Il prototipo è React e resta in sola
+lettura: si reimplementa in Svelte 5 con rune, token di tema e componenti di Studio, senza copiarne il codice.
+Le scelte sotto sono state decise con l'utente il 2026-09-28; i vincoli di protocollo sono verificati su `omp` 18.4.1.
+
+### Decisioni
+
+| Tema | Decisione |
+|---|---|
+| Palette | Forme, spaziature e movimento del prototipo tradotti nei token esistenti (`--bg-*`, `--ink*`, `--line*`, `--brand`, `--warn`, `--success`, `--danger`): la chat segue tutti i temi omp, scuri e chiari. |
+| Rivelazione del testo | Nuova impostazione `general.chatReveal` con tre valori: `blur` (blur-fade per frase del prototipo, predefinito), `stream` (token per token, senza animazioni), `final` (nessuna animazione, il messaggio compare intero a fine risposta). Sostituisce lag di 500 ms e rampa di opacità (`StreamTail`). |
+| Ragionamento | "Sto pensando…" con shimmer mentre il modello ragiona; a blocco concluso resta una riga compatta "Ragionamento · N righe" espandibile. |
+| Dettaglio dei tool | Righe compatte del prototipo; il clic su una riga apre sotto, nel flusso, il corpo del renderer esistente (diff, output, match). |
+| Durante il lavoro | Si mantengono Stop, split steer/follow-up, `Alt+Enter` e le chip di coda, ridisegnati nello stile v2. |
+| Domande (`ask`) | La scheda prende il posto del composer; nella chat resta il richiamo. `Esc` la riduce a una riga nel vassoio senza chiuderla. |
+| Subagenti | Vassoio sopra il composer e traccia nella chat; il clic sul nome apre il `SubagentDrawer` esistente; il modale roster `SubagentPanel` viene rimosso. |
+| Todo | Lista piatta del prototipo con intestazioni di fase solo se le fasi sono più di una; badge "bloccato" e ciclo di risveglio mantenuti; marcatori di passo `2/5 titolo` nel flusso. |
+| Editor | `contenteditable` con badge `@file` e `/comando`; il cursore animato viene rimosso (caret nativo). |
+| Allegati | Immagini inviate inline come oggi; gli altri file (PDF, video, archivi, testo) vengono salvati in una cartella della sessione e citati per percorso nel messaggio. |
+| Finestra di contesto | Anello e pannello con il totale reale di omp più la stima locale del messaggio in scrittura; nessuna scomposizione inventata. |
+| Ruoli | Come oggi: il ruolo è un preset modello + thinking per la sessione; il menu mostra "modello · thinking" di ogni ruolo; nessuna scrittura della configurazione dei ruoli. |
+| Coda | I follow-up restano in una coda locale di Studio (modificabili, eliminabili, `Alt+↑`) e partono a fine turno; gli steer vanno subito a omp e non sono modificabili. |
+| Rilascio | Sostituzione diretta a fasi su `main`, senza flag né doppio codice; ogni step è pubblicabile in Nightly; a fine piano `2.0.0` via candidate. |
+
+Scelte di default prese senza domanda esplicita (da contestare in revisione, se serve):
+
+- larghezza `readable` della chat portata da 860 a 720 px (il prototipo usa 700 px + margini); `full` invariata;
+- piè del turno dell'agente: "Copia · N chiamate · durata · modello · costo", una volta per turno invece che per messaggio;
+- `Maiusc+Tab` cicla il thinking come nel prototipo e nella TUI di omp, in aggiunta ad `Alt+T`;
+- la sezione Todo del vassoio resta visibile finché il turno è attivo o esistono todo incompleti; sparisce a turno concluso con tutto completato;
+- `TaskEditor` e Companion restano con allegati solo immagine: la v2 riguarda la chat.
+
+### Vincoli di protocollo verificati (`omp` 18.4.1)
+
+- `prompt` accetta solo `message`, `images` e `streamingBehavior`: gli allegati non immagine passano per percorso.
+- `ContextUsage` espone solo `tokens`, `contextWindow` e `percent`: niente scomposizione sistema/strumenti/conversazione.
+- La modalità RPC ha 47 comandi e nessuno legge, toglie o modifica la coda. La TUI ha `app.message.dequeue` (`Alt+↑`/`Maiusc+↑`), che riporta nell'editor solo l'ultimo messaggio in coda; gli steer vengono consumati alla prima pausa tra due chiamate, quindi restano in coda per pochissimo.
+- Lo strumento `ask` fallisce con "Ask tool requires interactive mode" senza interfaccia: **i subagenti non possono fare domande**. Le domande dei subagenti dello scenario 6 del prototipo non si implementano.
+- `ask` ha etichette riservate `Other (type your own)` e `Chat about this`; la seconda restituisce all'agente "User chose to chat about this instead of answering" (`details.chatRedirect`). L'annullamento invece interrompe il turno ("Ask tool was cancelled by the user"). Il passaggio di `Chat about this` sul canale RPC è da verificare (C16).
+- `AgentProgress` dei subagenti porta `lastIntent`, `recentTools`, `toolCount`, `tokens`, `cost`: bastano per le righe del vassoio. La lista completa delle chiamate resta nel drawer (`get_subagent_messages`).
+- Gli argomenti delle chiamate arrivano a pezzi (`studio_delta` di tipo `toolcall`): la generazione progressiva delle domande si ricava da lì.
+- `ModelInfo` di Studio oggi ha solo `id`, `name`, `provider`, `contextWindow`: capacità immagini e ragionamento vanno lette da `get_available_models` (C21).
+
+### Cosa del prototipo non entra
+
+Barra di intestazione "Agente", selettore degli scenari, pannello Parametri, pulsante "Riproduci", domande dai
+subagenti, scomposizione del contesto in sistema e strumenti, dati e file finti, allegati d'esempio,
+palette "stone" letterale.
+
+### Cosa della v1 resta, ridisegnato
+
+Finestra di rendering da 300 voci con "Carica precedenti", raggruppamento delle esecuzioni, gruppi di avvisi di
+sistema, messaggi interni nascosti, chip del contesto editor e anteprima della selezione nel messaggio utente,
+compattazione, retry, TTSR, messaggi IRC, risultati dei job asincroni, card di integrazione delle corsie, banner
+di recupero quota, blocchi di codice Monaco con riconoscimento dei percorsi, modale immagini, pulsante "In fondo",
+suggerimenti statici e dinamici, timeout delle domande, invio sequenziale delle risposte (`buildFlushPlan`),
+superfici domanda in `ProjectPopover` e Companion, scorciatoie del composer, notifiche OS.
+
+### Metodo
+
+- Un solo step attivo alla volta; ogni step chiude con `npm run check`, `npm test` e prova sul banco C03.
+- Il binario desktop non si avvia (regola di `AGENTS.md`): la prova visiva avviene in Vite (`npm run dev`) sul banco C03, con temi scuro e chiaro.
+- Ogni step che cambia la chat aggiunge la sua voce in `[Unreleased]` in entrambi i changelog.
+- Clean cutover: il componente v1 sostituito, i suoi test di dettaglio e le voci di documentazione obsolete si rimuovono nello stesso step.
+
+### Fase 0 — Fondamenta
+
+- [ ] **C01 — ADR Gate R32 e linguaggio visivo** (`docs/DECISIONS.md`, `docs/DESIGN.md`)
+  Registrare le decisioni sopra; in `DESIGN.md` descrivere il linguaggio v2: blur-fade, lift, shimmer, ghost line, vassoio, righe compatte, durate e curve (`cubic-bezier(0.22, 0.61, 0.36, 1)`).
+  **Accettazione:** ADR approvato; `DESIGN.md` non cita più componenti che la v2 elimina.
+- [ ] **C02 — Primitive di movimento v2** (`src/app.css`, `src/lib/agent/motion.ts`)
+  Classi `rv-blur`, `rv-lift`, `tray-in`/`tray-out`, `shimmer-text`, `ghost-line` con colori dai token; variabili `--dur`/`--blur`; annullate da `prefers-reduced-motion` e da `accessibility.animations = false`. Helper rune per l'uscita ritardata (equivalente di `useExit`) e per l'apertura automatica con scelta manuale (`useAutoOpen`).
+  **Accettazione:** shimmer e ghost line leggibili in un tema scuro e uno chiaro (contrasto AA del testo a riposo); con animazioni disattivate nessuna classe anima.
+- [ ] **C03 — Banco di prova in Vite** (`src/routes/chat-bench/`, `test/fixtures/chat-v2/`)
+  Pagina di sviluppo che riproduce eventi RPC registrati (NDJSON) dentro una `AgentSession` reale, con velocità regolabile. Fixture registrate da sessioni `omp` vere per i sei scenari del prototipo (domanda singola, più domande, 30+ chiamate con parallele, todo, subagenti, combinazione). Esclusa dalla build di produzione.
+  **Accettazione:** in `npm run dev` ogni fixture si riproduce fino in fondo con la chat attuale; la stessa pagina servirà a tutti gli step successivi.
+- [ ] **C04 — Impostazione `chatReveal` e larghezza** (`src/lib/stores/settings.svelte.ts`, pagina Impostazioni, `messages/*.json`)
+  `general.chatReveal: 'blur' | 'stream' | 'final'` (default `blur`), normalizzata come le altre; con animazioni disattivate `blur` si comporta come `stream`. `readable` a 720 px.
+  **Accettazione:** il valore sopravvive al riavvio; un valore sconosciuto torna a `blur`.
+
+### Fase 1 — Testo dell'agente
+
+- [ ] **C05 — Motore di rivelazione per frasi** (`src/lib/agent/reveal.ts`, `AssistantText.svelte`)
+  Modulo puro che divide i token `marked` in unità: frasi dentro paragrafi, voci di elenco e titoli; blocchi di codice, tabelle e citazioni come unità intere (`rv-lift`). L'ultima unità è completa solo se seguita da a capo fuori da un blocco di codice aperto, o a fine stream. Scheduler a rune: 140 ms tra le unità, intervallo dimezzato con arretrato > 2, conclusione dopo l'ultima animazione, poi resa statica. Ghost line (max 3) per il testo non ancora mostrato. Restano lexing a 20 fps e cache LRU. Modalità `stream` e `final` sullo stesso componente. Rimossi `StreamTail.svelte`, `REVEAL_LAG_MS`, `FLUSH_LAG_MS`.
+  **Accettazione:** test su `reveal.ts` (fine frase con grassetto e codice inline, abbreviazioni seguite da minuscola, blocco di codice aperto, elenchi numerati); sul banco nessuna frase compare a metà, nessun salto di layout a fine stream; la ripresa di una sessione lunga si rende statica senza animazioni.
+- [ ] **C06 — Ragionamento e attesa** (`ThinkingBlock.svelte`, `Transcript.svelte`)
+  "Sto pensando…" durante il thinking e nelle pause del turno oltre 450 ms; a fine blocco riga "Ragionamento · N righe" espandibile, con la preferenza di espansione già memorizzata. L'indicatore di avvio del processo resta.
+  **Accettazione:** nessun lampeggio sotto i 450 ms di pausa; la riga espansa mostra il ragionamento completo.
+- [ ] **C07 — Piè del turno** (`Transcript.svelte`, nuovo `TurnFooter.svelte`)
+  Un piè per turno (dal messaggio utente ad `agent_end`): Copia testo del turno, numero di chiamate, durata, modello, costo. Sostituisce il piè per messaggio.
+  **Accettazione:** con più messaggi assistant nello stesso turno compare un solo piè con costo sommato.
+- [ ] **C08 — Messaggio utente** (`UserMessage.svelte`)
+  Bolla a destra, miniature sopra, badge file e comando identici a quelli del composer; chip del contesto editor e anteprima della selezione mantenute; attribuzione mostrata solo se diversa dall'utente.
+  **Accettazione:** un messaggio con `@path`, `/skill`, immagini e contesto editor si rende con badge cliccabili che aprono il file.
+
+### Fase 2 — Strumenti
+
+- [ ] **C09 — Categorie e sintesi dei tool** (`src/lib/agent/tools/categories.ts`, `registry.ts`)
+  Per ogni tool registrato e per il fallback MCP: categoria (lettura, ricerca, comando, modifica, web, altro), etichetta, dettaglio, meta, `+/−` ed errore, ricavati dalle stesse funzioni di sintesi dei renderer.
+  **Accettazione:** test sulla sintesi di edit (conteggio `+/−` dal formato diff di omp), di bash fallito (motivo da `extractToolErrorReason`) e di un tool MCP sconosciuto.
+- [ ] **C10 — Gruppo di chiamate v2** (`ToolGroup.svelte`)
+  Dal vivo: "Al lavoro · N chiamate · durata", ultime 5 righe e contatore "⋯ N chiamate precedenti" con sfumatura; chiamate dello stesso messaggio raggruppate da una barra verticale (parallele). A fine gruppo: riga "✓ N chiamate · durata · conteggi per categoria · +a −d · k con errori", espandibile. Rimossi chip, `PixelGrid` e la cornice `ToolCard`.
+  **Accettazione:** sul banco 34 chiamate con parallele restano entro 6 righe durante il lavoro; il riepilogo somma correttamente modifiche ed errori; il cronometro condiviso resta coerente con `tool-stopwatch.test.ts`.
+- [ ] **C11 — Corpo inline delle chiamate** (`tools/renderers/*.svelte`, `tools/parts/*`)
+  Clic su una riga (dal vivo o nel riepilogo) apre sotto il corpo del renderer esistente, ridisegnato con i token v2; Diff mantiene taglio a 400 righe e "mostra tutto".
+  **Accettazione:** diff, output bash in streaming, risultati grep e immagini si aprono e chiudono senza spostare il resto del turno.
+
+### Fase 3 — Todo e subagenti
+
+- [ ] **C12 — Tracce dei todo nel flusso** (`src/lib/agent/todoTrace.ts`, renderer `Todo.svelte`)
+  Funzione pura che, dalle chiamate `todo` del transcript, produce: riga "Lista di N todo · k completati" espandibile alla prima creazione; marcatore "2/5 titolo" quando cambia il todo attivo; "N di N todo completati" alla fine; intestazioni di fase se le fasi sono più di una. Gli aggiornamenti che non cambiano il todo attivo non producono righe.
+  **Accettazione:** test su nuovo attivo, completamento, cambio di fase, todo bloccato, lista ricreata.
+- [ ] **C13 — Vassoio sopra il composer** (nuovo `ComposerTray.svelte`, `Chat.svelte`)
+  Sezioni: Todo (anello, `n/N`, todo corrente, lista con fasi, badge bloccato e risveglio), Subagenti (C14), Coda (C22), Domanda ridotta (C18). Una sola sezione aperta alla volta (subagenti prima dei todo); con una domanda aperta tutto si compatta; la scelta manuale vale finché non cambia la regola automatica; uscita con chiusura in altezza. Rimossi `TodoStrip.svelte` e `SubagentBar.svelte`; annunci `aria-live` mantenuti.
+  **Accettazione:** sul banco combinato (todo + subagenti + domanda) le regole di apertura rispettano l'ordine; con animazioni disattivate le sezioni compaiono e spariscono senza transizione.
+- [ ] **C14 — Subagenti** (`ComposerTray.svelte`, renderer `Task.svelte`, `SubagentResultCard.svelte`, `IrcMessageCard.svelte`)
+  Nel vassoio una riga per subagente: stato, nome, chiamata in corso da `recentTools`/`lastIntent`, chiamate · durata; clic sul nome apre il drawer. Nel flusso: "N subagenti al lavoro · k di N completati", poi riepilogo espandibile con compito, esito, chiamate e durata. Job asincroni e messaggi IRC come righe della stessa famiglia. Rimosso `SubagentPanel.svelte`.
+  **Accettazione:** con 3 subagenti in parallelo ogni riga cambia chiamata senza salti; il drawer si apre dal vassoio e dal riepilogo e declassa la sottoscrizione a `progress` alla chiusura.
+
+### Fase 4 — Domande
+
+- [ ] **C15 — Domande generate a pezzi** (`session.svelte.ts`, `askAnswers.ts`)
+  Parser tollerante degli argomenti parziali di `ask` dai delta `toolcall`: domande e opzioni compaiono man mano; la scheda diventa rispondibile all'arrivo di `extension_ui_request`.
+  **Accettazione:** test sul parser con JSON troncato in ogni punto; nessuna risposta inviata prima della richiesta di omp.
+- [x] **C16 — Verifica di `Chat about this` via RPC** (spike, `test/fixtures/omp-contract.json`, `ricerca/c16-ask-rpc.md`)
+  Provato con sessione reale su `omp` 18.4.1: in modalita' RPC `askDialog` e' assente e `omp` ricade sempre sul flusso sequenziale `select`/`editor`, dove `Chat about this` non compare mai e forzarlo non produce redirect. Confermato il fallback di C18: se l'utente scrive un messaggio con domanda aperta, Studio chiude la richiesta pendente con `cancelled: true` e invia il messaggio come prompt ordinario. Fixture reali registrate e sanitizzate in `test/fixtures/chat-v2/` (`ask-real.ndjson`, `tools-real.ndjson`).
+  **Accettazione:** comportamento documentato con trascrizioni reali in `ricerca/c16-ask-rpc.md`; fixture registrate e prive di dati sensibili; fallback C18 validato.
+- [ ] **C17 — Scheda domanda v2 al posto del composer** (`AskCard.svelte` riscritto; `askAnswers.ts`, `askFocus.ts` mantenuti)
+  Intestazione, schede per domanda con spunta, opzioni con tasto `1…N`, badge "Consigliata", scelta multipla, "Altro…" con campo in linea, nota (`N` o "Aggiungi una nota"), anteprima affiancata al passaggio del mouse, "Decidi tu" (inviato come risposta libera con testo convenzionale definito in `askAnswers.ts`), Indietro/Avanti/Invia, avanzamento automatico a 320 ms sulla scelta singola, conto alla rovescia del timeout. Nel flusso: richiamo mentre è aperta, riepilogo domanda → risposta dopo l'invio. Il composer resta montato e nascosto, con la bozza.
+  **Accettazione:** `ask-tool.test.ts` verde senza modifiche di dominio; sul banco a 4 domande si risponde solo da tastiera; il timeout scaduto chiude la scheda come oggi.
+- [ ] **C18 — `Esc` e messaggio con domanda aperta** (`AskCard.svelte`, `Composer.svelte`, `ComposerTray.svelte`)
+  `Esc` riduce la scheda a una riga nel vassoio ("L'agente ha una domanda · Rispondi") e ridà il composer con la bozza; il clic sulla riga la riapre. Se l'utente invia un messaggio con la domanda aperta: risposta `Chat about this` e poi il messaggio come steer; se C16 esclude il canale: annullamento della domanda e poi il messaggio come prompt.
+  **Accettazione:** test sulla funzione di decisione; sul banco la domanda ridotta resta rispondibile e l'invio di un messaggio non lascia richieste UI appese.
+
+### Fase 5 — Composer
+
+- [ ] **C19 — Editor a badge** (nuovo `ComposerEditor.svelte`, `src/lib/agent/composerDoc.ts`)
+  `contenteditable` con badge non modificabili per `@file` e `/comando`; serializzazione verso il testo inviato (`@path`, virgolette con spazi, `/nome`), incollaggio come testo semplice, composizione IME, annulla nativo, `set_editor_text` di omp. Scorciatoie esistenti mantenute; aggiunto `Maiusc+Tab`. Rimossi cursore animato e `smooth-cursor.test.ts`.
+  **Accettazione:** test di andata e ritorno su `composerDoc.ts` (percorsi con spazi, NBSP, a capo, badge adiacenti); `Invio` durante una composizione IME non invia.
+- [ ] **C20 — Tendine `@` e `/`** (`fileMentionController.svelte.ts`, `FileMentionPalette.svelte`, `CommandPalette.svelte`, `commands.ts`)
+  Punteggio attuale dei file (attivo, aperti, toccati nel transcript), ancoraggio sul rettangolo del `Range`, sezioni Recenti/File del progetto, lettere evidenziate. `/` solo a inizio messaggio; Comandi poi Skill; i comandi immediati si eseguono, gli altri diventano badge con striscia descrizione e argomenti sopra l'editor.
+  **Accettazione:** `file-mention.test.ts` aggiornato al nuovo ancoraggio; una skill scelta dalla tendina arriva a omp come `/skill:nome` più argomenti.
+- [ ] **C21 — Barra del composer** (`Composer.svelte`, `wire.ts`)
+  Allegati, `@`, ruolo (con "modello · thinking" di ogni ruolo), modello (ricerca, gruppi per provider, icone immagini/ragionamento, finestra), thinking a barre, anello di contesto con pannello (totale reale, stima della bozza, "Compatta ora"), Invio/Stop con scelta steer/follow-up. Avviso quando il modello non legge immagini. Estensione di `ModelInfo` con capacità lette da `get_available_models`.
+  **Accettazione:** ogni menu si apre verso l'alto, si chiude con `Esc` e clic fuori; lo split steer/follow-up e `Alt+Enter` si comportano come in v1.
+- [ ] **C22 — Coda follow-up locale** (`session.svelte.ts`, `ComposerTray.svelte`, `QueueChips.svelte` sostituito)
+  I follow-up restano in Studio con testo, immagini e allegati: modificabili (tornano nel composer), eliminabili, `Alt+↑` a composer vuoto riporta l'ultimo; a `agent_end` partono come prompt secondo `followUpMode` (`one-at-a-time`: uno per fine turno; `all`: tutti in ordine, come messaggi distinti per non cambiare il significato di testo e immagini). Dopo uno Stop la coda si ferma con "Invia ora". Gli steer vanno subito a omp e restano chip non modificabili fino al consumo.
+  **Accettazione:** test sul riduttore della coda (estrai ultimo, due modalità di invio, pausa dopo Stop, cambio sessione); sul banco un follow-up modificato parte con il testo nuovo.
+- [ ] **C23 — Allegati non immagine** (`src-tauri/src/…` nuovo comando `stage_chat_attachment`, capability ACL, `images.ts`)
+  Scrittura dei byte in `%LOCALAPPDATA%/omp-studio/attachments/<sessione>/` con nome sanificato e limite di dimensione; il messaggio inviato cita il percorso assoluto. Miniature: immagine, video (poster e durata da `<video>`), scheda file (estensione, dimensione, token stimati). Trascinamento sull'intera colonna chat con sovrapposizione "Rilascia per allegare", incolla da appunti. Pulizia della cartella con l'eliminazione della sessione.
+  **Accettazione:** test Rust su nome sanificato, confinamento del percorso e limite; `acl-coverage.test.ts` verde; un PDF allegato viene letto dall'agente tramite il percorso.
+- [ ] **C24 — Suggerimenti e stato vuoto** (`SuggestionChips.svelte`, `Transcript.svelte`)
+  Pillole sopra il composer quando l'agente è fermo, `Alt+1…6` mantenuti; stato vuoto "Nuova sessione. Scrivi un messaggio, usa @ per citare un file o / per i comandi."
+  **Accettazione:** suggerimenti dinamici e statici compaiono e spariscono con lo stato dell'agente.
+
+### Fase 6 — Resto della chat, qualità, rilascio
+
+- [ ] **C25 — Righe di sistema e card** (`NoticeRow`, `NoticeGroup`, `SystemChip`, `CompactionRow`, `RetryRow`, `TtsrRow`, `LaneLandingCard`, `AlertBanner` quota, `CodeBlock`, `Markdown`, `ImageModal`, `Chat.svelte`)
+  Ridisegno nel linguaggio v2; tipografia 15/28 px; blocchi di codice con intestazione della lingua; scorrimento morbido verso il fondo (inseguimento proporzionale, rotella verso l'alto sblocca) unito agli osservatori attuali; pulsante "In fondo".
+  **Accettazione:** nessun componente della chat usa ancora stili v1; la finestra da 300 voci e "Carica precedenti" mantengono la posizione.
+- [ ] **C26 — Temi, accessibilità e movimento ridotto**
+  Prova di ogni componente v2 su almeno due temi scuri e due chiari; contrasto AA del testo a riposo; tastiera e lettore di schermo su vassoio, scheda domanda e tendine; `prefers-reduced-motion` e animazioni disattivate.
+  **Accettazione:** checklist firmata nel registro di questo piano.
+- [ ] **C27 — Prestazioni**
+  Banco con 1.000 voci, 30 chiamate parallele, 5 subagenti e stream a 45 token/s: nessun frame oltre 50 ms nel profilo; `filter: blur` solo sulle unità in animazione, resa statica dopo la conclusione; misure con `perfMark`.
+  **Accettazione:** profilo registrato prima/dopo nel registro di questo piano.
+- [ ] **C28 — Documentazione** (`ARCHITECTURE.md`, `DESIGN.md`, `SHORTCUTS.md`, `PRODUCT.md`)
+  Descrivere il comportamento osservato; `SHORTCUTS.md` con `Maiusc+Tab`, `Alt+↑`, `Esc` sulla domanda; rimuovere i riferimenti a componenti eliminati.
+  **Accettazione:** nessun riferimento a `StreamTail`, cursore animato, `SubagentPanel`, `TodoStrip`, `SubagentBar`.
+- [ ] **C29 — Candidate e stabile 2.0.0**
+  `2.0.0-rc.1` con la matrice finale obbligatoria e prova d'uso reale; promozione a `2.0.0` con gli stessi artefatti.
+  **Accettazione:** installer pubblicati e verificati come da `AGENTS.md`.
+
+```mermaid
+graph LR
+  C01 --> C02 --> C03 --> C04
+  C04 --> C05 --> C06 --> C07 --> C08
+  C08 --> C09 --> C10 --> C11
+  C11 --> C12 --> C13 --> C14
+  C14 --> C15 --> C16 --> C17 --> C18
+  C18 --> C19 --> C20 --> C21 --> C22 --> C23 --> C24
+  C24 --> C25 --> C26 --> C27 --> C28 --> C29
+```
+
 ---
 
 ## Cosa NON entra in questo piano

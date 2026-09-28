@@ -3,20 +3,17 @@
 	// CodeBlock: blocco di codice per le risposte dell'assistente con evidenziazione
 	// sintattica Monaco, intestazione a fisarmonica (accordion) e copia rapida.
 	// Il codice scorre con il transcript (nessun tetto di altezza interno).
-	import { colorizeCode, detectFilePathBlock, type FilePathItem, type StreamFade } from '../markdown';
+	import { colorizeCode, detectFilePathBlock, type FilePathItem } from '../markdown';
 	import { agentUiHooks } from '../ui-context';
 	import { countLabel } from '../tools/types';
-	import StreamTail from './StreamTail.svelte';
 	import { IconChevronRight, IconCheck, IconFile, IconCopy } from '$lib/icons';
 
 	let {
 		lang = '',
-		text = '',
-		fade = null
+		text = ''
 	}: {
 		lang?: string;
 		text: string;
-		fade?: StreamFade | null;
 	} = $props();
 
 	let collapsed = $state(false);
@@ -101,11 +98,7 @@
 				>
 					<span class="file-chip-icon" aria-hidden="true"><IconFile /></span>
 					<span class="file-chip-path">
-						{#if fade && idx === filePathItems.length - 1}
-							<StreamTail text={item.path} {fade} />
-						{:else}
-							{item.path}
-						{/if}
+						{item.path}
 					</span>
 					{#if item.line}
 						<span class="file-chip-line">:{item.line}</span>
@@ -164,7 +157,7 @@
 			{#if colorizedHtml}
 				<pre class="code-pre colorized">{@html colorizedHtml}</pre>
 			{:else}
-				<pre class="code-pre">{#if fade}<StreamTail {text} {fade} />{:else}{text}{/if}</pre>
+				<pre class="code-pre">{text}</pre>
 			{/if}
 		</div>
 	{/if}

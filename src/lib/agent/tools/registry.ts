@@ -41,7 +41,7 @@ import Yield from './renderers/Yield.svelte';
 const GENERIC: ToolRenderer = { component: Generic, expandable: true };
 
 const REGISTRY: Record<string, ToolRenderer> = {
-	ask: { component: Ask, expandable: true, groupInExecution: false },
+	ask: { component: Ask, expandable: true },
 	ast_edit: { component: AstEdit, expandable: true },
 	ast_grep: { component: AstGrep, expandable: true },
 	bash: { component: Bash, expandable: true },

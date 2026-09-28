@@ -5,10 +5,9 @@
 	// e' un percorso di file valido del progetto, viene aperto nell'editor.
 	import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 	import { openExternalUrl } from '$lib/utils/openExternal';
-	import type { StreamFade, Token } from '../markdown';
+	import type { Token } from '../markdown';
 	import { agentUiHooks } from '../ui-context';
 	import MarkdownInline from './MarkdownInline.svelte';
-	import StreamTail from './StreamTail.svelte';
 	import FileMentionChip from './FileMentionChip.svelte';
 
 	// `fade` non nullo significa "questo e' l'ultimo frammento del testo in
@@ -17,9 +16,8 @@
 	// (anteprime dei task); nel transcript resta vuoto.
 	let {
 		tokens = [],
-		fade = null,
 		onOpenFile
-	}: { tokens?: Token[]; fade?: StreamFade | null; onOpenFile?: (path: string) => void } = $props();
+	}: { tokens?: Token[]; onOpenFile?: (path: string) => void } = $props();
 
 	const hooks = agentUiHooks();
 
@@ -43,24 +41,23 @@
 	}
 </script>
 
-{#each tokens as token, i}
-	{@const tail = fade && i === tokens.length - 1 ? fade : null}
+{#each tokens as token}
 	{#if token.type === 'text'}
 		{#if 'tokens' in token && token.tokens && token.tokens.length > 0}
-			<MarkdownInline tokens={token.tokens} fade={tail} {onOpenFile} />
-		{:else if tail}
-			<StreamTail text={token.text} fade={tail} />
+			<MarkdownInline tokens={token.tokens} {onOpenFile} />
 		{:else}
 			{token.text}
 		{/if}
 	{:else if token.type === 'strong'}
-		<strong><MarkdownInline tokens={token.tokens} fade={tail} {onOpenFile} /></strong>
+		<strong><MarkdownInline tokens={token.tokens} {onOpenFile} /></strong>
 	{:else if token.type === 'em'}
-		<em><MarkdownInline tokens={token.tokens} fade={tail} {onOpenFile} /></em>
+		<em><MarkdownInline tokens={token.tokens} {onOpenFile} /></em>
 	{:else if token.type === 'del'}
-		<del><MarkdownInline tokens={token.tokens} fade={tail} {onOpenFile} /></del>
+		<del><MarkdownInline tokens={token.tokens} {onOpenFile} /></del>
 	{:else if token.type === 'fileMention'}
 		<FileMentionChip path={token.path} onOpen={onOpenFile} />
+	{:else if token.type === 'commandMention'}
+		<span class="chat-badge chat-badge--cmd">/{token.name}</span>
 	{:else if token.type === 'codespan'}
 		{@const isFileLike = token.text.includes('/') || token.text.includes('\\') || /\.[a-zA-Z0-9_-]+(?::\d+)?$/.test(token.text.trim())}
 		{#if isFileLike}
@@ -97,7 +94,7 @@
 	{:else if token.type === 'html' || token.type === 'tag'}
 		{token.text}
 	{:else if 'text' in token && typeof token.text === 'string'}
-		{#if tail}<StreamTail text={token.text} fade={tail} />{:else}{token.text}{/if}
+		{token.text}
 	{:else if 'raw' in token && typeof token.raw === 'string'}
 		{token.raw}
 	{/if}

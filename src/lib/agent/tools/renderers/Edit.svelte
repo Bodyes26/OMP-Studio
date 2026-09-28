@@ -15,6 +15,7 @@
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';
 	import { asRecord, num, resultText, str, type ToolRenderProps } from '../types';
+	import { parseDiffStats } from '../categories';
 
 	let { args, result, running = false, view }: ToolRenderProps = $props();
 
@@ -33,15 +34,9 @@
 	const firstChangedLine = $derived(num(details?.firstChangedLine));
 
 	const diffStats = $derived.by(() => {
-		if (!diffText) return null;
-		let added = 0;
-		let removed = 0;
-		for (const line of diffText.split('\n')) {
-			if (line.startsWith('+')) added++;
-			else if (line.startsWith('-')) removed++;
-		}
-		if (added === 0 && removed === 0) return null;
-		return `+${added} −${removed}`;
+		const parsed = parseDiffStats(diffText);
+		if (!parsed) return null;
+		return `+${parsed[0]} −${parsed[1]}`;
 	});
 
 	const metaRows = $derived.by(() => {

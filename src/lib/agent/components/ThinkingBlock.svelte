@@ -1,14 +1,13 @@
 <script module lang="ts">
-	// Preferenza di espansione condivisa per la sessione del pannello: l'ultima
-	// scelta dell'utente (espandi/comprimi un blocco di ragionamento) diventa
-	// il default dei blocchi successivi. Vive in memoria, non su disco.
+	// Preferenza di espansione condivisa per la sessione: l'ultima
+	// scelta dell'utente diventa il default per i blocchi successivi (Gate R32 - C06).
 	let lastExpandedPreference = $state(false);
 </script>
 
 <script lang="ts">
-	// Blocco collassabile per il ragionamento (thinking/reasoning).
-	import { countLabel } from '../tools/types';
-	import { chatReveal } from '../motion';
+	import { m } from '$lib/paraglide/messages.js';
+	import { lexMarkdown } from '../markdown';
+	import Markdown from './Markdown.svelte';
 	import { IconChevronRight } from '$lib/icons';
 
 	let {
@@ -25,25 +24,33 @@
 		expanded = !expanded;
 		lastExpandedPreference = expanded;
 	}
-	const bodyId = `thinking-${Math.random().toString(36).slice(2, 9)}`;
 
+	const bodyId = `thinking-${Math.random().toString(36).slice(2, 9)}`;
 	const lines = $derived(text ? text.split('\n') : []);
-	const label = $derived(
-		streaming
-			? 'Sta pensando'
-			: lines.length > 0
-				? `Ragionamento · ${countLabel(lines.length, 'riga', 'righe')}`
-				: 'Ragionamento'
+	const linesCount = $derived(lines.length);
+	const lineUnit = $derived(
+		linesCount === 1
+			? m.chat_v2_thinking_line_singular()
+			: m.chat_v2_thinking_line_plural()
 	);
+	const label = $derived(
+		linesCount > 0
+			? m.chat_v2_thinking_lines({ count: linesCount, unit: lineUnit })
+			: m.chat_v2_thinking_label()
+	);
+	const markdownTokens = $derived(text ? lexMarkdown(text) : []);
 </script>
 
-{#if text || streaming}
-	<div class="thinking-block">
+{#if streaming}
+	<div class="thinking-streaming rv-blur" role="status" aria-live="polite">
+		<span class="text-shimmer">{m.chat_v2_thinking_streaming()}</span>
+	</div>
+{:else if text}
+	<div class="thinking-block rv-blur">
 		<button
 			type="button"
 			class="header-btn"
 			class:expanded
-			class:streaming
 			aria-expanded={expanded}
 			aria-controls={bodyId}
 			aria-label={`${label}. ${expanded ? 'Comprimi' : 'Espandi'} il ragionamento`}
@@ -52,23 +59,25 @@
 		>
 			<span class="chevron" class:expanded aria-hidden="true"><IconChevronRight /></span>
 			<span class="label">{label}</span>
-			{#if streaming}
-				<span class="streaming-dot" aria-hidden="true"></span>
-			{/if}
 		</button>
 		{#if expanded}
-			<div
-				id={bodyId}
-				class="body"
-				transition:chatReveal={{ duration: 220, blur: 4, distance: -2 }}
-			>
-				<pre>{text}</pre>
+			<div id={bodyId} class="thinking-body">
+				<Markdown tokens={markdownTokens} />
 			</div>
 		{/if}
 	</div>
 {/if}
 
 <style>
+	.thinking-streaming {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin: var(--space-2) 0;
+		font-size: 13.5px;
+		user-select: none;
+	}
+
 	.thinking-block {
 		display: flex;
 		flex-direction: column;
@@ -77,9 +86,9 @@
 	}
 
 	.header-btn {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: var(--space-2);
+		gap: var(--space-1);
 		padding: var(--space-1) var(--space-2);
 		background: transparent;
 		border: none;
@@ -89,6 +98,7 @@
 		cursor: pointer;
 		text-align: left;
 		user-select: none;
+		width: fit-content;
 		transition:
 			background var(--dur-fast) var(--ease-out),
 			color var(--dur-fast) var(--ease-out);
@@ -99,16 +109,17 @@
 		background: var(--bg-hover);
 	}
 
-	.header-btn.streaming {
-		color: var(--ink-muted);
+	.header-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
 	}
 
 	.chevron {
-		--icon-size: 12px;
-		font-size: var(--text-xs);
-		line-height: 1;
-		display: inline-flex;
+		display: flex;
 		align-items: center;
+		justify-content: center;
+		width: 12px;
+		height: 12px;
 		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
@@ -116,34 +127,17 @@
 		transform: rotate(90deg);
 	}
 
-	.streaming-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--brand);
-		margin-left: auto;
-	}
 	.label {
-		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		line-height: 1.4;
 	}
 
-	.body {
-		/* Niente bordo/riempimento proprio: si distingue per indentazione e
-		   separatore 1px, non per un secondo riquadro dentro la card. */
-		padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
-		border-top: 1px solid var(--line);
-		max-height: 360px;
-		overflow-y: auto;
-	}
-
-	pre {
-		margin: 0;
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		line-height: 1.5;
-		color: var(--ink-faint);
-		white-space: pre-wrap;
-		word-break: break-word;
-		user-select: text;
+	.thinking-body {
+		margin-top: var(--space-2);
+		padding-left: var(--space-3);
+		border-left: 2px solid var(--line);
+		color: var(--ink-muted);
+		font-size: 13px;
+		line-height: 22px;
 	}
 </style>

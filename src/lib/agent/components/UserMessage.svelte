@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// Messaggio dell'utente nel transcript.
-	// Evidenziato come blocco utente con indicatore 'Tu' / badge di attribuzione,
-	// superficie `--bg-raised`, bordo discreto e MarkdownInline.
+	// Messaggio dell'utente nel transcript (Gate R32 - C08).
+	// Allineato a destra, bolla --bg-raised con raggio 16px (in basso a destra 6px),
+	// max-width 80%, tipografia 15px / 24px.
+	// Miniature allegati sopra la bolla, badge cliccabili per @file e /comando,
+	// chip contesto editor e cassetto snippet selezione mantenuti e ridisegnati,
+	// attribuzione mostrata solo se diversa dall'utente.
 	import { agentUiHooks } from '../ui-context';
 	import { lexMarkdownInlineWithMentions } from '../markdown';
 	import type { UserEntry } from '../session.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
 	import { splitMessageAndEditorContext } from '$lib/editor/editorContext';
 	import { baseName } from '../tools/types';
-	import { IconChevronRight, IconClose, IconFile } from '$lib/icons';
+	import { IconClose, IconFile } from '$lib/icons';
 
 	let { entry }: { entry: UserEntry } = $props();
 
@@ -18,7 +21,7 @@
 		Boolean(entry.attribution && entry.attribution !== 'user')
 	);
 	const attributionLabel = $derived(
-		isNonStandardAttribution ? entry.attribution : 'Tu'
+		isNonStandardAttribution ? entry.attribution : ''
 	);
 
 	const parsed = $derived(
@@ -31,7 +34,7 @@
 		parsed.userMessage || (!parsed.context ? entry.content : '')
 	);
 
-	// Le menzioni @file diventano chip nel punto in cui sono scritte.
+	// Le menzioni @file e i comandi /cmd diventano badge inline.
 	const inlineTokens = $derived(
 		displayMessage ? lexMarkdownInlineWithMentions(displayMessage) : []
 	);
@@ -56,13 +59,12 @@
 	});
 </script>
 
-<div class="user-message">
-	<div class="user-header">
-		<span class="user-badge" class:custom-badge={isNonStandardAttribution}>
-			<span class="user-glyph" aria-hidden="true"><IconChevronRight /></span>
-			<span class="user-label">{attributionLabel}</span>
-		</span>
-	</div>
+<div class="user-message-container">
+	{#if isNonStandardAttribution}
+		<div class="user-attribution">
+			<span class="attribution-badge">{attributionLabel}</span>
+		</div>
+	{/if}
 
 	{#if entry.images && entry.images.length > 0}
 		<div class="images-strip">
@@ -78,167 +80,136 @@
 			{/each}
 		</div>
 	{/if}
-	{#if displayMessage}
-		<div class="content">
-			<MarkdownInline tokens={inlineTokens} />
-		</div>
-	{/if}
 
-	{#if parsed.context}
-		<div class="editor-context" role="region" aria-label={m.user_message_context_editor_aria()}>
-			<div class="context-chips-row">
-				<span class="context-tag" title={m.ui_usermessage_file_aperti_nell_editor_inclusi_nel_contesto_75cd()}>
-					<svg class="context-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<path d="M9 1.5H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5.5L9 1.5z" />
-						<polyline points="9 1.5 9 5.5 13 5.5" />
-					</svg>
-					<span class="context-tag-text">Editor</span>
-				</span>
+	<div class="user-bubble rv-lift">
+		{#if displayMessage}
+			<div class="content">
+				<MarkdownInline tokens={inlineTokens} />
+			</div>
+		{/if}
 
-				{#each allContextFiles as file (file)}
-					{@const isActive = file === parsed.context.activeFile}
-					{@const isSelected = parsed.context.selection && parsed.context.selection.file === file}
-					{@const targetLine = isSelected ? (parsed.context.selection?.startLine ?? null) : (isActive && parsed.context.cursor ? parsed.context.cursor.line : null)}
-					<div class="file-chip-wrap" class:active-file={isActive} class:selected-file={isSelected}>
-						<button
-							type="button"
-							class="file-chip"
-							title={`${file}${targetLine ? `:${targetLine}` : ''} • Clicca per aprire nell'editor`}
-							onclick={() => hooks.openFile(file, targetLine)}
-						>
-							<span class="file-glyph"><IconFile aria-hidden="true" /></span>
-							<span class="file-name">{baseName(file)}</span>
-							{#if isSelected}
-								<span class="chip-badge selection-badge" title="Selezione attiva inclusa">
-									{parsed.context.selection?.lineRange}
-								</span>
-							{:else if isActive && parsed.context.cursor}
-								<span class="chip-badge cursor-badge" title={`Cursore riga ${parsed.context.cursor.line}`}>
-									:{parsed.context.cursor.line}
-								</span>
-							{:else if isActive}
-								<span class="chip-badge active-badge" title={m.ui_usermessage_file_attivo_nell_editor_7b31()}>
-									{m.user_message_active_file_badge()}
-								</span>
-							{/if}
-						</button>
+		{#if parsed.context}
+			<div class="editor-context" role="region" aria-label={m.user_message_context_editor_aria()}>
+				<div class="context-chips-row">
+					<span class="context-tag" title={m.ui_usermessage_file_aperti_nell_editor_inclusi_nel_contesto_75cd()}>
+						<svg class="context-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<path d="M9 1.5H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5.5L9 1.5z" />
+							<polyline points="9 1.5 9 5.5 13 5.5" />
+						</svg>
+						<span class="context-tag-text">Editor</span>
+					</span>
 
-						{#if isSelected}
+					{#each allContextFiles as file (file)}
+						{@const isActive = file === parsed.context.activeFile}
+						{@const isSelected = parsed.context.selection && parsed.context.selection.file === file}
+						{@const targetLine = isSelected ? (parsed.context.selection?.startLine ?? null) : (isActive && parsed.context.cursor ? parsed.context.cursor.line : null)}
+						<div class="file-chip-wrap" class:active-file={isActive} class:selected-file={isSelected}>
 							<button
 								type="button"
-								class="snippet-toggle-btn"
-								class:open={showSelectionCode}
-								onclick={() => (showSelectionCode = !showSelectionCode)}
-								title={showSelectionCode ? m.ui_usermessage_nascondi_codice_selezionato_f3bb() : 'Visualizza codice selezionato'}
-								aria-expanded={showSelectionCode}
-								aria-label={m.ui_usermessage_mostra_o_nascondi_codice_selezionato_47d2()}
+								class="file-chip"
+								title={`${file}${targetLine ? `:${targetLine}` : ''} • Clicca per aprire nell'editor`}
+								onclick={() => hooks.openFile(file, targetLine)}
 							>
-								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-									<polyline points={showSelectionCode ? '4 10 8 6 12 10' : '4 6 8 10 12 6'} />
-								</svg>
-								<span>{showSelectionCode ? m.ui_usermessage_nascondi_82ca() : 'Codice'}</span>
+								<span class="file-glyph"><IconFile aria-hidden="true" /></span>
+								<span class="file-name">{baseName(file)}</span>
+								{#if isSelected}
+									<span class="chip-badge selection-badge" title="Selezione attiva inclusa">
+										{parsed.context.selection?.lineRange}
+									</span>
+								{:else if isActive && parsed.context.cursor}
+									<span class="chip-badge cursor-badge" title={`Cursore riga ${parsed.context.cursor.line}`}>
+										:{parsed.context.cursor.line}
+									</span>
+								{:else if isActive}
+									<span class="chip-badge active-badge" title={m.ui_usermessage_file_attivo_nell_editor_7b31()}>
+										{m.user_message_active_file_badge()}
+									</span>
+								{/if}
 							</button>
-						{/if}
-					</div>
-				{/each}
-			</div>
 
-			{#if parsed.context.selection && showSelectionCode}
-				<div class="snippet-preview" role="region" aria-label="Codice selezionato allegato">
-					<div class="snippet-header">
-						<span class="snippet-title">
-							<code>{parsed.context.selection.file}</code> ({parsed.context.selection.lineRange})
-						</span>
-						<button
-							type="button"
-							class="snippet-close"
-							onclick={() => (showSelectionCode = false)}
-							title={m.ui_usermessage_chiudi_visualizzazione_codice_602d()}
-						>
-							<IconClose aria-hidden="true" />
-						</button>
-					</div>
-					<pre class="snippet-code"><code>{parsed.context.selection.text}</code></pre>
+							{#if isSelected}
+								<button
+									type="button"
+									class="snippet-toggle-btn"
+									class:open={showSelectionCode}
+									onclick={() => (showSelectionCode = !showSelectionCode)}
+									title={showSelectionCode ? m.ui_usermessage_nascondi_codice_selezionato_f3bb() : 'Visualizza codice selezionato'}
+									aria-expanded={showSelectionCode}
+									aria-label={m.ui_usermessage_mostra_o_nascondi_codice_selezionato_47d2()}
+								>
+									<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+										<polyline points={showSelectionCode ? '4 10 8 6 12 10' : '4 6 8 10 12 6'} />
+									</svg>
+									<span>{showSelectionCode ? m.ui_usermessage_nascondi_82ca() : 'Codice'}</span>
+								</button>
+							{/if}
+						</div>
+					{/each}
 				</div>
-			{/if}
-		</div>
-	{/if}
+
+				{#if parsed.context.selection && showSelectionCode}
+					<div class="snippet-preview" role="region" aria-label="Codice selezionato allegato">
+						<div class="snippet-header">
+							<span class="snippet-title">
+								<code>{parsed.context.selection.file}</code> ({parsed.context.selection.lineRange})
+							</span>
+							<button
+								type="button"
+								class="snippet-close"
+								onclick={() => (showSelectionCode = false)}
+								title={m.ui_usermessage_chiudi_visualizzazione_codice_602d()}
+							>
+								<IconClose aria-hidden="true" />
+							</button>
+						</div>
+						<pre class="snippet-code"><code>{parsed.context.selection.text}</code></pre>
+					</div>
+				{/if}
+			</div>
+		{/if}
+	</div>
 </div>
 
 <style>
-	.user-message {
+	.user-message-container {
 		display: flex;
 		flex-direction: column;
+		align-items: flex-end;
+		margin-left: auto;
+		max-width: 80%;
 		gap: var(--space-2);
 		min-width: 0;
-		width: 100%;
-		align-items: flex-start;
-		text-align: left;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: var(--space-2) var(--space-3);
-		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.user-message:hover {
-		border-color: var(--line-strong);
-	}
-
-	.user-header {
+	.user-attribution {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
-		user-select: none;
+		padding-right: var(--space-2);
 	}
 
-	.user-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		font-family: var(--font-mono);
+	.attribution-badge {
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
-		background: var(--bg-hover);
-		padding: 1px var(--space-2);
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		line-height: 1.3;
+		font-family: var(--font-mono);
 	}
 
-	.user-badge.custom-badge {
-		color: var(--ink-faint);
-		text-transform: lowercase;
-	}
-
-	.user-glyph {
-		--icon-size: 12px;
-		color: var(--brand-ink);
-		font-weight: 600;
-		font-size: var(--text-xs);
-		line-height: 1;
-	}
-
-	.user-label {
-		font-weight: 500;
-	}
 	.images-strip {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
-		margin-bottom: var(--space-1);
+		justify-content: flex-end;
 	}
 
 	.image-chip {
-		width: 48px;
-		height: 48px;
+		display: inline-block;
 		padding: 0;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--bg-sunken);
 		cursor: pointer;
 		overflow: hidden;
-		flex-shrink: 0;
+		line-height: 0;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.image-chip:hover {
@@ -246,61 +217,82 @@
 	}
 
 	.image-chip img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
 		display: block;
+		width: 56px;
+		height: 56px;
+		object-fit: cover;
 	}
 
-	.content {
-		font-family: var(--font-ui);
-		font-size: var(--text-base);
-		line-height: 1.5;
+	.user-bubble {
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: 16px 16px 6px 16px;
+		padding: 10px 14px;
 		color: var(--ink);
-		white-space: pre-wrap;
-		word-break: break-word;
 		user-select: text;
-	}
-
-	.editor-context {
+		word-break: break-word;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+		width: fit-content;
+		min-width: 0;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+	}
+
+	.content {
+		font-size: 15px;
+		line-height: 24px;
+		color: var(--ink);
+	}
+
+	.editor-context {
 		margin-top: var(--space-1);
-		width: 100%;
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--line);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		min-width: 0;
 	}
 
 	.context-chips-row {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: var(--space-2);
+		gap: var(--space-1);
 	}
 
 	.context-tag {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
-		font-family: var(--font-mono);
+		gap: 3px;
+		padding: 2px 6px;
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		user-select: none;
 	}
 
 	.context-icon {
-		color: var(--ink-muted);
-		flex-shrink: 0;
+		opacity: 0.7;
+	}
+
+	.context-tag-text {
+		font-weight: 500;
 	}
 
 	.file-chip-wrap {
 		display: inline-flex;
 		align-items: center;
 		gap: 2px;
-		background: var(--bg-sunken);
+		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		padding: 1px 3px 1px var(--space-2);
-		transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+		padding: 1px 4px;
+		font-size: var(--text-xs);
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.file-chip-wrap:hover {
@@ -308,153 +300,129 @@
 	}
 
 	.file-chip-wrap.active-file {
-		border-color: var(--line-strong);
-		background: color-mix(in oklab, var(--bg-sunken) 85%, var(--bg-base));
-	}
-
-	.file-chip-wrap.selected-file {
-		border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
+		border-color: color-mix(in oklch, var(--brand) 40%, var(--line));
 	}
 
 	.file-chip {
-		background: transparent;
-		border: none;
-		padding: 2px 4px;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink);
-		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
-		border-radius: var(--radius-sm);
+		gap: 4px;
+		background: transparent;
+		border: none;
+		padding: 0;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--ink-muted);
+		cursor: pointer;
 		text-align: left;
-		transition: color var(--dur-fast) var(--ease-out);
 	}
 
 	.file-chip:hover {
-		color: var(--brand-ink);
+		color: var(--ink);
 	}
 
 	.file-glyph {
-		--icon-size: 11px;
-		color: var(--ink-muted);
-		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		width: 11px;
+		height: 11px;
+		opacity: 0.7;
 	}
 
 	.file-name {
 		font-weight: 500;
+		max-width: 140px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.chip-badge {
 		font-size: 10px;
-		padding: 0 4px;
-		border-radius: var(--radius-sm);
-		font-family: var(--font-mono);
-		line-height: 1.4;
-		white-space: nowrap;
+		padding: 0 3px;
+		border-radius: 3px;
+		background: var(--bg-sunken);
+		color: var(--ink-faint);
 	}
 
-	.active-badge {
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-		border: 1px solid var(--line);
-	}
-
-	.cursor-badge {
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-	}
-
-	.selection-badge {
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
+	.chip-badge.active-badge {
+		background: color-mix(in oklch, var(--brand) 15%, transparent);
 		color: var(--brand-ink);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
-		font-weight: 500;
+	}
+
+	.chip-badge.selection-badge {
+		background: color-mix(in oklch, var(--warn) 15%, transparent);
+		color: var(--warn);
 	}
 
 	.snippet-toggle-btn {
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		padding: 1px 5px;
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--ink-muted);
-		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
-		transition: all var(--dur-fast) var(--ease-out);
-		line-height: 1.3;
+		gap: 2px;
+		background: transparent;
+		border: none;
+		padding: 0 2px;
+		font-size: 10px;
+		color: var(--ink-faint);
+		cursor: pointer;
+		border-radius: 2px;
 	}
 
 	.snippet-toggle-btn:hover {
+		color: var(--ink-muted);
 		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.snippet-toggle-btn.open {
-		background: var(--bg-active);
-		color: var(--brand-ink);
-		border-color: var(--line-strong);
 	}
 
 	.snippet-preview {
-		background: var(--bg-sunken);
+		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
+		padding: var(--space-2);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		max-height: 240px;
 		overflow: hidden;
-		margin-top: var(--space-1);
-		width: 100%;
 	}
 
 	.snippet-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-1) var(--space-2);
-		background: var(--bg-hover);
-		border-bottom: 1px solid var(--line);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: 11px;
 		color: var(--ink-muted);
 	}
 
 	.snippet-title code {
-		color: var(--ink);
-		font-weight: 600;
-	}
-
-	.snippet-code {
-		margin: 0;
-		padding: var(--space-2);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: 1.45;
-		color: var(--ink);
-		overflow-x: auto;
-		max-height: 240px;
-		white-space: pre;
+		color: var(--brand-ink);
 	}
 
 	.snippet-close {
-		--icon-size: 12px;
 		background: transparent;
 		border: none;
-		color: var(--ink-muted);
+		color: var(--ink-faint);
 		cursor: pointer;
-		font-size: 11px;
-		padding: 2px 4px;
-		border-radius: var(--radius-sm);
-		display: inline-flex;
+		padding: 2px;
+		display: flex;
 		align-items: center;
-		justify-content: center;
 	}
 
 	.snippet-close:hover {
 		color: var(--ink);
-		background: var(--bg-hover);
+	}
+
+	.snippet-code {
+		margin: 0;
+		padding: var(--space-1);
+		font-family: var(--font-mono);
+		font-size: 11px;
+		line-height: 1.4;
+		overflow-x: auto;
+		background: var(--bg-sunken);
+		border-radius: 3px;
+		color: var(--ink);
+		max-height: 180px;
+		overflow-y: auto;
 	}
 </style>

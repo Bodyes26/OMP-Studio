@@ -74,11 +74,9 @@
 	.suggestion-chips {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--space-1);
+		gap: var(--space-2);
 		align-items: center;
-		padding: var(--space-1) var(--space-2);
-		background: var(--bg-sunken);
-		border-top: 1px solid var(--line);
+		padding: 0 0 var(--space-2) 0;
 		font-size: var(--text-xs);
 		line-height: 1.3;
 	}
@@ -87,15 +85,15 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-		padding: 2px var(--space-1);
-		background: var(--bg-base);
+		padding: 3px 10px;
+		background: var(--bg-raised);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
+		border-radius: var(--radius-full);
+		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
 		cursor: pointer;
-		line-height: 1.2;
+		line-height: 1.3;
 		user-select: none;
 		transition: background-color var(--dur-fast) var(--ease-out),
 			border-color var(--dur-fast) var(--ease-out),
@@ -104,13 +102,13 @@
 
 	.suggestion-chip:hover {
 		background: var(--bg-hover);
-		border-color: var(--line);
+		border-color: var(--line-strong);
 		color: var(--ink);
 	}
 
 	.suggestion-chip:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		outline-offset: 1px;
 	}
 
 	.suggestion-chip.dynamic {
@@ -122,7 +120,7 @@
 	}
 
 	.chip-label {
-		max-width: 240px;
+		max-width: 260px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -131,21 +129,18 @@
 	.key-badge {
 		display: inline-flex;
 		align-items: center;
-		justify-content: center;
-		padding: 1px 4px;
-		min-width: 14px;
-		background: var(--bg-sunken);
+		padding: 0 4px;
+		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
+		font-size: 10px;
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--ink-muted);
-		line-height: 1.2;
-		white-space: nowrap;
+		color: var(--ink-faint);
+		line-height: 1.4;
 	}
 
 	.suggestion-chip:hover .key-badge {
 		color: var(--ink);
+		border-color: var(--line-strong);
 	}
 </style>

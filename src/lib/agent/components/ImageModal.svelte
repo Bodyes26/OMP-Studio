@@ -56,6 +56,7 @@
 		position: fixed;
 		inset: 0;
 		background: var(--backdrop);
+		backdrop-filter: blur(8px);
 		z-index: var(--z-dialog);
 		display: flex;
 		align-items: center;
@@ -67,10 +68,11 @@
 		position: relative;
 		max-width: 90vw;
 		max-height: 90vh;
-		background: var(--bg-overlay);
-		border-radius: var(--radius-md);
-		padding: var(--space-2);
-		box-shadow: var(--shadow-overlay);
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: 16px;
+		padding: 8px;
+		box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.4);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -80,7 +82,8 @@
 		max-width: 85vw;
 		max-height: 85vh;
 		object-fit: contain;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
+		display: block;
 	}
 
 	.btn-close {
@@ -91,17 +94,20 @@
 		height: 28px;
 		border-radius: var(--radius-full);
 		background: var(--bg-overlay);
+		border: 1px solid var(--line);
 		color: var(--ink);
-		font-size: var(--text-md);
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: var(--shadow-overlay);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+		--icon-size: 14px;
+		transition: background-color var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
 	}
 
 	.btn-close:hover {
 		background: var(--bg-hover);
+		border-color: var(--line-strong);
 		color: var(--brand-ink);
 	}
 </style>

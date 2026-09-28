@@ -128,6 +128,9 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.30, 1);
   --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
   --ease-breathing: cubic-bezier(0.4, 0, 0.2, 1);
+  /* Chat v2: curva unica della rivelazione e durata del vassoio. */
+  --ease-reveal: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-tray: 420ms;
 
   /* Z-index semantico */
   --z-base: 0;     --z-splitter: 10; --z-sticky: 20; --z-topbar: 30;
@@ -268,6 +271,138 @@
   animation: none !important;
   color: var(--ink-muted);
   -webkit-text-fill-color: currentColor;
+}
+
+/* ---- Chat v2 (Gate R32): rivelazione blur-fade, vassoio, ghost line ----
+   Solo keyframe "from": lo stato finale e' quello naturale dell'elemento, cosi'
+   con le animazioni azzerate (regole globali sopra) il contenuto e' subito leggibile.
+   --dur e --blur si regolano per elemento; i default sono quelli del prototipo. */
+@keyframes rv-blur-in {
+  from {
+    opacity: 0;
+    filter: blur(var(--blur, 10px));
+  }
+}
+
+@keyframes rv-lift-in {
+  from {
+    opacity: 0;
+    filter: blur(var(--blur, 10px));
+    transform: translate3d(0, 8px, 0);
+  }
+}
+
+.rv-blur {
+  animation: rv-blur-in var(--dur, 700ms) var(--ease-reveal) backwards;
+}
+
+.rv-lift {
+  animation: rv-lift-in var(--dur, 700ms) var(--ease-reveal) backwards;
+}
+
+/* Apertura/chiusura in altezza con grid-template-rows: il figlio diretto deve
+   avere min-height: 0 e overflow: hidden (classe .tray-fold-inner). */
+@keyframes tray-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    filter: blur(6px);
+  }
+}
+
+@keyframes tray-out {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    filter: blur(6px);
+  }
+}
+
+.tray-in {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: tray-in var(--dur-tray) var(--ease-reveal) backwards;
+}
+
+.tray-out {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: tray-out var(--dur-tray) var(--ease-reveal) forwards;
+}
+
+.tray-fold-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Segnaposto del testo in arrivo: riga sfocata che luccica. */
+.ghost-line {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--ink-faint) 18%, transparent) 0%,
+    color-mix(in oklch, var(--ink-faint) 38%, transparent) 50%,
+    color-mix(in oklch, var(--ink-faint) 18%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  filter: blur(2.5px);
+  animation: shimmer-text 1.6s linear infinite;
+  transition: width 0.45s var(--ease-reveal);
+}
+
+:root[data-animations="false"] .ghost-line {
+  animation: none !important;
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost-line {
+    animation: none !important;
+    filter: none;
+  }
+}
+
+/* Badge condivisi fra l'editor del composer (DOM creato a mano, niente scope
+   Svelte) e i messaggi resi nel transcript: devono essere identici. */
+.chat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  margin: 0 1px;
+  padding: 0 6px;
+  vertical-align: 1px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  line-height: 1.6;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.chat-badge > .chat-badge-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-badge > svg,
+.chat-badge > .chat-badge-glyph {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.chat-badge--file {
+  background: color-mix(in oklch, var(--brand) 12%, transparent);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--brand) 28%, transparent);
+}
+
+.chat-badge--cmd {
+  background: var(--ink);
+  color: var(--bg-base);
 }
 
 *, *::before, *::after {

@@ -21,55 +21,33 @@
 	}
 </script>
 
-<button type="button" class="file-mention-chip" title={`${path} • Clicca per aprire nell'editor`} onclick={open}>
-	<span class="glyph"><IconFile aria-hidden="true" /></span>
-	<span class="name">{baseName(path)}</span>
+<button
+	type="button"
+	class="chat-badge chat-badge--file file-mention-btn"
+	title={`${path} • Clicca per aprire nell'editor`}
+	onclick={open}
+>
+	<span class="chat-badge-glyph"><IconFile aria-hidden="true" /></span>
+	<span class="chat-badge-name">{baseName(path)}</span>
 </button>
 
 <style>
-	.file-mention-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		max-width: 100%;
-		margin: 0 1px;
-		padding: 0 5px;
-		vertical-align: baseline;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		font-family: var(--font-mono);
-		font-size: 0.86em;
-		line-height: 1.45;
-		color: var(--ink);
+	.file-mention-btn {
+		border: none;
 		cursor: pointer;
-		white-space: nowrap;
-		user-select: text;
+		text-align: left;
 		transition:
-			color var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out);
+			box-shadow var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
-	.file-mention-chip:hover {
+	.file-mention-btn:hover {
 		color: var(--brand-ink);
-		border-color: var(--line-strong);
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--brand) 45%, transparent);
 	}
 
-	.file-mention-chip:focus-visible {
+	.file-mention-btn:focus-visible {
 		outline: 2px solid var(--brand);
 		outline-offset: 1px;
-	}
-
-	.glyph {
-		--icon-size: 11px;
-		display: inline-flex;
-		color: var(--ink-muted);
-		flex-shrink: 0;
-	}
-
-	.name {
-		font-weight: 500;
-		overflow: hidden;
-		text-overflow: ellipsis;
 	}
 </style>

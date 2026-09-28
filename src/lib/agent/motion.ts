@@ -1,7 +1,6 @@
 import { quintOut } from 'svelte/easing';
-import { prefersReducedMotion } from 'svelte/motion';
+import { motionReduced } from './motionState.svelte';
 import type { TransitionConfig } from 'svelte/transition';
-import { settingsStore } from '$lib/stores/settings.svelte';
 
 export interface ChatRevealParams {
 	delay?: number;
@@ -43,7 +42,7 @@ export function chatReveal(
 	const marginBottom = pixels(style.marginBottom);
 	const borderTopWidth = pixels(style.borderTopWidth);
 	const borderBottomWidth = pixels(style.borderBottomWidth);
-	const reduced = prefersReducedMotion.current || !settingsStore.accessibility.animations;
+	const reduced = motionReduced();
 	return {
 		delay: reduced ? 0 : delay,
 		duration: reduced ? 0 : (duration ?? durationToken(style)),

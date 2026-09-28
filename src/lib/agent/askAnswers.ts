@@ -45,7 +45,8 @@ export interface AnswerableQuestion {
 	selectedOptions: Set<string>;
 	note: string;
 	customInput: string;
-	/** Vero quando l'utente ha scelto "Altro" invece di un'opzione. */
+	/** Vero quando l'utente chiede all'agente di decidere ("Decidi tu"). */
+	decideForMe: boolean;
 	isCustom: boolean;
 	/** Vero appena l'utente interviene sulla domanda: selezione, testo, nota. */
 	touched: boolean;
@@ -136,6 +137,9 @@ export function matchQuestionIndex(
  *   solo se l'utente ha davvero toccato la domanda.
  */
 export function isQuestionAnswered(question: AnswerableQuestion): boolean {
+	// "Decidi tu" e' una risposta esplicita dell'utente, valida anche a
+	// scelta multipla: delega la scelta all'agente e chiude la domanda.
+	if (question.decideForMe) return true;
 	if (question.isCustom) return question.customInput.trim().length > 0;
 	if (!question.visited) return false;
 	if (question.selectedOptions.size > 0) return true;
@@ -157,6 +161,11 @@ export function firstUnansweredIndex(questions: AnswerableQuestion[]): number {
  */
 export const OTHER_LABEL = 'Other (type your own)';
 export const DONE_SENTINEL = '✔ Done selecting';
+/**
+ * Testo convenzionale con cui "Decidi tu" viaggia sul filo: la risposta
+ * libera deve essere distinguibile da una scelta tra le opzioni.
+ */
+export const DECIDE_FOR_ME_TEXT = 'Decidi tu: scegli la soluzione migliore';
 
 /**
  * Un passo del piano di consegna: una richiesta di omp, una risposta. Il
@@ -257,6 +266,14 @@ export function buildQuestionSteps(question: AnswerableQuestion): AskFlushStep[]
 
 	const signature = answerableSignature(question);
 	const note = question.note.trim();
+
+	// "Decidi tu": a scelta singola il ramo di omp accetta qualunque stringa
+	// e la registra come risposta. A scelta multipla la chiusura diretta con
+	// una stringa libera eviterebbe di registrare selezioni spurie nel set:
+	// il testo convenzionale chiude la domanda in un solo passo.
+	if (question.decideForMe) {
+		return [{ method: 'select', value: note ? `${DECIDE_FOR_ME_TEXT} (nota: ${note})` : DECIDE_FOR_ME_TEXT, signature }];
+	}
 
 	if (question.multi) {
 		const selected = Array.from(question.selectedOptions);

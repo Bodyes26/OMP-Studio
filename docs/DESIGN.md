@@ -360,6 +360,22 @@ Gli archi indeterminati in rotazione (sulla tessera aperta e nelle righe di task
 
 Nessuna animazione deve essere l'unico veicolo di un'informazione: «aspetta te» resta leggibile dall'anello ambra anche fermo, «al lavoro» dal punto pieno e dalla sigla accesa.
 
+### Movimento della chat (Gate R32)
+
+Il contenuto della chat entra con **blur-fade**: solo keyframe `from` (opacità 0 e `filter: blur(var(--blur))`), così lo stato finale è quello naturale dell'elemento e con le animazioni azzerate il testo è subito leggibile.
+
+| Classe | Effetto | Uso |
+|---|---|---|
+| `.rv-blur` | Dissolvenza sfocata | Frasi dell'agente, righe di stato, riepiloghi |
+| `.rv-lift` | Dissolvenza sfocata + 8 px dal basso | Blocchi interi (codice, tabelle), messaggio utente, schede, menu |
+| `.tray-in` / `.tray-out` | Apertura/chiusura in altezza (`grid-template-rows`) con blur | Sezioni del vassoio sopra il composer |
+| `.ghost-line` | Riga sfocata che luccica | Testo in arrivo non ancora mostrato |
+| `.text-shimmer` | Luccichio del testo | Etichette di lavoro in corso |
+
+Variabili per elemento: `--dur` (default 700 ms) e `--blur` (default 10 px). Curva unica `--ease-reveal: cubic-bezier(0.22, 0.61, 0.36, 1)`; il vassoio usa `--dur-tray` (420 ms). Helper a rune in `src/lib/agent/motionState.svelte.ts`: `AutoOpen` (regola automatica di apertura con scelta manuale che si azzera al cambio di regola) e `Lingering` (tiene in vita un valore per il tempo dell'uscita).
+
+Shimmer e ghost line sono le sole animazioni persistenti ammesse nella chat, e solo mentre lo stato è vivo (eccezione registrata nel Gate R32).
+
 ---
 
 ## 7. Componenti
@@ -541,7 +557,7 @@ Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente 
 
 ### 7.10 Composer della chat, invio e gestione coda (GUI)
 
-- **Badge di coda in sola lettura**: le chip che rappresentano i messaggi accodati (`steer` / `follow-up`) e lo stato della coda sono badge informativi statici con tooltip esplicativo, non elementi interattivi. Il protocollo `omp` fissa la modalità all'atto della ricezione del prompt e non espone comandi per modificare, riordinare o rimuovere messaggi già accodati; l'interfaccia rispecchia fedelmente questo vincolo senza proporre controlli placebo.
+- **Coda distinta per destinazione:** gli steer partono subito verso omp e sono chip di sola lettura (il protocollo non consente di recuperarli). I follow-up restano nel vassoio di Studio finché il turno non finisce: ogni chip espone «Modifica» e «Rimuovi»; `Alt+↑` a editor vuoto riporta l'ultimo nel composer, con le sue immagini. Dopo uno Stop la coda locale è sospesa e richiede «Invia ora».
 - **Split button di invio durante lo streaming**:
   - A riposo (`isStreaming === false`), il pulsante di invio è un bottone standard che invia il prompt con la modalità predefinita.
   - Durante lo streaming dell'agente (`isStreaming === true`), il controllo si trasforma in uno **split button**:
@@ -603,6 +619,17 @@ Alta 34px, fondo `--bg-base`, bordo inferiore `--line`, sotto la barra progetti 
 - **Principale** e' sempre la prima tab e non si archivia. `+` e' un pulsante tratteggiato. La chiusura di una corsia con processi vivi non archivia: chiede «Arresta processi e rimuovi».
 - **Tastiera.** Roving tabindex dentro la riga. `Ctrl+Alt+←/→` scorre le corsie quando la riga e' visibile; altrimenti scorre i progetti. Con movimento ridotto le transizioni da 120ms si spengono.
 - **Revisiona e integra.** Modale sul diff Monaco affiancato tra la corsia e il branch di destinazione: SHA, ahead/behind, file con `+X / -Y`, comandi del transcript con exit code e durata misurata. Il pulsante Integra e' spento, con il motivo scritto, se il target e' sporco, se la corsia ha processi, se non e' pronta o se ci sono conflitti. Nessun merge parte da solo.
+
+### 7.14 Chat v2 (Gate R32)
+
+Specifica visiva: prototipo Lab **CodeAgent Flow** (`p-20260925-dyyhe6`), tradotto nei token del tema.
+
+- **Colonna di lettura** 720 px in modalità `readable`; prosa 15/28 px.
+- **Messaggio utente**: bolla a destra, `--bg-raised`, raggio 16 px con angolo in basso a destra a 6 px; allegati sopra la bolla.
+- **Testo dell'agente**: senza contenitore; rivelazione per frasi (`general.chatReveal`).
+- **Righe di traccia**: 12,5 px, `--ink-muted`, icona 14 px, chevron per espandere; righe vive con `.text-shimmer`.
+- **Vassoio**: agganciato al bordo superiore del composer (bordo `--line`, angoli superiori arrotondati), sezioni separate da 1 px.
+- **Composer**: `--bg-raised`, raggio 16 px, editor a badge, barra con allegati, `@`, ruolo, modello, thinking, contesto e invio.
 
 ## 8. Token CSS pronti
 

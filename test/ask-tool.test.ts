@@ -39,14 +39,15 @@ function question(overrides: Partial<AnswerableQuestion> = {}): AnswerableQuesti
 			option('Other (type your own)'),
 			option('✔ Done selecting')
 		],
-		multi: false,
-		selectedOptions: new Set<string>(),
-		note: '',
-		customInput: '',
-		isCustom: false,
-		touched: false,
-		visited: true,
-		...overrides
+	multi: false,
+	selectedOptions: new Set<string>(),
+	note: '',
+	customInput: '',
+	decideForMe: false,
+	isCustom: false,
+	touched: false,
+	visited: true,
+	...overrides
 	};
 }
 
@@ -244,6 +245,32 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 			]);
 		});
 
+		it('invia il testo convenzionale quando l utente sceglie "Decidi tu"', () => {
+			const q = question({ decideForMe: true });
+			assert.equal(isQuestionAnswered(q), true);
+			const steps = buildQuestionSteps(q);
+			assert.deepEqual(steps, [
+				{
+					method: 'select',
+					value: 'Decidi tu: scegli la soluzione migliore',
+					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
+				}
+			]);
+		});
+
+		it('allega la nota al testo convenzionale di "Decidi tu"', () => {
+			const q = question({ decideForMe: true, multi: true, touched: true, note: 'budget limitato' });
+			assert.equal(isQuestionAnswered(q), true);
+			const steps = buildQuestionSteps(q);
+			assert.deepEqual(steps, [
+				{
+					method: 'select',
+					value: 'Decidi tu: scegli la soluzione migliore (nota: budget limitato)',
+					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
+				}
+			]);
+		});
+
 		it('concatena i passi di tutte le domande nel piano del wizard', () => {
 			const first = question({ selectedOptions: new Set(['PostgreSQL']), touched: true });
 			const second = question({
@@ -259,7 +286,6 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 			assert.equal(plan[2].value, DONE_SENTINEL);
 		});
 	});
-
 	describe('Verifica di corrispondenza delle richieste (stepAcceptsRequest)', () => {
 		const sig1 = optionSignature(['SQLite', 'PostgreSQL']);
 		const sig2 = optionSignature(['JWT', 'Session cookies']);

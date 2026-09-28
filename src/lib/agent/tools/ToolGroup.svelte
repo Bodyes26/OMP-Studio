@@ -1,21 +1,32 @@
+<!--
+  ToolGroup.svelte v2 (Gate R32 - C10, C11).
+  Raggruppa una sequenza di chiamate tool e passaggi di ragionamento (thinking).
+
+  Dal vivo:
+  - Intestazione 'Al lavoro · N chiamate · X,Y s' con shimmer sul testo.
+  - Finestra scorrevole sulle ultime 5 righe avviate con riga '⋯ N chiamate precedenti' e maschera sfumata in alto.
+  - Tratto verticale di 2px in --line-strong che raggruppa le chiamate parallele.
+  - Riga compatta con icona 16px (spinner se running, icona categoria, x danger se fallita),
+    etichetta con shimmer se running, dettaglio monospazio troncato, meta e +a −d a destra.
+
+  A fine gruppo:
+  - Riga riepilogo '✓ N chiamate · X,Y s' + conteggi per categoria + totali +a −d + errori, espandibile (max-height ~18rem).
+  - Clic su qualsiasi riga (dal vivo o nel riepilogo) espande inline il corpo del renderer esistente.
+-->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// ToolGroup: raggruppa una sequenza di chiamate tool e blocchi di ragionamento
-	// (thinking) consecutivi o alternati in un unico blocco compatto ed elegante.
-	//
-	// Mostra un'intestazione riassuntiva con conteggio operazioni, chip dei tool usati,
-	// stato di esecuzione e durata totale. Il corpo resta collassato finche' l'utente
-	// non lo espande; commenti narrativi e tool interattivi vivono fuori dal gruppo.
 	import type { AssistantEntry, ToolEntry } from '../session.svelte';
-	import { chatReveal } from '../motion';
-	import ThinkingBlock from '../components/ThinkingBlock.svelte';
-	import Markdown from '../components/Markdown.svelte';
-	import PixelGrid from '../components/PixelGrid.svelte';
-	import { lexMarkdown } from '../markdown';
-	import ToolCard from './ToolCard.svelte';
-	import { formatElapsed, extractToolErrorReason } from './types';
+	import { IconCheck, IconChevronRight, IconClose } from '$lib/icons';
+	import { rendererFor } from './registry';
 	import { stopwatchNow, subscribeStopwatch } from './stopwatch.svelte';
-	import { IconChevronRight } from '$lib/icons';
+	import {
+		categorizeTool,
+		summarizeThinking,
+		formatDurationSecs,
+		type ToolCategory,
+		type ToolSummary
+	} from './categories';
+	import CategoryIcon from './parts/CategoryIcon.svelte';
 
 	export type ToolGroupEntry = ToolEntry | AssistantEntry;
 
@@ -27,421 +38,688 @@
 		activeAssistantId?: number | null;
 	} = $props();
 
-	// Filtra gli strumenti effettivi e gli elementi assistente
+	// Identificazione degli elementi
 	const toolEntries = $derived(entries.filter((e): e is ToolEntry => e.kind === 'tool'));
 	const assistantEntries = $derived(entries.filter((e): e is AssistantEntry => e.kind === 'assistant'));
 
-	// Stato aggregato
+	// Stato di attività
 	const isToolRunning = $derived(toolEntries.some((e) => e.running));
 	const isStreamingThinking = $derived(
 		activeAssistantId != null && assistantEntries.some((e) => e.id === activeAssistantId)
 	);
-	const isRunning = $derived(isToolRunning || isStreamingThinking);
-	const hasError = $derived(toolEntries.some((e) => e.result?.isError === true));
+	const isLive = $derived(isToolRunning || isStreamingThinking);
 
-	// Cronometro del gruppo: mentre almeno un tool e' in esecuzione il totale
-	// scorre a decimi di secondo dal primo avvio sull'orologio condiviso della
-	// chat; concluse le chiamate resta la durata finale. Il solo ragionamento in
-	// streaming non accende l'orologio: senza tool attivi non c'e' nulla da
-	// contare e l'intervallo non deve restare vivo.
+	// Cronometro condiviso: attivo mentre c'è attività in corso
 	$effect(() => {
-		if (!isToolRunning) return;
+		if (!isLive) return;
 		return subscribeStopwatch();
 	});
 
-	const totalDuration = $derived.by(() => {
-		if (toolEntries.length === 0) return undefined;
-		const start = Math.min(...toolEntries.map((e) => e.startedAt));
-		if (isToolRunning) {
+	// Calcolo della durata complessiva
+	const durationLabel = $derived.by(() => {
+		if (entries.length === 0) return '0,1 s';
+		const startTimes = toolEntries.map((e) => e.startedAt).filter((t) => typeof t === 'number' && t > 0);
+		if (startTimes.length === 0) return '0,1 s';
+		const start = Math.min(...startTimes);
+		if (isLive) {
 			const now = stopwatchNow();
-			return now > start ? formatElapsed(now - start) : undefined;
+			return formatDurationSecs(Math.max(0, now - start));
 		}
-		const finished = toolEntries.every((e) => e.endedAt);
-		if (!finished) return undefined;
-		const end = Math.max(...toolEntries.map((e) => e.endedAt ?? e.startedAt));
-		return end > start ? formatElapsed(end - start) : undefined;
+		const endTimes = toolEntries
+			.map((e) => e.endedAt ?? e.startedAt)
+			.filter((t): t is number => typeof t === 'number' && t > 0);
+		const end = endTimes.length > 0 ? Math.max(...endTimes) : start;
+		return formatDurationSecs(Math.max(0, end - start));
 	});
 
-	// Strumenti unici utilizzati per i chip di anteprima nel badge/header
-	const toolSummaryList = $derived.by(() => {
-		const counts = new Map<string, number>();
-		for (const e of toolEntries) {
-			counts.set(e.toolName, (counts.get(e.toolName) ?? 0) + 1);
+	// Estrazione testo dai blocchi thinking di un AssistantEntry
+	function getThinkingText(entry: AssistantEntry): string {
+		return entry.blocks
+			.filter((b) => b.type === 'thinking')
+			.map((b) => (b as { type: 'thinking'; text: string }).text)
+			.join('\n\n');
+	}
+
+	interface RowItem {
+		id: string | number;
+		kind: 'tool' | 'think';
+		entry: ToolGroupEntry;
+		summary: ToolSummary;
+		running: boolean;
+		fail: boolean;
+		par: boolean;
+	}
+
+	// Verifica se due chiamate consecutive appartengono allo stesso batch parallelo
+	function isParallelWithPrevious(curr: ToolGroupEntry, prev: ToolGroupEntry): boolean {
+		if (curr.kind !== 'tool' || prev.kind !== 'tool') return false;
+		const currTool = curr as ToolEntry;
+		const prevTool = prev as ToolEntry;
+
+		// 1. Flag esplicito da argomenti o proprietà (es. mock/bench/scenari)
+		const currArgs = currTool.args as Record<string, unknown> | undefined;
+		if (currArgs?._par === true || (currTool as unknown as { par?: boolean }).par === true) {
+			return true;
 		}
-		return Array.from(counts.entries()).map(([name, count]) => ({
-			name,
-			count
-		}));
+
+		// 2. Stesso batchId esplicito
+		const currBatch = (currTool as unknown as { batchId?: unknown }).batchId;
+		const prevBatch = (prevTool as unknown as { batchId?: unknown }).batchId;
+		if (currBatch !== undefined && currBatch !== null && currBatch === prevBatch) {
+			return true;
+		}
+
+		// 3. Stesso timestamp di inizio non-zero (comune in turni con chiamate parallele dal medesimo messaggio)
+		if (currTool.startedAt > 0 && currTool.startedAt === prevTool.startedAt) {
+			return true;
+		}
+
+		// 4. Avvio strettamente concomitante durante streaming (< 200ms)
+		if (currTool.startedAt > 0 && prevTool.startedAt > 0) {
+			if (Math.abs(currTool.startedAt - prevTool.startedAt) < 200) {
+				return true;
+			}
+			// Concorrenza viva: avviato prima della conclusione del precedente e ravvicinato (< 500ms)
+			if (
+				currTool.startedAt >= prevTool.startedAt &&
+				currTool.startedAt <= (prevTool.endedAt ?? Infinity) &&
+				currTool.startedAt - prevTool.startedAt < 500
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Costruzione dell'elenco normalizzato delle righe
+	const rowItems = $derived.by<RowItem[]>(() => {
+		const out: RowItem[] = [];
+		for (let i = 0; i < entries.length; i++) {
+			const entry = entries[i];
+			const prev = i > 0 ? entries[i - 1] : null;
+			const par = prev ? isParallelWithPrevious(entry, prev) : false;
+
+			if (entry.kind === 'tool') {
+				const summary = categorizeTool({
+					toolName: entry.toolName,
+					args: entry.args,
+					result: entry.result,
+					running: entry.running
+				});
+				out.push({
+					id: entry.id,
+					kind: 'tool',
+					entry,
+					summary,
+					running: entry.running,
+					fail: summary.fail ?? false,
+					par
+				});
+			} else if (entry.kind === 'assistant') {
+				const thinkingText = getThinkingText(entry);
+				const summary = summarizeThinking(thinkingText);
+				const running = activeAssistantId != null && entry.id === activeAssistantId;
+				out.push({
+					id: entry.id,
+					kind: 'think',
+					entry,
+					summary,
+					running,
+					fail: false,
+					par: false
+				});
+			}
+		}
+		return out;
 	});
 
-	// Ultimo tool attivo o fallito per il summary text
-	const currentOrLastError = $derived.by(() => {
-		const running = toolEntries.find((e) => e.running);
-		if (running) return running;
-		const error = toolEntries.find((e) => e.result?.isError);
-		if (error) return error;
-		return toolEntries[toolEntries.length - 1];
+	// Raggruppa gli indici/elementi in batch paralleli
+	function makeBatches(items: RowItem[]): RowItem[][] {
+		const batches: RowItem[][] = [];
+		for (const item of items) {
+			const cur = batches[batches.length - 1];
+			if (cur && item.par) {
+				cur.push(item);
+			} else {
+				batches.push([item]);
+			}
+		}
+		return batches;
+	}
+
+	// Finestra visibile dal vivo (ultime 5 avviate)
+	const WINDOW_SIZE = 5;
+	const startedRowItems = $derived(
+		rowItems.filter((item) => {
+			if (item.kind === 'think') return true;
+			const tool = item.entry as ToolEntry;
+			return tool.running || tool.startedAt > 0 || tool.result !== undefined;
+		})
+	);
+	const visibleLiveItems = $derived(startedRowItems.slice(-WINDOW_SIZE));
+	const hiddenLiveCount = $derived(Math.max(0, startedRowItems.length - visibleLiveItems.length));
+	const liveBatches = $derived(makeBatches(visibleLiveItems));
+
+	// Tutti gli elementi per la visualizzazione espansa a fine gruppo
+	const fullBatches = $derived(makeBatches(rowItems));
+
+	// Conteggi aggregati per il riepilogo finale
+	const categoryOrder: ToolCategory[] = ['read', 'search', 'web', 'run', 'edit', 'think', 'other'];
+	const summaryStats = $derived.by(() => {
+		const counts: Partial<Record<ToolCategory, number>> = {};
+		let totalAdd = 0;
+		let totalDel = 0;
+		let failedCount = 0;
+
+		for (const item of rowItems) {
+			counts[item.summary.category] = (counts[item.summary.category] ?? 0) + 1;
+			if (item.summary.diff) {
+				totalAdd += item.summary.diff[0];
+				totalDel += item.summary.diff[1];
+			}
+			if (item.fail) {
+				failedCount++;
+			}
+		}
+
+		return { counts, totalAdd, totalDel, failedCount };
 	});
 
-	// Espansione manuale: di default resta collassato per evitare flash/salti fastidiosi,
-	// anche in caso di errore (l'errore viene segnalato con microcopy sotto l'header).
-	let isExpanded = $state(false);
-	const failedTools = $derived(toolEntries.filter((e) => e.result?.isError === true));
+	// Testi localizzati per conteggio chiamate
+	const totalCallsCount = $derived(rowItems.length);
+	const callsCountText = $derived(
+		totalCallsCount === 1
+			? (m.chat_v2_tools_calls_one?.() ?? '1 chiamata')
+			: (m.chat_v2_tools_calls_many?.({ count: totalCallsCount }) ?? `${totalCallsCount} chiamate`)
+	);
 
-	const headerLabel = $derived.by(() => {
-		const totalTools = toolEntries.length;
-		const labelStep = totalTools === 1 ? '1 operazione' : `${totalTools} operazioni`;
-		if (isRunning) {
-			return `Esecuzione strumenti (${labelStep})`;
+	function categoryTooltip(cat: ToolCategory, count: number): string {
+		switch (cat) {
+			case 'read':
+				return count === 1 ? (m.chat_v2_tools_cat_read_one?.() ?? 'lettura') : (m.chat_v2_tools_cat_read_many?.() ?? 'letture');
+			case 'search':
+				return count === 1 ? (m.chat_v2_tools_cat_search_one?.() ?? 'ricerca') : (m.chat_v2_tools_cat_search_many?.() ?? 'ricerche');
+			case 'run':
+				return count === 1 ? (m.chat_v2_tools_cat_run_one?.() ?? 'comando') : (m.chat_v2_tools_cat_run_many?.() ?? 'comandi');
+			case 'edit':
+				return count === 1 ? (m.chat_v2_tools_cat_edit_one?.() ?? 'modifica') : (m.chat_v2_tools_cat_edit_many?.() ?? 'modifiche');
+			case 'web':
+				return count === 1 ? (m.chat_v2_tools_cat_web_one?.() ?? 'pagina web') : (m.chat_v2_tools_cat_web_many?.() ?? 'pagine web');
+			case 'think':
+				return count === 1 ? (m.chat_v2_tools_cat_think_one?.() ?? 'ragionamento') : (m.chat_v2_tools_cat_think_many?.() ?? 'ragionamenti');
+			default:
+				return count === 1 ? (m.chat_v2_tools_cat_other_one?.() ?? 'operazione') : (m.chat_v2_tools_cat_other_many?.() ?? 'operazioni');
 		}
-		if (hasError) {
-			return `Operazioni completate con errori (${labelStep})`;
+	}
+
+	// Stato di apertura del riepilogo a fine esecuzione
+	let isFullListOpen = $state(false);
+
+	// Insieme delle righe espanse per mostrare il corpo inline (C11)
+	let expandedRows = $state<Set<string | number>>(new Set());
+
+	function toggleRow(id: string | number) {
+		const next = new Set(expandedRows);
+		if (next.has(id)) {
+			next.delete(id);
+		} else {
+			next.add(id);
 		}
-		return `Strumenti eseguiti (${labelStep})`;
-	});
+		expandedRows = next;
+	}
 </script>
 
-<div
-	class="tool-group"
-	class:running={isRunning}
-	class:error={hasError}
-	class:expanded={isExpanded}
->
-	<button
-		type="button"
-		class="group-header"
-		aria-expanded={isExpanded}
-		onclick={() => (isExpanded = !isExpanded)}
-		title={isExpanded ? 'Comprimi passaggi' : 'Espandi passaggi'}
-	>
-		<div class="header-left">
-			<span class="chevron" class:expanded={isExpanded} aria-hidden="true"><IconChevronRight /></span>
-			<PixelGrid size="sm" state={hasError ? 'error' : isRunning ? 'running' : 'idle'} />
-			<span class="title">{headerLabel}</span>
+{#snippet renderRow(item: RowItem)}
+	{@const isExpanded = expandedRows.has(item.id)}
+	<div class="row-container">
+		<button
+			type="button"
+			class="tool-row"
+			aria-expanded={isExpanded}
+			onclick={() => toggleRow(item.id)}
+		>
+			<span class="row-icon-slot">
+				{#if item.running}
+					<span class="spinner" aria-label="In esecuzione"></span>
+				{:else if item.fail}
+					<span class="fail-icon"><IconClose /></span>
+				{:else}
+					<CategoryIcon category={item.summary.category} class="cat-icon" />
+				{/if}
+			</span>
 
-			<div class="tool-chips" aria-label="Strumenti usati">
-				{#each toolSummaryList as item (item.name)}
-					<span
-						class="chip"
-						in:chatReveal={{ duration: 160, blur: 3, distance: 1 }}
-					>
-						<span class="chip-name">{item.name}</span>
-						{#if item.count > 1}
-							<span
-								class="chip-count"
-								in:chatReveal={{ duration: 140, blur: 2, distance: 0 }}
-							>
-								×{item.count}
-							</span>
-						{/if}
-					</span>
+			<span class="row-label" class:text-shimmer={item.running}>{item.summary.label}</span>
+
+			{#if item.summary.detail}
+				<span class="row-detail" title={item.summary.detail}>{item.summary.detail}</span>
+			{/if}
+
+			{#if !item.running && (item.summary.meta || item.summary.diff)}
+				<span class="row-tail">
+					{#if item.summary.meta}
+						<span class="row-meta" class:meta-fail={item.fail}>{item.summary.meta}</span>
+					{/if}
+					{#if item.summary.diff}
+						<span class="row-diff">
+							<span class="diff-add">+{item.summary.diff[0]}</span>
+							<span class="diff-del">−{item.summary.diff[1]}</span>
+						</span>
+					{/if}
+				</span>
+			{/if}
+		</button>
+
+		{#if isExpanded}
+			<div class="inline-body">
+				{#if item.entry.kind === 'tool'}
+					{@const renderer = rendererFor(item.entry.toolName)}
+					<renderer.component
+						name={item.entry.toolName}
+						args={item.entry.args}
+						result={item.entry.result}
+						running={item.entry.running}
+						view="body"
+					/>
+				{:else if item.entry.kind === 'assistant'}
+					<div class="thinking-body">
+						<pre class="thinking-text">{getThinkingText(item.entry)}</pre>
+					</div>
+				{/if}
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet renderBatches(batches: RowItem[][])}
+	{#each batches as batch (batch[0].id)}
+		{#if batch.length > 1}
+			<div class="parallel-batch" title={m.chat_v2_tools_parallel_title?.() ?? 'Chiamate parallele'}>
+				{#each batch as item (item.id)}
+					{@render renderRow(item)}
 				{/each}
 			</div>
+		{:else}
+			{@render renderRow(batch[0])}
+		{/if}
+	{/each}
+{/snippet}
+
+<div class="tool-group" class:live={isLive}>
+	{#if isLive}
+		<!-- STATO DAL VIVO: indicatore 'Al lavoro' + finestra delle ultime 5 righe -->
+		<div class="live-header">
+			<span class="live-status text-shimmer">{m.chat_v2_tools_working?.() ?? 'Al lavoro'}</span>
+			<span class="live-meta tabular-nums">{callsCountText} · {durationLabel}</span>
 		</div>
 
-		<div class="header-right">
-			{#if isRunning}
-				{#if currentOrLastError?.intent}
-					<span class="active-intent" title={currentOrLastError.intent}>
-						{currentOrLastError.intent}
-					</span>
-				{:else if isStreamingThinking}
-					<span class="active-intent text-shimmer">{m.ui_activity_sta_pensando()}</span>
-				{:else}
-					<span class="active-intent text-shimmer">{m.ui_toolgroup_sto_usando({ tool: currentOrLastError?.toolName ?? '' })}</span>
-				{/if}
-				<!-- Il cronometro accompagna qualunque testo di stato: con il gruppo
-				     chiuso e' l'unica prova che il comando sta ancora girando. -->
-				{#if isToolRunning}
-					<span class="status-tag running">{totalDuration ?? m.queue_drawer_status_in_progress()}</span>
-				{/if}
-			{:else if hasError}
-				<span class="status-tag error">{m.ui_browserviewer_fallito_ca59()}</span>
-			{:else if totalDuration}
-				<span class="duration">{totalDuration}</span>
+		<div class="live-content">
+			{#if hiddenLiveCount > 0}
+				<div class="hidden-row">
+					<span class="hidden-ellipsis">⋯</span>
+					<span>{m.chat_v2_tools_hidden_many?.({ count: hiddenLiveCount }) ?? `${hiddenLiveCount} chiamate precedenti`}</span>
+				</div>
 			{/if}
-		</div>
-	</button>
-	{#if !isExpanded && hasError && failedTools.length > 0}
-		<div
-			class="failure-microcopy"
-			in:chatReveal={{ duration: 160, blur: 2, distance: -1 }}
-		>
-			{#each failedTools as tool (tool.id)}
-				<div class="failure-line">
-					<span class="failure-prefix">tool <strong class="failure-tool-name">{tool.toolName}</strong> {m.ui_toolcard_fallito_per_b620()}</span>
-					<span class="failure-reason" title={extractToolErrorReason(tool)}>{extractToolErrorReason(tool)}</span>
-				</div>
-			{/each}
-		</div>
-	{/if}
 
+			<div class="live-rows" class:with-mask={hiddenLiveCount > 0}>
+				{@render renderBatches(liveBatches)}
+			</div>
+		</div>
+	{:else}
+		<!-- STATO CONCLUSO: riga di sintesi espandibile -->
+		<div class="finished-summary">
+			<button
+				type="button"
+				class="summary-btn"
+				aria-expanded={isFullListOpen}
+				onclick={() => (isFullListOpen = !isFullListOpen)}
+				title={isFullListOpen
+					? (m.chat_v2_tools_collapse?.() ?? 'Comprimi passaggi')
+					: (m.chat_v2_tools_expand?.() ?? 'Espandi passaggi')}
+			>
+				<span class="summary-lead">
+					<span class="check-icon"><IconCheck /></span>
+					<span class="summary-text tabular-nums">{callsCountText} · {durationLabel}</span>
+				</span>
 
-	{#if isExpanded}
-		<div
-			class="group-body"
-			transition:chatReveal={{ duration: 240, blur: 4, distance: -3 }}
-		>
-			{#each entries as entry (entry.id)}
-				<div
-					class="group-entry"
-					in:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
-				>
-					{#if entry.kind === 'tool'}
-						<ToolCard {entry} />
-					{:else if entry.kind === 'assistant'}
-						{#each entry.blocks as block, i (`${entry.id}-${block.type}-${i}`)}
-							{#if block.type === 'thinking'}
-								<ThinkingBlock
-									text={block.text}
-									streaming={entry.id === activeAssistantId && i === entry.blocks.length - 1}
-								/>
-							{:else if block.type === 'text' && block.text.trim().length > 0}
-								<div class="group-assistant-comment">
-									<Markdown tokens={lexMarkdown(block.text)} />
-								</div>
-							{:else if block.type === 'image'}
-								<div class="group-assistant-image">
-									<img
-										src={`data:${block.mimeType};base64,${block.data}`}
-										alt="Immagine generata dall'assistente"
-									/>
-								</div>
-							{/if}
-						{/each}
+				<span class="summary-counts">
+					{#each categoryOrder as cat}
+						{#if summaryStats.counts[cat]}
+							<span class="cat-pill" title="{summaryStats.counts[cat]} {categoryTooltip(cat, summaryStats.counts[cat]!)}">
+								<CategoryIcon category={cat} />
+								<span class="tabular-nums">{summaryStats.counts[cat]}</span>
+							</span>
+						{/if}
+					{/each}
+
+					{#if summaryStats.totalAdd > 0 || summaryStats.totalDel > 0}
+						<span class="summary-diff font-mono">
+							<span class="diff-add">+{summaryStats.totalAdd}</span>
+							<span class="diff-del">−{summaryStats.totalDel}</span>
+						</span>
 					{/if}
+
+					{#if summaryStats.failedCount > 0}
+						<span class="summary-failed">
+							{m.chat_v2_tools_failed_count?.({ count: summaryStats.failedCount }) ?? `${summaryStats.failedCount} con errori`}
+						</span>
+					{/if}
+				</span>
+
+				<span class="summary-chevron" class:expanded={isFullListOpen}>
+					<IconChevronRight />
+				</span>
+			</button>
+
+			{#if isFullListOpen}
+				<div class="full-list-container">
+					{@render renderBatches(fullBatches)}
 				</div>
-			{/each}
+			{/if}
 		</div>
 	{/if}
 </div>
 
 <style>
 	.tool-group {
-		display: flex;
-		flex-direction: column;
-		background: color-mix(in srgb, var(--bg-sunken) 70%, transparent);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		overflow: hidden;
-		transition: border-color var(--dur-fast) var(--ease-out),
-			background-color var(--dur-fast) var(--ease-out);
+		margin: var(--space-3) 0;
+		font-family: var(--font-ui);
 		min-width: 0;
 	}
 
-	.tool-group.running {
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
-		background: var(--bg-raised);
-	}
+	/* ----------------------------------------------------------- Header live */
 
-	.tool-group.error {
-		border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
-	}
-
-	.group-header {
+	.live-header {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		width: 100%;
-		padding: var(--space-2) var(--space-3);
-		background: transparent;
-		border: none;
-		cursor: pointer;
-		text-align: left;
-		color: var(--ink);
-		font-family: var(--font-ui);
-		font-size: var(--text-sm);
-		user-select: none;
+		gap: var(--space-2);
+		margin-bottom: var(--space-1);
+		font-size: 12.5px;
+		color: var(--ink-faint);
+	}
+
+	.live-status {
+		font-weight: 500;
+		color: var(--ink-muted);
+	}
+
+	.live-meta {
+		font-variant-numeric: tabular-nums;
+	}
+
+	.live-content {
+		border-left: 1px solid var(--line);
+		padding-left: var(--space-3);
+	}
+
+	.hidden-row {
+		display: flex;
+		height: 24px;
+		align-items: center;
+		gap: 10px;
+		font-size: 12.5px;
+		color: var(--ink-faint);
+		padding: 0 4px;
+	}
+
+	.hidden-ellipsis {
+		display: grid;
+		width: 16px;
+		place-items: center;
+		font-weight: 600;
+	}
+
+	.live-rows.with-mask {
+		mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 45%);
+		-webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 45%);
+	}
+
+	/* ---------------------------------------------------- Batches paralleli */
+
+	.parallel-batch {
+		border-left: 2px solid var(--line-strong);
+		margin-left: -13px;
+		padding-left: 11px;
+	}
+
+	/* ------------------------------------------------------ Riga del tool */
+
+	.row-container {
+		display: flex;
+		flex-direction: column;
 		min-width: 0;
 	}
 
-	.group-header:hover {
+	.tool-row {
+		display: flex;
+		width: 100%;
+		height: 26px;
+		min-width: 0;
+		align-items: center;
+		gap: 10px;
+		background: transparent;
+		border: none;
+		padding: 0 4px;
+		border-radius: var(--radius-sm);
+		font-size: 13px;
+		color: inherit;
+		cursor: pointer;
+		text-align: left;
+		user-select: none;
+		transition: background-color var(--dur-fast) var(--ease-out);
+	}
+
+	.tool-row:hover {
 		background: var(--bg-hover);
 	}
 
-	.header-left {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		flex: 1;
+	.tool-row:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
 	}
 
-	.chevron {
-		--icon-size: 12px;
+	.row-icon-slot {
+		display: grid;
+		width: 16px;
+		height: 16px;
+		place-items: center;
+		flex-shrink: 0;
 		color: var(--ink-faint);
-		transition: transform var(--dur-fast) var(--ease-out);
+	}
+
+	.spinner {
+		width: 12px;
+		height: 12px;
+		border-radius: 9999px;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--ink);
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.fail-icon {
 		display: inline-flex;
 		align-items: center;
-		justify-content: center;
-		width: var(--space-3);
-		flex-shrink: 0;
+		color: var(--danger);
+		--icon-size: 14px;
 	}
 
-	.chevron.expanded {
+	.row-label {
+		flex-shrink: 0;
+		color: var(--ink-muted);
+		font-weight: 400;
+	}
+
+	.row-detail {
+		min-width: 0;
+		flex-shrink: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: var(--ink-faint);
+	}
+
+	.row-tail {
+		margin-left: auto;
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 6px;
+		padding-left: var(--space-2);
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+	}
+
+	.row-meta {
+		color: var(--ink-faint);
+	}
+
+	.row-meta.meta-fail {
+		color: var(--danger);
+	}
+
+	.row-diff {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.diff-add {
+		color: var(--success);
+	}
+
+	.diff-del {
+		color: var(--danger);
+	}
+
+	/* ------------------------------------------------ Corpo inline (C11) */
+
+	.inline-body {
+		margin: var(--space-1) 0 var(--space-2) 26px;
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		font-size: var(--text-sm);
+		user-select: text;
+		min-width: 0;
+		overflow-x: auto;
+	}
+
+	.thinking-body {
+		font-family: var(--font-ui);
+		color: var(--ink-muted);
+		line-height: 1.5;
+	}
+
+	.thinking-text {
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		color: var(--ink-muted);
+	}
+
+	/* ----------------------------------------------- Riepilogo concluso */
+
+	.finished-summary {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.summary-btn {
+		display: inline-flex;
+		max-width: 100%;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-3);
+		padding: 2px 6px;
+		margin-left: -4px;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--ink-muted);
+		font-size: 12.5px;
+		cursor: pointer;
+		text-align: left;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+	}
+
+	.summary-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.summary-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
+	}
+
+	.summary-lead {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--ink-muted);
+		font-weight: 500;
+	}
+
+	.check-icon {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 14px;
+	}
+
+	.summary-counts {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		color: var(--ink-faint);
+	}
+
+	.cat-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		--icon-size: 14px;
+	}
+
+	.summary-diff {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11.5px;
+	}
+
+	.summary-failed {
+		color: var(--danger);
+		font-weight: 500;
+	}
+
+	.summary-chevron {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 14px;
+		color: var(--ink-faint);
+		transition: transform var(--dur-fast) var(--ease-out);
+	}
+
+	.summary-chevron.expanded {
 		transform: rotate(90deg);
 	}
 
-
-	.title {
-		font-weight: 500;
-		color: var(--ink);
-		white-space: nowrap;
-		flex-shrink: 0;
+	.full-list-container {
+		margin-top: var(--space-1);
+		max-height: 18rem;
+		overflow-y: auto;
+		border-left: 1px solid var(--line);
+		padding-left: var(--space-3);
 	}
-
-	.tool-chips {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	.chip {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 0 var(--space-1);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-
-	.chip-count {
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-		transition: transform var(--dur-fast) var(--ease-out);
-	}
-
-	/* Flex con gap per affiancare il testo di stato (active-intent) e il cronometro (status-tag) */
-	.header-right {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		flex-shrink: 0;
-	}
-
-	.active-intent {
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		max-width: 260px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-style: italic;
-	}
-
-	.status-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		padding: 0 var(--space-1);
-		border-radius: var(--radius-sm);
-		line-height: 1.2;
-		font-variant-numeric: tabular-nums;
-	}
-
-	/* Larghezza minima sull'intervallo comune (`0.1s` ... `1m 00s`) allineata a
-	   destra: le cifre che scorrono non spostano il testo di stato accanto. */
-	.status-tag.running {
-		color: var(--brand-ink);
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
-		min-width: 6ch;
-		text-align: right;
-	}
-
-	.status-tag.error {
-		color: var(--danger);
-	}
-
-	.duration {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		font-variant-numeric: tabular-nums;
-		white-space: nowrap;
-		min-width: 6ch;
-		text-align: right;
-	}
-
-	.group-body {
-		display: flex;
-		flex-direction: column;
-		padding: var(--space-1) var(--space-2) var(--space-2) var(--space-2);
-		border-top: 1px solid var(--line);
-		gap: var(--space-1);
-		background: var(--bg-sunken);
-	}
-
-	.failure-microcopy {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		padding: var(--space-1) var(--space-3) var(--space-2) calc(var(--space-3) + var(--space-3) + 2px);
-		border-top: 1px dashed color-mix(in srgb, var(--danger) 25%, var(--line));
-		background: color-mix(in srgb, var(--danger) 5%, transparent);
-	}
-
-	.failure-line {
-		display: flex;
-		align-items: baseline;
-		flex-wrap: wrap;
-		gap: var(--space-1);
-		font-size: var(--text-xs);
-		line-height: 1.4;
-		min-width: 0;
-	}
-
-	.failure-prefix {
-		color: var(--danger);
-		font-size: var(--text-xs);
-		font-weight: 500;
-		white-space: nowrap;
-	}
-
-	.failure-tool-name {
-		font-family: var(--font-mono);
-		font-weight: 600;
-		color: var(--danger);
-	}
-
-	.failure-reason {
-		color: var(--ink-muted);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		max-width: 100%;
-	}
-
-	.group-entry {
-		min-width: 0;
-	}
-
-	.group-assistant-comment {
-		padding: var(--space-1) var(--space-2);
-		color: var(--ink-muted);
-		font-size: var(--text-sm);
-		line-height: var(--leading-normal);
-	}
-
-	.group-assistant-image {
-		padding: var(--space-1) var(--space-2);
-	}
-
-	.group-assistant-image img {
-		max-width: 100%;
-		max-height: 240px;
-		border-radius: var(--radius-sm);
-	}
-
 </style>

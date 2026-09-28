@@ -284,6 +284,14 @@ commands.allow = [
     "lab_preview_unpublish"
 ]
 
+[[permission]]
+identifier = "allow-chat-attachments"
+description = "Salvataggio e pulizia degli allegati della chat confinati nella cartella locale dell'applicazione"
+commands.allow = [
+    "stage_chat_attachment",
+    "cleanup_chat_attachments"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -309,5 +317,6 @@ permissions = [
     "allow-browser-live",
     "allow-companion",
     "allow-github",
-    "allow-lab"
+    "allow-lab",
+    "allow-chat-attachments"
 ]

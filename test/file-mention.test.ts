@@ -10,7 +10,8 @@ import {
 	insertFileMentionAtCursor,
 	isExcludedPath,
 	rankFileCandidates,
-	extractTouchedFilesFromTranscript
+	extractTouchedFilesFromTranscript,
+	computeCaretAnchorLeft
 } from '../src/lib/agent/fileMention.ts';
 import { extractSlashQueryAtCursor } from '../src/lib/agent/commands.ts';
 import { findFileMentions } from '../src/lib/agent/fileMentionSyntax.ts';
@@ -197,4 +198,22 @@ test('File mention: supporto a menzioni multiple nello stesso testo', () => {
 	assert.ok(match2 !== null);
 	assert.equal(match2?.query, 'src/lib');
 	assert.equal(match2?.startIndex, 31);
+});
+
+test('File mention: calcolo ancoraggio da caret Range rect', () => {
+	const rootRect = { left: 100, width: 700 };
+
+	// Cursore all'inizio dell'input: left deve essere 0
+	const leftStart = computeCaretAnchorLeft({ left: 105 }, rootRect, 380);
+	assert.equal(leftStart, 0);
+
+	// Cursore a metà riga
+	const leftMid = computeCaretAnchorLeft({ left: 300 }, rootRect, 380);
+	// 300 - 100 - 12 = 188
+	assert.equal(leftMid, 188);
+
+	// Cursore verso la fine: bloccato entro i bordi per non sforare
+	const leftEnd = computeCaretAnchorLeft({ left: 750 }, rootRect, 380);
+	// maxLeft = 700 - 380 = 320
+	assert.equal(leftEnd, 320);
 });

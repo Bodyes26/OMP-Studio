@@ -112,11 +112,11 @@
 	}
 
 	.plus {
-		color: var(--git-added);
+		color: var(--success, var(--git-added));
 	}
 
 	.minus {
-		color: var(--git-deleted);
+		color: var(--danger, var(--git-deleted));
 	}
 
 	.body {
@@ -155,23 +155,22 @@
 	}
 
 	.add {
-		background: color-mix(in srgb, var(--git-added) 10%, transparent);
+		background: color-mix(in srgb, var(--success, var(--git-added)) 10%, transparent);
 	}
 
 	.add .sign,
 	.add .text {
-		color: var(--git-added);
+		color: var(--success, var(--git-added));
 	}
 
 	.del {
-		background: color-mix(in srgb, var(--git-deleted) 10%, transparent);
+		background: color-mix(in srgb, var(--danger, var(--git-deleted)) 10%, transparent);
 	}
 
 	.del .sign,
 	.del .text {
-		color: var(--git-deleted);
+		color: var(--danger, var(--git-deleted));
 	}
-
 	.gap {
 		height: 1px;
 		margin: var(--space-1) 0;

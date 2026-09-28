@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	// Accorpamento di righe di sistema consecutive (SystemChip e NoticeRow).
-	// Raggruppa comunicazioni e avvisi di sistema contigui in un unico blocco
-	// compatto e collassabile, evitando che notifiche multiple disperdano la lettura.
+	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px, chevron espandibile).
 	import type { SystemChipEntry, NoticeEntry } from '../session.svelte';
 	import SystemChip from './SystemChip.svelte';
 	import NoticeRow from './NoticeRow.svelte';
 	import { IconChevronRight } from '$lib/icons';
 
-	let { entries }: { entries: (SystemChipEntry | NoticeEntry)[] } = $props();
+	let { entries, fresh = false }: { entries: (SystemChipEntry | NoticeEntry)[]; fresh?: boolean } = $props();
 
 	let expanded = $state(false);
 
@@ -21,7 +20,11 @@
 	const previewText = $derived(previewTitles.join(' · '));
 </script>
 
-<div class="notice-group">
+<div
+	class="notice-group"
+	class:rv-blur={fresh}
+	style={fresh ? '--dur: 400ms; --blur: 4px;' : undefined}
+>
 	<button
 		type="button"
 		class="group-toggle"
@@ -42,12 +45,12 @@
 	</button>
 
 	{#if expanded}
-		<div class="children">
+		<div class="children rv-blur" style="--dur: 200ms; --blur: 2px;">
 			{#each entries as child (child.id)}
 				{#if child.kind === 'system-chip'}
-					<SystemChip entry={child} />
+					<SystemChip entry={child} fresh={false} />
 				{:else if child.kind === 'notice'}
-					<NoticeRow entry={child} />
+					<NoticeRow entry={child} fresh={false} />
 				{/if}
 			{/each}
 		</div>
@@ -57,43 +60,53 @@
 <style>
 	.notice-group {
 		width: 100%;
-		border-top: 1px solid var(--line);
-		padding: var(--space-1) 0;
-		font-size: var(--text-xs);
-		line-height: 1.4;
+		padding: 2px 0;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--ink-muted);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
+		gap: 3px;
 	}
 
 	.group-toggle {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
+		gap: 6px;
 		background: transparent;
 		border: none;
-		padding: 2px var(--space-1);
+		padding: 2px 4px;
+		margin-left: -4px;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
 		text-align: left;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: 12.5px;
+		line-height: 1.4;
+		color: var(--ink-muted);
 		width: 100%;
 		min-width: 0;
+		transition: background-color var(--dur-fast), color var(--dur-fast);
 	}
 
 	.group-toggle:hover {
-		color: var(--ink-muted);
+		color: var(--ink);
 		background: var(--bg-hover);
 	}
 
 	.chevron {
-		--icon-size: 12px;
+		--icon-size: 14px;
+		width: 14px;
+		height: 14px;
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 		transition: transform var(--dur-fast) var(--ease-out);
 		color: var(--ink-faint);
 		flex-shrink: 0;
+	}
+
+	.group-toggle:hover .chevron {
+		color: var(--ink-muted);
 	}
 
 	.chevron.expanded {
@@ -121,6 +134,10 @@
 	.children {
 		display: flex;
 		flex-direction: column;
-		padding-left: calc(12px + var(--space-2));
+		gap: 3px;
+		margin-top: 2px;
+		border-left: 1px solid var(--line);
+		margin-left: 3px;
+		padding-left: 10px;
 	}
 </style>

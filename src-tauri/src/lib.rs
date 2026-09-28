@@ -94,6 +94,8 @@ use lab::{
     lab_prototype_associate, lab_prototype_create, lab_prototype_duplicate, lab_watch_start,
     lab_watch_stop, lab_workspace_exists, lab_workspace_snapshot,
 };
+pub mod chat_attachments;
+use chat_attachments::{cleanup_chat_attachments, stage_chat_attachment};
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -293,6 +295,8 @@ pub fn run() {
             lab_preview_publish_shared,
             lab_preview_publish,
             lab_preview_unpublish,
+            stage_chat_attachment,
+            cleanup_chat_attachments,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {

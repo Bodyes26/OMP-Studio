@@ -1,21 +1,17 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// Card per richieste interattive dall'agente (ask: select, input, editor, confirm).
-	// Supporta:
-	// 1. Scelta singola (radio) e multipla (checkbox) con spunte chiare.
-	// 2. Aggiunta note/specifiche alle risposte (tasto N o pulsante nota).
-	// 3. Input personalizzato inline per "Altro (scrivi la tua risposta)".
-	// 4. Stepper multi-domanda con navigazione libera (frecce sx/dx, tab) e
-	//    schermata finale di riepilogo prima dell'invio definitivo.
-	// 5. Countdown di scadenza e navigazione accessibile da tastiera: la lista
-	//    opzioni e' un listbox con figli `option` e roving tabindex, quindi il
-	//    focus reale segue le frecce e un solo elemento entra nel tab order.
-	//
-	// Il protocollo di `ask` e' sequenziale: omp manda una richiesta per
-	// domanda e aspetta una riga per volta. Il wizard qui dentro copre solo le
-	// domande **ancora da chiedere** (`pending.questionIndex` in avanti): se la
-	// card comparisse a domanda 2 mostrando la 1, le risposte finirebbero tutte
-	// nella casella sbagliata.
+	// Scheda domanda v2 (Gate R32 C17): compatta, al posto del composer.
+	// Una domanda per volta con stepper, scelta 1…N, consigliata, multipla,
+	// "Altro…" in linea, nota (N), anteprima al passaggio del mouse,
+	// "Decidi tu" (testo libero convenzionale in `askAnswers.ts`), avanti/
+	// indietro/invia, avanzamento automatico a 320 ms sulla scelta singola e
+	// conto alla rovescia del timeout. Il protocollo resta sequenziale: il
+	// wizard copre solo le domande ancora da chiedere (`pending.questionIndex`
+	// in avanti) e consegna tutto in un piano via `buildFlushPlan`, un passo
+	// per richiesta. `Escape` riduce la scheda nel vassoio quando il genitore
+	// fornisce `onMinimize`, altrimenti annulla come prima. Nessuna risposta
+	// parte prima della richiesta di omp: l'invio richiede domande davvero
+	// compilate (`isQuestionAnswered`).
 
 	import { tick } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -26,6 +22,7 @@
 		IconCheck,
 		IconCheckbox,
 		IconCheckboxChecked,
+		IconChevronDown,
 		IconNote,
 		IconRadio,
 		IconRadioChecked,
@@ -33,27 +30,40 @@
 	} from '$lib/icons';
 	import type { AgentSession, PendingAsk } from '../session.svelte';
 	import {
+		buildFlushPlan,
 		cleanOptionLabel,
 		firstUnansweredIndex,
-		buildFlushPlan,
 		isDoneOption,
 		isOtherOption,
 		isQuestionAnswered,
 		type AnswerableQuestion,
+		type AskFlushStep,
 		type AskQuestion,
-		type AskQuestionOption,
-		type AskFlushStep
+		type AskQuestionOption
 	} from '../askAnswers';
 	import { parseAskTitle, sanitizeAskDetail } from '../askTitle';
 	import { shouldAutoFocusAskCard } from '../askFocus';
 	import { promptBus } from '../promptBus';
-let { session, pending, visible = true } = $props<{ session: AgentSession; pending: PendingAsk; visible?: boolean }>();
+
+	let {
+		session,
+		pending,
+		visible = true,
+		onMinimize
+	} = $props<{
+		session: AgentSession;
+		pending: PendingAsk;
+		visible?: boolean;
+		onMinimize?: () => void;
+	}>();
 
 	// Prefisso unico per gli id ARIA: piu' sessioni possono avere una card
 	// aperta insieme e gli id duplicati romperebbero aria-describedby.
 	const uid = $props.id();
 
-	// Struttura normalizzata per ogni domanda del wizard
+	/** Ritardo dell'avanzamento automatico dopo una scelta singola. */
+	const AUTO_ADVANCE_MS = 320;
+
 	interface WizardOption {
 		label: string;
 		cleanLabel: string;
@@ -72,22 +82,17 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 		recommended?: number;
 		showNoteInput: boolean;
 		cursorIndex: number;
-		/**
-		 * Numero della domanda nella sequenza completa di omp (1-based). Il
-		 * wizard puo' partire da meta' sequenza, quindi l'indice locale non
-		 * coincide con il numero che l'utente deve vedere.
-		 */
+		/** Numero nella sequenza completa di omp (1-based). */
 		number: number;
 		/**
-		 * Le mutazioni di un `Set` normale sono invisibili alla reattivita' di
-		 * Svelte (il proxy di `$state` avvolge solo oggetti semplici e array):
-		 * con un `Set` la spunta non si aggiornava piu' dopo il primo clic.
+		 * Le mutazioni di un `Set` normale sono invisibili alla reattivita'
+		 * di Svelte: con un `Set` la spunta non si aggiornava dopo il primo clic.
 		 */
 		selectedOptions: SvelteSet<string>;
 	}
 
-
-	// Scadenza con countdown
+	// Scadenza con countdown: oltre, omp risolve da se' al default e la
+	// scheda si chiude da sola come prima (nessun invio dal client).
 	let now = $state(Date.now());
 	$effect(() => {
 		if (!pending.deadline) return;
@@ -102,63 +107,43 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 		const diff = Math.ceil((pending.deadline - now) / 1000);
 		return diff > 0 ? diff : 0;
 	});
-
 	const showCountdown = $derived(remainingSeconds !== null && remainingSeconds > 0);
 
-	// Il titolo porta i marcatori di posizione del protocollo: la lettura sta in
-	// `askTitle.ts` perche' la stessa domanda si mostra anche nel popover del
-	// progetto e nella finestra companion.
 	const parsedTitle = $derived(parseAskTitle(pending.title));
 	const detailMessage = $derived(sanitizeAskDetail(pending.message));
-
-	/**
-	 * Posizione dichiarata dal protocollo, non dal wizard locale: rispondere
-	 * qui non chiude la richiesta se omp ha altre domande da fare, e il
-	 * pulsante deve dirlo invece di promettere una conferma finale.
-	 */
 	const askedNumber = $derived(Math.max((pending.questionIndex ?? 0) + 1, 1));
 	const askedTotal = $derived(Math.max(pending.totalQuestions ?? 1, askedNumber));
-	const moreQuestionsFollow = $derived(askedTotal > askedNumber);
 
-	/**
-	 * Costruisce lo stato iniziale delle domande. Vive a livello di modulo o
-	 * mount: non dentro un `$effect`, perche' sincronizzare stato derivato dai
-	 * props con un effetto e' l'anti-pattern segnalato dalla documentazione di
-	 * Svelte 5. Quando `pendingUi` cambia o viene arricchito da
-	 * `tool_execution_start`, il blocco `{#key}` nel genitore distrugge e
-	 * rimonta questa card con il nuovo stato pulito.
-	 */
 	function initWizardQuestions(): WizardQuestion[] {
 		const rawQuestions = pending.questions;
 		const rawOptions = pending.options ?? [];
 		const rawDetails = pending.optionDetails ?? [];
-		const baseStart = rawQuestions && rawQuestions.length > 0
-			? Math.min(Math.max(pending.questionIndex ?? 0, 0), rawQuestions.length - 1)
-			: 0;
+		const baseStart =
+			rawQuestions && rawQuestions.length > 0
+				? Math.min(Math.max(pending.questionIndex ?? 0, 0), rawQuestions.length - 1)
+				: 0;
 
 		if (rawQuestions && rawQuestions.length > 0) {
 			return rawQuestions.slice(baseStart).map((q: AskQuestion, qIdx: number) => {
 				const opts: WizardOption[] = q.options.map((o: AskQuestionOption, oIdx: number) => {
 					const clean = cleanOptionLabel(o.label);
 					const isRec = o.label.endsWith(' (Recommended)') || q.recommended === oIdx;
-					const isOth = isOtherOption(o.label);
-					const isDone = isDoneOption(o.label);
 					return {
 						label: o.label,
 						cleanLabel: clean,
 						description: o.description,
 						preview: o.preview,
 						isRecommended: isRec,
-						isOther: isOth,
-						isDoneSentinel: isDone
+						isOther: isOtherOption(o.label),
+						isDoneSentinel: isDoneOption(o.label)
 					};
 				});
 
 				if (!opts.some((o) => o.isOther)) {
 					opts.push({
 						label: 'Other (type your own)',
-						cleanLabel: m.ui_askcard_altro_scrivi_la_tua_risposta_3c62(),
-						description: m.ui_askcard_inserisci_una_risposta_personalizzata_f9dc(),
+						cleanLabel: m.chat_v2_ask_other(),
+						description: m.chat_v2_ask_other_hint(),
 						isRecommended: false,
 						isOther: true,
 						isDoneSentinel: false
@@ -181,6 +166,7 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 					recommended: q.recommended,
 					selectedOptions: preselected,
 					note: '',
+					decideForMe: false,
 					showNoteInput: false,
 					customInput: '',
 					isCustom: false,
@@ -194,16 +180,16 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 		const isMulti = parsedTitle.counter !== null && /selected|selezionat/i.test(parsedTitle.counter || '');
 		const opts: WizardOption[] = rawOptions.map((o: string, oIdx: number) => {
 			const clean = cleanOptionLabel(o);
-			const isRec = o.endsWith(' (Recommended)');
 			const isOth = isOtherOption(o);
-			const isDone = isDoneOption(o);
 			return {
 				label: o,
-				cleanLabel: isOth ? m.ui_askcard_altro_scrivi_la_tua_risposta_3c62() : clean,
-				description: rawDetails[oIdx]?.description,
-				isRecommended: isRec,
+				cleanLabel: isOth ? m.chat_v2_ask_other() : clean,
+				description: isOth
+					? (rawDetails[oIdx]?.description ?? m.chat_v2_ask_other_hint())
+					: rawDetails[oIdx]?.description,
+				isRecommended: o.endsWith(' (Recommended)'),
 				isOther: isOth,
-				isDoneSentinel: isDone
+				isDoneSentinel: isDoneOption(o)
 			};
 		});
 
@@ -216,7 +202,7 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 		return [
 			{
 				id: 'q1',
-				question: parsedTitle.text || pending.title || m.ui_askcard_richiesta_agente_3a00(),
+				question: parsedTitle.text || pending.title,
 				header: undefined,
 				number: askedNumber,
 				options: opts,
@@ -224,6 +210,7 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 				recommended: recIdx >= 0 ? recIdx : undefined,
 				selectedOptions: preselected,
 				note: '',
+				decideForMe: false,
 				showNoteInput: false,
 				customInput: '',
 				isCustom: false,
@@ -234,35 +221,23 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 		];
 	}
 
-	// Costruzione dello stato normalizzato delle domande
 	let questions = $state<WizardQuestion[]>(initWizardQuestions());
-	let activeStep = $state(0); // 0..questions.length-1 sono le domande, questions.length è il Riepilogo
+	let activeStep = $state(0);
 	let isReviewStep = $derived(questions.length > 1 && activeStep === questions.length);
 	let currentQuestion = $derived<WizardQuestion | undefined>(questions[activeStep]);
-	/** Vero quando la domanda corrente puo' essere considerata risposta. */
-	const currentAnswered = $derived(
-		currentQuestion ? isQuestionAnswered(currentQuestion) : false
-	);
-	/** Indice della prima domanda incompleta, per il riepilogo e l'invio. */
+	const currentAnswered = $derived(currentQuestion ? isQuestionAnswered(currentQuestion) : false);
 	const missingIndex = $derived(firstUnansweredIndex(questions));
+	const answeredCount = $derived(questions.filter((q) => isQuestionAnswered(q)).length);
+	const allAnswered = $derived(missingIndex === -1);
 
-	/**
-	 * Posizione della prima domanda ancora da chiedere. Il wizard modifica
-	 * solo da qui in avanti: le precedenti hanno gia' avuto la loro risposta e
-	 * riproporle sposterebbe tutte le successive di una casella.
-	 */
 	const startIndex = $derived.by(() => {
 		const raw = pending.questions;
 		if (!raw || raw.length === 0) return 0;
 		return Math.min(Math.max(pending.questionIndex ?? 0, 0), raw.length - 1);
 	});
 
-	/**
-	 * Domande di questa chiamata `ask` la cui risposta e' gia' partita. Non
-	 * sono modificabili, ma restano nella barra dei passaggi: farle sparire
-	 * sembrava una domanda cancellata e rendeva incomprensibile la
-	 * numerazione di quelle rimaste.
-	 */
+	// Domande la cui risposta e' gia' partita: non modificabili, ma restano
+	// nella barra perche' farle sparire rende incomprensibile la numerazione.
 	const sentQuestions = $derived.by(() => {
 		const raw = pending.questions;
 		if (!raw || raw.length === 0) return [];
@@ -273,7 +248,8 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 		}));
 	});
 
-	// Riferimenti DOM ed input
+	const multiSteps = $derived(sentQuestions.length + questions.length > 1);
+
 	let cardEl = $state<HTMLElement | null>(null);
 	let noteInputEl = $state<HTMLInputElement | null>(null);
 	let customTextareaEl = $state<HTMLTextAreaElement | null>(null);
@@ -283,60 +259,82 @@ let { session, pending, visible = true } = $props<{ session: AgentSession; pendi
 	let plainInputValue = $state('');
 	let plainEditorValue = $state('');
 	let submitting = $state(false);
+	let hoverIdx = $state<number | null>(null);
 
-$effect(() => {
-	const _id = pending.requestId;
-	plainInputValue = pending.prefill ?? '';
-	plainEditorValue = pending.prefill ?? '';
-	submitting = false;
-
-	// Mai rubare il fuoco: la card di un progetto in background e' montata
-	// ma invisibile, e l'utente potrebbe stare scrivendo in un altro prompt
-	// o in un'altra finestra.
-	const active = document.activeElement as HTMLElement | null;
-	const documentHasFocus =
-		typeof document.hasFocus === 'function' ? document.hasFocus() : true;
-	if (
-		!shouldAutoFocusAskCard(
-			visible,
-			documentHasFocus,
-			active,
-			document.body,
-			cardEl?.contains(active) ?? false
-		)
-	) {
-		traceFocus('ask-card-focus-skipped', `visible=${visible}`);
-		return;
+	let advanceTimer: ReturnType<typeof setTimeout> | null = null;
+	function clearAdvance() {
+		if (advanceTimer !== null) {
+			clearTimeout(advanceTimer);
+			advanceTimer = null;
+		}
 	}
-	traceFocus('ask-card-focus');
+	$effect(() => () => clearAdvance());
 
-	if (pending.method === 'input' && plainInputEl) {
-		plainInputEl.focus();
-	} else if (pending.method === 'editor' && plainEditorEl) {
-		plainEditorEl.focus();
-	} else {
-		cardEl?.focus();
-	}
-});
+	$effect(() => {
+		const _id = pending.requestId;
+		plainInputValue = pending.prefill ?? '';
+		plainEditorValue = pending.prefill ?? '';
+		submitting = false;
 
-	// Opzioni visibili per la domanda corrente (esclude sentinelle tecniche "Done selecting")
+		// Mai rubare il fuoco: la card di un progetto in background e'
+		// montata ma invisibile, e l'utente potrebbe stare scrivendo altrove.
+		const active = document.activeElement as HTMLElement | null;
+		const documentHasFocus =
+			typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+		if (
+			!shouldAutoFocusAskCard(
+				visible,
+				documentHasFocus,
+				active,
+				document.body,
+				cardEl?.contains(active) ?? false
+			)
+		) {
+			traceFocus('ask-card-focus-skipped', `visible=${visible}`);
+			return;
+		}
+		traceFocus('ask-card-focus');
+
+		if (pending.method === 'input' && plainInputEl) {
+			plainInputEl.focus();
+		} else if (pending.method === 'editor' && plainEditorEl) {
+			plainEditorEl.focus();
+		} else {
+			cardEl?.focus();
+		}
+	});
+
+	// Opzioni visibili: fuori le sentinelle tecniche di fine selezione.
 	const visibleOptions = $derived.by<WizardOption[]>(() => {
 		if (!currentQuestion) return [];
 		return currentQuestion.options.filter((o) => !o.isDoneSentinel);
 	});
 
-	/** Nome accessibile dell'opzione: "consigliata" deve stare nel nome, non
-	 * solo nel badge colorato, altrimenti chi non vede il badge la perde. */
+	// Anteprima affiancata: quella sotto il mouse, altrimenti la scelta,
+	// altrimenti la consigliata. Solo se almeno un'opzione ne ha una.
+	const hasPreview = $derived.by(
+		() => !!currentQuestion && currentQuestion.options.some((o) => !!o.preview)
+	);
+	const previewIdx = $derived.by(() => {
+		if (!currentQuestion) return 0;
+		if (hoverIdx !== null && hoverIdx < visibleOptions.length) return hoverIdx;
+		const firstSelected = visibleOptions.findIndex((o) =>
+			currentQuestion!.selectedOptions.has(o.cleanLabel)
+		);
+		if (firstSelected >= 0) return firstSelected;
+		const rec = currentQuestion.recommended;
+		if (typeof rec === 'number' && rec >= 0 && rec < visibleOptions.length) return rec;
+		return 0;
+	});
+	const previewOption = $derived(visibleOptions[previewIdx]);
+	const noteShown = $derived(!!currentQuestion && (currentQuestion.showNoteInput || !!currentQuestion.note));
+
 	function optionAccessibleName(opt: WizardOption): string {
-		return opt.isRecommended ? `${opt.cleanLabel}, consigliata` : opt.cleanLabel;
+		return opt.isRecommended ? `${opt.cleanLabel}, ${m.chat_v2_ask_recommended()}` : opt.cleanLabel;
 	}
 
-	// Riferimenti alle opzioni renderizzate: il focus reale deve seguire il
-	// cursore, perche' uno screen reader annuncia solo l'elemento a fuoco.
-	// Svelte azzera la casella quando l'elemento viene distrutto.
 	let optionEls: (HTMLElement | null)[] = [];
 
-	/** Porta cursore e focus reale sull'opzione `index`. Falso se non c'e'. */
 	function focusOption(index: number): boolean {
 		if (!currentQuestion) return false;
 		const total = visibleOptions.length;
@@ -349,13 +347,9 @@ $effect(() => {
 		return true;
 	}
 
-	/**
-	 * Spostamento del cursore. A scelta singola la selezione segue il fuoco,
-	 * come in un radiogroup: il ring che si muoveva lasciando indietro la
-	 * risposta era la trappola peggiore, perche' l'invio mandava all'agente
-	 * l'opzione consigliata invece di quella che l'utente stava leggendo.
-	 * A scelta multipla le frecce spostano soltanto: la spunta e' Spazio.
-	 */
+	// A scelta singola la selezione segue il fuoco come in un radiogroup: il
+	// ring che si muoveva lasciando indietro la risposta mandava all'agente
+	// l'opzione sbagliata. A scelta multipla le frecce spostano soltanto.
 	function moveTo(index: number) {
 		if (!currentQuestion) return;
 		const total = visibleOptions.length;
@@ -363,12 +357,9 @@ $effect(() => {
 		focusOption(index);
 		if (currentQuestion.multi) return;
 		const opt = visibleOptions[currentQuestion.cursorIndex];
-		// "Altro" si arma ma non ruba il fuoco: le frecce devono continuare a
-		// funzionare, e la risposta resta incompleta finche' non c'e' il testo.
-		if (opt) toggleOption(opt, false);
+		if (opt) applyChoice(opt, { advance: false, focusCustom: false });
 	}
 
-	/** Frecce su/giu': scorrimento circolare come nelle altre liste dell'app. */
 	function moveCursor(delta: number) {
 		if (!currentQuestion) return;
 		const total = visibleOptions.length;
@@ -376,24 +367,24 @@ $effect(() => {
 		moveTo((currentQuestion.cursorIndex + delta + total) % total);
 	}
 
-	/** Selezione dall'indice: usata sia dal click sia dalla barra spaziatrice. */
-	function selectAt(index: number) {
+	function selectAt(index: number, advance = true) {
 		const opt = visibleOptions[index];
 		if (!opt) return;
 		focusOption(index);
-		toggleOption(opt, true);
+		applyChoice(opt, { advance, focusCustom: true });
 	}
 
-	// Gestione selezione opzioni
-	function toggleOption(opt: WizardOption, focusCustom: boolean) {
+	function applyChoice(opt: WizardOption, opts: { advance: boolean; focusCustom: boolean }) {
 		if (!currentQuestion) return;
+		clearAdvance();
 		currentQuestion.touched = true;
 		currentQuestion.visited = true;
+		currentQuestion.decideForMe = false;
 
 		if (opt.isOther) {
 			currentQuestion.isCustom = true;
 			currentQuestion.selectedOptions.clear();
-			if (focusCustom) setTimeout(() => customTextareaEl?.focus(), 50);
+			if (opts.focusCustom) setTimeout(() => customTextareaEl?.focus(), 50);
 			return;
 		}
 
@@ -404,14 +395,38 @@ $effect(() => {
 			} else {
 				currentQuestion.selectedOptions.add(opt.cleanLabel);
 			}
-		} else {
+			return;
+		}
+
+		currentQuestion.selectedOptions.clear();
+		currentQuestion.selectedOptions.add(opt.cleanLabel);
+
+		// Scelta singola: avanza da sola alla domanda successiva, se e'
+		// gia' arrivata. Sull'ultima resta dov'e': l'invio lo conferma l'utente.
+		if (opts.advance && !currentQuestion.showNoteInput && questions.length > 1 && activeStep < lastStep) {
+			const next = activeStep + 1;
+			advanceTimer = setTimeout(() => {
+				advanceTimer = null;
+				void goToStep(next);
+			}, AUTO_ADVANCE_MS);
+		}
+	}
+
+	function toggleDecide() {
+		if (!currentQuestion) return;
+		clearAdvance();
+		currentQuestion.touched = true;
+		currentQuestion.visited = true;
+		currentQuestion.decideForMe = !currentQuestion.decideForMe;
+		if (currentQuestion.decideForMe) {
 			currentQuestion.selectedOptions.clear();
-			currentQuestion.selectedOptions.add(opt.cleanLabel);
+			currentQuestion.isCustom = false;
 		}
 	}
 
 	function toggleNoteInput() {
 		if (!currentQuestion) return;
+		clearAdvance();
 		currentQuestion.touched = true;
 		currentQuestion.showNoteInput = !currentQuestion.showNoteInput;
 		if (currentQuestion.showNoteInput) {
@@ -419,31 +434,30 @@ $effect(() => {
 		}
 	}
 
-	// Navigazione tra le domande. Il riepilogo esiste solo con piu' di una
-	// domanda: con una sola, il passo `questions.length` non ha niente da
-	// mostrare e la card resterebbe vuota con omp ancora in attesa.
+	// Il riepilogo esiste solo con piu' di una domanda: con una sola, il
+	// passo `questions.length` non avrebbe niente da mostrare.
 	const lastStep = $derived(questions.length > 1 ? questions.length : Math.max(questions.length - 1, 0));
+	const nextExists = $derived(activeStep < lastStep);
 
 	async function goToStep(stepIndex: number) {
 		if (stepIndex < 0 || stepIndex > lastStep) return;
+		clearAdvance();
+		hoverIdx = null;
 		activeStep = stepIndex;
-		// Vedere la domanda e' la condizione perche' la sua opzione
-		// pre-selezionata possa valere come risposta.
 		const target = questions[stepIndex];
 		if (target) target.visited = true;
 		if (currentQuestion && currentQuestion.cursorIndex >= visibleOptions.length) {
 			currentQuestion.cursorIndex = 0;
 		}
-		// Le opzioni del passo precedente vengono distrutte: senza riportare il
-		// focus dentro la card le scorciatoie da tastiera smetterebbero di
-		// funzionare, perche' il gestore ascolta solo il focus interno.
+		// Le opzioni del passo precedente vengono distrutte: senza riportare
+		// il focus dentro la card le scorciatoie smetterebbero di funzionare.
 		await tick();
 		if (!focusOption(currentQuestion?.cursorIndex ?? 0)) cardEl?.focus();
 	}
 
 	function nextStep() {
-		// Avanzare senza risposta significherebbe inviarne una inventata al
-		// posto dell'utente: il passo resta dov'e'.
+		// Avanzare senza risposta significherebbe inviarne una inventata:
+		// il passo resta dov'e'.
 		if (!isReviewStep && !currentAnswered) return;
 		if (activeStep < lastStep) {
 			void goToStep(activeStep + 1);
@@ -458,20 +472,16 @@ $effect(() => {
 		}
 	}
 
-	/** Invio definitivo: solo con tutte le risposte davvero compilate. */
 	async function submitAllAnswers() {
 		if (submitting) return;
+		clearAdvance();
 		const plan = buildFlushPlan(questions);
 		if (!plan) {
-			// Porta l'utente sulla domanda che manca, invece di inviare a meta'.
-			if (missingIndex >= 0) goToStep(missingIndex);
+			if (missingIndex >= 0) void goToStep(missingIndex);
 			return;
 		}
 		submitting = true;
 		try {
-			// Anche una domanda sola puo' produrre piu' righe (spunte multiple
-			// piu' la sentinella di fine selezione): mandarne una e buttare le
-			// altre lasciava omp a chiedere di nuovo la stessa cosa.
 			await submitPlan(plan);
 		} finally {
 			submitting = false;
@@ -510,7 +520,11 @@ $effect(() => {
 		await session.cancelPendingUi();
 	}
 
-	// Gestore tastiera unificato
+	function minimizeOrCancel() {
+		if (onMinimize) onMinimize();
+		else void cancelUi();
+	}
+
 	function handleCardKeydown(e: KeyboardEvent) {
 		if (pending.method === 'confirm') {
 			if (e.key === 'Enter') {
@@ -518,7 +532,8 @@ $effect(() => {
 				void submitConfirm(true);
 			} else if (e.key === 'Escape') {
 				e.preventDefault();
-				void submitConfirm(false);
+				if (onMinimize) onMinimize();
+				else void submitConfirm(false);
 			}
 			return;
 		}
@@ -526,16 +541,22 @@ $effect(() => {
 		if (pending.method === 'input' || pending.method === 'editor') {
 			if (e.key === 'Escape') {
 				e.preventDefault();
-				void cancelUi();
+				minimizeOrCancel();
 			}
 			return;
 		}
 
-		// Non intercettiamo le frecce/spazio se l'utente sta scrivendo in un input o textarea
 		const target = e.target as HTMLElement | null;
-		const isInputActive = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA';
+		// Su un pulsante lasciano agire il pulsante: intercettare Invio o
+		// Spazio qui significherebbe eseguire l'azione due volte (una dal
+		// gestore, una dal clic di default). Frecce, cifre, N ed Esc restano
+		// attivi anche dai pulsanti.
+		if (target?.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+		const typing =
+			target !== null &&
+			(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
-		if (isInputActive) {
+		if (typing) {
 			if (e.key === 'Escape') {
 				e.preventDefault();
 				target?.blur();
@@ -553,30 +574,27 @@ $effect(() => {
 
 		if (e.key === 'Escape') {
 			e.preventDefault();
-			void cancelUi();
+			minimizeOrCancel();
 			return;
 		}
 
-		// Navigazione orizzontale tra le domande (← / →)
-		if (e.key === 'ArrowLeft') {
+		if (e.key === 'ArrowLeft' && questions.length > 1) {
 			e.preventDefault();
 			prevStep();
 			return;
 		}
-		if (e.key === 'ArrowRight') {
+		if (e.key === 'ArrowRight' && questions.length > 1) {
 			e.preventDefault();
 			nextStep();
 			return;
 		}
 
-		// Tasto N per aprire/chiudere il campo nota
 		if ((e.key === 'n' || e.key === 'N') && !isReviewStep && currentQuestion) {
 			e.preventDefault();
 			toggleNoteInput();
 			return;
 		}
 
-		// Navigazione verticale opzioni (↑ / ↓): sposta anche il focus reale.
 		if (e.key === 'ArrowUp' && currentQuestion) {
 			e.preventDefault();
 			moveCursor(-1);
@@ -588,7 +606,6 @@ $effect(() => {
 			return;
 		}
 
-		// Home / End: prima e ultima opzione dell'elenco.
 		if (e.key === 'Home' && currentQuestion) {
 			e.preventDefault();
 			moveTo(0);
@@ -600,27 +617,39 @@ $effect(() => {
 			return;
 		}
 
-		// Spazio: seleziona o spunta l'opzione a fuoco.
-		if (e.key === ' ' && currentQuestion) {
+		if (e.key === ' ' && currentQuestion && !isReviewStep) {
 			e.preventDefault();
 			selectAt(currentQuestion.cursorIndex);
 			return;
 		}
 
-		// Invio: conferma la domanda singola oppure avanza nel wizard.
+		// Tasti 1…9: scelta diretta, "Altro…" compreso quando e' entro le nove.
+		if (/^[1-9]$/.test(e.key) && currentQuestion && !isReviewStep) {
+			const idx = Number(e.key) - 1;
+			if (idx < visibleOptions.length) {
+				e.preventDefault();
+				selectAt(idx);
+			}
+			return;
+		}
+
 		if (e.key === 'Enter') {
 			e.preventDefault();
-			// Senza selezione vale l'opzione a fuoco: e' quella che l'utente sta
-			// leggendo, non un ripiego scelto dal codice.
+			// Senza selezione vale l'opzione a fuoco: e' quella che l'utente
+			// sta leggendo. Mai una scelta inventata dal codice, mai sopra
+			// un "Decidi tu" o un testo libero.
 			const needsCursorPick =
-				!!currentQuestion && currentQuestion.selectedOptions.size === 0 && !currentQuestion.isCustom;
+				!!currentQuestion &&
+				!currentQuestion.decideForMe &&
+				currentQuestion.selectedOptions.size === 0 &&
+				!currentQuestion.isCustom;
 			if (isReviewStep || (questions.length === 1 && !currentQuestion?.multi)) {
 				if (questions.length === 1 && needsCursorPick && currentQuestion) {
-					selectAt(currentQuestion.cursorIndex);
+					selectAt(currentQuestion.cursorIndex, false);
 				}
 				void submitAllAnswers();
 			} else {
-				if (needsCursorPick && currentQuestion) selectAt(currentQuestion.cursorIndex);
+				if (needsCursorPick && currentQuestion) selectAt(currentQuestion.cursorIndex, false);
 				nextStep();
 			}
 		}
@@ -632,1189 +661,962 @@ $effect(() => {
 <div
 	class="ask-card"
 	role="region"
-	aria-label={parsedTitle.text || m.ui_askcard_richiesta_agente_3a00()}
+	aria-label={parsedTitle.text || m.chat_v2_ask_title_single()}
 	tabindex="-1"
 	bind:this={cardEl}
 >
-	<!-- Header con Stepper Multi-Domanda e Countdown -->
-	<div class="header">
-		{#if sentQuestions.length + questions.length > 1}
-			<nav class="stepper-bar" aria-label={m.ask_stepper_aria()}>
-				<!-- Domande la cui risposta e' gia' partita: restano visibili e
-				     non cliccabili, perche' il protocollo non permette di
-				     tornare indietro su una risposta consegnata. -->
-				{#each sentQuestions as sent}
-					<span
-						class="step-pill sent"
-						title={sent.question}
-						aria-label={`Domanda ${sent.number} di ${askedTotal}: ${sent.label}, risposta gia' inviata`}
-					>
-						<span class="step-badge" aria-hidden="true"><IconCheck /></span>
-						<span class="step-label">{sent.label}</span>
-						<span class="step-state">inviata</span>
+	<!-- Intestazione: titolo, avanzamento, countdown, riduzione -->
+	<div class="ask-head">
+		{#if multiSteps}
+			<span class="ask-count" aria-hidden="true">{answeredCount}/{sentQuestions.length + questions.length}</span>
+		{/if}
+		<span class="ask-title">
+			{#if isReviewStep}
+				{m.chat_v2_ask_review_title()}
+			{:else if multiSteps}
+				{m.chat_v2_ask_title_multi()}
+			{:else}
+				{m.chat_v2_ask_title_single()}
+			{/if}
+		</span>
+		{#if multiSteps && !isReviewStep}
+			<span class="ask-progress">{m.chat_v2_ask_progress({ done: answeredCount, total: sentQuestions.length + questions.length })}</span>
+		{/if}
+		{#if showCountdown}
+			<span class="ask-deadline" role="timer">{m.chat_v2_ask_expires({ seconds: remainingSeconds ?? 0 })}</span>
+		{/if}
+		{#if onMinimize}
+			<button
+				type="button"
+				class="ask-min"
+				onclick={() => onMinimize()}
+				title={m.chat_v2_ask_minimize()}
+				aria-label={m.chat_v2_ask_minimize()}
+			>
+				<IconChevronDown />
+			</button>
+		{/if}
+	</div>
+
+	<!-- Stepper: risposte gia' partite (non cliccabili), domande, riepilogo -->
+	{#if multiSteps}
+		<nav class="ask-steps" aria-label={m.ask_stepper_aria()}>
+			{#each sentQuestions as sent}
+				<span
+					class="ask-step sent"
+					title={sent.question}
+					aria-label={m.chat_v2_ask_step_aria({
+						number: sent.number,
+						total: askedTotal,
+						label: sent.label,
+						state: m.chat_v2_ask_step_sent()
+					})}
+				>
+					<span class="ask-step-badge" aria-hidden="true"><IconCheck /></span>
+					<span class="ask-step-label">{sent.label}</span>
+				</span>
+			{/each}
+			{#each questions as q, idx}
+				{@const done = isQuestionAnswered(q)}
+				{@const cur = activeStep === idx && !isReviewStep}
+				<button
+					type="button"
+					class="ask-step"
+					class:cur
+					class:done={done && !cur}
+					onclick={() => void goToStep(idx)}
+					title={q.question}
+					aria-current={cur ? 'step' : undefined}
+					aria-label={m.chat_v2_ask_step_aria({
+						number: q.number,
+						total: askedTotal,
+						label: q.header || q.question,
+						state: done ? m.chat_v2_ask_step_done() : m.chat_v2_ask_step_todo()
+					})}
+				>
+					<span class="ask-step-badge" aria-hidden="true">
+						{#if done && !cur}
+							<IconCheck />
+						{:else}
+							{q.number}
+						{/if}
 					</span>
-				{/each}
+					<span class="ask-step-label">{q.header || `${m.chat_v2_ask_counter({ current: q.number, total: askedTotal })}`}</span>
+				</button>
+			{/each}
+			{#if questions.length > 1}
+				<button
+					type="button"
+					class="ask-step review"
+					class:cur={isReviewStep}
+					onclick={() => void goToStep(questions.length)}
+					aria-current={isReviewStep ? 'step' : undefined}
+				>
+					<span class="ask-step-badge" aria-hidden="true">✓</span>
+					<span class="ask-step-label">{m.chat_v2_ask_review_tab()}</span>
+				</button>
+			{/if}
+		</nav>
+	{/if}
+
+	{#if pending.method === 'select'}
+		{#if isReviewStep}
+			<div class="ask-review">
 				{#each questions as q, idx}
-					{@const isAnswered = isQuestionAnswered(q)}
-					{@const isCurrent = activeStep === idx}
-					<button
-						type="button"
-						class="step-pill"
-						class:active={isCurrent}
-						class:answered={isAnswered}
-						onclick={() => void goToStep(idx)}
-						title={q.question}
-						aria-current={isCurrent ? 'step' : undefined}
-						aria-label={`Domanda ${q.number} di ${askedTotal}: ${q.header || q.question}, ${isAnswered ? m.ui_askcard_completata_4026() : m.ui_askcard_ancora_senza_risposta_4b23()}`}
-					>
-						<span class="step-badge" aria-hidden="true">
-							{#if isAnswered && !isCurrent}
-								<IconCheck />
+					<div class="ask-review-row">
+						<span class="ask-review-q" title={q.question}>{q.header || q.question}</span>
+						<span class="ask-review-a">
+							{#if !isQuestionAnswered(q)}
+								<span class="ask-missing">—</span>
+							{:else if q.decideForMe}
+								<span class="ask-decided">{m.chat_v2_ask_decide_active()}</span>
+							{:else if q.isCustom && q.customInput.trim()}
+								<span>“{q.customInput.trim()}”</span>
+							{:else if q.selectedOptions.size > 0}
+								{Array.from(q.selectedOptions).join(', ')}
 							{:else}
-								{q.number}
+								<span class="ask-missing">—</span>
 							{/if}
 						</span>
-						<span class="step-label">{q.header || `Domanda ${q.number}`}</span>
-						<!-- Lo stato non puo' vivere solo nell'icona: qui resta anche
-						     come testo per chi legge la pillola a schermo. -->
-						<span class="step-state" class:missing={!isAnswered}>
-							{isAnswered ? 'ok' : 'da fare'}
-						</span>
-					</button>
+						<button
+							type="button"
+							class="ask-edit"
+							onclick={() => void goToStep(idx)}
+							aria-label={m.ask_edit_answer_btn()}
+						>
+							<IconRename />
+						</button>
+					</div>
 				{/each}
-				{#if questions.length > 1}
-					<button
-						type="button"
-						class="step-pill review-pill"
-						class:active={isReviewStep}
-						onclick={() => void goToStep(questions.length)}
-						aria-current={isReviewStep ? 'step' : undefined}
-						aria-label={missingIndex === -1
-							? 'Riepilogo, tutte le risposte compilate'
-							: `Riepilogo, manca la risposta alla domanda ${questions[missingIndex]?.number ?? missingIndex + 1}`}
-					>
-						<span class="step-badge" aria-hidden="true">★</span>
-						<span class="step-label">Riepilogo</span>
-					</button>
+			</div>
+		{:else if currentQuestion}
+			<div class="ask-q">
+				{#if askedTotal > 1 && questions.length <= 1}
+					<span class="ask-counter">{m.chat_v2_ask_counter({ current: askedNumber, total: askedTotal })}</span>
+				{:else if parsedTitle.counter && questions.length <= 1}
+					<span class="ask-counter">{parsedTitle.counter}</span>
 				{/if}
-			</nav>
+				{#if currentQuestion.header && multiSteps}
+					<span class="ask-header">{currentQuestion.header}</span>
+				{/if}
+				<p class="ask-text">{currentQuestion.question}</p>
+				{#if detailMessage}
+					<p class="ask-detail">{detailMessage}</p>
+				{/if}
+				{#if currentQuestion.multi}
+					<span class="ask-multi">{m.chat_v2_ask_multi()} · {m.chat_v2_ask_multi_hint()}</span>
+				{/if}
+			</div>
+
+			<div class="ask-main" class:with-preview={hasPreview && !!previewOption?.preview}>
+				<div
+					class="ask-options"
+					role="listbox"
+					tabindex="-1"
+					aria-labelledby={`${uid}-q`}
+					aria-multiselectable={currentQuestion.multi}
+					onmouseleave={() => (hoverIdx = null)}
+				>
+					<span id={`${uid}-q`} class="sr-only">{currentQuestion.question}</span>
+					{#each visibleOptions as opt, i}
+						{@const selected = currentQuestion.decideForMe
+							? false
+							: currentQuestion.isCustom
+								? opt.isOther
+								: currentQuestion.selectedOptions.has(opt.cleanLabel)}
+						{@const focused = currentQuestion.cursorIndex === i}
+						<div
+							bind:this={optionEls[i]}
+							class="ask-opt"
+							class:selected
+							class:focused
+							role="option"
+							aria-selected={selected}
+							aria-label={optionAccessibleName(opt)}
+							aria-describedby={opt.description ? `${uid}-opt-${i}-desc` : undefined}
+							tabindex={focused ? 0 : -1}
+							onclick={() => selectAt(i)}
+							onmouseenter={() => {
+								if (hasPreview) hoverIdx = i;
+							}}
+							onfocus={() => {
+								if (currentQuestion) currentQuestion.cursorIndex = i;
+							}}
+							onkeydown={(e) => {
+								if (e.key === ' ') {
+									e.preventDefault();
+									e.stopPropagation();
+									selectAt(i);
+								}
+							}}
+						>
+							<span class="ask-box" aria-hidden="true">
+								{#if currentQuestion.multi}
+									{#if selected}
+										<IconCheckboxChecked />
+									{:else}
+										<IconCheckbox />
+									{/if}
+								{:else if selected}
+									<IconRadioChecked />
+								{:else}
+									<IconRadio />
+								{/if}
+							</span>
+							<span class="ask-opt-body">
+								<span class="ask-opt-label">
+									{opt.cleanLabel}
+									{#if opt.isRecommended}
+										<span class="ask-rec">{m.chat_v2_ask_recommended()}</span>
+									{/if}
+								</span>
+								{#if opt.description}
+									<span class="ask-opt-desc" id={`${uid}-opt-${i}-desc`}>{opt.description}</span>
+								{/if}
+							</span>
+							{#if i < 9}
+								<kbd class="ask-kbd" aria-hidden="true">{i + 1}</kbd>
+							{/if}
+						</div>
+					{/each}
+				</div>
+
+				{#if hasPreview && previewOption?.preview}
+					<div class="ask-preview" aria-live="off">
+						<div class="ask-preview-head">
+							<span>{m.chat_v2_ask_preview()}</span>
+							<span class="ask-preview-label">{previewOption.cleanLabel}</span>
+						</div>
+						<pre class="ask-preview-code"><code>{previewOption.preview}</code></pre>
+					</div>
+				{/if}
+			</div>
+
+			{#if currentQuestion.isCustom && !currentQuestion.decideForMe}
+				<div class="ask-other">
+					<label class="ask-other-label" for={`${uid}-custom`}>{m.chat_v2_ask_other()}</label>
+					<textarea
+						id={`${uid}-custom`}
+						class="ask-other-input"
+						placeholder={m.ask_custom_placeholder()}
+						bind:value={currentQuestion.customInput}
+						bind:this={customTextareaEl}
+						rows="2"
+					></textarea>
+				</div>
+			{/if}
+
+			{#if noteShown && !currentQuestion.decideForMe}
+				<div class="ask-note">
+					<IconNote aria-hidden="true" />
+					<input
+						type="text"
+						class="ask-note-input"
+						placeholder={m.ask_note_placeholder()}
+						bind:value={currentQuestion.note}
+						bind:this={noteInputEl}
+						aria-label={m.ask_note_placeholder()}
+					/>
+				</div>
+			{/if}
 		{/if}
 
-		<div class="title-row">
-			{#if askedTotal > 1 && questions.length <= 1}
-				<!-- Sequenza in corso di cui la card vede una sola domanda: il
-				     numero va detto, o l'utente crede di stare rispondendo a
-				     tutto. -->
-				<span class="counter-badge">{m.ui_askcard_domanda_839c()} {askedNumber} di {askedTotal}</span>
-			{:else if parsedTitle.counter && questions.length <= 1}
-				<span class="counter-badge">{parsedTitle.counter}</span>
-			{/if}
-			<h3 class="title-text" id={`${uid}-question`}>
-				{#if isReviewStep}
-					Riepilogo delle risposte
-				{:else if currentQuestion}
-					{currentQuestion.question}
-				{:else}
-					{parsedTitle.text}
+		<!-- Piè: Decidi tu · suggerimenti · Indietro/Avanti/Invia -->
+		<div class="ask-foot">
+			{#if !isReviewStep && currentQuestion}
+				<button
+					type="button"
+					class="ask-decide"
+					class:on={currentQuestion.decideForMe}
+					onclick={() => toggleDecide()}
+					title={m.chat_v2_ask_decide_title()}
+					aria-pressed={currentQuestion.decideForMe}
+				>
+					{#if currentQuestion.decideForMe}✓ {/if}{currentQuestion.decideForMe
+						? m.chat_v2_ask_decide_active()
+						: m.chat_v2_ask_decide()}
+				</button>
+				{#if !noteShown}
+					<button type="button" class="ask-note-btn" onclick={() => toggleNoteInput()}>
+						<IconNote aria-hidden="true" /> {m.chat_v2_ask_add_note()} <kbd class="ask-kbd">N</kbd>
+					</button>
 				{/if}
-			</h3>
-			{#if showCountdown}
-				<span class="deadline-badge">Scade tra {remainingSeconds}s</span>
+			{/if}
+			<span class="ask-hint" aria-hidden="true">
+				{#if currentQuestion && !isReviewStep}
+					<kbd class="ask-kbd">1</kbd>–<kbd class="ask-kbd">{Math.min(visibleOptions.length, 9)}</kbd>
+					{m.chat_v2_ask_hint_choose()} ·
+				{/if}
+				<kbd class="ask-kbd">↵</kbd>
+				{allAnswered ? m.chat_v2_ask_hint_send() : m.chat_v2_ask_hint_next()}
+			</span>
+			<span class="ask-actions">
+				{#if questions.length > 1 && !isReviewStep && activeStep > 0}
+					<button type="button" class="ask-btn" onclick={() => prevStep()}>
+						<IconArrowLeft aria-hidden="true" /> {m.ask_prev_btn()}
+					</button>
+				{/if}
+				{#if isReviewStep}
+					<button type="button" class="ask-btn" onclick={() => prevStep()}>
+						<IconArrowLeft aria-hidden="true" /> {m.ask_prev_btn()}
+					</button>
+				{/if}
+				{#if allAnswered}
+					<button
+						type="button"
+						class="ask-btn primary"
+						disabled={submitting}
+						onclick={() => void submitAllAnswers()}
+					>
+						<IconCheck aria-hidden="true" />
+						{questions.length === 1 ? m.chat_v2_ask_submit_one() : m.chat_v2_ask_submit_many()}
+					</button>
+				{:else if nextExists}
+					<button
+						type="button"
+						class="ask-btn primary"
+						disabled={!currentAnswered}
+						onclick={() => nextStep()}
+					>
+						{m.chat_v2_ask_next()} <IconArrowRight aria-hidden="true" />
+					</button>
+				{:else}
+					<button type="button" class="ask-btn primary" disabled>
+						{questions.length - answeredCount === 1
+							? m.chat_v2_ask_missing_one()
+							: m.chat_v2_ask_missing_many({ count: questions.length - answeredCount })}
+					</button>
+				{/if}
+			</span>
+		</div>
+	{:else if pending.method === 'input'}
+		<div class="ask-q">
+			<p class="ask-text">{parsedTitle.text || pending.title}</p>
+			{#if detailMessage}
+				<p class="ask-detail">{detailMessage}</p>
 			{/if}
 		</div>
-
-		{#if detailMessage && !isReviewStep}
-			<p class="message-text">{detailMessage}</p>
-		{/if}
-	</div>
-
-	<!-- Corpo Card -->
-	<div class="body">
-		{#if pending.method === 'select'}
-			{#if isReviewStep}
-				<!-- Vista Riepilogo Finale -->
-				<div class="review-container">
-					<p class="review-intro">{m.ui_askcard_verifica_le_risposte_selezionate_prima_di_confermare_8376()}</p>
-					<div class="review-list">
-						{#each questions as q, idx}
-							<div class="review-item">
-								<div class="review-item-header">
-									<span class="review-item-num">#{q.number}</span>
-									<span class="review-item-q">{q.question}</span>
-									<button
-										type="button"
-										class="btn-edit-step"
-										onclick={() => void goToStep(idx)}
-										title={m.ui_askcard_modifica_questa_risposta_62d2()}
-										aria-label={m.ui_askcard_modifica_la_risposta_alla_domanda_value1_4a6d({ value1: q.number })}
-									>
-										<IconRename /> {m.ask_edit_answer_btn()}
-									</button>
-								</div>
-								<div class="review-item-answer">
-									{#if !isQuestionAnswered(q)}
-										<!-- Domanda mai aperta: l'opzione consigliata e' gia'
-										     selezionata, ma qui non va spacciata per una scelta
-										     dell'utente. -->
-										<span class="answer-empty">{m.ui_askcard_risposta_mancante_apri_la_domanda_e_scegli_28fb()}</span>
-									{:else if q.isCustom && q.customInput.trim()}
-										<span class="answer-text custom">“{q.customInput.trim()}”</span>
-									{:else if q.selectedOptions.size > 0}
-										<div class="answer-tags">
-											{#each Array.from(q.selectedOptions) as sel}
-												<span class="answer-tag">{sel}</span>
-											{/each}
-										</div>
-									{:else}
-										<span class="answer-text">{m.ui_askcard_nessuna_opzione_risposta_nessuna_5693()}</span>
-									{/if}
-									{#if q.note.trim()}
-										<div class="review-note">
-											<IconNote />
-											<span><strong>Nota:</strong> {q.note.trim()}</span>
-										</div>
-									{/if}
-								</div>
-							</div>
-						{/each}
-					</div>
-
-					{#if missingIndex !== -1}
-						<!-- L'invio e' bloccato: il perche' va detto a parole, non solo
-						     col pulsante disabilitato. -->
-						<p class="review-warning" role="status">
-							{m.ui_askcard_manca_la_risposta_alla_domanda_6ab6()} {questions[missingIndex]?.number ?? missingIndex + 1}:
-							aprila e scegli un'opzione prima di inviare.
-						</p>
-					{/if}
-
-					<div class="actions review-actions">
-						<button
-							type="button"
-							class="btn-cancel"
-							onclick={() => void cancelUi()}
-							title={m.ui_askcard_annulla_richiesta_esc_0316()}
-						>
-							{m.common_cancel()} <span class="kbd">Esc</span>
-						</button>
-						<button
-							type="button"
-							class="btn-nav"
-							onclick={() => prevStep()}
-							title={m.ui_askcard_torna_alla_domanda_precedente_30c7()}
-						>
-							<IconArrowLeft /> {m.ask_prev_btn()}
-						</button>
-						<button
-							type="button"
-							class="btn-submit"
-							disabled={submitting || missingIndex !== -1}
-							onclick={() => void submitAllAnswers()}
-							title={missingIndex === -1
-								? m.ui_askcard_invia_tutte_le_risposte_enter_a896()
-								: `Manca la risposta alla domanda ${questions[missingIndex]?.number ?? missingIndex + 1}`}
-						>
-							<IconCheck /> {m.ui_askcard_invia_tutte_le_risposte_ebf3()} <span class="kbd">↵</span>
-						</button>
-					</div>
-				</div>
-			{:else if currentQuestion}
-				<!-- Vista Domanda Corrente (Singola o Multipla) -->
-				<div class="question-container">
-					{#if currentQuestion.multi}
-						<div class="multi-indicator">
-							<span class="badge-multi">{m.ui_askcard_scelta_multipla_1fca()}</span>
-							<span class="multi-hint">{m.ui_askcard_usa_spazio_o_clicca_per_spuntare_piu_5914()}</span>
-						</div>
-					{/if}
-
-					<div
-						class="options-list"
-						role="listbox"
-						aria-labelledby={`${uid}-question`}
-						aria-multiselectable={currentQuestion.multi}
-					>
-						{#each visibleOptions as opt, i}
-							{@const isSelected = currentQuestion.isCustom ? opt.isOther : currentQuestion.selectedOptions.has(opt.cleanLabel)}
-							{@const isFocused = currentQuestion.cursorIndex === i}
-							<!-- I figli di un listbox devono essere `option`, e un `option`
-							     non puo' contenere controlli: nota e testo libero stanno
-							     percio' sotto l'elenco, non dentro l'opzione. Roving
-							     tabindex: solo l'opzione a fuoco entra nel tab order. -->
-							<div
-								bind:this={optionEls[i]}
-								id={`${uid}-opt-${i}`}
-								class="option-card"
-								class:selected={isSelected}
-								class:focused={isFocused}
-								role="option"
-								aria-selected={isSelected}
-								aria-label={optionAccessibleName(opt)}
-								aria-describedby={opt.description ? `${uid}-opt-${i}-desc` : undefined}
-								tabindex={isFocused ? 0 : -1}
-								onclick={() => selectAt(i)}
-								onfocus={() => {
-									if (currentQuestion) currentQuestion.cursorIndex = i;
-								}}
-								onkeydown={(e) => {
-									// Lo spazio si ferma qui: il gestore della card agisce
-									// sullo stesso indice e annullerebbe subito la spunta.
-									if (e.key === ' ') {
-										e.preventDefault();
-										e.stopPropagation();
-										selectAt(i);
-									}
-								}}
-							>
-								<div class="option-header">
-									<span class="selection-icon" aria-hidden="true">
-										{#if currentQuestion.multi}
-											{#if isSelected}
-												<span class="icon-checked"><IconCheckboxChecked /></span>
-											{:else}
-												<span class="icon-unchecked"><IconCheckbox /></span>
-											{/if}
-										{:else}
-											{#if isSelected}
-												<span class="icon-checked"><IconRadioChecked /></span>
-											{:else}
-												<span class="icon-unchecked"><IconRadio /></span>
-											{/if}
-										{/if}
-									</span>
-
-									<div class="option-titles">
-										<span class="option-label">
-											{opt.cleanLabel}
-											{#if opt.isRecommended}
-												<span class="recommended-badge">Consigliata</span>
-											{/if}
-										</span>
-										{#if opt.description}
-											<span class="option-desc" id={`${uid}-opt-${i}-desc`}>
-												{opt.description}
-											</span>
-										{/if}
-									</div>
-								</div>
-							</div>
-						{/each}
-					</div>
-
-					{#if currentQuestion.isCustom}
-						<!-- Testo libero dell'opzione "Altro": fuori dall'elenco, cosi'
-						     resta un campo raggiungibile con Tab e con etichetta propria. -->
-						<div class="custom-input-box">
-							<label class="custom-label" for={`${uid}-custom`}>
-								{m.ui_askcard_la_tua_risposta_personalizzata_afcd()}
-							</label>
-							<textarea
-								id={`${uid}-custom`}
-								class="custom-textarea"
-								placeholder={m.ask_custom_placeholder()}
-								bind:value={currentQuestion.customInput}
-								bind:this={customTextareaEl}
-								rows="2"
-							></textarea>
-						</div>
-					{/if}
-
-					{#if !currentQuestion.showNoteInput &&
-						!currentQuestion.note.trim() &&
-						(currentQuestion.selectedOptions.size > 0 || currentQuestion.isCustom)}
-						<div class="note-actions">
-							<button
-								type="button"
-								class="btn-note-toggle"
-								onclick={() => toggleNoteInput()}
-								title={m.ui_askcard_aggiungi_una_nota_alla_risposta_n_033a()}
-							>
-								<IconNote /> {m.ui_askcard_aggiungi_nota_2875()} <span class="kbd">N</span>
-							</button>
-						</div>
-					{/if}
-
-					<!-- Campo Nota Espandibile -->
-					{#if currentQuestion.showNoteInput}
-						<div class="note-input-drawer">
-							<div class="note-header">
-								<span class="note-title"><IconNote /> {m.ui_askcard_nota_per_la_risposta_6afa()}</span>
-								<button
-									type="button"
-									class="btn-close-note"
-									onclick={() => {
-										if (currentQuestion) currentQuestion.showNoteInput = false;
-									}}
-									title={m.ui_askcard_chiudi_campo_nota_5a01()}
-								>
-									{m.page_modal_restart_btn_close()}
-								</button>
-							</div>
-							<input
-								type="text"
-								class="note-text-input"
-								placeholder={m.ask_note_placeholder()}
-								bind:value={currentQuestion.note}
-								bind:this={noteInputEl}
-							/>
-						</div>
-					{:else if currentQuestion.note.trim()}
-						<div class="note-preview-chip">
-							<IconNote />
-							<span class="note-text"><strong>Nota:</strong> {currentQuestion.note.trim()}</span>
-							<button
-								type="button"
-								class="btn-edit-note-inline"
-								onclick={() => toggleNoteInput()}
-								title={m.ui_askcard_modifica_nota_454b()}
-							>
-								{m.ask_edit_answer_btn()}
-							</button>
-						</div>
-					{/if}
-
-					<!-- Barra Azioni e Scorciatoie -->
-					<div class="footer-row">
-						<div class="shortcut-hints">
-							<span>
-								<span class="kbd">↑</span> <span class="kbd">↓</span>
-								{currentQuestion.multi ? 'sposta' : 'scegli'}
-							</span>
-							<span><span class="kbd">Spazio</span> {currentQuestion.multi ? m.ui_askcard_seleziona_deseleziona_80ec() : 'scegli'}</span>
-							<span><span class="kbd">N</span> nota</span>
-							{#if questions.length > 1}
-								<span><span class="kbd">←</span> <span class="kbd">→</span> domande</span>
-							{/if}
-							<span><span class="kbd">Esc</span> {m.ui_askcard_annulla_4ed7()}</span>
-						</div>
-
-						<div class="actions">
-							<button
-								type="button"
-								class="btn-cancel"
-								onclick={() => void cancelUi()}
-								title={m.ui_askcard_annulla_esc_0d72()}
-							>
-								{m.common_cancel()} <span class="kbd">Esc</span>
-							</button>
-
-							{#if activeStep > 0}
-								<button
-									type="button"
-									class="btn-nav"
-									onclick={() => prevStep()}
-									title={m.ui_askcard_domanda_precedente_f76d()}
-								>
-									<IconArrowLeft /> {m.ask_prev_btn()}
-								</button>
-							{/if}
-
-							{#if questions.length > 1}
-								<button
-									type="button"
-									class="btn-submit"
-									disabled={!currentAnswered}
-									onclick={() => nextStep()}
-									title={currentAnswered
-										? m.ui_askcard_domanda_successiva_o_riepilogo_enter_a07f()
-										: m.ui_askcard_scegli_una_risposta_per_continuare_2f16()}
-								>
-									{#if activeStep === questions.length - 1}
-										Riepilogo <IconArrowRight />
-									{:else}
-										{m.browser_btn_forward()} <IconArrowRight />
-									{/if}
-								</button>
-							{:else}
-								<!-- Una sola domanda disponibile (richiesta nuda o sequenza
-								     senza argomenti del tool): l'invio spedisce la risposta
-								     sul filo in modo definitivo. -->
-								<button
-									type="button"
-									class="btn-submit"
-									disabled={submitting || !currentAnswered}
-									onclick={() => void submitAllAnswers()}
-									title={currentAnswered
-										? moreQuestionsFollow
-											? m.ui_askcard_invia_la_risposta_alla_domanda_value1_di_04ff({ value1: askedNumber, value2: askedTotal })
-											: m.ask_submit_single()
-										: m.ask_submit_disabled_hint()}
-								>
-									{#if moreQuestionsFollow}
-										{m.ui_askcard_invia_risposta_d6f0()}{askedNumber}/{askedTotal}) <IconArrowRight />
-									{:else}
-										{m.ui_askcard_conferma_d370()} <span class="kbd">↵</span>
-									{/if}
-								</button>
-							{/if}
-						</div>
-					</div>
-				</div>
+		<div class="ask-row">
+			<input
+				type="text"
+				class="ask-text-input"
+				placeholder={pending.placeholder ?? ''}
+				bind:value={plainInputValue}
+				bind:this={plainInputEl}
+				onkeydown={(e) => {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						void submitSelect(plainInputValue);
+					} else if (e.key === 'Escape') {
+						e.preventDefault();
+						minimizeOrCancel();
+					}
+				}}
+			/>
+			<button
+				type="button"
+				class="ask-btn primary"
+				disabled={submitting}
+				onclick={() => void submitSelect(plainInputValue)}
+			>
+				{m.chat_v2_ask_send()} <kbd class="ask-kbd">↵</kbd>
+			</button>
+		</div>
+	{:else if pending.method === 'editor'}
+		<div class="ask-q">
+			<p class="ask-text">{parsedTitle.text || pending.title}</p>
+			{#if detailMessage}
+				<p class="ask-detail">{detailMessage}</p>
 			{/if}
-		{:else if pending.method === 'input'}
-			<div class="input-container">
-				<input
-					type="text"
-					class="text-input"
-					placeholder={pending.placeholder ?? ''}
-					bind:value={plainInputValue}
-					bind:this={plainInputEl}
-					onkeydown={(e) => {
-						if (e.key === 'Enter') {
-							e.preventDefault();
-							void submitSelect(plainInputValue);
-						} else if (e.key === 'Escape') {
-							e.preventDefault();
-							void cancelUi();
-						}
-					}}
-				/>
-				<div class="actions">
-					<button
-						type="button"
-						class="btn-cancel"
-						onclick={() => void cancelUi()}
-						title={m.ui_askcard_annulla_esc_0d72()}
-					>
-						{m.common_cancel()} <span class="kbd">Esc</span>
-					</button>
-					<button
-						type="button"
-						class="btn-submit"
-						disabled={submitting}
-						onclick={() => void submitSelect(plainInputValue)}
-						title={m.ask_submit_single()}
-					>
-						{m.ui_askcard_invia_f401()} <span class="kbd">↵</span>
-					</button>
-				</div>
-			</div>
-		{:else if pending.method === 'editor'}
-			<div class="editor-container">
-				<textarea
-					class="editor-input"
-					placeholder={pending.placeholder ?? ''}
-					bind:value={plainEditorValue}
-					bind:this={plainEditorEl}
-					onkeydown={(e) => {
-						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-							e.preventDefault();
-							void submitSelect(plainEditorValue);
-						} else if (e.key === 'Escape') {
-							e.preventDefault();
-							void cancelUi();
-						}
-					}}
-				></textarea>
-				<div class="actions">
-					<button
-						type="button"
-						class="btn-cancel"
-						onclick={() => void cancelUi()}
-						title={m.ui_askcard_annulla_esc_0d72()}
-					>
-						{m.common_cancel()} <span class="kbd">Esc</span>
-					</button>
-					<button
-						type="button"
-						class="btn-submit"
-						disabled={submitting}
-						onclick={() => void submitSelect(plainEditorValue)}
-						title={m.ui_askcard_invia_risposta_ctrl_enter_6a01()}
-					>
-						{m.ui_askcard_invia_f401()} <span class="kbd">Ctrl+↵</span>
-					</button>
-				</div>
-			</div>
-		{:else if pending.method === 'confirm'}
-			<div class="confirm-container">
-				<div class="actions">
-					<button
-						type="button"
-						class="btn-cancel"
-						onclick={() => void submitConfirm(false)}
-						title={m.ui_askcard_nega_annulla_esc_60f1()}
-					>
-						{m.project_popover_btn_confirm_no()} <span class="kbd">Esc</span>
-					</button>
-					<button
-						type="button"
-						class="btn-submit"
-						disabled={submitting}
-						onclick={() => void submitConfirm(true)}
-						title={m.ui_askcard_conferma_enter_a402()}
-					>
-						{m.ui_askcard_si_175d()} <span class="kbd">↵</span>
-					</button>
-				</div>
-			</div>
-		{/if}
-	</div>
+		</div>
+		<textarea
+			class="ask-editor"
+			placeholder={pending.placeholder ?? ''}
+			bind:value={plainEditorValue}
+			bind:this={plainEditorEl}
+			rows="4"
+			onkeydown={(e) => {
+				if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+					e.preventDefault();
+					void submitSelect(plainEditorValue);
+				} else if (e.key === 'Escape') {
+					e.preventDefault();
+					minimizeOrCancel();
+				}
+			}}
+		></textarea>
+		<div class="ask-foot">
+			<span></span>
+			<span class="ask-actions">
+				<button
+					type="button"
+					class="ask-btn primary"
+					disabled={submitting}
+					onclick={() => void submitSelect(plainEditorValue)}
+				>
+					{m.chat_v2_ask_send()} <kbd class="ask-kbd">Ctrl+↵</kbd>
+				</button>
+			</span>
+		</div>
+	{:else if pending.method === 'confirm'}
+		<div class="ask-q">
+			<p class="ask-text">{parsedTitle.text || pending.title}</p>
+			{#if detailMessage}
+				<p class="ask-detail">{detailMessage}</p>
+			{/if}
+		</div>
+		<div class="ask-foot">
+			<span></span>
+			<span class="ask-actions">
+				<button
+					type="button"
+					class="ask-btn"
+					disabled={submitting}
+					onclick={() => void submitConfirm(false)}
+				>
+					{m.chat_v2_ask_no()} <kbd class="ask-kbd">Esc</kbd>
+				</button>
+				<button
+					type="button"
+					class="ask-btn primary"
+					disabled={submitting}
+					onclick={() => void submitConfirm(true)}
+				>
+					{m.chat_v2_ask_yes()} <kbd class="ask-kbd">↵</kbd>
+				</button>
+			</span>
+		</div>
+	{/if}
 </div>
 
 <style>
 	.ask-card {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: var(--space-2);
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		padding: var(--space-3);
 		min-width: 0;
 		outline: none;
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 8px 30px -10px rgb(0 0 0 / 0.2);
 	}
 
-	.ask-card:focus-within {
-		border-color: var(--line-strong);
-	}
-
-	.header {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	/* Stepper a schede */
-	.stepper-bar {
+	.ask-head {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
-		overflow-x: auto;
-		padding-bottom: var(--space-1);
-		border-bottom: 1px solid var(--line);
-	}
-
-	.step-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 3px 8px;
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		cursor: pointer;
-		white-space: nowrap;
-		transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
-	}
-
-	.step-pill:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.step-pill.active {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-		color: var(--ink);
-		font-weight: 600;
-	}
-
-	.step-pill.answered:not(.active) {
-		border-color: var(--success, #10b981);
-		color: var(--ink);
-	}
-
-	/* Risposta gia' consegnata: nessuna interazione, colore attenuato. La
-	   pillola serve solo a tenere il conto delle domande. */
-	.step-pill.sent {
-		cursor: default;
-		opacity: 0.65;
-	}
-
-	.step-pill.sent:hover {
-		background: var(--bg-sunken);
-		color: var(--ink-muted);
-	}
-
-	.step-badge {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		font-family: var(--font-mono);
-		font-size: 10px;
-		font-variant-numeric: tabular-nums;
-	}
-
-	.review-pill {
-		margin-left: auto;
-	}
-
-	.title-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		flex-wrap: wrap;
-	}
-
-	.counter-badge {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 2px 6px;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-		color: var(--ink-muted);
-	}
-
-	.title-text {
-		margin: 0;
-		font-family: var(--font-ui);
-		font-size: var(--text-base);
-		font-weight: 600;
-		color: var(--ink);
-		flex: 1;
-		min-width: 140px;
-		line-height: 1.35;
-	}
-
-	.deadline-badge {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 2px 6px;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-		color: var(--warn);
-		margin-left: auto;
-	}
-
-	.message-text {
-		margin: 0;
-		font-size: var(--text-sm);
-		color: var(--ink-muted);
-		line-height: 1.4;
-	}
-
-	.body {
-		display: flex;
-		flex-direction: column;
 		gap: var(--space-2);
 		min-width: 0;
 	}
 
-	.question-container {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.multi-indicator {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.badge-multi {
-		background: var(--accent-subtle, rgba(59, 130, 246, 0.1));
-		color: var(--accent);
-		border: 1px solid var(--accent);
+	.ask-count {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-faint);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		padding: 1px 6px;
-		font-size: var(--text-xs);
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.multi-hint {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	/* Lista Opzioni */
-	.options-list {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		max-height: 320px;
-		overflow-y: auto;
-		min-width: 0;
-	}
-
-	.option-card {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-3);
-		cursor: pointer;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-		user-select: none;
-	}
-
-	.option-card:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-	.option-card.focused,
-	.option-card:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: -2px;
-	}
-
-	.option-card.selected {
-		border-color: var(--brand);
-		background: var(--bg-hover);
-	}
-
-	.option-header {
-		display: flex;
-		align-items: flex-start;
-		gap: var(--space-2);
-		min-width: 0;
-	}
-
-	.selection-icon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		margin-top: 1px;
 		flex-shrink: 0;
 	}
 
-	.icon-checked {
-		color: var(--brand);
-	}
-
-	.icon-unchecked {
-		color: var(--ink-faint);
-	}
-
-	.option-titles {
-		display: flex;
-		flex-direction: column;
-		flex: 1;
-		min-width: 0;
-	}
-
-	.option-label {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
+	.ask-title {
 		font-size: var(--text-sm);
-		font-weight: 500;
-		color: var(--ink);
-	}
-
-	.recommended-badge {
-		background: var(--brand-subtle, rgba(234, 88, 12, 0.12));
-		color: var(--brand);
-		border: 1px solid var(--brand);
-		border-radius: var(--radius-sm);
-		padding: 1px 5px;
-		font-size: 10px;
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
-	}
-
-	.option-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		margin-top: 2px;
-		line-height: 1.35;
-	}
-
-	.btn-note-toggle {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		background: transparent;
-		border: 1px dashed var(--line);
-		border-radius: var(--radius-sm);
-		padding: 2px 6px;
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		cursor: pointer;
-		margin-left: auto;
-		flex-shrink: 0;
-		transition: all var(--dur-fast);
-	}
-
-	.btn-note-toggle:hover {
-		background: var(--bg-sunken);
 		color: var(--ink);
-		border-color: var(--brand);
-	}
-
-
-	/* Textarea per opzione "Altro" */
-	.custom-input-box {
-		margin-top: var(--space-1);
-		padding-top: var(--space-1);
-		border-top: 1px dashed var(--line);
-	}
-
-	.custom-textarea {
-		width: 100%;
-		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2);
-		font-size: var(--text-sm);
-		font-family: var(--font-ui);
-		color: var(--ink);
-		resize: vertical;
-	}
-
-	.custom-textarea:focus {
-		border-color: var(--brand);
-		outline: none;
-	}
-
-	/* Drawer Campo Nota */
-	.note-input-drawer {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2);
-		animation: slideDown 150ms ease-out;
-	}
-
-	.note-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-	}
-
-	.note-title {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		font-weight: 500;
-	}
-
-	.btn-close-note {
-		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		padding: 0 4px;
-	}
-
-	.btn-close-note:hover {
-		color: var(--ink);
-	}
-
-	.note-text-input {
-		width: 100%;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: var(--space-1) var(--space-2);
-		font-size: var(--text-sm);
-		font-family: var(--font-ui);
-		color: var(--ink);
-	}
-
-	.note-text-input:focus {
-		border-color: var(--brand);
-		outline: none;
-	}
-
-	.note-preview-chip {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: var(--space-1) var(--space-2);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-	}
-
-	.note-text {
-		flex: 1;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.btn-edit-note-inline {
-		background: transparent;
-		border: none;
-		color: var(--brand);
+	.ask-progress {
+		margin-left: auto;
 		font-size: var(--text-xs);
-		cursor: pointer;
-		padding: 0 4px;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-faint);
+		white-space: nowrap;
 	}
 
-	/* Vista Riepilogo */
-	.review-container {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-	}
-
-	.review-intro {
-		margin: 0;
-		font-size: var(--text-sm);
-		color: var(--ink-muted);
-	}
-
-	.review-list {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		max-height: 320px;
-		overflow-y: auto;
-	}
-
-	.review-item {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
+	.ask-deadline {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--warn);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-3);
+		padding: 1px 6px;
+		white-space: nowrap;
 	}
 
-	.review-item-header {
-		display: flex;
-		align-items: flex-start;
-		gap: var(--space-2);
-	}
-
-	.review-item-num {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-weight: 700;
-		color: var(--brand);
-	}
-
-	.review-item-q {
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--ink);
-		flex: 1;
-	}
-
-	.btn-edit-step {
+	.ask-min {
+		margin-left: auto;
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
+		justify-content: center;
 		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		color: var(--ink-faint);
+		cursor: pointer;
+		padding: 2px;
+	}
+	.ask-progress + .ask-min,
+	.ask-deadline + .ask-min {
+		margin-left: 0;
+	}
+	.ask-min:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.ask-steps {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		overflow-x: auto;
+		padding-bottom: 2px;
+	}
+
+	.ask-step {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		padding: 2px 6px;
+		padding: 2px 8px;
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
 		cursor: pointer;
+		white-space: nowrap;
 	}
-
-	.btn-edit-step:hover {
+	.ask-step:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
+	}
+	.ask-step.cur {
 		border-color: var(--brand);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.ask-step.done {
+		border-color: var(--success-dim);
+	}
+	.ask-step.sent {
+		cursor: default;
+		opacity: 0.6;
+	}
+	.ask-step.sent:hover {
+		background: var(--bg-sunken);
+		color: var(--ink-muted);
+	}
+	.ask-step.review {
+		margin-left: auto;
+	}
+	.ask-step-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		min-width: 14px;
+	}
+	.ask-step-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 140px;
 	}
 
-	.review-item-answer {
+	.ask-q {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
-		padding-left: var(--space-3);
+		gap: 2px;
+		min-width: 0;
 	}
-
-	.answer-tags {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-1);
+	.ask-counter,
+	.ask-header {
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--ink-faint);
 	}
-
-	.answer-tag {
-		background: var(--bg-hover);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		padding: 1px 6px;
-		font-size: var(--text-xs);
-		font-weight: 500;
+	.ask-text {
+		margin: 0;
+		font-size: var(--text-base);
+		font-weight: 600;
 		color: var(--ink);
+		line-height: 1.35;
 	}
-
-	.answer-text.custom {
-		font-style: italic;
-		color: var(--ink);
+	.ask-detail {
+		margin: 0;
 		font-size: var(--text-sm);
+		color: var(--ink-muted);
+		line-height: 1.4;
 	}
-
-	.answer-empty {
+	.ask-multi {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
-		font-style: italic;
 	}
 
-	.review-note {
+	.ask-main {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+	.ask-main.with-preview {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		align-items: start;
+	}
+
+	.ask-options {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		min-width: 0;
+	}
+
+	.ask-opt {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 7px 10px;
+		cursor: pointer;
+		user-select: none;
+	}
+	.ask-opt:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
+	}
+	.ask-opt.focused,
+	.ask-opt:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
+	.ask-opt.selected {
+		border-color: var(--brand);
+		background: var(--bg-hover);
+	}
+	.ask-box {
+		display: inline-flex;
+		margin-top: 1px;
+		flex-shrink: 0;
+		color: var(--ink-faint);
+	}
+	.ask-opt.selected .ask-box {
+		color: var(--brand);
+	}
+	.ask-opt-body {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-width: 0;
+	}
+	.ask-opt-label {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
+		flex-wrap: wrap;
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--ink);
+	}
+	.ask-rec {
+		background: var(--success-dim);
+		color: var(--bg-sunken);
 		border-radius: var(--radius-sm);
-		padding: 2px 6px;
-		margin-top: 2px;
+		padding: 1px 6px;
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+	}
+	.ask-opt-desc {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		line-height: 1.35;
+		margin-top: 1px;
 	}
 
-	/* Footer e Pulsanti */
-	.footer-row {
+	.ask-kbd {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		line-height: 1.4;
+		color: var(--ink-faint);
+		border: 1px solid var(--line);
+		border-radius: 4px;
+		padding: 0 5px;
+		white-space: nowrap;
+	}
+
+	.ask-preview {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		overflow: hidden;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
+		position: sticky;
+		top: 4px;
+	}
+	.ask-preview-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-2);
-		flex-wrap: wrap;
-		margin-top: var(--space-1);
-		padding-top: var(--space-2);
-		border-top: 1px solid var(--line);
-	}
-
-	.shortcut-hints {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		font-size: var(--text-xs);
+		padding: 4px 10px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
 		color: var(--ink-faint);
+		border-bottom: 1px solid var(--line);
+	}
+	.ask-preview-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		text-transform: none;
+		letter-spacing: normal;
+	}
+	.ask-preview-code {
+		margin: 0;
+		padding: var(--space-2) 10px;
+		overflow-x: auto;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--ink);
 	}
 
-	.input-container,
-	.editor-container {
+	.ask-other {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
-		min-width: 0;
+		gap: 4px;
 	}
-
-	.text-input {
+	.ask-other-label {
+		font-size: var(--text-xs);
+		font-weight: 500;
+		color: var(--ink-muted);
+	}
+	.ask-other-input,
+	.ask-editor {
 		width: 100%;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-3);
+		padding: var(--space-2);
 		font-size: var(--text-sm);
 		font-family: var(--font-ui);
 		color: var(--ink);
-		transition: border-color var(--dur-fast);
+		resize: vertical;
 	}
-
-	.text-input:focus {
+	.ask-other-input:focus,
+	.ask-editor:focus,
+	.ask-text-input:focus,
+	.ask-note-input:focus {
 		border-color: var(--brand);
 		outline: none;
 	}
 
-	.editor-input {
-		width: 100%;
-		min-height: 100px;
-		resize: vertical;
+	.ask-note {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		color: var(--ink-faint);
+	}
+	.ask-note-input {
+		flex: 1;
+		min-width: 0;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 5px 10px;
+		font-size: var(--text-sm);
+		font-family: var(--font-ui);
+		color: var(--ink);
+	}
+	.ask-note-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		padding: 4px 6px;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.ask-note-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.ask-review {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+	}
+	.ask-review-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 6px 10px;
+		font-size: var(--text-sm);
+	}
+	.ask-review-row + .ask-review-row {
+		border-top: 1px solid var(--line);
+	}
+	.ask-review-q {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink-faint);
+	}
+	.ask-review-a {
+		color: var(--ink);
+		text-align: right;
+	}
+	.ask-missing {
+		color: var(--warn);
+	}
+	.ask-decided {
+		color: var(--ink-muted);
+		font-style: italic;
+	}
+	.ask-edit {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		color: var(--ink-faint);
+		cursor: pointer;
+		padding: 2px;
+		flex-shrink: 0;
+	}
+	.ask-edit:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.ask-foot {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+		border-top: 1px solid var(--line);
+		padding-top: var(--space-2);
+	}
+	.ask-decide {
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		padding: 4px 8px;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.ask-decide:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+	.ask-decide.on {
+		font-weight: 600;
+		color: var(--ink);
+		border-color: var(--brand);
+	}
+	.ask-hint {
+		font-size: 11px;
+		color: var(--ink-faint);
+	}
+	.ask-actions {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.ask-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 5px 12px;
+		font-size: var(--text-sm);
+		color: var(--ink);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.ask-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
+	}
+	.ask-btn:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.ask-btn.primary {
+		background: var(--brand);
+		border-color: var(--brand);
+		color: var(--bg-sunken);
+		font-weight: 600;
+	}
+	.ask-btn.primary:hover:not(:disabled) {
+		background: var(--brand);
+		filter: brightness(1.08);
+	}
+	.ask-btn.primary .ask-kbd {
+		color: inherit;
+		border-color: currentColor;
+		opacity: 0.7;
+	}
+
+	.ask-row {
+		display: flex;
+		gap: var(--space-2);
+		align-items: center;
+	}
+	.ask-text-input {
+		flex: 1;
+		min-width: 0;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-3);
+		padding: 7px 10px;
 		font-size: var(--text-sm);
-		font-family: var(--font-mono);
-		color: var(--ink);
-		transition: border-color var(--dur-fast);
-	}
-
-	.editor-input:focus {
-		border-color: var(--brand);
-		outline: none;
-	}
-
-	.confirm-container {
-		display: flex;
-		justify-content: flex-end;
-		min-width: 0;
-	}
-
-	.actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		margin-left: auto;
-	}
-
-	button {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-3);
-		font-size: var(--text-sm);
-		cursor: pointer;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn-cancel {
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		color: var(--ink-muted);
-	}
-
-	.btn-cancel:hover {
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.btn-nav {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
+		font-family: var(--font-ui);
 		color: var(--ink);
 	}
 
-	.btn-nav:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-	.btn-submit {
-		background: var(--brand);
-		border: 1px solid var(--brand);
-		color: var(--on-brand);
-		font-weight: 600;
-	}
-
-	.btn-submit:hover {
-		background: var(--brand-dim);
-		border-color: var(--brand-dim);
-	}
-
-	.btn-submit:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-
-	.kbd {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		opacity: 0.75;
-	}
-
-	@keyframes slideDown {
-		from {
-			opacity: 0;
-			transform: translateY(-4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 </style>

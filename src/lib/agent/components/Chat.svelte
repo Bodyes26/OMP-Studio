@@ -7,18 +7,19 @@
 	// Unico punto di innesto per i ganci verso il guscio (`setAgentUiHooks`).
 
 	import type { AgentSession } from '../session.svelte';
-	import { setContext } from 'svelte';
+	import { setContext, tick as svelteTick } from 'svelte';
 	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
 	import { IconArrowDown } from '$lib/icons';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { motionReduced } from '../motionState.svelte';
 
 	import AskCard from './AskCard.svelte';
+	import AskStreamPreview from './AskStreamPreview.svelte';
 	import Composer from './Composer.svelte';
-	import SubagentBar from './SubagentBar.svelte';
+	import ComposerTray from './ComposerTray.svelte';
+	import QueueChips from './QueueChips.svelte';
 	import SubagentDrawer from './SubagentDrawer.svelte';
-	import SubagentPanel from './SubagentPanel.svelte';
-	import TodoStrip from './TodoStrip.svelte';
 	import Transcript from './Transcript.svelte';
 
 	let {
@@ -51,31 +52,90 @@
 		openImage: (data, mimeType) => onOpenImage?.(data, mimeType),
 		openSubagent: (id) => {
 			activeSubagentId = id;
-			panelOpen = false;
 		},
 		switchToTerminal: () => onSwitchToTerminal?.()
 	});
 
 	let scrollEl: HTMLElement | null = $state(null);
 	let userScrolledUp = $state(false);
-	let panelOpen = $state(false);
+	let pinned = true;
+	let rafId = 0;
+	let askMinimizedRequestId = $state<string | null>(null);
+	const askMinimized = $derived(
+		session.pendingUi !== null && session.pendingUi.requestId === askMinimizedRequestId
+	);
+	function minimizeAsk() {
+		if (!session.pendingUi) return;
+		askMinimizedRequestId = session.pendingUi.requestId;
+		if (visible && document.hasFocus()) void svelteTick().then(() => composerRef?.focus());
+	}
+	function openAsk() {
+		askMinimizedRequestId = null;
+	}
 	let activeSubagentId = $state<string | null>(null);
 
 	let lastScrollTop = 0;
 	// Soglia in pixel per considerare l'utente "al fondo" (tolleranza subpixel e font scaling).
 	const SCROLL_THRESHOLD = 32;
 
-	function autoScrollToBottom() {
-		if (!scrollEl || userScrolledUp) return;
-		scrollEl.scrollTop = scrollEl.scrollHeight;
+	function tick() {
+		if (!scrollEl || !pinned || userScrolledUp) {
+			rafId = 0;
+			return;
+		}
+		const diff = scrollEl.scrollHeight - scrollEl.clientHeight - scrollEl.scrollTop;
+		if (Math.abs(diff) < 1) {
+			rafId = 0;
+			return;
+		}
+		if (motionReduced()) {
+			scrollEl.scrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+			lastScrollTop = scrollEl.scrollTop;
+			rafId = 0;
+			return;
+		}
+		scrollEl.scrollTop += Math.sign(diff) * Math.max(1, Math.abs(diff) * 0.14);
 		lastScrollTop = scrollEl.scrollTop;
+		rafId = requestAnimationFrame(tick);
+	}
+
+	function kick() {
+		if (!scrollEl || !pinned || userScrolledUp) return;
+		if (motionReduced()) {
+			scrollEl.scrollTop = scrollEl.scrollHeight;
+			lastScrollTop = scrollEl.scrollTop;
+			return;
+		}
+		if (!rafId) {
+			rafId = requestAnimationFrame(tick);
+		}
+	}
+
+	function autoScrollToBottom() {
+		kick();
 	}
 
 	function scrollToBottom() {
 		if (!scrollEl) return;
+		pinned = true;
 		userScrolledUp = false;
-		scrollEl.scrollTop = scrollEl.scrollHeight;
-		lastScrollTop = scrollEl.scrollTop;
+		if (motionReduced()) {
+			scrollEl.scrollTop = scrollEl.scrollHeight;
+			lastScrollTop = scrollEl.scrollTop;
+		} else {
+			kick();
+		}
+	}
+
+	function handleWheel(e: WheelEvent) {
+		if (e.deltaY < 0) {
+			pinned = false;
+			userScrolledUp = true;
+			if (rafId) {
+				cancelAnimationFrame(rafId);
+				rafId = 0;
+			}
+		}
 	}
 
 	function handleScroll() {
@@ -83,15 +143,19 @@
 		const currentScrollTop = scrollEl.scrollTop;
 		const distance = scrollEl.scrollHeight - currentScrollTop - scrollEl.clientHeight;
 
-		// Se l'utente e' tornato vicino al fondo (o il contenuto entra nella viewport),
-		// l'autoscroll si riaggancia automaticamente.
-		if (distance <= SCROLL_THRESHOLD) {
+		// Se l'utente e' entro 40px dal fondo (o entro SCROLL_THRESHOLD), si riaggancia automaticamente.
+		if (distance <= 40 || distance <= SCROLL_THRESHOLD) {
+			pinned = true;
 			userScrolledUp = false;
 		} else if (currentScrollTop < lastScrollTop - 2) {
 			// Solo se lo scroll si muove effettivamente verso l'alto l'utente ha deciso
-			// di allontanarsi dal fondo; la crescita di altezza del contenuto o le
-			// animazioni transitorie non devono mai essere scambiate per uno scroll dell'utente.
+			// di allontanarsi dal fondo.
+			pinned = false;
 			userScrolledUp = true;
+			if (rafId) {
+				cancelAnimationFrame(rafId);
+				rafId = 0;
+			}
 		}
 
 		lastScrollTop = currentScrollTop;
@@ -102,8 +166,16 @@
 	$effect(() => {
 		const currentSessionId = session.sessionId ?? '';
 		if (lastSessionId !== null && lastSessionId !== currentSessionId) {
+			pinned = true;
 			userScrolledUp = false;
-			scrollToBottom();
+			if (rafId) {
+				cancelAnimationFrame(rafId);
+				rafId = 0;
+			}
+			if (scrollEl) {
+				scrollEl.scrollTop = scrollEl.scrollHeight;
+				lastScrollTop = scrollEl.scrollTop;
+			}
 		}
 		lastSessionId = currentSessionId;
 	});
@@ -111,20 +183,29 @@
 	// Quando viene seminato un nuovo prompt (lancio da coda), garantisce l'ancoraggio in fondo.
 	$effect(() => {
 		if (session.seededPrompt) {
+			pinned = true;
 			userScrolledUp = false;
-			scrollToBottom();
+			if (rafId) {
+				cancelAnimationFrame(rafId);
+				rafId = 0;
+			}
+			if (scrollEl) {
+				scrollEl.scrollTop = scrollEl.scrollHeight;
+				lastScrollTop = scrollEl.scrollTop;
+			}
 		}
 	});
 
 	// Autoscroll ancorato in fondo tramite ResizeObserver e MutationObserver:
-	// segue lo streaming del testo e l'arrivo di nuove entry senza scatti o timeout non gestiti.
+	// segue lo streaming del testo con smoothing proporzionale (chase rAF 0.14) o salto immediato con motionReduced.
 	$effect(() => {
 		if (!scrollEl || !visible) return;
 
-		autoScrollToBottom();
+		scrollEl.addEventListener('wheel', handleWheel, { passive: true });
+		kick();
 
 		const resizeObserver = new ResizeObserver(() => {
-			autoScrollToBottom();
+			kick();
 		});
 
 		// Osserva sia il contenitore scrollabile che tutti i figli diretti
@@ -138,16 +219,66 @@
 			for (const child of scrollEl.children) {
 				resizeObserver.observe(child);
 			}
-			autoScrollToBottom();
+			kick();
 		});
 
 		mutationObserver.observe(scrollEl, { childList: true, subtree: true, characterData: true });
 
 		return () => {
+			scrollEl?.removeEventListener('wheel', handleWheel);
+			if (rafId) {
+				cancelAnimationFrame(rafId);
+				rafId = 0;
+			}
 			resizeObserver.disconnect();
 			mutationObserver.disconnect();
 		};
 	});
+
+	let isDraggingColumn = $state(false);
+	let dragColumnDepth = 0;
+	let composerRef: {
+		focus: () => void;
+		addFiles: (files: FileList | File[]) => Promise<void>;
+		restoreDraft: (text: string, images?: import('../wire').ImageContent[]) => boolean;
+		isDraftEmpty: () => boolean;
+	} | null = $state(null);
+	function handleChatSurfaceDragEnter(e: DragEvent) {
+		if (!e.dataTransfer?.types.includes('Files')) return;
+		dragColumnDepth++;
+		isDraggingColumn = true;
+	}
+
+	function handleChatSurfaceDragLeave(e: DragEvent) {
+		if (!e.dataTransfer?.types.includes('Files')) return;
+		dragColumnDepth = Math.max(0, dragColumnDepth - 1);
+		if (dragColumnDepth === 0) isDraggingColumn = false;
+	}
+
+	function handleChatSurfaceDrop(e: DragEvent) {
+		if (!e.dataTransfer?.types.includes('Files')) return;
+		dragColumnDepth = 0;
+		isDraggingColumn = false;
+		if (e.dataTransfer.files.length > 0 && composerRef) {
+			void composerRef.addFiles(e.dataTransfer.files);
+		}
+	}
+
+	let queueEditBlocked = $state(false);
+	function editQueuedFollowUp(id: number) {
+		const entry = session.localFollowUpQueue.find((item: import('../localFollowUpQueue').LocalFollowUp) => item.id === id);
+		if (!entry || !composerRef) return;
+		if (!composerRef.isDraftEmpty()) {
+			queueEditBlocked = true;
+			composerRef.focus();
+			return;
+		}
+		if (!composerRef.restoreDraft(entry.text, entry.images)) return;
+		session.removeLocalFollowUp(id);
+		queueEditBlocked = false;
+		composerRef.focus();
+	}
+
 </script>
 
 <div
@@ -156,7 +287,21 @@
 	style:pointer-events={visible ? 'auto' : 'none'}
 	style:position="absolute"
 	style:inset="0"
+	ondragenter={handleChatSurfaceDragEnter}
+	ondragleave={handleChatSurfaceDragLeave}
+	ondragover={(e) => {
+		if (e.dataTransfer?.types.includes('Files')) {
+			e.preventDefault();
+			isDraggingColumn = true;
+		}
+	}}
+	ondrop={handleChatSurfaceDrop}
 >
+	{#if isDraggingColumn}
+		<div class="chat-column-drag-overlay" aria-hidden="true">
+			<span class="drag-overlay-label">{m.chat_v2_composer_drop_overlay()}</span>
+		</div>
+	{/if}
 	<div class="scroll-area" bind:this={scrollEl} onscroll={handleScroll}>
 		<div
 			class="chat-content-container"
@@ -164,15 +309,9 @@
 		>
 			<Transcript {session} />
 
-			{#if session.pendingUi}
-				{@const cardKey = `${session.pendingUi.toolCallId ?? session.pendingUi.requestId}:${session.pendingUi.questions?.length ?? 0}:${session.pendingUi.questionIndex ?? 0}`}
-				<div
-					class="pending-ui-slot"
-					transition:chatReveal={{ duration: 220, blur: 4, distance: 3 }}
-				>
-					{#key cardKey}
-						<AskCard {session} pending={session.pendingUi} {visible} />
-					{/key}
+			{#if session.streamAsk && !session.pendingUi && session.streamAsk.state.questions.length > 0}
+				<div class="pending-ui-slot" transition:chatReveal={{ duration: 220, blur: 4, distance: 3 }}>
+					<AskStreamPreview state={session.streamAsk.state} />
 				</div>
 			{/if}
 		</div>
@@ -181,11 +320,11 @@
 	{#if userScrolledUp}
 		<button
 			type="button"
-			class="scroll-bottom-btn"
+			class="scroll-bottom-btn rv-lift"
 			class:readable={settingsStore.general.chatWidth === 'readable'}
 			onclick={scrollToBottom}
 			title={m.chat_scroll_to_bottom()}
-			transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
+			style="--dur: 200ms; --blur: 2px;"
 		>
 			<IconArrowDown aria-hidden="true" />
 			In fondo
@@ -197,33 +336,52 @@
 			class="footer-inner"
 			class:readable={settingsStore.general.chatWidth === 'readable'}
 		>
-			{#if session.subagents.length > 0}
-				<SubagentBar subagents={session.subagents} onOpen={() => (panelOpen = true)} />
-			{/if}
-
-			{#if session.todoPhases.length > 0}
-				<TodoStrip phases={session.todoPhases} reminder={session.todoReminder} />
-			{/if}
-
-			<Composer
-				{session}
-				{visible}
-				onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
-				{onNewChat}
+			{#snippet queuedRows()}
+				<QueueChips
+					local={session.localFollowUpQueue}
+					queued={session.queued}
+					serverCount={session.queuedMessageCount}
+					paused={session.localFollowUpsPaused}
+					onEdit={editQueuedFollowUp}
+					onRemove={(id) => session.removeLocalFollowUp(id)}
+					onResume={() => session.resumeLocalFollowUps()}
+				/>
+				{#if queueEditBlocked}<p class="queue-edit-warning" role="alert">{m.chat_v2_queue_edit_blocked()}</p>{/if}
+			{/snippet}
+			<ComposerTray
+				phases={session.todoPhases}
+				reminder={session.todoReminder}
+				subagents={session.subagents}
+				queueCount={session.localFollowUpQueue.length + Math.max(session.queued.length, session.queuedMessageCount)}
+				queue={queuedRows}
+				questionOpen={session.pendingUi !== null}
+				onOpenSubagent={(id) => (activeSubagentId = id)}
+				questionMinimized={askMinimized && session.pendingUi
+					? {
+							title: session.pendingUi.title,
+							count: session.pendingUi.totalQuestions,
+							onOpen: openAsk
+						}
+					: undefined}
 			/>
+			{#if session.pendingUi && !askMinimized}
+				{@const cardKey = `${session.pendingUi.toolCallId ?? session.pendingUi.requestId}:${session.pendingUi.questions?.length ?? 0}:${session.pendingUi.questionIndex ?? 0}`}
+				{#key cardKey}
+					<AskCard {session} pending={session.pendingUi} {visible} onMinimize={minimizeAsk} />
+				{/key}
+			{/if}
+			<div class:composer-under-ask={session.pendingUi !== null && !askMinimized}>
+				<Composer
+					bind:this={composerRef}
+					{session}
+					visible={visible && (session.pendingUi === null || askMinimized)}
+					onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
+					{onNewChat}
+				/>
+			</div>
 		</div>
 	</div>
 
-	{#if panelOpen}
-		<SubagentPanel
-			subagents={session.subagents}
-			onOpenDrawer={(id) => {
-				activeSubagentId = id;
-				panelOpen = false;
-			}}
-			onClose={() => (panelOpen = false)}
-		/>
-	{/if}
 
 	{#if activeSubagentId}
 		<SubagentDrawer
@@ -243,8 +401,36 @@
 		background-color: var(--bg-sunken);
 		min-width: 0;
 		overflow: hidden;
+		position: relative;
+	}
+	.chat-column-drag-overlay {
+		position: absolute;
+		inset: var(--space-2);
+		z-index: var(--z-overlay);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px dashed var(--brand-ink);
+		border-radius: 16px;
+		background: color-mix(in oklch, var(--bg-sunken) 75%, transparent);
+		backdrop-filter: none;
+		pointer-events: none;
 	}
 
+	.drag-overlay-label {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-4);
+		background: var(--bg-raised);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-full);
+		color: var(--ink);
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		box-shadow: var(--shadow-overlay);
+	}
 	.scroll-area {
 		flex: 1;
 		min-height: 0;
@@ -263,7 +449,7 @@
 	}
 
 	.chat-content-container.readable {
-		max-width: 860px;
+		max-width: 720px;
 		margin: 0 auto;
 	}
 
@@ -278,25 +464,40 @@
 		right: var(--space-4);
 		bottom: calc(var(--space-5) * 5);
 		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-full);
-		padding: var(--space-1) var(--space-3);
+		padding: 6px 14px;
 		color: var(--ink);
-		font-size: var(--text-xs);
+		font-size: 12px;
+		font-weight: 500;
 		cursor: pointer;
 		z-index: var(--z-sticky);
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
-		--icon-size: 12px;
+		gap: 6px;
+		box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+		--icon-size: 13px;
+		transition: background-color var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast);
 	}
 	.scroll-bottom-btn:hover {
 		background: var(--bg-hover);
+		border-color: var(--line-strong);
+	}
+	.scroll-bottom-btn:active {
+		transform: scale(0.97);
 	}
 
 	.scroll-bottom-btn.readable {
-		right: max(var(--space-4), calc(50% - 430px + var(--space-4)));
+		right: max(var(--space-4), calc(50% - 360px + var(--space-4)));
 	}
+
+	.queue-edit-warning {
+		padding: var(--space-1) var(--space-2);
+		color: var(--danger);
+		font-size: var(--text-xs);
+	}
+
+	.composer-under-ask { display: none; }
 
 	.footer-inner {
 		width: 100%;
@@ -306,7 +507,7 @@
 	}
 
 	.footer-inner.readable {
-		max-width: 860px;
+		max-width: 720px;
 		margin: 0 auto;
 	}
 

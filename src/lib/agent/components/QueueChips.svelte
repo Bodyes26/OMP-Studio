@@ -1,131 +1,74 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// Specchio dei messaggi in coda durante lo streaming (sola lettura).
-	//
-	// La modalita (steer / follow-up) viene trasmessa a omp nell'istante
-	// dell'invio e il protocollo RPC non espone comandi per modificare,
-	// rimuovere o riordinare un messaggio gia accodato (nessun dequeue/clear_queue).
-	import type { QueuedMessage } from '../session.svelte';
 	import { stripEditorContext } from '$lib/editor/editorContext';
+	import type { QueuedMessage } from '../session.svelte';
+	import type { LocalFollowUp } from '../localFollowUpQueue';
 
 	let {
+		local,
 		queued,
-		serverCount
+		serverCount,
+		paused,
+		onEdit,
+		onRemove,
+		onResume
 	} = $props<{
+		local: LocalFollowUp[];
 		queued: QueuedMessage[];
 		serverCount: number;
+		paused: boolean;
+		onEdit: (id: number) => void;
+		onRemove: (id: number) => void;
+		onResume: () => void;
 	}>();
 
-	function truncate(text: string, max = 60): string {
+	function truncate(text: string): string {
 		const stripped = stripEditorContext(text);
 		const clean = (stripped || text).replace(/\s+/g, ' ').trim();
-		if (clean.length <= max) return clean;
-		return clean.slice(0, max - 3) + '...';
+		return clean.length > 70 ? `${clean.slice(0, 67)}...` : clean;
 	}
 </script>
 
-{#if queued.length > 0 || serverCount > 0}
-	<div class="queue-chips" role="status" aria-label="Messaggi in coda">
-		{#each queued as item (item.id)}
-			<div
-				class="chip"
-				class:steer={item.behavior === 'steer'}
-				class:follow-up={item.behavior === 'followUp'}
-			>
-				<span
-					class="chip-badge"
-					class:steer={item.behavior === 'steer'}
-					class:follow-up={item.behavior === 'followUp'}
-					title={m.ui_queuechips_la_modalita_si_sceglie_all_invio_invio_c059()}
-				>
-					{item.behavior === 'steer' ? 'Steer' : 'Follow-up'}
-				</span>
-				<span class="chip-text" title={item.text}>{truncate(item.text)}</span>
-			</div>
-		{/each}
-
-		{#if serverCount > 0 && serverCount !== queued.length}
-			<div class="chip server-count">
-				<span class="server-label">{serverCount} in coda sul server</span>
-			</div>
-		{/if}
-
-		<span class="queue-limit-note">non cancellabili da omp</span>
-	</div>
-{/if}
+<div class="queue-list" role="status" aria-label={m.chat_v2_queue_aria()}>
+	{#each local as item (item.id)}
+		<div class="queue-row">
+			<span class="kind">{m.chat_v2_queue_followup()}</span>
+			<span class="message" title={item.text}>{truncate(item.text)}</span>
+			{#if item.images.length > 0}
+				<span class="images">{m.chat_v2_queue_attachments({ count: item.images.length })}</span>
+			{/if}
+			<button type="button" onclick={() => onEdit(item.id)}>{m.chat_v2_queue_edit()}</button>
+			<button type="button" onclick={() => onRemove(item.id)}>{m.chat_v2_queue_remove()}</button>
+		</div>
+	{/each}
+	{#each queued as item (item.id)}
+		<div class="queue-row server">
+			<span class="kind">{item.behavior === 'steer' ? 'Steer' : m.chat_v2_queue_followup()}</span>
+			<span class="message" title={item.text}>{truncate(item.text)}</span>
+		</div>
+	{/each}
+	{#if serverCount > queued.length}
+		<p class="server-count">{m.chat_v2_queue_server_count({ count: serverCount })}</p>
+	{/if}
+	{#if paused && local.length > 0}
+		<div class="paused">
+			<span>{m.chat_v2_queue_paused()}</span>
+			<button type="button" onclick={onResume}>{m.chat_v2_queue_send_now()}</button>
+		</div>
+	{/if}
+</div>
 
 <style>
-	.queue-chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-1);
-		align-items: center;
-		padding: var(--space-1) var(--space-2);
-		background: var(--bg-sunken);
-		border-top: 1px solid var(--line);
-		font-size: var(--text-xs);
-		line-height: 1.3;
-	}
-
-	.chip {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 2px 4px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		max-width: 420px;
-		user-select: text;
-	}
-
-	.chip-badge {
-		display: inline-flex;
-		align-items: center;
-		padding: 1px var(--space-1);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: 1.2;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: calc(var(--radius-sm) - 1px);
-		color: var(--ink-faint);
-		font-weight: 600;
-		user-select: none;
-	}
-
-	.chip-badge.steer {
-		color: var(--brand-ink);
-	}
-
-	.chip-badge.follow-up {
-		color: var(--ink);
-	}
-
-	.chip-text {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--ink);
-		font-size: var(--text-xs);
-		padding-left: 2px;
-	}
-	.server-count {
-		color: var(--ink-faint);
-		background: transparent;
-	}
-
-	.server-label {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-	}
-
-	.queue-limit-note {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		margin-left: auto;
-		user-select: none;
-	}
+	.queue-list { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+	.queue-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--bg-base); }
+	.queue-row.server { opacity: .7; }
+	.kind { flex-shrink: 0; color: var(--brand-ink); font: 600 var(--text-xs) var(--font-mono); }
+	.message { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); font-size: var(--text-xs); }
+	.images, .server-count { color: var(--ink-muted); font-size: var(--text-xs); }
+	.images { flex-shrink: 0; }
+	.server-count { margin: var(--space-1) var(--space-2); }
+	.paused { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); color: var(--ink-muted); font-size: var(--text-xs); padding: var(--space-1) var(--space-2); }
+	button { flex-shrink: 0; border: 0; background: transparent; color: var(--brand-ink); font-size: var(--text-xs); cursor: pointer; padding: var(--space-1); border-radius: var(--radius-sm); }
+	button:hover { background: var(--bg-hover); }
+	button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 </style>

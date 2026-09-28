@@ -4,7 +4,7 @@
 // sottoscrittori: una sessione con centinaia di chiamate non moltiplica i
 // timer, e quando nessun tool e' in esecuzione l'intervallo non esiste
 // affatto (zero lavoro fra un turno e l'altro). Il rilascio e' idempotente,
-// cosi' lo smontaggio di una ToolCard non puo' lasciare indietro un timer.
+// cosi' lo smontaggio di un tool non puo' lasciare indietro un timer.
 //
 // Il tempo e' monotono: `EPOCH_ORIGIN + performance.now()` e' l'istante di
 // epoca ricostruito da un orologio che non torna indietro. Resta quindi

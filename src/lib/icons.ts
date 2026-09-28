@@ -22,6 +22,7 @@ export { default as IconPlus } from '@lucide/svelte/icons/plus';
 export { default as IconChevronRight } from '@lucide/svelte/icons/chevron-right';
 export { default as IconChevronLeft } from '@lucide/svelte/icons/chevron-left';
 export { default as IconChevronDown } from '@lucide/svelte/icons/chevron-down';
+export { default as IconChevronUp } from '@lucide/svelte/icons/chevron-up';
 export { default as IconArrowRight } from '@lucide/svelte/icons/arrow-right';
 export { default as IconArrowLeft } from '@lucide/svelte/icons/arrow-left';
 export { default as IconArrowDown } from '@lucide/svelte/icons/arrow-down';
@@ -45,6 +46,7 @@ export { default as IconGhost } from '@lucide/svelte/icons/ghost';
 export { default as IconNewChat } from '@lucide/svelte/icons/message-square-plus';
 export { default as IconSettings } from '@lucide/svelte/icons/settings';
 export { default as IconWarning } from '@lucide/svelte/icons/triangle-alert';
+export { default as IconInfo } from '@lucide/svelte/icons/info';
 export { default as IconQuota } from '@lucide/svelte/icons/gauge';
 export { default as IconKeyboard } from '@lucide/svelte/icons/keyboard';
 
@@ -122,6 +124,8 @@ export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';
 export { default as IconHistory } from '@lucide/svelte/icons/history';
 export { default as IconSend } from '@lucide/svelte/icons/send';
+export { default as IconStop } from '@lucide/svelte/icons/square';
+export { default as IconAt } from '@lucide/svelte/icons/at-sign';
 
 // Layout e pannelli.
 export { default as IconColumns3 } from '@lucide/svelte/icons/columns-3';

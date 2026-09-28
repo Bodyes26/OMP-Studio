@@ -3,40 +3,36 @@
 	// L'HTML non e' mai interpretato: viene reso come testo grezzo in <pre>.
 	// L'unico {@html} ammesso in tutto il progetto e' il risultato di
 	// `colorizeCode`, che produce markup generato da Monaco.
-	import type { StreamFade, Token } from '../markdown';
+	import type { Token } from '../markdown';
 	import CodeBlock from './CodeBlock.svelte';
 	import Markdown from './Markdown.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
-	import StreamTail from './StreamTail.svelte';
 
-	// `fade` non nullo significa "l'ultimo blocco e' la coda del testo in
-	// arrivo": scende solo lungo la catena degli ultimi figli.
-	let { tokens = [], fade = null }: { tokens?: Token[]; fade?: StreamFade | null } = $props();
+	let { tokens = [] }: { tokens?: Token[] } = $props();
 </script>
 
-{#each tokens as token, i (i)}
-	{@const tail = fade && i === tokens.length - 1 ? fade : null}
+{#each tokens as token (token)}
 	{#if token.type === 'heading'}
 		{#if token.depth === 1}
-			<h1 class="heading h1"><MarkdownInline tokens={token.tokens} fade={tail} /></h1>
+			<h1 class="heading h1"><MarkdownInline tokens={token.tokens} /></h1>
 		{:else if token.depth === 2}
-			<h2 class="heading h2"><MarkdownInline tokens={token.tokens} fade={tail} /></h2>
+			<h2 class="heading h2"><MarkdownInline tokens={token.tokens} /></h2>
 		{:else if token.depth === 3}
-			<h3 class="heading h3"><MarkdownInline tokens={token.tokens} fade={tail} /></h3>
+			<h3 class="heading h3"><MarkdownInline tokens={token.tokens} /></h3>
 		{:else if token.depth === 4}
-			<h4 class="heading h4"><MarkdownInline tokens={token.tokens} fade={tail} /></h4>
+			<h4 class="heading h4"><MarkdownInline tokens={token.tokens} /></h4>
 		{:else if token.depth === 5}
-			<h5 class="heading h5"><MarkdownInline tokens={token.tokens} fade={tail} /></h5>
+			<h5 class="heading h5"><MarkdownInline tokens={token.tokens} /></h5>
 		{:else}
-			<h6 class="heading h6"><MarkdownInline tokens={token.tokens} fade={tail} /></h6>
+			<h6 class="heading h6"><MarkdownInline tokens={token.tokens} /></h6>
 		{/if}
 	{:else if token.type === 'paragraph'}
-		<p class="paragraph"><MarkdownInline tokens={token.tokens} fade={tail} /></p>
+		<p class="paragraph"><MarkdownInline tokens={token.tokens} /></p>
 	{:else if token.type === 'code'}
-		<CodeBlock lang={token.lang} text={token.text} fade={tail} />
+		<CodeBlock lang={token.lang} text={token.text} />
 	{:else if token.type === 'blockquote'}
 		<blockquote class="blockquote">
-			<Markdown tokens={token.tokens} fade={tail} />
+			<Markdown tokens={token.tokens} />
 		</blockquote>
 	{:else if token.type === 'list'}
 		{#if token.ordered}
@@ -47,7 +43,7 @@
 							<input type="checkbox" checked={item.checked} disabled class="task-checkbox" />
 						{/if}
 						<div class="item-content">
-							<Markdown tokens={item.tokens} fade={itemIdx === token.items.length - 1 ? tail : null} />
+							<Markdown tokens={item.tokens} />
 						</div>
 					</li>
 				{/each}
@@ -60,7 +56,7 @@
 							<input type="checkbox" checked={item.checked} disabled class="task-checkbox" />
 						{/if}
 						<div class="item-content">
-							<Markdown tokens={item.tokens} fade={itemIdx === token.items.length - 1 ? tail : null} />
+							<Markdown tokens={item.tokens} />
 						</div>
 					</li>
 				{/each}
@@ -100,19 +96,17 @@
 	{:else if token.type === 'text'}
 		<div class="text-block">
 			{#if 'tokens' in token && token.tokens && token.tokens.length > 0}
-				<MarkdownInline tokens={token.tokens} fade={tail} />
-			{:else if tail}
-				<StreamTail text={token.text} fade={tail} />
+				<MarkdownInline tokens={token.tokens} />
 			{:else}
 				{token.text}
 			{/if}
 		</div>
 	{:else if 'tokens' in token && token.tokens}
 		<div class="generic-block">
-			<MarkdownInline tokens={token.tokens} fade={tail} />
+			<MarkdownInline tokens={token.tokens} />
 		</div>
 	{:else if 'text' in token && typeof token.text === 'string'}
-		<p class="paragraph">{#if tail}<StreamTail text={token.text} fade={tail} />{:else}{token.text}{/if}</p>
+		<p class="paragraph">{token.text}</p>
 	{/if}
 {/each}
 

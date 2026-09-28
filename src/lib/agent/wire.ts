@@ -80,6 +80,30 @@ export interface ModelInfo {
 	name?: string;
 	provider?: string;
 	contextWindow?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+	thinking?: boolean | string[] | { mode?: string; efforts?: string[] };
+	input?: string[];
+}
+
+/** Verifica se il modello supporta l'elaborazione di immagini. */
+export function modelSupportsImages(model?: ModelInfo | null): boolean {
+	if (!model) return true;
+	if (Array.isArray(model.input)) {
+		return model.input.includes('image');
+	}
+	return true;
+}
+
+/** Verifica se il modello supporta il reasoning/thinking configurabile. */
+export function modelSupportsReasoning(model?: ModelInfo | null): boolean {
+	if (!model) return false;
+	if (model.reasoning === true) return true;
+	if (Array.isArray(model.thinking)) return model.thinking.length > 0;
+	if (model.thinking && typeof model.thinking === 'object') {
+		return Boolean(model.thinking.mode || (model.thinking.efforts && model.thinking.efforts.length > 0));
+	}
+	return Boolean(model.thinking);
 }
 
 export interface ContextUsage {
@@ -249,6 +273,9 @@ export interface AssistantMessageEvent {
 	/** Presente su `image_end`: il tipo reale, non sempre PNG. */
 	mimeType?: string;
 	toolCall?: { id: string; name: string; arguments?: Record<string, unknown> };
+	/** Argomenti parziali prima di `toolcall_end`; non sono mai una richiesta rispondibile. */
+	delta?: string;
+	partial?: AgentMessage;
 }
 
 export interface AgentProgress {
