@@ -39,6 +39,7 @@
 	import { laneStore } from '$lib/stores/lanes.svelte';
 	import { sessionRegistry } from '$lib/agent/sessionRegistry';
 	import { laneLanding } from '$lib/lanes/laneLanding.svelte';
+	import { deleteWorktreeLane } from '$lib/lanes/laneLifecycle';
 	import {
 		listLaneProcesses,
 		laneProcessesFor,
@@ -393,15 +394,18 @@
 		isRejecting = true;
 		rejectError = null;
 		try {
-			const outcome = await laneStore.archiveLane(project.id as ProjectId, lane.laneId, 'rejected', {
+			const outcome = await deleteWorktreeLane(project.id as ProjectId, lane.laneId, {
 				stopProcesses: false
 			});
-			if (outcome.kind === 'archived') {
+			if (outcome.kind === 'deleted') {
 				onClose();
 				return;
 			}
-			if (outcome.kind === 'processes-active') confirmStopReject = true;
-			rejectError = outcome.diagnosis.message;
+			if (outcome.kind === 'processes-active') {
+				confirmStopReject = true;
+				return;
+			}
+			rejectError = outcome.message;
 		} catch (error) {
 			rejectError = invokeErrorMessage(error);
 		} finally {
@@ -414,14 +418,18 @@
 		isRejecting = true;
 		rejectError = null;
 		try {
-			const outcome = await laneStore.archiveLane(project.id as ProjectId, lane.laneId, 'rejected', {
+			const outcome = await deleteWorktreeLane(project.id as ProjectId, lane.laneId, {
 				stopProcesses: true
 			});
-			if (outcome.kind === 'archived') {
+			if (outcome.kind === 'deleted') {
 				onClose();
 				return;
 			}
-			rejectError = outcome.diagnosis.message;
+			if (outcome.kind === 'processes-active') {
+				confirmStopReject = true;
+				return;
+			}
+			rejectError = outcome.message;
 		} catch (error) {
 			rejectError = invokeErrorMessage(error);
 		} finally {

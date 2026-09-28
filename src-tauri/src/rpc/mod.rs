@@ -687,6 +687,24 @@ fn dispatch(
 
     on_event.send(line.to_string()).is_ok()
 }
+/// Applica `--resume <session_id>` se la sessione indicata possiede un transcript valido;
+/// altrimenti, se `continue_last` e' true, applica `--continue`.
+fn apply_resume_or_continue(
+    command_args: &mut Vec<String>,
+    resume: Option<&str>,
+    continue_last: bool,
+    transcript_exists: impl Fn(&str) -> bool,
+) {
+    let mut resumed = false;
+    if let Some(session_id) = resume.filter(|id| !id.is_empty() && transcript_exists(id)) {
+        command_args.push("--resume".to_string());
+        command_args.push(session_id.to_string());
+        resumed = true;
+    }
+    if !resumed && continue_last {
+        command_args.push("--continue".to_string());
+    }
+}
 
 #[tauri::command]
 pub async fn rpc_open(
@@ -694,6 +712,7 @@ pub async fn rpc_open(
     resume: Option<String>,
     lane_id: Option<String>,
     project_id: Option<String>,
+    continue_last: Option<bool>,
     on_event: Channel<String>,
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
@@ -742,14 +761,16 @@ pub async fn rpc_open(
     if let Some(path) = &lanes_extension {
         command.arg("-e").arg(path);
     }
-    // Il resume di una sessione senza transcript farebbe uscire omp subito:
-    // meglio aprirne una nuova, che e' esattamente cio' che la sessione vuota
-    // conteneva.
-    if let Some(session_id) = resume
-        .as_deref()
-        .filter(|id| !id.is_empty() && crate::omp_ops::session_transcript_exists(id))
-    {
-        command.arg("--resume").arg(session_id);
+    // Applica resume (se sessione valida) oppure continue_last
+    let mut session_args = Vec::new();
+    apply_resume_or_continue(
+        &mut session_args,
+        resume.as_deref(),
+        continue_last.unwrap_or(false),
+        crate::omp_ops::session_transcript_exists,
+    );
+    for arg in session_args {
+        command.arg(arg);
     }
 
     command
@@ -928,7 +949,7 @@ pub const LAB_SYSTEM_PROMPT: &str = "You are the OMP Studio Lab agent. You build
 - react and react-dom are provided. Any other npm package must be added to package.json \"dependencies\" with an exact version; the preview loads it from esm.sh. Prefer few, well-known packages.\n\
 - All data is mocked: no real backends, authentication or credentials.\n\
 - The preview recompiles after every file write and Studio shows it live to the user in its Preview tab, next to this chat. After changing files call lab_preview_status and fix every compile or runtime error before you finish. You may open the preview URL it returns with the browser tool to inspect or screenshot the result. That URL is for your tools only: never give it to the user or ask them to open a browser; tell them the result is in the Preview tab.\n\
-- When the purpose of the prototype becomes clear or changes, call lab_set_summary with a short title and a 2-3 line summary of what it does, in the user's language: the main project agent uses it to find this prototype later.\n\
+- When the purpose of the prototype becomes clear or changes, call lab_set_summary with a 2-3 line summary of what it does, in the user's language: the main project agent uses it to find this prototype later.\n\
 - Every user request becomes one revision: Studio commits when your turn ends. Never run git.\n\
 - To compare alternatives, build them inside the prototype with a visible variant switcher.\n\
 - Reply in the user's language.";
@@ -949,6 +970,7 @@ pub async fn rpc_open_lab(
     project_id: Option<String>,
     lane_id: Option<String>,
     resume: Option<String>,
+    continue_last: Option<bool>,
     on_event: Channel<String>,
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
@@ -1008,11 +1030,15 @@ pub async fn rpc_open_lab(
         command.arg("-e").arg(path);
     }
 
-    if let Some(session_id) = resume
-        .as_deref()
-        .filter(|id| !id.is_empty() && crate::omp_ops::session_transcript_exists(id))
-    {
-        command.arg("--resume").arg(session_id);
+    let mut session_args = Vec::new();
+    apply_resume_or_continue(
+        &mut session_args,
+        resume.as_deref(),
+        continue_last.unwrap_or(false),
+        crate::omp_ops::session_transcript_exists,
+    );
+    for arg in session_args {
+        command.arg(arg);
     }
 
     let effective_lane_id = lane_id
@@ -1536,5 +1562,35 @@ mod tests {
             "extract the most distinctive visible text and run one literal workspace search"
         ));
         assert!(prompt.contains("Never promise provider parallelism; use correct serial execution when parallel tool calls are unavailable"));
+    }
+
+    #[test]
+    fn costruzione_argomenti_resume_o_continue() {
+        let run = |resume: Option<&str>, cont: bool, exists: bool| {
+            let mut args = Vec::new();
+            apply_resume_or_continue(&mut args, resume, cont, |_| exists);
+            args
+        };
+
+        // 1. Sessione esistente con transcript: applica solo --resume <id>
+        assert_eq!(
+            run(Some("s-123"), false, true),
+            vec!["--resume".to_string(), "s-123".to_string()]
+        );
+        assert_eq!(
+            run(Some("s-123"), true, true),
+            vec!["--resume".to_string(), "s-123".to_string()]
+        );
+
+        // 2. Sessione specificata ma transcript inesistente: se continue_last=true usa --continue
+        assert_eq!(
+            run(Some("s-ghost"), true, false),
+            vec!["--continue".to_string()]
+        );
+        assert_eq!(run(Some("s-ghost"), false, false), Vec::<String>::new());
+
+        // 3. Nessuna sessione indicata: con continue_last=true usa --continue
+        assert_eq!(run(None, true, true), vec!["--continue".to_string()]);
+        assert_eq!(run(None, false, true), Vec::<String>::new());
     }
 }

@@ -222,6 +222,13 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "allow-lane-naming"
+description = "Generazione dei nomi di corsia: chiamata effimera al modello leggero configurato"
+commands.allow = [
+    "generate_lane_name"
+]
+
+[[permission]]
 identifier = "allow-companion"
 description = "Finestra secondaria Companion: alternanza visibilita', stato geometrico e parsing NL dei task"
 commands.allow = [
@@ -298,6 +305,7 @@ permissions = [
     "allow-rules-and-skills",
     "allow-task-directives",
     "allow-prompt-suggestions",
+    "allow-lane-naming",
     "allow-browser-live",
     "allow-companion",
     "allow-github",

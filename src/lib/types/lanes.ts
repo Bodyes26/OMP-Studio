@@ -14,7 +14,7 @@ export type WorkspacePath = string & { readonly [workspacePathBrand]: 'Workspace
 
 export type AgentState = 'idle' | 'working' | 'attention' | 'finished' | 'unknown';
 export type AgentSurface = 'terminal' | 'gui';
-export type LaneStatus = 'active' | 'review_ready' | 'conflict' | 'integrating' | 'archived';
+export type LaneStatus = 'active' | 'review_ready' | 'conflict' | 'integrating' | 'archived' | 'closed';
 /**
  * Chi ha creato la corsia. Governa lo slot unico di auto-dispatch (W09):
  * una corsia `manual` sospende l'auto-avvio, una corsia `auto` occupa lo slot
@@ -42,6 +42,8 @@ export interface AgentLane {
 	kind: 'git' | 'lab';
 	/** ID del prototipo per corsie Lab (formato p-YYYYMMDD-xxxxxx). */
 	labPrototypeId?: string | null;
+	/** Indica se il titolo e' stato bloccato manualmente dall'utente. */
+	titleLocked?: boolean;
 }
 
 export type ProjectStack = 'aspnet' | 'dotnet' | 'vite' | 'svelte' | 'node' | 'static';

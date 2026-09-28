@@ -1,14 +1,21 @@
+// Riconoscimento titoli segnaposto e limiti di denominazione per le corsie.
+//
+// Le corsie nascono con titoli predefiniti ("Worktree N" per git, "Nuovo prototipo" per lab).
+// Al primo prompt smol sintetizza il nome reale, a meno che l'utente non abbia
+// gia' assegnato un titolo esplicito (che imposta titleLocked: true).
+
+/** Lunghezza massima consentita per la rinomina manuale del titolo di una corsia. */
+export const LANE_TITLE_MAX = 40;
+
 /**
- * Titolo provvisorio `Worktree N` (creazione manuale da HEAD).
- * Al primo prompt diventa la prima riga, troncata: il branch Git `omp/lane-<id>`
- * non cambia. Un titolo gia' scelto (task o rinomina) non viene sovrascritto.
+ * Verifica se un titolo corrisponde al segnaposto predefinito non ancora personalizzato.
+ * Git: 'Worktree N'
+ * Lab: 'Nuovo prototipo' (case-insensitive)
  */
-export function synthesizeProvisionalLaneTitle(
-	currentTitle: string,
-	promptText: string
-): string | null {
-	if (!/^Worktree\s+\d+$/i.test(currentTitle)) return null;
-	const firstLine = promptText.split(/\r?\n/).find((line) => line.trim())?.trim();
-	if (!firstLine) return null;
-	return firstLine.length > 36 ? `${firstLine.slice(0, 35)}…` : firstLine;
+export function isPlaceholderLaneTitle(title: string, kind: 'git' | 'lab'): boolean {
+	const trimmed = title.trim();
+	if (kind === 'git') {
+		return /^Worktree\s+\d+$/i.test(trimmed);
+	}
+	return trimmed.toLowerCase() === 'nuovo prototipo';
 }

@@ -21,6 +21,7 @@ export interface StoredProjectMetadata {
 	autoDispatch?: boolean;
 	taskDefaults?: Partial<TaskDefaults> | null;
 	browserAllowedOrigins?: string[];
+	worktreeResumeChat?: boolean;
 	lastOpened?: number;
 }
 
@@ -34,6 +35,7 @@ export interface ResolvedProjectTabInfo {
 	autoDispatch: boolean;
 	taskDefaults: Partial<TaskDefaults> | null;
 	browserAllowedOrigins?: string[];
+	worktreeResumeChat: boolean;
 }
 
 /**
@@ -190,6 +192,7 @@ export function buildProjectMetadata(p: {
 	autoDispatch?: boolean;
 	taskDefaults?: Partial<TaskDefaults> | null;
 	browserAllowedOrigins?: string[];
+	worktreeResumeChat?: boolean;
 }): StoredProjectMetadata | null {
 	if (!p.canonicalProjectPath) return null;
 	const normPath = normalizeProjectPath(p.canonicalProjectPath);
@@ -215,7 +218,8 @@ export function buildProjectMetadata(p: {
 		taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null,
 		browserAllowedOrigins: Array.isArray(p.browserAllowedOrigins)
 			? [...p.browserAllowedOrigins]
-			: undefined
+			: undefined,
+		worktreeResumeChat: p.worktreeResumeChat ?? true
 	};
 }
 
@@ -253,7 +257,8 @@ export function resolveProjectTabInfo(
 			meta?.taskDefaults && typeof meta.taskDefaults === 'object' ? meta.taskDefaults : null,
 		browserAllowedOrigins: Array.isArray(meta?.browserAllowedOrigins)
 			? [...meta.browserAllowedOrigins]
-			: undefined
+			: undefined,
+		worktreeResumeChat: meta?.worktreeResumeChat ?? true
 	};
 }
 

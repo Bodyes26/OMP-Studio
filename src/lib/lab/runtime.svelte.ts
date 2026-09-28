@@ -8,7 +8,6 @@
 //  - Consultazione storica e ripristino di revisioni precedenti.
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { syncLabTitle } from '$lib/lanes/laneActions';
 import type { AgentSession } from '$lib/agent/session.svelte';
 import { labApi } from './api';
 import { compileLabPrototypeInWorker } from './compiler';
@@ -237,9 +236,8 @@ export class LabLaneRuntime {
 	}
 
 	/**
-	 * Riporta titolo e riepilogo di `.lab/meta.json` su indice e corsia.
-	 * Non dipende dal commit: `lab_set_summary` puo' essere l'unica modifica,
-	 * e all'avvio non c'e' alcuna revisione da registrare.
+	 * Riporta il riepilogo di `.lab/meta.json` sull'indice del prototipo.
+	 * Non sincronizza piu' il titolo: la titolazione e' gestita da smol / rinomina manuale.
 	 */
 	private async syncMeta(rev: LabRevision | null): Promise<void> {
 		const [meta, index] = await Promise.all([
@@ -249,14 +247,10 @@ export class LabLaneRuntime {
 		const entry = index.find((e) => e.id === this.prototypeId);
 		const patch: LabIndexPatch = {};
 		if (rev) patch.lastRevision = rev;
-		if (meta?.title && meta.title !== entry?.title) patch.title = meta.title;
 		if (meta?.summary && meta.summary !== entry?.summary) patch.summary = meta.summary;
 		if (Object.keys(patch).length === 0) return;
 
 		await labApi.updateIndex(this.projectPath, this.prototypeId, patch);
-		if (patch.title) {
-			syncLabTitle(this.projectId, this.laneId, patch.title);
-		}
 	}
 
 	async viewRevision(sha: string): Promise<void> {

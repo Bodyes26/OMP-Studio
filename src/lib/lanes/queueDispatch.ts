@@ -71,7 +71,7 @@ export interface QueueRootResolution {
 }
 
 function isLaneActive(lane: LaneDispatchSnapshot): boolean {
-	return lane.status !== 'archived' && lane.kind !== 'lab';
+	return lane.status !== 'archived' && lane.status !== 'closed' && lane.kind !== 'lab';
 }
 
 /** Corsie che tengono impegnato un agente: le archiviate non contano. */

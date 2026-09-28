@@ -718,23 +718,85 @@ export class LaneLandingService {
 		isCallerOwnLane: boolean
 	): void {
 		const doCleanup = async () => {
+			const laneRecord = laneStore.lanesFor(project.id as ProjectId).find((l) => l.laneId === laneId);
+			const laneTitle = laneRecord?.title ?? laneId;
+			const targetBranch = laneRecord?.targetBranch ?? 'main';
 			try {
 				const session = sessionRegistry.getLaneSession(project.id, laneId);
 				if (session) {
 					await sessionRegistry.disposeSession(session);
 				}
-				await laneStore.archiveLane(project.id as ProjectId, laneId, 'integrated', {
+				const outcome = await laneStore.archiveLane(project.id as ProjectId, laneId, 'integrated', {
 					stopProcesses: true
 				});
-				await invoke('worktree_delete_lane_branch', {
-					args: {
-						projectPath: project.canonicalProjectPath,
+				if (outcome.kind !== 'archived') {
+					const errorMsg =
+						outcome.kind === 'processes-active'
+							? 'Impossibile rimuovere il worktree: processi ancora attivi.'
+							: (outcome.diagnosis.message || 'Rimozione worktree post-integrazione fallita.');
+					this.createCard({
+						projectId: project.id,
 						laneId,
-						confirm: true
+						laneTitle,
+						targetBranch,
+						kind: 'error',
+						message: errorMsg
+					});
+					const targetSession = this.findTargetSession(project.id);
+					targetSession?.pushNotice('warning', errorMsg, 'studio');
+					return;
+				}
+				if (project.canonicalProjectPath) {
+					try {
+						await invoke('worktree_delete_lane_branch', {
+							args: {
+								projectPath: project.canonicalProjectPath,
+								laneId,
+								confirm: true
+							}
+						});
+					} catch (branchErr) {
+						const errorMsg =
+							branchErr instanceof Error
+								? branchErr.message
+								: typeof branchErr === 'string'
+									? branchErr
+									: 'Cancellazione del branch di corsia fallita.';
+						if (laneRecord && laneRecord.recoveryState !== 'cleanup_pending') {
+							await laneStore.updateLane(project.id as ProjectId, laneId, {
+								recoveryState: 'cleanup_pending'
+							});
+						}
+						this.createCard({
+							projectId: project.id,
+							laneId,
+							laneTitle,
+							targetBranch,
+							kind: 'error',
+							message: `Branch non eliminato: ${errorMsg}`
+						});
+						const targetSession = this.findTargetSession(project.id);
+						targetSession?.pushNotice('warning', `Branch non eliminato: ${errorMsg}`, 'studio');
 					}
-				}).catch(() => undefined);
+				}
 			} catch (err) {
 				console.warn('[laneLanding] Errore pulizia post-integrazione:', err);
+				const errorMsg =
+					err instanceof Error
+						? err.message
+						: typeof err === 'string'
+							? err
+							: 'Pulizia post-integrazione fallita.';
+				this.createCard({
+					projectId: project.id,
+					laneId,
+					laneTitle,
+					targetBranch,
+					kind: 'error',
+					message: errorMsg
+				});
+				const targetSession = this.findTargetSession(project.id);
+				targetSession?.pushNotice('warning', errorMsg, 'studio');
 			}
 		};
 
@@ -893,7 +955,7 @@ export class LaneLandingService {
 					// Chiamante principale senza laneId
 					const openLanes = laneStore
 						.lanesFor(project.id as ProjectId)
-						.filter((l) => l.laneId !== 'main' && l.status !== 'archived');
+						.filter((l) => l.laneId !== 'main' && l.status !== 'archived' && l.status !== 'closed');
 
 					if (openLanes.length === 1) {
 						targetLaneId = openLanes[0].laneId;

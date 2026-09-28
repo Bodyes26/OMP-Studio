@@ -38,6 +38,7 @@ export interface LaneRecord extends AgentLane {
 	archiveReason: LaneArchiveReason | null;
 	archivedAt: number | null;
 	recoveredAt: number | null;
+	closedAt: number | null;
 }
 
 interface StoredLaneV1 {
@@ -62,6 +63,8 @@ interface StoredLaneV1 {
 	recoveredAt: number | null;
 	kind?: 'git' | 'lab';
 	labPrototypeId?: string | null;
+	closedAt?: number | null;
+	titleLocked?: boolean;
 }
 
 interface StoredProfileV1 {
@@ -117,7 +120,8 @@ const LANE_STATUSES: Record<LaneStatus, true> = {
 	review_ready: true,
 	conflict: true,
 	integrating: true,
-	archived: true
+	archived: true,
+	closed: true
 };
 const LANE_ORIGINS: Record<LaneOrigin, true> = { main: true, manual: true, auto: true };
 const AGENT_SURFACES: Record<AgentSurface, true> = { terminal: true, gui: true };
@@ -213,6 +217,9 @@ function parseStoredLane(value: unknown): LaneRecord | null {
 			: source.origin;
 	const kind: 'git' | 'lab' = source.kind === 'lab' ? 'lab' : 'git';
 	const labPrototypeId = nullableString(source.labPrototypeId) ?? null;
+	const closedAt = source.closedAt === undefined ? null : nullableTimestamp(source.closedAt);
+	const titleLocked = typeof source.titleLocked === 'boolean' ? source.titleLocked : false;
+	if (closedAt === undefined) return null;
 	if (
 		!rawProjectId ||
 		!rawLaneId ||
@@ -267,7 +274,9 @@ function parseStoredLane(value: unknown): LaneRecord | null {
 			archivedAt,
 			recoveredAt,
 			kind,
-			labPrototypeId
+			labPrototypeId,
+			closedAt: closedAt ?? null,
+			titleLocked
 		};
 	} catch {
 		return null;
@@ -417,7 +426,9 @@ export function serializeLaneStoreDocument(
 			archivedAt: lane.archivedAt,
 			recoveredAt: lane.recoveredAt,
 			kind: lane.kind ?? 'git',
-			labPrototypeId: lane.labPrototypeId ?? null
+			labPrototypeId: lane.labPrototypeId ?? null,
+			closedAt: lane.closedAt ?? null,
+			titleLocked: lane.titleLocked ?? false
 		})),
 		profiles: profiles.map((profile) => ({
 			projectId: profile.projectId,
@@ -458,7 +469,9 @@ export function laneRecordFromAgentLane(lane: AgentLane, sessionId: string | nul
 		archivedAt: null,
 		recoveredAt: null,
 		kind: lane.kind ?? 'git',
-		labPrototypeId: lane.labPrototypeId ?? null
+		labPrototypeId: lane.labPrototypeId ?? null,
+		closedAt: (lane as Partial<LaneRecord>).closedAt ?? null,
+		titleLocked: lane.titleLocked ?? false
 	};
 }
 
@@ -579,7 +592,9 @@ export function reconcileProjectLanes(
 			archivedAt: null,
 			recoveredAt: now,
 			kind: 'git',
-			labPrototypeId: null
+			labPrototypeId: null,
+			closedAt: null,
+			titleLocked: false
 		});
 	}
 

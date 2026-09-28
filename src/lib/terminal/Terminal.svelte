@@ -17,6 +17,7 @@
 		launchArgs = null,
 		laneId = null,
 		projectId = null,
+		continueLast = false,
 		onStateChange,
 		onOpenFile,
 		onInputPendingChange,
@@ -34,6 +35,7 @@
 		launchArgs?: string[] | null;
 		laneId?: string | null;
 		projectId?: string | null;
+		continueLast?: boolean;
 		onStateChange?: (state: TerminalAgentState) => void;
 		onOpenFile?: (relPath: string, line: number | null) => void;
 		onInputPendingChange?: (pending: boolean) => void;
@@ -97,7 +99,8 @@
 			resumeSessionId,
 			launchArgs,
 			laneId,
-			projectId
+			projectId,
+			continueLast
 		);
 		sessionRef?.(session);
 

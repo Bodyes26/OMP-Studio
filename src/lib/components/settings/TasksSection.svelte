@@ -893,7 +893,7 @@
 							{/if}
 						</div>
 						<div class="form-row-control">
-							<label class="switch">
+							<label class="switch" title={m.ui_taskssection_avvia_automaticamente_il_prossimo_task_in_coda_2e2a()}>
 								<input
 									type="checkbox"
 									checked={p.autoDispatch}
@@ -903,6 +903,24 @@
 							</label>
 						</div>
 					</div>
+					{#if !p.labDraft}
+						<!-- Toggle ripresa automatica sessione worktree per progetti Git -->
+						<div class="project-row project-subrow">
+							<div class="form-row-copy">
+								<span class="form-row-desc">{m.lanestrip_worktree_resume_chat_desc()}</span>
+							</div>
+							<div class="form-row-control">
+								<label class="switch" title={m.lanestrip_resume_chat()}>
+									<input
+										type="checkbox"
+										checked={p.worktreeResumeChat ?? true}
+										onchange={(e) => projectStore.setWorktreeResumeChat(p.id, (e.currentTarget as HTMLInputElement).checked)}
+									/>
+									<span class="slider"></span>
+								</label>
+							</div>
+						</div>
+					{/if}
 				{/each}
 			</div>
 		{/if}
@@ -1700,6 +1718,11 @@
 
 	.project-row:last-child {
 		border-bottom: none;
+	}
+
+	.project-subrow {
+		padding-left: var(--space-4);
+		background-color: color-mix(in srgb, var(--bg-raised) 25%, transparent);
 	}
 
 	.override-reset {

@@ -72,6 +72,7 @@ export class TerminalSession {
 	private launchArgs: string[] | null;
 	private laneId: string | null = null;
 	private projectId: string | null = null;
+	private continueLast = false;
 	/** Contesto WebAudio per il campanello, creato al primo bell e riusato:
 	 *  aprirne uno per ogni bell sarebbe inutile e piu' lento. */
 	private audioCtx: AudioContext | null = null;
@@ -118,13 +119,15 @@ export class TerminalSession {
 		resumeSessionId: string | null = null,
 		launchArgs: string[] | null = null,
 		laneId: string | null = null,
-		projectId: string | null = null
+		projectId: string | null = null,
+		continueLast: boolean = false
 	) {
 		this.container = container;
 		this.pendingResume = resumeSessionId;
 		this.launchArgs = launchArgs;
 		this.laneId = laneId;
 		this.projectId = projectId;
+		this.continueLast = continueLast;
 		this.cwd = cwd;
 		this.onStateChange = onStateChange;
 		this.onOpenFile = onOpenFile;
@@ -600,8 +603,9 @@ export class TerminalSession {
 		this.pendingResume = null;
 		if (!this.launchArgs && !isScratchpad && resume && /^[A-Za-z0-9._-]+$/.test(resume)) {
 			args.push('--resume', resume);
+		} else if (!this.launchArgs && !isScratchpad && this.continueLast) {
+			args.push('--continue');
 		}
-
 		try {
 			this.fit();
 			const cols = this.term.cols || 80;

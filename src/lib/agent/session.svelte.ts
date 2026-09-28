@@ -4,7 +4,7 @@ import { settingsStore } from '$lib/stores/settings.svelte';
 import { formatTokens } from '$lib/utils/format';
 import { traceAgent } from '$lib/focusTracer';
 import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
-import { synthesizeProvisionalLaneTitle } from '$lib/lanes/laneTitle';
+import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '$lib/lanes/laneNaming';
 import { laneStore } from '$lib/stores/lanes.svelte';
 import { projectStore } from '$lib/stores/projects.svelte';
 import type { LaneId, ProjectId } from '$lib/types/lanes';
@@ -735,12 +735,18 @@ export class AgentSession {
 						prototypeId: this.labConfig.prototypeId,
 						projectId: this.projectKey,
 						laneId: this.laneId ?? 'main',
-						resume: requestedResume
+						resume: requestedResume,
+						continueLast: true
 					});
+					void nameExistingPrototypeIfLong(this.projectKey, this.laneId ?? 'main');
 				} else {
+					const project = projectStore.projects.find((p) => p.id === this.projectKey);
+					const isWorktreeLane = Boolean(this.laneId && this.laneId !== 'main');
+					const continueLast = isWorktreeLane && (project?.worktreeResumeChat ?? true);
 					await this.client.open(this.cwd, requestedResume, {
 						laneId: this.laneId ?? null,
-						projectId: this.projectKey ?? null
+						projectId: this.projectKey ?? null,
+						continueLast
 					});
 				}
 			} catch (error) {
@@ -2863,22 +2869,7 @@ export class AgentSession {
 	}
 
 	private synthesizeLaneTitleOnFirstPrompt(message: string): void {
-		if (!this.laneId || this.laneId === 'main') return;
-		const lane = laneStore.lanes.find(
-			(l) => l.projectId === this.projectKey && l.laneId === this.laneId
-		);
-		if (!lane) return;
-		const synthesized = synthesizeProvisionalLaneTitle(lane.title, message);
-		if (!synthesized) return;
-		void laneStore.updateLane(this.projectKey as ProjectId, this.laneId as LaneId, {
-			title: synthesized
-		}).catch(() => undefined);
-		if (
-			projectStore.activeProject?.id === this.projectKey &&
-			projectStore.activeProject.lane.laneId === this.laneId
-		) {
-			projectStore.activeProject.lane.title = synthesized;
-		}
+		nameLaneFromPrompt(this.projectKey, this.laneId ?? 'main', message);
 	}
 
 	async prompt(

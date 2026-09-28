@@ -1181,3 +1181,32 @@ La prima implementazione del Laboratorio (Gate R24, vista separata `LabView` da 
 6. **Sessione agente confinata.** `rpc_open_lab` usa il workspace come CWD, carica l'estensione `studio-lab.ts` con hook `tool_call` fail-closed (tool nativi `read`/`write`/`edit`/`glob`/`grep` limitati ai confini, shell/eval disabilitati, browser limitato all'URL locale dell'anteprima, tool `lab_preview_status` e `lab_set_summary`).
 7. **Ingresso dal popover del progetto e scratchpad.** Rimosso il chip globale in TopBar. L'apertura avviene dal popover della scheda progetto ("Nuovo prototipo Lab" e "Prototipi Lab (n)"); le idee libere si aprono dal menu del pulsante fantasma (scratchpad) con `Ctrl+Alt+P`.
 8. **Cutover completo.** Eliminati i moduli obsoleti (`LabView.svelte`, `renderer.ts`, `revisions.ts`, `context.ts`, `migration.ts`, `export-handoff.ts`, `storage.ts`, `visual-tools.ts`).
+
+## Gate R31: la barra delle corsie mostra solo cio' che chiede attenzione, e le corsie si chiudono senza perdersi
+
+**Data:** 2026-09-28
+**Esito:** APPROVATO (rivede la resa della `LaneStrip` del Gate R27, il punto 7 del Gate R30 e ripristina il punto 7 del Gate R24)
+
+### Il problema
+
+1. Ogni tab della `LaneStrip` portava un pallino verde (processi vivi, ma contava anche il processo `omp` della chat, quindi era sempre acceso), un badge testuale di stato anche a riposo ("In attesa") e, sui prototipi, una beuta in colore accent che sembrava uno stato.
+2. I titoli erano descrizioni: la prima riga del prompt tagliata a 36 caratteri per i worktree, fino a 80 caratteri scelti dall'agente Lab per i prototipi, ricalcolati a ogni turno.
+3. «+ ▾ Nuova corsia» e il popover mescolavano creazione e prototipi esistenti con la stessa grafica; il popover duplicava la logica del menu.
+4. La X su un worktree archiviava con motivo `integrated` e rimuoveva la cartella: una corsia mai integrata non era piu' recuperabile. Una pulizia post-integrazione fallita veniva ignorata e «Scarta» lasciava il branch orfano.
+5. Il sessionId di omp non era salvato: un prototipo riaperto o un riavvio di Studio partivano da una chat vuota, contro il punto 7 del Gate R24.
+
+### Decisioni
+
+1. **Tab = icona del tipo + nome.** Nessuna icona per Principale, ramo per i worktree, beuta per i prototipi; grigia, accent solo sulla tab selezionata. Lo stato si vede solo con gli anelli della barra progetti: ambra pulsante per domanda o conflitto, accent fermo per "finito da leggere" o pronto per la revisione; niente per fermo o al lavoro. Il "finito" delle corsie GUI e' il confronto fra `runEndSeq` della sessione e l'ultimo visto dall'utente, azzerato entrando o uscendo dalla corsia.
+2. **Nomi da progetto generati da smol.** Al primo prompt di una corsia con titolo segnaposto, una chiamata effimera al ruolo `smol` produce 1-3 parole entro 24 caratteri: inventivo per i prototipi, area toccata per i worktree, diverso dai nomi gia' presenti. `lab_set_summary` aggiorna solo il riepilogo. La rinomina manuale (doppio clic o menu contestuale) imposta `titleLocked` e nessun automatismo la sovrascrive.
+3. **Stato `closed` reversibile.** La X toglie la tab, ferma sessione e processi e lascia cartella e branch. Integrare rimuove cartella e branch e segnala le pulizie fallite; «Elimina» (con conferma) rimuove cartella e branch e archivia con motivo `rejected`. Le corsie chiuse non contano nel soft-cap e non occupano lo slot di auto-dispatch.
+4. **Un solo menu di corsie.** Il «+» della barra e il popover leggono la stessa sorgente (`projectLaneActions`, `listClosedLanes`): «Crea» e «Riapri» separati, corsie chiuse e prototipi non aperti in un solo elenco con data. Il popover resta l'ingresso quando la barra e' nascosta.
+5. **Chat continua.** I prototipi hanno una sola chat: la sessione si apre sempre con `omp --continue` nel workspace del prototipo, e «Nuova chat», `Alt+N`, `/new`, `/clear`, `/quit` sono disattivati. I worktree riprendono l'ultima chat con `--continue` secondo l'impostazione per progetto `worktreeResumeChat` (predefinita attiva); «Nuova chat» resta disponibile. Principale invariata.
+6. **Pannello sinistro per tipo di corsia.** I prototipi hanno una memoria di visibilita' propria (`labSidebarCollapsed`, chiusa per partire); la scheda Sessioni non compare nel Lab perche' mostrerebbe le sessioni del progetto originale.
+
+### Rischi accettati
+
+- `--continue` riprende la sessione piu' recente della cartella: nel workspace di un prototipo e' per costruzione l'unica, in un worktree e' l'ultima aperta anche se l'utente aveva scelto una chat precedente.
+- Le cartelle dei worktree chiusi occupano disco finche' non vengono integrati o eliminati.
+- «Elimina» non forza Git: un worktree con modifiche non committate resta su disco e l'errore viene mostrato.
+

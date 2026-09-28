@@ -20,6 +20,11 @@ import {
 import { IS_MAC, MOD_LABEL as MOD } from '$lib/utils/platform';
 import { m } from '$lib/paraglide/messages.js';
 
+export interface ContextMenuHeader {
+	kind: 'header';
+	label: string;
+}
+
 export interface ContextMenuItem {
 	kind: 'item';
 	label: string;
@@ -28,6 +33,12 @@ export interface ContextMenuItem {
 	disabled?: boolean;
 	hint?: string;
 	danger?: boolean;
+	detail?: string;
+	secondaryAction?: {
+		label: string;
+		icon: Component;
+		run: () => void | Promise<void>;
+	};
 	run: () => void | Promise<void>;
 }
 
@@ -35,7 +46,7 @@ export interface ContextMenuSeparator {
 	kind: 'separator';
 }
 
-export type ContextMenuEntry = ContextMenuItem | ContextMenuSeparator;
+export type ContextMenuEntry = ContextMenuItem | ContextMenuSeparator | ContextMenuHeader;
 
 export interface ContextMenuOptions {
 	label: string;

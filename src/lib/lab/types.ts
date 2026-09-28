@@ -18,6 +18,7 @@ export interface LabRevision {
 export interface LabIndexEntry {
 	id: string;
 	title: string;
+	titleLocked: boolean;
 	/** 2-3 righe su cosa fa il prototipo: e' cio' che permette al main di riconoscerlo. */
 	summary: string;
 	status: LabPrototypeStatus;
@@ -33,6 +34,7 @@ export interface LabIndexEntry {
 export interface LabIndexPatch {
 	title?: string;
 	summary?: string;
+	titleLocked?: boolean;
 	status?: LabPrototypeStatus;
 	lastRevision?: LabRevision | null;
 }

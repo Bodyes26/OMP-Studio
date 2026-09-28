@@ -49,7 +49,7 @@ export function evaluateIntegrationGate(
 		reasons.push(messages.processCheckFailed());
 	}
 
-	if (input.laneStatus === 'archived' || input.laneStatus === 'integrating') {
+	if (input.laneStatus === 'archived' || input.laneStatus === 'integrating' || input.laneStatus === 'closed') {
 		reasons.push(messages.notReady(input.laneStatus));
 	}
 

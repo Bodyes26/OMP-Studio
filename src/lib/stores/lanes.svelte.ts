@@ -399,7 +399,9 @@ class LaneStore {
 			archivedAt: null,
 			recoveredAt: null,
 			kind: 'git',
-			labPrototypeId: null
+			labPrototypeId: null,
+			closedAt: null,
+			titleLocked: false
 		};
 
 		await this.upsertLane(record);

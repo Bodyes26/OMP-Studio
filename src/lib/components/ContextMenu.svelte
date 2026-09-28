@@ -150,6 +150,23 @@
 			console.error(m.ui_contextmenu_errore_durante_l_esecuzione_dell_azione_del_15b3(), err);
 		}
 	}
+	async function runSecondaryAction(action: NonNullable<ContextMenuItem['secondaryAction']>) {
+		const invoker = contextMenu.invoker;
+		contextMenu.close();
+
+		if (invoker && document.contains(invoker)) {
+			try {
+				invoker.focus();
+			} catch {}
+		}
+
+		try {
+			await action.run();
+		} catch (err) {
+			console.error(m.ui_contextmenu_errore_durante_l_esecuzione_dell_azione_del_15b3(), err);
+		}
+	}
+
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (!contextMenu.isOpen) return;
@@ -243,30 +260,53 @@
 			{#each contextMenu.items as entry, i (i)}
 				{#if entry.kind === 'separator'}
 					<div role="separator" class="separator"></div>
+				{:else if entry.kind === 'header'}
+					<div role="presentation" class="menu-header">{entry.label}</div>
 				{:else}
-					<button
-						type="button"
-						role="menuitem"
-						class="item"
-						class:danger={entry.danger}
-						aria-disabled={entry.disabled ? 'true' : undefined}
-						aria-label={entry.hint ? `${entry.label}. ${entry.hint}` : entry.label}
-						title={entry.hint || undefined}
-						onclick={() => runItem(entry)}
-					>
-						{#if hasAnyIcon}
-							<span class="icon-slot">
-								{#if entry.icon}
-									{@const Icon = entry.icon}
-									<Icon />
-								{/if}
-							</span>
+					<div class="item-row" class:has-secondary={Boolean(entry.secondaryAction)}>
+						<button
+							type="button"
+							role="menuitem"
+							class="item"
+							class:danger={entry.danger}
+							aria-disabled={entry.disabled ? 'true' : undefined}
+							aria-label={entry.hint ? `${entry.label}. ${entry.hint}` : entry.label}
+							title={entry.hint || undefined}
+							onclick={() => runItem(entry)}
+						>
+							{#if hasAnyIcon}
+								<span class="icon-slot">
+									{#if entry.icon}
+										{@const Icon = entry.icon}
+										<Icon />
+									{/if}
+								</span>
+							{/if}
+							<span class="label">{entry.label}</span>
+							{#if entry.detail}
+								<span class="detail">{entry.detail}</span>
+							{/if}
+							{#if entry.shortcut}
+								<kbd class="shortcut">{entry.shortcut}</kbd>
+							{/if}
+						</button>
+						{#if entry.secondaryAction}
+							{@const sec = entry.secondaryAction}
+							{@const SecIcon = sec.icon}
+							<button
+								type="button"
+								class="secondary-action-btn"
+								aria-label={sec.label}
+								title={sec.label}
+								onclick={(e) => {
+									e.stopPropagation();
+									void runSecondaryAction(sec);
+								}}
+							>
+								<SecIcon />
+							</button>
 						{/if}
-						<span class="label">{entry.label}</span>
-						{#if entry.shortcut}
-							<kbd class="shortcut">{entry.shortcut}</kbd>
-						{/if}
-					</button>
+					</div>
 				{/if}
 			{/each}
 		</div>
@@ -287,7 +327,9 @@
 		font-family: var(--font-ui);
 		font-size: var(--text-base);
 		z-index: var(--z-overlay);
-		width: min(240px, calc(100vw - 16px));
+		min-width: 220px;
+		width: max-content;
+		max-width: min(320px, calc(100vw - 16px));
 		max-height: calc(100vh - 16px);
 		overflow-y: auto;
 		overflow-x: hidden;
@@ -310,6 +352,77 @@
 		border: none;
 		flex-shrink: 0;
 	}
+	.menu-header {
+		font-size: 10px;
+		font-weight: 600;
+		color: var(--ink-faint);
+		padding: 6px var(--space-2) 2px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		pointer-events: none;
+		user-select: none;
+	}
+
+	.item-row {
+		display: flex;
+		align-items: center;
+		width: 100%;
+		border-radius: var(--radius-sm);
+		position: relative;
+	}
+
+	.item-row .item {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.detail {
+		margin-left: auto;
+		padding-left: var(--space-2);
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.item:hover:not([aria-disabled='true']) .detail,
+	.item:focus:not([aria-disabled='true']) .detail {
+		color: var(--ink-muted);
+	}
+
+	.secondary-action-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		margin-left: 2px;
+		padding: 0;
+		border: none;
+		border-radius: var(--radius-xs);
+		background: transparent;
+		color: var(--ink-faint);
+		cursor: pointer;
+		flex-shrink: 0;
+		transition:
+			background var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.secondary-action-btn:hover {
+		background: color-mix(in srgb, var(--danger) 14%, var(--bg-raised));
+		color: var(--danger);
+	}
+
+	.secondary-action-btn:focus-visible {
+		box-shadow: inset 0 0 0 1.5px var(--focus);
+	}
+
+	.secondary-action-btn :global(svg) {
+		width: 12px;
+		height: 12px;
+	}
+
 
 	.item {
 		display: flex;

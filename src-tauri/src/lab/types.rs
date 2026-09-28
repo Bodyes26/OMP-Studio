@@ -23,6 +23,8 @@ pub struct LabRevision {
 pub struct LabIndexEntry {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub title_locked: bool,
     pub summary: String,
     pub status: LabPrototypeStatus,
     pub created_at: String,
@@ -54,6 +56,8 @@ impl Default for LabIndexFile {
 pub struct LabIndexPatch {
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default)]
+    pub title_locked: Option<bool>,
     #[serde(default)]
     pub summary: Option<String>,
     #[serde(default)]

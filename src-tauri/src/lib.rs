@@ -72,6 +72,8 @@ use directives_ops::{
 };
 mod suggestions_ops;
 use suggestions_ops::generate_prompt_suggestions;
+mod lane_naming_ops;
+use lane_naming_ops::generate_lane_name;
 mod companion_ops;
 use companion_ops::{
     fit_companion_to_content, get_companion_state, hide_companion_window, init_global_shortcut,
@@ -252,6 +254,7 @@ pub fn run() {
             refine_task_directive_ai,
             analyze_task_directives_friction,
             generate_prompt_suggestions,
+            generate_lane_name,
             toggle_companion_window,
             hide_companion_window,
             fit_companion_to_content,

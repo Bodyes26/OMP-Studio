@@ -184,6 +184,8 @@ export interface GeneralSettings {
 	layoutMode: LayoutMode;
 	/** Stato di collasso della barra laterale sinistra (a 0px). */
 	sidebarCollapsed: boolean;
+	/** Stato di collasso della barra laterale sinistra per corsie Lab (default true). */
+	labSidebarCollapsed: boolean;
 	/**
 	 * Modalita di accodamento e interruzione.
 	 * Vivono qui come preferenze persistenti (e non nella sessione volatile)
@@ -277,6 +279,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		labAlphaEnabled: false,
 		layoutMode: 'auto',
 		sidebarCollapsed: false,
+		labSidebarCollapsed: true,
 		defaultStreamingBehavior: 'steer',
 		steeringMode: 'one-at-a-time',
 		followUpMode: 'one-at-a-time',
@@ -406,6 +409,7 @@ export function parseSettings(value: unknown): StudioSettings {
 			labAlphaEnabled: bool(general.labAlphaEnabled, d.general.labAlphaEnabled),
 			layoutMode: pick(general.layoutMode, ['auto', 'horizontal', 'vertical'] as const, d.general.layoutMode),
 			sidebarCollapsed: bool(general.sidebarCollapsed, d.general.sidebarCollapsed),
+			labSidebarCollapsed: bool(general.labSidebarCollapsed, d.general.labSidebarCollapsed),
 			defaultStreamingBehavior: pick(
 				general.defaultStreamingBehavior,
 				['steer', 'followUp'] as const,
@@ -825,8 +829,12 @@ class SettingsStore {
 		this.save();
 	}
 
-	toggleSidebar() {
-		this.general.sidebarCollapsed = !this.general.sidebarCollapsed;
+	toggleSidebar(kind: 'git' | 'lab' = 'git') {
+		if (kind === 'lab') {
+			this.general.labSidebarCollapsed = !this.general.labSidebarCollapsed;
+		} else {
+			this.general.sidebarCollapsed = !this.general.sidebarCollapsed;
+		}
 		this.save();
 	}
 

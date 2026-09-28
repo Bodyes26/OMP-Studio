@@ -105,7 +105,7 @@ export class OmpRpcClient {
 	async open(
 		cwd: string,
 		resume?: string | null,
-		opts?: { laneId?: string | null; projectId?: string | null }
+		opts?: { laneId?: string | null; projectId?: string | null; continueLast?: boolean }
 	): Promise<number> {
 		const epoch = ++this.openEpoch;
 		const channel = new Channel<string>();
@@ -124,6 +124,7 @@ export class OmpRpcClient {
 			resume: resume ?? null,
 			laneId: opts?.laneId ?? null,
 			projectId: opts?.projectId ?? null,
+			continueLast: opts?.continueLast ?? false,
 			onEvent: channel
 		});
 		// Un processo che fallisce in avvio puo' emettere `studio_exit` prima
@@ -145,6 +146,7 @@ export class OmpRpcClient {
 		projectId?: string | null;
 		laneId?: string | null;
 		resume?: string | null;
+		continueLast?: boolean;
 	}): Promise<number> {
 		const epoch = ++this.openEpoch;
 		const channel = new Channel<string>();
@@ -161,6 +163,7 @@ export class OmpRpcClient {
 			projectId: opts.projectId ?? null,
 			laneId: opts.laneId ?? null,
 			resume: opts.resume ?? null,
+			continueLast: opts.continueLast ?? false,
 			onEvent: channel
 		});
 		if (this.closed || epoch !== this.openEpoch) {

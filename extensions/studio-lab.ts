@@ -982,33 +982,25 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 	// 3. Registrazione tool `lab_set_summary`
 	const summaryParams = z
 		? z.object({
-				title: z.string().describe("Titolo sintetico del prototipo (massimo 80 caratteri)."),
 				summary: z
 					.string()
 					.describe("Riepilogo in 2-3 righe dello scopo e delle funzionalita' del prototipo (massimo 400 caratteri).")
 		  })
 		: undefined;
 
-	pi.registerTool<{ title?: string; summary?: string }>({
+	pi.registerTool<{ summary?: string }>({
 		name: "lab_set_summary",
 		label: "Salvataggio riepilogo prototipo",
 		description:
-			"Salva titolo e riepilogo del prototipo nel file atomico .lab/meta.json. " +
+			"Salva il riepilogo del prototipo nel file atomico .lab/meta.json. " +
 			"Chiamalo non appena il prototipo prende forma o quando il suo scopo cambia: " +
 			"l'agente principale del progetto usa questo riepilogo per ritrovare e comprendere il prototipo.",
 		parameters: summaryParams,
 		approval: "write",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const activeWorkspace = ctx?.sessionManager?.getCwd?.() || workspaceDir;
-			const title = typeof params?.title === "string" ? params.title.trim() : "";
 			const summary = typeof params?.summary === "string" ? params.summary.trim() : "";
 
-			if (!title) {
-				return errorResult("Errore: il parametro 'title' e' obbligatorio e non puo' essere vuoto.");
-			}
-			if (title.length > 80) {
-				return errorResult(`Errore: il titolo supera il limite massimo di 80 caratteri (lunghezza: ${title.length}).`);
-			}
 			if (!summary) {
 				return errorResult("Errore: il parametro 'summary' e' obbligatorio e non puo' essere vuoto.");
 			}
@@ -1021,8 +1013,22 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 			const labDir = join(activeWorkspace, ".lab");
 			mkdirSync(labDir, { recursive: true });
 
+			// Preserva il titolo esistente se gia' presente in meta.json
+			let existingTitle = "";
+			const metaPath = join(labDir, "meta.json");
+			try {
+				if (existsSync(metaPath)) {
+					const existingRaw = JSON.parse(readFileSync(metaPath, "utf8"));
+					if (typeof existingRaw?.title === "string") {
+						existingTitle = existingRaw.title;
+					}
+				}
+			} catch {
+				// Ignora se non presente o corrotto
+			}
+
 			const metaPayload = {
-				title,
+				title: existingTitle,
 				summary,
 				updatedAt: new Date().toISOString()
 			};
@@ -1032,14 +1038,14 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 
 			try {
 				writeFileSync(tempFile, metaJson, "utf8");
-				renameSync(tempFile, join(labDir, "meta.json"));
+				renameSync(tempFile, metaPath);
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
 				return errorResult(`Errore durante la scrittura di .lab/meta.json: ${msg}`);
 			}
 
 			return textResult(
-				`Riepilogo prototipo aggiornato con successo:\nTitolo: "${title}"\nRiepilogo: "${summary}"`,
+				`Riepilogo prototipo aggiornato con successo:\nRiepilogo: "${summary}"`,
 				metaPayload
 			);
 		}

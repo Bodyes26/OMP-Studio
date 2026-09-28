@@ -7,23 +7,24 @@
 		MAIN_LANE_ID,
 		type LaneId,
 		type ProjectId,
-		type AgentLane,
-		createMainLane
+		type AgentLane
 	} from '$lib/types/lanes';
 	import {
-		IconStatusRunning,
-		IconStatusPending,
-		IconCheck,
-		IconWarning,
-		IconClose,
-		IconPlus,
-		IconRefresh,
-		IconDiff,
+		IconGitBranch,
 		IconLab,
-		IconChevronDown
+		IconClose,
+		IconDiff,
+		IconPlus,
+		IconChevronLeft,
+		IconChevronRight,
+		IconWarning,
+		IconRename,
+		IconTrash
 	} from '$lib/icons';
-	import { contextMenu } from '$lib/contextMenu.svelte';
-	import { projectLaneActions, closeLabLane } from '$lib/lanes/laneActions';
+	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
+	import { projectLaneActions } from '$lib/lanes/laneActions';
+	import { closeLane, deleteWorktreeLane } from '$lib/lanes/laneLifecycle';
+	import { renameLane, LANE_TITLE_MAX } from '$lib/lanes/laneNaming';
 	import {
 		activeLanes,
 		buildConcurrencyWarning,
@@ -37,12 +38,7 @@
 		reviewProjectProfile,
 		type ProjectProfileReview
 	} from '$lib/lanes/laneProfile';
-	import {
-		indexLaneProcesses,
-		laneProcessKey,
-		listLaneProcesses,
-		type LaneProcessInfo
-	} from '$lib/lanes/processSupervisor';
+	import type { LaneProcessInfo } from '$lib/lanes/processSupervisor';
 
 	let {
 		project,
@@ -52,24 +48,36 @@
 		onReviewLane?: (lane: AgentLane | LaneRecord) => void;
 	} = $props();
 
+	let tablistTrackEl = $state<HTMLElement | null>(null);
 	let tablistEl = $state<HTMLElement | null>(null);
 	let isCreating = $state(false);
+	let canScrollLeft = $state(false);
+	let canScrollRight = $state(false);
+
 	/** Riepilogo del soft-cap in attesa di conferma, se la corsia sarebbe la terza. */
 	let concurrencyWarning = $state<ConcurrencyWarning | null>(null);
 	/** Profilo tecnico in attesa del consenso una tantum sui file locali (W10). */
 	let profileReview = $state<ProjectProfileReview | null>(null);
-	/** Processi runtime vivi, per l'indicatore discreto sulle tab (W11). */
-	let laneProcesses = $state<LaneProcessInfo[]>([]);
 	/** Corsia il cui cleanup e' bloccato da processi ancora vivi. */
 	let processBlock = $state<{ laneId: LaneId; title: string; processes: LaneProcessInfo[] } | null>(
 		null
 	);
+	/** Bersaglio per il dialogo modale di conferma eliminazione definitiva worktree. */
+	let deleteConfirmTarget = $state<{ laneId: LaneId; title: string; branch?: string } | null>(null);
 	/** Ultimo cleanup fallito per lock o rifiuto di Git, per corsia. */
 	let cleanupPending = $state<Record<string, string>>({});
 
+	/** Stato di rinomina in linea col doppio click. */
+	let renamingLaneId = $state<string | null>(null);
+	let renameDraft = $state('');
+	let renameInputEl = $state<HTMLInputElement | null>(null);
+
 	const projectLanes = $derived(laneStore.lanesFor(project.id as ProjectId));
+	// Le corsie secondarie escludono Principale, archiviate e chiuse (Decisione 5)
 	const secondaryLanes = $derived(
-		projectLanes.filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')
+		projectLanes.filter(
+			(l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed'
+		)
 	);
 	const activeLaneId = $derived(project.lane.laneId);
 
@@ -78,77 +86,48 @@
 	$effect(() => {
 		rovingLaneId = activeLaneId;
 	});
-	const processIndex = $derived(indexLaneProcesses(laneProcesses));
 
-	function runtimeProcesses(targetLaneId: string): LaneProcessInfo[] {
-		return processIndex.get(laneProcessKey(project.id, targetLaneId)) ?? [];
+	function updateScrollState() {
+		if (!tablistTrackEl) return;
+		const { scrollLeft, scrollWidth, clientWidth } = tablistTrackEl;
+		canScrollLeft = scrollLeft > 2;
+		canScrollRight = scrollLeft + clientWidth < scrollWidth - 2;
 	}
 
-	// Il registro vive nel backend: qui si campiona, senza mai duplicarne lo
-	// stato. L'intervallo e' l'unico costo dell'indicatore.
-	// Se la finestra e' nascosta o ridotta a icona, saltiamo il campionamento per
-	// azzerare il carico in background.
+	function scrollTabs(delta: number) {
+		if (!tablistTrackEl) return;
+		tablistTrackEl.scrollBy({ left: delta, behavior: 'smooth' });
+	}
+
 	$effect(() => {
-		let cancelled = false;
-		const sample = async () => {
-			if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-			try {
-				const list = await listLaneProcesses();
-				if (!cancelled) laneProcesses = list;
-			} catch (error) {
-				console.error('Lettura dei processi di corsia fallita:', error);
-			}
-		};
-		void sample();
-		const timer = setInterval(() => void sample(), 4000);
-		const onVisibilityChange = () => {
-			if (document.visibilityState === 'visible') {
-				void sample();
-			}
-		};
-		document.addEventListener('visibilitychange', onVisibilityChange);
-		return () => {
-			cancelled = true;
-			clearInterval(timer);
-			document.removeEventListener('visibilitychange', onVisibilityChange);
-		};
+		// Ricalcola lo scorrimento quando cambiano le schede visibili
+		const _ = secondaryLanes.length;
+		const timer = setTimeout(updateScrollState, 50);
+		return () => clearTimeout(timer);
 	});
 
-	interface DisplayState {
-		kind: 'working' | 'attention' | 'conflict' | 'review_ready' | 'integrating' | 'finished' | 'idle';
-		label: string;
-	}
+	type LaneKindState =
+		| 'attention'
+		| 'conflict'
+		| 'finished'
+		| 'review_ready'
+		| 'working'
+		| 'idle';
 
-	function resolveLaneDisplayState(lane: AgentLane | LaneRecord): DisplayState {
-		// Stessa lettura della barra di stato e del routing della coda: un badge
-		// che dice "In attesa" mentre la coda vede la corsia occupata e' un bug.
+	function classifyLaneState(lane: AgentLane | LaneRecord): LaneKindState {
 		const state = laneOrchestrator.laneAgentState(project, lane.laneId);
-
-		if (lane.status === 'conflict') {
-			return { kind: 'conflict', label: m.lanestrip_status_conflict() };
-		}
-		if (state === 'attention') {
-			return { kind: 'attention', label: m.lanestrip_status_attention() };
-		}
-		if (lane.status === 'review_ready') {
-			return { kind: 'review_ready', label: m.lanestrip_status_review_ready() };
-		}
-		if (lane.status === 'integrating') {
-			return { kind: 'integrating', label: m.lanestrip_status_integrating() };
-		}
-		if (state === 'working') {
-			return { kind: 'working', label: m.lanestrip_status_working() };
-		}
-		if (state === 'finished') {
-			return { kind: 'finished', label: m.lanestrip_status_finished() };
-		}
-		return { kind: 'idle', label: m.lanestrip_status_idle() };
+		if (lane.status === 'conflict') return 'conflict';
+		if (state === 'attention') return 'attention';
+		if (lane.status === 'review_ready') return 'review_ready';
+		if (state === 'working') return 'working';
+		if (state === 'finished') return 'finished';
+		return 'idle';
 	}
 
 	const mainRecord = $derived(
 		projectLanes.find((l) => l.laneId === MAIN_LANE_ID) ?? project.lane
 	);
-	const mainDisplayState = $derived(resolveLaneDisplayState(mainRecord));
+	const mainDisplayState = $derived(classifyLaneState(mainRecord));
 
 	function selectLane(targetLaneId: LaneId) {
 		if (project.lane.laneId === targetLaneId) return;
@@ -157,51 +136,147 @@
 	}
 
 	/**
-	 * Archiviazione con cleanup del worktree. Con processi vivi non archivia
-	 * nulla: apre la conferma "Arresta processi e rimuovi" (PLAN W11). Se il
-	 * cleanup fallisce per un lock la corsia resta visibile e riprovabile.
+	 * Chiusura reversibile della corsia (nasconde la tab, arresta processi/sessione,
+	 * preserva branch e cartella su disco).
 	 */
-	async function archiveLane(targetLaneId: LaneId, stopProcesses = false) {
-		const lane = projectLanes.find((l) => l.laneId === targetLaneId);
-		const outcome = await laneOrchestrator.archiveLane(
-			project.id as ProjectId,
-			targetLaneId,
-			'integrated',
-			{ stopProcesses }
-		);
+	async function handleCloseLane(targetLaneId: LaneId) {
+		const outcome = await closeLane(project.id as ProjectId, targetLaneId);
+		if (outcome.kind === 'failed') {
+			cleanupPending = { ...cleanupPending, [targetLaneId]: outcome.message };
+		}
+	}
+
+	function requestDeleteWorktree(targetLaneId: LaneId, title: string, branch?: string) {
+		deleteConfirmTarget = { laneId: targetLaneId, title, branch };
+	}
+
+	async function executeDeleteWorktree() {
+		const target = deleteConfirmTarget;
+		deleteConfirmTarget = null;
+		if (!target) return;
+
+		const outcome = await deleteWorktreeLane(project.id as ProjectId, target.laneId);
 		if (outcome.kind === 'processes-active') {
 			processBlock = {
-				laneId: targetLaneId,
-				title: lane?.title ?? targetLaneId,
+				laneId: target.laneId,
+				title: target.title,
 				processes: outcome.processes
 			};
 			return;
 		}
-		processBlock = null;
-		if (outcome.kind === 'cleanup-pending') {
-			cleanupPending = { ...cleanupPending, [targetLaneId]: outcome.diagnosis.message };
+		if (outcome.kind === 'failed') {
+			cleanupPending = { ...cleanupPending, [target.laneId]: outcome.message };
 			return;
 		}
-		const { [targetLaneId]: _removed, ...rest } = cleanupPending;
+		const { [target.laneId]: _removed, ...rest } = cleanupPending;
 		cleanupPending = rest;
-		laneProcesses = await listLaneProcesses().catch(() => laneProcesses);
 	}
 
 	async function confirmStopProcesses() {
 		const pending = processBlock;
 		processBlock = null;
-		if (pending) await archiveLane(pending.laneId, true);
+		if (!pending) return;
+
+		const outcome = await deleteWorktreeLane(project.id as ProjectId, pending.laneId, {
+			stopProcesses: true
+		});
+		if (outcome.kind === 'failed') {
+			cleanupPending = { ...cleanupPending, [pending.laneId]: outcome.message };
+			return;
+		}
+		const { [pending.laneId]: _removed, ...rest } = cleanupPending;
+		cleanupPending = rest;
 	}
 
-	/**
-	 * Creazione manuale. Dal terzo agente simultaneo (Gate R27 W09) la corsia
-	 * nasce solo dopo una conferma esplicita che mostra modelli, provider e
-	 * processi gia' impegnati.
-	 */
+	function startRename(targetLaneId: string, currentTitle: string) {
+		renamingLaneId = targetLaneId;
+		renameDraft = currentTitle;
+		setTimeout(() => {
+			if (renameInputEl) {
+				renameInputEl.focus();
+				renameInputEl.select();
+			}
+		}, 10);
+	}
+
+	function cancelRename() {
+		renamingLaneId = null;
+		renameDraft = '';
+	}
+
+	async function commitRename(targetLaneId: string) {
+		if (renamingLaneId !== targetLaneId) return;
+		const next = renameDraft.trim();
+		renamingLaneId = null;
+		renameDraft = '';
+		if (!next) return;
+		try {
+			await renameLane(project.id as ProjectId, targetLaneId as LaneId, next);
+		} catch (err) {
+			console.error('Rinomina corsia fallita:', err);
+		}
+	}
+
+	function handleTabContextMenu(event: MouseEvent, lane: AgentLane | LaneRecord) {
+		event.preventDefault();
+		event.stopPropagation();
+
+		const items: ContextMenuEntry[] = [];
+
+		items.push({
+			kind: 'item',
+			label: m.lanestrip_action_rename(),
+			icon: IconRename,
+			run: () => {
+				startRename(lane.laneId, lane.title);
+			}
+		});
+
+		if (lane.kind === 'lab') {
+			items.push({
+				kind: 'item',
+				label: m.lanestrip_action_close(),
+				icon: IconClose,
+				run: () => {
+					void handleCloseLane(lane.laneId);
+				}
+			});
+		} else {
+			items.push({
+				kind: 'item',
+				label: m.lanestrip_action_integrate_main(),
+				icon: IconDiff,
+				run: () => {
+					onReviewLane?.(lane);
+				}
+			});
+			items.push({ kind: 'separator' });
+			items.push({
+				kind: 'item',
+				label: m.lanestrip_action_delete_worktree(),
+				icon: IconTrash,
+				danger: true,
+				run: () => {
+					requestDeleteWorktree(lane.laneId, lane.title, lane.branch ?? undefined);
+				}
+			});
+		}
+
+		contextMenu.open(event, {
+			label: lane.title,
+			items,
+			invoker: event.currentTarget as HTMLElement
+		});
+	}
+
 	async function handleOpenNewMenu(event: MouseEvent) {
 		event.preventDefault();
 		event.stopPropagation();
 		const items = await projectLaneActions(project, {
+			onCreateWorktree: () => void handleCreateNewLane(),
+			onRequestDelete: (entry) => {
+				requestDeleteWorktree(entry.laneId, entry.title);
+			},
 			onProfileReview: (review) => {
 				profileReview = review as ProjectProfileReview;
 			}
@@ -223,11 +298,6 @@
 		await prepareAndCreateLane();
 	}
 
-	/**
-	 * Prima di creare il worktree Studio analizza lo stack del progetto: se
-	 * trova file locali non versionati mai esaminati, chiede il consenso una
-	 * tantum. Senza candidati nuovi la corsia parte subito.
-	 */
 	async function prepareAndCreateLane() {
 		concurrencyWarning = null;
 		try {
@@ -307,158 +377,253 @@
 </script>
 
 <nav class="lane-strip" aria-label={m.lanestrip_title()}>
-	<!-- svelte-ignore a11y_interactive_supports_focus -->
-	<div
-		bind:this={tablistEl}
-		class="lane-tablist"
-		role="tablist"
-		aria-orientation="horizontal"
-		aria-label={m.lanestrip_title()}
-		onkeydown={handleTablistKeydown}
-	>
-		<!-- Tab Principale fissa -->
-		<div
-			class="lane-tab-item"
-			class:selected={activeLaneId === MAIN_LANE_ID}
-			class:attention={mainDisplayState.kind === 'attention'}
-			class:working={mainDisplayState.kind === 'working'}
+	{#if canScrollLeft}
+		<button
+			type="button"
+			class="lane-scroll-btn left"
+			onclick={() => scrollTabs(-140)}
+			aria-label={m.lanestrip_scroll_left()}
 		>
-			<button
-				type="button"
-				role="tab"
-				class="lane-tab"
-				class:selected={activeLaneId === MAIN_LANE_ID}
-				aria-selected={activeLaneId === MAIN_LANE_ID}
-				tabindex={rovingLaneId === MAIN_LANE_ID ? 0 : -1}
-				data-lane-id={MAIN_LANE_ID}
-				onclick={() => selectLane(MAIN_LANE_ID)}
-			>
-				<span class="lane-dot" aria-hidden="true"></span>
-				<span class="lane-title">{m.lanestrip_tab_main()}</span>
-				<span class="lane-status-badge status-{mainDisplayState.kind}">
-					{#if mainDisplayState.kind === 'working'}
-						<IconStatusRunning />
-					{:else if mainDisplayState.kind === 'attention'}
-						<IconWarning />
-					{:else if mainDisplayState.kind === 'finished'}
-						<IconCheck />
-					{:else}
-						<IconStatusPending />
-					{/if}
-					<span>{mainDisplayState.label}</span>
-				</span>
-				{#if runtimeProcesses(MAIN_LANE_ID).length > 0}
-					<span
-						class="lane-proc-dot"
-						title={m.lanestrip_processes_title({ count: runtimeProcesses(MAIN_LANE_ID).length })}
-					>
-						<span class="visually-hidden">{m.lanestrip_processes_badge()}</span>
-					</span>
-				{/if}
-			</button>
-		</div>
+			<IconChevronLeft />
+		</button>
+	{/if}
 
-		<!-- Corsie secondarie -->
-		{#each secondaryLanes as lane (lane.laneId)}
-			{@const display = resolveLaneDisplayState(lane)}
-			{@const isSelected = activeLaneId === lane.laneId}
-			{@const runtime = runtimeProcesses(lane.laneId)}
-			{@const pendingCleanup =
-				cleanupPending[lane.laneId] ??
-				(lane.recoveryState === 'cleanup_pending' ? m.lanestrip_cleanup_pending() : null)}
-			{@const isLab = lane.kind === 'lab'}
+	<div
+		bind:this={tablistTrackEl}
+		class="lane-tablist-track"
+		class:fade-left={canScrollLeft}
+		class:fade-right={canScrollRight}
+		onscroll={updateScrollState}
+	>
+		<!-- svelte-ignore a11y_interactive_supports_focus -->
+		<div
+			bind:this={tablistEl}
+			class="lane-tablist"
+			role="tablist"
+			aria-orientation="horizontal"
+			aria-label={m.lanestrip_title()}
+			onkeydown={handleTablistKeydown}
+		>
+			<!-- Tab Principale fissa -->
 			<div
 				class="lane-tab-item"
-				class:selected={isSelected}
-				class:attention={display.kind === 'attention' || display.kind === 'conflict'}
-				class:working={display.kind === 'working'}
+				class:selected={activeLaneId === MAIN_LANE_ID}
+				class:attention={mainDisplayState === 'attention' || mainDisplayState === 'conflict'}
+				class:finished={activeLaneId !== MAIN_LANE_ID && (mainDisplayState === 'finished' || mainDisplayState === 'review_ready')}
 			>
 				<button
 					type="button"
 					role="tab"
 					class="lane-tab"
-					class:selected={isSelected}
-					aria-selected={isSelected}
-					tabindex={rovingLaneId === lane.laneId ? 0 : -1}
-					data-lane-id={lane.laneId}
-					onclick={() => selectLane(lane.laneId)}
+					class:selected={activeLaneId === MAIN_LANE_ID}
+					aria-selected={activeLaneId === MAIN_LANE_ID}
+					tabindex={rovingLaneId === MAIN_LANE_ID ? 0 : -1}
+					data-lane-id={MAIN_LANE_ID}
+					onclick={() => selectLane(MAIN_LANE_ID)}
 				>
-					{#if isLab}
-						<span class="lane-lab-icon" aria-hidden="true"><IconLab /></span>
-						<span class="lane-title">{lane.title}</span>
-					{:else}
-						<span class="lane-title" title={pendingCleanup ?? lane.title}>{lane.title}</span>
-						<span class="lane-status-badge status-{display.kind}">
-							{#if display.kind === 'working'}
-								<IconStatusRunning />
-							{:else if display.kind === 'attention' || display.kind === 'conflict'}
-								<IconWarning />
-							{:else if display.kind === 'review_ready' || display.kind === 'finished'}
-								<IconCheck />
-							{:else if display.kind === 'integrating'}
-								<IconRefresh />
-							{:else}
-								<IconStatusPending />
-							{/if}
-							<span>{display.label}</span>
-						</span>
-					{/if}
-					{#if runtime.length > 0}
-						<span class="lane-proc-dot" title={m.lanestrip_processes_title({ count: runtime.length })}>
-							<span class="visually-hidden">{m.lanestrip_processes_badge()}</span>
-						</span>
-					{/if}
-					{#if pendingCleanup}
-						<span class="lane-cleanup-warn" title={m.lanestrip_cleanup_pending()}>
-							<IconWarning />
-						</span>
-					{/if}
+					<span class="lane-title">{m.lanestrip_tab_main()}</span>
 				</button>
-				{#if !isLab}
+			</div>
+
+			<!-- Corsie secondarie -->
+			{#each secondaryLanes as lane (lane.laneId)}
+				{@const laneState = classifyLaneState(lane)}
+				{@const isSelected = activeLaneId === lane.laneId}
+				{@const pendingCleanup =
+					cleanupPending[lane.laneId] ??
+					(lane.recoveryState === 'cleanup_pending' ? m.lanestrip_cleanup_pending() : null)}
+				{@const isLab = lane.kind === 'lab'}
+				<div
+					class="lane-tab-item"
+					class:selected={isSelected}
+					class:attention={laneState === 'attention' || laneState === 'conflict'}
+					class:finished={!isSelected && (laneState === 'finished' || laneState === 'review_ready')}
+				>
 					<button
 						type="button"
-						class="lane-review-btn"
-						class:review-ready={display.kind === 'review_ready'}
-						title={m.lanestrip_review_title()}
-						aria-label={m.lanestrip_review_title()}
-						onclick={(e) => {
-							e.stopPropagation();
-							onReviewLane?.(lane);
-						}}
+						role="tab"
+						class="lane-tab"
+						class:selected={isSelected}
+						aria-selected={isSelected}
+						tabindex={rovingLaneId === lane.laneId ? 0 : -1}
+						data-lane-id={lane.laneId}
+						onclick={() => selectLane(lane.laneId)}
+						ondblclick={() => startRename(lane.laneId, lane.title)}
+						oncontextmenu={(e) => handleTabContextMenu(e, lane)}
 					>
-						<IconDiff />
-						{#if display.kind === 'review_ready'}
-							<span class="review-label">{m.lanestrip_review_action()}</span>
+						<span class="lane-type-icon" aria-hidden="true">
+							{#if isLab}
+								<IconLab />
+							{:else}
+								<IconGitBranch />
+							{/if}
+						</span>
+
+						{#if renamingLaneId === lane.laneId}
+							<input
+								bind:this={renameInputEl}
+								type="text"
+								class="lane-rename-input"
+								bind:value={renameDraft}
+								maxlength={LANE_TITLE_MAX}
+								onkeydown={(e) => {
+									// Le frecce e Home/End servono al cursore del testo, non alla
+									// navigazione fra le tab gestita dal tablist; lo spazio non deve
+									// attivare il pulsante della tab che contiene il campo.
+									e.stopPropagation();
+									if (e.key === 'Enter') {
+										e.preventDefault();
+										void commitRename(lane.laneId);
+									} else if (e.key === 'Escape') {
+										e.preventDefault();
+										cancelRename();
+									}
+								}}
+								onblur={() => void commitRename(lane.laneId)}
+								onclick={(e) => e.stopPropagation()}
+							/>
+						{:else}
+							<span class="lane-title">{lane.title}</span>
+						{/if}
+
+						{#if pendingCleanup}
+							<span class="lane-cleanup-warn">
+								<IconWarning />
+							</span>
 						{/if}
 					</button>
-				{/if}
+
+					<!-- Pronta per la revisione: l'azione resta nel flusso con l'etichetta,
+					     perche' e' la cosa da fare adesso e non deve dipendere dall'hover. -->
+					{#if !isLab && laneState === 'review_ready'}
+						<button
+							type="button"
+							class="lane-action-btn lane-integrate-btn ready"
+							title={m.lanestrip_action_integrate()}
+							aria-label={m.lanestrip_action_integrate()}
+							onclick={(e) => {
+								e.stopPropagation();
+								onReviewLane?.(lane);
+							}}
+						>
+							<IconDiff />
+							<span class="action-label">{m.lanestrip_action_integrate()}</span>
+						</button>
+					{/if}
+					<div class="lane-tab-actions">
+						<div class="lane-tab-actions-inner">
+							{#if !isLab && laneState !== 'review_ready'}
+								<button
+									type="button"
+									class="lane-action-btn lane-integrate-btn"
+									title={m.lanestrip_action_integrate()}
+									aria-label={m.lanestrip_action_integrate()}
+									onclick={(e) => {
+										e.stopPropagation();
+										onReviewLane?.(lane);
+									}}
+								>
+									<IconDiff />
+								</button>
+							{/if}
+							<button
+								type="button"
+								class="lane-action-btn lane-close-btn"
+								title={m.lanestrip_action_close()}
+								aria-label={m.lanestrip_action_close()}
+								onclick={(e) => {
+									e.stopPropagation();
+									void handleCloseLane(lane.laneId);
+								}}
+							>
+								<IconClose />
+							</button>
+						</div>
+					</div>
+				</div>
+			{/each}
+		</div>
+	</div>
+
+	{#if canScrollRight}
+		<button
+			type="button"
+			class="lane-scroll-btn right"
+			onclick={() => scrollTabs(140)}
+			aria-label={m.lanestrip_scroll_right()}
+		>
+			<IconChevronRight />
+		</button>
+	{/if}
+
+	<!-- Pulsante + icon-only senza freccia ne' testo -->
+	<button
+		type="button"
+		class="lane-new-btn"
+		title={m.lanestrip_tab_new()}
+		aria-label={m.lanestrip_tab_new()}
+		onclick={handleOpenNewMenu}
+		disabled={isCreating}
+	>
+		<IconPlus />
+	</button>
+</nav>
+
+<!-- Dialogo conferma eliminazione definitiva worktree -->
+{#if deleteConfirmTarget}
+	<div
+		class="lane-dialog-backdrop"
+		role="presentation"
+		onclick={() => (deleteConfirmTarget = null)}
+	>
+		<div
+			class="lane-dialog"
+			role="alertdialog"
+			tabindex="-1"
+			aria-modal="true"
+			aria-labelledby="lane-delete-title"
+			aria-describedby="lane-delete-desc"
+			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => {
+				if (e.key === 'Escape') {
+					e.preventDefault();
+					deleteConfirmTarget = null;
+				}
+			}}
+		>
+			<div class="lane-dialog-header">
+				<h3 id="lane-delete-title">{m.lanestrip_delete_dialog_title()}</h3>
 				<button
 					type="button"
-					class="lane-archive-btn"
-					title={isLab ? m.lab_lane_close_action() : m.lanestrip_archive_aria({ title: lane.title })}
-					aria-label={isLab ? m.lab_lane_close_action() : m.lanestrip_archive_aria({ title: lane.title })}
-					onclick={() => void (isLab ? closeLabLane(project.id, lane.laneId) : archiveLane(lane.laneId))}
+					class="lane-dialog-close"
+					aria-label={m.lanestrip_delete_dialog_cancel()}
+					onclick={() => (deleteConfirmTarget = null)}
 				>
 					<IconClose />
 				</button>
 			</div>
-		{/each}
-
-		<!-- Pulsante + ▾ Nuova corsia -->
-		<button
-			type="button"
-			class="lane-new-btn"
-			title={m.lanestrip_tab_new_title()}
-			aria-label={m.lanestrip_tab_new()}
-			onclick={handleOpenNewMenu}
-			disabled={isCreating}
-		>
-			<IconPlus />
-			<IconChevronDown />
-			<span>{m.lanestrip_tab_new()}</span>
-		</button>
+			<p id="lane-delete-desc" class="lane-dialog-desc">
+				{m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
+			</p>
+			<div class="lane-dialog-actions">
+				<button
+					type="button"
+					class="btn-dialog-secondary"
+					onclick={() => (deleteConfirmTarget = null)}
+				>
+					{m.lanestrip_delete_dialog_cancel()}
+				</button>
+				<button
+					type="button"
+					class="btn-dialog-danger"
+					onclick={() => void executeDeleteWorktree()}
+				>
+					{m.lanestrip_delete_dialog_confirm()}
+				</button>
+			</div>
+		</div>
 	</div>
-</nav>
+{/if}
 
 <LaneDispatchDialog
 	open={concurrencyWarning !== null}
@@ -492,23 +657,65 @@
 		height: 34px;
 		background-color: var(--bg-base);
 		border-bottom: 1px solid var(--line);
-		padding: 0 var(--space-3);
+		padding: 0 var(--space-2);
 		user-select: none;
 		z-index: calc(var(--z-topbar) - 1);
 		flex-shrink: 0;
+		position: relative;
+		gap: 2px;
+	}
+
+	.lane-scroll-btn {
+		height: 24px;
+		width: 18px;
+		border: 1px solid var(--line);
+		background: var(--bg-raised);
+		color: var(--ink-muted);
+		border-radius: var(--radius-sm);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		font-size: 13px;
+		line-height: 1;
+		flex-shrink: 0;
+		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+		z-index: 3;
+		padding: 0;
+	}
+
+	.lane-scroll-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--brand);
+	}
+
+	.lane-scroll-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
+
+	.lane-tablist-track {
+		display: flex;
+		align-items: center;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+		min-width: 0;
+		flex: 1 1 auto;
+		scroll-behavior: smooth;
+	}
+
+	.lane-tablist-track::-webkit-scrollbar {
+		display: none;
 	}
 
 	.lane-tablist {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		overflow-x: auto;
-		flex: 1;
-		scrollbar-width: none;
-	}
-
-	.lane-tablist::-webkit-scrollbar {
-		display: none;
+		gap: 2px;
+		flex-shrink: 0;
 	}
 
 	.lane-tab-item {
@@ -519,7 +726,7 @@
 		border: 1px solid transparent;
 		background-color: transparent;
 		color: var(--ink-muted);
-		transition: all 120ms ease;
+		transition: background-color var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 		position: relative;
 	}
 
@@ -532,11 +739,42 @@
 		background-color: var(--bg-raised);
 		color: var(--ink);
 		border-color: var(--line-strong);
-		font-weight: 600;
+		font-weight: 500;
 	}
 
-	.lane-tab-item.attention {
-		border-color: var(--warn);
+	/* Anelli di stato: mutuati da TopBar */
+	.lane-tab-item.attention::after,
+	.lane-tab-item.finished::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		pointer-events: none;
+		z-index: 2;
+	}
+
+	.lane-tab-item.attention::after {
+		box-shadow: inset 0 0 0 1.5px var(--warn);
+		animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
+		will-change: opacity, box-shadow;
+	}
+
+	.lane-tab-item.finished::after {
+		box-shadow: inset 0 0 0 1px var(--brand);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.lane-tab-item.attention::after {
+			animation: none;
+			opacity: 1;
+			box-shadow: inset 0 0 0 1.5px var(--warn);
+		}
+	}
+
+	:global(:root[data-animations="false"]) .lane-tab-item.attention::after {
+		animation: none;
+		opacity: 1;
+		box-shadow: inset 0 0 0 1.5px var(--warn);
 	}
 
 	.lane-tab {
@@ -561,27 +799,42 @@
 		outline-offset: -1px;
 	}
 
-	.lane-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background-color: var(--ink-faint);
+	.lane-type-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--ink-faint);
 		flex-shrink: 0;
 	}
 
-	.lane-tab.selected .lane-dot {
-		background-color: var(--brand);
+	.lane-type-icon :global(svg) {
+		width: 13px;
+		height: 13px;
 	}
 
-	/* Indicatore discreto dei processi runtime: un punto, nessun testo che
-	   allarghi la tab e nessuna animazione che rubi attenzione. */
-	.lane-proc-dot {
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
-		flex-shrink: 0;
-		background-color: var(--success);
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 22%, transparent);
+	.lane-tab-item.selected .lane-type-icon {
+		color: var(--brand);
+	}
+
+	.lane-title {
+		max-width: 160px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.lane-rename-input {
+		width: 120px;
+		height: 18px;
+		padding: 0 4px;
+		font-size: 11px;
+		font-family: inherit;
+		background: var(--bg-overlay);
+		color: var(--ink);
+		border: 1px solid var(--brand);
+		border-radius: 2px;
+		outline: none;
+		box-sizing: border-box;
 	}
 
 	.lane-cleanup-warn {
@@ -596,164 +849,100 @@
 		height: 12px;
 	}
 
-	.visually-hidden {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		margin: -1px;
-		padding: 0;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
-		border: 0;
+	/* Azioni della tab: si aprono in colonna sull'hover o sulla tab
+	   selezionata, con lo stesso `0fr -> 1fr` della rivelazione nella barra
+	   progetti. Nascoste non occupano spazio (a riposo la tab e' larga quanto
+	   il nome) e non si sovrappongono al titolo, che resta leggibile anche con
+	   gli sfondi traslucidi di hover. */
+	.lane-tab-actions {
+		display: grid;
+		grid-template-columns: 0fr;
+		transition: grid-template-columns var(--dur-fast) var(--ease-out, ease);
 	}
 
-	.lane-title {
-		max-width: 160px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.lane-status-badge {
+	.lane-tab-actions-inner {
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
+		gap: 2px;
+		min-width: 0;
+		overflow: hidden;
+		opacity: 0;
+		transition: opacity var(--dur-fast);
+	}
+
+	.lane-tab-item:hover .lane-tab-actions,
+	.lane-tab-item:focus-within .lane-tab-actions,
+	.lane-tab-item.selected .lane-tab-actions {
+		grid-template-columns: 1fr;
+	}
+
+	.lane-tab-item:hover .lane-tab-actions-inner,
+	.lane-tab-item:focus-within .lane-tab-actions-inner,
+	.lane-tab-item.selected .lane-tab-actions-inner {
+		opacity: 1;
+		padding-right: 4px;
+	}
+
+	.lane-action-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: none;
+		background: transparent;
+		color: var(--ink-faint);
+		cursor: pointer;
+		padding: 0 3px;
+		height: 18px;
+		border-radius: 2px;
 		font-size: 10px;
-		font-weight: 600;
-		padding: 1px 5px;
-		border-radius: 3px;
-		line-height: 1;
-		flex-shrink: 0;
+		font-family: inherit;
+		transition: background-color var(--dur-fast), color var(--dur-fast);
 	}
 
-	.lane-status-badge :global(svg) {
-		width: 10px;
-		height: 10px;
-		flex-shrink: 0;
+	.lane-action-btn:hover {
+		color: var(--ink);
+		background-color: var(--bg-hover);
 	}
 
-	.status-working {
+	.lane-action-btn.lane-integrate-btn {
+		gap: 3px;
+	}
+
+	.lane-action-btn.lane-integrate-btn.ready {
+		margin-right: 4px;
 		color: var(--brand-ink);
 		background-color: color-mix(in srgb, var(--brand) 12%, transparent);
 	}
 
-	.status-attention {
-		color: var(--warn);
-		background-color: color-mix(in srgb, var(--warn) 15%, transparent);
-		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
-	}
-
-	.status-conflict {
+	.lane-action-btn.lane-close-btn:hover {
 		color: var(--danger);
 		background-color: color-mix(in srgb, var(--danger) 15%, transparent);
-		border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 	}
 
-	.status-review_ready {
-		color: var(--success);
-		background-color: color-mix(in srgb, var(--success) 15%, transparent);
-		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+	.lane-action-btn :global(svg) {
+		width: 11px;
+		height: 11px;
 	}
 
-	.status-integrating {
-		color: var(--brand-ink);
-		background-color: color-mix(in srgb, var(--brand) 15%, transparent);
-	}
-
-	.status-finished {
-		color: var(--success);
-		background-color: color-mix(in srgb, var(--success) 12%, transparent);
-	}
-
-	.status-idle {
-		color: var(--ink-faint);
-		background-color: transparent;
-	}
-
-	.lane-archive-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 16px;
-		height: 16px;
-		padding: 0;
-		border: none;
-		border-radius: 2px;
-		background: transparent;
-		color: var(--ink-faint);
-		cursor: pointer;
-		opacity: 0.6;
-		transition: all 120ms ease;
-		margin-right: 4px;
-	}
-	.lane-review-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-		height: 20px;
-		padding: 0 5px;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink-faint);
-		cursor: pointer;
-		font-size: 11px;
-		font-family: var(--font-ui);
-		transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.lane-review-btn:hover {
-		color: var(--ink);
-		background: var(--bg-hover);
-	}
-
-	.lane-review-btn.review-ready {
-		color: var(--success);
-		background: color-mix(in srgb, var(--success) 12%, transparent);
-		border-color: color-mix(in srgb, var(--success) 25%, transparent);
-		font-weight: 500;
-	}
-
-	.lane-review-btn.review-ready:hover {
-		background: color-mix(in srgb, var(--success) 20%, transparent);
-	}
-
-	.review-label {
+	.action-label {
 		font-size: 10px;
 		white-space: nowrap;
 	}
 
-	.lane-archive-btn:hover {
-		opacity: 1;
-		color: var(--danger);
-		background-color: color-mix(in srgb, var(--danger) 15%, transparent);
-	}
-
-	.lane-archive-btn:focus-visible {
-		outline: 1.5px solid var(--brand);
-		opacity: 1;
-	}
-
-	.lane-archive-btn :global(svg) {
-		width: 12px;
-		height: 12px;
-	}
-
+	/* Pulsante + compatto (icon-only) */
 	.lane-new-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		justify-content: center;
+		width: 24px;
 		height: 24px;
-		padding: 0 var(--space-2);
+		padding: 0;
 		border-radius: var(--radius-sm);
 		border: 1px dashed var(--line);
 		background: transparent;
-		color: var(--ink-faint);
-		font-family: inherit;
-		font-size: 11px;
+		color: var(--ink-muted);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: border-color var(--dur-fast), color var(--dur-fast), background-color var(--dur-fast);
 		flex-shrink: 0;
 	}
 
@@ -774,27 +963,113 @@
 	}
 
 	.lane-new-btn :global(svg) {
-		width: 12px;
-		height: 12px;
+		width: 13px;
+		height: 13px;
 	}
 
-	.lane-lab-icon {
-		display: inline-flex;
+	/* Dialogo di conferma eliminazione */
+	.lane-dialog-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.45);
+		display: flex;
 		align-items: center;
-		color: var(--brand);
-		flex-shrink: 0;
-	}
-	.lane-lab-icon :global(svg) {
-		width: 12px;
-		height: 12px;
+		justify-content: center;
+		z-index: var(--z-modal, 100);
 	}
 
+	.lane-dialog {
+		background: var(--bg-raised);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-overlay);
+		width: min(420px, calc(100vw - 32px));
+		padding: var(--space-4);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		color: var(--ink);
+	}
+
+	.lane-dialog-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.lane-dialog-header h3 {
+		margin: 0;
+		font-size: var(--text-base);
+		font-weight: 600;
+	}
+
+	.lane-dialog-close {
+		border: none;
+		background: transparent;
+		color: var(--ink-muted);
+		cursor: pointer;
+		padding: 2px;
+		border-radius: var(--radius-xs);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.lane-dialog-close:hover {
+		color: var(--ink);
+		background: var(--bg-hover);
+	}
+
+	.lane-dialog-desc {
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--ink-muted);
+		line-height: 1.45;
+	}
+
+	.lane-dialog-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+	}
+
+	.btn-dialog-secondary {
+		padding: 6px var(--space-3);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--ink);
+		cursor: pointer;
+		font-size: var(--text-sm);
+	}
+
+	.btn-dialog-secondary:hover {
+		background: var(--bg-hover);
+	}
+
+	.btn-dialog-danger {
+		padding: 6px var(--space-3);
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		background: var(--danger);
+		color: white;
+		cursor: pointer;
+		font-size: var(--text-sm);
+		font-weight: 500;
+	}
+
+	.btn-dialog-danger:hover {
+		opacity: 0.9;
+	}
 
 	@media (prefers-reduced-motion: reduce) {
 		.lane-tab-item,
 		.lane-tab,
-		.lane-archive-btn,
-		.lane-new-btn {
+		.lane-action-btn,
+		.lane-new-btn,
+		.lane-scroll-btn {
 			transition: none !important;
 			animation: none !important;
 		}

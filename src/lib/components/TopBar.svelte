@@ -178,6 +178,13 @@
 		panel ? projectStore.projects.find((candidate) => candidate.id === panel!.projectId) ?? null : null
 	);
 
+	// Il pannello sinistro ha due memorie, una per i prototipi e una per il
+	// resto: il logo deve mostrare e commutare quella della corsia a schermo.
+	const activeLaneKind = $derived(projectStore.activeProject?.lane.kind ?? 'git');
+	const isSidebarCollapsed = $derived(
+		activeLaneKind === 'lab' ? settingsStore.general.labSidebarCollapsed : settingsStore.general.sidebarCollapsed
+	);
+
 	/** Tessera che tiene il posto della barra nel tab order: e' quella attiva,
 	 *  oppure la prima se nessun progetto lo e' (all'avvio, o dopo la chiusura
 	 *  dell'ultimo attivo), altrimenti la barra diventerebbe irraggiungibile
@@ -404,7 +411,7 @@
 	 *  coda dell'occhio, che e' l'unico modo in cui questa barra viene
 	 *  guardata mentre si lavora. */
 	function getAggregatedState(p: Project): Project['lane']['agentState'] {
-		const projectLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.status !== 'archived');
+		const projectLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.status !== 'archived' && l.status !== 'closed');
 		const sessions = sessionRegistry.getSessionsForProject(p.id);
 		const candidateStates: string[] = [];
 
@@ -688,18 +695,18 @@
 		<button
 			type="button"
 			class="app-icon-btn"
-			class:collapsed={settingsStore.general.sidebarCollapsed}
+			class:collapsed={isSidebarCollapsed}
 			onclick={(e) => {
 				e.stopPropagation();
-				settingsStore.toggleSidebar();
+				settingsStore.toggleSidebar(activeLaneKind);
 			}}
-			title={settingsStore.general.sidebarCollapsed
+			title={isSidebarCollapsed
 				? m.ui_topbar_mostra_barra_laterale_ctrl_alt_b_1e8b()
 				: m.ui_topbar_nascondi_barra_laterale_ctrl_alt_b_093c()}
-			aria-label={settingsStore.general.sidebarCollapsed
+			aria-label={isSidebarCollapsed
 				? m.ui_topbar_mostra_barra_laterale_ctrl_alt_b_1e8b()
 				: m.ui_topbar_nascondi_barra_laterale_ctrl_alt_b_093c()}
-			aria-expanded={!settingsStore.general.sidebarCollapsed}
+			aria-expanded={!isSidebarCollapsed}
 		>
 			<img
 				src={isLightTheme ? '/logo-topbar-light.png' : '/logo-topbar.png'}
@@ -741,7 +748,7 @@
 			{@const gitDiffLabel = gitDiff && hasGitChanges(gitDiff) ? ` · Git +${gitDiff.additions} -${gitDiff.deletions}` : ''}
 			{@const upstream = p.lane.kind !== 'lab' && p.lane.workspacePath ? githubStore.upstreamByPath[normalizeProjectPath(p.lane.workspacePath).toLowerCase()] : null}
 			{@const aggState = getAggregatedState(p)}
-			{@const secondaryLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')}
+			{@const secondaryLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')}
 			{@const secondaryCount = secondaryLanes.length}
 			<!-- Il contenitore esiste solo per trascinamento, hover e menu
 			     contestuale: con `role="presentation"` sparisce dall'albero

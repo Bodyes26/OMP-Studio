@@ -44,13 +44,24 @@
 		IconTerminal,
 		IconWarning,
 		IconLab,
-		IconChevronRight
+		IconChevronRight,
+		IconGitBranch,
+		IconTrash
 	} from '$lib/icons';
 	import { labApi } from '$lib/lab/api';
-	import type { LabIndexEntry } from '$lib/lab/types';
-	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-	import { openLabEntry, associateDraftToProject } from '$lib/lanes/laneActions';
-	import { reviewProjectProfile } from '$lib/lanes/laneProfile';
+	import {
+		openLabEntry,
+		associateDraftToProject,
+		startCreateWorktreeFlow,
+		formatRelativeDate
+	} from '$lib/lanes/laneActions';
+	import {
+		listClosedLanes,
+		reopenLane,
+		deleteWorktreeLane,
+		type ClosedLaneEntry
+	} from '$lib/lanes/laneLifecycle';
+	import type { LaneId, ProjectId } from '$lib/types/lanes';
 	import { invoke } from '@tauri-apps/api/core';
 	import { gitDiffStore, hasGitChanges } from '$lib/stores/gitDiff.svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -93,7 +104,7 @@
 		onOpenFile
 	}: Props = $props();
 
-	type View = 'default' | 'rename' | 'close' | 'close-others' | 'associate';
+	type View = 'default' | 'rename' | 'close' | 'close-others' | 'associate' | 'delete-worktree';
 
 	const AGENT_STATE_LABEL = $derived.by((): Record<Project['lane']['agentState'], string> => ({
 		working: m.topbar_agent_state_working(),
@@ -141,16 +152,20 @@
 		projectStore.projects.filter((p) => p.canonicalProjectPath !== null && !p.labDraft)
 	);
 
-	let projectPrototypes = $state<LabIndexEntry[]>([]);
+	let closedLanes = $state<ClosedLaneEntry[]>([]);
+	let deleteConfirmTarget = $state<{ laneId: LaneId; title: string; branch?: string } | null>(null);
+
 	$effect(() => {
-		if (settingsStore.general.labAlphaEnabled && project.canonicalProjectPath && !project.labDraft) {
-			void labApi.listIndex(project.canonicalProjectPath).then((list) => {
-				projectPrototypes = list;
-			}).catch(() => {
-				projectPrototypes = [];
-			});
+		if (project.canonicalProjectPath && !project.labDraft) {
+			void listClosedLanes(project)
+				.then((list) => {
+					closedLanes = list;
+				})
+				.catch(() => {
+					closedLanes = [];
+				});
 		} else {
-			projectPrototypes = [];
+			closedLanes = [];
 		}
 	});
 
@@ -159,15 +174,8 @@
 	// asincrone lavorano quindi sul progetto catturato al momento del clic.
 	async function handleCreateWorktreeLane() {
 		const target = project;
-		try {
-			const review = await reviewProjectProfile(target);
-			if (review?.needsConsent) {
-				// Se servisse consenso avanzato, laneOrchestrator gestira'
-			}
-		} catch (err) {
-			console.error('Analisi profilo fallita:', err);
-		}
-		await laneOrchestrator.createNewLane(target);
+		if (!target.canonicalProjectPath) return;
+		await startCreateWorktreeFlow(target);
 		onClose();
 	}
 
@@ -225,10 +233,32 @@
 		protoMenuOpen = false;
 	}
 
-	async function openPrototype(proto: LabIndexEntry) {
-		const targetId = project.id;
-		await openLabEntry(targetId, proto);
+	async function handleReopenClosedLane(entry: ClosedLaneEntry) {
+		await reopenLane(project, entry);
 		onClose();
+	}
+
+	function requestDeleteWorktree(entry: ClosedLaneEntry) {
+		if (entry.kind !== 'git') return;
+		deleteConfirmTarget = {
+			laneId: entry.laneId,
+			title: entry.title
+		};
+		protoMenuOpen = false;
+		view = 'delete-worktree';
+	}
+
+	async function executeDeleteWorktree() {
+		const target = deleteConfirmTarget;
+		deleteConfirmTarget = null;
+		view = 'default';
+		if (!target) return;
+		try {
+			await deleteWorktreeLane(project.id as ProjectId, target.laneId);
+			closedLanes = await listClosedLanes(project).catch(() => []);
+		} catch (err) {
+			console.error('Eliminazione worktree fallita:', err);
+		}
 	}
 
 	$effect(() => {
@@ -627,6 +657,16 @@
 				<span class="row-label indent">{m.project_popover_btn_cancel()}</span>
 			</button>
 		</div>
+	{:else if view === 'delete-worktree' && deleteConfirmTarget}
+		<div class="confirm">
+			<p>{m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}</p>
+			<button type="button" class="row danger" onclick={() => void executeDeleteWorktree()}>
+				<IconTrash /> <span class="row-label">{m.lanestrip_delete_dialog_confirm()}</span>
+			</button>
+			<button type="button" class="row" onclick={() => { view = 'default'; deleteConfirmTarget = null; }}>
+				<span class="row-label indent">{m.lanestrip_delete_dialog_cancel()}</span>
+			</button>
+		</div>
 	{:else if view === 'default'}
 		{#if settingsStore.projectBar.showQueuePeek && !isScratchpad && queueTasks.length > 0}
 			<section class="block">
@@ -704,65 +744,106 @@
 			</section>
 		{:else if !isScratchpad}
 			<section class="block">
-				<button
-					type="button"
-					class="row"
-					disabled={!isGitRepo}
-					title={!isGitRepo ? m.lab_lane_new_worktree_disabled_no_git() : undefined}
-					onclick={() => void handleCreateWorktreeLane()}
-				>
-					<IconPlus /> <span class="row-label">{m.lab_lane_new_worktree()}</span>
-				</button>
-				{#if settingsStore.general.labAlphaEnabled}
+				<!-- Due bottoni affiancati compatti per creazione (Decisione 3) -->
+				<div class="row-pair">
+					<button
+						type="button"
+						class="row-btn"
+						disabled={!isGitRepo}
+						title={!isGitRepo ? m.lab_lane_new_worktree_disabled_no_git() : undefined}
+						onclick={() => void handleCreateWorktreeLane()}
+					>
+						<IconPlus /> <span>{m.lanestrip_new_worktree()}</span>
+					</button>
+					{#if settingsStore.general.labAlphaEnabled}
+						<button
+							type="button"
+							class="row-btn"
+							onclick={() => void handleCreateLabPrototype()}
+						>
+							<IconLab /> <span>{m.lanestrip_new_prototype()}</span>
+						</button>
+					{/if}
+				</div>
+
+				{#if closedLanes.length > 0}
+					<button
+						bind:this={protoRowEl}
+						type="button"
+						class="row"
+						class:open={protoMenuOpen}
+						aria-haspopup="menu"
+						aria-expanded={protoMenuOpen}
+						onclick={(event) => toggleProtoMenu(event.detail === 0)}
+						onkeydown={handleProtoRowKeydown}
+					>
+						<span class="row-label">{m.lanestrip_closed_lanes_count({ count: closedLanes.length })}</span>
+						<IconChevronRight />
+					</button>
+					{#if protoMenuOpen}
+						<div
+							bind:this={protoMenuEl}
+							class="proto-menu"
+							class:flipped={protoMenuFlipped}
+							popover="manual"
+							role="menu"
+							tabindex="-1"
+							aria-label={m.lanestrip_closed_lanes_count({ count: closedLanes.length })}
+							use:anchoredPopover={{
+								anchor: panelEl,
+								alignTo: protoRowEl,
+								placement: 'right-start',
+								offset: 2,
+								onFlip: (value) => (protoMenuFlipped = value)
+							}}
+							onkeydown={handleProtoMenuKeydown}
+						>
+							{#each closedLanes as entry (entry.laneId)}
+								<div class="proto-menu-row">
+									<button
+										type="button"
+										class="row proto-item-btn"
+										role="menuitem"
+										onclick={() => void handleReopenClosedLane(entry)}
+									>
+										{#if entry.kind === 'lab'}
+											<IconLab />
+										{:else}
+											<IconGitBranch />
+										{/if}
+										<span class="row-label" title={entry.title}>{entry.title}</span>
+										<span class="row-date">{formatRelativeDate(entry.closedAt)}</span>
+									</button>
+									{#if entry.kind === 'git'}
+										<button
+											type="button"
+											class="proto-delete-btn"
+											title={m.lanestrip_action_delete_worktree()}
+											aria-label={m.lanestrip_action_delete_worktree()}
+											onclick={(e) => {
+												e.stopPropagation();
+												requestDeleteWorktree(entry);
+											}}
+										>
+											<IconTrash />
+										</button>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/if}
+
+				{#if isGitRepo}
 					<button
 						type="button"
 						class="row"
-						onclick={() => void handleCreateLabPrototype()}
+						onclick={() => projectStore.setWorktreeResumeChat(project.id, !(project.worktreeResumeChat ?? true))}
+						aria-pressed={project.worktreeResumeChat ?? true}
 					>
-						<IconLab /> <span class="row-label">{m.lab_lane_new_prototype()}</span>
+						<IconGitBranch /> <span class="row-label">{m.lanestrip_resume_chat()}</span>
+						<span class="row-state">{(project.worktreeResumeChat ?? true) ? m.lanestrip_resume_chat_yes() : m.lanestrip_resume_chat_no()}</span>
 					</button>
-					{#if projectPrototypes.length > 0}
-						<button
-							bind:this={protoRowEl}
-							type="button"
-							class="row"
-							class:open={protoMenuOpen}
-							aria-haspopup="menu"
-							aria-expanded={protoMenuOpen}
-							onclick={(event) => toggleProtoMenu(event.detail === 0)}
-							onkeydown={handleProtoRowKeydown}
-						>
-							<IconLab /> <span class="row-label">{m.lab_lane_prototypes_count({ count: projectPrototypes.length })}</span>
-							<IconChevronRight />
-						</button>
-						{#if protoMenuOpen}
-							<div
-								bind:this={protoMenuEl}
-								class="proto-menu"
-								class:flipped={protoMenuFlipped}
-								popover="manual"
-								role="menu"
-								tabindex="-1"
-								aria-label={m.lab_lane_prototypes_count({ count: projectPrototypes.length })}
-								use:anchoredPopover={{
-									anchor: panelEl,
-									alignTo: protoRowEl,
-									placement: 'right-start',
-									offset: 2,
-									onFlip: (value) => (protoMenuFlipped = value)
-								}}
-								onkeydown={handleProtoMenuKeydown}
-							>
-								{#each projectPrototypes as proto (proto.id)}
-									<button type="button" class="row" role="menuitem" onclick={() => void openPrototype(proto)}>
-										<IconLab />
-										<span class="row-label" title={proto.title}>{proto.title}</span>
-										<span class="row-state">{proto.status === 'active' ? m.lab_lane_status_active() : m.lab_lane_status_closed()}</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
-					{/if}
 				{/if}
 			</section>
 		{/if}
@@ -1197,6 +1278,98 @@
 			opacity: 0;
 			transform: translateX(6px);
 		}
+	}
+
+	.row-pair {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		padding: 2px var(--space-2);
+	}
+
+	.row-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-1);
+		flex: 1;
+		min-width: 0;
+		height: 26px;
+		padding: 0 var(--space-2);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		background: var(--bg-raised);
+		color: var(--ink-muted);
+		font-family: inherit;
+		font-size: var(--text-xs);
+		cursor: pointer;
+		white-space: nowrap;
+		transition: background-color var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+	}
+
+	.row-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line-strong);
+	}
+
+	.row-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.row-btn :global(svg) {
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
+	}
+
+	.proto-menu-row {
+		display: flex;
+		align-items: center;
+		width: 100%;
+		border-radius: var(--radius-sm);
+		position: relative;
+	}
+
+	.proto-menu-row .proto-item-btn {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.row-date {
+		margin-left: auto;
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		white-space: nowrap;
+		padding-left: var(--space-2);
+	}
+
+	.proto-delete-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		padding: 0;
+		margin-right: 4px;
+		border: none;
+		border-radius: var(--radius-xs);
+		background: transparent;
+		color: var(--ink-faint);
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: background-color var(--dur-fast), color var(--dur-fast);
+	}
+
+	.proto-delete-btn:hover {
+		background: color-mix(in srgb, var(--danger) 14%, var(--bg-raised));
+		color: var(--danger);
+	}
+
+	.proto-delete-btn :global(svg) {
+		width: 12px;
+		height: 12px;
 	}
 
 	.row-label {

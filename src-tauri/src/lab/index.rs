@@ -157,6 +157,9 @@ pub async fn lab_index_update(
         if let Some(title) = patch.title {
             entry.title = title;
         }
+        if let Some(title_locked) = patch.title_locked {
+            entry.title_locked = title_locked;
+        }
         if let Some(summary) = patch.summary {
             entry.summary = summary;
         }

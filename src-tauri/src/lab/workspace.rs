@@ -98,6 +98,7 @@ pub async fn lab_prototype_create(
         let entry = LabIndexEntry {
             id: prototype_id,
             title,
+            title_locked: false,
             summary: String::new(),
             status: LabPrototypeStatus::Active,
             created_at: now.clone(),
@@ -348,6 +349,7 @@ pub async fn lab_prototype_duplicate(
             id: new_id,
             title: new_title,
             summary: orig_entry.summary.clone(),
+            title_locked: false,
             status: LabPrototypeStatus::Active,
             created_at: now.clone(),
             updated_at: now,

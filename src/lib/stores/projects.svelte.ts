@@ -56,6 +56,8 @@ export interface Project {
 	browserAllowedOrigins?: string[];
 	/** Configurazione bozza libera del Laboratorio (contratto §7). */
 	labDraft?: { prototypeId: string } | null;
+	/** Ripresa automatica dell'ultima chat nelle corsie worktree (--continue). */
+	worktreeResumeChat: boolean;
 }
 
 interface StoredProject {
@@ -73,6 +75,7 @@ interface StoredProject {
 	taskDefaults?: Partial<TaskDefaults> | null;
 	browserAllowedOrigins?: string[];
 	labDraft?: { prototypeId: string } | null;
+	worktreeResumeChat?: boolean;
 }
 
 export const PRESET_HUES = [355, 25, 60, 135, 175, 220, 265, 305];
@@ -192,7 +195,8 @@ class ProjectStore {
 						lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : 0,
 						autoDispatch: false,
 						taskDefaults: null,
-						labDraft: { prototypeId }
+						labDraft: { prototypeId },
+						worktreeResumeChat: true
 					};
 					this.projects.push(project);
 					continue;
@@ -232,7 +236,8 @@ class ProjectStore {
 					lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : 0,
 					autoDispatch: p.autoDispatch === true,
 					taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null,
-					browserAllowedOrigins: p.browserAllowedOrigins
+					browserAllowedOrigins: p.browserAllowedOrigins,
+					worktreeResumeChat: p.worktreeResumeChat ?? true
 				};
 				this.projects.push(project);
 				this.syncProjectMetadata(project);
@@ -260,7 +265,8 @@ class ProjectStore {
 			lastOpened: p.lastOpened,
 			autoDispatch: p.autoDispatch,
 			taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
-			browserAllowedOrigins: p.browserAllowedOrigins ? [...p.browserAllowedOrigins] : undefined
+			browserAllowedOrigins: p.browserAllowedOrigins ? [...p.browserAllowedOrigins] : undefined,
+			worktreeResumeChat: p.worktreeResumeChat
 		});
 		if (!meta || !p.canonicalProjectPath) return;
 		this.metadata.set(pathKey(p.canonicalProjectPath), meta);
@@ -303,7 +309,8 @@ class ProjectStore {
 				autoDispatch: p.autoDispatch,
 				taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
 				browserAllowedOrigins: p.browserAllowedOrigins,
-				labDraft: p.labDraft ?? undefined
+				labDraft: p.labDraft ?? undefined,
+				worktreeResumeChat: p.worktreeResumeChat
 			}));
 		const metaToSave = pruneProjectMetadata(Array.from(this.metadata.values()));
 		await this.store.set('projects', toSave);
@@ -350,7 +357,8 @@ class ProjectStore {
 			lastOpened: Date.now(),
 			autoDispatch: resolved.autoDispatch,
 			taskDefaults: resolved.taskDefaults,
-			browserAllowedOrigins: resolved.browserAllowedOrigins
+			browserAllowedOrigins: resolved.browserAllowedOrigins,
+			worktreeResumeChat: resolved.worktreeResumeChat
 		};
 		// Nuovo progetto: in coda con l'ordine manuale, in testa solo se
 		// l'utente ha scelto `mru` (il piu' recente resta il piu' visibile).
@@ -420,7 +428,8 @@ class ProjectStore {
 			},
 			lastOpened: Date.now(),
 			autoDispatch: false,
-			taskDefaults: null
+			taskDefaults: null,
+			worktreeResumeChat: true
 		};
 		if (settingsStore.projectBar.order === 'mru') {
 			this.projects.unshift(scratchpadProj);
@@ -461,7 +470,8 @@ class ProjectStore {
 			lastOpened: Date.now(),
 			autoDispatch: false,
 			taskDefaults: null,
-			labDraft: { prototypeId: entry.id }
+			labDraft: { prototypeId: entry.id },
+			worktreeResumeChat: true
 		};
 		if (settingsStore.projectBar.order === 'mru') {
 			this.projects.unshift(draftProj);
@@ -542,6 +552,12 @@ class ProjectStore {
 		this.save();
 	}
 
+	setWorktreeResumeChat(projectId: string, value: boolean) {
+		const p = this.projects.find((item) => item.id === projectId);
+		if (!p) return;
+		p.worktreeResumeChat = value;
+		this.save();
+	}
 	/** `patch` null azzera l'override; altrimenti si fonde col precedente e,
 	 *  se il risultato e' vuoto, si torna a `null` (nessun override e' lo
 	 *  stato canonico, non un oggetto vuoto perpetuo). */

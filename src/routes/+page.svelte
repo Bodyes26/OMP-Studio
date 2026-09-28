@@ -676,7 +676,7 @@
 		if (p.lane.laneId === laneId) return p.lane;
 		return laneStore
 			.lanesFor(p.id as ProjectId)
-			.find((lane) => lane.laneId === laneId && lane.status !== 'archived');
+			.find((lane) => lane.laneId === laneId && lane.status !== 'archived' && lane.status !== 'closed');
 	}
 
 
@@ -1528,7 +1528,7 @@
 	async function handleNewChat(projectId: string, laneId?: string) {
 		const project = projectStore.projects.find((p) => p.id === projectId);
 		const lane = project ? laneOf(project, laneId ?? project.lane.laneId) : undefined;
-		if (!project || !lane) return;
+		if (!project || !lane || lane.kind === 'lab') return;
 		const session = agentSessionFor(project, lane);
 		// newSession() azzera isStreaming solo localmente e non inoltra l'abort al
 		// processo omp: senza questo, i token della risposta in corso finirebbero
@@ -1549,10 +1549,20 @@
 
 		// --- comandi del guscio: li serve Studio, non omp ---------------------
 		if (lowerCmd === '/new' || lowerCmd === '/clear') {
+			const targetLane = laneOf(project, laneId);
+			if (targetLane?.kind === 'lab') {
+				session.pushNotice('info', m.lane_lifecycle_lab_single_chat(), 'studio');
+				return true;
+			}
 			void handleNewChat(projectId, laneId);
 			return true;
 		}
 		if (lowerCmd === '/resume' || lowerCmd === '/sessions' || lowerCmd === '/tree') {
+			const targetLane = laneOf(project, laneId);
+			if (targetLane?.kind === 'lab') {
+				session.pushNotice('info', m.lane_lifecycle_lab_no_sessions(), 'studio');
+				return true;
+			}
 			if (argument && lowerCmd === '/resume') {
 				void handleResumeSession(projectId, argument, laneId);
 			} else {
@@ -1573,12 +1583,22 @@
 			return true;
 		}
 		if (lowerCmd === '/drop') {
+			const targetLane = laneOf(project, laneId);
+			if (targetLane?.kind === 'lab') {
+				session.pushNotice('info', m.lane_lifecycle_lab_no_sessions(), 'studio');
+				return true;
+			}
 			leftSection = 'agent';
 			taskStore.setView(project.canonicalProjectPath, 'sessions');
 			session.pushNotice('info', m.page_slash_cmd_drop_hint(), 'studio');
 			return true;
 		}
 		if (lowerCmd === '/quit' || lowerCmd === '/exit') {
+			const targetLane = laneOf(project, laneId);
+			if (targetLane?.kind === 'lab') {
+				session.pushNotice('info', m.lane_lifecycle_lab_single_chat(), 'studio');
+				return true;
+			}
 			void session.newSession();
 			return true;
 		}
@@ -2286,17 +2306,28 @@
 		// 'auto': se la finestra e' portrait (altezza > larghezza) o la larghezza e' troppo stretta per 3 colonne (< 1100px)
 		return (windowHeight > windowWidth || windowWidth < 1100) ? 'vertical' : 'horizontal';
 	});
+	const activeLaneKind = $derived(projectStore.activeProject?.lane.kind ?? 'git');
+	const isSidebarCollapsed = $derived(
+		activeLaneKind === 'lab'
+			? settingsStore.general.labSidebarCollapsed
+			: settingsStore.general.sidebarCollapsed
+	);
+
+	$effect(() => {
+		if (activeLaneKind === 'lab' && leftSection === 'agent') {
+			leftSection = 'files';
+		}
+	});
 
 	const gridColumns = $derived.by(() => {
-		const sideW = settingsStore.general.sidebarCollapsed ? 0 : leftWidth;
-		const splitW = settingsStore.general.sidebarCollapsed ? 0 : SPLIT;
+		const sideW = isSidebarCollapsed ? 0 : leftWidth;
+		const splitW = isSidebarCollapsed ? 0 : SPLIT;
 		if (effectiveLayout === 'vertical') {
 			return `${sideW}px ${splitW}px minmax(0, 1fr)`;
 		}
 		const center = centerWidth > 0 ? `${centerWidth}px` : 'minmax(0, 1fr)';
 		return `${sideW}px ${splitW}px ${center} ${SPLIT}px minmax(0, 1fr)`;
 	});
-
 	const gridRows = $derived.by(() => {
 		if (effectiveLayout === 'vertical') {
 			const top = topHeight > 0 ? `${topHeight}px` : 'minmax(0, 1fr)';
@@ -2309,8 +2340,8 @@
 
 	function maxCenter() {
 		if (!columnsEl) return MIN_COL;
-		const sideW = settingsStore.general.sidebarCollapsed ? 0 : leftWidth;
-		const splitW = settingsStore.general.sidebarCollapsed ? 0 : SPLIT;
+		const sideW = isSidebarCollapsed ? 0 : leftWidth;
+		const splitW = isSidebarCollapsed ? 0 : SPLIT;
 		return Math.max(MIN_COL, columnsEl.clientWidth - sideW - splitW - SPLIT - MIN_COL);
 	}
 
@@ -2507,7 +2538,7 @@
 			queueOpen = !queueOpen;
 		} else if (e.key.toLowerCase() === 'b') {
 			e.preventDefault();
-			settingsStore.toggleSidebar();
+			settingsStore.toggleSidebar(activeLaneKind);
 		} else if (e.key.toLowerCase() === 'l') {
 			e.preventDefault();
 			settingsStore.cycleLayoutMode();
@@ -2529,7 +2560,7 @@
 			e.preventDefault();
 			const activeProj = projectStore.activeProject;
 			const secondaryLanes = activeProj
-				? laneStore.lanesFor(activeProj.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')
+				? laneStore.lanesFor(activeProj.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')
 				: [];
 
 			if (activeProj && secondaryLanes.length > 0 && !e.shiftKey) {
@@ -2571,7 +2602,7 @@
 		onOpenFile={openMentionedFile}
 	/>
 	{#if projectStore.activeProject && projectStore.activeProject.canonicalProjectPath}
-		{@const secondaryLanes = laneStore.lanesFor(projectStore.activeProject.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived')}
+		{@const secondaryLanes = laneStore.lanesFor(projectStore.activeProject.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')}
 		{#if secondaryLanes.length > 0}
 			<LaneStrip project={projectStore.activeProject} onReviewLane={(lane) => (reviewingLane = lane)} />
 		{/if}
@@ -2674,7 +2705,7 @@
 		class:dragging
 		class:dragging-row={dragging && draggingWhich === 'center' && effectiveLayout === 'vertical'}
 		class:layout-vertical={effectiveLayout === 'vertical'}
-		class:sidebar-collapsed={settingsStore.general.sidebarCollapsed}
+		class:sidebar-collapsed={isSidebarCollapsed}
 		bind:this={columnsEl}
 		style:grid-template-columns={gridColumns}
 		style:grid-template-rows={gridRows}
@@ -2686,14 +2717,16 @@
 	>
 		<aside
 			class="col-left"
-			aria-hidden={settingsStore.general.sidebarCollapsed}
+			aria-hidden={isSidebarCollapsed}
 			style:--sidebar-width="{leftWidth}px"
 		>
 			<div class="col-left-inner">
 				<div class="col-header tabs-header" role="tablist" aria-label={m.page_tabs_sidebar_panels()}>
 					<button type="button" role="tab" aria-selected={leftSection === 'files'} class:active={leftSection === 'files'} onclick={() => leftSection = 'files'} aria-label={m.page_tabs_files_panel_label()}>{m.page_tabs_files_panel()}</button>
 					<button type="button" role="tab" aria-selected={leftSection === 'git'} class:active={leftSection === 'git'} onclick={() => leftSection = 'git'} aria-label={m.page_tabs_git_panel_label()}>{m.page_tabs_git_panel()}</button>
-					<button type="button" role="tab" aria-selected={leftSection === 'agent'} class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'} aria-label={m.page_tabs_agent_panel_label()}>{m.page_tabs_agent_panel()}</button>
+					{#if activeLaneKind !== 'lab'}
+						<button type="button" role="tab" aria-selected={leftSection === 'agent'} class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'} aria-label={m.page_tabs_agent_panel_label()}>{m.page_tabs_agent_panel()}</button>
+					{/if}
 				</div>
 				<div class="col-content" class:agent-content={leftSection === 'agent'}>
 					{#if projectStore.activeProject}
@@ -2906,7 +2939,7 @@
 						>GUI</button>
 					</div>
 				{/if}
-				{#if projectStore.activeProject?.lane.surface === 'gui' || projectStore.activeProject?.lane.kind === 'lab'}
+				{#if projectStore.activeProject?.lane.surface === 'gui' && projectStore.activeProject?.lane.kind !== 'lab'}
 					<button
 						type="button"
 						class="header-action"
@@ -2931,13 +2964,14 @@
 								onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
 								onSwitchToTerminal={lane.kind === 'lab' ? undefined : () => void switchSurface(p.id, 'terminal')}
 								onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
-								onNewChat={() => void handleNewChat(p.id, lane.laneId)}
+								onNewChat={lane.kind === 'lab' ? undefined : () => void handleNewChat(p.id, lane.laneId)}
 							/>
 						{:else}
 							<Terminal
 								cwd={lane.workspacePath ?? p.canonicalProjectPath ?? ''}
 								laneId={lane.laneId}
 								projectId={p.id}
+								continueLast={lane.laneId !== MAIN_LANE_ID && lane.kind === 'git' && p.worktreeResumeChat}
 								visible={isLaneActive}
 								resumeSessionId={terminalMeta[key]?.sessionId ?? null}
 								blockedQuota={laneOrchestrator.getLaneSession(p.id, lane.laneId)?.blockedQuotaState ?? null}

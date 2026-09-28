@@ -38,6 +38,17 @@ export class LaneOrchestrator {
 	terminalBusy = $state<Record<string, boolean>>({});
 	switchingSurface = $state<Record<string, boolean>>({});
 	agentErrors = $state<Record<string, string | null>>({});
+	/**
+	 * Ultimo `runEndSeq` visto dall'utente per ciascuna sessione GUI. La sessione
+	 * GUI non conosce lo stato "finito": senza questo confronto una corsia che
+	 * ha chiuso il turno mentre guardavi altrove sarebbe indistinguibile da una
+	 * ferma, e l'anello "da leggere" della barra corsie non comparirebbe mai.
+	 * La chiave e' la sessione e non la corsia: una corsia chiusa e riaperta
+	 * riparte con un contatore da zero che un valore vecchio nasconderebbe.
+	 * Non serve reattivita': si scrive solo nello switch, che cambia gia'
+	 * `project.lane` e rilegge questo stato.
+	 */
+	private seenRunEnd = new WeakMap<AgentSession, number>();
 
 	// Riferimenti alle sessioni terminale vive per ciascuna corsia (laneSessionKey)
 	terminalSessions = new Map<string, TerminalSession>();
@@ -110,7 +121,7 @@ export class LaneOrchestrator {
 	 */
 	getMountedLanes(project: Project): Array<AgentLane | LaneRecord> {
 		const records = laneStore.lanesFor(project.id as ProjectId);
-		const activeRecords = records.filter((l) => l.status !== 'archived');
+		const activeRecords = records.filter((l) => l.status !== 'archived' && l.status !== 'closed');
 		if (activeRecords.length === 0) {
 			return [project.lane];
 		}
@@ -170,9 +181,8 @@ export class LaneOrchestrator {
 		// 2. Risolvi il record della corsia target
 		const projectLanes = laneStore.lanesFor(projectId);
 		let targetLane: AgentLane | LaneRecord | undefined = projectLanes.find(
-			(l) => l.laneId === targetLaneId && l.status !== 'archived'
+			(l) => l.laneId === targetLaneId && l.status !== 'archived' && l.status !== 'closed'
 		);
-
 		if (!targetLane && targetLaneId === MAIN_LANE_ID) {
 			targetLane = createMainLane(
 				projectId,
@@ -183,10 +193,25 @@ export class LaneOrchestrator {
 
 		if (!targetLane) return;
 
+		// L'ingresso nella corsia e l'uscita da quella corrente valgono come
+		// lettura: l'anello "finito" sparisce su chi entra e non compare su chi
+		// esce per un turno chiuso sotto gli occhi dell'utente.
+		this.markRunEndSeen(projectId, project.lane.laneId);
+		this.markRunEndSeen(projectId, targetLaneId);
+		if (targetLane.agentState === 'finished') {
+			targetLane.agentState = 'idle';
+			void laneStore.updateLane(projectId, targetLaneId, { agentState: 'idle' }).catch(() => undefined);
+		}
+
 		// 3. Riorienta atomicamente il progetto alla nuova corsia
 		projectStore.setProjectLane(projectId, targetLane);
 	}
 
+	private markRunEndSeen(projectId: string, laneId: string): void {
+		const session = sessionRegistry.getLaneSession(projectId, laneId);
+		if (!session) return;
+		this.seenRunEnd.set(session, session.runEndSeq);
+	}
 	/**
 	 * Navigazione ciclica tra corsie attive (es. Ctrl+Alt+Freccia).
 	 */
@@ -194,7 +219,7 @@ export class LaneOrchestrator {
 		const project = projectStore.projects.find((p) => p.id === projectId);
 		if (!project) return;
 
-		const projectLanes = laneStore.lanesFor(projectId).filter((l) => l.status !== 'archived');
+		const projectLanes = laneStore.lanesFor(projectId).filter((l) => l.status !== 'archived' && l.status !== 'closed');
 		if (projectLanes.length <= 1) return;
 
 		const main =
@@ -261,6 +286,15 @@ export class LaneOrchestrator {
 			if (!session) return 'unknown';
 			if (session.pendingUi) return 'attention';
 			if (session.isStreaming || session.isCompacting) return 'working';
+			// Solo le corsie non in vista possono essere "da leggere": quella
+			// aperta a schermo e' gia' letta, e la barra di stato resta ferma.
+			if (
+				session.agentState === 'idle' &&
+				project.lane.laneId !== laneId &&
+				session.runEndSeq > (this.seenRunEnd.get(session) ?? 0)
+			) {
+				return 'finished';
+			}
 			return session.agentState;
 		}
 		if (this.terminalMeta[key]?.inputPending === true) return 'attention';
