@@ -88,6 +88,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Un agente che chiude il turno con un consiglio o una domanda (con i suggerimenti di risposta sotto la chat) non è più considerato occupato: il task parte nella stessa corsia senza proporre un nuovo worktree.
 - Il selettore del modello nel composer non resta più vuoto con «Nessun modello trovato»: l'elenco si caricava una sola volta, quando la sessione dell'agente spesso non era ancora pronta, e il fallimento veniva ignorato. Ora si carica quando la sessione è pronta e si aggiorna a ogni apertura del menu, così compaiono anche i modelli di un provider appena collegato.
 - Tornano i suggerimenti di risposta sopra il composer: le chip standard configurate in Impostazioni e quelle generate sull'ultimo messaggio, anche quando l'agente chiude con una domanda senza il tool apposito. Compaiono ad agente fermo e bozza vuota, e `Alt+1`…`Alt+6` le inserisce.
+- L'app per macOS scaricata dal DMG si apre di nuovo invece di essere segnalata come «danneggiata» e da spostare nel cestino: il bundle è ora firmato per intero (firma ad-hoc) invece di avere solo l'eseguibile firmato. Finché l'app non è firmata e notarizzata con un certificato Apple, al primo avvio macOS chiede conferma: apri Impostazioni di Sistema › Privacy e sicurezza › «Apri comunque».
 
 ## [1.6.0] - 2026-09-21
 

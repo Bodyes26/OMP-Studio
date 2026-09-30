@@ -58,6 +58,9 @@
         "section": "devel"
       }
     },
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",

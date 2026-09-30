@@ -88,6 +88,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - An agent that ends its turn with a suggestion or a question (with reply suggestions under the chat) is no longer considered busy: the task starts in the same lane without proposing a new worktree.
 - The composer's model picker no longer stays empty with "No models found": the list was loaded only once, often before the agent session was ready, and the failure was ignored. It now loads when the session is ready and refreshes every time the menu opens, so models from a newly connected provider show up too.
 - Reply suggestions above the composer are back: the standard chips configured in Settings and the ones generated from the last message, including when the agent ends with a question without using the question tool. They show while the agent is idle and the draft is empty, and `Alt+1`…`Alt+6` inserts them.
+- The macOS app downloaded from the DMG opens again instead of being reported as "damaged" and to be moved to the Trash: the whole bundle is now signed (ad-hoc signature) instead of only its executable. Until the app is signed and notarized with an Apple certificate, macOS asks for confirmation on first launch: open System Settings › Privacy & Security › "Open Anyway".
 
 ## [1.6.0] - 2026-09-21
 
