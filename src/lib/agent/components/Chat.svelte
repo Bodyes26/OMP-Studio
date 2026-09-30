@@ -289,25 +289,23 @@
 		</div>
 	</div>
 
-	{#if userScrolledUp}
-		<button
-			type="button"
-			class="scroll-bottom-btn rv-lift"
-			class:readable={settingsStore.general.chatWidth === 'readable'}
-			onclick={scrollToBottom}
-			title={m.chat_scroll_to_bottom()}
-			style="--dur: 200ms; --blur: 2px;"
-		>
-			<IconArrowDown aria-hidden="true" />
-			In fondo
-		</button>
-	{/if}
-
 	<div class="footer-stack" class:content-below={userScrolledUp}>
 		<div
 			class="footer-inner"
 			class:readable={settingsStore.general.chatWidth === 'readable'}
 		>
+			{#if userScrolledUp}
+				<button
+					type="button"
+					class="scroll-bottom-btn rv-lift"
+					onclick={scrollToBottom}
+					title={m.chat_scroll_to_bottom()}
+					style="--dur: 200ms; --blur: 2px;"
+				>
+					<IconArrowDown aria-hidden="true" />
+					In fondo
+				</button>
+			{/if}
 			{#snippet queuedRows()}
 				<QueueChips
 					local={session.localFollowUpQueue}
@@ -434,7 +432,7 @@
 	.scroll-bottom-btn {
 		position: absolute;
 		right: var(--space-4);
-		bottom: calc(var(--space-5) * 5);
+		bottom: calc(100% + var(--space-3) + 28px);
 		background: var(--bg-overlay);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-full);
@@ -459,10 +457,6 @@
 		transform: scale(0.97);
 	}
 
-	.scroll-bottom-btn.readable {
-		right: max(var(--space-4), calc(50% - 360px + var(--space-4)));
-	}
-
 	.queue-edit-warning {
 		padding: var(--space-1) var(--space-2);
 		color: var(--danger);
@@ -472,6 +466,7 @@
 	.composer-under-ask { display: none; }
 
 	.footer-inner {
+		position: relative;
 		width: 100%;
 		display: flex;
 		flex-direction: column;

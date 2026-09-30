@@ -59,6 +59,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - In the chat a question no longer ends up inside the tool call list: while it's open you see "The agent has a question for you", and once answered a compact summary lists every question, the answer given, "Agent decides" and any note.
 
 ### Fixed
+- The "Scroll to bottom" button in chat stays fully visible above the blur fade: it dynamically tracks expanding and collapsing todo and subagent lists above the composer, without being obscured or cut in half.
 - Model search in the composer once again matches names with spaces instead of hyphens (for example “gpt 6.1”): chat, new tasks and settings share the same list and search, with keyboard navigation following the displayed order.
 - Chat follows streaming responses without slowly chasing reveal animations; long tool lists skip rendering offscreen rows and idle observers while preserving default expansion and pausing auto-scroll when you scroll up to read.
 - Previews and diagrams in the center column really close with the X or `Esc`, and show up right away in the right lane instead of only after switching lanes: the center column used to not refresh, so a leftover preview (for example "File not found: proto/passwd-hack.html" on the Main lane) could not be dismissed.
