@@ -190,6 +190,9 @@ pub async fn lab_index_update(
 }
 
 /// Rimuove una voce dall'indice e opzionalmente ne cancella il workspace (solo se sotto `<root>/prototypes`).
+///
+/// Il workspace si cancella prima di toccare l'indice: se la cartella resta bloccata
+/// la voce rimane e l'utente puo' riprovare, invece di lasciare file orfani su disco.
 #[command]
 pub async fn lab_index_remove(
     project_path: Option<String>,
@@ -208,40 +211,59 @@ pub async fn lab_index_remove(
             .position(|e| e.id == id)
             .ok_or_else(|| format!("Prototipo {id} non trovato nell'indice"))?;
 
-        let entry = index_file.prototypes.remove(pos);
-        write_index(&index_path, &index_file)?;
-
         if delete_workspace {
             let root = lab_root().ok_or("Radice Lab non disponibile")?;
-            let allowed_prototypes_dir = root.join("prototypes");
-            let ws_path = PathBuf::from(&entry.workspace_path);
-
-            // Verifica di sicurezza rigorosa: cancella SOLO cartelle che stanno dentro <root>/prototypes
-            let canonical_allowed = allowed_prototypes_dir
-                .canonicalize()
-                .unwrap_or(allowed_prototypes_dir);
-            let canonical_ws = ws_path.canonicalize().unwrap_or(ws_path);
-
-            if canonical_ws.starts_with(&canonical_allowed) && canonical_ws != canonical_allowed {
-                if canonical_ws.exists() {
-                    fs::remove_dir_all(&canonical_ws).map_err(|e| {
-                        format!(
-                            "Impossibile eliminare il workspace in {}: {e}",
-                            canonical_ws.display()
-                        )
-                    })?;
-                }
-            } else {
-                return Err(format!(
-                    "Cancellazione negata: il workspace {} non e' contenuto nella directory sicura dei prototipi",
-                    entry.workspace_path
-                ));
-            }
+            let workspace = PathBuf::from(&index_file.prototypes[pos].workspace_path);
+            remove_prototype_workspace(&root.join("prototypes"), &workspace)?;
         }
-        Ok(())
+
+        index_file.prototypes.remove(pos);
+        write_index(&index_path, &index_file)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Cancella la cartella di un prototipo, ma solo se sta dentro `prototypes_dir`.
+/// Una cartella gia' sparita non e' un errore: l'obiettivo e' che non ci sia.
+fn remove_prototype_workspace(prototypes_dir: &Path, workspace: &Path) -> Result<(), String> {
+    if !workspace.exists() {
+        return Ok(());
+    }
+    // Si canonicalizzano entrambi i lati solo quando esistono: su Windows
+    // `canonicalize` aggiunge il prefisso `\\?\`, e un confronto misto fallirebbe sempre.
+    let allowed = prototypes_dir
+        .canonicalize()
+        .map_err(|e| format!("Cartella dei prototipi non accessibile: {e}"))?;
+    let target = workspace
+        .canonicalize()
+        .map_err(|e| format!("Workspace non accessibile in {}: {e}", workspace.display()))?;
+    if !target.starts_with(&allowed) || target == allowed {
+        return Err(format!(
+            "Cancellazione negata: il workspace {} non e' contenuto nella directory sicura dei prototipi",
+            workspace.display()
+        ));
+    }
+
+    // Chiudendo la corsia, sessione omp e watcher rilasciano i loro handle in modo
+    // asincrono: su Windows una cartella ancora aperta da un processo non si cancella.
+    const ATTEMPTS: u32 = 10;
+    let mut last_error = None;
+    for attempt in 0..ATTEMPTS {
+        match fs::remove_dir_all(&target) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => last_error = Some(e),
+        }
+        if attempt + 1 < ATTEMPTS {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
+    Err(format!(
+        "Impossibile eliminare il workspace in {}: {}",
+        workspace.display(),
+        last_error.map(|e| e.to_string()).unwrap_or_default()
+    ))
 }
 
 /// Sposta una bozza dall'indice globale all'indice del progetto di destinazione.
@@ -305,4 +327,69 @@ pub async fn lab_prototype_associate(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("omp-lab-remove-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn removes_workspace_with_read_only_git_objects() {
+        let root = scratch_dir("inside");
+        let prototypes = root.join("prototypes");
+        let object = prototypes
+            .join("p1")
+            .join(".git")
+            .join("objects")
+            .join("ab");
+        fs::create_dir_all(object.parent().unwrap()).unwrap();
+        fs::write(&object, b"blob").unwrap();
+        // Git scrive gli oggetti in sola lettura: la cancellazione deve reggere lo stesso.
+        let mut perms = fs::metadata(&object).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&object, perms).unwrap();
+
+        let result = remove_prototype_workspace(&prototypes, &prototypes.join("p1"));
+        let still_there = prototypes.join("p1").exists();
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(!still_there);
+    }
+
+    #[test]
+    fn missing_workspace_is_not_an_error() {
+        let root = scratch_dir("missing");
+        let prototypes = root.join("prototypes");
+        let result = remove_prototype_workspace(&prototypes, &prototypes.join("gone"));
+        let _ = fs::remove_dir_all(&root);
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn refuses_folders_outside_prototypes_dir() {
+        let root = scratch_dir("outside");
+        let prototypes = root.join("prototypes");
+        fs::create_dir_all(&prototypes).unwrap();
+        let outside = root.join("progetto-utente");
+        fs::create_dir_all(&outside).unwrap();
+
+        let escaped =
+            remove_prototype_workspace(&prototypes, &prototypes.join("..").join("progetto-utente"));
+        let itself = remove_prototype_workspace(&prototypes, &prototypes);
+        let survived = outside.exists() && prototypes.exists();
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(escaped.is_err());
+        assert!(itself.is_err());
+        assert!(survived);
+    }
 }

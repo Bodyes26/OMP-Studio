@@ -23,6 +23,7 @@ import type { ContextMenuEntry } from '$lib/contextMenu.svelte';
 import { IconGitBranch, IconLab, IconTrash } from '$lib/icons';
 import { m } from '$lib/paraglide/messages.js';
 import { getLocale } from '$lib/paraglide/runtime.js';
+import { message } from '@tauri-apps/plugin-dialog';
 import { listClosedLanes, reopenLane, type ClosedLaneEntry } from './laneLifecycle';
 
 export interface ProjectLaneActionsOptions {
@@ -244,6 +245,14 @@ export async function associateDraftToProject(
 	projectStore.setActive(targetProject.id);
 }
 
+/** Segnala un'eliminazione di prototipo fallita: il menu o il popover che l'ha
+ *  avviata e' gia' chiuso, quindi serve un avviso che non dipenda da loro. */
+export async function reportLabDeleteFailure(error: string): Promise<void> {
+	await message(m.lab_delete_failed({ error }), { kind: 'error' }).catch(() => {
+		console.error('Eliminazione prototipo fallita:', error);
+	});
+}
+
 /**
  * Restituisce le azioni corsia mostrate nel popover di progetto e nel menu `+ ▾`
  * della LaneStrip (contratto §7).
@@ -311,14 +320,16 @@ export async function projectLaneActions(
 					label: entry.title,
 					icon: entry.kind === 'lab' ? IconLab : IconGitBranch,
 					detail: formatRelativeDate(entry.closedAt),
-					secondaryAction:
-						entry.kind === 'git' && options?.onRequestDelete
-							? {
-									label: m.lanestrip_action_delete_worktree(),
-									icon: IconTrash,
-									run: () => options.onRequestDelete!(entry)
-								}
-							: undefined,
+					secondaryAction: options?.onRequestDelete
+						? {
+								label:
+									entry.kind === 'lab'
+										? m.lanestrip_action_delete_prototype()
+										: m.lanestrip_action_delete_worktree(),
+								icon: IconTrash,
+								run: () => options.onRequestDelete!(entry)
+							}
+						: undefined,
 					run: async () => {
 						if (options?.onReopenLane) {
 							await options.onReopenLane(entry);

@@ -36,14 +36,17 @@
 		IconSettings,
 		IconWarning,
 		IconLab,
-		IconGitBranch
+		IconGitBranch,
+		IconTrash
 	} from '$lib/icons';
 	import { laneStore } from '$lib/stores/lanes.svelte';
 	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
 	import { sessionRegistry } from '$lib/agent/sessionRegistry';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import { labApi } from '$lib/lab/api';
-	import { openLabEntry } from '$lib/lanes/laneActions';
+	import { openLabEntry, reportLabDeleteFailure } from '$lib/lanes/laneActions';
+	import { deleteLabPrototype } from '$lib/lanes/laneLifecycle';
+	import { ask } from '@tauri-apps/plugin-dialog';
 
 	let {
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
@@ -113,6 +116,11 @@
 					kind: 'item',
 					label: `${draft.title} (${statusLabel})`,
 					icon: IconLab,
+					secondaryAction: {
+						label: m.lanestrip_action_delete_prototype(),
+						icon: IconTrash,
+						run: () => void requestDeleteDraft(draft.id, draft.title)
+					},
 					run: async () => {
 						await openLabEntry(null, draft);
 					}
@@ -124,6 +132,20 @@
 			items,
 			invoker: event.currentTarget as HTMLElement
 		});
+	}
+
+	// Il menu contestuale non ha una vista di conferma: per un'azione irreversibile
+	// basta il dialogo nativo, che resta leggibile anche con il menu gia' chiuso.
+	async function requestDeleteDraft(prototypeId: string, title: string) {
+		const confirmed = await ask(m.lab_delete_dialog_message({ name: title }), {
+			title: m.lab_delete_dialog_title(),
+			kind: 'warning',
+			okLabel: m.lanestrip_delete_dialog_confirm(),
+			cancelLabel: m.lanestrip_delete_dialog_cancel()
+		});
+		if (!confirmed) return;
+		const outcome = await deleteLabPrototype(null, prototypeId);
+		if (outcome.kind === 'failed') await reportLabDeleteFailure(outcome.message);
 	}
 
 	const PROJECT_BAR_ORDER_OPTIONS = $derived.by((): { value: ProjectBarOrder; label: string }[] => [

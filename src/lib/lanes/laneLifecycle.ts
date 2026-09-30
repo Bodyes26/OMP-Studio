@@ -6,6 +6,8 @@
 // 2. Riapertura (reopenLane): riporta lo status ad 'active', azzera closedAt e fa lo switch.
 // 3. Eliminazione (deleteWorktreeLane): rimuove worktree e branch; archivia solo
 //    se entrambi hanno successo, altrimenti lascia la corsia recuperabile (cleanup_pending).
+// 4. Eliminazione prototipo (deleteLabPrototype): chiude la corsia o la tessera bozza,
+//    poi cancella workspace e voce d'indice; se il workspace resta bloccato la voce resta.
 
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -16,6 +18,7 @@ import {
 	type ProjectId
 } from '$lib/types/lanes';
 import { laneStore } from '$lib/stores/lanes.svelte';
+import type { LaneRecord } from '$lib/stores/lanePersistence';
 import { projectStore, type Project } from '$lib/stores/projects.svelte';
 import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
@@ -40,6 +43,8 @@ export type DeleteLaneOutcome =
 	| { kind: 'deleted' }
 	| { kind: 'processes-active'; processes: LaneProcessInfo[] }
 	| { kind: 'failed'; message: string };
+
+export type DeleteLabOutcome = { kind: 'deleted' } | { kind: 'failed'; message: string };
 
 function isTauri(): boolean {
 	return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -311,5 +316,58 @@ export async function deleteWorktreeLane(
 		);
 	}
 
+	return { kind: 'deleted' };
+}
+
+/**
+ * Elimina definitivamente un prototipo Lab, aperto o chiuso:
+ * 1. Progetto: chiude la corsia se aperta (sessione, processi, ritorno a Principale);
+ *    bozza libera (ownerProjectId null): chiude la tessera se aperta.
+ * 2. Rimuove l'anteprima pubblicata e cancella workspace + voce d'indice.
+ * 3. Archivia il record di corsia, cosi' non torna fra le corsie chiuse.
+ */
+export async function deleteLabPrototype(
+	ownerProjectId: ProjectId | null,
+	prototypeId: string
+): Promise<DeleteLabOutcome> {
+	let indexPath: string | null = null;
+	let lane: LaneRecord | undefined;
+
+	if (ownerProjectId) {
+		const project = projectStore.projects.find((p) => p.id === ownerProjectId);
+		if (!project?.canonicalProjectPath) {
+			return { kind: 'failed', message: 'Progetto del prototipo non disponibile' };
+		}
+		indexPath = project.canonicalProjectPath;
+		lane = laneStore
+			.lanesFor(ownerProjectId)
+			.find(
+				(l) =>
+					l.kind === 'lab' && (l.labPrototypeId === prototypeId || l.laneId === `lab-${prototypeId}`)
+			);
+		if (lane && lane.status !== 'closed' && lane.status !== 'archived') {
+			const closed = await closeLane(ownerProjectId, lane.laneId);
+			if (closed.kind === 'failed') return closed;
+		}
+	} else {
+		const draftTile = projectStore.projects.find((p) => p.labDraft?.prototypeId === prototypeId);
+		if (draftTile) projectStore.closeProject(draftTile.id);
+	}
+
+	await labApi.unpublish(prototypeId).catch(() => undefined);
+	try {
+		await labApi.removeFromIndex(indexPath, prototypeId, true);
+	} catch (err) {
+		return { kind: 'failed', message: err instanceof Error ? err.message : String(err) };
+	}
+
+	if (ownerProjectId && lane) {
+		await laneStore.updateLane(ownerProjectId, lane.laneId, {
+			status: 'archived',
+			archiveReason: 'rejected',
+			archivedAt: Date.now(),
+			recoveryState: 'registered'
+		});
+	}
 	return { kind: 'deleted' };
 }

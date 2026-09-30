@@ -358,7 +358,6 @@
 						{#if r.description}
 							<span class="repo-desc" title={r.description}>{r.description}</span>
 						{/if}
-						<span class="clone-btn-hint">Clona e apri</span>
 					</button>
 				{/each}
 			{/if}
@@ -599,16 +598,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	.clone-btn-hint {
-		flex: 0 0 auto;
-		font-size: 0.74rem;
-		font-weight: 500;
-		color: var(--brand);
-		background: color-mix(in srgb, var(--brand) 12%, transparent);
-		padding: 2px 8px;
-		border-radius: var(--radius-sm);
 	}
 
 	.empty-row,

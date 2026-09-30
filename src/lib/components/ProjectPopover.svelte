@@ -54,15 +54,17 @@
 		openLabEntry,
 		associateDraftToProject,
 		startCreateWorktreeFlow,
-		formatRelativeDate
+		formatRelativeDate,
+		reportLabDeleteFailure
 	} from '$lib/lanes/laneActions';
 	import {
 		listClosedLanes,
 		reopenLane,
 		deleteWorktreeLane,
+		deleteLabPrototype,
 		type ClosedLaneEntry
 	} from '$lib/lanes/laneLifecycle';
-	import type { LaneId, ProjectId } from '$lib/types/lanes';
+	import type { ProjectId } from '$lib/types/lanes';
 	import { invoke } from '@tauri-apps/api/core';
 	import { gitDiffStore, hasGitChanges } from '$lib/stores/gitDiff.svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -154,7 +156,7 @@
 	);
 
 	let closedLanes = $state<ClosedLaneEntry[]>([]);
-	let deleteConfirmTarget = $state<{ laneId: LaneId; title: string; branch?: string } | null>(null);
+	let deleteConfirmTarget = $state<ClosedLaneEntry | null>(null);
 
 	$effect(() => {
 		if (project.canonicalProjectPath && !project.labDraft) {
@@ -239,26 +241,28 @@
 		onClose();
 	}
 
-	function requestDeleteWorktree(entry: ClosedLaneEntry) {
-		if (entry.kind !== 'git') return;
-		deleteConfirmTarget = {
-			laneId: entry.laneId,
-			title: entry.title
-		};
+	function requestDeleteClosedLane(entry: ClosedLaneEntry) {
+		deleteConfirmTarget = entry;
 		protoMenuOpen = false;
 		view = 'delete-worktree';
 	}
 
-	async function executeDeleteWorktree() {
+	async function executeDeleteClosedLane() {
 		const target = deleteConfirmTarget;
+		const owner = project;
 		deleteConfirmTarget = null;
 		view = 'default';
 		if (!target) return;
 		try {
-			await deleteWorktreeLane(project.id as ProjectId, target.laneId);
-			closedLanes = await listClosedLanes(project).catch(() => []);
+			if (target.kind === 'lab') {
+				const outcome = await deleteLabPrototype(owner.id as ProjectId, target.prototypeId);
+				if (outcome.kind === 'failed') await reportLabDeleteFailure(outcome.message);
+			} else {
+				await deleteWorktreeLane(owner.id as ProjectId, target.laneId);
+			}
+			closedLanes = await listClosedLanes(owner).catch(() => []);
 		} catch (err) {
-			console.error('Eliminazione worktree fallita:', err);
+			console.error('Eliminazione corsia chiusa fallita:', err);
 		}
 	}
 
@@ -660,8 +664,12 @@
 		</div>
 	{:else if view === 'delete-worktree' && deleteConfirmTarget}
 		<div class="confirm">
-			<p>{m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}</p>
-			<button type="button" class="row danger" onclick={() => void executeDeleteWorktree()}>
+			<p>
+				{deleteConfirmTarget.kind === 'lab'
+					? m.lab_delete_dialog_message({ name: deleteConfirmTarget.title })
+					: m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
+			</p>
+			<button type="button" class="row danger" onclick={() => void executeDeleteClosedLane()}>
 				<IconTrash /> <span class="row-label">{m.lanestrip_delete_dialog_confirm()}</span>
 			</button>
 			<button type="button" class="row" onclick={() => { view = 'default'; deleteConfirmTarget = null; }}>
@@ -815,20 +823,22 @@
 										<span class="row-label" title={entry.title}>{entry.title}</span>
 										<span class="row-date">{formatRelativeDate(entry.closedAt)}</span>
 									</button>
-									{#if entry.kind === 'git'}
-										<button
-											type="button"
-											class="proto-delete-btn"
-											title={m.lanestrip_action_delete_worktree()}
-											aria-label={m.lanestrip_action_delete_worktree()}
-											onclick={(e) => {
-												e.stopPropagation();
-												requestDeleteWorktree(entry);
-											}}
-										>
-											<IconTrash />
-										</button>
-									{/if}
+									<button
+										type="button"
+										class="proto-delete-btn"
+										title={entry.kind === 'lab'
+											? m.lanestrip_action_delete_prototype()
+											: m.lanestrip_action_delete_worktree()}
+										aria-label={entry.kind === 'lab'
+											? m.lanestrip_action_delete_prototype()
+											: m.lanestrip_action_delete_worktree()}
+										onclick={(e) => {
+											e.stopPropagation();
+											requestDeleteClosedLane(entry);
+										}}
+									>
+										<IconTrash />
+									</button>
 								</div>
 							{/each}
 						</div>

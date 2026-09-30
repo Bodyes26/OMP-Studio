@@ -61,9 +61,11 @@ Il working tree contiene **spesso modifiche non committate dell'utente**. Regole
 - NON usare `git stash`, `git checkout --`, `git restore`, `git reset` su file con
   modifiche non committate: cancellano lavoro dell'utente. Se serve confrontare col
   passato, usa `git show HEAD:<file>` e leggilo, senza toccare il working tree.
-- NON committare né taggare senza richiesta esplicita, e mai `git add -A`/`git commit -a`:
-  metterebbero dentro lavoro in corso dell'utente. Se committi, elenca i percorsi
-  esatti (`git add <file1> <file2>`).
+- NON committare né taggare senza richiesta esplicita. Fuori dalla pubblicazione, mai
+  `git add -A`/`git commit -a`: elenca i percorsi esatti (`git add <file1> <file2>`).
+  **Eccezione — pubblicazione (Nightly o stabile)**: il commit include **tutte** le
+  modifiche presenti nel working tree, comprese quelle parcheggiate da lavori
+  precedenti (anche di altre chat), non solo il lavoro corrente. Vedi §3.
 - A fine lavoro mostra `git status --short` e `git diff --stat` dei soli file toccati,
   così la modifica è ispezionabile.
 
@@ -87,13 +89,15 @@ delle due è vuota o se la versione esiste già in uno dei due file.
    (`Added`, `Changed`, `Fixed`, `Removed`) sia in `CHANGELOG.md` sia in `CHANGELOG.en.md`.
 3. **Chiedi all'utente cosa pubblicare usando sempre il tool `ask`** (MAI solo come testo in chat), proponendo le opzioni nell'ordine:
    - **A — Pubblica Nightly (predefinita)** (`recommended: 0`): non cambia la versione stabile e
-     lascia il changelog in `[Unreleased]`. L'agente committa i soli percorsi
-     del lavoro, esegue il push su `main`, esegue `npm run nightly` (build locale
+     lascia il changelog in `[Unreleased]`. L'agente committa **tutte** le
+     modifiche del working tree (lavoro corrente e lavori parcheggiati prima),
+     esegue il push su `main`, esegue `npm run nightly` (build locale
      rapida per l'OS in uso) e verifica la prerelease `nightly` con installer e
      `nightly.json`.
    - **B — Rilascia stabile ora**: bump della versione indicata (per un fix:
-     patch, es. `1.1.0 → 1.1.1`). L'agente esegue autonomamente bump, commit,
-     tag annotato, push e verifica degli installer pubblicati.
+     patch, es. `1.1.0 → 1.1.1`). L'agente esegue autonomamente bump, commit di
+     tutte le modifiche (parcheggiate incluse), tag annotato, push e verifica
+     degli installer pubblicati.
    - **C — Parcheggia**: resta in `[Unreleased]`, senza commit o pubblicazione.
    - **D — Versione stabile specifica**: l'utente indica il numero (o tramite opzione libera del tool `ask`); alla
      conferma l'agente esegue l'intera pipeline fino alla verifica degli
@@ -120,12 +124,26 @@ delle due è vuota o se la versione esiste già in uno dei due file.
 La Nightly pubblica il commit corrente di `main` senza modificare i quattro file
 di versione e senza chiudere `[Unreleased]`. La compilazione avviene in locale
 per il sistema operativo in uso, sfruttando la cache di Cargo e Vite ed evitando
-i tempi di attesa della doppia build in cloud:
+i tempi di attesa della doppia build in cloud.
+
+**La build contiene tutto il lavoro parcheggiato.** Scegliere Nightly alla fine di un
+lavoro significa pubblicare lo stato completo del working tree: ogni modifica
+parcheggiata in precedenza (opzione C, anche da altre chat) entra nello stesso
+commit, push e build, insieme al lavoro corrente. Prima del commit:
+
+- `git status --short` (senza filtro di percorso) per vedere tutto ciò che entra;
+- verifica sull'intero insieme, non solo sull'ultimo lavoro: `npm run check`,
+  `npm test` e, se `src-tauri/` è modificato, `cargo check`/`cargo test`;
+- controlla che ogni voce di `[Unreleased]` corrisponda a codice presente e viceversa;
+- escludi solo file estranei al progetto (segreti, dump, file temporanei come
+  `.release-notes.md`): se un file ha dubbia natura, chiedi con `ask` prima di committare.
+- il messaggio di commit riassume tutti i lavori inclusi, non solo l'ultimo.
 
 ```powershell
-# 1. Commit dei soli percorsi del lavoro
-git add <file1> <file2>
-git commit -m "descrizione concisa"
+# 1. Commit di tutte le modifiche del working tree (lavori parcheggiati inclusi)
+git status --short
+git add -A
+git commit -m "riepilogo di tutti i lavori inclusi"
 
 # 2. Push su main
 git push origin main
@@ -150,7 +168,9 @@ npm run release -- 0.2.0            # bump dei 4 file + chiude [Unreleased] nei 
 node scripts/release.mjs --notes    # note bilingui dell'ultima versione rilasciata
 ```
 
-Quando l'utente richiede o conferma il rilascio, l'agente esegue la pipeline:
+Quando l'utente richiede o conferma il rilascio, l'agente esegue la pipeline. Come per
+la Nightly, il rilascio include **tutte** le modifiche del working tree, parcheggiate
+comprese (stessi controlli preliminari della sezione Nightly):
 
 ```powershell
 # 1. Bump versioni e chiusura changelog
@@ -159,8 +179,9 @@ npm run release -- 0.2.0
 # 2. Estrazione note di release
 { echo v0.2.0; echo; node scripts/release.mjs --notes; } > .release-notes.md
 
-# 3. Commit e tag; il push avvia il workflow multipiattaforma
-git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md CHANGELOG.en.md
+# 3. Commit di tutto il working tree e tag; il push avvia il workflow multipiattaforma
+git status --short
+git add -A
 git commit -m "release: v0.2.0"
 git tag -a v0.2.0 -F .release-notes.md
 git push --follow-tags

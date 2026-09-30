@@ -22,8 +22,8 @@
 		IconTrash
 	} from '$lib/icons';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
-	import { projectLaneActions } from '$lib/lanes/laneActions';
-	import { closeLane, deleteWorktreeLane } from '$lib/lanes/laneLifecycle';
+	import { projectLaneActions, reportLabDeleteFailure } from '$lib/lanes/laneActions';
+	import { closeLane, deleteLabPrototype, deleteWorktreeLane } from '$lib/lanes/laneLifecycle';
 	import { renameLane, LANE_TITLE_MAX } from '$lib/lanes/laneNaming';
 	import {
 		activeLanes,
@@ -62,8 +62,13 @@
 	let processBlock = $state<{ laneId: LaneId; title: string; processes: LaneProcessInfo[] } | null>(
 		null
 	);
-	/** Bersaglio per il dialogo modale di conferma eliminazione definitiva worktree. */
-	let deleteConfirmTarget = $state<{ laneId: LaneId; title: string; branch?: string } | null>(null);
+	/** Bersaglio del dialogo di conferma eliminazione definitiva: worktree, o prototipo Lab se c'e' prototypeId. */
+	let deleteConfirmTarget = $state<{
+		laneId: LaneId;
+		title: string;
+		branch?: string;
+		prototypeId?: string;
+	} | null>(null);
 	/** Ultimo cleanup fallito per lock o rifiuto di Git, per corsia. */
 	let cleanupPending = $state<Record<string, string>>({});
 
@@ -150,10 +155,20 @@
 		deleteConfirmTarget = { laneId: targetLaneId, title, branch };
 	}
 
-	async function executeDeleteWorktree() {
+	function requestDeletePrototype(targetLaneId: LaneId, title: string, prototypeId: string) {
+		deleteConfirmTarget = { laneId: targetLaneId, title, prototypeId };
+	}
+
+	async function executeDelete() {
 		const target = deleteConfirmTarget;
 		deleteConfirmTarget = null;
 		if (!target) return;
+
+		if (target.prototypeId) {
+			const outcome = await deleteLabPrototype(project.id as ProjectId, target.prototypeId);
+			if (outcome.kind === 'failed') await reportLabDeleteFailure(outcome.message);
+			return;
+		}
 
 		const outcome = await deleteWorktreeLane(project.id as ProjectId, target.laneId);
 		if (outcome.kind === 'processes-active') {
@@ -241,6 +256,19 @@
 					void handleCloseLane(lane.laneId);
 				}
 			});
+			const prototypeId = lane.labPrototypeId;
+			if (prototypeId) {
+				items.push({ kind: 'separator' });
+				items.push({
+					kind: 'item',
+					label: m.lanestrip_action_delete_prototype(),
+					icon: IconTrash,
+					danger: true,
+					run: () => {
+						requestDeletePrototype(lane.laneId, lane.title, prototypeId);
+					}
+				});
+			}
 		} else {
 			items.push({
 				kind: 'item',
@@ -275,7 +303,11 @@
 		const items = await projectLaneActions(project, {
 			onCreateWorktree: () => void handleCreateNewLane(),
 			onRequestDelete: (entry) => {
-				requestDeleteWorktree(entry.laneId, entry.title);
+				if (entry.kind === 'lab') {
+					requestDeletePrototype(entry.laneId, entry.title, entry.prototypeId);
+				} else {
+					requestDeleteWorktree(entry.laneId, entry.title);
+				}
 			},
 			onProfileReview: (review) => {
 				profileReview = review as ProjectProfileReview;
@@ -592,7 +624,11 @@
 			}}
 		>
 			<div class="lane-dialog-header">
-				<h3 id="lane-delete-title">{m.lanestrip_delete_dialog_title()}</h3>
+				<h3 id="lane-delete-title">
+					{deleteConfirmTarget.prototypeId
+						? m.lab_delete_dialog_title()
+						: m.lanestrip_delete_dialog_title()}
+				</h3>
 				<button
 					type="button"
 					class="lane-dialog-close"
@@ -603,7 +639,9 @@
 				</button>
 			</div>
 			<p id="lane-delete-desc" class="lane-dialog-desc">
-				{m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
+				{deleteConfirmTarget.prototypeId
+					? m.lab_delete_dialog_message({ name: deleteConfirmTarget.title })
+					: m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
 			</p>
 			<div class="lane-dialog-actions">
 				<button
@@ -616,7 +654,7 @@
 				<button
 					type="button"
 					class="btn-dialog-danger"
-					onclick={() => void executeDeleteWorktree()}
+					onclick={() => void executeDelete()}
 				>
 					{m.lanestrip_delete_dialog_confirm()}
 				</button>
