@@ -381,6 +381,8 @@ fn drop_unresumable_resume(args: Vec<String>, resumable: impl Fn(&str) -> bool) 
 }
 
 #[tauri::command]
+// La firma espone i parametri del comando IPC usati dal frontend.
+#[allow(clippy::too_many_arguments)]
 pub async fn pty_open(
     cwd: String,
     args: Vec<String>,

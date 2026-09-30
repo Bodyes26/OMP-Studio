@@ -963,6 +963,8 @@ pub const LAB_SYSTEM_PROMPT: &str = "You are the OMP Studio Lab agent. You build
 /// 4. Registrazione in `process_tree` come processo `Agent` della corsia (senza token bridge);
 /// 5. Nessun `--no-session` o scope legacy: opera come corsia standard.
 #[tauri::command]
+// La firma espone i parametri del comando IPC usati dal frontend.
+#[allow(clippy::too_many_arguments)]
 pub async fn rpc_open_lab(
     workspace_path: String,
     project_path: Option<String>,

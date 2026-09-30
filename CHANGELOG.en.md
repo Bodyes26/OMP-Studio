@@ -47,6 +47,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio records startup, file opening, session loading and every git command timings in `perf-trace.log`, in the app log folder, to measure where time goes.
 
 ### Fixed
+- Unblock Nightly and stable builds that stop at the Rust lint check before creating installers.
 - Lab prototype previews compile again: reading the prototype files stopped at the top folder and skipped `src/`, so every prototype, even one freshly created from the template, failed with "No entry file found" despite having `src/main.tsx`. If a source file is not saved as UTF-8, the preview now says so and names the file instead of silently ignoring it.
 - In the Lab the agent can report misbehaving tools through `xd://report_issue`, which used to be rejected; other special schemes stay blocked.
 - "New Lab prototype" from a project menu opens the prototype in its own lane again: the click used to create the prototype and then do nothing, because the lane registry stayed blocked from startup and silently dropped every new lane (worktree lanes too).

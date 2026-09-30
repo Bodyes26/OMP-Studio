@@ -1301,7 +1301,7 @@ pub async fn file_read(project_path: String, rel: String) -> Result<FileContent,
 
         let bytes = fs::read(&target).map_err(|e| e.to_string())?;
         let probe_len = bytes.len().min(BINARY_PROBE_BYTES);
-        if bytes[..probe_len].iter().any(|&b| b == 0) {
+        if bytes[..probe_len].contains(&0) {
             return Err("ERR_FILE_BINARY".to_string());
         }
 
@@ -1336,7 +1336,7 @@ pub async fn file_git_head(project_path: String, rel: String) -> Result<GitHeadC
         let rel_norm = rel.replace('\\', "/");
         let head_spec = format!("HEAD:{}", rel_norm);
         let args = ["show", head_spec.as_str()];
-        let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", &args));
+        let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", args));
 
         let mut cmd = Command::new("git");
         cmd.current_dir(&project_path);

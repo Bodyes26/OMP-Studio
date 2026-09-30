@@ -47,6 +47,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio registra i tempi di avvio, apertura file, caricamento sessioni e ogni comando git in `perf-trace.log`, nella cartella dei log dell'app, per misurare dove si perde tempo.
 
 ### Fixed
+- Sblocca le build Nightly e stabili ferme al controllo Rust prima della creazione degli installer.
 - L'anteprima dei prototipi del Laboratorio torna a compilare: la lettura dei file del prototipo si fermava alla cartella principale e ignorava `src/`, quindi ogni prototipo, anche appena creato dal modello, falliva con «Nessun file di ingresso trovato» pur avendo `src/main.tsx`. Se un file sorgente non è salvato in UTF-8, l'anteprima ora lo dice indicando il file, invece di ignorarlo in silenzio.
 - Nel Laboratorio l'agente può segnalare comportamenti anomali degli strumenti tramite `xd://report_issue`, che prima veniva rifiutato; gli altri schemi speciali restano bloccati.
 - «Nuovo prototipo Lab» dal menu di un progetto apre di nuovo il prototipo in una corsia dedicata: prima il clic creava il prototipo ma non succedeva niente, perché il registro delle corsie restava bloccato dall'avvio e scartava in silenzio ogni nuova corsia (anche quelle worktree).

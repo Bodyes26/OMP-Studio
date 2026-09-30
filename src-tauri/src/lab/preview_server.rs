@@ -205,16 +205,16 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> 
     let decoded_path = url_decode(raw_path);
 
     // Rotta 1: Asset condivisi /_vendor/<path>
-    if decoded_path.starts_with("/_vendor/") {
-        let subpath = normalize_path(&decoded_path["/_vendor/".len()..]);
+    if let Some(path) = decoded_path.strip_prefix("/_vendor/") {
+        let subpath = normalize_path(path);
         if subpath.is_empty() {
             return send_404(&mut stream, is_head).await;
         }
 
         let file = {
-            let state = STATE.lock().map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::Other, "Lock state fallito")
-            })?;
+            let state = STATE
+                .lock()
+                .map_err(|_| std::io::Error::other("Lock state fallito"))?;
             state.shared_files.get(&subpath).cloned()
         };
 
@@ -225,8 +225,7 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> 
     }
 
     // Rotta 2: Anteprima prototipo /p/<token>/<path>
-    if decoded_path.starts_with("/p/") {
-        let rest = &decoded_path["/p/".len()..];
+    if let Some(rest) = decoded_path.strip_prefix("/p/") {
         let (token, subpath) = match rest.split_once('/') {
             Some((t, s)) => (t, s),
             None => (rest, ""),
@@ -238,9 +237,9 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> 
         }
 
         let file = {
-            let state = STATE.lock().map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::Other, "Lock state fallito")
-            })?;
+            let state = STATE
+                .lock()
+                .map_err(|_| std::io::Error::other("Lock state fallito"))?;
             state
                 .token_to_files
                 .get(token)

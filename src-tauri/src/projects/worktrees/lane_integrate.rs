@@ -28,10 +28,12 @@ use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+#[cfg(target_os = "windows")]
+use super::CREATE_NO_WINDOW;
 use super::{
     describe_processes, discover_repository, git_args, output_detail, path_string,
     registered_values, require_git, resolve_managed_worktree, run_git, same_path, validate_lane_id,
-    validate_target_branch, WorktreeError, WorktreeErrorCode, CREATE_NO_WINDOW,
+    validate_target_branch, WorktreeError, WorktreeErrorCode,
     LANE_BRANCH_PREFIX, WORKTREE_MUTATION_LOCK,
 };
 

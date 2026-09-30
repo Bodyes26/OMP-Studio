@@ -60,14 +60,14 @@ fn generate_token_256() -> String {
         let mut h = s.build_hasher();
         h.write_u64(TOKEN_COUNTER.fetch_add(1, Ordering::Relaxed));
         let finish = h.finish();
-        hasher.update(&finish.to_le_bytes());
+        hasher.update(finish.to_le_bytes());
     }
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
-    hasher.update(&now.as_nanos().to_le_bytes());
+    hasher.update(now.as_nanos().to_le_bytes());
     let pid = std::process::id();
-    hasher.update(&pid.to_le_bytes());
+    hasher.update(pid.to_le_bytes());
     let result = hasher.finalize();
     let mut hex = String::with_capacity(64);
     for b in result {

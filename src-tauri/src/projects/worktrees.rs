@@ -11,6 +11,7 @@ use tauri::command;
 
 const WORKTREE_PREFIX: &str = ".omp-wt-";
 const LANE_BRANCH_PREFIX: &str = "omp/lane-";
+#[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 static WORKTREE_MUTATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -532,7 +533,7 @@ fn validate_base_commit(context: &RepositoryContext, value: &str) -> Result<Stri
     let revision = format!("{}^{{commit}}", value);
     let output = require_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("rev-parse"),
             OsString::from("--verify"),
             OsString::from(revision),
@@ -563,7 +564,7 @@ fn validate_target_branch(
     }
     require_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("check-ref-format"),
             OsString::from("--branch"),
             OsString::from(value),
@@ -574,7 +575,7 @@ fn validate_target_branch(
     let revision = format!("refs/heads/{}^{{commit}}", value);
     require_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("rev-parse"),
             OsString::from("--verify"),
             OsString::from(revision),
@@ -673,7 +674,7 @@ fn config_get(
     let key = branch_config_key(branch, suffix);
     let output = run_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("config"),
             OsString::from("--local"),
             OsString::from("--get"),
@@ -703,7 +704,7 @@ fn config_set(
     let key = branch_config_key(branch, suffix);
     require_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("config"),
             OsString::from("--local"),
             OsString::from(key),
@@ -719,7 +720,7 @@ fn config_unset(context: &RepositoryContext, branch: &str, suffix: &str) {
     let key = branch_config_key(branch, suffix);
     let _ = run_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("config"),
             OsString::from("--local"),
             OsString::from("--unset-all"),
@@ -761,11 +762,13 @@ fn register_worktree(
     Ok(())
 }
 
+type RegisteredWorktreeValues = (bool, Option<String>, Option<String>, Option<String>);
+
 fn registered_values(
     context: &RepositoryContext,
     branch: &str,
     actual_path: &Path,
-) -> Result<(bool, Option<String>, Option<String>, Option<String>), WorktreeError> {
+) -> Result<RegisteredWorktreeValues, WorktreeError> {
     let marked = config_get(context, branch, "ompStudioManaged")?
         .is_some_and(|value| value.eq_ignore_ascii_case("true"));
     let lane_id = config_get(context, branch, "ompStudioLaneId")?;
@@ -819,7 +822,7 @@ fn branch_exists(context: &RepositoryContext, branch: &str) -> Result<bool, Work
     let reference = format!("refs/heads/{}", branch);
     let output = run_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("show-ref"),
             OsString::from("--verify"),
             OsString::from("--quiet"),
@@ -840,7 +843,7 @@ fn branch_exists(context: &RepositoryContext, branch: &str) -> Result<bool, Work
 fn rollback_create(context: &RepositoryContext, path: &Path, branch: &str, base_commit: &str) {
     let _ = run_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("worktree"),
             OsString::from("remove"),
             OsString::from("--"),
@@ -851,7 +854,7 @@ fn rollback_create(context: &RepositoryContext, path: &Path, branch: &str, base_
     let reference = format!("refs/heads/{}", branch);
     let _ = run_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("update-ref"),
             OsString::from("-d"),
             OsString::from(reference),
@@ -889,7 +892,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
     let branch = format!("{}{}", LANE_BRANCH_PREFIX, lane_id);
     require_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("check-ref-format"),
             OsString::from("--branch"),
             OsString::from(&branch),
@@ -928,7 +931,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
 
     require_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("worktree"),
             OsString::from("add"),
             OsString::from("-b"),
@@ -1171,7 +1174,7 @@ fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
 
     let output = run_git(
         &context.repository_root,
-        &vec![
+        &[
             OsString::from("worktree"),
             OsString::from("remove"),
             OsString::from("--"),
@@ -1767,7 +1770,7 @@ fn scan_sync(project_path: &str) -> Result<WorktreeProfileScan, WorktreeError> {
                 if name.eq_ignore_ascii_case(".git") {
                     continue;
                 }
-                if depth + 1 <= MAX_SCAN_DEPTH {
+                if depth < MAX_SCAN_DEPTH {
                     stack.push((path, depth + 1));
                 } else {
                     truncated = true;
@@ -2251,10 +2254,9 @@ fn inspect_review_sync(
         let mut total_del = 0_u64;
         let list: Vec<ReviewFileDiff> = diff_files
             .into_values()
-            .map(|f| {
+            .inspect(|f| {
                 total_add = total_add.saturating_add(f.additions);
                 total_del = total_del.saturating_add(f.deletions);
-                f
             })
             .collect();
 
