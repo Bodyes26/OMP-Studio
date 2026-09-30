@@ -87,6 +87,26 @@ pub fn find_gh_binary() -> Option<PathBuf> {
 
     #[cfg(not(target_os = "windows"))]
     {
+        // Le app GUI su macOS/Linux partono con PATH minimale (senza Homebrew):
+        // `which gh` da solo non trova mai gh installato con brew.
+        for p in [
+            "/opt/homebrew/bin/gh",
+            "/usr/local/bin/gh",
+            "/opt/local/bin/gh",
+            "/usr/bin/gh",
+            "/home/linuxbrew/.linuxbrew/bin/gh",
+        ] {
+            let candidate = PathBuf::from(p);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            let candidate = PathBuf::from(home).join(".local/bin/gh");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
         let mut cmd = Command::new("which");
         cmd.arg("gh");
         if let Ok(out) = cmd.output() {
@@ -95,6 +115,16 @@ pub fn find_gh_binary() -> Option<PathBuf> {
                 let first = txt.trim();
                 if !first.is_empty() {
                     return Some(PathBuf::from(first));
+                }
+            }
+        }
+        // Ultimo tentativo: shell di login dell'utente (legge il suo PATH reale).
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        if let Ok(out) = Command::new(shell).args(["-lc", "command -v gh"]).output() {
+            if out.status.success() {
+                let txt = String::from_utf8_lossy(&out.stdout);
+                if let Some(last) = txt.lines().map(str::trim).filter(|l| l.starts_with('/')).last() {
+                    return Some(PathBuf::from(last));
                 }
             }
         }
@@ -352,8 +382,34 @@ pub async fn github_install_cli() -> Result<String, String> {
         .map_err(|e| format!("Task installazione: {e}"))?
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
-        Err("L'installazione automatica è supportata tramite winget su Windows. Su macOS usa 'brew install gh', su Linux il gestore di pacchetti di sistema.".to_string())
+        tokio::task::spawn_blocking(|| {
+            let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+                .iter()
+                .map(PathBuf::from)
+                .find(|p| p.exists())
+                .ok_or_else(|| {
+                    "Homebrew non trovato. Installalo da https://brew.sh oppure scarica gh da https://cli.github.com".to_string()
+                })?;
+            let out = Command::new(&brew)
+                .args(["install", "gh"])
+                .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+                .env("NONINTERACTIVE", "1")
+                .output()
+                .map_err(|e| format!("Avvio brew fallito: {e}"))?;
+            if !out.status.success() {
+                let err = String::from_utf8_lossy(&out.stderr);
+                return Err(format!("Installazione fallita: {err}"));
+            }
+            Ok("GitHub CLI installata con successo".to_string())
+        })
+        .await
+        .map_err(|e| format!("Task installazione: {e}"))?
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        Err("Su Linux installa gh con il gestore di pacchetti di sistema (vedi https://cli.github.com).".to_string())
     }
 }

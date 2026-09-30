@@ -4,6 +4,7 @@
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { IconGithub, IconRefresh, IconCheck, IconExternalLink } from '$lib/icons';
 	import { onMount } from 'svelte';
+	import { IS_MAC } from '$lib/utils/platform';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 
 	let tokenInput = $state('');
@@ -164,7 +165,7 @@
 									{#if githubStore.isInstallingCli}
 										Installazione in corso...
 									{:else}
-										Installa con winget (1-click)
+										{IS_MAC ? 'Installa con Homebrew (1-click)' : 'Installa con winget (1-click)'}
 									{/if}
 								</button>
 							{/if}

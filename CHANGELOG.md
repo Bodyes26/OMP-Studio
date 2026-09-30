@@ -59,6 +59,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nella chat una domanda non finisce più dentro l'elenco delle chiamate agli strumenti: finché è aperta resta il richiamo «L'agente ha una domanda per te», dopo l'invio un riepilogo compatto con ogni domanda, la risposta data, «Decide l'agente» e l'eventuale nota.
 
 ### Fixed
+- Su macOS Studio ora trova GitHub CLI (`gh`) installata con Homebrew anche se l'app è avviata dal Finder, quindi rileva il login e carica i tuoi repository. L'installazione 1-click su macOS usa Homebrew.
 - Il pulsante "In fondo" della chat rimane sempre visibile e posizionato sopra la zona di sfocatura: si muove dinamicamente all'espansione e al collasso delle sezioni dei todo e dei subagenti sopra il composer, senza rimanere coperto o tagliato a metà.
 - La ricerca dei modelli nel composer torna a trovare anche nomi con spazi al posto dei trattini (per esempio «gpt 6.1»): chat, nuovi task e impostazioni usano lo stesso elenco e la stessa ricerca, con navigazione da tastiera nell'ordine mostrato.
 - La chat segue le risposte in streaming senza inseguire lentamente le animazioni; gli elenchi lunghi di strumenti evitano il rendering delle righe fuori vista e gli osservatori inattivi, mantenendo l'apertura predefinita e lo stop dello scroll quando risali a leggere.
