@@ -14,6 +14,9 @@ import studioExtension from '../extensions/studio-diagram.ts';
 
 describe('Estensione studio_preview: sicurezza, confinamento e I/O atomico', () => {
 	let tempProjectDir: string;
+	let tempExchangeRoot: string;
+	const isolatedEnv = ['LOCALAPPDATA', 'HOME', 'OMP_PROJECT_ID', 'OMP_LANE_ID'] as const;
+	const savedEnv = new Map<string, string | undefined>();
 	interface RegisteredTool {
 		name: string;
 		label: string;
@@ -32,6 +35,15 @@ describe('Estensione studio_preview: sicurezza, confinamento e I/O atomico', () 
 
 	before(() => {
 		tempProjectDir = mkdtempSync(join(tmpdir(), 'omp-studio-preview-test-'));
+		// Il tool scrive la notifica nella cartella di scambio osservata da Studio:
+		// senza isolamento, un `npm test` lanciato da un terminale di Studio apre
+		// un'anteprima fantasma nella corsia dell'agente (ID ereditati dall'ambiente).
+		tempExchangeRoot = mkdtempSync(join(tmpdir(), 'omp-studio-exchange-test-'));
+		for (const key of isolatedEnv) savedEnv.set(key, process.env[key]);
+		process.env.LOCALAPPDATA = tempExchangeRoot;
+		process.env.HOME = tempExchangeRoot;
+		delete process.env.OMP_PROJECT_ID;
+		delete process.env.OMP_LANE_ID;
 		registeredTools = new Map();
 
 		// Mock Zod builder per la registrazione dei tool
@@ -58,8 +70,13 @@ describe('Estensione studio_preview: sicurezza, confinamento e I/O atomico', () 
 	});
 
 	after(() => {
+		for (const [key, value] of savedEnv) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
 		try {
 			rmSync(tempProjectDir, { recursive: true, force: true });
+			rmSync(tempExchangeRoot, { recursive: true, force: true });
 		} catch {
 			// ignore cleanup error
 		}

@@ -23,9 +23,8 @@ export type {
 	LaneSurfaceState
 };
 
-export class LaneSurfaceStore extends LaneSurfaceManager {
-	protected surfaces = $state<Record<string, LaneSurfaceState>>({});
-	protected browserTabCounts = $state<Record<string, number>>({});
-}
+// Proxy `$state` passati alla base: le mutazioni `surfaces[key] = ...` restano reattive.
+const surfaces = $state<Record<string, LaneSurfaceState>>({});
+const browserTabCounts = $state<Record<string, number>>({});
 
-export const laneSurfaceStore = new LaneSurfaceStore();
+export const laneSurfaceStore = new LaneSurfaceManager(surfaces, browserTabCounts);

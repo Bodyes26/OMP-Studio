@@ -50,6 +50,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio registra i tempi di avvio, apertura file, caricamento sessioni e ogni comando git in `perf-trace.log`, nella cartella dei log dell'app, per misurare dove si perde tempo.
 
 ### Fixed
+- Anteprime e diagrammi nella colonna centrale si chiudono davvero con la X o con `Esc`, e compaiono subito nella corsia giusta invece che solo al cambio di corsia: prima la colonna centrale non si aggiornava e un'anteprima rimasta aperta (per esempio «File non trovato: proto/passwd-hack.html» sulla corsia Principale) non si poteva più togliere.
+- Lanciare i test di Studio da un suo terminale non apre più un'anteprima fantasma di `proto/passwd-hack.html` nella corsia dell'agente.
 - Mentre l'agente lavora, l'elenco delle chiamate agli strumenti resta sull'ultima chiamata invece di tornare ogni volta all'inizio del blocco; se sali a rileggere quelle precedenti, la posizione non viene toccata.
 - Nel composer il ruolo scelto resta quello mostrato anche quando più ruoli usano lo stesso modello (per esempio `default` e `plan` sullo stesso Opus), invece di tornare al primo ruolo con quel modello; `Ctrl+P` percorre davvero tutti i ruoli del ciclo invece di rimbalzare fra due. Un errore nel cambio di ruolo compare come avviso invece di andare perso.
 - `/` a metà messaggio (dopo uno spazio) apre la palette di comandi e skill, come `@` per i file; dentro una parola, come nei percorsi o negli URL, non la apre.

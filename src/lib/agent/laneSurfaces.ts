@@ -56,8 +56,20 @@ export function createDefaultLaneSurface(): LaneSurfaceState {
 }
 
 export class LaneSurfaceManager {
-	protected surfaces: Record<string, LaneSurfaceState> = {};
-	protected browserTabCounts: Record<string, number> = {};
+	// Il contenitore arriva dal costruttore invece di un campo `$state` nella
+	// sottoclasse: il campo di classe della base diventerebbe una proprieta'
+	// propria dell'istanza e oscurerebbe l'accessor reattivo, lasciando la UI
+	// ferma (anteprime e diagrammi impossibili da chiudere).
+	protected readonly surfaces: Record<string, LaneSurfaceState>;
+	protected readonly browserTabCounts: Record<string, number>;
+
+	constructor(
+		surfaces: Record<string, LaneSurfaceState> = {},
+		browserTabCounts: Record<string, number> = {}
+	) {
+		this.surfaces = surfaces;
+		this.browserTabCounts = browserTabCounts;
+	}
 
 	getLaneSurface(projectId: string, laneId: string): LaneSurfaceState {
 		const key = surfaceKey(projectId, laneId);

@@ -50,6 +50,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio records startup, file opening, session loading and every git command timings in `perf-trace.log`, in the app log folder, to measure where time goes.
 
 ### Fixed
+- Previews and diagrams in the center column really close with the X or `Esc`, and show up right away in the right lane instead of only after switching lanes: the center column used to not refresh, so a leftover preview (for example "File not found: proto/passwd-hack.html" on the Main lane) could not be dismissed.
+- Running Studio's tests from one of its terminals no longer opens a ghost `proto/passwd-hack.html` preview in the agent's lane.
 - While the agent works, the tool call list stays on the latest call instead of jumping back to the start of the block each time; if you scroll up to reread earlier calls, your position is left alone.
 - The composer keeps showing the role you picked even when several roles share a model (for example `default` and `plan` on the same Opus), instead of falling back to the first role with that model; `Ctrl+P` really walks through every role in the cycle instead of bouncing between two. A failed role switch now shows a warning instead of being lost.
 - `/` in the middle of a message (after a space) opens the commands and skills palette, like `@` does for files; inside a word, as in paths or URLs, it does not.
