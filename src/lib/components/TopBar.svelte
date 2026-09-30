@@ -958,6 +958,18 @@
 					onSettingsClick?.();
 				}
 			}}
+			oncontextmenu={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				contextMenu.open(e, {
+					label: 'Impostazioni',
+					items: [
+						{ kind: 'item', label: m.ui_settingsmodal_impostazioni_d713(), run: () => onSettingsClick?.('general'), shortcut: 'Ctrl+Alt+,' },
+						{ kind: 'item', label: m.settings_nav_models(), run: () => onSettingsClick?.('models'), shortcut: 'Ctrl+Alt+M' },
+						{ kind: 'item', label: m.settings_nav_doctor(), run: () => onSettingsClick?.('doctor'), shortcut: 'Ctrl+Alt+D' }
+					]
+				});
+			}}
 			title={settingsChipTitle}
 			aria-label={settingsChipTitle}
 		>

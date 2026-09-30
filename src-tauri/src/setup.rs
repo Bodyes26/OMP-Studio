@@ -83,7 +83,7 @@ pub struct SetupStatus {
     pub missing: Vec<String>,
 }
 
-fn omp_binary_if_present() -> Option<PathBuf> {
+pub(crate) fn omp_binary_if_present() -> Option<PathBuf> {
     let resolved = crate::omp_ops::get_omp_binary();
     let path = PathBuf::from(&resolved);
     if path.is_absolute() {
@@ -149,7 +149,7 @@ fn which_on_path(program: &str) -> Option<PathBuf> {
     }
 }
 
-fn read_omp_version(binary: &Path) -> Option<String> {
+pub(crate) fn read_omp_version(binary: &Path) -> Option<String> {
     if let Some(cached) = crate::omp_ops::get_cached_omp_version() {
         return Some(cached);
     }

@@ -1643,6 +1643,10 @@
 			modelSettingsStore.openModal();
 			return true;
 		}
+		if (lowerCmd === '/doctor') {
+			settingsStore.openSection('doctor');
+			return true;
+		}
 		if (lowerCmd === '/usage' || lowerCmd === '/quota') {
 			usageOpen = true;
 			return true;
@@ -2515,6 +2519,9 @@
 		} else if (e.key.toLowerCase() === 'm') {
 			e.preventDefault();
 			modelSettingsStore.openModal();
+		} else if (e.key.toLowerCase() === 'd') {
+			e.preventDefault();
+			settingsStore.openSection('doctor');
 		} else if (e.key === ',') {
 			e.preventDefault();
 			settingsStore.openSection();

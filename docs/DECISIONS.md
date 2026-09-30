@@ -1210,3 +1210,43 @@ La prima implementazione del Laboratorio (Gate R24, vista separata `LabView` da 
 - Le cartelle dei worktree chiusi occupano disco finche' non vengono integrati o eliminati.
 - «Elimina» non forza Git: un worktree con modifiche non committate resta su disco e l'errore viene mostrato.
 
+## Gate R32: la chat GUI 2.0 segue il prototipo "CodeAgent Flow"
+
+**Data:** 2026-09-28
+**Esito:** APPROVATO (riscrittura della resa della chat GUI; piano operativo in `PLAN.md`, "Piano Chat v2 — Gate R32")
+
+### Il problema
+
+1. Il testo dell'agente compare carattere per carattere dietro un ritardo di 500 ms con una rampa di opacita': si legge mentre si muove, e le frasi restano a meta' per tutto lo streaming.
+2. Tool, todo, subagenti e domande hanno ciascuno una grammatica visiva propria (card con chip, griglia di pixel, barra con modale, scheda nel flusso): un turno lungo e' una pila di riquadri.
+3. Lo stato vivo del turno (todo, subagenti, domanda aperta) sta in punti diversi e si perde scorrendo.
+4. La coda dei messaggi e' di sola lettura, gli allegati sono solo immagini, il composer non distingue file e comandi dal testo.
+
+### Decisioni
+
+1. **Fonte del design.** Il prototipo Lab `p-20260925-dyyhe6` (revisione `fd3b4c2`) e' la specifica visiva. Si reimplementa in Svelte 5 con i token del tema: forme, spaziature e movimento del prototipo, colori da `--bg-*`, `--ink*`, `--line*`, `--brand`, `--warn`, `--success`, `--danger`. La chat segue tutti i temi omp.
+2. **Rivelazione per frasi.** Il testo si mostra un'unita' completa alla volta (frase, voce di elenco, titolo; blocchi di codice e tabelle interi) con blur-fade (`rv-blur`, 700 ms, blur 10 px, 140 ms tra unita'). Nuova impostazione `general.chatReveal`: `blur` (predefinita), `stream` (token per token senza animazioni), `final` (messaggio intero a fine risposta). Con animazioni disattivate `blur` si comporta come `stream`.
+3. **Traccia leggera nel flusso, stato vivo nel vassoio.** Nel transcript restano righe compatte: gruppi di chiamate (dal vivo le ultime 5, poi un riepilogo espandibile), "Lista di N todo", marcatori di passo, riepilogo dei subagenti, richiamo della domanda. Todo, subagenti, coda dei follow-up e domanda ridotta stanno in un vassoio agganciato al composer; una sola sezione aperta alla volta.
+4. **Domande al posto del composer.** La scheda domanda sostituisce il composer (che resta montato con la bozza); `Esc` la riduce a una riga del vassoio senza chiuderla; inviare un messaggio con una domanda aperta risponde `Chat about this` se il canale RPC lo supporta, altrimenti annulla la domanda.
+5. **Coda dei follow-up in Studio.** Il protocollo RPC non ha comandi sulla coda: i follow-up restano in Studio, modificabili, e partono a `agent_end`; gli steer vanno subito a omp e restano immutabili.
+6. **Editor a badge.** Il composer diventa un `contenteditable` con badge per `@file` e `/comando`; il cursore animato viene rimosso.
+7. **Allegati per percorso.** Le immagini restano inline nel prompt; gli altri file vengono salvati nella cartella della sessione e citati per percorso assoluto.
+8. **Cutover diretto a fasi.** Nessun flag e nessun doppio codice: ogni step sostituisce il pezzo v1 corrispondente ed elimina il codice superato.
+
+### Eccezioni al design system
+
+- **Movimento persistente nella chat.** Oltre al respiro ambra, sono ammessi lo shimmer del testo (`.text-shimmer`) e la ghost line **solo** sugli indicatori di lavoro in corso ("Al lavoro", "Sto pensando…", testo in arrivo, subagente attivo) e solo finche' lo stato e' vivo; a conclusione tornano statici. Con movimento ridotto restano fermi e leggibili.
+- **Tipografia della chat.** La prosa del transcript usa 15/28 px invece della scala UI a 13 px: la chat e' una superficie di lettura, non di controllo.
+- **Parentesi delle chiamate parallele.** Un tratto verticale di 2 px in `--line-strong`, neutro, raggruppa le chiamate partite insieme. E' struttura, non accento colorato.
+
+### Vincoli verificati su `omp` 18.4.1
+
+- `prompt` accetta solo `images`; `ContextUsage` solo `tokens`, `contextWindow`, `percent`; nessun comando RPC sulla coda (la TUI ha `app.message.dequeue` su `Alt+↑`/`Maiusc+↑`).
+- Lo strumento `ask` richiede un'interfaccia: i subagenti non possono fare domande.
+- `ask` riserva `Other (type your own)` e `Chat about this`; l'annullamento interrompe il turno.
+
+### Rischi accettati
+
+- `filter: blur` costa sulla GPU integrata: solo le unita' in animazione lo portano, e il testo concluso torna statico.
+- La coda locale dei follow-up si perde se Studio si chiude prima di `agent_end`.
+- Rimuovere il cursore animato cambia la sensazione di scrittura per chi ci si era abituato.

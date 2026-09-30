@@ -292,6 +292,13 @@ commands.allow = [
     "cleanup_chat_attachments"
 ]
 
+[[permission]]
+identifier = "allow-doctor"
+description = "Studio Doctor: checkup diagnostico dei prerequisiti di sistema e dei provider AI"
+commands.allow = [
+    "run_studio_doctor"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -318,5 +325,6 @@ permissions = [
     "allow-companion",
     "allow-github",
     "allow-lab",
-    "allow-chat-attachments"
+    "allow-chat-attachments",
+    "allow-doctor"
 ]

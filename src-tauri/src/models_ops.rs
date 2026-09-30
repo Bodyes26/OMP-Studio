@@ -1250,7 +1250,7 @@ fn humanize_provider_id(id: &str) -> String {
         .join(" ")
 }
 
-fn provider_display_name(id: &str, is_custom: bool) -> String {
+pub(crate) fn provider_display_name(id: &str, is_custom: bool) -> String {
     if is_custom {
         return humanize_provider_id(id);
     }

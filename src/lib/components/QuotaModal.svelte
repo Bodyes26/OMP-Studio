@@ -8,7 +8,8 @@
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { trapFocus } from '$lib/focusTrap';
-	import { quotaStore, providersMatch, type ProviderHost, type QuotaLimit } from '$lib/stores/quota.svelte';
+	import { quotaStore, providersMatch, type ProviderHost, type QuotaLimit, type QuotaReport } from '$lib/stores/quota.svelte';
+	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
 	import { limitTone } from '$lib/quota/resolve';
@@ -33,6 +34,18 @@
 	/* Host GUI e host noti allo store: usati per l'etichetta "In uso da".
 	   Sta nello script perche' {@const} non e' ammesso come figlio di un <div>. */
 	const allHosts = $derived([...guiHosts, ...quotaStore.providerHosts]);
+
+	/* Il provider del modello in uso (quello della chip) va in cima: e' la quota
+	   che si cerca aprendo il popover. Dentro il gruppo, prima l'account che la
+	   chip ha risolto. Sort stabile: il resto mantiene l'ordine di OMP. */
+	const sortedReports = $derived.by(() => {
+		const provider = activeQuotaStore.activeProvider;
+		if (!provider) return quotaStore.reports;
+		const email = activeQuotaStore.info.accountEmail;
+		const rank = (report: QuotaReport) =>
+			!providersMatch(report.provider, provider) ? 2 : email && report.metadata?.email === email ? 0 : 1;
+		return [...quotaStore.reports].sort((a, b) => rank(a) - rank(b));
+	});
 
 	function formatAge(ts: number | undefined) {
 		if (!ts) return '';
@@ -204,7 +217,7 @@
 			{:else if quotaStore.reports && quotaStore.reports.length > 0}
 				{#key popover.variant}
 					<div class="reports-container" in:fade={{ duration: 120 }}>
-						{#each quotaStore.reports as report, i}
+						{#each sortedReports as report, i}
 							{#if report.limits && report.limits.length > 0}
 								{@const projectLabels = [...new Set(allHosts
 									.filter((host) => providersMatch(host.provider, report.provider))

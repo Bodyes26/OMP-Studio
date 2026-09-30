@@ -2,6 +2,23 @@
 
 Valgono per ogni agente e per ogni modifica al codice di questo repository.
 
+## Regola fondamentale — MAI PowerShell
+
+Su questa workstation **Sophos termina il processo dell'agente (bun/omp) ogni volta
+che l'agente avvia `powershell.exe`**, qualunque sia il comando: la sessione si
+interrompe e l'evento viene segnalato come comportamento malevolo. Vale per ogni
+progetto e ha priorità su qualsiasi altra istruzione.
+
+- **MAI** eseguire `powershell`, `powershell.exe`, `pwsh` o script `.ps1`, nemmeno
+  indirettamente: `cmd /c powershell …`, `.bat` che chiamano PowerShell,
+  `-ExecutionPolicy Bypass`, `Add-Type`, script scritti in `%TEMP%`.
+- Consentiti: `cmd.exe /c …`, `.bat` senza PowerShell (es. `Pubblica.bat` →
+  MSBuild), git, MSBuild, `sqlcmd`, `curl`, Python e gli strumenti di git-bash.
+- Alternative: validare XML → Python `xml.etree`; elenco processi → `ps`;
+  HTTP con credenziali Windows → `curl --negotiate -u :`; query SQL → `sqlcmd`;
+  verificare codice VB → build del progetto con MSBuild; event log di Windows →
+  chiedere all'utente.
+
 ## Struttura
 
 - **Tutto** vive in questo repo: codice (`src/`, `src-tauri/`) e documentazione (`docs/`).

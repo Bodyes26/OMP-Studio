@@ -15,6 +15,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+Alt+U` | Global | Toggle quota & token usage panel |
 | `Ctrl+Alt+,` | Global | Open Studio Settings (General, Project Bar, Editor & Terminal, Tasks & Agents, Models) |
 | `Ctrl+Alt+M` | Global | Open Settings directly to the Models section (Roles, Catalog, Providers) |
+| `Ctrl+Alt+D` | Global | Open Studio Doctor (environment & AI provider self-diagnostics) |
 | `Ctrl+Alt+T` | Global | Toggle multi-project pending task queue drawer |
 | `Ctrl+Alt+A` | Global | Switch between TERMINAL and GUI surfaces preserving the session |
 | `Ctrl+Alt+B` | Global | Toggle left sidebar (Files, Git, Agent) |

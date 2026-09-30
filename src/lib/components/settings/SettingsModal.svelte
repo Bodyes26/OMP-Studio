@@ -17,6 +17,8 @@
 	import AccessibilitySection from './AccessibilitySection.svelte';
 	import CompanionSection from './CompanionSection.svelte';
 	import GithubSection from './GithubSection.svelte';
+	import DoctorSection from './DoctorSection.svelte';
+	import { doctorStore } from '$lib/stores/doctor.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
@@ -33,7 +35,8 @@
 		{ id: 'tasks', label: m.settings_nav_tasks() },
 		{ id: 'suggestions', label: m.settings_nav_suggestions() },
 		{ id: 'models', label: m.settings_nav_models() },
-		{ id: 'github', label: 'GitHub' }
+		{ id: 'github', label: 'GitHub' },
+		{ id: 'doctor', label: m.settings_nav_doctor() }
 	]);
 
 	let showDiscardConfirm = $state(false);
@@ -225,6 +228,14 @@
 								title={modelSettingsStore.attentionTooltip || 'Avvisi sui modelli'}
 							></span>
 						{/if}
+						{#if s.id === 'doctor' && doctorStore.issuesCount > 0}
+							<span
+								class="nav-dot"
+								class:dot-err={doctorStore.errorsCount > 0}
+								class:dot-warn={doctorStore.errorsCount === 0 && doctorStore.warningsCount > 0}
+								title={`${doctorStore.issuesCount} anomalie rilevate`}
+							></span>
+						{/if}
 					</button>
 				{/each}
 			</nav>
@@ -368,6 +379,10 @@
 				{:else if settingsStore.section === 'github'}
 					<div class="modal-body">
 						<GithubSection />
+					</div>
+				{:else if settingsStore.section === 'doctor'}
+					<div class="modal-body">
+						<DoctorSection />
 					</div>
 				{/if}
 			</div>
@@ -611,6 +626,11 @@
 	.nav-dot.dot-info {
 		background: var(--brand);
 	}
+	.nav-dot.dot-err {
+		background: var(--err);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--err) 40%, transparent);
+	}
+
 
 	.section-content {
 		flex: 1;

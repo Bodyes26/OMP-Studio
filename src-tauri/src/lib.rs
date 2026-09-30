@@ -81,6 +81,9 @@ use companion_ops::{
     track_companion_geometry,
 };
 
+mod doctor_ops;
+use doctor_ops::run_studio_doctor;
+
 pub mod browser_live;
 use browser_live::{
     browser_live_connect, browser_live_disconnect, browser_live_pick_upload_files,
@@ -242,6 +245,7 @@ pub fn run() {
             apply_model_fixes,
             get_role_suggestions,
             setup_status,
+            run_studio_doctor,
             install_omp,
             install_nerd_font,
             detect_project_roots,
