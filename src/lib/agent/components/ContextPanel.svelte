@@ -83,7 +83,6 @@
 	.context-panel {
 		display: flex;
 		flex-direction: column;
-		width: 300px;
 	}
 
 	.panel-header {

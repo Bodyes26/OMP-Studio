@@ -26,7 +26,7 @@
 		disabled?: boolean;
 		onSend?: (isAlt: boolean) => void;
 		onFilesPaste?: (files: FileList | File[]) => void;
-		onTriggerChange?: (trigger: { kind: '@' | '/'; query: string; node: Text; start: number; caretRect: { left: number } } | null) => void;
+		onTriggerChange?: (trigger: { kind: '@' | '/'; query: string; node: Text; start: number; caretRect: { left: number; top: number } } | null) => void;
 		onKeydownFilter?: (e: KeyboardEvent) => boolean;
 		onInput?: () => void;
 	}>();
@@ -135,7 +135,7 @@
 	/**
 	 * Legge lo stato del trigger (@ o /) alla posizione corrente del caret.
 	 */
-	function readTrigger(): { kind: '@' | '/'; query: string; node: Text; start: number; caretRect: { left: number } } | null {
+	function readTrigger(): { kind: '@' | '/'; query: string; node: Text; start: number; caretRect: { left: number; top: number } } | null {
 		if (!editorEl) return null;
 		const sel = window.getSelection();
 		if (!sel || !sel.rangeCount || !sel.isCollapsed) return null;
@@ -154,17 +154,11 @@
 			kind = '@';
 			query = atMatch[1];
 		} else {
-			// 2. Trigger / per i comandi: ammesso SOLO all'inizio del messaggio
-			const slashMatch = before.match(/^[\s\u00A0]*\/([\w:-]*)$/);
+			// 2. Trigger / per comandi e skill: come @, a inizio testo o dopo uno spazio,
+			// cosi' si richiama una skill anche a meta' frase. Un / dentro una parola
+			// (percorsi, URL) non apre la palette.
+			const slashMatch = before.match(/(?:^|[\s\u00A0])\/([\w:-]*)$/);
 			if (!slashMatch) return null;
-
-			// Verifica che prima di questo nodo non vi siano altri testi o badge
-			const rangeBefore = document.createRange();
-			rangeBefore.setStart(editorEl, 0);
-			rangeBefore.setEnd(node, 0);
-			if (rangeBefore.toString().trim() || rangeBefore.cloneContents().querySelector('[data-kind]')) {
-				return null;
-			}
 			kind = '/';
 			query = slashMatch[1];
 		}
@@ -185,7 +179,7 @@
 			query,
 			node: node as Text,
 			start,
-			caretRect: { left: rect.left }
+			caretRect: { left: rect.left, top: rect.top }
 		};
 	}
 

@@ -32,6 +32,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Accesso ai provider OAuth direttamente dalle Impostazioni: «Accedi di nuovo», «Aggiungi account» e «Accedi con OAuth» in Modelli AI › Provider aprono un terminale integrato con `omp login <provider>` invece di copiare il comando negli appunti; alla chiusura l'elenco account si aggiorna. Il pulsante compare anche quando l'unico account OAuth è scaduto o disabilitato.
 
 ### Changed
+- Composer della chat più pulito: niente più linea tra conversazione e composer, solo spazio, con una sfumatura leggera quando i messaggi scorrono sotto; il composer resta staccato dalla barra di stato in basso. Il pulsante di invio è tondo con la freccia verso l'alto.
+- L'elenco delle chiamate agli strumenti è aperto di default, sia mentre l'agente lavora sia a lavoro concluso; chiuderlo a mano resta possibile e la scelta non viene annullata dalle chiamate successive.
+- La palette di `@` e `/` si apre sopra la riga in cui stai scrivendo, all'altezza del cursore, e compare subito come i menu di ruolo, modello e thinking, invece di una rivelazione lenta.
 - Nei prototipi il pannello sinistro parte chiuso e ricorda la scelta separatamente da Principale e worktree (Ctrl+Alt+B agisce su quello della corsia aperta); la scheda Sessioni non compare, perché mostrerebbe le sessioni del progetto originale.
 - Ordinamento barra progetti «Attività recente»: il progetto attivo passa in prima posizione a sinistra solo quando un agente si mette al lavoro (o all'apertura iniziale dal selettore), evitando rimescolamenti continui durante la consultazione. La navigazione ciclica con Ctrl+Tab e la selezione manuale mantengono stabili le posizioni delle tessere, permettendo di scorrere linearmente tutti i progetti aperti senza rimbalzare tra i primi due, e l'ordine delle tessere viene preservato intatto anche al riavvio dell'applicazione.
 - Il selettore dei progetti (`+`) esclude le cartelle già aperte nella barra: mostra esclusivamente i progetti non ancora aperti o i repository remoti disponibili, evitando voci ridondanti e conservando in memoria tutte le personalizzazioni (nome, sigla, colore) per quando una cartella chiusa viene riaperta.
@@ -47,6 +50,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio registra i tempi di avvio, apertura file, caricamento sessioni e ogni comando git in `perf-trace.log`, nella cartella dei log dell'app, per misurare dove si perde tempo.
 
 ### Fixed
+- Mentre l'agente lavora, l'elenco delle chiamate agli strumenti resta sull'ultima chiamata invece di tornare ogni volta all'inizio del blocco; se sali a rileggere quelle precedenti, la posizione non viene toccata.
+- Nel composer il ruolo scelto resta quello mostrato anche quando più ruoli usano lo stesso modello (per esempio `default` e `plan` sullo stesso Opus), invece di tornare al primo ruolo con quel modello; `Ctrl+P` percorre davvero tutti i ruoli del ciclo invece di rimbalzare fra due. Un errore nel cambio di ruolo compare come avviso invece di andare perso.
+- `/` a metà messaggio (dopo uno spazio) apre la palette di comandi e skill, come `@` per i file; dentro una parola, come nei percorsi o negli URL, non la apre.
+- Tornano nella chat grafica le scorciatoie `Ctrl+P` (ciclo dei ruoli, senza aprire la stampa), `Alt+R`, `Alt+P`, `Alt+M`, `Alt+T`, `Alt+C`, `Ctrl+C`, `Alt+E`, `Alt+N` e `Alt+1`…`Alt+6`, anche con il cursore nel composer.
+- I menu di ruolo e modello e la palette dei comandi non mostrano più la barra di scorrimento orizzontale, e i menu di ruolo e modello sono più larghi.
 - Sblocca le build Nightly e stabili ferme al controllo Rust prima della creazione degli installer.
 - L'anteprima dei prototipi del Laboratorio torna a compilare: la lettura dei file del prototipo si fermava alla cartella principale e ignorava `src/`, quindi ogni prototipo, anche appena creato dal modello, falliva con «Nessun file di ingresso trovato» pur avendo `src/main.tsx`. Se un file sorgente non è salvato in UTF-8, l'anteprima ora lo dice indicando il file, invece di ignorarlo in silenzio.
 - Nel Laboratorio l'agente può segnalare comportamenti anomali degli strumenti tramite `xd://report_issue`, che prima veniva rifiutato; gli altri schemi speciali restano bloccati.

@@ -11,6 +11,9 @@ import {
 	getProviderEnvVarHint,
 	resolveCatalogModel,
 	sanitizeMaxDynamic,
+	resolveActiveRole,
+	nextCycleRole,
+	parseRoleSelector,
 	type ModelDto,
 	type AuthAccount
 } from '../src/lib/stores/modelSettingsHelpers.ts';
@@ -167,5 +170,53 @@ describe('Settings: sanitizzazione maxDynamic da stringhe legacy', () => {
 
 		const chipsStr = composeSuggestionChips(statics, dynamics, '1' as unknown as number);
 		assert.equal(chipsStr.length, 1);
+	});
+});
+
+describe('Ruoli: ruolo attivo con modelli condivisi', () => {
+	// Configurazione reale: default e plan sullo stesso Opus, quattro ruoli sullo stesso Flash.
+	const roles = {
+		plan: 'anthropic/claude-opus-5-5:max',
+		smol: 'google-antigravity/gemini-3.8-flash:high',
+		vision: 'google-antigravity/gemini-3.8-flash:high',
+		default: 'anthropic/claude-opus-5-5:high',
+		commit: 'google-antigravity/gemini-3.8-flash:high',
+		task: 'google-antigravity/gemini-3.8-flash:high'
+	};
+	const opus = { provider: 'anthropic', id: 'claude-opus-5-5' };
+	const flash = { provider: 'google-antigravity', id: 'gemini-3.8-flash' };
+
+	it('il ruolo scelto vince sugli altri ruoli con lo stesso modello', () => {
+		assert.equal(resolveActiveRole(roles, flash, 'high', 'commit'), 'commit');
+		assert.equal(resolveActiveRole(roles, opus, 'max', 'plan'), 'plan');
+	});
+
+	it('senza scelta distingue per thinking prima che per ordine', () => {
+		assert.equal(resolveActiveRole(roles, opus, 'high', null), 'default');
+		assert.equal(resolveActiveRole(roles, opus, 'max', null), 'plan');
+	});
+
+	it("ignora la scelta quando il modello e' cambiato altrove", () => {
+		assert.equal(resolveActiveRole(roles, opus, 'high', 'smol'), 'default');
+		assert.equal(resolveActiveRole(roles, { provider: 'x', id: 'y' }, 'high', 'smol'), null);
+	});
+
+	it('il ciclo rapido percorre tutti i ruoli anche con modelli condivisi', () => {
+		const order = ['plan', 'vision', 'default', 'smol', 'task', 'commit', 'slow'];
+		const visited: string[] = [];
+		let current: string | null = 'plan';
+		for (let i = 0; i < 6; i++) {
+			current = nextCycleRole(order, roles, current);
+			visited.push(current!);
+		}
+		assert.deepEqual(visited, ['vision', 'default', 'smol', 'task', 'commit', 'plan']);
+	});
+
+	it('separa il provider solo sul primo segmento', () => {
+		assert.deepEqual(parseRoleSelector('nanogpt/anthropic/claude-opus:high'), {
+			provider: 'nanogpt',
+			modelId: 'anthropic/claude-opus',
+			thinking: 'high'
+		});
 	});
 });

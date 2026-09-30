@@ -135,7 +135,11 @@
 		bottom: calc(100% + 8px);
 		left: 0;
 		z-index: var(--z-overlay);
+		max-width: calc(100vw - 24px);
 		max-height: 380px;
+		/* overflow-y: auto da solo rende scorrevole anche l'asse x: un contenuto
+		   largo un pixel in piu' faceva comparire la barra orizzontale. */
+		overflow-x: hidden;
 		overflow-y: auto;
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
@@ -144,6 +148,9 @@
 		color: var(--ink);
 		font-family: var(--font-ui);
 		outline: none;
+		/* Menu aperti a comando: comparsa rapida, non la rivelazione lenta della chat. */
+		--dur: 150ms;
+		--blur: 3px;
 	}
 
 	.menu-popover.align-right {

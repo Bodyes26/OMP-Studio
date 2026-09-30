@@ -187,19 +187,6 @@
 		return batches;
 	}
 
-	// Finestra visibile dal vivo (ultime 5 avviate)
-	const WINDOW_SIZE = 5;
-	const startedRowItems = $derived(
-		rowItems.filter((item) => {
-			if (item.kind === 'think') return true;
-			const tool = item.entry as ToolEntry;
-			return tool.running || tool.startedAt > 0 || tool.result !== undefined;
-		})
-	);
-	const visibleLiveItems = $derived(startedRowItems.slice(-WINDOW_SIZE));
-	const hiddenLiveCount = $derived(Math.max(0, startedRowItems.length - visibleLiveItems.length));
-	const liveBatches = $derived(makeBatches(visibleLiveItems));
-
 	// Tutti gli elementi per la visualizzazione espansa a fine gruppo
 	const fullBatches = $derived(makeBatches(rowItems));
 
@@ -252,8 +239,35 @@
 		}
 	}
 
-	// Stato di apertura del riepilogo a fine esecuzione
-	let isFullListOpen = $state(false);
+	// Stato di apertura dell'elenco delle chiamate: aperto di default per specifica v2
+	let isFullListOpen = $state(true);
+
+	// Riferimento al contenitore scorrevole interno
+	let scrollContainerEl = $state<HTMLDivElement | null>(null);
+
+	// Flag di ancoraggio al fondo: attivo se l'utente si trova entro la soglia di tolleranza (~24px)
+	let pinnedToBottom = $state(true);
+	const SCROLL_THRESHOLD = 24;
+
+	function handleListScroll() {
+		if (!scrollContainerEl) return;
+		const distance = scrollContainerEl.scrollHeight - scrollContainerEl.scrollTop - scrollContainerEl.clientHeight;
+		// Se l'utente e' entro 24px dal fondo consideriamo attivo l'ancoraggio automatico
+		pinnedToBottom = distance <= SCROLL_THRESHOLD;
+	}
+
+	function scrollToBottomIfPinned() {
+		if (!scrollContainerEl || !pinnedToBottom) return;
+		scrollContainerEl.scrollTop = scrollContainerEl.scrollHeight;
+	}
+
+	function toggleOpen() {
+		isFullListOpen = !isFullListOpen;
+		if (isFullListOpen) {
+			// Alla riapertura manuale riaggancia al fondo per mostrare le chiamate piu recenti
+			pinnedToBottom = true;
+		}
+	}
 
 	// Insieme delle righe espanse per mostrare il corpo inline (C11)
 	let expandedRows = $state<Set<string | number>>(new Set());
@@ -267,6 +281,25 @@
 		}
 		expandedRows = next;
 	}
+
+	// Segue le chiamate aggiunte (e lo scambio spinner -> icona a fine chiamata)
+	// solo se l'utente e' in fondo all'elenco; all'apertura parte dall'ultima.
+	$effect(() => {
+		if (!scrollContainerEl || !isFullListOpen) return;
+
+		const observer = new MutationObserver(() => {
+			scrollToBottomIfPinned();
+		});
+
+		observer.observe(scrollContainerEl, { childList: true, subtree: true });
+
+		// Scroll iniziale al montaggio o all'apertura
+		scrollToBottomIfPinned();
+
+		return () => {
+			observer.disconnect();
+		};
+	});
 </script>
 
 {#snippet renderRow(item: RowItem)}
@@ -345,132 +378,85 @@
 {/snippet}
 
 <div class="tool-group" class:live={isLive}>
-	{#if isLive}
-		<!-- STATO DAL VIVO: indicatore 'Al lavoro' + finestra delle ultime 5 righe -->
-		<div class="live-header">
-			<span class="live-status text-shimmer">{m.chat_v2_tools_working?.() ?? 'Al lavoro'}</span>
-			<span class="live-meta tabular-nums">{callsCountText} · {durationLabel}</span>
-		</div>
+	<button
+		type="button"
+		class="summary-btn"
+		class:live={isLive}
+		aria-expanded={isFullListOpen}
+		onclick={toggleOpen}
+		title={isFullListOpen
+			? (m.chat_v2_tools_collapse?.() ?? 'Comprimi passaggi')
+			: (m.chat_v2_tools_expand?.() ?? 'Espandi passaggi')}
+	>
+		{#if isLive}
+			<span class="summary-lead">
+				<span class="live-status text-shimmer">{m.chat_v2_tools_working?.() ?? 'Al lavoro'}</span>
+				<span class="summary-text tabular-nums">{callsCountText} · {durationLabel}</span>
+			</span>
+		{:else}
+			<span class="summary-lead">
+				<span class="check-icon"><IconCheck /></span>
+				<span class="summary-text tabular-nums">{callsCountText} · {durationLabel}</span>
+			</span>
 
-		<div class="live-content">
-			{#if hiddenLiveCount > 0}
-				<div class="hidden-row">
-					<span class="hidden-ellipsis">⋯</span>
-					<span>{m.chat_v2_tools_hidden_many?.({ count: hiddenLiveCount }) ?? `${hiddenLiveCount} chiamate precedenti`}</span>
-				</div>
-			{/if}
-
-			<div class="live-rows" class:with-mask={hiddenLiveCount > 0}>
-				{@render renderBatches(liveBatches)}
-			</div>
-		</div>
-	{:else}
-		<!-- STATO CONCLUSO: riga di sintesi espandibile -->
-		<div class="finished-summary">
-			<button
-				type="button"
-				class="summary-btn"
-				aria-expanded={isFullListOpen}
-				onclick={() => (isFullListOpen = !isFullListOpen)}
-				title={isFullListOpen
-					? (m.chat_v2_tools_collapse?.() ?? 'Comprimi passaggi')
-					: (m.chat_v2_tools_expand?.() ?? 'Espandi passaggi')}
-			>
-				<span class="summary-lead">
-					<span class="check-icon"><IconCheck /></span>
-					<span class="summary-text tabular-nums">{callsCountText} · {durationLabel}</span>
-				</span>
-
-				<span class="summary-counts">
-					{#each categoryOrder as cat}
-						{#if summaryStats.counts[cat]}
-							<span class="cat-pill" title="{summaryStats.counts[cat]} {categoryTooltip(cat, summaryStats.counts[cat]!)}">
-								<CategoryIcon category={cat} />
-								<span class="tabular-nums">{summaryStats.counts[cat]}</span>
-							</span>
-						{/if}
-					{/each}
-
-					{#if summaryStats.totalAdd > 0 || summaryStats.totalDel > 0}
-						<span class="summary-diff font-mono">
-							<span class="diff-add">+{summaryStats.totalAdd}</span>
-							<span class="diff-del">−{summaryStats.totalDel}</span>
+			<span class="summary-counts">
+				{#each categoryOrder as cat}
+					{#if summaryStats.counts[cat]}
+						<span class="cat-pill" title="{summaryStats.counts[cat]} {categoryTooltip(cat, summaryStats.counts[cat]!)}">
+							<CategoryIcon category={cat} />
+							<span class="tabular-nums">{summaryStats.counts[cat]}</span>
 						</span>
 					{/if}
+				{/each}
 
-					{#if summaryStats.failedCount > 0}
-						<span class="summary-failed">
-							{m.chat_v2_tools_failed_count?.({ count: summaryStats.failedCount }) ?? `${summaryStats.failedCount} con errori`}
-						</span>
-					{/if}
-				</span>
+				{#if summaryStats.totalAdd > 0 || summaryStats.totalDel > 0}
+					<span class="summary-diff font-mono">
+						<span class="diff-add">+{summaryStats.totalAdd}</span>
+						<span class="diff-del">−{summaryStats.totalDel}</span>
+					</span>
+				{/if}
 
-				<span class="summary-chevron" class:expanded={isFullListOpen}>
-					<IconChevronRight />
-				</span>
-			</button>
+				{#if summaryStats.failedCount > 0}
+					<span class="summary-failed">
+						{m.chat_v2_tools_failed_count?.({ count: summaryStats.failedCount }) ?? `${summaryStats.failedCount} con errori`}
+					</span>
+				{/if}
+			</span>
+		{/if}
 
-			{#if isFullListOpen}
-				<div class="full-list-container">
-					{@render renderBatches(fullBatches)}
-				</div>
-			{/if}
+		<span class="summary-chevron" class:expanded={isFullListOpen}>
+			<IconChevronRight />
+		</span>
+	</button>
+
+	{#if isFullListOpen}
+		<div
+			class="full-list-container"
+			bind:this={scrollContainerEl}
+			onscroll={handleListScroll}
+			onwheel={(e) => {
+				// Blocca la propagazione della rotellina per non disancorare l'autoscroll
+				// della chat esterna quando il puntatore si muove sopra l'elenco interno.
+				e.stopPropagation();
+			}}
+		>
+			{@render renderBatches(fullBatches)}
 		</div>
 	{/if}
 </div>
 
 <style>
 	.tool-group {
+		display: flex;
+		flex-direction: column;
 		margin: var(--space-3) 0;
 		font-family: var(--font-ui);
 		min-width: 0;
 	}
 
-	/* ----------------------------------------------------------- Header live */
-
-	.live-header {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		margin-bottom: var(--space-1);
-		font-size: 12.5px;
-		color: var(--ink-faint);
-	}
-
 	.live-status {
 		font-weight: 500;
 		color: var(--ink-muted);
-	}
-
-	.live-meta {
-		font-variant-numeric: tabular-nums;
-	}
-
-	.live-content {
-		border-left: 1px solid var(--line);
-		padding-left: var(--space-3);
-	}
-
-	.hidden-row {
-		display: flex;
-		height: 24px;
-		align-items: center;
-		gap: 10px;
-		font-size: 12.5px;
-		color: var(--ink-faint);
-		padding: 0 4px;
-	}
-
-	.hidden-ellipsis {
-		display: grid;
-		width: 16px;
-		place-items: center;
-		font-weight: 600;
-	}
-
-	.live-rows.with-mask {
-		mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 45%);
-		-webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 45%);
 	}
 
 	/* ---------------------------------------------------- Batches paralleli */
@@ -629,11 +615,6 @@
 
 	/* ----------------------------------------------- Riepilogo concluso */
 
-	.finished-summary {
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-	}
 
 	.summary-btn {
 		display: inline-flex;

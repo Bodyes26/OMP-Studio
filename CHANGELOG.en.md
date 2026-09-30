@@ -32,6 +32,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Sign in to OAuth providers directly from Settings: "Log in again", "Add account" and "Log in with OAuth" in AI Models › Providers open an embedded terminal running `omp login <provider>` instead of copying the command to the clipboard; the account list refreshes when it closes. The button also appears when the only OAuth account has expired or been disabled.
 
 ### Changed
+- Cleaner chat composer: no more line between conversation and composer, just space, with a light fade when messages scroll underneath; the composer sits clear of the bottom status bar. The send button is round with an up arrow.
+- The tool call list is open by default, both while the agent works and once it's done; you can still collapse it, and new calls don't undo that choice.
+- The `@` and `/` palette opens above the line you're typing on, at the caret, and appears instantly like the role, model and thinking menus instead of a slow reveal.
 - In prototypes the left panel starts closed and remembers its state separately from Main and worktrees (Ctrl+Alt+B acts on the one of the open lane); the Sessions tab is hidden, since it would show the host project's sessions.
 - Project bar ordering renamed to "Recent activity": the active project moves to the first position on the left only when an agent starts working (or when newly opened from the picker), preventing constant shuffling during routine browsing. Cycling with Ctrl+Tab and manual selection leave tile positions untouched, allowing smooth navigation across all open projects without bouncing between the first two, and tile order is preserved across application restarts.
 - Project picker (`+`) excludes already-open projects: displays only unopened folders or available remote repositories, eliminating redundant entries while preserving all saved tab customizations (custom name, acronym badge, color) for when a closed project is reopened.
@@ -47,6 +50,11 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio records startup, file opening, session loading and every git command timings in `perf-trace.log`, in the app log folder, to measure where time goes.
 
 ### Fixed
+- While the agent works, the tool call list stays on the latest call instead of jumping back to the start of the block each time; if you scroll up to reread earlier calls, your position is left alone.
+- The composer keeps showing the role you picked even when several roles share a model (for example `default` and `plan` on the same Opus), instead of falling back to the first role with that model; `Ctrl+P` really walks through every role in the cycle instead of bouncing between two. A failed role switch now shows a warning instead of being lost.
+- `/` in the middle of a message (after a space) opens the commands and skills palette, like `@` does for files; inside a word, as in paths or URLs, it does not.
+- The GUI chat shortcuts are back: `Ctrl+P` (cycle roles, without opening the print dialog), `Alt+R`, `Alt+P`, `Alt+M`, `Alt+T`, `Alt+C`, `Ctrl+C`, `Alt+E`, `Alt+N` and `Alt+1`…`Alt+6`, including with the caret in the composer.
+- Role and model menus and the command palette no longer show a horizontal scrollbar, and the role and model menus are wider.
 - Unblock Nightly and stable builds that stop at the Rust lint check before creating installers.
 - Lab prototype previews compile again: reading the prototype files stopped at the top folder and skipped `src/`, so every prototype, even one freshly created from the template, failed with "No entry file found" despite having `src/main.tsx`. If a source file is not saved as UTF-8, the preview now says so and names the file instead of silently ignoring it.
 - In the Lab the agent can report misbehaving tools through `xd://report_issue`, which used to be rejected; other special schemes stay blocked.

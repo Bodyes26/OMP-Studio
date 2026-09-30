@@ -25,6 +25,9 @@
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { settingsStore, type StreamingBehavior } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { splitModelSelector, resolveActiveRole } from '$lib/stores/modelSettingsHelpers';
+	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
+	import { isTypingSurface } from '$lib/agent/askFocus';
 	import { formatTokens } from '$lib/utils/format';
 	import { invoke } from '@tauri-apps/api/core';
 	import { m } from '$lib/paraglide/messages.js';
@@ -44,7 +47,7 @@
 	import {
 		IconAttach,
 		IconAt,
-		IconSend,
+		IconArrowUp,
 		IconStop,
 		IconWarning,
 		IconChevronUp,
@@ -95,7 +98,7 @@
 		query: string;
 		node: Text;
 		start: number;
-		caretRect: { left: number };
+		caretRect: { left: number; top: number };
 	} | null>(null);
 
 	let suggestItems = $state<SuggestionItem[]>([]);
@@ -134,27 +137,34 @@
 		})();
 	});
 
+	// Senza configurazione caricata le assegnazioni sono vuote e il ruolo mostrato
+	// resterebbe 'default' fino alla prima apertura delle impostazioni modelli.
+	$effect(() => {
+		if (visible) void modelSettingsStore.ensureConfigAndCatalog();
+	});
+
+	const rolesMap = $derived(modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {});
 	// Assegnazioni ruoli dal settings store
 	const roleAssignments = $derived.by(() => {
 		const out: Record<string, RoleAssignment> = {};
-		const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
 		for (const [rId, sel] of Object.entries(rolesMap)) {
 			if (typeof sel === 'string') {
-				const [base, th] = sel.split(':');
-				out[rId] = { model: base, thinking: th };
+				const { base, thinking } = splitModelSelector(sel, modelSettingsStore.knownSelectors);
+				out[rId] = { model: base, thinking: thinking ?? undefined };
 			}
 		}
 		return out;
 	});
 	// Il ruolo e' una configurazione Studio, non uno stato del protocollo RPC.
-	const activeRole = $derived.by(() => {
-		const model = session.model;
-		if (!model) return 'default';
-		const selected = `${model.provider}/${model.id}`;
-		return Object.entries(roleAssignments).find(([, assignment]) =>
-			assignment.model === selected || assignment.model === model.id
-		)?.[0] ?? 'default';
-	});
+	const activeRole = $derived(
+		resolveActiveRole(
+			rolesMap,
+			session.model,
+			session.thinkingLevel,
+			session.lastPickedRole,
+			modelSettingsStore.knownSelectors
+		) ?? 'default'
+	);
 
 
 	// Aggiornamento suggerimenti palette
@@ -211,11 +221,18 @@
 		}
 	});
 
-	const suggestLeft = $derived.by(() => {
-		if (!currentTrigger || !rootEl) return 0;
-		if (currentTrigger.kind === '/') return 0;
+	// Larghezza della palette: deve coincidere con .suggest-panel in SuggestPanel.svelte.
+	const SUGGEST_WIDTH = 440;
+
+	// La palette si apre sopra la riga in cui si sta scrivendo, allineata al trigger,
+	// non sopra l'intero composer: l'occhio resta dove c'e' il cursore.
+	const suggestAnchor = $derived.by(() => {
+		if (!currentTrigger || !rootEl) return { left: 0, bottom: 0 };
 		const rootRect = rootEl.getBoundingClientRect();
-		return computeCaretAnchorLeft(currentTrigger.caretRect, rootRect, 380);
+		return {
+			left: computeCaretAnchorLeft(currentTrigger.caretRect, rootRect, SUGGEST_WIDTH),
+			bottom: Math.max(0, rootRect.bottom - currentTrigger.caretRect.top + 6)
+		};
 	});
 
 	// Identificazione comando corrente nel testo per banner argomenti
@@ -398,6 +415,77 @@
 		return false;
 	}
 
+	// Scorciatoie della superficie GUI (docs/SHORTCUTS.md). Ascoltate sulla finestra
+	// perche' valgono anche con il fuoco fuori dal composer; chi scrive in un'altra
+	// superficie (Monaco, terminale, AskCard) tiene i propri tasti.
+	function handleWindowKeydown(e: KeyboardEvent) {
+		if (!visible || e.defaultPrevented || e.isComposing) return;
+		const activeEl = document.activeElement;
+		const insideComposer = !!rootEl && activeEl instanceof Node && rootEl.contains(activeEl);
+		if (!insideComposer && (isTypingSurface(e.target) || isTypingSurface(activeEl))) return;
+		if (settingsStore.open || modelSettingsStore.isOpen || shortcutsModalStore.isOpen) return;
+
+		const altOnly = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+		const ctrlOnly = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+		if (!altOnly && !ctrlOnly) return;
+		// e.code prima di e.key: con Alt alcuni layout producono caratteri speciali.
+		const key = e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
+
+		if (ctrlOnly) {
+			if (key === 'p') {
+				// Senza preventDefault la WebView apre la stampa.
+				e.preventDefault();
+				onSlashCommand?.('/role next');
+			} else if (key === 'c' && session.isStreaming && !window.getSelection()?.toString()) {
+				e.preventDefault();
+				void session.abort();
+			}
+			return;
+		}
+
+		const digit = /^(?:Digit|Numpad)([1-6])$/.exec(e.code)?.[1];
+		if (digit) {
+			const chip = showSuggestionChips ? session.suggestions.items[Number(digit) - 1] : undefined;
+			if (chip) {
+				e.preventDefault();
+				insertComposerText(chip.prompt);
+				focus();
+			}
+			return;
+		}
+
+		const toggle = (menu: 'role' | 'model' | 'thinking') => {
+			activeMenu = activeMenu === menu ? null : menu;
+		};
+		switch (key) {
+			case 'r':
+				toggle('role');
+				break;
+			case 'p':
+				toggle('model');
+				break;
+			case 'm':
+				toggle('thinking');
+				break;
+			case 't':
+				cycleThinkingLevel();
+				break;
+			case 'c':
+				if (session.isStreaming) void session.abort();
+				else clear();
+				break;
+			case 'e':
+				focus();
+				break;
+			case 'n':
+				executeImmediateCommand('new');
+				break;
+			default:
+				return;
+		}
+		e.preventDefault();
+	}
+
 	// Invio del messaggio: la bozza rimane intatta finche' omp o la coda locale accettano.
 	let submitting = false;
 	async function handleSubmit(isAlt = false) {
@@ -463,6 +551,8 @@
 	const showSuggestionChips = $derived(!session.isStreaming && session.suggestions.items.length > 0);
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <div
 	bind:this={rootEl}
 	class="composer-root"
@@ -503,7 +593,8 @@
 			query={currentTrigger.query}
 			items={suggestItems}
 			selectedIndex={suggestIndex}
-			left={suggestLeft}
+			left={suggestAnchor.left}
+			bottom={suggestAnchor.bottom}
 			onPick={pickSuggestion}
 			onHover={(idx) => (suggestIndex = idx)}
 		/>
@@ -524,7 +615,7 @@
 
 		<!-- Striscia informativa per comando/skill attivo con argomenti -->
 		{#if activeCmdDef}
-			<div class="cmd-strip rv-blur">
+			<div class="cmd-strip rv-blur" style="--dur: 200ms; --blur: 4px;">
 				<span class="cmd-strip-icon">
 					{#if isSkillCommand(activeCmdDef.name)}
 						<IconSparkles size={14} />
@@ -613,7 +704,7 @@
 			<MenuButton
 				open={activeMenu === 'role'}
 				title={m.chat_v2_composer_role_title()}
-				width="360px"
+				width="420px"
 				onToggle={() => (activeMenu = activeMenu === 'role' ? null : 'role')}
 				onClose={() => (activeMenu = null)}
 			>
@@ -637,7 +728,7 @@
 			<MenuButton
 				open={activeMenu === 'model'}
 				title={m.chat_v2_composer_model_title()}
-				width="340px"
+				width="400px"
 				onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
 				onClose={() => (activeMenu = null)}
 			>
@@ -758,7 +849,7 @@
 								: `${m.chat_v2_composer_send_tooltip()} — ${m.chat_v2_composer_send_followup()}`}
 							onclick={() => handleSubmit(false)}
 						>
-							<IconSend size={15} />
+							<IconArrowUp size={16} />
 						</button>
 
 						{#if session.isStreaming}
@@ -1015,11 +1106,13 @@
 		color: var(--ink-faint);
 	}
 
+	/* Pulsante tondo pieno: riprende il raggio del composer che lo contiene.
+	   Con la scelta della modalita' (durante lo streaming) il gruppo diventa una pillola. */
 	.send-split-group {
 		display: flex;
 		align-items: center;
 		background: var(--ink);
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-full);
 		overflow: hidden;
 	}
 
@@ -1027,7 +1120,7 @@
 		display: grid;
 		place-items: center;
 		height: 28px;
-		width: 32px;
+		width: 28px;
 		background: var(--ink);
 		color: var(--bg-base);
 		border: none;
@@ -1035,15 +1128,10 @@
 		transition: opacity var(--dur-fast) var(--ease-out);
 	}
 
-	.send-btn.main {
-		padding-left: 2px;
-	}
-
 	.send-btn.stop {
-		border-radius: var(--radius-md);
+		border-radius: var(--radius-full);
 		background: var(--danger);
 		color: white;
-		width: 36px;
 	}
 
 	.send-btn:disabled {
@@ -1053,7 +1141,8 @@
 
 	:global(.send-mode-trigger) {
 		height: 28px !important;
-		padding: 0 4px !important;
+		/* Piu' spazio a destra: la pillola arrotonda l'estremita' del chevron. */
+		padding: 0 7px 0 4px !important;
 		background: color-mix(in oklch, var(--ink) 90%, black 10%) !important;
 		color: var(--bg-base) !important;
 		border-radius: 0 !important;

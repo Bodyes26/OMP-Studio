@@ -27,7 +27,6 @@
 	.attach-menu {
 		display: flex;
 		flex-direction: column;
-		width: 260px;
 		padding: var(--space-1);
 	}
 

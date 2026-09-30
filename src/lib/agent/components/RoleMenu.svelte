@@ -84,10 +84,10 @@
 </div>
 
 <style>
+	/* La larghezza la decide MenuButton (prop width): un valore fisso qui sforava il popover. */
 	.role-menu-container {
 		display: flex;
 		flex-direction: column;
-		width: 360px;
 	}
 
 	.menu-header {

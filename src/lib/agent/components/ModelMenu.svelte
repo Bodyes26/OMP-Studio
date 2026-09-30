@@ -149,10 +149,10 @@
 </div>
 
 <style>
+	/* La larghezza la decide MenuButton (prop width): un valore fisso qui sforava il popover. */
 	.model-menu-container {
 		display: flex;
 		flex-direction: column;
-		width: 340px;
 	}
 
 	.search-box {

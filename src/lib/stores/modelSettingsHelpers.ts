@@ -177,6 +177,72 @@ export function resolveCatalogModel(
 	);
 }
 
+/**
+ * Selettore di ruolo (`provider/id[:thinking]`) scomposto per `set_model`: il provider
+ * e' il primo segmento, l'id tutto il resto (`nanogpt/anthropic/claude` resta intero).
+ */
+export function parseRoleSelector(
+	selector: string,
+	knownSelectors?: ReadonlySet<string>
+): { provider: string; modelId: string; thinking: string | null } {
+	const { base, thinking } = splitModelSelector(selector, knownSelectors);
+	const slash = base.indexOf('/');
+	return {
+		provider: slash >= 0 ? base.slice(0, slash) : '',
+		modelId: slash >= 0 ? base.slice(slash + 1) : base,
+		thinking
+	};
+}
+
+function roleUsesModel(
+	selector: string,
+	model: { provider?: string; id?: string },
+	knownSelectors?: ReadonlySet<string>
+): boolean {
+	const { base } = splitModelSelector(selector, knownSelectors);
+	return !!model.id && (base === model.id || base === `${model.provider}/${model.id}`);
+}
+
+/**
+ * Ruolo attivo di una sessione. omp non espone il ruolo via RPC, quindi Studio lo
+ * deduce dal modello. Piu' ruoli possono puntare allo stesso modello (default e plan
+ * su Opus con thinking diversi, smol/task/commit sullo stesso Flash): dedurlo solo
+ * dal modello mostrava sempre il primo, e il cambio di ruolo sembrava non avvenire.
+ * Ordine: il ruolo scelto per ultimo finche' il suo modello e' quello attivo, poi il
+ * primo con stesso modello e stesso thinking, poi il primo con lo stesso modello.
+ */
+export function resolveActiveRole(
+	rolesMap: Readonly<Record<string, string>>,
+	model: { provider?: string; id?: string } | null | undefined,
+	thinkingLevel: string | null | undefined,
+	lastPicked: string | null | undefined,
+	knownSelectors?: ReadonlySet<string>
+): string | null {
+	if (!model?.id) return null;
+	if (lastPicked && rolesMap[lastPicked] && roleUsesModel(rolesMap[lastPicked], model, knownSelectors)) {
+		return lastPicked;
+	}
+	const sameModel = Object.keys(rolesMap).filter((role) => roleUsesModel(rolesMap[role], model, knownSelectors));
+	return (
+		sameModel.find((role) => splitModelSelector(rolesMap[role], knownSelectors).thinking === thinkingLevel) ??
+		sameModel[0] ??
+		null
+	);
+}
+
+/** Ruolo successivo nel ciclo rapido, saltando i ruoli senza modello assegnato. */
+export function nextCycleRole(
+	cycleOrder: readonly string[],
+	rolesMap: Readonly<Record<string, string>>,
+	currentRole: string | null
+): string | null {
+	const order = cycleOrder.length > 0 ? cycleOrder : Object.keys(rolesMap);
+	const configured = order.filter((role) => Boolean(rolesMap[role]));
+	if (configured.length === 0) return null;
+	const index = currentRole ? configured.indexOf(currentRole) : -1;
+	return configured[(index + 1) % configured.length];
+}
+
 export interface RoleDefinition {
 	id: string;
 	label: string;

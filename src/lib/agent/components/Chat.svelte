@@ -331,7 +331,7 @@
 		</button>
 	{/if}
 
-	<div class="footer-stack">
+	<div class="footer-stack" class:content-below={userScrolledUp}>
 		<div
 			class="footer-inner"
 			class:readable={settingsStore.general.chatWidth === 'readable'}
@@ -511,12 +511,34 @@
 		margin: 0 auto;
 	}
 
+	/* Nessuna linea tra chat e composer: basta lo spazio. Quando la conversazione
+	   scorre sotto il composer una sfumatura leggera la dissolve, invece di tagliarla. */
 	.footer-stack {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-sunken);
-		border-top: 1px solid var(--line);
+		padding-bottom: var(--space-3);
 		min-width: 0;
 		z-index: var(--z-sticky);
+	}
+
+	.footer-stack::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 100%;
+		height: 28px;
+		pointer-events: none;
+		background: linear-gradient(to bottom, transparent, var(--bg-sunken));
+		backdrop-filter: blur(2px);
+		mask-image: linear-gradient(to bottom, transparent, black);
+		opacity: 0;
+		transition: opacity var(--dur-base, 200ms) var(--ease-out);
+	}
+
+	.footer-stack.content-below::before {
+		opacity: 1;
 	}
 </style>

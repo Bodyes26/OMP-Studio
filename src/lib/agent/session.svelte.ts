@@ -431,6 +431,12 @@ export class AgentSession {
 
 	model = $state<ModelInfo | null>(null);
 	thinkingLevel = $state<ThinkingLevel | null>(null);
+	/**
+	 * Ultimo ruolo scelto da Studio (menu, `/role`, Ctrl+P). omp non espone il ruolo
+	 * via RPC e piu' ruoli possono condividere lo stesso modello: senza ricordarlo
+	 * il composer mostrerebbe il primo ruolo con quel modello. Vedi resolveActiveRole.
+	 */
+	lastPickedRole = $state<string | null>(null);
 	contextUsage = $state<ContextUsage | null>(null);
 	sessionId = $state<string | null>(null);
 	sessionFile = $state<string | null>(null);

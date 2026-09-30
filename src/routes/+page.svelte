@@ -33,6 +33,7 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { studioUpdaterStore, formatVersion } from '$lib/stores/studioUpdater.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { parseRoleSelector, resolveActiveRole, nextCycleRole } from '$lib/stores/modelSettingsHelpers';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
@@ -1686,52 +1687,36 @@
 				await modelSettingsStore.ensureLoaded();
 				const cfg = modelSettingsStore.config || modelSettingsStore.draftConfig;
 				const rolesMap = cfg?.modelRoles || {};
+				const known = modelSettingsStore.knownSelectors;
 
+				let role = arg;
 				if (arg === 'next' || arg === 'cycle') {
-					const cycleOrder = cfg?.cycleOrder && cfg.cycleOrder.length > 0
-						? cfg.cycleOrder
-						: Object.keys(rolesMap);
-					const configured = cycleOrder.filter(r => Boolean(rolesMap[r]));
-					if (configured.length === 0) {
+					const current = resolveActiveRole(rolesMap, session.model, session.thinkingLevel, session.lastPickedRole, known);
+					const next = nextCycleRole(cfg?.cycleOrder ?? [], rolesMap, current);
+					if (!next) {
 						session.pushNotice('warning', m.page_slash_cmd_no_configured_roles(), 'studio');
 						return;
 					}
-					const curId = session.model?.id || '';
-					const curProvider = session.model?.provider || '';
-					let curIdx = -1;
-					for (let i = 0; i < configured.length; i++) {
-						const raw = (rolesMap[configured[i]] || '').split(':')[0];
-						if (raw === curId || raw === `${curProvider}/${curId}` || raw.endsWith(`/${curId}`)) {
-							curIdx = i;
-							break;
-						}
-					}
-					const nextRole = configured[(curIdx + 1) % configured.length];
-					const full = rolesMap[nextRole];
-					const [rawSelector, thinking] = full.split(':');
-					const [prov, mId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
-					await session.client.send({ type: 'set_model', provider: prov || session.model?.provider || '', modelId: mId });
-					if (thinking && thinking !== 'auto') {
-						await session.client.send({ type: 'set_thinking_level', level: thinking as any });
-					}
-					await session.refreshState();
-					session.pushNotice('info', m.page_slash_cmd_active_role({ role: nextRole, model: session.model?.name || mId }), 'studio');
-					return;
+					role = next;
 				}
 
-				const full = rolesMap[arg];
+				const full = rolesMap[role];
 				if (!full) {
-					session.pushNotice('warning', m.page_slash_cmd_unconfigured_role({ role: arg }), 'studio');
+					session.pushNotice('warning', m.page_slash_cmd_unconfigured_role({ role }), 'studio');
 					return;
 				}
-				const [rawSelector, thinking] = full.split(':');
-				const [prov, mId] = rawSelector.includes('/') ? rawSelector.split('/') : ['', rawSelector];
-				await session.client.send({ type: 'set_model', provider: prov || session.model?.provider || '', modelId: mId });
-				if (thinking && thinking !== 'auto') {
-					await session.client.send({ type: 'set_thinking_level', level: thinking as any });
+				const { provider, modelId, thinking } = parseRoleSelector(full, known);
+				try {
+					await session.client.send({ type: 'set_model', provider: provider || session.model?.provider || '', modelId });
+					if (thinking && thinking !== 'auto') {
+						await session.client.send({ type: 'set_thinking_level', level: thinking as ThinkingLevel });
+					}
+					session.lastPickedRole = role;
+					await session.refreshState();
+					session.pushNotice('info', m.page_slash_cmd_active_role({ role, model: session.model?.name || modelId }), 'studio');
+				} catch (err) {
+					session.pushNotice('warning', `/role ${role}: ${err instanceof Error ? err.message : String(err)}`, 'studio');
 				}
-				await session.refreshState();
-				session.pushNotice('info', m.page_slash_cmd_active_role({ role: arg, model: session.model?.name || mId }), 'studio');
 			})();
 			return true;
 		}

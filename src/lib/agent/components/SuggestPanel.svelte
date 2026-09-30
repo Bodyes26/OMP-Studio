@@ -19,6 +19,7 @@
 		items = [],
 		selectedIndex = 0,
 		left = 0,
+		bottom = 0,
 		onPick,
 		onHover
 	} = $props<{
@@ -27,6 +28,7 @@
 		items: SuggestionItem[];
 		selectedIndex: number;
 		left: number;
+		bottom: number;
 		onPick: (s: SuggestionItem) => void;
 		onHover: (index: number) => void;
 	}>();
@@ -57,7 +59,7 @@
 
 <div
 	class="suggest-panel rv-lift"
-	style="left: {left}px;"
+	style="left: {left}px; bottom: {bottom}px;"
 	role="listbox"
 	tabindex="-1"
 >
@@ -179,9 +181,9 @@
 <style>
 	.suggest-panel {
 		position: absolute;
-		bottom: calc(100% + 8px);
 		z-index: var(--z-overlay);
-		width: 380px;
+		/* Larghezza allineata a SUGGEST_WIDTH in Composer.svelte (calcolo dell'ancoraggio). */
+		width: 440px;
 		max-width: calc(100% - 16px);
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
@@ -192,11 +194,15 @@
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
+		/* La palette segue la digitazione: comparsa rapida, non la rivelazione lenta della chat. */
+		--dur: 150ms;
+		--blur: 3px;
 	}
 
 	.suggest-list {
 		padding: var(--space-1);
 		max-height: 280px;
+		overflow-x: hidden;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
@@ -260,7 +266,10 @@
 		font-weight: 500;
 		color: var(--ink);
 		white-space: nowrap;
-		flex-shrink: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
+		flex-shrink: 1;
 	}
 
 	.file-dir {
@@ -292,6 +301,7 @@
 		display: flex;
 		align-items: baseline;
 		gap: var(--space-2);
+		min-width: 0;
 	}
 
 	.cmd-name {
