@@ -130,6 +130,7 @@
 
 		// Se l'utente e' entro la soglia dal fondo, si riaggancia automaticamente.
 		if (distance <= SCROLL_THRESHOLD) {
+			pinned = true;
 			userScrolledUp = false;
 		} else if (currentScrollTop < lastScrollTop - 2) {
 			// Solo se lo scroll si muove effettivamente verso l'alto l'utente ha deciso

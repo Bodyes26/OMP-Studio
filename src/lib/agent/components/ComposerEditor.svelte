@@ -274,6 +274,7 @@
 	.composer-editor-wrapper {
 		position: relative;
 		width: 100%;
+		min-width: 0;
 		padding: 10px 14px 4px;
 	}
 
@@ -297,13 +298,19 @@
 		min-height: 24px;
 		max-height: 240px;
 		overflow-y: auto;
+		overflow-x: hidden;
 		outline: none;
 		font-family: var(--font-ui);
 		font-size: 14.5px;
 		line-height: 24px;
 		color: var(--ink);
 		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 		word-break: break-word;
+	}
+
+	.composer-editable :global(.chat-badge) {
+		max-width: min(260px, calc(100% - 2px));
 	}
 
 	.composer-editable.disabled {

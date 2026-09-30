@@ -402,7 +402,7 @@ export async function orchestratePromptPreflight(
 	let gitResult: GitStatusResult | null = null;
 
 	try {
-		let timer: number | undefined;
+		let timer: ReturnType<typeof setTimeout> | undefined;
 		const timeoutPromise = new Promise<'timeout'>((resolve) => {
 			timer = setTimeout(() => resolve('timeout'), timeoutMs);
 		});

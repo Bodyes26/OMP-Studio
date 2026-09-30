@@ -4,8 +4,8 @@
 	// Una domanda per volta con stepper, scelta 1…N, consigliata, multipla,
 	// "Altro…" in linea, nota (N), anteprima al passaggio del mouse,
 	// "Decidi tu" (testo libero convenzionale in `askAnswers.ts`), avanti/
-	// indietro/invia, avanzamento automatico a 320 ms sulla scelta singola e
-	// conto alla rovescia del timeout. Il protocollo resta sequenziale: il
+	// indietro/invia con conferma esplicita e conto alla rovescia del timeout.
+	// Il protocollo resta sequenziale: il
 	// wizard copre solo le domande ancora da chiedere (`pending.questionIndex`
 	// in avanti) e consegna tutto in un piano via `buildFlushPlan`, un passo
 	// per richiesta. `Escape` riduce la scheda nel vassoio quando il genitore
@@ -58,9 +58,6 @@
 	// Prefisso unico per gli id ARIA: piu' sessioni possono avere una card
 	// aperta insieme e gli id duplicati romperebbero aria-describedby.
 	const uid = $props.id();
-
-	/** Ritardo dell'avanzamento automatico dopo una scelta singola. */
-	const AUTO_ADVANCE_MS = 320;
 
 	interface WizardOption {
 		label: string;
@@ -259,15 +256,6 @@
 	let submitting = $state(false);
 	let hoverIdx = $state<number | null>(null);
 
-	let advanceTimer: ReturnType<typeof setTimeout> | null = null;
-	function clearAdvance() {
-		if (advanceTimer !== null) {
-			clearTimeout(advanceTimer);
-			advanceTimer = null;
-		}
-	}
-	$effect(() => () => clearAdvance());
-
 	$effect(() => {
 		const _id = pending.requestId;
 		plainInputValue = pending.prefill ?? '';
@@ -355,7 +343,7 @@
 		focusOption(index);
 		if (currentQuestion.multi) return;
 		const opt = visibleOptions[currentQuestion.cursorIndex];
-		if (opt) applyChoice(opt, { advance: false, focusCustom: false });
+		if (opt) applyChoice(opt, false);
 	}
 
 	function moveCursor(delta: number) {
@@ -365,16 +353,15 @@
 		moveTo((currentQuestion.cursorIndex + delta + total) % total);
 	}
 
-	function selectAt(index: number, advance = true) {
+	function selectAt(index: number) {
 		const opt = visibleOptions[index];
 		if (!opt) return;
 		focusOption(index);
-		applyChoice(opt, { advance, focusCustom: true });
+		applyChoice(opt, true);
 	}
 
-	function applyChoice(opt: WizardOption, opts: { advance: boolean; focusCustom: boolean }) {
+	function applyChoice(opt: WizardOption, focusCustom: boolean) {
 		if (!currentQuestion) return;
-		clearAdvance();
 		currentQuestion.touched = true;
 		currentQuestion.visited = true;
 		currentQuestion.decideForMe = false;
@@ -382,7 +369,7 @@
 		if (opt.isOther) {
 			currentQuestion.isCustom = true;
 			currentQuestion.selectedOptions.clear();
-			if (opts.focusCustom) setTimeout(() => customTextareaEl?.focus(), 50);
+			if (focusCustom) setTimeout(() => customTextareaEl?.focus(), 50);
 			return;
 		}
 
@@ -398,21 +385,10 @@
 
 		currentQuestion.selectedOptions.clear();
 		currentQuestion.selectedOptions.add(opt.cleanLabel);
-
-		// Scelta singola: avanza da sola alla domanda successiva, se e'
-		// gia' arrivata. Sull'ultima resta dov'e': l'invio lo conferma l'utente.
-		if (opts.advance && !currentQuestion.showNoteInput && questions.length > 1 && activeStep < lastStep) {
-			const next = activeStep + 1;
-			advanceTimer = setTimeout(() => {
-				advanceTimer = null;
-				void goToStep(next);
-			}, AUTO_ADVANCE_MS);
-		}
 	}
 
 	function toggleDecide() {
 		if (!currentQuestion) return;
-		clearAdvance();
 		currentQuestion.touched = true;
 		currentQuestion.visited = true;
 		currentQuestion.decideForMe = !currentQuestion.decideForMe;
@@ -424,7 +400,6 @@
 
 	function toggleNoteInput() {
 		if (!currentQuestion) return;
-		clearAdvance();
 		currentQuestion.touched = true;
 		currentQuestion.showNoteInput = !currentQuestion.showNoteInput;
 		if (currentQuestion.showNoteInput) {
@@ -439,7 +414,6 @@
 
 	async function goToStep(stepIndex: number) {
 		if (stepIndex < 0 || stepIndex > lastStep) return;
-		clearAdvance();
 		hoverIdx = null;
 		activeStep = stepIndex;
 		const target = questions[stepIndex];
@@ -472,7 +446,6 @@
 
 	async function submitAllAnswers() {
 		if (submitting) return;
-		clearAdvance();
 		const plan = buildFlushPlan(questions);
 		if (!plan) {
 			if (missingIndex >= 0) void goToStep(missingIndex);
@@ -581,11 +554,6 @@
 			prevStep();
 			return;
 		}
-		if (e.key === 'ArrowRight' && questions.length > 1) {
-			e.preventDefault();
-			nextStep();
-			return;
-		}
 
 		if ((e.key === 'n' || e.key === 'N') && !isReviewStep && currentQuestion) {
 			e.preventDefault();
@@ -643,11 +611,11 @@
 				!currentQuestion.isCustom;
 			if (isReviewStep || (questions.length === 1 && !currentQuestion?.multi)) {
 				if (questions.length === 1 && needsCursorPick && currentQuestion) {
-					selectAt(currentQuestion.cursorIndex, false);
+					selectAt(currentQuestion.cursorIndex);
 				}
 				void submitAllAnswers();
 			} else {
-				if (needsCursorPick && currentQuestion) selectAt(currentQuestion.cursorIndex, false);
+				if (needsCursorPick && currentQuestion) selectAt(currentQuestion.cursorIndex);
 				nextStep();
 			}
 		}

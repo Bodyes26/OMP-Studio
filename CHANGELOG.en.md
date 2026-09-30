@@ -59,6 +59,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - In the chat a question no longer ends up inside the tool call list: while it's open you see "The agent has a question for you", and once answered a compact summary lists every question, the answer given, "Agent decides" and any note.
 
 ### Fixed
+- Selecting an answer in the agent's questions no longer automatically advances to the next question: continue with the button, Enter or Ctrl+Enter.
+- Chat resumes following new content when returning to the bottom after reading earlier messages, including during tool use and responses.
+- The composer no longer shows a horizontal scrollbar for long text: words and URLs wrap, and badges stay within the available width.
 - On macOS Studio now finds the GitHub CLI (`gh`) installed with Homebrew even when the app is launched from Finder, so it detects your login and loads your repositories. The 1-click install on macOS uses Homebrew.
 - The "Scroll to bottom" button in chat stays fully visible above the blur fade: it dynamically tracks expanding and collapsing todo and subagent lists above the composer, without being obscured or cut in half.
 - Model search in the composer once again matches names with spaces instead of hyphens (for example “gpt 6.1”): chat, new tasks and settings share the same list and search, with keyboard navigation following the displayed order.

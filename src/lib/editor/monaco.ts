@@ -305,7 +305,7 @@ export function applyEditorSettings(diffEditor?: monaco.editor.IStandaloneDiffEd
 	diffEditor.getModifiedEditor().updateOptions(sharedOptions);
 }
 
-let gutterDebounceTimer: number | null = null;
+let gutterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Annulla qualsiasi aggiornamento delle decorazioni del gutter in attesa.
