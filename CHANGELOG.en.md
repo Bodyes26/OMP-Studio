@@ -53,6 +53,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The session list reads only the project's folders instead of opening the history of every project, and duplicate requests for the same list are merged into one. Reopening a long session shows the messages at once, without a cascade animation.
 - With Studio minimized or hidden no git checks run in the background; returning to the window refreshes only the active project, at most every 5 seconds, and at startup the projects' git badges fill in one at a time. New diagrams and previews are detected through file system events instead of checking the folder twice a second.
 - Studio records startup, file opening, session loading and every git command timings in `perf-trace.log`, in the app log folder, to measure where time goes.
+- Windows Nightly builds compile much faster: Studio's own code is not optimized and the installer uses a quicker compression. The Nightly installer is somewhat larger; stable releases are unchanged.
 
 ### Fixed
 - Previews and diagrams in the center column really close with the X or `Esc`, and show up right away in the right lane instead of only after switching lanes: the center column used to not refresh, so a leftover preview (for example "File not found: proto/passwd-hack.html" on the Main lane) could not be dismissed.
@@ -79,6 +80,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A newly created lane's tab shows "Working" while its agent works, instead of staying on "Idle".
 - The status bar, lane tabs and task queue now report the same agent state. The status bar describes the lane on screen instead of the whole project: it no longer shows "Running" for an agent that has finished while another lane works, and an idle agent on Main is no longer considered busy because of another lane.
 - An agent that ends its turn with a suggestion or a question (with reply suggestions under the chat) is no longer considered busy: the task starts in the same lane without proposing a new worktree.
+- The composer's model picker no longer stays empty with "No models found": the list was loaded only once, often before the agent session was ready, and the failure was ignored. It now loads when the session is ready and refreshes every time the menu opens, so models from a newly connected provider show up too.
 
 ## [1.6.0] - 2026-09-21
 

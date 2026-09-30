@@ -53,6 +53,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'elenco delle sessioni legge solo le cartelle del progetto invece di aprire lo storico di tutti i progetti, e le richieste doppie dello stesso elenco si uniscono in una sola. Riaprendo una sessione lunga i messaggi compaiono subito, senza animazione a cascata.
 - Con Studio minimizzato o nascosto non partono più controlli git in background; al ritorno sulla finestra si aggiorna solo il progetto attivo, al massimo ogni 5 secondi, e all'avvio i badge git dei progetti si riempiono uno alla volta. Diagrammi e anteprime nuovi vengono rilevati dagli eventi del file system invece che controllando la cartella due volte al secondo.
 - Studio registra i tempi di avvio, apertura file, caricamento sessioni e ogni comando git in `perf-trace.log`, nella cartella dei log dell'app, per misurare dove si perde tempo.
+- Le build Nightly per Windows si compilano molto più in fretta: il codice di Studio non viene ottimizzato e l'installer usa una compressione più rapida. L'installer Nightly è un po' più grande; le versioni stabili non cambiano.
 
 ### Fixed
 - Anteprime e diagrammi nella colonna centrale si chiudono davvero con la X o con `Esc`, e compaiono subito nella corsia giusta invece che solo al cambio di corsia: prima la colonna centrale non si aggiornava e un'anteprima rimasta aperta (per esempio «File non trovato: proto/passwd-hack.html» sulla corsia Principale) non si poteva più togliere.
@@ -79,6 +80,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La scheda di una corsia appena creata mostra «Al lavoro» mentre il suo agente lavora, invece di restare su «In attesa».
 - Barra di stato, schede delle corsie e coda dei task riportano lo stesso stato dell'agente. La barra di stato indica la corsia aperta invece di tutto il progetto: non segna più «In esecuzione» per un agente che ha finito mentre lavora un'altra corsia, e un agente fermo in Principale non viene più considerato occupato per colpa di un'altra corsia.
 - Un agente che chiude il turno con un consiglio o una domanda (con i suggerimenti di risposta sotto la chat) non è più considerato occupato: il task parte nella stessa corsia senza proporre un nuovo worktree.
+- Il selettore del modello nel composer non resta più vuoto con «Nessun modello trovato»: l'elenco si caricava una sola volta, quando la sessione dell'agente spesso non era ancora pronta, e il fallimento veniva ignorato. Ora si carica quando la sessione è pronta e si aggiorna a ogni apertura del menu, così compaiono anche i modelli di un provider appena collegato.
 
 ## [1.6.0] - 2026-09-21
 

@@ -118,10 +118,22 @@ function verifyGhAuth() {
 function getPlatformConfig() {
 	switch (process.platform) {
 		case 'win32':
+			// Profilo Cargo `nightly` e NSIS zlib: compilazione e packaging piu'
+			// rapidi in cambio di un installer piu' grande (vedi il commento del
+			// profilo in src-tauri/Cargo.toml). Tauri legge `--profile` dagli
+			// argomenti passati a cargo e scrive il bundle in target/nightly.
 			return {
 				name: 'Windows x64',
-				bundleArgs: ['--bundles', 'nsis'],
-				bundleDir: join(ROOT, 'src-tauri', 'target', 'release', 'bundle', 'nsis'),
+				bundleArgs: [
+					'--bundles',
+					'nsis',
+					'--config',
+					join('src-tauri', 'tauri.nightly.conf.json'),
+					'--',
+					'--profile',
+					'nightly'
+				],
+				bundleDir: join(ROOT, 'src-tauri', 'target', 'nightly', 'bundle', 'nsis'),
 				extensions: ['.exe']
 			};
 		case 'darwin':
@@ -241,11 +253,13 @@ async function main() {
 	try {
 		// 1. Applica versione temporanea
 		console.log(`Imposto la versione temporanea ${version}...`);
+		// Il flag precede le scritture: se una fallisce a meta' (file bloccato su
+		// Windows), quelle gia' fatte vanno comunque ripristinate dal finally.
 		const edits = computeVersionBumps(version);
+		versionApplied = true;
 		for (const [rel, content] of edits) {
 			write(rel, content);
 		}
-		versionApplied = true;
 
 		// 2. Compilazione
 		if (!opts.skipBuild) {

@@ -53,9 +53,10 @@ jobs:
         include:
           - name: Windows x64
             os: windows-latest
-            build_args: --bundles nsis
+            # Profilo Cargo `nightly` e NSIS zlib, come scripts/publish-nightly.mjs.
+            build_args: --bundles nsis --config src-tauri/tauri.nightly.conf.json -- --profile nightly
             artifact_name: nightly-windows-x64
-            artifact_dir: src-tauri/target/release/bundle/nsis
+            artifact_dir: src-tauri/target/nightly/bundle/nsis
           - name: macOS universal
             os: macos-14
             build_args: --bundles dmg --target universal-apple-darwin

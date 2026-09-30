@@ -66,3 +66,20 @@ lto = "thin"
 codegen-units = 16
 panic = "abort"
 strip = true
+
+# Profilo delle nightly Windows (scripts/publish-nightly.mjs, workflow nightly):
+# tempo di compilazione prima di velocita' e dimensione. Eredita da release
+# panic abort, strip e assenza di debug info/assertions: non e' una build dev.
+# Il crate dell'app non viene ottimizzato (opt-level 0, niente LTO); le
+# dipendenze restano a opt-level 2 e, compilate una volta, si riusano fra le
+# nightly. Misure in ricerca/nightly-windows-profili-2026-09-30.md:
+# compilazione Rust da 4m43s (opt-level 1) a 1m34s. La release stabile non cambia.
+[profile.nightly]
+inherits = "release"
+opt-level = 0
+lto = "off"
+codegen-units = 32
+incremental = true
+
+[profile.nightly.package."*"]
+opt-level = 2

@@ -120,19 +120,29 @@
 		return found?.source === 'skill' || name.startsWith('skill:');
 	}
 
-	// Caricamento modelli disponibili
+	// Caricamento modelli disponibili. Il composer e' visibile prima che la
+	// sessione RPC sia aperta: `send` lanciava, l'errore veniva ingoiato e,
+	// senza dipendere da `isReady`, la lista restava vuota per sempre.
+	// Si ricarica anche a ogni apertura del menu: un login dalle impostazioni
+	// aggiunge modelli a sessione gia' avviata.
+	const modelMenuOpen = $derived(activeMenu === 'model');
+	let modelsLoadedFor: AgentSession | null = null;
 	$effect(() => {
-		if (!visible) return;
+		const target = session;
+		if (!visible || !target.isReady) return;
+		if (!modelMenuOpen && modelsLoadedFor === target) return;
 		void (async () => {
 			try {
-				const res = await session.client.send({ type: 'get_available_models' });
+				const res = await target.client.send({ type: 'get_available_models' });
+				if (target !== session) return;
 				if (Array.isArray(res)) {
 					availableModels = res as ModelInfo[];
 				} else if (res && typeof res === 'object' && 'models' in res && Array.isArray((res as { models: unknown }).models)) {
 					availableModels = (res as { models: ModelInfo[] }).models;
 				}
+				modelsLoadedFor = target;
 			} catch {
-				// Fallback silente sui modelli catalogo
+				// Fallback silente: resta l'ultimo elenco caricato
 			}
 		})();
 	});
