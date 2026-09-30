@@ -17,6 +17,7 @@
 	 */
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
+	import { taskLabel as sharedTaskLabel } from '$lib/stores/taskTitle';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { companionStore } from '$lib/stores/companion.svelte';
@@ -298,10 +299,10 @@
 	}
 
 	function taskLabel(task: StudioTask): string {
-		const line = task.prompt.split(/\r?\n/).find((entry) => entry.trim())?.trim();
-		if (line) return line;
-		if (task.images && task.images.length > 0) return '(solo immagini)';
-		return m.project_popover_new_task();
+		return (
+			sharedTaskLabel(task) ||
+			(task.images && task.images.length > 0 ? m.queue_drawer_title_only_images() : m.project_popover_new_task())
+		);
 	}
 
 	function flash(message: string) {

@@ -11,7 +11,8 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { IconClose } from '$lib/icons';
 	import { isLaneRoutable, type AutomationGate } from '$lib/agent/automationGate';
-	import MentionText from './MentionText.svelte';
+	import { taskLabel } from '$lib/stores/taskTitle';
+	import QueueTaskItem from './QueueTaskItem.svelte';
 	let {
 		open = false,
 		onClose,
@@ -50,7 +51,7 @@
 			.filter((g: { project: Project; tasks: StudioTask[] }) => g.tasks.length > 0)
 	);
 	// Stessa vista scelta in Aspetto per la Coda: compatta di default,
-	// card ariose come opt-in. Stesse classi/regole di AgentPanel.
+	// card ariose come opt-in. La riga e' la stessa `QueueTaskItem` del pannello.
 	const isCardView = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
 	// Stessa logica di TopBar.svelte: la tinta segue il tema del progetto
 	// finche' l'utente non sceglie un colore personalizzato.
@@ -63,31 +64,8 @@
 		return project.label ?? project.name.slice(0, 2).toUpperCase();
 	}
 
-	function taskTitle(task: StudioTask): string {
-		const line = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim();
-		if (line) return line;
-		if (task.images && task.images.length > 0) return m.queue_drawer_title_only_images();
-		return m.queue_drawer_title_new_task();
-	}
-
-	function taskExcerpt(task: StudioTask): string {
-		const compact = task.prompt.replace(/\s+/g, ' ').trim();
-		if (compact) return compact;
-		if (task.images && task.images.length > 0) {
-			return `${task.images.length} ${task.images.length === 1 ? 'immagine allegata' : 'immagini allegate'}`;
-		}
-		return m.queue_drawer_excerpt_empty();
-	}
-
-	function roleBadge(role?: string): string | null {
-		switch (role) {
-			case 'smol': return 'smol';
-			case 'slow': return 'slow';
-			case 'plan': return 'plan';
-			case 'custom': return 'custom';
-			case 'default': return 'default';
-			default: return null;
-		}
+	function firstTaskLabel(task: StudioTask): string {
+		return taskLabel(task) || (task.images?.length ? m.queue_drawer_title_only_images() : m.queue_drawer_title_new_task());
 	}
 	// Ctrl+click porta il focus sul progetto dopo l'avvio; il click semplice
 	// lancia in background, come deciso per tutti i punti di avvio condivisi.
@@ -96,12 +74,17 @@
 	// sparire dentro un <button disabled>, che per contratto non emette eventi.
 	// Un agente semplicemente occupato non e' un blocco: il routing della coda
 	// decide se il task va in `Principale` o in una nuova corsia.
-	function runTask(event: MouseEvent, projectId: string, taskId: string, gate: AutomationGate) {
-		if (!event.shiftKey && !isLaneRoutable(gate)) {
+	function runTask(
+		projectId: string,
+		taskId: string,
+		gate: AutomationGate,
+		keys: { shiftKey: boolean; ctrlKey: boolean }
+	) {
+		if (!keys.shiftKey && !isLaneRoutable(gate)) {
 			explainedProjectId = projectId;
 			return;
 		}
-		onRunTask?.(projectId, taskId, { follow: event.ctrlKey, shiftKey: event.shiftKey });
+		onRunTask?.(projectId, taskId, { follow: keys.ctrlKey, shiftKey: keys.shiftKey });
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -175,11 +158,11 @@
 										class:attention
 										aria-expanded={blocked ? explainedProjectId === group.project.id : undefined}
 										aria-controls={blocked ? `queue-gate-${group.project.id}` : undefined}
-										title={blocked ? `${gate.detail} ${gate.hint}`.trim() : m.queue_drawer_run_first_title({ title: taskTitle(group.tasks[0]) })}
+										title={blocked ? `${gate.detail} ${gate.hint}`.trim() : m.queue_drawer_run_first_title({ title: firstTaskLabel(group.tasks[0]) })}
 										aria-label={blocked
 											? m.gate_explain_first_aria({ project: group.project.name })
 											: m.queue_drawer_run_first_aria({ project: group.project.name })}
-										onclick={(event) => runTask(event, group.project.id, group.tasks[0].id, gate)}
+										onclick={(event) => runTask(group.project.id, group.tasks[0].id, gate, { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey })}
 									>
 										{m.queue_drawer_run_first_btn()}
 									</button>
@@ -205,68 +188,19 @@
 						{/if}
 						<div class="task-list" class:queue-cards={isCardView} role="list" aria-label={`Task in coda per ${group.project.name}`}>
 							{#each group.tasks as task (task.id)}
-								{@const handleOpen = (path: string) => onOpenFile?.(group.project.id, path)}
 								<div class="task-row" role="listitem">
-									<div class="task-main">
-										<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>
-											<MentionText text={taskTitle(task)} onOpenFile={handleOpen} />
-										</span>
-										<span class="task-excerpt">
-											<MentionText text={taskExcerpt(task)} onOpenFile={handleOpen} />
-										</span>
-										<div class="task-chips">
-											{#if task.status === 'in_progress'}
-												<span class="task-chip status-chip in-progress">{m.queue_drawer_status_in_progress()}</span>
-											{:else if task.status === 'completed'}
-												<span class="task-chip status-chip completed">{m.queue_drawer_status_completed()}</span>
-											{:else if task.status === 'abandoned'}
-												<span class="task-chip status-chip abandoned">{m.queue_drawer_status_abandoned()}</span>
-											{/if}
-											{#if task.options?.role}
-												{@const badge = roleBadge(task.options.role)}
-												{#if badge}
-													<span class="task-chip role-chip">{badge}</span>
-												{/if}
-											{/if}
-											{#if task.options?.directives && task.options.directives.length > 0}
-												{#each task.options.directives.slice(0, 3) as d (d.id)}
-													<span class="task-chip" title={d.name}>{d.tag || d.name}</span>
-												{/each}
-												{#if task.options.directives.length > 3}
-													<span class="task-chip" title={task.options.directives.slice(3).map((d) => d.name).join(', ')}>+{task.options.directives.length - 3}</span>
-												{/if}
-											{/if}
-											{#if task.images && task.images.length > 0}
-												<span class="task-chip img-chip">img {task.images.length}</span>
-											{/if}
-										</div>
-									</div>
-									<div class="task-actions">
-										<button
-											type="button"
-											class="task-run"
-											class:blocked
-											class:attention
-											aria-expanded={blocked ? explainedProjectId === group.project.id : undefined}
-											aria-controls={blocked ? `queue-gate-${group.project.id}` : undefined}
-											title={blocked ? `${gate.detail} ${gate.hint}`.trim() : m.queue_drawer_run_first_title({ title: taskTitle(task) })}
-											aria-label={blocked
-												? m.gate_explain_task_aria({ title: taskTitle(task) })
-												: m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })}
-											onclick={(event) => runTask(event, group.project.id, task.id, gate)}
-										>
-											{m.queue_drawer_run_btn()}
-										</button>
-										<button
-											type="button"
-											class="task-edit"
-											title={m.queue_drawer_edit_btn_title()}
-											aria-label={m.ui_queuedrawer_modifica_task_value1_4d12({ value1: taskTitle(task) })}
-											onclick={() => onEditTask?.(group.project.id, task.id)}
-										>
-											{m.queue_drawer_edit_btn()}
-										</button>
-									</div>
+									<QueueTaskItem
+										{task}
+										{blocked}
+										{attention}
+										blockedTitle={`${gate.detail} ${gate.hint}`.trim()}
+										explainId={`queue-gate-${group.project.id}`}
+										explainOpen={explainedProjectId === group.project.id}
+										maxDirectives={3}
+										onLaunch={(keys) => runTask(group.project.id, task.id, gate, keys)}
+										onEdit={() => onEditTask?.(group.project.id, task.id)}
+										onOpenFile={(path) => onOpenFile?.(group.project.id, path)}
+									/>
 								</div>
 							{/each}
 						</div>
@@ -298,6 +232,8 @@
 		width: 420px;
 		max-height: 70vh;
 		background: var(--bg-overlay);
+		/* Sfondo opaco su cui `QueueTaskItem` compone hover e barra azioni. */
+		--queue-task-surface: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
@@ -504,21 +440,18 @@
 		color: var(--ink);
 	}
 
-	.run-first.blocked,
-	.task-run.blocked {
+	.run-first.blocked {
 		color: var(--ink-faint);
 		border-color: var(--line);
 		cursor: help;
 	}
 
-	.run-first.blocked:hover,
-	.task-run.blocked:hover {
+	.run-first.blocked:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
 	}
 
-	.run-first.blocked.attention:hover,
-	.task-run.blocked.attention:hover {
+	.run-first.blocked.attention:hover {
 		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
 		background: color-mix(in srgb, var(--warn) 8%, transparent);
 		color: var(--warn);
@@ -583,7 +516,6 @@
 		margin-top: var(--space-2);
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
 	}
 
 	.task-list.queue-cards {
@@ -591,163 +523,6 @@
 	}
 
 	.task-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-2);
-		border-radius: var(--radius-sm);
-		min-height: 72px;
-	}
-
-	.task-list.queue-cards .task-row {
-		align-items: stretch;
-		padding: var(--space-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		min-height: 88px;
 		flex-shrink: 0;
-	}
-
-	.task-list.queue-cards .task-row:hover {
-		border-color: var(--line-strong);
-	}
-
-	.task-main {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		overflow: hidden;
-		gap: var(--space-1);
-	}
-
-	.task-title {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		width: 100%;
-		min-width: 0;
-		overflow-wrap: anywhere;
-		color: var(--ink);
-		font-size: var(--text-sm);
-		font-weight: 600;
-	}
-
-	.task-excerpt {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		overflow: hidden;
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		line-height: 1.45;
-		overflow-wrap: anywhere;
-	}
-
-	.task-list.queue-cards .task-title {
-		white-space: normal;
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		overflow-wrap: anywhere;
-	}
-
-	.task-list.queue-cards .task-excerpt {
-		-webkit-line-clamp: 3;
-		line-clamp: 3;
-		font-size: var(--text-sm);
-		color: var(--ink-muted);
-	}
-
-	.task-chips {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: flex-start;
-		gap: 4px;
-		min-width: 0;
-	}
-
-	.task-chips:empty {
-		display: none;
-	}
-
-	.task-chip {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		color: var(--ink-muted);
-		line-height: 1.2;
-		white-space: nowrap;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.task-chip.role-chip {
-		background: var(--brand-dim);
-		border-color: transparent;
-		color: var(--ink);
-		font-weight: 600;
-	}
-
-	.task-chip.img-chip {
-		color: var(--ink-faint);
-	}
-
-	.task-actions {
-		flex-shrink: 0;
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-	}
-
-	.task-run,
-	.task-edit {
-		height: 24px;
-		padding: 0 var(--space-2);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink);
-		font-size: var(--text-xs);
-		cursor: pointer;
-	}
-
-	.task-run:hover:not(.blocked),
-	.task-edit:hover {
-		background: var(--bg-hover);
-	}
-	.status-chip.in-progress {
-		background: var(--brand-dim);
-		color: var(--brand-ink);
-		font-weight: 600;
-	}
-
-	.status-chip.completed {
-		background: var(--bg-sunken);
-		color: var(--success, #22c55e);
-	}
-
-	.status-chip.abandoned {
-		background: var(--bg-sunken);
-		color: var(--ink-faint);
-		opacity: 0.7;
-	}
-
-	.completed-text {
-		text-decoration: line-through;
-		color: var(--ink-faint);
-	}
-
-	.task-edit {
-		border-color: var(--line);
-		color: var(--ink-muted);
 	}
 </style>

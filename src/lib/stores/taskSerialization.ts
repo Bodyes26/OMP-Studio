@@ -42,6 +42,13 @@ export interface StudioTask {
 	createdAt: number;
 	updatedAt: number;
 	status: StudioTaskStatus;
+	/**
+	 * Etichetta sintetica generata dal modello leggero. Vale solo finche'
+	 * `titleHash` coincide con l'impronta del prompt: una modifica fatta da
+	 * TUI o tool la rende scaduta senza che nessuno debba cancellarla.
+	 */
+	title?: string;
+	titleHash?: string;
 }
 
 export interface ProjectTaskFile {
@@ -350,6 +357,10 @@ export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: st
 			return {
 				...task,
 				options,
+				// Il file e' scritto anche da TUI e tool: un titolo malformato si
+				// scarta, il task resta.
+				title: typeof task.title === 'string' && task.title.trim() ? task.title.trim() : undefined,
+				titleHash: typeof task.titleHash === 'string' ? task.titleHash : undefined,
 				projectPath: task.projectPath ?? defaultProjectPath ?? '',
 				status: task.status === 'dispatching' ? ('queued' as const) : task.status
 			};

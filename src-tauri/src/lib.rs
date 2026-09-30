@@ -74,6 +74,8 @@ mod suggestions_ops;
 use suggestions_ops::generate_prompt_suggestions;
 mod lane_naming_ops;
 use lane_naming_ops::generate_lane_name;
+mod task_title_ops;
+use task_title_ops::generate_task_title;
 mod companion_ops;
 use companion_ops::{
     fit_companion_to_content, get_companion_state, hide_companion_window, init_global_shortcut,
@@ -261,6 +263,7 @@ pub fn run() {
             analyze_task_directives_friction,
             generate_prompt_suggestions,
             generate_lane_name,
+            generate_task_title,
             toggle_companion_window,
             hide_companion_window,
             fit_companion_to_content,

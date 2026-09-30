@@ -46,6 +46,7 @@
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '$lib/stores/tasks.svelte';
+	import { taskLabel } from '$lib/stores/taskTitle';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
 	import {
@@ -1062,10 +1063,14 @@
 	}
 
 	function taskTitleOf(task: StudioTask): string {
-		return task.prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || m.agent_panel_new_task_btn();
+		return taskLabel(task) || m.agent_panel_new_task_btn();
 	}
 
-	/** Titolo della corsia per obiettivo: il branch tecnico resta `omp/lane-<id>`. */
+	/**
+	 * Titolo della corsia per obiettivo: l'etichetta del task quando c'e',
+	 * cosi' task e corsia si chiamano allo stesso modo. Il branch tecnico
+	 * resta `omp/lane-<id>`.
+	 */
 	function laneTitleFromTask(task: StudioTask): string {
 		const title = taskTitleOf(task);
 		return title.length > 48 ? `${title.slice(0, 47)}\u2026` : title;

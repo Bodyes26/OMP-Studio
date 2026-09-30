@@ -28,6 +28,7 @@ import { QueueHydration, mergeHydratedTasks, mergeReloadedTasks } from './taskHy
 import { resolveDroppedTask, type InFlightTask } from './taskRecovery';
 import { windowLabel } from './windowBridge';
 import { m as msg } from '$lib/paraglide/messages.js';
+import { taskLabel } from './taskTitle';
 
 export type {
 	AgentView,
@@ -374,6 +375,12 @@ class TaskStore {
 	updateTask(id: string, prompt: string, images?: ImageContent[], options?: StudioTaskOptions) {
 		const task = this.taskById(id);
 		if (!task) return;
+		if (task.prompt !== prompt) {
+			// Il titolo descriveva il prompt di prima: meglio l'euristica che
+			// un'etichetta sbagliata finche' il modello non risponde di nuovo.
+			task.title = undefined;
+			task.titleHash = undefined;
+		}
 		task.prompt = prompt;
 		if (images !== undefined) {
 			task.images = images;
@@ -386,6 +393,19 @@ class TaskStore {
 	}
 	updatePrompt(id: string, prompt: string) {
 		this.updateTask(id, prompt);
+	}
+
+	/**
+	 * Registra il titolo generato per la versione del prompt con impronta
+	 * `hash`. `updatedAt` resta fermo: il titolo e' un dato derivato e non
+	 * deve contare come modifica dell'utente.
+	 */
+	setTaskTitle(id: string, title: string, hash: string) {
+		const task = this.taskById(id);
+		if (!task) return;
+		task.title = title;
+		task.titleHash = hash;
+		this.saveProject(task.projectPath);
 	}
 
 	deleteTask(id: string) {
@@ -465,7 +485,7 @@ class TaskStore {
 		this.origins = this.origins.filter((origin) =>
 			origin.projectPath !== task.projectPath || origin.sessionId !== sessionId
 		);
-		const title = task.prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task';
+		const title = taskLabel(task) || 'Nuovo task';
 		const origin: TaskSessionOrigin = {
 			projectPath: task.projectPath,
 			sessionId,

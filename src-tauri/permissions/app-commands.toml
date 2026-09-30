@@ -229,6 +229,13 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "allow-task-titles"
+description = "Titolo sintetico dei task in coda: chiamata effimera al modello leggero configurato"
+commands.allow = [
+    "generate_task_title"
+]
+
+[[permission]]
 identifier = "allow-companion"
 description = "Finestra secondaria Companion: alternanza visibilita', stato geometrico e parsing NL dei task"
 commands.allow = [
@@ -321,6 +328,7 @@ permissions = [
     "allow-task-directives",
     "allow-prompt-suggestions",
     "allow-lane-naming",
+    "allow-task-titles",
     "allow-browser-live",
     "allow-companion",
     "allow-github",

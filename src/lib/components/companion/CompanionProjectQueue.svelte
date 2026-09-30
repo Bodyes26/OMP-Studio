@@ -2,6 +2,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { IconPlay } from '$lib/icons';
 	import type { StudioTask } from '$lib/stores/tasks.svelte';
+	import { taskLabel } from '$lib/stores/taskTitle';
 
 	let {
 		projectName,
@@ -25,10 +26,10 @@
 	const VISIBLE_TASKS = 3;
 
 	function taskTitle(task: StudioTask): string {
-		const line = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim();
-		if (line) return line;
-		if (task.images && task.images.length > 0) return m.queue_drawer_title_only_images();
-		return m.queue_drawer_title_new_task();
+		return (
+			taskLabel(task) ||
+			(task.images && task.images.length > 0 ? m.queue_drawer_title_only_images() : m.queue_drawer_title_new_task())
+		);
 	}
 
 	const hiddenCount = $derived(Math.max(0, tasks.length - VISIBLE_TASKS));

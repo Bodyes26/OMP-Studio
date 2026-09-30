@@ -5,11 +5,11 @@
 	import SessionList from './SessionList.svelte';
 	import RulesPanel from './RulesPanel.svelte';
 	import EmptyState from './EmptyState.svelte';
-	import { taskStore, type AgentView, type StudioTask } from '$lib/stores/tasks.svelte';
+	import { taskStore, type AgentView } from '$lib/stores/tasks.svelte';
 	import { rulesStore } from '$lib/stores/rules.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { isLaneRoutable, type AutomationBlock, type AutomationGate } from '$lib/agent/automationGate';
-	import MentionText from './MentionText.svelte';
+	import QueueTaskItem from './QueueTaskItem.svelte';
 
 	let {
 		projectPath,
@@ -63,26 +63,12 @@
 		taskStore.setView(projectPath, next);
 	}
 
-	function taskTitle(task: StudioTask) {
-		return task.prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || m.agent_panel_new_task_btn();
-	}
-
-	function taskExcerpt(task: StudioTask) {
-		const compact = task.prompt.replace(/\s+/g, ' ').trim();
-		if (compact) return compact;
-		if (task.images && task.images.length > 0) {
-			return `${task.images.length} ${task.images.length === 1 ? 'immagine allegata' : 'immagini allegate'}`;
-		}
-		return m.agent_panel_empty_prompt();
-	}
-
 	/**
 	 * Un agente occupato non blocca piu' la coda: il routing (W09) decide se il
 	 * task parte su `Principale` o in una corsia isolata. `Shift` salta anche
 	 * la spiegazione: l'utente ha gia' chiesto una corsia nuova.
 	 */
-	function runOrExplain(taskId: string, event?: MouseEvent) {
-		const shiftKey = event?.shiftKey === true;
+	function runOrExplain(taskId: string, shiftKey: boolean) {
 		if (!shiftKey && !isLaneRoutable(gate)) {
 			explained = gate.block;
 			return;
@@ -93,23 +79,6 @@
 	function dropOn(targetId: string) {
 		if (draggedId) taskStore.moveTask(draggedId, targetId);
 		draggedId = null;
-	}
-
-	function handleMoveKey(event: KeyboardEvent, taskId: string) {
-		if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
-		event.preventDefault();
-		taskStore.moveTaskBy(taskId, event.key === 'ArrowUp' ? -1 : 1);
-	}
-
-	function roleBadge(role?: string): string | null {
-		switch (role) {
-			case 'smol': return 'smol';
-			case 'slow': return 'slow';
-			case 'plan': return 'plan';
-			case 'custom': return 'custom';
-			case 'default': return 'default';
-			default: return null;
-		}
 	}
 </script>
 
@@ -209,7 +178,6 @@
 					</li>
 				{:else}
 					{#each tasks as task (task.id)}
-						{@const launchDisabled = !task.prompt.trim() && (!task.images || task.images.length === 0)}
 						<li
 							class="task-row"
 							draggable={task.status === 'queued'}
@@ -225,89 +193,18 @@
 									<span class="task-flash" aria-hidden="true"></span>
 								{/key}
 							{/if}
-							<button
-								type="button"
-								class="drag-handle"
-								aria-label={m.agent_panel_reorder_handle_aria({ title: taskTitle(task) })}
-								title={m.agent_panel_reorder_handle_title()}
-								onkeydown={(event) => handleMoveKey(event, task.id)}
-							>
-								<svg viewBox="0 0 12 16" aria-hidden="true">
-									<circle cx="3" cy="4" r="1" /><circle cx="9" cy="4" r="1" />
-									<circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" />
-									<circle cx="3" cy="12" r="1" /><circle cx="9" cy="12" r="1" />
-								</svg>
-							</button>
-							<div
-								role="button"
-								tabindex={launchDisabled ? -1 : 0}
-								class="task-launch"
-								class:blocked={!isLaneRoutable(gate)}
-								class:disabled={launchDisabled}
-								aria-disabled={launchDisabled ? 'true' : undefined}
-								aria-expanded={isLaneRoutable(gate) ? undefined : noticeOpen}
-								aria-controls={isLaneRoutable(gate) ? undefined : 'agent-queue-gate-notice'}
-								title={isLaneRoutable(gate) ? m.ui_agentpanel_avvia_value1_18da({ value1: taskTitle(task) }) : `${gate.detail} ${gate.hint}`.trim()}
-								aria-label={isLaneRoutable(gate)
-									? m.ui_queuedrawer_avvia_task_value1_0055({ value1: taskTitle(task) })
-									: m.gate_explain_task_aria({ title: taskTitle(task) })}
-								onclick={(event) => {
-									if (launchDisabled) return;
-									runOrExplain(task.id, event);
-								}}
-								onkeydown={(event) => {
-									if (launchDisabled) return;
-									if (event.target !== event.currentTarget) return;
-									if (event.key === 'Enter' || event.key === ' ') {
-										event.preventDefault();
-										runOrExplain(task.id);
-									}
-								}}
-							>
-								<span class="task-title" class:completed-text={task.status === 'completed' || task.status === 'abandoned'}>
-									<MentionText text={taskTitle(task)} {onOpenFile} />
-								</span>
-								<span class="task-excerpt">
-									<MentionText text={taskExcerpt(task)} {onOpenFile} />
-								</span>
-								<div class="task-chips">
-									{#if task.status === 'in_progress'}
-										<span class="task-chip status-chip in-progress">{m.queue_drawer_status_in_progress()}</span>
-									{:else if task.status === 'completed'}
-										<span class="task-chip status-chip completed">{m.queue_drawer_status_completed()}</span>
-									{:else if task.status === 'abandoned'}
-										<span class="task-chip status-chip abandoned">{m.queue_drawer_status_abandoned()}</span>
-									{/if}
-									{#if task.options?.role}
-										{@const badge = roleBadge(task.options.role)}
-										{#if badge}
-											<span class="task-chip role-chip">{badge}</span>
-										{/if}
-									{/if}
-									{#if task.options?.directives && task.options.directives.length > 0}
-										{#each task.options.directives.slice(0, 2) as d (d.id)}
-											<span class="task-chip mode-chip" title={d.name}>{d.tag || d.name}</span>
-										{/each}
-										{#if task.options.directives.length > 2}
-											<span class="task-chip mode-chip" title={task.options.directives.slice(2).map((d) => d.name).join(', ')}>+{task.options.directives.length - 2}</span>
-										{/if}
-									{/if}
-									{#if task.images && task.images.length > 0}
-										<span class="task-chip img-chip">img {task.images.length}</span>
-									{/if}
-								</div>
-							</div>
-							<button
-								type="button"
-								class="edit-task"
-								onclick={() => onEditTask(task.id)}
-								aria-label={m.agent_panel_edit_task_aria({ title: taskTitle(task) })}
-								title={m.queue_drawer_edit_btn_title()}
-							>
-								<svg viewBox="0 0 16 16" aria-hidden="true">
-									<path d="m10.8 3.2 2 2-7.2 7.2-2.6.6.6-2.6 7.2-7.2ZM9.5 4.5l2 2" />
-								</svg>
-							</button>
+							<QueueTaskItem
+								{task}
+								blocked={!isLaneRoutable(gate)}
+								attention={gateAttention}
+								blockedTitle={`${gate.detail} ${gate.hint}`.trim()}
+								explainId="agent-queue-gate-notice"
+								explainOpen={noticeOpen}
+								reorderable
+								onLaunch={({ shiftKey }) => runOrExplain(task.id, shiftKey)}
+								onEdit={() => onEditTask(task.id)}
+								{onOpenFile}
+							/>
 						</li>
 					{/each}
 				{/if}
@@ -439,8 +336,7 @@
 		background: var(--bg-active);
 	}
 
-	.new-task svg,
-	.edit-task svg {
+	.new-task svg {
 		width: 13px;
 		height: 13px;
 		fill: none;
@@ -574,20 +470,16 @@
 		width: 100%;
 	}
 
-
+	/* La riga visibile e' `QueueTaskItem`: il `<li>` porta solo trascinamento,
+	   animazioni di lista e il lampo del rollback. */
 	.task-row {
 		position: relative;
-		overflow: hidden;
-		display: grid;
-		grid-template-columns: 24px minmax(0, 1fr) 30px;
-		align-items: stretch;
-		min-height: 72px;
-		padding: var(--space-1);
+		flex-shrink: 0;
 		border-radius: var(--radius-sm);
 	}
 
-	.task-row:hover {
-		background: var(--bg-hover);
+	.queue-list.queue-cards .task-row {
+		border-radius: var(--radius-md);
 	}
 
 	.task-flash {
@@ -604,210 +496,5 @@
 		0% { opacity: 0; }
 		25% { opacity: 0.85; }
 		100% { opacity: 0; }
-	}
-
-	.drag-handle,
-	.edit-task,
-	.task-launch {
-		border: 0;
-		background: transparent;
-	}
-
-	.drag-handle,
-	.edit-task {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: var(--radius-sm);
-		color: var(--ink-faint);
-		cursor: grab;
-	}
-
-	.drag-handle:active {
-		cursor: grabbing;
-	}
-
-	.drag-handle svg {
-		width: 10px;
-		height: 14px;
-		fill: currentColor;
-	}
-
-	.edit-task {
-		cursor: pointer;
-	}
-
-	.drag-handle:hover,
-	.edit-task:hover {
-		color: var(--ink);
-	}
-
-	.task-launch {
-		min-width: 0;
-		overflow: hidden;
-		padding: var(--space-1);
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		align-items: stretch;
-		gap: var(--space-1);
-		text-align: left;
-		cursor: pointer;
-	}
-
-	.task-launch:disabled,
-	.task-launch.disabled {
-		cursor: default;
-	}
-
-	.task-launch:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 1px;
-	}
-
-	.task-launch.blocked {
-		cursor: help;
-	}
-
-	.task-chips {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: flex-start;
-		gap: var(--space-1);
-		min-width: 0;
-	}
-
-	.task-chips:empty {
-		display: none;
-	}
-
-	.status-chip.in-progress {
-		background: var(--brand-dim);
-		color: var(--brand-ink);
-		font-weight: 600;
-	}
-
-	.status-chip.completed {
-		background: var(--bg-sunken);
-		color: var(--success, #22c55e);
-	}
-
-	.status-chip.abandoned {
-		background: var(--bg-sunken);
-		color: var(--ink-faint);
-		opacity: 0.7;
-	}
-
-	.completed-text {
-		text-decoration: line-through;
-		color: var(--ink-faint);
-	}
-
-	.task-chip {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		font-variant-numeric: tabular-nums;
-		white-space: nowrap;
-		line-height: 1.2;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.task-chip.role-chip {
-		background: var(--brand-dim);
-		color: var(--ink);
-		font-weight: 600;
-		font-size: var(--text-xs);
-	}
-
-	.task-chip.mode-chip {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		color: var(--ink-muted);
-	}
-
-	.task-chip.img-chip {
-		background: var(--bg-sunken);
-		color: var(--ink-faint);
-	}
-
-	.task-title {
-		display: block;
-		width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		min-width: 0;
-		overflow-wrap: anywhere;
-		color: var(--ink);
-		font-size: var(--text-base);
-		font-weight: 600;
-	}
-
-	.task-excerpt {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		overflow: hidden;
-		width: 100%;
-		min-width: 0;
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		line-height: 1.45;
-		overflow-wrap: anywhere;
-	}
-
-	.queue-list.queue-cards .task-row {
-		min-height: 88px;
-		flex-shrink: 0;
-		padding: var(--space-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		background: var(--bg-base);
-	}
-
-	.queue-list.queue-cards .task-row:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-
-	.queue-list.queue-cards .task-launch {
-		justify-content: flex-start;
-	}
-
-	.queue-list.queue-cards .task-title {
-		white-space: normal;
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		overflow-wrap: anywhere;
-	}
-
-	.queue-list.queue-cards .task-excerpt {
-		-webkit-line-clamp: 3;
-		line-clamp: 3;
-		font-size: var(--text-sm);
-		color: var(--ink-muted);
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.task-row,
-		.task-launch,
-		.task-chips {
-			transition: none;
-		}
-	}
-
-	.task-launch:disabled .task-title,
-	.task-launch.disabled .task-title,
-	.task-launch.blocked .task-title {
-		color: var(--ink-muted);
 	}
 </style>

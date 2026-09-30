@@ -159,6 +159,11 @@ export interface TaskDefaults {
 	selectedDirectiveIds: string[];
 }
 
+export interface TaskTitleSettings {
+	/** Etichetta dei task in coda generata dal modello leggero; spento = solo euristica. */
+	autoGenerate: boolean;
+}
+
 export type LanguagePreference = 'system' | 'it' | 'en';
 
 export interface GeneralSettings {
@@ -221,6 +226,7 @@ export interface StudioSettings {
 	editor: EditorSettings;
 	terminal: TerminalSettings;
 	taskDefaults: TaskDefaults;
+	taskTitles: TaskTitleSettings;
 	taskDirectives: TaskDirective[];
 	promptSuggestions: PromptSuggestion[];
 	suggestions: SuggestionSettings;
@@ -266,6 +272,9 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		thinkingLevel: 'auto',
 		includeEditorContext: true,
 		selectedDirectiveIds: []
+	},
+	taskTitles: {
+		autoGenerate: true
 	},
 	taskDirectives: sanitizeDirectivesCatalog(FACTORY_DIRECTIVES),
 	promptSuggestions: sanitizeSuggestionsCatalog(FACTORY_SUGGESTIONS),
@@ -352,6 +361,7 @@ export function parseSettings(value: unknown): StudioSettings {
 	const editor = (record.editor && typeof record.editor === 'object' ? record.editor : {}) as Record<string, unknown>;
 	const terminal = (record.terminal && typeof record.terminal === 'object' ? record.terminal : {}) as Record<string, unknown>;
 	const tasks = (record.taskDefaults && typeof record.taskDefaults === 'object' ? record.taskDefaults : {}) as Record<string, unknown>;
+	const taskTitles = (record.taskTitles && typeof record.taskTitles === 'object' ? record.taskTitles : {}) as Record<string, unknown>;
 	const rawDirectives = record.taskDirectives;
 	const rawPromptSuggestions = record.promptSuggestions;
 	const rawSuggestions = (record.suggestions && typeof record.suggestions === 'object' ? record.suggestions : {}) as Record<string, unknown>;
@@ -399,6 +409,9 @@ export function parseSettings(value: unknown): StudioSettings {
 						...(tasks.minimalMode === true ? ['dir_factory_minimal'] : []),
 						...(tasks.researchMode === true ? ['dir_factory_research'] : [])
 					]
+		},
+		taskTitles: {
+			autoGenerate: bool(taskTitles.autoGenerate, d.taskTitles.autoGenerate)
 		},
 		taskDirectives: sanitizeDirectivesCatalog(rawDirectives ?? d.taskDirectives),
 		promptSuggestions: sanitizeSuggestionsCatalog(rawPromptSuggestions ?? d.promptSuggestions),
@@ -495,6 +508,7 @@ class SettingsStore {
 	editor = $state<EditorSettings>({ ...DEFAULT_SETTINGS.editor });
 	terminal = $state<TerminalSettings>({ ...DEFAULT_SETTINGS.terminal });
 	taskDefaults = $state<TaskDefaults>({ ...DEFAULT_SETTINGS.taskDefaults });
+	taskTitles = $state<TaskTitleSettings>({ ...DEFAULT_SETTINGS.taskTitles });
 	taskDirectives = $state<TaskDirective[]>(sanitizeDirectivesCatalog(DEFAULT_SETTINGS.taskDirectives));
 	promptSuggestions = $state<PromptSuggestion[]>(sanitizeSuggestionsCatalog(DEFAULT_SETTINGS.promptSuggestions));
 	suggestions = $state<SuggestionSettings>({ ...DEFAULT_SETTINGS.suggestions });
@@ -573,6 +587,7 @@ class SettingsStore {
 		this.editor = parsed.editor;
 		this.terminal = parsed.terminal;
 		this.taskDefaults = parsed.taskDefaults;
+		this.taskTitles = parsed.taskTitles;
 		this.taskDirectives = parsed.taskDirectives;
 		this.promptSuggestions = parsed.promptSuggestions;
 		this.suggestions = parsed.suggestions;
@@ -591,6 +606,7 @@ class SettingsStore {
 			editor: $state.snapshot(this.editor),
 			terminal: $state.snapshot(this.terminal),
 			taskDefaults: $state.snapshot(this.taskDefaults),
+			taskTitles: $state.snapshot(this.taskTitles),
 			taskDirectives: $state.snapshot(this.taskDirectives),
 			promptSuggestions: $state.snapshot(this.promptSuggestions),
 			suggestions: $state.snapshot(this.suggestions),
@@ -633,6 +649,11 @@ class SettingsStore {
 
 	patchTaskDefaults(patch: Partial<TaskDefaults>) {
 		Object.assign(this.taskDefaults, patch);
+		this.save();
+	}
+
+	patchTaskTitles(patch: Partial<TaskTitleSettings>) {
+		Object.assign(this.taskTitles, patch);
 		this.save();
 	}
 
@@ -873,6 +894,7 @@ class SettingsStore {
 		}
 		if (!section || section === 'tasks') {
 			this.taskDefaults = { ...DEFAULT_SETTINGS.taskDefaults };
+			this.taskTitles = { ...DEFAULT_SETTINGS.taskTitles };
 			this.taskDirectives = sanitizeDirectivesCatalog(DEFAULT_SETTINGS.taskDirectives);
 		}
 		if (!section || section === 'suggestions') {

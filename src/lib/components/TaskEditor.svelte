@@ -11,6 +11,8 @@
 		type TaskDirectiveSnapshot
 	} from '$lib/stores/taskDirectives';
 	import { rankFrequentTaskModelConfigurations } from '$lib/stores/taskSerialization';
+	import { taskLabel } from '$lib/stores/taskTitle';
+	import { requestTaskTitle } from '$lib/stores/taskTitles';
 	import { modelSettingsStore, STANDARD_ROLES, THINKING_LEVELS, type ModelDto } from '$lib/stores/modelSettings.svelte';
 	import { quotaStore, providersMatch, type ProviderHost } from '$lib/stores/quota.svelte';
 	import type { AgentSession } from '$lib/agent/session.svelte';
@@ -80,7 +82,9 @@
 	let isDraggingOver = $state(false);
 
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session?.availableCommands ?? []));
-	const title = $derived(prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || 'Nuovo task');
+	const title = $derived(
+		taskLabel({ prompt, title: task.title, titleHash: task.titleHash }) || m.agent_panel_new_task_btn()
+	);
 	const selectedModel = $derived(
 		modelSettingsStore.assignableCatalog.find((model) => model.selector === options.modelSelector) ??
 		modelSettingsStore.catalog.find((model) => model.selector === options.modelSelector)
@@ -244,6 +248,7 @@
 
 	function saveTask() {
 		taskStore.updateTask(task.id, prompt, attachedImages, options);
+		requestTaskTitle(task.id);
 	}
 	// Menzioni file (@file con ricerca fuzzy nel progetto del task): stato e tastiera
 	// gestiti dal controller condiviso, prioritizzando i file aperti o toccati di recente.

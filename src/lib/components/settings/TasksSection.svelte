@@ -483,6 +483,32 @@
 		</div>
 	</div>
 
+	<!-- Titoli dei task in coda: preferenza globale, non per progetto -->
+	<div class="section-block">
+		<div class="block-header-row">
+			<span class="block-title">{m.settings_task_titles_block_title()}</span>
+		</div>
+		<div class="section-group">
+			<div class="form-row">
+				<div class="form-row-copy">
+					<span class="form-row-label">{m.settings_task_titles_auto_label()}</span>
+					<span class="form-row-desc">{m.settings_task_titles_auto_desc()}</span>
+				</div>
+				<div class="form-row-control">
+					<label class="switch">
+						<input
+							type="checkbox"
+							aria-label={m.settings_task_titles_auto_label()}
+							checked={settingsStore.taskTitles.autoGenerate}
+							onchange={(e) => settingsStore.patchTaskTitles({ autoGenerate: (e.currentTarget as HTMLInputElement).checked })}
+						/>
+						<span class="slider"></span>
+					</label>
+				</div>
+			</div>
+		</div>
+	</div>
+
 	<!-- Blocco 2: Catalogo Direttive dei Task & Selezione Predefinita -->
 	<div class="section-block">
 		<div class="directives-header">

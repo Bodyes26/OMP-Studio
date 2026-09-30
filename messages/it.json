@@ -280,7 +280,6 @@
   "project_popover_toast_open_failed": "Apertura non riuscita",
   "queue_drawer_title_only_images": "(solo immagini)",
   "queue_drawer_title_new_task": "Nuovo task",
-  "queue_drawer_excerpt_empty": "Prompt ancora vuoto",
   "queue_drawer_attached_images": [
     {
       "declarations": [
@@ -1527,7 +1526,6 @@
   "ui_agentpanel_avvia_value1_18da": "Avvia: {value1}",
   "ui_queuedrawer_avvia_task_value1_0055": "Avvia task: {value1}",
   "ui_topbar_value1_impostazioni_di_studio_ctrl_alt_f8aa": "{value1} — Impostazioni di Studio (Ctrl+Alt+,)",
-  "ui_queuedrawer_modifica_task_value1_4d12": "Modifica task: {value1}",
   "ui_taskssection_value1_copia_f056": "{value1} (Copia)",
   "ui_suggestionssection_modifica_value1_1535": "Modifica {value1}",
   "ui_suggestionssection_elimina_value1_ac11": "Elimina {value1}",
@@ -1970,5 +1968,20 @@
   "chat_v2_ask_no": "No",
   "chat_v2_ask_send": "Invia",
   "chat_v2_ask_review_title": "Verifica le risposte prima di inviare",
-  "chat_v2_ask_review_tab": "Riepilogo"
+  "chat_v2_ask_review_tab": "Riepilogo",
+  "queue_task_read_more": "Leggi tutto",
+  "queue_task_read_less": "Mostra meno",
+  "queue_task_new_lane": "Nuova corsia",
+  "queue_task_new_lane_title": "Avvia in una nuova corsia isolata (Shift+click)",
+  "queue_task_menu_label": "Azioni task: {title}",
+  "queue_task_menu_copy": "Copia prompt",
+  "queue_task_menu_move_up": "Sposta su",
+  "queue_task_menu_move_down": "Sposta giù",
+  "queue_task_menu_delete": "Elimina task",
+  "queue_task_delete_confirm_title": "Eliminare il task?",
+  "queue_task_delete_confirm_message": "«{title}» verrà rimosso dalla coda.",
+  "queue_task_delete_confirm_ok": "Elimina",
+  "settings_task_titles_block_title": "Titoli dei task in coda",
+  "settings_task_titles_auto_label": "Titoli generati automaticamente",
+  "settings_task_titles_auto_desc": "Il modello leggero (ruolo smol) assegna a ogni task in coda un'etichetta di poche parole. Spento, il titolo si ricava dalla prima riga del prompt."
 }

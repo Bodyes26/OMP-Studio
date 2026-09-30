@@ -37,7 +37,8 @@ Regole TASSATIVE:
 4. Nessun verbo coniugato, nessuna frase completa, nessun punto o punteggiatura finale.
 5. Il nome DEVE essere diverso da quelli gia' esistenti forniti nel contesto."#;
 
-/// Ripulisce e valida il nome generato per una corsia o prototipo.
+/// Ripulisce e valida un'etichetta breve generata dal modello: nomi di corsia,
+/// prototipo e titoli dei task in coda condividono gli stessi limiti.
 ///
 /// Regole:
 /// 1. Prende la prima riga non vuota.
@@ -46,7 +47,7 @@ Regole TASSATIVE:
 /// 4. Se la stringa supera i 24 caratteri o contiene piu' di 3 parole, tenta di troncarla
 ///    per parole (fino a un massimo di 3 parole) entro la soglia di 24 caratteri.
 /// 5. Se la prima parola da sola supera i 24 caratteri o la stringa e' vuota, restituisce None.
-pub fn clean_lane_name(raw: &str) -> Option<String> {
+pub fn clean_short_label(raw: &str) -> Option<String> {
     let first_line = raw
         .lines()
         .map(|l| l.trim())
@@ -199,7 +200,7 @@ pub async fn generate_lane_name(
         _ => return Ok(None), // Fallimento silenzioso: timeout, errore omp o panico
     };
 
-    let cleaned = match clean_lane_name(&raw_response) {
+    let cleaned = match clean_short_label(&raw_response) {
         Some(name) => name,
         None => return Ok(None),
     };
@@ -220,47 +221,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_clean_lane_name_simple() {
-        assert_eq!(clean_lane_name("ChatAI Reveal"), Some("ChatAI Reveal".to_string()));
-        assert_eq!(clean_lane_name("Login AD"), Some("Login AD".to_string()));
-        assert_eq!(clean_lane_name("Export Excel"), Some("Export Excel".to_string()));
+    fn test_clean_short_label_simple() {
+        assert_eq!(clean_short_label("ChatAI Reveal"), Some("ChatAI Reveal".to_string()));
+        assert_eq!(clean_short_label("Login AD"), Some("Login AD".to_string()));
+        assert_eq!(clean_short_label("Export Excel"), Some("Export Excel".to_string()));
     }
 
     #[test]
-    fn test_clean_lane_name_strips_quotes_and_punctuation() {
-        assert_eq!(clean_lane_name("\"Ultimate AI Chat\""), Some("Ultimate AI Chat".to_string()));
-        assert_eq!(clean_lane_name("'Login AD'."), Some("Login AD".to_string()));
-        assert_eq!(clean_lane_name("«Ricerca V2»!"), Some("Ricerca V2".to_string()));
-        assert_eq!(clean_lane_name("“ChatAI Reveal”..."), Some("ChatAI Reveal".to_string()));
+    fn test_clean_short_label_strips_quotes_and_punctuation() {
+        assert_eq!(clean_short_label("\"Ultimate AI Chat\""), Some("Ultimate AI Chat".to_string()));
+        assert_eq!(clean_short_label("'Login AD'."), Some("Login AD".to_string()));
+        assert_eq!(clean_short_label("«Ricerca V2»!"), Some("Ricerca V2".to_string()));
+        assert_eq!(clean_short_label("“ChatAI Reveal”..."), Some("ChatAI Reveal".to_string()));
     }
 
     #[test]
-    fn test_clean_lane_name_strips_markdown_and_list_prefixes() {
-        assert_eq!(clean_lane_name("`ChatAI`"), Some("ChatAI".to_string()));
-        assert_eq!(clean_lane_name("**Login AD**"), Some("Login AD".to_string()));
-        assert_eq!(clean_lane_name("- Export Excel"), Some("Export Excel".to_string()));
-        assert_eq!(clean_lane_name("1. Ricerca V2"), Some("Ricerca V2".to_string()));
+    fn test_clean_short_label_strips_markdown_and_list_prefixes() {
+        assert_eq!(clean_short_label("`ChatAI`"), Some("ChatAI".to_string()));
+        assert_eq!(clean_short_label("**Login AD**"), Some("Login AD".to_string()));
+        assert_eq!(clean_short_label("- Export Excel"), Some("Export Excel".to_string()));
+        assert_eq!(clean_short_label("1. Ricerca V2"), Some("Ricerca V2".to_string()));
     }
 
     #[test]
-    fn test_clean_lane_name_truncates_words_to_fit_24_chars() {
+    fn test_clean_short_label_truncates_words_to_fit_24_chars() {
         // "Nuova interfaccia utente" e' esattamente 24 caratteri
         assert_eq!(
-            clean_lane_name("Nuova interfaccia utente per il carrello"),
+            clean_short_label("Nuova interfaccia utente per il carrello"),
             Some("Nuova interfaccia utente".to_string())
         );
         // Troncamento a 3 parole massimo
         assert_eq!(
-            clean_lane_name("One Two Three Four Five"),
+            clean_short_label("One Two Three Four Five"),
             Some("One Two Three".to_string())
         );
     }
 
     #[test]
-    fn test_clean_lane_name_rejects_empty_or_oversized_first_word() {
-        assert_eq!(clean_lane_name(""), None);
-        assert_eq!(clean_lane_name("   "), None);
-        assert_eq!(clean_lane_name("...---..."), None);
-        assert_eq!(clean_lane_name("Supercalifragilisticexpialidocious"), None);
+    fn test_clean_short_label_rejects_empty_or_oversized_first_word() {
+        assert_eq!(clean_short_label(""), None);
+        assert_eq!(clean_short_label("   "), None);
+        assert_eq!(clean_short_label("...---..."), None);
+        assert_eq!(clean_short_label("Supercalifragilisticexpialidocious"), None);
     }
 }

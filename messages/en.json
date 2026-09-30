@@ -280,7 +280,6 @@
   "project_popover_toast_open_failed": "Failed to open",
   "queue_drawer_title_only_images": "(images only)",
   "queue_drawer_title_new_task": "New task",
-  "queue_drawer_excerpt_empty": "Prompt still empty",
   "queue_drawer_attached_images": [
     {
       "declarations": [
@@ -1527,7 +1526,6 @@
   "ui_agentpanel_avvia_value1_18da": "Start: {value1}",
   "ui_queuedrawer_avvia_task_value1_0055": "Start task: {value1}",
   "ui_topbar_value1_impostazioni_di_studio_ctrl_alt_f8aa": "{value1} — Studio Settings (Ctrl+Alt+,)",
-  "ui_queuedrawer_modifica_task_value1_4d12": "Edit task: {value1}",
   "ui_taskssection_value1_copia_f056": "{value1} (Copy)",
   "ui_suggestionssection_modifica_value1_1535": "Edit {value1}",
   "ui_suggestionssection_elimina_value1_ac11": "Delete {value1}",
@@ -1970,5 +1968,20 @@
   "chat_v2_ask_no": "No",
   "chat_v2_ask_send": "Send",
   "chat_v2_ask_review_title": "Review your answers before sending",
-  "chat_v2_ask_review_tab": "Summary"
+  "chat_v2_ask_review_tab": "Summary",
+  "queue_task_read_more": "Read more",
+  "queue_task_read_less": "Show less",
+  "queue_task_new_lane": "New lane",
+  "queue_task_new_lane_title": "Run in a new isolated lane (Shift+click)",
+  "queue_task_menu_label": "Task actions: {title}",
+  "queue_task_menu_copy": "Copy prompt",
+  "queue_task_menu_move_up": "Move up",
+  "queue_task_menu_move_down": "Move down",
+  "queue_task_menu_delete": "Delete task",
+  "queue_task_delete_confirm_title": "Delete the task?",
+  "queue_task_delete_confirm_message": "“{title}” will be removed from the queue.",
+  "queue_task_delete_confirm_ok": "Delete",
+  "settings_task_titles_block_title": "Queued task titles",
+  "settings_task_titles_auto_label": "Auto-generated titles",
+  "settings_task_titles_auto_desc": "The lightweight model (smol role) gives every queued task a short label of a few words. When off, the title comes from the first line of the prompt."
 }

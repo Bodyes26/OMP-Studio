@@ -1,0 +1,663 @@
+<script lang="ts">
+	import { untrack } from 'svelte';
+	import { ask } from '@tauri-apps/plugin-dialog';
+	import { m } from '$lib/paraglide/messages.js';
+	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { roleBadge, splitTaskText, taskLabel } from '$lib/stores/taskTitle';
+	import { requestTaskTitle } from '$lib/stores/taskTitles';
+	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
+	import {
+		IconArrowDown,
+		IconArrowUp,
+		IconChevronDown,
+		IconChevronUp,
+		IconCopy,
+		IconGitBranch,
+		IconPencil,
+		IconPlay,
+		IconTrash
+	} from '$lib/icons';
+	import MentionText from './MentionText.svelte';
+
+	/**
+	 * Un task della coda, condiviso da pannello Agente e cassetto globale.
+	 *
+	 * La riga intera avvia il task col mouse (Shift = nuova corsia), ma per la
+	 * tastiera il punto d'ingresso sono i pulsanti espliciti: un contenitore
+	 * `role=button` con dentro altri bottoni (menzioni, Leggi tutto, azioni)
+	 * sarebbe un controllo annidato illeggibile per gli screen reader.
+	 */
+	let {
+		task,
+		blocked = false,
+		attention = false,
+		blockedTitle = '',
+		explainId,
+		explainOpen = false,
+		reorderable = false,
+		maxDirectives = 2,
+		onLaunch,
+		onEdit,
+		onOpenFile
+	}: {
+		task: StudioTask;
+		/** Il cancello non instrada: "Avvia" spiega il blocco invece di partire. */
+		blocked?: boolean;
+		attention?: boolean;
+		blockedTitle?: string;
+		/** Riquadro che spiega il blocco, per `aria-controls`. */
+		explainId?: string;
+		explainOpen?: boolean;
+		/** Maniglia con riordino da tastiera (Alt+freccia): solo nel pannello. */
+		reorderable?: boolean;
+		maxDirectives?: number;
+		onLaunch: (options: { shiftKey: boolean; ctrlKey: boolean }) => void;
+		onEdit: () => void;
+		onOpenFile?: (path: string) => void;
+	} = $props();
+
+	const isCards = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
+	const text = $derived(splitTaskText(task));
+	const label = $derived(taskLabel(task) || m.queue_drawer_title_new_task());
+	const role = $derived(roleBadge(task.options?.role));
+	const imageCount = $derived(task.images?.length ?? 0);
+	const launchDisabled = $derived(!task.prompt.trim() && imageCount === 0);
+	const isQueued = $derived(task.status === 'queued');
+	const finished = $derived(task.status === 'completed' || task.status === 'abandoned');
+	const directives = $derived(task.options?.directives ?? []);
+	const body = $derived(
+		text.body ||
+			(text.headline
+				? ''
+				: imageCount > 0
+					? m.queue_drawer_attached_images({ count: imageCount })
+					: m.agent_panel_empty_prompt())
+	);
+
+	let expanded = $state(false);
+	let overflowing = $state(false);
+	let bodyEl = $state<HTMLElement | null>(null);
+
+	// Rendering = task visibile: e' qui che parte il recupero dei titoli
+	// mancanti. Si seguono solo i campi di questo task: `taskById` legge
+	// l'intera lista e ogni modifica altrui riavvierebbe l'attesa.
+	$effect(() => {
+		void [task.prompt, task.title, task.titleHash, task.status, settingsStore.taskTitles.autoGenerate];
+		untrack(() => requestTaskTitle(task.id));
+	});
+
+	// "Leggi tutto" solo se il testo e' davvero tagliato: la misura dipende da
+	// larghezza della colonna, densita' e font, non dal numero di caratteri.
+	$effect(() => {
+		const el = bodyEl;
+		if (!el || expanded) return;
+		void body;
+		void isCards;
+		const measure = () => (overflowing = el.scrollHeight > el.clientHeight + 1);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		return () => observer.disconnect();
+	});
+
+	function launchFromRow(event: MouseEvent) {
+		if (!isQueued || launchDisabled || event.button !== 0) return;
+		// Menzioni, pulsanti e link hanno la propria azione.
+		if ((event.target as Element | null)?.closest('button, a, input')) return;
+		// Chi sta selezionando del testo non sta chiedendo di avviare.
+		if (window.getSelection()?.toString()) return;
+		onLaunch({ shiftKey: event.shiftKey, ctrlKey: event.ctrlKey || event.metaKey });
+	}
+
+	function handleMoveKey(event: KeyboardEvent) {
+		if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+		event.preventDefault();
+		taskStore.moveTaskBy(task.id, event.key === 'ArrowUp' ? -1 : 1);
+	}
+
+	async function confirmDelete() {
+		const confirmed = await ask(m.queue_task_delete_confirm_message({ title: label }), {
+			title: m.queue_task_delete_confirm_title(),
+			kind: 'warning',
+			okLabel: m.queue_task_delete_confirm_ok(),
+			cancelLabel: m.common_cancel()
+		});
+		if (confirmed) taskStore.deleteTask(task.id);
+	}
+
+	function openMenu(event: MouseEvent) {
+		event.stopPropagation();
+		const siblings = taskStore.tasksFor(task.projectPath).filter((t) => t.status !== 'dispatching');
+		const index = siblings.findIndex((t) => t.id === task.id);
+		const items: ContextMenuEntry[] = [
+			{
+				kind: 'item',
+				label: m.queue_drawer_run_btn(),
+				icon: IconPlay,
+				disabled: launchDisabled,
+				run: () => onLaunch({ shiftKey: false, ctrlKey: false })
+			},
+			{
+				kind: 'item',
+				label: m.queue_task_new_lane(),
+				icon: IconGitBranch,
+				shortcut: 'Shift+Click',
+				disabled: launchDisabled,
+				run: () => onLaunch({ shiftKey: true, ctrlKey: false })
+			},
+			{ kind: 'item', label: m.queue_drawer_edit_btn_title(), icon: IconPencil, run: onEdit },
+			{
+				kind: 'item',
+				label: m.queue_task_menu_copy(),
+				icon: IconCopy,
+				disabled: !task.prompt.trim(),
+				run: () => navigator.clipboard.writeText(task.prompt)
+			},
+			{ kind: 'separator' },
+			{
+				kind: 'item',
+				label: m.queue_task_menu_move_up(),
+				icon: IconArrowUp,
+				shortcut: 'Alt+↑',
+				disabled: index <= 0,
+				run: () => taskStore.moveTaskBy(task.id, -1)
+			},
+			{
+				kind: 'item',
+				label: m.queue_task_menu_move_down(),
+				icon: IconArrowDown,
+				shortcut: 'Alt+↓',
+				disabled: index < 0 || index >= siblings.length - 1,
+				run: () => taskStore.moveTaskBy(task.id, 1)
+			},
+			{ kind: 'separator' },
+			{ kind: 'item', label: m.queue_task_menu_delete(), icon: IconTrash, danger: true, run: confirmDelete }
+		];
+		contextMenu.open(event, {
+			label: m.queue_task_menu_label({ title: label }),
+			items,
+			invoker: event.currentTarget as HTMLElement
+		});
+	}
+</script>
+
+<!-- Il click sulla riga e' una scorciatoia del mouse: la tastiera usa "Avvia". -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="queue-task"
+	class:cards={isCards}
+	class:runnable={isQueued && !launchDisabled}
+	class:blocked={blocked && isQueued}
+	title={isQueued && !launchDisabled ? (blocked ? blockedTitle : m.ui_agentpanel_avvia_value1_18da({ value1: label })) : undefined}
+	onclick={launchFromRow}
+	oncontextmenu={openMenu}
+>
+	{#if reorderable}
+		<button
+			type="button"
+			class="grip"
+			aria-label={m.agent_panel_reorder_handle_aria({ title: label })}
+			title={m.agent_panel_reorder_handle_title()}
+			onkeydown={handleMoveKey}
+		>
+			<svg viewBox="0 0 12 16" aria-hidden="true">
+				<circle cx="3" cy="4" r="1" /><circle cx="9" cy="4" r="1" />
+				<circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" />
+				<circle cx="3" cy="12" r="1" /><circle cx="9" cy="12" r="1" />
+			</svg>
+		</button>
+	{/if}
+
+	<div class="content">
+		{#if text.headline}
+			<div class="head">
+				<span class="headline" class:finished>
+					<MentionText text={text.headline} {onOpenFile} />
+				</span>
+				{#if role}<span class="chip role">{role}</span>{/if}
+			</div>
+		{/if}
+
+		{#if body}
+			<p
+				id={`queue-task-body-${task.id}`}
+				class="body"
+				class:expanded
+				class:finished
+				class:placeholder={!text.body}
+				bind:this={bodyEl}
+			>
+				<MentionText text={body} {onOpenFile} />
+			</p>
+			{#if overflowing || expanded}
+				<button
+					type="button"
+					class="read-more"
+					aria-expanded={expanded}
+					aria-controls={`queue-task-body-${task.id}`}
+					onclick={() => (expanded = !expanded)}
+				>
+					{expanded ? m.queue_task_read_less() : m.queue_task_read_more()}
+					{#if expanded}<IconChevronUp />{:else}<IconChevronDown />{/if}
+				</button>
+			{/if}
+		{/if}
+
+		<div class="chips">
+			{#if task.status === 'in_progress'}
+				<span class="chip status in-progress">{m.queue_drawer_status_in_progress()}</span>
+			{:else if task.status === 'completed'}
+				<span class="chip status completed">{m.queue_drawer_status_completed()}</span>
+			{:else if task.status === 'abandoned'}
+				<span class="chip status abandoned">{m.queue_drawer_status_abandoned()}</span>
+			{/if}
+			{#if role && !text.headline}<span class="chip role">{role}</span>{/if}
+			{#each directives.slice(0, maxDirectives) as d (d.id)}
+				<span class="chip mode" title={d.name}>{d.tag || d.name}</span>
+			{/each}
+			{#if directives.length > maxDirectives}
+				<span class="chip mode" title={directives.slice(maxDirectives).map((d) => d.name).join(', ')}>
+					+{directives.length - maxDirectives}
+				</span>
+			{/if}
+			{#if imageCount > 0 && (text.body || text.headline)}
+				<span class="chip img">img {imageCount}</span>
+			{/if}
+		</div>
+
+		{#if isQueued}
+			<div class="actions">
+				<button
+					type="button"
+					class="action run"
+					class:blocked
+					class:attention={blocked && attention}
+					disabled={launchDisabled}
+					aria-expanded={blocked ? explainOpen : undefined}
+					aria-controls={blocked ? explainId : undefined}
+					aria-label={blocked
+						? m.gate_explain_task_aria({ title: label })
+						: m.ui_queuedrawer_avvia_task_value1_0055({ value1: label })}
+					title={blocked ? blockedTitle : m.ui_agentpanel_avvia_value1_18da({ value1: label })}
+					onclick={(event) => onLaunch({ shiftKey: false, ctrlKey: event.ctrlKey || event.metaKey })}
+				>
+					<IconPlay />
+					<span>{m.queue_drawer_run_btn()}</span>
+				</button>
+				<button
+					type="button"
+					class="action lane"
+					disabled={launchDisabled}
+					title={m.queue_task_new_lane_title()}
+					onclick={(event) => onLaunch({ shiftKey: true, ctrlKey: event.ctrlKey || event.metaKey })}
+				>
+					<IconGitBranch />
+					<span>{m.queue_task_new_lane()}</span>
+				</button>
+			</div>
+		{/if}
+	</div>
+
+	<button
+		type="button"
+		class="edit"
+		onclick={onEdit}
+		aria-label={m.agent_panel_edit_task_aria({ title: label })}
+		title={m.queue_drawer_edit_btn_title()}
+	>
+		<IconPencil />
+	</button>
+</div>
+
+<style>
+	/* `--queue-task-surface` e' lo sfondo opaco sotto la riga: la barra
+	   azioni della vista compatta si sovrappone al testo e con il solo
+	   `--bg-hover` traslucido lo lascerebbe trasparire. */
+	.queue-task {
+		--queue-task-hover: color-mix(in srgb, var(--ink) 10%, var(--queue-task-surface, var(--bg-base)));
+		position: relative;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 26px;
+		gap: var(--space-1);
+		padding: var(--space-2) var(--space-1) var(--space-2) var(--space-2);
+		border-bottom: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+	}
+
+	.queue-task:has(.grip) {
+		grid-template-columns: 18px minmax(0, 1fr) 26px;
+		padding-left: var(--space-1);
+	}
+
+	.queue-task.runnable {
+		cursor: pointer;
+	}
+
+	.queue-task.runnable.blocked {
+		cursor: help;
+	}
+
+	.queue-task:hover,
+	.queue-task:focus-within {
+		background: var(--queue-task-hover);
+	}
+
+	.queue-task.cards {
+		padding: var(--space-2);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--queue-task-surface, var(--bg-base));
+	}
+
+	.queue-task.cards:hover,
+	.queue-task.cards:focus-within {
+		border-color: var(--line-strong);
+		background: var(--queue-task-hover);
+	}
+
+	.grip,
+	.edit,
+	.read-more,
+	.action {
+		border: 0;
+		background: transparent;
+		font: inherit;
+	}
+
+	.grip,
+	.edit {
+		align-self: start;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 22px;
+		padding: 0;
+		border-radius: var(--radius-sm);
+		color: var(--ink-faint);
+	}
+
+	.grip {
+		cursor: grab;
+	}
+
+	.grip:active {
+		cursor: grabbing;
+	}
+
+	.grip svg {
+		width: 10px;
+		height: 14px;
+		fill: currentColor;
+	}
+
+	.edit {
+		cursor: pointer;
+	}
+
+	.edit :global(svg) {
+		width: 13px;
+		height: 13px;
+	}
+
+	.grip:hover,
+	.edit:hover {
+		color: var(--ink);
+		background: var(--bg-hover);
+	}
+
+	.grip:focus-visible,
+	.edit:focus-visible,
+	.read-more:focus-visible,
+	.action:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
+	}
+
+	.content {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+
+	.head {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
+	.headline {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		line-height: 1.35;
+	}
+
+	.cards .headline {
+		white-space: normal;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow-wrap: anywhere;
+	}
+
+	/* Chiuso, gli a capo si fondono per non sprecare righe; aperto, il
+	   prompt torna con la sua struttura. */
+	.body {
+		margin: 0;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		line-height: 1.45;
+		overflow-wrap: anywhere;
+	}
+
+	.cards .body {
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+		font-size: var(--text-sm);
+	}
+
+	.body.expanded {
+		display: block;
+		white-space: pre-wrap;
+		overflow: visible;
+	}
+
+	.body.placeholder {
+		color: var(--ink-faint);
+		font-style: italic;
+	}
+
+	.finished {
+		text-decoration: line-through;
+		color: var(--ink-faint);
+	}
+
+	.read-more {
+		align-self: flex-start;
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		padding: 0;
+		border-radius: var(--radius-sm);
+		color: var(--brand-ink, var(--brand));
+		font-size: var(--text-xs);
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.read-more :global(svg) {
+		width: 12px;
+		height: 12px;
+	}
+
+	.read-more:hover {
+		text-decoration: underline;
+	}
+
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-1);
+		min-width: 0;
+	}
+
+	.chips:empty {
+		display: none;
+	}
+
+	.chip {
+		max-width: 100%;
+		overflow: hidden;
+		padding: 1px 4px;
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
+		color: var(--ink-muted);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		line-height: 1.2;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chip.role {
+		flex-shrink: 0;
+		background: var(--brand-dim);
+		color: var(--ink);
+		font-weight: 600;
+	}
+
+	.chip.mode {
+		border: 1px solid var(--line);
+	}
+
+	.chip.img {
+		color: var(--ink-faint);
+	}
+
+	.chip.status.in-progress {
+		background: var(--brand-dim);
+		color: var(--brand-ink);
+		font-weight: 600;
+	}
+
+	.chip.status.completed {
+		color: var(--success, #22c55e);
+	}
+
+	.chip.status.abandoned {
+		color: var(--ink-faint);
+		opacity: 0.7;
+	}
+
+	.actions {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-1);
+		margin-top: 2px;
+	}
+
+	.action {
+		min-width: 0;
+		height: 24px;
+		padding: 0 var(--space-2);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-1);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		font-weight: 500;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	.action span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.action :global(svg) {
+		flex-shrink: 0;
+		width: 12px;
+		height: 12px;
+	}
+
+	.action:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.action.run:not(.blocked) {
+		border-color: color-mix(in srgb, var(--brand) 40%, transparent);
+		background: var(--brand-dim);
+		color: var(--brand-ink, var(--ink));
+	}
+
+	.action.run.blocked {
+		cursor: help;
+	}
+
+	.action.run.attention {
+		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+		color: var(--warn);
+	}
+
+	.action:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	/* Compatta: la barra azioni non occupa una riga propria. Compare sopra
+	   l'angolo in basso a destra al passaggio o al fuoco, senza spostare la
+	   lista: una riga che cresce all'hover farebbe saltare quelle sotto. */
+	.queue-task:not(.cards) .actions {
+		position: absolute;
+		right: var(--space-1);
+		bottom: var(--space-1);
+		display: flex;
+		margin: 0;
+		padding-left: var(--space-3);
+		background: linear-gradient(to right, transparent, var(--queue-task-hover) var(--space-3));
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.queue-task:not(.cards):hover .actions,
+	.queue-task:not(.cards):focus-within .actions {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.queue-task:not(.cards) .action {
+		height: 22px;
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		.queue-task,
+		.actions {
+			transition:
+				background-color var(--dur-fast, 120ms) ease,
+				border-color var(--dur-fast, 120ms) ease,
+				opacity var(--dur-fast, 120ms) ease;
+		}
+	}
+</style>
