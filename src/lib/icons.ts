@@ -96,6 +96,7 @@ export { default as IconCheckboxChecked } from '@lucide/svelte/icons/square-chec
 export { default as IconRadio } from '@lucide/svelte/icons/circle';
 export { default as IconRadioChecked } from '@lucide/svelte/icons/circle-dot';
 export { default as IconNote } from '@lucide/svelte/icons/notebook-pen';
+export { default as IconAsk } from '@lucide/svelte/icons/message-circle-question-mark';
 
 // Ruoli dei modelli: un segno per ruolo, usato da badge e selettori.
 export { default as IconRoleDefault } from '@lucide/svelte/icons/message-circle';

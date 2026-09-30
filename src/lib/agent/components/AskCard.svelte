@@ -19,13 +19,11 @@
 	import {
 		IconArrowLeft,
 		IconArrowRight,
+		IconAsk,
 		IconCheck,
-		IconCheckbox,
-		IconCheckboxChecked,
 		IconChevronDown,
 		IconNote,
-		IconRadio,
-		IconRadioChecked,
+		IconPlus,
 		IconRename
 	} from '$lib/icons';
 	import type { AgentSession, PendingAsk } from '../session.svelte';
@@ -667,9 +665,7 @@
 >
 	<!-- Intestazione: titolo, avanzamento, countdown, riduzione -->
 	<div class="ask-head">
-		{#if multiSteps}
-			<span class="ask-count" aria-hidden="true">{answeredCount}/{sentQuestions.length + questions.length}</span>
-		{/if}
+		<span class="ask-icon" aria-hidden="true"><IconAsk /></span>
 		<span class="ask-title">
 			{#if isReviewStep}
 				{m.chat_v2_ask_review_title()}
@@ -796,7 +792,7 @@
 				{:else if parsedTitle.counter && questions.length <= 1}
 					<span class="ask-counter">{parsedTitle.counter}</span>
 				{/if}
-				{#if currentQuestion.header && multiSteps}
+				{#if currentQuestion.header && !multiSteps}
 					<span class="ask-header">{currentQuestion.header}</span>
 				{/if}
 				<p class="ask-text">{currentQuestion.question}</p>
@@ -850,17 +846,9 @@
 								}
 							}}
 						>
-							<span class="ask-box" aria-hidden="true">
-								{#if currentQuestion.multi}
-									{#if selected}
-										<IconCheckboxChecked />
-									{:else}
-										<IconCheckbox />
-									{/if}
-								{:else if selected}
-									<IconRadioChecked />
-								{:else}
-									<IconRadio />
+							<span class="ask-box" class:multi={currentQuestion.multi} aria-hidden="true">
+								{#if selected}
+									{#if currentQuestion.multi}<IconCheck />{:else}<span class="ask-dot"></span>{/if}
 								{/if}
 							</span>
 							<span class="ask-opt-body">
@@ -894,7 +882,7 @@
 
 			{#if currentQuestion.isCustom && !currentQuestion.decideForMe}
 				<div class="ask-other">
-					<label class="ask-other-label" for={`${uid}-custom`}>{m.chat_v2_ask_other()}</label>
+					<label class="sr-only" for={`${uid}-custom`}>{m.chat_v2_ask_other()}</label>
 					<textarea
 						id={`${uid}-custom`}
 						class="ask-other-input"
@@ -906,7 +894,8 @@
 				</div>
 			{/if}
 
-			{#if noteShown && !currentQuestion.decideForMe}
+			<!-- La nota vale anche con "Decidi tu": viaggia con la delega (buildQuestionSteps). -->
+			{#if noteShown}
 				<div class="ask-note">
 					<IconNote aria-hidden="true" />
 					<input
@@ -918,6 +907,10 @@
 						aria-label={m.ask_note_placeholder()}
 					/>
 				</div>
+			{:else}
+				<button type="button" class="ask-note-btn" onclick={() => toggleNoteInput()}>
+					<IconPlus aria-hidden="true" /> {m.chat_v2_ask_add_note()} <kbd class="ask-kbd">N</kbd>
+				</button>
 			{/if}
 		{/if}
 
@@ -932,15 +925,8 @@
 					title={m.chat_v2_ask_decide_title()}
 					aria-pressed={currentQuestion.decideForMe}
 				>
-					{#if currentQuestion.decideForMe}✓ {/if}{currentQuestion.decideForMe
-						? m.chat_v2_ask_decide_active()
-						: m.chat_v2_ask_decide()}
+					{currentQuestion.decideForMe ? `✓ ${m.chat_v2_ask_decide_active()}` : m.chat_v2_ask_decide()}
 				</button>
-				{#if !noteShown}
-					<button type="button" class="ask-note-btn" onclick={() => toggleNoteInput()}>
-						<IconNote aria-hidden="true" /> {m.chat_v2_ask_add_note()} <kbd class="ask-kbd">N</kbd>
-					</button>
-				{/if}
 			{/if}
 			<span class="ask-hint" aria-hidden="true">
 				{#if currentQuestion && !isReviewStep}
@@ -1093,14 +1079,27 @@
 	.ask-card {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: var(--space-3);
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-md);
-		padding: var(--space-3);
+		border-radius: var(--radius-lg);
+		padding: var(--space-3) var(--space-4) 0;
 		min-width: 0;
+		/* Tante domande con anteprima non devono spingere la chat fuori schermo:
+		   la scheda scorre e il pie' con Invia resta ancorato in fondo. */
+		max-height: 58vh;
+		overflow-y: auto;
 		outline: none;
 		box-shadow: 0 8px 30px -10px rgb(0 0 0 / 0.2);
+	}
+	/* Nella scheda che scorre i figli non devono comprimersi: con overflow
+	   proprio (la barra delle schede) un figlio flex si schiaccerebbe a zero. */
+	.ask-card > * {
+		flex-shrink: 0;
+	}
+	/* Le varianti senza pie' (input) chiudono con lo stesso respiro in basso. */
+	.ask-card > :last-child:not(.ask-foot) {
+		margin-bottom: var(--space-3);
 	}
 
 	.ask-head {
@@ -1110,21 +1109,16 @@
 		min-width: 0;
 	}
 
-	.ask-count {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-		color: var(--ink-faint);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px 6px;
+	.ask-icon {
+		display: inline-flex;
 		flex-shrink: 0;
+		color: var(--ink-muted);
+		--icon-size: 16px;
 	}
 
 	.ask-title {
-		font-size: var(--text-sm);
-		font-weight: 600;
+		font-size: var(--text-xs);
+		font-weight: 500;
 		color: var(--ink);
 		min-width: 0;
 		overflow: hidden;
@@ -1185,10 +1179,10 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 2px 8px;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-md);
+		padding: 4px 10px;
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
 		cursor: pointer;
@@ -1198,20 +1192,25 @@
 		background: var(--bg-hover);
 		color: var(--ink);
 	}
-	.ask-step.cur {
-		border-color: var(--brand);
-		color: var(--ink);
-		font-weight: 600;
+	/* Scheda corrente in negativo, come nel prototipo: si vede a colpo d'occhio
+	   a che punto si e' anche con cinque domande in fila. */
+	.ask-step.cur,
+	.ask-step.cur:hover {
+		background: var(--ink);
+		color: var(--bg-base);
 	}
-	.ask-step.done {
-		border-color: var(--success-dim);
+	.ask-step.cur .ask-step-badge {
+		opacity: 0.6;
+	}
+	.ask-step.done .ask-step-badge {
+		color: var(--success);
 	}
 	.ask-step.sent {
 		cursor: default;
 		opacity: 0.6;
 	}
 	.ask-step.sent:hover {
-		background: var(--bg-sunken);
+		background: transparent;
 		color: var(--ink-muted);
 	}
 	.ask-step.review {
@@ -1248,10 +1247,10 @@
 	}
 	.ask-text {
 		margin: 0;
-		font-size: var(--text-base);
-		font-weight: 600;
+		font-size: 15px;
+		font-weight: 500;
 		color: var(--ink);
-		line-height: 1.35;
+		line-height: 1.45;
 	}
 	.ask-detail {
 		margin: 0;
@@ -1286,16 +1285,17 @@
 	.ask-opt {
 		display: flex;
 		align-items: flex-start;
-		gap: var(--space-2);
-		background: var(--bg-sunken);
+		gap: var(--space-3);
+		background: transparent;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 7px 10px;
+		border-radius: var(--radius-md);
+		padding: 9px 12px;
 		cursor: pointer;
 		user-select: none;
+		transition: border-color 0.15s ease, background-color 0.15s ease;
 	}
 	.ask-opt:hover {
-		background: var(--bg-hover);
+		background: color-mix(in oklab, var(--bg-hover) 60%, transparent);
 		border-color: var(--line-strong);
 	}
 	.ask-opt.focused,
@@ -1305,16 +1305,36 @@
 	}
 	.ask-opt.selected {
 		border-color: var(--brand);
-		background: var(--bg-hover);
+		box-shadow: inset 0 0 0 1px var(--brand);
+		background: color-mix(in oklab, var(--brand) 7%, transparent);
 	}
+	/* Indicatore disegnato: cerchio per la scelta singola, quadrato per la
+	   multipla, pieno del colore del marchio quando e' scelto. */
 	.ask-box {
-		display: inline-flex;
-		margin-top: 1px;
+		display: grid;
+		place-items: center;
+		width: 16px;
+		height: 16px;
+		margin-top: 2px;
 		flex-shrink: 0;
-		color: var(--ink-faint);
+		border: 1px solid var(--line-strong);
+		border-radius: 50%;
+		color: var(--on-brand);
+		--icon-size: 12px;
+		transition: background-color 0.15s ease, border-color 0.15s ease;
+	}
+	.ask-box.multi {
+		border-radius: 5px;
 	}
 	.ask-opt.selected .ask-box {
-		color: var(--brand);
+		background: var(--brand);
+		border-color: var(--brand);
+	}
+	.ask-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--on-brand);
 	}
 	.ask-opt-body {
 		display: flex;
@@ -1332,20 +1352,20 @@
 		color: var(--ink);
 	}
 	.ask-rec {
-		background: var(--success-dim);
-		color: var(--bg-sunken);
-		border-radius: var(--radius-sm);
-		padding: 1px 6px;
-		font-size: 10px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
+		background: color-mix(in oklab, var(--success) 14%, transparent);
+		color: var(--success);
+		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--success) 25%, transparent);
+		border-radius: 6px;
+		padding: 0 6px;
+		font-size: 11px;
+		font-weight: 500;
+		line-height: 18px;
 	}
 	.ask-opt-desc {
 		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		line-height: 1.35;
-		margin-top: 1px;
+		color: var(--ink-muted);
+		line-height: 1.45;
+		margin-top: 2px;
 	}
 
 	.ask-kbd {
@@ -1399,15 +1419,12 @@
 		color: var(--ink);
 	}
 
+	/* "Altro…" si scrive sotto la sua riga, allineato alle etichette. */
 	.ask-other {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-	}
-	.ask-other-label {
-		font-size: var(--text-xs);
-		font-weight: 500;
-		color: var(--ink-muted);
+		margin-top: calc(-1 * var(--space-2));
+		padding-left: 40px;
 	}
 	.ask-other-input,
 	.ask-editor {
@@ -1447,6 +1464,8 @@
 		color: var(--ink);
 	}
 	.ask-note-btn {
+		align-self: flex-start;
+		margin: calc(-1 * var(--space-1)) 0 0 -6px;
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
@@ -1517,13 +1536,18 @@
 		color: var(--ink);
 	}
 
+	/* Pie' a tutta larghezza, ancorato in fondo quando la scheda scorre. */
 	.ask-foot {
+		position: sticky;
+		bottom: 0;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
 		flex-wrap: wrap;
+		margin: 0 calc(-1 * var(--space-4));
+		padding: var(--space-2) var(--space-3);
 		border-top: 1px solid var(--line);
-		padding-top: var(--space-2);
+		background: color-mix(in oklab, var(--bg-sunken) 45%, var(--bg-raised));
 	}
 	.ask-decide {
 		background: transparent;
@@ -1542,7 +1566,6 @@
 	.ask-decide.on {
 		font-weight: 600;
 		color: var(--ink);
-		border-color: var(--brand);
 	}
 	.ask-hint {
 		font-size: 11px;
@@ -1558,18 +1581,18 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
 		padding: 5px 12px;
-		font-size: var(--text-sm);
-		color: var(--ink);
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
 		cursor: pointer;
 		white-space: nowrap;
 	}
 	.ask-btn:hover:not(:disabled) {
 		background: var(--bg-hover);
-		border-color: var(--line-strong);
+		color: var(--ink);
 	}
 	.ask-btn:disabled {
 		opacity: 0.45;
@@ -1578,8 +1601,9 @@
 	.ask-btn.primary {
 		background: var(--brand);
 		border-color: var(--brand);
-		color: var(--bg-sunken);
+		color: var(--on-brand);
 		font-weight: 600;
+		padding: 5px 14px;
 	}
 	.ask-btn.primary:hover:not(:disabled) {
 		background: var(--brand);

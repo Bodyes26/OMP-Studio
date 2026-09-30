@@ -19,6 +19,7 @@
 	import { chatReveal } from '../motion';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
 	import { groupsInExecution } from '../tools/registry';
+	import { categoryForTool } from '../tools/categories';
 	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
 	import TurnFooter, { type TurnFooterData } from './TurnFooter.svelte';
@@ -30,6 +31,7 @@
 	import SubagentResultCard from './SubagentResultCard.svelte';
 	import TodoTraceRow from './TodoTraceRow.svelte';
 	import SubagentTrace from './SubagentTrace.svelte';
+	import AskTrace from './AskTrace.svelte';
 	import IrcMessageCard from './IrcMessageCard.svelte';
 	import LaneLandingCard from './LaneLandingCard.svelte';
 	import SystemChip from './SystemChip.svelte';
@@ -103,7 +105,8 @@
 		| { kind: 'tool-group'; id: number; entries: ToolGroupEntry[] }
 		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] }
 		| { kind: 'todo-trace'; id: string; entry: ToolEntry; trace: TodoTraceItem; countTool: boolean }
-		| { kind: 'subagent-trace'; id: number; entry: ToolEntry };
+		| { kind: 'subagent-trace'; id: number; entry: ToolEntry }
+		| { kind: 'ask-trace'; id: number; entry: ToolEntry };
 	function hasResponseContent(entry: AssistantEntry): boolean {
 		return entry.blocks.some(
 			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
@@ -169,6 +172,13 @@
 			if (entry.kind === 'tool' && entry.toolName === 'task') {
 				flushSegment();
 				items.push({ kind: 'subagent-trace', id: entry.id, entry });
+				continue;
+			}
+			// Una domanda all'utente e' contenuto primario, non un passo di esecuzione:
+			// nascosta dentro un gruppo tool non si vedrebbe a cosa si e' risposto.
+			if (entry.kind === 'tool' && categoryForTool(entry.toolName) === 'ask') {
+				flushSegment();
+				items.push({ kind: 'ask-trace', id: entry.id, entry });
 				continue;
 			}
 			if (isExecutionEntry(entry)) {
@@ -306,7 +316,7 @@
 					recordEntries([item.entry]);
 				} else if (item.kind === 'tool-group' || item.kind === 'system-group') {
 					recordEntries(item.entries as unknown as TranscriptEntry[]);
-				} else if ((item.kind === 'todo-trace' && item.countTool) || item.kind === 'subagent-trace') {
+				} else if ((item.kind === 'todo-trace' && item.countTool) || item.kind === 'subagent-trace' || item.kind === 'ask-trace') {
 					recordEntries([item.entry]);
 				}
 			}
@@ -338,7 +348,7 @@
 		// (tool-group, subagent-result, irc) prendono il respiro pieno di --space-3.
 		if (item.kind === 'tool-group') return 'content';
 		if (item.kind === 'system-group') return 'system';
-		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace') return 'content';
+		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace' || item.kind === 'ask-trace') return 'content';
 		const k = item.entry.kind;
 		if (k === 'user') return 'user';
 		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
@@ -477,6 +487,8 @@
 					<TodoTraceRow trace={item.trace} />
 				{:else if item.kind === 'subagent-trace'}
 					<SubagentTrace entry={item.entry} subagents={session.subagents} />
+				{:else if item.kind === 'ask-trace'}
+					<AskTrace entry={item.entry} />
 				{:else if item.kind === 'system-group'}
 					<NoticeGroup entries={item.entries} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'user'}

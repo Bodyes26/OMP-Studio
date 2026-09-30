@@ -7,7 +7,6 @@
 import Generic from './Generic.svelte';
 import type { ToolRenderer } from './types';
 
-import Ask from './renderers/Ask.svelte';
 import AstEdit from './renderers/AstEdit.svelte';
 import AstGrep from './renderers/AstGrep.svelte';
 import Bash from './renderers/Bash.svelte';
@@ -41,7 +40,6 @@ import Yield from './renderers/Yield.svelte';
 const GENERIC: ToolRenderer = { component: Generic, expandable: true };
 
 const REGISTRY: Record<string, ToolRenderer> = {
-	ask: { component: Ask, expandable: true },
 	ast_edit: { component: AstEdit, expandable: true },
 	ast_grep: { component: AstGrep, expandable: true },
 	bash: { component: Bash, expandable: true },

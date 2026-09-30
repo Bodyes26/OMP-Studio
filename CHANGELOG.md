@@ -55,6 +55,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Con Studio minimizzato o nascosto non partono più controlli git in background; al ritorno sulla finestra si aggiorna solo il progetto attivo, al massimo ogni 5 secondi, e all'avvio i badge git dei progetti si riempiono uno alla volta. Diagrammi e anteprime nuovi vengono rilevati dagli eventi del file system invece che controllando la cartella due volte al secondo.
 - Studio registra i tempi di avvio, apertura file, caricamento sessioni e ogni comando git in `perf-trace.log`, nella cartella dei log dell'app, per misurare dove si perde tempo.
 - Le build Nightly per Windows si compilano molto più in fretta: il codice di Studio non viene ottimizzato e l'installer usa una compressione più rapida. L'installer Nightly è un po' più grande; le versioni stabili non cambiano.
+- Le domande dell'agente hanno la grafica del prototipo CodeAgent Flow: scheda con intestazione e icona, schede delle domande con quella corrente in evidenza, opzioni a riquadro con indicatore pieno quando scelte, «Consigliata» in verde, «Aggiungi una nota» sotto le opzioni e piè con «Decidi tu» e Invia sempre visibile anche quando la scheda scorre. Mentre il modello scrive le domande, la stessa scheda si compone pezzo per pezzo.
+- Nella chat una domanda non finisce più dentro l'elenco delle chiamate agli strumenti: finché è aperta resta il richiamo «L'agente ha una domanda per te», dopo l'invio un riepilogo compatto con ogni domanda, la risposta data, «Decide l'agente» e l'eventuale nota.
 
 ### Fixed
 - La ricerca dei modelli nel composer torna a trovare anche nomi con spazi al posto dei trattini (per esempio «gpt 6.1»): chat, nuovi task e impostazioni usano lo stesso elenco e la stessa ricerca, con navigazione da tastiera nell'ordine mostrato.
@@ -84,6 +86,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Barra di stato, schede delle corsie e coda dei task riportano lo stesso stato dell'agente. La barra di stato indica la corsia aperta invece di tutto il progetto: non segna più «In esecuzione» per un agente che ha finito mentre lavora un'altra corsia, e un agente fermo in Principale non viene più considerato occupato per colpa di un'altra corsia.
 - Un agente che chiude il turno con un consiglio o una domanda (con i suggerimenti di risposta sotto la chat) non è più considerato occupato: il task parte nella stessa corsia senza proporre un nuovo worktree.
 - Il selettore del modello nel composer non resta più vuoto con «Nessun modello trovato»: l'elenco si caricava una sola volta, quando la sessione dell'agente spesso non era ancora pronta, e il fallimento veniva ignorato. Ora si carica quando la sessione è pronta e si aggiorna a ogni apertura del menu, così compaiono anche i modelli di un provider appena collegato.
+- Tornano i suggerimenti di risposta sopra il composer: le chip standard configurate in Impostazioni e quelle generate sull'ultimo messaggio, anche quando l'agente chiude con una domanda senza il tool apposito. Compaiono ad agente fermo e bozza vuota, e `Alt+1`…`Alt+6` le inserisce.
 
 ## [1.6.0] - 2026-09-21
 

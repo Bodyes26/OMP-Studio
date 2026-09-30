@@ -55,6 +55,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - With Studio minimized or hidden no git checks run in the background; returning to the window refreshes only the active project, at most every 5 seconds, and at startup the projects' git badges fill in one at a time. New diagrams and previews are detected through file system events instead of checking the folder twice a second.
 - Studio records startup, file opening, session loading and every git command timings in `perf-trace.log`, in the app log folder, to measure where time goes.
 - Windows Nightly builds compile much faster: Studio's own code is not optimized and the installer uses a quicker compression. The Nightly installer is somewhat larger; stable releases are unchanged.
+- The agent's questions follow the CodeAgent Flow prototype look: a card with header and icon, question tabs with the current one highlighted, boxed options with a filled marker when picked, a green "Recommended" tag, "Add a note" under the options and a footer with "You decide" and Send always in view even when the card scrolls. While the model is still writing the questions, the same card builds up piece by piece.
+- In the chat a question no longer ends up inside the tool call list: while it's open you see "The agent has a question for you", and once answered a compact summary lists every question, the answer given, "Agent decides" and any note.
 
 ### Fixed
 - Model search in the composer once again matches names with spaces instead of hyphens (for example “gpt 6.1”): chat, new tasks and settings share the same list and search, with keyboard navigation following the displayed order.
@@ -84,6 +86,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The status bar, lane tabs and task queue now report the same agent state. The status bar describes the lane on screen instead of the whole project: it no longer shows "Running" for an agent that has finished while another lane works, and an idle agent on Main is no longer considered busy because of another lane.
 - An agent that ends its turn with a suggestion or a question (with reply suggestions under the chat) is no longer considered busy: the task starts in the same lane without proposing a new worktree.
 - The composer's model picker no longer stays empty with "No models found": the list was loaded only once, often before the agent session was ready, and the failure was ignored. It now loads when the session is ready and refreshes every time the menu opens, so models from a newly connected provider show up too.
+- Reply suggestions above the composer are back: the standard chips configured in Settings and the ones generated from the last message, including when the agent ends with a question without using the question tool. They show while the agent is idle and the draft is empty, and `Alt+1`…`Alt+6` inserts them.
 
 ## [1.6.0] - 2026-09-21
 

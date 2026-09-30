@@ -24,6 +24,12 @@
 	import { prepareImage, isImageFile } from '$lib/agent/images';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { settingsStore, type StreamingBehavior } from '$lib/stores/settings.svelte';
+	import {
+		visibleSuggestions,
+		composeSuggestionChips,
+		MAX_STATIC_CHIPS,
+		type SuggestionChipItem
+	} from '$lib/stores/promptSuggestions';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { splitModelSelector, resolveActiveRole } from '$lib/stores/modelSettingsHelpers';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
@@ -455,7 +461,7 @@
 
 		const digit = /^(?:Digit|Numpad)([1-6])$/.exec(e.code)?.[1];
 		if (digit) {
-			const chip = showSuggestionChips ? session.suggestions.items[Number(digit) - 1] : undefined;
+			const chip = showSuggestionChips ? displayedSuggestions[Number(digit) - 1] : undefined;
 			if (chip) {
 				e.preventDefault();
 				insertComposerText(chip.prompt);
@@ -557,8 +563,20 @@
 			: m.chat_v2_composer_placeholder_idle()
 	);
 
-	// Suggerimenti chips mostrati solo a sessione inattiva
-	const showSuggestionChips = $derived(!session.isStreaming && session.suggestions.items.length > 0);
+	// Chip di risposta: le statiche configurate davanti, poi quelle generate dal
+	// modello leggero sull'ultimo turno (anche quando l'agente chiude con una
+	// domanda senza tool ask). Solo ad agente fermo e bozza vuota: una chip
+	// sostituisce il testo, non deve cancellare quello che si sta scrivendo.
+	const displayedSuggestions = $derived.by<SuggestionChipItem[]>(() =>
+		composeSuggestionChips(
+			visibleSuggestions(settingsStore.promptSuggestions, MAX_STATIC_CHIPS),
+			session.suggestions.items,
+			settingsStore.suggestions.maxDynamic
+		)
+	);
+	const showSuggestionChips = $derived(
+		visible && !session.isStreaming && !canSend && !currentTrigger && displayedSuggestions.length > 0
+	);
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -588,7 +606,7 @@
 	<!-- Suggerimenti prompt (visibili solo quando l'agente è fermo) -->
 	{#if showSuggestionChips}
 		<SuggestionChips
-			chips={session.suggestions.items}
+			chips={displayedSuggestions}
 			onSelect={(prompt) => {
 				insertComposerText(prompt);
 				focus();

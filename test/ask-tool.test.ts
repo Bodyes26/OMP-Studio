@@ -4,6 +4,7 @@ import {
 	buildFlushPlan,
 	buildQuestionSteps,
 	cleanOptionLabel,
+	DECIDE_FOR_ME_TEXT,
 	DONE_SENTINEL,
 	extractNoteFromLabel,
 	firstUnansweredIndex,
@@ -20,6 +21,7 @@ import {
 	type AskFlushStep,
 	type AskQuestion
 } from '../src/lib/agent/askAnswers.ts';
+import { parseAskToolCall, summarizeAskAnswer } from '../src/lib/agent/askResult.ts';
 
 function option(label: string): AnswerableOption {
 	return {
@@ -440,5 +442,39 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 			assert.equal(secondStep.value, 'JWT (nota: senza refresh)');
 			assert.equal(stepAcceptsRequest(secondStep, { method: 'select', signature: secondSig }), true);
 		});
+	});
+});
+
+describe('Ask tool: riepilogo delle risposte inviate', () => {
+	const args = {
+		questions: [
+			{ id: 'fruit', header: 'Frutta', question: 'Frutta preferita?', options: [{ label: 'Apple' }, { label: 'Banana' }] },
+			{ id: 'toppings', header: 'Guarnizioni', question: 'Guarnizioni?', multi: true, options: [{ label: 'Chocolate' }] }
+		]
+	};
+
+	it('unisce scelte e testo libero e scarta la sentinella Other', () => {
+		// Forma reale di omp (fixtures/chat-v2/ask-real.ndjson) con Other tra le scelte.
+		const [fruit, toppings] = parseAskToolCall(args, {
+			results: [
+				{ id: 'fruit', question: 'Frutta preferita?', options: ['Apple', 'Banana'], multi: false, selectedOptions: ['Apple (Recommended)'] },
+				{ id: 'toppings', question: 'Guarnizioni?', options: ['Chocolate'], multi: true, selectedOptions: ['Chocolate', OTHER_LABEL], customInput: 'Sprinkles & Nuts' }
+			]
+		});
+		assert.equal(fruit.header, 'Frutta');
+		assert.deepEqual(summarizeAskAnswer(fruit), { kind: 'answered', labels: ['Apple'], note: undefined });
+		assert.deepEqual(summarizeAskAnswer(toppings), { kind: 'answered', labels: ['Chocolate', '“Sprinkles & Nuts”'], note: undefined });
+	});
+
+	it('riconosce "Decidi tu" anche con la nota attaccata al testo', () => {
+		const [fruit] = parseAskToolCall(args, {
+			results: [{ id: 'fruit', question: 'Frutta preferita?', options: ['Apple'], selectedOptions: [], customInput: `${DECIDE_FOR_ME_TEXT} (nota: niente agrumi)` }]
+		});
+		assert.deepEqual(summarizeAskAnswer(fruit), { kind: 'decided', labels: [], note: 'niente agrumi' });
+	});
+
+	it('senza scelte ne testo non inventa una risposta', () => {
+		const [fruit] = parseAskToolCall(args, { results: [{ id: 'fruit', question: 'Frutta preferita?', options: ['Apple'], selectedOptions: [] }] });
+		assert.equal(summarizeAskAnswer(fruit).kind, 'none');
 	});
 });
