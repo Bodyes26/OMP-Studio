@@ -8,6 +8,7 @@ import type {
 	AgentSessionEvent,
 	ExtensionUiResponse,
 	LoginProviderInfo,
+	ModelInfo,
 	RpcCommand,
 	RpcSessionState
 } from '../wire';
@@ -37,6 +38,33 @@ export class FakeOmpRpcClient extends OmpRpcClient {
 		},
 		todoPhases: []
 	};
+
+	public availableModels: ModelInfo[] = [
+		{
+			id: 'claude-3-7-sonnet',
+			name: 'Claude 3.7 Sonnet',
+			provider: 'anthropic',
+			contextWindow: 200000,
+			reasoning: true,
+			input: ['text', 'image']
+		},
+		{
+			id: 'gpt-6.1',
+			name: 'GPT-6.1',
+			provider: 'openai',
+			contextWindow: 128000,
+			reasoning: true,
+			input: ['text', 'image']
+		},
+		{
+			id: 'gemini-2.5-pro',
+			name: 'Gemini 2.5 Pro',
+			provider: 'google',
+			contextWindow: 1000000,
+			reasoning: true,
+			input: ['text', 'image']
+		}
+	];
 
 	public onUiResponse?: (response: ExtensionUiResponse) => void;
 	public onPrompt?: (command: RpcCommand & { type: 'prompt' }) => void;
@@ -119,6 +147,9 @@ export class FakeOmpRpcClient extends OmpRpcClient {
 			case 'get_available_commands':
 				return { commands: [] } as T;
 
+			case 'get_available_models':
+				return { models: this.availableModels } as T;
+
 			case 'get_session_stats':
 				return {
 					totalMessages: 12,
@@ -147,7 +178,19 @@ export class FakeOmpRpcClient extends OmpRpcClient {
 
 			case 'handoff':
 			case 'new_session':
-			case 'set_model':
+			case 'set_model': {
+				const cmd = command as RpcCommand & { type: 'set_model'; provider: string; modelId: string };
+				const found = this.availableModels.find(
+					(m) => m.provider === cmd.provider && m.id === cmd.modelId
+				);
+				this.state.model = {
+					id: cmd.modelId,
+					name: found?.name || cmd.modelId,
+					provider: cmd.provider,
+					contextWindow: found?.contextWindow || 128000
+				};
+				return { success: true } as T;
+			}
 			case 'set_thinking_level':
 			case 'set_steering_mode':
 			case 'set_follow_up_mode':

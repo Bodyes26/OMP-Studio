@@ -56,6 +56,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Windows Nightly builds compile much faster: Studio's own code is not optimized and the installer uses a quicker compression. The Nightly installer is somewhat larger; stable releases are unchanged.
 
 ### Fixed
+- Model search in the composer once again matches names with spaces instead of hyphens (for example “gpt 6.1”): chat, new tasks and settings share the same list and search, with keyboard navigation following the displayed order.
+- Chat follows streaming responses without slowly chasing reveal animations; long tool lists skip rendering offscreen rows and idle observers while preserving default expansion and pausing auto-scroll when you scroll up to read.
 - Previews and diagrams in the center column really close with the X or `Esc`, and show up right away in the right lane instead of only after switching lanes: the center column used to not refresh, so a leftover preview (for example "File not found: proto/passwd-hack.html" on the Main lane) could not be dismissed.
 - Running Studio's tests from one of its terminals no longer opens a ghost `proto/passwd-hack.html` preview in the agent's lane.
 - While the agent works, the tool call list stays on the latest call instead of jumping back to the start of the block each time; if you scroll up to reread earlier calls, your position is left alone.

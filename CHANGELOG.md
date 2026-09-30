@@ -56,6 +56,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le build Nightly per Windows si compilano molto più in fretta: il codice di Studio non viene ottimizzato e l'installer usa una compressione più rapida. L'installer Nightly è un po' più grande; le versioni stabili non cambiano.
 
 ### Fixed
+- La ricerca dei modelli nel composer torna a trovare anche nomi con spazi al posto dei trattini (per esempio «gpt 6.1»): chat, nuovi task e impostazioni usano lo stesso elenco e la stessa ricerca, con navigazione da tastiera nell'ordine mostrato.
+- La chat segue le risposte in streaming senza inseguire lentamente le animazioni; gli elenchi lunghi di strumenti evitano il rendering delle righe fuori vista e gli osservatori inattivi, mantenendo l'apertura predefinita e lo stop dello scroll quando risali a leggere.
 - Anteprime e diagrammi nella colonna centrale si chiudono davvero con la X o con `Esc`, e compaiono subito nella corsia giusta invece che solo al cambio di corsia: prima la colonna centrale non si aggiornava e un'anteprima rimasta aperta (per esempio «File non trovato: proto/passwd-hack.html» sulla corsia Principale) non si poteva più togliere.
 - Lanciare i test di Studio da un suo terminale non apre più un'anteprima fantasma di `proto/passwd-hack.html` nella corsia dell'agente.
 - Mentre l'agente lavora, l'elenco delle chiamate agli strumenti resta sull'ultima chiamata invece di tornare ogni volta all'inizio del blocco; se sali a rileggere quelle precedenti, la posizione non viene toccata.

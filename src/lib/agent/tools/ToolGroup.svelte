@@ -240,6 +240,7 @@
 	}
 
 	// Stato di apertura dell'elenco delle chiamate: aperto di default per specifica v2
+	// (il blocco viene comunque smontato dal DOM se l'utente lo comprime manualmente).
 	let isFullListOpen = $state(true);
 
 	// Riferimento al contenitore scorrevole interno
@@ -283,15 +284,15 @@
 	}
 
 	// Segue le chiamate aggiunte (e lo scambio spinner -> icona a fine chiamata)
-	// solo se l'utente e' in fondo all'elenco; all'apertura parte dall'ultima.
+	// solo se il gruppo e' in esecuzione attiva (live) e l'utente e' in fondo all'elenco.
 	$effect(() => {
-		if (!scrollContainerEl || !isFullListOpen) return;
+		if (!scrollContainerEl || !isFullListOpen || !isLive) return;
 
 		const observer = new MutationObserver(() => {
 			scrollToBottomIfPinned();
 		});
 
-		observer.observe(scrollContainerEl, { childList: true, subtree: true });
+		observer.observe(scrollContainerEl, { childList: true });
 
 		// Scroll iniziale al montaggio o all'apertura
 		scrollToBottomIfPinned();
@@ -304,7 +305,7 @@
 
 {#snippet renderRow(item: RowItem)}
 	{@const isExpanded = expandedRows.has(item.id)}
-	<div class="row-container">
+	<div class="row-container" class:compact={!isExpanded && !item.running}>
 		<button
 			type="button"
 			class="tool-row"
@@ -473,6 +474,14 @@
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
+	}
+
+	/* Le righe collassate e non in esecuzione hanno altezza fissa esatta (26px).
+	   content-visibility con contain-intrinsic-block-size previene layout e pittura
+	   inutile fuori schermo per liste da 200+ chiamate senza alcuno scatto di scroll. */
+	.row-container.compact {
+		content-visibility: auto;
+		contain-intrinsic-block-size: 26px;
 	}
 
 	.tool-row {

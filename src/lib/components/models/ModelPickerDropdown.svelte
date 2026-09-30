@@ -4,8 +4,7 @@
 	import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
 	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { IconContextWindow, IconRoleSlow, IconRoleVision } from '$lib/icons';
-	import { matchesLooseQuery } from '$lib/looseSearch';
-
+	import ModelPickerList from './ModelPickerList.svelte';
 	let {
 		catalog = [],
 		value = '',
@@ -21,11 +20,9 @@
 	}>();
 
 	let isOpen = $state(false);
-	let filterQuery = $state('');
-	let highlightedIndex = $state(0);
 	let dropdownRef = $state<HTMLDivElement | null>(null);
 	let triggerRef = $state<HTMLButtonElement | null>(null);
-	let inputRef = $state<HTMLInputElement | null>(null);
+
 
 	// Estrai il selector pulito (senza :thinkingLevel)
 	const cleanSelector = $derived(
@@ -44,32 +41,9 @@
 		};
 	});
 
-	const filteredModels = $derived.by(() => {
-		const q = filterQuery.trim();
-		if (!q) return catalog as ModelDto[];
-		return (catalog as ModelDto[]).filter((m: ModelDto) =>
-			matchesLooseQuery(q, m.name, m.id, m.provider, m.selector)
-		);
-	});
-
-	// Raggruppa per provider
-	const groupedModels = $derived.by(() => {
-		const map: Record<string, ModelDto[]> = {};
-		for (const m of filteredModels) {
-			if (!map[m.provider]) map[m.provider] = [];
-			map[m.provider].push(m);
-		}
-		return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-	});
-
 	function toggleOpen() {
 		if (disabled) return;
 		isOpen = !isOpen;
-		if (isOpen) {
-			filterQuery = '';
-			highlightedIndex = 0;
-			setTimeout(() => inputRef?.focus(), 50);
-		}
 	}
 
 	function closeDropdown(restoreFocus = true) {
@@ -79,9 +53,9 @@
 		}
 	}
 
-	function handleSelect(m: ModelDto) {
+	function handleSelect(selector: string, m: ModelDto) {
 		closeDropdown(true);
-		onSelect?.(m.selector, m);
+		onSelect?.(selector, m);
 	}
 
 	function formatContext(tokens?: number) {
@@ -90,55 +64,12 @@
 		if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
 		return `${tokens}`;
 	}
-
-	// I livelli di sforzo, quando il modello li dichiara, sono l'informazione
-	// utile: "reasoning" da solo non dice quanto puoi spingerlo.
-	function thinkingTitle(m: ModelDto) {
-		const efforts = m.thinking?.efforts;
-		return efforts && efforts.length > 0
-			? `Thinking: ${efforts.join(' · ')}`
-			: 'Thinking: supporta il ragionamento esteso';
-	}
-
 	function handleKeydown(e: KeyboardEvent) {
-		if (!isOpen) {
-			if (e.key === 'ArrowDown' || e.key === 'Enter') {
-				e.preventDefault();
-				toggleOpen();
-			}
-			return;
-		}
-
-		if (e.key === 'Escape') {
+		if (!isOpen && (e.key === 'ArrowDown' || e.key === 'Enter')) {
 			e.preventDefault();
-			closeDropdown(true);
-			return;
-		}
-
-		if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			if (filteredModels.length > 0) {
-				highlightedIndex = (highlightedIndex + 1) % filteredModels.length;
-			}
-			return;
-		}
-
-		if (e.key === 'ArrowUp') {
-			e.preventDefault();
-			if (filteredModels.length > 0) {
-				highlightedIndex = (highlightedIndex - 1 + filteredModels.length) % filteredModels.length;
-			}
-			return;
-		}
-
-		if (e.key === 'Enter') {
-			e.preventDefault();
-			if (filteredModels.length > 0 && highlightedIndex < filteredModels.length) {
-				handleSelect(filteredModels[highlightedIndex]);
-			}
+			toggleOpen();
 		}
 	}
-
 	function handleDocClick(e: MouseEvent) {
 		if (dropdownRef && !dropdownRef.contains(e.target as Node)) {
 			closeDropdown(false);
@@ -220,101 +151,13 @@
 			popover="manual"
 			use:anchoredPopover={{ anchor: triggerRef, offset: 4, matchWidth: true, constrainHeight: true }}
 		>
-			<div class="search-box">
-				<svg class="search-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4">
-					<circle cx="7" cy="7" r="4.5" />
-					<path d="M10.5 10.5L14 14" stroke-linecap="round" />
-				</svg>
-				<input
-					type="text"
-					bind:this={inputRef}
-					bind:value={filterQuery}
-					placeholder={m.models_picker_search_placeholder()}
-					aria-label="Filtra modelli disponibili"
-					onclick={(e) => e.stopPropagation()}
-					oninput={() => highlightedIndex = 0}
-					onkeydown={handleKeydown}
-				/>
-				{#if filterQuery}
-					<button type="button" class="clear-btn" aria-label="Cancella testo" onclick={() => { filterQuery = ''; highlightedIndex = 0; }}>
-						<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-							<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
-						</svg>
-					</button>
-				{/if}
-			</div>
-
-			<div class="results-list" role="listbox" id="picker-listbox" aria-label="Elenco modelli disponibili">
-				{#if filteredModels.length === 0}
-					<div class="empty-results">
-						{m.ui_modelpickerdropdown_nessun_modello_trovato_per_4acc()}{filterQuery}"
-					</div>
-				{:else}
-					{#each groupedModels as [provider, models] (provider)}
-						<div class="provider-group">
-							<div class="group-header">
-								<span class="group-provider-name">{provider}</span>
-								<span class="group-count">{models.length}</span>
-							</div>
-							<div class="group-items">
-								{#each models as m (m.selector)}
-									{@const isHighlighted = filteredModels[highlightedIndex]?.selector === m.selector}
-									<button
-										type="button"
-										role="option"
-										aria-selected={m.selector === cleanSelector}
-										class="model-option"
-										class:selected={m.selector === cleanSelector}
-										class:highlighted={isHighlighted}
-										onclick={() => handleSelect(m)}
-									>
-										<div class="option-main">
-											<span class="option-name">{m.name}</span>
-											<span class="option-id">{m.id}</span>
-										</div>
-										<div class="option-badges">
-											{#if m.contextWindow}
-												<span
-													class="cap-chip ctx"
-													role="img"
-													title={`Finestra di contesto: ${formatContext(m.contextWindow)} token`}
-													aria-label={`Contesto ${formatContext(m.contextWindow)} token`}
-												>
-													<IconContextWindow />
-													<small>{formatContext(m.contextWindow)}</small>
-												</span>
-											{/if}
-											{#if m.input?.includes('image')}
-												<span
-													class="cap-chip vision"
-													role="img"
-													title="Vision: accetta immagini in input"
-													aria-label="Vision: accetta immagini in input"
-												>
-													<IconRoleVision />
-												</span>
-											{/if}
-											{#if m.reasoning}
-												<span
-													class="cap-chip thinking"
-													role="img"
-													title={thinkingTitle(m)}
-													aria-label={thinkingTitle(m)}
-												>
-													<IconRoleSlow />
-												</span>
-											{/if}
-											{#if m.isCustom}
-												<span class="custom-chip">Custom</span>
-											{/if}
-										</div>
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/each}
-				{/if}
-			</div>
+			<ModelPickerList
+				catalog={catalog}
+				value={cleanSelector}
+				placeholder={m.models_picker_search_placeholder()}
+				onSelect={handleSelect}
+				onClose={() => closeDropdown(true)}
+			/>
 		</div>
 	{/if}
 </div>
@@ -477,197 +320,5 @@
 		}
 	}
 
-	/* La ricerca non si comprime: col pannello limitato allo spazio
-	   disponibile deve cedere solo l'elenco. */
-	.search-box {
-		flex-shrink: 0;
-		display: flex;
-		align-items: center;
-		position: relative;
-		padding: var(--space-2);
-		border-bottom: 1px solid var(--line);
-		background: var(--bg-base);
-	}
 
-	.search-icon {
-		position: absolute;
-		left: 14px;
-		color: var(--ink-faint);
-		pointer-events: none;
-	}
-
-	.search-box input {
-		width: 100%;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 4px 24px 4px 26px;
-		font-family: inherit;
-		font-size: var(--text-xs);
-		color: var(--ink);
-		outline: none;
-	}
-
-	.search-box input:focus {
-		border-color: var(--brand);
-	}
-
-	.clear-btn {
-		position: absolute;
-		right: 12px;
-		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		cursor: pointer;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 2px;
-	}
-
-	.results-list {
-		flex: 1;
-		min-height: 0;
-		overflow-y: auto;
-		padding: 4px;
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.provider-group {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.group-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 3px 6px;
-		font-size: 10px;
-		font-weight: 600;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-
-	.group-items {
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-	}
-
-	.model-option {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		padding: 5px 8px;
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		cursor: pointer;
-		text-align: left;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.model-option:hover,
-	.model-option.highlighted {
-		background: var(--bg-hover);
-		border-color: var(--line);
-	}
-
-	.model-option.selected {
-		background: var(--bg-active);
-		border-color: var(--brand);
-	}
-
-	.option-main {
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-		min-width: 0;
-	}
-
-	.option-name {
-		font-weight: 500;
-		color: var(--ink);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.option-id {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--ink-faint);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.option-badges {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		flex-shrink: 0;
-	}
-
-	/* Le capability si leggono come icone, non come parole: la riga di un
-	   modello resta corta e il colore distingue vision da thinking anche
-	   con la coda dell'occhio. Gli stessi glifi del trigger. */
-	.cap-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		background: var(--bg-base);
-		color: var(--ink-muted);
-		--icon-size: 11px;
-	}
-
-	.cap-chip small {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		line-height: 1;
-	}
-
-	.cap-chip.ctx {
-		color: var(--ink-faint);
-	}
-
-	.cap-chip.vision {
-		border-color: color-mix(in srgb, oklch(0.68 0.16 195) 30%, transparent);
-		color: oklch(0.78 0.13 195);
-	}
-
-	.cap-chip.thinking {
-		border-color: color-mix(in srgb, oklch(0.65 0.18 290) 30%, transparent);
-		color: oklch(0.78 0.14 290);
-	}
-
-	.custom-chip {
-		font-family: var(--font-mono);
-		font-size: 9px;
-		font-weight: 600;
-		color: var(--brand-ink);
-		background: var(--bg-base);
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-	}
-
-	.empty-results {
-		padding: var(--space-4) var(--space-2);
-		text-align: center;
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-	}
 </style>

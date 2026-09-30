@@ -36,7 +36,7 @@
 	import MenuButton from './MenuButton.svelte';
 	import ThinkingMeter from './ThinkingMeter.svelte';
 	import ThinkingMenu from './ThinkingMenu.svelte';
-	import ModelMenu from './ModelMenu.svelte';
+	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
 	import RoleMenu, { type RoleAssignment } from './RoleMenu.svelte';
 	import ContextPanel from './ContextPanel.svelte';
 	import AttachMenu from './AttachMenu.svelte';
@@ -747,19 +747,26 @@
 					<IconChevronUp size={12} class="chevron-indicator" />
 				{/snippet}
 				{#snippet children()}
-					<ModelMenu
-						models={availableModels}
-						currentModelId={session.model?.id}
-						onPick={(mod) => {
+					<ModelPickerList
+						catalog={availableModels}
+						value={session.model?.provider && session.model?.id
+							? `${session.model.provider}/${session.model.id}`
+							: session.model?.id || ''}
+						placeholder={m.chat_v2_composer_model_search()}
+						showFooter
+						onSelect={(selector, mod) => {
 							activeMenu = null;
-							if (mod.provider && mod.id) {
+							const provider = mod.provider || (selector.includes('/') ? selector.split('/')[0] : '');
+							const modelId = mod.id || (selector.includes('/') ? selector.split('/')[1] : selector);
+							if (provider && modelId) {
 								void session.client.send({
 									type: 'set_model',
-									provider: mod.provider,
-									modelId: mod.id
+									provider,
+									modelId
 								}).then(() => session.refreshState());
 							}
 						}}
+						onClose={() => (activeMenu = null)}
 					/>
 				{/snippet}
 			</MenuButton>

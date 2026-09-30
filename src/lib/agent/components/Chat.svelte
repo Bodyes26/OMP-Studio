@@ -57,6 +57,7 @@
 	});
 
 	let scrollEl: HTMLElement | null = $state(null);
+	let contentEl: HTMLElement | null = $state(null);
 	let userScrolledUp = $state(false);
 	let pinned = true;
 	let rafId = 0;
@@ -76,55 +77,39 @@
 
 	let lastScrollTop = 0;
 	// Soglia in pixel per considerare l'utente "al fondo" (tolleranza subpixel e font scaling).
-	const SCROLL_THRESHOLD = 32;
+	const SCROLL_THRESHOLD = 40;
 
-	function tick() {
-		if (!scrollEl || !pinned || userScrolledUp) {
-			rafId = 0;
-			return;
-		}
-		const diff = scrollEl.scrollHeight - scrollEl.clientHeight - scrollEl.scrollTop;
-		if (Math.abs(diff) < 1) {
-			rafId = 0;
-			return;
-		}
-		if (motionReduced()) {
-			scrollEl.scrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
-			lastScrollTop = scrollEl.scrollTop;
-			rafId = 0;
-			return;
-		}
-		scrollEl.scrollTop += Math.sign(diff) * Math.max(1, Math.abs(diff) * 0.14);
-		lastScrollTop = scrollEl.scrollTop;
-		rafId = requestAnimationFrame(tick);
-	}
-
-	function kick() {
+	function requestScrollToBottom() {
 		if (!scrollEl || !pinned || userScrolledUp) return;
 		if (motionReduced()) {
-			scrollEl.scrollTop = scrollEl.scrollHeight;
+			const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+			scrollEl.scrollTop = maxScroll;
 			lastScrollTop = scrollEl.scrollTop;
 			return;
 		}
-		if (!rafId) {
-			rafId = requestAnimationFrame(tick);
-		}
-	}
-
-	function autoScrollToBottom() {
-		kick();
+		if (rafId) return;
+		rafId = requestAnimationFrame(() => {
+			rafId = 0;
+			if (!scrollEl || !pinned || userScrolledUp) return;
+			const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+			if (Math.abs(scrollEl.scrollTop - maxScroll) >= 1) {
+				scrollEl.scrollTop = maxScroll;
+				lastScrollTop = scrollEl.scrollTop;
+			}
+		});
 	}
 
 	function scrollToBottom() {
 		if (!scrollEl) return;
 		pinned = true;
 		userScrolledUp = false;
-		if (motionReduced()) {
-			scrollEl.scrollTop = scrollEl.scrollHeight;
-			lastScrollTop = scrollEl.scrollTop;
-		} else {
-			kick();
+		if (rafId) {
+			cancelAnimationFrame(rafId);
+			rafId = 0;
 		}
+		const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+		scrollEl.scrollTop = maxScroll;
+		lastScrollTop = scrollEl.scrollTop;
 	}
 
 	function handleWheel(e: WheelEvent) {
@@ -143,9 +128,8 @@
 		const currentScrollTop = scrollEl.scrollTop;
 		const distance = scrollEl.scrollHeight - currentScrollTop - scrollEl.clientHeight;
 
-		// Se l'utente e' entro 40px dal fondo (o entro SCROLL_THRESHOLD), si riaggancia automaticamente.
-		if (distance <= 40 || distance <= SCROLL_THRESHOLD) {
-			pinned = true;
+		// Se l'utente e' entro la soglia dal fondo, si riaggancia automaticamente.
+		if (distance <= SCROLL_THRESHOLD) {
 			userScrolledUp = false;
 		} else if (currentScrollTop < lastScrollTop - 2) {
 			// Solo se lo scroll si muove effettivamente verso l'alto l'utente ha deciso
@@ -173,7 +157,7 @@
 				rafId = 0;
 			}
 			if (scrollEl) {
-				scrollEl.scrollTop = scrollEl.scrollHeight;
+				scrollEl.scrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
 				lastScrollTop = scrollEl.scrollTop;
 			}
 		}
@@ -190,40 +174,28 @@
 				rafId = 0;
 			}
 			if (scrollEl) {
-				scrollEl.scrollTop = scrollEl.scrollHeight;
+				scrollEl.scrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
 				lastScrollTop = scrollEl.scrollTop;
 			}
 		}
 	});
 
-	// Autoscroll ancorato in fondo tramite ResizeObserver e MutationObserver:
-	// segue lo streaming del testo con smoothing proporzionale (chase rAF 0.14) o salto immediato con motionReduced.
+	// Autoscroll ancorato in fondo tramite ResizeObserver con coalescing per frame:
+	// segue lo streaming e le rivelazioni (chatReveal) senza ritardo esponenziale.
 	$effect(() => {
 		if (!scrollEl || !visible) return;
 
 		scrollEl.addEventListener('wheel', handleWheel, { passive: true });
-		kick();
+		requestScrollToBottom();
 
 		const resizeObserver = new ResizeObserver(() => {
-			kick();
+			requestScrollToBottom();
 		});
 
-		// Osserva sia il contenitore scrollabile che tutti i figli diretti
 		resizeObserver.observe(scrollEl);
-		for (const child of scrollEl.children) {
-			resizeObserver.observe(child);
+		if (contentEl) {
+			resizeObserver.observe(contentEl);
 		}
-
-		const mutationObserver = new MutationObserver(() => {
-			if (!scrollEl) return;
-			for (const child of scrollEl.children) {
-				resizeObserver.observe(child);
-			}
-			kick();
-		});
-
-		mutationObserver.observe(scrollEl, { childList: true, subtree: true, characterData: true });
-
 		return () => {
 			scrollEl?.removeEventListener('wheel', handleWheel);
 			if (rafId) {
@@ -231,7 +203,6 @@
 				rafId = 0;
 			}
 			resizeObserver.disconnect();
-			mutationObserver.disconnect();
 		};
 	});
 
@@ -304,6 +275,7 @@
 	{/if}
 	<div class="scroll-area" bind:this={scrollEl} onscroll={handleScroll}>
 		<div
+			bind:this={contentEl}
 			class="chat-content-container"
 			class:readable={settingsStore.general.chatWidth === 'readable'}
 		>
