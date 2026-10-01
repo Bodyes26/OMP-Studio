@@ -3,7 +3,6 @@
 
   Rappresenta le operazioni del Language Server Protocol (navigazione a
   definizione, riferimenti, rinomina, simboli, hover, ecc.).
-  Nel sommario mostra l'azione richiesta ed eventuale simbolo o file target.
   Nel corpo mostra il risultato testuale tramite OutputBlock, gli argomenti
   chiave in KeyValue e, se presenti posizioni strutturate nei dettagli,
   una lista di PathChip cliccabili.
@@ -14,14 +13,13 @@
 	import PathChip from '../parts/PathChip.svelte';
 	import {
 		asRecord,
-		baseName,
 		num,
 		resultText,
 		str,
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 
@@ -31,13 +29,6 @@
 	const symbol = $derived(str(args.symbol) ?? str(args.name));
 	const query = $derived(str(args.query));
 	const newName = $derived(str(args.new_name) ?? str(args.newName));
-
-	const summaryTarget = $derived.by(() => {
-		if (symbol) return symbol;
-		if (file) return baseName(file);
-		if (query) return query;
-		return undefined;
-	});
 
 	interface LocationItem {
 		path: string;
@@ -86,60 +77,25 @@
 	const text = $derived(resultText(result));
 </script>
 
-{#if view === 'summary'}
-	<div class="lsp-summary">
-		<span class="action">{action}</span>
-		{#if summaryTarget}
-			<span class="target" title={summaryTarget}>{summaryTarget}</span>
-		{/if}
-	</div>
-{:else}
-	<div class="lsp-body">
-		{#if metaRows.length > 0}
-			<KeyValue rows={metaRows} />
-		{/if}
-		{#if locations.length > 0}
-			<div class="locations-list">
-				{#each locations as loc, i (`${loc.path}:${loc.line ?? i}`)}
-					<div class="loc-row">
-						<PathChip path={loc.path} line={loc.line} />
-					</div>
-				{/each}
-			</div>
-		{/if}
-		{#if text}
-			<OutputBlock {text} label="risultato lsp" />
-		{/if}
-	</div>
-{/if}
+<div class="lsp-body">
+	{#if metaRows.length > 0}
+		<KeyValue rows={metaRows} />
+	{/if}
+	{#if locations.length > 0}
+		<div class="locations-list">
+			{#each locations as loc, i (`${loc.path}:${loc.line ?? i}`)}
+				<div class="loc-row">
+					<PathChip path={loc.path} line={loc.line} />
+				</div>
+			{/each}
+		</div>
+	{/if}
+	{#if text}
+		<OutputBlock {text} label="risultato lsp" />
+	{/if}
+</div>
 
 <style>
-	.lsp-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.action {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		color: var(--ink);
-	}
-
-	.target {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--ink-muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.lsp-body {
 		display: flex;
 		flex-direction: column;

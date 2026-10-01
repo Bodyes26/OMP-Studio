@@ -1,19 +1,16 @@
 <!--
   Renderer per il tool `todo`.
 
-  Mostra l'operazione (es. init, update, complete) e il riepilogo dello stato
-  dei task nel sommario. Nel corpo visualizza le fasi tramite il primitivo TaskRow,
+  Nel corpo visualizza le fasi tramite il primitivo TaskRow,
   con indice fase nell'anello, metrica completed/total e dettagli espandibili con
   stato dei singoli task e blocker inline.
 -->
 <script lang="ts">
 	import { flip } from 'svelte/animate';
-	import { m } from '$lib/paraglide/messages.js';
-	import CountBadge from '../parts/CountBadge.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import TaskRow from '../../components/TaskRow.svelte';
 	import { todoPhaseToTaskRow } from '../../taskRow';
-	import type { TodoStatus } from '../../wire';
+	import type { TodoPhase, TodoItem, TodoStatus } from '../../wire';
 	import {
 		asRecord,
 		recordList,
@@ -22,83 +19,48 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
-	const op = $derived(str(details?.op) ?? str(args.op) ?? 'todo');
 
-	interface TaskItem {
-		content: string;
-		status: 'pending' | 'in_progress' | 'completed' | 'abandoned' | 'blocked';
-		blocker?: string;
-	}
-
-	interface PhaseItem {
-		name: string;
-		tasks: TaskItem[];
-	}
-
-	const phases = $derived.by<PhaseItem[]>(() => {
-		// Durante `init` il risultato non e' ancora arrivato: le fasi proposte
-		// viaggiano in `args.list`, nella stessa forma di `details.phases`.
-		const rawPhases = recordList(details?.phases ?? args.list);
-		const out: PhaseItem[] = [];
-		for (const p of rawPhases) {
-			const phaseName = str(p.name) ?? 'Fase';
-			const rawTasks = recordList(p.tasks);
-			const tasks: TaskItem[] = [];
-			for (const t of rawTasks) {
-				const content = str(t.content) ?? str(t.text) ?? '';
-				const rawStatus = str(t.status) ?? 'pending';
-				let status: TaskItem['status'] = 'pending';
-				if (
-					rawStatus === 'in_progress' ||
-					rawStatus === 'completed' ||
-					rawStatus === 'abandoned' ||
-					rawStatus === 'blocked'
-				) {
-					status = rawStatus;
-				}
-				tasks.push({
-					content,
-					status,
+	const phases = $derived.by<TodoPhase[]>(() => {
+		const rawPhases = recordList(details?.phases);
+		if (rawPhases.length > 0) {
+			return rawPhases.map((p, idx) => ({
+				name: str(p.name) ?? str(p.phase) ?? `Fase ${idx + 1}`,
+				tasks: recordList(p.tasks).map((t, tIdx) => ({
+					content: str(t.task) ?? str(t.content) ?? `Attivita' ${tIdx + 1}`,
+					status: (str(t.status) ?? 'pending') as TodoStatus,
 					blocker: str(t.blocker)
-				});
-			}
-			out.push({ name: phaseName, tasks });
+				}))
+			}));
 		}
-		return out;
-	});
 
-	const stats = $derived.by(() => {
-		let total = 0;
-		let inProgress = 0;
-		let completed = 0;
-		let blocked = 0;
-		let abandoned = 0;
-		for (const phase of phases) {
-			for (const task of phase.tasks) {
-				total++;
-				if (task.status === 'in_progress') inProgress++;
-				else if (task.status === 'completed') completed++;
-				else if (task.status === 'blocked') blocked++;
-				else if (task.status === 'abandoned') abandoned++;
-			}
+		const listArg = recordList(args.list);
+		if (listArg.length > 0) {
+			return listArg.map((p, idx) => ({
+				name: str(p.phase) ?? str(p.name) ?? `Fase ${idx + 1}`,
+				tasks: recordList(p.items).map((t, tIdx) => ({
+					content: str(t.task) ?? str(t.content) ?? (typeof t === 'string' ? t : `Attivita' ${tIdx + 1}`),
+					status: 'pending' as TodoStatus
+				}))
+			}));
 		}
-		return { total, inProgress, completed, blocked, abandoned };
-	});
 
-	const summaryStats = $derived.by(() => {
-		if (stats.total === 0) return undefined;
-		const parts: string[] = [];
-		parts.push(`${stats.completed}/${stats.total} ${m.task_row_status_completed().toLowerCase()}`);
-		if (stats.inProgress > 0) {
-			parts.push(m.ui_task_value1_in_corso_8e50({ value1: stats.inProgress }));
+		const flatItems = recordList(args.items);
+		if (flatItems.length > 0) {
+			return [
+				{
+					name: str(args.phase) ?? 'Attività',
+					tasks: flatItems.map((t, tIdx) => ({
+						content: str(t.task) ?? str(t.content) ?? (typeof t === 'string' ? t : `Attivita' ${tIdx + 1}`),
+						status: 'pending' as TodoStatus
+					}))
+				}
+			];
 		}
-		if (stats.blocked > 0) {
-			parts.push(`${stats.blocked} ${m.task_row_status_blocked().toLowerCase()}`);
-		}
-		return parts.join(', ');
+
+		return [];
 	});
 
 	const phaseModels = $derived(
@@ -122,52 +84,26 @@
 	const textFallback = $derived(resultText(result));
 </script>
 
-{#if view === 'summary'}
-	<div class="todo-summary">
-		<span class="op">{op}</span>
-		{#if summaryStats}
-			<CountBadge text={summaryStats} />
-		{/if}
-	</div>
-{:else}
-	<div class="todo-body">
-		{#if phases.length > 0}
-			<div class="phases-container" role="list">
-				{#each phaseModels as model, idx (model.key)}
-					<div
-						animate:flip={{ duration: 200 }}
-						class="phase-item"
-						role="listitem"
-						style="--stagger-delay: {idx * 30}ms"
-					>
-						<TaskRow {model} />
-					</div>
-				{/each}
-			</div>
-		{:else if textFallback}
-			<OutputBlock text={textFallback} label="risultato todo" />
-		{/if}
-	</div>
-{/if}
+<div class="todo-body">
+	{#if phases.length > 0}
+		<div class="phases-container" role="list">
+			{#each phaseModels as model, idx (model.key)}
+				<div
+					animate:flip={{ duration: 200 }}
+					class="phase-item"
+					role="listitem"
+					style="--stagger-delay: {idx * 30}ms"
+				>
+					<TaskRow {model} />
+				</div>
+			{/each}
+		</div>
+	{:else if textFallback}
+		<OutputBlock text={textFallback} label="risultato todo" />
+	{/if}
+</div>
 
 <style>
-	.todo-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.op {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--ink);
-		font-weight: 500;
-	}
-
 	.todo-body {
 		display: flex;
 		flex-direction: column;
@@ -183,7 +119,7 @@
 	}
 
 	.phase-item {
-		animation: todo-stagger 200ms ease-out var(--stagger-delay, 0ms) both;
+		animation: todo-stagger var(--dur-row) var(--ease-reveal) var(--stagger-delay, 0ms) both;
 	}
 
 	.phase-item + .phase-item {
@@ -194,10 +130,6 @@
 		from {
 			opacity: 0;
 			transform: translateY(2px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
 		}
 	}
 

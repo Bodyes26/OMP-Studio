@@ -51,9 +51,11 @@
 		border: none;
 		padding: 0;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		cursor: pointer;
 		font-variant-numeric: tabular-nums;
+		transition: color var(--dur-fast) var(--ease-out);
 	}
 
 	button:hover {

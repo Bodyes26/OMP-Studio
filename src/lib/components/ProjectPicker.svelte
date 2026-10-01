@@ -219,6 +219,21 @@
 	}
 </script>
 
+{#snippet highlight(text: string, q: string)}
+	{#if !q.trim()}
+		{text}
+	{:else}
+		{@const lowerQ = q.trim().toLowerCase()}
+		{@const lowerText = text.toLowerCase()}
+		{@const idx = lowerText.indexOf(lowerQ)}
+		{#if idx === -1}
+			{text}
+		{:else}
+			{text.slice(0, idx)}<mark class="highlight-char">{text.slice(idx, idx + lowerQ.length)}</mark>{text.slice(idx + lowerQ.length)}
+		{/if}
+	{/if}
+{/snippet}
+
 {#if open}
 	<button
 		type="button"
@@ -286,7 +301,7 @@
 						disabled={isCloning}
 					>
 						<span class="row-icon"><IconFolderOpen /></span>
-						<span class="name">{c.customName || c.name}</span>
+						<span class="name font-mono">{@render highlight(c.customName || c.name, query)}</span>
 						{#if c.customName}
 							<span class="badge folder-badge">({c.name})</span>
 						{/if}
@@ -303,7 +318,7 @@
 								<IconGithub /> {c.githubRemote.fullName}
 							</span>
 						{/if}
-						<span class="path">{c.path}</span>
+						<span class="path">{@render highlight(c.path, query)}</span>
 					</button>
 				{/each}
 			{/if}
@@ -351,12 +366,12 @@
 						disabled={isCloning}
 					>
 						<span class="row-icon gh-icon"><IconGithub /></span>
-						<span class="name">{r.name}</span>
+						<span class="name font-mono">{@render highlight(r.name, query)}</span>
 						{#if r.isPrivate}
 							<span class="badge private-badge" title="Repository privato">Privato</span>
 						{/if}
 						{#if r.description}
-							<span class="repo-desc" title={r.description}>{r.description}</span>
+							<span class="repo-desc" title={r.description}>{@render highlight(r.description, query)}</span>
 						{/if}
 					</button>
 				{/each}
@@ -401,7 +416,7 @@
 		width: 620px;
 		max-height: calc(100vh - 120px);
 		background: var(--bg-overlay);
-		border: 1px solid var(--line);
+		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
 		z-index: var(--z-dialog);
@@ -409,6 +424,9 @@
 		flex-direction: column;
 		overflow: hidden;
 		color: var(--ink);
+		animation: rv-lift var(--dur-menu, 150ms) var(--ease-reveal);
+		--dur: var(--dur-menu, 150ms);
+		--blur: 3px;
 	}
 
 	.search-head {
@@ -441,25 +459,22 @@
 	.spinner {
 		width: 14px;
 		height: 14px;
-		border: 2px solid color-mix(in srgb, var(--brand) 30%, transparent);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--ink);
+		border-radius: var(--radius-full);
+		animation: spin 900ms linear infinite;
 	}
 
 	.spinner-small {
 		display: inline-block;
 		width: 12px;
 		height: 12px;
-		border: 2px solid var(--line);
+		border: 1.5px solid var(--line-strong);
 		border-top-color: var(--ink);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+		border-radius: var(--radius-full);
+		animation: spin 900ms linear infinite;
 	}
 
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
 
 	.rows {
 		flex: 0 1 auto;
@@ -490,7 +505,7 @@
 	}
 
 	.section-hint {
-		font-size: 0.72rem;
+		font-size: var(--text-caption);
 		text-transform: none;
 		font-weight: 400;
 		color: var(--ink-faint);
@@ -510,12 +525,12 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: 6px var(--space-2);
-		border-radius: var(--radius-sm);
+		padding: 7px var(--space-2);
+		border-radius: var(--radius-md);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		cursor: pointer;
-		transition: background 0.1s ease;
+		transition: background var(--dur-fast) var(--ease-out);
 	}
 
 	.row.sel {
@@ -530,52 +545,65 @@
 	}
 
 	.row-icon.gh-icon {
-		color: var(--brand);
+		color: var(--brand-ink);
 	}
 
 	.name {
-		font-weight: 500;
+		font-weight: 600;
 		flex: 0 0 auto;
+	}
+
+	.name.font-mono {
+		font-family: var(--font-mono);
+	}
+
+	.highlight-char {
+		background: transparent;
+		color: var(--ink);
+		font-weight: 700;
+		text-decoration: underline;
+		text-decoration-color: var(--warn);
+		text-decoration-thickness: 2px;
+		text-underline-offset: 2px;
 	}
 
 	.badge {
 		flex: 0 0 auto;
-		font-size: 0.72rem;
+		font-size: var(--text-meta);
 		border-radius: var(--radius-full);
 		padding: 1px 6px;
 	}
 	.badge.folder-badge {
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
-		font-size: 0.72rem;
+		font-size: var(--text-meta);
 		padding: 0;
 	}
 
 	.badge.label-badge {
-		background: oklch(var(--proj-l-fill, 0.28) var(--proj-c-fill, 0.04) var(--proj-hue, 220));
+		background: oklch(var(--proj-l-fill, 0.28) var(--proj-c-fill) var(--proj-hue, 220));
 		color: var(--on-project, var(--ink));
 		font-family: var(--font-mono);
 		font-weight: 700;
-		font-size: 0.68rem;
+		font-size: var(--text-meta);
 		padding: 1px 6px;
 		letter-spacing: 0.03em;
-		border: 1px solid oklch(var(--proj-l-fill, 0.35) var(--proj-c-fill, 0.08) var(--proj-hue, 220));
+		border: 1px solid oklch(var(--proj-l-fill, 0.35) var(--proj-c-fill) var(--proj-hue, 220));
 	}
-
 
 	.badge.gh-badge {
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
-		background: color-mix(in srgb, var(--brand) 10%, transparent);
-		color: var(--brand);
-		border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
+		color: var(--brand-ink);
+		border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
 		font-family: var(--font-mono);
-		font-size: 0.7rem;
+		font-size: var(--text-meta);
 	}
 
 	.badge.private-badge {
-		background: var(--surface-3, rgba(255, 255, 255, 0.08));
+		background: color-mix(in srgb, var(--ink) 8%, transparent);
 		color: var(--ink-muted);
 		border: 1px solid var(--line);
 	}
@@ -616,27 +644,28 @@
 		justify-content: space-between;
 		padding: var(--space-2) var(--space-3);
 		margin: var(--space-1) var(--space-2);
-		background: var(--surface-2, rgba(255, 255, 255, 0.04));
+		background: var(--bg-hover);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
 	}
 
 	.btn-connect-gh {
-		padding: 3px 8px;
+		padding: 4px 10px;
 		background: var(--brand);
-		color: #ffffff;
+		color: var(--on-brand);
 		border: none;
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-		font-weight: 500;
+		border-radius: var(--radius-md);
+		font-size: var(--text-caption);
+		font-weight: 600;
 		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out);
 	}
 
 	.error {
 		padding: var(--space-2) var(--space-4);
 		font-size: var(--text-sm);
-		color: var(--warn);
+		color: var(--danger);
 	}
 </style>

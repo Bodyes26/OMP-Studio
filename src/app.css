@@ -84,7 +84,8 @@
   --danger-c:      0.185;
   --danger-l:      0.680;
   --danger:        oklch(var(--danger-l) var(--danger-c) var(--danger-h));
-  --danger-dim-l:  0.480;
+  /* Il glifo --danger sul disco attenuato deve superare 3:1 anche in scuro. */
+  --danger-dim-l:  0.380;
   --danger-dim:    oklch(var(--danger-dim-l) calc(var(--danger-c) * 0.800) var(--danger-h));
   --on-danger:     var(--bg-sunken);
   /* Identità progetto: tinta dall'hash del path. Due soli usi: la lettera
@@ -100,18 +101,28 @@
   --text-xs: 11px; --text-sm: 12px; --text-base: 13px;
   --text-md: 14px; --text-lg: 16px; --text-xl: 20px;
 
+  /* Due registri: questi nomi esprimono il ruolo, non una taglia generica. */
+  --text-prose: 15px; --text-chat: 15px; --text-trace: 12.5px; --text-meta: 11.5px;
+  --text-prose-h1: 20px; --text-prose-h2: 17px; --text-prose-h3: 15px;
+  --text-title: 16px; --text-body: 13px; --text-label: 12px;
+  --text-caption: 11px; --text-group-label: 11px; --text-mono: 12px;
+
   /* Spazio */
   --space-1: 4px; --space-2: 8px;  --space-3: 12px; --space-4: 16px;
   --space-5: 24px; --space-6: 32px; --space-8: 48px;
 
-  /* Raggi: una sola costante, il resto derivato. Tetto assoluto 10px. */
+  /* Raggi: la costante resta 10px; il ruolo determina gli scarti. */
   --radius:    10px;
   --radius-sm: calc(var(--radius) - 6px);
   --radius-md: calc(var(--radius) - 4px);
   --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 2px);
+  --radius-2xl: calc(var(--radius) + 6px);
   --radius-full: 999px;
 
-  /* Ombra: una sola, e solo per superfici che galleggiano davvero */
+  /* Tre ombre funzionali: aggancio, decisione sollevata, galleggiamento. */
+  --shadow-dock: 0 2px 10px -2px oklch(0 0 0 / 0.15);
+  --shadow-raise: 0 8px 30px -10px oklch(0 0 0 / 0.20);
   --shadow-overlay: 0 8px 24px -8px oklch(0 0 0 / 0.7),
                     0 2px  6px -2px oklch(0 0 0 / 0.5);
   --backdrop: oklch(0 0 0 / 0.55);
@@ -119,6 +130,7 @@
   /* Movimento */
   --dur-instant: 0ms; --dur-fast: 120ms; --dur-base: 180ms;
   --dur-slow: 240ms;  --dur-pulse: 1800ms;
+  --dur-menu: 150ms; --dur-row: 210ms; --dur-reveal: 700ms;
   --dur-breathing: 1.9s;
   /* Due durate lunghe, e solo per la barra progetti: il cambio di stato di un
      agente non e' un hover, e a 120ms sarebbe uno scatto che l'occhio legge
@@ -139,8 +151,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
+    animation: none !important;
     transition-duration: 1ms !important;
   }
   .tab.attention::after,
@@ -149,13 +160,15 @@
     opacity: 1 !important;
     box-shadow: inset 0 0 0 1.5px var(--warn) !important;
   }
+  .tab-flash {
+    display: none !important;
+  }
 }
 
 :root[data-animations="false"] *,
 :root[data-animations="false"] *::before,
 :root[data-animations="false"] *::after {
-  animation-duration: 1ms !important;
-  animation-iteration-count: 1 !important;
+  animation: none !important;
   transition-duration: 1ms !important;
 }
 
@@ -166,7 +179,11 @@
   box-shadow: inset 0 0 0 1.5px var(--warn) !important;
 }
 
-@keyframes spin-fast {
+:root[data-animations="false"] .tab-flash {
+  display: none !important;
+}
+
+@keyframes spin {
   to {
     transform: rotate(360deg);
   }
@@ -217,15 +234,6 @@
   }
 }
 
-/* Accensione della singola cella del loader a griglia 3x3.
-   Come state-pulse, usa steps(6) per limitare i frame su GPU integrata
-   e anima solo opacity per compositing hardware senza repaint.
-   Il picco al 38% crea l'effetto onda asimmetrica che scorre verso destra. */
-@keyframes pixel-on {
-  0%   { opacity: 0.18; animation-timing-function: steps(6); }
-  38%  { opacity: 1;    animation-timing-function: steps(6); }
-  100% { opacity: 0.18; }
-}
 
 @keyframes shimmer-text {
   0% {
@@ -256,9 +264,8 @@
   }
 }
 
-/* Override esplicito per reduced-motion e disattivazione animazioni:
-   la regola globale azzera solo la durata, lasciando il testo fermo su un frame
-   arbitrario e potenzialmente trasparente del gradiente. Questo ripristina la leggibilita. */
+/* Il testo non deve restare trasparente quando il gradiente e' fermo:
+   la soppressione globale del movimento conserva il colore naturale. */
 @media (prefers-reduced-motion: reduce) {
   .text-shimmer {
     animation: none !important;
@@ -293,11 +300,11 @@
 }
 
 .rv-blur {
-  animation: rv-blur-in var(--dur, 700ms) var(--ease-reveal) backwards;
+  animation: rv-blur-in var(--dur, var(--dur-reveal)) var(--ease-reveal) backwards;
 }
 
 .rv-lift {
-  animation: rv-lift-in var(--dur, 700ms) var(--ease-reveal) backwards;
+  animation: rv-lift-in var(--dur, var(--dur-reveal)) var(--ease-reveal) backwards;
 }
 
 /* Apertura/chiusura in altezza con grid-template-rows: il figlio diretto deve
@@ -546,17 +553,11 @@ svg.lucide {
 
 /*
    Opt-in per superficie ai colori semaforo della quota:
-   rimappa le proprieta' locali --quota-* sulle variabili neutrali
-   --quota-sem-* iniettate su :root dal layout.
-   Senza questa classe, ogni superficie usa i colori del tema come fallback.
+   rimappa --quota-ok sul verde del tema (--success).
+   I livelli warn e danger usano direttamente i token normativi (--warn, --danger).
 */
 .quota-semantic {
-	--quota-ok: var(--quota-sem-ok);
-	--quota-ok-fill: var(--quota-sem-ok-fill);
-	--quota-warn: var(--quota-sem-warn);
-	--quota-warn-fill: var(--quota-sem-warn-fill);
-	--quota-bad: var(--quota-sem-bad);
-	--quota-bad-fill: var(--quota-sem-bad-fill);
+	--quota-ok: var(--success);
 }
 /* Decorazioni di gutter git in Monaco: elementi DOM, quindi i token valgono. */
 .git-gutter-added {
@@ -607,4 +608,97 @@ svg.lucide {
   --icon-image:   oklch(0.74 0.13 130);
   --icon-archive: oklch(0.74 0.14 70);
   --icon-pdf:     oklch(0.68 0.16 25);
+}
+
+/* Form opt-in: non alterano i controlli ospitati da Monaco, xterm o i canvas. */
+.ui-input,
+.ui-select {
+  box-sizing: border-box;
+  height: 30px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  font-weight: 450;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  caret-color: var(--ink);
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.ui-input::placeholder {
+  color: var(--ink-faint);
+  opacity: 1;
+}
+
+.ui-input:hover:not(:disabled),
+.ui-select:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.ui-input:focus-visible,
+.ui-select:focus-visible {
+  border-color: var(--brand);
+}
+
+.ui-input:disabled,
+.ui-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.ui-button-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+}
+
+.ui-button-primary {
+  background: var(--brand);
+  border-color: transparent;
+  color: var(--on-brand);
+  font-weight: 600;
+}
+
+.ui-button-primary:hover:not(:disabled) {
+  border-color: var(--on-brand);
+}
+
+.ui-button-danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: var(--on-danger);
+  font-weight: 600;
+}
+
+.ui-button-danger:hover:not(:disabled) {
+  border-color: var(--on-danger);
+}
+
+.ui-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

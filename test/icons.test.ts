@@ -64,22 +64,4 @@ test('Registro Icone Studio — Validita e Architettura', async (t) => {
 		assert.deepEqual(violations, [], `Trovati import diretti da @lucide/svelte nei file: ${violations.join(', ')}`);
 	});
 
-	await t.test('IconBrain e registrata in icons.ts ed utilizzata in ReasoningSlider.svelte', () => {
-		const iconsContent = readFileSync(ICONS_REGISTRY_FILE, 'utf-8');
-		assert.ok(
-			iconsContent.includes('IconBrain') && iconsContent.includes('@lucide/svelte/icons/brain'),
-			'IconBrain deve essere registrata ed esportata da icons.ts con @lucide/svelte/icons/brain'
-		);
-
-		const sliderPath = join(SRC_DIR, 'lib', 'components', 'models', 'ReasoningSlider.svelte');
-		const sliderContent = readFileSync(sliderPath, 'utf-8');
-		assert.ok(
-			sliderContent.includes('IconBrain'),
-			'ReasoningSlider.svelte deve importare ed utilizzare IconBrain'
-		);
-		assert.ok(
-			!sliderContent.includes('d="M4.5 9.5a2.5 2.5 0 0 1-2.5-2.5'),
-			'ReasoningSlider.svelte non deve contenere il vecchio SVG inline grezzo per il cervello'
-		);
-	});
 });

@@ -14,6 +14,7 @@
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 	import { m } from '$lib/paraglide/messages.js';
+	import Switch from '$lib/ui/Switch.svelte';
 
 	async function browseProjectRoot() {
 		const sel = await openDialog({ directory: true, defaultPath: projectStore.projectRoot });
@@ -27,13 +28,16 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_language_title()}</span>
-				<span class="form-row-desc">{m.settings_language_description()}</span>
+				<label for="settings-language" id="settings-language-label" class="form-row-label">{m.settings_language_title()}</label>
+				<span id="settings-language-desc" class="form-row-desc">{m.settings_language_description()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-language"
+					class="ui-select"
 					value={settingsStore.general.language}
-					aria-label={m.settings_language_title()}
+					aria-labelledby="settings-language-label"
+					aria-describedby="settings-language-desc"
 					onchange={(e) => settingsStore.patchGeneral({ language: (e.currentTarget as HTMLSelectElement).value as LanguagePreference })}
 				>
 					<option value="system">{m.settings_language_system()}</option>
@@ -45,12 +49,16 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_start_surface_title()}</span>
-				<span class="form-row-desc">{m.settings_general_start_surface_desc()}</span>
+				<label for="settings-default-surface" id="settings-default-surface-label" class="form-row-label">{m.settings_general_start_surface_title()}</label>
+				<span id="settings-default-surface-desc" class="form-row-desc">{m.settings_general_start_surface_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-default-surface"
+					class="ui-select"
 					value={settingsStore.general.defaultSurface}
+					aria-labelledby="settings-default-surface-label"
+					aria-describedby="settings-default-surface-desc"
 					onchange={(e) => settingsStore.patchGeneral({ defaultSurface: (e.currentTarget as HTMLSelectElement).value as DefaultSurface })}
 				>
 					<option value="terminal">{m.settings_general_terminal()}</option>
@@ -61,12 +69,16 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_close_queue_title()}</span>
-				<span class="form-row-desc">{m.settings_general_close_queue_desc()}</span>
+				<label for="settings-close-queue" id="settings-close-queue-label" class="form-row-label">{m.settings_general_close_queue_title()}</label>
+				<span id="settings-close-queue-desc" class="form-row-desc">{m.settings_general_close_queue_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-close-queue"
+					class="ui-select"
 					value={settingsStore.general.closeWithQueuedTasks}
+					aria-labelledby="settings-close-queue-label"
+					aria-describedby="settings-close-queue-desc"
 					onchange={(e) => settingsStore.patchGeneral({ closeWithQueuedTasks: (e.currentTarget as HTMLSelectElement).value as CloseWithQueuedTasks })}
 				>
 					<option value="ask">{m.settings_general_ask_confirmation()}</option>
@@ -78,12 +90,16 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_chat_width_title()}</span>
-				<span class="form-row-desc">{m.settings_general_chat_width_desc()}</span>
+				<label for="settings-chat-width" id="settings-chat-width-label" class="form-row-label">{m.settings_general_chat_width_title()}</label>
+				<span id="settings-chat-width-desc" class="form-row-desc">{m.settings_general_chat_width_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-chat-width"
+					class="ui-select"
 					value={settingsStore.general.chatWidth}
+					aria-labelledby="settings-chat-width-label"
+					aria-describedby="settings-chat-width-desc"
 					onchange={(e) => settingsStore.patchGeneral({ chatWidth: (e.currentTarget as HTMLSelectElement).value as ChatWidth })}
 				>
 					<option value="readable">{m.settings_general_chat_readable()}</option>
@@ -94,12 +110,16 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_chat_reveal_title()}</span>
-				<span class="form-row-desc">{m.settings_general_chat_reveal_desc()}</span>
+				<label for="settings-chat-reveal" id="settings-chat-reveal-label" class="form-row-label">{m.settings_general_chat_reveal_title()}</label>
+				<span id="settings-chat-reveal-desc" class="form-row-desc">{m.settings_general_chat_reveal_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-chat-reveal"
+					class="ui-select"
 					value={settingsStore.general.chatReveal}
+					aria-labelledby="settings-chat-reveal-label"
+					aria-describedby="settings-chat-reveal-desc"
 					onchange={(e) => settingsStore.patchGeneral({ chatReveal: (e.currentTarget as HTMLSelectElement).value as ChatReveal })}
 				>
 					<option value="blur">{m.settings_general_chat_reveal_blur()}</option>
@@ -111,18 +131,17 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_internal_messages_title()}</span>
-				<span class="form-row-desc">{m.settings_general_internal_messages_desc()}</span>
+				<span id="settings-internal-messages-label" class="form-row-label">{m.settings_general_internal_messages_title()}</span>
+				<span id="settings-internal-messages-desc" class="form-row-desc">{m.settings_general_internal_messages_desc()}</span>
 			</div>
 			<div class="form-row-control">
-				<label class="switch">
-					<input
-						type="checkbox"
-						checked={settingsStore.general.showInternalAgentMessages}
-						onchange={(e) => settingsStore.patchGeneral({ showInternalAgentMessages: (e.currentTarget as HTMLInputElement).checked })}
-					/>
-					<span class="slider"></span>
-				</label>
+				<Switch
+					id="settings-internal-messages"
+					checked={settingsStore.general.showInternalAgentMessages}
+					ariaLabelledBy="settings-internal-messages-label"
+					ariaDescribedBy="settings-internal-messages-desc"
+					onChange={(checked) => settingsStore.patchGeneral({ showInternalAgentMessages: checked })}
+				/>
 			</div>
 		</div>
 	</div>
@@ -130,18 +149,17 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_lab_alpha_title()}</span>
-				<span class="form-row-desc">{m.settings_general_lab_alpha_desc()}</span>
+				<span id="settings-lab-alpha-label" class="form-row-label">{m.settings_general_lab_alpha_title()}</span>
+				<span id="settings-lab-alpha-desc" class="form-row-desc">{m.settings_general_lab_alpha_desc()}</span>
 			</div>
 			<div class="form-row-control">
-				<label class="switch">
-					<input
-						type="checkbox"
-						checked={settingsStore.general.labAlphaEnabled}
-						onchange={(e) => settingsStore.patchGeneral({ labAlphaEnabled: (e.currentTarget as HTMLInputElement).checked })}
-					/>
-					<span class="slider"></span>
-				</label>
+				<Switch
+					id="settings-lab-alpha"
+					checked={settingsStore.general.labAlphaEnabled}
+					ariaLabelledBy="settings-lab-alpha-label"
+					ariaDescribedBy="settings-lab-alpha-desc"
+					onChange={(checked) => settingsStore.patchGeneral({ labAlphaEnabled: checked })}
+				/>
 			</div>
 		</div>
 	</div>
@@ -149,18 +167,17 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_sidebar_title()}</span>
-				<span class="form-row-desc">{m.settings_general_sidebar_desc()}</span>
+				<span id="settings-sidebar-collapsed-label" class="form-row-label">{m.settings_general_sidebar_title()}</span>
+				<span id="settings-sidebar-collapsed-desc" class="form-row-desc">{m.settings_general_sidebar_desc()}</span>
 			</div>
 			<div class="form-row-control">
-				<label class="switch">
-					<input
-						type="checkbox"
-						checked={!settingsStore.general.sidebarCollapsed}
-						onchange={(e) => settingsStore.patchGeneral({ sidebarCollapsed: !(e.currentTarget as HTMLInputElement).checked })}
-					/>
-					<span class="slider"></span>
-				</label>
+				<Switch
+					id="settings-sidebar-collapsed"
+					checked={!settingsStore.general.sidebarCollapsed}
+					ariaLabelledBy="settings-sidebar-collapsed-label"
+					ariaDescribedBy="settings-sidebar-collapsed-desc"
+					onChange={(checked) => settingsStore.patchGeneral({ sidebarCollapsed: !checked })}
+				/>
 			</div>
 		</div>
 	</div>
@@ -214,12 +231,16 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_submit_behavior_title()}</span>
-				<span class="form-row-desc">{m.settings_general_submit_behavior_desc()}</span>
+				<label for="settings-submit-behavior" id="settings-submit-behavior-label" class="form-row-label">{m.settings_general_submit_behavior_title()}</label>
+				<span id="settings-submit-behavior-desc" class="form-row-desc">{m.settings_general_submit_behavior_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-submit-behavior"
+					class="ui-select"
 					value={settingsStore.general.defaultStreamingBehavior}
+					aria-labelledby="settings-submit-behavior-label"
+					aria-describedby="settings-submit-behavior-desc"
 					onchange={(e) => settingsStore.patchGeneral({ defaultStreamingBehavior: (e.currentTarget as HTMLSelectElement).value as StreamingBehavior })}
 				>
 					<option value="steer">{m.settings_general_steer_option()}</option>
@@ -230,12 +251,16 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_steer_dequeue_title()}</span>
-				<span class="form-row-desc">{m.settings_general_steer_dequeue_desc()}</span>
+				<label for="settings-steer-dequeue" id="settings-steer-dequeue-label" class="form-row-label">{m.settings_general_steer_dequeue_title()}</label>
+				<span id="settings-steer-dequeue-desc" class="form-row-desc">{m.settings_general_steer_dequeue_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-steer-dequeue"
+					class="ui-select"
 					value={settingsStore.general.steeringMode}
+					aria-labelledby="settings-steer-dequeue-label"
+					aria-describedby="settings-steer-dequeue-desc"
 					onchange={(e) => settingsStore.patchGeneral({ steeringMode: (e.currentTarget as HTMLSelectElement).value as QueueMode })}
 				>
 					<option value="one-at-a-time">{m.settings_general_one_per_turn()}</option>
@@ -246,12 +271,16 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_follow_up_dequeue_title()}</span>
-				<span class="form-row-desc">{m.settings_general_follow_up_dequeue_desc()}</span>
+				<label for="settings-follow-up-dequeue" id="settings-follow-up-dequeue-label" class="form-row-label">{m.settings_general_follow_up_dequeue_title()}</label>
+				<span id="settings-follow-up-dequeue-desc" class="form-row-desc">{m.settings_general_follow_up_dequeue_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-follow-up-dequeue"
+					class="ui-select"
 					value={settingsStore.general.followUpMode}
+					aria-labelledby="settings-follow-up-dequeue-label"
+					aria-describedby="settings-follow-up-dequeue-desc"
 					onchange={(e) => settingsStore.patchGeneral({ followUpMode: (e.currentTarget as HTMLSelectElement).value as QueueMode })}
 				>
 					<option value="one-at-a-time">{m.settings_general_one_per_turn()}</option>
@@ -262,12 +291,16 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_tool_interrupt_title()}</span>
-				<span class="form-row-desc">{m.settings_general_tool_interrupt_desc()}</span>
+				<label for="settings-tool-interrupt" id="settings-tool-interrupt-label" class="form-row-label">{m.settings_general_tool_interrupt_title()}</label>
+				<span id="settings-tool-interrupt-desc" class="form-row-desc">{m.settings_general_tool_interrupt_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<select
+					id="settings-tool-interrupt"
+					class="ui-select"
 					value={settingsStore.general.interruptMode}
+					aria-labelledby="settings-tool-interrupt-label"
+					aria-describedby="settings-tool-interrupt-desc"
 					onchange={(e) => settingsStore.patchGeneral({ interruptMode: (e.currentTarget as HTMLSelectElement).value as InterruptMode })}
 				>
 					<option value="immediate">{m.settings_general_immediate()}</option>
@@ -345,22 +378,8 @@
 		gap: var(--space-2);
 	}
 
-	select {
-		height: 30px;
-		padding: 0 var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		outline: none;
-		transition: border-color var(--dur-fast);
+	.form-row-control select {
 		min-width: 180px;
-	}
-
-	select:focus {
-		border-color: var(--brand);
 	}
 
 	.btn {
@@ -441,53 +460,4 @@
 		user-select: none;
 	}
 
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 32px;
-		height: 18px;
-		cursor: pointer;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		inset: 0;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.slider::before {
-		position: absolute;
-		content: '';
-		height: 12px;
-		width: 12px;
-		left: 2px;
-		bottom: 2px;
-		background: var(--ink-muted);
-		border-radius: 50%;
-		transition: transform var(--dur-fast), background var(--dur-fast);
-	}
-
-	input:checked + .slider {
-		background: var(--brand);
-		border-color: var(--brand);
-	}
-
-	input:checked + .slider::before {
-		transform: translateX(14px);
-		background: var(--bg-sunken);
-	}
-
-	input:focus-visible + .slider {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
 </style>

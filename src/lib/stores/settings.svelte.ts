@@ -92,21 +92,13 @@ export interface AccessibilitySettings {
 	animations: boolean;
 }
 
-/** Stile visivo della chip quota nella barra in alto. */
-export type QuotaChipVariant = 'ringHalo' | 'fillWave';
-
 export interface QuotaChipSettings {
-	variant: QuotaChipVariant;
 	showProvider: boolean;
 	alwaysShowPct: boolean;
 	semanticColors: boolean;
 }
 
-/** Stile visivo del popover quote. */
-export type QuotaPopoverVariant = 'telemetry' | 'radial';
-
 export interface QuotaPopoverSettings {
-	variant: QuotaPopoverVariant;
 	semanticColors: boolean;
 }
 
@@ -313,13 +305,11 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 	},
 	appearance: {
 		quotaChip: {
-			variant: 'ringHalo',
 			showProvider: true,
 			alwaysShowPct: false,
 			semanticColors: false
 		},
 		quotaPopover: {
-			variant: 'telemetry',
 			semanticColors: false
 		},
 		queueView: 'compact',
@@ -458,13 +448,11 @@ export function parseSettings(value: unknown): StudioSettings {
 		},
 		appearance: {
 			quotaChip: {
-				variant: pick(quotaChip.variant, ['ringHalo', 'fillWave'] as const, d.appearance.quotaChip.variant),
 				showProvider: bool(quotaChip.showProvider, d.appearance.quotaChip.showProvider),
 				alwaysShowPct: bool(quotaChip.alwaysShowPct, d.appearance.quotaChip.alwaysShowPct),
 				semanticColors: bool(quotaChip.semanticColors, d.appearance.quotaChip.semanticColors)
 			},
 			quotaPopover: {
-				variant: pick(quotaPopover.variant, ['telemetry', 'radial'] as const, d.appearance.quotaPopover.variant),
 				semanticColors: bool(quotaPopover.semanticColors, d.appearance.quotaPopover.semanticColors)
 			},
 			queueView: pick(appearance.queueView, ['compact', 'cards'] as const, d.appearance.queueView),

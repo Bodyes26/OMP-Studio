@@ -1,20 +1,12 @@
+<!--
+  Renderer per `web_search` (ricerche sul web).
+
+  Nel corpo espanso mostra la query in sans (Two Voices Rule), l'eventuale risposta
+  diretta con MarkdownInline, l'elenco delle fonti con link al browser di sistema
+  e snippet testuali separati da linea neutra (Anti-Nesting Rule).
+-->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// Renderer per `web_search` (ricerche sul web).
-	//
-	// Cosa mostra:
-	// - summary: query di ricerca (`args.query`) troncata e badge con il numero
-	//   di sorgenti/risultati trovati.
-	// - body: eventuale risposta sintetica (`details.response.answer`), elenco delle
-	//   fonti con titolo cliccabile (apre l'URL nel browser di sistema tramite
-	//   `openUrl`), URL secondario in colore attenuato e snippet del testo. Se
-	//   non ci sono fonti strutturate in `details`, mostra l'output formattato
-	//   completo tramite `OutputBlock`.
-	//
-	// Comportamento quando `details` e' assente:
-	// Il componente renderizza la query da `args` e il testo completo dal risultato
-	// `resultText(result)` tramite `OutputBlock`, senza sollevare errori.
-
 	import { openExternalUrl } from '$lib/utils/openExternal';
 	import MarkdownInline from '../../components/MarkdownInline.svelte';
 	import { lexMarkdownInline } from '../../markdown';
@@ -22,14 +14,13 @@
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
 		asRecord,
-		countLabel,
 		recordList,
 		resultText,
 		str,
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const query = $derived(str(args.query) ?? '');
 	const text = $derived(resultText(result));
@@ -71,10 +62,6 @@
 		return list;
 	});
 
-	const countBadgeText = $derived(
-		sources.length > 0 ? countLabel(sources.length, 'risultato', 'risultati') : undefined
-	);
-
 	function openLink(url: string) {
 		if (url) {
 			void openExternalUrl(url);
@@ -82,102 +69,64 @@
 	}
 </script>
 
-{#if view === 'summary'}
-	<span class="summary-line">
+<div class="search-body">
+	<div class="header-row">
 		{#if query}
-			<span class="query-preview">{query}</span>
-		{:else if text}
-			<span class="fallback-preview">{text.split('\n', 1)[0]}</span>
-		{/if}
-		{#if countBadgeText}
-			<CountBadge text={countBadgeText} />
-		{/if}
-	</span>
-{:else}
-	<div class="search-body">
-		<div class="header-row">
-			{#if query}
-				<div class="query-box">
-					<span class="query-label">{m.ui_websearch_cerca_6394()}</span>
-					<span class="query-text">{query}</span>
-				</div>
-			{/if}
-			{#if provider}
-				<CountBadge text={provider} />
-			{/if}
-		</div>
-
-		{#if answer}
-			<div class="answer-box">
-				<span class="answer-label">Risposta diretta</span>
-				<div class="answer-text">
-					<MarkdownInline tokens={answerTokens} />
-				</div>
+			<div class="query-box">
+				<span class="query-label">{m.ui_websearch_cerca_6394()}:</span>
+				<span class="query-text">{query}</span>
 			</div>
 		{/if}
-
-		{#if sources.length > 0}
-			<ul class="sources-list">
-				{#each sources as source, index (source.url || index)}
-					<li class="source-item">
-						<div class="source-header">
-							{#if source.url}
-								<button
-									type="button"
-									class="title-link"
-									onclick={() => openLink(source.url)}
-									title="Apri nel browser"
-								>
-									{source.title}
-								</button>
-							{:else}
-								<span class="title-plain">{source.title}</span>
-							{/if}
-							{#if source.age}
-								<span class="source-age">{source.age}</span>
-							{/if}
-						</div>
-						{#if source.url}
-							<span class="source-url">{source.url}</span>
-						{/if}
-						{#if source.snippet}
-							<p class="source-snippet">{source.snippet}</p>
-						{/if}
-					</li>
-				{/each}
-			</ul>
-		{:else if text}
-			<OutputBlock {text} label="risultati ricerca" />
+		{#if provider}
+			<CountBadge text={provider} />
 		{/if}
 	</div>
-{/if}
+
+	{#if answer}
+		<div class="answer-box">
+			<span class="answer-label">Risposta diretta</span>
+			<div class="answer-text">
+				<MarkdownInline tokens={answerTokens} />
+			</div>
+		</div>
+	{/if}
+
+	{#if sources.length > 0}
+		<ul class="sources-list">
+			{#each sources as source, index (source.url || index)}
+				<li class="source-item">
+					<div class="source-header">
+						{#if source.url}
+							<button
+								type="button"
+								class="title-link"
+								onclick={() => openLink(source.url)}
+								title="Apri nel browser"
+							>
+								{source.title}
+							</button>
+						{:else}
+							<span class="title-plain">{source.title}</span>
+						{/if}
+						{#if source.age}
+							<span class="source-age">{source.age}</span>
+						{/if}
+					</div>
+					{#if source.url}
+						<span class="source-url">{source.url}</span>
+					{/if}
+					{#if source.snippet}
+						<p class="source-snippet">{source.snippet}</p>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+	{:else if text}
+		<OutputBlock {text} label="risultati ricerca" />
+	{/if}
+</div>
 
 <style>
-	.summary-line {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-sm);
-	}
-
-	.query-preview {
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.fallback-preview {
-		color: var(--ink-faint);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.search-body {
 		display: flex;
 		flex-direction: column;
@@ -195,48 +144,49 @@
 	.query-box {
 		display: flex;
 		align-items: baseline;
-		gap: var(--space-1);
+		gap: var(--space-2);
 		font-size: var(--text-sm);
 		min-width: 0;
 	}
 
 	.query-label {
-		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		flex-shrink: 0;
 	}
 
 	.query-text {
 		color: var(--ink);
-		font-family: var(--font-mono);
+		font-family: var(--font-ui);
+		font-size: var(--text-body);
 		user-select: text;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-
-
 	.answer-box {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		padding: var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+		border-left: 2px solid var(--brand);
 	}
 
 	.answer-label {
-		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
+		font-weight: 500;
 		color: var(--ink-faint);
 	}
 
 	.answer-text {
 		margin: 0;
+		font-family: var(--font-ui);
 		font-size: var(--text-sm);
 		color: var(--ink);
-		line-height: 1.4;
+		line-height: 1.45;
 		user-select: text;
 	}
 
@@ -253,10 +203,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		padding: var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+		border-left: 2px solid var(--line);
 	}
 
 	.source-header {
@@ -270,28 +218,36 @@
 		background: transparent;
 		border: none;
 		padding: 0;
+		font-family: var(--font-ui);
 		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--ink);
-		cursor: pointer;
 		text-align: left;
-		line-height: 1.3;
-		user-select: text;
+		cursor: pointer;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		transition: color var(--dur-fast) var(--ease-out);
 	}
 
 	.title-link:hover {
-		text-decoration: underline;
 		color: var(--brand-ink);
+		text-decoration: underline;
 	}
 
 	.title-plain {
+		font-family: var(--font-ui);
 		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.source-age {
-		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		flex-shrink: 0;
@@ -299,20 +255,23 @@
 
 	.source-url {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		user-select: text;
 	}
 
 	.source-snippet {
 		margin: 0;
-		font-size: var(--text-sm);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 		user-select: text;
-		overflow-wrap: anywhere;
+		line-clamp: 2;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 </style>

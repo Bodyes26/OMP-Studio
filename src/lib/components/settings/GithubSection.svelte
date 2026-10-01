@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { githubStore } from '$lib/stores/github.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
@@ -250,15 +251,15 @@
 
 			<div class="option-row">
 				<div class="option-info">
-					<span class="option-title">Controllo automatico remoto (Auto-fetch)</span>
-					<span class="option-desc">Controlla se ci sono nuovi commit su GitHub quando Studio torna in primo piano.</span>
+					<span class="option-title">{m.settings_github_auto_fetch_title()}</span>
+					<span class="option-desc">{m.settings_github_auto_fetch_desc()}</span>
 				</div>
 				<div class="option-control">
 					<input
 						type="checkbox"
 						checked={settingsStore.github.autoFetch}
 						onchange={(e) => settingsStore.patchGithub({ autoFetch: (e.target as HTMLInputElement).checked })}
-						aria-label="Controllo automatico remoto"
+						aria-label={m.settings_github_auto_fetch_title()}
 					/>
 				</div>
 			</div>
@@ -402,10 +403,6 @@
 		animation: spin 1s linear infinite;
 	}
 
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
 
 	/* Account card */
 	.account-card {

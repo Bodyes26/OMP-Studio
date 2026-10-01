@@ -352,7 +352,6 @@
 						args={item.entry.args}
 						result={item.entry.result}
 						running={item.entry.running}
-						view="body"
 					/>
 				{:else if item.entry.kind === 'assistant'}
 					<div class="thinking-body">
@@ -530,11 +529,6 @@
 		animation: spin 0.8s linear infinite;
 	}
 
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
 
 	.fail-icon {
 		display: inline-flex;

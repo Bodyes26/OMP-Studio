@@ -1,6 +1,21 @@
 # Product
 
-## Che cos'è
+<!-- impeccable:product-schema 1 -->
+
+## Platform
+
+web
+
+## Users
+
+Chi sviluppa con `omp` su più progetti insieme, con un agente per progetto e spesso più
+agenti al lavoro in parallelo, otto ore al giorno alla stessa postazione. Il suo lavoro
+è dare il prossimo compito, leggere e verificare ciò che l'agente produce, rispondere
+quando l'agente lo chiama e passare da un progetto all'altro senza perdere il filo.
+
+## Product Purpose
+
+### Che cos'è
 
 OMP Studio è il **guscio desktop attorno all'esperienza di `omp`**. Non è un editor con un
 agente incollato dentro: è un gestore di workspace multi-progetto che tratta la sessione
@@ -12,10 +27,7 @@ Una sola finestra, tre colonne flessibili:
 
 In alto, la barra dei progetti permette lo switch istantaneo tra workspace con ordine manuale stabile o per priorità/MRU/alfabetico, badge numerico della coda e indicatore di stato reattivo per ogni agente. Se il progetto ha almeno una corsia oltre a Principale, sotto la barra compare la riga delle corsie: file, Git, editor e agente seguono il worktree selezionato e le altre corsie restano nel loro.
 
-## Piattaforma
-
-Desktop Windows 11 x64 (NSIS, WebView2) e macOS (DMG universale Apple Silicon + Intel, WebKit WKWebView). Nessun mobile, nessuna versione browser, nessun server. L'app gira al 100% in locale e parla solo con il filesystem, con `git` e con `omp` installati sulla macchina.
-## I problemi che risolve
+### I problemi che risolve
 
 **1. Cambiare progetto senza costo mentale.** Con un agente per progetto e una finestra
 per progetto, ricordare quale sessione gira in quale finestra è lavoro che ricade
@@ -63,11 +75,53 @@ direttamente al progetto attivo con un click.
 **9. Delegare un secondo lavoro senza sporcare il working tree che stai usando.** Un agente lungo o di manutenzione parte in una corsia isolata: worktree fratello, branch `omp/lane-*`, conversazione propria. Principale resta il tuo albero. L'integrazione nel branch di destinazione avviene solo da «Revisiona e integra», con un commit unico per obiettivo, e non parte se quel branch ha modifiche non committate o se la corsia ha ancora processi vivi.
 
 **10. Esplorare e iterare UX/UI con frontend React reali senza sporcare il progetto.** Creare prototipi interattivi non richiede di alterare l'albero sorgente del progetto o di allestire toolchain esterne. Il Laboratorio prototipi permette di generare 3-5 varianti confrontabili o flussi multipagina completi in React 19 e Tailwind v4 con dati e azioni simulate, lavorando in concorrenza con l'agente principale. L'utente interagisce con il renderer Chromium isolato, seleziona elementi, annota feedback legati a revisioni temporali certe, recupera stati precedenti, esporta l'esperimento come progetto Vite autonomo o ne affida l'adattamento (anche verso Svelte o altri stack) alla sessione principale tramite pacchetti di handoff strutturati.
-**Successo si misura così:** passare da progetto a progetto non richiede di ricordare
+
+### Successo
+
+Passare da progetto a progetto non richiede di ricordare
 nulla; conoscere la quota residua non richiede di interrompere niente; il prossimo
 prompt resta nella coda del progetto; riprendere una sessione di ieri richiede un click;
 ispezionare il codice o un'anteprima avviene direttamente nel flusso di lavoro; un secondo agente non modifica i file che hai aperti finché non integri la sua corsia.
-## Non-obiettivi
+
+## Positioning
+
+Il primo cittadino è la **sessione dell'agente per progetto**, non il file. Studio ospita
+la TUI di `omp` intatta e le affianca una GUI che è un client di `omp --mode rpc-ui`:
+rende quello che `omp` dichiara, senza reimplementare prompt, tool, approvazioni o
+logica di modello. Le due superfici lavorano sulla stessa sessione.
+
+### Anti-riferimenti
+
+- **VS Code.** OMP Studio non deve diventarne un clone con meno funzioni. Se una feature
+  esiste solo perché "VS Code ce l'ha", si taglia. Nessuna command palette generica,
+  nessuna activity bar a otto icone, nessuna status bar con dodici widget. Vale anche
+  per le impostazioni: esiste un centro impostazioni, non un albero di preferenze.
+  Ogni voce deve rispondere a un attrito reale della giornata di lavoro — la barra dei
+  progetti che si sposta sotto il mouse, il font troppo piccolo alle otto di sera — e
+  quella che non lo fa non viene aggiunta.
+- **Cursor / Windsurf / OpenCode Desktop.** Rimpiazzano la TUI dell'agente con una chat
+  GUI che diventa l'unica interfaccia possibile, e con essa reimplementano prompt, tool
+  e approvazioni. Questo resta il rifiuto: la GUI di Studio **affianca** la TUI, non la
+  sostituisce, e non contiene logica di agente — è un client di `--mode rpc-ui` che
+  rende quello che `omp` dichiara. Chi vuole la TUI la trova nella scheda accanto, sulla
+  stessa sessione.
+- **Zed.** Ottimo editor, ma resta un editor con una nozione di workspace da editor.
+  Qui il primo cittadino è la sessione agente per progetto.
+
+## Operating Context
+
+Postazione desktop, luce artificiale, otto ore al giorno. Una parte dello schermo è la
+conversazione con un agente che lavora (TUI o GUI), un'altra è codice. L'utente deve
+sapere in mezzo secondo quale progetto è attivo, se l'agente sta lavorando o aspetta
+lui, e quanta quota AI resta.
+
+### Piattaforma
+
+Desktop Windows 11 x64 (NSIS, WebView2) e macOS (DMG universale Apple Silicon + Intel, WebKit WKWebView). Nessun mobile, nessuna versione browser, nessun server. L'app gira al 100% in locale e parla solo con il filesystem, con `git` e con `omp` installati sulla macchina. L'interfaccia è web dentro una WebView (Svelte 5 + Tauri): `Platform: web` indica il linguaggio di design, non un sito.
+
+## Capabilities and Constraints
+
+### Non-obiettivi
 
 - **Non è un IDE generico.** Niente debugger complessi, build pipeline generiche, o
   marketplace di estensioni. L'editor, il diff Git, la whiteboard e la sandbox servono a
@@ -86,16 +140,34 @@ ispezionare il codice o un'anteprima avviene direttamente nel flusso di lavoro; 
 - **Non è un servizio cloud né un dashboard di analytics.** Nessun server remoto, nessun
   account obbligatorio oltre a quelli configurati in `omp`. L'usage risponde a "quanto resta e
   quando si resetta", non produce reportistica aziendale.
-## Personalità
+
+### Vincoli
+
+- **Tema coerente.** Temi chiari e scuri sono ammessi, ma guscio e TUI devono
+  sempre cambiare insieme: nessuna superficie chiara attorno a un terminale scuro
+  o tema manuale diverso tra Studio e `omp`.
+- **Il terminale non si "abbellisce".** Nessun padding decorativo dentro la viewport, nessun
+  font proporzionale, nessuna reinterpretazione dei sedici colori ANSI. Il terminale è
+  sacro: pixel-perfect e veloce.
+- **Nessuna cattura di scorciatoie.** Ogni shortcut che l'app si prende è una shortcut
+  rubata alla TUI. Il set di scorciatoie dell'app è deliberatamente minuscolo e vive su
+  un modificatore che `omp` non usa.
+
+## Brand Commitments
+
+Nome: **OMP Studio**. Asset sorgente in `assets/` (`app-icon.png`, `app-icon-dark.png`,
+`logo-topbar.svg`); il sistema visivo è in `DESIGN.md`.
+
+### Personalità
 
 `omp` è uno strumento da officina, non un prodotto SaaS. Tre parole: **strumento,
 silenzioso, preciso**.
 
 - Il tono è quello di un banco di lavoro ben tenuto: tutto ha il suo posto, niente
   chiede attenzione se non serve.
-- L'interfaccia è **cornice**, non contenuto. Il contenuto è l'output ANSI dell'agente
-  e il codice. Il guscio è cromaticamente silenzioso perché i colori che contano sono
-  quelli dentro il terminale e dentro l'editor.
+- L'interfaccia è **cornice**, non contenuto. Il contenuto è la conversazione con
+  l'agente (l'output ANSI nella TUI, la chat nella GUI) e il codice. La conversazione
+  è il focus principale; il resto dell'app la accompagna.
 - Densità alta senza affollamento: è uno strumento da otto ore, non una demo da trenta
   secondi.
 - Zero celebrazione. Nessun "Welcome back", nessuna animazione che si fa notare due
@@ -103,42 +175,23 @@ silenzioso, preciso**.
 - L'unico momento in cui l'app alza la voce è quando una quota sta finendo: è l'unica
   informazione che ha diritto di interrompere.
 
-## Anti-riferimenti
+## Evidence on Hand
 
-- **VS Code.** OMP Studio non deve diventarne un clone con meno funzioni. Se una feature
-  esiste solo perché "VS Code ce l'ha", si taglia. Nessuna command palette generica,
-  nessuna activity bar a otto icone, nessuna status bar con dodici widget. Vale anche
-  per le impostazioni: esiste un centro impostazioni, non un albero di preferenze.
-  Ogni voce deve rispondere a un attrito reale della giornata di lavoro — la barra dei
-  progetti che si sposta sotto il mouse, il font troppo piccolo alle otto di sera — e
-  quella che non lo fa non viene aggiunta.
-- **Cursor / Windsurf / OpenCode Desktop.** Rimpiazzano la TUI dell'agente con una chat
-  GUI che diventa l'unica interfaccia possibile, e con essa reimplementano prompt, tool
-  e approvazioni. Questo resta il rifiuto: la GUI di Studio **affianca** la TUI, non la
-  sostituisce, e non contiene logica di agente — è un client di `--mode rpc-ui` che
-  rende quello che `omp` dichiara. Chi vuole la TUI la trova nella scheda accanto, sulla
-  stessa sessione.
-- **Zed.** Ottimo editor, ma resta un editor con una nozione di workspace da editor.
-  Qui il primo cittadino è la sessione agente per progetto.
-- **AI slop 2025-2026.** Glassmorphism decorativo, gradient text, card con bordo sottile
-  e ombra larga, angoli da 24-32px, eyebrow uppercase sopra ogni sezione, marcatori
-  `01 / 02 / 03`, sfondi a griglia, illustrazioni SVG "sketchy".
-- **Tema incoerente.** Temi chiari e scuri sono ammessi, ma guscio e TUI devono
-  sempre cambiare insieme: nessuna superficie chiara attorno a un terminale scuro
-  o tema manuale diverso tra Studio e `omp`.
-- **Il terminale "abbellito".** Nessun padding decorativo dentro la viewport, nessun
-  font proporzionale, nessuna reinterpretazione dei sedici colori ANSI. Il terminale è
-  sacro: pixel-perfect e veloce.
-- **La cattura di scorciatoie.** Ogni shortcut che l'app si prende è una shortcut
-  rubata alla TUI. Il set di scorciatoie dell'app è deliberatamente minuscolo e vive su
-  un modificatore che `omp` non usa.
+- **Dati reali di `omp`:** `omp usage --json` (quote e reset), `history.db` e `stats.db`
+  (storico e costi, aperti in sola lettura), `tasks.json` per progetto.
+- **Riferimento visivo della chat:** prototipo Lab **CodeAgent Flow**
+  (`.omp/lab/prototypes.json`, id `p-20260925-dyyhe6`) e banco `/chat-bench` in
+  sviluppo, con gli scenari di `src/lib/agent/bench/scenarios.ts` e le registrazioni
+  RPC reali in `test/fixtures/chat-v2/`.
+- **Decisioni e piano:** `DECISIONS.md` (gate R1…R32), `PLAN.md`.
+- **Assenze:** nessuna testimonianza, nessuna metrica d'uso, nessun dato sul numero di
+  utenti. Non vanno inventati.
 
-## Principi di design
+## Product Principles
 
 1. **Il terminale è il contenuto, l'app è la cornice.** La viewport non viene mai
    decorata, sovrapposta né animata. Nessun overlay dell'app può coprirla mentre
-   l'agente scrive. La cornice usa neutri a croma 0 esatta proprio per non alterare la
-   percezione dei colori ANSI adiacenti.
+   l'agente scrive.
 
 2. **Lo switch di progetto è istantaneo, quindi non si anima.** Cambiare progetto è
    cambiare stanza, non navigare una pagina. Le tre colonne appaiono senza transizione:
@@ -162,10 +215,9 @@ silenzioso, preciso**.
    riavviare o corrompere un PTY. La persistenza del processo è un invariante, non una
    feature.
 
-5. **Un solo accento, usato con significato.** Neutri, un cremisi e un ambra. L'accento
-   marca identità e fuoco; l'ambra marca "attenzione quota". Nessun verde-successo,
-   nessun rosso-errore nel guscio: gli errori appartengono al terminale, duplicarli
-   fuori è rumore. Il colore per progetto è funzionale — distingue, non decora.
+5. **Il colore porta un significato.** Il colore distingue i progetti, marca il fuoco e
+   la selezione, e riporta esiti e richieste di attenzione. Non decora. Le regole
+   operative sono in `DESIGN.md`.
 
 6. **Le tre colonne sono un sistema di priorità, non un layout fisso.** Il terminale / GUI è
    l'unica colonna che non si può nascondere. Albero/Git ed editor/anteprime si collassano con
@@ -182,7 +234,11 @@ silenzioso, preciso**.
    rigorosa (`PRAGMA query_only = ON` e `SQLITE_OPEN_READONLY`). Nel caso peggiore l'app è un
    guscio chiuso attorno a dati intatti, recuperabili riaprendo `omp` da terminale.
 
-9. **Accessibilità e precisione ergonomica.** Nessuna informazione affidata al solo colore;
-   contrasti conformi WCAG AA (>= 4.5:1), supporto navigazione tastiera completa con roving
-   tabindex, focus trap sui modali, annunci `aria-live` per i cambi di stato asincroni e pieno
-   rispetto di `prefers-reduced-motion`.
+9. **Accessibilità e precisione ergonomica.** Vedi § Accessibility & Inclusion.
+
+## Accessibility & Inclusion
+
+Nessuna informazione affidata al solo colore; contrasti conformi WCAG AA (>= 4.5:1),
+supporto navigazione tastiera completa con roving tabindex, focus trap sui modali,
+annunci `aria-live` per i cambi di stato asincroni e pieno rispetto di
+`prefers-reduced-motion`.

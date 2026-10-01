@@ -62,7 +62,7 @@
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-trace);
 		--icon-size: 14px;
 	}
 	.ask-waiting {
@@ -86,8 +86,8 @@
 
 	.ask-sent {
 		border: 1px solid var(--line);
-		border-radius: var(--radius-lg);
-		background: color-mix(in oklab, var(--bg-raised) 50%, transparent);
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
 		padding: 10px 14px 12px;
 		min-width: 0;
 	}
@@ -96,7 +96,7 @@
 		align-items: center;
 		gap: 6px;
 		margin-bottom: 8px;
-		font-size: var(--text-xs);
+		font-size: var(--text-trace);
 		color: var(--ink-muted);
 		--icon-size: 14px;
 	}
@@ -106,7 +106,7 @@
 		column-gap: 20px;
 		row-gap: 6px;
 		margin: 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-trace);
 		line-height: 1.45;
 	}
 	.sent-list dt {
@@ -131,7 +131,7 @@
 		align-items: flex-start;
 		gap: 6px;
 		margin-top: 2px;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-style: normal;
 		color: var(--ink-muted);
 		--icon-size: 13px;

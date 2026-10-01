@@ -1,22 +1,12 @@
 <!--
   Renderer per il tool `github`.
 
-  Forma attesa di `details`:
-  `op` (string), `repo` (string), `branch` (string), `worktreePath` (string),
-  `remote` (string), `remoteBranch` (string), `headSha` (string), `runId` (string),
-  `status` (string), `conclusion` (string), `checkouts` (array), `items` (array).
-
-  Comportamento quando `details` manca o e' incompleto:
-  Mostra l'operazione (`op` o `action`) e il target (repo, PR, branch, query) nel sommario.
-  Nel corpo mostra la tabella KeyValue con i parametri della chiamata, un elenco
-  compatto per le liste di elementi (issue, PR, commit) se presenti in `details`,
-  e l'output testuale in OutputBlock.
+  Nel corpo espanso mostra la tabella KeyValue con i parametri della chiamata,
+  l'elenco degli elementi (issue, PR, checkouts) con link al browser di sistema
+  separati da linea neutra (Anti-Nesting Rule), e l'output testuale in OutputBlock.
 -->
 <script lang="ts">
-	// I link ad issue/PR aprono il browser di sistema via Tauri: un `<a href>`
-	// dentro la webview non naviga fuori dall'app.
 	import { openExternalUrl } from '$lib/utils/openExternal';
-	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import { IconExternalLink } from '$lib/icons';
@@ -29,7 +19,7 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 	const op = $derived(str(details?.op) ?? str(args.op) ?? str(args.action) ?? 'github');
@@ -42,18 +32,6 @@
 	const run = $derived(str(args.run));
 	const title = $derived(str(args.title));
 	const text = $derived(resultText(result));
-
-	const targetLabel = $derived.by(() => {
-		let out = '';
-		if (repo) out += repo;
-		if (pr) out += ` #${pr}`;
-		else if (prList.length > 0) out += ` #${prList.join(', #')}`;
-		else if (branch) out += ` (${branch})`;
-		else if (pathArg) out += ` · ${pathArg}`;
-		else if (run) out += ` (run ${run})`;
-		if (query) out += ` "${query}"`;
-		return out.trim();
-	});
 
 	const items = $derived.by(() => {
 		if (!details) return [];
@@ -82,78 +60,49 @@
 	}
 </script>
 
-{#if view === 'summary'}
-	<div class="gh-summary">
-		<CountBadge text={op} />
-		{#if targetLabel}
-			<span class="target-text">{targetLabel}</span>
-		{/if}
-	</div>
-{:else}
-	<div class="gh-body">
-		{#if argsRows.length > 0}
-			<KeyValue rows={argsRows} />
-		{/if}
+<div class="gh-body">
+	{#if argsRows.length > 0}
+		<KeyValue rows={argsRows} />
+	{/if}
 
-		{#if items.length > 0}
-			<div class="items-list">
-				{#each items as item, index (index)}
-					{@const itemNum = str(item.number) ?? (typeof item.number === 'number' ? String(item.number) : undefined)}
-					{@const itemTitle = str(item.title) ?? str(item.name)}
-					{@const itemUrl = str(item.url) ?? str(item.html_url)}
-					{@const itemState = str(item.state) ?? str(item.status)}
-					<div class="item-card">
-						{#if itemNum}
-							<span class="item-num">#{itemNum}</span>
-						{/if}
-						{#if itemTitle}
-							<span class="item-title">{itemTitle}</span>
-						{/if}
-						{#if itemState}
-							<span class="item-state">{itemState}</span>
-						{/if}
-						{#if itemUrl}
-							<button
-								type="button"
-								class="item-link"
-								onclick={() => openLink(itemUrl)}
-								title="Apri nel browser"
-							>
-								apri <IconExternalLink />
-							</button>
-						{/if}
-					</div>
-				{/each}
-			</div>
-		{/if}
+	{#if items.length > 0}
+		<div class="items-list">
+			{#each items as item, index (index)}
+				{@const itemNum = str(item.number) ?? (typeof item.number === 'number' ? String(item.number) : undefined)}
+				{@const itemTitle = str(item.title) ?? str(item.name)}
+				{@const itemUrl = str(item.url) ?? str(item.html_url)}
+				{@const itemState = str(item.state) ?? str(item.status)}
+				<div class="item-card">
+					{#if itemNum}
+						<span class="item-num">#{itemNum}</span>
+					{/if}
+					{#if itemTitle}
+						<span class="item-title">{itemTitle}</span>
+					{/if}
+					{#if itemState}
+						<span class="item-state">{itemState}</span>
+					{/if}
+					{#if itemUrl}
+						<button
+							type="button"
+							class="item-link"
+							onclick={() => openLink(itemUrl)}
+							title="Apri nel browser"
+						>
+							apri <span class="link-icon"><IconExternalLink /></span>
+						</button>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
 
-		{#if text}
-			<OutputBlock {text} label="risultato github" />
-		{/if}
-	</div>
-{/if}
+	{#if text}
+		<OutputBlock {text} label="risultato github" />
+	{/if}
+</div>
 
 <style>
-	.gh-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.target-text {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		user-select: text;
-	}
-
 	.gh-body {
 		display: flex;
 		flex-direction: column;
@@ -164,8 +113,7 @@
 	.items-list {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		padding: 2px 0;
+		gap: var(--space-1);
 	}
 
 	.item-card {
@@ -173,49 +121,53 @@
 		align-items: center;
 		gap: var(--space-2);
 		padding: var(--space-1) var(--space-2);
-		background: var(--bg-sunken);
-		border-radius: var(--radius-sm);
+		border-left: 2px solid var(--line);
 		font-size: var(--text-sm);
 	}
 
 	.item-num {
 		font-family: var(--font-mono);
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.item-title {
+		font-family: var(--font-ui);
 		color: var(--ink);
-		flex: 1;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
 	.item-state {
-		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
-		white-space: nowrap;
 	}
 
 	.item-link {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		--icon-size: 12px;
+		margin-left: auto;
 		background: transparent;
 		border: none;
 		padding: 0;
-		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
-		text-decoration: none;
-		white-space: nowrap;
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
 		cursor: pointer;
+		transition: color var(--dur-fast) var(--ease-out);
 	}
 
 	.item-link:hover {
-		color: var(--ink);
-		text-decoration: underline;
+		color: var(--brand-ink);
+	}
+
+	.link-icon {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 12px;
 	}
 </style>

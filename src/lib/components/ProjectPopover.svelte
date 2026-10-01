@@ -15,7 +15,7 @@
 	 * tooltip che contengono elementi attivabili, e qui dentro ci sono campi,
 	 * bottoni e un selettore di tinta.
 	 */
-	import { projectStore, type Project } from '$lib/stores/projects.svelte';
+	import { projectStore, normalizeProjectPath, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
 	import { taskLabel as sharedTaskLabel } from '$lib/stores/taskTitle';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -40,15 +40,20 @@
 		IconPlus,
 		IconQueue,
 		IconRename,
-		IconStatusPending,
-		IconStatusRunning,
 		IconTerminal,
 		IconWarning,
 		IconLab,
 		IconChevronRight,
 		IconGitBranch,
-		IconTrash
+		IconTrash,
+		IconDownload,
+		IconArrowUp,
+		IconRefresh
 	} from '$lib/icons';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { laneStore } from '$lib/stores/lanes.svelte';
+	import { sessionRegistry } from '$lib/agent/sessionRegistry';
+	import { githubStore } from '$lib/stores/github.svelte';
 	import { labApi } from '$lib/lab/api';
 	import {
 		openLabEntry,
@@ -64,9 +69,9 @@
 		deleteLabPrototype,
 		type ClosedLaneEntry
 	} from '$lib/lanes/laneLifecycle';
-	import type { ProjectId } from '$lib/types/lanes';
+	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
 	import { invoke } from '@tauri-apps/api/core';
-	import { gitDiffStore, hasGitChanges } from '$lib/stores/gitDiff.svelte';
+	import { gitDiffStore, hasGitChanges, notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
 	interface Props {
@@ -154,6 +159,89 @@
 	const realProjects = $derived(
 		projectStore.projects.filter((p) => p.canonicalProjectPath !== null && !p.labDraft)
 	);
+
+	const canonicalKey = $derived(
+		project.canonicalProjectPath ? normalizeProjectPath(project.canonicalProjectPath).toLowerCase() : ''
+	);
+	const upstream = $derived(
+		canonicalKey ? githubStore.upstreamByPath[canonicalKey] ?? null : null
+	);
+	const remoteError = $derived(
+		canonicalKey ? githubStore.remoteErrorByPath[canonicalKey] ?? null : null
+	);
+	const isSyncing = $derived(
+		canonicalKey ? Boolean(githubStore.isSyncingByPath[canonicalKey]) : false
+	);
+	const canonicalGitDiff = $derived(
+		project.canonicalProjectPath ? gitDiffStore.forPath(project.canonicalProjectPath) : null
+	);
+
+	let lastProjectId = $state<string | null>(null);
+	let pullError = $state<string | null>(null);
+	let pullSuccess = $state<string | null>(null);
+	let isPulling = $state(false);
+
+	$effect(() => {
+		if (project.id !== lastProjectId) {
+			lastProjectId = project.id;
+			pullError = null;
+			pullSuccess = null;
+		}
+	});
+
+	$effect(() => {
+		const targetPath = project.canonicalProjectPath;
+		if (targetPath && !project.labDraft) {
+			void githubStore.loadUpstreamStatus(targetPath);
+		}
+	});
+
+	const isMainAgentBusy = $derived.by(() => {
+		const mainSession = sessionRegistry.getMainSession(project.id);
+		if (mainSession && (mainSession.isStreaming || mainSession.isCompacting || mainSession.agentState === 'working')) {
+			return true;
+		}
+		const mainLane = laneStore.lanesFor(project.id as ProjectId).find((l) => l.laneId === MAIN_LANE_ID);
+		if (mainLane?.agentState === 'working') {
+			return true;
+		}
+		return false;
+	});
+
+	const pullDisableReason = $derived.by(() => {
+		if (!upstream?.isGit) return null;
+		if (isSyncing || isPulling) return m.project_popover_git_disabled_syncing();
+		if (isMainAgentBusy) return m.project_popover_git_disabled_working();
+		if (upstream.hasUncommitted || (canonicalGitDiff && hasGitChanges(canonicalGitDiff))) {
+			return m.project_popover_git_disabled_dirty();
+		}
+		if (upstream.ahead > 0) return m.project_popover_git_disabled_diverged();
+		return null;
+	});
+	const isPullDisabled = $derived(Boolean(pullDisableReason));
+
+	async function handlePull() {
+		const targetProject = project;
+		const targetPath = targetProject.canonicalProjectPath;
+		if (!targetPath || isPullDisabled) return;
+
+		isPulling = true;
+		pullError = null;
+		pullSuccess = null;
+		try {
+			await githubStore.syncRepo(targetPath, 'pull-ff');
+			if (project?.id === targetProject.id) {
+				pullSuccess = m.project_popover_git_pull_success();
+			}
+			notifyGitStatusRefresh(targetPath);
+		} catch (err) {
+			if (project?.id === targetProject.id) {
+				pullError = String(err);
+			}
+		} finally {
+			isPulling = false;
+		}
+	}
 
 	let closedLanes = $state<ClosedLaneEntry[]>([]);
 	let deleteConfirmTarget = $state<ClosedLaneEntry | null>(null);
@@ -277,15 +365,6 @@
 		onClose();
 	}
 
-	async function handleQuickReplySelect(value: string) {
-		await companionStore.respondUi(project.id, { action: 'select', value });
-		onClose();
-	}
-
-	async function handleQuickReplyConfirm(confirmed: boolean) {
-		await companionStore.respondUi(project.id, { action: 'confirm', confirmed });
-		onClose();
-	}
 	const canReorder = $derived(settingsStore.projectBar.order === 'fixed');
 	const effectiveHue = $derived(project.colorMode === 'custom' ? project.hue : autoHue);
 
@@ -490,7 +569,7 @@
 	tabindex="-1"
 	aria-label={m.project_popover_aria_label({ name: project.name })}
 	class:flipped
-	use:anchoredPopover={{ anchor, offset: 6, onFlip: (value) => (flipped = value) }}
+	use:anchoredPopover={{ anchor, offset: 6, onFlip: (value) => (flipped = value), motion: true }}
 	onpointerenter={() => onHoverChange(true)}
 	onpointerleave={() => onHoverChange(false)}
 	onpointerdown={handlePanelPointerDown}
@@ -566,63 +645,34 @@
 		</header>
 
 		<div class="state" class:working={project.lane.agentState === 'working'} class:attention={project.lane.agentState === 'attention'}>
-			{#if project.lane.agentState === 'working'}
-				<IconStatusRunning />
-			{:else if project.lane.agentState === 'attention'}
-				<IconWarning />
-			{:else if project.lane.agentState === 'finished'}
-				<IconCheck />
-			{:else}
-				<IconStatusPending />
-			{/if}
+			<StatusMark
+				status={project.lane.agentState === 'working'
+					? 'running'
+					: project.lane.agentState === 'attention'
+						? 'attention'
+						: project.lane.agentState === 'finished'
+							? 'completed'
+							: 'pending'}
+			/>
 			<span>{AGENT_STATE_LABEL[project.lane.agentState]}</span>
 		</div>
 		{#if attentionReq}
 			<div class="popover-quick-reply">
-				{#if attentionReq.recentMessages && attentionReq.recentMessages.length > 0}
-					<div class="quick-context">
-						{#each attentionReq.recentMessages.slice(-2) as msg, i (i)}
-							<div class="context-item {msg.role}">
-								<strong>{msg.role === 'user' ? m.project_popover_speaker_you() : m.project_popover_speaker_agent()}:</strong>
-								<span>{msg.text}</span>
-							</div>
-						{/each}
-					</div>
-				{/if}
-
 				<p class="quick-ask-prompt">{askQuestionText(attentionReq.pendingUi, m.project_popover_quick_ask_title())}</p>
-
-				{#if attentionReq.pendingUi.options && attentionReq.pendingUi.options.length > 0}
-					<div class="quick-options">
-						{#each attentionReq.pendingUi.options as opt, idx (opt)}
-							<button
-								type="button"
-								class="quick-opt-btn"
-								onclick={() => void handleQuickReplySelect(opt)}
-							>
-								<span class="q-num">{idx + 1}</span>
-								<span>{opt}</span>
-							</button>
-						{/each}
-					</div>
-				{:else if attentionReq.pendingUi.method === 'confirm'}
-					<div class="quick-confirm-btns">
-						<button
-							type="button"
-							class="quick-action-btn confirm"
-							onclick={() => void handleQuickReplyConfirm(true)}
-						>
-							<IconCheck /> {m.project_popover_btn_confirm_yes()}
-						</button>
-						<button
-							type="button"
-							class="quick-action-btn cancel"
-							onclick={() => void handleQuickReplyConfirm(false)}
-						>
-							<IconClose /> {m.project_popover_btn_confirm_no()}
-						</button>
-					</div>
-				{/if}
+				<button
+					type="button"
+					class="quick-composer-btn"
+					onclick={() => {
+						projectStore.setActive(project.id);
+						onClose();
+						setTimeout(() => {
+							const composerEl = document.querySelector('.composer-editor') as HTMLElement | null;
+							composerEl?.focus();
+						}, 50);
+					}}
+				>
+					<span>{m.project_popover_quick_reply_in_composer()}</span>
+				</button>
 			</div>
 		{/if}
 	{/if}
@@ -745,6 +795,103 @@
 			{/if}
 		</section>
 
+		{#if !isScratchpad && project.canonicalProjectPath && !project.labDraft && (upstream?.isGit || remoteError)}
+			<section class="block git-section">
+				<h4>{m.project_popover_git_upstream_title()}</h4>
+				<div class="git-branch-row">
+					<span class="git-branch-info">
+						<IconGitBranch />
+						<span class="branch-name" title={upstream?.branch}>{upstream?.branch ?? '—'}</span>
+						{#if upstream?.upstream}
+							<span class="upstream-target" title={upstream.upstream}>→ {upstream.upstream}</span>
+						{:else if upstream?.isGit}
+							<span class="no-upstream">({m.project_popover_git_no_upstream()})</span>
+						{/if}
+					</span>
+					{#if upstream && upstream.isGit}
+						<span class="git-badges">
+							{#if upstream.behind > 0}
+								<span class="git-pill behind" title={m.topbar_upstream_behind_tooltip({ count: upstream.behind })}>
+									<IconDownload />
+									<span>{upstream.behind}</span>
+								</span>
+							{/if}
+							{#if upstream.ahead > 0}
+								<span class="git-pill ahead" title={m.topbar_upstream_ahead_tooltip({ count: upstream.ahead })}>
+									<IconArrowUp />
+									<span>{upstream.ahead}</span>
+								</span>
+							{/if}
+							{#if upstream.upstream && upstream.behind === 0 && upstream.ahead === 0}
+								<span class="git-pill up-to-date" title={m.project_popover_git_up_to_date()}>
+									<IconCheck />
+									<span>{m.project_popover_git_up_to_date()}</span>
+								</span>
+							{/if}
+						</span>
+					{/if}
+				</div>
+
+				{#if pullError || remoteError}
+					<div class="git-error-banner" role="alert">
+						<IconWarning />
+						<span>{pullError || remoteError}</span>
+					</div>
+				{/if}
+
+				{#if pullSuccess}
+					<div class="git-success-banner" role="status">
+						<IconCheck />
+						<span>{pullSuccess}</span>
+					</div>
+				{/if}
+
+				{#if upstream && upstream.behind > 0}
+					{#if upstream.incomingCommits && upstream.incomingCommits.length > 0}
+						<div class="git-commits-preview">
+							<span class="git-commits-label">{m.project_popover_git_incoming_commits({ count: upstream.behind })}</span>
+							<ul class="git-commits-list">
+								{#each upstream.incomingCommits.slice(0, 5) as commit (commit.hash || commit.shortHash)}
+									<li class="git-commit-item" title={`${commit.shortHash} - ${commit.author} - ${commit.date}`}>
+										<span class="git-commit-hash">{commit.shortHash}</span>
+										<span class="git-commit-subject">{commit.subject}</span>
+									</li>
+								{/each}
+							</ul>
+							{#if upstream.incomingCommits.length > 5}
+								<span class="git-commits-more">+{upstream.incomingCommits.length - 5} {m.project_popover_git_more_commits()}</span>
+							{/if}
+						</div>
+					{/if}
+
+					<div class="git-pull-action">
+						<button
+							type="button"
+							class="row-btn git-pull-btn"
+							disabled={isPullDisabled}
+							title={pullDisableReason ?? m.project_popover_git_clean_requirement()}
+							onclick={() => void handlePull()}
+						>
+							{#if isPulling || isSyncing}
+								<IconRefresh class="spin" />
+								<span>{m.project_popover_git_pulling()}</span>
+							{:else}
+								<IconDownload />
+								<span>{m.project_popover_git_pull_button()}</span>
+							{/if}
+						</button>
+						<p class="git-requirement-hint" class:warn={Boolean(pullDisableReason)}>
+							{#if pullDisableReason}
+								<IconWarning /> <span>{pullDisableReason}</span>
+							{:else}
+								<span>{m.project_popover_git_clean_requirement()}</span>
+							{/if}
+						</p>
+					</div>
+				{/if}
+			</section>
+		{/if}
+
 		{#if project.labDraft}
 			<section class="block">
 				<button type="button" class="row" onclick={() => (view = 'associate')}>
@@ -803,7 +950,8 @@
 								alignTo: protoRowEl,
 								placement: 'right-start',
 								offset: 2,
-								onFlip: (value) => (protoMenuFlipped = value)
+								onFlip: (value) => (protoMenuFlipped = value),
+								motion: true
 							}}
 							onkeydown={handleProtoMenuKeydown}
 						>
@@ -951,7 +1099,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		animation: popover-in var(--dur-slow) var(--ease-out-expo);
+		--dur: var(--dur-menu, 150ms);
+		--blur: 3px;
 	}
 
 	/* Ponte sopra lo stacco fra tessera e pannello: senza, il mouse che
@@ -972,7 +1121,8 @@
 	}
 
 	.project-popover.pinned {
-		border-color: var(--brand);
+		border-color: var(--line-strong);
+		box-shadow: var(--shadow-overlay), inset 0 0 0 1px var(--line-strong);
 	}
 
 	.popover-quick-reply {
@@ -981,124 +1131,42 @@
 		gap: var(--space-2);
 		padding: var(--space-2);
 		background: var(--bg-sunken);
-		border: 1px solid var(--line);
+		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
 		margin-top: var(--space-1);
 	}
 
-	.quick-context {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 6px;
-		max-height: 120px;
-		overflow-y: auto;
-	}
-
-	.context-item {
-		font-size: var(--text-xs);
-		line-height: 1.3;
-	}
-
-	.context-item strong {
-		color: var(--brand);
-		margin-right: 4px;
-	}
-
-	.context-item.assistant strong {
-		color: var(--ink-muted);
-	}
-
-	.context-item span {
-		color: var(--ink-muted);
-		word-break: break-word;
-	}
-
 	.quick-ask-prompt {
 		font-size: var(--text-xs);
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--ink);
 		margin: 0;
+		line-height: 1.4;
 	}
 
-	.quick-options {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.quick-opt-btn {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding: 4px 8px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		text-align: left;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.quick-opt-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-	}
-
-	.q-num {
+	.quick-composer-btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 16px;
-		height: 16px;
-		background: var(--bg-sunken);
-		border-radius: 2px;
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--ink-muted);
-	}
-
-	.quick-confirm-btns {
-		display: flex;
-		gap: var(--space-2);
-	}
-
-	.quick-action-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 4px 8px;
-		font-size: var(--text-xs);
-		font-weight: 500;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		border: 1px solid var(--line);
-	}
-
-	.quick-action-btn.confirm {
-		background: var(--brand);
-		color: var(--on-brand);
-		border-color: var(--brand);
-	}
-
-	.quick-action-btn.cancel {
+		gap: 6px;
+		padding: 6px 12px;
 		background: var(--bg-hover);
-		color: var(--ink-muted);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--brand-ink);
+		font-size: var(--text-caption);
+		font-weight: 600;
+		cursor: pointer;
+		text-align: center;
+		transition: background var(--dur-fast) var(--ease-out),
+		            border-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out);
 	}
-	@keyframes popover-in {
-		from {
-			opacity: 0;
-			transform: translateY(-6px) scale(0.97);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0) scale(1);
-		}
+
+	.quick-composer-btn:hover {
+		background: var(--bg-active);
+		border-color: var(--line-strong);
+		color: var(--brand-ink);
 	}
 
 	.head {
@@ -1119,7 +1187,7 @@
 		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
 		color: var(--on-project);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		letter-spacing: 0.02em;
 		line-height: 1;
@@ -1215,10 +1283,10 @@
 		background: transparent;
 		border: none;
 		border-radius: var(--radius-md);
-		padding: 5px var(--space-2);
+		padding: 7px 8px;
 		color: var(--ink-muted);
 		font: inherit;
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		text-align: left;
 		cursor: pointer;
 		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
@@ -1234,8 +1302,13 @@
 		cursor: default;
 	}
 
+	.row.danger {
+		color: var(--danger);
+	}
+
 	.row.danger:hover {
-		color: var(--brand-ink);
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
+		color: var(--danger);
 	}
 
 	.row.subtle {
@@ -1270,25 +1343,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
-		animation: proto-menu-in var(--dur-slow) var(--ease-out-expo);
-	}
-
-	.proto-menu.flipped {
-		animation-name: proto-menu-in-flipped;
-	}
-
-	@keyframes proto-menu-in {
-		from {
-			opacity: 0;
-			transform: translateX(-6px);
-		}
-	}
-
-	@keyframes proto-menu-in-flipped {
-		from {
-			opacity: 0;
-			transform: translateX(6px);
-		}
+		--dur: var(--dur-menu, 150ms);
+		--blur: 3px;
 	}
 
 	.row-pair {
@@ -1308,7 +1364,7 @@
 		height: 26px;
 		padding: 0 var(--space-2);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--bg-raised);
 		color: var(--ink-muted);
 		font-family: inherit;
@@ -1339,7 +1395,7 @@
 		display: flex;
 		align-items: center;
 		width: 100%;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		position: relative;
 	}
 
@@ -1365,7 +1421,7 @@
 		padding: 0;
 		margin-right: 4px;
 		border: none;
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-md);
 		background: transparent;
 		color: var(--ink-faint);
 		cursor: pointer;
@@ -1397,7 +1453,7 @@
 
 	.row-state {
 		flex: none;
-		font-size: 10px;
+		font-size: var(--text-caption);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: var(--ink-faint);
@@ -1412,7 +1468,7 @@
 	kbd {
 		flex: none;
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -1520,7 +1576,7 @@
 
 	.btn-ghost,
 	.btn-primary {
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		border: 1px solid var(--line);
 		background: transparent;
 		color: var(--ink-muted);
@@ -1551,5 +1607,242 @@
 
 	.notice:empty {
 		display: none;
+	}
+	.git-branch-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: 4px var(--space-2);
+		font-size: var(--text-xs);
+		min-width: 0;
+	}
+
+	.git-branch-info {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.git-branch-info :global(svg) {
+		width: 14px;
+		height: 14px;
+		flex-shrink: 0;
+		color: var(--ink-muted);
+	}
+
+	.branch-name {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.upstream-target {
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.no-upstream {
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+		font-style: italic;
+	}
+
+	.git-badges {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	.git-pill {
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		font-weight: 600;
+		line-height: 1;
+		padding: 2px 5px;
+		border-radius: var(--radius-sm);
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+	}
+
+	.git-pill :global(svg) {
+		width: 10px;
+		height: 10px;
+		flex-shrink: 0;
+	}
+
+	.git-pill.behind {
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand);
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+	}
+
+	.git-pill.ahead {
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand);
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+	}
+
+	.git-pill.up-to-date {
+		background: color-mix(in srgb, var(--ok) 12%, transparent);
+		color: var(--ok);
+		border: 1px solid color-mix(in srgb, var(--ok) 25%, transparent);
+	}
+
+	.git-error-banner {
+		display: flex;
+		align-items: flex-start;
+		gap: 6px;
+		padding: 6px var(--space-2);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--danger) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+		color: var(--danger);
+		font-size: var(--text-xs);
+		line-height: 1.3;
+		margin: 2px var(--space-2);
+	}
+
+	.git-error-banner :global(svg) {
+		width: 13px;
+		height: 13px;
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+
+	.git-success-banner {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px var(--space-2);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--ok) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--ok) 25%, transparent);
+		color: var(--ok);
+		font-size: var(--text-xs);
+		margin: 2px var(--space-2);
+	}
+
+	.git-success-banner :global(svg) {
+		width: 13px;
+		height: 13px;
+		flex-shrink: 0;
+	}
+
+	.git-commits-preview {
+		padding: 2px var(--space-2);
+	}
+
+	.git-commits-label {
+		display: block;
+		font-size: var(--text-caption);
+		font-weight: 600;
+		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		margin-bottom: 3px;
+	}
+
+	.git-commits-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.git-commit-item {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		font-size: 11px;
+		color: var(--ink-muted);
+		padding: 1px 0;
+	}
+
+	.git-commit-hash {
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.git-commit-subject {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		min-width: 0;
+	}
+
+	.git-commits-more {
+		display: block;
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+		margin-top: 2px;
+		font-style: italic;
+	}
+
+	.git-pull-action {
+		padding: 4px var(--space-2);
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.git-pull-btn {
+		width: 100%;
+		height: 28px;
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
+		color: var(--brand);
+		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+		font-weight: 500;
+	}
+
+	.git-pull-btn:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--brand) 20%, transparent);
+		color: var(--brand);
+		border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+	}
+
+	.git-pull-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		background: var(--bg-raised);
+		color: var(--ink-faint);
+		border-color: var(--line);
+	}
+
+	.git-requirement-hint {
+		margin: 0;
+		font-size: 10.5px;
+		line-height: 1.3;
+		color: var(--ink-faint);
+		display: flex;
+		align-items: flex-start;
+		gap: 4px;
+	}
+
+	.git-requirement-hint.warn {
+		color: var(--warn);
+	}
+
+	.git-requirement-hint :global(svg) {
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
+		margin-top: 1px;
 	}
 </style>

@@ -24,9 +24,11 @@
 	}
 
 	dt {
+		font-family: var(--font-ui);
+		font-size: var(--text-label);
+		font-weight: 450;
 		color: var(--ink-faint);
 	}
-
 	dd {
 		margin: 0;
 		font-family: var(--font-mono);

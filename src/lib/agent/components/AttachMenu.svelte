@@ -13,8 +13,8 @@
 </script>
 
 <div class="attach-menu">
-	<button type="button" class="menu-action-btn" onclick={onPickFiles}>
-		<span class="action-icon"><IconAttach size={14} /></span>
+	<button type="button" role="menuitem" class="menu-action-btn" onclick={onPickFiles}>
+		<span class="action-icon"><IconAttach /></span>
 		<span>{m.chat_v2_composer_attach_pick()}</span>
 	</button>
 
@@ -55,11 +55,12 @@
 		color: var(--ink-muted);
 		display: inline-flex;
 		align-items: center;
+		--icon-size: 14px;
 	}
 
 	.attach-hint {
 		padding: 6px var(--space-2) 4px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		line-height: 1.35;
 		color: var(--ink-faint);
 		border-top: 1px solid var(--line);

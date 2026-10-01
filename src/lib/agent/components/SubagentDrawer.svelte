@@ -14,8 +14,13 @@
 	import { IconSubagents, IconClose } from '$lib/icons';
 	import { classifySystemMessage, stripNoticeWrapper } from '../notices';
 	import SystemChip from './SystemChip.svelte';
+	import Markdown from './Markdown.svelte';
+	import { lexMarkdown } from '../markdown';
+	import { rvLift } from '../motion';
+	import { motionReduced } from '../motionState.svelte';
+	import { fade } from 'svelte/transition';
+	import { trapFocus } from '$lib/focusTrap';
 	import { settingsStore } from '$lib/stores/settings.svelte';
-
 	// Etichette di ruolo in italiano. Ruoli di sistema (custom e developer)
 	// vengono gestiti separatamente come chip e non passano da qui.
 	const ROLE_LABEL: Record<string, string> = {
@@ -252,9 +257,20 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="drawer-backdrop" onclick={onClose}></div>
+<div
+	class="drawer-backdrop"
+	onclick={onClose}
+	transition:fade={{ duration: motionReduced() ? 0 : 240 }}
+></div>
 
-<div class="subagent-drawer" role="dialog" aria-modal="true" aria-label={m.subagents_transcript_aria()}>
+<div
+	class="subagent-drawer"
+	role="dialog"
+	aria-modal="true"
+	aria-label={m.subagents_transcript_aria()}
+	use:trapFocus={{ restoreFocus: true, onEscape: onClose }}
+	transition:rvLift={{ x: 12, distance: 0, duration: 240, blur: 3 }}
+>
 	<div class="drawer-head">
 		<div class="head-info">
 			<span class="glyph"><IconSubagents aria-hidden="true" /></span>
@@ -280,7 +296,9 @@
 					<div class="msg-body">
 						{#each Array.isArray(msg.content) ? msg.content : [] as block, bIdx (bIdx)}
 							{#if block.type === 'text' && block.text}
-								<pre class="text-content">{block.text}</pre>
+								<div class="text-content">
+									<Markdown tokens={lexMarkdown(block.text)} />
+								</div>
 							{:else if block.type === 'toolCall'}
 								<div class="tool-call-mini">
 									<span class="tool-name">{block.name}</span>
@@ -304,7 +322,7 @@
 		position: absolute;
 		inset: 0;
 		background: var(--backdrop);
-		z-index: var(--z-overlay);
+		z-index: var(--z-backdrop);
 	}
 
 	.subagent-drawer {
@@ -335,11 +353,14 @@
 		align-items: center;
 		gap: var(--space-2);
 		font-family: var(--font-mono);
-		font-size: var(--text-sm);
+		font-size: var(--text-trace);
 	}
 
 	.glyph {
+		--icon-size: 16px;
 		color: var(--brand-ink);
+		display: inline-flex;
+		align-items: center;
 	}
 
 	.title {
@@ -348,18 +369,19 @@
 	}
 
 	.btn-close {
+		--icon-size: 16px;
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
-		font-size: var(--text-lg);
 		cursor: pointer;
 		line-height: 1;
-		padding: 0 4px;
+		padding: 4px;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
+		transition: color var(--dur-fast), background-color var(--dur-fast);
 	}
-
 	.btn-close:hover {
 		color: var(--ink);
 	}
@@ -368,7 +390,7 @@
 		padding: var(--space-1) var(--space-3);
 		background: var(--bg-sunken);
 		color: var(--danger);
-		font-size: var(--text-xs);
+		font-size: var(--text-trace);
 	}
 
 	.messages-area {
@@ -380,6 +402,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
+		font-size: var(--text-trace);
+		line-height: 1.5;
 	}
 
 	.system-chip-wrap {
@@ -391,16 +415,16 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		font-size: var(--text-xs);
+		font-size: var(--text-trace);
+		line-height: 1.5;
 		padding-left: var(--space-2);
 	}
 
 	.msg-role {
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 	}
-
 	/* L'assistente si distingue dall'utente per etichetta di ruolo
 	   (parola e peso), non piu' per stroke laterale colorato. */
 	.msg-row.assistant .msg-role {
@@ -412,23 +436,23 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
+		font-size: var(--text-trace);
+		line-height: 1.5;
 	}
 
 	.text-content {
-		margin: 0;
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
 		color: var(--ink-muted);
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
 		user-select: text;
+		font-size: var(--text-trace);
+		line-height: 1.5;
 	}
 
 	.tool-call-mini {
 		display: flex;
 		gap: var(--space-1);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-trace);
+		line-height: 1.5;
 		color: var(--ink-faint);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -447,7 +471,7 @@
 
 	.empty {
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-trace);
 		font-style: italic;
 		padding: var(--space-4) 0;
 		text-align: center;

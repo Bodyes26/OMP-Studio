@@ -188,7 +188,7 @@
 	}
 
 	.attribution-badge {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		font-family: var(--font-mono);
 	}
@@ -226,7 +226,7 @@
 	.user-bubble {
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
-		border-radius: 16px 16px 6px 16px;
+		border-radius: var(--radius-2xl) var(--radius-2xl) var(--radius-md) var(--radius-2xl);
 		padding: 10px 14px;
 		color: var(--ink);
 		user-select: text;
@@ -236,11 +236,10 @@
 		gap: var(--space-2);
 		width: fit-content;
 		min-width: 0;
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 	}
 
 	.content {
-		font-size: 15px;
+		font-size: var(--text-chat);
 		line-height: 24px;
 		color: var(--ink);
 	}
@@ -270,7 +269,7 @@
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		user-select: none;
 	}
@@ -291,7 +290,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		padding: 1px 4px;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
@@ -311,7 +310,7 @@
 		border: none;
 		padding: 0;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		cursor: pointer;
 		text-align: left;
@@ -322,6 +321,7 @@
 	}
 
 	.file-glyph {
+		--icon-size: 11px;
 		display: inline-flex;
 		align-items: center;
 		width: 11px;
@@ -338,9 +338,9 @@
 	}
 
 	.chip-badge {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 0 3px;
-		border-radius: 3px;
+		border-radius: var(--radius-sm);
 		background: var(--bg-sunken);
 		color: var(--ink-faint);
 	}
@@ -362,12 +362,11 @@
 		background: transparent;
 		border: none;
 		padding: 0 2px;
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		cursor: pointer;
-		border-radius: 2px;
+		border-radius: var(--radius-sm);
 	}
-
 	.snippet-toggle-btn:hover {
 		color: var(--ink-muted);
 		background: var(--bg-hover);
@@ -389,7 +388,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
@@ -399,6 +398,7 @@
 	}
 
 	.snippet-close {
+		--icon-size: 12px;
 		background: transparent;
 		border: none;
 		color: var(--ink-faint);
@@ -416,11 +416,11 @@
 		margin: 0;
 		padding: var(--space-1);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		line-height: 1.4;
 		overflow-x: auto;
 		background: var(--bg-sunken);
-		border-radius: 3px;
+		border-radius: var(--radius-sm);
 		color: var(--ink);
 		max-height: 180px;
 		overflow-y: auto;

@@ -540,10 +540,6 @@
 		flex-shrink: 0;
 	}
 
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
 
 	.btn-close {
 		width: 28px;

@@ -1727,11 +1727,6 @@
 		animation: spin 800ms linear infinite;
 	}
 
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
 
 	.project-row {
 		display: flex;

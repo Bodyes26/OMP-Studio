@@ -18,7 +18,14 @@
  *    dimensione del pannello.
  */
 
-export type AnchorPlacement = 'bottom-start' | 'bottom-end' | 'right-start';
+export type AnchorPlacement =
+	| 'top'
+	| 'top-start'
+	| 'top-end'
+	| 'bottom'
+	| 'bottom-start'
+	| 'bottom-end'
+	| 'right-start';
 
 export interface AnchoredOptions {
 	/** Elemento a cui agganciarsi. Se manca, il pannello resta dov'e'. */
@@ -41,6 +48,10 @@ export interface AnchoredOptions {
 	/** Notifica il ribaltamento (verticale, o orizzontale per `right-start`):
 	 *  serve al pannello per spostare il ponte del mouse dal lato giusto. */
 	onFlip?: (flipped: boolean) => void;
+	/** Attiva l'animazione d'ingresso rv-lift condivisa (150ms blur 3px).
+	 *  Se l'elemento usa gia' una transizione rvLift o la classe rv-lift,
+	 *  non viene duplicata l'animazione. */
+	motion?: boolean;
 }
 
 const DEFAULTS = {
@@ -48,7 +59,8 @@ const DEFAULTS = {
 	padding: 8,
 	placement: 'bottom-start' as AnchorPlacement,
 	matchWidth: false,
-	constrainHeight: false
+	constrainHeight: false,
+	motion: true
 };
 
 /** Sotto questa soglia il pannello non si comprime: meglio uscire dai bordi
@@ -65,6 +77,9 @@ export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}
 	// pannello viva come elemento fisso con il suo z-index.
 	const supportsPopover = typeof node.showPopover === 'function';
 	if (supportsPopover) {
+		node.style.position = 'fixed';
+		node.style.margin = '0';
+		node.style.inset = 'auto';
 		try {
 			node.showPopover();
 		} catch {
@@ -73,6 +88,22 @@ export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}
 	} else {
 		node.removeAttribute('popover');
 	}
+
+	function applyMotion() {
+		if (current.motion) {
+			const hasMotionClass = node.classList.contains('rv-lift');
+			if (!hasMotionClass) {
+				node.classList.add('rv-lift');
+			}
+			if (!getComputedStyle(node).getPropertyValue('--dur').trim()) {
+				node.style.setProperty('--dur', 'var(--dur-menu, 150ms)');
+			}
+			if (!getComputedStyle(node).getPropertyValue('--blur').trim()) {
+				node.style.setProperty('--blur', '3px');
+			}
+		}
+	}
+	applyMotion();
 
 	function place() {
 		frame = 0;
@@ -129,13 +160,31 @@ export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}
 		// Si ribalta solo se sopra c'e' davvero piu' spazio: un pannello alto
 		// che non entra da nessuna parte resta sotto l'ancora, dove l'utente
 		// lo aspetta, e scorre al proprio interno.
-		const flip = height > spaceBelow && spaceAbove > spaceBelow;
+		const isTop = placement === 'top' || placement === 'top-start' || placement === 'top-end';
+		const isEnd = placement === 'bottom-end' || placement === 'top-end';
+		const isCenter = placement === 'bottom' || placement === 'top';
 
-		const top = flip
+		// Si ribalta solo se dall'altro lato c'e' davvero piu' spazio:
+		// un pannello alto che non entra da nessuna parte resta sul lato preferito.
+		const flip = isTop
+			? height > spaceAbove && spaceBelow > spaceAbove
+			: height > spaceBelow && spaceAbove > spaceBelow;
+
+		const shouldBeAbove = isTop ? !flip : flip;
+
+		const top = shouldBeAbove
 			? Math.max(padding, rect.top - offset - height)
 			: Math.min(rect.bottom + offset, window.innerHeight - padding - height);
 
-		const preferredLeft = placement === 'bottom-end' ? rect.right - width : rect.left;
+		let preferredLeft: number;
+		if (isCenter) {
+			preferredLeft = rect.left + (rect.width - width) / 2;
+		} else if (isEnd) {
+			preferredLeft = rect.right - width;
+		} else {
+			preferredLeft = rect.left;
+		}
+
 		const maxLeft = window.innerWidth - padding - width;
 		const left = Math.max(padding, Math.min(preferredLeft, Math.max(padding, maxLeft)));
 
@@ -163,6 +212,7 @@ export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}
 	return {
 		update(next: AnchoredOptions) {
 			current = { ...DEFAULTS, ...next };
+			applyMotion();
 			schedule();
 		},
 		destroy() {

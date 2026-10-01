@@ -163,7 +163,7 @@
 				<div class="card-actions">
 					<button
 						type="button"
-						class="btn-undo"
+						class="ui-button ui-button-secondary"
 						disabled={record.isUndoing}
 						onclick={handleUndo}
 					>
@@ -215,7 +215,7 @@
 					<div class="card-actions">
 						<button
 							type="button"
-							class="btn-action"
+							class="ui-button ui-button-primary"
 							disabled={isAskingAgent}
 							onclick={handleAskAgent}
 						>
@@ -235,7 +235,7 @@
 					<div class="card-actions">
 						<button
 							type="button"
-							class="btn-confirm"
+							class="ui-button ui-button-primary"
 							disabled={isConfirming}
 							onclick={handleConfirm}
 						>
@@ -284,32 +284,14 @@
 	.landing-card {
 		width: 100%;
 		border: 1px solid var(--line);
-		border-radius: 16px;
+		border-radius: var(--radius-lg);
 		background: var(--bg-raised);
-		backdrop-filter: blur(8px);
 		overflow: hidden;
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 		line-height: 1.5;
 		display: flex;
 		flex-direction: column;
 		margin: 10px 0;
-		box-shadow: 0 4px 16px -6px rgba(0, 0, 0, 0.08);
-	}
-
-	.landing-card.kind-integrated {
-		border-color: var(--line-strong);
-	}
-
-	.landing-card.kind-conflicts {
-		border-color: var(--warn);
-	}
-
-	.landing-card.kind-awaiting {
-		border-color: var(--brand);
-	}
-
-	.landing-card.kind-error {
-		border-color: var(--danger);
 	}
 
 	.card-header {
@@ -363,7 +345,7 @@
 	}
 
 	.status-title {
-		font-size: 13px;
+		font-size: var(--text-body);
 		font-weight: 500;
 		color: var(--ink);
 	}
@@ -374,7 +356,7 @@
 		gap: 4px;
 		padding: 2px 7px;
 		border-radius: var(--radius-sm);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
@@ -403,7 +385,7 @@
 
 	.meta-pill code {
 		font-family: var(--font-mono);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		padding: 2px 6px;
 		background: var(--bg-sunken);
 		border-radius: var(--radius-sm);
@@ -419,7 +401,7 @@
 		border: none;
 		padding: 0;
 		color: var(--ink-muted);
-		font-size: 12px;
+		font-size: var(--text-label);
 		cursor: pointer;
 		transition: color var(--dur-fast);
 	}
@@ -453,7 +435,7 @@
 		align-items: center;
 		gap: 6px;
 		font-family: var(--font-mono);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -478,66 +460,11 @@
 		margin-top: 2px;
 	}
 
-	.btn-undo,
-	.btn-action,
-	.btn-confirm {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		padding: 4px 14px;
-		font-size: 12px;
-		font-family: inherit;
-		border-radius: var(--radius-full);
-		cursor: pointer;
-		line-height: 1.3;
-		transition: background-color var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
-	}
-
-	.btn-undo {
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		color: var(--ink-muted);
-	}
-
-	.btn-undo:hover:not(:disabled) {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.btn-confirm,
-	.btn-action {
-		background: var(--brand);
-		color: var(--brand-ink);
-		border: 1px solid transparent;
-		font-weight: 500;
-	}
-
-	.btn-confirm:hover:not(:disabled),
-	.btn-action:hover:not(:disabled) {
-		opacity: 0.9;
-	}
-
-	.btn-undo:disabled,
-	.btn-confirm:disabled,
-	.btn-action:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
 	.btn-spinner {
 		display: inline-flex;
 		animation: spin 1s linear infinite;
 	}
 
-	@keyframes spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
-	}
 
 	.undo-error {
 		display: flex;
@@ -548,7 +475,7 @@
 		border: 1px solid var(--danger);
 		border-radius: var(--radius-sm);
 		color: var(--danger);
-		font-size: 12px;
+		font-size: var(--text-label);
 	}
 
 	.detail-text {
@@ -559,7 +486,7 @@
 	.undone-msg {
 		margin: 0;
 		color: var(--ink-muted);
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 	}
 
 	.conflicts-summary {
@@ -569,26 +496,26 @@
 	.conflict-badge {
 		font-weight: 500;
 		color: var(--warn);
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 	}
 
 	.awaiting-text {
 		margin: 0;
 		color: var(--ink-muted);
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 	}
 
 	.queued-reason {
 		margin: 0;
 		color: var(--ink-muted);
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 	}
 
 	.error-msg {
 		margin: 0;
 		color: var(--danger);
 		font-weight: 500;
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 	}
 
 	.error-detail-block {
@@ -598,7 +525,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		white-space: pre-wrap;
 		word-break: break-word;
 		max-height: 120px;

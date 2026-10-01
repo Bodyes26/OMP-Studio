@@ -1,14 +1,15 @@
 <!--
   Renderer per il tool `bash`.
 
-  Nel sommario mostra il comando eseguito su una sola riga monospazio.
-  Nel corpo mostra l'output (completo o parziale durante lo streaming via
-  `tool_execution_update`) e una tabella con durata effettiva, timeout,
+  Nel corpo espanso mostra l'output in OutputBlock (o LiveNotice se in corso,
+  EmptyNotice se assente) e una tabella con durata effettiva, timeout,
   directory di lavoro (cwd) e flag pty/async se configurati.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
+	import EmptyNotice from '../parts/EmptyNotice.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
+	import LiveNotice from '../parts/LiveNotice.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
 		asRecord,
@@ -20,10 +21,9 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, running = false, view }: ToolRenderProps = $props();
+	let { args, result, running = false }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
-	const command = $derived(str(args.command) ?? str(args.cmd) ?? '');
 	const text = $derived(resultText(result));
 
 	const wallTimeMs = $derived(num(details?.wallTimeMs));
@@ -56,51 +56,24 @@
 	});
 </script>
 
-{#if view === 'summary'}
-	<span class="bash-summary" title={command}>{command}</span>
-{:else}
-	<div class="bash-body">
-		{#if text}
-			<OutputBlock {text} label="output bash" />
-		{:else if running}
-			<div class="running-indicator">{m.ui_bash_esecuzione_in_corso_b1d6()}</div>
-		{:else}
-			<div class="empty-output">(nessun output)</div>
-		{/if}
-		{#if metaRows.length > 0}
-			<KeyValue rows={metaRows} />
-		{/if}
-	</div>
-{/if}
+<div class="bash-body">
+	{#if text}
+		<OutputBlock {text} label="output bash" />
+	{:else if running}
+		<LiveNotice label={m.ui_bash_esecuzione_in_corso_b1d6()} />
+	{:else}
+		<EmptyNotice text="(nessun output)" />
+	{/if}
+	{#if metaRows.length > 0}
+		<KeyValue rows={metaRows} />
+	{/if}
+</div>
 
 <style>
-	.bash-summary {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		user-select: text;
-		min-width: 0;
-	}
-
 	.bash-body {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
 		min-width: 0;
-	}
-
-	.running-indicator {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		font-style: italic;
-	}
-
-	.empty-output {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		font-style: italic;
 	}
 </style>

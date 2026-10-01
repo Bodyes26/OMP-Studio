@@ -71,7 +71,7 @@
 				</video>
 			{/if}
 			<span class="video-overlay" aria-hidden="true">
-				<span class="play-bubble"><IconPlay size={12} /></span>
+				<span class="play-bubble"><IconPlay /></span>
 			</span>
 			{#if videoDuration !== undefined && Number.isFinite(videoDuration)}
 				<span class="duration-badge font-mono">{formatDuration(videoDuration)}</span>
@@ -96,7 +96,7 @@
 			onclick={onRemove}
 			aria-label={m.chat_v2_composer_remove_attachment({ name: attachment.name })}
 		>
-			<IconClose size={12} />
+			<IconClose />
 		</button>
 	{/if}
 </div>
@@ -149,6 +149,7 @@
 		border-radius: var(--radius-full);
 		background: color-mix(in oklch, var(--bg-base) 85%, transparent);
 		color: var(--ink);
+		--icon-size: 12px;
 	}
 
 	.duration-badge {
@@ -156,13 +157,12 @@
 		bottom: 2px;
 		right: 2px;
 		padding: 0 3px;
-		background: color-mix(in oklch, black 70%, transparent);
-		color: white;
-		border-radius: 3px;
-		font-size: 9.5px;
+		background: color-mix(in oklch, var(--bg-sunken) 75%, transparent);
+		color: var(--ink);
+		border-radius: var(--radius-sm);
+		font-size: var(--text-caption);
 		line-height: 13px;
 	}
-
 	.thumb-file {
 		display: flex;
 		align-items: center;
@@ -183,7 +183,7 @@
 		border-radius: var(--radius-sm);
 		background: color-mix(in oklch, var(--brand) 15%, transparent);
 		color: var(--brand-ink);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		flex-shrink: 0;
 	}
@@ -205,7 +205,7 @@
 	}
 
 	.file-meta {
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -226,9 +226,9 @@
 		color: var(--ink);
 		cursor: pointer;
 		opacity: 0;
+		--icon-size: 12px;
 		transition: opacity var(--dur-fast) var(--ease-out),
 			background-color var(--dur-fast) var(--ease-out);
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 	}
 
 	.attachment-thumb:hover .remove-btn,

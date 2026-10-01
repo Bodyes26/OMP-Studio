@@ -3,7 +3,7 @@
 	//
 	// Una colonna a 560px, due se la finestra viene allargata: la larghezza
 	// minima di 300px e' quella sotto cui la riga di un task in coda (che e' la
-	// prima riga di un prompt) non si legge piu' (DESIGN.md §7.8).
+	// prima riga di un prompt) non si legge piu' (DESIGN-legacy.md §7.8).
 	//
 	// L'ordine arriva gia' deciso dalla vista (attention, working, finished,
 	// idle). Tutti i progetti sono sempre visibili.

@@ -389,7 +389,7 @@
 		border: 2px solid var(--line-strong);
 		border-top-color: var(--brand);
 		border-radius: 50%;
-		animation: spin-fast 600ms linear infinite;
+		animation: spin 600ms linear infinite;
 	}
 
 	.loading-label {
@@ -404,7 +404,7 @@
 		border: 1.5px solid var(--line-strong);
 		border-top-color: var(--brand);
 		border-radius: 50%;
-		animation: spin-fast 600ms linear infinite;
+		animation: spin 600ms linear infinite;
 		flex: 0 0 auto;
 	}
 

@@ -43,7 +43,7 @@
 	{/each}
 	{#each queued as item (item.id)}
 		<div class="queue-row server">
-			<span class="kind">{item.behavior === 'steer' ? 'Steer' : m.chat_v2_queue_followup()}</span>
+			<span class="kind">{item.behavior === 'steer' ? m.chat_v2_queue_steer() : m.chat_v2_queue_followup()}</span>
 			<span class="message" title={item.text}>{truncate(item.text)}</span>
 		</div>
 	{/each}
@@ -62,13 +62,13 @@
 	.queue-list { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 	.queue-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--bg-base); }
 	.queue-row.server { opacity: .7; }
-	.kind { flex-shrink: 0; color: var(--brand-ink); font: 600 var(--text-xs) var(--font-mono); }
-	.message { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); font-size: var(--text-xs); }
-	.images, .server-count { color: var(--ink-muted); font-size: var(--text-xs); }
+	.kind { flex-shrink: 0; color: var(--brand-ink); font: 600 var(--text-trace) var(--font-mono); }
+	.message { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); font-size: var(--text-trace); }
+	.images, .server-count { color: var(--ink-muted); font-size: var(--text-trace); }
 	.images { flex-shrink: 0; }
 	.server-count { margin: var(--space-1) var(--space-2); }
-	.paused { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); color: var(--ink-muted); font-size: var(--text-xs); padding: var(--space-1) var(--space-2); }
-	button { flex-shrink: 0; border: 0; background: transparent; color: var(--brand-ink); font-size: var(--text-xs); cursor: pointer; padding: var(--space-1); border-radius: var(--radius-sm); }
+	.paused { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); color: var(--ink-muted); font-size: var(--text-trace); padding: var(--space-1) var(--space-2); }
+	button { flex-shrink: 0; border: 0; background: transparent; color: var(--brand-ink); font-size: var(--text-trace); cursor: pointer; padding: var(--space-1); border-radius: var(--radius-md); }
 	button:hover { background: var(--bg-hover); }
 	button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 </style>

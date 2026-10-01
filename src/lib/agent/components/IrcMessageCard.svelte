@@ -14,11 +14,28 @@
 	const hooks = agentUiHooks();
 
 	let expanded = $state(false);
+	let bodyEl = $state<HTMLDivElement | null>(null);
+	let measuredHeight = $state<number | null>(null);
 
 	const lines = $derived(entry.body ? entry.body.split('\n') : []);
 	const isLong = $derived(lines.length > 12 || entry.body.length > 600);
 	const tokens = $derived(lexMarkdown(entry.body ?? ''));
+
+	function toggleExpanded() {
+		if (bodyEl) {
+			measuredHeight = bodyEl.scrollHeight;
+		}
+		expanded = !expanded;
+	}
+
+	function handleResize() {
+		if (expanded && bodyEl) {
+			measuredHeight = bodyEl.scrollHeight;
+		}
+	}
 </script>
+
+<svelte:window onresize={handleResize} />
 
 <div class="irc-card" class:incoming={entry.direction === 'in'} class:outgoing={entry.direction === 'out'}>
 	<div class="header">
@@ -55,7 +72,12 @@
 		{/if}
 	</div>
 
-	<div class="body-wrap" class:clamped={isLong && !expanded}>
+	<div
+		bind:this={bodyEl}
+		class="body-wrap"
+		class:clamped={isLong && !expanded}
+		style:max-height={isLong ? (expanded ? `${measuredHeight ?? 1200}px` : '260px') : undefined}
+	>
 		<Markdown {tokens} />
 	</div>
 
@@ -64,7 +86,7 @@
 			type="button"
 			class="expand-btn"
 			aria-expanded={expanded}
-			onclick={() => (expanded = !expanded)}
+			onclick={toggleExpanded}
 		>
 			<span class="chevron" class:expanded aria-hidden="true">
 				<IconChevronRight />
@@ -79,7 +101,7 @@
 		width: 100%;
 		border-top: 1px solid var(--line);
 		padding: var(--space-2) 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		line-height: 1.5;
 		display: flex;
 		flex-direction: column;
@@ -90,7 +112,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		flex-wrap: wrap;
 	}
@@ -136,7 +158,7 @@
 
 	.reply-chip {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 		background: var(--bg-sunken);
@@ -146,17 +168,32 @@
 	}
 
 	.body-wrap {
-		font-size: var(--text-sm);
-		color: var(--ink-muted);
+		font-size: var(--text-chat);
+		line-height: 24px;
+		color: var(--ink);
 		padding: var(--space-1) 0;
+		overflow: hidden;
+		/* Il clamp va da 260px all'altezza piena: grid-template-rows piega solo
+		   da 0 a tutto, quindi qui serve max-height misurato sullo scrollHeight. */
+		transition: max-height var(--dur-tray) var(--ease-reveal); /* impeccable-disable-line layout-transition */
 	}
 
 	.body-wrap.clamped {
 		max-height: 260px;
-		overflow: hidden;
 		position: relative;
-		mask-image: linear-gradient(to bottom, black calc(100% - 32px), transparent 100%);
-		-webkit-mask-image: linear-gradient(to bottom, black calc(100% - 32px), transparent 100%);
+		/* In mask-image conta solo il canale alpha: usiamo var(--ink) come token opaco per sfumare verso transparent */
+		mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 32px), transparent 100%);
+		-webkit-mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 32px), transparent 100%);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.body-wrap {
+			transition: none;
+		}
+	}
+
+	:root[data-animations="false"] .body-wrap {
+		transition: none;
 	}
 
 	.expand-btn {
@@ -167,12 +204,11 @@
 		border: none;
 		padding: 2px 0;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		cursor: pointer;
 		align-self: flex-start;
 		border-radius: var(--radius-sm);
 	}
-
 	.expand-btn:hover {
 		color: var(--ink);
 	}

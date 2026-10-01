@@ -1,26 +1,19 @@
 <!--
   Renderer per il tool `generate_image`.
 
-  Forma attesa di `details`:
-  `provider` (string), `model` (string), `imageCount` (number),
-  `imagePaths` (string[]), `images` (array), `usage` (object).
-
-  Comportamento quando `details` manca o e' incompleto:
-  Estrae le immagini prodotte tramite `resultImages(result)`.
-  Recupera il prompt da `args.subject`, `args.prompt` o `args.text`.
-  Mostra gli altri parametri di generazione in KeyValue e le immagini in ImageBlock.
+  Nel corpo espanso mostra le immagini generate in ImageBlock, i percorsi con PathChip,
+  il prompt nel registro voce tramite PromptBlock (Two Voices Rule),
+  i parametri tecnici in KeyValue e l'eventuale output testuale.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import CountBadge from '../parts/CountBadge.svelte';
 	import ImageBlock from '../parts/ImageBlock.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';
+	import PromptBlock from '../parts/PromptBlock.svelte';
 	import {
 		asRecord,
-		countLabel,
-		num,
 		resultImages,
 		resultText,
 		str,
@@ -28,7 +21,7 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 	const prompt = $derived(str(args.subject) ?? str(args.prompt) ?? str(args.text) ?? '');
@@ -44,12 +37,6 @@
 
 	const images = $derived(resultImages(result));
 	const imagePaths = $derived(strList(details?.imagePaths));
-	const count = $derived(
-		images.length > 0 ? images.length : (num(details?.imageCount) ?? (imagePaths.length || undefined))
-	);
-	const countBadgeLabel = $derived(
-		count !== undefined && count > 0 ? countLabel(count, 'immagine', 'immagini') : undefined
-	);
 
 	const text = $derived(resultText(result));
 
@@ -68,64 +55,35 @@
 	});
 </script>
 
-{#if view === 'summary'}
-	<div class="image-gen-summary">
-		<span class="prompt-text">{prompt || 'Genera immagine'}</span>
-		{#if countBadgeLabel}
-			<CountBadge text={countBadgeLabel} />
-		{/if}
-	</div>
-{:else}
-	<div class="image-gen-body">
-		{#if images.length > 0}
-			<div class="images-container">
-				<ImageBlock {images} />
-			</div>
-		{/if}
+<div class="image-gen-body">
+	{#if images.length > 0}
+		<div class="images-container">
+			<ImageBlock {images} />
+		</div>
+	{/if}
 
-		{#if imagePaths.length > 0}
-			<div class="paths-container">
-				{#each imagePaths as path (path)}
-					<PathChip {path} />
-				{/each}
-			</div>
-		{/if}
+	{#if imagePaths.length > 0}
+		<div class="paths-container">
+			{#each imagePaths as path (path)}
+				<PathChip {path} />
+			{/each}
+		</div>
+	{/if}
 
-		{#if prompt}
-			<OutputBlock text={prompt} label="prompt" />
-		{/if}
+	{#if prompt}
+		<PromptBlock text={prompt} label="Prompt di generazione" />
+	{/if}
 
-		{#if argsRows.length > 0}
-			<KeyValue rows={argsRows} />
-		{/if}
+	{#if argsRows.length > 0}
+		<KeyValue rows={argsRows} />
+	{/if}
 
-		{#if text && text !== prompt}
-			<OutputBlock {text} label="risultato" />
-		{/if}
-	</div>
-{/if}
+	{#if text && text !== prompt}
+		<OutputBlock {text} label="risultato" />
+	{/if}
+</div>
 
 <style>
-	.image-gen-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.prompt-text {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		user-select: text;
-	}
-
 	.image-gen-body {
 		display: flex;
 		flex-direction: column;
@@ -142,6 +100,6 @@
 	.paths-container {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--space-2);
+		gap: var(--space-1) var(--space-2);
 	}
 </style>

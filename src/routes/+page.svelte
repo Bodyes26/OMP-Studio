@@ -14,6 +14,9 @@
 	import FileTree from '$lib/components/FileTree.svelte';
 	import type EditorSurface from '$lib/editor/Editor.svelte';
 	import AgentPanel from '$lib/components/AgentPanel.svelte';
+	import ColumnTabs from '$lib/ui/ColumnTabs.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import UsagePopover, { type ProviderHost } from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
 	import GitPanel from '$lib/components/GitPanel.svelte';
@@ -270,10 +273,12 @@
 		};
 	});
 	let usageOpen = $state(false);
+	let usageAnchor = $state<HTMLElement | null>(null);
 	let pickerOpen = $state(false);
 	// Vista aggregata delle code: serve a vedere in un posto solo su quali
 	// progetti c'e' lavoro in attesa, senza aprirli uno a uno.
 	let queueOpen = $state(false);
+	let queueAnchor = $state<HTMLElement | null>(null);
 	// Primo avvio guidato: `contract_check` decide se e da quale carta partire.
 	let setupOpen = $state(false);
 	let setupStartAt = $state<'install' | 'wizard' | 'project'>('wizard');
@@ -2307,6 +2312,14 @@
 			: settingsStore.general.sidebarCollapsed
 	);
 
+	const sidebarTabs = $derived([
+		{ id: 'files', label: m.page_tabs_files_panel(), ariaLabel: m.page_tabs_files_panel_label() },
+		{ id: 'git', label: m.page_tabs_git_panel(), ariaLabel: m.page_tabs_git_panel_label() },
+		...(activeLaneKind !== 'lab'
+			? [{ id: 'agent', label: m.page_tabs_agent_panel(), ariaLabel: m.page_tabs_agent_panel_label() }]
+			: [])
+	]);
+
 	$effect(() => {
 		if (activeLaneKind === 'lab' && leftSection === 'agent') {
 			leftSection = 'files';
@@ -2583,11 +2596,11 @@
 
 <div class="app-layout">
 	<TopBar
-		onUsageClick={() => usageOpen = !usageOpen}
+		onUsageClick={(anchor) => { usageAnchor = anchor ?? null; usageOpen = !usageOpen; }}
 		onNewProject={() => pickerOpen = true}
 		onSettingsClick={(section) => settingsStore.openSection(section)}
 		onSetupClick={openSetup}
-		onQueueClick={() => queueOpen = !queueOpen}
+		onQueueClick={(anchor) => { queueAnchor = anchor ?? null; queueOpen = !queueOpen; }}
 
 		{setupIncomplete}
 		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, { follow })}
@@ -2605,7 +2618,7 @@
 		{/if}
 	{/if}
 	<SetupWizard open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
-	<UsagePopover open={usageOpen} onClose={() => usageOpen = false} {guiHosts} />
+	<UsagePopover open={usageOpen} anchor={usageAnchor} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
 	<SettingsModal />
 	<CloseConfirmModal
@@ -2643,6 +2656,7 @@
 	{/if}
 	<QueueDrawer
 		open={queueOpen}
+		anchor={queueAnchor}
 		onClose={() => queueOpen = false}
 		onRunTask={(projectId, taskId, options) => void handleRunTask(projectId, taskId, options)}
 		onEditTask={openTaskOfProject}
@@ -2715,17 +2729,28 @@
 		<aside
 			class="col-left"
 			aria-hidden={isSidebarCollapsed}
+			inert={isSidebarCollapsed}
 			style:--sidebar-width="{leftWidth}px"
 		>
 			<div class="col-left-inner">
-				<div class="col-header tabs-header" role="tablist" aria-label={m.page_tabs_sidebar_panels()}>
-					<button type="button" role="tab" aria-selected={leftSection === 'files'} class:active={leftSection === 'files'} onclick={() => leftSection = 'files'} aria-label={m.page_tabs_files_panel_label()}>{m.page_tabs_files_panel()}</button>
-					<button type="button" role="tab" aria-selected={leftSection === 'git'} class:active={leftSection === 'git'} onclick={() => leftSection = 'git'} aria-label={m.page_tabs_git_panel_label()}>{m.page_tabs_git_panel()}</button>
-					{#if activeLaneKind !== 'lab'}
-						<button type="button" role="tab" aria-selected={leftSection === 'agent'} class:active={leftSection === 'agent'} onclick={() => leftSection = 'agent'} aria-label={m.page_tabs_agent_panel_label()}>{m.page_tabs_agent_panel()}</button>
-					{/if}
+				<div class="col-header tabs-header">
+					<ColumnTabs
+						tabs={sidebarTabs}
+						selected={leftSection}
+						onChange={(id) => (leftSection = id as typeof leftSection)}
+						ariaLabel={m.page_tabs_sidebar_panels()}
+						tabIdPrefix="sidebar-tab-"
+						panelIdPrefix="sidebar-panel-"
+					/>
 				</div>
-				<div class="col-content" class:agent-content={leftSection === 'agent'}>
+				<div
+					class="col-content"
+					class:agent-content={leftSection === 'agent'}
+					role="tabpanel"
+					id={`sidebar-panel-${leftSection}`}
+					aria-labelledby={`sidebar-tab-${leftSection}`}
+					tabindex="0"
+				>
 					{#if projectStore.activeProject}
 						{@const proj = projectStore.activeProject}
 					{#if !proj.lane.workspacePath}
@@ -2992,14 +3017,11 @@
 	{/if}
 
 	<footer class="statusbar">
-		<div class="statusbar-left">
-			<span class="sb-label">{m.page_statusbar_project_label()}</span>
-			<span class="sb-value">{projectStore.activeProject?.name || m.page_statusbar_project_none()}</span>
-		</div>
 		<div class="statusbar-right">
+			<Tooltip text={studioUpdaterStore.currentVersion ? m.page_statusbar_studio_version_title({ version: studioUpdaterStore.currentVersion }) : m.page_statusbar_studio_version_check()}>
 			<button 
 				class="version-btn"
-				class:spinning={studioUpdaterStore.isChecking || studioUpdaterStore.isDownloading}
+				aria-busy={studioUpdaterStore.isChecking || studioUpdaterStore.isDownloading}
 				onclick={() => {
 					if (studioUpdaterStore.hasUpdate) {
 						studioUpdaterStore.openModal();
@@ -3007,9 +3029,11 @@
 						studioUpdaterStore.checkUpdate(true);
 					}
 				}}
-				title={studioUpdaterStore.currentVersion ? m.page_statusbar_studio_version_title({ version: studioUpdaterStore.currentVersion }) : m.page_statusbar_studio_version_check()}
 				aria-label={m.ui__page_verifica_aggiornamenti_omp_studio_e895()}
 			>
+				{#if studioUpdaterStore.isChecking || studioUpdaterStore.isDownloading}
+					<StatusMark status="running" />
+				{/if}
 				{studioUpdaterStore.currentVersion ? `Studio ${formatVersion(studioUpdaterStore.currentVersion, { prefix: true, compact: true })}` : 'Studio'}
 				{#if studioUpdaterStore.updateBadge}
 					<span 
@@ -3022,13 +3046,17 @@
 					</span>
 				{/if}
 			</button>
+			</Tooltip>
+			<Tooltip text={m.page_statusbar_omp_version_check()}>
 			<button 
 				class="version-btn"
-				class:spinning={isCheckingUpdate || isInstallingUpdate}
+				aria-busy={isCheckingUpdate || isInstallingUpdate}
 				onclick={handleCheckUpdate}
-				title={m.page_statusbar_omp_version_check()}
 				aria-label={m.ui__page_verifica_aggiornamenti_omp_cli_c90f()}
 			>
+				{#if isCheckingUpdate || isInstallingUpdate}
+					<StatusMark status="running" />
+				{/if}
 				{ompVersion ? `OMP v${ompVersion}` : 'OMP'}
 				{#if updateMessage}
 					<span
@@ -3041,14 +3069,17 @@
 					</span>
 				{/if}
 			</button>
+			</Tooltip>
 			<div
 				class="status-indicator"
 				role="status"
 				aria-live="polite"
-				title="Stato agente: {agentStateLabel(activeLaneState)}"
 			>
-				<span class="status-led {activeLaneState}" aria-hidden="true"></span>
-				<span>{m.ui__page_stato_ab3d()} {agentStateLabel(activeLaneState)}</span>
+				<StatusMark
+					status={activeLaneState === 'working' ? 'running' : activeLaneState === 'finished' ? 'completed' : activeLaneState === 'attention' ? 'attention' : 'pending'}
+					active={activeLaneState === 'working' || activeLaneState === 'attention'}
+				/>
+				<span>{agentStateLabel(activeLaneState)}</span>
 			</div>
 		</div>
 	</footer>
@@ -3307,27 +3338,6 @@
 		height: 100%;
 	}
 
-	.tabs-header button[role="tab"] {
-		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		letter-spacing: 0.05em;
-		height: 100%;
-		padding: 0 var(--space-2);
-		cursor: pointer;
-		border-bottom: 2px solid transparent;
-	}
-
-	.tabs-header button[role="tab"]:hover {
-		color: var(--ink-muted);
-	}
-
-	.tabs-header button[role="tab"].active {
-		color: var(--ink);
-		border-bottom-color: var(--brand);
-	}
 
 	.header-action {
 		width: 24px;
@@ -3402,40 +3412,36 @@
 		/* Separata per luminanza dal pozzo, come la topbar. */
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		justify-content: flex-end;
 		padding: 0 var(--space-3);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		z-index: var(--z-sticky);
 	}
 
-	.statusbar-left, .statusbar-right {
+	.statusbar-right {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
 	}
 
-	.sb-label {
-		color: var(--ink-faint);
-	}
-	.sb-value {
-		color: var(--ink);
-		font-weight: 500;
-	}
 
 	.version-btn {
 		background: transparent;
 		border: 1px solid transparent;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		padding: 2px 6px;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		transition: all 0.15s ease;
+		transition: color var(--dur-fast) var(--ease-out),
+			background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.version-btn:hover {
@@ -3444,16 +3450,13 @@
 		border-color: var(--line);
 	}
 
-	.version-btn.spinning {
-		opacity: 0.8;
-	}
 
 	.update-chip {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px var(--space-1);
 		border-radius: var(--radius-full);
-		background: var(--brand);
-		color: var(--on-brand);
+		background: var(--bg-active);
+		color: var(--ink);
 		font-weight: 600;
 	}
 
@@ -3463,8 +3466,8 @@
 	}
 
 	.update-chip.success {
-		background: var(--brand);
-		color: var(--on-brand);
+		background: var(--success);
+		color: var(--on-success);
 	}
 
 	.update-chip.error {
@@ -3480,26 +3483,6 @@
 		color: var(--ink-muted);
 	}
 
-	.status-led {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		display: inline-block;
-		background-color: var(--ink-faint);
-	}
-
-	.status-led.working {
-		background-color: var(--brand);
-		animation: state-pulse var(--dur-pulse) var(--ease-in-out) infinite;
-	}
-
-	.status-led.attention {
-		background-color: var(--warn);
-	}
-
-	.status-led.finished {
-		background-color: var(--brand);
-	}
 
 	/* Il velo e' un <button>: il colore lo mette la regola, ma il bordo
 	   `outset` dello user agent va rimosso o disegna una cornice a 2px

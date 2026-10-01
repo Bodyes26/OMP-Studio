@@ -62,7 +62,7 @@
 					<span class="level-name">{opt.label}</span>
 					<span class="level-desc">{opt.description}</span>
 					{#if active}
-						<span class="check-icon"><IconCheck size={14} /></span>
+						<span class="check-icon"><IconCheck /></span>
 					{/if}
 				</button>
 			{/each}
@@ -90,7 +90,7 @@
 
 	.menu-header {
 		padding: var(--space-2) var(--space-3) var(--space-1);
-		font-size: 11px;
+		font-size: var(--text-group-label);
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -143,7 +143,7 @@
 	.level-desc {
 		flex: 1;
 		color: var(--ink-muted);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -154,13 +154,14 @@
 		color: var(--brand-ink);
 		display: inline-flex;
 		align-items: center;
+		--icon-size: 14px;
 	}
 
 	.menu-footer {
 		padding: var(--space-2) var(--space-3);
 		border-top: 1px solid var(--line);
 		background: var(--bg-base);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		border-bottom-left-radius: var(--radius-lg);
 		border-bottom-right-radius: var(--radius-lg);

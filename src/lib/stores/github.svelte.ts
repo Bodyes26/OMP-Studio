@@ -1,5 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { projectStore, normalizeProjectPath, joinProjectPath } from './projects.svelte';
+import { settingsStore } from './settings.svelte';
+import { notificationManager } from './notifications.svelte';
+import { m } from '$lib/paraglide/messages.js';
 
 export interface GithubAuthStatus {
 	installed: boolean;
@@ -89,6 +92,7 @@ class GithubStore {
 
 	upstreamByPath = $state<Record<string, GitUpstreamStatus>>({});
 	isSyncingByPath = $state<Record<string, boolean>>({});
+	remoteErrorByPath = $state<Record<string, string | null>>({});
 
 	actionsByPath = $state<Record<string, GithubActionRun[]>>({});
 	isLoadingActionsByPath = $state<Record<string, boolean>>({});
@@ -96,6 +100,10 @@ class GithubStore {
 	private upstreamUpdatedAt = new Map<string, number>();
 	private upstreamPending = new Map<string, Promise<GitUpstreamStatus | null>>();
 	private UPSTREAM_CACHE_TTL_MS = 5_000;
+	private remoteCheckedAt = new Map<string, number>();
+	private remotePending = new Map<string, Promise<void>>();
+	private notifiedIncoming = new Map<string, string>();
+	private REMOTE_CHECK_INTERVAL_MS = 5 * 60_000;
 
 	private lastReposFetch = 0;
 	private REPOS_CACHE_TTL_MS = 60_000;
@@ -299,12 +307,64 @@ class GithubStore {
 		return request;
 	}
 
-	async syncRepo(projectPath: string, action: 'pull' | 'push' | 'sync' | 'fetch'): Promise<string> {
+	/** Il controllo remoto non tocca il checkout e non apre prompt di credenziali. */
+	async checkRemote(projectPath: string): Promise<void> {
+		await settingsStore.init();
 		const key = normalizeProjectPath(projectPath).toLowerCase();
+		if (!key || !settingsStore.github.autoFetch) return;
+		const pending = this.remotePending.get(key);
+		if (pending) return pending;
+		if (
+			this.isSyncingByPath[key] ||
+			Date.now() - (this.remoteCheckedAt.get(key) ?? 0) < this.REMOTE_CHECK_INTERVAL_MS
+		) return;
+
+		this.remoteCheckedAt.set(key, Date.now());
+		const request = (async () => {
+			try {
+				const before = await this.loadUpstreamStatus(projectPath);
+				if (!before) throw new Error(m.git_remote_status_error());
+				if (!before.isGit || !settingsStore.github.autoFetch) return;
+				await this.syncRepo(projectPath, 'fetch-background');
+				const status = this.upstreamByPath[key];
+				if (!status?.behind) {
+					this.notifiedIncoming.delete(key);
+					return;
+				}
+				// Il tip remoto distingue nuovi commit da un pull parziale che riduce il conteggio.
+				const signature = JSON.stringify([
+					status.branch, status.upstream,
+					status.incomingCommits[0]?.hash ?? status.behind
+				]);
+				if (this.notifiedIncoming.get(key) === signature) return;
+				const project = projectStore.projects.find((candidate) =>
+					candidate.canonicalProjectPath &&
+					normalizeProjectPath(candidate.canonicalProjectPath).toLowerCase() === key
+				);
+				if (!project || !settingsStore.github.autoFetch) return;
+				this.notifiedIncoming.set(key, signature);
+				await notificationManager.notifyGitUpdates(project, status.behind);
+			} catch (error) {
+				this.remoteErrorByPath[key] = String(error);
+			} finally {
+				this.remotePending.delete(key);
+			}
+		})();
+		this.remotePending.set(key, request);
+		return request;
+	}
+
+	async syncRepo(projectPath: string, action: 'pull' | 'push' | 'sync' | 'fetch' | 'fetch-background' | 'pull-ff'): Promise<string> {
+		const key = normalizeProjectPath(projectPath).toLowerCase();
+		if (this.isSyncingByPath[key]) throw new Error(m.git_remote_operation_busy());
 		this.isSyncingByPath[key] = true;
 		try {
 			const result = await invoke<string>('git_sync_repo', { projectPath, action });
-			await this.loadUpstreamStatus(projectPath, true);
+			// Un polling locale partito prima del fetch non deve ripubblicare lo stato vecchio.
+			await this.upstreamPending.get(key);
+			const status = await this.loadUpstreamStatus(projectPath, true);
+			if (!status) throw new Error(m.git_remote_status_error());
+			this.remoteErrorByPath[key] = null;
 			return result;
 		} catch (e) {
 			console.error('git_sync_repo', e);

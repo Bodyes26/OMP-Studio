@@ -536,7 +536,7 @@
 		border: 1.5px solid var(--line-strong);
 		border-top-color: var(--brand);
 		border-radius: 50%;
-		animation: spin-fast 600ms linear infinite;
+		animation: spin 600ms linear infinite;
 		margin-left: var(--space-1);
 	}
 
@@ -546,6 +546,6 @@
 	}
 
 	.btn.spinning :global(svg) {
-		animation: spin-fast 800ms linear infinite;
+		animation: spin 800ms linear infinite;
 	}
 </style>

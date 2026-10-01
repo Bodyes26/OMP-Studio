@@ -8,11 +8,13 @@
 
 	let {
 		open = false,
+		anchor = null,
 		onClose,
 		guiHosts = [],
 		onOpenSettings
 	} = $props<{
 		open?: boolean;
+		anchor?: HTMLElement | null;
 		onClose?: () => void;
 		guiHosts?: ProviderHost[];
 		onOpenSettings?: (section?: string) => void;
@@ -21,6 +23,7 @@
 
 <QuotaModal
 	{open}
+	{anchor}
 	{onClose}
 	{guiHosts}
 	{onOpenSettings}

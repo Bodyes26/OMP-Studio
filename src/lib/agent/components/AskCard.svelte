@@ -108,6 +108,11 @@
 	const detailMessage = $derived(sanitizeAskDetail(pending.message));
 	const askedNumber = $derived(Math.max((pending.questionIndex ?? 0) + 1, 1));
 	const askedTotal = $derived(Math.max(pending.totalQuestions ?? 1, askedNumber));
+	const parsedCounterTotal = $derived.by(() => {
+		if (!parsedTitle.counter) return 0;
+		const match = parsedTitle.counter.match(/\/(\d+)\s*$/);
+		return match ? parseInt(match[1], 10) : 0;
+	});
 
 	function initWizardQuestions(): WizardQuestion[] {
 		const rawQuestions = pending.questions;
@@ -716,7 +721,7 @@
 					onclick={() => void goToStep(questions.length)}
 					aria-current={isReviewStep ? 'step' : undefined}
 				>
-					<span class="ask-step-badge" aria-hidden="true">✓</span>
+					<span class="ask-step-badge" aria-hidden="true"><IconCheck /></span>
 					<span class="ask-step-label">{m.chat_v2_ask_review_tab()}</span>
 				</button>
 			{/if}
@@ -757,11 +762,8 @@
 			<div class="ask-q">
 				{#if askedTotal > 1 && questions.length <= 1}
 					<span class="ask-counter">{m.chat_v2_ask_counter({ current: askedNumber, total: askedTotal })}</span>
-				{:else if parsedTitle.counter && questions.length <= 1}
+				{:else if parsedCounterTotal > 1 && questions.length <= 1}
 					<span class="ask-counter">{parsedTitle.counter}</span>
-				{/if}
-				{#if currentQuestion.header && !multiSteps}
-					<span class="ask-header">{currentQuestion.header}</span>
 				{/if}
 				<p class="ask-text">{currentQuestion.question}</p>
 				{#if detailMessage}
@@ -1050,7 +1052,7 @@
 		gap: var(--space-3);
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
+		border-radius: var(--radius-2xl);
 		padding: var(--space-3) var(--space-4) 0;
 		min-width: 0;
 		/* Tante domande con anteprima non devono spingere la chat fuori schermo:
@@ -1058,7 +1060,7 @@
 		max-height: 58vh;
 		overflow-y: auto;
 		outline: none;
-		box-shadow: 0 8px 30px -10px rgb(0 0 0 / 0.2);
+		box-shadow: var(--shadow-raise);
 	}
 	/* Nella scheda che scorre i figli non devono comprimersi: con overflow
 	   proprio (la barra delle schede) un figlio flex si schiaccerebbe a zero. */
@@ -1121,7 +1123,7 @@
 		justify-content: center;
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
 		cursor: pointer;
 		padding: 2px;
@@ -1189,7 +1191,8 @@
 		align-items: center;
 		justify-content: center;
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
+		--icon-size: 11px;
 		font-variant-numeric: tabular-nums;
 		min-width: 14px;
 	}
@@ -1205,17 +1208,14 @@
 		gap: 2px;
 		min-width: 0;
 	}
-	.ask-counter,
-	.ask-header {
-		font-size: 11px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
+	.ask-counter {
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 	}
 	.ask-text {
 		margin: 0;
-		font-size: 15px;
+		font-size: var(--text-chat);
 		font-weight: 500;
 		color: var(--ink);
 		line-height: 1.45;
@@ -1286,13 +1286,13 @@
 		margin-top: 2px;
 		flex-shrink: 0;
 		border: 1px solid var(--line-strong);
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		color: var(--on-brand);
 		--icon-size: 12px;
 		transition: background-color 0.15s ease, border-color 0.15s ease;
 	}
 	.ask-box.multi {
-		border-radius: 5px;
+		border-radius: var(--radius-sm);
 	}
 	.ask-opt.selected .ask-box {
 		background: var(--brand);
@@ -1301,7 +1301,7 @@
 	.ask-dot {
 		width: 6px;
 		height: 6px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background: var(--on-brand);
 	}
 	.ask-opt-body {
@@ -1323,9 +1323,9 @@
 		background: color-mix(in oklab, var(--success) 14%, transparent);
 		color: var(--success);
 		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--success) 25%, transparent);
-		border-radius: 6px;
+		border-radius: var(--radius-md);
 		padding: 0 6px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 500;
 		line-height: 18px;
 	}
@@ -1338,11 +1338,11 @@
 
 	.ask-kbd {
 		font-family: var(--font-mono);
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		line-height: 1.4;
 		color: var(--ink-faint);
 		border: 1px solid var(--line);
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 		padding: 0 5px;
 		white-space: nowrap;
 	}
@@ -1364,7 +1364,7 @@
 		justify-content: space-between;
 		gap: var(--space-2);
 		padding: 4px 10px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 		color: var(--ink-faint);
@@ -1382,7 +1382,7 @@
 		padding: var(--space-2) 10px;
 		overflow-x: auto;
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--text-mono);
 		line-height: 1.5;
 		color: var(--ink);
 	}
@@ -1411,7 +1411,6 @@
 	.ask-text-input:focus,
 	.ask-note-input:focus {
 		border-color: var(--brand);
-		outline: none;
 	}
 
 	.ask-note {
@@ -1439,7 +1438,7 @@
 		gap: 6px;
 		background: transparent;
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 4px 6px;
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
@@ -1493,7 +1492,7 @@
 		justify-content: center;
 		background: transparent;
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
 		cursor: pointer;
 		padding: 2px;
@@ -1520,7 +1519,7 @@
 	.ask-decide {
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 4px 8px;
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
@@ -1536,7 +1535,7 @@
 		color: var(--ink);
 	}
 	.ask-hint {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 	.ask-actions {

@@ -5,6 +5,8 @@
 		type ProjectBarOrder,
 		type QueueBadgeStyle
 	} from '$lib/stores/settings.svelte';
+	import Segmented from '$lib/ui/Segmented.svelte';
+	import Switch from '$lib/ui/Switch.svelte';
 
 	// Ogni opzione di ordinamento porta con se' la sua spiegazione: l'utente
 	// deve capire l'effetto prima di cambiarlo, non scoprirlo per tentativi.
@@ -85,60 +87,52 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Nome sulle tessere</span>
-				<span class="form-row-desc">{m.ui_projectbarsection_la_sigla_c_e_sempre_il_nome_839b()}</span>
+				<span id="label-project-bar-name" class="form-row-label">Nome sulle tessere</span>
+				<span id="desc-project-bar-name" class="form-row-desc">{m.ui_projectbarsection_la_sigla_c_e_sempre_il_nome_839b()}</span>
 			</div>
 			<div class="form-row-control">
-				<div class="segmented">
-					<button
-						type="button"
-						class:active={settingsStore.projectBar.label === 'initials'}
-						onclick={() => settingsStore.patchProjectBar({ label: 'initials' })}
-					>
-						Solo aperta
-					</button>
-					<button
-						type="button"
-						class:active={settingsStore.projectBar.label === 'name'}
-						onclick={() => settingsStore.patchProjectBar({ label: 'name' })}
-					>
-						Tutte
-					</button>
-				</div>
+				<Segmented
+					value={settingsStore.projectBar.label}
+					ariaLabelledBy="label-project-bar-name"
+					ariaDescribedBy="desc-project-bar-name"
+					options={[
+						{ value: 'initials', label: 'Solo aperta' },
+						{ value: 'name', label: 'Tutte' }
+					]}
+					onChange={(val) => settingsStore.patchProjectBar({ label: val as 'initials' | 'name' })}
+				/>
 			</div>
 		</div>
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.ui_projectbarsection_segno_di_stato_agente_b812()}</span>
-				<span class="form-row-desc">Anello ambra che pulsa quando l'agente attende una risposta, anello fermo quando ha finito il lavoro.</span>
+				<span id="label-show-agent-dot" class="form-row-label">{m.ui_projectbarsection_segno_di_stato_agente_b812()}</span>
+				<span id="desc-show-agent-dot" class="form-row-desc">Anello ambra che pulsa quando l'agente attende una risposta, anello fermo quando ha finito il lavoro.</span>
 			</div>
 			<div class="form-row-control">
-				<label class="switch">
-					<input
-						type="checkbox"
-						checked={settingsStore.projectBar.showAgentDot}
-						onchange={(e) => settingsStore.patchProjectBar({ showAgentDot: (e.currentTarget as HTMLInputElement).checked })}
-					/>
-					<span class="slider"></span>
-				</label>
+				<Switch
+					id="settings-show-agent-dot"
+					checked={settingsStore.projectBar.showAgentDot}
+					ariaLabelledBy="label-show-agent-dot"
+					ariaDescribedBy="desc-show-agent-dot"
+					onChange={(checked) => settingsStore.patchProjectBar({ showAgentDot: checked })}
+				/>
 			</div>
 		</div>
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">Anteprima coda al passaggio</span>
-				<span class="form-row-desc">{m.ui_projectbarsection_mostra_l_elenco_dei_task_in_coda_cd99()}</span>
+				<span id="label-show-queue-peek" class="form-row-label">Anteprima coda al passaggio</span>
+				<span id="desc-show-queue-peek" class="form-row-desc">{m.ui_projectbarsection_mostra_l_elenco_dei_task_in_coda_cd99()}</span>
 			</div>
 			<div class="form-row-control">
-				<label class="switch">
-					<input
-						type="checkbox"
-						checked={settingsStore.projectBar.showQueuePeek}
-						onchange={(e) => settingsStore.patchProjectBar({ showQueuePeek: (e.currentTarget as HTMLInputElement).checked })}
-					/>
-					<span class="slider"></span>
-				</label>
+				<Switch
+					id="settings-show-queue-peek"
+					checked={settingsStore.projectBar.showQueuePeek}
+					ariaLabelledBy="label-show-queue-peek"
+					ariaDescribedBy="desc-show-queue-peek"
+					onChange={(checked) => settingsStore.patchProjectBar({ showQueuePeek: checked })}
+				/>
 			</div>
 		</div>
 	</div>
@@ -367,85 +361,4 @@
 		border-color: var(--line-strong);
 	}
 
-	.segmented {
-		display: flex;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		overflow: hidden;
-	}
-
-	.segmented button {
-		padding: 6px 12px;
-		border: none;
-		background: var(--bg-sunken);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast);
-	}
-
-	.segmented button + button {
-		border-left: 1px solid var(--line);
-	}
-
-	.segmented button:hover {
-		background: var(--bg-hover);
-	}
-
-	.segmented button.active {
-		background: var(--bg-active);
-		color: var(--ink);
-		font-weight: 600;
-	}
-
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 32px;
-		height: 18px;
-		cursor: pointer;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		inset: 0;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.slider::before {
-		position: absolute;
-		content: '';
-		height: 12px;
-		width: 12px;
-		left: 2px;
-		bottom: 2px;
-		background: var(--ink-muted);
-		border-radius: 50%;
-		transition: transform var(--dur-fast), background var(--dur-fast);
-	}
-
-	input:checked + .slider {
-		background: var(--brand);
-		border-color: var(--brand);
-	}
-
-	input:checked + .slider::before {
-		transform: translateX(14px);
-		background: var(--bg-sunken);
-	}
-
-	input:focus-visible + .slider {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
 </style>

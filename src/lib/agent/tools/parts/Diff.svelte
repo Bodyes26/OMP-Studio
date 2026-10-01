@@ -108,15 +108,16 @@
 		display: flex;
 		gap: var(--space-2);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.plus {
-		color: var(--success, var(--git-added));
+		color: var(--success);
 	}
 
 	.minus {
-		color: var(--danger, var(--git-deleted));
+		color: var(--danger);
 	}
 
 	.body {
@@ -139,6 +140,7 @@
 		color: var(--ink-faint);
 		opacity: 0.7;
 		user-select: none;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.sign {
@@ -155,21 +157,21 @@
 	}
 
 	.add {
-		background: color-mix(in srgb, var(--success, var(--git-added)) 10%, transparent);
+		background: color-mix(in srgb, var(--success) 10%, transparent);
 	}
 
 	.add .sign,
 	.add .text {
-		color: var(--success, var(--git-added));
+		color: var(--success);
 	}
 
 	.del {
-		background: color-mix(in srgb, var(--danger, var(--git-deleted)) 10%, transparent);
+		background: color-mix(in srgb, var(--danger) 10%, transparent);
 	}
 
 	.del .sign,
 	.del .text {
-		color: var(--danger, var(--git-deleted));
+		color: var(--danger);
 	}
 	.gap {
 		height: 1px;
@@ -184,8 +186,9 @@
 		border: none;
 		padding: 0;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-family: var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		cursor: pointer;
 	}
 

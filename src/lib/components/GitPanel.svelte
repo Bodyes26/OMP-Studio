@@ -4,6 +4,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { fetchSessionsList } from '$lib/agent/sessionsList';
 	import { IconGitBranch, IconChevronDown, IconDiamond, IconCheck, IconPlus, IconExternalLink } from '$lib/icons';
+	import GitStatusMark from '$lib/ui/GitStatusMark.svelte';
 	import { perfSpan } from '$lib/perf';
 	import { notifyGitStatusRefresh, type GitStatusRefreshDetail } from '$lib/stores/gitDiff.svelte';
 	import { githubStore } from '$lib/stores/github.svelte';
@@ -498,7 +499,7 @@
 					title="{f.path} — clicca per il diff con HEAD"
 					onclick={() => onOpenWorkingDiff?.(f.path)}
 				>
-					<span class="badge st-{f.status}">{f.status}</span>
+					<GitStatusMark status={f.status} />
 					<span class="name"><span class="dir">{dirName(f.path)}</span>{baseName(f.path)}</span>
 					{#if f.insertions !== null || f.deletions !== null}
 						<span class="nums">
@@ -959,7 +960,7 @@
 		border: 1.5px solid var(--line-strong);
 		border-top-color: var(--brand);
 		border-radius: 50%;
-		animation: spin-fast 600ms linear infinite;
+		animation: spin 600ms linear infinite;
 		margin-left: var(--space-1);
 	}
 

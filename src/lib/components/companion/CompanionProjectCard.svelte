@@ -155,19 +155,16 @@
 			{#if busy && runtime?.provider}
 				{@const info = computeQuotaInfo(runtime.provider, runtime.modelId, runtime.credentialPin)}
 				<QuotaChip
-					variant="ringHalo"
 					showProvider={true}
 					alwaysShowPct={true}
 					semanticColors={true}
 					status={info.status}
 					remainingPct={info.remainingPct}
-					usedPct={info.usedPct}
 					shortName={runtime.modelLabel ?? info.shortName}
 					hasLimits={info.hasLimits}
 					title={info.tooltip}
 					ariaLabel={info.tooltip}
 					longWindowAlert={info.longWindowAlert}
-					accountEmail={info.accountEmail}
 					onclick={(e) => {
 						e.stopPropagation();
 						onToggleUsage?.();
@@ -246,7 +243,7 @@
 	{:else if project.lane.agentState === 'working'}
 		{#if activityText}
 			<!-- Una riga sola: "sta lavorando" non chiede niente a nessuno
-			     (DESIGN.md §6), quindi la card al lavoro si ritira. -->
+			     (DESIGN-legacy.md §6), quindi la card al lavoro si ritira. -->
 			<p class="card-activity" title={activityText}>{activityText}</p>
 		{/if}
 	{:else}

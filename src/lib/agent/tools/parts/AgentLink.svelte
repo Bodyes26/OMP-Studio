@@ -92,7 +92,7 @@
 
 	.tool-tag {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 4px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);

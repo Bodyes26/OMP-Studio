@@ -39,7 +39,8 @@
 	import { m } from '$lib/paraglide/messages.js';
 
 	import ComposerEditor from './ComposerEditor.svelte';
-	import MenuButton from './MenuButton.svelte';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import ThinkingMeter from './ThinkingMeter.svelte';
 	import ThinkingMenu from './ThinkingMenu.svelte';
 	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
@@ -636,7 +637,7 @@
 		<!-- Overlay di trascinamento -->
 		{#if isDragging}
 			<div class="drag-drop-overlay" aria-hidden="true">
-				<IconAttach size={16} />
+				<IconAttach />
 				<span>{m.chat_v2_composer_drop_overlay()}</span>
 			</div>
 		{/if}
@@ -646,7 +647,7 @@
 			<div class="cmd-strip rv-blur" style="--dur: 200ms; --blur: 4px;">
 				<span class="cmd-strip-icon">
 					{#if isSkillCommand(activeCmdDef.name)}
-						<IconSparkles size={14} />
+						<IconSparkles />
 					{:else}
 						<span class="font-mono">/</span>
 					{/if}
@@ -674,7 +675,7 @@
 		<!-- Striscia avviso per modelli senza supporto visione -->
 		{#if visualNoVisionWarning}
 			<div class="vision-warning-strip">
-				<IconWarning size={14} />
+				<IconWarning />
 				<span>{m.chat_v2_composer_vision_warning({ model: session.model?.name || session.model?.id || 'Il modello' })}</span>
 				<button type="button" class="change-model-btn" onclick={() => (activeMenu = 'model')}>
 					{m.chat_v2_composer_change_model()}
@@ -699,12 +700,13 @@
 			<MenuButton
 				open={activeMenu === 'attach'}
 				title={m.chat_v2_composer_attach_title()}
+				hasPopup="menu"
 				width="260px"
 				onToggle={() => (activeMenu = activeMenu === 'attach' ? null : 'attach')}
 				onClose={() => (activeMenu = null)}
 			>
 				{#snippet trigger()}
-					<IconAttach size={15} />
+					<span class="toolbar-attach-icon"><IconAttach /></span>
 				{/snippet}
 				{#snippet children()}
 					<AttachMenu
@@ -717,14 +719,16 @@
 			</MenuButton>
 
 			<!-- Menzione file @ -->
-			<button
-				type="button"
-				class="toolbar-action-btn"
-				title={m.chat_v2_composer_mention_title()}
-				onclick={() => editorRef?.insertAt()}
-			>
-				<IconAt size={15} />
-			</button>
+			<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
+				<button
+					type="button"
+					class="toolbar-action-btn"
+					aria-label={m.chat_v2_composer_mention_title()}
+					onclick={() => editorRef?.insertAt()}
+				>
+					<IconAt />
+				</button>
+			</Tooltip>
 
 			<span class="toolbar-divider" aria-hidden="true"></span>
 
@@ -732,6 +736,7 @@
 			<MenuButton
 				open={activeMenu === 'role'}
 				title={m.chat_v2_composer_role_title()}
+				hasPopup="listbox"
 				width="420px"
 				onToggle={() => (activeMenu = activeMenu === 'role' ? null : 'role')}
 				onClose={() => (activeMenu = null)}
@@ -756,13 +761,15 @@
 			<MenuButton
 				open={activeMenu === 'model'}
 				title={m.chat_v2_composer_model_title()}
+				hasPopup="dialog"
+				contentRole="dialog"
 				width="400px"
 				onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
 				onClose={() => (activeMenu = null)}
 			>
 				{#snippet trigger()}
 					<span class="model-name-label">{session.model?.name || session.model?.id || 'Modello'}</span>
-					<IconChevronUp size={12} class="chevron-indicator" />
+					<span class="chevron-indicator"><IconChevronUp /></span>
 				{/snippet}
 				{#snippet children()}
 					<ModelPickerList
@@ -793,6 +800,7 @@
 			<MenuButton
 				open={activeMenu === 'thinking'}
 				title={m.chat_v2_composer_thinking_title()}
+				hasPopup="listbox"
 				width="320px"
 				onToggle={() => (activeMenu = activeMenu === 'thinking' ? null : 'thinking')}
 				onClose={() => (activeMenu = null)}
@@ -822,6 +830,8 @@
 				<MenuButton
 					open={activeMenu === 'context'}
 					title={m.chat_v2_composer_context_title()}
+					hasPopup="dialog"
+					contentRole="dialog"
 					align="right"
 					width="300px"
 					onToggle={() => (activeMenu = activeMenu === 'context' ? null : 'context')}
@@ -871,7 +881,7 @@
 						title={m.chat_v2_composer_stop_tooltip()}
 						onclick={() => session.abort()}
 					>
-						<IconStop size={15} />
+						<IconStop />
 					</button>
 				{/if}
 				<div class="send-split-group">
@@ -884,13 +894,14 @@
 								: `${m.chat_v2_composer_send_tooltip()} — ${m.chat_v2_composer_send_followup()}`}
 							onclick={() => handleSubmit(false)}
 						>
-							<IconArrowUp size={16} />
+							<IconArrowUp />
 						</button>
 
 						{#if session.isStreaming}
 						<MenuButton
 							open={activeMenu === 'sendMode'}
 							title="Modalità invio"
+							hasPopup="menu"
 							align="right"
 							width="240px"
 							className="send-mode-trigger"
@@ -898,12 +909,14 @@
 							onClose={() => (activeMenu = null)}
 						>
 							{#snippet trigger()}
-								<IconChevronUp size={11} />
+								<span class="send-mode-chevron"><IconChevronUp /></span>
 							{/snippet}
 							{#snippet children()}
 								<div class="send-mode-menu">
 									<button
 										type="button"
+										role="menuitemradio"
+										aria-checked={sendBehaviorChoice === 'steer'}
 										class="send-mode-option"
 										class:selected={sendBehaviorChoice === 'steer'}
 										onclick={() => {
@@ -916,6 +929,8 @@
 									</button>
 									<button
 										type="button"
+										role="menuitemradio"
+										aria-checked={sendBehaviorChoice === 'followUp'}
 										class="send-mode-option"
 										class:selected={sendBehaviorChoice === 'followUp'}
 										onclick={() => {
@@ -966,8 +981,8 @@
 		width: 100%;
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
-		border-radius: 16px;
-		box-shadow: 0 2px 10px -2px rgba(0, 0, 0, 0.15);
+		border-radius: var(--radius-2xl);
+		box-shadow: var(--shadow-dock);
 		transition: border-color var(--dur-fast) var(--ease-out),
 			box-shadow var(--dur-fast) var(--ease-out);
 	}
@@ -985,7 +1000,8 @@
 		position: absolute;
 		inset: 0;
 		z-index: 10;
-		border-radius: 16px;
+		border-radius: var(--radius-2xl);
+		--icon-size: 16px;
 		background: color-mix(in oklch, var(--bg-raised) 90%, var(--brand) 10%);
 		display: flex;
 		align-items: center;
@@ -1013,6 +1029,7 @@
 	.cmd-strip-icon {
 		color: var(--ink-muted);
 		display: inline-flex;
+		--icon-size: 14px;
 	}
 
 	.cmd-strip-name {
@@ -1051,6 +1068,7 @@
 		border-radius: var(--radius-md);
 		font-size: var(--text-xs);
 		color: var(--warn);
+		--icon-size: 14px;
 	}
 
 	.change-model-btn {
@@ -1081,6 +1099,7 @@
 		border: none;
 		color: var(--ink-muted);
 		cursor: pointer;
+		--icon-size: 15px;
 		transition: background-color var(--dur-fast) var(--ease-out),
 			color var(--dur-fast) var(--ease-out);
 	}
@@ -1088,6 +1107,20 @@
 	.toolbar-action-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
+	}
+
+	.toolbar-attach-icon {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 15px;
+	}
+
+	.chevron-indicator {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 12px;
+		color: var(--ink-faint);
+		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
 	.toolbar-divider {
@@ -1111,12 +1144,9 @@
 		white-space: nowrap;
 	}
 
-	.chevron-indicator {
-		opacity: 0.6;
-	}
 
 	.thinking-label {
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 
 	.toolbar-right {
@@ -1133,7 +1163,7 @@
 	}
 
 	.context-numbers {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink);
 	}
 
@@ -1160,13 +1190,15 @@
 		color: var(--bg-base);
 		border: none;
 		cursor: pointer;
+		--icon-size: 16px;
 		transition: opacity var(--dur-fast) var(--ease-out);
 	}
 
 	.send-btn.stop {
 		border-radius: var(--radius-full);
 		background: var(--danger);
-		color: white;
+		color: var(--on-danger);
+		--icon-size: 15px;
 	}
 
 	.send-btn:disabled {
@@ -1174,14 +1206,28 @@
 		cursor: not-allowed;
 	}
 
-	:global(.send-mode-trigger) {
-		height: 28px !important;
+	.send-mode-chevron {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 11px;
+	}
+
+	:global(.menu-button.send-mode-trigger) {
+		height: 28px;
 		/* Piu' spazio a destra: la pillola arrotonda l'estremita' del chevron. */
-		padding: 0 7px 0 4px !important;
-		background: color-mix(in oklch, var(--ink) 90%, black 10%) !important;
-		color: var(--bg-base) !important;
-		border-radius: 0 !important;
-		border-left: 1px solid color-mix(in oklch, var(--ink) 80%, black 20%) !important;
+		padding: 0 7px 0 4px;
+		background: var(--ink);
+		color: var(--bg-base);
+		border: none;
+		border-radius: 0;
+		border-left: 1px solid color-mix(in oklch, var(--bg-base) 25%, transparent);
+	}
+
+	:global(.menu-button.send-mode-trigger:hover:not(:disabled)),
+	:global(.menu-button.send-mode-trigger.active) {
+		background: color-mix(in oklch, var(--ink) 90%, var(--bg-base) 10%);
+		color: var(--bg-base);
+		border-left-color: color-mix(in oklch, var(--bg-base) 35%, transparent);
 	}
 
 	.send-mode-menu {
@@ -1210,13 +1256,17 @@
 		background: var(--bg-hover);
 	}
 
+	.send-mode-option.selected .mode-title {
+		color: var(--brand-ink);
+	}
+
 	.mode-title {
 		font-size: var(--text-xs);
 		font-weight: 500;
 	}
 
 	.mode-sub {
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 

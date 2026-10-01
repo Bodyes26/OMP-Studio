@@ -1,16 +1,15 @@
 <script lang="ts">
-	import type { QuotaChipVariant } from '$lib/stores/settings.svelte';
 	import type { QuotaSemanticStatus, QuotaLongWindowAlert } from '$lib/quota/projectQuota';
 	import { IconWarning, IconQuota } from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { motionReduced } from '$lib/agent/motionState.svelte';
 
 	let {
-		variant = 'ringHalo',
 		showProvider = true,
 		alwaysShowPct = false,
 		semanticColors = false,
 		status = 'ok',
 		remainingPct = null,
-		usedPct = 0,
 		shortName = '',
 		hasLimits = false,
 		title = '',
@@ -18,16 +17,13 @@
 		onclick,
 		interactive = true,
 		class: className = '',
-		longWindowAlert = null,
-		accountEmail
+		longWindowAlert = null
 	} = $props<{
-		variant?: QuotaChipVariant;
 		showProvider?: boolean;
 		alwaysShowPct?: boolean;
 		semanticColors?: boolean;
 		status?: QuotaSemanticStatus;
 		remainingPct?: number | null;
-		usedPct?: number;
 		shortName?: string;
 		hasLimits?: boolean;
 		title?: string;
@@ -36,11 +32,10 @@
 		interactive?: boolean;
 		class?: string;
 		longWindowAlert?: QuotaLongWindowAlert | null;
-		accountEmail?: string;
 	}>();
 
 	// Calcoli geometrici per l'anello circolare SVG (raggio = 6.5px, perimetro = ~40.84px).
-	// Allineato alla semantica "pieno = quota disponibile" usando remainingPct invece di usedPct.
+	// Semantica: pieno = quota disponibile (clampedRemaining).
 	const RING_RADIUS = 6.5;
 	const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
@@ -50,188 +45,143 @@
 	const showPct = $derived(
 		hasLimits && remainingPct !== null && (alwaysShowPct || status !== 'ok')
 	);
+
+	// Respiro ammesso solo se exhausted, visibile, sullo schermo, documento attivo e motion non ridotto
+	let chipNode = $state<HTMLButtonElement | null>(null);
+	let onScreen = $state(false);
+	let pageVisible = $state(true);
+	const isAnimated = $derived(onScreen && pageVisible && !motionReduced());
+
+	$effect(() => {
+		const node = chipNode;
+		if (!node || status !== 'exhausted') return;
+		onScreen = false;
+		const updateVisibility = () => {
+			pageVisible = typeof document !== 'undefined' ? document.visibilityState !== 'hidden' : true;
+		};
+		updateVisibility();
+		const observer = new IntersectionObserver(([entry]) => {
+			const style = getComputedStyle(node);
+			onScreen = entry.isIntersecting && style.visibility !== 'hidden' && style.display !== 'none';
+		});
+		observer.observe(node);
+		document.addEventListener('visibilitychange', updateVisibility);
+		return () => {
+			observer.disconnect();
+			document.removeEventListener('visibilitychange', updateVisibility);
+		};
+	});
+
+	// Etichetta accessibile descrittiva conforme a WCAG
+	const computedAriaLabel = $derived.by(() => {
+		if (ariaLabel) return ariaLabel;
+		if (status === 'exhausted') return 'Quota esaurita';
+		if (status === 'offline') return 'Quota offline';
+		if (status === 'unconfigured') return 'Quota: non configurata';
+		let text = `Quota ${shortName ? `${shortName} ` : ''}${remainingPct !== null ? `${remainingPct}%` : ''}`.trim();
+		if (longWindowAlert) {
+			text += ` (Attenzione: ${longWindowAlert.label} ${longWindowAlert.remainingPct}%)`;
+		}
+		return text;
+	});
+
+	// Tooltip testuale completo (nessun attributo title nativo sul button)
+	const computedTooltip = $derived.by(() => {
+		if (title) return title;
+		let t = computedAriaLabel;
+		if (longWindowAlert && !title) {
+			t += ` · Finestra ${longWindowAlert.label}: ${longWindowAlert.remainingPct}% residuo`;
+		}
+		return t;
+	});
 </script>
 
-{#if status === 'exhausted'}
+<Tooltip text={computedTooltip} disabled={!computedTooltip}>
 	<button
+		bind:this={chipNode}
 		type="button"
-		class="quota-chip status-exhausted status-bad {className}"
+		class="quota-chip status-{status} {className}"
+		class:is-breathing={status === 'exhausted' && isAnimated}
 		class:quota-semantic={semanticColors}
-		{title}
-		aria-label={ariaLabel || 'Quota esaurita'}
+		aria-label={computedAriaLabel}
 		disabled={!interactive}
 		onclick={(e) => {
 			if (interactive) onclick?.(e);
 		}}
 	>
-		<IconWarning />
-		<span class="chip-label">Quota esaurita</span>
-		{#if showProvider && shortName}
-			<span class="provider-label">· {shortName}</span>
-		{/if}
-		{#if longWindowAlert}
-			<span
-				class="secondary-alert-dot alert-{longWindowAlert.status}"
-				aria-hidden="true"
-			></span>
-		{/if}
-	</button>
-{:else if status === 'offline'}
-	<button
-		type="button"
-		class="quota-chip status-offline {className}"
-		class:quota-semantic={semanticColors}
-		{title}
-		aria-label={ariaLabel || 'Quota offline'}
-		disabled={!interactive}
-		onclick={(e) => {
-			if (interactive) onclick?.(e);
-		}}
-	>
-		<IconQuota />
-		<span class="chip-label">Offline</span>
-		{#if showProvider && shortName}
-			<span class="provider-label">· {shortName}</span>
-		{/if}
-	</button>
-{:else if status === 'unconfigured'}
-	<button
-		type="button"
-		class="quota-chip status-unconfigured {className}"
-		class:quota-semantic={semanticColors}
-		{title}
-		aria-label={ariaLabel || 'Quota: non configurata'}
-		disabled={!interactive}
-		onclick={(e) => {
-			if (interactive) onclick?.(e);
-		}}
-	>
-		<IconQuota />
-		<span class="chip-label">Quota: non config.</span>
-	</button>
-{:else if variant === 'fillWave'}
-	<!-- Variante Pill Riempita (fillWave) -->
-	<button
-		type="button"
-		class="quota-chip fill-variant status-{status} {className}"
-		class:status-bad={status === 'critical' || status === 'exhausted'}
-		class:has-halo={status !== 'ok'}
-		class:critical-breathe={status === 'critical'}
-		class:quota-semantic={semanticColors}
-		{title}
-		aria-label={ariaLabel || `Quota ${shortName ? `${shortName} ` : ''}${remainingPct !== null ? `${remainingPct}%` : ''}`}
-		disabled={!interactive}
-		onclick={(e) => {
-			if (interactive) onclick?.(e);
-		}}
-	>
-		{#if hasLimits && remainingPct !== null}
-			<!-- Livello fluido a larghezza dinamica -->
-			<span
-				class="fill-liquid"
-				style="width: {remainingPct}%;"
-				aria-hidden="true"
-			></span>
-			<!-- Menisco luminoso animato all'apice del riempimento -->
-			<span
-				class="fill-meniscus"
-				style="left: {remainingPct}%;"
-				aria-hidden="true"
-			></span>
-		{/if}
-
-		<span class="chip-content">
-			{#if !hasLimits}
+		{#if status === 'exhausted'}
+			<IconWarning />
+			<span class="chip-label">Quota esaurita</span>
+		{:else if status === 'offline'}
+			<IconQuota />
+			<span class="chip-label">Offline</span>
+		{:else if status === 'unconfigured'}
+			<IconQuota />
+			<span class="chip-label">Quota: non config.</span>
+		{:else}
+			{#if hasLimits}
+				<svg class="ring-svg" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+					<circle
+						cx="8"
+						cy="8"
+						r={RING_RADIUS}
+						fill="none"
+						stroke-width="2.2"
+						class="ring-track"
+					/>
+					<circle
+						cx="8"
+						cy="8"
+						r={RING_RADIUS}
+						fill="none"
+						stroke-width="2.2"
+						stroke-linecap="round"
+						stroke-dasharray="{strokeFilled} {CIRCUMFERENCE}"
+						class="ring-indicator"
+					/>
+				</svg>
+			{:else}
 				<IconQuota />
 			{/if}
 			<span class="chip-label">Quota</span>
-			{#if showProvider && shortName}
-				<span class="provider-label">· {shortName}</span>
-			{/if}
-			{#if showPct && remainingPct !== null}
-				<span class="pct-value">{remainingPct}%</span>
-			{/if}
-		</span>
-		{#if longWindowAlert}
-			<span
-				class="secondary-alert-dot alert-{longWindowAlert.status}"
-				aria-hidden="true"
-			></span>
-		{/if}
-	</button>
-{:else}
-	<!-- Variante Anello Progressivo (ringHalo) -->
-	<button
-		type="button"
-		class="quota-chip ring-variant status-{status} {className}"
-		class:status-bad={status === 'critical' || status === 'exhausted'}
-		class:has-halo={status !== 'ok'}
-		class:critical-breathe={status === 'critical'}
-		class:quota-semantic={semanticColors}
-		{title}
-		aria-label={ariaLabel || `Quota ${shortName ? `${shortName} ` : ''}${remainingPct !== null ? `${remainingPct}%` : ''}`}
-		disabled={!interactive}
-		onclick={(e) => {
-			if (interactive) onclick?.(e);
-		}}
-	>
-		{#if hasLimits}
-			<svg class="ring-svg" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-				<circle
-					cx="8"
-					cy="8"
-					r={RING_RADIUS}
-					fill="none"
-					stroke-width="2.2"
-					class="ring-track"
-				/>
-				<circle
-					cx="8"
-					cy="8"
-					r={RING_RADIUS}
-					fill="none"
-					stroke-width="2.2"
-					stroke-linecap="round"
-					stroke-dasharray="{strokeFilled} {CIRCUMFERENCE}"
-					class="ring-indicator"
-				/>
-			</svg>
-		{:else}
-			<IconQuota />
 		{/if}
 
-		<span class="chip-label">Quota</span>
-		{#if showProvider && shortName}
+		{#if showProvider && shortName && status !== 'unconfigured'}
 			<span class="provider-label">· {shortName}</span>
 		{/if}
-		{#if showPct && remainingPct !== null}
+
+		{#if showPct && remainingPct !== null && status !== 'exhausted' && status !== 'offline' && status !== 'unconfigured'}
 			<span class="pct-value">{remainingPct}%</span>
 		{/if}
+
 		{#if longWindowAlert}
 			<span
 				class="secondary-alert-dot alert-{longWindowAlert.status}"
 				aria-hidden="true"
 			></span>
+			<span class="sr-only">Attenzione finestra lunga: {longWindowAlert.label} {longWindowAlert.remainingPct}%</span>
 		{/if}
 	</button>
-{/if}
+</Tooltip>
 
 <style>
 	.quota-chip {
 		background: transparent;
 		border: 1px solid var(--line);
 		color: var(--ink-muted);
-		padding: 3px 10px;
+		padding: 3px 8px;
 		font-size: var(--text-xs);
 		line-height: 1.2;
-		border-radius: var(--radius-full);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
-		transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.2s ease;
+		transition: color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out),
+			background var(--dur-fast) var(--ease-out);
 		user-select: none;
 		position: relative;
 	}
@@ -246,20 +196,11 @@
 		cursor: default;
 	}
 
-	.chip-content {
-		position: relative;
-		z-index: 1;
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-	}
-
 	.chip-label {
 		font-weight: 500;
 	}
 
 	.provider-label {
-		opacity: 0.8;
 		font-weight: 400;
 	}
 
@@ -268,65 +209,65 @@
 		font-weight: 600;
 	}
 
-	/* --- Stati semantici e variabili colore tokenizzate (C4) --- */
+	/* --- Stati semantici conformi alle regole token (C4) --- */
 
 	.status-ok {
-		--quota-chip-color: var(--quota-ok, var(--ink-muted));
-		--quota-chip-fg: var(--quota-ok, currentColor);
-		--quota-chip-fill: var(--quota-ok-fill, color-mix(in oklch, currentColor 14%, transparent));
-		color: var(--quota-chip-color);
+		color: var(--quota-ok, var(--ink-muted));
+	}
+
+	.status-ok .ring-indicator {
+		stroke: var(--quota-ok, var(--ink-muted));
 	}
 
 	.status-warn {
-		--quota-chip-color: var(--quota-warn, var(--warn, #f59e0b));
-		--quota-chip-fg: var(--quota-warn, currentColor);
-		--quota-chip-fill: var(--quota-warn-fill, color-mix(in oklch, currentColor 14%, transparent));
-		color: var(--quota-chip-color);
-		border-color: var(--quota-warn, var(--warn-dim, #f59e0b55));
+		color: var(--warn);
+		border-color: var(--warn-dim);
 	}
 
-	.status-warn.has-halo {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--quota-warn, var(--warn, #f59e0b)) 20%, transparent);
+	.status-warn .ring-indicator {
+		stroke: var(--warn);
 	}
 
 	.status-warn:hover:not(:disabled) {
-		border-color: var(--quota-warn, var(--warn, #f59e0b));
-		background: color-mix(in srgb, var(--quota-warn, var(--warn, #f59e0b)) 10%, transparent);
+		border-color: var(--warn);
+		background: color-mix(in srgb, var(--warn) 10%, transparent);
 	}
 
-	.status-critical,
-	.status-exhausted,
-	.status-bad {
-		--quota-chip-color: var(--quota-bad, var(--brand, #ef4444));
-		--quota-chip-fg: var(--quota-bad, currentColor);
-		--quota-chip-fill: var(--quota-bad-fill, color-mix(in oklch, currentColor 14%, transparent));
-		color: var(--quota-chip-color);
-		border-color: var(--quota-bad, var(--brand-dim, #ef444455));
+	.status-critical {
+		color: var(--danger);
+		border-color: var(--danger-dim);
 	}
 
-	.status-critical.has-halo {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--quota-bad, var(--brand, #ef4444)) 25%, transparent);
+	.status-critical .ring-indicator {
+		stroke: var(--danger);
 	}
 
 	.status-critical:hover:not(:disabled) {
-		border-color: var(--quota-bad, var(--brand, #ef4444));
-		background: color-mix(in srgb, var(--quota-bad, var(--brand, #ef4444)) 12%, transparent);
+		border-color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
 	}
 
 	.status-exhausted {
-		border-color: var(--quota-bad, var(--brand, #ef4444));
-		background: color-mix(in srgb, var(--quota-bad, var(--brand, #ef4444)) 10%, transparent);
+		color: var(--danger);
+		border-color: var(--danger-dim);
+		background: color-mix(in srgb, var(--danger) 10%, transparent);
+	}
+
+	.status-exhausted.is-breathing {
 		animation: quota-breathe 2.6s ease-in-out infinite;
 	}
 
 	.status-exhausted:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--quota-bad, var(--brand, #ef4444)) 18%, transparent);
+		background: color-mix(in srgb, var(--danger) 18%, transparent);
+	}
+	.status-offline {
+		color: var(--ink-muted);
+		border-color: var(--line);
+		background: transparent;
 	}
 
-	.status-offline {
-		color: var(--warn, #f59e0b);
-		border-color: var(--warn-dim, #f59e0b55);
-		background: color-mix(in srgb, var(--warn, #f59e0b) 6%, transparent);
+	.status-offline :global(svg) {
+		color: var(--warn);
 	}
 
 	.status-unconfigured {
@@ -335,7 +276,7 @@
 		color: var(--ink-faint);
 	}
 
-	/* --- Variante Anello Progressivo --- */
+	/* --- Anello Progressivo Singolo --- */
 
 	.ring-svg {
 		flex-shrink: 0;
@@ -343,110 +284,46 @@
 	}
 
 	.ring-track {
-		stroke: var(--line-strong, rgba(255, 255, 255, 0.15));
+		stroke: var(--line-strong);
 	}
 
 	.ring-indicator {
-		transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-		stroke: var(--quota-chip-fg, currentColor);
+		transition: stroke-dasharray var(--dur-fast) var(--ease-reveal);
 	}
 
-	.status-ok .ring-indicator {
-		/* Con semaforo attivo usa --quota-ok; senza semaforo fallback alla tinta ink attenuata */
-		stroke: var(--quota-ok, color-mix(in srgb, var(--ink) 65%, transparent));
-	}
-
-	/* --- Variante Pill Riempita (fillWave) --- */
-
-	.fill-variant {
-		overflow: hidden;
-	}
-
-	.fill-liquid {
-		position: absolute;
-		inset-block: 0;
-		left: 0;
-		transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-		pointer-events: none;
-		/* IMPORTANTE: nessun opacity supplementare, il token porta gia' la propria alpha */
-		background: var(--quota-chip-fill, color-mix(in oklch, currentColor 14%, transparent));
-	}
-
-	.fill-meniscus {
-		position: absolute;
-		inset-block: 0;
-		width: 10px;
-		transform: translateX(-50%);
-		transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-		pointer-events: none;
-		background-color: var(--quota-chip-fg, currentColor);
-		opacity: 0.3;
-		filter: blur(2.5px);
-		animation: quota-bob 2.4s ease-in-out infinite;
-	}
-
-	.critical-breathe {
-		animation: quota-breathe 2.6s ease-in-out infinite;
-	}
-
-	/* --- Indicatore secondario finestra lunga critica (C3/C4) --- */
+	/* --- Indicatore secondario finestra lunga (segnale statico senza pulse infinito) --- */
 
 	.secondary-alert-dot {
 		position: absolute;
 		top: 2px;
-		right: 5px;
+		right: 4px;
 		width: 5px;
 		height: 5px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--bg-overlay);
 		pointer-events: none;
-		z-index: 2;
-		box-shadow: 0 0 0 1px var(--bg-overlay, var(--bg-surface, #1e1e1e));
 	}
 
 	.secondary-alert-dot.alert-warn {
-		background-color: var(--quota-warn, var(--warn, #f59e0b));
+		background-color: var(--warn);
 	}
 
 	.secondary-alert-dot.alert-critical,
 	.secondary-alert-dot.alert-exhausted {
-		background-color: var(--quota-bad, var(--brand, #ef4444));
-		animation: quota-dot-pulse 2s ease-in-out infinite;
-	}
-
-	@keyframes quota-dot-pulse {
-		0%, 100% {
-			opacity: 1;
-			transform: scale(1);
-		}
-		50% {
-			opacity: 0.4;
-			transform: scale(0.85);
-		}
-	}
-
-	/* Rispetto dell'attributo accessibilita' data-animations */
-	:global([data-animations='false']) .secondary-alert-dot,
-	:global([data-animations='false']) .fill-meniscus,
-	:global([data-animations='false']) .critical-breathe,
-	:global([data-animations='false']) .status-exhausted {
-		animation: none !important;
-	}
-
-	@keyframes quota-bob {
-		0%, 100% {
-			transform: translate(-50%, 0);
-		}
-		50% {
-			transform: translate(-50%, -1.2px);
-		}
+		background-color: var(--danger);
 	}
 
 	@keyframes quota-breathe {
 		0%, 100% {
-			opacity: 1;
+			border-color: var(--danger);
+			background-color: color-mix(in srgb, var(--danger) 10%, transparent);
 		}
 		50% {
-			opacity: 0.65;
+			border-color: var(--danger-dim);
+			background-color: color-mix(in srgb, var(--danger) 4%, transparent);
 		}
+	}
+	:global([data-animations='false']) .status-exhausted {
+		animation: none !important;
 	}
 </style>

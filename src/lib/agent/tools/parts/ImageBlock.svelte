@@ -28,7 +28,8 @@
 	button {
 		padding: 0;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
+		transition: border-color var(--dur-fast) var(--ease-out);
 		background: var(--bg-sunken);
 		cursor: pointer;
 		overflow: hidden;

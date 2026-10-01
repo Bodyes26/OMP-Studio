@@ -14,15 +14,7 @@ export interface ToolRenderProps {
 	args: Record<string, unknown>;
 	result?: { content?: ContentBlock[]; details?: unknown; isError?: boolean };
 	running?: boolean;
-	/**
-	 * `summary` = la riga sempre visibile accanto al nome del tool.
-	 * `body` = il corpo espandibile.
-	 *
-	 * Un solo componente per tool con due viste, e non due componenti: le due
-	 * viste leggono lo stesso `details` con la stessa logica, e separarle
-	 * significherebbe duplicare quel parsing trenta volte.
-	 */
-	view: 'summary' | 'body';
+	/** Il corpo espandibile e' l'unica vista renderizzata dal componente (Gate R32 - C10). */
 }
 
 export interface ToolRenderer {

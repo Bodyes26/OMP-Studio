@@ -1,32 +1,15 @@
 <!--
   Renderer per il tool `hub`.
 
-  Forma attesa di `details` (da `ricerca/TOOL-DETAILS.md`):
-  `op` (string), `jobs` (array di oggetti con `id`, `type`, `status`, `label`,
-  `durationMs`, `resolvedModel`, `resultText`).
-  Per operazioni di messaggistica: `receipts`, `waited`, `inbox`, `peers`.
-  Per operazioni di processo: `daemon`, `daemons`, `state`, `cursor`.
-
-  Comportamento quando `details` manca o e' incompleto:
-  Mostra `details.op` o `args.op` nel sommario, assieme al conteggio dei job per stato
-  o ai destinatari del messaggio. Nel corpo mostra le righe dei singoli job con stato,
-  modello e durata (piu' OutputBlock per il resultText del job), oppure la tabella
-  KeyValue degli argomenti e l'output testuale in OutputBlock per messaggi e processi.
+  Nel corpo espanso mostra le righe dei singoli job con StatusMark condiviso (Outcome-Only Color Rule),
+  modello e durata tabulari, la tabella KeyValue degli argomenti e l'output testuale in OutputBlock.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
-	import {
-		IconStatusPending,
-		IconStatusRunning,
-		IconStatusDone,
-		IconStatusFailed
-	} from '$lib/icons';
+	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
 	import {
 		asRecord,
-		countLabel,
 		formatDuration,
 		num,
 		recordList,
@@ -36,7 +19,7 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 	const op = $derived(str(details?.op) ?? str(args.op) ?? 'hub');
@@ -52,134 +35,87 @@
 	const signal = $derived(str(args.signal));
 	const keys = $derived(strList(args.keys));
 
-	const STATUS_ICON: Record<string, typeof IconStatusPending> = {
-		pending: IconStatusPending,
-		running: IconStatusRunning,
-		completed: IconStatusDone,
-		failed: IconStatusFailed,
-		aborted: IconStatusFailed
-	};
-
-	const jobCounts = $derived.by(() => {
-		let completed = 0;
-		let running = 0;
-		let failed = 0;
-		for (const j of jobs) {
-			const s = str(j.status);
-			if (s === 'completed') completed++;
-			else if (s === 'running' || s === 'pending') running++;
-			else if (s === 'failed' || s === 'aborted') failed++;
+	function toStatusMarkStatus(status?: string): StatusMarkType {
+		switch (status?.toLowerCase()) {
+			case 'completed':
+			case 'success':
+			case 'done':
+				return 'completed';
+			case 'failed':
+			case 'error':
+				return 'failed';
+			case 'running':
+			case 'in_progress':
+				return 'running';
+			case 'blocked':
+				return 'blocked';
+			case 'aborted':
+			case 'cancelled':
+			case 'abandoned':
+				return 'aborted';
+			default:
+				return 'pending';
 		}
-		return { completed, running, failed, total: jobs.length };
-	});
-
-	const summaryJobLabel = $derived.by(() => {
-		if (jobCounts.total === 0) return undefined;
-		const parts: string[] = [];
-		if (jobCounts.completed > 0) {
-			parts.push(countLabel(jobCounts.completed, 'completato', 'completati'));
-		}
-		if (jobCounts.running > 0) {
-			parts.push(countLabel(jobCounts.running, m.queue_drawer_status_in_progress(), m.queue_drawer_status_in_progress()));
-		}
-		if (jobCounts.failed > 0) {
-			parts.push(countLabel(jobCounts.failed, m.ui_browserviewer_fallito_ca59(), 'falliti'));
-		}
-		return parts.length > 0 ? parts.join(', ') : countLabel(jobCounts.total, 'job', 'job');
-	});
+	}
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		rows.push({ key: 'Operazione', value: op });
-		if (to) rows.push({ key: 'Destinatario', value: to });
-		if (from) rows.push({ key: 'Mittente', value: from });
-		if (name) rows.push({ key: 'Processo', value: name });
-		if (ids.length > 0) rows.push({ key: 'Job IDs', value: ids.join(', ') });
-		if (message) rows.push({ key: m.ui_hub_messaggio_4371(), value: message });
-		if (stdinText) rows.push({ key: 'Testo stdin', value: stdinText });
+		if (op) rows.push({ key: 'Operazione', value: op });
+		if (name) rows.push({ key: 'Nome', value: name });
+		if (to) rows.push({ key: 'A', value: to });
+		if (from) rows.push({ key: 'Da', value: from });
+		if (message) rows.push({ key: 'Messaggio', value: message });
+		if (ids.length > 0) rows.push({ key: 'ID', value: ids.join(', ') });
 		if (signal) rows.push({ key: 'Segnale', value: signal });
-		if (keys.length > 0) rows.push({ key: 'Tasti', value: keys.join(', ') });
+		if (keys.length > 0) rows.push({ key: 'Chiavi', value: keys.join(', ') });
+		if (stdinText) rows.push({ key: 'Stdin', value: stdinText });
 		return rows;
 	});
 </script>
 
-{#if view === 'summary'}
-	<div class="hub-summary">
-		<CountBadge text={op} />
-		{#if summaryJobLabel}
-			<CountBadge text={summaryJobLabel} />
-		{:else if to}
-			<span class="target-text">a {to}{message ? ` · ${message}` : ''}</span>
-		{:else if name}
-			<span class="target-text">processo: {name}</span>
-		{/if}
-	</div>
-{:else}
-	<div class="hub-body">
-		{#if jobs.length > 0}
-			<div class="jobs-list">
-				{#each jobs as job, index (index)}
-					{@const jobId = str(job.id) ?? `job-${index}`}
-					{@const jobType = str(job.type) ?? 'task'}
-					{@const jobStatus = str(job.status) ?? 'pending'}
-					{@const StatusIcon = STATUS_ICON[jobStatus] ?? IconStatusPending}
-					{@const model = str(job.resolvedModel)}
-					{@const dur = formatDuration(num(job.durationMs))}
-					{@const jobResText = str(job.resultText)}
+<div class="hub-body">
+	{#if jobs.length > 0}
+		<div class="jobs-list">
+			{#each jobs as job, index (index)}
+				{@const jobId = str(job.id) ?? `job-${index}`}
+				{@const jobType = str(job.type) ?? 'task'}
+				{@const jobStatus = str(job.status) ?? 'pending'}
+				{@const model = str(job.resolvedModel)}
+				{@const dur = formatDuration(num(job.durationMs))}
+				{@const jobResText = str(job.resultText)}
 
-					<div class="job-card" class:failed={jobStatus === 'failed' || jobStatus === 'aborted'} class:running={jobStatus === 'running'}>
-						<div class="job-header">
-							<span class="glyph"><StatusIcon /></span>
-							<span class="job-id">{jobId}</span>
-							<span class="job-type">{jobType}</span>
-							{#if model}
-								<span class="job-model">{model}</span>
-							{/if}
-							{#if dur}
-								<span class="job-duration">{dur}</span>
-							{/if}
-						</div>
-						{#if jobResText}
-							<div class="job-output">
-								<OutputBlock text={jobResText} label={`risultato ${jobId}`} maxLines={8} />
-							</div>
+				<div class="job-card">
+					<div class="job-header">
+						<span class="glyph"><StatusMark status={toStatusMarkStatus(jobStatus)} /></span>
+						<span class="job-id">{jobId}</span>
+						<span class="job-type">{jobType}</span>
+						{#if model}
+							<span class="job-model">[{model}]</span>
+						{/if}
+						{#if dur}
+							<span class="job-duration">{dur}</span>
 						{/if}
 					</div>
-				{/each}
-			</div>
-		{/if}
+					{#if jobResText}
+						<div class="job-output">
+							<OutputBlock text={jobResText} label={`risultato ${jobId}`} maxLines={8} />
+						</div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
 
-		{#if argsRows.length > 0}
-			<KeyValue rows={argsRows} />
-		{/if}
+	{#if argsRows.length > 0}
+		<KeyValue rows={argsRows} />
+	{/if}
 
-		{#if text}
-			<OutputBlock {text} label="risultato hub" />
-		{/if}
-	</div>
-{/if}
+	{#if text}
+		<OutputBlock {text} label="risultato hub" />
+	{/if}
+</div>
 
 <style>
-	.hub-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.target-text {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		user-select: text;
-	}
-
 	.hub-body {
 		display: flex;
 		flex-direction: column;
@@ -198,8 +134,7 @@
 		flex-direction: column;
 		gap: var(--space-1);
 		padding: var(--space-1) var(--space-2);
-		background: var(--bg-sunken);
-		border-radius: var(--radius-sm);
+		border-left: 2px solid var(--line);
 	}
 
 	.job-header {
@@ -210,38 +145,40 @@
 	}
 
 	.glyph {
-		--icon-size: 12px;
 		display: inline-flex;
 		align-items: center;
-		color: var(--ink-faint);
+		justify-content: center;
+		flex-shrink: 0;
 	}
 
-	.running .glyph {
-		color: var(--brand-ink);
-	}
-
-	.failed .glyph {
-		color: var(--danger);
-	}
 	.job-id {
 		font-family: var(--font-mono);
+		font-size: var(--text-meta);
 		color: var(--ink);
+		font-variant-numeric: tabular-nums;
 	}
 
-	.job-type,
-	.job-model,
-	.job-duration {
+	.job-type {
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
-		white-space: nowrap;
+	}
+
+	.job-model {
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
 	}
 
 	.job-duration {
 		margin-left: auto;
 		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
 		font-variant-numeric: tabular-nums;
 	}
+
 	.job-output {
-		margin-top: 2px;
+		padding-left: var(--space-3);
 	}
 </style>

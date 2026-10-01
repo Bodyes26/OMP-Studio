@@ -109,7 +109,7 @@ export interface ThemeAnchors {
 	isLight: boolean;
 }
 
-/** Croma massima dell'accento in DESIGN.md §2.4: oltre, il guscio urlerebbe. */
+/** Croma massima dell'accento (DESIGN.md, Colors > Primary): oltre, il guscio urlerebbe. */
 const BRAND_C_MAX = 0.19;
 const WARN_C_MAX = 0.15;
 
@@ -326,7 +326,7 @@ function anchorDeclarations(anchors: ThemeAnchors): [string, string][] {
 	const successDimL = light ? '0.880' : '0.520';
 	const dangerL = light ? '0.420' : '0.680';
 	const dangerC = light ? '0.150' : '0.185';
-	const dangerDimL = light ? '0.880' : '0.480';
+	const dangerDimL = light ? '0.880' : '0.380';
 
 	return [
 		['--bg-base', anchors.bgBase],
@@ -366,8 +366,8 @@ export function applyAnchors(anchors: ThemeAnchors) {
 	currentAnchors = anchors;
 	const root = document.documentElement.style;
 	const declarations = anchorDeclarations(anchors);
-	// `setProperty` e non `cssText`: su `:root` vivono anche i colori
-	// semantici della quota, che una riscrittura in blocco cancellerebbe.
+	// Si aggiornano solo le ancore del tema, senza cancellare le altre
+	// custom property applicate a `:root` dalle preferenze di Studio.
 	for (const [property, value] of declarations) root.setProperty(property, value);
 
 	// Il tema vero arriva da `settings.json` via IPC, che risponde dopo il

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	// CodeBlock: blocco di codice per le risposte dell'assistente con evidenziazione
 	// sintattica Monaco, intestazione a fisarmonica (accordion) e copia rapida.
@@ -7,7 +8,7 @@
 	import { agentUiHooks } from '../ui-context';
 	import { countLabel } from '../tools/types';
 	import { IconChevronRight, IconCheck, IconFile, IconCopy } from '$lib/icons';
-
+	import { Lingering } from '../motionState.svelte';
 	let {
 		lang = '',
 		text = ''
@@ -17,10 +18,22 @@
 	} = $props();
 
 	let collapsed = $state(false);
+	let hasToggled = $state(false);
 	let copied = $state(false);
 	let copiedItemIndex = $state<number | null>(null);
 	let colorizedHtml = $state<string | null>(null);
 
+	const openLinger = new Lingering<true>();
+	// Il blocco nasce aperto (collapsed = false): il fold parte gia' disteso.
+	openLinger.shown = true;
+
+	$effect(() => {
+		openLinger.update(!collapsed ? true : undefined);
+	});
+
+	onDestroy(() => {
+		openLinger.dispose();
+	});
 	const hooks = agentUiHooks();
 	const normalizedLang = $derived((lang ?? '').trim().toLowerCase());
 	const displayLang = $derived(normalizedLang || 'testo');
@@ -82,6 +95,7 @@
 	}
 
 	function toggleCollapse() {
+		hasToggled = true;
 		collapsed = !collapsed;
 	}
 </script>
@@ -120,7 +134,7 @@
 		{/each}
 	</div>
 {:else}
-	<div class="code-block" class:collapsed>
+	<div class="code-block" class:collapsed={openLinger.shown === undefined}>
 	<div class="code-header">
 		<button
 			type="button"
@@ -152,13 +166,17 @@
 		</div>
 	</div>
 
-	{#if !collapsed}
-		<div class="code-body-wrap">
-			{#if colorizedHtml}
-				<pre class="code-pre colorized">{@html colorizedHtml}</pre>
-			{:else}
-				<pre class="code-pre">{text}</pre>
-			{/if}
+	{#if openLinger.shown !== undefined}
+		<div class={!hasToggled ? undefined : (openLinger.leaving ? 'tray-out' : 'tray-in')}>
+			<div class="tray-fold-inner">
+				<div class="code-body-wrap">
+					{#if colorizedHtml}
+						<pre class="code-pre colorized">{@html colorizedHtml}</pre>
+					{:else}
+						<pre class="code-pre">{text}</pre>
+					{/if}
+				</div>
+			</div>
 		</div>
 	{/if}
 	</div>
@@ -198,9 +216,8 @@
 		border-radius: var(--radius-sm);
 		color: var(--ink);
 		font-family: var(--font-mono);
-		font-size: var(--text-sm);
+		font-size: var(--text-mono);
 		cursor: pointer;
-		text-align: left;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -215,21 +232,16 @@
 	}
 
 	.file-chip-icon {
+		--icon-size: 14px;
 		display: inline-flex;
 		align-items: center;
 		color: var(--ink-faint);
 		flex-shrink: 0;
 	}
 
-	.file-chip-icon :global(svg) {
-		width: 14px;
-		height: 14px;
-	}
-
 	.file-chip-btn:hover .file-chip-icon {
-		color: var(--brand);
+		color: var(--brand-ink);
 	}
-
 	.file-chip-path {
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -242,6 +254,7 @@
 	}
 
 	.file-chip-copy {
+		--icon-size: 13px;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -261,17 +274,12 @@
 		border-color: var(--line);
 	}
 
-	.file-chip-copy :global(svg) {
-		width: 13px;
-		height: 13px;
-	}
-
 	.file-chip-copy .copied-indicator {
-		color: var(--brand);
+		--icon-size: 13px;
+		color: var(--brand-ink);
 		display: inline-flex;
 		align-items: center;
 	}
-
 
 	.code-block:hover {
 		border-color: var(--line-strong);
@@ -308,18 +316,16 @@
 		cursor: pointer;
 		text-align: left;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 	}
-
 	.header-toggle:hover {
 		color: var(--ink);
 	}
 
 	.chevron {
 		--icon-size: 12px;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
-		transition: transform var(--dur-fast) var(--ease-out);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -333,7 +339,7 @@
 
 	.code-lang {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 500;
 		text-transform: lowercase;
 		color: var(--ink-muted);
@@ -341,11 +347,10 @@
 
 	.line-badge {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		opacity: 0.85;
 	}
-
 	.header-right {
 		display: flex;
 		align-items: center;
@@ -356,7 +361,7 @@
 		background: transparent;
 		border: 1px solid transparent;
 		padding: 1px var(--space-1);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		cursor: pointer;
 		border-radius: var(--radius-sm);
@@ -374,6 +379,7 @@
 	}
 
 	.copied-indicator {
+		--icon-size: 13px;
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
@@ -391,9 +397,8 @@
 		margin: 0;
 		padding: var(--space-2);
 		font-family: var(--font-mono);
-		font-size: var(--text-sm);
+		font-size: var(--text-mono);
 		line-height: 1.5;
-		color: var(--ink);
 		overflow-x: auto;
 		white-space: pre;
 		user-select: text;

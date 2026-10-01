@@ -1,18 +1,16 @@
 <!--
   Renderer per il tool `write`.
 
-  Mostra il percorso del file scritto nel sommario e la stima o conferma dei
-  byte scritti. Nel corpo mostra l'anteprima del contenuto passato al tool,
-  troncato di default a 40 righe per non dominare la vista.
+  Nel corpo espanso mostra ToolFileHeader con il percorso del file e la dimensione scritta,
+  i metadati dell'operazione e l'anteprima del contenuto scritto (troncato a 40 righe).
 -->
 <script lang="ts">
-	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
-	import PathChip from '../parts/PathChip.svelte';
+	import ToolFileHeader from '../parts/ToolFileHeader.svelte';
 	import { asRecord, resultText, str, type ToolRenderProps } from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 	const filePath = $derived(
@@ -51,54 +49,26 @@
 	});
 </script>
 
-{#if view === 'summary'}
-	<div class="write-summary">
-		{#if filePath}
-			<PathChip path={filePath} />
-		{/if}
-		{#if writtenBytesLabel}
-			<CountBadge text={writtenBytesLabel} muted />
-		{/if}
-	</div>
-{:else}
-	<div class="write-body">
-		{#if filePath}
-			<div class="file-header">
-				<PathChip path={filePath} full />
-			</div>
-		{/if}
-		{#if metaRows.length > 0}
-			<KeyValue rows={metaRows} />
-		{/if}
-		{#if content}
-			<OutputBlock text={content} maxLines={40} label="contenuto" />
-		{/if}
-		{#if textResult && textResult !== content}
-			<OutputBlock text={textResult} label="risultato" />
-		{/if}
-	</div>
-{/if}
+<div class="write-body">
+	{#if filePath}
+		<ToolFileHeader path={filePath} meta={writtenBytesLabel} />
+	{/if}
+	{#if metaRows.length > 0}
+		<KeyValue rows={metaRows} />
+	{/if}
+	{#if content}
+		<OutputBlock text={content} maxLines={40} label="contenuto" />
+	{/if}
+	{#if textResult && textResult !== content}
+		<OutputBlock text={textResult} label="risultato" />
+	{/if}
+</div>
 
 <style>
-	.write-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.write-body {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-	}
-
-	.file-header {
-		display: flex;
-		align-items: center;
 		min-width: 0;
 	}
 </style>

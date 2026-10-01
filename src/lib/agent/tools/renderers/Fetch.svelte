@@ -1,32 +1,23 @@
 <!--
   Renderer per il tool `fetch`.
 
-  Forma attesa di `details`:
-  La forma di `details` per fetch non e' garantita sul filo; puo' contenere
-  `status` (number), `statusText` (string), `headers` (object), `url` (string),
-  `method` (string).
-
-  Comportamento quando `details` manca o e' incompleto:
-  Mostra l'URL richiesto in `args.url` e la dimensione del testo risultante
-  nel sommario. Nel corpo mostra i dettagli della richiesta in KeyValue e
-  la risposta completa in OutputBlock.
+  Nel corpo espanso mostra i dettagli della richiesta (URL, metodo, status, dimensione)
+  in KeyValue e la risposta completa in OutputBlock.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
-	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
 		asRecord,
-		countLabel,
 		num,
 		resultText,
 		str,
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 	const url = $derived(str(details?.url) ?? str(args.url) ?? '');
@@ -36,9 +27,6 @@
 	const text = $derived(resultText(result));
 
 	const charCount = $derived(text.length);
-	const charLabel = $derived(
-		charCount > 0 ? countLabel(charCount, 'carattere', 'caratteri') : undefined
-	);
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
@@ -57,47 +45,17 @@
 	});
 </script>
 
-{#if view === 'summary'}
-	<div class="fetch-summary">
-		<CountBadge text={method} />
-		<span class="url-text">{url || 'fetch'}</span>
-		{#if charLabel}
-			<CountBadge text={charLabel} muted />
-		{/if}
-	</div>
-{:else}
-	<div class="fetch-body">
-		{#if argsRows.length > 0}
-			<KeyValue rows={argsRows} />
-		{/if}
+<div class="fetch-body">
+	{#if argsRows.length > 0}
+		<KeyValue rows={argsRows} />
+	{/if}
 
-		{#if text}
-			<OutputBlock {text} label="risposta fetch" />
-		{/if}
-	</div>
-{/if}
+	{#if text}
+		<OutputBlock {text} label="risposta fetch" />
+	{/if}
+</div>
 
 <style>
-	.fetch-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.url-text {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		user-select: text;
-	}
-
 	.fetch-body {
 		display: flex;
 		flex-direction: column;

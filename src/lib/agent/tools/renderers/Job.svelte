@@ -1,20 +1,15 @@
+<!--
+  Renderer per `job` e operazioni sui processi/task asincroni.
+
+  Nel corpo espanso mostra la tabella KeyValue con i parametri della richiesta,
+  l'elenco dei job con StatusMark condiviso (Outcome-Only Color Rule),
+  durata formattata tabulare ed etichetta, e il blocco OutputBlock del risultato testuale.
+-->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// Renderer per `job` e operazioni sui processi/task asincroni.
-	//
-	// Cosa mostra:
-	// - summary: operazione (`args.op` / `args.action`) e identificativo del
-	//   job (`args.id`, `args.name` o lista `args.ids`).
-	// - body: tabella `KeyValue` con i parametri della richiesta, elenco compatto
-	//   dei job con stato, tipo, durata formattata (`formatDuration`) ed etichetta
-	//   (se `details.jobs` e' presente), e blocco `OutputBlock` del risultato testuale.
-	//
-	// Comportamento quando `details` e' assente:
-	// Il componente renderizza i parametri della richiesta da `args` e il testo
-	// dell'esito da `resultText(result)`, omettendo la tabella strutturata dei job.
-
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
+	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
 	import {
 		asRecord,
 		formatDuration,
@@ -26,7 +21,7 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const op = $derived(str(args.op) ?? str(args.action) ?? str(args.command) ?? '');
 	const singleId = $derived(str(args.id) ?? str(args.jobId) ?? str(args.name) ?? '');
@@ -70,125 +65,93 @@
 		return out;
 	});
 
+	function toStatusMarkStatus(status?: string): StatusMarkType {
+		switch (status?.toLowerCase()) {
+			case 'completed':
+			case 'success':
+			case 'done':
+				return 'completed';
+			case 'failed':
+			case 'error':
+				return 'failed';
+			case 'running':
+			case 'in_progress':
+				return 'running';
+			case 'blocked':
+				return 'blocked';
+			case 'aborted':
+			case 'cancelled':
+			case 'abandoned':
+				return 'aborted';
+			default:
+				return 'pending';
+		}
+	}
+
 	const argRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (op) rows.push({ key: 'operazione', value: op });
-		if (targetIds.length > 0) rows.push({ key: 'target', value: targetIds.join(', ') });
+		if (op) rows.push({ key: 'Operazione', value: op });
+		if (targetIds.length > 0) rows.push({ key: 'Target', value: targetIds.join(', ') });
 		const signal = str(args.signal);
-		if (signal) rows.push({ key: 'segnale', value: signal });
+		if (signal) rows.push({ key: 'Segnale', value: signal });
 		const timeout = num(args.timeout) ?? num(args.timeoutMs);
-		if (timeout !== undefined) rows.push({ key: 'timeout', value: `${timeout}` });
+		if (timeout !== undefined) rows.push({ key: 'Timeout', value: `${timeout}` });
 		return rows;
 	});
 </script>
 
-{#if view === 'summary'}
-	<span class="summary-line">
-		{#if op}
-			<span class="op-badge">{op}</span>
-		{/if}
-		{#if targetIds.length > 0}
-			<span class="job-id-preview">{targetIds.join(', ')}</span>
-		{:else if jobList.length > 0}
-			<span class="job-id-preview">{jobList.map((j) => j.id).join(', ')}</span>
-		{:else if text}
-			<span class="text-preview">{text.split('\n', 1)[0]}</span>
-		{/if}
-	</span>
-{:else}
-	<div class="job-body">
-		{#if argRows.length > 0}
-			<KeyValue rows={argRows} />
-		{/if}
+<div class="job-body">
+	{#if argRows.length > 0}
+		<KeyValue rows={argRows} />
+	{/if}
 
-		{#if jobList.length > 0}
-			<div class="job-table-wrap">
-				<table class="job-table">
-					<thead>
+	{#if jobList.length > 0}
+		<div class="job-table-wrap">
+			<table class="job-table">
+				<thead>
+					<tr>
+						<th>ID</th>
+						<th>{m.ui_goal_stato_89af()}</th>
+						<th>Durata</th>
+						<th>Dettagli</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each jobList as item (item.id)}
 						<tr>
-							<th>ID</th>
-							<th>{m.ui_goal_stato_89af()}</th>
-							<th>Durata</th>
-							<th>Dettagli</th>
+							<td class="id-cell">{item.id}</td>
+							<td class="status-cell">
+								{#if item.status}
+									<span class="status-wrap" title={item.status}>
+										<StatusMark status={toStatusMarkStatus(item.status)} />
+										<span class="status-text">{item.status}</span>
+									</span>
+								{:else}
+									<span class="status-faint">-</span>
+								{/if}
+							</td>
+							<td class="dur-cell">{item.duration ?? '-'}</td>
+							<td class="label-cell">
+								{#if item.label}
+									<span class="item-label">{item.label}</span>
+								{/if}
+								{#if item.model}
+									<span class="item-model">[{item.model}]</span>
+								{/if}
+							</td>
 						</tr>
-					</thead>
-					<tbody>
-						{#each jobList as item (item.id)}
-							<tr>
-								<td class="id-cell">{item.id}</td>
-								<td class="status-cell">
-									{#if item.status}
-										<span
-											class="status-pill"
-											class:completed={item.status === 'completed' || item.status === 'success'}
-											class:failed={item.status === 'failed' || item.status === 'error'}
-										>
-											{item.status}
-										</span>
-									{:else}
-										<span class="status-faint">-</span>
-									{/if}
-								</td>
-								<td class="dur-cell">{item.duration ?? '-'}</td>
-								<td class="label-cell">
-									{#if item.label}
-										<span class="item-label">{item.label}</span>
-									{/if}
-									{#if item.model}
-										<span class="item-model">[{item.model}]</span>
-									{/if}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
 
-		{#if text}
-			<OutputBlock {text} label="risultato" />
-		{/if}
-	</div>
-{/if}
+	{#if text}
+		<OutputBlock {text} label="risultato" />
+	{/if}
+</div>
 
 <style>
-	.summary-line {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-sm);
-	}
-
-	.op-badge {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px var(--space-1);
-		flex-shrink: 0;
-	}
-
-	.job-id-preview {
-		font-family: var(--font-mono);
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.text-preview {
-		color: var(--ink-faint);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.job-body {
 		display: flex;
 		flex-direction: column;
@@ -199,56 +162,52 @@
 	.job-table-wrap {
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		overflow: hidden;
+		overflow-x: auto;
 	}
 
 	.job-table {
 		width: 100%;
 		border-collapse: collapse;
 		font-size: var(--text-sm);
-		font-family: var(--font-mono);
 	}
 
-	th {
+	.job-table th {
 		text-align: left;
 		padding: var(--space-1) var(--space-2);
-		background: var(--bg-sunken);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
-		font-weight: normal;
-		font-size: var(--text-xs);
 		border-bottom: 1px solid var(--line);
+		font-weight: 500;
 	}
 
-	td {
+	.job-table td {
 		padding: var(--space-1) var(--space-2);
 		border-bottom: 1px solid var(--line);
-		color: var(--ink-muted);
+		vertical-align: middle;
 	}
 
-	tr:last-child td {
+	.job-table tr:last-child td {
 		border-bottom: none;
 	}
 
 	.id-cell {
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
 		color: var(--ink);
-		font-weight: 500;
+		font-variant-numeric: tabular-nums;
 	}
 
-	.status-pill {
-		font-size: var(--text-xs);
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
+	.status-wrap {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.status-text {
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
-	}
-
-	.status-pill.completed {
-		color: var(--ink);
-		background: var(--bg-hover);
-	}
-
-	.status-pill.failed {
-		color: var(--danger);
 	}
 
 	.status-faint {
@@ -256,22 +215,25 @@
 	}
 
 	.dur-cell {
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
-		white-space: nowrap;
 		font-variant-numeric: tabular-nums;
 	}
 
 	.label-cell {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.item-label {
 		color: var(--ink-muted);
-		max-width: 300px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 
 	.item-model {
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
-		margin-left: var(--space-1);
-		font-size: var(--text-xs);
 	}
 </style>

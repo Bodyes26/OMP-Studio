@@ -113,7 +113,6 @@
 <style>
 	.heading {
 		color: var(--ink);
-		line-height: 1.3;
 		margin: var(--space-3) 0 var(--space-1) 0;
 	}
 
@@ -121,39 +120,29 @@
 		margin-top: 0;
 	}
 
-	.h1 {
-		font-size: var(--text-lg);
+	.heading.h1, .h1 {
+		font-size: var(--text-prose-h1);
 		font-weight: 600;
+		line-height: 1.3;
 	}
 
-	.h2 {
-		font-size: var(--text-md);
+	.heading.h2, .h2 {
+		font-size: var(--text-prose-h2);
 		font-weight: 600;
+		line-height: 1.35;
 	}
 
-	.h3 {
-		font-size: var(--text-base);
+	.heading.h3, .h3,
+	.heading.h4, .h4,
+	.heading.h5, .h5,
+	.heading.h6, .h6 {
+		font-size: var(--text-prose-h3);
 		font-weight: 600;
+		line-height: 28px;
 	}
-
-	.h4 {
-		font-size: var(--text-sm);
-		font-weight: 600;
-	}
-
-	.h5 {
-		font-size: var(--text-xs);
-		font-weight: 600;
-	}
-
-	.h6 {
-		font-size: var(--text-xs);
-		font-weight: 500;
-	}
-
 	.paragraph {
 		margin: 0 0 var(--space-2) 0;
-		line-height: 1.5;
+		line-height: inherit;
 		color: var(--ink);
 	}
 
@@ -171,7 +160,7 @@
 	.list {
 		margin: 0 0 var(--space-2) 0;
 		padding-left: var(--space-4);
-		line-height: 1.5;
+		line-height: inherit;
 	}
 
 	.list:last-child {
@@ -210,7 +199,7 @@
 	.table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		line-height: 1.4;
 	}
 
@@ -220,7 +209,7 @@
 		color: var(--ink-faint);
 		font-weight: 500;
 		border-bottom: 1px solid var(--line-strong);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		white-space: nowrap;
 	}
 
@@ -243,7 +232,7 @@
 	.raw-html {
 		margin: var(--space-1) 0;
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		white-space: pre-wrap;
 		word-break: break-all;
@@ -253,6 +242,6 @@
 	.text-block,
 	.generic-block {
 		margin: 0 0 var(--space-1) 0;
-		line-height: 1.5;
+		line-height: inherit;
 	}
 </style>

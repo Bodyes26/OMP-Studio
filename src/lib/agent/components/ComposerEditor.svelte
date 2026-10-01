@@ -285,7 +285,7 @@
 		top: 10px;
 		color: var(--ink-faint);
 		font-family: var(--font-ui);
-		font-size: 14.5px;
+		font-size: var(--text-chat);
 		line-height: 24px;
 		pointer-events: none;
 		white-space: nowrap;
@@ -301,7 +301,7 @@
 		overflow-x: hidden;
 		outline: none;
 		font-family: var(--font-ui);
-		font-size: 14.5px;
+		font-size: var(--text-chat);
 		line-height: 24px;
 		color: var(--ink);
 		white-space: pre-wrap;

@@ -38,12 +38,14 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		cursor: pointer;
 		list-style: none;
 		user-select: none;
 		font-variant-numeric: tabular-nums;
+		transition: color var(--dur-fast) var(--ease-out);
 	}
 
 	summary::-webkit-details-marker {
@@ -66,6 +68,7 @@
 	}
 	pre {
 		margin: var(--space-1) 0 0;
+		padding: var(--space-1) var(--space-2);
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		color: var(--ink-muted);

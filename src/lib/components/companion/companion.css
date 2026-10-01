@@ -210,7 +210,7 @@
 
 /* Griglia delle card: una colonna a 560px, due se la finestra viene
    allargata. I 300px minimi sono la larghezza sotto cui la riga di un task in
-   coda (la prima riga di un prompt) non si legge piu' (DESIGN.md §7.8). */
+   coda (la prima riga di un prompt) non si legge piu' (DESIGN-legacy.md §7.8). */
 .project-cards {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -1175,7 +1175,7 @@
 }
 
 /*
-	Vocabolario di stato identico alla barra progetti (DESIGN.md §7.1):
+	Vocabolario di stato identico alla barra progetti (DESIGN-legacy.md §7.1):
 	solo anelli inset, nessun alone. Il punto identita' dice «c'e' un agente»,
 	l'anello ambra che respira dice «aspetta te». E' l'unico movimento
 	persistente ammesso in tutta l'applicazione.
@@ -1455,8 +1455,3 @@
 	animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-	to {
-		transform: rotate(360deg);
-	}
-}

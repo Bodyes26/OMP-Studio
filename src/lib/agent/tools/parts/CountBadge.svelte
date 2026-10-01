@@ -9,7 +9,7 @@
 <style>
 	.badge {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
 		white-space: nowrap;
 		font-variant-numeric: tabular-nums;

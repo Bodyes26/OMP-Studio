@@ -151,6 +151,27 @@ class NotificationManager {
 		projectStore.acknowledgeFinished(activeId);
 	}
 
+	/** Gli aggiornamenti Git restano distinti dalle richieste dell'agente. */
+	async notifyGitUpdates(project: { id: string; name: string }, count: number): Promise<void> {
+		if (!settingsStore.notifications.enabled) return;
+		try {
+			await this.init();
+			let granted = await isPermissionGranted();
+			if (!granted) granted = (await requestPermission()) === 'granted';
+			if (!granted) return;
+			sendNotification({
+				title: settingsStore.notifications.style === 'detailed'
+					? `OMP Studio · ${project.name}` : 'OMP Studio',
+				body: m.git_remote_notification_body({ name: project.name, count }),
+				channelId: 'omp-studio-alerts',
+				extra: { projectId: project.id },
+				silent: !settingsStore.notifications.sound
+			});
+		} catch (error) {
+			console.warn('Invio notifica Git non riuscito:', error);
+		}
+	}
+
 	/**
 	 * Invia la notifica toast del sistema operativo (se abilitata nelle impostazioni).
 	 */

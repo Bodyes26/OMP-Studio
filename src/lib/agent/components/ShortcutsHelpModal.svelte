@@ -182,7 +182,7 @@
 					</span>
 					<input
 						type="text"
-						class="search-input"
+						class="ui-input search-input"
 						placeholder={m.ui_shortcutshelpmodal_filtra_scorciatoie_o_comandi_es_modelli_ctrl_618e()}
 						bind:value={searchQuery}
 						aria-label={m.shortcuts_filter_placeholder()}
@@ -409,25 +409,8 @@
 
 	.search-input {
 		width: 100%;
-		height: 28px;
-		padding: 0 26px 0 28px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		outline: none;
-		transition: border-color var(--dur-fast), background var(--dur-fast);
-	}
-
-	.search-input::placeholder {
-		color: var(--ink-faint);
-	}
-
-	.search-input:focus {
-		border-color: var(--brand);
-		background: var(--bg-sunken);
+		padding-left: 28px;
+		padding-right: 26px;
 	}
 
 	.clear-search-btn {

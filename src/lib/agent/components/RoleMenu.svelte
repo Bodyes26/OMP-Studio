@@ -10,7 +10,7 @@
 		id: string;
 		label: string;
 		description: string;
-		dotColor: string;
+		hue?: number;
 	}
 
 	export interface RoleAssignment {
@@ -29,14 +29,14 @@
 	}>();
 
 	const ROLES: RoleDefinition[] = [
-		{ id: 'default', label: 'default', description: 'Ruolo principale per conversazione e compiti generici', dotColor: 'var(--brand-ink)' },
-		{ id: 'plan', label: 'plan', description: 'Pianificazione architetturale ad alto livello', dotColor: 'oklch(0.68 0.16 230)' },
-		{ id: 'smol', label: 'smol', description: 'Modello veloce per risposte concise e sintetiche', dotColor: 'oklch(0.72 0.17 140)' },
-		{ id: 'slow', label: 'slow', description: 'Modello di massimo ragionamento per problemi complessi', dotColor: 'oklch(0.70 0.18 300)' },
-		{ id: 'vision', label: 'vision', description: 'Specializzato nell\'analisi di immagini e diagrammi', dotColor: 'oklch(0.75 0.15 80)' },
-		{ id: 'task', label: 'task', description: 'Esecuzione mirata di sotto-task e automazioni', dotColor: 'oklch(0.65 0.17 35)' },
-		{ id: 'commit', label: 'commit', description: 'Generazione di messaggi di commit e revisione patch', dotColor: 'oklch(0.68 0.14 180)' },
-		{ id: 'advisor', label: 'advisor', description: 'Revisione del codice, sicurezza e best practice', dotColor: 'oklch(0.66 0.19 320)' }
+		{ id: 'default', label: 'default', description: 'Ruolo principale per conversazione e compiti generici' },
+		{ id: 'plan', label: 'plan', description: 'Pianificazione architetturale ad alto livello', hue: 230 },
+		{ id: 'smol', label: 'smol', description: 'Modello veloce per risposte concise e sintetiche', hue: 140 },
+		{ id: 'slow', label: 'slow', description: 'Modello di massimo ragionamento per problemi complessi', hue: 300 },
+		{ id: 'vision', label: 'vision', description: 'Specializzato nell\'analisi di immagini e diagrammi', hue: 80 },
+		{ id: 'task', label: 'task', description: 'Esecuzione mirata di sotto-task e automazioni', hue: 35 },
+		{ id: 'commit', label: 'commit', description: 'Generazione di messaggi di commit e revisione patch', hue: 180 },
+		{ id: 'advisor', label: 'advisor', description: 'Revisione del codice, sicurezza e best practice', hue: 320 }
 	];
 </script>
 
@@ -59,7 +59,11 @@
 				class:active
 				onclick={() => onPick(role.id)}
 			>
-				<span class="role-dot" style="background-color: {role.dotColor};"></span>
+				<span
+					class="role-dot"
+					class:has-hue={role.hue !== undefined}
+					style={role.hue !== undefined ? `--role-h: ${role.hue}` : undefined}
+				></span>
 
 				<div class="role-content">
 					<div class="role-top">
@@ -72,7 +76,7 @@
 				</div>
 
 				{#if active}
-					<span class="check-icon"><IconCheck size={14} /></span>
+					<span class="check-icon"><IconCheck /></span>
 				{/if}
 			</button>
 		{/each}
@@ -92,7 +96,7 @@
 
 	.menu-header {
 		padding: var(--space-2) var(--space-3) var(--space-1);
-		font-size: 11px;
+		font-size: var(--text-group-label);
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -140,6 +144,11 @@
 		border-radius: var(--radius-full);
 		margin-top: 5px;
 		flex-shrink: 0;
+		background-color: var(--brand-ink);
+	}
+
+	.role-dot.has-hue {
+		background-color: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--role-h));
 	}
 
 	.role-content {
@@ -164,7 +173,7 @@
 	}
 
 	.role-meta {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -172,7 +181,7 @@
 	}
 
 	.role-desc {
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		line-height: 1.35;
 		color: var(--ink-muted);
 	}
@@ -183,13 +192,14 @@
 		flex-shrink: 0;
 		display: inline-flex;
 		align-items: center;
+		--icon-size: 14px;
 	}
 
 	.menu-footer {
 		padding: var(--space-2) var(--space-3);
 		border-top: 1px solid var(--line);
 		background: var(--bg-base);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		line-height: 1.4;
 		color: var(--ink-faint);
 		border-bottom-left-radius: var(--radius-lg);

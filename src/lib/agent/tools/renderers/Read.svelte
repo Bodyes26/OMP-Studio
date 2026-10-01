@@ -1,17 +1,13 @@
 <!--
   Renderer per il tool `read`.
 
-  Mostra il file letto o la sorgente (URL, artifact), con conteggio di righe
-  e dimensione nel sommario. Nel corpo espanso mostra il contenuto con
-  numeri di riga / troncamento e i metadati della sorgente. Se la sorgente
-  non e' un file su disco (es. URL remoto o artifact), viene resa come testo
-  invece di usare PathChip.
+  Mostra il file letto o la sorgente (URL, artifact) tramite ToolFileHeader,
+  i metadati della sorgente e l'anteprima del contenuto letto in OutputBlock.
 -->
 <script lang="ts">
-	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
-	import PathChip from '../parts/PathChip.svelte';
+	import ToolFileHeader from '../parts/ToolFileHeader.svelte';
 	import {
 		asRecord,
 		countLabel,
@@ -21,7 +17,7 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 	const meta = $derived(asRecord(details?.meta));
@@ -62,9 +58,6 @@
 
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (sourceValue) {
-			rows.push({ key: isPath ? 'Percorso' : 'Sorgente', value: sourceValue });
-		}
 		if (totalLines !== undefined) {
 			rows.push({ key: 'Righe', value: String(totalLines) });
 		}
@@ -78,54 +71,50 @@
 	});
 </script>
 
-{#if view === 'summary'}
-	<div class="read-summary">
-		{#if isPath && sourceValue}
-			<PathChip path={pathSelector.path} line={pathSelector.line} />
-		{:else if sourceValue}
-			<span class="source-text">{sourceValue}</span>
-		{/if}
-		{#if totalLines !== undefined}
-			<CountBadge text={countLabel(totalLines, 'riga', 'righe')} />
-		{/if}
-		{#if sizeFormatted}
-			<CountBadge text={sizeFormatted} muted />
-		{/if}
-	</div>
-{:else}
-	<div class="read-body">
-		{#if metaRows.length > 0}
-			<KeyValue rows={metaRows} />
-		{/if}
-		<OutputBlock text={contentText} label="contenuto file" />
-	</div>
-{/if}
+<div class="read-body">
+	{#if isPath && sourceValue}
+		<ToolFileHeader
+			path={pathSelector.path}
+			line={pathSelector.line}
+			meta={sizeFormatted || (totalLines !== undefined ? countLabel(totalLines, 'riga', 'righe') : undefined)}
+		/>
+	{:else if sourceValue}
+		<div class="source-header">
+			<span class="source-label">{sourceType}:</span>
+			<span class="source-value">{sourceValue}</span>
+		</div>
+	{/if}
+	{#if metaRows.length > 0}
+		<KeyValue rows={metaRows} />
+	{/if}
+	<OutputBlock text={contentText} label="contenuto file" />
+</div>
 
 <style>
-	.read-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.source-text {
-		font-family: var(--font-mono);
-		font-size: var(--text-sm);
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		user-select: text;
-	}
-
 	.read-body {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
 		min-width: 0;
+	}
+
+	.source-header {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+	}
+
+	.source-label {
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+		text-transform: capitalize;
+	}
+
+	.source-value {
+		font-family: var(--font-mono);
+		color: var(--ink);
+		overflow-wrap: anywhere;
 	}
 </style>

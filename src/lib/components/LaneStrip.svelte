@@ -33,6 +33,7 @@
 	} from '$lib/lanes/queueDispatch';
 	import LaneDispatchDialog from './LaneDispatchDialog.svelte';
 	import LaneProfileDialog from './LaneProfileDialog.svelte';
+	import Dialog from '$lib/ui/Dialog.svelte';
 	import {
 		recordAllowlistDecision,
 		reviewProjectProfile,
@@ -602,66 +603,40 @@
 </nav>
 
 <!-- Dialogo conferma eliminazione definitiva worktree -->
-{#if deleteConfirmTarget}
-	<div
-		class="lane-dialog-backdrop"
-		role="presentation"
-		onclick={() => (deleteConfirmTarget = null)}
-	>
-		<div
-			class="lane-dialog"
-			role="alertdialog"
-			tabindex="-1"
-			aria-modal="true"
-			aria-labelledby="lane-delete-title"
-			aria-describedby="lane-delete-desc"
-			onclick={(e) => e.stopPropagation()}
-			onkeydown={(e) => {
-				if (e.key === 'Escape') {
-					e.preventDefault();
-					deleteConfirmTarget = null;
-				}
-			}}
-		>
-			<div class="lane-dialog-header">
-				<h3 id="lane-delete-title">
-					{deleteConfirmTarget.prototypeId
-						? m.lab_delete_dialog_title()
-						: m.lanestrip_delete_dialog_title()}
-				</h3>
-				<button
-					type="button"
-					class="lane-dialog-close"
-					aria-label={m.lanestrip_delete_dialog_cancel()}
-					onclick={() => (deleteConfirmTarget = null)}
-				>
-					<IconClose />
-				</button>
-			</div>
+<Dialog
+	open={Boolean(deleteConfirmTarget)}
+	onClose={() => (deleteConfirmTarget = null)}
+	title={deleteConfirmTarget?.prototypeId
+		? m.lab_delete_dialog_title()
+		: m.lanestrip_delete_dialog_title()}
+	ariaDescribedBy="lane-delete-desc"
+>
+	{#snippet body()}
+		{#if deleteConfirmTarget}
 			<p id="lane-delete-desc" class="lane-dialog-desc">
 				{deleteConfirmTarget.prototypeId
 					? m.lab_delete_dialog_message({ name: deleteConfirmTarget.title })
 					: m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
 			</p>
-			<div class="lane-dialog-actions">
-				<button
-					type="button"
-					class="btn-dialog-secondary"
-					onclick={() => (deleteConfirmTarget = null)}
-				>
-					{m.lanestrip_delete_dialog_cancel()}
-				</button>
-				<button
-					type="button"
-					class="btn-dialog-danger"
-					onclick={() => void executeDelete()}
-				>
-					{m.lanestrip_delete_dialog_confirm()}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			class="ui-button ui-button-secondary"
+			onclick={() => (deleteConfirmTarget = null)}
+		>
+			{m.lanestrip_delete_dialog_cancel()}
+		</button>
+		<button
+			type="button"
+			class="ui-button ui-button-danger"
+			onclick={() => void executeDelete()}
+		>
+			{m.lanestrip_delete_dialog_confirm()}
+		</button>
+	{/snippet}
+</Dialog>
 
 <LaneDispatchDialog
 	open={concurrencyWarning !== null}
@@ -709,12 +684,12 @@
 		border: 1px solid var(--line);
 		background: var(--bg-raised);
 		color: var(--ink-muted);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		font-size: 13px;
+		font-size: var(--text-xs);
 		line-height: 1;
 		flex-shrink: 0;
 		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
@@ -725,12 +700,12 @@
 	.lane-scroll-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
-		border-color: var(--brand);
+		border-color: var(--line-strong);
 	}
 
 	.lane-scroll-btn:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: -2px;
+		outline-offset: 2px;
 	}
 
 	.lane-tablist-track {
@@ -798,7 +773,7 @@
 	}
 
 	.lane-tab-item.finished::after {
-		box-shadow: inset 0 0 0 1px var(--brand);
+		box-shadow: inset 0 0 0 1.5px var(--line-strong);
 	}
 
 	@media (prefers-reduced-motion: reduce) {
@@ -826,7 +801,7 @@
 		background: transparent;
 		color: inherit;
 		font-family: inherit;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		cursor: pointer;
 		white-space: nowrap;
 		outline: none;
@@ -834,7 +809,7 @@
 
 	.lane-tab:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: -1px;
+		outline-offset: 2px;
 	}
 
 	.lane-type-icon {
@@ -851,7 +826,7 @@
 	}
 
 	.lane-tab-item.selected .lane-type-icon {
-		color: var(--brand);
+		color: var(--brand-ink);
 	}
 
 	.lane-title {
@@ -870,7 +845,7 @@
 		background: var(--bg-overlay);
 		color: var(--ink);
 		border: 1px solid var(--brand);
-		border-radius: 2px;
+		border-radius: var(--radius-sm);
 		outline: none;
 		box-sizing: border-box;
 	}
@@ -931,8 +906,8 @@
 		cursor: pointer;
 		padding: 0 3px;
 		height: 18px;
-		border-radius: 2px;
-		font-size: 10px;
+		border-radius: var(--radius-sm);
+		font-size: var(--text-caption);
 		font-family: inherit;
 		transition: background-color var(--dur-fast), color var(--dur-fast);
 	}
@@ -963,7 +938,7 @@
 	}
 
 	.action-label {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		white-space: nowrap;
 	}
 
@@ -975,7 +950,7 @@
 		width: 24px;
 		height: 24px;
 		padding: 0;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		border: 1px dashed var(--line);
 		background: transparent;
 		color: var(--ink-muted);
@@ -997,7 +972,7 @@
 
 	.lane-new-btn:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: -1px;
+		outline-offset: 2px;
 	}
 
 	.lane-new-btn :global(svg) {
@@ -1005,103 +980,12 @@
 		height: 13px;
 	}
 
-	/* Dialogo di conferma eliminazione */
-	.lane-dialog-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.45);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-modal, 100);
-	}
-
-	.lane-dialog {
-		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		width: min(420px, calc(100vw - 32px));
-		padding: var(--space-4);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		color: var(--ink);
-	}
-
-	.lane-dialog-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.lane-dialog-header h3 {
-		margin: 0;
-		font-size: var(--text-base);
-		font-weight: 600;
-	}
-
-	.lane-dialog-close {
-		border: none;
-		background: transparent;
-		color: var(--ink-muted);
-		cursor: pointer;
-		padding: 2px;
-		border-radius: var(--radius-xs);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.lane-dialog-close:hover {
-		color: var(--ink);
-		background: var(--bg-hover);
-	}
-
 	.lane-dialog-desc {
 		margin: 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		color: var(--ink-muted);
 		line-height: 1.45;
 	}
-
-	.lane-dialog-actions {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		margin-top: var(--space-2);
-	}
-
-	.btn-dialog-secondary {
-		padding: 6px var(--space-3);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink);
-		cursor: pointer;
-		font-size: var(--text-sm);
-	}
-
-	.btn-dialog-secondary:hover {
-		background: var(--bg-hover);
-	}
-
-	.btn-dialog-danger {
-		padding: 6px var(--space-3);
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		background: var(--danger);
-		color: white;
-		cursor: pointer;
-		font-size: var(--text-sm);
-		font-weight: 500;
-	}
-
-	.btn-dialog-danger:hover {
-		opacity: 0.9;
-	}
-
 	@media (prefers-reduced-motion: reduce) {
 		.lane-tab-item,
 		.lane-tab,

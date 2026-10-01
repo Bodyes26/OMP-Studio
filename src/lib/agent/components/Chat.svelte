@@ -13,6 +13,8 @@
 	import { IconArrowDown } from '$lib/icons';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { motionReduced } from '../motionState.svelte';
+	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	import AskCard from './AskCard.svelte';
 	import AskStreamPreview from './AskStreamPreview.svelte';
@@ -74,6 +76,33 @@
 		askMinimizedRequestId = null;
 	}
 	let activeSubagentId = $state<string | null>(null);
+	let quotaSwitching = $state(false);
+	const quotaInfo = $derived.by(() => {
+		const bq = session.blockedQuotaState;
+		if (!bq || bq.dismissed) return undefined;
+		const suggested = bq.suggestedModel;
+		return {
+			kind: bq.reasonKind === 'quota_exhausted' ? ('exhausted' as const) : ('limit' as const),
+			title: bq.title,
+			message: bq.message,
+			diagnostic: bq.rawError,
+			switchLabel: suggested ? m.chat_v2_tray_quota_switch({ model: suggested.modelName }) : undefined,
+			switching: quotaSwitching,
+			onSwitch: suggested
+				? async () => {
+						if (quotaSwitching) return;
+						quotaSwitching = true;
+						try {
+							await session.applyQuotaRecovery(suggested.selector, suggested.thinking);
+						} finally {
+							quotaSwitching = false;
+						}
+				  }
+				: undefined,
+			onChooseModel: () => modelSettingsStore.openModal('catalog'),
+			onDismiss: () => session.dismissBlockedQuota()
+		};
+	});
 
 	let lastScrollTop = 0;
 	// Soglia in pixel per considerare l'utente "al fondo" (tolleranza subpixel e font scaling).
@@ -296,16 +325,19 @@
 			class:readable={settingsStore.general.chatWidth === 'readable'}
 		>
 			{#if userScrolledUp}
-				<button
-					type="button"
-					class="scroll-bottom-btn rv-lift"
-					onclick={scrollToBottom}
-					title={m.chat_scroll_to_bottom()}
-					style="--dur: 200ms; --blur: 2px;"
-				>
-					<IconArrowDown aria-hidden="true" />
-					In fondo
-				</button>
+				<div class="scroll-bottom-wrap">
+					<Tooltip text={m.chat_scroll_to_bottom()}>
+						<button
+							type="button"
+							class="scroll-bottom-btn rv-lift"
+							onclick={scrollToBottom}
+							aria-label={m.chat_scroll_to_bottom()}
+							style="--dur: 200ms; --blur: 2px;"
+						>
+							<IconArrowDown aria-hidden="true" />
+						</button>
+					</Tooltip>
+				</div>
 			{/if}
 			{#snippet queuedRows()}
 				<QueueChips
@@ -320,6 +352,7 @@
 				{#if queueEditBlocked}<p class="queue-edit-warning" role="alert">{m.chat_v2_queue_edit_blocked()}</p>{/if}
 			{/snippet}
 			<ComposerTray
+				quota={quotaInfo}
 				phases={session.todoPhases}
 				reminder={session.todoReminder}
 				subagents={session.subagents}
@@ -382,7 +415,7 @@
 		align-items: center;
 		justify-content: center;
 		border: 2px dashed var(--brand-ink);
-		border-radius: 16px;
+		border-radius: var(--radius-2xl);
 		background: color-mix(in oklch, var(--bg-sunken) 75%, transparent);
 		backdrop-filter: none;
 		pointer-events: none;
@@ -430,24 +463,26 @@
 		min-width: 0;
 	}
 
-	.scroll-bottom-btn {
+	.scroll-bottom-wrap {
 		position: absolute;
 		right: var(--space-4);
 		bottom: calc(100% + var(--space-3) + 28px);
+		z-index: var(--z-sticky);
+	}
+	.scroll-bottom-btn {
+		width: 28px;
+		height: 28px;
 		background: var(--bg-overlay);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-full);
-		padding: 6px 14px;
+		padding: 0;
 		color: var(--ink);
-		font-size: 12px;
-		font-weight: 500;
 		cursor: pointer;
-		z-index: var(--z-sticky);
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
-		box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-		--icon-size: 13px;
+		justify-content: center;
+		box-shadow: var(--shadow-overlay);
+		--icon-size: 16px;
 		transition: background-color var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast);
 	}
 	.scroll-bottom-btn:hover {
@@ -457,7 +492,6 @@
 	.scroll-bottom-btn:active {
 		transform: scale(0.97);
 	}
-
 	.queue-edit-warning {
 		padding: var(--space-1) var(--space-2);
 		color: var(--danger);
@@ -501,9 +535,10 @@
 		pointer-events: none;
 		background: linear-gradient(to bottom, transparent, var(--bg-sunken));
 		backdrop-filter: blur(2px);
-		mask-image: linear-gradient(to bottom, transparent, black);
+		/* Solo il canale alfa conta nella maschera: usiamo var(--ink) come token opaco */
+		mask-image: linear-gradient(to bottom, transparent, var(--ink));
 		opacity: 0;
-		transition: opacity var(--dur-base, 200ms) var(--ease-out);
+		transition: opacity var(--dur-base) var(--ease-out);
 	}
 
 	.footer-stack.content-below::before {

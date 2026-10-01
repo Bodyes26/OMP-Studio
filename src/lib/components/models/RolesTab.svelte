@@ -1213,10 +1213,6 @@
 		flex-shrink: 0;
 	}
 
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
 
 	.suggestions-label {
 		display: flex;

@@ -37,7 +37,7 @@
 		</span>
 		<span class="label">
 			<span class="count">{entries.length}</span>
-			{entries.length === 1 ? m.ui_noticegroup_messaggio_di_sistema_e0ee() : 'messaggi di sistema'}
+			{entries.length === 1 ? m.ui_noticegroup_messaggio_di_sistema_e0ee() : m.ui_noticegroup_messaggi_di_sistema()}
 		</span>
 		{#if !expanded && previewText}
 			<span class="preview" title={previewText}>· {previewText}</span>
@@ -61,7 +61,7 @@
 	.notice-group {
 		width: 100%;
 		padding: 2px 0;
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 		line-height: 1.5;
 		color: var(--ink-muted);
 		display: flex;
@@ -77,10 +77,10 @@
 		border: none;
 		padding: 2px 4px;
 		margin-left: -4px;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		text-align: left;
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 		line-height: 1.4;
 		color: var(--ink-muted);
 		width: 100%;

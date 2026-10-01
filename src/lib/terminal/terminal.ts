@@ -89,8 +89,8 @@ export class TerminalSession {
 	 *  partono: senza di esso la viewport resta un rettangolo nero per tutto
 	 *  l'avvio (~0.75s misurati, di piu' riprendendo una sessione da disco).
 	 *  Vive dentro il buffer di xterm come qualsiasi altro output, non come
-	 *  overlay: la viewport non si decora ne' si sovrappone (docs/DESIGN.md
-	 *  §6.2), e gli errori di runtime seguono gia' la stessa strada. */
+	 *  overlay: la viewport non si decora ne' si sovrappone (docs/DESIGN.md,
+	 *  The Still-Room Rule), e gli errori di runtime seguono gia' la stessa strada. */
 	private bootHintTimer: number | null = null;
 	private bootTimeoutTimer: number | null = null;
 	private bootHintShown = false;
@@ -146,7 +146,7 @@ export class TerminalSession {
 			macOptionIsMeta: true,
 			scrollback: settingsStore.terminal.scrollback,
 			/* Solo background e foreground: i 16 colori ANSI appartengono al
-			   tema di omp, il guscio non li tocca (docs/DESIGN.md §2.8). */
+			   tema di omp, il guscio non li tocca (docs/DESIGN.md, The Sacred Terminal Rule). */
 			theme: {
 				background: canvasColors().bgSunken,
 				foreground: canvasColors().ink,

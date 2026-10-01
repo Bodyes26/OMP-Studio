@@ -1,724 +1,1036 @@
-# Design System — OMP Studio
-
-Sistema di design completo e verificato. Ogni valore di colore in questo documento è stato calcolato da OKLCH a sRGB e il contrasto misurato con la formula WCAG 2.x: le tabelle riportano numeri reali, non stime.
-
+---
+name: OMP Studio
+description: Il guscio desktop attorno a omp. La conversazione con l'agente è la voce; tutto il resto è l'officina che la accompagna.
+colors:
+  brand: "oklch(0.620 0.190 355)"
+  brand-ink: "oklch(0.720 0.170 355)"
+  brand-dim: "oklch(0.440 0.140 355)"
+  bg-sunken: "oklch(0.155 0 0)"
+  bg-base: "oklch(0.185 0 0)"
+  bg-raised: "oklch(0.216 0 0)"
+  bg-overlay: "oklch(0.248 0 0)"
+  bg-hover: "oklch(0.970 0 0 / 0.10)"
+  bg-active: "oklch(0.970 0 0 / 0.15)"
+  line: "oklch(0.970 0 0 / 0.11)"
+  line-strong: "oklch(0.970 0 0 / 0.23)"
+  ink: "oklch(0.970 0 0)"
+  ink-muted: "oklch(0.760 0 0)"
+  ink-faint: "oklch(0.655 0 0)"
+  warn: "oklch(0.780 0.150 75)"
+  warn-dim: "oklch(0.560 0.120 75)"
+  success: "oklch(0.740 0.180 145)"
+  danger: "oklch(0.680 0.185 27)"
+  danger-dim: "oklch(0.380 0.148 27)"
+typography:
+  prose:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "15px"
+    fontWeight: 400
+    lineHeight: "28px"
+  prose-h1:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "20px"
+    fontWeight: 600
+    lineHeight: 1.3
+  prose-h2:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "17px"
+    fontWeight: 600
+    lineHeight: 1.35
+  prose-h3:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "15px"
+    fontWeight: 600
+    lineHeight: "28px"
+  chat:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "15px"
+    fontWeight: 400
+    lineHeight: "24px"
+  trace:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "12.5px"
+    fontWeight: 400
+    lineHeight: 1.5
+  title:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "16px"
+    fontWeight: 550
+    lineHeight: 1.3
+  body:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "13px"
+    fontWeight: 450
+    lineHeight: 1.45
+  label:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 450
+    lineHeight: 1.4
+  meta:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "11.5px"
+    fontWeight: 400
+    lineHeight: 1.4
+    fontFeature: "tnum"
+  caption:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "11px"
+    fontWeight: 500
+    lineHeight: 1.4
+  group-label:
+    fontFamily: "Inter Variable, Inter, Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "11px"
+    fontWeight: 600
+    lineHeight: 1.4
+    letterSpacing: "0.05em"
+  mono:
+    fontFamily: "JetBrainsMono Nerd Font, JetBrains Mono, Cascadia Code, Cascadia Mono, Consolas, monospace"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.5
+rounded:
+  sm: "4px"
+  md: "6px"
+  lg: "10px"
+  xl: "12px"
+  2xl: "16px"
+  full: "999px"
+spacing:
+  "1": "4px"
+  "2": "8px"
+  "3": "12px"
+  "4": "16px"
+  "5": "24px"
+  "6": "32px"
+  "8": "48px"
+components:
+  composer:
+    backgroundColor: "{colors.bg-raised}"
+    textColor: "{colors.ink}"
+    typography: "{typography.chat}"
+    rounded: "{rounded.2xl}"
+    padding: "10px 14px 8px"
+  composer-tray:
+    backgroundColor: "{colors.bg-raised}"
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.trace}"
+    rounded: "12px 12px 0 0"
+  tray-attention-row:
+    backgroundColor: "color-mix(in oklch, oklch(0.780 0.150 75) 15%, transparent)"
+    textColor: "{colors.ink}"
+    typography: "{typography.trace}"
+  user-bubble:
+    backgroundColor: "{colors.bg-raised}"
+    textColor: "{colors.ink}"
+    typography: "{typography.chat}"
+    rounded: "16px 16px 6px 16px"
+    padding: "10px 14px"
+  ask-card:
+    backgroundColor: "{colors.bg-raised}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.2xl}"
+    padding: "12px 16px 0"
+  ask-option:
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    padding: "9px 12px"
+  ask-option-selected:
+    backgroundColor: "color-mix(in oklab, oklch(0.620 0.190 355) 7%, transparent)"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    padding: "9px 12px"
+  send-button:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.bg-base}"
+    rounded: "{rounded.full}"
+    size: "28px"
+  stop-button:
+    backgroundColor: "{colors.danger}"
+    textColor: "{colors.bg-sunken}"
+    rounded: "{rounded.full}"
+    size: "28px"
+  primary-action:
+    backgroundColor: "{colors.brand}"
+    textColor: "{colors.bg-sunken}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.md}"
+    padding: "5px 14px"
+  toolbar-trigger:
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.md}"
+    height: "28px"
+    padding: "0 8px"
+  toolbar-trigger-hover:
+    backgroundColor: "{colors.bg-hover}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    height: "28px"
+  menu:
+    backgroundColor: "{colors.bg-raised}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.lg}"
+    padding: "4px"
+  menu-row-hover:
+    backgroundColor: "{colors.bg-hover}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    padding: "7px 8px"
+  badge-file:
+    backgroundColor: "color-mix(in oklch, oklch(0.620 0.190 355) 12%, transparent)"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    padding: "0 6px"
+  badge-command:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.bg-base}"
+    rounded: "{rounded.md}"
+    padding: "0 6px"
+  suggestion-chip:
+    backgroundColor: "{colors.bg-raised}"
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.full}"
+    padding: "3px 10px"
+  trace-row:
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.trace}"
+    height: "26px"
+    padding: "0 4px"
+  scroll-button:
+    backgroundColor: "{colors.bg-overlay}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.full}"
+    size: "28px"
+  status-mark-completed:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.bg-raised}"
+    rounded: "{rounded.full}"
+    size: "16px"
+  status-mark-running:
+    textColor: "{colors.ink}"
+    rounded: "{rounded.full}"
+    size: "14px"
+  status-mark-pending:
+    rounded: "{rounded.full}"
+    size: "14px"
+  status-mark-blocked:
+    backgroundColor: "{colors.danger}"
+    textColor: "{colors.bg-sunken}"
+    rounded: "{rounded.full}"
+    size: "16px"
+  status-mark-failed:
+    backgroundColor: "{colors.danger-dim}"
+    textColor: "{colors.danger}"
+    rounded: "{rounded.full}"
+    size: "16px"
+  status-mark-attention:
+    backgroundColor: "{colors.warn}"
+    rounded: "{rounded.full}"
+    size: "10px"
+  column-tabs-track:
+    backgroundColor: "transparent"
+    height: "32px"
+  column-tab-btn:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink-faint}"
+    typography: "{typography.label}"
+    padding: "0 8px"
+    height: "32px"
+  column-tab-btn-selected:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    padding: "0 8px"
+    height: "32px"
+  tooltip:
+    backgroundColor: "{colors.bg-raised}"
+    textColor: "{colors.ink}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.md}"
+    padding: "4px 8px"
+  dialog:
+    backgroundColor: "{colors.bg-overlay}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.lg}"
+  dialog-header:
+    textColor: "{colors.ink}"
+    typography: "{typography.title}"
+    padding: "16px 16px 12px"
+  ui-input:
+    backgroundColor: "{colors.bg-sunken}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    height: "30px"
+    padding: "0 8px"
+  ui-select:
+    backgroundColor: "{colors.bg-sunken}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    height: "30px"
+    padding: "0 8px"
+  ui-button-secondary:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.md}"
+    padding: "5px 14px"
+  ui-button-primary:
+    backgroundColor: "{colors.brand}"
+    textColor: "{colors.bg-sunken}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.md}"
+    padding: "5px 14px"
+  ui-button-danger:
+    backgroundColor: "{colors.danger}"
+    textColor: "{colors.bg-sunken}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.md}"
+    padding: "5px 14px"
+  switch-track:
+    backgroundColor: "{colors.bg-sunken}"
+    rounded: "{rounded.full}"
+    width: "32px"
+    height: "18px"
+  switch-thumb:
+    backgroundColor: "{colors.ink}"
+    rounded: "{rounded.full}"
+    size: "12px"
+  slider-track:
+    backgroundColor: "{colors.bg-sunken}"
+    rounded: "{rounded.full}"
+    height: "26px"
+  slider-thumb:
+    backgroundColor: "{colors.ink}"
+    rounded: "{rounded.full}"
+    size: "22px"
+  segmented-group:
+    backgroundColor: "{colors.bg-sunken}"
+    rounded: "{rounded.md}"
+  segmented-button:
+    backgroundColor: "{colors.bg-sunken}"
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.label}"
+    padding: "5px 12px"
+  segmented-button-active:
+    backgroundColor: "{colors.bg-active}"
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    padding: "5px 12px"
+  prompt-block:
+    backgroundColor: "{colors.bg-base}"
+    textColor: "{colors.ink}"
+    typography: "{typography.chat}"
+    rounded: "{rounded.xl}"
+    padding: "10px 14px"
 ---
 
-## 1. La scena
+# Design System: OMP Studio
 
-> Postazione desktop, luce artificiale, otto ore al giorno. Metà dello schermo è output ANSI di un agente che lavora; l'altra metà è codice. L'utente deve sapere in mezzo secondo: quale progetto è attivo, se l'agente sta lavorando o sta aspettando lui, quanta quota AI resta.
+Fonte visiva: la GUI Chat v2 e il suo composer (Gate R32), nati dal prototipo Lab
+**CodeAgent Flow** (`p-20260925-dyyhe6`). Il sistema precedente è archiviato in
+[`DESIGN-legacy.md`](DESIGN-legacy.md) e descrive com'è fatto oggi il resto di Studio:
+questo documento è il riferimento a cui il resto viene allineato. I token del
+frontmatter sono normativi; i valori sono quelli del tema scuro di default, e ogni tema
+di `omp` li ricalcola (§ Colors).
 
-Questa scena obbliga tre decisioni, in quest'ordine:
+## Overview
 
-1. **Tema coerente con la TUI.** Il tema puo' essere scuro o chiaro: la
-   superficie della cornice, l'editor e il terminale seguono sempre lo stesso
-   tema di `omp`. La scelta non e' una modalita' cosmetica, ma una sola scena di
-   lavoro che resta leggibile per tutta la giornata.
+**Creative North Star: "Officina silenziosa, voce chiara"**
 
-2. **Neutri a croma esattamente 0.000.** Qualsiasi tinta nel guscio sposta la percezione dei 16 colori ANSI adiacenti. Un grigio caldo fa sembrare il rosso ANSI più spento e il ciano più sporco. Il guscio è cromaticamente muto per una ragione funzionale.
+Studio parla con due registri. La **voce** è la conversazione con l'agente: una
+superficie di lettura calma, a 15/28 px in una colonna da 720 px, dove il testo
+dell'agente non ha contenitore, l'utente ha una bolla in rilievo e il lavoro tecnico
+scorre come una traccia leggera da 12,5 px. L'**officina** è tutto il resto: barra
+progetti, colonne di file e Git, editor, impostazioni, popover. È densa (13 px di
+base), cromaticamente muta e precisa, e accompagna la voce senza competere.
 
-3. **Strategia colore: Restrained.** Neutri + un accento sotto il 10% della superficie. Il terminale e l'editor contengono già decine di colori significativi; ogni colore aggiunto dal guscio è rumore che compete con il contenuto.
+Muta non vuol dire immobile. La cornice tace di colore, non di movimento: pannelli,
+popover, righe e sezioni che si aprono parlano con la stessa grammatica fluida della
+chat (sfocatura che si dissolve, altezza che si piega, una sola curva). Restano fermi
+solo due oggetti, per ragioni di prodotto: la viewport del terminale e il contenuto
+delle colonne durante lo switch di progetto.
 
----
+La scelta strutturale che regge tutto viene dal prototipo: **lo stato vivo sta vicino
+al punto d'azione, la storia resta leggera.** Todo, subagenti, coda e domande vivono
+nel vassoio agganciato al composer, mentre nel transcript ne resta una riga. La stessa
+regola vale nel resto di Studio: ciò che sta accadendo adesso si guarda dove si agisce,
+non in mezzo al racconto.
 
-## 2. Colore
+**Key Characteristics:**
 
-### 2.1 Ancora del brand
+- Due registri tipografici: voce a 15 px per leggere e scrivere, officina a 13 px per operare.
+- Elevazione per luminanza prima che per ombra; tre ombre a token, nessuna decorativa.
+- Raggio proporzionale al ruolo: 16 px per le superfici della conversazione, 10 px per ciò che galleggia, 6 px per i controlli.
+- Una curva sola (`--ease-reveal`) per tutto ciò che entra; keyframe definiti solo dal lato `from`.
+- Colore del tema per fuoco e selezione; verde, rosso e ambra solo per esiti e stati, sempre con testo o icona.
+- Si muove soltanto ciò che è vivo e visibile.
 
-Seed: `oklch(0.470 0.173 354.8)` — cremisi/magenta. La tinta 355° è l'ancora; L e C sono scelti per la scena (accento su superficie quasi nera, deve leggersi senza brillare).
+### Grammatica del movimento
 
-### 2.2 Superfici — neutri, croma 0.000
-
-| Token | OKLCH | Hex | Uso |
-|---|---|---|---|
-| `--bg-sunken` | `oklch(0.155 0 0)` | `#0C0C0C` | Pozzo del terminale, pozzo dell'editor. Il livello più profondo. |
-| `--bg-base` | `oklch(0.185 0 0)` | `#131313` | Sfondo dell'app, corpo delle colonne. |
-| `--bg-raised` | `oklch(0.215 0 0)` | `#191919` | Barra progetti, header di colonna, barra di stato. |
-| `--bg-overlay` | `oklch(0.250 0 0)` | `#222222` | Popover usage, menu, dialog. |
-| `--bg-hover` | `oklch(0.285 0 0)` | `#2A2A2A` | Hover su riga/voce/controllo. |
-| `--bg-active` | `oklch(0.325 0 0)` | `#343434` | Premuto, riga selezionata. |
-| `--line` | `oklch(0.295 0 0)` | `#2C2C2C` | Separatori strutturali, bordi pannello. |
-| `--line-strong` | `oklch(0.400 0 0)` | `#484848` | Splitter di colonna, bordo di elemento enfatizzato. |
-
-Gerarchia di elevazione: `sunken → base → raised → overlay`. Ogni salto è percepibile (ratio adiacenti da 1.05 a 1.15) senza creare bande visibili. **Nessuna ombra viene usata per l'elevazione**: solo luminanza e un bordo `--line` da 1px. Vietato l'accoppiamento `border: 1px` + `box-shadow` largo.
-
-**Come sono definiti.** Solo `--bg-sunken` e `--bg-base` sono valori scelti a mano: sono le due ancore. Tutto il resto è derivato in `src/app.css` mescolando `--ink` nell'ancora, e i valori esadecimali della tabella sono ciò che la mescolanza produce sopra `--bg-base`.
-
-- `--bg-raised` e `--bg-overlay` sono **opachi** (`color-mix(in oklab, var(--bg-base) N%, var(--ink))`): sono superfici, e una superficie deve coprire.
-- `--bg-hover`, `--bg-active`, `--line` e `--line-strong` sono **traslucidi** (`color-mix(in srgb, var(--ink) N%, transparent)`): sono stati e separatori, e devono funzionare identici sopra `base`, `sunken` e `overlay` senza un valore per superficie. È il motivo per cui una riga selezionata nell'albero e una riga selezionata dentro un popover non richiedono due token diversi.
-
-La croma resta 0.000 in entrambi i casi: si mescola grigio in grigio.
-
-### 2.3 Testo
-
-| Token | OKLCH | Hex | Contrasto min. sulle 4 superfici | Uso |
-|---|---|---|---|---|
-| `--ink` | `oklch(0.970 0 0)` | `#F5F5F5` | **14.67:1** | Testo primario, nome progetto attivo, numeri usage. |
-| `--ink-muted` | `oklch(0.760 0 0)` | `#B1B1B1` | **7.45:1** | Testo secondario, nomi file, label. |
-| `--ink-faint` | `oklch(0.655 0 0)` | `#909090` | **5.04:1** | Metadati, timestamp, path, hint di shortcut. |
-
-Tutti e tre superano 4.5:1 su `sunken`, `base`, `raised` e `overlay`. Non esiste un quarto livello più tenue: sotto `--ink-faint` si scende sotto la soglia e il grigio "elegante" illeggibile è il difetto numero uno delle UI generate.
-Per i temi chiari `applyAnchors` sostituisce la rampa con
-`--ink: oklch(0.240 0 0)`, `--ink-muted: oklch(0.430 0 0)` e
-`--ink-faint: oklch(0.520 0 0)`: il guscio mantiene testo scuro e rapporti
-leggibili anche quando le superfici arrivano da `export.pageBg` e
-`export.cardBg` di `omp`.
-
-### 2.4 Accento — cremisi
-
-| Token | OKLCH | Hex | Contrasto min. | Uso consentito |
-|---|---|---|---|---|
-| `--brand` | `oklch(0.620 0.190 355)` | `#D8488C` | 3.97:1 | **Solo non-testo**: anello di fuoco, indicatore di tessera attiva, riempimenti, pulse. |
-| `--brand-ink` | `oklch(0.720 0.170 355)` | `#F471AA` | **5.94:1** | **Testo** in accento (raro: link, valore critico). |
-| `--brand-dim` | `oklch(0.440 0.140 355)` | `#892756` | — | Riempimento di superficie sotto testo `--ink` (7.71:1). |
-
-**Regola dura:** `--brand` non è mai colore di testo. Sotto 4.5:1 su `raised` e `overlay`, quindi esiste `--brand-ink` per quel caso. Questa separazione tra "accento superficie" e "accento testo" non è opzionale.
-
-### 2.5 Attenzione — ambra
-
-| Token | OKLCH | Hex | Contrasto min. | Uso |
-|---|---|---|---|---|
-| `--warn` | `oklch(0.780 0.150 75)` | `#EFA831` | **7.83:1** | Testo e icona di soglia quota. |
-| `--warn-dim` | `oklch(0.560 0.120 75)` | `#9D6800` | 3.37:1 | Riempimento barra quota in avviso. |
-
-### 2.6 Stati operativi espliciti — verde success e rosso danger
-
-Nel guscio generale non esistono sfondi o accenti decorativi di successo ed errore generici. **Verde success e rosso danger sono ammessi nel guscio esclusivamente per stati operativi espliciti** (l'esito concluso o fallito di una fase TODO o di un subagente nelle Task Rows, §7.12) e **sempre e solo accompagnati da un'icona e da testo esplicativo**. Non compaiono mai come solo colore e mai come sfondo generico.
-
-Gli errori dell'agente nel codice e nei comandi continuano ad apparire dentro la viewport del terminale con i propri colori ANSI, che restano separati dal guscio (§2.8). I token semantici del guscio non invadono il terminale e la palette ANSI non pilota il guscio.
-
-I token `--success` e `--danger` sono parametrici (tinta, luminanza e croma) esattamente come `--warn`, sovrascritti dinamicamente da `theme.ts` insieme agli anchor del tema `omp` e inclusi nel CSS persistito pre-paint:
-
-| Token | Tinta | Dark default | Light default | Contrasto da verificare | Uso |
-|---|---|---|---|---|---|
-| `--success` | 145 | `oklch(0.740 0.180 145)` | `oklch(0.420 0.160 145)` | **≥ 4.5:1** su sfondi base/raised | Icona, testo e bordo stato completato nelle Task Rows. |
-| `--danger` | 27 | `oklch(0.680 0.185 27)` | `oklch(0.420 0.150 27)` | **≥ 4.5:1** su sfondi base/raised | Icona, testo e bordo stato fallito nelle Task Rows. |
-| `--danger-dim-l` | — | `0.480` | `0.880` | — | Luminanza attenuata per superfici e toni danger. |
-
-Regole di applicazione per badge e pillole operative:
-- **Tint delle pillole:** al 15% di opacità su trasparente (`oklch(... / 0.15)`).
-- **Superfici ed evidenziazioni:** massimo 10% di opacità su `--bg-raised`.
-- **Bordi:** 30% di opacità (`oklch(... / 0.30)`).
-- **Contrasto WCAG AA:** il testo e le icone di stato devono essere sempre verificati per superare 4.5:1 rispetto alla superficie effettiva sottostante (sia su tema scuro sia su tema chiaro).
-
-La severità della quota usa la scala di tre livelli che riusa la palette base invece di allargarla con un rosso generico:
-
-| Stato quota | Riempimento barra | Soglia |
+| Token | Valore | Uso |
 |---|---|---|
-| ok | `--ink-faint` (neutro, silenzioso) | `remainingFraction > 0.25` |
-| avviso | `--warn-dim`, label `--warn` | `0.10 < remainingFraction <= 0.25` |
-| critico | `--brand`, label `--brand-ink` | `remainingFraction <= 0.10` oppure `status != "ok"` |
+| `--ease-reveal` | `cubic-bezier(0.22, 0.61, 0.36, 1)` | Ogni ingresso: frasi, blocchi, righe, menu, vassoio, dialoghi modali. Default anche per la cornice. |
+| `--ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Micro-interazioni: hover, pressione, colore di bordo, movimento thumb switch/slider. |
+| `--dur-fast` | 120 ms | Hover, pressione, bordo a fuoco, scatto controlli. |
+| `--dur-menu` | 150 ms | Menu, palette `@`/`/`, popover: `rv-lift` con `--blur: 3px`. |
+| `--dur-row` | 210 ms | Righe che entrano in una lista (`chatReveal`: blur 5 px, 3 px di corsa, altezza da 0, curva `--ease-reveal`). |
+| `--dur-slow` | 240 ms | Pannelli e finestre modali (`Dialog` tramite `rvLift` con blur 3 px). |
+| `--dur-tray` | 420 ms | Sezioni che si piegano in altezza (`tray-in`/`tray-out`, blur 6 px). |
+| `--dur-reveal` | 700 ms | Unità di testo dell'agente (`rv-blur`, blur 10 px). |
 
-L'accento del brand come allarme di quota esaurita è l'unico momento in cui l'app alza la voce, ed è coerente: è la sua informazione più importante.
+Le primitive vivono in `src/app.css` e nei moduli di motion dedicati:
 
-### 2.7 Identità di progetto — rampa a 8 tinte
+- `.rv-blur` dissolve la sfocatura.
+- `.rv-lift` aggiunge 8 px di salita (`rvLift` Svelte transition in `src/lib/agent/motion.ts`, usata per popover a 150 ms e finestre modali `Dialog` a 240 ms con blur 3 px). Con il parametro `x` la corsa diventa orizzontale: il pannello del subagente entra da destra con 12 px, 240 ms, blur 3 px.
+- `.tray-in`/`.tray-out` piegano l'altezza con `grid-template-rows` da `0fr` a `1fr`.
+- `.text-shimmer` fa luccicare un'etichetta viva.
+- `.ghost-line` annuncia il testo in arrivo.
+- Keyframe globale `spin` in `src/app.css` (rotazione lineare continua a 360°): unifica e sostituisce 19 definizioni locali duplicate (`16spin`, `tray-spin`, `tab-spin`, `ring-spin`).
+- Popover top-layer: `anchoredPopover` in `src/lib/anchoredPopover.ts` governa l'ancoraggio fixed nel top layer nativo (`popover="manual"`) a 8 px dal trigger (`top`, `top-start`, `top-end`, `bottom`) con ribaltamento automatico.
 
-Colore funzionale: serve a riconoscere un progetto a colpo d'occhio, non a decorare. La tinta automatica nasce deterministicamente dall'hash del path, ma usa le tinte semantiche del tema `omp` attivo. La scelta manuale resta fissa finche' l'utente non ripristina la palette del tema.
+Ogni durata si regola per elemento con `--dur` e `--blur`. Helper a rune in
+`src/lib/agent/motionState.svelte.ts`: `AutoOpen` (apertura automatica con scelta
+manuale che vale finché la regola non cambia) e `Lingering` (tiene in vita un valore
+per il tempo dell'uscita).
 
-L e C sono fissi per tinta-stato e cambiano con la luminanza del tema, cosi' tutte le tessere hanno lo stesso peso visivo sia sui temi chiari sia su quelli scuri.
+La rivelazione del testo procede per frasi:
 
-| Nome | Tinta | Idle `oklch(0.42 0.13 h)` | Hover `oklch(0.50 0.145 h)` | Attivo `oklch(0.68 0.16 h)` |
-|---|---|---|---|---|
-| crimson | 355 | `#802651` | — | `#E2699D` |
-| rust | 25 | `#862726` | — | `#EA6A64` |
-| ochre | 60 | `#7D3500` | — | `#DE7C00` |
-| moss | 135 | `#295B00` | — | `#6AAD3E` |
-| teal | 175 | `#006249` | — | `#00B793` |
-| azure | 220 | `#005A7D` | — | `#00ADDC` |
-| indigo | 265 | `#294793` | — | `#6793FA` |
-| violet | 305 | `#5E3685` | — | `#B07BE6` |
+- **Cadenza:** 140 ms fra unità, che scendono a 70 ms quando l'arretrato supera due frasi.
+- **Assestamento:** a stream concluso, dopo 760 ms il DOM diventa statico, senza filtri.
+- **Testo in arrivo:** fino a tre ghost line da 0,55 rem (95 caratteri ciascuna), sfocate di 2,5 px.
+- **Analisi del markdown:** ogni 48 ms.
 
-La rampa qui sopra e' il fallback per i temi quasi monocromatici e la palette esplicita del selettore manuale. Per gli altri temi, Studio estrae accento, avviso, stati e colori sintattici: se non bastano a distinguere i progetti, completa la rampa ruotando le tinte gia' presenti senza introdurre una palette estranea.
+**The From-Only Rule.** I keyframe d'ingresso dichiarano solo lo stato di partenza. Lo
+stato finale è quello naturale dell'elemento, quindi con le animazioni azzerate
+(`prefers-reduced-motion` o `:root[data-animations="false"]`) la regola applicata è
+`animation: none` (senza loop persistenti da 1 ms) e il contenuto è subito leggibile.
 
-**Dove il colore del progetto compare davvero:**
+**The Alive-and-Visible Rule.** Il movimento persistente è ammesso solo mentre lo stato
+è vivo e il contenitore è aperto davanti all'utente:
 
-- **Punto identità** sulla tessera (8px, `--proj-l-fill` / `--proj-c-fill`):
-  pieno quando un agente è aperto sul progetto, neutro `--ink-faint` al 50%
-  quando non lo è. È l'uso principale, e l'unico sempre presente.
-- **Arco di lavoro** e **contatore dei task pronti** sulla tessera aperta.
-- **Lampo di transizione** (§6), al 35% e per 600ms.
-- **Tessera del pannello di progetto** (§7.8): l'unico riempimento pieno che
-  resta, ed è dentro un pannello, non in cima allo schermo.
+- luccichio delle etichette di lavoro;
+- ghost line;
+- spinner nelle righe aperte, nei segni di stato e nel vassoio;
+- ping della domanda in attesa;
+- respiro ambra della tessera che aspetta.
+- respiro della quota **solo esaurita**, come interruzione ammessa dalla decisione D3.
 
-La sigla sulla tessera è **neutra** (`--ink`, oppure `--ink-faint` senza
-agente): con il punto accanto, tingere anche il testo raddoppierebbe lo stesso
-segnale a scapito del contrasto. Per la stessa ragione la tessera aperta non è
-più un riempimento saturo ma un fondo neutro all'8%: il colore che identifica
-resta al suo posto e non c'è nessun blocco pieno in cima allo schermo.
+Riepiloghi chiusi, sezioni collassate e stati conclusi sono fermi.
 
-### 2.8 Il terminale non è nel sistema di colore
+**The Still-Room Rule.** Non si animano mai la viewport del terminale né il contenuto
+delle colonne durante lo switch di progetto. Il terminale viene disegnato già pronto;
+cambiare progetto è cambiare stanza.
 
-La palette ANSI dentro la viewport appartiene al tema di `omp`. OMP Studio imposta solo `background` (`--bg-sunken`) e `foreground` (`--ink`) del terminale, e non tocca i 16 colori. Nessun tema del guscio può riscrivere i colori del contenuto.
+## Colors
 
-### 2.9 Il tema arriva da `omp`
+Neutri derivati da due ancore del tema, un accento che arriva da `omp`, tre tinte
+semantiche riservate agli esiti.
 
-I valori fissi delle §2.2–2.5 sono il **default**, non l'unica possibilità: il
-selettore in barra sostituisce le ancore del tema, e tutto il resto continua a
-derivare da quelle.
+### Identità di progetto e stato operativo (D1)
 
-| Token | Origine nel tema di `omp` |
+L'identità dei singoli progetti conserva la propria tinta di personalità (`export.cardBg`,
+colore iconico e accento specifico) per differenziare l'ambiente di lavoro dell'officina.
+Al contrario, lo **stato operativo dell'esecuzione** (todo, subagenti, chiamate tool, stato
+dei file Git) è rigorosamente **neutro e condiviso**: il completamento è un disco neutro
+(`--ink` pieno con spunta `--bg-raised`), non verde (§ Components: StatusMark).
+
+Gli altri punti d'identità seguono la stessa rampa delle tessere: i pallini dei ruoli nel
+menu del composer sono `oklch(var(--proj-l-ink) var(--proj-c-ink) <tinta>)`, con una tinta
+fissa per ruolo (plan 230, smol 140, slow 300, vision 80, task 35, commit 180, advisor 320)
+e luminanza e croma che arrivano dal tema; `default` resta `--brand-ink`. Misurati su
+`--bg-raised`: 7,9–8,6:1 su scuro, 6,6–7,9:1 su chiaro. Le capacità dei modelli (vision,
+thinking) non sono identità: chip neutri `--ink-muted` con bordo `--line`, e l'icona porta
+il significato.
+
+### Primary
+
+- **Accento del tema** (`--brand`, default cremisi `oklch(0.620 0.190 355)`): anello di
+  fuoco, bordo e anello inset dell'opzione scelta, tinta dei badge `@file` (12% di
+  fondo, 28% di anello), barre del misuratore di thinking, riempimento dell'azione
+  primaria e indicatore delle schede orizzontali (`ColumnTabs`). Tinta e croma vengono da
+  `colors.accent` del tema di `omp`; la croma è tagliata a 0.190, mai inventata.
+- **Accento per testo** (`--brand-ink`): l'unica forma dell'accento ammessa come testo
+  (link, conteggi accentati, pallino del ruolo attivo). 6,48:1 su `--bg-raised`.
+- **Accento profondo** (`--brand-dim`): riempimenti sotto testo `--ink`.
+
+### Neutral
+
+| Token | Ruolo |
 |---|---|
-| `--bg-base` | la superficie con luminanza maggiore fra `export.pageBg` e `export.cardBg` |
-| `--bg-sunken` | la superficie con luminanza minore fra `export.pageBg` e `export.cardBg` |
-| `--brand-h` / `--brand-c` | tinta e croma di `colors.accent` |
-| `--warn-h` / `--warn-c` | tinta e croma di `colors.warning` |
-| modo chiaro/scuro | luminanza di `export.pageBg` |
+| `--bg-sunken` | Il pozzo: tela della chat, terminale, editor, blocchi di codice, campi di input (`.ui-input`, `.ui-select`), traccia slider e segmented. |
+| `--bg-base` | Corpo delle colonne, piedi dei menu, chip di contesto, badge `/comando` in negativo, piè di dialoghi. |
+| `--bg-raised` | Superfici della conversazione: composer, bolla utente, scheda domanda, menu, tooltip. |
+| `--bg-overlay` | Ciò che galleggia sopra la conversazione: pillola «in fondo», popover, finestre modali (`Dialog`). |
+| `--bg-hover` / `--bg-active` | Stati di riga e controllo; traslucidi, funzionano su ogni superficie. `--bg-active` governa anche lo stato attivo neutro del `Segmented`. |
+| `--line` / `--line-strong` | Separatori da 1 px; `--line-strong` per bordi a fuoco, menu, scheda domanda e dialoghi modali. |
+| `--ink` / `--ink-muted` / `--ink-faint` | Testo primario, secondario (righe di traccia, descrizioni), metadati e scorciatoie. |
 
-Tre conseguenze volute:
+### Mappa normativa dei token approvata
 
-- **La rampa di testo segue la luminanza.** I temi scuri usano testo chiaro e
-  i temi chiari testo scuro; `--on-brand` e `--on-project` cambiano insieme per
-  non mettere testo chiaro su una superficie chiara.
-- **La croma si taglia, non si inventa.** `--brand-c` è il minimo fra la croma
-  dell'accento del tema e 0.190: un tema monocromatico resta monocromatico.
-- **I 16 colori ANSI restano di `omp`** (§2.8). Il guscio e la TUI combaciano
-  perché usano lo *stesso* tema, non perché il guscio ridipinga il contenuto.
-- **Il catalogo e' diviso in due tab persistenti per luminanza, non per prefisso.** I 100 temi builtin
-  incorporati (52 scuri e 48 chiari) finiscono nella tab corrispondente anche
-  quando il nome del tema non contiene `dark` o `light`.
+Per eliminare ambiguità e allineare il codice esistente alle definizioni normative di Design v2:
 
----
-
-## 3. Tipografia
-
-Coppia su asse di contrasto: **sans umanista + monospace**. Vietato accoppiare due sans simili.
-
-| Ruolo | Famiglia | Fallback |
+| Token precedente / alias | Token normativo | Ruolo e applicazione |
 |---|---|---|
-| UI | `Inter` variabile | `"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif` |
-| Codice, terminale, path, numeri usage | `JetBrainsMono Nerd Font` | `"Cascadia Code", "Cascadia Mono", Consolas, monospace` |
+| `accent` | `--brand-ink` (testo), `--brand` (fuoco/selezione), `--ink` (spin) | Testo ad alto contrasto, contorni di fuoco, rotazione neutra dello spinner. |
+| `accent-dim`, `brand-subtle`, `brand-tint` | `color-mix(..., var(--brand) 12%, transparent)` | Sfondo badge `@file` (12%) o sfondo opzione selezionata della domanda (7%). |
+| `brand-line` | `color-mix(..., var(--brand) 28%, transparent)` | Anello inset dei badge al 28%; anello di selezione. |
+| `bg-surface`, `bg-card`, `bg-panel`, `bg`, `surface1..3` | `--bg-sunken`, `--bg-base`, `--bg-raised`, `--bg-overlay` | Suddivisione semantica rigorosa per ruolo e livello di elevazione. |
+| `bg-surface-elevated` | `--bg-raised` | Superfici rialzate, banner terminale. |
+| `err`, `danger-ink` | `--danger` | Tinta unica per esiti negativi, cancellazioni e interruzioni. |
+| `err-dim` | `--danger-dim` | Riservato unicamente al cerchio del segno di stato fallito (`failed`). |
+| `warn-ink`, `amber-fg` | `--warn` | Attenzione e attesa; nessuna rotaia decorativa colorata. |
+| `text-muted` | `--ink-muted` | Testo secondario a contrasto garantito. |
+| `line-dim`, `border-subtle` | `--line` | Separatori e bordi standard da 1 px. |
+| `brand-contrast` | `--on-brand` | Testo leggibile sopra riempimenti pieni `--brand`. |
+| `radius-xs` | `--radius-md` (6 px) / `--radius-sm` (4 px) | 6 px per controlli compatti; 4 px per elementi in linea. |
+| `shadow-md` | `--shadow-overlay` | Ammessa solo per elementi galleggianti; rimossa da superfici fisse. |
+| `z-modal` | `--z-dialog` o `--z-backdrop` | Il token `z-modal` è vietato; la scala usa `--z-dialog: 60`. |
+| `transition-fast`, `duration-fast` | `--dur-fast` (120 ms) + `--ease-out` | Micro-interazioni rapide. |
+| `text2xs` | `--text-meta` (numeri tabulari) / `--text-caption` (copia) | 11,5 px per conteggi e metadati; 11 px per didascalie. |
+| Spaziature intermedie 6 px e 10 px | Derivate locali (`6px`, `10px`) | Nessun token globale generico inventato. |
+`--bg-raised` e `--bg-overlay` sono **opachi** (`color-mix(in oklab, var(--bg-base) 96% / 92%, var(--ink))`):
+una superficie copre. Gli stati e le linee sono **traslucidi** (`color-mix(in srgb, var(--ink) N%, transparent)`):
+lo stesso hover funziona sulla tela, dentro il composer e dentro un menu.
 
-`Cascadia Code` è già presente su Windows 11: è un fallback reale, non teorico.
+Contrasti misurati sul tema scuro di default (WCAG 2.x, calcolati da OKLCH):
 
-### Scala UI
-
-Base 13px, non 16px: è uno strumento denso, non un documento.
-
-| Token | px | Peso | Uso |
+| Testo | su `sunken` | su `raised` | su `overlay` |
 |---|---|---|---|
-| `--text-xs` | 11 | 500 | Metadati, timestamp, hint shortcut |
-| `--text-sm` | 12 | 450 | Label, path, righe secondarie |
-| `--text-base` | 13 | 450 | Corpo UI, voci di lista, menu |
-| `--text-md` | 14 | 500 | Nome progetto attivo, header di sezione |
-| `--text-lg` | 16 | 550 | Titolo popover, titolo dialog |
-| `--text-xl` | 20 | 600 | Titolo schermata di benvenuto |
+| `--ink` | 17,92 | 16,01 | 14,76 |
+| `--ink-muted` | 9,10 | 8,13 | 7,50 |
+| `--ink-faint` | 6,16 | 5,50 | 5,08 |
+| `--brand-ink` | 7,25 | 6,48 | 5,98 |
+| `--warn` | 9,56 | 8,54 | 7,87 |
+| `--success` | 9,05 | 8,08 | 7,45 |
+| `--danger` | 6,24 | 5,58 | 5,14 |
 
-Nessun display type. Non c'è una hero: è un'app, non una landing. Il tetto è 20px.
+Altre coppie misurate:
 
-Interlinea: 1.45 per il testo di UI, 1.2 per righe dense in lista, 1.0 per il codice (l'editor e il terminale gestiscono la propria).
+- Badge `@file`, `--ink` sul fondo accentato: 14,20.
+- Badge `/comando`, `--bg-base` su `--ink`: 17,09.
+- Etichetta «Consigliata», `--success` sul proprio 14%: 6,28.
+- Glifo di Stop, `--on-danger` (`--bg-sunken`) su `--danger`: 6,24.
+- Testo dell'azione primaria, `--on-brand` su `--brand`: 4,85 (4,53 su Alabaster, dove `--on-brand` è `--ink`).
+- Riga di attenzione del vassoio, `--ink` su `--warn` al 15%: 12,0:1 sia sul tema scuro di default sia su Alabaster; il punto `--warn` sullo stesso fondo 6,2:1. Il vecchio `--ink` su `--warn-dim` dava 4,36:1, e `--bg-sunken` su `--warn-dim` 4,11 su scuro e 1,41 su chiaro.
+- Durata del video sulla miniatura, `--ink` su `--bg-sunken` al 75%: 12,1–12,6:1 su un fotogramma medio.
 
-### Regole
+### Semantici
 
-- Larghezza massima del testo in prosa (schermata di benvenuto, testi di stato vuoto): **65ch**.
-- `font-variant-numeric: tabular-nums` obbligatorio su ogni numero che cambia nel tempo: percentuali di quota, token, costi, countdown. Senza questo i numeri "ballano" a ogni aggiornamento.
-- `text-wrap: balance` sui titoli di popover e dialog.
-- Path lunghi: troncamento **al centro** con ellissi (`C:\...\repos\MyProject`), non alla fine: la coda di un path è la parte informativa.
-- Nessuna eyebrow uppercase tracciata. Nessun marcatore numerico `01 / 02 / 03`.
+- **Ambra** (`--warn`, `--warn-dim`): attenzione. Domanda in attesa (riga del vassoio a fondo `--warn` 15%, ping), quota al limite, contesto oltre il 60%, avviso di visione, scadenza della domanda, evidenziazione delle lettere trovate nella palette.
+- **Verde** (`--success`): esito positivo esplicito. Righe aggiunte di un diff (`+N`), passo di domanda completato, etichetta «Consigliata».
+- **Rosso** (`--danger`): esito negativo o azione che interrompe. Righe rimosse (`−N`), chiamata fallita, todo bloccato, quota esaurita, contesto oltre l'85%, pulsante Stop. Negli esiti di riga è testo meta senza fondo («fallito», «bloccato»), mai una pillola piena.
 
----
+**The Theme Is the Scene Rule.** Studio non ha una palette propria: le ancore `--bg-sunken` e `--bg-base`, l'accento e l'ambra arrivano dal tema di `omp` (`export.pageBg`, `export.cardBg`, `colors.accent`, `colors.warning`), e guscio e TUI cambiano sempre insieme. Nei temi chiari la rampa del testo si inverte (`--ink` 0.240, `--ink-muted` 0.430, `--ink-faint` 0.520).
 
-## 4. Spaziatura, raggi, tratti
+**The Outcome-Only Color Rule.** Verde, rosso e ambra dicono come è andata o cosa
+richiede attenzione, mai «questa parte è importante». Accompagnano sempre un testo o
+un'icona, e non diventano mai il colore di un'area. Un todo completato non è verde: è
+un disco neutro con la spunta.
+Eccezione deliberata per la quota: con l'opzione «Colori semaforo» attiva, lo stato
+sano può usare `--success`, derivato dal tema. Senza l'opzione resta neutro.
+Le opzioni della chip e del popover sono indipendenti; quota bassa e critica/esaurita
+usano sempre `--warn` e `--danger`, mai il brand né una palette parallela.
 
-### Spaziatura — scala a 4px
+**The Mix-Don't-Paint Rule.** Ogni tinta è un `color-mix` di un token. Niente
+`white`, `black`, `rgba()` od `oklch()` letterali nei componenti; il testo sopra un
+riempimento pieno usa le coppie `--on-brand`, `--on-success` e `--on-danger`.
 
-`--space-1: 4px` · `--space-2: 8px` · `--space-3: 12px` · `--space-4: 16px` · `--space-5: 24px` · `--space-6: 32px` · `--space-8: 48px`
+**The Sacred Terminal Rule.** I sedici colori ANSI appartengono al tema di `omp`.
+Studio imposta solo fondo (`--bg-sunken`) e testo (`--ink`) del terminale.
 
-Ritmo, non uniformità: padding di riga `4px 8px`, padding di pannello `12px`, padding di popover `16px`, respiro tra gruppi in popover `24px`.
+## Typography
 
-### Raggi
+**Font UI:** Inter Variable (con Segoe UI Variable Text, Segoe UI, system-ui)
+**Font mono:** JetBrainsMono Nerd Font (con Cascadia Code, Cascadia Mono, Consolas)
 
-`--radius-sm: 4px` (controlli, badge) · `--radius-md: 6px` (tessera progetto, bottone, input) · `--radius-lg: 10px` (popover, dialog, pannello) · `--radius-full: 999px` (solo tag e pill di conteggio)
+**Carattere:** sans umanista per leggere, monospace per tutto ciò che è un nome
+macchina: path, comandi, modelli, token, costi, codice. Il contrasto fra i due assi
+porta l'informazione: nella stessa riga di traccia «Lettura» è in sans e
+`src/api/orders.ts` in mono.
 
-Definiti da una sola costante: `--radius: 10px`, e `sm`/`md` derivati con `calc()`. Cambiare il carattere dei bordi dell'app è una riga sola.
+### Gerarchia — la voce (conversazione)
 
-Tetto assoluto: **10px**. Un raggio a 16px+ su un pannello di uno strumento tecnico è un difetto, non uno stile.
+- **Prosa** (400, 15/28 px): testo dell'agente, senza contenitore, larghezza massima 720 px.
+- **Titoli in prosa**: h1 20 px/600 (1.3), h2 17 px/600 (1.35), h3–h6 15 px/600 (28 px), tutti `--ink`, dai token `--text-prose-h1/h2/h3`. La stessa scala vale in rivelazione (`AssistantText`) e nel testo assestato (`Markdown`), che usa token assoluti anche nel ragionamento e nell'anteprima: al termine dello stream non salta niente. Paragrafi ed elenchi di `Markdown` ereditano l'interlinea dal contenitore (28 px in prosa, 24 nella voce chat, 22 nel ragionamento). Il titolo non scende mai sotto il corpo.
+- **Chat** (400, 15/24 px): bolla dell'utente, editor del composer, testo della domanda (peso 500), corpo dei messaggi tra agenti (`IrcMessageCard`). Quello che scrivi ha la misura di quello che leggerai.
+- **Traccia** (400, 12,5 px/1.5): righe dei tool, riepiloghi, avvisi di sistema, righe del vassoio, «Sto pensando…» (13,5 px).
+- **Ragionamento** (13/22 px, `--ink-muted`): corpo del blocco di thinking aperto.
+- **Meta** (11,5 px, `tabular-nums`): conteggi, durate, righe modificate, costi.
 
-### Tratti e ombre
+### Gerarchia — l'officina (cornice e controlli)
 
-- Bordi: sempre 1px. Mai bordi colorati laterali come accento (`border-left` spesso è vietato).
-- Ombre: **una sola**, e solo per superfici che galleggiano davvero (popover, dialog): `--shadow-overlay: 0 8px 24px -8px oklch(0 0 0 / 0.7), 0 2px 6px -2px oklch(0 0 0 / 0.5)`.
-- Nessuna ombra su tessere, righe, bottoni, pannelli. Nessuna ombra "morbida e larga" come decorazione.
+- **Titolo** (550, 16 px): titoli di popover e finestre modali (`Dialog`), `text-wrap: balance`.
+- **Corpo** (450, 13 px/1.45): voci di lista, menu, contenuto dei pannelli, controlli form opt-in (`.ui-input`, `.ui-select`).
+- **Etichetta** (450 o 500, 12 px): label, path secondari, opzioni della domanda, schede orizzontali (`ColumnTabs`, peso 500, `letter-spacing: normal`, senza maiuscolo spaziato).
+- **Didascalia** (500, 11 px): trigger della barra del composer, controlli form `.ui-button`, chip, scorciatoie, tooltip (`Tooltip`), piè di turno.
+- **Etichetta di gruppo** (600, 11 px, maiuscolo, `0.05em`, `--ink-faint`): solo per raggruppare voci dentro un menu o una lista (provider nel selettore modelli, sezioni della palette).
+- **Mono** (12 px/1.5): blocchi di codice, dettagli dei tool, badge (`0.84em` del testo che li circonda).
+**The Two Voices Rule.** Leggere e scrivere un prompt completo usano la voce (15/24);
+operare usa l'officina (13 px e meno). Una superficie che contiene un prompt da
+scrivere o rileggere parla con la voce anche fuori dalla chat. Due eccezioni:
+il pannello laterale del singolo subagente (`SubagentDrawer`) è un ispettore e mostra
+il transcript in traccia (12,5/1.5) con markdown; le anteprime dei task in coda restano
+dense, 11 px in vista compatta e 12 px in vista card. Il dettaglio espanso di un task
+mostra sempre il prompt completo a 15/24, inclusa la prima riga.
 
-### Icone — un set solo
+**The Heading-Above-Body Rule.** Dentro la prosa un titolo è sempre almeno grande
+quanto il corpo e più pesante; la gerarchia sale, non scende.
 
-Le icone sono **Lucide** (`@lucide/svelte`), e non esiste una seconda sorgente.
+**The Tabular Rule.** Ogni numero che cambia nel tempo (token, percentuali, durate,
+costi, contatori) usa `tabular-nums`.
 
-- **Un registro, non trentasette import.** I componenti importano da
-  `src/lib/icons.ts`, che riesporta solo le icone in uso con un nome che dice a
-  cosa servono (`IconFolderOpen`, `IconRename`, `IconStatusRunning`). Cambiare
-  il glifo di un'azione è una riga in quel file. Nei componenti l'import diretto
-  da `@lucide/svelte` è vietato: il barrel del pacchetto contiene 1777 moduli e
-  in dev li servirebbe tutti.
-- **Una misura.** `svg.lucide` in `app.css` legge `--icon-size` (default 14px).
-  Chi ha bisogno di un'altra misura la imposta sul **contenitore**, e tutte le
-  icone dentro la seguono. La prop `size` non si usa: la dimensione è una
-  proprietà del posto, non della chiamata.
-- **Tratto nativo.** Lucide disegna su griglia 24 con tratto 2: a 14px sono
-  1,17px ottici, coerenti con gli hairline da 1px del resto del guscio.
-- **La classe non si passa a un'icona.** Lo scoping CSS di Svelte non raggiunge
-  la radice di un componente figlio: `<IconChevronRight class="chevron" />`
-  perde ogni regola `.chevron`. L'icona si avvolge nell'elemento che ha già la
-  classe, e rotazioni, colori e transizioni continuano a funzionare.
-- **Nessuna emoji come icona.** Il font emoji del sistema porta il suo colore,
-  ignora la palette (§2) e cambia disegno fra Windows e macOS: tre motivi che
-  bastano da soli.
-- **Cosa non è un'icona** e resta testo: le legende dei tasti (`↑ ↓ ↵`), il
-  segno di moltiplicazione (`1024 × 768`, `×3`), i separatori in prosa, i
-  puntini di stato disegnati in CSS e i tre glifi dei controlli finestra, che
-  seguono la convenzione del sistema operativo e non il set.
+## Layout
 
----
+- **Colonna di lettura.** Modalità `readable` (default): 720 px centrati, applicati
+  insieme al transcript e al piede con il composer. Modalità `full`: tutta la colonna.
+  Padding del transcript 12 px.
+- **Ritmo verticale del transcript.** Niente `gap` uniforme: 12 px fra voci, 32 px al
+  confine di turno, 16 px fra la bolla dell'utente e la risposta, 4 px fra righe di
+  sistema consecutive.
+- **Piede.** Composer e vassoio stanno in un piede appiccicato al fondo. Quando sotto
+  c'è altro contenuto, una dissolvenza di 28 px (`--bg-sunken` → trasparente) separa il
+  testo che scorre dal piede senza bisogno di una linea.
+- **Vassoio.** Rientra di 12 px per lato rispetto al composer e ne poggia sul bordo
+  superiore. Una sola sezione aperta per volta (priorità: subagenti, poi todo, poi
+  coda); una domanda in attesa compatta tutto: a scheda domanda aperta il vassoio è una
+  sola riga in traccia `--ink-muted` (es. «Subagenti al lavoro 1/3 · Todo 3/7 · Coda 2»),
+  senza ombra propria; con la domanda ridotta tornano le sezioni e la riga di attenzione.
+  Corpo massimo 12 rem, poi scorre.
+- **Righe dei tool.** Alte 26 px, gap 10 px, `content-visibility: auto`. Elenco aperto
+  fino a 18 rem con una linea guida da 1 px a sinistra.
+- **Composer.** Editor con padding `10px 14px 4px` (altezza da 24 a 240 px), barra
+  `2px 8px 8px` con gap 2 px; il gruppo di destra (contesto e invio) è spinto a fine riga.
+- **Officina.** Le tre colonne, la barra progetti e le larghezze per progetto restano
+  quelle di `PRODUCT.md`. Il ritmo resta sulla scala a 4 px: righe `4px 8px`,
+  pannelli 12 px, popover 16 px, gruppi in popover 24 px.
 
-## 5. Elevazione e z-index
+**The Action-Point Rule.** Ciò che è vivo adesso sta dove l'utente agisce. Il racconto
+ne conserva una riga sola, espandibile su richiesta.
 
-Scala semantica, mai valori arbitrari:
+## Elevation & Depth
 
-```css
---z-base: 0;        /* colonne, contenuto */
---z-splitter: 10;   /* maniglie di ridimensionamento colonne */
---z-sticky: 20;     /* header di colonna, barra di stato */
---z-topbar: 30;     /* barra progetti */
---z-backdrop: 40;   /* velo sotto dialog */
---z-overlay: 50;    /* popover usage, menu contestuale */
---z-dialog: 60;     /* dialog nuovo progetto, impostazioni */
---z-toast: 70;      /* notifiche transitorie */
---z-tooltip: 80;    /* tooltip */
-```
+Profondità ibrida, con la luminanza al primo posto. La scala
+`sunken → base → raised → overlay` e un bordo da 1 px reggono la gerarchia da sole.
+Le ombre servono a dire «questo è agganciato» o «questo galleggia», e sui temi scuri
+sono quasi invisibili per costruzione: contano davvero nei temi chiari.
 
-Popover e menu **non** vengono posizionati in `absolute` dentro colonne con `overflow`: verrebbero tagliati. Si usa l'API `popover` nativa o un portale a livello di root con `position: fixed`.
+### Shadow Vocabulary
 
----
+- **Aggancio** (`--shadow-dock: 0 2px 10px -2px oklch(0 0 0 / 0.15)`): il composer, superficie fissa sopra la tela che scorre.
+- **Sollevamento** (`--shadow-raise: 0 8px 30px -10px oklch(0 0 0 / 0.20)`): la scheda domanda quando sostituisce il composer, cioè quando la superficie chiede una decisione.
+- **Galleggiamento** (`--shadow-overlay: 0 8px 24px -8px oklch(0 0 0 / 0.7), 0 2px 6px -2px oklch(0 0 0 / 0.5)`): menu, palette `@`/`/`, popover, pulsante «in fondo».
 
-## 6. Movimento
+### Sfocatura
 
-### Durate
+La sfocatura ha due usi soli:
 
-| Token | ms | Uso |
+- **Movimento:** ingressi `rv-blur` e `rv-lift`, ghost line.
+- **Vetro funzionale:** solo dove il contenuto scorre davvero sotto la superficie. Il vassoio usa `--bg-raised` all'85% con `backdrop-filter: blur(8px)`; la dissolvenza del piede usa 2 px.
+
+**The Luminance-First Rule.** Se una gerarchia si legge solo grazie a un'ombra, la
+superficie sbaglia gradino di luminanza.
+
+**The Dock Shadow Rule.** Bordo da 1 px più ombra sullo stesso elemento è ammesso solo
+con i tre token qui sopra; nessuna ombra su righe, bolle, chip o pulsanti in linea.
+
+**The Flat-By-Default Rule.** Superfici e controlli a riposo sono piatti. Lo Slider
+(traccia e cursore), lo Switch, i pulsanti nativi (`.ui-button`), le schede
+(`ColumnTabs`) e i campi di input non hanno ombre (`box-shadow: none`). Le ombre
+intervengono solo come risposta a uno stato di galleggiamento effettivo
+(`--shadow-overlay`), aggancio (`--shadow-dock`) o sollevamento decisionale
+(`--shadow-raise`).
+
+Z-index solo semantico: `--z-base 0`, `--z-splitter 10`, `--z-sticky 20`,
+`--z-topbar 30`, `--z-backdrop 40`, `--z-overlay 50`, `--z-dialog 60`,
+`--z-toast 70`, `--z-tooltip 80`. (Il token `z-modal` è formalmente vietato;
+le finestre modali usano `--z-dialog: 60` o il backdrop `--z-backdrop: 40`).
+
+## Shapes
+
+Il raggio dice il ruolo della superficie:
+
+| Raggio | Token | Dove |
 |---|---|---|
-| `--dur-instant` | 0 | Switch di progetto (vedi sotto) |
-| `--dur-fast` | 120 | Hover, pressione, cambio di stato di un controllo |
-| `--dur-base` | 180 | Fade di riga |
-| `--dur-slow` | 240 | Popover e dialog; larghezza delle tessere di progetto |
-| `--dur-calm` | 480 | Colore e opacità di un cambio di stato dell'agente |
-| `--dur-flash` | 600 | Lampo di transizione sulla tessera |
-| `--dur-pulse` | 1800 | Ciclo del respiro «l'agente aspetta te» |
+| 16 px | `--radius-2xl` | Superfici della conversazione: composer, scheda domanda (che ne prende il posto e la sagoma) e la sua anteprima in arrivo, bolla utente, overlay di trascinamento. |
+| 12 px | `--radius-xl` | Lastre agganciate: angoli superiori del vassoio (inferiori a 0, poggia sul composer). |
+| 10 px | `--radius-lg` | Ciò che galleggia: menu, palette, popover, finestre modali (`Dialog`); schede di esito nel transcript (integrazione della corsia). |
+| 6 px | `--radius-md` | Controlli: pulsanti (`.ui-button`), trigger, righe di menu, opzioni, campi (`.ui-input`, `.ui-select`), miniature, bottoni del selettore segmentato (`Segmented`), bolla del tooltip (`Tooltip`), badge `@file` e `/comando`. |
+| 4 px | `--radius-sm` | Piccoli elementi in linea: codice in linea, `kbd`, tag di contesto, corpo espanso di un tool, blocco di codice. |
+| pieno | `--radius-full` | Traccia e cursore dello slider (`Slider`), traccia e cursore dello switch (`Switch`), chip di suggerimento, invio e Stop, pulsante «in fondo», segni di stato (`StatusMark`), ghost line. |
 
-Le due durate lunghe esistono solo per la barra progetti, e solo perché lì il
-movimento porta un'informazione invece di accompagnare un'azione: un cambio di
-stato a 120ms è uno scatto che l'occhio legge come un errore di rendering.
+La scala è derivata da `--radius: 10px` (`sm` e `md` per sottrazione); `xl` e `2xl` si aggiungono a quella costante.
 
-### Curve
-
-```css
---ease-out: cubic-bezier(0.22, 1, 0.36, 1);      /* out-quart: default per entrate */
---ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);  /* out-expo: popover, pannelli */
---ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);   /* solo per cicli che tornano (pulse) */
-```
-
-Nessun bounce, nessun elastic, nessun overshoot.
-
-### Le tre regole di movimento di questa app
-
-1. **Lo switch di progetto non si anima.** Il contenuto delle tre colonne appare a `--dur-instant`. Si anima soltanto la tessera: quella che si apre allarga la propria larghezza per fare posto al nome del progetto, quella che si chiude la restituisce (`--dur-slow`, `--ease-out`). Motivo: cambiare progetto è cambiare stanza; animare le colonne aggiungerebbe 200ms di latenza percepita su un'azione fatta decine di volte al giorno, mentre la tessera che cresce è l'indicatore di posizione, non una transizione di contenuto.
-
-   La larghezza si anima passando `grid-template-columns` da `0fr` a `1fr` su un contenitore in `overflow: hidden`: è l'unico modo di animare una larghezza *automatica* senza cablare un `max-width` che poi taglierebbe i nomi lunghi.
-
-2. **Il terminale non è mai il soggetto di un'animazione.** Niente fade in ingresso, niente slide, niente scale. La viewport appare già disegnata. Animarla causa reflow su un canvas che sta ridisegnando testo.
-
-   L'attesa di avvio non è un'eccezione: il messaggio che compare mentre la shell e `omp` partono è **testo scritto nel buffer di xterm**, non un velo sopra la viewport, e non anima nulla (`DECISIONS.md` Gate R20).
-
-3. **Il movimento persistente resta rigorosamente limitato**: l'unico elemento che pulsa indefinitamente nell'intera interfaccia è il respiro dell'anello ambra sulla tessera di un progetto che **aspetta una risposta**. Opacità `0.35 → 1 → 0.35` ed espansione inset `1px → 2px` in `--warn`, 1.9s, curva respirante organica `cubic-bezier(0.4, 0, 0.2, 1)` (`breathing-amber-ring`), infinito. Il movimento serve a chiamare qualcuno: lo stato che ha bisogno dell'utente è il solo che ha diritto di muoversi, mentre «sta lavorando» non chiede niente a nessuno e si accontenta di un punto pieno.
-
-   **Archi indeterminati e confini di visibilità:** gli archi rotanti di avanzamento indeterminato (come l'arco sulla tessera aperta in `working` o l'arco SVG al 28% nelle Task Rows in stato `running`, §7.12) sono ammessi **soltanto nelle righe di un pannello o di una lista attualmente aperto**, dove l'utente osserva attivamente l'avanzamento. Non sono mai ammessi nei riepiloghi chiusi, nelle tessere compresse o in sezioni collassate: quando il contenitore si chiude o si ritira, l'arco scompare o torna a indicatore statico.
-
-Il respiro dell'anello ambra usa un keyframe dedicato (`breathing-amber-ring` in `src/app.css`) con transizione sinusoidale morbida a curva respirante organica (`cubic-bezier(0.4, 0, 0.2, 1)`), interpolando opacità ed espansione inset dell'anello (`1px` a 0.35 fino a `2px` a 0.9–1.0) senza scatti a gradino e senza repaint costosi della GPU. `tab-spin` e `tab-flash` vivono dentro `TopBar.svelte`, dove sono usati.
-### Reduced motion — obbligatorio
-
-Sia con la media query di sistema `prefers-reduced-motion: reduce` sia con la disattivazione esplicita delle animazioni (`:root[data-animations="false"]`), tutti i movimenti persistenti e le transizioni decadono a valori istantanei.
-
-Gli archi indeterminati in rotazione (sulla tessera aperta e nelle righe di task `running`) **degradano tassativamente a un anello intero statico**: un arco congelato ad angolatura arbitraria sembrerebbe un elemento rotto o un errore di caricamento, non uno stato di avanzamento.
-
-```css
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
-  }
-  /* L'arco che gira degrada a un anello intero statico: fermo a un angolo qualsiasi
-     sembrerebbe un anello rotto, non uno stato. Vale per tessere e Task Rows. */
-  .tab-spin { border-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue)); }
-  .task-ring-running { stroke-dasharray: none; }
-}
-
-:root[data-animations="false"] .task-ring-running,
-:root[data-animations="false"] .tab-spin {
-  animation: none !important;
-  stroke-dasharray: none !important;
-}
-```
-
-Nessuna animazione deve essere l'unico veicolo di un'informazione: «aspetta te» resta leggibile dall'anello ambra anche fermo, «al lavoro» dal punto pieno e dalla sigla accesa.
-
-### Movimento della chat (Gate R32)
-
-Il contenuto della chat entra con **blur-fade**: solo keyframe `from` (opacità 0 e `filter: blur(var(--blur))`), così lo stato finale è quello naturale dell'elemento e con le animazioni azzerate il testo è subito leggibile.
-
-| Classe | Effetto | Uso |
-|---|---|---|
-| `.rv-blur` | Dissolvenza sfocata | Frasi dell'agente, righe di stato, riepiloghi |
-| `.rv-lift` | Dissolvenza sfocata + 8 px dal basso | Blocchi interi (codice, tabelle), messaggio utente, schede, menu |
-| `.tray-in` / `.tray-out` | Apertura/chiusura in altezza (`grid-template-rows`) con blur | Sezioni del vassoio sopra il composer |
-| `.ghost-line` | Riga sfocata che luccica | Testo in arrivo non ancora mostrato |
-| `.text-shimmer` | Luccichio del testo | Etichette di lavoro in corso |
-
-Variabili per elemento: `--dur` (default 700 ms) e `--blur` (default 10 px). Curva unica `--ease-reveal: cubic-bezier(0.22, 0.61, 0.36, 1)`; il vassoio usa `--dur-tray` (420 ms). Helper a rune in `src/lib/agent/motionState.svelte.ts`: `AutoOpen` (regola automatica di apertura con scelta manuale che si azzera al cambio di regola) e `Lingering` (tiene in vita un valore per il tempo dell'uscita).
-
-Shimmer e ghost line sono le sole animazioni persistenti ammesse nella chat, e solo mentre lo stato è vivo (eccezione registrata nel Gate R32).
-
----
-
-## 7. Componenti
+**The Tail Rule.** La bolla dell'utente ha tre angoli a 16 px e quello in basso a
+destra a 6 px: la coda indica chi parla. Nessun'altra superficie ha angoli asimmetrici.
 
-### 7.1 Barra progetti (top bar)
+**The Concentric Rule.** Una superficie annidata o agganciata ha un raggio minore di
+quella che la contiene: il vassoio (12) sul composer (16), l'opzione (6) dentro la
+scheda (16), la riga (6) dentro il menu (10).
 
-Altezza 48px, sfondo `--bg-raised`. Nessun bordo inferiore: la separazione dal corpo è la differenza di luminanza con `--bg-base`.
+**The Neutral Rail Rule.** Tutti i bordi sono da 1 px. L'unica linea verticale da 2 px
+è una guida neutra di raggruppamento: chiamate parallele (`--line-strong`), corpo del
+ragionamento (`--line`). Non porta mai un colore.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ ▣ │ ●OM Omnipulse ◔ 3  ●CA  ○PU  ●GE                ⌁ 69%  [tema] ▾    │
-└────────────────────────────────────────────────────────────────────────┘
-  logo  tessera aperta      tessere chiuse          usage    controlli
-```
+## Components
 
-- **Tessera**: altezza 30px, `--radius-md`, gap 2px. Anatomia fissa, da sinistra:
-  punto identità 8px · sigla in mono `--text-sm`/600 · nome del progetto ·
-  arco di lavoro · contatore della coda. Gli ultimi tre non esistono a riposo:
-  compaiono **animando la propria larghezza** (§6).
-- **Il colore vive nel punto, non nel riempimento.** Otto progetti aperti sono
-  otto punti da 8px, non otto blocchi saturi: il colore per progetto resta
-  sempre visibile senza mai competere con il contenuto delle colonne. La sigla
-  è neutra (`--ink`), non tinta.
-- **Tessera aperta**: fondo `color-mix(in srgb, var(--ink) 8%, transparent)` e
-  nome del progetto rivelato accanto alla sigla. È l'unica tessera che porta un
-  nome, ed è il motivo per cui la barra non ha più un titolo al centro: il nome
-  del progetto attivo è scritto una volta sola, dove sta la sua tessera.
-- **Stato sulla tessera.** Due segnali indipendenti, perché rispondono a due
-  domande diverse — «c'è un agente?» e «mi sta chiamando?»:
-  - `working` — punto pieno nel colore del progetto, sigla `--ink`. Sulla
-    tessera aperta, in più, un arco da 12px che gira in 900ms.
-  - `idle` e `unknown` — punto neutro `--ink-faint` al 50%, sigla
-    `--ink-faint`. La tessera si ritira senza sparire. Una tessera **aperta**
-    non si spegne mai: la sua sigla resta `--ink` anche senza agente.
-  - `attention` — anello `--warn` inset sull'intera tessera, che respira morbidamente
-    con `breathing-amber-ring`. **È il solo elemento animato in modo persistente
-    dell'app**: il movimento serve a chiamare qualcuno, e "sta lavorando" non
-    chiama nessuno.
-  - `finished` — anello fermo 1px `--brand`. Ha finito, nessuna urgenza.
-
-  Nessun alone, nessuna ombra: solo anelli inset. I due anelli si spengono
-  insieme con l'impostazione «Segno di stato agente».
-- **Corsie sulla tessera.** Lo stato mostrato e' il peggiore tra Principale e le
-  corsie non archiviate: attenzione, poi al lavoro, poi completato, poi in attesa.
-  Un conflitto conta come attenzione. Con almeno una corsia secondaria la tessera
-  porta un chip branch e il conteggio. `Ctrl+Alt+←/→` scorre le corsie finche'
-  il chip c'e'; senza corsie secondarie le stesse frecce scorrono i progetti.
-- **Contatore della coda**: mono 10px/700 `tabular-nums`, dentro la tessera
-  aperta. `--ink-faint` quando i task non possono partire, tinta del progetto
-  quando sono pronti. Le tessere chiuse restano mute: il conto complessivo di
-  tutti i progetti sta nel chip «Coda» a destra.
-- **Lampo di transizione**: a ogni cambio di stato dell'agente la tessera
-  lampeggia una volta nella tinta del progetto al 35% (§6). Rende percepibile
-  un evento che altrimenti sarebbe solo un'opacità diversa.
-- La tessera non porta `title`: nome, percorso e stato stanno nel pannello
-  (§7.8), e l'`aria-label` porta già nome e stato per chi legge con la voce.
-- **Pulsante `+`**: apre il selettore progetto (recenti + sfoglia + crea).
-- **Chip usage**: mostra solo il numero peggiore tra tutte le quote (`min(remainingFraction)`) e la sua icona. Click → popover. Colore per severità (§2.6). È l'unico elemento della barra che può essere colorato di ambra o cremisi.
-- **Scratchpad**: nessun punto e nessuna sigla, solo l'icona fantasma su bordo
-  tratteggiato. Non è un progetto e non deve sembrarlo.
-
-Massimo consigliato: 8 tessere. Oltre, la barra scorre orizzontalmente senza scrollbar visibile. Non si comprimono le tessere: si stringono da sole, perché solo la tessera aperta porta il nome.
-
-### 7.2 Popover usage
-
-Larghezza fissa 360px, `--bg-overlay`, `--radius-lg`, `--shadow-overlay`, padding 16px. Ancorato al chip, `position: fixed`, chiusura su `Esc` e click esterno, focus trap.
-
-Struttura, dall'alto:
-
-1. **Riga di sintesi** — la quota peggiore in evidenza: percentuale residua in mono `--text-lg` con `tabular-nums`, label del provider, countdown al reset (`resets_at` → "si azzera in 3h 42m").
-2. **Elenco quote** — una riga per ogni `limits[]` di ogni provider: label, barra di avanzamento 4px con `--radius-full`, percentuale a destra. Raggruppate per provider, provider ordinati per severità decrescente.
-3. **Sparkline** — trend di `used_fraction` delle ultime 24h dalla tabella `usage_history`, 32px di altezza, tratto 1.5px `--ink-faint`. Nessun asse, nessuna griglia, nessuna legenda.
-4. **Piede** — costo sessione corrente e totale di oggi da `stats.db`, in mono, `--ink-muted`. `fetchedAt` come "aggiornato 12s fa" in `--text-xs`.
-
-Il popover **non copre mai la viewport del terminale**: si apre ancorato in alto a destra sopra la barra e, se lo spazio verticale non basta, scrolla internamente.
-
-Vietato: grafici a torta, KPI card, numeri giganti decorativi, gradienti nelle barre.
-
-### 7.3 Colonna sinistra — file, git e agente
-
-Larghezza default 260px, min 180px, max 480px. Tre sezioni con header sticky,
-commutabili: **FILE**, **GIT**, **AGENTE**.
-
-- **FILE** — albero della cartella progetto. Righe 22px, indentazione 12px per livello, icona 14px, nome in `--text-base`. Cartelle prima, ordine alfabetico. Filtro incrementale in cima. Directory rumorose (`bin`, `obj`, `.vs`, `packages`, `node_modules`) collassate e in `--ink-faint` per default.
-- **GIT** — stato di lavoro, ultimo commit, branch e sessioni recenti collegate al lavoro.
-- **AGENTE** — tre viste secondarie, **Coda**, **Sessioni** e **Regole**. Ogni task della Coda è `QueueTaskItem`, lo stesso componente del cassetto di tutte le code: maniglia di riordino (`Alt+↑/↓`), titolo, prompt, chip (stato, ruolo, direttive con `+N`, immagini), pulsanti «Avvia» e «Nuova corsia», matita di modifica. Il titolo non ripete mai il testo sotto: è l'etichetta generata dal ruolo `smol` (1–3 parole, max 24 caratteri, valida finché l'impronta del prompt non cambia) e allora sotto c'è il prompt intero; altrimenti è la prima riga quando è un'intestazione `#` o è seguita da altro testo, e sotto c'è il resto; altrimenti non c'è. Il prompt è troncato a 2 righe in compatta e 3 in card; «Leggi tutto» compare solo se il testo è davvero tagliato e aperto conserva gli a capo. In compatta la barra azioni si sovrappone all'angolo in basso a destra al passaggio o al fuoco, senza allungare la riga; in card è sempre visibile. Click sulla riga = Avvia, `Shift` = nuova corsia; la tastiera usa i pulsanti. Tasto destro: Avvia, Nuova corsia, Modifica, Copia prompt, Sposta su/giù, Elimina. I task non in coda mostrano solo lo stato. Sessioni mostra il primo prompt su due righe, data relativa e badge neutro `TASK` per le sessioni nate dalla coda. Il click invia `/resume <id>` nella TUI corrente.
-- **Regole** — censimento dei file di contesto (`AGENTS.md`, `.omp/rules/*.md`, `CLAUDE.md`, `GEMINI.md`) e delle skill di progetto e globali: il click apre il file nell'editor centrale, le skill fuori dal progetto si rivelano nel file manager. In cima, quando lo storico mostra la stessa correzione ripetuta, **una sola** proposta di regola per volta: titolo e icona in `--warn`, motivo in `--ink-muted`, anteprima delle righe da aggiungere in `--bg-sunken`, e tre azioni (Applica, Modifica, Ignora). Le proposte restanti si annunciano con una riga di testo, non con una pila di avvisi. Nessuna scrittura avviene senza click.
-
-Il prompt completo si modifica nella colonna centrale: textarea a tutta altezza,
-salvataggio automatico, eliminazione a doppia azione inline. Dopo un invio riuscito
-AGENTE passa a Sessioni e marca la sessione nuova come attiva.
-
-### 7.4 Colonna centrale — editor e task
-
-`--bg-sunken`. I file aperti vivono in tab per progetto: ciascuno espone nome, indicatore di modifica, diff e chiusura; il modello Monaco resta vivo finche' la tab non viene chiusa. Il salvataggio resta nel solo file attivo. Nessuna minimap per default (larghezza sprecata a questa densita'), nessun breadcrumb, nessuna barra strumenti.
-
-Quando si crea o modifica un task, il composer sostituisce temporaneamente l'editor
-senza chiuderne i modelli. Chiudendo il composer torna la superficie precedente.
-
-Stato vuoto: nessuna illustrazione. Una riga in `--ink-faint` centrata e il set di scorciatoie disponibili.
-
-### 7.5 Colonna destra — terminale
-
-`--bg-sunken`, padding 8px sui soli lati, 0 in alto e in basso (il terminale gestisce il proprio scroll). Task e storico pilotano questa stessa TUI con `/new` e `/resume`: non aprono tab aggiuntivi e non riavviano il PTY.
-
-**Vincolo tecnico che vincola il design:** un terminale nascosto con `display: none` misura 0 e rompe `FitAddon` ([xterm.js #3029](https://github.com/xtermjs/xterm.js/issues/3029)). I terminali dei progetti non attivi restano quindi montati e dimensionati, nascosti con `visibility: hidden` fuori dal flusso. Conseguenza di design: **non esistono transizioni di crossfade tra terminali di progetti diversi**, perché sono tutti presenti contemporaneamente. Coerente con la regola 1 del movimento.
-
-### 7.6 Splitter di colonna
-
-Nessuna maniglia visibile a riposo: le colonne si separano per luminanza (`--bg-base` a sinistra, `--bg-sunken` al centro e a destra), non per riga. Area di presa da 6px, `cursor: col-resize`. Hover e trascinamento → una linea da 1px in `--brand` al centro dell'area. Doppio click → ripristina la larghezza di default. Le larghezze sono per-progetto e persistono.
-
-Vale per tutta l'app: **nessun bordo verticale nel corpo**, e nessun bordo sotto gli header di colonna. Il contenuto scorrevole è mascherato in cima (`mask-image`, 10px) così le righe svaniscono passando sotto l'header invece di essere tagliate da una linea.
-
-### 7.7 Fuoco e tastiera
-
-```css
-:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
-  border-radius: inherit;
-}
-```
-
-`--brand` su `--bg-base` misura 4.63:1, oltre il minimo di 3:1 per indicatori non testuali. Nessun elemento interattivo senza stato di fuoco visibile. Nessun `outline: none` senza sostituto.
-
-Le scorciatoie globali vivono su `Ctrl+Alt`, che la TUI di `omp` non usa. Nell'editor Monaco, `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` agiscono solo quando il fuoco e' nel codice; il terminale continua a ricevere senza eccezioni le proprie combinazioni. `Ctrl+Alt+←/→` scorre le corsie del progetto attivo quando ne ha di secondarie, altrimenti i progetti in barra.
-
-### 7.8 Pannello della tessera progetto
-
-Un solo pannello, due modi di aprirlo. Al **passaggio del mouse** (280ms di
-attesa, 160ms di grazia all'uscita) è un'anteprima effimera che non prende il
-fuoco. Col **click destro** — e col tasto `Menu` o `Shift+F10`, che nella
-WebView generano lo stesso evento — è fissato: prende il fuoco sulla prima
-azione, si segna con il bordo in `--brand` e si chiude solo con `Esc`, con un
-click fuori o eseguendo un comando. Il menu contestuale della WebView è
-soppresso: «Ricarica / Indietro / Stampa» non significano niente qui.
-
-- `role="dialog"` con `aria-modal="false"`, **non** `role="tooltip"`: le APG
-  WAI-ARIA vietano i tooltip che contengono elementi attivabili, e qui dentro
-  ci sono campi di testo, bottoni e un selettore di tinta. La tessera dichiara
-  `aria-haspopup="dialog"` e `aria-expanded`.
-- **Larghezza fissa 300px.** Non è una preferenza estetica: la riga di un task
-  in coda è la prima riga di un prompt, e su una riga sola dettava la larghezza
-  del pannello fino a mandarlo fuori dallo schermo. Il testo si taglia con
-  l'ellissi, il pannello non cresce.
-- **Top layer.** `popover="manual"` e apertura da JS: il pannello non viene
-  tagliato dall'`overflow` della barra e non litiga con gli `z-index`. Il
-  piazzamento resta in JavaScript (`src/lib/anchoredPopover.ts`): CSS Anchor
-  Positioning non esiste su WKWebView prima di Safari 26, quindi su macOS 14 e
-  15 il pannello finirebbe fuori posto. L'azione ribalta sull'asse verticale
-  quando sotto non c'è spazio, blocca il pannello dentro i bordi della finestra
-  e ricalcola su scroll, resize e cambio di dimensione del pannello.
-- **Ponte del mouse.** Uno pseudo-elemento da 8px copre lo stacco fra tessera e
-  pannello, sul lato giusto rispetto al ribaltamento: senza, il cursore che
-  attraversa i 6px di distacco farebbe scattare la chiusura.
-- Struttura, dall'alto: identità (tessera, nome, percorso troncato al centro,
-  rinomina) · stato dell'agente in una riga · coda del progetto con avvio e
-  modifica per riga, e il motivo quando l'avvio non è possibile · azioni del
-  progetto · **Colore** · chiusura, con la conferma che appare dentro il
-  pannello e non in un dialogo.
-- **Il selettore di tinta** mostra solo tinte che il sistema sa produrre: la
-  striscia e i pallini sono resi con `--proj-l-fill` e `--proj-c-fill`, quindi
-  ogni colore visibile è esattamente quello che prenderà la tessera. Niente
-  selettore RGB del browser: il modello dati conserva una tinta, non un colore,
-  e un selettore a sedici milioni di colori che ne consegna trecentosessanta
-  mente all'utente.
-
-### 7.9 Suggerimenti di prompt (chip del composer)
-
-Riga orizzontale di chip posizionata dentro `.composer-container`, direttamente sopra la textarea di input (dopo le chip informative di sola lettura della coda o dello steering).
-
-- **Contenitore riga**: sfondo `--bg-sunken`, layout flex orizzontale con wrap disattivato e scorrimento orizzontale contenuto, `gap: var(--space-1)`, `padding: var(--space-1) var(--space-2)`, testo `--text-xs`.
-- **Condizioni di visibilità**: la riga esiste solo a composer completamente vuoto (`text.trim() === ''`), agente non in streaming (`isStreaming === false`), nessuna immagine o allegato presente e palette comandi slash chiusa. Sparisce istantaneamente al primo carattere digitato, senza transizioni o ritardi che ostacolerebbero la digitazione.
-- **Anatomia della chip**: elemento interattivo `<button type="button">`, sfondo `--bg-base`, bordo 1px solid `--line`, raccordo `--radius-sm`, testo `--ink`, hover su `--bg-hover`, stato attivo su `--bg-active`. Nessuna ombra, nessun gradiente, nessuna animazione persistente.
-- **Badge numerico**: indicatore posizionale `1`..`6` renderizzato a sinistra dell'etichetta in `--font-mono`, colore `--ink-faint`, associato alla scorciatoia `Alt+N`.
-- **Distinzione visiva**: le chip generate dal modello leggero (`smol`) si distinguono da quelle fisse in modo sobrio ed elegante (es. icona discreta o indicatore attenuato in `--ink-faint`), preservando l'omogeneità di peso visivo della riga.
-- **Interazione**: il click o la pressione di `Alt+N` **precompila** il campo di testo della textarea senza inviare il messaggio, aggiorna l'altezza del composer e posiziona il fuoco e il cursore alla fine del prompt inserito. L'invio resta sempre un gesto esplicito dell'utente (`Invio`).
-- **Accessibilità e navigazione**: focus ring standard `:focus-visible` (outline 2px `--brand`, offset 2px), navigazione orizzontale da tastiera con pattern roving tabindex (`Freccia Sinistra` / `Freccia Destra`, `Home`, `End`), etichette `aria-label` complete di hint della scorciatoia da tastiera.
-
-### 7.10 Composer della chat, invio e gestione coda (GUI)
-
-- **Coda distinta per destinazione:** gli steer partono subito verso omp e sono chip di sola lettura (il protocollo non consente di recuperarli). I follow-up restano nel vassoio di Studio finché il turno non finisce: ogni chip espone «Modifica» e «Rimuovi»; `Alt+↑` a editor vuoto riporta l'ultimo nel composer, con le sue immagini. Dopo uno Stop la coda locale è sospesa e richiede «Invia ora».
-- **Split button di invio durante lo streaming**:
-  - A riposo (`isStreaming === false`), il pulsante di invio è un bottone standard che invia il prompt con la modalità predefinita.
-  - Durante lo streaming dell'agente (`isStreaming === true`), il controllo si trasforma in uno **split button**:
-    - **Pulsante primario**: invia il prompt applicando la modalità predefinita configurata nelle Impostazioni Generali (`steer` o `follow-up`).
-    - **Caret secondario**: apre un menu a tendina per selezionare esplicitamente la modalità alternativa desiderata (`Steer` o `Follow-up`).
-- **Comandi da tastiera e invio**:
-  - `Invio`: invia applicando la modalità predefinita configurata.
-  - `Alt+Invio`: invia applicando la modalità alternativa (opposta al default).
-  - `Shift+Invio` e `Ctrl+Invio`: inseriscono un'interruzione di riga senza inviare.
-  - Nessun popover ingranaggio sul composer: la configurazione dei modi di coda (`all` / `one-at-a-time`, interruzione `immediate` / `wait`) e del comportamento di invio predefinito è centralizzata nelle Impostazioni Generali di Studio.
-
-### 7.11 Vista Laboratorio prototipi (LabView)
-
-- **Collocazione e layout**: vista dedicata a tutta altezza nella colonna centrale per l'esplorazione frontend, con anteprima interattiva dominante al centro e colonna laterale con la conversazione dedicata del prototipo (una chat per prototipo, indipendente dalla sessione principale).
-- **Cornice vs Canvas del prototipo**: il tema della cornice di Studio (chiaro o scuro) non impone il tema del prototipo; il prototipo vive in un canvas isolato con stili Tailwind v4 indipendenti.
-- **Toolbar superiore del Laboratorio (`LabVisualToolbar.svelte`)**:
-  - **Alternanza modalità**: controllo segmentato `role="radiogroup"` tra modalità **Interazione** (mouse e tastiera guidano il prototipo React) e modalità **Selezione** (ispezione ed evidenziazione elementi a schermo con highlight box e tooltip).
-  - **Preset Viewport responsive**: pulsanti per commutare istantaneamente il canvas su Desktop (1280x800), Tablet (768x1024) e Mobile (375x667) con indicazione visiva dei pixel e centratura automatica con barra di scorrimento.
-  - **Controlli operativi**: pulsante di ricarica (`reload`), cattura screenshot rapido e indicatore dello stato di responsività del renderer gestito.
-- **Overlay di ispezione ed annotazioni**: al passaggio del cursore in modalità Selezione, un rettangolo semitrasparente evidenzia l'elemento puntato estraendo tag, selettore CSS univoco e bounding box; il clic apre il popup di annotazione con commento testuale e redazione automatica dei dati sensibili (password, token, bearer), collegato in modo vincolante alla revisione osservata.
-- **Card revisioni e timeline**: le revisioni create dall'orchestratore mostrano chip di stato esplicite (`rendering-ready` per l'anteprima immediata, `verified` dopo la verifica mirata, `interrupted` in caso di stop o abort); azioni contestuali rapide per ripristinare la revisione o duplicarla in un nuovo esperimento indipendente.
-- **Pannello di contesto (`LabContextPanel.svelte`)**: cassetto retrattile per consultare i file del progetto inclusi nello snapshot stabile, visualizzare lo stato di deriva (drift) con badge di avviso non bloccante in caso di modifiche esterne da parte del principale, e pulsanti di azione per l'aggiornamento esplicito del contesto, l'esportazione autonoma Vite o la consegna (handoff) al principale.
-
-
-### 7.12 Task Rows (TODO e subagenti)
-
-Linguaggio visivo unificato per rappresentare le fasi operative pianificate (TODO) e l'avanzamento dei subagenti o job asincroni in background, basato sul modello dati neutro `TaskRowModel`.
-
-- **Variante List**: layout a lista densa orientato alla sequenza cronologica o gerarchica delle attività. Nessuna card gonfia, nessuna shadow, nessuna spaziatura ridondante.
-- **Dividers**: righe separate da divisori sottili di 1px (`--line`), che scandiscono il ritmo verticale senza frammentare la lista in tessere isolate.
-- **Raggi e contenimento**: raggio massimo di 10px (`--radius-lg`) applicato **esclusivamente dove la lista è priva di una cornice perimetrale esterna**; dentro contenitori, drawer o pannelli già provvisti di bordo o sfondo proprio, le righe hanno spigoli vivi (`0px`) o si conformano al raggio del contenitore.
-- **Disclosure manuale ed effimera**: l'espansione dei dettagli aggiuntivi (parametri, metriche, messaggi di output, transcript) avviene unicamente su click esplicito dell'utente sulla riga o sul chevron. La transizione usa `transition:slide`. Lo stato di apertura è puramente locale ed effimero.
-- **Niente auto-open**: le righe non si espandono mai automaticamente al passaggio di stato o all'avvio del task. L'apertura non richiesta causa disorientamento visivo, salti di layout (*layout shift*) e perdita del punto di lettura o del fuoco da tastiera.
-- **Righe non interattive**: le righe che non possiedono dettagli aggiuntivi o azioni secondarie non sono interattive (`expandable: false`), non espongono il chevron e non mostrano stati hover ingannevoli.
-- **Nessun retry placebo**: nessun pulsante fittizio di retry, ripetizione o interruzione è incorporato all'interno del componente primitivo. Le azioni lecite (es. consultazione transcript o navigazione) sono passate come callback o snippet dal contesto chiamante e mappate solo su capacità effettive del backend.
-- **Live region aggregata**: per garantire un'accessibilità ottimale con screen reader senza cacofonia durante esecuzioni ad alta frequenza, le variazioni di stato non usano annunci atomici per-riga ma una **live region aggregata** (`aria-live="polite"`), che riassume periodicamente lo stato complessivo della sequenza.
-- **Mappa degli stati operativi**:
-  - `pending`: anello statico neutro in `--ink-faint`, indica attività programmata o in attesa.
-  - `running`: arco SVG indeterminato (28% di circonferenza) in rotazione continua; degrada ad anello circolare intero statico sia con `prefers-reduced-motion` sia con `:root[data-animations="false"]`.
-  - `completed`: pillola verde `--success` con icona di spunta (check).
-  - `failed`: pillola rossa `--danger` con icona a croce (X).
-  - `blocked`: pillola ambra `--warn` con icona triangolare di avviso.
-  - `abandoned` / `aborted`: pillola neutra `--ink-muted` (fondo trasparente 15%) con icona a croce (X).
-  - **Pillole di stato**: sono riservate rigorosamente agli stati terminali (`completed`, `failed`, `abandoned`, `aborted`) o allo stato `blocked`. Gli stati `pending` e `running` mostrano soltanto l'anello indicatore a sinistra per non appesantire la gerarchia visiva.
----
-### 7.13 Riga delle corsie
-
-Alta 34px, fondo `--bg-base`, bordo inferiore `--line`, sotto la barra progetti (`z-index: calc(var(--z-topbar) - 1)`). Non esiste nello scenario a singolo agente: compare solo se il progetto attivo ha almeno una corsia secondaria non archiviata.
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ [● Principale] [● Calcolo IVA  da revisionare]  [+ Nuova corsia]      │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-- **Tab.** Altezza 26px, `--radius-sm`, testo 11px. La selezionata ha fondo `--bg-raised`, bordo `--line-strong` e peso 600. Le altre sono `--ink-muted` e al passaggio del mouse prendono `--bg-hover`.
-- **Stato, non solo colore.** Un punto da 6px piu' un'etichetta: in attesa, al lavoro, richiede input, da revisionare, conflitto, integrazione, completato. La tab in attenzione ha bordo `--warn`. «Da revisionare» e' un'azione verde con l'icona del diff, non un badge colorato senza testo.
-- **Processi vivi.** Un punto da 5px `--success`, senza testo che allarghi la tab. Il cleanup bloccato da un lock mostra l'icona di avviso `--warn`.
-- **Principale** e' sempre la prima tab e non si archivia. `+` e' un pulsante tratteggiato. La chiusura di una corsia con processi vivi non archivia: chiede «Arresta processi e rimuovi».
-- **Tastiera.** Roving tabindex dentro la riga. `Ctrl+Alt+←/→` scorre le corsie quando la riga e' visibile; altrimenti scorre i progetti. Con movimento ridotto le transizioni da 120ms si spengono.
-- **Revisiona e integra.** Modale sul diff Monaco affiancato tra la corsia e il branch di destinazione: SHA, ahead/behind, file con `+X / -Y`, comandi del transcript con exit code e durata misurata. Il pulsante Integra e' spento, con il motivo scritto, se il target e' sporco, se la corsia ha processi, se non e' pronta o se ci sono conflitti. Nessun merge parte da solo.
-
-### 7.14 Chat v2 (Gate R32)
-
-Specifica visiva: prototipo Lab **CodeAgent Flow** (`p-20260925-dyyhe6`), tradotto nei token del tema.
-
-- **Colonna di lettura** 720 px in modalità `readable`; prosa 15/28 px.
-- **Messaggio utente**: bolla a destra, `--bg-raised`, raggio 16 px con angolo in basso a destra a 6 px; allegati sopra la bolla.
-- **Testo dell'agente**: senza contenitore; rivelazione per frasi (`general.chatReveal`).
-- **Righe di traccia**: 12,5 px, `--ink-muted`, icona 14 px, chevron per espandere; righe vive con `.text-shimmer`.
-- **Vassoio**: agganciato al bordo superiore del composer (bordo `--line`, angoli superiori arrotondati), sezioni separate da 1 px.
-- **Composer**: `--bg-raised`, raggio 16 px, editor a badge, barra con allegati, `@`, ruolo, modello, thinking, contesto e invio.
-
-## 8. Token CSS pronti
-
-```css
-:root {
-  /* Superfici — croma 0.000 per non alterare i colori ANSI adiacenti */
-  --bg-sunken:   oklch(0.155 0 0);
-  --bg-base:     oklch(0.185 0 0);
-  --bg-raised:   oklch(0.215 0 0);
-  --bg-overlay:  oklch(0.250 0 0);
-  --bg-hover:    oklch(0.285 0 0);
-  --bg-active:   oklch(0.325 0 0);
-  --line:        oklch(0.295 0 0);
-  --line-strong: oklch(0.400 0 0);
-
-  /* Testo */
-  --ink:         oklch(0.970 0 0);
-  --ink-muted:   oklch(0.760 0 0);
-  --ink-faint:   oklch(0.655 0 0);
-
-  /* Accento — brand non è mai colore di testo */
-  --brand:       oklch(0.620 0.190 355);
-  --brand-ink:   oklch(0.720 0.170 355);
-  --brand-dim:   oklch(0.440 0.140 355);
-
-  /* Attenzione */
-  --warn:        oklch(0.780 0.150 75);
-  --warn-dim:    oklch(0.560 0.120 75);
-
-  /* Stati operativi espliciti (Task Rows) */
-  --success:     oklch(0.740 0.180 145);
-  --danger:      oklch(0.680 0.185 27);
-  --danger-dim-l: 0.480;
-
-  /* Identità progetto: L/C fissi, tinta dall'hash del path */
-  --proj-l-idle: 0.42;  --proj-c-idle: 0.130;
-  --proj-l-hover: 0.50; --proj-c-hover: 0.145;
-  --proj-l-active: 0.68; --proj-c-active: 0.160;
-
-  /* Tipografia */
-  --font-ui:   Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrainsMono Nerd Font", "Cascadia Code", "Cascadia Mono", Consolas, monospace;
-  --text-xs: 11px; --text-sm: 12px; --text-base: 13px;
-  --text-md: 14px; --text-lg: 16px; --text-xl: 20px;
-
-  /* Spazio */
-  --space-1: 4px; --space-2: 8px;  --space-3: 12px; --space-4: 16px;
-  --space-5: 24px; --space-6: 32px; --space-8: 48px;
-
-  /* Raggi */
-  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 10px; --radius-full: 999px;
-
-  /* Ombra — una sola, solo per superfici che galleggiano */
-  --shadow-overlay: 0 8px 24px -8px oklch(0 0 0 / 0.7),
-                    0 2px  6px -2px oklch(0 0 0 / 0.5);
-
-  /* Movimento */
-  --dur-instant: 0ms; --dur-fast: 120ms; --dur-base: 180ms;
-  --dur-slow: 240ms;  --dur-pulse: 1800ms;
-  --dur-calm: 480ms;  --dur-flash: 600ms;
-  --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.30, 1);
-  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
-
-  /* Z-index semantico */
-  --z-base: 0;     --z-splitter: 10; --z-sticky: 20; --z-topbar: 30;
-  --z-backdrop: 40; --z-overlay: 50; --z-dialog: 60; --z-toast: 70; --z-tooltip: 80;
-}
-```
-
----
-
-## 9. Divieti — verificare prima di ogni commit di UI
-
-- [ ] Nessun `border-left`/`border-right` colorato oltre 1px come accento.
-- [ ] Nessun `background-clip: text` con gradiente.
-- [ ] Nessun `backdrop-filter` decorativo.
-- [ ] Nessun accoppiamento `border: 1px solid` + `box-shadow` con blur ≥ 16px sullo stesso elemento.
-- [ ] Nessun `border-radius` ≥ 16px su pannelli, card o input.
-- [ ] Nessun `repeating-linear-gradient` di sfondo, nessuna griglia decorativa.
-- [ ] Nessuna eyebrow uppercase tracciata, nessun marcatore `01 / 02 / 03`.
-- [ ] Nessuna card annidata dentro un'altra card.
-- [ ] Nessuna illustrazione SVG disegnata a mano o "sketchy".
-- [ ] Nessun `z-index` arbitrario (`999`, `9999`): solo la scala semantica.
-- [ ] Nessun numero variabile senza `tabular-nums`.
-- [ ] Nessuna animazione senza alternativa `prefers-reduced-motion`.
-- [ ] Nessun testo con contrasto sotto 4.5:1, verificato e non stimato.
-- [ ] Nessun colore hard-coded nel codice dei componenti: solo token.
-- [ ] Nessuna emoji usata come icona: solo il set di §4 via `src/lib/icons.ts`.
-- [ ] Nessuna `class` passata a un componente icona: si avvolge, non si decora.
-- [ ] Nessun `title` che ripete un'informazione già visibile accanto.
-- [ ] Nessun pannello sospeso la cui larghezza dipenda dal contenuto.
+### Composer
+
+Strumento di scrittura e cruscotto della sessione in una sola superficie.
+
+- **Contenitore:** `--bg-raised`, bordo `--line`, `--radius-2xl`, `--shadow-dock`. A fuoco il bordo passa a `--line-strong` (`--dur-fast`). Trascinando file: bordo `--brand-ink`, anello di 2 px con `--brand` al 25%, overlay `--radius-2xl` con etichetta.
+- **Editor:** `contenteditable` in voce chat (15/24), placeholder `--ink-faint` sulla stessa interlinea perché il layout non salti. `Invio` invia nella modalità di default, `Alt+Invio` in quella alternativa, `Maiusc+Invio`/`Ctrl+Invio` vanno a capo. L'incolla porta solo testo; i file diventano allegati.
+- **Badge:** `@file` ha fondo accento al 12%, anello inset al 28% (45% in hover), testo `--ink`, glifo file a 12 px con opacità 0,7. `/comando` è in negativo: fondo `--ink`, testo `--bg-base`. In comune: mono `0.84em`, `--radius-md`, massimo 260 px con ellissi, `contenteditable=false`, identici nell'editor e nel transcript.
+- **Strisce sopra l'editor:** anteprima comando (`--bg-base`, `--radius-md`, 11 px, `rv-blur` 200 ms/4 px), allegati (miniature 56 px `--radius-md`; file 190×56 con estensione accentata), avviso di visione in ambra con l'azione «cambia modello».
+- **Barra:** allegati, `@`, divisore 1×16 px, ruolo (pallino 7 px + nome mono), modello (nome con ellissi a 130 px), thinking (misuratore a 5 barre), poi a destra contesto e invio. Trigger alti 28 px, `--radius-md`, didascalia `--ink-muted` → hover `--bg-hover`/`--ink`.
+- **Anello del contesto:** SVG 18 px, raggio 7, tratto 2,2, terminali arrotondati; `--ink`, poi `--warn` oltre il 60%, poi `--danger` oltre l'85%; accanto `usato/massimo` in mono tabulare.
+- **Misuratore di thinking:** cinque barre larghe 3 px, altezze da 6 a 12 px, inattive `--line-strong`, attive `--brand-ink`.
+
+### Invio e Stop
+
+- **A riposo:** cerchio da 28 px, fondo `--ink`, freccia `--bg-base`; disabilitato a opacità 0,35.
+- **Durante il turno:** Stop è un cerchio separato in `--danger` con glifo `--on-danger`. L'invio diventa uno split button a pillola: azione primaria nella modalità di default (steer o follow-up), caret per scegliere l'altra (menu da 240 px). Stop non disabilita mai l'invio.
+
+### Menu e popover del composer (MenuButton)
+
+Un'unica primitiva condivisa (`MenuButton` in `src/lib/ui/MenuButton.svelte`, che
+sostituisce integralmente la vecchia implementazione locale rimossa senza shim) per
+allegati (260 px), ruolo (420 px), modello (400 px), thinking (320 px) e contesto (300 px):
+
+- **Superficie:** si apre verso l'alto a 8 px dal trigger tramite `anchoredPopover` (`src/lib/anchoredPopover.ts`) ancorato nel top-layer nativo (`popover="manual"`), con ribaltamento automatico verso il basso se manca spazio; `--bg-raised`, bordo `--line-strong`, `--radius-lg`, `--shadow-overlay`, altezza massima 380 px.
+- **Ingresso:** transizione condivisa `rv-lift` con `--dur-menu` (150 ms) e blur 3 px.
+- **Accessibilità e chiusura:** adotta `Tooltip` accessibile sul trigger (nessun `title` nativo nel DOM); chiusura su click esterno (in fase di cattura) ed `Esc` con ripristino del focus; Tab non è intrappolato (esce naturalmente e chiude il menu); frecce e Home/End navigano le voci senza interferire con campi input/ricerca.
+- **Righe:** `7px 8px`, `--radius-md`, hover `--bg-hover`, scelta indicata da una spunta `--brand-ink`.
+- **Intestazioni e piedi:** intestazioni in etichetta di gruppo; piedi in didascalia `--ink-faint` su `--bg-base`.
+- **Primi consumatori:** `Composer` con menu allegati (`AttachMenu`, menuitem) e split button invio (menuitemradio).
+### Palette `@` e `/`
+
+- **Superficie e posizione:** larga 440 px, ancorata al cursore, stessa superficie dei menu.
+- **Righe:** in didascalia. Il nome file va in peso 500 con la cartella in mono `--ink-faint`; il comando va in mono 600 con l'argomento suggerito e la descrizione, che si espande sulla riga attiva.
+- **Lettere trovate:** sottolineate in `--warn` (2 px), testo in peso 700.
+- **Piede:** scorciatoie in `kbd`.
+
+### Vassoio
+
+Lo stato vivo del turno, agganciato sopra il composer.
+
+- **Superficie:** rientro di 12 px, bordo `--line` senza lato inferiore, `12px 12px 0 0`, vetro funzionale (§ Elevation). Sezioni separate da 1 px; apertura e chiusura `tray-in`/`tray-out` con `--dur-tray`.
+- **Intestazione di sezione:** pulsante a tutta larghezza `8px 12px`, titolo 12 px/600, conteggio mono 11,5 px tabulare, chevron che ruota di 180°. A sezione chiusa mostra l'attività corrente in traccia; un subagente al lavoro ha il titolo in `.text-shimmer`.
+- **Riga di attenzione:** fondo `color-mix(in oklch, var(--warn) 15%, transparent)` (22% in hover), testo `--ink`, punto `--warn` da 10 px con ping, testo su una riga e «Rispondi ›».
+- **Riga della quota:** il blocco per quota esaurita o limite raggiunto vive qui, non nel transcript (Action-Point Rule). Fondo neutro, `StatusMark` `failed` (esaurita) o `attention` (limite), titolo in traccia `--ink` su una riga; a destra l'azione primaria `.ui-button-primary` («Passa a X e riprendi»), la secondaria `.ui-button-secondary` («Scegli altro modello…»), «Dettagli» e chiudi con `Tooltip`. Su colonne strette le azioni vanno a capo invece di troncare il titolo. Messaggio e diagnostica stanno in un dettaglio `tray-in` su `--bg-sunken`, bordo `--line`, `--radius-sm`, diagnostica in mono. Sta sopra la riga di attenzione della domanda.
+- **Avanzamento dei todo:** anello da 18 px `--ink` su `--line-strong`; a lista completata resta `--ink` chiuso, mai verde.
+- **Annunci:** una sola regione `aria-live="polite"` per sezione che riassume, mai un annuncio per riga.
+
+### Segni di stato operativi (StatusMark e GitStatusMark)
+
+Vocabolario semantico unificato per todo, subagenti, chiamate tool e stato versioni Git,
+valido nel vassoio, nel transcript e nelle viste di dettaglio.
+
+**StatusMark (`src/lib/ui/StatusMark.svelte` — D1):**
+- **Completato** (`completed` / `done`): disco pieno da 16 px in `--ink` con spunta da 10 px in `--bg-raised`. Rigorosamente neutro, mai verde: l'esito completato è un fatto, non una celebrazione.
+- **In corso** (`running` / `in_progress`): anello da 14 px, tratto 1,5 px `--line-strong` con il quarto superiore in `--ink` che ruota con il keyframe globale `spin`. Si anima solo se `active && visible && onScreen && pageVisible && !motionReduced()`. Con animazioni ridotte è statico.
+- **In attesa** (`pending`): anello vuoto da 14 px, tratto 1,5 px `--line-strong`.
+- **Bloccato** (`blocked`): cerchio pieno da 16 px in `--danger` con icona SVG punto esclamativo da 10 px in `--on-danger` (grafica vettoriale esplicita, non glifo Unicode).
+- **Fallito** (`failed` / `aborted`): cerchio pieno da 16 px in `--danger-dim` con icona SVG croce da 10 px in `--danger`.
+- **Contrasto del fallito (decisione verificata):** `--danger-dim-l` vale 0,380 in scuro, 0,880 in chiaro. La croce conserva `--danger`: 3,43:1 su Titanium scuro, sopra il minimo AA di 3:1 per icone. Il precedente 0,480 produceva 2,25:1.
+- **Attenzione** (`attention`): punto da 10 px in `--warn` con anello ping a espansione da 1,6 s.
+- **Primi consumatori:** `ComposerTray` (todo, subagenti, domande in attesa) e `CloseConfirmModal` (lavoro dell'agente in corso).
+
+**GitStatusMark (`src/lib/ui/GitStatusMark.svelte`):**
+- Mappa fedelmente gli stati reali del repository: `A` (aggiunto, `--success`), `M` (modificato, `--warn`), `D` (eliminato, `--danger`), `C` (conflitto/copia, `--danger`), `R` (rinominato, `--ink-muted`), `U` o `?` (non tracciato, `--success`), `!` (ignorato, `--ink-faint`).
+- Accessibilità APG: il glifo compatto ha `aria-hidden="true"`, mentre la descrizione estesa per screen reader è incapsulata con la classe globale `.sr-only`.
+- **Primi consumatori:** `GitPanel` (modifiche nell'albero di lavoro).
+
+### Schede orizzontali (ColumnTabs)
+
+Primitiva condivisa per la navigazione a schede delle colonne (`src/lib/ui/ColumnTabs.svelte` — D2).
+
+- **Indicatore visivo:** linea singola da 2 px in `--brand` posizionata sul bordo inferiore O superiore (`indicatorPosition: 'top' | 'bottom'`), senza barre multiple né sfondi colorati.
+- **Etichetta testuale:** font sans in etichetta da 12 px (peso 500, `letter-spacing: normal`, `text-transform: none`). È rigorosamente vietato il maiuscolo spaziato.
+- **Attivazione manuale (The Manual-Activation Rule):** la navigazione con frecce (roving tabindex, salta le schede disabilitate) sposta solo il fuoco; la scheda si attiva esclusivamente su `Invio`, `Spazio` o click del mouse. Questa decisione architetturale evita il montaggio e il ricalcolo inutile dei pannelli pesanti sottostanti (terminali xterm, istanze Monaco Editor, grafici).
+- **Connessione semantica:** attributi `id` e `aria-controls` accoppiati esplicitamente con i pannelli (`tabIdPrefix`, `panelIdPrefix`); la colonna o barra laterale collassata viene marcata con l'attributo nativo `inert`.
+
+**The Single-Indicator Rule.** Le schede orizzontali mostrano un solo indicatore lineare da 2 px in `--brand` (sul bordo superiore o inferiore) e un'etichetta testuale non spaziata; niente doppie linee né sfondi colorati.
+
+- **Primi consumatori:** testata sinistra di navigazione colonne (`+page.svelte`).
+
+### Tooltip accessibile (Tooltip)
+
+Componente condiviso per etichette a scomparsa conforme a WCAG 2.1 SC 1.4.13 (`src/lib/ui/Tooltip.svelte` — D8).
+
+- **Comportamento bidirezionale:** si apre sia su hover del mouse (`pointerenter`) sia su ricezione del focus da tastiera (`focusin`).
+- **Persistente e hoverable:** il tooltip non scompare se il puntatore si sposta dalla sorgente sopra la bolla del tooltip stesso, e rimane visibile finché il trigger conserva il focus da tastiera.
+- **Chiusura con Escape:** la pressione del tasto `Escape` ovunque chiude immediatamente il tooltip senza alterare la posizione del focus sul trigger.
+- **Nessuna trappola:** non contiene elementi focalizzabili.
+- **Accessibilità:** il testo descrittivo espone `role="tooltip"` e associa il trigger tramite `aria-describedby`; il controllo riceve separatamente il nome accessibile con `aria-label` o testo visibile. Non si applica un blanket purge dei vecchi `title`, ma una migrazione mirata ai controlli iconici.
+- **Superficie:** fondo `--bg-raised`, bordo `--line`, raggio 6 px (`--radius-md`), ombra `--shadow-overlay`, didascalia da 11 px, z-index `--z-tooltip: 80`.
+
+**The Accessible-Tooltip Rule.** I controlli iconici privi di testo visibile adottano `Tooltip` con `role="tooltip"` e `aria-describedby`/`aria-label`, con apertura bidirezionale hover/focus, persistenza sulla bolla ed `Escape` immediato.
+
+- **Primi consumatori:** trigger iconici della barra del composer integrati in `MenuButton`.
+
+### Finestra modale (Dialog)
+
+Architettura modale nativa e accessibile per dialoghi e conferme (`src/lib/ui/Dialog.svelte`).
+
+- **Architettura `<dialog>.showModal()`:** sfrutta le funzionalità native del browser; il dialogo viene promosso nel top layer con isolamento e rende automaticamente `inert` lo sfondo e i layer sottostanti, eliminando la necessità di un modal host o della gestione manuale dello stack di inert.
+- **Trap focus integrato (`trapFocus` in `$lib/focusTrap.ts`):** gestisce la trappola ciclica del fuoco da tastiera, escludendo elementi nascosti, disabilitati o con `tabindex="-1"`. Supporta dialoghi annidati (solo il dialogo in cima gestisce la trappola), gestisce in sicurezza radici senza elementi focalizzabili e garantisce il ripristino sicuro del focus precedente alla chiusura (`restoreFocus: true`).
+- **Accessibilità:** attributi `ariaLabel`, `ariaLabelledBy`, `ariaDescribedBy`; titolo semantico `<h2>`.
+- **API:** titolo testuale `title`; snippet `header`, `body`, `footer`, `icon`, `children`; controllo con `open`, `onClose`, `dismissible`, `initialFocus`.
+- **Superficie e transizione:** fondo `--bg-overlay`, bordo `--line-strong`, raggio 10 px (`--radius-lg`), ombra `--shadow-overlay`. Titolo a 16 px / peso 550 (`Inter Variable`) con `text-wrap: balance`. Corpo `--bg-overlay`, piede `--bg-base`. Transizione d'ingresso e uscita con `rvLift` (240 ms, blur 3 px) applicata alla superficie dentro un positioner separato per non interferire con la centratura a griglia.
+
+**The Top-Layer Dialog Rule.** Le finestre modali usano `<dialog>.showModal()` nativo del browser per garantire top-layer e isolamento inert automatico; nessun modal host personalizzato né gestione manuale dello stack.
+
+- **Primi consumatori:** `CloseConfirmModal` con tre varianti di pulsante nativo `.ui-button` e intestazione esplicitamente etichettata.
+
+### Controlli form nativi opt-in (ui-input, ui-select, ui-button)
+
+Classi CSS opt-in definite a livello globale in `src/app.css` per i controlli dell'officina:
+
+- **Approccio opt-in:** nessuna regola distruttiva o reset universale sui tag `<input>`, `<select>` o `<button>`, garantendo che i controlli integrati in Monaco Editor, xterm.js o i canvas non vengano alterati.
+- **Campi `.ui-input` e `.ui-select`:** altezza 30 px, padding orizzontale 8 px (`--space-2`), font UI da 13 px (`--text-body`, peso 450), fondo `--bg-sunken`, bordo `--line`, raggio 6 px (`--radius-md`), caret `--ink`. In hover passano a bordo `--line-strong`; a fuoco contorno/bordo `--brand`.
+- **Pulsanti `.ui-button`:** altezza dal contenuto, padding 5 px 14 px, font UI da 11 px (`--text-caption`, peso 500), raggio 6 px (`--radius-md`), gap 8 px. Tre varianti cromatiche:
+  - `.ui-button-secondary`: fondo trasparente, bordo `--line`, testo `--ink`. Hover: fondo `--bg-hover`, bordo `--line-strong`.
+  - `.ui-button-primary`: fondo pieno `--brand`, bordo trasparente, testo `--on-brand`, peso 600. Hover: bordo `--on-brand`.
+  - `.ui-button-danger`: fondo pieno `--danger`, bordo trasparente, testo `--on-danger`, peso 600. Hover: bordo `--on-danger`.
+- **Primi consumatori:** `.ui-select` in `GeneralSection`; `.ui-button` (tutte e 3 le varianti) in `CloseConfirmModal`; `.ui-input` in `ShortcutsHelpModal`.
+
+### Interruttore (Switch)
+
+Primitiva accessibile per preferenze binarie (`src/lib/ui/Switch.svelte`).
+
+- **Geometria:** traccia da 32×18 px con raggio completo (`--radius-full`), cursore circolare (thumb) da 12×12 px con corsa di 14 px.
+- **Colori:** a riposo traccia `--bg-sunken` con bordo `--line-strong` e cursore `--ink`. Quando attivo (`checked`), traccia e bordo passano a `--brand` e cursore a `--on-brand`.
+- **Stato di fuoco:** anello visibile di contorno da 2 px in `--brand` con offset di 2 px.
+- **Accessibilità:** implementato con `<input type="checkbox" role="switch">` nativo, etichetta testuale opzionale cliccabile, supporto tastiera con Spazio.
+- **Primi consumatori:** `GeneralSection` e `ProjectBarSection`.
+
+### Selettore segmentato (Segmented)
+
+Primitiva per la selezione mutualmente esclusiva di viste o modalità (`src/lib/ui/Segmented.svelte`).
+
+- **Stato attivo neutro (The Neutral-Active Rule):** il pulsante attivo prende fondo `--bg-active`, testo `--ink` e peso 600. Non usa mai il colore `--brand`, preservando l'accento unicamente per azioni primarie, focus e indicatori attivi.
+- **Contenitore:** fondo `--bg-sunken`, bordo perimetrale da 1 px in `--line`, raggio 6 px (`--radius-md`), divisori interni da 1 px `--line`.
+- **Navigazione da tastiera:** roving tabindex con frecce direzionali (Orizzontali e Verticali) che saltano automaticamente le opzioni disabilitate; selezione immediata con `Spazio` o `Invio`. Fuoco con contorno da 2 px `--brand` e offset -2 px.
+- **Primi consumatori:** `ProjectBarSection`.
+
+### Cursore a passi (Slider)
+
+Primitiva per valori numerici discreti e continui (`src/lib/ui/Slider.svelte`).
+
+- **Geometria di default:** traccia alta 26 px a raggio completo (`--radius-full`) con fondo `--bg-sunken` e bordo da 1 px `--line-strong`. Cursore circolare (thumb) da 22×22 px in `--ink` con bordo `--line-strong`.
+- **Passi discreti e magnetismo:** fino a 30 passi visualizza punti guida da 4 px lungo la traccia; i punti vicini al cursore subiscono un ingrandimento magnetico (scala 1.5x) per fornire feedback tattile visivo prima dell'aggancio allo scatto.
+- **Flat-by-default:** né la traccia né il cursore possiedono ombre (`box-shadow: none`), in stretta conformità alla regola Flat-By-Default.
+- **Stato di fuoco e trascinamento:** contorno da 2 px in `--brand` con offset di 2 px sulla traccia; durante il drag il cursore si espande a scala 1.06x.
+- **Riempimento:** barra `--brand` a raggio completo che segue la percentuale del cursore.
+- **Accessibilità:** `role="slider"`, `aria-valuemin`, `aria-valuemax`, `aria-valuenow`, `aria-valuetext`, supporto per frecce (passo singolo), Pagina Su/Giù (passi multipli) e Home/End.
+- **Primi consumatori:** `ReasoningSlider` (regolazione del budget di thinking).
+### Scheda domanda
+
+Sostituisce il composer quando l'agente chiede, e ne prende la sagoma.
+
+- **Superficie:** `--bg-raised`, bordo `--line-strong`, `--radius-2xl`, `--shadow-raise`, padding `12px 16px 0`, altezza massima 58vh con scorrimento interno e piede appiccicato.
+- **Domanda:** voce chat a peso 500 (15 px/1.45); dettaglio in etichetta `--ink-muted`. Sopra una domanda singola non c'è etichetta: l'intestazione breve inviata dall'agente compare solo come nome dei passi nelle domande multiple.
+- **Passi:** tab compatte in didascalia; la corrente è in negativo, quelle completate hanno la spunta `--success`. Il contatore «N/M» (meta tabulare `--ink-faint`, senza maiuscolo) compare solo con più di una domanda, anche quando il titolo di omp porta «1/1».
+- **Anteprima in arrivo** (`AskStreamPreview`): nel flusso del transcript, stessa sagoma a `--radius-2xl` senza ombra.
+- **Opzioni:** righe `9px 12px`, `--radius-md`, bordo `--line`. Hover `--bg-hover` al 60% con bordo `--line-strong`. La scelta prende bordo `--brand`, anello inset da 1 px e fondo accento al 7%. Radio 16 px (punto 6 px) o casella con raggio 5 px; scorciatoia `1–9` in `kbd`.
+- **Consigliata:** pillola con fondo `--success` al 14%, testo `--success`, anello inset al 25%.
+- **Piede:** «Decidi tu», suggerimenti di tastiera, azioni a destra. L'azione primaria è in `--brand` con testo `--on-brand` e peso 600; quella secondaria è un pulsante fantasma.
+
+### Bolla dell'utente
+
+- **Bolla:** a destra, larga al massimo l'80%, `--bg-raised`, bordo `--line`, `16px 16px 6px 16px`, padding `10px 14px`, voce chat. Entra con `rv-lift`.
+- **Allegati:** miniature da 56 px sopra la bolla.
+- **Contesto dell'editor:** tag `--bg-base` in didascalia sotto la bolla; il file attivo ha bordo accento al 40%.
+
+### Testo dell'agente
+
+- **Prosa:** senza contenitore, rivelata per frasi (§ Grammatica del movimento); blocchi interi (codice, tabelle, citazioni) con `rv-lift`.
+- **Elenchi:** punti da 5 px in `--ink-faint`, numeri in mono `--ink-faint` allineati a destra.
+- **Citazioni:** rotaia neutra da 2 px e testo `--ink-muted`.
+- **Codice in linea:** mono su `--bg-hover`, `--radius-sm`.
+- **Blocchi di codice:** su `--bg-sunken` con bordo `--line`, intestazione dei file e copia con conferma.
+
+### Righe di traccia e gruppi di tool
+
+La memoria leggera del turno.
+
+- **Dal vivo:** l'intestazione «Al lavoro» è in `.text-shimmer`, con conteggio e durata che scorrono; le righe attive hanno spinner da 12 px ed etichetta che luccica; lo scorrimento resta agganciato al fondo entro 24 px.
+- **Concluso:** una riga riassuntiva in traccia, che si apre su click e mai da sola. Contiene spunta, «N chiamate · durata», icone per categoria con conteggio (lettura, ricerca, comando, modifica, web, ragionamento), `+N`/`−N` e «N con errori».
+- **Riga:** icona di categoria 14 px, verbo in sans `--ink-muted`, argomento in mono `--ink-faint`, esito in meta allineato a destra.
+- **Chiamate parallele:** raggruppate dalla rotaia neutra da 2 px.
+- **Corpo espanso:** `--bg-sunken`, bordo `--line`, `--radius-sm`, rientro di 26 px.
+- **Avvisi di sistema** (compattazione, nuovo tentativo, regole, errori): stessa riga di traccia, con un'icona da 14 px e il dettaglio espandibile.
+
+### Righe di stato nel racconto
+
+Todo, subagenti e job in background lasciano nel transcript righe di traccia
+(`TodoTraceRow`, `SubagentTrace`, `TaskRow`, `SubagentResultCard`) con lo stesso
+vocabolario del vassoio.
+
+- **Segni:** sempre `StatusMark`, mai glifi Unicode; l'elenco dei todo usa `IconQueue`. I passi già raccontati restano fermi (`active={false}`): lo stato vivo sta nel vassoio.
+- **Numero di fase:** testo meta mono `--ink-faint` tabulare prima dell'etichetta.
+- **Esito:** il completato non ha testo, lo dice il disco neutro (resta l'etichetta `sr-only`); fallito e bloccato in meta `--danger` senza fondo; annullato in meta `--ink-muted`.
+- **Apertura:** elenchi e dettagli si piegano con `tray-in`/`tray-out`; chevron con `--dur-fast`/`--ease-out`.
+- **Avvio della sessione:** `StatusMark` `running` accanto all'etichetta `.text-shimmer` a 13,5 px; cronometro in meta tabulare.
+
+### Pannello del subagente
+
+Pannello laterale a tutta altezza, aperto dal nome di un subagente nel vassoio o nel transcript.
+
+- **Superficie:** `--bg-overlay`, angoli vivi sul bordo destro, velo a `--z-backdrop`, pannello a `--z-dialog`.
+- **Contenuto:** transcript in traccia 12,5/1.5 con `Markdown` (eccezione documentata alla Two Voices Rule), ruoli in meta mono, chiamate ai tool in traccia.
+- **Movimento e tastiera:** entra ed esce da destra con `rvLift` (`x: 12`, 240 ms, blur 3 px); `trapFocus` tiene Tab dentro, Esc chiude e il fuoco torna a chi l'ha aperto.
+
+### Schede di esito nel transcript
+
+La scheda d'integrazione della corsia (`LaneLandingCard`) è una superficie neutra: bordo
+`--line`, `--radius-lg`, nessuna ombra né vetro. L'esito colora solo icona e testo di stato;
+le azioni usano `.ui-button-primary` (`--on-brand` su `--brand`) e `.ui-button-secondary`.
+
+### Ragionamento e piè di turno
+
+- **Ragionamento dal vivo:** «Sto pensando…» in `.text-shimmer` a 13,5 px.
+- **Ragionamento concluso:** «N righe di ragionamento» in didascalia, che si apre su un corpo 13/22 `--ink-muted` con la rotaia neutra. L'ultima scelta (aperto o chiuso) diventa il default della sessione.
+- **Piè di turno:** didascalia `--ink-faint`, `rv-blur` 400 ms/4 px. A sinistra «Copia» (con «Copiato» per 1,5 s), a destra in meta tabulare chiamate · durata · modello in mono · costo in mono, con separatori a opacità 0,5.
+
+### Chip di suggerimento e coda
+
+- **Suggerimenti:** solo a composer vuoto, fermo, senza allegati e con la palette chiusa. Pillole `3px 10px` su `--bg-raised` con bordo `--line`, didascalia `--ink-muted`, indice `Alt+N` in `kbd`. Il click precompila e non invia mai. Si naviga con roving tabindex.
+- **Coda:** i follow-up locali hanno «Modifica» e «Rimuovi»; gli steer già partiti sono di sola lettura a opacità 0,7.
+
+### Pulsante «in fondo»
+
+Compare quando l'utente risale: cerchio da 28 px, `--bg-overlay`, bordo `--line`,
+`--radius-full`, `--shadow-overlay`, freccia da 16 px. Nessun testo: il nome accessibile
+e il `Tooltip` dicono «In fondo».
+
+### Quota, tutte le code e barra inferiore
+
+- **Quota:** una sola chip ad anello, trigger `--radius-md` (6 px), didascalia e percentuale mono tabulare. Le righe di limite sono lineari e sobrie, con label sans e valori mono tabulari; niente menisco, onde, rigature decorative o varianti selezionabili.
+- **Colori:** quota sana neutra, oppure `--success` solo con l'opzione semaforo; quota bassa `--warn`, critica/esaurita `--danger`. Il segnale cromatico è accompagnato da testo o descrizione accessibile. Nessuna palette quota cablata nel layout.
+- **Popover quota e code:** superfici non modali nel top-layer nativo tramite `anchoredPopover`, `--bg-overlay`, bordo `--line-strong`, raggio 10 px e `--shadow-overlay`; ancoraggio `bottom-end` a 8 px dal trigger, larghezze 380 e 420 px, fallback in alto a destra per apertura da scorciatoia o Companion. Titoli 16/550 bilanciati; ingresso `rvLift` a 150 ms e blur 3 px.
+- **Tastiera:** niente velo, `aria-modal` o trap di Tab. Click esterno e Tab fuori chiudono senza rubare il nuovo focus; Escape e chiusura esplicita restituiscono il focus al trigger. I controlli iconici usano `Tooltip`; il caricamento usa `StatusMark`.
+- **Task in coda:** cliccare il testo apre o chiude la lettura, mai l'avvio. «Avvia», «Nuova corsia» e «Modifica» sono sempre visibili anche in vista compatta. Shift su «Avvia» forza la corsia isolata; Ctrl mantiene il seguito sul progetto. La stessa riga `QueueTaskItem` serve il pannello Agente e tutte le code.
+- **Barra inferiore:** 26 px, sole versioni Studio/OMP e `StatusMark` con etichetta breve; niente duplicazione del progetto né prefisso «Stato:». Lavoro/caricamento in corso con spinner condiviso, completato neutro, attenzione ambra. Un aggiornamento riuscito è un esito positivo (`--success` / `--on-success`).
+
+**The Exhausted-Quota Interrupt Rule.** D3 ammette il respiro solo per una quota
+esaurita, visibile, nello schermo, nel documento attivo e con animazioni abilitate
+senza `prefers-reduced-motion`. Il respiro varia bordo e fondo, non l'opacità del
+testo: il contrasto rimane AA per tutto il ciclo. Critica non esaurita e indicatori
+della finestra lunga sono statici; niente bobbing o aloni pulsanti.
+
+**The Read-Before-Run Rule.** Nelle code un gesto sul prompt serve a leggere.
+L'esecuzione richiede sempre un'azione esplicita «Avvia» o «Nuova corsia»; selezione
+del testo e link/menzioni conservano la propria interazione.
+
+### Icone
+
+Solo Lucide, passando da `src/lib/icons.ts` con nomi di funzione. La misura appartiene
+al contenitore (`--icon-size`, default 14 px; 15–16 px per le azioni primarie del
+composer; 12 px per le spunte in linea). Mai la prop `size`, mai una `class` passata a
+un'icona, mai un'emoji.
+
+## Do's and Don'ts
+
+### Do:
+
+- **Do** scrivere e rileggere un prompt completo nella voce chat (15/24); mantenere dense solo le anteprime di coda documentate nella Two Voices Rule.
+- **Do** mettere lo stato vivo nel punto d'azione e lasciarne nel racconto una sola riga espandibile.
+- **Do** far entrare ogni elemento nuovo con `--ease-reveal` e keyframe solo `from`, anche nella cornice: menu a 150 ms, righe a 210 ms, pannelli e dialog a 240 ms, sezioni che si piegano a 420 ms.
+- **Do** derivare ogni tinta con `color-mix` da un token, e usare `--on-*` per il testo sui riempimenti pieni.
+- **Do** accompagnare verde, rosso e ambra con un testo o un'icona.
+- **Do** usare `tabular-nums` su ogni numero che cambia.
+- **Do** scegliere il raggio dal ruolo della superficie (16 conversazione, 12 agganciato, 10 galleggiante/dialog, 6 controllo, 4 in linea).
+- **Do** annunciare i cambi di stato con una sola regione `aria-live="polite"` aggregata.
+- **Do** mantenere un fuoco visibile su ogni controllo: contorno da 2 px `--brand`, distanza 2 px.
+- **Do** usare un disco neutro (`--ink`) con spunta `--bg-raised` da 10 px per lo stato completato (D1).
+- **Do** animare spinner e segni di stato solo se visibili, attivi, nello schermo e nel documento attivo (The Alive-and-Visible Rule).
+- **Do** usare un indicatore lineare singolo da 2 px `--brand` sul bordo superiore o inferiore per le schede orizzontali senza maiuscolo spaziato (D2).
+- **Do** richiedere attivazione manuale (Invio, Spazio o click) sulle schede con pannelli complessi (`ColumnTabs`).
+- **Do** adottare `Tooltip` accessibile conforme a WCAG 2.1 SC 1.4.13 sui controlli iconici privi di etichetta testuale (D8).
+- **Do** usare l'elemento nativo `<dialog>.showModal()` del browser con isolamento top-layer e trap focus per le finestre modali (`Dialog`).
+- **Do** usare le classi opt-in `.ui-input`, `.ui-select`, `.ui-button` per non alterare Monaco Editor o xterm.
+- **Do** mantenere lo stato attivo del selettore segmentato (`Segmented`) neutro (`--bg-active`), senza tinte brand.
+- **Do** mantenere lo Slider privo di ombre (`box-shadow: none`) con traccia 26 px e cursore 22 px.
+
+### Don't:
+
+- **Don't** animare la viewport del terminale né il contenuto delle colonne durante lo switch di progetto.
+- **Don't** lasciare in movimento qualcosa che non è più vivo o che sta in un contenitore chiuso.
+- **Don't** usare loop infiniti da 1 ms per reduced-motion: usare `animation: none`.
+- **Don't** usare `white`, `black`, `rgba()` od `oklch()` letterali nei componenti.
+- **Don't** mettere strisce laterali colorate come accento: l'unica linea verticale spessa è la rotaia neutra da 2 px.
+- **Don't** usare `backdrop-filter` su una superficie sotto cui non scorre niente.
+- **Don't** usare il gradient text fuori da `.text-shimmer` su un'etichetta viva.
+- **Don't** mettere ombre su slider, switch, controlli form, righe, bolle, chip o pulsanti in linea, né ombre fuori dai tre token.
+- **Don't** colorare di verde un'area o un elemento completato: il completato è neutro.
+- **Don't** usare il maiuscolo spaziato nelle schede orizzontali o come eyebrow sopra le sezioni, né un'etichetta sopra una domanda singola.
+- **Don't** aprire da solo un dettaglio (tool, ragionamento, subagente): si apre solo su click.
+- **Don't** usare un titolo in prosa più piccolo del corpo.
+- **Don't** usare `z-index` arbitrari, token vietati come `z-modal` o emoji come icone.
+- **Don't** introdurre attributi `title` nativi sui trigger dei menu o della barra: adottare `Tooltip`.
+- **Don't** creare modal host manuali o stack personalizzati di inert quando il browser supporta `<dialog>.showModal()`.
+- **Don't** usare il repertorio dell'«AI slop»: glassmorphism decorativo, card con bordo sottile e ombra larga, raggi oltre 16 px, eyebrow maiuscole sopra le sezioni, marcatori `01 / 02 / 03`, sfondi a griglia, illustrazioni SVG «sketchy».
+
+## Debito di allineamento
+
+### A. Fondazioni completate (Task 1)
+
+Le fondazioni normative e le primitive condivise di Design v2 sono state implementate
+e consolidate nel codice di produzione al 2026-10-01:
+
+1. **Primitive condivise unificate (`src/lib/ui`):** `StatusMark`, `GitStatusMark`, `ColumnTabs`, `Tooltip`, `MenuButton`, `Dialog`, `Switch`, `Segmented`, `Slider`.
+2. **Rimozione del legacy MenuButton:** la vecchia implementazione locale in `agent/components/MenuButton.svelte` è stata completamente rimossa e tutti gli import sono stati migrati alla primitiva unificata `$lib/ui/MenuButton.svelte` senza shim intermedi.
+3. **Controlli form opt-in (`src/app.css`):** `.ui-input`, `.ui-select`, `.ui-button` (nelle tre varianti `.ui-button-secondary`, `.ui-button-primary`, `.ui-button-danger`) attivi senza reset globali distruttivi.
+4. **Keyframe globale `spin` (`src/app.css`):** unifica e sostituisce 19 definizioni locali duplicate (`16spin`, `tray-spin`, `tab-spin`, `ring-spin`). Rispetta `prefers-reduced-motion` con `animation: none` anziché loop da 1 ms.
+5. **Transizioni condivise (`src/lib/agent/motion.ts`):** `rvLift` standardizzata per popover (150 ms) e modali (240 ms); `chatReveal` normata a 210 ms con curva `cubic-bezier(.22, .61, .36, 1)`.
+6. **Ancoraggio popover (`src/lib/anchoredPopover.ts`):** posizionamento top-layer fixed con offset 8 px verso l'alto e ribaltamento automatico (`top`, `top-start`, `top-end`, `bottom`).
+7. **Mappa token approvata:** mapping rigoroso da vecchi token/alias a token normativi, eliminazione di token vietati come `z-modal` e `text-title-size`.
+
+### B. Mappa per allineare il resto di Studio
+
+| Regola v1 (`DESIGN-legacy.md`) | Regola attuale v2 |
+|---|---|
+| Raggio massimo 10 px | Raggio per ruolo; pannelli e dialog a 10 px (`--radius-lg`), controlli a 6 px (`--radius-md`), superfici prompt a 16 px (`--radius-2xl`). |
+| Una sola ombra, solo per ciò che galleggia | Tre token normativi: aggancio (`--shadow-dock`), sollevamento (`--shadow-raise`), galleggiamento (`--shadow-overlay`). Nessuna ombra su slider o form. |
+| Nessun `backdrop-filter`, nessun gradient text | Vetro solo dove il contenuto scorre sotto; gradient text solo in `.text-shimmer` su un'etichetta viva. |
+| Unico movimento persistente: l'anello ambra | Regola del vivo e visibile; segni di stato con IntersectionObserver e visibilitychange. |
+| Popover a 240 ms con `--ease-out-expo` | Menu e popover a 150 ms con `rv-lift` e `--ease-reveal`; dialog a 240 ms, sezioni a 420 ms. |
+| Task Rows (v1 §7.12): pillole verdi e rosse, arco SVG al 28% | Segni di stato condivisi `StatusMark`: completato neutro (disco `--ink` 16 px con spunta), spinner a due toni con spin globale. |
+| Nessun verde, nessun rosso nel guscio | Colore semantico solo per gli esiti (`GitStatusMark`, badge), sempre con testo o icona. |
+| Schede orizzontali con maiuscolo spaziato | `ColumnTabs`: indicatore singolo 2 px `--brand`, etichetta 12 px normale senza maiuscolo, attivazione manuale. |
+| Finestre modali con overlay manuale | `Dialog`: elemento nativo `<dialog>.showModal()` con trap focus APG e isolamento top-layer. |
+| Testo dei prompt a 13 px nella cornice | Voce chat 15/24 per scrittura e lettura completa; anteprime di coda 11/12 px, dettaglio espanso 15/24. |
+
+Restano validi senza modifiche, finché non vengono rivisti nei task successivi: identità di
+progetto e tessere (v1 §2.7, §7.1), riga delle corsie (§7.13), regole
+del terminale (§2.8, §7.5) e splitter (§7.6).
+Quota, code e barra inferiore sono ora normate nei Components (Task 5), non più
+nel popover usage legacy (§7.2).
+
+### C. Chat fuori dal nucleo (Task 2)
+
+Allineati al 2026-10-01 i componenti della chat fuori dal nucleo e le correzioni A.1–A.11:
+
+1. **Prosa:** una sola scala dei titoli (20/17/15, token assoluti) in rivelazione e in `Markdown`; interlinea ereditata dal contesto; editor del composer a 15/24; messaggi tra agenti in voce chat.
+2. **Scheda domanda e vassoio:** scheda a 16 px con `--shadow-raise`; niente etichetta sopra la domanda singola né «1/1»; vassoio compatto a una riga con la scheda aperta; riga di attenzione `--warn` al 15%; blocco quota spostato dal transcript al vassoio; anello dei todo completati neutro.
+3. **Superfici e colori:** ombre solo dai tre token (via quella della bolla); Stop e caret di invio senza `white`/`black`; pallini dei ruoli dalla rampa d'identità; capacità dei modelli neutre; scheda d'integrazione della corsia neutra a 10 px con `--on-brand`.
+4. **Stato e movimento:** `TaskRow`, `TodoTraceRow`, `SubagentTrace` e l'avvio della sessione su `StatusMark` (`PixelGrid` rimosso); aperture con `tray-in`/`tray-out`; pannello del subagente con `rvLift` laterale e `trapFocus`.
+5. **Igiene:** misure, raggi e icone a token (`--icon-size`, niente prop `size`/`class`); stringhe residue tradotte; pulsante «in fondo» tondo con `Tooltip`.
+
+Restano ai task successivi: `CommandPalette` e `FileMentionPalette`, ancora usati da Task Editor e Companion, che non sono ancora passati a `SuggestPanel` (task 8 e 12).
+
+### D. Tool renderer e parti condivise (Task 3)
+
+Allineati al 2026-10-01 i 29 renderer dei tool, il fallback `Generic.svelte` e le parti condivise:
+
+1. **Primitive condivise dei renderer:** `PromptBlock` (bolla in voce chat 15/24 su fondo `--bg-base`, raggio 12 px `--radius-xl`, padding 10px 14px), `ToolFileHeader` (incapsula `PathChip` con azione e metadati tabulari a destra), `LiveNotice` (spinner `StatusMark` e testo `.text-shimmer` conforme alla Alive-and-Visible Rule), `EmptyNotice` (testo neutro in `--text-caption`).
+2. **Superfici e Anti-Nesting:** eliminati tutti i box sunken annidati con bordo dentro `.inline-body` (`AstEdit`, `Eval`, `Hub`, `WebSearch`, `Github`, `Irc`, `Goal`, `Retain`, `Recall`), sostituiti da separatori puliti o rotaia neutra da 2 px.
+3. **Two Voices Rule:** prompt di generazione immagini (`GenerateImage`), obiettivi (`Goal`), domande utente (`InspectImage`), motivazioni (`Resolve`), query di ricerca web (`WebSearch`) e messaggi (`Irc`) migrati dalla visualizzazione monospazio da 12 px alla voce chat o sans leggibile.
+4. **Stato e Outcome-Only Color Rule:** diff allineato unicamente a `--success` e `--danger` (rimossi fallback legacy `--git-added/deleted`); `Job` e `Hub` migrati alla primitiva `StatusMark`; rimossi i bordi interamente rossi in `Eval` e `Yield`.
+5. **Movimento From-Only e igiene:** keyframe `task-stagger` e `todo-stagger` allineati alla From-Only Rule con `--dur-row` (210 ms) e curva `--ease-reveal`; raggio 6 px (`--radius-md`) per `PathChip` e `ImageBlock`; cifre tabulari obbligatorie su tutte le metriche e numeri di riga; dead code `view === 'summary'` e prop `view` rimossi da tutti i 30 componenti.

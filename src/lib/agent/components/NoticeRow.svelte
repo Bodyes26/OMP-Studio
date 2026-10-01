@@ -78,7 +78,7 @@
 	.notice-row {
 		width: 100%;
 		padding: 2px 0;
-		font-size: 12.5px;
+		font-size: var(--text-trace);
 		line-height: 1.5;
 		color: var(--ink-muted);
 		display: flex;
@@ -128,7 +128,7 @@
 
 	.source {
 		font-family: var(--font-mono);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
 		flex-shrink: 0;
 	}
@@ -157,10 +157,9 @@
 	.action-btn {
 		background: transparent;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 1px 7px;
-		font-size: 11.5px;
-		line-height: 1.4;
+		font-size: var(--text-meta);
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-muted);
 		cursor: pointer;
@@ -218,7 +217,7 @@
 		margin: 0;
 		padding: 6px 10px;
 		font-family: var(--font-mono);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		line-height: 1.45;
 		color: var(--ink-muted);
 		background: var(--bg-sunken);

@@ -7,46 +7,30 @@
 	import OutputBlock from './parts/OutputBlock.svelte';
 	import { resultImages, resultText, type ToolRenderProps } from './types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const text = $derived(resultText(result));
 	const images = $derived(resultImages(result));
-	const firstLine = $derived(text.split('\n', 1)[0] ?? '');
-
-	// Mentre il tool e' in corso `result` e' assente: senza questa sintesi il
-	// sommario resterebbe vuoto proprio nel momento in cui l'utente guarda.
-	function previewValue(value: unknown): string {
-		if (typeof value === 'string') return value;
-		if (value === null || value === undefined) return String(value);
-		if (Array.isArray(value)) return `[${value.length}]`;
-		if (typeof value === 'object') return '{…}';
-		return String(value);
-	}
-
-	const argsPreview = $derived(
-		Object.entries(args)
-			.map(([key, value]) => `${key}: ${previewValue(value)}`)
-			.join(', ')
-	);
-
-	const summaryLine = $derived(firstLine || argsPreview);
 </script>
 
-{#if view === 'summary'}
-	<span class="one-line">{summaryLine}</span>
-{:else}
+<div class="generic-body">
 	<JsonBlock value={args} />
-	<JsonBlock value={result?.details} label="dettagli" />
-	<OutputBlock {text} />
-	<ImageBlock {images} />
-{/if}
+	{#if result?.details}
+		<JsonBlock value={result.details} label="dettagli" />
+	{/if}
+	{#if text}
+		<OutputBlock {text} />
+	{/if}
+	{#if images.length > 0}
+		<ImageBlock {images} />
+	{/if}
+</div>
 
 <style>
-	.one-line {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--ink-faint);
-		font-size: var(--text-sm);
+	.generic-body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		min-width: 0;
 	}
 </style>

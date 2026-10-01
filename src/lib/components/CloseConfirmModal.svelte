@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
-	import { trapFocus } from '$lib/focusTrap';
-	import { IconClose, IconWarning, IconQueue, IconPlay, IconCheck } from '$lib/icons';
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { IconClose, IconWarning, IconQueue, IconCheck } from '$lib/icons';
 
 	export interface ProjectCloseTarget {
 		id: string;
@@ -28,59 +27,26 @@
 		onCancel: () => void;
 	}>();
 
-	let primaryBtnEl = $state<HTMLButtonElement | null>(null);
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (!open) return;
-		if (e.key === 'Escape') {
-			e.preventDefault();
-			e.stopPropagation();
-			onCancel();
-		}
-	}
-
-	$effect(() => {
-		if (open) {
-			const timer = setTimeout(() => {
-				primaryBtnEl?.focus();
-			}, 30);
-			return () => clearTimeout(timer);
-		}
-	});
-
 	// La chiusura di un progetto e' l'unico momento in cui la sorte della coda
 	// va decisa: chiudendo Studio le code restano nei rispettivi
 	// `.omp/tasks.json` e non c'e' niente da chiedere.
 	const hasWorking = $derived(Boolean(project?.isWorking));
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if open && project}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="modal-backdrop"
-		onclick={onCancel}
-		transition:fade={{ duration: 150 }}
-	></div>
-
-	<div
-		class="modal-window"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="close-confirm-title"
-		use:trapFocus
-		transition:fly={{ y: -16, duration: 200, easing: cubicOut }}
-	>
-		<!-- Header -->
+<Dialog
+	open={open && Boolean(project)}
+	onClose={onCancel}
+	initialFocus="button.ui-button-primary"
+	ariaLabelledBy="close-confirm-title"
+>
+	{#snippet header()}
 		<div class="modal-header">
 			<div class="header-icon" class:warning={hasWorking}>
 				<IconWarning />
 			</div>
 			<div class="header-text">
 				<h3 id="close-confirm-title">
-					{m.close_confirm_title_project({ name: project.name || 'progetto' })}
+					{m.close_confirm_title_project({ name: project?.name || 'progetto' })}
 				</h3>
 				<p class="subtitle">
 					{#if hasWorking}
@@ -99,13 +65,14 @@
 				<IconClose />
 			</button>
 		</div>
+	{/snippet}
 
-		<!-- Body -->
-		<div class="modal-body">
+	{#if project}
+		<div class="modal-body-content">
 			{#if project.isWorking}
 				<div class="alert-banner warning">
 					<div class="alert-title">
-						<span class="pulse-dot"></span>
+						<StatusMark status="running" active={true} />
 						<strong>{m.close_confirm_working_banner_title()}</strong>
 					</div>
 					<p class="alert-desc">
@@ -131,62 +98,35 @@
 				{/if}
 			</p>
 		</div>
+	{/if}
 
-		<!-- Footer -->
-		<div class="modal-footer">
-			<button type="button" class="btn btn-secondary" onclick={onCancel}>
-				{m.close_confirm_btn_cancel()}
-			</button>
+	{#snippet footer()}
+		<button type="button" class="ui-button ui-button-secondary" onclick={onCancel}>
+			{m.close_confirm_btn_cancel()}
+		</button>
 
-			<button
-				type="button"
-				class="btn btn-danger"
-				onclick={onConfirmDiscard}
-				title={m.ui_closeconfirmmodal_chiude_ed_elimina_i_task_in_coda_7d6d()}
-			>
-				{m.close_confirm_btn_discard_project()}
-			</button>
+		<button
+			type="button"
+			class="ui-button ui-button-danger"
+			onclick={onConfirmDiscard}
+			title={m.ui_closeconfirmmodal_chiude_ed_elimina_i_task_in_coda_7d6d()}
+		>
+			{m.close_confirm_btn_discard_project()}
+		</button>
 
-			<button
-				type="button"
-				class="btn btn-primary"
-				bind:this={primaryBtnEl}
-				onclick={onConfirmKeep}
-				title="Chiude conservando tutti i task (compreso quello interrotto) per la prossima volta"
-			>
-				<IconCheck />
-				<span>{m.close_confirm_btn_keep_project()}</span>
-			</button>
-		</div>
-	</div>
-{/if}
+		<button
+			type="button"
+			class="ui-button ui-button-primary"
+			onclick={onConfirmKeep}
+			title="Chiude conservando tutti i task (compreso quello interrotto) per la prossima volta"
+		>
+			<IconCheck />
+			<span>{m.close_confirm_btn_keep_project()}</span>
+		</button>
+	{/snippet}
+</Dialog>
 
 <style>
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: color-mix(in srgb, var(--bg-base) 80%, black);
-		backdrop-filter: blur(2px);
-		z-index: var(--z-modal, 1000);
-	}
-
-	.modal-window {
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		width: 520px;
-		max-width: calc(100vw - 32px);
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg, 10px);
-		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
-		z-index: calc(var(--z-modal, 1000) + 1);
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
 	.modal-header {
 		display: flex;
 		align-items: center;
@@ -201,7 +141,7 @@
 		justify-content: center;
 		width: 36px;
 		height: 36px;
-		border-radius: 50%;
+		border-radius: var(--radius-full, 50%);
 		background: var(--bg-hover);
 		color: var(--ink-muted);
 		flex-shrink: 0;
@@ -219,10 +159,12 @@
 
 	.header-text h3 {
 		margin: 0;
-		font-size: var(--text-md, 15px);
-		font-weight: 600;
+		font-family: var(--font-ui);
+		font-size: var(--text-title);
+		font-weight: 550;
 		color: var(--ink);
 		line-height: 1.3;
+		text-wrap: balance;
 	}
 
 	.subtitle {
@@ -242,6 +184,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		transition: background var(--dur-fast, 120ms) var(--ease-out, ease),
+			color var(--dur-fast, 120ms) var(--ease-out, ease);
 	}
 
 	.btn-close:hover {
@@ -249,13 +193,10 @@
 		color: var(--ink);
 	}
 
-	.modal-body {
-		padding: var(--space-4, 16px);
+	.modal-body-content {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3, 12px);
-		max-height: 60vh;
-		overflow-y: auto;
 	}
 
 	.alert-banner {
@@ -286,30 +227,6 @@
 		line-height: 1.45;
 	}
 
-	.pulse-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--warn);
-		box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 70%, transparent);
-		animation: pulse 1.8s infinite;
-	}
-
-	@keyframes pulse {
-		0% {
-			transform: scale(0.95);
-			box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 70%, transparent);
-		}
-		70% {
-			transform: scale(1);
-			box-shadow: 0 0 0 6px color-mix(in srgb, var(--warn) 0%, transparent);
-		}
-		100% {
-			transform: scale(0.95);
-			box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 0%, transparent);
-		}
-	}
-
 	.queue-info {
 		display: flex;
 		align-items: center;
@@ -333,60 +250,5 @@
 		font-size: var(--text-xs, 12px);
 		color: var(--ink-muted);
 		line-height: 1.4;
-	}
-
-	.modal-footer {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: var(--space-2, 8px);
-		padding: var(--space-3, 12px) var(--space-4, 16px);
-		background: var(--bg-raised);
-		border-top: 1px solid var(--line);
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		padding: 6px 14px;
-		font-size: var(--text-sm, 13px);
-		font-weight: 500;
-		border-radius: var(--radius-md, 6px);
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background 0.15s ease, filter 0.15s ease, border-color 0.15s ease;
-	}
-
-	.btn-secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-secondary:hover {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	.btn-danger {
-		background: color-mix(in srgb, var(--danger) 15%, transparent);
-		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
-	}
-
-	.btn-danger:hover {
-		background: color-mix(in srgb, var(--danger) 25%, transparent);
-		border-color: var(--danger);
-	}
-
-	.btn-primary {
-		background: var(--brand);
-		color: var(--on-brand, #fff);
-	}
-
-	.btn-primary:hover {
-		filter: brightness(1.1);
 	}
 </style>

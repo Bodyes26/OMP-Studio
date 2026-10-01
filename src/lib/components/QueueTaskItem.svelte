@@ -19,14 +19,16 @@
 		IconTrash
 	} from '$lib/icons';
 	import MentionText from './MentionText.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	/**
 	 * Un task della coda, condiviso da pannello Agente e cassetto globale.
 	 *
-	 * La riga intera avvia il task col mouse (Shift = nuova corsia), ma per la
-	 * tastiera il punto d'ingresso sono i pulsanti espliciti: un contenitore
-	 * `role=button` con dentro altri bottoni (menzioni, Leggi tutto, azioni)
-	 * sarebbe un controllo annidato illeggibile per gli screen reader.
+	 * - Il click sul testo del prompt apre/chiude i dettagli senza mai avviare il task.
+	 * - I task non in coda (in_progress, completed, abandoned) consentono anch'essi la lettura completa.
+	 * - I pulsanti espliciti "Avvia" e "Modifica" sono sempre visibili senza hover.
+	 * - "Avvia" supporta Shift (nuova corsia isolata) e Ctrl (follow).
 	 */
 	let {
 		task,
@@ -57,6 +59,9 @@
 		onOpenFile?: (path: string) => void;
 	} = $props();
 
+	let expanded = $state(false);
+	let overflowing = $state(false);
+	let bodyEl = $state<HTMLElement | null>(null);
 	const isCards = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
 	const text = $derived(splitTaskText(task));
 	const label = $derived(taskLabel(task) || m.queue_drawer_title_new_task());
@@ -66,18 +71,28 @@
 	const isQueued = $derived(task.status === 'queued');
 	const finished = $derived(task.status === 'completed' || task.status === 'abandoned');
 	const directives = $derived(task.options?.directives ?? []);
-	const body = $derived(
-		text.body ||
+	const showHeadline = $derived(
+		Boolean(text.headline && (!expanded || text.headlineSource === 'generated'))
+	);
+	const body = $derived.by(() => {
+		if (expanded) {
+			return (
+				task.prompt.trim() ||
+				(imageCount > 0
+					? m.queue_drawer_attached_images({ count: imageCount })
+					: m.agent_panel_empty_prompt())
+			);
+		}
+		return (
+			text.body ||
 			(text.headline
 				? ''
 				: imageCount > 0
 					? m.queue_drawer_attached_images({ count: imageCount })
 					: m.agent_panel_empty_prompt())
-	);
+		);
+	});
 
-	let expanded = $state(false);
-	let overflowing = $state(false);
-	let bodyEl = $state<HTMLElement | null>(null);
 
 	// Rendering = task visibile: e' qui che parte il recupero dei titoli
 	// mancanti. Si seguono solo i campi di questo task: `taskById` legge
@@ -101,13 +116,13 @@
 		return () => observer.disconnect();
 	});
 
-	function launchFromRow(event: MouseEvent) {
-		if (!isQueued || launchDisabled || event.button !== 0) return;
+	function handlePromptClick(event: MouseEvent) {
+		if (event.button !== 0) return;
 		// Menzioni, pulsanti e link hanno la propria azione.
-		if ((event.target as Element | null)?.closest('button, a, input')) return;
-		// Chi sta selezionando del testo non sta chiedendo di avviare.
+		if ((event.target as Element | null)?.closest('button, a, input, [role="button"]')) return;
+		// Chi sta selezionando del testo non sta chiedendo di espandere/collassare.
 		if (window.getSelection()?.toString()) return;
-		onLaunch({ shiftKey: event.shiftKey, ctrlKey: event.ctrlKey || event.metaKey });
+		expanded = !expanded;
 	}
 
 	function handleMoveKey(event: KeyboardEvent) {
@@ -182,78 +197,94 @@
 	}
 </script>
 
-<!-- Il click sulla riga e' una scorciatoia del mouse: la tastiera usa "Avvia". -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="queue-task"
+	role="group"
+	aria-label={label}
 	class:cards={isCards}
-	class:runnable={isQueued && !launchDisabled}
 	class:blocked={blocked && isQueued}
-	title={isQueued && !launchDisabled ? (blocked ? blockedTitle : m.ui_agentpanel_avvia_value1_18da({ value1: label })) : undefined}
-	onclick={launchFromRow}
 	oncontextmenu={openMenu}
 >
 	{#if reorderable}
-		<button
-			type="button"
-			class="grip"
-			aria-label={m.agent_panel_reorder_handle_aria({ title: label })}
-			title={m.agent_panel_reorder_handle_title()}
-			onkeydown={handleMoveKey}
-		>
-			<svg viewBox="0 0 12 16" aria-hidden="true">
-				<circle cx="3" cy="4" r="1" /><circle cx="9" cy="4" r="1" />
-				<circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" />
-				<circle cx="3" cy="12" r="1" /><circle cx="9" cy="12" r="1" />
-			</svg>
-		</button>
+		<Tooltip text={m.agent_panel_reorder_handle_title()} placement="top" offset={6}>
+			<button
+				type="button"
+				class="grip"
+				aria-label={m.agent_panel_reorder_handle_aria({ title: label })}
+				onkeydown={handleMoveKey}
+			>
+				<svg viewBox="0 0 12 16" aria-hidden="true">
+					<circle cx="3" cy="4" r="1" /><circle cx="9" cy="4" r="1" />
+					<circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" />
+					<circle cx="3" cy="12" r="1" /><circle cx="9" cy="12" r="1" />
+				</svg>
+			</button>
+		</Tooltip>
 	{/if}
 
 	<div class="content">
-		{#if text.headline}
-			<div class="head">
-				<span class="headline" class:finished>
-					<MentionText text={text.headline} {onOpenFile} />
-				</span>
-				{#if role}<span class="chip role">{role}</span>{/if}
-			</div>
-		{/if}
-
-		{#if body}
-			<p
-				id={`queue-task-body-${task.id}`}
-				class="body"
-				class:expanded
-				class:finished
-				class:placeholder={!text.body}
-				bind:this={bodyEl}
-			>
-				<MentionText text={body} {onOpenFile} />
-			</p>
-			{#if overflowing || expanded}
-				<button
-					type="button"
-					class="read-more"
-					aria-expanded={expanded}
-					aria-controls={`queue-task-body-${task.id}`}
-					onclick={() => (expanded = !expanded)}
-				>
-					{expanded ? m.queue_task_read_less() : m.queue_task_read_more()}
-					{#if expanded}<IconChevronUp />{:else}<IconChevronDown />{/if}
-				</button>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="prompt-text"
+			onclick={handlePromptClick}
+		>
+			{#if showHeadline && text.headline}
+				<div class="head">
+					<span class="headline" class:finished>
+						<MentionText text={text.headline} {onOpenFile} />
+					</span>
+					{#if role}<span class="chip role">{role}</span>{/if}
+				</div>
 			{/if}
-		{/if}
+
+			{#if body}
+				<p
+					id={`queue-task-body-${task.id}`}
+					class="body"
+					class:expanded
+					class:finished
+					class:placeholder={!text.body && !task.prompt.trim()}
+					bind:this={bodyEl}
+				>
+					<MentionText text={body} {onOpenFile} />
+				</p>
+				{#if overflowing || expanded}
+					<button
+						type="button"
+						class="read-more"
+						aria-expanded={expanded}
+						aria-controls={`queue-task-body-${task.id}`}
+						onclick={(e) => {
+							e.stopPropagation();
+							expanded = !expanded;
+						}}
+					>
+						{expanded ? m.queue_task_read_less() : m.queue_task_read_more()}
+						{#if expanded}<IconChevronUp />{:else}<IconChevronDown />{/if}
+					</button>
+				{/if}
+			{/if}
+		</div>
 
 		<div class="chips">
 			{#if task.status === 'in_progress'}
-				<span class="chip status in-progress">{m.queue_drawer_status_in_progress()}</span>
+				<span class="chip status in-progress">
+					<StatusMark status="running" active={true} />
+					<span>{m.queue_drawer_status_in_progress()}</span>
+				</span>
 			{:else if task.status === 'completed'}
-				<span class="chip status completed">{m.queue_drawer_status_completed()}</span>
+				<span class="chip status completed">
+					<StatusMark status="completed" />
+					<span>{m.queue_drawer_status_completed()}</span>
+				</span>
 			{:else if task.status === 'abandoned'}
-				<span class="chip status abandoned">{m.queue_drawer_status_abandoned()}</span>
+				<span class="chip status abandoned">
+					<StatusMark status="failed" active={false} />
+					<span>{m.queue_drawer_status_abandoned()}</span>
+				</span>
 			{/if}
-			{#if role && !text.headline}<span class="chip role">{role}</span>{/if}
+			{#if role && (!showHeadline || !text.headline)}<span class="chip role">{role}</span>{/if}
 			{#each directives.slice(0, maxDirectives) as d (d.id)}
 				<span class="chip mode" title={d.name}>{d.tag || d.name}</span>
 			{/each}
@@ -271,7 +302,7 @@
 			<div class="actions">
 				<button
 					type="button"
-					class="action run"
+					class="ui-button ui-button-secondary action run"
 					class:blocked
 					class:attention={blocked && attention}
 					disabled={launchDisabled}
@@ -281,14 +312,14 @@
 						? m.gate_explain_task_aria({ title: label })
 						: m.ui_queuedrawer_avvia_task_value1_0055({ value1: label })}
 					title={blocked ? blockedTitle : m.ui_agentpanel_avvia_value1_18da({ value1: label })}
-					onclick={(event) => onLaunch({ shiftKey: false, ctrlKey: event.ctrlKey || event.metaKey })}
+					onclick={(event) => onLaunch({ shiftKey: event.shiftKey, ctrlKey: event.ctrlKey || event.metaKey })}
 				>
 					<IconPlay />
 					<span>{m.queue_drawer_run_btn()}</span>
 				</button>
 				<button
 					type="button"
-					class="action lane"
+					class="ui-button ui-button-secondary action lane"
 					disabled={launchDisabled}
 					title={m.queue_task_new_lane_title()}
 					onclick={(event) => onLaunch({ shiftKey: true, ctrlKey: event.ctrlKey || event.metaKey })}
@@ -300,21 +331,20 @@
 		{/if}
 	</div>
 
-	<button
-		type="button"
-		class="edit"
-		onclick={onEdit}
-		aria-label={m.agent_panel_edit_task_aria({ title: label })}
-		title={m.queue_drawer_edit_btn_title()}
-	>
-		<IconPencil />
-	</button>
+	<Tooltip text={m.queue_drawer_edit_btn_title()} placement="top" offset={6}>
+		<button
+			type="button"
+			class="edit"
+			onclick={onEdit}
+			aria-label={m.agent_panel_edit_task_aria({ title: label })}
+		>
+			<IconPencil />
+		</button>
+	</Tooltip>
 </div>
 
 <style>
-	/* `--queue-task-surface` e' lo sfondo opaco sotto la riga: la barra
-	   azioni della vista compatta si sovrappone al testo e con il solo
-	   `--bg-hover` traslucido lo lascerebbe trasparire. */
+	/* `--queue-task-surface` e' lo sfondo opaco sotto la riga. */
 	.queue-task {
 		--queue-task-hover: color-mix(in srgb, var(--ink) 10%, var(--queue-task-surface, var(--bg-base)));
 		position: relative;
@@ -329,14 +359,6 @@
 	.queue-task:has(.grip) {
 		grid-template-columns: 18px minmax(0, 1fr) 26px;
 		padding-left: var(--space-1);
-	}
-
-	.queue-task.runnable {
-		cursor: pointer;
-	}
-
-	.queue-task.runnable.blocked {
-		cursor: help;
 	}
 
 	.queue-task:hover,
@@ -374,11 +396,13 @@
 		justify-content: center;
 		height: 22px;
 		padding: 0;
-		border-radius: var(--radius-sm);
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
 	}
 
 	.grip {
+		width: 18px;
 		cursor: grab;
 	}
 
@@ -393,18 +417,21 @@
 	}
 
 	.edit {
+		width: 24px;
 		cursor: pointer;
+		--icon-size: 13px;
 	}
 
 	.edit :global(svg) {
-		width: 13px;
-		height: 13px;
+		width: var(--icon-size, 13px);
+		height: var(--icon-size, 13px);
 	}
 
 	.grip:hover,
 	.edit:hover {
 		color: var(--ink);
 		background: var(--bg-hover);
+		border-color: var(--line);
 	}
 
 	.grip:focus-visible,
@@ -412,7 +439,7 @@
 	.read-more:focus-visible,
 	.action:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 1px;
+		outline-offset: 2px;
 	}
 
 	.content {
@@ -420,6 +447,14 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
+	}
+
+	.prompt-text {
+		cursor: pointer;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		min-width: 0;
 	}
 
 	.head {
@@ -471,10 +506,13 @@
 		font-size: var(--text-sm);
 	}
 
-	.body.expanded {
+	.body.expanded,
+	.cards .body.expanded {
 		display: block;
 		white-space: pre-wrap;
 		overflow: visible;
+		font-size: var(--text-chat);
+		line-height: 24px;
 	}
 
 	.body.placeholder {
@@ -493,16 +531,17 @@
 		align-items: center;
 		gap: 2px;
 		padding: 0;
-		border-radius: var(--radius-sm);
-		color: var(--brand-ink, var(--brand));
+		border-radius: var(--radius-md);
+		color: var(--brand-ink);
 		font-size: var(--text-xs);
 		font-weight: 600;
 		cursor: pointer;
+		--icon-size: 12px;
 	}
 
 	.read-more :global(svg) {
-		width: 12px;
-		height: 12px;
+		width: var(--icon-size, 12px);
+		height: var(--icon-size, 12px);
 	}
 
 	.read-more:hover {
@@ -551,22 +590,33 @@
 		color: var(--ink-faint);
 	}
 
+	.chip.status {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
 	.chip.status.in-progress {
-		background: var(--brand-dim);
-		color: var(--brand-ink);
-		font-weight: 600;
+		color: var(--ink);
 	}
 
 	.chip.status.completed {
-		color: var(--success, #22c55e);
+		color: var(--ink-muted);
 	}
 
 	.chip.status.abandoned {
-		color: var(--ink-faint);
-		opacity: 0.7;
+		color: var(--danger);
 	}
 
 	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-1);
+		margin-top: 2px;
+	}
+
+	.cards .actions {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: var(--space-1);
@@ -575,19 +625,24 @@
 
 	.action {
 		min-width: 0;
-		height: 24px;
+		height: 22px;
 		padding: 0 var(--space-2);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		gap: var(--space-1);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		font-weight: 500;
 		white-space: nowrap;
 		cursor: pointer;
+		--icon-size: 13px;
+	}
+
+	.cards .action {
+		height: 24px;
 	}
 
 	.action span {
@@ -597,19 +652,25 @@
 
 	.action :global(svg) {
 		flex-shrink: 0;
-		width: 12px;
-		height: 12px;
+		width: var(--icon-size, 13px);
+		height: var(--icon-size, 13px);
 	}
 
 	.action:hover:not(:disabled) {
 		background: var(--bg-hover);
 		color: var(--ink);
+		border-color: var(--line-strong);
 	}
 
 	.action.run:not(.blocked) {
 		border-color: color-mix(in srgb, var(--brand) 40%, transparent);
 		background: var(--brand-dim);
-		color: var(--brand-ink, var(--ink));
+		color: var(--ink);
+	}
+
+	.action.run:not(.blocked):hover:not(:disabled) {
+		border-color: var(--brand);
+		background: color-mix(in srgb, var(--brand-dim) 80%, var(--bg-hover));
 	}
 
 	.action.run.blocked {
@@ -621,43 +682,22 @@
 		color: var(--warn);
 	}
 
+	.action.run.attention:hover:not(:disabled) {
+		border-color: var(--warn);
+		background: color-mix(in srgb, var(--warn) 10%, transparent);
+	}
+
 	.action:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-
-	/* Compatta: la barra azioni non occupa una riga propria. Compare sopra
-	   l'angolo in basso a destra al passaggio o al fuoco, senza spostare la
-	   lista: una riga che cresce all'hover farebbe saltare quelle sotto. */
-	.queue-task:not(.cards) .actions {
-		position: absolute;
-		right: var(--space-1);
-		bottom: var(--space-1);
-		display: flex;
-		margin: 0;
-		padding-left: var(--space-3);
-		background: linear-gradient(to right, transparent, var(--queue-task-hover) var(--space-3));
-		opacity: 0;
-		pointer-events: none;
-	}
-
-	.queue-task:not(.cards):hover .actions,
-	.queue-task:not(.cards):focus-within .actions {
-		opacity: 1;
-		pointer-events: auto;
-	}
-
-	.queue-task:not(.cards) .action {
-		height: 22px;
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 
 	@media (prefers-reduced-motion: no-preference) {
 		.queue-task,
-		.actions {
+		.action {
 			transition:
-				background-color var(--dur-fast, 120ms) ease,
-				border-color var(--dur-fast, 120ms) ease,
-				opacity var(--dur-fast, 120ms) ease;
+				background-color var(--dur-fast) ease,
+				border-color var(--dur-fast) ease;
 		}
 	}
 </style>

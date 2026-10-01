@@ -28,7 +28,7 @@
 	.path-chip {
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 1px var(--space-2);
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
@@ -50,5 +50,6 @@
 	}
 	.line {
 		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
 	}
 </style>

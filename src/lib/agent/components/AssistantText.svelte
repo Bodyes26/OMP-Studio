@@ -224,7 +224,7 @@
 
 	.markdown-wrap {
 		min-width: 0;
-		font-size: 15px;
+		font-size: var(--text-prose);
 		line-height: 28px;
 		color: var(--ink);
 	}
@@ -243,7 +243,6 @@
 
 	.heading {
 		color: var(--ink);
-		line-height: 1.3;
 		margin: var(--space-3) 0 var(--space-1) 0;
 	}
 
@@ -251,13 +250,12 @@
 		margin-top: 0;
 	}
 
-	.heading.h1 { font-size: var(--text-xl); font-weight: 700; }
-	.heading.h2 { font-size: var(--text-lg); font-weight: 600; }
-	.heading.h3 { font-size: var(--text-base); font-weight: 600; }
-	.heading.h4 { font-size: var(--text-sm); font-weight: 600; }
-	.heading.h5 { font-size: var(--text-xs); font-weight: 600; }
-	.heading.h6 { font-size: var(--text-xs); font-weight: 500; color: var(--ink-muted); }
-
+	.heading.h1 { font-size: var(--text-prose-h1); font-weight: 600; line-height: 1.3; }
+	.heading.h2 { font-size: var(--text-prose-h2); font-weight: 600; line-height: 1.35; }
+	.heading.h3,
+	.heading.h4,
+	.heading.h5,
+	.heading.h6 { font-size: var(--text-prose-h3); font-weight: 600; line-height: 28px; }
 	.reveal-li,
 	.reveal-oli {
 		display: flex;
@@ -269,7 +267,7 @@
 	.reveal-bullet {
 		width: 5px;
 		height: 5px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background: var(--ink-faint);
 		flex-shrink: 0;
 		align-self: center;
@@ -277,7 +275,7 @@
 
 	.reveal-num {
 		font-family: var(--font-mono);
-		font-size: var(--text-sm);
+		font-size: var(--text-mono);
 		color: var(--ink-faint);
 		flex-shrink: 0;
 		text-align: right;
@@ -299,7 +297,7 @@
 
 	.writing-label {
 		color: var(--ink-muted);
-		font-size: 15px;
+		font-size: var(--text-prose);
 		line-height: 28px;
 		user-select: none;
 	}

@@ -2,186 +2,139 @@
   Renderer per il tool `task`.
 
   Rappresenta il fan-out di subagent coordinati dal modello principale.
-  Nel sommario mostra il conteggio dei subagent per stato. Nel corpo
-  visualizza ogni subagent tramite AgentLink integrato con TaskRow (che espande
+  Visualizza ogni subagent tramite AgentLink integrato con TaskRow (che espande
   la disclosure dei dettagli con azione per aprire il transcript),
   l'eventuale stato asincrono del job e i blocchi di testo dei risultati.
 -->
 <script lang="ts">
-	import { flip } from 'svelte/animate';
-	import { m } from '$lib/paraglide/messages.js';
 	import AgentLink from '../parts/AgentLink.svelte';
-	import CountBadge from '../parts/CountBadge.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
-	import type { AgentProgress } from '../../wire';
 	import {
 		asRecord,
-		countLabel,
 		num,
 		recordList,
 		resultText,
 		str,
 		type ToolRenderProps
 	} from '../types';
+	import type { AgentProgress } from '../../wire';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
-	const asyncObj = $derived(asRecord(details?.async));
-	const asyncState = $derived(str(asyncObj?.state));
-	const asyncJobId = $derived(str(asyncObj?.jobId));
 
 	const progressList = $derived.by<AgentProgress[]>(() => {
-		const raw = recordList(details?.progress);
-		return raw.map((entry) => {
-			const rawStatus = str(entry.status);
-			let status: AgentProgress['status'] = undefined;
-			if (
-				rawStatus === 'pending' ||
-				rawStatus === 'running' ||
-				rawStatus === 'completed' ||
-				rawStatus === 'failed' ||
-				rawStatus === 'aborted'
-			) {
-				status = rawStatus;
+		const raw = recordList(details?.tasks);
+		if (raw.length === 0) {
+			const tasksArg = recordList(args.tasks);
+			if (tasksArg.length > 0) {
+				return tasksArg.map((t, idx) => ({
+					id: str(t.id),
+					agent: str(t.agent) ?? str(t.name) ?? `subagent-${idx + 1}`,
+					status: 'running',
+					index: idx
+				}));
 			}
+			return [];
+		}
+
+		return raw.map((t, idx) => {
+			const id = str(t.id);
+			const agent = str(t.agent) ?? str(t.name) ?? (id ? `subagent-${id.slice(0, 8)}` : `subagent-${idx + 1}`);
+			const status = (str(t.status) ?? 'completed') as AgentProgress['status'];
+			const durationMs = num(t.durationMs) ?? num(t.duration);
+			const toolCount = num(t.toolCount);
+			let recentTools: { tool?: string; args?: string; endMs?: number }[] | undefined;
+			if (Array.isArray(t.recentTools)) {
+				recentTools = [];
+				for (const item of t.recentTools) {
+					if (typeof item === 'string') {
+						recentTools.push({ tool: item });
+					} else {
+						const rec = asRecord(item);
+						if (rec) {
+							recentTools.push({
+								tool: str(rec.tool),
+								args: str(rec.args),
+								endMs: num(rec.endMs)
+							});
+						}
+					}
+				}
+			}
+			const tokens = num(t.tokens);
+			const cost = num(t.cost);
+			const modelRole = str(t.modelRole);
+			const resolvedModel = str(t.resolvedModel);
+			const lastIntent = str(t.lastIntent);
+
 			return {
-				index: num(entry.index),
-				id: str(entry.id),
-				agent: str(entry.agent),
-				agentSource: str(entry.agentSource),
-				modelRole: str(entry.modelRole),
-				resolvedModel: str(entry.resolvedModel),
+				id,
+				agent,
 				status,
-				task: str(entry.task),
-				assignment: str(entry.assignment),
-				description: str(entry.description),
-				lastIntent: str(entry.lastIntent),
-				toolCount: num(entry.toolCount),
-				requests: num(entry.requests),
-				tokens: num(entry.tokens),
-				cost: num(entry.cost),
-				durationMs: num(entry.durationMs)
+				durationMs,
+				toolCount,
+				recentTools,
+				tokens,
+				cost,
+				modelRole,
+				resolvedModel,
+				lastIntent,
+				index: num(t.index) ?? idx
 			};
 		});
 	});
 
-	const stats = $derived.by(() => {
-		let total = progressList.length;
-		let running = 0;
-		let completed = 0;
-		let failed = 0;
-		let pending = 0;
-		for (const p of progressList) {
-			if (p.status === 'running') running++;
-			else if (p.status === 'completed') completed++;
-			else if (p.status === 'failed' || p.status === 'aborted') failed++;
-			else pending++;
-		}
-		return { total, running, completed, failed, pending };
-	});
-
-	const summaryBadge = $derived.by(() => {
-		if (stats.total === 0) {
-			// `args.tasks` e' la forma normale, ma il tool accetta anche `args.subagents`
-			// e la forma singola `args.task`/`args.agent` senza wrapper array.
-			const rawList = Array.isArray(args.tasks)
-				? args.tasks
-				: Array.isArray(args.subagents)
-					? args.subagents
-					: undefined;
-			if (rawList !== undefined) {
-				return countLabel(rawList.length, 'subagent assegnato', 'subagent assegnati');
-			}
-			if (str(args.task) || str(args.agent)) {
-				return countLabel(1, 'subagent assegnato', 'subagent assegnati');
-			}
-			return undefined;
-		}
-		const parts: string[] = [];
-		parts.push(countLabel(stats.total, 'subagent', 'subagent'));
-		if (stats.running > 0) parts.push(m.ui_task_value1_in_corso_8e50({ value1: stats.running }));
-		if (stats.completed > 0) parts.push(`${stats.completed} ${m.task_row_status_completed().toLowerCase()}`);
-		if (stats.failed > 0) parts.push(`${stats.failed} ${m.task_row_status_failed().toLowerCase()}`);
-		return parts.join(' · ');
-	});
-
 	const resultTexts = $derived.by<string[]>(() => {
-		const rawResults = details?.results;
-		if (!Array.isArray(rawResults)) return [];
+		const raw = recordList(details?.tasks);
 		const texts: string[] = [];
-		for (const item of rawResults) {
-			if (typeof item === 'string' && item.length > 0) {
-				texts.push(item);
-			} else {
-				const rec = asRecord(item);
-				const t = str(rec?.text) ?? str(rec?.output) ?? str(rec?.result);
-				if (t) texts.push(t);
-			}
+		for (const t of raw) {
+			const out = str(t.output) ?? str(t.result);
+			if (out) texts.push(out);
 		}
 		return texts;
 	});
 
 	const fallbackResult = $derived(resultText(result));
+	const asyncState = $derived(str(details?.state) ?? str(args.state));
+	const asyncJobId = $derived(str(details?.jobId) ?? str(args.jobId));
 </script>
 
-{#if view === 'summary'}
-	<div class="task-summary">
-		{#if summaryBadge}
-			<CountBadge text={summaryBadge} />
-		{/if}
-		{#if asyncState}
-			<CountBadge text={`async: ${asyncState}`} muted />
-		{/if}
-	</div>
-{:else}
-	<div class="task-body">
-		{#if asyncState || asyncJobId}
-			<div class="async-banner">
-				<span class="async-label">Job asincrono:</span>
-				{#if asyncJobId}<span class="async-id">{asyncJobId}</span>{/if}
-				{#if asyncState}<span class="async-state">({asyncState})</span>{/if}
-			</div>
-		{/if}
+<div class="task-body">
+	{#if asyncState || asyncJobId}
+		<div class="async-banner">
+			<span class="async-label">Job asincrono:</span>
+			{#if asyncJobId}<span class="async-id">{asyncJobId}</span>{/if}
+			{#if asyncState}<span class="async-state">({asyncState})</span>{/if}
+		</div>
+	{/if}
 
-		{#if progressList.length > 0}
-			<div class="agent-list" role="list">
-				{#each progressList as agentProgress, idx (agentProgress.id ?? agentProgress.index ?? idx)}
-					<div
-						animate:flip={{ duration: 200 }}
-						class="agent-item"
-						role="listitem"
-						style="--stagger-delay: {idx * 30}ms"
-					>
-						<AgentLink progress={agentProgress} index={idx} />
-					</div>
-				{/each}
-			</div>
-		{/if}
+	{#if progressList.length > 0}
+		<div class="agent-list" role="list">
+			{#each progressList as agentProgress, idx (agentProgress.id ?? agentProgress.index ?? idx)}
+				<div
+					class="agent-item"
+					role="listitem"
+					style:--stagger-delay={`${Math.min(idx, 8) * 30}ms`}
+				>
+					<AgentLink progress={agentProgress} index={idx + 1} />
+				</div>
+			{/each}
+		</div>
+	{/if}
 
-		{#if resultTexts.length > 0}
-			<div class="results-section">
-				{#each resultTexts as resText, resIdx (resIdx)}
-					<OutputBlock text={resText} label={`risultato ${resIdx + 1}`} />
-				{/each}
-			</div>
-		{:else if fallbackResult && progressList.length === 0}
-			<OutputBlock text={fallbackResult} label="risultato task" />
-		{/if}
-	</div>
-{/if}
+	{#if resultTexts.length > 0}
+		<div class="results-section">
+			{#each resultTexts as textItem, idx (idx)}
+				<OutputBlock text={textItem} label={`risultato subagent ${idx + 1}`} maxLines={12} />
+			{/each}
+		</div>
+	{:else if fallbackResult && progressList.length === 0}
+		<OutputBlock text={fallbackResult} label="risultato task" />
+	{/if}
+</div>
 
 <style>
-	.task-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.task-body {
 		display: flex;
 		flex-direction: column;
@@ -193,11 +146,10 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		padding: 2px var(--space-1);
-		background: var(--bg-sunken);
-		border-radius: var(--radius-sm);
+		border-left: 2px solid var(--line);
 	}
 
 	.async-label {
@@ -217,7 +169,7 @@
 	}
 
 	.agent-item {
-		animation: task-stagger 200ms ease-out var(--stagger-delay, 0ms) both;
+		animation: task-stagger var(--dur-row) var(--ease-reveal) var(--stagger-delay, 0ms) both;
 	}
 
 	.agent-item + .agent-item {
@@ -228,10 +180,6 @@
 		from {
 			opacity: 0;
 			transform: translateY(2px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
 		}
 	}
 

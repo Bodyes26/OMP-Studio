@@ -117,7 +117,7 @@ Non "Studio legge il tema di `omp`" ma "un tema solo per entrambi": il selettore
 barra sceglie fra i 100 temi builtin (copiati in `src/lib/themes/omp/`, perché
 nel binario non sono leggibili), li divide per luminanza, ne scrive uno in
 `~/.omp/agent/themes/omp-studio.json` e lo impone alle sole sessioni di Studio
-via overlay. Vedi `DECISIONS.md` gate R9 e `DESIGN.md` §2.9.
+via overlay. Vedi `DECISIONS.md` gate R9 e `DESIGN-legacy.md` §2.9.
 
 ### ~~Ctrl+click su un percorso apre il file nell'editor~~ → fatta il 2026-07-31, senza estensione
 Non serviva l'estensione-ponte: con `tui.hyperlinks: always` nell'overlay `omp`

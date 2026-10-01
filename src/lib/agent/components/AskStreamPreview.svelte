@@ -34,7 +34,7 @@
 
 	{#if current}
 		<div class="body">
-			{#if current.header && !multi}
+			{#if current.header && multi}
 				<span class="q-header rv-blur">{current.header}</span>
 			{/if}
 			{#if current.textComplete && current.question}
@@ -79,10 +79,9 @@
 		gap: var(--space-3);
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
+		border-radius: var(--radius-2xl);
 		padding: var(--space-3) var(--space-4);
 		min-width: 0;
-		box-shadow: 0 4px 20px -8px rgb(0 0 0 / 0.12);
 	}
 	.head {
 		display: flex;
@@ -132,7 +131,7 @@
 	}
 	.num {
 		font-family: var(--font-mono);
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		opacity: 0.6;
 	}
 	.tab-ghost {
@@ -147,15 +146,13 @@
 	}
 	.q-header {
 		margin-bottom: calc(-1 * var(--space-2));
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
 		color: var(--ink-faint);
 	}
 	.q-text {
 		margin: 0;
-		font-size: 15px;
+		font-size: var(--text-chat);
 		font-weight: 500;
 		line-height: 1.45;
 		color: var(--ink);
@@ -185,10 +182,10 @@
 		margin-top: 2px;
 		flex-shrink: 0;
 		border: 1px solid var(--line-strong);
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 	}
 	.box.multi {
-		border-radius: 5px;
+		border-radius: var(--radius-sm);
 	}
 	.opt-body {
 		display: flex;
@@ -208,10 +205,9 @@
 		background: color-mix(in oklab, var(--success) 14%, transparent);
 		color: var(--success);
 		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--success) 25%, transparent);
-		border-radius: 6px;
+		border-radius: var(--radius-md);
 		padding: 0 6px;
-		font-size: 11px;
-		font-weight: 500;
+		font-size: var(--text-caption);
 		line-height: 18px;
 	}
 	.opt-desc {

@@ -183,7 +183,7 @@
 									class="action-btn"
 									onclick={() => hooks.openSubagent(job.envelope?.id ?? job.jobId)}
 								>
-									<IconFile size={13} aria-hidden="true" />
+									<IconFile aria-hidden="true" />
 									<span>{m.ui_subagentresultcard_apri_transcript_e1cb()}</span>
 								</button>
 							{:else if job.jobType === 'bash'}
@@ -192,7 +192,7 @@
 									class="action-btn terminal-btn"
 									onclick={() => hooks.switchToTerminal()}
 								>
-									<IconTerminal size={13} aria-hidden="true" />
+									<IconTerminal aria-hidden="true" />
 									<span>{m.project_popover_open_terminal()}</span>
 								</button>
 							{/if}
@@ -237,7 +237,7 @@
 	}
 
 	.job-item {
-		animation: job-stagger 200ms ease-out var(--stagger-delay, 0ms) both;
+		animation: job-stagger var(--dur-row) var(--ease-reveal) var(--stagger-delay, 0ms) both;
 	}
 
 	.job-item + .job-item {
@@ -248,10 +248,6 @@
 		from {
 			opacity: 0;
 			transform: translateY(2px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
 		}
 	}
 
@@ -308,6 +304,7 @@
 	}
 
 	.action-btn {
+		--icon-size: 13px;
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
@@ -315,7 +312,7 @@
 		font-size: var(--text-xs);
 		font-family: inherit;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--bg-raised);
 		color: var(--ink-muted);
 		cursor: pointer;
@@ -332,7 +329,7 @@
 
 	.terminal-btn:hover {
 		color: var(--brand-ink);
-		border-color: var(--brand-line);
+		border-color: color-mix(in oklch, var(--brand) 28%, transparent);
 	}
 
 	.job-output {

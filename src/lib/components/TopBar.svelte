@@ -13,6 +13,7 @@
 	import { quotaStore } from '$lib/stores/quota.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import QuotaChip from './quota/QuotaChip.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
 	import GitDiffBadge from './GitDiffBadge.svelte';
 	import { companionStore } from '$lib/stores/companion.svelte';
@@ -37,7 +38,8 @@
 		IconWarning,
 		IconLab,
 		IconGitBranch,
-		IconTrash
+		IconTrash,
+		IconDownload
 	} from '$lib/icons';
 	import { laneStore } from '$lib/stores/lanes.svelte';
 	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
@@ -54,11 +56,11 @@
 		onRunTask, onEditTask, onNewTask, canRunTask, runReason,
 		onRequestCloseProject, onOpenFile
 	} = $props<{
-		onUsageClick?: () => void;
+		onUsageClick?: (anchor?: HTMLElement | null) => void;
 		onNewProject?: () => void;
 		onSettingsClick?: (section?: SettingsSection) => void;
 		onSetupClick?: () => void;
-		onQueueClick?: () => void;
+		onQueueClick?: (anchor?: HTMLElement | null) => void;
 		/** Vero quando manca qualcosa perche' la GUI funzioni: il chip di
 		 *  setup compare solo allora, e sparisce quando non ha piu' niente da
 		 *  dire. */
@@ -426,6 +428,101 @@
 		};
 	});
 
+	// Lifecycle remoto separato (non interferisce con il polling locale da 15 s)
+	const openRealCanonicalPaths = $derived.by(() => {
+		const paths: string[] = [];
+		const seen = new Set<string>();
+		for (const p of projectStore.projects) {
+			if (!p.labDraft && p.canonicalProjectPath) {
+				const norm = normalizeProjectPath(p.canonicalProjectPath).toLowerCase();
+				if (!seen.has(norm)) {
+					seen.add(norm);
+					paths.push(p.canonicalProjectPath);
+				}
+			}
+		}
+		return paths;
+	});
+
+	// Firma stabile derivata dei percorsi canonici per evitare riavvii
+	// dell'effetto quando mutano proprietà reattive (sync, notifiche, agentState, ecc.)
+	const openCanonicalPathsKey = $derived(
+		openRealCanonicalPaths
+			.map((p) => normalizeProjectPath(p).toLowerCase())
+			.sort()
+			.join('|')
+	);
+
+	$effect(() => {
+		const isReady = settingsStore.ready;
+		const autoFetchEnabled = settingsStore.github.autoFetch;
+		const pathsKey = openCanonicalPathsKey;
+
+		if (!isReady || !autoFetchEnabled || !pathsKey) {
+			return;
+		}
+
+		let cancelled = false;
+		let isSweeping = false;
+
+		async function runSweep() {
+			if (cancelled || isSweeping || !settingsStore.ready || !settingsStore.github.autoFetch) {
+				return;
+			}
+			isSweeping = true;
+			try {
+				const targets = [...openRealCanonicalPaths];
+				for (const targetPath of targets) {
+					if (cancelled || !settingsStore.github.autoFetch) break;
+					// Ri-verifica l'appartenenza ai progetti aperti prima di ogni percorso
+					const stillOpen = projectStore.projects.some(
+						(p) =>
+							!p.labDraft &&
+							p.canonicalProjectPath &&
+							normalizeProjectPath(p.canonicalProjectPath).toLowerCase() ===
+								normalizeProjectPath(targetPath).toLowerCase()
+					);
+					if (!stillOpen) continue;
+					try {
+						await githubStore.checkRemote(targetPath);
+					} catch (err) {
+						console.error('githubStore.checkRemote failed for', targetPath, err);
+					}
+				}
+			} finally {
+				isSweeping = false;
+			}
+		}
+
+		// 1. All'avvio e ad ogni apertura/chiusura che altera la firma dei percorsi
+		void runSweep();
+
+		// 2. Ogni 5 minuti, anche con applicazione in secondo piano/nascosta
+		const interval = window.setInterval(() => {
+			void runSweep();
+		}, 5 * 60_000);
+
+		// 3. Al ritorno del focus o della visibilità (con rate limit gestito nello store)
+		const handleFocus = () => {
+			void runSweep();
+		};
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				void runSweep();
+			}
+		};
+
+		window.addEventListener('focus', handleFocus);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+
+		return () => {
+			cancelled = true;
+			clearInterval(interval);
+			window.removeEventListener('focus', handleFocus);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		};
+	});
+
 	$effect(() => () => clearTimers());
 
 	/** Il cambio di stato di un agente e' un evento, non soltanto un colore
@@ -768,7 +865,11 @@
 			{@const queueStyle = settingsStore.projectBar.queueBadge}
 			{@const gitDiff = p.lane.kind !== 'lab' && p.lane.workspacePath ? gitDiffStore.forPath(p.lane.workspacePath) : null}
 			{@const gitDiffLabel = gitDiff && hasGitChanges(gitDiff) ? ` · Git +${gitDiff.additions} -${gitDiff.deletions}` : ''}
-			{@const upstream = p.lane.kind !== 'lab' && p.lane.workspacePath ? githubStore.upstreamByPath[normalizeProjectPath(p.lane.workspacePath).toLowerCase()] : null}
+			{@const upstream = p.canonicalProjectPath ? githubStore.upstreamByPath[normalizeProjectPath(p.canonicalProjectPath).toLowerCase()] : null}
+			{@const upstreamLabel = (settingsStore.github.showUpstreamBadges && upstream)
+				? (upstream.behind > 0 ? m.topbar_upstream_behind_aria({ count: upstream.behind }) : '') +
+				  (upstream.ahead > 0 ? m.topbar_upstream_ahead_aria({ count: upstream.ahead }) : '')
+				: ''}
 			{@const aggState = getAggregatedState(p)}
 			{@const secondaryLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')}
 			{@const secondaryCount = secondaryLanes.length}
@@ -818,7 +919,7 @@
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + (secondaryCount > 0 ? ` · ${secondaryCount} corsie` : '') + gitDiffLabel}
+					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + (secondaryCount > 0 ? ` · ${secondaryCount} corsie` : '') + gitDiffLabel + upstreamLabel}
 				>
 					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
 					     raggio; il rimontaggio con `#key` riavvia l'animazione. -->
@@ -883,10 +984,21 @@
 					{#if settingsStore.github.showUpstreamBadges && upstream && (upstream.ahead > 0 || upstream.behind > 0)}
 						<span class="tab-upstream" aria-hidden="true">
 							{#if upstream.behind > 0}
-								<span class="upstream-pill behind" title={`${upstream.behind} commit da scaricare da GitHub`}>↓{upstream.behind}</span>
+								<span
+									class="upstream-pill behind"
+									title={m.topbar_upstream_behind_tooltip({ count: upstream.behind })}
+								>
+									<IconDownload />
+									<span>{upstream.behind}</span>
+								</span>
 							{/if}
 							{#if upstream.ahead > 0}
-								<span class="upstream-pill ahead" title={`${upstream.ahead} commit locali da inviare a GitHub`}>↑{upstream.ahead}</span>
+								<span
+									class="upstream-pill ahead"
+									title={m.topbar_upstream_ahead_tooltip({ count: upstream.ahead })}
+								>
+									↑{upstream.ahead}
+								</span>
 							{/if}
 						</span>
 					{/if}
@@ -929,7 +1041,7 @@
 				><IconChevronDown /></button>
 				{#if orderMenuOpen}
 					<button type="button" class="order-backdrop" onclick={() => orderMenuOpen = false} aria-label={m.topbar_sort_menu_close()} tabindex="-1"></button>
-					<div class="order-popover" role="menu" aria-label={m.topbar_sort_menu_title()} use:trapFocus={{ onEscape: () => orderMenuOpen = false }}>
+					<div class="order-popover rv-lift" role="menu" aria-label={m.topbar_sort_menu_title()} use:trapFocus={{ onEscape: () => orderMenuOpen = false }}>
 						{#each PROJECT_BAR_ORDER_OPTIONS as option (option.value)}
 							<button
 								type="button"
@@ -1015,30 +1127,28 @@
 
 
 		{#if taskStore.totalQueued > 0}
+			<Tooltip text={m.topbar_queue_chip_title()} placement="bottom">
 			<button
 				class="queue-chip"
-				onclick={(e) => { e.stopPropagation(); onQueueClick?.(); }}
-				title={m.topbar_queue_chip_title()}
+				onclick={(e) => { e.stopPropagation(); onQueueClick?.(e.currentTarget); }}
 				aria-label={m.topbar_queue_chip_aria({ count: taskStore.totalQueued })}
 			>
 				Coda ({taskStore.totalQueued})
 			</button>
+			</Tooltip>
 		{/if}
 		<QuotaChip
-			variant={settingsStore.appearance.quotaChip.variant}
 			showProvider={settingsStore.appearance.quotaChip.showProvider}
 			alwaysShowPct={settingsStore.appearance.quotaChip.alwaysShowPct}
 			semanticColors={settingsStore.appearance.quotaChip.semanticColors}
 			status={activeQuotaStore.info.status}
 			remainingPct={activeQuotaStore.info.remainingPct}
-			usedPct={activeQuotaStore.info.usedPct}
 			shortName={activeQuotaStore.info.shortName}
 			hasLimits={activeQuotaStore.info.hasLimits}
 			title={activeQuotaStore.info.tooltip}
 			ariaLabel={activeQuotaStore.info.tooltip}
 			longWindowAlert={activeQuotaStore.info.longWindowAlert}
-			accountEmail={activeQuotaStore.info.accountEmail}
-			onclick={(e) => { e.stopPropagation(); onUsageClick?.(); }}
+			onclick={(e) => { e.stopPropagation(); onUsageClick?.(e.currentTarget instanceof HTMLElement ? e.currentTarget : null); }}
 		/>
 		{#if IS_WINDOWS}
 			<!-- Su Windows Studio disegna i tre controlli personalizzati;
@@ -1080,7 +1190,7 @@
 		{onRunTask}
 		{onEditTask}
 		{onNewTask}
-		{onQueueClick}
+		onQueueClick={() => onQueueClick?.(null)}
 		{canRunTask}
 		{runReason}
 		{onRequestCloseProject}
@@ -1124,7 +1234,7 @@
 		height: 30px;
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 2px 4px;
 		cursor: pointer;
 		transition:
@@ -1136,7 +1246,7 @@
 
 	.app-icon-btn:hover {
 		background: var(--bg-hover);
-		border-color: var(--line-dim);
+		border-color: var(--line-strong);
 	}
 
 	.app-icon-btn:active {
@@ -1218,27 +1328,29 @@
 		border: 1px solid var(--line);
 		background: var(--bg-raised);
 		color: var(--ink-muted);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		font-size: 14px;
+		font-size: var(--text-xs);
 		line-height: 1;
 		flex-shrink: 0;
-		transition: all 0.15s ease;
-		z-index: 3;
+		transition: background-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out),
+		            border-color var(--dur-fast) var(--ease-out);
+		z-index: 2;
 		padding: 0;
 	}
 	.tab-scroll-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
-		border-color: var(--brand);
+		border-color: var(--line-strong);
 	}
 
 	.tab-scroll-btn:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: -2px;
+		outline-offset: 2px;
 	}
 
 	.tab-container {
@@ -1271,7 +1383,7 @@
 		left: -2px;
 		width: 2px;
 		border-radius: var(--radius-full);
-		background-color: var(--brand);
+		background-color: var(--line-strong);
 		pointer-events: none;
 	}
 
@@ -1293,7 +1405,7 @@
 	.tab:focus-visible,
 	.tab-add:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: -2px;
+		outline-offset: 2px;
 	}
 	/* La tessera non ha piu' una larghezza massima: si allarga quando il suo
 	   progetto viene aperto e si stringe quando un altro prende il posto. Il
@@ -1399,11 +1511,13 @@
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
-		padding: var(--space-2);
+		padding: var(--space-1);
 		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+		--dur: var(--dur-menu, 150ms);
+		--blur: 3px;
 	}
 
 	.order-option {
@@ -1413,12 +1527,12 @@
 		border: none;
 		color: var(--ink-muted);
 		font: inherit;
-		font-size: var(--text-xs);
-		padding: 6px 8px;
+		font-size: var(--text-label);
+		padding: 7px 8px;
 		border-radius: var(--radius-md);
 		cursor: pointer;
 		text-align: left;
-		transition: background 0.15s ease, color 0.15s ease;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.order-option:hover {
@@ -1428,18 +1542,18 @@
 
 	.order-option.active {
 		background: var(--bg-active);
-		color: var(--ink);
-		font-weight: 600;
+		color: var(--brand-ink);
+		font-weight: 500;
 	}
 
 	/* Progetto aperto: fondo neutro e nome rivelato. Nessun riempimento saturo,
 	   e il nome dentro la tessera rende inutile il titolo al centro. */
 	.tab.active {
-		background-color: color-mix(in srgb, var(--ink) 8%, transparent);
+		background-color: var(--bg-hover);
 	}
 
 	.tab.active:hover {
-		background-color: color-mix(in srgb, var(--ink) 11%, transparent);
+		background-color: var(--bg-active);
 	}
 
 	/* Punto di identita': 8px, sempre presente. E' l'unico posto della barra
@@ -1516,15 +1630,15 @@
 		height: 12px;
 		flex: none;
 		border-radius: var(--radius-full);
-		border: 1.5px solid transparent;
-		border-top-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
-		animation: tab-spin 900ms linear infinite;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--ink);
+		animation: spin 900ms linear infinite;
 	}
 
 	.tab-queue {
 		margin-left: var(--space-2);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
@@ -1539,7 +1653,7 @@
 		width: 6px;
 		height: 6px;
 		flex: none;
-		border-radius: 1px;
+		border-radius: var(--radius-sm);
 		background-color: var(--ink-faint);
 	}
 
@@ -1551,6 +1665,7 @@
 		z-index: 1;
 	}
 	.tab-lanes-badge {
+		--icon-size: 10px;
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
@@ -1558,18 +1673,18 @@
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink-muted);
-		background-color: color-mix(in srgb, var(--ink) 8%, transparent);
+		background-color: var(--bg-hover);
 		border: 1px solid var(--line);
 		line-height: 1;
 		flex-shrink: 0;
 	}
 
 	.tab-lanes-badge :global(svg) {
-		width: 10px;
-		height: 10px;
+		width: var(--icon-size, 10px);
+		height: var(--icon-size, 10px);
 		flex-shrink: 0;
 	}
 
@@ -1594,7 +1709,7 @@
 	}
 
 	.tab.finished::after {
-		box-shadow: inset 0 0 0 1px var(--brand);
+		box-shadow: inset 0 0 0 1.5px var(--line-strong);
 	}
 
 	/* Lampo di transizione: rende percepibile un cambio di stato che altrimenti
@@ -1609,21 +1724,18 @@
 		animation: tab-flash var(--dur-flash) var(--ease-out) both;
 	}
 
-	@keyframes tab-spin {
-		to { transform: rotate(360deg); }
-	}
 
 	@keyframes tab-flash {
-		0%   { opacity: 0; }
-		25%  { opacity: 0.9; }
-		100% { opacity: 0; }
+		from { opacity: 0.9; }
 	}
 
 	/* Senza movimento l'arco si fermerebbe in un punto qualsiasi e sembrerebbe
 	   un anello rotto: diventa un anello intero. */
 	@media (prefers-reduced-motion: reduce) {
 		.tab-spin {
-			border-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
+			animation: none;
+			border-color: var(--line-strong);
+			border-top-color: var(--ink);
 		}
 		.tab.attention::after {
 			animation: none;
@@ -1662,12 +1774,15 @@
 		background: transparent;
 		border: 1px solid var(--line);
 		color: var(--ink-muted);
-		padding: 3px 10px;
-		font-size: var(--text-xs);
-		border-radius: var(--radius-full);
+		height: 28px;
+		padding: 0 8px;
+		font-size: var(--text-caption);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		margin-right: var(--space-2);
-		transition: all 0.15s ease;
+		transition: background-color var(--dur-fast) var(--ease-out),
+		            border-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out);
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
@@ -1724,21 +1839,24 @@
 	}
 
 	.companion-chip.active {
-		color: var(--brand);
-		border-color: var(--brand);
-		background: var(--brand-tint);
+		color: var(--brand-ink);
+		border-color: color-mix(in srgb, var(--brand) 40%, var(--line-strong));
+		background: color-mix(in oklch, var(--brand) 12%, transparent);
 	}
 
 	.queue-chip {
 		background: transparent;
 		border: 1px solid var(--brand-dim);
 		color: var(--brand-ink);
-		padding: 3px 10px;
-		font-size: var(--text-xs);
-		border-radius: var(--radius-full);
+		height: 28px;
+		padding: 0 8px;
+		font-size: var(--text-caption);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		margin-right: var(--space-2);
-		transition: all 0.15s ease;
+		transition: background-color var(--dur-fast) var(--ease-out),
+		            border-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out);
 	}
 
 	.queue-chip:hover {
@@ -1752,12 +1870,15 @@
 		background: transparent;
 		border: 1px solid var(--warn-dim);
 		color: var(--warn);
-		padding: 3px 10px;
-		font-size: var(--text-xs);
-		border-radius: var(--radius-full);
+		height: 28px;
+		padding: 0 8px;
+		font-size: var(--text-caption);
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		margin-right: var(--space-2);
-		transition: all 0.15s ease;
+		transition: background-color var(--dur-fast) var(--ease-out),
+		            border-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out);
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
@@ -1789,7 +1910,7 @@
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: background-color 0.15s ease, color 0.15s ease;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.win-btn:hover {
@@ -1799,12 +1920,12 @@
 
 	.win-btn:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: -2px;
+		outline-offset: 2px;
 	}
 
 	.win-btn.close:hover {
-		background-color: var(--brand-dim);
-		color: var(--ink);
+		background-color: var(--danger);
+		color: var(--on-danger);
 	}
 
 	.tab-upstream {
@@ -1816,22 +1937,31 @@
 
 	.upstream-pill {
 		font-family: var(--font-mono);
-		font-size: 0.65rem;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		padding: 1px 4px;
 		border-radius: var(--radius-sm);
 		line-height: 1;
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.upstream-pill :global(svg) {
+		width: 9px;
+		height: 9px;
+		flex-shrink: 0;
 	}
 
 	.upstream-pill.behind {
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
-		color: var(--brand);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
+		color: var(--brand-ink);
+		border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
 	}
 
 	.upstream-pill.ahead {
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
-		color: var(--brand);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
+		color: var(--brand-ink);
+		border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
 	}
 </style>

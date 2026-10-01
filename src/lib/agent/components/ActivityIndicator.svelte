@@ -1,8 +1,8 @@
 <script lang="ts">
-	// Indicatore di attivita dell'agente con griglia di pixel animata,
+	// Indicatore di attivita dell'agente con StatusMark animato,
 	// label testuale con effetto shimmer e cronometro del tempo trascorso.
 	import { m } from '$lib/paraglide/messages.js';
-	import PixelGrid from './PixelGrid.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import { formatElapsed } from '../tools/types';
 
 	let { startedAt = null, label = null }: { startedAt?: number | null; label?: string | null } = $props();
@@ -45,7 +45,7 @@
 </script>
 
 <div class="activity" role="status" aria-live="polite">
-	<PixelGrid size="md" state="running" />
+	<StatusMark status="running" />
 	<span class="label text-shimmer">{label ?? m.ui_activity_sta_pensando()}</span>
 	{#if showTimer}<span class="elapsed" aria-hidden="true">{formatElapsed(elapsed)}</span>{/if}
 </div>
@@ -59,14 +59,14 @@
 	}
 
 	.label {
-		font-size: var(--text-xs);
+		font-size: 13.5px;
 		font-weight: 500;
 	}
 
 	.elapsed {
 		font-family: var(--font-mono);
 		font-variant-numeric: tabular-nums;
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
 		white-space: nowrap;
 	}

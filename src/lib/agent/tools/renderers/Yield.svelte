@@ -1,18 +1,12 @@
+<!--
+  Renderer per `yield` (consegna del risultato finale da parte di un subagent).
+
+  Nel corpo mostra il risultato completo tramite OutputBlock (con limite ampio),
+  il blocco JSON per i dati strutturati e l'eventuale errore di esecuzione
+  con segnalazione semantica mirata (Outcome-Only Color Rule).
+-->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	// Renderer per `yield` (consegna del risultato finale da parte di un subagent).
-	//
-	// Cosa mostra:
-	// - summary: prima riga del testo o dato restituito dal subagent.
-	// - body: visualizzazione del risultato completo tramite `OutputBlock` (con
-	//   limite di righe ampio, essendo la consegna principale) ed eventuale
-	//   blocco JSON `JsonBlock` per i dati strutturati (`result.data`).
-	//
-	// Comportamento quando `details` e' assente:
-	// `yield` non fa affidamento su `details`: il componente estrae il contenuto
-	// direttamente da `resultText(result)` e dagli argomenti (`args.result`,
-	// `args.data`, `args.error`), garantendo una resa completa in ogni circostanza.
-
 	import JsonBlock from '../parts/JsonBlock.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -22,7 +16,7 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const resRecord = $derived(asRecord(args.result));
 	const dataRecord = $derived(resRecord ? asRecord(resRecord.data) : asRecord(args.data));
@@ -50,62 +44,26 @@
 		if (strContent) return strContent;
 		return '';
 	});
-
-	const firstLine = $derived.by(() => {
-		if (errorMessage) return m.ui_yield_errore_value1_fe4b({ value1: errorMessage.split('\n', 1)[0] });
-		if (mainText) return mainText.split('\n', 1)[0] ?? '';
-		if (structuredData) return '(Dati strutturati)';
-		return '(Nessun output)';
-	});
 </script>
 
-{#if view === 'summary'}
-	<span class="summary-line" class:error={!!errorMessage}>
-		{#if firstLine}
-			<span class="text-preview">{firstLine}</span>
-		{/if}
-	</span>
-{:else}
-	<div class="yield-body">
-		{#if errorMessage}
-			<div class="error-banner">
-				<span class="error-label">{m.ui_yield_errore_subagent_5b6a()}</span>
-				<p class="error-text">{errorMessage}</p>
-			</div>
-		{/if}
+<div class="yield-body">
+	{#if errorMessage}
+		<div class="error-banner">
+			<span class="error-label">{m.ui_yield_errore_subagent_5b6a()}</span>
+			<p class="error-text">{errorMessage}</p>
+		</div>
+	{/if}
 
-		{#if mainText}
-			<OutputBlock text={mainText} label="risultato finale" maxLines={48} />
-		{/if}
+	{#if mainText}
+		<OutputBlock text={mainText} label="risultato finale" maxLines={48} />
+	{/if}
 
-		{#if structuredData}
-			<JsonBlock value={structuredData} label="dati strutturati" />
-		{/if}
-	</div>
-{/if}
+	{#if structuredData}
+		<JsonBlock value={structuredData} label="dati strutturati" />
+	{/if}
+</div>
 
 <style>
-	.summary-line {
-		display: flex;
-		align-items: baseline;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-sm);
-	}
-
-	.summary-line.error .text-preview {
-		color: var(--danger);
-	}
-
-	.text-preview {
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.yield-body {
 		display: flex;
 		flex-direction: column;
@@ -117,23 +75,23 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		padding: var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--danger);
-		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+		border-left: 2px solid var(--danger);
 	}
 
 	.error-label {
-		font-size: var(--text-xs);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		color: var(--danger);
-		font-weight: 500;
+		font-weight: 600;
 	}
 
 	.error-text {
 		margin: 0;
+		font-family: var(--font-ui);
 		font-size: var(--text-sm);
 		color: var(--ink);
-		line-height: 1.4;
+		line-height: 1.45;
 		user-select: text;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;

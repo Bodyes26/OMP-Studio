@@ -1,20 +1,14 @@
 <!--
   Renderer per il tool `irc`.
 
-  Forma attesa di `details`:
-  `to` (string), `from` (string), `receipts` (array), `waited` (object),
-  `inbox` (array), `peers` (array).
-
-  Comportamento quando `details` manca o e' incompleto:
-  Mostra il destinatario e il messaggio (troncato) nel sommario. Nel corpo
-  mostra la tabella KeyValue con gli argomenti della trasmissione e l'output
-  testuale di risposta in OutputBlock.
+  Nel corpo mostra il messaggio scambiato tramite PromptBlock (Two Voices Rule),
+  la tabella KeyValue con gli argomenti della trasmissione e l'output testuale in OutputBlock.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
+	import PromptBlock from '../parts/PromptBlock.svelte';
 	import {
 		asRecord,
 		bool,
@@ -25,7 +19,7 @@
 		type ToolRenderProps
 	} from '../types';
 
-	let { args, result, view }: ToolRenderProps = $props();
+	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
 	const to = $derived(str(args.to) ?? str(args.recipient) ?? str(details?.to) ?? 'tutti');
@@ -52,81 +46,25 @@
 	});
 </script>
 
-{#if view === 'summary'}
-	<div class="irc-summary">
-		<CountBadge text={`a ${to}`} />
-		{#if message}
-			<span class="msg-text">{message}</span>
-		{/if}
-	</div>
-{:else}
-	<div class="irc-body">
-		{#if message}
-			<div class="msg-card">
-				<span class="msg-label">{m.ui_irc_messaggio_d997()}</span>
-				<p class="msg-full-text">{message}</p>
-			</div>
-		{/if}
+<div class="irc-body">
+	{#if message}
+		<PromptBlock text={message} label={m.ui_irc_messaggio_d997()} />
+	{/if}
 
-		{#if argsRows.length > 0}
-			<KeyValue rows={argsRows} />
-		{/if}
+	{#if argsRows.length > 0}
+		<KeyValue rows={argsRows} />
+	{/if}
 
-		{#if text}
-			<OutputBlock {text} label="risposta irc" />
-		{/if}
-	</div>
-{/if}
+	{#if text}
+		<OutputBlock {text} label="risposta irc" />
+	{/if}
+</div>
 
 <style>
-	.irc-summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.msg-text {
-		font-size: var(--text-sm);
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		user-select: text;
-	}
-
 	.irc-body {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
 		min-width: 0;
-	}
-
-	.msg-card {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		padding: var(--space-2);
-		background: var(--bg-sunken);
-		border-radius: var(--radius-sm);
-	}
-
-	.msg-label {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		user-select: none;
-	}
-
-	.msg-full-text {
-		margin: 0;
-		font-size: var(--text-sm);
-		line-height: 1.5;
-		color: var(--ink);
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-		user-select: text;
 	}
 </style>

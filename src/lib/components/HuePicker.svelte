@@ -160,7 +160,7 @@
 		padding: 0 var(--space-1);
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
 		cursor: pointer;
 		font: inherit;
@@ -256,7 +256,7 @@
 	.value-tag {
 		display: block;
 		font-family: var(--font-ui);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 </style>

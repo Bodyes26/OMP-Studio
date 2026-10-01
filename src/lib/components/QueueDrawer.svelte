@@ -1,20 +1,23 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
 	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import { automaticProjectHue, THEMES } from '$lib/theme';
-	import { trapFocus } from '$lib/focusTrap';
 	import type { Project } from '$lib/stores/projects.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { IconClose } from '$lib/icons';
+	import { IconClose, IconWarning } from '$lib/icons';
 	import { isLaneRoutable, type AutomationGate } from '$lib/agent/automationGate';
 	import { taskLabel } from '$lib/stores/taskTitle';
+	import { anchoredPopover } from '$lib/anchoredPopover';
+	import { rvLift } from '$lib/agent/motion';
+	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import QueueTaskItem from './QueueTaskItem.svelte';
+
 	let {
 		open = false,
+		anchor = null,
 		onClose,
 		onRunTask,
 		onEditTask,
@@ -23,6 +26,7 @@
 		onOpenFile
 	} = $props<{
 		open?: boolean;
+		anchor?: HTMLElement | null;
 		onClose?: () => void;
 		onRunTask?: (
 			projectId: string,
@@ -36,6 +40,37 @@
 	}>();
 
 	let explainedProjectId = $state<string | null>(null);
+	let drawerEl = $state<HTMLElement | null>(null);
+	let previouslyFocused = $state<HTMLElement | null>(null);
+
+	$effect(() => {
+		if (open) {
+			previouslyFocused = (document.activeElement as HTMLElement) || null;
+		} else {
+			previouslyFocused = null;
+		}
+	});
+
+	function restoreFocus() {
+		if (previouslyFocused?.isConnected) {
+			previouslyFocused.focus();
+		}
+		previouslyFocused = null;
+	}
+
+	function handleExplicitClose() {
+		restoreFocus();
+		onClose?.();
+	}
+
+	$effect(() => {
+		if (open && drawerEl && !anchor) {
+			drawerEl.style.top = '48px';
+			drawerEl.style.right = 'var(--space-2)';
+			drawerEl.style.left = 'auto';
+			drawerEl.style.bottom = 'auto';
+		}
+	});
 
 	// Un gruppo per progetto reale (gli scratchpad hanno path vuoto e non
 	// hanno coda) con almeno un task in attesa. L'ordine segue projectOrder,
@@ -67,6 +102,14 @@
 	function firstTaskLabel(task: StudioTask): string {
 		return taskLabel(task) || (task.images?.length ? m.queue_drawer_title_only_images() : m.queue_drawer_title_new_task());
 	}
+
+	function gateStatus(gate: AutomationGate): StatusMarkType {
+		if (gate.block === 'question' || gate.block === 'quota') return 'attention';
+		if (gate.block === 'working' || gate.block === 'starting' || gate.block === 'compacting') return 'running';
+		if (!isLaneRoutable(gate)) return 'blocked';
+		return 'pending';
+	}
+
 	// Ctrl+click porta il focus sul progetto dopo l'avvio; il click semplice
 	// lancia in background, come deciso per tutti i punti di avvio condivisi.
 	// Shift+click forza una corsia isolata nuova (Gate R27 / W09).
@@ -90,26 +133,58 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && open) {
 			event.preventDefault();
+			event.stopPropagation();
+			handleExplicitClose();
+		}
+	}
+
+	function handleFocusOut(event: FocusEvent) {
+		const related = event.relatedTarget as Node | null;
+		if (related && !drawerEl?.contains(related) && !anchor?.contains(related)) {
 			onClose?.();
 		}
 	}
+
+	$effect(() => {
+		if (!open) return;
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target as Node | null;
+			if (!target) return;
+			if (drawerEl?.contains(target) || anchor?.contains(target)) return;
+			onClose?.();
+		};
+		document.addEventListener('pointerdown', handlePointerDown, true);
+		return () => {
+			document.removeEventListener('pointerdown', handlePointerDown, true);
+		};
+	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-	<button type="button" class="backdrop" onclick={onClose} aria-label={m.queue_drawer_close_aria()} tabindex="-1" transition:fade={{ duration: 180 }}></button>
 	<div
+		bind:this={drawerEl}
 		class="drawer"
+		popover="manual"
 		role="dialog"
-		aria-modal="true"
 		aria-label={m.queue_drawer_modal_aria()}
-		use:trapFocus={{ onEscape: onClose }}
-		transition:fly={{ y: -12, duration: 220, easing: cubicOut }}
+		use:anchoredPopover={{ anchor, placement: 'bottom-end', offset: 8, constrainHeight: true, motion: false }}
+		transition:rvLift={{ duration: 150, blur: 3 }}
+		onfocusout={handleFocusOut}
 	>
 		<div class="header">
 			<h3>{m.queue_drawer_heading()}</h3>
-			<button type="button" class="close-btn" onclick={onClose} aria-label={m.queue_drawer_close_aria()}><IconClose /></button>
+			<Tooltip text={m.queue_drawer_close_aria()} placement="bottom" offset={6}>
+				<button
+					type="button"
+					class="close-btn"
+					onclick={handleExplicitClose}
+					aria-label={m.queue_drawer_close_aria()}
+				>
+					<IconClose />
+				</button>
+			</Tooltip>
 		</div>
 		<div class="body" role="list" aria-label={m.queue_drawer_projects_list_aria()}>
 			{#if groups.length === 0}
@@ -143,17 +218,20 @@
 											aria-label={m.gate_state_aria({ label: gate.label })}
 											class:attention
 											title={`${gate.detail} ${gate.hint}`.trim()}
-											onclick={() => explainedProjectId = explainedProjectId === group.project.id ? null : group.project.id}
+											onclick={() => (explainedProjectId = explainedProjectId === group.project.id ? null : group.project.id)}
 										>
-											<span class="state-dot" aria-hidden="true"></span>
-											{gate.label}
+											<StatusMark status={gateStatus(gate)} active={open} visible={open} />
+											<span>{gate.label}</span>
 										</button>
 									{:else}
-										<span class="group-reason">{gate.label}</span>
+										<span class="group-reason">
+											<StatusMark status="pending" active={false} visible={open} />
+											<span>{gate.label}</span>
+										</span>
 									{/if}
 									<button
 										type="button"
-										class="run-first"
+										class="ui-button ui-button-secondary run-first"
 										class:blocked
 										class:attention
 										aria-expanded={blocked ? explainedProjectId === group.project.id : undefined}
@@ -171,14 +249,27 @@
 						</div>
 						{#if blocked && explainedProjectId === group.project.id}
 							<div id={`queue-gate-${group.project.id}`} class="gate-notice" class:attention role="status" aria-live="polite">
-								<strong>{m.gate_notice_title()}</strong>
+								<div class="gate-notice-header">
+									{#if attention}
+										<span class="gate-icon" aria-hidden="true"><IconWarning /></span>
+									{/if}
+									<strong class="gate-title">{m.gate_notice_title()}</strong>
+								</div>
 								<span>{gate.detail}</span>
 								{#if gate.hint}<span class="gate-hint">{gate.hint}</span>{/if}
 								<div class="gate-actions">
-									<button type="button" onclick={() => onOpenProject?.(group.project.id)}>
+									<button
+										type="button"
+										class="ui-button ui-button-secondary"
+										onclick={() => onOpenProject?.(group.project.id)}
+									>
 										{m.gate_notice_open_project()}
 									</button>
-									<button type="button" onclick={() => explainedProjectId = null}>
+									<button
+										type="button"
+										class="ui-button ui-button-secondary"
+										onclick={() => (explainedProjectId = null)}
+									>
 										{m.gate_notice_dismiss()}
 									</button>
 								</div>
@@ -212,25 +303,12 @@
 {/if}
 
 <style>
-	/* Click-catcher a piena viewport: senza reset il <button> erediterebbe
-	   `ButtonFace` e il bordo `outset` dello user agent, tingendo di grigio
-	   tutta la finestra invece di restare invisibile. */
-	.backdrop {
-		position: fixed;
-		top: 0; left: 0; right: 0; bottom: 0;
-		z-index: var(--z-backdrop);
-		background: transparent;
-		border: none;
-		padding: 0;
-		cursor: default;
-	}
-
 	.drawer {
 		position: fixed;
 		top: 48px;
 		right: var(--space-2);
 		width: 420px;
-		max-height: 70vh;
+		max-height: min(70vh, var(--anchored-space, 70vh));
 		background: var(--bg-overlay);
 		/* Sfondo opaco su cui `QueueTaskItem` compone hover e barra azioni. */
 		--queue-task-surface: var(--bg-overlay);
@@ -242,6 +320,8 @@
 		flex-direction: column;
 		color: var(--ink);
 		overflow: hidden;
+		--dur: var(--dur-menu);
+		--blur: 3px;
 	}
 
 	.header {
@@ -255,28 +335,42 @@
 
 	.header h3 {
 		margin: 0;
-		font-size: var(--text-base);
-		font-weight: 500;
+		font-family: var(--font-ui);
+		font-size: 16px;
+		font-weight: 550;
+		line-height: 1.3;
 		color: var(--ink);
+		text-wrap: balance;
 	}
 
 	.close-btn {
 		background: transparent;
-		border: none;
+		border: 1px solid transparent;
 		color: var(--ink-faint);
 		cursor: pointer;
-		font-size: var(--text-lg);
 		padding: 4px;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		line-height: 1;
+		--icon-size: 16px;
+	}
+
+	.close-btn :global(svg) {
+		width: var(--icon-size, 16px);
+		height: var(--icon-size, 16px);
 	}
 
 	.close-btn:hover {
 		color: var(--ink);
 		background: var(--bg-hover);
+		border-color: var(--line);
+	}
+
+	.close-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 	}
 
 	.body {
@@ -326,7 +420,7 @@
 		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
 		color: var(--on-project);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		letter-spacing: 0.02em;
 		line-height: 1;
@@ -397,13 +491,18 @@
 		gap: var(--space-1);
 		overflow: hidden;
 		border: 0;
+		border-radius: var(--radius-md);
 		background: transparent;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
 		line-height: 22px;
 		text-align: left;
+	}
+
+	.group-reason span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	button.group-reason.blocked {
@@ -415,45 +514,32 @@
 		color: var(--warn);
 	}
 
-	.state-dot {
-		width: 6px;
-		height: 6px;
-		flex: 0 0 auto;
-		border-radius: var(--radius-full);
-		background: currentColor;
+	button.group-reason:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 	}
 
 	.run-first {
 		flex-shrink: 0;
 		height: 22px;
 		padding: 0 var(--space-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink-muted);
+		border-radius: var(--radius-md);
 		font-size: var(--text-xs);
 		cursor: pointer;
 	}
 
-	.run-first:hover:not(.blocked) {
-		background: var(--bg-hover);
-		color: var(--ink);
+	.run-first:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 	}
 
 	.run-first.blocked {
 		color: var(--ink-faint);
-		border-color: var(--line);
 		cursor: help;
 	}
 
-	.run-first.blocked:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
 	.run-first.blocked.attention:hover {
-		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
-		background: color-mix(in srgb, var(--warn) 8%, transparent);
+		border-color: color-mix(in srgb, var(--warn) 35%, var(--line));
 		color: var(--warn);
 	}
 
@@ -475,8 +561,30 @@
 	}
 
 	.gate-notice.attention {
-		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
-		background: color-mix(in srgb, var(--warn) 8%, var(--bg-raised));
+		border-color: color-mix(in srgb, var(--warn) 35%, var(--line));
+		background: var(--bg-raised);
+	}
+
+	.gate-notice-header {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	.gate-notice-header .gate-icon {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 14px;
+	}
+
+	.gate-notice-header .gate-icon :global(svg) {
+		width: var(--icon-size, 14px);
+		height: var(--icon-size, 14px);
+	}
+
+	.gate-notice.attention .gate-title,
+	.gate-notice.attention .gate-icon {
+		color: var(--warn);
 	}
 
 	.gate-notice strong,
@@ -494,16 +602,13 @@
 	.gate-actions button {
 		height: 24px;
 		padding: 0 var(--space-2);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink);
+		border-radius: var(--radius-md);
 		font-size: var(--text-xs);
-		cursor: pointer;
 	}
 
-	.gate-actions button:hover {
-		background: var(--bg-hover);
+	.gate-actions button:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 	}
 
 	.gate-note {

@@ -1,4 +1,3 @@
-import { quintOut } from 'svelte/easing';
 import { motionReduced } from './motionState.svelte';
 import type { TransitionConfig } from 'svelte/transition';
 
@@ -7,6 +6,7 @@ export interface ChatRevealParams {
 	duration?: number;
 	blur?: number;
 	distance?: number;
+	x?: number;
 }
 
 function pixels(value: string): number {
@@ -14,9 +14,50 @@ function pixels(value: string): number {
 	return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function durationToken(style: CSSStyleDeclaration): number {
-	const duration = pixels(style.getPropertyValue('--dur-slow'));
-	return duration > 0 ? duration : 240;
+function durationToken(style: CSSStyleDeclaration, token: string, fallback: number): number {
+	const value = style.getPropertyValue(token).trim();
+	const duration = pixels(value) * (value.endsWith('ms') ? 1 : 1000);
+	return value && Number.isFinite(duration) ? duration : fallback;
+}
+
+/* Svelte interpola via JS: risolviamo la stessa curva di --ease-reveal
+   sull'asse x, invece di sostituirla con una curva polinomiale simile. */
+function revealEase(progress: number): number {
+	if (progress <= 0 || progress >= 1) return progress;
+	let parameter = progress;
+	for (let iteration = 0; iteration < 6; iteration++) {
+		const x = ((0.58 * parameter - 0.24) * parameter + 0.66) * parameter;
+		const derivative = (1.74 * parameter - 0.48) * parameter + 0.66;
+		parameter -= (x - progress) / derivative;
+	}
+	return ((-0.17 * parameter - 0.66) * parameter + 1.83) * parameter;
+}
+
+/** Ingresso/uscita senza piegare il layout: menu, popover e dialoghi. */
+export function rvLift(
+	node: Element,
+	{ delay = 0, duration, blur = 3, distance, x = 0 }: ChatRevealParams = {}
+): TransitionConfig {
+	const style = getComputedStyle(node);
+	const reduced = motionReduced();
+	const transform = style.transform === 'none' ? '' : style.transform;
+	const filter = style.filter === 'none' ? '' : style.filter;
+	const opacity = pixels(style.opacity);
+	const y = distance ?? (x !== 0 ? 0 : 8);
+	return {
+		delay: reduced ? 0 : delay,
+		duration: reduced ? 0 : (duration ?? durationToken(
+			style,
+			style.getPropertyValue('--dur').trim() ? '--dur' : '--dur-slow',
+			240
+		)),
+		easing: revealEase,
+		css: (t, u) => `
+			opacity: ${t * opacity};
+			filter: ${filter} blur(${u * blur}px);
+			transform: ${transform} translate3d(${u * x}px, ${u * y}px, 0);
+		`
+	};
 }
 
 /**
@@ -45,8 +86,8 @@ export function chatReveal(
 	const reduced = motionReduced();
 	return {
 		delay: reduced ? 0 : delay,
-		duration: reduced ? 0 : (duration ?? durationToken(style)),
-		easing: quintOut,
+		duration: reduced ? 0 : (duration ?? durationToken(style, '--dur-row', 210)),
+		easing: revealEase,
 		css: (t, u) => `
 			overflow: clip;
 			height: ${t * height}px;

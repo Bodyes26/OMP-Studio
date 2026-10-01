@@ -37,13 +37,10 @@
 	import SystemChip from './SystemChip.svelte';
 	import NoticeGroup from './NoticeGroup.svelte';
 	import ActivityIndicator from './ActivityIndicator.svelte';
-	import AlertBanner from '$lib/components/AlertBanner.svelte';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 
 	let { session } = $props<{ session: AgentSession }>();
 
-	let recovering = $state(false);
 
 	const projectName = $derived(
 		projectStore.activeProject?.name ?? session.sessionName ?? 'Progetto'
@@ -524,45 +521,6 @@
 		{/each}
 	{/if}
 
-	{#if session.blockedQuotaState && !session.blockedQuotaState.dismissed}
-		{@const bq = session.blockedQuotaState}
-		{@const suggested = bq.suggestedModel}
-		<div class="entry-row quota-blocked-row">
-			<AlertBanner
-				variant={bq.reasonKind === 'quota_exhausted' ? 'error' : 'warning'}
-				title={bq.title}
-				message={bq.message}
-				diagnostic={bq.rawError}
-				dismissible={true}
-				onDismiss={() => session.dismissBlockedQuota()}
-				actions={[
-					...(suggested
-						? [
-								{
-									label: `Passa a ${suggested.modelName} e riprendi`,
-									onClick: async () => {
-										if (recovering) return;
-										recovering = true;
-										try {
-											await session.applyQuotaRecovery(suggested.selector, suggested.thinking);
-										} finally {
-											recovering = false;
-										}
-									},
-									variant: 'primary' as const,
-									loading: recovering
-								}
-						  ]
-						: []),
-					{
-						label: m.ui_transcript_scegli_altro_modello_610f(),
-						onClick: () => modelSettingsStore.openModal('catalog'),
-						variant: 'secondary' as const
-					}
-				]}
-			/>
-		</div>
-	{/if}
 
 	{#if showStartupIndicator}
 		<div
@@ -659,8 +617,8 @@
 		height: 14px;
 		border: 1.5px solid var(--line-strong);
 		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin-fast 600ms linear infinite;
+		border-radius: var(--radius-full);
+		animation: spin 600ms linear infinite;
 		flex: 0 0 auto;
 	}
 
@@ -730,7 +688,7 @@
 	}
 
 	.empty-state-text {
-		font-size: 15px;
+		font-size: var(--text-chat);
 		line-height: 24px;
 		color: var(--ink-muted);
 		margin: 0;
@@ -745,7 +703,7 @@
 	.earlier-btn {
 		background: var(--bg-hover);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: var(--space-1) var(--space-3);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
@@ -757,63 +715,4 @@
 		border-color: var(--line-strong);
 	}
 
-	.quota-blocked-row {
-		margin: var(--space-3) 0;
-	}
-
-	.quota-blocked-row :global(.alert-banner) {
-		border-radius: 16px !important;
-		border: 1px solid var(--line) !important;
-		background: var(--bg-raised) !important;
-		backdrop-filter: blur(8px);
-		box-shadow: 0 4px 16px -6px rgba(0, 0, 0, 0.08) !important;
-		padding: 12px 16px !important;
-	}
-
-	.quota-blocked-row :global(.alert-banner.variant-error) {
-		border-color: var(--line) !important;
-		border-left: 3px solid var(--danger) !important;
-	}
-
-	.quota-blocked-row :global(.alert-banner.variant-warning) {
-		border-color: var(--line) !important;
-		border-left: 3px solid var(--warn) !important;
-	}
-
-	.quota-blocked-row :global(.alert-title) {
-		font-size: 13px !important;
-		font-weight: 500 !important;
-		color: var(--ink) !important;
-	}
-
-	.quota-blocked-row :global(.alert-message) {
-		font-size: 12.5px !important;
-		line-height: 1.5 !important;
-		color: var(--ink-muted) !important;
-	}
-
-	.quota-blocked-row :global(.btn-action) {
-		border-radius: var(--radius-full) !important;
-		font-size: 12px !important;
-		padding: 4px 14px !important;
-		transition: background-color var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast) !important;
-	}
-
-	.quota-blocked-row :global(.btn-action.primary) {
-		background: var(--brand) !important;
-		color: var(--brand-ink) !important;
-		border: 1px solid transparent !important;
-		font-weight: 500 !important;
-	}
-
-	.quota-blocked-row :global(.btn-action.secondary) {
-		background: var(--bg-base) !important;
-		color: var(--ink) !important;
-		border: 1px solid var(--line) !important;
-	}
-
-	.quota-blocked-row :global(.btn-action.secondary:hover) {
-		background: var(--bg-hover) !important;
-		border-color: var(--line-strong) !important;
-	}
 </style>

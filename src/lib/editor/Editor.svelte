@@ -1767,6 +1767,7 @@
 		color: var(--ink);
 		font-family: var(--font-ui);
 		font-size: var(--text-base);
+		line-height: 1.5;
 	}
 
 	.loading-overlay, .empty-state {

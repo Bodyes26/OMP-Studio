@@ -106,11 +106,11 @@
 					>
 						<span class="row-icon">
 							{#if file.priority === 'active' || file.priority === 'open'}
-								<IconEditor size={14} />
+								<IconEditor />
 							{:else if file.priority === 'touched'}
-								<IconHistory size={14} />
+								<IconHistory />
 							{:else}
-								<IconFile size={14} />
+								<IconFile />
 							{/if}
 						</span>
 
@@ -145,7 +145,7 @@
 					>
 						<span class="row-icon">
 							{#if item.isSkill}
-								<IconSparkles size={14} />
+								<IconSparkles />
 							{:else}
 								<span class="slash-glyph font-mono">/</span>
 							{/if}
@@ -211,7 +211,7 @@
 
 	.section-header {
 		padding: var(--space-2) var(--space-2) 2px;
-		font-size: 10px;
+		font-size: var(--text-group-label);
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -254,6 +254,7 @@
 		width: 16px;
 		height: 16px;
 		margin-top: 1px;
+		--icon-size: 14px;
 	}
 
 	.slash-glyph {
@@ -273,7 +274,7 @@
 	}
 
 	.file-dir {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -283,7 +284,7 @@
 	}
 
 	.token-est {
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		flex-shrink: 0;
 		margin-left: auto;
@@ -311,13 +312,13 @@
 	}
 
 	.cmd-args {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
 	.cmd-badge-immediate {
 		margin-left: auto;
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		padding: 0 4px;
 		background: var(--bg-base);
@@ -325,7 +326,7 @@
 	}
 
 	.cmd-desc {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		line-height: 1.35;
 		color: var(--ink-muted);
 		white-space: nowrap;
@@ -361,7 +362,7 @@
 		padding: 5px var(--space-3);
 		border-top: 1px solid var(--line);
 		background: var(--bg-base);
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		border-bottom-left-radius: var(--radius-lg);
 		border-bottom-right-radius: var(--radius-lg);
@@ -369,6 +370,6 @@
 
 	.suggest-footer kbd {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 	}
 </style>

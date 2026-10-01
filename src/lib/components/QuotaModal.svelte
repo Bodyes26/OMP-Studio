@@ -5,34 +5,39 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
-	import { trapFocus } from '$lib/focusTrap';
+	import { rvLift } from '$lib/agent/motion';
+	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { quotaStore, providersMatch, type ProviderHost, type QuotaLimit, type QuotaReport } from '$lib/stores/quota.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
 	import { limitTone } from '$lib/quota/resolve';
 	import { IconRefresh, IconClose, IconWarning } from '$lib/icons';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+
 	let {
 		open = false,
+		anchor = null,
 		onClose,
 		guiHosts = [],
 		onOpenSettings
 	} = $props<{
 		open?: boolean;
+		anchor?: HTMLElement | null;
 		onClose?: () => void;
 		guiHosts?: ProviderHost[];
 		onOpenSettings?: (section?: string) => void;
 	}>();
 
+	let popoverEl = $state<HTMLDivElement | null>(null);
+	let previousFocus: HTMLElement | null = null;
 	let now = $state(Date.now());
 
-	/* Variante e preferenze colore semaforo del popover quote */
+	/* Preferenze colore semaforo del popover quote */
 	const popover = $derived(settingsStore.appearance.quotaPopover);
 
-	/* Host GUI e host noti allo store: usati per l'etichetta "In uso da".
-	   Sta nello script perche' {@const} non e' ammesso come figlio di un <div>. */
+	/* Host GUI e host noti allo store: usati per l'etichetta "In uso da" */
 	const allHosts = $derived([...guiHosts, ...quotaStore.providerHosts]);
 
 	/* Il provider del modello in uso (quello della chip) va in cima: e' la quota
@@ -89,34 +94,111 @@
 		}
 	});
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && open && onClose) {
+	// Memorizza il focus precedente all'apertura per ripristino esplicito
+	$effect(() => {
+		if (open) {
+			previousFocus = (document.activeElement as HTMLElement) || anchor || null;
+		} else {
+			previousFocus = null;
+		}
+	});
+
+	// Fallback di posizionamento in alto a destra quando anchor non e' fornito
+	$effect(() => {
+		if (open && popoverEl && !anchor) {
+			popoverEl.style.top = '48px';
+			popoverEl.style.right = 'var(--space-3)';
+			popoverEl.style.left = 'auto';
+			popoverEl.style.bottom = 'auto';
+		}
+	});
+
+	function restoreFocus() {
+		if (anchor?.isConnected) {
+			anchor.focus();
+		} else if (previousFocus?.isConnected) {
+			previousFocus.focus();
+		}
+	}
+
+	function handleExplicitClose() {
+		onClose?.();
+		restoreFocus();
+	}
+
+	// Chiusura al click esterno (fase di cattura): non ruba il fuoco al target cliccato
+	$effect(() => {
+		if (!open) return;
+
+		const handlePointerDown = (e: PointerEvent) => {
+			const target = e.target as Node | null;
+			if (!target || !popoverEl) return;
+			if (popoverEl.contains(target) || (anchor && anchor.contains(target))) {
+				return;
+			}
+			onClose?.();
+		};
+
+		document.addEventListener('pointerdown', handlePointerDown, true);
+		return () => {
+			document.removeEventListener('pointerdown', handlePointerDown, true);
+		};
+	});
+
+	function handlePopoverKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.stopPropagation();
+			handleExplicitClose();
+			return;
+		}
+		// Tab esce liberamente: gestito da handleFocusOut
+	}
+
+	function handleWindowKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && open) {
 			const t = e.target as HTMLElement | null;
 			if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
 				return;
 			}
-			onClose();
+			e.stopPropagation();
+			handleExplicitClose();
+		}
+	}
+
+	function handleFocusOut(e: FocusEvent) {
+		const related = e.relatedTarget as Node | null;
+		if (!popoverEl?.contains(related) && !(anchor && anchor.contains(related))) {
+			// Uscita naturale del Tab: chiude senza ripristinare il fuoco sull'ancora
+			onClose?.();
 		}
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={handleWindowKeyDown} />
 
 {#if open}
-	<button type="button" class="backdrop" onclick={onClose} aria-label={m.ui_quotamodal_chiudi_limiti_utilizzo_160a()} tabindex="-1" transition:fade={{ duration: 180 }}></button>
 	<div
+		bind:this={popoverEl}
 		class="popover"
 		class:quota-semantic={popover.semanticColors}
-		data-variant={popover.variant}
 		role="dialog"
-		aria-modal="true"
+		tabindex="-1"
 		aria-label="Limiti di utilizzo API"
-		use:trapFocus={{ onEscape: onClose }}
-		transition:fly={{ y: -12, duration: 220, easing: cubicOut }}
+		popover="manual"
+		use:anchoredPopover={{
+			anchor,
+			placement: 'bottom-end',
+			offset: 8,
+			motion: false
+		}}
+		transition:rvLift={{ blur: 3 }}
+		style="--dur: var(--dur-menu); --blur: 3px;"
+		onkeydown={handlePopoverKeyDown}
+		onfocusout={handleFocusOut}
 	>
 		<div class="header">
 			<div class="title-group">
-				<h3>{m.quota_heading()}</h3>
+				<h3 class="header-title">{m.quota_heading()}</h3>
 				{#if quotaStore.rawJson?.generatedAt}
 					<span class="freshness" title={i18n.formatDate(quotaStore.rawJson.generatedAt, { dateStyle: 'short', timeStyle: 'medium' })}>
 						{quotaStore.loading ? m.quota_updating() : m.quota_updated_age({ age: formatAge(quotaStore.rawJson.generatedAt) })}
@@ -124,36 +206,32 @@
 				{/if}
 			</div>
 			<div class="actions">
-				<button
-					class="icon-btn refresh-btn"
-					onclick={() => void quotaStore.refresh(true)}
-					title={m.quota_force_refresh()}
-					aria-label={m.ui_quotamodal_aggiorna_dati_utilizzo_api_6f79()}
-					disabled={quotaStore.loading}
-				>
-					<span class="refresh-icon" class:spinning={quotaStore.loading}><IconRefresh /></span>
-				</button>
-				<button class="close-btn" onclick={onClose} aria-label={m.quota_close()}><IconClose /></button>
+				<Tooltip text={m.quota_force_refresh()} placement="bottom" offset={4}>
+					<button
+						class="icon-btn refresh-btn"
+						onclick={() => void quotaStore.refresh(true)}
+						aria-label={m.ui_quotamodal_aggiorna_dati_utilizzo_api_6f79()}
+						disabled={quotaStore.loading}
+						aria-busy={quotaStore.loading}
+					>
+						{#if quotaStore.loading}
+							<StatusMark status="running" active={open} visible={open} />
+						{:else}
+							<span class="refresh-icon"><IconRefresh /></span>
+						{/if}
+					</button>
+				</Tooltip>
+				<Tooltip text={m.quota_close()} placement="bottom" offset={4}>
+					<button class="close-btn" onclick={handleExplicitClose} aria-label={m.quota_close()}><IconClose /></button>
+				</Tooltip>
 			</div>
 		</div>
-
-		{#if quotaStore.loading && quotaStore.rawJson}
-			<div class="loading-bar"></div>
-		{/if}
 
 		<div class="content">
 			{#if quotaStore.status === 'offline'}
 				<div class="quota-alert offline" role="alert">
 					<div class="alert-icon" aria-hidden="true">
-						<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<line x1="1" y1="1" x2="23" y2="23"></line>
-							<path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
-							<path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
-							<path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
-							<path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
-							<path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
-							<line x1="12" y1="20" x2="12.01" y2="20"></line>
-						</svg>
+						<IconWarning />
 					</div>
 					<div class="alert-body">
 						<strong class="alert-title">{m.quota_unreachable_title()}</strong>
@@ -162,7 +240,12 @@
 							<div class="error-detail" title={quotaStore.error}>{quotaStore.error}</div>
 						{/if}
 					</div>
-					<button type="button" class="action-btn" onclick={() => void quotaStore.refresh(true)} disabled={quotaStore.loading}>
+					<button
+						type="button"
+						class="ui-button ui-button-secondary action-btn"
+						onclick={() => void quotaStore.refresh(true)}
+						disabled={quotaStore.loading}
+					>
 						{quotaStore.loading ? m.page_omp_update_status_checking() : m.quota_retry()}
 					</button>
 				</div>
@@ -178,8 +261,8 @@
 					{#if onOpenSettings}
 						<button
 							type="button"
-							class="action-btn primary"
-							onclick={() => { onClose?.(); onOpenSettings('models'); }}
+							class="ui-button ui-button-primary action-btn"
+							onclick={() => { handleExplicitClose(); onOpenSettings('models'); }}
 						>
 							{m.quota_configure()}
 						</button>
@@ -190,7 +273,7 @@
 			{#if quotaStore.disabledCredentials.length > 0}
 				<div class="disabled-creds-card">
 					<div class="disabled-header">
-						<span class="warning-bullet">!</span>
+						<span class="warning-icon" aria-hidden="true"><IconWarning /></span>
 						<span class="disabled-title">Credenziali disabilitate o scadute ({quotaStore.disabledCredentials.length})</span>
 					</div>
 					<div class="disabled-list">
@@ -211,59 +294,56 @@
 
 			{#if quotaStore.loading && !quotaStore.rawJson}
 				<div class="loading-state">
-					<span class="spinner"></span>
+					<StatusMark status="running" />
 					<span>{m.quota_querying()}</span>
 				</div>
 			{:else if quotaStore.reports && quotaStore.reports.length > 0}
-				{#key popover.variant}
-					<div class="reports-container" in:fade={{ duration: 120 }}>
-						{#each sortedReports as report, i}
-							{#if report.limits && report.limits.length > 0}
-								{@const projectLabels = [...new Set(allHosts
-									.filter((host) => providersMatch(host.provider, report.provider))
-									.map((host) => host.project || host.host)
-									.filter((label) => Boolean(label)))]}
-								<div class="provider-section" style="animation-delay: {i * 0.08}s;">
-									<h4>
-										<span>{report.provider}</span>
-										{#if report.metadata?.email}
-											<span class="meta">{report.metadata.email}</span>
-										{/if}
-									</h4>
-									{#if projectLabels.length > 0}
-										<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
+				<div class="reports-container">
+					{#each sortedReports as report (report.provider)}
+						{#if report.limits && report.limits.length > 0}
+							{@const projectLabels = [...new Set(allHosts
+								.filter((host) => providersMatch(host.provider, report.provider))
+								.map((host) => host.project || host.host)
+								.filter((label) => Boolean(label)))]}
+							<div class="provider-section">
+								<h4>
+									<span>{report.provider}</span>
+									{#if report.metadata?.email}
+										<span class="meta">{report.metadata.email}</span>
 									{/if}
-									{#each report.limits as limit, limitIndex}
-										{@const rawUsed = typeof limit.amount?.usedFraction === 'number' ? limit.amount.usedFraction : null}
-										{@const rawRem = typeof limit.amount?.remainingFraction === 'number' ? limit.amount.remainingFraction : null}
-										{@const usedFrac = Math.max(0, Math.min(1, rawUsed ?? (rawRem !== null ? 1 - rawRem : 0)))}
-										{@const remainingFrac = Math.max(0, Math.min(1, rawRem ?? (1 - usedFrac)))}
-										{@const remainingPercent = Math.round(remainingFrac * 100)}
-										{@const resetsAt = limit.window?.resetsAt ?? limit.resetsAt}
-										{@const resetCountdown = formatReset(resetsAt)}
-										{@const resetExact = resetsAt ? i18n.formatDate(resetsAt, { dateStyle: 'short', timeStyle: 'medium' }) : ''}
-										{@const valueText =
-											limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number' && typeof limit.amount?.limit === 'number'
-												? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)} / $${limit.amount.limit.toFixed(2)})`
-												: limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number'
-													? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)})`
-													: `${remainingPercent}%`}
-										<QuotaLimitRow
-											variant={popover.variant}
-											label={limit.label}
-											{remainingPercent}
-											tone={limitTone(remainingPercent, limit.status)}
-											{resetCountdown}
-											{resetExact}
-											{valueText}
-											delayIndex={i * 4 + limitIndex}
-										/>
-									{/each}
-								</div>
-							{/if}
-						{/each}
-					</div>
-				{/key}
+								</h4>
+								{#if projectLabels.length > 0}
+									<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
+								{/if}
+								{#each report.limits as limit, limitIndex}
+									{@const rawUsed = typeof limit.amount?.usedFraction === 'number' ? limit.amount.usedFraction : null}
+									{@const rawRem = typeof limit.amount?.remainingFraction === 'number' ? limit.amount.remainingFraction : null}
+									{@const usedFrac = Math.max(0, Math.min(1, rawUsed ?? (rawRem !== null ? 1 - rawRem : 0)))}
+									{@const remainingFrac = Math.max(0, Math.min(1, rawRem ?? (1 - usedFrac)))}
+									{@const remainingPercent = Math.round(remainingFrac * 100)}
+									{@const resetsAt = limit.window?.resetsAt ?? limit.resetsAt}
+									{@const resetCountdown = formatReset(resetsAt)}
+									{@const resetExact = resetsAt ? i18n.formatDate(resetsAt, { dateStyle: 'short', timeStyle: 'medium' }) : ''}
+									{@const valueText =
+										limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number' && typeof limit.amount?.limit === 'number'
+											? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)} / $${limit.amount.limit.toFixed(2)})`
+											: limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number'
+												? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)})`
+												: `${remainingPercent}%`}
+									<QuotaLimitRow
+										label={limit.label}
+										{remainingPercent}
+										tone={limitTone(remainingPercent, limit.status)}
+										{resetCountdown}
+										{resetExact}
+										{valueText}
+										delayIndex={limitIndex}
+									/>
+								{/each}
+							</div>
+						{/if}
+					{/each}
+				</div>
 			{:else if quotaStore.status !== 'offline' && quotaStore.status !== 'unconfigured'}
 				<div class="msg">{m.quota_no_data()}</div>
 			{/if}
@@ -272,20 +352,10 @@
 {/if}
 
 <style>
-	.backdrop {
-		position: fixed;
-		top: 0; left: 0; right: 0; bottom: 0;
-		z-index: var(--z-backdrop);
-		background: transparent;
-		border: none;
-		padding: 0;
-		cursor: default;
-	}
-
 	.popover {
 		position: fixed;
 		top: 48px;
-		right: var(--space-2);
+		right: var(--space-3);
 		width: 380px;
 		max-height: calc(100vh - 80px);
 		background: var(--bg-overlay);
@@ -313,10 +383,14 @@
 		gap: 2px;
 	}
 
-	h3 {
+	.header-title {
 		margin: 0;
-		font-size: var(--text-base);
-		font-weight: 600;
+		font-family: var(--font-ui);
+		font-size: var(--text-title);
+		font-weight: 550;
+		line-height: 1.3;
+		text-wrap: balance;
+		color: var(--ink);
 	}
 
 	.freshness {
@@ -338,7 +412,7 @@
 		cursor: pointer;
 		font-size: var(--text-lg);
 		padding: 4px;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -367,27 +441,6 @@
 		line-height: 1;
 	}
 
-	.refresh-icon.spinning {
-		animation: spin 1s linear infinite;
-	}
-
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
-
-	.loading-bar {
-		height: 2px;
-		width: 100%;
-		background: linear-gradient(90deg, transparent, var(--brand), transparent);
-		background-size: 200% 100%;
-		animation: loadingPulse 1.5s ease-in-out infinite;
-	}
-
-	@keyframes loadingPulse {
-		0% { background-position: 200% 0; }
-		100% { background-position: -200% 0; }
-	}
 
 	.loading-state {
 		display: flex;
@@ -400,18 +453,8 @@
 		font-size: var(--text-sm);
 	}
 
-	.spinner {
-		width: 22px;
-		height: 22px;
-		border: 2px solid var(--line);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
 	.content {
 		flex: 0 1 auto;
-		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del proprio contenuto, quindi il contenitore lo taglia invece di far comparire la barra di scorrimento */
 		min-height: 0;
 		padding: var(--space-4);
 		overflow-y: auto;
@@ -433,12 +476,12 @@
 		padding: var(--space-3);
 		border-radius: var(--radius-md);
 		background: var(--bg-sunken);
-		border: 1px solid var(--line-strong);
+		border: 1px solid var(--line);
 	}
 
 	.quota-alert.offline {
-		border-color: var(--warn-dim, #f59e0b44);
-		background: color-mix(in srgb, var(--warn, #f59e0b) 6%, var(--bg-sunken));
+		background: var(--bg-sunken);
+		border-color: var(--line);
 	}
 
 	.quota-alert.unconfigured {
@@ -469,6 +512,10 @@
 		color: var(--ink);
 	}
 
+	.quota-alert.offline .alert-title {
+		color: var(--warn);
+	}
+
 	.alert-desc {
 		margin: 0;
 		font-size: var(--text-xs);
@@ -487,31 +534,9 @@
 	}
 
 	.action-btn {
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
 		font-size: var(--text-xs);
-		padding: 4px 10px;
-		cursor: pointer;
 		flex-shrink: 0;
 		align-self: center;
-		transition: all 0.15s ease;
-	}
-
-	.action-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--ink-muted);
-	}
-
-	.action-btn.primary {
-		background: var(--brand);
-		color: var(--brand-ink, #ffffff);
-		border-color: transparent;
-	}
-
-	.action-btn.primary:hover {
-		filter: brightness(1.1);
 	}
 
 	.disabled-creds-card {
@@ -530,17 +555,12 @@
 		gap: var(--space-2);
 	}
 
-	.warning-bullet {
-		font-size: 11px;
-		font-weight: 700;
-		width: 16px;
-		height: 16px;
-		border-radius: 50%;
-		background: var(--warn);
-		color: #000;
+	.warning-icon {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
+		color: var(--warn);
+		--icon-size: 14px;
 		flex-shrink: 0;
 	}
 
@@ -596,30 +616,24 @@
 	.reports-container {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
+		gap: var(--space-3);
 	}
 
 	.provider-section {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		animation: sectionFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 	}
 
-	@keyframes sectionFadeIn {
-		from {
-			opacity: 0;
-			transform: translateY(8px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+	.provider-section + .provider-section {
+		border-top: 1px solid var(--line);
+		padding-top: var(--space-3);
 	}
 
 	h4 {
 		margin: 0;
-		font-size: var(--text-sm);
+		font-family: var(--font-ui);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 		display: flex;
@@ -628,62 +642,14 @@
 	}
 
 	.meta {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 400;
 		color: var(--ink-faint);
 	}
 
 	.host-usage {
 		margin-top: calc(-1 * var(--space-1));
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
-	}
-
-	/* Variante telemetria: layout compatto, separatori hairline e intestazione mono */
-	.popover[data-variant='telemetry'] .reports-container {
-		gap: var(--space-3);
-	}
-
-	/* Le righe telemetria sono blocchi di tre livelli (etichetta, barra, reset):
-	   servono 8px tra un blocco e il successivo perche' si leggano come unita'. */
-	.popover[data-variant='telemetry'] .provider-section {
-		gap: var(--space-2);
-	}
-
-	.popover[data-variant='telemetry'] .provider-section + .provider-section {
-		border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
-		padding-top: var(--space-3);
-	}
-
-	.popover[data-variant='telemetry'] h4 {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.16em;
-		color: var(--ink-faint);
-	}
-
-	.popover[data-variant='telemetry'] h4 .meta {
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		font-weight: 400;
-		text-transform: none;
-		letter-spacing: normal;
-		color: var(--ink-faint);
-	}
-
-	/* Variante radiale: spaziatura piu ariosa e tipografia standard */
-	.popover[data-variant='radial'] .reports-container {
-		gap: var(--space-5);
-	}
-
-	.popover[data-variant='radial'] .provider-section {
-		gap: var(--space-3);
-	}
-
-	.popover[data-variant='radial'] .provider-section + .provider-section {
-		border-top: 1px solid var(--line);
-		padding-top: var(--space-4);
 	}
 </style>

@@ -249,7 +249,7 @@
 									{/if}
 									{#if selected}
 										<span class="check-icon" aria-hidden="true">
-											<IconCheck size={14} />
+											<IconCheck />
 										</span>
 									{/if}
 								</div>
@@ -263,8 +263,8 @@
 
 	{#if showFooter}
 		<div class="menu-footer">
-			<span class="legend-item"><IconRoleVision size={12} /> {m.chat_v2_composer_model_vision()}</span>
-			<span class="legend-item"><IconRoleSlow size={12} /> {m.chat_v2_composer_model_reasoning()}</span>
+			<span class="legend-item"><IconRoleVision /> {m.chat_v2_composer_model_vision()}</span>
+			<span class="legend-item"><IconRoleSlow /> {m.chat_v2_composer_model_reasoning()}</span>
 			<span class="legend-item">· {m.chat_v2_composer_model_context()}</span>
 		</div>
 	{/if}
@@ -306,7 +306,6 @@
 		font-family: inherit;
 		font-size: var(--text-xs);
 		color: var(--ink);
-		outline: none;
 	}
 
 	.search-input:focus {
@@ -348,7 +347,7 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 3px 6px;
-		font-size: 10px;
+		font-size: var(--text-group-label);
 		font-weight: 600;
 		color: var(--ink-faint);
 		text-transform: uppercase;
@@ -409,7 +408,7 @@
 
 	.option-id {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -437,7 +436,7 @@
 
 	.cap-chip small {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		line-height: 1;
 	}
 
@@ -445,19 +444,15 @@
 		color: var(--ink-faint);
 	}
 
-	.cap-chip.vision {
-		border-color: color-mix(in srgb, oklch(0.68 0.16 195) 30%, transparent);
-		color: oklch(0.78 0.13 195);
-	}
-
+	.cap-chip.vision,
 	.cap-chip.thinking {
-		border-color: color-mix(in srgb, oklch(0.65 0.18 290) 30%, transparent);
-		color: oklch(0.78 0.14 290);
+		border-color: var(--line);
+		color: var(--ink-muted);
 	}
 
 	.custom-chip {
 		font-family: var(--font-mono);
-		font-size: 9px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--brand-ink);
 		background: var(--bg-base);
@@ -470,6 +465,7 @@
 		color: var(--brand-ink);
 		display: inline-flex;
 		align-items: center;
+		--icon-size: 14px;
 	}
 
 	.empty-results {
@@ -486,7 +482,7 @@
 		padding: var(--space-2) var(--space-3);
 		border-top: 1px solid var(--line);
 		background: var(--bg-base);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		border-bottom-left-radius: var(--radius-md);
 		border-bottom-right-radius: var(--radius-md);
@@ -496,5 +492,6 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
+		--icon-size: 12px;
 	}
 </style>
