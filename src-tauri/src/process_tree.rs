@@ -129,12 +129,14 @@ pub fn kill_process_tree(pid: Option<u32>, #[cfg(target_os = "windows")] job: Op
     #[cfg(not(target_os = "windows"))]
     {
         if let Some(p) = pid {
-            // Invia SIGTERM e poi SIGKILL al gruppo di processi (-PID)
+            // Invia SIGTERM e poi SIGKILL al gruppo di processi (-PID). Il `--` e'
+            // necessario: il `kill` di procps (Linux) senza separatore interpreta
+            // `-PID` in modo diverso e termina il chiamante stesso.
             let _ = std::process::Command::new("kill")
-                .args(["-TERM", &format!("-{}", p)])
+                .args(["-TERM", "--", &format!("-{}", p)])
                 .output();
             let _ = std::process::Command::new("kill")
-                .args(["-KILL", &format!("-{}", p)])
+                .args(["-KILL", "--", &format!("-{}", p)])
                 .output();
             // Termina anche il PID singolo direttamente nel caso non fosse process group leader
             let _ = std::process::Command::new("kill")
