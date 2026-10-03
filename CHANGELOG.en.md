@@ -17,6 +17,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - See only Studio/OMP versions and agent state in the bottom bar, with explicit loading indicators and distinct successful updates, without repeating the project.
 - Align top bar (TopBar), project popover, new project picker, hue picker, and lane strip (LaneStrip) to design system v2: adopt 2px neutral drag rail and neutral completed ring (D1), unify two-tone agent spinner, replace inline quick reply in popover with a clean link to composer ("Reply in composer ›", Action-Point Rule), adopt shared native Dialog primitive for lane deletion, align project picker rows with chat palette styling including matched character highlights, and standardize control radii (6px), rv-lift animations (150ms), and color tokens.
 
+### Fixed
+- Updating OMP from the bottom bar no longer fails on macOS with "Could not resolve omp binary path in PATH" when Studio is launched from Finder/Dock.
+
 ### Added
 - Create a new empty project straight from the top bar «+»: pick a name and Studio creates the folder in your projects directory with `git init` and opens it; with GitHub connected you can also create the public or private repository (empty, already linked as `origin`).
 - Make chat tray status marks, composer menus and tooltips, project close confirmation, settings controls, reasoning budget and Files/Git/Agent tabs consistent, with keyboard navigation and support for motion preferences.

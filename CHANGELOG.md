@@ -17,6 +17,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Leggi nella barra inferiore soltanto le versioni di Studio/OMP e lo stato dell'agente, con indicatori di caricamento espliciti e aggiornamenti riusciti distinguibili, senza ripetere il progetto.
 - Allinea la barra superiore (TopBar), il popover di progetto, il selettore nuovo progetto, il selettore tinta e la riga delle corsie (LaneStrip) al design system v2: adotta l'indicatore di rilascio neutro e lo stato completato a contrasto neutro (D1), unifica lo spinner agente a due toni, sostituisce la risposta rapida nel popover con il rimando pulito al composer («Rispondi nel composer ›», Action-Point Rule), adotta per il dialogo di eliminazione delle corsie la primitiva condivisa Dialog nativa, allinea le righe del selettore progetti alla palette chat con evidenziazione caratteri e normalizza raggi dei controlli (6 px), animazioni rv-lift (150 ms) e token cromatici.
 
+### Fixed
+- L'aggiornamento di OMP dalla barra inferiore non fallisce più su macOS con «Could not resolve omp binary path in PATH» quando Studio è aperto da Finder/Dock.
+
 ### Added
 - Crea un nuovo progetto vuoto direttamente dal «+» della barra superiore: scegli il nome, Studio crea la cartella nella cartella dei progetti con `git init` e la apre; se GitHub è collegato puoi creare anche il repository pubblico o privato (vuoto, già collegato come `origin`).
 - Rendi coerenti gli stati nel vassoio della chat, i menu e i suggerimenti del composer, la conferma di chiusura progetto e i controlli di impostazioni, budget di ragionamento e schede File/Git/Agente, con navigazione da tastiera e rispetto delle preferenze di movimento.

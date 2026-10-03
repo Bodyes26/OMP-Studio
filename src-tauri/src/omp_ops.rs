@@ -1951,6 +1951,19 @@ fn run_omp_update_sync() -> Result<String, String> {
     let omp_path = get_omp_binary();
     let mut cmd = Command::new(&omp_path);
     cmd.arg("update");
+    // `omp update` ritrova il proprio binario cercando `omp` nel PATH. Lanciata
+    // da Finder/Dock su macOS l'app eredita solo /usr/bin:/bin e l'update
+    // fallisce con "Could not resolve omp binary path in PATH": ci mettiamo
+    // davanti la cartella del binario che stiamo eseguendo.
+    if let Some(dir) = Path::new(&omp_path).parent().filter(|d| !d.as_os_str().is_empty()) {
+        let mut paths = vec![dir.to_path_buf()];
+        if let Some(current) = std::env::var_os("PATH") {
+            paths.extend(std::env::split_paths(&current));
+        }
+        if let Ok(joined) = std::env::join_paths(paths) {
+            cmd.env("PATH", joined);
+        }
+    }
     #[cfg(target_os = "windows")]
     {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
