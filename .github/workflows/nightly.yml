@@ -316,7 +316,9 @@ jobs:
             const checksums = {};
             for (const line of fs.readFileSync("release-assets/SHA256SUMS.txt", "utf8").trim().split("\n")) {
               const parts = line.trim().split(/\s+/);
-              if (parts.length >= 2) checksums[parts[1].replace(/^\*/, "")] = parts[0];
+              // `find .` produce nomi come ./file: il prefisso va tolto, altrimenti
+              // le chiavi di nightly.json non corrispondono ai nomi degli asset.
+              if (parts.length >= 2) checksums[parts[1].replace(/^\*/, "").replace(/^\.\//, "")] = parts[0];
             }
             if (fs.existsSync("existing-nightly.json")) {
               const prev = JSON.parse(fs.readFileSync("existing-nightly.json", "utf8"));
