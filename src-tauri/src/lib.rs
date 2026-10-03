@@ -7,6 +7,7 @@ use lane_bridge::lane_bridge_respond;
 mod github;
 use github::{
     git_sync_repo, git_upstream_status, github_clone_repo, github_create_repo,
+    project_create_new,
     github_get_actions_status, github_get_status, github_install_cli, github_list_remote_repos,
     github_logout, github_set_token, project_detect_github_remotes,
 };
@@ -278,6 +279,7 @@ pub fn run() {
             github_list_remote_repos,
             github_clone_repo,
             github_create_repo,
+            project_create_new,
             git_upstream_status,
             git_sync_repo,
             github_get_actions_status,

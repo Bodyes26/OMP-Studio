@@ -6,7 +6,7 @@
 	import { githubStore, type GithubRemoteRepo, type DetectedGithubRemote } from '$lib/stores/github.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { trapFocus } from '$lib/focusTrap';
-	import { IconGithub, IconFolderOpen } from '$lib/icons';
+	import { IconGithub, IconFolderOpen, IconPlus, IconGlobe, IconLock, IconArrowLeft } from '$lib/icons';
 
 	let { open = false, onClose } = $props<{ open?: boolean; onClose?: () => void }>();
 
@@ -28,6 +28,15 @@
 	let isCloning = $state(false);
 	let cloningName = $state<string | null>(null);
 	let cloneError = $state<string | null>(null);
+
+	// Seconda schermata dello stesso palette: creazione di un progetto vuoto
+	let view = $state<'list' | 'new'>('list');
+	type NewVisibility = 'local' | 'public' | 'private';
+	let newName = $state('');
+	let newVisibility = $state<NewVisibility>('local');
+	let isCreating = $state(false);
+	let createError = $state<string | null>(null);
+	let newNameEl = $state<HTMLInputElement | null>(null);
 
 	const openKeys = $derived(
 		new Set(
@@ -85,12 +94,13 @@
 
 	// Lista unificata di tutti gli elementi selezionabili con tastiera
 	type SelectableItem =
+		| { type: 'new' }
 		| { type: 'local'; candidate: Candidate; localIndex: number }
 		| { type: 'remote'; repo: GithubRemoteRepo; remoteIndex: number }
 		| { type: 'browse' };
 
 	const allItems = $derived.by((): SelectableItem[] => {
-		const items: SelectableItem[] = [];
+		const items: SelectableItem[] = [{ type: 'new' }];
 		filteredLocal.forEach((candidate, localIndex) => {
 			items.push({ type: 'local', candidate, localIndex });
 		});
@@ -101,7 +111,7 @@
 		return items;
 	});
 
-	const browseItemIndex = $derived(filteredLocal.length + availableRemoteRepos.length);
+	const browseItemIndex = $derived(1 + filteredLocal.length + availableRemoteRepos.length);
 
 	const selectedIndex = $derived(Math.max(0, Math.min(index, allItems.length - 1)));
 
@@ -146,6 +156,8 @@
 
 	$effect(() => {
 		if (!open) return;
+		view = 'list';
+		createError = null;
 		query = '';
 		index = 0;
 		cloneError = null;
@@ -156,8 +168,51 @@
 		inputEl?.focus();
 	});
 
+	function openNewProject() {
+		newName = query.trim();
+		newVisibility = 'local';
+		createError = null;
+		view = 'new';
+		queueMicrotask(() => newNameEl?.focus());
+	}
+
+	async function createProject() {
+		if (isCreating) return;
+		const name = newName.trim();
+		if (!name) {
+			createError = 'Inserisci un nome per il progetto.';
+			return;
+		}
+		isCreating = true;
+		createError = null;
+		try {
+			const path = await invoke<string>('project_create_new', {
+				parentDir: projectStore.projectRoot,
+				name,
+				visibility: newVisibility,
+				useSsh: settingsStore.github.cloneProtocol === 'ssh'
+			});
+			projectStore.openProject(path);
+			if (newVisibility !== 'local') void githubStore.detectLocalRemotes();
+			onClose?.();
+		} catch (e) {
+			createError = String(e);
+		} finally {
+			isCreating = false;
+		}
+	}
+
+	function onNewKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			void createProject();
+		}
+	}
+
 	async function pickItem(item: SelectableItem) {
-		if (item.type === 'local') {
+		if (item.type === 'new') {
+			openNewProject();
+		} else if (item.type === 'local') {
 			projectStore.openProject(item.candidate.path);
 			onClose?.();
 		} else if (item.type === 'remote') {
@@ -247,8 +302,98 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label={m.project_picker_dialog_aria()}
-		use:trapFocus={{ onEscape: () => onClose?.() }}
+		use:trapFocus={{ onEscape: () => (view === 'new' && !isCreating ? (view = 'list') : onClose?.()) }}
 	>
+		{#if view === 'new'}
+			<div class="new-form">
+				<div class="new-title">
+					<button
+						type="button"
+						class="back-btn"
+						onclick={() => (view = 'list')}
+						disabled={isCreating}
+						aria-label="Torna all'elenco dei progetti"
+					>
+						<IconArrowLeft />
+					</button>
+					<span>Nuovo progetto</span>
+				</div>
+
+				<label class="field-label" for="new-project-name">Nome</label>
+				<input
+					id="new-project-name"
+					class="name-input"
+					bind:this={newNameEl}
+					bind:value={newName}
+					onkeydown={onNewKeydown}
+					placeholder="nome-del-progetto"
+					spellcheck="false"
+					autocomplete="off"
+					disabled={isCreating}
+				/>
+				<div class="field-hint font-mono">
+					{joinProjectPath(projectStore.projectRoot, newName.trim() || '…')}
+				</div>
+
+				<div class="field-label">Repository</div>
+				<div class="seg" role="radiogroup" aria-label="Visibilità del repository">
+					<button
+						type="button"
+						role="radio"
+						aria-checked={newVisibility === 'local'}
+						class:on={newVisibility === 'local'}
+						onclick={() => (newVisibility = 'local')}
+						disabled={isCreating}
+					>
+						<IconFolderOpen /> Solo locale
+					</button>
+					<button
+						type="button"
+						role="radio"
+						aria-checked={newVisibility === 'public'}
+						class:on={newVisibility === 'public'}
+						onclick={() => (newVisibility = 'public')}
+						disabled={isCreating || !githubStore.status.authenticated}
+					>
+						<IconGlobe /> GitHub pubblico
+					</button>
+					<button
+						type="button"
+						role="radio"
+						aria-checked={newVisibility === 'private'}
+						class:on={newVisibility === 'private'}
+						onclick={() => (newVisibility = 'private')}
+						disabled={isCreating || !githubStore.status.authenticated}
+					>
+						<IconLock /> GitHub privato
+					</button>
+				</div>
+				{#if !githubStore.status.authenticated}
+					<div class="field-hint">
+						Per creare anche il repository su GitHub,
+						<button type="button" class="link-btn" onclick={openSettingsGithub}>collega il tuo account</button>.
+					</div>
+				{:else if newVisibility !== 'local'}
+					<div class="field-hint">
+						Crea il repository vuoto su GitHub e lo collega come <code>origin</code>. Il primo push lo fai tu.
+					</div>
+				{/if}
+
+				{#if createError}
+					<div class="error" role="alert">{createError}</div>
+				{/if}
+
+				<div class="new-actions">
+					<button type="button" class="btn-secondary" onclick={() => (view = 'list')} disabled={isCreating}>
+						Annulla
+					</button>
+					<button type="button" class="btn-primary" onclick={createProject} disabled={isCreating || !newName.trim()}>
+						{#if isCreating}<span class="spinner" aria-hidden="true"></span>{/if}
+						{isCreating ? 'Creazione…' : 'Crea progetto'}
+					</button>
+				</div>
+			</div>
+		{:else}
 		<div class="search-head">
 			<input
 				bind:this={inputEl}
@@ -277,6 +422,22 @@
 				<div class="error" role="alert">Impossibile leggere {projectStore.projectRoot}: {error}</div>
 			{/if}
 
+			<button
+				type="button"
+				class="row new-row"
+				class:sel={selectedIndex === 0}
+				role="option"
+				aria-selected={selectedIndex === 0}
+				onmouseenter={() => (index = 0)}
+				onclick={() => pickItem({ type: 'new' })}
+				disabled={isCloning}
+			>
+				<span class="row-icon"><IconPlus /></span>
+				<span class="name">{query.trim() ? `Crea progetto “${query.trim()}”` : 'Nuovo progetto…'}</span>
+				<span class="path">cartella vuota in {projectStore.projectRoot}</span>
+			</button>
+			<div class="section-divider"></div>
+
 			<!-- SEZIONE 1: CARTELLE LOCALI -->
 			<div class="section-label">
 				<span>Cartelle locali ({filteredLocal.length})</span>
@@ -287,7 +448,7 @@
 				<div class="empty-row">Nessuna cartella locale trovata</div>
 			{:else}
 				{#each filteredLocal as c, i (c.path)}
-					{@const itemIndex = i}
+					{@const itemIndex = i + 1}
 					{@const isSelected = selectedIndex === itemIndex}
 					<button
 						type="button"
@@ -352,7 +513,7 @@
 				</div>
 			{:else}
 				{#each availableRemoteRepos as r, j (r.fullName)}
-					{@const itemIndex = filteredLocal.length + j}
+					{@const itemIndex = 1 + filteredLocal.length + j}
 					{@const isSelected = selectedIndex === itemIndex}
 					<button
 						type="button"
@@ -394,6 +555,7 @@
 				<span class="path">{m.ui_projectpicker_apri_una_cartella_fuori_da_fcbd()} {projectStore.projectRoot}</span>
 			</button>
 		</div>
+		{/if}
 	</div>
 {/if}
 
@@ -667,5 +829,135 @@
 		padding: var(--space-2) var(--space-4);
 		font-size: var(--text-sm);
 		color: var(--danger);
+	}
+
+	.new-form {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-4);
+	}
+
+	.new-title {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-weight: 600;
+		font-size: var(--text-md);
+		margin-bottom: var(--space-2);
+	}
+
+	.back-btn {
+		display: inline-flex;
+		background: transparent;
+		border: none;
+		color: var(--ink-muted);
+		cursor: pointer;
+		padding: 2px;
+		border-radius: var(--radius-sm);
+	}
+
+	.back-btn:hover:not(:disabled) {
+		color: var(--ink);
+	}
+
+	.field-label {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--ink-muted);
+		margin-top: var(--space-2);
+	}
+
+	.name-input {
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-md);
+		background: var(--bg-input, transparent);
+	}
+
+	.name-input:focus {
+		border-color: var(--brand);
+	}
+
+	.field-hint {
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+		overflow-wrap: anywhere;
+	}
+
+	.seg {
+		display: flex;
+		gap: 4px;
+	}
+
+	.seg button {
+		flex: 1;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		padding: var(--space-2) var(--space-3);
+		background: transparent;
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-md);
+		color: var(--ink-muted);
+		font-size: var(--text-sm);
+		cursor: pointer;
+	}
+
+	.seg button.on {
+		color: var(--ink);
+		border-color: var(--brand);
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+	}
+
+	.seg button:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.link-btn {
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--brand);
+		cursor: pointer;
+		font: inherit;
+		text-decoration: underline;
+	}
+
+	.new-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: var(--space-2);
+		margin-top: var(--space-3);
+	}
+
+	.new-actions button {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: var(--space-2) var(--space-4);
+		border-radius: var(--radius-md);
+		font-size: var(--text-sm);
+		cursor: pointer;
+	}
+
+	.btn-secondary {
+		background: transparent;
+		border: 1px solid var(--line-strong);
+		color: var(--ink);
+	}
+
+	.btn-primary {
+		background: var(--brand);
+		border: 1px solid var(--brand);
+		color: var(--on-brand, #fff);
+	}
+
+	.new-actions button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 </style>

@@ -259,6 +259,7 @@ commands.allow = [
     "github_list_remote_repos",
     "github_clone_repo",
     "github_create_repo",
+    "project_create_new",
     "git_upstream_status",
     "git_sync_repo",
     "github_get_actions_status"
