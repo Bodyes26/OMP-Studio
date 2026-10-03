@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -154,18 +155,28 @@
 		}
 	}
 
+	// Il reset dipende solo da `open`: letture tracciate qui dentro (es. `inputEl`,
+	// che diventa null quando la lista si smonta passando a `view = 'new'`)
+	// rieseguirebbero l'effetto riportando subito la vista a 'list'.
 	$effect(() => {
 		if (!open) return;
-		view = 'list';
-		createError = null;
-		query = '';
-		index = 0;
-		cloneError = null;
-		void loadCandidates();
-		if (githubStore.status.authenticated) {
-			void githubStore.loadRemoteRepos();
-		}
-		inputEl?.focus();
+		untrack(() => {
+			view = 'list';
+			createError = null;
+			query = '';
+			index = 0;
+			cloneError = null;
+			void loadCandidates();
+			if (githubStore.status.authenticated) {
+				void githubStore.loadRemoteRepos();
+			}
+		});
+	});
+
+	// Il fuoco segue la vista: l'input giusto esiste solo dopo il montaggio
+	$effect(() => {
+		if (!open) return;
+		(view === 'new' ? newNameEl : inputEl)?.focus();
 	});
 
 	function openNewProject() {
@@ -173,7 +184,6 @@
 		newVisibility = 'local';
 		createError = null;
 		view = 'new';
-		queueMicrotask(() => newNameEl?.focus());
 	}
 
 	async function createProject() {
