@@ -104,3 +104,18 @@ export function chatReveal(
 		`
 	};
 }
+
+/**
+ * Gemella JS di `.tray-in`/`.tray-out` per i blocchi che il genitore rimuove:
+ * piega l'altezza a --dur-tray con blur 6 px, senza corsa verticale. Serve
+ * dove l'altezza deve cambiare in modo continuo (sezioni del companion, la cui
+ * finestra segue il contenuto fotogramma per fotogramma).
+ */
+export function trayFold(node: Element, { delay = 0 }: { delay?: number } = {}): TransitionConfig {
+	return chatReveal(node, {
+		delay,
+		blur: 6,
+		distance: 0,
+		duration: durationToken(getComputedStyle(node), '--dur-tray', 420)
+	});
+}

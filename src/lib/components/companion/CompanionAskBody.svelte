@@ -2,20 +2,23 @@
 	// Corpo di una richiesta di attenzione dentro la card del progetto.
 	//
 	// Non porta intestazione ne' cornice: nome del progetto, modello e stato
-	// stanno nell'intestazione della card, e ripeterli qui dentro avrebbe
-	// prodotto una card annidata in un'altra card (DESIGN.md, checklist).
+	// stanno nell'intestazione della card, che con una domanda aperta prende la
+	// sagoma della scheda domanda. Le parti (domanda, dettaglio, opzioni,
+	// «Consigliata») sono le stesse classi globali di AskCard in app.css.
 	//
-	// Una sola richiesta per volta, quella del progetto: la paginazione
-	// dell'inbox e' sparita perche' ogni domanda ha adesso la sua card.
+	// Le opzioni inviano al click: non c'e' una scelta da confermare, quindi
+	// niente radio; l'indice e' un dato, non una scorciatoia.
 	import { m } from '$lib/paraglide/messages.js';
 	import { tick } from 'svelte';
 	import { askQuestionText, parseAskTitle, sanitizeAskDetail } from '$lib/agent/askTitle';
 	import { cleanOptionLabel, isOtherOption } from '$lib/agent/askAnswers';
 	import { lexMarkdown } from '$lib/agent/markdown';
+	import { trayFold } from '$lib/agent/motion';
 	import type { AttentionRequest } from '$lib/stores/companion.svelte';
 	import { CONTEXT_VISIBLE_CHARS, tailOfText } from '$lib/stores/companionText';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import CompanionMarkdown from './CompanionMarkdown.svelte';
-	import { IconArrowUp, IconCheck, IconClose, IconSparkles } from '$lib/icons';
+	import { IconArrowUp, IconCheck, IconClose, IconPencil, IconSparkles } from '$lib/icons';
 
 	let {
 		req,
@@ -53,6 +56,9 @@
 	const detail = $derived(
 		parsed.text && req.pendingUi.message ? sanitizeAskDetail(req.pendingUi.message) : null
 	);
+	// «N/M» solo con piu' di una domanda, anche quando il titolo di omp porta
+	// «1/1»; le altre forme (selezioni multiple) restano.
+	const counter = $derived(parsed.counter && !/^\d+\/1$/.test(parsed.counter) ? parsed.counter : null);
 
 	/**
 	 * I messaggi di contesto: gli ultimi due, o tutti se l'utente ha chiesto lo
@@ -93,16 +99,24 @@
 		if (!el) return;
 		followTail = el.scrollHeight - el.clientHeight - el.scrollTop <= 8;
 	}
+
+	function handleReplyKeydown(e: KeyboardEvent & { currentTarget: HTMLTextAreaElement }, closeOnEscape: boolean) {
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
+			e.preventDefault();
+			e.stopPropagation();
+			void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId);
+		} else if (closeOnEscape && e.key === 'Escape') {
+			e.preventDefault();
+			e.stopPropagation();
+			onCustomReplyToggle(req.projectId, false);
+		}
+	}
 </script>
 
 {#if contextMessages.length > 0}
-	<div
-		class="chat-context"
-		bind:this={contextEl}
-		onscroll={handleContextScroll}
-	>
+	<div class="chat-context" bind:this={contextEl} onscroll={handleContextScroll}>
 		{#each contextMessages as msg, i (i)}
-			<div class="context-bubble {msg.role}">
+			<div class="context-bubble">
 				<span class="role-tag">
 					{msg.role === 'user' ? m.companion_role_user() : m.companion_role_agent()}
 				</span>
@@ -126,11 +140,9 @@
 
 <div class="ask-box">
 	<div class="ask-head">
-		<p class="ask-question">
-			{askQuestionText(req.pendingUi, m.ui_companionview_seleziona_un_opzione_d398())}
-		</p>
-		{#if parsed.counter}
-			<span class="ask-counter">{parsed.counter}</span>
+		<p class="ask-text">{askQuestionText(req.pendingUi, m.ui_companionview_seleziona_un_opzione_d398())}</p>
+		{#if counter}
+			<span class="ask-counter">{counter}</span>
 		{/if}
 	</div>
 	{#if detail}
@@ -142,32 +154,23 @@
 		{@const suggested = bq?.suggestedModel}
 		<div class="quota-blocked-box">
 			<p class="qb-msg">
-				{req.pendingUi.message || m.ui_companionview_l_agente_si_e_arrestato_per_limite_7e38()}
+				<StatusMark status={bq?.reasonKind === 'quota_exhausted' ? 'failed' : 'attention'} active={false} />
+				<span>{req.pendingUi.message || m.ui_companionview_l_agente_si_e_arrestato_per_limite_7e38()}</span>
 			</p>
-			{#if suggested}
-				<button
-					type="button"
-					class="action-btn qb-primary-cta"
-					onclick={() => void onResolveQuotaBlocked(req.projectId, suggested.selector, req.laneId)}
-				>
-					<IconSparkles />
-					<span>{m.companion_quota_switch_and_resume({ model: suggested.modelName })}</span>
-				</button>
-			{/if}
 			{#if bq?.availableRecoveryModels && bq.availableRecoveryModels.length > 1}
 				<div class="qb-alternatives">
 					<span class="qb-alt-label">{m.ui_companionview_oppure_seleziona_un_altra_riserva_50ef()}</span>
-					<div class="qb-alt-grid">
-						{#each bq.availableRecoveryModels.filter((model: NonNullable<typeof bq.availableRecoveryModels>[number]) => model.selector !== suggested?.selector) as alt}
+					<div class="ask-options">
+						{#each bq.availableRecoveryModels.filter((model: NonNullable<typeof bq.availableRecoveryModels>[number]) => model.selector !== suggested?.selector) as alt (alt.selector)}
 							<button
 								type="button"
-								class="option-btn qb-alt-btn"
+								class="ask-opt"
 								onclick={() => void onResolveQuotaBlocked(req.projectId, alt.selector, req.laneId)}
 							>
-								<span class="opt-body">
-									<span class="opt-label">{alt.modelName}</span>
+								<span class="ask-opt-body">
+									<span class="ask-opt-label">{alt.modelName}</span>
 									{#if alt.roleLabel}
-										<span class="opt-desc">{alt.roleLabel}</span>
+										<span class="ask-opt-desc">{alt.roleLabel}</span>
 									{/if}
 								</span>
 							</button>
@@ -175,55 +178,57 @@
 					</div>
 				</div>
 			{/if}
-			<div class="qb-footer">
+			<div class="ask-actions-row">
 				<button
 					type="button"
-					class="action-btn cancel"
+					class="ui-button ui-button-ghost"
 					onclick={() => void onDismissQuotaBlocked(req.projectId, req.laneId)}
 				>
 					{m.companion_quota_dismiss()}
 				</button>
+				{#if suggested}
+					<button
+						type="button"
+						class="ui-button ui-button-primary"
+						onclick={() => void onResolveQuotaBlocked(req.projectId, suggested.selector, req.laneId)}
+					>
+						<IconSparkles />
+						{m.companion_quota_switch_and_resume({ model: suggested.modelName })}
+					</button>
+				{/if}
 			</div>
 		</div>
 	{:else if req.pendingUi.options && req.pendingUi.options.length > 0}
 		{#if customReplyOpen}
-			<div class="text-reply custom-reply">
+			<div class="text-reply" transition:trayFold>
 				<textarea
 					class="reply-input"
 					rows="2"
 					bind:this={replyEl}
+					aria-label={m.ui_companionview_scrivi_qui_la_tua_risposta_personalizzata_9d6c()}
 					placeholder={m.ui_companionview_scrivi_qui_la_tua_risposta_personalizzata_9d6c()}
 					value={draft}
 					oninput={(e) => onReplyDraftChange(req.projectId, e.currentTarget.value)}
-					onkeydown={(e) => {
-						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
-							e.preventDefault();
-							e.stopPropagation();
-							void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId);
-						} else if (e.key === 'Escape') {
-							e.preventDefault();
-							e.stopPropagation();
-							onCustomReplyToggle(req.projectId, false);
-						}
-					}}
+					onkeydown={(e) => handleReplyKeydown(e, true)}
 				></textarea>
-				<div class="reply-actions">
+				<div class="ask-actions-row">
 					<span class="reply-hint">{m.companion_reply_enter_hint()}</span>
+					<button type="button" class="ui-button ui-button-ghost" onclick={() => onCustomReplyToggle(req.projectId, false)}>
+						{m.companion_options_back()}
+					</button>
 					<button
 						type="button"
-						class="action-btn cancel"
-						onclick={() => onCustomReplyToggle(req.projectId, false)}
-					>{m.companion_options_back()}</button>
-					<button
-						type="button"
-						class="action-btn confirm"
+						class="ui-button ui-button-primary"
 						disabled={!draft.trim()}
 						onclick={() => void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId)}
-					><IconArrowUp /> <span>{m.ui_askcard_invia_f401()}</span></button>
+					>
+						<IconArrowUp />
+						{m.ui_askcard_invia_f401()}
+					</button>
 				</div>
 			</div>
 		{:else}
-			<div class="options-grid">
+			<div class="ask-options" transition:trayFold>
 				{#each req.pendingUi.options as opt, idx (opt)}
 					{@const isOther = isOtherOption(opt)}
 					{@const isRec = opt.endsWith(' (Recommended)')}
@@ -233,8 +238,7 @@
 						: req.pendingUi.optionDetails?.[idx]?.description}
 					<button
 						type="button"
-						class="option-btn"
-						class:is-other={isOther}
+						class="ask-opt"
 						onclick={() => {
 							if (isOther) {
 								onCustomReplyToggle(req.projectId, true);
@@ -244,16 +248,18 @@
 							}
 						}}
 					>
-						<span class="opt-num">{isOther ? '✎' : idx + 1}</span>
-						<span class="opt-body">
-							<span class="opt-label">
+						<span class="ask-opt-index" aria-hidden="true">
+							{#if isOther}<IconPencil />{:else}{idx + 1}{/if}
+						</span>
+						<span class="ask-opt-body">
+							<span class="ask-opt-label">
 								{clean}
 								{#if isRec}
-									<span class="opt-recommended-badge">{m.companion_option_recommended()}</span>
+									<span class="ask-rec">{m.companion_option_recommended()}</span>
 								{/if}
 							</span>
 							{#if description}
-								<span class="opt-desc">{description}</span>
+								<span class="ask-opt-desc">{description}</span>
 							{/if}
 						</span>
 					</button>
@@ -261,20 +267,22 @@
 			</div>
 		{/if}
 	{:else if req.pendingUi.method === 'confirm'}
-		<div class="confirm-actions">
+		<div class="ask-actions-row">
 			<button
 				type="button"
-				class="action-btn confirm"
-				onclick={() => void onQuickReplyConfirm(req.projectId, true, req.laneId, req.pendingUi.requestId)}
+				class="ui-button ui-button-ghost"
+				onclick={() => void onQuickReplyConfirm(req.projectId, false, req.laneId, req.pendingUi.requestId)}
 			>
-				<IconCheck /> <span>{m.project_popover_btn_confirm_yes()}</span>
+				<IconClose />
+				{m.ui_companionview_no_annulla_20e1()}
 			</button>
 			<button
 				type="button"
-				class="action-btn cancel"
-				onclick={() => void onQuickReplyConfirm(req.projectId, false, req.laneId, req.pendingUi.requestId)}
+				class="ui-button ui-button-primary"
+				onclick={() => void onQuickReplyConfirm(req.projectId, true, req.laneId, req.pendingUi.requestId)}
 			>
-				<IconClose /> <span>{m.ui_companionview_no_annulla_20e1()}</span>
+				<IconCheck />
+				{m.project_popover_btn_confirm_yes()}
 			</button>
 		</div>
 	{:else if wantsText(req.pendingUi)}
@@ -282,37 +290,37 @@
 			<textarea
 				class="reply-input"
 				rows="2"
+				aria-label={sanitizeAskDetail(req.pendingUi.placeholder) || m.ui_companionview_scrivi_la_risposta_f401()}
 				placeholder={sanitizeAskDetail(req.pendingUi.placeholder) || m.ui_companionview_scrivi_la_risposta_f401()}
 				value={draft}
 				oninput={(e) => onReplyDraftChange(req.projectId, e.currentTarget.value)}
-				onkeydown={(e) => {
-					if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
-						e.preventDefault();
-						e.stopPropagation();
-						void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId);
-					}
-				}}
+				onkeydown={(e) => handleReplyKeydown(e, false)}
 			></textarea>
-			<div class="reply-actions">
+			<div class="ask-actions-row">
 				<span class="reply-hint">{m.companion_reply_enter_hint()}</span>
 				<button
 					type="button"
-					class="action-btn cancel"
+					class="ui-button ui-button-ghost"
 					onclick={() => void onQuickReplyCancel(req.projectId, req.laneId, req.pendingUi.requestId)}
-				>{m.rules_dismiss()}</button>
+				>
+					{m.rules_dismiss()}
+				</button>
 				<button
 					type="button"
-					class="action-btn confirm"
+					class="ui-button ui-button-primary"
 					disabled={!draft.trim()}
 					onclick={() => void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId)}
-				><IconArrowUp /> <span>{m.ui_askcard_invia_f401()}</span></button>
+				>
+					<IconArrowUp />
+					{m.ui_askcard_invia_f401()}
+				</button>
 			</div>
 		</div>
 	{:else}
-		<div class="generic-actions">
+		<div class="ask-actions-row">
 			<button
 				type="button"
-				class="action-btn cancel"
+				class="ui-button ui-button-ghost"
 				onclick={() => void onQuickReplyCancel(req.projectId, req.laneId, req.pendingUi.requestId)}
 			>
 				{m.ui_companionview_ignora_chiudi_5d67()}

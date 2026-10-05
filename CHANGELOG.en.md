@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Changed
+- The Companion window speaks like Studio: it is opaque, the task field is the chat composer with badges for project, directive, role and file, questions use the same options as the chat with «Recommended» in green, project status uses the shared neutral marks, and pinned mode is recognizable by the active pin. It opens and closes with a short fade (shortcut included), and sections that open grow the window smoothly.
 - Check quotas with a single ring indicator and quieter limit rows: colors follow the theme, healthy green remains optional, and breathing signals only a visible exhausted quota while respecting motion preferences.
 - Open quotas and all queues in nonmodal popovers with unrestricted keyboard navigation, outside dismissal and accessible tooltips, without dimming your work.
 - See only Studio/OMP versions and agent state in the bottom bar, with explicit loading indicators and distinct successful updates, without repeating the project.
@@ -26,6 +27,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Read column tabs in sentence case: “Files · Git · Agent” on the left, “Terminal · GUI” on the right, with the shortcut in the hover tooltip.
 
 ### Fixed
+- In the Companion the pin is always visible in spotlight mode (it used to be nearly invisible), Escape closes the suggestion palette without closing the window, and clicking a queued task's title no longer runs it: only «Run» does.
 - Updating OMP from the bottom bar no longer fails on macOS with "Could not resolve omp binary path in PATH" when Studio is launched from Finder/Dock.
 - The Terminal/GUI switch looks like tabs again, with the indicator under the active tab, instead of two system buttons.
 

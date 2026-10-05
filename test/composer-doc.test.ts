@@ -107,6 +107,8 @@ describe('composerDoc: serializzazione e rendering DOM', () => {
 		className = '';
 		title = '';
 		innerHTML = '';
+		contentEditable = '';
+		style = { setProperty: () => {} };
 
 		constructor(nodeType: number, textContent: string = '') {
 			this.nodeType = nodeType;
@@ -196,6 +198,34 @@ describe('composerDoc: serializzazione e rendering DOM', () => {
 			const reserialized = serializeEditorDom(container);
 
 			assert.deepEqual(reserialized, inputSegs);
+		} finally {
+			teardownDomMock();
+		}
+	});
+
+	it('badge #progetto e !ruolo conservano nome, etichetta e tinta al rendering', () => {
+		// Il companion rilegge i segmenti e li riscrive (precompilazione del
+		// progetto): etichetta e tinta devono sopravvivere al giro.
+		setupDomMock();
+		try {
+			const container = document.createElement('div') as unknown as HTMLElement;
+			const inputSegs: ComposerSegment[] = [
+				{ t: 'project', name: 'GestioneFlotta', label: 'Flotta', hue: 145 },
+				{ t: 'role', value: 'plan', label: 'plan', hue: 230 },
+				{ t: 'role', value: 'openai-codex/gpt-5.6', label: 'GPT-5.6' },
+				{ t: 'text', s: ' rivedi la home' }
+			];
+
+			renderSegmentsToDom(inputSegs, container);
+			// Fra due badge il rendering mette uno spazio fisso: torna come testo.
+			assert.deepEqual(serializeEditorDom(container), [
+				inputSegs[0],
+				{ t: 'text', s: ' ' },
+				inputSegs[1],
+				{ t: 'text', s: ' ' },
+				inputSegs[2],
+				inputSegs[3]
+			]);
 		} finally {
 			teardownDomMock();
 		}

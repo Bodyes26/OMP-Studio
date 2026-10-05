@@ -412,6 +412,171 @@
   color: var(--bg-base);
 }
 
+/* Badge del companion: progetto e ruolo sono identita', non esiti. Fondo
+   neutro, anello --line e un pallino nella tinta (progetto: --badge-h dalla
+   rampa di riempimento delle tessere; ruolo: rampa d'inchiostro come nel menu
+   dei ruoli). Senza tinta (modello) il pallino non c'e'. */
+.chat-badge--project,
+.chat-badge--role {
+  background: var(--bg-hover);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.chat-badge > .chat-badge-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+}
+
+.chat-badge--project > .chat-badge-dot {
+  background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--badge-h, 260));
+}
+
+.chat-badge--role > .chat-badge-dot {
+  background: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--badge-h, 260));
+}
+
+.chat-badge--role > .chat-badge-dot.is-default {
+  background: var(--brand-ink);
+}
+
+/* Cerchio d'invio condiviso dagli editor di prompt (chat e companion):
+   --ink pieno con freccia --bg-base, disabilitato a 0,35. */
+.composer-send-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--ink);
+  color: var(--bg-base);
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  --icon-size: 16px;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.composer-send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Parti della scheda domanda condivise fra AskCard (chat) e companion:
+   domanda in voce chat, dettaglio in etichetta, opzioni a 6 px con hover
+   neutro e bordo --brand riservato alla scelta, «Consigliata» in --success. */
+.ask-text {
+  margin: 0;
+  font-size: var(--text-chat);
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.ask-detail {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+
+.ask-counter {
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+
+.ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ask-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.ask-opt:hover {
+  background: color-mix(in oklab, var(--bg-hover) 60%, transparent);
+  border-color: var(--line-strong);
+}
+
+.ask-opt.focused,
+.ask-opt:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+.ask-opt.selected {
+  border-color: var(--brand);
+  box-shadow: inset 0 0 0 1px var(--brand);
+  background: color-mix(in oklab, var(--brand) 7%, transparent);
+}
+
+.ask-opt-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.ask-opt-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.ask-rec {
+  background: color-mix(in oklab, var(--success) 14%, transparent);
+  color: var(--success);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--success) 25%, transparent);
+  border-radius: var(--radius-md);
+  padding: 0 6px;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.ask-opt-desc {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.ask-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  line-height: 1.4;
+  color: var(--ink-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+  white-space: nowrap;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -790,7 +955,19 @@ svg.lucide {
     color var(--dur-fast) var(--ease-out);
 }
 
-.composer-icon-btn:hover {
+.composer-icon-btn:hover:not(:disabled) {
   background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.composer-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Interruttore iconico attivo (puntina del companion): stato neutro come il
+   Segmented, mai una tinta brand. */
+.composer-icon-btn[aria-pressed='true'] {
+  background: var(--bg-active);
   color: var(--ink);
 }

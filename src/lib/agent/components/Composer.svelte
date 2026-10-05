@@ -26,7 +26,8 @@
 		parsePlainTextToSegments,
 		createFileBadgeElement,
 		createCommandBadgeElement,
-		type ComposerSegment
+		type ComposerSegment,
+		type ComposerTrigger
 	} from '$lib/agent/composerDoc';
 	import { prepareImage, isImageFile } from '$lib/agent/images';
 	import { projectStore } from '$lib/stores/projects.svelte';
@@ -107,13 +108,7 @@
 	let availableModels = $state<ModelInfo[]>([]);
 	let isDragging = $state(false);
 
-	let currentTrigger = $state<{
-		kind: '@' | '/';
-		query: string;
-		node: Text;
-		start: number;
-		caretRect: { left: number; top: number };
-	} | null>(null);
+	let currentTrigger = $state<ComposerTrigger | null>(null);
 
 	let suggestItems = $state<SuggestionItem[]>([]);
 	let suggestIndex = $state(0);
@@ -326,7 +321,7 @@
 			const badge = createFileBadgeElement(item.item.path);
 			editorRef.replaceTrigger(badge, currentTrigger);
 			currentTrigger = null;
-		} else {
+		} else if (item.kind === 'cmd') {
 			const cmd = item.command;
 			const isImmediate =
 				!item.isSkill && ['new', 'copy', 'model', 'role', 'thinking'].includes(cmd.name);
@@ -686,7 +681,7 @@
 					type="button"
 					class="composer-icon-btn"
 					aria-label={m.chat_v2_composer_mention_title()}
-					onclick={() => editorRef?.insertAt()}
+					onclick={() => editorRef?.insertTrigger('@')}
 				>
 					<IconAt />
 				</button>
@@ -848,7 +843,7 @@
 				{#if session.isStreaming}
 					<button
 						type="button"
-						class="send-btn stop"
+						class="composer-send-btn send-btn stop"
 						title={m.chat_v2_composer_stop_tooltip()}
 						onclick={() => session.abort()}
 					>
@@ -858,7 +853,7 @@
 				<div class="send-split-group">
 						<button
 							type="button"
-							class="send-btn main"
+							class="composer-send-btn send-btn main"
 							disabled={!canSend}
 							title={sendBehaviorChoice === 'steer'
 								? `${m.chat_v2_composer_send_tooltip()} — ${m.chat_v2_composer_send_steer()}`
@@ -1108,29 +1103,11 @@
 		overflow: hidden;
 	}
 
-	.send-btn {
-		display: grid;
-		place-items: center;
-		height: 28px;
-		width: 28px;
-		background: var(--ink);
-		color: var(--bg-base);
-		border: none;
-		cursor: pointer;
-		--icon-size: 16px;
-		transition: opacity var(--dur-fast) var(--ease-out);
-	}
-
 	.send-btn.stop {
 		border-radius: var(--radius-full);
 		background: var(--danger);
 		color: var(--on-danger);
 		--icon-size: 15px;
-	}
-
-	.send-btn:disabled {
-		opacity: 0.35;
-		cursor: not-allowed;
 	}
 
 	.send-mode-chevron {

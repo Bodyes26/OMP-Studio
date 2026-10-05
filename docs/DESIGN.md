@@ -188,6 +188,11 @@ components:
     textColor: "{colors.bg-base}"
     rounded: "{rounded.md}"
     padding: "0 6px"
+  badge-identity:
+    backgroundColor: "{colors.bg-hover}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    padding: "0 6px"
   suggestion-chip:
     backgroundColor: "{colors.bg-raised}"
     textColor: "{colors.ink-muted}"
@@ -394,6 +399,7 @@ Le primitive vivono in `src/app.css` e nei moduli di motion dedicati:
 - `.rv-blur` dissolve la sfocatura.
 - `.rv-lift` aggiunge 8 px di salita (`rvLift` Svelte transition in `src/lib/agent/motion.ts`, usata per popover a 150 ms e finestre modali `Dialog` a 240 ms con blur 3 px). Con il parametro `x` la corsa diventa orizzontale: il pannello del subagente entra da destra con 12 px, 240 ms, blur 3 px.
 - `.tray-in`/`.tray-out` piegano l'altezza con `grid-template-rows` da `0fr` a `1fr`.
+- `trayFold` (`src/lib/agent/motion.ts`) è la gemella JS di `.tray-in`/`.tray-out` per i blocchi che il genitore rimuove: piega l'altezza a `--dur-tray` con blur 6 px. La usa il Companion, la cui finestra segue l'altezza del contenuto.
 - `.text-shimmer` fa luccicare un'etichetta viva.
 - `.ghost-line` annuncia il testo in arrivo.
 - Keyframe globale `spin` in `src/app.css` (rotazione lineare continua a 360°): unifica e sostituisce 19 definizioni locali duplicate (`16spin`, `tray-spin`, `tab-spin`, `ring-spin`).
@@ -468,7 +474,7 @@ il significato.
 
 | Token | Ruolo |
 |---|---|
-| `--bg-sunken` | Il pozzo: tela della chat, terminale, editor, blocchi di codice, campi di input (`.ui-input`, `.ui-select`), traccia slider e segmented. |
+| `--bg-sunken` | Il pozzo: tela della chat e della finestra companion, terminale, editor, blocchi di codice, campi di input (`.ui-input`, `.ui-select`), traccia slider e segmented. |
 | `--bg-base` | Corpo delle colonne, piedi dei menu, chip di contesto, badge `/comando` in negativo, piè di dialoghi. |
 | `--bg-raised` | Superfici della conversazione: composer, bolla utente, scheda domanda, menu, tooltip. |
 | `--bg-overlay` | Ciò che galleggia sopra la conversazione: pillola «in fondo», popover, finestre modali (`Dialog`). |
@@ -587,7 +593,8 @@ porta l'informazione: nella stessa riga di traccia «Lettura» è in sans e
 operare usa l'officina (13 px e meno). Una superficie che contiene un prompt da
 scrivere o rileggere parla con la voce anche fuori dalla chat. Tre eccezioni:
 il pannello laterale del singolo subagente (`SubagentDrawer`) è un ispettore e mostra
-il transcript in traccia (12,5/1.5) con markdown; i task in coda restano densi, 11 px in
+il transcript in traccia (12,5/1.5) con markdown, come il riquadro di contesto sopra una
+domanda nel Companion; i task in coda restano densi, 11 px in
 vista compatta e 12 px in vista card, **anche nel dettaglio espanso** («Leggi tutto»
 allunga il blocco, non ingrandisce il testo); i titoli di sessione troncati a una
 riga nelle liste (sessioni recenti del pannello Git, storico del pannello Agente) sono
@@ -701,7 +708,7 @@ Strumento di scrittura e cruscotto della sessione in una sola superficie.
 
 - **Contenitore:** `--bg-raised`, bordo `--line`, `--radius-2xl`, `--shadow-dock`. A fuoco il bordo passa a `--line-strong` (`--dur-fast`). Trascinando file: bordo `--brand-ink`, anello di 2 px con `--brand` al 25%, overlay `--radius-2xl` con etichetta. La sagoma è condivisa da ogni editor di prompt a badge (chat e Task Editor) tramite le classi globali `.composer-shell`, `.composer-toolbar`, `.composer-icon-btn` e `.composer-drop-overlay` in `src/app.css`; l'overlay è l'ultimo figlio e copre senza `z-index`.
 - **Editor:** `contenteditable` in voce chat (15/24), placeholder `--ink-faint` sulla stessa interlinea perché il layout non salti. `Invio` invia nella modalità di default, `Alt+Invio` in quella alternativa, `Maiusc+Invio`/`Ctrl+Invio` vanno a capo. L'incolla porta solo testo; i file diventano allegati. Dove si scrive un testo ponderato (`submitWithModifier`, Task Editor) `Invio` va a capo e `Ctrl+Invio` conferma; l'altezza si regola con `--editor-min-height`/`--editor-max-height` (chat 24–240 px, task 140–460 px).
-- **Badge:** `@file` ha fondo accento al 12%, anello inset al 28% (45% in hover), testo `--ink`, glifo file a 12 px con opacità 0,7. `/comando` è in negativo: fondo `--ink`, testo `--bg-base`. In comune: mono `0.84em`, `--radius-md`, massimo 260 px con ellissi, `contenteditable=false`, identici nell'editor e nel transcript.
+- **Badge:** `@file` ha fondo accento al 12%, anello inset al 28% (45% in hover), testo `--ink`, glifo file a 12 px con opacità 0,7. `/comando` è in negativo: fondo `--ink`, testo `--bg-base`. Nel Companion si aggiungono `#progetto` e `!ruolo`: fondo `--bg-hover`, anello `--line`, testo `--ink` e pallino d'identità da 7 px (§ Finestra companion). In comune: mono `0.84em`, `--radius-md`, massimo 260 px con ellissi, `contenteditable=false`, identici nell'editor e nel transcript.
 - **Strisce sopra l'editor:** anteprima comando (`--bg-base`, `--radius-md`, 11 px, `rv-blur` 200 ms/4 px), allegati (miniature 56 px `--radius-md`; file 190×56 con estensione accentata), avviso di visione in ambra con l'azione «cambia modello».
 - **Barra:** allegati, `@`, divisore 1×16 px, ruolo (pallino 7 px + nome mono), modello (nome con ellissi a 130 px), thinking (misuratore a 5 barre + livello in mono, apre lo slider), poi a destra contesto e invio. Trigger alti 28 px, `--radius-md`, didascalia `--ink-muted` → hover `--bg-hover`/`--ink`.
 - **Anello del contesto:** SVG 18 px, raggio 7, tratto 2,2, terminali arrotondati; `--ink`, poi `--warn` oltre il 60%, poi `--danger` oltre l'85%; accanto `usato/massimo` in mono tabulare.
@@ -904,6 +911,19 @@ Sostituisce il composer quando l'agente chiede, e ne prende la sagoma.
 - **Opzioni:** righe `9px 12px`, `--radius-md`, bordo `--line`. Hover `--bg-hover` al 60% con bordo `--line-strong`. La scelta prende bordo `--brand`, anello inset da 1 px e fondo accento al 7%. Radio 16 px (punto 6 px) o casella con raggio 5 px; scorciatoia `1–9` in `kbd`.
 - **Consigliata:** pillola con fondo `--success` al 14%, testo `--success`, anello inset al 25%.
 - **Piede:** «Decidi tu», suggerimenti di tastiera, azioni a destra. L'azione primaria è in `--brand` con testo `--on-brand` e peso 600; quella secondaria è un pulsante fantasma.
+- **Parti condivise:** domanda, dettaglio, contatore, opzioni, «Consigliata» e `kbd` sono classi globali in `src/app.css` (`.ask-text`, `.ask-detail`, `.ask-counter`, `.ask-options`, `.ask-opt`, `.ask-opt-body/-label/-desc`, `.ask-rec`, `.ask-kbd`): `AskCard` e il Companion le usano identiche.
+
+### Finestra companion
+
+Una piccola Studio sempre in primo piano: voce per scrivere e leggere, officina per card e coda.
+
+- **Superficie (D4):** opaca, tela `--bg-sunken`, bordo `--line-strong`, `--radius-lg`. Nessuna trasparenza sopra il desktop.
+- **Modalità:** a scomparsa la finestra adatta l'altezza al contenuto e la puntina resta sempre a vista (`--ink-faint`, 28 px, `Tooltip`); fissata compare la testata da 32 px della cornice con logo, contatore d'attenzione (schema della riga di attenzione, meta tabulare) e la puntina attiva neutra (`aria-pressed`, `--bg-active`/`--ink`). Il bordo non cambia: la modalità la dice la puntina.
+- **Movimento:** evocazione `rv-lift` 240 ms con blur 3 px; uscita di 120 ms (`opacity` e blur 3 px) prima di `hide()`, per Esc, blur, auto-hide, chiusura, focus progetto e scorciatoia globale; con il movimento ridotto si nasconde subito. Le sezioni interne si piegano con `trayFold` a `--dur-tray`, e la finestra segue l'altezza del contenuto a ogni fotogramma.
+- **Composer:** la sagoma del composer ridotta: `ComposerEditor` 15/24, allegati e `@`, suggerimenti `#` `/` `!` in `.ui-chip`, invio `.composer-send-btn`; niente modello né thinking (il ruolo si sceglie con `!`). Badge `#progetto` e `!ruolo` neutri (`--bg-hover`, anello `--line`) con pallino d'identità da 7 px (progetto dalla rampa di riempimento, ruolo da quella d'inchiostro, `default` `--brand-ink`); un modello non ha pallino. Stato, esiti ed errori sono righe di traccia sotto la sagoma con il solo colore sull'icona.
+- **Card:** lastra `--bg-base`, bordo `--line`, `--radius-lg`; con una domanda aperta prende la sagoma della scheda domanda (`--bg-raised`, `--line-strong`, `--radius-2xl`, `--shadow-raise`) e respira in ambra. Stato con `StatusMark`; il colore del progetto resta nel punto d'identità (D1). Entrano con `chatReveal` e si riordinano con `flip` a 210 ms.
+- **Coda:** titolo inerte e «Avvia» iconico sempre visibile (Read-Before-Run Rule), indice in meta tabulare, il prossimo in `--brand-ink`.
+- **Domanda:** parti condivise di `AskCard`; le opzioni inviano al click, quindi niente radio e indice in meta (non una scorciatoia); contesto in traccia 12,5/1.5 con Markdown denso.
 
 ### Bolla dell'utente
 
@@ -1128,7 +1148,7 @@ Allineati al 2026-10-01 i componenti della chat fuori dal nucleo e le correzioni
 4. **Stato e movimento:** `TaskRow`, `TodoTraceRow`, `SubagentTrace` e l'avvio della sessione su `StatusMark` (`PixelGrid` rimosso); aperture con `tray-in`/`tray-out`; pannello del subagente con `rvLift` laterale e `trapFocus`.
 5. **Igiene:** misure, raggi e icone a token (`--icon-size`, niente prop `size`/`class`); stringhe residue tradotte; pulsante «in fondo» tondo con `Tooltip`.
 
-Restano ai task successivi: `FileMentionPalette`, ancora usato dal Companion, che non è ancora passato a `SuggestPanel` (task 12). `CommandPalette` è stato eliminato con il Task 8.
+`FileMentionPalette` è stato eliminato con il Task 12 (il Companion usa `SuggestPanel`). `CommandPalette` è stato eliminato con il Task 8.
 
 ### D. Tool renderer e parti condivise (Task 3)
 
@@ -1182,7 +1202,7 @@ Allineati al 2026-10-02 l'header di colonna, l'editor con schede e splitter, `Im
 5. **Whiteboard Mermaid (`DiagramViewer`):** risolto P0 di rendering tramite `tokenHex()` da `theme.ts` (esadecimali puliti al posto di `oklch()` rifiutati da `khroma`); `htmlLabels: false` per etichette SVG native compatibili con DOMPurify; ri-render reattivo su cambio tema; barra fusa a 32 px con sequenza zoom unificata; stato vuoto coerente.
 6. **Banner diagnostico (`AlertBanner`):** superficie 100% neutra a 10 px con icona semantica Lucide (Outcome-Only Color Rule); rimossi 4 SVG manuali e tutti i fallback HEX/RGBA; pulsanti conformi a `.ui-button`; ingresso/uscita con `chatReveal` e piegatura diagnostica con `tray-in`/`tray-out` a 210 ms.
 7. **Igiene ed estensioni:** introdotta estensione iconica per `Segmented`; aggiunta icona `IconCircleCheck`; eliminati tutti i `title` nativi dai controlli iconici in favore di `Tooltip`; tutte le stringhe migrate su `messages/it.json` ed `en.json`.
-Restano ad altri task: `ModelPickerDropdown` in `RolesTab` e `CycleDrawer` (task 14), `FileMentionPalette` nel Companion (task 12).
+Restano ad altri task: `ModelPickerDropdown` in `RolesTab` e `CycleDrawer` (task 14). `FileMentionPalette` è stato eliminato con il Task 12.
 
 ### I. Browser Studio e Laboratorio (Task 10)
 
@@ -1197,3 +1217,12 @@ Allineati al 2026-10-05 lo switch della colonna destra e la cornice di `Terminal
 3. **Banner quota:** eliminato. La TUI mostra già l'errore; al passaggio al terminale il blocco della sessione GUI si archivia (Clear-Viewport Rule). Spariscono la striscia laterale, i fallback esadecimali e i token inesistenti.
 4. **Cornice:** viewport con 8 px sui soli lati; voci del menu contestuale in i18n e `IconStop` su «Interrompi».
 
+### K. Finestra companion: a scomparsa e fissata (Task 12)
+
+Allineata al 2026-10-05 la finestra companion (`CompanionShell`, `CompanionView`, `CompanionComposer`, `CompanionAskBody`, `CompanionMarkdown`, `CompanionProjectCard`, `CompanionProjectQueue`, `CompanionMonitor`, `companion.css`). Decisioni:
+
+1. **D4 — superficie:** finestra opaca, tela `--bg-sunken` come la chat (via il fondo al 94% e il vetro Mica che lasciava passare); composer `--bg-raised`, card `--bg-base`.
+2. **Composer ridotto su `ComposerEditor`:** sagoma `.composer-shell`, editor 15/24, `SuggestPanel` esteso a progetti, direttive, ruoli e modelli; `FileMentionPalette` e `FileMentionController` eliminati. Badge `#progetto` e `!ruolo` d'identità neutri con pallino, `/direttiva` in negativo come `/comando`; invio sul cerchio condiviso `.composer-send-btn`, salvataggio come riga di traccia con `StatusMark`.
+3. **Scheda domanda:** parti di `AskCard` (`.ask-text`, `.ask-detail`, `.ask-opt`, `.ask-rec`, `.ask-kbd`) promosse a classi globali in `app.css` e condivise; «Consigliata» in `--success`, hover neutro, opzioni a 6 px, contatore solo con più domande, contesto in traccia 12,5/1.5, risposta libera in voce chat.
+4. **Modalità fissata e movimento:** testata da 32 px con puntina attiva neutra (`aria-pressed`, `--bg-active`); a scomparsa puntina sempre visibile in `--ink-faint` (prima 2,12:1). Evocazione `rvLift` 240 ms; uscita da 120 ms prima di `hide()` per ogni percorso, scorciatoia globale compresa (`companion-dismiss`); sezioni con `trayFold` e altezza della finestra che segue il contenuto per fotogramma.
+5. **Card e coda (D1):** stato con `StatusMark` neutro (via l'anello `--brand` su «finito»), card con domanda nella sagoma della scheda domanda, coda con titolo inerte e «Avvia» sempre visibile, ingressi `chatReveal` e riordino `flip` a 210 ms; token inesistenti, glifi `✎ ← →`, `title` sui controlli iconici e stringhe cablate eliminati.

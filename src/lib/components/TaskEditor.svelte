@@ -32,7 +32,7 @@
 		extractTouchedFilesFromTranscript,
 		computeCaretAnchorLeft
 	} from '$lib/agent/fileMention';
-	import { createFileBadgeElement, createCommandBadgeElement } from '$lib/agent/composerDoc';
+	import { createFileBadgeElement, createCommandBadgeElement, type ComposerTrigger } from '$lib/agent/composerDoc';
 	import {
 		SUGGEST_WIDTH,
 		commandSuggestions,
@@ -101,13 +101,7 @@
 	let isDragging = $state(false);
 	let activeMenu = $state<'model' | 'run' | null>(null);
 
-	let currentTrigger = $state<{
-		kind: '@' | '/';
-		query: string;
-		node: Text;
-		start: number;
-		caretRect: { left: number; top: number };
-	} | null>(null);
+	let currentTrigger = $state<ComposerTrigger | null>(null);
 	let suggestItems = $state<SuggestionItem[]>([]);
 	let suggestIndex = $state(0);
 
@@ -364,7 +358,8 @@
 	});
 
 	function pickSuggestion(item: SuggestionItem) {
-		if (!currentTrigger || !editorRef) return;
+		// Il Task Editor offre solo file e comandi; le voci del companion non arrivano qui.
+		if (!currentTrigger || !editorRef || (item.kind !== 'file' && item.kind !== 'cmd')) return;
 		const badge = item.kind === 'file'
 			? createFileBadgeElement(item.item.path)
 			: createCommandBadgeElement(item.command.name);
@@ -669,7 +664,7 @@
 								type="button"
 								class="composer-icon-btn"
 								aria-label={m.chat_v2_composer_mention_title()}
-								onclick={() => editorRef?.insertAt()}
+								onclick={() => editorRef?.insertTrigger('@')}
 							>
 								<IconAt />
 							</button>

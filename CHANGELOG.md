@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Changed
+- La finestra Companion parla come Studio: è opaca, il campo del task è il composer della chat con i badge per progetto, direttiva, ruolo e file, la domanda usa le stesse opzioni della chat con «Consigliata» in verde, lo stato dei progetti usa i segni neutri condivisi e la modalità fissata si riconosce dalla puntina attiva. Si apre e si chiude con una breve dissolvenza (anche dalla scorciatoia) e le sezioni che si aprono fanno crescere la finestra in modo continuo.
 - Consulta le quote con un solo indicatore ad anello e righe di limite più sobrie: i colori seguono il tema, il verde sano resta opzionale e il respiro segnala soltanto una quota esaurita visibile, rispettando le preferenze di movimento.
 - Apri quote e tutte le code in popover non modali con tastiera libera, chiusura esterna e suggerimenti accessibili, senza oscurare il lavoro.
 - Leggi nella barra inferiore soltanto le versioni di Studio/OMP e lo stato dell'agente, con indicatori di caricamento espliciti e aggiornamenti riusciti distinguibili, senza ripetere il progetto.
@@ -26,6 +27,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Leggi le schede delle colonne in frase: «File · Git · Agente» a sinistra, «Terminale · GUI» a destra, con la scorciatoia nel suggerimento al passaggio del mouse.
 
 ### Fixed
+- Nella Companion la puntina a scomparsa si vede sempre (prima era quasi invisibile), Escape chiude la palette dei suggerimenti senza chiudere la finestra e la coda non avvia più un task cliccandone il titolo: si avvia solo con «Avvia».
 - L'aggiornamento di OMP dalla barra inferiore non fallisce più su macOS con «Could not resolve omp binary path in PATH» quando Studio è aperto da Finder/Dock.
 - Lo switch Terminale/GUI torna ad avere l'aspetto delle schede, con l'indicatore sotto la scheda attiva, invece di due pulsanti di sistema.
 

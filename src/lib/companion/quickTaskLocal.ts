@@ -11,8 +11,6 @@
  * e solo quando il progetto non puo' essere determinato localmente in modo univoco (needsAi === true).
  */
 
-import { findFileMentions } from '../agent/fileMentionSyntax.ts';
-
 export interface LocalProjectRef {
 	id: string;
 	name: string;
@@ -44,21 +42,6 @@ export interface LocalParseInput {
 	roles: string[];
 	modelSelectors?: string[];
 }
-
-export type MentionKind = 'project' | 'directive' | 'role' | null;
-
-export interface MentionState {
-	kind: MentionKind;
-	query: string;
-	start: number;
-	end: number;
-}
-export interface DisplayToken {
-	text: string;
-	kind?: 'project' | 'directive' | 'role' | 'file';
-	label?: string;
-}
-
 
 /**
  * Normalizza una stringa eliminando maiuscole, spazi, trattini e underscore.
@@ -100,7 +83,7 @@ const MAX_PROJECT_TOKEN_WORDS = 6;
  * Un token `#progetto` individuato nel testo, con lo span esatto che occupa.
  * `project === null` significa token presente ma non risolvibile in modo univoco.
  */
-export interface ProjectTokenMatch {
+interface ProjectTokenMatch {
 	start: number;
 	end: number;
 	project: LocalProjectRef | null;
@@ -151,7 +134,7 @@ function resolveProjectCandidates(
  * solo progetto resta in gara; le parole successive al nome ("perche' anche
  * se...") non concatenano mai chiavi che assomigliano a un progetto noto.
  */
-export function findProjectTokens(rawText: string, projects: LocalProjectRef[]): ProjectTokenMatch[] {
+function findProjectTokens(rawText: string, projects: LocalProjectRef[]): ProjectTokenMatch[] {
 	// La corsa parte da '#' e prosegue su parole separate da spazi orizzontali:
 	// mai a capo, mai oltre punteggiatura (che chiude naturalmente il nome).
 	const runRegex = /(?:^|\s)(#([\w.\-]+(?:[ \t]+[\w.\-]+)*))/g;
@@ -373,233 +356,4 @@ export function parseQuickTaskLocal(text: string, input: LocalParseInput): Local
 		taskPrompt,
 		needsAi: !hasValidPath
 	};
-}
-
-/**
- * Esamina il testo fino alla posizione del cursore per determinare se l'utente
- * sta digitando una menzione (# progetto, / direttiva, ! ruolo o modello).
- */
-export function mentionStateAt(text: string, caret: number): MentionState {
-	const safeText = text ?? '';
-	const safeCaret = Math.max(0, Math.min(caret ?? 0, safeText.length));
-	const textBeforeCaret = safeText.slice(0, safeCaret);
-
-	// Riconoscimento menzione progetto: /(^|\s)#([\w.\-]*)$/
-	const projectMatch = /(^|\s)#([\w.\-]*)$/.exec(textBeforeCaret);
- 	if (projectMatch) {
- 		const query = projectMatch[2];
-		const start = textBeforeCaret.length - (query.length + 1); // Indice esatto del carattere '#'
-		return {
-			kind: 'project',
-			query,
-			start,
-			end: safeCaret
-		};
-	}
-
-	// Riconoscimento menzione direttiva: /(^|\s)\/([\w.\-]*)$/
-	const directiveMatch = /(^|\s)\/([\w.\-]*)$/.exec(textBeforeCaret);
-	if (directiveMatch) {
-		const query = directiveMatch[2];
-		const start = textBeforeCaret.length - (query.length + 1); // Indice esatto del carattere '/'
-		return {
-			kind: 'directive',
-			query,
-			start,
-			end: safeCaret
-		};
-	}
-
-	const roleMatch = /(^|\s)!([\w.\-/:]*)$/.exec(textBeforeCaret);
-	if (roleMatch) {
-		const query = roleMatch[2];
-		const start = textBeforeCaret.length - (query.length + 1);
-		return {
-			kind: 'role',
-			query,
-			start,
-			end: safeCaret
-		};
-	}
-
-	return {
-		kind: null,
-		query: '',
-		start: safeCaret,
-		end: safeCaret
-	};
-}
-
-/**
- * Applica la menzione selezionata sostituendo il frammento parziale digitato
- * con il valore completo, seguito da uno spazio per consentire la continuazione immediata della digitazione.
- */
-export function applyMention(
-	text: string,
-	state: MentionState,
-	value: string
-): { text: string; caret: number } {
-	if (state.kind === null) {
-		return { text, caret: state.start };
-	}
-
-	const safeText = text ?? '';
-	const prefix = state.kind === 'project' ? '#' : state.kind === 'directive' ? '/' : '!';
-	const replacement = `${prefix}${value} `;
-
-	const before = safeText.slice(0, state.start);
-	const after = safeText.slice(state.end);
-
-	const newText = `${before}${replacement}${after}`;
-	const newCaret = state.start + replacement.length;
-
-	return {
-		text: newText,
-		caret: newCaret
-	};
-}
-
-/**
- * Suddivide il testo sorgente in segmenti consecutivi (DisplayToken) per il rendering
- * nel backdrop del composer.
- *
- * INVARIANTE FONDAMENTALE:
- * La concatenazione di `tokens.map(t => t.text).join('')` e' sempre rigorosamente identica
- * al testo sorgente (preservando spazi, a capo, tabulazioni e posizioni assolute dei caratteri).
- * Solo i token espliciti (#progetto, /direttiva, !ruolo o !modello, menzioni @file) riconosciuti con successo
- * vengono contrassegnati con il rispettivo `kind`, permettendo il rendering come pillola
- * senza alterare la larghezza complessiva o disallineare il caret della textarea.
- */
-export function tokenizeForDisplay(text: string, input: LocalParseInput): DisplayToken[] {
-	const rawText = text ?? '';
-	if (!rawText) return [];
-
-	interface RecognizedSpan {
-		start: number;
-		end: number;
-		kind: 'project' | 'directive' | 'role' | 'file';
-		label?: string;
-	}
-
-	const spans: RecognizedSpan[] = [];
-
-	// 1. Direttive (/tag)
-	const directiveRegex = /(?:^|\s)(\/([\w.\-]+))/g;
-	const activeDirectives = (input.directives ?? []).filter((d) => !d.hidden);
-	let dirMatch: RegExpExecArray | null;
-	while ((dirMatch = directiveRegex.exec(rawText)) !== null) {
-		const fullToken = dirMatch[1];
-		const tokenValue = dirMatch[2];
-		const tokenStart = dirMatch.index + dirMatch[0].indexOf(fullToken);
-		const tokenEnd = tokenStart + fullToken.length;
-		const normToken = normalizeTokenKey(tokenValue);
-
-		let matched = activeDirectives.find((d) => {
-			if (!d.tag) return false;
-			const cleanTag = d.tag.startsWith('/') ? d.tag.slice(1) : d.tag;
-			return normalizeTokenKey(cleanTag) === normToken;
-		});
-		if (!matched) {
-			matched = activeDirectives.find((d) => normalizeTokenKey(d.name) === normToken);
-		}
-
-		if (matched) {
-			spans.push({
-				start: tokenStart,
-				end: tokenEnd,
-				kind: 'directive',
-				label: matched.name
-			});
-		}
-	}
-
-	// 2. Ruoli e modelli (!ruolo o !modello)
-	const roleRegex = /(?:^|\s)(!([\w.\-/:]+))/g;
-	const availableRoles = input.roles ?? [];
-	const availableModelSelectors = input.modelSelectors ?? [];
-	let roleMatch: RegExpExecArray | null;
-	while ((roleMatch = roleRegex.exec(rawText)) !== null) {
-		const fullToken = roleMatch[1];
-		const tokenValue = roleMatch[2];
-		const tokenStart = roleMatch.index + roleMatch[0].indexOf(fullToken);
-		const tokenEnd = tokenStart + fullToken.length;
-
-		const matchingRole = availableRoles.find(
-			(r) => r.toLowerCase() === tokenValue.toLowerCase()
-		);
-		const matchingModel = availableModelSelectors.find(
-			(s) => s.toLowerCase() === tokenValue.toLowerCase()
-		);
-
-		if (matchingRole || matchingModel) {
-			spans.push({
-				start: tokenStart,
-				end: tokenEnd,
-				kind: 'role',
-				label: matchingRole ?? matchingModel
-			});
-		}
-	}
-
-	// 3. Progetti (#progetto)
-	// La stessa risoluzione del parser: la pillola copre esattamente lo span che
-	// il salvataggio consumera', nomi con spazi inclusi.
-	for (const pt of findProjectTokens(rawText, input.projects ?? [])) {
-		if (!pt.project) continue;
-		spans.push({
-			start: pt.start,
-			end: pt.end,
-			kind: 'project',
-			label: pt.project.name
-		});
-	}
-
-	// 4. Menzioni file (@percorso o @"percorso con spazi")
-	for (const fm of findFileMentions(rawText)) {
-		spans.push({
-			start: fm.start,
-			end: fm.end,
-			kind: 'file',
-			label: fm.path
-		});
-	}
-
-	// Ordiniamo gli span crescenti per indice di inizio
-	spans.sort((a, b) => a.start - b.start || b.end - a.end);
-
-	// Filtriamo eventuali overlap difensivi
-	const nonOverlapping: RecognizedSpan[] = [];
-	let lastEnd = 0;
-	for (const span of spans) {
-		if (span.start >= lastEnd) {
-			nonOverlapping.push(span);
-			lastEnd = span.end;
-		}
-	}
-
-	// Ricostruiamo la sequenza continua di token
-	const tokens: DisplayToken[] = [];
-	let cursor = 0;
-
-	for (const span of nonOverlapping) {
-		if (span.start > cursor) {
-			tokens.push({
-				text: rawText.slice(cursor, span.start)
-			});
-		}
-		tokens.push({
-			text: rawText.slice(span.start, span.end),
-			kind: span.kind,
-			label: span.label
-		});
-		cursor = span.end;
-	}
-
-	if (cursor < rawText.length) {
-		tokens.push({
-			text: rawText.slice(cursor)
-		});
-	}
-
-	return tokens;
 }

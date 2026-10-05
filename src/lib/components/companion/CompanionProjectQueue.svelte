@@ -1,6 +1,13 @@
 <script lang="ts">
+	// Coda pronta della card. Il titolo si legge e basta: avviare l'agente
+	// chiede sempre il pulsante esplicito «Avvia» della riga (Read-Before-Run
+	// Rule), sempre a vista, anche senza puntatore sopra.
+	import { flip } from 'svelte/animate';
 	import { m } from '$lib/paraglide/messages.js';
 	import { IconPlay } from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { chatReveal, revealEase } from '$lib/agent/motion';
+	import { motionReduced, ROW_EXIT_MS } from '$lib/agent/motionState.svelte';
 	import type { StudioTask } from '$lib/stores/tasks.svelte';
 	import { taskLabel } from '$lib/stores/taskTitle';
 
@@ -37,29 +44,33 @@
 
 {#if tasks.length > 0}
 	<section class="project-queue" aria-label={m.companion_queue_aria({ project: projectName })}>
-		<div class="section-title">
-			<span>{m.companion_queue_title({ count: tasks.length })}</span>
-		</div>
+		<h3 class="section-title">{m.companion_queue_title({ count: tasks.length })}</h3>
 
-		<!-- Ogni riga avvia il proprio task: con un solo bottone "Avvia prossimo"
-		     accanto a tre righe il legame con quale parte resta implicito. -->
-		<div class="queue-rows">
+		<ol class="queue-rows">
 			{#each tasks.slice(0, VISIBLE_TASKS) as task, index (task.id)}
 				{@const title = taskTitle(task)}
-				<button
-					type="button"
+				<li
 					class="queue-row"
 					class:is-next={index === 0}
-					{disabled}
-					aria-label={m.companion_run_task({ title })}
-					onclick={() => onRunNext(task.id)}
+					transition:chatReveal
+					animate:flip={{ duration: motionReduced() ? 0 : ROW_EXIT_MS, easing: revealEase }}
 				>
 					<span class="queue-row-index">{index + 1}</span>
 					<span class="queue-row-title">{title}</span>
-					<span class="queue-row-run"><IconPlay /></span>
-				</button>
+					<Tooltip text={m.companion_run_task({ title })} placement="top">
+						<button
+							type="button"
+							class="composer-icon-btn queue-row-run"
+							{disabled}
+							aria-label={m.companion_run_task({ title })}
+							onclick={() => onRunNext(task.id)}
+						>
+							<IconPlay />
+						</button>
+					</Tooltip>
+				</li>
 			{/each}
-		</div>
+		</ol>
 
 		{#if hiddenCount > 0}
 			<p class="queue-more">{m.companion_queue_more({ count: hiddenCount })}</p>

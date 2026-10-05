@@ -9,30 +9,22 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '$lib/stores/modelSettings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEMES, anchorsFor } from '$lib/theme';
-	import { matchesLooseQuery } from '$lib/looseSearch';
+	import { THEMES, anchorsFor, automaticProjectHue } from '$lib/theme';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	import { rankFrequentTaskModels } from '$lib/stores/taskSerialization';
-	import { extractImageFiles, isImageFile, prepareImage } from '$lib/agent/images';
+	import { isImageFile, prepareImage } from '$lib/agent/images';
 	import type { ImageContent } from '$lib/agent/wire';
-	import {
-		parseQuickTaskLocal,
-		mentionStateAt,
-		applyMention,
-		tokenizeForDisplay,
-		findProjectTokens,
-		type LocalQuickTask,
-		type DisplayToken,
-		type ProjectTokenMatch
-	} from '$lib/companion/quickTaskLocal';
+	import type { ComposerSegment } from '$lib/agent/composerDoc';
+	import type ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
+	import { ROLE_HUES } from '$lib/agent/roleHues';
+	import { FAST_EXIT_MS, motionReduced } from '$lib/agent/motionState.svelte';
+	import { parseQuickTaskLocal, type LocalQuickTask } from '$lib/companion/quickTaskLocal';
 	import CompanionShell from './CompanionShell.svelte';
-	import CompanionComposer from './CompanionComposer.svelte';
+	import CompanionComposer, { type CompanionSuggestSources } from './CompanionComposer.svelte';
 	import CompanionMonitor from './CompanionMonitor.svelte';
 	import type { CompanionAskHandlers } from './companionAsk';
 	import { promptBus } from '$lib/agent/promptBus';
-	import { FileMentionController } from '$lib/agent/fileMentionController.svelte';
-	import type { RankedFileItem } from '$lib/agent/fileMention';
 
 	const STATE_RANK: Record<string, number> = {
 		attention: 0,
@@ -42,13 +34,10 @@
 		unknown: 4
 	};
 
-	let inputEl = $state<HTMLTextAreaElement | null>(null);
-	let composerEl = $state<HTMLElement | null>(null);
-	let backdropEl = $state<HTMLDivElement | null>(null);
+	let editor = $state<ComposerEditor | null>(null);
 	let fileInputEl = $state<HTMLInputElement | null>(null);
+	/** Testo wire dell'editor: i badge diventano `#progetto`, `/direttiva`, `!ruolo`, `@file`. */
 	let taskInput = $state('');
-	let caret = $state(0);
-	let mentionIndex = $state(0);
 	let aiParsed = $state<QuickTaskAiParsed | null>(null);
 	let isSaving = $state(false);
 	let successNotice = $state<string | null>(null);
@@ -57,32 +46,14 @@
 	let customReplyProjects = $state<Record<string, boolean>>({});
 	let usageOpen = $state(false);
 	let justOpened = $state(false);
+	let leaving = $state(false);
 	let attachedImages = $state<ImageContent[]>([]);
-	let isDraggingOver = $state(false);
 	let imageProcessingCount = $state(0);
 	let isFileDialogOpen = false;
 	let attachmentError = $state<string | null>(null);
 	let bodyEl = $state<HTMLElement | null>(null);
+	let contentEl = $state<HTMLElement | null>(null);
 	let autoHideTimer: ReturnType<typeof setTimeout> | null = null;
-	// Menzioni file (@percorso) con la palette condivisa: i file arrivano solo
-	// dal progetto di destinazione risolto dal parse locale (il token #progetto).
-	// Senza progetto la palette mostra un invito a indicarlo prima.
-	const fileController = new FileMentionController({
-		projectPath: () => local.projectPath,
-		apply: (newText, newCaret) => {
-			taskInput = newText;
-			aiParsed = null;
-			companionStore.parseError = null;
-			void tick().then(() => {
-				inputEl?.focus();
-				inputEl?.setSelectionRange(newCaret, newCaret);
-				caret = newCaret;
-			});
-		}
-	});
-	const fileMentionEmpty = $derived(
-		fileController.missingProject ? m.companion_file_mention_no_project() : undefined
-	);
 
 	function cancelAutoHide() {
 		if (autoHideTimer) {
@@ -91,8 +62,8 @@
 		}
 	}
 
-	let unlistenSummon: UnlistenFn | null = null;
 	let viewDisposed = false;
+	const unlisteners: UnlistenFn[] = [];
 
 	$effect(() => {
 		return () => {
@@ -107,13 +78,20 @@
 	);
 	const knownDirectives = $derived(settingsStore.taskDirectives.filter((d) => !d.hidden));
 
-	type MentionItem = {
-		value: string;
-		label: string;
-		hint?: string;
-		kind: 'project' | 'directive' | 'role' | 'model';
-		search: string;
-	};
+	/** Tinta d'identita' di ogni progetto: la stessa nelle card e nei badge `#progetto`. */
+	const projectHues = $derived.by(() => {
+		const theme = THEMES[themeStore.current] ?? THEMES['titanium'];
+		const hues = new Map<string, number>();
+		for (const project of knownProjects) {
+			hues.set(
+				project.id,
+				!project.canonicalProjectPath || project.colorMode === 'custom'
+					? project.hue
+					: automaticProjectHue(theme, project.canonicalProjectPath)
+			);
+		}
+		return hues;
+	});
 
 	const configuredRoles = $derived.by(() => {
 		const rolesMap = modelSettingsStore.config?.modelRoles ?? modelSettingsStore.draftConfig?.modelRoles ?? {};
@@ -137,71 +115,62 @@
 		})
 	);
 
-	const knownModelSelectors = $derived(
-		modelSettingsStore.assignableCatalog.map((model) => model.selector)
-	);
-
 	const parseInput = $derived({
 		projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.canonicalProjectPath ?? '' })),
 		directives: knownDirectives.map((d) => ({ id: d.id, name: d.name, tag: d.tag, hidden: d.hidden })),
 		roles: configuredRoles.map((role) => role.id),
-		modelSelectors: knownModelSelectors
+		modelSelectors: modelSettingsStore.assignableCatalog.map((model) => model.selector)
+	});
+
+	const suggestSources = $derived<CompanionSuggestSources>({
+		projects: knownProjects
+			.filter((p) => p.canonicalProjectPath)
+			.map((p) => ({ name: p.name, label: p.label?.trim() || p.name, hue: projectHues.get(p.id) ?? p.hue })),
+		directives: knownDirectives.map((d) => ({
+			value: (d.tag ?? d.name).replace(/^\//, ''),
+			label: d.name,
+			hint: d.tag
+		})),
+		roles: configuredRoles.map((role) => ({
+			value: role.id,
+			label: role.label,
+			hint: role.modelLabel,
+			hue: ROLE_HUES[role.id]
+		})),
+		models: frequentModels.map(({ model, count }) => ({
+			value: model.selector,
+			label: model.name,
+			hint:
+				count === 1
+					? m.companion_model_uses_one({ provider: model.provider })
+					: m.companion_model_uses_other({ provider: model.provider, count }),
+			search: `${model.selector} ${model.name} ${model.provider}`.toLowerCase()
+		}))
 	});
 
 	const local = $derived<LocalQuickTask>(parseQuickTaskLocal(taskInput, parseInput));
-	const displayTokens = $derived<DisplayToken[]>(tokenizeForDisplay(taskInput, parseInput));
-	const mention = $derived(mentionStateAt(taskInput, caret));
-
-	const mentionItems = $derived.by<MentionItem[]>(() => {
-		const q = mention.query.toLowerCase();
-		if (mention.kind === 'project') {
-			return knownProjects
-				.filter((p) => p.canonicalProjectPath)
-				.filter((p) => !q || (p.label ?? p.name).toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
-				.slice(0, 6)
-				.map((p) => ({
-					value: p.name,
-					label: p.label?.trim() || p.name,
-					hint: p.name,
-					kind: 'project' as const,
-					search: `${p.label ?? ''} ${p.name}`.toLowerCase()
-				}));
-		}
-		if (mention.kind === 'directive') {
-			return knownDirectives
-				.filter((d) => !q || d.name.toLowerCase().includes(q) || (d.tag ?? '').toLowerCase().includes(q))
-				.slice(0, 6)
-				.map((d) => ({
-					value: (d.tag ?? d.name).replace(/^\//, ''),
-					label: d.name,
-					hint: d.tag,
-					kind: 'directive' as const,
-					search: `${d.name} ${d.tag ?? ''}`.toLowerCase()
-				}));
-		}
-		if (mention.kind === 'role') {
-			const roles: MentionItem[] = configuredRoles.map((role) => ({
-				value: role.id,
-				label: role.label,
-				hint: role.modelLabel,
-				kind: 'role',
-				search: `${role.id} ${role.label} ${role.selector} ${role.modelLabel}`.toLowerCase()
-			}));
-			const models: MentionItem[] = frequentModels.map(({ model, count }) => ({
-				value: model.selector,
-				label: model.name,
-				hint: `${model.provider} · ${count} ${count === 1 ? 'uso' : 'usi'}`,
-				kind: 'model',
-				search: `${model.selector} ${model.name} ${model.provider}`.toLowerCase()
-			}));
-			return [...roles, ...models].filter((item) => matchesLooseQuery(mention.query, item.search));
-		}
-		return [];
-	});
-
-	const mentionOpen = $derived(mention.kind !== null && mentionItems.length > 0);
 	const isBusy = $derived(isSaving || companionStore.isParsingTask || imageProcessingCount > 0);
 	const canSave = $derived((taskInput.trim().length > 0 || attachedImages.length > 0) && !isBusy);
+	const statusText = $derived(
+		!isBusy
+			? null
+			: imageProcessingCount > 0
+				? m.companion_status_processing_images()
+				: companionStore.isParsingTask
+					? m.companion_status_interpreting_ai()
+					: m.companion_status_saving()
+	);
+	const composerErrors = $derived(
+		[attachmentError, companionStore.parseError].filter((error): error is string => Boolean(error))
+	);
+	/** Ambiguita' o progetto mancante: dall'AI se ha gia' risposto, altrimenti dal parse locale. */
+	const previewNotes = $derived.by(() => {
+		if (!taskInput.trim() && attachedImages.length === 0) return [];
+		const ambiguities = aiParsed?.ambiguities ?? [];
+		if (ambiguities.length > 0) return ambiguities;
+		const projectPath = aiParsed ? aiParsed.projectPath : local.projectPath;
+		return projectPath ? [] : [m.companion_missing_project_hint()];
+	});
 
 	const monitorProjects = $derived.by<Project[]>(() => {
 		const list = knownProjects.filter((p) => p.canonicalProjectPath);
@@ -213,8 +182,6 @@
 		});
 	});
 
-	const INPUT_MAX_HEIGHT = 160;
-
 	$effect(() => {
 		for (const project of knownProjects) {
 			if (project.canonicalProjectPath) {
@@ -224,77 +191,71 @@
 	});
 
 	/**
-	 * Altezza della finestra in modalita' Spotlight: la decide il contenuto.
+	 * Altezza della finestra in modalita' a scomparsa: la decide il contenuto.
 	 *
-	 * Si misura il corpo reale e si chiede a Rust di ridimensionare senza
-	 * ricentrare: la finestra cresce verso il basso come una barra di ricerca
-	 * di sistema. Ricentrare a ogni riga scritta l'avrebbe fatta saltare sotto
-	 * le mani di chi digita.
+	 * Si misura il contenuto (non il corpo che scorre: la sua altezza e' quella
+	 * della finestra e non scenderebbe mai) e si chiede a Rust di ridimensionare
+	 * senza ricentrare: la finestra cresce verso il basso come una barra di
+	 * ricerca di sistema. Una richiesta per fotogramma, senza accodarne: mentre
+	 * una sezione si piega l'altezza della finestra la segue in modo continuo.
+	 * La palette dei suggerimenti sta fuori dal flusso e si somma a parte.
 	 */
 	$effect(() => {
-		const el = bodyEl;
-		if (!el || typeof ResizeObserver === 'undefined') return;
+		const body = bodyEl;
+		const content = contentEl;
+		if (!body || !content || typeof ResizeObserver === 'undefined') return;
 		if (companionStore.isPinned) return;
 
-		let timer: ReturnType<typeof setTimeout> | null = null;
-		const measure = () => {
-			if (timer) clearTimeout(timer);
-			timer = setTimeout(() => {
-				timer = null;
-				// `scrollHeight` del corpo piu' il resto del guscio (maniglia di
-				// trascinamento e bordi): l'elemento misurato non copre la
-				// finestra intera.
-				const chrome = window.innerHeight - el.clientHeight;
-				void companionStore.fitToContent(el.scrollHeight + chrome);
-			}, 80);
+		let frame = 0;
+		let pending: number | null = null;
+		let inFlight = false;
+		let lastSent = 0;
+
+		const contentHeight = () => {
+			let height = content.offsetHeight;
+			const panel = content.querySelector('.suggest-panel');
+			if (panel) {
+				const panelBottom =
+					panel.getBoundingClientRect().bottom - content.getBoundingClientRect().top + 12;
+				height = Math.max(height, panelBottom);
+			}
+			// Testata (fissata) e bordi del guscio: tutto cio' che non e' corpo.
+			return height + (window.innerHeight - body.clientHeight);
 		};
 
-		const observer = new ResizeObserver(measure);
-		observer.observe(el);
+		const flush = async () => {
+			inFlight = true;
+			while (pending !== null) {
+				const height = pending;
+				pending = null;
+				if (Math.abs(height - lastSent) < 1) continue;
+				lastSent = height;
+				await companionStore.fitToContent(height);
+			}
+			inFlight = false;
+		};
+
+		const measure = () => {
+			if (frame) return;
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				pending = contentHeight();
+				if (!inFlight) void flush();
+			});
+		};
+
+		const resizeObserver = new ResizeObserver(measure);
+		resizeObserver.observe(content);
+		// La palette (assoluta) non cambia l'altezza del contenuto: la sua
+		// comparsa si coglie dalle mutazioni del sottoalbero.
+		const mutationObserver = new MutationObserver(measure);
+		mutationObserver.observe(content, { childList: true, subtree: true });
 		measure();
 		return () => {
-			if (timer) clearTimeout(timer);
-			observer.disconnect();
+			if (frame) cancelAnimationFrame(frame);
+			resizeObserver.disconnect();
+			mutationObserver.disconnect();
 		};
-	});
-
-	// Il backdrop dipinge il testo che la textarea tiene trasparente: i due strati
-	// devono avvolgere le righe alla stessa larghezza, altrimenti il caret (nativo
-	// della textarea) deriva rispetto ai glifi visibili. Quando il testo supera
-	// l'altezza massima compare la scrollbar verticale della textarea, che ruba
-	// ~10px alla sua content-box mentre il backdrop (overflow hidden) resta largo:
-	// si compensa con un padding-right pari alla larghezza della scrollbar.
-	function syncBackdropGeometry() {
-		const el = inputEl;
-		const backdrop = backdropEl;
-		if (!el || !backdrop) return;
-		const scrollbarWidth = el.offsetWidth - el.clientWidth;
-		backdrop.style.paddingRight =
-			scrollbarWidth > 0 ? `calc(var(--space-1) + ${scrollbarWidth}px)` : '';
-		backdrop.scrollTop = el.scrollTop;
-		backdrop.scrollLeft = el.scrollLeft;
-	}
-
-	$effect(() => {
-		const el = inputEl;
-		if (!el || typeof ResizeObserver === 'undefined') return;
-		// La scrollbar puo' comparire/sparire anche senza digitazione (resize finestra):
-		// la compensazione segue la geometria reale della textarea.
-		const geometryObserver = new ResizeObserver(() => syncBackdropGeometry());
-		geometryObserver.observe(el);
-		syncBackdropGeometry();
-		return () => geometryObserver.disconnect();
-	});
-
-	$effect(() => {
-		const el = inputEl;
-		const text = taskInput;
-		if (!el) return;
-		el.style.height = 'auto';
-		const target = text ? Math.min(el.scrollHeight, INPUT_MAX_HEIGHT) : 0;
-		el.style.height = target > 0 ? `${target}px` : '';
-		el.style.overflowY = text && el.scrollHeight > INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
-		syncBackdropGeometry();
 	});
 
 	function refreshCompanionState() {
@@ -309,6 +270,15 @@
 		}
 	}
 
+	function trackListener(registration: Promise<UnlistenFn>) {
+		void registration.then((fn) => {
+			// La registrazione e' asincrona: se la vista e' gia' smontata il
+			// listener va chiuso subito, altrimenti resterebbe appeso.
+			if (viewDisposed) fn();
+			else unlisteners.push(fn);
+		});
+	}
+
 	onMount(() => {
 		void companionStore.init();
 		refreshCompanionState();
@@ -321,20 +291,32 @@
 			// Il campo del task e' la prima cosa e prende sempre il fuoco:
 			// qualunque cosa ci sia sotto (una domanda, una coda pronta), il
 			// punto dove si scrive non cambia mai sotto le mani.
-			inputEl?.focus();
+			editor?.focusEnd();
 		});
 		playOpenAnimation();
 
-		void listen('companion-summon', () => {
-			refreshCompanionState();
-			playOpenAnimation();
-			void tick().then(() => inputEl?.focus());
-		}).then((fn) => {
-			// La registrazione e' asincrona: se la vista e' gia' smontata il
-			// listener va chiuso subito, altrimenti resterebbe appeso.
-			if (viewDisposed) fn();
-			else unlistenSummon = fn;
+		// Uscita breve prima di `hide()`: la finestra si dissolve invece di
+		// sparire di colpo. Con il movimento ridotto si nasconde subito.
+		companionStore.setExitAnimation({
+			play: () => {
+				if (motionReduced()) return Promise.resolve();
+				leaving = true;
+				return new Promise((resolve) => setTimeout(resolve, FAST_EXIT_MS));
+			},
+			cancel: () => {
+				leaving = false;
+			}
 		});
+
+		trackListener(
+			listen('companion-summon', () => {
+				refreshCompanionState();
+				playOpenAnimation();
+				void tick().then(() => editor?.focusEnd());
+			})
+		);
+		// La scorciatoia globale non nasconde da Rust: chiede l'uscita animata.
+		trackListener(listen('companion-dismiss', () => void companionStore.hideCompanion()));
 
 		const handleBlur = () => {
 			if (
@@ -355,55 +337,31 @@
 
 		return () => {
 			viewDisposed = true;
+			companionStore.setExitAnimation(null);
 			window.removeEventListener('blur', handleBlur);
 			window.removeEventListener('focus', handleFocus);
-			unlistenSummon?.();
+			for (const fn of unlisteners) fn();
 		};
 	});
 
 	function playOpenAnimation() {
+		// La finestra torna a vista ancora dissolta dall'uscita: l'ingresso
+		// riparte da li', senza un fotogramma pieno in mezzo.
+		leaving = false;
 		justOpened = false;
 		void tick().then(() => {
 			justOpened = true;
-			setTimeout(() => (justOpened = false), 220);
-		});
-	}
-
-	function handleInputScroll() {
-		syncBackdropGeometry();
-	}
-
-	function insertToken(char: string) {
-		const el = inputEl;
-		const at = el?.selectionStart ?? taskInput.length;
-		const before = taskInput.slice(0, at);
-		const needsSpace = before.length > 0 && !/\s$/.test(before);
-		const insert = `${needsSpace ? ' ' : ''}${char}`;
-		taskInput = before + insert + taskInput.slice(el?.selectionEnd ?? at);
-		const next = at + insert.length;
-		aiParsed = null;
-		companionStore.parseError = null;
-		mentionIndex = 0;
-		void tick().then(() => {
-			inputEl?.focus();
-			inputEl?.setSelectionRange(next, next);
-			caret = next;
-			syncFileMention();
 		});
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
-			// Escape consumato dal campo (palette @file o menzione) chiude solo
-			// il popover, mai la finestra nello stesso gesto.
-			if (e.defaultPrevented || fileController.open) return;
+			// Escape consumato da un campo (palette, risposta libera) chiude solo
+			// quello, mai la finestra nello stesso gesto.
+			if (e.defaultPrevented) return;
 			e.preventDefault();
 			if (usageOpen) {
 				usageOpen = false;
-				return;
-			}
-			if (mentionOpen) {
-				caret = -1;
 				return;
 			}
 			void companionStore.hideCompanion();
@@ -413,55 +371,11 @@
 		}
 	}
 
-	function handleInputKeydown(e: KeyboardEvent) {
-		// La palette @file ha la precedenza: mentre si sceglie un file Invio
-		// non salva il task ed Escape non chiude la finestra.
-		if (fileController.handleKeydown(e)) return;
-		if (!mentionOpen) {
-			if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-				e.preventDefault();
-				void handleSaveTask();
-				return;
-			}
-			syncCaret();
-			return;
-		}
-		if (e.key === 'ArrowDown') {
-			e.preventDefault();
-			mentionIndex = (mentionIndex + 1) % mentionItems.length;
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault();
-			mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length;
-		} else if (e.key === 'Tab' || (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey)) {
-			e.preventDefault();
-			chooseMention(mentionItems[Math.min(mentionIndex, mentionItems.length - 1)].value);
-		}
-	}
-
-	function syncCaret() {
-		void tick().then(() => {
-			caret = inputEl?.selectionStart ?? taskInput.length;
-			syncFileMention();
-		});
-	}
-
-	// La palette progetti/direttive/ruoli e quella dei file non stanno mai
-	// aperte insieme: una menzione (#, /, !) chiude i file, che gestiscono '@'.
-	function syncFileMention() {
-		if (mention.kind !== null) {
-			fileController.close();
-			return;
-		}
-		void fileController.update(taskInput, caret);
-	}
-
 	function handleInput() {
 		cancelAutoHide();
-		caret = inputEl?.selectionStart ?? taskInput.length;
-		mentionIndex = 0;
+		taskInput = editor?.getWireText() ?? '';
 		aiParsed = null;
 		companionStore.parseError = null;
-		syncFileMention();
 	}
 
 	async function handleProcessFiles(files: FileList | File[]) {
@@ -487,38 +401,6 @@
 		}
 	}
 
-	function handlePaste(event: ClipboardEvent) {
-		const imageFiles = extractImageFiles(event.clipboardData);
-		if (imageFiles.length === 0) return;
-		event.preventDefault();
-		void handleProcessFiles(imageFiles);
-	}
-
-	function handleDragOver(event: DragEvent) {
-		event.preventDefault();
-		isDraggingOver = true;
-	}
-
-	function handleDragLeave(event: DragEvent) {
-		event.preventDefault();
-		isDraggingOver = false;
-	}
-
-	function handleDrop(event: DragEvent) {
-		event.preventDefault();
-		isDraggingOver = false;
-		const imageFiles = extractImageFiles(event.dataTransfer);
-		if (imageFiles.length > 0) {
-			void handleProcessFiles(imageFiles);
-		} else if (event.dataTransfer?.files.length) {
-			attachmentError = m.ui_companionview_sono_supportati_solo_file_immagine_f024();
-		}
-	}
-
-	function removeImage(index: number) {
-		attachedImages = attachedImages.filter((_, imageIndex) => imageIndex !== index);
-	}
-
 	function triggerFileInput() {
 		if (!fileInputEl) return;
 		isFileDialogOpen = true;
@@ -532,18 +414,6 @@
 			void handleProcessFiles(input.files);
 		}
 		input.value = '';
-	}
-
-	function chooseMention(value: string) {
-		const next = applyMention(taskInput, mention, value);
-		taskInput = next.text;
-		mentionIndex = 0;
-		void tick().then(() => {
-			inputEl?.focus();
-			inputEl?.setSelectionRange(next.caret, next.caret);
-			caret = next.caret;
-			syncFileMention();
-		});
 	}
 
 	async function handleSaveTask() {
@@ -591,9 +461,9 @@
 				});
 				companionStore.parseError = null;
 				attachmentError = null;
+				editor?.clear();
 				taskInput = '';
 				attachedImages = [];
-				caret = 0;
 				aiParsed = null;
 				cancelAutoHide();
 				autoHideTimer = setTimeout(() => {
@@ -698,47 +568,37 @@
 		return pending.method === 'input' || pending.method === 'editor';
 	}
 
-	function toggleHistory(projectId: string) {
-		expandedHistory[projectId] = !expandedHistory[projectId];
-	}
-
-	function togglePinned() {
-		void companionStore.setPinned(!companionStore.isPinned);
-	}
-
-	function handleRunTask(projectId: string, taskId: string) {
-		void companionStore.runTask(projectId, taskId);
-	}
-
 	/**
-	 * Precompila il campo con la menzione del progetto e riporta il fuoco:
+	 * Precompila il campo con il badge del progetto e riporta il fuoco:
 	 * accodare al progetto che stai guardando non deve costare la digitazione
-	 * del suo nome.
+	 * del suo nome. Un badge di progetto gia' in testa viene sostituito.
 	 */
 	function prefillProject(project: Project) {
-		const mentionText = `#${project.name} `;
-		const trimmed = taskInput.trimStart();
-		const leading = trimmed.startsWith('#') ? findProjectTokens(trimmed, parseInput.projects) : [];
-		const headToken: ProjectTokenMatch | null =
-			leading.length > 0 && leading[0].start === 0 ? leading[0] : null;
-		taskInput = headToken
-			? mentionText + trimmed.slice(headToken.end).trimStart()
-			: mentionText + trimmed;
-		aiParsed = null;
-		companionStore.parseError = null;
-		void tick().then(() => {
-			inputEl?.focus();
-			const end = taskInput.length;
-			inputEl?.setSelectionRange(end, end);
-			caret = end;
-			syncFileMention();
-		});
+		if (!editor) return;
+		const segments = editor.getSegments();
+		const rest = segments[0]?.t === 'project' ? segments.slice(1) : segments;
+		const badge: ComposerSegment = {
+			t: 'project',
+			name: project.name,
+			label: project.label?.trim() || project.name,
+			hue: projectHues.get(project.id) ?? project.hue
+		};
+		const head = rest[0];
+		editor.setSegments(
+			head?.t === 'text'
+				? [badge, { t: 'text', s: ` ${head.s.trimStart()}` }, ...rest.slice(1)]
+				: [badge, ...rest]
+		);
+		editor.focusEnd();
+		handleInput();
 	}
 
 	const askHandlers = $derived<CompanionAskHandlers>({
 		expandedHistory,
 		customReplyProjects,
-		onToggleHistory: toggleHistory,
+		onToggleHistory: (projectId: string) => {
+			expandedHistory[projectId] = !expandedHistory[projectId];
+		},
 		onReplyDraftChange: (projectId: string, value: string) => {
 			replyDrafts[projectId] = value;
 		},
@@ -756,55 +616,6 @@
 		draftFor,
 		wantsText
 	});
-
-	const composerProps = $derived({
-		displayTokens,
-		attachedImages,
-		isDraggingOver,
-		isBusy,
-		canSave,
-		imageProcessingCount,
-		isParsingTask: companionStore.isParsingTask,
-		mentionOpen,
-		mentionItems,
-		mentionIndex,
-		fileMentionOpen: fileController.open,
-		fileMentionItems: fileController.items,
-		fileMentionIndex: fileController.selectedIndex,
-		fileMentionEmpty,
-		local,
-		aiParsed,
-		parseError: companionStore.parseError,
-		successNotice,
-		attachmentError,
-		onInsertToken: insertToken,
-		onInput: handleInput,
-		onInputKeydown: handleInputKeydown,
-		onSyncCaret: syncCaret,
-		onInputScroll: handleInputScroll,
-		onPaste: handlePaste,
-		onDragOver: handleDragOver,
-		onDragLeave: handleDragLeave,
-		onDrop: handleDrop,
-		onRemoveImage: removeImage,
-		onTriggerFileInput: triggerFileInput,
-		onFileInputChange,
-		onSaveTask: handleSaveTask,
-		onChooseMention: chooseMention,
-		onFileMentionSelect: (item: RankedFileItem) => fileController.pick(item),
-		onFileMentionClose: () => fileController.close()
-	});
-
-	const monitorProps = $derived({
-		projects: monitorProjects,
-		runtimes: companionStore.projectRuntimes,
-		attentionList,
-		ask: askHandlers,
-		onFocusProject: (projectId: string) => void companionStore.focusProject(projectId),
-		onNewTask: prefillProject,
-		onRunTask: handleRunTask,
-		onToggleUsage: () => { usageOpen = !usageOpen; }
-	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -814,7 +625,9 @@
 	{isLightTheme}
 	attentionCount={attentionList.length}
 	{justOpened}
-	onTogglePin={togglePinned}
+	{leaving}
+	onOpenEnd={() => (justOpened = false)}
+	onTogglePin={() => void companionStore.setPinned(!companionStore.isPinned)}
 	onClose={() => void companionStore.hideCompanion()}
 >
 	{#if usageOpen}
@@ -825,24 +638,47 @@
 		<!-- Il campo del nuovo task e' sempre la prima cosa e sempre grande:
 		     e' la ragione per cui la finestra si apre. Domande, code e stato
 		     dei progetti stanno sotto, dentro le card. -->
-		<CompanionComposer
-			{...composerProps}
-			bind:taskInput
-			bind:inputEl
-			bind:composerEl
-			bind:backdropEl
-			bind:fileInputEl
-		/>
+		<div class="companion-content" bind:this={contentEl}>
+			<CompanionComposer
+				bind:editor
+				{attachedImages}
+				sources={suggestSources}
+				fileProjectPath={local.projectPath}
+				{canSave}
+				{statusText}
+				{successNotice}
+				errors={composerErrors}
+				{previewNotes}
+				onInput={handleInput}
+				onSave={() => void handleSaveTask()}
+				onFilesAdd={(files) => void handleProcessFiles(files)}
+				onRemoveImage={(index) => (attachedImages = attachedImages.filter((_, i) => i !== index))}
+				onOpenFileDialog={triggerFileInput}
+			/>
 
-		<CompanionMonitor {...monitorProps} />
+			<CompanionMonitor
+				projects={monitorProjects}
+				hues={projectHues}
+				runtimes={companionStore.projectRuntimes}
+				{attentionList}
+				ask={askHandlers}
+				onFocusProject={(projectId) => void companionStore.focusProject(projectId)}
+				onNewTask={prefillProject}
+				onRunTask={(projectId, taskId) => void companionStore.runTask(projectId, taskId)}
+				onToggleUsage={() => (usageOpen = !usageOpen)}
+			/>
 
-		{#if monitorProjects.length === 0}
-			<p class="companion-empty">{m.companion_empty()}</p>
-		{/if}
+			{#if monitorProjects.length === 0}
+				<p class="companion-empty">{m.companion_empty()}</p>
+			{/if}
+		</div>
 	</main>
+
+	<input type="file" accept="image/*" multiple bind:this={fileInputEl} onchange={onFileInputChange} hidden />
 </CompanionShell>
 
 <style>
+	/* La finestra e' trasparente su Windows (Mica): il fondo lo dipinge il guscio. */
 	:global(body) {
 		margin: 0;
 		padding: 0;

@@ -1,67 +1,75 @@
 /*
-	Tinte e bordi accentati derivati dai token reali del tema.
-	Il sistema definisce solo `--brand`, `--warn` e `--danger`: le loro
-	versioni traslucide vivono qui, in un posto solo.
+	Finestra companion: una piccola Studio. La voce (campo del task, domanda,
+	risposta) usa le stesse superfici della chat; l'officina (card, coda,
+	cornice) e' densa e muta. Qui stanno solo layout e misure proprie della
+	finestra: sagome, badge, opzioni e pulsanti sono le classi globali di
+	app.css (.composer-shell, .chat-badge, .ask-opt, .ui-button, .ui-chip).
 */
-.companion-shell {
-	--brand-tint: color-mix(in srgb, var(--brand) 14%, transparent);
-	--brand-line: color-mix(in srgb, var(--brand) 38%, transparent);
-	--warn-tint: color-mix(in srgb, var(--warn) 16%, transparent);
-	--warn-line: color-mix(in srgb, var(--warn) 40%, transparent);
-	--danger-tint: color-mix(in srgb, var(--danger) 14%, transparent);
-	--danger-line: color-mix(in srgb, var(--danger) 38%, transparent);
 
+/* ---- Guscio ---------------------------------------------------------- */
+
+/* Tela opaca come quella della chat (D4): sopra il desktop la trasparenza non
+   portava informazione e cambiava con il sistema operativo. */
+.companion-shell {
 	position: relative;
 	display: flex;
 	flex-direction: column;
 	width: 100vw;
 	height: 100vh;
-	background: color-mix(in srgb, var(--bg-raised) 94%, transparent);
+	background: var(--bg-sunken);
 	color: var(--ink);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-lg);
-	box-shadow: var(--shadow-overlay);
 	overflow: hidden;
 	font-family: var(--font-ui);
-	font-size: var(--text-sm);
+	font-size: var(--text-body);
+	line-height: 1.45;
 	box-sizing: border-box;
 }
 
+/* Evocazione: la stessa salita dei pannelli (rvLift, 240 ms, blur 3 px). */
 .companion-shell.just-opened {
-	animation: companion-pop var(--dur-base) var(--ease-out) both;
+	--blur: 3px;
+	animation: rv-lift-in var(--dur-slow) var(--ease-reveal) backwards;
 }
 
-@keyframes companion-pop {
-	from {
-		opacity: 0;
-		transform: translateY(8px);
-	}
+/* Uscita breve prima di hide(): la finestra si dissolve invece di sparire.
+   Resta dissolta finche' Rust non la nasconde; il prossimo summon riparte da
+   qui con l'ingresso. Con il movimento ridotto la regola globale la azzera e
+   la vista non aspetta. */
+.companion-shell.leaving {
+	animation: companion-leave var(--dur-fast) var(--ease-reveal) forwards;
+}
+
+@keyframes companion-leave {
 	to {
-		opacity: 1;
-		transform: none;
+		opacity: 0;
+		filter: blur(3px);
 	}
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.companion-shell.just-opened {
-		animation: none;
-	}
-}
-
-.companion-shell.pinned {
-	border-color: var(--brand);
-	box-shadow: var(--shadow-overlay), 0 0 0 1px var(--brand-line);
-}
-
+/* Fissata: testata della cornice da 32 px (Fused-Header Rule), trigger da
+   28 px. Il segno della modalita' e' la puntina attiva, non un bordo. */
 .companion-header {
+	flex: none;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	height: 30px;
-	padding: 0 var(--space-2);
-	background: var(--bg-raised);
+	height: 32px;
+	padding: 0 2px 0 var(--space-2);
 	border-bottom: 1px solid var(--line);
 	cursor: grab;
+}
+
+.header-left,
+.header-right {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.header-right {
+	gap: 2px;
 }
 
 .brand-logo-img {
@@ -71,177 +79,237 @@
 	-webkit-user-drag: none;
 }
 
+/* Lo schema della riga di attenzione: ambra al 15%, testo --ink, punto. */
 .attention-counter {
-	font-size: var(--text-xs);
-	padding: 1px 6px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 1px var(--space-2);
 	border-radius: var(--radius-full);
-	background: var(--warn-tint);
-	color: var(--warn);
-	border: 1px solid var(--warn-line);
+	background: color-mix(in oklch, var(--warn) 15%, transparent);
+	color: var(--ink);
+	font-size: var(--text-meta);
+	font-variant-numeric: tabular-nums;
 }
 
+.attention-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: var(--radius-full);
+	background: var(--warn);
+}
+
+/* A scomparsa la maniglia di trascinamento e' invisibile, ma copre il
+   contenuto che scorrerebbe sotto: ha il colore della tela. */
 .spotlight-drag-region {
 	position: absolute;
 	top: 0;
 	left: 0;
-	right: 40px;
-	height: 24px;
-	z-index: 2;
+	right: 36px;
+	height: 28px;
+	z-index: var(--z-topbar);
 	cursor: grab;
-	/* Opaca come il guscio: a riposo non si vede, ma quando il corpo scorre
-	   maschera il contenuto che passerebbe sotto la maniglia. */
-	background: color-mix(in srgb, var(--bg-raised) 94%, transparent);
+	background: var(--bg-sunken);
 }
 
+/* La puntina e' sempre a vista: a riposo --ink-faint (5,5:1 sulla tela),
+   mai un'opacita' che la faccia sembrare spenta. */
 .floating-controls {
 	position: absolute;
-	top: 6px;
-	right: 6px;
-	z-index: 3;
-	opacity: 0.35;
-	transition: opacity var(--dur-fast);
+	top: 2px;
+	right: 2px;
+	z-index: var(--z-topbar);
 }
 
-.companion-shell:hover .floating-controls,
-.floating-controls:focus-within {
-	opacity: 1;
+.floating-controls .composer-icon-btn:not([aria-pressed='true']) {
+	color: var(--ink-faint);
 }
 
-.header-left {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-}
-
-.header-right {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
-}
-
-.companion-header .icon-btn {
-	width: 24px;
-	height: 24px;
-}
-
-.icon-btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 28px;
-	height: 28px;
-	background: transparent;
-	border: 1px solid transparent;
-	border-radius: var(--radius-sm);
-	color: var(--ink-muted);
-	cursor: pointer;
-}
-
-.icon-btn:hover {
-	background: var(--bg-hover);
-	color: var(--ink);
-}
-
-.icon-btn.active {
-	color: var(--brand);
-	background: var(--brand-tint);
-	border-color: var(--brand-line);
-}
-
-.close-btn:hover {
-	color: var(--danger);
-	background: var(--danger-tint);
-}
+/* ---- Corpo ----------------------------------------------------------- */
 
 .companion-body {
 	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+/* Il contenuto, non il corpo che scorre, e' cio' che la vista misura per
+   adattare l'altezza della finestra a scomparsa. */
+.companion-content {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-3);
-	padding: var(--space-3);
-	overflow-y: auto;
-	min-height: 0;
-}
-
-/*
-	Il campo del nuovo task e' la ragione per cui la finestra si apre: resta in
-	cima e non scorre mai via. Sticky e non `flex: none` in un corpo senza
-	scroll, perche' l'adattamento dell'altezza in Spotlight misura
-	`scrollHeight` del corpo: con lo scroll spostato su un figlio, quella
-	misura collasserebbe sull'altezza visibile e la finestra non crescerebbe
-	piu'.
-
-	Da non fissata il rientro di 28px sta sul composer, non sul corpo: quando
-	si incolla in cima e' il suo stesso padding (opaco) a coprire la fascia
-	della maniglia di trascinamento, invece di lasciarci scorrere il contenuto
-	sotto.
-*/
-.quick-task-section {
-	position: sticky;
-	top: 0;
-	z-index: 1;
-	background: color-mix(in srgb, var(--bg-raised) 94%, transparent);
-}
-
-/* La fascia di padding del corpo resterebbe trasparente sopra il composer
-   incollato, e il contenuto scorrerebbe a vista in quei pochi pixel: questo
-   prolungamento opaco la copre, in entrambe le modalita'. */
-.quick-task-section::before {
-	content: '';
-	position: absolute;
-	left: 0;
-	right: 0;
-	top: calc(-1 * var(--space-3));
-	height: var(--space-3);
-	background: inherit;
-}
-
-.companion-shell:not(.pinned) .quick-task-section {
-	padding-top: 28px;
+	padding: 0 var(--space-3) var(--space-3);
 }
 
 .companion-empty {
 	margin: var(--space-5) auto 0;
 	max-width: 46ch;
 	text-align: center;
-	font-size: var(--text-sm);
 	color: var(--ink-faint);
 }
 
-/* Griglia delle card: una colonna a 560px, due se la finestra viene
-   allargata. I 300px minimi sono la larghezza sotto cui la riga di un task in
-   coda (la prima riga di un prompt) non si legge piu' (DESIGN-legacy.md §7.8). */
+/* ---- Campo del nuovo task --------------------------------------------- */
+
+/*
+	Il campo e' la ragione per cui la finestra si apre: resta in cima e non
+	scorre mai via. Il rientro superiore e' suo (opaco), cosi' il contenuto non
+	passa a vista sopra di lui; a scomparsa vale 28 px e copre la fascia della
+	maniglia.
+*/
+.quick-task-section {
+	position: sticky;
+	top: 0;
+	z-index: var(--z-sticky);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	padding-top: var(--space-3);
+	background: var(--bg-sunken);
+}
+
+.companion-shell:not(.pinned) .quick-task-section {
+	padding-top: 28px;
+}
+
+.composer-area {
+	position: relative;
+}
+
+.composer-area .composer-shell {
+	--editor-max-height: 160px;
+}
+
+.composer-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	padding: 10px 14px 0;
+}
+
+.composer-divider {
+	flex: none;
+	width: 1px;
+	height: 16px;
+	margin: 0 var(--space-1);
+	background: var(--line);
+}
+
+/* I suggerimenti insegnano la sintassi: si stringono prima dell'invio. */
+.token-hints {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-width: 0;
+	overflow: hidden;
+}
+
+.token-hint {
+	flex: none;
+}
+
+.token-char {
+	margin-right: 3px;
+	font-family: var(--font-mono);
+	font-weight: 600;
+	color: var(--ink-faint);
+}
+
+/* Righe di traccia sotto il campo: stato, esito, errori, note del parse.
+   Superficie neutra; il colore sta solo nell'icona (Outcome-Only Color Rule). */
+.composer-notes {
+	display: flex;
+	flex-direction: column;
+}
+
+.composer-note {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	margin: 0;
+	padding: var(--space-1) var(--space-1) 0;
+	font-size: var(--text-trace);
+	line-height: 1.5;
+	color: var(--ink);
+	--icon-size: 14px;
+}
+
+.composer-note.muted {
+	color: var(--ink-muted);
+}
+
+.note-icon {
+	flex: none;
+	display: inline-flex;
+	margin-top: 2px;
+}
+
+.note-icon.success {
+	color: var(--success);
+}
+
+.note-icon.danger {
+	color: var(--danger);
+}
+
+.note-icon.warn {
+	color: var(--warn);
+}
+
+/* ---- Card dei progetti -------------------------------------------------- */
+
+/* Una colonna a 560px, due se la finestra viene allargata. I 300px minimi
+   sono la larghezza sotto cui la riga di un task in coda non si legge piu'. */
 .project-cards {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
 	gap: var(--space-2);
 	align-content: start;
 }
 
-/* La card con una domanda aperta prende tutta la riga: lo spazio serve alle
-   opzioni da premere, e le altre scendono sotto. */
-.project-card.wide {
+.project-card-slot {
+	min-width: 0;
+}
+
+.project-card-slot.wide {
 	grid-column: 1 / -1;
 }
 
+/* Lastra d'officina sulla tela. Con una domanda aperta prende la sagoma
+   della scheda domanda: e' la superficie che chiede una decisione. */
 .project-card {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2);
-	padding: var(--space-2);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-md);
-	background: var(--bg-sunken);
 	min-width: 0;
-	position: relative;
+	padding: var(--space-2) var(--space-3);
+	background: var(--bg-base);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-lg);
 	user-select: text;
 	-webkit-user-select: text;
+	transition:
+		background-color var(--dur-slow) var(--ease-reveal),
+		border-color var(--dur-slow) var(--ease-reveal),
+		border-radius var(--dur-slow) var(--ease-reveal),
+		box-shadow var(--dur-slow) var(--ease-reveal);
+}
+
+.project-card.asking {
+	gap: var(--space-3);
+	padding: var(--space-3) var(--space-4);
+	background: var(--bg-raised);
+	border-color: var(--line-strong);
+	border-radius: var(--radius-2xl);
+	box-shadow: var(--shadow-raise);
 }
 
 .card-top {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-1);
+	gap: 2px;
 	min-width: 0;
 }
 
@@ -249,6 +317,11 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
+	min-width: 0;
+}
+
+.card-row-name > :first-child {
+	flex: 1;
 	min-width: 0;
 }
 
@@ -266,11 +339,13 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	flex: 1;
+	width: 100%;
 	min-width: 0;
+	min-height: 28px;
+	padding: 0;
 	background: none;
 	border: none;
-	padding: 0;
+	border-radius: var(--radius-sm);
 	color: inherit;
 	font: inherit;
 	text-align: left;
@@ -281,31 +356,92 @@
 	color: var(--brand-ink);
 }
 
-.card-new-task {
+/* Il punto d'identita' dice «c'e' un agente» nella tinta del progetto (D1);
+   lo stato operativo lo dice lo StatusMark, neutro. */
+.p-dot {
+	width: 8px;
+	height: 8px;
 	flex: none;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 20px;
-	height: 20px;
-	padding: 0;
-	border: 1px solid transparent;
-	border-radius: var(--radius-sm);
-	background: none;
-	color: var(--ink-faint);
-	cursor: pointer;
+	border-radius: var(--radius-full);
+	background: color-mix(in oklch, var(--ink-faint) 50%, transparent);
 }
 
-.card-new-task:hover {
-	background: var(--bg-hover);
-	border-color: var(--line);
+.p-dot.lit {
+	background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260));
+}
+
+.p-name {
+	flex: 1;
+	min-width: 0;
+	font-weight: 500;
 	color: var(--ink);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	transition: color var(--dur-fast) var(--ease-out);
+}
+
+.p-queue-count {
+	flex: none;
+	padding: 0 var(--space-1);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-mono);
+	font-size: var(--text-meta);
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-faint);
+}
+
+.p-state {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	font-size: var(--text-label);
+	color: var(--ink-muted);
+}
+
+/*
+	Anello ambra che respira: la tessera aspetta te. E' uno dei movimenti
+	persistenti ammessi (Alive-and-Visible Rule), solo per lo stato vivo.
+*/
+.project-card.attention::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	box-shadow: inset 0 0 0 1.5px var(--warn);
+	pointer-events: none;
+	animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
+	will-change: opacity, box-shadow;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.project-card.attention::after {
+		animation: none;
+		opacity: 1;
+		box-shadow: inset 0 0 0 1.5px var(--warn);
+	}
+}
+
+:root[data-animations="false"] .project-card.attention::after {
+	animation: none;
+	opacity: 1;
+	box-shadow: inset 0 0 0 1.5px var(--warn);
+}
+
+.card-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
 }
 
 /* Una riga sola, mai a capo: "sta lavorando" non chiede niente a nessuno. */
 .card-activity {
 	margin: 0;
-	font-size: var(--text-xs);
+	font-size: var(--text-trace);
+	line-height: 1.5;
 	color: var(--ink-muted);
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -317,14 +453,16 @@
 .card-excerpt {
 	display: flex;
 	gap: var(--space-2);
-	font-size: var(--text-xs);
-	color: var(--ink-muted);
 	min-width: 0;
+	font-size: var(--text-trace);
+	line-height: 1.5;
+	color: var(--ink-muted);
 }
 
 .excerpt-age {
 	flex: none;
 	font-family: var(--font-mono);
+	font-size: var(--text-meta);
 	font-variant-numeric: tabular-nums;
 	color: var(--ink-faint);
 }
@@ -338,29 +476,98 @@
 	overflow: hidden;
 }
 
+/* ---- Coda della card ---------------------------------------------------- */
+
+/* Dentro la lastra, senza una seconda cornice: niente card annidate. */
+.project-queue {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
 .section-title {
+	margin: 0 0 2px;
+	font-size: var(--text-label);
+	font-weight: 600;
+	color: var(--ink);
+}
+
+.queue-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.queue-row {
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	font-size: var(--text-xs);
-	font-weight: 600;
+	min-height: 28px;
+	padding-left: var(--space-1);
+	font-size: var(--text-label);
 	color: var(--ink-muted);
-	margin-bottom: var(--space-2);
 }
 
-/* Il contesto mostra la coda della conversazione (lo scroll nasce in fondo,
-   vedi CompanionAskBody): 140px sono circa sette righe, abbastanza per capire
-   la domanda senza mangiare l'altezza delle opzioni da premere. */
+.queue-row-index {
+	flex: none;
+	min-width: 1ch;
+	font-family: var(--font-mono);
+	font-size: var(--text-meta);
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-faint);
+}
+
+/* Il prossimo a partire e' marcato sulla riga, non dedotto da un bottone
+   unico posato accanto a un elenco. */
+.queue-row.is-next .queue-row-index {
+	color: var(--brand-ink);
+	font-weight: 600;
+}
+
+.queue-row-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.queue-row-run {
+	--icon-size: 14px;
+}
+
+.queue-more,
+.queue-blocked {
+	margin: 0;
+	padding-left: var(--space-1);
+	font-size: var(--text-caption);
+	color: var(--ink-faint);
+}
+
+.queue-blocked {
+	color: var(--warn);
+}
+
+/* ---- Domanda nella card ------------------------------------------------- */
+
+/* Il contesto e' un estratto da ispezionare, non il transcript: traccia
+   12,5/1.5 come il pannello del subagente. 140 px sono circa sei righe,
+   abbastanza per capire la domanda senza mangiare le opzioni. */
 .chat-context {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2);
-	background: var(--bg-base);
-	padding: var(--space-2);
-	border-radius: var(--radius-sm);
-	border: 1px solid var(--line);
 	max-height: 140px;
 	overflow-y: auto;
+	padding: var(--space-2) var(--space-3);
+	background: var(--bg-base);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-md);
+	font-size: var(--text-trace);
+	line-height: 1.5;
 }
 
 /* In colonna, non in riga: il markdown a blocchi (elenchi, titoli, citazioni)
@@ -369,34 +576,24 @@
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-	font-size: var(--text-xs);
-	line-height: 1.45;
 	min-width: 0;
-}
-
-.context-bubble.user .role-tag {
-	color: var(--brand-ink);
-	font-weight: 600;
-}
-
-.context-bubble.assistant .role-tag {
-	color: var(--ink-muted);
-	font-weight: 600;
 }
 
 .role-tag {
-	font-size: var(--text-xs);
+	font-size: var(--text-meta);
+	font-weight: 500;
+	color: var(--ink-faint);
 }
 
 .bubble-text {
+	min-width: 0;
 	color: var(--ink-muted);
 	word-break: break-word;
-	min-width: 0;
 }
 
-/* Markdown del contesto: blocchi compatti, nessun margine di paragrafo pieno.
-   I blocchi di codice non sono colorati (niente Monaco nella seconda
-   webview), quindi si distinguono per superficie e spaziatura fissa. */
+/* Markdown denso: titoli alla misura del corpo e piu' pesanti, codice a
+   0,92 em. I blocchi di codice non sono colorati (niente Monaco nella
+   seconda webview): li distinguono pozzo e spaziatura fissa. */
 .bubble-text .cmd-paragraph,
 .bubble-text .cmd-heading {
 	margin: 0 0 var(--space-1) 0;
@@ -428,7 +625,7 @@
 	border: 1px solid var(--line);
 	border-radius: var(--radius-sm);
 	font-family: var(--font-mono);
-	font-size: var(--text-xs);
+	font-size: 0.92em;
 	white-space: pre-wrap;
 	word-break: break-word;
 	overflow-x: auto;
@@ -438,7 +635,7 @@
 	margin: 0 0 var(--space-1) 0;
 	padding-left: var(--space-2);
 	border-left: 2px solid var(--line);
-	color: var(--ink-faint);
+	color: var(--ink-muted);
 }
 
 .bubble-text .cmd-rule {
@@ -449,137 +646,20 @@
 
 .history-toggle-btn {
 	align-self: flex-start;
+	padding: 2px 0;
 	background: none;
 	border: none;
-	color: var(--brand-ink);
-	font-size: var(--text-xs);
-	padding: 2px 0;
-	cursor: pointer;
-}
-
-/* Pannello multi-corsia quando più corsie dello stesso progetto richiedono attenzione */
-.multi-lane-panel {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-	padding: var(--space-2);
-	background: var(--bg-surface);
-	border: 1px solid var(--line);
 	border-radius: var(--radius-sm);
-	margin-top: var(--space-1);
-}
-
-.multi-lane-header {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-}
-
-.multi-lane-title {
-	font-size: var(--text-xs);
-	font-weight: 600;
-	color: var(--warn);
-}
-
-.multi-lane-hint {
-	font-size: var(--text-xs);
-	color: var(--text-muted);
-}
-
-.multi-lane-list {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-}
-
-.multi-lane-item {
-	display: flex;
-	width: 100%;
-}
-
-.lane-pick-btn {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-2);
-	width: 100%;
-	padding: var(--space-1) var(--space-2);
-	background: var(--bg-sunken);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
-	cursor: pointer;
-	color: var(--ink);
-	font-family: inherit;
-	text-align: left;
-	transition: background 0.12s ease, border-color 0.12s ease;
-}
-
-.lane-pick-btn:hover {
-	background: var(--bg-hover);
-	border-color: var(--line-strong);
-}
-
-.lane-name-badge {
-	font-size: 11px;
-	font-weight: 600;
-	padding: 2px 6px;
-	border-radius: var(--radius-xs);
-	background: var(--bg-surface);
-	border: 1px solid var(--line);
-	color: var(--ink);
-	white-space: nowrap;
-}
-
-.lane-question-text {
-	font-size: var(--text-xs);
-	flex: 1;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.lane-action-arrow {
-	font-size: var(--text-xs);
-	color: var(--text-muted);
-}
-
-.lane-selection-bar {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-2);
-	padding: 2px 0;
-	margin-bottom: var(--space-1);
-}
-
-.back-to-lanes-btn {
-	font-size: 11px;
 	color: var(--brand-ink);
-	background: none;
-	border: none;
+	font-size: var(--text-caption);
 	cursor: pointer;
-	padding: 2px 4px;
-	border-radius: var(--radius-xs);
 }
 
-.back-to-lanes-btn:hover {
-	text-decoration: underline;
-}
-
-.active-lane-chip {
-	font-size: 11px;
-	font-weight: 600;
-	color: var(--warn);
-	background: var(--bg-surface);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-xs);
-	padding: 2px 6px;
-}
 .ask-box {
-	margin-top: var(--space-1);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
 }
 
 .ask-head {
@@ -589,202 +669,33 @@
 	gap: var(--space-2);
 }
 
-.ask-question {
-	font-weight: 500;
-	font-size: var(--text-md);
-	line-height: 1.45;
-	margin: 0 0 var(--space-2) 0;
-	color: var(--ink);
+.ask-box .ask-text,
+.ask-box .ask-detail {
 	white-space: pre-wrap;
 	word-break: break-word;
 }
 
-.ask-counter {
+/* Indice dell'opzione: un dato in meta, non una scorciatoia (le opzioni
+   inviano al click e il fuoco resta nel campo del task). */
+.ask-opt-index {
 	flex: none;
+	display: inline-flex;
+	justify-content: center;
+	min-width: 14px;
+	margin-top: 1px;
 	font-family: var(--font-mono);
-	font-size: var(--text-xs);
+	font-size: var(--text-meta);
+	font-variant-numeric: tabular-nums;
 	color: var(--ink-faint);
-	padding: 1px var(--space-1);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
+	--icon-size: 12px;
 }
 
-.ask-detail {
-	margin: calc(-1 * var(--space-1)) 0 var(--space-2) 0;
-	font-size: var(--text-xs);
-	color: var(--ink-muted);
-	white-space: pre-wrap;
-	word-break: break-word;
-}
-
-.quota-blocked-box {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-	padding: var(--space-2) var(--space-3);
-	background: var(--bg-sunken);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
-}
-
-.qb-msg {
-	font-size: var(--text-xs);
-	color: var(--ink-muted);
-	margin: 0;
-	line-height: 1.4;
-}
-
-.qb-primary-cta {
+.ask-actions-row {
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	gap: var(--space-2);
-	padding: var(--space-2) var(--space-3);
-	background: var(--brand);
-	color: var(--on-brand);
-	font-weight: 500;
-	border: none;
-	border-radius: var(--radius-sm);
-	cursor: pointer;
-	font-size: var(--text-xs);
-}
-
-.qb-primary-cta:hover {
-	opacity: 0.95;
-}
-
-.qb-alternatives {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-	margin-top: var(--space-1);
-}
-
-.qb-alt-label {
-	font-size: var(--text-xs);
-	color: var(--ink-faint);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-}
-
-.qb-alt-grid {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-}
-
-.qb-alt-btn {
-	padding: var(--space-1) var(--space-2);
-}
-
-.qb-footer {
-	display: flex;
 	justify-content: flex-end;
-	margin-top: var(--space-1);
-}
-
-.options-grid {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-}
-
-.option-btn {
-	display: flex;
-	align-items: flex-start;
+	flex-wrap: wrap;
 	gap: var(--space-2);
-	padding: var(--space-2) var(--space-3);
-	background: var(--bg-base);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
-	color: var(--ink);
-	text-align: left;
-	cursor: pointer;
-	font-size: var(--text-sm);
-	transition: background var(--dur-fast), border-color var(--dur-fast);
-}
-
-.opt-body {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	min-width: 0;
-}
-
-.opt-label {
-	word-break: break-word;
-}
-
-.opt-desc {
-	font-size: var(--text-xs);
-	color: var(--ink-muted);
-	word-break: break-word;
-}
-
-.option-btn:hover {
-	background: var(--bg-hover);
-	border-color: var(--brand);
-}
-
-.opt-num {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 18px;
-	height: 18px;
-	border-radius: var(--radius-sm);
-	background: var(--bg-sunken);
-	font-family: var(--font-mono);
-	font-size: var(--text-xs);
-	color: var(--ink-muted);
-}
-
-.opt-recommended-badge {
-	background: var(--brand-tint);
-	color: var(--brand-ink);
-	border: 1px solid var(--brand-line);
-	border-radius: var(--radius-sm);
-	padding: 1px 5px;
-	font-size: var(--text-xs);
-	font-weight: 600;
-	margin-left: var(--space-1);
-	vertical-align: middle;
-}
-
-.option-btn.is-other {
-	border-style: dashed;
-}
-
-.option-btn.is-other:hover {
-	border-style: solid;
-}
-
-.confirm-actions {
-	display: flex;
-	gap: var(--space-2);
-}
-
-.action-btn {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--space-2);
-	padding: var(--space-2) var(--space-3);
-	border-radius: var(--radius-sm);
-	font-size: var(--text-sm);
-	font-weight: 500;
-	cursor: pointer;
-	border: 1px solid var(--line);
-}
-
-.action-btn.confirm {
-	background: var(--brand);
-	color: var(--on-brand);
-	border-color: var(--brand);
-}
-
-.action-btn.cancel {
-	background: var(--bg-hover);
-	color: var(--ink-muted);
 }
 
 .text-reply {
@@ -793,665 +704,134 @@
 	gap: var(--space-2);
 }
 
+/* Una risposta scritta e' un prompt: voce chat 15/24. Il fuoco e' l'anello
+   globale da 2 px. */
 .reply-input {
 	width: 100%;
+	box-sizing: border-box;
 	resize: vertical;
-	padding: var(--space-2);
-	background: var(--bg-base);
+	padding: var(--space-2) var(--space-3);
+	background: var(--bg-sunken);
 	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
+	border-radius: var(--radius-md);
 	color: var(--ink);
-	font-family: inherit;
-	font-size: var(--text-sm);
-	line-height: 1.4;
+	font-family: var(--font-ui);
+	font-size: var(--text-chat);
+	line-height: 24px;
+	transition: border-color var(--dur-fast) var(--ease-out);
 }
 
-.reply-input:focus {
-	outline: none;
-	border-color: var(--brand-line);
+.reply-input:hover {
+	border-color: var(--line-strong);
 }
 
-.reply-actions {
-	display: flex;
-	align-items: center;
-	gap: var(--space-2);
+.reply-input::placeholder {
+	color: var(--ink-faint);
 }
 
 .reply-hint {
 	margin-right: auto;
-	font-size: var(--text-xs);
+	font-size: var(--text-caption);
 	color: var(--ink-faint);
 }
 
-.action-btn:disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
-}
-
-.quick-task-section {
+/* Blocco quota: niente seconda cornice dentro la scheda; il segno di stato
+   dice l'esito, le azioni sono quelle della riga quota del vassoio. */
+.quota-blocked-box {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2);
 }
 
-.composer {
+.qb-msg {
 	display: flex;
-	flex-direction: column;
+	align-items: flex-start;
 	gap: var(--space-2);
-	padding: var(--space-2) var(--space-2) var(--space-1);
-	background: var(--bg-overlay);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-lg);
-	cursor: text;
-	transition: border-color var(--dur-fast) var(--ease-out);
-}
-
-.composer:focus-within {
-	border-color: var(--brand-line);
-}
-
-.composer.dragging {
-	border-color: var(--brand);
-	background: color-mix(in srgb, var(--brand) 8%, var(--bg-overlay));
-}
-
-.composer-hero .composer {
-	padding: var(--space-3);
-	border-radius: var(--radius-lg);
-}
-
-.composer-hero .composer-backdrop,
-.composer-hero .composer-input {
-	font-size: var(--text-lg);
-	min-height: 28px;
-}
-
-.composer-stage {
-	position: relative;
-	width: 100%;
-}
-
-.composer-backdrop,
-.composer-input {
-	width: 100%;
-	min-height: 22px;
-	max-height: 160px;
-	padding: var(--space-1) var(--space-1) 0;
-	border: none;
-	font-family: var(--font-ui);
-	font-size: var(--text-base);
-	line-height: 1.45;
-	letter-spacing: normal;
-	word-spacing: normal;
-	tab-size: 4;
-	white-space: pre-wrap;
-	word-break: break-word;
-	overflow-wrap: break-word;
-	box-sizing: border-box;
-}
-
-.composer-backdrop {
-	position: absolute;
-	inset: 0;
-	background: transparent;
-	color: var(--ink);
-	overflow: hidden;
-	pointer-events: none;
-	user-select: none;
-}
-
-.composer-input {
-	position: relative;
-	background: transparent;
-	color: transparent;
-	caret-color: var(--ink);
-	resize: none;
-	outline: none;
-	overflow-y: hidden;
-	z-index: 1;
-}
-
-.composer-input::placeholder {
-	color: var(--ink-faint);
-	opacity: 1;
-}
-
-.composer-input::selection {
-	background: color-mix(in srgb, var(--brand) 28%, transparent);
-	color: transparent;
-}
-
-/*
-	Pillole dei token riconosciuti. Vincolo assoluto: zero pixel orizzontali.
-	Il backdrop deve avere le stesse metriche del testo (trasparente) della
-	textarea, altrimenti il caret finisce dove non si scrive.
-*/
-.tok.project,
-.tok.directive,
-.tok.role,
-.tok.file {
-	display: inline;
-	border-radius: var(--radius-sm);
-	padding-block: 1px;
-	box-shadow: 0 0 0 1px var(--tok-line);
-	box-decoration-break: clone;
-	-webkit-box-decoration-break: clone;
-}
-
-.tok.project {
-	--tok-line: color-mix(in srgb, var(--brand) 38%, transparent);
-	background: color-mix(in srgb, var(--brand) 14%, transparent);
-	color: var(--brand-ink);
-}
-
-.tok.directive {
-	--tok-line: color-mix(in srgb, var(--ink-faint) 55%, transparent);
-	background: color-mix(in srgb, var(--ink-faint) 12%, transparent);
-	color: var(--ink-muted);
-}
-
-.tok.role {
-	--tok-line: color-mix(in srgb, var(--warn) 38%, transparent);
-	background: color-mix(in srgb, var(--warn) 12%, transparent);
-	color: var(--warn);
-}
-
-.tok.file {
-	--tok-line: color-mix(in srgb, var(--success) 38%, transparent);
-	background: color-mix(in srgb, var(--success) 12%, transparent);
-	color: var(--success);
-}
-
-.image-previews {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2);
-	padding: 0 var(--space-1) var(--space-1);
-}
-
-.image-thumb-wrap {
-	position: relative;
-	display: inline-flex;
-}
-
-.image-thumb {
-	display: block;
-	height: 42px;
-	max-width: 84px;
-	object-fit: cover;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
-}
-
-.image-remove-btn {
-	position: absolute;
-	top: -5px;
-	right: -5px;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 16px;
-	height: 16px;
-	padding: 0;
-	background: var(--bg-raised);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-full);
-	color: var(--ink-faint);
-	cursor: pointer;
-	--icon-size: 10px;
-}
-
-/* Il bersaglio deve valere 24px (WCAG 2.2 SC 2.5.8) ma la pastiglia visibile
-   resta 16px: crescerla coprirebbe l'anteprima che sta annullando. */
-.image-remove-btn::after {
-	content: '';
-	position: absolute;
-	inset: -4px;
-	border-radius: inherit;
-}
-
-.image-remove-btn:hover {
-	background: var(--brand-dim);
-	color: var(--ink);
-}
-
-.composer-rail {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-2);
-}
-
-.composer-actions {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1);
-}
-
-.attach-btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 28px;
-	height: 28px;
-	padding: 0;
-	background: transparent;
-	border: 1px solid transparent;
-	border-radius: var(--radius-full);
-	color: var(--ink-muted);
-	cursor: pointer;
-	--icon-size: 15px;
-}
-
-.attach-btn:hover {
-	background: var(--bg-hover);
-	border-color: var(--line);
-	color: var(--ink);
-}
-
-.token-hints {
-	display: flex;
-	align-items: center;
-	gap: var(--space-1);
-	min-width: 0;
-	overflow: hidden;
-}
-
-.token-hint {
-	display: inline-flex;
-	align-items: center;
-	gap: 3px;
-	min-height: 24px;
-	padding: 2px var(--space-2);
-	background: transparent;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-full);
-	color: var(--ink-muted);
-	font-family: var(--font-ui);
-	font-size: var(--text-xs);
+	margin: 0;
+	font-size: var(--text-trace);
 	line-height: 1.5;
-	cursor: pointer;
-	transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-
-.token-hint:hover {
-	background: var(--bg-hover);
 	color: var(--ink);
 }
 
-.token-char {
-	font-family: var(--font-mono);
-	color: var(--brand-ink);
-	font-weight: 600;
+.qb-alternatives {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
 }
 
-.send-btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex: none;
-	width: 28px;
-	height: 28px;
-	padding: 0;
-	background: var(--brand);
-	color: var(--on-brand);
-	border: 1px solid var(--brand);
-	border-radius: var(--radius-full);
-	cursor: pointer;
-	--icon-size: 16px;
-	transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-}
-
-.send-btn:hover:not(:disabled) {
-	background: var(--brand-ink);
-	border-color: var(--brand-ink);
-}
-
-.send-btn:active:not(:disabled) {
-	background: var(--brand-dim);
-}
-
-.send-btn:disabled {
-	background: var(--bg-hover);
-	border-color: var(--line);
-	color: var(--ink-faint);
-	cursor: default;
-}
-
-.send-btn.busy:disabled {
-	background: var(--brand);
-	border-color: var(--brand);
-	color: var(--on-brand);
-}
-
-.composer-status {
-	margin: 0;
-	padding-left: var(--space-1);
-	font-size: var(--text-xs);
+.qb-alt-label {
+	font-size: var(--text-label);
 	color: var(--ink-muted);
 }
 
-.notice {
-	display: flex;
-	align-items: center;
+/* ---- Piu' corsie in attesa ---------------------------------------------- */
+
+.multi-lane-panel {
 	gap: var(--space-2);
-	padding: var(--space-2) var(--space-3);
-	border-radius: var(--radius-sm);
-	font-size: var(--text-xs);
 }
 
-.notice.success {
-	background: var(--brand-tint);
-	color: var(--brand-ink);
-	border: 1px solid var(--brand-line);
-}
-
-.notice.error {
-	background: var(--danger-tint);
-	color: var(--danger);
-	border: 1px solid var(--danger-line);
-}
-
-.parsed-strip {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-	padding: 0 var(--space-1);
-}
-
-.parsed-note {
-	display: grid;
-	grid-template-columns: auto 1fr;
-	align-items: start;
-	gap: 5px;
-	margin: 0;
-	font-size: var(--text-xs);
-	line-height: 1.45;
-	color: var(--warn);
-}
-
-.parsed-note .token-char {
-	color: inherit;
-}
-
-/*
-	Vocabolario di stato identico alla barra progetti (DESIGN-legacy.md §7.1):
-	solo anelli inset, nessun alone. Il punto identita' dice «c'e' un agente»,
-	l'anello ambra che respira dice «aspetta te». E' l'unico movimento
-	persistente ammesso in tutta l'applicazione.
-*/
-.p-dot {
-	width: 8px;
-	height: 8px;
-	flex: none;
-	border-radius: var(--radius-full);
-	background: color-mix(in srgb, var(--ink-faint) 50%, transparent);
-}
-
-.p-dot.lit {
-	background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue, 260));
-}
-
-.project-card.attention::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	border-radius: inherit;
-	box-shadow: inset 0 0 0 1.5px var(--warn);
-	pointer-events: none;
-	animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
-	will-change: opacity, box-shadow;
-}
-
-.project-card.finished::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	border-radius: inherit;
-	box-shadow: inset 0 0 0 1px var(--brand);
-	pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.project-card.attention::after {
-		animation: none;
-		opacity: 1;
-		box-shadow: inset 0 0 0 1.5px var(--warn);
-	}
-}
-
-:root[data-animations="false"] .project-card.attention::after {
-	animation: none;
-	opacity: 1;
-	box-shadow: inset 0 0 0 1.5px var(--warn);
-}
-
-.p-name {
-	flex: 1;
-	min-width: 0;
-	font-weight: 500;
-	color: var(--ink);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.p-queue-count {
-	flex: none;
-	font-family: var(--font-mono);
-	font-size: var(--text-xs);
-	color: var(--ink-faint);
-	padding: 0 var(--space-1);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
-}
-
-.p-state {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	flex: none;
-	font-size: var(--text-xs);
-	color: var(--ink-faint);
-}
-
-.p-state.state-working {
-	color: var(--brand-ink);
-}
-
-.p-state.state-attention {
-	color: var(--warn);
-}
-
-.p-state.state-finished {
-	color: var(--ink-muted);
-}
-
-.more-projects {
-	align-self: flex-start;
-	display: inline-flex;
-	align-items: center;
-	min-height: 24px;
-	background: none;
-	border: none;
-	padding: 2px 0;
-	font-size: var(--text-xs);
-	color: var(--ink-faint);
-	cursor: pointer;
-}
-
-.more-projects:hover {
-	color: var(--ink);
-}
-
-.project-detail-panel {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-	padding: var(--space-2);
-	background: var(--bg-sunken);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-md);
-}
-
-.project-queue {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-	margin-top: var(--space-1);
-	padding: var(--space-2);
-	background: var(--bg-base);
-	border: 1px solid var(--line);
-	border-radius: var(--radius-sm);
-}
-
-.project-queue .section-title {
-	margin-bottom: var(--space-1);
-}
-
-.queue-rows {
+.multi-lane-header {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
 }
 
-.queue-row {
-	display: flex;
-	flex-direction: row;
-	align-items: center;
-	gap: var(--space-2);
-	width: 100%;
-	min-height: 28px;
-	padding: var(--space-1) var(--space-2);
-	background: transparent;
-	border: 1px solid transparent;
-	border-radius: var(--radius-sm);
-	font-family: inherit;
-	font-size: var(--text-xs);
-	color: var(--ink-muted);
-	text-align: left;
-	cursor: pointer;
-	transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-
-.queue-row:hover:not(:disabled) {
-	background: var(--bg-hover);
+.multi-lane-title {
+	font-weight: 600;
 	color: var(--ink);
 }
 
-.queue-row:disabled {
-	cursor: not-allowed;
-	color: var(--ink-faint);
+.multi-lane-hint {
+	font-size: var(--text-label);
+	color: var(--ink-muted);
 }
 
-.queue-row-index {
-	flex: none;
-	font-family: var(--font-mono);
-	font-variant-numeric: tabular-nums;
-	color: var(--ink-faint);
-}
-
-/* Il prossimo a partire e' marcato sulla riga, non dedotto da un bottone
-   unico posato accanto a un elenco. */
-.queue-row.is-next .queue-row-index {
-	color: var(--brand-ink);
-	font-weight: 600;
-}
-
-.queue-row-title {
-	flex: 1;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.queue-row-run {
-	flex: none;
-	display: inline-flex;
-	opacity: 0;
-	color: var(--brand-ink);
-	--icon-size: 12px;
-}
-
-.queue-row:hover:not(:disabled) .queue-row-run,
-.queue-row:focus-visible .queue-row-run {
-	opacity: 1;
-}
-
-.queue-more,
-.queue-blocked {
-	margin: 0;
-	padding: 0 var(--space-2);
-	font-size: var(--text-xs);
-	color: var(--ink-faint);
-}
-
-.queue-blocked {
-	color: var(--warn);
-}
-
-.mention-popover {
-	position: fixed;
-	inset: auto;
-	margin: 0;
-	padding: 0;
-	z-index: var(--z-overlay);
+.multi-lane-list {
 	display: flex;
 	flex-direction: column;
-	background: var(--bg-overlay);
-	color: var(--ink);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-md);
-	box-shadow: var(--shadow-overlay);
-	max-height: min(200px, var(--anchored-space, 200px));
-	overflow-y: auto;
+	gap: 6px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
 }
 
-.mention-item {
-	display: flex;
+.ask-opt.lane-pick-btn {
 	align-items: center;
 	gap: var(--space-2);
-	min-width: 0;
-	padding: 4px var(--space-2);
-	background: none;
-	border: none;
-	text-align: left;
-	font-size: var(--text-xs);
-	color: var(--ink);
-	cursor: pointer;
 }
 
-.mention-item.selected,
-.mention-item:hover {
-	background: var(--bg-hover);
-}
-
-.mention-label {
+.lane-name-badge,
+.active-lane-chip {
 	flex: none;
+	padding: 0 6px;
+	border-radius: var(--radius-sm);
+	background: var(--bg-hover);
+	color: var(--ink);
+	font-size: var(--text-caption);
+	font-weight: 600;
+	line-height: 18px;
+	white-space: nowrap;
 }
 
-.mention-hint {
+.lane-question-text {
 	flex: 1;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--ink-faint);
-	font-family: var(--font-mono);
+	font-size: var(--text-label);
 }
 
-.mention-kind {
+.lane-action-arrow {
 	flex: none;
+	display: inline-flex;
 	color: var(--ink-faint);
+	--icon-size: 14px;
 }
 
-.spinner {
-	width: 12px;
-	height: 12px;
-	border: 2px solid currentColor;
-	border-top-color: transparent;
-	border-radius: var(--radius-full);
-	animation: spin 0.8s linear infinite;
+.lane-selection-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
 }
-

@@ -9,10 +9,17 @@
 	//
 	// Il corpo dipende dallo stato e non si sovrappone: la domanda quando c'e',
 	// altrimenti la riga di attivita' mentre lavora, altrimenti l'estratto di
-	// cio' che ha detto e la coda pronta a partire.
+	// cio' che ha detto e la coda pronta a partire. Il passaggio da un corpo
+	// all'altro si piega in altezza (la finestra a scomparsa lo segue).
+	//
+	// Il colore d'identita' resta nel punto del progetto; lo stato operativo e'
+	// neutro e condiviso (StatusMark, D1).
 	import { m } from '$lib/paraglide/messages.js';
 	import { computeQuotaInfo } from '$lib/quota/projectQuota';
 	import QuotaChip from '$lib/components/quota/QuotaChip.svelte';
+	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { trayFold } from '$lib/agent/motion';
 	import { ACTIVITY_FRESH_MS, shortAge } from '$lib/stores/companionText';
 	import type { Project } from '$lib/stores/projects.svelte';
 	import type { AttentionRequest, CompanionProjectRuntime } from '$lib/stores/companion.svelte';
@@ -20,13 +27,7 @@
 	import type { CompanionAskHandlers } from './companionAsk';
 	import CompanionAskBody from './CompanionAskBody.svelte';
 	import CompanionProjectQueue from './CompanionProjectQueue.svelte';
-	import {
-		IconCheck,
-		IconPlus,
-		IconStatusPending,
-		IconStatusRunning,
-		IconWarning
-	} from '$lib/icons';
+	import { IconArrowLeft, IconChevronRight, IconPlus } from '$lib/icons';
 
 	let {
 		project,
@@ -37,7 +38,6 @@
 		queued,
 		ask,
 		onFocusProject,
-		onFocusLane,
 		onNewTask,
 		onRunTask,
 		onToggleUsage
@@ -50,7 +50,6 @@
 		queued: StudioTask[];
 		ask: CompanionAskHandlers;
 		onFocusProject: (projectId: string) => void;
-		onFocusLane?: (projectId: string, laneId: string) => void;
 		onNewTask: (project: Project) => void;
 		onRunTask: (projectId: string, taskId: string) => void;
 		onToggleUsage?: () => void;
@@ -78,6 +77,7 @@
 	});
 
 	const hasMultipleAttentions = $derived(allAttentions.length > 1 && !selectedLaneId);
+	const asking = $derived(Boolean(activeAttention) || hasMultipleAttentions);
 
 	const name = $derived(project.label?.trim() || project.name);
 	const busy = $derived(project.lane.agentState === 'working' || project.lane.agentState === 'attention');
@@ -97,58 +97,64 @@
 
 	const activityText = $derived(runtime?.activity?.text ?? null);
 
-	function stateLabel(): string {
-		if (project.lane.agentState === 'attention') {
-			if (attention?.pendingUi.kind === 'quota_blocked') {
-				return attention.pendingUi.blockedQuota?.reasonKind === 'quota_exhausted'
-					? m.companion_state_quota_exhausted()
-					: m.companion_state_provider_error();
-			}
-			return m.ui_companionview_chiede_risposta_de18();
+	const agentStatus = $derived.by<{ mark: StatusMarkType; label: string }>(() => {
+		switch (project.lane.agentState) {
+			case 'attention':
+				if (attention?.pendingUi.kind === 'quota_blocked') {
+					return attention.pendingUi.blockedQuota?.reasonKind === 'quota_exhausted'
+						? { mark: 'failed', label: m.companion_state_quota_exhausted() }
+						: { mark: 'attention', label: m.companion_state_provider_error() };
+				}
+				return { mark: 'attention', label: m.ui_companionview_chiede_risposta_de18() };
+			case 'working':
+				return { mark: 'running', label: m.companion_state_working() };
+			case 'finished':
+				return { mark: 'completed', label: m.page_agent_state_finished() };
+			case 'idle':
+				return { mark: 'pending', label: m.companion_state_idle() };
+			default:
+				return { mark: 'pending', label: m.companion_state_unknown() };
 		}
-		if (project.lane.agentState === 'working') return m.companion_state_working();
-		if (project.lane.agentState === 'finished') return m.page_agent_state_finished();
-		if (project.lane.agentState === 'idle') return m.companion_state_idle();
-		return m.companion_state_unknown();
+	});
+
+	function laneName(req: AttentionRequest): string {
+		return req.laneTitle || (req.laneId === 'main' || !req.laneId ? m.companion_lane_main() : req.laneId);
 	}
 </script>
 
 <article
 	class="project-card"
-	class:busy
+	class:asking
 	class:attention={project.lane.agentState === 'attention'}
-	class:finished={project.lane.agentState === 'finished'}
-	class:wide={Boolean(activeAttention || hasMultipleAttentions)}
 	style="--proj-hue: {hue}"
 >
 	<header class="card-top">
 		<!-- Riga superiore: punto identita' + nome progetto + pulsante nuovo task -->
 		<div class="card-row-name">
-			<button
-				type="button"
-				class="card-identity"
-				title={m.companion_card_open_title({ project: name })}
-				onclick={() => onFocusProject(project.id)}
-			>
-				<span class="p-dot" class:lit={busy}></span>
-				<span class="p-name">{name}</span>
-			</button>
-			<button
-				type="button"
-				class="card-new-task"
-				title={m.companion_card_new_task_title({ project: name })}
-				aria-label={m.companion_card_new_task_title({ project: name })}
-				onclick={() => onNewTask(project)}
-			>
-				<IconPlus />
-			</button>
+			<Tooltip text={m.companion_card_open_title({ project: name })} placement="top">
+				<button type="button" class="card-identity" onclick={() => onFocusProject(project.id)}>
+					<span class="p-dot" class:lit={busy}></span>
+					<span class="p-name">{name}</span>
+				</button>
+			</Tooltip>
+			<Tooltip text={m.companion_card_new_task_title({ project: name })} placement="top">
+				<button
+					type="button"
+					class="composer-icon-btn"
+					aria-label={m.companion_card_new_task_title({ project: name })}
+					onclick={() => onNewTask(project)}
+				>
+					<IconPlus />
+				</button>
+			</Tooltip>
 		</div>
 
 		<!-- Riga inferiore: quota, stato e contatore coda -->
 		<div class="card-row-meta">
 			{#if queued.length > 0}
-				<span class="p-queue-count" title={m.companion_queue_count({ count: queued.length })}>
-					{queued.length}
+				<span class="p-queue-count">
+					<span aria-hidden="true">{queued.length}</span>
+					<span class="sr-only">{m.companion_queue_count({ count: queued.length })}</span>
 				</span>
 			{/if}
 
@@ -172,69 +178,54 @@
 				/>
 			{/if}
 
-			<span class="p-state state-{project.lane.agentState}">
-				{#if project.lane.agentState === 'working'}
-					<IconStatusRunning /> {stateLabel()}
-				{:else if project.lane.agentState === 'attention'}
-					<IconWarning /> {stateLabel()}
-				{:else if project.lane.agentState === 'finished'}
-					<IconCheck /> {stateLabel()}
-				{:else}
-					<IconStatusPending /> {stateLabel()}
-				{/if}
+			<span class="p-state">
+				<StatusMark status={agentStatus.mark} active={project.lane.agentState === 'working'} />
+				{agentStatus.label}
 			</span>
 		</div>
 	</header>
 
 	{#if activeAttention}
-		{#if allAttentions.length > 1}
-			<div class="lane-selection-bar">
-				<button
-					type="button"
-					class="back-to-lanes-btn"
-					onclick={() => { selectedLaneId = null; }}
-				>
-					← Tutte le corsie ({allAttentions.length})
-				</button>
-				<span class="active-lane-chip">
-					{activeAttention.laneTitle || (activeAttention.laneId === 'main' || !activeAttention.laneId ? 'Principale' : activeAttention.laneId)}
-				</span>
-			</div>
-		{/if}
-		<CompanionAskBody
-			req={activeAttention}
-			historyExpanded={ask.expandedHistory[project.id] ?? false}
-			customReplyOpen={ask.customReplyProjects[project.id] ?? false}
-			draft={ask.draftFor(activeAttention)}
-			onToggleHistory={ask.onToggleHistory}
-			onCustomReplyToggle={ask.onCustomReplyToggle}
-			onReplyDraftChange={ask.onReplyDraftChange}
-			onQuickReplySelect={ask.onQuickReplySelect}
-			onQuickReplyConfirm={ask.onQuickReplyConfirm}
-			onQuickReplyCancel={ask.onQuickReplyCancel}
-			onQuickReplyText={ask.onQuickReplyText}
-			onResolveQuotaBlocked={ask.onResolveQuotaBlocked}
-			onDismissQuotaBlocked={ask.onDismissQuotaBlocked}
-			wantsText={ask.wantsText}
-		/>
+		<div class="card-body" transition:trayFold>
+			{#if allAttentions.length > 1}
+				<div class="lane-selection-bar">
+					<button type="button" class="ui-button ui-button-ghost back-to-lanes-btn" onclick={() => (selectedLaneId = null)}>
+						<IconArrowLeft />
+						{m.companion_lanes_back({ count: allAttentions.length })}
+					</button>
+					<span class="active-lane-chip">{laneName(activeAttention)}</span>
+				</div>
+			{/if}
+			<CompanionAskBody
+				req={activeAttention}
+				historyExpanded={ask.expandedHistory[project.id] ?? false}
+				customReplyOpen={ask.customReplyProjects[project.id] ?? false}
+				draft={ask.draftFor(activeAttention)}
+				onToggleHistory={ask.onToggleHistory}
+				onCustomReplyToggle={ask.onCustomReplyToggle}
+				onReplyDraftChange={ask.onReplyDraftChange}
+				onQuickReplySelect={ask.onQuickReplySelect}
+				onQuickReplyConfirm={ask.onQuickReplyConfirm}
+				onQuickReplyCancel={ask.onQuickReplyCancel}
+				onQuickReplyText={ask.onQuickReplyText}
+				onResolveQuotaBlocked={ask.onResolveQuotaBlocked}
+				onDismissQuotaBlocked={ask.onDismissQuotaBlocked}
+				wantsText={ask.wantsText}
+			/>
+		</div>
 	{:else if hasMultipleAttentions}
-		<div class="multi-lane-panel">
+		<div class="card-body multi-lane-panel" transition:trayFold>
 			<div class="multi-lane-header">
-				<span class="multi-lane-title">{allAttentions.length} corsie richiedono risposta</span>
-				<span class="multi-lane-hint">Seleziona una corsia per rispondere:</span>
+				<span class="multi-lane-title">{m.companion_lanes_title({ count: allAttentions.length })}</span>
+				<span class="multi-lane-hint">{m.companion_lanes_hint()}</span>
 			</div>
-			<ul class="multi-lane-list" role="list">
+			<ul class="multi-lane-list">
 				{#each allAttentions as req (req.laneId ?? req.pendingUi.requestId)}
-					{@const laneName = req.laneTitle || (req.laneId === 'main' || !req.laneId ? 'Principale' : req.laneId)}
 					<li class="multi-lane-item">
-						<button
-							type="button"
-							class="lane-pick-btn"
-							onclick={() => { selectedLaneId = req.laneId ?? 'main'; }}
-						>
-							<span class="lane-name-badge">{laneName}</span>
-							<span class="lane-question-text">{req.pendingUi.title || 'Richiesta di risposta'}</span>
-							<span class="lane-action-arrow" aria-hidden="true">→</span>
+						<button type="button" class="ask-opt lane-pick-btn" onclick={() => (selectedLaneId = req.laneId ?? 'main')}>
+							<span class="lane-name-badge">{laneName(req)}</span>
+							<span class="lane-question-text">{req.pendingUi.title || m.companion_lane_request_fallback()}</span>
+							<span class="lane-action-arrow" aria-hidden="true"><IconChevronRight /></span>
 						</button>
 					</li>
 				{/each}
@@ -242,25 +233,28 @@
 		</div>
 	{:else if project.lane.agentState === 'working'}
 		{#if activityText}
-			<!-- Una riga sola: "sta lavorando" non chiede niente a nessuno
-			     (DESIGN-legacy.md §6), quindi la card al lavoro si ritira. -->
-			<p class="card-activity" title={activityText}>{activityText}</p>
+			<!-- Una riga sola: "sta lavorando" non chiede niente a nessuno,
+			     quindi la card al lavoro si ritira. Il title rivela la riga
+			     troncata, non duplica un controllo. -->
+			<p class="card-activity" title={activityText} transition:trayFold>{activityText}</p>
 		{/if}
-	{:else}
-		{#if settledExcerpt}
-			<div class="card-excerpt">
-				<span class="excerpt-age">{settledExcerpt.age}</span>
-				<span class="excerpt-text">{settledExcerpt.text}</span>
-			</div>
-		{/if}
-		{#if queued.length > 0}
-			<CompanionProjectQueue
-				projectName={name}
-				tasks={queued}
-				disabled={runtime?.canRunTask !== true}
-				disabledReason={runtime?.runBlockReason}
-				onRunNext={(taskId) => onRunTask(project.id, taskId)}
-			/>
-		{/if}
+	{:else if settledExcerpt || queued.length > 0}
+		<div class="card-body" transition:trayFold>
+			{#if settledExcerpt}
+				<div class="card-excerpt">
+					<span class="excerpt-age">{settledExcerpt.age}</span>
+					<span class="excerpt-text">{settledExcerpt.text}</span>
+				</div>
+			{/if}
+			{#if queued.length > 0}
+				<CompanionProjectQueue
+					projectName={name}
+					tasks={queued}
+					disabled={runtime?.canRunTask !== true}
+					disabledReason={runtime?.runBlockReason}
+					onRunNext={(taskId) => onRunTask(project.id, taskId)}
+				/>
+			{/if}
+		</div>
 	{/if}
 </article>

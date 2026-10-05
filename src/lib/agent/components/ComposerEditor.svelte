@@ -10,14 +10,27 @@
 		parsePlainTextToSegments,
 		renderSegmentsToDom,
 		NBSP,
-		type ComposerSegment
+		type ComposerSegment,
+		type ComposerTrigger,
+		type ComposerTriggerKind
 	} from '$lib/agent/composerDoc';
+
+	// Testo prima del caret che apre ciascuna palette: il carattere a inizio
+	// testo o dopo uno spazio, cosi' un / dentro un percorso o un # dentro una
+	// parola non aprono nulla.
+	const TRIGGER_PATTERNS: Record<ComposerTriggerKind, RegExp> = {
+		'@': /(?:^|[\s\u00A0])@([^\s\u00A0@]*)$/,
+		'/': /(?:^|[\s\u00A0])\/([\w:-]*)$/,
+		'#': /(?:^|[\s\u00A0])#([^\s\u00A0#]*)$/,
+		'!': /(?:^|[\s\u00A0])!([^\s\u00A0!]*)$/
+	};
 
 	let {
 		placeholder = '',
 		ariaLabel = "Messaggio per l'agente",
 		submitWithModifier = false,
 		disabled = false,
+		triggers = ['@', '/'],
 		onSend,
 		onFilesPaste,
 		onTriggerChange,
@@ -32,9 +45,11 @@
 		 */
 		submitWithModifier?: boolean;
 		disabled?: boolean;
+		/** Caratteri che aprono la palette; `#` e `!` servono solo al companion. */
+		triggers?: ComposerTriggerKind[];
 		onSend?: (isAlt: boolean) => void;
 		onFilesPaste?: (files: FileList | File[]) => void;
-		onTriggerChange?: (trigger: { kind: '@' | '/'; query: string; node: Text; start: number; caretRect: { left: number; top: number } } | null) => void;
+		onTriggerChange?: (trigger: ComposerTrigger | null) => void;
 		onKeydownFilter?: (e: KeyboardEvent) => boolean;
 		onInput?: () => void;
 	}>();
@@ -105,9 +120,10 @@
 	}
 
 	/**
-	 * Inserisce il carattere '@' alla posizione corrente del cursore.
+	 * Inserisce un carattere di trigger (`@`, `#`, `/`, `!`) alla posizione del
+	 * cursore, staccato dalla parola precedente perche' la palette si apra.
 	 */
-	export function insertAt(): void {
+	export function insertTrigger(char: ComposerTriggerKind): void {
 		if (!editorEl) return;
 		editorEl.focus();
 		const sel = window.getSelection();
@@ -116,7 +132,7 @@
 		}
 		const node = sel?.anchorNode;
 		const prev = node?.nodeType === Node.TEXT_NODE ? (node.textContent ?? '')[(sel?.anchorOffset ?? 1) - 1] : undefined;
-		const textToInsert = prev && !/[\s\u00A0]/.test(prev) ? ' @' : '@';
+		const textToInsert = prev && !/[\s\u00A0]/.test(prev) ? ` ${char}` : char;
 		document.execCommand('insertText', false, textToInsert);
 		sync();
 	}
@@ -148,9 +164,9 @@
 	}
 
 	/**
-	 * Legge lo stato del trigger (@ o /) alla posizione corrente del caret.
+	 * Legge lo stato del trigger abilitato alla posizione corrente del caret.
 	 */
-	function readTrigger(): { kind: '@' | '/'; query: string; node: Text; start: number; caretRect: { left: number; top: number } } | null {
+	function readTrigger(): ComposerTrigger | null {
 		if (!editorEl) return null;
 		const sel = window.getSelection();
 		if (!sel || !sel.rangeCount || !sel.isCollapsed) return null;
@@ -160,23 +176,17 @@
 		const fullText = node.textContent ?? '';
 		const before = fullText.slice(0, sel.anchorOffset);
 
-		let kind: '@' | '/';
-		let query: string;
-
-		// 1. Trigger @ per i file (a inizio testo o preceduto da spazio/NBSP)
-		const atMatch = before.match(/(?:^|[\s\u00A0])@([^\s\u00A0@]*)$/);
-		if (atMatch) {
-			kind = '@';
-			query = atMatch[1];
-		} else {
-			// 2. Trigger / per comandi e skill: come @, a inizio testo o dopo uno spazio,
-			// cosi' si richiama una skill anche a meta' frase. Un / dentro una parola
-			// (percorsi, URL) non apre la palette.
-			const slashMatch = before.match(/(?:^|[\s\u00A0])\/([\w:-]*)$/);
-			if (!slashMatch) return null;
-			kind = '/';
-			query = slashMatch[1];
+		let kind: ComposerTriggerKind | null = null;
+		let query = '';
+		for (const candidate of triggers as ComposerTriggerKind[]) {
+			const match = before.match(TRIGGER_PATTERNS[candidate]);
+			if (match) {
+				kind = candidate;
+				query = match[1];
+				break;
+			}
 		}
+		if (!kind) return null;
 
 		const start = sel.anchorOffset - query.length - 1;
 		if (dismissedTrigger && dismissedTrigger.node === node && dismissedTrigger.start === start) {

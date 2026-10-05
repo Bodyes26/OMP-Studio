@@ -1,6 +1,10 @@
 <script lang="ts">
+	// Guscio della finestra companion. Fissata ha la testata da 32 px della
+	// cornice con la puntina attiva; a scomparsa resta solo la maniglia di
+	// trascinamento e la puntina, sempre a vista.
 	import { m } from '$lib/paraglide/messages.js';
-	import { IconClose, IconPin, IconPinned } from '$lib/icons';
+	import { IconClose, IconPin } from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import type { Snippet } from 'svelte';
 
 	let {
@@ -8,6 +12,8 @@
 		isLightTheme,
 		attentionCount,
 		justOpened = false,
+		leaving = false,
+		onOpenEnd,
 		onTogglePin,
 		onClose,
 		children
@@ -16,16 +22,37 @@
 		isLightTheme: boolean;
 		attentionCount: number;
 		justOpened?: boolean;
+		/** Uscita breve in corso, prima che Rust nasconda la finestra. */
+		leaving?: boolean;
+		onOpenEnd: () => void;
 		onTogglePin: () => void;
 		onClose: () => void;
 		children: Snippet;
 	}>();
 </script>
 
+{#snippet pinButton()}
+	<Tooltip text={isPinned ? m.companion_unpin_title() : m.companion_pin_title()} placement="bottom">
+		<button
+			type="button"
+			class="composer-icon-btn pin-btn"
+			aria-pressed={isPinned}
+			aria-label={isPinned ? m.companion_unpin_window() : m.companion_pin_window()}
+			onclick={onTogglePin}
+		>
+			<IconPin />
+		</button>
+	</Tooltip>
+{/snippet}
+
 <div
 	class="companion-shell"
 	class:pinned={isPinned}
 	class:just-opened={justOpened}
+	class:leaving
+	onanimationend={(e) => {
+		if (e.target === e.currentTarget && justOpened) onOpenEnd();
+	}}
 >
 	{#if isPinned}
 		<header class="companion-header" data-tauri-drag-region="deep">
@@ -37,44 +64,31 @@
 					draggable="false"
 				/>
 				{#if attentionCount > 0}
-					<span class="attention-counter">{attentionCount} {m.ui_companionview_in_attesa_e1a0()}</span>
+					<span class="attention-counter">
+						<span class="attention-dot" aria-hidden="true"></span>
+						{attentionCount} {m.ui_companionview_in_attesa_e1a0()}
+					</span>
 				{/if}
 			</div>
 
 			<div class="header-right">
-				<button
-					type="button"
-					class="icon-btn active"
-					onclick={onTogglePin}
-					title={m.companion_unpin_title()}
-					aria-label={m.companion_unpin_window()}
-				>
-					<IconPinned />
-				</button>
-
-				<button
-					type="button"
-					class="icon-btn close-btn"
-					onclick={onClose}
-					title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()}
-					aria-label={m.settings_close_window()}
-				>
-					<IconClose />
-				</button>
+				{@render pinButton()}
+				<Tooltip text={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} placement="bottom">
+					<button
+						type="button"
+						class="composer-icon-btn"
+						aria-label={m.settings_close_window()}
+						onclick={onClose}
+					>
+						<IconClose />
+					</button>
+				</Tooltip>
 			</div>
 		</header>
 	{:else}
 		<div class="spotlight-drag-region" data-tauri-drag-region></div>
 		<div class="floating-controls">
-			<button
-				type="button"
-				class="icon-btn"
-				onclick={onTogglePin}
-				title={m.companion_pin_title()}
-				aria-label={m.companion_pin_window()}
-			>
-				<IconPin />
-			</button>
+			{@render pinButton()}
 		</div>
 	{/if}
 

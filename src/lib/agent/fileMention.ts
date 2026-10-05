@@ -1,6 +1,5 @@
 import { matchesLooseQuery } from '../looseSearch.ts';
 import { invoke } from '@tauri-apps/api/core';
-import { formatFileMention } from './fileMentionSyntax.ts';
 
 /**
  * Directory di compilazione, cache e rumore da escludere categoricamente
@@ -26,82 +25,6 @@ export function isExcludedPath(path: string): boolean {
 	const normalized = path.replace(/\\/g, '/');
 	const segments = normalized.split('/');
 	return segments.some((segment) => Boolean(EXCLUDED_DIRS[segment.toLowerCase()]));
-}
-
-export interface FileMentionMatch {
-	query: string;
-	startIndex: number;
-	endIndex: number;
-}
-
-/**
- * Rileva il token di menzione file ('@...') alla posizione corrente del cursore.
- * Riconosce '@' solo se:
- * 1. Si trova a inizio testo o preceduto da spazio/a capo (evita indirizzi email o decoratori).
- * 2. Non contiene ritorni a capo o spazi tra '@' e la posizione del cursore.
- */
-export function extractFileMentionAtCursor(
-	text: string,
-	cursorPos: number
-): FileMentionMatch | null {
-	if (cursorPos < 0 || cursorPos > text.length) return null;
-	const beforeCursor = text.slice(0, cursorPos);
-	const lastAtIndex = beforeCursor.lastIndexOf('@');
-	if (lastAtIndex === -1) return null;
-
-	// Verifica che '@' sia a inizio riga/testo o preceduto da whitespace
-	if (lastAtIndex > 0) {
-		const charBefore = text[lastAtIndex - 1];
-		if (!charBefore || !/\s/.test(charBefore)) {
-			return null;
-		}
-	}
-
-	// Non deve attraversare a capo tra '@' e il cursore
-	const betweenAtAndCursor = beforeCursor.slice(lastAtIndex);
-	if (betweenAtAndCursor.includes('\n') || betweenAtAndCursor.includes('\r')) {
-		return null;
-	}
-
-	// Se l'utente ha digitato uno spazio dopo '@', la menzione e' conclusa.
-	// La virgoletta iniziale di `@"percorso con spazi"` non fa parte della ricerca.
-	const query = beforeCursor.slice(lastAtIndex + 1).replace(/^"/, '');
-	if (query.includes(' ') || query.includes('\t')) {
-		return null;
-	}
-
-	// Calcola l'indice di fine token dopo il cursore (fino al prossimo whitespace o fine testo)
-	let endIndex = cursorPos;
-	while (endIndex < text.length && !/\s/.test(text[endIndex])) {
-		endIndex++;
-	}
-
-	return {
-		query,
-		startIndex: lastAtIndex,
-		endIndex
-	};
-}
-
-/**
- * Sostituisce il token '@query' alla posizione del cursore con il percorso relativo del file.
- * Aggiunge uno spazio successivo se non già presente per facilitare la continuazione della digitazione.
- */
-export function insertFileMentionAtCursor(
-	text: string,
-	startIndex: number,
-	endIndex: number,
-	filePath: string
-): { newText: string; newCursorPos: number } {
-	const before = text.slice(0, startIndex);
-	const after = text.slice(endIndex);
-	const mentionText = `${formatFileMention(filePath)} `;
-	const newText = before + mentionText + after;
-	const newCursorPos = before.length + mentionText.length;
-	return {
-		newText,
-		newCursorPos
-	};
 }
 
 /**

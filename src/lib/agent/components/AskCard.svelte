@@ -1208,24 +1208,6 @@
 		gap: 2px;
 		min-width: 0;
 	}
-	.ask-counter {
-		font-size: var(--text-meta);
-		font-variant-numeric: tabular-nums;
-		color: var(--ink-faint);
-	}
-	.ask-text {
-		margin: 0;
-		font-size: var(--text-chat);
-		font-weight: 500;
-		color: var(--ink);
-		line-height: 1.45;
-	}
-	.ask-detail {
-		margin: 0;
-		font-size: var(--text-sm);
-		color: var(--ink-muted);
-		line-height: 1.4;
-	}
 	.ask-multi {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
@@ -1243,39 +1225,6 @@
 		align-items: start;
 	}
 
-	.ask-options {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		min-width: 0;
-	}
-
-	.ask-opt {
-		display: flex;
-		align-items: flex-start;
-		gap: var(--space-3);
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 9px 12px;
-		cursor: pointer;
-		user-select: none;
-		transition: border-color 0.15s ease, background-color 0.15s ease;
-	}
-	.ask-opt:hover {
-		background: color-mix(in oklab, var(--bg-hover) 60%, transparent);
-		border-color: var(--line-strong);
-	}
-	.ask-opt.focused,
-	.ask-opt:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: -2px;
-	}
-	.ask-opt.selected {
-		border-color: var(--brand);
-		box-shadow: inset 0 0 0 1px var(--brand);
-		background: color-mix(in oklab, var(--brand) 7%, transparent);
-	}
 	/* Indicatore disegnato: cerchio per la scelta singola, quadrato per la
 	   multipla, pieno del colore del marchio quando e' scelto. */
 	.ask-box {
@@ -1303,48 +1252,6 @@
 		height: 6px;
 		border-radius: var(--radius-full);
 		background: var(--on-brand);
-	}
-	.ask-opt-body {
-		display: flex;
-		flex-direction: column;
-		flex: 1;
-		min-width: 0;
-	}
-	.ask-opt-label {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		flex-wrap: wrap;
-		font-size: var(--text-sm);
-		font-weight: 500;
-		color: var(--ink);
-	}
-	.ask-rec {
-		background: color-mix(in oklab, var(--success) 14%, transparent);
-		color: var(--success);
-		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--success) 25%, transparent);
-		border-radius: var(--radius-md);
-		padding: 0 6px;
-		font-size: var(--text-caption);
-		font-weight: 500;
-		line-height: 18px;
-	}
-	.ask-opt-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		line-height: 1.45;
-		margin-top: 2px;
-	}
-
-	.ask-kbd {
-		font-family: var(--font-mono);
-		font-size: var(--text-caption);
-		line-height: 1.4;
-		color: var(--ink-faint);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 0 5px;
-		white-space: nowrap;
 	}
 
 	.ask-preview {

@@ -5,6 +5,7 @@
 	 */
 	import { IconCheck } from '$lib/icons';
 	import { m } from '$lib/paraglide/messages.js';
+	import { ROLE_HUES } from '$lib/agent/roleHues';
 
 	export interface RoleDefinition {
 		id: string;
@@ -30,13 +31,13 @@
 
 	const ROLES: RoleDefinition[] = [
 		{ id: 'default', label: 'default', description: 'Ruolo principale per conversazione e compiti generici' },
-		{ id: 'plan', label: 'plan', description: 'Pianificazione architetturale ad alto livello', hue: 230 },
-		{ id: 'smol', label: 'smol', description: 'Modello veloce per risposte concise e sintetiche', hue: 140 },
-		{ id: 'slow', label: 'slow', description: 'Modello di massimo ragionamento per problemi complessi', hue: 300 },
-		{ id: 'vision', label: 'vision', description: 'Specializzato nell\'analisi di immagini e diagrammi', hue: 80 },
-		{ id: 'task', label: 'task', description: 'Esecuzione mirata di sotto-task e automazioni', hue: 35 },
-		{ id: 'commit', label: 'commit', description: 'Generazione di messaggi di commit e revisione patch', hue: 180 },
-		{ id: 'advisor', label: 'advisor', description: 'Revisione del codice, sicurezza e best practice', hue: 320 }
+		{ id: 'plan', label: 'plan', description: 'Pianificazione architetturale ad alto livello', hue: ROLE_HUES.plan },
+		{ id: 'smol', label: 'smol', description: 'Modello veloce per risposte concise e sintetiche', hue: ROLE_HUES.smol },
+		{ id: 'slow', label: 'slow', description: 'Modello di massimo ragionamento per problemi complessi', hue: ROLE_HUES.slow },
+		{ id: 'vision', label: 'vision', description: 'Specializzato nell\'analisi di immagini e diagrammi', hue: ROLE_HUES.vision },
+		{ id: 'task', label: 'task', description: 'Esecuzione mirata di sotto-task e automazioni', hue: ROLE_HUES.task },
+		{ id: 'commit', label: 'commit', description: 'Generazione di messaggi di commit e revisione patch', hue: ROLE_HUES.commit },
+		{ id: 'advisor', label: 'advisor', description: 'Revisione del codice, sicurezza e best practice', hue: ROLE_HUES.advisor }
 	];
 </script>
 

@@ -7,6 +7,9 @@ export const TRAY_EXIT_MS = 420;
 /** Durata dell'uscita di una riga: allineata a --dur-row in app.css. */
 export const ROW_EXIT_MS = 210;
 
+/** Durata di un'uscita breve (finestra companion che si nasconde): --dur-fast in app.css. */
+export const FAST_EXIT_MS = 120;
+
 /** Vero quando l'utente ha chiesto meno movimento (sistema o impostazioni di Studio). */
 export function motionReduced(): boolean {
 	return prefersReducedMotion.current || !settingsStore.accessibility.animations;

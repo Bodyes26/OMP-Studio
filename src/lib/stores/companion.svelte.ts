@@ -472,11 +472,25 @@ class CompanionStore {
 		}
 	}
 
-	/** Nasconde la finestra companion. */
+	/**
+	 * Uscita animata della vista companion, registrata dalla finestra stessa:
+	 * ogni percorso di chiusura (Esc, blur, auto-hide, X, focus progetto,
+	 * scorciatoia globale) passa da qui, quindi l'uscita e' una sola.
+	 */
+	private exitAnimation: { play: () => Promise<void>; cancel: () => void } | null = null;
+
+	setExitAnimation(animation: { play: () => Promise<void>; cancel: () => void } | null) {
+		this.exitAnimation = animation;
+	}
+
+	/** Nasconde la finestra companion dopo l'uscita animata. */
 	async hideCompanion() {
+		await this.exitAnimation?.play();
 		try {
 			await invoke('hide_companion_window');
 		} catch (err) {
+			// La finestra resta a vista: non deve restare dissolta.
+			this.exitAnimation?.cancel();
 			console.error(messages.ui_ts_companion_companionstore_chiusura_finestra_companion_fallita_4941(), err);
 		}
 	}

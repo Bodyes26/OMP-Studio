@@ -1,17 +1,31 @@
 <script lang="ts">
 	/**
-	 * Tendina dei suggerimenti per menzioni file (@) e comandi slash (/) nel composer (C20).
+	 * Tendina dei suggerimenti per menzioni file (@) e comandi slash (/) nel composer (C20);
+	 * nel companion anche progetti (#), direttive (/) e ruoli o modelli (!).
 	 * Si posiziona sopra il cursore usando le coordinate del Range rettangolo del caret.
 	 */
 	import type { AvailableCommand } from '$lib/agent/wire';
 	import type { RankedFileItem } from '$lib/agent/fileMention';
+	import type { ComposerTriggerKind } from '$lib/agent/composerDoc';
 	import { IconFile, IconEditor, IconHistory, IconSparkles } from '$lib/icons';
 	import { formatTokens } from '$lib/utils/format';
 	import { m } from '$lib/paraglide/messages.js';
 
+	/** Voce del companion: valore inserito nel badge, nome leggibile e dettaglio in mono. */
+	interface NamedSuggestion {
+		value: string;
+		label: string;
+		hint?: string;
+		hits?: number[];
+	}
+
 	export type SuggestionItem =
 		| { kind: 'file'; item: RankedFileItem; hits?: number[] }
-		| { kind: 'cmd'; command: AvailableCommand; isSkill: boolean; hits?: number[] };
+		| { kind: 'cmd'; command: AvailableCommand; isSkill: boolean; hits?: number[] }
+		| ({ kind: 'project'; hue: number } & NamedSuggestion)
+		| ({ kind: 'directive' } & NamedSuggestion)
+		| ({ kind: 'role'; hue?: number } & NamedSuggestion)
+		| ({ kind: 'model' } & NamedSuggestion);
 
 	let {
 		kind = '@',
@@ -21,10 +35,11 @@
 		left = 0,
 		bottom = 0,
 		top,
+		emptyMessage,
 		onPick,
 		onHover
 	} = $props<{
-		kind: '@' | '/';
+		kind: ComposerTriggerKind;
 		query: string;
 		items: SuggestionItem[];
 		selectedIndex: number;
@@ -32,9 +47,18 @@
 		bottom: number;
 		/** Se presente la palette si apre sotto la riga (editor in cima alla vista). */
 		top?: number;
+		/** Sostituisce il messaggio a lista vuota (es. «indica prima il progetto»). */
+		emptyMessage?: string;
 		onPick: (s: SuggestionItem) => void;
 		onHover: (index: number) => void;
 	}>();
+
+	const NAMED_HEADERS: Record<'project' | 'directive' | 'role' | 'model', () => string> = {
+		project: m.suggest_section_projects,
+		directive: m.suggest_section_directives,
+		role: m.suggest_section_roles,
+		model: m.suggest_section_models
+	};
 
 	let listEl = $state<HTMLDivElement | null>(null);
 
@@ -69,9 +93,10 @@
 	<div bind:this={listEl} class="suggest-list">
 		{#if items.length === 0}
 			<div class="empty-notice">
-				{kind === '@'
-					? m.chat_v2_composer_no_files({ query })
-					: m.chat_v2_composer_no_commands({ query })}
+				{emptyMessage ??
+					(kind === '@'
+						? m.chat_v2_composer_no_files({ query })
+						: m.chat_v2_composer_no_commands({ query }))}
 			</div>
 		{:else}
 			{#each items as item, index}
@@ -91,6 +116,8 @@
 							? m.chat_v2_composer_skills()
 							: m.chat_v2_composer_commands()}
 					</div>
+				{:else if item.kind !== 'file' && item.kind !== 'cmd' && (!prev || prev.kind !== item.kind)}
+					<div class="section-header">{NAMED_HEADERS[item.kind as keyof typeof NAMED_HEADERS]()}</div>
 				{/if}
 
 				{#if item.kind === 'file'}
@@ -133,7 +160,7 @@
 							</span>
 						{/if}
 					</button>
-				{:else}
+				{:else if item.kind === 'cmd'}
 					{@const cmd = item.command}
 					<button
 						type="button"
@@ -168,6 +195,38 @@
 							</div>
 							<span class="cmd-desc">{cmd.description}</span>
 						</div>
+					</button>
+				{:else}
+					<button
+						type="button"
+						role="option"
+						aria-selected={active}
+						data-index={index}
+						class="suggest-row"
+						class:active
+						onmousedown={(e) => e.preventDefault()}
+						onmouseenter={() => onHover(index)}
+						onclick={() => onPick(item)}
+					>
+						<span class="row-icon">
+							{#if item.kind === 'project'}
+								<span class="identity-dot project" style="--dot-h: {item.hue}"></span>
+							{:else if item.kind === 'role'}
+								{#if item.hue !== undefined}
+									<span class="identity-dot role" style="--dot-h: {item.hue}"></span>
+								{:else if item.value === 'default'}
+									<span class="identity-dot role is-default"></span>
+								{/if}
+							{:else if item.kind === 'directive'}
+								<span class="slash-glyph font-mono">/</span>
+							{:else}
+								<IconSparkles />
+							{/if}
+						</span>
+						<span class="file-name">{@render highlightText(item.label, item.hits)}</span>
+						{#if item.hint && item.hint !== item.label}
+							<span class="file-dir font-mono">{item.hint}</span>
+						{/if}
 					</button>
 				{/if}
 			{/each}
@@ -263,6 +322,26 @@
 	.slash-glyph {
 		font-weight: 700;
 		color: var(--ink-muted);
+	}
+
+	/* Punto d'identita' (D1): progetto nella rampa di riempimento delle tessere,
+	   ruolo nella rampa d'inchiostro come nel menu dei ruoli. */
+	.identity-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: var(--radius-full);
+	}
+
+	.identity-dot.project {
+		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--dot-h, 260));
+	}
+
+	.identity-dot.role {
+		background: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--dot-h, 260));
+	}
+
+	.identity-dot.role.is-default {
+		background: var(--brand-ink);
 	}
 
 	.file-name {

@@ -338,12 +338,18 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
     if is_visible {
         let is_focused = window.is_focused().unwrap_or(false);
         if is_focused && !state.is_pinned {
-            // In modalita Spotlight, se la finestra e' a fuoco la scorciatoia la chiude
-            persist_companion_geometry(app);
-            window
-                .hide()
-                .map_err(|e| format!("Chiusura finestra companion fallita: {}", e))?;
-            let _ = app.emit("companion-hidden", ());
+            // In modalita Spotlight, se la finestra e' a fuoco la scorciatoia la
+            // chiude. L'uscita la anima la vista: riceve la richiesta, dissolve il
+            // guscio e chiama `hide_companion_window`, che salva la geometria e
+            // annuncia `companion-hidden` come ogni altro percorso di chiusura.
+            // Se l'evento non parte si nasconde subito, senza animazione.
+            if window.emit("companion-dismiss", ()).is_err() {
+                persist_companion_geometry(app);
+                window
+                    .hide()
+                    .map_err(|e| format!("Chiusura finestra companion fallita: {}", e))?;
+                let _ = app.emit("companion-hidden", ());
+            }
             return Ok(());
         }
         // Se visibile ma non a fuoco, o pinnata, la porta in primo piano
