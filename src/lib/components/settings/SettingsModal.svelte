@@ -293,7 +293,7 @@
 	</div>
 
 	{#snippet outside()}
-		<!-- Dentro il <dialog>: fuori dal top layer il referto e la conferma sarebbero inerti. -->
+		<!-- Dialoghi secondari nel top layer (referto di salute e conferma di scarto) -->
 		<ModelHealthModal />
 
 		<Dialog

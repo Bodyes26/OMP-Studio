@@ -189,7 +189,7 @@ lib/
     DiagramViewer.svelte Whiteboard interattiva per diagrammi Mermaid
     PreviewViewer.svelte Sandbox isolata in iframe per prototipi UI e vettoriali SVG
     BrowserViewer.svelte Superficie live Browser con toolbar, rendering frame BLF1 e mapping coordinate CSS
-    SetupWizard.svelte  Wizard guidato per installazione OMP, setup credenziali e modelli
+    SetupModal.svelte   Configurazione guidata di primo avvio: installazione OMP, setup credenziali e modelli
     SettingsModal.svelte Centro impostazioni (Generale, Notifiche, Barra, Workspace, Task, Suggerimenti, Modelli, Aspetto, Accessibilità)
     SuggestionsSection.svelte Sezione «Suggerimenti» delle impostazioni per catalogo fissi e opzioni dinamiche
     EmptyState.svelte   Stato iniziale workspace con inviti all'azione e griglia scorciatoie

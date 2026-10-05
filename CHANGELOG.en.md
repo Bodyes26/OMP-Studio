@@ -12,6 +12,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Changed
+- Manage models and roles with the shared Studio design: choose models with a unified field across forms, roles and the Ctrl+P cycle, read capabilities and status with neutral chips and icons without hardcoded colors, and open the quick cycle as an accessible folding column that restores focus.
+- Open dialogs, confirmations and shortcuts in accessible native windows sized to their content: full-screen lane diff review, lane routing and profiles with accessible native checkboxes, image previews framed to the picture, shortcut guide with flat keys and localized descriptions, and fast confirmation prompts with initial action focus.
 - Configure Studio in more consistent, readable settings: shared switches and preview choices, explicit counts, diagnostic states with icons and text, accessible nested dialogs, and directive and suggestion prompts as readable as chat. Enter adds a line, Ctrl+Enter saves, and Escape cancels editing without closing settings.
 - The Companion window speaks like Studio: it is opaque, the task field is the chat composer with badges for project, directive, role and file, questions use the same options as the chat with «Recommended» in green, project status uses the shared neutral marks, and pinned mode is recognizable by the active pin. It opens and closes with a short fade (shortcut included), and sections that open grow the window smoothly.
 - Check quotas with a single ring indicator and quieter limit rows: colors follow the theme, healthy green remains optional, and breathing signals only a visible exhausted quota while respecting motion preferences.

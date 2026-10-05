@@ -9,8 +9,23 @@
 		type SuggestedModelItem
 	} from '$lib/stores/modelSettings.svelte';
 	import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
-	import { IconClose, IconCheck, IconWarning } from '$lib/icons';
-	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
+	import {
+		IconClose,
+		IconWarning,
+		IconSearch,
+		IconCycle,
+		IconSparkles,
+		IconRefresh,
+		IconArrowUp,
+		IconArrowDown,
+		IconTrash,
+		IconContextWindow,
+		IconRoleSlow,
+		IconRoleVision
+	} from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import ModelField from './ModelField.svelte';
 	import ReasoningSlider from './ReasoningSlider.svelte';
 	import CycleDrawer from './CycleDrawer.svelte';
 
@@ -19,6 +34,7 @@
 	let cycleDrawerOpen = $state(false);
 	let isAddingFallback = $state(false);
 	let rootEl = $state<HTMLDivElement | null>(null);
+	let toggleCycleBtn = $state<HTMLButtonElement | null>(null);
 	let currentSuggestions = $state<RoleSuggestionsResponse | null>(null);
 	let isFetchingSuggestions = $state(false);
 
@@ -173,6 +189,9 @@
 			}
 			e.preventDefault();
 			cycleDrawerOpen = !cycleDrawerOpen;
+			if (!cycleDrawerOpen) {
+				toggleCycleBtn?.focus();
+			}
 		}
 	}
 </script>
@@ -184,16 +203,13 @@
 	<aside class="roles-sidebar">
 		<div class="sidebar-header">
 			<div class="search-box">
-				<svg class="search-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6">
-					<circle cx="6.5" cy="6.5" r="4" />
-					<path d="M9.5 9.5L13.5 13.5" stroke-linecap="round" />
-				</svg>
+				<span class="search-icon"><IconSearch /></span>
 				<input
 					type="text"
 					class="search-input"
 					bind:value={roleFilterQuery}
 					placeholder={m.models_roles_filter_placeholder()}
-					aria-label="Filtra ruoli"
+					aria-label={m.roles_tab_filter_roles_aria()}
 				/>
 				{#if roleFilterQuery}
 					<button
@@ -242,29 +258,39 @@
 						<div class="role-nav-top">
 							<span class="role-nav-name">{role.label}</span>
 							{#if !isConfigured}
-								<span class="status-indicator warning" title={m.models_roles_not_configured()}><IconWarning /></span>
+								<Tooltip text={m.models_roles_not_configured()}>
+									<span class="status-indicator warning"><IconWarning /></span>
+								</Tooltip>
 							{:else if isPrimaryBlocking}
-								<span class="status-indicator error" title={primaryFinding?.reason}><IconWarning /></span>
+								<Tooltip text={primaryFinding?.reason}>
+									<span class="status-indicator error"><IconWarning /></span>
+								</Tooltip>
 							{:else}
-								<span class="status-indicator configured" title={m.models_roles_configured()}><IconCheck /></span>
+								<Tooltip text={m.models_roles_configured()}>
+									<StatusMark status="completed" label={m.models_roles_configured()} />
+								</Tooltip>
 							{/if}
 						</div>
 
 						<div class="role-nav-bottom">
 							{#if isConfigured}
-								<span class="role-nav-model truncate" title={rawModel}>
-									{modelDisplayName}
-								</span>
-								{#if fallbacksCount > 0}
-									<span
-										class="fallback-pill"
-										class:alert={fallbackBlockingCount > 0}
-										title={fallbackBlockingCount > 0
-											? `${fallbacksCount} riserve (${fallbackBlockingCount} con problemi)`
-											: `${fallbacksCount} riserve configurate`}
-									>
-										+{fallbacksCount}
+								<Tooltip text={rawModel}>
+									<span class="role-nav-model truncate">
+										{modelDisplayName}
 									</span>
+								</Tooltip>
+								{#if fallbacksCount > 0}
+									{@const pillTooltip = fallbackBlockingCount > 0
+										? m.roles_tab_fallbacks_configured_with_issues({ count: fallbacksCount, issues: fallbackBlockingCount })
+										: m.roles_tab_fallbacks_configured({ count: fallbacksCount })}
+									<Tooltip text={pillTooltip}>
+										<span
+											class="fallback-pill"
+											class:alert={fallbackBlockingCount > 0}
+										>
+											+{fallbacksCount}
+										</span>
+									</Tooltip>
 								{/if}
 							{:else}
 								<span class="role-nav-empty">{m.models_roles_not_configured()}</span>
@@ -276,7 +302,7 @@
 
 			{#if filteredRoles.length === 0}
 				<div class="no-roles-found">
-					Nessun ruolo corrisponde al filtro.
+					{m.roles_tab_no_roles_match()}
 				</div>
 			{/if}
 		</div>
@@ -284,22 +310,22 @@
 		<div class="sidebar-footer">
 			<div class="summary-text">
 				<span class="count-badge">{configuredCount}/{STANDARD_ROLES.length}</span>
-				<span>ruoli configurati</span>
+				<span>{m.roles_tab_configured_count_suffix()}</span>
 			</div>
 			
-			<button
-				type="button"
-				class="btn-toggle-cycle"
-				class:active={cycleDrawerOpen}
-				onclick={() => cycleDrawerOpen = !cycleDrawerOpen}
-				title={m.ui_rolestab_apri_pannello_sequenza_ciclo_rapido_ctrl_p_a514()}
-			>
-				<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4">
-					<path d="M2 8a6 6 0 0 1 10.2-4.2M14 8a6 6 0 0 1-10.2 4.2" stroke-linecap="round" />
-					<path d="M12.5 1v3h-3M3.5 15v-3h3" stroke-linecap="round" stroke-linejoin="round" />
-				</svg>
-				<span>Ciclo (Ctrl+P)</span>
-			</button>
+			<Tooltip text={m.ui_rolestab_apri_pannello_sequenza_ciclo_rapido_ctrl_p_a514()}>
+				<button
+					type="button"
+					class="btn-toggle-cycle"
+					class:active={cycleDrawerOpen}
+					bind:this={toggleCycleBtn}
+					onclick={() => cycleDrawerOpen = !cycleDrawerOpen}
+					aria-label={m.ui_rolestab_apri_pannello_sequenza_ciclo_rapido_ctrl_p_a514()}
+				>
+					<span class="cycle-btn-icon"><IconCycle /></span>
+					<span>{m.roles_tab_cycle_button()}</span>
+				</button>
+			</Tooltip>
 		</div>
 	</aside>
 
@@ -318,14 +344,15 @@
 			</div>
 
 			{#if selectedRoleModelRaw}
-				<button
-					type="button"
-					class="btn-clear-role"
-					onclick={() => modelSettingsStore.removeRole(selectedRole.id)}
-					title={m.ui_rolestab_rimuovi_la_configurazione_per_questo_ruolo_1eaa()}
-				>
-					{m.models_roles_remove_assignment()}
-				</button>
+				<Tooltip text={m.ui_rolestab_rimuovi_la_configurazione_per_questo_ruolo_1eaa()}>
+					<button
+						type="button"
+						class="btn-clear-role"
+						onclick={() => modelSettingsStore.removeRole(selectedRole.id)}
+					>
+						{m.models_roles_remove_assignment()}
+					</button>
+				</Tooltip>
 			{/if}
 		</header>
 
@@ -335,7 +362,7 @@
 				<div class="section-heading">
 					<h3 class="section-title">{m.ui_rolestab_modello_primario_793e()}</h3>
 					<span class="section-subtitle">
-						Instradamento predefinito a cui vengono delegate le richieste per questo ruolo.
+						{m.roles_tab_primary_section_desc()}
 					</span>
 				</div>
 
@@ -351,23 +378,25 @@
 						<div class="finding-alert-body">
 							<span class="finding-alert-reason">{selectedRolePrimaryFinding.reason}</span>
 							{#if selectedRolePrimaryFinding.suggestedSelector}
-								<button
-									type="button"
-									class="btn-apply-primary-fix"
-									onclick={() => modelSettingsStore.setRoleModel(selectedRole.id, selectedRolePrimaryFinding.suggestedSelector!)}
-									title="Aggiorna modello primario a {selectedRolePrimaryFinding.suggestedSelector}"
-								>
-									Usa {selectedRolePrimaryFinding.suggestedModelName || selectedRolePrimaryFinding.suggestedSelector}
-								</button>
+								<Tooltip text={m.roles_tab_update_primary_to({ selector: selectedRolePrimaryFinding.suggestedSelector })}>
+									<button
+										type="button"
+										class="btn-apply-primary-fix"
+										onclick={() => modelSettingsStore.setRoleModel(selectedRole.id, selectedRolePrimaryFinding.suggestedSelector!)}
+									>
+										{m.roles_tab_use_suggested_model({ model: selectedRolePrimaryFinding.suggestedModelName || selectedRolePrimaryFinding.suggestedSelector })}
+									</button>
+								</Tooltip>
 							{/if}
 						</div>
 					</div>
 				{/if}
 				<div class="picker-container">
-					<ModelPickerDropdown
+					<ModelField
 						catalog={modelSettingsStore.assignableCatalog}
 						value={selectedRoleModelRaw}
-						placeholder="Seleziona modello per {selectedRole.label}..."
+						placeholder={m.roles_tab_select_model_for_role({ role: selectedRole.label })}
+						ariaLabel={m.roles_tab_select_model_for_role({ role: selectedRole.label })}
 						onSelect={(sel) => handleModelChange(selectedRole.id, sel)}
 					/>
 				</div>
@@ -377,13 +406,28 @@
 					<div class="model-meta-row">
 						<span class="meta-badge provider">{selectedRoleModelDto.provider}</span>
 						{#if selectedRoleModelDto.contextWindow}
-							<span class="meta-badge ctx">{formatContextTokens(selectedRoleModelDto.contextWindow)}</span>
+							<Tooltip text={m.roles_tab_context_window_tooltip({ tokens: selectedRoleModelDto.contextWindow.toLocaleString() })}>
+								<span class="ui-cap ctx">
+									<IconContextWindow />
+									<small>{formatContextTokens(selectedRoleModelDto.contextWindow)}</small>
+								</span>
+							</Tooltip>
 						{/if}
 						{#if selectedRoleModelDto.reasoning}
-							<span class="meta-badge reasoning">Reasoning</span>
+							<Tooltip text={m.roles_tab_capability_reasoning_tooltip()}>
+								<span class="ui-cap">
+									<IconRoleSlow />
+									<span>Reasoning</span>
+								</span>
+							</Tooltip>
 						{/if}
 						{#if selectedRoleModelDto.input?.includes('image')}
-							<span class="meta-badge vision">Vision</span>
+							<Tooltip text={m.roles_tab_capability_vision_tooltip()}>
+								<span class="ui-cap">
+									<IconRoleVision />
+									<span>Vision</span>
+								</span>
+							</Tooltip>
 						{/if}
 						{#if selectedRoleModelDto.isCustom}
 							<span class="meta-badge custom">Custom</span>
@@ -401,24 +445,22 @@
 					<div class="suggestions-row">
 						<div class="suggestions-header">
 							<span class="suggestions-label">
-								<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4">
-									<path d="M8 1.5a4.5 4.5 0 0 0-2.5 8.2v1.8h5V9.7A4.5 4.5 0 0 0 8 1.5zM6.5 14.5h3" stroke-linecap="round" />
-								</svg>
-								Suggeriti AI
+								<IconSparkles />
+								{m.roles_tab_ai_suggestions()}
 							</span>
-							<button
-								type="button"
-								class="btn-refresh-sug"
-								class:spinning={isFetchingSuggestions}
-								disabled={isFetchingSuggestions}
-								onclick={handleRefreshSuggestions}
-								title="Rianalizza raccomandazioni per questo ruolo"
-							>
-								<svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4">
-									<path d="M2 8a6 6 0 1 1 1.8 4.2M2 8V4.5M2 8h3.5" stroke-linecap="round" stroke-linejoin="round" />
-								</svg>
-								<span>Rianalizza</span>
-							</button>
+							<Tooltip text={m.roles_tab_reanalyze_tooltip()}>
+								<button
+									type="button"
+									class="btn-refresh-sug"
+									class:spinning={isFetchingSuggestions}
+									disabled={isFetchingSuggestions}
+									onclick={handleRefreshSuggestions}
+									aria-label={m.roles_tab_reanalyze_tooltip()}
+								>
+									<IconRefresh />
+									<span>{m.roles_tab_reanalyze()}</span>
+								</button>
+							</Tooltip>
 						</div>
 						<div class="suggestions-chips">
 							{#each currentSuggestions.primary as sug (sug.selector)}
@@ -427,19 +469,20 @@
 								{@const tooltipText = `${sug.reason}${sug.arenaElo ? ` • ELO: ~${sug.arenaElo}` : ''}${sug.tokensPerSec ? m.ui_rolestab_velocita_value1_tok_s_ea3b({ value1: Math.round(sug.tokensPerSec) }) : ''} (${sug.selector})`}
 								{@const sugClean = splitModelSelector(sug.selector, modelSettingsStore.knownSelectors).base}
 								{@const sugSlash = sugClean.indexOf('/')}
-								<button
-									type="button"
-									class="suggestion-chip"
-									class:active-choice={isAlreadySelected}
-									onclick={() => handleApplyPrimarySuggestion(sug)}
-									title={tooltipText}
-								>
-									<span class="sug-provider">{modelDto?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
-									<span class="sug-name">{modelDto?.name || (sugSlash >= 0 ? sugClean.slice(sugSlash + 1) : sugClean)}</span>
-									{#if sug.badge}
-										<span class="sug-badge" class:elo-badge={sug.badge.includes('ELO')} class:speed-badge={sug.badge.includes('tok/s')}>{sug.badge}</span>
-									{/if}
-								</button>
+								<Tooltip text={tooltipText}>
+									<button
+										type="button"
+										class="suggestion-chip"
+										class:active-choice={isAlreadySelected}
+										onclick={() => handleApplyPrimarySuggestion(sug)}
+									>
+										<span class="sug-provider">{modelDto?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
+										<span class="sug-name">{modelDto?.name || (sugSlash >= 0 ? sugClean.slice(sugSlash + 1) : sugClean)}</span>
+										{#if sug.badge}
+											<span class="sug-badge" class:elo-badge={sug.badge.includes('ELO')} class:speed-badge={sug.badge.includes('tok/s')}>{sug.badge}</span>
+										{/if}
+									</button>
+								</Tooltip>
 							{/each}
 						</div>
 					</div>
@@ -449,9 +492,9 @@
 			<!-- Sezione 2: Reasoning Effort -->
 			<section class="config-section">
 				<div class="section-heading">
-					<h3 class="section-title">Reasoning / Thinking Effort</h3>
+					<h3 class="section-title">{m.roles_tab_reasoning_section_title()}</h3>
 					<span class="section-subtitle">
-						Budget di ragionamento computazionale allocato per ogni chiamata in questo ruolo.
+						{m.roles_tab_reasoning_section_desc()}
 					</span>
 				</div>
 
@@ -466,7 +509,7 @@
 			<section class="config-section">
 				<div class="section-heading">
 					<div class="section-title-row">
-						<h3 class="section-title">Catena di Fallback (Modelli di Riserva)</h3>
+						<h3 class="section-title">{m.roles_tab_fallback_section_title()}</h3>
 						{#if selectedRoleFallbacks.length > 0}
 							<span class="badge-count">{selectedRoleFallbacks.length}</span>
 						{/if}
@@ -495,14 +538,15 @@
 							<div class="fb-info">
 								<div class="fb-name-line">
 									{#if fbFinding}
-										<span
-											class="fb-finding-icon"
-											class:error={fbFinding.severity === 'error'}
-											class:warn={fbFinding.severity !== 'error'}
-											title={fbFinding.reason}
-										>
-											<IconWarning />
-										</span>
+										<Tooltip text={fbFinding.reason}>
+											<span
+												class="fb-finding-icon"
+												class:error={fbFinding.severity === 'error'}
+												class:warn={fbFinding.severity !== 'error'}
+											>
+												<IconWarning />
+											</span>
+										</Tooltip>
 									{/if}
 									<span class="fb-name">{fallbackDisplayName}</span>
 									{#if fbModel}
@@ -515,62 +559,63 @@
 										class:error={fbFinding.severity === 'error'}
 										class:warn={fbFinding.severity !== 'error'}
 									>
-										<span class="fb-finding-text" title={fbFinding.reason}>{fbFinding.reason}</span>
+										<Tooltip text={fbFinding.reason}>
+											<span class="fb-finding-text">{fbFinding.reason}</span>
+										</Tooltip>
 										{#if fbFinding.suggestedSelector}
-											<button
-												type="button"
-												class="btn-replace-fb"
-												onclick={() => replaceFallback(selectedRole.id, idx, fbFinding.suggestedSelector!)}
-												title="Sostituisci con {fbFinding.suggestedSelector}"
-											>
-												Usa {fbFinding.suggestedModelName || fbFinding.suggestedSelector}
-											</button>
+											<Tooltip text={m.roles_tab_replace_fallback_with({ selector: fbFinding.suggestedSelector })}>
+												<button
+													type="button"
+													class="btn-replace-fb"
+													onclick={() => replaceFallback(selectedRole.id, idx, fbFinding.suggestedSelector!)}
+												>
+													{m.roles_tab_use_suggested_model({ model: fbFinding.suggestedModelName || fbFinding.suggestedSelector })}
+												</button>
+											</Tooltip>
 										{/if}
 									</div>
 								{/if}
 							</div>
 							<div class="fb-actions">
-								<button
-									type="button"
-									class="btn-fb-action"
-									disabled={idx === 0}
-									onclick={() => moveFallback(selectedRole.id, idx, -1)}
-									title={m.ui_rolestab_aumenta_priorita_sposta_su_ef3d()}
-								>
-									<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-										<path d="M3.5 10L8 5.5l4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
-									</svg>
-								</button>
-								<button
-									type="button"
-									class="btn-fb-action"
-									disabled={idx === selectedRoleFallbacks.length - 1}
-									onclick={() => moveFallback(selectedRole.id, idx, 1)}
-									title={m.ui_rolestab_riduci_priorita_sposta_giu_357a()}
-								>
-									<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-										<path d="M3.5 6L8 10.5l4.5-4.5" stroke-linecap="round" stroke-linejoin="round" />
-									</svg>
-								</button>
-								<button
-									type="button"
-									class="btn-fb-action delete"
-									onclick={() => removeFallback(selectedRole.id, idx)}
-									title={m.ui_rolestab_rimuovi_modello_di_riserva_cdcc()}
-								>
-									<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-										<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
-									</svg>
-								</button>
+								<Tooltip text={m.ui_rolestab_aumenta_priorita_sposta_su_ef3d()}>
+									<button
+										type="button"
+										class="btn-fb-action"
+										disabled={idx === 0}
+										onclick={() => moveFallback(selectedRole.id, idx, -1)}
+										aria-label={m.ui_rolestab_aumenta_priorita_sposta_su_ef3d()}
+									>
+										<IconArrowUp />
+									</button>
+								</Tooltip>
+								<Tooltip text={m.ui_rolestab_riduci_priorita_sposta_giu_357a()}>
+									<button
+										type="button"
+										class="btn-fb-action"
+										disabled={idx === selectedRoleFallbacks.length - 1}
+										onclick={() => moveFallback(selectedRole.id, idx, 1)}
+										aria-label={m.ui_rolestab_riduci_priorita_sposta_giu_357a()}
+									>
+										<IconArrowDown />
+									</button>
+								</Tooltip>
+								<Tooltip text={m.ui_rolestab_rimuovi_modello_di_riserva_cdcc()}>
+									<button
+										type="button"
+										class="btn-fb-action delete"
+										onclick={() => removeFallback(selectedRole.id, idx)}
+										aria-label={m.ui_rolestab_rimuovi_modello_di_riserva_cdcc()}
+									>
+										<IconTrash />
+									</button>
+								</Tooltip>
 							</div>
 						</div>
 					{/each}
 
 					{#if selectedRoleFallbacks.length === 0}
 						<div class="empty-fallback-warning">
-							<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
-								<path d="M8 2l6 11H2L8 2zM8 6.5v3M8 11.5v.5" stroke-linecap="round" stroke-linejoin="round" />
-							</svg>
+							<IconWarning />
 							<span>{m.ui_rolestab_nessuna_riserva_configurata_se_il_modello_primario_0d8e()}</span>
 						</div>
 					{/if}
@@ -580,9 +625,10 @@
 				<div class="add-fallback-container">
 					{#if isAddingFallback}
 						<div class="inline-fallback-picker">
-							<ModelPickerDropdown
+							<ModelField
 								catalog={modelSettingsStore.assignableCatalog}
 								placeholder={m.models_roles_fallback_placeholder()}
+								ariaLabel={m.models_roles_fallback_placeholder()}
 								onSelect={(sel) => handleAddFallback(selectedRole.id, sel)}
 							/>
 							<button
@@ -608,7 +654,10 @@
 				{#if currentSuggestions && currentSuggestions.fallback.length > 0}
 					<div class="suggestions-row mt-2">
 						<div class="suggestions-header">
-							<span class="suggestions-label">Riserve consigliate AI (Cross-Provider)</span>
+							<span class="suggestions-label">
+								<IconSparkles />
+								{m.roles_tab_fallback_suggestions_title()}
+							</span>
 						</div>
 						<div class="suggestions-chips">
 							{#each currentSuggestions.fallback as sug (sug.selector)}
@@ -618,18 +667,19 @@
 								{@const sugClean = splitModelSelector(sug.selector, modelSettingsStore.knownSelectors).base}
 								{@const sugSlash = sugClean.indexOf('/')}
 								{#if !alreadyInFallback && sug.selector !== selectedRoleModelRaw}
-									<button
-										type="button"
-										class="suggestion-chip"
-										onclick={() => handleAddFallback(selectedRole.id, sug.selector)}
-										title={tooltipText}
-									>
-										<span class="sug-provider">{fbModel?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
-										<span class="sug-name">{fbModel?.name || (sugSlash >= 0 ? sugClean.slice(sugSlash + 1) : sugClean)}</span>
-										{#if sug.badge}
-											<span class="sug-badge fallback-badge" class:free-badge={sug.badge.includes('Zero-Cost') || sug.isFree}>{sug.badge}</span>
-										{/if}
-									</button>
+									<Tooltip text={tooltipText}>
+										<button
+											type="button"
+											class="suggestion-chip"
+											onclick={() => handleAddFallback(selectedRole.id, sug.selector)}
+										>
+											<span class="sug-provider">{fbModel?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
+											<span class="sug-name">{fbModel?.name || (sugSlash >= 0 ? sugClean.slice(sugSlash + 1) : sugClean)}</span>
+											{#if sug.badge}
+												<span class="sug-badge fallback-badge" class:free-badge={sug.badge.includes('Zero-Cost') || sug.isFree}>{sug.badge}</span>
+											{/if}
+										</button>
+									</Tooltip>
 								{/if}
 							{/each}
 						</div>
@@ -642,6 +692,7 @@
 	<!-- Right Drawer: Ciclo Rapido Ctrl+P -->
 	<CycleDrawer
 		open={cycleDrawerOpen}
+		returnFocus={toggleCycleBtn}
 		onClose={() => cycleDrawerOpen = false}
 	/>
 </div>
@@ -680,7 +731,7 @@
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		transition: border-color 120ms ease;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.search-box:focus-within {
@@ -689,7 +740,10 @@
 
 	.search-icon {
 		color: var(--ink-faint);
+		display: inline-flex;
+		align-items: center;
 		flex-shrink: 0;
+		--icon-size: 12px;
 	}
 
 	.search-input {
@@ -699,7 +753,6 @@
 		background: transparent;
 		font-size: var(--text-xs);
 		color: var(--ink);
-		outline: none;
 	}
 
 	.search-input::placeholder {
@@ -710,14 +763,15 @@
 		border: none;
 		background: transparent;
 		color: var(--ink-faint);
-		font-size: 14px;
+		--icon-size: 12px;
+		display: inline-flex;
 		cursor: pointer;
 		padding: 0 2px;
 	}
 
 	.roles-list {
 		flex: 1;
-		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del proprio contenuto, quindi il contenitore lo taglia invece di far comparire la barra di scorrimento */
+		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del proprio contenuto */
 		min-height: 0;
 		overflow-y: auto;
 		padding: 6px;
@@ -736,7 +790,7 @@
 		background: transparent;
 		text-align: left;
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 		width: 100%;
 	}
 
@@ -756,13 +810,13 @@
 		flex-shrink: 0;
 		display: grid;
 		place-items: center;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		margin-top: 1px;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 		--icon-size: 14px;
 	}
 
@@ -789,7 +843,7 @@
 	}
 
 	.role-nav-name {
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		font-weight: 500;
 		color: var(--ink);
 		white-space: nowrap;
@@ -798,14 +852,12 @@
 	}
 
 	.status-indicator {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
 		--icon-size: 12px;
-	}
-
-	.status-indicator.configured {
-		color: oklch(0.72 0.16 142);
 	}
 
 	.status-indicator.warning {
@@ -825,7 +877,7 @@
 
 	.role-nav-model {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -834,7 +886,8 @@
 
 	.fallback-pill {
 		font-family: var(--font-mono);
-		font-size: 9px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		padding: 0 4px;
 		border-radius: var(--radius-sm);
 		background: var(--bg-raised);
@@ -850,14 +903,14 @@
 	}
 
 	.role-nav-empty {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--warn);
 		font-style: italic;
 	}
 
 	.no-roles-found {
 		padding: 16px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-align: center;
 	}
@@ -875,13 +928,14 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
 	.count-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		font-weight: 600;
 		color: var(--brand-ink);
 	}
@@ -891,13 +945,19 @@
 		align-items: center;
 		gap: 4px;
 		padding: 3px 6px;
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.cycle-btn-icon {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 12px;
 	}
 
 	.btn-toggle-cycle:hover,
@@ -971,7 +1031,7 @@
 
 	.role-id-pill {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 6px;
 		border-radius: var(--radius-sm);
 		background: var(--bg-raised);
@@ -980,27 +1040,27 @@
 	}
 
 	.role-description {
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
 		margin: 0;
 	}
 
 	.btn-clear-role {
 		padding: 4px 8px;
-		font-size: 11px;
-		border-radius: var(--radius-sm);
+		font-size: var(--text-caption);
+		border-radius: var(--radius-md);
 		background: transparent;
 		border: 1px solid var(--line);
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 		flex-shrink: 0;
 	}
 
 	.btn-clear-role:hover {
-		color: var(--warn);
-		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-		background: color-mix(in srgb, var(--warn) 6%, transparent);
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+		background: color-mix(in srgb, var(--danger) 6%, transparent);
 	}
 
 	.detail-scroll-body {
@@ -1033,17 +1093,16 @@
 	}
 
 	.section-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 		margin: 0;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
 	}
 
 	.badge-count {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		padding: 0 5px;
 		border-radius: var(--radius-sm);
 		background: var(--brand);
@@ -1052,7 +1111,7 @@
 	}
 
 	.section-subtitle {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -1062,7 +1121,7 @@
 		gap: 8px;
 		padding: 8px 12px;
 		border-radius: var(--radius-md);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		margin-bottom: 8px;
 	}
 
@@ -1085,6 +1144,7 @@
 		flex-shrink: 0;
 		font-size: 13px;
 		margin-top: 1px;
+		--icon-size: 14px;
 	}
 
 	.finding-alert-body {
@@ -1106,12 +1166,12 @@
 		padding: 3px 8px;
 		background: var(--bg-base);
 		border: 1px solid currentColor;
-		border-radius: var(--radius-sm);
-		font-size: 11px;
+		border-radius: var(--radius-md);
+		font-size: var(--text-caption);
 		font-weight: 500;
 		color: inherit;
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: background-color var(--dur-fast) var(--ease-out);
 		white-space: nowrap;
 	}
 
@@ -1133,7 +1193,7 @@
 
 	.meta-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 6px;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
@@ -1146,16 +1206,6 @@
 		color: var(--brand-ink);
 		background: color-mix(in srgb, var(--brand) 8%, var(--bg-base));
 		text-transform: capitalize;
-	}
-
-	.meta-badge.reasoning {
-		border-color: color-mix(in srgb, oklch(0.65 0.18 290) 30%, transparent);
-		color: oklch(0.78 0.14 290);
-	}
-
-	.meta-badge.vision {
-		border-color: color-mix(in srgb, oklch(0.68 0.16 195) 30%, transparent);
-		color: oklch(0.78 0.13 195);
 	}
 
 	.suggestions-row {
@@ -1179,18 +1229,19 @@
 		background: transparent;
 		border: none;
 		color: var(--ink-faint);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		cursor: pointer;
 		padding: 2px 4px;
-		border-radius: var(--radius-sm);
-		transition: color 120ms ease;
+		border-radius: var(--radius-md);
+		transition: color var(--dur-fast) var(--ease-out);
+		--icon-size: 12px;
 	}
 
 	.btn-refresh-sug:hover:not(:disabled) {
 		color: var(--brand-ink);
 	}
 
-	.btn-refresh-sug.spinning svg,
+	.btn-refresh-sug.spinning :global(svg),
 	.sug-spinner {
 		animation: spin 1s linear infinite;
 	}
@@ -1199,7 +1250,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		padding: 4px 0;
 	}
@@ -1213,16 +1264,14 @@
 		flex-shrink: 0;
 	}
 
-
 	.suggestions-label {
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		font-weight: 600;
+		--icon-size: 12px;
 	}
 
 	.suggestions-chips {
@@ -1239,10 +1288,10 @@
 		border-radius: var(--radius-md);
 		border: 1px dashed var(--line-strong);
 		background: var(--bg-base);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.suggestion-chip:hover {
@@ -1259,7 +1308,7 @@
 	}
 
 	.sug-provider {
-		font-size: 9.5px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-transform: capitalize;
 	}
@@ -1270,7 +1319,7 @@
 	}
 
 	.sug-badge {
-		font-size: 9px;
+		font-size: var(--text-caption);
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--brand) 16%, transparent);
@@ -1294,6 +1343,7 @@
 		color: var(--ink-muted);
 		border: 1px dashed var(--line-strong);
 	}
+
 	/* Fallbacks */
 	.fallbacks-list {
 		display: flex;
@@ -1309,7 +1359,7 @@
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		transition: all 120ms ease;
+		transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.fallback-row.has-finding {
@@ -1324,7 +1374,8 @@
 
 	.fb-order {
 		font-family: var(--font-mono);
-		font-size: 10.5px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		font-weight: 600;
 		color: var(--brand-ink);
 		width: 22px;
@@ -1352,6 +1403,7 @@
 		justify-content: center;
 		font-size: 11px;
 		flex-shrink: 0;
+		--icon-size: 12px;
 	}
 
 	.fb-finding-icon.error {
@@ -1367,7 +1419,7 @@
 		align-items: center;
 		gap: 6px;
 		flex-wrap: wrap;
-		font-size: 10px;
+		font-size: var(--text-caption);
 	}
 
 	.fb-finding-reason-row.error {
@@ -1388,21 +1440,22 @@
 		padding: 1px 6px;
 		background: var(--bg-base);
 		border: 1px solid currentColor;
-		border-radius: var(--radius-sm);
-		font-size: 9.5px;
+		border-radius: var(--radius-md);
+		font-size: var(--text-caption);
 		font-weight: 500;
 		color: inherit;
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: background-color var(--dur-fast) var(--ease-out);
 		white-space: nowrap;
 	}
 
 	.btn-replace-fb:hover {
 		background: var(--bg-hover);
 	}
+
 	.fb-name {
 		font-family: var(--font-mono);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		color: var(--ink);
 		white-space: nowrap;
 		overflow: hidden;
@@ -1410,7 +1463,7 @@
 	}
 
 	.fb-provider-tag {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-transform: capitalize;
 	}
@@ -1429,10 +1482,11 @@
 		place-items: center;
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+		--icon-size: 11px;
 	}
 
 	.btn-fb-action:hover:not(:disabled) {
@@ -1442,7 +1496,9 @@
 	}
 
 	.btn-fb-action.delete:hover:not(:disabled) {
-		color: var(--warn);
+		color: var(--danger);
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
+		border-color: color-mix(in oklab, var(--danger) 25%, transparent);
 	}
 
 	.btn-fb-action:disabled {
@@ -1458,8 +1514,9 @@
 		background: color-mix(in srgb, var(--warn) 6%, var(--bg-base));
 		border: 1px dashed color-mix(in srgb, var(--warn) 30%, transparent);
 		border-radius: var(--radius-md);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--warn);
+		--icon-size: 14px;
 	}
 
 	.add-fallback-container {
@@ -1473,9 +1530,9 @@
 		border: 1px dashed var(--line-strong);
 		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 		text-align: center;
 	}
 
@@ -1494,12 +1551,13 @@
 	.btn-cancel-fb {
 		align-self: flex-end;
 		padding: 3px 8px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		background: transparent;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
 		cursor: pointer;
+		transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-cancel-fb:hover {

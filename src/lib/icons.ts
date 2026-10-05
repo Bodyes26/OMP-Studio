@@ -123,6 +123,13 @@ export { default as IconRoleTask } from '@lucide/svelte/icons/split';
 export { default as IconRoleCommit } from '@lucide/svelte/icons/git-commit-horizontal';
 export { default as IconRoleAdvisor } from '@lucide/svelte/icons/shield-check';
 
+// Gestione modelli: ciclo Ctrl+P, account, provider e plugin.
+export { default as IconCycle } from '@lucide/svelte/icons/repeat-2';
+export { default as IconAccount } from '@lucide/svelte/icons/circle-user-round';
+export { default as IconKey } from '@lucide/svelte/icons/key-round';
+export { default as IconModels } from '@lucide/svelte/icons/boxes';
+export { default as IconPlug } from '@lucide/svelte/icons/plug';
+
 // Intelligenza e ragionamento (Thinking effort)
 export { default as IconBrain } from '@lucide/svelte/icons/brain';
 

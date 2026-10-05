@@ -8,10 +8,22 @@
 		type ProviderSummary,
 		type AuthAccount
 	} from '$lib/stores/modelSettings.svelte';
-	import { anchoredPopover } from '$lib/anchoredPopover';
-	import { IconClose, IconPlus } from '$lib/icons';
-	import { slide, fade } from 'svelte/transition';
+	import {
+		IconClose,
+		IconPlus,
+		IconSearch,
+		IconAccount,
+		IconModels,
+		IconTrash,
+		IconPlug
+	} from '$lib/icons';
 	import Terminal from '$lib/terminal/Terminal.svelte';
+	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import Switch from '$lib/ui/Switch.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	let searchQuery = $state('');
 	let listRootEl = $state<HTMLDivElement | null>(null);
@@ -19,8 +31,6 @@
 	let addMenuOpen = $state(false);
 	let addMenuMode = $state<'pick' | 'custom'>('pick');
 	let newProviderName = $state('');
-	let addMenuEl = $state<HTMLDivElement | null>(null);
-	let addMenuBtnEl = $state<HTMLButtonElement | null>(null);
 
 	let providerToDelete = $state<string | null>(null);
 	let accountToRemove = $state<AuthAccount | null>(null);
@@ -218,38 +228,6 @@
 		closeAddMenu();
 	}
 
-	function handleDocClick(e: MouseEvent) {
-		if (!addMenuOpen) return;
-		const target = e.target as Node;
-		if (addMenuEl?.contains(target) || addMenuBtnEl?.contains(target)) return;
-		closeAddMenu();
-	}
-
-	function handleWindowKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape') return;
-		if (loginTarget) {
-			e.preventDefault();
-			e.stopPropagation();
-			e.stopImmediatePropagation?.();
-			void closeLogin();
-		} else if (accountToRemove) {
-			e.preventDefault();
-			e.stopPropagation();
-			e.stopImmediatePropagation?.();
-			accountToRemove = null;
-		} else if (providerToDelete) {
-			e.preventDefault();
-			e.stopPropagation();
-			e.stopImmediatePropagation?.();
-			providerToDelete = null;
-		} else if (addMenuOpen) {
-			e.preventDefault();
-			e.stopPropagation();
-			e.stopImmediatePropagation?.();
-			closeAddMenu();
-		}
-	}
-
 	// --- Editing dei provider Custom (bozza) ---
 	function handleAddCustomModel(providerName: string) {
 		const prov = modelSettingsStore.draftCustomProviders[providerName];
@@ -284,7 +262,7 @@
 			modelSettingsStore.selectedProviderId = null;
 		}
 		providerToDelete = null;
-		modelSettingsStore.showToast('Provider rimosso dalla bozza');
+		modelSettingsStore.showToast(m.providers_tab_provider_removed_toast());
 	}
 
 	// --- Stato credenziale account ---
@@ -305,7 +283,7 @@
 		if (a.disabledCause) {
 			return { label: m.models_providers_disabled(), variant: 'warn', message: a.disabledCause };
 		}
-		return { label: 'Connesso', variant: 'ok' };
+		return { label: m.providers_tab_connected(), variant: 'ok' };
 	}
 
 	function accountDisplayName(a: AuthAccount): string {
@@ -361,24 +339,21 @@
 	async function handleCopyEnvHint(envVar: string) {
 		try {
 			await navigator.clipboard.writeText(envVar);
-			modelSettingsStore.showToast(`Copiato: "${envVar}"`);
+			modelSettingsStore.showToast(m.providers_tab_copied_toast({ envVar }));
 		} catch {
-			modelSettingsStore.showToast(`Variabile: ${envVar}`);
+			modelSettingsStore.showToast(m.providers_tab_variable_toast({ envVar }));
 		}
 	}
 </script>
-
-<svelte:window onclick={handleDocClick} onkeydown={handleWindowKeydown} />
 
 <div class="providers-tab">
 	<!-- Colonna sinistra: elenco provider -->
 	<aside class="providers-sidebar">
 		<div class="sidebar-header">
 			<div class="search-box">
-				<svg class="search-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6">
-					<circle cx="6.5" cy="6.5" r="4" />
-					<path d="M9.5 9.5L13.5 13.5" stroke-linecap="round" />
-				</svg>
+				<span class="search-icon">
+					<IconSearch />
+				</span>
 				<input
 					type="text"
 					class="search-input"
@@ -388,7 +363,7 @@
 					aria-label={m.ui_providerstab_cerca_provider_feaf()}
 				/>
 				{#if searchQuery}
-					<button type="button" class="btn-clear-search" onclick={() => searchQuery = ''} aria-label={m.file_tree_clear_search()}>
+					<button type="button" class="search-clear-action" onclick={() => (searchQuery = '')} aria-label={m.file_tree_clear_search()}>
 						<IconClose />
 					</button>
 				{/if}
@@ -398,7 +373,7 @@
 		<div
 			class="providers-list"
 			role="listbox"
-			aria-label="Provider disponibili"
+			aria-label={m.providers_tab_available_providers_aria()}
 			tabindex="-1"
 			bind:this={listRootEl}
 			onkeydown={handleListKeydown}
@@ -419,81 +394,124 @@
 				>
 					<div class="provider-item-top">
 						<span class="provider-item-name">{p.name}</span>
-						<span class="origin-badge origin-{p.source}">{sourceLabel(p.source)}</span>
+						<span class="origin-badge origin-{p.source}">
+							{#if p.source === 'plugin'}
+								<IconPlug />
+							{/if}
+							<span>{sourceLabel(p.source)}</span>
+						</span>
 					</div>
 					<div class="provider-item-id">{p.id}</div>
 					<div class="provider-item-bottom">
-						<span class="state-badge" class:off={!enabled}>{enabled ? m.models_providers_enabled() : m.models_providers_disabled()}</span>
-						<span class="count-pill" title="Account collegati">
-							<svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5.5" r="2.5" /><path d="M2.5 14c0-2.8 2.4-5 5.5-5s5.5 2.2 5.5 5" stroke-linecap="round" /></svg>
-							{activeAccountCountFor(p)}
+						<span class="provider-status">
+							<StatusMark status={enabled ? 'completed' : 'pending'} active={enabled} />
+							<span>{enabled ? m.models_providers_enabled() : m.models_providers_disabled()}</span>
 						</span>
-						<span class="count-pill" title="Modelli disponibili">
-							<svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M2.5 6.5h11M6.5 2.5v11" /></svg>
-							{modelCountFor(p)}
-						</span>
+						<Tooltip text={m.providers_tab_connected_accounts()}>
+							<span class="count-pill">
+								<IconAccount />
+								<span>{activeAccountCountFor(p)}</span>
+							</span>
+						</Tooltip>
+						<Tooltip text={m.providers_tab_available_models()}>
+							<span class="count-pill">
+								<IconModels />
+								<span>{modelCountFor(p)}</span>
+							</span>
+						</Tooltip>
 					</div>
 				</button>
 			{/each}
 
 			{#if filteredProviders.length === 0}
-				<div class="no-providers-found">Nessun provider corrisponde alla ricerca.</div>
+				<div class="no-providers-found">{m.providers_tab_no_providers_found()}</div>
 			{/if}
 		</div>
 
 		<div class="sidebar-footer">
-			<button type="button" class="btn-add-provider" bind:this={addMenuBtnEl} onclick={openAddMenu}>
-				<IconPlus />
-				<span>{m.ui_providerstab_aggiungi_provider_5da0()}</span>
-			</button>
+			<MenuButton
+				open={addMenuOpen}
+				onToggle={openAddMenu}
+				onClose={closeAddMenu}
+				ariaLabel={m.ui_providerstab_aggiungi_provider_5da0()}
+				hasPopup="dialog"
+				contentRole="dialog"
+				width="250px"
+				className="add-provider-trigger ui-button ui-button-secondary"
+			>
+				{#snippet trigger()}
+					<IconPlus />
+					<span>{m.ui_providerstab_aggiungi_provider_5da0()}</span>
+				{/snippet}
 
-			{#if addMenuOpen}
-				<div
-					class="add-menu"
-					bind:this={addMenuEl}
-					popover="manual"
-					use:anchoredPopover={{
-						anchor: addMenuBtnEl,
-						offset: 6,
-						matchWidth: true,
-						constrainHeight: true
-					}}
-				>
-					{#if addMenuMode === 'pick'}
-						<span class="add-menu-title">Provider non configurati</span>
-						{#if unconfiguredProviders.length === 0}
-							<div class="add-menu-empty">{m.ui_providerstab_tutti_i_provider_conosciuti_sono_gia_configurati_6438()}</div>
-						{:else}
-							<div class="add-menu-list">
-								{#each unconfiguredProviders as p (p.id)}
-									<button type="button" class="add-menu-item" onclick={() => pickUnconfiguredProvider(p.id)}>
-										<span>{p.name}</span>
-										<span class="origin-badge origin-{p.source}">{sourceLabel(p.source)}</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
-						<button type="button" class="add-menu-switch" onclick={() => addMenuMode = 'custom'}>
-							{m.ui_providerstab_crea_provider_custom_d873()}
-						</button>
+				{#if addMenuMode === 'pick'}
+					<div class="add-menu-header">
+						<span class="add-menu-title">{m.providers_tab_unconfigured_providers()}</span>
+					</div>
+					{#if unconfiguredProviders.length === 0}
+						<div class="add-menu-empty">
+							{m.ui_providerstab_tutti_i_provider_conosciuti_sono_gia_configurati_6438()}
+						</div>
 					{:else}
-						<span class="add-menu-title">{m.ui_providerstab_nuovo_provider_custom_f3ff()}</span>
-						<div class="add-menu-custom-form">
-							<input
-								type="text"
-								bind:value={newProviderName}
-								placeholder="Identificativo (es. my-ollama)"
-								aria-label={m.ui_providerstab_identificativo_nuovo_provider_custom_c72d()}
-								onkeydown={(e) => { if (e.key === 'Enter') handleCreateCustomProvider(); }}
-							/>
-							<div class="add-menu-actions">
-								<button type="button" class="btn btn-sm btn-secondary" onclick={() => addMenuMode = 'pick'}>{m.browser_btn_back()}</button>
-								<button type="button" class="btn btn-sm btn-primary" onclick={handleCreateCustomProvider}>{m.ui_providerstab_crea_383b()}</button>
-							</div>
+						<div class="add-menu-list">
+							{#each unconfiguredProviders as p (p.id)}
+								<button
+									type="button"
+									class="add-menu-item"
+									onclick={() => pickUnconfiguredProvider(p.id)}
+								>
+									<span class="add-menu-item-name">{p.name}</span>
+									<span class="origin-badge origin-{p.source}">
+										{#if p.source === 'plugin'}
+											<IconPlug />
+										{/if}
+										<span>{sourceLabel(p.source)}</span>
+									</span>
+								</button>
+							{/each}
 						</div>
 					{/if}
-				</div>
-			{/if}
+					<button
+						type="button"
+						class="add-menu-switch ui-button ui-button-ghost"
+						onclick={() => (addMenuMode = 'custom')}
+					>
+						{m.ui_providerstab_crea_provider_custom_d873()}
+					</button>
+				{:else}
+					<div class="add-menu-header">
+						<span class="add-menu-title">{m.ui_providerstab_nuovo_provider_custom_f3ff()}</span>
+					</div>
+					<div class="add-menu-custom-form">
+						<input
+							type="text"
+							class="ui-input"
+							bind:value={newProviderName}
+							placeholder={m.providers_tab_custom_id_placeholder()}
+							aria-label={m.ui_providerstab_identificativo_nuovo_provider_custom_c72d()}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') handleCreateCustomProvider();
+							}}
+						/>
+						<div class="add-menu-actions">
+							<button
+								type="button"
+								class="ui-button ui-button-secondary"
+								onclick={() => (addMenuMode = 'pick')}
+							>
+								{m.browser_btn_back()}
+							</button>
+							<button
+								type="button"
+								class="ui-button ui-button-primary"
+								onclick={handleCreateCustomProvider}
+							>
+								{m.ui_providerstab_crea_383b()}
+							</button>
+						</div>
+					</div>
+				{/if}
+			</MenuButton>
 		</div>
 	</aside>
 
@@ -505,7 +523,12 @@
 				<div class="detail-header-info">
 					<div class="detail-title-line">
 						<h2 class="detail-title">{selectedProvider.name}</h2>
-						<span class="origin-badge origin-{selectedProvider.source}">{sourceLabel(selectedProvider.source)}</span>
+						<span class="origin-badge origin-{selectedProvider.source}">
+							{#if selectedProvider.source === 'plugin'}
+								<IconPlug />
+							{/if}
+							<span>{sourceLabel(selectedProvider.source)}</span>
+						</span>
 					</div>
 					<span class="detail-id">{selectedProvider.id}</span>
 				</div>
@@ -514,7 +537,7 @@
 					{#if selectedProvider.source === 'custom'}
 						<button
 							type="button"
-							class="btn btn-sm btn-danger-outline"
+							class="ui-button ui-button-danger"
 							onclick={() => confirmDeleteCustomProvider(selectedProvider.id)}
 						>
 							{m.ui_providerstab_rimuovi_provider_fba3()}
@@ -522,22 +545,19 @@
 					{/if}
 					<button
 						type="button"
-						class="btn btn-sm btn-secondary"
+						class="ui-button ui-button-secondary"
 						disabled={modelSettingsStore.isRefreshingCatalog}
 						onclick={() => handleRefreshModels(selectedProvider.id)}
 					>
-						{modelSettingsStore.isRefreshingCatalog ? 'Aggiornamento...' : m.ui_providerstab_aggiorna_modelli_919e()}
+						{modelSettingsStore.isRefreshingCatalog
+							? m.providers_tab_updating_models()
+							: m.ui_providerstab_aggiorna_modelli_919e()}
 					</button>
-					<label class="switch" for="switch-{selectedProvider.id}">
-						<input
-							id="switch-{selectedProvider.id}"
-							type="checkbox"
-							checked={enabled}
-							aria-label="Abilita provider {selectedProvider.name}"
-							onchange={() => toggleEnabled(selectedProvider.id)}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						checked={enabled}
+						ariaLabel={m.providers_tab_enable_provider_aria({ name: selectedProvider.name })}
+						onChange={() => toggleEnabled(selectedProvider.id)}
+					/>
 				</div>
 			</header>
 
@@ -545,21 +565,31 @@
 				{#if selectedProvider.source === 'custom' && modelSettingsStore.draftCustomProviders[selectedProvider.id]}
 					{@const pDef = modelSettingsStore.draftCustomProviders[selectedProvider.id]}
 					<section class="detail-section">
-						<h3 class="detail-section-title">Configurazione Endpoint</h3>
+						<h3 class="detail-section-title">{m.providers_tab_endpoint_configuration()}</h3>
 						<div class="form-grid">
 							<label class="form-field">
-								<span class="field-label">Base URL</span>
-								<input type="text" bind:value={pDef.baseUrl} placeholder="https://api.openai.com/v1" />
+								<span class="field-label">{m.providers_tab_base_url()}</span>
+								<input
+									type="text"
+									class="ui-input"
+									bind:value={pDef.baseUrl}
+									placeholder="https://api.openai.com/v1"
+								/>
 							</label>
 
 							<label class="form-field">
-								<span class="field-label">API Key (opzionale)</span>
-								<input type="password" bind:value={pDef.apiKey} placeholder="sk-..." />
+								<span class="field-label">{m.providers_tab_api_key_optional()}</span>
+								<input
+									type="password"
+									class="ui-input"
+									bind:value={pDef.apiKey}
+									placeholder="sk-..."
+								/>
 							</label>
 
 							<label class="form-field">
-								<span class="field-label">Formato API</span>
-								<select bind:value={pDef.api}>
+								<span class="field-label">{m.providers_tab_api_format()}</span>
+								<select class="ui-select" bind:value={pDef.api}>
 									<option value="openai-completions">openai-completions (Standard)</option>
 									<option value="openai-responses">openai-responses (Codex)</option>
 									<option value="anthropic-messages">anthropic-messages (Claude)</option>
@@ -569,8 +599,12 @@
 
 						<div class="custom-models-section">
 							<div class="cm-header">
-								<span class="cm-title">Modelli definiti</span>
-								<button type="button" class="btn btn-sm btn-secondary" onclick={() => handleAddCustomModel(selectedProvider.id)}>
+								<span class="cm-title">{m.providers_tab_defined_models()}</span>
+								<button
+									type="button"
+									class="ui-button ui-button-secondary"
+									onclick={() => handleAddCustomModel(selectedProvider.id)}
+								>
 									{m.ui_providerstab_aggiungi_modello_6f3c()}
 								</button>
 							</div>
@@ -580,52 +614,55 @@
 									<div class="model-edit-row">
 										<input
 											type="text"
-											class="inp-id"
+											class="ui-input inp-id"
 											bind:value={model.id}
 											placeholder={m.ui_providerstab_id_modello_es_qwen2_5_coder_aa8f()}
 											aria-label={m.ui_providerstab_id_modello_a333()}
 										/>
 										<input
 											type="text"
-											class="inp-name"
+											class="ui-input inp-name"
 											bind:value={model.name}
-											placeholder="Nome visualizzato"
+											placeholder={m.providers_tab_display_name_placeholder()}
 											aria-label={m.ui_providerstab_nome_visualizzato_modello_9a65()}
 										/>
 										<input
 											type="number"
-											class="inp-num"
+											class="ui-input inp-num"
 											bind:value={model.contextWindow}
-											placeholder="Context (128000)"
-											aria-label="Finestra di contesto"
+											placeholder={m.providers_tab_context_placeholder()}
+											aria-label={m.providers_tab_context_window_aria()}
 										/>
 										<input
 											type="number"
-											class="inp-num"
+											class="ui-input inp-num"
 											bind:value={model.maxTokens}
-											placeholder="Max tokens (8192)"
-											aria-label="Max output tokens"
+											placeholder={m.providers_tab_max_tokens_placeholder()}
+											aria-label={m.providers_tab_max_output_tokens_aria()}
 										/>
-										<label class="chk-cap" title="Supporta Reasoning / Thinking">
-											<input type="checkbox" bind:checked={model.reasoning} />
-											<span class="chk-label">Reasoning</span>
-										</label>
-										<button
-											type="button"
-											class="btn-del-model"
-											onclick={() => handleDeleteCustomModel(selectedProvider.id, mIdx)}
-											title={m.models_providers_delete_model()}
-											aria-label={m.models_providers_delete_model()}
-										>
-											<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-												<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
-											</svg>
-										</button>
+										<Tooltip text={m.providers_tab_reasoning_tooltip()}>
+											<label class="chk-cap">
+												<input type="checkbox" class="ui-checkbox" bind:checked={model.reasoning} />
+												<span class="chk-label">{m.providers_tab_reasoning()}</span>
+											</label>
+										</Tooltip>
+										<Tooltip text={m.models_providers_delete_model()}>
+											<button
+												type="button"
+												class="del-model-action ui-button ui-button-ghost"
+												onclick={() => handleDeleteCustomModel(selectedProvider.id, mIdx)}
+												aria-label={m.models_providers_delete_model()}
+											>
+												<IconTrash />
+											</button>
+										</Tooltip>
 									</div>
 								{/each}
 
 								{#if pDef.models.length === 0}
-									<div class="empty-models">{m.ui_providerstab_nessun_modello_definito_per_questo_provider_2e4c()}</div>
+									<div class="empty-models">
+										{m.ui_providerstab_nessun_modello_definito_per_questo_provider_2e4c()}
+									</div>
 								{/if}
 							</div>
 						</div>
@@ -634,40 +671,49 @@
 
 				<section class="detail-section">
 					<div class="section-header-row">
-						<h3 class="detail-section-title">Autenticazione e Account</h3>
+						<h3 class="detail-section-title">{m.providers_tab_auth_and_accounts()}</h3>
 						{#if isOAuthProvider}
-							<button
-								type="button"
-								class="btn btn-sm btn-secondary"
-								title={m.ui_providerstab_login_new_account_title()}
-								onclick={() => handleLoginAction(selectedProvider.id)}
-							>
-								{m.models_providers_add_account()}
-							</button>
+							<Tooltip text={m.ui_providerstab_login_new_account_title()}>
+								<button
+									type="button"
+									class="ui-button ui-button-secondary"
+									onclick={() => handleLoginAction(selectedProvider.id)}
+								>
+									{m.models_providers_add_account()}
+								</button>
+							</Tooltip>
 						{/if}
 					</div>
 
 					{#if selectedAccounts.length === 0}
 						<div class="empty-accounts">
 							{#if selectedProvider.source === 'custom'}
-								<p>I provider Custom usano la API key configurata sopra: non richiedono account separati.</p>
+								<p>{m.providers_tab_custom_auth_note()}</p>
 							{:else if isOAuthProvider}
-								<p>Nessun account collegato a questo provider.</p>
-								<button type="button" class="btn btn-sm btn-primary" onclick={() => handleLoginAction(selectedProvider.id)}>
-									Accedi con OAuth
+								<p>{m.providers_tab_no_accounts_connected()}</p>
+								<button
+									type="button"
+									class="ui-button ui-button-primary"
+									onclick={() => handleLoginAction(selectedProvider.id)}
+								>
+									{m.providers_tab_login_oauth()}
 								</button>
 							{:else}
 								{@const envHint = getProviderEnvVarHint(selectedProvider.id)}
 								<p class="auth-instruction">
-									Questo provider si autentica tramite chiave API o variabile d'ambiente.
+									{m.providers_tab_env_auth_instruction()}
 									{#if envHint}
-										Configura la variabile <code>{envHint}</code> o esegui il setup iniziale in OMP.
+										{m.providers_tab_configure_env_hint({ envVar: envHint })}
 									{:else}
 										{m.ui_providerstab_configura_la_chiave_api_nelle_impostazioni_ambiente_8930()}
 									{/if}
 								</p>
 								{#if envHint}
-									<button type="button" class="btn btn-sm btn-secondary" onclick={() => handleCopyEnvHint(envHint)}>
+									<button
+										type="button"
+										class="ui-button ui-button-secondary"
+										onclick={() => handleCopyEnvHint(envHint)}
+									>
 										{m.ui_providerstab_copia_nome_variabile_1f23()}{envHint})
 									</button>
 								{/if}
@@ -681,18 +727,30 @@
 
 								<div class="account-card">
 									<span class="account-avatar">
-										<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4">
-											<circle cx="8" cy="5.5" r="2.8" />
-											<path d="M2.2 14c0-3 2.6-5.3 5.8-5.3s5.8 2.3 5.8 5.3" stroke-linecap="round" />
-										</svg>
+										<IconAccount />
 									</span>
 
 									<div class="account-info">
 										<div class="account-top-row">
 											<span class="account-name">{accountDisplayName(account)}</span>
-											<span class="status-badge status-{status.variant}" title={status.message ?? status.label}>
-												{status.label}
-											</span>
+											<Tooltip text={status.message ?? status.label}>
+												<span class="account-status">
+													<StatusMark
+														status={status.variant === 'ok'
+															? 'completed'
+															: status.variant === 'warn'
+																? 'attention'
+																: 'failed'}
+													/>
+													<span
+														class="account-status-label"
+														class:is-danger={status.variant === 'danger'}
+														class:is-warn={status.variant === 'warn'}
+													>
+														{status.label}
+													</span>
+												</span>
+											</Tooltip>
 										</div>
 										<div class="account-meta-row">
 											{#if account.accountId && account.email}
@@ -705,7 +763,9 @@
 												<span class="plan-badge">{account.plan}</span>
 											{/if}
 											{#if created}
-												<span class="account-date">Aggiunto il {created}</span>
+												<span class="account-date">
+													{m.providers_tab_added_on({ date: created })}
+												</span>
 											{/if}
 										</div>
 										{#if status.message}
@@ -715,13 +775,17 @@
 
 									<div class="account-actions">
 										{#if status.variant !== 'ok' && isOAuthProvider}
-											<button type="button" class="btn btn-xs btn-secondary" onclick={() => handleLoginAction(account.provider)}>
+											<button
+												type="button"
+												class="ui-button ui-button-secondary account-action-btn"
+												onclick={() => handleLoginAction(account.provider)}
+											>
 												{m.ui_providerstab_accedi_di_nuovo_5726()}
 											</button>
 										{/if}
 										<button
 											type="button"
-											class="btn btn-xs btn-danger-outline"
+											class="ui-button ui-button-ghost account-action-btn is-danger-action"
 											disabled={removingAccountId === account.id}
 											onclick={() => requestRemoveAccount(account)}
 										>
@@ -742,58 +806,59 @@
 	</main>
 
 	<!-- Dialog: rimuovi provider Custom dalla bozza -->
-	{#if providerToDelete}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="confirm-overlay" onclick={cancelDeleteCustomProvider} transition:fade={{ duration: 100 }}>
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-			<div class="confirm-box" role="alertdialog" tabindex="-1" aria-modal="true" aria-labelledby="del-provider-title" onclick={(e) => e.stopPropagation()} transition:slide={{ duration: 150 }}>
-				<h4 id="del-provider-title">Rimuovere il provider "{providerToDelete}"?</h4>
-				<p>Il provider e i suoi modelli definiti verranno rimossi dalla bozza.</p>
-				<div class="confirm-actions">
-					<button type="button" class="btn btn-secondary" onclick={cancelDeleteCustomProvider}>{m.common_cancel()}</button>
-					<button type="button" class="btn btn-danger" onclick={executeDeleteCustomProvider}>{m.ui_providerstab_rimuovi_68f6()}</button>
-				</div>
-			</div>
-		</div>
-	{/if}
+	<ConfirmDialog
+		open={providerToDelete !== null}
+		title={m.providers_tab_delete_provider_title({ name: providerToDelete ?? '' })}
+		message={m.providers_tab_delete_provider_message()}
+		confirmLabel={m.ui_providerstab_rimuovi_68f6()}
+		cancelLabel={m.common_cancel()}
+		tone="danger"
+		onConfirm={executeDeleteCustomProvider}
+		onCancel={cancelDeleteCustomProvider}
+	/>
 
 	<!-- Dialog: disconnetti account -->
-	{#if accountToRemove}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="confirm-overlay" onclick={cancelRemoveAccount} transition:fade={{ duration: 100 }}>
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-			<div class="confirm-box" role="alertdialog" tabindex="-1" aria-modal="true" aria-labelledby="del-account-title" onclick={(e) => e.stopPropagation()} transition:slide={{ duration: 150 }}>
-				<h4 id="del-account-title">Disconnettere l'account "{accountDisplayName(accountToRemove)}"?</h4>
-				<p>Le credenziali salvate per questo account verranno rimosse. Potrai ricollegarlo in qualunque momento.</p>
-				<div class="confirm-actions">
-					<button type="button" class="btn btn-secondary" onclick={cancelRemoveAccount}>{m.common_cancel()}</button>
-					<button type="button" class="btn btn-danger" onclick={executeRemoveAccount}>{m.browser_btn_disconnect_relay()}</button>
-				</div>
-			</div>
-		</div>
-	{/if}
+	<ConfirmDialog
+		open={accountToRemove !== null}
+		title={m.providers_tab_disconnect_account_title({
+			name: accountToRemove ? accountDisplayName(accountToRemove) : ''
+		})}
+		message={m.providers_tab_disconnect_account_message()}
+		confirmLabel={m.browser_btn_disconnect_relay()}
+		cancelLabel={m.common_cancel()}
+		tone="danger"
+		confirmDisabled={removingAccountId !== null}
+		onConfirm={() => void executeRemoveAccount()}
+		onCancel={cancelRemoveAccount}
+	/>
 
 	<!-- Dialog: accesso OAuth nel terminale -->
-	{#if loginTarget}
-		<div class="confirm-overlay" transition:fade={{ duration: 100 }}>
-			<div class="login-box" role="dialog" aria-modal="true" aria-labelledby="login-title" transition:slide={{ duration: 150 }}>
-				<h4 id="login-title">{m.ui_providerstab_login_dialog_title({ value1: loginTarget.name })}</h4>
-				<p>{m.ui_providerstab_login_dialog_hint()}</p>
+	<Dialog
+		open={loginTarget !== null}
+		title={loginTarget ? m.ui_providerstab_login_dialog_title({ value1: loginTarget.name }) : ''}
+		onClose={() => void closeLogin()}
+		size="wide"
+	>
+		{#snippet body()}
+			{#if loginTarget}
+				<p class="login-dialog-hint">{m.ui_providerstab_login_dialog_hint()}</p>
 				<div class="login-terminal">
 					{#key loginTarget.id}
 						<Terminal cwd={''} launchArgs={['login', loginTarget.id]} />
 					{/key}
 				</div>
-				<div class="confirm-actions">
-					<button type="button" class="btn btn-primary" onclick={() => void closeLogin()}>{m.common_close()}</button>
-				</div>
-			</div>
-		</div>
-	{/if}
+			{/if}
+		{/snippet}
+		{#snippet footer()}
+			<button
+				type="button"
+				class="ui-button ui-button-primary"
+				onclick={() => void closeLogin()}
+			>
+				{m.common_close()}
+			</button>
+		{/snippet}
+	</Dialog>
 </div>
 
 <style>
@@ -814,7 +879,7 @@
 		display: flex;
 		flex-direction: column;
 		border-right: 1px solid var(--line);
-		background: color-mix(in srgb, var(--bg-sunken) 80%, var(--bg-base));
+		background: color-mix(in oklab, var(--bg-sunken) 80%, var(--bg-base));
 		overflow: hidden;
 	}
 
@@ -831,7 +896,8 @@
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		transition: border-color 120ms ease;
+		transition: border-color var(--dur-fast) var(--ease-out);
+		--icon-size: 13px;
 	}
 
 	.search-box:focus-within {
@@ -841,6 +907,8 @@
 	.search-icon {
 		color: var(--ink-faint);
 		flex-shrink: 0;
+		display: flex;
+		align-items: center;
 	}
 
 	.search-input {
@@ -848,29 +916,27 @@
 		min-width: 0;
 		border: none;
 		background: transparent;
-		font-size: var(--text-xs);
+		font-size: var(--text-body);
 		color: var(--ink);
-		outline: none;
 	}
 
 	.search-input::placeholder {
 		color: var(--ink-faint);
 	}
 
-	.btn-clear-search {
+.search-clear-action {
 		border: none;
 		background: transparent;
 		color: var(--ink-faint);
 		cursor: pointer;
 		padding: 0 2px;
 		display: flex;
+		align-items: center;
 		--icon-size: 12px;
 	}
 
 	.providers-list {
 		flex: 1;
-		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del
-		   contenuto e il contenitore lo taglia invece di far comparire la barra. */
 		min-height: 0;
 		overflow-y: auto;
 		padding: 6px;
@@ -889,7 +955,8 @@
 		background: transparent;
 		text-align: left;
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
 		width: 100%;
 	}
 
@@ -904,8 +971,8 @@
 	}
 
 	.provider-item.selected {
-		background: color-mix(in srgb, var(--brand) 12%, var(--bg-base));
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line-strong));
+		background: color-mix(in oklab, var(--brand) 12%, var(--bg-base));
+		border-color: color-mix(in oklab, var(--brand) 40%, var(--line-strong));
 	}
 
 	.provider-item.disabled-provider {
@@ -920,7 +987,7 @@
 	}
 
 	.provider-item-name {
-		font-size: 11.5px;
+		font-size: var(--text-meta);
 		font-weight: 500;
 		color: var(--ink);
 		white-space: nowrap;
@@ -930,7 +997,7 @@
 
 	.provider-item-id {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -940,15 +1007,16 @@
 	.provider-item-bottom {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: 6px;
 		flex-wrap: wrap;
 	}
 
 	.origin-badge {
-		font-size: 9px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: var(--text-caption);
+		font-weight: 500;
 		padding: 1px 6px;
 		border-radius: var(--radius-full);
 		border: 1px solid var(--line);
@@ -956,32 +1024,25 @@
 		color: var(--ink-muted);
 		flex-shrink: 0;
 		white-space: nowrap;
+		--icon-size: 11px;
 	}
 
 	.origin-badge.origin-plugin {
-		color: oklch(0.78 0.13 195);
-		border-color: color-mix(in srgb, oklch(0.68 0.16 195) 30%, transparent);
+		color: var(--ink-muted);
+		border-color: var(--line);
 	}
 
 	.origin-badge.origin-custom {
 		color: var(--brand-ink);
-		border-color: color-mix(in srgb, var(--brand) 35%, transparent);
+		border-color: color-mix(in oklab, var(--brand) 35%, transparent);
 	}
 
-	.state-badge {
-		font-size: 9px;
-		font-weight: 600;
-		padding: 1px 6px;
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, oklch(0.72 0.16 142) 15%, var(--bg-raised));
-		color: oklch(0.72 0.16 142);
-		border: 1px solid color-mix(in srgb, oklch(0.72 0.16 142) 30%, transparent);
-	}
-
-	.state-badge.off {
-		background: var(--bg-raised);
-		color: var(--ink-faint);
-		border-color: var(--line);
+	.provider-status {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 	}
 
 	.count-pill {
@@ -989,17 +1050,19 @@
 		align-items: center;
 		gap: 3px;
 		font-family: var(--font-mono);
-		font-size: 9px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 		padding: 0 4px;
 		border-radius: var(--radius-sm);
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
+		--icon-size: 11px;
 	}
 
 	.no-providers-found {
 		padding: 16px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-align: center;
 	}
@@ -1008,64 +1071,42 @@
 		position: relative;
 		padding: 8px 10px;
 		border-top: 1px solid var(--line);
-		background: color-mix(in srgb, var(--bg-base) 40%, transparent);
+		background: color-mix(in oklab, var(--bg-base) 40%, transparent);
 	}
 
-	.btn-add-provider {
+	.sidebar-footer :global(.menu-button-container) {
 		width: 100%;
+		display: flex;
+	}
+
+	.sidebar-footer :global(.menu-button-container > .menu-button.add-provider-trigger) {
+		width: 100%;
+		height: 30px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 5px;
-		padding: 6px 8px;
-		font-size: 11px;
+		gap: 6px;
+		padding: 0 10px;
+		font-size: var(--text-caption);
 		font-weight: 500;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-		transition: all 120ms ease;
+		border-radius: var(--radius-md);
 		--icon-size: 12px;
 	}
 
-	.btn-add-provider:hover {
-		border-color: var(--brand-ink);
-		color: var(--brand-ink);
-		background: color-mix(in srgb, var(--brand) 10%, var(--bg-raised));
+	.add-menu-header {
+		padding: 2px 4px 4px;
 	}
 
-	/* Nel top layer (`popover`) il menu non viene clippato dalla sidebar o dal
-	   contenitore con overflow. Posizionamento e ribaltamento gestiti da anchoredPopover. */
-	.add-menu {
-		position: fixed;
-		inset: auto;
-		margin: 0;
-		padding: var(--space-2);
-		color: var(--ink);
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-overlay);
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		z-index: var(--z-overlay);
-		max-height: min(280px, var(--anchored-space, 280px));
-		overflow-y: auto;
-	}
 	.add-menu-title {
-		font-size: 10px;
+		font-size: var(--text-label);
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		color: var(--ink-faint);
+		color: var(--ink);
 	}
 
 	.add-menu-empty {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
-		padding: 6px 0;
+		padding: 6px 4px;
 	}
 
 	.add-menu-list {
@@ -1079,14 +1120,16 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 6px;
-		padding: 5px 6px;
-		border-radius: var(--radius-sm);
+		padding: 7px 8px;
+		border-radius: var(--radius-md);
 		border: 1px solid transparent;
 		background: transparent;
 		color: var(--ink);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		text-align: left;
 		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.add-menu-item:hover {
@@ -1094,41 +1137,31 @@
 		border-color: var(--line);
 	}
 
+	.add-menu-item-name {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
 	.add-menu-switch {
 		align-self: flex-start;
-		background: transparent;
-		border: none;
-		color: var(--brand-ink);
-		font-size: 11px;
-		cursor: pointer;
-		padding: 4px 2px 0;
+		font-size: var(--text-caption);
+		padding: 4px 6px;
+		margin-top: 2px;
 	}
 
 	.add-menu-custom-form {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-	}
-
-	.add-menu-custom-form input {
-		height: 28px;
-		padding: 0 8px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		outline: none;
-	}
-
-	.add-menu-custom-form input:focus {
-		border-color: var(--brand);
+		padding: 4px 2px;
 	}
 
 	.add-menu-actions {
 		display: flex;
 		justify-content: flex-end;
 		gap: 6px;
+		margin-top: 2px;
 	}
 
 	/* --- Pannello di destra: dettaglio provider --- */
@@ -1147,7 +1180,7 @@
 		align-items: center;
 		justify-content: center;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		text-align: center;
 		padding: var(--space-4);
 	}
@@ -1158,7 +1191,7 @@
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
-		background: color-mix(in srgb, var(--bg-base) 70%, var(--bg-sunken));
+		background: color-mix(in oklab, var(--bg-base) 70%, var(--bg-sunken));
 		gap: 12px;
 		flex-wrap: wrap;
 	}
@@ -1177,15 +1210,15 @@
 	}
 
 	.detail-title {
-		font-size: var(--text-md);
-		font-weight: 600;
+		font-size: var(--text-title);
+		font-weight: 550;
 		color: var(--ink);
 		margin: 0;
 	}
 
 	.detail-id {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -1198,8 +1231,6 @@
 
 	.detail-body {
 		flex: 1;
-		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del
-		   contenuto e il contenitore lo taglia invece di far comparire la barra. */
 		min-height: 0;
 		overflow-y: auto;
 		padding: var(--space-3) 18px var(--space-4);
@@ -1216,11 +1247,9 @@
 
 	.detail-section-title {
 		margin: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
 	}
 
 	.section-header-row {
@@ -1228,53 +1257,6 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-2);
-	}
-
-	/* --- Switch abilita/disabilita (riuso identico allo stile storico) --- */
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 32px;
-		height: 18px;
-		cursor: pointer;
-		flex-shrink: 0;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		inset: 0;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.slider::before {
-		position: absolute;
-		content: "";
-		height: 12px;
-		width: 12px;
-		left: 2px;
-		bottom: 2px;
-		background: var(--ink-muted);
-		border-radius: 50%;
-		transition: transform var(--dur-fast), background var(--dur-fast);
-	}
-
-	.switch input:checked + .slider {
-		background: var(--brand);
-		border-color: var(--brand);
-	}
-
-	.switch input:checked + .slider::before {
-		transform: translateX(14px);
-		background: var(--on-brand);
 	}
 
 	/* --- Configurazione provider Custom --- */
@@ -1287,34 +1269,13 @@
 	.form-field {
 		display: flex;
 		flex-direction: column;
-		gap: 3px;
+		gap: 4px;
 	}
 
 	.field-label {
-		font-size: 10px;
+		font-size: var(--text-label);
 		font-weight: 500;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-	}
-
-	.form-field input,
-	.form-field select {
-		height: 30px;
-		padding: 0 var(--space-2);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		outline: none;
-		transition: border-color var(--dur-fast);
-	}
-
-	.form-field input:focus,
-	.form-field select:focus {
-		border-color: var(--brand);
+		color: var(--ink-muted);
 	}
 
 	.custom-models-section {
@@ -1323,7 +1284,7 @@
 		gap: var(--space-2);
 		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: var(--space-2);
 		margin-top: var(--space-2);
 	}
@@ -1335,11 +1296,9 @@
 	}
 
 	.cm-title {
-		font-size: 11px;
+		font-size: var(--text-label);
 		font-weight: 600;
-		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		color: var(--ink);
 	}
 
 	.models-list {
@@ -1354,58 +1313,57 @@
 		gap: 6px;
 	}
 
-	.model-edit-row input {
-		height: 28px;
-		padding: 0 6px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: 11px;
+	.inp-id {
+		flex: 2;
+		min-width: 0;
 		font-family: var(--font-mono);
-		outline: none;
 	}
 
-	.model-edit-row input:focus {
-		border-color: var(--brand);
+	.inp-name {
+		flex: 2;
+		min-width: 0;
 	}
 
-	.inp-id { flex: 2; min-width: 0; }
-	.inp-name { flex: 2; min-width: 0; }
-	.inp-num { width: 90px; flex-shrink: 0; }
+	.inp-num {
+		width: 110px;
+		flex-shrink: 0;
+		font-family: var(--font-mono);
+	}
 
 	.chk-cap {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: 6px;
 		cursor: pointer;
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		padding: 0 4px;
+		user-select: none;
 	}
 
-	.btn-del-model {
-		width: 24px;
-		height: 24px;
+	.chk-label {
+		font-size: var(--text-caption);
+	}
+
+.del-model-action {
+		width: 28px;
+		height: 28px;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		background: transparent;
-		border: 1px solid transparent;
-		color: var(--ink-muted);
-		border-radius: var(--radius-sm);
-		cursor: pointer;
+		padding: 0;
+		--icon-size: 13px;
 		flex-shrink: 0;
+		color: var(--ink-muted);
 	}
 
-	.btn-del-model:hover {
-		background: var(--bg-hover);
-		color: var(--brand-ink);
-		border-color: var(--line);
+.del-model-action:hover {
+		color: var(--danger);
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
 	}
 
 	.empty-models {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		padding: var(--space-2) 0;
 		text-align: center;
@@ -1417,8 +1375,8 @@
 		flex-direction: column;
 		align-items: flex-start;
 		gap: var(--space-2);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-body);
+		color: var(--ink-muted);
 		padding: var(--space-3);
 		background: var(--bg-base);
 		border: 1px solid var(--line);
@@ -1430,14 +1388,6 @@
 		line-height: 1.45;
 	}
 
-	.empty-accounts code {
-		font-family: var(--font-mono);
-		font-size: 11px;
-		background: var(--bg-surface);
-		padding: 1px 4px;
-		border-radius: var(--radius-xs);
-		color: var(--ink);
-	}
 	.accounts-list {
 		display: flex;
 		flex-direction: column;
@@ -1465,6 +1415,7 @@
 		border: 1px solid var(--line);
 		color: var(--ink-muted);
 		margin-top: 1px;
+		--icon-size: 15px;
 	}
 
 	.account-info {
@@ -1483,39 +1434,27 @@
 	}
 
 	.account-name {
-		font-size: var(--text-xs);
-		font-weight: 600;
+		font-size: var(--text-body);
+		font-weight: 550;
 		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 
-	.status-badge {
-		font-size: 9.5px;
-		font-weight: 600;
-		padding: 2px 7px;
-		border-radius: var(--radius-full);
-		border: 1px solid var(--line);
-		white-space: nowrap;
-		flex-shrink: 0;
+	.account-status {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 	}
 
-	.status-badge.status-ok {
-		color: oklch(0.72 0.16 142);
-		background: color-mix(in srgb, oklch(0.72 0.16 142) 12%, var(--bg-raised));
-		border-color: color-mix(in srgb, oklch(0.72 0.16 142) 30%, transparent);
-	}
-
-	.status-badge.status-warn {
+	.account-status-label.is-warn {
 		color: var(--warn);
-		background: color-mix(in srgb, var(--warn) 12%, var(--bg-raised));
-		border-color: color-mix(in srgb, var(--warn) 30%, transparent);
 	}
 
-	.status-badge.status-danger {
+	.account-status-label.is-danger {
 		color: var(--danger);
-		background: color-mix(in srgb, var(--danger) 12%, var(--bg-raised));
-		border-color: var(--danger-dim);
 	}
 
 	.account-meta-row {
@@ -1523,7 +1462,7 @@
 		align-items: center;
 		gap: 6px;
 		flex-wrap: wrap;
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -1533,7 +1472,7 @@
 
 	.org-badge,
 	.plan-badge {
-		font-size: 9.5px;
+		font-size: var(--text-caption);
 		padding: 1px 6px;
 		border-radius: var(--radius-sm);
 		background: var(--bg-raised);
@@ -1543,7 +1482,7 @@
 
 	.plan-badge {
 		color: var(--brand-ink);
-		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+		border-color: color-mix(in oklab, var(--brand) 30%, transparent);
 	}
 
 	.account-date {
@@ -1551,7 +1490,7 @@
 	}
 
 	.account-error-msg {
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		color: var(--warn);
 	}
 
@@ -1563,153 +1502,29 @@
 		flex-shrink: 0;
 	}
 
-	/* --- Bottoni comuni --- */
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 5px 12px;
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-		font-weight: 500;
-		font-family: var(--font-ui);
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
-		white-space: nowrap;
+	.account-action-btn {
+		height: 24px;
+		padding: 0 8px;
+		font-size: var(--text-caption);
 	}
 
-	.btn:disabled {
-		opacity: 0.55;
-		cursor: default;
-	}
-
-	.btn-sm {
-		padding: 3px 8px;
-		font-size: 11px;
-	}
-
-	.btn-xs {
-		padding: 2px 7px;
-		font-size: 10px;
-	}
-
-	.btn-secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-secondary:hover:not(:disabled) {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	.btn-primary {
-		background: var(--brand);
-		color: var(--on-brand);
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		filter: brightness(1.08);
-	}
-
-	.btn-danger {
-		background: var(--danger);
-		color: var(--on-danger);
-	}
-
-	.btn-danger:hover:not(:disabled) {
-		filter: brightness(1.08);
-	}
-
-	.btn-danger-outline {
-		background: transparent;
+	.account-action-btn.is-danger-action:hover:not(:disabled) {
 		color: var(--danger);
-		border-color: var(--danger-dim);
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
 	}
 
-	.btn-danger-outline:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--danger) 12%, transparent);
-	}
-
-	/* --- Dialoghi di conferma --- */
-	.confirm-overlay {
-		position: absolute;
-		inset: 0;
-		background: color-mix(in srgb, var(--bg-base) 85%, black);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-overlay);
-	}
-
-	.confirm-box {
-		width: 380px;
-		max-width: 90%;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-md);
-		padding: var(--space-3) var(--space-4);
-		box-shadow: var(--shadow-overlay);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.confirm-box h4 {
+	/* --- Terminal dialog hint e terminale --- */
+	.login-dialog-hint {
 		margin: 0;
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.confirm-box p {
-		margin: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-body);
 		color: var(--ink-muted);
-		line-height: 1.4;
+		line-height: 1.45;
 	}
 
-	.confirm-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		margin-top: var(--space-1);
-	}
-
-	.login-box {
-		width: 92%;
-		height: 88%;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-md);
-		padding: var(--space-3) var(--space-4);
-		box-shadow: var(--shadow-overlay);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.login-box h4 {
-		margin: 0;
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.login-box p {
-		margin: 0;
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		line-height: 1.4;
-	}
-
-	/* Il terminale e' il contenuto: xterm si posiziona in assoluto sul contenitore. */
 	.login-terminal {
 		position: relative;
-		flex: 1;
-		min-height: 0;
+		height: 420px;
+		min-height: 320px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);

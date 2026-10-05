@@ -45,7 +45,7 @@
 	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
 	import SuggestPanel, { type SuggestionItem } from '$lib/agent/components/SuggestPanel.svelte';
 	import AttachmentThumb, { type ComposerAttachment } from '$lib/agent/components/AttachmentThumb.svelte';
-	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
+	import ModelField from '$lib/components/models/ModelField.svelte';
 	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
 	import MenuButton from '$lib/ui/MenuButton.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
@@ -56,7 +56,6 @@
 		IconAttach,
 		IconAt,
 		IconCheck,
-		IconChevronDown,
 		IconChevronUp,
 		IconClose,
 		IconGitBranch,
@@ -99,7 +98,8 @@
 	let composerEl = $state<HTMLElement | null>(null);
 	let fileInputEl = $state<HTMLInputElement | null>(null);
 	let isDragging = $state(false);
-	let activeMenu = $state<'model' | 'run' | null>(null);
+	let activeMenu = $state<'run' | null>(null);
+	let isModelMenuOpen = $state(false);
 
 	let currentTrigger = $state<ComposerTrigger | null>(null);
 	let suggestItems = $state<SuggestionItem[]>([]);
@@ -423,7 +423,6 @@
 	});
 
 	function handleModelSelect(selector: string) {
-		activeMenu = null;
 		options.modelSelector = selector;
 		syncRoleToConfiguration(selector, options.thinkingLevel || 'auto');
 		saveTask();
@@ -518,7 +517,7 @@
 	// Esc chiude solo se la tastiera e' dentro l'editor e nessuna palette o menu
 	// e' aperto: palette e popover consumano Esc per primi.
 	function handleRootKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || e.defaultPrevented || currentTrigger || activeMenu) return;
+		if (e.key !== 'Escape' || e.defaultPrevented || currentTrigger || activeMenu || isModelMenuOpen) return;
 		e.preventDefault();
 		closeEditor();
 	}
@@ -771,37 +770,14 @@
 					<div class="field">
 						<span class="field-label" id="task-model-label">{m.task_editor_specific_model_label()}</span>
 						<div class="model-field">
-							<MenuButton
-								open={activeMenu === 'model'}
+							<ModelField
+								catalog={modelSettingsStore.assignableCatalog}
+								value={options.modelSelector || ''}
+								placeholder={m.task_editor_specific_model_placeholder()}
 								ariaLabel={m.task_editor_specific_model_label()}
-								hasPopup="dialog"
-								contentRole="dialog"
-								width="400px"
-								className="model-trigger"
-								onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
-								onClose={() => (activeMenu = null)}
-							>
-								{#snippet trigger()}
-									{#if selectedModel}
-										<span class="model-name font-mono">{selectedModel.name}</span>
-										<span class="model-provider">{selectedModel.provider}</span>
-									{:else if options.modelSelector}
-										<span class="model-name font-mono">{options.modelSelector}</span>
-									{:else}
-										<span class="model-placeholder">{m.task_editor_specific_model_placeholder()}</span>
-									{/if}
-									<span class="model-chevron"><IconChevronDown /></span>
-								{/snippet}
-								{#snippet children()}
-									<ModelPickerList
-										catalog={modelSettingsStore.assignableCatalog}
-										value={options.modelSelector || ''}
-										placeholder={m.chat_v2_composer_model_search()}
-										onSelect={(selector) => handleModelSelect(selector)}
-										onClose={() => (activeMenu = null)}
-									/>
-								{/snippet}
-							</MenuButton>
+								onSelect={(selector) => handleModelSelect(selector)}
+								onOpenChange={(open) => (isModelMenuOpen = open)}
+							/>
 						</div>
 						{#if selectedModelContext && (selectedModelContext.detail || selectedModelContext.usage)}
 							<p class="model-context">
@@ -1182,58 +1158,6 @@
 		.run-grid {
 			grid-template-columns: 1fr;
 		}
-	}
-
-	.model-field :global(.menu-button-container) {
-		width: 100%;
-	}
-
-	/* Il trigger del modello ha la sagoma di .ui-select: e' un campo, non un
-	   trigger di barra. */
-	.model-field :global(.menu-button.model-trigger) {
-		width: 100%;
-		height: 30px;
-		padding: 0 var(--space-2);
-		gap: var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		color: var(--ink);
-		font-size: var(--text-body);
-	}
-
-	.model-field :global(.menu-button.model-trigger:hover:not(:disabled)),
-	.model-field :global(.menu-button.model-trigger.active) {
-		background: var(--bg-sunken);
-		border-color: var(--line-strong);
-		color: var(--ink);
-	}
-
-	.model-name {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		font-size: var(--text-mono);
-	}
-
-	.model-provider {
-		flex-shrink: 0;
-		font-size: var(--text-meta);
-		color: var(--ink-faint);
-	}
-
-	.model-placeholder {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		color: var(--ink-faint);
-	}
-
-	.model-chevron {
-		display: inline-flex;
-		margin-left: auto;
-		color: var(--ink-faint);
-		--icon-size: 12px;
 	}
 
 	.model-context {

@@ -12,7 +12,7 @@
 	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
 	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
-	import { IconNewChat } from '$lib/icons';
+	import { IconNewChat, IconCircleAlert, IconClose } from '$lib/icons';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import FileTree from '$lib/components/FileTree.svelte';
 	import type EditorSurface from '$lib/editor/Editor.svelte';
@@ -21,6 +21,8 @@
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+	import { rvLift } from '$lib/agent/motion';
 	import UsagePopover, { type ProviderHost } from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
 	import GitPanel from '$lib/components/GitPanel.svelte';
@@ -32,7 +34,7 @@
 	import CloseConfirmModal, { type ProjectCloseTarget } from '$lib/components/CloseConfirmModal.svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
-	import SetupWizard from '$lib/components/setup/SetupWizard.svelte';
+	import SetupModal from '$lib/components/SetupModal.svelte';
 	import ShortcutsHelpModal from '$lib/agent/components/ShortcutsHelpModal.svelte';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 	import { isShortcutsHelpKey, isProjectCycleShortcut } from '$lib/shortcuts/shortcutMatch';
@@ -86,7 +88,6 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
 	import { onMount } from 'svelte';
-	import { trapFocus } from '$lib/focusTrap';
 	import { startFocusTracer } from '$lib/focusTracer';
 
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
@@ -2070,6 +2071,16 @@
 	let ompBadgeType = $state<'warn' | 'success' | 'error' | null>(null);
 	let showUpdatePromptModal = $state(false);
 	let showRestartModal = $state(false);
+	let lastSeenLoadError = $state<string | null>(null);
+	let loadErrorDismissed = $state(false);
+
+	$effect(() => {
+		const currentErr = projectStore.loadError;
+		if (currentErr !== lastSeenLoadError) {
+			lastSeenLoadError = currentErr;
+			loadErrorDismissed = false;
+		}
+	});
 	let pendingUpdateCheck = $state<{
 		has_update: boolean;
 		current_version: string;
@@ -2496,16 +2507,6 @@
 				shortcutsModalStore.close();
 				return;
 			}
-			if (showRestartModal) {
-				e.preventDefault();
-				showRestartModal = false;
-				return;
-			}
-			if (showUpdatePromptModal) {
-				e.preventDefault();
-				showUpdatePromptModal = false;
-				return;
-			}
 			return;
 		}
 
@@ -2649,7 +2650,7 @@
 			<LaneStrip project={projectStore.activeProject} onReviewLane={(lane) => (reviewingLane = lane)} />
 		{/if}
 	{/if}
-	<SetupWizard open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
+	<SetupModal open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
 	<UsagePopover open={usageOpen} anchor={usageAnchor} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
 	<SettingsModal />
@@ -2700,12 +2701,24 @@
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 		{agentAnnouncement}
 	</div>
-	{#if projectStore.loadError}
+	{#if projectStore.loadError && !loadErrorDismissed}
 		<div
+			class="floating-error-toast"
 			role="alert"
-			style="position: fixed; inset-inline: 0; bottom: 10px; margin-inline: auto; width: fit-content; max-width: 80vw; z-index: 90; padding: 6px 12px; border-radius: var(--radius-md); border: 1px solid var(--danger-dim); background: var(--bg-overlay); color: var(--danger); font-size: var(--text-xs);"
+			in:rvLift={{ duration: 150 }}
 		>
-			{m.page_projects_load_error({ reason: projectStore.loadError })}
+			<span class="floating-error-icon"><IconCircleAlert /></span>
+			<span class="floating-error-text">{m.page_projects_load_error({ reason: projectStore.loadError })}</span>
+			<Tooltip text={m.common_close()} placement="top">
+				<button
+					type="button"
+					class="floating-error-close"
+					onclick={() => (loadErrorDismissed = true)}
+					aria-label={m.common_close()}
+				>
+					<IconClose />
+				</button>
+			</Tooltip>
 		</div>
 	{/if}
 
@@ -3113,47 +3126,39 @@
 		</div>
 	</footer>
 
-	{#if showUpdatePromptModal}
-		<button type="button" class="modal-backdrop" onclick={() => showUpdatePromptModal = false} aria-label={m.ui__page_chiudi_finestra_aggiornamento_6690()} tabindex="-1"></button>
-		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-update-title" use:trapFocus={{ onEscape: () => showUpdatePromptModal = false }}>
-			<div class="modal-header">
-				<h3 id="omp-update-title">{m.page_modal_update_title()}</h3>
-			</div>
-			<div class="modal-body">
-				<p>{m.page_modal_update_desc()}</p>
-				<p class="modal-sub">Versione attualmente installata: <strong>v{ompVersion || 'sconosciuta'}</strong></p>
-				{#if pendingUpdateCheck?.latest_version}
-					<p class="modal-sub">{m.ui__page_nuova_versione_disponibile_3e16()} <strong>v{pendingUpdateCheck.latest_version}</strong></p>
-				{/if}
-				{#if pendingUpdateCheck?.message}
-					<pre class="update-log">{pendingUpdateCheck.message}</pre>
-				{/if}
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" onclick={() => showUpdatePromptModal = false}>{m.page_modal_update_btn_cancel()}</button>
-				<!-- svelte-ignore a11y_autofocus -->
-				<button class="btn btn-primary" autofocus onclick={handlePerformUpdate}>{m.page_modal_update_btn_update()}</button>
-			</div>
-		</div>
-	{/if}
+	<ConfirmDialog
+		open={showUpdatePromptModal}
+		title={m.page_modal_update_title()}
+		confirmLabel={m.page_modal_update_btn_update()}
+		cancelLabel={m.page_modal_update_btn_cancel()}
+		onConfirm={handlePerformUpdate}
+		onCancel={() => (showUpdatePromptModal = false)}
+	>
+		<p>{m.page_modal_update_desc()}</p>
+		<p class="modal-sub">
+			{ompVersion
+				? m.page_modal_update_current_version({ version: ompVersion })
+				: m.page_modal_update_current_version_unknown()}
+		</p>
+		{#if pendingUpdateCheck?.latest_version}
+			<p class="modal-sub">{m.page_modal_update_latest_version({ version: pendingUpdateCheck.latest_version })}</p>
+		{/if}
+		{#if pendingUpdateCheck?.message}
+			<pre class="update-log">{pendingUpdateCheck.message}</pre>
+		{/if}
+	</ConfirmDialog>
 
-	{#if showRestartModal}
-		<button type="button" class="modal-backdrop" onclick={() => showRestartModal = false} aria-label={m.ui__page_chiudi_finestra_riavvio_c689()} tabindex="-1"></button>
-		<div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="omp-restart-title" use:trapFocus={{ onEscape: () => showRestartModal = false }}>
-			<div class="modal-header">
-				<h3 id="omp-restart-title">{m.page_modal_restart_title()}</h3>
-			</div>
-			<div class="modal-body">
-				<p>{m.page_modal_restart_desc()}</p>
-				<p>{m.page_modal_restart_sub()}</p>
-			</div>
-			<div class="modal-footer">
-				<button class="btn btn-secondary" onclick={() => showRestartModal = false}>{m.page_modal_restart_btn_close()}</button>
-				<!-- svelte-ignore a11y_autofocus -->
-				<button class="btn btn-primary" autofocus onclick={handleRestartApp}>{m.page_modal_restart_btn_restart()}</button>
-			</div>
-		</div>
-	{/if}
+	<ConfirmDialog
+		open={showRestartModal}
+		title={m.page_modal_restart_title()}
+		confirmLabel={m.page_modal_restart_btn_restart()}
+		cancelLabel={m.page_modal_restart_btn_close()}
+		onConfirm={handleRestartApp}
+		onCancel={() => (showRestartModal = false)}
+	>
+		<p>{m.page_modal_restart_desc()}</p>
+		<p>{m.page_modal_restart_sub()}</p>
+	</ConfirmDialog>
 
 	<StudioUpdateModal />
 	<ShortcutsHelpModal />
@@ -3544,51 +3549,66 @@
 	/* Il velo e' un <button>: il colore lo mette la regola, ma il bordo
 	   `outset` dello user agent va rimosso o disegna una cornice a 2px
 	   lungo tutto il perimetro della finestra. */
-	.modal-backdrop {
+	.floating-error-toast {
 		position: fixed;
-		inset: 0;
-		background: var(--backdrop);
-		z-index: var(--z-backdrop);
-		border: none;
-		padding: 0;
-		cursor: default;
-	}
-
-	.modal-dialog {
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		width: 420px;
-		max-width: 90vw;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line);
+		inset-inline: 0;
+		bottom: var(--space-3);
+		margin-inline: auto;
+		width: fit-content;
+		max-width: min(80vw, 560px);
+		z-index: var(--z-toast);
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 6px var(--space-3);
 		border-radius: var(--radius-lg);
+		border: 1px solid var(--line-strong);
+		background: var(--bg-overlay);
 		box-shadow: var(--shadow-overlay);
-		z-index: var(--z-dialog);
-		padding: var(--space-4);
+		color: var(--ink);
+		font-size: var(--text-label);
+	}
+
+	.floating-error-icon {
 		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
+		align-items: center;
+		color: var(--danger);
+		--icon-size: 16px;
+		flex-shrink: 0;
 	}
 
-	.modal-header h3 {
-		margin: 0;
-		font-size: var(--text-md);
-		font-weight: 600;
+	.floating-error-text {
+		color: var(--ink);
+		line-height: 1.4;
 	}
 
-	.modal-body {
-		font-size: var(--text-sm);
+	.floating-error-close {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		padding: 0;
+		margin-left: var(--space-1);
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
+		cursor: pointer;
+		--icon-size: 12px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.floating-error-close:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
 	}
 
 	.modal-sub {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
+		margin: 0;
 	}
 
 	.update-log {
@@ -3601,39 +3621,6 @@
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
 		white-space: pre-wrap;
-	}
-
-	.modal-footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		margin-top: var(--space-2);
-	}
-
-	.btn {
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: all 0.15s ease;
-	}
-
-	.btn-secondary {
-		background: transparent;
-		border-color: var(--line);
-		color: var(--ink);
-	}
-	.btn-secondary:hover {
-		background: var(--bg-hover);
-	}
-
-	.btn-primary {
-		background: var(--brand);
-		color: var(--on-brand);
-	}
-	.btn-primary:hover {
-		filter: brightness(1.1);
+		margin: 0;
 	}
 </style>

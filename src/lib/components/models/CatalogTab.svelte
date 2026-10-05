@@ -7,9 +7,21 @@
 	import {
 		modelSettingsStore,
 		STANDARD_ROLES,
+		splitModelSelector,
 		type ModelDto
 	} from '$lib/stores/modelSettings.svelte';
-	import { anchoredPopover } from '$lib/anchoredPopover';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import {
+		IconSearch,
+		IconClose,
+		IconRefresh,
+		IconChevronDown,
+		IconCheck,
+		IconRoleVision,
+		IconRoleSlow,
+		IconContextWindow
+	} from '$lib/icons';
 	import { matchesLooseQuery } from '$lib/looseSearch';
 
 	let searchQuery = $state('');
@@ -18,7 +30,6 @@
 	let filterFree = $state(false);
 
 	let openAssignMenuFor = $state<string | null>(null);
-	let assignTriggerRef = $state<HTMLElement | null>(null);
 
 	/** Sorgente dati unica: i modelli realmente disponibili (auth valida / provider raggiungibile),
 	 *  con fallback sul catalogo statico completo finche' il primo non e' ancora stato caricato. */
@@ -36,7 +47,7 @@
 				id: p.id,
 				name: p.name,
 				source: p.source,
-				count: effectiveCatalog.filter((m) => m.provider === p.id).length
+				count: effectiveCatalog.filter((mDto) => mDto.provider === p.id).length
 			}))
 			.sort((a, b) => a.name.localeCompare(b.name));
 	});
@@ -44,37 +55,43 @@
 	const providerScoped = $derived.by(() => {
 		const scope = modelSettingsStore.catalogFilterProviderId;
 		if (!scope) return effectiveCatalog;
-		return effectiveCatalog.filter((m) => m.provider === scope);
+		return effectiveCatalog.filter((mDto) => mDto.provider === scope);
 	});
 
 	const filteredCatalog = $derived.by(() => {
 		let list = providerScoped;
 
 		if (filterVision) {
-			list = list.filter((m) => m.input?.includes('image'));
+			list = list.filter((mDto) => mDto.input?.includes('image'));
 		}
 		if (filterReasoning) {
-			list = list.filter((m) => m.reasoning);
+			list = list.filter((mDto) => mDto.reasoning);
 		}
 		if (filterFree) {
-			list = list.filter((m) => isFree(m));
+			list = list.filter((mDto) => isFree(mDto));
 		}
 
 		const q = searchQuery.trim();
 		if (q) {
-			list = list.filter((m) => matchesLooseQuery(q, m.name, m.id, m.provider, m.selector));
+			list = list.filter((mDto) => matchesLooseQuery(q, mDto.name, mDto.id, mDto.provider, mDto.selector));
 		}
 
 		return list;
 	});
 
+	const refreshTip = $derived(
+		modelSettingsStore.catalogFilterProviderId
+			? m.catalog_tab_refresh_provider_tooltip({ name: providerName(modelSettingsStore.catalogFilterProviderId) })
+			: m.ui_catalogtab_aggiorna_catalogo_da_tutti_i_provider_attivi_c6bb()
+	);
+
 	function providerName(id: string): string {
 		return modelSettingsStore.providers.find((p) => p.id === id)?.name || id;
 	}
 
-	function isFree(m: ModelDto): boolean {
-		if (m.cost?.input === undefined && m.cost?.output === undefined) return false;
-		return (m.cost?.input ?? 0) === 0 && (m.cost?.output ?? 0) === 0;
+	function isFree(mDto: ModelDto): boolean {
+		if (mDto.cost?.input === undefined && mDto.cost?.output === undefined) return false;
+		return (mDto.cost?.input ?? 0) === 0 && (mDto.cost?.output ?? 0) === 0;
 	}
 
 	function formatCtx(tokens?: number) {
@@ -86,21 +103,35 @@
 
 	function formatMoney(cost?: number) {
 		if (cost === undefined || cost === null) return '-';
-		if (cost === 0) return 'Gratis';
+		if (cost === 0) return m.catalog_tab_cost_free();
 		return `$${cost.toFixed(2)}`;
 	}
 
-	function formatCostPair(m: ModelDto): string {
-		if (m.cost?.input === undefined && m.cost?.output === undefined) return '-';
-		if (isFree(m)) return 'Gratis';
-		return `${formatMoney(m.cost?.input)} / ${formatMoney(m.cost?.output)}`;
+	function formatCostPair(mDto: ModelDto): string {
+		if (mDto.cost?.input === undefined && mDto.cost?.output === undefined) return '-';
+		if (isFree(mDto)) return m.catalog_tab_cost_free();
+		return `${formatMoney(mDto.cost?.input)} / ${formatMoney(mDto.cost?.output)}`;
 	}
 
-	function reasoningTitle(m: ModelDto): string {
-		const levels = m.thinking?.efforts;
-		return levels?.length
-			? `Supporta reasoning / thinking con livelli: ${levels.join(', ')}`
-			: 'Supporto reasoning / thinking';
+	function reasoningTitle(mDto: ModelDto): string {
+		const levels = mDto.thinking?.efforts;
+		if (levels?.length) {
+			return m.catalog_tab_reasoning_efforts_tooltip({ efforts: levels.join(', ') });
+		}
+		return m.catalog_tab_reasoning_tooltip();
+	}
+
+	function isRoleAssigned(roleId: string, model: ModelDto): boolean {
+		const raw = modelSettingsStore.draftConfig?.modelRoles[roleId];
+		if (!raw) return false;
+		return splitModelSelector(raw, modelSettingsStore.knownSelectors).base === model.selector;
+	}
+
+	function isRoleFallback(roleId: string, model: ModelDto): boolean {
+		const fallbacks = modelSettingsStore.draftConfig?.fallbackChains[roleId] ?? [];
+		return fallbacks.some(
+			(fb) => splitModelSelector(fb, modelSettingsStore.knownSelectors).base === model.selector
+		);
 	}
 
 	function selectAllProviders() {
@@ -121,39 +152,20 @@
 	function handleAssignToRole(roleId: string, model: ModelDto) {
 		modelSettingsStore.setRoleModel(roleId, model.selector);
 		openAssignMenuFor = null;
-		assignTriggerRef = null;
 		modelSettingsStore.showToast(m.ui_catalogtab_modello_assegnato_al_ruolo_value1_6cd2({ value1: roleId }));
 	}
 
 	function handleAddAsFallback(roleId: string, model: ModelDto) {
 		modelSettingsStore.addFallback(roleId, model.selector);
 		openAssignMenuFor = null;
-		assignTriggerRef = null;
-		modelSettingsStore.showToast(`Aggiunto come fallback a ${roleId}`);
-	}
-
-	function handleDocClick() {
-		openAssignMenuFor = null;
-		assignTriggerRef = null;
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && openAssignMenuFor) {
-			e.preventDefault();
-			e.stopPropagation();
-			e.stopImmediatePropagation?.();
-			openAssignMenuFor = null;
-			assignTriggerRef = null;
-		}
+		modelSettingsStore.showToast(m.catalog_tab_added_as_fallback({ role: roleId }));
 	}
 </script>
-
-<svelte:window onclick={handleDocClick} onkeydown={handleKeydown} />
 
 <div class="catalog-tab">
 	<!-- Sidebar sinistra: filtro per ambito/provider -->
 	<aside class="catalog-sidebar" aria-label={m.models_catalog_scope_sidebar()}>
-		<div class="sidebar-title">Ambito</div>
+		<div class="sidebar-title">{m.catalog_tab_scope_title()}</div>
 		<nav class="scope-list">
 			<button
 				type="button"
@@ -161,23 +173,25 @@
 				class:active={modelSettingsStore.catalogFilterProviderId === null}
 				onclick={selectAllProviders}
 			>
-				<span class="scope-label">Tutti i modelli</span>
+				<span class="scope-label">{m.catalog_tab_all_models()}</span>
 				<span class="scope-count">{effectiveCatalog.length}</span>
 			</button>
 			{#each providerEntries as p (p.id)}
-				<button
-					type="button"
-					class="scope-item"
-					class:active={modelSettingsStore.catalogFilterProviderId === p.id}
-					onclick={() => selectScopeProvider(p.id)}
-					title={p.source === 'plugin' ? `${p.name} (plugin)` : p.name}
-				>
-					<span class="scope-label">{p.name}</span>
-					<span class="scope-count">{p.count}</span>
-				</button>
+				{@const pTooltip = p.source === 'plugin' ? `${p.name} (plugin)` : p.name}
+				<Tooltip text={pTooltip}>
+					<button
+						type="button"
+						class="scope-item"
+						class:active={modelSettingsStore.catalogFilterProviderId === p.id}
+						onclick={() => selectScopeProvider(p.id)}
+					>
+						<span class="scope-label">{p.name}</span>
+						<span class="scope-count">{p.count}</span>
+					</button>
+				</Tooltip>
 			{/each}
 			{#if providerEntries.length === 0}
-				<div class="scope-empty">Nessun provider configurato o abilitato.</div>
+				<div class="scope-empty">{m.catalog_tab_no_providers()}</div>
 			{/if}
 		</nav>
 	</aside>
@@ -186,22 +200,23 @@
 	<div class="catalog-main">
 		<div class="filter-header">
 			<div class="search-input-wrapper">
-				<svg class="search-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4">
-					<circle cx="7" cy="7" r="4.5" />
-					<path d="M10.5 10.5L14 14" stroke-linecap="round" />
-				</svg>
+				<span class="search-icon" aria-hidden="true">
+					<IconSearch />
+				</span>
 				<input
 					type="text"
 					bind:value={searchQuery}
 					placeholder={m.models_catalog_search_placeholder()}
 					aria-label={m.ui_catalogtab_cerca_nel_catalogo_modelli_2515()}
-					onclick={(e) => e.stopPropagation()}
 				/>
 				{#if searchQuery}
-					<button type="button" class="btn-clear" aria-label={m.file_tree_clear_search()} onclick={() => (searchQuery = '')}>
-						<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-							<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
-						</svg>
+					<button
+						type="button"
+						class="btn-clear"
+						aria-label={m.file_tree_clear_search()}
+						onclick={() => (searchQuery = '')}
+					>
+						<IconClose />
 					</button>
 				{/if}
 			</div>
@@ -213,7 +228,7 @@
 					class:active={filterVision}
 					onclick={() => (filterVision = !filterVision)}
 				>
-					Vision
+					{m.catalog_tab_filter_vision()}
 				</button>
 				<button
 					type="button"
@@ -221,7 +236,7 @@
 					class:active={filterReasoning}
 					onclick={() => (filterReasoning = !filterReasoning)}
 				>
-					Reasoning
+					{m.catalog_tab_filter_reasoning()}
 				</button>
 				<button
 					type="button"
@@ -229,37 +244,26 @@
 					class:active={filterFree}
 					onclick={() => (filterFree = !filterFree)}
 				>
-					Gratis
+					{m.catalog_tab_filter_free()}
 				</button>
-				<button
-					type="button"
-					class="refresh-catalog-btn"
-					disabled={modelSettingsStore.isRefreshingCatalog}
-					onclick={() => modelSettingsStore.refreshCatalog(modelSettingsStore.catalogFilterProviderId ?? undefined)}
-					title={modelSettingsStore.catalogFilterProviderId
-						? `Aggiorna catalogo per ${providerName(modelSettingsStore.catalogFilterProviderId)}`
-						: m.ui_catalogtab_aggiorna_catalogo_da_tutti_i_provider_attivi_c6bb()}
-				>
-					<svg
-						class="refresh-icon"
-						class:spinning={modelSettingsStore.isRefreshingCatalog}
-						viewBox="0 0 16 16"
-						width="12"
-						height="12"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="1.4"
+				<Tooltip text={refreshTip}>
+					<button
+						type="button"
+						class="refresh-catalog-btn"
+						disabled={modelSettingsStore.isRefreshingCatalog}
+						onclick={() => modelSettingsStore.refreshCatalog(modelSettingsStore.catalogFilterProviderId ?? undefined)}
 					>
-						<path d="M2 8a6 6 0 0 1 10.2-4.2M14 8a6 6 0 0 1-10.2 4.2" stroke-linecap="round" />
-						<path d="M12.5 1v3h-3M3.5 15v-3h3" stroke-linecap="round" stroke-linejoin="round" />
-					</svg>
-					<span>{modelSettingsStore.isRefreshingCatalog ? 'Aggiornamento...' : m.ui_catalogtab_aggiorna_catalogo_7a49()}</span>
-				</button>
+						<span class="refresh-icon" class:spinning={modelSettingsStore.isRefreshingCatalog} aria-hidden="true">
+							<IconRefresh />
+						</span>
+						<span>{modelSettingsStore.isRefreshingCatalog ? m.catalog_tab_refreshing() : m.ui_catalogtab_aggiorna_catalogo_7a49()}</span>
+					</button>
+				</Tooltip>
 			</div>
 		</div>
 
 		<div class="catalog-stats">
-			<span>Visualizzati <strong>{filteredCatalog.length}</strong> modelli su {effectiveCatalog.length} disponibili</span>
+			<span>{m.catalog_tab_stats({ shown: filteredCatalog.length, total: effectiveCatalog.length })}</span>
 		</div>
 
 		<div class="catalog-list">
@@ -267,99 +271,110 @@
 				<div class="empty-state">
 					<p>{m.ui_catalogtab_nessun_modello_disponibile_nel_catalogo_611a()}</p>
 					<button type="button" class="btn-retry" onclick={() => modelSettingsStore.refreshCatalog()}>
-						Ricarica catalogo provider
+						{m.catalog_tab_reload_providers()}
 					</button>
 				</div>
 			{:else if filteredCatalog.length === 0}
 				<div class="empty-state">
 					<p>{m.ui_catalogtab_nessun_modello_trovato_per_i_filtri_selezionati_9d95()}</p>
 					<button type="button" class="btn-retry" onclick={clearSearchFilters}>
-						Cancella filtri di ricerca
+						{m.catalog_tab_clear_filters()}
 					</button>
 				</div>
 			{:else}
-				{#each filteredCatalog as m (m.selector)}
+				{#each filteredCatalog as mDto (mDto.selector)}
 					<div class="model-row">
 						<div class="model-meta-cell">
 							<div class="name-row">
-								<span class="m-name">{m.name}</span>
-								<span class="m-provider">{providerName(m.provider)}</span>
-								{#if m.isCustom}
-									<span class="m-custom-badge">Custom</span>
+								<span class="m-name">{mDto.name}</span>
+								<span class="m-provider">{providerName(mDto.provider)}</span>
+								{#if mDto.isCustom}
+									<span class="m-custom-badge">{m.catalog_tab_custom_badge()}</span>
 								{/if}
 							</div>
 							<div class="m-selector-row">
-								<span class="m-selector">{m.selector}</span>
+								<span class="m-selector">{mDto.selector}</span>
 							</div>
 						</div>
 
 						<div class="badges-cell">
-							<span class="spec-badge" title="Finestra di contesto massima">{formatCtx(m.contextWindow)}</span>
-							<span class="spec-badge" title="Token massimi generabili in output">{formatCtx(m.maxTokens)} max out</span>
-							{#if m.input?.includes('image')}
-								<span class="cap-badge vision" title="Supporto input immagini / vision">Vision</span>
+							{#if mDto.contextWindow}
+								<Tooltip text={m.catalog_tab_context_window_tooltip()}>
+									<span class="ui-cap ctx">
+										<IconContextWindow />
+										<small>{formatCtx(mDto.contextWindow)}</small>
+									</span>
+								</Tooltip>
 							{/if}
-							{#if m.reasoning}
-								<span class="cap-badge reasoning" title={reasoningTitle(m)}>
-									Reasoning{#if m.thinking?.efforts?.length}<span class="reasoning-levels"> · {m.thinking.efforts.join(', ')}</span>{/if}
-								</span>
+							{#if mDto.maxTokens}
+								<Tooltip text={m.catalog_tab_max_tokens_tooltip()}>
+									<span class="ui-cap ctx">
+										<small>{formatCtx(mDto.maxTokens)} {m.catalog_tab_max_out()}</small>
+									</span>
+								</Tooltip>
+							{/if}
+							{#if mDto.input?.includes('image')}
+								<Tooltip text={m.models_picker_vision_cap()}>
+									<span class="ui-cap">
+										<IconRoleVision />
+										<span>Vision</span>
+									</span>
+								</Tooltip>
+							{/if}
+							{#if mDto.reasoning}
+								<Tooltip text={reasoningTitle(mDto)}>
+									<span class="ui-cap">
+										<IconRoleSlow />
+										<span>Reasoning</span>{#if mDto.thinking?.efforts?.length}<small> · {mDto.thinking.efforts.join(', ')}</small>{/if}
+									</span>
+								</Tooltip>
 							{/if}
 						</div>
 
 						<div class="cost-cell">
 							<span class="cost-label">{costPerMillionLabel()}</span>
-							<span class="cost-val" class:free={isFree(m)}>{formatCostPair(m)}</span>
+							<span class="cost-val" class:free={isFree(mDto)}>{formatCostPair(mDto)}</span>
 						</div>
 
 						<div class="action-cell">
-							<button
-								type="button"
-								class="btn-assign-dropdown"
-								aria-haspopup="menu"
-								aria-expanded={openAssignMenuFor === m.selector}
-								onclick={(e) => {
-									e.stopPropagation();
-									if (openAssignMenuFor === m.selector) {
-										openAssignMenuFor = null;
-										assignTriggerRef = null;
-									} else {
-										openAssignMenuFor = m.selector;
-										assignTriggerRef = e.currentTarget;
-									}
+							<MenuButton
+								open={openAssignMenuFor === mDto.selector}
+								width="280px"
+								align="right"
+								hasPopup="menu"
+								ariaLabel={m.catalog_tab_assign_model_aria({ name: mDto.name })}
+								onToggle={() => {
+									openAssignMenuFor = openAssignMenuFor === mDto.selector ? null : mDto.selector;
+								}}
+								onClose={() => {
+									if (openAssignMenuFor === mDto.selector) openAssignMenuFor = null;
 								}}
 							>
-								<span>Assegna</span>
-								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-									<path d="M4 6l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
-								</svg>
-							</button>
+								{#snippet trigger()}
+									<span>{m.catalog_tab_assign_btn()}</span>
+									<IconChevronDown />
+								{/snippet}
 
-							{#if openAssignMenuFor === m.selector}
-								<!-- svelte-ignore a11y_click_events_have_key_events -->
-								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div
-									class="assign-popover"
-									popover="manual"
-									use:anchoredPopover={{
-										anchor: assignTriggerRef,
-										offset: 4,
-										placement: 'bottom-end',
-										constrainHeight: true
-									}}
-									onclick={(e) => e.stopPropagation()}
-								>
-									<div class="assign-section-title">Assegna a Ruolo</div>
+								<div class="assign-menu">
+									<div class="assign-section-title">{m.catalog_tab_assign_to_role()}</div>
 									<div class="assign-grid">
 										{#each STANDARD_ROLES as r (r.id)}
 											{@const RoleIcon = r.icon}
+											{@const isAssigned = isRoleAssigned(r.id, mDto)}
 											<button
 												type="button"
 												class="assign-opt"
-												onclick={() => handleAssignToRole(r.id, m)}
+												class:assigned={isAssigned}
+												onclick={() => handleAssignToRole(r.id, mDto)}
 											>
 												<span class="opt-badge">{r.abbr}</span>
 												<span class="opt-icon"><RoleIcon /></span>
 												<span class="opt-label">{r.label}</span>
+												{#if isAssigned}
+													<span class="opt-check" aria-hidden="true">
+														<IconCheck />
+													</span>
+												{/if}
 											</button>
 										{/each}
 									</div>
@@ -369,18 +384,25 @@
 									<div class="assign-section-title">{addAsFallbackLabel()}</div>
 									<div class="assign-grid">
 										{#each STANDARD_ROLES as r (r.id)}
+											{@const isFallback = isRoleFallback(r.id, mDto)}
 											<button
 												type="button"
 												class="assign-opt fallback"
-												onclick={() => handleAddAsFallback(r.id, m)}
+												class:assigned={isFallback}
+												onclick={() => handleAddAsFallback(r.id, mDto)}
 											>
 												<span class="opt-badge">{r.abbr}</span>
-												<span class="opt-label">+ Fallback {r.label}</span>
+												<span class="opt-label">+ {m.catalog_tab_fallback_prefix()} {r.label}</span>
+												{#if isFallback}
+													<span class="opt-check" aria-hidden="true">
+														<IconCheck />
+													</span>
+												{/if}
 											</button>
 										{/each}
 									</div>
 								</div>
-							{/if}
+							</MenuButton>
 						</div>
 					</div>
 				{/each}
@@ -410,11 +432,9 @@
 	}
 
 	.sidebar-title {
-		font-size: 10px;
+		font-size: var(--text-label);
 		font-weight: 600;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		color: var(--ink);
 		padding: 0 var(--space-2) var(--space-1);
 	}
 
@@ -431,7 +451,7 @@
 		gap: var(--space-2);
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 6px var(--space-2);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
@@ -463,7 +483,8 @@
 
 	.scope-count {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 		background: var(--bg-hover);
 		padding: 1px 5px;
@@ -514,6 +535,10 @@
 		left: 10px;
 		color: var(--ink-faint);
 		pointer-events: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		--icon-size: 13px;
 	}
 
 	.search-input-wrapper input {
@@ -525,11 +550,10 @@
 		font-family: inherit;
 		font-size: var(--text-xs);
 		color: var(--ink);
-		outline: none;
 		transition: border-color var(--dur-fast);
 	}
 
-	.search-input-wrapper input:focus {
+	.search-input-wrapper input:focus-visible {
 		border-color: var(--brand);
 	}
 
@@ -544,6 +568,8 @@
 		align-items: center;
 		justify-content: center;
 		padding: 2px;
+		border-radius: var(--radius-sm);
+		--icon-size: 12px;
 	}
 
 	.btn-clear:hover {
@@ -559,7 +585,7 @@
 	.filter-toggle-chip {
 		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 5px 10px;
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
@@ -582,24 +608,20 @@
 		font-weight: 600;
 	}
 
-	.filter-toggle-chip.free.active {
-		border-color: var(--success, #22c55e);
-		color: var(--success, #22c55e);
-	}
-
 	.refresh-catalog-btn {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
 		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 5px 10px;
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
 		cursor: pointer;
 		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+		--icon-size: 12px;
 	}
 
 	.refresh-catalog-btn:hover:not(:disabled) {
@@ -617,16 +639,11 @@
 		animation: spin 0.8s linear infinite;
 	}
 
-
 	.catalog-stats {
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
 		flex-shrink: 0;
-	}
-
-	.catalog-stats strong {
-		color: var(--ink);
-		font-weight: 600;
 	}
 
 	.catalog-list {
@@ -678,7 +695,7 @@
 
 	.m-provider {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		background: var(--bg-hover);
 		padding: 1px 5px;
@@ -688,7 +705,7 @@
 
 	.m-custom-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--brand-ink);
 		background: var(--bg-hover);
@@ -704,7 +721,7 @@
 
 	.m-selector {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
@@ -719,37 +736,6 @@
 		gap: 4px;
 	}
 
-	.spec-badge {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--ink);
-		font-variant-numeric: tabular-nums;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		padding: 2px 6px;
-		border-radius: var(--radius-sm);
-		white-space: nowrap;
-	}
-
-	.cap-badge {
-		font-size: 10px;
-		font-weight: 500;
-		padding: 2px 6px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		color: var(--ink-muted);
-		white-space: nowrap;
-	}
-
-	.cap-badge.vision {
-		color: var(--brand-ink);
-	}
-
-	.cap-badge.reasoning .reasoning-levels {
-		color: var(--ink-faint);
-	}
-
 	.cost-cell {
 		display: flex;
 		flex-direction: column;
@@ -759,15 +745,14 @@
 	}
 
 	.cost-label {
-		font-size: 10px;
+		font-size: var(--text-caption);
+		font-weight: 500;
 		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
 	}
 
 	.cost-val {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink);
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
@@ -776,8 +761,8 @@
 	}
 
 	.cost-val.free {
-		color: var(--success, #22c55e);
-		font-weight: 600;
+		color: var(--ink-muted);
+		font-weight: 500;
 	}
 
 	.action-cell {
@@ -785,54 +770,17 @@
 		flex-shrink: 0;
 	}
 
-	.btn-assign-dropdown {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 4px 10px;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		font-weight: 500;
-		cursor: pointer;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn-assign-dropdown:hover {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	/* Nel top layer (`popover`) il pannello non viene clippato dagli antenati con overflow
-	   (lista o dialog). Posizionamento e ribaltamento gestiti da anchoredPopover. */
-	.assign-popover {
-		position: fixed;
-		inset: auto;
-		margin: 0;
-		padding: var(--space-2);
-		color: var(--ink);
-		width: 280px;
-		max-height: min(380px, var(--anchored-space, 380px));
-		overflow-y: auto;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-overlay);
-		z-index: var(--z-overlay);
+	.assign-menu {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
+		padding: var(--space-2);
 	}
 
 	.assign-section-title {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
 		padding: 2px 4px;
 	}
 
@@ -846,10 +794,10 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		padding: 4px 6px;
+		padding: 7px 8px;
 		background: transparent;
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
@@ -862,9 +810,13 @@
 		background: var(--bg-hover);
 	}
 
+	.assign-opt.assigned {
+		background: color-mix(in oklab, var(--brand) 8%, transparent);
+	}
+
 	.opt-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink-muted);
 		background: var(--bg-base);
@@ -884,11 +836,7 @@
 		width: 14px;
 		height: 14px;
 		color: var(--ink-muted);
-	}
-
-	.opt-icon :global(svg) {
-		width: 12px;
-		height: 12px;
+		--icon-size: 12px;
 	}
 
 	.opt-label {
@@ -896,6 +844,16 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.opt-check {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		color: var(--brand-ink);
+		margin-left: auto;
+		--icon-size: 14px;
 	}
 
 	.assign-divider {
@@ -920,11 +878,12 @@
 		padding: 6px 14px;
 		background: var(--bg-hover);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
 		cursor: pointer;
+		transition: background var(--dur-fast), border-color var(--dur-fast);
 	}
 
 	.btn-retry:hover {

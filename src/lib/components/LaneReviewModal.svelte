@@ -11,13 +11,11 @@
   7. Accessibilita' APG: dialog modale, trapFocus, navigazione tastiera, contrasti WCAG AA.
 -->
 <script lang="ts">
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
 	import { invoke } from '@tauri-apps/api/core';
 	import { m } from '$lib/paraglide/messages.js';
-	import { trapFocus } from '$lib/focusTrap';
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import {
-		IconClose,
 		IconWarning,
 		IconCheck,
 		IconRefresh,
@@ -26,7 +24,8 @@
 		IconGitBranch,
 		IconSearch,
 		IconRoleCommit,
-		IconTerminal
+		IconTerminal,
+		IconClose
 	} from '$lib/icons';
 	import {
 		createDiffEditorInstance,
@@ -184,6 +183,12 @@
 			}
 		);
 	});
+
+	const integrateTooltipText = $derived(
+		gateResult.canIntegrate
+			? ''
+			: (gateResult.reasons[0] ?? m.lanereview_action_integrate_disabled_tooltip())
+	);
 
 	// File filtrati
 	const filteredFiles = $derived.by<ReviewFileDiff[]>(() => {
@@ -358,12 +363,6 @@
 		};
 	});
 
-	function invokeErrorCode(error: unknown): string | null {
-		if (typeof error !== 'object' || error === null) return null;
-		const code = (error as { code?: unknown }).code;
-		return typeof code === 'string' ? code : null;
-	}
-
 	function invokeErrorMessage(error: unknown): string {
 		if (typeof error === 'object' && error !== null) {
 			const message = (error as { message?: unknown }).message;
@@ -498,514 +497,430 @@
 </script>
 
 {#if open && lane}
-	<!-- Sfondo modale oscurante -->
-	<button
-		type="button"
-		class="modal-backdrop"
-		onclick={onClose}
-		aria-label={m.lanereview_close()}
-		tabindex="-1"
-		transition:fade={{ duration: 150 }}
-	></button>
-
-	<!-- Finestra principale della superficie di revisione -->
-	<div
-		class="review-modal"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="review-modal-title"
-		use:trapFocus={{ onEscape: onClose }}
-		transition:fly={{ y: -16, duration: 200, easing: cubicOut }}
+	<Dialog
+		open={true}
+		title={m.lanereview_modal_title({ title: lane.title })}
+		size="full"
+		flush
+		onClose={onClose}
+		initialFocus="[data-dialog-primary]"
 	>
-		<!-- Header della revisione -->
-		<header class="review-header">
-			<div class="header-main">
-				<div class="header-icon" aria-hidden="true">
-					<IconDiff />
-				</div>
-				<div class="header-titles">
-					<h2 id="review-modal-title" class="title">
-						{m.lanereview_modal_title({ title: lane.title })}
-					</h2>
-					<div class="meta-row">
-						<span class="badge badge-target" title={m.lanereview_target_branch({ branch: reviewData?.targetBranch ?? 'main' })}>
-							<IconGitBranch />
-							<span>{reviewData?.targetBranch ?? lane.targetBranch ?? 'main'}</span>
+		{#snippet icon()}
+			<span class="header-icon" aria-hidden="true">
+				<IconDiff />
+			</span>
+		{/snippet}
+
+		{#snippet actions()}
+			<div class="meta-row">
+				<Tooltip text={m.lanereview_target_branch({ branch: reviewData?.targetBranch ?? 'main' })}>
+					<span class="badge badge-target">
+						<IconGitBranch />
+						<span>{reviewData?.targetBranch ?? lane?.targetBranch ?? 'main'}</span>
+					</span>
+				</Tooltip>
+				{#if reviewData}
+					<Tooltip text={m.lanereview_target_sha({ sha: reviewData.targetSha })}>
+						<span class="sha-pill">
+							<span class="sha-label">target:</span>
+							<code>{shortSha(reviewData.targetSha)}</code>
 						</span>
-						{#if reviewData}
-							<span class="sha-pill" title="Target SHA: {reviewData.targetSha}">
-								<span class="sha-label">target:</span>
-								<code>{shortSha(reviewData.targetSha)}</code>
+					</Tooltip>
+					<Tooltip text={m.lanereview_base_sha({ sha: reviewData.baseSha })}>
+						<span class="sha-pill">
+							<span class="sha-label">base:</span>
+							<code>{shortSha(reviewData.baseSha)}</code>
+						</span>
+					</Tooltip>
+					<Tooltip text={m.lanereview_head_sha({ sha: reviewData.currentSha })}>
+						<span class="sha-pill">
+							<span class="sha-label">head:</span>
+							<code>{shortSha(reviewData.currentSha)}</code>
+						</span>
+					</Tooltip>
+					{#if reviewData.driftAhead > 0}
+						<Tooltip text={m.lanereview_drift_ahead({ count: reviewData.driftAhead })}>
+							<span class="badge badge-drift-ahead">
+								<IconWarning />
+								<span>{m.lanereview_drift_ahead({ count: reviewData.driftAhead })}</span>
 							</span>
-							<span class="sha-pill" title="Base SHA: {reviewData.baseSha}">
-								<span class="sha-label">base:</span>
-								<code>{shortSha(reviewData.baseSha)}</code>
-							</span>
-							<span class="sha-pill" title="Current SHA: {reviewData.currentSha}">
-								<span class="sha-label">head:</span>
-								<code>{shortSha(reviewData.currentSha)}</code>
-							</span>
-							{#if reviewData.driftAhead > 0}
-								<span class="badge badge-drift-ahead" title={m.lanereview_drift_ahead({ count: reviewData.driftAhead })}>
-									<IconWarning />
-									<span>{m.lanereview_drift_ahead({ count: reviewData.driftAhead })}</span>
-								</span>
-							{:else if reviewData.driftBehind > 0}
-								<span class="badge badge-drift-clean">
-									<span>{m.lanereview_drift_behind({ count: reviewData.driftBehind })}</span>
-								</span>
-							{:else}
-								<span class="badge badge-drift-clean">
-									<span>{m.lanereview_drift_clean()}</span>
-								</span>
-							{/if}
-						{/if}
-					</div>
-				</div>
+						</Tooltip>
+					{:else if reviewData.driftBehind > 0}
+						<span class="badge badge-drift-clean">
+							<span>{m.lanereview_drift_behind({ count: reviewData.driftBehind })}</span>
+						</span>
+					{:else}
+						<span class="badge badge-drift-clean">
+							<span>{m.lanereview_drift_clean()}</span>
+						</span>
+					{/if}
+				{/if}
 			</div>
-			<div class="header-actions">
-				<button
-					type="button"
-					class="btn-close"
-					onclick={onClose}
-					title={m.lanereview_close()}
-					aria-label={m.lanereview_close()}
-				>
-					<IconClose />
-				</button>
-			</div>
-		</header>
+		{/snippet}
 
-		<!-- Corpo a due colonne: Master lista a sinistra, Diff side-by-side a destra -->
-		<div class="review-body">
-			{#if loading}
-				<div class="state-overlay">
-					<div class="spinner-icon"><IconRefresh /></div>
-					<p>{m.lanereview_loading()}</p>
-				</div>
-			{:else if loadError}
-				<div class="state-overlay error">
-					<div class="state-icon"><IconWarning /></div>
-					<p>{m.lanereview_error({ error: loadError })}</p>
-					<button type="button" class="btn-secondary" onclick={loadReviewData}>
-						<IconRefresh />
-						<span>{m.lanereview_retry()}</span>
-					</button>
-				</div>
-			{:else if reviewData}
-				<!-- Colonna sinistra: Tab e navigazione master -->
-				<aside class="master-panel">
-					<!-- Selettore Tab -->
-					<div class="tab-strip" role="tablist">
-						<button
-							type="button"
-							role="tab"
-							class="tab-btn"
-							class:active={activeTab === 'files'}
-							aria-selected={activeTab === 'files'}
-							onclick={() => (activeTab = 'files')}
-						>
-							<IconFile />
-							<span>{m.lanereview_tab_files({ count: reviewData.files.length })}</span>
-						</button>
-						<button
-							type="button"
-							role="tab"
-							class="tab-btn"
-							class:active={activeTab === 'commits'}
-							aria-selected={activeTab === 'commits'}
-							onclick={() => (activeTab = 'commits')}
-						>
-							<IconRoleCommit />
-							<span>{m.lanereview_tab_commits({ count: reviewData.commits.length })}</span>
-						</button>
-						<button
-							type="button"
-							role="tab"
-							class="tab-btn"
-							class:active={activeTab === 'evidence'}
-							aria-selected={activeTab === 'evidence'}
-							onclick={() => (activeTab = 'evidence')}
-						>
-							<IconTerminal />
-							<span>{m.lanereview_tab_evidence({ count: commandEvidence.length })}</span>
+		{#snippet body()}
+			<div class="review-body">
+				{#if loading}
+					<div class="state-overlay">
+						<div class="spinner-icon"><IconRefresh /></div>
+						<p>{m.lanereview_loading()}</p>
+					</div>
+				{:else if loadError}
+					<div class="state-overlay error">
+						<div class="state-icon"><IconWarning /></div>
+						<p>{m.lanereview_error({ error: loadError })}</p>
+						<button type="button" class="ui-button ui-button-secondary" onclick={loadReviewData}>
+							<IconRefresh />
+							<span>{m.lanereview_retry()}</span>
 						</button>
 					</div>
+				{:else if reviewData}
+					<!-- Colonna sinistra: Tab e navigazione master -->
+					<aside class="master-panel">
+						<!-- Selettore Tab -->
+						<div class="tab-strip" role="tablist">
+							<button
+								type="button"
+								role="tab"
+								class="tab-btn"
+								class:active={activeTab === 'files'}
+								aria-selected={activeTab === 'files'}
+								onclick={() => (activeTab = 'files')}
+							>
+								<IconFile />
+								<span>{m.lanereview_tab_files({ count: reviewData.files.length })}</span>
+							</button>
+							<button
+								type="button"
+								role="tab"
+								class="tab-btn"
+								class:active={activeTab === 'commits'}
+								aria-selected={activeTab === 'commits'}
+								onclick={() => (activeTab = 'commits')}
+							>
+								<IconRoleCommit />
+								<span>{m.lanereview_tab_commits({ count: reviewData.commits.length })}</span>
+							</button>
+							<button
+								type="button"
+								role="tab"
+								class="tab-btn"
+								class:active={activeTab === 'evidence'}
+								aria-selected={activeTab === 'evidence'}
+								onclick={() => (activeTab = 'evidence')}
+							>
+								<IconTerminal />
+								<span>{m.lanereview_tab_evidence({ count: commandEvidence.length })}</span>
+							</button>
+						</div>
 
-					<!-- Pannello 1: File modificati -->
-					{#if activeTab === 'files'}
-						<div class="files-view">
-							<div class="filter-box">
-								<span class="filter-icon" aria-hidden="true"><IconSearch /></span>
-								<input
-									type="text"
-									class="filter-input"
-									placeholder={m.lanereview_files_filter_placeholder()}
-									bind:value={fileFilter}
-									aria-label={m.lanereview_files_filter_placeholder()}
-								/>
-								{#if fileFilter}
-									<button
-										type="button"
-										class="filter-clear"
-										onclick={() => (fileFilter = '')}
-										aria-label="Cancella filtro"
-									>
-										&times;
-									</button>
-								{/if}
-							</div>
-
-							<div class="files-list" role="listbox" aria-label={m.lanereview_tab_files({ count: filteredFiles.length })}>
-								{#if filteredFiles.length === 0}
-									<div class="empty-list">
-										<p>{m.lanereview_no_files()}</p>
-									</div>
-								{:else}
-									{#each filteredFiles as file (file.path)}
-										{@const isSelected = selectedFilePath === file.path}
+						<!-- Pannello 1: File modificati -->
+						{#if activeTab === 'files'}
+							<div class="files-view">
+								<div class="filter-box">
+									<span class="filter-icon" aria-hidden="true"><IconSearch /></span>
+									<input
+										type="text"
+										class="ui-input filter-input"
+										placeholder={m.lanereview_files_filter_placeholder()}
+										bind:value={fileFilter}
+										aria-label={m.lanereview_files_filter_placeholder()}
+									/>
+									{#if fileFilter}
 										<button
 											type="button"
-											role="option"
-											class="file-item"
-											class:selected={isSelected}
-											aria-selected={isSelected}
-											onclick={() => (selectedFilePath = file.path)}
+											class="filter-clear"
+											onclick={() => (fileFilter = '')}
+											aria-label={m.settings_appearance_clear_filter()}
 										>
-											<span class="file-status status-{file.status}" title="Stato: {file.status}">
-												{file.status}
-											</span>
-											<span class="file-name" title={file.path}>{file.path}</span>
-											{#if file.isUntracked}
-												<span class="untracked-tag">{m.lanereview_untracked_badge()}</span>
-											{/if}
-											<span class="numstat">
-												{#if file.additions > 0}
-													<span class="num-add">+{file.additions}</span>
-												{/if}
-												{#if file.deletions > 0}
-													<span class="num-del">-{file.deletions}</span>
-												{/if}
-											</span>
+											<IconClose />
 										</button>
+									{/if}
+								</div>
+
+								<div class="files-list" role="listbox" aria-label={m.lanereview_tab_files({ count: filteredFiles.length })}>
+									{#if filteredFiles.length === 0}
+										<div class="empty-list">
+											<p>{m.lanereview_no_files()}</p>
+										</div>
+									{:else}
+										{#each filteredFiles as file (file.path)}
+											{@const isSelected = selectedFilePath === file.path}
+											<button
+												type="button"
+												role="option"
+												class="file-item"
+												class:selected={isSelected}
+												aria-selected={isSelected}
+												onclick={() => (selectedFilePath = file.path)}
+											>
+												<Tooltip text={m.lanereview_file_status({ status: file.status })}>
+													<span class="file-status status-{file.status}">
+														{file.status}
+													</span>
+												</Tooltip>
+												<span class="file-name">{file.path}</span>
+												{#if file.isUntracked}
+													<span class="untracked-tag">{m.lanereview_untracked_badge()}</span>
+												{/if}
+												<span class="numstat">
+													{#if file.additions > 0}
+														<span class="num-add">+{file.additions}</span>
+													{/if}
+													{#if file.deletions > 0}
+														<span class="num-del">-{file.deletions}</span>
+													{/if}
+												</span>
+											</button>
+										{/each}
+									{/if}
+								</div>
+							</div>
+						{/if}
+
+						<!-- Pannello 2: Commit eseguiti nella corsia -->
+						{#if activeTab === 'commits'}
+							<div class="commits-view" role="list">
+								{#if reviewData.commits.length === 0}
+									<div class="empty-list">
+										<p>{m.lanereview_no_commits()}</p>
+									</div>
+								{:else}
+									{#each reviewData.commits as commit (commit.hash)}
+										<div class="commit-card" role="listitem">
+											<div class="commit-header">
+												<Tooltip text={commit.hash}>
+													<code class="commit-sha">{commit.short}</code>
+												</Tooltip>
+												<span class="commit-meta">{commit.author} • {formatDate(commit.time)}</span>
+											</div>
+											<p class="commit-subject">{commit.subject}</p>
+											{#if onPrepareCommit}
+												<button
+													type="button"
+													class="btn-commit-action"
+													onclick={() => onPrepareCommit?.(commit)}
+												>
+													{m.lanereview_prepare_commit()}
+												</button>
+											{/if}
+										</div>
 									{/each}
 								{/if}
 							</div>
-						</div>
-					{/if}
+						{/if}
 
-					<!-- Pannello 2: Commit eseguiti nella corsia -->
-					{#if activeTab === 'commits'}
-						<div class="commits-view" role="list">
-							{#if reviewData.commits.length === 0}
-								<div class="empty-list">
-									<p>{m.lanereview_no_commits()}</p>
-								</div>
-							{:else}
-								{#each reviewData.commits as commit (commit.hash)}
-									<div class="commit-card" role="listitem">
-										<div class="commit-header">
-											<code class="commit-sha" title={commit.hash}>{commit.short}</code>
-											<span class="commit-meta">{commit.author} • {formatDate(commit.time)}</span>
-										</div>
-										<p class="commit-subject">{commit.subject}</p>
-										{#if onPrepareCommit}
-											<button
-												type="button"
-												class="btn-commit-action"
-												onclick={() => onPrepareCommit?.(commit)}
-											>
-												Prepara commit selezionato
-											</button>
-										{/if}
+						<!-- Pannello 3: Evidenze di verifica dal transcript -->
+						{#if activeTab === 'evidence'}
+							<div class="evidence-view" role="list">
+								{#if commandEvidence.length === 0}
+									<div class="empty-list">
+										<p>{m.lanereview_no_evidence()}</p>
 									</div>
-								{/each}
-							{/if}
-						</div>
-					{/if}
-
-					<!-- Pannello 3: Evidenze di verifica dal transcript -->
-					{#if activeTab === 'evidence'}
-						<div class="evidence-view" role="list">
-							{#if commandEvidence.length === 0}
-								<div class="empty-list">
-									<p>{m.lanereview_no_evidence()}</p>
-								</div>
-							{:else}
-								{#each commandEvidence as ev (ev.id)}
-									<div class="evidence-card" class:has-error={ev.isError} role="listitem">
-										<div class="evidence-head">
-											<span class="cmd-label">{m.lanereview_evidence_cmd()}</span>
-											<div class="evidence-meta">
-												{#if ev.exitCode !== undefined}
-													<span class="exit-badge" class:error={ev.exitCode !== 0}>
-														{m.lanereview_evidence_exit({ code: ev.exitCode })}
-													</span>
-												{/if}
-												{#if ev.durationMs !== undefined}
-													<span class="dur-badge">
-														{m.lanereview_evidence_dur({ duration: formatDuration(ev.durationMs) ?? `${ev.durationMs}ms` })}
-													</span>
-												{/if}
+								{:else}
+									{#each commandEvidence as ev (ev.id)}
+										<div class="evidence-card" class:has-error={ev.isError} role="listitem">
+											<div class="evidence-head">
+												<span class="cmd-label">{m.lanereview_evidence_cmd()}</span>
+												<div class="evidence-meta">
+													{#if ev.exitCode !== undefined}
+														<span class="exit-badge" class:error={ev.exitCode !== 0}>
+															{m.lanereview_evidence_exit({ code: ev.exitCode })}
+														</span>
+													{/if}
+													{#if ev.durationMs !== undefined}
+														<span class="dur-badge">
+															{m.lanereview_evidence_dur({ duration: formatDuration(ev.durationMs) ?? `${ev.durationMs}ms` })}
+														</span>
+													{/if}
+												</div>
 											</div>
+											<pre class="cmd-line"><code>{ev.command}</code></pre>
+											{#if ev.outputSnippet}
+												<pre class="cmd-output"><code>{ev.outputSnippet}</code></pre>
+											{/if}
 										</div>
-										<pre class="cmd-line"><code>{ev.command}</code></pre>
-										{#if ev.outputSnippet}
-											<pre class="cmd-output"><code>{ev.outputSnippet}</code></pre>
-										{/if}
+									{/each}
+								{/if}
+							</div>
+						{/if}
+					</aside>
+
+					<!-- Colonna destra: Monaco Diff side-by-side -->
+					<main class="diff-panel">
+						{#if selectedFilePath && currentFileDiff}
+							<div class="diff-header-bar">
+								<div class="diff-file-info">
+									<span class="file-path">{selectedFilePath}</span>
+									{#if currentFileDiff.isUntracked}
+										<span class="untracked-tag">{m.lanereview_untracked_badge()}</span>
+									{/if}
+								</div>
+								<div class="diff-sides-legend">
+									<span class="legend-side original">
+										{m.lanereview_diff_original({ branch: reviewData.targetBranch })}
+									</span>
+									<span class="legend-sep">↔</span>
+									<span class="legend-side modified">
+										{m.lanereview_diff_modified({ branch: lane.branchName ?? lane.title })}
+									</span>
+								</div>
+							</div>
+
+							<div class="diff-editor-host">
+								<div class="monaco-diff-container" bind:this={diffContainerEl}></div>
+								{#if diffLoading}
+									<div class="diff-state-overlay">
+										<div class="spinner-icon"><IconRefresh /></div>
+										<p>{m.lanereview_loading()}</p>
 									</div>
-								{/each}
-							{/if}
+								{:else if diffError}
+									<div class="diff-state-overlay error">
+										<p>{diffError}</p>
+									</div>
+								{/if}
+							</div>
+						{:else}
+							<div class="diff-placeholder">
+								<IconDiff />
+								<p>{m.lanereview_select_file()}</p>
+							</div>
+						{/if}
+					</main>
+				{/if}
+			</div>
+		{/snippet}
+
+		{#snippet footer()}
+			<div class="review-footer-layout">
+				<div class="footer-left">
+					{#if gateResult.reasons.length > 0}
+						<div class="gate-warning" role="alert">
+							<IconWarning />
+							<span>{gateResult.reasons[0]}</span>
 						</div>
 					{/if}
-				</aside>
 
-				<!-- Colonna destra: Monaco Diff side-by-side -->
-				<main class="diff-panel">
-					{#if selectedFilePath && currentFileDiff}
-						<div class="diff-header-bar">
-							<div class="diff-file-info">
-								<span class="file-status status-{currentFileDiff.status}">
-									{currentFileDiff.status}
-								</span>
-								<span class="file-path">{currentFileDiff.path}</span>
-								<span class="numstat">
-									{#if currentFileDiff.additions > 0}
-										<span class="num-add">+{currentFileDiff.additions}</span>
-									{/if}
-									{#if currentFileDiff.deletions > 0}
-										<span class="num-del">-{currentFileDiff.deletions}</span>
-									{/if}
-								</span>
-							</div>
-							<div class="diff-sides-legend">
-								<span class="legend-side original">
-									{m.lanereview_diff_original({ branch: reviewData.targetBranch })}
-								</span>
-								<span class="legend-sep">→</span>
-								<span class="legend-side modified">
-									{m.lanereview_diff_modified({ branch: lane.branch ?? 'lane' })}
-								</span>
+					{#if integrateError}
+						<div class="update-outcome error" role="alert">
+							<IconWarning />
+							<div class="error-stack">
+								<span>{integrateError}</span>
+								{#if integrateDetail}
+									<small class="detail-text">{integrateDetail}</small>
+								{/if}
 							</div>
 						</div>
+					{/if}
 
-						<div class="diff-editor-host">
-							{#if diffLoading}
-								<div class="diff-state-overlay">
-									<div class="spinner-icon"><IconRefresh /></div>
-								</div>
-							{:else if diffError}
-								<div class="diff-state-overlay error">
-									<IconWarning />
-									<p>{diffError}</p>
-								</div>
-							{/if}
-							<!-- Contenitore nativo per Monaco Diff -->
-							<div class="monaco-diff-container" bind:this={diffContainerEl}></div>
+					{#if integrateOutcomeMessage}
+						<div class="update-outcome info" role="status">
+							<IconCheck />
+							<span>{integrateOutcomeMessage}</span>
+						</div>
+					{/if}
+
+					{#if rejectError}
+						<div class="update-outcome error" role="alert">
+							<IconWarning />
+							<span>{rejectError}</span>
+						</div>
+					{/if}
+				</div>
+
+				<div class="footer-center">
+					<label class="integrate-message">
+						<span class="message-label">{m.lanereview_message_label()}</span>
+						<textarea
+							rows="2"
+							bind:value={integrateMessage}
+							placeholder={lane.title}
+							disabled={isIntegrating}
+						></textarea>
+					</label>
+				</div>
+
+				<div class="footer-right">
+					<button type="button" class="ui-button ui-button-secondary" onclick={onClose}>
+						{m.lanereview_action_return()}
+					</button>
+
+					{#if reviewData?.hasUnresolvedConflicts || liveLane?.status === 'conflict'}
+						<button type="button" class="ui-button ui-button-secondary" onclick={handleAskAgent}>
+							{m.lanereview_conflict_ask()}
+						</button>
+					{/if}
+
+					<!-- Pulsante Rifiuta corsia -->
+					{#if confirmStopReject}
+						<div class="reject-confirm-group">
+							<button type="button" class="ui-button ui-button-danger" disabled={isRejecting} onclick={handleRejectStop}>
+								{m.lanereview_reject_stop()}
+							</button>
+							<button type="button" class="ui-button ui-button-secondary btn-sm" onclick={() => (confirmStopReject = false)}>
+								{m.lanereview_confirm_cancel()}
+							</button>
+						</div>
+					{:else if confirmReject}
+						<div class="reject-confirm-group">
+							<button
+								type="button"
+								class="ui-button ui-button-danger"
+								disabled={isRejecting}
+								onclick={handleRejectLane}
+							>
+								{m.lanereview_reject_confirm()}
+							</button>
+							<button
+								type="button"
+								class="ui-button ui-button-secondary btn-sm"
+								onclick={() => (confirmReject = false)}
+							>
+								{m.lanereview_confirm_cancel()}
+							</button>
 						</div>
 					{:else}
-						<div class="diff-placeholder">
-							<IconDiff />
-							<p>{m.lanereview_select_file()}</p>
-						</div>
+						<Tooltip text={m.lanereview_action_reject_title()}>
+							<button
+								type="button"
+								class="ui-button ui-button-ghost btn-reject-ghost"
+								onclick={() => (confirmReject = true)}
+							>
+								{m.lanereview_action_reject()}
+							</button>
+						</Tooltip>
 					{/if}
-				</main>
-			{/if}
-		</div>
 
-		<!-- Footer azioni e controlli di integrazione -->
-		<footer class="review-footer">
-			<div class="footer-left">
-				{#if gateResult.reasons.length > 0}
-					<div class="gate-warning" role="alert">
-						<IconWarning />
-						<span>{gateResult.reasons[0]}</span>
-					</div>
-				{/if}
-
-				{#if integrateError}
-					<div class="update-outcome error" role="alert">
-						<IconWarning />
-						<div class="error-stack">
-							<span>{integrateError}</span>
-							{#if integrateDetail}
-								<small class="detail-text">{integrateDetail}</small>
+					<Tooltip text={integrateTooltipText} disabled={!integrateTooltipText}>
+						<button
+							type="button"
+							class="ui-button ui-button-primary"
+							data-dialog-primary
+							disabled={!gateResult.canIntegrate || isIntegrating}
+							onclick={handleIntegrate}
+						>
+							{#if isIntegrating}
+								<span class="btn-spinner"><IconRefresh /></span>
+								<span>{m.lanereview_integrating()}</span>
+							{:else}
+								<IconCheck />
+								<span>{m.lanereview_action_integrate({ branch: reviewData?.targetBranch ?? 'main' })}</span>
 							{/if}
-						</div>
-					</div>
-				{/if}
-
-				{#if integrateOutcomeMessage}
-					<div class="update-outcome info" role="status">
-						<IconCheck />
-						<span>{integrateOutcomeMessage}</span>
-					</div>
-				{/if}
-
-				{#if rejectError}
-					<div class="update-outcome error" role="alert">
-						<IconWarning />
-						<span>{rejectError}</span>
-					</div>
-				{/if}
+						</button>
+					</Tooltip>
+				</div>
 			</div>
-
-			<div class="footer-center">
-				<label class="integrate-message">
-					<span class="message-label">{m.lanereview_message_label()}</span>
-					<textarea
-						rows="2"
-						bind:value={integrateMessage}
-						placeholder={lane.title}
-						disabled={isIntegrating}
-					></textarea>
-				</label>
-			</div>
-
-			<div class="footer-right">
-				<button type="button" class="btn-secondary" onclick={onClose}>
-					{m.lanereview_action_return()}
-				</button>
-
-				{#if reviewData?.hasUnresolvedConflicts || liveLane?.status === 'conflict'}
-					<button type="button" class="btn-secondary" onclick={handleAskAgent}>
-						{m.lanereview_conflict_ask()}
-					</button>
-				{/if}
-
-				<!-- Pulsante Rifiuta corsia -->
-				{#if confirmStopReject}
-					<div class="reject-confirm-group">
-						<button type="button" class="btn-danger" disabled={isRejecting} onclick={handleRejectStop}>
-							{m.lanereview_reject_stop()}
-						</button>
-						<button type="button" class="btn-secondary btn-sm" onclick={() => (confirmStopReject = false)}>
-							{m.lanereview_confirm_cancel()}
-						</button>
-					</div>
-				{:else if confirmReject}
-					<div class="reject-confirm-group">
-						<button
-							type="button"
-							class="btn-danger"
-							disabled={isRejecting}
-							onclick={handleRejectLane}
-						>
-							{m.lanereview_reject_confirm()}
-						</button>
-						<button
-							type="button"
-							class="btn-secondary btn-sm"
-							onclick={() => (confirmReject = false)}
-						>
-							{m.lanereview_confirm_cancel()}
-						</button>
-					</div>
-				{:else}
-					<button
-						type="button"
-						class="btn-danger-ghost"
-						title={m.lanereview_action_reject_title()}
-						onclick={() => (confirmReject = true)}
-					>
-						{m.lanereview_action_reject()}
-					</button>
-				{/if}
-
-				<button
-					type="button"
-					class="btn-primary"
-					disabled={!gateResult.canIntegrate || isIntegrating}
-					title={gateResult.canIntegrate ? '' : (gateResult.reasons[0] ?? m.lanereview_action_integrate_disabled_tooltip())}
-					onclick={handleIntegrate}
-				>
-					{#if isIntegrating}
-						<span class="btn-spinner"><IconRefresh /></span>
-						<span>{m.lanereview_integrating()}</span>
-					{:else}
-						<IconCheck />
-						<span>{m.lanereview_action_integrate({ branch: reviewData?.targetBranch ?? 'main' })}</span>
-					{/if}
-				</button>
-			</div>
-		</footer>
-	</div>
+		{/snippet}
+	</Dialog>
 {/if}
 
 <style>
-	/* Velo backdrop scuro semitrasparente */
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: oklch(0 0 0 / 0.65);
-		z-index: var(--z-dialog);
-		border: none;
-		margin: 0;
-		padding: 0;
-		cursor: default;
-	}
-
-	/* Finestra modale principale */
-	.review-modal {
-		position: fixed;
-		inset: 32px;
-		max-width: 1400px;
-		max-height: 900px;
-		margin: auto;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		z-index: calc(var(--z-dialog) + 1);
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-		outline: none;
-		font-family: var(--font-ui);
-		color: var(--ink);
-	}
-
-	/* Header */
-	.review-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-3) var(--space-4);
-		background: var(--bg-raised);
-		border-bottom: 1px solid var(--line);
-		gap: var(--space-3);
-	}
-
-	.header-main {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		min-width: 0;
-	}
-
 	.header-icon {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: var(--brand-ink);
-		font-size: 16px;
-	}
-
-	.header-titles {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-
-	.title {
-		font-size: var(--text-md);
-		font-weight: 600;
-		color: var(--ink);
-		margin: 0;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		color: var(--ink-muted);
+		--icon-size: 16px;
 	}
 
 	.meta-row {
@@ -1021,7 +936,7 @@
 		gap: var(--space-1);
 		padding: 2px 6px;
 		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 500;
 	}
 
@@ -1035,7 +950,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -1064,30 +979,13 @@
 		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
 	}
 
-	.btn-close {
-		background: transparent;
-		border: none;
-		color: var(--ink-muted);
-		cursor: pointer;
-		padding: var(--space-1);
-		border-radius: var(--radius-sm);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: background var(--dur-fast), color var(--dur-fast);
-	}
-
-	.btn-close:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
 	/* Corpo a due colonne */
 	.review-body {
 		flex: 1;
 		display: grid;
 		grid-template-columns: 360px 1fr;
 		min-height: 0;
+		height: 100%;
 		overflow: hidden;
 		position: relative;
 	}
@@ -1115,7 +1013,7 @@
 		justify-content: center;
 		gap: var(--space-1);
 		padding: var(--space-2) var(--space-1);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 500;
 		background: transparent;
 		border: none;
@@ -1161,17 +1059,7 @@
 
 	.filter-input {
 		flex: 1;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		padding: 4px 8px;
-		outline: none;
-	}
-
-	.filter-input:focus {
-		border-color: var(--brand);
+		font-size: var(--text-caption);
 	}
 
 	.filter-clear {
@@ -1179,7 +1067,8 @@
 		border: none;
 		color: var(--ink-faint);
 		cursor: pointer;
-		font-size: 14px;
+		--icon-size: 12px;
+		display: inline-flex;
 		padding: 2px 4px;
 	}
 
@@ -1201,7 +1090,7 @@
 		color: var(--ink-muted);
 		cursor: pointer;
 		text-align: left;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		transition: background var(--dur-fast);
 	}
 
@@ -1219,7 +1108,7 @@
 	.file-status {
 		font-family: var(--font-mono);
 		font-weight: 700;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		min-width: 14px;
 		text-align: center;
 	}
@@ -1241,7 +1130,7 @@
 	}
 
 	.untracked-tag {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 4px;
 		background: color-mix(in srgb, var(--warn) 15%, transparent);
 		color: var(--warn);
@@ -1253,7 +1142,7 @@
 		display: inline-flex;
 		gap: 4px;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
@@ -1285,7 +1174,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 
 	.commit-sha {
@@ -1302,7 +1191,7 @@
 
 	.commit-subject {
 		margin: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink);
 		line-height: 1.35;
 	}
@@ -1310,13 +1199,14 @@
 	.btn-commit-action {
 		align-self: flex-start;
 		margin-top: 4px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
 		padding: 2px 6px;
 		cursor: pointer;
+		transition: background var(--dur-fast), color var(--dur-fast);
 	}
 
 	.btn-commit-action:hover {
@@ -1352,15 +1242,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 
 	.cmd-label {
 		font-weight: 600;
 		color: var(--ink-muted);
-		text-transform: uppercase;
-		font-size: 10px;
-		letter-spacing: 0.05em;
+		font-size: var(--text-caption);
 	}
 
 	.evidence-meta {
@@ -1371,7 +1259,7 @@
 
 	.exit-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 4px;
 		border-radius: var(--radius-sm);
 		background: var(--bg-sunken);
@@ -1385,7 +1273,7 @@
 
 	.dur-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -1395,7 +1283,7 @@
 		padding: 4px 6px;
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink);
 		overflow-x: auto;
 	}
@@ -1406,7 +1294,7 @@
 		padding: 4px 6px;
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		max-height: 80px;
 		overflow-y: auto;
@@ -1430,7 +1318,7 @@
 		padding: var(--space-2) var(--space-3);
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--line);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		gap: var(--space-2);
 	}
 
@@ -1453,7 +1341,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-1);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		white-space: nowrap;
 	}
@@ -1493,7 +1381,7 @@
 		align-items: center;
 		justify-content: center;
 		background: color-mix(in srgb, var(--bg-sunken) 80%, transparent);
-		z-index: 10;
+		z-index: var(--z-splitter);
 		gap: var(--space-2);
 		color: var(--ink-muted);
 	}
@@ -1510,14 +1398,14 @@
 		justify-content: center;
 		gap: var(--space-2);
 		color: var(--ink-faint);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 	}
 
 	.empty-list {
 		padding: var(--space-4);
 		text-align: center;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 	}
 
 	.state-overlay {
@@ -1530,7 +1418,7 @@
 		gap: var(--space-3);
 		color: var(--ink-muted);
 		background: var(--bg-base);
-		z-index: 20;
+		z-index: var(--z-sticky);
 	}
 
 	.state-overlay.error {
@@ -1541,16 +1429,13 @@
 		animation: spin 1s linear infinite;
 	}
 
-
 	/* Footer */
-	.review-footer {
+	.review-footer-layout {
+		width: 100%;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		flex-wrap: wrap;
-		padding: var(--space-3) var(--space-4);
-		background: var(--bg-raised);
-		border-top: 1px solid var(--line);
 		gap: var(--space-3);
 	}
 
@@ -1566,7 +1451,7 @@
 	}
 
 	.message-label {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		font-weight: 500;
 	}
@@ -1577,7 +1462,7 @@
 		height: 2.2rem;
 		resize: none;
 		font: inherit;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink);
 		background: var(--bg-overlay);
 		border: 1px solid var(--line);
@@ -1587,8 +1472,7 @@
 	}
 
 	.integrate-message textarea:focus {
-		border-color: var(--brand-line);
-		outline: none;
+		border-color: var(--brand);
 	}
 
 	.error-stack {
@@ -1598,7 +1482,7 @@
 	}
 
 	.error-stack .detail-text {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		opacity: 0.85;
 		word-break: break-all;
 	}
@@ -1616,23 +1500,15 @@
 		align-items: center;
 		gap: var(--space-1);
 		color: var(--danger);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 500;
-	}
-
-	.gate-hint {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		color: var(--warn);
-		font-size: var(--text-xs);
 	}
 
 	.update-outcome {
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--success);
 	}
 
@@ -1646,95 +1522,24 @@
 		gap: var(--space-2);
 	}
 
-	.btn-secondary {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		color: var(--ink);
-		padding: 6px 12px;
-		font-size: var(--text-sm);
-		cursor: pointer;
-		transition: background var(--dur-fast);
-	}
-
-	.btn-secondary:hover:not(:disabled) {
-		background: var(--bg-hover);
-	}
-
-	.btn-secondary:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
 	.btn-sm {
 		padding: 4px 8px;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 	}
 
-	.btn-danger-ghost {
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-md);
+	.btn-reject-ghost {
 		color: var(--danger);
-		padding: 6px 12px;
-		font-size: var(--text-sm);
-		cursor: pointer;
-		transition: background var(--dur-fast);
 	}
 
-	.btn-danger-ghost:hover {
-		background: color-mix(in srgb, var(--danger) 15%, transparent);
-	}
-
-	.btn-danger {
-		background: var(--danger);
-		border: 1px solid transparent;
-		border-radius: var(--radius-md);
-		color: #ffffff;
-		padding: 6px 12px;
-		font-size: var(--text-sm);
-		font-weight: 500;
-		cursor: pointer;
-	}
-
-	.btn-danger:hover:not(:disabled) {
-		opacity: 0.9;
+	.btn-reject-ghost:hover:not(:disabled) {
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
+		color: var(--danger);
 	}
 
 	.reject-confirm-group {
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-	}
-
-	.btn-primary {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		background: var(--brand);
-		border: 1px solid transparent;
-		border-radius: var(--radius-md);
-		color: #ffffff;
-		padding: 6px 14px;
-		font-size: var(--text-sm);
-		font-weight: 500;
-		cursor: pointer;
-		transition: opacity var(--dur-fast);
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		opacity: 0.92;
-	}
-
-	.btn-primary:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-		background: var(--bg-base);
-		color: var(--ink-faint);
-		border-color: var(--line);
 	}
 
 	.btn-spinner {

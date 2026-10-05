@@ -1,6 +1,7 @@
 <script lang="ts" generics="T extends SharedModelItem = SharedModelItem">
 	import { m } from '$lib/paraglide/messages.js';
-	import { IconContextWindow, IconRoleSlow, IconRoleVision, IconCheck } from '$lib/icons';
+	import { IconContextWindow, IconRoleSlow, IconRoleVision, IconCheck, IconSearch, IconClose } from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import {
 		type SharedModelItem,
 		getEffectiveSelector,
@@ -125,19 +126,9 @@
 
 <div class="model-picker-list" data-testid="model-picker-list">
 	<div class="search-box">
-		<svg
-			class="search-icon"
-			viewBox="0 0 16 16"
-			width="13"
-			height="13"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.4"
-			aria-hidden="true"
-		>
-			<circle cx="7" cy="7" r="4.5" />
-			<path d="M10.5 10.5L14 14" stroke-linecap="round" />
-		</svg>
+		<span class="search-icon" aria-hidden="true">
+			<IconSearch />
+		</span>
 		<input
 			bind:this={searchInputEl}
 			type="text"
@@ -153,16 +144,14 @@
 			<button
 				type="button"
 				class="clear-btn"
-				aria-label="Cancella testo"
+				aria-label={m.model_picker_list_clear_search()}
 				onclick={() => {
 					searchQuery = '';
 					highlightedIndex = 0;
 					searchInputEl?.focus();
 				}}
 			>
-				<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-					<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
-				</svg>
+				<IconClose />
 			</button>
 		{/if}
 	</div>
@@ -171,7 +160,7 @@
 		class="results-list"
 		role="listbox"
 		id="picker-listbox"
-		aria-label="Elenco modelli disponibili"
+		aria-label={m.model_picker_list_available_models()}
 		bind:this={listEl}
 	>
 		{#if visibleModels.length === 0}
@@ -214,38 +203,41 @@
 
 								<div class="option-badges">
 									{#if model.contextWindow}
-										<span
-											class="cap-chip ctx"
-											role="img"
-											title={`Finestra di contesto: ${formatContextTokens(model.contextWindow)} token`}
-											aria-label={`Contesto ${formatContextTokens(model.contextWindow)} token`}
-										>
-											<IconContextWindow />
-											<small>{formatContextTokens(model.contextWindow)}</small>
-										</span>
+										<Tooltip text={m.model_picker_list_context_tooltip({ tokens: formatContextTokens(model.contextWindow) })} placement="top">
+											<span
+												class="ui-cap ctx"
+												role="img"
+												aria-label={m.model_picker_list_context_aria({ tokens: formatContextTokens(model.contextWindow) })}
+											>
+												<IconContextWindow />
+												<small>{formatContextTokens(model.contextWindow)}</small>
+											</span>
+										</Tooltip>
 									{/if}
 									{#if modelSupportsVision(model)}
-										<span
-											class="cap-chip vision"
-											role="img"
-											title={m.chat_v2_composer_model_vision()}
-											aria-label={m.chat_v2_composer_model_vision()}
-										>
-											<IconRoleVision />
-										</span>
+										<Tooltip text={m.chat_v2_composer_model_vision()} placement="top">
+											<span
+												class="ui-cap"
+												role="img"
+												aria-label={m.chat_v2_composer_model_vision()}
+											>
+												<IconRoleVision />
+											</span>
+										</Tooltip>
 									{/if}
 									{#if modelSupportsReasoning(model)}
-										<span
-											class="cap-chip thinking"
-											role="img"
-											title={thinkingTitle(model)}
-											aria-label={thinkingTitle(model)}
-										>
-											<IconRoleSlow />
-										</span>
+										<Tooltip text={thinkingTitle(model)} placement="top">
+											<span
+												class="ui-cap"
+												role="img"
+												aria-label={thinkingTitle(model)}
+											>
+												<IconRoleSlow />
+											</span>
+										</Tooltip>
 									{/if}
 									{#if model.isCustom}
-										<span class="custom-chip">Custom</span>
+										<span class="custom-chip">{m.model_picker_list_custom_badge()}</span>
 									{/if}
 									{#if selected}
 										<span class="check-icon" aria-hidden="true">
@@ -295,21 +287,26 @@
 		left: 14px;
 		color: var(--ink-faint);
 		pointer-events: none;
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 13px;
 	}
 
 	.search-input {
 		width: 100%;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: 4px 24px 4px 26px;
 		font-family: inherit;
 		font-size: var(--text-xs);
 		color: var(--ink);
 	}
 
-	.search-input:focus {
+	.search-input:focus-visible {
 		border-color: var(--brand);
+		outline: 2px solid var(--brand);
+		outline-offset: -1px;
 	}
 
 	.clear-btn {
@@ -323,8 +320,8 @@
 		align-items: center;
 		justify-content: center;
 		padding: 2px;
+		--icon-size: 10px;
 	}
-
 	.results-list {
 		flex: 1;
 		min-height: 0;
@@ -351,7 +348,7 @@
 		font-weight: 600;
 		color: var(--ink-faint);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		letter-spacing: 0.05em;
 	}
 
 	.group-items {
@@ -368,7 +365,7 @@
 		padding: 5px 8px;
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
@@ -377,6 +374,11 @@
 		width: 100%;
 		transition: background var(--dur-fast), border-color var(--dur-fast);
 	}
+	.model-option:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
+
 
 	.model-option:hover,
 	.model-option.highlighted {
@@ -420,34 +422,6 @@
 		align-items: center;
 		gap: 4px;
 		flex-shrink: 0;
-	}
-
-	.cap-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		background: var(--bg-base);
-		color: var(--ink-muted);
-		--icon-size: 11px;
-	}
-
-	.cap-chip small {
-		font-family: var(--font-mono);
-		font-size: var(--text-caption);
-		line-height: 1;
-	}
-
-	.cap-chip.ctx {
-		color: var(--ink-faint);
-	}
-
-	.cap-chip.vision,
-	.cap-chip.thinking {
-		border-color: var(--line);
-		color: var(--ink-muted);
 	}
 
 	.custom-chip {

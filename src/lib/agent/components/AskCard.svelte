@@ -833,7 +833,7 @@
 								{/if}
 							</span>
 							{#if i < 9}
-								<kbd class="ask-kbd" aria-hidden="true">{i + 1}</kbd>
+								<kbd class="ui-kbd" aria-hidden="true">{i + 1}</kbd>
 							{/if}
 						</div>
 					{/each}
@@ -879,7 +879,7 @@
 				</div>
 			{:else}
 				<button type="button" class="ask-note-btn" onclick={() => toggleNoteInput()}>
-					<IconPlus aria-hidden="true" /> {m.chat_v2_ask_add_note()} <kbd class="ask-kbd">N</kbd>
+					<IconPlus aria-hidden="true" /> {m.chat_v2_ask_add_note()} <kbd class="ui-kbd">N</kbd>
 				</button>
 			{/if}
 		{/if}
@@ -900,10 +900,10 @@
 			{/if}
 			<span class="ask-hint" aria-hidden="true">
 				{#if currentQuestion && !isReviewStep}
-					<kbd class="ask-kbd">1</kbd>–<kbd class="ask-kbd">{Math.min(visibleOptions.length, 9)}</kbd>
+					<kbd class="ui-kbd">1</kbd>–<kbd class="ui-kbd">{Math.min(visibleOptions.length, 9)}</kbd>
 					{m.chat_v2_ask_hint_choose()} ·
 				{/if}
-				<kbd class="ask-kbd">↵</kbd>
+				<kbd class="ui-kbd">↵</kbd>
 				{allAnswered ? m.chat_v2_ask_hint_send() : m.chat_v2_ask_hint_next()}
 			</span>
 			<span class="ask-actions">
@@ -975,7 +975,7 @@
 				disabled={submitting}
 				onclick={() => void submitSelect(plainInputValue)}
 			>
-				{m.chat_v2_ask_send()} <kbd class="ask-kbd">↵</kbd>
+				{m.chat_v2_ask_send()} <kbd class="ui-kbd">↵</kbd>
 			</button>
 		</div>
 	{:else if pending.method === 'editor'}
@@ -1010,7 +1010,7 @@
 					disabled={submitting}
 					onclick={() => void submitSelect(plainEditorValue)}
 				>
-					{m.chat_v2_ask_send()} <kbd class="ask-kbd">Ctrl+↵</kbd>
+					{m.chat_v2_ask_send()} <kbd class="ui-kbd">Ctrl+↵</kbd>
 				</button>
 			</span>
 		</div>
@@ -1030,7 +1030,7 @@
 					disabled={submitting}
 					onclick={() => void submitConfirm(false)}
 				>
-					{m.chat_v2_ask_no()} <kbd class="ask-kbd">Esc</kbd>
+					{m.chat_v2_ask_no()} <kbd class="ui-kbd">Esc</kbd>
 				</button>
 				<button
 					type="button"
@@ -1038,7 +1038,7 @@
 					disabled={submitting}
 					onclick={() => void submitConfirm(true)}
 				>
-					{m.chat_v2_ask_yes()} <kbd class="ask-kbd">↵</kbd>
+					{m.chat_v2_ask_yes()} <kbd class="ui-kbd">↵</kbd>
 				</button>
 			</span>
 		</div>
@@ -1483,7 +1483,7 @@
 		background: var(--brand);
 		filter: brightness(1.08);
 	}
-	.ask-btn.primary .ask-kbd {
+	.ask-btn.primary .ui-kbd {
 		color: inherit;
 		border-color: currentColor;
 		opacity: 0.7;

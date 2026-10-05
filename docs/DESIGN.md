@@ -350,6 +350,33 @@ components:
     typography: "{typography.chat}"
     rounded: "{rounded.xl}"
     padding: "10px 14px"
+  ui-checkbox:
+    backgroundColor: "{colors.bg-sunken}"
+    borderColor: "{colors.ink-faint}"
+    rounded: "{rounded.sm}"
+    size: "16px"
+  ui-kbd:
+    textColor: "{colors.ink-faint}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.sm}"
+    padding: "0 5px"
+  ui-cap:
+    backgroundColor: "{colors.bg-base}"
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.sm}"
+    padding: "1px 4px"
+  model-field:
+    backgroundColor: "{colors.bg-sunken}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    height: "30px"
+    padding: "0 8px"
+  confirm-dialog:
+    backgroundColor: "{colors.bg-overlay}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.lg}"
 ---
 
 # Design System: OMP Studio
@@ -468,8 +495,10 @@ menu del composer sono `oklch(var(--proj-l-ink) var(--proj-c-ink) <tinta>)`, con
 fissa per ruolo (plan 230, smol 140, slow 300, vision 80, task 35, commit 180, advisor 320)
 e luminanza e croma che arrivano dal tema; `default` resta `--brand-ink`. Misurati su
 `--bg-raised`: 7,9–8,6:1 su scuro, 6,6–7,9:1 su chiaro. Le capacità dei modelli (vision,
-thinking) non sono identità: chip neutri `--ink-muted` con bordo `--line`, e l'icona porta
-il significato.
+thinking, contesto) non sono identità: chip neutre `.ui-cap` (`--ink-muted`, bordo `--line`,
+fondo `--bg-base`, 4 px), e l'icona porta il significato. Lo stato «connesso» o «configurato»
+di un provider o di un ruolo non è un esito: `StatusMark` completato neutro con testo, mai
+verde. Un prezzo «Gratis» è un'informazione, non un esito: testo `--ink-muted`.
 
 ### Primary
 
@@ -851,12 +880,15 @@ Architettura modale nativa e accessibile per dialoghi e conferme (`src/lib/ui/Di
 - **Architettura `<dialog>.showModal()`:** sfrutta le funzionalità native del browser; il dialogo viene promosso nel top layer con isolamento e rende automaticamente `inert` lo sfondo e i layer sottostanti, eliminando la necessità di un modal host o della gestione manuale dello stack di inert.
 - **Trap focus integrato (`trapFocus` in `$lib/focusTrap.ts`):** gestisce la trappola ciclica del fuoco da tastiera, escludendo elementi nascosti, disabilitati o con `tabindex="-1"`. Supporta dialoghi annidati (solo il dialogo in cima gestisce la trappola), gestisce in sicurezza radici senza elementi focalizzabili e garantisce il ripristino sicuro del focus precedente alla chiusura (`restoreFocus: true`).
 - **Accessibilità:** attributi `ariaLabel`, `ariaLabelledBy`, `ariaDescribedBy`; titolo semantico `<h2>`.
-- **API:** titolo testuale `title`; snippet `header`, `body`, `footer`, `icon`, `children`, `actions` (azioni nella testata standard), `outside` (strati dentro il dialogo ma fuori dalla superficie); controllo con `open`, `onClose`, `dismissible`, `initialFocus`. `size="wide"` limita le finestre di lavoro a `min(1080px, 96vw)` × `min(86vh, 760px)`; `flush` lascia al consumatore padding, altezza e scorrimento del corpo.
+- **API:** titolo testuale `title`; snippet `header`, `body`, `footer`, `icon`, `children`, `actions` (azioni nella testata standard), `outside` (strati dentro il dialogo ma fuori dalla superficie); controllo con `open`, `onClose`, `dismissible`, `initialFocus`. `size="wide"` limita le finestre di lavoro a `min(1080px, 96vw)` × `min(86vh, 760px)`; `size="full"` lascia 32 px per lato alle revisioni che vivono di spazio (diff della corsia); `flush` lascia al consumatore padding, altezza e scorrimento del corpo.
 - **Superficie e transizione:** fondo `--bg-overlay`, bordo `--line-strong`, raggio 10 px (`--radius-lg`), ombra `--shadow-overlay`. Titolo a 16 px / peso 550 (`Inter Variable`) con `text-wrap: balance`. Corpo `--bg-overlay`, piede `--bg-base`. Transizione d'ingresso e uscita con `rvLift` (240 ms, blur 3 px) applicata alla superficie dentro un positioner separato per non interferire con la centratura a griglia.
 
 **The Top-Layer Dialog Rule.** Le finestre modali usano `<dialog>.showModal()` nativo del browser per garantire top-layer e isolamento inert automatico; nessun modal host personalizzato né gestione manuale dello stack.
 
-- **Consumatori:** `CloseConfirmModal`, centro impostazioni, conferma annidata di scarto delle modifiche e inspector delle icone. Il pannello Model Health resta dentro `outside` fino alla migrazione del Task 14: non diventa inerte dietro il dialogo padre.
+- **Conferma (`ConfirmDialog`, `src/lib/ui/ConfirmDialog.svelte`):** una domanda, un testo o uno snippet di corpo e due azioni nel piede: annulla `.ui-button-ghost`, conferma `.ui-button-primary` o `.ui-button-danger` (`tone="danger"` per ciò che distrugge o interrompe) con il fuoco iniziale. Serve le conferme semplici: aggiornamento e riavvio di `omp`, rimozioni nei Provider.
+- **Avvisi dentro un dialogo:** righe di traccia (12,5 px, testo `--ink`) con l'icona Lucide o lo `StatusMark` nel colore dell'esito, senza card né fondo tinto: una card dentro la superficie del dialogo sarebbe una superficie annidata. `AlertBanner` resta per gli errori che portano diagnostica o azioni.
+- **Consumatori:** `CloseConfirmModal`, centro impostazioni con la conferma annidata di scarto, inspector delle icone, Model Health (dialogo annidato sopra le Impostazioni: il browser gestisce lo stack), dialoghi delle corsie (`LaneReviewModal` a `size="full"`, `LaneDispatchDialog`, `LaneProfileDialog`), guida scorciatoie, anteprima immagine (titolo = nome del file), aggiornamento di Studio, conferme di `+page.svelte` e Provider.
+- **Eccezione documentata: Setup.** La finestra di primo avvio resta una struttura propria con gli stessi token (velo `--backdrop`, `--bg-overlay`, `--line-strong`, 10 px, titolo 16/550) perché ospita la TUI di `omp setup`: l'Esc nativo di `<dialog>` la chiuderebbe mentre la TUI lo usa, e un ingresso animato muoverebbe la viewport del terminale (Still-Room Rule). Entra con `rvLift` solo quando si apre su un passo senza terminale.
 
 ### Controlli form nativi opt-in (ui-input, ui-select, ui-button)
 
@@ -870,7 +902,15 @@ Classi CSS opt-in definite a livello globale in `src/app.css` per i controlli de
   - `.ui-button-primary`: fondo pieno `--brand`, bordo trasparente, testo `--on-brand`, peso 600. Hover: bordo `--on-brand`.
   - `.ui-button-danger`: fondo pieno `--danger`, bordo trasparente, testo `--on-danger`, peso 600. Hover: bordo `--on-danger`.
 - **Chip `.ui-chip`:** pillola `3px 10px`, `--radius-full`, `--bg-raised`, bordo `--line`, didascalia 11/500 `--ink-muted`; hover `--bg-hover`/`--line-strong`/`--ink`. Lo stato scelto (`aria-pressed="true"`) è neutro: `--bg-active`, bordo `--line-strong`, testo `--ink` e una spunta da 12 px nel contenuto, mai un fondo brand.
-- **Primi consumatori:** `.ui-select` in `GeneralSection`; `.ui-button` (tutte e 3 le varianti) in `CloseConfirmModal`; `.ui-input` in `ShortcutsHelpModal`; `.ui-chip` in `SuggestionChips` e nel Task Editor («Usati spesso», direttive).
+- **Casella `.ui-checkbox`:** checkbox nativo (tastiera e `indeterminate` dal browser) da 16 px, `--radius-sm`, bordo `--ink-faint` su `--bg-sunken` (hover `--ink-muted`); scelto o indeterminato fondo e bordo `--brand` con spunta o trattino `--on-brand`. Il bordo a riposo è `--ink-faint` perché il contorno di un controllo vuoto deve reggere 3:1: misurato 4,79:1 su Titanium e 5,97:1 su Alabaster, contro 2,06 e 1,61 di `--line-strong`. Spunta `--on-brand` su `--brand` 5,41 / 4,53. Serve la selezione multipla dentro una lista (file da copiare in una corsia, correzioni del Model Health); una preferenza binaria resta uno `Switch`.
+- **Tasto `.ui-kbd`:** piatto (Flat-By-Default Rule), mono 11 px tabulare, bordo `--line`, `--radius-sm`, padding `0 5px`, testo `--ink-faint`. Dove il tasto è il contenuto (guida scorciatoie) il testo sale a `--ink-muted`; nessun bordo inferiore spesso né ombra «3D». Lo usano scheda domanda, guida scorciatoie e testata del ciclo modelli.
+- **Capacità `.ui-cap`:** chip in linea da 4 px, `--bg-base`, bordo `--line`, testo `--ink-muted`, icona da 11 px; il contesto (`.ctx`) in `--ink-faint` con il valore in mono tabulare. La descrizione sta nel `Tooltip`.
+- **Primi consumatori:** `.ui-select` in `GeneralSection`; `.ui-button` (tutte e 3 le varianti) in `CloseConfirmModal`; `.ui-input` in `ShortcutsHelpModal`; `.ui-chip` in `SuggestionChips` e nel Task Editor («Usati spesso», direttive); `.ui-checkbox` in `LaneProfileDialog` e `ModelHealthModal`; `.ui-cap` in `ModelPickerList`, Ruoli e Catalogo.
+
+### Gestione modelli nei form (ModelField, CycleDrawer)
+
+- **Campo modello (`ModelField`, `src/lib/components/models/ModelField.svelte`):** trigger a sagoma `.ui-select` (30 px, `--bg-sunken`, raggio 6 px `--radius-md`, bordo `--line`, hover `--line-strong`), nome del modello in mono `--ink` con ellissi, provider in meta `--ink-faint` (11 px), chevron Lucide `IconChevronDown` a destra. Apre `MenuButton` da 400 px ancorato a 8 px con `ModelPickerList` dentro. Sostituisce `ModelPickerDropdown` (eliminato) e le copie locali nel Task Editor, nei Ruoli (modello primario e catena di riserva) e nel ciclo Ctrl+P.
+- **Ciclo rapido (`CycleDrawer`, `src/lib/components/models/CycleDrawer.svelte`):** colonna da 270 px che si piega in larghezza nel layout di RolesTab con `--ease-reveal` a 240 ms (`--dur-slow`) e dissolvenza della sfocatura a 3 px (`rvLift` From-Only Rule). Testata 32 px con `IconCycle` neutra `--ink-muted`, titolo in etichetta 12/600 in frase, scorciatoia `Ctrl+P` in `<kbd class="ui-kbd">`, chiusura iconica da 28 px con `Tooltip`. All'apertura porta il fuoco all'interno; Esc chiude senza propagarsi al dialogo padre; alla chiusura restituisce il fuoco al trigger nei Ruoli. Niente colori `--warn` sulle rimozioni: pulsante cestino con hover `--danger`.
 
 ### Conteggi e card di scelta (ui-count, ui-choice)
 
@@ -937,7 +977,7 @@ Sostituisce il composer quando l'agente chiede, e ne prende la sagoma.
 - **Opzioni:** righe `9px 12px`, `--radius-md`, bordo `--line`. Hover `--bg-hover` al 60% con bordo `--line-strong`. La scelta prende bordo `--brand`, anello inset da 1 px e fondo accento al 7%. Radio 16 px (punto 6 px) o casella con raggio 5 px; scorciatoia `1–9` in `kbd`.
 - **Consigliata:** pillola con fondo `--success` al 14%, testo `--success`, anello inset al 25%.
 - **Piede:** «Decidi tu», suggerimenti di tastiera, azioni a destra. L'azione primaria è in `--brand` con testo `--on-brand` e peso 600; quella secondaria è un pulsante fantasma.
-- **Parti condivise:** domanda, dettaglio, contatore, opzioni, «Consigliata» e `kbd` sono classi globali in `src/app.css` (`.ask-text`, `.ask-detail`, `.ask-counter`, `.ask-options`, `.ask-opt`, `.ask-opt-body/-label/-desc`, `.ask-rec`, `.ask-kbd`): `AskCard` e il Companion le usano identiche.
+- **Parti condivise:** domanda, dettaglio, contatore, opzioni e «Consigliata» sono classi globali in `src/app.css` (`.ask-text`, `.ask-detail`, `.ask-counter`, `.ask-options`, `.ask-opt`, `.ask-opt-body/-label/-desc`, `.ask-rec`), i tasti usano `.ui-kbd`: `AskCard` e il Companion le usano identiche.
 
 ### Finestra companion
 
@@ -1103,6 +1143,8 @@ un'icona, mai un'emoji.
 - **Do** risolvere i colori del tema in esadecimale tramite `tokenHex()` per canvas e parser esterni (Mermaid/khroma).
 - **Do** mantenere lo Slider privo di ombre (`box-shadow: none`) con traccia 20 px e cursore 22 px che sporge, staccato da un anello nel colore della superficie.
 - **Do** scegliere il thinking sempre con lo slider (Thinking-Slider Rule), inline o nel popover del composer.
+- **Do** scegliere un modello in un form con `ModelField` (sagoma `.ui-select`, `MenuButton` da 400 px, `ModelPickerList`), lo stesso nel Task Editor, nei Ruoli e nel ciclo Ctrl+P.
+- **Do** usare `ConfirmDialog` per ogni conferma semplice e una riga di traccia, non una card, per un avviso dentro un dialogo.
 
 ### Don't:
 
@@ -1228,7 +1270,7 @@ Allineati al 2026-10-02 l'header di colonna, l'editor con schede e splitter, `Im
 5. **Whiteboard Mermaid (`DiagramViewer`):** risolto P0 di rendering tramite `tokenHex()` da `theme.ts` (esadecimali puliti al posto di `oklch()` rifiutati da `khroma`); `htmlLabels: false` per etichette SVG native compatibili con DOMPurify; ri-render reattivo su cambio tema; barra fusa a 32 px con sequenza zoom unificata; stato vuoto coerente.
 6. **Banner diagnostico (`AlertBanner`):** superficie 100% neutra a 10 px con icona semantica Lucide (Outcome-Only Color Rule); rimossi 4 SVG manuali e tutti i fallback HEX/RGBA; pulsanti conformi a `.ui-button`; ingresso/uscita con `chatReveal` e piegatura diagnostica con `tray-in`/`tray-out` a 210 ms.
 7. **Igiene ed estensioni:** introdotta estensione iconica per `Segmented`; aggiunta icona `IconCircleCheck`; eliminati tutti i `title` nativi dai controlli iconici in favore di `Tooltip`; tutte le stringhe migrate su `messages/it.json` ed `en.json`.
-Restano ad altri task: `ModelPickerDropdown` in `RolesTab` e `CycleDrawer` (task 14). `FileMentionPalette` è stato eliminato con il Task 12.
+`ModelPickerDropdown` è stato sostituito da `ModelField` e `CycleDrawer` è stato allineato nel Task 14. `FileMentionPalette` è stato eliminato con il Task 12.
 
 ### I. Browser Studio e Laboratorio (Task 10)
 
@@ -1261,5 +1303,16 @@ Allineati al 2026-10-05 il guscio `SettingsModal` e le sezioni Generale, Aspetto
 2. **Form:** `.ui-input`, `.ui-select`, `.ui-button`, `Switch` 32×18 e `Segmented`; preferenze binarie e direttive attive di default su interruttori, scelte con anteprima su radio nativi `.ui-choice`. Numeri e tempi in meta tabulare, nessun font mono per fingere una misura.
 3. **Prompt:** `PromptField` in voce 15/24 senza palette; selezione della direttiva modificata su `.ui-selected`, senza striscia laterale. Generazione e affinamento mantengono testo, focus e scorciatoie; attrito AI su superficie neutra con `StatusMark` di attenzione statico.
 4. **Esiti e igiene:** Doctor con `StatusMark` e testo per Superato/Avviso/Errore; account GitHub con completamento neutro. Token semantici, miscele `oklab`, icone Lucide e `Tooltip`; rimossi switch locali, SVG decorativi, spinner paralleli, ombre e colori letterali nelle sezioni.
-5. **Confine:** RolesTab, CatalogTab, ProvidersTab, CycleDrawer, ModelHealthModal e picker dei modelli restano al Task 14; il loro contenuto non è dichiarato allineato da questo intervento.
+5. **Confine:** RolesTab, CatalogTab, ProvidersTab, CycleDrawer, ModelHealthModal e picker dei modelli sono allineati nel Task 14.
 
+
+### M. Gestione modelli e dialoghi (Task 14)
+
+Allineati al 2026-10-05 l'intera area Modelli (`ProvidersTab`, `RolesTab`, `CatalogTab`, `CycleDrawer`, `ModelHealthModal`, `ModelField`, `ModelPickerList`) e tutti i dialoghi di sistema (`LaneReviewModal`, `LaneDispatchDialog`, `LaneProfileDialog`, `ShortcutsHelpModal`, `ImageModal`, `CloseConfirmModal`, `AlertBanner`, `SetupModal`, `+page.svelte` modali inline e banner d'errore):
+
+1. **Dialoghi su `Dialog` nativo:** `LaneReviewModal` (con nuova variante `size="full"` a 32 px dai bordi e diff a tutta altezza), `LaneDispatchDialog`, `LaneProfileDialog`, `ShortcutsHelpModal` (size `wide`), `ImageModal` (con testata standard, nome file e sagoma proporzionata all'immagine) e `ModelHealthModal` (dialogo annidato sopra le Impostazioni: il browser gestisce lo stack di inert) migrati alla primitiva unificata. Eliminati veli manuali (`black`, `oklch`), `backdrop-filter` decorativo, token inesistenti `--z-modal`, `calc(z+1)`, centratura `translate(-50%)`, transizioni `fly`/`fade`/`cubicOut` sparse e focus trap locali.
+2. **Conferme semplici (`ConfirmDialog`):** creata la specializzazione `src/lib/ui/ConfirmDialog.svelte` sopra `Dialog` (titolo, messaggio o snippet di corpo, annulla fantasma, conferma primaria o di pericolo con fuoco iniziale). Adottata per l'aggiornamento e il riavvio di `omp` in `+page.svelte` (eliminato markup duplicato e autofocus nativo sbilanciato) e per le rimozioni di provider/account in `ProvidersTab`.
+3. **Avvisi e righe di traccia:** gli avvisi dentro i dialoghi (`CloseConfirmModal`, `LaneProfileDialog`, `SetupModal`) sono righe di traccia (12,5 px, testo `--ink`) con icona Lucide o `StatusMark` nel colore dell'esito, senza card né fondi colorati (Neutral Rail Rule e Outcome-Only Color Rule). Banner galleggiante d'errore caricamento progetti in `+page.svelte` normalizzato a `--z-toast`, superficie `--bg-overlay` 10 px con `--shadow-overlay`, icona `IconCircleAlert` `--danger`, `rvLift` 150 ms e chiusura con `Tooltip`.
+4. **Controlli e tasti:** introdotte le classi globali `.ui-checkbox` (16 px, bordo `--ink-faint` 4,79:1 su Titanium e 5,97:1 su Alabaster, hover `--ink-muted`, spunta/trattino `--on-brand` su `--brand`) per selezioni multiple in `LaneProfileDialog` e `ModelHealthModal`; `.ui-kbd` piatto (mono 11 px tabulare, bordo `--line`, 4 px, `--ink-faint`, elevato a `--ink-muted` nella guida scorciatoie; eliminato il vecchio `.ask-kbd` 3D); `.ui-cap` per le capacità dei modelli (chip neutro 4 px `--bg-base`, bordo `--line`, testo `--ink-muted`, icona 11 px, contesto in `--ink-faint`).
+5. **Gestione modelli:** `ModelPickerDropdown` eliminato e sostituito dal componente unico `ModelField` (trigger `.ui-select` 30 px con nome mono, provider faint, chevron Lucide + `MenuButton` 400 px con `ModelPickerList`), condiviso da Task Editor, Ruoli e ciclo; `CycleDrawer` colonna pieghevole a 240 ms con gestione fuoco ed Esc; `ModelHealthModal` privo di strisce colorate da 3 px e checkbox allineati; `CatalogTab` con «Gratis» neutro `--ink-muted` e popover assegnazione su `MenuButton`; `ProvidersTab` con switch su primitiva, select/input su classi opt-in, login su `Dialog` e menu aggiungi su `MenuButton`.
+6. **Igiene ed estensioni:** eliminati oltre 30 SVG inline a favore di Lucide centralizzate in `src/lib/icons.ts` (aggiunte `IconCycle`, `IconAccount`, `IconKey`, `IconModels`, `IconPlug`); rimossi tutti i `title` nativi sui controlli iconici in favore di `Tooltip`; tutte le stringhe migrate su `messages/it.json` ed `en.json` via Paraglide; rimossi fallback esadecimali, `rgba()`, `white`/`black` e token inesistenti. Involucro vuoto `SetupWizard.svelte` eliminato.

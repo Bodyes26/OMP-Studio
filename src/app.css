@@ -573,9 +573,13 @@
   margin-top: 2px;
 }
 
-.ask-kbd {
+/* Tasto: piatto (Flat-By-Default Rule), lo stesso nella scheda domanda, nella
+   guida scorciatoie e nelle testate. Dove il tasto e' il contenuto il consumatore
+   alza solo il colore del testo. */
+.ui-kbd {
   font-family: var(--font-mono);
   font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
   line-height: 1.4;
   color: var(--ink-faint);
   border: 1px solid var(--line);
@@ -924,6 +928,91 @@ svg.lucide {
 .ui-count.attention {
   background: color-mix(in oklab, var(--warn) 22%, transparent);
   color: var(--ink);
+}
+
+/* Casella di selezione multipla (file da copiare, correzioni da applicare): resta
+   un checkbox nativo, quindi tastiera e `indeterminate` arrivano dal browser.
+   L'anello di fuoco e' quello globale. Il bordo a riposo e' --ink-faint: con
+   --line-strong la casella vuota scendeva a 2,1:1 (scuro) e 1,6:1 (Alabaster). */
+.ui-checkbox {
+  appearance: none;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--ink-faint);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.ui-checkbox::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: var(--on-brand);
+  clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 22%, 86% 8%, 38% 72%);
+  transform: scale(0);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.ui-checkbox:hover:not(:disabled) {
+  border-color: var(--ink-muted);
+}
+
+.ui-checkbox:checked,
+.ui-checkbox:indeterminate {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.ui-checkbox:checked::before {
+  transform: scale(1);
+}
+
+.ui-checkbox:indeterminate::before {
+  height: 2px;
+  clip-path: none;
+  border-radius: 1px;
+  transform: scale(1);
+}
+
+.ui-checkbox:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Capacita' di un modello (contesto, visione, thinking): chip neutra con icona.
+   Non e' identita' ne' esito: niente tinte, il significato lo porta l'icona. */
+.ui-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  --icon-size: 11px;
+}
+
+.ui-cap small {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ui-cap.ctx {
+  color: var(--ink-faint);
 }
 
 /* Card di scelta con anteprima (impostazioni): una label che contiene il radio

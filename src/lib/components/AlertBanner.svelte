@@ -139,7 +139,7 @@
 									<span class="diagnostic-label">{m.alert_diagnostic_label()}</span>
 									<button
 										type="button"
-										class="btn-copy"
+										class="ui-button ui-button-ghost btn-copy"
 										onclick={copyDiagnostic}
 										aria-label={copied ? m.alert_copied_aria() : m.ui_alertbanner_copia_dettagli_diagnostici_negli_appunti_6191()}
 									>
@@ -178,12 +178,12 @@
 			{/each}
 
 			{#if dismissible && onDismiss}
-				<Tooltip text={m.terminal_close_quota_alert()}>
+				<Tooltip text={m.common_close()}>
 					<button
 						type="button"
 						class="btn-close"
 						onclick={onDismiss}
-						aria-label={m.terminal_close_quota_alert()}
+						aria-label={m.common_close()}
 					>
 						<IconClose />
 					</button>
@@ -315,21 +315,9 @@
 	}
 
 	.btn-copy {
-		padding: 2px var(--space-2);
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		font-family: inherit;
+		height: 22px;
+		padding: 0 var(--space-2);
 		font-size: var(--text-caption);
-		color: var(--ink-muted);
-		cursor: pointer;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
-	}
-
-	.btn-copy:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
 	}
 
 	.diagnostic-code {

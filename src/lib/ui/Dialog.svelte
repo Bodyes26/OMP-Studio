@@ -35,8 +35,9 @@
 		/** Strati dentro il `<dialog>` ma fuori dalla superficie: restano nel top layer
 		 *  senza ereditare overflow e trasformazioni della superficie. */
 		outside?: Snippet;
-		/** `wide`: finestre di lavoro (impostazioni), 1080 px x 86vh. */
-		size?: 'default' | 'wide';
+		/** `wide`: finestre di lavoro (impostazioni), 1080 px x 86vh.
+		 *  `full`: revisioni che vivono di spazio (diff della corsia), viewport meno 32 px per lato. */
+		size?: 'default' | 'wide' | 'full';
 		/** Corpo senza padding ne' limite di altezza: il layout interno lo decide il consumatore. */
 		flush?: boolean;
 		class?: string;
@@ -103,7 +104,7 @@
 
 		<div class="dialog-positioner">
 			<div
-				class={['dialog-surface', size === 'wide' && 'dialog-wide', customClass].filter(Boolean).join(' ')}
+				class={['dialog-surface', size === 'wide' && 'dialog-wide', size === 'full' && 'dialog-full', customClass].filter(Boolean).join(' ')}
 				transition:rvLift={{ duration: 240 }}
 			>
 				{#if header}
@@ -211,6 +212,12 @@
 	.dialog-surface.dialog-wide {
 		max-width: min(1080px, 96vw);
 		height: min(86vh, 760px);
+	}
+
+	.dialog-surface.dialog-full {
+		max-width: none;
+		width: calc(100vw - 64px);
+		height: calc(100vh - 64px);
 	}
 
 	.dialog-header {

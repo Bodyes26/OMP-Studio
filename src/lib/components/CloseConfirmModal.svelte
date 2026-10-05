@@ -2,6 +2,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import Dialog from '$lib/ui/Dialog.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { IconClose, IconWarning, IconQueue, IconCheck } from '$lib/icons';
 
 	export interface ProjectCloseTarget {
@@ -56,26 +57,28 @@
 					{/if}
 				</p>
 			</div>
-			<button
-				type="button"
-				class="btn-close"
-				onclick={onCancel}
-				aria-label={m.close_confirm_cancel_aria()}
-			>
-				<IconClose />
-			</button>
+			<Tooltip text={m.close_confirm_cancel_aria()}>
+				<button
+					type="button"
+					class="btn-close"
+					onclick={onCancel}
+					aria-label={m.close_confirm_cancel_aria()}
+				>
+					<IconClose />
+				</button>
+			</Tooltip>
 		</div>
 	{/snippet}
 
 	{#if project}
 		<div class="modal-body-content">
 			{#if project.isWorking}
-				<div class="alert-banner warning">
-					<div class="alert-title">
+				<div class="trace-row">
+					<div class="trace-lead">
 						<StatusMark status="running" active={true} />
 						<strong>{m.close_confirm_working_banner_title()}</strong>
 					</div>
-					<p class="alert-desc">
+					<p class="trace-desc">
 						{m.close_confirm_working_banner_desc()}
 					</p>
 				</div>
@@ -85,7 +88,7 @@
 				<div class="queue-info">
 					<div class="queue-icon"><IconQueue /></div>
 					<div class="queue-text">
-						<span>{m.close_confirm_project_queued_info({ count: project.queuedCount })}</span>
+						<span class="queue-count">{m.close_confirm_project_queued_info({ count: project.queuedCount })}</span>
 					</div>
 				</div>
 			{/if}
@@ -105,24 +108,26 @@
 			{m.close_confirm_btn_cancel()}
 		</button>
 
-		<button
-			type="button"
-			class="ui-button ui-button-danger"
-			onclick={onConfirmDiscard}
-			title={m.ui_closeconfirmmodal_chiude_ed_elimina_i_task_in_coda_7d6d()}
-		>
-			{m.close_confirm_btn_discard_project()}
-		</button>
+		<Tooltip text={m.ui_closeconfirmmodal_chiude_ed_elimina_i_task_in_coda_7d6d()}>
+			<button
+				type="button"
+				class="ui-button ui-button-danger"
+				onclick={onConfirmDiscard}
+			>
+				{m.close_confirm_btn_discard_project()}
+			</button>
+		</Tooltip>
 
-		<button
-			type="button"
-			class="ui-button ui-button-primary"
-			onclick={onConfirmKeep}
-			title="Chiude conservando tutti i task (compreso quello interrotto) per la prossima volta"
-		>
-			<IconCheck />
-			<span>{m.close_confirm_btn_keep_project()}</span>
-		</button>
+		<Tooltip text={m.close_confirm_keep_tooltip()}>
+			<button
+				type="button"
+				class="ui-button ui-button-primary"
+				onclick={onConfirmKeep}
+			>
+				<IconCheck />
+				<span>{m.close_confirm_btn_keep_project()}</span>
+			</button>
+		</Tooltip>
 	{/snippet}
 </Dialog>
 
@@ -148,7 +153,7 @@
 	}
 
 	.header-icon.warning {
-		background: color-mix(in srgb, var(--warn) 20%, transparent);
+		background: color-mix(in oklab, var(--warn) 15%, transparent);
 		color: var(--warn);
 	}
 
@@ -199,30 +204,25 @@
 		gap: var(--space-3, 12px);
 	}
 
-	.alert-banner {
-		padding: var(--space-3, 12px);
-		border-radius: var(--radius-md, 6px);
-		border: 1px solid transparent;
-		background: var(--bg-raised);
+	.trace-row {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		padding: 0;
+		color: var(--ink);
 	}
 
-	.alert-banner.warning {
-		background: color-mix(in srgb, var(--warn) 10%, var(--bg-raised));
-		border-color: color-mix(in srgb, var(--warn) 30%, transparent);
-	}
-
-	.alert-title {
+	.trace-lead {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		font-size: var(--text-sm, 13px);
+		gap: var(--space-2);
+		font-size: var(--text-body);
 		color: var(--ink);
-		margin-bottom: 6px;
 	}
 
-	.alert-desc {
+	.trace-desc {
 		margin: 0;
-		font-size: var(--text-xs, 12px);
+		font-size: var(--text-label);
 		color: var(--ink-muted);
 		line-height: 1.45;
 	}
@@ -237,6 +237,10 @@
 		border-radius: var(--radius-md, 6px);
 		font-size: var(--text-sm, 13px);
 		color: var(--ink);
+	}
+
+	.queue-count {
+		font-variant-numeric: tabular-nums;
 	}
 
 	.queue-icon {

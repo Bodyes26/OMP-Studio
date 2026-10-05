@@ -15,7 +15,9 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import { fade } from 'svelte/transition';
+	import { rvLift } from '$lib/agent/motion';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import Terminal from '$lib/terminal/Terminal.svelte';
 	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
@@ -285,7 +287,6 @@
 	<div
 		class="setup-backdrop"
 		onclick={(e) => { if (e.target === e.currentTarget && !installing) onClose?.(); }}
-		transition:fade={{ duration: 150 }}
 	>
 		<div
 			class="setup-dialog"
@@ -293,41 +294,58 @@
 			aria-modal="true"
 			aria-labelledby="setup-title"
 			use:trapFocus={{ onEscape: () => { if (!installing) onClose?.(); } }}
+			in:rvLift={{ duration: step === 'wizard' ? 0 : 240 }}
 		>
 			<header class="setup-head">
 				<div class="titles">
-				<h1 id="setup-title">{m.setup_title()}</h1>
-				<p class="subtitle">
-					{#if step === 'install'}
-						Studio ha bisogno di <code>omp</code>: lo installa qui, senza uscire dall'app.
-					{:else if step === 'wizard'}
-						{m.ui_setupmodal_il_setup_qui_sotto_e_quello_di_6309()} <code>omp</code>{m.ui_setupmodal_provider_modello_glifi_composer_tema_f65c()}
-					{:else}
-						{m.setup_step_project_sub()}
-					{/if}
-				</p>
-			</div>
-			<div class="head-right">
-				<ol class="steps" aria-label="Avanzamento">
-					<li class:done={step !== 'install'} class:current={step === 'install'}>omp</li>
-					<li class:done={step === 'project'} class:current={step === 'wizard'}>setup</li>
-					<li class:current={step === 'project'}>{m.ui_setupmodal_progetti_cbed()}</li>
-				</ol>
-				<button
-					type="button"
-					class="btn-refresh"
-					onclick={() => void refreshStatus()}
-					disabled={checkingStatus || installing}
-					title={m.ui_setupmodal_aggiorna_e_verifica_lo_stato_del_setup_921a()}
-					aria-label={m.ui_setupmodal_aggiorna_e_verifica_stato_configurazione_d0ed()}
-				>
-					{#if checkingStatus}...{:else}<IconRefresh /> {m.setup_btn_refresh()}{/if}
-				</button>
-				<button type="button" class="quiet" onclick={() => onClose?.()} disabled={installing} aria-label={m.ui_setupmodal_chiudi_configurazione_guidata_3f44()}>
-					{m.setup_btn_close()}
-				</button>
-			</div>
-		</header>
+					<h2 id="setup-title">{m.setup_title()}</h2>
+					<p class="subtitle">
+						{#if step === 'install'}
+							{m.setup_step_install_sub()}
+						{:else if step === 'wizard'}
+							{m.ui_setupmodal_il_setup_qui_sotto_e_quello_di_6309()} <code>omp</code>{m.ui_setupmodal_provider_modello_glifi_composer_tema_f65c()}
+						{:else}
+							{m.setup_step_project_sub()}
+						{/if}
+					</p>
+				</div>
+				<div class="head-right">
+					<ol class="steps" aria-label={m.setup_progress_aria()}>
+						<li class="step-item" class:current={step === 'install'}>
+							<StatusMark status={step !== 'install' ? 'completed' : 'running'} />
+							<span class="step-label">OMP</span>
+						</li>
+						<li class="step-item" class:current={step === 'wizard'}>
+							<StatusMark status={step === 'install' ? 'pending' : (step === 'project' || ready ? 'completed' : 'running')} />
+							<span class="step-label">Setup</span>
+						</li>
+						<li class="step-item" class:current={step === 'project'}>
+							<StatusMark status={step === 'project' ? 'running' : 'pending'} />
+							<span class="step-label">{m.ui_setupmodal_progetti_cbed()}</span>
+						</li>
+					</ol>
+					<Tooltip text={m.ui_setupmodal_aggiorna_e_verifica_lo_stato_del_setup_921a()}>
+						<button
+							type="button"
+							class="ui-button ui-button-secondary btn-refresh"
+							onclick={() => void refreshStatus()}
+							disabled={checkingStatus || installing}
+							aria-label={m.ui_setupmodal_aggiorna_e_verifica_stato_configurazione_d0ed()}
+						>
+							{#if checkingStatus}...{:else}<IconRefresh /> {m.setup_btn_refresh()}{/if}
+						</button>
+					</Tooltip>
+					<button
+						type="button"
+						class="ui-button ui-button-ghost btn-quiet"
+						onclick={() => onClose?.()}
+						disabled={installing}
+						aria-label={m.ui_setupmodal_chiudi_configurazione_guidata_3f44()}
+					>
+						{m.setup_btn_close()}
+					</button>
+				</div>
+			</header>
 
 			{#if step === 'install'}
 				<div class="card">
@@ -369,7 +387,7 @@
 					{/if}
 
 					<div class="actions">
-						<button type="button" class="primary" onclick={runInstall} disabled={installing}>
+						<button type="button" class="ui-button ui-button-primary" onclick={runInstall} disabled={installing}>
 							{installing ? m.setup_btn_installing() : m.setup_btn_install_omp()}
 						</button>
 					</div>
@@ -381,18 +399,18 @@
 				<footer class="setup-foot">
 					{#if ready}
 						<p class="ok">
-							<span class="dot" aria-hidden="true"></span>
+							<StatusMark status="completed" />
 							{status?.credentialProviders.length ?? 0} {m.ui_setupmodal_provider_collegati_modello_526f()}
 							<code>{status?.defaultModel}</code>
 						</p>
-						<button type="button" class="primary" onclick={goToProjects}>{m.setup_btn_continue()}</button>
+						<button type="button" class="ui-button ui-button-primary" onclick={goToProjects}>{m.setup_btn_continue()}</button>
 					{:else if wizardIncomplete}
 						<div class="incomplete-banner-wrap">
 							<AlertBanner
 								variant="warning"
 								title={m.setup_incomplete_title()}
 								message={m.setup_incomplete_message()}
-								diagnostic={status?.missing?.length ? `Requisiti mancanti: ${status.missing.map(m => REQUIREMENT_LABEL[m] ?? m).join(', ')}` : undefined}
+								diagnostic={status?.missing?.length ? `${m.setup_missing_reqs_prefix()}${status.missing.map(m => REQUIREMENT_LABEL[m] ?? m).join(', ')}` : undefined}
 								actions={[
 									{ label: m.setup_btn_reopen_provider(), onClick: reopenProviderSetup, variant: 'primary' },
 									{ label: m.setup_btn_check_status(), onClick: () => void refreshStatus(), variant: 'secondary' }
@@ -401,7 +419,7 @@
 						</div>
 					{:else}
 						<p class="hint">
-							Completa le scene qui sopra. Studio si accorge da solo di quando hai finito.
+							{m.setup_scenes_hint()}
 						</p>
 					{/if}
 				</footer>
@@ -418,7 +436,7 @@
 										onclick={() => chooseRoot(candidate.path)}
 									>
 										<span class="root-path">{candidate.path}</span>
-										<span class="root-count">{candidate.repoCount} repository</span>
+										<span class="root-count">{m.setup_repo_count({ count: candidate.repoCount })}</span>
 									</button>
 								</li>
 							{/each}
@@ -430,8 +448,8 @@
 					{/if}
 
 					<div class="actions">
-						<button type="button" onclick={browseRoot}>{m.setup_btn_browse()}</button>
-						<button type="button" class="primary" onclick={() => finish()} disabled={!chosenRoot}>
+						<button type="button" class="ui-button ui-button-secondary" onclick={browseRoot}>{m.setup_btn_browse()}</button>
+						<button type="button" class="ui-button ui-button-primary" onclick={() => finish()} disabled={!chosenRoot}>
 							{m.setup_btn_use_folder()}
 						</button>
 					</div>
@@ -461,30 +479,33 @@
 						<div class="gh-onboarding-left">
 							<div class="gh-onboarding-icon"><IconGithub /></div>
 							<div class="gh-onboarding-info">
-								<span class="gh-onboarding-title">Integrazione GitHub</span>
+								<span class="gh-onboarding-title">{m.setup_github_title()}</span>
 								{#if githubStore.status.authenticated}
 									<span class="gh-onboarding-desc connected">
-										✓ Connesso come <strong>@{githubStore.status.username}</strong>
+										<StatusMark status="completed" />
+										<span>{m.setup_github_connected({ user: githubStore.status.username ?? '' })}</span>
 									</span>
 								{:else if githubStore.status.installed}
 									<span class="gh-onboarding-desc">
-										GitHub CLI rilevata. Puoi accedere tramite <code>gh auth login</code> o dalle Impostazioni.
+										{m.setup_github_cli_detected()}
 									</span>
 								{:else}
 									<span class="gh-onboarding-desc">
-										Opzionale: puoi collegare GitHub in qualsiasi momento dalle Impostazioni di Studio.
+										{m.setup_github_optional()}
 									</span>
 								{/if}
 							</div>
 						</div>
-						<button
-							type="button"
-							class="btn-gh-status"
-							onclick={() => void githubStore.loadStatus()}
-							title="Ricarica stato GitHub"
-						>
-							<IconRefresh />
-						</button>
+						<Tooltip text={m.setup_github_refresh_tooltip()}>
+							<button
+								type="button"
+								class="ui-button ui-button-ghost btn-gh-status"
+								onclick={() => void githubStore.loadStatus()}
+								aria-label={m.setup_github_refresh_tooltip()}
+							>
+								<IconRefresh />
+							</button>
+						</Tooltip>
 					</div>
 				</div>
 			{/if}
@@ -540,10 +561,12 @@
 		gap: var(--space-3);
 	}
 
-	h1 {
+	h2#setup-title {
 		margin: 0;
-		font-size: var(--text-xl);
-		font-weight: 650;
+		font-size: var(--text-title);
+		font-weight: 550;
+		line-height: 1.3;
+		text-wrap: balance;
 		color: var(--ink);
 	}
 
@@ -556,23 +579,29 @@
 
 	.steps {
 		display: flex;
+		align-items: center;
 		gap: var(--space-3);
 		margin: 0;
 		padding: 0;
 		list-style: none;
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--ink-faint);
 	}
 
-	.steps .done {
+	.step-item {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
 		color: var(--ink-muted);
 	}
 
-	.steps .current {
-		color: var(--brand-ink);
+	.step-item.current {
+		color: var(--ink);
+	}
+
+	.step-label {
+		font-size: var(--text-label);
+		font-weight: 500;
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.btn-refresh {
@@ -588,7 +617,7 @@
 		align-items: center;
 		gap: 4px;
 		--icon-size: 12px;
-		transition: color 0.12s ease, border-color 0.12s ease;
+		transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-refresh:hover:not(:disabled) {
@@ -660,12 +689,6 @@
 		color: var(--ink-muted);
 	}
 
-	.dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--brand);
-	}
 
 	.progress {
 		display: flex;
@@ -702,43 +725,12 @@
 		margin-top: var(--space-2);
 	}
 
-	button {
-		padding: var(--space-2) var(--space-4);
-		font-family: var(--font-ui);
-		font-size: var(--text-base);
-		color: var(--ink);
-		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out);
-	}
-
-	button:hover:not(:disabled) {
-		background: var(--bg-hover);
-	}
-
-	button:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-
-	button.primary {
-		color: var(--on-brand);
-		background: var(--brand);
-		border-color: transparent;
-	}
-
-	button.primary:hover:not(:disabled) {
-		background: var(--brand-ink);
-	}
-
-	button.quiet {
-		padding: var(--space-1) var(--space-2);
-		font-size: var(--text-sm);
+	.btn-quiet {
 		color: var(--ink-faint);
-		background: transparent;
-		border-color: transparent;
+	}
+
+	.btn-quiet:hover:not(:disabled) {
+		color: var(--ink);
 	}
 
 	.roots,
@@ -763,10 +755,24 @@
 		gap: var(--space-4);
 		width: 100%;
 		text-align: left;
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.root:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
 	}
 
 	.root.selected {
 		border-color: var(--brand);
+		background: color-mix(in oklab, var(--brand) 8%, var(--bg-raised));
 	}
 
 	.github-onboarding-card {
@@ -776,48 +782,52 @@
 		gap: var(--space-3);
 		margin-top: var(--space-3);
 		padding: var(--space-3);
-		background: var(--surface-2, rgba(255, 255, 255, 0.04));
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 	}
+
 	.gh-onboarding-left {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
 	}
+
 	.gh-onboarding-icon {
-		font-size: 1.3rem;
+		--icon-size: 20px;
+		display: inline-flex;
 		color: var(--ink);
 	}
+
 	.gh-onboarding-info {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
 	}
+
 	.gh-onboarding-title {
 		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--ink);
 	}
+
 	.gh-onboarding-desc {
 		font-size: var(--text-xs);
 		color: var(--ink-muted);
 	}
+
 	.gh-onboarding-desc.connected {
-		color: var(--success, #2ecc71);
-	}
-	.btn-gh-status {
-		padding: 6px;
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-	}
-	.btn-gh-status:hover {
-		background: var(--bg-hover);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 		color: var(--ink);
 	}
+
+	.btn-gh-status {
+		padding: 6px;
+		--icon-size: 14px;
+	}
+
 	.root-path {
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
@@ -838,7 +848,19 @@
 	.repo {
 		padding: var(--space-1) var(--space-3);
 		font-family: var(--font-mono);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.repo:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
 	}
 
 	code {

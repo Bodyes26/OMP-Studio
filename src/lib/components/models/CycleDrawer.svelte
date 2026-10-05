@@ -1,19 +1,31 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { modelSettingsStore, resolveCatalogModel, type ModelDto } from '$lib/stores/modelSettings.svelte';
-	import { IconArrowRight, IconLoop } from '$lib/icons';
-	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
-	import { slide } from 'svelte/transition';
+	import {
+		IconArrowRight,
+		IconLoop,
+		IconCycle,
+		IconClose,
+		IconArrowUp,
+		IconArrowDown,
+		IconTrash
+	} from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import ModelField from './ModelField.svelte';
 
 	let {
 		open = true,
+		returnFocus,
 		onClose
 	} = $props<{
 		open?: boolean;
+		returnFocus?: HTMLElement | null;
 		onClose?: () => void;
 	}>();
 
 	let isAdding = $state(false);
+	let drawerEl = $state<HTMLElement | null>(null);
+	let closeBtnEl = $state<HTMLButtonElement | null>(null);
 
 	const cycle = $derived(modelSettingsStore.draftConfig?.cycleOrder || []);
 
@@ -34,31 +46,62 @@
 	function remove(index: number) {
 		modelSettingsStore.removeFromCycle(index);
 	}
+
+	function handleClose() {
+		onClose?.();
+		returnFocus?.focus();
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.stopPropagation();
+			e.preventDefault();
+			handleClose();
+		}
+	}
+
+	// Gestione del fuoco: all'apertura porta il fuoco sul pannello o sul primo controllo
+	$effect(() => {
+		if (open) {
+			requestAnimationFrame(() => {
+				if (closeBtnEl) {
+					closeBtnEl.focus();
+				} else if (drawerEl) {
+					drawerEl.focus();
+				}
+			});
+		}
+	});
 </script>
 
-{#if open}
-	<aside class="cycle-drawer" transition:slide={{ duration: 180, axis: 'x' }}>
+<aside
+	class="cycle-drawer"
+	class:open={open}
+	bind:this={drawerEl}
+	tabindex="-1"
+	onkeydown={handleKeydown}
+	aria-hidden={!open}
+	inert={!open ? true : undefined}
+>
+	<div class="drawer-inner">
 		<div class="drawer-header">
 			<div class="drawer-title-row">
-				<svg class="cycle-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4">
-					<path d="M2 8a6 6 0 0 1 10.2-4.2M14 8a6 6 0 0 1-10.2 4.2" stroke-linecap="round" />
-					<path d="M12.5 1v3h-3M3.5 15v-3h3" stroke-linecap="round" stroke-linejoin="round" />
-				</svg>
-				<span class="drawer-title">Ciclo Rapido</span>
-				<kbd class="shortcut-badge">Ctrl+P</kbd>
+				<span class="cycle-icon"><IconCycle /></span>
+				<span class="drawer-title">{m.cycle_drawer_title()}</span>
+				<kbd class="ui-kbd">Ctrl+P</kbd>
 			</div>
 
-			<button
-				type="button"
-				class="btn-close-drawer"
-				onclick={onClose}
-				aria-label={m.ui_cycledrawer_chiudi_pannello_ciclo_a7be()}
-				title={m.models_cycle_close_aria()}
-			>
-				<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6">
-					<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
-				</svg>
-			</button>
+			<Tooltip text={m.ui_cycledrawer_chiudi_pannello_ciclo_a7be()}>
+				<button
+					type="button"
+					class="btn-close-drawer"
+					bind:this={closeBtnEl}
+					onclick={handleClose}
+					aria-label={m.ui_cycledrawer_chiudi_pannello_ciclo_a7be()}
+				>
+					<IconClose />
+				</button>
+			</Tooltip>
 		</div>
 
 		<div class="drawer-content">
@@ -81,38 +124,38 @@
 						</div>
 
 						<div class="item-actions">
-							<button
-								type="button"
-								class="btn-action"
-								disabled={i === 0}
-								onclick={() => move(i, -1)}
-								title="Sposta prima"
-							>
-								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-									<path d="M3.5 10L8 5.5l4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
-								</svg>
-							</button>
-							<button
-								type="button"
-								class="btn-action"
-								disabled={i === cycle.length - 1}
-								onclick={() => move(i, 1)}
-								title="Sposta dopo"
-							>
-								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-									<path d="M3.5 6L8 10.5l4.5-4.5" stroke-linecap="round" stroke-linejoin="round" />
-								</svg>
-							</button>
-							<button
-								type="button"
-								class="btn-action delete"
-								onclick={() => remove(i)}
-								title={m.ui_cycledrawer_rimuovi_dal_ciclo_d1bc()}
-							>
-								<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
-									<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round" />
-								</svg>
-							</button>
+							<Tooltip text={m.cycle_drawer_move_before()}>
+								<button
+									type="button"
+									class="btn-action"
+									disabled={i === 0}
+									onclick={() => move(i, -1)}
+									aria-label={m.cycle_drawer_move_before()}
+								>
+									<IconArrowUp />
+								</button>
+							</Tooltip>
+							<Tooltip text={m.cycle_drawer_move_after()}>
+								<button
+									type="button"
+									class="btn-action"
+									disabled={i === cycle.length - 1}
+									onclick={() => move(i, 1)}
+									aria-label={m.cycle_drawer_move_after()}
+								>
+									<IconArrowDown />
+								</button>
+							</Tooltip>
+							<Tooltip text={m.ui_cycledrawer_rimuovi_dal_ciclo_d1bc()}>
+								<button
+									type="button"
+									class="btn-action delete"
+									onclick={() => remove(i)}
+									aria-label={m.ui_cycledrawer_rimuovi_dal_ciclo_d1bc()}
+								>
+									<IconTrash />
+								</button>
+							</Tooltip>
 						</div>
 					</div>
 				{/each}
@@ -128,9 +171,10 @@
 			<div class="add-cycle-section">
 				{#if isAdding}
 					<div class="inline-picker">
-						<ModelPickerDropdown
+						<ModelField
 							catalog={modelSettingsStore.assignableCatalog}
 							placeholder={m.models_cycle_placeholder()}
+							ariaLabel={m.models_cycle_placeholder()}
 							onSelect={(sel) => handleAddSelect(sel)}
 						/>
 						<button
@@ -155,7 +199,7 @@
 			<!-- Preview flow -->
 			{#if cycle.length > 0}
 				<div class="preview-box">
-					<div class="preview-label">Anteprima Sequenza</div>
+					<div class="preview-label">{m.cycle_drawer_preview_label()}</div>
 					<div class="preview-flow">
 						{#each cycle as item, idx}
 							{@const model = getModel(item)}
@@ -166,31 +210,81 @@
 								<span class="preview-arrow"><IconArrowRight /></span>
 							{/if}
 						{/each}
-						<span class="preview-loop" title={m.models_cycle_loop_title()}><IconLoop /></span>
+						<Tooltip text={m.models_cycle_loop_title()}>
+							<span class="preview-loop"><IconLoop /></span>
+						</Tooltip>
 					</div>
 				</div>
 			{/if}
 		</div>
-	</aside>
-{/if}
+	</div>
+</aside>
 
 <style>
+	/* Colonna che si piega in larghezza: deve restituire davvero lo spazio alla lista
+	   dei ruoli, quindi si anima la larghezza (una trasformazione la sposterebbe senza
+	   liberare la colonna; una traccia di griglia 0fr non si chiude in un contenitore
+	   a larghezza intrinseca). La linea di separazione e' un'ombra interna, cosi' da
+	   chiusa non occupa nemmeno un pixel. */
 	.cycle-drawer {
-		width: 270px;
+		width: 0;
 		flex-shrink: 0;
-		border-left: 1px solid var(--line);
+		box-shadow: inset 1px 0 0 transparent;
 		background: color-mix(in srgb, var(--bg-sunken) 70%, var(--bg-base));
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+		visibility: hidden;
+		pointer-events: none;
+		transition: width var(--dur-slow) var(--ease-reveal), box-shadow var(--dur-slow) var(--ease-reveal),
+			visibility 0s var(--dur-slow);
+	}
+
+	.cycle-drawer.open {
+		width: 270px;
+		box-shadow: inset 1px 0 0 var(--line);
+		visibility: visible;
+		pointer-events: auto;
+		transition: width var(--dur-slow) var(--ease-reveal), box-shadow var(--dur-slow) var(--ease-reveal),
+			visibility 0s 0s;
+	}
+
+	.drawer-inner {
+		width: 270px;
+		min-width: 270px;
 		display: flex;
 		flex-direction: column;
 		height: 100%;
 		overflow: hidden;
 	}
 
+	.cycle-drawer.open .drawer-inner {
+		animation: cycle-drawer-reveal var(--dur-slow) var(--ease-reveal);
+	}
+
+	@keyframes cycle-drawer-reveal {
+		from {
+			filter: blur(3px);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.cycle-drawer {
+			transition: none;
+		}
+		.cycle-drawer.open .drawer-inner {
+			animation: none;
+		}
+	}
+
 	.drawer-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 10px 12px;
+		height: 32px;
+		min-height: 32px;
+		padding: 0 8px 0 10px;
 		border-bottom: 1px solid var(--line);
 		background: color-mix(in srgb, var(--bg-base) 60%, transparent);
 	}
@@ -202,36 +296,30 @@
 	}
 
 	.cycle-icon {
-		color: var(--brand-ink);
+		color: var(--ink-muted);
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 14px;
 	}
 
 	.drawer-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
-	.shortcut-badge {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
-		color: var(--ink-muted);
-	}
-
 	.btn-close-drawer {
-		width: 22px;
-		height: 22px;
+		width: 28px;
+		height: 28px;
 		display: grid;
 		place-items: center;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		border: 1px solid transparent;
 		background: transparent;
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+		--icon-size: 14px;
 	}
 
 	.btn-close-drawer:hover {
@@ -242,7 +330,6 @@
 
 	.drawer-content {
 		flex: 1;
-		/* Senza min-height: 0 il flex item non si comprime sotto l'altezza del proprio contenuto, quindi il contenitore lo taglia invece di far comparire la barra di scorrimento */
 		min-height: 0;
 		overflow-y: auto;
 		padding: 12px;
@@ -252,7 +339,7 @@
 	}
 
 	.drawer-desc {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		line-height: 1.45;
 		margin: 0;
@@ -272,7 +359,7 @@
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		transition: border-color 120ms ease;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.cycle-item.first-item {
@@ -282,7 +369,8 @@
 
 	.item-order {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		color: var(--brand-ink);
 		font-weight: 600;
 		width: 18px;
@@ -297,7 +385,7 @@
 	}
 
 	.item-name {
-		font-size: 11.5px;
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
 		color: var(--ink);
 		white-space: nowrap;
@@ -306,7 +394,7 @@
 	}
 
 	.item-provider {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-transform: capitalize;
 	}
@@ -316,7 +404,7 @@
 		align-items: center;
 		gap: 2px;
 		opacity: 0.6;
-		transition: opacity 120ms ease;
+		transition: opacity var(--dur-fast) var(--ease-out);
 	}
 
 	.cycle-item:hover .item-actions {
@@ -324,17 +412,18 @@
 	}
 
 	.btn-action {
-		width: 20px;
-		height: 20px;
+		width: 22px;
+		height: 22px;
 		padding: 0;
 		display: grid;
 		place-items: center;
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+		--icon-size: 11px;
 	}
 
 	.btn-action:hover:not(:disabled) {
@@ -344,7 +433,9 @@
 	}
 
 	.btn-action.delete:hover:not(:disabled) {
-		color: var(--warn);
+		color: var(--danger);
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
+		border-color: color-mix(in oklab, var(--danger) 25%, transparent);
 	}
 
 	.btn-action:disabled {
@@ -354,7 +445,7 @@
 
 	.empty-cycle {
 		padding: 12px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-align: center;
 		background: var(--bg-base);
@@ -373,9 +464,9 @@
 		border: 1px dashed var(--line-strong);
 		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		cursor: pointer;
-		transition: all 120ms ease;
+		transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 		text-align: center;
 	}
 
@@ -394,12 +485,13 @@
 	.btn-cancel {
 		align-self: flex-end;
 		padding: 3px 8px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		background: transparent;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
 		cursor: pointer;
+		transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-cancel:hover {
@@ -415,17 +507,15 @@
 	}
 
 	.preview-label {
-		font-size: 9.5px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		margin-bottom: 6px;
 		font-weight: 600;
 	}
 
 	.preview-flow {
 		font-family: var(--font-mono);
-		font-size: 10.5px;
+		font-size: var(--text-caption);
 		line-height: 1.5;
 		display: flex;
 		flex-wrap: wrap;
@@ -444,11 +534,15 @@
 
 	.preview-arrow {
 		color: var(--ink-faint);
+		display: inline-flex;
+		align-items: center;
 		--icon-size: 12px;
 	}
 
 	.preview-loop {
 		color: var(--brand-ink);
-		font-size: 12px;
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 12px;
 	}
 </style>

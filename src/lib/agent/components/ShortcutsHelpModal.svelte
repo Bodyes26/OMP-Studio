@@ -1,10 +1,13 @@
 <script lang="ts">
+	/**
+	 * ShortcutsHelpModal — Guida completa alle scorciatoie da tastiera (Design v2).
+	 * Usa la primitiva Dialog accessibile con testata, ricerca rapida e top-layer.
+	 */
 	import { m } from '$lib/paraglide/messages.js';
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
-	import { trapFocus } from '$lib/focusTrap';
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
-	import { IconKeyboard, IconClose, IconSearch } from '$lib/icons';
+	import { IconClose, IconKeyboard, IconSearch } from '$lib/icons';
 
 	// Props con supporto fallback per retrocompatibilita'
 	let {
@@ -27,16 +30,6 @@
 		}
 	}
 
-	// Blocca lo scorrimento del corpo quando il modale e' aperto
-	$effect(() => {
-		if (!isOpen) return;
-		const originalOverflow = document.body.style.overflow;
-		document.body.style.overflow = 'hidden';
-		return () => {
-			document.body.style.overflow = originalOverflow;
-		};
-	});
-
 	let searchQuery = $state('');
 
 	interface ShortcutItem {
@@ -55,47 +48,47 @@
 	const categories = $derived.by((): ShortcutCategory[] => [
 		{
 			id: 'models-roles',
-			title: 'Modelli & Ruoli (Superficie GUI)',
+			title: m.shortcuts_cat_models(),
 			column: 1,
 			items: [
-				{ keys: ['Ctrl+P'], description: 'Cicla sequenzialmente tra i ruoli (default → plan → smol...)' },
-				{ keys: ['Alt+R'], description: 'Apre il menu rapido di selezione del ruolo' },
-				{ keys: ['Alt+P'], description: 'Apre il catalogo rapido dei modelli con ricerca e tastiera' },
-				{ keys: ['Alt+M'], description: 'Apre il menu livello di thinking (ragionamento)' },
-				{ keys: ['Alt+T'], description: 'Cicla direttamente il livello di thinking (off → max)' },
+				{ keys: ['Ctrl+P'], description: m.shortcuts_item_cycle_roles() },
+				{ keys: ['Alt+R'], description: m.shortcuts_item_role_menu() },
+				{ keys: ['Alt+P'], description: m.shortcuts_item_model_menu() },
+				{ keys: ['Alt+M'], description: m.shortcuts_item_thinking_menu() },
+				{ keys: ['Alt+T'], description: m.shortcuts_item_thinking_cycle() },
 			]
 		},
 		{
 			id: 'composer-chat',
-			title: 'Composer & Chat (Superficie GUI)',
+			title: m.shortcuts_cat_composer(),
 			column: 1,
 			items: [
 				{ keys: ['Invio'], description: m.ui_shortcutshelpmodal_invia_il_messaggio_o_seleziona_il_comando_af10() },
 				{ keys: ['Alt+Invio'], description: m.ui_shortcutshelpmodal_invia_con_la_modalita_di_accodamento_alternativa_4022() },
 				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: m.ui_shortcutshelpmodal_inserisce_una_nuova_riga_nel_campo_di_6250() },
-				{ keys: ['/'], description: 'Apre la palette dei comandi slash disponibili' },
+				{ keys: ['/'], description: m.shortcuts_item_slash_palette() },
 				{ keys: ['Alt+1…6'], description: m.ui_shortcutshelpmodal_precompila_il_composer_con_il_suggerimento_in_f5fb() },
-				{ keys: ['Alt+E'], description: 'Mette a fuoco il campo di scrittura del Composer' },
+				{ keys: ['Alt+E'], description: m.shortcuts_item_focus_composer() },
 				{ keys: ['Alt+N'], description: m.ui_shortcutshelpmodal_apre_una_nuova_chat_nel_progetto_attivo_3acb() },
 				{ keys: ['Alt+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_o_cancella_6699() },
 				{ keys: ['Ctrl+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_senza_testo_37ce() },
-				{ keys: ['Esc'], description: 'Chiude menu o palette a comparsa' }
+				{ keys: ['Esc'], description: m.shortcuts_item_close_menus() }
 			]
 		},
 		{
 			id: 'shell-window',
-			title: 'Guscio & Finestra (Globale Studio)',
+			title: m.shortcuts_cat_shell(),
 			column: 2,
 			items: [
-				{ keys: ['Alt+H', 'Alt+K', 'F1'], description: 'Apre questa guida alle scorciatoie da tastiera' },
+				{ keys: ['Alt+H', 'Alt+K', 'F1'], description: m.shortcuts_item_open_guide() },
 				{ keys: ['Ctrl+Alt+A'], description: m.ui_shortcutshelpmodal_passa_tra_la_superficie_gui_chat_e_0c21() },
 				{ keys: ['Ctrl+Alt+N'], description: m.ui_shortcutshelpmodal_nuovo_progetto_apre_il_selettore_cartella_01ff() },
-				{ keys: ['Ctrl+Alt+S'], description: 'Apre una chat Scratchpad temporanea (--no-session)' },
-				{ keys: ['Ctrl+Alt+P'], description: 'Apre un nuovo prototipo libero nel Laboratorio (con flag alpha)' },
-				{ keys: ['Ctrl+Alt+U'], description: 'Apre e chiude il pannello consumi e quote API' },
+				{ keys: ['Ctrl+Alt+S'], description: m.shortcuts_item_scratchpad() },
+				{ keys: ['Ctrl+Alt+P'], description: m.shortcuts_item_lab_prototype() },
+				{ keys: ['Ctrl+Alt+U'], description: m.shortcuts_item_usage_panel() },
 				{ keys: ['Ctrl+Alt+M'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_modelli_ruoli_catalogo_provider_9786() },
 				{ keys: ['Ctrl+Alt+,'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_generali_di_studio_0d93() },
-				{ keys: ['Ctrl+Alt+D'], description: 'Apre Studio Doctor (autodiagnostica salute ambiente e provider AI)' },
+				{ keys: ['Ctrl+Alt+D'], description: m.shortcuts_item_doctor() },
 				{ keys: ['Ctrl+Alt+T'], description: m.ui_shortcutshelpmodal_apre_la_vista_aggregata_dei_task_in_94ef() },
 				{ keys: ['Ctrl+Tab', 'Ctrl+Shift+Tab'], description: m.ui_shortcutshelpmodal_passa_al_progetto_aperto_successivo_precedente_7793() },
 				{ keys: ['Ctrl+Alt+→', 'Ctrl+Alt+←'], description: m.ui_shortcutshelpmodal_passa_al_progetto_aperto_successivo_precedente_7793() },
@@ -109,11 +102,11 @@
 			items: [
 				{ keys: ['Ctrl+S'], description: m.ui_shortcutshelpmodal_salva_il_file_corrente_nell_editor_adfb() },
 				{ keys: ['Ctrl+W', 'Ctrl+F4'], description: m.ui_shortcutshelpmodal_chiude_la_scheda_del_file_corrente_2d67() },
-				{ keys: ['Ctrl+Shift+W'], description: 'Chiude tutte le schede aperte nell\'editor' },
+				{ keys: ['Ctrl+Shift+W'], description: m.shortcuts_item_close_all_tabs() },
 				{ keys: ['Ctrl+Shift+V'], description: m.ui_shortcutshelpmodal_cicla_la_vista_dei_file_con_anteprima_d587() },
-				{ keys: ['Clic centrale'], description: 'Chiude la scheda dell\'editor sotto il puntatore' },
-				{ keys: ['Ctrl+0'], description: 'Adatta il diagramma a tutto schermo (viewer)' },
-				{ keys: ['Click destro', 'Shift+F10'], description: 'Apre il menu contestuale dedicato dell\'elemento a fuoco' }
+				{ keys: [m.shortcuts_key_middle_click()], description: m.shortcuts_item_middle_click_close() },
+				{ keys: ['Ctrl+0'], description: m.shortcuts_item_fit_diagram() },
+				{ keys: [m.shortcuts_key_right_click(), 'Shift+F10'], description: m.shortcuts_item_context_menu() }
 			]
 		}
 	]);
@@ -121,18 +114,18 @@
 	// Conteggio totale scorciatoie
 	const totalShortcutsCount = $derived(categories.reduce((sum, cat) => sum + cat.items.length, 0));
 
-	// Filtro in tempo reale
-	const filteredCategories = $derived.by(() => {
+	// Filtraggio in base alla query
+	const filteredCategories = $derived.by((): ShortcutCategory[] => {
 		const q = searchQuery.trim().toLowerCase();
 		if (!q) return categories;
 
 		return categories
 			.map((cat) => {
 				const matchingItems = cat.items.filter((item) => {
-					const inDesc = item.description.toLowerCase().includes(q);
-					const inNote = item.note?.toLowerCase().includes(q) ?? false;
 					const inKeys = item.keys.some((k) => k.toLowerCase().includes(q));
-					return inDesc || inNote || inKeys;
+					const inDesc = item.description.toLowerCase().includes(q);
+					const inNote = item.note ? item.note.toLowerCase().includes(q) : false;
+					return inKeys || inDesc || inNote;
 				});
 				return {
 					...cat,
@@ -145,257 +138,169 @@
 	const column1Categories = $derived(filteredCategories.filter((c) => c.column === 1));
 	const column2Categories = $derived(filteredCategories.filter((c) => c.column === 2));
 	const hasResults = $derived(filteredCategories.length > 0);
+
+	const dialogTitle = $derived(m.shortcuts_dialog_title());
 </script>
 
-{#if isOpen}
-	<!-- Backdrop modale -->
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="modal-backdrop"
-		onclick={handleClose}
-		transition:fade={{ duration: 150 }}
-	></div>
+<Dialog
+	open={isOpen}
+	title={dialogTitle}
+	onClose={handleClose}
+	size="wide"
+	initialFocus=".search-input"
+>
+	{#snippet icon()}
+		<IconKeyboard />
+	{/snippet}
 
-	<!-- Finestra modale centrata a due colonne -->
-	<div
-		class="modal-window"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="shortcuts-dialog-title"
-		use:trapFocus={{ onEscape: handleClose, initialFocus: '.search-input' }}
-		transition:fly={{ y: -12, duration: 200, easing: cubicOut }}
-	>
-		<!-- Header con titolo, campo di ricerca e chiusura -->
-		<header class="modal-header">
-			<div class="header-left">
-				<span class="header-icon" aria-hidden="true">
-					<IconKeyboard />
-				</span>
-				<h2 id="shortcuts-dialog-title" class="header-title">Scorciatoie da tastiera</h2>
-			</div>
-
-			<div class="header-center">
-				<div class="search-box">
-					<span class="search-icon" aria-hidden="true">
-						<IconSearch />
-					</span>
-					<input
-						type="text"
-						class="ui-input search-input"
-						placeholder={m.ui_shortcutshelpmodal_filtra_scorciatoie_o_comandi_es_modelli_ctrl_618e()}
-						bind:value={searchQuery}
-						aria-label={m.shortcuts_filter_placeholder()}
-					/>
-					{#if searchQuery}
-						<button
-							type="button"
-							class="clear-search-btn"
-							onclick={() => (searchQuery = '')}
-							title={m.settings_appearance_clear_filter()}
-							aria-label="Cancella filtro ricerca"
-						>
-							&times;
-						</button>
-					{/if}
-				</div>
-			</div>
-
-			<div class="header-right">
-				<button
-					type="button"
-					class="btn-close"
-					onclick={handleClose}
-					title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()}
-					aria-label={m.settings_close_window()}
-				>
-					<IconClose />
-				</button>
-			</div>
-		</header>
-
-		<!-- Corpo con layout a due colonne affiancate -->
-		<div class="modal-body">
-			{#if !hasResults}
-				<div class="empty-results">
-					<span class="empty-icon"><IconSearch /></span>
-					<p class="empty-text">{m.ui_shortcutshelpmodal_nessuna_scorciatoia_trovata_per_84cd()}<strong>{searchQuery}</strong>"</p>
+	{#snippet actions()}
+		<div class="search-box">
+			<span class="search-icon" aria-hidden="true">
+				<IconSearch />
+			</span>
+			<input
+				type="text"
+				class="ui-input search-input"
+				placeholder={m.ui_shortcutshelpmodal_filtra_scorciatoie_o_comandi_es_modelli_ctrl_618e()}
+				bind:value={searchQuery}
+				aria-label={m.shortcuts_filter_placeholder()}
+			/>
+			{#if searchQuery}
+				<Tooltip text={m.settings_appearance_clear_filter()}>
 					<button
 						type="button"
-						class="reset-search-btn"
+						class="clear-search-btn"
 						onclick={() => (searchQuery = '')}
+						aria-label={m.settings_appearance_clear_filter()}
 					>
-						{m.ui_shortcutshelpmodal_mostra_tutte_le_scorciatoie_d3d2()}
+						<IconClose />
 					</button>
-				</div>
-			{:else}
-				<div class="columns-grid">
-					<!-- Colonna 1: Modelli & Ruoli, Composer & Scrittura -->
-					<div class="shortcuts-column">
-						{#each column1Categories as cat (cat.id)}
-							<section class="category-section" aria-labelledby="cat-{cat.id}">
-								<h3 id="cat-{cat.id}" class="category-title">{cat.title}</h3>
-								<div class="shortcuts-list">
-									{#each cat.items as item (item.description)}
-										<div class="shortcut-row">
-											<div class="desc-wrap">
-												<span class="desc-text">{item.description}</span>
-												{#if item.note}
-													<span class="desc-note">{item.note}</span>
-												{/if}
-											</div>
-											<div class="keys-wrap">
-												{#each item.keys as key, ki (key)}
-													{#if ki > 0}
-														<span class="keys-or">o</span>
-													{/if}
-													<span class="key-combo">
-														{#each key.split('+') as part, pi (part)}
-															{#if pi > 0}
-																<span class="key-plus">+</span>
-															{/if}
-															<kbd class="key-badge">{part}</kbd>
-														{/each}
-													</span>
-												{/each}
-											</div>
-										</div>
-									{/each}
-								</div>
-							</section>
-						{/each}
-					</div>
-
-					<!-- Colonna 2: Guscio & Finestra, Editor & File -->
-					<div class="shortcuts-column">
-						{#each column2Categories as cat (cat.id)}
-							<section class="category-section" aria-labelledby="cat-{cat.id}">
-								<h3 id="cat-{cat.id}" class="category-title">{cat.title}</h3>
-								<div class="shortcuts-list">
-									{#each cat.items as item (item.description)}
-										<div class="shortcut-row">
-											<div class="desc-wrap">
-												<span class="desc-text">{item.description}</span>
-												{#if item.note}
-													<span class="desc-note">{item.note}</span>
-												{/if}
-											</div>
-											<div class="keys-wrap">
-												{#each item.keys as key, ki (key)}
-													{#if ki > 0}
-														<span class="keys-or">o</span>
-													{/if}
-													<span class="key-combo">
-														{#each key.split('+') as part, pi (part)}
-															{#if pi > 0}
-																<span class="key-plus">+</span>
-															{/if}
-															<kbd class="key-badge">{part}</kbd>
-														{/each}
-													</span>
-												{/each}
-											</div>
-										</div>
-									{/each}
-								</div>
-							</section>
-						{/each}
-					</div>
-				</div>
+				</Tooltip>
 			{/if}
 		</div>
+	{/snippet}
 
-		<!-- Footer con scorciatoie di chiusura e pulsante -->
-		<footer class="modal-footer">
+	{#if !hasResults}
+		<div class="empty-results">
+			<span class="empty-icon"><IconSearch /></span>
+			<p class="empty-text">
+				{m.ui_shortcutshelpmodal_nessuna_scorciatoia_trovata_per_84cd()}"<strong>{searchQuery}</strong>"
+			</p>
+			<button
+				type="button"
+				class="ui-button ui-button-secondary reset-search-btn"
+				onclick={() => (searchQuery = '')}
+			>
+				{m.ui_shortcutshelpmodal_mostra_tutte_le_scorciatoie_d3d2()}
+			</button>
+		</div>
+	{:else}
+		<div class="columns-grid">
+			<!-- Colonna 1: Modelli & Ruoli, Composer & Scrittura -->
+			<div class="shortcuts-column">
+				{#each column1Categories as cat (cat.id)}
+					<section class="category-section" aria-labelledby="cat-{cat.id}">
+						<h3 id="cat-{cat.id}" class="category-title">{cat.title}</h3>
+						<div class="shortcuts-list">
+							{#each cat.items as item (item.keys.join('|'))}
+								<div class="shortcut-row">
+									<div class="desc-wrap">
+										<span class="desc-text">{item.description}</span>
+										{#if item.note}
+											<span class="desc-note">{item.note}</span>
+										{/if}
+									</div>
+									<div class="keys-wrap">
+										{#each item.keys as key, ki (key)}
+											{#if ki > 0}
+												<span class="keys-or">{m.shortcuts_footer_hint_or()}</span>
+											{/if}
+											<span class="key-combo">
+												{#each key.split('+') as part, pi (part)}
+													{#if pi > 0}
+														<span class="key-plus">+</span>
+													{/if}
+													<kbd class="ui-kbd">{part}</kbd>
+												{/each}
+											</span>
+										{/each}
+									</div>
+								</div>
+							{/each}
+						</div>
+					</section>
+				{/each}
+			</div>
+
+			<!-- Colonna 2: Guscio & Finestra, Editor & File -->
+			<div class="shortcuts-column">
+				{#each column2Categories as cat (cat.id)}
+					<section class="category-section" aria-labelledby="cat-{cat.id}">
+						<h3 id="cat-{cat.id}" class="category-title">{cat.title}</h3>
+						<div class="shortcuts-list">
+							{#each cat.items as item (item.keys.join('|'))}
+								<div class="shortcut-row">
+									<div class="desc-wrap">
+										<span class="desc-text">{item.description}</span>
+										{#if item.note}
+											<span class="desc-note">{item.note}</span>
+										{/if}
+									</div>
+									<div class="keys-wrap">
+										{#each item.keys as key, ki (key)}
+											{#if ki > 0}
+												<span class="keys-or">{m.shortcuts_footer_hint_or()}</span>
+											{/if}
+											<span class="key-combo">
+												{#each key.split('+') as part, pi (part)}
+													{#if pi > 0}
+														<span class="key-plus">+</span>
+													{/if}
+													<kbd class="ui-kbd">{part}</kbd>
+												{/each}
+											</span>
+										{/each}
+									</div>
+								</div>
+							{/each}
+						</div>
+					</section>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
+	{#snippet footer()}
+		<div class="shortcuts-footer-content">
 			<div class="footer-hint">
-				<span>Premi <kbd class="key-badge small">Esc</kbd> o <kbd class="key-badge small">Alt+H</kbd> per chiudere</span>
+				<span>{m.shortcuts_footer_hint_lead()}</span>
+				<kbd class="ui-kbd">Esc</kbd>
+				<span>{m.shortcuts_footer_hint_or()}</span>
+				<kbd class="ui-kbd">Alt+H</kbd>
+				<span>{m.shortcuts_footer_hint_close()}</span>
 			</div>
 			<div class="footer-stats">
-				<span class="count-badge">{totalShortcutsCount} scorciatoie documentate</span>
+				<span class="ui-count">{totalShortcutsCount}</span>
+				<span class="footer-stats-text">
+					{m.shortcuts_footer_count({ count: totalShortcutsCount })}
+				</span>
 			</div>
 			<div class="footer-actions">
-				<button type="button" class="footer-btn" onclick={handleClose}>
-					Ho capito
+				<button type="button" class="ui-button ui-button-secondary" onclick={handleClose}>
+					{m.shortcuts_footer_dismiss()}
 				</button>
 			</div>
-		</footer>
-	</div>
-{/if}
+		</div>
+	{/snippet}
+</Dialog>
 
 <style>
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: color-mix(in srgb, var(--bg-base) 80%, black);
-		opacity: 0.75;
-		z-index: var(--z-backdrop);
-	}
-
-	.modal-window {
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		width: 940px;
-		max-width: calc(100vw - 48px);
-		max-height: min(660px, calc(100vh - 84px));
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		z-index: var(--z-dialog);
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-		font-family: var(--font-ui);
-		color: var(--ink);
-	}
-
-	.modal-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-2) var(--space-4);
-		background: var(--bg-raised);
-		border-bottom: 1px solid var(--line);
-		gap: var(--space-3);
-		min-height: 48px;
-		flex-shrink: 0;
-	}
-
-	.header-left {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		flex-shrink: 0;
-	}
-
-	.header-icon {
-		display: flex;
-		align-items: center;
-		color: var(--ink-muted);
-	}
-
-	.header-title {
-		margin: 0;
-		font-size: var(--text-md);
-		font-weight: 600;
-		color: var(--ink);
-		white-space: nowrap;
-	}
-
-	.header-center {
-		flex: 1;
-		max-width: 420px;
-		display: flex;
-		align-items: center;
-	}
-
 	.search-box {
 		position: relative;
 		display: flex;
 		align-items: center;
-		width: 100%;
+		width: 320px;
+		max-width: 100%;
 	}
 
 	.search-icon {
@@ -405,6 +310,7 @@
 		align-items: center;
 		color: var(--ink-faint);
 		pointer-events: none;
+		--icon-size: 14px;
 	}
 
 	.search-input {
@@ -419,53 +325,19 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 16px;
-		height: 16px;
+		width: 18px;
+		height: 18px;
 		border-radius: var(--radius-full);
 		border: none;
 		background: var(--bg-hover);
 		color: var(--ink-muted);
-		font-size: 12px;
-		line-height: 1;
+		--icon-size: 11px;
 		cursor: pointer;
 	}
 
 	.clear-search-btn:hover {
 		background: var(--bg-active);
 		color: var(--ink);
-	}
-
-	.header-right {
-		display: flex;
-		align-items: center;
-		flex-shrink: 0;
-	}
-
-	.btn-close {
-		width: 28px;
-		height: 28px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: transparent;
-		border: none;
-		color: var(--ink-muted);
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast);
-	}
-
-	.btn-close:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.modal-body {
-		padding: var(--space-4);
-		overflow-y: auto;
-		flex: 1;
-		min-height: 0;
-		background: var(--bg-overlay);
 	}
 
 	.columns-grid {
@@ -488,12 +360,13 @@
 		gap: 6px;
 	}
 
+	/* Group label ammesso: 11px/600 maiuscolo 0.05em --ink-faint */
 	.category-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 600;
-		color: var(--ink-muted);
+		color: var(--ink-faint);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
+		letter-spacing: 0.05em;
 		padding-bottom: 4px;
 		border-bottom: 1px solid var(--line);
 		margin: 0;
@@ -511,10 +384,11 @@
 		justify-content: space-between;
 		gap: var(--space-3);
 		padding: 5px 8px;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--bg-base);
 		border: 1px solid var(--line);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
+		transition: background var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.shortcut-row:hover {
@@ -526,7 +400,7 @@
 		flex: 1;
 		min-width: 0;
 		text-align: left;
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		line-height: 1.35;
 	}
 
@@ -536,7 +410,7 @@
 
 	.desc-note {
 		display: block;
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		margin-top: 1px;
 	}
@@ -557,43 +431,22 @@
 	}
 
 	.keys-or {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		margin: 0 2px;
 		font-style: italic;
 	}
 
 	.key-plus {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		user-select: none;
 		margin: 0 1px;
 	}
 
-	.key-badge {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 1px 6px;
-		min-width: 18px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line-strong);
-		border-bottom-width: 2px;
-		border-radius: var(--radius-sm);
-		font-family: var(--font-mono);
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--ink);
-		line-height: 1.2;
-		box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
-		white-space: nowrap;
-	}
-
-	.key-badge.small {
-		padding: 0 4px;
-		font-size: 10px;
-		min-width: 14px;
-		border-bottom-width: 1px;
+	/* Nella guida il tasto e' il contenuto: sale a --ink-muted, solo qui. */
+	.key-combo .ui-kbd {
+		color: var(--ink-muted);
 	}
 
 	.empty-results {
@@ -611,11 +464,12 @@
 		color: var(--ink-faint);
 		transform: scale(1.5);
 		margin-bottom: var(--space-2);
+		--icon-size: 20px;
 	}
 
 	.empty-text {
 		margin: 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		color: var(--ink-muted);
 	}
 
@@ -623,37 +477,16 @@
 		color: var(--ink);
 	}
 
-	.reset-search-btn {
-		margin-top: var(--space-2);
-		padding: 4px 10px;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--brand-ink);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.reset-search-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-	}
-
-	.modal-footer {
+	.shortcuts-footer-content {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-2) var(--space-4);
-		background: var(--bg-raised);
-		border-top: 1px solid var(--line);
-		flex-shrink: 0;
+		width: 100%;
 		gap: var(--space-3);
-		min-height: 44px;
 	}
 
 	.footer-hint {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		color: var(--ink-muted);
 		display: flex;
 		align-items: center;
@@ -661,12 +494,10 @@
 	}
 
 	.footer-stats {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.count-badge {
-		font-size: 11px;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -676,41 +507,7 @@
 		gap: var(--space-2);
 	}
 
-	.footer-btn {
-		padding: 4px 14px;
-		background: var(--bg-base);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		cursor: pointer;
-		transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
-	}
-
-	.footer-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-		color: var(--brand-ink);
-	}
-
 	@media (max-width: 768px) {
-		.modal-window {
-			width: 96vw;
-			max-height: calc(100vh - 48px);
-		}
-
-		.modal-header {
-			flex-wrap: wrap;
-			gap: var(--space-2);
-		}
-
-		.header-center {
-			order: 3;
-			max-width: 100%;
-			width: 100%;
-		}
-
 		.columns-grid {
 			grid-template-columns: 1fr;
 			gap: var(--space-3);
@@ -718,6 +515,10 @@
 
 		.footer-stats {
 			display: none;
+		}
+
+		.search-box {
+			width: 200px;
 		}
 	}
 </style>

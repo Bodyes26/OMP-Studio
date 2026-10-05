@@ -6,10 +6,8 @@
 	// restore e i file candidati. Niente viene copiato finche' l'utente non
 	// conferma; la decisione vale anche per le corsie successive.
 	import { m } from '$lib/paraglide/messages.js';
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
-	import { trapFocus } from '$lib/focusTrap';
-	import { IconClose, IconPlus, IconGitBranch } from '$lib/icons';
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import { IconPlus, IconGitBranch, IconWarning } from '$lib/icons';
 	import type { ProjectStack, RestoreMode } from '$lib/types/lanes';
 	import type {
 		CandidateRule,
@@ -34,7 +32,6 @@
 	} = $props();
 
 	let selected = $state<Record<string, boolean>>({});
-	let primaryBtnEl = $state<HTMLButtonElement | null>(null);
 
 	// I candidati arrivano preselezionati: sono file che l'utente ha comunque
 	// gia' sul disco e che servono a far partire il progetto nella corsia.
@@ -44,19 +41,6 @@
 		for (const candidate of candidates) next[candidate.relativePath] = true;
 		selected = next;
 	});
-
-	$effect(() => {
-		if (!open) return;
-		const timer = setTimeout(() => primaryBtnEl?.focus(), 30);
-		return () => clearTimeout(timer);
-	});
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!open || event.key !== 'Escape') return;
-		event.preventDefault();
-		event.stopPropagation();
-		onCancel();
-	}
 
 	function confirm() {
 		onConfirm(candidates.map((c) => c.relativePath).filter((path) => selected[path]));
@@ -130,208 +114,119 @@
 	const generated = $derived((detection?.generatedDirectories ?? []).slice(0, 6).join(', '));
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<Dialog
+	{open}
+	title={m.laneprofile_title()}
+	onClose={onCancel}
+	initialFocus="[data-dialog-primary]"
+>
+	{#snippet icon()}
+		<span class="dialog-icon-wrap">
+			<IconGitBranch />
+		</span>
+	{/snippet}
 
-{#if open}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="modal-backdrop" onclick={onCancel} transition:fade={{ duration: 150 }}></div>
+	{#snippet body()}
+		<p class="dialog-subtitle">{m.laneprofile_subtitle({ count: candidates.length })}</p>
 
-	<div
-		class="modal-window"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="lane-profile-title"
-		use:trapFocus
-		transition:fly={{ y: -16, duration: 200, easing: cubicOut }}
-	>
-		<div class="modal-header">
-			<div class="header-icon"><IconGitBranch /></div>
-			<div class="header-text">
-				<h3 id="lane-profile-title">{m.laneprofile_title()}</h3>
-				<p class="subtitle">{m.laneprofile_subtitle({ count: candidates.length })}</p>
-			</div>
-			<button
-				type="button"
-				class="btn-close"
-				onclick={onCancel}
-				aria-label={m.laneprofile_cancel()}
-			>
-				<IconClose />
-			</button>
-		</div>
-
-		<div class="modal-body">
-			<div class="profile-box">
-				<span class="label">{m.laneprofile_stack_label()}</span>
-				<div class="chips">
-					{#if stacks.length === 0}
-						<span class="chip muted">{m.laneprofile_stack_unknown()}</span>
-					{:else}
-						{#each stacks as stack (stack)}
-							<span class="chip">{stackLabel(stack)}</span>
-						{/each}
-					{/if}
-					<span class="chip muted">{restoreLabel(detection?.restoreMode ?? 'none')}</span>
-				</div>
-				{#if detection && detection.subprojects.length > 0}
-					<ul class="evidence">
-						{#each detection.subprojects as subproject (subproject.directory)}
-							<li>
-								{#if subproject.directory}
-									<span class="path">{subproject.directory}</span>
-								{/if}
-								<span class="manifests">{subproject.manifests.join(' · ')}</span>
-							</li>
-						{/each}
-					</ul>
+		<div class="profile-box">
+			<span class="label">{m.laneprofile_stack_label()}</span>
+			<div class="chips">
+				{#if stacks.length === 0}
+					<span class="chip muted">{m.laneprofile_stack_unknown()}</span>
+				{:else}
+					{#each stacks as stack (stack)}
+						<span class="chip">{stackLabel(stack)}</span>
+					{/each}
 				{/if}
+				<span class="chip muted">{restoreLabel(detection?.restoreMode ?? 'none')}</span>
 			</div>
-
-			{#each warnings as warning (warning.kind)}
-				<p class="warning">{warningLabel(warning)}</p>
-			{/each}
-
-			{#if candidates.length > 0}
-				<div class="profile-box">
-					<span class="label">{m.laneprofile_files_label()}</span>
-					<ul class="files">
-						{#each candidates as candidate (candidate.relativePath)}
-							<li>
-								<label>
-									<input type="checkbox" bind:checked={selected[candidate.relativePath]} />
-									<span class="path">{candidate.relativePath}</span>
-									<span class="meta">{formatBytes(candidate.bytes)}</span>
-									<span class="meta">{ruleLabel(candidate.rule)}</span>
-								</label>
-							</li>
-						{/each}
-					</ul>
-					<p class="hint">{m.laneprofile_intro()}</p>
-				</div>
-			{/if}
-
-			{#if generated}
-				<p class="hint">{m.laneprofile_generated_hint({ dirs: generated })}</p>
+			{#if detection && detection.subprojects.length > 0}
+				<ul class="evidence">
+					{#each detection.subprojects as subproject (subproject.directory)}
+						<li>
+							{#if subproject.directory}
+								<span class="path">{subproject.directory}</span>
+							{/if}
+							<span class="manifests">{subproject.manifests.join(' · ')}</span>
+						</li>
+					{/each}
+				</ul>
 			{/if}
 		</div>
 
-		<div class="modal-footer">
-			<button type="button" class="btn btn-secondary" onclick={onCancel}>
-				{m.laneprofile_cancel()}
-			</button>
-			<button type="button" class="btn btn-primary" bind:this={primaryBtnEl} onclick={confirm}>
-				<IconPlus />
-				<span>{candidates.length > 0 ? m.laneprofile_confirm() : m.laneprofile_confirm_none()}</span>
-			</button>
-		</div>
-	</div>
-{/if}
+		{#each warnings as warning (warning.kind)}
+			<div class="trace-warning">
+				<span class="trace-icon"><IconWarning /></span>
+				<span class="trace-text">{warningLabel(warning)}</span>
+			</div>
+		{/each}
+
+		{#if candidates.length > 0}
+			<div class="profile-box">
+				<span class="label">{m.laneprofile_files_label()}</span>
+				<ul class="files">
+					{#each candidates as candidate (candidate.relativePath)}
+						<li>
+							<label class="file-item">
+								<input
+									type="checkbox"
+									class="ui-checkbox"
+									bind:checked={selected[candidate.relativePath]}
+								/>
+								<span class="path">{candidate.relativePath}</span>
+								<span class="meta meta-bytes">{formatBytes(candidate.bytes)}</span>
+								<span class="meta">{ruleLabel(candidate.rule)}</span>
+							</label>
+						</li>
+					{/each}
+				</ul>
+				<p class="hint">{m.laneprofile_intro()}</p>
+			</div>
+		{/if}
+
+		{#if generated}
+			<p class="hint">{m.laneprofile_generated_hint({ dirs: generated })}</p>
+		{/if}
+	{/snippet}
+
+	{#snippet footer()}
+		<button type="button" class="ui-button ui-button-secondary" onclick={onCancel}>
+			{m.laneprofile_cancel()}
+		</button>
+		<button
+			type="button"
+			class="ui-button ui-button-primary"
+			data-dialog-primary
+			onclick={confirm}
+		>
+			<IconPlus />
+			<span>{candidates.length > 0 ? m.laneprofile_confirm() : m.laneprofile_confirm_none()}</span>
+		</button>
+	{/snippet}
+</Dialog>
 
 <style>
-	/* Stessa grammatica visiva di `LaneDispatchDialog`: token di `app.css`,
-	   velo traslucido, primario sul brand. */
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: var(--backdrop);
-		backdrop-filter: blur(2px);
-		z-index: var(--z-modal, 1000);
-	}
-
-	.modal-window {
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		width: 500px;
-		max-width: calc(100vw - 32px);
-		max-height: calc(100vh - 64px);
-		background: var(--bg-overlay);
-		color: var(--ink);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		z-index: calc(var(--z-modal, 1000) + 1);
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.modal-header {
-		display: flex;
-		align-items: flex-start;
-		gap: var(--space-3);
-		padding: var(--space-4) var(--space-4) 0;
-	}
-
-	.header-icon {
+	.dialog-icon-wrap {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 32px;
-		height: 32px;
-		flex: 0 0 auto;
-		border-radius: 50%;
+		--icon-size: 16px;
 		color: var(--ink-muted);
-		background: var(--bg-hover);
 	}
 
-	.header-text {
-		flex: 1;
-		min-width: 0;
-		padding-top: 1px;
-	}
-
-	.header-text h3 {
+	.dialog-subtitle {
 		margin: 0;
-		font-size: var(--text-md);
-		font-weight: 600;
-		line-height: 1.3;
-		color: var(--ink);
-	}
-
-	.subtitle {
-		margin: 3px 0 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		line-height: 1.4;
 		color: var(--ink-muted);
-	}
-
-	.btn-close {
-		flex: 0 0 auto;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 26px;
-		height: 26px;
-		padding: 0;
-		border: none;
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink-faint);
-		cursor: pointer;
-	}
-
-	.btn-close:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.modal-body {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		padding: var(--space-4);
-		overflow-y: auto;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.label {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 500;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 	}
 
 	.profile-box {
@@ -354,7 +249,7 @@
 		padding: 2px 8px;
 		border-radius: var(--radius-full);
 		background: var(--bg-hover);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink);
 	}
 
@@ -379,11 +274,11 @@
 		gap: var(--space-2);
 		align-items: baseline;
 		min-width: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
-	.files label {
+	.file-item {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
@@ -392,97 +287,59 @@
 		cursor: pointer;
 	}
 
-	.files input {
-		accent-color: var(--brand);
-		margin: 0;
-	}
-
 	.path {
 		min-width: 0;
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		flex: 1;
 	}
 
 	.manifests,
 	.meta {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
-	.warning {
-		margin: 0;
-		padding: var(--space-2) var(--space-3);
-		border-radius: var(--radius-md);
-		border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
-		background: color-mix(in srgb, var(--warn) 10%, var(--bg-raised));
-		font-size: var(--text-sm);
+	.meta-bytes {
+		font-variant-numeric: tabular-nums;
+	}
+
+	.trace-warning {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		font-size: var(--text-trace);
 		line-height: 1.45;
 		color: var(--ink);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.trace-icon {
+		flex-shrink: 0;
+		color: var(--warn);
+		display: flex;
+		align-items: center;
+		--icon-size: 15px;
+		margin-top: 1px;
+	}
+
+	.trace-text {
+		flex: 1;
+		min-width: 0;
 	}
 
 	.hint {
 		margin: 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		line-height: 1.45;
 		color: var(--ink-muted);
-	}
-
-	.modal-footer {
-		display: flex;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		padding: var(--space-3) var(--space-4);
-		border-top: 1px solid var(--line);
-		background: var(--bg-raised);
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--line);
-		background: var(--bg-hover);
-		color: var(--ink);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		cursor: pointer;
-		transition:
-			background var(--dur-fast) var(--ease-out),
-			filter var(--dur-fast) var(--ease-out);
-	}
-
-	.btn :global(svg) {
-		width: 14px;
-		height: 14px;
-	}
-
-	.btn-secondary:hover {
-		background: var(--bg-active);
-	}
-
-	/* `--brand` non e' mai colore di testo: sopra usa `--on-brand`. */
-	.btn-primary {
-		border-color: var(--brand);
-		background: var(--brand);
-		color: var(--on-brand);
-	}
-
-	.btn-primary:hover {
-		filter: brightness(1.08);
-	}
-
-	.btn:focus-visible,
-	.btn-close:focus-visible {
-		outline: none;
-		box-shadow: var(--focus-ring);
 	}
 </style>

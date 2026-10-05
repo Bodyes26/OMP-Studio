@@ -8,10 +8,10 @@
 		type ModelFinding,
 		type ModelFixItem
 	} from '$lib/stores/modelSettings.svelte';
-	import { IconClose, IconArrowRight } from '$lib/icons';
+	import { IconArrowRight, IconWarning } from '$lib/icons';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	let selectedKeys = $state<string[]>([]);
 
@@ -108,56 +108,6 @@
 		modelSettingsStore.healthModalOpen = false;
 	}
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && modelSettingsStore.healthModalOpen) {
-			e.stopPropagation();
-			handleClose();
-		}
-	}
-
-	// Azione per intrappolare e gestire il fuoco dentro il dialogo modale
-	function trapFocus(node: HTMLElement) {
-		const previouslyFocused = document.activeElement as HTMLElement | null;
-		const focusableSelector =
-			'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
-
-		const first = node.querySelector<HTMLElement>(focusableSelector);
-		if (first) {
-			first.focus();
-		}
-
-		function onKeydown(e: KeyboardEvent) {
-			if (e.key !== 'Tab') return;
-			const focusables = Array.from(node.querySelectorAll<HTMLElement>(focusableSelector));
-			if (focusables.length === 0) return;
-			const firstEl = focusables[0];
-			const lastEl = focusables[focusables.length - 1];
-
-			if (e.shiftKey) {
-				if (document.activeElement === firstEl) {
-					e.preventDefault();
-					lastEl.focus();
-				}
-			} else {
-				if (document.activeElement === lastEl) {
-					e.preventDefault();
-					firstEl.focus();
-				}
-			}
-		}
-
-		node.addEventListener('keydown', onKeydown);
-
-		return {
-			destroy() {
-				node.removeEventListener('keydown', onKeydown);
-				if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
-					previouslyFocused.focus();
-				}
-			}
-		};
-	}
-
 	function getRoleMeta(roleId: string) {
 		return (
 			STANDARD_ROLES.find((r) => r.id === roleId) || {
@@ -170,9 +120,9 @@
 	}
 
 	function getSlotLabel(kind: string, index: number | null): string {
-		if (kind === 'primary') return 'Primario';
+		if (kind === 'primary') return m.model_health_slot_primary();
 		const n = (index ?? 0) + 1;
-		return `Riserva #${n}`;
+		return m.model_health_slot_fallback({ n });
 	}
 
 	function formatCheckDate(ts: number): string {
@@ -192,370 +142,299 @@
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if modelSettingsStore.healthModalOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="modal-backdrop" onclick={handleClose} transition:fade={{ duration: 150 }}></div>
-
-	<div
-		class="health-dialog"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="health-dialog-title"
-		use:trapFocus
-		transition:fly={{ y: -16, duration: 220, easing: cubicOut }}
-	>
-		<div class="dialog-header">
-			<div class="header-titles">
-				<h3 id="health-dialog-title">Salute dei Modelli Configurati</h3>
-				{#if modelSettingsStore.healthReport}
-					<p>
-						{m.ui_modelhealthmodal_ultima_verifica_aab9()} {formatCheckDate(modelSettingsStore.healthReport.checkedAt)}
-						{#if modelSettingsStore.healthReport.catalogAgeDays != null}
-							· Catalogo aggiornato {formatCatalogAge(modelSettingsStore.healthReport.catalogAgeDays)}
-						{/if}
-					</p>
-				{:else}
-					<p>Referto di salute dei modelli primari e delle catene di riserva.</p>
+<Dialog
+	open={modelSettingsStore.healthModalOpen}
+	title={m.model_health_modal_title()}
+	onClose={handleClose}
+	class="health-dialog-modal"
+>
+	<div class="health-meta-header">
+		{#if modelSettingsStore.healthReport}
+			<p>
+				{m.ui_modelhealthmodal_ultima_verifica_aab9()} {formatCheckDate(modelSettingsStore.healthReport.checkedAt)}
+				{#if modelSettingsStore.healthReport.catalogAgeDays != null}
+					· {m.model_health_catalog_updated({ age: formatCatalogAge(modelSettingsStore.healthReport.catalogAgeDays) })}
 				{/if}
-			</div>
-			<button class="btn-close" aria-label={m.settings_close_window()} onclick={handleClose}><IconClose /></button>
-		</div>
+			</p>
+		{:else}
+			<p>{m.model_health_report_desc()}</p>
+		{/if}
+	</div>
 
-		<div class="dialog-body">
-			{#if modelSettingsStore.healthReport?.catalogError}
-				<AlertBanner
-					variant="warning"
-					title={m.models_health_incomplete_title()}
-					message="Non e stato possibile contattare il catalogo remoto ({modelSettingsStore.healthReport.catalogError}). L'elenco dei modelli non offerti potrebbe non essere affidabile."
+	{#if modelSettingsStore.healthReport?.catalogError}
+		<AlertBanner
+			variant="warning"
+			title={m.models_health_incomplete_title()}
+			message={m.model_health_remote_catalog_error({ error: modelSettingsStore.healthReport.catalogError })}
+		/>
+	{/if}
+
+	{#if allActionableFindings.length > 0}
+		<div class="selection-bar">
+			<label class="select-all-label">
+				<input
+					type="checkbox"
+					class="ui-checkbox"
+					checked={allSelected}
+					indeterminate={someSelected}
+					onchange={toggleSelectAll}
 				/>
-			{/if}
+				<span>{m.model_health_select_all({ selected: selectedKeys.length, total: allActionableFindings.length })}</span>
+			</label>
+		</div>
+	{/if}
 
-			{#if allActionableFindings.length > 0}
-				<div class="selection-bar">
-					<label class="select-all-label">
-						<input
-							type="checkbox"
-							checked={allSelected}
-							indeterminate={someSelected}
-							onchange={toggleSelectAll}
-						/>
-						<span>{m.ui_modelhealthmodal_seleziona_tutti_cd22()}{selectedKeys.length}/{allActionableFindings.length})</span>
-					</label>
-				</div>
-			{/if}
+	{#if modelSettingsStore.blockingFindings && modelSettingsStore.blockingFindings.length > 0}
+		<div class="findings-group">
+			<h4 class="group-title blocking">
+				<span class="group-dot blocking"></span>
+				<span>{m.model_health_group_blocking()}</span>
+				<span class="group-count">({modelSettingsStore.blockingFindings.length})</span>
+			</h4>
+			<div class="candidates-list">
+				{#each modelSettingsStore.blockingFindings as finding (getFindingKey(finding))}
+					{@const roleMeta = getRoleMeta(finding.role)}
+					{@const slotLabel = getSlotLabel(finding.kind, finding.index)}
+					{@const key = getFindingKey(finding)}
+					{@const actionable = isActionable(finding)}
+					{@const isSelected = selectedKeys.includes(key)}
 
-			{#if modelSettingsStore.blockingFindings && modelSettingsStore.blockingFindings.length > 0}
-				<div class="findings-group">
-					<h4 class="group-title blocking">
-						<span class="group-dot blocking"></span>
-						<span>Non piu utilizzabili</span>
-						<span class="group-count">({modelSettingsStore.blockingFindings.length})</span>
-					</h4>
-					<div class="candidates-list">
-						{#each modelSettingsStore.blockingFindings as finding (getFindingKey(finding))}
-							{@const roleMeta = getRoleMeta(finding.role)}
-							{@const slotLabel = getSlotLabel(finding.kind, finding.index)}
-							{@const key = getFindingKey(finding)}
-							{@const actionable = isActionable(finding)}
-							{@const isSelected = selectedKeys.includes(key)}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="candidate-card blocking-card"
+						class:selected={isSelected}
+						class:non-actionable={!actionable}
+						onclick={() => {
+							if (actionable) toggleSelect(key);
+						}}
+					>
+						<div class="card-left">
+							{#if actionable}
+								<input
+									type="checkbox"
+									class="ui-checkbox"
+									checked={isSelected}
+									aria-label={m.model_health_select_fix_aria({ role: roleMeta.label, slot: slotLabel })}
+									onclick={(e) => e.stopPropagation()}
+									onchange={() => toggleSelect(key)}
+								/>
+							{:else}
+								<Tooltip text={m.model_health_manual_config_required()}>
+									<span class="no-action-indicator" aria-hidden="true">
+										<IconWarning />
+									</span>
+								</Tooltip>
+							{/if}
+						</div>
 
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div
-								class="candidate-card blocking-card"
-								class:selected={isSelected}
-								class:non-actionable={!actionable}
-								onclick={() => {
-									if (actionable) toggleSelect(key);
-								}}
-							>
-								<div class="card-left">
-									{#if actionable}
-										<input
-											type="checkbox"
-											checked={isSelected}
-											aria-label="Seleziona correzione per ruolo {roleMeta.label} ({slotLabel})"
-											onclick={(e) => e.stopPropagation()}
-											onchange={() => toggleSelect(key)}
-										/>
+						<div class="card-content">
+							<div class="role-badge-row">
+								<span class="role-abbr-badge">{roleMeta.abbr}</span>
+								<span class="role-name">{roleMeta.label}</span>
+								<span class="blocking-warn-icon" aria-hidden="true">
+									<IconWarning />
+								</span>
+								<span class="slot-badge" class:fallback={finding.kind === 'fallback'}>{slotLabel}</span>
+								<span class="provider-tag">{finding.currentProvider}</span>
+								<span
+									class="action-tag"
+									class:replace={Boolean(finding.suggestedSelector)}
+									class:remove={!finding.suggestedSelector && finding.kind === 'fallback'}
+									class:manual={!actionable}
+								>
+									{#if finding.suggestedSelector}
+										{m.model_health_action_replace()}
+									{:else if finding.kind === 'fallback'}
+										{m.ui_modelhealthmodal_rimuovi_riserva_447f()}
 									{:else}
-										<span class="no-action-indicator" title="Configurazione manuale richiesta">
-											<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5">
-												<circle cx="8" cy="8" r="6" />
-												<line x1="8" y1="5" x2="8" y2="8" />
-												<circle cx="8" cy="11" r="0.75" fill="currentColor" />
-											</svg>
-										</span>
+										{m.model_health_action_manual()}
 									{/if}
-								</div>
+								</span>
+							</div>
 
-								<div class="card-content">
-									<div class="role-badge-row">
-										<span class="role-abbr-badge">{roleMeta.abbr}</span>
-										<span class="role-name">{roleMeta.label}</span>
-										<span class="slot-badge" class:fallback={finding.kind === 'fallback'}>{slotLabel}</span>
-										<span class="provider-tag">{finding.currentProvider}</span>
-										<span
-											class="action-tag"
-											class:replace={Boolean(finding.suggestedSelector)}
-											class:remove={!finding.suggestedSelector && finding.kind === 'fallback'}
-											class:manual={!actionable}
-										>
-											{#if finding.suggestedSelector}
-												Sostituisci
-											{:else if finding.kind === 'fallback'}
-												{m.ui_modelhealthmodal_rimuovi_riserva_447f()}
-											{:else}
-												Configurazione manuale
-											{/if}
-										</span>
+							{#if finding.suggestedSelector}
+								<div class="diff-row">
+									<div class="model-box old">
+										<span class="box-label">{m.model_health_box_current()}</span>
+										<span class="box-val">{finding.currentModelId}</span>
+										{#if finding.currentThinking}
+											<span class="thinking-tag">:{finding.currentThinking}</span>
+										{/if}
 									</div>
 
-									{#if finding.suggestedSelector}
-										<div class="diff-row">
-											<div class="model-box old">
-												<span class="box-label">Attuale</span>
-												<span class="box-val">{finding.currentModelId}</span>
-												{#if finding.currentThinking}
-													<span class="thinking-tag">:{finding.currentThinking}</span>
-												{/if}
-											</div>
+									<span class="diff-arrow"><IconArrowRight /></span>
 
-											<span class="diff-arrow"><IconArrowRight /></span>
-
-											<div class="model-box new">
-												<span class="box-label">Suggerito</span>
-												<span class="box-val">{finding.suggestedModelName || finding.suggestedSelector}</span>
-												{#if finding.currentThinking}
-													<span class="thinking-tag">:{finding.currentThinking}</span>
-												{/if}
-											</div>
-										</div>
-									{:else if finding.kind === 'fallback'}
-										<div class="diff-row single">
-											<div class="model-box old remove-target">
-												<span class="box-label">Riserva da rimuovere</span>
-												<span class="box-val">{finding.currentSelector}</span>
-											</div>
-										</div>
-									{:else}
-										<div class="diff-row single">
-											<div class="model-box old invalid-target">
-												<span class="box-label">{m.ui_modelhealthmodal_modello_attuale_non_valido_10a2()}</span>
-												<span class="box-val">{finding.currentSelector}</span>
-											</div>
-										</div>
-									{/if}
-
-									<div class="reason-note">
-										<span class="reason-text">{finding.reason}</span>
-										{#if !actionable && finding.kind === 'primary'}
-											<span class="manual-hint">{m.ui_modelhealthmodal_scegli_un_modello_attivo_nella_scheda_ruoli_9727()}</span>
+									<div class="model-box new">
+										<span class="box-label">{m.model_health_box_suggested()}</span>
+										<span class="box-val">{finding.suggestedModelName || finding.suggestedSelector}</span>
+										{#if finding.currentThinking}
+											<span class="thinking-tag">:{finding.currentThinking}</span>
 										{/if}
 									</div>
 								</div>
-							</div>
-						{/each}
-					</div>
-				</div>
-			{/if}
-
-			{#if modelSettingsStore.upgradeFindings && modelSettingsStore.upgradeFindings.length > 0}
-				<div class="findings-group">
-					<h4 class="group-title upgrade">
-						<span class="group-dot upgrade"></span>
-						<span>Aggiornamenti disponibili</span>
-						<span class="group-count">({modelSettingsStore.upgradeFindings.length})</span>
-					</h4>
-					<div class="candidates-list">
-						{#each modelSettingsStore.upgradeFindings as finding (getFindingKey(finding))}
-							{@const roleMeta = getRoleMeta(finding.role)}
-							{@const slotLabel = getSlotLabel(finding.kind, finding.index)}
-							{@const key = getFindingKey(finding)}
-							{@const actionable = isActionable(finding)}
-							{@const isSelected = selectedKeys.includes(key)}
-
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div
-								class="candidate-card"
-								class:selected={isSelected}
-								class:non-actionable={!actionable}
-								onclick={() => {
-									if (actionable) toggleSelect(key);
-								}}
-							>
-								<div class="card-left">
-									{#if actionable}
-										<input
-											type="checkbox"
-											checked={isSelected}
-											aria-label="Aggiorna modello per ruolo {roleMeta.label} ({slotLabel})"
-											onclick={(e) => e.stopPropagation()}
-											onchange={() => toggleSelect(key)}
-										/>
-									{/if}
-								</div>
-
-								<div class="card-content">
-									<div class="role-badge-row">
-										<span class="role-abbr-badge">{roleMeta.abbr}</span>
-										<span class="role-name">{roleMeta.label}</span>
-										<span class="slot-badge" class:fallback={finding.kind === 'fallback'}>{slotLabel}</span>
-										<span class="provider-tag">{finding.currentProvider}</span>
-										<span class="action-tag replace">Aggiorna</span>
+							{:else if finding.kind === 'fallback'}
+								<div class="diff-row single">
+									<div class="model-box old remove-target">
+										<span class="box-label">{m.model_health_box_remove_target()}</span>
+										<span class="box-val">{finding.currentSelector}</span>
 									</div>
-
-									<div class="diff-row">
-										<div class="model-box old">
-											<span class="box-label">Attuale</span>
-											<span class="box-val">{finding.currentModelId}</span>
-											{#if finding.currentThinking}
-												<span class="thinking-tag">:{finding.currentThinking}</span>
-											{/if}
-										</div>
-
-										<span class="diff-arrow"><IconArrowRight /></span>
-
-										<div class="model-box new">
-											<span class="box-label">Suggerito</span>
-											<span class="box-val">{finding.suggestedModelName || finding.suggestedSelector}</span>
-											{#if finding.currentThinking}
-												<span class="thinking-tag">:{finding.currentThinking}</span>
-											{/if}
-										</div>
-									</div>
-
-									{#if finding.reason}
-										<div class="reason-note">
-											<span class="reason-text">{finding.reason}</span>
-										</div>
-									{/if}
 								</div>
+							{:else}
+								<div class="diff-row single">
+									<div class="model-box old invalid-target">
+										<span class="box-label">{m.ui_modelhealthmodal_modello_attuale_non_valido_10a2()}</span>
+										<span class="box-val">{finding.currentSelector}</span>
+									</div>
+								</div>
+							{/if}
+
+							<div class="reason-note">
+								<span class="reason-text">{finding.reason}</span>
+								{#if !actionable && finding.kind === 'primary'}
+									<span class="manual-hint">{m.ui_modelhealthmodal_scegli_un_modello_attivo_nella_scheda_ruoli_9727()}</span>
+								{/if}
 							</div>
-						{/each}
+						</div>
 					</div>
-				</div>
-			{/if}
-
-			{#if (!modelSettingsStore.blockingFindings || modelSettingsStore.blockingFindings.length === 0) && (!modelSettingsStore.upgradeFindings || modelSettingsStore.upgradeFindings.length === 0)}
-				<div class="empty-state">
-					<p>Modelli verificati: nessun problema rilevato</p>
-				</div>
-			{/if}
-		</div>
-
-		<div class="dialog-footer">
-			<div class="footer-hint">
-				I livelli di reasoning configurati verranno preservati per i modelli sostituiti.
+				{/each}
 			</div>
-			<div class="footer-actions">
-				<button class="btn btn-secondary" onclick={handleClose}>{m.common_cancel()}</button>
+		</div>
+	{/if}
+
+	{#if modelSettingsStore.upgradeFindings && modelSettingsStore.upgradeFindings.length > 0}
+		<div class="findings-group">
+			<h4 class="group-title upgrade">
+				<span class="group-dot upgrade"></span>
+				<span>{m.model_health_group_upgrades()}</span>
+				<span class="group-count">({modelSettingsStore.upgradeFindings.length})</span>
+			</h4>
+			<div class="candidates-list">
+				{#each modelSettingsStore.upgradeFindings as finding (getFindingKey(finding))}
+					{@const roleMeta = getRoleMeta(finding.role)}
+					{@const slotLabel = getSlotLabel(finding.kind, finding.index)}
+					{@const key = getFindingKey(finding)}
+					{@const actionable = isActionable(finding)}
+					{@const isSelected = selectedKeys.includes(key)}
+
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="candidate-card"
+						class:selected={isSelected}
+						class:non-actionable={!actionable}
+						onclick={() => {
+							if (actionable) toggleSelect(key);
+						}}
+					>
+						<div class="card-left">
+							{#if actionable}
+								<input
+									type="checkbox"
+									class="ui-checkbox"
+									checked={isSelected}
+									aria-label={m.model_health_select_upgrade_aria({ role: roleMeta.label, slot: slotLabel })}
+									onclick={(e) => e.stopPropagation()}
+									onchange={() => toggleSelect(key)}
+								/>
+							{/if}
+						</div>
+
+						<div class="card-content">
+							<div class="role-badge-row">
+								<span class="role-abbr-badge">{roleMeta.abbr}</span>
+								<span class="role-name">{roleMeta.label}</span>
+								<span class="slot-badge" class:fallback={finding.kind === 'fallback'}>{slotLabel}</span>
+								<span class="provider-tag">{finding.currentProvider}</span>
+								<span class="action-tag replace">{m.model_health_action_upgrade()}</span>
+							</div>
+
+							<div class="diff-row">
+								<div class="model-box old">
+									<span class="box-label">{m.model_health_box_current()}</span>
+									<span class="box-val">{finding.currentModelId}</span>
+									{#if finding.currentThinking}
+										<span class="thinking-tag">:{finding.currentThinking}</span>
+									{/if}
+								</div>
+
+								<span class="diff-arrow"><IconArrowRight /></span>
+
+								<div class="model-box new">
+									<span class="box-label">{m.model_health_box_suggested()}</span>
+									<span class="box-val">{finding.suggestedModelName || finding.suggestedSelector}</span>
+									{#if finding.currentThinking}
+										<span class="thinking-tag">:{finding.currentThinking}</span>
+									{/if}
+								</div>
+							</div>
+
+							{#if finding.reason}
+								<div class="reason-note">
+									<span class="reason-text">{finding.reason}</span>
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
+	{#if (!modelSettingsStore.blockingFindings || modelSettingsStore.blockingFindings.length === 0) && (!modelSettingsStore.upgradeFindings || modelSettingsStore.upgradeFindings.length === 0)}
+		<div class="empty-state">
+			<p>{m.model_health_no_issues()}</p>
+		</div>
+	{/if}
+
+	{#snippet footer()}
+		<div class="footer-hint">
+			{m.model_health_reasoning_preserved_hint()}
+		</div>
+		<div class="footer-actions">
+			<button type="button" class="ui-button ui-button-secondary" onclick={handleClose}>{m.common_cancel()}</button>
+			<Tooltip text={m.ui_modelhealthmodal_nasconde_gli_avvisi_fino_alla_prossima_verifica_3dbb()}>
 				<button
-					class="btn btn-secondary"
+					type="button"
+					class="ui-button ui-button-secondary"
 					disabled={modelSettingsStore.saving}
 					onclick={handleDismiss}
-					title={m.ui_modelhealthmodal_nasconde_gli_avvisi_fino_alla_prossima_verifica_3dbb()}
 				>
 					{m.models_health_dismiss_btn()}
 				</button>
-				<button
-					class="btn btn-primary"
-					disabled={selectedKeys.length === 0 || modelSettingsStore.saving}
-					onclick={handleApply}
-				>
-					{#if modelSettingsStore.saving}
-						Applicazione...
-					{:else}
-						Applica {selectedKeys.length} {selectedKeys.length === 1 ? 'Correzione' : 'Correzioni'}
-					{/if}
-				</button>
-			</div>
+			</Tooltip>
+			<button
+				type="button"
+				class="ui-button ui-button-primary"
+				disabled={selectedKeys.length === 0 || modelSettingsStore.saving}
+				onclick={handleApply}
+			>
+				{#if modelSettingsStore.saving}
+					{m.model_health_applying()}
+				{:else if selectedKeys.length === 1}
+					{m.model_health_apply_single_fix()}
+				{:else}
+					{m.model_health_apply_fixes({ count: selectedKeys.length })}
+				{/if}
+			</button>
 		</div>
-	</div>
-{/if}
+	{/snippet}
+</Dialog>
 
 <style>
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: color-mix(in srgb, var(--bg-base) 80%, black);
-		opacity: 0.75;
-		z-index: var(--z-toast);
+	:global(.health-dialog-modal) {
+		max-width: min(680px, 94vw);
 	}
 
-	.health-dialog {
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		width: 640px;
-		max-width: 92vw;
-		max-height: 85vh;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		z-index: var(--z-tooltip);
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
+	.health-meta-header {
+		padding-bottom: var(--space-1);
 	}
 
-	.dialog-header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		padding: var(--space-3) var(--space-4);
-		border-bottom: 1px solid var(--line);
-		background: var(--bg-raised);
-	}
-
-	.header-titles h3 {
-		margin: 0 0 2px 0;
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.header-titles p {
+	.health-meta-header p {
 		margin: 0;
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
-	}
-
-	.btn-close {
-		width: 24px;
-		height: 24px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: transparent;
-		border: none;
-		font-size: 18px;
-		color: var(--ink-muted);
-		cursor: pointer;
-		line-height: 1;
-		border-radius: var(--radius-sm);
-		transition: background var(--dur-fast), color var(--dur-fast);
-	}
-
-	.btn-close:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.dialog-body {
-		padding: var(--space-3) var(--space-4);
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		flex: 1;
-		background: var(--bg-base);
+		line-height: 1.4;
 	}
 
 	.selection-bar {
@@ -586,10 +465,8 @@
 		align-items: center;
 		gap: 6px;
 		margin: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
 	}
 
 	.group-title.blocking {
@@ -617,6 +494,7 @@
 	.group-count {
 		font-weight: 500;
 		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.candidates-list {
@@ -647,7 +525,7 @@
 	}
 
 	.candidate-card.blocking-card {
-		border-left: 3px solid var(--warn);
+		border: 1px solid var(--line);
 	}
 
 	.candidate-card.non-actionable {
@@ -656,6 +534,9 @@
 
 	.card-left {
 		padding-top: 2px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.no-action-indicator {
@@ -663,6 +544,7 @@
 		align-items: center;
 		justify-content: center;
 		color: var(--warn);
+		--icon-size: 14px;
 	}
 
 	.card-content {
@@ -682,7 +564,7 @@
 
 	.role-abbr-badge {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink);
 		background: var(--bg-hover);
@@ -697,8 +579,16 @@
 		color: var(--ink);
 	}
 
+	.blocking-warn-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--warn);
+		--icon-size: 14px;
+	}
+
 	.slot-badge {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 500;
 		color: var(--ink-muted);
 		background: var(--bg-hover);
@@ -713,7 +603,7 @@
 
 	.provider-tag {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		background: var(--bg-hover);
 		padding: 1px 5px;
@@ -722,29 +612,29 @@
 	}
 
 	.action-tag {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		padding: 1px 6px;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		margin-left: auto;
 	}
 
 	.action-tag.replace {
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		background: color-mix(in oklab, var(--brand) 12%, transparent);
 		color: var(--brand-ink);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+		border: 1px solid color-mix(in oklab, var(--brand) 25%, transparent);
 	}
 
 	.action-tag.remove {
-		background: color-mix(in srgb, var(--warn) 15%, transparent);
+		background: color-mix(in oklab, var(--warn) 12%, transparent);
 		color: var(--warn);
-		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+		border: 1px solid color-mix(in oklab, var(--warn) 25%, transparent);
 	}
 
 	.action-tag.manual {
-		background: color-mix(in srgb, var(--danger) 12%, transparent);
+		background: color-mix(in oklab, var(--danger) 12%, transparent);
 		color: var(--danger);
-		border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+		border: 1px solid color-mix(in oklab, var(--danger) 25%, transparent);
 	}
 
 	.diff-row {
@@ -759,7 +649,7 @@
 		flex-direction: column;
 		gap: 1px;
 		padding: 4px 8px;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		min-width: 0;
@@ -770,26 +660,24 @@
 	}
 
 	.model-box.remove-target {
-		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
-		background: color-mix(in srgb, var(--warn) 6%, var(--bg-base));
+		border-color: color-mix(in oklab, var(--warn) 35%, transparent);
+		background: color-mix(in oklab, var(--warn) 6%, var(--bg-base));
 	}
 
 	.model-box.invalid-target {
-		border-color: color-mix(in srgb, var(--danger) 35%, transparent);
-		background: color-mix(in srgb, var(--danger) 6%, var(--bg-base));
+		border-color: color-mix(in oklab, var(--danger) 35%, transparent);
+		background: color-mix(in oklab, var(--danger) 6%, var(--bg-base));
 	}
 
 	.box-label {
-		font-size: 9px;
+		font-size: var(--text-caption);
 		font-weight: 500;
 		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
 	}
 
 	.box-val {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink);
 		white-space: nowrap;
 		overflow: hidden;
@@ -803,17 +691,20 @@
 
 	.thinking-tag {
 		color: var(--ink-faint);
-		font-size: 10px;
+		font-size: var(--text-caption);
 	}
 
 	.diff-arrow {
 		color: var(--ink-faint);
-		font-size: 13px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		flex-shrink: 0;
+		--icon-size: 14px;
 	}
 
 	.reason-note {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		line-height: 1.35;
 	}
@@ -830,20 +721,10 @@
 		font-size: var(--text-sm);
 	}
 
-	.dialog-footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-2) var(--space-4);
-		border-top: 1px solid var(--line);
-		background: var(--bg-raised);
-		gap: var(--space-3);
-		min-height: 48px;
-	}
-
 	.footer-hint {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
+		margin-right: auto;
 	}
 
 	.footer-actions {
@@ -851,44 +732,5 @@
 		align-items: center;
 		gap: var(--space-2);
 		flex-shrink: 0;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 5px 12px;
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-		font-weight: 500;
-		font-family: var(--font-ui);
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn-secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-secondary:hover {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	.btn-primary {
-		background: var(--brand);
-		color: var(--on-brand);
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		filter: brightness(1.08);
-	}
-
-	.btn-primary:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
 	}
 </style>
