@@ -123,7 +123,7 @@ pub fn find_gh_binary() -> Option<PathBuf> {
         if let Ok(out) = Command::new(shell).args(["-lc", "command -v gh"]).output() {
             if out.status.success() {
                 let txt = String::from_utf8_lossy(&out.stdout);
-                if let Some(last) = txt.lines().map(str::trim).filter(|l| l.starts_with('/')).last() {
+                if let Some(last) = txt.lines().map(str::trim).rfind(|l| l.starts_with('/')) {
                     return Some(PathBuf::from(last));
                 }
             }

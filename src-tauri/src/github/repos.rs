@@ -421,6 +421,109 @@ pub async fn github_create_repo(
     Err("Impossibile creare il repository: nessun account GitHub collegato.".to_string())
 }
 
+/// Valida il nome di una nuova cartella progetto (e, se serve, di un repo GitHub).
+fn validate_new_project_name(name: &str, for_github: bool) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Il nome del progetto è obbligatorio.".to_string());
+    }
+    if name.len() > 100 {
+        return Err("Il nome del progetto è troppo lungo (max 100 caratteri).".to_string());
+    }
+    if name == "." || name == ".." || name.starts_with('.') {
+        return Err("Il nome non può iniziare con un punto.".to_string());
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Err("Il nome non può finire con punto o spazio.".to_string());
+    }
+    if name
+        .chars()
+        .any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
+    {
+        return Err("Il nome contiene caratteri non validi per una cartella.".to_string());
+    }
+    if for_github
+        && !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(
+            "Per GitHub il nome può contenere solo lettere, numeri, trattino, underscore e punto."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Crea un nuovo progetto vuoto in `parent_dir/name`: cartella + `git init`.
+/// Con `visibility` "public"/"private" crea prima il repo GitHub (così un errore
+/// remoto non lascia cartelle a metà) e poi collega `origin`. Nessun commit
+/// iniziale: il repo remoto resta vuoto finché l'utente non fa il primo push.
+#[tauri::command]
+pub async fn project_create_new(
+    parent_dir: String,
+    name: String,
+    visibility: String,
+    use_ssh: bool,
+) -> Result<String, String> {
+    let name = name.trim().to_string();
+    let on_github = match visibility.as_str() {
+        "local" => false,
+        "public" | "private" => true,
+        other => return Err(format!("Visibilità non valida: {other}")),
+    };
+    validate_new_project_name(&name, on_github)?;
+
+    let parent = PathBuf::from(&parent_dir);
+    if !parent.is_dir() {
+        return Err(format!("La cartella dei progetti '{parent_dir}' non esiste."));
+    }
+    let target = parent.join(&name);
+    if target.exists() {
+        return Err(format!("Esiste già '{}' in {parent_dir}.", name));
+    }
+
+    let remote_url = if on_github {
+        let repo = github_create_repo(name.clone(), None, visibility == "private", false).await?;
+        Some(match (use_ssh, repo.ssh_url) {
+            (true, Some(ssh)) => ssh,
+            _ => repo.url,
+        })
+    } else {
+        None
+    };
+
+    tokio::task::spawn_blocking(move || {
+        std::fs::create_dir(&target).map_err(|e| format!("Creazione cartella fallita: {e}"))?;
+
+        let run_git = |args: &[&str]| -> Result<(), String> {
+            let mut cmd = Command::new("git");
+            cmd.arg("-C").arg(&target).args(args);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let out = cmd
+                .output()
+                .map_err(|e| format!("Avvio git fallito: {e}"))?;
+            if out.status.success() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "git {} fallito: {}",
+                    args.first().copied().unwrap_or(""),
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ))
+            }
+        };
+
+        run_git(&["init", "-b", "main"])?;
+        if let Some(url) = &remote_url {
+            run_git(&["remote", "add", "origin", url])?;
+        }
+        Ok(target.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task creazione progetto: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,5 +547,17 @@ mod tests {
             Some(("owner".to_string(), "project".to_string()))
         );
         assert_eq!(parse_github_url("https://gitlab.com/owner/repo.git"), None);
+    }
+
+    #[test]
+    fn validates_new_project_names() {
+        assert!(validate_new_project_name("mio-progetto", true).is_ok());
+        assert!(validate_new_project_name("Mio Progetto", false).is_ok());
+        assert!(validate_new_project_name("Mio Progetto", true).is_err());
+        assert!(validate_new_project_name("", false).is_err());
+        assert!(validate_new_project_name("..", false).is_err());
+        assert!(validate_new_project_name(".nascosto", false).is_err());
+        assert!(validate_new_project_name("a/b", false).is_err());
+        assert!(validate_new_project_name("a\\b", false).is_err());
     }
 }

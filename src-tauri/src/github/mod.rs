@@ -11,7 +11,8 @@ pub use auth::{
 };
 #[allow(unused_imports)]
 pub use repos::{
-    github_clone_repo, github_create_repo, github_list_remote_repos, project_detect_github_remotes,
+    github_clone_repo, github_create_repo, github_list_remote_repos, project_create_new,
+    project_detect_github_remotes,
     DetectedGithubRemote, GithubRemoteRepo,
 };
 #[allow(unused_imports)]

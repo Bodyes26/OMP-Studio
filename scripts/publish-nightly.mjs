@@ -33,12 +33,16 @@ import {
 	write
 } from './nightly-version.mjs';
 
+// Chiavi accettate dall'input `platforms` di .github/workflows/nightly.yml.
+const ALL_PLATFORMS = ['windows', 'macos', 'linux'];
+
 function parseArgs() {
 	const args = process.argv.slice(2);
 	const opts = {
 		buildId: null,
 		dryRun: false,
 		skipBuild: false,
+		noCloud: false,
 		help: false
 	};
 
@@ -50,6 +54,8 @@ function parseArgs() {
 			opts.dryRun = true;
 		} else if (arg === '--skip-build') {
 			opts.skipBuild = true;
+		} else if (arg === '--no-cloud') {
+			opts.noCloud = true;
 		} else if (arg === '--build-id') {
 			opts.buildId = args[++i];
 		} else if (/^[1-9]\d*$/.test(arg)) {
@@ -72,6 +78,7 @@ Opzioni:
   --dry-run           Compila e genera manifest senza pubblicare su GitHub
   --no-upload         Alias di --dry-run
   --skip-build        Salta la compilazione e usa l'installer piu' recente
+  --no-cloud          Non avviare su GitHub la build degli altri sistemi operativi
   -h, --help          Mostra questo messaggio di aiuto
 `);
 }
@@ -123,6 +130,7 @@ function getPlatformConfig() {
 			// profilo in src-tauri/Cargo.toml). Tauri legge `--profile` dagli
 			// argomenti passati a cargo e scrive il bundle in target/nightly.
 			return {
+				key: 'windows',
 				name: 'Windows x64',
 				bundleArgs: [
 					'--bundles',
@@ -138,6 +146,7 @@ function getPlatformConfig() {
 			};
 		case 'darwin':
 			return {
+				key: 'macos',
 				name: 'macOS',
 				bundleArgs: ['--bundles', 'dmg'],
 				bundleDir: join(ROOT, 'src-tauri', 'target', 'release', 'bundle', 'dmg'),
@@ -145,6 +154,7 @@ function getPlatformConfig() {
 			};
 		case 'linux':
 			return {
+				key: 'linux',
 				name: 'Linux',
 				bundleArgs: ['--bundles', 'deb,appimage'],
 				bundleDir: join(ROOT, 'src-tauri', 'target', 'release', 'bundle'),
@@ -426,6 +436,27 @@ async function main() {
 			console.log(`\nAggiorno il tag git 'nightly' sul commit ${commitSha}...`);
 			runCommand('git', ['tag', '-f', 'nightly', commitSha]);
 			runCommand('git', ['push', 'origin', 'refs/tags/nightly', '--force']);
+
+			// Completa la release con gli installer degli altri sistemi operativi: il
+			// workflow compila lo stesso commit con lo stesso build-id (quindi la stessa
+			// versione) e aggiunge i propri asset senza toccare quelli appena caricati.
+			if (!opts.noCloud) {
+				const others = ALL_PLATFORMS.filter((p) => p !== platform.key);
+				console.log(`\nAvvio su GitHub la build di ${others.join(', ')} per il commit ${commitSha}...`);
+				runCommand('gh', [
+					'workflow',
+					'run',
+					'nightly.yml',
+					'--ref',
+					'main',
+					'-f',
+					`commit=${commitSha}`,
+					'-f',
+					`build_id=${buildId}`,
+					'-f',
+					`platforms=${others.join(',')}`
+				]);
+			}
 
 			console.log(`\nPrerelease Nightly pubblicata con successo!`);
 			runCommand('gh', ['api', `repos/{owner}/{repo}/releases/tags/nightly`, '--jq', '.html_url'], {

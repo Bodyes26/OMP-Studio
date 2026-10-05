@@ -10,7 +10,9 @@
 use portable_pty::{native_pty_system, PtySize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "windows")]
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Instant;
 use tauri::command;

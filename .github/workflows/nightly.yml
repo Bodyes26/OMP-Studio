@@ -2,6 +2,26 @@ name: Nightly multipiattaforma
 
 on:
   workflow_dispatch:
+    # Senza input: nightly multipiattaforma completa del commit corrente di main.
+    # Con input: completamento di una nightly pubblicata in locale
+    # (scripts/publish-nightly.mjs) con gli installer degli altri sistemi operativi,
+    # sullo stesso commit e con la stessa versione.
+    inputs:
+      commit:
+        description: "Commit da compilare (vuoto = commit del ref)"
+        required: false
+        default: ""
+        type: string
+      build_id:
+        description: "Build ID della nightly locale da completare (vuoto = nuovo)"
+        required: false
+        default: ""
+        type: string
+      platforms:
+        description: "Piattaforme da compilare, separate da virgola (windows,macos,linux)"
+        required: false
+        default: "windows,macos,linux"
+        type: string
 
 permissions:
   contents: write
@@ -13,7 +33,11 @@ concurrency:
 jobs:
   gate:
     name: Gate di qualita
+    needs: resolve
+    if: needs.resolve.outputs.stale != 'true'
     uses: ./.github/workflows/gate.yml
+    with:
+      ref: ${{ inputs.commit }}
 
   resolve:
     name: Risoluzione versione nightly
@@ -21,28 +45,108 @@ jobs:
     outputs:
       build_id: ${{ steps.version.outputs.build_id }}
       version: ${{ steps.version.outputs.version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      stale: ${{ steps.fresh.outputs.stale }}
     steps:
       - name: Checkout del commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
 
       - name: Installa Node.js
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
         with:
           node-version: 22
 
+      - name: Verifica che il commit sia ancora la nightly corrente
+        id: fresh
+        shell: bash
+        env:
+          INPUT_COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          STALE=false
+          if [ -n "$INPUT_COMMIT" ]; then
+            if ! [[ "$INPUT_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Il commit '$INPUT_COMMIT' non e' uno SHA completo"
+              exit 1
+            fi
+            # Il completamento vale solo finche' il tag nightly punta a quel commit:
+            # se nel frattempo e' uscita una nightly piu' recente, non si pubblica
+            # un installer vecchio accanto a quelli nuovi.
+            TAG_SHA=$(git ls-remote origin refs/tags/nightly | cut -f1)
+            if [ "$TAG_SHA" != "$INPUT_COMMIT" ]; then
+              echo "::notice::Il tag nightly ($TAG_SHA) non punta piu' a $INPUT_COMMIT: build saltata"
+              STALE=true
+            fi
+          fi
+          echo "stale=$STALE" >> "$GITHUB_OUTPUT"
+
       - name: Calcola build-id e versione unici
         id: version
         shell: bash
         env:
           RUN_STARTED_AT: ${{ github.run_started_at }}
+          INPUT_BUILD_ID: ${{ inputs.build_id }}
         run: |
           set -euo pipefail
-          BUILD_ID=$(node scripts/nightly-version.mjs --print-id "$RUN_STARTED_AT")
+          BUILD_ID=$(node scripts/nightly-version.mjs --print-id "${INPUT_BUILD_ID:-$RUN_STARTED_AT}")
           VERSION=$(node scripts/nightly-version.mjs --print-version "$BUILD_ID")
           echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Build ID unico: $BUILD_ID"
           echo "Versione Nightly: $VERSION"
+
+      - name: Seleziona le piattaforme da compilare
+        id: matrix
+        shell: bash
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -euo pipefail
+          MATRIX=$(node -e '
+            const all = [
+              {
+                key: "windows",
+                name: "Windows x64",
+                os: "windows-latest",
+                // Profilo Cargo `nightly` e NSIS zlib, come scripts/publish-nightly.mjs.
+                build_args: "--bundles nsis --config src-tauri/tauri.nightly.conf.json -- --profile nightly",
+                artifact_name: "nightly-windows-x64",
+                artifact_dir: "src-tauri/target/nightly/bundle/nsis"
+              },
+              {
+                key: "macos",
+                name: "macOS universal",
+                os: "macos-14",
+                build_args: "--bundles dmg --target universal-apple-darwin",
+                artifact_name: "nightly-macos-universal",
+                artifact_dir: "src-tauri/target/universal-apple-darwin/release/bundle/dmg"
+              },
+              {
+                key: "linux",
+                name: "Linux x64",
+                os: "ubuntu-22.04",
+                build_args: "--bundles deb,appimage",
+                artifact_name: "nightly-linux-x64",
+                artifact_dir: "src-tauri/target/release/bundle/deb src-tauri/target/release/bundle/appimage"
+              }
+            ];
+            const wanted = (process.env.PLATFORMS || "").split(",").map((s) => s.trim()).filter(Boolean);
+            const unknown = wanted.filter((w) => !all.some((p) => p.key === w));
+            if (unknown.length > 0) {
+              console.error("Piattaforme sconosciute: " + unknown.join(", "));
+              process.exit(1);
+            }
+            const include = all.filter((p) => wanted.includes(p.key));
+            if (include.length === 0) {
+              console.error("Nessuna piattaforma selezionata");
+              process.exit(1);
+            }
+            console.log(JSON.stringify(include));
+          ')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Matrice: $MATRIX"
 
   build:
     name: Build ${{ matrix.name }}
@@ -50,28 +154,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Windows x64
-            os: windows-latest
-            # Profilo Cargo `nightly` e NSIS zlib, come scripts/publish-nightly.mjs.
-            build_args: --bundles nsis --config src-tauri/tauri.nightly.conf.json -- --profile nightly
-            artifact_name: nightly-windows-x64
-            artifact_dir: src-tauri/target/nightly/bundle/nsis
-          - name: macOS universal
-            os: macos-14
-            build_args: --bundles dmg --target universal-apple-darwin
-            artifact_name: nightly-macos-universal
-            artifact_dir: src-tauri/target/universal-apple-darwin/release/bundle/dmg
-          - name: Linux x64
-            os: ubuntu-22.04
-            build_args: --bundles deb,appimage
-            artifact_name: nightly-linux-x64
-            artifact_dir: "src-tauri/target/release/bundle/deb src-tauri/target/release/bundle/appimage"
+        include: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout del commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
 
       - name: Installa Node.js
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
@@ -161,6 +251,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.commit || github.sha }}
 
       - name: Installa Node.js
         uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
@@ -176,6 +267,10 @@ jobs:
       - name: Prepara staging piatto, manifest e checksum
         env:
           NIGHTLY_VERSION: ${{ needs.resolve.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ inputs.commit || github.sha }}
+          INPUT_COMMIT: ${{ inputs.commit }}
         shell: bash
         run: |
           set -euo pipefail
@@ -196,50 +291,92 @@ jobs:
           echo "File di release pronti per upload:"
           ls -la release-assets
 
-          # Calcola SHA256 per ogni singolo file regolare (escludendo directory e manifest)
+          # Checksum dei file compilati in questo run
           (cd release-assets && find . -maxdepth 1 -type f ! -name "SHA256SUMS.txt" ! -name "nightly.json" ! -name "nightly-notes.md" -exec sha256sum {} + | sed 's|^\./||' | sort -k2 > SHA256SUMS.txt)
-          cat release-assets/SHA256SUMS.txt
 
-          # Genera mappa JSON dei checksum per asset con Node (legacy sha256 punta all'EXE Windows)
+          # Completamento di una nightly locale: la release contiene gia' gli installer
+          # dell'altro sistema operativo. Ne servono i checksum, altrimenti SHA256SUMS.txt
+          # e nightly.json (che questo run sostituisce) li perderebbero.
+          : > remote-assets.txt
+          rm -f existing-nightly.json
+          if [ -n "$INPUT_COMMIT" ] && gh release view nightly >/dev/null 2>&1; then
+            RELEASE_ID=$(gh api "repos/$GH_REPO/releases/tags/nightly" --jq '.id')
+            gh api "repos/$GH_REPO/releases/$RELEASE_ID/assets?per_page=100" --jq '.[] | "\(.id) \(.name)"' > remote-assets.txt
+            MANIFEST_ID=$(awk '$2 == "nightly.json" { print $1 }' remote-assets.txt)
+            if [ -n "$MANIFEST_ID" ]; then
+              gh api -H "Accept: application/octet-stream" "repos/$GH_REPO/releases/assets/$MANIFEST_ID" > existing-nightly.json
+            fi
+          fi
+
+          # Genera SHA256SUMS.txt e nightly.json: checksum di questo run piu', se la
+          # release esistente e' della stessa versione, quelli degli asset gia' presenti
+          # (legacy sha256 punta all'EXE Windows)
           node -e '
             const fs = require("node:fs");
-            const lines = fs.readFileSync("release-assets/SHA256SUMS.txt", "utf8").trim().split("\n");
             const checksums = {};
-            let exeSha = "";
-            let fallbackSha = "";
-            for (const line of lines) {
+            for (const line of fs.readFileSync("release-assets/SHA256SUMS.txt", "utf8").trim().split("\n")) {
               const parts = line.trim().split(/\s+/);
-              if (parts.length >= 2) {
-                const hash = parts[0];
-                const file = parts[1].replace(/^\*/, "");
-                checksums[file] = hash;
-                if (!fallbackSha) fallbackSha = hash;
-                if (file.toLowerCase().endsWith(".exe")) {
-                  exeSha = hash;
+              // `find .` produce nomi come ./file: il prefisso va tolto, altrimenti
+              // le chiavi di nightly.json non corrispondono ai nomi degli asset.
+              if (parts.length >= 2) checksums[parts[1].replace(/^\*/, "").replace(/^\.\//, "")] = parts[0];
+            }
+            if (fs.existsSync("existing-nightly.json")) {
+              const prev = JSON.parse(fs.readFileSync("existing-nightly.json", "utf8"));
+              if (prev.version === process.env.NIGHTLY_VERSION && prev.checksums) {
+                const remote = new Set(
+                  fs.readFileSync("remote-assets.txt", "utf8").split("\n")
+                    .map((l) => l.split(" ").slice(1).join(" "))
+                    .filter(Boolean)
+                );
+                for (const [file, hash] of Object.entries(prev.checksums)) {
+                  if (!(file in checksums) && remote.has(file)) {
+                    checksums[file] = hash;
+                    console.log("Mantengo il checksum di " + file);
+                  }
                 }
               }
             }
+            const files = Object.keys(checksums).sort();
+            fs.writeFileSync(
+              "release-assets/SHA256SUMS.txt",
+              files.map((f) => checksums[f] + "  " + f).join("\n") + "\n"
+            );
+            const exeFile = files.find((f) => f.toLowerCase().endsWith(".exe"));
             const manifest = {
               version: process.env.NIGHTLY_VERSION,
-              commit: process.env.GITHUB_SHA,
+              commit: process.env.COMMIT,
               published_at: new Date().toISOString(),
               checksums: checksums,
-              sha256: exeSha || fallbackSha
+              sha256: checksums[exeFile || files[0]]
             };
             fs.writeFileSync("nightly.json", JSON.stringify(manifest, null, 2) + "\n");
           '
+          cat release-assets/SHA256SUMS.txt
 
           printf 'Build automatica del commit `%s` sul ramo `main`.\n\nQuesta versione può contenere modifiche non ancora verificate per il canale stabile.\n' \
-            "$GITHUB_SHA" > nightly-notes.md
+            "$COMMIT" > nightly-notes.md
 
       - name: Pubblica o aggiorna la prerelease nightly in modo fail-safe
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           NIGHTLY_VERSION: ${{ needs.resolve.outputs.version }}
+          COMMIT: ${{ inputs.commit || github.sha }}
+          INPUT_COMMIT: ${{ inputs.commit }}
         shell: bash
         run: |
           set -euo pipefail
+
+          # Completamento di una nightly locale: se nel frattempo e' uscita una nightly
+          # piu' recente il tag non punta piu' a questo commit, e pubblicare sporcherebbe
+          # la release con installer vecchi.
+          if [ -n "$INPUT_COMMIT" ]; then
+            TAG_SHA=$(git ls-remote origin refs/tags/nightly | cut -f1)
+            if [ "$TAG_SHA" != "$COMMIT" ]; then
+              echo "::notice::Il tag nightly ($TAG_SHA) non punta piu' a $COMMIT: pubblicazione saltata"
+              exit 0
+            fi
+          fi
 
           if gh release view nightly >/dev/null 2>&1; then
             # `gh release upload --clobber` e `gh release view` leggono gli asset da
@@ -266,7 +403,8 @@ jobs:
             echo "Pulizia asset obsoleti dalla release nightly..."
             gh api "repos/$GH_REPO/releases/$RELEASE_ID/assets?per_page=100" --jq '.[] | "\(.id) \(.name)"' |
               while read -r asset_id asset_name; do
-                if ! echo "$CURRENT_NAMES" | grep -qxF "$asset_name"; then
+                # Gli asset della versione corrente (es. dmg locale che questo run completa) restano
+                if ! echo "$CURRENT_NAMES" | grep -qxF "$asset_name" && ! echo "$asset_name" | grep -qF -- "$NIGHTLY_VERSION"; then
                   echo "Eliminazione asset obsoleto: $asset_name"
                   gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset_id" || true
                 fi
@@ -280,6 +418,6 @@ jobs:
           fi
 
           # Spostamento del tag git mobile solo dopo che l'upload su GitHub e' riuscito
-          echo "Aggiornamento tag git 'nightly' sul commit $GITHUB_SHA..."
-          git tag -f nightly "$GITHUB_SHA"
+          echo "Aggiornamento tag git 'nightly' sul commit $COMMIT..."
+          git tag -f nightly "$COMMIT"
           git push origin refs/tags/nightly --force

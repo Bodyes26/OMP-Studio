@@ -109,7 +109,7 @@ fn run_git_fetch_background_with_timeout(dir: &Path, timeout: Duration) -> Resul
     let ssh_cmd = resolve_ssh_batch_command(dir);
     let ssh_cfg_arg = format!("core.sshCommand={ssh_cmd}");
     let args = ["-c", &ssh_cfg_arg, "fetch", "--prune"];
-    let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", &args));
+    let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", args));
 
     let mut cmd = Command::new("git");
     cmd.current_dir(dir);
@@ -119,7 +119,7 @@ fn run_git_fetch_background_with_timeout(dir: &Path, timeout: Duration) -> Resul
     cmd.env("GIT_ASKPASS", "");
     cmd.env("SSH_ASKPASS", "");
     cmd.env("SSH_ASKPASS_REQUIRE", "never");
-    cmd.args(&args);
+    cmd.args(args);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     #[cfg(unix)]
