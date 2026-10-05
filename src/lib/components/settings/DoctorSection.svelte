@@ -1,10 +1,14 @@
 <script lang="ts">
+	// Sezione Doctor (autodiagnostica di sistema e runtime OMP, Design v2).
+	// Usa StatusMark per tutti gli stati (completato/attenzione/fallito),
+	// Segmented per i filtri e bottoni standard .ui-button.
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { doctorStore, type DoctorCategory, type DoctorItem } from '$lib/stores/doctor.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
-	import { IconCheck, IconWarning, IconClose, IconRefresh, IconCopy } from '$lib/icons';
-	import { fade } from 'svelte/transition';
+	import { IconWarning, IconRefresh, IconCopy, IconArrowRight } from '$lib/icons';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Segmented from '$lib/ui/Segmented.svelte';
 
 	const activePath = $derived(
 		projectStore.activeProject?.lane.workspacePath ||
@@ -61,21 +65,29 @@
 			<div class="title-with-badge">
 				<h4>{m.settings_doctor_title()}</h4>
 				{#if doctorStore.report}
-					<span
-						class="status-pill"
-						class:pill-ok={doctorStore.report.overallStatus === 'ok'}
-						class:pill-warn={doctorStore.report.overallStatus === 'warn'}
-						class:pill-err={doctorStore.report.overallStatus === 'error'}
-					>
+					<div class="doctor-status-summary">
 						{#if doctorStore.report.overallStatus === 'ok'}
-							<span class="status-dot dot-ok"></span> {m.settings_doctor_status_ok()}
+							<StatusMark status="completed" label="Tutti i controlli superati" />
+							<span class="status-summary-text">{m.settings_doctor_status_ok()}</span>
 						{:else if doctorStore.report.overallStatus === 'warn'}
-							<span class="status-dot dot-warn"></span> {m.settings_doctor_status_warn()}
+							<StatusMark status="attention" active={false} label="Avvisi riscontrati" />
+							<span class="status-summary-text">
+								{#if doctorStore.warningsCount > 0}
+									<span class="status-count">{doctorStore.warningsCount}</span>
+								{/if}
+								{m.settings_doctor_status_warn()}
+							</span>
 						{:else}
-							<span class="status-dot dot-err"></span> {m.settings_doctor_status_error()}
+							<StatusMark status="failed" label="Errori critici riscontrati" />
+							<span class="status-summary-text">
+								{#if doctorStore.errorsCount > 0}
+									<span class="status-count">{doctorStore.errorsCount}</span>
+								{/if}
+								{m.settings_doctor_status_error()}
+							</span>
 						{/if}
 						<span class="elapsed-badge">{doctorStore.report.elapsedMs} ms</span>
-					</span>
+					</div>
 				{/if}
 			</div>
 			<p class="doctor-desc">{m.settings_doctor_desc()}</p>
@@ -84,10 +96,10 @@
 		<div class="doctor-actions">
 			<button
 				type="button"
-				class="btn-doctor btn-copy"
+				class="ui-button ui-button-secondary btn-doctor"
 				onclick={handleCopy}
 				disabled={!doctorStore.report || doctorStore.loading}
-				title={m.settings_doctor_copy_report()}
+				aria-label={m.settings_doctor_copy_report()}
 			>
 				<IconCopy />
 				<span>{doctorStore.copiedToast ? m.settings_doctor_copied() : m.settings_doctor_copy_report()}</span>
@@ -95,14 +107,16 @@
 
 			<button
 				type="button"
-				class="btn-doctor btn-refresh"
+				class="ui-button ui-button-secondary btn-doctor"
 				onclick={handleRefresh}
 				disabled={doctorStore.loading}
-				title={m.settings_doctor_run()}
+				aria-label={m.settings_doctor_run()}
 			>
-				<span class="refresh-icon" class:spinning={doctorStore.loading}>
+				{#if doctorStore.loading}
+					<StatusMark status="running" label="Esecuzione in corso" />
+				{:else}
 					<IconRefresh />
-				</span>
+				{/if}
 				<span>{m.settings_doctor_run()}</span>
 			</button>
 		</div>
@@ -111,29 +125,24 @@
 	<!-- Barra filtri -->
 	{#if doctorStore.report}
 		<div class="filter-bar">
-			<div class="filter-pills" role="tablist">
-				<button
-					type="button"
-					role="tab"
-					aria-selected={doctorStore.filter === 'all'}
-					class="filter-pill"
-					class:active={doctorStore.filter === 'all'}
-					onclick={() => (doctorStore.filter = 'all')}
-				>
-					{m.settings_doctor_filter_all({ count: doctorStore.report.items.length })}
-				</button>
-				<button
-					type="button"
-					role="tab"
-					aria-selected={doctorStore.filter === 'issues'}
-					class="filter-pill"
-					class:active={doctorStore.filter === 'issues'}
-					class:has-issues={doctorStore.issuesCount > 0}
-					onclick={() => (doctorStore.filter = 'issues')}
-				>
-					{m.settings_doctor_filter_issues({ count: doctorStore.issuesCount })}
-				</button>
-			</div>
+			<Segmented
+				options={[
+					{
+						value: 'all',
+						label: m.settings_doctor_filter_all_label(),
+						count: doctorStore.report.items.length
+					},
+					{
+						value: 'issues',
+						label: m.settings_doctor_filter_issues_label(),
+						count: doctorStore.issuesCount,
+						countTone: doctorStore.issuesCount > 0 ? 'attention' : 'neutral'
+					}
+				]}
+				value={doctorStore.filter}
+				onChange={(val) => (doctorStore.filter = val as 'all' | 'issues')}
+				ariaLabel="Filtra controlli diagnostici"
+			/>
 
 			<div class="sys-summary">
 				<span><strong>OS:</strong> {doctorStore.report.system.os} ({doctorStore.report.system.arch})</span>
@@ -146,7 +155,7 @@
 	<!-- Corpo principale: tabella o stato caricamento -->
 	{#if doctorStore.loading && !doctorStore.report}
 		<div class="loading-box">
-			<span class="btn-spinner" aria-hidden="true"></span>
+			<StatusMark status="running" label="Caricamento diagnostica" />
 			<span>Esecuzione checkup diagnostico dell'ambiente in corso...</span>
 		</div>
 	{:else if doctorStore.error}
@@ -156,12 +165,12 @@
 				<strong>Errore durante l'autodiagnostica:</strong>
 				<span>{doctorStore.error}</span>
 			</div>
-			<button type="button" class="btn-retry" onclick={handleRefresh}>Riprova</button>
+			<button type="button" class="ui-button ui-button-danger btn-retry" onclick={handleRefresh}>Riprova</button>
 		</div>
 	{:else if doctorStore.report}
 		{#if doctorStore.filteredItems.length === 0}
 			<div class="empty-state">
-				<div class="empty-icon ok"><IconCheck /></div>
+				<StatusMark status="completed" label="Nessuna anomalia" />
 				<p>{m.settings_doctor_empty_issues()}</p>
 			</div>
 		{:else}
@@ -185,19 +194,18 @@
 								{#each group.items as item (item.id)}
 									<tr class="item-row" class:row-warn={item.status === 'warn'} class:row-error={item.status === 'error'}>
 										<td class="cell-status">
-											{#if item.status === 'ok'}
-												<span class="status-icon icon-ok" title="Superato">
-													<IconCheck />
-												</span>
-											{:else if item.status === 'warn'}
-												<span class="status-icon icon-warn" title="Avviso">
-													<IconWarning />
-												</span>
-											{:else}
-												<span class="status-icon icon-err" title="Errore">
-													<IconClose />
-												</span>
-											{/if}
+											<span class="status-cell-wrap">
+												{#if item.status === 'ok'}
+													<StatusMark status="completed" label={m.settings_doctor_item_ok()} />
+													<span class="status-cell-text">{m.settings_doctor_item_ok()}</span>
+												{:else if item.status === 'warn'}
+													<StatusMark status="attention" active={false} label={m.settings_doctor_item_warn()} />
+													<span class="status-cell-text text-warn">{m.settings_doctor_item_warn()}</span>
+												{:else}
+													<StatusMark status="failed" label={m.settings_doctor_item_error()} />
+													<span class="status-cell-text text-error">{m.settings_doctor_item_error()}</span>
+												{/if}
+											</span>
 										</td>
 
 										<td class="cell-check">
@@ -211,7 +219,7 @@
 										<td class="cell-rec">
 											{#if item.recommendation}
 												<div class="recommendation-box" class:rec-error={item.status === 'error'} class:rec-warn={item.status === 'warn'}>
-													<span class="rec-bullet">→</span>
+													<span class="rec-bullet" aria-hidden="true"><IconArrowRight /></span>
 													<span class="rec-text">{item.recommendation}</span>
 												</div>
 											{:else}
@@ -233,7 +241,7 @@
 	.doctor-section {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-4);
 		color: var(--ink);
 	}
 
@@ -241,88 +249,59 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-start;
-		gap: 16px;
-		padding-bottom: 14px;
+		gap: var(--space-4);
+		padding-bottom: var(--space-3);
 		border-bottom: 1px solid var(--line);
 	}
 
 	.doctor-title-block {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: var(--space-1);
 	}
 
 	.title-with-badge {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-3);
 		flex-wrap: wrap;
 	}
 
 	.title-with-badge h4 {
 		margin: 0;
-		font-size: 15px;
+		font-size: var(--text-title);
 		font-weight: 600;
-		letter-spacing: -0.01em;
 	}
 
 	.doctor-desc {
 		margin: 0;
-		font-size: 12px;
+		font-size: var(--text-label);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
-	.status-pill {
+	.doctor-status-summary {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 11px;
+		font-size: var(--text-label);
 		font-weight: 500;
-		padding: 3px 8px;
-		border-radius: var(--radius-sm, 4px);
-		border: 1px solid var(--line);
-		background: var(--bg-card);
-	}
-
-	.status-pill.pill-ok {
-		border-color: rgba(34, 197, 94, 0.3);
 		color: var(--ink);
 	}
 
-	.status-pill.pill-warn {
-		border-color: var(--warn);
-		color: var(--warn);
-		background: var(--warn-dim, rgba(234, 179, 8, 0.08));
+	.status-summary-text {
+		color: var(--ink);
 	}
 
-	.status-pill.pill-err {
-		border-color: var(--err);
-		color: var(--err);
-		background: var(--err-dim, rgba(239, 68, 68, 0.08));
-	}
-
-	.status-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-	}
-
-	.status-dot.dot-ok {
-		background: #22c55e;
-	}
-
-	.status-dot.dot-warn {
-		background: var(--warn);
-	}
-
-	.status-dot.dot-err {
-		background: var(--err);
+	.status-count {
+		font-variant-numeric: tabular-nums;
+		font-weight: 600;
+		margin-right: 2px;
 	}
 
 	.elapsed-badge {
-		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 		margin-left: 4px;
 	}
@@ -330,102 +309,26 @@
 	.doctor-actions {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-2);
 		flex-shrink: 0;
 	}
 
 	.btn-doctor {
-		display: inline-flex;
-		align-items: center;
 		gap: 6px;
-		padding: 6px 11px;
-		font-size: 12px;
-		font-weight: 500;
-		border-radius: var(--radius-sm, 4px);
-		border: 1px solid var(--line);
-		background: var(--bg-card);
-		color: var(--ink);
-		cursor: pointer;
-		transition: all 0.15s ease;
+		--icon-size: 14px;
 	}
-
-	.btn-doctor:hover:not(:disabled) {
-		background: var(--bg-hover);
-		border-color: var(--ink-muted);
-	}
-
-	.btn-doctor:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.btn-copy {
-		border-color: var(--line);
-	}
-
-	.btn-refresh {
-		background: var(--bg-hover);
-	}
-
-	.refresh-icon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.refresh-icon.spinning {
-		animation: spin 0.8s linear infinite;
-	}
-
 
 	.filter-bar {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 12px;
-		padding: 4px 0;
-	}
-
-	.filter-pills {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.filter-pill {
-		padding: 4px 10px;
-		font-size: 11px;
-		font-weight: 500;
-		border: 1px solid transparent;
-		background: transparent;
-		color: var(--ink-muted);
-		border-radius: var(--radius-sm, 4px);
-		cursor: pointer;
-		transition: all 0.15s ease;
-	}
-
-	.filter-pill:hover {
-		color: var(--ink);
-		background: var(--bg-hover);
-	}
-
-	.filter-pill.active {
-		color: var(--ink);
-		background: var(--bg-card);
-		border-color: var(--line);
-	}
-
-	.filter-pill.has-issues {
-		color: var(--warn);
-	}
-
-	.filter-pill.has-issues.active {
-		border-color: var(--warn);
-		background: var(--warn-dim, rgba(234, 179, 8, 0.08));
+		gap: var(--space-3);
+		padding: 2px 0;
+		flex-wrap: wrap;
 	}
 
 	.sys-summary {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		display: flex;
 		align-items: center;
@@ -440,31 +343,23 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 10px;
+		gap: var(--space-3);
 		padding: 48px 16px;
 		color: var(--ink-muted);
-		font-size: 13px;
-	}
-
-	.btn-spinner {
-		width: 14px;
-		height: 14px;
-		border: 2px solid var(--line);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 0.7s linear infinite;
+		font-size: var(--text-body);
 	}
 
 	.error-banner {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		padding: 12px 14px;
-		border-radius: var(--radius-sm, 4px);
-		border: 1px solid var(--err);
-		background: var(--err-dim, rgba(239, 68, 68, 0.08));
-		color: var(--err);
-		font-size: 12px;
+		gap: var(--space-3);
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-md);
+		border: 1px solid var(--danger);
+		background: color-mix(in oklab, var(--danger) 8%, var(--bg-raised));
+		color: var(--danger);
+		font-size: var(--text-label);
+		--icon-size: 16px;
 	}
 
 	.error-text {
@@ -476,12 +371,7 @@
 
 	.btn-retry {
 		padding: 4px 10px;
-		font-size: 11px;
-		background: var(--bg-card);
-		border: 1px solid var(--err);
-		color: var(--err);
-		border-radius: var(--radius-sm, 4px);
-		cursor: pointer;
+		font-size: var(--text-caption);
 	}
 
 	.empty-state {
@@ -489,34 +379,27 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 8px;
+		gap: var(--space-2);
 		padding: 48px 16px;
 		color: var(--ink-muted);
-		font-size: 13px;
+		font-size: var(--text-body);
 	}
 
-	.empty-icon.ok {
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 50%;
-		background: rgba(34, 197, 94, 0.12);
-		color: #22c55e;
+	.empty-state p {
+		margin: 0;
 	}
 
 	.doctor-table-wrapper {
 		display: flex;
 		flex-direction: column;
-		gap: 18px;
+		gap: var(--space-4);
 	}
 
 	.category-block {
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm, 6px);
+		border-radius: var(--radius-md);
 		overflow: hidden;
-		background: var(--bg-card);
+		background: var(--bg-raised);
 	}
 
 	.category-header {
@@ -527,33 +410,34 @@
 
 	.category-header h5 {
 		margin: 0;
-		font-size: 12px;
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
-		letter-spacing: -0.01em;
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.doctor-table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: 12px;
+		font-size: var(--text-label);
 		text-align: left;
 	}
 
 	.doctor-table th {
 		padding: 7px 12px;
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--ink-faint);
+		text-transform: none;
+		letter-spacing: normal;
+		color: var(--ink-muted);
 		border-bottom: 1px solid var(--line);
-		background: var(--bg-card);
+		background: var(--bg-raised);
 	}
 
 	.col-status {
-		width: 44px;
-		text-align: center;
+		width: 120px;
+		text-align: left;
 	}
 
 	.col-check {
@@ -570,7 +454,7 @@
 
 	.item-row {
 		border-bottom: 1px solid var(--line);
-		transition: background 0.1s ease;
+		transition: background-color var(--dur-fast) var(--ease-out);
 	}
 
 	.item-row:last-child {
@@ -582,11 +466,11 @@
 	}
 
 	.item-row.row-warn {
-		background: rgba(234, 179, 8, 0.03);
+		background: color-mix(in oklab, var(--warn) 4%, transparent);
 	}
 
 	.item-row.row-error {
-		background: rgba(239, 68, 68, 0.04);
+		background: color-mix(in oklab, var(--danger) 5%, transparent);
 	}
 
 	.doctor-table td {
@@ -595,31 +479,29 @@
 	}
 
 	.cell-status {
-		text-align: center;
-		padding: 8px 4px;
+		text-align: left;
+		padding: 8px 12px;
 	}
 
-	.status-icon {
+	.status-cell-wrap {
 		display: inline-flex;
 		align-items: center;
-		justify-content: center;
-		width: 20px;
-		height: 20px;
-		border-radius: var(--radius-sm, 4px);
+		gap: 6px;
 	}
 
-	.status-icon.icon-ok {
-		color: var(--ink-muted);
+	.status-cell-text {
+		font-size: var(--text-caption);
+		font-weight: 500;
+		color: var(--ink);
 	}
 
-	.status-icon.icon-warn {
+	.status-cell-text.text-warn {
 		color: var(--warn);
-		background: var(--warn-dim, rgba(234, 179, 8, 0.12));
 	}
 
-	.status-icon.icon-err {
-		color: var(--err);
-		background: var(--err-dim, rgba(239, 68, 68, 0.12));
+	.status-cell-text.text-error {
+		color: var(--danger);
+		font-weight: 600;
 	}
 
 	.check-name {
@@ -629,11 +511,11 @@
 
 	.val-code {
 		font-family: var(--font-mono);
-		font-size: 11px;
-		padding: 2px 5px;
-		background: var(--bg);
+		font-size: var(--text-caption);
+		padding: 2px 6px;
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: 3px;
+		border-radius: var(--radius-sm);
 		color: var(--ink);
 		word-break: break-all;
 	}
@@ -642,8 +524,8 @@
 		display: flex;
 		align-items: flex-start;
 		gap: 6px;
-		font-size: 11px;
-		line-height: 1.35;
+		font-size: var(--text-caption);
+		line-height: 1.4;
 	}
 
 	.recommendation-box.rec-warn {
@@ -651,13 +533,17 @@
 	}
 
 	.recommendation-box.rec-error {
-		color: var(--err);
+		color: var(--danger);
 		font-weight: 500;
 	}
 
 	.rec-bullet {
-		font-weight: 700;
-		opacity: 0.8;
+		--icon-size: 12px;
+		color: var(--ink-faint);
+		display: inline-flex;
+		align-items: center;
+		margin-top: 2px;
+		flex-shrink: 0;
 	}
 
 	.rec-text {
@@ -666,6 +552,6 @@
 
 	.rec-empty {
 		color: var(--ink-faint);
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 </style>

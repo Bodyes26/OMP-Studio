@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import Switch from '$lib/ui/Switch.svelte';
 </script>
 
 <div class="settings-section">
 	<div class="section-header">
 		<h4>{m.ui_accessibilitysection_accessibilita_e_movimento_1c87()}</h4>
-		<button type="button" class="btn btn-secondary" onclick={() => settingsStore.reset('accessibility')}>Ripristina</button>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('accessibility')}>Ripristina</button>
 	</div>
 
 	<div class="section-block">
@@ -14,18 +15,17 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Animazioni e transizioni dell'interfaccia</span>
-					<span class="form-row-desc">Abilita animazioni fluide, caricamenti graduali (staggered) e transizioni di reveal. Disattiva per una risposta visiva istantanea o per ridurre l'impegno della GPU.</span>
+					<span id="settings-accel-anim-label" class="form-row-label">Animazioni e transizioni dell'interfaccia</span>
+					<span id="settings-accel-anim-desc" class="form-row-desc">Abilita animazioni fluide, caricamenti graduali (staggered) e transizioni di reveal. Disattiva per una risposta visiva istantanea o per ridurre l'impegno della GPU.</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.accessibility.animations}
-							onchange={(e) => settingsStore.patchAccessibility({ animations: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-accel-anim"
+						checked={settingsStore.accessibility.animations}
+						ariaLabelledBy="settings-accel-anim-label"
+						ariaDescribedBy="settings-accel-anim-desc"
+						onChange={(checked) => settingsStore.patchAccessibility({ animations: checked })}
+					/>
 				</div>
 			</div>
 		</div>
@@ -62,11 +62,11 @@
 	}
 
 	.block-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.section-group {
@@ -99,13 +99,13 @@
 	}
 
 	.form-row-label {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.form-row-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
@@ -114,75 +114,4 @@
 		flex-shrink: 0;
 	}
 
-	.btn {
-		height: 28px;
-		padding: 0 var(--space-3);
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-		font-weight: 500;
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn-secondary {
-		background: var(--bg-base);
-		border-color: var(--line);
-		color: var(--ink-muted);
-	}
-
-	.btn-secondary:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 36px;
-		height: 20px;
-		cursor: pointer;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		inset: 0;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.slider::before {
-		position: absolute;
-		content: "";
-		height: 14px;
-		width: 14px;
-		left: 2px;
-		bottom: 2px;
-		background: var(--ink-muted);
-		border-radius: 50%;
-		transition: transform var(--dur-fast), background var(--dur-fast);
-	}
-
-	.switch input:checked + .slider {
-		background: var(--brand);
-		border-color: var(--brand);
-	}
-
-	.switch input:checked + .slider::before {
-		transform: translateX(16px);
-		background: var(--on-brand);
-	}
-
-	.switch input:focus-visible + .slider {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
 </style>

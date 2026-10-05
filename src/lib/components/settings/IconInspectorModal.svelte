@@ -1,6 +1,9 @@
 <script lang="ts">
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
+	// Modale di ispezione e controllo qualita' delle icone Lucide (Design v2).
+	// Usa la primitiva accessibile Dialog (APG modal con focus trap e rvLift)
+	// e i controlli Segmented per categorie e scale.
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
 	import {
 		IconClose,
 		IconSearch,
@@ -103,15 +106,18 @@
 
 	let { open = false, onClose }: { open: boolean; onClose: () => void } = $props();
 
+	type CategoryType = 'all' | 'ai' | 'affordance' | 'actions' | 'editor' | 'status' | 'audit';
+	type SizeType = '14px' | '16px' | '20px' | '24px';
+
 	let searchQuery = $state('');
-	let selectedCategory = $state<'all' | 'ai' | 'affordance' | 'actions' | 'editor' | 'status' | 'audit'>('all');
-	let previewSize = $state<'14px' | '16px' | '20px' | '24px'>('16px');
+	let selectedCategory = $state<CategoryType>('all');
+	let previewSize = $state<SizeType>('16px');
 	let copiedName = $state<string | null>(null);
 
 	interface IconEntry {
 		name: string;
 		glyph: string;
-		category: 'ai' | 'affordance' | 'actions' | 'editor' | 'status' | 'layout';
+		category: 'ai' | 'affordance' | 'actions' | 'editor' | 'status';
 		component: any;
 		description: string;
 	}
@@ -198,13 +204,30 @@
 		{ name: 'IconNote', glyph: 'notebook-pen', category: 'status', component: IconNote, description: 'Note o promemoria' }
 	];
 
-	// Elenco canditati raw inline SVG rilevati da scripts/check-icons.mjs
+	// Elenco candidati raw inline SVG rilevati
 	const RAW_SVG_CANDIDATES = [
 		{ file: 'src/lib/components/TaskEditor.svelte', lines: [579, 596, 611, 628, 722], icons: ['IconTrash', 'IconPlay', 'IconCheck', 'IconClose', 'IconAttach'], note: 'Pulsanti Elimina, Avvia, Salva, Chiudi e Allega usavano SVG inline.' },
 		{ file: 'src/lib/components/AgentPanel.svelte', lines: [156, 227, 282], icons: ['IconPlus', 'IconGrip', 'IconPencil'], note: 'Pulsanti Nuovo task, Maniglia D&D e Modifica task.' },
 		{ file: 'src/lib/components/models/ReasoningSlider.svelte', lines: [131], icons: ['IconBrain'], note: 'AGGIORNATO: L icona cervello grezza e stata sostituita con IconBrain da Lucide.' },
 		{ file: 'src/lib/components/models/RolesTab.svelte', lines: [187, 297, 417, 540, 571], icons: ['IconSearch', 'IconRefresh', 'IconChevronUp', 'IconWarning'], note: 'Campi ricerca e pulsanti azione.' },
 		{ file: 'src/lib/components/models/CatalogTab.svelte', lines: [189, 332], icons: ['IconSearch', 'IconChevronDown'], note: 'Filtro catalogo modelli e dropdown.' }
+	];
+
+	const categoryOptions: SegmentedOption<CategoryType>[] = [
+		{ value: 'all', label: 'Tutte', count: ICONS_CATALOG.length },
+		{ value: 'ai', label: 'AI & Ruoli' },
+		{ value: 'affordance', label: 'Affordance' },
+		{ value: 'actions', label: 'Azioni' },
+		{ value: 'editor', label: 'Editor' },
+		{ value: 'status', label: 'Stato' },
+		{ value: 'audit', label: 'Audit Inline SVG', count: RAW_SVG_CANDIDATES.length, countTone: 'attention' }
+	];
+
+	const sizeOptions: SegmentedOption<SizeType>[] = [
+		{ value: '14px', label: '14px' },
+		{ value: '16px', label: '16px' },
+		{ value: '20px', label: '20px' },
+		{ value: '24px', label: '24px' }
 	];
 
 	const filteredIcons = $derived(
@@ -218,259 +241,195 @@
 
 	function copyImport(name: string) {
 		const snippet = `import { ${name} } from '$lib/icons';`;
-		navigator.clipboard.writeText(snippet);
+		void navigator.clipboard.writeText(snippet);
 		copiedName = name;
 		setTimeout(() => {
 			if (copiedName === name) copiedName = null;
 		}, 2000);
 	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') {
-			e.preventDefault();
-			onClose();
-		}
-	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<Dialog
+	{open}
+	{onClose}
+	title="Registro & Controllo Qualità Icone Studio"
+	size="wide"
+	flush
+>
+	{#snippet actions()}
+		<span class="header-badge">
+			<IconSparkles />
+			<span>Standard Qualità Icone</span>
+		</span>
+	{/snippet}
 
-{#if open}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div class="modal-backdrop" transition:fade={{ duration: 150 }} onclick={onClose} role="presentation">
-		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-		<div
-			class="modal-window"
-			role="dialog"
-			tabindex="-1"
-			aria-modal="true"
-			aria-labelledby="icon-inspector-title"
-			onclick={(e) => e.stopPropagation()}
-			transition:fly={{ y: 20, duration: 200, easing: cubicOut }}
-		>
-			<header class="modal-header">
-				<div class="header-title-block">
-					<div class="header-badge">
-						<IconSparkles />
-						<span>Standard Qualità Icone</span>
-					</div>
-					<h3 id="icon-inspector-title">Registro & Controllo Qualità Icone Studio</h3>
-					<p class="header-desc">
-						Controllo visivo di coerenza, rendering a tutte le scale e conformità agli standard Lucide (<code>src/lib/icons.ts</code>).
-					</p>
-				</div>
-				<button type="button" class="btn-close" onclick={onClose} aria-label="Chiudi finestra">
-					<IconClose />
-				</button>
-			</header>
+	<div class="modal-layout">
+		<div class="modal-subhead">
+			<p class="header-desc">
+				Controllo visivo di coerenza, rendering a tutte le scale e conformita agli standard Lucide (<code>src/lib/icons.ts</code>).
+			</p>
+		</div>
 
-			<div class="modal-toolbar">
-				<div class="search-box">
-					<IconSearch />
-					<input
-						type="search"
-						bind:value={searchQuery}
-						placeholder="Cerca per nome, glifo o utilizzo (es. brain, check, play)..."
-						aria-label="Cerca icone"
-					/>
-					{#if searchQuery}
-						<button type="button" class="clear-search" onclick={() => (searchQuery = '')}>
-							<IconClose />
-						</button>
-					{/if}
-				</div>
-
-				<div class="category-tabs" role="tablist">
-					<button type="button" class:active={selectedCategory === 'all'} onclick={() => selectedCategory = 'all'}>Tutte ({ICONS_CATALOG.length})</button>
-					<button type="button" class:active={selectedCategory === 'ai'} onclick={() => selectedCategory = 'ai'}>AI & Ruoli</button>
-					<button type="button" class:active={selectedCategory === 'affordance'} onclick={() => selectedCategory = 'affordance'}>Affordance</button>
-					<button type="button" class:active={selectedCategory === 'actions'} onclick={() => selectedCategory = 'actions'}>Azioni</button>
-					<button type="button" class:active={selectedCategory === 'editor'} onclick={() => selectedCategory = 'editor'}>Editor</button>
-					<button type="button" class:active={selectedCategory === 'status'} onclick={() => selectedCategory = 'status'}>Stato</button>
-					<button type="button" class="tab-audit" class:active={selectedCategory === 'audit'} onclick={() => selectedCategory = 'audit'}>Audit Inline SVG</button>
-				</div>
-
-				<div class="size-selector">
-					<span class="size-label">Scala:</span>
-					{#each ['14px', '16px', '20px', '24px'] as sz}
-						<button
-							type="button"
-							class="btn-size"
-							class:active={previewSize === sz}
-							onclick={() => (previewSize = sz as any)}
-						>
-							{sz}
-						</button>
-					{/each}
-				</div>
-			</div>
-
-			<div class="modal-body" style="--icon-size: {previewSize};">
-				{#if selectedCategory === 'audit'}
-					<div class="audit-section">
-						<div class="audit-banner">
-							<h4>Rapporto Audit: SVG Inline da Migrare</h4>
-							<p>
-								Per mantenere la massima coerenza visiva e rispettare la regola architetturale di Studio, ogni affordance o icona d'azione deve provenire dal registro centrale <code>$lib/icons</code> invece di usare SVG inline codificati a mano con spessori disallineati.
-							</p>
-						</div>
-
-						<div class="audit-list">
-							{#each RAW_SVG_CANDIDATES as item}
-								<div class="audit-card">
-									<div class="audit-card-header">
-										<span class="audit-file">{item.file}</span>
-										<span class="audit-badge">{item.icons.join(', ')}</span>
-									</div>
-									<p class="audit-note">{item.note}</p>
-									<div class="audit-recs">
-										<strong>Soluzione consigliata:</strong> importa dal registro:
-										<code>import &#123; {item.icons.join(', ')} &#125; from '$lib/icons';</code>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</div>
-				{:else}
-					<div class="icons-grid">
-						{#each filteredIcons as icon (icon.name)}
-							{@const Comp = icon.component}
-							<div class="icon-card">
-								<div class="icon-preview-box">
-									<div class="preview-stage">
-										<Comp />
-									</div>
-									<span class="size-tag">{previewSize}</span>
-								</div>
-
-								<div class="icon-meta">
-									<div class="icon-name-row">
-										<strong class="icon-name">{icon.name}</strong>
-										{#if icon.name === 'IconBrain'}
-											<span class="badge-updated">Aggiornata</span>
-										{/if}
-									</div>
-									<span class="icon-glyph">glifo: <code>{icon.glyph}</code></span>
-									<span class="icon-desc">{icon.description}</span>
-								</div>
-
-								<button
-									type="button"
-									class="btn-copy-import"
-									onclick={() => copyImport(icon.name)}
-									title="Copia import snippet"
-									aria-label={`Copia import per ${icon.name}`}
-								>
-									{#if copiedName === icon.name}
-										<IconCheck />
-										<span>Copiato!</span>
-									{:else}
-										<IconCopy />
-										<span>Import</span>
-									{/if}
-								</button>
-							</div>
-						{/each}
-					</div>
+		<div class="modal-toolbar">
+			<div class="search-box-wrap">
+				<span class="search-icon" aria-hidden="true"><IconSearch /></span>
+				<input
+					type="search"
+					class="ui-input search-input"
+					bind:value={searchQuery}
+					placeholder="Cerca per nome, glifo o utilizzo (es. brain, check, play)..."
+					aria-label="Cerca icone"
+				/>
+				{#if searchQuery}
+					<button
+						type="button"
+						class="clear-search"
+						onclick={() => (searchQuery = '')}
+						aria-label="Cancella ricerca"
+					>
+						<IconClose />
+					</button>
 				{/if}
 			</div>
 
-			<footer class="modal-footer">
-				<div class="footer-stats">
-					<span><strong>89</strong> icone registrate</span>
-					<span>·</span>
-					<span><strong>100%</strong> Lucide compatibili</span>
-					<span>·</span>
-					<span>Audit automatico: <code>npm run check:icons</code></span>
+			<div class="toolbar-segmented-group">
+				<Segmented
+					options={categoryOptions}
+					value={selectedCategory}
+					onChange={(v) => (selectedCategory = v)}
+					ariaLabel="Filtra categoria icone"
+				/>
+
+				<div class="size-selector-wrap">
+					<span class="size-label">Scala:</span>
+					<Segmented
+						options={sizeOptions}
+						value={previewSize}
+						onChange={(v) => (previewSize = v)}
+						ariaLabel="Scala anteprima icone"
+					/>
 				</div>
-				<button type="button" class="btn-primary" onclick={onClose}>Chiudi</button>
-			</footer>
+			</div>
+		</div>
+
+		<div class="modal-body" style="--icon-size: {previewSize};">
+			{#if selectedCategory === 'audit'}
+				<div class="audit-section">
+					<div class="audit-banner">
+						<h4>Rapporto Audit: SVG Inline da Migrare</h4>
+						<p>
+							Per mantenere la massima coerenza visiva e rispettare la regola architetturale di Studio, ogni affordance o icona d'azione deve provenire dal registro centrale <code>$lib/icons</code> invece di usare SVG inline codificati a mano con spessori disallineati.
+						</p>
+					</div>
+
+					<div class="audit-list">
+						{#each RAW_SVG_CANDIDATES as item}
+							<div class="audit-card">
+								<div class="audit-card-header">
+									<span class="audit-file">{item.file}</span>
+									<span class="audit-badge">{item.icons.join(', ')}</span>
+								</div>
+								<p class="audit-note">{item.note}</p>
+								<div class="audit-recs">
+									<strong>Soluzione consigliata:</strong> importa dal registro:
+									<code>import &#123; {item.icons.join(', ')} &#125; from '$lib/icons';</code>
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{:else}
+				<div class="icons-grid">
+					{#each filteredIcons as icon (icon.name)}
+						{@const Comp = icon.component}
+						<div class="icon-card">
+							<div class="icon-preview-box">
+								<div class="preview-stage">
+									<Comp />
+								</div>
+								<span class="size-tag">{previewSize}</span>
+							</div>
+
+							<div class="icon-meta">
+								<div class="icon-name-row">
+									<strong class="icon-name">{icon.name}</strong>
+									{#if icon.name === 'IconBrain'}
+										<span class="badge-updated">Aggiornata</span>
+									{/if}
+								</div>
+								<span class="icon-glyph">glifo: <code>{icon.glyph}</code></span>
+								<span class="icon-desc">{icon.description}</span>
+							</div>
+
+							<button
+								type="button"
+								class="ui-button ui-button-secondary btn-copy-import"
+								onclick={() => copyImport(icon.name)}
+								aria-label={`Copia import per ${icon.name}`}
+							>
+								{#if copiedName === icon.name}
+									<IconCheck />
+									<span>Copiato!</span>
+								{:else}
+									<IconCopy />
+									<span>Import</span>
+								{/if}
+							</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</div>
-{/if}
+
+	{#snippet footer()}
+		<div class="footer-stats">
+			<span><strong>{ICONS_CATALOG.length}</strong> icone registrate</span>
+			<span>·</span>
+			<span><strong>100%</strong> Lucide compatibili</span>
+			<span>·</span>
+			<span>Audit automatico: <code>npm run check:icons</code></span>
+		</div>
+		<button type="button" class="ui-button ui-button-primary" onclick={onClose}>Chiudi</button>
+	{/snippet}
+</Dialog>
 
 <style>
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.65);
-		backdrop-filter: blur(4px);
-		z-index: 9999;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: var(--space-4);
-	}
-
-	.modal-window {
-		width: 100%;
-		max-width: 960px;
-		height: 85vh;
-		max-height: 800px;
-		background: var(--bg-surface);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-lg);
-		box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.modal-header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		padding: var(--space-4) var(--space-5);
-		border-bottom: 1px solid var(--line);
-		background: var(--bg-base);
-	}
-
-	.header-title-block {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
 	.header-badge {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--brand);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		font-size: var(--text-caption);
+		font-weight: 500;
+		color: var(--ink-muted);
+		text-transform: none;
+		letter-spacing: normal;
+		--icon-size: 13px;
 	}
 
-	.modal-header h3 {
-		margin: 0;
-		font-size: var(--text-lg);
-		font-weight: 700;
-		color: var(--ink);
+	.modal-layout {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		min-height: 0;
+		flex: 1;
+		background: var(--bg-base);
+	}
+
+	.modal-subhead {
+		padding: var(--space-2) var(--space-4) 0;
 	}
 
 	.header-desc {
 		margin: 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		color: var(--ink-muted);
+		line-height: 1.4;
 	}
 
-	.btn-close {
-		background: transparent;
-		border: none;
-		color: var(--ink-muted);
-		cursor: pointer;
-		padding: 6px;
-		border-radius: var(--radius-sm);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.btn-close:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
+	.header-desc code {
+		font-family: var(--font-mono);
+		color: var(--brand-ink);
 	}
 
 	.modal-toolbar {
@@ -478,107 +437,81 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
-		padding: var(--space-2) var(--space-5);
+		padding: var(--space-3) var(--space-4);
 		border-bottom: 1px solid var(--line);
 		background: var(--bg-sunken);
 		flex-wrap: wrap;
 	}
 
-	.search-box {
+	.search-box-wrap {
+		position: relative;
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 4px 10px;
 		flex: 1;
 		min-width: 240px;
-		color: var(--ink-muted);
 	}
 
-	.search-box input {
-		border: none;
-		background: transparent;
-		color: var(--ink);
-		font-size: var(--text-sm);
+	.search-icon {
+		position: absolute;
+		left: 8px;
+		pointer-events: none;
+		color: var(--ink-muted);
+		--icon-size: 14px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.search-input {
 		width: 100%;
-		outline: none;
+		padding-left: 28px;
+		padding-right: 28px;
 	}
 
 	.clear-search {
+		position: absolute;
+		right: 6px;
 		background: transparent;
 		border: none;
 		color: var(--ink-muted);
 		cursor: pointer;
 		display: flex;
-	}
-
-	.category-tabs {
-		display: flex;
 		align-items: center;
-		gap: 4px;
-	}
-
-	.category-tabs button {
-		background: transparent;
-		border: none;
-		font-size: var(--text-xs);
-		padding: 5px 10px;
+		justify-content: center;
+		padding: 4px;
 		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-		font-weight: 500;
+		--icon-size: 12px;
+		transition: color var(--dur-fast) var(--ease-out);
 	}
 
-	.category-tabs button.active {
-		background: var(--bg-base);
+	.clear-search:hover {
 		color: var(--ink);
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-		font-weight: 600;
 	}
 
-	.category-tabs button.tab-audit {
-		color: #eab308;
-	}
-
-	.category-tabs button.tab-audit.active {
-		background: rgba(234, 179, 8, 0.15);
-		color: #eab308;
-	}
-
-	.size-selector {
+	.toolbar-segmented-group {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-3);
+		flex-wrap: wrap;
+	}
+
+	.size-selector-wrap {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 
 	.size-label {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
-	}
-
-	.btn-size {
-		background: transparent;
-		border: 1px solid var(--line);
-		font-size: 10px;
-		padding: 2px 6px;
-		border-radius: 4px;
-		color: var(--ink-muted);
-		cursor: pointer;
-	}
-
-	.btn-size.active {
-		background: var(--brand);
-		color: var(--brand-ink);
-		border-color: var(--brand);
-		font-weight: 600;
+		font-weight: 500;
 	}
 
 	.modal-body {
 		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
-		padding: var(--space-4) var(--space-5);
+		padding: var(--space-4);
 	}
 
 	.icons-grid {
@@ -588,14 +521,14 @@
 	}
 
 	.icon-card {
-		background: var(--bg-base);
+		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		padding: var(--space-3);
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-		transition: border-color 0.15s, transform 0.15s;
+		transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 	}
 
 	.icon-card:hover {
@@ -620,12 +553,13 @@
 	}
 
 	.size-tag {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-muted);
 		background: var(--bg-base);
 		padding: 1px 5px;
-		border-radius: 3px;
+		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
 	}
 
@@ -643,22 +577,23 @@
 	}
 
 	.icon-name {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		color: var(--ink);
 		font-weight: 600;
 	}
 
 	.badge-updated {
-		font-size: 9px;
-		background: rgba(34, 197, 94, 0.15);
-		color: #22c55e;
+		font-size: var(--text-caption);
+		background: var(--bg-sunken);
+		color: var(--ink-muted);
+		border: 1px solid var(--line);
 		padding: 1px 5px;
-		border-radius: 3px;
-		font-weight: 600;
+		border-radius: var(--radius-sm);
+		font-weight: 500;
 	}
 
 	.icon-glyph {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
@@ -667,32 +602,18 @@
 	}
 
 	.icon-desc {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
-		line-height: 1.3;
+		line-height: 1.35;
 		margin-top: 2px;
 	}
 
 	.btn-copy-import {
 		margin-top: auto;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		color: var(--ink-muted);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		padding: 4px 8px;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		transition: all 0.15s;
-	}
-
-	.btn-copy-import:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--ink-muted);
+		--icon-size: 13px;
+		gap: 6px;
 	}
 
 	.audit-section {
@@ -702,24 +623,29 @@
 	}
 
 	.audit-banner {
-		background: rgba(234, 179, 8, 0.1);
-		border: 1px solid rgba(234, 179, 8, 0.3);
+		background: color-mix(in oklab, var(--warn) 10%, var(--bg-sunken));
+		border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
 		border-radius: var(--radius-md);
 		padding: var(--space-3) var(--space-4);
 	}
 
 	.audit-banner h4 {
 		margin: 0 0 4px 0;
-		color: #eab308;
-		font-size: var(--text-sm);
-		font-weight: 700;
+		color: var(--warn);
+		font-size: var(--text-body);
+		font-weight: 600;
 	}
 
 	.audit-banner p {
 		margin: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		color: var(--ink);
 		line-height: 1.4;
+	}
+
+	.audit-banner code {
+		font-family: var(--font-mono);
+		color: var(--brand-ink);
 	}
 
 	.audit-list {
@@ -729,7 +655,7 @@
 	}
 
 	.audit-card {
-		background: var(--bg-base);
+		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		padding: var(--space-3);
@@ -746,29 +672,29 @@
 
 	.audit-file {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.audit-badge {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		background: var(--bg-sunken);
-		color: var(--brand);
+		color: var(--brand-ink);
 		padding: 2px 6px;
-		border-radius: 4px;
+		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
 		font-family: var(--font-mono);
 	}
 
 	.audit-note {
 		margin: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		color: var(--ink-muted);
 	}
 
 	.audit-recs {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		color: var(--ink);
 		background: var(--bg-sunken);
 		padding: 6px 10px;
@@ -778,39 +704,21 @@
 	.audit-recs code {
 		display: block;
 		font-family: var(--font-mono);
-		color: var(--brand);
+		color: var(--brand-ink);
 		margin-top: 2px;
-	}
-
-	.modal-footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-3) var(--space-5);
-		border-top: 1px solid var(--line);
-		background: var(--bg-base);
 	}
 
 	.footer-stats {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-muted);
+		margin-right: auto;
 	}
 
-	.btn-primary {
-		background: var(--brand);
-		color: var(--brand-ink);
-		border: none;
-		font-size: var(--text-sm);
-		font-weight: 600;
-		padding: 6px 16px;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-	}
-
-	.btn-primary:hover {
-		opacity: 0.9;
+	.footer-stats code {
+		font-family: var(--font-mono);
 	}
 </style>

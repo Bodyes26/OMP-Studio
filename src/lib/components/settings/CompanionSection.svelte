@@ -38,20 +38,15 @@
 
 		<div class="layout-variant-grid spotlight-grid" role="radiogroup" aria-label={m.settings_companion_spotlight_title()}>
 			{#each SPOTLIGHT_OPTIONS as opt (opt.id)}
-				<button
-					type="button"
-					class="variant-card"
-					class:selected={settingsStore.appearance.companionSpotlightDismiss === opt.id}
-					role="radio"
-					aria-checked={settingsStore.appearance.companionSpotlightDismiss === opt.id}
-					onclick={() => setSpotlightDismiss(opt.id)}
-				>
+				<label class="ui-choice">
 					<div class="card-radio-head">
-						<div class="radio-indicator">
-							{#if settingsStore.appearance.companionSpotlightDismiss === opt.id}
-								<span class="radio-dot"></span>
-							{/if}
-						</div>
+						<input
+							type="radio"
+							name="settings-companion-spotlight"
+							value={opt.id}
+							checked={settingsStore.appearance.companionSpotlightDismiss === opt.id}
+							onchange={() => setSpotlightDismiss(opt.id)}
+						/>
 						<span class="variant-title">{opt.label()}</span>
 					</div>
 					<p class="variant-desc">{opt.desc}</p>
@@ -66,7 +61,7 @@
 							{/if}
 						</div>
 					</div>
-				</button>
+				</label>
 			{/each}
 		</div>
 	</div>
@@ -101,22 +96,19 @@
 
 	.block-titles h4 {
 		margin: 0;
-		font-size: var(--text-base);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.block-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
-	.block-divider {
-		height: 1px;
-		background: var(--line);
-		margin: var(--space-1) 0;
-	}
 
 	.layout-variant-grid {
 		display: grid;
@@ -134,88 +126,39 @@
 		}
 	}
 
-	.variant-card {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		text-align: left;
-		padding: var(--space-3);
-		background: var(--bg-surface);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
-		user-select: none;
-	}
-
-	.variant-card:hover {
-		border-color: var(--line-strong);
-		background: var(--bg-hover);
-	}
-
-	.variant-card.selected {
-		border-color: var(--brand);
-		background: color-mix(in srgb, var(--brand) 4%, var(--bg-surface));
-		box-shadow: 0 0 0 1px var(--brand);
-	}
-
 	.card-radio-head {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		margin-bottom: var(--space-1);
-	}
-
-	.radio-indicator {
-		width: 16px;
-		height: 16px;
-		border-radius: 50%;
-		border: 1.5px solid var(--line-strong);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: border-color 0.15s ease;
-	}
-
-	.variant-card.selected .radio-indicator {
-		border-color: var(--brand);
-	}
-
-	.radio-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--brand);
 	}
 
 	.variant-title {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.variant-desc {
-		margin: 0 0 var(--space-3) 0;
-		font-size: var(--text-xs);
+		margin: 0;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
 	.variant-preview {
 		margin-top: auto;
-		padding-top: var(--space-2);
 		display: flex;
 		align-items: center;
 		width: 100%;
 	}
 
-	.variant-card:hover .spotlight-mini-preview {
+	.ui-choice:hover .spotlight-mini-preview {
 		border-color: var(--line-strong);
 	}
 
-	.variant-card.selected .spotlight-mini-preview {
+	.ui-choice:has(input:checked) .spotlight-mini-preview {
 		border-color: var(--brand);
-		background: color-mix(in srgb, var(--brand-tint) 15%, var(--bg-sunken));
+		background: color-mix(in oklab, var(--brand) 15%, var(--bg-sunken));
 	}
 
 	.spotlight-mini-preview {
@@ -229,21 +172,21 @@
 		justify-content: center;
 		gap: var(--space-2);
 		box-sizing: border-box;
-		transition: border-color 0.15s ease;
+		transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 	}
 
 	.spotlight-mini-preview kbd {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 2px 6px;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line-strong);
-		background: var(--bg-surface);
+		background: var(--bg-sunken);
 		color: var(--ink);
 	}
 
 	.spotlight-sep {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -252,6 +195,6 @@
 		height: 18px;
 		border-radius: 50%;
 		border: 1px dashed var(--line-strong);
-		background: color-mix(in srgb, var(--ink-faint) 12%, transparent);
+		background: color-mix(in oklab, var(--ink-faint) 12%, transparent);
 	}
 </style>

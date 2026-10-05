@@ -165,7 +165,7 @@
 			{opt.label}
 		{/if}
 		{#if opt.count}
-			<span class="segmented-count" class:attention={opt.countTone === 'attention'}>{opt.count}</span>
+			<span class="ui-count" class:attention={opt.countTone === 'attention'}>{opt.count}</span>
 		{/if}
 	</button>
 {/snippet}
@@ -214,30 +214,6 @@
 		flex: 1 1 0;
 		min-width: 0;
 		padding-inline: var(--space-2);
-	}
-
-	.segmented-count {
-		min-width: 16px;
-		height: 16px;
-		padding: 0 5px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: var(--radius-full);
-		background: var(--bg-hover);
-		/* Eredita dal pulsante: --ink-muted a riposo, --ink sull'attivo. Un
-		   --ink-muted fisso sul fondo attivo scendeva a 4,29:1. */
-		color: inherit;
-		font-size: var(--text-meta);
-		font-weight: 500;
-		font-variant-numeric: tabular-nums;
-		line-height: 1;
-	}
-
-	/* Attesa: tinta ambra derivata, testo --ink per restare AA su ogni tema. */
-	.segmented-count.attention {
-		background: color-mix(in srgb, var(--warn) 22%, transparent);
-		color: var(--ink);
 	}
 
 	/* I divisori stanno sul figlio diretto: il pulsante, oppure l'involucro

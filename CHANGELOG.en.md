@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Changed
+- Configure Studio in more consistent, readable settings: shared switches and preview choices, explicit counts, diagnostic states with icons and text, accessible nested dialogs, and directive and suggestion prompts as readable as chat. Enter adds a line, Ctrl+Enter saves, and Escape cancels editing without closing settings.
 - The Companion window speaks like Studio: it is opaque, the task field is the chat composer with badges for project, directive, role and file, questions use the same options as the chat with «Recommended» in green, project status uses the shared neutral marks, and pinned mode is recognizable by the active pin. It opens and closes with a short fade (shortcut included), and sections that open grow the window smoothly.
 - Check quotas with a single ring indicator and quieter limit rows: colors follow the theme, healthy green remains optional, and breathing signals only a visible exhausted quota while respecting motion preferences.
 - Open quotas and all queues in nonmodal popovers with unrestricted keyboard navigation, outside dismissal and accessible tooltips, without dimming your work.

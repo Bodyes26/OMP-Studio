@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Changed
+- Configura Studio in impostazioni più coerenti e leggibili: interruttori e scelte con anteprima condivisi, conteggi espliciti, stati diagnostici con icona e testo, dialoghi annidati accessibili e prompt di direttive e suggerimenti con la stessa leggibilità della chat. Invio va a capo, Ctrl+Invio salva ed Esc annulla la modifica senza chiudere le impostazioni.
 - La finestra Companion parla come Studio: è opaca, il campo del task è il composer della chat con i badge per progetto, direttiva, ruolo e file, la domanda usa le stesse opzioni della chat con «Consigliata» in verde, lo stato dei progetti usa i segni neutri condivisi e la modalità fissata si riconosce dalla puntina attiva. Si apre e si chiude con una breve dissolvenza (anche dalla scorciatoia) e le sezioni che si aprono fanno crescere la finestra in modo continuo.
 - Consulta le quote con un solo indicatore ad anello e righe di limite più sobrie: i colori seguono il tema, il verde sano resta opzionale e il respiro segnala soltanto una quota esaurita visibile, rispettando le preferenze di movimento.
 - Apri quote e tutte le code in popover non modali con tastiera libera, chiusura esterna e suggerimenti accessibili, senza oscurare il lavoro.

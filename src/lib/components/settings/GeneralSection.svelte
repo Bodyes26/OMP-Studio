@@ -15,6 +15,7 @@
 	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import Switch from '$lib/ui/Switch.svelte';
+	import Segmented from '$lib/ui/Segmented.svelte';
 
 	async function browseProjectRoot() {
 		const sel = await openDialog({ directory: true, defaultPath: projectStore.projectRoot });
@@ -190,7 +191,7 @@
 				<span class="form-row-path" title={projectStore.projectRoot}>{projectStore.projectRoot}</span>
 			</div>
 			<div class="form-row-control">
-				<button type="button" class="btn btn-secondary" onclick={browseProjectRoot}>{m.settings_general_change_folder()}</button>
+				<button type="button" class="ui-button ui-button-secondary" onclick={browseProjectRoot}>{m.settings_general_change_folder()}</button>
 			</div>
 		</div>
 	</div>
@@ -198,32 +199,23 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span class="form-row-label">{m.settings_general_update_channel_title()}</span>
-				<span class="form-row-desc">{m.settings_general_update_channel_desc()}</span>
+				<span id="settings-update-channel-label" class="form-row-label">{m.settings_general_update_channel_title()}</span>
+				<span id="settings-update-channel-desc" class="form-row-desc">{m.settings_general_update_channel_desc()}</span>
 			</div>
 			<div class="form-row-control">
-				<fieldset class="channel-options" disabled={studioUpdaterStore.channelChangeDisabled}>
-					<label class="channel-option" class:checked={studioUpdaterStore.channel === 'stable'}>
-						<input
-							type="radio"
-							name="settings-update-channel"
-							value="stable"
-							checked={studioUpdaterStore.channel === 'stable'}
-							onchange={() => void studioUpdaterStore.setChannel('stable')}
-						/>
-						<span class="channel-name">{m.settings_general_stable()}</span>
-					</label>
-					<label class="channel-option" class:checked={studioUpdaterStore.channel === 'nightly'}>
-						<input
-							type="radio"
-							name="settings-update-channel"
-							value="nightly"
-							checked={studioUpdaterStore.channel === 'nightly'}
-							onchange={() => void studioUpdaterStore.setChannel('nightly')}
-						/>
-						<span class="channel-name">Nightly</span>
-					</label>
-				</fieldset>
+				<Segmented
+					name="settings-update-channel"
+					mode="radiogroup"
+					disabled={studioUpdaterStore.channelChangeDisabled}
+					value={studioUpdaterStore.channel}
+					ariaLabelledBy="settings-update-channel-label"
+					ariaDescribedBy="settings-update-channel-desc"
+					options={[
+						{ value: 'stable', label: m.settings_general_stable() },
+						{ value: 'nightly', label: 'Nightly' }
+					]}
+					onChange={(val) => void studioUpdaterStore.setChannel(val as 'stable' | 'nightly')}
+				/>
 			</div>
 		</div>
 	</div>
@@ -349,20 +341,20 @@
 	}
 
 	.form-row-label {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.form-row-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
 	.form-row-path {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		margin-top: 2px;
 		overflow: hidden;
@@ -382,82 +374,5 @@
 		min-width: 180px;
 	}
 
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		font-family: var(--font-ui);
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn-secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-secondary:hover {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	.channel-options {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		background: var(--bg-sunken);
-		margin: 0;
-		padding: 3px;
-	}
-
-	.channel-options:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.channel-option {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: 5px var(--space-3);
-		border-radius: var(--radius-sm);
-		border: 1px solid transparent;
-		cursor: pointer;
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		background: transparent;
-		transition: background var(--dur-fast) var(--ease-out),
-		            border-color var(--dur-fast) var(--ease-out),
-		            color var(--dur-fast) var(--ease-out);
-	}
-
-	.channel-option:hover {
-		color: var(--ink);
-		background: var(--bg-hover);
-	}
-
-	.channel-option.checked {
-		color: var(--ink);
-		font-weight: 500;
-		background: var(--bg-raised);
-		border-color: var(--line-strong);
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-	}
-
-	.channel-options:disabled .channel-option {
-		cursor: not-allowed;
-	}
-
-	.channel-name {
-		user-select: none;
-	}
 
 </style>

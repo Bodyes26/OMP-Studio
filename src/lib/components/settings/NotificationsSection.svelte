@@ -4,6 +4,7 @@
 	import { settingsStore, type NotificationStyle } from '$lib/stores/settings.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
+	import Switch from '$lib/ui/Switch.svelte';
 
 	let permissionStatus = $state<'granted' | 'denied' | 'default' | 'unknown'>('unknown');
 	let testResult = $state<{ ok: boolean; message: string; diagnostic?: string } | null>(null);
@@ -95,7 +96,7 @@
 <div class="settings-section">
 	<div class="section-header">
 		<h4>Notifiche e Alert</h4>
-		<button type="button" class="btn btn-secondary" onclick={() => settingsStore.reset('notifications')}>Ripristina</button>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('notifications')}>Ripristina</button>
 	</div>
 
 	{#if permissionStatus === 'denied'}
@@ -125,7 +126,7 @@
 			<span class="block-title">Notifiche di sistema</span>
 			<button
 				type="button"
-				class="btn btn-sm btn-test"
+				class="ui-button ui-button-secondary"
 				onclick={runTestNotification}
 				disabled={sendingTest || !settingsStore.notifications.enabled}
 			>
@@ -135,33 +136,36 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Banner di notifica del sistema operativo</span>
-					<span class="form-row-desc">{m.ui_notificationssection_mostra_un_banner_toast_di_windows_o_bcfb()}</span>
+					<span id="settings-notif-os-label" class="form-row-label">Banner di notifica del sistema operativo</span>
+					<span id="settings-notif-os-desc" class="form-row-desc">{m.ui_notificationssection_mostra_un_banner_toast_di_windows_o_bcfb()}</span>
 					{#if permissionStatus === 'denied'}
 						<span class="perm-warning">{m.ui_notificationssection_permesso_notifiche_negato_nelle_impostazioni_di_sistema_01bd()}</span>
 					{/if}
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.notifications.enabled}
-							onchange={(e) => void toggleSystemNotifications((e.currentTarget as HTMLInputElement).checked)}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-notif-os"
+						checked={settingsStore.notifications.enabled}
+						ariaLabelledBy="settings-notif-os-label"
+						ariaDescribedBy="settings-notif-os-desc"
+						onChange={(checked) => void toggleSystemNotifications(checked)}
+					/>
 				</div>
 			</div>
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Contenuto della notifica</span>
-					<span class="form-row-desc">Scegli se mostrare solo il nome del progetto o l'anteprima completa della domanda.</span>
+					<label for="settings-notif-style" id="settings-notif-style-label" class="form-row-label">Contenuto della notifica</label>
+					<span id="settings-notif-style-desc" class="form-row-desc">Scegli se mostrare solo il nome del progetto o l'anteprima completa della domanda.</span>
 				</div>
 				<div class="form-row-control">
 					<select
+						id="settings-notif-style"
+						class="ui-select"
 						value={settingsStore.notifications.style}
 						disabled={!settingsStore.notifications.enabled}
+						aria-labelledby="settings-notif-style-label"
+						aria-describedby="settings-notif-style-desc"
 						onchange={(e) => settingsStore.patchNotifications({ style: (e.currentTarget as HTMLSelectElement).value as NotificationStyle })}
 					>
 						{#each STYLE_OPTIONS as opt (opt.id)}
@@ -173,19 +177,18 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Segnale sonoro</span>
-					<span class="form-row-desc">Riproduce il suono di sistema all'arrivo dell'avviso.</span>
+					<span id="settings-notif-sound-label" class="form-row-label">Segnale sonoro</span>
+					<span id="settings-notif-sound-desc" class="form-row-desc">Riproduce il suono di sistema all'arrivo dell'avviso.</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.notifications.sound}
-							disabled={!settingsStore.notifications.enabled}
-							onchange={(e) => settingsStore.patchNotifications({ sound: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-notif-sound"
+						checked={settingsStore.notifications.sound}
+						disabled={!settingsStore.notifications.enabled}
+						ariaLabelledBy="settings-notif-sound-label"
+						ariaDescribedBy="settings-notif-sound-desc"
+						onChange={(checked) => settingsStore.patchNotifications({ sound: checked })}
+					/>
 				</div>
 			</div>
 		</div>
@@ -195,18 +198,17 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Avviso visivo sull'icona</span>
-					<span class="form-row-desc">{m.ui_notificationssection_su_windows_aggiunge_il_dot_rosso_stile_856b()}</span>
+					<span id="settings-notif-appbadge-label" class="form-row-label">Avviso visivo sull'icona</span>
+					<span id="settings-notif-appbadge-desc" class="form-row-desc">{m.ui_notificationssection_su_windows_aggiunge_il_dot_rosso_stile_856b()}</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.notifications.appBadge}
-							onchange={(e) => settingsStore.patchNotifications({ appBadge: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-notif-appbadge"
+						checked={settingsStore.notifications.appBadge}
+						ariaLabelledBy="settings-notif-appbadge-label"
+						ariaDescribedBy="settings-notif-appbadge-desc"
+						onChange={(checked) => settingsStore.patchNotifications({ appBadge: checked })}
+					/>
 				</div>
 			</div>
 		</div>
@@ -243,11 +245,11 @@
 	}
 
 	.block-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.section-group {
@@ -280,20 +282,20 @@
 	}
 
 	.form-row-label {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.form-row-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
 	.perm-warning {
-		font-size: var(--text-xs);
-		color: var(--danger, #ef4444);
+		font-size: var(--text-caption);
+		color: var(--danger);
 		margin-top: 2px;
 	}
 
@@ -304,133 +306,13 @@
 		gap: var(--space-2);
 	}
 
-	select {
-		height: 30px;
-		padding: 0 var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		outline: none;
-		transition: border-color var(--dur-fast);
+	.form-row-control select {
 		min-width: 260px;
 	}
-
-	select:focus {
-		border-color: var(--brand);
-	}
-
-	select:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
 	.block-head-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 	}
 
-	.btn-sm {
-		padding: 3px 10px;
-		font-size: var(--text-xs);
-	}
-
-	.btn-test {
-		background: var(--bg-raised);
-		color: var(--brand);
-		border: 1px solid var(--line);
-	}
-
-	.btn-test:hover:not(:disabled) {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-	}
-
-	.btn-test:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		font-family: var(--font-ui);
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn-secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-secondary:hover {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 32px;
-		height: 18px;
-		cursor: pointer;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		inset: 0;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.slider::before {
-		position: absolute;
-		content: '';
-		height: 12px;
-		width: 12px;
-		left: 2px;
-		bottom: 2px;
-		background: var(--ink-muted);
-		border-radius: 50%;
-		transition: transform var(--dur-fast), background var(--dur-fast);
-	}
-
-	input:checked + .slider {
-		background: var(--brand);
-		border-color: var(--brand);
-	}
-
-	input:checked + .slider::before {
-		transform: translateX(14px);
-		background: var(--bg-sunken);
-	}
-
-	input:focus-visible + .slider {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
-
-	input:disabled + .slider {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
 </style>

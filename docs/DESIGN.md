@@ -332,6 +332,18 @@ components:
     textColor: "{colors.ink}"
     typography: "{typography.label}"
     padding: "5px 12px"
+  ui-count:
+    backgroundColor: "{colors.bg-hover}"
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.meta}"
+    rounded: "{rounded.full}"
+    height: "16px"
+    padding: "0 5px"
+  ui-choice:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    padding: "12px"
   prompt-block:
     backgroundColor: "{colors.bg-base}"
     textColor: "{colors.ink}"
@@ -839,12 +851,12 @@ Architettura modale nativa e accessibile per dialoghi e conferme (`src/lib/ui/Di
 - **Architettura `<dialog>.showModal()`:** sfrutta le funzionalità native del browser; il dialogo viene promosso nel top layer con isolamento e rende automaticamente `inert` lo sfondo e i layer sottostanti, eliminando la necessità di un modal host o della gestione manuale dello stack di inert.
 - **Trap focus integrato (`trapFocus` in `$lib/focusTrap.ts`):** gestisce la trappola ciclica del fuoco da tastiera, escludendo elementi nascosti, disabilitati o con `tabindex="-1"`. Supporta dialoghi annidati (solo il dialogo in cima gestisce la trappola), gestisce in sicurezza radici senza elementi focalizzabili e garantisce il ripristino sicuro del focus precedente alla chiusura (`restoreFocus: true`).
 - **Accessibilità:** attributi `ariaLabel`, `ariaLabelledBy`, `ariaDescribedBy`; titolo semantico `<h2>`.
-- **API:** titolo testuale `title`; snippet `header`, `body`, `footer`, `icon`, `children`; controllo con `open`, `onClose`, `dismissible`, `initialFocus`.
+- **API:** titolo testuale `title`; snippet `header`, `body`, `footer`, `icon`, `children`, `actions` (azioni nella testata standard), `outside` (strati dentro il dialogo ma fuori dalla superficie); controllo con `open`, `onClose`, `dismissible`, `initialFocus`. `size="wide"` limita le finestre di lavoro a `min(1080px, 96vw)` × `min(86vh, 760px)`; `flush` lascia al consumatore padding, altezza e scorrimento del corpo.
 - **Superficie e transizione:** fondo `--bg-overlay`, bordo `--line-strong`, raggio 10 px (`--radius-lg`), ombra `--shadow-overlay`. Titolo a 16 px / peso 550 (`Inter Variable`) con `text-wrap: balance`. Corpo `--bg-overlay`, piede `--bg-base`. Transizione d'ingresso e uscita con `rvLift` (240 ms, blur 3 px) applicata alla superficie dentro un positioner separato per non interferire con la centratura a griglia.
 
 **The Top-Layer Dialog Rule.** Le finestre modali usano `<dialog>.showModal()` nativo del browser per garantire top-layer e isolamento inert automatico; nessun modal host personalizzato né gestione manuale dello stack.
 
-- **Primi consumatori:** `CloseConfirmModal` con tre varianti di pulsante nativo `.ui-button` e intestazione esplicitamente etichettata.
+- **Consumatori:** `CloseConfirmModal`, centro impostazioni, conferma annidata di scarto delle modifiche e inspector delle icone. Il pannello Model Health resta dentro `outside` fino alla migrazione del Task 14: non diventa inerte dietro il dialogo padre.
 
 ### Controlli form nativi opt-in (ui-input, ui-select, ui-button)
 
@@ -859,6 +871,20 @@ Classi CSS opt-in definite a livello globale in `src/app.css` per i controlli de
   - `.ui-button-danger`: fondo pieno `--danger`, bordo trasparente, testo `--on-danger`, peso 600. Hover: bordo `--on-danger`.
 - **Chip `.ui-chip`:** pillola `3px 10px`, `--radius-full`, `--bg-raised`, bordo `--line`, didascalia 11/500 `--ink-muted`; hover `--bg-hover`/`--line-strong`/`--ink`. Lo stato scelto (`aria-pressed="true"`) è neutro: `--bg-active`, bordo `--line-strong`, testo `--ink` e una spunta da 12 px nel contenuto, mai un fondo brand.
 - **Primi consumatori:** `.ui-select` in `GeneralSection`; `.ui-button` (tutte e 3 le varianti) in `CloseConfirmModal`; `.ui-input` in `ShortcutsHelpModal`; `.ui-chip` in `SuggestionChips` e nel Task Editor («Usati spesso», direttive).
+
+### Conteggi e card di scelta (ui-count, ui-choice)
+
+- **Conteggi `.ui-count`:** pillole meta tabulari da 16 px con padding `0 5px`, raggio pieno, fondo `--bg-hover` e colore ereditato. La variante `.attention` usa `--warn` al 22% sopra la superficie e testo `--ink`; la navigazione delle impostazioni associa un `Tooltip` che spiega il numero. Nessun punto colorato senza significato leggibile.
+- **Card `.ui-choice`:** una `<label>` contiene il radio nativo e l'anteprima, con padding 12 px, bordo `--line` e `--radius-md`. Condivide hover e selezione con `.ask-opt`: fondo `--bg-hover` in hover, bordo e anello interno `--brand` più fondo al 7% quando scelta. Il testo rimane `--ink`.
+- **Anteprime:** componenti reali per quote e righe di limite, perché non producono azioni; schemi tokenizzati per disposizione delle colonne, coda e temi, senza montare sessioni, terminali o editor.
+
+### Campo prompt fuori dalla chat (PromptField)
+
+- **Registro:** `ComposerEditor` nella sagoma `.composer-shell`, font UI 15/24, fuoco visibile da 2 px `--brand`; minimo 96 px e massimo 280 px con scorrimento.
+- **Testo semplice:** nessuna palette o ricostruzione dei badge nelle impostazioni globali. `@file` e `/skill:...` restano letterali anche quando si riapre una bozza o arriva testo generato dall'AI.
+- **Tastiera:** Invio va a capo; Ctrl/⌘+Invio conferma; Esc annulla il modulo, non il dialogo padre. L'azione `escapeDismiss` consuma Esc in capture prima dei listener nativi del focus trap; il `ComposerEditor` abilitato espone `tabindex="0"`.
+- **Consumatori:** testo delle direttive, istruzioni per generarle o affinarle e prompt dei suggerimenti.
+
 
 ### Interruttore (Switch)
 
@@ -878,7 +904,7 @@ Primitiva per la selezione mutualmente esclusiva di viste o modalità (`src/lib/
 - **Contenitore:** fondo `--bg-sunken`, bordo perimetrale da 1 px in `--line`, raggio 6 px (`--radius-md`), divisori interni da 1 px `--line`.
 - **Navigazione da tastiera:** roving tabindex con frecce direzionali (Orizzontali e Verticali) che saltano automaticamente le opzioni disabilitate; selezione immediata con `Spazio` o `Invio`. Fuoco con contorno da 2 px `--brand` e offset -2 px.
 - **Modalità `tablist`:** le opzioni diventano `role="tab"` con `aria-controls` verso i pannelli (`tabIdPrefix`, `panelIdPrefix`); serve alle sottoschede dentro una colonna che ha già una `ColumnTabs`. Con `fill` occupa tutta la larghezza a opzioni di pari misura.
-- **Conteggi:** `count` opzionale per opzione, pillola meta tabulare `--ink-muted` su `--bg-hover`; con `countTone: 'attention'` fondo `--warn` al 22% e testo `--ink`.
+- **Conteggi:** `count` opzionale per opzione, pillola condivisa `.ui-count` meta tabulare con colore ereditato su `--bg-hover`; con `countTone: 'attention'` fondo `--warn` al 22% e testo `--ink`.
 - **Opzioni iconiche:** un'opzione può definire un'icona Lucide (`icon`) che sostituisce l'etichetta; l'etichetta testuale rimane come nome accessibile (`aria-label`) e testo del `Tooltip` conforme a WCAG (D8). Pulsante iconico da 28 px con altezza 26 px e `--icon-size: 14px`, divisori da 1 px preservati.
 - **Primi consumatori:** `ProjectBarSection`, sottoschede del pannello Agente, filtro corsie dello storico sessioni, selettore vista file nell'Editor (`code`/`split`/`preview`), switch Anteprima/Editor del Laboratorio, modalità e dispositivo in `PreviewViewer`.
 
@@ -1226,3 +1252,14 @@ Allineata al 2026-10-05 la finestra companion (`CompanionShell`, `CompanionView`
 3. **Scheda domanda:** parti di `AskCard` (`.ask-text`, `.ask-detail`, `.ask-opt`, `.ask-rec`, `.ask-kbd`) promosse a classi globali in `app.css` e condivise; «Consigliata» in `--success`, hover neutro, opzioni a 6 px, contatore solo con più domande, contesto in traccia 12,5/1.5, risposta libera in voce chat.
 4. **Modalità fissata e movimento:** testata da 32 px con puntina attiva neutra (`aria-pressed`, `--bg-active`); a scomparsa puntina sempre visibile in `--ink-faint` (prima 2,12:1). Evocazione `rvLift` 240 ms; uscita da 120 ms prima di `hide()` per ogni percorso, scorciatoia globale compresa (`companion-dismiss`); sezioni con `trayFold` e altezza della finestra che segue il contenuto per fotogramma.
 5. **Card e coda (D1):** stato con `StatusMark` neutro (via l'anello `--brand` su «finito»), card con domanda nella sagoma della scheda domanda, coda con titolo inerte e «Avvia» sempre visibile, ingressi `chatReveal` e riordino `flip` a 210 ms; token inesistenti, glifi `✎ ← →`, `title` sui controlli iconici e stringhe cablate eliminati.
+
+### L. Centro impostazioni e sezioni (Task 13)
+
+Allineati al 2026-10-05 il guscio `SettingsModal` e le sezioni Generale, Aspetto, Companion, Accessibilità, Notifiche, Barra Progetti, Area di Lavoro, Task & Direttive, Suggerimenti, GitHub e Studio Doctor, oltre all'inspector delle icone:
+
+1. **Guscio e navigazione:** `Dialog` nativo largo, corpo `flush`, conteggi leggibili al posto dei punti, sottoschede Modelli su `ColumnTabs`; scarto bozze in `Dialog` annidato, azione distruttiva esplicita e ripristino del fuoco.
+2. **Form:** `.ui-input`, `.ui-select`, `.ui-button`, `Switch` 32×18 e `Segmented`; preferenze binarie e direttive attive di default su interruttori, scelte con anteprima su radio nativi `.ui-choice`. Numeri e tempi in meta tabulare, nessun font mono per fingere una misura.
+3. **Prompt:** `PromptField` in voce 15/24 senza palette; selezione della direttiva modificata su `.ui-selected`, senza striscia laterale. Generazione e affinamento mantengono testo, focus e scorciatoie; attrito AI su superficie neutra con `StatusMark` di attenzione statico.
+4. **Esiti e igiene:** Doctor con `StatusMark` e testo per Superato/Avviso/Errore; account GitHub con completamento neutro. Token semantici, miscele `oklab`, icone Lucide e `Tooltip`; rimossi switch locali, SVG decorativi, spinner paralleli, ombre e colori letterali nelle sezioni.
+5. **Confine:** RolesTab, CatalogTab, ProvidersTab, CycleDrawer, ModelHealthModal e picker dei modelli restano al Task 14; il loro contenuto non è dichiarato allineato da questo intervento.
+

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
-	import { fade } from 'svelte/transition';
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import {
 		settingsStore,
@@ -10,16 +9,27 @@
 	} from '$lib/stores/settings.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
-	import { IconCheck, IconSparkles } from '$lib/icons';
-	import IconInspectorModal from './IconInspectorModal.svelte';
+	import { IconCheck, IconSparkles, IconSearch, IconClose } from '$lib/icons';
+	import Switch from '$lib/ui/Switch.svelte';
+	import Segmented from '$lib/ui/Segmented.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import QuotaChip from '../quota/QuotaChip.svelte';
 	import QuotaLimitRow from '../quota/QuotaLimitRow.svelte';
+	import IconInspectorModal from './IconInspectorModal.svelte';
 	let filterQuery = $state('');
 	let isIconInspectorOpen = $state(false);
 
 	const activeGroup = $derived(
 		THEME_GROUPS.find((group) => group.mode === themeStore.pickerMode) ?? THEME_GROUPS[0]
 	);
+	const modeOptions = $derived(
+		THEME_GROUPS.map((group) => ({
+			value: group.mode,
+			label: group.label,
+			count: group.names.length
+		}))
+	);
+
 
 	const filteredThemes = $derived(
 		activeGroup.names
@@ -115,94 +125,79 @@
 		<!-- Selettore layout (cards con preview live) -->
 		<div class="layout-variant-grid" role="radiogroup" aria-label="Disposizione finestra">
 			<!-- Card 1: Automatico -->
-			<button
-				type="button"
-				class="variant-card"
-				class:selected={settingsStore.general.layoutMode === 'auto'}
-				role="radio"
-				aria-checked={settingsStore.general.layoutMode === 'auto'}
-				onclick={() => setLayoutMode('auto')}
-			>
+			<label class="ui-choice">
 				<div class="card-radio-head">
-					<div class="radio-indicator">
-						{#if settingsStore.general.layoutMode === 'auto'}
-							<span class="radio-dot"></span>
-						{/if}
-					</div>
+					<input
+						type="radio"
+						name="settings-layout-mode"
+						value="auto"
+						checked={settingsStore.general.layoutMode === 'auto'}
+						onchange={() => setLayoutMode('auto')}
+					/>
 					<span class="variant-title">Automatico</span>
 				</div>
 				<p class="variant-desc">
 					Rileva le dimensioni della finestra: 3 colonne su schermi larghi, stack verticale se l'altezza supera la larghezza o sotto i 1100px.
 				</p>
 				<div class="variant-preview">
-					<div class="layout-mini-preview">
-						<div class="mini-col side" title="Barra laterale"></div>
+					<div class="layout-mini-preview" aria-hidden="true">
+						<div class="mini-col side"></div>
 						<div class="mini-auto-body">
 							<span>Auto</span>
 						</div>
 					</div>
 				</div>
-			</button>
+			</label>
 
 			<!-- Card 2: Orizzontale -->
-			<button
-				type="button"
-				class="variant-card"
-				class:selected={settingsStore.general.layoutMode === 'horizontal'}
-				role="radio"
-				aria-checked={settingsStore.general.layoutMode === 'horizontal'}
-				onclick={() => setLayoutMode('horizontal')}
-			>
+			<label class="ui-choice">
 				<div class="card-radio-head">
-					<div class="radio-indicator">
-						{#if settingsStore.general.layoutMode === 'horizontal'}
-							<span class="radio-dot"></span>
-						{/if}
-					</div>
+					<input
+						type="radio"
+						name="settings-layout-mode"
+						value="horizontal"
+						checked={settingsStore.general.layoutMode === 'horizontal'}
+						onchange={() => setLayoutMode('horizontal')}
+					/>
 					<span class="variant-title">Orizzontale</span>
 				</div>
 				<p class="variant-desc">
 					{m.ui_appearancesection_3_colonne_affiancate_albero_dei_file_git_f8d1()}
 				</p>
 				<div class="variant-preview">
-					<div class="layout-mini-preview horizontal">
-						<div class="mini-col side" title="Barra laterale"></div>
-						<div class="mini-col editor" title="Editor"></div>
-						<div class="mini-col terminal" title={m.ui_appearancesection_terminale_chat_8a30()}></div>
+					<div class="layout-mini-preview horizontal" aria-hidden="true">
+						<div class="mini-col side"></div>
+						<div class="mini-col editor"></div>
+						<div class="mini-col terminal"></div>
 					</div>
 				</div>
-			</button>
+			</label>
 
 			<!-- Card 3: Verticale -->
-			<button
-				type="button"
-				class="variant-card"
-				class:selected={settingsStore.general.layoutMode === 'vertical'}
-				role="radio"
-				aria-checked={settingsStore.general.layoutMode === 'vertical'}
-				onclick={() => setLayoutMode('vertical')}
-			>
+			<label class="ui-choice">
 				<div class="card-radio-head">
-					<div class="radio-indicator">
-						{#if settingsStore.general.layoutMode === 'vertical'}
-							<span class="radio-dot"></span>
-						{/if}
-					</div>
+					<input
+						type="radio"
+						name="settings-layout-mode"
+						value="vertical"
+						checked={settingsStore.general.layoutMode === 'vertical'}
+						onchange={() => setLayoutMode('vertical')}
+					/>
 					<span class="variant-title">Verticale</span>
 				</div>
 				<p class="variant-desc">
 					{m.ui_appearancesection_vista_a_stack_albero_a_sinistra_editor_7c6e()}
 				</p>
 				<div class="variant-preview">
-					<div class="layout-mini-preview vertical">
-						<div class="mini-col side" title="Barra laterale"></div>
+					<div class="layout-mini-preview vertical" aria-hidden="true">
+						<div class="mini-col side"></div>
 						<div class="mini-stack">
-							<div class="mini-row editor" title="Editor"></div>
-							<div class="mini-row terminal" title={m.ui_appearancesection_terminale_chat_8a30()}></div>
+							<div class="mini-row editor"></div>
+							<div class="mini-row terminal"></div>
 						</div>
 					</div>
 				</div>
-			</button>
+			</label>
 		</div>
 	</div>
 	<!-- BLOCCO: VISTA CODA TASK -->
@@ -216,61 +211,51 @@
 			</div>
 		</div>
 		<div class="layout-variant-grid queue-view-grid" role="radiogroup" aria-label="Vista coda task">
-			<button
-				type="button"
-				class="variant-card"
-				class:selected={settingsStore.appearance.queueView === 'compact'}
-				role="radio"
-				aria-checked={settingsStore.appearance.queueView === 'compact'}
-				onclick={() => setQueueView('compact')}
-			>
+			<label class="ui-choice">
 				<div class="card-radio-head">
-					<div class="radio-indicator">
-						{#if settingsStore.appearance.queueView === 'compact'}
-							<span class="radio-dot"></span>
-						{/if}
-					</div>
+					<input
+						type="radio"
+						name="settings-queue-view"
+						value="compact"
+						checked={settingsStore.appearance.queueView === 'compact'}
+						onchange={() => setQueueView('compact')}
+					/>
 					<span class="variant-title">Compatta</span>
 				</div>
 				<p class="variant-desc">
 					Titolo ed estratto a tutta larghezza su tre piani, badge tutti sotto il testo. Ideale con pochi task.
 				</p>
 				<div class="variant-preview">
-					<div class="queue-mini-preview">
+					<div class="queue-mini-preview" aria-hidden="true">
 						<span class="mini-queue-title"></span>
 						<span class="mini-queue-excerpt"></span>
 						<span class="mini-queue-chips"><i></i><i></i><i></i></span>
 					</div>
 				</div>
-			</button>
-			<button
-				type="button"
-				class="variant-card"
-				class:selected={settingsStore.appearance.queueView === 'cards'}
-				role="radio"
-				aria-checked={settingsStore.appearance.queueView === 'cards'}
-				onclick={() => setQueueView('cards')}
-			>
+			</label>
+			<label class="ui-choice">
 				<div class="card-radio-head">
-					<div class="radio-indicator">
-						{#if settingsStore.appearance.queueView === 'cards'}
-							<span class="radio-dot"></span>
-						{/if}
-					</div>
+					<input
+						type="radio"
+						name="settings-queue-view"
+						value="cards"
+						checked={settingsStore.appearance.queueView === 'cards'}
+						onchange={() => setQueueView('cards')}
+					/>
 					<span class="variant-title">Card</span>
 				</div>
 				<p class="variant-desc">
 					Ogni task respira come card separata con estratto su tre righe e badge su piu righe.
 				</p>
 				<div class="variant-preview">
-					<div class="queue-mini-preview card">
+					<div class="queue-mini-preview card" aria-hidden="true">
 						<span class="mini-queue-title"></span>
 						<span class="mini-queue-excerpt"></span>
 						<span class="mini-queue-excerpt short"></span>
 						<span class="mini-queue-chips"><i></i><i></i></span>
 					</div>
 				</div>
-			</button>
+			</label>
 		</div>
 	</div>
 
@@ -309,58 +294,55 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">{m.ui_appearancesection_mostra_sempre_la_percentuale_2958()}</span>
-					<span class="form-row-desc">
+					<span id="settings-quota-always-pct-label" class="form-row-label">{m.ui_appearancesection_mostra_sempre_la_percentuale_2958()}</span>
+					<span id="settings-quota-always-pct-desc" class="form-row-desc">
 						Se disattivata, la percentuale numerica viene mostrata solo quando la quota scende al 30% o meno (avviso o critico).
 					</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.appearance.quotaChip.alwaysShowPct}
-							onchange={(e) => toggleAlwaysShowPct((e.currentTarget as HTMLInputElement).checked)}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-quota-always-pct"
+						checked={settingsStore.appearance.quotaChip.alwaysShowPct}
+						ariaLabelledBy="settings-quota-always-pct-label"
+						ariaDescribedBy="settings-quota-always-pct-desc"
+						onChange={(checked) => toggleAlwaysShowPct(checked)}
+					/>
 				</div>
 			</div>
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">{m.ui_appearancesection_mostra_nome_del_provider_b467()}</span>
-					<span class="form-row-desc">
+					<span id="settings-quota-show-provider-label" class="form-row-label">{m.ui_appearancesection_mostra_nome_del_provider_b467()}</span>
+					<span id="settings-quota-show-provider-desc" class="form-row-desc">
 						Visualizza il provider AI in uso dal progetto attivo (es. · Google, · Anthropic).
 					</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.appearance.quotaChip.showProvider}
-							onchange={(e) => toggleShowProvider((e.currentTarget as HTMLInputElement).checked)}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-quota-show-provider"
+						checked={settingsStore.appearance.quotaChip.showProvider}
+						ariaLabelledBy="settings-quota-show-provider-label"
+						ariaDescribedBy="settings-quota-show-provider-desc"
+						onChange={(checked) => toggleShowProvider(checked)}
+					/>
 				</div>
 			</div>
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Colori semaforo per la quota</span>
-					<span class="form-row-desc">
+					<span id="settings-quota-chip-semantic-label" class="form-row-label">Colori semaforo per la quota</span>
+					<span id="settings-quota-chip-semantic-desc" class="form-row-desc">
 						Attiva il verde del tema (--success) quando la quota è normale. I livelli di avviso (--warn) e critico/esaurito (--danger) usano sempre i rispettivi colori semantici ad alto contrasto.
 					</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.appearance.quotaChip.semanticColors}
-							onchange={(e) => toggleSemanticColors((e.currentTarget as HTMLInputElement).checked)}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-quota-chip-semantic"
+						checked={settingsStore.appearance.quotaChip.semanticColors}
+						ariaLabelledBy="settings-quota-chip-semantic-label"
+						ariaDescribedBy="settings-quota-chip-semantic-desc"
+						onChange={(checked) => toggleSemanticColors(checked)}
+					/>
 				</div>
 			</div>
 		</div>
@@ -413,20 +395,19 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Colori semaforo</span>
-					<span class="form-row-desc">
+					<span id="settings-quota-popover-semantic-label" class="form-row-label">Colori semaforo</span>
+					<span id="settings-quota-popover-semantic-desc" class="form-row-desc">
 						Attiva il verde del tema (--success) per gli indicatori normali nel popover delle quote.
 					</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.appearance.quotaPopover.semanticColors}
-							onchange={(e) => togglePopoverSemanticColors((e.currentTarget as HTMLInputElement).checked)}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-quota-popover-semantic"
+						checked={settingsStore.appearance.quotaPopover.semanticColors}
+						ariaLabelledBy="settings-quota-popover-semantic-label"
+						ariaDescribedBy="settings-quota-popover-semantic-desc"
+						onChange={(checked) => togglePopoverSemanticColors(checked)}
+					/>
 				</div>
 			</div>
 		</div>
@@ -452,44 +433,35 @@
 		</div>
 
 		<div class="theme-toolbar">
-			<div class="mode-tabs" role="tablist" aria-label={m.ui_appearancesection_filtro_modalita_tema_6f07()}>
-				{#each THEME_GROUPS as group (group.mode)}
-					<button
-						type="button"
-						role="tab"
-						class="mode-tab-btn"
-						class:active={themeStore.pickerMode === group.mode}
-						aria-selected={themeStore.pickerMode === group.mode}
-						onclick={() => setPickerMode(group.mode)}
-					>
-						<span>{group.label}</span>
-						<span class="tab-count">{group.names.length}</span>
-					</button>
-				{/each}
-			</div>
+			<Segmented
+				options={modeOptions}
+				value={themeStore.pickerMode}
+				onChange={(val) => setPickerMode(val as ThemeMode)}
+				ariaLabel={m.ui_appearancesection_filtro_modalita_tema_6f07()}
+			/>
 
 			<div class="filter-wrapper">
-				<svg class="search-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">
-					<circle cx="6.5" cy="6.5" r="4.5" />
-					<path d="M10 10l3.5 3.5" stroke-linecap="round" />
-				</svg>
+				<span class="filter-search-icon" aria-hidden="true">
+					<IconSearch />
+				</span>
 				<input
 					type="text"
-					class="filter-input"
+					class="ui-input filter-input"
 					placeholder="Cerca tra i {activeGroup.names.length} temi..."
 					bind:value={filterQuery}
 					aria-label={m.ui_appearancesection_cerca_e_filtra_temi_b7aa()}
 				/>
 				{#if filterQuery}
-					<button
-						type="button"
-						class="clear-filter-btn"
-						onclick={() => (filterQuery = '')}
-						aria-label="Cancella filtro"
-						title="Cancella filtro"
-					>
-						&times;
-					</button>
+					<Tooltip text="Cancella filtro" placement="bottom">
+						<button
+							type="button"
+							class="clear-filter-btn"
+							onclick={() => (filterQuery = '')}
+							aria-label="Cancella filtro"
+						>
+							<IconClose />
+						</button>
+					</Tooltip>
 				{/if}
 			</div>
 		</div>
@@ -536,7 +508,7 @@
 			{:else}
 				<div class="empty-state">
 					<p>{m.ui_appearancesection_nessun_tema_trovato_per_19d9()}<strong>{filterQuery}</strong>" nella categoria {activeGroup.label.toLowerCase()}.</p>
-					<button type="button" class="btn btn-secondary" onclick={() => (filterQuery = '')}>
+					<button type="button" class="ui-button ui-button-secondary" onclick={() => (filterQuery = '')}>
 						Azzera ricerca
 					</button>
 				</div>
@@ -558,7 +530,7 @@
 			</div>
 			<button
 				type="button"
-				class="btn btn-secondary"
+				class="ui-button ui-button-secondary"
 				onclick={() => (isIconInspectorOpen = true)}
 			>
 				<IconSparkles />
@@ -599,13 +571,15 @@
 
 	.block-titles h4 {
 		margin: 0;
-		font-size: var(--text-base);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.block-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
@@ -617,7 +591,7 @@
 	}
 
 	.current-theme-pill {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		padding: 2px 8px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
@@ -637,76 +611,27 @@
 	}
 
 
-	.variant-card {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		text-align: left;
-		padding: var(--space-3);
-		background: var(--bg-surface);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
-		user-select: none;
-	}
-
-	.variant-card:hover {
-		border-color: var(--line-strong);
-		background: var(--bg-hover);
-	}
-
-	.variant-card.selected {
-		border-color: var(--brand);
-		background: color-mix(in srgb, var(--brand) 4%, var(--bg-surface));
-		box-shadow: 0 0 0 1px var(--brand);
-	}
-
 	.card-radio-head {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		margin-bottom: var(--space-1);
-	}
-
-	.radio-indicator {
-		width: 16px;
-		height: 16px;
-		border-radius: 50%;
-		border: 1.5px solid var(--line-strong);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: border-color 0.15s ease;
-	}
-
-	.variant-card.selected .radio-indicator {
-		border-color: var(--brand);
-	}
-
-	.radio-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--brand);
 	}
 
 	.variant-title {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.variant-desc {
-		margin: 0 0 var(--space-3) 0;
-		font-size: var(--text-xs);
+		margin: 0;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
 	.variant-preview {
 		margin-top: auto;
-		padding-top: var(--space-2);
 		display: flex;
 		align-items: center;
 		width: 100%;
@@ -725,8 +650,8 @@
 		width: 100%;
 		box-sizing: border-box;
 		background: var(--bg-overlay);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg);
 		padding: var(--space-3);
 		overflow: hidden;
 		pointer-events: none;
@@ -740,17 +665,17 @@
 		flex-direction: column;
 		gap: var(--space-2);
 		padding: var(--space-3);
-		background: var(--bg-surface);
+		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 	}
 
 	.quota-preview-title {
-		font-size: var(--text-xs);
-		font-weight: 500;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		font-size: var(--text-label);
+		font-weight: 600;
+		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.chip-preview-host {
@@ -768,14 +693,14 @@
 
 	.mini-provider-name {
 		font-family: var(--font-ui, var(--font-sans));
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.mini-provider-email {
 		font-family: var(--font-ui, var(--font-sans));
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -792,7 +717,7 @@
 	.section-group {
 		display: flex;
 		flex-direction: column;
-		background: var(--bg-surface);
+		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		overflow: hidden;
@@ -818,13 +743,13 @@
 	}
 
 	.form-row-label {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.form-row-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
@@ -835,54 +760,6 @@
 		flex-shrink: 0;
 	}
 
-	/* Toggle Switch */
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 36px;
-		height: 20px;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		cursor: pointer;
-		inset: 0;
-		background-color: var(--line-strong);
-		transition: 0.2s;
-		border-radius: var(--radius-full);
-	}
-
-	.slider:before {
-		position: absolute;
-		content: "";
-		height: 14px;
-		width: 14px;
-		left: 3px;
-		bottom: 3px;
-		background-color: var(--ink);
-		transition: 0.2s;
-		border-radius: 50%;
-	}
-
-	input:checked + .slider {
-		background-color: var(--brand);
-	}
-
-	input:checked + .slider:before {
-		transform: translateX(16px);
-		background-color: #ffffff;
-	}
-
-	.switch input:focus-visible + .slider {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
 	/* --- Theme Toolbar & Grid --- */
 
 	.theme-toolbar {
@@ -893,51 +770,6 @@
 		flex-wrap: wrap;
 	}
 
-	.mode-tabs {
-		display: flex;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 2px;
-		gap: 2px;
-	}
-
-	.mode-tab-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-3);
-		border: none;
-		border-radius: calc(var(--radius-md) - 2px);
-		background: transparent;
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		transition: all 0.15s ease;
-	}
-
-	.mode-tab-btn:hover {
-		color: var(--ink);
-	}
-
-	.mode-tab-btn:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: -2px;
-	}
-
-	.mode-tab-btn.active {
-		background: var(--bg-surface);
-		color: var(--ink);
-		font-weight: 500;
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-	}
-	.tab-count {
-		font-size: 10px;
-		padding: 1px 5px;
-		border-radius: var(--radius-full);
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-	}
 
 	.filter-wrapper {
 		position: relative;
@@ -947,26 +779,20 @@
 		max-width: 260px;
 	}
 
-	.search-icon {
+	.filter-search-icon {
 		position: absolute;
 		left: var(--space-2);
 		color: var(--ink-muted);
 		pointer-events: none;
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 13px;
 	}
 
 	.filter-input {
 		width: 100%;
-		padding: var(--space-1) var(--space-2) var(--space-1) calc(var(--space-2) + 16px);
-		font-size: var(--text-xs);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		background: var(--bg-surface);
-		color: var(--ink);
-	}
-
-	.filter-input:focus {
-		outline: none;
-		border-color: var(--brand);
+		padding-left: calc(var(--space-2) + 16px);
+		padding-right: calc(var(--space-2) + 18px);
 	}
 
 	.clear-filter-btn {
@@ -977,7 +803,16 @@
 		color: var(--ink-muted);
 		cursor: pointer;
 		padding: 0;
-		font-size: var(--text-sm);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		--icon-size: 13px;
+		border-radius: var(--radius-sm);
+		transition: color var(--dur-fast) var(--ease-out);
+	}
+
+	.clear-filter-btn:hover {
+		color: var(--ink);
 	}
 
 	.theme-grid {
@@ -992,13 +827,13 @@
 		display: flex;
 		flex-direction: column;
 		padding: 0;
-		background: var(--bg-surface);
+		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		overflow: hidden;
 		cursor: pointer;
 		text-align: left;
-		transition: border-color 0.15s ease, transform 0.1s ease;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.theme-card:hover {
@@ -1043,7 +878,7 @@
 
 	.mockup-line {
 		height: 3px;
-		border-radius: 1px;
+		border-radius: var(--radius-sm);
 	}
 
 	.accent-line {
@@ -1069,7 +904,7 @@
 		width: 8px;
 		height: 8px;
 		border-radius: 50%;
-		border: 1px solid rgba(0, 0, 0, 0.15);
+		border: 1px solid var(--line);
 	}
 
 	.card-meta {
@@ -1077,12 +912,12 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: var(--space-1) var(--space-2);
-		background: var(--bg-surface);
+		background: var(--bg-raised);
 		border-top: 1px solid var(--line);
 	}
 
 	.theme-name {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 500;
 		color: var(--ink);
 		overflow: hidden;
@@ -1094,9 +929,10 @@
 		display: flex;
 		align-items: center;
 		gap: 2px;
-		font-size: 10px;
-		color: var(--brand);
+		font-size: var(--text-caption);
+		color: var(--brand-ink);
 		font-weight: 600;
+		--icon-size: 12px;
 	}
 
 	.empty-state {
@@ -1104,7 +940,7 @@
 		padding: var(--space-4);
 		text-align: center;
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 	}
 
 	/* --- Layout Variant Grid & Mini Previews --- */
@@ -1135,25 +971,26 @@
 		display: flex;
 		gap: 3px;
 		box-sizing: border-box;
-		transition: border-color 0.15s ease;
+		transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 	}
 
-	.variant-card:hover .layout-mini-preview {
+	.ui-choice:hover .layout-mini-preview,
+	.ui-choice:hover .queue-mini-preview {
 		border-color: var(--line-strong);
 	}
 
-	.variant-card.selected .layout-mini-preview {
+	.ui-choice:has(input:checked) .layout-mini-preview {
 		border-color: var(--brand);
-		background: color-mix(in srgb, var(--brand-tint) 15%, var(--bg-sunken));
+		background: color-mix(in oklab, var(--brand) 15%, var(--bg-sunken));
 	}
 
 	.mini-col {
 		height: 100%;
-		border-radius: 2px;
-		background: var(--bg-surface);
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		box-sizing: border-box;
-		transition: all 0.15s ease;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.mini-col.side {
@@ -1163,11 +1000,12 @@
 
 	.mini-col.editor {
 		flex: 1;
+		background: var(--bg-sunken);
 	}
 
 	.mini-col.terminal {
 		flex: 1;
-		background: var(--bg-raised);
+		background: var(--bg-base);
 	}
 
 	.mini-stack {
@@ -1181,15 +1019,19 @@
 	.mini-row {
 		width: 100%;
 		flex: 1;
-		border-radius: 2px;
-		background: var(--bg-surface);
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		box-sizing: border-box;
-		transition: all 0.15s ease;
+		transition: border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.mini-row.editor {
+		background: var(--bg-sunken);
 	}
 
 	.mini-row.terminal {
-		background: var(--bg-raised);
+		background: var(--bg-base);
 	}
 
 	.mini-auto-body {
@@ -1197,26 +1039,27 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--bg-surface);
-		border-radius: 2px;
+		background: var(--bg-base);
+		border-radius: var(--radius-sm);
 		border: 1px dashed var(--line);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink-muted);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
 
-	.variant-card.selected .mini-auto-body {
-		color: var(--brand);
+	.ui-choice:has(input:checked) .mini-auto-body {
+		color: var(--brand-ink);
 		border-color: var(--brand);
 	}
 
-	.variant-card.selected .mini-col.editor,
-	.variant-card.selected .mini-row.editor {
+	.ui-choice:has(input:checked) .mini-col.editor,
+	.ui-choice:has(input:checked) .mini-row.editor {
 		border-color: var(--brand-dim);
 	}
+
 	.queue-mini-preview {
 		width: 100%;
 		box-sizing: border-box;
@@ -1227,7 +1070,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
-		transition: border-color 0.15s ease;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.queue-mini-preview.card {
@@ -1236,18 +1079,14 @@
 		gap: 5px;
 	}
 
-	.variant-card:hover .queue-mini-preview {
-		border-color: var(--line-strong);
-	}
-
-	.variant-card.selected .queue-mini-preview {
+	.ui-choice:has(input:checked) .queue-mini-preview {
 		border-color: var(--brand);
 	}
 
 	.mini-queue-title {
 		height: 7px;
 		width: 75%;
-		border-radius: 2px;
+		border-radius: var(--radius-sm);
 		background: var(--ink);
 		opacity: 0.75;
 	}
@@ -1255,7 +1094,7 @@
 	.mini-queue-excerpt {
 		height: 5px;
 		width: 95%;
-		border-radius: 2px;
+		border-radius: var(--radius-sm);
 		background: var(--ink-faint);
 		opacity: 0.6;
 	}
@@ -1272,7 +1111,7 @@
 	.mini-queue-chips i {
 		height: 9px;
 		width: 26px;
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
 	}

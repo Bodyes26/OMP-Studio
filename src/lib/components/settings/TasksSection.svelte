@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -19,8 +20,15 @@
 		IconTrash,
 		IconWarning,
 		IconSkill,
-		IconArrowRight
+		IconChevronUp,
+		IconChevronDown
 	} from '$lib/icons';
+	import Switch from '$lib/ui/Switch.svelte';
+	import PromptField from '$lib/ui/PromptField.svelte';
+	import { escapeDismiss } from '$lib/ui/escapeDismiss';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { trayFold } from '$lib/agent/motion';
 
 	// Livelli di thinking supportati nei default dei task
 	const THINKING_LEVEL_OPTIONS = [
@@ -66,6 +74,8 @@
 	});
 
 	// --- Stato Editor Inline Direttiva ---
+	let directivePromptField = $state<ReturnType<typeof PromptField> | null>(null);
+	let aiPromptField = $state<ReturnType<typeof PromptField> | null>(null);
 	let editingDirectiveId = $state<string | null>(null);
 	let editName = $state('');
 	let editDescription = $state('');
@@ -95,7 +105,7 @@
 	let frictionProposals = $state<AiProposal[]>([]);
 	let deleteArmedId = $state<string | null>(null);
 
-	function openCreateForm() {
+	async function openCreateForm(focusPrompt = false) {
 		editingDirectiveId = 'new';
 		editName = '';
 		editDescription = '';
@@ -105,9 +115,14 @@
 		editFormError = null;
 		aiMode = 'idle';
 		currentAiProposal = null;
+		deleteArmedId = null;
+		if (focusPrompt) {
+			await tick();
+			directivePromptField?.focus();
+		}
 	}
 
-	function openEditForm(d: TaskDirective) {
+	async function openEditForm(d: TaskDirective, focusPrompt = false) {
 		editingDirectiveId = d.id;
 		editName = d.name;
 		editDescription = d.description;
@@ -117,6 +132,11 @@
 		editFormError = null;
 		aiMode = 'idle';
 		currentAiProposal = null;
+		deleteArmedId = null;
+		if (focusPrompt) {
+			await tick();
+			directivePromptField?.focus();
+		}
 	}
 
 	function cancelEdit() {
@@ -169,6 +189,7 @@
 	}
 
 	function duplicateDirective(d: TaskDirective) {
+		deleteArmedId = null;
 		const copy: TaskDirective = {
 			id: `dir_custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
 			name: m.ui_taskssection_value1_copia_f056({ value1: d.name }),
@@ -183,13 +204,14 @@
 	}
 
 	function toggleDirectiveHidden(d: TaskDirective) {
+		deleteArmedId = null;
 		settingsStore.upsertTaskDirective({
 			...d,
 			hidden: !d.hidden
 		});
 	}
 
-	function resetDirectiveToFactory(d: TaskDirective) {
+	async function resetDirectiveToFactory(d: TaskDirective) {
 		if (!d.factoryKey) return;
 		settingsStore.resetFactoryDirective(d.factoryKey);
 		if (editingDirectiveId === d.id) {
@@ -200,6 +222,8 @@
 				editTag = restored.tag;
 				editPrompt = restored.prompt;
 				editPlacement = restored.placement;
+				await tick();
+				directivePromptField?.focus();
 			}
 		}
 	}
@@ -215,6 +239,7 @@
 	}
 
 	function moveDirective(id: string, delta: number) {
+		deleteArmedId = null;
 		const list = [...settingsStore.taskDirectives];
 		const index = list.findIndex((d) => d.id === id);
 		if (index === -1) return;
@@ -252,6 +277,7 @@
 	}
 
 	function toggleDefaultDirective(directiveId: string) {
+		deleteArmedId = null;
 		const currentIds = [...effectiveDefaults.selectedDirectiveIds];
 		const index = currentIds.indexOf(directiveId);
 		if (index >= 0) {
@@ -351,7 +377,7 @@
 		}
 	}
 
-	function applyAiProposalToForm(proposal: AiProposal) {
+	async function applyAiProposalToForm(proposal: AiProposal) {
 		editName = proposal.name;
 		editDescription = proposal.description;
 		editTag = proposal.tag;
@@ -359,6 +385,24 @@
 		editPlacement = proposal.placement;
 		aiMode = 'idle';
 		currentAiProposal = null;
+		await tick();
+		directivePromptField?.focus();
+	}
+
+	async function startGeneratingAi() {
+		await openCreateForm();
+		aiMode = 'generating';
+		aiPromptInput = '';
+		await tick();
+		aiPromptField?.focus();
+	}
+
+	async function startRefiningAi() {
+		aiMode = 'refining';
+		aiPromptInput = '';
+		aiError = null;
+		await tick();
+		aiPromptField?.focus();
 	}
 
 	function applyProposalAsNewDirective(proposal: AiProposal) {
@@ -410,12 +454,16 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Ambito di configurazione</span>
-					<span class="form-row-desc">{m.ui_taskssection_modifica_i_valori_globali_di_default_o_8c48()}</span>
+					<label for="tasks-scope-select" id="tasks-scope-label" class="form-row-label">Ambito di configurazione</label>
+					<span id="tasks-scope-desc" class="form-row-desc">{m.ui_taskssection_modifica_i_valori_globali_di_default_o_8c48()}</span>
 				</div>
 				<div class="form-row-control">
 					<select
+						id="tasks-scope-select"
+						class="ui-select"
 						value={selectedScopeId}
+						aria-labelledby="tasks-scope-label"
+						aria-describedby="tasks-scope-desc"
 						onchange={(e) => (selectedScopeId = (e.currentTarget as HTMLSelectElement).value)}
 					>
 						<option value="global">Default globali (tutti i progetti)</option>
@@ -432,12 +480,16 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Ruolo iniziale</span>
-					<span class="form-row-desc">{m.ui_taskssection_profilo_e_modello_assegnato_ai_nuovi_task_13f1()}</span>
+					<label for="tasks-initial-role-select" id="tasks-initial-role-label" class="form-row-label">Ruolo iniziale</label>
+					<span id="tasks-initial-role-desc" class="form-row-desc">{m.ui_taskssection_profilo_e_modello_assegnato_ai_nuovi_task_13f1()}</span>
 				</div>
 				<div class="form-row-control">
 					<select
+						id="tasks-initial-role-select"
+						class="ui-select"
 						value={effectiveDefaults.role}
+						aria-labelledby="tasks-initial-role-label"
+						aria-describedby="tasks-initial-role-desc"
 						onchange={(e) => updateScopeRole((e.currentTarget as HTMLSelectElement).value)}
 					>
 						{#each STANDARD_ROLES as r (r.id)}
@@ -449,12 +501,16 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Livello di ragionamento (Thinking)</span>
-					<span class="form-row-desc">{m.ui_taskssection_sforzo_di_pensiero_predefinito_inviato_al_modello_c8f1()}</span>
+					<label for="tasks-thinking-select" id="tasks-thinking-label" class="form-row-label">Livello di ragionamento (Thinking)</label>
+					<span id="tasks-thinking-desc" class="form-row-desc">{m.ui_taskssection_sforzo_di_pensiero_predefinito_inviato_al_modello_c8f1()}</span>
 				</div>
 				<div class="form-row-control">
 					<select
+						id="tasks-thinking-select"
+						class="ui-select"
 						value={effectiveDefaults.thinkingLevel}
+						aria-labelledby="tasks-thinking-label"
+						aria-describedby="tasks-thinking-desc"
 						onchange={(e) => updateScopeThinking((e.currentTarget as HTMLSelectElement).value)}
 					>
 						{#each THINKING_LEVEL_OPTIONS as t (t.id)}
@@ -466,18 +522,17 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Includi contesto editor</span>
-					<span class="form-row-desc">Allega l'elenco dei file correntemente aperti e la selezione attiva nell'editor Monaco.</span>
+					<span id="tasks-editor-ctx-label" class="form-row-label">Includi contesto editor</span>
+					<span id="tasks-editor-ctx-desc" class="form-row-desc">Allega l'elenco dei file correntemente aperti e la selezione attiva nell'editor Monaco.</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={effectiveDefaults.includeEditorContext}
-							onchange={(e) => updateScopeIncludeEditorContext((e.currentTarget as HTMLInputElement).checked)}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="tasks-editor-ctx"
+						checked={effectiveDefaults.includeEditorContext}
+						ariaLabelledBy="tasks-editor-ctx-label"
+						ariaDescribedBy="tasks-editor-ctx-desc"
+						onChange={(checked) => updateScopeIncludeEditorContext(checked)}
+					/>
 				</div>
 			</div>
 		</div>
@@ -491,19 +546,17 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">{m.settings_task_titles_auto_label()}</span>
-					<span class="form-row-desc">{m.settings_task_titles_auto_desc()}</span>
+					<span id="tasks-auto-titles-label" class="form-row-label">{m.settings_task_titles_auto_label()}</span>
+					<span id="tasks-auto-titles-desc" class="form-row-desc">{m.settings_task_titles_auto_desc()}</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							aria-label={m.settings_task_titles_auto_label()}
-							checked={settingsStore.taskTitles.autoGenerate}
-							onchange={(e) => settingsStore.patchTaskTitles({ autoGenerate: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="tasks-auto-titles"
+						checked={settingsStore.taskTitles.autoGenerate}
+						ariaLabelledBy="tasks-auto-titles-label"
+						ariaDescribedBy="tasks-auto-titles-desc"
+						onChange={(checked) => settingsStore.patchTaskTitles({ autoGenerate: checked })}
+					/>
 				</div>
 			</div>
 		</div>
@@ -519,48 +572,54 @@
 				</p>
 			</div>
 			<div class="header-actions">
-				<button type="button" class="btn-action primary" onclick={openCreateForm} disabled={editingDirectiveId !== null}>
+				<button type="button" class="ui-button ui-button-primary" onclick={() => openCreateForm(true)} disabled={editingDirectiveId !== null}>
 					<IconPlus />
 					<span>Nuova direttiva</span>
 				</button>
-				<button
-					type="button"
-					class="btn-action"
-					onclick={() => { openCreateForm(); aiMode = 'generating'; aiPromptInput = ''; }}
-					disabled={editingDirectiveId !== null}
-					title="Genera una direttiva a partire da una descrizione in linguaggio naturale"
-				>
-					<IconSkill />
-					<span>Genera con AI</span>
-				</button>
-				{#if openProjects.length > 0}
+				<Tooltip text="Genera una direttiva a partire da una descrizione in linguaggio naturale">
 					<button
 						type="button"
-						class="btn-action"
-						onclick={runAnalyzeFriction}
-						disabled={aiLoading}
-						title="Analizza i prompt recenti del progetto per suggerire nuove direttive ricorrenti"
+						class="ui-button ui-button-secondary"
+						onclick={startGeneratingAi}
+						disabled={editingDirectiveId !== null}
 					>
-						<IconWarning />
-						<span>Analizza ricorrenze</span>
+						<IconSkill />
+						<span>Genera con AI</span>
 					</button>
+				</Tooltip>
+				{#if openProjects.length > 0}
+					<Tooltip text="Analizza i prompt recenti del progetto per suggerire nuove direttive ricorrenti">
+						<button
+							type="button"
+							class="ui-button ui-button-secondary"
+							onclick={runAnalyzeFriction}
+							disabled={aiLoading}
+						>
+							<IconWarning />
+							<span>Analizza ricorrenze</span>
+						</button>
+					</Tooltip>
 				{/if}
 			</div>
 		</div>
 
 		<!-- Pannello Risultati Analisi Ricorrenze (Friction) -->
 		{#if aiMode === 'friction'}
-			<div class="ai-friction-panel" role="region" aria-label="Proposte direttive da analisi attrito">
+			<div class="ai-friction-panel" transition:trayFold role="region" aria-label="Proposte direttive da analisi attrito">
 				<div class="panel-top">
 					<div class="panel-title-wrap">
-						<IconWarning />
+						<StatusMark status="attention" active={false} label="Attenzione" />
 						<span class="panel-title">Proposte AI da prompt e richieste recenti</span>
 					</div>
-					<button type="button" class="btn-icon-close" onclick={() => (aiMode = 'idle')} aria-label={m.common_close()}><IconClose /></button>
+					<Tooltip text={m.common_close()}>
+						<button type="button" class="btn-icon-close" onclick={() => (aiMode = 'idle')} aria-label={m.common_close()}>
+							<IconClose />
+						</button>
+					</Tooltip>
 				</div>
 				{#if aiLoading}
 					<div class="ai-loading-state">
-						<span class="spinner"></span>
+						<StatusMark status="running" />
 						<span>{m.ui_taskssection_analisi_dello_storico_prompt_del_progetto_in_13b6()}</span>
 					</div>
 				{:else if aiError}
@@ -579,15 +638,15 @@
 								{/if}
 								<pre class="proposal-prompt">{proposal.prompt}</pre>
 								<div class="proposal-actions">
-									<button type="button" class="btn-proposal-action primary" onclick={() => applyProposalAsNewDirective(proposal)}>
+									<button type="button" class="ui-button ui-button-primary" onclick={() => applyProposalAsNewDirective(proposal)}>
 										<IconCheck />
 										<span>Aggiungi alla libreria</span>
 									</button>
-									<button type="button" class="btn-proposal-action" onclick={() => { openCreateForm(); applyAiProposalToForm(proposal); }}>
+									<button type="button" class="ui-button ui-button-ghost" onclick={() => { openCreateForm(); applyAiProposalToForm(proposal); }}>
 										<IconRename />
 										<span>{m.ui_taskssection_modifica_e_aggiungi_711d()}</span>
 									</button>
-									<button type="button" class="btn-proposal-action dismiss" onclick={() => dismissFrictionProposal(proposal)}>
+									<button type="button" class="ui-button ui-button-ghost" onclick={() => dismissFrictionProposal(proposal)}>
 										<IconClose />
 										<span>Ignora</span>
 									</button>
@@ -601,30 +660,41 @@
 
 		<!-- Editor Inline / Form Creazione o Modifica -->
 		{#if editingDirectiveId !== null}
-			<div class="inline-editor-card" role="region" aria-label="Editor direttiva">
+			<div
+				class="inline-editor-card"
+				transition:trayFold
+				role="region"
+				aria-label="Editor direttiva"
+				use:escapeDismiss={cancelEdit}
+			>
 				<div class="editor-header">
 					<span class="editor-title">{editingDirectiveId === 'new' ? m.ui_taskssection_crea_nuova_direttiva_9717() : m.ui_taskssection_modifica_direttiva_dcc7()}</span>
-					<button type="button" class="btn-icon-close" onclick={cancelEdit} aria-label={m.common_cancel()}><IconClose /></button>
+					<Tooltip text={m.common_cancel()}>
+						<button type="button" class="btn-icon-close" onclick={cancelEdit} aria-label={m.common_cancel()}>
+							<IconClose />
+						</button>
+					</Tooltip>
 				</div>
 
 				{#if aiMode === 'generating' || aiMode === 'refining'}
-					<div class="ai-assistant-box">
+					<div class="ai-assistant-box" transition:trayFold>
 						<div class="assistant-head">
 							<IconSkill />
 							<span>{aiMode === 'generating' ? 'Assistente AI: Genera nuova direttiva' : 'Assistente AI: Migliora con AI'}</span>
 						</div>
 						<div class="assistant-body">
 							<div class="form-field">
-								<label for="ai-prompt-input" class="field-label">
+								<span class="field-label">
 									{aiMode === 'generating' ? m.ui_taskssection_descrivi_cosa_deve_fare_o_imporre_questa_9573() : m.ui_taskssection_istruzioni_opzionali_per_il_miglioramento_es_rendilo_0a16()}
-								</label>
-								<textarea
-									id="ai-prompt-input"
-									class="text-input"
-									rows="2"
+								</span>
+								<PromptField
+									bind:this={aiPromptField}
 									bind:value={aiPromptInput}
 									placeholder={aiMode === 'generating' ? 'Es. Forza sempre l\'esecuzione dei test prima di dichiarare finito il task...' : m.ui_taskssection_es_rendi_il_prompt_piu_sintetico_ed_bc8e()}
-								></textarea>
+									ariaLabel={aiMode === 'generating' ? m.ui_taskssection_descrivi_cosa_deve_fare_o_imporre_questa_9573() : m.ui_taskssection_istruzioni_opzionali_per_il_miglioramento_es_rendilo_0a16()}
+									onSubmit={aiMode === 'generating' ? runGenerateAi : runRefineAi}
+									onCancel={() => { aiMode = 'idle'; currentAiProposal = null; }}
+								/>
 							</div>
 
 							{#if aiMode === 'generating'}
@@ -633,7 +703,7 @@
 									<input
 										id="ai-context-input"
 										type="text"
-										class="text-input"
+										class="ui-input"
 										bind:value={aiContextInput}
 										placeholder="Es. Stack: Svelte 5 + Rust Tauri, no test end-to-end cloud..."
 									/>
@@ -643,19 +713,19 @@
 							<div class="assistant-actions">
 								<button
 									type="button"
-									class="btn-action primary"
+									class="ui-button ui-button-primary"
 									onclick={aiMode === 'generating' ? runGenerateAi : runRefineAi}
 									disabled={aiLoading}
 								>
 									{#if aiLoading}
-										<span class="spinner"></span>
+										<StatusMark status="running" />
 										<span>Elaborazione...</span>
 									{:else}
 										<IconSkill />
 										<span>{aiMode === 'generating' ? 'Genera bozza' : 'Migliora prompt'}</span>
 									{/if}
 								</button>
-								<button type="button" class="btn-action" onclick={() => { aiMode = 'idle'; currentAiProposal = null; }}>
+								<button type="button" class="ui-button ui-button-secondary" onclick={() => { aiMode = 'idle'; currentAiProposal = null; }}>
 									{m.ui_taskssection_chiudi_assistente_dfa2()}
 								</button>
 							</div>
@@ -680,7 +750,7 @@
 										</div>
 									</div>
 									<div class="preview-actions">
-										<button type="button" class="btn-action primary" onclick={() => applyAiProposalToForm(currentAiProposal!)}>
+										<button type="button" class="ui-button ui-button-primary" onclick={() => applyAiProposalToForm(currentAiProposal!)}>
 											<IconCheck />
 											<span>Applica al modulo</span>
 										</button>
@@ -697,7 +767,7 @@
 						<input
 							id="edit-directive-name"
 							type="text"
-							class="text-input"
+							class="ui-input"
 							bind:value={editName}
 							placeholder={m.ui_taskssection_es_verifica_rigorosa_30e1()}
 						/>
@@ -708,7 +778,7 @@
 						<input
 							id="edit-directive-tag"
 							type="text"
-							class="text-input"
+							class="ui-input"
 							bind:value={editTag}
 							placeholder="Es. /audit o Test"
 						/>
@@ -719,7 +789,7 @@
 						<input
 							id="edit-directive-desc"
 							type="text"
-							class="text-input"
+							class="ui-input"
 							bind:value={editDescription}
 							placeholder={m.ui_taskssection_spiega_sinteticamente_cosa_impone_la_modalita_2fa8()}
 						/>
@@ -741,26 +811,28 @@
 
 					<div class="form-field full">
 						<div class="field-label-row">
-							<label for="edit-directive-prompt" class="field-label">Testo della direttiva inviato all'agente</label>
+							<span class="field-label">Testo della direttiva inviato all'agente</span>
 							{#if aiMode === 'idle'}
-								<button
-									type="button"
-									class="btn-mini-ai"
-									onclick={() => { aiMode = 'refining'; aiPromptInput = ''; aiError = null; }}
-									title="Fai ottimizzare o affinare questo prompt dall'AI"
-								>
-									<IconSkill />
-									<span>Migliora con AI</span>
-								</button>
+								<Tooltip text="Fai ottimizzare o affinare questo prompt dall'AI">
+									<button
+										type="button"
+										class="ui-button ui-button-ghost"
+										onclick={startRefiningAi}
+									>
+										<IconSkill />
+										<span>Migliora con AI</span>
+									</button>
+								</Tooltip>
 							{/if}
 						</div>
-						<textarea
-							id="edit-directive-prompt"
-							class="text-input mono"
-							rows="4"
+						<PromptField
+							bind:this={directivePromptField}
 							bind:value={editPrompt}
 							placeholder="[Direttiva: Istruzioni operative precise da inviare nel prompt...]"
-						></textarea>
+							ariaLabel="Testo della direttiva inviato all'agente"
+							onSubmit={saveDirectiveForm}
+							onCancel={cancelEdit}
+						/>
 					</div>
 				</div>
 
@@ -770,11 +842,11 @@
 
 				<div class="editor-footer">
 					<div class="footer-left">
-						<button type="button" class="btn-action primary" onclick={saveDirectiveForm}>
+						<button type="button" class="ui-button ui-button-primary" onclick={saveDirectiveForm}>
 							<IconCheck />
 							<span>Salva direttiva</span>
 						</button>
-						<button type="button" class="btn-action" onclick={cancelEdit}>
+						<button type="button" class="ui-button ui-button-secondary" onclick={cancelEdit}>
 							{m.common_cancel()}
 						</button>
 					</div>
@@ -782,7 +854,7 @@
 					{#if editingDirectiveId !== 'new'}
 						{@const currentDir = settingsStore.taskDirectives.find((d) => d.id === editingDirectiveId)}
 						{#if currentDir?.factoryKey}
-							<button type="button" class="btn-action text-warn" onclick={() => resetDirectiveToFactory(currentDir)}>
+							<button type="button" class="ui-button ui-button-ghost text-warn" onclick={() => resetDirectiveToFactory(currentDir)}>
 								<IconRefresh />
 								<span>Ripristina originale di fabbrica</span>
 							</button>
@@ -796,39 +868,48 @@
 		<div class="directives-list" role="list" aria-label="Elenco direttive configurate">
 			{#each settingsStore.taskDirectives as d, idx (d.id)}
 				{@const isDefault = effectiveDefaults.selectedDirectiveIds.includes(d.id)}
-				<div class="directive-row" class:hidden-dir={d.hidden} class:is-editing={editingDirectiveId === d.id} role="listitem">
-					<!-- Checkbox di attivazione default -->
-					<div class="col-checkbox" title={`Attiva di default per ${isProjectScope ? currentProject?.name : 'Globale'}`}>
-						<input
-							type="checkbox"
-							checked={isDefault}
-							onchange={() => toggleDefaultDirective(d.id)}
-							aria-label={`Attiva ${d.name} di default`}
-						/>
+				<div
+					class="directive-row"
+					class:hidden-dir={d.hidden}
+					class:ui-selected={editingDirectiveId === d.id}
+					role="listitem"
+				>
+					<!-- Switch di attivazione default -->
+					<div class="col-checkbox">
+						<Tooltip text={`Attiva di default per ${isProjectScope ? currentProject?.name : 'Globale'}`}>
+							<Switch
+								id={`dir-default-${d.id}`}
+								checked={isDefault}
+								onChange={() => toggleDefaultDirective(d.id)}
+								ariaLabel={`Attiva ${d.name} di default per ${isProjectScope ? currentProject?.name : 'Globale'}`}
+							/>
+						</Tooltip>
 					</div>
 
 					<!-- Riordino -->
 					<div class="col-order">
-						<button
-							type="button"
-							class="order-btn"
-							disabled={idx === 0}
-							onclick={() => moveDirective(d.id, -1)}
-							title="Sposta su"
-							aria-label="Sposta su"
-						>
-							▲
-						</button>
-						<button
-							type="button"
-							class="order-btn"
-							disabled={idx === settingsStore.taskDirectives.length - 1}
-							onclick={() => moveDirective(d.id, 1)}
-							title={m.ui_suggestionssection_sposta_giu_10cf()}
-							aria-label={m.ui_suggestionssection_sposta_giu_10cf()}
-						>
-							▼
-						</button>
+						<Tooltip text="Sposta su">
+							<button
+								type="button"
+								class="order-btn"
+								disabled={idx === 0}
+								onclick={() => moveDirective(d.id, -1)}
+								aria-label="Sposta su"
+							>
+								<IconChevronUp />
+							</button>
+						</Tooltip>
+						<Tooltip text={m.ui_suggestionssection_sposta_giu_10cf()}>
+							<button
+								type="button"
+								class="order-btn"
+								disabled={idx === settingsStore.taskDirectives.length - 1}
+								onclick={() => moveDirective(d.id, 1)}
+								aria-label={m.ui_suggestionssection_sposta_giu_10cf()}
+							>
+								<IconChevronDown />
+							</button>
+						</Tooltip>
 					</div>
 
 					<!-- Info Direttiva -->
@@ -855,44 +936,65 @@
 
 					<!-- Azioni sulla riga -->
 					<div class="col-actions">
-						<button type="button" class="btn-row-action" onclick={() => openEditForm(d)} title={m.ui_taskssection_modifica_direttiva_dcc7()}>
-							<IconRename />
-						</button>
-						<button type="button" class="btn-row-action" onclick={() => duplicateDirective(d)} title="Duplica direttiva">
-							<IconCopy />
-						</button>
-						<button
-							type="button"
-							class="btn-row-action"
-							class:active-hidden={d.hidden}
-							onclick={() => toggleDirectiveHidden(d)}
-							title={d.hidden ? m.ui_taskssection_mostra_nei_nuovi_task_ea98() : m.ui_taskssection_nascondi_dai_nuovi_task_3cad()}
-						>
-							{d.hidden ? m.ui_suggestionssection_mostra_4e74() : m.ui_usermessage_nascondi_82ca()}
-						</button>
-						{#if d.factoryKey}
+						<Tooltip text={m.ui_taskssection_modifica_direttiva_dcc7()}>
 							<button
 								type="button"
 								class="btn-row-action"
-								onclick={() => resetDirectiveToFactory(d)}
-								title="Ripristina testo e configurazione originale di fabbrica"
+								onclick={() => openEditForm(d)}
+								aria-label={m.ui_taskssection_modifica_direttiva_dcc7()}
 							>
-								<IconRefresh />
+								<IconRename />
 							</button>
-						{:else}
+						</Tooltip>
+						<Tooltip text="Duplica direttiva">
 							<button
 								type="button"
-								class="btn-row-action danger"
-								class:armed={deleteArmedId === d.id}
-								onclick={() => handleDelete(d.id)}
-								title={deleteArmedId === d.id ? 'Clicca di nuovo per confermare eliminazione' : m.ui_taskssection_elimina_direttiva_ca0d()}
+								class="btn-row-action"
+								onclick={() => duplicateDirective(d)}
+								aria-label="Duplica direttiva"
 							>
-								{#if deleteArmedId === d.id}
-									<span>Sicuro?</span>
-								{:else}
-									<IconTrash />
-								{/if}
+								<IconCopy />
 							</button>
+						</Tooltip>
+						<Tooltip text={d.hidden ? m.ui_taskssection_mostra_nei_nuovi_task_ea98() : m.ui_taskssection_nascondi_dai_nuovi_task_3cad()}>
+							<button
+								type="button"
+								class="btn-row-action"
+								class:active-hidden={d.hidden}
+								onclick={() => toggleDirectiveHidden(d)}
+								aria-label={d.hidden ? m.ui_taskssection_mostra_nei_nuovi_task_ea98() : m.ui_taskssection_nascondi_dai_nuovi_task_3cad()}
+							>
+								{d.hidden ? m.ui_suggestionssection_mostra_4e74() : m.ui_usermessage_nascondi_82ca()}
+							</button>
+						</Tooltip>
+						{#if d.factoryKey}
+							<Tooltip text="Ripristina testo e configurazione originale di fabbrica">
+								<button
+									type="button"
+									class="btn-row-action"
+									onclick={() => resetDirectiveToFactory(d)}
+									aria-label="Ripristina testo e configurazione originale di fabbrica"
+								>
+									<IconRefresh />
+								</button>
+							</Tooltip>
+						{:else}
+							<Tooltip text={deleteArmedId === d.id ? 'Clicca di nuovo per confermare eliminazione' : m.ui_taskssection_elimina_direttiva_ca0d()}>
+								<button
+									type="button"
+									class="btn-row-action danger"
+									class:ui-button-danger={deleteArmedId === d.id}
+									class:armed={deleteArmedId === d.id}
+									onclick={() => handleDelete(d.id)}
+									aria-label={deleteArmedId === d.id ? 'Conferma eliminazione' : m.ui_taskssection_elimina_direttiva_ca0d()}
+								>
+									{#if deleteArmedId === d.id}
+										<span>Sicuro?</span>
+									{:else}
+										<IconTrash />
+									{/if}
+								</button>
+							</Tooltip>
 						{/if}
 					</div>
 				</div>
@@ -910,8 +1012,8 @@
 				{#each openProjects as p (p.id)}
 					<div class="project-row">
 						<div class="form-row-copy">
-							<span class="form-row-label">{p.label || p.name}</span>
-							<span class="form-row-desc">{m.ui_taskssection_avvia_automaticamente_il_prossimo_task_in_coda_2e2a()}</span>
+							<span id={`project-autodispatch-label-${p.id}`} class="form-row-label">{p.label || p.name}</span>
+							<span id={`project-autodispatch-desc-${p.id}`} class="form-row-desc">{m.ui_taskssection_avvia_automaticamente_il_prossimo_task_in_coda_2e2a()}</span>
 							{#if p.taskDefaults}
 								<button type="button" class="override-reset" onclick={() => projectStore.setTaskDefaults(p.id, null)}>
 									{m.ui_taskssection_default_personalizzati_attivi_ripristina_ereditarieta_ca4a()}
@@ -919,31 +1021,29 @@
 							{/if}
 						</div>
 						<div class="form-row-control">
-							<label class="switch" title={m.ui_taskssection_avvia_automaticamente_il_prossimo_task_in_coda_2e2a()}>
-								<input
-									type="checkbox"
-									checked={p.autoDispatch}
-									onchange={(e) => projectStore.setAutoDispatch(p.id, (e.currentTarget as HTMLInputElement).checked)}
-								/>
-								<span class="slider"></span>
-							</label>
+							<Switch
+								id={`project-autodispatch-${p.id}`}
+								checked={p.autoDispatch}
+								ariaLabelledBy={`project-autodispatch-label-${p.id}`}
+								ariaDescribedBy={`project-autodispatch-desc-${p.id}`}
+								onChange={(checked) => projectStore.setAutoDispatch(p.id, checked)}
+							/>
 						</div>
 					</div>
 					{#if !p.labDraft}
 						<!-- Toggle ripresa automatica sessione worktree per progetti Git -->
 						<div class="project-row project-subrow">
 							<div class="form-row-copy">
-								<span class="form-row-desc">{m.lanestrip_worktree_resume_chat_desc()}</span>
+								<span id={`project-resume-chat-desc-${p.id}`} class="form-row-desc">{m.lanestrip_worktree_resume_chat_desc()}</span>
 							</div>
 							<div class="form-row-control">
-								<label class="switch" title={m.lanestrip_resume_chat()}>
-									<input
-										type="checkbox"
-										checked={p.worktreeResumeChat ?? true}
-										onchange={(e) => projectStore.setWorktreeResumeChat(p.id, (e.currentTarget as HTMLInputElement).checked)}
-									/>
-									<span class="slider"></span>
-								</label>
+								<Switch
+									id={`project-resume-chat-${p.id}`}
+									checked={p.worktreeResumeChat ?? true}
+									ariaLabel={m.lanestrip_resume_chat()}
+									ariaDescribedBy={`project-resume-chat-desc-${p.id}`}
+									onChange={(checked) => projectStore.setWorktreeResumeChat(p.id, checked)}
+								/>
 							</div>
 						</div>
 					{/if}
@@ -975,17 +1075,17 @@
 	}
 
 	.block-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.section-subtitle {
 		margin: 2px 0 0 0;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
@@ -996,7 +1096,8 @@
 	}
 
 	.scope-pill {
-		font-size: 11px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		font-family: var(--font-mono);
 		padding: 2px 6px;
 		border-radius: var(--radius-sm);
@@ -1005,13 +1106,13 @@
 	}
 
 	.scope-pill.project {
-		background: color-mix(in srgb, var(--brand) 10%, var(--bg-sunken));
-		border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+		background: color-mix(in oklab, var(--brand) 10%, var(--bg-sunken));
+		border-color: color-mix(in oklab, var(--brand) 30%, var(--line));
 		color: var(--brand-ink);
 	}
 
 	.btn-reset-scope {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--warn);
 		background: transparent;
 		border: none;
@@ -1048,78 +1149,26 @@
 	}
 
 	.form-row-label {
-		font-size: var(--text-base);
+		font-size: var(--text-body);
 		color: var(--ink);
 	}
 
 	.form-row-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		line-height: 1.35;
 	}
 
-	.form-row-control select {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-sm);
-		padding: 4px 8px;
+	.form-row-control {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+	}
+
+	.form-row-control :global(.ui-select) {
 		min-width: 220px;
 	}
 
-	/* Switch component */
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 32px;
-		height: 18px;
-		flex-shrink: 0;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		cursor: pointer;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background-color: var(--line);
-		transition: var(--dur-fast);
-		border-radius: var(--radius-full);
-	}
-
-	.slider:before {
-		position: absolute;
-		content: "";
-		height: 14px;
-		width: 14px;
-		left: 2px;
-		bottom: 2px;
-		background-color: var(--ink-muted);
-		transition: var(--dur-fast);
-		border-radius: var(--radius-full);
-	}
-
-	input:checked + .slider {
-		background-color: var(--brand);
-	}
-
-	input:checked + .slider:before {
-		transform: translateX(14px);
-		background-color: var(--ink);
-	}
-
-	input:focus-visible + .slider {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
 	/* Directives Header */
 	.directives-header {
 		display: flex;
@@ -1129,52 +1178,18 @@
 		margin-top: var(--space-2);
 	}
 
+	.header-left {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
 	.header-actions {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--space-1);
 		flex-shrink: 0;
-	}
-
-	.btn-action {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		font-weight: 500;
-		padding: 4px 10px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		background: var(--bg-raised);
-		color: var(--ink);
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.btn-action:hover:not(:disabled) {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-	.btn-action.primary {
-		background: color-mix(in srgb, var(--brand) 15%, var(--bg-raised));
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
-		color: var(--brand-ink);
-	}
-
-	.btn-action.primary:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--brand) 25%, var(--bg-hover));
-	}
-
-	.btn-action.text-warn {
-		color: var(--warn);
-	}
-
-	.btn-action:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
 	}
 
 	/* Directives List */
@@ -1192,15 +1207,17 @@
 		align-items: center;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
-		border-bottom: 1px solid var(--line);
-		transition: background var(--dur-fast) var(--ease-out);
+		border: 1px solid transparent;
+		border-bottom-color: var(--line);
+		border-radius: var(--radius-md);
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.directive-row:last-child {
-		border-bottom: none;
+		border-bottom-color: transparent;
 	}
 
-	.directive-row:hover {
+	.directive-row:hover:not(.ui-selected) {
 		background: var(--bg-hover);
 	}
 
@@ -1208,39 +1225,46 @@
 		opacity: 0.6;
 	}
 
-	.directive-row.is-editing {
-		border-left: 2px solid var(--brand);
-		background: color-mix(in srgb, var(--brand) 5%, var(--bg-raised));
-	}
-
-	.col-checkbox input {
-		accent-color: var(--brand);
-		cursor: pointer;
+	.col-checkbox {
+		display: flex;
+		align-items: center;
+		flex-shrink: 0;
 	}
 
 	.col-order {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+		flex-shrink: 0;
 	}
 
 	.order-btn {
-		font-size: 8px;
+		--icon-size: 12px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		min-width: 20px;
+		min-height: 20px;
+		padding: 0;
 		background: transparent;
-		border: none;
-		color: var(--ink-faint);
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
+		color: var(--ink-muted);
 		cursor: pointer;
-		padding: 0 2px;
-		line-height: 1;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.order-btn:hover:not(:disabled) {
+		background: var(--bg-sunken);
+		border-color: var(--line);
 		color: var(--ink);
 	}
 
 	.order-btn:disabled {
-		opacity: 0.2;
-		cursor: default;
+		opacity: 0.25;
+		cursor: not-allowed;
 	}
 
 	.col-main {
@@ -1259,24 +1283,26 @@
 	}
 
 	.dir-name {
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.factory-pill {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		padding: 1px 4px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 	}
 
 	.placement-pill {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		padding: 1px 4px;
 		border-radius: var(--radius-sm);
 		text-transform: uppercase;
@@ -1289,14 +1315,15 @@
 	}
 
 	.placement-pill.after {
-		background: color-mix(in srgb, var(--brand) 12%, var(--bg-sunken));
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
+		background: color-mix(in oklab, var(--brand) 12%, var(--bg-sunken));
+		border: 1px solid color-mix(in oklab, var(--brand) 30%, var(--line));
 		color: var(--brand-ink);
 	}
 
 	.tag-pill {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		padding: 1px 4px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
@@ -1305,15 +1332,15 @@
 	}
 
 	.hidden-pill {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		color: var(--warn);
 		font-style: italic;
 	}
 
 	.dir-desc {
 		margin: 0;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		line-height: 1.3;
 		white-space: nowrap;
 		overflow: hidden;
@@ -1328,17 +1355,18 @@
 	}
 
 	.btn-row-action {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		color: var(--ink-faint);
+		border-radius: var(--radius-md);
+		color: var(--ink-muted);
 		padding: 3px 6px;
+		min-height: 24px;
 		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		transition: background var(--dur-fast), color var(--dur-fast);
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-row-action:hover {
@@ -1352,18 +1380,21 @@
 	}
 
 	.btn-row-action.danger {
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 	}
 
-	.btn-row-action.danger:hover {
-		color: var(--warn);
+	.btn-row-action.danger:hover:not(.armed) {
+		background: color-mix(in oklab, var(--danger) 12%, var(--bg-raised));
+		border-color: var(--danger);
+		color: var(--danger);
 	}
 
 	.btn-row-action.danger.armed {
-		background: color-mix(in srgb, var(--warn) 20%, var(--bg-sunken));
-		border-color: var(--warn);
-		color: var(--warn);
+		background: var(--danger);
+		border-color: var(--danger);
+		color: var(--on-danger);
 		font-weight: 600;
+		padding: 0 8px;
 	}
 
 	/* Inline Editor Card */
@@ -1373,9 +1404,8 @@
 		gap: var(--space-3);
 		padding: var(--space-3);
 		background: var(--bg-raised);
-		border: 1px solid var(--brand);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-overlay);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
 	}
 
 	.editor-header {
@@ -1385,20 +1415,28 @@
 	}
 
 	.editor-title {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.btn-icon-close {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
 		background: transparent;
-		border: none;
-		color: var(--ink-faint);
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
+		color: var(--ink-muted);
 		cursor: pointer;
-		padding: 2px;
+		padding: 0;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-icon-close:hover {
+		background: var(--bg-hover);
 		color: var(--ink);
 	}
 
@@ -1425,48 +1463,11 @@
 	}
 
 	.field-label {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink-muted);
 	}
 
-	.btn-mini-ai {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-size: 11px;
-		color: var(--brand-ink);
-		background: transparent;
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
-		border-radius: var(--radius-sm);
-		padding: 1px 6px;
-		cursor: pointer;
-	}
-
-	.btn-mini-ai:hover {
-		background: color-mix(in srgb, var(--brand) 15%, var(--bg-hover));
-	}
-
-	.text-input {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-sm);
-		padding: 6px 8px;
-		font-family: var(--font-ui);
-	}
-
-	.text-input:focus {
-		border-color: var(--brand);
-		outline: none;
-	}
-
-	.text-input.mono {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: 1.4;
-	}
 
 	.placement-radios {
 		display: flex;
@@ -1479,13 +1480,9 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		color: var(--ink);
 		cursor: pointer;
-	}
-
-	.radio-label input {
-		accent-color: var(--brand);
 	}
 
 	.editor-footer {
@@ -1503,22 +1500,26 @@
 		gap: var(--space-2);
 	}
 
+	.text-warn {
+		color: var(--warn);
+	}
+
 	/* AI Assistant Box */
 	.ai-assistant-box {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
 		padding: var(--space-3);
-		background: color-mix(in srgb, var(--brand) 6%, var(--bg-sunken));
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
-		border-radius: var(--radius-sm);
+		background: color-mix(in oklab, var(--brand) 6%, var(--bg-sunken));
+		border: 1px solid color-mix(in oklab, var(--brand) 30%, var(--line));
+		border-radius: var(--radius-md);
 	}
 
 	.assistant-head {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--brand-ink);
 	}
@@ -1542,7 +1543,7 @@
 		padding: var(--space-2);
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		margin-top: var(--space-2);
 	}
 
@@ -1553,14 +1554,14 @@
 	}
 
 	.preview-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--brand-ink);
 	}
 
 	.preview-reason {
-		font-size: 11px;
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		font-style: italic;
 	}
 
@@ -1568,7 +1569,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink);
 	}
 
@@ -1578,10 +1579,17 @@
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		font-family: var(--font-mono);
-		font-size: 11px;
+		font-family: var(--font-ui);
+		font-size: var(--text-chat);
+		line-height: 24px;
 		white-space: pre-wrap;
 		color: var(--ink-muted);
+	}
+
+	.preview-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 	}
 
 	/* AI Friction Panel */
@@ -1591,8 +1599,8 @@
 		gap: var(--space-2);
 		padding: var(--space-3);
 		background: var(--bg-raised);
-		border: 1px solid var(--warn);
-		border-radius: var(--radius-md);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
 		margin-bottom: var(--space-2);
 	}
 
@@ -1606,9 +1614,13 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		color: var(--warn);
-		font-size: var(--text-sm);
+		color: var(--ink);
+	}
+
+	.panel-title {
+		font-size: var(--text-label);
 		font-weight: 600;
+		color: var(--ink);
 	}
 
 	.proposals-list {
@@ -1624,7 +1636,7 @@
 		padding: var(--space-2);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 	}
 
 	.proposal-head {
@@ -1634,14 +1646,15 @@
 	}
 
 	.proposal-name {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.proposal-tag {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		padding: 1px 4px;
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
@@ -1650,25 +1663,26 @@
 	}
 
 	.proposal-placement {
-		font-size: 10px;
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		text-transform: uppercase;
 	}
 
 	.proposal-reason {
 		margin: 0;
-		font-size: var(--text-xs);
-		color: var(--warn);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 	}
 
 	.proposal-prompt {
 		margin: 2px 0 0 0;
-		padding: 4px 6px;
+		padding: 6px 8px;
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		white-space: pre-wrap;
 		color: var(--ink-muted);
 	}
@@ -1680,53 +1694,23 @@
 		margin-top: 4px;
 	}
 
-	.btn-proposal-action {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-size: 11px;
-		padding: 2px 8px;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		cursor: pointer;
-	}
-
-	.btn-proposal-action.primary {
-		background: color-mix(in srgb, var(--brand) 15%, var(--bg-raised));
-		border-color: var(--brand);
-		color: var(--brand-ink);
-	}
-
-	.btn-proposal-action.dismiss {
-		color: var(--ink-faint);
-	}
-
 	.ai-msg.error {
-		font-size: var(--text-xs);
-		color: var(--warn);
-		padding: 4px 0;
+		font-size: var(--text-caption);
+		color: var(--danger);
+		background: color-mix(in oklab, var(--danger) 10%, var(--bg-raised));
+		border: 1px solid var(--danger);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2);
 	}
 
 	.ai-loading-state {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		padding: var(--space-2) 0;
 	}
-
-	.spinner {
-		width: 12px;
-		height: 12px;
-		border: 2px solid var(--line);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 800ms linear infinite;
-	}
-
 
 	.project-row {
 		display: flex;
@@ -1743,11 +1727,11 @@
 
 	.project-subrow {
 		padding-left: var(--space-4);
-		background-color: color-mix(in srgb, var(--bg-raised) 25%, transparent);
+		background-color: color-mix(in oklab, var(--bg-raised) 25%, transparent);
 	}
 
 	.override-reset {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--warn);
 		background: transparent;
 		border: none;
@@ -1758,8 +1742,8 @@
 	}
 
 	.empty-note {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		margin: 0;
 	}
 

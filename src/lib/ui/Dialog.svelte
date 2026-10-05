@@ -13,6 +13,8 @@
 	import { trapFocus, type FocusTrapOptions } from '$lib/focusTrap';
 	import { rvLift } from '$lib/agent/motion';
 	import { IconClose } from '$lib/icons';
+	import Tooltip from './Tooltip.svelte';
+	import { m } from '$lib/paraglide/messages.js';
 
 	export interface DialogProps {
 		open?: boolean;
@@ -28,6 +30,15 @@
 		body?: Snippet;
 		footer?: Snippet;
 		icon?: Snippet;
+		/** Azioni nella testata predefinita, prima della chiusura. */
+		actions?: Snippet;
+		/** Strati dentro il `<dialog>` ma fuori dalla superficie: restano nel top layer
+		 *  senza ereditare overflow e trasformazioni della superficie. */
+		outside?: Snippet;
+		/** `wide`: finestre di lavoro (impostazioni), 1080 px x 86vh. */
+		size?: 'default' | 'wide';
+		/** Corpo senza padding ne' limite di altezza: il layout interno lo decide il consumatore. */
+		flush?: boolean;
 		class?: string;
 	}
 
@@ -45,6 +56,10 @@
 		body,
 		footer,
 		icon,
+		actions,
+		outside,
+		size = 'default',
+		flush = false,
 		class: customClass = ''
 	}: DialogProps = $props();
 
@@ -88,7 +103,7 @@
 
 		<div class="dialog-positioner">
 			<div
-				class={['dialog-surface', customClass].filter(Boolean).join(' ')}
+				class={['dialog-surface', size === 'wide' && 'dialog-wide', customClass].filter(Boolean).join(' ')}
 				transition:rvLift={{ duration: 240 }}
 			>
 				{#if header}
@@ -101,25 +116,32 @@
 							</div>
 						{/if}
 						<h2 id={titleId} class="dialog-title">{title}</h2>
+						{#if actions}
+							<div class="dialog-actions">
+								{@render actions()}
+							</div>
+						{/if}
 						{#if dismissible && onClose}
-							<button
-								type="button"
-								class="dialog-close-btn"
-								onclick={handleDismiss}
-								aria-label="Chiudi"
-							>
-								<IconClose />
-							</button>
+							<Tooltip text={m.common_close()} placement="bottom">
+								<button
+									type="button"
+									class="dialog-close-btn"
+									onclick={handleDismiss}
+									aria-label={m.common_close()}
+								>
+									<IconClose />
+								</button>
+							</Tooltip>
 						{/if}
 					</header>
 				{/if}
 
 				{#if body}
-					<div class="dialog-body">
+					<div class="dialog-body" class:flush>
 						{@render body()}
 					</div>
 				{:else if children}
-					<div class="dialog-body">
+					<div class="dialog-body" class:flush>
 						{@render children()}
 					</div>
 				{/if}
@@ -131,6 +153,9 @@
 				{/if}
 			</div>
 		</div>
+		{#if outside}
+			{@render outside()}
+		{/if}
 	</dialog>
 {/if}
 
@@ -159,7 +184,6 @@
 		position: fixed;
 		inset: 0;
 		background: var(--backdrop);
-		backdrop-filter: blur(2px);
 	}
 
 	.dialog-positioner {
@@ -182,6 +206,11 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+	}
+
+	.dialog-surface.dialog-wide {
+		max-width: min(1080px, 96vw);
+		height: min(86vh, 760px);
 	}
 
 	.dialog-header {
@@ -212,12 +241,20 @@
 		color: var(--ink);
 	}
 
+	.dialog-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-shrink: 0;
+	}
+
 	.dialog-close-btn {
 		background: transparent;
 		border: none;
 		color: var(--ink-muted);
 		padding: 6px;
-		border-radius: var(--radius-sm, 4px);
+		border-radius: var(--radius-md);
+		--icon-size: 14px;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -238,6 +275,15 @@
 		gap: var(--space-3, 12px);
 		max-height: 65vh;
 		overflow-y: auto;
+	}
+
+	.dialog-body.flush {
+		padding: 0;
+		gap: 0;
+		flex: 1;
+		min-height: 0;
+		max-height: none;
+		overflow: hidden;
 	}
 
 	.dialog-footer {

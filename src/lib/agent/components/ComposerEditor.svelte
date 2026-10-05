@@ -284,6 +284,7 @@
 		bind:this={editorEl}
 		contenteditable={!disabled}
 		role="textbox"
+		tabindex={disabled ? -1 : 0}
 		aria-multiline="true"
 		aria-label={ariaLabel}
 		spellcheck="false"

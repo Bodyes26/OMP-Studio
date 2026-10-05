@@ -1,12 +1,23 @@
 <script lang="ts">
+	// Sezione GitHub (collegamento account, preferenze sincronizzazione e repository locali, Design v2).
+	// Conforme alle regole di sistema: token semantici, Switch per le preferenze,
+	// bottoni .ui-button, select .ui-select, input .ui-input e StatusMark per gli stati.
+	import { onMount } from 'svelte';
+	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { m } from '$lib/paraglide/messages.js';
 	import { githubStore } from '$lib/stores/github.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
-	import { IconGithub, IconRefresh, IconCheck, IconExternalLink } from '$lib/icons';
-	import { onMount } from 'svelte';
+	import {
+		IconGithub,
+		IconRefresh,
+		IconExternalLink,
+		IconFolderOpen
+	} from '$lib/icons';
+	import Switch from '$lib/ui/Switch.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { IS_MAC } from '$lib/utils/platform';
-	import { openUrl } from '@tauri-apps/plugin-opener';
 
 	let tokenInput = $state('');
 	let tokenError = $state<string | null>(null);
@@ -67,16 +78,21 @@
 					Sincronizza repository, monitora la CI delle build e clona i tuoi progetti con un clic.
 				</span>
 			</div>
-			<button
-				type="button"
-				class="btn-refresh"
-				onclick={() => { void githubStore.loadStatus(); void githubStore.detectLocalRemotes(); }}
-				disabled={githubStore.isLoadingStatus}
-				title="Ricarica stato GitHub"
-				aria-label="Ricarica stato GitHub"
-			>
-				<span class="icon" class:spin={githubStore.isLoadingStatus}><IconRefresh /></span>
-			</button>
+			<Tooltip text="Ricarica stato GitHub" placement="bottom">
+				<button
+					type="button"
+					class="ui-button ui-button-secondary btn-icon-only"
+					onclick={() => { void githubStore.loadStatus(); void githubStore.detectLocalRemotes(); }}
+					disabled={githubStore.isLoadingStatus}
+					aria-label="Ricarica stato GitHub"
+				>
+					{#if githubStore.isLoadingStatus}
+						<StatusMark status="running" label="Ricarica stato in corso" />
+					{:else}
+						<IconRefresh />
+					{/if}
+				</button>
+			</Tooltip>
 		</div>
 
 		{#if githubStore.status.authenticated}
@@ -94,7 +110,10 @@
 						{#if githubStore.status.name}
 							<span class="account-realname">({githubStore.status.name})</span>
 						{/if}
-						<span class="status-pill connected"><IconCheck /> Connesso</span>
+						<span class="status-badge connected">
+							<StatusMark status="completed" label={m.settings_github_status_connected()} />
+							<span>{m.settings_github_status_connected()}</span>
+						</span>
 						<span class="method-pill" class:cli={githubStore.status.method === 'gh_cli'}>
 							{githubStore.status.method === 'gh_cli' ? 'GitHub CLI' : 'Personal Token'}
 						</span>
@@ -106,12 +125,17 @@
 				<div class="account-actions">
 					<button
 						type="button"
-						class="btn-action"
+						class="ui-button ui-button-secondary"
 						onclick={() => openExternal(`https://github.com/${githubStore.status.username}`)}
 					>
-						Apri profilo <IconExternalLink />
+						<span>Apri profilo</span>
+						<IconExternalLink />
 					</button>
-					<button type="button" class="btn-action btn-danger" onclick={handleLogout}>
+					<button
+						type="button"
+						class="ui-button ui-button-ghost btn-danger-action"
+						onclick={handleLogout}
+					>
 						Disconnetti
 					</button>
 				</div>
@@ -120,7 +144,7 @@
 			<div class="unconnected-card">
 				<div class="unconnected-head">
 					<div class="unconnected-icon"><IconGithub /></div>
-					<div>
+					<div class="unconnected-copy">
 						<h5>Nessun account GitHub collegato</h5>
 						<p class="unconnected-desc">
 							Collega GitHub tramite GitHub CLI (consigliato per sviluppo locale) oppure incollando un Personal Access Token.
@@ -150,7 +174,7 @@
 							{#if githubStore.status.installed}
 								<button
 									type="button"
-									class="btn-primary"
+									class="ui-button ui-button-primary"
 									onclick={() => githubStore.loadStatus()}
 									disabled={githubStore.isLoadingStatus}
 								>
@@ -159,14 +183,15 @@
 							{:else}
 								<button
 									type="button"
-									class="btn-primary"
+									class="ui-button ui-button-primary"
 									onclick={handleInstallCli}
 									disabled={githubStore.isInstallingCli}
 								>
 									{#if githubStore.isInstallingCli}
-										Installazione in corso...
+										<StatusMark status="running" label="Installazione in corso" />
+										<span>Installazione in corso...</span>
 									{:else}
-										{IS_MAC ? 'Installa con Homebrew (1-click)' : 'Installa con winget (1-click)'}
+										<span>{IS_MAC ? 'Installa con Homebrew (1-click)' : 'Installa con winget (1-click)'}</span>
 									{/if}
 								</button>
 							{/if}
@@ -188,6 +213,7 @@
 						<div class="token-input-row">
 							<input
 								type="password"
+								class="ui-input token-input"
 								placeholder="ghp_... o github_pat_..."
 								bind:value={tokenInput}
 								onkeydown={(e) => { if (e.key === 'Enter') void handleSaveToken(); }}
@@ -195,11 +221,16 @@
 							/>
 							<button
 								type="button"
-								class="btn-primary"
+								class="ui-button ui-button-primary"
 								onclick={handleSaveToken}
 								disabled={isSavingToken || !tokenInput.trim()}
 							>
-								{isSavingToken ? 'Verifica...' : 'Collega'}
+								{#if isSavingToken}
+									<StatusMark status="running" label="Verifica token" />
+									<span>Verifica...</span>
+								{:else}
+									<span>Collega</span>
+								{/if}
 							</button>
 						</div>
 						{#if tokenError}
@@ -211,7 +242,8 @@
 								class="btn-link"
 								onclick={() => openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org,workflow&description=OMP+Studio')}
 							>
-								Genera token con permessi corretti <IconExternalLink />
+								<span>Genera token con permessi corretti</span>
+								<IconExternalLink />
 							</button>
 						</div>
 					</div>
@@ -239,6 +271,7 @@
 				</div>
 				<div class="option-control">
 					<select
+						class="ui-select protocol-select"
 						value={settingsStore.github.cloneProtocol}
 						onchange={(e) => settingsStore.patchGithub({ cloneProtocol: (e.target as HTMLSelectElement).value as 'https' | 'ssh' })}
 						aria-label="Protocollo di clonazione predefinito"
@@ -251,45 +284,48 @@
 
 			<div class="option-row">
 				<div class="option-info">
-					<span class="option-title">{m.settings_github_auto_fetch_title()}</span>
-					<span class="option-desc">{m.settings_github_auto_fetch_desc()}</span>
+					<span id="github-autofetch-title" class="option-title">{m.settings_github_auto_fetch_title()}</span>
+					<span id="github-autofetch-desc" class="option-desc">{m.settings_github_auto_fetch_desc()}</span>
 				</div>
 				<div class="option-control">
-					<input
-						type="checkbox"
+					<Switch
+						id="github-autofetch"
+						ariaLabelledBy="github-autofetch-title"
+						ariaDescribedBy="github-autofetch-desc"
 						checked={settingsStore.github.autoFetch}
-						onchange={(e) => settingsStore.patchGithub({ autoFetch: (e.target as HTMLInputElement).checked })}
-						aria-label={m.settings_github_auto_fetch_title()}
+						onChange={(val) => settingsStore.patchGithub({ autoFetch: val })}
 					/>
 				</div>
 			</div>
 
 			<div class="option-row">
 				<div class="option-info">
-					<span class="option-title">Badge commit nella barra dei progetti (↑/↓)</span>
-					<span class="option-desc">Mostra quanti commit sono in attesa di essere inviati o scaricati da GitHub.</span>
+					<span id="github-upstream-badges-title" class="option-title">Badge commit nella barra dei progetti (↑/↓)</span>
+					<span id="github-upstream-badges-desc" class="option-desc">Mostra quanti commit sono in attesa di essere inviati o scaricati da GitHub.</span>
 				</div>
 				<div class="option-control">
-					<input
-						type="checkbox"
+					<Switch
+						id="github-upstream-badges"
+						ariaLabelledBy="github-upstream-badges-title"
+						ariaDescribedBy="github-upstream-badges-desc"
 						checked={settingsStore.github.showUpstreamBadges}
-						onchange={(e) => settingsStore.patchGithub({ showUpstreamBadges: (e.target as HTMLInputElement).checked })}
-						aria-label="Badge commit nella barra dei progetti"
+						onChange={(val) => settingsStore.patchGithub({ showUpstreamBadges: val })}
 					/>
 				</div>
 			</div>
 
 			<div class="option-row">
 				<div class="option-info">
-					<span class="option-title">Notifiche per build fallite (GitHub Actions)</span>
-					<span class="option-desc">Mostra un avviso toast di sistema se la CI su GitHub fallisce dopo un push.</span>
+					<span id="github-actions-notify-title" class="option-title">Notifiche per build fallite (GitHub Actions)</span>
+					<span id="github-actions-notify-desc" class="option-desc">Mostra un avviso toast di sistema se la CI su GitHub fallisce dopo un push.</span>
 				</div>
 				<div class="option-control">
-					<input
-						type="checkbox"
+					<Switch
+						id="github-actions-notify"
+						ariaLabelledBy="github-actions-notify-title"
+						ariaDescribedBy="github-actions-notify-desc"
 						checked={settingsStore.github.notifyActionsFailure}
-						onchange={(e) => settingsStore.patchGithub({ notifyActionsFailure: (e.target as HTMLInputElement).checked })}
-						aria-label="Notifiche per build fallite"
+						onChange={(val) => settingsStore.patchGithub({ notifyActionsFailure: val })}
 					/>
 				</div>
 			</div>
@@ -301,7 +337,7 @@
 		<div class="section-block">
 			<div class="block-head-row">
 				<div class="block-titles">
-					<h4>Progetti locali collegati a GitHub ({githubStore.localRemotes.length})</h4>
+					<h4>Progetti locali collegati a GitHub <span class="count-badge">({githubStore.localRemotes.length})</span></h4>
 					<span class="block-desc">
 						Cartelle trovate in {projectStore.projectRoot} associate a un repository GitHub remoto.
 					</span>
@@ -312,28 +348,37 @@
 				{#each githubStore.localRemotes as remote (remote.path)}
 					<div class="remote-row">
 						<div class="remote-main">
-							<span class="remote-folder">📁 {remote.folderName}</span>
+							<span class="remote-folder">
+								<span class="folder-icon" aria-hidden="true"><IconFolderOpen /></span>
+								<span>{remote.folderName}</span>
+							</span>
 							<span class="remote-slug">
-								<IconGithub /> {remote.fullName}
+								<span class="slug-icon" aria-hidden="true"><IconGithub /></span>
+								<span>{remote.fullName}</span>
 							</span>
 						</div>
 						<div class="remote-actions">
-							<button
-								type="button"
-								class="btn-subtle"
-								onclick={() => openExternal(`https://github.com/${remote.fullName}`)}
-								title="Apri su GitHub"
-							>
-								GitHub <IconExternalLink />
-							</button>
-							<button
-								type="button"
-								class="btn-subtle btn-open"
-								onclick={() => projectStore.openProject(remote.path)}
-								title="Apri in Studio"
-							>
-								Apri in Studio
-							</button>
+							<Tooltip text="Apri repository su GitHub" placement="top">
+								<button
+									type="button"
+									class="ui-button ui-button-secondary btn-subtle"
+									onclick={() => openExternal(`https://github.com/${remote.fullName}`)}
+									aria-label={`Apri ${remote.fullName} su GitHub`}
+								>
+									<span>GitHub</span>
+									<IconExternalLink />
+								</button>
+							</Tooltip>
+							<Tooltip text="Apri progetto in Studio" placement="top">
+								<button
+									type="button"
+									class="ui-button ui-button-secondary btn-subtle btn-open"
+									onclick={() => projectStore.openProject(remote.path)}
+									aria-label={`Apri ${remote.folderName} in Studio`}
+								>
+									<span>Apri in Studio</span>
+								</button>
+							</Tooltip>
 						</div>
 					</div>
 				{/each}
@@ -348,10 +393,11 @@
 		flex-direction: column;
 		gap: var(--space-4);
 		padding: var(--space-4);
+		color: var(--ink);
 	}
 
 	.section-block {
-		background: var(--surface-1);
+		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		padding: var(--space-4);
@@ -367,42 +413,32 @@
 		gap: var(--space-3);
 	}
 
+	.block-titles {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
 	.block-titles h4 {
 		margin: 0;
-		font-size: 1rem;
+		font-size: var(--text-title);
 		font-weight: 600;
+		line-height: 1.3;
 		color: var(--ink);
 	}
 
 	.block-desc {
-		font-size: 0.82rem;
+		font-size: var(--text-label);
 		color: var(--ink-muted);
-		margin-top: 2px;
-		display: block;
+		line-height: 1.4;
 	}
 
-	.btn-refresh {
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 6px;
-		color: var(--ink-muted);
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: all 0.15s ease;
+	.btn-icon-only {
+		width: 30px;
+		height: 30px;
+		padding: 0;
+		--icon-size: 14px;
 	}
-
-	.btn-refresh:hover:not(:disabled) {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.icon.spin {
-		animation: spin 1s linear infinite;
-	}
-
 
 	/* Account card */
 	.account-card {
@@ -410,26 +446,27 @@
 		align-items: center;
 		gap: var(--space-4);
 		padding: var(--space-3);
-		background: var(--surface-2);
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 	}
 
 	.account-avatar img,
 	.avatar-fallback {
-		width: 48px;
-		height: 48px;
-		border-radius: 50%;
+		width: 44px;
+		height: 44px;
+		border-radius: var(--radius-full);
 		object-fit: cover;
-		border: 2px solid var(--brand);
+		border: 1px solid var(--line);
 	}
 
 	.avatar-fallback {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--surface-3);
+		background: var(--bg-base);
 		color: var(--ink);
+		--icon-size: 20px;
 	}
 
 	.account-details {
@@ -447,78 +484,59 @@
 	}
 
 	.account-username {
-		font-weight: 700;
-		font-size: 1rem;
+		font-weight: 600;
+		font-size: var(--text-body);
 		color: var(--ink);
 	}
 
 	.account-realname {
 		color: var(--ink-muted);
-		font-size: 0.9rem;
+		font-size: var(--text-label);
 	}
 
-	.status-pill {
+	.status-badge {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		font-size: 0.75rem;
-		padding: 2px 8px;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--success, #2ecc71) 15%, transparent);
-		color: var(--success, #2ecc71);
-		font-weight: 600;
+		gap: 6px;
+		font-size: var(--text-caption);
+		font-weight: 500;
+		color: var(--ink);
 	}
 
 	.method-pill {
-		font-size: 0.75rem;
+		font-size: var(--text-caption);
 		padding: 2px 8px;
-		border-radius: 999px;
-		background: var(--surface-3);
+		border-radius: var(--radius-full);
+		background: var(--bg-base);
 		color: var(--ink-muted);
 		border: 1px solid var(--line);
 	}
 
 	.method-pill.cli {
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
-		color: var(--brand);
-		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+		background: color-mix(in oklab, var(--brand) 12%, transparent);
+		color: var(--brand-ink);
+		border-color: color-mix(in oklab, var(--brand) 25%, transparent);
 	}
 
 	.account-meta {
-		font-size: 0.8rem;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
 	.account-actions {
 		display: flex;
-		gap: var(--space-2);
-	}
-
-	.btn-action {
-		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		padding: 6px 12px;
-		font-size: 0.82rem;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--surface-1);
-		color: var(--ink);
-		cursor: pointer;
-		transition: all 0.15s ease;
+		gap: var(--space-2);
+		--icon-size: 13px;
 	}
 
-	.btn-action:hover {
-		background: var(--bg-hover);
+	.btn-danger-action {
+		color: var(--danger);
 	}
 
-	.btn-action.btn-danger {
-		color: var(--danger, #e74c3c);
-		border-color: color-mix(in srgb, var(--danger, #e74c3c) 30%, transparent);
-	}
-
-	.btn-action.btn-danger:hover {
-		background: color-mix(in srgb, var(--danger, #e74c3c) 15%, transparent);
+	.btn-danger-action:hover:not(:disabled) {
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
+		color: var(--danger);
 	}
 
 	/* Unconnected */
@@ -534,25 +552,36 @@
 		gap: var(--space-3);
 	}
 
+	.unconnected-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
 	.unconnected-icon {
-		padding: 10px;
-		background: var(--surface-2);
-		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
 		color: var(--ink);
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		flex-shrink: 0;
+		--icon-size: 20px;
 	}
 
 	.unconnected-head h5 {
-		margin: 0 0 4px 0;
-		font-size: 0.95rem;
+		margin: 0;
+		font-size: var(--text-body);
+		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.unconnected-desc {
 		margin: 0;
-		font-size: 0.82rem;
+		font-size: var(--text-label);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
@@ -565,9 +594,9 @@
 	}
 
 	.method-box {
-		background: var(--surface-2);
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		padding: var(--space-3);
 		display: flex;
 		flex-direction: column;
@@ -578,44 +607,52 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: var(--space-2);
 	}
 
 	.method-box-header h6 {
 		margin: 0;
-		font-size: 0.88rem;
+		font-size: var(--text-label);
+		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.badge-tag {
-		font-size: 0.7rem;
+		font-size: var(--text-caption);
 		padding: 2px 6px;
-		border-radius: 4px;
-		background: var(--surface-3);
+		border-radius: var(--radius-sm);
+		background: var(--bg-base);
 		color: var(--ink-muted);
+		border: 1px solid var(--line);
 	}
 
 	.badge-tag.present {
-		background: color-mix(in srgb, var(--success, #2ecc71) 15%, transparent);
-		color: var(--success, #2ecc71);
+		background: color-mix(in oklab, var(--success) 15%, transparent);
+		color: var(--success);
+		border-color: color-mix(in oklab, var(--success) 30%, transparent);
 	}
 
 	.badge-tag.missing {
-		background: color-mix(in srgb, var(--warn, #f39c12) 15%, transparent);
-		color: var(--warn, #f39c12);
+		background: color-mix(in oklab, var(--warn) 15%, transparent);
+		color: var(--warn);
+		border-color: color-mix(in oklab, var(--warn) 30%, transparent);
 	}
 
 	.method-box-desc {
-		font-size: 0.78rem;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		margin: 0;
 		line-height: 1.4;
 	}
 
 	.method-box-desc code {
-		background: var(--surface-3);
-		padding: 1px 4px;
-		border-radius: 3px;
+		background: var(--bg-base);
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
 		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		color: var(--brand-ink);
 	}
 
 	.method-box-actions {
@@ -630,58 +667,35 @@
 		gap: var(--space-2);
 	}
 
-	.token-input-row input {
+	.token-input {
 		flex: 1;
-		padding: 6px 8px;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--surface-1);
-		color: var(--ink);
-		font-size: 0.82rem;
-	}
-
-	.btn-primary {
-		padding: 6px 12px;
-		background: var(--brand);
-		color: #ffffff;
-		border: none;
-		border-radius: var(--radius-sm);
-		font-size: 0.82rem;
-		font-weight: 500;
-		cursor: pointer;
-		white-space: nowrap;
-		transition: opacity 0.15s ease;
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		opacity: 0.9;
-	}
-
-	.btn-primary:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
 	}
 
 	.btn-link {
 		background: none;
 		border: none;
-		color: var(--brand);
-		font-size: 0.76rem;
+		color: var(--brand-ink);
+		font-size: var(--text-caption);
 		padding: 0;
 		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
+		gap: 4px;
+		--icon-size: 12px;
+		transition: color var(--dur-fast) var(--ease-out);
+	}
+
+	.btn-link:hover {
 		text-decoration: underline;
 	}
 
 	.error-feedback {
-		font-size: 0.76rem;
-		color: var(--danger, #e74c3c);
+		font-size: var(--text-caption);
+		color: var(--danger);
 	}
 
 	.install-feedback {
-		font-size: 0.76rem;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
@@ -696,8 +710,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: var(--space-3);
 		padding: var(--space-2) 0;
-		border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+		border-bottom: 1px solid var(--line);
 	}
 
 	.option-row:last-child {
@@ -711,26 +726,29 @@
 	}
 
 	.option-title {
-		font-size: 0.86rem;
+		font-size: var(--text-body);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.option-desc {
-		font-size: 0.78rem;
+		font-size: var(--text-label);
 		color: var(--ink-muted);
+		line-height: 1.4;
 	}
 
-	.option-control select {
-		padding: 4px 8px;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--surface-2);
-		color: var(--ink);
-		font-size: 0.82rem;
+	.protocol-select {
+		min-width: 110px;
 	}
 
 	/* Remotes table */
+	.count-badge {
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-muted);
+		font-weight: 400;
+	}
+
 	.remotes-table {
 		display: flex;
 		flex-direction: column;
@@ -741,57 +759,64 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: var(--space-3);
 		padding: var(--space-2) var(--space-3);
-		background: var(--surface-2);
+		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 	}
 
 	.remote-main {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
+		min-width: 0;
 	}
 
 	.remote-folder {
-		font-size: 0.86rem;
+		font-size: var(--text-body);
 		font-weight: 600;
 		color: var(--ink);
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 	}
 
-	.remote-slug {
-		font-size: 0.8rem;
+	.folder-icon {
+		--icon-size: 13px;
 		color: var(--ink-muted);
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+	}
+
+	.remote-slug {
+		font-size: var(--text-label);
+		color: var(--ink-muted);
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.slug-icon {
+		--icon-size: 13px;
+		color: var(--ink-muted);
+		display: inline-flex;
+		align-items: center;
 	}
 
 	.remote-actions {
 		display: flex;
+		align-items: center;
 		gap: var(--space-2);
+		--icon-size: 13px;
 	}
 
 	.btn-subtle {
-		padding: 4px 8px;
-		font-size: 0.76rem;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--surface-1);
-		color: var(--ink-muted);
-		cursor: pointer;
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-	}
-
-	.btn-subtle:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
+		padding: 4px 10px;
+		font-size: var(--text-caption);
 	}
 
 	.btn-subtle.btn-open {
-		color: var(--brand);
-		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+		color: var(--brand-ink);
 	}
 </style>

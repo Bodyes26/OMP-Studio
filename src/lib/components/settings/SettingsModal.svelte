@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import { IconClose } from '$lib/icons';
+	import { IconRefresh, IconSearch, IconSettings } from '$lib/icons';
 	import { settingsStore, type SettingsSection } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import ColumnTabs from '$lib/ui/ColumnTabs.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import RolesTab from '../models/RolesTab.svelte';
 	import CatalogTab from '../models/CatalogTab.svelte';
 	import ProvidersTab from '../models/ProvidersTab.svelte';
@@ -19,8 +23,6 @@
 	import GithubSection from './GithubSection.svelte';
 	import DoctorSection from './DoctorSection.svelte';
 	import { doctorStore } from '$lib/stores/doctor.svelte';
-	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
 
 	// Navigazione di primo livello: ogni voce apre una sezione del centro
 	// impostazioni. "Modelli" e' l'unica con le tre schede orizzontali storiche.
@@ -39,11 +41,48 @@
 		{ id: 'doctor', label: m.settings_nav_doctor() }
 	]);
 
+	const MODEL_TABS = $derived([
+		{ id: 'roles', label: 'Ruoli & Fallback' },
+		{ id: 'catalog', label: `Catalogo (${modelSettingsStore.catalog.length})` },
+		{ id: 'providers', label: 'Provider & Custom' }
+	]);
+
+	// Stato di una sezione letto da un numero, non da un puntino colorato: gli
+	// avvisi in ambra (attention), gli aggiornamenti disponibili neutri.
+	type NavCount = { value: number; attention: boolean; detail: string };
+
+	const navCounts = $derived.by((): Partial<Record<SettingsSection, NavCount>> => {
+		const counts: Partial<Record<SettingsSection, NavCount>> = {};
+		const level = modelSettingsStore.attentionLevel;
+		if (level !== 'none') {
+			const warn = level === 'warn';
+			counts.models = {
+				value: warn ? modelSettingsStore.blockingFindings.length : modelSettingsStore.upgradeFindings.length,
+				attention: warn,
+				detail: modelSettingsStore.attentionTooltip || 'Avvisi sui modelli'
+			};
+		}
+		if (doctorStore.issuesCount > 0) {
+			counts.doctor = {
+				value: doctorStore.issuesCount,
+				attention: true,
+				detail: `${doctorStore.issuesCount} anomalie rilevate`
+			};
+		}
+		return counts;
+	});
+
 	let showDiscardConfirm = $state(false);
 
 	const sectionLabel = $derived(NAV_SECTIONS.find((s) => s.id === settingsStore.section)?.label ?? '');
+	const blockingCount = $derived(modelSettingsStore.healthReport ? (modelSettingsStore.blockingFindings?.length ?? 0) : 0);
 
 	function requestClose() {
+		// Esc arriva al dialogo anche col referto salute aperto sopra: chiude solo quello.
+		if (modelSettingsStore.healthModalOpen) {
+			modelSettingsStore.healthModalOpen = false;
+			return;
+		}
 		if (modelSettingsStore.hasUnsavedChanges) {
 			showDiscardConfirm = true;
 		} else {
@@ -81,485 +120,201 @@
 			void modelSettingsStore.ensureLoaded();
 		}
 	});
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (!settingsStore.open) return;
-		if (e.defaultPrevented) return;
-
-		if (e.key === 'Escape') {
-			if (modelSettingsStore.healthModalOpen) return;
-			if (showDiscardConfirm) {
-				showDiscardConfirm = false;
-			} else {
-				requestClose();
-			}
-		}
-	}
-
-	// Azione per intrappolare e gestire il fuoco dentro il dialogo modale
-	function trapFocus(node: HTMLElement) {
-		const previouslyFocused = document.activeElement as HTMLElement | null;
-		const focusableSelector = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
-
-		// Sposta il fuoco sul primo elemento interattivo appena montato
-		const first = node.querySelector<HTMLElement>(focusableSelector);
-		if (first) {
-			first.focus();
-		}
-
-		function onKeydown(e: KeyboardEvent) {
-			if (e.key !== 'Tab') return;
-			const focusables = Array.from(node.querySelectorAll<HTMLElement>(focusableSelector));
-			if (focusables.length === 0) return;
-			const firstEl = focusables[0];
-			const lastEl = focusables[focusables.length - 1];
-
-			if (e.shiftKey) {
-				if (document.activeElement === firstEl) {
-					e.preventDefault();
-					lastEl.focus();
-				}
-			} else {
-				if (document.activeElement === lastEl) {
-					e.preventDefault();
-					firstEl.focus();
-				}
-			}
-		}
-
-		node.addEventListener('keydown', onKeydown);
-
-		return {
-			destroy() {
-				node.removeEventListener('keydown', onKeydown);
-				// Ripristina il fuoco all'elemento che aveva aperto il modale
-				if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
-					previouslyFocused.focus();
-				}
-			}
-		};
-	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<Dialog
+	open={settingsStore.open}
+	title={`${m.ui_settingsmodal_impostazioni_d713()} · ${sectionLabel}`}
+	onClose={requestClose}
+	size="wide"
+	flush
+	initialFocus=".section-nav-item.active"
+>
+	{#snippet icon()}
+		<IconSettings />
+	{/snippet}
 
-{#if settingsStore.open}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="modal-backdrop" onclick={requestClose} transition:fade={{ duration: 150 }}></div>
+	{#snippet actions()}
+		{#if settingsStore.section === 'models'}
+			<Tooltip text={m.ui_settingsmodal_verifica_disponibilita_e_versioni_dei_modelli_configurati_02ef()} placement="bottom">
+				<button
+					type="button"
+					class="ui-button ui-button-secondary header-action"
+					class:loading={modelSettingsStore.isCheckingHealth}
+					disabled={modelSettingsStore.isCheckingHealth}
+					onclick={handleCheckHealth}
+				>
+					{#if modelSettingsStore.isCheckingHealth}
+						<StatusMark status="running" />
+					{:else}
+						<IconSearch />
+					{/if}
+					<span>{modelSettingsStore.isCheckingHealth ? m.page_omp_update_status_checking() : m.ui_settingsmodal_verifica_modelli_3b0a()}</span>
+					{#if blockingCount > 0}
+						<span class="ui-count attention">{blockingCount}</span>
+					{/if}
+				</button>
+			</Tooltip>
 
-	<div
-		class="modal-window"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="settings-title"
-		use:trapFocus
-		transition:fly={{ y: -16, duration: 220, easing: cubicOut }}
-	>
-		<!-- Header -->
-		<div class="modal-header">
-			<div class="header-main">
-				<h3 id="settings-title" class="title-row">
-					<svg class="header-icon" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3">
-						<circle cx="8" cy="8" r="2.5" />
-						<path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
-					</svg>
-					<span>{m.ui_settingsmodal_impostazioni_d713()}</span>
-					<span class="title-sep">·</span>
-					<span class="title-section">{sectionLabel}</span>
-				</h3>
-			</div>
+			<Tooltip text="Riavvia le sessioni OMP aperte per applicare le configurazioni" placement="bottom">
+				<button type="button" class="ui-button ui-button-secondary header-action" onclick={handleRestart}>
+					<IconRefresh />
+					<span>Riavvia OMP</span>
+				</button>
+			</Tooltip>
+		{/if}
+	{/snippet}
 
-			<div class="header-actions">
-				{#if settingsStore.section === 'models'}
-					<button
-						class="btn-header-action health-action"
-						class:loading={modelSettingsStore.isCheckingHealth}
-						disabled={modelSettingsStore.isCheckingHealth}
-						onclick={handleCheckHealth}
-						title={m.ui_settingsmodal_verifica_disponibilita_e_versioni_dei_modelli_configurati_02ef()}
-					>
-						{#if modelSettingsStore.isCheckingHealth}
-							<span class="btn-spinner" aria-hidden="true"></span>
-						{:else}
-							<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">
-								<circle cx="7" cy="7" r="4.5" />
-								<path d="M10.5 10.5L14 14" stroke-linecap="round" />
-							</svg>
-						{/if}
-						<span>{modelSettingsStore.isCheckingHealth ? m.page_omp_update_status_checking() : m.ui_settingsmodal_verifica_modelli_3b0a()}</span>
-						{#if modelSettingsStore.healthReport && modelSettingsStore.blockingFindings && modelSettingsStore.blockingFindings.length > 0}
-							<span class="header-action-badge">{modelSettingsStore.blockingFindings.length}</span>
-						{/if}
-					</button>
-
-					<button
-						class="btn-header-action restart-action"
-						onclick={handleRestart}
-						title="Riavvia le sessioni OMP aperte per applicare le configurazioni"
-					>
-						<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">
-							<path d="M2 8a6 6 0 1 1 1.8 4.2M2 8V4.5M2 8h3.5" stroke-linecap="round" stroke-linejoin="round" />
-						</svg>
-						<span>Riavvia OMP</span>
-					</button>
-				{/if}
-
-				<button class="btn-close" onclick={requestClose} aria-label={m.settings_close_window()}><IconClose /></button>
-			</div>
-		</div>
-
-		<div class="modal-layout">
-			<!-- Nav di primo livello -->
-			<nav class="section-nav" aria-label={m.ui_settingsmodal_sezioni_impostazioni_7e84()}>
-				{#each NAV_SECTIONS as s (s.id)}
+	<div class="modal-layout">
+		<!-- Nav di primo livello -->
+		<nav class="section-nav" aria-label={m.ui_settingsmodal_sezioni_impostazioni_7e84()}>
+			{#each NAV_SECTIONS as s (s.id)}
+				{@const count = navCounts[s.id]}
+				<Tooltip text={count?.detail} placement="bottom" disabled={!count}>
 					<button
 						type="button"
 						class="section-nav-item"
 						class:active={settingsStore.section === s.id}
+						aria-current={settingsStore.section === s.id ? 'page' : undefined}
 						onclick={() => (settingsStore.section = s.id)}
 					>
-						<span>{s.label}</span>
-						{#if s.id === 'models' && modelSettingsStore.attentionLevel !== 'none'}
-							<span
-								class="nav-dot"
-								class:dot-warn={modelSettingsStore.attentionLevel === 'warn'}
-								class:dot-info={modelSettingsStore.attentionLevel === 'info'}
-								title={modelSettingsStore.attentionTooltip || 'Avvisi sui modelli'}
-							></span>
-						{/if}
-						{#if s.id === 'doctor' && doctorStore.issuesCount > 0}
-							<span
-								class="nav-dot"
-								class:dot-err={doctorStore.errorsCount > 0}
-								class:dot-warn={doctorStore.errorsCount === 0 && doctorStore.warningsCount > 0}
-								title={`${doctorStore.issuesCount} anomalie rilevate`}
-							></span>
+						<span class="section-nav-label">{s.label}</span>
+						{#if count}
+							<span class="ui-count" class:attention={count.attention}>{count.value}</span>
 						{/if}
 					</button>
-				{/each}
-			</nav>
+				</Tooltip>
+			{/each}
+		</nav>
 
-			<div class="section-content">
-				{#if settingsStore.section === 'models'}
-					<!-- Nav Tabs orizzontali: solo dentro la sezione Modelli -->
-					<div class="modal-nav" role="tablist" aria-label={m.ui_settingsmodal_sezioni_impostazioni_modelli_b9dd()}>
-						<button
-							class="nav-tab"
-							role="tab"
-							aria-selected={modelSettingsStore.activeTab === 'roles'}
-							aria-controls="panel-roles"
-							id="tab-roles"
-							class:active={modelSettingsStore.activeTab === 'roles'}
-							onclick={() => modelSettingsStore.activeTab = 'roles'}
-						>
-							Ruoli & Fallback
-						</button>
-						<button
-							class="nav-tab"
-							role="tab"
-							aria-selected={modelSettingsStore.activeTab === 'catalog'}
-							aria-controls="panel-catalog"
-							id="tab-catalog"
-							class:active={modelSettingsStore.activeTab === 'catalog'}
-							onclick={() => modelSettingsStore.activeTab = 'catalog'}
-						>
-							Catalogo ({modelSettingsStore.catalog.length})
-						</button>
-						<button
-							class="nav-tab"
-							role="tab"
-							aria-selected={modelSettingsStore.activeTab === 'providers'}
-							aria-controls="panel-providers"
-							id="tab-providers"
-							class:active={modelSettingsStore.activeTab === 'providers'}
-							onclick={() => modelSettingsStore.activeTab = 'providers'}
-						>
-							Provider & Custom
-						</button>
-					</div>
+		<div class="section-content">
+			{#if settingsStore.section === 'models'}
+				<div class="models-tabs">
+					<ColumnTabs
+						tabs={MODEL_TABS}
+						selected={modelSettingsStore.activeTab}
+						onChange={(id) => (modelSettingsStore.activeTab = id as typeof modelSettingsStore.activeTab)}
+						ariaLabel={m.ui_settingsmodal_sezioni_impostazioni_modelli_b9dd()}
+						tabIdPrefix="settings-models-tab-"
+						panelIdPrefix="settings-models-panel-"
+					/>
+				</div>
 
-					<!-- Content Body -->
-					<div class="modal-body">
-						{#if modelSettingsStore.loading}
-							<div class="loading-state">
-								<span class="spinner"></span>
-								<span>{m.ui_settingsmodal_caricamento_configurazione_modelli_omp_71c9()}</span>
-							</div>
-						{:else if modelSettingsStore.activeTab === 'roles'}
-							<div id="panel-roles" role="tabpanel" aria-labelledby="tab-roles" class="tab-panel">
+				<div class="modal-body">
+					{#if modelSettingsStore.loading}
+						<div class="loading-state">
+							<StatusMark status="running" />
+							<span>{m.ui_settingsmodal_caricamento_configurazione_modelli_omp_71c9()}</span>
+						</div>
+					{:else}
+						<div
+							id={`settings-models-panel-${modelSettingsStore.activeTab}`}
+							role="tabpanel"
+							aria-labelledby={`settings-models-tab-${modelSettingsStore.activeTab}`}
+							class="tab-panel"
+						>
+							{#if modelSettingsStore.activeTab === 'roles'}
 								<RolesTab />
-							</div>
-						{:else if modelSettingsStore.activeTab === 'catalog'}
-							<div id="panel-catalog" role="tabpanel" aria-labelledby="tab-catalog" class="tab-panel">
+							{:else if modelSettingsStore.activeTab === 'catalog'}
 								<CatalogTab />
-							</div>
-						{:else if modelSettingsStore.activeTab === 'providers'}
-							<div id="panel-providers" role="tabpanel" aria-labelledby="tab-providers" class="tab-panel">
+							{:else if modelSettingsStore.activeTab === 'providers'}
 								<ProvidersTab />
-							</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+
+				<div class="modal-footer">
+					<div class="footer-left">
+						{#if modelSettingsStore.statusToast}
+							<span class="status-toast rv-blur">{modelSettingsStore.statusToast}</span>
+						{:else if modelSettingsStore.hasUnsavedChanges}
+							<span class="unsaved-badge">
+								<span class="unsaved-dot"></span>
+								<span>Modifiche non salvate</span>
+							</span>
 						{/if}
 					</div>
 
-					<!-- Footer -->
-					<div class="modal-footer">
-						<div class="footer-left">
-							{#if modelSettingsStore.statusToast}
-								<span class="status-toast" transition:fade={{ duration: 150 }}>
-									{modelSettingsStore.statusToast}
-								</span>
-							{:else if modelSettingsStore.hasUnsavedChanges}
-								<span class="unsaved-badge">
-									<span class="unsaved-dot"></span>
-									<span>Modifiche non salvate</span>
-								</span>
-							{/if}
-						</div>
-
-						<div class="footer-right">
-							{#if modelSettingsStore.hasUnsavedChanges}
-								<button
-									class="btn btn-secondary"
-									disabled={modelSettingsStore.saving}
-									onclick={() => modelSettingsStore.resetDraft()}
-								>
-									Reimposta
-								</button>
-							{/if}
-							<button class="btn btn-secondary" onclick={requestClose}>{m.page_modal_restart_btn_close()}</button>
+					<div class="footer-right">
+						{#if modelSettingsStore.hasUnsavedChanges}
 							<button
-								class="btn btn-primary"
-								disabled={!modelSettingsStore.hasUnsavedChanges || modelSettingsStore.saving}
-								onclick={handleSave}
+								type="button"
+								class="ui-button ui-button-secondary"
+								disabled={modelSettingsStore.saving}
+								onclick={() => modelSettingsStore.resetDraft()}
 							>
-								{#if modelSettingsStore.saving}
-									Salvataggio...
-								{:else}
-									{m.ui_settingsmodal_salva_modifiche_891d()}
-								{/if}
+								Reimposta
 							</button>
-						</div>
-					</div>
-				{:else if settingsStore.section === 'general'}
-					<div class="modal-body">
-						<GeneralSection />
-					</div>
-				{:else if settingsStore.section === 'appearance'}
-					<div class="modal-body">
-						<AppearanceSection />
-					</div>
-				{:else if settingsStore.section === 'companion'}
-					<div class="modal-body">
-						<CompanionSection />
-					</div>
-				{:else if settingsStore.section === 'accessibility'}
-					<div class="modal-body">
-						<AccessibilitySection />
-					</div>
-				{:else if settingsStore.section === 'notifications'}
-					<div class="modal-body">
-						<NotificationsSection />
-					</div>
-				{:else if settingsStore.section === 'projectBar'}
-					<div class="modal-body">
-						<ProjectBarSection />
-					</div>
-				{:else if settingsStore.section === 'workspace'}
-					<div class="modal-body">
-						<WorkspaceSection />
-					</div>
-				{:else if settingsStore.section === 'tasks'}
-					<div class="modal-body">
-						<TasksSection />
-					</div>
-				{:else if settingsStore.section === 'suggestions'}
-					<div class="modal-body">
-						<SuggestionsSection />
-					</div>
-				{:else if settingsStore.section === 'github'}
-					<div class="modal-body">
-						<GithubSection />
-					</div>
-				{:else if settingsStore.section === 'doctor'}
-					<div class="modal-body">
-						<DoctorSection />
-					</div>
-				{/if}
-			</div>
-		</div>
-
-		<!-- Dialog di conferma scarto modifiche -->
-		{#if showDiscardConfirm}
-			<div class="confirm-overlay" transition:fade={{ duration: 100 }}>
-				<div class="confirm-box" transition:fly={{ y: -8, duration: 150 }}>
-					<h4>Scartare le modifiche non salvate?</h4>
-					<p>{m.ui_settingsmodal_hai_apportato_modifiche_alla_configurazione_dei_modelli_171d()}</p>
-					<div class="confirm-actions">
-						<button class="btn btn-secondary" onclick={cancelDiscard}>Continua a modificare</button>
-						<button class="btn btn-primary" onclick={forceClose}>{m.ui_settingsmodal_scarta_e_chiudi_3a7c()}</button>
+						{/if}
+						<button type="button" class="ui-button ui-button-secondary" onclick={requestClose}>{m.page_modal_restart_btn_close()}</button>
+						<button
+							type="button"
+							class="ui-button ui-button-primary"
+							disabled={!modelSettingsStore.hasUnsavedChanges || modelSettingsStore.saving}
+							onclick={handleSave}
+						>
+							{#if modelSettingsStore.saving}
+								Salvataggio...
+							{:else}
+								{m.ui_settingsmodal_salva_modifiche_891d()}
+							{/if}
+						</button>
 					</div>
 				</div>
-			</div>
-		{/if}
+			{:else}
+				<div class="modal-body">
+					{#if settingsStore.section === 'general'}
+						<GeneralSection />
+					{:else if settingsStore.section === 'appearance'}
+						<AppearanceSection />
+					{:else if settingsStore.section === 'companion'}
+						<CompanionSection />
+					{:else if settingsStore.section === 'accessibility'}
+						<AccessibilitySection />
+					{:else if settingsStore.section === 'notifications'}
+						<NotificationsSection />
+					{:else if settingsStore.section === 'projectBar'}
+						<ProjectBarSection />
+					{:else if settingsStore.section === 'workspace'}
+						<WorkspaceSection />
+					{:else if settingsStore.section === 'tasks'}
+						<TasksSection />
+					{:else if settingsStore.section === 'suggestions'}
+						<SuggestionsSection />
+					{:else if settingsStore.section === 'github'}
+						<GithubSection />
+					{:else if settingsStore.section === 'doctor'}
+						<DoctorSection />
+					{/if}
+				</div>
+			{/if}
+		</div>
 	</div>
 
-	<!-- Modal secondario per referto salute modelli -->
-	<ModelHealthModal />
-{/if}
+	{#snippet outside()}
+		<!-- Dentro il <dialog>: fuori dal top layer il referto e la conferma sarebbero inerti. -->
+		<ModelHealthModal />
+
+		<Dialog
+			open={showDiscardConfirm}
+			title="Scartare le modifiche non salvate?"
+			onClose={cancelDiscard}
+			initialFocus=".discard-keep"
+		>
+			<p class="discard-text">{m.ui_settingsmodal_hai_apportato_modifiche_alla_configurazione_dei_modelli_171d()}</p>
+			{#snippet footer()}
+				<button type="button" class="ui-button ui-button-secondary discard-keep" onclick={cancelDiscard}>Continua a modificare</button>
+				<button type="button" class="ui-button ui-button-danger" onclick={forceClose}>{m.ui_settingsmodal_scarta_e_chiudi_3a7c()}</button>
+			{/snippet}
+		</Dialog>
+	{/snippet}
+</Dialog>
 
 <style>
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: color-mix(in srgb, var(--bg-base) 80%, black);
-		opacity: 0.75;
-		z-index: var(--z-backdrop);
-	}
-
-	.modal-window {
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		width: 1080px;
-		max-width: 96vw;
-		height: 86vh;
-		max-height: 760px;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
-		z-index: var(--z-dialog);
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.modal-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-2) var(--space-4);
-		border-bottom: 1px solid var(--line);
-		background: var(--bg-raised);
-		gap: var(--space-3);
-		min-height: 48px;
-	}
-
-	.header-main {
-		display: flex;
-		align-items: center;
-		min-width: 0;
-	}
-
-	.title-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		margin: 0;
-		font-size: var(--text-md);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.header-icon {
-		color: var(--ink-muted);
-		flex-shrink: 0;
-	}
-
-	.title-sep {
-		color: var(--ink-faint);
-		font-weight: 400;
-	}
-
-	.title-section {
-		color: var(--ink-muted);
-		font-weight: 500;
-	}
-
-	.header-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.btn-header-action {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 4px 10px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		background: var(--bg-base);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
-	}
-	.header-action-badge {
-		font-size: 10px;
-		font-weight: 700;
-		line-height: 1;
-		min-width: 16px;
-		height: 16px;
-		padding: 0 4px;
-		border-radius: 8px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: var(--warn);
-		color: #000;
-		margin-left: 2px;
-	}
-
-
-	.btn-header-action:hover:not(:disabled) {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.btn-header-action:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.btn-header-action.loading:disabled {
+	.header-action.loading:disabled {
 		opacity: 0.85;
 		cursor: wait;
-	}
-
-	.btn-spinner {
-		width: 12px;
-		height: 12px;
-		border: 1.5px solid var(--line-strong);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-		flex-shrink: 0;
-	}
-
-
-	.btn-close {
-		width: 28px;
-		height: 28px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: transparent;
-		border: none;
-		color: var(--ink-muted);
-		font-size: 18px;
-		line-height: 1;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast);
-	}
-
-	.btn-close:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
 	}
 
 	.modal-layout {
@@ -581,20 +336,30 @@
 		overflow-y: auto;
 	}
 
+	/* Il Tooltip avvolge ogni voce: l'involucro deve occupare la riga intera. */
+	.section-nav > :global(.tooltip-wrapper) {
+		display: flex;
+	}
+
 	.section-nav-item {
+		flex: 1;
+		min-width: 0;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: var(--space-2);
 		text-align: left;
 		padding: var(--space-2) var(--space-3);
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: transparent;
 		color: var(--ink-muted);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-family: var(--font-ui);
 		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast);
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
 	.section-nav-item:hover {
@@ -607,26 +372,12 @@
 		color: var(--ink);
 	}
 
-	.nav-dot {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		flex-shrink: 0;
+	.section-nav-label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-
-	.nav-dot.dot-warn {
-		background: var(--warn);
-		box-shadow: 0 0 6px color-mix(in srgb, var(--warn) 40%, transparent);
-	}
-
-	.nav-dot.dot-info {
-		background: var(--brand);
-	}
-	.nav-dot.dot-err {
-		background: var(--err);
-		box-shadow: 0 0 6px color-mix(in srgb, var(--err) 40%, transparent);
-	}
-
 
 	.section-content {
 		flex: 1;
@@ -636,47 +387,11 @@
 		overflow: hidden;
 	}
 
-	.modal-nav {
-		display: flex;
-		align-items: center;
+	.models-tabs {
+		flex-shrink: 0;
 		padding: 0 var(--space-4);
 		border-bottom: 1px solid var(--line);
 		background: var(--bg-raised);
-		gap: var(--space-1);
-	}
-
-	.nav-tab {
-		display: inline-flex;
-		align-items: center;
-		padding: var(--space-2) var(--space-3);
-		border: none;
-		background: transparent;
-		color: var(--ink-muted);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		font-family: var(--font-ui);
-		cursor: pointer;
-		position: relative;
-		transition: color var(--dur-fast);
-	}
-
-	.nav-tab:hover {
-		color: var(--ink);
-	}
-
-	.nav-tab.active {
-		color: var(--ink);
-		font-weight: 600;
-	}
-
-	.nav-tab.active::after {
-		content: '';
-		position: absolute;
-		bottom: -1px;
-		left: var(--space-3);
-		right: var(--space-3);
-		height: 2px;
-		background: var(--brand);
 	}
 
 	.modal-body {
@@ -699,16 +414,7 @@
 		height: 100%;
 		min-height: 240px;
 		color: var(--ink-muted);
-		font-size: var(--text-sm);
-	}
-
-	.spinner {
-		width: 22px;
-		height: 22px;
-		border: 2px solid var(--line-strong);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+		font-size: var(--text-label);
 	}
 
 	.modal-footer {
@@ -717,7 +423,7 @@
 		justify-content: space-between;
 		padding: var(--space-2) var(--space-4);
 		border-top: 1px solid var(--line);
-		background: var(--bg-raised);
+		background: var(--bg-base);
 		min-height: 48px;
 		gap: var(--space-3);
 	}
@@ -740,19 +446,20 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
 	.unsaved-dot {
 		width: 6px;
 		height: 6px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background: var(--brand);
 	}
 
 	.status-toast {
-		font-size: var(--text-xs);
+		--dur: var(--dur-menu);
+		font-size: var(--text-caption);
 		color: var(--ink);
 		background: var(--bg-hover);
 		padding: 3px 8px;
@@ -760,86 +467,10 @@
 		border: 1px solid var(--line);
 	}
 
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		font-family: var(--font-ui);
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.btn-secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-secondary:hover:not(:disabled) {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	.btn-primary {
-		background: var(--brand);
-		color: var(--on-brand);
-	}
-
-	.btn-primary:hover:not(:disabled) {
-		filter: brightness(1.08);
-	}
-
-	.confirm-overlay {
-		position: absolute;
-		inset: 0;
-		background: color-mix(in srgb, var(--bg-base) 85%, black);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-overlay);
-	}
-
-	.confirm-box {
-		width: 400px;
-		max-width: 90%;
-		background: var(--bg-overlay);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		padding: var(--space-4);
-		box-shadow: var(--shadow-overlay);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-	}
-
-	.confirm-box h4 {
+	.discard-text {
 		margin: 0;
-		font-size: var(--text-md);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.confirm-box p {
-		margin: 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		color: var(--ink-muted);
-		line-height: 1.4;
-	}
-
-	.confirm-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		margin-top: var(--space-1);
+		line-height: 1.45;
 	}
 </style>

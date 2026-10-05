@@ -31,7 +31,7 @@
 <div class="settings-section">
 	<div class="section-header">
 		<h4>Barra progetti</h4>
-		<button type="button" class="btn btn-secondary" onclick={() => settingsStore.reset('projectBar')}>Ripristina</button>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('projectBar')}>Ripristina</button>
 	</div>
 
 	<div class="section-block">
@@ -167,11 +167,11 @@
 	}
 
 	.block-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.option-list {
@@ -202,7 +202,7 @@
 	}
 
 	.option-row.active {
-		background: color-mix(in srgb, var(--brand) 7%, var(--bg-raised));
+		background: color-mix(in oklab, var(--brand) 7%, var(--bg-raised));
 	}
 
 	.option-row input[type='radio'] {
@@ -217,13 +217,13 @@
 	}
 
 	.option-title {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.option-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
@@ -244,7 +244,7 @@
 		background: var(--bg-raised);
 		cursor: pointer;
 		text-align: left;
-		transition: background var(--dur-fast), border-color var(--dur-fast);
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.badge-option:hover {
@@ -253,8 +253,8 @@
 	}
 
 	.badge-option.active {
-		background: color-mix(in srgb, var(--brand) 6%, var(--bg-raised));
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
+		background: color-mix(in oklab, var(--brand) 6%, var(--bg-raised));
+		border-color: color-mix(in oklab, var(--brand) 40%, var(--line));
 	}
 
 	.badge-preview {
@@ -269,7 +269,7 @@
 	   dentro la tessera, non una pastiglia in overlay. */
 	.badge-sample {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
@@ -282,13 +282,13 @@
 	.dot-sample {
 		width: 6px;
 		height: 6px;
-		border-radius: 1px;
+		border-radius: var(--radius-sm);
 		background: var(--ink-faint);
 	}
 
 	.none-sample {
 		color: var(--ink-faint);
-		font-size: var(--text-sm);
+		font-size: var(--text-caption);
 	}
 
 	.section-group {
@@ -321,44 +321,19 @@
 	}
 
 	.form-row-label {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.form-row-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
 	.form-row-control {
 		flex-shrink: 0;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		font-family: var(--font-ui);
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn-secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-secondary:hover {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
 	}
 
 </style>

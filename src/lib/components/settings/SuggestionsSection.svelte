@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, type ModelDto } from '$lib/stores/modelSettings.svelte';
@@ -10,8 +11,15 @@
 		IconTrash,
 		IconRefresh,
 		IconCheck,
-		IconClose
+		IconClose,
+		IconChevronUp,
+		IconChevronDown
 	} from '$lib/icons';
+	import Switch from '$lib/ui/Switch.svelte';
+	import PromptField from '$lib/ui/PromptField.svelte';
+	import { escapeDismiss } from '$lib/ui/escapeDismiss';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { trayFold } from '$lib/agent/motion';
 
 	// Il caricamento lo fa lo store, una volta: `assignableCatalog` contiene
 	// solo i modelli raggiungibili con le credenziali presenti, quindi la
@@ -38,26 +46,35 @@
 	});
 
 	// --- Stato Editor Inline Suggerimento Fisso ---
+	let suggestionPromptField = $state<ReturnType<typeof PromptField> | null>(null);
 	let editingSuggestionId = $state<string | null>(null);
 	let editLabel = $state('');
 	let editPrompt = $state('');
 	let editFormError = $state<string | null>(null);
 	let deleteArmedId = $state<string | null>(null);
 
-	function openCreateForm() {
+	async function openCreateForm(focusPrompt = false) {
 		editingSuggestionId = 'new';
 		editLabel = '';
 		editPrompt = '';
 		editFormError = null;
 		deleteArmedId = null;
+		if (focusPrompt) {
+			await tick();
+			suggestionPromptField?.focus();
+		}
 	}
 
-	function openEditForm(s: PromptSuggestion) {
+	async function openEditForm(s: PromptSuggestion, focusPrompt = false) {
 		editingSuggestionId = s.id;
 		editLabel = s.label;
 		editPrompt = s.prompt;
 		editFormError = null;
 		deleteArmedId = null;
+		if (focusPrompt) {
+			await tick();
+			suggestionPromptField?.focus();
+		}
 	}
 
 	function cancelEdit() {
@@ -121,7 +138,7 @@
 		deleteArmedId = null;
 	}
 
-	function handleResetFactory(s: PromptSuggestion) {
+	async function handleResetFactory(s: PromptSuggestion) {
 		if (!s.factoryKey) return;
 		settingsStore.resetPromptSuggestionToFactory(s.factoryKey);
 		deleteArmedId = null;
@@ -130,6 +147,8 @@
 			if (restored) {
 				editLabel = restored.label;
 				editPrompt = restored.prompt;
+				await tick();
+				suggestionPromptField?.focus();
 			}
 		}
 	}
@@ -158,8 +177,8 @@
 			<!-- Toggle abilitazione dinamica -->
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="switch-dynamic-suggestions" class="form-row-label">Abilita suggerimenti dinamici</label>
-					<span class="form-row-desc">
+					<span id="switch-dynamic-suggestions-label" class="form-row-label">Abilita suggerimenti dinamici</span>
+					<span id="switch-dynamic-suggestions-desc" class="form-row-desc">
 						Genera automaticamente opzioni di prompt contestuali al termine di ogni risposta dell'agente.
 					</span>
 					<span class="form-row-warning">
@@ -167,27 +186,25 @@
 					</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							id="switch-dynamic-suggestions"
-							type="checkbox"
-							checked={settingsStore.suggestions.dynamicEnabled}
-							onchange={(e) =>
-								settingsStore.patchSuggestions({
-									dynamicEnabled: (e.currentTarget as HTMLInputElement).checked
-								})
-							}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="switch-dynamic-suggestions"
+						checked={settingsStore.suggestions.dynamicEnabled}
+						ariaLabelledBy="switch-dynamic-suggestions-label"
+						ariaDescribedBy="switch-dynamic-suggestions-desc"
+						onChange={(checked) =>
+							settingsStore.patchSuggestions({
+								dynamicEnabled: checked
+							})
+						}
+					/>
 				</div>
 			</div>
 
 			<!-- Selettore del modello -->
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="suggestion-model-selector" class="form-row-label">{m.ui_suggestionssection_modello_per_suggerimenti_13bc()}</label>
-					<span class="form-row-desc">
+					<label for="suggestion-model-selector" id="suggestion-model-label" class="form-row-label">{m.ui_suggestionssection_modello_per_suggerimenti_13bc()}</label>
+					<span id="suggestion-model-desc" class="form-row-desc">
 						{m.ui_suggestionssection_modello_leggero_delegato_alla_formulazione_dei_suggerimenti_dd58()}
 					</span>
 					<span class="form-row-help">
@@ -198,8 +215,11 @@
 					{#if availableModels.length > 0}
 						<select
 							id="suggestion-model-selector"
+							class="ui-select"
 							value={settingsStore.suggestions.modelSelector}
 							disabled={!settingsStore.suggestions.dynamicEnabled}
+							aria-labelledby="suggestion-model-label"
+							aria-describedby="suggestion-model-desc"
 							onchange={(e) =>
 								settingsStore.patchSuggestions({
 									modelSelector: (e.currentTarget as HTMLSelectElement).value
@@ -224,9 +244,11 @@
 						<input
 							id="suggestion-model-selector"
 							type="text"
-							class="text-input"
+							class="ui-input"
 							value={settingsStore.suggestions.modelSelector}
 							disabled={!settingsStore.suggestions.dynamicEnabled}
+							aria-labelledby="suggestion-model-label"
+							aria-describedby="suggestion-model-desc"
 							placeholder={m.ui_suggestionssection_provider_modello_thinking_17aa()}
 							oninput={(e) =>
 								settingsStore.patchSuggestions({
@@ -241,16 +263,19 @@
 			<!-- Numero massimo di suggerimenti dinamici -->
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="suggestion-max-dynamic" class="form-row-label">Numero massimo di suggerimenti dinamici</label>
-					<span class="form-row-desc">
+					<label for="suggestion-max-dynamic" id="suggestion-max-dynamic-label" class="form-row-label">Numero massimo di suggerimenti dinamici</label>
+					<span id="suggestion-max-dynamic-desc" class="form-row-desc">
 						Quante chip generate dall'AI mostrare al massimo nel composer.
 					</span>
 				</div>
 				<div class="form-row-control">
 					<select
 						id="suggestion-max-dynamic"
+						class="ui-select"
 						value={settingsStore.suggestions.maxDynamic}
 						disabled={!settingsStore.suggestions.dynamicEnabled}
+						aria-labelledby="suggestion-max-dynamic-label"
+						aria-describedby="suggestion-max-dynamic-desc"
 						onchange={(e) =>
 							settingsStore.patchSuggestions({
 								maxDynamic: Number((e.currentTarget as HTMLSelectElement).value)
@@ -267,8 +292,8 @@
 			<!-- Timeout di generazione in secondi -->
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="suggestion-timeout" class="form-row-label">Timeout di generazione (secondi)</label>
-					<span class="form-row-desc">
+					<label for="suggestion-timeout" id="suggestion-timeout-label" class="form-row-label">Timeout di generazione (secondi)</label>
+					<span id="suggestion-timeout-desc" class="form-row-desc">
 						{m.ui_suggestionssection_tempo_limite_di_attesa_per_la_risposta_a885()}
 					</span>
 				</div>
@@ -276,11 +301,13 @@
 					<input
 						id="suggestion-timeout"
 						type="number"
-						class="text-input number-input"
+						class="ui-input number-input"
 						min="5"
 						max="60"
 						step="1"
 						disabled={!settingsStore.suggestions.dynamicEnabled}
+						aria-labelledby="suggestion-timeout-label"
+						aria-describedby="suggestion-timeout-desc"
 						value={Math.round(settingsStore.suggestions.timeoutMs / 1000)}
 						onchange={(e) => {
 							const raw = Number((e.currentTarget as HTMLInputElement).value) || 20;
@@ -305,8 +332,8 @@
 			<div class="header-actions">
 				<button
 					type="button"
-					class="btn-action primary"
-					onclick={openCreateForm}
+					class="ui-button ui-button-primary"
+					onclick={() => openCreateForm(true)}
 					disabled={editingSuggestionId !== null}
 				>
 					<IconPlus />
@@ -324,19 +351,27 @@
 
 		<!-- Form inline di creazione o modifica -->
 		{#if editingSuggestionId !== null}
-			<div class="inline-editor-card" role="region" aria-label="Editor suggerimento">
+			<div
+				class="inline-editor-card"
+				transition:trayFold
+				role="region"
+				aria-label="Editor suggerimento"
+				use:escapeDismiss={cancelEdit}
+			>
 				<div class="editor-header">
 					<span class="editor-title">
 						{editingSuggestionId === 'new' ? m.settings_suggestions_create_title() : m.settings_suggestions_edit_title()}
 					</span>
-					<button
-						type="button"
-						class="btn-icon-close"
-						onclick={cancelEdit}
-						aria-label={m.common_cancel()}
-					>
-						<IconClose />
-					</button>
+					<Tooltip text={m.common_cancel()}>
+						<button
+							type="button"
+							class="btn-icon-close"
+							onclick={cancelEdit}
+							aria-label={m.common_cancel()}
+						>
+							<IconClose />
+						</button>
+					</Tooltip>
 				</div>
 
 				<div class="form-fields">
@@ -350,7 +385,7 @@
 						<input
 							id="edit-sug-label"
 							type="text"
-							class="text-input"
+							class="ui-input"
 							maxlength="28"
 							bind:value={editLabel}
 							placeholder={m.ui_suggestionssection_es_procedi_spiega_verifica_094c()}
@@ -358,14 +393,15 @@
 					</div>
 
 					<div class="form-field full">
-						<label for="edit-sug-prompt" class="field-label">Testo del prompt inserito nel composer</label>
-						<textarea
-							id="edit-sug-prompt"
-							class="text-input mono"
-							rows="3"
+						<span class="field-label">Testo del prompt inserito nel composer</span>
+						<PromptField
+							bind:this={suggestionPromptField}
 							bind:value={editPrompt}
 							placeholder="Testo completo che verra' precompilato nel composer..."
-						></textarea>
+							ariaLabel="Testo del prompt inserito nel composer"
+							onSubmit={saveSuggestionForm}
+							onCancel={cancelEdit}
+						/>
 					</div>
 				</div>
 
@@ -375,11 +411,11 @@
 
 				<div class="editor-footer">
 					<div class="footer-left">
-						<button type="button" class="btn-action primary" onclick={saveSuggestionForm}>
+						<button type="button" class="ui-button ui-button-primary" onclick={saveSuggestionForm}>
 							<IconCheck />
 							<span>Salva suggerimento</span>
 						</button>
-						<button type="button" class="btn-action" onclick={cancelEdit}>
+						<button type="button" class="ui-button ui-button-secondary" onclick={cancelEdit}>
 							{m.common_cancel()}
 						</button>
 					</div>
@@ -389,7 +425,7 @@
 						{#if currentSug?.factoryKey}
 							<button
 								type="button"
-								class="btn-action text-warn"
+								class="ui-button ui-button-ghost text-warn"
 								onclick={() => handleResetFactory(currentSug)}
 							>
 								<IconRefresh />
@@ -413,31 +449,33 @@
 					<div
 						class="suggestion-row"
 						class:hidden-sug={s.hidden}
-						class:is-editing={editingSuggestionId === s.id}
+						class:ui-selected={editingSuggestionId === s.id}
 						role="listitem"
 					>
 						<!-- Riordino -->
 						<div class="col-order">
-							<button
-								type="button"
-								class="order-btn"
-								disabled={idx === 0}
-								onclick={() => handleMove(s.id, -1)}
-								title="Sposta su"
-								aria-label="Sposta su"
-							>
-								▲
-							</button>
-							<button
-								type="button"
-								class="order-btn"
-								disabled={idx === (settingsStore.promptSuggestions || []).length - 1}
-								onclick={() => handleMove(s.id, 1)}
-								title={m.ui_suggestionssection_sposta_giu_10cf()}
-								aria-label={m.ui_suggestionssection_sposta_giu_10cf()}
-							>
-								▼
-							</button>
+							<Tooltip text="Sposta su">
+								<button
+									type="button"
+									class="order-btn"
+									disabled={idx === 0}
+									onclick={() => handleMove(s.id, -1)}
+									aria-label="Sposta su"
+								>
+									<IconChevronUp />
+								</button>
+							</Tooltip>
+							<Tooltip text={m.ui_suggestionssection_sposta_giu_10cf()}>
+								<button
+									type="button"
+									class="order-btn"
+									disabled={idx === (settingsStore.promptSuggestions || []).length - 1}
+									onclick={() => handleMove(s.id, 1)}
+									aria-label={m.ui_suggestionssection_sposta_giu_10cf()}
+								>
+									<IconChevronDown />
+								</button>
+							</Tooltip>
 						</div>
 
 						<!-- Info Suggerimento -->
@@ -445,9 +483,11 @@
 							<div class="row-top">
 								<span class="sug-name">{s.label}</span>
 								{#if composerSlot !== null}
-									<span class="slot-pill" title={`Visibile nel composer come chip ${composerSlot}`}>
-										Alt+{composerSlot}
-									</span>
+									<Tooltip text={`Visibile nel composer come chip ${composerSlot}`}>
+										<span class="slot-pill">
+											Alt+{composerSlot}
+										</span>
+									</Tooltip>
 								{/if}
 								{#if s.factoryKey}
 									<span class="factory-pill">Preset</span>
@@ -461,59 +501,65 @@
 
 						<!-- Azioni sulla riga -->
 						<div class="col-actions">
-							<button
-								type="button"
-								class="btn-row-action"
-								onclick={() => openEditForm(s)}
-								title={m.settings_suggestions_edit_title()}
-								aria-label={m.ui_suggestionssection_modifica_value1_1535({ value1: s.label })}
-							>
-								<IconRename />
-							</button>
-							<button
-								type="button"
-								class="btn-row-action"
-								onclick={() => handleDuplicate(s.id)}
-								title="Duplica suggerimento"
-								aria-label={`Duplica ${s.label}`}
-							>
-								<IconCopy />
-							</button>
-							<button
-								type="button"
-								class="btn-row-action"
-								class:active-hidden={s.hidden}
-								onclick={() => handleToggleHidden(s)}
-								title={s.hidden ? m.ui_suggestionssection_mostra_nel_composer_4e18() : m.ui_suggestionssection_nascondi_dal_composer_a7ac()}
-								aria-label={s.hidden ? m.ui_suggestionssection_mostra_nel_composer_4e18() : m.ui_suggestionssection_nascondi_dal_composer_a7ac()}
-							>
-								{s.hidden ? m.ui_suggestionssection_mostra_4e74() : m.ui_usermessage_nascondi_82ca()}
-							</button>
-							{#if s.factoryKey}
+							<Tooltip text={m.settings_suggestions_edit_title()}>
 								<button
 									type="button"
 									class="btn-row-action"
-									onclick={() => handleResetFactory(s)}
-									title="Ripristina testo e configurazione originale di fabbrica"
-									aria-label={`Ripristina ${s.label} di fabbrica`}
+									onclick={() => openEditForm(s)}
+									aria-label={m.ui_suggestionssection_modifica_value1_1535({ value1: s.label })}
 								>
-									<IconRefresh />
+									<IconRename />
 								</button>
-							{:else}
+							</Tooltip>
+							<Tooltip text="Duplica suggerimento">
 								<button
 									type="button"
-									class="btn-row-action danger"
-									class:armed={deleteArmedId === s.id}
-									onclick={() => handleDelete(s.id)}
-									title={deleteArmedId === s.id ? 'Clicca di nuovo per confermare eliminazione' : m.ui_suggestionssection_elimina_suggerimento_4996()}
-									aria-label={deleteArmedId === s.id ? m.ui_suggestionssection_conferma_eliminazione_7049() : m.ui_suggestionssection_elimina_value1_ac11({ value1: s.label })}
+									class="btn-row-action"
+									onclick={() => handleDuplicate(s.id)}
+									aria-label={`Duplica ${s.label}`}
 								>
-									{#if deleteArmedId === s.id}
-										<span>Sicuro?</span>
-									{:else}
-										<IconTrash />
-									{/if}
+									<IconCopy />
 								</button>
+							</Tooltip>
+							<Tooltip text={s.hidden ? m.ui_suggestionssection_mostra_nel_composer_4e18() : m.ui_suggestionssection_nascondi_dal_composer_a7ac()}>
+								<button
+									type="button"
+									class="btn-row-action"
+									class:active-hidden={s.hidden}
+									onclick={() => handleToggleHidden(s)}
+									aria-label={s.hidden ? m.ui_suggestionssection_mostra_nel_composer_4e18() : m.ui_suggestionssection_nascondi_dal_composer_a7ac()}
+								>
+									{s.hidden ? m.ui_suggestionssection_mostra_4e74() : m.ui_usermessage_nascondi_82ca()}
+								</button>
+							</Tooltip>
+							{#if s.factoryKey}
+								<Tooltip text="Ripristina testo e configurazione originale di fabbrica">
+									<button
+										type="button"
+										class="btn-row-action"
+										onclick={() => handleResetFactory(s)}
+										aria-label={`Ripristina ${s.label} di fabbrica`}
+									>
+										<IconRefresh />
+									</button>
+								</Tooltip>
+							{:else}
+								<Tooltip text={deleteArmedId === s.id ? m.ui_suggestionssection_conferma_eliminazione_7049() : m.ui_suggestionssection_elimina_suggerimento_4996()}>
+									<button
+										type="button"
+										class="btn-row-action danger"
+										class:ui-button-danger={deleteArmedId === s.id}
+										class:armed={deleteArmedId === s.id}
+										onclick={() => handleDelete(s.id)}
+										aria-label={deleteArmedId === s.id ? m.ui_suggestionssection_conferma_eliminazione_7049() : m.ui_suggestionssection_elimina_value1_ac11({ value1: s.label })}
+									>
+										{#if deleteArmedId === s.id}
+											<span>Sicuro?</span>
+										{:else}
+											<IconTrash />
+										{/if}
+									</button>
+								</Tooltip>
 							{/if}
 						</div>
 					</div>
@@ -538,17 +584,17 @@
 	}
 
 	.block-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.section-subtitle {
 		margin: 2px 0 0 0;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
@@ -582,34 +628,35 @@
 	}
 
 	.form-row-label {
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.form-row-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
 	.form-row-warning {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 		margin-top: 4px;
 	}
 
 	.form-row-help {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		line-height: 1.4;
 		margin-top: 2px;
 	}
 
 	.form-row-help code {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		background: var(--bg-sunken);
 		padding: 1px 4px;
 		border-radius: var(--radius-sm);
@@ -623,120 +670,14 @@
 		gap: var(--space-2);
 	}
 
-	select {
-		height: 30px;
-		padding: 0 var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		outline: none;
-		transition: border-color var(--dur-fast);
+	.form-row-control :global(.ui-select) {
 		min-width: 200px;
 	}
 
-	select:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-		border-color: var(--brand);
-	}
-
-	select:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.text-input {
-		height: 30px;
-		padding: 0 var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		outline: none;
-		transition: border-color var(--dur-fast);
-		width: 100%;
-		box-sizing: border-box;
-	}
-
-	.text-input.number-input {
+	.number-input {
 		width: 80px;
 		text-align: right;
-	}
-
-	.text-input.mono {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		height: auto;
-		padding: var(--space-2);
-		resize: vertical;
-	}
-
-	.text-input:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-		border-color: var(--brand);
-	}
-
-	.text-input:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	/* Switch component */
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 32px;
-		height: 18px;
-		cursor: pointer;
-		flex-shrink: 0;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		inset: 0;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.slider::before {
-		position: absolute;
-		content: "";
-		height: 12px;
-		width: 12px;
-		left: 2px;
-		bottom: 2px;
-		background: var(--ink-muted);
-		border-radius: 50%;
-		transition: transform var(--dur-fast), background var(--dur-fast);
-	}
-
-	.switch input:checked + .slider {
-		background: var(--brand);
-		border-color: var(--brand);
-	}
-
-	.switch input:checked + .slider::before {
-		transform: translateX(14px);
-		background: var(--on-brand);
-	}
-
-	.switch input:focus-visible + .slider {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		font-variant-numeric: tabular-nums;
 	}
 
 	/* Header per Blocco B */
@@ -770,60 +711,9 @@
 	}
 
 	.info-banner-text {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		line-height: 1.4;
-	}
-
-	/* Bottoni azione standard */
-	.btn-action {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 5px var(--space-3);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		cursor: pointer;
-		transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
-	}
-
-	.btn-action:hover:not(:disabled) {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-	.btn-action:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
-
-	.btn-action:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.btn-action.primary {
-		background: var(--brand);
-		border-color: var(--brand);
-		color: var(--on-brand);
-		font-weight: 500;
-	}
-
-	.btn-action.primary:hover:not(:disabled) {
-		filter: brightness(1.08);
-	}
-
-	.btn-action.text-warn {
-		color: var(--warn-ink);
-	}
-
-	.btn-action.text-warn:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--warn) 12%, var(--bg-raised));
-		border-color: var(--warn);
 	}
 
 	/* Inline editor card */
@@ -833,8 +723,8 @@
 		gap: var(--space-3);
 		padding: var(--space-3);
 		background: var(--bg-raised);
-		border: 1px solid var(--brand);
-		border-radius: var(--radius-md);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
 	}
 
 	.editor-header {
@@ -845,7 +735,7 @@
 	}
 
 	.editor-title {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 	}
@@ -858,20 +748,16 @@
 		height: 24px;
 		padding: 0;
 		background: transparent;
-		border: none;
-		border-radius: var(--radius-sm);
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-icon-close:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
-	}
-
-	.btn-icon-close:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
 	}
 
 	.form-fields {
@@ -894,30 +780,31 @@
 	}
 
 	.field-label {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink-muted);
 	}
 
 	.char-counter {
-		font-size: 11px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
 	}
 
 	.char-counter.warn {
-		color: var(--warn-ink);
+		color: var(--warn);
 	}
 
 	.char-counter.limit {
-		color: var(--danger-ink);
+		color: var(--danger);
 		font-weight: 600;
 	}
 
 	.form-msg.error {
-		font-size: var(--text-xs);
-		color: var(--danger-ink);
-		background: color-mix(in srgb, var(--danger) 10%, var(--bg-raised));
+		font-size: var(--text-caption);
+		color: var(--danger);
+		background: color-mix(in oklab, var(--danger) 10%, var(--bg-raised));
 		border: 1px solid var(--danger);
 		border-radius: var(--radius-sm);
 		padding: var(--space-2);
@@ -938,6 +825,10 @@
 		gap: var(--space-2);
 	}
 
+	.text-warn {
+		color: var(--warn);
+	}
+
 	/* Elenco suggerimenti */
 	.suggestions-list {
 		display: flex;
@@ -950,8 +841,8 @@
 
 	.empty-note {
 		padding: var(--space-4);
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		text-align: center;
 	}
 
@@ -960,20 +851,18 @@
 		align-items: center;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
-		border-bottom: 1px solid var(--line);
-		transition: background var(--dur-fast);
+		border: 1px solid transparent;
+		border-bottom-color: var(--line);
+		border-radius: var(--radius-md);
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.suggestion-row:last-child {
-		border-bottom: none;
+		border-bottom-color: transparent;
 	}
 
-	.suggestion-row:hover {
+	.suggestion-row:hover:not(.ui-selected) {
 		background: var(--bg-hover);
-	}
-
-	.suggestion-row.is-editing {
-		background: color-mix(in srgb, var(--brand) 6%, var(--bg-raised));
 	}
 
 	.suggestion-row.hidden-sug {
@@ -983,33 +872,32 @@
 	.col-order {
 		display: flex;
 		flex-direction: column;
-		gap: 1px;
+		gap: 2px;
 		flex-shrink: 0;
 	}
 
 	.order-btn {
+		--icon-size: 12px;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 18px;
-		height: 14px;
+		width: 20px;
+		height: 20px;
+		min-width: 20px;
+		min-height: 20px;
 		padding: 0;
 		background: transparent;
-		border: none;
-		border-radius: 2px;
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-size: 8px;
 		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.order-btn:hover:not(:disabled) {
 		background: var(--bg-sunken);
+		border-color: var(--line);
 		color: var(--ink);
-	}
-
-	.order-btn:focus-visible {
-		outline: 1.5px solid var(--brand);
-		outline-offset: -1px;
 	}
 
 	.order-btn:disabled {
@@ -1032,7 +920,7 @@
 	}
 
 	.sug-name {
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		font-weight: 500;
 		color: var(--ink);
 		overflow: hidden;
@@ -1041,38 +929,40 @@
 	}
 
 	.slot-pill {
-		font-size: 10px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		font-family: var(--font-mono);
 		font-weight: 600;
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--brand) 15%, var(--bg-sunken));
-		border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line));
+		background: color-mix(in oklab, var(--brand) 15%, var(--bg-sunken));
+		border: 1px solid color-mix(in oklab, var(--brand) 40%, var(--line));
 		color: var(--brand-ink);
 	}
 
 	.factory-pill {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 	}
 
 	.hidden-pill {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 	}
 
 	.sug-prompt {
 		margin: 0;
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -1092,15 +982,15 @@
 		align-items: center;
 		justify-content: center;
 		height: 24px;
+		min-height: 24px;
 		padding: 0 6px;
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-size: 11px;
-		font-family: var(--font-ui);
+		font-size: var(--text-caption);
 		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-row-action:hover {
@@ -1109,26 +999,21 @@
 		color: var(--ink);
 	}
 
-	.btn-row-action:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
-
 	.btn-row-action.active-hidden {
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 	}
 
-	.btn-row-action.danger:hover {
-		background: color-mix(in srgb, var(--danger) 12%, var(--bg-raised));
+	.btn-row-action.danger:hover:not(.armed) {
+		background: color-mix(in oklab, var(--danger) 12%, var(--bg-raised));
 		border-color: var(--danger);
-		color: var(--danger-ink);
+		color: var(--danger);
 	}
 
 	.btn-row-action.danger.armed {
 		background: var(--danger);
 		border-color: var(--danger);
-		color: var(--on-brand);
-		font-weight: 500;
+		color: var(--on-danger);
+		font-weight: 600;
 		padding: 0 8px;
 	}
 </style>

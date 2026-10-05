@@ -9,6 +9,7 @@
 	} from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import { i18n } from '$lib/i18n/i18n.svelte';
+	import Switch from '$lib/ui/Switch.svelte';
 
 	const activeProject = $derived(projectStore.projects.find((p) => p.id === projectStore.activeId) ?? null);
 
@@ -23,7 +24,7 @@
 <div class="settings-section">
 	<div class="section-header">
 		<h4>{m.ui_settingsmodal_editor_terminale_8f5d()}</h4>
-		<button type="button" class="btn btn-secondary" onclick={() => settingsStore.reset('workspace')}>Ripristina</button>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('workspace')}>Ripristina</button>
 	</div>
 
 	<div class="section-block">
@@ -31,99 +32,103 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Dimensione carattere</span>
-					<span class="form-row-desc">In punti, da {EDITOR_FONT_SIZE_RANGE.min} a {EDITOR_FONT_SIZE_RANGE.max}.</span>
+					<label for="settings-editor-fontsize" id="settings-editor-fontsize-label" class="form-row-label">Dimensione carattere</label>
+					<span id="settings-editor-fontsize-desc" class="form-row-desc">In punti, da {EDITOR_FONT_SIZE_RANGE.min} a {EDITOR_FONT_SIZE_RANGE.max}.</span>
 				</div>
 				<div class="form-row-control">
 					<input
+						id="settings-editor-fontsize"
 						type="number"
+						class="ui-input input-number"
 						min={EDITOR_FONT_SIZE_RANGE.min}
 						max={EDITOR_FONT_SIZE_RANGE.max}
 						value={settingsStore.editor.fontSize}
+						aria-labelledby="settings-editor-fontsize-label"
+						aria-describedby="settings-editor-fontsize-desc"
 						onchange={(e) => settingsStore.patchEditor({ fontSize: clamp(Number((e.currentTarget as HTMLInputElement).value), EDITOR_FONT_SIZE_RANGE.min, EDITOR_FONT_SIZE_RANGE.max, settingsStore.editor.fontSize) })}
 					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Famiglia carattere</span>
-					<span class="form-row-desc">Va in testa allo stack predefinito, che resta come riserva per le glifi Nerd Font.</span>
+					<label for="settings-editor-fontfamily" id="settings-editor-fontfamily-label" class="form-row-label">Famiglia carattere</label>
+					<span id="settings-editor-fontfamily-desc" class="form-row-desc">Va in testa allo stack predefinito, che resta come riserva per le glifi Nerd Font.</span>
 				</div>
 				<div class="form-row-control">
 					<input
+						id="settings-editor-fontfamily"
 						type="text"
+						class="ui-input input-text"
 						placeholder="Predefinito (Nerd Font)"
 						value={settingsStore.editor.fontFamily}
+						aria-labelledby="settings-editor-fontfamily-label"
+						aria-describedby="settings-editor-fontfamily-desc"
 						onchange={(e) => settingsStore.patchEditor({ fontFamily: (e.currentTarget as HTMLInputElement).value })}
 					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Minimappa</span>
-					<span class="form-row-desc">{m.ui_workspacesection_mostra_la_mappa_in_miniatura_del_file_256f()}</span>
+					<span id="settings-editor-minimap-label" class="form-row-label">Minimappa</span>
+					<span id="settings-editor-minimap-desc" class="form-row-desc">{m.ui_workspacesection_mostra_la_mappa_in_miniatura_del_file_256f()}</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.editor.minimap}
-							onchange={(e) => settingsStore.patchEditor({ minimap: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-editor-minimap"
+						checked={settingsStore.editor.minimap}
+						ariaLabelledBy="settings-editor-minimap-label"
+						ariaDescribedBy="settings-editor-minimap-desc"
+						onChange={(checked) => settingsStore.patchEditor({ minimap: checked })}
+					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">A capo automatico</span>
-					<span class="form-row-desc">Le righe troppo lunghe vanno a capo invece di scorrere in orizzontale.</span>
+					<span id="settings-editor-wordwrap-label" class="form-row-label">A capo automatico</span>
+					<span id="settings-editor-wordwrap-desc" class="form-row-desc">Le righe troppo lunghe vanno a capo invece di scorrere in orizzontale.</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.editor.wordWrap}
-							onchange={(e) => settingsStore.patchEditor({ wordWrap: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-editor-wordwrap"
+						checked={settingsStore.editor.wordWrap}
+						ariaLabelledBy="settings-editor-wordwrap-label"
+						ariaDescribedBy="settings-editor-wordwrap-desc"
+						onChange={(checked) => settingsStore.patchEditor({ wordWrap: checked })}
+					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Larghezza tab</span>
-					<span class="form-row-desc">Spazi equivalenti a un tab, da {TAB_SIZE_RANGE.min} a {TAB_SIZE_RANGE.max}.</span>
+					<label for="settings-editor-tabsize" id="settings-editor-tabsize-label" class="form-row-label">Larghezza tab</label>
+					<span id="settings-editor-tabsize-desc" class="form-row-desc">Spazi equivalenti a un tab, da {TAB_SIZE_RANGE.min} a {TAB_SIZE_RANGE.max}.</span>
 				</div>
 				<div class="form-row-control">
 					<input
+						id="settings-editor-tabsize"
 						type="number"
+						class="ui-input input-number"
 						min={TAB_SIZE_RANGE.min}
 						max={TAB_SIZE_RANGE.max}
 						value={settingsStore.editor.tabSize}
+						aria-labelledby="settings-editor-tabsize-label"
+						aria-describedby="settings-editor-tabsize-desc"
 						onchange={(e) => settingsStore.patchEditor({ tabSize: clamp(Number((e.currentTarget as HTMLInputElement).value), TAB_SIZE_RANGE.min, TAB_SIZE_RANGE.max, settingsStore.editor.tabSize) })}
 					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Numeri di riga</span>
-					<span class="form-row-desc">{m.ui_workspacesection_mostra_la_numerazione_delle_righe_sul_bordo_7bb2()}</span>
+					<span id="settings-editor-linenumbers-label" class="form-row-label">Numeri di riga</span>
+					<span id="settings-editor-linenumbers-desc" class="form-row-desc">{m.ui_workspacesection_mostra_la_numerazione_delle_righe_sul_bordo_7bb2()}</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.editor.lineNumbers}
-							onchange={(e) => settingsStore.patchEditor({ lineNumbers: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-editor-linenumbers"
+						checked={settingsStore.editor.lineNumbers}
+						ariaLabelledBy="settings-editor-linenumbers-label"
+						ariaDescribedBy="settings-editor-linenumbers-desc"
+						onChange={(checked) => settingsStore.patchEditor({ lineNumbers: checked })}
+					/>
 				</div>
 			</div>
 		</div>
@@ -134,83 +139,89 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Dimensione carattere</span>
-					<span class="form-row-desc">In punti, da {TERMINAL_FONT_SIZE_RANGE.min} a {TERMINAL_FONT_SIZE_RANGE.max}.</span>
+					<label for="settings-terminal-fontsize" id="settings-terminal-fontsize-label" class="form-row-label">Dimensione carattere</label>
+					<span id="settings-terminal-fontsize-desc" class="form-row-desc">In punti, da {TERMINAL_FONT_SIZE_RANGE.min} a {TERMINAL_FONT_SIZE_RANGE.max}.</span>
 				</div>
 				<div class="form-row-control">
 					<input
+						id="settings-terminal-fontsize"
 						type="number"
+						class="ui-input input-number"
 						min={TERMINAL_FONT_SIZE_RANGE.min}
 						max={TERMINAL_FONT_SIZE_RANGE.max}
 						value={settingsStore.terminal.fontSize}
+						aria-labelledby="settings-terminal-fontsize-label"
+						aria-describedby="settings-terminal-fontsize-desc"
 						onchange={(e) => settingsStore.patchTerminal({ fontSize: clamp(Number((e.currentTarget as HTMLInputElement).value), TERMINAL_FONT_SIZE_RANGE.min, TERMINAL_FONT_SIZE_RANGE.max, settingsStore.terminal.fontSize) })}
 					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Famiglia carattere</span>
-					<span class="form-row-desc">Va in testa allo stack predefinito, che resta come riserva per le glifi Nerd Font.</span>
+					<label for="settings-terminal-fontfamily" id="settings-terminal-fontfamily-label" class="form-row-label">Famiglia carattere</label>
+					<span id="settings-terminal-fontfamily-desc" class="form-row-desc">Va in testa allo stack predefinito, che resta come riserva per le glifi Nerd Font.</span>
 				</div>
 				<div class="form-row-control">
 					<input
+						id="settings-terminal-fontfamily"
 						type="text"
+						class="ui-input input-text"
 						placeholder="Predefinito (Nerd Font)"
 						value={settingsStore.terminal.fontFamily}
+						aria-labelledby="settings-terminal-fontfamily-label"
+						aria-describedby="settings-terminal-fontfamily-desc"
 						onchange={(e) => settingsStore.patchTerminal({ fontFamily: (e.currentTarget as HTMLInputElement).value })}
 					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Scrollback</span>
-					<span class="form-row-desc">Righe di cronologia tenute in memoria, da {i18n.formatNumber(SCROLLBACK_RANGE.min)} a {i18n.formatNumber(SCROLLBACK_RANGE.max)}.</span>
+					<label for="settings-terminal-scrollback" id="settings-terminal-scrollback-label" class="form-row-label">Scrollback</label>
+					<span id="settings-terminal-scrollback-desc" class="form-row-desc">Righe di cronologia tenute in memoria, da {i18n.formatNumber(SCROLLBACK_RANGE.min)} a {i18n.formatNumber(SCROLLBACK_RANGE.max)}.</span>
 				</div>
 				<div class="form-row-control">
 					<input
+						id="settings-terminal-scrollback"
 						type="number"
+						class="ui-input input-number"
 						min={SCROLLBACK_RANGE.min}
 						max={SCROLLBACK_RANGE.max}
 						step="1000"
 						value={settingsStore.terminal.scrollback}
+						aria-labelledby="settings-terminal-scrollback-label"
+						aria-describedby="settings-terminal-scrollback-desc"
 						onchange={(e) => settingsStore.patchTerminal({ scrollback: clamp(Number((e.currentTarget as HTMLInputElement).value), SCROLLBACK_RANGE.min, SCROLLBACK_RANGE.max, settingsStore.terminal.scrollback) })}
 					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Campanello</span>
-					<span class="form-row-desc">Fa suonare il campanello sonoro quando `omp` lo emette.</span>
+					<span id="settings-terminal-bell-label" class="form-row-label">Campanello</span>
+					<span id="settings-terminal-bell-desc" class="form-row-desc">Fa suonare il campanello sonoro quando `omp` lo emette.</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.terminal.bell}
-							onchange={(e) => settingsStore.patchTerminal({ bell: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-terminal-bell"
+						checked={settingsStore.terminal.bell}
+						ariaLabelledBy="settings-terminal-bell-label"
+						ariaDescribedBy="settings-terminal-bell-desc"
+						onChange={(checked) => settingsStore.patchTerminal({ bell: checked })}
+					/>
 				</div>
 			</div>
-
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span class="form-row-label">Cursore lampeggiante</span>
-					<span class="form-row-desc">{m.ui_workspacesection_il_cursore_del_terminale_lampeggia_invece_di_0335()}</span>
+					<span id="settings-terminal-cursorblink-label" class="form-row-label">Cursore lampeggiante</span>
+					<span id="settings-terminal-cursorblink-desc" class="form-row-desc">{m.ui_workspacesection_il_cursore_del_terminale_lampeggia_invece_di_0335()}</span>
 				</div>
 				<div class="form-row-control">
-					<label class="switch">
-						<input
-							type="checkbox"
-							checked={settingsStore.terminal.cursorBlink}
-							onchange={(e) => settingsStore.patchTerminal({ cursorBlink: (e.currentTarget as HTMLInputElement).checked })}
-						/>
-						<span class="slider"></span>
-					</label>
+					<Switch
+						id="settings-terminal-cursorblink"
+						checked={settingsStore.terminal.cursorBlink}
+						ariaLabelledBy="settings-terminal-cursorblink-label"
+						ariaDescribedBy="settings-terminal-cursorblink-desc"
+						onChange={(checked) => settingsStore.patchTerminal({ cursorBlink: checked })}
+					/>
 				</div>
 			</div>
 		</div>
@@ -241,9 +252,8 @@
 							<div class="form-row-control">
 								<button
 									type="button"
-									class="btn-revoke-origin"
+									class="ui-button ui-button-ghost btn-revoke-origin"
 									onclick={() => projectStore.revokeBrowserOrigin(activeProject.id, origin)}
-									title="Revoca immediatamente l'accesso a questa origine"
 								>
 									Revoca
 								</button>
@@ -292,11 +302,11 @@
 	}
 
 	.block-title {
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		font-weight: 600;
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	.section-group {
@@ -329,13 +339,13 @@
 	}
 
 	.form-row-label {
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.form-row-desc {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
@@ -344,123 +354,17 @@
 		flex-shrink: 0;
 	}
 
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 6px 14px;
-		border-radius: var(--radius-md);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		font-family: var(--font-ui);
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.btn-secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-secondary:hover {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	input[type='number'],
-	input[type='text'] {
-		height: 30px;
-		padding: 0 var(--space-2);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		outline: none;
-		transition: border-color var(--dur-fast);
-	}
-
-	input[type='number'] {
+	.input-number {
 		width: 90px;
+		font-variant-numeric: tabular-nums;
 	}
 
-	input[type='text'] {
+	.input-text {
 		width: 240px;
 	}
 
-	input[type='number']:focus,
-	input[type='text']:focus {
-		border-color: var(--brand);
-	}
-
-	.switch {
-		position: relative;
-		display: inline-block;
-		width: 32px;
-		height: 18px;
-		cursor: pointer;
-	}
-
-	.switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.slider {
-		position: absolute;
-		inset: 0;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		transition: background var(--dur-fast), border-color var(--dur-fast);
-	}
-
-	.slider::before {
-		position: absolute;
-		content: '';
-		height: 12px;
-		width: 12px;
-		left: 2px;
-		bottom: 2px;
-		background: var(--ink-muted);
-		border-radius: 50%;
-		transition: transform var(--dur-fast), background var(--dur-fast);
-	}
-
-	input:checked + .slider {
-		background: var(--brand);
-		border-color: var(--brand);
-	}
-
-	input:checked + .slider::before {
-		transform: translateX(14px);
-		background: var(--bg-sunken);
-	}
-
-	input:focus-visible + .slider {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
-	}
-
-	.btn-revoke-origin {
-		height: 24px;
-		padding: 0 var(--space-2);
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--danger, #dc2626);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		cursor: pointer;
-		transition: all var(--dur-fast);
-	}
-
-	.btn-revoke-origin:hover {
-		background: var(--danger-dim, rgba(239, 68, 68, 0.1));
-		border-color: rgba(239, 68, 68, 0.4);
+	.btn-revoke-origin:hover:not(:disabled) {
+		color: var(--danger);
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
 	}
 </style>
