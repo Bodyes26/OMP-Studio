@@ -1,9 +1,13 @@
 <script lang="ts">
+	import Tooltip from './Tooltip.svelte';
+
 	export interface ColumnTabItem {
 		id: string;
 		label: string;
 		ariaLabel?: string;
 		disabled?: boolean;
+		/** Descrizione al passaggio e al fuoco (D8), es. la scorciatoia; l'etichetta resta il nome. */
+		tooltip?: string;
 	}
 
 	interface ColumnTabsProps {
@@ -114,28 +118,38 @@
 	aria-label={ariaLabel}
 >
 	{#each tabs as tab, i (tab.id)}
-		{@const isSelected = selected === tab.id}
-		{@const isDisabled = !!tab.disabled}
-		{@const isFocusable = tab.id === effectiveFocusedId}
-		<button
-			bind:this={tabEls[i]}
-			type="button"
-			role="tab"
-			id={`${tabIdPrefix}${tab.id}`}
-			aria-controls={`${panelIdPrefix}${tab.id}`}
-			aria-selected={isSelected}
-			aria-label={tab.ariaLabel}
-			disabled={isDisabled}
-			tabindex={isDisabled ? -1 : isFocusable ? 0 : -1}
-			class="column-tab-btn"
-			class:selected={isSelected}
-			onclick={() => selectTab(tab.id)}
-			onkeydown={(e) => handleKeyDown(e, i)}
-		>
-			<span class="column-tab-label">{tab.label}</span>
-		</button>
+		{#if tab.tooltip}
+			<Tooltip text={tab.tooltip} placement="bottom">
+				{@render tabButton(tab, i)}
+			</Tooltip>
+		{:else}
+			{@render tabButton(tab, i)}
+		{/if}
 	{/each}
 </div>
+
+{#snippet tabButton(tab: ColumnTabItem, i: number)}
+	{@const isSelected = selected === tab.id}
+	{@const isDisabled = !!tab.disabled}
+	{@const isFocusable = tab.id === effectiveFocusedId}
+	<button
+		bind:this={tabEls[i]}
+		type="button"
+		role="tab"
+		id={`${tabIdPrefix}${tab.id}`}
+		aria-controls={`${panelIdPrefix}${tab.id}`}
+		aria-selected={isSelected}
+		aria-label={tab.ariaLabel}
+		disabled={isDisabled}
+		tabindex={isDisabled ? -1 : isFocusable ? 0 : -1}
+		class="column-tab-btn"
+		class:selected={isSelected}
+		onclick={() => selectTab(tab.id)}
+		onkeydown={(e) => handleKeyDown(e, i)}
+	>
+		<span class="column-tab-label">{tab.label}</span>
+	</button>
+{/snippet}
 
 <style>
 	.column-tabs-track {
@@ -147,6 +161,12 @@
 		background: transparent;
 		box-sizing: border-box;
 		user-select: none;
+	}
+
+	/* Il wrapper del Tooltip deve occupare tutta l'altezza della traccia,
+	   altrimenti l'indicatore da 2 px non poggia sul bordo. */
+	.column-tabs-track > :global(.tooltip-wrapper) {
+		align-self: stretch;
 	}
 
 	.column-tab-btn {

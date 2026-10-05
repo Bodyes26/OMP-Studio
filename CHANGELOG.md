@@ -22,9 +22,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Scegli il livello di thinking sempre con lo slider: nel composer della chat il pulsante del thinking apre un piccolo pannello con lo slider al posto dell'elenco, e lo slider ha un aspetto più leggero, con il cursore che sporge dalla traccia e il nome del livello in evidenza.
 - Rileggi la colonna centrale con il linguaggio del design system v2 (header, editor, anteprima, whiteboard e banner diagnostici, task 9/14): un'unica barra da 32 px al posto dei titoli maiuscoli e delle testate impilate; schede dell'editor con segno di attività a 2 px e punto ambra per le modifiche non salvate; splitter che colora solo la linea in trascinamento; controlli di zoom e vista su primitiva condivisa; anteprima Markdown e codice a tutta pagina; banner condivisi su superficie neutra con la sola icona colorata; la whiteboard Mermaid segue il tema e si ridisegna al suo cambio; testi e suggerimenti tradotti, raggi e movimenti normalizzati.
 - Usa Browser Studio e Laboratorio nel tema scelto: inspector con evidenziazione del tema, stati di rete e console leggibili, registrazione animata soltanto quando è viva e visibile, menu e dialoghi accessibili; revisioni storiche ed errori di build su superfici neutre con azioni chiare.
+- Ferma l'agente del terminale dalla testata della colonna, con lo stesso pulsante tondo della chat: nulla copre più il terminale mentre l'agente scrive. Il primo clic interrompe; per due secondi il pulsante diventa «Forza arresto» e un secondo clic forza l'arresto, senza lampeggiare. Sparisce il banner della quota sopra il terminale: l'errore lo mostra già la TUI, e passando dalla GUI al terminale l'avviso non resta acceso nel Companion. Il terminale usa tutta l'altezza della colonna.
+- Leggi le schede delle colonne in frase: «File · Git · Agente» a sinistra, «Terminale · GUI» a destra, con la scorciatoia nel suggerimento al passaggio del mouse.
 
 ### Fixed
 - L'aggiornamento di OMP dalla barra inferiore non fallisce più su macOS con «Could not resolve omp binary path in PATH» quando Studio è aperto da Finder/Dock.
+- Lo switch Terminale/GUI torna ad avere l'aspetto delle schede, con l'indicatore sotto la scheda attiva, invece di due pulsanti di sistema.
 
 ### Added
 - Crea un nuovo progetto vuoto direttamente dal «+» della barra superiore: scegli il nome, Studio crea la cartella nella cartella dei progetti con `git init` e la apre; se GitHub è collegato puoi creare anche il repository pubblico o privato (vuoto, già collegato come `origin`).

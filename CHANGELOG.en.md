@@ -22,9 +22,12 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Pick the thinking level with the slider everywhere: in the chat composer the thinking button opens a small panel with the slider instead of a list, and the slider looks lighter, with the thumb standing out from the track and the level name highlighted.
 - Re-read the center column in the design-system v2 language (headers, editor, preview, whiteboard and diagnostic banners, task 9/14): a single 32 px bar replacing uppercase titles and stacked headers; editor tabs with a 2 px activity mark and an amber dot for unsaved changes; splitter that colors only the line while dragging; zoom and view controls on the shared primitive; full-page Markdown and code previews; shared banners on a neutral surface with only the icon colored; the Mermaid whiteboard follows the theme and re-renders on theme change; translated texts and tooltips, normalized radii and motion.
 - Use Browser Studio and the Lab in your chosen theme: theme-colored inspector highlights, readable network and console states, recording motion only while live and visible, accessible menus and dialogs; historical revisions and build errors on neutral surfaces with clear actions.
+- Stop the terminal agent from the column header, with the same round button as the chat: nothing covers the terminal while the agent is writing anymore. The first click interrupts; for two seconds the button becomes “Force stop” and a second click forces the stop, without flashing. The quota banner over the terminal is gone: the TUI already shows the error, and switching from the GUI to the terminal no longer leaves the alert on in the Companion. The terminal uses the full column height.
+- Read column tabs in sentence case: “Files · Git · Agent” on the left, “Terminal · GUI” on the right, with the shortcut in the hover tooltip.
 
 ### Fixed
 - Updating OMP from the bottom bar no longer fails on macOS with "Could not resolve omp binary path in PATH" when Studio is launched from Finder/Dock.
+- The Terminal/GUI switch looks like tabs again, with the indicator under the active tab, instead of two system buttons.
 
 ### Added
 - Create a new empty project straight from the top bar «+»: pick a name and Studio creates the folder in your projects directory with `git init` and opens it; with GitHub connected you can also create the public or private repository (empty, already linked as `origin`).

@@ -4,6 +4,9 @@
 	import { perfMark } from '$lib/perf';
 	import { promptBus } from '$lib/agent/promptBus';
 	import Terminal from '$lib/terminal/Terminal.svelte';
+	import TerminalStopButton from '$lib/terminal/TerminalStopButton.svelte';
+	import type { TerminalStopControl } from '$lib/terminal/stopControl.svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
 	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
@@ -2322,6 +2325,33 @@
 			: [])
 	]);
 
+	// Lo switch della colonna destra usa la stessa primitiva delle schede di
+	// sinistra (D2); la scorciatoia passa dal Tooltip, non da un `title` (D8).
+	const surfaceTabs = $derived([
+		{
+			id: 'terminal',
+			label: m.page_tabs_terminal(),
+			tooltip: activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_terminal_label(),
+			disabled: activeSwitching
+		},
+		{
+			id: 'gui',
+			label: m.page_tabs_gui(),
+			tooltip: activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_gui_label(),
+			disabled: activeSwitching
+		}
+	]);
+	const activeSurface = $derived(projectStore.activeProject?.lane.surface === 'gui' ? 'gui' : 'terminal');
+
+	// Controlli di arresto dei terminali montati: lo Stop della corsia attiva
+	// vive nella testata della colonna, mai sopra la viewport (D6).
+	const terminalStops = new SvelteMap<string, TerminalStopControl>();
+	const activeTerminalStop = $derived(
+		projectStore.activeProject && activeSurface === 'terminal'
+			? terminalStops.get(laneSessionKey(projectStore.activeProject.id, projectStore.activeProject.lane.laneId))
+			: undefined
+	);
+
 	$effect(() => {
 		if (activeLaneKind === 'lab' && leftSection === 'agent') {
 			leftSection = 'files';
@@ -2942,40 +2972,34 @@
 		<section class="col-right">
 			<div class="col-header tabs-header">
 				{#if projectStore.activeProject?.lane.kind !== 'lab'}
-					<div class="tab-group" role="tablist" aria-label={m.page_tabs_surfaces_group()}>
-						<button
-							type="button"
-							role="tab"
-							aria-selected={projectStore.activeProject?.lane.surface !== 'gui'}
-							class:active={projectStore.activeProject?.lane.surface !== 'gui'}
-							disabled={activeSwitching}
-							title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_terminal_label()}
-							aria-label={m.page_tabs_terminal_label()}
-							onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'terminal')}
-						>TERMINAL</button>
-						<button
-							type="button"
-							role="tab"
-							aria-selected={projectStore.activeProject?.lane.surface === 'gui'}
-							class:active={projectStore.activeProject?.lane.surface === 'gui'}
-							disabled={activeSwitching}
-							title={activeSwitching ? m.page_tabs_terminal_switching() : m.page_tabs_gui_label()}
-							aria-label={m.page_tabs_gui_label()}
-							onclick={() => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, 'gui')}
-						>GUI</button>
-					</div>
+					<ColumnTabs
+						tabs={surfaceTabs}
+						selected={activeSurface}
+						onChange={(id) => projectStore.activeProject && void switchSurface(projectStore.activeProject.id, id as 'terminal' | 'gui')}
+						ariaLabel={m.page_tabs_surfaces_group()}
+						tabIdPrefix="surface-tab-"
+						panelIdPrefix="surface-panel-"
+					/>
 				{/if}
-				{#if projectStore.activeProject?.lane.surface === 'gui' && projectStore.activeProject?.lane.kind !== 'lab'}
-					<button
-						type="button"
-						class="header-action"
-						title={m.page_actions_new_chat()}
-						aria-label={m.page_actions_new_chat()}
-						onclick={() => projectStore.activeProject && void handleNewChat(projectStore.activeProject.id)}
-					><IconNewChat /></button>
+				{#if activeSurface === 'gui' && projectStore.activeProject?.lane.kind !== 'lab'}
+					<Tooltip text={m.page_actions_new_chat()} placement="bottom">
+						<button
+							type="button"
+							class="header-action"
+							aria-label={m.page_actions_new_chat()}
+							onclick={() => projectStore.activeProject && void handleNewChat(projectStore.activeProject.id)}
+						><IconNewChat /></button>
+					</Tooltip>
+				{:else if activeTerminalStop?.visible}
+					<span class="header-stop"><TerminalStopButton control={activeTerminalStop} /></span>
 				{/if}
 			</div>
-			<div class="col-content fill">
+			<div
+				class="col-content fill"
+				role={projectStore.activeProject?.lane.kind !== 'lab' ? 'tabpanel' : undefined}
+				id={projectStore.activeProject?.lane.kind !== 'lab' ? `surface-panel-${activeSurface}` : undefined}
+				aria-labelledby={projectStore.activeProject?.lane.kind !== 'lab' ? `surface-tab-${activeSurface}` : undefined}
+			>
 				{#each projectStore.projects as p (p.id)}
 					{@const mountedLanes = laneOrchestrator.getMountedLanes(p)}
 					{#each mountedLanes as lane (lane.laneId)}
@@ -3000,9 +3024,10 @@
 								continueLast={lane.laneId !== MAIN_LANE_ID && lane.kind === 'git' && p.worktreeResumeChat}
 								visible={isLaneActive}
 								resumeSessionId={terminalMeta[key]?.sessionId ?? null}
-								blockedQuota={laneOrchestrator.getLaneSession(p.id, lane.laneId)?.blockedQuotaState ?? null}
-								onDismissBlockedQuota={() => laneOrchestrator.getLaneSession(p.id, lane.laneId)?.dismissBlockedQuota()}
-								onSwitchToGui={() => void switchSurface(p.id, 'gui')}
+								stopRef={(control) => {
+									if (control) terminalStops.set(key, control);
+									else terminalStops.delete(key);
+								}}
 								sessionRef={(s) => {
 									if (s) terminalSessions.set(key, s);
 									else terminalSessions.delete(key);
@@ -3336,16 +3361,10 @@
 		gap: 0;
 	}
 
-	.tab-group {
-		display: flex;
-		height: 100%;
-	}
-
-
 	.header-action {
-		width: 24px;
-		height: 24px;
-		border-radius: var(--radius-sm);
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-md);
 		border: none;
 		background: transparent;
 		display: flex;
@@ -3354,12 +3373,18 @@
 		color: var(--ink-faint);
 		cursor: pointer;
 		padding: 0;
-		margin-right: var(--space-1);
+		margin-right: 2px;
 		--icon-size: 14px;
 		flex: 0 0 auto;
 		transition:
 			background-color var(--dur-fast) var(--ease-out),
 			color var(--dur-fast) var(--ease-out);
+	}
+
+	.header-stop {
+		display: inline-flex;
+		align-items: center;
+		margin-right: 2px;
 	}
 
 	.header-action:hover {

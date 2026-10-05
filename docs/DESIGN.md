@@ -486,7 +486,7 @@ Per eliminare ambiguità e allineare il codice esistente alle definizioni normat
 | `accent-dim`, `brand-subtle`, `brand-tint` | `color-mix(..., var(--brand) 12%, transparent)` | Sfondo badge `@file` (12%) o sfondo opzione selezionata della domanda (7%). |
 | `brand-line` | `color-mix(..., var(--brand) 28%, transparent)` | Anello inset dei badge al 28%; anello di selezione. |
 | `bg-surface`, `bg-card`, `bg-panel`, `bg`, `surface1..3` | `--bg-sunken`, `--bg-base`, `--bg-raised`, `--bg-overlay` | Suddivisione semantica rigorosa per ruolo e livello di elevazione. |
-| `bg-surface-elevated` | `--bg-raised` | Superfici rialzate, banner terminale. |
+| `bg-surface-elevated` | `--bg-raised` | Superfici rialzate. |
 | `err`, `danger-ink` | `--danger` | Tinta unica per esiti negativi, cancellazioni e interruzioni. |
 | `err-dim` | `--danger-dim` | Riservato unicamente al cerchio del segno di stato fallito (`failed`). |
 | `warn-ink`, `amber-fg` | `--warn` | Attenzione e attesa; nessuna rotaia decorativa colorata. |
@@ -548,6 +548,13 @@ riempimento pieno usa le coppie `--on-brand`, `--on-success` e `--on-danger`.
 
 **The Sacred Terminal Rule.** I sedici colori ANSI appartengono al tema di `omp`.
 Studio imposta solo fondo (`--bg-sunken`) e testo (`--ink`) del terminale.
+
+**The Clear-Viewport Rule.** Niente dell'app si sovrappone alla viewport del
+terminale: né controlli, né banner, né veli. Lo Stop sta nella testata della colonna
+(D6). Gli errori del provider, quota compresa, li mostra la TUI di `omp`: passando
+dalla GUI al terminale il blocco quota della sessione GUI si archivia, perché la TUI
+lo riprende con `--resume` e il recupero passa da `Ctrl+P` e `/retry`. La viewport ha
+8 px di margine sui soli lati, 0 in alto e in basso.
 
 ## Typography
 
@@ -704,6 +711,7 @@ Strumento di scrittura e cruscotto della sessione in una sola superficie.
 
 - **A riposo:** cerchio da 28 px, fondo `--ink`, freccia `--bg-base`; disabilitato a opacità 0,35.
 - **Durante il turno:** Stop è un cerchio separato in `--danger` con glifo `--on-danger`. L'invio diventa uno split button a pillola: azione primaria nella modalità di default (steer o follow-up), caret per scegliere l'altra (menu da 240 px). Stop non disabilita mai l'invio.
+- **Nel terminale (D6):** lo stesso cerchio da 28 px compare a destra nella testata della colonna mentre l'agente lavora, con `Tooltip`; il primo clic manda Ctrl+C. Per 2 s il cerchio diventa una pillola «Forza arresto» (didascalia 11/600, stessa campitura) e un secondo clic forza l'arresto; l'attesa si annuncia con `aria-live`. Nessun bagliore né animazione: il testo dice cosa farà il clic.
 
 ### Menu e popover del composer (MenuButton)
 
@@ -799,7 +807,8 @@ Primitiva condivisa per la navigazione a schede delle colonne (`src/lib/ui/Colum
 
 **The Single-Indicator Rule.** Le schede orizzontali mostrano un solo indicatore lineare da 2 px in `--brand` (sul bordo superiore o inferiore) e un'etichetta testuale non spaziata; niente doppie linee né sfondi colorati.
 
-- **Primi consumatori:** testata sinistra di navigazione colonne (`+page.svelte`).
+- **Descrizione (`tooltip`):** ogni scheda può portare un `Tooltip` (D8) per ciò che l'etichetta non dice, come la scorciatoia; l'etichetta resta il nome accessibile.
+- **Consumatori:** testata sinistra «File · Git · Agente» e switch «Terminale · GUI» della colonna destra (`+page.svelte`), con etichette in frase; schede dell'inspector di Browser Studio.
 
 ### Tooltip accessibile (Tooltip)
 
@@ -1052,6 +1061,7 @@ un'icona, mai un'emoji.
 ### Don't:
 
 - **Don't** animare la viewport del terminale né il contenuto delle colonne durante lo switch di progetto.
+- **Don't** sovrapporre controlli, banner o veli alla viewport del terminale: lo Stop sta nella testata, gli errori del provider li mostra la TUI (Clear-Viewport Rule).
 - **Don't** lasciare in movimento qualcosa che non è più vivo o che sta in un contenitore chiuso.
 - **Don't** usare loop infiniti da 1 ms per reduced-motion: usare `animation: none`.
 - **Don't** usare `white`, `black`, `rgba()` od `oklch()` letterali nei componenti.
@@ -1102,8 +1112,9 @@ e consolidate nel codice di produzione al 2026-10-01:
 | Testo dei prompt a 13 px nella cornice | Voce chat 15/24 per scrittura e lettura completa; task in coda densi a 11/12 px anche espansi, in Markdown denso. |
 
 Restano validi senza modifiche, finché non vengono rivisti nei task successivi: identità di
-progetto e tessere (v1 §2.7, §7.1), riga delle corsie (§7.13), regole
-del terminale (§2.8, §7.5) e splitter (§7.6).
+progetto e tessere (v1 §2.7, §7.1), riga delle corsie (§7.13) e splitter (§7.6). Le
+regole del terminale (v1 §2.8, §7.5) sono ora la Sacred Terminal Rule e la
+Clear-Viewport Rule (Task 11).
 Quota, code e barra inferiore sono ora normate nei Components (Task 5), non più
 nel popover usage legacy (§7.2).
 
@@ -1176,4 +1187,13 @@ Restano ad altri task: `ModelPickerDropdown` in `RolesTab` e `CycleDrawer` (task
 ### I. Browser Studio e Laboratorio (Task 10)
 
 Allineati al 2026-10-02 `BrowserViewer` e `LabPreview`. D5 approvata: riquadri dell'inspector in `--brand` con fondo al 18%. Cornici a token e toolbar a 32 px; schede inspector su `ColumnTabs` con attivazione manuale e pannello collegato; permessi e revisioni su `MenuButton`; dialoghi della pagina e Chrome Relay su `Dialog`; diagnostica Lab su `AlertBanner`; spinner su `StatusMark`. Registrazione ferma se nascosta, in arresto o con movimento ridotto. `+page.svelte` resta invariata: il suo switch Lab e i livelli semantici erano già allineati nel Task 9. Nessuna modifica agli stili dei prototipi.
+
+### J. Colonna destra: switch e terminale (Task 11)
+
+Allineati al 2026-10-05 lo switch della colonna destra e la cornice di `Terminal`:
+
+1. **Switch:** «Terminale · GUI» su `ColumnTabs` (D2) con pannello collegato, attivazione manuale e la scorciatoia nel nuovo `tooltip` per scheda (D8); prima i pulsanti erano rimasti senza stile dal Task 1. Anche la testata sinistra passa a «File · Git · Agente» in frase. «Nuova chat» a 28 px, `--radius-md`, `Tooltip`.
+2. **Stop (D6):** fuori dalla viewport, nella testata, con la sagoma del composer; stato armato come pillola «Forza arresto» statica. Via `backdrop-filter`, ombra `rgba`, `stop-armed-pulse` e `z-index` letterali. Stato a due tempi condiviso con il menu contestuale in `TerminalStopControl`.
+3. **Banner quota:** eliminato. La TUI mostra già l'errore; al passaggio al terminale il blocco della sessione GUI si archivia (Clear-Viewport Rule). Spariscono la striscia laterale, i fallback esadecimali e i token inesistenti.
+4. **Cornice:** viewport con 8 px sui soli lati; voci del menu contestuale in i18n e `IconStop` su «Interrompi».
 

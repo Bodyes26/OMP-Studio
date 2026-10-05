@@ -427,6 +427,10 @@ export class LaneOrchestrator {
 						await session.abort();
 					}
 					await session.close();
+					// Nel terminale l'errore del provider lo mostra la TUI (ripresa con
+					// --resume) e il recupero passa da Ctrl+P e /retry: un blocco
+					// rimasto aperto qui terrebbe accesi Companion e attenzione della corsia.
+					session.dismissBlockedQuota();
 				}
 			} else {
 				await this.getTerminalSession(key)?.release();
