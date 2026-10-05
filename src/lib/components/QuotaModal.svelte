@@ -299,7 +299,10 @@
 				</div>
 			{:else if quotaStore.reports && quotaStore.reports.length > 0}
 				<div class="reports-container">
-					{#each sortedReports as report (report.provider)}
+					<!-- Senza chiave: OMP restituisce un report per account, quindi lo
+					     stesso provider compare piu' volte (es. due account Codex) e una
+					     chiave sul provider manderebbe in errore il blocco. -->
+					{#each sortedReports as report}
 						{#if report.limits && report.limits.length > 0}
 							{@const projectLabels = [...new Set(allHosts
 								.filter((host) => providersMatch(host.provider, report.provider))

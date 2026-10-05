@@ -54,6 +54,7 @@ export interface BackendDiagnostics {
 	transport: {
 		nowMs: number;
 		stdoutLines: number;
+		stdoutBytes: number;
 		lastStdoutMs: number;
 		framesSent: number;
 		tauriFetchPathFrames: number;
@@ -85,6 +86,10 @@ export interface HangInput {
 const STDIN_STUCK_MS = 5_000;
 /** CPU oltre questa quota del mezzo secondo campionato: omp sta calcolando, non aspettando. */
 const BUSY_CPU_MS = 250;
+/** Un frame spedito da meno di cosi' puo' essere ancora in viaggio verso il WebView. */
+const IN_FLIGHT_MS = 2_000;
+/** Righe stdout medie oltre questa taglia sono istantanee del messaggio, non delta. */
+const SNAPSHOT_LINE_BYTES = 16 * 1024;
 
 const seconds = (ms: number) => `${Math.round(ms / 1000)}s`;
 
@@ -110,9 +115,12 @@ export function diagnoseHang(input: HangInput): string[] {
 		findings.push('Il processo omp e\u2019 terminato o il lettore di stdout si e\u2019 chiuso, ma la sessione e\u2019 ancora aperta.');
 	}
 
+	// Un frame mancante spedito da pochi istanti e' solo in viaggio: il
+	// Channel e' fermo quando il primo frame non consegnato e' vecchio.
+	const missing = t.recentFrames.find((frame) => frame.index === client.count);
 	const gap = t.framesSent - client.count;
-	if (gap > 0) {
-		const missing = t.recentFrames.find((frame) => frame.index === client.count);
+	const stalled = gap > 0 && (!missing || now - missing.atMs > IN_FLIGHT_MS);
+	if (stalled) {
 		const detail = missing
 			? ` Primo frame mancante: indice ${missing.index}, "${missing.kind}", ${missing.bytes} byte` +
 				(missing.tauriFetchPath ? ', consegnato da Tauri via fetch (>= 8192 byte).' : ', consegnato da Tauri via eval.')
@@ -132,7 +140,7 @@ export function diagnoseHang(input: HangInput): string[] {
 		findings.push(`omp non legge stdin: una scrittura e\u2019 ferma da ${seconds(now - t.stdinWriteSinceMs)}.`);
 	}
 
-	if (gap <= 0) {
+	if (!stalled) {
 		if (t.lastStdoutMs < input.sentAt) {
 			findings.push(
 				t.lastStdoutMs === 0
@@ -142,9 +150,14 @@ export function diagnoseHang(input: HangInput): string[] {
 		} else if (responseFrame) {
 			findings.push(`La risposta a "${input.command}" e\u2019 stata consegnata al client: il blocco e\u2019 nella correlazione delle risposte.`);
 		} else {
+			const avgLine = t.stdoutLines > 0 ? t.stdoutBytes / t.stdoutLines : 0;
 			findings.push(
-				`omp scrive su stdout (ultima riga ${seconds(now - t.lastStdoutMs)} fa) e il client riceve tutto, ` +
-					`ma non ha mai risposto a "${input.command}": il comando e\u2019 fermo dentro omp.`
+				avgLine >= SNAPSHOT_LINE_BYTES
+					? `omp scrive su stdout e il client riceve tutto, ma le righe sono in media di ${Math.round(avgLine / 1024)} KB: ` +
+						'omp spedisce l\u2019istantanea intera del messaggio a ogni delta, accumula l\u2019output in arretrato ' +
+						`e la risposta a "${input.command}" e\u2019 ancora in coda dietro i frame vecchi.`
+					: `omp scrive su stdout (ultima riga ${seconds(now - t.lastStdoutMs)} fa) e il client riceve tutto, ` +
+						`ma non ha mai risposto a "${input.command}": il comando e\u2019 fermo dentro omp.`
 			);
 		}
 	}

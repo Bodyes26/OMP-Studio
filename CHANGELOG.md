@@ -30,6 +30,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Leggi le schede delle colonne in frase: «File · Git · Agente» a sinistra, «Terminale · GUI» a destra, con la scorciatoia nel suggerimento al passaggio del mouse.
 
 ### Fixed
+- La chat non resta più indietro di minuti mentre l'agente scrive file lunghi: Studio chiede a omp solo i delta dei messaggi invece dell'intero messaggio a ogni carattere, così eventi e risposte ai comandi non si accumulano più dietro centinaia di MB di output e non compaiono più errori «Nessuna risposta … entro 60s» (né gli avvisi «Impossibile sincronizzare le modalità di coda») a sessione apparentemente ferma.
+- Il popover delle quote si apre di nuovo quando OMP ha più account collegati allo stesso provider (per esempio due account Codex o Antigravity): ogni account compare con la sua sezione.
 - La chat non perde più tutti gli aggiornamenti successivi quando la gestione di un evento genera un errore: testo, fine turno e risposte ai comandi continuano ad arrivare, senza lasciare la sessione bloccata su «In esecuzione». L'errore originale resta disponibile nei diagnostici.
 - Nella Companion la puntina a scomparsa si vede sempre (prima era quasi invisibile), Escape chiude la palette dei suggerimenti senza chiudere la finestra e la coda non avvia più un task cliccandone il titolo: si avvia solo con «Avvia».
 - L'aggiornamento di OMP dalla barra inferiore non fallisce più su macOS con «Could not resolve omp binary path in PATH» quando Studio è aperto da Finder/Dock.

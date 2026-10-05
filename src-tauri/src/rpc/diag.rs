@@ -46,6 +46,9 @@ struct SentFrame {
 #[derive(Default)]
 pub(super) struct RpcStats {
     stdout_lines: AtomicU64,
+    /// Byte letti da stdout: righe medie da decine di KB vogliono dire che
+    /// omp sta spedendo istantanee intere del messaggio, non delta.
+    stdout_bytes: AtomicU64,
     last_stdout_ms: AtomicU64,
     frames_sent: AtomicU64,
     fetch_path_frames: AtomicU64,
@@ -61,8 +64,9 @@ pub(super) struct RpcStats {
 }
 
 impl RpcStats {
-    pub(super) fn stdout_line(&self) {
+    pub(super) fn stdout_line(&self, bytes: usize) {
         self.stdout_lines.fetch_add(1, Ordering::Relaxed);
+        self.stdout_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
         self.last_stdout_ms.store(now_ms(), Ordering::Relaxed);
     }
 
@@ -139,6 +143,7 @@ impl RpcStats {
         serde_json::json!({
             "nowMs": now_ms(),
             "stdoutLines": self.stdout_lines.load(Ordering::Relaxed),
+            "stdoutBytes": self.stdout_bytes.load(Ordering::Relaxed),
             "lastStdoutMs": self.last_stdout_ms.load(Ordering::Relaxed),
             "framesSent": self.frames_sent.load(Ordering::Relaxed),
             "tauriFetchPathFrames": self.fetch_path_frames.load(Ordering::Relaxed),

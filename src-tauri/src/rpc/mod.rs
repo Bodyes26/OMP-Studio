@@ -419,7 +419,7 @@ fn reader_loop(args: ReaderLoopArgs) {
         if raw.is_empty() {
             continue;
         }
-        stats.stdout_line();
+        stats.stdout_line(raw.len());
         // Svuota delta e chunk pendenti se e' arrivato un segnale di abort
         if abort_signal.swap(false, Ordering::SeqCst) {
             pending_delta = None;
@@ -703,6 +703,24 @@ fn dispatch(
                 if negotiated {
                     protocol.store(2, Ordering::Relaxed);
                 }
+            }
+            // `message_update` di omp porta a ogni token l'intero messaggio
+            // parziale (in `message` e in `assistantMessageEvent.partial`):
+            // mentre il modello scrive un file da 15 KB ogni delta diventa una
+            // riga da ~90 KB. omp non riesce a scaricarle sulla pipe, le
+            // accoda in un file temporaneo (centinaia di MB) e tutto cio' che
+            // segue, risposte ai comandi comprese, arriva con minuti di
+            // ritardo: chat ferma e prompt rifiutati dopo 60 s. In modalita'
+            // `delta` omp toglie le istantanee e lascia delta, `content` dei
+            // `*_end` e `toolCall`, cioe' tutto cio' che Studio usa. Un omp
+            // che non conosce il comando risponde con un errore senza padrone.
+            let mut guard = stdin.lock();
+            if let Some(handle) = guard.as_mut() {
+                let _ = handle
+                    .write_all(
+                        b"{\"id\":\"studio-filter-1\",\"type\":\"set_event_filter\",\"events\":null,\"messageUpdates\":\"delta\"}\n",
+                    )
+                    .and_then(|()| handle.flush());
             }
         }
     }

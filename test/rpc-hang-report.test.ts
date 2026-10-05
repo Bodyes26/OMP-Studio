@@ -31,6 +31,7 @@ function backendWith(transport: Partial<BackendDiagnostics['transport']>, tree?:
 		transport: {
 			nowMs: 1_000_000,
 			stdoutLines: 10,
+			stdoutBytes: 2_000,
 			lastStdoutMs: 990_000,
 			framesSent: 0,
 			tauriFetchPathFrames: 0,
@@ -175,5 +176,22 @@ describe('Diagnosi del blocco', () => {
 	it('omp scrive ma non risponde al comando', () => {
 		const verdict = diagnoseHang(base(backendWith({ framesSent: 40, lastStdoutMs: 999_000 }), 40));
 		assert.match(verdict[0], /non ha mai risposto a "prompt": il comando e’ fermo dentro omp/);
+	});
+
+	// Caso reale (Laboratorio, 5/10): un frame spedito 28 ms prima della
+	// fotografia e' in viaggio, non perso; le risposte erano in coda dietro
+	// righe `message_update` da decine di KB.
+	it('un frame appena spedito non e un Channel fermo; righe enormi sono arretrato di omp', () => {
+		const backend = backendWith({
+			framesSent: 689,
+			lastStdoutMs: 999_972,
+			stdoutLines: 1795,
+			stdoutBytes: 1795 * 87 * 1024,
+			recentFrames: [{ index: 688, atMs: 999_972, bytes: 160, kind: 'studio_delta', tauriFetchPath: false }]
+		});
+		const verdict = diagnoseHang(base(backend, 688));
+		assert.ok(!verdict.some((line) => /Channel Tauri fermo/.test(line)));
+		assert.match(verdict[0], /righe sono in media di 87 KB/);
+		assert.match(verdict[0], /risposta a "prompt" e’ ancora in coda/);
 	});
 });
