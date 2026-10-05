@@ -28,6 +28,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Read column tabs in sentence case: “Files · Git · Agent” on the left, “Terminal · GUI” on the right, with the shortcut in the hover tooltip.
 
 ### Fixed
+- Chat no longer loses every subsequent update when handling an event throws an error: text, turn completion and command responses keep arriving instead of leaving the session stuck on “Running”. The original error remains available in diagnostics.
 - In the Companion the pin is always visible in spotlight mode (it used to be nearly invisible), Escape closes the suggestion palette without closing the window, and clicking a queued task's title no longer runs it: only «Run» does.
 - Updating OMP from the bottom bar no longer fails on macOS with "Could not resolve omp binary path in PATH" when Studio is launched from Finder/Dock.
 - The Terminal/GUI switch looks like tabs again, with the indicator under the active tab, instead of two system buttons.

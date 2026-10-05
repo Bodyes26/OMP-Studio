@@ -341,7 +341,16 @@ export class OmpRpcClient {
 			this.rpcId = null;
 			this.abortPendingRequests('Sessione OMP terminata');
 		}
-		this.eventHandler?.(event);
+		try {
+			this.eventHandler?.(event);
+		} catch (error) {
+			// Channel avanza l'indice solo dopo il ritorno di onmessage:
+			// propagare qui un errore del riduttore bloccherebbe per sempre
+			// anche gli eventi successivi e le risposte ai comandi.
+			// Rilanciarlo fuori dalla callback preserva errore e stack nei
+			// diagnostici del WebView senza avvelenare il trasporto.
+			queueMicrotask(() => { throw error; });
+		}
 	}
 
 	private settle(response: RpcResponse) {

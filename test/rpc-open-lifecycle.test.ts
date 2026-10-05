@@ -46,7 +46,7 @@ function installTauriInternals() {
 		},
 		invoke(cmd: string, args: Record<string, unknown>): Promise<unknown> {
 			calls.push({ cmd, args });
-			if (cmd !== 'rpc_open') return Promise.resolve(undefined);
+			if (cmd !== 'rpc_open' && cmd !== 'rpc_open_lab') return Promise.resolve(undefined);
 			// `onEvent` e' il `Channel` costruito dal client: la sua identita'
 			// e' nota per costruzione, non e' un dato esterno da validare.
 			const channel = args.onEvent as Channel<string>;
@@ -164,4 +164,62 @@ describe('Canale RPC: aperture concorrenti e processi orfani', () => {
 		const data = await pending;
 		assert.equal(data.messages.length, 1);
 	});
+
+	for (const lab of [false, true]) {
+		for (const outOfOrder of [false, true]) {
+			it(`un errore del riduttore non blocca fine turno e risposte RPC (${lab ? 'Lab' : 'progetto'}, ${outOfOrder ? 'riordinato' : 'diretto'})`, async (t) => {
+				const client = new OmpRpcClient();
+				const failure = new Error('Errore di applicazione evento');
+				const reported: VoidFunction[] = [];
+				t.mock.method(globalThis, 'queueMicrotask', (callback: VoidFunction) => reported.push(callback));
+				let working = false;
+				const transcript: string[] = [];
+				client.onEvent((event) => {
+					if (event.type === 'agent_start') working = true;
+					if (event.type === 'tool_execution_end') throw failure;
+					if (event.type === 'studio_delta') transcript.push(String(event.delta));
+					if (event.type === 'agent_end') working = false;
+				});
+				const opening = lab
+					? client.openLab({ workspacePath: 'C:/lab', projectPath: 'C:/proj', prototypeId: 'prova' })
+					: client.open('C:/proj');
+				opens[0].resolve(42);
+				await opening;
+				try {
+					emit(0, JSON.stringify({ type: 'agent_start' }), 0);
+					// Il WebView segnala l'eccezione ma continua a consegnare i frame.
+					// Il Channel reale deve avanzare anche sul frame che fallisce.
+					try {
+						if (outOfOrder) {
+							emit(0, JSON.stringify({ type: 'tool_execution_end' }), 2);
+							emit(0, JSON.stringify({ type: 'studio_delta', delta: 'prima' }), 1);
+						} else {
+							emit(0, JSON.stringify({ type: 'tool_execution_end' }), 1);
+							emit(0, JSON.stringify({ type: 'studio_delta', delta: 'prima' }), 2);
+						}
+					} catch (error) {
+						assert.equal(error, failure);
+					}
+					emit(0, JSON.stringify({ type: 'studio_delta', delta: 'finito' }), 3);
+					emit(0, JSON.stringify({ type: 'agent_end' }), 4);
+					assert.equal(working, false, 'la GUI non deve restare in esecuzione');
+					assert.deepEqual(transcript, ['prima', 'finito']);
+
+					const pending = client.send({ type: 'get_state' });
+					const sent = calls.findLast((call) => call.cmd === 'rpc_send');
+					assert.ok(sent);
+					const command = JSON.parse(String(sent.args.line));
+					emit(0, JSON.stringify({
+						type: 'response', id: command.id, command: 'get_state',
+						success: true, data: { isStreaming: false }
+					}), 5);
+					assert.deepEqual(await pending, { isStreaming: false });
+					assert.equal(reported.length, 1, 'l errore originale resta osservabile');
+					assert.throws(reported[0], (error) => error === failure);
+				} finally {
+					await client.close();
+				}
+			});
+		}
+	}
 });

@@ -28,6 +28,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Leggi le schede delle colonne in frase: «File · Git · Agente» a sinistra, «Terminale · GUI» a destra, con la scorciatoia nel suggerimento al passaggio del mouse.
 
 ### Fixed
+- La chat non perde più tutti gli aggiornamenti successivi quando la gestione di un evento genera un errore: testo, fine turno e risposte ai comandi continuano ad arrivare, senza lasciare la sessione bloccata su «In esecuzione». L'errore originale resta disponibile nei diagnostici.
 - Nella Companion la puntina a scomparsa si vede sempre (prima era quasi invisibile), Escape chiude la palette dei suggerimenti senza chiudere la finestra e la coda non avvia più un task cliccandone il titolo: si avvia solo con «Avvia».
 - L'aggiornamento di OMP dalla barra inferiore non fallisce più su macOS con «Could not resolve omp binary path in PATH» quando Studio è aperto da Finder/Dock.
 - Lo switch Terminale/GUI torna ad avere l'aspetto delle schede, con l'indicatore sotto la scheda attiva, invece di due pulsanti di sistema.
