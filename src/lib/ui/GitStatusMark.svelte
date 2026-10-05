@@ -12,10 +12,12 @@
 
 	export interface GitStatusMarkProps {
 		status: GitStatusCode;
+		/** Descrizione per screen reader: una cartella dice cosa contiene, non cosa e'. */
+		description?: string;
 		class?: string;
 	}
 
-	let { status, class: customClass = '' }: GitStatusMarkProps = $props();
+	let { status, description, class: customClass = '' }: GitStatusMarkProps = $props();
 
 	const info = $derived.by(() => {
 		const raw = (status || '').trim().toUpperCase();
@@ -78,16 +80,16 @@
 	class={['git-status-mark', `git-st-${info.abbr.toLowerCase()}`, customClass].filter(Boolean).join(' ')}
 	style:color={info.color}
 >
-	<span class="sr-only">{info.description}</span>
+	<span class="sr-only">{description || info.description}</span>
 	<span aria-hidden="true" class="git-abbr">{info.abbr}</span>
 </span>
 
 <style>
 	.git-status-mark {
 		font-family: var(--font-mono, monospace);
-		font-size: 10px;
+		font-size: var(--text-meta);
 		font-weight: 700;
-		width: 14px;
+		min-width: 14px;
 		display: inline-block;
 		text-align: center;
 		flex-shrink: 0;

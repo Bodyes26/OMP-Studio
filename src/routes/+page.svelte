@@ -15,6 +15,7 @@
 	import type EditorSurface from '$lib/editor/Editor.svelte';
 	import AgentPanel from '$lib/components/AgentPanel.svelte';
 	import ColumnTabs from '$lib/ui/ColumnTabs.svelte';
+	import Segmented from '$lib/ui/Segmented.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import UsagePopover, { type ProviderHost } from '$lib/components/UsagePopover.svelte';
@@ -111,6 +112,7 @@
 		}
 	}
 	let labCenterView = $state<'preview' | 'editor'>('preview');
+	const isLabLane = $derived(projectStore.activeProject?.lane.kind === 'lab');
 
 	async function handleNewFreeDraft() {
 		try {
@@ -2728,7 +2730,6 @@
 	>
 		<aside
 			class="col-left"
-			aria-hidden={isSidebarCollapsed}
 			inert={isSidebarCollapsed}
 			style:--sidebar-width="{leftWidth}px"
 		>
@@ -2818,31 +2819,31 @@
 		></div>
 
 		<section class="col-center">
-			<div class="col-header">
-				{#if projectStore.activeProject?.lane.kind === 'lab'}
-					<div class="lab-switcher" role="tablist" aria-label="Vista Laboratorio">
-						<button
-							type="button"
-							role="tab"
-							class="lab-switcher-btn"
-							class:active={labCenterView === 'preview'}
-							aria-selected={labCenterView === 'preview'}
-							onclick={() => (labCenterView = 'preview')}
-						>{m.lab_lane_switch_preview()}</button>
-						<button
-							type="button"
-							role="tab"
-							class="lab-switcher-btn"
-							class:active={labCenterView === 'editor'}
-							aria-selected={labCenterView === 'editor'}
-							onclick={() => (labCenterView = 'editor')}
-						>{m.lab_lane_switch_editor()}</button>
-					</div>
-				{:else}
-					{activeTaskEditor ? m.page_columns_header_task() : diagramOpen ? m.page_columns_header_diagram() : previewFile ? m.page_columns_header_preview() : browserOpen ? m.page_columns_header_browser() : m.page_columns_header_editor()}
-				{/if}
-			</div>
-			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
+			<!-- Ogni vista porta la propria barra da 32 px al posto di questa (D7):
+			     resta solo nelle corsie Lab, per lo switch Anteprima/Editor. -->
+			{#if isLabLane}
+				<div class="col-header lab-header">
+					<Segmented
+						mode="tablist"
+						tabIdPrefix="lab-view-tab-"
+						panelIdPrefix="lab-view-panel-"
+						ariaLabel={m.lab_lane_switch_group()}
+						options={[
+							{ value: 'preview', label: m.lab_lane_switch_preview() },
+							{ value: 'editor', label: m.lab_lane_switch_editor() }
+						]}
+						value={labCenterView}
+						onChange={(view) => (labCenterView = view)}
+					/>
+				</div>
+			{/if}
+			<div class="col-content fill">
+				<div
+					class="center-surface"
+					id={isLabLane ? 'lab-view-panel-editor' : undefined}
+					role={isLabLane ? 'tabpanel' : undefined}
+					aria-labelledby={isLabLane ? 'lab-view-tab-editor' : undefined}
+				>
 				{#if projectStore.activeProject}
 					{#if activeTaskEditor}
 						<TaskEditor
@@ -2850,7 +2851,7 @@
 							session={registeredSessionFor(projectStore.activeProject) ?? null}
 							guiHosts={guiHosts}
 							onClose={() => taskEditorId = null}
-							onRunTask={(taskId: string) => void handleRunTask(projectStore.activeProject!.id, taskId)}
+							onRunTask={(taskId: string, { newLane }) => void handleRunTask(projectStore.activeProject!.id, taskId, { shiftKey: newLane })}
 							onOpenImage={(data: string, mimeType: string) => (viewingImage = { data, mimeType })}
 						/>
 					{:else if diagramOpen}
@@ -2890,6 +2891,7 @@
 						/>
 					{/if}
 				{/if}
+				</div>
 
 				<!-- Livelli anteprima Laboratorio per ogni corsia Lab montata (contratto §7 e §8) -->
 				{#each projectStore.projects as p (p.id)}
@@ -2901,7 +2903,9 @@
 							<div
 								class="lab-preview-layer"
 								class:visible
-								style="position: absolute; inset: 0; display: {visible ? 'block' : 'none'}; z-index: {visible ? 5 : 0}; pointer-events: {visible ? 'auto' : 'none'};"
+								id={isLaneActive ? 'lab-view-panel-preview' : undefined}
+								role={isLaneActive ? 'tabpanel' : undefined}
+								aria-labelledby={isLaneActive ? 'lab-view-tab-preview' : undefined}
 							>
 								<LabPreview
 									projectId={p.id}
@@ -2971,7 +2975,7 @@
 					><IconNewChat /></button>
 				{/if}
 			</div>
-			<div class="col-content fill" style="background: var(--bg-sunken); position: relative;">
+			<div class="col-content fill">
 				{#each projectStore.projects as p (p.id)}
 					{@const mountedLanes = laneOrchestrator.getMountedLanes(p)}
 					{#each mountedLanes as lane (lane.laneId)}
@@ -3164,7 +3168,7 @@
 	}
 
 	.columns:not(.dragging) {
-		transition: grid-template-columns var(--dur-slow) var(--ease-out);
+		transition: grid-template-columns var(--dur-slow) var(--ease-reveal);
 	}
 
 	.columns.dragging {
@@ -3291,8 +3295,8 @@
 
 	.columns:not(.dragging) .col-left-inner {
 		transition:
-			opacity var(--dur-slow) var(--ease-out),
-			transform var(--dur-slow) var(--ease-out);
+			opacity var(--dur-slow) var(--ease-reveal),
+			transform var(--dur-slow) var(--ease-reveal);
 	}
 
 	.splitter-left {
@@ -3319,11 +3323,10 @@
 		padding: 0 var(--space-2);
 		display: flex;
 		align-items: center;
-		font-size: var(--text-xs);
-		font-weight: 600;
+		font-size: var(--text-caption);
+		font-weight: 500;
 		color: var(--ink-faint);
 		background: transparent;
-		letter-spacing: 0.05em;
 		z-index: var(--z-sticky);
 	}
 
@@ -3370,9 +3373,10 @@
 		min-width: 0;
 		overflow-y: auto;
 		/* Le righe svaniscono passando sotto l'header invece di essere
-		   tagliate da una linea. */
-		-webkit-mask-image: linear-gradient(to bottom, transparent 0, black 10px);
-		mask-image: linear-gradient(to bottom, transparent 0, black 10px);
+		   tagliate da una linea. Nella maschera conta solo l'alfa: qualsiasi
+		   token opaco vale. */
+		-webkit-mask-image: linear-gradient(to bottom, transparent 0, var(--ink) 10px);
+		mask-image: linear-gradient(to bottom, transparent 0, var(--ink) 10px);
 	}
 
 	.col-content.agent-content {
@@ -3384,9 +3388,37 @@
 	/* Editor e terminale gestiscono il proprio scroll: uno scroll esterno
 	   falserebbe le misure di fit/layout. */
 	.col-content.fill {
+		position: relative;
 		overflow: hidden;
+		background: var(--bg-sunken);
 		-webkit-mask-image: none;
 		mask-image: none;
+	}
+
+	.center-surface {
+		height: 100%;
+	}
+
+	/* Barra da 32 px sul pozzo con una linea sotto, come le testate fuse
+	   delle viste (Editor, Anteprima, Whiteboard, Task). */
+	.lab-header {
+		border-bottom: 1px solid var(--line);
+	}
+
+	/* Un livello per ogni corsia Lab montata: resta nel DOM anche nascosto,
+	   cosi' l'anteprima non si ricarica quando si torna alla corsia. */
+	.lab-preview-layer {
+		position: absolute;
+		inset: 0;
+		display: none;
+		z-index: var(--z-base);
+		pointer-events: none;
+	}
+
+	.lab-preview-layer.visible {
+		display: block;
+		z-index: var(--z-sticky);
+		pointer-events: auto;
 	}
 
 	.splitter {
@@ -3578,33 +3610,5 @@
 	}
 	.btn-primary:hover {
 		filter: brightness(1.1);
-	}
-
-	.lab-switcher {
-		display: inline-flex;
-		align-items: center;
-		gap: 2px;
-		background: var(--bg-sunken);
-		padding: 2px;
-		border-radius: 4px;
-		border: 1px solid var(--line);
-	}
-	.lab-switcher-btn {
-		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		font-size: 11px;
-		font-weight: 500;
-		padding: 2px 8px;
-		border-radius: 3px;
-		cursor: pointer;
-	}
-	.lab-switcher-btn:hover {
-		color: var(--ink);
-	}
-	.lab-switcher-btn.active {
-		background: var(--bg);
-		color: var(--ink);
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 	}
 </style>

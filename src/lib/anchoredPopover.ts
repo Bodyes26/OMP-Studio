@@ -28,8 +28,10 @@ export type AnchorPlacement =
 	| 'right-start';
 
 export interface AnchoredOptions {
-	/** Elemento a cui agganciarsi. Se manca, il pannello resta dov'e'. */
+	/** Elemento a cui agganciarsi. Se manca, il pannello puo' agganciarsi a `point`. */
 	anchor?: HTMLElement | null;
+	/** Punto {x, y} a cui agganciarsi in assenza di un elemento ancora (es. cursore per menu contestuale). */
+	point?: { x: number; y: number } | null;
 	/** Distanza fra ancora e pannello. */
 	offset?: number;
 	/** Margine minimo dai bordi della finestra. */
@@ -108,10 +110,53 @@ export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}
 	function place() {
 		frame = 0;
 		const anchor = current.anchor;
-		if (!anchor?.isConnected) return;
+		const point = current.point;
+		const hasAnchor = Boolean(anchor?.isConnected);
+		if (!hasAnchor && !point) return;
 
-		const rect = anchor.getBoundingClientRect();
 		const { offset, padding, placement, matchWidth, constrainHeight } = current;
+
+		if (!hasAnchor && point) {
+			const vw = window.innerWidth;
+			const vh = window.innerHeight;
+			const width = node.offsetWidth;
+			const height = node.offsetHeight;
+
+			let left = point.x;
+			let top = point.y;
+
+			// Orizzontale: apre a destra del cursore, ribalta a sinistra se non entra
+			if (left + width > vw - padding) {
+				left = point.x - width;
+			}
+			if (left < padding) {
+				left = point.x;
+			}
+
+			// Verticale: apre sotto il cursore, ribalta sopra se non entra
+			if (top + height > vh - padding) {
+				top = point.y - height;
+			}
+			if (top < padding) {
+				top = point.y;
+			}
+
+			// Clamp rigoroso entro i margini della finestra
+			left = Math.max(padding, Math.min(vw - width - padding, left));
+			top = Math.max(padding, Math.min(vh - height - padding, top));
+
+			node.style.left = `${Math.round(left)}px`;
+			node.style.top = `${Math.round(top)}px`;
+
+			const flip = top < point.y;
+			if (flip !== flipped) {
+				flipped = flip;
+				current.onFlip?.(flip);
+			}
+			return;
+		}
+
+		const rect = anchor!.getBoundingClientRect();
 
 		// La larghezza si impone prima di misurare l'altezza: il contenuto
 		// rifluisce, e un'altezza misurata sulla larghezza vecchia sbaglierebbe

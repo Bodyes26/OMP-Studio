@@ -11,10 +11,12 @@
 	import { Lingering } from '../motionState.svelte';
 	let {
 		lang = '',
-		text = ''
+		text = '',
+		onOpenFile
 	}: {
 		lang?: string;
 		text: string;
+		onOpenFile?: (path: string) => void;
 	} = $props();
 
 	let collapsed = $state(false);
@@ -108,7 +110,7 @@
 					type="button"
 					class="file-chip-btn"
 					title={item.line ? `Apri ${item.path}:${item.line} nell'editor` : `Apri ${item.path} nell'editor`}
-					onclick={() => hooks.openFile(item.path, item.line)}
+					onclick={() => onOpenFile ? onOpenFile(item.path) : hooks.openFile(item.path, item.line)}
 				>
 					<span class="file-chip-icon" aria-hidden="true"><IconFile /></span>
 					<span class="file-chip-path">

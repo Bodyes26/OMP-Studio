@@ -2,12 +2,20 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { slide } from 'svelte/transition';
+	import { Lingering, ROW_EXIT_MS } from '$lib/agent/motionState.svelte';
 	import { setContext, getContext, tick } from 'svelte';
 	import FileTree from './FileTree.svelte';
 	import {
 		IconChevronRight,
+		IconClose,
+		IconDatabase,
 		IconFile,
+		IconFileArchive,
+		IconFileBraces,
+		IconFileCode,
+		IconFileImage,
+		IconFileText,
+		IconFolder,
 		IconFolderOpen,
 		IconRename,
 		IconRefresh,
@@ -20,6 +28,9 @@
 		IconNewFolder,
 		IconSearch
 	} from '$lib/icons';
+	import GitStatusMark from '$lib/ui/GitStatusMark.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import { joinProjectPath, isWindows, normalizeProjectPath } from '$lib/utils/paths';
 	import type { GitStatusRefreshDetail } from '$lib/stores/gitDiff.svelte';
@@ -54,6 +65,13 @@
 	}>();
 
 	let expanded = $state(false);
+	// Piegatura dei figli a --dur-row. Si anima solo dopo un gesto: la radice
+	// che nasce aperta al montaggio resta ferma (Still-Room Rule).
+	const childrenLinger = new Lingering<true>(ROW_EXIT_MS);
+	let foldAnimated = $state(false);
+	$effect(() => {
+		childrenLinger.update(isDir && expanded ? true : undefined);
+	});
 	let loaded = $state(false);
 	let loadError = $state<string | null>(null);
 	let entries = $state<{name: string, path: string, is_dir: boolean}[]>([]);
@@ -149,7 +167,7 @@
 	let trashError = $state<string | null>(null);
 
 
-	// Una riga chiusa resta nel DOM per tutta la transizione di slide: va
+	// Una riga chiusa resta nel DOM per tutta la piegatura d'uscita: va
 	// esclusa dalla navigazione, altrimenti il focus finisce su un nodo morente.
 	function isRowLive(row: HTMLElement): boolean {
 		let group = row.parentElement?.closest('.children') ?? null;
@@ -401,6 +419,7 @@
 			return;
 		}
 
+		foldAnimated = true;
 		expanded = !expanded;
 		if (expanded && (!loaded || loadError)) {
 			await loadEntries();
@@ -442,6 +461,7 @@
 	async function startCreation(type: 'file' | 'dir') {
 		trashError = null;
 		if (!expanded) {
+			foldAnimated = true;
 			expanded = true;
 		}
 		if (!loaded || loadError) {
@@ -836,24 +856,25 @@
 		openRootMenu(event);
 	}
 
-	function getFileType(filename: string): string {
-		const ext = filename.split('.').pop()?.toLowerCase() || '';
-		if (ext === 'md' || ext === 'markdown') return 'md';
-		if (ext === 'json' || ext === 'jsonc' || ext === 'json5') return 'json';
-		if (ext === 'vb' || ext === 'vbs' || ext === 'vbproj') return 'vb';
-		if (ext === 'aspx' || ext === 'ascx' || ext === 'master' || ext === 'asmx' || ext === 'ashx') return 'aspx';
-		if (ext === 'cs' || ext === 'csx' || ext === 'csproj' || ext === 'sln') return 'cs';
-		if (ext === 'svg') return 'svg';
-		if (ext === 'js' || ext === 'jsx' || ext === 'mjs' || ext === 'cjs') return 'js';
-		if (ext === 'ts' || ext === 'tsx' || ext === 'mts') return 'ts';
-		if (ext === 'html' || ext === 'htm') return 'html';
-		if (ext === 'css' || ext === 'scss' || ext === 'less') return 'css';
-		if (ext === 'sql' || ext === 'db' || ext === 'sqlite' || ext === 'sqlite3' || ext === 'mdf') return 'sql';
-		if (ext === 'xml' || ext === 'config' || ext === 'xaml' || ext === 'props' || ext === 'targets') return 'xml';
-		if (['png', 'jpg', 'jpeg', 'gif', 'ico', 'webp', 'bmp'].includes(ext)) return 'image';
-		if (['zip', 'tar', 'gz', '7z', 'rar'].includes(ext)) return 'archive';
-		if (ext === 'pdf') return 'pdf';
-		return m.ui_filetree_file_aa71();
+	// Una forma Lucide per famiglia: l'estensione e' gia' nel nome, l'icona
+	// separa solo codice, dati, testo, media e archivi.
+	const FILE_ICONS = new Map<string, typeof IconFile>([
+		...['md', 'markdown', 'txt', 'pdf'].map((ext) => [ext, IconFileText] as const),
+		...['json', 'jsonc', 'json5'].map((ext) => [ext, IconFileBraces] as const),
+		...[
+			'vb', 'vbs', 'vbproj', 'aspx', 'ascx', 'master', 'asmx', 'ashx', 'cs', 'csx', 'csproj', 'sln',
+			'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'html', 'htm', 'css', 'scss', 'less',
+			'xml', 'config', 'xaml', 'props', 'targets'
+		].map((ext) => [ext, IconFileCode] as const),
+		...['png', 'jpg', 'jpeg', 'gif', 'ico', 'webp', 'bmp', 'svg'].map((ext) => [ext, IconFileImage] as const),
+		...['zip', 'tar', 'gz', '7z', 'rar'].map((ext) => [ext, IconFileArchive] as const),
+		...['sql', 'db', 'sqlite', 'sqlite3', 'mdf'].map((ext) => [ext, IconDatabase] as const)
+	]);
+
+	function fileIcon(filename: string): typeof IconFile {
+		const dot = filename.lastIndexOf('.');
+		if (dot === -1) return IconFile;
+		return FILE_ICONS.get(filename.slice(dot + 1).toLowerCase()) ?? IconFile;
 	}
 	function getParentDirectory(path: string): string {
 		const lastSlash = path.lastIndexOf('/');
@@ -1086,103 +1107,9 @@
 		});
 	}
 </script>
-{#snippet typeIcon(fileType: string, isFolder: boolean = false, isExp: boolean = false)}
-	{#if isFolder}
-		<span class="type-icon folder">
-			{#if isExp}
-				<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-					<path d="M1.5 3.5h4l1.5 2h7.5v2.5h-11.5v5.5l-1.5-6z" fill-opacity="0.3"/>
-				</svg>
-			{:else}
-				<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-					<path d="M1.5 3.5h4l1.5 2h7.5v8h-13z" fill-opacity="0.2"/>
-				</svg>
-			{/if}
-		</span>
-	{:else}
-		<span class="type-icon file {fileType}">
-			{#if fileType === 'md'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.15"/>
-					<path d="M4 11V5l2.5 3L9 5v6M12 9l-1.5 2L9 9" stroke-linecap="round" stroke-linejoin="round"/>
-				</svg>
-			{:else if fileType === 'json'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-					<path d="M5 3c-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5 1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5M11 3c1 0 1.5.5 1.5 1.5v2c0 1 .5 1.5 1.5 1.5-1 0-1.5.5-1.5 1.5v2c0 1-.5 1.5-1.5 1.5" stroke-linecap="round"/>
-				</svg>
-			{:else if fileType === 'vb'}
-				<svg viewBox="0 0 16 16" fill="none">
-					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
-					<text x="3.5" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">VB</text>
-				</svg>
-			{:else if fileType === 'aspx'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.2" stroke-width="1.2"/>
-					<path d="M5 6l-2 2 2 2M11 6l2 2-2 2M9 5l-2 6" stroke-width="1.1" stroke-linecap="round"/>
-				</svg>
-			{:else if fileType === 'cs'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
-					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke-width="1.2"/>
-					<path d="M5.5 6.5C5 6 4 6.5 4 8s1 2 1.5 1.5M9 6v4M11 6v4M8 7.5h4M8 9.5h4" stroke-width="1.1" stroke-linecap="round"/>
-				</svg>
-			{:else if fileType === 'svg'}
-				<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.2">
-					<circle cx="4" cy="12" r="1.5"/>
-					<circle cx="12" cy="4" r="1.5"/>
-					<path d="M4 12C4 7 12 9 12 4" fill="none" stroke-linecap="round"/>
-				</svg>
-			{:else if fileType === 'js'}
-				<svg viewBox="0 0 16 16" fill="none">
-					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
-					<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">JS</text>
-				</svg>
-			{:else if fileType === 'ts'}
-				<svg viewBox="0 0 16 16" fill="none">
-					<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.2"/>
-					<text x="3.8" y="11.5" font-family="sans-serif" font-weight="bold" font-size="8.5" fill="currentColor">TS</text>
-				</svg>
-			{:else if fileType === 'html'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-					<path d="M5.5 5L3 8l2.5 3M10.5 5l2.5 3-2.5 3M9 4l-2 8"/>
-				</svg>
-			{:else if fileType === 'css'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
-					<path d="M4 6h8M4 10h8M6.5 3.5l-1 9M10.5 3.5l-1 9"/>
-				</svg>
-			{:else if fileType === 'sql'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-					<ellipse cx="8" cy="4" rx="5" ry="2"/>
-					<path d="M3 4v4c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8v4c0 1.1 2.2 2 5 2s5-.9 5-2V8"/>
-				</svg>
-			{:else if fileType === 'xml'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
-					<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.15"/>
-					<path d="M6 6l-1.5 2L6 10M10 6l1.5 2-1.5 2"/>
-				</svg>
-			{:else if fileType === 'image'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-					<rect x="2" y="3" width="12" height="10" rx="1.5"/>
-					<circle cx="5.5" cy="6" r="1" fill="currentColor"/>
-					<path d="M14 11l-3.5-3.5-4 4-2-2L2 11.5" stroke-linecap="round"/>
-				</svg>
-			{:else if fileType === 'archive'}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-					<path d="M3 4h10v9a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" fill="currentColor" fill-opacity="0.15"/>
-					<path d="M2 2h12v2H2zM8 6v3M6.5 7.5h3"/>
-				</svg>
-			{:else if fileType === 'pdf'}
-				<svg viewBox="0 0 16 16" fill="none">
-					<rect x="3" y="2" width="10" height="12" rx="1.5" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="1.2"/>
-					<text x="3.5" y="10.5" font-family="sans-serif" font-weight="bold" font-size="6.5" fill="currentColor">PDF</text>
-				</svg>
-			{:else}
-				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.6">
-					<path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z"/>
-					<path d="M9.5 2.5V6H13"/>
-				</svg>
-			{/if}
-		</span>
-	{/if}
+{#snippet typeIcon(fileName: string, isFolder: boolean = false, isExp: boolean = false)}
+	{@const Icon = isFolder ? (isExp ? IconFolderOpen : IconFolder) : fileIcon(fileName)}
+	<span class="type-icon" class:folder={isFolder} aria-hidden="true"><Icon /></span>
 {/snippet}
 
 <!-- Il nodo radice intercetta solo lo spazio vuoto; righe e pulsanti mantengono i propri ruoli. -->
@@ -1203,7 +1130,7 @@
 		<div class="tree-search-bar">
 			<div class="search-input-wrapper">
 				{#if searchLoading}
-					<div class="search-spinner" aria-hidden="true"></div>
+					<span class="search-icon" aria-hidden="true"><StatusMark status="running" /></span>
 				{:else}
 					<span class="search-icon" aria-hidden="true">
 						<IconSearch />
@@ -1223,17 +1150,16 @@
 					autocomplete="off"
 				/>
 				{#if searchQuery}
-					<button
-						type="button"
-						class="clear-search-btn"
-						onclick={clearSearch}
-						title="Cancella ricerca (Esc)"
-						aria-label={m.file_tree_clear_search()}
-					>
-						<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-							<path d="M3 3l10 10M13 3L3 13" />
-						</svg>
-					</button>
+					<Tooltip text={m.file_tree_clear_search()} placement="bottom">
+						<button
+							type="button"
+							class="clear-search-btn"
+							onclick={clearSearch}
+							aria-label={m.file_tree_clear_search()}
+						>
+							<IconClose />
+						</button>
+					</Tooltip>
 				{/if}
 			</div>
 			{#if searchQuery.trim()}
@@ -1257,7 +1183,7 @@
 		<div class="search-results" id="file-search-results" role="listbox" aria-label={m.file_tree_results_aria()}>
 			{#if searchLoading && searchResults.length === 0}
 				<div class="search-state loading">
-					<div class="search-spinner"></div>
+					<StatusMark status="running" />
 					<span>{m.ui_filetree_ricerca_file_in_corso_c572()}</span>
 				</div>
 			{:else if searchError}
@@ -1272,7 +1198,6 @@
 				</div>
 			{:else}
 				{#each searchResults as res, i (res.path)}
-					{@const fileType = getFileType(res.name)}
 					{@const resStatus = gitStatuses[res.path] || null}
 					{@const isSelected = i === selectedSearchIndex}
 					{@const parentDir = getParentDirectory(res.path)}
@@ -1282,17 +1207,12 @@
 						aria-selected={isSelected}
 						class="search-result-row"
 						class:selected={isSelected}
-						class:git-m={resStatus === 'M'}
-						class:git-a={resStatus === 'A'}
-						class:git-u={resStatus === 'U'}
 						class:git-d={resStatus === 'D'}
-						class:git-r={resStatus === 'R'}
-						class:git-c={resStatus === 'C'}
 						onclick={() => handleSelectSearchResult(res)}
 						onkeydown={(e) => handleSearchResultKeyDown(e, i, res)}
 						oncontextmenu={(e) => handleSearchResultContextMenu(e, res)}
 					>
-						{@render typeIcon(fileType, res.is_dir, false)}
+						{@render typeIcon(res.name, res.is_dir, false)}
 						<div class="result-info">
 							<span class="result-name">
 								{#each renderHighlightedText(res.name, res.name_indices) as seg}
@@ -1310,13 +1230,7 @@
 							{/if}
 						</div>
 						{#if resStatus}
-							<span
-								class="git-badge status-{resStatus}"
-								class:dir-badge={res.is_dir}
-								title={getStatusTitle(resStatus, res.is_dir)}
-							>
-								{res.is_dir ? '•' : resStatus}
-							</span>
+							<GitStatusMark status={resStatus} description={getStatusTitle(resStatus, res.is_dir)} />
 						{/if}
 					</button>
 				{/each}
@@ -1329,8 +1243,7 @@
 					<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
 					{@render typeIcon('folder', true, expanded)}
 				{:else}
-					{@const fileType = getFileType(renameValue || name)}
-					{@render typeIcon(fileType, false, false)}
+					{@render typeIcon(renameValue || name, false, false)}
 				{/if}
 				<form class="inline-form" onsubmit={(e) => { e.preventDefault(); void commitRename(); }}>
 					<input
@@ -1369,12 +1282,7 @@
 				aria-selected={isDir ? undefined : false}
 				tabindex={nav.isActive(rowKey) ? 0 : -1}
 				class:faint={isNoisy}
-				class:git-m={fileStatus === 'M'}
-				class:git-a={fileStatus === 'A'}
-				class:git-u={fileStatus === 'U'}
 				class:git-d={fileStatus === 'D'}
-				class:git-r={fileStatus === 'R'}
-				class:git-c={fileStatus === 'C'}
 				style="padding-left: {level * 12 + 8}px;"
 				onfocus={() => nav.setActive(rowKey)}
 				onclick={toggle}
@@ -1384,18 +1292,11 @@
 					<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
 					{@render typeIcon('folder', true, expanded)}
 				{:else}
-					{@const fileType = getFileType(name)}
-					{@render typeIcon(fileType, false, false)}
+					{@render typeIcon(name, false, false)}
 				{/if}
 				<span class="name">{name}</span>
 				{#if fileStatus}
-					<span
-						class="git-badge status-{fileStatus}"
-						class:dir-badge={isDir}
-						title={getStatusTitle(fileStatus, isDir)}
-					>
-						{isDir ? '•' : fileStatus}
-					</span>
+					<GitStatusMark status={fileStatus} description={getStatusTitle(fileStatus, isDir)} />
 				{/if}
 			</button>
 			{#if trashError}
@@ -1410,71 +1311,75 @@
 			{/if}
 		{/if}
 
-		{#if isDir && expanded}
-			<div class="children" role="group" transition:slide={{ duration: 180 }}>
-				{#if creatingType}
-					<div class="tree-row inline-edit-row" style="padding-left: {(level + 1) * 12 + 8}px;">
-						{#if creatingType === 'dir'}
-							<span class="arrow-icon"><IconChevronRight /></span>
-							{@render typeIcon('folder', true, false)}
-						{:else}
-							{@const fileType = getFileType(creationName)}
-							{@render typeIcon(fileType, false, false)}
-						{/if}
-						<form class="inline-form" onsubmit={(e) => { e.preventDefault(); void commitCreation(); }}>
-							<input
-								bind:this={creationInputRef}
-								bind:value={creationName}
-								type="text"
-								class="inline-input"
-								class:has-error={!!creationError}
-								placeholder={creatingType === 'dir' ? m.file_tree_input_folder_placeholder() : m.file_tree_input_file_placeholder()}
-								onkeydown={handleCreationKeyDown}
-								onblur={handleCreationBlur}
-								aria-label={creatingType === 'dir' ? m.ui_filetree_nome_nuova_cartella_6114() : m.ui_filetree_nome_nuovo_file_1264()}
-							/>
-						</form>
-					</div>
-					{#if creationError}
-						<div
-							class="inline-error"
-							role="alert"
-							aria-live="polite"
-							style="padding-left: {(level + 1) * 12 + 28}px;"
-						>
-							{creationError}
+		{#if isDir && childrenLinger.shown}
+			<div
+				class={foldAnimated ? `children ${childrenLinger.leaving ? 'tray-out' : 'tray-in'}` : 'children'}
+				role="group"
+			>
+				<div class="tray-fold-inner">
+					{#if creatingType}
+						<div class="tree-row inline-edit-row" style="padding-left: {(level + 1) * 12 + 8}px;">
+							{#if creatingType === 'dir'}
+								<span class="arrow-icon"><IconChevronRight /></span>
+								{@render typeIcon('', true, false)}
+							{:else}
+								{@render typeIcon(creationName, false, false)}
+							{/if}
+							<form class="inline-form" onsubmit={(e) => { e.preventDefault(); void commitCreation(); }}>
+								<input
+									bind:this={creationInputRef}
+									bind:value={creationName}
+									type="text"
+									class="inline-input"
+									class:has-error={!!creationError}
+									placeholder={creatingType === 'dir' ? m.file_tree_input_folder_placeholder() : m.file_tree_input_file_placeholder()}
+									onkeydown={handleCreationKeyDown}
+									onblur={handleCreationBlur}
+									aria-label={creatingType === 'dir' ? m.ui_filetree_nome_nuova_cartella_6114() : m.ui_filetree_nome_nuovo_file_1264()}
+								/>
+							</form>
 						</div>
+						{#if creationError}
+							<div
+								class="inline-error"
+								role="alert"
+								aria-live="polite"
+								style="padding-left: {(level + 1) * 12 + 28}px;"
+							>
+								{creationError}
+							</div>
+						{/if}
 					{/if}
-				{/if}
 
-				{#if loaded}
-					{#each entries as entry, i (entry.path)}
-						<FileTree
-							projectPath={projectPath}
-							relPath={entry.path}
-							name={entry.name}
-							isDir={entry.is_dir}
-							level={level + 1}
-							posInSet={i + 1}
-							setSize={entries.length}
-							onFileSelect={onFileSelect}
-							onFileDiff={onFileDiff}
-							dirtyFilePaths={dirtyFilePaths}
-							onPathRenamed={onPathRenamed}
-							onPathTrashed={onPathTrashed}
-						/>
-					{/each}
-					{#if entries.length === 0 && !creatingType}
-						<div class="empty" style="padding-left: {(level + 1) * 12 + 24}px;">(empty)</div>
+					{#if loaded}
+						{#each entries as entry, i (entry.path)}
+							<FileTree
+								projectPath={projectPath}
+								relPath={entry.path}
+								name={entry.name}
+								isDir={entry.is_dir}
+								level={level + 1}
+								posInSet={i + 1}
+								setSize={entries.length}
+								onFileSelect={onFileSelect}
+								onFileDiff={onFileDiff}
+								dirtyFilePaths={dirtyFilePaths}
+								onPathRenamed={onPathRenamed}
+								onPathTrashed={onPathTrashed}
+							/>
+						{/each}
+						{#if entries.length === 0 && !creatingType}
+							<div class="empty" style="padding-left: {(level + 1) * 12 + 24}px;">(empty)</div>
+						{/if}
+					{:else if loadError}
+						<div class="load-error" style="padding-left: {(level + 1) * 12 + 24}px;">
+							<span class="error-text" title={loadError}>{loadError}</span>
+							<button type="button" class="retry-btn" onclick={() => void loadEntries(true)}>{m.file_tree_retry()}</button>
+						</div>
+					{:else}
+						<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">Loading...</div>
 					{/if}
-				{:else if loadError}
-					<div class="load-error" style="padding-left: {(level + 1) * 12 + 24}px;">
-						<span class="error-text" title={loadError}>{loadError}</span>
-						<button type="button" class="retry-btn" onclick={() => void loadEntries(true)}>{m.file_tree_retry()}</button>
-					</div>
-				{:else}
-					<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">Loading...</div>
-				{/if}
+				</div>
 			</div>
 		{/if}
 	{/if}
@@ -1499,10 +1404,9 @@
 		height: 22px;
 		background: transparent;
 		border: none;
-		outline: none;
 		color: var(--ink);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		cursor: pointer;
 		text-align: left;
 		padding-right: var(--space-2);
@@ -1515,11 +1419,13 @@
 	.tree-row:hover,
 	.tree-row:focus-visible {
 		background: var(--bg-hover);
-		outline: none;
 	}
 
-	.tree-row:focus {
-		outline: none;
+	/* Le righe vivono dentro contenitori con overflow nascosto: l'anello
+	   globale va disegnato all'interno, o verrebbe tagliato sui bordi. */
+	.tree-row:focus-visible,
+	.search-result-row:focus-visible {
+		outline-offset: -2px;
 	}
 
 	.inline-edit-row {
@@ -1538,24 +1444,23 @@
 	.inline-input {
 		width: 100%;
 		height: 18px;
-		background: var(--bg-card);
-		border: 1px solid var(--accent);
-		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
 		color: var(--ink);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		padding: 0 4px;
-		outline: none;
 	}
 
-	.inline-input:focus {
-		border-color: var(--accent);
-		box-shadow: 0 0 0 1px var(--accent);
+	/* Il campo alto 18 px sta in una riga da 22: l'anello globale da 2 px
+	   resta intero solo appoggiato al bordo. */
+	.inline-input:focus-visible {
+		outline-offset: 0;
 	}
 
 	.inline-input.has-error {
 		border-color: var(--danger);
-		box-shadow: 0 0 0 1px var(--danger);
 	}
 
 	.inline-error {
@@ -1568,9 +1473,9 @@
 		word-break: break-word;
 	}
 
+	/* Cartelle rumorose (bin, obj, node_modules): un gradino sotto, mai sotto AA. */
 	.tree-row.faint {
 		color: var(--ink-faint);
-		opacity: 0.6;
 	}
 
 	.arrow-icon {
@@ -1581,7 +1486,7 @@
 		height: 12px;
 		--icon-size: 12px;
 		color: var(--ink-muted);
-		transition: transform 0.18s ease-out;
+		transition: transform var(--dur-fast) var(--ease-out);
 		flex-shrink: 0;
 	}
 
@@ -1593,35 +1498,21 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 15px;
-		height: 15px;
+		width: 16px;
+		height: 16px;
 		flex-shrink: 0;
+		color: var(--ink-faint);
 	}
 
-	.type-icon svg {
-		width: 14px;
-		height: 14px;
+	.type-icon.folder {
+		color: var(--ink-muted);
 	}
 
-	/* Il colore dell'icona vive nel foglio di stile, non nell'SVG: un solo
-	   token per tipo, stessa L/C per tutti. */
-	.type-icon { color: var(--ink-faint); }
-	.type-icon.folder  { color: var(--icon-folder); }
-	.type-icon.md      { color: var(--icon-md); }
-	.type-icon.json    { color: var(--icon-json); }
-	.type-icon.vb      { color: var(--icon-vb); }
-	.type-icon.aspx    { color: var(--icon-aspx); }
-	.type-icon.cs      { color: var(--icon-cs); }
-	.type-icon.svg     { color: var(--icon-svg); }
-	.type-icon.js      { color: var(--icon-js); }
-	.type-icon.ts      { color: var(--icon-ts); }
-	.type-icon.html    { color: var(--icon-html); }
-	.type-icon.css     { color: var(--icon-css); }
-	.type-icon.sql     { color: var(--icon-sql); }
-	.type-icon.xml     { color: var(--icon-xml); }
-	.type-icon.image   { color: var(--icon-image); }
-	.type-icon.archive { color: var(--icon-archive); }
-	.type-icon.pdf     { color: var(--icon-pdf); }
+	/* Piegatura dell'albero alla durata delle righe: si apre decine di volte
+	   al minuto, e su cartelle grandi il layout per fotogramma dura la meta'. */
+	.children {
+		--dur-tray: var(--dur-row);
+	}
 
 	.name {
 		flex: 1;
@@ -1630,43 +1521,11 @@
 		white-space: nowrap;
 	}
 
-	.git-badge {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		font-weight: 700;
-		line-height: 1;
-		padding: 1px 3px;
-		border-radius: var(--radius-sm);
-		margin-left: auto;
-		flex-shrink: 0;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.git-badge.dir-badge {
-		font-size: 12px;
-		padding: 0 2px;
-	}
-
-	.tree-row.git-m .name, .git-badge.status-M {
-		color: var(--git-modified);
-	}
-	.tree-row.git-a .name, .git-badge.status-A {
-		color: var(--git-added);
-	}
-	.tree-row.git-u .name, .git-badge.status-U {
-		color: var(--git-untracked);
-	}
-	.tree-row.git-d .name, .git-badge.status-D {
-		color: var(--git-deleted);
+	/* Lo stato Git e' la lettera di GitStatusMark: il nome resta --ink e il
+	   file eliminato si legge dal segno barrato, non dal colore. */
+	.tree-row.git-d .name,
+	.search-result-row.git-d .result-name {
 		text-decoration: line-through;
-	}
-	.tree-row.git-r .name, .git-badge.status-R {
-		color: var(--git-renamed);
-	}
-	.tree-row.git-c .name, .git-badge.status-C {
-		color: var(--git-conflict);
 	}
 
 	.empty, .loading {
@@ -1698,9 +1557,9 @@
 	.load-error .retry-btn {
 		background: transparent;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		padding: 1px 6px;
 		cursor: pointer;
 		flex-shrink: 0;
@@ -1730,16 +1589,18 @@
 		height: 26px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink);
 		padding: 0 6px;
 		gap: 6px;
-		transition: border-color 0.15s ease;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.search-input-wrapper:focus-within {
-		border-color: var(--brand);
-		outline: 1px solid var(--brand);
+	/* Il campo non disegna l'anello: lo porta l'involucro, a 2 px come ovunque. */
+	.search-input-wrapper:has(.search-input:focus-visible) {
+		border-color: var(--line-strong);
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 	}
 
 	.search-icon {
@@ -1747,20 +1608,9 @@
 		align-items: center;
 		justify-content: center;
 		color: var(--ink-faint);
-		font-size: 13px;
+		--icon-size: 13px;
 		flex-shrink: 0;
 	}
-
-	.search-spinner {
-		width: 12px;
-		height: 12px;
-		border: 2px solid var(--line);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 0.6s linear infinite;
-		flex-shrink: 0;
-	}
-
 
 	.search-input {
 		flex: 1;
@@ -1771,7 +1621,7 @@
 		outline: none;
 		color: var(--ink);
 		font-family: var(--font-ui);
-		font-size: var(--text-xs);
+		font-size: var(--text-body);
 		padding: 0;
 	}
 
@@ -1790,12 +1640,13 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 16px;
-		height: 16px;
+		width: 18px;
+		height: 18px;
+		--icon-size: 12px;
 		padding: 0;
 		background: transparent;
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
 		cursor: pointer;
 		flex-shrink: 0;
@@ -1814,9 +1665,9 @@
 	}
 
 	.meta-label {
-		font-size: 10px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
-		font-family: var(--font-mono);
 	}
 
 	.meta-label.error {
@@ -1844,7 +1695,7 @@
 		border: none;
 		color: var(--ink);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		cursor: pointer;
 		text-align: left;
 		gap: 6px;
@@ -1854,7 +1705,6 @@
 	.search-result-row:focus-visible,
 	.search-result-row.selected {
 		background: var(--bg-hover);
-		outline: none;
 	}
 
 	.result-info {
@@ -1866,7 +1716,7 @@
 	}
 
 	.result-name {
-		font-size: var(--text-xs);
+		font-size: var(--text-body);
 		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -1874,41 +1724,22 @@
 	}
 
 	.result-path {
-		font-size: 10px;
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
+	/* Lettere trovate come nelle palette: sottolineatura --warn da 2 px. */
 	mark.match {
 		background: transparent;
-		color: var(--brand);
+		color: inherit;
 		font-weight: 700;
-		text-decoration: underline;
-		text-decoration-color: var(--brand);
+		text-decoration: underline 2px var(--warn);
 		text-underline-offset: 2px;
 	}
 
-	.search-result-row.git-m .result-name {
-		color: var(--git-modified);
-	}
-	.search-result-row.git-a .result-name {
-		color: var(--git-added);
-	}
-	.search-result-row.git-u .result-name {
-		color: var(--git-untracked);
-	}
-	.search-result-row.git-d .result-name {
-		color: var(--git-deleted);
-		text-decoration: line-through;
-	}
-	.search-result-row.git-r .result-name {
-		color: var(--git-renamed);
-	}
-	.search-result-row.git-c .result-name {
-		color: var(--git-conflict);
-	}
 
 	.search-state {
 		display: flex;
@@ -1930,9 +1761,9 @@
 	.search-state .retry-btn {
 		background: transparent;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		padding: 3px 8px;
 		cursor: pointer;
 	}

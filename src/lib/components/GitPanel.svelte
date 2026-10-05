@@ -3,8 +3,23 @@
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { fetchSessionsList } from '$lib/agent/sessionsList';
-	import { IconGitBranch, IconChevronDown, IconDiamond, IconCheck, IconPlus, IconExternalLink } from '$lib/icons';
+	import {
+		IconArrowDown,
+		IconArrowUp,
+		IconCheck,
+		IconChevronDown,
+		IconClose,
+		IconCloud,
+		IconDiamond,
+		IconExternalLink,
+		IconGitBranch,
+		IconPlus
+	} from '$lib/icons';
+	import { chatReveal } from '$lib/agent/motion';
 	import GitStatusMark from '$lib/ui/GitStatusMark.svelte';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { perfSpan } from '$lib/perf';
 	import { notifyGitStatusRefresh, type GitStatusRefreshDetail } from '$lib/stores/gitDiff.svelte';
 	import { githubStore } from '$lib/stores/github.svelte';
@@ -55,8 +70,6 @@
 	let branch = $state('');
 	let branches = $state<{ name: string; current: boolean }[]>([]);
 	let branchMenuOpen = $state(false);
-	let branchBtnEl = $state<HTMLButtonElement | null>(null);
-	let branchMenuEl = $state<HTMLDivElement | null>(null);
 	let newBranchName = $state('');
 	let workingFiles = $state<WorkingFile[]>([]);
 	let lastCommit = $state<CommitInfo | null>(null);
@@ -69,6 +82,20 @@
 	let actionError = $state<string | null>(null);
 	let syncMessage = $state<string | null>(null);
 	let showIncomingCommits = $state(false);
+
+	// Righe nuove: chatReveal solo per le chiavi comparse dopo la prima lettura.
+	// Montaggio, cambio scheda e cambio progetto ({#key}) restano fermi
+	// (Still-Room Rule); il polling non rianima le righe gia' presenti.
+	let knownWorking: Set<string> | null = null;
+	let knownCommits: Set<string> | null = null;
+	let freshKeys = $state(new Set<string>());
+
+	function trackFresh(known: Set<string> | null, keys: string[], fresh: Set<string>): Set<string> {
+		if (known) {
+			for (const key of keys) if (!known.has(key)) fresh.add(key);
+		}
+		return new Set(keys);
+	}
 
 	const normalizedKey = $derived(normalizeProjectPath(projectPath).toLowerCase());
 	const upstream = $derived(githubStore.upstreamByPath[normalizedKey] ?? null);
@@ -159,7 +186,7 @@
 
 			notRepo = false;
 			branch = b;
-			workingFiles = Object.entries(statuses)
+			const nextWorking = Object.entries(statuses)
 				.map(([p, st]) => ({
 					path: p,
 					status: st,
@@ -167,6 +194,11 @@
 					deletions: nums[p]?.deletions ?? null
 				}))
 				.sort((a, b) => a.path.localeCompare(b.path));
+			const fresh = new Set<string>();
+			knownWorking = trackFresh(knownWorking, nextWorking.map((f) => f.path), fresh);
+			knownCommits = trackFresh(knownCommits, rec.map((c) => c.hash), fresh);
+			freshKeys = fresh;
+			workingFiles = nextWorking;
 			lastCommit = last;
 			commits = rec;
 			void githubStore.loadUpstreamStatus(targetPath, force);
@@ -272,35 +304,6 @@
 		}
 	}
 
-	function handleWindowKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && branchMenuOpen) {
-			const t = e.target as HTMLElement | null;
-			if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
-				if (!branchMenuEl?.contains(t)) return;
-			}
-			branchMenuOpen = false;
-			branchBtnEl?.focus();
-		}
-	}
-
-	function handleWindowPointerDown(e: MouseEvent) {
-		if (!branchMenuOpen) return;
-		const target = e.target as Node | null;
-		if (target && !branchMenuEl?.contains(target) && !branchBtnEl?.contains(target)) {
-			branchMenuOpen = false;
-		}
-	}
-
-	$effect(() => {
-		if (branchMenuOpen) {
-			window.addEventListener('pointerdown', handleWindowPointerDown);
-			window.addEventListener('keydown', handleWindowKeydown);
-			return () => {
-				window.removeEventListener('pointerdown', handleWindowPointerDown);
-				window.removeEventListener('keydown', handleWindowKeydown);
-			};
-		}
-	});
 
 	async function checkout(name: string) {
 		actionError = null;
@@ -337,19 +340,56 @@
 			<button type="button" class="retry-btn" onclick={() => void refresh()}>{m.git_btn_retry()}</button>
 		</div>
 	{:else}
-		<div class="branch-row" title={m.git_current_branch()}>
-			<button
-				bind:this={branchBtnEl}
-				class="branch-btn"
-				onclick={() => (branchMenuOpen = !branchMenuOpen)}
-				title={m.git_change_branch()}
-				aria-haspopup="menu"
-				aria-expanded={branchMenuOpen}
+		<div class="branch-row">
+			<MenuButton
+				open={branchMenuOpen}
+				ariaLabel={`${m.git_change_branch()}: ${branch || '—'}`}
+				tooltip={m.git_change_branch()}
+				width="260px"
+				className="branch-trigger"
+				onToggle={() => (branchMenuOpen = !branchMenuOpen)}
+				onClose={() => (branchMenuOpen = false)}
 			>
-				<span class="branch-icon" aria-hidden="true"><IconGitBranch /></span>
-				<span class="branch-name">{branch || '—'}</span>
-				<span class="branch-caret" aria-hidden="true"><IconChevronDown /></span>
-			</button>
+				{#snippet trigger()}
+					<span class="branch-icon" aria-hidden="true"><IconGitBranch /></span>
+					<span class="branch-name">{branch || '—'}</span>
+					<span class="branch-caret" aria-hidden="true"><IconChevronDown /></span>
+				{/snippet}
+				{#each branches as b (b.name)}
+					<button
+						type="button"
+						class="branch-item"
+						role="menuitemradio"
+						aria-checked={b.current}
+						disabled={b.current}
+						onclick={() => checkout(b.name)}
+					>
+						<span class="branch-check" aria-hidden="true">{#if b.current}<IconCheck />{/if}</span>
+						<span class="branch-item-name">{b.name}</span>
+					</button>
+				{/each}
+				<div class="branch-new">
+					<input
+						class="ui-input branch-input"
+						placeholder={m.ui_gitpanel_feature_nuova_idea_d0a3()}
+						aria-label={m.git_btn_create_branch()}
+						bind:value={newBranchName}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') void createBranch();
+						}}
+					/>
+					<Tooltip text={m.git_btn_create_branch()}>
+						<button
+							type="button"
+							class="ui-button ui-button-secondary branch-create"
+							aria-label={m.git_btn_create_branch()}
+							onclick={() => void createBranch()}
+						>
+							<IconPlus />
+						</button>
+					</Tooltip>
+				</div>
+			</MenuButton>
 		</div>
 
 		<!-- Sezione GitHub Sync & Upstream -->
@@ -357,35 +397,35 @@
 			<div class="sync-card">
 				<div class="sync-status-row">
 					<div class="sync-info">
-						<span class="sync-branch">
-							{#if upstream.upstream}
-								<span class="upstream-name" title={`Traccia ${upstream.upstream}`}>
-									☁️ {upstream.upstream}
-								</span>
-							{:else}
-								<span class="upstream-none">Nessun upstream</span>
-							{/if}
-						</span>
+						{#if upstream.upstream}
+							<span class="upstream-name" title={`Traccia ${upstream.upstream}`}>
+								<span class="upstream-icon" aria-hidden="true"><IconCloud /></span>
+								{upstream.upstream}
+							</span>
+						{:else}
+							<span class="upstream-none">Nessun upstream</span>
+						{/if}
 						{#if upstream.ahead > 0 || upstream.behind > 0}
 							<div class="divergence-pills">
 								{#if upstream.behind > 0}
 									<button
 										type="button"
-										class="div-pill behind clickable"
+										class="div-pill clickable"
+										aria-expanded={showIncomingCommits}
 										onclick={() => (showIncomingCommits = !showIncomingCommits)}
-										title="Visualizza i commit in arrivo"
+										title={m.topbar_upstream_behind_tooltip({ count: upstream.behind })}
 									>
-										↓ {upstream.behind}
+										<IconArrowDown />{upstream.behind}
 									</button>
 								{/if}
 								{#if upstream.ahead > 0}
-									<span class="div-pill ahead" title={`${upstream.ahead} commit locali da inviare`}>
-										↑ {upstream.ahead}
+									<span class="div-pill" title={m.topbar_upstream_ahead_tooltip({ count: upstream.ahead })}>
+										<IconArrowUp />{upstream.ahead}
 									</span>
 								{/if}
 							</div>
 						{:else if upstream.upstream}
-							<span class="sync-aligned">✓ Allineato</span>
+							<span class="sync-aligned"><IconCheck />{m.git_upstream_aligned()}</span>
 						{/if}
 					</div>
 
@@ -393,42 +433,42 @@
 						{#if upstream.behind > 0 && upstream.ahead === 0}
 							<button
 								type="button"
-								class="btn-sync"
+								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('pull')}
 								disabled={isSyncing}
 								title="Scarica i commit da GitHub (pull rebase)"
 							>
-								{isSyncing ? '...' : `Pull (↓${upstream.behind})`}
+								{isSyncing ? '…' : 'Pull'}
 							</button>
 						{:else if upstream.ahead > 0 && upstream.behind === 0}
 							<button
 								type="button"
-								class="btn-sync"
+								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('push')}
 								disabled={isSyncing}
 								title="Invia i commit a GitHub (push)"
 							>
-								{isSyncing ? '...' : `Push (↑${upstream.ahead})`}
+								{isSyncing ? '…' : 'Push'}
 							</button>
 						{:else if upstream.ahead > 0 && upstream.behind > 0}
 							<button
 								type="button"
-								class="btn-sync btn-sync-dual"
+								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('sync')}
 								disabled={isSyncing}
 								title="Pull e push combinati"
 							>
-								{isSyncing ? '...' : `Sync (↑${upstream.ahead} ↓${upstream.behind})`}
+								{isSyncing ? '…' : 'Sync'}
 							</button>
 						{:else}
 							<button
 								type="button"
-								class="btn-sync btn-sync-idle"
+								class="ui-button ui-button-secondary btn-sync"
 								onclick={() => handleSync('fetch')}
 								disabled={isSyncing}
 								title="Controlla nuovi commit su GitHub (fetch)"
 							>
-								{isSyncing ? '...' : 'Fetch'}
+								{isSyncing ? '…' : 'Fetch'}
 							</button>
 						{/if}
 					</div>
@@ -441,7 +481,7 @@
 				<!-- Commit in arrivo espandibili -->
 				{#if showIncomingCommits && upstream.incomingCommits.length > 0}
 					<div class="incoming-commits-list">
-						<div class="incoming-head">Commit in arrivo da GitHub:</div>
+						<div class="incoming-head">{m.git_incoming_commits()}</div>
 						{#each upstream.incomingCommits as c (c.hash)}
 							<div class="incoming-commit-row" title={`${c.author} · ${c.date}`}>
 								<span class="commit-hash">{c.shortHash}</span>
@@ -452,33 +492,36 @@
 					</div>
 				{/if}
 
-				<!-- GitHub Actions CI Status -->
+				<!-- GitHub Actions CI Status: esito con icona e testo, senza fondo -->
 				{#if latestAction}
+					{@const ci =
+						latestAction.conclusion === 'success'
+							? 'success'
+							: latestAction.conclusion === 'failure'
+								? 'failure'
+								: 'running'}
 					<div class="actions-status-row">
-						<span class="ci-label">CI:</span>
-						<span
-							class="ci-badge"
-							class:success={latestAction.conclusion === 'success'}
-							class:failure={latestAction.conclusion === 'failure'}
-							class:running={latestAction.status === 'in_progress' || latestAction.status === 'queued'}
-						>
-							{#if latestAction.conclusion === 'success'}
-								✓ Pass
-							{:else if latestAction.conclusion === 'failure'}
-								✕ Fail
+						<span class="ci-label">CI</span>
+						<span class="ci-outcome {ci}">
+							{#if ci === 'success'}
+								<IconCheck />{m.git_ci_success()}
+							{:else if ci === 'failure'}
+								<IconClose />{m.git_ci_failure()}
 							{:else}
-								⟳ Run
+								<StatusMark status="running" />{m.git_ci_running()}
 							{/if}
 						</span>
 						<span class="ci-name" title={latestAction.name}>{latestAction.name}</span>
-						<button
-							type="button"
-							class="ci-link"
-							onclick={() => void openUrl(latestAction!.url)}
-							title="Apri su GitHub"
-						>
-							<IconExternalLink />
-						</button>
+						<Tooltip text="Apri su GitHub">
+							<button
+								type="button"
+								class="ci-link"
+								aria-label="Apri su GitHub"
+								onclick={() => void openUrl(latestAction!.url)}
+							>
+								<IconExternalLink />
+							</button>
+						</Tooltip>
 					</div>
 				{/if}
 			</div>
@@ -486,16 +529,16 @@
 
 		<div class="section-label">
 			{m.git_uncommitted()}
-			{#if isRefreshing}<span class="git-spinner" aria-hidden="true"></span>{/if}
+			{#if isRefreshing}<StatusMark status="running" />{/if}
 			{#if workingFiles.length > 0}<span class="count">{workingFiles.length}</span>{/if}
 		</div>
 		{#if workingFiles.length === 0}
 			<div class="empty">{m.git_clean_tree()}</div>
 		{:else}
-			{#each workingFiles as f, i (f.path)}
+			{#each workingFiles as f (f.path)}
 				<button
-					class="row git-row-animated"
-					style:--index={Math.min(i, 8)}
+					class="row"
+					in:chatReveal={{ duration: freshKeys.has(f.path) ? undefined : 0 }}
 					title="{f.path} — clicca per il diff con HEAD"
 					onclick={() => onOpenWorkingDiff?.(f.path)}
 				>
@@ -504,7 +547,7 @@
 					{#if f.insertions !== null || f.deletions !== null}
 						<span class="nums">
 							{#if f.insertions}<span class="ins">+{f.insertions}</span>{/if}
-							{#if f.deletions}<span class="del">-{f.deletions}</span>{/if}
+							{#if f.deletions}<span class="del">−{f.deletions}</span>{/if}
 						</span>
 					{/if}
 				</button>
@@ -515,47 +558,18 @@
 		{#if sessions.length === 0}
 			<div class="empty">{m.git_no_sessions()}</div>
 		{:else}
-			{#each sessions.slice(0, 8) as s, i (s.id)}
+			{#each sessions.slice(0, 8) as s (s.id)}
 				<button
-					class="row session-row git-row-animated"
-					style:--index={Math.min(i, 8)}
+					class="row session-row"
 					disabled={!canResume}
 					title={canResume ? m.ui_gitpanel_value1_clicca_per_riprendere_questa_sessione_968c({ value1: s.title }) : resumeReason}
 					onclick={() => onResumeSession?.(s.id)}
 				>
-					<span class="badge session-badge" aria-hidden="true"><IconDiamond /></span>
+					<span class="session-badge" aria-hidden="true"><IconDiamond /></span>
 					<span class="name">{s.title || m.session_list_untitled()}</span>
 					<span class="nums"><span class="session-time">{relTime(s.created_at)}</span></span>
 				</button>
 			{/each}
-		{/if}
-		{#if branchMenuOpen}
-			<div class="branch-menu" bind:this={branchMenuEl} role="menu">
-				{#each branches as b (b.name)}
-					<button
-						class="branch-item"
-						class:current={b.current}
-						onclick={() => checkout(b.name)}
-						disabled={b.current}
-						title={b.current ? m.git_active_branch() : m.git_switch_to_branch({ name: b.name })}
-						role="menuitem"
-					>
-						<span class="branch-check">{#if b.current}<IconCheck />{/if}</span>
-						{b.name}
-					</button>
-				{/each}
-				<div class="branch-new">
-					<input
-						class="branch-input"
-						placeholder={m.ui_gitpanel_feature_nuova_idea_d0a3()}
-						bind:value={newBranchName}
-						onkeydown={(e) => {
-							if (e.key === 'Enter') void createBranch();
-						}}
-					/>
-					<button class="branch-create" onclick={() => void createBranch()} title={m.git_btn_create_branch()}><IconPlus /></button>
-				</div>
-			</div>
 		{/if}
 		{#if actionError}
 			<div class="action-error" title={actionError}>{actionError}</div>
@@ -573,12 +587,12 @@
 						title="{f.path} — diff di questo commit"
 						onclick={() => onOpenCommitDiff?.(f.path, lastCommit!.hash, lastCommit!.short)}
 					>
-						<span class="badge st-{f.status}">{f.status}</span>
+						<GitStatusMark status={f.status} />
 						<span class="name"><span class="dir">{dirName(f.path)}</span>{baseName(f.path)}</span>
 						{#if f.insertions !== null || f.deletions !== null}
 							<span class="nums">
 								{#if f.insertions}<span class="ins">+{f.insertions}</span>{/if}
-								{#if f.deletions}<span class="del">-{f.deletions}</span>{/if}
+								{#if f.deletions}<span class="del">−{f.deletions}</span>{/if}
 							</span>
 						{/if}
 					</button>
@@ -588,8 +602,8 @@
 
 		{#if commits.length > 1}
 			<div class="section-label">{m.git_history()}</div>
-			{#each commits.slice(1) as c, i (c.hash)}
-				<div class="commit-card git-row-animated" style:--index={Math.min(i, 8)}>
+			{#each commits.slice(1) as c (c.hash)}
+				<div class="commit-card" in:chatReveal={{ duration: freshKeys.has(c.hash) ? undefined : 0 }}>
 					<button class="commit-head" title={c.hash} onclick={() => toggleCommit(c.hash)}>
 						<span class="dot" aria-hidden="true"></span>
 						<span class="subject">{c.subject}</span>
@@ -602,7 +616,7 @@
 								title="{f.path} — diff di questo commit"
 								onclick={() => onOpenCommitDiff?.(f.path, c.hash, c.short)}
 							>
-								<span class="badge st-{f.status}">{f.status}</span>
+								<GitStatusMark status={f.status} />
 								<span class="name"><span class="dir">{dirName(f.path)}</span>{baseName(f.path)}</span>
 							</button>
 						{/each}
@@ -619,109 +633,115 @@
 		font-family: var(--font-ui);
 	}
 
+	/* Il trigger del menu branch occupa tutta la riga: MenuButton e Tooltip
+	   nascono inline, qui si allargano. */
 	.branch-row {
 		display: flex;
 		align-items: center;
 		padding: 0 var(--space-2);
 	}
 
-	.branch-btn {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		width: 100%;
-		height: 26px;
-		padding: 0 var(--space-1);
-		background: transparent;
-		border: none;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		text-align: left;
+	.branch-row :global(.tooltip-wrapper),
+	.branch-row :global(.menu-button-container) {
+		flex: 1;
+		min-width: 0;
 	}
 
-	.branch-btn:hover {
-		background: var(--bg-hover);
+	.branch-row :global(.branch-trigger) {
+		width: 100%;
+		min-width: 0;
+		height: 26px;
+		padding: 0 var(--space-1);
+		color: var(--ink);
+	}
+
+	.branch-icon,
+	.branch-caret {
+		display: inline-flex;
+		color: var(--ink-faint);
 	}
 
 	.branch-caret {
-		color: var(--ink-faint);
 		--icon-size: 12px;
 		margin-left: auto;
 	}
 
-	.branch-icon {
-		color: var(--ink-faint);
-		font-size: var(--text-base);
-		line-height: 1;
-	}
-
 	.branch-name {
+		min-width: 0;
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-mono);
 		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
+	/* Etichetta di sezione in frase: niente maiuscolo spaziato sotto le schede. */
 	.section-label {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		padding: var(--space-3) var(--space-3) var(--space-1);
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		font-size: var(--text-label);
+		font-weight: 500;
 	}
 
-	.branch-menu {
-		margin: 0 var(--space-2) var(--space-1);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		background: var(--bg-overlay);
-		padding: var(--space-1);
-		max-height: 220px;
-		overflow-y: auto;
+	.count {
+		background: var(--bg-active);
+		color: var(--ink-muted);
+		border-radius: var(--radius-full);
+		padding: 0 6px;
+		line-height: 16px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 	}
 
+	/* Righe del menu branch: stesso passo delle righe di MenuButton. */
 	.branch-item {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-2);
 		width: 100%;
-		height: 24px;
-		padding: 0 var(--space-2);
+		padding: 7px 8px;
 		background: transparent;
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-mono);
 		cursor: pointer;
 		text-align: left;
+		transition: background-color var(--dur-fast) var(--ease-out);
 	}
 
 	.branch-item:hover:not(:disabled) {
 		background: var(--bg-hover);
 	}
 
-	.branch-item.current {
-		color: var(--brand-ink);
+	.branch-item:disabled {
 		cursor: default;
 	}
 
+	.branch-item-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.branch-check {
+		display: inline-flex;
 		width: 12px;
 		flex-shrink: 0;
 		--icon-size: 12px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
+		color: var(--brand-ink);
 	}
 
 	.branch-new {
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-1);
 		padding: var(--space-1) var(--space-1) 0;
 		border-top: 1px solid var(--line);
 		margin-top: var(--space-1);
@@ -729,53 +749,30 @@
 
 	.branch-input {
 		flex: 1;
-		min-width: 0;
-		height: 24px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		padding: 0 var(--space-2);
-	}
-
-	.branch-input:focus {
-		outline: none;
-		border-color: var(--brand-dim);
+		font-size: var(--text-mono);
 	}
 
 	.branch-create {
-		width: 24px;
-		height: 24px;
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-		font-size: var(--text-md);
-		line-height: 1;
+		height: 30px;
+		padding: 0 var(--space-2);
 	}
 
-	.branch-create:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
+	/* Errore d'azione: esito in testo meta, senza fondo. */
 	.action-error {
-		margin: var(--space-1) var(--space-2);
-		padding: var(--space-1) var(--space-2);
-		background: var(--bg-overlay);
-		border-left: none;
-		border-radius: var(--radius-sm);
-		color: var(--git-deleted);
-		font-size: var(--text-xs);
+		margin: var(--space-1) var(--space-3);
+		color: var(--danger);
+		font-size: var(--text-meta);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 
 	.session-badge {
+		display: inline-flex;
+		width: 14px;
+		justify-content: center;
+		flex-shrink: 0;
 		color: var(--brand-ink);
 		--icon-size: 12px;
 	}
@@ -784,35 +781,35 @@
 		color: var(--ink-faint);
 	}
 
-	.count {
-		font-family: var(--font-mono);
-		background: var(--bg-active);
-		color: var(--ink-muted);
-		border-radius: var(--radius-full);
-		padding: 0 6px;
-		line-height: 16px;
-		font-size: 10px;
-	}
-
 	.row {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		width: 100%;
-		height: 22px;
+		height: 24px;
 		padding: 0 var(--space-3);
 		background: transparent;
 		border: none;
 		color: var(--ink);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		cursor: pointer;
 		text-align: left;
 		white-space: nowrap;
 		overflow: hidden;
 	}
 
-	.row:hover {
+	/* Le righe stanno in un contenitore che taglia: l'anello va all'interno. */
+	.row:focus-visible,
+	.commit-head:focus-visible {
+		outline-offset: -2px;
+	}
+
+	.row:hover:not(:disabled) {
 		background: var(--bg-hover);
+	}
+
+	.row:disabled {
+		cursor: default;
 	}
 
 	.row.sub {
@@ -829,35 +826,18 @@
 		color: var(--ink-faint);
 	}
 
-	.badge {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		font-weight: 700;
-		line-height: 1;
-		width: 14px;
-		flex-shrink: 0;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.badge.st-M { color: var(--git-modified); }
-	.badge.st-A { color: var(--git-added); }
-	.badge.st-U { color: var(--git-untracked); }
-	.badge.st-D { color: var(--git-deleted); }
-	.badge.st-R { color: var(--git-renamed); }
-	.badge.st-C { color: var(--git-conflict); }
-
 	.nums {
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
 		flex-shrink: 0;
 		display: inline-flex;
 		gap: 4px;
 	}
 
-	.ins { color: var(--git-added); }
-	.del { color: var(--git-deleted); }
+	/* Esito del diff: verde e rosso sempre con il segno + e −. */
+	.ins { color: var(--success); }
+	.del { color: var(--danger); }
 
 	.commit-card {
 		margin: 0 var(--space-2) var(--space-1);
@@ -885,7 +865,7 @@
 
 	.subject {
 		color: var(--ink);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -904,8 +884,9 @@
 
 	.meta {
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -914,7 +895,7 @@
 	.empty {
 		padding: 2px var(--space-3);
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 	}
 
 	.git-error {
@@ -923,10 +904,10 @@
 		gap: var(--space-2);
 		margin: var(--space-1) var(--space-2);
 		padding: var(--space-2);
-		background: var(--bg-overlay);
-		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
 		color: var(--danger);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 	}
 
 	.git-error-text {
@@ -940,12 +921,15 @@
 	.git-error .retry-btn {
 		background: transparent;
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		padding: 1px 6px;
 		cursor: pointer;
 		flex-shrink: 0;
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
 	.git-error .retry-btn:hover {
@@ -953,29 +937,12 @@
 		color: var(--ink);
 	}
 
-	.git-spinner {
-		display: inline-block;
-		width: 10px;
-		height: 10px;
-		border: 1.5px solid var(--line-strong);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 600ms linear infinite;
-		margin-left: var(--space-1);
-	}
-
-	.git-row-animated {
-		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
-		animation-delay: min(calc(var(--index, 0) * 20ms), 200ms);
-	}
-
-	/* Stili Sync Card e GitHub Actions */
+	/* Scheda di sincronizzazione: superficie neutra, solo il bordo la separa. */
 	.sync-card {
-		margin: var(--space-2) 0;
+		margin: var(--space-2);
 		padding: var(--space-2) var(--space-3);
-		background: var(--surface-2, rgba(255, 255, 255, 0.03));
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
@@ -993,91 +960,80 @@
 		align-items: center;
 		gap: var(--space-2);
 		flex-wrap: wrap;
+		min-width: 0;
 	}
 
 	.upstream-name {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 		font-family: var(--font-mono);
-		font-size: 0.72rem;
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
+		--icon-size: 12px;
+	}
+
+	.upstream-icon {
+		display: inline-flex;
+		color: var(--ink-faint);
 	}
 
 	.upstream-none {
-		font-size: 0.72rem;
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
 		font-style: italic;
 	}
 
 	.sync-aligned {
-		font-size: 0.72rem;
-		color: var(--success, #2ecc71);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: var(--text-meta);
+		color: var(--ink-muted);
+		--icon-size: 12px;
 	}
 
 	.divergence-pills {
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
+		gap: 4px;
 	}
 
+	/* Conteggi ahead/behind neutri: la freccia dice la direzione. */
 	.div-pill {
-		font-family: var(--font-mono);
-		font-size: 0.7rem;
-		font-weight: 600;
-		padding: 1px 5px;
-		border-radius: var(--radius-sm);
-	}
-
-	.div-pill.behind {
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
-		color: var(--brand);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
-	}
-
-	.div-pill.ahead {
-		background: color-mix(in srgb, var(--accent, #3498db) 15%, transparent);
-		color: var(--accent, #3498db);
-		border: 1px solid color-mix(in srgb, var(--accent, #3498db) 30%, transparent);
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		height: 18px;
+		padding: 0 6px 0 4px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		background: transparent;
+		color: var(--ink-muted);
+		font-family: var(--font-ui);
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
+		--icon-size: 12px;
 	}
 
 	.div-pill.clickable {
 		cursor: pointer;
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
-	.btn-sync {
-		padding: 2px 8px;
-		font-size: 0.74rem;
-		font-weight: 500;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--brand);
-		background: color-mix(in srgb, var(--brand) 15%, transparent);
-		color: var(--brand);
-		cursor: pointer;
-		white-space: nowrap;
-		transition: all 0.15s ease;
-	}
-
-	.btn-sync:hover:not(:disabled) {
-		background: var(--brand);
-		color: #ffffff;
-	}
-
-	.btn-sync:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-
-	.btn-sync-idle {
-		border-color: var(--line);
-		background: transparent;
-		color: var(--ink-muted);
-	}
-
-	.btn-sync-idle:hover:not(:disabled) {
+	.div-pill.clickable:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
 	}
 
+	.btn-sync {
+		white-space: nowrap;
+	}
+
 	.sync-feedback {
-		font-size: 0.72rem;
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
 		line-height: 1.3;
 	}
@@ -1091,24 +1047,21 @@
 	}
 
 	.incoming-head {
-		font-size: 0.7rem;
-		font-weight: 600;
+		font-size: var(--text-caption);
+		font-weight: 500;
 		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
 	}
 
 	.incoming-commit-row {
 		display: flex;
 		align-items: baseline;
 		gap: var(--space-2);
-		font-size: 0.75rem;
+		font-size: var(--text-meta);
 	}
 
 	.commit-hash {
 		font-family: var(--font-mono);
-		font-size: 0.7rem;
-		color: var(--brand);
+		color: var(--ink-faint);
 		flex-shrink: 0;
 	}
 
@@ -1121,8 +1074,8 @@
 	}
 
 	.commit-date {
-		font-size: 0.68rem;
 		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
 		flex-shrink: 0;
 	}
 
@@ -1132,41 +1085,30 @@
 		gap: var(--space-2);
 		padding-top: var(--space-1);
 		border-top: 1px solid var(--line);
-		font-size: 0.74rem;
+		font-size: var(--text-meta);
 	}
 
 	.ci-label {
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--ink-muted);
 	}
 
-	.ci-badge {
-		padding: 1px 6px;
-		border-radius: var(--radius-sm);
-		font-size: 0.68rem;
-		font-weight: 600;
+	/* Esito CI come testo con icona, mai una pillola piena. */
+	.ci-outcome {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+		--icon-size: 12px;
 	}
 
-	.ci-badge.success {
-		background: color-mix(in srgb, var(--success, #2ecc71) 15%, transparent);
-		color: var(--success, #2ecc71);
-		border: 1px solid color-mix(in srgb, var(--success, #2ecc71) 30%, transparent);
-	}
-
-	.ci-badge.failure {
-		background: color-mix(in srgb, var(--danger, #e74c3c) 15%, transparent);
-		color: var(--danger, #e74c3c);
-		border: 1px solid color-mix(in srgb, var(--danger, #e74c3c) 30%, transparent);
-	}
-
-	.ci-badge.running {
-		background: color-mix(in srgb, var(--warn, #f39c12) 15%, transparent);
-		color: var(--warn, #f39c12);
-		border: 1px solid color-mix(in srgb, var(--warn, #f39c12) 30%, transparent);
-	}
+	.ci-outcome.success { color: var(--success); }
+	.ci-outcome.failure { color: var(--danger); }
+	.ci-outcome.running { color: var(--ink-muted); }
 
 	.ci-name {
 		flex: 1;
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -1174,13 +1116,15 @@
 	}
 
 	.ci-link {
-		background: none;
-		border: none;
-		padding: 2px;
-		color: var(--ink-muted);
-		cursor: pointer;
 		display: flex;
 		align-items: center;
+		padding: 2px;
+		background: none;
+		border: none;
+		border-radius: var(--radius-md);
+		color: var(--ink-muted);
+		cursor: pointer;
+		transition: color var(--dur-fast) var(--ease-out);
 	}
 
 	.ci-link:hover {

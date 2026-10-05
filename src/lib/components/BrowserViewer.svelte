@@ -35,7 +35,6 @@
 	} from '$lib/agent/browser-live';
 	import { untrack } from 'svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { trapFocus } from '$lib/focusTrap';
 	import { traceFocus } from '$lib/focusTracer';
 	import { projectStore } from '$lib/stores/projects.svelte';
 	import {
@@ -60,6 +59,14 @@
 		IconChevronRight,
 		IconPlus
 	} from '$lib/icons';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import Dialog from '$lib/ui/Dialog.svelte';
+	import ColumnTabs, { type ColumnTabItem } from '$lib/ui/ColumnTabs.svelte';
+	import Segmented from '$lib/ui/Segmented.svelte';
+	import { motionReduced } from '$lib/agent/motionState.svelte';
+	import { rvLift } from '$lib/agent/motion';
 	let {
 		session,
 		projectPath,
@@ -115,6 +122,7 @@
 	let isInspectorOpen = $state(false);
 	type InspectorTab = 'elements' | 'console' | 'network' | 'actions';
 	let activeInspectorTab = $state<InspectorTab>('elements');
+	const inspectorId = $props.id();
 
 	let inspectedElement = $state<InspectedElementData | null>(null);
 	let inspectedCropBase64 = $state<string | null>(null);
@@ -181,6 +189,39 @@
 	);
 	const pendingChooser = $derived(fileChoosers.find((c) => c.status === 'pending-choice') ?? null);
 	const isRecording = $derived(recording?.status === 'recording' || recording?.status === 'stopping');
+	const isRecordingActive = $derived(recording?.status === 'recording');
+	let recordingDotEl = $state<HTMLElement | null>(null);
+	let recordingOnScreen = $state(false);
+	let recordingPageVisible = $state(true);
+
+	const isRecordingLive = $derived(
+		isRecordingActive &&
+		recordingOnScreen &&
+		recordingPageVisible &&
+		!motionReduced()
+	);
+
+	$effect(() => {
+		const node = recordingDotEl;
+		if (!node || !isRecordingActive) {
+			recordingOnScreen = false;
+			return;
+		}
+		const updateVisibility = () => {
+			recordingPageVisible = document.visibilityState !== 'hidden';
+		};
+		updateVisibility();
+		const observer = new IntersectionObserver(([entry]) => {
+			const style = getComputedStyle(node);
+			recordingOnScreen = entry.isIntersecting && style.visibility !== 'hidden';
+		});
+		observer.observe(node);
+		document.addEventListener('visibilitychange', updateVisibility);
+		return () => {
+			observer.disconnect();
+			document.removeEventListener('visibilitychange', updateVisibility);
+		};
+	});
 	/** Takeover privato: nessun pixel ne' dato della pagina puo' uscire da qui. */
 	const isPrivateTakeover = $derived(
 		activeTab?.controller === 'private-user' || currentFrame?.meta.privacy === 'private'
@@ -996,6 +1037,24 @@
 	const errorCount = $derived(consoleEntries.filter((e) => e.level === 'error').length);
 	const failedNetworkCount = $derived(networkEntries.filter((e) => e.failed || e.status >= 400).length);
 
+	const inspectorTabs = $derived<ColumnTabItem[]>([
+		{
+			id: 'elements',
+			label: inspectedElement ? 'Elementi · 1' : 'Elementi'
+		},
+		{
+			id: 'console',
+			label: errorCount > 0 ? `Console (${errorCount})` : consoleEntries.length > 0 ? `Console (${consoleEntries.length})` : m.browser_tab_console()
+		},
+		{
+			id: 'network',
+			label: failedNetworkCount > 0 ? `Rete (${failedNetworkCount})` : networkEntries.length > 0 ? `Rete (${networkEntries.length})` : m.browser_tab_network()
+		},
+		{
+			id: 'actions',
+			label: actionEntries.length > 0 ? `Azioni (${actionEntries.length})` : m.browser_tab_actions()
+		}
+	]);
 	// Filtri Console
 	const filteredConsoleEntries = $derived.by(() => {
 		return consoleEntries.filter((entry) => {
@@ -1070,37 +1129,40 @@
 	<div class="browser-toolbar">
 		<!-- Navigazione: Back, Forward, Reload -->
 		<div class="nav-group" role="group" aria-label={m.browser_nav_aria()}>
-			<button
-				type="button"
-				class="tool-btn icon-btn"
-				disabled={!activeTab}
-				onclick={handleBack}
-				title="Indietro (Alt+Freccia Sinistra)"
-				aria-label={m.browser_btn_back()}
-			>
-				<IconArrowLeft />
-			</button>
-			<button
-				type="button"
-				class="tool-btn icon-btn"
-				disabled={!activeTab}
-				onclick={handleForward}
-				title="Avanti (Alt+Freccia Destra)"
-				aria-label={m.browser_btn_forward()}
-			>
-				<IconArrowRight />
-			</button>
-			<button
-				type="button"
-				class="tool-btn icon-btn"
-				class:loading={activeTab?.loading}
-				disabled={!activeTab}
-				onclick={handleReload}
-				title="Ricarica pagina (F5)"
-				aria-label={m.browser_btn_reload()}
-			>
-				<IconRefresh />
-			</button>
+			<Tooltip text="Indietro (Alt+Freccia Sinistra)" placement="bottom">
+				<button
+					type="button"
+					class="tool-btn icon-btn"
+					disabled={!activeTab}
+					onclick={handleBack}
+					aria-label={m.browser_btn_back()}
+				>
+					<IconArrowLeft />
+				</button>
+			</Tooltip>
+			<Tooltip text="Avanti (Alt+Freccia Destra)" placement="bottom">
+				<button
+					type="button"
+					class="tool-btn icon-btn"
+					disabled={!activeTab}
+					onclick={handleForward}
+					aria-label={m.browser_btn_forward()}
+				>
+					<IconArrowRight />
+				</button>
+			</Tooltip>
+			<Tooltip text="Ricarica pagina (F5)" placement="bottom">
+				<button
+					type="button"
+					class="tool-btn icon-btn"
+					class:loading={activeTab?.loading}
+					disabled={!activeTab}
+					onclick={handleReload}
+					aria-label={m.browser_btn_reload()}
+				>
+					<IconRefresh />
+				</button>
+			</Tooltip>
 		</div>
 
 		<!-- URL Bar e indicatore stato caricamento -->
@@ -1121,7 +1183,7 @@
 				aria-label={m.browser_url_input_aria()}
 			/>
 			{#if activeTab?.loading}
-				<span class="loading-dot" title={m.browser_loading_dot()}></span>
+				<StatusMark status="running" label={m.browser_loading_dot()} />
 			{/if}
 		</div>
 
@@ -1147,6 +1209,7 @@
 					{:else if activeTab.originPermission === 'granted'}
 						Consentita
 					{:else if activeTab.originPermission === 'pending'}
+						<StatusMark status="pending" label={m.ui_browserviewer_in_attesa_di_consenso_per_origine_remota_41de()} />
 						{m.page_agent_state_idle()}
 					{:else}
 						Bloccata
@@ -1239,8 +1302,9 @@
 			class:private={activeTab?.controller === 'private-user'}
 			title={m.browser_controller_title()}
 		>
+			<span class="controller-dot" aria-hidden="true"></span>
 			{#if activeTab?.controller === 'private-user'}
-				{m.browser_controller_private()}
+				<IconLock /> {m.browser_controller_private()}
 			{:else if activeTab?.controller === 'user'}
 				Utente
 			{:else}
@@ -1275,155 +1339,134 @@
 		{/if}
 
 		<!-- Controlli Inspector mirato (S44) -->
-		<button
-			type="button"
-			class="tool-btn picker-btn"
-			class:active={isPickerActive}
-			onclick={togglePicker}
-			title="Ispeziona elemento (Alt+I)"
-			aria-label="Ispeziona elemento"
-		>
-			<IconInspect /> {m.browser_inspect_element_btn()}
-		</button>
+		<Tooltip text="Ispeziona elemento (Alt+I)" placement="bottom">
+			<button
+				type="button"
+				class="tool-btn picker-btn"
+				class:active={isPickerActive}
+				onclick={togglePicker}
+				aria-label="Ispeziona elemento"
+			>
+				<IconInspect /> {m.browser_inspect_element_btn()}
+			</button>
+		</Tooltip>
 
-		<button
-			type="button"
-			class="tool-btn inspector-btn"
-			class:active={isInspectorOpen}
-			onclick={toggleInspector}
-			title={m.ui_browserviewer_apri_inspector_mirato_console_network_actions_00be()}
-			aria-label="Inspector mirato"
-		>
-			<IconTerminal /> {m.browser_inspector_btn()}
-			{#if errorCount > 0}
-				<span class="inspector-err-badge" title="{errorCount} errori console">{errorCount}</span>
-			{:else if failedNetworkCount > 0}
-				<span class="inspector-warn-badge" title="{failedNetworkCount} richieste fallite">{failedNetworkCount}</span>
-			{/if}
-		</button>
+		<Tooltip text={m.ui_browserviewer_apri_inspector_mirato_console_network_actions_00be()} placement="bottom">
+			<button
+				type="button"
+				class="tool-btn inspector-btn"
+				class:active={isInspectorOpen}
+				onclick={toggleInspector}
+				aria-label="Inspector mirato"
+			>
+				<IconTerminal /> {m.browser_inspector_btn()}
+				{#if errorCount > 0}
+					<span class="inspector-err-badge" title="{errorCount} errori console">{errorCount}</span>
+				{:else if failedNetworkCount > 0}
+					<span class="inspector-warn-badge" title="{failedNetworkCount} richieste fallite">{failedNetworkCount}</span>
+				{/if}
+			</button>
+		</Tooltip>
 
 		<!-- Capability della pagina e registrazione locale (S45) -->
 		{#if activeTab}
-			<div class="capability-menu-wrap">
+			<MenuButton
+				open={isCapabilityMenuOpen}
+				title="Permessi della pagina: appunti, geolocalizzazione, notifiche"
+				ariaLabel={m.browser_permissions_menu_aria()}
+				hasPopup="menu"
+				width="300px"
+				align="right"
+				onToggle={() => (isCapabilityMenuOpen = !isCapabilityMenuOpen)}
+				onClose={() => (isCapabilityMenuOpen = false)}
+			>
+				{#snippet trigger()}
+					<IconLock /> {m.browser_permissions_btn()} <IconChevronDown />
+				{/snippet}
+				<div class="capability-menu-content">
+					<p class="capability-menu-origin">{extractOrigin(activeTab.url) || activeTab.url}</p>
+					{#each BROWSER_CAPABILITIES as capability}
+						<div class="capability-row">
+							<span class="capability-name">{CAPABILITY_LABELS[capability]}</span>
+							<Segmented
+								options={[
+									{ value: 'denied', label: 'Nega' },
+									{ value: 'prompt', label: 'Chiedi' },
+									{ value: 'granted', label: 'Consenti' }
+								]}
+								value={capabilityDecision(capability)}
+								onChange={(val) => changeCapability(capability, val as BrowserCapabilityDecision)}
+								ariaLabel={CAPABILITY_LABELS[capability]}
+							/>
+						</div>
+					{/each}
+				</div>
+			</MenuButton>
+
+			<Tooltip text={isRecording ? m.ui_browserviewer_interrompi_la_registrazione_locale_della_scheda_9af8() : 'Registra la scheda in un artifact video locale'} placement="bottom">
 				<button
 					type="button"
-					class="tool-btn capability-btn"
-					class:active={isCapabilityMenuOpen}
-					onclick={() => (isCapabilityMenuOpen = !isCapabilityMenuOpen)}
-					title="Permessi della pagina: appunti, geolocalizzazione, notifiche"
-					aria-expanded={isCapabilityMenuOpen}
+					class="tool-btn recording-btn"
+					class:active={isRecording}
+					onclick={toggleRecording}
+					disabled={recording?.status === 'stopping'}
+					aria-label={isRecording ? 'Interrompi registrazione' : 'Registra scheda'}
 				>
-					<IconLock /> {m.browser_permissions_btn()}
+					<span bind:this={recordingDotEl} class="recording-dot" class:recording={isRecording} class:live={isRecordingLive} aria-hidden="true"></span>
+					{#if recording?.status === 'stopping'}
+						{m.browser_recording_stopping()}
+					{:else if isRecording}
+						Stop ({recording?.frameCount ?? 0} fotogrammi)
+					{:else}
+						Registra
+					{/if}
 				</button>
-				{#if isCapabilityMenuOpen}
-					<div class="capability-menu" role="group" aria-label={m.browser_permissions_menu_aria()}>
-						<p class="capability-menu-origin">{extractOrigin(activeTab.url) || activeTab.url}</p>
-						{#each BROWSER_CAPABILITIES as capability}
-							<div class="capability-row">
-								<span class="capability-name">{CAPABILITY_LABELS[capability]}</span>
-								<div class="capability-choices">
-									<button
-										type="button"
-										class="capability-choice"
-										class:active={capabilityDecision(capability) === 'denied'}
-										onclick={() => changeCapability(capability, 'denied')}
-									>
-										Nega
-									</button>
-									<button
-										type="button"
-										class="capability-choice"
-										class:active={capabilityDecision(capability) === 'prompt'}
-										onclick={() => changeCapability(capability, 'prompt')}
-									>
-										Chiedi
-									</button>
-									<button
-										type="button"
-										class="capability-choice"
-										class:active={capabilityDecision(capability) === 'granted'}
-										onclick={() => changeCapability(capability, 'granted')}
-									>
-										Consenti
-									</button>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<button
-				type="button"
-				class="tool-btn recording-btn"
-				class:active={isRecording}
-				onclick={toggleRecording}
-				disabled={recording?.status === 'stopping'}
-				title={isRecording
-					? m.ui_browserviewer_interrompi_la_registrazione_locale_della_scheda_9af8()
-					: 'Registra la scheda in un artifact video locale'}
-			>
-				<span class="recording-dot" class:live={isRecording} aria-hidden="true"></span>
-				{#if recording?.status === 'stopping'}
-					{m.browser_recording_stopping()}
-				{:else if isRecording}
-					Stop ({recording?.frameCount ?? 0} fotogrammi)
-				{:else}
-					Registra
-				{/if}
-			</button>
+			</Tooltip>
 		{/if}
 
 		<span class="toolbar-spacer"></span>
-		<button
-			type="button"
-			class="tool-btn"
-			disabled={!currentFrame}
-			onclick={copyScreenshot}
-			title={m.ui_browserviewer_copia_screenshot_negli_appunti_e888()}
-			aria-label={m.browser_copy_screenshot()}
-		>
-			{#if copiedScreenshot}
-				<IconCheck /> {m.browser_copied()}
-			{:else}
-				<IconCamera /> Cattura
-			{/if}
-		</button>
+		<Tooltip text={m.ui_browserviewer_copia_screenshot_negli_appunti_e888()} placement="bottom">
+			<button
+				type="button"
+				class="tool-btn"
+				disabled={!currentFrame}
+				onclick={copyScreenshot}
+				aria-label={m.browser_copy_screenshot()}
+			>
+				{#if copiedScreenshot}
+					<IconCheck /> {m.browser_copied()}
+				{:else}
+					<IconCamera /> Cattura
+				{/if}
+			</button>
+		</Tooltip>
 
-		<button
-			type="button"
-			class="tool-btn close"
-			onclick={() => onClose?.()}
-			title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()}
-			aria-label={m.browser_close_viewer()}
-		>
-			<IconClose />
-		</button>
+		<Tooltip text={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} placement="bottom">
+			<button
+				type="button"
+				class="tool-btn close icon-btn"
+				onclick={() => onClose?.()}
+				aria-label={m.browser_close_viewer()}
+			>
+				<IconClose />
+			</button>
+		</Tooltip>
 	</div>
 
-	{#if relayPickerOpen}
-		<div
-			class="relay-picker"
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="relay-picker-title"
-			use:trapFocus={{
-				onEscape: () => {
-					relayPickerOpen = false;
-					relayTargets = [];
-				}
-			}}
-		>
-			<div class="relay-picker-head">
-				<div>
-					<strong id="relay-picker-title">{m.browser_relay_picker_title()}</strong>
-					<span>{m.browser_relay_picker_sub()}</span>
-				</div>
-				<button type="button" class="tool-btn" aria-label={m.ui_browserviewer_chiudi_selettore_f279()} onclick={() => { relayPickerOpen = false; relayTargets = []; }}><IconClose /></button>
-			</div>
+	<Dialog
+		open={relayPickerOpen}
+		title={m.browser_relay_picker_title()}
+		onClose={() => {
+			relayPickerOpen = false;
+			relayTargets = [];
+		}}
+		ariaLabel={m.browser_relay_picker_title()}
+	>
+		{#snippet body()}
+			<p class="relay-picker-sub">{m.browser_relay_picker_sub()}</p>
 			{#if relayDiagnostic}
 				<p class="relay-diagnostic"><IconWarning /> {relayDiagnostic}</p>
-		{:else if relayTargets.length === 0}
+			{:else if relayTargets.length === 0}
 				<p class="relay-empty">{m.browser_relay_empty()}</p>
 			{:else}
 				<div class="relay-targets" role="list">
@@ -1436,8 +1479,8 @@
 				</div>
 			{/if}
 			{#if relayProbe?.diagnostic}<p class="relay-diagnostic"><IconWarning /> {relayProbe.diagnostic}</p>{/if}
-		</div>
-	{/if}
+		{/snippet}
+	</Dialog>
 
 	<!-- Stage di visualizzazione live -->
 	<div class="browser-stage" class:with-inspector={isInspectorOpen} class:picker-active={isPickerActive}>
@@ -1450,6 +1493,24 @@
 
 		<!-- Pila dei consensi: origine remota (S43), file e download (S45) -->
 		<div class="consent-stack">
+		{#if isPrivateTakeover}
+			<div class="origin-consent-banner" role="status">
+				<div class="origin-consent-info">
+					<span class="origin-consent-icon danger" aria-hidden="true"><IconLock /></span>
+					<div class="origin-consent-text">
+						<p class="origin-consent-title">{m.browser_controller_private()}</p>
+						<p class="origin-consent-desc">Modalità privata attiva: screenshot, frame e testo della pagina non sono visibili all'agente.</p>
+					</div>
+				</div>
+				{#if activeTab}
+					<div class="origin-consent-actions">
+						<button type="button" class="btn-consent-deny" onclick={handleTogglePrivacy}>
+							Disattiva
+						</button>
+					</div>
+				{/if}
+			</div>
+		{/if}
 		{#if activeTab?.originPermission === 'pending'}
 			<div class="origin-consent-banner" role="alert">
 				<div class="origin-consent-info">
@@ -1529,39 +1590,34 @@
 		{/each}
 		</div>
 		{#if openDialog}
-			<div class="js-dialog-backdrop" role="alertdialog" aria-modal="true" aria-label={m.browser_dialog_page_title()}>
-				<div
-					class="js-dialog"
-					use:trapFocus={{
-						onEscape: () => respondDialog(openDialog.kind === 'alert')
-					}}
-				>
-					<p class="js-dialog-kind">
-						{#if openDialog.kind === 'beforeunload'}
-							{m.browser_dialog_beforeunload()}
-						{:else if openDialog.kind === 'confirm'}
-							{m.ui_browserviewer_conferma_richiesta_dalla_pagina_1c4b()}
-						{:else if openDialog.kind === 'prompt'}
-							Richiesta di inserimento dalla pagina
-						{:else}
-							Avviso della pagina
-						{/if}
-					</p>
+			<Dialog
+				open={true}
+				title={openDialog.kind === 'beforeunload'
+					? m.browser_dialog_beforeunload()
+					: openDialog.kind === 'confirm'
+						? m.ui_browserviewer_conferma_richiesta_dalla_pagina_1c4b()
+						: openDialog.kind === 'prompt'
+							? 'Richiesta di inserimento dalla pagina'
+							: 'Avviso della pagina'}
+				onClose={() => respondDialog(openDialog.kind === 'alert')}
+				ariaLabel={m.browser_dialog_page_title()}
+			>
+				{#snippet body()}
 					<p class="js-dialog-origin">{extractOrigin(openDialog.url) || openDialog.url}</p>
 					<p class="js-dialog-message">{openDialog.message || m.browser_dialog_no_message()}</p>
 					{#if openDialog.kind === 'prompt'}
 						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							type="text"
-							class="js-dialog-input"
+							class="ui-input"
 							bind:value={promptAnswer}
 							autofocus
 							aria-label={m.browser_dialog_prompt_aria()}
 						/>
 					{/if}
-					<p class="js-dialog-note">
-						{m.browser_dialog_paused_note()}
-					</p>
+					<p class="js-dialog-note">{m.browser_dialog_paused_note()}</p>
+				{/snippet}
+				{#snippet footer()}
 					<div class="js-dialog-actions">
 						{#if openDialog.kind !== 'alert'}
 							<button type="button" class="btn-consent-deny" onclick={() => respondDialog(false)}>
@@ -1572,8 +1628,8 @@
 							{openDialog.kind === 'beforeunload' ? m.browser_dialog_leave() : 'OK'}
 						</button>
 					</div>
-				</div>
-			</div>
+				{/snippet}
+			</Dialog>
 		{/if}
 
 		<!-- Avanzamento download e artifact conclusi (S45) -->
@@ -1707,7 +1763,7 @@
 							<span class="note-icon error"><IconWarning /></span>
 							<p class="note-title">{m.browser_stream_err_title()}</p>
 						{:else}
-							<span class="spinner"></span>
+							<StatusMark status="running" label={streamStatus === 'disconnected' ? m.browser_stream_disconnected_title() : m.browser_stream_reconnect_title()} />
 							<p class="note-title">
 								{streamStatus === 'disconnected' ? m.browser_stream_disconnected_title() : m.browser_stream_reconnect_title()}
 							</p>
@@ -1730,7 +1786,7 @@
 			</div>
 		{:else if streamStatus === 'disconnected'}
 			<div class="center-note" role="status">
-				<span class="spinner"></span>
+				<StatusMark status="running" label="Stream live disconnesso" />
 				<p class="note-title">Stream live disconnesso</p>
 				<p class="note-desc">{streamError || m.ui_browserviewer_riconnessione_automatica_in_corso_f7ab()}</p>
 				<button type="button" class="tool-btn" onclick={retryStream} style="margin-top: var(--space-3);">
@@ -1739,7 +1795,7 @@
 			</div>
 		{:else}
 			<div class="center-note">
-				<span class="spinner"></span>
+				<StatusMark status="running" label={m.ui_browserviewer_connessione_allo_stream_live_in_corso_3962()} />
 				<p class="note-title">{m.ui_browserviewer_connessione_allo_stream_live_in_corso_3962()}</p>
 				<p class="note-desc">Aggancio al canale loopback autenticato di Chromium gestito.</p>
 			</div>
@@ -1748,138 +1804,105 @@
 
 	<!-- Dock Inspector mirato retrattile (S44) -->
 	{#if isInspectorOpen}
-		<div class="inspector-dock" role="region" aria-label="Inspector mirato">
+		<div class="inspector-dock" role="region" aria-label="Inspector mirato" transition:rvLift>
 			<div class="inspector-tabbar">
-				<div class="tabbar-left" role="tablist">
-					<button
-						type="button"
-						role="tab"
-						class="inspector-tab"
-						class:active={activeInspectorTab === 'elements'}
-						aria-selected={activeInspectorTab === 'elements'}
-						onclick={() => (activeInspectorTab = 'elements')}
-					>
-						<IconInspect /> Elementi
-						{#if inspectedElement}
-							<span class="tab-indicator active"></span>
-						{/if}
-					</button>
-					<button
-						type="button"
-						role="tab"
-						class="inspector-tab"
-						class:active={activeInspectorTab === 'console'}
-						aria-selected={activeInspectorTab === 'console'}
-						onclick={() => (activeInspectorTab = 'console')}
-					>
-						<IconTerminal /> {m.browser_tab_console()}
-						{#if errorCount > 0}
-							<span class="tab-badge error">{errorCount}</span>
-						{:else if consoleEntries.length > 0}
-							<span class="tab-badge">{consoleEntries.length}</span>
-						{/if}
-					</button>
-					<button
-						type="button"
-						role="tab"
-						class="inspector-tab"
-						class:active={activeInspectorTab === 'network'}
-						aria-selected={activeInspectorTab === 'network'}
-						onclick={() => (activeInspectorTab = 'network')}
-					>
-						<IconNetwork /> {m.browser_tab_network()}
-						{#if failedNetworkCount > 0}
-							<span class="tab-badge error">{failedNetworkCount}</span>
-						{:else if networkEntries.length > 0}
-							<span class="tab-badge">{networkEntries.length}</span>
-						{/if}
-					</button>
-					<button
-						type="button"
-						role="tab"
-						class="inspector-tab"
-						class:active={activeInspectorTab === 'actions'}
-						aria-selected={activeInspectorTab === 'actions'}
-						onclick={() => (activeInspectorTab = 'actions')}
-					>
-						<IconHistory /> {m.browser_tab_actions()}
-						{#if actionEntries.length > 0}
-							<span class="tab-badge">{actionEntries.length}</span>
-						{/if}
-					</button>
+				<div class="tabbar-left">
+					<ColumnTabs
+						tabs={inspectorTabs}
+						selected={activeInspectorTab}
+						onChange={(id) => (activeInspectorTab = id as InspectorTab)}
+						ariaLabel="Sezioni inspector"
+						tabIdPrefix={`${inspectorId}-tab-`}
+						panelIdPrefix={`${inspectorId}-panel-`}
+					/>
 				</div>
 
 				<div class="tabbar-right">
 					<!-- Azioni contestuali al prompt e pulizia buffer -->
 					{#if activeInspectorTab === 'elements' && inspectedElement}
-						<button
-							type="button"
-							class="inspector-action-btn attach-btn"
-							onclick={() => attachContextToPrompt('element')}
-							title={m.ui_browserviewer_invia_dettagli_e_ritaglio_dell_elemento_al_b1eb()}
-						>
-							<IconSend /> {m.browser_btn_attach_element()}
-						</button>
+						<Tooltip text={m.ui_browserviewer_invia_dettagli_e_ritaglio_dell_elemento_al_b1eb()} placement="top">
+							<button
+								type="button"
+								class="inspector-action-btn attach-btn"
+								onclick={() => attachContextToPrompt('element')}
+							>
+								<IconSend /> {m.browser_btn_attach_element()}
+							</button>
+						</Tooltip>
 					{:else if activeInspectorTab === 'console' && consoleEntries.length > 0}
-						<button
-							type="button"
-							class="inspector-action-btn attach-btn"
-							disabled={errorCount === 0}
-							onclick={() => attachContextToPrompt('console')}
-							title="Allega errori e avvisi console al prompt"
-						>
-							<IconSend /> Allega errori ({errorCount})
-						</button>
-						<button
-							type="button"
-							class="inspector-action-btn"
-							onclick={() => handleClearBuffer('console')}
-							title="Cancella log console"
-						>
-							<IconClear /> {m.browser_btn_clear()}
-						</button>
+						<Tooltip text="Allega errori e avvisi console al prompt" placement="top">
+							<button
+								type="button"
+								class="inspector-action-btn attach-btn"
+								disabled={errorCount === 0}
+								onclick={() => attachContextToPrompt('console')}
+							>
+								<IconSend /> Allega errori ({errorCount})
+							</button>
+						</Tooltip>
+						<Tooltip text="Cancella log console" placement="top">
+							<button
+								type="button"
+								class="inspector-action-btn"
+								onclick={() => handleClearBuffer('console')}
+								aria-label="Cancella log console"
+							>
+								<IconClear /> {m.browser_btn_clear()}
+							</button>
+						</Tooltip>
 					{:else if activeInspectorTab === 'network' && networkEntries.length > 0}
-						<button
-							type="button"
-							class="inspector-action-btn attach-btn"
-							disabled={failedNetworkCount === 0}
-							onclick={() => attachContextToPrompt('network')}
-							title="Allega richieste di rete fallite al prompt"
-						>
-							<IconSend /> Allega fallite ({failedNetworkCount})
-						</button>
-						<button
-							type="button"
-							class="inspector-action-btn"
-							onclick={() => handleClearBuffer('network')}
-							title="Cancella log di rete"
-						>
-							<IconClear /> {m.browser_btn_clear()}
-						</button>
+						<Tooltip text="Allega richieste di rete fallite al prompt" placement="top">
+							<button
+								type="button"
+								class="inspector-action-btn attach-btn"
+								disabled={failedNetworkCount === 0}
+								onclick={() => attachContextToPrompt('network')}
+							>
+								<IconSend /> Allega fallite ({failedNetworkCount})
+							</button>
+						</Tooltip>
+						<Tooltip text="Cancella log di rete" placement="top">
+							<button
+								type="button"
+								class="inspector-action-btn"
+								onclick={() => handleClearBuffer('network')}
+								aria-label="Cancella log di rete"
+							>
+								<IconClear /> {m.browser_btn_clear()}
+							</button>
+						</Tooltip>
 					{:else if activeInspectorTab === 'actions' && actionEntries.length > 0}
-						<button
-							type="button"
-							class="inspector-action-btn"
-							onclick={() => handleClearBuffer('actions')}
-							title="Cancella timeline azioni"
-						>
-							<IconClear /> {m.browser_btn_clear()}
-						</button>
+						<Tooltip text="Cancella timeline azioni" placement="top">
+							<button
+								type="button"
+								class="inspector-action-btn"
+								onclick={() => handleClearBuffer('actions')}
+								aria-label="Cancella timeline azioni"
+							>
+								<IconClear /> {m.browser_btn_clear()}
+							</button>
+						</Tooltip>
 					{/if}
 
-					<button
-						type="button"
-						class="tool-btn icon-btn"
-						onclick={() => (isInspectorOpen = false)}
-						title={m.ui_browserviewer_chiudi_pannello_inspector_c43d()}
-						aria-label={m.ui_browserviewer_chiudi_inspector_e1dd()}
-					>
-						<IconClose />
-					</button>
+					<Tooltip text={m.ui_browserviewer_chiudi_pannello_inspector_c43d()} placement="top">
+						<button
+							type="button"
+							class="tool-btn icon-btn"
+							onclick={() => (isInspectorOpen = false)}
+							aria-label={m.ui_browserviewer_chiudi_inspector_e1dd()}
+						>
+							<IconClose />
+						</button>
+					</Tooltip>
 				</div>
 			</div>
 
-			<div class="inspector-panel-body">
+			<div
+				class="inspector-panel-body"
+				role="tabpanel"
+				id={`${inspectorId}-panel-${activeInspectorTab}`}
+				aria-labelledby={`${inspectorId}-tab-${activeInspectorTab}`}
+			>
 				{#if activeInspectorTab === 'elements'}
 					<!-- Elements Tab -->
 					{#if inspectedElement}
@@ -2188,8 +2211,11 @@
 		align-items: center;
 		gap: var(--space-2);
 		padding: 0 var(--space-3);
-		height: 36px;
-		background: var(--bg-raised);
+		height: 32px;
+		background: var(--bg-sunken);
+		overflow-x: auto;
+		overflow-y: hidden;
+		white-space: nowrap;
 		border-bottom: 1px solid var(--line);
 		flex-shrink: 0;
 		font-family: var(--font-ui);
@@ -2197,10 +2223,13 @@
 		user-select: none;
 	}
 
-	.nav-group {
+	.nav-group,
+	.device-group,
+	.origin-badge-group {
 		display: flex;
 		align-items: center;
 		gap: 2px;
+		flex-shrink: 0;
 	}
 
 	.tool-btn {
@@ -2208,16 +2237,18 @@
 		align-items: center;
 		justify-content: center;
 		gap: 4px;
-		height: 26px;
+		height: 28px;
 		padding: 0 var(--space-2);
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
 		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+		white-space: nowrap;
+		flex-shrink: 0;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.tool-btn:hover:not(:disabled) {
@@ -2231,12 +2262,8 @@
 	}
 
 	.tool-btn.icon-btn {
-		width: 26px;
+		width: 28px;
 		padding: 0;
-	}
-
-	.tool-btn.icon-btn.loading :global(svg) {
-		animation: spin 1.2s linear infinite;
 	}
 
 	.tool-btn.close:hover {
@@ -2249,13 +2276,14 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		flex: 1;
+		flex: 1 1 200px;
+		min-width: 160px;
 		max-width: 440px;
-		height: 26px;
+		height: 28px;
 		padding: 0 var(--space-2);
 		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink);
 	}
 
@@ -2270,21 +2298,17 @@
 		flex: 1;
 		background: transparent;
 		border: none;
-		outline: none;
+	}
+
+	.url-input:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 		color: var(--ink);
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-
-	.loading-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--brand);
-		animation: pulse 1.2s infinite ease-in-out;
 	}
 
 	/* Gruppo Schede (Tab) */
@@ -2303,12 +2327,14 @@
 		padding: 0 var(--space-2);
 		background: transparent;
 		border: none;
-		border-radius: calc(var(--radius-sm) - 2px);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast);
+		white-space: nowrap;
+		flex-shrink: 0;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.tab-btn.active {
@@ -2325,6 +2351,8 @@
 		color: var(--ink-muted);
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
 	/* Badge di stato e modalita */
@@ -2336,54 +2364,72 @@
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
 	.mode-badge.relay {
-		background: var(--brand-dim);
-		color: var(--ink);
+		background: var(--bg-base);
+		color: var(--brand-ink);
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
 	}
 
 	.controller-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		padding: 2px 6px;
 		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
 		border: 1px solid var(--line);
+		background: var(--bg-base);
+		color: var(--ink);
+		white-space: nowrap;
+		flex-shrink: 0;
 	}
 
-	.controller-badge.agent {
-		background: color-mix(in srgb, var(--brand) 18%, transparent);
-		color: var(--brand-ink);
-		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+	.controller-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: var(--radius-full);
+		background: var(--ink-faint);
+		flex-shrink: 0;
 	}
 
-	.controller-badge.user {
-		background: color-mix(in srgb, var(--warn) 18%, transparent);
-		color: var(--warn);
-		border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+	.controller-badge.agent .controller-dot {
+		background: var(--brand);
 	}
 
-	.controller-badge.private {
-		background: color-mix(in srgb, var(--danger) 18%, transparent);
+	.controller-badge.user .controller-dot {
+		background: var(--warn);
+	}
+
+	.controller-badge.private .controller-dot {
+		background: var(--danger);
+	}
+
+	.controller-badge.private :global(svg) {
 		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+		width: 12px;
+		height: 12px;
 	}
 
 	.tool-btn.return-control-btn {
-		background: color-mix(in srgb, var(--brand) 20%, transparent);
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
 		color: var(--brand-ink);
-		border-color: color-mix(in srgb, var(--brand) 40%, transparent);
+		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
 		font-weight: 500;
 	}
 
 	.tool-btn.return-control-btn:hover {
-		background: color-mix(in srgb, var(--brand) 30%, transparent);
+		background: color-mix(in srgb, var(--brand) 18%, transparent);
 	}
 
 	.tool-btn.privacy-toggle-btn.active {
-		background: color-mix(in srgb, var(--danger) 20%, transparent);
+		background: var(--bg-base);
 		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 		font-weight: 500;
 	}
 	.device-group {
@@ -2401,12 +2447,14 @@
 		padding: 0 var(--space-2);
 		background: transparent;
 		border: none;
-		border-radius: calc(var(--radius-sm) - 2px);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
 		cursor: pointer;
-		transition: background var(--dur-fast), color var(--dur-fast);
+		white-space: nowrap;
+		flex-shrink: 0;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.device-btn.active {
@@ -2438,12 +2486,10 @@
 		justify-content: center;
 		max-width: 100%;
 		max-height: 100%;
-		background: #000;
+		background: var(--bg-sunken);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-overlay);
 		overflow: hidden;
-		transition: width var(--dur-base) var(--ease-out);
 	}
 
 	.live-image {
@@ -2461,7 +2507,7 @@
 	.stream-overlay {
 		position: absolute;
 		inset: 0;
-		z-index: 60;
+		z-index: var(--z-backdrop);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -2470,7 +2516,6 @@
 		padding: var(--space-4);
 		text-align: center;
 		background: color-mix(in srgb, var(--bg-base) 78%, transparent);
-		backdrop-filter: blur(6px);
 	}
 
 	.stream-overlay .note-desc {
@@ -2487,12 +2532,11 @@
 		gap: var(--space-2);
 		padding: 2px 8px;
 		background: color-mix(in srgb, var(--bg-base) 88%, transparent);
-		backdrop-filter: blur(8px);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		pointer-events: none;
 		user-select: none;
 	}
@@ -2566,28 +2610,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 10px;
-	}
-
-	.spinner {
-		width: 20px;
-		height: 20px;
-		border: 2px solid var(--line);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-
-	@keyframes pulse {
-		0%, 100% {
-			opacity: 0.4;
-			transform: scale(0.8);
-		}
-		50% {
-			opacity: 1;
-			transform: scale(1.2);
-		}
+		font-size: var(--text-caption);
 	}
 
 	/* S43 — Badge e banner origine */
@@ -2604,7 +2627,7 @@
 		padding: 0 var(--space-2);
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 500;
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
@@ -2617,22 +2640,21 @@
 	}
 
 	.origin-perm-badge.granted {
-		background: rgba(34, 197, 94, 0.12);
-		color: #16a34a;
-		border: 1px solid rgba(34, 197, 94, 0.3);
+		background: var(--bg-base);
+		color: var(--success);
+		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
 	}
 
 	.origin-perm-badge.pending {
-		background: rgba(245, 158, 11, 0.15);
-		color: #d97706;
-		border: 1px solid rgba(245, 158, 11, 0.35);
-		animation: pulse 2s infinite ease-in-out;
+		background: var(--bg-base);
+		color: var(--warn);
+		border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
 	}
 
 	.origin-perm-badge.denied {
-		background: rgba(239, 68, 68, 0.12);
-		color: #dc2626;
-		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: var(--bg-base);
+		color: var(--danger);
+		border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 	}
 
 	.revoke-origin-btn {
@@ -2642,16 +2664,16 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-family: var(--font-ui);
 		cursor: pointer;
-		transition: all var(--dur-fast);
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.revoke-origin-btn:hover {
 		background: var(--danger-dim);
-		color: var(--danger, #dc2626);
-		border-color: rgba(239, 68, 68, 0.4);
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 	}
 
 	.origin-consent-banner {
@@ -2663,7 +2685,7 @@
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+		box-shadow: var(--shadow-overlay);
 		width: 100%;
 	}
 
@@ -2674,9 +2696,13 @@
 	}
 
 	.origin-consent-icon {
-		color: #d97706;
+		color: var(--warn);
 		flex-shrink: 0;
 		display: inline-flex;
+	}
+
+	.origin-consent-icon.danger {
+		color: var(--danger);
 	}
 
 	.origin-consent-title {
@@ -2702,13 +2728,13 @@
 	.btn-consent-grant {
 		padding: 6px 12px;
 		background: var(--brand);
-		color: white;
+		color: var(--on-brand);
 		border: none;
 		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
 		font-weight: 500;
 		cursor: pointer;
-		transition: opacity var(--dur-fast);
+		transition: opacity var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-consent-grant:hover {
@@ -2723,7 +2749,7 @@
 		border-radius: var(--radius-sm);
 		font-size: var(--text-xs);
 		cursor: pointer;
-		transition: background var(--dur-fast);
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-consent-deny:hover {
@@ -2737,7 +2763,7 @@
 		top: 12px;
 		left: 50%;
 		transform: translateX(-50%);
-		z-index: 100;
+		z-index: var(--z-overlay);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
@@ -2752,16 +2778,16 @@
 
 	/* S44 — Inspector mirato, Element Picker e Dock */
 	.tool-btn.picker-btn.active {
-		background: var(--accent-dim, rgba(59, 130, 246, 0.15));
-		color: var(--accent, #3b82f6);
-		border-color: var(--accent, #3b82f6);
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand-ink);
+		border-color: var(--brand);
 		font-weight: 500;
 	}
 
 	.tool-btn.inspector-btn.active {
-		background: var(--accent-dim, rgba(59, 130, 246, 0.15));
-		color: var(--ink);
-		border-color: var(--line);
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		color: var(--brand-ink);
+		border-color: var(--brand);
 		font-weight: 500;
 	}
 
@@ -2772,12 +2798,13 @@
 		min-width: 16px;
 		height: 16px;
 		padding: 0 4px;
-		background: #dc2626;
-		color: white;
+		background: var(--danger);
+		color: var(--on-danger);
 		border-radius: var(--radius-full);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.inspector-warn-badge {
@@ -2787,12 +2814,13 @@
 		min-width: 16px;
 		height: 16px;
 		padding: 0 4px;
-		background: #d97706;
-		color: white;
+		background: var(--warn);
+		color: var(--bg-sunken);
 		border-radius: var(--radius-full);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.browser-stage.picker-active {
@@ -2800,20 +2828,18 @@
 	}
 
 	.picker-indicator {
-		color: var(--accent, #3b82f6) !important;
+		color: var(--brand-ink);
 		font-weight: 600;
 	}
 
 	/* Highlight overlay non invasivo (pointer-events: none) */
 	.element-highlight-overlay {
 		position: absolute;
-		border: 2px solid var(--accent, #3b82f6);
-		background: rgba(59, 130, 246, 0.18);
-		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+		border: 2px solid var(--brand);
+		background: color-mix(in srgb, var(--brand) 18%, transparent);
 		pointer-events: none;
-		z-index: 40;
+		z-index: var(--z-backdrop);
 		box-sizing: border-box;
-		transition: all 50ms ease-out;
 	}
 
 	.element-highlight-tooltip {
@@ -2824,19 +2850,19 @@
 		align-items: center;
 		gap: 4px;
 		padding: 2px 6px;
-		background: var(--bg-raised, #1e1e2e);
-		border: 1px solid var(--accent, #3b82f6);
+		background: var(--bg-raised);
+		border: 1px solid var(--brand);
 		border-radius: var(--radius-sm);
 		color: var(--ink);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		line-height: 1.2;
 		white-space: nowrap;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+		box-shadow: var(--shadow-dock);
 	}
 
 	.element-highlight-tooltip .tag-name {
-		color: var(--accent, #3b82f6);
+		color: var(--brand-ink);
 		font-weight: 600;
 	}
 
@@ -2845,26 +2871,26 @@
 	}
 
 	.element-highlight-tooltip .role-label {
-		color: #10b981;
+		color: var(--success);
 	}
 
 	.context-attached-toast {
 		position: absolute;
 		top: 16px;
 		right: 16px;
-		z-index: 120;
+		z-index: var(--z-toast);
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
 		padding: 6px 12px;
-		background: rgba(16, 185, 129, 0.95);
-		color: white;
+		background: var(--success);
+		color: var(--on-success);
 		font-size: var(--text-xs);
 		font-family: var(--font-ui);
 		font-weight: 500;
 		border-radius: var(--radius-sm);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-		animation: fadeIn 0.2s ease-out;
+		box-shadow: var(--shadow-overlay);
+		animation: fadeIn var(--dur-fast) var(--ease-out);
 	}
 
 	/* Dock Inspector */
@@ -2877,7 +2903,7 @@
 		background: var(--bg-raised);
 		border-top: 1px solid var(--line);
 		flex-shrink: 0;
-		z-index: 30;
+		z-index: var(--z-sticky);
 		user-select: text;
 		overflow: hidden;
 	}
@@ -2899,61 +2925,6 @@
 		gap: 2px;
 	}
 
-	.inspector-tab {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		height: 26px;
-		padding: 0 8px;
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		transition: all var(--dur-fast);
-	}
-
-	.inspector-tab:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.inspector-tab.active {
-		background: var(--bg-raised);
-		color: var(--ink);
-		border-color: var(--line);
-		font-weight: 500;
-	}
-
-	.tab-badge {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 14px;
-		height: 14px;
-		padding: 0 3px;
-		background: var(--bg-sunken);
-		color: var(--ink-muted);
-		border-radius: var(--radius-full);
-		font-size: 9px;
-		font-family: var(--font-mono);
-	}
-
-	.tab-badge.error {
-		background: #dc2626;
-		color: white;
-		font-weight: bold;
-	}
-
-	.tab-indicator.active {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--brand);
-	}
-
 	.tabbar-right {
 		display: flex;
 		align-items: center;
@@ -2971,9 +2942,9 @@
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
 		font-family: var(--font-ui);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		cursor: pointer;
-		transition: all var(--dur-fast);
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.inspector-action-btn:hover:not(:disabled) {
@@ -2983,15 +2954,15 @@
 	}
 
 	.inspector-action-btn.attach-btn {
-		background: var(--accent-dim, rgba(59, 130, 246, 0.12));
-		color: var(--accent, #3b82f6);
-		border-color: rgba(59, 130, 246, 0.3);
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
+		color: var(--brand-ink);
+		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
 		font-weight: 500;
 	}
 
 	.inspector-action-btn.attach-btn:hover:not(:disabled) {
-		background: rgba(59, 130, 246, 0.22);
-		border-color: var(--accent, #3b82f6);
+		background: color-mix(in srgb, var(--brand) 18%, transparent);
+		border-color: var(--brand);
 	}
 
 	.inspector-action-btn:disabled {
@@ -3036,17 +3007,17 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-sm);
 		font-weight: 700;
-		color: var(--accent, #3b82f6);
+		color: var(--brand-ink);
 	}
 
 	.elem-component {
 		padding: 2px 6px;
-		background: rgba(168, 85, 247, 0.12);
-		color: #a855f7;
-		border: 1px solid rgba(168, 85, 247, 0.25);
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
+		color: var(--brand-ink);
+		border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 	}
 
@@ -3074,7 +3045,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		cursor: pointer;
 	}
 
@@ -3109,7 +3080,7 @@
 	}
 
 	.field-label {
-		font-size: 10px;
+		font-size: var(--text-group-label);
 		font-family: var(--font-ui);
 		color: var(--ink-faint);
 		text-transform: uppercase;
@@ -3135,7 +3106,7 @@
 	}
 
 	.section-sub-title {
-		font-size: 10px;
+		font-size: var(--text-group-label);
 		font-family: var(--font-ui);
 		color: var(--ink-faint);
 		text-transform: uppercase;
@@ -3153,7 +3124,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink);
 	}
 
@@ -3187,7 +3158,7 @@
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
 		font-family: var(--font-ui);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		cursor: pointer;
 	}
 
@@ -3204,15 +3175,15 @@
 	}
 
 	.filter-pill.error.active {
-		background: rgba(239, 68, 68, 0.12);
-		color: #dc2626;
-		border-color: rgba(239, 68, 68, 0.3);
+		background: var(--bg-base);
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 	}
 
 	.filter-pill.warn.active {
-		background: rgba(245, 158, 11, 0.12);
-		color: #d97706;
-		border-color: rgba(245, 158, 11, 0.3);
+		background: var(--bg-base);
+		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 30%, transparent);
 	}
 
 	.filter-search-box {
@@ -3232,10 +3203,14 @@
 		flex: 1;
 		background: transparent;
 		border: none;
-		outline: none;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-family: var(--font-ui);
 		color: var(--ink);
+	}
+
+	.filter-search-input:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 	}
 
 	/* Tab List Scroll */
@@ -3243,7 +3218,7 @@
 		flex: 1;
 		overflow-y: auto;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 
 	.console-row {
@@ -3260,50 +3235,53 @@
 	}
 
 	.console-row.err {
-		background: rgba(239, 68, 68, 0.06);
-		color: #ef4444;
+		background: color-mix(in srgb, var(--danger) 8%, transparent);
+		color: var(--danger);
 	}
 
 	.console-row.warn {
-		background: rgba(245, 158, 11, 0.06);
-		color: #f59e0b;
+		background: color-mix(in srgb, var(--warn) 8%, transparent);
+		color: var(--warn);
 	}
 
 	.log-level-badge {
 		padding: 1px 4px;
-		border-radius: 2px;
-		font-size: 9px;
+		border-radius: var(--radius-sm);
+		font-size: var(--text-caption);
 		font-weight: 700;
 		text-transform: uppercase;
+		background: var(--bg-base);
+		border: 1px solid var(--line);
 	}
 
 	.log-level-badge.error {
-		background: #dc2626;
-		color: white;
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 	}
 
 	.log-level-badge.warn {
-		background: #d97706;
-		color: white;
+		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 30%, transparent);
 	}
 
 	.log-level-badge.info {
-		background: #3b82f6;
-		color: white;
+		color: var(--brand-ink);
+		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
 	}
 
 	.log-level-badge.debug, .log-level-badge.log {
-		background: var(--bg-sunken);
 		color: var(--ink-muted);
+		border-color: var(--line);
 	}
 
 	.count-badge {
 		padding: 0 4px;
 		background: var(--bg-sunken);
 		border-radius: var(--radius-full);
-		font-size: 9px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink-muted);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.log-text {
@@ -3314,7 +3292,7 @@
 
 	.log-location {
 		color: var(--ink-faint);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		white-space: nowrap;
 	}
 
@@ -3332,30 +3310,34 @@
 	}
 
 	.network-row.failed {
-		background: rgba(239, 68, 68, 0.06);
+		background: color-mix(in srgb, var(--danger) 8%, transparent);
 	}
 
 	.method-pill {
 		font-weight: 700;
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 4px;
-		border-radius: 2px;
+		border-radius: var(--radius-sm);
 		background: var(--bg-base);
-		color: var(--ink);
+		border: 1px solid var(--line);
+		font-family: var(--font-mono);
 	}
 
-	.method-pill.get { color: #10b981; }
-	.method-pill.post { color: #3b82f6; }
-	.method-pill.put { color: #f59e0b; }
-	.method-pill.delete { color: #ef4444; }
+	.method-pill.get,
+	.method-pill.post,
+	.method-pill.put,
+	.method-pill.delete {
+		color: var(--ink-muted);
+	}
 
 	.status-pill {
 		font-weight: 600;
-		font-size: 10px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 	}
 
-	.status-pill.ok { color: #10b981; }
-	.status-pill.err { color: #ef4444; }
+	.status-pill.ok { color: var(--success); }
+	.status-pill.err { color: var(--danger); }
 
 	.net-url {
 		flex: 1;
@@ -3367,13 +3349,14 @@
 
 	.net-type {
 		color: var(--ink-muted);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		width: 60px;
 	}
 
 	.net-duration {
 		color: var(--ink-faint);
-		font-size: 10px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		width: 50px;
 		text-align: right;
 	}
@@ -3382,14 +3365,14 @@
 		padding: var(--space-2) var(--space-3);
 		background: var(--bg-base);
 		border-bottom: 1px solid var(--line);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
 	}
 
 	.detail-err-banner {
-		color: #ef4444;
+		color: var(--danger);
 		font-weight: 600;
 	}
 
@@ -3400,7 +3383,7 @@
 	}
 
 	.detail-label {
-		font-size: 10px;
+		font-size: var(--text-group-label);
 		color: var(--ink-faint);
 		text-transform: uppercase;
 	}
@@ -3441,24 +3424,28 @@
 
 	.action-time {
 		color: var(--ink-faint);
-		font-size: 10px;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		width: 65px;
 	}
 
 	.action-kind-pill {
-		font-size: 9px;
+		font-size: var(--text-caption);
 		font-weight: 700;
 		padding: 1px 4px;
-		border-radius: 2px;
+		border-radius: var(--radius-sm);
 		text-transform: uppercase;
 		background: var(--bg-base);
+		border: 1px solid var(--line);
 		color: var(--ink-muted);
 	}
 
-	.action-kind-pill.navigation { color: #3b82f6; }
-	.action-kind-pill.agent_action { color: #8b5cf6; }
-	.action-kind-pill.takeover { color: #f59e0b; }
-	.action-kind-pill.privacy { color: #ec4899; }
+	.action-kind-pill.navigation,
+	.action-kind-pill.agent_action,
+	.action-kind-pill.takeover,
+	.action-kind-pill.privacy {
+		color: var(--ink-muted);
+	}
 
 	.action-label {
 		flex: 1;
@@ -3467,7 +3454,7 @@
 
 	.action-details {
 		color: var(--ink-muted);
-		font-size: 10px;
+		font-size: var(--text-caption);
 	}
 
 	/* Empty States */
@@ -3502,50 +3489,21 @@
 
 	.empty-hint {
 		margin: 0;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		max-width: 320px;
 	}
 
 	@keyframes fadeIn {
 		from { opacity: 0; transform: translateY(-4px); }
-		to { opacity: 1; transform: translateY(0); }
 	}
 
 	/* S45 — dialoghi, permessi, download e registrazione */
-	.js-dialog-backdrop {
-		position: absolute;
-		inset: 0;
-		z-index: 200;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: rgba(0, 0, 0, 0.45);
-	}
-
-	.js-dialog {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		width: min(460px, calc(100% - 48px));
-		padding: var(--space-4);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
-	}
-
-	.js-dialog-kind {
-		margin: 0;
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--ink);
-	}
 
 	.js-dialog-origin {
 		margin: 0;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
@@ -3559,18 +3517,10 @@
 		overflow-y: auto;
 	}
 
-	.js-dialog-input {
-		padding: 6px 8px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-sm);
-	}
 
 	.js-dialog-note {
 		margin: 0;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
@@ -3580,28 +3530,17 @@
 		gap: var(--space-2);
 	}
 
-	.capability-menu-wrap {
-		position: relative;
-		display: inline-flex;
-	}
-
-	.capability-menu {
-		position: absolute;
-		top: calc(100% + 6px);
-		right: 0;
-		z-index: 150;
-		min-width: 260px;
-		padding: var(--space-3);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+	.capability-menu-content {
+		display: flex;
+		flex-direction: column;
+		padding: 4px;
 	}
 
 	.capability-menu-origin {
 		margin: 0 0 var(--space-2) 0;
+		padding: 0 8px;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		overflow-wrap: anywhere;
 	}
@@ -3611,11 +3550,12 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
-		padding: 3px 0;
+		padding: 7px 8px;
+		font-size: 13px;
 	}
 
 	.capability-name {
-		font-size: var(--text-xs);
+		font-size: var(--text-base);
 		color: var(--ink);
 	}
 
@@ -3630,14 +3570,22 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.capability-choice:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
 	}
 
 	.capability-choice.active {
-		background: var(--accent-dim, rgba(59, 130, 246, 0.15));
-		border-color: var(--accent, #3b82f6);
-		color: var(--accent, #3b82f6);
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		border-color: var(--brand);
+		color: var(--brand-ink);
 		font-weight: 600;
 	}
 
@@ -3649,8 +3597,11 @@
 		display: inline-block;
 	}
 
+	.recording-dot.recording {
+		background: var(--danger);
+	}
+
 	.recording-dot.live {
-		background: #dc2626;
 		animation: recordingPulse 1.4s ease-in-out infinite;
 	}
 
@@ -3663,7 +3614,7 @@
 		position: absolute;
 		left: 12px;
 		bottom: 12px;
-		z-index: 90;
+		z-index: var(--z-sticky);
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
@@ -3676,7 +3627,7 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-full);
 		color: var(--ink-muted);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		max-width: 320px;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -3689,29 +3640,29 @@
 
 	.artifact-chip.done {
 		color: var(--ink);
-		border-color: var(--accent, #3b82f6);
+		border-color: var(--brand);
 	}
 
 	.artifact-chip.rejected {
-		color: #dc2626;
-		border-color: rgba(220, 38, 38, 0.4);
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 	}
-	.relay-picker {
-		position: absolute;
-		inset: 44px 12px auto auto;
-		z-index: var(--z-dialog);
-		width: min(420px, calc(100% - 24px));
-		max-height: calc(100% - 56px);
-		overflow: auto;
-		padding: var(--space-3);
-		background: var(--bg-overlay);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow-overlay);
+
+	@media (prefers-reduced-motion: reduce) {
+		.recording-dot.live {
+			animation: none !important;
+		}
 	}
-	.relay-picker-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
-	.relay-picker-head > div { display: flex; flex-direction: column; gap: var(--space-1); }
-	.relay-picker-head span, .relay-empty { color: var(--ink-muted); font-size: var(--text-sm); }
+
+	:global(:root[data-animations="false"]) .recording-dot.live {
+		animation: none !important;
+	}
+	.relay-picker-sub {
+		margin: 0 0 var(--space-2) 0;
+		color: var(--ink-muted);
+		font-size: var(--text-caption);
+	}
+	.relay-empty { color: var(--ink-muted); font-size: var(--text-sm); }
 	.relay-targets { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-3); }
 	.relay-target {
 		display: flex;

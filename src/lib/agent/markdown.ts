@@ -145,6 +145,38 @@ export function lexMarkdownInlineWithMentions(source: string): Token[] {
 	}
 }
 
+const mentionLexCache = new Map<string, Token[]>();
+
+/**
+ * Come `lexMarkdown`, con supporto ai blocchi completi e alle menzioni `@file` e `/comando`.
+ * Utilizzato per anteprime e lettura dettagliata dei prompt nella coda dei task.
+ */
+export function lexMarkdownWithMentions(source: string): Token[] {
+	if (!source) return [];
+	const cached = mentionLexCache.get(source);
+	if (cached !== undefined) {
+		mentionLexCache.delete(source);
+		mentionLexCache.set(source, cached);
+		return cached;
+	}
+
+	let tokens: Token[];
+	try {
+		tokens = mentionMarked.lexer(source);
+	} catch {
+		tokens = [{ type: 'paragraph', raw: source, text: source, tokens: [] } as Tokens.Paragraph];
+	}
+
+	if (mentionLexCache.size >= MAX_LEX_CACHE_SIZE) {
+		const oldest = mentionLexCache.keys().next().value;
+		if (oldest !== undefined) {
+			mentionLexCache.delete(oldest);
+		}
+	}
+	mentionLexCache.set(source, tokens);
+	return tokens;
+}
+
 /** Alias dei linguaggi verso gli id che Monaco conosce. */
 const LANGUAGE_ALIASES: Record<string, string> = {
 	ts: 'typescript',

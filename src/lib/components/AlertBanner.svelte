@@ -1,8 +1,17 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import { fade, slide } from 'svelte/transition';
-	import type { Snippet } from 'svelte';
-	import { IconChevronRight, IconClose } from '$lib/icons';
+	import { onDestroy, type Snippet } from 'svelte';
+	import {
+		IconChevronRight,
+		IconCircleAlert,
+		IconCircleCheck,
+		IconClose,
+		IconInfo,
+		IconWarning
+	} from '$lib/icons';
+	import { chatReveal } from '$lib/agent/motion';
+	import { Lingering } from '$lib/agent/motionState.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	export type AlertVariant = 'error' | 'warning' | 'info' | 'success';
 
@@ -20,7 +29,7 @@
 		message = '',
 		diagnostic = '',
 		actions = [],
-		retryLabel = 'Riprova',
+		retryLabel = m.alert_retry(),
 		onRetry,
 		onDismiss,
 		dismissible = false,
@@ -38,7 +47,16 @@
 		children?: Snippet;
 	}>();
 
+	// Il dettaglio si piega in altezza come le sezioni (tray-in/tray-out) alla
+	// durata delle righe: Lingering lo tiene in vita per l'uscita.
+	const DETAIL_EXIT_MS = 210;
 	let showDetails = $state(false);
+	const detailLinger = new Lingering<true>(DETAIL_EXIT_MS);
+	$effect(() => {
+		detailLinger.update(showDetails ? true : undefined);
+	});
+	onDestroy(() => detailLinger.dispose());
+
 	let copied = $state(false);
 	let retrying = $state(false);
 
@@ -57,39 +75,35 @@
 		try {
 			await navigator.clipboard.writeText(diagnostic);
 			copied = true;
-			setTimeout(() => (copied = false), 2000);
+			setTimeout(() => (copied = false), 1500);
 		} catch (e) {
 			console.error('Impossibile copiare negli appunti:', e);
 		}
 	}
 </script>
 
+<!-- Superficie neutra (Outcome-Only Color Rule): il colore della variante sta
+     solo nell'icona. Entra ed esce piegando l'altezza, perche' spinge il
+     contenuto che sta sotto; l'uscita la decide il genitore, quindi serve la
+     transizione JS gemella di tray (chatReveal) e non la classe CSS. -->
 <div
 	class="alert-banner variant-{variant}"
 	role={variant === 'error' || variant === 'warning' ? 'alert' : 'status'}
 	aria-live={variant === 'error' ? 'assertive' : 'polite'}
-	transition:fade={{ duration: 120 }}
+	transition:chatReveal={{ blur: 6, distance: 0 }}
 >
 	<div class="alert-main">
-		<div class="alert-icon-col" aria-hidden="true">
+		<span class="alert-icon" aria-hidden="true">
 			{#if variant === 'error'}
-				<svg class="alert-icon error" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-					<path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11ZM7.25 4.5v4a.75.75 0 0 0 1.5 0v-4a.75.75 0 0 0-1.5 0Zm.75 6.75a.875.875 0 1 0 0-1.75.875.875 0 0 0 0 1.75Z"/>
-				</svg>
+				<IconCircleAlert />
 			{:else if variant === 'warning'}
-				<svg class="alert-icon warning" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-					<path d="M7.14 2.27a1 1 0 0 1 1.72 0l5.8 10.05a1 1 0 0 1-.86 1.48H2.2a1 1 0 0 1-.86-1.48l5.8-10.05Zm.86 1.5L2.94 12.3h10.12L8 3.77ZM7.25 6.5v3a.75.75 0 0 0 1.5 0v-3a.75.75 0 0 0-1.5 0Zm.75 5.25a.875.875 0 1 0 0-1.75.875.875 0 0 0 0 1.75Z"/>
-				</svg>
+				<IconWarning />
 			{:else if variant === 'success'}
-				<svg class="alert-icon success" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-					<path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Zm3.03 4.22a.75.75 0 0 0-1.06 0L7.25 9.44 5.78 7.97a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.25-3.25a.75.75 0 0 0 0-1.06Z"/>
-				</svg>
+				<IconCircleCheck />
 			{:else}
-				<svg class="alert-icon info" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-					<path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11ZM8 4.75a.875.875 0 1 0 0 1.75.875.875 0 0 0 0-1.75Zm-.75 3v3.5a.75.75 0 0 0 1.5 0v-3.5a.75.75 0 0 0-1.5 0Z"/>
-				</svg>
+				<IconInfo />
 			{/if}
-		</div>
+		</span>
 
 		<div class="alert-body">
 			{#if title}
@@ -107,33 +121,34 @@
 			{/if}
 
 			{#if diagnostic}
-				<div class="alert-diagnostic-toggle">
-					<button
-						type="button"
-						class="btn-text"
-						onclick={() => (showDetails = !showDetails)}
-						aria-expanded={showDetails}
-						aria-label={showDetails ? m.ui_alertbanner_nascondi_dettagli_diagnostici_5c68() : m.ui_alertbanner_mostra_dettagli_diagnostici_67fe()}
-					>
-						<span class="chevron" class:open={showDetails}><IconChevronRight /></span>
-						{showDetails ? m.ui_alertbanner_nascondi_dettagli_diagnostici_5c68() : m.ui_alertbanner_mostra_dettagli_diagnostici_67fe()}
-					</button>
-				</div>
+				<button
+					type="button"
+					class="btn-text"
+					onclick={() => (showDetails = !showDetails)}
+					aria-expanded={showDetails}
+				>
+					<span class="chevron" class:open={showDetails}><IconChevronRight /></span>
+					{showDetails ? m.ui_alertbanner_nascondi_dettagli_diagnostici_5c68() : m.ui_alertbanner_mostra_dettagli_diagnostici_67fe()}
+				</button>
 
-				{#if showDetails}
-					<div class="alert-diagnostic-box" transition:slide={{ duration: 150 }}>
-						<div class="diagnostic-actions">
-							<span class="diagnostic-label">Dettaglio tecnico</span>
-							<button
-								type="button"
-								class="btn-copy"
-								onclick={copyDiagnostic}
-								aria-label={copied ? 'Dettagli diagnostici copiati negli appunti' : m.ui_alertbanner_copia_dettagli_diagnostici_negli_appunti_6191()}
-							>
-								{copied ? 'Copiato!' : m.context_menu_item_copy()}
-							</button>
+				{#if detailLinger.shown}
+					<div class="diagnostic-fold {detailLinger.leaving ? 'tray-out' : 'tray-in'}">
+						<div class="tray-fold-inner">
+							<div class="alert-diagnostic-box">
+								<div class="diagnostic-actions">
+									<span class="diagnostic-label">{m.alert_diagnostic_label()}</span>
+									<button
+										type="button"
+										class="btn-copy"
+										onclick={copyDiagnostic}
+										aria-label={copied ? m.alert_copied_aria() : m.ui_alertbanner_copia_dettagli_diagnostici_negli_appunti_6191()}
+									>
+										{copied ? m.alert_copied() : m.context_menu_item_copy()}
+									</button>
+								</div>
+								<pre class="diagnostic-code"><code>{diagnostic}</code></pre>
+							</div>
 						</div>
-						<pre class="diagnostic-code"><code>{diagnostic}</code></pre>
 					</div>
 				{/if}
 			{/if}
@@ -143,7 +158,7 @@
 			{#if onRetry}
 				<button
 					type="button"
-					class="btn-action primary"
+					class="ui-button ui-button-primary"
 					onclick={handleRetry}
 					disabled={retrying}
 				>
@@ -154,23 +169,25 @@
 			{#each actions as action}
 				<button
 					type="button"
-					class="btn-action {action.variant ?? 'secondary'}"
+					class="ui-button ui-button-{action.variant ?? 'secondary'}"
 					onclick={action.onClick}
 					disabled={action.disabled || action.loading}
 				>
-					{action.loading ? 'Attendere...' : action.label}
+					{action.loading ? m.alert_wait() : action.label}
 				</button>
 			{/each}
 
 			{#if dismissible && onDismiss}
-				<button
-					type="button"
-					class="btn-close"
-					onclick={onDismiss}
-					aria-label={m.terminal_close_quota_alert()}
-				>
-					<IconClose />
-				</button>
+				<Tooltip text={m.terminal_close_quota_alert()}>
+					<button
+						type="button"
+						class="btn-close"
+						onclick={onDismiss}
+						aria-label={m.terminal_close_quota_alert()}
+					>
+						<IconClose />
+					</button>
+				</Tooltip>
 			{/if}
 		</div>
 	</div>
@@ -179,255 +196,176 @@
 <style>
 	.alert-banner {
 		position: relative;
-		border-radius: var(--radius-md, 6px);
-		padding: var(--space-3, 10px) var(--space-3, 12px);
-		font-family: var(--font-ui, system-ui, sans-serif);
-		font-size: var(--text-sm, 13px);
-		line-height: 1.45;
 		box-sizing: border-box;
+		padding: var(--space-3);
 		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
 		background: var(--bg-raised);
-	}
-
-	.variant-error {
-		border-color: color-mix(in srgb, var(--danger) 35%, transparent);
-		background: color-mix(in srgb, var(--danger) 10%, var(--bg-raised));
-	}
-
-	.variant-warning {
-		border-color: color-mix(in srgb, var(--warn) 35%, transparent);
-		background: color-mix(in srgb, var(--warn) 10%, var(--bg-raised));
-	}
-
-	.variant-info {
-		border-color: color-mix(in srgb, var(--brand) 35%, transparent);
-		background: color-mix(in srgb, var(--brand) 10%, var(--bg-raised));
-	}
-
-	.variant-success {
-		border-color: color-mix(in srgb, var(--git-added, oklch(0.68 0.16 145)) 35%, transparent);
-		background: color-mix(in srgb, var(--git-added, oklch(0.68 0.16 145)) 10%, var(--bg-raised));
+		font-family: var(--font-ui);
+		font-size: var(--text-body);
+		line-height: 1.45;
 	}
 
 	.alert-main {
 		display: flex;
 		align-items: flex-start;
-		gap: var(--space-3, 10px);
+		gap: var(--space-3);
 	}
 
-	.alert-icon-col {
-		flex-shrink: 0;
-		display: flex;
-		align-items: center;
-		padding-top: 2px;
-	}
-
+	/* Alta quanto la prima riga del titolo: l'icona si allinea al testo. */
 	.alert-icon {
-		display: block;
+		flex-shrink: 0;
+		display: grid;
+		place-items: center;
+		height: 19px;
+		--icon-size: 16px;
+		color: var(--ink-muted);
 	}
 
-	.alert-icon.error {
+	.variant-error .alert-icon {
 		color: var(--danger);
 	}
 
-	.alert-icon.warning {
+	.variant-warning .alert-icon {
 		color: var(--warn);
 	}
 
-	.alert-icon.info {
-		color: var(--brand-ink);
+	.variant-success .alert-icon {
+		color: var(--success);
 	}
 
-	.alert-icon.success {
-		color: var(--git-added, oklch(0.68 0.16 145));
-	}
 	.alert-body {
 		flex: 1;
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-1);
 	}
 
 	.alert-title {
 		font-weight: 600;
-		font-size: var(--text-sm, 13px);
 		color: var(--ink);
-	}
-
-	.variant-error .alert-title {
-		color: var(--danger);
-	}
-
-	.variant-warning .alert-title {
-		color: var(--warn);
-	}
-
-	.variant-info .alert-title {
-		color: var(--brand-ink);
-	}
-
-	.variant-success .alert-title {
-		color: var(--git-added, oklch(0.68 0.16 145));
 	}
 
 	.alert-message {
-		color: var(--ink);
-		font-size: var(--text-xs, 12px);
+		color: var(--ink-muted);
+		font-size: var(--text-label);
 		word-break: break-word;
 	}
 
 	.alert-custom-content {
-		margin-top: 4px;
-	}
-
-	.alert-diagnostic-toggle {
-		margin-top: 4px;
+		margin-top: var(--space-1);
 	}
 
 	.btn-text {
-		background: none;
-		border: none;
-		padding: 0;
-		font-family: inherit;
-		font-size: 11px;
-		color: var(--ink-muted, #9ca3af);
-		cursor: pointer;
+		align-self: flex-start;
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: var(--space-1);
+		margin-top: var(--space-1);
+		padding: 0;
+		background: none;
+		border: none;
+		font-family: inherit;
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		text-decoration: underline;
 		text-underline-offset: 2px;
+		cursor: pointer;
+		transition: color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-text:hover {
-		color: var(--ink, #f3f4f6);
+		color: var(--ink);
 	}
 
 	.chevron {
-		display: inline-block;
+		display: inline-grid;
 		--icon-size: 12px;
-		transition: transform 0.15s ease;
+		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
 	.chevron.open {
 		transform: rotate(90deg);
 	}
 
+	.diagnostic-fold {
+		--dur-tray: var(--dur-row);
+	}
+
 	.alert-diagnostic-box {
-		margin-top: 6px;
-		background: var(--bg-sunken, #0f1115);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
-		border-radius: var(--radius-sm, 4px);
-		padding: 6px 8px;
-		max-width: 100%;
-		overflow: hidden;
+		margin-top: var(--space-1);
+		padding: 6px var(--space-2);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
 	}
 
 	.diagnostic-actions {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		margin-bottom: 4px;
+		margin-bottom: var(--space-1);
 	}
 
 	.diagnostic-label {
-		font-size: 10px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--ink-faint, #6b7280);
+		font-size: var(--text-caption);
+		font-weight: 500;
+		color: var(--ink-faint);
 	}
 
 	.btn-copy {
-		background: var(--bg-hover, rgba(255, 255, 255, 0.06));
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
-		border-radius: 3px;
-		padding: 2px 6px;
-		font-size: 10px;
-		color: var(--ink-muted, #9ca3af);
+		padding: 2px var(--space-2);
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		font-family: inherit;
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-copy:hover {
-		background: var(--bg-active, rgba(255, 255, 255, 0.12));
-		color: var(--ink, #ffffff);
+		background: var(--bg-hover);
+		color: var(--ink);
 	}
 
 	.diagnostic-code {
 		margin: 0;
-		padding: 0;
-		font-family: var(--font-mono, monospace);
-		font-size: 11px;
-		line-height: 1.4;
-		color: var(--ink-muted, #d1d5db);
-		white-space: pre-wrap;
-		word-break: break-all;
 		max-height: 120px;
 		overflow-y: auto;
+		font-family: var(--font-mono);
+		font-size: var(--text-mono);
+		line-height: 1.5;
+		color: var(--ink-muted);
+		white-space: pre-wrap;
+		word-break: break-all;
 	}
 
 	.alert-actions-col {
 		flex-shrink: 0;
 		display: flex;
 		align-items: center;
-		gap: var(--space-2, 6px);
+		gap: var(--space-2);
 		margin-left: auto;
 	}
 
-	.btn-action {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 4px 10px;
-		border-radius: var(--radius-sm, 4px);
-		font-size: var(--text-xs, 12px);
-		font-weight: 500;
-		font-family: inherit;
-		cursor: pointer;
-		border: 1px solid transparent;
-		transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
-		white-space: nowrap;
-	}
-
-	.btn-action.primary {
-		background: var(--brand);
-		color: var(--on-brand);
-		font-weight: 600;
-	}
-
-	.btn-action.primary:hover:not(:disabled) {
-		filter: brightness(1.1);
-	}
-
-	.btn-action.secondary {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.btn-action.secondary:hover:not(:disabled) {
-		background: var(--bg-active);
-	}
-
-	.btn-action.danger {
-		background: var(--danger);
-		color: var(--on-danger);
-	}
-
-	.btn-action.danger:hover:not(:disabled) {
-		filter: brightness(1.1);
-	}
-
 	.btn-close {
+		width: 28px;
+		height: 28px;
+		display: inline-grid;
+		place-items: center;
+		padding: 0;
 		background: none;
 		border: none;
+		border-radius: var(--radius-md);
 		color: var(--ink-faint);
-		font-size: 13px;
-		padding: 2px 4px;
 		cursor: pointer;
-		border-radius: 3px;
-		line-height: 1;
+		--icon-size: 14px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
 	.btn-close:hover {

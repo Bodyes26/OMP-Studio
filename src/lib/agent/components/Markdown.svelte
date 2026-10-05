@@ -8,31 +8,37 @@
 	import Markdown from './Markdown.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
 
-	let { tokens = [] }: { tokens?: Token[] } = $props();
+	let {
+		tokens = [],
+		onOpenFile
+	}: {
+		tokens?: Token[];
+		onOpenFile?: (path: string) => void;
+	} = $props();
 </script>
 
 {#each tokens as token (token)}
 	{#if token.type === 'heading'}
 		{#if token.depth === 1}
-			<h1 class="heading h1"><MarkdownInline tokens={token.tokens} /></h1>
+			<h1 class="heading h1"><MarkdownInline tokens={token.tokens} {onOpenFile} /></h1>
 		{:else if token.depth === 2}
-			<h2 class="heading h2"><MarkdownInline tokens={token.tokens} /></h2>
+			<h2 class="heading h2"><MarkdownInline tokens={token.tokens} {onOpenFile} /></h2>
 		{:else if token.depth === 3}
-			<h3 class="heading h3"><MarkdownInline tokens={token.tokens} /></h3>
+			<h3 class="heading h3"><MarkdownInline tokens={token.tokens} {onOpenFile} /></h3>
 		{:else if token.depth === 4}
-			<h4 class="heading h4"><MarkdownInline tokens={token.tokens} /></h4>
+			<h4 class="heading h4"><MarkdownInline tokens={token.tokens} {onOpenFile} /></h4>
 		{:else if token.depth === 5}
-			<h5 class="heading h5"><MarkdownInline tokens={token.tokens} /></h5>
+			<h5 class="heading h5"><MarkdownInline tokens={token.tokens} {onOpenFile} /></h5>
 		{:else}
-			<h6 class="heading h6"><MarkdownInline tokens={token.tokens} /></h6>
+			<h6 class="heading h6"><MarkdownInline tokens={token.tokens} {onOpenFile} /></h6>
 		{/if}
 	{:else if token.type === 'paragraph'}
-		<p class="paragraph"><MarkdownInline tokens={token.tokens} /></p>
+		<p class="paragraph"><MarkdownInline tokens={token.tokens} {onOpenFile} /></p>
 	{:else if token.type === 'code'}
-		<CodeBlock lang={token.lang} text={token.text} />
+		<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
 	{:else if token.type === 'blockquote'}
 		<blockquote class="blockquote">
-			<Markdown tokens={token.tokens} />
+			<Markdown tokens={token.tokens} {onOpenFile} />
 		</blockquote>
 	{:else if token.type === 'list'}
 		{#if token.ordered}
@@ -43,7 +49,7 @@
 							<input type="checkbox" checked={item.checked} disabled class="task-checkbox" />
 						{/if}
 						<div class="item-content">
-							<Markdown tokens={item.tokens} />
+							<Markdown tokens={item.tokens} {onOpenFile} />
 						</div>
 					</li>
 				{/each}
@@ -56,7 +62,7 @@
 							<input type="checkbox" checked={item.checked} disabled class="task-checkbox" />
 						{/if}
 						<div class="item-content">
-							<Markdown tokens={item.tokens} />
+							<Markdown tokens={item.tokens} {onOpenFile} />
 						</div>
 					</li>
 				{/each}
@@ -69,7 +75,7 @@
 					<tr>
 						{#each token.header as cell, ci (ci)}
 							<th style={cell.align ? `text-align: ${cell.align}` : undefined}>
-								<MarkdownInline tokens={cell.tokens} />
+								<MarkdownInline tokens={cell.tokens} {onOpenFile} />
 							</th>
 						{/each}
 					</tr>
@@ -79,7 +85,7 @@
 						<tr>
 							{#each row as cell, ci (ci)}
 								<td style={cell.align ? `text-align: ${cell.align}` : undefined}>
-									<MarkdownInline tokens={cell.tokens} />
+									<MarkdownInline tokens={cell.tokens} {onOpenFile} />
 								</td>
 							{/each}
 						</tr>
@@ -96,14 +102,14 @@
 	{:else if token.type === 'text'}
 		<div class="text-block">
 			{#if 'tokens' in token && token.tokens && token.tokens.length > 0}
-				<MarkdownInline tokens={token.tokens} />
+				<MarkdownInline tokens={token.tokens} {onOpenFile} />
 			{:else}
 				{token.text}
 			{/if}
 		</div>
 	{:else if 'tokens' in token && token.tokens}
 		<div class="generic-block">
-			<MarkdownInline tokens={token.tokens} />
+			<MarkdownInline tokens={token.tokens} {onOpenFile} />
 		</div>
 	{:else if 'text' in token && typeof token.text === 'string'}
 		<p class="paragraph">{token.text}</p>

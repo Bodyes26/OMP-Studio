@@ -34,6 +34,11 @@
 		IconCheck,
 		IconClose
 	} from '$lib/icons';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { Lingering, ROW_EXIT_MS } from '$lib/agent/motionState.svelte';
 
 	let {
 		projectId,
@@ -83,6 +88,10 @@
 
 	// Espansione barra errori
 	let isErrorsExpanded = $state(false);
+	const errorsLinger = new Lingering<true>(ROW_EXIT_MS);
+	$effect(() => {
+		errorsLinger.update(isErrorsExpanded ? true : undefined);
+	});
 
 	// Calcolo larghezza del viewport
 	const iframeWrapperWidth = $derived(
@@ -151,6 +160,7 @@
 		if (exportNoticeTimer !== null) {
 			window.clearTimeout(exportNoticeTimer);
 		}
+		errorsLinger.dispose();
 	});
 
 	async function loadRevisions(): Promise<void> {
@@ -260,151 +270,157 @@
 	<header class="lab-toolbar" aria-label="Strumenti anteprima prototipo">
 		<!-- Selettore Viewport -->
 		<div class="toolbar-group" role="group" aria-label="Dimensioni viewport">
-			<button
-				type="button"
-				class="tool-btn"
-				class:is-active={viewportMode === 'desktop'}
-				onclick={() => (viewportMode = 'desktop')}
-				title={m.lab_view_viewport_desktop()}
-				aria-label={m.lab_view_viewport_desktop()}
-			>
-				<span class="btn-text">Desktop</span>
-			</button>
-			<button
-				type="button"
-				class="tool-btn"
-				class:is-active={viewportMode === 'tablet'}
-				onclick={() => (viewportMode = 'tablet')}
-				title={m.lab_view_viewport_tablet()}
-				aria-label={m.lab_view_viewport_tablet()}
-			>
-				<span class="btn-text">Tablet</span>
-			</button>
-			<button
-				type="button"
-				class="tool-btn"
-				class:is-active={viewportMode === 'mobile'}
-				onclick={() => (viewportMode = 'mobile')}
-				title={m.lab_view_viewport_mobile()}
-				aria-label={m.lab_view_viewport_mobile()}
-			>
-				<span class="btn-text">Mobile</span>
-			</button>
+			<Tooltip text={m.lab_view_viewport_desktop()} placement="bottom">
+				<button
+					type="button"
+					class="tool-btn"
+					class:is-active={viewportMode === 'desktop'}
+					onclick={() => (viewportMode = 'desktop')}
+					aria-label={m.lab_view_viewport_desktop()}
+				>
+					<span class="btn-text">Desktop</span>
+				</button>
+			</Tooltip>
+			<Tooltip text={m.lab_view_viewport_tablet()} placement="bottom">
+				<button
+					type="button"
+					class="tool-btn"
+					class:is-active={viewportMode === 'tablet'}
+					onclick={() => (viewportMode = 'tablet')}
+					aria-label={m.lab_view_viewport_tablet()}
+				>
+					<span class="btn-text">Tablet</span>
+				</button>
+			</Tooltip>
+			<Tooltip text={m.lab_view_viewport_mobile()} placement="bottom">
+				<button
+					type="button"
+					class="tool-btn"
+					class:is-active={viewportMode === 'mobile'}
+					onclick={() => (viewportMode = 'mobile')}
+					aria-label={m.lab_view_viewport_mobile()}
+				>
+					<span class="btn-text">Mobile</span>
+				</button>
+			</Tooltip>
 		</div>
 
 		<div class="toolbar-divider" role="separator"></div>
 
 		<!-- Azioni di navigazione ed esame -->
 		<div class="toolbar-group">
-			<button
-				type="button"
-				class="tool-btn"
-				onclick={handleReload}
-				title={m.lab_view_reload()}
-				aria-label={m.lab_view_reload()}
-				disabled={runtime.isCompiling}
+			<Tooltip text={m.lab_view_reload()} placement="bottom">
+				<button
+					type="button"
+					class="tool-btn"
+					onclick={handleReload}
+					aria-label={m.lab_view_reload()}
+					disabled={runtime.isCompiling}
+				>
+					<IconRefresh />
+				</button>
+			</Tooltip>
+			<Tooltip text={m.lab_view_open_browser()} placement="bottom">
+				<button
+					type="button"
+					class="tool-btn"
+					onclick={handleOpenBrowser}
+					aria-label={m.lab_view_open_browser()}
+					disabled={!runtime.url}
+				>
+					<IconExternalLink />
+				</button>
+			</Tooltip>
+			<Tooltip
+				text={isSelectModeActive ? m.lab_view_select_element_active() : m.lab_view_select_element()}
+				placement="bottom"
 			>
-				<IconRefresh />
-			</button>
-			<button
-				type="button"
-				class="tool-btn"
-				onclick={handleOpenBrowser}
-				title={m.lab_view_open_browser()}
-				aria-label={m.lab_view_open_browser()}
-				disabled={!runtime.url}
-			>
-				<IconExternalLink />
-			</button>
-			<button
-				type="button"
-				class="tool-btn select-btn"
-				class:is-active={isSelectModeActive}
-				onclick={toggleSelectMode}
-				title={isSelectModeActive ? m.lab_view_select_element_active() : m.lab_view_select_element()}
-				aria-label={m.lab_view_select_element()}
-				aria-pressed={isSelectModeActive}
-			>
-				<span class="select-indicator"></span>
-				<span class="btn-text">{m.lab_view_select_element()}</span>
-			</button>
+				<button
+					type="button"
+					class="tool-btn select-btn"
+					class:is-active={isSelectModeActive}
+					onclick={toggleSelectMode}
+					aria-label={m.lab_view_select_element()}
+					aria-pressed={isSelectModeActive}
+				>
+					<span class="select-indicator"></span>
+					<span class="btn-text">{m.lab_view_select_element()}</span>
+				</button>
+			</Tooltip>
 		</div>
 
 		<div class="toolbar-spacer"></div>
 
 		<!-- Storico revisioni, duplicazione ed esportazione -->
 		<div class="toolbar-group">
-			<div class="rev-dropdown-container">
-				<button
-					type="button"
-					class="tool-btn rev-btn"
-					onclick={() => (isRevisionsOpen = !isRevisionsOpen)}
-					aria-expanded={isRevisionsOpen}
-					aria-label={m.lab_view_revisions()}
-				>
+			<MenuButton
+				open={isRevisionsOpen}
+				ariaLabel={m.lab_view_revisions()}
+				width="320px"
+				align="right"
+				onToggle={() => (isRevisionsOpen = !isRevisionsOpen)}
+				onClose={() => (isRevisionsOpen = false)}
+			>
+				{#snippet trigger()}
 					<span class="btn-text">{m.lab_view_revisions()}</span>
 					<IconChevronDown />
-				</button>
+				{/snippet}
 
-				{#if isRevisionsOpen}
-					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-					<div class="dropdown-backdrop" onclick={() => (isRevisionsOpen = false)}></div>
-					<div class="rev-dropdown-menu" role="menu">
-						<button
-							type="button"
-							class="rev-menu-item current-rev-item"
-							role="menuitem"
-							onclick={() => {
-								isRevisionsOpen = false;
-								void handleReturnToCurrent();
-							}}
-						>
-							<span class="rev-title">{m.lab_view_current_revision()}</span>
-						</button>
-						<div class="menu-divider"></div>
-						{#if revisions.length === 0}
-							<div class="empty-rev-notice">{m.lab_view_no_revisions()}</div>
-						{:else}
-							<div class="rev-list">
-								{#each revisions as rev}
-									<button
-										type="button"
-										class="rev-menu-item"
-										class:is-selected={runtime.activeRevisionSha === rev.sha}
-										role="menuitem"
-										onclick={() => handleSelectRevision(rev)}
-									>
-										<span class="rev-sha">{rev.sha.slice(0, 7)}</span>
-										<span class="rev-message" title={rev.message}>{rev.message}</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
+				<button
+					type="button"
+					class="current-rev-item"
+					role="menuitem"
+					onclick={() => {
+						isRevisionsOpen = false;
+						void handleReturnToCurrent();
+					}}
+				>
+					<span class="rev-title">{m.lab_view_current_revision()}</span>
+				</button>
+				<div class="menu-divider"></div>
+				{#if revisions.length === 0}
+					<div class="empty-rev-notice">{m.lab_view_no_revisions()}</div>
+				{:else}
+					<div class="rev-list">
+						{#each revisions as rev}
+							<button
+								type="button"
+								class="rev-menu-item"
+								class:is-selected={runtime.activeRevisionSha === rev.sha}
+								role="menuitem"
+								onclick={() => handleSelectRevision(rev)}
+							>
+								<span class="rev-sha">{rev.sha.slice(0, 7)}</span>
+								<span class="rev-message" title={rev.message}>{rev.message}</span>
+							</button>
+						{/each}
 					</div>
 				{/if}
-			</div>
+			</MenuButton>
 
-			<button
-				type="button"
-				class="tool-btn"
-				onclick={handleDuplicate}
-				title={m.lab_view_duplicate()}
-				aria-label={m.lab_view_duplicate()}
-			>
-				<IconCopy />
-				<span class="btn-text">{m.lab_view_duplicate()}</span>
-			</button>
+			<Tooltip text={m.lab_view_duplicate()} placement="bottom">
+				<button
+					type="button"
+					class="tool-btn"
+					onclick={handleDuplicate}
+					aria-label={m.lab_view_duplicate()}
+				>
+					<IconCopy />
+					<span class="btn-text">{m.lab_view_duplicate()}</span>
+				</button>
+			</Tooltip>
 
-			<button
-				type="button"
-				class="tool-btn"
-				onclick={handleExport}
-				title={m.lab_view_export()}
-				aria-label={m.lab_view_export()}
-			>
-				<IconDownload />
-				<span class="btn-text">{m.lab_view_export()}</span>
-			</button>
+			<Tooltip text={m.lab_view_export()} placement="bottom">
+				<button
+					type="button"
+					class="tool-btn"
+					onclick={handleExport}
+					aria-label={m.lab_view_export()}
+				>
+					<IconDownload />
+					<span class="btn-text">{m.lab_view_export()}</span>
+				</button>
+			</Tooltip>
 		</div>
 	</header>
 
@@ -412,7 +428,9 @@
 	{#if runtime.isViewingHistorical}
 		<div class="historical-banner" role="status">
 			<div class="banner-content">
-				<IconWarning />
+				<span class="banner-icon" aria-hidden="true">
+					<IconWarning />
+				</span>
 				<span class="banner-text">
 					{m.lab_view_historical_banner({
 						sha: runtime.activeRevisionSha?.slice(0, 7) ?? '',
@@ -421,10 +439,18 @@
 				</span>
 			</div>
 			<div class="banner-actions">
-				<button type="button" class="banner-btn restore-btn" onclick={handleRestoreCurrentRevision}>
+				<button
+					type="button"
+					class="ui-button ui-button-secondary"
+					onclick={handleRestoreCurrentRevision}
+				>
 					{m.lab_view_restore()}
 				</button>
-				<button type="button" class="banner-btn return-btn" onclick={handleReturnToCurrent}>
+				<button
+					type="button"
+					class="ui-button ui-button-ghost"
+					onclick={handleReturnToCurrent}
+				>
 					{m.lab_view_return_to_current()}
 				</button>
 			</div>
@@ -435,9 +461,9 @@
 	{#if exportNotice}
 		<div class="export-toast" class:is-error={exportNotice.kind === 'error'} role="alert">
 			{#if exportNotice.kind === 'success'}
-				<IconCheck />
+				<span class="toast-icon is-success"><IconCheck /></span>
 			{:else}
-				<IconWarning />
+				<span class="toast-icon is-danger"><IconWarning /></span>
 			{/if}
 			<span>{exportNotice.text}</span>
 			<button
@@ -456,7 +482,7 @@
 		<div class="preview-frame-wrapper" style:width={iframeWrapperWidth}>
 			{#if runtime.isInitialLoading}
 				<div class="state-overlay">
-					<div class="loading-spinner" aria-hidden="true"></div>
+					<StatusMark status="running" label={m.lab_view_initial_loading()} />
 					<p>{m.lab_view_initial_loading()}</p>
 				</div>
 			{:else if !runtime.url}
@@ -481,7 +507,7 @@
 
 			{#if runtime.isCompiling && !runtime.isInitialLoading}
 				<div class="compiling-indicator" role="status" aria-live="polite">
-					<div class="small-spinner" aria-hidden="true"></div>
+					<StatusMark status="running" label={m.lab_view_compiling()} />
 					<span>{m.lab_view_compiling()}</span>
 				</div>
 			{/if}
@@ -491,49 +517,56 @@
 	<!-- Barra errori di compilazione e runtime -->
 	{#if runtime.hasErrors}
 		<footer class="error-bar" role="region" aria-label="Errori anteprima">
-			<div class="error-bar-header">
-				<button
-					type="button"
-					class="error-toggle-btn"
-					onclick={() => (isErrorsExpanded = !isErrorsExpanded)}
-					aria-expanded={isErrorsExpanded}
-				>
-					{#if isErrorsExpanded}
-						<IconChevronDown />
-					{:else}
-						<IconChevronRight />
-					{/if}
-					<IconWarning />
-					<span class="error-count-text">
-						{m.lab_view_errors_count({ count: runtime.allErrors.length })}
-					</span>
-				</button>
+			<AlertBanner variant="error">
+				<div class="error-banner-header">
+					<button
+						type="button"
+						class="error-toggle-btn"
+						onclick={() => (isErrorsExpanded = !isErrorsExpanded)}
+						aria-expanded={isErrorsExpanded}
+					>
+						<span class="chevron" class:open={isErrorsExpanded}>
+							<IconChevronRight />
+						</span>
+						<span class="error-count-text">
+							{m.lab_view_errors_count({ count: runtime.allErrors.length })}
+						</span>
+					</button>
 
-				<button type="button" class="ask-fix-btn" onclick={handleAskToFix}>
-					<IconSparkles />
-					<span>{m.lab_view_ask_fix()}</span>
-				</button>
-			</div>
-
-			{#if isErrorsExpanded}
-				<div class="error-list" role="list">
-					{#each runtime.allErrors as err}
-						<div class="error-item" role="listitem">
-							<span class="error-kind-badge" class:is-runtime={err.kind === 'runtime'}>
-								{err.kind === 'compile' ? 'Build' : 'Runtime'}
-							</span>
-							{#if err.file}
-								<span class="error-location">
-									{err.file}{err.line != null ? `:${err.line}` : ''}{err.column != null
-										? `:${err.column}`
-										: ''}
-								</span>
-							{/if}
-							<span class="error-msg">{err.message}</span>
-						</div>
-					{/each}
+					<button
+						type="button"
+						class="ui-button ui-button-primary ask-fix-btn"
+						onclick={handleAskToFix}
+					>
+						<IconSparkles />
+						<span>{m.lab_view_ask_fix()}</span>
+					</button>
 				</div>
-			{/if}
+
+				{#if errorsLinger.shown}
+					<div class="error-fold {errorsLinger.leaving ? 'tray-out' : 'tray-in'}">
+						<div class="tray-fold-inner">
+							<div class="error-list" role="list">
+								{#each runtime.allErrors as err}
+									<div class="error-item" role="listitem">
+										<span class="error-kind-badge" class:is-runtime={err.kind === 'runtime'}>
+											{err.kind === 'compile' ? 'Build' : 'Runtime'}
+										</span>
+										{#if err.file}
+											<span class="error-location">
+												{err.file}{err.line != null ? `:${err.line}` : ''}{err.column != null
+													? `:${err.column}`
+													: ''}
+											</span>
+										{/if}
+										<span class="error-msg">{err.message}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+					</div>
+				{/if}
+			</AlertBanner>
 		</footer>
 	{/if}
 </div>
@@ -557,14 +590,14 @@
 	.lab-toolbar {
 		display: flex;
 		align-items: center;
-		height: 38px;
-		min-height: 38px;
+		height: 32px;
+		min-height: 32px;
 		padding: 0 var(--space-2);
-		background-color: var(--bg-panel);
+		background-color: var(--bg-raised);
 		border-bottom: 1px solid var(--line);
 		gap: var(--space-1);
 		user-select: none;
-		z-index: 10;
+		z-index: var(--z-sticky);
 	}
 
 	.toolbar-group {
@@ -593,12 +626,14 @@
 		padding: 0 var(--space-2);
 		background: transparent;
 		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		font-family: inherit;
 		cursor: pointer;
-		transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.tool-btn:hover:not(:disabled) {
@@ -607,12 +642,12 @@
 	}
 
 	.tool-btn:focus-visible {
-		outline: 2px solid var(--accent);
+		outline: 2px solid var(--brand);
 		outline-offset: -1px;
 	}
 
 	.tool-btn:disabled {
-		opacity: 0.4;
+		opacity: 0.45;
 		cursor: not-allowed;
 	}
 
@@ -624,54 +659,32 @@
 	}
 
 	.select-btn.is-active {
-		background-color: rgba(37, 99, 235, 0.12);
-		color: #2563eb;
-		border-color: rgba(37, 99, 235, 0.3);
+		background-color: color-mix(in oklch, var(--brand) 12%, transparent);
+		color: var(--brand-ink);
+		border-color: color-mix(in oklch, var(--brand) 30%, transparent);
 	}
 
 	.select-indicator {
 		width: 6px;
 		height: 6px;
-		border-radius: 50%;
+		border-radius: var(--radius-full);
 		background-color: currentColor;
 	}
 
-	/* Dropdown revisioni */
-	.rev-dropdown-container {
-		position: relative;
-	}
-
-	.dropdown-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 40;
-	}
-
-	.rev-dropdown-menu {
-		position: absolute;
-		top: calc(100% + 4px);
-		right: 0;
-		width: 320px;
-		max-height: 380px;
-		background-color: var(--bg-panel);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-md);
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
-		z-index: 50;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
+	/* Menu revisioni (elementi interni al popover) */
 	.current-rev-item {
-		padding: var(--space-2) var(--space-3);
+		width: 100%;
+		padding: 7px 8px;
 		text-align: left;
-		font-size: var(--text-xs);
+		font-size: 13px;
 		color: var(--ink);
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-md);
 		cursor: pointer;
 		font-weight: 500;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
 	.current-rev-item:hover {
@@ -681,26 +694,31 @@
 	.menu-divider {
 		height: 1px;
 		background-color: var(--line);
+		margin: var(--space-1) 0;
 	}
 
 	.rev-list {
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
+		gap: 1px;
+		padding: 2px 0;
 	}
 
 	.rev-menu-item {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
+		padding: 7px 8px;
+		font-size: 13px;
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-md);
 		text-align: left;
-		font-size: var(--text-xs);
 		color: var(--ink-muted);
 		cursor: pointer;
-		transition: background-color 0.1s ease;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
 	.rev-menu-item:hover {
@@ -710,13 +728,14 @@
 
 	.rev-menu-item.is-selected {
 		background-color: var(--bg-sunken);
-		color: var(--accent);
+		color: var(--brand-ink);
 		font-weight: 500;
 	}
 
 	.rev-sha {
 		font-family: var(--font-mono, monospace);
-		font-size: 11px;
+		font-variant-numeric: tabular-nums;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
@@ -740,12 +759,12 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: var(--space-2) var(--space-3);
-		background-color: #fef3c7;
-		color: #92400e;
-		border-bottom: 1px solid #fde68a;
+		background-color: var(--bg-raised);
+		color: var(--ink);
+		border-bottom: 1px solid var(--line);
 		font-size: var(--text-xs);
 		gap: var(--space-3);
-		z-index: 5;
+		z-index: var(--z-sticky);
 	}
 
 	.banner-content {
@@ -753,12 +772,21 @@
 		align-items: center;
 		gap: var(--space-2);
 		overflow: hidden;
+		min-width: 0;
+	}
+
+	.banner-icon {
+		display: inline-flex;
+		align-items: center;
+		color: var(--warn);
+		flex-shrink: 0;
 	}
 
 	.banner-text {
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		color: var(--ink);
 	}
 
 	.banner-actions {
@@ -766,35 +794,6 @@
 		align-items: center;
 		gap: var(--space-2);
 		flex-shrink: 0;
-	}
-
-	.banner-btn {
-		height: 24px;
-		padding: 0 var(--space-2);
-		border-radius: var(--radius-sm);
-		font-size: 11px;
-		font-weight: 500;
-		cursor: pointer;
-		border: 1px solid transparent;
-	}
-
-	.restore-btn {
-		background-color: #d97706;
-		color: #ffffff;
-	}
-
-	.restore-btn:hover {
-		background-color: #b45309;
-	}
-
-	.return-btn {
-		background-color: transparent;
-		border-color: #d97706;
-		color: #92400e;
-	}
-
-	.return-btn:hover {
-		background-color: rgba(217, 119, 6, 0.1);
 	}
 
 	/* Toast esportazione */
@@ -806,28 +805,44 @@
 		align-items: center;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
-		background-color: var(--bg-panel);
+		background-color: var(--bg-raised);
 		color: var(--ink);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+		box-shadow: var(--shadow-overlay);
 		font-size: var(--text-xs);
-		z-index: 30;
+		z-index: var(--z-toast);
 	}
 
 	.export-toast.is-error {
-		border-color: #ef4444;
-		color: #ef4444;
+		border-color: var(--danger);
+		color: var(--danger);
+	}
+
+	.toast-icon.is-success {
+		display: inline-flex;
+		color: var(--success);
+	}
+
+	.toast-icon.is-danger {
+		display: inline-flex;
+		color: var(--danger);
 	}
 
 	.toast-close {
 		background: transparent;
 		border: none;
-		color: inherit;
+		color: var(--ink-muted);
 		cursor: pointer;
-		display: flex;
+		display: inline-flex;
 		align-items: center;
 		padding: 0;
+		border-radius: var(--radius-sm);
+		transition: color var(--dur-fast) var(--ease-out);
+	}
+
+	.toast-close:hover {
+		color: var(--ink);
 	}
 
 	/* Stage anteprima */
@@ -846,9 +861,7 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		background-color: #ffffff;
-		box-shadow: 0 0 16px rgba(0, 0, 0, 0.08);
-		transition: width 0.15s ease-out;
+		background-color: var(--bg-base);
 		overflow: hidden;
 	}
 
@@ -856,7 +869,7 @@
 		width: 100%;
 		height: 100%;
 		border: none;
-		background-color: #ffffff;
+		background-color: var(--bg-base);
 	}
 
 	.state-overlay {
@@ -866,11 +879,11 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background-color: var(--bg-panel);
+		background-color: var(--bg-raised);
 		color: var(--ink-muted);
 		gap: var(--space-2);
 		font-size: var(--text-sm);
-		z-index: 2;
+		z-index: var(--z-sticky);
 	}
 
 	.compiling-indicator {
@@ -881,87 +894,74 @@
 		align-items: center;
 		gap: var(--space-2);
 		padding: var(--space-1) var(--space-3);
-		background-color: rgba(0, 0, 0, 0.75);
-		color: #ffffff;
+		background-color: var(--bg-raised);
+		color: var(--ink);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-full);
-		font-size: 11px;
-		backdrop-filter: blur(4px);
-		z-index: 5;
+		box-shadow: var(--shadow-raise);
+		font-size: var(--text-caption);
+		z-index: var(--z-sticky);
 	}
-
-	.loading-spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid var(--line);
-		border-top-color: var(--accent);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	.small-spinner {
-		width: 12px;
-		height: 12px;
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top-color: #ffffff;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
 
 	/* Barra errori */
 	.error-bar {
-		display: flex;
-		flex-direction: column;
-		background-color: #fef2f2;
-		border-top: 1px solid #fee2e2;
-		max-height: 180px;
-		z-index: 10;
+		padding: var(--space-2) var(--space-3);
+		background-color: var(--bg-sunken);
+		border-top: 1px solid var(--line);
+		z-index: var(--z-sticky);
 	}
 
-	.error-bar-header {
+	.error-banner-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		height: 32px;
-		padding: 0 var(--space-3);
+		gap: var(--space-2);
+		width: 100%;
+		min-height: 28px;
 	}
 
 	.error-toggle-btn {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
 		gap: var(--space-2);
 		background: transparent;
 		border: none;
-		color: #b91c1c;
+		color: var(--ink);
+		font-family: inherit;
 		font-size: var(--text-xs);
-		font-weight: 500;
+		font-weight: 600;
 		cursor: pointer;
 		padding: 0;
+		transition: color var(--dur-fast) var(--ease-out);
+	}
+
+	.error-toggle-btn:hover {
+		color: var(--danger);
+	}
+
+	.chevron {
+		display: inline-grid;
+		--icon-size: 14px;
+		color: var(--ink-muted);
+		transition: transform var(--dur-fast) var(--ease-out);
+	}
+
+	.chevron.open {
+		transform: rotate(90deg);
 	}
 
 	.ask-fix-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		height: 24px;
-		padding: 0 var(--space-2);
-		background-color: #b91c1c;
-		color: #ffffff;
-		border: none;
-		border-radius: var(--radius-sm);
-		font-size: 11px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: background-color 0.1s ease;
+		flex-shrink: 0;
 	}
 
-	.ask-fix-btn:hover {
-		background-color: #991b1b;
+	.error-fold {
+		--dur-tray: var(--dur-row);
 	}
 
 	.error-list {
 		overflow-y: auto;
-		padding: 0 var(--space-3) var(--space-2);
+		max-height: 160px;
+		margin-top: var(--space-2);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
@@ -971,30 +971,35 @@
 		display: flex;
 		align-items: baseline;
 		gap: var(--space-2);
-		font-size: 11px;
-		color: #991b1b;
-		font-family: var(--font-mono, monospace);
+		font-size: var(--text-caption);
+		color: var(--ink);
 		word-break: break-all;
 	}
 
 	.error-kind-badge {
-		padding: 1px 4px;
-		border-radius: 3px;
-		background-color: #fee2e2;
-		color: #991b1b;
-		font-size: 9px;
-		font-weight: bold;
-		text-transform: uppercase;
+		padding: 1px 6px;
+		border-radius: var(--radius-sm);
+		background-color: var(--bg-base);
+		color: var(--danger);
+		font-size: var(--text-caption);
+		font-weight: 500;
 		flex-shrink: 0;
 	}
 
 	.error-kind-badge.is-runtime {
-		background-color: #ffedd5;
-		color: #c2410c;
+		background-color: var(--bg-base);
+		color: var(--warn);
 	}
 
 	.error-location {
+		font-family: var(--font-mono, monospace);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		flex-shrink: 0;
+	}
+
+	.error-msg {
+		color: var(--ink);
+		font-size: var(--text-caption);
 	}
 </style>

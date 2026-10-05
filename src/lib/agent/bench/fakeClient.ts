@@ -28,7 +28,11 @@ export class FakeOmpRpcClient extends OmpRpcClient {
 			id: 'claude-3-7-sonnet',
 			name: 'Claude 3.7 Sonnet',
 			provider: 'anthropic',
-			contextWindow: 200000
+			contextWindow: 200000,
+			// Coerente con il catalogo qui sotto: senza, il popover del thinking
+			// mostrerebbe «non regolabile» con un livello gia' attivo.
+			reasoning: true,
+			input: ['text', 'image']
 		},
 		thinkingLevel: 'medium',
 		contextUsage: {

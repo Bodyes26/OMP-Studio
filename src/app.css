@@ -559,55 +559,26 @@ svg.lucide {
 .quota-semantic {
 	--quota-ok: var(--success);
 }
-/* Decorazioni di gutter git in Monaco: elementi DOM, quindi i token valgono. */
+/* Decorazioni di gutter git in Monaco: elementi DOM, quindi i token valgono.
+   Stessa semantica di GitStatusMark: aggiunto --success, modificato --warn,
+   eliminato --danger, tutti ricalcolati dal tema. */
 .git-gutter-added {
-  background: var(--git-added) !important;
+  background: var(--success) !important;
   width: 4px !important;
   margin-left: 2px;
   border-radius: 1px;
 }
 
 .git-gutter-modified {
-  background: var(--git-modified) !important;
+  background: var(--warn) !important;
   width: 4px !important;
   margin-left: 2px;
   border-radius: 1px;
 }
 
 .git-gutter-deleted {
-  border-left: 4px solid var(--git-deleted) !important;
+  border-left: 4px solid var(--danger) !important;
   margin-left: 2px;
-}
-
-/* --- Colori di contenuto -------------------------------------------------
-   Stato git e tipo di file non appartengono al guscio: sono semantica del
-   contenuto, come i 16 colori ANSI dentro il terminale. Restano colorati, ma
-   su L/C fissi come la rampa dei progetti, cosi' hanno tutti lo stesso peso
-   visivo e nessuno urla piu' degli altri. */
-:root {
-  --git-added:     oklch(0.68 0.16 145);
-  --git-untracked: oklch(0.72 0.12 145);
-  --git-modified:  var(--warn);
-  --git-deleted:   oklch(0.62 0.19 25);
-  --git-renamed:   oklch(0.68 0.16 240);
-  --git-conflict:  oklch(0.62 0.19 25);
-
-  --icon-folder:  oklch(0.72 0.14 75);
-  --icon-md:      oklch(0.72 0.14 250);
-  --icon-json:    oklch(0.72 0.14 90);
-  --icon-vb:      oklch(0.72 0.14 305);
-  --icon-aspx:    oklch(0.72 0.14 45);
-  --icon-cs:      oklch(0.72 0.14 145);
-  --icon-svg:     oklch(0.72 0.14 350);
-  --icon-js:      oklch(0.78 0.14 100);
-  --icon-ts:      oklch(0.72 0.14 235);
-  --icon-html:    oklch(0.68 0.16 30);
-  --icon-css:     oklch(0.72 0.14 200);
-  --icon-sql:     oklch(0.72 0.14 180);
-  --icon-xml:     oklch(0.66 0.06 60);
-  --icon-image:   oklch(0.74 0.13 130);
-  --icon-archive: oklch(0.74 0.14 70);
-  --icon-pdf:     oklch(0.68 0.16 25);
 }
 
 /* Form opt-in: non alterano i controlli ospitati da Monaco, xterm o i canvas. */
@@ -676,6 +647,19 @@ svg.lucide {
   border-color: var(--line-strong);
 }
 
+/* Fantasma: azione secondaria accanto a una primaria piena (piede della scheda
+   domanda, schede di proposta). Nessun bordo, cosi' l'unico oggetto pieno resta
+   la primaria. */
+.ui-button-ghost {
+  border-color: transparent;
+  color: var(--ink-muted);
+}
+
+.ui-button-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
 .ui-button-primary {
   background: var(--brand);
   border-color: transparent;
@@ -701,4 +685,112 @@ svg.lucide {
 .ui-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Chip: pillola in didascalia per scelte rapide accanto a un campo (suggerimenti
+   del composer, configurazioni usate spesso, direttive del task). Lo stato scelto
+   e' neutro (Neutral-Active Rule): fondo --bg-active, testo --ink, la spunta la
+   porta il contenuto; mai un fondo brand. */
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: var(--bg-raised);
+  color: var(--ink-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.ui-chip:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.ui-chip[aria-pressed='true'] {
+  background: var(--bg-active);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.ui-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Sagoma del composer: la condividono tutti gli editor di prompt a badge (chat e
+   Task Editor), cosi' scrivere un prompt ha ovunque la stessa superficie. */
+.composer-shell {
+  position: relative;
+  width: 100%;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-dock);
+  transition: border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.composer-shell:focus-within {
+  border-color: var(--line-strong);
+}
+
+.composer-shell.dragging {
+  border-color: var(--brand-ink);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--brand) 25%, transparent);
+}
+
+/* Ultimo figlio della sagoma: copre editor e barra senza z-index. */
+.composer-drop-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-2xl);
+  --icon-size: 16px;
+  background: color-mix(in oklch, var(--bg-raised) 90%, var(--brand) 10%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--brand-ink);
+  pointer-events: none;
+}
+
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px 8px;
+}
+
+.composer-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  --icon-size: 15px;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.composer-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
 }

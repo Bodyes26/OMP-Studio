@@ -5,11 +5,12 @@
   CSP ermetica (default-src 'none') e pre-sanitizzazione con DOMPurify.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { buildSandboxedSvgDocument } from './svgSandbox';
 
 	let {
 		content,
-		title = 'Anteprima SVG'
+		title = m.svg_preview_default_title()
 	}: {
 		content: string;
 		title?: string;

@@ -3,7 +3,11 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { wrapPrototypeCode } from '$lib/prototype/wrapper';
 	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '$lib/editor/svgSandbox';
-	import { IconCheck, IconClose } from '$lib/icons';
+	import { colorizeCode } from '$lib/agent/markdown';
+	import Segmented from '$lib/ui/Segmented.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { IconCheck, IconClose, IconCopy } from '$lib/icons';
 	let {
 		projectPath,
 		filePath,
@@ -30,6 +34,46 @@
 	};
 	let device = $state<Device>('desktop');
 	let isCurrentSvg = $derived(isSvgFileName(filePath) || isSvgContent(rawContent));
+	let fileName = $derived(filePath.split('/').pop() ?? filePath);
+
+	const viewOptions = $derived([
+		{ value: 'preview' as const, label: m.preview_mode_preview() },
+		{ value: 'code' as const, label: m.preview_mode_code() }
+	]);
+	const deviceOptions = $derived([
+		{ value: 'desktop' as const, label: m.preview_device_desktop(), ariaLabel: m.preview_device_desktop_aria() },
+		{ value: 'tablet' as const, label: m.preview_device_tablet(), ariaLabel: m.preview_device_tablet_aria() },
+		{ value: 'mobile' as const, label: m.preview_device_mobile(), ariaLabel: m.preview_device_mobile_aria() }
+	]);
+
+	// Vista codice: stessa evidenziazione Monaco dei blocchi della chat, ma a
+	// pagina intera e senza la cornice a fisarmonica del transcript.
+	let colorizedHtml = $state<string | null>(null);
+	let codeLanguage = $derived.by(() => {
+		if (isCurrentSvg) return 'xml';
+		const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+		return ext === 'htm' ? 'html' : ext;
+	});
+	$effect(() => {
+		if (viewMode !== 'code' || !rawContent) {
+			colorizedHtml = null;
+			return;
+		}
+		const text = rawContent;
+		const lang = codeLanguage;
+		let cancelled = false;
+		colorizeCode(text, lang)
+			.then((html) => {
+				if (!cancelled) colorizedHtml = html;
+			})
+			.catch(() => {
+				if (!cancelled) colorizedHtml = null;
+			});
+		return () => {
+			cancelled = true;
+		};
+	});
+
 	async function load() {
 		loading = true;
 		missing = false;
@@ -69,7 +113,7 @@
 			copied = true;
 			setTimeout(() => {
 				copied = false;
-			}, 1800);
+			}, 1500);
 		} catch {
 			// Accesso agli appunti non consentito o non disponibile
 		}
@@ -92,71 +136,74 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="preview-viewer">
+	<!-- Testata fusa da 32 px: prende il posto di quella della colonna (D7). -->
 	<div class="preview-toolbar">
-		<div class="title-wrap">
-			<span class="preview-badge">{isCurrentSvg ? 'SVG' : 'PROTO'}</span>
-			<span class="preview-title" title={filePath}>{filePath.split('/').pop()}</span>
-		</div>
+		<span class="preview-title" title={filePath}>{fileName}</span>
 
-		<div class="view-mode-group" role="group" aria-label="Modalita visualizzazione">
-			<button
-				class="mode-btn"
-				class:active={viewMode === 'preview'}
-				onclick={() => (viewMode = 'preview')}
-				title="Anteprima interattiva live"
-			>Anteprima</button>
-			<button
-				class="mode-btn"
-				class:active={viewMode === 'code'}
-				onclick={() => (viewMode = 'code')}
-				title="Ispeziona codice sorgente"
-			>Codice</button>
-		</div>
+		<Segmented
+			options={viewOptions}
+			value={viewMode}
+			ariaLabel={m.preview_view_mode()}
+			onChange={(mode) => (viewMode = mode)}
+		/>
 
 		{#if viewMode === 'preview'}
-			<div class="device-group" role="group" aria-label="Larghezza viewport">
-				<button
-					class="device-btn"
-					class:active={device === 'desktop'}
-					onclick={() => (device = 'desktop')}
-					title="Desktop (100%)"
-				>Desktop</button>
-				<button
-					class="device-btn"
-					class:active={device === 'tablet'}
-					onclick={() => (device = 'tablet')}
-					title="Tablet (768px)"
-				>Tablet</button>
-				<button
-					class="device-btn"
-					class:active={device === 'mobile'}
-					onclick={() => (device = 'mobile')}
-					title="Mobile (390px)"
-				>Mobile</button>
-			</div>
+			<Segmented
+				options={deviceOptions}
+				value={device}
+				ariaLabel={m.preview_device_group()}
+				onChange={(next) => (device = next)}
+			/>
 		{/if}
 
 		<span class="toolbar-spacer"></span>
 
-		<button class="tool-btn" onclick={copyCode} title={m.ui_previewviewer_copia_il_codice_sorgente_negli_appunti_3dc5()} aria-label={m.ui_previewviewer_copia_codice_sorgente_negli_appunti_360b()}>
-			{#if copied}<IconCheck /> Copiato!{:else}{m.context_menu_item_copy()}{/if}
-		</button>
-		<button class="tool-btn" onclick={() => void load()} title="Ricarica il file" aria-label="Ricarica file anteprima">Ricarica</button>
-		<button class="tool-btn close" onclick={() => onClose?.()} title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} aria-label={m.ui_previewviewer_chiudi_anteprima_d65a()}><IconClose /></button>
+		<Tooltip text={m.ui_previewviewer_copia_il_codice_sorgente_negli_appunti_3dc5()} placement="bottom">
+			<button
+				type="button"
+				class="ui-button ui-button-ghost"
+				onclick={copyCode}
+				aria-label={m.ui_previewviewer_copia_codice_sorgente_negli_appunti_360b()}
+			>
+				{#if copied}<IconCheck /> {m.preview_copied()}{:else}<IconCopy /> {m.context_menu_item_copy()}{/if}
+			</button>
+		</Tooltip>
+		<Tooltip text={m.preview_reload_aria()} placement="bottom">
+			<button type="button" class="ui-button ui-button-ghost" onclick={() => void load()}>
+				{m.preview_reload()}
+			</button>
+		</Tooltip>
+		<Tooltip text={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} placement="bottom">
+			<button
+				type="button"
+				class="icon-btn"
+				onclick={() => onClose?.()}
+				aria-label={m.ui_previewviewer_chiudi_anteprima_d65a()}
+			><IconClose /></button>
+		</Tooltip>
 	</div>
 
 	{#if loading}
-		<div class="center-note">{m.ui_previewviewer_caricamento_prototipo_a97b()}</div>
+		<div class="center-note">
+			<StatusMark status="running" />
+			<span>{m.ui_previewviewer_caricamento_prototipo_a97b()}</span>
+		</div>
 	{:else if missing}
 		<div class="center-note">{m.ui_previewviewer_file_non_trovato_952c()} {filePath}</div>
 	{:else if loadError}
 		<div class="center-note error" role="alert">
 			<span>{loadError}</span>
-			<button type="button" class="retry-btn" onclick={() => void load()}>Riprova</button>
+			<button type="button" class="ui-button ui-button-secondary" onclick={() => void load()}>
+				{m.preview_retry()}
+			</button>
 		</div>
 	{:else if viewMode === 'code'}
-		<div class="code-view-container">
-			<pre class="code-block"><code>{rawContent}</code></pre>
+		<div class="code-view">
+			{#if colorizedHtml}
+				<pre class="code-pre">{@html colorizedHtml}</pre>
+			{:else}
+				<pre class="code-pre">{rawContent}</pre>
+			{/if}
 		</div>
 	{:else}
 		<div class="preview-stage">
@@ -167,7 +214,7 @@
 				class="preview-frame"
 				style:width={DEVICE_WIDTHS[device]}
 				sandbox={isCurrentSvg ? '' : 'allow-scripts'}
-				title="Anteprima {filePath}"
+				title={m.preview_frame_title({ path: filePath })}
 				srcdoc={htmlDoc}
 			></iframe>
 		</div>
@@ -183,78 +230,25 @@
 		background: var(--bg-sunken);
 	}
 
+	/* Stessa testata dell'editor e del Task Editor: 32 px sul pozzo, linea sotto. */
 	.preview-toolbar {
+		height: 32px;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: var(--space-1) var(--space-3);
-		background: var(--bg-raised);
+		padding: 0 var(--space-1) 0 var(--space-3);
 		border-bottom: 1px solid var(--line);
-		min-height: 32px;
 		flex-shrink: 0;
 	}
 
-	.title-wrap {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		margin-right: var(--space-1);
-	}
-
-	.preview-badge {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		letter-spacing: 0.05em;
-		padding: 1px 5px;
-		background: var(--brand-dim);
-		color: var(--ink);
-		border: 1px solid var(--line);
-	}
-
 	.preview-title {
-		color: var(--ink);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		white-space: nowrap;
+		min-width: 0;
+		max-width: 25ch;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		max-width: 25ch;
-	}
-
-	.view-mode-group,
-	.device-group {
-		display: flex;
-		gap: 2px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 2px;
-	}
-
-	.mode-btn,
-	.device-btn {
-		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		padding: 2px 8px;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-	}
-
-	.mode-btn:hover,
-	.device-btn:hover {
+		white-space: nowrap;
 		color: var(--ink);
-	}
-
-	.mode-btn.active,
-	.device-btn.active {
-		background: var(--bg-active);
-		color: var(--ink);
+		font-size: var(--text-label);
 		font-weight: 500;
 	}
 
@@ -262,27 +256,30 @@
 		flex: 1;
 	}
 
-	.tool-btn {
+	.icon-btn {
+		width: 28px;
+		height: 28px;
+		display: inline-grid;
+		place-items: center;
+		padding: 0;
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		padding: 3px 8px;
-		border-radius: var(--radius-sm);
 		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+		--icon-size: 14px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
-	.tool-btn:hover {
+	.icon-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
 	}
 
-	.tool-btn.close {
-		font-size: var(--text-md);
-		line-height: 1;
-		padding: 0 6px;
+	.preview-toolbar .ui-button {
+		--icon-size: 12px;
+		gap: var(--space-1);
 	}
 
 	.preview-stage {
@@ -301,21 +298,22 @@
 		background: var(--bg-base);
 	}
 
-	.code-view-container {
+	.code-view {
 		flex: 1;
 		overflow: auto;
-		padding: var(--space-4);
+		padding: var(--space-3) var(--space-4);
 		background: var(--bg-sunken);
 	}
 
-	.code-block {
+	.code-pre {
 		margin: 0;
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		line-height: 1.6;
+		font-size: var(--text-mono);
+		line-height: 1.5;
 		color: var(--ink);
-		white-space: pre-wrap;
-		word-break: break-word;
+		white-space: pre;
+		tab-size: 2;
+		user-select: text;
 	}
 
 	.center-note {
@@ -323,28 +321,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		gap: var(--space-2);
 		color: var(--ink-muted);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 	}
 
 	.center-note.error {
-		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
 		color: var(--danger);
-	}
-
-	.center-note .retry-btn {
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: var(--text-xs);
-		padding: 2px 10px;
-		cursor: pointer;
-	}
-
-	.center-note .retry-btn:hover {
-		background: var(--bg-hover);
 	}
 </style>

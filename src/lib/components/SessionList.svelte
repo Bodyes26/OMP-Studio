@@ -5,6 +5,10 @@
 	import { fetchSessionsList } from '$lib/agent/sessionsList';
 	import { onMount, untrack } from 'svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
+	import { IconSearch } from '$lib/icons';
+	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { chatReveal } from '$lib/agent/motion';
 	interface SessionEntry {
 		id: string;
 		title: string;
@@ -38,6 +42,25 @@
 	let reconciliationTimer: number | null = null;
 	let searchTimer: number | null = null;
 	let reconciliationAttempts = 0;
+
+	// Opzioni del filtro corsia per Segmented (Gate R27 / W09)
+	const laneOptions = $derived<SegmentedOption<'all' | 'main' | 'worktree'>[]>([
+		{ value: 'all', label: m.session_list_lane_filter_all() },
+		{ value: 'main', label: m.session_list_lane_filter_main() },
+		{ value: 'worktree', label: m.session_list_lane_filter_worktree() }
+	]);
+
+	// Righe nuove: chatReveal solo per le chiavi comparse dopo la prima lettura.
+	// Montaggio, cambio scheda e ricaricamento restano fermi (Still-Room Rule).
+	let knownSessions: Set<string> | null = null;
+	let freshKeys = $state(new Set<string>());
+
+	function trackFresh(known: Set<string> | null, keys: string[], fresh: Set<string>): Set<string> {
+		if (known) {
+			for (const key of keys) if (!known.has(key)) fresh.add(key);
+		}
+		return new Set(keys);
+	}
 	const displaySessions = $derived.by(() => {
 		const known = new Set(sessions.map((session) => session.id));
 		const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -111,6 +134,9 @@
 				? await invoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath: target })
 				: await fetchSessionsList(target);
 			if (token !== requestToken || target !== projectPath) return;
+			const fresh = new Set<string>();
+			knownSessions = trackFresh(knownSessions, result.map((s) => s.id), fresh);
+			freshKeys = fresh;
 			sessions = result;
 			scheduleReconciliation();
 		} catch (error) {
@@ -156,10 +182,11 @@
 		reconciliationTimer = null;
 		if (searchTimer !== null) window.clearTimeout(searchTimer);
 		searchTimer = null;
+		knownSessions = null;
+		freshKeys = new Set();
 		// La lista del progetto precedente sparisce subito: mostrarla mentre
 		// arriva quella nuova e' peggio di un caricamento vuoto.
 		sessions = [];
-		// untrack evita che la lettura di query renda l'effetto dipendente da ogni battuta di tasto
 		untrack(() => {
 			void loadSessions();
 		});
@@ -187,15 +214,12 @@
 
 <div class="session-list">
 	<form onsubmit={handleSearch} class="search-form">
-		<label for="session-search">{m.session_list_search_label()}</label>
+		<label for="session-search" class="sr-only">{m.session_list_search_label()}</label>
 		<div class="search-row">
 			{#if loading && displaySessions.length > 0}
-				<div class="search-spinner" aria-hidden="true"></div>
+				<StatusMark status="running" />
 			{:else}
-				<svg viewBox="0 0 16 16" aria-hidden="true">
-					<circle cx="7" cy="7" r="4.5" />
-					<path d="m10.5 10.5 3.5 3.5" />
-				</svg>
+				<span class="search-icon" aria-hidden="true"><IconSearch /></span>
 			{/if}
 			<input
 				id="session-search"
@@ -208,37 +232,20 @@
 		</div>
 	</form>
 
-	<div class="lane-filter" role="group" aria-label={m.session_list_lane_filter_aria()}>
-		<button
-			type="button"
-			class:active={laneFilter === 'all'}
-			aria-pressed={laneFilter === 'all'}
-			onclick={() => (laneFilter = 'all')}
-		>
-			{m.session_list_lane_filter_all()}
-		</button>
-		<button
-			type="button"
-			class:active={laneFilter === 'main'}
-			aria-pressed={laneFilter === 'main'}
-			onclick={() => (laneFilter = 'main')}
-		>
-			{m.session_list_lane_filter_main()}
-		</button>
-		<button
-			type="button"
-			class:active={laneFilter === 'worktree'}
-			aria-pressed={laneFilter === 'worktree'}
-			onclick={() => (laneFilter = 'worktree')}
-		>
-			{m.session_list_lane_filter_worktree()}
-		</button>
+	<div class="lane-filter-wrap">
+		<Segmented
+			options={laneOptions}
+			value={laneFilter}
+			fill
+			ariaLabel={m.session_list_lane_filter_aria()}
+			onChange={(val) => (laneFilter = val)}
+		/>
 	</div>
 
 	<ul class="list" aria-label={m.session_list_list_aria()} aria-busy={loading}>
 		{#if loading && displaySessions.length === 0}
 			<li class="loading-state" aria-live="polite">
-				<div class="spinner" aria-hidden="true"></div>
+				<StatusMark status="running" label={m.session_list_loading()} />
 				<span class="loading-label">{m.session_list_loading()}</span>
 			</li>
 		{:else if loadError}
@@ -246,9 +253,9 @@
 		{:else if displaySessions.length === 0}
 			<li class="msg">{m.session_list_empty()}</li>
 		{:else}
-			{#each displaySessions as session, i (session.id)}
+			{#each displaySessions as session (session.id)}
 				{@const isCurrent = session.id === currentSessionId}
-				<li class="session-item-animated" style:--index={Math.min(i, 15)}>
+				<li in:chatReveal={{ duration: freshKeys.has(session.id) ? undefined : 0 }}>
 					<button
 						type="button"
 						class="session-row"
@@ -301,44 +308,29 @@
 		padding: 0 var(--space-2) var(--space-2);
 	}
 
-	.search-form label {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		padding: 0;
-		margin: -1px;
-		overflow: hidden;
-		clip: rect(0, 0, 0, 0);
-		white-space: nowrap;
-		border: 0;
-	}
-
 	.search-row {
+		--icon-size: 12px;
 		height: 28px;
 		padding: 0 var(--space-2);
 		display: flex;
 		align-items: center;
 		gap: var(--space-1);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--bg-sunken);
 		color: var(--ink-faint);
 	}
 
 	.search-row:focus-within {
 		outline: 2px solid var(--brand);
-		outline-offset: 1px;
+		outline-offset: 2px;
 		border-color: transparent;
 	}
 
-	.search-row svg {
-		width: 12px;
-		height: 12px;
+	.search-icon {
+		display: flex;
+		align-items: center;
 		flex: 0 0 auto;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.4;
-		stroke-linecap: round;
 	}
 
 	.search-row input {
@@ -350,13 +342,16 @@
 		background: transparent;
 		color: var(--ink);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 	}
 
 	.search-row input::placeholder {
 		color: var(--ink-faint);
 	}
 
+	.lane-filter-wrap {
+		padding: 0 var(--space-2) var(--space-2);
+	}
 	.list {
 		list-style: none;
 		margin: 0;
@@ -380,51 +375,26 @@
 		padding: var(--space-6) var(--space-4);
 		color: var(--ink-muted);
 		text-align: center;
-		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
-	}
-
-	.spinner {
-		width: 20px;
-		height: 20px;
-		border: 2px solid var(--line-strong);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 600ms linear infinite;
 	}
 
 	.loading-label {
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		letter-spacing: 0.02em;
-	}
-
-	.search-spinner {
-		width: 12px;
-		height: 12px;
-		border: 1.5px solid var(--line-strong);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 600ms linear infinite;
-		flex: 0 0 auto;
-	}
-
-	.session-item-animated {
-		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
-		animation-delay: min(calc(var(--index, 0) * 24ms), 300ms);
 	}
 
 	.msg {
 		padding: var(--space-4) var(--space-3);
 		color: var(--ink-faint);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		line-height: 1.45;
 	}
 
 	.msg.error {
 		margin: 0 var(--space-2);
 		padding: var(--space-2);
-		border-radius: var(--radius-sm);
-		background: var(--brand-dim);
+		border-radius: var(--radius-md);
+		background: var(--danger-dim);
 		color: var(--ink);
 	}
 
@@ -438,8 +408,7 @@
 		justify-content: center;
 		gap: var(--space-1);
 		border: 0;
-		border-radius: var(--radius-sm);
-		background: transparent;
+		border-radius: var(--radius-md);
 		text-align: left;
 		cursor: pointer;
 	}
@@ -467,14 +436,12 @@
 	.title {
 		width: 100%;
 		overflow: hidden;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		-webkit-box-orient: vertical;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--ink);
-		font-size: var(--text-base);
-		font-weight: 500;
-		line-height: 1.3;
+		font-size: var(--text-body);
+		font-weight: 450;
+		line-height: 1.45;
 	}
 
 	.session-row:disabled:not(.current) .title {
@@ -487,7 +454,7 @@
 		gap: var(--space-1);
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 		font-variant-numeric: tabular-nums;
 	}
 
@@ -498,7 +465,7 @@
 		background: var(--bg-raised);
 		color: var(--ink-muted);
 		font-family: var(--font-ui);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 600;
 	}
 
@@ -510,32 +477,5 @@
 		background: color-mix(in srgb, var(--brand-ink, currentColor) 18%, transparent);
 		color: var(--brand-ink);
 		letter-spacing: 0.04em;
-	}
-
-	.lane-filter {
-		display: flex;
-		gap: var(--space-1);
-		padding: 0 var(--space-2) var(--space-2);
-	}
-
-	.lane-filter button {
-		flex: 1;
-		padding: 2px var(--space-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		background: transparent;
-		color: var(--ink-muted);
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		cursor: pointer;
-	}
-
-	.lane-filter button:hover {
-		background: var(--bg-raised);
-	}
-
-	.lane-filter button.active {
-		border-color: var(--brand-ink);
-		color: var(--brand-ink);
 	}
 </style>

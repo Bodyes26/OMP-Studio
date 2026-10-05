@@ -21,10 +21,13 @@
 
 	let {
 		attachment,
-		onRemove
+		onRemove,
+		onOpen
 	} = $props<{
 		attachment: ComposerAttachment;
 		onRemove?: () => void;
+		/** Apre l'allegato a dimensione piena (solo immagini). */
+		onOpen?: () => void;
 	}>();
 
 	let videoDuration = $state(attachment.duration);
@@ -49,7 +52,16 @@
 </script>
 
 <div class="attachment-thumb group" title="{attachment.name} · {formatFileSize(attachment.size)}">
-	{#if attachment.kind === 'image'}
+	{#if attachment.kind === 'image' && onOpen}
+		<button
+			type="button"
+			class="thumb-open"
+			onclick={onOpen}
+			aria-label={m.attachment_thumb_open({ name: attachment.name })}
+		>
+			<img src={attachment.url} alt="" class="thumb-img" />
+		</button>
+	{:else if attachment.kind === 'image'}
 		<img
 			src={attachment.url}
 			alt={attachment.name}
@@ -115,6 +127,23 @@
 		object-fit: cover;
 		border: 1px solid var(--line);
 		background: var(--bg-sunken);
+	}
+
+	.thumb-open {
+		display: inline-flex;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		cursor: zoom-in;
+	}
+
+	.thumb-open .thumb-img {
+		transition: border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.thumb-open:hover .thumb-img {
+		border-color: var(--line-strong);
 	}
 
 	.thumb-video {

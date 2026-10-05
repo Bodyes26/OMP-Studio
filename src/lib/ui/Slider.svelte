@@ -27,7 +27,9 @@
 		onChange
 	}: SliderProps = $props();
 
-	const TRACK_H = 26;
+	// Traccia da 20 px e cursore da 22 px: il disco sporge dalla traccia invece di
+	// esserne contenuto, cosi' si afferra a colpo d'occhio senza bisogno di ombre.
+	const TRACK_H = 20;
 	const KNOB_HALF = 11;
 
 	let trackEl = $state<HTMLDivElement | null>(null);
@@ -172,12 +174,11 @@
 <style>
 	.slider-track {
 		position: relative;
-		height: 26px;
+		height: 20px;
 		border-radius: var(--radius-full);
 		background: var(--bg-sunken);
-		border: 1px solid var(--line-strong);
+		border: 1px solid var(--line);
 		cursor: pointer;
-		outline: none;
 		touch-action: none;
 		user-select: none;
 		box-sizing: border-box;
@@ -196,8 +197,8 @@
 
 	.track-fill {
 		position: absolute;
-		inset: 0;
-		width: calc(13px + var(--pos) * (100% - 26px));
+		inset: -1px auto -1px -1px;
+		width: calc(10px + var(--pos) * (100% - 18px));
 		border-radius: var(--radius-full);
 		background: var(--brand);
 		transition: width var(--dur-fast, 120ms) var(--ease-out);
@@ -210,12 +211,12 @@
 	.tick-dot {
 		position: absolute;
 		top: 50%;
-		left: calc(13px + var(--pos) * (100% - 26px));
+		left: calc(9px + var(--pos) * (100% - 18px));
 		transform: translate(-50%, -50%);
 		width: 4px;
 		height: 4px;
 		border-radius: var(--radius-full);
-		background: color-mix(in srgb, var(--ink) 28%, transparent);
+		background: var(--ink-faint);
 		pointer-events: none;
 		transition:
 			transform var(--dur-fast, 120ms) var(--ease-out),
@@ -224,7 +225,7 @@
 	}
 
 	.tick-dot.filled {
-		background: color-mix(in srgb, var(--on-brand) 65%, transparent);
+		background: color-mix(in srgb, var(--on-brand) 60%, transparent);
 	}
 
 	.tick-dot.near {
@@ -235,16 +236,19 @@
 		opacity: 0;
 	}
 
+	/* Anello nel colore della superficie che ospita lo slider (--slider-ring):
+	   separa il disco dal riempimento senza ombra (Flat-By-Default Rule). */
 	.slider-thumb {
 		position: absolute;
 		top: 50%;
-		left: calc(13px + var(--pos) * (100% - 26px));
+		left: calc(9px + var(--pos) * (100% - 18px));
 		transform: translate(-50%, -50%);
 		width: 22px;
 		height: 22px;
+		box-sizing: border-box;
 		border-radius: var(--radius-full);
 		background: var(--ink);
-		border: 1px solid var(--line-strong);
+		border: 2px solid var(--slider-ring, var(--bg-raised));
 		pointer-events: none;
 		transition:
 			left var(--dur-fast, 120ms) var(--ease-out),

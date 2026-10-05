@@ -54,7 +54,7 @@
 		{#each chips as chip, index (chip.id)}
 			<button
 				type="button"
-				class="suggestion-chip"
+				class="ui-chip suggestion-chip"
 				class:dynamic={chip.isDynamic}
 				bind:this={chipElements[index]}
 				tabindex={focusedIndex === index ? 0 : -1}
@@ -81,42 +81,8 @@
 		line-height: 1.3;
 	}
 
-	.suggestion-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 3px 10px;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		cursor: pointer;
-		line-height: 1.3;
-		user-select: none;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
-	}
-
-	.suggestion-chip:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-		color: var(--ink);
-	}
-
 	.suggestion-chip:focus-visible {
-		outline: 2px solid var(--brand);
 		outline-offset: 1px;
-	}
-
-	.suggestion-chip.dynamic {
-		color: var(--ink-muted);
-	}
-
-	.suggestion-chip.dynamic:hover {
-		color: var(--ink);
 	}
 
 	.chip-label {
@@ -133,7 +99,7 @@
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
-		font-size: 10px;
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
 		color: var(--ink-faint);
 		line-height: 1.4;

@@ -20,6 +20,7 @@
 		selectedIndex = 0,
 		left = 0,
 		bottom = 0,
+		top,
 		onPick,
 		onHover
 	} = $props<{
@@ -29,6 +30,8 @@
 		selectedIndex: number;
 		left: number;
 		bottom: number;
+		/** Se presente la palette si apre sotto la riga (editor in cima alla vista). */
+		top?: number;
 		onPick: (s: SuggestionItem) => void;
 		onHover: (index: number) => void;
 	}>();
@@ -59,7 +62,7 @@
 
 <div
 	class="suggest-panel rv-lift"
-	style="left: {left}px; bottom: {bottom}px;"
+	style={top === undefined ? `left: ${left}px; bottom: ${bottom}px;` : `left: ${left}px; top: ${top}px;`}
 	role="listbox"
 	tabindex="-1"
 >

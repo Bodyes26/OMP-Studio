@@ -532,9 +532,9 @@
 	}
 
 	.channel-badge.stable {
-		background: color-mix(in srgb, var(--git-added) 15%, transparent);
-		color: var(--git-added);
-		border: 1px solid color-mix(in srgb, var(--git-added) 30%, transparent);
+		background: color-mix(in srgb, var(--success) 15%, transparent);
+		color: var(--success);
+		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
 	}
 
 	.channel-badge.nightly {

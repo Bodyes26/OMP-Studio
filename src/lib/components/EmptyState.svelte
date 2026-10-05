@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import { IconWarning } from '$lib/icons';
+	import { IconCircleAlert, IconFolderPlus, IconListTodo, IconWarning } from '$lib/icons';
 	export interface EmptyStateAction {
 		label: string;
 		shortcut?: string;
@@ -82,30 +82,16 @@
 	role="region"
 	aria-label={resolvedTitle}
 >
-	<div class="empty-state-card">
-		<div class="icon-wrapper" aria-hidden="true">
+	<div class="empty-state-card rv-lift">
+		<span class="empty-icon" aria-hidden="true">
 			{#if variant === 'no-projects'}
-				<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"></path>
-					<line x1="12" y1="11" x2="12" y2="17"></line>
-					<line x1="9" y1="14" x2="15" y2="14"></line>
-				</svg>
+				<IconFolderPlus />
 			{:else if variant === 'no-tasks'}
-				<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-					<rect x="3" y="4" width="18" height="16" rx="2"></rect>
-					<line x1="7" y1="8" x2="17" y2="8"></line>
-					<line x1="7" y1="12" x2="13" y2="12"></line>
-					<circle cx="16" cy="12" r="1"></circle>
-					<line x1="7" y1="16" x2="10" y2="16"></line>
-				</svg>
+				<IconListTodo />
 			{:else}
-				<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-					<circle cx="12" cy="12" r="10"></circle>
-					<line x1="12" y1="8" x2="12" y2="12"></line>
-					<line x1="12" y1="16" x2="12.01" y2="16"></line>
-				</svg>
+				<IconCircleAlert />
 			{/if}
-		</div>
+		</span>
 
 		<div class="text-group">
 			{#if compact}
@@ -123,7 +109,7 @@
 				<span class="notice-icon" aria-hidden="true"><IconWarning /></span>
 				<span class="notice-text">{m.empty_state_setup_notice()}</span>
 				{#if onSetupClick}
-					<button type="button" class="btn-setup" onclick={onSetupClick}>
+					<button type="button" class="ui-button ui-button-secondary" onclick={onSetupClick}>
 						{m.empty_state_btn_setup()}
 					</button>
 				{/if}
@@ -135,7 +121,7 @@
 				{#if primaryAction}
 					<button
 						type="button"
-						class="btn-action primary"
+						class="ui-button ui-button-primary"
 						onclick={primaryAction.onClick}
 					>
 						<span>{primaryAction.label}</span>
@@ -148,7 +134,7 @@
 				{#if secondaryAction}
 					<button
 						type="button"
-						class="btn-action secondary"
+						class="ui-button ui-button-secondary"
 						onclick={secondaryAction.onClick}
 					>
 						<span>{secondaryAction.label}</span>
@@ -166,7 +152,7 @@
 				<div class="shortcuts-grid">
 					{#each defaultShortcuts as sc}
 						{#if sc.action}
-							<button type="button" class="shortcut-pill interactive" onclick={sc.action} title="Esegui {sc.label}">
+							<button type="button" class="shortcut-pill interactive" onclick={sc.action}>
 								<kbd class="shortcut-key">{sc.key}</kbd>
 								<span class="shortcut-label">{sc.label}</span>
 							</button>
@@ -199,7 +185,10 @@
 		padding: var(--space-4) var(--space-3);
 	}
 
+	/* Ingresso condiviso rv-lift alla durata dei pannelli: la classe vive in
+	   app.css e si azzera da sola con le animazioni disattivate. */
 	.empty-state-card {
+		--dur: var(--dur-slow);
 		max-width: 580px;
 		width: 100%;
 		display: flex;
@@ -207,7 +196,6 @@
 		align-items: center;
 		text-align: center;
 		gap: var(--space-4);
-		animation: emptyStateFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 	}
 
 	.compact .empty-state-card {
@@ -215,33 +203,16 @@
 		gap: var(--space-3);
 	}
 
-	@keyframes emptyStateFadeIn {
-		from {
-			opacity: 0;
-			transform: translateY(6px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
+	/* Icona neutra senza tessera: l'officina tace di colore, l'accento resta
+	   all'azione primaria. */
+	.empty-icon {
+		--icon-size: 24px;
+		display: inline-flex;
+		color: var(--ink-faint);
 	}
 
-	.icon-wrapper {
-		width: 52px;
-		height: 52px;
-		border-radius: var(--radius-lg);
-		background: color-mix(in srgb, var(--brand) 10%, var(--bg-sunken));
-		border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
-		color: var(--brand);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-
-	.compact .icon-wrapper {
-		width: 40px;
-		height: 40px;
+	.compact .empty-icon {
+		--icon-size: 20px;
 	}
 
 	.text-group {
@@ -276,21 +247,24 @@
 		font-size: var(--text-xs);
 	}
 
+	/* Stesso schema della riga di attenzione del vassoio: ambra al 15%, testo
+	   --ink per restare leggibile su ogni tema, l'ambra solo nell'icona. */
 	.setup-notice {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-md);
-		background: color-mix(in srgb, var(--warn) 8%, var(--bg-sunken));
-		border: 1px solid var(--warn-dim, #f59e0b44);
-		color: var(--warn);
-		font-size: var(--text-xs);
+		background: color-mix(in oklch, var(--warn) 15%, transparent);
+		color: var(--ink);
+		font-size: var(--text-caption);
 		max-width: 100%;
 	}
 
 	.notice-icon {
-		font-weight: bold;
+		--icon-size: 14px;
+		display: inline-flex;
+		color: var(--warn);
 	}
 
 	.notice-text {
@@ -298,20 +272,8 @@
 		text-align: left;
 	}
 
-	.btn-setup {
-		background: var(--warn);
-		color: #000;
-		border: none;
-		border-radius: var(--radius-sm);
-		padding: 2px 8px;
-		font-size: var(--text-xs);
-		font-weight: 600;
-		cursor: pointer;
+	.setup-notice .ui-button {
 		flex-shrink: 0;
-	}
-
-	.btn-setup:hover {
-		filter: brightness(1.1);
 	}
 
 	.actions-row {
@@ -322,46 +284,6 @@
 		gap: var(--space-3);
 		width: 100%;
 		margin-top: var(--space-1);
-	}
-
-	.btn-action {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-4);
-		border-radius: var(--radius-md);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.15s ease;
-		border: 1px solid transparent;
-	}
-
-	.compact .btn-action {
-		padding: 6px 12px;
-		font-size: var(--text-xs);
-	}
-
-	.btn-action.primary {
-		background: var(--brand);
-		color: var(--brand-ink, #ffffff);
-		border-color: transparent;
-	}
-
-	.btn-action.primary:hover {
-		filter: brightness(1.1);
-		box-shadow: 0 2px 6px color-mix(in srgb, var(--brand) 30%, transparent);
-	}
-
-	.btn-action.secondary {
-		background: var(--bg-raised);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.btn-action.secondary:hover {
-		background: var(--bg-hover);
-		border-color: var(--ink-muted);
 	}
 
 	.btn-kbd {
@@ -387,11 +309,9 @@
 	}
 
 	.shortcuts-heading {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		font-weight: 600;
+		font-size: var(--text-label);
+		font-weight: 500;
+		color: var(--ink-muted);
 	}
 
 	.shortcuts-grid {
@@ -406,23 +326,26 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		padding: 4px 8px;
+		padding: 3px 10px 3px 4px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		font-size: var(--text-xs);
+		border-radius: var(--radius-full);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
 	.shortcut-pill.interactive {
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 		background: var(--bg-raised);
 	}
 
 	.shortcut-pill.interactive:hover {
 		color: var(--ink);
-		border-color: var(--brand);
+		border-color: var(--line-strong);
 		background: var(--bg-hover);
 	}
 
@@ -430,10 +353,10 @@
 		background: color-mix(in srgb, var(--ink) 8%, transparent);
 		color: var(--ink);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		padding: 1px 5px;
+		border-radius: var(--radius-full);
+		padding: 1px 6px;
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 	}
 

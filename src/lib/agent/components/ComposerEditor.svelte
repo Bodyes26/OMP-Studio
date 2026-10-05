@@ -15,6 +15,8 @@
 
 	let {
 		placeholder = '',
+		ariaLabel = "Messaggio per l'agente",
+		submitWithModifier = false,
 		disabled = false,
 		onSend,
 		onFilesPaste,
@@ -23,6 +25,12 @@
 		onInput
 	} = $props<{
 		placeholder?: string;
+		ariaLabel?: string;
+		/**
+		 * Invio va a capo e solo Ctrl/Cmd+Invio chiama `onSend`: serve dove si scrive
+		 * un testo lungo e ponderato (Task Editor), non una battuta della chat.
+		 */
+		submitWithModifier?: boolean;
 		disabled?: boolean;
 		onSend?: (isAlt: boolean) => void;
 		onFilesPaste?: (files: FileList | File[]) => void;
@@ -38,6 +46,13 @@
 
 	export function focus(): void {
 		editorEl?.focus();
+	}
+
+	/** Fuoco con il cursore in fondo al testo (riapertura di una bozza). */
+	export function focusEnd(): void {
+		if (!editorEl) return;
+		editorEl.focus();
+		caretAfter(editorEl, editorEl.childNodes.length);
 	}
 
 	export function clear(): void {
@@ -230,6 +245,13 @@
 		}
 
 		if (e.key === 'Enter') {
+			if (submitWithModifier) {
+				// Invio semplice resta il ritorno a capo nativo del contenteditable.
+				if (!(e.ctrlKey || e.metaKey)) return;
+				e.preventDefault();
+				onSend?.(e.altKey);
+				return;
+			}
 			if (e.shiftKey || e.ctrlKey) {
 				// Shift/Ctrl+Invio inseriscono un ritorno a capo.
 				return;
@@ -253,7 +275,7 @@
 		contenteditable={!disabled}
 		role="textbox"
 		aria-multiline="true"
-		aria-label="Messaggio per l'agente"
+		aria-label={ariaLabel}
 		spellcheck="false"
 		class="composer-editable"
 		class:disabled
@@ -294,9 +316,11 @@
 		user-select: none;
 	}
 
+	/* Altezza regolabile dal consumatore: la chat resta 24-240 px, il Task Editor
+	   imposta --editor-min-height e --editor-max-height sul contenitore. */
 	.composer-editable {
-		min-height: 24px;
-		max-height: 240px;
+		min-height: var(--editor-min-height, 24px);
+		max-height: var(--editor-max-height, 240px);
 		overflow-y: auto;
 		overflow-x: hidden;
 		outline: none;

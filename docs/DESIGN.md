@@ -279,6 +279,12 @@ components:
     typography: "{typography.caption}"
     rounded: "{rounded.md}"
     padding: "5px 14px"
+  ui-button-ghost:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink-muted}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.md}"
+    padding: "5px 14px"
   ui-button-primary:
     backgroundColor: "{colors.brand}"
     textColor: "{colors.bg-sunken}"
@@ -303,7 +309,7 @@ components:
   slider-track:
     backgroundColor: "{colors.bg-sunken}"
     rounded: "{rounded.full}"
-    height: "26px"
+    height: "20px"
   slider-thumb:
     backgroundColor: "{colors.ink}"
     rounded: "{rounded.full}"
@@ -378,7 +384,7 @@ non in mezzo al racconto.
 | `--ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | Micro-interazioni: hover, pressione, colore di bordo, movimento thumb switch/slider. |
 | `--dur-fast` | 120 ms | Hover, pressione, bordo a fuoco, scatto controlli. |
 | `--dur-menu` | 150 ms | Menu, palette `@`/`/`, popover: `rv-lift` con `--blur: 3px`. |
-| `--dur-row` | 210 ms | Righe che entrano in una lista (`chatReveal`: blur 5 px, 3 px di corsa, altezza da 0, curva `--ease-reveal`). |
+| `--dur-row` | 210 ms | Righe che entrano in una lista (`chatReveal`: blur 5 px, 3 px di corsa, altezza da 0, curva `--ease-reveal`). Piegatura delle cartelle dell'albero file (`tray-in`/`tray-out` con `--dur-tray` ridotto a `--dur-row`). |
 | `--dur-slow` | 240 ms | Pannelli e finestre modali (`Dialog` tramite `rvLift` con blur 3 px). |
 | `--dur-tray` | 420 ms | Sezioni che si piegano in altezza (`tray-in`/`tray-out`, blur 6 px). |
 | `--dur-reveal` | 700 ms | Unità di testo dell'agente (`rv-blur`, blur 10 px). |
@@ -572,11 +578,15 @@ porta l'informazione: nella stessa riga di traccia «Lettura» è in sans e
 - **Mono** (12 px/1.5): blocchi di codice, dettagli dei tool, badge (`0.84em` del testo che li circonda).
 **The Two Voices Rule.** Leggere e scrivere un prompt completo usano la voce (15/24);
 operare usa l'officina (13 px e meno). Una superficie che contiene un prompt da
-scrivere o rileggere parla con la voce anche fuori dalla chat. Due eccezioni:
+scrivere o rileggere parla con la voce anche fuori dalla chat. Tre eccezioni:
 il pannello laterale del singolo subagente (`SubagentDrawer`) è un ispettore e mostra
-il transcript in traccia (12,5/1.5) con markdown; le anteprime dei task in coda restano
-dense, 11 px in vista compatta e 12 px in vista card. Il dettaglio espanso di un task
-mostra sempre il prompt completo a 15/24, inclusa la prima riga.
+il transcript in traccia (12,5/1.5) con markdown; i task in coda restano densi, 11 px in
+vista compatta e 12 px in vista card, **anche nel dettaglio espanso** («Leggi tutto»
+allunga il blocco, non ingrandisce il testo); i titoli di sessione troncati a una
+riga nelle liste (sessioni recenti del pannello Git, storico del pannello Agente) sono
+etichette di navigazione e restano nel corpo dell'officina (13/450 `--ink`, tempo in
+meta tabulare). Il prompt di un task in coda si legge in Markdown denso: titoli alla
+stessa misura del corpo con peso 600, codice a 0,92 em, menzioni `@file` a 0,84 em.
 
 **The Heading-Above-Body Rule.** Dentro la prosa un titolo è sempre almeno grande
 quanto il corpo e più pesante; la gerarchia sale, non scende.
@@ -608,7 +618,7 @@ costi, contatori) usa `tabular-nums`.
 - **Officina.** Le tre colonne, la barra progetti e le larghezze per progetto restano
   quelle di `PRODUCT.md`. Il ritmo resta sulla scala a 4 px: righe `4px 8px`,
   pannelli 12 px, popover 16 px, gruppi in popover 24 px.
-
+**The Fused-Header Rule (D7).** Le testate delle viste della colonna centrale (Editor, TaskEditor, PreviewViewer, DiagramViewer) sono alte 32 px, sul pozzo (`--bg-sunken`), con bordo inferiore da 1 px (`--line`) e trigger/pulsanti a 28 px. Non si impilano sopra un `.col-header`: prendono il suo posto e allineano la fascia superiore dell'app alle colonne laterali (`ColumnTabs` e switch TERMINAL/GUI a 32 px). Nelle corsie Laboratorio resta una testata da 32 px dedicata allo switch Anteprima/Editor con `Segmented` in modalità `tablist`.
 **The Action-Point Rule.** Ciò che è vivo adesso sta dove l'utente agisce. Il racconto
 ne conserva una riga sola, espandibile su richiesta.
 
@@ -682,11 +692,11 @@ ragionamento (`--line`). Non porta mai un colore.
 
 Strumento di scrittura e cruscotto della sessione in una sola superficie.
 
-- **Contenitore:** `--bg-raised`, bordo `--line`, `--radius-2xl`, `--shadow-dock`. A fuoco il bordo passa a `--line-strong` (`--dur-fast`). Trascinando file: bordo `--brand-ink`, anello di 2 px con `--brand` al 25%, overlay `--radius-2xl` con etichetta.
-- **Editor:** `contenteditable` in voce chat (15/24), placeholder `--ink-faint` sulla stessa interlinea perché il layout non salti. `Invio` invia nella modalità di default, `Alt+Invio` in quella alternativa, `Maiusc+Invio`/`Ctrl+Invio` vanno a capo. L'incolla porta solo testo; i file diventano allegati.
+- **Contenitore:** `--bg-raised`, bordo `--line`, `--radius-2xl`, `--shadow-dock`. A fuoco il bordo passa a `--line-strong` (`--dur-fast`). Trascinando file: bordo `--brand-ink`, anello di 2 px con `--brand` al 25%, overlay `--radius-2xl` con etichetta. La sagoma è condivisa da ogni editor di prompt a badge (chat e Task Editor) tramite le classi globali `.composer-shell`, `.composer-toolbar`, `.composer-icon-btn` e `.composer-drop-overlay` in `src/app.css`; l'overlay è l'ultimo figlio e copre senza `z-index`.
+- **Editor:** `contenteditable` in voce chat (15/24), placeholder `--ink-faint` sulla stessa interlinea perché il layout non salti. `Invio` invia nella modalità di default, `Alt+Invio` in quella alternativa, `Maiusc+Invio`/`Ctrl+Invio` vanno a capo. L'incolla porta solo testo; i file diventano allegati. Dove si scrive un testo ponderato (`submitWithModifier`, Task Editor) `Invio` va a capo e `Ctrl+Invio` conferma; l'altezza si regola con `--editor-min-height`/`--editor-max-height` (chat 24–240 px, task 140–460 px).
 - **Badge:** `@file` ha fondo accento al 12%, anello inset al 28% (45% in hover), testo `--ink`, glifo file a 12 px con opacità 0,7. `/comando` è in negativo: fondo `--ink`, testo `--bg-base`. In comune: mono `0.84em`, `--radius-md`, massimo 260 px con ellissi, `contenteditable=false`, identici nell'editor e nel transcript.
 - **Strisce sopra l'editor:** anteprima comando (`--bg-base`, `--radius-md`, 11 px, `rv-blur` 200 ms/4 px), allegati (miniature 56 px `--radius-md`; file 190×56 con estensione accentata), avviso di visione in ambra con l'azione «cambia modello».
-- **Barra:** allegati, `@`, divisore 1×16 px, ruolo (pallino 7 px + nome mono), modello (nome con ellissi a 130 px), thinking (misuratore a 5 barre), poi a destra contesto e invio. Trigger alti 28 px, `--radius-md`, didascalia `--ink-muted` → hover `--bg-hover`/`--ink`.
+- **Barra:** allegati, `@`, divisore 1×16 px, ruolo (pallino 7 px + nome mono), modello (nome con ellissi a 130 px), thinking (misuratore a 5 barre + livello in mono, apre lo slider), poi a destra contesto e invio. Trigger alti 28 px, `--radius-md`, didascalia `--ink-muted` → hover `--bg-hover`/`--ink`.
 - **Anello del contesto:** SVG 18 px, raggio 7, tratto 2,2, terminali arrotondati; `--ink`, poi `--warn` oltre il 60%, poi `--danger` oltre l'85%; accanto `usato/massimo` in mono tabulare.
 - **Misuratore di thinking:** cinque barre larghe 3 px, altezze da 6 a 12 px, inattive `--line-strong`, attive `--brand-ink`.
 
@@ -706,13 +716,26 @@ allegati (260 px), ruolo (420 px), modello (400 px), thinking (320 px) e contest
 - **Accessibilità e chiusura:** adotta `Tooltip` accessibile sul trigger (nessun `title` nativo nel DOM); chiusura su click esterno (in fase di cattura) ed `Esc` con ripristino del focus; Tab non è intrappolato (esce naturalmente e chiude il menu); frecce e Home/End navigano le voci senza interferire con campi input/ricerca.
 - **Righe:** `7px 8px`, `--radius-md`, hover `--bg-hover`, scelta indicata da una spunta `--brand-ink`.
 - **Intestazioni e piedi:** intestazioni in etichetta di gruppo; piedi in didascalia `--ink-faint` su `--bg-base`.
-- **Primi consumatori:** `Composer` con menu allegati (`AttachMenu`, menuitem) e split button invio (menuitemradio).
+- **Primi consumatori:** `Composer` con menu allegati (`AttachMenu`, menuitem), popover del thinking (dialog con lo slider, si chiude solo con click esterno o `Esc` perché ogni passo si applica subito) e split button invio (menuitemradio).
+- **Menu contestuale (`ContextMenu`):** stessa superficie, stesse righe (`7px 8px`, corpo 13/450, `--radius-md`), stesso `rv-lift` e stesso motore di piazzamento. `anchoredPopover` accetta un'ancora a punto (`point: {x, y}`): il menu nasce al puntatore e si ribalta a sinistra o in alto come un menu nativo; aperto da tastiera si aggancia sotto l'elemento che lo invoca. Larghezza dal contenuto fra 260 e 320 px, poi ellissi. «Pericolo» a riposo resta `--ink-muted`; in hover e a fuoco fondo `--danger` al 10% e testo `--danger` (4,62–4,70:1 sui temi scuri misurati, 7,0:1 su Alabaster; al 14% scendeva a 4,39:1). Fuoco con l'anello globale all'interno (`outline-offset: -2px`), mai un `box-shadow`.
 ### Palette `@` e `/`
 
-- **Superficie e posizione:** larga 440 px, ancorata al cursore, stessa superficie dei menu.
+- **Superficie e posizione:** larga 440 px, ancorata al cursore, stessa superficie dei menu. Si apre sopra la riga in cui si scrive; quando sopra non c'è spazio nella vista (editor in cima alla colonna, come nel Task Editor) si apre sotto, come un menu ribaltato. Le voci e i tasti vengono da `src/lib/agent/suggestItems.ts`, condiviso dai due editor.
 - **Righe:** in didascalia. Il nome file va in peso 500 con la cartella in mono `--ink-faint`; il comando va in mono 600 con l'argomento suggerito e la descrizione, che si espande sulla riga attiva.
 - **Lettere trovate:** sottolineate in `--warn` (2 px), testo in peso 700.
 - **Piede:** scorciatoie in `kbd`.
+
+### Schermata nuovo task (TaskEditor)
+
+Scrivere un task è un gesto ponderato, non una battuta: tutte le opzioni sono visibili
+senza clic in più, e il prompt si scrive nella stessa sagoma e nella stessa voce del composer.
+
+- **Testata:** prende il posto di quella della colonna, alta 32 px: titolo del task in etichetta 12/500 `--ink`, «Salvato» in meta `--ink-faint`, a destra Elimina e Chiudi (`Esc`) iconici da 28 px con `Tooltip`. Elimina è a doppia azione in linea: il primo clic lo trasforma per 4 s in «Conferma eliminazione» `.ui-button-danger`. Lo stato del task (in coda, in corso…) non si mostra: chi scrive un task lo ha sempre in coda.
+- **Colonna:** 720 px centrati come il transcript, `16px 12px 32px`, sezioni a 24 px. Ingresso `rvLift` a 240 ms solo all'apertura: rimontare lo stesso task cambiando progetto non anima (Still-Room Rule).
+- **Prompt:** `ComposerEditor` in `.composer-shell`, editor 140–460 px, badge `@file` e `/comando` identici alla chat, palette `SuggestPanel`. Allegati con `AttachmentThumb` (56 px, il clic apre l'immagine). Barra: allegati e `@` a sinistra; a destra lo split «Salva» `.ui-button-primary` con `Ctrl+↵` in `kbd`, e un caret che apre «Avvia ora» e «Avvia in nuova corsia» (menu da 260 px). Salvare è l'azione principale; avviare è sempre una scelta esplicita (Read-Before-Run Rule). Niente anello del contesto né ruolo e modello nella barra.
+- **Esecuzione:** titolo di sezione 12/600 `--ink` in frase. Ruolo con `Segmented` (smol · default · slow · plan · custom) e descrizione del ruolo in etichetta `--ink-muted`; modello in un campo con la sagoma di `.ui-select` che apre `ModelPickerList` in `MenuButton` (400 px), con quota o costo in meta tabulare e «In uso altrove» in `--warn`; «Usati spesso» come `.ui-chip` sotto il modello; thinking con lo slider (Thinking-Slider Rule) e «Auto» come primo passo; «Includi il contesto dell'editor» con `Switch`, separato da una linea `--line`.
+- **Direttive:** `.ui-chip` con il solo nome e la spunta quando attive; descrizione e posizione («inserita dopo il prompt») nel `Tooltip`. I tag di catalogo (`/plan`, `/grill-me`…) non si mostrano: sembrerebbero comandi inviati a `omp`. Una direttiva con versione nuova ha una riga con `StatusMark` `attention` fermo e «Aggiorna» `.ui-button-ghost`; una rimossa dal catalogo una riga in etichetta `--ink-muted`. «Gestisci direttive» è `.ui-button-ghost`.
+- **Tastiera:** `Invio` va a capo, `Ctrl+Invio` salva e chiude, `Esc` chiude quando nessuna palette o menu è aperto.
 
 ### Vassoio
 
@@ -742,8 +765,28 @@ valido nel vassoio, nel transcript e nelle viste di dettaglio.
 
 **GitStatusMark (`src/lib/ui/GitStatusMark.svelte`):**
 - Mappa fedelmente gli stati reali del repository: `A` (aggiunto, `--success`), `M` (modificato, `--warn`), `D` (eliminato, `--danger`), `C` (conflitto/copia, `--danger`), `R` (rinominato, `--ink-muted`), `U` o `?` (non tracciato, `--success`), `!` (ignorato, `--ink-faint`).
-- Accessibilità APG: il glifo compatto ha `aria-hidden="true"`, mentre la descrizione estesa per screen reader è incapsulata con la classe globale `.sr-only`.
-- **Primi consumatori:** `GitPanel` (modifiche nell'albero di lavoro).
+- Lettera mono in meta (11,5 px, peso 700) a destra della riga; il nome del file resta `--ink`, mai tinto. Il file eliminato aggiunge il nome barrato, che non dipende dal colore.
+- Accessibilità APG: il glifo compatto ha `aria-hidden="true"`, mentre la descrizione estesa per screen reader è incapsulata con la classe globale `.sr-only`. La prop `description` la sostituisce quando il contesto la cambia: una cartella dice «contiene modifiche», non «modificata».
+- **Consumatori:** `GitPanel` (modifiche, file dei commit) e `FileTree` (righe, cartelle e risultati di ricerca). Non esistono token `--git-*`: i colori vengono dai semantici del tema, anche nel gutter di Monaco.
+
+### Colonna sinistra (FileTree e GitPanel)
+
+- **Righe:** corpo 13 px, meta 11,5 px tabulare. L'anello di fuoco globale si disegna all'interno (`outline-offset: -2px`) perché le righe stanno in contenitori che tagliano; il campo di rinomina alto 18 px usa `outline-offset: 0`.
+- **Icone dei file:** una forma Lucide per famiglia, tutte neutre (`--ink-faint`, cartelle `--ink-muted`): `IconFileCode` per sorgenti e markup, `IconFileBraces` per JSON, `IconFileText` per testo e PDF, `IconFileImage` per immagini e SVG, `IconFileArchive`, `IconDatabase` per SQL, `IconFile` di default. Nessuna tinta per estensione.
+- **Cartelle:** si aprono con `tray-in`/`tray-out` a `--dur-row`; la radice che nasce aperta e il cambio di progetto restano fermi (Still-Room Rule). Le cartelle rumorose (`bin`, `obj`, `node_modules`) sono `--ink-faint` senza opacità aggiunta.
+- **Ricerca:** lettere trovate sottolineate in `--warn` da 2 px, peso 700, testo `--ink`; l'anello da 2 px lo porta l'involucro del campo.
+- **Pannello Git:** etichette di sezione in frase (etichetta 12/500 `--ink-muted`, conteggio in meta tabulare); menu branch su `MenuButton`; scheda di sincronizzazione neutra (bordo `--line`, 6 px). Pull, Push e Sync sono `.ui-button-primary` solo quando c'è lavoro da fare, Fetch è `.ui-button-secondary`; i conteggi ↓/↑ sono pillole neutre con `IconArrowDown`/`IconArrowUp`. L'esito CI è icona più testo meta senza fondo (`--success`, `--danger`; in corso con `StatusMark`). Le righe entrano con `chatReveal` solo quando la loro chiave è nuova rispetto alla lettura precedente: montaggio, cambio di scheda e polling non le rianimano.
+- **`GitDiffBadge`:** `+N` in `--success`, `−N` (U+2212) in `--danger`; meta 11,5 px (alto 18 px), compatto in didascalia 11 px (alto 16 px).
+
+### Colonna sinistra (pannello Agente)
+
+- **Sottoschede Coda / Sessioni / Regole:** `Segmented` in modalità `tablist` a tutta larghezza, con conteggi (coda neutra, attrito delle regole in ambra con testo `--ink`). Sotto la testata FILE / GIT / AGENTE, già una `ColumnTabs` sottolineata, un secondo livello sottolineato non si distinguerebbe.
+- **Barra della coda:** «Nuovo task» con `IconPlus`; il chip del cancello porta `StatusMark` (`attention` per domanda e quota, `pending` negli altri blocchi) e il dettaglio in `Tooltip`. La spiegazione del blocco si piega con `tray-in`/`tray-out`; la regione `aria-live` resta una sola.
+- **Righe della coda:** entrano con `chatReveal` e si riordinano con `flip` a 210 ms sulla curva `--ease-reveal`; il lampo del rollback è un keyframe solo `from` (opacità 0,85 → 0).
+- **Prompt in coda:** Markdown denso alla misura dell'anteprima; da chiuso al massimo tre righe con dissolvenza in fondo, «Leggi tutto» solo se il testo eccede, e l'apertura si piega in altezza.
+- **Storico sessioni:** titolo 13/450 su una riga, filtro corsie su `Segmented`, ricerca con `IconSearch`, errori su `--danger-dim`, caricamento con `StatusMark`; le righe nuove entrano con `chatReveal` come nel pannello Git.
+- **Proposta di regola:** scheda neutra come quella d'integrazione della corsia (`--bg-raised`, bordo `--line`, `--radius-lg`, nessuna ombra); l'ambra sta solo nello `StatusMark` `attention` accanto al titolo `--ink`. «Applica» è `.ui-button-primary`, «Modifica» e «Ignora» sono `.ui-button-ghost`. Anteprima in mono 12/1.5 su `--bg-sunken`.
+- **Stato vuoto (`EmptyState`):** icona Lucide neutra `--ink-faint` senza tessera (24 px, 20 in compatta), azioni `.ui-button-primary` / `.ui-button-secondary`, avviso di configurazione con lo schema della riga di attenzione (`--warn` al 15%, testo `--ink`, icona `--warn`), etichetta «Scorciatoie» in frase 12/500, pillole `kbd` a `--radius-full`; ingresso `rv-lift` a 240 ms.
 
 ### Schede orizzontali (ColumnTabs)
 
@@ -793,11 +836,13 @@ Classi CSS opt-in definite a livello globale in `src/app.css` per i controlli de
 
 - **Approccio opt-in:** nessuna regola distruttiva o reset universale sui tag `<input>`, `<select>` o `<button>`, garantendo che i controlli integrati in Monaco Editor, xterm.js o i canvas non vengano alterati.
 - **Campi `.ui-input` e `.ui-select`:** altezza 30 px, padding orizzontale 8 px (`--space-2`), font UI da 13 px (`--text-body`, peso 450), fondo `--bg-sunken`, bordo `--line`, raggio 6 px (`--radius-md`), caret `--ink`. In hover passano a bordo `--line-strong`; a fuoco contorno/bordo `--brand`.
-- **Pulsanti `.ui-button`:** altezza dal contenuto, padding 5 px 14 px, font UI da 11 px (`--text-caption`, peso 500), raggio 6 px (`--radius-md`), gap 8 px. Tre varianti cromatiche:
+- **Pulsanti `.ui-button`:** altezza dal contenuto, padding 5 px 14 px, font UI da 11 px (`--text-caption`, peso 500), raggio 6 px (`--radius-md`), gap 8 px. Quattro varianti cromatiche:
   - `.ui-button-secondary`: fondo trasparente, bordo `--line`, testo `--ink`. Hover: fondo `--bg-hover`, bordo `--line-strong`.
+  - `.ui-button-ghost`: fondo e bordo trasparenti, testo `--ink-muted`. Hover: fondo `--bg-hover`, testo `--ink`. È la secondaria accanto a una primaria piena (piede della scheda domanda, proposta di regola).
   - `.ui-button-primary`: fondo pieno `--brand`, bordo trasparente, testo `--on-brand`, peso 600. Hover: bordo `--on-brand`.
   - `.ui-button-danger`: fondo pieno `--danger`, bordo trasparente, testo `--on-danger`, peso 600. Hover: bordo `--on-danger`.
-- **Primi consumatori:** `.ui-select` in `GeneralSection`; `.ui-button` (tutte e 3 le varianti) in `CloseConfirmModal`; `.ui-input` in `ShortcutsHelpModal`.
+- **Chip `.ui-chip`:** pillola `3px 10px`, `--radius-full`, `--bg-raised`, bordo `--line`, didascalia 11/500 `--ink-muted`; hover `--bg-hover`/`--line-strong`/`--ink`. Lo stato scelto (`aria-pressed="true"`) è neutro: `--bg-active`, bordo `--line-strong`, testo `--ink` e una spunta da 12 px nel contenuto, mai un fondo brand.
+- **Primi consumatori:** `.ui-select` in `GeneralSection`; `.ui-button` (tutte e 3 le varianti) in `CloseConfirmModal`; `.ui-input` in `ShortcutsHelpModal`; `.ui-chip` in `SuggestionChips` e nel Task Editor («Usati spesso», direttive).
 
 ### Interruttore (Switch)
 
@@ -816,19 +861,29 @@ Primitiva per la selezione mutualmente esclusiva di viste o modalità (`src/lib/
 - **Stato attivo neutro (The Neutral-Active Rule):** il pulsante attivo prende fondo `--bg-active`, testo `--ink` e peso 600. Non usa mai il colore `--brand`, preservando l'accento unicamente per azioni primarie, focus e indicatori attivi.
 - **Contenitore:** fondo `--bg-sunken`, bordo perimetrale da 1 px in `--line`, raggio 6 px (`--radius-md`), divisori interni da 1 px `--line`.
 - **Navigazione da tastiera:** roving tabindex con frecce direzionali (Orizzontali e Verticali) che saltano automaticamente le opzioni disabilitate; selezione immediata con `Spazio` o `Invio`. Fuoco con contorno da 2 px `--brand` e offset -2 px.
-- **Primi consumatori:** `ProjectBarSection`.
+- **Modalità `tablist`:** le opzioni diventano `role="tab"` con `aria-controls` verso i pannelli (`tabIdPrefix`, `panelIdPrefix`); serve alle sottoschede dentro una colonna che ha già una `ColumnTabs`. Con `fill` occupa tutta la larghezza a opzioni di pari misura.
+- **Conteggi:** `count` opzionale per opzione, pillola meta tabulare `--ink-muted` su `--bg-hover`; con `countTone: 'attention'` fondo `--warn` al 22% e testo `--ink`.
+- **Opzioni iconiche:** un'opzione può definire un'icona Lucide (`icon`) che sostituisce l'etichetta; l'etichetta testuale rimane come nome accessibile (`aria-label`) e testo del `Tooltip` conforme a WCAG (D8). Pulsante iconico da 28 px con altezza 26 px e `--icon-size: 14px`, divisori da 1 px preservati.
+- **Primi consumatori:** `ProjectBarSection`, sottoschede del pannello Agente, filtro corsie dello storico sessioni, selettore vista file nell'Editor (`code`/`split`/`preview`), switch Anteprima/Editor del Laboratorio, modalità e dispositivo in `PreviewViewer`.
 
 ### Cursore a passi (Slider)
 
 Primitiva per valori numerici discreti e continui (`src/lib/ui/Slider.svelte`).
 
-- **Geometria di default:** traccia alta 26 px a raggio completo (`--radius-full`) con fondo `--bg-sunken` e bordo da 1 px `--line-strong`. Cursore circolare (thumb) da 22×22 px in `--ink` con bordo `--line-strong`.
-- **Passi discreti e magnetismo:** fino a 30 passi visualizza punti guida da 4 px lungo la traccia; i punti vicini al cursore subiscono un ingrandimento magnetico (scala 1.5x) per fornire feedback tattile visivo prima dell'aggancio allo scatto.
+- **Geometria di default:** traccia alta 20 px a raggio completo (`--radius-full`) con fondo `--bg-sunken` e bordo da 1 px `--line`. Cursore circolare da 22×22 px in `--ink` che sporge dalla traccia, con un anello di 2 px nel colore della superficie che lo ospita (`--slider-ring`, default `--bg-raised`): lo stacca dal riempimento senza ombra.
+- **Passi discreti e magnetismo:** fino a 30 passi visualizza punti da 4 px dentro la traccia (`--on-brand` al 60% sul riempimento, `--ink-faint` oltre); i punti vicini al cursore si ingrandiscono a 1.5x (magnetismo) prima dell'aggancio allo scatto. Nessuna etichetta sotto i passi.
 - **Flat-by-default:** né la traccia né il cursore possiedono ombre (`box-shadow: none`), in stretta conformità alla regola Flat-By-Default.
 - **Stato di fuoco e trascinamento:** contorno da 2 px in `--brand` con offset di 2 px sulla traccia; durante il drag il cursore si espande a scala 1.06x.
-- **Riempimento:** barra `--brand` a raggio completo che segue la percentuale del cursore.
+- **Riempimento:** barra `--brand` a raggio completo dal bordo sinistro fino al centro del cursore.
 - **Accessibilità:** `role="slider"`, `aria-valuemin`, `aria-valuemax`, `aria-valuenow`, `aria-valuetext`, supporto per frecce (passo singolo), Pagina Su/Giù (passi multipli) e Home/End.
-- **Primi consumatori:** `ReasoningSlider` (regolazione del budget di thinking).
+- **Slider del thinking (`ReasoningSlider`):** sopra la traccia solo il nome del livello, centrato, in titolo 16/550 `--brand-ink` (6,48:1 su `--bg-raised`). La descrizione del livello sta nel valore accessibile (`aria-valuetext`), non a schermo. Il consumatore sceglie i livelli offerti: la chat non ha «Auto», che vale per task e ruoli.
+- **Consumatori:** `ReasoningSlider` nel popover del thinking del composer (320 px, padding `12px 16px 16px`), nella sezione Esecuzione del Task Editor e nei Ruoli.
+
+**The Thinking-Slider Rule.** Il livello di thinking si sceglie sempre con lo slider
+(`ReasoningSlider`), ovunque: inline dove si configura (Task Editor, Ruoli), in un popover
+da 320 px aperto dal trigger con il misuratore a 5 barre nel composer della chat. Non
+esistono menu a elenco dei livelli: un livello è un punto su una scala, non una voce fra tante.
+
 ### Scheda domanda
 
 Sostituisce il composer quando l'agente chiede, e ne prende la sagoma.
@@ -886,6 +941,37 @@ Pannello laterale a tutta altezza, aperto dal nome di un subagente nel vassoio o
 - **Contenuto:** transcript in traccia 12,5/1.5 con `Markdown` (eccezione documentata alla Two Voices Rule), ruoli in meta mono, chiamate ai tool in traccia.
 - **Movimento e tastiera:** entra ed esce da destra con `rvLift` (`x: 12`, 240 ms, blur 3 px); `trapFocus` tiene Tab dentro, Esc chiude e il fuoco torna a chi l'ha aperto.
 
+
+### Colonna centrale e visualizzatori (Editor, ImageViewer, PreviewViewer, DiagramViewer)
+
+Superfici di officina per la consultazione e modifica del codice, delle immagini e degli schemi.
+
+- **Testata fusa (D7):** una sola barra da 32 px sul pozzo (`--bg-sunken`) con bordo inferiore `--line`, presente anche a editor vuoto per non far saltare la fascia superiore dell'app; controlli e trigger iconici a 28 px con `--radius-md`.
+- **Schede dell'editor:** 12 px (`--text-label`), inattive `--ink-muted`, hover `--bg-hover`, attiva `--ink` con indicatore lineare singolo da 2 px `--brand` sul bordo superiore (D2). Pulsante di chiusura X da 12 px a comparsa con `Tooltip` e raggio 6 px.
+- **Modifiche non salvate:** punto pieno da 6 px in ambra (`--warn`) a raggio completo posizionato nella cella fissa della X (larghezza della scheda immutata) accompagnato da etichetta in corsivo e testo per screen reader (`.sr-only`), mai affidato al solo colore.
+- **Splitter dell'editor:** divisore orizzontale da 6 px invisibile a riposo con linea centrale da 1 px `--line`. In hover e durante il trascinamento (`isResizing`) si colora unicamente la linea interna da 1 px in `--brand`, mai tutta la fascia. Gestione pointer events con pointer capture nativo.
+- **Anteprima Markdown nell'editor:** lettura in voce di prosa a 15/28 px (`--text-prose`) in una colonna centrata da 720 px, come da Two Voices Rule, senza forzare scale dense d'officina.
+- **Visualizzatore immagini (`ImageViewer`):** solo tela interattiva; nome file, dimensioni, peso e zoom vivono nella barra dell'editor (32 px, azioni a destra). Sequenza controlli zoom unificata (`Adatta`, `−`, `%`, `+`) con cifre tabulari. Errore di caricamento su card `--radius-lg` con titolo `--danger`. Panning continuo senza transizione, zoom animato a `--dur-fast`.
+- **Anteprima sandbox (`PreviewViewer`):** barra fusa da 32 px con titolo in etichetta 12/500, commutatore vista (anteprima/codice) e dispositivo (desktop/tablet/mobile) su `Segmented`, pulsanti copia e ricarica fantasma, X con `Tooltip`. La vista codice adotta l'evidenziazione Monaco tramite `colorizeCode` in mono 12/1.5 (`--text-mono`) a piena altezza, senza l'accordion della chat.
+- **Whiteboard Mermaid (`DiagramViewer`):** toolbar fusa da 32 px con titolo, `Adatta` fantasma, zoom iconici e chiusura. I colori di Mermaid passano da `tokenHex()` di `theme.ts` per garantire esadecimali validi al parser `khroma` (sfondo trasparente, testi `--ink`, bordi `--brand`, nodi `--bg-raised`/`--bg-overlay`), eliminando ogni crash da `oklch()`. Re-render reattivo su `onThemeChange`. Etichette SVG pure con `htmlLabels: false` per superare la sanitizzazione DOMPurify. Stato di caricamento con `StatusMark` `running`.
+
+### Browser Studio e Laboratorio
+
+- **Cornice:** toolbar da 32 px sul pozzo con controlli da 28 px; Browser e Lab seguono il tema di `omp`. La pagina remota e il canvas dei prototipi restano indipendenti.
+- **Inspector (D5):** riquadri sopra la pagina con bordo `--brand` e fondo `color-mix(in srgb, var(--brand) 18%, transparent)`; etichette su superficie opaca `--bg-raised`, testo accentato solo `--brand-ink`. Il bordo da 2 px identifica la selezione di un elemento della pagina, non una rotaia decorativa.
+- **Esiti:** permessi, stati HTTP ed etichette console mantengono colore semantico più testo su fondo neutro. Metodi HTTP, tipi di azione e componenti non sono esiti e restano neutri.
+- **Registrazione:** punto `--danger` con ping soltanto mentre registra, è nello schermo e nel documento attivo, con animazioni abilitate. Arresto in corso e registrazione conclusa restano fermi. Il takeover è neutro con icona e testo, senza campiture semaforiche.
+- **Laboratorio:** la revisione storica usa una riga neutra con icona `--warn`, «Ripristina» secondaria e «Torna alla corrente» fantasma. Gli errori di build/runtime usano `AlertBanner` con «Chiedi di correggere» primaria e lista diagnostica pieghevole a 210 ms.
+- **Primitive:** revisioni e permessi su `MenuButton`; finestre modali su `Dialog`; schede dell'inspector su `ColumnTabs`; caricamento e compilazione su `StatusMark`; suggerimenti iconici su `Tooltip`.
+
+### Banner diagnostico (AlertBanner)
+
+Superficie condivisa per segnalazioni di sistema, configurazione e diagnostica (`SetupModal`, `ModelHealthModal`, `NotificationsSection`).
+
+- **Superficie e colore:** neutra su `--bg-raised`, bordo da 1 px `--line`, raggio 10 px (`--radius-lg`). Il colore semantico appartiene esclusivamente all'icona Lucide (`IconCircleAlert` `--danger`, `IconWarning` `--warn`, `IconCircleCheck` `--success`, `IconInfo` `--ink-muted`), conformemente alla Outcome-Only Color Rule. Nessuna campitura pastello o tinta di fondo su tutto il riquadro.
+- **Tipografia:** titolo in corpo 13/600 `--ink`, messaggio in etichetta 12 px `--ink-muted`, etichetta diagnostica in didascalia 11/500 `--ink-faint` in frase.
+- **Azioni e pulsanti:** varianti `.ui-button` native a 28 px (`.ui-button-primary`, `.ui-button-secondary`, `.ui-button-danger`), chiusura con `Tooltip` e `--icon-size: 14px`. Feedback di copia normalizzato a 1500 ms.
+- **Movimento:** entra ed esce piegando l'altezza tramite `chatReveal` (JS-driven per assecondare la rimozione dal genitore con blur 6 px e distanza 0). Il dettaglio diagnostico si piega con `tray-in`/`tray-out` e `Lingering` a `--dur-row` (210 ms).
 ### Schede di esito nel transcript
 
 La scheda d'integrazione della corsia (`LaneLandingCard`) è una superficie neutra: bordo
@@ -915,7 +1001,7 @@ e il `Tooltip` dicono «In fondo».
 - **Colori:** quota sana neutra, oppure `--success` solo con l'opzione semaforo; quota bassa `--warn`, critica/esaurita `--danger`. Il segnale cromatico è accompagnato da testo o descrizione accessibile. Nessuna palette quota cablata nel layout.
 - **Popover quota e code:** superfici non modali nel top-layer nativo tramite `anchoredPopover`, `--bg-overlay`, bordo `--line-strong`, raggio 10 px e `--shadow-overlay`; ancoraggio `bottom-end` a 8 px dal trigger, larghezze 380 e 420 px, fallback in alto a destra per apertura da scorciatoia o Companion. Titoli 16/550 bilanciati; ingresso `rvLift` a 150 ms e blur 3 px.
 - **Tastiera:** niente velo, `aria-modal` o trap di Tab. Click esterno e Tab fuori chiudono senza rubare il nuovo focus; Escape e chiusura esplicita restituiscono il focus al trigger. I controlli iconici usano `Tooltip`; il caricamento usa `StatusMark`.
-- **Task in coda:** cliccare il testo apre o chiude la lettura, mai l'avvio. «Avvia», «Nuova corsia» e «Modifica» sono sempre visibili anche in vista compatta. Shift su «Avvia» forza la corsia isolata; Ctrl mantiene il seguito sul progetto. La stessa riga `QueueTaskItem` serve il pannello Agente e tutte le code.
+- **Task in coda:** cliccare il testo apre o chiude la lettura, mai l'avvio. «Avvia», «Nuova corsia» e «Modifica» sono sempre visibili anche in vista compatta. Shift su «Avvia» forza la corsia isolata; Ctrl mantiene il seguito sul progetto. La stessa riga `QueueTaskItem` serve il pannello Agente e tutte le code. Il prompt si rende in Markdown denso alla misura dell'anteprima, chiuso e aperto (§ Colonna sinistra, pannello Agente).
 - **Barra inferiore:** 26 px, sole versioni Studio/OMP e `StatusMark` con etichetta breve; niente duplicazione del progetto né prefisso «Stato:». Lavoro/caricamento in corso con spinner condiviso, completato neutro, attenzione ambra. Un aggiornamento riuscito è un esito positivo (`--success` / `--on-success`).
 
 **The Exhausted-Quota Interrupt Rule.** D3 ammette il respiro solo per una quota
@@ -939,7 +1025,7 @@ un'icona, mai un'emoji.
 
 ### Do:
 
-- **Do** scrivere e rileggere un prompt completo nella voce chat (15/24); mantenere dense solo le anteprime di coda documentate nella Two Voices Rule.
+- **Do** scrivere e rileggere un prompt completo nella voce chat (15/24); mantenere densi solo i task in coda (anteprima e dettaglio) e i titoli di sessione nelle liste, come da Two Voices Rule.
 - **Do** mettere lo stato vivo nel punto d'azione e lasciarne nel racconto una sola riga espandibile.
 - **Do** far entrare ogni elemento nuovo con `--ease-reveal` e keyframe solo `from`, anche nella cornice: menu a 150 ms, righe a 210 ms, pannelli e dialog a 240 ms, sezioni che si piegano a 420 ms.
 - **Do** derivare ogni tinta con `color-mix` da un token, e usare `--on-*` per il testo sui riempimenti pieni.
@@ -956,7 +1042,12 @@ un'icona, mai un'emoji.
 - **Do** usare l'elemento nativo `<dialog>.showModal()` del browser con isolamento top-layer e trap focus per le finestre modali (`Dialog`).
 - **Do** usare le classi opt-in `.ui-input`, `.ui-select`, `.ui-button` per non alterare Monaco Editor o xterm.
 - **Do** mantenere lo stato attivo del selettore segmentato (`Segmented`) neutro (`--bg-active`), senza tinte brand.
-- **Do** mantenere lo Slider privo di ombre (`box-shadow: none`) con traccia 26 px e cursore 22 px.
+- **Do** unificare l'altezza delle toolbar della colonna centrale a 32 px fondendo l'header di colonna nella vista attiva (D7).
+- **Do** mostrare lo stato non salvato con punto CSS da 6 px in ambra ed etichetta in corsivo, senza affidarlo al solo colore.
+- **Do** colorare solo la linea interna da 1 px in hover e drag sullo splitter dell'editor, mai tutta la fascia.
+- **Do** risolvere i colori del tema in esadecimale tramite `tokenHex()` per canvas e parser esterni (Mermaid/khroma).
+- **Do** mantenere lo Slider privo di ombre (`box-shadow: none`) con traccia 20 px e cursore 22 px che sporge, staccato da un anello nel colore della superficie.
+- **Do** scegliere il thinking sempre con lo slider (Thinking-Slider Rule), inline o nel popover del composer.
 
 ### Don't:
 
@@ -975,6 +1066,9 @@ un'icona, mai un'emoji.
 - **Don't** usare `z-index` arbitrari, token vietati come `z-modal` o emoji come icone.
 - **Don't** introdurre attributi `title` nativi sui trigger dei menu o della barra: adottare `Tooltip`.
 - **Don't** creare modal host manuali o stack personalizzati di inert quando il browser supporta `<dialog>.showModal()`.
+- **Don't** impilare l'header di colonna (`.col-header`) sopra la toolbar della vista figlia, creando doppie o triple barre.
+- **Don't** tingere l'intero fondo di un banner col colore semantico dell'esito: il riquadro resta neutro e solo l'icona porta il colore.
+- **Don't** passare stringhe `oklch()` o `color-mix()` non risolte a motori di rendering SVG che richiedono formati colore legacy.
 - **Don't** usare il repertorio dell'«AI slop»: glassmorphism decorativo, card con bordo sottile e ombra larga, raggi oltre 16 px, eyebrow maiuscole sopra le sezioni, marcatori `01 / 02 / 03`, sfondi a griglia, illustrazioni SVG «sketchy».
 
 ## Debito di allineamento
@@ -1005,7 +1099,7 @@ e consolidate nel codice di produzione al 2026-10-01:
 | Nessun verde, nessun rosso nel guscio | Colore semantico solo per gli esiti (`GitStatusMark`, badge), sempre con testo o icona. |
 | Schede orizzontali con maiuscolo spaziato | `ColumnTabs`: indicatore singolo 2 px `--brand`, etichetta 12 px normale senza maiuscolo, attivazione manuale. |
 | Finestre modali con overlay manuale | `Dialog`: elemento nativo `<dialog>.showModal()` con trap focus APG e isolamento top-layer. |
-| Testo dei prompt a 13 px nella cornice | Voce chat 15/24 per scrittura e lettura completa; anteprime di coda 11/12 px, dettaglio espanso 15/24. |
+| Testo dei prompt a 13 px nella cornice | Voce chat 15/24 per scrittura e lettura completa; task in coda densi a 11/12 px anche espansi, in Markdown denso. |
 
 Restano validi senza modifiche, finché non vengono rivisti nei task successivi: identità di
 progetto e tessere (v1 §2.7, §7.1), riga delle corsie (§7.13), regole
@@ -1023,7 +1117,7 @@ Allineati al 2026-10-01 i componenti della chat fuori dal nucleo e le correzioni
 4. **Stato e movimento:** `TaskRow`, `TodoTraceRow`, `SubagentTrace` e l'avvio della sessione su `StatusMark` (`PixelGrid` rimosso); aperture con `tray-in`/`tray-out`; pannello del subagente con `rvLift` laterale e `trapFocus`.
 5. **Igiene:** misure, raggi e icone a token (`--icon-size`, niente prop `size`/`class`); stringhe residue tradotte; pulsante «in fondo» tondo con `Tooltip`.
 
-Restano ai task successivi: `CommandPalette` e `FileMentionPalette`, ancora usati da Task Editor e Companion, che non sono ancora passati a `SuggestPanel` (task 8 e 12).
+Restano ai task successivi: `FileMentionPalette`, ancora usato dal Companion, che non è ancora passato a `SuggestPanel` (task 12). `CommandPalette` è stato eliminato con il Task 8.
 
 ### D. Tool renderer e parti condivise (Task 3)
 
@@ -1034,3 +1128,52 @@ Allineati al 2026-10-01 i 29 renderer dei tool, il fallback `Generic.svelte` e l
 3. **Two Voices Rule:** prompt di generazione immagini (`GenerateImage`), obiettivi (`Goal`), domande utente (`InspectImage`), motivazioni (`Resolve`), query di ricerca web (`WebSearch`) e messaggi (`Irc`) migrati dalla visualizzazione monospazio da 12 px alla voce chat o sans leggibile.
 4. **Stato e Outcome-Only Color Rule:** diff allineato unicamente a `--success` e `--danger` (rimossi fallback legacy `--git-added/deleted`); `Job` e `Hub` migrati alla primitiva `StatusMark`; rimossi i bordi interamente rossi in `Eval` e `Yield`.
 5. **Movimento From-Only e igiene:** keyframe `task-stagger` e `todo-stagger` allineati alla From-Only Rule con `--dur-row` (210 ms) e curva `--ease-reveal`; raggio 6 px (`--radius-md`) per `PathChip` e `ImageBlock`; cifre tabulari obbligatorie su tutte le metriche e numeri di riga; dead code `view === 'summary'` e prop `view` rimossi da tutti i 30 componenti.
+
+### E. Colonna sinistra: chrome, file tree e Git (Task 6)
+
+Allineati al 2026-10-02 il chrome della colonna sinistra, `FileTree`, `GitPanel` e `GitDiffBadge`:
+
+1. **Chrome:** collasso con `--ease-reveal`; maschera di dissolvenza senza `black`; via il maiuscolo spaziato residuo da `.col-header`; solo `inert` sulla colonna collassata.
+2. **Stato Git:** `GitStatusMark` ovunque (righe, cartelle, risultati, file dei commit), nome sempre `--ink`; token `--git-*` e `--icon-*` in `oklch` fisso eliminati e consumatori migrati ai semantici del tema.
+3. **Fuoco e campi:** nessun `outline: none` sulle righe; campo di rinomina su `--bg-sunken` con anello globale; ricerca con anello da 2 px.
+4. **Icone e movimento:** 16 SVG fatti a mano sostituiti da forme Lucide neutre; emoji e glifi del pannello Git sostituiti da Lucide; spinner su `StatusMark`; cartelle a `--dur-row`; righe Git nuove con `chatReveal`.
+5. **Colore e tipografia:** niente `rgba`, `#ffffff`, `--accent` né fallback hex; testo accento solo `--brand-ink`; misure a token (13 / 11,5 / 11 px).
+
+### F. Colonna sinistra: pannello Agente, menu contestuale e stati vuoti (Task 7)
+
+Allineati al 2026-10-02 `AgentPanel`, `QueueTaskItem`, `SessionList`, `RulesPanel`, `ContextMenu`, `EmptyState` e `FileMentionChip`:
+
+1. **Primitive:** `Segmented` con modalità `tablist`, `fill` e conteggi; `.ui-button-ghost`; ancora a punto in `anchoredPopover`; icone `IconFolderPlus`, `IconListTodo`, `IconCircleAlert`.
+2. **Coda:** sottoschede su `Segmented`; `IconPlus`, `IconGrip`, niente `:global(svg)`; `chatReveal` e `flip` a 210 ms; lampo del rollback solo `from`; spiegazione del cancello che si piega; prompt in Markdown denso con «Leggi tutto» alla stessa misura.
+3. **Storico e regole:** titoli di sessione 13/450 su una riga; errori su `--danger-dim`; spinner su `StatusMark`; scheda di proposta neutra con primaria piena e azioni fantasma; anteprima mono 12 px; raggi a 6 px.
+4. **Menu contestuale:** un solo motore di piazzamento con `MenuButton`; `--bg-raised`, righe `7px 8px` a 13 px, `rv-lift`, «pericolo» in `--danger`, anello di fuoco globale; via `--radius-xs` e i fuochi in `box-shadow`.
+5. **Stati vuoti:** via `#ffffff`, `#000`, il fallback `#f59e0b44`, l'ombra e il `brightness` sul pulsante; testo del pulsante primario su `--on-brand` (prima `--brand-ink` su `--brand`, circa 1,6:1).
+
+### G. Schermata nuovo task (Task 8)
+
+Allineata al 2026-10-02 la schermata nuovo task (`TaskEditor`):
+
+1. **Prompt nella sagoma del composer:** `ComposerEditor` a 15/24 con badge, `SuggestPanel` al posto di `CommandPalette` (eliminato) e `FileMentionPalette`, `AttachmentThumb` da 56 px, overlay di trascinamento; sagoma condivisa con la chat tramite `.composer-shell` e affini in `app.css`; voci e tasti della palette in `suggestItems.ts`.
+2. **Azioni:** «Salva» primaria con split verso «Avvia ora» e «Avvia in nuova corsia»; testata fusa in quella della colonna con Elimina a doppia azione e Chiudi; via lo stato del task e il pulsante verde `#22c55e`.
+3. **Esecuzione e direttive:** ruolo su `Segmented`, modello in un campo `.ui-select` con `ModelPickerList`, «Usati spesso» e direttive su `.ui-chip` (nuova classe condivisa, anche in `SuggestionChips`), contesto dell'editor su `Switch`; tag `/plan`, `/grill-me`… tolti anche dalle chip della coda.
+4. **Thinking:** nuova Thinking-Slider Rule; `Slider` a traccia 20 px con cursore che sporge e anello di superficie; `ReasoningSlider` con il solo livello in `--brand-ink`; `ThinkingMenu` eliminato e sostituito nel composer della chat da un popover con lo slider.
+5. **Igiene:** icone Lucide e `Tooltip` al posto di SVG a mano e `title`; via eyebrow maiuscole, misure da 9–10 px, raggi da 4 px, `transition: all`, `z-index` letterali, fondi `--brand-dim` (l'«in corso» misurava 3,12:1) e la regione `aria-live` che diceva sempre «Salvato»; testi in i18n; ingresso `rvLift` 240 ms.
+
+
+### H. Colonna centrale e visualizzatori (Task 9)
+
+Allineati al 2026-10-02 l'header di colonna, l'editor con schede e splitter, `ImageViewer`, `SvgPreview`, `PreviewViewer`, `DiagramViewer` e `AlertBanner`:
+
+1. **Testata fusa e D7:** unificate tutte le toolbar di officina a 32 px con bordo inferiore `--line` sul pozzo (`--bg-sunken`). Eliminato `.col-header` ridondante con titolo maiuscolo; la testata appartiene alla vista figlia. Switch del Laboratorio preservato su `Segmented` `tablist` da 32 px senza `--bg` orfano né ombre `rgba`.
+2. **Editor Monaco e schede:** scheda attiva con indicatore singolo 2 px `--brand` sul bordo superiore (D2); «non salvato» con punto CSS da 6 px `--warn` e corsivo accessibile; selettore codice/split/anteprima migrato a `Segmented` con opzioni iconiche e `Tooltip`; toggle diff con stato attivo neutro (`--bg-active`); pulsante «Salva» primario `.ui-button-primary`; splitter orizzontale con riga 1 px `--brand` in hover/drag e pointer capture; anteprima Markdown in prosa 15/28 px centrata a 720 px (Two Voices Rule); overlay di caricamento su `StatusMark` `running`.
+3. **Visualizzatore immagini:** toolbar rimossa da `ImageViewer` e controlli di zoom/metadati integrati direttamente nella barra dell'editor a destra (`Adatta`, `−`, `%`, `+` con cifre tabulari); canvas con pan fluido privo di ritardo transizione; card d'errore a 10 px con titolo `--danger`.
+4. **Anteprima sandbox (`PreviewViewer`):** barra fusa a 32 px; rimossa eyebrow maiuscola «PROTO»/«SVG»; commutatori su `Segmented`; vista codice migrata a `colorizeCode` in mono 12/1.5 a piena pagina; pulsanti fantasma con icone Lucide e feedback copia a 1500 ms.
+5. **Whiteboard Mermaid (`DiagramViewer`):** risolto P0 di rendering tramite `tokenHex()` da `theme.ts` (esadecimali puliti al posto di `oklch()` rifiutati da `khroma`); `htmlLabels: false` per etichette SVG native compatibili con DOMPurify; ri-render reattivo su cambio tema; barra fusa a 32 px con sequenza zoom unificata; stato vuoto coerente.
+6. **Banner diagnostico (`AlertBanner`):** superficie 100% neutra a 10 px con icona semantica Lucide (Outcome-Only Color Rule); rimossi 4 SVG manuali e tutti i fallback HEX/RGBA; pulsanti conformi a `.ui-button`; ingresso/uscita con `chatReveal` e piegatura diagnostica con `tray-in`/`tray-out` a 210 ms.
+7. **Igiene ed estensioni:** introdotta estensione iconica per `Segmented`; aggiunta icona `IconCircleCheck`; eliminati tutti i `title` nativi dai controlli iconici in favore di `Tooltip`; tutte le stringhe migrate su `messages/it.json` ed `en.json`.
+Restano ad altri task: `ModelPickerDropdown` in `RolesTab` e `CycleDrawer` (task 14), `FileMentionPalette` nel Companion (task 12).
+
+### I. Browser Studio e Laboratorio (Task 10)
+
+Allineati al 2026-10-02 `BrowserViewer` e `LabPreview`. D5 approvata: riquadri dell'inspector in `--brand` con fondo al 18%. Cornici a token e toolbar a 32 px; schede inspector su `ColumnTabs` con attivazione manuale e pannello collegato; permessi e revisioni su `MenuButton`; dialoghi della pagina e Chrome Relay su `Dialog`; diagnostica Lab su `AlertBanner`; spinner su `StatusMark`. Registrazione ferma se nascosta, in arresto o con movimento ridotto. `+page.svelte` resta invariata: il suo switch Lab e i livelli semantici erano già allineati nel Task 9. Nessuna modifica agli stili dei prototipi.
+

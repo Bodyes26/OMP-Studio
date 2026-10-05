@@ -18,9 +18,11 @@
 		IconRefresh,
 		IconRename,
 		IconRule,
-		IconSkill,
-		IconWarning
+		IconSkill
 	} from '$lib/icons';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { chatReveal } from '$lib/agent/motion';
 	import { rulesStore, type ContextRuleItem, type RuleSuggestion, type SkillItem } from '$lib/stores/rules.svelte';
 
 	let {
@@ -41,14 +43,36 @@
 	const projectSkills = $derived(context.skills.filter((skill) => skill.scope === 'project'));
 	const globalSkills = $derived(context.skills.filter((skill) => skill.scope !== 'project'));
 	const busy = $derived(rulesStore.isLoading(projectPath) || rulesStore.isAnalyzing(projectPath));
+	// Righe nuove: chatReveal solo per le chiavi comparse dopo la prima lettura.
+	// Montaggio, cambio scheda e ricaricamento restano fermi (Still-Room Rule).
+	let knownRules: Set<string> | null = null;
+	let freshKeys = $state(new Set<string>());
+
+	function trackFresh(known: Set<string> | null, keys: string[], fresh: Set<string>): Set<string> {
+		if (known) {
+			for (const key of keys) if (!known.has(key)) fresh.add(key);
+		}
+		return new Set(keys);
+	}
+
+	$effect(() => {
+		const allKeys = [
+			...context.rules.filter((rule) => rule.exists).map((rule) => rule.id),
+			...context.skills.map((skill) => skill.path)
+		];
+		const fresh = new Set<string>();
+		knownRules = trackFresh(knownRules, allKeys, fresh);
+		freshKeys = fresh;
+	});
 
 	// Il censimento e' per progetto e memorizzato nello store: al rientro nella
 	// scheda non si rilegge il disco, quindi lo switch resta immediato.
 	$effect(() => {
 		if (!projectPath) return;
+		knownRules = null;
+		freshKeys = new Set();
 		void rulesStore.loadContext(projectPath);
 	});
-
 	function scopeLabel(scope: SkillItem['scope']): string {
 		if (scope === 'project') return m.rules_scope_project();
 		return scope === 'managed' ? 'managed' : m.rules_scope_global();
@@ -108,7 +132,7 @@
 			{@const suggestion = suggestions[0]}
 			<article class="suggestion">
 				<div class="suggestion-head">
-					<span class="suggestion-icon"><IconWarning /></span>
+					<StatusMark status="attention" />
 					<span class="suggestion-title">{suggestion.title}</span>
 					<span class="occurrences">{suggestion.occurrences}×</span>
 				</div>
@@ -116,28 +140,34 @@
 				<pre class="preview" aria-label={`Anteprima delle righe da aggiungere a ${suggestion.target_file}`}>{#each suggestion.proposed_content.trimEnd().split('\n') as line, index (index)}<span class="added">+ {line}</span>
 {/each}</pre>
 				<div class="suggestion-actions">
-					<button
-						type="button"
-						class="btn primary"
-						disabled={applying === suggestion.id || agentsMd?.exists !== true}
-						title={agentsMd?.exists === true
-							? undefined
-							: 'Inizializza AGENTS.md per poter applicare la proposta'}
-						onclick={() => void applySuggestion(suggestion)}
+					<Tooltip
+						text={agentsMd?.exists !== true ? 'Inizializza AGENTS.md per poter applicare la proposta' : undefined}
+						disabled={agentsMd?.exists === true}
 					>
-						<IconCheck />
-						Applica a {suggestion.target_file}
-					</button>
+						<button
+							type="button"
+							class="ui-button ui-button-primary"
+							disabled={applying === suggestion.id || agentsMd?.exists !== true}
+							onclick={() => void applySuggestion(suggestion)}
+						>
+							<IconCheck />
+							Applica a {suggestion.target_file}
+						</button>
+					</Tooltip>
 					<button
 						type="button"
-						class="btn"
+						class="ui-button ui-button-ghost"
 						disabled={agentsMd?.exists !== true}
 						onclick={() => onOpenFile(suggestion.target_file)}
 					>
 						<IconRename />
 						{m.queue_drawer_edit_btn()}
 					</button>
-					<button type="button" class="btn" onclick={() => rulesStore.dismissSuggestion(suggestion.id)}>
+					<button
+						type="button"
+						class="ui-button ui-button-ghost"
+						onclick={() => rulesStore.dismissSuggestion(suggestion.id)}
+					>
 						<IconClose />
 						{m.rules_dismiss()}
 					</button>
@@ -152,27 +182,28 @@
 
 		<div class="section-label">
 			{m.rules_context_rules_title()}
-			{#if busy}<span class="rules-spinner" aria-hidden="true"></span>{/if}
+			{#if busy}<StatusMark status="running" />{/if}
 			{#if activeRulesCount > 0}<span class="count">{activeRulesCount}</span>{/if}
 		</div>
-
-		{#each context.rules as rule, i (rule.id)}
+		{#each context.rules as rule (rule.id)}
 			{#if rule.exists}
-				<button type="button" class="row rules-item-animated" style:--index={Math.min(i, 8)} onclick={() => openRule(rule)}>
-					<span class="row-icon">
-						{#if rule.rule_type === 'guidelines'}<IconFile />{:else}<IconRule />{/if}
-					</span>
-					<span class="row-body">
-						<span class="row-title">{rule.name}</span>
-						{#if rule.description}<span class="row-sub">{rule.description}</span>{/if}
-					</span>
-				</button>
+				<div class="row-wrap" in:chatReveal={{ duration: freshKeys.has(rule.id) ? undefined : 0 }}>
+					<button type="button" class="row" onclick={() => openRule(rule)}>
+						<span class="row-icon">
+							{#if rule.rule_type === 'guidelines'}<IconFile />{:else}<IconRule />{/if}
+						</span>
+						<span class="row-body">
+							<span class="row-title">{rule.name}</span>
+							{#if rule.description}<span class="row-sub">{rule.description}</span>{/if}
+						</span>
+					</button>
+				</div>
 			{:else}
 				<div class="missing">
 					<p class="missing-text">
 						{m.ui_rulespanel_questo_progetto_non_ha_ac09()} <code>AGENTS.md</code>{m.ui_rulespanel_l_agente_lavora_senza_convenzioni_scritte_9f6b()}
 					</p>
-					<button type="button" class="btn primary" onclick={() => void initAgentsMd()}>
+					<button type="button" class="ui-button ui-button-primary" onclick={() => void initAgentsMd()}>
 						<IconPlus />
 						{m.rules_init_agents_md()}
 					</button>
@@ -188,27 +219,27 @@
 		{#if projectSkills.length === 0}
 			<div class="empty">{m.ui_rulespanel_nessuna_skill_in_3df8()} <code>.omp/skills</code>.</div>
 		{:else}
-			{#each projectSkills as skill, i (skill.path)}
-				<button
-					type="button"
-					class="row rules-item-animated"
-					style:--index={Math.min(i, 8)}
-					disabled={!skill.rel_path}
-					onclick={() => skill.rel_path && onOpenFile(skill.rel_path)}
-				>
-					<span class="row-icon"><IconSkill /></span>
-					<span class="row-body">
-						<span class="row-title">
-							{skill.name}
-							<span class="command">/{skill.name}</span>
-							<span class="badge">{scopeLabel(skill.scope)}</span>
+			{#each projectSkills as skill (skill.path)}
+				<div class="row-wrap" in:chatReveal={{ duration: freshKeys.has(skill.path) ? undefined : 0 }}>
+					<button
+						type="button"
+						class="row"
+						disabled={!skill.rel_path}
+						onclick={() => skill.rel_path && onOpenFile(skill.rel_path)}
+					>
+						<span class="row-icon"><IconSkill /></span>
+						<span class="row-body">
+							<span class="row-title">
+								{skill.name}
+								<span class="command">/{skill.name}</span>
+								<span class="badge">{scopeLabel(skill.scope)}</span>
+							</span>
+							{#if skill.description}<span class="row-sub">{skill.description}</span>{/if}
 						</span>
-						{#if skill.description}<span class="row-sub">{skill.description}</span>{/if}
-					</span>
-				</button>
+					</button>
+				</div>
 			{/each}
 		{/if}
-
 		<div class="section-label">
 			{m.rules_global_skills_title()}
 			{#if globalSkills.length > 0}<span class="count">{globalSkills.length}</span>{/if}
@@ -217,25 +248,28 @@
 		{#if globalSkills.length === 0}
 			<div class="empty">{m.ui_rulespanel_nessuna_skill_in_3df8()} <code>~/.omp/agent</code>.</div>
 		{:else}
-			{#each globalSkills as skill, i (skill.path)}
-				<button
-					type="button"
-					class="row rules-item-animated"
-					style:--index={Math.min(i, 8)}
-					title={m.ui_rulespanel_fuori_dal_progetto_si_apre_nel_file_d6b3()}
-					onclick={() => void revealSkill(skill)}
-				>
-					<span class="row-icon"><IconSkill /></span>
-					<span class="row-body">
-						<span class="row-title">
-							{skill.name}
-							<span class="command">/{skill.name}</span>
-							<span class="badge">{scopeLabel(skill.scope)}</span>
-						</span>
-						{#if skill.description}<span class="row-sub">{skill.description}</span>{/if}
-					</span>
-					<span class="row-icon trailing"><IconExternalLink /></span>
-				</button>
+			{#each globalSkills as skill (skill.path)}
+				<div class="row-wrap" in:chatReveal={{ duration: freshKeys.has(skill.path) ? undefined : 0 }}>
+					<Tooltip text={m.ui_rulespanel_fuori_dal_progetto_si_apre_nel_file_d6b3()}>
+						<button
+							type="button"
+							class="row"
+							aria-label={`${skill.name} — ${m.ui_rulespanel_fuori_dal_progetto_si_apre_nel_file_d6b3()}`}
+							onclick={() => void revealSkill(skill)}
+						>
+							<span class="row-icon"><IconSkill /></span>
+							<span class="row-body">
+								<span class="row-title">
+									{skill.name}
+									<span class="command">/{skill.name}</span>
+									<span class="badge">{scopeLabel(skill.scope)}</span>
+								</span>
+								{#if skill.description}<span class="row-sub">{skill.description}</span>{/if}
+							</span>
+							<span class="row-icon trailing"><IconExternalLink /></span>
+						</button>
+					</Tooltip>
+				</div>
 			{/each}
 		{/if}
 	</div>
@@ -243,12 +277,13 @@
 	<div class="panel-toolbar">
 		<button
 			type="button"
-			class="btn"
-			class:spinning={busy}
+			class="ui-button ui-button-secondary"
 			disabled={busy}
 			onclick={() => void refresh()}
 		>
-			<IconRefresh />
+			<span class="refresh-icon" class:spinning={busy} aria-hidden="true">
+				<IconRefresh />
+			</span>
 			{busy ? m.rules_analyzing_btn() : m.rules_refresh_btn()}
 		</button>
 	</div>
@@ -273,10 +308,10 @@
 	.msg.error {
 		margin: 0 var(--space-2) var(--space-2);
 		padding: var(--space-2);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--danger-dim);
 		color: var(--ink);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		line-height: 1.4;
 	}
 
@@ -286,7 +321,7 @@
 		gap: 6px;
 		padding: var(--space-3) var(--space-3) var(--space-1);
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 	}
 
 	.count {
@@ -295,14 +330,14 @@
 		background: var(--bg-active);
 		color: var(--ink-muted);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 		font-variant-numeric: tabular-nums;
 	}
 
 	.empty {
 		padding: 2px var(--space-3) var(--space-1);
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 	}
 
 	.row {
@@ -312,7 +347,7 @@
 		align-items: flex-start;
 		gap: var(--space-2);
 		border: 0;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: transparent;
 		text-align: left;
 		cursor: pointer;
@@ -355,8 +390,8 @@
 		flex-wrap: wrap;
 		gap: var(--space-1);
 		color: var(--ink);
-		font-size: var(--text-sm);
-		font-weight: 500;
+		font-size: var(--text-body);
+		font-weight: 450;
 		line-height: 1.3;
 	}
 
@@ -367,14 +402,14 @@
 		line-clamp: 2;
 		-webkit-box-orient: vertical;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		line-height: 1.35;
 	}
 
 	.command {
 		color: var(--ink-muted);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 	}
 
 	.badge {
@@ -382,7 +417,7 @@
 		border-radius: var(--radius-full);
 		background: var(--bg-raised);
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 600;
 	}
 
@@ -401,7 +436,7 @@
 	.missing-text {
 		margin: 0;
 		color: var(--ink-muted);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
 		line-height: 1.45;
 	}
 
@@ -411,27 +446,21 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
-		border-radius: var(--radius-md);
-		background: color-mix(in srgb, var(--warn) 10%, var(--bg-raised));
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
+		background: var(--bg-raised);
 	}
 
 	.suggestion-head {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
-	}
-
-	.suggestion-icon {
-		display: flex;
-		align-items: center;
-		color: var(--warn);
+		gap: var(--space-2);
 	}
 
 	.suggestion-title {
 		min-width: 0;
-		color: var(--warn);
-		font-size: var(--text-sm);
+		color: var(--ink);
+		font-size: var(--text-body);
 		font-weight: 600;
 		line-height: 1.3;
 	}
@@ -440,21 +469,20 @@
 		margin-left: auto;
 		color: var(--ink-faint);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-meta);
 		font-variant-numeric: tabular-nums;
 	}
 
 	.suggestion-reason {
 		margin: 0;
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		line-height: 1.45;
+		font-size: var(--text-caption);
 	}
 
 	.queued {
 		margin: 0;
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-variant-numeric: tabular-nums;
 	}
 
@@ -468,7 +496,7 @@
 		border-radius: var(--radius-sm);
 		background: var(--bg-sunken);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 		line-height: 1.5;
 		white-space: pre-wrap;
 	}
@@ -489,63 +517,41 @@
 		padding: var(--space-2);
 	}
 
-	.btn {
-		height: 26px;
-		padding: 0 var(--space-2);
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink-muted);
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		font-weight: 500;
-		cursor: pointer;
-	}
-
-	.btn.primary {
-		border-color: var(--line-strong);
-		color: var(--ink);
-	}
-
-	.btn:hover:not(:disabled) {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.btn:active:not(:disabled) {
-		background: var(--bg-active);
-	}
-
-	.btn:disabled {
-		opacity: 0.5;
-		cursor: default;
+	:global(.rules-panel .ui-button) {
+		--icon-size: 12px;
 	}
 
 	code {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-label);
 	}
 
-	.rules-spinner {
-		display: inline-block;
-		width: 10px;
-		height: 10px;
-		border: 1.5px solid var(--line-strong);
-		border-top-color: var(--brand);
-		border-radius: 50%;
-		animation: spin 600ms linear infinite;
-		margin-left: var(--space-1);
+	.row-wrap {
+		width: 100%;
 	}
 
-	.rules-item-animated {
-		animation: slide-fade-in var(--dur-slow) var(--ease-out) both;
-		animation-delay: min(calc(var(--index, 0) * 20ms), 200ms);
+	.row-wrap :global(.tooltip-wrapper) {
+		display: flex;
+		width: 100%;
 	}
 
-	.btn.spinning :global(svg) {
+	.refresh-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.refresh-icon.spinning {
 		animation: spin 800ms linear infinite;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.refresh-icon.spinning {
+			animation: none;
+		}
+	}
+
+	:root[data-animations="false"] .refresh-icon.spinning {
+		animation: none;
 	}
 </style>

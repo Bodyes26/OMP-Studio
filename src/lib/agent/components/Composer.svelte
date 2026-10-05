@@ -9,6 +9,13 @@
 	import { modelSupportsImages, modelSupportsReasoning } from '$lib/agent/wire';
 	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '$lib/agent/commands';
 	import {
+		SUGGEST_WIDTH,
+		commandSuggestions,
+		fileSuggestions,
+		isSkillName,
+		suggestKeyAction
+	} from '$lib/agent/suggestItems';
+	import {
 		loadProjectFiles,
 		rankFileCandidates,
 		extractTouchedFilesFromTranscript,
@@ -42,7 +49,7 @@
 	import MenuButton from '$lib/ui/MenuButton.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import ThinkingMeter from './ThinkingMeter.svelte';
-	import ThinkingMenu from './ThinkingMenu.svelte';
+	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
 	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
 	import RoleMenu, { type RoleAssignment } from './RoleMenu.svelte';
 	import ContextPanel from './ContextPanel.svelte';
@@ -122,9 +129,7 @@
 	});
 
 	function isSkillCommand(name: string): boolean {
-		const clean = name.replace(/^skill:/, '');
-		const found = allCommands.find((c) => c.name.toLowerCase() === clean.toLowerCase());
-		return found?.source === 'skill' || name.startsWith('skill:');
+		return isSkillName(allCommands, name);
 	}
 
 	// Caricamento modelli disponibili. Il composer e' visibile prima che la
@@ -206,40 +211,14 @@
 					openFiles: projectStore.activeProject?.lane.openFiles,
 					touchedFiles: extractTouchedFilesFromTranscript(session.entries)
 				};
-				const ranked = rankFileCandidates(q, files, context, 8);
-				suggestItems = ranked.map((item) => ({
-					kind: 'file' as const,
-					item,
-					hits: []
-				}));
+				suggestItems = fileSuggestions(rankFileCandidates(q, files, context, 8));
 				suggestIndex = 0;
 			});
 		} else {
-			// Comandi slash: ordinamento Comandi prima delle Skill
-			const matches = allCommands.filter((c) => {
-				if (!q) return true;
-				const lower = q.toLowerCase();
-				return (
-					c.name.toLowerCase().includes(lower) ||
-					c.aliases?.some((a) => a.toLowerCase().includes(lower))
-				);
-			});
-
-			const cmdItems: SuggestionItem[] = matches
-				.filter((c) => c.source !== 'skill')
-				.map((command) => ({ kind: 'cmd', command, isSkill: false, hits: [] }));
-
-			const skillItems: SuggestionItem[] = matches
-				.filter((c) => c.source === 'skill')
-				.map((command) => ({ kind: 'cmd', command, isSkill: true, hits: [] }));
-
-			suggestItems = [...cmdItems, ...skillItems];
+			suggestItems = commandSuggestions(allCommands, q);
 			suggestIndex = 0;
 		}
 	});
-
-	// Larghezza della palette: deve coincidere con .suggest-panel in SuggestPanel.svelte.
-	const SUGGEST_WIDTH = 440;
 
 	// La palette si apre sopra la riga in cui si sta scrivendo, allineata al trigger,
 	// non sopra l'intero composer: l'occhio resta dove c'e' il cursore.
@@ -377,8 +356,11 @@
 		}
 	}
 
+	// Livelli offerti dalla sessione: «auto» esiste solo per task e ruoli.
+	const CHAT_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
 	function cycleThinkingLevel() {
-		const levels: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+		const levels: readonly ThinkingLevel[] = CHAT_THINKING_LEVELS;
 		const current = session.thinkingLevel || 'off';
 		const next = levels[(levels.indexOf(current) + 1) % levels.length];
 		void session.client.send({
@@ -399,28 +381,16 @@
 			}
 		}
 		if (currentTrigger && suggestItems.length > 0) {
-			if (e.key === 'ArrowDown') {
-				e.preventDefault();
-				suggestIndex = (suggestIndex + 1) % suggestItems.length;
-				return true;
-			}
-			if (e.key === 'ArrowUp') {
-				e.preventDefault();
-				suggestIndex = (suggestIndex - 1 + suggestItems.length) % suggestItems.length;
-				return true;
-			}
-			if (e.key === 'Enter' || e.key === 'Tab') {
-				e.preventDefault();
+			const action = suggestKeyAction(e, suggestItems.length, suggestIndex);
+			if (action?.kind === 'move') suggestIndex = action.index;
+			else if (action?.kind === 'pick') {
 				const target = suggestItems[suggestIndex];
 				if (target) pickSuggestion(target);
-				return true;
-			}
-			if (e.key === 'Escape') {
-				e.preventDefault();
+			} else if (action?.kind === 'dismiss') {
 				if (editorRef) editorRef.dismissCurrentTrigger(currentTrigger);
 				currentTrigger = null;
-				return true;
 			}
+			if (action) return true;
 		}
 
 		if (e.key === 'Tab' && e.shiftKey) {
@@ -631,17 +601,9 @@
 
 	<!-- Riquadro principale del composer -->
 	<div
-		class="composer-box"
+		class="composer-shell"
 		class:dragging={isDragging}
 	>
-		<!-- Overlay di trascinamento -->
-		{#if isDragging}
-			<div class="drag-drop-overlay" aria-hidden="true">
-				<IconAttach />
-				<span>{m.chat_v2_composer_drop_overlay()}</span>
-			</div>
-		{/if}
-
 		<!-- Striscia informativa per comando/skill attivo con argomenti -->
 		{#if activeCmdDef}
 			<div class="cmd-strip rv-blur" style="--dur: 200ms; --blur: 4px;">
@@ -722,7 +684,7 @@
 			<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
 				<button
 					type="button"
-					class="toolbar-action-btn"
+					class="composer-icon-btn"
 					aria-label={m.chat_v2_composer_mention_title()}
 					onclick={() => editorRef?.insertAt()}
 				>
@@ -800,7 +762,8 @@
 			<MenuButton
 				open={activeMenu === 'thinking'}
 				title={m.chat_v2_composer_thinking_title()}
-				hasPopup="listbox"
+				hasPopup="dialog"
+				contentRole="dialog"
 				width="320px"
 				onToggle={() => (activeMenu = activeMenu === 'thinking' ? null : 'thinking')}
 				onClose={() => (activeMenu = null)}
@@ -810,17 +773,25 @@
 					<span class="thinking-label font-mono">{session.thinkingLevel || 'off'}</span>
 				{/snippet}
 				{#snippet children()}
-					<ThinkingMenu
-						level={session.thinkingLevel || 'off'}
-						model={session.model}
-						onPick={(l) => {
-							activeMenu = null;
-							void session.client.send({
-								type: 'set_thinking_level',
-								level: l
-							}).then(() => session.refreshState());
-						}}
-					/>
+					<!-- Il popover resta aperto mentre si trascina: ogni passo si applica subito. -->
+					<div class="thinking-popover">
+						{#if modelSupportsReasoning(session.model)}
+							<ReasoningSlider
+								value={session.thinkingLevel || 'off'}
+								levels={CHAT_THINKING_LEVELS}
+								onChange={(level) => {
+									void session.client.send({
+										type: 'set_thinking_level',
+										level: level as ThinkingLevel
+									}).then(() => session.refreshState());
+								}}
+							/>
+						{:else}
+							<p class="thinking-unsupported">
+								{m.chat_v2_composer_thinking_unsupported({ model: session.model?.name || session.model?.id || 'Questo modello' })}
+							</p>
+						{/if}
+					</div>
 				{/snippet}
 			</MenuButton>
 
@@ -948,6 +919,14 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- Overlay di trascinamento: ultimo figlio, dipinge sopra editor e barra -->
+		{#if isDragging}
+			<div class="composer-drop-overlay" aria-hidden="true">
+				<IconAttach />
+				<span>{m.chat_v2_composer_drop_overlay()}</span>
+			</div>
+		{/if}
 	</div>
 
 	<!-- File input nascosto -->
@@ -974,43 +953,6 @@
 
 	.composer-root.hidden {
 		display: none;
-	}
-
-	.composer-box {
-		position: relative;
-		width: 100%;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-2xl);
-		box-shadow: var(--shadow-dock);
-		transition: border-color var(--dur-fast) var(--ease-out),
-			box-shadow var(--dur-fast) var(--ease-out);
-	}
-
-	.composer-box:focus-within {
-		border-color: var(--line-strong);
-	}
-
-	.composer-box.dragging {
-		border-color: var(--brand-ink);
-		box-shadow: 0 0 0 2px color-mix(in oklch, var(--brand) 25%, transparent);
-	}
-
-	.drag-drop-overlay {
-		position: absolute;
-		inset: 0;
-		z-index: 10;
-		border-radius: var(--radius-2xl);
-		--icon-size: 16px;
-		background: color-mix(in oklch, var(--bg-raised) 90%, var(--brand) 10%);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-2);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		color: var(--brand-ink);
-		pointer-events: none;
 	}
 
 	.cmd-strip {
@@ -1082,33 +1024,6 @@
 		cursor: pointer;
 	}
 
-	.composer-toolbar {
-		display: flex;
-		align-items: center;
-		gap: 2px;
-		padding: 2px 8px 8px;
-	}
-
-	.toolbar-action-btn {
-		display: grid;
-		place-items: center;
-		width: 28px;
-		height: 28px;
-		border-radius: var(--radius-md);
-		background: transparent;
-		border: none;
-		color: var(--ink-muted);
-		cursor: pointer;
-		--icon-size: 15px;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
-	}
-
-	.toolbar-action-btn:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
 	.toolbar-attach-icon {
 		display: inline-flex;
 		align-items: center;
@@ -1147,6 +1062,18 @@
 
 	.thinking-label {
 		font-size: var(--text-caption);
+	}
+
+	.thinking-popover {
+		padding: var(--space-3) var(--space-4) var(--space-4);
+		--slider-ring: var(--bg-raised);
+	}
+
+	.thinking-unsupported {
+		margin: 0;
+		font-size: var(--text-label);
+		line-height: 1.4;
+		color: var(--ink-muted);
 	}
 
 	.toolbar-right {

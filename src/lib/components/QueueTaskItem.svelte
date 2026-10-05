@@ -14,11 +14,13 @@
 		IconChevronUp,
 		IconCopy,
 		IconGitBranch,
+		IconGrip,
 		IconPencil,
 		IconPlay,
 		IconTrash
 	} from '$lib/icons';
-	import MentionText from './MentionText.svelte';
+	import Markdown from '$lib/agent/components/Markdown.svelte';
+	import { lexMarkdownWithMentions } from '$lib/agent/markdown';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 
@@ -71,27 +73,20 @@
 	const isQueued = $derived(task.status === 'queued');
 	const finished = $derived(task.status === 'completed' || task.status === 'abandoned');
 	const directives = $derived(task.options?.directives ?? []);
+	// Mostra un'intestazione separata solo se il titolo e' stato generato dall'IA
+	// e quindi non fa parte del testo del prompt. Se invece l'utente ha scritto
+	// un titolo markdown (# ...) o una prima riga, l'intero prompt viene reso in un
+	// unico blocco Markdown in .body per evitare salti di layout tra anteprima ed espansione.
 	const showHeadline = $derived(
-		Boolean(text.headline && (!expanded || text.headlineSource === 'generated'))
+		Boolean(text.headline && text.headlineSource === 'generated')
 	);
-	const body = $derived.by(() => {
-		if (expanded) {
-			return (
-				task.prompt.trim() ||
-				(imageCount > 0
-					? m.queue_drawer_attached_images({ count: imageCount })
-					: m.agent_panel_empty_prompt())
-			);
-		}
-		return (
-			text.body ||
-			(text.headline
-				? ''
-				: imageCount > 0
-					? m.queue_drawer_attached_images({ count: imageCount })
-					: m.agent_panel_empty_prompt())
-		);
+	const promptContent = $derived.by(() => {
+		const trimmed = task.prompt.trim();
+		if (trimmed) return trimmed;
+		if (imageCount > 0) return m.queue_drawer_attached_images({ count: imageCount });
+		return m.agent_panel_empty_prompt();
 	});
+	const tokens = $derived(lexMarkdownWithMentions(promptContent));
 
 
 	// Rendering = task visibile: e' qui che parte il recupero dei titoli
@@ -102,18 +97,36 @@
 		untrack(() => requestTaskTitle(task.id));
 	});
 
-	// "Leggi tutto" solo se il testo e' davvero tagliato: la misura dipende da
-	// larghezza della colonna, densita' e font, non dal numero di caratteri.
+	// "Leggi tutto" appare solo quando il contenuto eccede le 3 righe (altezza massima di collasso).
+	// La misura usa ResizeObserver ed e' dinamica rispetto a larghezza e densita'.
+	// All'espansione, aggiorniamo --expanded-height con lo scrollHeight esatto per consentire
+	// una transizione di altezza fluida senza salti o ritardi.
 	$effect(() => {
 		const el = bodyEl;
-		if (!el || expanded) return;
-		void body;
+		if (!el) return;
+		void promptContent;
 		void isCards;
-		const measure = () => (overflowing = el.scrollHeight > el.clientHeight + 1);
-		measure();
-		const observer = new ResizeObserver(measure);
+
+		const updateMeasure = () => {
+			if (!expanded) {
+				overflowing = el.scrollHeight > el.clientHeight + 1;
+			} else {
+				el.style.setProperty('--expanded-height', `${el.scrollHeight}px`);
+			}
+		};
+
+		updateMeasure();
+		const observer = new ResizeObserver(updateMeasure);
 		observer.observe(el);
 		return () => observer.disconnect();
+	});
+
+	$effect(() => {
+		const el = bodyEl;
+		if (!el) return;
+		if (expanded) {
+			el.style.setProperty('--expanded-height', `${el.scrollHeight}px`);
+		}
 	});
 
 	function handlePromptClick(event: MouseEvent) {
@@ -122,6 +135,7 @@
 		if ((event.target as Element | null)?.closest('button, a, input, [role="button"]')) return;
 		// Chi sta selezionando del testo non sta chiedendo di espandere/collassare.
 		if (window.getSelection()?.toString()) return;
+		if (!overflowing && !expanded) return;
 		expanded = !expanded;
 	}
 
@@ -213,11 +227,7 @@
 				aria-label={m.agent_panel_reorder_handle_aria({ title: label })}
 				onkeydown={handleMoveKey}
 			>
-				<svg viewBox="0 0 12 16" aria-hidden="true">
-					<circle cx="3" cy="4" r="1" /><circle cx="9" cy="4" r="1" />
-					<circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" />
-					<circle cx="3" cy="12" r="1" /><circle cx="9" cy="12" r="1" />
-				</svg>
+				<IconGrip />
 			</button>
 		</Tooltip>
 	{/if}
@@ -232,38 +242,38 @@
 			{#if showHeadline && text.headline}
 				<div class="head">
 					<span class="headline" class:finished>
-						<MentionText text={text.headline} {onOpenFile} />
+						{text.headline}
 					</span>
 					{#if role}<span class="chip role">{role}</span>{/if}
 				</div>
 			{/if}
 
-			{#if body}
-				<p
-					id={`queue-task-body-${task.id}`}
-					class="body"
-					class:expanded
-					class:finished
-					class:placeholder={!text.body && !task.prompt.trim()}
-					bind:this={bodyEl}
+			<div
+				id={`queue-task-body-${task.id}`}
+				class="body dense"
+				class:expanded
+				class:finished
+				class:placeholder={!task.prompt.trim()}
+				class:overflowing={overflowing && !expanded}
+				bind:this={bodyEl}
+			>
+				<Markdown {tokens} {onOpenFile} />
+			</div>
+
+			{#if overflowing || expanded}
+				<button
+					type="button"
+					class="read-more"
+					aria-expanded={expanded}
+					aria-controls={`queue-task-body-${task.id}`}
+					onclick={(e) => {
+						e.stopPropagation();
+						expanded = !expanded;
+					}}
 				>
-					<MentionText text={body} {onOpenFile} />
-				</p>
-				{#if overflowing || expanded}
-					<button
-						type="button"
-						class="read-more"
-						aria-expanded={expanded}
-						aria-controls={`queue-task-body-${task.id}`}
-						onclick={(e) => {
-							e.stopPropagation();
-							expanded = !expanded;
-						}}
-					>
-						{expanded ? m.queue_task_read_less() : m.queue_task_read_more()}
-						{#if expanded}<IconChevronUp />{:else}<IconChevronDown />{/if}
-					</button>
-				{/if}
+					{expanded ? m.queue_task_read_less() : m.queue_task_read_more()}
+					{#if expanded}<IconChevronUp />{:else}<IconChevronDown />{/if}
+				</button>
 			{/if}
 		</div>
 
@@ -286,7 +296,7 @@
 			{/if}
 			{#if role && (!showHeadline || !text.headline)}<span class="chip role">{role}</span>{/if}
 			{#each directives.slice(0, maxDirectives) as d (d.id)}
-				<span class="chip mode" title={d.name}>{d.tag || d.name}</span>
+				<span class="chip mode">{d.name}</span>
 			{/each}
 			{#if directives.length > maxDirectives}
 				<span class="chip mode" title={directives.slice(maxDirectives).map((d) => d.name).join(', ')}>
@@ -353,7 +363,7 @@
 		gap: var(--space-1);
 		padding: var(--space-2) var(--space-1) var(--space-2) var(--space-2);
 		border-bottom: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 	}
 
 	.queue-task:has(.grip) {
@@ -404,27 +414,17 @@
 	.grip {
 		width: 18px;
 		cursor: grab;
+		--icon-size: 14px;
 	}
 
 	.grip:active {
 		cursor: grabbing;
 	}
 
-	.grip svg {
-		width: 10px;
-		height: 14px;
-		fill: currentColor;
-	}
-
 	.edit {
 		width: 24px;
 		cursor: pointer;
 		--icon-size: 13px;
-	}
-
-	.edit :global(svg) {
-		width: var(--icon-size, 13px);
-		height: var(--icon-size, 13px);
 	}
 
 	.grip:hover,
@@ -471,7 +471,7 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--ink);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 600;
 		line-height: 1.35;
 	}
@@ -485,39 +485,111 @@
 		overflow-wrap: anywhere;
 	}
 
-	/* Chiuso, gli a capo si fondono per non sprecare righe; aperto, il
-	   prompt torna con la sua struttura. */
+	/* Il prompt viene reso in Markdown sia compatto che espanso.
+	   Collassato: max-height = 3 righe (3 x 1.5em) con sfumatura inferiore quando eccede.
+	   Espanso: transizione con --dur-tray e --ease-reveal mantenendo la stessa dimensione
+	   del testo (nessun ingrandimento a --text-chat). */
 	.body {
 		margin: 0;
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
+		max-height: calc(3 * 1.5em);
 		overflow: hidden;
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		line-height: 1.45;
+		font-size: var(--text-caption);
+		line-height: 1.5;
 		overflow-wrap: anywhere;
+		transition: max-height var(--dur-tray) var(--ease-reveal);
 	}
 
 	.cards .body {
-		-webkit-line-clamp: 3;
-		line-clamp: 3;
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 	}
 
-	.body.expanded,
-	.cards .body.expanded {
-		display: block;
-		white-space: pre-wrap;
-		overflow: visible;
-		font-size: var(--text-chat);
-		line-height: 24px;
+	.body.expanded {
+		max-height: var(--expanded-height, 2000px);
+	}
+
+	.body.overflowing {
+		-webkit-mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 1.5em), transparent);
+		mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 1.5em), transparent);
 	}
 
 	.body.placeholder {
 		color: var(--ink-faint);
 		font-style: italic;
+	}
+
+	/* Markdown compatto specifico per la coda dei task.
+	   Intestazioni h1-h6 alla stessa dimensione del testo (peso 600),
+	   spaziatura verticale minima (4px) per mostrare contenuti utili in 3 righe. */
+	.body.dense :global(.heading) {
+		font-size: 1em;
+		font-weight: 600;
+		line-height: inherit;
+		margin: var(--space-1) 0;
+		color: var(--ink);
+	}
+
+	.body.dense :global(.heading:first-child) {
+		margin-top: 0;
+	}
+
+	.body.dense :global(.paragraph) {
+		margin: 0 0 var(--space-1) 0;
+		line-height: inherit;
+		color: inherit;
+	}
+
+	.body.dense :global(.paragraph:last-child) {
+		margin-bottom: 0;
+	}
+
+	.body.dense :global(.list) {
+		margin: 0 0 var(--space-1) 0;
+		padding-left: var(--space-3);
+		line-height: inherit;
+	}
+
+	.body.dense :global(.list:last-child) {
+		margin-bottom: 0;
+	}
+
+	.body.dense :global(.list-item) {
+		margin: 2px 0;
+	}
+
+	.body.dense :global(.blockquote) {
+		margin: var(--space-1) 0;
+		padding: 0 0 0 var(--space-2);
+		border-left: 2px solid var(--line);
+		color: var(--ink-muted);
+	}
+
+	.body.dense :global(.codespan) {
+		font-size: 0.92em;
+	}
+
+	.body.dense :global(.code-block) {
+		font-size: 0.92em;
+		margin: var(--space-1) 0;
+	}
+
+	.body.dense :global(.file-chips-block) {
+		font-size: 0.92em;
+		margin: var(--space-1) 0;
+	}
+
+	.body.dense :global(.table-wrap) {
+		margin: var(--space-1) 0;
+	}
+
+	.body.dense :global(.hr) {
+		margin: var(--space-1) 0;
+	}
+
+	.body.dense :global(.text-block),
+	.body.dense :global(.generic-block) {
+		margin: 0 0 var(--space-1) 0;
+		line-height: inherit;
 	}
 
 	.finished {
@@ -533,15 +605,14 @@
 		padding: 0;
 		border-radius: var(--radius-md);
 		color: var(--brand-ink);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 600;
 		cursor: pointer;
 		--icon-size: 12px;
 	}
 
-	.read-more :global(svg) {
-		width: var(--icon-size, 12px);
-		height: var(--icon-size, 12px);
+	.cards .read-more {
+		font-size: var(--text-label);
 	}
 
 	.read-more:hover {
@@ -568,7 +639,7 @@
 		background: var(--bg-sunken);
 		color: var(--ink-muted);
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-variant-numeric: tabular-nums;
 		line-height: 1.2;
 		text-overflow: ellipsis;
@@ -634,26 +705,21 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-weight: 500;
 		white-space: nowrap;
 		cursor: pointer;
-		--icon-size: 13px;
+		--icon-size: 12px;
 	}
 
 	.cards .action {
 		height: 24px;
+		font-size: var(--text-label);
 	}
 
 	.action span {
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-
-	.action :global(svg) {
-		flex-shrink: 0;
-		width: var(--icon-size, 13px);
-		height: var(--icon-size, 13px);
 	}
 
 	.action:hover:not(:disabled) {
@@ -696,8 +762,18 @@
 		.queue-task,
 		.action {
 			transition:
-				background-color var(--dur-fast) ease,
-				border-color var(--dur-fast) ease;
+				background-color var(--dur-fast) var(--ease-out),
+				border-color var(--dur-fast) var(--ease-out);
 		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.body {
+			transition: none;
+		}
+	}
+
+	:root[data-animations="false"] .body {
+		transition: none;
 	}
 </style>

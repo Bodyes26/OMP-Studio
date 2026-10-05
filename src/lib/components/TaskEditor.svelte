@@ -1,8 +1,15 @@
+<script lang="ts" module>
+	// Task gia' mostrato a schermo: rimontare lo stesso task (cambio di progetto e
+	// ritorno) non rianima la schermata, perche' cambiare progetto e' cambiare
+	// stanza (Still-Room Rule). Si azzera alla chiusura esplicita.
+	let presentedTaskId: string | null = null;
+</script>
+
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
-	import { onDestroy, tick } from 'svelte';
-	import { taskStore, type StudioTask, type StudioTaskStatus, type StudioTaskOptions } from '$lib/stores/tasks.svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
+	import { taskStore, type StudioTask, type StudioTaskOptions } from '$lib/stores/tasks.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import {
 		createDirectiveSnapshot,
@@ -13,36 +20,48 @@
 	import { rankFrequentTaskModelConfigurations } from '$lib/stores/taskSerialization';
 	import { taskLabel } from '$lib/stores/taskTitle';
 	import { requestTaskTitle } from '$lib/stores/taskTitles';
-	import { modelSettingsStore, STANDARD_ROLES, THINKING_LEVELS, type ModelDto } from '$lib/stores/modelSettings.svelte';
+	import { modelSettingsStore, STANDARD_ROLES, THINKING_LEVELS } from '$lib/stores/modelSettings.svelte';
 	import { quotaStore, providersMatch, type ProviderHost } from '$lib/stores/quota.svelte';
 	import type { AgentSession } from '$lib/agent/session.svelte';
 	import type { AvailableCommand, ImageContent } from '$lib/agent/wire';
-	import { prepareImage, extractImageFiles, isImageFile } from '$lib/agent/images';
+	import { prepareImage, isImageFile } from '$lib/agent/images';
+	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '$lib/agent/commands';
 	import {
-		STUDIO_SLASH_COMMANDS,
-		mergeCommands,
-		extractSlashQueryAtCursor,
-		shouldOpenSlashPaletteAtCursor,
-		insertSlashCommandAtCursor,
-		type SlashCursorMatch
-	} from '$lib/agent/commands';
-	import CommandPalette from '$lib/agent/components/CommandPalette.svelte';
-	import FileMentionPalette from '$lib/agent/components/FileMentionPalette.svelte';
-	import { FileMentionController } from '$lib/agent/fileMentionController.svelte';
-	import { extractTouchedFilesFromTranscript } from '$lib/agent/fileMention';
+		loadProjectFiles,
+		rankFileCandidates,
+		extractTouchedFilesFromTranscript,
+		computeCaretAnchorLeft
+	} from '$lib/agent/fileMention';
+	import { createFileBadgeElement, createCommandBadgeElement } from '$lib/agent/composerDoc';
+	import {
+		SUGGEST_WIDTH,
+		commandSuggestions,
+		fileSuggestions,
+		isSkillName,
+		suggestKeyAction
+	} from '$lib/agent/suggestItems';
+	import { rvLift } from '$lib/agent/motion';
 	import { projectStore, pathKey } from '$lib/stores/projects.svelte';
-	import ModelPickerDropdown from '$lib/components/models/ModelPickerDropdown.svelte';
+	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
+	import SuggestPanel, { type SuggestionItem } from '$lib/agent/components/SuggestPanel.svelte';
+	import AttachmentThumb, { type ComposerAttachment } from '$lib/agent/components/AttachmentThumb.svelte';
+	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
 	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import Segmented from '$lib/ui/Segmented.svelte';
+	import Switch from '$lib/ui/Switch.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import {
-		IconRoleSmol,
-		IconRoleDefault,
-		IconRoleSlow,
-		IconRolePlan,
-		IconStatusRunning,
-		IconStatusDone,
-		IconStatusFailed,
-		IconStatusPending,
-		IconClose
+		IconAttach,
+		IconAt,
+		IconCheck,
+		IconChevronDown,
+		IconChevronUp,
+		IconClose,
+		IconGitBranch,
+		IconPlay,
+		IconTrash
 	} from '$lib/icons';
 
 	let {
@@ -57,33 +76,70 @@
 		session?: AgentSession | null;
 		guiHosts?: ProviderHost[];
 		onClose: () => void;
-		onRunTask?: (taskId: string) => void;
+		/** `newLane`: avvio forzato in una corsia isolata, come Shift su «Avvia» nella coda. */
+		onRunTask?: (taskId: string, options: { newLane: boolean }) => void;
 		onOpenImage?: (data: string, mimeType: string) => void;
 	} = $props();
 
+	type RoleChoice = 'smol' | 'default' | 'slow' | 'plan' | 'custom';
+	const ROLE_CHOICES: RoleChoice[] = ['smol', 'default', 'slow', 'plan', 'custom'];
+	const DEFAULT_OPTIONS: StudioTaskOptions = { role: 'default', thinkingLevel: 'auto', includeEditorContext: true };
+
 	let prompt = $state('');
 	let attachedImages = $state<ImageContent[]>([]);
-	let options = $state<StudioTaskOptions>({
-		role: 'default',
-		thinkingLevel: 'auto',
-		includeEditorContext: true
-	});
+	let options = $state<StudioTaskOptions>({ ...DEFAULT_OPTIONS });
 
 	let lastTaskId = '';
+	// Durante il caricamento della bozza l'editor emette input: non sono modifiche.
+	let loadingDraft = false;
 	let deleteArmed = $state(false);
 	let deleteTimer: number | null = null;
-	let textareaEl = $state<HTMLTextAreaElement | null>(null);
-	let rootEl = $state<HTMLElement | null>(null);
-	let inputCardEl = $state<HTMLElement | null>(null);
-	let paletteOpen = $state(false);
-	let paletteQuery = $state('');
-	let currentSlashMatch = $state<SlashCursorMatch | null>(null);
+	let editorRef = $state<ComposerEditor | null>(null);
+	let bodyEl = $state<HTMLElement | null>(null);
+	let composerEl = $state<HTMLElement | null>(null);
 	let fileInputEl = $state<HTMLInputElement | null>(null);
-	let isDraggingOver = $state(false);
+	let isDragging = $state(false);
+	let activeMenu = $state<'model' | 'run' | null>(null);
+
+	let currentTrigger = $state<{
+		kind: '@' | '/';
+		query: string;
+		node: Text;
+		start: number;
+		caretRect: { left: number; top: number };
+	} | null>(null);
+	let suggestItems = $state<SuggestionItem[]>([]);
+	let suggestIndex = $state(0);
+
+	// Letto una volta al montaggio: decide solo se questa apertura entra animata.
+	const mountedTaskId = untrack(() => task.id);
+	const entering = mountedTaskId !== presentedTaskId;
+	presentedTaskId = mountedTaskId;
 
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session?.availableCommands ?? []));
+	const isSkill = (name: string) => isSkillName(allCommands, name);
 	const title = $derived(
 		taskLabel({ prompt, title: task.title, titleHash: task.titleHash }) || m.agent_panel_new_task_btn()
+	);
+	const hasContent = $derived(prompt.trim().length > 0 || attachedImages.length > 0);
+	const activeRole = $derived<RoleChoice>(
+		ROLE_CHOICES.includes(options.role as RoleChoice) ? (options.role as RoleChoice) : 'custom'
+	);
+	const roleOptions = $derived(ROLE_CHOICES.map((id) => ({ value: id, label: id })));
+	const roleDescription = $derived.by(() => {
+		if (activeRole === 'custom') return m.task_editor_role_custom_desc();
+		return STANDARD_ROLES.find((role) => role.id === activeRole)?.desc ?? '';
+	});
+	const attachments = $derived<ComposerAttachment[]>(
+		attachedImages.map((img, index) => ({
+			id: index,
+			kind: 'image',
+			name: m.task_editor_image_name({ index: index + 1 }),
+			size: Math.round((img.data.length * 3) / 4),
+			url: `data:${img.mimeType};base64,${img.data}`,
+			mimeType: img.mimeType,
+			tokens: 0
+		}))
 	);
 	const selectedModel = $derived(
 		modelSettingsStore.assignableCatalog.find((model) => model.selector === options.modelSelector) ??
@@ -121,7 +177,7 @@
 		if (reports.length > 0) {
 			if (windows.length > 0) {
 				const minimum = Math.min(...windows.map((window) => window.remainingPercent));
-				detail = `Quota minima ${minimum}%`;
+				detail = m.task_editor_quota_min({ percent: minimum });
 				detailTitle = windows
 					.map((window) => {
 						const reset = window.resetsAt
@@ -129,15 +185,18 @@
 							: '';
 						return `${window.label}: ${window.remainingPercent}%${reset}`;
 					})
-					.join('\n');
+					.join(' · ');
 			} else {
 				detail = m.task_editor_quota_unavailable();
-				detailTitle = 'Provider in abbonamento, ma OMP non espone finestre di quota.';
+				detailTitle = m.task_editor_quota_unavailable_detail();
 			}
 		} else if (selectedModel.cost) {
 			const formatCost = (value: number | undefined) =>
 				i18n.formatNumber(value ?? 0, { style: 'currency', currency: 'USD', maximumFractionDigits: 4 });
-			detail = `${formatCost(selectedModel.cost.input)} input · ${formatCost(selectedModel.cost.output)} output / 1M token`;
+			detail = m.task_editor_model_cost({
+				input: formatCost(selectedModel.cost.input),
+				output: formatCost(selectedModel.cost.output)
+			});
 			detailTitle = m.ui_taskeditor_costo_api_indicativo_per_un_milione_di_7767();
 		}
 
@@ -171,15 +230,6 @@
 		};
 	});
 
-	// Ruoli principali disponibili per la barra di selezione rapida
-	const DIFFICULTY_ROLES = [
-		{ id: 'smol', label: m.task_editor_role_fast_label(), badge: 'smol', icon: IconRoleSmol, desc: m.task_editor_role_fast_desc() },
-		{ id: 'default', label: m.task_editor_role_std_label(), badge: 'default', icon: IconRoleDefault, desc: m.task_editor_role_std_desc() },
-		{ id: 'slow', label: m.task_editor_role_deep_label(), badge: 'slow', icon: IconRoleSlow, desc: m.task_editor_role_deep_desc() },
-		{ id: 'plan', label: m.task_editor_role_plan_label(), badge: 'plan', icon: IconRolePlan, desc: m.task_editor_role_plan_desc() }
-	] as const;
-
-
 	const availableDirectives = $derived.by(() => {
 		const catalog = settingsStore.taskDirectives;
 		const snapshots = options.directives || [];
@@ -203,166 +253,137 @@
 		return list.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 	});
 
+	/** Direttive attive che chiedono attenzione: versione nuova nel catalogo o rimosse. */
+	const directiveNotices = $derived(
+		(options.directives ?? []).flatMap((snapshot) => {
+			const status = compareDirectiveRevision(snapshot, settingsStore.taskDirectives);
+			if (status === 'up_to_date') return [];
+			const revision = settingsStore.taskDirectives.find((d) => d.id === snapshot.id)?.revision ?? 0;
+			return [{ snapshot, status, revision }];
+		})
+	);
 
 	$effect(() => {
 		void modelSettingsStore.ensureLoaded();
 	});
 
-	// Auto-dimensionamento della textarea prompt (140px - 460px)
-	function adjustTextareaHeight() {
-		if (!textareaEl) return;
-		textareaEl.style.height = 'auto';
-		const scrollH = textareaEl.scrollHeight;
-		const minH = 140;
-		const maxH = 460;
-		const targetH = Math.max(minH, Math.min(scrollH, maxH));
-		textareaEl.style.height = `${targetH}px`;
-		textareaEl.style.overflowY = scrollH > maxH ? 'auto' : 'hidden';
-	}
-
-	// Sincronizza stato e mette il focus immediato al cambio o creazione del task
+	// Carica la bozza nell'editor e mette il fuoco in fondo al cambio di task.
 	$effect(() => {
-		if (task.id !== lastTaskId) {
-			lastTaskId = task.id;
-			prompt = task.prompt;
-			attachedImages = task.images ? [...task.images] : [];
-			options = task.options
-				? { ...task.options }
-				: { role: 'default', thinkingLevel: 'auto', includeEditorContext: true };
-			deleteArmed = false;
-			paletteOpen = false;
-			currentSlashMatch = null;
-			fileMention.close();
-
-
-			void tick().then(() => {
-				adjustTextareaHeight();
-				textareaEl?.focus();
-				if (textareaEl) {
-					textareaEl.selectionStart = textareaEl.value.length;
-					textareaEl.selectionEnd = textareaEl.value.length;
-				}
-			});
-		}
+		const editor = editorRef;
+		if (!editor || task.id === lastTaskId) return;
+		lastTaskId = task.id;
+		attachedImages = task.images ? [...task.images] : [];
+		options = task.options ? { ...task.options } : { ...DEFAULT_OPTIONS };
+		deleteArmed = false;
+		currentTrigger = null;
+		activeMenu = null;
+		loadingDraft = true;
+		editor.setPlainText(task.prompt, isSkill);
+		loadingDraft = false;
+		prompt = task.prompt;
+		void tick().then(() => editor.focusEnd());
 	});
 
 	function saveTask() {
 		taskStore.updateTask(task.id, prompt, attachedImages, options);
 		requestTaskTitle(task.id);
 	}
-	// Menzioni file (@file con ricerca fuzzy nel progetto del task): stato e tastiera
-	// gestiti dal controller condiviso, prioritizzando i file aperti o toccati di recente.
-	const fileMention = new FileMentionController({
-		projectPath: () => task.projectPath,
-		rankingContext: () => {
-			if (!task.projectPath) return {};
-			const key = pathKey(task.projectPath);
-			const project = projectStore.projects.find((p) => {
-				return (
-					(p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key) ||
-					(p.lane.workspacePath && pathKey(p.lane.workspacePath) === key)
-				);
-			});
-			return {
-				activeFile: project?.lane.activeFile,
-				openFiles: project?.lane.openFiles,
-				touchedFiles: session?.entries ? extractTouchedFilesFromTranscript(session.entries) : undefined
-			};
-		},
-		apply: (text, caret) => {
-			prompt = text;
-			saveTask();
-			adjustTextareaHeight();
-			void tick().then(() => {
-				if (!textareaEl) return;
-				adjustTextareaHeight();
-				textareaEl.focus();
-				textareaEl.setSelectionRange(caret, caret);
-			});
-		}
-	});
 
+	function handleEditorInput() {
+		if (loadingDraft || !editorRef) return;
+		prompt = editorRef.getWireText(isSkill);
+		saveTask();
+	}
 
 	async function loadAvailableCommands() {
 		if (!session || !session.client.isOpen) return;
 		try {
-			const res = await session.client.send({
-				type: 'get_available_commands'
-			});
+			const res = await session.client.send({ type: 'get_available_commands' });
 			if (res && typeof res === 'object' && 'commands' in res && Array.isArray((res as { commands: unknown }).commands)) {
 				session.availableCommands = (res as { commands: AvailableCommand[] }).commands;
 			}
 		} catch {
-			// Fallback comandi studio
+			// Restano i comandi di Studio.
 		}
 	}
 
-	function updateSlashState() {
-		if (!textareaEl) return;
-		const cursor = textareaEl.selectionStart ?? prompt.length;
-		const match = extractSlashQueryAtCursor(prompt, cursor);
-		currentSlashMatch = match;
-		paletteQuery = match?.query ?? '';
-		paletteOpen = shouldOpenSlashPaletteAtCursor(match, allCommands);
-		if (paletteOpen) fileMention.close();
-
-		if (match && session && session.availableCommands.length === 0) {
-			void loadAvailableCommands().then(() => {
-				paletteOpen = shouldOpenSlashPaletteAtCursor(currentSlashMatch, allCommands);
-				if (paletteOpen) fileMention.close();
-			});
-		}
-	}
-
-	function handlePromptInput() {
-		saveTask();
-		adjustTextareaHeight();
-		updateSlashState();
-		if (paletteOpen) {
-			fileMention.close();
+	// Voci della palette per il trigger corrente: file del progetto del task con
+	// precedenza ai file aperti o toccati di recente, oppure comandi e skill.
+	$effect(() => {
+		const trigger = currentTrigger;
+		if (!trigger) {
+			suggestItems = [];
+			suggestIndex = 0;
 			return;
 		}
-		void fileMention.update(prompt, textareaEl?.selectionStart ?? prompt.length);
-	}
-
-	function handleCursorMovement() {
-		updateSlashState();
-		if (paletteOpen) {
-			fileMention.close();
+		const query = trigger.query;
+		if (trigger.kind === '/') {
+			if (session && session.availableCommands.length === 0) void loadAvailableCommands();
+			suggestItems = commandSuggestions(allCommands, query);
+			suggestIndex = 0;
 			return;
 		}
-		void fileMention.update(prompt, textareaEl?.selectionStart ?? prompt.length);
-	}
-
-	function handlePalettePick(value: string, keepsOpen: boolean) {
-		fileMention.close();
-		if (!currentSlashMatch) {
-			prompt = `/${value} `;
-			saveTask();
-			adjustTextareaHeight();
-			paletteOpen = keepsOpen;
-			textareaEl?.focus();
+		if (!task.projectPath) {
+			suggestItems = [];
 			return;
 		}
-
-		const res = insertSlashCommandAtCursor(
-			prompt,
-			currentSlashMatch.startIndex,
-			currentSlashMatch.endIndex,
-			value
-		);
-		prompt = res.newText;
-		saveTask();
-		adjustTextareaHeight();
-		paletteOpen = keepsOpen;
-		currentSlashMatch = null;
-
-		void tick().then(() => {
-			if (textareaEl) {
-				textareaEl.focus();
-				textareaEl.setSelectionRange(res.newCursorPos, res.newCursorPos);
-			}
+		void loadProjectFiles(task.projectPath).then((files) => {
+			if (currentTrigger !== trigger) return;
+			const key = pathKey(task.projectPath);
+			const project = projectStore.projects.find(
+				(p) =>
+					(p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key) ||
+					(p.lane.workspacePath && pathKey(p.lane.workspacePath) === key)
+			);
+			suggestItems = fileSuggestions(
+				rankFileCandidates(query, files, {
+					activeFile: project?.lane.activeFile,
+					openFiles: project?.lane.openFiles,
+					touchedFiles: session?.entries ? extractTouchedFilesFromTranscript(session.entries) : undefined
+				}, 8)
+			);
+			suggestIndex = 0;
 		});
+	});
+
+	// Altezza della palette con il piede (lista massima 280 px): se sopra la riga
+	// non c'e' spazio nella vista, la palette si apre sotto, come un menu ribaltato.
+	const SUGGEST_MAX_HEIGHT = 330;
+	const LINE_HEIGHT = 24;
+
+	// La palette si apre sopra la riga in cui si scrive, allineata al trigger.
+	const suggestAnchor = $derived.by(() => {
+		if (!currentTrigger || !composerEl) return { left: 0, bottom: 0, top: undefined };
+		const rect = composerEl.getBoundingClientRect();
+		const viewTop = bodyEl?.getBoundingClientRect().top ?? 0;
+		const left = computeCaretAnchorLeft(currentTrigger.caretRect, rect, SUGGEST_WIDTH);
+		if (currentTrigger.caretRect.top - viewTop < SUGGEST_MAX_HEIGHT) {
+			return { left, bottom: 0, top: currentTrigger.caretRect.top - rect.top + LINE_HEIGHT + 6 };
+		}
+		return { left, bottom: Math.max(0, rect.bottom - currentTrigger.caretRect.top + 6), top: undefined };
+	});
+
+	function pickSuggestion(item: SuggestionItem) {
+		if (!currentTrigger || !editorRef) return;
+		const badge = item.kind === 'file'
+			? createFileBadgeElement(item.item.path)
+			: createCommandBadgeElement(item.command.name);
+		editorRef.replaceTrigger(badge, currentTrigger);
+		currentTrigger = null;
+	}
+
+	function handleEditorKeydown(e: KeyboardEvent): boolean {
+		if (!currentTrigger || suggestItems.length === 0) return false;
+		const action = suggestKeyAction(e, suggestItems.length, suggestIndex);
+		if (action?.kind === 'move') suggestIndex = action.index;
+		else if (action?.kind === 'pick') {
+			const target = suggestItems[suggestIndex];
+			if (target) pickSuggestion(target);
+		} else if (action?.kind === 'dismiss') {
+			editorRef?.dismissCurrentTrigger(currentTrigger);
+			currentTrigger = null;
+		}
+		return action !== null;
 	}
 
 	/** Modello e thinking configurati per un ruolo, letti dalla configurazione dei modelli. */
@@ -385,20 +406,17 @@
 
 	function selectRole(roleId: string) {
 		options.role = roleId;
-		if (roleId === 'custom') {
-			saveTask();
-			return;
+		if (roleId !== 'custom') {
+			const { model, thinking } = resolveRoleConfig(roleId);
+			options.modelSelector = model;
+			options.thinkingLevel = thinking;
 		}
-		const { model, thinking } = resolveRoleConfig(roleId);
-		options.modelSelector = model;
-		options.thinkingLevel = thinking;
 		saveTask();
 	}
 
 	// Un task nuovo nasce con il ruolo predefinito ma senza modello: appena la
 	// configurazione dei modelli e' disponibile si compilano modello e thinking
-	// effettivi del ruolo, cosi' i controlli mostrano subito cio' che verra' usato
-	// invece di restare sul placeholder.
+	// effettivi del ruolo, cosi' i controlli mostrano subito cio' che verra' usato.
 	$effect(() => {
 		const role = options.role;
 		if (!role || role === 'custom' || options.modelSelector) return;
@@ -410,6 +428,7 @@
 	});
 
 	function handleModelSelect(selector: string) {
+		activeMenu = null;
 		options.modelSelector = selector;
 		syncRoleToConfiguration(selector, options.thinkingLevel || 'auto');
 		saveTask();
@@ -426,6 +445,10 @@
 		options.thinkingLevel = thinkingLevel;
 		syncRoleToConfiguration(modelSelector, thinkingLevel);
 		saveTask();
+	}
+
+	function thinkingLabel(level: string): string {
+		return THINKING_LEVELS.find((candidate) => candidate.id === level)?.label ?? level;
 	}
 
 	function toggleDirective(item: TaskDirective | TaskDirectiveSnapshot) {
@@ -447,20 +470,24 @@
 		if (!cat) return;
 		const current = [...(options.directives || [])];
 		const index = current.findIndex((d) => d.id === directiveId);
-		if (index >= 0) {
-			current[index] = createDirectiveSnapshot(cat);
-			current.sort((a, b) => a.order - b.order);
-			options.directives = current;
-			saveTask();
-		}
-	}
-
-	function toggleIncludeEditorContext() {
-		options.includeEditorContext = !options.includeEditorContext;
+		if (index < 0) return;
+		current[index] = createDirectiveSnapshot(cat);
+		current.sort((a, b) => a.order - b.order);
+		options.directives = current;
 		saveTask();
 	}
 
-	async function handleProcessFiles(files: FileList | File[]) {
+	function directiveTooltip(directive: TaskDirective | TaskDirectiveSnapshot): string {
+		const placement = directive.placement === 'after' ? m.task_editor_directive_after_tooltip() : '';
+		return [directive.description, placement].filter(Boolean).join(' · ');
+	}
+
+	function setIncludeEditorContext(checked: boolean) {
+		options.includeEditorContext = checked;
+		saveTask();
+	}
+
+	async function addFiles(files: FileList | File[]) {
 		let updated = false;
 		for (const file of Array.from(files)) {
 			if (!isImageFile(file)) continue;
@@ -470,36 +497,7 @@
 				updated = true;
 			}
 		}
-		if (updated) {
-			saveTask();
-		}
-	}
-
-	function handlePaste(event: ClipboardEvent) {
-		const imageFiles = extractImageFiles(event.clipboardData);
-		if (imageFiles.length > 0) {
-			event.preventDefault();
-			void handleProcessFiles(imageFiles);
-		}
-	}
-
-	function handleDragOver(event: DragEvent) {
-		event.preventDefault();
-		isDraggingOver = true;
-	}
-
-	function handleDragLeave(event: DragEvent) {
-		event.preventDefault();
-		isDraggingOver = false;
-	}
-
-	function handleDrop(event: DragEvent) {
-		event.preventDefault();
-		isDraggingOver = false;
-		const imageFiles = extractImageFiles(event.dataTransfer);
-		if (imageFiles.length > 0) {
-			void handleProcessFiles(imageFiles);
-		}
+		if (updated) saveTask();
 	}
 
 	function removeImage(index: number) {
@@ -507,80 +505,34 @@
 		saveTask();
 	}
 
-	function triggerFileInput() {
-		fileInputEl?.click();
-	}
-
-	function onFileInputChange(event: Event) {
-		const input = event.target as HTMLInputElement;
-		if (input.files && input.files.length > 0) {
-			void handleProcessFiles(input.files);
-			input.value = '';
-		}
-	}
-
 	function closeEditor() {
 		saveTask();
-		if (!prompt.trim() && attachedImages.length === 0) {
-			taskStore.deleteTask(task.id);
-		}
+		if (!hasContent) taskStore.deleteTask(task.id);
+		presentedTaskId = null;
 		onClose();
 	}
 
-	function runNow() {
+	function runTask(newLane: boolean) {
+		activeMenu = null;
 		saveTask();
-		if (!prompt.trim() && attachedImages.length === 0) return;
-		if (onRunTask) {
-			onRunTask(task.id);
-		} else {
-			closeEditor();
-		}
+		if (!hasContent || !onRunTask) return;
+		presentedTaskId = null;
+		onRunTask(task.id, { newLane });
 	}
 
-	function handleKeydown(e: KeyboardEvent) {
-		// Gestore confinato al pannello: senza questo controllo Esc e Ctrl+Invio
-		// premuti altrove nell'app (es. nel composer della chat) chiudevano il
-		// task e spostavano il fuoco, interrompendo la digitazione in corso.
-		const target = e.target instanceof Node ? e.target : null;
-		const inside = rootEl !== null && target !== null && rootEl.contains(target);
-		const onBody = target === null || (target instanceof HTMLElement && target.tagName === 'BODY');
-		if (!inside && !onBody) return;
-
-		if (e.key === 'Escape') {
-			if (paletteOpen) {
-				paletteOpen = false;
-				return;
-			}
-			e.preventDefault();
-			e.stopPropagation();
-			closeEditor();
-			return;
-		}
-
-		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-			e.preventDefault();
-			e.stopPropagation();
-			closeEditor();
-			return;
-		}
-	}
-
-	function cycleStatus() {
-		const next: Record<StudioTaskStatus, StudioTaskStatus> = {
-			queued: 'in_progress',
-			in_progress: 'completed',
-			completed: 'queued',
-			abandoned: 'queued',
-			dispatching: 'queued'
-		};
-		task.status = next[task.status] || 'queued';
-		task.updatedAt = Date.now();
-		taskStore.updateTask(task.id, prompt, attachedImages, options);
+	// Esc chiude solo se la tastiera e' dentro l'editor e nessuna palette o menu
+	// e' aperto: palette e popover consumano Esc per primi.
+	function handleRootKeydown(e: KeyboardEvent) {
+		if (e.key !== 'Escape' || e.defaultPrevented || currentTrigger || activeMenu) return;
+		e.preventDefault();
+		closeEditor();
 	}
 
 	function requestDelete() {
 		if (deleteArmed) {
+			window.clearTimeout(deleteTimer ?? undefined);
 			taskStore.deleteTask(task.id);
+			presentedTaskId = null;
 			onClose();
 			return;
 		}
@@ -594,404 +546,390 @@
 	});
 </script>
 
-<div class="task-editor" role="region" aria-label={m.task_editor_region_aria()} bind:this={rootEl}>
-	<header class="task-toolbar">
-		<div class="task-heading">
-			<span class="task-badge">{m.page_columns_header_task()}</span>
-			<button
-				type="button"
-				class="status-toggle-btn {task.status}"
-				onclick={cycleStatus}
-				title={m.task_editor_status_toggle_title()}
-			>
-				{#if task.status === 'in_progress'}
-					<IconStatusRunning /> {m.task_editor_status_in_progress()}
-				{:else if task.status === 'completed'}
-					<IconStatusDone /> {m.task_editor_status_completed()}
-				{:else if task.status === 'abandoned'}
-					<IconStatusFailed /> {m.task_editor_status_abandoned()}
-				{:else}
-					<IconStatusPending /> {m.task_editor_status_queued()}
-				{/if}
-			</button>
-			<span class="task-title" title={title}>{title}</span>
-			<span class="save-state" aria-live="polite">{m.task_editor_state_saved()}</span>
-		</div>
-
-		<div class="task-actions">
-			<!-- Distruttivo: Elimina -->
-			<button
-				type="button"
-				class="action-btn btn-danger"
-				class:confirm-delete={deleteArmed}
-				onclick={requestDelete}
-				aria-label={deleteArmed ? m.ui_taskeditor_conferma_eliminazione_task_43a9() : m.ui_taskeditor_elimina_task_f0ee()}
-				title={deleteArmed ? 'Clicca ancora per eliminare definitivamente' : m.ui_taskeditor_elimina_questo_task_867e()}
-			>
-				{#if deleteArmed}
-					<span>{m.ui_taskeditor_conferma_elimina_d2f5()}</span>
-				{:else}
-					<svg viewBox="0 0 16 16" aria-hidden="true">
-						<path d="M3 4.5h10M6 2.5h4l.7 2H5.3l.7-2ZM5 6.5v6M8 6.5v6M11 6.5v6M4.5 4.5l.6 9h5.8l.6-9" />
-					</svg>
-					<span>{m.task_editor_delete_btn()}</span>
-				{/if}
-			</button>
-
-			<!-- Secondario: Esegui / Avvia subito -->
-			{#if onRunTask}
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<section
+	class="task-editor"
+	aria-label={m.task_editor_region_aria()}
+	onkeydown={handleRootKeydown}
+	in:rvLift={{ duration: entering ? undefined : 0 }}
+>
+	<!-- Testata: prende il posto di quella della colonna -->
+	<header class="task-header">
+		<h2 class="task-title">{title}</h2>
+		<span class="save-state">{m.task_editor_state_saved()}</span>
+		<div class="header-actions">
+			{#if deleteArmed}
+				<button type="button" class="ui-button ui-button-danger" onclick={requestDelete}>
+					{m.ui_taskeditor_conferma_eliminazione_task_43a9()}
+				</button>
+			{:else}
+				<Tooltip text={m.ui_taskeditor_elimina_questo_task_867e()} placement="bottom">
+					<button
+						type="button"
+						class="header-icon-btn"
+						aria-label={m.ui_taskeditor_elimina_task_f0ee()}
+						onclick={requestDelete}
+					>
+						<IconTrash />
+					</button>
+				</Tooltip>
+			{/if}
+			<Tooltip text={m.task_editor_close_aria()} placement="bottom">
 				<button
 					type="button"
-					class="action-btn btn-secondary"
-					onclick={runNow}
-					disabled={!prompt.trim() && attachedImages.length === 0}
-					aria-label={m.task_editor_run_now_aria()}
-					title={m.task_editor_run_now_aria()}
+					class="header-icon-btn"
+					aria-label={m.task_editor_close_aria()}
+					onclick={closeEditor}
 				>
-					<svg viewBox="0 0 16 16" aria-hidden="true">
-						<path d="M4 3.5l9 4.5-9 4.5V3.5z" />
-					</svg>
-					<span>{m.task_editor_run_now_btn()}</span>
+					<IconClose />
 				</button>
-			{/if}
-
-			<!-- Primario: Salva (Ctrl+Invio) -->
-			<button
-				type="button"
-				class="action-btn btn-primary"
-				onclick={closeEditor}
-				aria-label={m.task_editor_save_close_aria()}
-				title={m.ui_taskeditor_salva_modifiche_e_chiudi_editor_ctrl_invio_3c58()}
-			>
-				<svg viewBox="0 0 16 16" aria-hidden="true">
-					<path d="M3.5 8.5l3 3 6-6" />
-				</svg>
-				<span>{m.task_editor_save_close_btn()}</span>
-				<kbd>Ctrl+↵</kbd>
-			</button>
-
-			<div class="actions-divider" aria-hidden="true"></div>
-
-			<!-- Chiudi (Esc) -->
-			<button
-				type="button"
-				class="action-btn btn-close"
-				onclick={closeEditor}
-				aria-label={m.task_editor_close_aria()}
-				title={m.task_editor_close_aria()}
-			>
-				<svg viewBox="0 0 16 16" aria-hidden="true">
-					<path d="M4 4l8 8M12 4L4 12" />
-				</svg>
-			</button>
+			</Tooltip>
 		</div>
 	</header>
 
-	<div class="editor-scroll-body">
-		<!-- Sezione 1: Prompt & Allegati (Hero / Centro) -->
-		<section
-			class="prompt-section"
-			class:dragging={isDraggingOver}
-			ondragover={handleDragOver}
-			ondragleave={handleDragLeave}
-			ondrop={handleDrop}
-			aria-label={m.task_editor_prompt_area_aria()}
-		>
-			<CommandPalette
-				open={paletteOpen}
-				commands={allCommands}
-				query={paletteQuery}
-				anchor={inputCardEl}
-				onPick={handlePalettePick}
-				onClose={() => (paletteOpen = false)}
-				onSubmitFallback={() => (paletteOpen = false)}
-			/>
-
-			<FileMentionPalette
-				open={fileMention.open}
-				items={fileMention.items}
-				selectedIndex={fileMention.selectedIndex}
-				anchor={inputCardEl}
-				onSelect={(item) => fileMention.pick(item)}
-				onClose={() => fileMention.close()}
-			/>
-
-			<div class="input-card" bind:this={inputCardEl}>
-				<label for="task-prompt" class="sr-only">{m.task_editor_prompt_label()}</label>
-				<textarea
-					id="task-prompt"
-					bind:this={textareaEl}
-					bind:value={prompt}
-					oninput={handlePromptInput}
-					onclick={handleCursorMovement}
-					onkeyup={handleCursorMovement}
-					onkeydown={(e) => {
-						if (fileMention.handleKeydown(e)) return;
-						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-							e.preventDefault();
-							e.stopPropagation();
-							closeEditor();
-						}
-					}}
-					onpaste={handlePaste}
-					placeholder={m.task_editor_prompt_placeholder()}
-					spellcheck="true"
-				></textarea>
-
-				{#if attachedImages.length > 0}
-					<div class="image-previews" role="region" aria-label={m.task_editor_images_aria()}>
-						{#each attachedImages as img, idx (idx)}
-							<div class="image-thumb-wrap">
-								<button
-									type="button"
-									class="image-thumb-btn"
-									onclick={() => onOpenImage?.(img.data, img.mimeType)}
-									title={m.task_editor_zoom_image_title()}
-								>
-									<img
-										src="data:{img.mimeType};base64,{img.data}"
-										alt="Allegato task {idx + 1}"
-										class="image-thumb"
-									/>
-								</button>
-								<button
-									type="button"
-									class="image-remove-btn"
-									title={m.task_editor_remove_image_title()}
-									onclick={() => removeImage(idx)}
-									aria-label={m.task_editor_remove_image_title()}
-								>
-									<IconClose />
-								</button>
-							</div>
-						{/each}
-					</div>
+	<div class="task-body" bind:this={bodyEl}>
+		<div class="task-column">
+			<!-- Prompt: stessa sagoma, voce e badge del composer della chat -->
+			<div
+				class="task-composer"
+				role="group"
+				aria-label={m.task_editor_prompt_area_aria()}
+				ondragover={(e) => {
+					if (e.dataTransfer?.types.includes('Files')) {
+						e.preventDefault();
+						isDragging = true;
+					}
+				}}
+				ondragleave={(e) => {
+					if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+					isDragging = false;
+				}}
+				ondrop={(e) => {
+					if (e.dataTransfer?.files.length) {
+						e.preventDefault();
+						isDragging = false;
+						void addFiles(e.dataTransfer.files);
+					}
+				}}
+			>
+				{#if currentTrigger && suggestItems.length > 0}
+					<SuggestPanel
+						kind={currentTrigger.kind}
+						query={currentTrigger.query}
+						items={suggestItems}
+						selectedIndex={suggestIndex}
+						left={suggestAnchor.left}
+						bottom={suggestAnchor.bottom}
+						top={suggestAnchor.top}
+						onPick={pickSuggestion}
+						onHover={(index) => (suggestIndex = index)}
+					/>
 				{/if}
 
-				<div class="input-footer">
-					<input
-						type="file"
-						accept="image/*"
-						multiple
-						bind:this={fileInputEl}
-						onchange={onFileInputChange}
-						style="display: none;"
+				<div class="composer-shell" class:dragging={isDragging} bind:this={composerEl}>
+					{#if attachments.length > 0}
+						<div class="attachments-row" role="list" aria-label={m.task_editor_images_aria()}>
+							{#each attachments as attachment, index (attachment.id)}
+								<div role="listitem">
+									<AttachmentThumb
+										{attachment}
+										onOpen={() => onOpenImage?.(attachedImages[index].data, attachedImages[index].mimeType)}
+										onRemove={() => removeImage(index)}
+									/>
+								</div>
+							{/each}
+						</div>
+					{/if}
+
+					<ComposerEditor
+						bind:this={editorRef}
+						placeholder={m.task_editor_prompt_placeholder()}
+						ariaLabel={m.task_editor_prompt_label()}
+						submitWithModifier
+						onSend={() => closeEditor()}
+						onFilesPaste={(files) => void addFiles(files)}
+						onTriggerChange={(trigger) => (currentTrigger = trigger)}
+						onKeydownFilter={handleEditorKeydown}
+						onInput={handleEditorInput}
 					/>
-					<button
-						type="button"
-						class="attach-btn"
-						onclick={triggerFileInput}
-						aria-label="Allega screenshot o immagine al task"
-						title={m.task_editor_attach_image_title()}
-					>
-						<svg viewBox="0 0 16 16" aria-hidden="true">
-							<path d="M6 3.5a2.5 2.5 0 0 1 5 0v7a4 4 0 0 1-8 0V4.5a1 1 0 0 1 2 0v6a2 2 0 0 0 4 0v-7a1 1 0 0 0-2 0v6" />
-						</svg>
-						<span>{m.task_editor_attach_image_btn()}</span>
-					</button>
 
-					<div class="footer-hints">
-						<span class="hint-text"><kbd>Ctrl+V</kbd> {m.ui_taskeditor_incolla_screenshot_digita_d13d()} <code>/</code> per le skill, <code>@</code> per i file</span>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<!-- Sezione Opzioni Task (Sempre visibili, integrate direttamente sotto la textarea) -->
-		<section class="task-options-section" aria-label="Opzioni del task">
-			<!-- Gruppo 1: Profilo & Modello -->
-			<div class="options-group">
-				<div class="group-header">
-					<div class="group-header-text">
-						<span class="group-title">{m.task_editor_options_heading()}</span>
-						<span class="group-sub">{m.task_editor_options_subheading()}</span>
-					</div>
-				</div>
-
-				<!-- Scelta rapida Ruolo -->
-				<div class="role-selection-area">
-					<div class="role-pills-row" role="radiogroup" aria-label={m.task_editor_roles_radiogroup()}>
-						{#each DIFFICULTY_ROLES as r (r.id)}
-							{@const active = options.role === r.id}
-							{@const Icon = r.icon}
+					<div class="composer-toolbar">
+						<Tooltip text={m.task_editor_attach_image_title()} placement="top" offset={6}>
 							<button
 								type="button"
-								class="role-pill-btn"
-								class:active
-								role="radio"
-								aria-checked={active}
-								aria-label={`Ruolo: ${r.label}. ${r.desc}`}
-								title={r.desc}
-								onclick={() => selectRole(r.id)}
+								class="composer-icon-btn"
+								aria-label={m.task_editor_attach_image_title()}
+								onclick={() => fileInputEl?.click()}
 							>
-								<span class="role-pill-badge"><Icon /> {r.badge}</span>
-								<span class="role-pill-label">{r.label}</span>
+								<IconAttach />
 							</button>
-						{/each}
+						</Tooltip>
+						<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
+							<button
+								type="button"
+								class="composer-icon-btn"
+								aria-label={m.chat_v2_composer_mention_title()}
+								onclick={() => editorRef?.insertAt()}
+							>
+								<IconAt />
+							</button>
+						</Tooltip>
 
-						<button
-							type="button"
-							class="role-pill-btn"
-							class:active={options.role === 'custom'}
-							role="radio"
-							aria-checked={options.role === 'custom'}
-							aria-label={m.ui_taskeditor_ruolo_personalizzato_modello_e_thinking_specifici_d4c4()}
-							title={m.task_editor_role_custom_desc()}
-							onclick={() => selectRole('custom')}
-						>
-							<span class="role-pill-badge">custom</span>
-							<span class="role-pill-label">{m.task_editor_role_custom_label()}</span>
-						</button>
+						<!-- Salva e' l'azione principale; avviare e' una scelta esplicita nel menu -->
+						<div class="save-split">
+							<button
+								type="button"
+								class="ui-button ui-button-primary save-main"
+								onclick={closeEditor}
+								aria-label={m.task_editor_save_close_aria()}
+							>
+								{m.task_editor_save_close_btn()}
+								<kbd>Ctrl+↵</kbd>
+							</button>
+							{#if onRunTask}
+								<MenuButton
+									open={activeMenu === 'run'}
+									title={m.task_editor_run_menu_title()}
+									hasPopup="menu"
+									align="right"
+									width="260px"
+									className="save-split-trigger"
+									onToggle={() => (activeMenu = activeMenu === 'run' ? null : 'run')}
+									onClose={() => (activeMenu = null)}
+								>
+									{#snippet trigger()}
+										<span class="split-chevron"><IconChevronUp /></span>
+									{/snippet}
+									{#snippet children()}
+										<div class="run-menu">
+											<button
+												type="button"
+												role="menuitem"
+												class="run-option"
+												disabled={!hasContent}
+												onclick={() => runTask(false)}
+											>
+												<span class="run-icon"><IconPlay /></span>
+												<span class="run-text">
+													<span class="run-title">{m.task_editor_run_now_btn()}</span>
+													<span class="run-sub">{m.task_editor_run_now_desc()}</span>
+												</span>
+											</button>
+											<button
+												type="button"
+												role="menuitem"
+												class="run-option"
+												disabled={!hasContent}
+												onclick={() => runTask(true)}
+											>
+												<span class="run-icon"><IconGitBranch /></span>
+												<span class="run-text">
+													<span class="run-title">{m.task_editor_run_new_lane_btn()}</span>
+													<span class="run-sub">{m.task_editor_run_new_lane_desc()}</span>
+												</span>
+											</button>
+										</div>
+									{/snippet}
+								</MenuButton>
+							{/if}
+						</div>
 					</div>
+
+					{#if isDragging}
+						<div class="composer-drop-overlay" aria-hidden="true">
+							<IconAttach />
+							<span>{m.chat_v2_composer_drop_overlay()}</span>
+						</div>
+					{/if}
 				</div>
 
-				<!-- Griglia Modello & Thinking Effort -->
-				<div class="model-thinking-grid">
-					<div class="model-col">
-						<label for="task-model-picker" class="field-label">{m.task_editor_specific_model_label()}</label>
-						<ModelPickerDropdown
-							catalog={modelSettingsStore.assignableCatalog}
-							value={options.modelSelector || ''}
-							placeholder={m.task_editor_specific_model_placeholder()}
-							onSelect={handleModelSelect}
-						/>
+				<input
+					bind:this={fileInputEl}
+					type="file"
+					accept="image/*"
+					multiple
+					hidden
+					onchange={(e) => {
+						if (e.currentTarget.files?.length) void addFiles(e.currentTarget.files);
+						e.currentTarget.value = '';
+					}}
+				/>
+			</div>
+
+			<!-- Esecuzione: con che cosa gira il task, tutto visibile senza menu -->
+			<section class="task-section" aria-labelledby="task-run-heading">
+				<h3 id="task-run-heading" class="section-title">{m.task_editor_run_heading()}</h3>
+
+				<div class="field">
+					<span class="field-label" id="task-role-label">{m.task_editor_role_label()}</span>
+					<Segmented
+						options={roleOptions}
+						value={activeRole}
+						ariaLabelledBy="task-role-label"
+						fill
+						onChange={selectRole}
+					/>
+					<p class="field-help">{roleDescription}</p>
+				</div>
+
+				<div class="run-grid">
+					<div class="field">
+						<span class="field-label" id="task-model-label">{m.task_editor_specific_model_label()}</span>
+						<div class="model-field">
+							<MenuButton
+								open={activeMenu === 'model'}
+								ariaLabel={m.task_editor_specific_model_label()}
+								hasPopup="dialog"
+								contentRole="dialog"
+								width="400px"
+								className="model-trigger"
+								onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
+								onClose={() => (activeMenu = null)}
+							>
+								{#snippet trigger()}
+									{#if selectedModel}
+										<span class="model-name font-mono">{selectedModel.name}</span>
+										<span class="model-provider">{selectedModel.provider}</span>
+									{:else if options.modelSelector}
+										<span class="model-name font-mono">{options.modelSelector}</span>
+									{:else}
+										<span class="model-placeholder">{m.task_editor_specific_model_placeholder()}</span>
+									{/if}
+									<span class="model-chevron"><IconChevronDown /></span>
+								{/snippet}
+								{#snippet children()}
+									<ModelPickerList
+										catalog={modelSettingsStore.assignableCatalog}
+										value={options.modelSelector || ''}
+										placeholder={m.chat_v2_composer_model_search()}
+										onSelect={(selector) => handleModelSelect(selector)}
+										onClose={() => (activeMenu = null)}
+									/>
+								{/snippet}
+							</MenuButton>
+						</div>
 						{#if selectedModelContext && (selectedModelContext.detail || selectedModelContext.usage)}
-							<div class="model-context-line">
+							<p class="model-context">
 								{#if selectedModelContext.detail}
-									<span title={selectedModelContext.detailTitle}>{selectedModelContext.detail}</span>
+									<Tooltip text={selectedModelContext.detailTitle} disabled={!selectedModelContext.detailTitle}>
+										<span class="context-detail">{selectedModelContext.detail}</span>
+									</Tooltip>
 								{/if}
 								{#if selectedModelContext.usage}
-									<span
-										class="model-usage-note"
-										title={selectedModelContext.usageTitle}
-									>{selectedModelContext.usage}</span>
+									<Tooltip text={selectedModelContext.usageTitle}>
+										<span class="context-usage">{selectedModelContext.usage}</span>
+									</Tooltip>
 								{/if}
-							</div>
+							</p>
 						{/if}
 						{#if frequentModelConfigurations.length > 0}
-							<div class="frequent-configurations" aria-label={m.ui_taskeditor_configurazioni_modello_usate_spesso_37dd()}>
-								<span class="frequent-label">{m.task_editor_frequent_label()}</span>
-								<div class="frequent-chips">
+							<div class="frequent" role="group" aria-labelledby="task-frequent-label">
+								<span class="frequent-label" id="task-frequent-label">{m.task_editor_frequent_label()}</span>
+								<div class="chip-row">
 									{#each frequentModelConfigurations as configuration (`${configuration.modelSelector}:${configuration.thinkingLevel}`)}
-										{@const thinkingLabel = THINKING_LEVELS.find((level) => level.id === configuration.thinkingLevel)?.label ?? configuration.thinkingLevel}
-										<button
-											type="button"
-											class="frequent-chip"
-											class:active={options.modelSelector === configuration.modelSelector && (options.thinkingLevel || 'auto') === configuration.thinkingLevel}
-											title={`${configuration.model.provider} · ${configuration.model.name} · Thinking ${thinkingLabel} · ${configuration.count} utilizzi recenti`}
-											onclick={() => applyFrequentConfiguration(configuration.modelSelector, configuration.thinkingLevel)}
+										{@const active = options.modelSelector === configuration.modelSelector && (options.thinkingLevel || 'auto') === configuration.thinkingLevel}
+										<Tooltip
+											text={m.task_editor_frequent_chip_title({
+												provider: configuration.model.provider,
+												model: configuration.model.name,
+												thinking: thinkingLabel(configuration.thinkingLevel),
+												count: configuration.count
+											})}
 										>
-											<span>{configuration.model.name}</span>
-											<small>{thinkingLabel}</small>
-										</button>
+											<button
+												type="button"
+												class="ui-chip"
+												aria-pressed={active}
+												onclick={() => applyFrequentConfiguration(configuration.modelSelector, configuration.thinkingLevel)}
+											>
+												{#if active}<span class="chip-check"><IconCheck /></span>{/if}
+												<span class="chip-text">{configuration.model.name}</span>
+												<span class="chip-meta font-mono">{thinkingLabel(configuration.thinkingLevel)}</span>
+											</button>
+										</Tooltip>
 									{/each}
 								</div>
 							</div>
 						{/if}
 					</div>
 
-					<div class="thinking-col">
+					<div class="field">
 						<span class="field-label">{m.task_editor_thinking_effort_label()}</span>
-						<ReasoningSlider
-							value={options.thinkingLevel || 'auto'}
-							onChange={handleThinkingChange}
-						/>
+						<div class="thinking-field">
+							<ReasoningSlider
+								value={options.thinkingLevel || 'auto'}
+								onChange={handleThinkingChange}
+							/>
+						</div>
 					</div>
 				</div>
-			</div>
 
-			<!-- Gruppo 2: Direttive & Contesto -->
-			<div class="options-group with-divider">
-				<div class="group-header">
-					<div class="group-header-text">
-						<div class="group-title-row">
-							<span class="group-title">{m.task_editor_directives_heading()}</span>
-							{#if (options.directives?.length ?? 0) > 0}
-								<span class="active-count-badge">
-									{(options.directives?.length ?? 0)} {(options.directives?.length ?? 0) === 1 ? 'direttiva attiva' : 'direttive attive'}
-								</span>
-							{/if}
-						</div>
-						<span class="group-sub">{m.task_editor_directives_subheading()}</span>
+				<div class="switch-row">
+					<div class="switch-text">
+						<span class="switch-title" id="task-context-label">{m.task_editor_context_editor_title()}</span>
+						<span class="field-help" id="task-context-desc">{m.task_editor_context_editor_desc()}</span>
 					</div>
+					<Switch
+						checked={options.includeEditorContext !== false}
+						ariaLabelledBy="task-context-label"
+						ariaDescribedBy="task-context-desc"
+						onChange={setIncludeEditorContext}
+					/>
+				</div>
+			</section>
+
+			<!-- Direttive: chip con il solo titolo, la spiegazione nel Tooltip -->
+			<section class="task-section" aria-labelledby="task-directives-heading">
+				<div class="section-head">
+					<h3 id="task-directives-heading" class="section-title">{m.task_editor_directives_heading()}</h3>
+					{#if (options.directives?.length ?? 0) > 0}
+						<span class="section-count">{m.task_editor_directives_active_count({ count: options.directives?.length ?? 0 })}</span>
+					{/if}
 					<button
 						type="button"
-						class="btn-manage-directives"
+						class="ui-button ui-button-ghost manage-btn"
 						onclick={() => settingsStore.openSection('tasks')}
-						title={m.ui_taskeditor_configura_o_crea_nuove_direttive_nel_catalogo_bcdc()}
 					>
 						{m.task_editor_manage_directives_btn()}
 					</button>
 				</div>
 
-				<div class="modifiers-grid">
-					{#each availableDirectives as dir (dir.id)}
-						{@const activeSnapshot = options.directives?.find((d) => d.id === dir.id)}
-						{@const isChecked = Boolean(activeSnapshot)}
-						{@const revStatus = activeSnapshot ? compareDirectiveRevision(activeSnapshot, settingsStore.taskDirectives) : 'up_to_date'}
-						<label class="modifier-card" class:checked={isChecked}>
-							<input
-								type="checkbox"
-								checked={isChecked}
-								onchange={() => toggleDirective(dir)}
-							/>
-							<div class="modifier-body">
-								<div class="modifier-top">
-									<span class="modifier-title">{dir.name}</span>
-									<div class="modifier-badges">
-										{#if dir.placement === 'after'}
-											<span class="modifier-placement" title="Posizionata dopo il prompt">{m.task_editor_directive_after_badge()}</span>
-										{/if}
-										{#if dir.tag}
-											<span class="modifier-tag">{dir.tag}</span>
-										{/if}
-									</div>
-								</div>
-								{#if dir.description}
-									<p class="modifier-desc">{dir.description}</p>
-								{/if}
-								{#if isChecked && revStatus === 'upgrade_available'}
-									<div class="modifier-upgrade-row">
-										<span class="upgrade-badge">Aggiornamento v{settingsStore.taskDirectives.find((d) => d.id === dir.id)?.revision}</span>
-										<button
-											type="button"
-											class="btn-upgrade-directive"
-											onclick={(e) => { e.stopPropagation(); upgradeDirective(dir.id); }}
-											title={m.ui_taskeditor_sostituisce_lo_snapshot_congelato_con_la_versione_b86f()}
-										>
-											{m.task_editor_directive_upgrade_btn()}
-										</button>
-									</div>
-								{:else if isChecked && revStatus === 'orphan'}
-									<div class="modifier-upgrade-row">
-										<span class="orphan-badge">{m.task_editor_directive_orphan_badge()}</span>
-									</div>
-								{/if}
-							</div>
-						</label>
+				<div class="chip-row" role="group" aria-labelledby="task-directives-heading">
+					{#each availableDirectives as directive (directive.id)}
+						{@const active = Boolean(options.directives?.some((d) => d.id === directive.id))}
+						<Tooltip text={directiveTooltip(directive)} disabled={!directiveTooltip(directive)}>
+							<button
+								type="button"
+								class="ui-chip"
+								aria-pressed={active}
+								onclick={() => toggleDirective(directive)}
+							>
+								{#if active}<span class="chip-check"><IconCheck /></span>{/if}
+								<span class="chip-text">{directive.name}</span>
+							</button>
+						</Tooltip>
 					{/each}
-
-					<label class="modifier-card" class:checked={options.includeEditorContext !== false}>
-						<input
-							type="checkbox"
-							checked={options.includeEditorContext !== false}
-							onchange={toggleIncludeEditorContext}
-						/>
-						<div class="modifier-body">
-							<div class="modifier-top">
-								<span class="modifier-title">{m.task_editor_context_editor_title()}</span>
-								<span class="modifier-tag">{m.task_editor_context_editor_tag()}</span>
-							</div>
-							<p class="modifier-desc">
-								{m.task_editor_context_editor_desc()}
-							</p>
-						</div>
-					</label>
 				</div>
-			</div>
-		</section>
+
+				{#each directiveNotices as notice (notice.snapshot.id)}
+					<div class="directive-notice">
+						{#if notice.status === 'upgrade_available'}
+							<StatusMark status="attention" active={false} />
+							<span class="notice-text">{m.task_editor_directive_upgrade_available({ name: notice.snapshot.name, revision: notice.revision })}</span>
+							<Tooltip text={m.ui_taskeditor_sostituisce_lo_snapshot_congelato_con_la_versione_b86f()}>
+								<button type="button" class="ui-button ui-button-ghost" onclick={() => upgradeDirective(notice.snapshot.id)}>
+									{m.task_editor_directive_upgrade_btn()}
+								</button>
+							</Tooltip>
+						{:else}
+							<span class="notice-text muted">{m.task_editor_directive_orphan({ name: notice.snapshot.name })}</span>
+						{/if}
+					</div>
+				{/each}
+			</section>
+		</div>
 	</div>
-</div>
+</section>
 
 <style>
 	.task-editor {
@@ -1004,779 +942,405 @@
 		font-family: var(--font-ui);
 	}
 
-	.task-toolbar {
-		height: 42px;
-		padding: 0 var(--space-3);
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		background: var(--bg-raised);
-		border-bottom: 1px solid var(--line);
+	/* Stessa misura della testata di colonna che sostituisce. */
+	.task-header {
+		height: 32px;
 		flex-shrink: 0;
-		z-index: 2;
-	}
-
-	.task-heading,
-	.task-actions {
 		display: flex;
 		align-items: center;
-		min-width: 0;
 		gap: var(--space-2);
-	}
-
-	.task-badge {
-		font-size: var(--text-xs);
-		font-weight: 700;
-		letter-spacing: 0.05em;
-		padding: 2px 6px;
-		border-radius: var(--radius-sm);
-		background: var(--brand-dim);
-		color: var(--ink);
-	}
-	.status-toggle-btn {
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		padding: 2px 8px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		color: var(--ink-faint);
-		cursor: pointer;
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		--icon-size: 12px;
-		transition: all 120ms ease;
-	}
-
-	.status-toggle-btn:hover {
-		border-color: var(--brand);
-		color: var(--ink);
-	}
-
-	.status-toggle-btn.in_progress {
-		background: var(--brand-dim);
-		color: var(--brand-ink);
-		font-weight: 600;
-		border-color: var(--brand);
-	}
-
-	.status-toggle-btn.completed {
-		background: var(--bg-sunken);
-		color: var(--success, #22c55e);
-		border-color: var(--success, #22c55e);
-	}
-
-	.status-toggle-btn.abandoned {
-		background: var(--bg-sunken);
-		color: var(--ink-faint);
-		opacity: 0.7;
+		padding: 0 var(--space-1) 0 var(--space-3);
+		border-bottom: 1px solid var(--line);
 	}
 
 	.task-title {
-		max-width: 28ch;
+		margin: 0;
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: var(--text-sm);
-		font-weight: 600;
+		font-size: var(--text-label);
+		font-weight: 500;
 		color: var(--ink);
 	}
 
 	.save-state {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		margin-left: var(--space-1);
-	}
-
-	.action-btn {
-		height: 28px;
-		padding: 0 var(--space-2);
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		border-radius: var(--radius-sm);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		user-select: none;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-	}
-
-	.action-btn kbd {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-	}
-
-	.action-btn svg {
-		width: 13px;
-		height: 13px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.5;
-		stroke-linecap: round;
-		stroke-linejoin: round;
 		flex-shrink: 0;
-	}
-
-	/* 1. Primario: Salva (Ctrl+Invio) */
-	.action-btn.btn-primary {
-		background: var(--brand);
-		color: var(--on-brand);
-		border: 1px solid var(--brand);
-		font-weight: 600;
-	}
-
-	.action-btn.btn-primary kbd {
-		background: color-mix(in srgb, var(--on-brand) 20%, transparent);
-		border: 1px solid transparent;
-		color: var(--on-brand);
-	}
-
-	.action-btn.btn-primary:hover:not(:disabled) {
-		background: var(--brand-ink);
-		border-color: var(--brand-ink);
-	}
-
-	/* 2. Secondario: Esegui */
-	.action-btn.btn-secondary {
-		background: var(--bg-base);
-		color: var(--ink);
-		border: 1px solid var(--line-strong);
-		font-weight: 500;
-	}
-
-	.action-btn.btn-secondary:hover:not(:disabled) {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-	}
-
-	.action-btn.btn-secondary:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-		border-color: var(--line);
-	}
-
-	/* 3. Distruttivo: Elimina */
-	.action-btn.btn-danger {
-		background: transparent;
-		color: var(--ink-faint);
-		border: 1px solid transparent;
-	}
-
-	.action-btn.btn-danger:hover {
-		background: var(--danger-dim);
-		color: var(--ink);
-		border-color: var(--danger);
-	}
-
-	.action-btn.btn-danger.confirm-delete {
-		background: var(--danger);
-		color: var(--on-danger);
-		border-color: var(--danger);
-		font-weight: 600;
-	}
-
-	/* 4. Ausiliario: Chiudi */
-	.action-btn.btn-close {
-		width: 28px;
-		height: 28px;
-		padding: 0;
-		background: transparent;
-		color: var(--ink-faint);
-		border: 1px solid transparent;
-	}
-
-	.action-btn.btn-close:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.actions-divider {
-		width: 1px;
-		height: 16px;
-		background: var(--line);
-		margin: 0 2px;
-	}
-
-	.editor-scroll-body {
-		flex: 1;
-		min-height: 0;
-		overflow-y: auto;
-		padding: var(--space-3) var(--space-4);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		width: 100%;
-		max-width: 900px;
-		margin: 0 auto;
-		box-sizing: border-box;
-	}
-
-	/* Prompt Section */
-	/* `flex: 0 0 auto` e' quello che fa comparire lo scroll: da flex item
-	   comprimibile la sezione veniva schiacciata dal corpo a altezza fissa,
-	   quindi il contenuto non superava mai il contenitore e la barra non
-	   nasceva. Con il prompt cresciuto, l'accordion sotto restava tagliato. */
-	.prompt-section {
-		position: relative;
-		display: flex;
-		flex: 0 0 auto;
-		flex-direction: column;
-	}
-
-	.prompt-section.dragging {
-		background: color-mix(in srgb, var(--brand) 8%, var(--bg-sunken));
-		outline: 2px dashed var(--brand);
-		outline-offset: -2px;
-		border-radius: var(--radius-md);
-	}
-
-	.input-card {
-		display: flex;
-		flex-direction: column;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		overflow: hidden;
-		transition: border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.input-card:focus-within {
-		border-color: var(--line-strong);
-	}
-
-	.sr-only {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		padding: 0;
-		margin: -1px;
-		overflow: hidden;
-		clip: rect(0, 0, 0, 0);
-		white-space: nowrap;
-		border: 0;
-	}
-
-	textarea {
-		width: 100%;
-		min-height: 140px;
-		max-height: 460px;
-		padding: var(--space-3);
-		resize: none;
-		border: none;
-		background: transparent;
-		color: var(--ink);
-		font-family: var(--font-ui);
-		font-size: var(--text-base);
-		line-height: 1.55;
-		caret-color: var(--brand-ink);
-		outline: none;
-		box-sizing: border-box;
-	}
-
-	textarea::placeholder {
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
 	}
 
-	.image-previews {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		border-top: 1px solid var(--line);
-		background: var(--bg-sunken);
-	}
-
-	.image-thumb-wrap {
-		position: relative;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.image-thumb-btn {
-		padding: 0;
-		border: none;
-		background: transparent;
-		cursor: pointer;
-		display: flex;
-		border-radius: var(--radius-sm);
-		overflow: hidden;
-	}
-
-	.image-thumb {
-		height: 48px;
-		max-width: 100px;
-		object-fit: cover;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		transition: opacity var(--dur-fast) var(--ease-out);
-	}
-
-	.image-thumb-btn:hover .image-thumb {
-		opacity: 0.85;
-	}
-
-	.image-remove-btn {
-		position: absolute;
-		top: -5px;
-		right: -5px;
-		width: 16px;
-		height: 16px;
-		border-radius: var(--radius-full);
-		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
-		color: var(--ink-faint);
+	.header-actions {
+		margin-left: auto;
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		font-size: var(--text-xs);
-		line-height: 1;
-		cursor: pointer;
-		padding: 0;
-	}
-
-	.image-remove-btn:hover {
-		background: var(--brand-dim);
-		color: var(--ink);
-	}
-
-	.input-footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		background: var(--bg-raised);
-		border-top: 1px solid var(--line);
-	}
-
-	.attach-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 4px var(--space-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--bg-base);
-		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.attach-btn:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.attach-btn svg {
-		width: 13px;
-		height: 13px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.5;
-		stroke-linecap: round;
-		stroke-linejoin: round;
-	}
-
-	.footer-hints {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.hint-text {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
-
-	.hint-text kbd,
-	.hint-text code {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		padding: 1px 4px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-	}
-
-	/* Task Options Section (Always visible, non-card layout) */
-	.task-options-section {
-		display: flex;
-		flex: 0 0 auto;
-		flex-direction: column;
-		gap: var(--space-4);
-		padding-top: var(--space-1);
-		padding-bottom: var(--space-5);
-	}
-
-	.options-group {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-	}
-
-	.options-group.with-divider {
-		padding-top: var(--space-3);
-		border-top: 1px solid var(--line);
-	}
-
-	.group-header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
-
-	.group-header-text {
-		display: flex;
-		flex-direction: column;
 		gap: 2px;
 	}
 
-	.group-title-row {
+	.header-icon-btn {
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		border: none;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--ink-muted);
+		cursor: pointer;
+		--icon-size: 14px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.header-icon-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.task-body {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+	}
+
+	/* Colonna di lettura da 720 px, come il transcript della chat. */
+	.task-column {
+		max-width: 720px;
+		margin: 0 auto;
+		padding: var(--space-4) var(--space-3) var(--space-6);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+		box-sizing: border-box;
+	}
+
+	.task-composer {
+		position: relative;
+		--editor-min-height: 140px;
+		--editor-max-height: 460px;
+	}
+
+	.attachments-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		padding: 12px 14px 2px;
+	}
+
+	.save-split {
+		margin-left: auto;
+		display: flex;
+		align-items: center;
+		border-radius: var(--radius-md);
+		background: var(--brand);
+	}
+
+	.save-main {
+		height: 28px;
+		gap: var(--space-2);
+	}
+
+	.save-split:has(:global(.save-split-trigger)) .save-main {
+		border-top-right-radius: 0;
+		border-bottom-right-radius: 0;
+	}
+
+	.save-main kbd {
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		font-weight: 500;
+	}
+
+	:global(.menu-button.save-split-trigger) {
+		height: 28px;
+		padding: 0 8px 0 6px;
+		background: var(--brand);
+		color: var(--on-brand);
+		border: 1px solid transparent;
+		border-left-color: color-mix(in oklch, var(--on-brand) 25%, transparent);
+		border-radius: 0 var(--radius-md) var(--radius-md) 0;
+	}
+
+	:global(.menu-button.save-split-trigger:hover:not(:disabled)),
+	:global(.menu-button.save-split-trigger.active) {
+		background: var(--brand);
+		color: var(--on-brand);
+		border-color: var(--on-brand);
+	}
+
+	.split-chevron {
+		display: inline-flex;
+		--icon-size: 12px;
+	}
+
+	.run-menu {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: var(--space-1);
+	}
+
+	.run-option {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		padding: 7px 8px;
+		border: none;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--ink);
+		text-align: left;
+		cursor: pointer;
+		font-family: var(--font-ui);
+		transition: background-color var(--dur-fast) var(--ease-out);
+	}
+
+	.run-option:hover:not(:disabled) {
+		background: var(--bg-hover);
+	}
+
+	.run-option:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.run-icon {
+		display: inline-flex;
+		padding-top: 2px;
+		color: var(--ink-muted);
+		--icon-size: 14px;
+	}
+
+	.run-text {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+
+	.run-title {
+		font-size: var(--text-body);
+		font-weight: 450;
+	}
+
+	.run-sub {
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+	}
+
+	.task-section {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+	}
+
+	.section-head {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
 	}
 
-	.group-title {
-		font-size: var(--text-sm);
+	.section-title {
+		margin: 0;
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
-		letter-spacing: -0.01em;
 	}
 
-	.group-sub {
-		font-size: var(--text-xs);
+	.section-count {
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
-		line-height: 1.35;
+		font-variant-numeric: tabular-nums;
 	}
 
-	.active-count-badge {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		font-weight: 500;
-		padding: 1px 6px;
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--brand) 12%, var(--bg-sunken));
-		border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line));
-		color: var(--brand-ink);
+	.manage-btn {
+		margin-left: auto;
 	}
 
-	.role-selection-area {
+	.field {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
+		gap: 6px;
+		min-width: 0;
 	}
 
 	.field-label {
-		font-size: var(--text-xs);
-		font-weight: 600;
+		font-size: var(--text-label);
+		font-weight: 500;
 		color: var(--ink-muted);
 	}
-	/* Role Pills */
-	.role-pills-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-1);
-	}
 
-	.role-pill-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 5px 10px;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
-		background: var(--bg-raised);
+	.field-help {
+		margin: 0;
+		font-size: var(--text-label);
+		line-height: 1.4;
 		color: var(--ink-muted);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
 
-	.role-pill-btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-		color: var(--ink);
-	}
-
-	.role-pill-btn.active {
-		background: var(--brand-dim);
-		border-color: var(--brand);
-		color: var(--ink);
-		font-weight: 600;
-	}
-
-	.role-pill-badge {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--brand-ink);
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		--icon-size: 12px;
-	}
-
-	.role-pill-btn.active .role-pill-badge {
-		color: var(--ink);
-	}
-
-	.role-pill-label {
-		font-size: var(--text-xs);
-	}
-
-	/* Model & Thinking Grid */
-	.model-thinking-grid {
+	.run-grid {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: var(--space-3);
+		gap: var(--space-4);
 		align-items: start;
 	}
 
 	@media (max-width: 720px) {
-		.model-thinking-grid {
+		.run-grid {
 			grid-template-columns: 1fr;
 		}
 	}
 
-	.model-col,
-	.thinking-col {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
+	.model-field :global(.menu-button-container) {
+		width: 100%;
 	}
 
-	.model-context-line {
+	/* Il trigger del modello ha la sagoma di .ui-select: e' un campo, non un
+	   trigger di barra. */
+	.model-field :global(.menu-button.model-trigger) {
+		width: 100%;
+		height: 30px;
+		padding: 0 var(--space-2);
+		gap: var(--space-2);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		font-size: var(--text-body);
+	}
+
+	.model-field :global(.menu-button.model-trigger:hover:not(:disabled)),
+	.model-field :global(.menu-button.model-trigger.active) {
+		background: var(--bg-sunken);
+		border-color: var(--line-strong);
+		color: var(--ink);
+	}
+
+	.model-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-size: var(--text-mono);
+	}
+
+	.model-provider {
+		flex-shrink: 0;
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
+	}
+
+	.model-placeholder {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		color: var(--ink-faint);
+	}
+
+	.model-chevron {
+		display: inline-flex;
+		margin-left: auto;
+		color: var(--ink-faint);
+		--icon-size: 12px;
+	}
+
+	.model-context {
+		margin: 0;
 		display: flex;
 		flex-wrap: wrap;
 		gap: 4px 10px;
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
-		font-size: 10px;
-		line-height: 1.35;
+		font-variant-numeric: tabular-nums;
 	}
 
-	.model-usage-note {
+	.context-usage {
 		color: var(--warn);
 	}
 
-	.frequent-configurations {
+	.frequent {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 6px;
 		margin-top: 2px;
 	}
 
 	.frequent-label {
+		font-size: var(--text-caption);
+		font-weight: 500;
 		color: var(--ink-faint);
-		font-size: 10px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
 	}
 
-	.frequent-chips {
+	.chip-row {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 4px;
+		gap: 6px;
 	}
 
-	.frequent-chip {
+	.chip-check {
 		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		max-width: 100%;
-		padding: 3px 6px;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		color: var(--ink-muted);
-		font: inherit;
-		font-size: 10px;
-		cursor: pointer;
+		--icon-size: 12px;
 	}
 
-	.frequent-chip > span {
+	.chip-text {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.frequent-chip small {
+	.chip-meta {
 		flex-shrink: 0;
 		color: var(--ink-faint);
-		font-family: var(--font-mono);
-		font-size: 9px;
 	}
 
-	.frequent-chip:hover,
-	.frequent-chip.active {
-		border-color: var(--brand);
-		background: var(--brand-dim);
-		color: var(--ink);
+	/* Su --bg-active --ink-faint scende a 3,96:1: la chip scelta usa --ink-muted. */
+	:global(.ui-chip[aria-pressed='true']) .chip-meta {
+		color: var(--ink-muted);
 	}
 
-	/* Modifiers Grid */
-	.modifiers-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-		gap: var(--space-2);
+	.thinking-field {
+		padding-top: 2px;
+		--slider-ring: var(--bg-sunken);
 	}
 
-	.modifier-card {
+	.switch-row {
 		display: flex;
-		align-items: flex-start;
-		gap: var(--space-2);
-		padding: var(--space-2);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		background: var(--bg-raised);
-		cursor: pointer;
-		user-select: none;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+		padding-top: var(--space-3);
+		border-top: 1px solid var(--line);
 	}
 
-	.modifier-card:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-	.modifier-card.checked {
-		background: color-mix(in srgb, var(--brand) 6%, var(--bg-raised));
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line));
-	}
-
-	.modifier-card input[type="checkbox"] {
-		margin-top: 2px;
-		accent-color: var(--brand);
-		cursor: pointer;
-	}
-
-	.modifier-body {
+	.switch-text {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		flex: 1;
 		min-width: 0;
 	}
 
-	.modifier-top {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-1);
-	}
-
-	.modifier-title {
-		font-size: var(--text-xs);
-		font-weight: 600;
+	.switch-title {
+		font-size: var(--text-body);
+		font-weight: 450;
 		color: var(--ink);
 	}
 
-	.modifier-tag {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		padding: 1px 4px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-faint);
-	}
-
-	.modifier-desc {
-		margin: 0;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		line-height: 1.35;
-	}
-
-
-	.btn-manage-directives {
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		color: var(--brand-ink);
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 2px 8px;
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.btn-manage-directives:hover {
-		background: var(--bg-hover);
-		border-color: var(--brand);
-	}
-
-	.modifier-badges {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		flex-shrink: 0;
-	}
-
-	.modifier-placement {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		padding: 0 4px;
-		background: color-mix(in srgb, var(--brand) 12%, var(--bg-sunken));
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
-		border-radius: var(--radius-sm);
-		color: var(--brand-ink);
-		text-transform: uppercase;
-	}
-
-	.modifier-upgrade-row {
+	.directive-notice {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
 		gap: var(--space-2);
-		margin-top: 4px;
-		padding-top: 4px;
-		border-top: 1px dashed var(--line);
-	}
-
-	.upgrade-badge {
-		font-size: 10px;
-		font-family: var(--font-mono);
-		color: var(--warn);
-	}
-
-	.btn-upgrade-directive {
-		font-size: 10px;
-		font-family: var(--font-ui);
-		font-weight: 600;
-		padding: 1px 6px;
-		background: var(--bg-hover);
-		border: 1px solid var(--warn);
-		border-radius: var(--radius-sm);
+		font-size: var(--text-label);
 		color: var(--ink);
-		cursor: pointer;
-		transition: background var(--dur-fast) var(--ease-out);
 	}
 
-	.btn-upgrade-directive:hover {
-		background: color-mix(in srgb, var(--warn) 20%, var(--bg-hover));
+	.notice-text {
+		min-width: 0;
 	}
 
-	.orphan-badge {
-		font-size: 10px;
-		color: var(--ink-faint);
-		font-style: italic;
+	.notice-text.muted {
+		color: var(--ink-muted);
 	}
 
 	@media (max-width: 800px) {
-		.save-state,
-		.hint-text {
+		.save-state {
 			display: none;
 		}
 	}

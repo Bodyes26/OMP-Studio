@@ -48,6 +48,6 @@
 
 	.file-mention-btn:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 1px;
+		outline-offset: 2px;
 	}
 </style>

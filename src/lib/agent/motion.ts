@@ -22,7 +22,7 @@ function durationToken(style: CSSStyleDeclaration, token: string, fallback: numb
 
 /* Svelte interpola via JS: risolviamo la stessa curva di --ease-reveal
    sull'asse x, invece di sostituirla con una curva polinomiale simile. */
-function revealEase(progress: number): number {
+export function revealEase(progress: number): number {
 	if (progress <= 0 || progress >= 1) return progress;
 	let parameter = progress;
 	for (let iteration = 0; iteration < 6; iteration++) {

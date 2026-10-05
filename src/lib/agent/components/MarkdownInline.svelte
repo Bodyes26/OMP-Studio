@@ -26,6 +26,8 @@
 		if (!href) return;
 		if (isAllowedExternalUrl(href)) {
 			void openExternalUrl(href);
+		} else if (onOpenFile) {
+			onOpenFile(href);
 		} else {
 			hooks.openFile(href, null);
 		}
@@ -36,7 +38,11 @@
 		const trimmed = text.trim();
 		// Se sembra un percorso o nome file (es. con estensione o slash), tenta la risoluzione nell'editor
 		if (trimmed.includes('/') || trimmed.includes('\\') || /\.[a-zA-Z0-9_-]+(?::\d+)?$/.test(trimmed)) {
-			hooks.openFile(trimmed, null);
+			if (onOpenFile) {
+				onOpenFile(trimmed);
+			} else {
+				hooks.openFile(trimmed, null);
+			}
 		}
 	}
 </script>

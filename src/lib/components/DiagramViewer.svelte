@@ -5,6 +5,9 @@
 	import { sanitizeSvg } from '$lib/editor/svgSandbox';
 	import { normalizeRoutingPath } from '$lib/agent/laneRouting';
 	import { IconClose, IconZoomIn, IconZoomOut } from '$lib/icons';
+	import { onThemeChange, tokenHex } from '$lib/theme';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
 
 	let {
 		projectPath,
@@ -63,30 +66,41 @@
 				startOnLoad: false,
 				securityLevel: 'strict',
 				theme: 'base',
-				// I colori seguono i token del tema attivo: neutri di sfondo,
-				// testo --ink, accento --brand per i nodi chiave.
+				// La sanificazione elimina <foreignObject>: le etichette HTML di
+				// Mermaid sparirebbero. Con htmlLabels false sono <text> SVG.
+				htmlLabels: false,
+				flowchart: { htmlLabels: false },
+				// I colori seguono i token del tema attivo. Mermaid li passa a
+				// khroma, che non legge oklch() ne' color-mix(): servono gli
+				// esadecimali risolti dal tema, non le espressioni dei token.
 				themeVariables: {
-					background: '#00000000',
+					background: 'transparent',
 					fontFamily:
 						'"Inter Variable", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
 					fontSize: '13px',
-					primaryColor: getComputedStyle(document.documentElement).getPropertyValue('--bg-overlay').trim() || '#222222',
-					primaryTextColor: getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#F5F5F5',
-					primaryBorderColor: getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#D8488C',
-					lineColor: getComputedStyle(document.documentElement).getPropertyValue('--ink-faint').trim() || '#909090',
-					secondaryColor: getComputedStyle(document.documentElement).getPropertyValue('--bg-raised').trim() || '#191919',
-					tertiaryColor: getComputedStyle(document.documentElement).getPropertyValue('--bg-base').trim() || '#131313'
+					primaryColor: tokenHex('--bg-overlay'),
+					primaryTextColor: tokenHex('--ink'),
+					primaryBorderColor: tokenHex('--brand'),
+					lineColor: tokenHex('--ink-faint'),
+					secondaryColor: tokenHex('--bg-raised'),
+					tertiaryColor: tokenHex('--bg-base')
 				}
 			});
 			const { svg } = await mermaidApi.render('studio-diagram-' + Date.now(), mermaid);
 			svgHost.innerHTML = sanitizeSvg(svg);
-			// Adatta l'SVG al contenitore: rimuove larghezza fissa e lascia
-			// fare lo scaling alla transform della whiteboard.
+			// Scala 1 = misura naturale del viewBox: lo zoom lo fa la transform
+			// della whiteboard. Senza larghezza e altezza esplicite l'SVG, dentro
+			// una tela assoluta senza misura, collassa a 0x0.
 			const svgEl = svgHost.querySelector('svg');
 			if (svgEl) {
+				const box = svgEl.viewBox.baseVal;
 				svgEl.removeAttribute('width');
 				svgEl.removeAttribute('height');
 				svgEl.style.maxWidth = 'none';
+				if (box && box.width && box.height) {
+					svgEl.style.width = `${box.width}px`;
+					svgEl.style.height = `${box.height}px`;
+				}
 			}
 			fitToView();
 		} catch (e) {
@@ -185,6 +199,11 @@
 		if (diagram) {
 			void render(diagram.mermaid);
 		}
+		// I colori sono cotti nell'SVG al momento del render: al cambio di
+		// tema il diagramma va ridisegnato con i nuovi esadecimali.
+		const offTheme = onThemeChange(() => {
+			if (diagram) void render(diagram.mermaid);
+		});
 		void listen<DiagramPayload>('diagram://new', (event) => {
 			const payload = event.payload;
 			// Se il diagramma e' destinato a un'altra corsia o progetto, ignoralo
@@ -206,6 +225,7 @@
 		});
 		return () => {
 			disposed = true;
+			offTheme();
 			unlisten?.();
 		};
 	});
@@ -217,20 +237,47 @@
 	class="diagram-viewer"
 	bind:this={containerEl}
 	role="region"
-	aria-label="Visualizzatore diagramma"
+	aria-label={m.diagram_region()}
 	onpointerenter={() => (pointerOver = true)}
 	onpointerleave={() => (pointerOver = false)}
 >
-	{#if diagram}
-		<div class="diagram-toolbar">
-			<span class="diagram-title" title={diagram.title}>{diagram.title}</span>
-			<span class="toolbar-spacer"></span>
-			<button class="tool-btn" onclick={fitToView} title="Adatta alla finestra (Ctrl+0)" aria-label="Adatta diagramma alla finestra (Ctrl+0)">Adatta</button>
-			<button class="tool-btn" onclick={() => (scale = clampScale(scale * 1.25))} title="Zoom in" aria-label="Ingrandisci diagramma (Zoom in)"><IconZoomIn /></button>
-			<button class="tool-btn" onclick={() => (scale = clampScale(scale / 1.25))} title="Zoom out" aria-label="Riduci diagramma (Zoom out)"><IconZoomOut /></button>
+	<!-- Testata fusa da 32 px (D7): c'e' anche senza diagramma, cosi' la
+	     chiusura resta raggiungibile e la fascia superiore non salta. -->
+	<div class="diagram-toolbar">
+		<span class="diagram-title" title={diagram?.title}>{diagram?.title ?? m.diagram_default_title()}</span>
+		<span class="toolbar-spacer"></span>
+		{#if diagram}
+			<Tooltip text={m.viewer_fit_tip_shortcut()} placement="bottom">
+				<button type="button" class="ui-button ui-button-ghost" onclick={fitToView}>{m.viewer_fit()}</button>
+			</Tooltip>
+			<Tooltip text={m.viewer_zoom_out()} placement="bottom">
+				<button
+					type="button"
+					class="icon-btn"
+					onclick={() => (scale = clampScale(scale / 1.25))}
+					aria-label={m.viewer_zoom_out()}
+				><IconZoomOut /></button>
+			</Tooltip>
 			<span class="zoom-label">{Math.round(scale * 100)}%</span>
-			<button class="tool-btn close" onclick={() => onClose?.()} title={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} aria-label={m.ui_diagramviewer_chiudi_visualizzatore_diagramma_esc_b2eb()}><IconClose /></button>
-		</div>
+			<Tooltip text={m.viewer_zoom_in()} placement="bottom">
+				<button
+					type="button"
+					class="icon-btn"
+					onclick={() => (scale = clampScale(scale * 1.25))}
+					aria-label={m.viewer_zoom_in()}
+				><IconZoomIn /></button>
+			</Tooltip>
+		{/if}
+		<Tooltip text={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} placement="bottom">
+			<button
+				type="button"
+				class="icon-btn"
+				onclick={() => onClose?.()}
+				aria-label={m.ui_diagramviewer_chiudi_visualizzatore_diagramma_esc_b2eb()}
+			><IconClose /></button>
+		</Tooltip>
+	</div>
+	{#if diagram}
 		<div
 			class="diagram-viewport"
 			bind:this={viewportEl}
@@ -240,7 +287,7 @@
 			onpointerup={handlePointerUp}
 			onpointercancel={handlePointerUp}
 			role="application"
-			aria-label="Whiteboard diagramma: {diagram.title}"
+			aria-label={m.diagram_canvas_label({ title: diagram.title })}
 		>
 			<div
 				class="diagram-canvas"
@@ -249,17 +296,20 @@
 				class:grabbing={dragging}
 			></div>
 			{#if rendering}
-				<div class="render-note">Rendering...</div>
+				<div class="render-note">
+					<StatusMark status="running" />
+					<span>{m.diagram_rendering()}</span>
+				</div>
 			{/if}
 			{#if renderError}
-				<div class="render-error">{m.ui_diagramviewer_errore_mermaid_d820()} {renderError}</div>
+				<div class="render-error" role="alert">{m.ui_diagramviewer_errore_mermaid_d820()} {renderError}</div>
 			{/if}
 		</div>
 	{:else}
 		<div class="empty-state">
 			<div class="empty-text">{m.ui_diagramviewer_nessun_diagramma_in_questa_sessione_fd81()}</div>
 			<div class="empty-hint">
-				Chiedi all'agente di usare il tool <code>studio_diagram</code> per visualizzare un diagramma qui
+				{m.diagram_empty_hint_before()} <code>studio_diagram</code> {m.diagram_empty_hint_after()}
 			</div>
 		</div>
 	{/if}
@@ -274,56 +324,59 @@
 		background: var(--bg-sunken);
 	}
 
+	/* Stessa testata dell'editor e del Task Editor: 32 px sul pozzo, linea sotto. */
 	.diagram-toolbar {
+		height: 32px;
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-3);
-		background: var(--bg-raised);
-		min-height: 30px;
+		gap: var(--space-1);
+		padding: 0 var(--space-1) 0 var(--space-3);
+		border-bottom: 1px solid var(--line);
 		flex-shrink: 0;
 	}
 
 	.diagram-title {
-		color: var(--ink);
-		font-size: var(--text-sm);
-		white-space: nowrap;
+		min-width: 0;
+		max-width: 40ch;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		max-width: 40ch;
+		white-space: nowrap;
+		color: var(--ink);
+		font-size: var(--text-label);
+		font-weight: 500;
 	}
 
 	.toolbar-spacer {
 		flex: 1;
 	}
 
-	.tool-btn {
+	.icon-btn {
+		width: 28px;
+		height: 28px;
+		display: inline-grid;
+		place-items: center;
+		padding: 0;
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
-		font-family: var(--font-ui);
-		font-size: var(--text-sm);
-		padding: 2px 8px;
-		border-radius: var(--radius-sm);
 		cursor: pointer;
+		--icon-size: 14px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
-	.tool-btn:hover {
+	.icon-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
 	}
 
-	.tool-btn.close {
-		font-size: var(--text-md);
-		line-height: 1;
-	}
-
 	.zoom-label {
-		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		min-width: 40px;
+		text-align: center;
+		color: var(--ink-muted);
+		font-size: var(--text-meta);
 		font-variant-numeric: tabular-nums;
-		min-width: 38px;
-		text-align: right;
 	}
 
 	.diagram-viewport {
@@ -358,11 +411,17 @@
 		top: 50%;
 		transform: translate(-50%, -50%);
 		color: var(--ink-muted);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
+	}
+
+	.render-note {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 	}
 
 	.render-error {
-		color: var(--git-deleted);
+		color: var(--danger);
 		max-width: 60ch;
 		text-align: center;
 	}
@@ -382,17 +441,17 @@
 
 	.empty-text {
 		color: var(--ink-muted);
-		font-size: var(--text-md);
+		font-size: var(--text-body);
 	}
 
 	.empty-hint {
 		color: var(--ink-faint);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 	}
 
 	.empty-hint code {
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
+		font-size: 0.92em;
 		background: var(--bg-hover);
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);

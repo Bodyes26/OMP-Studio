@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
 	import { m } from '$lib/paraglide/messages.js';
 	import SessionList from './SessionList.svelte';
@@ -10,6 +9,12 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { isLaneRoutable, type AutomationBlock, type AutomationGate } from '$lib/agent/automationGate';
 	import QueueTaskItem from './QueueTaskItem.svelte';
+	import { chatReveal, revealEase } from '$lib/agent/motion';
+	import { motionReduced, Lingering } from '$lib/agent/motionState.svelte';
+	import { IconPlus } from '$lib/icons';
+	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	let {
 		projectPath,
@@ -33,12 +38,28 @@
 		onOpenFile: (relPath: string) => void;
 	} = $props();
 
-	const disableAnimations = $derived(!settingsStore.accessibility.animations);
 	const tasks = $derived(taskStore.tasksFor(projectPath).filter((t) => t.status !== 'dispatching'));
 	const view = $derived(taskStore.viewFor(projectPath));
 	const frictionCount = $derived(rulesStore.suggestionsFor(projectPath).length);
 	const isCardView = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
 
+	const tabOptions = $derived<SegmentedOption<AgentView>[]>([
+		{
+			value: 'queue',
+			label: m.agent_panel_tab_queue(),
+			count: tasks.length
+		},
+		{
+			value: 'sessions',
+			label: m.agent_panel_tab_sessions()
+		},
+		{
+			value: 'rules',
+			label: m.agent_panel_tab_rules(),
+			count: frictionCount,
+			countTone: 'attention'
+		}
+	]);
 	/**
 	 * Blocco di cui si sta mostrando la spiegazione. Si confronta con quello
 	 * corrente invece di tenere un booleano: se il motivo cambia o si scioglie
@@ -49,6 +70,22 @@
 	const gateAttention = $derived(gate.block === 'question' || gate.block === 'quota');
 	const noticeOpen = $derived(!isLaneRoutable(gate) && explained === gate.block);
 
+	type GateNoticeContent =
+		| { kind: 'notice'; detail: string; hint?: string; attention: boolean }
+		| { kind: 'note'; note: string };
+
+	const noticeLinger = new Lingering<GateNoticeContent>();
+
+	$effect(() => {
+		const current: GateNoticeContent | undefined = noticeOpen
+			? { kind: 'notice', detail: gate.detail, hint: gate.hint, attention: gateAttention }
+			: gate.note
+				? { kind: 'note', note: gate.note }
+				: undefined;
+		noticeLinger.update(current);
+	});
+
+	$effect(() => () => noticeLinger.dispose());
 	// L'analisi dell'attrito e' una singola query in sola lettura sullo storico:
 	// gira al montaggio del pannello perche' il conteggio sulla scheda deve
 	// esserci prima che l'utente pensi ad aprirla.
@@ -83,42 +120,17 @@
 </script>
 
 <div class="agent-panel">
-	<div class="agent-tabs" role="tablist" aria-label={m.page_tabs_agent_panel_label()}>
-		<button
-			type="button"
-			role="tab"
-			id="tab-agent-queue"
-			aria-controls="panel-agent-queue"
-			aria-selected={view === 'queue'}
-			class:active={view === 'queue'}
-			onclick={() => setView('queue')}
-		>
-			{m.agent_panel_tab_queue()}
-			{#if tasks.length > 0}<span class="count">{tasks.length}</span>{/if}
-		</button>
-		<button
-			type="button"
-			role="tab"
-			id="tab-agent-sessions"
-			aria-controls="panel-agent-sessions"
-			aria-selected={view === 'sessions'}
-			class:active={view === 'sessions'}
-			onclick={() => setView('sessions')}
-		>
-			{m.agent_panel_tab_sessions()}
-		</button>
-		<button
-			type="button"
-			role="tab"
-			id="tab-agent-rules"
-			aria-controls="panel-agent-rules"
-			aria-selected={view === 'rules'}
-			class:active={view === 'rules'}
-			onclick={() => setView('rules')}
-		>
-			{m.agent_panel_tab_rules()}
-			{#if frictionCount > 0}<span class="count alert">{frictionCount}</span>{/if}
-		</button>
+	<div class="agent-tabs">
+		<Segmented
+			mode="tablist"
+			fill
+			tabIdPrefix="tab-agent-"
+			panelIdPrefix="panel-agent-"
+			value={view}
+			options={tabOptions}
+			ariaLabel={m.page_tabs_agent_panel_label()}
+			onChange={setView}
+		/>
 	</div>
 
 	{#if actionError}
@@ -129,37 +141,52 @@
 		<div id="panel-agent-queue" role="tabpanel" aria-labelledby="tab-agent-queue" class="panel-tab-body">
 			<div class="queue-toolbar">
 				<button type="button" class="new-task" onclick={onCreateTask} aria-label={m.ui_agentpanel_crea_nuovo_task_eca5()}>
-					<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+					<IconPlus />
 					{m.agent_panel_new_task_btn()}
 				</button>
 				{#if !gate.ready}
-					<button
-						type="button"
-						class="automation-state"
-						class:attention={gateAttention}
-						class:active={noticeOpen}
-						aria-expanded={noticeOpen}
-						aria-controls="agent-queue-gate-notice"
-						aria-label={m.gate_state_aria({ label: gate.label })}
-						title={`${gate.detail} ${gate.hint}`.trim()}
-						onclick={() => explained = noticeOpen ? null : gate.block}
-					>
-						<span class="state-dot" aria-hidden="true"></span>
-						<span class="state-label">{gate.label}</span>
-					</button>
+					<Tooltip text={`${gate.detail} ${gate.hint}`.trim()}>
+						<button
+							type="button"
+							class="automation-state"
+							class:attention={gateAttention}
+							class:active={noticeOpen}
+							aria-expanded={noticeOpen}
+							aria-controls="agent-queue-gate-notice"
+							aria-label={m.gate_state_aria({ label: gate.label })}
+							onclick={() => explained = noticeOpen ? null : gate.block}
+						>
+							<StatusMark status={gateAttention ? 'attention' : 'pending'} active={gateAttention} />
+							<span class="state-label">{gate.label}</span>
+						</button>
+					</Tooltip>
 				{/if}
 			</div>
 
-			{#if noticeOpen}
-				<div id="agent-queue-gate-notice" class="automation-notice" class:attention={gateAttention} role="status" aria-live="polite">
-					<strong>{m.gate_notice_title()}</strong>
-					<span>{gate.detail}</span>
-					{#if gate.hint}<span class="automation-hint">{gate.hint}</span>{/if}
-					<button type="button" onclick={() => explained = null}>{m.gate_notice_dismiss()}</button>
-				</div>
-			{:else if gate.note}
-				<div class="automation-note" role="status" aria-live="polite">{gate.note}</div>
-			{/if}
+			<div role="status" aria-live="polite">
+				{#if noticeLinger.shown !== undefined}
+					<div class={noticeLinger.leaving ? 'tray-out' : 'tray-in'}>
+						<div class="tray-fold-inner">
+							{#if noticeLinger.shown.kind === 'notice'}
+								<div id="agent-queue-gate-notice" class="automation-notice" class:attention={noticeLinger.shown.attention}>
+									<strong>{m.gate_notice_title()}</strong>
+									<span>{noticeLinger.shown.detail}</span>
+									{#if noticeLinger.shown.hint}<span class="automation-hint">{noticeLinger.shown.hint}</span>{/if}
+									<button
+										type="button"
+										class="ui-button ui-button-secondary"
+										onclick={() => explained = null}
+									>
+										{m.gate_notice_dismiss()}
+									</button>
+								</div>
+							{:else if noticeLinger.shown.kind === 'note'}
+								<div class="automation-note">{noticeLinger.shown.note}</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+			</div>
 
 			<ul class="queue-list" class:queue-cards={isCardView} aria-label={m.queue_drawer_heading()}>
 				{#if tasks.length === 0}
@@ -171,9 +198,6 @@
 								label: m.agent_panel_new_task_btn(),
 								onClick: onCreateTask
 							}}
-							shortcuts={[
-								{ key: 'Alt+E', label: 'Scrivi nel Composer' }
-							]}
 						/>
 					</li>
 				{:else}
@@ -181,8 +205,8 @@
 						<li
 							class="task-row"
 							draggable={task.status === 'queued'}
-							transition:slide={{ duration: disableAnimations ? 0 : 180 }}
-							animate:flip={{ duration: disableAnimations ? 0 : 180 }}
+							transition:chatReveal
+							animate:flip={{ duration: motionReduced() ? 0 : 210, easing: revealEase }}
 							ondragstart={() => draggedId = task.id}
 							ondragend={() => draggedId = null}
 							ondragover={(event) => event.preventDefault()}
@@ -237,65 +261,16 @@
 	}
 
 	.agent-tabs {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
 		padding: var(--space-1) var(--space-2) var(--space-2);
-	}
-
-	.agent-tabs button {
-		height: 26px;
-		padding: 0 var(--space-2);
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		border: 0;
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink-faint);
-		font-size: var(--text-sm);
-		font-weight: 500;
-		cursor: pointer;
-	}
-
-	.agent-tabs button:hover {
-		background: var(--bg-hover);
-		color: var(--ink-muted);
-	}
-
-	.agent-tabs button.active {
-		background: var(--bg-active);
-		color: var(--ink);
-	}
-
-	.count {
-		min-width: 17px;
-		height: 17px;
-		padding: 0 var(--space-1);
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: var(--radius-full);
-		background: var(--bg-raised);
-		color: var(--ink-muted);
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-	}
-
-	/* Attrito rilevato: ambra, l'unico segnale di attenzione della palette. */
-	.count.alert {
-		background: color-mix(in srgb, var(--warn) 22%, var(--bg-raised));
-		color: var(--warn);
 	}
 
 	.action-error {
 		margin: 0 var(--space-2) var(--space-2);
 		padding: var(--space-2);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: var(--danger-dim);
 		color: var(--ink);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		line-height: 1.4;
 	}
 
@@ -322,8 +297,9 @@
 		border-radius: var(--radius-md);
 		background: transparent;
 		color: var(--ink);
-		font-size: var(--text-sm);
+		font-size: var(--text-label);
 		font-weight: 500;
+		--icon-size: 14px;
 		white-space: nowrap;
 		cursor: pointer;
 	}
@@ -334,16 +310,6 @@
 
 	.new-task:active {
 		background: var(--bg-active);
-	}
-
-	.new-task svg {
-		width: 13px;
-		height: 13px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.5;
-		stroke-linecap: round;
-		stroke-linejoin: round;
 	}
 
 	.automation-state {
@@ -388,13 +354,6 @@
 		color: var(--warn);
 	}
 
-	.state-dot {
-		width: 6px;
-		height: 6px;
-		flex: 0 0 auto;
-		border-radius: var(--radius-full);
-		background: currentColor;
-	}
 
 	.automation-notice,
 	.automation-note {
@@ -426,16 +385,6 @@
 		color: var(--ink);
 	}
 
-	.automation-notice button {
-		margin-top: var(--space-1);
-		padding: 2px var(--space-2);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-sm);
-		background: transparent;
-		color: var(--ink);
-		font-size: var(--text-xs);
-		cursor: pointer;
-	}
 
 	.automation-note {
 		border-color: var(--line);
@@ -475,7 +424,7 @@
 	.task-row {
 		position: relative;
 		flex-shrink: 0;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 	}
 
 	.queue-list.queue-cards .task-row {
@@ -488,13 +437,14 @@
 		pointer-events: none;
 		border-radius: inherit;
 		background: color-mix(in srgb, var(--brand) 35%, transparent);
-		animation: task-flash var(--dur-flash) var(--ease-out) forwards;
+		opacity: 0;
+		animation: task-flash var(--dur-flash) var(--ease-reveal) both;
 		z-index: 1;
 	}
 
 	@keyframes task-flash {
-		0% { opacity: 0; }
-		25% { opacity: 0.85; }
-		100% { opacity: 0; }
+		from {
+			opacity: 0.85;
+		}
 	}
 </style>

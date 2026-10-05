@@ -53,6 +53,19 @@ export { default as IconKeyboard } from '@lucide/svelte/icons/keyboard';
 // Azioni su un progetto.
 export { default as IconFolderOpen } from '@lucide/svelte/icons/folder-open';
 export { default as IconFile } from '@lucide/svelte/icons/file';
+// Albero dei file: una forma per famiglia, mai una tinta per estensione.
+export { default as IconFolder } from '@lucide/svelte/icons/folder';
+// Stati vuoti: una forma per variante, neutra (l'accento resta all'azione).
+export { default as IconFolderPlus } from '@lucide/svelte/icons/folder-plus';
+export { default as IconListTodo } from '@lucide/svelte/icons/list-todo';
+export { default as IconCircleAlert } from '@lucide/svelte/icons/circle-alert';
+export { default as IconCircleCheck } from '@lucide/svelte/icons/circle-check';
+export { default as IconFileCode } from '@lucide/svelte/icons/file-code';
+export { default as IconFileBraces } from '@lucide/svelte/icons/file-braces';
+export { default as IconFileText } from '@lucide/svelte/icons/file-text';
+export { default as IconFileImage } from '@lucide/svelte/icons/file-image';
+export { default as IconFileArchive } from '@lucide/svelte/icons/file-archive';
+export { default as IconDatabase } from '@lucide/svelte/icons/database';
 export { default as IconCopy } from '@lucide/svelte/icons/copy';
 export { default as IconTerminal } from '@lucide/svelte/icons/square-terminal';
 export { default as IconEditor } from '@lucide/svelte/icons/code';
@@ -65,6 +78,7 @@ export { default as IconGitBranch } from '@lucide/svelte/icons/git-branch';
 export { default as IconRule } from '@lucide/svelte/icons/scroll-text';
 export { default as IconSkill } from '@lucide/svelte/icons/wand-sparkles';
 export { default as IconDownload } from '@lucide/svelte/icons/download';
+export { default as IconCloud } from '@lucide/svelte/icons/cloud';
 export { default as IconGithub } from './icons/IconGithub.svelte';
 
 // Editor: viste del file e barra delle schede.

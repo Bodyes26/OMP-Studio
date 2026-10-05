@@ -19,6 +19,9 @@
 	import ImageViewer from './ImageViewer.svelte';
 	import SvgPreview from './SvgPreview.svelte';
 	import Markdown from '$lib/agent/components/Markdown.svelte';
+	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import { lexMarkdown } from '$lib/agent/markdown';
 	import { projectStore, joinProjectPath, isWindows } from '$lib/stores/projects.svelte';
 	import { IS_MAC, REVEAL_LABEL } from '$lib/utils/platform';
@@ -41,7 +44,9 @@
 		IconUndo,
 		IconViewCode,
 		IconViewPreview,
-		IconViewSplit
+		IconViewSplit,
+		IconZoomIn,
+		IconZoomOut
 	} from '$lib/icons';
 
 	let {
@@ -114,6 +119,18 @@
 	let splitPercent = $state(50);
 	let isResizing = $state(false);
 
+	// Lo zoom dell'immagine vive nella barra dell'editor (una sola barra da
+	// 32 px): ImageViewer espone i comandi, l'editor ne mostra lo stato.
+	let imageViewer = $state<ReturnType<typeof ImageViewer>>();
+	let imageScale = $state(1);
+	let imageInfo = $state<{ width: number; height: number; bytes: number } | null>(null);
+
+	function formatBytes(size: number): string {
+		if (size < 1024) return `${size} B`;
+		if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+		return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+	}
+
 	let isDirty = $derived(filePath ? dirtyFiles[fileKey(projectPath, filePath)] === true : false);
 	let isImage = $derived(filePath ? isImageFile(filePath) : false);
 	let isSvg = $derived(filePath ? filePath.split('.').pop()?.toLowerCase() === 'svg' : false);
@@ -143,6 +160,11 @@
 		return viewModes[fileKey(projectPath, filePath)] ?? 'split';
 	});
 	let markdownTokens = $derived(isMarkdown && viewMode !== 'code' ? lexMarkdown(currentText) : []);
+	const viewOptions = $derived<SegmentedOption<ViewMode>[]>([
+		{ value: 'code', label: m.editor_view_code(), icon: IconViewCode, tooltip: m.editor_view_tip({ view: m.editor_view_code() }) },
+		{ value: 'split', label: m.editor_view_split(), icon: IconViewSplit, tooltip: m.editor_view_tip({ view: m.editor_view_split() }) },
+		{ value: 'preview', label: m.editor_view_preview(), icon: IconViewPreview, tooltip: m.editor_view_tip({ view: m.editor_view_preview() }) }
+	]);
 
 	let currentProjectDirtyPaths = $derived.by(() => {
 		if (!projectPath) return [];
@@ -1114,14 +1136,16 @@
 		});
 	}
 
-	function startResize(event: MouseEvent) {
+	// Pointer capture: il trascinamento continua anche quando il puntatore
+	// passa sopra Monaco o esce dalla finestra, senza listener globali.
+	function startResize(event: PointerEvent) {
+		if (event.button !== 0) return;
 		event.preventDefault();
 		isResizing = true;
-		window.addEventListener('mousemove', handleResize);
-		window.addEventListener('mouseup', stopResize);
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
 	}
 
-	function handleResize(event: MouseEvent) {
+	function handleResize(event: PointerEvent) {
 		if (!isResizing || !splitContainer) return;
 		const rect = splitContainer.getBoundingClientRect();
 		const relativeY = event.clientY - rect.top;
@@ -1132,8 +1156,6 @@
 
 	function stopResize() {
 		isResizing = false;
-		window.removeEventListener('mousemove', handleResize);
-		window.removeEventListener('mouseup', stopResize);
 	}
 
 </script>
@@ -1141,144 +1163,169 @@
 <svelte:window onkeydowncapture={handleWindowKeydown} />
 
 <div class="editor-wrapper">
-	{#if filePaths.length > 0}
-		<div class="editor-header">
-			{#if canScrollLeft}
+	<!-- Barra da 32 px sempre presente (D7): prende il posto della testata di
+	     colonna e resta anche senza schede, cosi' la fascia superiore non salta
+	     quando si apre il primo file. -->
+	<div class="editor-header">
+		{#if canScrollLeft}
+			<Tooltip text={m.editor_scroll_tabs_left()} placement="bottom">
 				<button
 					type="button"
-					class="tab-scroll-btn"
+					class="icon-btn"
 					onclick={() => scrollTabs(-180)}
-					title={m.editor_scroll_tabs_left()}
 					aria-label={m.editor_scroll_tabs_left()}
 				><IconChevronLeft /></button>
-			{/if}
-			<div
-				class="editor-tabs"
-				role="group"
-				aria-label={m.editor_open_files_group()}
-				bind:this={tabsTrackEl}
-				onscroll={updateTabScrollState}
-				onwheel={handleTabsWheel}
-			>
-				{#each filePaths as path (path)}
-					{@const isActive = path === filePath}
-					{@const isTabDirty = dirtyFiles[fileKey(projectPath, path)] === true}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="editor-tab"
-						class:active={isActive}
-						class:dragging={draggedTabPath === path}
-						class:drag-over={dragOverTabPath === path && draggedTabPath !== path}
-						class:drag-after={dragOverAfter}
-						data-tab-path={path}
-						draggable="true"
-						ondragstart={(event) => handleTabDragStart(event, path)}
-						ondragover={(event) => handleTabDragOver(event, path)}
-						ondragleave={() => handleTabDragLeave(path)}
-						ondrop={(event) => handleTabDrop(event, path)}
-						ondragend={handleTabDragEnd}
-						onmousedown={(event) => handleTabMouseDown(event, path)}
-						oncontextmenu={(event) => handleTabContextMenu(event, path)}
+			</Tooltip>
+		{/if}
+		<div
+			class="editor-tabs"
+			role="group"
+			aria-label={m.editor_open_files_group()}
+			bind:this={tabsTrackEl}
+			onscroll={updateTabScrollState}
+			onwheel={handleTabsWheel}
+		>
+			{#each filePaths as path (path)}
+				{@const isActive = path === filePath}
+				{@const isTabDirty = dirtyFiles[fileKey(projectPath, path)] === true}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="editor-tab"
+					class:active={isActive}
+					class:dragging={draggedTabPath === path}
+					class:drag-over={dragOverTabPath === path && draggedTabPath !== path}
+					class:drag-after={dragOverAfter}
+					data-tab-path={path}
+					draggable="true"
+					ondragstart={(event) => handleTabDragStart(event, path)}
+					ondragover={(event) => handleTabDragOver(event, path)}
+					ondragleave={() => handleTabDragLeave(path)}
+					ondrop={(event) => handleTabDrop(event, path)}
+					ondragend={handleTabDragEnd}
+					onmousedown={(event) => handleTabMouseDown(event, path)}
+					oncontextmenu={(event) => handleTabContextMenu(event, path)}
+				>
+					<!-- Il title porta il percorso completo, che il testo visibile tronca. -->
+					<button
+						class="editor-tab-file"
+						aria-pressed={isActive}
+						title={path}
+						onclick={() => selectFile(path)}
 					>
-						<button
-							class="editor-tab-file"
-							aria-pressed={isActive}
-							title={path}
-							onclick={() => selectFile(path)}
-						>
-							<span class="tab-label" class:unsaved={isTabDirty}>{fileName(path)}</span>
-						</button>
-						<!-- Un solo posto per due segni: il pallino delle modifiche non
-						     salvate lascia il posto alla X al passaggio del mouse, cosi'
-						     la larghezza della scheda non cambia mai. -->
-						<span class="tab-slot" class:has-dot={isTabDirty}>
-							{#if isTabDirty}
-								<span class="dirty-dot" aria-hidden="true">•</span>
-							{/if}
+						<span class="tab-label" class:unsaved={isTabDirty}>{fileName(path)}</span>
+						{#if isTabDirty}<span class="sr-only">, {m.editor_unsaved()}</span>{/if}
+					</button>
+					<!-- Un solo posto per due segni: il punto delle modifiche non
+					     salvate lascia il posto alla X al passaggio del mouse, cosi'
+					     la larghezza della scheda non cambia mai. -->
+					<span class="tab-slot" class:has-dot={isTabDirty}>
+						{#if isTabDirty}
+							<span class="dirty-dot" aria-hidden="true"></span>
+						{/if}
+						<Tooltip text={m.editor_close_tab_tip()} placement="bottom">
 							<button
+								type="button"
 								class="close-tab"
 								onclick={(event) => { event.stopPropagation(); closeFile(path); }}
-								title="Chiudi {fileName(path)} (Ctrl+W)"
-								aria-label="Chiudi {fileName(path)}"
+								aria-label={m.editor_close_tab({ name: fileName(path) })}
 							><IconClose /></button>
-						</span>
-					</div>
-				{/each}
-			</div>
-			{#if canScrollRight}
+						</Tooltip>
+					</span>
+				</div>
+			{/each}
+		</div>
+		{#if canScrollRight}
+			<Tooltip text={m.editor_scroll_tabs_right()} placement="bottom">
 				<button
 					type="button"
-					class="tab-scroll-btn"
+					class="icon-btn"
 					onclick={() => scrollTabs(180)}
-					title={m.editor_scroll_tabs_right()}
 					aria-label={m.editor_scroll_tabs_right()}
 				><IconChevronRight /></button>
-			{/if}
+			</Tooltip>
+		{/if}
 
-			{#if filePath}
-				<div class="header-actions">
-					{#if previewCapable && !activeFileError}
-						<!-- La vista vale per la scheda attiva: un solo controllo,
-						     non un pulsante per ogni linguetta. -->
-						<div class="segmented" role="group" aria-label={m.ui_editor_vista_del_file_66d9()}>
-							<button
-								class="seg-btn"
-								class:active={viewMode === 'code' && !showDiff}
-								onclick={() => setViewMode('code')}
-								title="Solo codice (Ctrl+Shift+V cicla)"
-								aria-label={m.editor_view_code()}
-								aria-pressed={viewMode === 'code' && !showDiff}
-							><IconViewCode /></button>
-							<button
-								class="seg-btn"
-								class:active={viewMode === 'split' && !showDiff}
-								onclick={() => setViewMode('split')}
-								title="Codice e anteprima (Ctrl+Shift+V cicla)"
-								aria-label={m.editor_view_split()}
-								aria-pressed={viewMode === 'split' && !showDiff}
-							><IconViewSplit /></button>
-							<button
-								class="seg-btn"
-								class:active={viewMode === 'preview' && !showDiff}
-								onclick={() => setViewMode('preview')}
-								title="Solo anteprima (Ctrl+Shift+V cicla)"
-								aria-label={m.editor_view_preview()}
-								aria-pressed={viewMode === 'preview' && !showDiff}
-							><IconViewPreview /></button>
-						</div>
+		{#if filePath}
+			<div class="header-actions">
+				{#if isImage && !activeFileError}
+					{#if imageInfo}
+						<span class="image-meta">
+							{imageInfo.width} × {imageInfo.height} px{imageInfo.bytes ? ` · ${formatBytes(imageInfo.bytes)}` : ''}
+						</span>
 					{/if}
-					{#if !isImage && !activeFileError}
+					<button type="button" class="ui-button ui-button-ghost" onclick={() => imageViewer?.fit()}>
+						{m.viewer_fit()}
+					</button>
+					<Tooltip text={m.viewer_zoom_out()} placement="bottom">
 						<button
+							type="button"
+							class="icon-btn"
+							onclick={() => imageViewer?.zoomOut()}
+							aria-label={m.viewer_zoom_out()}
+						><IconZoomOut /></button>
+					</Tooltip>
+					<span class="zoom-level">{Math.round(imageScale * 100)}%</span>
+					<Tooltip text={m.viewer_zoom_in()} placement="bottom">
+						<button
+							type="button"
+							class="icon-btn"
+							onclick={() => imageViewer?.zoomIn()}
+							aria-label={m.viewer_zoom_in()}
+						><IconZoomIn /></button>
+					</Tooltip>
+				{/if}
+				{#if previewCapable && !activeFileError}
+					<!-- La vista vale per la scheda attiva: un solo controllo,
+					     non un pulsante per ogni linguetta. Col diff aperto nessuna
+					     vista e' scelta, e sceglierne una chiude il diff. -->
+					<Segmented
+						options={viewOptions}
+						value={showDiff ? undefined : viewMode}
+						ariaLabel={m.ui_editor_vista_del_file_66d9()}
+						onChange={setViewMode}
+					/>
+				{/if}
+				{#if !isImage && !activeFileError}
+					{@const diffLabel = showDiff ? m.ui_editor_chiudi_il_confronto_con_head_9d0b() : m.editor_diff_open()}
+					<Tooltip text={diffLabel} placement="bottom">
+						<button
+							type="button"
 							class="icon-btn"
 							class:active={showDiff}
 							onclick={toggleGitDiff}
-							title={showDiff ? m.ui_editor_chiudi_il_confronto_con_head_9d0b() : 'Confronta con HEAD'}
-							aria-label={showDiff ? m.ui_editor_chiudi_il_confronto_con_head_9d0b() : 'Confronta con HEAD'}
+							aria-label={diffLabel}
 							aria-pressed={showDiff}
 						><IconDiff /></button>
-					{/if}
-					{#if isHtmlFile(filePath) && !activeFileError}
+					</Tooltip>
+				{/if}
+				{#if isHtmlFile(filePath) && !activeFileError}
+					<Tooltip text={m.ui_editor_apri_anteprima_live_in_sandbox_d6b9()} placement="bottom">
 						<button
-							class="action-btn"
+							type="button"
+							class="ui-button ui-button-secondary"
 							onclick={() => onPreviewRequest?.(filePath)}
-							title={m.ui_editor_apri_anteprima_live_in_sandbox_d6b9()}
-						>
-							{m.editor_open_preview_btn()}
-						</button>
-					{/if}
-					{#if isDirty && !isImage && !activeFileError}
-						<button class="action-btn save-btn" onclick={() => void saveCurrentFile()} title={m.ui_editor_salva_modifiche_ctrl_s_5f4d()}>
-							{m.project_popover_btn_save()}
-						</button>
-					{/if}
-				</div>
-			{/if}
-		</div>
-	{/if}
+						>{m.editor_open_preview_btn()}</button>
+					</Tooltip>
+				{/if}
+				{#if isDirty && !isImage && !activeFileError}
+					<Tooltip text={m.ui_editor_salva_modifiche_ctrl_s_5f4d()} placement="bottom">
+						<button
+							type="button"
+							class="ui-button ui-button-primary"
+							onclick={() => void saveCurrentFile()}
+						>{m.project_popover_btn_save()}</button>
+					</Tooltip>
+				{/if}
+			</div>
+		{/if}
+	</div>
 
 	<div class="editor-body">
 		{#if loading}
-			<div class="loading-overlay">{m.ui_editor_caricamento_in_corso_5dfd()}</div>
+			<div class="loading-overlay">
+				<StatusMark status="running" />
+				<span>{m.ui_editor_caricamento_in_corso_5dfd()}</span>
+			</div>
 		{/if}
 
 		{#if !filePath}
@@ -1308,7 +1355,13 @@
 				</div>
 			</div>
 		{:else if isImage}
-			<ImageViewer projectPath={projectPath} filePath={filePath} />
+			<ImageViewer
+				bind:this={imageViewer}
+				bind:scale={imageScale}
+				bind:info={imageInfo}
+				{projectPath}
+				{filePath}
+			/>
 		{:else if showDiff}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
@@ -1320,11 +1373,13 @@
 			<div class="preview-only">
 				{#if isSvg}
 					<div class="svg-preview-viewport">
-						<SvgPreview content={currentText} title="Anteprima live di {fileName(filePath)}" />
+						<SvgPreview content={currentText} title={m.editor_svg_preview_title({ name: fileName(filePath) })} />
 					</div>
 				{:else}
 					<div class="markdown-preview-viewport">
-						<Markdown tokens={markdownTokens} />
+						<div class="markdown-column">
+							<Markdown tokens={markdownTokens} />
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -1338,18 +1393,28 @@
 						oncontextmenu={(event) => handleEditorContextMenu(event, editor)}
 					></div>
 				</div>
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="splitter-bar" onmousedown={startResize} title={m.editor_resize_splitter_title()}>
-					<div class="splitter-line"></div>
-				</div>
+				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+				<div
+					class="splitter-bar"
+					class:dragging={isResizing}
+					role="separator"
+					aria-orientation="horizontal"
+					aria-label={m.editor_resize_splitter_title()}
+					onpointerdown={startResize}
+					onpointermove={handleResize}
+					onpointerup={stopResize}
+					onpointercancel={stopResize}
+				></div>
 				<div class="split-bottom" style="height: {100 - splitPercent}%;">
 					{#if isSvg}
 						<div class="svg-preview-viewport">
-							<SvgPreview content={currentText} title="Anteprima live di {fileName(filePath)}" />
+							<SvgPreview content={currentText} title={m.editor_svg_preview_title({ name: fileName(filePath) })} />
 						</div>
 					{:else}
 						<div class="markdown-preview-viewport">
-							<Markdown tokens={markdownTokens} />
+							<div class="markdown-column">
+								<Markdown tokens={markdownTokens} />
+							</div>
 						</div>
 					{/if}
 				</div>
@@ -1375,17 +1440,22 @@
 		position: relative;
 	}
 
+	/* Testata fusa da 32 px sul pozzo con una linea sotto: stessa misura e
+	   stessa superficie della testata del Task Editor e di TERMINAL/GUI. */
 	.editor-header {
-		min-height: 34px;
-		background: var(--bg-raised);
-		border-bottom: 1px solid var(--line);
+		height: 32px;
 		display: flex;
 		align-items: stretch;
 		gap: var(--space-1);
-		padding: 0 var(--space-1);
-		font-size: var(--text-xs);
+		padding: 0 var(--space-1) 0 0;
+		border-bottom: 1px solid var(--line);
+		font-size: var(--text-label);
 		z-index: var(--z-sticky);
 		flex-shrink: 0;
+	}
+
+	.editor-header > :global(.tooltip-wrapper) {
+		align-self: center;
 	}
 
 	.editor-tabs {
@@ -1402,25 +1472,35 @@
 		display: none;
 	}
 
-	.tab-scroll-btn {
-		align-self: center;
-		width: 18px;
-		height: 26px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
+	/* Trigger iconico della barra: 28 px, raggio di controllo, nessun bordo. */
+	.icon-btn {
+		width: 28px;
+		height: 28px;
+		display: inline-grid;
+		place-items: center;
+		padding: 0;
 		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
 		color: var(--ink-muted);
 		cursor: pointer;
 		flex: none;
+		--icon-size: 14px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.tab-scroll-btn:hover {
+	.icon-btn:hover {
 		background: var(--bg-hover);
 		color: var(--ink);
+	}
+
+	/* Toggle acceso: neutro come il Segmented, mai una tinta brand. */
+	.icon-btn.active {
+		background: var(--bg-active);
 		border-color: var(--line-strong);
+		color: var(--ink);
 	}
 
 	.editor-tab {
@@ -1431,6 +1511,8 @@
 		color: var(--ink-muted);
 		cursor: grab;
 		border-right: 1px solid var(--line);
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
 	.editor-tab:active {
@@ -1439,15 +1521,14 @@
 
 	.editor-tab:hover {
 		background: var(--bg-hover);
-	}
-
-	.editor-tab.active {
-		background: var(--bg-sunken);
 		color: var(--ink);
 	}
 
-	/* La scheda attiva si riconosce da una barra sopra, non solo dal fondo
-	   piu' scuro: a tema chiaro la differenza di superficie e' troppo tenue. */
+	.editor-tab.active {
+		color: var(--ink);
+	}
+
+	/* Indicatore unico da 2 px sul bordo superiore (D2, Single-Indicator Rule). */
 	.editor-tab.active::before {
 		content: '';
 		position: absolute;
@@ -1460,6 +1541,8 @@
 		opacity: 0.5;
 	}
 
+	/* Punto d'inserimento durante il trascinamento: e' un cursore, non un
+	   accento decorativo. */
 	.editor-tab.drag-over::after {
 		content: '';
 		position: absolute;
@@ -1479,7 +1562,7 @@
 		min-width: 0;
 		max-width: 180px;
 		height: 100%;
-		padding: 0 var(--space-1) 0 var(--space-2);
+		padding: 0 var(--space-1) 0 var(--space-3);
 		background: transparent;
 		border: none;
 		color: inherit;
@@ -1500,12 +1583,12 @@
 	}
 
 	/* Il corsivo dice "non salvato" anche a chi non distingue il colore del
-	   pallino (DESIGN.md: nessuna informazione affidata al solo colore). */
+	   punto (DESIGN.md: nessuna informazione affidata al solo colore). */
 	.tab-label.unsaved {
 		font-style: italic;
 	}
 
-	/* Cella di larghezza fissa: il pallino e la X vivono nello stesso posto,
+	/* Cella di larghezza fissa: il punto e la X vivono nello stesso posto,
 	   quindi passare col mouse non fa saltare la linguetta di qualche pixel. */
 	.tab-slot {
 		position: relative;
@@ -1518,25 +1601,33 @@
 		justify-content: center;
 	}
 
+	.tab-slot > :global(.tooltip-wrapper) {
+		position: absolute;
+		inset: 0;
+	}
+
 	.dirty-dot {
-		color: var(--warn);
-		font-size: 16px;
-		line-height: 1;
+		width: 6px;
+		height: 6px;
+		border-radius: var(--radius-full);
+		background: var(--warn);
 	}
 
 	.close-tab {
 		position: absolute;
 		inset: 0;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
+		display: inline-grid;
+		place-items: center;
 		background: transparent;
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		color: inherit;
 		cursor: pointer;
 		padding: 0;
 		opacity: 0;
+		--icon-size: 12px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			opacity var(--dur-fast) var(--ease-out);
 	}
 
 	.close-tab:hover {
@@ -1561,7 +1652,7 @@
 
 	/* Senza modifiche pendenti la X resta visibile sulla scheda attiva: e'
 	   l'azione piu' probabile su quella linguetta. */
-	.editor-tab.active .close-tab {
+	.editor-tab.active .tab-slot:not(.has-dot) .close-tab {
 		opacity: 0.7;
 	}
 
@@ -1577,97 +1668,22 @@
 		padding-left: var(--space-1);
 	}
 
-	.segmented {
-		display: inline-flex;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		overflow: hidden;
+	.image-meta,
+	.zoom-level {
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-faint);
+		white-space: nowrap;
 	}
 
-	.seg-btn {
-		width: 26px;
-		height: 22px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: transparent;
-		border: none;
-		border-left: 1px solid var(--line);
+	.image-meta {
+		margin-right: var(--space-1);
+	}
+
+	.zoom-level {
+		min-width: 40px;
+		text-align: center;
 		color: var(--ink-muted);
-		cursor: pointer;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
-	}
-
-	.seg-btn:first-child {
-		border-left: none;
-	}
-
-	.seg-btn:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.seg-btn.active {
-		background: var(--bg-active);
-		color: var(--ink);
-	}
-
-	.icon-btn {
-		width: 26px;
-		height: 22px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.icon-btn:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.icon-btn.active {
-		background: var(--bg-active);
-		color: var(--ink);
-		border-color: var(--brand);
-	}
-
-	.action-btn {
-		align-self: center;
-		background: transparent;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		padding: 2px 8px;
-		font-size: var(--text-xs);
-		font-family: var(--font-ui);
-		cursor: pointer;
-		flex: none;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.action-btn:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line-strong);
-	}
-
-	.action-btn.save-btn {
-		background: var(--brand);
-		color: var(--on-brand);
-		border-color: var(--brand);
-		font-weight: 600;
 	}
 
 	.editor-body {
@@ -1695,28 +1711,20 @@
 		overflow: hidden;
 	}
 
+	/* Come gli splitter delle colonne: si colora solo la linea da 1 px, in
+	   hover e durante il trascinamento, mai tutta la fascia. */
 	.splitter-bar {
 		height: 6px;
-		background: var(--bg-raised);
-		border-top: 1px solid var(--line);
-		border-bottom: 1px solid var(--line);
-		cursor: ns-resize;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-splitter);
 		flex-shrink: 0;
+		cursor: ns-resize;
+		touch-action: none;
+		z-index: var(--z-splitter);
+		background: linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat;
 	}
 
-	.splitter-bar:hover {
-		background: var(--brand);
-	}
-
-	.splitter-line {
-		width: 32px;
-		height: 2px;
-		background: var(--line-strong);
-		border-radius: 1px;
+	.splitter-bar:hover,
+	.splitter-bar.dragging {
+		background-image: linear-gradient(var(--brand), var(--brand));
 	}
 
 	.split-bottom {
@@ -1758,21 +1766,27 @@
 		background-size: 16px 16px;
 	}
 
-	/* Nessuna regola sui figli: il markdown arriva dal componente della chat,
-	   che porta i propri stili. Due fogli sullo stesso albero divergerebbero. */
+	/* Leggere un documento e' voce (Two Voices Rule): prosa 15/28 nella
+	   colonna da 720 px del transcript. Nessuna regola sui figli: il markdown
+	   arriva dal componente della chat, che porta i propri stili. */
 	.markdown-preview-viewport {
 		flex: 1;
-		padding: var(--space-4) var(--space-5);
+		padding: var(--space-4) var(--space-3) var(--space-6);
 		overflow-y: auto;
 		color: var(--ink);
 		font-family: var(--font-ui);
-		font-size: var(--text-base);
-		line-height: 1.5;
+		font-size: var(--text-prose);
+		line-height: 28px;
+	}
+
+	.markdown-column {
+		max-width: 720px;
+		margin: 0 auto;
 	}
 
 	.loading-overlay, .empty-state {
 		position: absolute;
-		top: 0; left: 0; right: 0; bottom: 0;
+		inset: 0;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -1781,15 +1795,22 @@
 		z-index: var(--z-splitter);
 	}
 
+	.loading-overlay {
+		flex-direction: row;
+		gap: var(--space-2);
+		color: var(--ink-muted);
+		font-size: var(--text-body);
+	}
+
 	.empty-text {
-		color: var(--ink-faint);
-		font-size: var(--text-md);
+		color: var(--ink-muted);
+		font-size: var(--text-body);
 		margin-bottom: var(--space-2);
 	}
 
 	.empty-hint {
 		color: var(--ink-faint);
-		font-size: var(--text-xs);
+		font-size: var(--text-caption);
 		font-family: var(--font-mono);
 	}
 </style>

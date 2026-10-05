@@ -1,120 +1,80 @@
 <script lang="ts">
-	// Slider del "thinking effort" in stile pillola: traccia spessa arrotondata,
-	// parte piena col colore del tema, pallini di passo senza etichette e pomello
-	// tondo. Durante il trascinamento il pomello segue il puntatore ma viene
-	// attratto verso il pallino piu' vicino (effetto magnetico), cosi' la
-	// selezione resta discreta ma il gesto rimane continuo.
+	// Slider del thinking: unico controllo per il livello di ragionamento in tutta
+	// Studio (Task Editor, Ruoli, popover del composer della chat). Sopra la traccia
+	// solo il nome del livello, nell'accento per testo; la descrizione resta nel
+	// valore accessibile. Chi lo usa sceglie quali livelli offrire: la chat non ha
+	// «Auto», che vale solo per task e ruoli.
+	import { m } from '$lib/paraglide/messages.js';
 	import { THINKING_LEVELS } from '$lib/stores/modelSettings.svelte';
-	import { IconBrain } from '$lib/icons';
 	import Slider from '$lib/ui/Slider.svelte';
+
+	type LevelId = (typeof THINKING_LEVELS)[number]['id'];
 
 	let {
 		value = 'auto',
+		levels,
 		disabled = false,
 		onChange
 	} = $props<{
 		value?: string;
+		levels?: readonly LevelId[];
 		disabled?: boolean;
 		onChange?: (val: string) => void;
 	}>();
 
-	const levels = THINKING_LEVELS;
-	const levelIds = levels.map((l) => l.id);
-	const lastIndex = levels.length - 1;
+	const offered = $derived(
+		levels ? THINKING_LEVELS.filter((level) => levels.includes(level.id)) : THINKING_LEVELS
+	);
+	const lastIndex = $derived(offered.length - 1);
 
 	const currentIndex = $derived.by(() => {
-		const idx = levelIds.indexOf(value as any);
+		const idx = offered.findIndex((level) => level.id === value);
 		return idx >= 0 ? idx : 0;
 	});
 
-	const currentLevel = $derived(levels[currentIndex] || levels[0]);
+	const currentLevel = $derived(offered[currentIndex] ?? offered[0]);
 
 	function handleSliderChange(val: number) {
-		const next = levelIds[val];
+		const next = offered[val]?.id;
 		if (next && next !== value) {
 			onChange?.(next);
 		}
 	}
 </script>
 
-<div class="reasoning-slider-box" class:disabled>
-	<div class="slider-header">
-		<div class="header-left">
-			<span class="brain-icon" aria-hidden="true">
-				<IconBrain />
-			</span>
-			<span class="level-chip">{currentLevel.id}</span>
-		</div>
-		<span class="level-desc">{currentLevel.desc}</span>
-	</div>
-
+<div class="reasoning-slider" class:disabled>
+	<span class="level-name" aria-hidden="true">{currentLevel.label}</span>
 	<Slider
 		min={0}
 		max={lastIndex}
 		step={1}
 		value={currentIndex}
-		valueText={currentLevel.id}
-		label="Reasoning / Thinking Effort"
+		valueText={`${currentLevel.label}: ${currentLevel.desc}`}
+		label={m.reasoning_slider_label()}
 		{disabled}
 		onChange={handleSliderChange}
 	/>
 </div>
 
 <style>
-	.reasoning-slider-box {
-		padding: 10px 12px;
-		background: color-mix(in srgb, var(--bg-base) 80%, var(--bg-sunken));
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
+	.reasoning-slider {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
 		user-select: none;
 	}
 
-	.reasoning-slider-box.disabled {
+	.reasoning-slider.disabled {
 		opacity: 0.5;
 		pointer-events: none;
 	}
 
-	.slider-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		margin-bottom: 10px;
-	}
-
-	.header-left {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-width: 0;
-	}
-
-	.brain-icon {
-		--icon-size: 13px;
+	.level-name {
+		align-self: center;
+		font-size: var(--text-title);
+		font-weight: 550;
+		line-height: 1.3;
 		color: var(--brand-ink);
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-
-	.level-chip {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		padding: 1px 7px;
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--brand) 18%, transparent);
-		color: var(--brand-ink);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
-		letter-spacing: 0.02em;
-		line-height: 1.4;
-	}
-
-	.level-desc {
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-		font-family: var(--font-mono);
-		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
 	}
 </style>

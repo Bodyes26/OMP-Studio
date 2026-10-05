@@ -1,100 +1,39 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { contextMenu, type ContextMenuItem } from '$lib/contextMenu.svelte';
+	import { anchoredPopover, type AnchoredOptions } from '$lib/anchoredPopover';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	let menuEl = $state<HTMLElement | null>(null);
 
 	const hasAnyIcon = $derived(contextMenu.items.some((it) => it.kind === 'item' && it.icon));
+
+	const useInvoker = $derived(
+		Boolean(contextMenu.fromKeyboard && contextMenu.invoker?.isConnected)
+	);
+
+	const popoverOptions = $derived<AnchoredOptions>(
+		useInvoker
+			? {
+					anchor: contextMenu.invoker,
+					placement: 'bottom-start',
+					offset: 2,
+					padding: 8,
+					motion: true
+			  }
+			: {
+					point: { x: contextMenu.x, y: contextMenu.y },
+					padding: 8,
+					motion: true
+			  }
+	);
 
 	function getMenuItems(): HTMLButtonElement[] {
 		if (!menuEl) return [];
 		return Array.from(menuEl.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'));
 	}
 
-	function updatePosition(node: HTMLElement) {
-		const PADDING = 8;
-		const vw = window.innerWidth;
-		const vh = window.innerHeight;
-
-		// Posiziona temporaneamente per misurare
-		node.style.left = '0px';
-		node.style.top = '0px';
-		node.style.visibility = 'hidden';
-
-		const menuWidth = node.offsetWidth;
-		const menuHeight = node.offsetHeight;
-
-		const targetX = contextMenu.x;
-		const targetY = contextMenu.y;
-		const invoker = contextMenu.invoker;
-		const fromKeyboard = contextMenu.fromKeyboard;
-
-		let left = targetX;
-		let top = targetY;
-
-		if (fromKeyboard && invoker) {
-			const rect = invoker.getBoundingClientRect();
-			left = rect.left;
-			top = rect.bottom + 2;
-
-			// Orizzontale da tastiera: se straborda a destra, allinea al bordo destro dell'invoker
-			if (left + menuWidth > vw - PADDING) {
-				left = rect.right - menuWidth;
-			}
-			if (left < PADDING) {
-				left = PADDING;
-			}
-
-			// Verticale da tastiera: se straborda in basso, ribalta sopra l'invoker
-			if (top + menuHeight > vh - PADDING) {
-				top = rect.top - menuHeight - 2;
-			}
-			if (top < PADDING) {
-				top = Math.max(PADDING, Math.min(vh - menuHeight - PADDING, top));
-			}
-		} else {
-			// Posizionamento da puntatore
-			// Orizzontale: se straborda a destra, ribalta a sinistra del cursore
-			if (left + menuWidth > vw - PADDING) {
-				left = targetX - menuWidth;
-			}
-			if (left < PADDING) {
-				left = targetX;
-			}
-
-			// Verticale: se straborda in basso, ribalta sopra il cursore
-			if (top + menuHeight > vh - PADDING) {
-				top = targetY - menuHeight;
-			}
-			if (top < PADDING) {
-				top = targetY;
-			}
-		}
-
-		// Clamp finale rigoroso entro i margini della finestra
-		left = Math.max(PADDING, Math.min(vw - menuWidth - PADDING, left));
-		top = Math.max(PADDING, Math.min(vh - menuHeight - PADDING, top));
-
-		node.style.left = `${Math.round(left)}px`;
-		node.style.top = `${Math.round(top)}px`;
-		node.style.visibility = 'visible';
-	}
-
-	function popoverAction(node: HTMLElement) {
-		const supportsPopover =
-			typeof HTMLElement !== 'undefined' &&
-			typeof HTMLElement.prototype.showPopover === 'function';
-
-		if (supportsPopover) {
-			try {
-				node.showPopover();
-			} catch {}
-		} else {
-			node.removeAttribute('popover');
-		}
-
-		updatePosition(node);
-
+	function contextMenuEvents(node: HTMLElement) {
 		// Anche gli elementi disabilitati restano focalizzabili, come nei menu desktop.
 		requestAnimationFrame(() => {
 			const items = getMenuItems();
@@ -124,11 +63,6 @@
 				window.removeEventListener('pointerdown', onPointerDownOutside, true);
 				window.removeEventListener('scroll', onScrollOrResize, true);
 				window.removeEventListener('resize', onScrollOrResize);
-				if (supportsPopover) {
-					try {
-						node.hidePopover();
-					} catch {}
-				}
 			}
 		};
 	}
@@ -254,7 +188,8 @@
 			aria-label={contextMenu.label || m.context_menu_default_label()}
 			tabindex="-1"
 			class="context-menu"
-			use:popoverAction
+			use:anchoredPopover={popoverOptions}
+			use:contextMenuEvents
 			onkeydown={handleKeydown}
 		>
 			{#each contextMenu.items as entry, i (i)}
@@ -293,18 +228,19 @@
 						{#if entry.secondaryAction}
 							{@const sec = entry.secondaryAction}
 							{@const SecIcon = sec.icon}
-							<button
-								type="button"
-								class="secondary-action-btn"
-								aria-label={sec.label}
-								title={sec.label}
-								onclick={(e) => {
-									e.stopPropagation();
-									void runSecondaryAction(sec);
-								}}
-							>
-								<SecIcon />
-							</button>
+							<Tooltip text={sec.label} placement="top" offset={4}>
+								<button
+									type="button"
+									class="secondary-action-btn"
+									aria-label={sec.label}
+									onclick={(e) => {
+										e.stopPropagation();
+										void runSecondaryAction(sec);
+									}}
+								>
+									<SecIcon />
+								</button>
+							</Tooltip>
 						{/if}
 					</div>
 				{/if}
@@ -319,7 +255,7 @@
 		inset: unset;
 		margin: 0;
 		padding: var(--space-1);
-		background: var(--bg-overlay);
+		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-overlay);
@@ -327,7 +263,7 @@
 		font-family: var(--font-ui);
 		font-size: var(--text-base);
 		z-index: var(--z-overlay);
-		min-width: 220px;
+		min-width: 260px;
 		width: max-content;
 		max-width: min(320px, calc(100vw - 16px));
 		max-height: calc(100vh - 16px);
@@ -353,7 +289,7 @@
 		flex-shrink: 0;
 	}
 	.menu-header {
-		font-size: 10px;
+		font-size: var(--text-group-label);
 		font-weight: 600;
 		color: var(--ink-faint);
 		padding: 6px var(--space-2) 2px;
@@ -367,13 +303,19 @@
 		display: flex;
 		align-items: center;
 		width: 100%;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		position: relative;
 	}
 
 	.item-row .item {
 		flex: 1;
 		min-width: 0;
+	}
+
+	.item-row :global(.tooltip-wrapper) {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
 	}
 
 	.detail {
@@ -399,7 +341,8 @@
 		margin-left: 2px;
 		padding: 0;
 		border: none;
-		border-radius: var(--radius-xs);
+		border-radius: var(--radius-md);
+		--icon-size: 12px;
 		background: transparent;
 		color: var(--ink-faint);
 		cursor: pointer;
@@ -410,17 +353,12 @@
 	}
 
 	.secondary-action-btn:hover {
-		background: color-mix(in srgb, var(--danger) 14%, var(--bg-raised));
+		background: color-mix(in srgb, var(--danger) 10%, var(--bg-raised));
 		color: var(--danger);
 	}
 
 	.secondary-action-btn:focus-visible {
-		box-shadow: inset 0 0 0 1.5px var(--focus);
-	}
-
-	.secondary-action-btn :global(svg) {
-		width: 12px;
-		height: 12px;
+		outline-offset: -2px;
 	}
 
 
@@ -429,17 +367,16 @@
 		align-items: center;
 		gap: var(--space-2);
 		width: 100%;
-		min-height: 26px;
-		padding: 4px var(--space-2);
+		padding: 7px 8px;
 		border: none;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		background: transparent;
 		color: var(--ink-muted);
 		font-family: var(--font-ui);
-		font-size: var(--text-sm);
+		font-size: var(--text-body);
+		font-weight: 450;
 		text-align: left;
 		cursor: pointer;
-		outline: none;
 		white-space: nowrap;
 		box-sizing: border-box;
 		transition:
@@ -472,8 +409,10 @@
 	.item.danger:hover:not([aria-disabled='true']),
 	.item.danger:focus:not([aria-disabled='true']),
 	.item.danger:focus-visible:not([aria-disabled='true']) {
-		background: color-mix(in srgb, var(--brand) 14%, var(--bg-raised));
-		color: var(--brand-ink);
+		/* 10% e non 14%: su alcuni temi scuri il 14% portava il testo --danger
+		   sotto 4,5:1. */
+		background: color-mix(in srgb, var(--danger) 10%, var(--bg-raised));
+		color: var(--danger);
 	}
 
 	.icon-slot {
@@ -483,6 +422,7 @@
 		width: 14px;
 		height: 14px;
 		flex: 0 0 14px;
+		--icon-size: 14px;
 		color: inherit;
 	}
 
@@ -494,7 +434,7 @@
 		white-space: nowrap;
 	}
 	.item:focus-visible {
-		box-shadow: inset 0 0 0 1.5px var(--focus);
+		outline-offset: -2px;
 	}
 
 	.shortcut {
@@ -514,8 +454,14 @@
 		color: var(--ink-muted);
 	}
 
+	:global(:root[data-animations='false']) .item,
+	:global(:root[data-animations='false']) .secondary-action-btn {
+		transition: none !important;
+	}
+
 	@media (prefers-reduced-motion: reduce) {
-		.item {
+		.item,
+		.secondary-action-btn {
 			transition: none !important;
 		}
 	}
