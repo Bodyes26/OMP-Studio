@@ -27,6 +27,8 @@ commands.allow = [
     "rpc_send",
     "rpc_close",
     "rpc_stderr",
+    "rpc_diagnostics",
+    "rpc_write_hang_report",
     "rpc_protocol",
     "rpc_abort",
     "rpc_force_kill",

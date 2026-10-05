@@ -27,6 +27,9 @@ use serde::Deserialize;
 use tauri::ipc::Channel;
 use tauri::State;
 
+mod diag;
+use diag::RpcStats;
+
 /// Tetto di riassemblaggio annunciato dal frame `ready` (64 MiB). Oltre
 /// questo un frame logico e' un errore, non un caso da gestire.
 const MAX_REASSEMBLED_BYTES: usize = 67_108_864;
@@ -65,6 +68,7 @@ pub struct RpcSession {
     pub project_key: Option<String>,
     #[allow(dead_code)]
     pub session_id: Arc<Mutex<Option<String>>>,
+    stats: Arc<RpcStats>,
 }
 
 impl RpcSession {
@@ -291,6 +295,15 @@ struct FramePeek<'a> {
     assistant_message_event: Option<AssistantEventPeek<'a>>,
 }
 
+/// Correlazione di una `response`, letta a parte: un `id` di forma inattesa
+/// deve degradare solo l'etichetta della scatola nera, mai la `FramePeek`
+/// da cui dipendono coalescenza dei delta e sessionId.
+#[derive(Deserialize)]
+struct ResponsePeek {
+    id: Option<String>,
+    command: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct AssistantEventPeek<'a> {
     #[serde(rename = "type")]
@@ -371,6 +384,7 @@ struct ReaderLoopArgs {
     rpc_id: u64,
     abort_signal: Arc<AtomicBool>,
     session_id: Arc<Mutex<Option<String>>>,
+    stats: Arc<RpcStats>,
 }
 
 fn reader_loop(args: ReaderLoopArgs) {
@@ -385,6 +399,7 @@ fn reader_loop(args: ReaderLoopArgs) {
         rpc_id,
         abort_signal,
         session_id,
+        stats,
     } = args;
     let mut reader = BufReader::with_capacity(1 << 16, stdout);
     let mut raw = Vec::with_capacity(1 << 16);
@@ -404,6 +419,7 @@ fn reader_loop(args: ReaderLoopArgs) {
         if raw.is_empty() {
             continue;
         }
+        stats.stdout_line();
         // Svuota delta e chunk pendenti se e' arrivato un segnale di abort
         if abort_signal.swap(false, Ordering::SeqCst) {
             pending_delta = None;
@@ -426,6 +442,7 @@ fn reader_loop(args: ReaderLoopArgs) {
                         &protocol,
                         &mut pending_delta,
                         &session_id,
+                        &stats,
                     ) {
                         break;
                     }
@@ -438,7 +455,7 @@ fn reader_loop(args: ReaderLoopArgs) {
                         "rpcId": rpc_id,
                         "message": reason,
                     });
-                    if on_event.send(frame.to_string()).is_err() {
+                    if !stats.send(&on_event, "studio_error", frame.to_string()) {
                         break;
                     }
                 }
@@ -458,14 +475,16 @@ fn reader_loop(args: ReaderLoopArgs) {
             &protocol,
             &mut pending_delta,
             &session_id,
+            &stats,
         ) {
             break;
         }
     }
 
     if let Some(buffer) = pending_delta.take() {
-        let _ = on_event.send(buffer.into_frame());
+        let _ = stats.send(&on_event, "studio_delta", buffer.into_frame());
     }
+    stats.reader_exited();
 
     // La morte del processo va raccontata con la sua causa: senza le righe di
     // stderr un avvio fallito (provider non autenticato, estensione rotta) si
@@ -481,7 +500,9 @@ fn reader_loop(args: ReaderLoopArgs) {
     let tail: Vec<String> = stderr_tail.lock().iter().cloned().collect();
     sessions.lock().remove(&rpc_id);
     crate::lane_bridge::revoke_owner("agent", rpc_id);
-    let _ = on_event.send(
+    let _ = stats.send(
+        &on_event,
+        "studio_exit",
         serde_json::json!({
             "type": "studio_exit",
             "rpcId": rpc_id,
@@ -594,6 +615,7 @@ fn dispatch(
     protocol: &Arc<AtomicU8>,
     pending_delta: &mut Option<DeltaBuffer>,
     session_id: &Arc<Mutex<Option<String>>>,
+    stats: &RpcStats,
 ) -> bool {
     let peek: Option<FramePeek> = serde_json::from_str(line).ok();
     if let Some(peek) = &peek {
@@ -618,7 +640,7 @@ fn dispatch(
                     }
                     _ => {
                         if let Some(buffer) = pending_delta.take() {
-                            if on_event.send(buffer.into_frame()).is_err() {
+                            if !stats.send(on_event, "studio_delta", buffer.into_frame()) {
                                 return false;
                             }
                         }
@@ -638,7 +660,7 @@ fn dispatch(
                     .is_some_and(|buffer| buffer.since.elapsed() >= DELTA_WINDOW)
                 {
                     let buffer = pending_delta.take().expect("appena verificato");
-                    if on_event.send(buffer.into_frame()).is_err() {
+                    if !stats.send(on_event, "studio_delta", buffer.into_frame()) {
                         return false;
                     }
                 }
@@ -653,7 +675,7 @@ fn dispatch(
     if line.contains("\"command\":\"abort\"") {
         *pending_delta = None;
     } else if let Some(buffer) = pending_delta.take() {
-        if on_event.send(buffer.into_frame()).is_err() {
+        if !stats.send(on_event, "studio_delta", buffer.into_frame()) {
             return false;
         }
     }
@@ -685,7 +707,21 @@ fn dispatch(
         }
     }
 
-    on_event.send(line.to_string()).is_ok()
+    // Nella scatola nera la `response` porta comando e id: si vede se la
+    // risposta a un comando e' arrivata almeno fino a Rust.
+    let label: std::borrow::Cow<str> = match peek.as_ref().and_then(|p| p.kind) {
+        Some("response") => match serde_json::from_str::<ResponsePeek>(line) {
+            Ok(r) => std::borrow::Cow::Owned(format!(
+                "response:{}#{}",
+                r.command.as_deref().unwrap_or("?"),
+                r.id.as_deref().unwrap_or("-")
+            )),
+            Err(_) => std::borrow::Cow::Borrowed("response"),
+        },
+        Some(kind) => std::borrow::Cow::Borrowed(kind),
+        None => std::borrow::Cow::Borrowed("?"),
+    };
+    stats.send(on_event, &label, line.to_string())
 }
 /// Applica `--resume <session_id>` se la sessione indicata possiede un transcript valido;
 /// altrimenti, se `continue_last` e' true, applica `--continue`.
@@ -865,6 +901,7 @@ pub async fn rpc_open(
     let child = Arc::new(Mutex::new(child));
 
     let session_id_slot = Arc::new(Mutex::new(resume.clone()));
+    let stats = Arc::new(RpcStats::default());
     manager.sessions.lock().insert(
         rpc_id,
         RpcSession {
@@ -883,6 +920,7 @@ pub async fn rpc_open(
             prototype_id: None,
             project_key: None,
             session_id: session_id_slot.clone(),
+            stats: stats.clone(),
         },
     );
 
@@ -926,6 +964,7 @@ pub async fn rpc_open(
             rpc_id,
             abort_signal,
             session_id: session_id_slot,
+            stats,
         });
     });
 
@@ -1138,6 +1177,7 @@ pub async fn rpc_open_lab(
     let child = Arc::new(Mutex::new(child));
 
     let session_id_slot = Arc::new(Mutex::new(resume.clone()));
+    let stats = Arc::new(RpcStats::default());
     let session = RpcSession {
         child: child.clone(),
         stdin: stdin.clone(),
@@ -1158,6 +1198,7 @@ pub async fn rpc_open_lab(
             Some(clean_project_path.to_string())
         },
         session_id: session_id_slot.clone(),
+        stats: stats.clone(),
     };
 
     manager.sessions.lock().insert(rpc_id, session.clone());
@@ -1194,6 +1235,7 @@ pub async fn rpc_open_lab(
             rpc_id,
             abort_signal,
             session_id: session_id_slot,
+            stats,
         });
     });
 
@@ -1216,26 +1258,33 @@ pub async fn rpc_send(
     line: String,
     manager: State<'_, RpcManager>,
 ) -> Result<(), String> {
-    let (stdin, abort_signal) = {
+    let (stdin, abort_signal, stats) = {
         let sessions = manager.sessions.lock();
         let session = sessions
             .get(&rpc_id)
             .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
-        (session.stdin.clone(), session.abort_signal.clone())
+        (session.stdin.clone(), session.abort_signal.clone(), session.stats.clone())
     };
 
     if line.contains("\"type\":\"abort\"") || line.contains("\"type\":\"abort_bash\"") {
         abort_signal.store(true, Ordering::SeqCst);
     }
-    let mut guard = stdin.lock();
-    let handle = guard
-        .as_mut()
-        .ok_or_else(|| format!("Sessione RPC {} in chiusura", rpc_id))?;
-    handle
-        .write_all(line.as_bytes())
-        .and_then(|()| handle.write_all(b"\n"))
-        .and_then(|()| handle.flush())
-        .map_err(|error| format!("Scrittura sulla sessione RPC {}: {}", rpc_id, error))
+    // L'attesa del lock conta come scrittura in corso: se una scrittura
+    // precedente e' ferma perche' omp non legge, anche questa lo e'.
+    stats.stdin_write_started();
+    let result = {
+        let mut guard = stdin.lock();
+        match guard.as_mut() {
+            Some(handle) => handle
+                .write_all(line.as_bytes())
+                .and_then(|()| handle.write_all(b"\n"))
+                .and_then(|()| handle.flush())
+                .map_err(|error| format!("Scrittura sulla sessione RPC {}: {}", rpc_id, error)),
+            None => Err(format!("Sessione RPC {} in chiusura", rpc_id)),
+        }
+    };
+    stats.stdin_write_finished();
+    result
 }
 
 #[tauri::command]
@@ -1341,6 +1390,70 @@ pub async fn rpc_stderr(
     };
     let lines: Vec<String> = tail.lock().iter().cloned().collect();
     Ok(lines)
+}
+
+/// Fotografia del trasporto di una sessione viva, per il rapporto di blocco
+/// che il frontend scrive quando un comando resta senza risposta. Arriva per
+/// `invoke`, non per il Channel della sessione: deve funzionare proprio
+/// quando quel Channel e' fermo.
+#[tauri::command]
+pub async fn rpc_diagnostics(
+    rpc_id: u64,
+    manager: State<'_, RpcManager>,
+) -> Result<serde_json::Value, String> {
+    let session = manager
+        .sessions
+        .lock()
+        .get(&rpc_id)
+        .cloned()
+        .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
+    let child_alive = session.child.lock().try_wait().ok().map(|status| status.is_none());
+
+    // Due campioni del Job Object: CPU consumata dall'albero di omp nel
+    // mezzo secondo, e processi ancora attivi (omp piu' eventuali tool).
+    #[cfg(target_os = "windows")]
+    let process_tree = match session.job.clone() {
+        Some(job) => {
+            let first = job.accounting();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            match (first, job.accounting()) {
+                (Some((before, _)), Some((after, active))) => serde_json::json!({
+                    "cpuMsInLast500ms": after.saturating_sub(before) / 10_000,
+                    "totalCpuMs": after / 10_000,
+                    "activeProcesses": active,
+                }),
+                _ => serde_json::Value::Null,
+            }
+        }
+        None => serde_json::Value::Null,
+    };
+    #[cfg(not(target_os = "windows"))]
+    let process_tree = serde_json::Value::Null;
+
+    let stderr_tail: Vec<String> = {
+        let tail = session.stderr_tail.lock();
+        tail.iter().skip(tail.len().saturating_sub(40)).cloned().collect()
+    };
+    Ok(serde_json::json!({
+        "rpcId": rpc_id,
+        "pid": session.pid,
+        "childAlive": child_alive,
+        "killed": session.killed.load(Ordering::Relaxed),
+        "protocol": session.protocol.load(Ordering::Relaxed),
+        "sessionId": session.session_id.lock().clone(),
+        "transport": session.stats.snapshot(),
+        "processTree": process_tree,
+        "stderrTail": stderr_tail,
+    }))
+}
+
+/// Scrive il rapporto di blocco nella cartella dei log e ne restituisce il
+/// percorso, da mostrare all'utente.
+#[tauri::command]
+pub async fn rpc_write_hang_report(report: String, app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let dir = app.path().app_log_dir().map_err(|error| error.to_string())?;
+    diag::write_hang_report(&dir, &report).map(|path| path.to_string_lossy().into_owned())
 }
 
 /// Versione di protocollo effettivamente negoziata: serve al frontend per
@@ -1512,6 +1625,7 @@ mod tests {
             prototype_id: None,
             project_key: None,
             session_id: Arc::new(Mutex::new(Some("session-main-1".to_string()))),
+            stats: Arc::new(RpcStats::default()),
         };
         let _ = session_main; // structure compiles and initializes correctly
     }

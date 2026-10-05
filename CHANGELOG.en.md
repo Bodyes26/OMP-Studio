@@ -36,6 +36,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The Terminal/GUI switch looks like tabs again, with the indicator under the active tab, instead of two system buttons.
 
 ### Added
+- When the chat gets no response to a command (for example “No response to "prompt" within 60s”), Studio saves a diagnostic report in the logs folder and shows its path in the error: it tells whether omp, command intake or event delivery to the window stopped, so the hang can be analyzed without reproducing it.
 - Create a new empty project straight from the top bar «+»: pick a name and Studio creates the folder in your projects directory with `git init` and opens it; with GitHub connected you can also create the public or private repository (empty, already linked as `origin`).
 - Make chat tray status marks, composer menus and tooltips, project close confirmation, settings controls, reasoning budget and Files/Git/Agent tabs consistent, with keyboard navigation and support for motion preferences.
 - Automatically check open Git projects' remotes on opening and every 5 minutes, including in the background: project tabs show a download icon and incoming commit count, enabled notifications alert without repeating, and the popover offers a preview and quick pull only with a clean working tree and fast-forward, without automatic stashing or rebasing. Disable these checks with Auto-fetch in settings.

@@ -91,6 +91,36 @@ impl WindowsJob {
             }
         }
     }
+
+    /// Tempo CPU totale (utente + kernel, unita' da 100 ns) dei processi del
+    /// job, vivi e terminati, e numero di processi ancora attivi. Serve alla
+    /// diagnosi di un agente che non risponde: due campioni distinguono un
+    /// ciclo che brucia CPU da un'attesa ferma, e i processi attivi oltre a
+    /// omp indicano un tool figlio ancora in corso.
+    pub fn accounting(&self) -> Option<(u64, u32)> {
+        use windows_sys::Win32::System::JobObjects::{
+            JobObjectBasicAccountingInformation, QueryInformationJobObject,
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+        };
+        if self.handle.is_null() {
+            return None;
+        }
+        unsafe {
+            let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = std::mem::zeroed();
+            let ok = QueryInformationJobObject(
+                self.handle,
+                JobObjectBasicAccountingInformation,
+                &mut info as *mut _ as *mut _,
+                std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                std::ptr::null_mut(),
+            );
+            if ok == 0 {
+                return None;
+            }
+            let cpu = (info.TotalUserTime as u64).saturating_add(info.TotalKernelTime as u64);
+            Some((cpu, info.ActiveProcesses))
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]

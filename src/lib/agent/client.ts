@@ -13,6 +13,14 @@ import type {
 	RpcCommand,
 	RpcResponse
 } from './wire';
+import {
+	buildHangReport,
+	frameLabel,
+	newTally,
+	noteReceived,
+	type BackendDiagnostics,
+	type ClientTally
+} from './hangReport';
 
 /** Timeout di default per richiesta. Un comando che non risponde entro un
  *  minuto e' un comando perso: senza timeout la promise resterebbe appesa. */
@@ -37,6 +45,20 @@ const LOGIN_TIMEOUT_MS = 600_000;
  *  ne' tenere aperta la sessione ne' cadere con l'abort dell'utente. */
 const FAST_COMMAND_TIMEOUT_MS = 4_000;
 const FAST_COMMANDS: Record<string, true> = { abort: true, abort_bash: true, negotiate_capabilities: true };
+
+/** Un rapporto di blocco al massimo ogni tanto: un blocco fa scadere in
+ *  cascata tutte le richieste in volo, e basta fotografarlo una volta. */
+const HANG_REPORT_MIN_INTERVAL_MS = 30_000;
+/** Tetto alle `invoke` del rapporto: se anche l'IPC e' fermo, l'errore al
+ *  chiamante non deve aspettare oltre. */
+const HANG_REPORT_INVOKE_TIMEOUT_MS = 5_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+	return Promise.race([
+		promise,
+		new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`nessuna risposta entro ${ms / 1000}s`)), ms))
+	]);
+}
 export interface RpcError extends Error {
 	code?: string;
 	command?: string;
@@ -74,6 +96,10 @@ export class OmpRpcClient {
 	private eventHandler: ((event: AgentSessionEvent) => void) | null = null;
 	private closed = false;
 	private abortEpoch = 0;
+	/** Frame consegnati dal Channel dell'apertura corrente: confrontati con
+	 *  quelli spediti da Rust dicono se il Channel si e' fermato. */
+	private tally: ClientTally = newTally();
+	private lastHangReportAt = 0;
 	get currentAbortEpoch(): number {
 		return this.abortEpoch;
 	}
@@ -109,13 +135,16 @@ export class OmpRpcClient {
 	): Promise<number> {
 		const epoch = ++this.openEpoch;
 		const channel = new Channel<string>();
+		const tally = (this.tally = newTally());
 		channel.onmessage = (line) => {
+			const index = tally.count++;
+			tally.lastAt = Date.now();
 			// Frame di un processo superato: la sessione ne sta aprendo un
 			// altro. Ridurli significherebbe insediarsi sul primo processo
 			// pronto invece che su quello richiesto, e con una sessione nuova
 			// e vuota il transcript ricostruito resta vuoto per sempre.
 			if (epoch !== this.openEpoch) return;
-			this.receive(line);
+			this.receive(line, index);
 		};
 		this.rpcId = null;
 		this.closed = false;
@@ -150,9 +179,12 @@ export class OmpRpcClient {
 	}): Promise<number> {
 		const epoch = ++this.openEpoch;
 		const channel = new Channel<string>();
+		const tally = (this.tally = newTally());
 		channel.onmessage = (line) => {
+			const index = tally.count++;
+			tally.lastAt = Date.now();
 			if (epoch !== this.openEpoch) return;
-			this.receive(line);
+			this.receive(line, index);
 		};
 		this.rpcId = null;
 		this.closed = false;
@@ -191,13 +223,17 @@ export class OmpRpcClient {
 						? FAST_COMMAND_TIMEOUT_MS
 						: DEFAULT_TIMEOUT_MS;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
+		const sentAt = Date.now();
 
 		const timer = window.setTimeout(() => {
 			this.pending.delete(id);
-			reject(rpcError(`Nessuna risposta a "${command.type}" entro ${timeoutMs / 1000}s`, command.type, 'timeout'));
+			const message = `Nessuna risposta a "${command.type}" entro ${timeoutMs / 1000}s`;
+			void this.reportHang(id, command.type, sentAt, timeoutMs).then((path) =>
+				reject(rpcError(path ? `${message}. Rapporto diagnostico: ${path}` : message, command.type, 'timeout'))
+			);
 		}, timeoutMs);
 
-		this.pending.set(id, { id, command: command.type, resolve, reject, timer, sentAt: Date.now() });
+		this.pending.set(id, { id, command: command.type, resolve, reject, timer, sentAt });
 		try {
 			await invoke('rpc_send', { rpcId: this.rpcId, line: JSON.stringify({ id, ...command }) });
 		} catch (error) {
@@ -320,17 +356,64 @@ export class OmpRpcClient {
 		this.pending.clear();
 	}
 
-	private receive(line: string) {
+	/**
+	 * Fotografa il trasporto quando un comando resta senza risposta e scrive
+	 * il rapporto nella cartella dei log. Restituisce il percorso, o `null` se
+	 * il rapporto e' stato saltato o non si e' potuto scrivere. Non rigetta mai:
+	 * chi la chiama deve comunque far fallire il comando.
+	 */
+	private async reportHang(commandId: string, command: string, sentAt: number, timeoutMs: number): Promise<string | null> {
+		const rpcId = this.rpcId;
+		const started = Date.now();
+		if (rpcId === null || started - this.lastHangReportAt < HANG_REPORT_MIN_INTERVAL_MS) return null;
+		this.lastHangReportAt = started;
+		// Copia ora: mentre si attende il backend possono arrivare altri frame.
+		const client: ClientTally = { ...this.tally, recent: [...this.tally.recent] };
+		const pending = [...this.pending.values()].map((entry) => ({ id: entry.id, command: entry.command, sentAt: entry.sentAt }));
+		let backend: BackendDiagnostics | null = null;
+		let backendError: string | null = null;
+		try {
+			backend = await withTimeout(invoke<BackendDiagnostics>('rpc_diagnostics', { rpcId }), HANG_REPORT_INVOKE_TIMEOUT_MS);
+		} catch (error) {
+			backendError = error instanceof Error ? error.message : String(error);
+		}
+		const report = buildHangReport({
+			// L'istante del backend, se c'e': e' quello dei suoi contatori.
+			now: backend?.transport.nowMs ?? Date.now(),
+			commandId,
+			command,
+			sentAt,
+			timeoutMs,
+			client,
+			pending,
+			backend,
+			backendError
+		});
+		console.error('[rpc-hang]', report.verdict.join(' | '));
+		try {
+			return await withTimeout(
+				invoke<string>('rpc_write_hang_report', { report: JSON.stringify(report, null, 2) }),
+				HANG_REPORT_INVOKE_TIMEOUT_MS
+			);
+		} catch (error) {
+			console.error('[rpc-hang] scrittura del rapporto fallita:', error, report);
+			return null;
+		}
+	}
+
+	private receive(line: string, index: number) {
 		if (this.closed) return;
 		let frame: unknown;
 		try {
 			frame = JSON.parse(line);
 		} catch (error) {
+			noteReceived(this.tally, index, line.length, '<illeggibile>', Date.now());
 			console.error('Frame RPC illeggibile:', error, line.slice(0, 400));
 			return;
 		}
 		if (!frame || typeof frame !== 'object') return;
 		const event = frame as AgentSessionEvent;
+		noteReceived(this.tally, index, line.length, frameLabel(event), Date.now());
 
 		if (event.type === 'response') {
 			this.settle(frame as RpcResponse);

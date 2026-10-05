@@ -36,6 +36,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Lo switch Terminale/GUI torna ad avere l'aspetto delle schede, con l'indicatore sotto la scheda attiva, invece di due pulsanti di sistema.
 
 ### Added
+- Quando la chat resta senza risposta a un comando (per esempio «Nessuna risposta a "prompt" entro 60s»), Studio salva un rapporto diagnostico nella cartella dei log e ne mostra il percorso nell'errore: indica se si è fermato omp, la lettura dei comandi o la consegna degli eventi alla finestra, così il blocco si può analizzare senza doverlo riprodurre.
 - Crea un nuovo progetto vuoto direttamente dal «+» della barra superiore: scegli il nome, Studio crea la cartella nella cartella dei progetti con `git init` e la apre; se GitHub è collegato puoi creare anche il repository pubblico o privato (vuoto, già collegato come `origin`).
 - Rendi coerenti gli stati nel vassoio della chat, i menu e i suggerimenti del composer, la conferma di chiusura progetto e i controlli di impostazioni, budget di ragionamento e schede File/Git/Agente, con navigazione da tastiera e rispetto delle preferenze di movimento.
 - Controlla automaticamente i remoti dei progetti Git all'apertura e ogni 5 minuti, anche in background: la scheda mostra l'icona di download e il numero di commit in arrivo, le notifiche abilitate avvisano senza ripetersi e il popover offre anteprima e pull rapido solo con albero pulito e fast-forward, senza stash o rebase automatici. Il controllo si disattiva con Auto-fetch nelle impostazioni.
