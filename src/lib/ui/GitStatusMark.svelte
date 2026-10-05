@@ -15,9 +15,11 @@
 		/** Descrizione per screen reader: una cartella dice cosa contiene, non cosa e'. */
 		description?: string;
 		class?: string;
+		/** Pallino al posto della lettera: una cartella segnala che contiene modifiche, come in VS Code. */
+		dot?: boolean;
 	}
 
-	let { status, description, class: customClass = '' }: GitStatusMarkProps = $props();
+	let { status, description, class: customClass = '', dot = false }: GitStatusMarkProps = $props();
 
 	const info = $derived.by(() => {
 		const raw = (status || '').trim().toUpperCase();
@@ -81,7 +83,7 @@
 	style:color={info.color}
 >
 	<span class="sr-only">{description || info.description}</span>
-	<span aria-hidden="true" class="git-abbr">{info.abbr}</span>
+	<span aria-hidden="true" class="git-abbr">{dot ? '•' : info.abbr}</span>
 </span>
 
 <style>

@@ -71,6 +71,7 @@ commands.allow = [
     "file_git_head",
     "file_git_rev",
     "project_git_status",
+    "project_git_ignored",
     "git_last_commit",
     "git_recent_commits",
     "git_current_branch",

@@ -1425,6 +1425,33 @@ pub async fn project_git_status(project_path: String) -> Result<FileGitStatus, S
     Ok(FileGitStatus { statuses })
 }
 
+/// Percorsi esclusi da `.gitignore`, relativi alla cartella del progetto.
+/// `--directory` riduce una cartella ignorata per intero a una sola voce
+/// (`node_modules`, `target`): l'albero la risale per gli antenati invece di
+/// ricevere migliaia di file. Fuori da un repository la lista resta vuota.
+#[command]
+pub async fn project_git_ignored(project_path: String) -> Result<Vec<String>, String> {
+    let Some(out) = run_git(
+        &project_path,
+        &[
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+        ],
+    ) else {
+        return Ok(Vec::new());
+    };
+    Ok(out
+        .split(|&b| b == 0)
+        .filter_map(|raw| std::str::from_utf8(raw).ok())
+        .map(|path| path.replace('\\', "/").trim_end_matches('/').to_string())
+        .filter(|path| !path.is_empty())
+        .collect())
+}
+
 // ---------- Storico git ----------
 //
 // L'agente spesso committa al termine del lavoro: lo stato "pulito" di
@@ -2186,9 +2213,9 @@ mod tests {
         content_search_within, count_untracked_text_lines, file_git_rev, fuzzy_match_str,
         git_last_commit, git_recent_commits, merge_name_status_numstat, parse_git_diff_stats,
         path_create_directory, path_create_file, path_rename, project_files_list,
-        project_files_search, rename_via_temp, resolve_existing_entry, resolve_new_destination,
-        resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
-        ProjectContentSearchResult,
+        project_files_search, project_git_ignored, rename_via_temp, resolve_existing_entry,
+        resolve_new_destination, resolve_path, resolve_project_file_sync, split_rel_path,
+        validate_basename, Dirent, ProjectContentSearchResult,
     };
     use std::collections::HashSet;
     use std::fs;
@@ -2383,6 +2410,45 @@ mod tests {
 
         assert_eq!(files[0].insertions, None);
         assert_eq!(files[0].deletions, None);
+    }
+
+    /// L'albero oscura cio' che `.gitignore` esclude: una cartella ignorata
+    /// arriva come voce unica, i file tracciati o non tracciati non compaiono.
+    #[test]
+    fn git_ignored_riduce_le_cartelle_e_salta_i_file_non_ignorati() {
+        let root = temp_dir("git-ignored");
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(&root)
+                .args(args)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            assert!(ok, "git {:?} fallito", args);
+        };
+        git(&["init", "-q"]);
+        fs::write(root.join(".gitignore"), "build/\n*.log\n").unwrap();
+        fs::create_dir_all(root.join("build/deep")).unwrap();
+        fs::write(root.join("build/deep/out.js"), "x").unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/app.log"), "x").unwrap();
+        fs::write(root.join("src/main.rs"), "x").unwrap();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut ignored = rt
+            .block_on(project_git_ignored(root.to_string_lossy().to_string()))
+            .unwrap();
+        ignored.sort();
+        assert_eq!(ignored, vec!["build".to_string(), "src/app.log".to_string()]);
+
+        let outside = temp_dir("git-ignored-fuori-repo");
+        let none = rt
+            .block_on(project_git_ignored(outside.to_string_lossy().to_string()))
+            .unwrap();
+        assert!(none.is_empty());
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&outside);
     }
 
     /// Il pannello GIT vive di questi comandi: su un repository reale

@@ -13,8 +13,14 @@
 		IconFileArchive,
 		IconFileBraces,
 		IconFileCode,
+		IconFileCog,
 		IconFileImage,
+		IconFileLock,
+		IconFileMusic,
+		IconFileSpreadsheet,
+		IconFileTerminal,
 		IconFileText,
+		IconFileVideo,
 		IconFolder,
 		IconFolderOpen,
 		IconRename,
@@ -109,6 +115,30 @@
 
 	const NOISY_DIRS = ['bin', 'obj', '.vs', 'packages', 'node_modules'];
 	let isNoisy = $derived(NOISY_DIRS.includes(name));
+
+	// Percorsi esclusi da .gitignore: le cartelle ignorate per intero arrivano
+	// come voce unica, quindi un nodo e' ignorato se lo e' lui o un antenato.
+	const NO_IGNORED: ReadonlySet<string> = new Set();
+	let rootIgnored = $state<ReadonlySet<string>>(NO_IGNORED);
+	const parentIgnored = getContext<() => ReadonlySet<string>>('gitIgnoredCtx');
+	const getIgnored = () =>
+		level === 0 ? rootIgnored : (parentIgnored ? parentIgnored() : NO_IGNORED);
+	setContext('gitIgnoredCtx', getIgnored);
+
+	function isPathIgnored(path: string): boolean {
+		const ignored = getIgnored();
+		if (ignored.size === 0) return false;
+		let current = path;
+		while (current) {
+			if (ignored.has(current)) return true;
+			const slash = current.lastIndexOf('/');
+			if (slash < 0) return false;
+			current = current.slice(0, slash);
+		}
+		return false;
+	}
+
+	let isIgnored = $derived(isPathIgnored(relPath));
 
 	let rootGitStatuses = $state<Record<string, string>>({});
 
@@ -314,12 +344,17 @@
 		if (!projectPath) return;
 		if (!force && Date.now() - lastGitStatusLoadedAt < 5000) return;
 		try {
-			const res: { statuses: Record<string, string> } = await invoke('project_git_status', { projectPath });
+			const [res, ignored] = await Promise.all([
+				invoke<{ statuses: Record<string, string> }>('project_git_status', { projectPath }),
+				invoke<string[]>('project_git_ignored', { projectPath }).catch(() => [] as string[])
+			]);
 			lastGitStatusLoadedAt = Date.now();
 			rootGitStatuses = res.statuses || {};
+			rootIgnored = ignored.length > 0 ? new Set(ignored) : NO_IGNORED;
 		} catch {
 			// Progetto non git o comando fallito: lo stato git degrada a vuoto
 			rootGitStatuses = {};
+			rootIgnored = NO_IGNORED;
 		}
 	}
 
@@ -856,25 +891,103 @@
 		openRootMenu(event);
 	}
 
-	// Una forma Lucide per famiglia: l'estensione e' gia' nel nome, l'icona
-	// separa solo codice, dati, testo, media e archivi.
-	const FILE_ICONS = new Map<string, typeof IconFile>([
-		...['md', 'markdown', 'txt', 'pdf'].map((ext) => [ext, IconFileText] as const),
-		...['json', 'jsonc', 'json5'].map((ext) => [ext, IconFileBraces] as const),
-		...[
-			'vb', 'vbs', 'vbproj', 'aspx', 'ascx', 'master', 'asmx', 'ashx', 'cs', 'csx', 'csproj', 'sln',
-			'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'html', 'htm', 'css', 'scss', 'less',
-			'xml', 'config', 'xaml', 'props', 'targets'
-		].map((ext) => [ext, IconFileCode] as const),
-		...['png', 'jpg', 'jpeg', 'gif', 'ico', 'webp', 'bmp', 'svg'].map((ext) => [ext, IconFileImage] as const),
-		...['zip', 'tar', 'gz', '7z', 'rar'].map((ext) => [ext, IconFileArchive] as const),
-		...['sql', 'db', 'sqlite', 'sqlite3', 'mdf'].map((ext) => [ext, IconDatabase] as const)
+	// Icona e tinta per linguaggio, come le icone di VS Code: la forma separa
+	// la famiglia (codice, dati, config, media), la tinta il linguaggio. Le
+	// tinte usano la rampa d'inchiostro dei progetti, che `applyAnchors`
+	// abbassa sui temi chiari, cosi' restano leggibili su ogni sfondo.
+	type FileKind = { icon: typeof IconFile; hue: number | null };
+	const kind = (icon: typeof IconFile, hue: number | null = null): FileKind => ({ icon, hue });
+	const PLAIN = kind(IconFile);
+	const KINDS = {
+		text: kind(IconFileText),
+		markdown: kind(IconFileText, 230),
+		pdf: kind(IconFileText, 25),
+		json: kind(IconFileBraces, 90),
+		npm: kind(IconFileBraces, 25),
+		ts: kind(IconFileCode, 245),
+		js: kind(IconFileCode, 95),
+		svelte: kind(IconFileCode, 35),
+		vue: kind(IconFileCode, 155),
+		markup: kind(IconFileCode, 50),
+		css: kind(IconFileCode, 215),
+		sass: kind(IconFileCode, 350),
+		rust: kind(IconFileCode, 55),
+		python: kind(IconFileCode, 265),
+		go: kind(IconFileCode, 200),
+		csharp: kind(IconFileCode, 150),
+		vb: kind(IconFileCode, 300),
+		cfamily: kind(IconFileCode, 260),
+		jvm: kind(IconFileCode, 30),
+		ruby: kind(IconFileCode, 15),
+		php: kind(IconFileCode, 285),
+		xml: kind(IconFileCode, 65),
+		shell: kind(IconFileTerminal, 140),
+		config: kind(IconFileCog, 290),
+		git: kind(IconFileCog, 30),
+		lock: kind(IconFileLock),
+		image: kind(IconFileImage, 310),
+		svg: kind(IconFileImage, 80),
+		audio: kind(IconFileMusic, 330),
+		video: kind(IconFileVideo, 330),
+		archive: kind(IconFileArchive, 75),
+		data: kind(IconDatabase, 190),
+		sheet: kind(IconFileSpreadsheet, 150)
+	} satisfies Record<string, FileKind>;
+	const byExt = (k: FileKind, exts: string[]) => exts.map((ext) => [ext, k] as const);
+	const EXT_KINDS = new Map<string, FileKind>([
+		...byExt(KINDS.text, ['txt', 'log', 'rst']),
+		...byExt(KINDS.markdown, ['md', 'markdown', 'mdx']),
+		...byExt(KINDS.pdf, ['pdf']),
+		...byExt(KINDS.json, ['json', 'jsonc', 'json5']),
+		...byExt(KINDS.ts, ['ts', 'tsx', 'mts', 'cts']),
+		...byExt(KINDS.js, ['js', 'jsx', 'mjs', 'cjs']),
+		...byExt(KINDS.svelte, ['svelte']),
+		...byExt(KINDS.vue, ['vue']),
+		...byExt(KINDS.markup, ['html', 'htm', 'aspx', 'ascx', 'master', 'asmx', 'ashx', 'cshtml', 'razor']),
+		...byExt(KINDS.css, ['css']),
+		...byExt(KINDS.sass, ['scss', 'sass', 'less']),
+		...byExt(KINDS.rust, ['rs']),
+		...byExt(KINDS.python, ['py', 'pyi', 'ipynb']),
+		...byExt(KINDS.go, ['go']),
+		...byExt(KINDS.csharp, ['cs', 'csx']),
+		...byExt(KINDS.vb, ['vb', 'vbs']),
+		...byExt(KINDS.cfamily, ['c', 'h', 'cpp', 'cc', 'hpp', 'm', 'mm', 'swift']),
+		...byExt(KINDS.jvm, ['java', 'kt', 'kts', 'scala', 'gradle']),
+		...byExt(KINDS.ruby, ['rb']),
+		...byExt(KINDS.php, ['php']),
+		...byExt(KINDS.xml, ['xml', 'xaml', 'plist', 'resx']),
+		...byExt(KINDS.shell, ['sh', 'bash', 'zsh', 'fish', 'bat', 'cmd', 'ps1']),
+		...byExt(KINDS.config, [
+			'toml', 'yaml', 'yml', 'ini', 'conf', 'cfg', 'config', 'env', 'props', 'targets',
+			'csproj', 'vbproj', 'sln', 'editorconfig'
+		]),
+		...byExt(KINDS.lock, ['lock', 'lockb']),
+		...byExt(KINDS.image, ['png', 'jpg', 'jpeg', 'gif', 'ico', 'icns', 'webp', 'bmp', 'avif']),
+		...byExt(KINDS.svg, ['svg']),
+		...byExt(KINDS.audio, ['mp3', 'wav', 'ogg', 'flac', 'm4a']),
+		...byExt(KINDS.video, ['mp4', 'mov', 'webm', 'mkv', 'avi']),
+		...byExt(KINDS.archive, ['zip', 'tar', 'gz', 'tgz', '7z', 'rar']),
+		...byExt(KINDS.data, ['sql', 'db', 'sqlite', 'sqlite3', 'mdf']),
+		...byExt(KINDS.sheet, ['csv', 'tsv', 'xls', 'xlsx'])
+	]);
+	// Nomi che contano piu' dell'estensione (package-lock.json e' un lock, non JSON).
+	const NAME_KINDS = new Map<string, FileKind>([
+		['package.json', KINDS.npm],
+		['package-lock.json', KINDS.lock],
+		['.gitignore', KINDS.git],
+		['.gitattributes', KINDS.git],
+		['.gitmodules', KINDS.git],
+		['dockerfile', KINDS.config],
+		['makefile', KINDS.shell]
 	]);
 
-	function fileIcon(filename: string): typeof IconFile {
-		const dot = filename.lastIndexOf('.');
-		if (dot === -1) return IconFile;
-		return FILE_ICONS.get(filename.slice(dot + 1).toLowerCase()) ?? IconFile;
+	function fileKind(filename: string): FileKind {
+		const lower = filename.toLowerCase();
+		const named = NAME_KINDS.get(lower);
+		if (named) return named;
+		const dot = lower.lastIndexOf('.');
+		if (dot === -1) return PLAIN;
+		return EXT_KINDS.get(lower.slice(dot + 1)) ?? PLAIN;
 	}
 	function getParentDirectory(path: string): string {
 		const lastSlash = path.lastIndexOf('/');
@@ -1108,8 +1221,24 @@
 	}
 </script>
 {#snippet typeIcon(fileName: string, isFolder: boolean = false, isExp: boolean = false)}
-	{@const Icon = isFolder ? (isExp ? IconFolderOpen : IconFolder) : fileIcon(fileName)}
-	<span class="type-icon" class:folder={isFolder} aria-hidden="true"><Icon /></span>
+	{@const k = isFolder ? null : fileKind(fileName)}
+	{@const Icon = k ? k.icon : (isExp ? IconFolderOpen : IconFolder)}
+	<span
+		class="type-icon"
+		class:folder={isFolder}
+		class:tinted={k?.hue != null}
+		style:--ft-h={k?.hue ?? undefined}
+		aria-hidden="true"
+	><Icon /></span>
+{/snippet}
+
+<!-- Spazio della freccia per i file: allinea il loro nome a quello delle cartelle sorelle. -->
+{#snippet twistie(isFolder: boolean, isExp: boolean)}
+	{#if isFolder}
+		<span class="arrow-icon" class:expanded={isExp}><IconChevronRight /></span>
+	{:else}
+		<span class="arrow-icon" aria-hidden="true"></span>
+	{/if}
 {/snippet}
 
 <!-- Il nodo radice intercetta solo lo spazio vuoto; righe e pulsanti mantengono i propri ruoli. -->
@@ -1207,7 +1336,8 @@
 						aria-selected={isSelected}
 						class="search-result-row"
 						class:selected={isSelected}
-						class:git-d={resStatus === 'D'}
+						class:faint={isPathIgnored(res.path)}
+						data-git={resStatus?.toLowerCase()}
 						onclick={() => handleSelectSearchResult(res)}
 						onkeydown={(e) => handleSearchResultKeyDown(e, i, res)}
 						oncontextmenu={(e) => handleSearchResultContextMenu(e, res)}
@@ -1239,8 +1369,8 @@
 	{:else}
 		{#if isRenaming}
 			<div class="tree-row inline-edit-row" style="padding-left: {level * 12 + 8}px;">
+				{@render twistie(isDir, expanded)}
 				{#if isDir}
-					<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
 					{@render typeIcon('folder', true, expanded)}
 				{:else}
 					{@render typeIcon(renameValue || name, false, false)}
@@ -1281,22 +1411,18 @@
 				aria-expanded={isDir ? expanded : undefined}
 				aria-selected={isDir ? undefined : false}
 				tabindex={nav.isActive(rowKey) ? 0 : -1}
-				class:faint={isNoisy}
-				class:git-d={fileStatus === 'D'}
+				class:faint={isIgnored || isNoisy}
+				data-git={level > 0 ? fileStatus?.toLowerCase() : undefined}
 				style="padding-left: {level * 12 + 8}px;"
 				onfocus={() => nav.setActive(rowKey)}
 				onclick={toggle}
 				oncontextmenu={handleRowContextMenu}
 			>
-				{#if isDir}
-					<span class="arrow-icon" class:expanded={expanded}><IconChevronRight /></span>
-					{@render typeIcon('folder', true, expanded)}
-				{:else}
-					{@render typeIcon(name, false, false)}
-				{/if}
+				{@render twistie(isDir, expanded)}
+				{@render typeIcon(name, isDir, expanded)}
 				<span class="name">{name}</span>
 				{#if fileStatus}
-					<GitStatusMark status={fileStatus} description={getStatusTitle(fileStatus, isDir)} />
+					<GitStatusMark status={fileStatus} description={getStatusTitle(fileStatus, isDir)} dot={isDir} />
 				{/if}
 			</button>
 			{#if trashError}
@@ -1314,13 +1440,15 @@
 		{#if isDir && childrenLinger.shown}
 			<div
 				class={foldAnimated ? `children ${childrenLinger.leaving ? 'tray-out' : 'tray-in'}` : 'children'}
+				class:guided={level > 0}
+				style:--guide-x="{level * 12 + 14}px"
 				role="group"
 			>
 				<div class="tray-fold-inner">
 					{#if creatingType}
 						<div class="tree-row inline-edit-row" style="padding-left: {(level + 1) * 12 + 8}px;">
+							{@render twistie(creatingType === 'dir', false)}
 							{#if creatingType === 'dir'}
-								<span class="arrow-icon"><IconChevronRight /></span>
 								{@render typeIcon('', true, false)}
 							{:else}
 								{@render typeIcon(creationName, false, false)}
@@ -1473,9 +1601,16 @@
 		word-break: break-word;
 	}
 
-	/* Cartelle rumorose (bin, obj, node_modules): un gradino sotto, mai sotto AA. */
-	.tree-row.faint {
+	/* Esclusi da .gitignore e cartelle rumorose (bin, obj, node_modules): il
+	   nome scende di un gradino senza andare sotto AA, l'icona si spegne. */
+	.tree-row.faint,
+	.search-result-row.faint .result-name {
 		color: var(--ink-faint);
+	}
+
+	.tree-row.faint .type-icon,
+	.search-result-row.faint .type-icon {
+		opacity: 0.55;
 	}
 
 	.arrow-icon {
@@ -1501,9 +1636,17 @@
 		width: 16px;
 		height: 16px;
 		flex-shrink: 0;
-		color: var(--ink-faint);
+		color: var(--ink-muted);
 	}
 
+	/* Tinte sulla rampa d'inchiostro dei progetti: stessa luminanza per ogni
+	   linguaggio, abbassata sui temi chiari da applyAnchors. */
+	.type-icon.tinted {
+		color: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--ft-h));
+	}
+
+	/* Cartelle neutre: la tinta resta ai file, e l'ambra di --warn sul nome di
+	   una cartella modificata non si confonde con quella dell'icona. */
 	.type-icon.folder {
 		color: var(--ink-muted);
 	}
@@ -1512,6 +1655,27 @@
 	   al minuto, e su cartelle grandi il layout per fotogramma dura la meta'. */
 	.children {
 		--dur-tray: var(--dur-row);
+		position: relative;
+	}
+
+	/* Guida di rientro sotto la freccia della cartella, come in VS Code: dice a
+	   colpo d'occhio dove finisce il contenuto. Sta sopra lo sfondo di hover
+	   delle righe e si accende quando il puntatore o il fuoco e' su un figlio. */
+	.children.guided::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: var(--guide-x);
+		width: 1px;
+		background: var(--line-strong);
+		pointer-events: none;
+		z-index: 1;
+	}
+
+	/* I figli sono istanze annidate di FileTree: il compilatore non le vede nel template. */
+	.children.guided:has(> .tray-fold-inner > :global(.tree-node > .tree-row:is(:hover, :focus-visible)))::before {
+		background: var(--ink-faint);
 	}
 
 	.name {
@@ -1521,10 +1685,26 @@
 		white-space: nowrap;
 	}
 
-	/* Lo stato Git e' la lettera di GitStatusMark: il nome resta --ink e il
-	   file eliminato si legge dal segno barrato, non dal colore. */
-	.tree-row.git-d .name,
-	.search-result-row.git-d .result-name {
+	/* Decorazioni Git come in VS Code: il nome prende il colore dello stato
+	   (le cartelle quello dei file che contengono) e la lettera a destra lo
+	   ripete, cosi' lo stato non dipende dal solo colore. Eliminato = barrato. */
+	.tree-row[data-git='m'] .name,
+	.search-result-row[data-git='m'] .result-name {
+		color: var(--warn);
+	}
+
+	.tree-row:is([data-git='a'], [data-git='u']) .name,
+	.search-result-row:is([data-git='a'], [data-git='u']) .result-name {
+		color: var(--success);
+	}
+
+	.tree-row:is([data-git='d'], [data-git='c']) .name,
+	.search-result-row:is([data-git='d'], [data-git='c']) .result-name {
+		color: var(--danger);
+	}
+
+	.tree-row[data-git='d'] .name,
+	.search-result-row[data-git='d'] .result-name {
 		text-decoration: line-through;
 	}
 
