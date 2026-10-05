@@ -110,6 +110,8 @@
   "topbar_tab_project": "Progetto",
   "topbar_tab_scratchpad": "Scratchpad",
   "topbar_lanes_badge_title": "{count} corsie secondarie attive",
+  "topbar_lanes_badge_worktree_title": "{count} worktree attivi",
+  "topbar_lanes_badge_lab_title": "{count} prototipi Lab aperti",
   "lanestrip_title": "Corsie di lavoro",
   "lanestrip_tab_main": "Principale",
   "lanestrip_tab_new": "Nuova corsia",

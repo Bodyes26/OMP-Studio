@@ -192,12 +192,6 @@
 	let canScrollLeft = $state(false);
 	let canScrollRight = $state(false);
 
-	/** Sequenza del lampo di transizione, una per progetto: cambiarla rimonta
-	 *  l'overlay e riavvia l'animazione. */
-	let flashSeq = $state<Record<string, number>>({});
-	const flashCount = new Map<string, number>();
-	const lastSeenState = new Map<string, Project['lane']['agentState']>();
-
 	const panelProject = $derived(
 		panel ? projectStore.projects.find((candidate) => candidate.id === panel!.projectId) ?? null : null
 	);
@@ -563,27 +557,6 @@
 		return p.lane.agentState ?? 'unknown';
 	}
 
-	$effect(() => {
-
-		for (const p of projectStore.projects) {
-			const agg = getAggregatedState(p);
-			const previous = lastSeenState.get(p.id);
-			lastSeenState.set(p.id, agg);
-			// Il primo stato osservato non e' una transizione, e 'unknown' e' il
-			// valore prima che la sessione si attacchi: all'avvio non lampeggia
-			// niente.
-			if (
-				previous === undefined ||
-				previous === 'unknown' ||
-				previous === agg
-			) continue;
-			const next = (flashCount.get(p.id) ?? 0) + 1;
-			flashCount.set(p.id, next);
-			// Scrittura pura: `flashSeq` non viene mai letto qui dentro, quindi
-			// l'effetto non si invalida da solo.
-			flashSeq[p.id] = next;
-		}
-	});
 
 
 	function projectHue(project: Project): number {
@@ -872,7 +845,8 @@
 				: ''}
 			{@const aggState = getAggregatedState(p)}
 			{@const secondaryLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')}
-			{@const secondaryCount = secondaryLanes.length}
+			{@const gitLanesCount = secondaryLanes.filter((l) => l.kind !== 'lab').length}
+			{@const labLanesCount = secondaryLanes.filter((l) => l.kind === 'lab').length}
 			<!-- Il contenitore esiste solo per trascinamento, hover e menu
 			     contestuale: con `role="presentation"` sparisce dall'albero
 			     accessibile e la tessera resta figlia diretta del tablist, come
@@ -919,18 +893,15 @@
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + (secondaryCount > 0 ? ` · ${secondaryCount} corsie` : '') + gitDiffLabel + upstreamLabel}
+					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + (gitLanesCount > 0 ? ` · ${gitLanesCount} worktree` : '') + (labLanesCount > 0 ? ` · ${labLanesCount} prototipi` : '') + gitDiffLabel + upstreamLabel}
 				>
-					<!-- Il lampo vive dentro la tessera per essere tagliato dal suo
-					     raggio; il rimontaggio con `#key` riavvia l'animazione. -->
-					{#if flashSeq[p.id]}
-						{#key flashSeq[p.id]}
-							<span class="tab-flash" aria-hidden="true"></span>
-						{/key}
-					{/if}
 
 					{#if p.canonicalProjectPath}
-						<span class="tab-dot" aria-hidden="true"></span>
+						<span
+							class="tab-dot"
+							class:working={aggState === 'working'}
+							aria-hidden="true"
+						></span>
 						<span class="tab-code">{projectCode(p)}</span>
 					{:else if p.labDraft}
 						<span class="tab-ghost" aria-hidden="true"><IconLab /></span>
@@ -962,14 +933,24 @@
 							</span>
 						</span>
 					{/if}
-					{#if secondaryCount > 0}
+					{#if gitLanesCount > 0}
 						<span
 							class="tab-lanes-badge"
 							aria-hidden="true"
-							title={m.topbar_lanes_badge_title({ count: secondaryCount })}
+							title={m.topbar_lanes_badge_worktree_title({ count: gitLanesCount })}
 						>
 							<IconGitBranch />
-							<span>{secondaryCount}</span>
+							<span>{gitLanesCount}</span>
+						</span>
+					{/if}
+					{#if labLanesCount > 0}
+						<span
+							class="tab-lanes-badge lab"
+							aria-hidden="true"
+							title={m.topbar_lanes_badge_lab_title({ count: labLanesCount })}
+						>
+							<IconLab />
+							<span>{labLanesCount}</span>
 						</span>
 					{/if}
 					{#if gitDiff && hasGitChanges(gitDiff)}
@@ -1546,18 +1527,27 @@
 		font-weight: 500;
 	}
 
-	/* Progetto aperto: fondo neutro e nome rivelato. Nessun riempimento saturo,
-	   e il nome dentro la tessera rende inutile il titolo al centro. */
+	/* Progetto aperto: fondo con tinta leggera del progetto (12%) e nome rivelato.
+	   Nessun riempimento saturo pesante ne' bordi/ombre di elevazione. */
 	.tab.active {
-		background-color: var(--bg-hover);
+		background-color: color-mix(in srgb, oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue)) 12%, transparent);
 	}
 
 	.tab.active:hover {
+		background-color: color-mix(in srgb, oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue)) 18%, transparent);
+	}
+
+	.tab.scratchpad.active {
+		background-color: var(--bg-hover);
+	}
+
+	.tab.scratchpad.active:hover {
 		background-color: var(--bg-active);
 	}
 
 	/* Punto di identita': 8px, sempre presente. E' l'unico posto della barra
-	   dove compare la tinta del progetto. */
+	   dove compare la tinta del progetto piena. Quando l'agente e' al lavoro
+	   in background pulsa organicamente con breathing morbido. */
 	.tab-dot {
 		width: 8px;
 		height: 8px;
@@ -1568,6 +1558,21 @@
 		z-index: 1;
 		transition: background-color var(--dur-calm) var(--ease-out),
 		            opacity var(--dur-calm) var(--ease-out);
+	}
+
+	.tab-dot.working {
+		animation: dot-breathing 1.6s ease-in-out infinite;
+	}
+
+	@keyframes dot-breathing {
+		0%, 100% {
+			transform: scale(0.85);
+			opacity: 0.65;
+		}
+		50% {
+			transform: scale(1.15);
+			opacity: 1;
+		}
 	}
 
 	.tab-ghost {
@@ -1687,6 +1692,9 @@
 		height: var(--icon-size, 10px);
 		flex-shrink: 0;
 	}
+	.tab-lanes-badge + .tab-lanes-badge {
+		margin-left: 3px;
+	}
 
 
 	/* Stato: un anello, mai un alone. L'unico anello che si muove e' quello che
@@ -1709,25 +1717,9 @@
 	}
 
 	.tab.finished::after {
-		box-shadow: inset 0 0 0 1.5px var(--line-strong);
+		box-shadow: inset 0 0 0 1.5px var(--warn);
 	}
 
-	/* Lampo di transizione: rende percepibile un cambio di stato che altrimenti
-	   sarebbe solo un'opacita' diversa. */
-	.tab-flash {
-		position: absolute;
-		inset: 0;
-		z-index: 0;
-		border-radius: inherit;
-		pointer-events: none;
-		background-color: color-mix(in srgb, oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue)) 35%, transparent);
-		animation: tab-flash var(--dur-flash) var(--ease-out) both;
-	}
-
-
-	@keyframes tab-flash {
-		from { opacity: 0.9; }
-	}
 
 	/* Senza movimento l'arco si fermerebbe in un punto qualsiasi e sembrerebbe
 	   un anello rotto: diventa un anello intero. */
@@ -1742,12 +1734,22 @@
 			opacity: 1;
 			box-shadow: inset 0 0 0 1.5px var(--warn);
 		}
+		.tab-dot.working {
+			animation: none;
+			transform: none;
+			opacity: 1;
+		}
 	}
 
 	:global(:root[data-animations="false"]) .tab.attention::after {
 		animation: none;
 		opacity: 1;
 		box-shadow: inset 0 0 0 1.5px var(--warn);
+	}
+	:global(:root[data-animations="false"]) .tab-dot.working {
+		animation: none;
+		transform: none;
+		opacity: 1;
 	}
 
 	/* Il divisore serve ancora al menu di ordinamento. */

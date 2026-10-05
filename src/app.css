@@ -160,9 +160,6 @@
     opacity: 1 !important;
     box-shadow: inset 0 0 0 1.5px var(--warn) !important;
   }
-  .tab-flash {
-    display: none !important;
-  }
 }
 
 :root[data-animations="false"] *,
@@ -179,9 +176,6 @@
   box-shadow: inset 0 0 0 1.5px var(--warn) !important;
 }
 
-:root[data-animations="false"] .tab-flash {
-  display: none !important;
-}
 
 @keyframes spin {
   to {

@@ -110,6 +110,8 @@
   "topbar_tab_project": "Project",
   "topbar_tab_scratchpad": "Scratchpad",
   "topbar_lanes_badge_title": "{count} active secondary lanes",
+  "topbar_lanes_badge_worktree_title": "{count} active worktrees",
+  "topbar_lanes_badge_lab_title": "{count} open Lab prototypes",
   "lanestrip_title": "Work lanes",
   "lanestrip_tab_main": "Main",
   "lanestrip_tab_new": "New lane",
