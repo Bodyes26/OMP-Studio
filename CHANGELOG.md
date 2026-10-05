@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Changed
+- Su macOS «Riavvia e Installa» aggiorna Studio da solo: chiude l'app, sostituisce la versione installata e la riapre, senza aprire il DMG né chiedere di trascinare l'app in Applicazioni. Se la sostituzione non è possibile (per esempio cartella senza permessi di scrittura), Studio riapre il DMG come prima.
 - Riprogetta i bottoni dei progetti nella barra superiore: rimosso il flash e il residuo colorato perenne, la scheda attiva adotta una tinta leggera del colore di progetto (12%) senza bordi o ombre pesanti, il pallino pulsa morbidamente quando un progetto lavora in background, lo stato completato mostra un anello ambrato statico distinguendosi da quello respirante in attesa di risposta, e i prototipi del Laboratorio mostrano l'icona dell'ampolla separata dai worktree Git.
 - Gestisci modelli e ruoli con lo stesso linguaggio di Studio: scegli il modello in un selettore unificato nei form, nei ruoli e nel ciclo Ctrl+P, leggi capacità e stati con chip e icone neutri senza colori fissi, e apri il ciclo rapido con una colonna pieghevole accessibile che restituisce il fuoco.
 - Consulta dialoghi, conferme e scorciatoie su finestre native accessibili e proporzionate al contenuto: revisione diff a tutto schermo, instradamento e profili corsia con caselle di selezione native conformi, anteprima immagine sagomata sullo scatto, guida scorciatoie con tasti piatti e spiegazioni tradotte, e conferme rapide con azione primaria a fuoco.
@@ -37,6 +38,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nella Companion la puntina a scomparsa si vede sempre (prima era quasi invisibile), Escape chiude la palette dei suggerimenti senza chiudere la finestra e la coda non avvia più un task cliccandone il titolo: si avvia solo con «Avvia».
 - L'aggiornamento di OMP dalla barra inferiore non fallisce più su macOS con «Could not resolve omp binary path in PATH» quando Studio è aperto da Finder/Dock.
 - Lo switch Terminale/GUI torna ad avere l'aspetto delle schede, con l'indicatore sotto la scheda attiva, invece di due pulsanti di sistema.
+- L'anteprima dei prototipi creati dall'agente (`studio_preview`) non resta più nera: il prototipo si apre in una sandbox con regole di sicurezza proprie invece di ereditare quelle di Studio, che bloccavano React, Babel e Tailwind. Le librerie hanno versioni fisse, quindi un aggiornamento di Lucide non rompe più le icone; il TSX con generici e gli import da `react` e `lucide-react` funzionano, e un errore nel prototipo mostra il messaggio reale invece di «Script error.». I prototipi con icone creati prima dell'aggiornamento vanno rigenerati.
 
 ### Added
 - Quando la chat resta senza risposta a un comando (per esempio «Nessuna risposta a "prompt" entro 60s»), Studio salva un rapporto diagnostico nella cartella dei log e ne mostra il percorso nell'errore: indica se si è fermato omp, la lettura dei comandi o la consegna degli eventi alla finestra, così il blocco si può analizzare senza doverlo riprodurre.

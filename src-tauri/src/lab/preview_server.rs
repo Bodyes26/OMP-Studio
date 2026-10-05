@@ -36,6 +36,25 @@ pub struct LabPreviewPublishResponse {
 
 static PREVIEW_PORT: OnceCell<u16> = OnceCell::const_new();
 
+/// Politica CSP del documento HTML servito: il Laboratorio carica i moduli da
+/// esm.sh, i prototipi `studio_preview` sono UMD da unpkg + Tailwind Play CDN.
+/// Tenerle separate evita di allargare la rete del Laboratorio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreviewPolicy {
+    Lab,
+    StudioPreview,
+}
+
+impl PreviewPolicy {
+    fn csp(self) -> &'static str {
+        match self {
+            PreviewPolicy::Lab => "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://esm.sh; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https://esm.sh; media-src 'self' https: data: blob:; worker-src 'self' blob:",
+            // Babel standalone esegue il TSX compilato come script inline.
+            PreviewPolicy::StudioPreview => "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com https://cdn.tailwindcss.com; style-src 'unsafe-inline' https:; img-src https: data: blob:; font-src https: data:; media-src https: data: blob:",
+        }
+    }
+}
+
 struct PreviewState {
     /// Asset condivisi serviti su `/_vendor/<path>`
     shared_files: HashMap<String, LabServedFile>,
@@ -45,6 +64,8 @@ struct PreviewState {
     token_to_key: HashMap<String, String>,
     /// Mappa token -> (path relativo normalizzato -> file servito)
     token_to_files: HashMap<String, HashMap<String, LabServedFile>>,
+    /// Mappa token -> politica CSP dei documenti HTML della pubblicazione
+    token_to_policy: HashMap<String, PreviewPolicy>,
 }
 
 static STATE: LazyLock<Mutex<PreviewState>> = LazyLock::new(|| {
@@ -53,6 +74,7 @@ static STATE: LazyLock<Mutex<PreviewState>> = LazyLock::new(|| {
         key_to_token: HashMap::new(),
         token_to_key: HashMap::new(),
         token_to_files: HashMap::new(),
+        token_to_policy: HashMap::new(),
     })
 });
 
@@ -219,7 +241,7 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> 
         };
 
         return match file {
-            Some(f) => send_file_response(&mut stream, &f, is_head).await,
+            Some(f) => send_file_response(&mut stream, &f, is_head, PreviewPolicy::Lab).await,
             None => send_404(&mut stream, is_head).await,
         };
     }
@@ -236,7 +258,7 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> 
             subpath_clean = "index.html".to_string();
         }
 
-        let file = {
+        let served = {
             let state = STATE
                 .lock()
                 .map_err(|_| std::io::Error::other("Lock state fallito"))?;
@@ -244,10 +266,18 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> 
                 .token_to_files
                 .get(token)
                 .and_then(|files| files.get(&subpath_clean).cloned())
+                .map(|file| {
+                    let policy = state
+                        .token_to_policy
+                        .get(token)
+                        .copied()
+                        .unwrap_or(PreviewPolicy::Lab);
+                    (file, policy)
+                })
         };
 
-        return match file {
-            Some(f) => send_file_response(&mut stream, &f, is_head).await,
+        return match served {
+            Some((f, policy)) => send_file_response(&mut stream, &f, is_head, policy).await,
             None => send_404(&mut stream, is_head).await,
         };
     }
@@ -261,6 +291,7 @@ async fn send_file_response(
     stream: &mut TcpStream,
     file: &LabServedFile,
     is_head: bool,
+    policy: PreviewPolicy,
 ) -> Result<(), std::io::Error> {
     let body_bytes = file.content.as_bytes();
 
@@ -297,9 +328,9 @@ async fn send_file_response(
     );
 
     if is_html {
-        headers.push_str(
-            "Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://esm.sh; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https://esm.sh; media-src 'self' https: data: blob:; worker-src 'self' blob:\r\n"
-        );
+        headers.push_str("Content-Security-Policy: ");
+        headers.push_str(policy.csp());
+        headers.push_str("\r\n");
     }
 
     headers.push_str("\r\n");
@@ -369,14 +400,12 @@ pub async fn lab_preview_publish_shared(files: Vec<LabServedFile>) -> Result<(),
     Ok(())
 }
 
-/// Pubblica i file di un'anteprima prototipo associata a `key`.
-///
-/// Restituisce `{ url }` nella forma `http://127.0.0.1:<porta>/p/<token>/`.
+/// Sostituisce i file pubblicati per `key` e restituisce l'URL della radice.
 /// Il token e' stabile per la chiave durante la vita del processo.
-#[tauri::command]
-pub async fn lab_preview_publish(
+async fn publish(
     key: String,
     files: Vec<LabServedFile>,
+    policy: PreviewPolicy,
 ) -> Result<LabPreviewPublishResponse, String> {
     let port = ensure_server_started().await?;
     let mut state = STATE
@@ -398,10 +427,39 @@ pub async fn lab_preview_publish(
         files_map.insert(clean_path, file);
     }
     state.token_to_files.insert(token.clone(), files_map);
+    state.token_to_policy.insert(token.clone(), policy);
 
     Ok(LabPreviewPublishResponse {
         url: format!("http://127.0.0.1:{}/p/{}/", port, token),
     })
+}
+
+/// Pubblica i file di un'anteprima prototipo del Laboratorio associata a `key`.
+///
+/// Restituisce `{ url }` nella forma `http://127.0.0.1:<porta>/p/<token>/`.
+#[tauri::command]
+pub async fn lab_preview_publish(
+    key: String,
+    files: Vec<LabServedFile>,
+) -> Result<LabPreviewPublishResponse, String> {
+    publish(key, files, PreviewPolicy::Lab).await
+}
+
+/// Pubblica un prototipo `studio_preview` (documento HTML unico).
+///
+/// Un iframe `srcdoc` eredita la CSP dell'app, che blocca gli script da CDN:
+/// servito da loopback il documento ha la propria CSP e la stessa sandbox.
+#[tauri::command]
+pub async fn studio_preview_publish(
+    key: String,
+    html: String,
+) -> Result<LabPreviewPublishResponse, String> {
+    let file = LabServedFile {
+        path: "index.html".to_string(),
+        content: html,
+        content_type: "text/html; charset=utf-8".to_string(),
+    };
+    publish(key, vec![file], PreviewPolicy::StudioPreview).await
 }
 
 /// Rimuove la pubblicazione dell'anteprima per `key`.
@@ -413,6 +471,60 @@ pub async fn lab_preview_unpublish(key: String) -> Result<(), String> {
     if let Some(token) = state.key_to_token.remove(&key) {
         state.token_to_key.remove(&token);
         state.token_to_files.remove(&token);
+        state.token_to_policy.remove(&token);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncReadExt;
+
+    async fn get(url: &str) -> String {
+        let rest = url.strip_prefix("http://").unwrap();
+        let (host, path) = rest.split_once('/').unwrap();
+        let mut stream = TcpStream::connect(host).await.unwrap();
+        let request = format!("GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n", path, host);
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    }
+
+    fn csp_header(response: &str) -> &str {
+        response
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Security-Policy: "))
+            .unwrap_or("")
+    }
+
+    #[tokio::test]
+    async fn studio_preview_csp_allows_its_cdns_without_widening_lab() {
+        let preview = studio_preview_publish("test:preview".into(), "<p>ok</p>".into())
+            .await
+            .unwrap();
+        let lab_file = LabServedFile {
+            path: "index.html".into(),
+            content: "<p>lab</p>".into(),
+            content_type: String::new(),
+        };
+        let lab = lab_preview_publish("test:lab".into(), vec![lab_file])
+            .await
+            .unwrap();
+
+        let preview_response = get(&preview.url).await;
+        assert!(preview_response.ends_with("<p>ok</p>"));
+        let preview_csp = csp_header(&preview_response);
+        assert!(preview_csp.contains("https://unpkg.com"));
+        assert!(preview_csp.contains("https://cdn.tailwindcss.com"));
+
+        let lab_csp = csp_header(&get(&lab.url).await).to_string();
+        assert!(lab_csp.contains("https://esm.sh"));
+        assert!(!lab_csp.contains("unpkg.com"));
+
+        // Chiudere l'anteprima deve togliere il documento dal server, non solo dalla vista.
+        lab_preview_unpublish("test:preview".into()).await.unwrap();
+        assert!(get(&preview.url).await.starts_with("HTTP/1.1 404"));
+    }
 }

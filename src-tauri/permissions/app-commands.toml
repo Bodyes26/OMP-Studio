@@ -292,7 +292,8 @@ commands.allow = [
     "lab_export",
     "lab_preview_publish_shared",
     "lab_preview_publish",
-    "lab_preview_unpublish"
+    "lab_preview_unpublish",
+    "studio_preview_publish"
 ]
 
 [[permission]]

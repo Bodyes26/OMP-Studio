@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Changed
+- On macOS, “Restart and Install” now updates Studio on its own: it closes the app, replaces the installed version and reopens it, without mounting the DMG or asking you to drag the app into Applications. If the replacement isn't possible (for example a folder without write permission), Studio falls back to opening the DMG as before.
 - Redesign top bar project buttons: removed transition flash and persistent tint residues, active tab adopts a subtle project hue background tint (12%) without heavy borders or elevation, the identity dot breathes smoothly when a background project is working, completed state displays a static amber ring distinct from the breathing waiting state, and Lab prototypes display the lab flask icon separately from Git worktrees.
 - Manage models and roles with the shared Studio design: choose models with a unified field across forms, roles and the Ctrl+P cycle, read capabilities and status with neutral chips and icons without hardcoded colors, and open the quick cycle as an accessible folding column that restores focus.
 - Open dialogs, confirmations and shortcuts in accessible native windows sized to their content: full-screen lane diff review, lane routing and profiles with accessible native checkboxes, image previews framed to the picture, shortcut guide with flat keys and localized descriptions, and fast confirmation prompts with initial action focus.
@@ -37,6 +38,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - In the Companion the pin is always visible in spotlight mode (it used to be nearly invisible), Escape closes the suggestion palette without closing the window, and clicking a queued task's title no longer runs it: only «Run» does.
 - Updating OMP from the bottom bar no longer fails on macOS with "Could not resolve omp binary path in PATH" when Studio is launched from Finder/Dock.
 - The Terminal/GUI switch looks like tabs again, with the indicator under the active tab, instead of two system buttons.
+- Prototype previews created by the agent (`studio_preview`) no longer stay black: the prototype opens in a sandbox with its own security rules instead of inheriting Studio's, which blocked React, Babel and Tailwind. Libraries are pinned, so a Lucide release no longer breaks icons; TSX with generics and imports from `react` and `lucide-react` work, and an error in the prototype shows the real message instead of "Script error.". Prototypes with icons created before the update need to be regenerated.
 
 ### Added
 - When the chat gets no response to a command (for example “No response to "prompt" within 60s”), Studio saves a diagnostic report in the logs folder and shows its path in the error: it tells whether omp, command intake or event delivery to the window stopped, so the hang can be analyzed without reproducing it.

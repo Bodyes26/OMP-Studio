@@ -23,5 +23,5 @@ pub use workspace::{
     lab_workspace_snapshot,
 };
 pub use preview_server::{
-    lab_preview_publish, lab_preview_publish_shared, lab_preview_unpublish,
+    lab_preview_publish, lab_preview_publish_shared, lab_preview_unpublish, studio_preview_publish,
 };

@@ -99,7 +99,7 @@ use lab::{
     lab_index_remove, lab_index_update, lab_meta_read, lab_paths, lab_preview_publish,
     lab_preview_publish_shared, lab_preview_status_write, lab_preview_unpublish,
     lab_prototype_associate, lab_prototype_create, lab_prototype_duplicate, lab_watch_start,
-    lab_watch_stop, lab_workspace_exists, lab_workspace_snapshot,
+    lab_watch_stop, lab_workspace_exists, lab_workspace_snapshot, studio_preview_publish,
 };
 pub mod chat_attachments;
 use chat_attachments::{cleanup_chat_attachments, stage_chat_attachment};
@@ -308,6 +308,7 @@ pub fn run() {
             lab_preview_publish_shared,
             lab_preview_publish,
             lab_preview_unpublish,
+            studio_preview_publish,
             stage_chat_attachment,
             cleanup_chat_attachments,
         ])

@@ -431,8 +431,10 @@ I file `stats.db`, `history.db` e `agent.db` contengono informazioni sensibili s
 
 OMP Studio distingue nettamente due superfici di anteprima con requisiti di sicurezza differenti:
 
-#### 7.3.1 Sandbox Statico per Anteprime Vettoriali e Prototipi HTML Legacy
-I diagrammi Mermaid (`studio_diagram`), le anteprime statiche SVG e i vecchi prototipi HTML generati da `studio_preview` vengono renderizzati tramite `PreviewViewer.svelte` e `svgSandbox.ts`:
+#### 7.3.1 Sandbox per Anteprime Vettoriali e Prototipi `studio_preview`
+I prototipi HTML/TSX di `studio_preview` non usano `srcdoc`: un iframe `srcdoc` eredita la CSP dell'app (`script-src 'self'`) e i CDN di React, Babel e Tailwind non caricherebbero. `PreviewViewer.svelte` li pubblica con `studio_preview_publish` sul server di anteprima loopback del Laboratorio (`lab/preview_server.rs`), che li serve con una CSP dedicata (script inline più `https://unpkg.com` e `https://cdn.tailwindcss.com`, nessuna `connect-src`) in un `<iframe sandbox="allow-scripts">` senza `allow-same-origin`: origine opaca, nessun accesso a `window.parent` né all'IPC Tauri. La CSP del Laboratorio resta separata (solo esm.sh).
+
+I diagrammi Mermaid (`studio_diagram`) e le anteprime statiche SVG vengono renderizzati tramite `PreviewViewer.svelte` e `svgSandbox.ts`:
 1. **Sanitizzazione primaria:** passaggio su `DOMPurify` per eliminare tag `<script>`, `<foreignObject>`, `<iframe>`, attributi `on*` e URI `javascript:`.
 2. **Content Security Policy ermetica:**
    ```

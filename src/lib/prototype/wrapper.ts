@@ -1,7 +1,13 @@
 // Harness per la compilazione e rendering dei prototipi UI in sandbox isolata.
 //
 // Accetta codice HTML completo o snippet TSX/JSX (React 18 + Tailwind + Lucide)
-// e restituisce un documento HTML completo pronto per srcdoc in iframe.
+// e restituisce un documento HTML completo, servito all'iframe dal server di
+// anteprima loopback (un `srcdoc` erediterebbe la CSP dell'app).
+//
+// Le librerie sono a versione fissa: `lucide@latest` e' passato alla 1.x, che
+// cambia il formato delle icone, e da un giorno all'altro ogni prototipo con
+// icone si e' rotto. `extensions/studio-diagram.ts` contiene la stessa funzione:
+// l'estensione e' un file unico incorporato nel binario e non puo' importarla.
 
 export function wrapPrototypeCode(title: string, code: string): string {
 	const raw = code.trim();
@@ -9,9 +15,28 @@ export function wrapPrototypeCode(title: string, code: string): string {
 		return code;
 	}
 
+	// Gli import da `react` e `lucide-react` diventano le globali del documento;
+	// gli altri non hanno un modulo da cui leggere e vengono tolti. Il codice
+	// gira dentro un blocco: ridichiarare `useState` oscura quello del wrapper.
 	let cleanedCode = code
-		.replace(/^import\s+.*?;\s*$/gm, '')
-		.replace(/^import\s+[\s\S]*?from\s+['"].*?['"];?\s*$/gm, '')
+		.replace(/^[ \t]*import\s+([^'";]*?)\s+from\s+['"]([^'"]+)['"];?[ \t]*$/gm, (_match, clause: string, source: string) => {
+			const globalName = source === 'react' ? 'React' : source === 'lucide-react' ? 'LucideReact' : null;
+			if (!globalName || clause.startsWith('type ')) return '';
+			const declarations: string[] = [];
+			const namespace = clause.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/);
+			if (namespace) declarations.push(`const ${namespace[1]} = ${globalName};`);
+			const named = clause.match(/\{([\s\S]*?)\}/);
+			if (named) {
+				const specifiers = named[1]
+					.split(',')
+					.map((specifier) => specifier.trim())
+					.filter((specifier) => specifier && !specifier.startsWith('type '))
+					.map((specifier) => specifier.replace(/\s+as\s+/, ': '));
+				if (specifiers.length) declarations.push(`const { ${specifiers.join(', ')} } = ${globalName};`);
+			}
+			return declarations.join(' ');
+		})
+		.replace(/^[ \t]*import\s+['"][^'"]+['"];?[ \t]*$/gm, '')
 		.replace(/export\s+default\s+function\s+([A-Za-z0-9_]+)/g, 'function $1')
 		.replace(/export\s+default\s+/g, 'const App = ')
 		.replace(/export\s+(const|let|var|function|class)\s+/g, '$1 ');
@@ -31,7 +56,7 @@ export function wrapPrototypeCode(title: string, code: string): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -58,10 +83,15 @@ export function wrapPrototypeCode(title: string, code: string): string {
       }
     }
   </script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/@babel/standalone@7.29.9/babel.min.js"></script>
+  <script crossorigin="anonymous" src="https://unpkg.com/lucide@1.52.0/dist/umd/lucide.js"></script>
+  <script>
+    // Lo script inline non ha estensione .tsx: senza allExtensions/isTSX il preset
+    // typescript lascia passare i generici (useState<string>) come confronti.
+    Babel.registerPreset('tsx', { presets: [[Babel.availablePresets['typescript'], { allExtensions: true, isTSX: true }]] });
+  </script>
   <style>
     body {
       font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -78,7 +108,7 @@ export function wrapPrototypeCode(title: string, code: string): string {
   <div id="root" class="w-full max-w-5xl flex flex-col items-center"></div>
   <div id="error-boundary" class="hidden w-full max-w-2xl mt-4 p-4 rounded-xl border border-red-500/30 bg-red-950/40 text-red-200 text-sm"></div>
 
-  <script type="text/babel" data-presets="react,typescript">
+  <script type="text/babel" data-presets="react,tsx">
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
     const LucideReact = new Proxy({}, {
@@ -90,9 +120,15 @@ export function wrapPrototypeCode(title: string, code: string): string {
           if (!iconDef) {
             return <span className={"inline-block text-xs " + className} {...rest}>[{iconName}]</span>;
           }
-          const [tag, attrs, children] = iconDef;
+          // lucide 1.x espone solo i figli dell'svg: [[tag, attrs], ...].
           const svgAttrs = {
-            ...attrs,
+            xmlns: "http://www.w3.org/2000/svg",
+            viewBox: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            strokeWidth: 2,
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
             width: size,
             height: size,
             className: "inline-block align-middle " + className,
@@ -101,7 +137,7 @@ export function wrapPrototypeCode(title: string, code: string): string {
           return React.createElement(
             'svg',
             svgAttrs,
-            (children || []).map(([cTag, cAttrs], i) => React.createElement(cTag, { ...cAttrs, key: i }))
+            iconDef.map(([cTag, cAttrs], i) => React.createElement(cTag, { ...cAttrs, key: i }))
           );
         };
       }

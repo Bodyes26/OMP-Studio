@@ -1316,6 +1316,187 @@ pub async fn cancel_studio_update_download(
     Ok(())
 }
 
+/// Su macOS il DMG e' solo un contenitore: aprirlo lascia all'utente trascinamento,
+/// conferma della sostituzione e riapertura manuale. Qui il bundle nuovo viene
+/// estratto dal DMG e scambiato con quello in esecuzione tramite rename sullo
+/// stesso volume (lo stesso schema dell'updater ufficiale di Tauri); il rilancio
+/// parte solo dopo l'uscita del processo, altrimenti il controllo single-instance
+/// girerebbe l'apertura all'istanza vecchia che sta per chiudersi.
+#[cfg(target_os = "macos")]
+fn install_dmg_in_place(dmg: &Path, expected_bundle_id: &str) -> Result<(), String> {
+    let bundle = running_app_bundle()?;
+    let work_dir = get_safe_temp_updates_dir()?.join("macos-install");
+    let staged = stage_app_from_dmg(dmg, &work_dir, expected_bundle_id)?;
+    let backup = work_dir.join("previous.app");
+    swap_app_bundle(&staged, &bundle, &backup)?;
+
+    // A scambio avvenuto la nuova versione e' gia' installata: se il rilancio non
+    // parte, l'utente la riapre a mano, ma riaprire il DMG non avrebbe senso.
+    if let Err(e) = spawn_relaunch_after_exit(&bundle, &[work_dir.as_path(), dmg]) {
+        eprintln!("Rilancio automatico di OMP Studio non avviato: {}", e);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn running_app_bundle() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe()
+        .and_then(|p| p.canonicalize())
+        .map_err(|e| format!("Percorso dell'eseguibile non risolvibile: {}", e))?;
+    let bundle = exe
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("app")))
+        .ok_or_else(|| "L'app non e' in esecuzione da un bundle .app".to_string())?
+        .to_path_buf();
+    // Con App Translocation il bundle vive in un mount di sola lettura generato da
+    // Gatekeeper: sostituirlo non aggiornerebbe la copia che l'utente apre.
+    if bundle.to_string_lossy().contains("/AppTranslocation/") {
+        return Err("L'app e' in esecuzione da una posizione isolata da Gatekeeper".to_string());
+    }
+    Ok(bundle)
+}
+
+#[cfg(target_os = "macos")]
+fn run_checked(cmd: &mut std::process::Command, what: &str) -> Result<String, String> {
+    let out = cmd
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("{}: {}", what, e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "{}: {}",
+            what,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Monta il DMG fuori dal Finder, copia il bundle in una cartella di staging e
+/// verifica che sia davvero OMP Studio prima di toccare l'installazione.
+#[cfg(target_os = "macos")]
+fn stage_app_from_dmg(dmg: &Path, work_dir: &Path, expected_bundle_id: &str) -> Result<PathBuf, String> {
+    use std::process::Command;
+
+    let mount_point = work_dir.join("mount");
+    let staging_dir = work_dir.join("staging");
+    // Residui di un tentativo interrotto: un mount rimasto appeso o un bundle a meta'
+    let _ = Command::new("hdiutil")
+        .args(["detach", "-force"])
+        .arg(&mount_point)
+        .output();
+    let _ = std::fs::remove_dir_all(work_dir);
+    std::fs::create_dir_all(&mount_point)
+        .and_then(|_| std::fs::create_dir_all(&staging_dir))
+        .map_err(|e| format!("Impossibile preparare la cartella di installazione: {}", e))?;
+
+    // -noverify: l'integrita' del file e' gia' garantita dallo SHA256 appena ricontrollato
+    run_checked(
+        Command::new("hdiutil")
+            .args(["attach", "-nobrowse", "-readonly", "-noautoopen", "-noverify", "-mountpoint"])
+            .arg(&mount_point)
+            .arg(dmg),
+        "Montaggio del DMG fallito",
+    )?;
+    let copied = copy_app_from_volume(&mount_point, &staging_dir);
+    let _ = Command::new("hdiutil")
+        .args(["detach", "-force"])
+        .arg(&mount_point)
+        .output();
+    let staged = copied?;
+
+    let bundle_id = run_checked(
+        Command::new("/usr/libexec/PlistBuddy")
+            .args(["-c", "Print :CFBundleIdentifier"])
+            .arg(staged.join("Contents/Info.plist")),
+        "Lettura dell'Info.plist del pacchetto fallita",
+    )?;
+    if bundle_id.trim() != expected_bundle_id {
+        let _ = std::fs::remove_dir_all(work_dir);
+        return Err(format!(
+            "Il DMG contiene un'app diversa da OMP Studio ({})",
+            bundle_id.trim()
+        ));
+    }
+
+    // Il download via reqwest non porta la quarantena, ma un attributo ereditato
+    // farebbe ricomparire l'avviso di Gatekeeper al rilancio.
+    let _ = Command::new("xattr")
+        .args(["-dr", "com.apple.quarantine"])
+        .arg(&staged)
+        .output();
+    Ok(staged)
+}
+
+#[cfg(target_os = "macos")]
+fn copy_app_from_volume(volume: &Path, staging_dir: &Path) -> Result<PathBuf, String> {
+    let app_name = std::fs::read_dir(volume)
+        .map_err(|e| format!("Contenuto del DMG non leggibile: {}", e))?
+        .filter_map(Result::ok)
+        // file_type non segue i link: il collegamento ad Applicazioni resta escluso
+        .find(|e| {
+            e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                && Path::new(&e.file_name())
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+        })
+        .map(|e| e.file_name())
+        .ok_or_else(|| "Nessun bundle .app trovato nel DMG".to_string())?;
+
+    let dest = staging_dir.join(&app_name);
+    run_checked(
+        std::process::Command::new("ditto")
+            .arg(volume.join(&app_name))
+            .arg(&dest),
+        "Copia del bundle dal DMG fallita",
+    )?;
+    Ok(dest)
+}
+
+/// Sostituisce il bundle installato con quello in staging; se il secondo passo
+/// fallisce rimette al suo posto la versione precedente.
+#[cfg(target_os = "macos")]
+fn swap_app_bundle(staged: &Path, bundle: &Path, backup: &Path) -> Result<(), String> {
+    let _ = std::fs::remove_dir_all(backup);
+    std::fs::rename(bundle, backup)
+        .map_err(|e| format!("Impossibile spostare la versione installata: {}", e))?;
+    if let Err(e) = std::fs::rename(staged, bundle) {
+        let _ = std::fs::rename(backup, bundle);
+        return Err(format!("Impossibile installare la nuova versione: {}", e));
+    }
+    Ok(())
+}
+
+/// Processo staccato che attende l'uscita di questa istanza, riapre il bundle
+/// aggiornato e rimuove i residui. I percorsi arrivano come argomenti posizionali,
+/// mai interpolati nello script.
+#[cfg(target_os = "macos")]
+fn spawn_relaunch_after_exit(bundle: &Path, cleanup: &[&Path]) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    const SCRIPT: &str = r#"pid="$1"; app="$2"; shift 2
+i=0
+while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+/usr/bin/open "$app"
+/bin/rm -rf "$@""#;
+
+    Command::new("/bin/sh")
+        .arg("-c")
+        .arg(SCRIPT)
+        .arg("omp-studio-relaunch")
+        .arg(std::process::id().to_string())
+        .arg(bundle)
+        .args(cleanup)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Esegue l'installer dell'aggiornamento dopo averne validato rigorosamente l'integrità e il confinamento.
 #[tauri::command]
 pub async fn install_studio_update_and_restart(
@@ -1453,19 +1634,29 @@ pub async fn install_studio_update_and_restart(
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        let ext = installer_path
+        let ext = canonical_installer
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
         if ext.eq_ignore_ascii_case("dmg") {
-            Command::new("open")
-                .arg(&installer_path)
-                .spawn()
-                .map_err(|e| format!("Impossibile aprire il DMG: {}", e))?;
+            match install_dmg_in_place(&canonical_installer, &app.config().identifier) {
+                Ok(()) => {
+                    app.exit(0);
+                    return Ok(());
+                }
+                // Ripiego sul flusso manuale: meglio il trascinamento che nessun aggiornamento
+                Err(e) => {
+                    eprintln!("Aggiornamento automatico non riuscito, apro il DMG: {}", e);
+                    Command::new("open")
+                        .arg(&canonical_installer)
+                        .spawn()
+                        .map_err(|e| format!("Impossibile aprire il DMG: {}", e))?;
+                }
+            }
         } else {
             Command::new("open")
                 .arg("-R")
-                .arg(&installer_path)
+                .arg(&canonical_installer)
                 .spawn()
                 .map_err(|e| format!("Impossibile mostrare il file: {}", e))?;
         }

@@ -20,6 +20,13 @@
 
 	let rawContent = $state('');
 	let htmlDoc = $state('');
+	// I prototipi HTML non passano da `srcdoc`: l'iframe erediterebbe la CSP
+	// dell'app (script solo da 'self') e i CDN di React/Babel non caricherebbero.
+	// Il server di anteprima loopback li serve con una CSP propria.
+	let frameUrl = $state('');
+	// L'URL resta lo stesso a ogni ripubblicazione: senza ricreare l'iframe
+	// «Ricarica» mostrerebbe ancora il documento precedente.
+	let publishSeq = $state(0);
 	let loading = $state(true);
 	let missing = $state(false);
 	let loadError = $state<string | null>(null);
@@ -78,6 +85,7 @@
 		loading = true;
 		missing = false;
 		loadError = null;
+		const key = `studio-preview:${projectPath}:${filePath}`;
 		try {
 			const res: { content: string; exists: boolean } = await invoke('preview_file', {
 				projectPath,
@@ -87,13 +95,21 @@
 				missing = true;
 				rawContent = '';
 				htmlDoc = '';
+				frameUrl = '';
 			} else {
 				rawContent = res.content;
 				const title = filePath.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Prototipo';
 				if (isSvgFileName(filePath) || isSvgContent(res.content)) {
 					htmlDoc = buildSandboxedSvgDocument(res.content);
+					frameUrl = '';
 				} else {
-					htmlDoc = wrapPrototypeCode(title, res.content);
+					htmlDoc = '';
+					const { url } = await invoke<{ url: string }>('studio_preview_publish', {
+						key,
+						html: wrapPrototypeCode(title, res.content)
+					});
+					frameUrl = url;
+					publishSeq += 1;
 				}
 			}
 		} catch (e) {
@@ -101,6 +117,7 @@
 			loadError = m.ui_previewviewer_errore_durante_il_caricamento_del_file_value1_71d5({ value1: String(e) });
 			rawContent = '';
 			htmlDoc = '';
+			frameUrl = '';
 		} finally {
 			loading = false;
 		}
@@ -129,7 +146,12 @@
 		}
 	}
 	$effect(() => {
-		if (projectPath && filePath) void load();
+		if (!projectPath || !filePath) return;
+		const key = `studio-preview:${projectPath}:${filePath}`;
+		void load();
+		return () => {
+			void invoke('lab_preview_unpublish', { key }).catch(() => {});
+		};
 	});
 </script>
 
@@ -210,13 +232,25 @@
 			<!-- sandbox isolata: per file SVG 'allow-scripts' e' severamente disabilitato (sandbox=""),
 			     mentre per prototipi UI e' attivo 'allow-scripts' ma MAI 'allow-same-origin'.
 			     In nessun caso l'iframe ha accesso a IPC o al DOM dell'app. -->
-			<iframe
-				class="preview-frame"
-				style:width={DEVICE_WIDTHS[device]}
-				sandbox={isCurrentSvg ? '' : 'allow-scripts'}
-				title={m.preview_frame_title({ path: filePath })}
-				srcdoc={htmlDoc}
-			></iframe>
+			{#if isCurrentSvg}
+				<iframe
+					class="preview-frame"
+					style:width={DEVICE_WIDTHS[device]}
+					sandbox=""
+					title={m.preview_frame_title({ path: filePath })}
+					srcdoc={htmlDoc}
+				></iframe>
+			{:else if frameUrl}
+				{#key publishSeq}
+					<iframe
+						class="preview-frame"
+						style:width={DEVICE_WIDTHS[device]}
+						sandbox="allow-scripts"
+						title={m.preview_frame_title({ path: filePath })}
+						src={frameUrl}
+					></iframe>
+				{/key}
+			{/if}
 		</div>
 	{/if}
 </div>
