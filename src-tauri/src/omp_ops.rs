@@ -1042,10 +1042,15 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
         .map_err(|e| format!("Task provider_hosts: {}", e))?
 }
 
+/// `title` e' quello di omp (indice `session_titles` o intestazione del file)
+/// o, in mancanza, quello generato da Studio; `prompt` e' il primo messaggio
+/// dell'utente. La GUI mostra il titolo e sotto il messaggio, oppure il solo
+/// messaggio quando il titolo manca.
 #[derive(Serialize)]
 pub struct SessionEntry {
     pub id: String,
-    pub title: String,
+    pub title: Option<String>,
+    pub prompt: String,
     pub created_at: i64,
 }
 
@@ -1070,14 +1075,16 @@ const PROMPT_BYTES: u64 = 512 * 1024;
 const TITLE_CHARS: usize = 200;
 
 /// Intestazione di un transcript. `id` e `cwd` vengono scritti alla creazione
-/// del file e non cambiano piu': si leggono una volta sola. `title` e' il
-/// titolo ricavato dal file stesso (record `title`, `session.title` o primo
-/// prompt) e puo' arrivare in un secondo momento.
+/// del file e non cambiano piu'. `title` puo' cambiare (omp riscrive lo slot
+/// del titolo sul posto), quindi la voce si rilegge quando cambia `mtime`.
+/// `prompt` e' il primo messaggio dell'utente: una volta trovato non cambia.
 #[derive(Clone)]
 struct CachedSession {
     id: String,
     cwd: String,
     title: Option<String>,
+    prompt: Option<String>,
+    mtime: i64,
 }
 
 /// Cache di processo delle intestazioni. Senza, ogni cambio progetto e ogni
@@ -1096,7 +1103,7 @@ fn truncate_title(text: &str) -> String {
 
 /// Legge le sole righe di intestazione e si ferma appena ha `id` e `cwd`.
 /// Ritorna `None` se il file non e' un transcript riconoscibile.
-fn read_session_header(path: &Path) -> Option<CachedSession> {
+fn read_session_header(path: &Path, mtime: i64) -> Option<CachedSession> {
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file.take(HEADER_BYTES));
     let mut header_title = None;
@@ -1143,25 +1150,31 @@ fn read_session_header(path: &Path) -> Option<CachedSession> {
         id: session_id?,
         cwd: session_cwd?,
         title: header_title,
+        prompt: None,
+        mtime,
     })
 }
 
-fn cached_header_tracked(path: &Path, files_opened: &mut usize) -> Option<CachedSession> {
-    if let Some(hit) = SESSION_HEADERS.lock().get(path) {
-        return Some(hit.clone());
+fn cached_header_tracked(path: &Path, mtime: i64, files_opened: &mut usize) -> Option<CachedSession> {
+    let previous = SESSION_HEADERS.lock().get(path).cloned();
+    if let Some(hit) = &previous {
+        if hit.mtime == mtime {
+            return previous;
+        }
     }
     *files_opened += 1;
-    let header = read_session_header(path)?;
+    let mut header = read_session_header(path, mtime)?;
+    header.prompt = previous.and_then(|old| old.prompt);
     SESSION_HEADERS
         .lock()
         .insert(path.to_path_buf(), header.clone());
     Some(header)
 }
 
-/// Titolo di ripiego: il primo messaggio dell'utente. Costa la lettura di
-/// parecchie righe di transcript, quindi si fa solo per le sessioni del
-/// progetto cercato e il risultato resta in cache.
-fn resolve_title_from_file(path: &Path) -> Option<String> {
+/// Primo messaggio dell'utente. Costa la lettura di parecchie righe di
+/// transcript, quindi si fa solo per le sessioni del progetto cercato e il
+/// risultato resta in cache.
+fn resolve_first_prompt(path: &Path) -> Option<String> {
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file.take(PROMPT_BYTES));
     let mut prompt = None;
@@ -1201,7 +1214,7 @@ fn resolve_title_from_file(path: &Path) -> Option<String> {
 
     let prompt = prompt?;
     if let Some(entry) = SESSION_HEADERS.lock().get_mut(path) {
-        entry.title = Some(prompt.clone());
+        entry.prompt = Some(prompt.clone());
     }
     Some(prompt)
 }
@@ -1209,13 +1222,57 @@ fn resolve_title_from_file(path: &Path) -> Option<String> {
 fn scan_sessions_from_disk(
     project_path: &str,
     query: Option<&str>,
-    titles: &HashMap<String, String>,
+    titles: &SessionTitles,
 ) -> Vec<SessionEntry> {
     let Some(agent) = agent_dir() else {
         return Vec::new();
     };
     scan_sessions_in(&agent.join("sessions"), project_path, query, titles)
 }
+
+/// Titoli noti per id sessione, in ordine di precedenza: l'indice di omp
+/// (`history.db`), poi l'intestazione del file (letta dalla scansione), poi
+/// quelli generati da Studio per le sessioni rimaste senza.
+struct SessionTitles {
+    omp: HashMap<String, String>,
+    studio: HashMap<String, String>,
+}
+
+impl SessionTitles {
+    fn load(app: &tauri::AppHandle, conn: Option<&Connection>) -> Self {
+        let mut omp = HashMap::new();
+        if let Some(conn) = conn {
+            if let Ok(mut stmt) = conn.prepare("SELECT session_id, title FROM session_titles") {
+                if let Ok(iter) = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
+                    omp.extend(iter.flatten());
+                }
+            }
+        }
+        Self {
+            omp,
+            studio: crate::session_titles_store::load(app),
+        }
+    }
+
+    /// Titolo di una sessione nota solo da `history.db`: senza file non c'e'
+    /// intestazione da consultare.
+    fn without_header(&self, id: &str) -> Option<String> {
+        self.omp
+            .get(id)
+            .or_else(|| self.studio.get(id))
+            .map(|t| truncate_title(t))
+    }
+}
+
+fn matches_query(entry: &SessionEntry, query_lower: &str) -> bool {
+    entry
+        .title
+        .as_deref()
+        .is_some_and(|t| t.to_lowercase().contains(query_lower))
+        || entry.prompt.to_lowercase().contains(query_lower)
+        || entry.id.to_lowercase().contains(query_lower)
+}
+
 /// Verifica se il nome della cartella puo' corrispondere al percorso del progetto.
 /// omp codifica la cartella delle sessioni per un dato cwd secondo queste regole:
 /// 1. Sotto la home utente: prefisso '-' seguito dal percorso relativo dove '/', '\\' e ':'
@@ -1312,7 +1369,7 @@ fn scan_sessions_in(
     sessions_root: &Path,
     project_path: &str,
     query: Option<&str>,
-    titles: &HashMap<String, String>,
+    titles: &SessionTitles,
 ) -> Vec<SessionEntry> {
     let started = Instant::now();
     let target_norm = normalize_path_for_compare(project_path);
@@ -1353,12 +1410,6 @@ fn scan_sessions_in(
             if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
                 continue;
             }
-            let Some(header) = cached_header_tracked(&path, &mut files_opened) else {
-                continue;
-            };
-            if normalize_path_for_compare(&header.cwd) != target_norm {
-                continue;
-            }
             let mtime = file_entry
                 .metadata()
                 .and_then(|m| m.modified())
@@ -1366,6 +1417,12 @@ fn scan_sessions_in(
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
+            let Some(header) = cached_header_tracked(&path, mtime, &mut files_opened) else {
+                continue;
+            };
+            if normalize_path_for_compare(&header.cwd) != target_norm {
+                continue;
+            }
             candidates.push((path, header, mtime));
         }
     }
@@ -1387,46 +1444,44 @@ fn scan_sessions_in(
         .map(|q| q.trim().to_lowercase())
         .filter(|q| !q.is_empty());
 
-    // Fase 2: il titolo. Si legge il transcript solo quando manca sia in
-    // history.db sia nell'intestazione.
+    // Fase 2: titolo e primo messaggio. Il transcript si rilegge solo per il
+    // messaggio, e solo la prima volta: poi resta nella cache.
     let mut found = Vec::with_capacity(candidates.len());
     for (path, header, mtime) in candidates {
         let title = titles
+            .omp
             .get(&header.id)
             .map(|t| truncate_title(t))
             .or(header.title)
-            .or_else(|| resolve_title_from_file(&path))
-            .unwrap_or_else(|| "Nuova sessione".to_string());
-
-        if let Some(q) = &query_lower {
-            if !title.to_lowercase().contains(q) && !header.id.to_lowercase().contains(q) {
-                continue;
-            }
-        }
-
-        found.push(SessionEntry {
+            .or_else(|| titles.studio.get(&header.id).map(|t| truncate_title(t)));
+        let prompt = header
+            .prompt
+            .or_else(|| resolve_first_prompt(&path))
+            .unwrap_or_default();
+        let entry = SessionEntry {
             id: header.id,
             title,
+            prompt,
             created_at: mtime,
-        });
+        };
+        if query_lower.as_deref().is_some_and(|q| !matches_query(&entry, q)) {
+            continue;
+        }
+        found.push(entry);
     }
 
     found
 }
 
-fn sessions_list_sync(project_path: String) -> Result<Vec<SessionEntry>, String> {
-    let mut titles = HashMap::new();
+fn sessions_list_sync(
+    app: tauri::AppHandle,
+    project_path: String,
+) -> Result<Vec<SessionEntry>, String> {
+    let conn = open_readonly_db("history.db").ok();
+    let titles = SessionTitles::load(&app, conn.as_ref());
     let mut history_sessions = Vec::new();
 
-    if let Ok(conn) = open_readonly_db("history.db") {
-        if let Ok(mut title_stmt) = conn.prepare("SELECT session_id, title FROM session_titles") {
-            if let Ok(iter) = title_stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
-                for row in iter.flatten() {
-                    titles.insert(row.0, row.1);
-                }
-            }
-        }
-
+    if let Some(conn) = &conn {
         let path_backslash = project_path.replace('/', "\\");
         let path_slash = project_path.replace('\\', "/");
         let target_norm = normalize_path_for_compare(&project_path);
@@ -1440,15 +1495,16 @@ fn sessions_list_sync(project_path: String) -> Result<Vec<SessionEntry>, String>
              LIMIT 50",
         ) {
             if let Ok(iter) = stmt.query_map(rusqlite::params![path_backslash, path_slash, target_norm], |row| {
+                let id: String = row.get(0)?;
+                let prompt: String = row.get(1)?;
                 Ok(SessionEntry {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
+                    title: titles.without_header(&id),
+                    prompt: truncate_title(&prompt),
+                    id,
                     created_at: row.get(2)?,
                 })
             }) {
-                for row in iter.flatten() {
-                    history_sessions.push(row);
-                }
+                history_sessions.extend(iter.flatten());
             }
         }
     }
@@ -1456,12 +1512,8 @@ fn sessions_list_sync(project_path: String) -> Result<Vec<SessionEntry>, String>
     let mut sessions = scan_sessions_from_disk(&project_path, None, &titles);
     let mut seen: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
 
-    for mut h in history_sessions {
-        if !seen.contains(&h.id) {
-            if let Some(t) = titles.get(&h.id) {
-                h.title = t.clone();
-            }
-            seen.insert(h.id.clone());
+    for h in history_sessions {
+        if seen.insert(h.id.clone()) {
             sessions.push(h);
         }
     }
@@ -1473,8 +1525,11 @@ fn sessions_list_sync(project_path: String) -> Result<Vec<SessionEntry>, String>
 }
 
 #[command]
-pub async fn sessions_list(project_path: String) -> Result<Vec<SessionEntry>, String> {
-    tokio::task::spawn_blocking(move || sessions_list_sync(project_path))
+pub async fn sessions_list(
+    app: tauri::AppHandle,
+    project_path: String,
+) -> Result<Vec<SessionEntry>, String> {
+    tokio::task::spawn_blocking(move || sessions_list_sync(app, project_path))
         .await
         .map_err(|e| format!("Task sessions_list: {}", e))?
 }
@@ -1486,24 +1541,17 @@ pub fn sanitize_fts_query(query: &str) -> String {
 }
 
 fn sessions_search_sync(
+    app: tauri::AppHandle,
     query: String,
     project_path: Option<String>,
 ) -> Result<Vec<SessionEntry>, String> {
     let trimmed_query = query.trim().to_string();
-    let mut titles = HashMap::new();
+    let conn = open_readonly_db("history.db").ok();
+    let titles = SessionTitles::load(&app, conn.as_ref());
     let mut history_sessions = Vec::new();
 
     if !trimmed_query.is_empty() {
-        if let Ok(conn) = open_readonly_db("history.db") {
-            if let Ok(mut title_stmt) = conn.prepare("SELECT session_id, title FROM session_titles")
-            {
-                if let Ok(iter) = title_stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
-                    for row in iter.flatten() {
-                        titles.insert(row.0, row.1);
-                    }
-                }
-            }
-
+        if let Some(conn) = &conn {
             let fts_query = sanitize_fts_query(&trimmed_query);
             let sql = if project_path.is_some() {
                 "SELECT h.session_id, h.prompt, h.created_at 
@@ -1520,33 +1568,30 @@ fn sessions_search_sync(
                  GROUP BY h.session_id 
                  ORDER BY h.created_at DESC LIMIT 50"
             };
+            let to_entry = |row: &rusqlite::Row| -> rusqlite::Result<SessionEntry> {
+                let id: String = row.get(0)?;
+                let prompt: String = row.get(1)?;
+                Ok(SessionEntry {
+                    title: titles.without_header(&id),
+                    prompt: truncate_title(&prompt),
+                    id,
+                    created_at: row.get(2)?,
+                })
+            };
 
             if let Ok(mut stmt) = conn.prepare(sql) {
                 if let Some(path) = &project_path {
                     let path_backslash = path.replace('/', "\\");
                     let path_slash = path.replace('\\', "/");
                     let target_norm = normalize_path_for_compare(path);
-                    if let Ok(iter) = stmt.query_map(rusqlite::params![fts_query, path_backslash, path_slash, target_norm], |row| {
-                        Ok(SessionEntry {
-                            id: row.get(0)?,
-                            title: row.get(1)?,
-                            created_at: row.get(2)?,
-                        })
-                    }) {
-                        for row in iter.flatten() {
-                            history_sessions.push(row);
-                        }
+                    if let Ok(iter) = stmt.query_map(
+                        rusqlite::params![fts_query, path_backslash, path_slash, target_norm],
+                        to_entry,
+                    ) {
+                        history_sessions.extend(iter.flatten());
                     }
-                } else if let Ok(iter) = stmt.query_map([&fts_query], |row| {
-                    Ok(SessionEntry {
-                        id: row.get(0)?,
-                        title: row.get(1)?,
-                        created_at: row.get(2)?,
-                    })
-                }) {
-                    for row in iter.flatten() {
-                        history_sessions.push(row);
-                    }
+                } else if let Ok(iter) = stmt.query_map([&fts_query], to_entry) {
+                    history_sessions.extend(iter.flatten());
                 }
             }
         }
@@ -1561,17 +1606,10 @@ fn sessions_search_sync(
     let mut seen: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
     let query_lower = trimmed_query.to_lowercase();
 
-    for mut h in history_sessions {
-        if !seen.contains(&h.id) {
-            if let Some(t) = titles.get(&h.id) {
-                h.title = t.clone();
-            }
-            if h.title.to_lowercase().contains(&query_lower)
-                || h.id.to_lowercase().contains(&query_lower)
-            {
-                seen.insert(h.id.clone());
-                sessions.push(h);
-            }
+    for h in history_sessions {
+        if !seen.contains(&h.id) && matches_query(&h, &query_lower) {
+            seen.insert(h.id.clone());
+            sessions.push(h);
         }
     }
 
@@ -1583,10 +1621,11 @@ fn sessions_search_sync(
 
 #[command]
 pub async fn sessions_search(
+    app: tauri::AppHandle,
     query: String,
     project_path: Option<String>,
 ) -> Result<Vec<SessionEntry>, String> {
-    tokio::task::spawn_blocking(move || sessions_search_sync(query, project_path))
+    tokio::task::spawn_blocking(move || sessions_search_sync(app, query, project_path))
         .await
         .map_err(|e| format!("Task sessions_search: {}", e))?
 }
@@ -2352,8 +2391,13 @@ mod tests {
         )
         .unwrap();
 
-        let mut titles = HashMap::new();
-        titles.insert("aaa".to_string(), "Titolo dal database".to_string());
+        let titles = SessionTitles {
+            omp: HashMap::from([("aaa".to_string(), "Titolo dal database".to_string())]),
+            studio: HashMap::from([
+                ("aaa".to_string(), "Titolo di Studio A".to_string()),
+                ("bbb".to_string(), "Titolo di Studio B".to_string()),
+            ]),
+        };
 
         let trovate = scan_sessions_in(&root, "C:\\repos\\app", None, &titles);
         let ids: Vec<&str> = trovate.iter().map(|s| s.id.as_str()).collect();
@@ -2364,21 +2408,61 @@ mod tests {
             "sessione di un altro progetto inclusa"
         );
 
-        // history.db ha la precedenza sul contenuto del file.
+        // Il titolo di omp (indice, poi intestazione) vince su quello di Studio;
+        // il primo messaggio arriva comunque, per la seconda riga.
         let aaa = trovate.iter().find(|s| s.id == "aaa").unwrap();
-        assert_eq!(aaa.title, "Titolo dal database");
+        assert_eq!(aaa.title.as_deref(), Some("Titolo dal database"));
+        assert_eq!(aaa.prompt, "prima domanda");
         let bbb = trovate.iter().find(|s| s.id == "bbb").unwrap();
-        assert_eq!(bbb.title, "Titolo scritto");
+        assert_eq!(bbb.title.as_deref(), Some("Titolo scritto"));
+        assert_eq!(bbb.prompt, "");
 
-        // Senza titolo noto si ripiega sul primo prompt dell'utente.
-        let senza_titoli = scan_sessions_in(&root, "C:\\repos\\app", None, &HashMap::new());
-        let aaa = senza_titoli.iter().find(|s| s.id == "aaa").unwrap();
-        assert_eq!(aaa.title, "prima domanda");
+        // Senza titolo di omp vale quello generato da Studio; senza nessuno dei
+        // due il titolo manca e la GUI mostra il primo messaggio.
+        let solo_studio = SessionTitles { omp: HashMap::new(), studio: titles.studio.clone() };
+        let aaa = scan_sessions_in(&root, "C:\\repos\\app", None, &solo_studio)
+            .into_iter()
+            .find(|s| s.id == "aaa")
+            .unwrap();
+        assert_eq!(aaa.title.as_deref(), Some("Titolo di Studio A"));
+        let nessuno = SessionTitles { omp: HashMap::new(), studio: HashMap::new() };
+        let aaa = scan_sessions_in(&root, "C:\\repos\\app", None, &nessuno)
+            .into_iter()
+            .find(|s| s.id == "aaa")
+            .unwrap();
+        assert_eq!(aaa.title, None);
 
-        // La ricerca filtra sul titolo risolto.
+        // La ricerca guarda titolo e primo messaggio.
         let cercate = scan_sessions_in(&root, "C:\\repos\\app", Some("scritto"), &titles);
         assert_eq!(cercate.len(), 1);
         assert_eq!(cercate[0].id, "bbb");
+        let cercate = scan_sessions_in(&root, "C:\\repos\\app", Some("domanda"), &titles);
+        assert_eq!(cercate.len(), 1);
+        assert_eq!(cercate[0].id, "aaa");
+
+        // omp riscrive il titolo sul posto (set_session_name): la cache deve
+        // rileggere l'intestazione quando il file cambia.
+        let aaa_path = mio.join("2026-08-28T07-24-00-669Z_aaa.jsonl");
+        std::fs::write(
+            &aaa_path,
+            concat!(
+                "{\"type\":\"title\",\"title\":\"Titolo arrivato dopo\"}\n",
+                "{\"type\":\"session\",\"id\":\"aaa\",\"cwd\":\"C:\\\\repos\\\\app\"}\n",
+                "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"prima domanda\"}}\n",
+            ),
+        )
+        .unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&aaa_path)
+            .unwrap()
+            .set_modified(SystemTime::now() + Duration::from_secs(5))
+            .unwrap();
+        let aaa = scan_sessions_in(&root, "C:\\repos\\app", None, &nessuno)
+            .into_iter()
+            .find(|s| s.id == "aaa")
+            .unwrap();
+        assert_eq!(aaa.title.as_deref(), Some("Titolo arrivato dopo"));
 
         let _ = std::fs::remove_dir_all(&root);
     }

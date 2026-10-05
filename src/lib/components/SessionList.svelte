@@ -2,22 +2,14 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { fetchSessionsList } from '$lib/agent/sessionsList';
+	import { fetchSessionsList, type SessionEntry } from '$lib/agent/sessionsList';
 	import { onMount, untrack } from 'svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
-	import { IconSearch } from '$lib/icons';
+	import { backfillSessionTitles } from '$lib/stores/sessionTitles';
+	import { IconGitBranch, IconListTodo, IconSearch } from '$lib/icons';
 	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import { chatReveal } from '$lib/agent/motion';
-	interface SessionEntry {
-		id: string;
-		title: string;
-		created_at: number;
-		optimistic?: boolean;
-		/** Corsia che ha eseguito il task, quando la sessione nasce dalla coda. */
-		laneKind?: 'main' | 'worktree';
-		laneTitle?: string;
-	}
 
 	let {
 		projectPath,
@@ -75,6 +67,7 @@
 				return {
 					id: origin.sessionId,
 					title: origin.title,
+					prompt: '',
 					created_at,
 					optimistic: isRecent
 				};
@@ -95,6 +88,72 @@
 			})
 			.sort((left, right) => right.created_at - left.created_at);
 	});
+
+	const DAY_MS = 86_400_000;
+	const GROUP_LABELS = [
+		m.session_list_group_today,
+		m.session_list_group_yesterday,
+		m.session_list_group_week,
+		m.session_list_group_month,
+		m.session_list_group_older
+	];
+
+	/** 0 oggi, 1 ieri, 2 ultimi 7 giorni, 3 ultimi 30, 4 piu' vecchie: per giorni di calendario, non per ore. */
+	function groupOf(seconds: number): number {
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+		const day = new Date(seconds * 1000);
+		day.setHours(0, 0, 0, 0);
+		// Arrotondare assorbe l'ora in piu' o in meno dei cambi d'ora legale.
+		const days = Math.round((today.getTime() - day.getTime()) / DAY_MS);
+		if (days <= 0) return 0;
+		if (days === 1) return 1;
+		if (days < 7) return 2;
+		if (days < 30) return 3;
+		return 4;
+	}
+
+	const groupedSessions = $derived.by(() => {
+		const groups: SessionEntry[][] = GROUP_LABELS.map(() => []);
+		for (const session of displaySessions) groups[groupOf(session.created_at)].push(session);
+		return groups
+			.map((sessions, index) => ({ index, sessions }))
+			.filter((group) => group.sessions.length > 0);
+	});
+
+	/**
+	 * L'intestazione del gruppo dice gia' il giorno: la riga porta solo il
+	 * dettaglio che manca (minuti o ore oggi, l'orario ieri, il giorno della
+	 * settimana, la data).
+	 */
+	function formatShortTime(seconds: number): string {
+		const ms = seconds * 1000;
+		const delta = Math.max(0, Date.now() - ms);
+		switch (groupOf(seconds)) {
+			case 0:
+				if (delta < 60_000) return i18n.formatRelativeTime(0, 'second');
+				return delta < 3_600_000
+					? new Intl.NumberFormat(i18n.formatLocale, { style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(Math.floor(delta / 60_000))
+					: new Intl.NumberFormat(i18n.formatLocale, { style: 'unit', unit: 'hour', unitDisplay: 'short' }).format(Math.floor(delta / 3_600_000));
+			case 1:
+				return i18n.formatDate(ms, { hour: '2-digit', minute: '2-digit' });
+			case 2:
+				return i18n.formatDate(ms, { weekday: 'short' });
+			default:
+				return i18n.formatDate(ms, { day: 'numeric', month: 'short' });
+		}
+	}
+
+	/** Seconda riga quando il titolo manca: da dove viene la sessione. */
+	function originLabel(session: SessionEntry): string {
+		if (session.laneKind === 'worktree') {
+			return session.laneTitle
+				? `${m.session_list_lane_filter_worktree()} · ${session.laneTitle}`
+				: m.session_list_lane_filter_worktree();
+		}
+		if (taskStore.isTaskSession(projectPath, session.id)) return m.session_list_from_queue();
+		return m.session_list_lane_filter_main();
+	}
 
 	function scheduleReconciliation() {
 		const known = new Set(sessions.map((session) => session.id));
@@ -139,6 +198,13 @@
 			freshKeys = fresh;
 			sessions = result;
 			scheduleReconciliation();
+			// Solo l'elenco completo: i risultati di una ricerca sono un
+			// sottoinsieme casuale, i titoli si generano all'apertura dello storico.
+			if (!q.trim()) {
+				backfillSessionTitles(result, (sessionId, title) => {
+					sessions = sessions.map((session) => (session.id === sessionId ? { ...session, title } : session));
+				});
+			}
 		} catch (error) {
 			if (token !== requestToken || target !== projectPath) return;
 			loadError = `Storico non disponibile: ${String(error)}`;
@@ -242,57 +308,73 @@
 		/>
 	</div>
 
-	<ul class="list" aria-label={m.session_list_list_aria()} aria-busy={loading}>
+	<div class="list" role="region" aria-label={m.session_list_list_aria()} aria-busy={loading}>
 		{#if loading && displaySessions.length === 0}
-			<li class="loading-state" aria-live="polite">
+			<div class="loading-state" aria-live="polite">
 				<StatusMark status="running" label={m.session_list_loading()} />
 				<span class="loading-label">{m.session_list_loading()}</span>
-			</li>
+			</div>
 		{:else if loadError}
-			<li class="msg error" role="alert">{loadError}</li>
+			<div class="msg error" role="alert">{loadError}</div>
 		{:else if displaySessions.length === 0}
-			<li class="msg">{m.session_list_empty()}</li>
+			<div class="msg">{m.session_list_empty()}</div>
 		{:else}
-			{#each displaySessions as session (session.id)}
-				{@const isCurrent = session.id === currentSessionId}
-				<li in:chatReveal={{ duration: freshKeys.has(session.id) ? undefined : 0 }}>
-					<button
-						type="button"
-						class="session-row"
-						class:current={isCurrent}
-						disabled={isCurrent || !canAutomate}
-						title={isCurrent
-							? m.ui_sessionlist_sessione_attiva_1526()
-							: session.optimistic
-								? m.ui_sessionlist_la_sessione_si_sta_sincronizzando_con_lo_82e6()
-								: canAutomate
-									? `Riprendi: ${session.title}`
-									: automationReason}
-						aria-label={isCurrent ? m.ui_sessionlist_sessione_attiva_value1_dd4e({ value1: session.title || 'senza titolo' }) : m.session_list_resume_aria({ title: session.title || 'senza titolo', age: formatRelative(session.created_at) })}
-						onclick={() => onResume(session.id)}
-					>
-						<span class="title">{session.title || m.session_list_untitled()}</span>
-						<span class="meta">
-							{formatRelative(session.created_at)}
-							{#if taskStore.isTaskSession(projectPath, session.id)}
-								<span class="badge">{m.page_columns_header_task()}</span>
-							{/if}
-							{#if session.laneKind === 'worktree'}
-								<span class="badge worktree" title={session.laneTitle ?? ''}>
-									{m.session_list_lane_badge_worktree()}
-								</span>
-							{/if}
-							{#if isCurrent}
-								<span class="current-label">{m.session_list_active_badge()}</span>
-							{:else if session.optimistic}
-								<span>{m.session_list_syncing()}</span>
-							{/if}
-						</span>
-					</button>
-				</li>
+			{#each groupedSessions as group (group.index)}
+				<section class="group" aria-labelledby="session-group-{group.index}">
+					<h3 class="group-label" id="session-group-{group.index}">{GROUP_LABELS[group.index]()}</h3>
+					<ul class="rows">
+						{#each group.sessions as session (session.id)}
+							{@const isCurrent = session.id === currentSessionId}
+							{@const primary = session.title || session.prompt || m.session_list_untitled()}
+							{@const showsPrompt = Boolean(session.title && session.prompt)}
+							{@const secondary = showsPrompt
+								? session.prompt
+								: session.title || session.prompt
+									? originLabel(session)
+									: m.session_list_no_messages()}
+							<li in:chatReveal={{ duration: freshKeys.has(session.id) ? undefined : 0 }}>
+								<button
+									type="button"
+									class="session-row"
+									class:current={isCurrent}
+									disabled={isCurrent || !canAutomate}
+									title={isCurrent
+										? m.ui_sessionlist_sessione_attiva_1526()
+										: session.optimistic
+											? m.ui_sessionlist_la_sessione_si_sta_sincronizzando_con_lo_82e6()
+											: canAutomate
+												? `Riprendi: ${primary}`
+												: automationReason}
+									aria-label={isCurrent ? m.ui_sessionlist_sessione_attiva_value1_dd4e({ value1: primary }) : m.session_list_resume_aria({ title: primary, age: formatRelative(session.created_at) })}
+									onclick={() => onResume(session.id)}
+								>
+									<span class="line">
+										<span class="title">{primary}</span>
+										<span class="time">
+											{#if session.optimistic}
+												<StatusMark status="running" />
+											{:else}
+												{formatShortTime(session.created_at)}
+											{/if}
+										</span>
+									</span>
+									<span class="line secondary">
+										<span class="subtitle">{secondary}</span>
+										{#if showsPrompt && taskStore.isTaskSession(projectPath, session.id)}
+											<span class="mark" title={m.session_list_from_queue()}><IconListTodo /></span>
+										{/if}
+										{#if showsPrompt && session.laneKind === 'worktree'}
+											<span class="mark" title={session.laneTitle ?? m.session_list_lane_filter_worktree()}><IconGitBranch /></span>
+										{/if}
+									</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				</section>
 			{/each}
 		{/if}
-	</ul>
+	</div>
 </div>
 
 <style>
@@ -353,18 +435,36 @@
 		padding: 0 var(--space-2) var(--space-2);
 	}
 	.list {
-		list-style: none;
-		margin: 0;
 		padding: 0 0 var(--space-2) 0;
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
 	}
 
-	.list > li {
+	/* L'intestazione resta in vista mentre scorrono le righe del suo gruppo. */
+	.group-label {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		margin: 0;
+		padding: var(--space-3) var(--space-3) var(--space-1);
+		background: var(--bg-base);
+		color: var(--ink-faint);
+		font-size: var(--text-group-label);
+		font-weight: 500;
+	}
+
+	.group:first-child .group-label {
+		padding-top: var(--space-1);
+	}
+
+	.rows {
 		list-style: none;
 		margin: 0;
-		padding: 0;
+		padding: 0 var(--space-1);
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
 	}
 	.loading-state {
 		display: flex;
@@ -398,19 +498,24 @@
 		color: var(--ink);
 	}
 
+	/* Senza reset WebKit dipinge il <button> col grigio di sistema (ButtonFace). */
 	.session-row {
+		position: relative;
 		width: 100%;
-		min-height: 44px;
-		padding: var(--space-1) var(--space-2);
+		min-height: 50px;
+		padding: 7px var(--space-2) 7px 10px;
 		display: flex;
 		flex-direction: column;
-		align-items: flex-start;
 		justify-content: center;
-		gap: var(--space-1);
+		gap: 3px;
 		border: 0;
 		border-radius: var(--radius-md);
+		background: transparent;
+		color: inherit;
+		font: inherit;
 		text-align: left;
 		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out);
 	}
 
 	.session-row:hover:not(:disabled) {
@@ -421,6 +526,7 @@
 		outline: 2px solid var(--brand);
 		outline-offset: -2px;
 	}
+
 	.session-row:active:not(:disabled) {
 		background: var(--bg-active);
 	}
@@ -429,53 +535,74 @@
 		background: var(--bg-active);
 	}
 
+	.session-row.current::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		top: var(--space-2);
+		bottom: var(--space-2);
+		width: 2px;
+		border-radius: var(--radius-full);
+		background: var(--brand);
+	}
+
 	.session-row:disabled {
 		cursor: default;
 	}
 
-	.title {
-		width: 100%;
+	.line {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
+	.line.secondary {
+		align-items: center;
+		gap: 6px;
+	}
+
+	.title,
+	.subtitle {
+		flex: 1;
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.title {
 		color: var(--ink);
 		font-size: var(--text-body);
 		font-weight: 450;
-		line-height: 1.45;
+		line-height: 1.35;
+	}
+
+	.session-row.current .title {
+		font-weight: 560;
 	}
 
 	.session-row:disabled:not(.current) .title {
 		color: var(--ink-muted);
 	}
 
-	.meta {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
+	.subtitle {
 		color: var(--ink-faint);
-		font-family: var(--font-mono);
+		font-size: var(--text-label);
+		line-height: 1.35;
+	}
+
+	.time {
+		flex: 0 0 auto;
+		color: var(--ink-faint);
 		font-size: var(--text-meta);
 		font-variant-numeric: tabular-nums;
 	}
 
-	.badge,
-	.current-label {
-		padding: 1px var(--space-1);
-		border-radius: var(--radius-full);
-		background: var(--bg-raised);
-		color: var(--ink-muted);
-		font-family: var(--font-ui);
-		font-size: var(--text-caption);
-		font-weight: 600;
-	}
-
-	.current-label {
-		color: var(--brand-ink);
-	}
-
-	.badge.worktree {
-		background: color-mix(in srgb, var(--brand-ink, currentColor) 18%, transparent);
-		color: var(--brand-ink);
-		letter-spacing: 0.04em;
+	.mark {
+		--icon-size: 12px;
+		flex: 0 0 auto;
+		display: inline-flex;
+		color: var(--ink-faint);
 	}
 </style>

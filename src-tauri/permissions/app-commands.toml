@@ -233,9 +233,10 @@ commands.allow = [
 
 [[permission]]
 identifier = "allow-task-titles"
-description = "Titolo sintetico dei task in coda: chiamata effimera al modello leggero configurato"
+description = "Titoli sintetici di task in coda e sessioni: chiamata effimera al modello leggero configurato e salvataggio dei titoli di sessione generati"
 commands.allow = [
-    "generate_task_title"
+    "generate_task_title",
+    "session_title_save"
 ]
 
 [[permission]]

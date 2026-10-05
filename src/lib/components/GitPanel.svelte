@@ -2,7 +2,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { fetchSessionsList } from '$lib/agent/sessionsList';
+	import { fetchSessionsList, type SessionEntry } from '$lib/agent/sessionsList';
 	import {
 		IconArrowDown,
 		IconArrowUp,
@@ -78,7 +78,7 @@
 	let notRepo = $state(false);
 	let refreshError = $state<string | null>(null);
 	let isRefreshing = $state(false);
-	let sessions = $state<{ id: string; title: string; created_at: number }[]>([]);
+	let sessions = $state<SessionEntry[]>([]);
 	let actionError = $state<string | null>(null);
 	let syncMessage = $state<string | null>(null);
 	let showIncomingCommits = $state(false);
@@ -562,11 +562,11 @@
 				<button
 					class="row session-row"
 					disabled={!canResume}
-					title={canResume ? m.ui_gitpanel_value1_clicca_per_riprendere_questa_sessione_968c({ value1: s.title }) : resumeReason}
+					title={canResume ? m.ui_gitpanel_value1_clicca_per_riprendere_questa_sessione_968c({ value1: s.title ?? s.prompt }) : resumeReason}
 					onclick={() => onResumeSession?.(s.id)}
 				>
 					<span class="session-badge" aria-hidden="true"><IconDiamond /></span>
-					<span class="name">{s.title || m.session_list_untitled()}</span>
+					<span class="name">{s.title || s.prompt || m.session_list_untitled()}</span>
 					<span class="nums"><span class="session-time">{relTime(s.created_at)}</span></span>
 				</button>
 			{/each}

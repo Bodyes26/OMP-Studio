@@ -3,7 +3,10 @@ import { perfSpan } from '$lib/perf';
 
 export interface SessionEntry {
 	id: string;
-	title: string;
+	/** Titolo di omp o generato da Studio; `null` finche' non esiste. */
+	title: string | null;
+	/** Primo messaggio dell'utente; vuoto per una sessione appena aperta. */
+	prompt: string;
 	created_at: number;
 	optimistic?: boolean;
 	laneKind?: 'main' | 'worktree';

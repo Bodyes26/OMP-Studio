@@ -78,6 +78,8 @@ mod lane_naming_ops;
 use lane_naming_ops::generate_lane_name;
 mod task_title_ops;
 use task_title_ops::generate_task_title;
+mod session_titles_store;
+use session_titles_store::session_title_save;
 mod companion_ops;
 use companion_ops::{
     fit_companion_to_content, get_companion_state, hide_companion_window, init_global_shortcut,
@@ -269,6 +271,7 @@ pub fn run() {
             generate_prompt_suggestions,
             generate_lane_name,
             generate_task_title,
+            session_title_save,
             toggle_companion_window,
             hide_companion_window,
             fit_companion_to_content,

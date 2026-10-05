@@ -9,6 +9,7 @@ import { laneStore } from '$lib/stores/lanes.svelte';
 import { projectStore } from '$lib/stores/projects.svelte';
 import type { LaneId, ProjectId } from '$lib/types/lanes';
 import { perfMark, perfSpan } from '$lib/perf';
+import { generateSessionTitle } from '$lib/stores/sessionTitles';
 
 let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
@@ -2956,6 +2957,28 @@ export class AgentSession {
 		nameLaneFromPrompt(this.projectKey, this.laneId ?? 'main', message);
 	}
 
+	/**
+	 * In RPC omp non titola le sessioni: al primo messaggio il titolo lo genera
+	 * Studio e lo consegna a omp, che lo scrive nel transcript e nel suo indice
+	 * (cosi' compare anche nel `/resume` del terminale). I prototipi del
+	 * Laboratorio hanno gia' il loro nome.
+	 */
+	private titleSessionFromFirstPrompt(message: string): void {
+		const sessionId = this.sessionId;
+		if (!sessionId || this.sessionName || this.labConfig || !settingsStore.taskTitles.autoGenerate) return;
+		void generateSessionTitle(sessionId, message).then(async (title) => {
+			// Durante la chiamata l'utente puo' aver cambiato sessione o usato /name.
+			if (!title || this.sessionId !== sessionId || this.sessionName) return;
+			try {
+				await this.client.send({ type: 'set_session_name', name: title });
+				this.sessionName = title;
+			} catch (err) {
+				console.warn('Titolo non consegnato a omp:', err);
+			}
+			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', { detail: { projectPath: this.cwd } }));
+		});
+	}
+
 	/** I follow-up restano locali e modificabili finche' il turno non si chiude. */
 	get localFollowUpQueue(): LocalFollowUp[] {
 		return this.localFollowUps;
@@ -3055,6 +3078,9 @@ export class AgentSession {
 		}
 		if (this.laneId && this.laneId !== 'main') {
 			this.synthesizeLaneTitleOnFirstPrompt(trimmed);
+		}
+		if (trimmed && !this.entries.some((entry) => entry.kind === 'user')) {
+			this.titleSessionFromFirstPrompt(trimmed);
 		}
 		this.todoReminder = null;
 		this.blockedQuotaState = null;
