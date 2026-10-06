@@ -1891,6 +1891,13 @@ export class AgentSession {
 				const text = typeof event.message === 'string' ? event.message : '';
 				if (!text) return;
 				const level = this.noticeLevel(event.level);
+				// Gli avvisi dei device xd:// (es. i tool MCP montati) arrivano all'avvio:
+				// nel transcript toglierebbero l'hero di una chat vuota. L'annuncio del
+				// mount e' rumore e si scarta; un problema va nell'etichetta del composer.
+				if (event.source === 'xdev') {
+					if (level !== 'info') this.flashNotice(level, text);
+					return;
+				}
 				const prewalkNotice = parsePrewalkNotice(event.source, event.level, text);
 				if (prewalkNotice) {
 					this.prewalk = reducePrewalkNotice(this.prewalk, prewalkNotice);
