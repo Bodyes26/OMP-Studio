@@ -41,6 +41,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Removed spinner from active project tabs in the top bar when an agent is working: the breathing identity dot and active tab styling already clearly indicate ongoing activity.
 
 ### Fixed
+- At startup the chat no longer shows the “[xdev] xd://: mounted …” line listing the mounted MCP tools: a new chat stays empty with its welcome screen. If a tool fails to mount, the warning shows in the label above the composer instead of in the chat.
 - Improve tooltip behavior: tooltips dismiss immediately upon clicking pills, badges, and buttons (such as directives and frequent models in the task editor) without lingering on screen, use an intentional 300ms hover delay to prevent accidental flashing, and remove redundant tooltips from modal/panel close buttons and search inputs.
 - Chat no longer falls minutes behind while the agent writes long files: Studio asks omp for message deltas only instead of the whole message on every character, so events and command responses no longer pile up behind hundreds of MB of output, and “No response … within 60s” errors (and “Unable to sync queue modes” warnings) no longer appear on a seemingly frozen session.
 - The quota popover opens again when OMP has several accounts for the same provider (for example two Codex or Antigravity accounts): each account gets its own section.
