@@ -44,3 +44,16 @@ export function handOffPrewalk(current: PrewalkState, model: ModelInfo | string 
 	if (current.state !== 'armed') return current;
 	return { state: 'handedOff', target: current.target, handedOffTo: prewalkModelName(model) ?? current.target };
 }
+
+/**
+ * Un cambio di modello e' il passaggio del prewalk solo se porta sul modello
+ * bersaglio: con il prewalk armato l'utente puo' ancora cambiare modello a
+ * mano, e scambiarlo per il passaggio spegnerebbe il prewalk senza motivo.
+ */
+export function isPrewalkHandOff(current: PrewalkState, model: ModelInfo | null | undefined): boolean {
+	if (current.state !== 'armed' || !current.target || !model?.id) return false;
+	const target = current.target.trim().toLowerCase();
+	const id = model.id.toLowerCase();
+	const selector = model.provider ? `${model.provider.toLowerCase()}/${id}` : id;
+	return target === selector || target === id;
+}

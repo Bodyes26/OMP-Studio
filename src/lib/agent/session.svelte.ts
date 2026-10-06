@@ -5,9 +5,7 @@ import { formatTokens } from '$lib/utils/format';
 import { traceAgent } from '$lib/focusTracer';
 import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
 import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '$lib/lanes/laneNaming';
-import { laneStore } from '$lib/stores/lanes.svelte';
 import { projectStore } from '$lib/stores/projects.svelte';
-import type { LaneId, ProjectId } from '$lib/types/lanes';
 import { perfMark, perfSpan } from '$lib/perf';
 import { generateSessionTitle } from '$lib/stores/sessionTitles';
 
@@ -23,7 +21,7 @@ import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { OmpRpcClient } from './client';
 import { isMissingSessionError } from './resumeErrors';
-import { handOffPrewalk, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from './prewalk';
+import { handOffPrewalk, isPrewalkHandOff, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from './prewalk';
 import {
 	matchQuestionIndex,
 	optionSignature,
@@ -35,13 +33,8 @@ import {
 	type PromptAnswer
 } from './askAnswers';
 import { parsePartialAskStream, streamToAskQuestions, type StreamAskState } from './askStream';
-import {
-	enqueueFollowUp,
-	removeFollowUp,
-	takeFollowUpsForTurn,
-	takeLastFollowUp,
-	type LocalFollowUp
-} from './localFollowUpQueue';
+import { enqueueFollowUp, removeFollowUp, type LocalFollowUp } from './localFollowUpQueue';
+import { FollowUpDispatcher } from './followUpDispatcher';
 import { promptBus, type PromptRequest } from './promptBus';
 import { laneSessionKey } from './sessionKeys';
 import { SessionSuggestions } from './suggestions.svelte';
@@ -111,7 +104,6 @@ import { classifySystemMessage, noticeDedupKey, type JobResult, type ClassifiedN
 import {
 	isContextReportText,
 	parseContextReport,
-	reportMatchesUsage,
 	type ContextReport
 } from './contextReport';
 import { m as messages } from '$lib/paraglide/messages.js';
@@ -478,6 +470,12 @@ export class AgentSession {
 	composerNotice = $state<ComposerNotice | null>(null);
 	private composerNoticeSeq = 0;
 	private contextReportStamp = '';
+	/**
+	 * Ultimo stato gia' sondato con `/context`, riuscito o no. Se il rapporto
+	 * non torna con `get_state` (omp conta in modo diverso) risondare lo
+	 * stesso stato darebbe lo stesso esito e terrebbe occupata la coda RPC.
+	 */
+	private contextProbedStamp = '';
 	private contextReportWanted = '';
 	private contextReportInflight: Promise<void> | null = null;
 	private capturingContextReport = false;
@@ -495,8 +493,25 @@ export class AgentSession {
 	queued = $state<QueuedMessage[]>([]);
 	localFollowUps = $state<LocalFollowUp[]>([]);
 	localFollowUpsPaused = $state(false);
-	private dispatchingLocal = false;
-	private localQueueEpoch = 0;
+	/**
+	 * Coda locale: decide quando parte il follow-up successivo. Vive fuori
+	 * dalla classe perche' e' una macchina a stati che si prova nei test.
+	 */
+	private readonly followUps = new FollowUpDispatcher({
+		queue: () => this.localFollowUps,
+		mode: () => settingsStore.general.followUpMode,
+		paused: () => this.localFollowUpsPaused,
+		idle: () =>
+			this.isReady && this.isAttached && !this.isStreaming && !this.isAborting && !this.pendingUi,
+		send: (item, forced) => this.prompt(item.text, item.images, 'followUp', true, item.id, forced),
+		remove: (id) => this.removeLocalFollowUp(id),
+		pause: (reason) => {
+			this.localFollowUpsPaused = true;
+			if (reason === 'timeout') this.flashNotice('warning', messages.chat_v2_queue_start_timeout());
+		},
+		setTimer: (callback, ms) => window.setTimeout(callback, ms),
+		clearTimer: (handle) => window.clearTimeout(handle as number)
+	});
 	pendingUi = $state<PendingUiRequest | null>(null);
 	/** Solo anteprima: nessuna risposta parte finche' omp non emette extension_ui_request. */
 	streamAsk = $state<{ toolCallId: string | null; state: StreamAskState } | null>(null);
@@ -588,6 +603,10 @@ export class AgentSession {
 	 */
 	private readyEpoch: number | null = null;
 	private isAborting = false;
+	/** Rete di sicurezza dello Stop: chiude l'interruzione se omp non manda `agent_end`. */
+	private abortFallbackTimer: number | null = null;
+	/** Prompt scritti subito dopo uno Stop che aspettano la fine dell'interruzione. */
+	private abortSettledWaiters: Array<() => void> = [];
 	private unsubscribeEvent: (() => void) | null = null;
 	private deltaBatcher = new StreamBatcher((items) => {
 		for (const item of items) {
@@ -866,7 +885,7 @@ export class AgentSession {
 		this.attachGeneration++;
 		this.isRebuildingTranscript = false;
 		this.requestedResume = null;
-		this.isAborting = false;
+		this.endAborting();
 		this.pendingStartupPrompts = [];
 		this.clearPendingUi();
 		this.resetBrowserLive();
@@ -977,7 +996,7 @@ export class AgentSession {
 	async refreshContextReport(): Promise<void> {
 		if (!this.canProbeContext()) return;
 		const stamp = this.contextStamp();
-		if (this.contextReportStamp === stamp && reportMatchesUsage(this.contextReport, this.contextUsage)) return;
+		if (this.contextProbedStamp === stamp) return;
 		this.contextReportWanted = stamp;
 		if (this.contextReportInflight) return this.contextReportInflight;
 		this.contextReportInflight = this.drainContextReport();
@@ -1005,7 +1024,7 @@ export class AgentSession {
 					return;
 				}
 				const stamp = this.contextReportWanted;
-				if (this.contextReportStamp === stamp && reportMatchesUsage(this.contextReport, this.contextUsage)) {
+				if (this.contextProbedStamp === stamp) {
 					this.contextReportWanted = '';
 					return;
 				}
@@ -1019,6 +1038,7 @@ export class AgentSession {
 	}
 
 	private async probeContextReport(stamp: string, sessionId: string | null): Promise<void> {
+		this.contextProbedStamp = stamp;
 		this.contextReportCapture = null;
 		this.capturingContextReport = true;
 		try {
@@ -1655,7 +1675,7 @@ export class AgentSession {
 				const readyWaiters = this.readyWaiters;
 				this.readyWaiters = [];
 				for (const w of readyWaiters) w(true);
-				this.isAborting = false;
+				this.endAborting();
 				// `ready` e' l'handshake di un processo nuovo: l'insediamento
 				// precedente non vale piu'. Senza azzerarlo `attach()` uscirebbe
 				// subito e il transcript resterebbe quello del processo di
@@ -1840,6 +1860,7 @@ export class AgentSession {
 			}
 
 			case 'agent_start':
+				this.followUps.onAgentStart();
 				if (this.isAborting) return;
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
@@ -1849,7 +1870,7 @@ export class AgentSession {
 
 			case 'agent_end': {
 				const wasAborting = this.isAborting;
-				this.isAborting = false;
+				this.endAborting();
 				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato richiesto un abort
 				if (event.isTerminal === false && !wasAborting) return;
 				this.clearStreamAsk();
@@ -1866,7 +1887,10 @@ export class AgentSession {
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
 				}
-				if (!wasAborting && !this.localFollowUpsPaused) this.dispatchFollowUps();
+				// Il follow-up successivo parte solo qui: la risposta al `prompt`
+				// precede `agent_start`, quindi l'esito dell'invio non dice che
+				// l'agente ha finito.
+				if (!wasAborting) this.followUps.onAgentEnd();
 				return;
 			}
 			case 'turn_start':
@@ -2033,17 +2057,17 @@ export class AgentSession {
 			case 'model_changed':
 				if (event.model && typeof event.model === 'object') {
 					this.model = event.model;
-					if (this.prewalk.state === 'armed' && !this.prewalkRestarting) {
+					if (!this.prewalkRestarting && isPrewalkHandOff(this.prewalk, event.model)) {
 						this.prewalk = handOffPrewalk(this.prewalk, event.model);
 						this.resetHandedOffOverlay();
+					} else if (this.prewalk.state === 'handedOff') {
+						this.prewalk = { ...this.prewalk, handedOffTo: event.model.name ?? event.model.id };
 					}
 				} else {
 					// omp 18.4.10 emette solo il tipo; il notice switched conferma
 					// il passaggio. get_state distingue anche un cambio manuale.
 					void this.refreshState().then(() => {
-						const selector = this.model?.provider && this.model?.id
-							? `${this.model.provider}/${this.model.id}` : this.model?.id;
-						if (this.prewalk.state === 'armed' && !this.prewalkRestarting && selector === this.prewalk.target) {
+						if (!this.prewalkRestarting && isPrewalkHandOff(this.prewalk, this.model)) {
 							this.prewalk = handOffPrewalk(this.prewalk, this.model ?? undefined);
 							this.resetHandedOffOverlay();
 						} else if (this.prewalk.state === 'handedOff' && this.model) {
@@ -2085,7 +2109,7 @@ export class AgentSession {
 			case 'studio_error': {
 				this.resetBrowserLive();
 				const msg = typeof event.message === 'string' ? event.message : messages.ui_ts_session_errore_del_trasporto_rpc_b9d7();
-				this.isAborting = false;
+				this.endAborting();
 				this.isStreaming = false;
 				this.turnStartedAt = null;
 				this.isCompacting = false;
@@ -2119,7 +2143,7 @@ export class AgentSession {
 						: typeof event.message === 'string'
 							? event.message
 							: messages.ui_ts_session_errore_durante_l_esecuzione_di_omp_ac74();
-				this.isAborting = false;
+				this.endAborting();
 				this.isStreaming = false;
 				this.turnStartedAt = null;
 				this.isCompacting = false;
@@ -2156,7 +2180,7 @@ export class AgentSession {
 				const requestedResume = this.requestedResume;
 				const resumeMissing =
 					requestedResume !== null && isMissingSessionError(stderr, requestedResume);
-				this.isAborting = false;
+				this.endAborting();
 				this.isStreaming = false;
 				this.turnStartedAt = null;
 				this.isCompacting = false;
@@ -2164,6 +2188,7 @@ export class AgentSession {
 				this.assistantEntry = null;
 				this.clearStreamAsk();
 				this.localFollowUpsPaused = true;
+				this.followUps.invalidate();
 				this.exited = true;
 				this.isReady = false;
 				const exitWaiters = this.readyWaiters;
@@ -3170,52 +3195,7 @@ export class AgentSession {
 	resumeLocalFollowUps() {
 		if (!this.isReady || !this.isAttached) return;
 		this.localFollowUpsPaused = false;
-		if (!this.isStreaming) this.dispatchFollowUps();
-	}
-
-	private dispatchFollowUps() {
-		if (this.dispatchingLocal || this.isStreaming || this.isAborting ||
-			this.pendingUi || this.localFollowUpsPaused || !this.isReady || !this.isAttached ||
-			this.localFollowUps.length === 0) return;
-		if (settingsStore.general.followUpMode === 'all') {
-			void this.dispatchAllBatch();
-			return;
-		}
-		const item = this.localFollowUps[0];
-		this.dispatchingLocal = true;
-		const epoch = this.localQueueEpoch;
-		void this.prompt(item.text, item.images, 'followUp', true, item.id)
-			.catch(() => 'failed' as const)
-			.then((delivery) => {
-				if (epoch !== this.localQueueEpoch) return;
-				if (delivery === 'sent') this.removeLocalFollowUp(item.id);
-				else if (delivery === 'failed' || delivery === 'empty') this.localFollowUpsPaused = true;
-			})
-			.finally(() => {
-				this.dispatchingLocal = false;
-				if (!this.isStreaming && !this.localFollowUpsPaused) this.dispatchFollowUps();
-			});
-	}
-
-	private async dispatchAllBatch() {
-		if (this.localFollowUpsPaused || this.dispatchingLocal) return;
-		this.dispatchingLocal = true;
-		try {
-			while (this.localFollowUps.length > 0 && !this.pendingUi && !this.localFollowUpsPaused) {
-				const item = this.localFollowUps[0];
-				const epoch = this.localQueueEpoch;
-				const delivery = await this.prompt(item.text, item.images, 'followUp', true, item.id)
-					.catch(() => 'failed' as const);
-				if (epoch !== this.localQueueEpoch) break;
-				if (delivery === 'sent') this.removeLocalFollowUp(item.id);
-				else if (delivery === 'failed' || delivery === 'empty') {
-					this.localFollowUpsPaused = true;
-					break;
-				}
-			}
-		} finally {
-			this.dispatchingLocal = false;
-		}
+		void this.followUps.dispatch();
 	}
 
 	async prompt(
@@ -3223,13 +3203,23 @@ export class AgentSession {
 		images: ImageContent[] = [],
 		behavior: StreamingBehavior = 'steer',
 		fromLocalQueue = false,
-		localQueueEntryId?: number
+		localQueueEntryId?: number,
+		/**
+		 * Solo per la coda locale in modalita' `all`: impone il comportamento
+		 * senza guardare `isStreaming`, perche' omp ha gia' avviato il primo
+		 * messaggio anche se `agent_start` non e' ancora arrivato.
+		 */
+		forcedBehavior?: StreamingBehavior
 	): Promise<'sent' | 'deferred' | 'failed' | 'empty'> {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return 'empty';
 		if (fromLocalQueue && this.pendingUi) return 'failed';
+		// Subito dopo uno Stop omp sta ancora chiudendo il turno: decidere ora
+		// tra prompt e steer leggerebbe uno streaming che sta per finire e il
+		// messaggio verrebbe spedito come steer di un turno gia' interrotto.
+		if (this.isAborting) await this.waitAbortSettled();
 		const localQueueWasStreaming = this.isStreaming;
-		const localQueueEpoch = this.localQueueEpoch;
+		const localQueueEpoch = this.followUps.epoch;
 		const answeringAsk = this.pendingUi !== null;
 		// In RPC "Chat about this" non e' disponibile. La richiesta bloccante
 		// va chiusa prima del messaggio, altrimenti omp resta in attesa del filo UI.
@@ -3252,16 +3242,15 @@ export class AgentSession {
 		}
 		this.todoReminder = null;
 		this.blockedQuotaState = null;
-		this.isAborting = false;
 		this.suggestions.invalidate();
 		const enriched = await orchestratePromptPreflight(
 			trimmed,
 			{ images, projectPath: this.cwd },
 			this.preflightDeps ?? undefined
 		);
-		if (fromLocalQueue && (localQueueEpoch !== this.localQueueEpoch || this.localFollowUpsPaused ||
+		if (fromLocalQueue && (localQueueEpoch !== this.followUps.epoch || this.localFollowUpsPaused ||
 			this.isAborting || this.pendingUi || !this.isReady || !this.isAttached ||
-			this.isStreaming !== localQueueWasStreaming ||
+			(!forcedBehavior && this.isStreaming !== localQueueWasStreaming) ||
 			(localQueueEntryId !== undefined && !this.localFollowUps.some((entry) => entry.id === localQueueEntryId)))) return 'failed';
 		const fullMessage = attachEditorContext(enriched, this.cwd);
 
@@ -3289,7 +3278,8 @@ export class AgentSession {
 			return 'deferred';
 		}
 
-		const streaming = this.isStreaming;
+		const streaming = forcedBehavior !== undefined || this.isStreaming;
+		if (forcedBehavior) behavior = forcedBehavior;
 		if (streaming) {
 			this.queued.push({ id: this.nextQueueId++, text: fullMessage, behavior });
 		} else {
@@ -3403,12 +3393,32 @@ export class AgentSession {
 		}
 	}
 
+	static readonly ABORT_FALLBACK_MS = 2500;
+
+	/** Fine dell'interruzione: annulla la rete di sicurezza e sblocca i prompt in attesa. */
+	private endAborting(): void {
+		this.isAborting = false;
+		if (this.abortFallbackTimer !== null) {
+			window.clearTimeout(this.abortFallbackTimer);
+			this.abortFallbackTimer = null;
+		}
+		const waiters = this.abortSettledWaiters;
+		this.abortSettledWaiters = [];
+		for (const resolve of waiters) resolve();
+	}
+
+	/** Si risolve al primo `agent_end` dopo lo Stop o alla scadenza della rete di sicurezza. */
+	private waitAbortSettled(): Promise<void> {
+		if (!this.isAborting) return Promise.resolve();
+		return new Promise<void>((resolve) => this.abortSettledWaiters.push(resolve));
+	}
+
 	async abort() {
 		// 1. Notifica lo stato di interruzione e blocca l'accettazione di nuovi delta/messaggi
 		this.isAborting = true;
 		this.suggestions.invalidate();
 		this.localFollowUpsPaused = true;
-		this.localQueueEpoch++;
+		this.followUps.invalidate();
 		this.turnStartedAt = null;
 		this.isCompacting = false;
 		this.deltaBatcher.clear();
@@ -3434,7 +3444,6 @@ export class AgentSession {
 				}
 			}
 		}
-		this.localFollowUpsPaused = true;
 
 		for (let i = 0; i < this.subagents.length; i++) {
 			const sub = this.subagents[i];
@@ -3450,14 +3459,16 @@ export class AgentSession {
 		this.dropOptimisticUser();
 
 		// Fallback di sicurezza: se il backend non risponde entro la finestra di escalation,
-		// disattiva lo streaming per non lasciare l'UI bloccata.
-		window.setTimeout(() => {
+		// disattiva lo streaming per non lasciare l'UI bloccata. Il primo `agent_end` lo annulla.
+		if (this.abortFallbackTimer !== null) window.clearTimeout(this.abortFallbackTimer);
+		this.abortFallbackTimer = window.setTimeout(() => {
+			this.abortFallbackTimer = null;
 			if (this.isAborting) {
-				this.isAborting = false;
 				this.isStreaming = false;
 				this.agentState = 'idle';
+				this.endAborting();
 			}
-		}, 2500);
+		}, AgentSession.ABORT_FALLBACK_MS);
 
 		// 2. Invio prioritario al client RPC per richiedere il soft abort (SIGINT/abort)
 		try {
@@ -3473,8 +3484,8 @@ export class AgentSession {
 	async forceKill() {
 		this.clearPrewalkState();
 		this.localFollowUpsPaused = true;
-		this.localQueueEpoch++;
-		this.isAborting = false;
+		this.followUps.invalidate();
+		this.endAborting();
 		this.isStreaming = false;
 		this.turnStartedAt = null;
 		this.isCompacting = false;
@@ -3482,8 +3493,6 @@ export class AgentSession {
 		this.suggestions.invalidate();
 		this.deltaBatcher.clear();
 		this.clearStreamAsk();
-		this.localFollowUpsPaused = true;
-		this.localQueueEpoch++;
 
 		if (this.assistantEntry) {
 			if (!this.assistantEntry.stopReason) {
@@ -3505,8 +3514,6 @@ export class AgentSession {
 				}
 			}
 		}
-		this.localFollowUpsPaused = true;
-		this.localQueueEpoch++;
 
 		for (let i = 0; i < this.subagents.length; i++) {
 			const sub = this.subagents[i];
@@ -3652,23 +3659,44 @@ export class AgentSession {
 	}
 
 	private async resetPrewalk(): Promise<void> {
+		// Niente da spegnere: aspettare `ready` o scrivere l'overlay rallenterebbe
+		// (o bloccherebbe) una nuova chat per un prewalk mai armato.
+		if (this.prewalk.state === 'off' && !this.overlayEnabled) {
+			this.clearPrewalkState();
+			return;
+		}
 		if (!this.isReady && !(await this.waitUntilReady())) throw new Error(messages.prewalk_unavailable());
 		if (!this.labConfig) await this.disarmPrewalk();
 		this.clearPrewalkState();
 	}
 
+	/**
+	 * Lo spegnimento del prewalk fa da contorno alla nuova chat: se fallisce
+	 * si avvisa e si prosegue, perche' l'utente ha chiesto una chat nuova, non
+	 * un prewalk spento.
+	 */
+	private async resetPrewalkForNewChat(): Promise<void> {
+		try {
+			await this.resetPrewalk();
+		} catch (error) {
+			this.clearPrewalkState();
+			this.flashNotice('warning', messages.chat_v2_prewalk_reset_failed({ error: this.reason(error) }));
+		}
+	}
+
 	async newSession(): Promise<string | null> {
-		await this.resetPrewalk();
-		this.localQueueEpoch++;
+		await this.resetPrewalkForNewChat();
+		this.followUps.invalidate();
 		this.localFollowUpsPaused = true;
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
-		this.isAborting = false;
+		this.endAborting();
 		this.suggestions.invalidate();
 		await this.client.send({ type: 'new_session' });
 		this.entries = [];
 		this.toolEntries.clear();
 		this.clearStreamAsk();
+		this.assistantEntry = null;
 		this.activeAssistantId = null;
 		this.activityLine = null;
 		this.optimisticUser = null;
@@ -3688,12 +3716,12 @@ export class AgentSession {
 		return this.sessionId;
 	}
 	async forkSession(): Promise<string | null> {
-		await this.resetPrewalk();
+		await this.resetPrewalkForNewChat();
 		this.localFollowUpsPaused = true;
-		this.localQueueEpoch++;
+		this.followUps.invalidate();
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
-		this.isAborting = false;
+		this.endAborting();
 		this.suggestions.invalidate();
 		const parent = this.sessionId;
 		await this.client.send({ type: 'new_session', parentSession: parent || undefined });
@@ -3792,7 +3820,7 @@ export class AgentSession {
 		if (this.isCompacting) return false;
 		this.isCompacting = true;
 		this.localFollowUpsPaused = true;
-		this.localQueueEpoch++;
+		this.followUps.invalidate();
 		this.pushNotice('info', messages.ui_ts_session_passaggio_delle_consegne_handoff_in_corso_bce8(), 'studio');
 
 		try {

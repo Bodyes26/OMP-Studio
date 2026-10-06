@@ -45,6 +45,9 @@
 	import { resolveContextWindow } from '$lib/agent/contextReport';
 	import { formatTokens } from '$lib/utils/format';
 	import { invoke } from '@tauri-apps/api/core';
+	import { untrack } from 'svelte';
+	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
+	import { TwoStepStop } from '$lib/agent/twoStepStop';
 	import { m } from '$lib/paraglide/messages.js';
 
 	import ComposerEditor from './ComposerEditor.svelte';
@@ -116,6 +119,25 @@
 
 	let suggestItems = $state<SuggestionItem[]>([]);
 	let suggestIndex = $state(0);
+
+	// Stop a due stadi: abort, poi «Forza arresto» se l'agente non si ferma.
+	let stopArmed = $state(false);
+	const stopControl = new TwoStepStop({
+		abort: () => session.abort(),
+		forceKill: () => session.forceKill(),
+		onChange: (armed) => (stopArmed = armed),
+		setTimer: (callback, ms) => window.setTimeout(callback, ms),
+		clearTimer: (handle) => window.clearTimeout(handle as number)
+	});
+	// Fine reale del turno, processo uscito o sessione cambiata: niente da forzare.
+	$effect(() => {
+		void session;
+		void session.runEndSeq;
+		void session.exited;
+		void session.sessionId;
+		stopControl.settle();
+	});
+	$effect(() => () => stopControl.settle());
 
 	let sendBehaviorChoice = $state<StreamingBehavior>(settingsStore.general.defaultStreamingBehavior);
 	$effect(() => {
@@ -330,8 +352,18 @@
 	}
 
 	function removeAttachment(id: string | number) {
+		releaseAttachments(attachments.filter((a) => a.id === id));
 		attachments = attachments.filter((a) => a.id !== id);
 	}
+
+	/** Gli URL blob dei video tengono in memoria l'intero file finche' non si revocano. */
+	function releaseAttachments(list: readonly ComposerAttachment[]): void {
+		for (const att of list) {
+			if (att.url?.startsWith('blob:')) URL.revokeObjectURL(att.url);
+		}
+	}
+	// Solo alla distruzione: l'effetto non ha dipendenze e la lettura avviene nel teardown.
+	$effect(() => () => releaseAttachments(untrack(() => attachments)));
 
 	// Selezione voce dalla tendina
 	function pickSuggestion(item: SuggestionItem) {
@@ -443,9 +475,9 @@
 				// Senza preventDefault la WebView apre la stampa.
 				e.preventDefault();
 				onSlashCommand?.('/role next');
-			} else if (key === 'c' && session.isStreaming && !window.getSelection()?.toString()) {
+			} else if (key === 'c' && (session.isStreaming || stopArmed) && !window.getSelection()?.toString()) {
 				e.preventDefault();
-				void session.abort();
+				stopControl.press();
 			}
 			return;
 		}
@@ -478,7 +510,7 @@
 				cycleThinkingLevel();
 				break;
 			case 'c':
-				if (session.isStreaming) void session.abort();
+				if (session.isStreaming || stopArmed) stopControl.press();
 				else clear();
 				break;
 			case 'e':
@@ -502,20 +534,33 @@
 		session.dismissComposerNotice();
 		try {
 			let wireText = editorRef.getWireText(isSkillCommand);
-			const stagedNonImages = attachments.filter((a) => a.path && a.kind !== 'image');
+			// I comandi di Studio passano dal guscio prima di omp; cio' che il
+			// guscio non riconosce (skill, comandi delle estensioni) va a omp.
+			const route = routeComposerSubmit(wireText);
+			if (route.kind === 'studio' && onSlashCommand?.(route.raw)) {
+				clear();
+				return;
+			}
+			const sent = [...attachments];
+			const stagedNonImages = sent.filter((a) => a.path && a.kind !== 'image');
 			if (stagedNonImages.length > 0) {
 				const pathsBlock = stagedNonImages.map((a) => `- ${a.path}`).join('\n');
-				wireText = wireText ? `${wireText}\n\nAllegati:\n${pathsBlock}` : pathsBlock;
+				wireText = wireText
+					? `${wireText}\n\n${m.chat_v2_composer_attachments_block()}\n${pathsBlock}`
+					: pathsBlock;
 			}
-			const imagesToSend: ImageContent[] = attachments
+			const imagesToSend: ImageContent[] = sent
 				.filter((a) => a.kind === 'image' && a.base64)
 				.map((a) => ({ type: 'image', data: a.base64!, mimeType: a.mimeType || 'image/jpeg' }));
 			let behavior: StreamingBehavior = sendBehaviorChoice;
 			if (isAlt) behavior = behavior === 'steer' ? 'followUp' : 'steer';
 			const result = await session.prompt(wireText, imagesToSend, behavior);
-			if (result === 'sent' || result === 'deferred') clear();
+			if (result === 'sent' || result === 'deferred') clearAfterSend(sent);
 		} catch (error) {
-			session.flashNotice('error', `Prompt non accettato: ${error instanceof Error ? error.message : String(error)}`);
+			session.flashNotice(
+				'error',
+				m.chat_v2_composer_prompt_rejected({ error: error instanceof Error ? error.message : String(error) })
+			);
 		} finally {
 			submitting = false;
 		}
@@ -528,7 +573,16 @@
 
 	export function clear(): void {
 		if (editorRef) editorRef.clear();
+		releaseAttachments(attachments);
 		attachments = [];
+		currentTrigger = null;
+	}
+
+	/** Dopo l'invio restano gli allegati aggiunti mentre la richiesta era in volo. */
+	function clearAfterSend(sent: ComposerAttachment[]): void {
+		if (editorRef) editorRef.clear();
+		releaseAttachments(sent);
+		attachments = remainingAfterSend(attachments, sent);
 		currentTrigger = null;
 	}
 
@@ -955,23 +1009,31 @@
 							draftTokens={draftTokensEstimate}
 							onCompact={() => {
 								activeMenu = null;
-								void session.prompt('/compact', [], 'steer');
+								void session.compact();
 							}}
 						/>
 					{/snippet}
 				</MenuButton>
 
-				<!-- Stop non disabilita l'invio: durante il turno si puo' fare steer o follow-up. -->
-				{#if session.isStreaming}
+				<!-- Stop non disabilita l'invio: durante il turno si puo' fare steer o follow-up.
+				     Se dopo l'abort l'agente non si ferma, il pulsante si arma come «Forza arresto». -->
+				{#if session.isStreaming || stopArmed}
+					{@const stopLabel = stopArmed ? m.force_kill_session_btn() : m.chat_v2_composer_stop_tooltip()}
 					<button
 						type="button"
 						class="composer-send-btn send-btn stop"
-						title={m.chat_v2_composer_stop_tooltip()}
-						onclick={() => session.abort()}
+						class:armed={stopArmed}
+						title={stopLabel}
+						aria-label={stopLabel}
+						onclick={() => stopControl.press()}
 					>
 						<IconStop />
+						{#if stopArmed}
+							<span class="stop-force-text">{m.force_kill_session_short()}</span>
+						{/if}
 					</button>
 				{/if}
+				<span class="sr-only" aria-live="polite">{stopArmed ? m.chat_v2_composer_stop_armed_announce() : ''}</span>
 				<div class="send-split-group">
 						<button
 							type="button"
@@ -1321,6 +1383,41 @@
 		background: var(--danger);
 		color: var(--on-danger);
 		--icon-size: 15px;
+	}
+
+	/* Armato: pillola con il testo del secondo clic e contorno cremisi che pulsa. */
+	.send-btn.stop.armed {
+		display: inline-flex;
+		align-items: center;
+		width: auto;
+		gap: 6px;
+		padding: 0 10px;
+		outline: 2px solid var(--danger);
+		outline-offset: 2px;
+		animation: stop-armed-pulse 1.2s var(--ease-out) infinite;
+	}
+
+	.stop-force-text {
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	@keyframes stop-armed-pulse {
+		0%,
+		100% {
+			outline-color: color-mix(in oklch, var(--danger) 90%, transparent);
+		}
+		50% {
+			outline-color: color-mix(in oklch, var(--danger) 25%, transparent);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.send-btn.stop.armed {
+			animation: none;
+		}
 	}
 
 	.send-mode-chevron {

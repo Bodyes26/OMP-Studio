@@ -68,6 +68,7 @@ import './project-tab-metadata.test.ts';
 import './reveal.test.ts';
 import './tool-categories.test.ts';
 import './local-follow-up-queue.test.ts';
+import './composer-submit.test.ts';
 import './tool-group-34.test.ts';
 import './todo-trace.test.ts';
 import './tooltip-behavior.test.ts';
