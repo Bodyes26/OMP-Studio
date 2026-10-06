@@ -60,6 +60,8 @@
 	import { untrack } from 'svelte';
 	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
 	import { TwoStepStop } from '$lib/agent/twoStepStop';
+	import { composerChord } from '$lib/agent/composerShortcuts';
+	import { IS_MAC } from '$lib/utils/platform';
 	import { m } from '$lib/paraglide/messages.js';
 
 	import ComposerEditor from './ComposerEditor.svelte';
@@ -239,7 +241,17 @@
 				return;
 			}
 
+			const trigger = currentTrigger;
 			void loadProjectFiles(projectPath).then((files) => {
+				// Una risposta arrivata dopo altri tasti non deve sovrascrivere
+				// la palette della query corrente (o riaprirne una chiusa).
+				if (
+					!currentTrigger ||
+					currentTrigger.kind !== trigger.kind ||
+					currentTrigger.query !== trigger.query
+				) {
+					return;
+				}
 				const context = {
 					activeFile: projectStore.activeProject?.lane.activeFile,
 					openFiles: projectStore.activeProject?.lane.openFiles,
@@ -556,9 +568,11 @@
 		if (!insideComposer && (isTypingSurface(e.target) || isTypingSurface(activeEl))) return;
 		if (settingsStore.open || modelSettingsStore.isOpen || shortcutsModalStore.isOpen) return;
 
-		const altOnly = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
-		const ctrlOnly = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
-		if (!altOnly && !ctrlOnly) return;
+		// Alt+lettera su Windows/Linux, Ctrl+Opzione+lettera su Mac: Opzione da
+		// sola scrive caratteri (€ ç ñ) e non va rubata.
+		const chord = composerChord(e, IS_MAC);
+		if (chord === null) return;
+		const ctrlOnly = chord === 'command';
 		// e.code prima di e.key: con Alt alcuni layout producono caratteri speciali.
 		const key = e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
 
@@ -687,6 +701,15 @@
 			editorRef.setPlainText(text, isSkillCommand);
 		}
 	}
+
+	// Testo da altre superfici (Laboratorio, «Chiedi all'agente»): entra alla
+	// posizione del cursore e non sostituisce la bozza in corso.
+	$effect(() => {
+		const target = session;
+		return target.registerComposerInsertHandler((text: string) => {
+			editorRef?.insertPlainText(text, isSkillCommand);
+		});
+	});
 
 	export function restoreDraft(text: string, images?: (ComposerAttachment | ImageContent)[]): boolean {
 		if (!isDraftEmpty() || !editorRef) return false;
@@ -837,7 +860,7 @@
 		{#if visualNoVisionWarning}
 			<div class="vision-warning-strip">
 				<IconWarning />
-				<span>{m.chat_v2_composer_vision_warning({ model: session.model?.name || session.model?.id || 'Il modello' })}</span>
+				<span>{m.chat_v2_composer_vision_warning({ model: session.model?.name || session.model?.id || m.chat_v2_composer_model_fallback() })}</span>
 				<button type="button" class="change-model-btn" onclick={() => (activeMenu = 'model')}>
 					{m.chat_v2_composer_change_model()}
 				</button>
@@ -927,7 +950,7 @@
 				onClose={() => (activeMenu = null)}
 			>
 				{#snippet trigger()}
-					<span class="model-name-label">{session.model?.name || session.model?.id || 'Modello'}</span>
+					<span class="model-name-label">{session.model?.name || session.model?.id || m.chat_v2_composer_model_label()}</span>
 					<span class="chevron-indicator"><IconChevronUp /></span>
 				{/snippet}
 				{#snippet children()}
@@ -985,7 +1008,7 @@
 							/>
 						{:else}
 							<p class="thinking-unsupported">
-								{m.chat_v2_composer_thinking_unsupported({ model: session.model?.name || session.model?.id || 'Questo modello' })}
+								{m.chat_v2_composer_thinking_unsupported({ model: session.model?.name || session.model?.id || m.chat_v2_composer_model_fallback() })}
 							</p>
 						{/if}
 					</div>
@@ -1118,7 +1141,7 @@
 						{#if session.isStreaming}
 						<MenuButton
 							open={activeMenu === 'sendMode'}
-							title="Modalità invio"
+							title={m.chat_v2_composer_send_mode_title()}
 							hasPopup="menu"
 							align="right"
 							width="240px"
@@ -1143,7 +1166,7 @@
 										}}
 									>
 										<span class="mode-title">{m.chat_v2_composer_send_steer()}</span>
-										<span class="mode-sub">Invio predefinito con Invio</span>
+										<span class="mode-sub">{m.chat_v2_composer_send_mode_default_hint()}</span>
 									</button>
 									<button
 										type="button"
@@ -1157,7 +1180,7 @@
 										}}
 									>
 										<span class="mode-title">{m.chat_v2_composer_send_followup()}</span>
-										<span class="mode-sub">Alternativa con Alt+Invio</span>
+										<span class="mode-sub">{m.chat_v2_composer_send_mode_alt_hint({ modifier: IS_MAC ? '⌥' : 'Alt' })}</span>
 									</button>
 								</div>
 							{/snippet}

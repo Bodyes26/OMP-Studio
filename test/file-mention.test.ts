@@ -9,7 +9,8 @@ import {
 	isExcludedPath,
 	rankFileCandidates,
 	extractTouchedFilesFromTranscript,
-	computeCaretAnchorLeft
+	computeCaretAnchorLeft,
+	loadProjectFiles
 } from '../src/lib/agent/fileMention.ts';
 import { findFileMentions } from '../src/lib/agent/fileMentionSyntax.ts';
 import { lexMarkdownInlineWithMentions, type Token } from '../src/lib/agent/markdown.ts';
@@ -122,4 +123,37 @@ test('File mention: calcolo ancoraggio da caret Range rect', () => {
 	const leftEnd = computeCaretAnchorLeft({ left: 750 }, rootRect, 380);
 	// maxLeft = 700 - 380 = 320
 	assert.equal(leftEnd, 320);
+});
+
+test('File mention: le letture concorrenti dello stesso progetto condividono una sola chiamata', async () => {
+	const globals = globalThis as { window?: unknown; __TAURI_INTERNALS__?: unknown };
+	const previousWindow = globals.window;
+	const previousInternals = globals.__TAURI_INTERNALS__;
+	let calls = 0;
+	let release: (files: string[]) => void = () => {};
+	const internals = {
+		invoke: (cmd: string) => {
+			if (cmd !== 'project_files_list') return Promise.resolve(null);
+			calls++;
+			return new Promise<string[]>((resolve) => (release = resolve));
+		},
+		transformCallback: (fn: unknown) => fn
+	};
+	globals.window = { __TAURI_INTERNALS__: internals };
+	globals.__TAURI_INTERNALS__ = internals;
+	try {
+		const project = `/progetto-${Date.now()}`;
+		const first = loadProjectFiles(project);
+		const second = loadProjectFiles(project);
+		release(['src/a.ts', './b.ts']);
+		assert.deepEqual(await first, ['src/a.ts', 'b.ts']);
+		assert.deepEqual(await second, ['src/a.ts', 'b.ts']);
+		assert.equal(calls, 1);
+		// Poi la cache: nessuna chiamata nuova entro il TTL.
+		assert.deepEqual(await loadProjectFiles(project), ['src/a.ts', 'b.ts']);
+		assert.equal(calls, 1);
+	} finally {
+		globals.window = previousWindow;
+		globals.__TAURI_INTERNALS__ = previousInternals;
+	}
 });

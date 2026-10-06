@@ -162,6 +162,36 @@
 	}
 
 	/**
+	 * Inserisce testo semplice alla posizione del cursore (in fondo se il
+	 * cursore non e' nell'editor) senza toccare il resto della bozza. Le
+	 * menzioni `@percorso` e un `/comando` iniziale diventano badge.
+	 */
+	export function insertPlainText(text: string, isSkill?: (name: string) => boolean): void {
+		if (!editorEl || !text) return;
+		const segs = parsePlainTextToSegments(text, isSkill);
+		if (segs.length === 0) return;
+		editorEl.focus();
+		const sel = window.getSelection();
+		if (!sel || !sel.rangeCount || !editorEl.contains(sel.anchorNode)) {
+			caretAfter(editorEl, editorEl.childNodes.length);
+		}
+		const range = window.getSelection()?.getRangeAt(0);
+		if (!range) return;
+		range.deleteContents();
+		const scratch = document.createElement('div');
+		renderSegmentsToDom(segs, scratch);
+		const last = scratch.lastChild;
+		const frag = document.createDocumentFragment();
+		frag.append(...Array.from(scratch.childNodes));
+		range.insertNode(frag);
+		if (last) {
+			if (last.nodeType === Node.TEXT_NODE) caretAfter(last, (last.textContent ?? '').length);
+			else caretAfter(editorEl, Array.from(editorEl.childNodes).indexOf(last as ChildNode) + 1);
+		}
+		sync();
+	}
+
+	/**
 	 * Inserisce dei badge alla posizione del cursore (in fondo se il cursore
 	 * non e' nell'editor), ciascuno seguito da uno spazio: e' il percorso dei
 	 * file trascinati o scelti dal selettore, che non passano da un trigger.

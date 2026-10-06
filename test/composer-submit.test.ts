@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { STUDIO_SLASH_COMMANDS } from '../src/lib/agent/commands.ts';
 import { choosePasteContent, findSlashCommand, remainingAfterSend, routeComposerSubmit } from '../src/lib/agent/composerSubmit.ts';
 import { segmentsToWireText } from '../src/lib/agent/composerDoc.ts';
+import { composerChord, letterChordLabel } from '../src/lib/agent/composerShortcuts.ts';
 
 describe('Composer: instradamento dei comandi /', () => {
 	it('ogni comando e alias del catalogo di Studio passa dal guscio', () => {
@@ -42,6 +43,32 @@ describe('Composer: instradamento dei comandi /', () => {
 	it('un comando sconosciuto al catalogo resta candidato: decide il guscio, poi omp', () => {
 		assert.deepEqual(routeComposerSubmit('/estensione-x'), { kind: 'studio', raw: '/estensione-x' });
 		assert.equal(findSlashCommand('/estensione-x', STUDIO_SLASH_COMMANDS), null);
+	});
+});
+
+describe('Composer: modificatori delle scorciatoie', () => {
+	const keys = (mods: Partial<{ altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }>) => ({
+		altKey: false,
+		ctrlKey: false,
+		metaKey: false,
+		shiftKey: false,
+		...mods
+	});
+
+	it('Windows/Linux: Alt+lettera, AltGr (Ctrl+Alt) escluso', () => {
+		assert.equal(composerChord(keys({ altKey: true }), false), 'letter');
+		assert.equal(composerChord(keys({ altKey: true, ctrlKey: true }), false), null);
+		assert.equal(composerChord(keys({ ctrlKey: true }), false), 'command');
+		assert.equal(composerChord(keys({ altKey: true, shiftKey: true }), false), null);
+		assert.equal(letterChordLabel(false), 'Alt');
+	});
+
+	it('macOS: Opzione da sola resta ai caratteri (€ ç ñ), le scorciatoie sono Ctrl+Opzione', () => {
+		assert.equal(composerChord(keys({ altKey: true }), true), null);
+		assert.equal(composerChord(keys({ altKey: true, ctrlKey: true }), true), 'letter');
+		assert.equal(composerChord(keys({ altKey: true, ctrlKey: true, metaKey: true }), true), null);
+		assert.equal(composerChord(keys({ metaKey: true }), true), 'command');
+		assert.equal(letterChordLabel(true), '⌃+⌥');
 	});
 });
 

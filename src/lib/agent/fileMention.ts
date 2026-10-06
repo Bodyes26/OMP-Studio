@@ -209,6 +209,11 @@ interface CachedCatalog {
 }
 const projectFilesCache = new Map<string, CachedCatalog>();
 const CACHE_TTL_MS = 10_000;
+/**
+ * Letture in volo per percorso: ogni tasto dopo `@` chiede l'elenco, e senza
+ * condividere la promessa partivano piu' `project_files_list` identiche.
+ */
+const projectFilesInflight = new Map<string, Promise<string[]>>();
 
 /**
  * Carica e memorizza nella cache l'elenco dei file del progetto attivo.
@@ -224,7 +229,21 @@ export async function loadProjectFiles(
 	if (!force && cached && now - cached.timestamp < CACHE_TTL_MS) {
 		return cached.files;
 	}
+	const inflight = projectFilesInflight.get(projectPath);
+	if (inflight && !force) return inflight;
 
+	const request = fetchProjectFiles(projectPath, now, cached).finally(() => {
+		if (projectFilesInflight.get(projectPath) === request) projectFilesInflight.delete(projectPath);
+	});
+	projectFilesInflight.set(projectPath, request);
+	return request;
+}
+
+async function fetchProjectFiles(
+	projectPath: string,
+	now: number,
+	cached: CachedCatalog | undefined
+): Promise<string[]> {
 	try {
 		const files = await invoke<string[]>('project_files_list', {
 			projectPath,
