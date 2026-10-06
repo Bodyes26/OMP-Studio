@@ -9,8 +9,8 @@
  * dall'aggregatore.
  */
 
-import { spawn } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -29,6 +29,30 @@ if (orphanTests.length > 0) {
 	console.error('[FAIL] File di test non importati da test/smoke.test.ts:');
 	for (const name of orphanTests) console.error(`  - test/${name}`);
 	process.exit(1);
+}
+
+// I moduli localizzati importano i messaggi Paraglide compilati, che non sono
+// versionati: in un clone appena fatto (o nella copia usata da release.mjs)
+// mancano finche' non gira `npm run check`. Si compilano qui se assenti.
+if (!existsSync(join(ROOT, 'src', 'lib', 'paraglide', 'runtime.js'))) {
+	console.log('Messaggi Paraglide assenti: compilazione...');
+	const compiled = spawnSync(
+		process.execPath,
+		[
+			join(ROOT, 'node_modules', '@inlang', 'paraglide-js', 'bin', 'run.js'),
+			'compile',
+			'--project', './project.inlang',
+			'--outdir', './src/lib/paraglide',
+			'--strategy', 'baseLocale',
+			'--emit-ts-declarations',
+			'--disable-async-local-storage'
+		],
+		{ cwd: ROOT, stdio: 'inherit' }
+	);
+	if (compiled.status !== 0) {
+		console.error('[FAIL] Compilazione dei messaggi Paraglide non riuscita.');
+		process.exit(1);
+	}
 }
 
 console.log('=== OMP Studio Smoke Tests ===\n');
