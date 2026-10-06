@@ -620,6 +620,26 @@ mod tests {
         assert_eq!(protocol, "https");
     }
 
+    /// L'avatar dell'account (`avatar_url`) arriva da avatars.githubusercontent.com:
+    /// senza la voce in img-src la CSP lo blocca e l'immagine resta vuota.
+    #[test]
+    fn csp_consente_gli_avatar_github() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../../tauri.conf.json")).unwrap();
+        for key in ["csp", "devCsp"] {
+            let csp = conf["app"]["security"][key].as_str().unwrap();
+            let img_src = csp
+                .split(';')
+                .map(str::trim)
+                .find(|d| d.starts_with("img-src"))
+                .unwrap();
+            assert!(
+                img_src.contains("https://avatars.githubusercontent.com"),
+                "{key}: {img_src}"
+            );
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn token_salvato_atomico_con_permessi_0600() {
