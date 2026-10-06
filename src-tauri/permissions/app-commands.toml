@@ -98,6 +98,8 @@ commands.allow = [
     "worktree_land",
     "worktree_undo_land",
     "worktree_delete_lane_branch",
+    "worktree_lane_unintegrated_summary",
+    "worktree_lane_integration_state",
     "lane_processes_list",
     "lane_processes_stop",
     "lane_bridge_respond",

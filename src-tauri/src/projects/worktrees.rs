@@ -16,6 +16,50 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 static WORKTREE_MUTATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
+/// Chiave della config del branch di corsia con i file copiati via allowlist:
+/// copie locali (Parametri.ini, .env) che non devono finire nei commit della
+/// corsia ne' rendere "sporca" la sua rimozione.
+const ALLOWLIST_KEY: &str = "ompStudioAllowlist";
+
+/// Serializza le mutazioni dei worktree. Un panic in un'operazione precedente
+/// avvelena il mutex ma non lo stato Git, che ogni operazione rilegge da capo:
+/// si recupera il lock invece di bloccare corsie e integrazioni fino al riavvio.
+fn worktree_mutation_lock() -> std::sync::MutexGuard<'static, ()> {
+    WORKTREE_MUTATION_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// Versione di Git installata `(major, minor, patch)`, letta una sola volta
+/// per esecuzione. `None` se Git manca o stampa una versione illeggibile.
+pub fn git_version() -> Option<(u32, u32, u32)> {
+    static VERSION: std::sync::OnceLock<Option<(u32, u32, u32)>> = std::sync::OnceLock::new();
+    *VERSION.get_or_init(|| {
+        let mut command = Command::new("git");
+        command.arg("--version");
+        #[cfg(target_os = "windows")]
+        command.creation_flags(CREATE_NO_WINDOW);
+        let output = command.output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        parse_git_version(&String::from_utf8_lossy(&output.stdout))
+    })
+}
+
+/// `git version 2.43.0`, `git version 2.45.1.windows.1`,
+/// `git version 2.39.3 (Apple Git-146)`: contano solo i primi tre numeri.
+fn parse_git_version(text: &str) -> Option<(u32, u32, u32)> {
+    let version = text.trim().strip_prefix("git version ")?;
+    let mut numbers = version
+        .split(|c: char| c == '.' || c.is_whitespace())
+        .map(|part| part.parse::<u32>().ok());
+    let major = numbers.next()??;
+    let minor = numbers.next()??;
+    let patch = numbers.next().flatten().unwrap_or(0);
+    Some((major, minor, patch))
+}
+
 mod lane_integrate;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -49,6 +93,7 @@ pub enum WorktreeErrorCode {
     WorktreeInUse,
     GitCommandFailed,
     MetadataCleanupFailed,
+    GitTooOld,
     Internal,
 }
 
@@ -213,7 +258,6 @@ pub struct WorktreeReviewInspectArgs {
     #[serde(default)]
     pub target_branch: Option<String>,
 }
-
 
 #[derive(Clone, Debug)]
 struct RepositoryContext {
@@ -736,9 +780,234 @@ fn clear_registration(context: &RepositoryContext, branch: &str) {
         "ompStudioBaseCommit",
         "ompStudioTargetBranch",
         "ompStudioWorktree",
+        ALLOWLIST_KEY,
     ] {
         config_unset(context, branch, suffix);
     }
+}
+
+/// Percorsi (relativi, con `/`) copiati nella corsia via allowlist.
+fn allowlist_paths(
+    context: &RepositoryContext,
+    branch: &str,
+) -> Result<Vec<String>, WorktreeError> {
+    let key = branch_config_key(branch, ALLOWLIST_KEY);
+    let output = run_git(
+        &context.repository_root,
+        &[
+            OsString::from("config"),
+            OsString::from("--local"),
+            OsString::from("-z"),
+            OsString::from("--get-all"),
+            OsString::from(key),
+        ],
+    )?;
+    if output.status.code() == Some(1) {
+        return Ok(Vec::new());
+    }
+    if !output.status.success() {
+        return Err(WorktreeError::with_detail(
+            WorktreeErrorCode::GitCommandFailed,
+            "Impossibile leggere i file locali copiati nella corsia",
+            output_detail(&output),
+        ));
+    }
+    let mut paths: Vec<String> = Vec::new();
+    for raw in output.stdout.split(|byte| *byte == 0) {
+        let value = String::from_utf8_lossy(raw).trim().to_string();
+        if !value.is_empty() && !paths.contains(&value) {
+            paths.push(value);
+        }
+    }
+    Ok(paths)
+}
+
+/// Aggiunge alla config del branch i percorsi appena copiati, una voce per
+/// percorso (`--add`, argv separati: spazi e caratteri speciali non passano
+/// mai da una shell).
+fn record_allowlist_paths(
+    context: &RepositoryContext,
+    branch: &str,
+    copied: &[String],
+) -> Result<(), WorktreeError> {
+    if copied.is_empty() {
+        return Ok(());
+    }
+    let known = allowlist_paths(context, branch)?;
+    let key = branch_config_key(branch, ALLOWLIST_KEY);
+    for path in copied {
+        if known.contains(path) {
+            continue;
+        }
+        require_git(
+            &context.repository_root,
+            &[
+                OsString::from("config"),
+                OsString::from("--local"),
+                OsString::from("--add"),
+                OsString::from(&key),
+                OsString::from(path),
+            ],
+            WorktreeErrorCode::GitCommandFailed,
+            "Impossibile registrare i file locali copiati nella corsia",
+        )?;
+    }
+    Ok(())
+}
+
+/// Voce di `git status --porcelain=v1 -z`: stato a due lettere e percorso.
+fn porcelain_status_entries(raw: &[u8]) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    let mut parts = raw.split(|byte| *byte == 0);
+    while let Some(entry) = parts.next() {
+        if entry.len() < 4 {
+            continue;
+        }
+        let status = String::from_utf8_lossy(&entry[..2]).into_owned();
+        let path = String::from_utf8_lossy(&entry[3..]).replace('\\', "/");
+        // Rinomine e copie occupano due voci: la seconda e' l'origine.
+        if status.starts_with('R') || status.starts_with('C') {
+            parts.next();
+        }
+        entries.push((status, path));
+    }
+    entries
+}
+
+/// Modifiche del worktree che ne impediscono la rimozione: tutto tranne i file
+/// non tracciati che Studio stesso vi ha copiato via allowlist.
+fn blocking_changes(worktree: &Path, allowlisted: &[String]) -> Result<Vec<String>, WorktreeError> {
+    let status = require_git(
+        worktree,
+        &git_args(&["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
+        WorktreeErrorCode::GitCommandFailed,
+        "Impossibile verificare lo stato del worktree",
+    )?;
+    Ok(porcelain_status_entries(&status.stdout)
+        .into_iter()
+        .filter(|(status, path)| {
+            !(status == "??"
+                && allowlisted
+                    .iter()
+                    .any(|allowed| lane_integrate::paths_match(allowed, path)))
+        })
+        .map(|(_, path)| path)
+        .collect())
+}
+
+/// Registrazione Studio di un branch, letta dalla config locale.
+#[derive(Clone, Debug, Default)]
+struct BranchRegistration {
+    managed: Option<String>,
+    lane_id: Option<String>,
+    base_commit: Option<String>,
+    target_branch: Option<String>,
+    worktree: Option<String>,
+}
+
+/// Tutte le registrazioni Studio con un solo `git config`: `worktree_list` ne
+/// avrebbe altrimenti lanciati cinque per ogni worktree. Le chiavi tornano con
+/// il nome della variabile in minuscolo e il nome del branch intatto.
+fn branch_registrations(
+    context: &RepositoryContext,
+) -> Result<std::collections::HashMap<String, BranchRegistration>, WorktreeError> {
+    let output = run_git(
+        &context.repository_root,
+        &git_args(&[
+            "config",
+            "--local",
+            "-z",
+            "--get-regexp",
+            r"^branch\..*\.ompstudio",
+        ]),
+    )?;
+    let mut registrations: std::collections::HashMap<String, BranchRegistration> =
+        std::collections::HashMap::new();
+    if output.status.code() == Some(1) {
+        return Ok(registrations);
+    }
+    if !output.status.success() {
+        return Err(WorktreeError::with_detail(
+            WorktreeErrorCode::GitCommandFailed,
+            "Impossibile leggere la registrazione Studio del worktree",
+            output_detail(&output),
+        ));
+    }
+    for raw in output.stdout.split(|byte| *byte == 0) {
+        let text = String::from_utf8_lossy(raw);
+        // Con `-z` ogni voce e' "chiave\nvalore".
+        let (key, value) = text.split_once('\n').unwrap_or((text.as_ref(), ""));
+        let Some((branch, variable)) = key
+            .strip_prefix("branch.")
+            .and_then(|rest| rest.rsplit_once('.'))
+        else {
+            continue;
+        };
+        let value = Some(value.trim().to_string());
+        let entry = registrations.entry(branch.to_string()).or_default();
+        // Con piu' valori vince l'ultimo, come `git config --get`.
+        match variable {
+            "ompstudiomanaged" => entry.managed = value,
+            "ompstudiolaneid" => entry.lane_id = value,
+            "ompstudiobasecommit" => entry.base_commit = value,
+            "ompstudiotargetbranch" => entry.target_branch = value,
+            "ompstudioworktree" => entry.worktree = value,
+            _ => {}
+        }
+    }
+    Ok(registrations)
+}
+
+fn registered_values_from(
+    registration: Option<&BranchRegistration>,
+    actual_path: &Path,
+) -> RegisteredWorktreeValues {
+    let Some(registration) = registration else {
+        return (false, None, None, None);
+    };
+    let marked = registration
+        .managed
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+    let path_matches = registration
+        .worktree
+        .as_deref()
+        .map(Path::new)
+        .is_some_and(|registered| same_path(registered, actual_path));
+    (
+        marked && path_matches,
+        registration.lane_id.clone(),
+        registration.base_commit.clone(),
+        registration.target_branch.clone(),
+    )
+}
+
+/// Branch di corsia registrato da Studio per la cartella `root`, con il nome
+/// atteso `.omp-wt-<repo>-<corsia>`: e' la prova che una cartella che Git non
+/// elenca piu' (o che non esiste piu') era davvero un worktree di Studio.
+fn registration_for_root(
+    context: &RepositoryContext,
+    root: &Path,
+) -> Result<Option<String>, WorktreeError> {
+    let file_name = root.file_name().and_then(|name| name.to_str());
+    for (branch, registration) in branch_registrations(context)? {
+        let (managed, lane_id, _, _) = registered_values_from(Some(&registration), root);
+        let Some(lane_id) = lane_id.filter(|_| managed) else {
+            continue;
+        };
+        let expected_name = format!(
+            "{}{}-{}",
+            WORKTREE_PREFIX,
+            repository_slug(&context.repository_name),
+            lane_id
+        );
+        if branch == format!("{}{}", LANE_BRANCH_PREFIX, lane_id)
+            && file_name == Some(expected_name.as_str())
+        {
+            return Ok(Some(branch));
+        }
+    }
+    Ok(None)
 }
 
 fn register_worktree(
@@ -784,12 +1053,13 @@ fn registered_values(
 
 fn worktree_info(
     context: &RepositoryContext,
+    registrations: &std::collections::HashMap<String, BranchRegistration>,
     raw: PorcelainWorktree,
 ) -> Result<WorktreeInfo, WorktreeError> {
     let canonical_path = raw.path.canonicalize().unwrap_or_else(|_| raw.path.clone());
     let workspace_path = canonical_path.join(&context.relative_subpath);
     let (managed_by_studio, lane_id, base_commit, target_branch) = match raw.branch.as_deref() {
-        Some(branch) => registered_values(context, branch, &canonical_path)?,
+        Some(branch) => registered_values_from(registrations.get(branch), &canonical_path),
         None => (false, None, None, None),
     };
 
@@ -812,9 +1082,10 @@ fn worktree_info(
 fn list_sync(project_path: &str) -> Result<Vec<WorktreeInfo>, WorktreeError> {
     let context = discover_repository(project_path)?;
     ensure_repository_has_commit(&context)?;
+    let registrations = branch_registrations(&context)?;
     porcelain_worktrees(&context)?
         .into_iter()
-        .map(|raw| worktree_info(&context, raw))
+        .map(|raw| worktree_info(&context, &registrations, raw))
         .collect()
 }
 
@@ -864,12 +1135,7 @@ fn rollback_create(context: &RepositoryContext, path: &Path, branch: &str, base_
 }
 
 fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> {
-    let _mutation = WORKTREE_MUTATION_LOCK.lock().map_err(|_| {
-        WorktreeError::new(
-            WorktreeErrorCode::Internal,
-            "Lock del gestore worktree non disponibile",
-        )
-    })?;
+    let _mutation = worktree_mutation_lock();
     let context = discover_repository(&args.project_path)?;
     ensure_repository_has_commit(&context)?;
     let inspection = inspect_sync(&args.project_path)?;
@@ -1012,6 +1278,67 @@ fn resolve_managed_worktree(
     context: &RepositoryContext,
     supplied_path: &str,
 ) -> Result<(PathBuf, PorcelainWorktree), WorktreeError> {
+    let canonical_path = confined_lane_root(context, supplied_path)?;
+    let entry = listed_worktree(context, &canonical_path)?.ok_or_else(not_listed_error)?;
+    let lane_id = managed_lane_id(context, &canonical_path, &entry)?;
+    let expected_name = format!(
+        "{}{}-{}",
+        WORKTREE_PREFIX,
+        repository_slug(&context.repository_name),
+        lane_id
+    );
+    if canonical_path.file_name().and_then(|name| name.to_str()) != Some(expected_name.as_str()) {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::UnsafeWorktreePath,
+            "Il nome del worktree non corrisponde alla registrazione Studio",
+        ));
+    }
+    Ok((canonical_path, entry))
+}
+
+fn not_listed_error() -> WorktreeError {
+    WorktreeError::new(
+        WorktreeErrorCode::UnmanagedWorktree,
+        "Il percorso non e' registrato da Git come worktree del repository",
+    )
+}
+
+fn listed_worktree(
+    context: &RepositoryContext,
+    root: &Path,
+) -> Result<Option<PorcelainWorktree>, WorktreeError> {
+    Ok(porcelain_worktrees(context)?
+        .into_iter()
+        .find(|entry| same_path(&entry.path, root)))
+}
+
+fn managed_lane_id(
+    context: &RepositoryContext,
+    root: &Path,
+    entry: &PorcelainWorktree,
+) -> Result<String, WorktreeError> {
+    let branch = entry.branch.as_deref().ok_or_else(|| {
+        WorktreeError::new(
+            WorktreeErrorCode::UnmanagedWorktree,
+            "Un worktree detached non e' gestito da Studio",
+        )
+    })?;
+    let (managed, lane_id, _, _) = registered_values(context, branch, root)?;
+    if !managed {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::UnmanagedWorktree,
+            "Il worktree non risulta creato e registrato da Studio",
+        ));
+    }
+    lane_id.ok_or_else(|| {
+        WorktreeError::new(
+            WorktreeErrorCode::UnmanagedWorktree,
+            "La registrazione Studio non contiene l'identificatore corsia",
+        )
+    })
+}
+
+fn validate_supplied_path(supplied_path: &str) -> Result<&Path, WorktreeError> {
     let supplied = Path::new(supplied_path.trim());
     if !supplied.is_absolute() {
         return Err(WorktreeError::new(
@@ -1025,6 +1352,17 @@ fn resolve_managed_worktree(
             "Il percorso worktree contiene traversal '..'",
         ));
     }
+    Ok(supplied)
+}
+
+/// Radice canonica, esistente e confinata del worktree indicato: fratello
+/// diretto del repository, raggiunto senza link ne' traversal. Non dice
+/// ancora nulla sulla registrazione in Git o in Studio.
+fn confined_lane_root(
+    context: &RepositoryContext,
+    supplied_path: &str,
+) -> Result<PathBuf, WorktreeError> {
+    let supplied = validate_supplied_path(supplied_path)?;
     let metadata = fs::symlink_metadata(supplied).map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::InvalidPath,
@@ -1061,49 +1399,7 @@ fn resolve_managed_worktree(
             "Il worktree non e' un fratello diretto del repository",
         ));
     }
-
-    let listed = porcelain_worktrees(context)?;
-    let entry = listed
-        .into_iter()
-        .find(|entry| same_path(&entry.path, &canonical_path))
-        .ok_or_else(|| {
-            WorktreeError::new(
-                WorktreeErrorCode::UnmanagedWorktree,
-                "Il percorso non e' registrato da Git come worktree del repository",
-            )
-        })?;
-    let branch = entry.branch.as_deref().ok_or_else(|| {
-        WorktreeError::new(
-            WorktreeErrorCode::UnmanagedWorktree,
-            "Un worktree detached non e' gestito da Studio",
-        )
-    })?;
-    let (managed, lane_id, _, _) = registered_values(context, branch, &canonical_path)?;
-    if !managed {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::UnmanagedWorktree,
-            "Il worktree non risulta creato e registrato da Studio",
-        ));
-    }
-    let lane_id = lane_id.ok_or_else(|| {
-        WorktreeError::new(
-            WorktreeErrorCode::UnmanagedWorktree,
-            "La registrazione Studio non contiene l'identificatore corsia",
-        )
-    })?;
-    let expected_name = format!(
-        "{}{}-{}",
-        WORKTREE_PREFIX,
-        repository_slug(&context.repository_name),
-        lane_id
-    );
-    if canonical_path.file_name().and_then(|name| name.to_str()) != Some(expected_name.as_str()) {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::UnsafeWorktreePath,
-            "Il nome del worktree non corrisponde alla registrazione Studio",
-        ));
-    }
-    Ok((canonical_path, entry))
+    Ok(canonical_path)
 }
 
 /// Riepilogo leggibile dei processi che bloccano il cleanup: serve all'utente
@@ -1119,16 +1415,165 @@ fn describe_processes(processes: &[crate::process_tree::LaneProcessInfo]) -> Str
         .join(", ")
 }
 
-fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
-    let _mutation = WORKTREE_MUTATION_LOCK.lock().map_err(|_| {
-        WorktreeError::new(
-            WorktreeErrorCode::Internal,
-            "Lock del gestore worktree non disponibile",
-        )
-    })?;
-    let context = discover_repository(&args.project_path)?;
-    ensure_repository_has_commit(&context)?;
-    let (canonical_path, entry) = resolve_managed_worktree(&context, &args.worktree_path)?;
+/// Tempo concesso agli alberi di processi della corsia per svuotarsi dopo
+/// l'arresto, prima di toccare la cartella: su Windows un processo in chiusura
+/// tiene ancora lock sui file e `git worktree remove` si fermerebbe a meta'.
+const LANE_PROCESS_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Pre-cleanup (PLAN W11): un worktree con processi vivi non si rimuove.
+/// Git cancellerebbe file sotto i piedi di `dotnet watch` o di IIS Express,
+/// e su Windows il primo file lockato lascerebbe la cartella a meta'.
+/// Restituisce `true` quando ha arrestato qualcosa.
+fn stop_or_refuse_processes(root: &Path, stop_processes: bool) -> Result<bool, WorktreeError> {
+    let live = crate::process_tree::lane_processes_under(root);
+    if live.is_empty() {
+        return Ok(false);
+    }
+    if !stop_processes {
+        return Err(WorktreeError::with_detail(
+            WorktreeErrorCode::ProcessesActive,
+            "Il worktree ha processi attivi avviati da Studio e non verra' rimosso",
+            describe_processes(&live),
+        ));
+    }
+    let report = crate::process_tree::stop_lane_processes_under(root, LANE_PROCESS_DRAIN_TIMEOUT);
+    if !report.remaining.is_empty() {
+        return Err(WorktreeError::with_detail(
+            WorktreeErrorCode::ProcessesActive,
+            "Alcuni processi della corsia non si sono arrestati: rimozione annullata",
+            describe_processes(&report.remaining),
+        ));
+    }
+    Ok(true)
+}
+
+fn ensure_clean_for_removal(root: &Path, allowlisted: &[String]) -> Result<(), WorktreeError> {
+    if blocking_changes(root, allowlisted)?.is_empty() {
+        Ok(())
+    } else {
+        Err(WorktreeError::new(
+            WorktreeErrorCode::DirtyWorktree,
+            "Il worktree contiene modifiche o file non tracciati e non verra' rimosso",
+        ))
+    }
+}
+
+/// Toglie le copie locali dell'allowlist ancora non tracciate: per Git sono
+/// file non tracciati e `git worktree remove` (senza `--force`) rifiuterebbe
+/// la cartella. Sono copie dei file del checkout principale, che resta intatto.
+fn remove_allowlist_copies(root: &Path, allowlisted: &[String]) -> Result<(), WorktreeError> {
+    let status = require_git(
+        root,
+        &git_args(&["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
+        WorktreeErrorCode::GitCommandFailed,
+        "Impossibile verificare lo stato del worktree",
+    )?;
+    for (status, path) in porcelain_status_entries(&status.stdout) {
+        if status != "??"
+            || !allowlisted
+                .iter()
+                .any(|allowed| lane_integrate::paths_match(allowed, &path))
+        {
+            continue;
+        }
+        let Ok((_, parts)) = normalize_allowlist_path(&path) else {
+            continue;
+        };
+        let mut target = root.to_path_buf();
+        for part in &parts {
+            target.push(part);
+        }
+        let is_file = fs::symlink_metadata(&target)
+            .is_ok_and(|metadata| metadata.is_file() || metadata.file_type().is_symlink());
+        if !is_file {
+            continue;
+        }
+        fs::remove_file(&target).map_err(|error| {
+            WorktreeError::with_detail(
+                WorktreeErrorCode::WorktreeInUse,
+                format!(
+                    "Il file locale '{}' della corsia non e' stato rimosso: chiudi i programmi che lo usano e riprova",
+                    path
+                ),
+                error.to_string(),
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn prune_worktrees(context: &RepositoryContext) -> Result<(), WorktreeError> {
+    require_git(
+        &context.repository_root,
+        &git_args(&["worktree", "prune"]),
+        WorktreeErrorCode::MetadataCleanupFailed,
+        "Il worktree e' stato rimosso, ma Git non ha pulito i metadati obsoleti",
+    )?;
+    Ok(())
+}
+
+/// Radice `.omp-wt-<repo>-*` fratella del repository per un percorso che non
+/// esiste piu'. Il primo antenato esistente viene canonicalizzato, cosi' un
+/// prefisso con link (`/var` su macOS) torna confrontabile con il genitore.
+fn missing_lane_root(context: &RepositoryContext, supplied: &Path) -> Option<PathBuf> {
+    let mut existing = supplied;
+    let mut missing = Vec::new();
+    while fs::symlink_metadata(existing).is_err() {
+        missing.push(existing.file_name()?.to_owned());
+        existing = existing.parent()?;
+    }
+    let mut resolved = existing
+        .canonicalize()
+        .unwrap_or_else(|_| existing.to_path_buf());
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    let prefix = format!(
+        "{}{}-",
+        WORKTREE_PREFIX,
+        repository_slug(&context.repository_name)
+    );
+    resolved
+        .ancestors()
+        .find(|candidate| {
+            candidate
+                .parent()
+                .is_some_and(|parent| same_path(parent, &context.parent))
+        })
+        .filter(|root| {
+            !same_path(root, &context.repository_root)
+                && root
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(&prefix) && name.len() > prefix.len())
+        })
+        .map(Path::to_path_buf)
+}
+
+/// Corsia zombie: la cartella non esiste piu' (cancellata a mano, o rimossa da
+/// un tentativo precedente). Se Git la registra ancora si potano i metadati; se
+/// non la conosce piu' la rimozione e' gia' avvenuta e il ritentativo riesce.
+fn remove_missing_worktree(
+    context: &RepositoryContext,
+    root: &Path,
+    stop_processes: bool,
+) -> Result<(), WorktreeError> {
+    let Some(entry) = listed_worktree(context, root)? else {
+        return prune_worktrees(context);
+    };
+    let lane_id = managed_lane_id(context, root, &entry)?;
+    let expected_name = format!(
+        "{}{}-{}",
+        WORKTREE_PREFIX,
+        repository_slug(&context.repository_name),
+        lane_id
+    );
+    if root.file_name().and_then(|name| name.to_str()) != Some(expected_name.as_str()) {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::UnsafeWorktreePath,
+            "Il nome del worktree non corrisponde alla registrazione Studio",
+        ));
+    }
     if entry.locked_reason.is_some() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::WorktreeLocked,
@@ -1136,41 +1581,102 @@ fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
             entry.locked_reason.unwrap_or_default(),
         ));
     }
-
-    // Pre-cleanup (PLAN W11): un worktree con processi vivi non si rimuove.
-    // Git cancellerebbe file sotto i piedi di `dotnet watch` o di IIS Express,
-    // e su Windows il primo file lockato lascerebbe la cartella a meta'.
-    let live = crate::process_tree::lane_processes_under(&canonical_path);
-    if !live.is_empty() {
-        if !args.stop_processes {
-            return Err(WorktreeError::with_detail(
-                WorktreeErrorCode::ProcessesActive,
-                "Il worktree ha processi attivi avviati da Studio e non verra' rimosso",
-                describe_processes(&live),
-            ));
-        }
-        let report = crate::process_tree::stop_lane_processes_under(&canonical_path);
-        if !report.remaining.is_empty() {
-            return Err(WorktreeError::with_detail(
-                WorktreeErrorCode::ProcessesActive,
-                "Alcuni processi della corsia non si sono arrestati: rimozione annullata",
-                describe_processes(&report.remaining),
-            ));
-        }
-    }
-
-    let status = require_git(
-        &canonical_path,
-        &git_args(&["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
-        WorktreeErrorCode::GitCommandFailed,
-        "Impossibile verificare lo stato del worktree",
-    )?;
-    if !status.stdout.is_empty() {
+    stop_or_refuse_processes(root, stop_processes)?;
+    prune_worktrees(context)?;
+    if listed_worktree(context, root)?.is_some() {
         return Err(WorktreeError::new(
-            WorktreeErrorCode::DirtyWorktree,
-            "Il worktree contiene modifiche o file non tracciati e non verra' rimosso",
+            WorktreeErrorCode::MetadataCleanupFailed,
+            "La cartella della corsia non esiste piu', ma Git la registra ancora come worktree",
         ));
     }
+    Ok(())
+}
+
+/// Cartella di corsia ancora su disco ma non piu' elencata da Git: succede
+/// quando `git worktree remove` fallisce a meta' (un file bloccato su Windows)
+/// perche' Git toglie comunque i propri metadati. Si rimuove solo se la
+/// registrazione Studio nella config del branch la riconosce come corsia.
+fn remove_orphan_folder(
+    context: &RepositoryContext,
+    root: &Path,
+    stop_processes: bool,
+) -> Result<(), WorktreeError> {
+    if registration_for_root(context, root)?.is_none() {
+        return Err(not_listed_error());
+    }
+    // `confined_lane_root` ha gia' escluso link e junction sul percorso dato;
+    // la radice stessa viene ricontrollata subito prima di cancellare.
+    let is_plain_directory = fs::symlink_metadata(root)
+        .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink());
+    if !is_plain_directory {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::UnsafeWorktreePath,
+            "Link e junction non sono percorsi worktree consentiti",
+        ));
+    }
+    stop_or_refuse_processes(root, stop_processes)?;
+    fs::remove_dir_all(root).map_err(|error| {
+        WorktreeError::with_detail(
+            WorktreeErrorCode::WorktreeInUse,
+            "La cartella residua della corsia non e' stata rimossa del tutto: chiudi i programmi che ne usano i file e riprova",
+            error.to_string(),
+        )
+    })?;
+    prune_worktrees(context)
+}
+
+fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
+    let _mutation = worktree_mutation_lock();
+    let context = discover_repository(&args.project_path)?;
+    ensure_repository_has_commit(&context)?;
+    let supplied = validate_supplied_path(&args.worktree_path)?;
+
+    let worktree_path = if fs::symlink_metadata(supplied).is_err() {
+        let Some(root) = missing_lane_root(&context, supplied) else {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::InvalidPath,
+                "Il worktree indicato non esiste",
+            ));
+        };
+        if fs::symlink_metadata(&root).is_err() {
+            return remove_missing_worktree(&context, &root, args.stop_processes);
+        }
+        // Manca solo la sottocartella del workspace: si rimuove la radice.
+        path_string(&root)?
+    } else {
+        args.worktree_path.clone()
+    };
+
+    let root = confined_lane_root(&context, &worktree_path)?;
+    if listed_worktree(&context, &root)?.is_none() {
+        return remove_orphan_folder(&context, &root, args.stop_processes);
+    }
+    let (canonical_path, entry) = resolve_managed_worktree(&context, &worktree_path)?;
+    if entry.locked_reason.is_some() {
+        return Err(WorktreeError::with_detail(
+            WorktreeErrorCode::WorktreeLocked,
+            "Il worktree e' bloccato da Git e non puo' essere rimosso",
+            entry.locked_reason.unwrap_or_default(),
+        ));
+    }
+    let allowlisted = match entry.branch.as_deref() {
+        Some(branch) => allowlist_paths(&context, branch)?,
+        None => Vec::new(),
+    };
+
+    if args.stop_processes {
+        // Prima il controllo delle modifiche: fermare i processi per poi
+        // rifiutare la rimozione interromperebbe il lavoro dell'utente per nulla.
+        ensure_clean_for_removal(&canonical_path, &allowlisted)?;
+        if stop_or_refuse_processes(&canonical_path, true)? {
+            // I processi appena fermati potevano aver scritto ancora qualcosa.
+            ensure_clean_for_removal(&canonical_path, &allowlisted)?;
+        }
+    } else {
+        stop_or_refuse_processes(&canonical_path, false)?;
+        ensure_clean_for_removal(&canonical_path, &allowlisted)?;
+    }
+    remove_allowlist_copies(&canonical_path, &allowlisted)?;
 
     let output = run_git(
         &context.repository_root,
@@ -1200,13 +1706,7 @@ fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
         ));
     }
 
-    require_git(
-        &context.repository_root,
-        &git_args(&["worktree", "prune"]),
-        WorktreeErrorCode::MetadataCleanupFailed,
-        "Il worktree e' stato rimosso, ma Git non ha pulito i metadati obsoleti",
-    )?;
-    Ok(())
+    prune_worktrees(&context)
 }
 
 // ---------------------------------------------------------------------------
@@ -1854,7 +2354,7 @@ fn apply_allowlist_sync(
         "Il percorso della corsia non appartiene a un worktree Git",
     )?;
     let toplevel_text = String::from_utf8_lossy(&toplevel.stdout).trim().to_string();
-    let (worktree_root, _) = resolve_managed_worktree(&context, &toplevel_text)?;
+    let (worktree_root, entry) = resolve_managed_worktree(&context, &toplevel_text)?;
 
     let mut outcomes = Vec::new();
     let mut seen: Vec<String> = Vec::new();
@@ -1965,6 +2465,39 @@ fn apply_allowlist_sync(
                 reason: Some(error),
             }),
         }
+    }
+
+    // Le copie sono configurazione locale (Parametri.ini, .env): restano
+    // registrate sul branch della corsia, cosi' il commit automatico
+    // dell'integrazione le esclude e la rimozione non le scambia per lavoro.
+    // Anche le copie gia' presenti e non tracciate: corsie create prima di
+    // questa registrazione hanno il file ma non la voce in config.
+    let mut copied: Vec<String> = Vec::new();
+    for outcome in &outcomes {
+        let record = match outcome.status {
+            AllowlistCopyStatus::Copied => true,
+            AllowlistCopyStatus::AlreadyPresent => {
+                let tracked = require_git(
+                    &worktree_root,
+                    &[
+                        OsString::from("ls-files"),
+                        OsString::from("-z"),
+                        OsString::from("--"),
+                        OsString::from(format!(":(literal){}", outcome.relative_path)),
+                    ],
+                    WorktreeErrorCode::GitCommandFailed,
+                    "Impossibile verificare i file locali della corsia",
+                )?;
+                tracked.stdout.is_empty()
+            }
+            _ => false,
+        };
+        if record {
+            copied.push(outcome.relative_path.clone());
+        }
+    }
+    if let Some(branch) = entry.branch.as_deref() {
+        record_allowlist_paths(&context, branch, &copied)?;
     }
 
     Ok(outcomes)
@@ -2283,7 +2816,6 @@ fn inspect_review_sync(
     })
 }
 
-
 fn task_join_error(operation: &str, error: tokio::task::JoinError) -> WorktreeError {
     WorktreeError::with_detail(
         WorktreeErrorCode::Internal,
@@ -2373,6 +2905,28 @@ pub async fn worktree_delete_lane_branch(
     tokio::task::spawn_blocking(move || lane_integrate::delete_lane_branch_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_delete_lane_branch", error))?
+}
+
+/// Commit e file del branch di corsia che eliminarlo farebbe perdere: serve
+/// alla conferma "scarta il lavoro non integrato". Sola lettura.
+#[command]
+pub async fn worktree_lane_unintegrated_summary(
+    args: lane_integrate::LaneBranchQueryArgs,
+) -> Result<lane_integrate::LaneUnintegratedSummary, WorktreeError> {
+    tokio::task::spawn_blocking(move || lane_integrate::lane_unintegrated_summary_sync(args))
+        .await
+        .map_err(|error| task_join_error("worktree_lane_unintegrated_summary", error))?
+}
+
+/// Esiste il branch della corsia, ed e' integrato? Sola lettura: all'avvio
+/// riconcilia le corsie rimaste in stato `integrating`.
+#[command]
+pub async fn worktree_lane_integration_state(
+    args: lane_integrate::LaneBranchQueryArgs,
+) -> Result<lane_integrate::LaneIntegrationState, WorktreeError> {
+    tokio::task::spawn_blocking(move || lane_integrate::lane_integration_state_sync(args))
+        .await
+        .map_err(|error| task_join_error("worktree_lane_integration_state", error))?
 }
 
 #[cfg(test)]
@@ -2929,7 +3483,6 @@ mod tests {
         assert!(repo.root.join("dirty-target.txt").exists());
         assert!(!repo.root.join("lane-file.txt").exists());
         assert!(!repo.root.join("untracked-lane.txt").exists());
-
     }
 
     fn sha_of(cwd: &Path) -> String {
@@ -3035,6 +3588,7 @@ mod tests {
                 project_path: path_string(&repo.root).unwrap(),
                 lane_id: "sq13".to_string(),
                 confirm: false,
+                discard_unintegrated: false,
             })
             .unwrap_err();
         assert_eq!(refused.code, WorktreeErrorCode::ConfirmationRequired);
@@ -3048,6 +3602,7 @@ mod tests {
             project_path: path_string(&repo.root).unwrap(),
             lane_id: "sq13".to_string(),
             confirm: true,
+            discard_unintegrated: false,
         })
         .unwrap();
         assert!(!branch_exists(
@@ -3064,13 +3619,9 @@ mod tests {
         let created = create_sync(create_args(&repo, "dy13")).unwrap();
         let target = sha_of(&repo.root);
 
-        let empty = lane_integrate::land_sync(land_request(
-            &repo,
-            &created.worktree_path,
-            "dy13",
-            "   ",
-        ))
-        .unwrap_err();
+        let empty =
+            lane_integrate::land_sync(land_request(&repo, &created.worktree_path, "dy13", "   "))
+                .unwrap_err();
         assert_eq!(empty.code, WorktreeErrorCode::MessageInvalid);
         assert_eq!(sha_of(&repo.root), target);
 
@@ -3079,6 +3630,7 @@ mod tests {
                 project_path: path_string(&repo.root).unwrap(),
                 lane_id: "dy13".to_string(),
                 confirm: true,
+                discard_unintegrated: false,
             })
             .unwrap_err();
         assert_eq!(unknown.code, WorktreeErrorCode::WorktreeInUse);
@@ -3099,7 +3651,12 @@ mod tests {
             "dalla corsia uncommitted\n",
         )
         .unwrap();
-        commit_file(&repo.root, "target-file.txt", "dal target\n", "target commit");
+        commit_file(
+            &repo.root,
+            "target-file.txt",
+            "dal target\n",
+            "target commit",
+        );
         let target_sha_before = sha_of(&repo.root);
         let before_subjects = subjects_of(&repo.root);
 
@@ -3200,7 +3757,9 @@ mod tests {
             fs::read_to_string(repo.root.join("shared.txt")).unwrap(),
             "modifica target\n"
         );
-        assert!(!lane_integrate::unmerged_paths(&worktree).unwrap().is_empty());
+        assert!(!lane_integrate::unmerged_paths(&worktree)
+            .unwrap()
+            .is_empty());
         assert!(fs::read_to_string(worktree.join("shared.txt"))
             .unwrap()
             .contains("<<<<<<<"));
@@ -3474,10 +4033,12 @@ mod tests {
         assert!(repo.root.join("Legacy/bin/Legacy.dll").exists());
         assert!(!path_a.join("Legacy/bin").exists());
         assert!(!path_b.join("packages").exists());
-        assert!(!fs::symlink_metadata(repo.root.join("Legacy/bin/Legacy.dll"))
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(
+            !fs::symlink_metadata(repo.root.join("Legacy/bin/Legacy.dll"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
 
         let scan = scan_sync(&path_string(&repo.root).unwrap()).unwrap();
         let sdk = scan
@@ -3550,5 +4111,437 @@ mod tests {
         })
         .unwrap();
         assert!(!path_a.exists());
+    }
+
+    fn delete_branch_request(
+        repo: &TestRepository,
+        lane_id: &str,
+        confirm: bool,
+        discard_unintegrated: bool,
+    ) -> lane_integrate::DeleteLaneBranchArgs {
+        lane_integrate::DeleteLaneBranchArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            lane_id: lane_id.to_string(),
+            confirm,
+            discard_unintegrated,
+        }
+    }
+
+    fn lane_query(repo: &TestRepository, lane_id: &str) -> lane_integrate::LaneBranchQueryArgs {
+        lane_integrate::LaneBranchQueryArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            lane_id: lane_id.to_string(),
+        }
+    }
+
+    fn lane_branch_exists(repo: &TestRepository, branch: &str) -> bool {
+        branch_exists(
+            &discover_repository(&path_string(&repo.root).unwrap()).unwrap(),
+            branch,
+        )
+        .unwrap()
+    }
+
+    fn remove_request(repo: &TestRepository, path: &str) -> RemoveWorktreeArgs {
+        RemoveWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            worktree_path: path.to_string(),
+            stop_processes: false,
+        }
+    }
+
+    #[test]
+    fn versione_git_letta_da_formati_diversi() {
+        assert_eq!(parse_git_version("git version 2.43.0\n"), Some((2, 43, 0)));
+        assert_eq!(
+            parse_git_version("git version 2.45.1.windows.1"),
+            Some((2, 45, 1))
+        );
+        assert_eq!(
+            parse_git_version("git version 2.39.3 (Apple Git-146)"),
+            Some((2, 39, 3))
+        );
+        assert_eq!(parse_git_version("git version 2.38"), Some((2, 38, 0)));
+        assert_eq!(parse_git_version("non e' git"), None);
+        assert!(git_version().is_some());
+    }
+
+    /// Corsia zombie: cartella cancellata a mano. La rimozione pota i metadati
+    /// invece di fallire con "Il worktree indicato non esiste", e il
+    /// ritentativo (cartella e metadati gia' spariti) riesce di nuovo.
+    #[test]
+    fn rimozione_idempotente_con_cartella_gia_sparita() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "zb01")).unwrap();
+        fs::remove_dir_all(&created.worktree_path).unwrap();
+
+        // Il frontend passa il workspace (sottocartella), anch'esso sparito.
+        remove_sync(remove_request(&repo, &created.workspace_path)).unwrap();
+        let listed = list_sync(&path_string(&repo.root).unwrap()).unwrap();
+        assert!(!listed
+            .iter()
+            .any(|entry| entry.lane_id.as_deref() == Some("zb01")));
+
+        remove_sync(remove_request(&repo, &created.workspace_path)).unwrap();
+        remove_sync(remove_request(&repo, &created.worktree_path)).unwrap();
+
+        // Un percorso inesistente fuori dalle corsie resta un errore.
+        let outside = repo.container.join("non-una-corsia");
+        let error =
+            remove_sync(remove_request(&repo, &path_string(&outside).unwrap())).unwrap_err();
+        assert_eq!(error.code, WorktreeErrorCode::InvalidPath);
+    }
+
+    /// Caso inverso: `git worktree remove` fallito a meta' toglie comunque i
+    /// metadati di Git e lascia la cartella. Se la registrazione Studio la
+    /// riconosce, la rimozione la cancella invece di dire UnmanagedWorktree.
+    #[test]
+    fn rimuove_la_cartella_residua_non_piu_elencata_da_git() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "zb02")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        // Metadati del worktree nella gitdir comune: e' cio' che Git toglie
+        // anche quando la cancellazione della cartella fallisce.
+        let gitfile = fs::read_to_string(worktree.join(".git")).unwrap();
+        let admin = PathBuf::from(gitfile.trim().strip_prefix("gitdir: ").unwrap());
+        fs::remove_dir_all(&admin).unwrap();
+        fs::write(worktree.join("residuo.txt"), "file rimasto bloccato\n").unwrap();
+        assert!(!list_sync(&path_string(&repo.root).unwrap())
+            .unwrap()
+            .iter()
+            .any(|entry| entry.lane_id.as_deref() == Some("zb02")));
+
+        remove_sync(remove_request(&repo, &created.worktree_path)).unwrap();
+        assert!(!worktree.exists());
+        // Ritentativo dopo il successo.
+        remove_sync(remove_request(&repo, &created.worktree_path)).unwrap();
+    }
+
+    #[test]
+    fn elimina_il_branch_di_una_corsia_senza_commit_propri_senza_flag() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "nb01")).unwrap();
+        remove_sync(remove_request(&repo, &created.worktree_path)).unwrap();
+
+        let summary =
+            lane_integrate::lane_unintegrated_summary_sync(lane_query(&repo, "nb01")).unwrap();
+        assert_eq!(
+            summary,
+            lane_integrate::LaneUnintegratedSummary {
+                branch_exists: true,
+                integrated: false,
+                commits: 0,
+                files: 0,
+            }
+        );
+
+        lane_integrate::delete_lane_branch_sync(delete_branch_request(&repo, "nb01", true, false))
+            .unwrap();
+        assert!(!lane_branch_exists(&repo, "omp/lane-nb01"));
+        // Ritentativo: branch gia' sparito.
+        lane_integrate::delete_lane_branch_sync(delete_branch_request(&repo, "nb01", true, false))
+            .unwrap();
+        let state = lane_integrate::lane_integration_state_sync(lane_query(&repo, "nb01")).unwrap();
+        assert!(!state.branch_exists);
+        assert!(!state.integrated);
+    }
+
+    #[test]
+    fn branch_con_commit_non_integrati_richiede_il_consenso_a_scartarli() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "nb02")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        commit_file(&worktree, "lavoro.txt", "da non perdere\n", "lavoro corsia");
+        commit_file(&worktree, "altro.txt", "ancora\n", "altro lavoro");
+        remove_sync(remove_request(&repo, &created.worktree_path)).unwrap();
+
+        let summary =
+            lane_integrate::lane_unintegrated_summary_sync(lane_query(&repo, "nb02")).unwrap();
+        assert!(summary.branch_exists);
+        assert!(!summary.integrated);
+        assert_eq!(summary.commits, 2);
+        assert_eq!(summary.files, 2);
+
+        let refused = lane_integrate::delete_lane_branch_sync(delete_branch_request(
+            &repo, "nb02", true, false,
+        ))
+        .unwrap_err();
+        assert_eq!(refused.code, WorktreeErrorCode::ConfirmationRequired);
+        assert!(lane_branch_exists(&repo, "omp/lane-nb02"));
+
+        // Il flag da solo non basta: serve anche la conferma.
+        let unconfirmed = lane_integrate::delete_lane_branch_sync(delete_branch_request(
+            &repo, "nb02", false, true,
+        ))
+        .unwrap_err();
+        assert_eq!(unconfirmed.code, WorktreeErrorCode::ConfirmationRequired);
+        assert!(lane_branch_exists(&repo, "omp/lane-nb02"));
+
+        lane_integrate::delete_lane_branch_sync(delete_branch_request(&repo, "nb02", true, true))
+            .unwrap();
+        assert!(!lane_branch_exists(&repo, "omp/lane-nb02"));
+    }
+
+    #[test]
+    fn branch_gia_contenuto_nel_target_si_elimina_senza_flag() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "nb03")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        commit_file(&worktree, "unito.txt", "unito a mano\n", "lavoro unito");
+        remove_sync(remove_request(&repo, &created.worktree_path)).unwrap();
+        test_git(&repo.root, &["merge", "--ff-only", "omp/lane-nb03"]);
+
+        lane_integrate::delete_lane_branch_sync(delete_branch_request(&repo, "nb03", true, false))
+            .unwrap();
+        assert!(!lane_branch_exists(&repo, "omp/lane-nb03"));
+    }
+
+    #[test]
+    fn stato_di_integrazione_e_riepilogo_dopo_lo_squash() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "st01")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        commit_file(&worktree, "nota.txt", "integrata\n", "lavoro corsia");
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "st01",
+            "Integrazione st01",
+        ))
+        .unwrap();
+        assert!(matches!(outcome, WorktreeLandOutcome::Integrated { .. }));
+
+        let state = lane_integrate::lane_integration_state_sync(lane_query(&repo, "st01")).unwrap();
+        assert!(state.branch_exists);
+        assert!(state.integrated);
+        let summary =
+            lane_integrate::lane_unintegrated_summary_sync(lane_query(&repo, "st01")).unwrap();
+        assert!(summary.integrated);
+        assert_eq!((summary.commits, summary.files), (0, 0));
+
+        // Lavoro nuovo dopo lo squash: conta solo cio' che segue la ricevuta.
+        commit_file(&worktree, "dopo.txt", "dopo\n", "lavoro successivo");
+        let summary =
+            lane_integrate::lane_unintegrated_summary_sync(lane_query(&repo, "st01")).unwrap();
+        assert!(!summary.integrated);
+        assert_eq!((summary.commits, summary.files), (1, 1));
+        let state = lane_integrate::lane_integration_state_sync(lane_query(&repo, "st01")).unwrap();
+        assert!(!state.integrated);
+    }
+
+    /// Parametri.ini non ignorato, copiato via allowlist: non entra nel commit
+    /// della corsia ne' nello squash, e da solo non rende la corsia "sporca".
+    #[test]
+    fn file_allowlist_fuori_dal_commit_e_non_blocca_la_rimozione() {
+        let repo = mixed_stack_repository();
+        let created = create_sync(create_args(&repo, "al01")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        let outcomes = apply_allowlist_sync(ApplyAllowlistArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            worktree_path: created.worktree_path.clone(),
+            files: vec!["Parametri.ini".to_string()],
+        })
+        .unwrap();
+        assert_eq!(outcomes[0].status, AllowlistCopyStatus::Copied);
+        let context = discover_repository(&path_string(&repo.root).unwrap()).unwrap();
+        assert_eq!(
+            allowlist_paths(&context, "omp/lane-al01").unwrap(),
+            vec!["Parametri.ini".to_string()]
+        );
+
+        fs::write(worktree.join("lavoro.txt"), "dalla corsia\n").unwrap();
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "al01",
+            "Integrazione con file locali",
+        ))
+        .unwrap();
+        let (commit, files) = match outcome {
+            WorktreeLandOutcome::Integrated { commit, files, .. } => (commit, files),
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        };
+        assert!(files.iter().any(|file| file == "lavoro.txt"));
+        assert!(!files.iter().any(|file| file == "Parametri.ini"));
+        let squash_files = String::from_utf8_lossy(
+            &test_git(&repo.root, &["show", "--name-only", "--format=", &commit]).stdout,
+        )
+        .to_string();
+        assert!(!squash_files.contains("Parametri.ini"));
+        let lane_tree = String::from_utf8_lossy(
+            &test_git(&worktree, &["ls-tree", "-r", "--name-only", "HEAD"]).stdout,
+        )
+        .to_string();
+        assert!(!lane_tree.contains("Parametri.ini"));
+        assert!(worktree.join("Parametri.ini").exists());
+        // L'originale nel checkout principale non e' stato toccato.
+        assert_eq!(
+            fs::read_to_string(repo.root.join("Parametri.ini")).unwrap(),
+            "[db]\nserver=piesqlsrv01\n"
+        );
+
+        // Ritento: la copia locale non conta come lavoro nuovo.
+        let again = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "al01",
+            "Integrazione con file locali",
+        ))
+        .unwrap();
+        assert!(matches!(
+            again,
+            WorktreeLandOutcome::AlreadyIntegrated { .. }
+        ));
+
+        remove_sync(remove_request(&repo, &created.worktree_path)).unwrap();
+        assert!(!worktree.exists());
+    }
+
+    /// Un `secret.json` ignorato in locale nel checkout principale e
+    /// versionato dalla corsia: `reset --hard` lo sovrascriverebbe in silenzio.
+    #[test]
+    fn integrazione_rifiutata_se_sovrascriverebbe_file_ignorati_del_target() {
+        let repo = repository(true);
+        let exclude = repo.root.join(".git").join("info").join("exclude");
+        fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+        fs::write(&exclude, "secret.json\n").unwrap();
+        fs::write(repo.root.join("secret.json"), "{\"locale\":true}\n").unwrap();
+        let created = create_sync(create_args(&repo, "ig01")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        fs::write(worktree.join("secret.json"), "{\"corsia\":true}\n").unwrap();
+        test_git(&worktree, &["add", "-f", "secret.json"]);
+        test_git(&worktree, &["commit", "-m", "versiona secret.json"]);
+        let target_before = sha_of(&repo.root);
+
+        let error = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "ig01",
+            "Integrazione con file ignorato",
+        ))
+        .unwrap_err();
+        assert_eq!(error.code, WorktreeErrorCode::TargetDirty);
+        assert!(error.message.contains("secret.json"), "{}", error.message);
+        assert_eq!(sha_of(&repo.root), target_before);
+        assert_eq!(
+            fs::read_to_string(repo.root.join("secret.json")).unwrap(),
+            "{\"locale\":true}\n"
+        );
+    }
+
+    /// Ripristino del checkout dopo un aggiornamento interrotto a meta': i
+    /// percorsi dell'aggiornamento tornano al commit voluto, i file sporchi
+    /// disgiunti dell'utente restano.
+    #[test]
+    fn ripristino_del_checkout_interrotto_a_meta() {
+        let repo = repository(true);
+        commit_file(&repo.root, "f1.txt", "v1\n", "f1 v1");
+        fs::create_dir_all(repo.root.join("d")).unwrap();
+        commit_file(&repo.root, "d/f2.txt", "resta\n", "f2");
+        let old = sha_of(&repo.root);
+        commit_file(&repo.root, "f1.txt", "v2\n", "f1 v2");
+        commit_file(&repo.root, "nuovo.txt", "nuovo\n", "nuovo");
+        test_git(&repo.root, &["rm", "-q", "d/f2.txt"]);
+        test_git(&repo.root, &["commit", "-m", "via f2"]);
+        let new = sha_of(&repo.root);
+        test_git(&repo.root, &["reset", "--hard", "-q", &old]);
+
+        // Stato "a meta'": ref e indice su old, alcuni file gia' scritti da new.
+        fs::write(repo.root.join("f1.txt"), "v2\n").unwrap();
+        fs::write(repo.root.join("nuovo.txt"), "nuovo\n").unwrap();
+        fs::remove_file(repo.root.join("d/f2.txt")).unwrap();
+        fs::write(repo.root.join("locale.txt"), "lavoro utente\n").unwrap();
+
+        lane_integrate::restore_checkout_for_tests(&repo.root, false, &new, &old).unwrap();
+        assert_eq!(
+            fs::read_to_string(repo.root.join("f1.txt")).unwrap(),
+            "v1\n"
+        );
+        assert!(!repo.root.join("nuovo.txt").exists());
+        assert_eq!(
+            fs::read_to_string(repo.root.join("d/f2.txt")).unwrap(),
+            "resta\n"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.root.join("locale.txt")).unwrap(),
+            "lavoro utente\n"
+        );
+        let status =
+            String::from_utf8_lossy(&test_git(&repo.root, &["status", "--porcelain"]).stdout)
+                .to_string();
+        assert_eq!(status.trim(), "?? locale.txt");
+
+        // Checkout pulito prima: si torna indietro con reset --hard.
+        fs::remove_file(repo.root.join("locale.txt")).unwrap();
+        fs::write(repo.root.join("f1.txt"), "v2\n").unwrap();
+        lane_integrate::restore_checkout_for_tests(&repo.root, true, &new, &old).unwrap();
+        assert_eq!(
+            fs::read_to_string(repo.root.join("f1.txt")).unwrap(),
+            "v1\n"
+        );
+        assert!(test_git(&repo.root, &["status", "--porcelain"])
+            .stdout
+            .is_empty());
+    }
+
+    /// L'annullamento sposta il ref solo al genitore diretto dello squash.
+    #[test]
+    fn undo_rifiuta_un_target_precedente_che_non_e_il_genitore() {
+        let repo = repository(true);
+        let first = sha_of(&repo.root);
+        commit_file(&repo.root, "base.txt", "base\n", "secondo commit");
+        let created = create_sync(create_args(&repo, "un06")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        commit_file(&worktree, "lavoro.txt", "corsia\n", "lavoro");
+        let commit = match lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "un06",
+            "Integrazione un06",
+        ))
+        .unwrap()
+        {
+            WorktreeLandOutcome::Integrated { commit, .. } => commit,
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        };
+
+        let error = lane_integrate::undo_land_sync(lane_integrate::WorktreeUndoLandArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            lane_id: "un06".to_string(),
+            target_branch: "main".to_string(),
+            commit: commit.clone(),
+            previous_target: first,
+        })
+        .unwrap_err();
+        assert_eq!(error.code, WorktreeErrorCode::TargetMoved);
+        assert_eq!(sha_of(&repo.root), commit);
+        assert!(repo.root.join("base.txt").exists());
+    }
+
+    /// Con l'arresto richiesto, un worktree sporco viene rifiutato prima di
+    /// fermare i processi: il lavoro in corso non si interrompe per nulla.
+    #[test]
+    fn worktree_sporco_rifiutato_prima_di_fermare_i_processi() {
+        let repo = repository(true);
+        let created = create_sync(create_args(&repo, "pr12")).unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        fs::write(worktree.join("in-corso.txt"), "non salvato\n").unwrap();
+        let process = FakeLaneProcess::new();
+        register_fake(7712, "proj-pr12", "wt-pr12", &worktree, process.clone());
+
+        let error = remove_sync(RemoveWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            worktree_path: created.worktree_path.clone(),
+            stop_processes: true,
+        })
+        .unwrap_err();
+        assert_eq!(error.code, WorktreeErrorCode::DirtyWorktree);
+        assert!(process.is_alive());
+        assert!(worktree.exists());
+
+        crate::process_tree::unregister_lane_process(
+            crate::process_tree::LaneProcessKind::Terminal,
+            7712,
+        );
     }
 }
