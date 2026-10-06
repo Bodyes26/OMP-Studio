@@ -5,7 +5,6 @@
 	 */
 	import { m } from '$lib/paraglide/messages.js';
 	import Dialog from '$lib/ui/Dialog.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 	import { IconClose, IconKeyboard, IconSearch } from '$lib/icons';
 
@@ -166,16 +165,14 @@
 				aria-label={m.shortcuts_filter_placeholder()}
 			/>
 			{#if searchQuery}
-				<Tooltip text={m.settings_appearance_clear_filter()}>
-					<button
-						type="button"
-						class="clear-search-btn"
-						onclick={() => (searchQuery = '')}
-						aria-label={m.settings_appearance_clear_filter()}
-					>
-						<IconClose />
-					</button>
-				</Tooltip>
+				<button
+					type="button"
+					class="clear-search-btn"
+					onclick={() => (searchQuery = '')}
+					aria-label={m.settings_appearance_clear_filter()}
+				>
+					<IconClose />
+				</button>
 			{/if}
 		</div>
 	{/snippet}

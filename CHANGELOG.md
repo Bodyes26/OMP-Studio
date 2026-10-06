@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Changed
+- La finestra di contesto del composer mostra la stessa ripartizione di `/context`: prompt di sistema, strumenti, contesto di sistema, skill, messaggi, riserva di compattazione e spazio libero. Il messaggio che stai scrivendo resta una stima a parte; finché omp non risponde, resta visibile solo il totale.
 - Allinea Quota all'altezza di Impostazioni, Companion e Coda nella barra superiore e usa icone Windows più leggibili, con tratto più spesso e forme arrotondate, mantenendo invariate le aree cliccabili.
 - Su macOS «Riavvia e Installa» aggiorna Studio da solo: chiude l'app, sostituisce la versione installata e la riapre, senza aprire il DMG né chiedere di trascinare l'app in Applicazioni. Se la sostituzione non è possibile (per esempio cartella senza permessi di scrittura), Studio riapre il DMG come prima.
 - Rileggi lo storico delle sessioni a colpo d'occhio: ogni sessione ha il titolo sulla prima riga con l'ora a destra e il primo messaggio sotto, raggruppata per Oggi, Ieri, Ultimi 7 giorni, Ultimi 30 giorni e Più vecchie, con l'intestazione che resta in vista mentre scorri. L'ora dice solo ciò che il gruppo non dice già (minuti, orario, giorno o data); task e worktree sono piccole icone al posto delle etichette maiuscole, la sessione aperta ha una barra colorata a sinistra e su macOS le righe non hanno più lo sfondo grigio.
@@ -34,6 +35,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Leggi le schede delle colonne in frase: «File · Git · Agente» a sinistra, «Terminale · GUI» a destra, con la scorciatoia nel suggerimento al passaggio del mouse.
 
 ### Fixed
+- Migliora il comportamento dei tooltip: si chiudono immediatamente al click su pill, badge e bottoni (come le direttive e i modelli frequenti nel task editor) senza rimanere bloccati a schermo, adottano un ritardo intenzionale di 300 ms al passaggio del mouse per evitare comparsate involontarie, e rimuovono le etichette ridondanti dai pulsanti di chiusura di modali e pannelli e dai campi di ricerca.
 - La chat non resta più indietro di minuti mentre l'agente scrive file lunghi: Studio chiede a omp solo i delta dei messaggi invece dell'intero messaggio a ogni carattere, così eventi e risposte ai comandi non si accumulano più dietro centinaia di MB di output e non compaiono più errori «Nessuna risposta … entro 60s» (né gli avvisi «Impossibile sincronizzare le modalità di coda») a sessione apparentemente ferma.
 - Il popover delle quote si apre di nuovo quando OMP ha più account collegati allo stesso provider (per esempio due account Codex o Antigravity): ogni account compare con la sua sezione.
 - La chat non perde più tutti gli aggiornamenti successivi quando la gestione di un evento genera un errore: testo, fine turno e risposte ai comandi continuano ad arrivare, senza lasciare la sessione bloccata su «In esecuzione». L'errore originale resta disponibile nei diagnostici.

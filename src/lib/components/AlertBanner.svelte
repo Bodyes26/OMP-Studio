@@ -11,7 +11,6 @@
 	} from '$lib/icons';
 	import { chatReveal } from '$lib/agent/motion';
 	import { Lingering } from '$lib/agent/motionState.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	export type AlertVariant = 'error' | 'warning' | 'info' | 'success';
 
@@ -178,7 +177,6 @@
 			{/each}
 
 			{#if dismissible && onDismiss}
-				<Tooltip text={m.common_close()}>
 					<button
 						type="button"
 						class="btn-close"
@@ -187,7 +185,6 @@
 					>
 						<IconClose />
 					</button>
-				</Tooltip>
 			{/if}
 		</div>
 	</div>

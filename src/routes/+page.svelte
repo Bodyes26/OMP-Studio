@@ -2714,16 +2714,14 @@
 		>
 			<span class="floating-error-icon"><IconCircleAlert /></span>
 			<span class="floating-error-text">{m.page_projects_load_error({ reason: projectStore.loadError })}</span>
-			<Tooltip text={m.common_close()} placement="top">
-				<button
-					type="button"
-					class="floating-error-close"
-					onclick={() => (loadErrorDismissed = true)}
-					aria-label={m.common_close()}
-				>
-					<IconClose />
-				</button>
-			</Tooltip>
+			<button
+				type="button"
+				class="floating-error-close"
+				onclick={() => (loadErrorDismissed = true)}
+				aria-label={m.common_close()}
+			>
+				<IconClose />
+			</button>
 		</div>
 	{/if}
 

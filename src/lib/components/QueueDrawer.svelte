@@ -12,7 +12,6 @@
 	import { anchoredPopover } from '$lib/anchoredPopover';
 	import { rvLift } from '$lib/agent/motion';
 	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import QueueTaskItem from './QueueTaskItem.svelte';
 
 	let {
@@ -175,16 +174,14 @@
 	>
 		<div class="header">
 			<h3>{m.queue_drawer_heading()}</h3>
-			<Tooltip text={m.queue_drawer_close_aria()} placement="bottom" offset={6}>
-				<button
-					type="button"
-					class="close-btn"
-					onclick={handleExplicitClose}
-					aria-label={m.queue_drawer_close_aria()}
-				>
-					<IconClose />
-				</button>
-			</Tooltip>
+			<button
+				type="button"
+				class="close-btn"
+				onclick={handleExplicitClose}
+				aria-label={m.queue_drawer_close_aria()}
+			>
+				<IconClose />
+			</button>
 		</div>
 		<div class="body" role="list" aria-label={m.queue_drawer_projects_list_aria()}>
 			{#if groups.length === 0}

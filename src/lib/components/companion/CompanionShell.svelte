@@ -73,16 +73,14 @@
 
 			<div class="header-right">
 				{@render pinButton()}
-				<Tooltip text={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} placement="bottom">
-					<button
-						type="button"
-						class="composer-icon-btn"
-						aria-label={m.settings_close_window()}
-						onclick={onClose}
-					>
-						<IconClose />
-					</button>
-				</Tooltip>
+				<button
+					type="button"
+					class="composer-icon-btn"
+					aria-label={m.settings_close_window()}
+					onclick={onClose}
+				>
+					<IconClose />
+				</button>
 			</div>
 		</header>
 	{:else}

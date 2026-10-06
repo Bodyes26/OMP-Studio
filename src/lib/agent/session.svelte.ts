@@ -108,6 +108,12 @@ import {
 	connectBrowserLive
 } from './browser-live';
 import { classifySystemMessage, noticeDedupKey, type JobResult, type ClassifiedNotice } from './notices';
+import {
+	isContextReportText,
+	parseContextReport,
+	reportMatchesUsage,
+	type ContextReport
+} from './contextReport';
 import { m as messages } from '$lib/paraglide/messages.js';
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
 export type AgentSurfaceState = 'idle' | 'working' | 'attention' | 'unknown';
@@ -452,6 +458,16 @@ export class AgentSession {
 	 */
 	lastPickedRole = $state<string | null>(null);
 	contextUsage = $state<ContextUsage | null>(null);
+	/**
+	 * Ripartizione di `/context`. Resta null finche' omp non risponde, e il
+	 * pannello non la mostra se i token non coincidono piu' con `contextUsage`.
+	 */
+	contextReport = $state<ContextReport | null>(null);
+	private contextReportStamp = '';
+	private contextReportWanted = '';
+	private contextReportInflight: Promise<void> | null = null;
+	private capturingContextReport = false;
+	private contextReportCapture: string | null = null;
 	sessionId = $state<string | null>(null);
 	sessionFile = $state<string | null>(null);
 	sessionName = $state<string | null>(null);
@@ -940,6 +956,80 @@ export class AgentSession {
 	}
 
 	/**
+	 * Chiede a omp il rapporto di `/context` e lo tiene se i token coincidono
+	 * con `get_state`. Il comando e' locale: se omp lo tratta come un messaggio
+	 * al modello, non si ritenta.
+	 */
+	async refreshContextReport(): Promise<void> {
+		if (!this.canProbeContext()) return;
+		const stamp = this.contextStamp();
+		if (this.contextReportStamp === stamp && reportMatchesUsage(this.contextReport, this.contextUsage)) return;
+		this.contextReportWanted = stamp;
+		if (this.contextReportInflight) return this.contextReportInflight;
+		this.contextReportInflight = this.drainContextReport();
+		return this.contextReportInflight;
+	}
+
+	private canProbeContext(): boolean {
+		if (!this.isReady || !this.isAttached || this.exited) return false;
+		if (this.isStreaming || this.isCompacting || this.isAborting || this.pendingUi) return false;
+		return this.availableCommands.some(
+			(command) => command.name === 'context' || command.aliases?.includes('context')
+		);
+	}
+
+	private contextStamp(): string {
+		const usage = this.contextUsage;
+		return [this.sessionId ?? '', this.model?.id ?? '', usage?.contextWindow ?? '', usage?.tokens ?? ''].join(':');
+	}
+
+	private async drainContextReport(): Promise<void> {
+		try {
+			while (this.contextReportWanted) {
+				if (!this.canProbeContext()) {
+					this.contextReportWanted = '';
+					return;
+				}
+				const stamp = this.contextReportWanted;
+				if (this.contextReportStamp === stamp && reportMatchesUsage(this.contextReport, this.contextUsage)) {
+					this.contextReportWanted = '';
+					return;
+				}
+				const sessionId = this.sessionId;
+				await this.probeContextReport(stamp, sessionId);
+				if (this.contextReportWanted === stamp) this.contextReportWanted = '';
+			}
+		} finally {
+			this.contextReportInflight = null;
+		}
+	}
+
+	private async probeContextReport(stamp: string, sessionId: string | null): Promise<void> {
+		this.contextReportCapture = null;
+		this.capturingContextReport = true;
+		try {
+			const data = await this.client.send<{ agentInvoked?: boolean }>({
+				type: 'prompt',
+				message: '/context'
+			});
+			if (this.sessionId !== sessionId) return;
+			if (data?.agentInvoked === true) {
+				this.pushNotice('warning', messages.chat_v2_composer_context_probe_sent(), 'studio');
+				return;
+			}
+			const parsed = this.contextReportCapture ? parseContextReport(this.contextReportCapture) : null;
+			if (!parsed) return;
+			this.contextReport = parsed;
+			this.contextReportStamp = stamp;
+		} catch {
+			// Senza rapporto il pannello resta sulla cifra unica di get_state.
+		} finally {
+			this.capturingContextReport = false;
+			this.contextReportCapture = null;
+		}
+	}
+
+	/**
 	 * Handshake `browser-live-v1` sul frame `ready`.
 	 *
 	 * Contro un runtime precedente il campo `capabilities` non esiste, il
@@ -1282,6 +1372,11 @@ export class AgentSession {
 		if (state.model) this.model = state.model;
 		if (state.thinkingLevel) this.thinkingLevel = state.thinkingLevel;
 		if (state.contextUsage) this.contextUsage = state.contextUsage;
+		if (typeof state.sessionId === 'string' && state.sessionId !== this.sessionId) {
+			this.contextReport = null;
+			this.contextReportStamp = '';
+			this.contextReportWanted = '';
+		}
 		if (typeof state.sessionId === 'string') this.sessionId = state.sessionId;
 		if (typeof state.sessionFile === 'string') this.sessionFile = state.sessionFile;
 		if (typeof state.sessionName === 'string') this.sessionName = state.sessionName;
@@ -1832,6 +1927,10 @@ export class AgentSession {
 							: typeof event.message === 'string'
 								? event.message
 								: '';
+				if (output && this.capturingContextReport && isContextReportText(output)) {
+					this.contextReportCapture = output;
+					return;
+				}
 				if (output) this.pushNotice('info', output, 'comando');
 				return;
 			}

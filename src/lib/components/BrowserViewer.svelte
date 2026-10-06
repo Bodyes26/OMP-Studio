@@ -1441,16 +1441,14 @@
 			</button>
 		</Tooltip>
 
-		<Tooltip text={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} placement="bottom">
-			<button
-				type="button"
-				class="tool-btn close icon-btn"
-				onclick={() => onClose?.()}
-				aria-label={m.browser_close_viewer()}
-			>
-				<IconClose />
-			</button>
-		</Tooltip>
+		<button
+			type="button"
+			class="tool-btn close icon-btn"
+			onclick={() => onClose?.()}
+			aria-label={m.browser_close_viewer()}
+		>
+			<IconClose />
+		</button>
 	</div>
 
 	<Dialog
@@ -1884,16 +1882,14 @@
 						</Tooltip>
 					{/if}
 
-					<Tooltip text={m.ui_browserviewer_chiudi_pannello_inspector_c43d()} placement="top">
-						<button
-							type="button"
-							class="tool-btn icon-btn"
-							onclick={() => (isInspectorOpen = false)}
-							aria-label={m.ui_browserviewer_chiudi_inspector_e1dd()}
-						>
-							<IconClose />
-						</button>
-					</Tooltip>
+					<button
+						type="button"
+						class="tool-btn icon-btn"
+						onclick={() => (isInspectorOpen = false)}
+						aria-label={m.ui_browserviewer_chiudi_inspector_e1dd()}
+					>
+						<IconClose />
+					</button>
 				</div>
 			</div>
 

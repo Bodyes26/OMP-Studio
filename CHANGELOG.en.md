@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Changed
+- The composer context window shows the same split as `/context`: system prompt, tools, system context, skills, messages, auto-compact reserve and free space. The message you are typing stays a separate estimate; until omp answers, only the total stays visible.
 - Align Quota with Settings, Companion and Queue in the top bar and use clearer Windows window controls with thicker strokes and rounded shapes, keeping click targets unchanged.
 - On macOS, “Restart and Install” now updates Studio on its own: it closes the app, replaces the installed version and reopens it, without mounting the DMG or asking you to drag the app into Applications. If the replacement isn't possible (for example a folder without write permission), Studio falls back to opening the DMG as before.
 - Scan your session history at a glance: each session shows its title on the first line with the time on the right and the first message below, grouped under Today, Yesterday, Previous 7 days, Previous 30 days and Older, with the heading staying in view while you scroll. The time only says what the group doesn't already (minutes, time of day, weekday or date); tasks and worktrees are small icons instead of uppercase labels, the open session has a colored bar on the left, and on macOS rows no longer have a gray background.
@@ -34,6 +35,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Read column tabs in sentence case: “Files · Git · Agent” on the left, “Terminal · GUI” on the right, with the shortcut in the hover tooltip.
 
 ### Fixed
+- Improve tooltip behavior: tooltips dismiss immediately upon clicking pills, badges, and buttons (such as directives and frequent models in the task editor) without lingering on screen, use an intentional 300ms hover delay to prevent accidental flashing, and remove redundant tooltips from modal/panel close buttons and search inputs.
 - Chat no longer falls minutes behind while the agent writes long files: Studio asks omp for message deltas only instead of the whole message on every character, so events and command responses no longer pile up behind hundreds of MB of output, and “No response … within 60s” errors (and “Unable to sync queue modes” warnings) no longer appear on a seemingly frozen session.
 - The quota popover opens again when OMP has several accounts for the same provider (for example two Codex or Antigravity accounts): each account gets its own section.
 - Chat no longer loses every subsequent update when handling an event throws an error: text, turn completion and command responses keep arriving instead of leaving the session stuck on “Running”. The original error remains available in diagnostics.

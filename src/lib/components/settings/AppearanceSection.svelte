@@ -12,7 +12,6 @@
 	import { IconCheck, IconSparkles, IconSearch, IconClose } from '$lib/icons';
 	import Switch from '$lib/ui/Switch.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import QuotaChip from '../quota/QuotaChip.svelte';
 	import QuotaLimitRow from '../quota/QuotaLimitRow.svelte';
 	import IconInspectorModal from './IconInspectorModal.svelte';
@@ -452,16 +451,14 @@
 					aria-label={m.ui_appearancesection_cerca_e_filtra_temi_b7aa()}
 				/>
 				{#if filterQuery}
-					<Tooltip text="Cancella filtro" placement="bottom">
-						<button
-							type="button"
-							class="clear-filter-btn"
-							onclick={() => (filterQuery = '')}
-							aria-label="Cancella filtro"
-						>
-							<IconClose />
-						</button>
-					</Tooltip>
+					<button
+						type="button"
+						class="clear-filter-btn"
+						onclick={() => (filterQuery = '')}
+						aria-label="Cancella filtro"
+					>
+						<IconClose />
+					</button>
 				{/if}
 			</div>
 		</div>

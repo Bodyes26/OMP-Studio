@@ -42,6 +42,7 @@
 	import { splitModelSelector, resolveActiveRole } from '$lib/stores/modelSettingsHelpers';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 	import { isTypingSurface } from '$lib/agent/askFocus';
+	import { resolveContextWindow } from '$lib/agent/contextReport';
 	import { formatTokens } from '$lib/utils/format';
 	import { invoke } from '@tauri-apps/api/core';
 	import { m } from '$lib/paraglide/messages.js';
@@ -238,6 +239,22 @@
 		if (!activeCmdSeg) return null;
 		const clean = activeCmdSeg.name.replace(/^skill:/, '');
 		return allCommands.find((c) => c.name.toLowerCase() === clean.toLowerCase()) ?? null;
+	});
+
+	// Il rapporto di /context si chiede solo a pannello aperto: e' un prompt
+	// locale sulla coda RPC e non deve partire a ogni turno.
+	$effect(() => {
+		if (!visible || activeMenu !== 'context') return;
+		void session.isReady;
+		void session.isAttached;
+		void session.isStreaming;
+		void session.isCompacting;
+		void session.sessionId;
+		void session.model?.id;
+		void session.contextUsage?.tokens;
+		void session.contextUsage?.contextWindow;
+		void session.availableCommands;
+		void session.refreshContextReport();
 	});
 
 	// Stima token della bozza corrente
@@ -893,12 +910,12 @@
 					hasPopup="dialog"
 					contentRole="dialog"
 					align="right"
-					width="300px"
+					width="320px"
 					onToggle={() => (activeMenu = activeMenu === 'context' ? null : 'context')}
 					onClose={() => (activeMenu = null)}
 				>
 					{#snippet trigger()}
-						{@const maxCtx = session.model?.contextWindow || 128_000}
+						{@const maxCtx = resolveContextWindow(session.contextUsage, session.model?.contextWindow)}
 						{@const used = (session.contextUsage?.tokens || 0) + draftTokensEstimate}
 						{@const pct = Math.min(1, used / maxCtx)}
 						{@const C = 2 * Math.PI * 7}
@@ -924,6 +941,7 @@
 						<ContextPanel
 							model={session.model}
 							contextUsage={session.contextUsage}
+							report={session.contextReport}
 							draftTokens={draftTokensEstimate}
 							onCompact={() => {
 								activeMenu = null;

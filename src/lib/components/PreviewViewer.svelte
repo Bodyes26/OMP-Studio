@@ -195,14 +195,12 @@
 				{m.preview_reload()}
 			</button>
 		</Tooltip>
-		<Tooltip text={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} placement="bottom">
-			<button
-				type="button"
-				class="icon-btn"
-				onclick={() => onClose?.()}
-				aria-label={m.ui_previewviewer_chiudi_anteprima_d65a()}
-			><IconClose /></button>
-		</Tooltip>
+		<button
+			type="button"
+			class="icon-btn"
+			onclick={() => onClose?.()}
+			aria-label={m.ui_previewviewer_chiudi_anteprima_d65a()}
+		><IconClose /></button>
 	</div>
 
 	{#if loading}

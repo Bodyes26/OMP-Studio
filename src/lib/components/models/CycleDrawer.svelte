@@ -91,17 +91,15 @@
 				<kbd class="ui-kbd">Ctrl+P</kbd>
 			</div>
 
-			<Tooltip text={m.ui_cycledrawer_chiudi_pannello_ciclo_a7be()}>
-				<button
-					type="button"
-					class="btn-close-drawer"
-					bind:this={closeBtnEl}
-					onclick={handleClose}
-					aria-label={m.ui_cycledrawer_chiudi_pannello_ciclo_a7be()}
-				>
-					<IconClose />
-				</button>
-			</Tooltip>
+			<button
+				type="button"
+				class="btn-close-drawer"
+				bind:this={closeBtnEl}
+				onclick={handleClose}
+				aria-label={m.ui_cycledrawer_chiudi_pannello_ciclo_a7be()}
+			>
+				<IconClose />
+			</button>
 		</div>
 
 		<div class="drawer-content">

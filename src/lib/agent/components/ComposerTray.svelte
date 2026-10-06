@@ -15,7 +15,6 @@
 	import type { AgentProgress, TodoItem, TodoPhase } from '../wire';
 	import { describeSubagentActivity, formatTrayDuration } from '../subagentActivity';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import {
 		IconChevronRight,
 		IconChevronUp,
@@ -252,16 +251,14 @@
 												</span>
 											</button>
 										{/if}
-										<Tooltip text={m.chat_v2_tray_quota_dismiss()}>
-											<button
-												type="button"
-												class="quota-dismiss-btn"
-												aria-label={m.chat_v2_tray_quota_dismiss()}
-												onclick={quota.onDismiss}
-											>
-												<IconClose aria-hidden="true" />
-											</button>
-										</Tooltip>
+										<button
+											type="button"
+											class="quota-dismiss-btn"
+											aria-label={m.chat_v2_tray_quota_dismiss()}
+											onclick={quota.onDismiss}
+										>
+											<IconClose aria-hidden="true" />
+										</button>
 									</div>
 								</div>
 								{#if quotaDetailsOpen && (quota.message || quota.diagnostic)}

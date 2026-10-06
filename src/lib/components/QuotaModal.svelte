@@ -221,9 +221,7 @@
 						{/if}
 					</button>
 				</Tooltip>
-				<Tooltip text={m.quota_close()} placement="bottom" offset={4}>
-					<button class="close-btn" onclick={handleExplicitClose} aria-label={m.quota_close()}><IconClose /></button>
-				</Tooltip>
+				<button class="close-btn" onclick={handleExplicitClose} aria-label={m.quota_close()}><IconClose /></button>
 			</div>
 		</div>
 

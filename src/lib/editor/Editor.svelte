@@ -1222,14 +1222,12 @@
 						{#if isTabDirty}
 							<span class="dirty-dot" aria-hidden="true"></span>
 						{/if}
-						<Tooltip text={m.editor_close_tab_tip()} placement="bottom">
-							<button
-								type="button"
-								class="close-tab"
-								onclick={(event) => { event.stopPropagation(); closeFile(path); }}
-								aria-label={m.editor_close_tab({ name: fileName(path) })}
-							><IconClose /></button>
-						</Tooltip>
+						<button
+							type="button"
+							class="close-tab"
+							onclick={(event) => { event.stopPropagation(); closeFile(path); }}
+							aria-label={m.editor_close_tab({ name: fileName(path) })}
+						><IconClose /></button>
 					</span>
 				</div>
 			{/each}

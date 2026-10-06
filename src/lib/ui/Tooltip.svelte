@@ -1,12 +1,20 @@
+<script module lang="ts">
+	let lastCloseTimestamp = 0;
+	let anyTooltipOpen = false;
+</script>
+
 <script lang="ts">
 	/**
 	 * Tooltip accessibile secondo WCAG 2.1 (SC 1.4.13 Content on Hover or Focus).
 	 *
 	 * - Ruolo semantico role="tooltip" associato al trigger tramite aria-describedby.
-	 * - Si apre su hover (pointerenter) e su focus tastiera (focusin).
+	 * - Si apre su hover dopo un ritardo intenzionale (openDelay, default 300ms) o
+	 *   immediatamente se un tooltip adiacente era appena aperto.
+	 * - Si chiude istantaneamente alla pressione/click (pointerdown/click) sul controllo
+	 *   senza rimanere bloccato a schermo mentre l'utente interagisce.
+	 * - Si apre su focus tastiera (focusin con :focus-visible), ma non su click del mouse.
 	 * - Si chiude con Escape senza perdere il focus sul trigger.
 	 * - Mantiene il tooltip aperto al passaggio del mouse sopra il tooltip stesso.
-	 * - Nessun elemento focalizzabile all'interno (non crea trappole di focus).
 	 * - Stile basato su token di sistema: --bg-raised, --ink, --radius-md, --z-tooltip.
 	 */
 	import type { Snippet } from 'svelte';
@@ -16,6 +24,8 @@
 		text,
 		placement = 'top',
 		offset = 6,
+		openDelay = 300,
+		closeDelay = 80,
 		disabled = false,
 		id: customId,
 		children
@@ -23,6 +33,8 @@
 		text?: string;
 		placement?: AnchorPlacement;
 		offset?: number;
+		openDelay?: number;
+		closeDelay?: number;
 		disabled?: boolean;
 		id?: string;
 		children?: Snippet;
@@ -36,42 +48,130 @@
 	let hovered = $state(false);
 	let bubbleHovered = $state(false);
 	let triggerEl = $state<HTMLElement | null>(null);
+	let openTimer: ReturnType<typeof setTimeout> | null = null;
 	let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function cancelOpen() {
+		if (openTimer) clearTimeout(openTimer);
+		openTimer = null;
+	}
 
 	function cancelClose() {
 		if (closeTimer) clearTimeout(closeTimer);
 		closeTimer = null;
 	}
 
-	function show() {
+	function show(immediate = false) {
 		cancelClose();
-		if (!disabled && text && !isDismissed) isOpen = true;
+		if (disabled || !text || isDismissed) return;
+
+		if (immediate) {
+			cancelOpen();
+			isOpen = true;
+			anyTooltipOpen = true;
+			return;
+		}
+
+		if (isOpen) return;
+
+		// Transizione rapida tra tooltip adiacenti (< 250ms dalla chiusura dell'ultimo)
+		const isQuickSwitch = anyTooltipOpen || (Date.now() - lastCloseTimestamp < 250);
+		const delay = isQuickSwitch ? 60 : openDelay;
+
+		if (delay <= 0) {
+			cancelOpen();
+			isOpen = true;
+			anyTooltipOpen = true;
+		} else if (!openTimer) {
+			openTimer = setTimeout(() => {
+				if (!disabled && text && !isDismissed && (hovered || focused)) {
+					isOpen = true;
+					anyTooltipOpen = true;
+				}
+				openTimer = null;
+			}, delay);
+		}
 	}
 
 	function scheduleClose() {
+		cancelOpen();
 		cancelClose();
-		if (focused || hovered || bubbleHovered) return;
-		isDismissed = false;
+		if (hovered || bubbleHovered) return;
+
+		// Se il trigger e' focalizzato da tastiera (:focus-visible), mantieni aperto
+		const target = triggerEl?.querySelector<HTMLElement>('button, a, input, [tabindex]') ?? triggerEl;
+		if (focused && target?.matches(':focus-visible') && !isDismissed) {
+			return;
+		}
+
 		closeTimer = setTimeout(() => {
-			isOpen = false;
+			if (isOpen) {
+				isOpen = false;
+				anyTooltipOpen = false;
+				lastCloseTimestamp = Date.now();
+			}
 			isDismissed = false;
+			focused = false;
 			closeTimer = null;
-		}, 100);
+		}, closeDelay);
+	}
+
+	function dismiss() {
+		cancelOpen();
+		cancelClose();
+		isDismissed = true;
+		if (isOpen) {
+			isOpen = false;
+			anyTooltipOpen = false;
+			lastCloseTimestamp = Date.now();
+		}
+		bubbleHovered = false;
+	}
+
+	function handlePointerEnter() {
+		hovered = true;
+		show();
+	}
+
+	function handlePointerLeave() {
+		hovered = false;
+		bubbleHovered = false;
+		cancelOpen();
+		scheduleClose();
+	}
+
+	function handleFocusIn(event: FocusEvent) {
+		if (isDismissed) return;
+		const target = event.target as HTMLElement | null;
+		// Apri su focus solo per navigazione tastiera (:focus-visible)
+		if (target && !target.matches(':focus-visible')) {
+			return;
+		}
+		focused = true;
+		show(true);
+	}
+
+	function handleFocusOut(event: FocusEvent) {
+		if (triggerEl?.contains(event.relatedTarget as Node | null)) return;
+		focused = false;
+		scheduleClose();
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
 		if (event.key !== 'Escape' || !isOpen) return;
 		event.preventDefault();
 		event.stopPropagation();
-		cancelClose();
-		bubbleHovered = false;
-		isDismissed = true;
-		isOpen = false;
+		dismiss();
 	}
 
 	$effect(() => {
 		if (disabled || !text) {
-			isOpen = false;
+			cancelOpen();
+			if (isOpen) {
+				isOpen = false;
+				anyTooltipOpen = false;
+				lastCloseTimestamp = Date.now();
+			}
 			bubbleHovered = false;
 			return;
 		}
@@ -97,21 +197,26 @@
 		};
 	});
 
-	$effect(() => () => cancelClose());
+	$effect(() => () => {
+		cancelOpen();
+		cancelClose();
+		if (isOpen) {
+			anyTooltipOpen = false;
+			lastCloseTimestamp = Date.now();
+		}
+	});
 </script>
 
 <div
 	class="tooltip-wrapper"
 	bind:this={triggerEl}
 	role="presentation"
-	onpointerenter={() => { hovered = true; show(); }}
-	onpointerleave={() => { hovered = false; scheduleClose(); }}
-	onfocusin={() => { focused = true; show(); }}
-	onfocusout={(event) => {
-		if (triggerEl?.contains(event.relatedTarget as Node | null)) return;
-		focused = false;
-		scheduleClose();
-	}}
+	onpointerenter={handlePointerEnter}
+	onpointerleave={handlePointerLeave}
+	onpointerdown={dismiss}
+	onclick={dismiss}
+	onfocusin={handleFocusIn}
+	onfocusout={handleFocusOut}
 >
 	{@render children?.()}
 	{#if isOpen && !isDismissed && text && !disabled}
@@ -124,6 +229,7 @@
 			use:anchoredPopover={{ anchor: triggerEl, placement, offset, motion: true }}
 			onpointerenter={() => { bubbleHovered = true; cancelClose(); }}
 			onpointerleave={() => { bubbleHovered = false; scheduleClose(); }}
+			onpointerdown={dismiss}
 		>
 			{text}
 		</div>

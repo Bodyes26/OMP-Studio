@@ -1,30 +1,105 @@
 <script lang="ts">
 	/**
-	 * Pannello dettagliato della finestra di contesto del modello attivo.
+	 * Pannello della finestra di contesto. Con il rapporto di `/context` mostra
+	 * la stessa ripartizione di omp; senza, solo il totale di `get_state`.
 	 */
 	import type { ModelInfo, ContextUsage } from '$lib/agent/wire';
+	import {
+		applyDraftToContextReserve,
+		categoryTokenSum,
+		reportMatchesUsage,
+		resolveContextWindow,
+		type ContextReport
+	} from '$lib/agent/contextReport';
 	import { formatTokens } from '$lib/utils/format';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let {
 		model = null,
 		contextUsage = null,
+		report = null,
 		draftTokens = 0,
 		onCompact
 	} = $props<{
 		model?: ModelInfo | null;
 		contextUsage?: ContextUsage | null;
+		report?: ContextReport | null;
 		draftTokens?: number;
 		onCompact: () => void;
 	}>();
 
-	const maxCtx = $derived(model?.contextWindow || 128_000);
-	const convTokens = $derived(contextUsage?.tokens || 0);
-	const totalUsed = $derived(convTokens + draftTokens);
-	const pct = $derived(Math.min(100, Math.round((totalUsed / maxCtx) * 100)));
-	const convPct = $derived(Math.min(100, (convTokens / maxCtx) * 100));
-	const draftPct = $derived(Math.min(100 - convPct, (draftTokens / maxCtx) * 100));
-	const freeTokens = $derived(Math.max(0, maxCtx - totalUsed));
+	const fresh = $derived(reportMatchesUsage(report, contextUsage) ? report : null);
+	const maxCtx = $derived(resolveContextWindow(fresh ?? contextUsage, model?.contextWindow));
+	const accounted = $derived(fresh ? categoryTokenSum(fresh) : contextUsage?.tokens || 0);
+	const totalUsed = $derived(accounted + draftTokens);
+	const pct = $derived(maxCtx > 0 ? Math.min(100, Math.round((totalUsed / maxCtx) * 100)) : 0);
+
+	const rows = $derived.by(() => {
+		const list: { id: string; fallback: string; tokens: number }[] = [];
+		if (fresh) {
+			const known = ['systemPrompt', 'systemTools', 'systemContext', 'skills', 'messages'];
+			for (const id of known) {
+				const category = fresh.categories.find((row) => row.id === id);
+				list.push({ id, fallback: category?.label ?? '', tokens: category?.tokens ?? 0 });
+			}
+			for (const category of fresh.categories) {
+				if (known.includes(category.id) || category.tokens <= 0) continue;
+				list.push({ id: category.id, fallback: category.label, tokens: category.tokens });
+			}
+		} else {
+			list.push({
+				id: 'used',
+				fallback: '',
+				tokens: contextUsage?.tokens || 0
+			});
+		}
+		if (draftTokens > 0) {
+			list.push({ id: 'draft', fallback: '', tokens: draftTokens });
+		}
+		const reserve = fresh
+			? applyDraftToContextReserve(fresh.freeTokens, fresh.autoCompactBufferTokens, draftTokens)
+			: { free: Math.max(0, maxCtx - totalUsed), buffer: 0 };
+		if (reserve.buffer > 0) {
+			list.push({ id: 'autoCompact', fallback: '', tokens: reserve.buffer });
+		}
+		list.push({ id: 'free', fallback: '', tokens: reserve.free });
+		return list;
+	});
+
+	const segments = $derived.by(() => {
+		const filled = rows.filter((row) => row.id !== 'free' && row.tokens > 0);
+		const sum = filled.reduce((total, row) => total + row.tokens, 0);
+		const scale = maxCtx > 0 && sum > maxCtx ? maxCtx / sum : 1;
+		return filled.map((row) => ({
+			id: row.id,
+			width: maxCtx > 0 ? (row.tokens / maxCtx) * scale * 100 : 0
+		}));
+	});
+
+	function categoryLabel(id: string, fallback: string): string {
+		switch (id) {
+			case 'systemPrompt':
+				return m.chat_v2_composer_context_system_prompt();
+			case 'systemTools':
+				return m.chat_v2_composer_context_system_tools();
+			case 'systemContext':
+				return m.chat_v2_composer_context_system_context();
+			case 'skills':
+				return m.chat_v2_composer_context_skills();
+			case 'messages':
+				return m.chat_v2_composer_context_messages();
+			case 'autoCompact':
+				return m.chat_v2_composer_context_buffer();
+			case 'draft':
+				return m.chat_v2_composer_context_draft();
+			case 'free':
+				return m.chat_v2_composer_context_free();
+			case 'used':
+				return m.chat_v2_composer_context_used();
+			default:
+				return fallback || m.chat_v2_composer_context_used();
+		}
+	}
 </script>
 
 <div class="context-panel">
@@ -44,30 +119,25 @@
 			{model?.name || model?.id || 'Modello attivo'}
 		</div>
 
-		<!-- Barra segmentata -->
 		<div class="meter-track" aria-hidden="true">
-			<span class="meter-segment conv" style="width: {convPct}%;"></span>
-			<span class="meter-segment draft" style="width: {draftPct}%;"></span>
+			{#each segments as segment (segment.id)}
+				<span class="meter-segment {segment.id}" style="width: {segment.width}%;"></span>
+			{/each}
 		</div>
 
-		<!-- Dettaglio delle sezioni -->
 		<div class="breakdown-list">
-			<div class="breakdown-row">
-				<span class="dot conv"></span>
-				<span class="label">{m.chat_v2_composer_context_conversation()}</span>
-				<span class="value">{formatTokens(convTokens)}</span>
-			</div>
-			<div class="breakdown-row">
-				<span class="dot draft"></span>
-				<span class="label">{m.chat_v2_composer_context_draft()}</span>
-				<span class="value">{formatTokens(draftTokens)}</span>
-			</div>
-			<div class="breakdown-row">
-				<span class="dot free"></span>
-				<span class="label">{m.chat_v2_composer_context_free()}</span>
-				<span class="value">{formatTokens(freeTokens)}</span>
-			</div>
+			{#each rows as row (row.id)}
+				<div class="breakdown-row">
+					<span class="dot {row.id}"></span>
+					<span class="label">{categoryLabel(row.id, row.fallback)}</span>
+					<span class="value">{formatTokens(row.tokens)}</span>
+				</div>
+			{/each}
 		</div>
+
+		{#if fresh && fresh.notes.length > 0}
+			<p class="notes">{fresh.notes.join('\n')}</p>
+		{/if}
 
 		<p class="auto-compact-hint">
 			{m.chat_v2_composer_context_auto_compact()}
@@ -140,12 +210,43 @@
 		transition: width var(--dur-base) var(--ease-out);
 	}
 
-	.meter-segment.conv {
+	.meter-segment.systemPrompt,
+	.dot.systemPrompt,
+	.meter-segment.used,
+	.dot.used,
+	.meter-segment.messages,
+	.dot.messages {
 		background: oklch(0.68 0.16 230);
 	}
 
-	.meter-segment.draft {
+	.meter-segment.systemTools,
+	.dot.systemTools {
 		background: var(--warn);
+	}
+
+	.meter-segment.systemContext,
+	.dot.systemContext {
+		background: oklch(0.68 0.12 300);
+	}
+
+	.meter-segment.skills,
+	.dot.skills {
+		background: var(--success);
+	}
+
+	.meter-segment.draft,
+	.dot.draft {
+		background: oklch(0.72 0.16 55);
+	}
+
+	.meter-segment.autoCompact,
+	.dot.autoCompact {
+		background: color-mix(in srgb, var(--warn) 45%, var(--line));
+	}
+
+	.meter-segment.other,
+	.dot.other {
+		background: var(--ink-faint);
 	}
 
 	.breakdown-list {
@@ -169,14 +270,6 @@
 		flex-shrink: 0;
 	}
 
-	.dot.conv {
-		background: oklch(0.68 0.16 230);
-	}
-
-	.dot.draft {
-		background: var(--warn);
-	}
-
 	.dot.free {
 		background: var(--line);
 	}
@@ -184,18 +277,25 @@
 	.label {
 		color: var(--ink-muted);
 		flex: 1;
+		min-width: 0;
 	}
 
 	.value {
 		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 	}
 
+	.notes,
 	.auto-compact-hint {
 		font-size: 11px;
 		line-height: 1.35;
 		color: var(--ink-faint);
 		margin: 2px 0 0;
+	}
+
+	.notes {
+		white-space: pre-line;
 	}
 
 	.compact-btn {

@@ -13,7 +13,6 @@
 	import { trapFocus, type FocusTrapOptions } from '$lib/focusTrap';
 	import { rvLift } from '$lib/agent/motion';
 	import { IconClose } from '$lib/icons';
-	import Tooltip from './Tooltip.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
 	export interface DialogProps {
@@ -123,16 +122,14 @@
 							</div>
 						{/if}
 						{#if dismissible && onClose}
-							<Tooltip text={m.common_close()} placement="bottom">
-								<button
-									type="button"
-									class="dialog-close-btn"
-									onclick={handleDismiss}
-									aria-label={m.common_close()}
-								>
-									<IconClose />
-								</button>
-							</Tooltip>
+							<button
+								type="button"
+								class="dialog-close-btn"
+								onclick={handleDismiss}
+								aria-label={m.common_close()}
+							>
+								<IconClose />
+							</button>
 						{/if}
 					</header>
 				{/if}

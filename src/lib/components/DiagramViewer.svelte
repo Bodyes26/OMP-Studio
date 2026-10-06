@@ -268,14 +268,12 @@
 				><IconZoomIn /></button>
 			</Tooltip>
 		{/if}
-		<Tooltip text={m.ui_shortcutshelpmodal_chiudi_esc_0e80()} placement="bottom">
-			<button
-				type="button"
-				class="icon-btn"
-				onclick={() => onClose?.()}
-				aria-label={m.ui_diagramviewer_chiudi_visualizzatore_diagramma_esc_b2eb()}
-			><IconClose /></button>
-		</Tooltip>
+		<button
+			type="button"
+			class="icon-btn"
+			onclick={() => onClose?.()}
+			aria-label={m.ui_diagramviewer_chiudi_visualizzatore_diagramma_esc_b2eb()}
+		><IconClose /></button>
 	</div>
 	{#if diagram}
 		<div

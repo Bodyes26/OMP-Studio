@@ -14,7 +14,6 @@
 	import { IconPlus } from '$lib/icons';
 	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	let {
 		projectPath,
@@ -145,21 +144,19 @@
 					{m.agent_panel_new_task_btn()}
 				</button>
 				{#if !gate.ready}
-					<Tooltip text={`${gate.detail} ${gate.hint}`.trim()}>
-						<button
-							type="button"
-							class="automation-state"
-							class:attention={gateAttention}
-							class:active={noticeOpen}
-							aria-expanded={noticeOpen}
-							aria-controls="agent-queue-gate-notice"
-							aria-label={m.gate_state_aria({ label: gate.label })}
-							onclick={() => explained = noticeOpen ? null : gate.block}
-						>
-							<StatusMark status={gateAttention ? 'attention' : 'pending'} active={gateAttention} />
-							<span class="state-label">{gate.label}</span>
-						</button>
-					</Tooltip>
+					<button
+						type="button"
+						class="automation-state"
+						class:attention={gateAttention}
+						class:active={noticeOpen}
+						aria-expanded={noticeOpen}
+						aria-controls="agent-queue-gate-notice"
+						aria-label={m.gate_state_aria({ label: gate.label })}
+						onclick={() => explained = noticeOpen ? null : gate.block}
+					>
+						<StatusMark status={gateAttention ? 'attention' : 'pending'} active={gateAttention} />
+						<span class="state-label">{gate.label}</span>
+					</button>
 				{/if}
 			</div>
 

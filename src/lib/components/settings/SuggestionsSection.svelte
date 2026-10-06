@@ -362,16 +362,14 @@
 					<span class="editor-title">
 						{editingSuggestionId === 'new' ? m.settings_suggestions_create_title() : m.settings_suggestions_edit_title()}
 					</span>
-					<Tooltip text={m.common_cancel()}>
-						<button
-							type="button"
-							class="btn-icon-close"
-							onclick={cancelEdit}
-							aria-label={m.common_cancel()}
-						>
-							<IconClose />
-						</button>
-					</Tooltip>
+					<button
+						type="button"
+						class="btn-icon-close"
+						onclick={cancelEdit}
+						aria-label={m.common_cancel()}
+					>
+						<IconClose />
+					</button>
 				</div>
 
 				<div class="form-fields">

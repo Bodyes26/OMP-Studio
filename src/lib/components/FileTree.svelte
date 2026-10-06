@@ -36,7 +36,6 @@
 	} from '$lib/icons';
 	import GitStatusMark from '$lib/ui/GitStatusMark.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import { joinProjectPath, isWindows, normalizeProjectPath } from '$lib/utils/paths';
 	import type { GitStatusRefreshDetail } from '$lib/stores/gitDiff.svelte';
@@ -1279,16 +1278,14 @@
 					autocomplete="off"
 				/>
 				{#if searchQuery}
-					<Tooltip text={m.file_tree_clear_search()} placement="bottom">
-						<button
-							type="button"
-							class="clear-search-btn"
-							onclick={clearSearch}
-							aria-label={m.file_tree_clear_search()}
-						>
-							<IconClose />
-						</button>
-					</Tooltip>
+					<button
+						type="button"
+						class="clear-search-btn"
+						onclick={clearSearch}
+						aria-label={m.file_tree_clear_search()}
+					>
+						<IconClose />
+					</button>
 				{/if}
 			</div>
 			{#if searchQuery.trim()}

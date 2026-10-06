@@ -568,16 +568,14 @@
 					</button>
 				</Tooltip>
 			{/if}
-			<Tooltip text={m.task_editor_close_aria()} placement="bottom">
-				<button
-					type="button"
-					class="header-icon-btn"
-					aria-label={m.task_editor_close_aria()}
-					onclick={closeEditor}
-				>
-					<IconClose />
-				</button>
-			</Tooltip>
+			<button
+				type="button"
+				class="header-icon-btn"
+				aria-label={m.task_editor_close_aria()}
+				onclick={closeEditor}
+			>
+				<IconClose />
+			</button>
 		</div>
 	</header>
 

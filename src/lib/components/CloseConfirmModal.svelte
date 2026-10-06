@@ -57,16 +57,14 @@
 					{/if}
 				</p>
 			</div>
-			<Tooltip text={m.close_confirm_cancel_aria()}>
-				<button
-					type="button"
-					class="btn-close"
-					onclick={onCancel}
-					aria-label={m.close_confirm_cancel_aria()}
-				>
-					<IconClose />
-				</button>
-			</Tooltip>
+			<button
+				type="button"
+				class="btn-close"
+				onclick={onCancel}
+				aria-label={m.close_confirm_cancel_aria()}
+			>
+				<IconClose />
+			</button>
 		</div>
 	{/snippet}
 

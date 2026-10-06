@@ -611,11 +611,9 @@
 						<StatusMark status="attention" active={false} label="Attenzione" />
 						<span class="panel-title">Proposte AI da prompt e richieste recenti</span>
 					</div>
-					<Tooltip text={m.common_close()}>
-						<button type="button" class="btn-icon-close" onclick={() => (aiMode = 'idle')} aria-label={m.common_close()}>
-							<IconClose />
-						</button>
-					</Tooltip>
+					<button type="button" class="btn-icon-close" onclick={() => (aiMode = 'idle')} aria-label={m.common_close()}>
+						<IconClose />
+					</button>
 				</div>
 				{#if aiLoading}
 					<div class="ai-loading-state">
@@ -669,11 +667,9 @@
 			>
 				<div class="editor-header">
 					<span class="editor-title">{editingDirectiveId === 'new' ? m.ui_taskssection_crea_nuova_direttiva_9717() : m.ui_taskssection_modifica_direttiva_dcc7()}</span>
-					<Tooltip text={m.common_cancel()}>
-						<button type="button" class="btn-icon-close" onclick={cancelEdit} aria-label={m.common_cancel()}>
-							<IconClose />
-						</button>
-					</Tooltip>
+					<button type="button" class="btn-icon-close" onclick={cancelEdit} aria-label={m.common_cancel()}>
+						<IconClose />
+					</button>
 				</div>
 
 				{#if aiMode === 'generating' || aiMode === 'refining'}
