@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -8,6 +8,7 @@ import {
 	loadProjectTasks,
 	saveProjectTasks,
 	composeTaskPrompt,
+	normalizeTaskOptions,
 	type ProjectTask,
 	type TaskDirectiveSnapshot
 } from '../extensions/studio-tasks.ts';
@@ -212,5 +213,66 @@ describe('Estensione studio-tasks: I/O atomico e gestione task', () => {
 		});
 
 		assert.equal(composed, '[Piano Personalizzato]\n\nMio task');
+	});
+	it('conserva i campi scritti da Studio (immagini, titolo, modello) quando l\'estensione riscrive la coda', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'omp-studio-tasks-preserve-'));
+		try {
+			ensureProjectOmpDir(dir);
+			const studioFile = {
+				version: 1,
+				tasks: [
+					{
+						id: 't-studio',
+						projectPath: dir,
+						prompt: 'Sistema il layout',
+						images: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }],
+						title: 'Layout',
+						titleHash: 'abc123',
+						position: 0,
+						createdAt: 1000,
+						updatedAt: 1000,
+						status: 'queued',
+						options: {
+							role: 'default',
+							modelSelector: 'ollama/qwen3:32b',
+							includeEditorContext: true,
+							thinkingLevel: 'high'
+						}
+					}
+				]
+			};
+			writeFileSync(join(dir, '.omp', 'tasks.json'), JSON.stringify(studioFile), 'utf8');
+
+			const loaded = loadProjectTasks(dir);
+			loaded.push({
+				id: 't-agent',
+				prompt: 'Task aggiunto dall\'agente',
+				position: 1,
+				status: 'queued',
+				createdAt: 2000,
+				updatedAt: 2000
+			});
+			saveProjectTasks(dir, loaded);
+
+			const saved = JSON.parse(readFileSync(join(dir, '.omp', 'tasks.json'), 'utf8'));
+			const original = saved.tasks.find((t: { id: string }) => t.id === 't-studio');
+			assert.deepEqual(original.images, studioFile.tasks[0].images);
+			assert.equal(original.title, 'Layout');
+			assert.equal(original.titleHash, 'abc123');
+			assert.equal(original.projectPath, dir);
+			assert.equal(original.options.modelSelector, 'ollama/qwen3:32b');
+			assert.equal(original.options.includeEditorContext, true);
+			assert.equal(original.options.thinkingLevel, 'high');
+			assert.equal(original.options.role, 'default');
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('le opzioni con soli campi di Studio non vengono scartate dalla normalizzazione', () => {
+		const normalized = normalizeTaskOptions({ modelSelector: 'anthropic/claude-x', includeEditorContext: false });
+		assert.equal(normalized?.modelSelector, 'anthropic/claude-x');
+		assert.equal(normalized?.includeEditorContext, false);
+		assert.equal(normalizeTaskOptions({ planMode: false }), undefined);
 	});
 });

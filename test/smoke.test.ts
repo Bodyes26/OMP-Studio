@@ -71,3 +71,5 @@ import './local-follow-up-queue.test.ts';
 import './tool-group-34.test.ts';
 import './todo-trace.test.ts';
 import './tooltip-behavior.test.ts';
+import './ask-stream.test.ts';
+import './companion-settings.test.ts';

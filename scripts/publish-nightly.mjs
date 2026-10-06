@@ -43,6 +43,7 @@ function parseArgs() {
 		dryRun: false,
 		skipBuild: false,
 		noCloud: false,
+		allowDirty: false,
 		help: false
 	};
 
@@ -56,6 +57,8 @@ function parseArgs() {
 			opts.skipBuild = true;
 		} else if (arg === '--no-cloud') {
 			opts.noCloud = true;
+		} else if (arg === '--allow-dirty') {
+			opts.allowDirty = true;
 		} else if (arg === '--build-id') {
 			opts.buildId = args[++i];
 		} else if (/^[1-9]\d*$/.test(arg)) {
@@ -79,6 +82,7 @@ Opzioni:
   --no-upload         Alias di --dry-run
   --skip-build        Salta la compilazione e usa l'installer piu' recente
   --no-cloud          Non avviare su GitHub la build degli altri sistemi operativi
+  --allow-dirty       Compila anche con modifiche non committate (solo con --dry-run)
   -h, --help          Mostra questo messaggio di aiuto
 `);
 }
@@ -93,11 +97,46 @@ function runCommand(cmd, args, options = {}) {
 	if (res.error) {
 		throw res.error;
 	}
+	// Ctrl+C arriva anche al figlio: il comando termina per segnale e lo
+	// script deve fermarsi qui, lasciando al finally il ripristino delle versioni.
+	if (res.signal || interrupted) {
+		throw new Error(`Interrotto (${res.signal || 'segnale'}) durante '${cmd}'`);
+	}
 	if (res.status !== 0 && !options.allowFailure) {
 		const formatted = [cmd, ...args].map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
 		throw new Error(`Comando '${formatted}' fallito con codice di uscita ${res.status}`);
 	}
 	return res;
+}
+
+// Con un gestore registrato Node non termina subito su Ctrl+C: lo script
+// esce dal passo in corso e il finally rimette i quattro file di versione
+// alla versione stabile. Senza, restavano sulla versione nightly.
+let interrupted = false;
+for (const signal of ['SIGINT', 'SIGTERM']) {
+	process.on(signal, () => {
+		if (interrupted) process.exit(130);
+		interrupted = true;
+		console.error(`\n${signal} ricevuto: interrompo e ripristino i file di versione...`);
+	});
+}
+
+// L'installer locale deve corrispondere al commit dichiarato in nightly.json,
+// che e' anche quello compilato in cloud per gli altri sistemi operativi.
+function assertCleanWorkingTree(opts) {
+	const res = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' });
+	if (res.error || res.status !== 0) {
+		throw new Error('Impossibile leggere lo stato git del working tree');
+	}
+	const dirty = res.stdout.trim();
+	if (!dirty) return;
+	if (opts.allowDirty && opts.dryRun) {
+		console.warn('Attenzione: working tree con modifiche non committate (--allow-dirty).');
+		return;
+	}
+	throw new Error(
+		`Il working tree contiene modifiche non committate: committale prima della Nightly.\n${dirty}`
+	);
 }
 
 function getCommitSha() {
@@ -234,6 +273,7 @@ async function main() {
 		return;
 	}
 
+	assertCleanWorkingTree(opts);
 	const commitSha = getCommitSha();
 	const platform = getPlatformConfig();
 	const buildId = normalizeBuildId(opts.buildId);

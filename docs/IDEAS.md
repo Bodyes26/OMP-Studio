@@ -240,6 +240,35 @@ fuori dal repo. Resta aperto il vero difetto, che è a monte e non nostro:
 
 ---
 
+## Rimandate dalla revisione della 1.7.0 — 2026-10-06
+
+### Terminale disegnato dalla scheda video (WebGL)
+Problema reale che risolve: con output molto lunghi (build, log) il renderer DOM
+attuale consuma CPU e scorre meno fluido. xterm 6 ha rimosso il renderer canvas:
+oggi si usa il DOM. `@xterm/addon-webgl` va provato con le legature dei font, con
+la perdita del contesto grafico (driver, desktop remoto) e con ripiego sul DOM.
+Costo stimato: mezza giornata più prove su Windows e macOS.
+Dipende da: niente.
+
+### Token GitHub nel portachiavi di sistema
+Problema reale che risolve: oggi il PAT sta in `~/.omp/agent/github.json` (permessi
+0600 su macOS/Linux, profilo utente su Windows). Il portachiavi (Credential Manager,
+Keychain, Secret Service, crate `keyring`) lo toglie dal disco in chiaro.
+Costo stimato: 1 giorno, con migrazione del file esistente.
+Dipende da: niente.
+
+### Promozione di una Release Candidate a stabile senza ricompilare
+Problema reale che risolve: pubblicare esattamente gli installer provati come RC.
+Oggi non è fattibile: il passaggio RC → stabile cambia i quattro file di versione,
+quindi il commit non coincide mai con quello della RC; `release.mjs` chiude
+`[Unreleased]` dentro la RC e `latestVersion()` ignora le versioni `-rc`;
+`nightly-version.mjs` rifiuta una versione RC in `package.json`. Serve un disegno
+(per esempio: versione stabile già nei file, suffisso RC solo nel nome degli asset).
+Costo stimato: 1-2 giorni.
+Dipende da: niente.
+
+---
+
 ## Scartate, con la ragione
 
 Servono a non ridiscuterle fra un mese.

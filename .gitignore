@@ -29,3 +29,10 @@ detect_*.stderr.txt
 # prototipi e revisioni del Laboratorio: archivio locale di Studio, non si pubblica
 /lab
 /proto
+
+# Staging locale di scripts/publish-nightly.mjs
+/staging-nightly/
+
+# Il progetto usa bun (bun.lock): un package-lock.json generato per errore da npm
+# andrebbe fuori sincrono e non viene usato da CI e build.
+/package-lock.json

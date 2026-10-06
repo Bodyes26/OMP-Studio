@@ -249,11 +249,14 @@ Comandi da eseguire:
   { echo v${version}; echo; node scripts/release.mjs --notes; } > .release-notes.md
   git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json CHANGELOG.md CHANGELOG.en.md
   git commit -m "release: v${version}"
-  git tag -a v${version} -F .release-notes.md
+  git tag -a v${version} --cleanup=verbatim -F .release-notes.md
   git push --follow-tags
 
 Il push del tag avvia .github/workflows/release.yml: la release viene pubblicata
-solo dopo la compilazione dell'installer Windows x64 e del DMG universale macOS.`);
+solo dopo la compilazione di tutti gli installer (Windows x64 .exe, macOS .dmg,
+Linux .deb e .AppImage).
+--cleanup=verbatim e' necessario: senza, git toglie dal messaggio del tag le
+righe che iniziano con '#', cioe' tutti i titoli delle note.`);
 }
 
 const isDirectExecution =

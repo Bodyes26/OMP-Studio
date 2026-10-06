@@ -1,20 +1,16 @@
 #!/usr/bin/env node
 /**
  * Runner degli smoke test per OMP Studio.
- * Verifica in modo rapido e deterministico:
- * 1. Normalizzazione dei percorsi di progetto (Windows e POSIX)
- * 2. Validazione, parsing e serializzazione dello store tasks.json
- * 3. Protocollo wire OMP (frame RPC, streaming, deltas, comandi slash)
- * 4. Contratti del Laboratorio prototipi (involucro eventi, revisioni, renderer)
- * 5. Persistenza dei prototipi (proto/<id>, archivio bozze, scritture atomiche)
- * 6. Confinamento Laboratorio (allowlist tool, percorsi reali e protezione symlink)
- * 7. Concorrenza principale e Laboratorio (eventi, input e abort separati)
- * 8. Catalogo dipendenze e compiler Laboratorio (bundle fidato, VFS chiuso, worker)
- * 9. Renderer Chromium gestito e policy di rete (Chromium versionato, loopback CDP, recupero)
- * 10. Strumenti visuali Laboratorio (selezione elementi, annotazioni, viewport, rifiuto riferimenti obsoleti)
+ * Esegue con Node (strip-types) l'aggregatore test/smoke.test.ts, che importa
+ * tutti i file test/*.test.ts: percorsi Windows/POSIX, store dei task, protocollo
+ * wire omp, chat (ask, reveal, strumenti), corsie (store, routing, integrazione,
+ * processi), Laboratorio, updater e i contratti dei comandi nativi.
+ * Prima dell'esecuzione verifica che nessun file di test sia rimasto fuori
+ * dall'aggregatore.
  */
 
 import { spawn } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -22,6 +18,18 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TEST_FILE = join(ROOT, 'test', 'smoke.test.ts');
 // L'alias `$lib` dei moduli localizzati non esiste per Node: va registrato prima dei test.
 const ALIAS_REGISTER = pathToFileURL(join(ROOT, 'test', 'register-alias.mjs')).href;
+
+// Ogni file di test va importato dall'aggregatore: un test dimenticato non
+// gira mai, nemmeno nel gate, e da' una falsa sensazione di copertura.
+const aggregator = readFileSync(TEST_FILE, 'utf8');
+const orphanTests = readdirSync(join(ROOT, 'test'))
+	.filter((name) => name.endsWith('.test.ts') && name !== 'smoke.test.ts')
+	.filter((name) => !aggregator.includes(`'./${name}'`));
+if (orphanTests.length > 0) {
+	console.error('[FAIL] File di test non importati da test/smoke.test.ts:');
+	for (const name of orphanTests) console.error(`  - test/${name}`);
+	process.exit(1);
+}
 
 console.log('=== OMP Studio Smoke Tests ===\n');
 

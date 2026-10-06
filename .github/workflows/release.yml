@@ -306,15 +306,20 @@ jobs:
             fi
           done
 
-          # 1. Tenta di estrarre le note dall'annotazione del git tag
-          TAG_ANNOTATION=$(git tag -l --format='%(contents)' "$RELEASE_TAG" 2>/dev/null || true)
-          if [ -n "$(echo "$TAG_ANNOTATION" | tr -d '[:space:]')" ]; then
-            echo "$TAG_ANNOTATION" > release-notes.md
-          # 2. Fallback su CHANGELOG.md tramite scripts/release.mjs --notes
-          elif node scripts/release.mjs --notes "$TAG_VERSION" > release-notes.md 2>/dev/null; then
+          # 1. Note dal changelog bilingue: conservano i titoli (## Italiano,
+          #    ### Added...). L'annotazione del tag li perde se il tag e' stato
+          #    creato senza --cleanup=verbatim (git scarta le righe con '#').
+          if node scripts/release.mjs --notes "$TAG_VERSION" > release-notes.md 2>/dev/null \
+            && [ -n "$(tr -d '[:space:]' < release-notes.md)" ]; then
             :
+          # 2. Fallback sull'annotazione del git tag
           else
-            echo "Release $RELEASE_TAG" > release-notes.md
+            TAG_ANNOTATION=$(git tag -l --format='%(contents)' "$RELEASE_TAG" 2>/dev/null || true)
+            if [ -n "$(echo "$TAG_ANNOTATION" | tr -d '[:space:]')" ]; then
+              echo "$TAG_ANNOTATION" > release-notes.md
+            else
+              echo "Release $RELEASE_TAG" > release-notes.md
+            fi
           fi
 
           # Rigenera la tabella dei checksum SHA256 dei soli file regolari pubblicati (escludendo SHA256SUMS.txt)

@@ -33,6 +33,9 @@ export interface TaskOptions {
 	minimalMode?: boolean;
 	researchMode?: boolean;
 	prewalk?: boolean;
+	// Campi scritti da Studio (modello, contesto editor, ...) che l'estensione
+	// non interpreta ma deve conservare: tasks.json e' condiviso con la GUI.
+	[extra: string]: unknown;
 }
 
 export interface ProjectTask {
@@ -43,6 +46,8 @@ export interface ProjectTask {
 	createdAt: number;
 	updatedAt: number;
 	options?: TaskOptions;
+	// Campi di Studio (immagini, titolo generato, ...): conservati cosi' come sono.
+	[extra: string]: unknown;
 }
 
 export interface ProjectTaskPayload {
@@ -101,10 +106,26 @@ export const FACTORY_DIRECTIVES: readonly TaskDirectiveSnapshot[] = [
  * Normalizza le opzioni di un task migrando i campi booleani legacy in snapshot di direttive.
  * Garantisce una singola fonte di verità deterministica per le direttive attive.
  */
+// Chiavi che normalizeTaskOptions ricostruisce: tutte le altre passano intatte.
+const NORMALIZED_OPTION_KEYS = new Set([
+	"role",
+	"thinkingLevel",
+	"directives",
+	"prewalk",
+	"planMode",
+	"discussionMode",
+	"minimalMode",
+	"researchMode"
+]);
+
 export function normalizeTaskOptions(options?: TaskOptions): TaskOptions | undefined {
 	if (!options || typeof options !== "object") return undefined;
 
 	const rawOptions = options as Record<string, unknown>;
+	const extra: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(rawOptions)) {
+		if (!NORMALIZED_OPTION_KEYS.has(key) && value !== undefined) extra[key] = value;
+	}
 	const directives: TaskDirectiveSnapshot[] = Array.isArray(rawOptions.directives)
 		? (rawOptions.directives
 				.filter(
@@ -161,11 +182,12 @@ export function normalizeTaskOptions(options?: TaskOptions): TaskOptions | undef
 
 	const prewalk = rawOptions.prewalk === true ? true : undefined;
 
-	if (!role && !thinkingLevel && directives.length === 0 && !prewalk) {
+	if (!role && !thinkingLevel && directives.length === 0 && !prewalk && Object.keys(extra).length === 0) {
 		return undefined;
 	}
 
 	return {
+		...extra,
 		role,
 		thinkingLevel,
 		directives: directives.length > 0 ? directives : undefined,
@@ -273,7 +295,10 @@ export function loadProjectTasks(cwd: string): ProjectTask[] {
 					typeof cand.position === "number"
 				);
 			})
+			// Il record grezzo resta la base: immagini, titolo e opzioni scritte da
+			// Studio non devono sparire quando l'agente riscrive la coda.
 			.map((t, idx) => ({
+				...t,
 				id: t.id,
 				prompt: t.prompt,
 				position: typeof t.position === "number" ? t.position : idx,
@@ -877,6 +902,7 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 								: task.options?.prewalk === true;
 
 						task.options = normalizeTaskOptions({
+							...task.options,
 							role: params.role !== undefined ? params.role : task.options?.role,
 							thinkingLevel: params.thinkingLevel !== undefined ? params.thinkingLevel : task.options?.thinkingLevel,
 							directives: existingDirectives,

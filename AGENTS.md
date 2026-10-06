@@ -189,7 +189,7 @@ npm run release -- 0.2.0
 git status --short
 git add -A
 git commit -m "release: v0.2.0"
-git tag -a v0.2.0 -F .release-notes.md
+git tag -a v0.2.0 --cleanup=verbatim -F .release-notes.md
 git push --follow-tags
 ```
 
@@ -199,28 +199,16 @@ git push --follow-tags
 - DMG universale (`aarch64` + `x86_64`) per macOS;
 - `.deb` e `.AppImage` per Linux x64.
 
-### Promozione da Release Candidate (RC) a Stabile
-
-Per evitare discrepanze tra codice testato e codice pubblicato, se esiste una Release
-Candidate (es. `v1.2.0-rc.1`), il workflow `release.yml` supporta la promozione diretta
-degli installer compilati e firmati:
-
-1. **Verifica di consistenza commit**: il job `resolve` controlla che il commit del
-   tag stabile coincida esattamente con il commit della candidate. Se divergono,
-   il workflow fallisce bloccando il rilascio.
-2. **Riutilizzo artefatti**: con commit coincidente, gli installer (`.exe`, `.dmg`, `.deb` e `.AppImage`)
-   vengono scaricati dalla candidate, rinominati alla versione stabile e verificati
-   con generazione di `SHA256SUMS.txt`, senza rischiare ricompilazioni disallineate.
-3. In assenza di candidate (o con `force_rebuild: true`), il workflow compila normalmente.
-
-La release GitHub viene creata solo quando gli installer di tutte le piattaforme supportate sono pronti (compilati o
-promossi). L'agente attende il workflow e controlla con `gh release view v0.2.0 --json assets,url`
+La release GitHub viene creata solo quando gli installer di tutte le piattaforme supportate sono pronti. L'agente attende il workflow e controlla con `gh release view v0.2.0 --json assets,url`
 che gli installer siano presenti.
 Per riparare una release già esistente, avvia manualmente lo stesso workflow indicando il tag:
-il job ricompila o ri-promuove e carica gli asset con `--clobber`.
+il job ricompila e carica gli asset con `--clobber`.
 Le note si estraggono con `node scripts/release.mjs --notes`, **non** con
 `npm run release -- --notes`: npm aggiunge il proprio banner allo stdout e finirebbe
-dentro il messaggio del tag.
+dentro il messaggio del tag. Il tag va creato con `--cleanup=verbatim`: senza, git
+toglie le righe che iniziano con `#`, cioè tutti i titoli delle note (`## Italiano`,
+`### Added`…). Il workflow prende comunque le note dal changelog e usa il messaggio
+del tag solo come ripiego.
 Le voci di changelog sono **rivolte all'utente finale**: cosa cambia per chi usa
 l'app, non quali file sono stati toccati. Una riga per cambiamento,
 all'imperativo/indicativo presente, in italiano in `CHANGELOG.md` e in inglese in
