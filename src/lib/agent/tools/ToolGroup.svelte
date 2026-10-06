@@ -96,7 +96,7 @@
 		const currTool = curr as ToolEntry;
 		const prevTool = prev as ToolEntry;
 
-		// 1. Flag esplicito da argomenti o proprietà (es. mock/bench/scenari)
+		// 1. Flag esplicito da argomenti o proprietà (usato dai test con eventi sintetici)
 		const currArgs = currTool.args as Record<string, unknown> | undefined;
 		if (currArgs?._par === true || (currTool as unknown as { par?: boolean }).par === true) {
 			return true;
