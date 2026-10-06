@@ -29,9 +29,10 @@ progetto e ha priorità su qualsiasi altra istruzione.
   `DECISIONS.md`, `SHORTCUTS.md`.
 - `ricerca/`: appunti di ricerca, documentazione di indagini e script di lavoro.
   **Non versionata** (`.gitignore`): resta in locale e non finisce nel repo pubblico.
-- `assets/`: **sorgenti** degli asset, non spediti nell'app. `app-icon.png` e
-  `app-icon-dark.png` sono gli originali da cui si generano le icone;
-  `logo-topbar.svg` è il vettoriale originale del logo.
+- `assets/`: **sorgenti** degli asset, non spediti nell'app. `assets/logo/` contiene
+  i vettoriali del pi greco squadrato (`pi-on-dark`/`pi-on-light` per Windows,
+  `tile-dark`/`tile-light` per macOS, `mono` per la topbar) e le PNG del README.
+  Sono **generati**: il disegno vive in `scripts/generate-logo.mjs`.
 - `static/`: solo asset **spediti** nell'app, alla dimensione in cui servono.
   Niente originali qui: `static/` finisce dentro il bundle.
 
@@ -39,13 +40,18 @@ progetto e ha priorità su qualsiasi altra istruzione.
 
 - Prima di aggiungere un'immagine a `static/`, guarda a quale dimensione viene
   mostrata e generala a quella dimensione (con un margine 3x per il DPI scaling).
-  Il logo della barra superiore si mostra a 22–28px: `static/logo-topbar.png` è un
-  raster 96px da 3 KB, non l'SVG originale da 1,7 MB (356 tracciati, ~30.000
-  segmenti bézier, ognuno più piccolo di 1/2000 di pixel a quella dimensione).
-- Le icone dell'applicazione si rigenerano dall'originale con il comando npm:
-  `npm run tauri -- icon assets/app-icon.png`. Genera anche icone mobili iOS/Android che
-  questa app desktop non usa: tenere in `src-tauri/icons/` **solo** i file
-  elencati in `bundle.icon` di `tauri.conf.json` (inclusi `icon.ico` per Windows e `icon.icns` per macOS).
+  Il logo della barra superiore non è un'immagine: è `src/lib/ui/BrandMark.svelte`,
+  quattro rettangoli SVG in `currentColor` che seguono il tema.
+- Le icone dell'applicazione si rigenerano tutte con `npm run logo`
+  (`scripts/generate-logo.mjs`): sorgenti in `assets/logo/`, `icon.ico`, `icon.icns`,
+  PNG di `src-tauri/icons/`, icone di finestra in `src-tauri/icons/window/` e
+  `static/favicon.png`. **Non usare `npm run tauri -- icon`** per le icone: scala un solo
+  sorgente, mentre Windows (pi senza riquadro, ridisegnato sulla griglia dei pixel
+  sotto i 64px) e macOS/Linux (pi su riquadro arrotondato) hanno disegni diversi.
+- `bundle.icon` è diviso per piattaforma: `tauri.conf.json` elenca il set con riquadro
+  (macOS, Linux), `tauri.windows.conf.json` solo `icon.ico`. In `src-tauri/icons/`
+  stanno solo quei file più `window/`, le due PNG che `src-tauri/src/window_icon.rs`
+  alterna a runtime secondo il colore della taskbar di Windows.
 
 ## 1. Ogni modifica va controllata con git
 
@@ -246,7 +252,7 @@ Tutti i comandi bash devono rispettare l'ambiente Windows della workstation (usa
   `cargo test --manifest-path src-tauri/Cargo.toml` per i test unitari.
   **Non eseguire `cargo fmt --check` globale**: il workspace `src-tauri` contiene file preesistenti con stili disallineati; eseguire rustfmt solo sui file specifici modificati.
 - **Tauri CLI e divieto di seconda istanza**:
-  Usare lo script npm delegato: `npm run tauri -- <comando>` (es. `npm run tauri -- icon assets/app-icon.png`, `npm run tauri -- build`). Non usare `npx tauri` (fallisce in ambiente Windows/Bun).
+  Usare lo script npm delegato: `npm run tauri -- <comando>` (es. `npm run tauri -- build`). Non usare `npx tauri` (fallisce in ambiente Windows/Bun).
   **MAI lanciare `npm run tauri -- dev`, `cargo run` o eseguire `omp-studio-app.exe`**: Studio è l'applicazione in cui l'utente sta già lavorando; avviare una seconda istanza innesca il controllo nativo `single_instance` e ruba il focus del sistema operativo mentre l'utente sta scrivendo altrove (Chrome, editor, Word, ecc.). Per verificare le modifiche usare esclusivamente `npm test`, `npm run check`, `cargo test`, o al più Vite nel browser (`npm run dev`), mai il binario desktop completo.
 - **File locking Windows**:
   Non tentare di eliminare o sovrascrivere file `.exe` o artefatti di build mentre l'applicazione OMP Studio o altri processi correlati sono in esecuzione.

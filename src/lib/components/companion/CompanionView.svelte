@@ -9,7 +9,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '$lib/stores/modelSettings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEMES, anchorsFor, automaticProjectHue } from '$lib/theme';
+	import { THEMES, automaticProjectHue } from '$lib/theme';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	import { rankFrequentTaskModels } from '$lib/stores/taskSerialization';
@@ -71,7 +71,6 @@
 		};
 	});
 
-	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 	const attentionList = $derived(companionStore.attentionRequests);
 	const knownProjects = $derived(
 		companionStore.projects.length > 0 ? companionStore.projects : projectStore.projects
@@ -622,7 +621,6 @@
 
 <CompanionShell
 	isPinned={companionStore.isPinned}
-	{isLightTheme}
 	attentionCount={attentionList.length}
 	{justOpened}
 	{leaving}

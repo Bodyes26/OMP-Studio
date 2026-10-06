@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="assets/app-icon.png" alt="OMP Studio Logo" width="96" height="96" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/readme-pi-on-dark.png" />
+  <img src="assets/logo/readme-pi-on-light.png" alt="OMP Studio Logo" width="96" height="96" />
+</picture>
 
 # OMP Studio
 

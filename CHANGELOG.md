@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Changed
+- Nuovo logo: il pi greco squadrato di omp. Su Windows l'icona è il solo pi, con le gambe scure sull'eseguibile e in Esplora risorse; finestra e barra delle applicazioni passano alle gambe bianche quando la barra è scura. Su macOS e Linux il pi sta su un riquadro arrotondato scuro. Il logo nella barra superiore e nella Companion è monocolore e segue il tema.
 - Lo slider del thinking (composer, Task Editor, Ruoli) mostra solo i livelli che il modello scelto accetta: se il modello non ha «max» il passo sparisce e gli altri si ridistribuiscono sulla traccia. Un livello salvato che il modello non accetta compare sul livello a cui omp lo riporta. Anche il ciclo rapido del thinking salta i livelli non accettati.
 - La finestra di contesto del composer mostra la stessa ripartizione di `/context`: prompt di sistema, strumenti, contesto di sistema, skill, messaggi, riserva di compattazione e spazio libero. Il messaggio che stai scrivendo resta una stima a parte; finché omp non risponde, resta visibile solo il totale.
 - Allinea Quota all'altezza di Impostazioni, Companion e Coda nella barra superiore e usa icone Windows più leggibili, con tratto più spesso e forme arrotondate, mantenendo invariate le aree cliccabili.

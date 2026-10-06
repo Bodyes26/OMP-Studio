@@ -5,11 +5,11 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { IconClose, IconPin } from '$lib/icons';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import BrandMark from '$lib/ui/BrandMark.svelte';
 	import type { Snippet } from 'svelte';
 
 	let {
 		isPinned,
-		isLightTheme,
 		attentionCount,
 		justOpened = false,
 		leaving = false,
@@ -19,7 +19,6 @@
 		children
 	} = $props<{
 		isPinned: boolean;
-		isLightTheme: boolean;
 		attentionCount: number;
 		justOpened?: boolean;
 		/** Uscita breve in corso, prima che Rust nasconda la finestra. */
@@ -57,12 +56,7 @@
 	{#if isPinned}
 		<header class="companion-header" data-tauri-drag-region="deep">
 			<div class="header-left" data-tauri-drag-region="deep">
-				<img
-					src={isLightTheme ? '/logo-topbar-light.png' : '/logo-topbar.png'}
-					alt="OMP Studio"
-					class="brand-logo-img"
-					draggable="false"
-				/>
+				<BrandMark class="brand-logo-img" />
 				{#if attentionCount > 0}
 					<span class="attention-counter">
 						<span class="attention-dot" aria-hidden="true"></span>
