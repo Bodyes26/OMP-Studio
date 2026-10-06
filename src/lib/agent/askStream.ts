@@ -286,3 +286,77 @@ export function streamToAskQuestions(streamQuestions: StreamQuestion[]): AskQues
 		}))
 	}));
 }
+
+/** Chiamata di tool come la descrive omp nei `toolcall_*`, quando la porta. */
+export interface StreamToolCallRef {
+	id?: string;
+	name?: string;
+	arguments?: unknown;
+}
+
+export interface StreamAskSnapshot {
+	toolCallId: string | null;
+	state: StreamAskState;
+}
+
+/**
+ * Accumulatore dell'anteprima di `ask` in streaming. I delta arrivano in due
+ * forme: `message_update/toolcall_delta` (con la chiamata in `partial`) e i
+ * `studio_delta` di tipo `toolcall` che il backend Rust ricompone senza
+ * nome del tool. Il legame con `ask` lo da' l'indice aperto da
+ * `toolcall_start`: un'altra chiamata sullo stesso indice lo chiude.
+ */
+export class AskStreamTracker {
+	#raw = '';
+	#index: number | null = null;
+	current: StreamAskSnapshot | null = null;
+
+	/** Vero se l'anteprima e' cambiata. */
+	start(index: number, call: StreamToolCallRef | undefined): boolean {
+		if (call?.name !== 'ask') {
+			// Un'altra chiamata riusa l'indice (ogni messaggio riparte da 0):
+			// i suoi delta non sono argomenti di `ask`.
+			if (this.#index === index) {
+				this.#index = null;
+				this.#raw = '';
+			}
+			return false;
+		}
+		this.#raw = '';
+		this.#index = index;
+		this.current = { toolCallId: call.id ?? null, state: { questions: [], complete: false } };
+		return true;
+	}
+
+	delta(index: number, delta: string, call?: StreamToolCallRef): boolean {
+		if (call?.name !== undefined && call.name !== 'ask') return false;
+		if (this.#index !== index && call?.name !== 'ask') return false;
+		if (this.#index !== index) {
+			this.#raw = '';
+			this.#index = index;
+		}
+		this.#raw += delta;
+		this.current = {
+			toolCallId: call?.id ?? this.current?.toolCallId ?? null,
+			state: parsePartialAskStream(this.#raw)
+		};
+		return true;
+	}
+
+	end(index: number, call: StreamToolCallRef | undefined): boolean {
+		this.#raw = '';
+		if (call?.name !== 'ask') return false;
+		this.#index = index;
+		this.current = {
+			toolCallId: call.id ?? this.current?.toolCallId ?? null,
+			state: parsePartialAskStream(call.arguments)
+		};
+		return true;
+	}
+
+	reset(): void {
+		this.#raw = '';
+		this.#index = null;
+		this.current = null;
+	}
+}

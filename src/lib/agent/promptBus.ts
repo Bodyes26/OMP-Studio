@@ -4,12 +4,17 @@ import {
 	broadcastToWindows,
 	listenFromWindows,
 	windowBridgeAvailable,
-	PROMPT_BUS_EVENTS
+	PROMPT_BUS_EVENTS,
+	windowLabel
 } from '$lib/stores/windowBridge.ts';
 
 export type PromptMethod = 'select' | 'confirm' | 'input' | 'editor';
 
-export type PromptStatus = 'pending' | 'resolved' | 'cancelled';
+/**
+ * `expired`: richiesta persistita da un'esecuzione precedente. Il processo omp
+ * che l'aveva aperta non esiste piu', quindi nessuno puo' riceverne la risposta.
+ */
+export type PromptStatus = 'pending' | 'resolved' | 'cancelled' | 'expired';
 
 export interface PromptOptionDetail {
 	description?: string;
@@ -27,6 +32,8 @@ export interface PromptRequestPayload {
 	laneId?: string | null;
 	sessionId?: string | null;
 	toolCallId?: string | null;
+	/** Processo omp che ha aperto la richiesta (id RPC): solo lui puo' riceverne la risposta. */
+	owner?: string | null;
 	kind?: string;
 	method?: PromptMethod;
 	title: string;
@@ -49,6 +56,7 @@ export interface PromptRequest {
 	readonly laneId?: string | null;
 	readonly sessionId?: string | null;
 	readonly toolCallId?: string | null;
+	readonly owner?: string | null;
 	readonly kind: string;
 	readonly method: PromptMethod;
 	readonly title: string;
@@ -82,6 +90,14 @@ export interface PromptBusOptions {
 	broadcast?: <T>(event: string, payload: T) => Promise<void>;
 	listen?: <T>(event: string, handler: (payload: T) => void) => Promise<(() => void) | null>;
 	autoInit?: boolean;
+	/**
+	 * Le voci pendenti trovate nello storage all'avvio diventano `expired`.
+	 * Vale per la finestra principale: all'avvio nessun processo omp nuovo puo'
+	 * avere richieste aperte prima di emetterle, quindi quelle persistite sono
+	 * fantasmi dell'esecuzione precedente. La Companion non lo fa: si apre
+	 * mentre la principale e' viva e le sue pendenti sono vere.
+	 */
+	expireRestored?: boolean;
 }
 
 const DEFAULT_STORAGE_KEY = 'omp-studio-pending-prompts';
@@ -137,6 +153,7 @@ export class PromptBus {
 
 		// Ripristino sincrono immediato dallo storage
 		this.restoreFromStorage();
+		if (options?.expireRestored) this.expireRestored();
 
 		if (options?.autoInit !== false && typeof window !== 'undefined') {
 			void this.init();
@@ -268,6 +285,7 @@ export class PromptBus {
 			laneId: payload.laneId ?? null,
 			sessionId: payload.sessionId ?? null,
 			toolCallId: payload.toolCallId ?? null,
+			owner: payload.owner ?? null,
 			kind: payload.kind ?? 'ask',
 			method: payload.method ?? 'select',
 			title: payload.title,
@@ -475,6 +493,26 @@ export class PromptBus {
 	}
 
 	/**
+	 * Marca `expired` le pendenti ripristinate dallo storage e lo annuncia alle
+	 * altre finestre, che le hanno lette dallo stesso storage.
+	 */
+	private expireRestored(): void {
+		const expired: string[] = [];
+		for (const req of this.requests.values()) {
+			if (req.status !== 'pending') continue;
+			req.status = 'expired';
+			req.resolvedAt = Date.now();
+			expired.push(req.requestId);
+		}
+		if (expired.length === 0) return;
+		this.saveToStorage();
+		for (const requestId of expired) {
+			void this.broadcastFn(PROMPT_BUS_EVENTS.CANCELLED, { requestId }).catch(() => {});
+		}
+		this.notifySubscribers();
+	}
+
+	/**
 	 * Sottoscrizione alle modifiche delle richieste pendenti.
 	 * Compatibile con il contratto Store di Svelte.
 	 */
@@ -667,5 +705,25 @@ export class PromptBus {
 	}
 }
 
+/**
+ * Una risposta arrivata dal bus (Companion, altra superficie) puo' riaprire
+ * la richiesta nella sessione solo se e' ancora aperta e appartiene davvero a
+ * lei. Senza questi controlli un `cancel` partito dalla sessione stessa
+ * tornava indietro dal bus, riapriva la domanda appena chiusa e la
+ * rispediva a omp come eco; e una voce di un'altra chat della stessa corsia
+ * prendeva il posto della domanda viva.
+ */
+export function canRestorePrompt(
+	stored: Pick<PromptRequest, 'status' | 'projectId' | 'laneId' | 'sessionId' | 'requestId'>,
+	session: { projectKey: string; laneId: string | null; sessionId: string | null; livePendingId: string | null }
+): boolean {
+	if (stored.status !== 'pending') return false;
+	if (stored.projectId.trim().toLowerCase() !== session.projectKey.trim().toLowerCase()) return false;
+	if ((stored.laneId ?? 'main').toLowerCase() !== (session.laneId ?? 'main').toLowerCase()) return false;
+	if (stored.sessionId && session.sessionId && stored.sessionId !== session.sessionId) return false;
+	if (session.livePendingId !== null && session.livePendingId !== stored.requestId) return false;
+	return true;
+}
+
 /** Istanza globale condivisa di PromptBus per il runtime corrente */
-export const promptBus = new PromptBus();
+export const promptBus = new PromptBus({ expireRestored: windowLabel === 'main' });

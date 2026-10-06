@@ -20,7 +20,7 @@ import {
 	isProjectCycleShortcut,
 	type KeyboardEventLike
 } from '../src/lib/shortcuts/shortcutMatch.ts';
-import { shouldAutoFocusAskCard, isTypingSurface } from '../src/lib/agent/askFocus.ts';
+import { askConfirmKeyAction, isImeComposing, shouldAutoFocusAskCard, isTypingSurface } from '../src/lib/agent/askFocus.ts';
 
 function makeMockEntries(count: number): Array<{ id: number; text: string }> {
 	const result = new Array(count);
@@ -734,5 +734,22 @@ describe('Raggruppamento tool ed esecuzione nella timeline (Transcript grouping)
 		assert.equal(entries[0].usage, undefined);
 		assert.equal(entries[2].usage, undefined);
 		assert.deepEqual(entries[4].usage, { cost: { total: 0.05 } });
+	});
+});
+
+describe('AskCard e composer: tasti', () => {
+	it('Invio con il fuoco su «No» lascia agire il pulsante invece di confermare', () => {
+		assert.equal(askConfirmKeyAction('Enter', true), 'native');
+		assert.equal(askConfirmKeyAction(' ', true), 'native');
+		assert.equal(askConfirmKeyAction('Enter', false), 'yes');
+		assert.equal(askConfirmKeyAction('Escape', true), 'escape');
+		assert.equal(askConfirmKeyAction('a', false), 'ignore');
+	});
+
+	it('la composizione IME blocca Invio anche quando isComposing e\' gia\' falso (keyCode 229)', () => {
+		assert.equal(isImeComposing({ isComposing: true, keyCode: 13 }), true);
+		assert.equal(isImeComposing({ isComposing: false, keyCode: 229 }), true);
+		assert.equal(isImeComposing({ isComposing: false, keyCode: 13 }, true), true);
+		assert.equal(isImeComposing({ isComposing: false, keyCode: 13 }), false);
 	});
 });

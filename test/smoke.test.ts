@@ -69,6 +69,7 @@ import './reveal.test.ts';
 import './tool-categories.test.ts';
 import './local-follow-up-queue.test.ts';
 import './composer-submit.test.ts';
+import './ask-stream.test.ts';
 import './tool-group-34.test.ts';
 import './todo-trace.test.ts';
 import './tooltip-behavior.test.ts';

@@ -1946,6 +1946,8 @@
   "chat_v2_composer_vision_warning": "{model} non legge immagini e video: verranno ignorati.",
   "chat_v2_composer_change_model": "Cambia modello",
   "chat_v2_composer_drop_overlay": "Rilascia per allegare immagini, video o file",
+  "chat_v2_composer_editor_aria": "Messaggio per l'agente",
+  "chat_v2_ask_question_n": "Domanda {n}",
   "chat_v2_composer_attachments_block": "Allegati:",
   "chat_v2_composer_prompt_rejected": "Prompt non accettato: {error}",
   "chat_v2_composer_stop_armed_announce": "L'agente non si è fermato: premi di nuovo Stop per forzare l'arresto",

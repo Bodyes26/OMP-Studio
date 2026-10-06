@@ -37,6 +37,18 @@ export function findSlashCommand(raw: string, catalog: readonly AvailableCommand
 }
 
 /**
+ * Cosa usare di un incolla. Il testo vince sui file: Word, Excel e Outlook
+ * mettono negli appunti anche un'immagine della selezione, e incollare un
+ * paragrafo diventava un allegato. I file contano solo senza testo
+ * (screenshot, file copiati da Esplora risorse o dal Finder).
+ */
+export function choosePasteContent(text: string, fileCount: number): 'text' | 'files' | 'none' {
+	if (text.trim().length > 0) return 'text';
+	if (fileCount > 0) return 'files';
+	return text.length > 0 ? 'text' : 'none';
+}
+
+/**
  * Allegati da togliere dal composer dopo un invio riuscito: solo quelli che
  * sono partiti. Uno aggiunto mentre la richiesta era in volo resta per il
  * messaggio successivo invece di sparire senza essere mai stato inviato.

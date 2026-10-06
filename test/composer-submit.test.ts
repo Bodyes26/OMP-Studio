@@ -5,7 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { STUDIO_SLASH_COMMANDS } from '../src/lib/agent/commands.ts';
-import { findSlashCommand, remainingAfterSend, routeComposerSubmit } from '../src/lib/agent/composerSubmit.ts';
+import { choosePasteContent, findSlashCommand, remainingAfterSend, routeComposerSubmit } from '../src/lib/agent/composerSubmit.ts';
 import { segmentsToWireText } from '../src/lib/agent/composerDoc.ts';
 
 describe('Composer: instradamento dei comandi /', () => {
@@ -42,6 +42,16 @@ describe('Composer: instradamento dei comandi /', () => {
 	it('un comando sconosciuto al catalogo resta candidato: decide il guscio, poi omp', () => {
 		assert.deepEqual(routeComposerSubmit('/estensione-x'), { kind: 'studio', raw: '/estensione-x' });
 		assert.equal(findSlashCommand('/estensione-x', STUDIO_SLASH_COMMANDS), null);
+	});
+});
+
+describe('Composer: incolla da Office', () => {
+	it('con testo negli appunti vince il testo anche se c\'e\' un\'immagine', () => {
+		assert.equal(choosePasteContent('Paragrafo da Word', 1), 'text');
+		assert.equal(choosePasteContent('', 1), 'files');
+		assert.equal(choosePasteContent('   ', 2), 'files');
+		assert.equal(choosePasteContent('', 0), 'none');
+		assert.equal(choosePasteContent('  ', 0), 'text');
 	});
 });
 

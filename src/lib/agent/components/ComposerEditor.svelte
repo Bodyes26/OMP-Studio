@@ -14,6 +14,9 @@
 		type ComposerTrigger,
 		type ComposerTriggerKind
 	} from '$lib/agent/composerDoc';
+	import { isImeComposing } from '$lib/agent/askFocus';
+	import { choosePasteContent } from '$lib/agent/composerSubmit';
+	import { m } from '$lib/paraglide/messages.js';
 
 	// Testo prima del caret che apre ciascuna palette: il carattere a inizio
 	// testo o dopo uno spazio, cosi' un / dentro un percorso o un # dentro una
@@ -27,7 +30,7 @@
 
 	let {
 		placeholder = '',
-		ariaLabel = "Messaggio per l'agente",
+		ariaLabel = m.chat_v2_composer_editor_aria(),
 		submitWithModifier = false,
 		disabled = false,
 		triggers = ['@', '/'],
@@ -227,31 +230,26 @@
 		const clipboard = e.clipboardData;
 		if (!clipboard) return;
 
-		// Se la clipboard contiene file (es. screenshot incollati, file trascinati)
-		if (clipboard.files && clipboard.files.length > 0) {
+		const text = clipboard.getData('text/plain') ?? '';
+		const content = choosePasteContent(text, clipboard.files?.length ?? 0);
+		if (content === 'files') {
 			onFilesPaste?.(clipboard.files);
-			return;
-		}
-
-		// Incollaggio testo semplice per preservare l'undo nativo
-		const text = clipboard.getData('text/plain');
-		if (text) {
+		} else if (content === 'text') {
+			// Incollaggio testo semplice per preservare l'undo nativo
 			document.execCommand('insertText', false, text);
 			sync();
 		}
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		// Composizione IME (CJK, tasti morti): i tasti appartengono all'IME,
+		// anche quelli che la palette o il genitore intercetterebbero (Invio
+		// sceglieva un suggerimento mentre si confermava un ideogramma).
+		if (isImeComposing(e, isComposing)) return;
+
 		// Se la palette o il parent ha gestito il tasto (es. frecce, invio scelta, Esc)
 		if (onKeydownFilter && onKeydownFilter(e)) {
 			return;
-		}
-
-		// Sicurezza IME composition: durante la digitazione CJK / accenti Enter non invia
-		if (isComposing || e.isComposing) {
-			if (e.key === 'Enter') {
-				return;
-			}
 		}
 
 		if (e.key === 'Enter') {

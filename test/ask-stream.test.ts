@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parsePartialAskStream, repairPartialJson, streamToAskQuestions } from '../src/lib/agent/askStream.ts';
+import { AskStreamTracker, parsePartialAskStream, repairPartialJson, streamToAskQuestions } from '../src/lib/agent/askStream.ts';
 import type { StreamAskState } from '../src/lib/agent/askStream.ts';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -147,5 +147,92 @@ describe('AskStream: parser tollerante per argomenti ask parziali', () => {
 
 		assert.ok(foundDelta, 'Dovrebbe aver trovato almeno un toolcall_delta nella fixture');
 		assert.ok(sawComplete, 'Dovrebbe aver completato il toolcall con successo');
+	});
+});
+
+describe('AskStreamTracker: anteprima da studio_delta di tipo toolcall', () => {
+	type Frame = {
+		type: string;
+		kind?: string;
+		contentIndex?: number;
+		delta?: string;
+		assistantMessageEvent?: {
+			type: string;
+			contentIndex?: number;
+			delta?: string;
+			toolCall?: { id?: string; name?: string; arguments?: unknown };
+			partial?: { content?: Array<{ id?: string; name?: string; arguments?: unknown }> };
+		};
+	};
+
+	/**
+	 * Riscrive i `toolcall_delta` come li spedisce src-tauri/src/rpc/mod.rs
+	 * (`{"type":"studio_delta","kind":"toolcall","contentIndex":n,"delta":...}`),
+	 * spezzati in pezzi piccoli come farebbe la finestra di accorpamento.
+	 */
+	function asBackendFrames(lines: string[], chunk = 24): Frame[] {
+		const out: Frame[] = [];
+		for (const line of lines) {
+			const frame = JSON.parse(line) as Frame;
+			const inner = frame.assistantMessageEvent;
+			if (frame.type === 'message_update' && inner?.type === 'toolcall_delta') {
+				const text = inner.delta ?? '';
+				for (let i = 0; i < text.length; i += chunk) {
+					out.push({
+						type: 'studio_delta',
+						kind: 'toolcall',
+						contentIndex: inner.contentIndex ?? 0,
+						delta: text.slice(i, i + chunk)
+					});
+				}
+				continue;
+			}
+			out.push(frame);
+		}
+		return out;
+	}
+
+	it('dai frame reali di ask-real.ndjson l\'anteprima riceve domande parziali prima della fine', () => {
+		const lines = readFileSync(join(ROOT, 'fixtures', 'chat-v2', 'ask-real.ndjson'), 'utf8')
+			.split('\n')
+			.filter((l) => l.trim().length > 0);
+		const tracker = new AskStreamTracker();
+		const counts: number[] = [];
+		let sawPartial = false;
+		let finalCount = 0;
+		for (const frame of asBackendFrames(lines)) {
+			const inner = frame.assistantMessageEvent;
+			if (frame.type === 'studio_delta' && frame.kind === 'toolcall') {
+				// Come AgentSession.applyDelta: nessun nome di tool nel frame.
+				if (tracker.delta(frame.contentIndex ?? 0, frame.delta ?? '')) {
+					const state = tracker.current!.state;
+					counts.push(state.questions.length);
+					if (state.questions.length > 0 && !state.complete) sawPartial = true;
+				}
+			} else if (frame.type === 'message_update' && inner?.type === 'toolcall_start') {
+				const index = inner.contentIndex ?? 0;
+				tracker.start(index, inner.toolCall ?? inner.partial?.content?.[index]);
+			} else if (frame.type === 'message_update' && inner?.type === 'toolcall_end') {
+				const index = inner.contentIndex ?? 0;
+				tracker.end(index, inner.toolCall ?? inner.partial?.content?.[index]);
+				finalCount = tracker.current?.state.questions.length ?? 0;
+			}
+		}
+		assert.ok(counts.length > 3, 'i delta del backend raggiungono l\'anteprima');
+		assert.ok(sawPartial, 'domande parziali visibili durante lo streaming');
+		assert.ok(counts.at(-1)! >= counts[0], 'le domande crescono con i delta');
+		assert.equal(finalCount, 2);
+		assert.equal(tracker.current?.toolCallId, 'call_817847');
+	});
+
+	it('i delta di un altro tool sullo stesso indice non entrano nell\'anteprima', () => {
+		const tracker = new AskStreamTracker();
+		assert.equal(tracker.start(0, { id: 'a', name: 'ask' }), true);
+		tracker.delta(0, '{"questions":[{"question":"Uno"');
+		tracker.end(0, { id: 'a', name: 'ask', arguments: { questions: [{ question: 'Uno', options: [] }] } });
+		// Messaggio successivo: `read` riparte dall'indice 0.
+		assert.equal(tracker.start(0, { id: 'b', name: 'read' }), false);
+		assert.equal(tracker.delta(0, '{"path":"a.ts"}'), false);
+		assert.equal(tracker.delta(1, '{"x":1}'), false);
 	});
 });

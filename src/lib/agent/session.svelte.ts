@@ -32,10 +32,10 @@ import {
 	type AskQuestion,
 	type PromptAnswer
 } from './askAnswers';
-import { parsePartialAskStream, streamToAskQuestions, type StreamAskState } from './askStream';
+import { AskStreamTracker, streamToAskQuestions, type StreamAskState } from './askStream';
 import { enqueueFollowUp, removeFollowUp, type LocalFollowUp } from './localFollowUpQueue';
 import { FollowUpDispatcher } from './followUpDispatcher';
-import { promptBus, type PromptRequest } from './promptBus';
+import { canRestorePrompt, promptBus, type PromptRequest } from './promptBus';
 import { laneSessionKey } from './sessionKeys';
 import { SessionSuggestions } from './suggestions.svelte';
 import { askQuestionText } from './askTitle';
@@ -515,8 +515,7 @@ export class AgentSession {
 	pendingUi = $state<PendingUiRequest | null>(null);
 	/** Solo anteprima: nessuna risposta parte finche' omp non emette extension_ui_request. */
 	streamAsk = $state<{ toolCallId: string | null; state: StreamAskState } | null>(null);
-	private streamAskRaw = '';
-	private streamAskIndex: number | null = null;
+	private readonly askTracker = new AskStreamTracker();
 	statusText = $state<string | null>(null);
 	seededPrompt = $state<SeededPrompt | null>(null);
 	startupPhase = $state<'idle' | 'starting' | 'ready'>('idle');
@@ -957,11 +956,15 @@ export class AgentSession {
 		}
 		if (!this.pendingUi) {
 			const projectPrompts = promptBus.getPendingsForProject(this.projectKey);
+				const owner = this.promptOwner();
 			const matching = projectPrompts.filter((p) => {
 				const targetLane = (this.laneId ?? 'main').toLowerCase();
 				const promptLane = (p.laneId ?? 'main').toLowerCase();
 				if (targetLane !== promptLane) return false;
 				if (this.sessionId && p.sessionId && this.sessionId !== p.sessionId) return false;
+				// Solo il processo che ha aperto la richiesta puo' riceverne la
+				// risposta: quella di un processo precedente e' un fantasma.
+				if (!owner || p.owner !== owner) return false;
 				return true;
 			});
 			if (matching.length === 1) {
@@ -1846,9 +1849,7 @@ export class AgentSession {
 					this.askFlush = null;
 				}
 				if (entry?.toolName === 'ask' && this.streamAsk?.toolCallId === event.toolCallId) {
-					this.streamAsk = null;
-					this.streamAskIndex = null;
-					this.streamAskRaw = '';
+					this.clearStreamAsk();
 				}
 				if (!this.isStreaming) {
 					const hasRunning = Array.from(this.toolEntries.values()).some((t) => t.running);
@@ -2198,8 +2199,11 @@ export class AgentSession {
 				this.isAttaching = false;
 				this.attachGeneration++;
 				this.attachEventQueue = [];
+				// Il processo che aspettava la risposta non c'e' piu': la voce sul
+				// bus va chiusa, o la Companion e il prossimo insediamento la
+				// riaprirebbero come domanda fantasma.
+				this.clearPendingUi();
 				this.agentState = 'idle';
-				this.pendingUi = null;
 
 				for (const entry of this.toolEntries.values()) {
 					if (entry.running) {
@@ -2530,8 +2534,7 @@ export class AgentSession {
 
 	private clearStreamAsk() {
 		this.streamAsk = null;
-		this.streamAskRaw = '';
-		this.streamAskIndex = null;
+		this.askTracker.reset();
 	}
 
 	private applyAskToolDelta(inner: NonNullable<AgentSessionEvent['assistantMessageEvent']>) {
@@ -2540,43 +2543,31 @@ export class AgentSession {
 			? inner.partial.content[index]
 			: undefined);
 		if (inner.type === 'toolcall_start') {
-			if (call?.name === 'ask') {
-				this.streamAskRaw = '';
-				this.streamAskIndex = index;
-				this.streamAsk = { toolCallId: call.id ?? null, state: { questions: [], complete: false } };
-			}
+			if (this.askTracker.start(index, call)) this.streamAsk = this.askTracker.current;
 			return;
 		}
 		if (inner.type === 'toolcall_end') {
-			if (call?.name === 'ask') {
-				this.streamAskIndex = index;
-				this.streamAsk = {
-					toolCallId: call.id ?? this.streamAsk?.toolCallId ?? null,
-					state: parsePartialAskStream(call.arguments)
-				};
-				if (call.arguments && call.id) this.enrichPendingAsk(call.id, call.arguments);
+			if (this.askTracker.end(index, call)) {
+				this.streamAsk = this.askTracker.current;
+				if (call?.arguments && call.id) this.enrichPendingAsk(call.id, call.arguments);
 			}
-			this.streamAskRaw = '';
 			return;
 		}
-		if (this.streamAskIndex !== index && call?.name !== 'ask') return;
-		if (this.streamAskIndex !== index) {
-			this.streamAskRaw = '';
-			this.streamAskIndex = index;
-		}
-		this.streamAskRaw += inner.delta ?? '';
-		this.streamAsk = {
-			toolCallId: call?.id ?? this.streamAsk?.toolCallId ?? null,
-			state: parsePartialAskStream(this.streamAskRaw)
-		};
+		if (this.askTracker.delta(index, inner.delta ?? '', call)) this.streamAsk = this.askTracker.current;
 	}
 
 	private applyDelta(event: AgentSessionEvent) {
 		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
 		const kind = event.kind ?? 'text';
-		if (kind !== 'text' && kind !== 'thinking') return;
 		const delta = typeof event.delta === 'string' ? event.delta : '';
 		const index = typeof event.contentIndex === 'number' ? event.contentIndex : 0;
+		// Il backend ricompone anche i `toolcall_delta` in `studio_delta`: senza
+		// questo ramo l'anteprima di `ask` restava vuota fino a `toolcall_end`.
+		if (kind === 'toolcall') {
+			if (this.askTracker.delta(index, delta)) this.streamAsk = this.askTracker.current;
+			return;
+		}
+		if (kind !== 'text' && kind !== 'thinking') return;
 		this.deltaBatcher.push(kind, index, delta);
 	}
 
@@ -2659,7 +2650,8 @@ export class AgentSession {
 			if (!target || this.pendingUi?.requestId === target) {
 				const cancelId = target ?? this.pendingUi?.requestId;
 				if (cancelId && promptBus.hasPending(cancelId)) {
-					void promptBus.cancelRequest(cancelId);
+					// La cancellazione viene da omp: rimandargliela sarebbe un'eco.
+					void promptBus.cancelRequest(cancelId, undefined, true);
 				}
 				this.clearPendingUi();
 			}
@@ -2773,6 +2765,7 @@ export class AgentSession {
 			laneId: this.laneId ?? 'main',
 			sessionId: this.sessionId,
 			toolCallId: runningAsk?.toolCallId,
+			owner: this.promptOwner(),
 			kind: 'ask',
 			method: this.pendingUi.method,
 			title: this.pendingUi.title,
@@ -2791,14 +2784,38 @@ export class AgentSession {
 		});
 	}
 
+	/**
+	 * Bozza del wizard della domanda aperta (risposte, passo corrente). Sta
+	 * qui e non nella card perche' la card ridotta nel vassoio viene smontata:
+	 * un solo slot, legato alla richiesta e alla sua forma (domande note o no).
+	 */
+	private askDraft: { requestId: string; variant: string; value: unknown } | null = null;
+
+	askWizardDraft<T>(requestId: string, variant: string, create: () => T): T {
+		const current = this.askDraft;
+		if (current && current.requestId === requestId && current.variant === variant) return current.value as T;
+		const value = create();
+		this.askDraft = { requestId, variant, value };
+		return value;
+	}
+
 	private clearPendingUi() {
 		const reqId = this.pendingUi?.requestId;
 		this.pendingUi = null;
+		this.askDraft = null;
 		this.askFlush = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
 		if (reqId && promptBus.hasPending(reqId)) {
-			void promptBus.cancelRequest(reqId);
+			// Chiusura locale: il bus non deve richiamare il responder, che
+			// risponderebbe `cancelled` a omp per una richiesta gia' chiusa.
+			void promptBus.cancelRequest(reqId, undefined, true);
 		}
+	}
+
+	/** Identita' del processo omp corrente per le voci del bus delle domande. */
+	private promptOwner(): string | null {
+		const id = this.client.id;
+		return id === null ? null : `rpc:${id}`;
 	}
 
 	/**
@@ -2848,6 +2865,7 @@ export class AgentSession {
 			laneId: this.laneId ?? 'main',
 			sessionId: this.sessionId,
 			toolCallId,
+			owner: this.promptOwner(),
 			kind: 'ask',
 			method: pending.method,
 			title: pending.title,
@@ -3072,12 +3090,13 @@ export class AgentSession {
 	async handlePromptAnswer(requestId: string, answer: PromptAnswer): Promise<boolean> {
 		if (!this.pendingUi || this.pendingUi.requestId !== requestId) {
 			const stored = promptBus.getRequest(requestId);
-			if (stored && stored.projectId.trim().toLowerCase() === this.projectKey.trim().toLowerCase()) {
-				const promptLane = (stored.laneId ?? 'main').toLowerCase();
-				const myLane = (this.laneId ?? 'main').toLowerCase();
-				if (promptLane === myLane) {
-					this.restorePendingUiFromPrompt(stored);
-				}
+			if (stored && canRestorePrompt(stored, {
+				projectKey: this.projectKey,
+				laneId: this.laneId,
+				sessionId: this.sessionId,
+				livePendingId: this.pendingUi?.requestId ?? null
+			})) {
+				this.restorePendingUiFromPrompt(stored);
 			}
 		}
 		const current = this.pendingUi;

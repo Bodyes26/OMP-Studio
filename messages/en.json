@@ -1946,6 +1946,8 @@
   "chat_v2_composer_vision_warning": "{model} does not support images and videos: they will be ignored.",
   "chat_v2_composer_change_model": "Change model",
   "chat_v2_composer_drop_overlay": "Drop to attach images, videos or files",
+  "chat_v2_composer_editor_aria": "Message to the agent",
+  "chat_v2_ask_question_n": "Question {n}",
   "chat_v2_composer_attachments_block": "Attachments:",
   "chat_v2_composer_prompt_rejected": "Prompt not accepted: {error}",
   "chat_v2_composer_stop_armed_announce": "The agent did not stop: press Stop again to force it",
