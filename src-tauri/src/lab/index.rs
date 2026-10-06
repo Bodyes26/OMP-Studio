@@ -7,10 +7,10 @@
 use super::paths::{canonical_project_path, drafts_index_path, lab_root, project_index_path};
 use super::types::{LabIndexEntry, LabIndexFile, LabIndexPatch, LabPrototypeStatus};
 use super::util::now_iso8601;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use parking_lot::Mutex;
 use std::sync::{Arc, LazyLock};
 use tauri::command;
 
@@ -224,12 +224,13 @@ pub async fn lab_index_remove(
     .map_err(|e| e.to_string())?
 }
 
-/// Cancella la cartella di un prototipo, ma solo se sta dentro `prototypes_dir`.
-/// Una cartella gia' sparita non e' un errore: l'obiettivo e' che non ci sia.
-fn remove_prototype_workspace(prototypes_dir: &Path, workspace: &Path) -> Result<(), String> {
-    if !workspace.exists() {
-        return Ok(());
-    }
+/// Percorso canonico di `workspace` se e' una sottocartella (esistente) di
+/// `prototypes_dir`, errore altrimenti. Serve sia alla cancellazione sia ai comandi
+/// git del Lab, che non devono mai operare fuori dai workspace dei prototipi.
+pub(super) fn confined_prototype_workspace(
+    prototypes_dir: &Path,
+    workspace: &Path,
+) -> Result<PathBuf, String> {
     // Si canonicalizzano entrambi i lati solo quando esistono: su Windows
     // `canonicalize` aggiunge il prefisso `\\?\`, e un confronto misto fallirebbe sempre.
     let allowed = prototypes_dir
@@ -240,10 +241,25 @@ fn remove_prototype_workspace(prototypes_dir: &Path, workspace: &Path) -> Result
         .map_err(|e| format!("Workspace non accessibile in {}: {e}", workspace.display()))?;
     if !target.starts_with(&allowed) || target == allowed {
         return Err(format!(
-            "Cancellazione negata: il workspace {} non e' contenuto nella directory sicura dei prototipi",
+            "Il workspace {} non e' contenuto nella directory dei prototipi",
             workspace.display()
         ));
     }
+    Ok(target)
+}
+
+/// Cancella la cartella di un prototipo, ma solo se sta dentro `prototypes_dir`.
+/// Una cartella gia' sparita non e' un errore: l'obiettivo e' che non ci sia.
+fn remove_prototype_workspace(prototypes_dir: &Path, workspace: &Path) -> Result<(), String> {
+    if !workspace.exists() {
+        return Ok(());
+    }
+    let target = confined_prototype_workspace(prototypes_dir, workspace).map_err(|_| {
+        format!(
+            "Cancellazione negata: il workspace {} non e' contenuto nella directory sicura dei prototipi",
+            workspace.display()
+        )
+    })?;
 
     // Chiudendo la corsia, sessione omp e watcher rilasciano i loro handle in modo
     // asincrono: su Windows una cartella ancora aperta da un processo non si cancella.
