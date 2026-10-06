@@ -5,7 +5,7 @@
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	import { settingsStore, type ProjectBarOrder, type SettingsSection } from '$lib/stores/settings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
-	import { automaticProjectHue, THEMES, anchorsFor } from '$lib/theme';
+	import { automaticProjectHue, THEMES } from '$lib/theme';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
 	import { trapFocus } from '$lib/focusTrap';
@@ -14,6 +14,7 @@
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import QuotaChip from './quota/QuotaChip.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import BrandMark from '$lib/ui/BrandMark.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
 	import GitDiffBadge from './GitDiffBadge.svelte';
 	import { companionStore } from '$lib/stores/companion.svelte';
@@ -259,8 +260,6 @@
 			requestAnimationFrame(updateScrollState);
 		}
 	});
-
-	const isLightTheme = $derived(anchorsFor(THEMES[themeStore.current] ?? THEMES['titanium']).isLight);
 
 
 	// Il progetto chiuso dal pannello non lascia dietro un pannello orfano.
@@ -800,11 +799,7 @@
 				: m.ui_topbar_nascondi_barra_laterale_ctrl_alt_b_093c()}
 			aria-expanded={!isSidebarCollapsed}
 		>
-			<img
-				src={isLightTheme ? '/logo-topbar-light.png' : '/logo-topbar.png'}
-				alt="OMP Studio"
-				class="brand-logo-img"
-			/>
+			<BrandMark class="brand-logo-img" />
 		</button>
 	</div>
 
@@ -1246,17 +1241,13 @@
 		opacity: 1;
 	}
 
-	.brand-logo-img {
-		height: 26px;
+	/* Il glifo e' 6:5 e pieno fino ai bordi: 18px reggono il peso del vecchio
+	   pi a 26px, che aveva aria attorno. */
+	.app-icon-btn :global(.brand-logo-img) {
+		display: block;
+		height: 18px;
 		width: auto;
-		object-fit: contain;
-		transition:
-			filter var(--dur-base) var(--ease-out),
-			opacity var(--dur-base) var(--ease-out);
-	}
-
-	.app-icon-btn.collapsed .brand-logo-img {
-		filter: grayscale(0.2);
+		color: var(--ink);
 	}
 
 	.tabs-nav {

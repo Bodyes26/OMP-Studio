@@ -155,8 +155,9 @@ Desktop Windows 11 x64 (NSIS, WebView2) e macOS (DMG universale Apple Silicon + 
 
 ## Brand Commitments
 
-Nome: **OMP Studio**. Asset sorgente in `assets/` (`app-icon.png`, `app-icon-dark.png`,
-`logo-topbar.svg`); il sistema visivo è in `DESIGN.md`.
+Nome: **OMP Studio**. Logo: il pi greco squadrato di omp, generato da
+`scripts/generate-logo.mjs` (`npm run logo`) nei sorgenti di `assets/logo/`; il sistema
+visivo è in `DESIGN.md`.
 
 ### Personalità
 

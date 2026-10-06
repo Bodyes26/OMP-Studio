@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Changed
+- New logo: omp's squared pi. On Windows the icon is the bare pi, with dark legs on the executable and in File Explorer; the window and taskbar switch to white legs when the taskbar is dark. On macOS and Linux the pi sits on a dark rounded tile. The logo in the top bar and in the Companion is monochrome and follows the theme.
 - The thinking slider (composer, Task Editor, Roles) shows only the levels the selected model accepts: if the model has no “max”, that step disappears and the others spread across the track. A saved level the model doesn't accept is shown at the level omp falls back to. The quick thinking cycle also skips unsupported levels.
 - The composer context window shows the same split as `/context`: system prompt, tools, system context, skills, messages, auto-compact reserve and free space. The message you are typing stays a separate estimate; until omp answers, only the total stays visible.
 - Align Quota with Settings, Companion and Queue in the top bar and use clearer Windows window controls with thicker strokes and rounded shapes, keeping click targets unchanged.

@@ -61,6 +61,7 @@ mod alerts;
 use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
 mod focus_trace;
 use focus_trace::{focus_trace_append, focus_trace_path};
+mod window_icon;
 mod perf_trace;
 use perf_trace::{perf_trace_append, perf_trace_path};
 mod external;
@@ -340,11 +341,19 @@ pub fn run() {
             {
                 track_companion_geometry(window);
             }
+            // La taskbar puo' cambiare colore senza che cambi il tema delle app:
+            // il focus e' l'occasione piu' vicina per accorgersene.
+            tauri::WindowEvent::ThemeChanged(_) | tauri::WindowEvent::Focused(true) => {
+                window_icon::sync(window);
+            }
             _ => {}
         })
         .setup(|app| {
             perf_trace::init(app.handle());
             init_windows_aumid();
+            if let Some(main) = app.get_webview_window("main") {
+                window_icon::sync(&main.as_ref().window());
+            }
             lane_bridge::start(app.handle().clone());
             // Il watcher dei diagrammi parte subito dopo il setup: ascolta
             // la cartella di scambio e notifica il frontend via

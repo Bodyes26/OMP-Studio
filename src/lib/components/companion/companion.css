@@ -73,10 +73,10 @@
 }
 
 .brand-logo-img {
-	height: 18px;
+	height: 13px;
 	width: auto;
 	display: block;
-	-webkit-user-drag: none;
+	color: var(--ink);
 }
 
 /* Lo schema della riga di attenzione: ambra al 15%, testo --ink, punto. */
