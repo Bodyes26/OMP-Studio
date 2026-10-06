@@ -13,8 +13,11 @@ describe('Composer: instradamento dei comandi /', () => {
 	it('ogni comando e alias del catalogo di Studio passa dal guscio', () => {
 		for (const command of STUDIO_SLASH_COMMANDS) {
 			for (const name of [command.name, ...(command.aliases ?? [])]) {
-				const route = routeComposerSubmit(`/${name} argomento`);
-				assert.deepEqual(route, { kind: 'studio', raw: `/${name} argomento` }, name);
+				assert.deepEqual(routeComposerSubmit(`/${name}`), { kind: 'studio', raw: `/${name}` }, name);
+				const withArgument = `/${name} argomento`;
+				const expected =
+					command.input || command.subcommands ? { kind: 'studio', raw: withArgument } : { kind: 'omp' };
+				assert.deepEqual(routeComposerSubmit(withArgument), expected, name);
 				assert.equal(findSlashCommand(`/${name}`, STUDIO_SLASH_COMMANDS), command, name);
 			}
 		}
@@ -38,6 +41,12 @@ describe('Composer: instradamento dei comandi /', () => {
 		assert.deepEqual(routeComposerSubmit('/'), { kind: 'omp' });
 		assert.deepEqual(routeComposerSubmit('// commento'), { kind: 'omp' });
 		assert.deepEqual(routeComposerSubmit(''), { kind: 'omp' });
+	});
+
+	it('un comando senza argomenti seguito da una frase va a omp intero', () => {
+		assert.deepEqual(routeComposerSubmit('/help non funziona il login'), { kind: 'omp' });
+		assert.deepEqual(routeComposerSubmit('/help'), { kind: 'studio', raw: '/help' });
+		assert.deepEqual(routeComposerSubmit('/role plan'), { kind: 'studio', raw: '/role plan' });
 	});
 
 	it('un comando sconosciuto al catalogo resta candidato: decide il guscio, poi omp', () => {

@@ -70,14 +70,9 @@ pub enum WorktreeLandOutcome {
         target_branch: String,
     },
     #[serde(rename_all = "camelCase")]
-    Queued {
-        reason: String,
-        files: Vec<String>,
-    },
+    Queued { reason: String, files: Vec<String> },
     #[serde(rename_all = "camelCase")]
-    Nothing {
-        target_branch: String,
-    },
+    Nothing { target_branch: String },
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -842,7 +837,12 @@ fn git_without_hooks_input(
 /// toccare il resto del checkout (i file sporchi disgiunti dell'utente). Un
 /// `read-tree` interrotto puo' aver scritto file senza aggiornare l'indice:
 /// un secondo `read-tree` li lascerebbe com'erano, il checkout dei percorsi no.
-fn restore_changed_paths(root: &Path, from_sha: &str, to_sha: &str) -> Result<(), WorktreeError> {
+fn restore_changed_paths(
+    root: &Path,
+    from_sha: &str,
+    to_sha: &str,
+    preserve: &[String],
+) -> Result<(), WorktreeError> {
     let output = require_git(
         root,
         &git_args(&[
@@ -861,6 +861,12 @@ fn restore_changed_paths(root: &Path, from_sha: &str, to_sha: &str) -> Result<()
     let mut fields = output.stdout.split(|byte| *byte == 0);
     while let (Some(status), Some(path)) = (fields.next(), fields.next()) {
         if status.is_empty() || path.is_empty() {
+            continue;
+        }
+        // I file gia' sporchi prima dell'operazione sono dell'utente: il
+        // ripristino non li riscrive ne' li cancella, qualunque cosa dica il diff.
+        let text = String::from_utf8_lossy(path);
+        if preserve.iter().any(|kept| paths_match(kept, &text)) {
             continue;
         }
         if status.first() == Some(&b'D') {
@@ -925,14 +931,14 @@ fn restore_changed_paths(root: &Path, from_sha: &str, to_sha: &str) -> Result<()
 /// che per costruzione non si sovrappongono a quei file.
 fn restore_checkout(
     root: &Path,
-    was_clean: bool,
+    dirty_before: &[String],
     from_sha: &str,
     to_sha: &str,
 ) -> Result<(), WorktreeError> {
-    if was_clean {
+    if dirty_before.is_empty() {
         reset_hard(root, to_sha)?;
     } else {
-        restore_changed_paths(root, from_sha, to_sha)?;
+        restore_changed_paths(root, from_sha, to_sha, dirty_before)?;
     }
     if resolve_commit(root, "HEAD")? != to_sha {
         return Err(WorktreeError::new(
@@ -946,11 +952,11 @@ fn restore_checkout(
 #[cfg(test)]
 pub(super) fn restore_checkout_for_tests(
     root: &Path,
-    was_clean: bool,
+    dirty_before: &[String],
     from_sha: &str,
     to_sha: &str,
 ) -> Result<(), WorktreeError> {
-    restore_checkout(root, was_clean, from_sha, to_sha)
+    restore_checkout(root, dirty_before, from_sha, to_sha)
 }
 
 /// Errore per un checkout rimasto a meta' con il ref gia' ripristinato.
@@ -1000,25 +1006,26 @@ fn diff_name_only_z(cwd: &Path, from: &str, to: &str) -> Result<Vec<String>, Wor
 pub(super) fn paths_match(a: &str, b: &str) -> bool {
     let norm_a = a.replace('\\', "/");
     let norm_b = b.replace('\\', "/");
-    #[cfg(target_os = "windows")]
+    // Windows e macOS (APFS/HFS+ di default) non distinguono le maiuscole:
+    // `Readme.md` e `README.md` sono lo stesso file e vanno protetti insieme.
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         norm_a.eq_ignore_ascii_case(&norm_b)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         norm_a == norm_b
     }
 }
 
-/// File sporchi del checkout che l'aggiornamento toccherebbe. `ignored` sono le
-/// copie locali dell'allowlist: sono gli originali da cui la corsia ha copiato
-/// la configurazione, non lavoro dell'utente da proteggere accodando.
-fn overlapping_paths(dirty: &[String], changed: &[String], ignored: &[String]) -> Vec<String> {
+/// File sporchi del checkout che l'aggiornamento toccherebbe. Le copie locali
+/// dell'allowlist non hanno eccezioni: i commit della corsia le escludono,
+/// quindi di norma non compaiono in `changed`; se ci sono (corsia che le ha
+/// committate prima dell'esclusione) l'aggiornamento sovrascriverebbe
+/// l'originale dell'utente, e l'integrazione va in coda come per ogni altro file.
+fn overlapping_paths(dirty: &[String], changed: &[String]) -> Vec<String> {
     let mut overlapping: Vec<String> = Vec::new();
     for path in dirty {
-        if ignored.iter().any(|skip| paths_match(skip, path)) {
-            continue;
-        }
         if changed.iter().any(|other| paths_match(path, other))
             && !overlapping
                 .iter()
@@ -1404,7 +1411,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
     let dirty = porcelain_files(&context.repository_root)?;
     let changed = diff_name_only_z(&context.repository_root, &target_sha, &new_commit)?;
 
-    let overlapping = overlapping_paths(&dirty, &changed, &allowlisted);
+    let overlapping = overlapping_paths(&dirty, &changed);
     if !overlapping.is_empty() {
         return Ok(WorktreeLandOutcome::Queued {
             reason: "target_overlap".to_string(),
@@ -1474,12 +1481,9 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         // riportato anche lui, o il target mostrerebbe file dell'integrazione
         // annullata come modifiche locali.
         if failure.touched {
-            if let Err(restore_error) = restore_checkout(
-                &context.repository_root,
-                dirty.is_empty(),
-                &new_commit,
-                &target_sha,
-            ) {
+            if let Err(restore_error) =
+                restore_checkout(&context.repository_root, &dirty, &new_commit, &target_sha)
+            {
                 return Err(checkout_left_halfway(format!(
                     "{}; ripristino: {}",
                     failure.error.message, restore_error.message
@@ -1575,7 +1579,7 @@ pub(crate) fn undo_land_sync(
 
     let dirty = porcelain_files(&context.repository_root)?;
     let changed = diff_name_only_z(&context.repository_root, &commit, &previous_target)?;
-    let overlapping = overlapping_paths(&dirty, &changed, &[]);
+    let overlapping = overlapping_paths(&dirty, &changed);
     if !overlapping.is_empty() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::TargetDirty,
@@ -1630,12 +1634,9 @@ pub(crate) fn undo_land_sync(
             ));
         }
         if failure.touched {
-            if let Err(restore_error) = restore_checkout(
-                &context.repository_root,
-                dirty.is_empty(),
-                &previous_target,
-                &commit,
-            ) {
+            if let Err(restore_error) =
+                restore_checkout(&context.repository_root, &dirty, &previous_target, &commit)
+            {
                 return Err(checkout_left_halfway(format!(
                     "{}; ripristino: {}",
                     failure.error.message, restore_error.message
@@ -1984,12 +1985,14 @@ mod tests {
     }
 
     #[test]
-    fn overlap_ignora_le_copie_allowlist_e_confronta_le_cartelle_per_componenti() {
+    fn overlap_protegge_anche_le_copie_allowlist_e_confronta_le_cartelle_per_componenti() {
+        // Parametri.ini locale e' sporco; se la corsia lo cambia (perche' lo
+        // aveva committato) l'integrazione deve fermarsi, non sovrascriverlo.
         let dirty = vec!["Parametri.ini".to_string(), "src/a.txt".to_string()];
-        let changed = vec!["Parametri.ini".to_string(), "src/a.txt".to_string()];
+        let changed = vec!["Parametri.ini".to_string(), "src/b.txt".to_string()];
         assert_eq!(
-            overlapping_paths(&dirty, &changed, &["Parametri.ini".to_string()]),
-            vec!["src/a.txt".to_string()]
+            overlapping_paths(&dirty, &changed),
+            vec!["Parametri.ini".to_string()]
         );
         assert!(path_within("build/out.js", "build"));
         assert!(!path_within("buildx/out.js", "build"));

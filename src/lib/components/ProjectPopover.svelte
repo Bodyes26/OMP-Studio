@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { unintegratedWarning } from '$lib/lanes/laneCleanup';
 	import { m } from '$lib/paraglide/messages.js';
 	/**
 	 * Pannello di una tessera progetto: anteprima al passaggio del mouse e menu
@@ -768,7 +769,7 @@
 			{#if deleteConfirmTarget.kind === 'git' && deleteLoss}
 				<p class="hint danger-hint" role="alert">
 					<IconWarning />
-					<span>{m.lane_delete_unintegrated_warning({ commits: deleteLoss.commits, files: deleteLoss.files })}</span>
+					<span>{unintegratedWarning(deleteLoss)}</span>
 				</p>
 			{/if}
 			<button type="button" class="row danger" onclick={() => void executeDeleteClosedLane()}>

@@ -36,11 +36,14 @@ impl PtySession {
         // registro corsie con `try_wait`), il suo PID e' tornato libero e
         // potrebbe appartenere a un processo estraneo: niente segnali per PID.
         // Il Job Object di Windows resta sicuro perche' e' un handle.
-        let pid = if self.child.lock().try_wait().ok().flatten().is_some() {
-            None
-        } else {
-            self.pid
-        };
+        let reaped = self.child.lock().try_wait().ok().flatten().is_some();
+        let pid = if reaped { None } else { self.pid };
+        #[cfg(not(target_os = "windows"))]
+        if reaped {
+            if let Some(pgid) = self.pid {
+                crate::process_tree::kill_orphaned_group(pgid);
+            }
+        }
         #[cfg(target_os = "windows")]
         crate::process_tree::kill_process_tree(pid, self.job.as_deref());
         #[cfg(not(target_os = "windows"))]

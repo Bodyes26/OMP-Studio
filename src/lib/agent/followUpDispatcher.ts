@@ -20,6 +20,13 @@ export type FollowUpDelivery = 'sent' | 'deferred' | 'failed' | 'empty';
 /** Attesa massima di `agent_start` dopo un invio accettato. */
 export const FOLLOW_UP_START_TIMEOUT_MS = 10_000;
 
+/**
+ * Attesa per un follow-up che e' un comando `/`: una skill avvia l'agente, un
+ * comando di omp come `/mcp` risponde senza esecuzione e senza `agent_start`.
+ * Allo scadere la coda prosegue invece di fermarsi.
+ */
+export const FOLLOW_UP_COMMAND_SETTLE_MS = 3_000;
+
 export interface FollowUpHost {
 	/** Coda corrente, in ordine di invio. */
 	queue(): readonly LocalFollowUp[];
@@ -109,7 +116,9 @@ export class FollowUpDispatcher {
 				return;
 			}
 			host.remove(first.id);
-			if (this.startsSeen === startsBefore) this.waitForStart(epoch);
+			if (this.startsSeen === startsBefore) {
+				this.waitForStart(epoch, first.text.trimStart().startsWith('/'));
+			}
 			for (const item of rest) {
 				if (epoch !== this.generation || host.paused()) return;
 				// Il follow-up puo' essere stato tolto o modificato nel frattempo.
@@ -136,14 +145,22 @@ export class FollowUpDispatcher {
 		}
 	}
 
-	private waitForStart(epoch: number): void {
+	private waitForStart(epoch: number, isCommand = false): void {
 		this.awaitingStart = true;
-		this.startTimer = this.host.setTimer(() => {
-			this.startTimer = null;
-			if (epoch !== this.generation || !this.awaitingStart) return;
-			this.awaitingStart = false;
-			this.host.pause('timeout');
-		}, this.startTimeoutMs);
+		this.startTimer = this.host.setTimer(
+			() => {
+				this.startTimer = null;
+				if (epoch !== this.generation || !this.awaitingStart) return;
+				this.awaitingStart = false;
+				if (isCommand) {
+					// Comando servito senza esecuzione dell'agente: si passa al successivo.
+					void this.dispatch();
+					return;
+				}
+				this.host.pause('timeout');
+			},
+			isCommand ? Math.min(this.startTimeoutMs, FOLLOW_UP_COMMAND_SETTLE_MS) : this.startTimeoutMs
+		);
 	}
 
 	private stopWaiting(): void {

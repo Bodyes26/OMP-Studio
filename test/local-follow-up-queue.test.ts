@@ -143,6 +143,18 @@ describe('coda locale dei follow-up', () => {
 		assert.ok(FOLLOW_UP_START_TIMEOUT_MS >= 5_000);
 	});
 
+	it('un comando / che non avvia l\'agente non ferma la coda: si passa al successivo', async () => {
+		const command: LocalFollowUp = { id: 9, text: '/mcp', images: [] };
+		const host = new FakeHost([command, second]);
+		const dispatcher = new FollowUpDispatcher(host);
+		await dispatcher.dispatch();
+		assert.equal(host.timers.size, 1);
+		host.fireTimers();
+		await flush();
+		assert.deepEqual(host.pauses, [], 'nessuna pausa per timeout');
+		assert.deepEqual(host.sent.map((s) => s.id), [9, 2]);
+	});
+
 	it('agent_start arrivato prima della risposta non arma il timeout', async () => {
 		const host = new FakeHost([first]);
 		const dispatcher = new FollowUpDispatcher(host);

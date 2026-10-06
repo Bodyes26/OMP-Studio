@@ -96,6 +96,8 @@ class GithubStore {
 	remoteErrorByPath = $state<Record<string, string | null>>({});
 
 	actionsByPath = $state<Record<string, GithubActionRun[]>>({});
+	/** Ultime esecuzioni lette per progetto+branch, chiave come `ActionsPollGate`. */
+	private actionsByBranch = new Map<string, GithubActionRun[]>();
 	isLoadingActionsByPath = $state<Record<string, boolean>>({});
 
 	private upstreamUpdatedAt = new Map<string, number>();
@@ -413,8 +415,13 @@ class GithubStore {
 		opts: { force?: boolean } = {}
 	): Promise<GithubActionRun[]> {
 		const key = normalizeProjectPath(projectPath).toLowerCase();
-		if (!this.actionsGate.tryAcquire(`${key}\n${branch ?? ''}`, Date.now(), opts.force ?? false)) {
-			return this.actionsByPath[key] ?? [];
+		const gateKey = `${key}\n${branch ?? ''}`;
+		if (!this.actionsGate.tryAcquire(gateKey, Date.now(), opts.force ?? false)) {
+			// Cadenza rispettata, ma con i dati del branch richiesto: tornando su
+			// un branch letto da poco il pannello non deve mostrare la CI dell'altro.
+			const cached = this.actionsByBranch.get(gateKey);
+			if (cached) this.actionsByPath[key] = cached;
+			return cached ?? this.actionsByPath[key] ?? [];
 		}
 		this.isLoadingActionsByPath[key] = true;
 		try {
@@ -422,6 +429,7 @@ class GithubStore {
 				projectPath,
 				branch: branch || null
 			});
+			this.actionsByBranch.set(gateKey, runs);
 			this.actionsByPath[key] = runs;
 			return runs;
 		} catch (e) {

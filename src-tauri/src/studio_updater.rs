@@ -1538,7 +1538,7 @@ impl StudioInstallOutcome {
 /// `rename` finale e' atomico: chi apre Studio trova sempre o la versione vecchia
 /// o quella nuova completa, mai un file a meta'. Lo SHA256 si ricontrolla sulla
 /// copia, che e' il file che verra' eseguito.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn replace_appimage_atomically(
     downloaded: &Path,
     target: &Path,
@@ -1859,7 +1859,7 @@ pub async fn install_studio_update_and_restart(
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn appimage_sostituita_in_modo_atomico() {
         use std::os::unix::fs::PermissionsExt;

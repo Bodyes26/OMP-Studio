@@ -153,6 +153,15 @@
 		stopControl.settle();
 	});
 	$effect(() => () => stopControl.settle());
+	// Un turno nuovo riparte dal primo stadio: senza, uno stato armato rimasto
+	// dal turno precedente (abort chiuso dal timer di sicurezza, senza agent_end)
+	// farebbe uccidere omp al primo clic invece di tentare l'interruzione.
+	let wasStreaming = false;
+	$effect(() => {
+		const streaming = session.isStreaming;
+		if (streaming && !wasStreaming) stopControl.settle();
+		wasStreaming = streaming;
+	});
 
 	let sendBehaviorChoice = $state<StreamingBehavior>(settingsStore.general.defaultStreamingBehavior);
 	$effect(() => {
@@ -645,7 +654,10 @@
 			// guscio non riconosce (skill, comandi delle estensioni) va a omp.
 			const route = routeComposerSubmit(wireText);
 			if (route.kind === 'studio' && onSlashCommand?.(route.raw)) {
-				clear();
+				// Il comando consuma solo il testo: allegati e immagini restano per
+				// il prossimo messaggio invece di sparire senza essere mai partiti.
+				if (editorRef) editorRef.clear();
+				currentTrigger = null;
 				return;
 			}
 			const sent = [...attachments];

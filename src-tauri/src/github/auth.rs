@@ -530,11 +530,16 @@ pub async fn github_set_token(token: String) -> Result<GithubAuthStatus, String>
 /// esplicitamente (`alsoGhCli`).
 #[tauri::command]
 pub async fn github_logout(also_gh_cli: Option<bool>) -> Result<(), String> {
+    // Con un PAT salvato Studio era collegato tramite token: gh non c'entra e
+    // non va disattivato (un `gh auth login` successivo deve funzionare subito).
+    let was_using_gh = get_saved_token().is_none();
     save_token(None, None)?;
     let also_gh_cli = also_gh_cli.unwrap_or(false);
     // «Solo Studio»: gh resta collegato per il terminale ma Studio smette di usarlo.
     // Con gh disconnesso il flag non serve: un nuovo `gh auth login` vale di nuovo.
-    set_gh_cli_disabled(!also_gh_cli)?;
+    if was_using_gh {
+        set_gh_cli_disabled(!also_gh_cli)?;
+    }
 
     if also_gh_cli {
         run_blocking(|| -> Result<(), String> {

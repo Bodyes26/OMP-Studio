@@ -82,11 +82,14 @@ impl RpcSession {
 
         // Figlio gia' raccolto (`try_wait` del registro corsie o di
         // `rpc_close`): il PID puo' essere stato riusato, niente segnali per PID.
-        let pid = if self.child.lock().try_wait().ok().flatten().is_some() {
-            None
-        } else {
-            self.pid
-        };
+        let reaped = self.child.lock().try_wait().ok().flatten().is_some();
+        let pid = if reaped { None } else { self.pid };
+        #[cfg(not(target_os = "windows"))]
+        if reaped {
+            if let Some(pgid) = self.pid {
+                crate::process_tree::kill_orphaned_group(pgid);
+            }
+        }
         #[cfg(target_os = "windows")]
         crate::process_tree::kill_process_tree(pid, self.job.as_deref());
         #[cfg(not(target_os = "windows"))]
@@ -1404,7 +1407,7 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             if let Ok(Some(_)) = session.child.lock().try_wait() {
-                return;
+                break;
             }
             if Instant::now() >= deadline {
                 break;
@@ -1413,6 +1416,8 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
         }
         // Con il process group proprio i figli di omp non ricevono piu' segnali
         // dal terminale di Studio: si abbatte l'albero intero, non solo omp.
+        // Anche dopo un'uscita pulita di omp: un server avviato in background
+        // dall'agente resta nel gruppo e va chiuso con la chat.
         session.kill_tree();
     })
     .await

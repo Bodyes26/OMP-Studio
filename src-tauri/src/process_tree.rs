@@ -188,6 +188,37 @@ pub fn process_group_alive(pgid: u32) -> bool {
 #[cfg(not(target_os = "windows"))]
 const GROUP_TERM_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
 
+/// SIGTERM e SIGHUP al gruppo, attesa breve, poi SIGKILL. Restituisce false se
+/// il gruppo non esisteva.
+#[cfg(not(target_os = "windows"))]
+fn terminate_group(pgid: u32) -> bool {
+    let group = format!("-{}", pgid);
+    if !send_signal("-TERM", &group) {
+        return false;
+    }
+    // SIGHUP e' cio' che riceverebbe chiudendo il terminale: una shell
+    // interattiva ignora SIGTERM ma con SIGHUP lo inoltra ai propri job
+    // (che con il job control vivono in gruppi propri) ed esce.
+    let _ = send_signal("-HUP", &group);
+    let deadline = std::time::Instant::now() + GROUP_TERM_GRACE;
+    while process_group_alive(pgid) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let _ = send_signal("-KILL", &group);
+    true
+}
+
+/// Leader gia' raccolto (`try_wait`): il suo PID puo' essere stato riusato, ma
+/// il PGID no finche' il gruppo ha membri (POSIX). Se nel gruppo resta qualcosa
+/// di vivo (un server avviato in background dall'agente) va terminato lo
+/// stesso, segnalando solo il gruppo e mai il PID.
+#[cfg(not(target_os = "windows"))]
+pub fn kill_orphaned_group(pgid: u32) {
+    if process_group_alive(pgid) {
+        terminate_group(pgid);
+    }
+}
+
 /// Abbattimento ricorsivo e forzato dell'albero dei processi (SIGKILL / Job Object terminate / taskkill).
 ///
 /// Su Unix `pid` deve essere il leader del proprio process group (`setsid` del
@@ -216,18 +247,7 @@ pub fn kill_process_tree(pid: Option<u32>, #[cfg(target_os = "windows")] job: Op
     #[cfg(not(target_os = "windows"))]
     {
         if let Some(p) = pid {
-            let group = format!("-{}", p);
-            if send_signal("-TERM", &group) {
-                // SIGHUP e' cio' che riceverebbe chiudendo il terminale: una shell
-                // interattiva ignora SIGTERM ma con SIGHUP lo inoltra ai propri job
-                // (che con il job control vivono in gruppi propri) ed esce.
-                let _ = send_signal("-HUP", &group);
-                let deadline = std::time::Instant::now() + GROUP_TERM_GRACE;
-                while process_group_alive(p) && std::time::Instant::now() < deadline {
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-                let _ = send_signal("-KILL", &group);
-            }
+            terminate_group(p);
             // PID singolo, per un processo che non e' leader del proprio gruppo.
             // Nessun `pkill -P` dopo: morto il padre, i figli passano a init e
             // non sarebbero piu' trovati per PPID.

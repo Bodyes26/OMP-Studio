@@ -1596,6 +1596,32 @@ fn remove_missing_worktree(
 /// quando `git worktree remove` fallisce a meta' (un file bloccato su Windows)
 /// perche' Git toglie comunque i propri metadati. Si rimuove solo se la
 /// registrazione Studio nella config del branch la riconosce come corsia.
+/// Vero se `root/.git` e' una cartella (un repository vero) o un file
+/// `gitdir: <percorso>` che punta a una gitdir ancora esistente: in entrambi i
+/// casi la cartella non e' un residuo da cancellare.
+fn still_linked_to_git(root: &Path) -> bool {
+    let marker = root.join(".git");
+    let Ok(metadata) = fs::symlink_metadata(&marker) else {
+        return false;
+    };
+    if metadata.is_dir() {
+        return true;
+    }
+    let Ok(content) = fs::read_to_string(&marker) else {
+        return true;
+    };
+    let Some(target) = content.trim().strip_prefix("gitdir:") else {
+        return true;
+    };
+    let target = Path::new(target.trim());
+    let target = if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        root.join(target)
+    };
+    target.exists()
+}
+
 fn remove_orphan_folder(
     context: &RepositoryContext,
     root: &Path,
@@ -1612,6 +1638,15 @@ fn remove_orphan_folder(
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
             "Link e junction non sono percorsi worktree consentiti",
+        ));
+    }
+    if still_linked_to_git(root) {
+        // Git non la elenca ma il collegamento e' intatto: piu' probabile un
+        // confronto di percorsi mancato (junction, subst, nomi 8.3) che una
+        // cartella orfana. Cancellarla perderebbe modifiche non committate.
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::UnmanagedWorktree,
+            "La cartella della corsia e' ancora collegata a Git: rimuovila con git worktree remove o riprova dopo git worktree prune",
         ));
     }
     stop_or_refuse_processes(root, stop_processes)?;
@@ -4218,6 +4253,35 @@ mod tests {
     }
 
     #[test]
+    fn una_cartella_ancora_collegata_a_git_non_e_un_residuo() {
+        let base = std::env::temp_dir().join(format!(
+            "omp-wt-linked-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let admin = base.join("admin");
+        let root = base.join("corsia");
+        fs::create_dir_all(&admin).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        // Nessun .git: residuo.
+        assert!(!still_linked_to_git(&root));
+        // .git che punta a una gitdir esistente: worktree vivo.
+        fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+        assert!(still_linked_to_git(&root));
+        // Gitdir sparita: residuo.
+        fs::remove_dir_all(&admin).unwrap();
+        assert!(!still_linked_to_git(&root));
+        // .git cartella: repository vero.
+        fs::remove_file(root.join(".git")).unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        assert!(still_linked_to_git(&root));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
     fn elimina_il_branch_di_una_corsia_senza_commit_propri_senza_flag() {
         let repo = repository(true);
         let created = create_sync(create_args(&repo, "nb01")).unwrap();
@@ -4441,6 +4505,7 @@ mod tests {
         let old = sha_of(&repo.root);
         commit_file(&repo.root, "f1.txt", "v2\n", "f1 v2");
         commit_file(&repo.root, "nuovo.txt", "nuovo\n", "nuovo");
+        commit_file(&repo.root, "conf.ini", "della corsia\n", "conf");
         test_git(&repo.root, &["rm", "-q", "d/f2.txt"]);
         test_git(&repo.root, &["commit", "-m", "via f2"]);
         let new = sha_of(&repo.root);
@@ -4451,8 +4516,16 @@ mod tests {
         fs::write(repo.root.join("nuovo.txt"), "nuovo\n").unwrap();
         fs::remove_file(repo.root.join("d/f2.txt")).unwrap();
         fs::write(repo.root.join("locale.txt"), "lavoro utente\n").unwrap();
+        // File locale dell'utente che l'aggiornamento non e' riuscito a
+        // sovrascrivere: era sporco prima, il ripristino non deve cancellarlo.
+        fs::write(repo.root.join("conf.ini"), "dell'utente\n").unwrap();
 
-        lane_integrate::restore_checkout_for_tests(&repo.root, false, &new, &old).unwrap();
+        let dirty_before = vec!["locale.txt".to_string(), "conf.ini".to_string()];
+        lane_integrate::restore_checkout_for_tests(&repo.root, &dirty_before, &new, &old).unwrap();
+        assert_eq!(
+            fs::read_to_string(repo.root.join("conf.ini")).unwrap(),
+            "dell'utente\n"
+        );
         assert_eq!(
             fs::read_to_string(repo.root.join("f1.txt")).unwrap(),
             "v1\n"
@@ -4469,12 +4542,15 @@ mod tests {
         let status =
             String::from_utf8_lossy(&test_git(&repo.root, &["status", "--porcelain"]).stdout)
                 .to_string();
-        assert_eq!(status.trim(), "?? locale.txt");
+        let mut lines: Vec<&str> = status.lines().map(str::trim).collect();
+        lines.sort_unstable();
+        assert_eq!(lines, vec!["?? conf.ini", "?? locale.txt"]);
 
         // Checkout pulito prima: si torna indietro con reset --hard.
         fs::remove_file(repo.root.join("locale.txt")).unwrap();
+        fs::remove_file(repo.root.join("conf.ini")).unwrap();
         fs::write(repo.root.join("f1.txt"), "v2\n").unwrap();
-        lane_integrate::restore_checkout_for_tests(&repo.root, true, &new, &old).unwrap();
+        lane_integrate::restore_checkout_for_tests(&repo.root, &[], &new, &old).unwrap();
         assert_eq!(
             fs::read_to_string(repo.root.join("f1.txt")).unwrap(),
             "v1\n"

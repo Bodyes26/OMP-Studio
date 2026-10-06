@@ -3,6 +3,8 @@
 // integrazione. Il trasporto (invoke di Tauri) arriva come parametro, cosi'
 // gli smoke test lo sostituiscono con un mock senza caricare il runtime.
 
+import { m } from '$lib/paraglide/messages.js';
+
 export type LaneCommandInvoker = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 /** Risposta di `worktree_lane_unintegrated_summary`. */
@@ -44,6 +46,26 @@ export function worktreeErrorCode(error: unknown): string | null {
 	if (typeof error !== 'object' || error === null) return null;
 	const code = (error as { code?: unknown }).code;
 	return typeof code === 'string' && code ? code : null;
+}
+
+/**
+ * Il backend ha rifiutato di cancellare il branch perche' non riconosce il
+ * lavoro come integrato, anche se il riepilogo diceva il contrario (per
+ * esempio una ricevuta rimasta dopo un reset del target): serve il consenso.
+ */
+export function needsDiscardConsent(error: unknown): boolean {
+	const code = worktreeErrorCode(error);
+	return code === 'confirmation_required' || code === 'lane_diverged_after_integrate';
+}
+
+/** Perdita di entita' sconosciuta: il backend rifiuta ma non si sa quanto. */
+export const UNKNOWN_LOSS: LaneUnintegratedLoss = { commits: 0, files: 0 };
+
+/** Testo dell'avviso nel dialogo di eliminazione. */
+export function unintegratedWarning(loss: LaneUnintegratedLoss): string {
+	return loss.commits > 0
+		? m.lane_delete_unintegrated_warning({ commits: loss.commits, files: loss.files })
+		: m.lane_delete_unintegrated_warning_unknown();
 }
 
 /**

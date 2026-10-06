@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { unintegratedWarning } from '$lib/lanes/laneCleanup';
 	import { m } from '$lib/paraglide/messages.js';
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
@@ -654,10 +655,7 @@
 				<p class="lane-dialog-desc lane-dialog-loss" role="alert">
 					<IconWarning />
 					<span>
-						{m.lane_delete_unintegrated_warning({
-							commits: deleteConfirmTarget.loss.commits,
-							files: deleteConfirmTarget.loss.files
-						})}
+						{unintegratedWarning(deleteConfirmTarget.loss)}
 					</span>
 				</p>
 			{/if}

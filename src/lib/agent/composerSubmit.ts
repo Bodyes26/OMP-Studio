@@ -2,6 +2,7 @@
 // perche' i test girano senza DOM e senza rune.
 
 import type { AvailableCommand } from './wire';
+import { STUDIO_SLASH_COMMANDS } from './commands';
 
 export type ComposerSubmitRoute =
 	| { kind: 'studio'; raw: string }
@@ -13,13 +14,21 @@ export type ComposerSubmitRoute =
  * prompt, finirebbero al modello come testo. Se il guscio non lo riconosce il
  * messaggio va a omp, che serve skill e comandi delle estensioni.
  * `/skill:nome` e' sintassi di omp e non tocca mai il guscio.
+ * Un comando di Studio senza argomenti seguito da altro testo e' una frase
+ * («/help non funziona il login»): va a omp intera invece di sparire.
  */
-export function routeComposerSubmit(messageText: string): ComposerSubmitRoute {
+export function routeComposerSubmit(
+	messageText: string,
+	catalog: readonly AvailableCommand[] = STUDIO_SLASH_COMMANDS
+): ComposerSubmitRoute {
 	const raw = messageText.trim();
 	if (!raw.startsWith('/') || raw.length < 2) return { kind: 'omp' };
 	if (/^\/skill:/i.test(raw)) return { kind: 'omp' };
 	// `/ testo` o `//commento` non sono comandi.
 	if (!/^\/[A-Za-z0-9_-]/.test(raw)) return { kind: 'omp' };
+	const command = findSlashCommand(raw, catalog);
+	const hasArguments = /\s/.test(raw);
+	if (command && hasArguments && !command.input && !command.subcommands) return { kind: 'omp' };
 	return { kind: 'studio', raw };
 }
 

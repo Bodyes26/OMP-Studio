@@ -11,6 +11,7 @@
   7. Accessibilita' APG: dialog modale, trapFocus, navigazione tastiera, contrasti WCAG AA.
 -->
 <script lang="ts">
+	import { unintegratedWarning } from '$lib/lanes/laneCleanup';
 	import { invoke } from '@tauri-apps/api/core';
 	import { m } from '$lib/paraglide/messages.js';
 	import Dialog from '$lib/ui/Dialog.svelte';
@@ -854,10 +855,7 @@
 						<div class="update-outcome error" role="alert">
 							<IconWarning />
 							<span>
-								{m.lane_delete_unintegrated_warning({
-									commits: rejectLoss.commits,
-									files: rejectLoss.files
-								})}
+								{unintegratedWarning(rejectLoss)}
 							</span>
 						</div>
 					{/if}

@@ -31,6 +31,8 @@ import { m } from '$lib/paraglide/messages.js';
 import {
 	fetchUnintegratedLoss,
 	laneBranchDeleteArgs,
+	needsDiscardConsent,
+	UNKNOWN_LOSS,
 	worktreeErrorMessage,
 	type LaneUnintegratedLoss
 } from './laneCleanup';
@@ -322,6 +324,11 @@ export async function deleteWorktreeLane(
 				await laneStore.updateLane(ownerProjectId, targetLaneId, {
 					recoveryState: 'cleanup_pending'
 				});
+			}
+			// Il riepilogo non aveva visto lavoro da perdere ma il backend si':
+			// si chiede il consenso invece di lasciare la corsia bloccata.
+			if (!discardUnintegrated && needsDiscardConsent(err)) {
+				return { kind: 'unintegrated', loss: UNKNOWN_LOSS };
 			}
 			return { kind: 'failed', message: errorMsg };
 		}
