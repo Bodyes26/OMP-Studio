@@ -10,11 +10,13 @@
 	import { setContext, tick as svelteTick } from 'svelte';
 	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
-	import { IconArrowDown } from '$lib/icons';
+	import { IconArrowDown, IconAt } from '$lib/icons';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { motionReduced } from '../motionState.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { getCurrentWebview } from '@tauri-apps/api/webview';
+	import { dropSummary, physicalToCssPoint } from '../chatDrop';
 
 	import AskCard from './AskCard.svelte';
 	import AskStreamPreview from './AskStreamPreview.svelte';
@@ -237,33 +239,71 @@
 	});
 
 	let isDraggingColumn = $state(false);
-	let dragColumnDepth = 0;
+	let dragSummary = $state('');
+	let surfaceEl: HTMLElement | null = $state(null);
 	let composerRef: {
 		focus: () => void;
-		addFiles: (files: FileList | File[]) => Promise<void>;
+		addPaths: (paths: readonly string[]) => Promise<void>;
 		restoreDraft: (text: string, images?: import('../wire').ImageContent[]) => boolean;
 		isDraftEmpty: () => boolean;
 	} | null = $state(null);
-	function handleChatSurfaceDragEnter(e: DragEvent) {
-		if (!e.dataTransfer?.types.includes('Files')) return;
-		dragColumnDepth++;
-		isDraggingColumn = true;
+
+	/**
+	 * Il trascinamento dal sistema operativo e' intercettato da Tauri
+	 * (dragDropEnabled): gli eventi HTML `drop` non ricevono i file, arriva
+	 * solo l'evento nativo con i percorsi e la posizione. Ogni Chat montata lo
+	 * riceve, ma reagisce solo quella sotto il puntatore: le chat nascoste
+	 * hanno `visibility: hidden` e `elementFromPoint` non le trova.
+	 * I trascinamenti interni (linguette dell'editor) restano HTML5 e non
+	 * passano da qui.
+	 */
+	function isOverThisChat(position: { x: number; y: number }): boolean {
+		if (!visible || !surfaceEl) return false;
+		const point = physicalToCssPoint(position, window.devicePixelRatio);
+		const target = document.elementFromPoint(point.x, point.y);
+		return target !== null && surfaceEl.contains(target);
 	}
 
-	function handleChatSurfaceDragLeave(e: DragEvent) {
-		if (!e.dataTransfer?.types.includes('Files')) return;
-		dragColumnDepth = Math.max(0, dragColumnDepth - 1);
-		if (dragColumnDepth === 0) isDraggingColumn = false;
-	}
-
-	function handleChatSurfaceDrop(e: DragEvent) {
-		if (!e.dataTransfer?.types.includes('Files')) return;
-		dragColumnDepth = 0;
-		isDraggingColumn = false;
-		if (e.dataTransfer.files.length > 0 && composerRef) {
-			void composerRef.addFiles(e.dataTransfer.files);
-		}
-	}
+	$effect(() => {
+		if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+		let disposed = false;
+		let unlisten: (() => void) | null = null;
+		let paths: string[] = [];
+		void getCurrentWebview()
+			.onDragDropEvent((event) => {
+				const payload = event.payload;
+				if (payload.type === 'leave') {
+					isDraggingColumn = false;
+					paths = [];
+					return;
+				}
+				if (payload.type === 'enter') {
+					paths = payload.paths;
+					dragSummary = dropSummary(paths);
+				}
+				const inside = paths.length > 0 && isOverThisChat(payload.position);
+				if (payload.type === 'drop') {
+					isDraggingColumn = false;
+					const dropped = payload.paths.length > 0 ? payload.paths : paths;
+					paths = [];
+					if (inside && dropped.length > 0 && composerRef) {
+						void composerRef.addPaths(dropped).then(() => composerRef?.focus());
+					}
+					return;
+				}
+				isDraggingColumn = inside;
+			})
+			.then((stop) => {
+				if (disposed) stop();
+				else unlisten = stop;
+			})
+			.catch((error) => console.warn('Trascinamento nativo non disponibile:', error));
+		return () => {
+			disposed = true;
+			unlisten?.();
+			isDraggingColumn = false;
+		};
+	});
 
 	let queueEditBlocked = $state(false);
 	function editQueuedFollowUp(id: number) {
@@ -283,24 +323,25 @@
 </script>
 
 <div
+	bind:this={surfaceEl}
 	class="chat-surface"
 	style:visibility={visible ? 'visible' : 'hidden'}
 	style:pointer-events={visible ? 'auto' : 'none'}
 	style:position="absolute"
 	style:inset="0"
-	ondragenter={handleChatSurfaceDragEnter}
-	ondragleave={handleChatSurfaceDragLeave}
-	ondragover={(e) => {
-		if (e.dataTransfer?.types.includes('Files')) {
-			e.preventDefault();
-			isDraggingColumn = true;
-		}
-	}}
-	ondrop={handleChatSurfaceDrop}
 >
 	{#if isDraggingColumn}
 		<div class="chat-column-drag-overlay" aria-hidden="true">
-			<span class="drag-overlay-label">{m.chat_v2_composer_drop_overlay()}</span>
+			<div class="drag-overlay-card">
+				<span class="drag-overlay-label">
+					<IconAt aria-hidden="true" />
+					{m.chat_v2_composer_drop_overlay()}
+				</span>
+				{#if dragSummary}
+					<span class="drag-overlay-names font-mono">{dragSummary}</span>
+				{/if}
+				<span class="drag-overlay-hint">{m.chat_v2_drop_hint()}</span>
+			</div>
 		</div>
 	{/if}
 	<div class="scroll-area" bind:this={scrollEl} onscroll={handleScroll}>
@@ -379,6 +420,7 @@
 					bind:this={composerRef}
 					{session}
 					visible={visible && (session.pendingUi === null || askMinimized)}
+					dropTarget={isDraggingColumn}
 					onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 					{onNewChat}
 				/>
@@ -421,19 +463,45 @@
 		pointer-events: none;
 	}
 
+	.drag-overlay-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-1);
+		max-width: min(420px, calc(100% - 2 * var(--space-4)));
+		padding: var(--space-3) var(--space-4);
+		background: var(--bg-raised);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-xl);
+		box-shadow: var(--shadow-overlay);
+		text-align: center;
+	}
+
 	.drag-overlay-label {
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-4);
-		background: var(--bg-raised);
-		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-full);
 		color: var(--ink);
 		font-family: var(--font-ui);
 		font-size: var(--text-sm);
 		font-weight: 500;
-		box-shadow: var(--shadow-overlay);
+		--icon-size: 15px;
+	}
+
+	.drag-overlay-names {
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--brand-ink);
+		font-size: var(--text-xs);
+	}
+
+	.drag-overlay-hint {
+		color: var(--ink-muted);
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
+		line-height: 1.4;
 	}
 	.scroll-area {
 		flex: 1;

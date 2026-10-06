@@ -1,14 +1,17 @@
 <script lang="ts">
 	/**
-	 * Menu a tendina per l'aggiunta di allegati nel composer.
+	 * Menu a tendina per l'aggiunta di file e cartelle nel composer: il
+	 * selettore nativo restituisce percorsi, che diventano menzioni `@`.
 	 */
-	import { IconAttach } from '$lib/icons';
+	import { IconAttach, IconFolder } from '$lib/icons';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let {
-		onPickFiles
+		onPickFiles,
+		onPickFolder
 	} = $props<{
 		onPickFiles: () => void;
+		onPickFolder?: () => void;
 	}>();
 </script>
 
@@ -17,6 +20,12 @@
 		<span class="action-icon"><IconAttach /></span>
 		<span>{m.chat_v2_composer_attach_pick()}</span>
 	</button>
+	{#if onPickFolder}
+		<button type="button" role="menuitem" class="menu-action-btn" onclick={onPickFolder}>
+			<span class="action-icon"><IconFolder /></span>
+			<span>{m.chat_v2_composer_attach_folder()}</span>
+		</button>
+	{/if}
 
 	<div class="attach-hint">
 		{m.chat_v2_composer_attach_hint()}

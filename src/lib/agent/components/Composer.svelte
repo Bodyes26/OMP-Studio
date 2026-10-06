@@ -45,6 +45,18 @@
 	import { resolveContextWindow } from '$lib/agent/contextReport';
 	import { formatTokens } from '$lib/utils/format';
 	import { invoke } from '@tauri-apps/api/core';
+	import { open as openDialog } from '@tauri-apps/plugin-dialog';
+	import {
+		MAX_STAGED_ATTACHMENT_BYTES,
+		base64ToBlob,
+		isPreviewableImagePath,
+		pathBaseName,
+		readImageErrorCode,
+		readImageErrorMessage,
+		stageAttachmentHeaders,
+		uniquePaths,
+		type DroppedImage
+	} from '$lib/agent/chatDrop';
 	import { untrack } from 'svelte';
 	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
 	import { TwoStepStop } from '$lib/agent/twoStepStop';
@@ -79,11 +91,14 @@
 	let {
 		session,
 		visible = true,
+		dropTarget = false,
 		onSlashCommand,
 		onNewChat
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
+		/** Un trascinamento dal sistema operativo e' sopra la chat: evidenzia la sagoma. */
+		dropTarget?: boolean;
 		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
 	}>();
@@ -105,7 +120,6 @@
 
 	let rootEl = $state<HTMLDivElement | null>(null);
 	let editorRef = $state<ReturnType<typeof ComposerEditor> | null>(null);
-	let fileInputEl = $state<HTMLInputElement | null>(null);
 
 	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'context' | 'sendMode' | null;
 	let activeMenu = $state<MenuKind>(null);
@@ -113,7 +127,6 @@
 	let attachments = $state<ComposerAttachment[]>([]);
 	let draftRevision = $state(0);
 	let availableModels = $state<ModelInfo[]>([]);
-	let isDragging = $state(false);
 
 	let currentTrigger = $state<ComposerTrigger | null>(null);
 
@@ -323,13 +336,23 @@
 				}
 			} else {
 				const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
+				// Il limite si controlla prima di leggere: un file enorme non deve
+				// passare per la memoria della WebView solo per essere rifiutato.
+				if (file.size > MAX_STAGED_ATTACHMENT_BYTES) {
+					session.flashNotice(
+						'warning',
+						m.chat_v2_composer_attachment_too_large({
+							name: file.name,
+							limit: String(MAX_STAGED_ATTACHMENT_BYTES / (1024 * 1024))
+						})
+					);
+					continue;
+				}
 				try {
-					const arrayBuf = await file.arrayBuffer();
-					const bytes = Array.from(new Uint8Array(arrayBuf));
-					const staged = await invoke<{ path: string; name: string; size: number }>('stage_chat_attachment', {
-						sessionKey: session.sessionKey,
-						fileName: file.name,
-						bytes
+					// IPC grezzo: i byte viaggiano come corpo binario, i metadati negli header.
+					const bytes = new Uint8Array(await file.arrayBuffer());
+					const staged = await invoke<{ path: string; name: string; size: number }>('stage_chat_attachment', bytes, {
+						headers: stageAttachmentHeaders(session.sessionKey, file.name)
 					});
 					const objUrl = isVideo ? URL.createObjectURL(file) : undefined;
 					attachments = [
@@ -345,9 +368,78 @@
 						}
 					];
 				} catch (err) {
-					session.flashNotice('error', `Impossibile salvare l'allegato: ${err instanceof Error ? err.message : String(err)}`);
+					session.flashNotice(
+						'error',
+						m.chat_v2_composer_attachment_failed({ error: err instanceof Error ? err.message : String(err) })
+					);
 				}
 			}
+		}
+	}
+
+	/**
+	 * File e cartelle dal sistema operativo (trascinati o scelti dal
+	 * selettore): ognuno diventa una menzione `@` con il percorso assoluto,
+	 * come quelle della palette. Nessuna copia e nessun limite: omp legge il
+	 * file da se'. Le immagini fino a 5 MB si allegano anche come immagine,
+	 * perche' il modello le veda.
+	 */
+	export async function addPaths(paths: readonly string[]): Promise<void> {
+		const list = uniquePaths(paths);
+		if (list.length === 0 || !editorRef) return;
+		editorRef.insertBadges(list.map((path) => createFileBadgeElement(path)));
+		for (const path of list) {
+			if (isPreviewableImagePath(path)) await attachImageFromPath(path);
+		}
+	}
+
+	async function attachImageFromPath(path: string): Promise<void> {
+		const name = pathBaseName(path);
+		try {
+			const image = await invoke<DroppedImage>('chat_attachment_read_image', { path });
+			const prep = await prepareImage(base64ToBlob(image.base64, image.mimeType));
+			if (!('data' in prep)) {
+				session.flashNotice('warning', m.chat_v2_drop_image_failed({ name, error: prep.error }));
+				return;
+			}
+			attachments = [
+				...attachments,
+				{
+					id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+					kind: 'image',
+					name,
+					size: image.size,
+					url: `data:${prep.mimeType};base64,${prep.data}`,
+					mimeType: prep.mimeType,
+					base64: prep.data,
+					path,
+					tokens: 1600
+				}
+			];
+		} catch (err) {
+			const code = readImageErrorCode(err);
+			// Il file resta citato per percorso: oltre 5 MB lo si dice, un file
+			// che solo nel nome sembra un'immagine non merita un avviso.
+			if (code === 'too_large') session.flashNotice('info', m.chat_v2_drop_image_too_large({ name }));
+			else if (code !== 'not_image') {
+				session.flashNotice('warning', m.chat_v2_drop_image_failed({ name, error: readImageErrorMessage(err) }));
+			}
+		}
+	}
+
+	/** Il pulsante allega usa il selettore nativo: restituisce percorsi, come il trascinamento. */
+	async function pickFromDialog(directory: boolean): Promise<void> {
+		activeMenu = null;
+		try {
+			const picked = await openDialog({ multiple: true, directory });
+			const list = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+			await addPaths(list);
+			focus();
+		} catch (err) {
+			session.flashNotice(
+				'error',
+				m.chat_v2_composer_attach_dialog_failed({ error: err instanceof Error ? err.message : String(err) })
+			);
 		}
 	}
 
@@ -679,28 +771,9 @@
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-<div
-	bind:this={rootEl}
-	class="composer-root"
-	class:hidden={!visible}
-	ondragover={(e) => {
-		if (e.dataTransfer?.types.includes('Files')) {
-			e.preventDefault();
-			isDragging = true;
-		}
-	}}
-	ondragleave={(e) => {
-		if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-		isDragging = false;
-	}}
-	ondrop={(e) => {
-		if (e.dataTransfer?.files.length) {
-			e.preventDefault();
-			isDragging = false;
-			void addFiles(e.dataTransfer.files);
-		}
-	}}
->
+<!-- Il trascinamento dal sistema operativo arriva come evento nativo di
+     Tauri e lo gestisce Chat.svelte (addPaths): i gestori HTML non ricevono file. -->
+<div bind:this={rootEl} class="composer-root" class:hidden={!visible}>
 	<ComposerNoticeStrip {session} />
 
 	<!-- Suggerimenti prompt (visibili solo quando l'agente è fermo) -->
@@ -729,10 +802,7 @@
 	{/if}
 
 	<!-- Riquadro principale del composer -->
-	<div
-		class="composer-shell"
-		class:dragging={isDragging}
-	>
+	<div class="composer-shell" class:dragging={dropTarget}>
 		<!-- Striscia informativa per comando/skill attivo con argomenti -->
 		{#if activeCmdDef}
 			<div class="cmd-strip rv-blur" style="--dur: 200ms; --blur: 4px;">
@@ -801,10 +871,8 @@
 				{/snippet}
 				{#snippet children()}
 					<AttachMenu
-						onPickFiles={() => {
-							activeMenu = null;
-							fileInputEl?.click();
-						}}
+						onPickFiles={() => void pickFromDialog(false)}
+						onPickFolder={() => void pickFromDialog(true)}
 					/>
 				{/snippet}
 			</MenuButton>
@@ -1098,28 +1166,7 @@
 				</div>
 			</div>
 		</div>
-
-		<!-- Overlay di trascinamento: ultimo figlio, dipinge sopra editor e barra -->
-		{#if isDragging}
-			<div class="composer-drop-overlay" aria-hidden="true">
-				<IconAttach />
-				<span>{m.chat_v2_composer_drop_overlay()}</span>
-			</div>
-		{/if}
 	</div>
-
-	<!-- File input nascosto -->
-	<input
-		bind:this={fileInputEl}
-		type="file"
-		multiple
-		accept="image/*,video/*,.pdf,.txt,.md,.csv,.json,.log,.zip"
-		class="hidden-file-input"
-		onchange={(e) => {
-			if (e.currentTarget.files) void addFiles(e.currentTarget.files);
-			e.currentTarget.value = '';
-		}}
-	/>
 </div>
 
 <style>
@@ -1484,7 +1531,4 @@
 		color: var(--ink-faint);
 	}
 
-	.hidden-file-input {
-		display: none;
-	}
 </style>

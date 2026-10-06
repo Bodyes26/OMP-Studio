@@ -161,6 +161,38 @@
 		sync();
 	}
 
+	/**
+	 * Inserisce dei badge alla posizione del cursore (in fondo se il cursore
+	 * non e' nell'editor), ciascuno seguito da uno spazio: e' il percorso dei
+	 * file trascinati o scelti dal selettore, che non passano da un trigger.
+	 */
+	export function insertBadges(badges: HTMLElement[]): void {
+		if (!editorEl || badges.length === 0) return;
+		editorEl.focus();
+		const sel = window.getSelection();
+		if (!sel || !sel.rangeCount || !editorEl.contains(sel.anchorNode)) {
+			caretAfter(editorEl, editorEl.childNodes.length);
+		}
+		const range = window.getSelection()?.getRangeAt(0);
+		if (!range) return;
+		range.deleteContents();
+		// Staccato dalla parola precedente, come una menzione scritta a mano.
+		const before = range.startContainer.nodeType === Node.TEXT_NODE
+			? (range.startContainer.textContent ?? '')[range.startOffset - 1]
+			: undefined;
+		let anchor: Node | null = null;
+		const frag = document.createDocumentFragment();
+		if (before && !/[\s ]/.test(before)) frag.appendChild(document.createTextNode(NBSP));
+		for (const badge of badges) {
+			frag.appendChild(badge);
+			anchor = document.createTextNode(NBSP);
+			frag.appendChild(anchor);
+		}
+		range.insertNode(frag);
+		if (anchor) caretAfter(anchor, 1);
+		sync();
+	}
+
 	export function dismissCurrentTrigger(trigger: { node: Text; start: number }): void {
 		dismissedTrigger = { node: trigger.node, start: trigger.start };
 		onTriggerChange?.(null);
