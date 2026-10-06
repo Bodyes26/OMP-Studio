@@ -15,7 +15,7 @@
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { PromptBus, type PromptBusStorage } from '../src/lib/agent/promptBus.ts';
+import { PromptBus, canRestorePrompt, type PromptBusStorage } from '../src/lib/agent/promptBus.ts';
 import { normalizePromptAnswer } from '../src/lib/agent/askAnswers.ts';
 
 function createMockStorage(): PromptBusStorage {
@@ -384,6 +384,74 @@ describe('PromptBus: Architettura e Resilienza Input Pendenti', () => {
 			assert.equal(companionPendings.length, 1, 'la Companion deve acquisire la richiesta pendente');
 			assert.equal(companionPendings[0].requestId, 'req-late');
 			assert.equal(companionPendings[0].title, 'Domanda prima dell\'apertura companion');
+		});
+	});
+
+	describe('4b. Domande fantasma', () => {
+		it("all'avvio della finestra principale una voce stantia non torna pending", async () => {
+			const previousRun = new PromptBus({ storage, broadcast: channel.broadcast, listen: channel.listen, autoInit: false });
+			previousRun.registerRequest({
+				requestId: 'req-ghost',
+				projectId: 'proj',
+				owner: 'rpc:3',
+				title: 'Domanda di un processo morto',
+				options: ['A', 'B']
+			});
+			previousRun.destroy();
+
+			const cancelled: string[] = [];
+			await channel.listen<{ requestId: string }>('studio-prompt-cancelled', (p) => cancelled.push(p.requestId));
+			const main = new PromptBus({
+				storage,
+				broadcast: channel.broadcast,
+				listen: channel.listen,
+				autoInit: false,
+				expireRestored: true
+			});
+			assert.equal(main.getPendings().length, 0);
+			assert.equal(main.hasPending('req-ghost'), false);
+			assert.equal(main.getRequest('req-ghost')?.status, 'expired');
+			assert.deepEqual(cancelled, ['req-ghost'], 'le altre finestre chiudono la stessa voce');
+			await main.init();
+			assert.equal(main.getPendings().length, 0, 'la rilettura in init non la resuscita');
+
+			// La Companion aperta dopo legge lo stesso storage: niente piu' voci pendenti.
+			const companion = new PromptBus({ storage, broadcast: channel.broadcast, listen: channel.listen, autoInit: false });
+			assert.equal(companion.getPendings().length, 0);
+		});
+
+		it('le richieste registrate nel runtime corrente conservano il processo proprietario', () => {
+			const bus = new PromptBus({ storage, broadcast: channel.broadcast, listen: channel.listen, autoInit: false });
+			const req = bus.registerRequest({ requestId: 'r1', projectId: 'p', owner: 'rpc:7', title: 'T' });
+			assert.equal(req.owner, 'rpc:7');
+		});
+
+		it('canRestorePrompt: solo voci pendenti della stessa sessione senza un\'altra domanda viva', () => {
+			const base = { status: 'pending' as const, projectId: 'Proj', laneId: 'main', sessionId: 's1', requestId: 'r1' };
+			const session = { projectKey: 'proj', laneId: null, sessionId: 's1', livePendingId: null };
+			assert.equal(canRestorePrompt(base, session), true);
+			assert.equal(canRestorePrompt({ ...base, status: 'cancelled' }, session), false, 'cancel partito da noi: niente eco');
+			assert.equal(canRestorePrompt({ ...base, status: 'expired' }, session), false);
+			assert.equal(canRestorePrompt({ ...base, sessionId: 's2' }, session), false);
+			assert.equal(canRestorePrompt(base, { ...session, livePendingId: 'r9' }), false);
+			assert.equal(canRestorePrompt(base, { ...session, livePendingId: 'r1' }), true);
+			assert.equal(canRestorePrompt({ ...base, laneId: 'lane-2' }, session), false);
+		});
+
+		it('una cancellazione locale con fromResponder non richiama il responder (nessuna eco verso omp)', async () => {
+			const bus = new PromptBus({ storage, broadcast: channel.broadcast, listen: channel.listen, autoInit: false });
+			let calls = 0;
+			bus.registerRequest({
+				requestId: 'r2',
+				projectId: 'p',
+				title: 'T',
+				responder: async () => {
+					calls++;
+					return true;
+				}
+			});
+			assert.equal(await bus.cancelRequest('r2', undefined, true), true);
+			assert.equal(calls, 0);
 		});
 	});
 

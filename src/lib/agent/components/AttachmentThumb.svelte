@@ -30,7 +30,9 @@
 		onOpen?: () => void;
 	}>();
 
-	let videoDuration = $state(attachment.duration);
+	// La durata misurata dal video vince su quella dichiarata dall'allegato.
+	let measuredDuration = $state<number | undefined>(undefined);
+	const videoDuration = $derived(measuredDuration ?? attachment.duration);
 	function formatDuration(sec?: number): string {
 		if (sec === undefined || !Number.isFinite(sec)) return '';
 		const m = Math.floor(sec / 60);
@@ -76,7 +78,7 @@
 					preload="metadata"
 					class="video-element"
 					onloadedmetadata={(e) => {
-						videoDuration = e.currentTarget.duration;
+						measuredDuration = e.currentTarget.duration;
 					}}
 				>
 					<track kind="captions" />

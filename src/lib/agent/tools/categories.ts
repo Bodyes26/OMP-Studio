@@ -11,6 +11,8 @@
  */
 
 import type { AgentToolResult } from '../wire';
+import { m as msg } from '$lib/paraglide/messages.js';
+import { getLocale } from '$lib/paraglide/runtime.js';
 import {
 	asRecord,
 	extractToolErrorReason,
@@ -159,11 +161,17 @@ export function parseDiffStats(diffText?: string | null): [number, number] | und
 }
 
 /**
- * Formatta millisecondi come 'X,Y s' (con virgola italiana conforme al prototipo).
+ * Formatta millisecondi come 'X,Y s' con il separatore decimale della lingua
+ * dell'interfaccia (virgola in italiano, punto in inglese).
  */
 export function formatDurationSecs(ms: number): string {
 	const clamped = Math.max(0.1, ms / 1000);
-	return `${clamped.toFixed(1).replace('.', ',')} s`;
+	const value = new Intl.NumberFormat(getLocale(), {
+		minimumFractionDigits: 1,
+		maximumFractionDigits: 1,
+		useGrouping: false
+	}).format(Math.round(clamped * 10) / 10);
+	return `${value} s`;
 }
 
 function formatFileSize(bytes: number | undefined): string | undefined {
@@ -216,14 +224,14 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 
 	switch (canonical) {
 		case 'read': {
-			label = 'Lettura';
+			label = msg.chat_v2_tool_label_read();
 			const metaRec = asRecord(details?.meta);
 			const source = asRecord(metaRec?.source);
 			detail = str(source?.value) ?? str(args.path) ?? str(args.file) ?? str(args.uri);
 			const totalLines = num(details?.totalLines);
 			const fileSize = num(details?.fileSize);
 			if (totalLines !== undefined) {
-				meta = `${totalLines} righe`;
+				meta = msg.chat_v2_tool_meta_lines({ count: totalLines });
 			} else if (fileSize !== undefined) {
 				meta = formatFileSize(fileSize);
 			}
@@ -231,52 +239,52 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'inspect_image': {
-			label = 'Ispezione immagine';
+			label = msg.chat_v2_tool_label_inspect_image();
 			detail = str(args.path) ?? str(args.file);
 			break;
 		}
 
 		case 'recall': {
-			label = 'Memoria';
+			label = msg.chat_v2_tool_label_recall();
 			detail = str(args.query) ?? str(args.key);
 			break;
 		}
 
 		case 'grep': {
-			label = 'Ricerca';
+			label = msg.chat_v2_tool_label_grep();
 			detail = str(args.pattern) ?? str(args.query);
 			const matchCount = num(details?.matchCount);
 			const fileCount = num(details?.fileCount);
 			if (matchCount !== undefined && fileCount !== undefined) {
-				meta = `${matchCount} in ${fileCount} file`;
+				meta = msg.chat_v2_tool_meta_matches_in_files({ matches: matchCount, files: fileCount });
 			} else if (matchCount !== undefined) {
-				meta = `${matchCount} ris.`;
+				meta = msg.chat_v2_tool_meta_results({ count: matchCount });
 			} else if (fileCount !== undefined) {
-				meta = `${fileCount} file`;
+				meta = msg.chat_v2_tool_meta_files({ count: fileCount });
 			}
 			break;
 		}
 
 		case 'ast_grep': {
-			label = 'Ricerca AST';
+			label = msg.chat_v2_tool_label_ast_grep();
 			detail = str(args.pat) ?? str(args.pattern);
 			const matchCount = num(details?.matchCount);
 			const fileCount = num(details?.fileCount);
 			if (matchCount !== undefined) {
-				meta = `${matchCount} ris.`;
+				meta = msg.chat_v2_tool_meta_results({ count: matchCount });
 			} else if (fileCount !== undefined) {
-				meta = `${fileCount} file`;
+				meta = msg.chat_v2_tool_meta_files({ count: fileCount });
 			}
 			break;
 		}
 
 		case 'glob': {
-			label = 'Ricerca file';
+			label = msg.chat_v2_tool_label_glob();
 			detail = str(args.path) ?? str(args.pattern) ?? str(args.glob);
 			const files = strList(details?.files);
 			const fileCount = num(details?.fileCount) ?? (files.length > 0 ? files.length : undefined);
 			if (fileCount !== undefined) {
-				meta = `${fileCount} file`;
+				meta = msg.chat_v2_tool_meta_files({ count: fileCount });
 			}
 			break;
 		}
@@ -288,7 +296,7 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'bash': {
-			label = 'Comando';
+			label = msg.chat_v2_tool_label_bash();
 			detail = str(args.command) ?? str(args.cmd);
 			const exitCode = num(details?.exitCode) ?? num(details?.code);
 			const wallTimeMs = num(details?.wallTimeMs);
@@ -301,7 +309,7 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'eval': {
-			label = 'Valutazione';
+			label = msg.chat_v2_tool_label_eval();
 			detail = str(args.title) ?? (typeof args.code === 'string' ? args.code.trim().split('\n')[0].slice(0, 80) : undefined);
 			const wallTimeMs = num(details?.wallTimeMs) ?? num(details?.durationMs);
 			const language = str(details?.language) ?? str(args.language);
@@ -314,7 +322,7 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'job': {
-			label = 'Processo';
+			label = msg.chat_v2_tool_label_job();
 			detail = str(args.command) ?? str(args.cmd) ?? str(args.id);
 			break;
 		}
@@ -326,7 +334,7 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'edit': {
-			label = 'Modifica';
+			label = msg.chat_v2_tool_label_edit();
 			const input = str(args.input);
 			const inputPath = input ? /^\[([^#\]]+)/.exec(input)?.[1] : undefined;
 			detail = str(details?.path) ?? str(args.path) ?? str(args.file) ?? inputPath;
@@ -342,7 +350,7 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'write': {
-			label = 'Scrittura';
+			label = msg.chat_v2_tool_label_write();
 			detail = str(details?.resolvedPath) ?? str(args.path) ?? str(args.file);
 			if (str(details?.diff)) {
 				diff = parseDiffStats(str(details?.diff));
@@ -358,25 +366,25 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'ast_edit': {
-			label = 'Modifica AST';
+			label = msg.chat_v2_tool_label_ast_edit();
 			const paths = strList(args.paths);
 			detail = str(details?.path) ?? (paths.length > 0 ? paths[0] : str(args.path));
 			diff = parseDiffStats(str(details?.diff));
 			const totalReplacements = num(details?.totalReplacements);
 			if (totalReplacements !== undefined) {
-				meta = `${totalReplacements} mod.`;
+				meta = msg.chat_v2_tool_meta_replacements({ count: totalReplacements });
 			}
 			break;
 		}
 
 		case 'retain': {
-			label = 'Salvataggio memoria';
+			label = msg.chat_v2_tool_label_retain();
 			detail = str(args.title) ?? str(args.key);
 			break;
 		}
 
 		case 'web_search': {
-			label = 'Ricerca web';
+			label = msg.chat_v2_tool_label_web_search();
 			detail = str(args.query);
 			const sources = Array.isArray(details?.sources)
 				? details.sources
@@ -384,13 +392,13 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 					? result.details
 					: undefined;
 			if (sources && sources.length > 0) {
-				meta = `${sources.length} ris.`;
+				meta = msg.chat_v2_tool_meta_results({ count: sources.length });
 			}
 			break;
 		}
 
 		case 'fetch': {
-			label = 'Richiesta web';
+			label = msg.chat_v2_tool_label_fetch();
 			detail = str(details?.url) ?? str(args.url);
 			const status = num(details?.status);
 			if (status !== undefined) {
@@ -406,13 +414,13 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'reflect': {
-			label = 'Riflessione';
+			label = msg.chat_v2_tool_label_reflect();
 			detail = str(args.topic) ?? str(args.note);
 			break;
 		}
 
 		case 'task': {
-			label = 'Subagente';
+			label = msg.chat_v2_tool_label_task();
 			detail = str(args.task) ?? str(args.description);
 			break;
 		}
@@ -424,7 +432,7 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'ask': {
-			label = 'Domanda';
+			label = msg.chat_v2_tool_label_ask();
 			detail = str(args.question) ?? str(args.prompt);
 			break;
 		}
@@ -436,7 +444,7 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'goal': {
-			label = 'Obiettivo';
+			label = msg.chat_v2_tool_label_goal();
 			detail = str(args.description) ?? str(args.goal);
 			break;
 		}
@@ -454,25 +462,25 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 		}
 
 		case 'report_issue': {
-			label = 'Segnalazione';
+			label = msg.chat_v2_tool_label_report_issue();
 			detail = str(args.issue) ?? str(args.tool);
 			break;
 		}
 
 		case 'resolve': {
-			label = 'Risoluzione';
+			label = msg.chat_v2_tool_label_resolve();
 			detail = str(args.resolution) ?? str(args.solution);
 			break;
 		}
 
 		case 'yield': {
-			label = 'Risultato';
+			label = msg.chat_v2_tool_label_yield();
 			detail = str(args.summary);
 			break;
 		}
 
 		case 'generate_image': {
-			label = 'Generazione immagine';
+			label = msg.chat_v2_tool_label_generate_image();
 			detail = str(args.prompt);
 			break;
 		}
@@ -504,7 +512,7 @@ export function summarizeThinking(text: string): ToolSummary {
 	const firstLine = trimmed.split('\n', 1)[0] ?? '';
 	return {
 		category: 'think',
-		label: 'Ragionamento',
+		label: msg.chat_v2_tool_label_thinking(),
 		detail: firstLine.length > 80 ? `${firstLine.slice(0, 80)}…` : firstLine || undefined
 	};
 }

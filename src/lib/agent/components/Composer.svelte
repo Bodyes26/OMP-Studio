@@ -45,6 +45,23 @@
 	import { resolveContextWindow } from '$lib/agent/contextReport';
 	import { formatTokens } from '$lib/utils/format';
 	import { invoke } from '@tauri-apps/api/core';
+	import { open as openDialog } from '@tauri-apps/plugin-dialog';
+	import {
+		MAX_STAGED_ATTACHMENT_BYTES,
+		base64ToBlob,
+		isPreviewableImagePath,
+		pathBaseName,
+		readImageErrorCode,
+		readImageErrorMessage,
+		stageAttachmentHeaders,
+		uniquePaths,
+		type DroppedImage
+	} from '$lib/agent/chatDrop';
+	import { untrack } from 'svelte';
+	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
+	import { TwoStepStop } from '$lib/agent/twoStepStop';
+	import { composerChord } from '$lib/agent/composerShortcuts';
+	import { IS_MAC } from '$lib/utils/platform';
 	import { m } from '$lib/paraglide/messages.js';
 
 	import ComposerEditor from './ComposerEditor.svelte';
@@ -76,11 +93,14 @@
 	let {
 		session,
 		visible = true,
+		dropTarget = false,
 		onSlashCommand,
 		onNewChat
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
+		/** Un trascinamento dal sistema operativo e' sopra la chat: evidenzia la sagoma. */
+		dropTarget?: boolean;
 		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
 	}>();
@@ -102,7 +122,6 @@
 
 	let rootEl = $state<HTMLDivElement | null>(null);
 	let editorRef = $state<ReturnType<typeof ComposerEditor> | null>(null);
-	let fileInputEl = $state<HTMLInputElement | null>(null);
 
 	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'context' | 'sendMode' | null;
 	let activeMenu = $state<MenuKind>(null);
@@ -110,12 +129,30 @@
 	let attachments = $state<ComposerAttachment[]>([]);
 	let draftRevision = $state(0);
 	let availableModels = $state<ModelInfo[]>([]);
-	let isDragging = $state(false);
 
 	let currentTrigger = $state<ComposerTrigger | null>(null);
 
 	let suggestItems = $state<SuggestionItem[]>([]);
 	let suggestIndex = $state(0);
+
+	// Stop a due stadi: abort, poi «Forza arresto» se l'agente non si ferma.
+	let stopArmed = $state(false);
+	const stopControl = new TwoStepStop({
+		abort: () => session.abort(),
+		forceKill: () => session.forceKill(),
+		onChange: (armed) => (stopArmed = armed),
+		setTimer: (callback, ms) => window.setTimeout(callback, ms),
+		clearTimer: (handle) => window.clearTimeout(handle as number)
+	});
+	// Fine reale del turno, processo uscito o sessione cambiata: niente da forzare.
+	$effect(() => {
+		void session;
+		void session.runEndSeq;
+		void session.exited;
+		void session.sessionId;
+		stopControl.settle();
+	});
+	$effect(() => () => stopControl.settle());
 
 	let sendBehaviorChoice = $state<StreamingBehavior>(settingsStore.general.defaultStreamingBehavior);
 	$effect(() => {
@@ -204,7 +241,17 @@
 				return;
 			}
 
+			const trigger = currentTrigger;
 			void loadProjectFiles(projectPath).then((files) => {
+				// Una risposta arrivata dopo altri tasti non deve sovrascrivere
+				// la palette della query corrente (o riaprirne una chiusa).
+				if (
+					!currentTrigger ||
+					currentTrigger.kind !== trigger.kind ||
+					currentTrigger.query !== trigger.query
+				) {
+					return;
+				}
 				const context = {
 					activeFile: projectStore.activeProject?.lane.activeFile,
 					openFiles: projectStore.activeProject?.lane.openFiles,
@@ -301,13 +348,23 @@
 				}
 			} else {
 				const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
+				// Il limite si controlla prima di leggere: un file enorme non deve
+				// passare per la memoria della WebView solo per essere rifiutato.
+				if (file.size > MAX_STAGED_ATTACHMENT_BYTES) {
+					session.flashNotice(
+						'warning',
+						m.chat_v2_composer_attachment_too_large({
+							name: file.name,
+							limit: String(MAX_STAGED_ATTACHMENT_BYTES / (1024 * 1024))
+						})
+					);
+					continue;
+				}
 				try {
-					const arrayBuf = await file.arrayBuffer();
-					const bytes = Array.from(new Uint8Array(arrayBuf));
-					const staged = await invoke<{ path: string; name: string; size: number }>('stage_chat_attachment', {
-						sessionKey: session.sessionKey,
-						fileName: file.name,
-						bytes
+					// IPC grezzo: i byte viaggiano come corpo binario, i metadati negli header.
+					const bytes = new Uint8Array(await file.arrayBuffer());
+					const staged = await invoke<{ path: string; name: string; size: number }>('stage_chat_attachment', bytes, {
+						headers: stageAttachmentHeaders(session.sessionKey, file.name)
 					});
 					const objUrl = isVideo ? URL.createObjectURL(file) : undefined;
 					attachments = [
@@ -323,15 +380,94 @@
 						}
 					];
 				} catch (err) {
-					session.flashNotice('error', `Impossibile salvare l'allegato: ${err instanceof Error ? err.message : String(err)}`);
+					session.flashNotice(
+						'error',
+						m.chat_v2_composer_attachment_failed({ error: err instanceof Error ? err.message : String(err) })
+					);
 				}
 			}
 		}
 	}
 
+	/**
+	 * File e cartelle dal sistema operativo (trascinati o scelti dal
+	 * selettore): ognuno diventa una menzione `@` con il percorso assoluto,
+	 * come quelle della palette. Nessuna copia e nessun limite: omp legge il
+	 * file da se'. Le immagini fino a 5 MB si allegano anche come immagine,
+	 * perche' il modello le veda.
+	 */
+	export async function addPaths(paths: readonly string[]): Promise<void> {
+		const list = uniquePaths(paths);
+		if (list.length === 0 || !editorRef) return;
+		editorRef.insertBadges(list.map((path) => createFileBadgeElement(path)));
+		for (const path of list) {
+			if (isPreviewableImagePath(path)) await attachImageFromPath(path);
+		}
+	}
+
+	async function attachImageFromPath(path: string): Promise<void> {
+		const name = pathBaseName(path);
+		try {
+			const image = await invoke<DroppedImage>('chat_attachment_read_image', { path });
+			const prep = await prepareImage(base64ToBlob(image.base64, image.mimeType));
+			if (!('data' in prep)) {
+				session.flashNotice('warning', m.chat_v2_drop_image_failed({ name, error: prep.error }));
+				return;
+			}
+			attachments = [
+				...attachments,
+				{
+					id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+					kind: 'image',
+					name,
+					size: image.size,
+					url: `data:${prep.mimeType};base64,${prep.data}`,
+					mimeType: prep.mimeType,
+					base64: prep.data,
+					path,
+					tokens: 1600
+				}
+			];
+		} catch (err) {
+			const code = readImageErrorCode(err);
+			// Il file resta citato per percorso: oltre 5 MB lo si dice, un file
+			// che solo nel nome sembra un'immagine non merita un avviso.
+			if (code === 'too_large') session.flashNotice('info', m.chat_v2_drop_image_too_large({ name }));
+			else if (code !== 'not_image') {
+				session.flashNotice('warning', m.chat_v2_drop_image_failed({ name, error: readImageErrorMessage(err) }));
+			}
+		}
+	}
+
+	/** Il pulsante allega usa il selettore nativo: restituisce percorsi, come il trascinamento. */
+	async function pickFromDialog(directory: boolean): Promise<void> {
+		activeMenu = null;
+		try {
+			const picked = await openDialog({ multiple: true, directory });
+			const list = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+			await addPaths(list);
+			focus();
+		} catch (err) {
+			session.flashNotice(
+				'error',
+				m.chat_v2_composer_attach_dialog_failed({ error: err instanceof Error ? err.message : String(err) })
+			);
+		}
+	}
+
 	function removeAttachment(id: string | number) {
+		releaseAttachments(attachments.filter((a) => a.id === id));
 		attachments = attachments.filter((a) => a.id !== id);
 	}
+
+	/** Gli URL blob dei video tengono in memoria l'intero file finche' non si revocano. */
+	function releaseAttachments(list: readonly ComposerAttachment[]): void {
+		for (const att of list) {
+			if (att.url?.startsWith('blob:')) URL.revokeObjectURL(att.url);
+		}
+	}
+	// Solo alla distruzione: l'effetto non ha dipendenze e la lettura avviene nel teardown.
+	$effect(() => () => releaseAttachments(untrack(() => attachments)));
 
 	// Selezione voce dalla tendina
 	function pickSuggestion(item: SuggestionItem) {
@@ -432,9 +568,11 @@
 		if (!insideComposer && (isTypingSurface(e.target) || isTypingSurface(activeEl))) return;
 		if (settingsStore.open || modelSettingsStore.isOpen || shortcutsModalStore.isOpen) return;
 
-		const altOnly = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
-		const ctrlOnly = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
-		if (!altOnly && !ctrlOnly) return;
+		// Alt+lettera su Windows/Linux, Ctrl+Opzione+lettera su Mac: Opzione da
+		// sola scrive caratteri (€ ç ñ) e non va rubata.
+		const chord = composerChord(e, IS_MAC);
+		if (chord === null) return;
+		const ctrlOnly = chord === 'command';
 		// e.code prima di e.key: con Alt alcuni layout producono caratteri speciali.
 		const key = e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
 
@@ -443,9 +581,9 @@
 				// Senza preventDefault la WebView apre la stampa.
 				e.preventDefault();
 				onSlashCommand?.('/role next');
-			} else if (key === 'c' && session.isStreaming && !window.getSelection()?.toString()) {
+			} else if (key === 'c' && (session.isStreaming || stopArmed) && !window.getSelection()?.toString()) {
 				e.preventDefault();
-				void session.abort();
+				stopControl.press();
 			}
 			return;
 		}
@@ -478,7 +616,7 @@
 				cycleThinkingLevel();
 				break;
 			case 'c':
-				if (session.isStreaming) void session.abort();
+				if (session.isStreaming || stopArmed) stopControl.press();
 				else clear();
 				break;
 			case 'e':
@@ -502,20 +640,33 @@
 		session.dismissComposerNotice();
 		try {
 			let wireText = editorRef.getWireText(isSkillCommand);
-			const stagedNonImages = attachments.filter((a) => a.path && a.kind !== 'image');
+			// I comandi di Studio passano dal guscio prima di omp; cio' che il
+			// guscio non riconosce (skill, comandi delle estensioni) va a omp.
+			const route = routeComposerSubmit(wireText);
+			if (route.kind === 'studio' && onSlashCommand?.(route.raw)) {
+				clear();
+				return;
+			}
+			const sent = [...attachments];
+			const stagedNonImages = sent.filter((a) => a.path && a.kind !== 'image');
 			if (stagedNonImages.length > 0) {
 				const pathsBlock = stagedNonImages.map((a) => `- ${a.path}`).join('\n');
-				wireText = wireText ? `${wireText}\n\nAllegati:\n${pathsBlock}` : pathsBlock;
+				wireText = wireText
+					? `${wireText}\n\n${m.chat_v2_composer_attachments_block()}\n${pathsBlock}`
+					: pathsBlock;
 			}
-			const imagesToSend: ImageContent[] = attachments
+			const imagesToSend: ImageContent[] = sent
 				.filter((a) => a.kind === 'image' && a.base64)
 				.map((a) => ({ type: 'image', data: a.base64!, mimeType: a.mimeType || 'image/jpeg' }));
 			let behavior: StreamingBehavior = sendBehaviorChoice;
 			if (isAlt) behavior = behavior === 'steer' ? 'followUp' : 'steer';
 			const result = await session.prompt(wireText, imagesToSend, behavior);
-			if (result === 'sent' || result === 'deferred') clear();
+			if (result === 'sent' || result === 'deferred') clearAfterSend(sent);
 		} catch (error) {
-			session.flashNotice('error', `Prompt non accettato: ${error instanceof Error ? error.message : String(error)}`);
+			session.flashNotice(
+				'error',
+				m.chat_v2_composer_prompt_rejected({ error: error instanceof Error ? error.message : String(error) })
+			);
 		} finally {
 			submitting = false;
 		}
@@ -528,7 +679,16 @@
 
 	export function clear(): void {
 		if (editorRef) editorRef.clear();
+		releaseAttachments(attachments);
 		attachments = [];
+		currentTrigger = null;
+	}
+
+	/** Dopo l'invio restano gli allegati aggiunti mentre la richiesta era in volo. */
+	function clearAfterSend(sent: ComposerAttachment[]): void {
+		if (editorRef) editorRef.clear();
+		releaseAttachments(sent);
+		attachments = remainingAfterSend(attachments, sent);
 		currentTrigger = null;
 	}
 
@@ -541,6 +701,15 @@
 			editorRef.setPlainText(text, isSkillCommand);
 		}
 	}
+
+	// Testo da altre superfici (Laboratorio, «Chiedi all'agente»): entra alla
+	// posizione del cursore e non sostituisce la bozza in corso.
+	$effect(() => {
+		const target = session;
+		return target.registerComposerInsertHandler((text: string) => {
+			editorRef?.insertPlainText(text, isSkillCommand);
+		});
+	});
 
 	export function restoreDraft(text: string, images?: (ComposerAttachment | ImageContent)[]): boolean {
 		if (!isDraftEmpty() || !editorRef) return false;
@@ -625,28 +794,9 @@
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-<div
-	bind:this={rootEl}
-	class="composer-root"
-	class:hidden={!visible}
-	ondragover={(e) => {
-		if (e.dataTransfer?.types.includes('Files')) {
-			e.preventDefault();
-			isDragging = true;
-		}
-	}}
-	ondragleave={(e) => {
-		if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-		isDragging = false;
-	}}
-	ondrop={(e) => {
-		if (e.dataTransfer?.files.length) {
-			e.preventDefault();
-			isDragging = false;
-			void addFiles(e.dataTransfer.files);
-		}
-	}}
->
+<!-- Il trascinamento dal sistema operativo arriva come evento nativo di
+     Tauri e lo gestisce Chat.svelte (addPaths): i gestori HTML non ricevono file. -->
+<div bind:this={rootEl} class="composer-root" class:hidden={!visible}>
 	<ComposerNoticeStrip {session} />
 
 	<!-- Suggerimenti prompt (visibili solo quando l'agente è fermo) -->
@@ -675,10 +825,7 @@
 	{/if}
 
 	<!-- Riquadro principale del composer -->
-	<div
-		class="composer-shell"
-		class:dragging={isDragging}
-	>
+	<div class="composer-shell" class:dragging={dropTarget}>
 		<!-- Striscia informativa per comando/skill attivo con argomenti -->
 		{#if activeCmdDef}
 			<div class="cmd-strip rv-blur" style="--dur: 200ms; --blur: 4px;">
@@ -713,7 +860,7 @@
 		{#if visualNoVisionWarning}
 			<div class="vision-warning-strip">
 				<IconWarning />
-				<span>{m.chat_v2_composer_vision_warning({ model: session.model?.name || session.model?.id || 'Il modello' })}</span>
+				<span>{m.chat_v2_composer_vision_warning({ model: session.model?.name || session.model?.id || m.chat_v2_composer_model_fallback() })}</span>
 				<button type="button" class="change-model-btn" onclick={() => (activeMenu = 'model')}>
 					{m.chat_v2_composer_change_model()}
 				</button>
@@ -747,10 +894,8 @@
 				{/snippet}
 				{#snippet children()}
 					<AttachMenu
-						onPickFiles={() => {
-							activeMenu = null;
-							fileInputEl?.click();
-						}}
+						onPickFiles={() => void pickFromDialog(false)}
+						onPickFolder={() => void pickFromDialog(true)}
 					/>
 				{/snippet}
 			</MenuButton>
@@ -805,7 +950,7 @@
 				onClose={() => (activeMenu = null)}
 			>
 				{#snippet trigger()}
-					<span class="model-name-label">{session.model?.name || session.model?.id || 'Modello'}</span>
+					<span class="model-name-label">{session.model?.name || session.model?.id || m.chat_v2_composer_model_label()}</span>
 					<span class="chevron-indicator"><IconChevronUp /></span>
 				{/snippet}
 				{#snippet children()}
@@ -863,7 +1008,7 @@
 							/>
 						{:else}
 							<p class="thinking-unsupported">
-								{m.chat_v2_composer_thinking_unsupported({ model: session.model?.name || session.model?.id || 'Questo modello' })}
+								{m.chat_v2_composer_thinking_unsupported({ model: session.model?.name || session.model?.id || m.chat_v2_composer_model_fallback() })}
 							</p>
 						{/if}
 					</div>
@@ -955,23 +1100,31 @@
 							draftTokens={draftTokensEstimate}
 							onCompact={() => {
 								activeMenu = null;
-								void session.prompt('/compact', [], 'steer');
+								void session.compact();
 							}}
 						/>
 					{/snippet}
 				</MenuButton>
 
-				<!-- Stop non disabilita l'invio: durante il turno si puo' fare steer o follow-up. -->
-				{#if session.isStreaming}
+				<!-- Stop non disabilita l'invio: durante il turno si puo' fare steer o follow-up.
+				     Se dopo l'abort l'agente non si ferma, il pulsante si arma come «Forza arresto». -->
+				{#if session.isStreaming || stopArmed}
+					{@const stopLabel = stopArmed ? m.force_kill_session_btn() : m.chat_v2_composer_stop_tooltip()}
 					<button
 						type="button"
 						class="composer-send-btn send-btn stop"
-						title={m.chat_v2_composer_stop_tooltip()}
-						onclick={() => session.abort()}
+						class:armed={stopArmed}
+						title={stopLabel}
+						aria-label={stopLabel}
+						onclick={() => stopControl.press()}
 					>
 						<IconStop />
+						{#if stopArmed}
+							<span class="stop-force-text">{m.force_kill_session_short()}</span>
+						{/if}
 					</button>
 				{/if}
+				<span class="sr-only" aria-live="polite">{stopArmed ? m.chat_v2_composer_stop_armed_announce() : ''}</span>
 				<div class="send-split-group">
 						<button
 							type="button"
@@ -988,7 +1141,7 @@
 						{#if session.isStreaming}
 						<MenuButton
 							open={activeMenu === 'sendMode'}
-							title="Modalità invio"
+							title={m.chat_v2_composer_send_mode_title()}
 							hasPopup="menu"
 							align="right"
 							width="240px"
@@ -1013,7 +1166,7 @@
 										}}
 									>
 										<span class="mode-title">{m.chat_v2_composer_send_steer()}</span>
-										<span class="mode-sub">Invio predefinito con Invio</span>
+										<span class="mode-sub">{m.chat_v2_composer_send_mode_default_hint()}</span>
 									</button>
 									<button
 										type="button"
@@ -1027,7 +1180,7 @@
 										}}
 									>
 										<span class="mode-title">{m.chat_v2_composer_send_followup()}</span>
-										<span class="mode-sub">Alternativa con Alt+Invio</span>
+										<span class="mode-sub">{m.chat_v2_composer_send_mode_alt_hint({ modifier: IS_MAC ? '⌥' : 'Alt' })}</span>
 									</button>
 								</div>
 							{/snippet}
@@ -1036,28 +1189,7 @@
 				</div>
 			</div>
 		</div>
-
-		<!-- Overlay di trascinamento: ultimo figlio, dipinge sopra editor e barra -->
-		{#if isDragging}
-			<div class="composer-drop-overlay" aria-hidden="true">
-				<IconAttach />
-				<span>{m.chat_v2_composer_drop_overlay()}</span>
-			</div>
-		{/if}
 	</div>
-
-	<!-- File input nascosto -->
-	<input
-		bind:this={fileInputEl}
-		type="file"
-		multiple
-		accept="image/*,video/*,.pdf,.txt,.md,.csv,.json,.log,.zip"
-		class="hidden-file-input"
-		onchange={(e) => {
-			if (e.currentTarget.files) void addFiles(e.currentTarget.files);
-			e.currentTarget.value = '';
-		}}
-	/>
 </div>
 
 <style>
@@ -1323,6 +1455,41 @@
 		--icon-size: 15px;
 	}
 
+	/* Armato: pillola con il testo del secondo clic e contorno cremisi che pulsa. */
+	.send-btn.stop.armed {
+		display: inline-flex;
+		align-items: center;
+		width: auto;
+		gap: 6px;
+		padding: 0 10px;
+		outline: 2px solid var(--danger);
+		outline-offset: 2px;
+		animation: stop-armed-pulse 1.2s var(--ease-out) infinite;
+	}
+
+	.stop-force-text {
+		font-family: var(--font-ui);
+		font-size: var(--text-caption);
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	@keyframes stop-armed-pulse {
+		0%,
+		100% {
+			outline-color: color-mix(in oklch, var(--danger) 90%, transparent);
+		}
+		50% {
+			outline-color: color-mix(in oklch, var(--danger) 25%, transparent);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.send-btn.stop.armed {
+			animation: none;
+		}
+	}
+
 	.send-mode-chevron {
 		display: inline-flex;
 		align-items: center;
@@ -1387,7 +1554,4 @@
 		color: var(--ink-faint);
 	}
 
-	.hidden-file-input {
-		display: none;
-	}
 </style>

@@ -7,6 +7,12 @@
 	import Dialog from '$lib/ui/Dialog.svelte';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 	import { IconClose, IconKeyboard, IconSearch } from '$lib/icons';
+	import { IS_MAC } from '$lib/utils/platform';
+	import { letterChordLabel } from '$lib/agent/composerShortcuts';
+
+	// Scorciatoie a lettera del composer: Alt su Windows/Linux, Ctrl+Opzione su
+	// Mac, dove Opzione da sola scrive caratteri (€ ç ñ).
+	const L = letterChordLabel(IS_MAC);
 
 	// Props con supporto fallback per retrocompatibilita'
 	let {
@@ -51,10 +57,10 @@
 			column: 1,
 			items: [
 				{ keys: ['Ctrl+P'], description: m.shortcuts_item_cycle_roles() },
-				{ keys: ['Alt+R'], description: m.shortcuts_item_role_menu() },
-				{ keys: ['Alt+P'], description: m.shortcuts_item_model_menu() },
-				{ keys: ['Alt+M'], description: m.shortcuts_item_thinking_menu() },
-				{ keys: ['Alt+T'], description: m.shortcuts_item_thinking_cycle() },
+				{ keys: [`${L}+R`], description: m.shortcuts_item_role_menu() },
+				{ keys: [`${L}+P`], description: m.shortcuts_item_model_menu() },
+				{ keys: [`${L}+M`], description: m.shortcuts_item_thinking_menu() },
+				{ keys: [`${L}+T`], description: m.shortcuts_item_thinking_cycle() },
 			]
 		},
 		{
@@ -66,10 +72,10 @@
 				{ keys: ['Alt+Invio'], description: m.ui_shortcutshelpmodal_invia_con_la_modalita_di_accodamento_alternativa_4022() },
 				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: m.ui_shortcutshelpmodal_inserisce_una_nuova_riga_nel_campo_di_6250() },
 				{ keys: ['/'], description: m.shortcuts_item_slash_palette() },
-				{ keys: ['Alt+1…6'], description: m.ui_shortcutshelpmodal_precompila_il_composer_con_il_suggerimento_in_f5fb() },
-				{ keys: ['Alt+E'], description: m.shortcuts_item_focus_composer() },
-				{ keys: ['Alt+N'], description: m.ui_shortcutshelpmodal_apre_una_nuova_chat_nel_progetto_attivo_3acb() },
-				{ keys: ['Alt+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_o_cancella_6699() },
+				{ keys: [`${L}+1…6`], description: m.ui_shortcutshelpmodal_precompila_il_composer_con_il_suggerimento_in_f5fb() },
+				{ keys: [`${L}+E`], description: m.shortcuts_item_focus_composer() },
+				{ keys: [`${L}+N`], description: m.ui_shortcutshelpmodal_apre_una_nuova_chat_nel_progetto_attivo_3acb() },
+				{ keys: [`${L}+C`], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_o_cancella_6699() },
 				{ keys: ['Ctrl+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_senza_testo_37ce() },
 				{ keys: ['Esc'], description: m.shortcuts_item_close_menus() }
 			]

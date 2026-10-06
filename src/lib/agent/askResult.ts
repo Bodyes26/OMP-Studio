@@ -5,12 +5,13 @@
  */
 import {
 	cleanOptionLabel,
-	DECIDE_FOR_ME_TEXT,
 	extractNoteFromLabel,
+	isDecideForMeText,
 	isDoneOption,
 	isOtherOption
 } from './askAnswers.ts';
 import { asRecord, bool, recordList, str, strList } from './tools/types.ts';
+import { m as msg } from '$lib/paraglide/messages.js';
 
 export interface AskResultOption {
 	label: string;
@@ -56,7 +57,7 @@ export function parseAskToolCall(args: Record<string, unknown>, details: unknown
 			const options: AskResultOption[] = Array.isArray(res.options)
 				? res.options.map((opt, oIdx) => {
 						const labelStr =
-							typeof opt === 'string' ? opt : (str(asRecord(opt)?.label) ?? `Opzione ${oIdx + 1}`);
+							typeof opt === 'string' ? opt : (str(asRecord(opt)?.label) ?? msg.chat_v2_ask_option_n({ n: oIdx + 1 }));
 						const parsed = extractNoteFromLabel(labelStr);
 						const description =
 							typeof opt === 'object' ? str(asRecord(opt)?.description) : str(rawArgOpts[oIdx]?.description);
@@ -71,7 +72,7 @@ export function parseAskToolCall(args: Record<string, unknown>, details: unknown
 				: [];
 			return {
 				id: str(res.id) ?? `q${idx + 1}`,
-				question: str(res.question) ?? `Domanda ${idx + 1}`,
+				question: str(res.question) ?? msg.chat_v2_ask_question_n({ n: idx + 1 }),
 				header: matchingArgQ ? str(matchingArgQ.header) : undefined,
 				multi: bool(res.multi) ?? false,
 				options,
@@ -86,7 +87,7 @@ export function parseAskToolCall(args: Record<string, unknown>, details: unknown
 		const selectedList = strList(rec?.selectedOptions);
 		return rawArgsQuestions.map((qRec, idx) => ({
 			id: str(qRec.id) ?? `q${idx + 1}`,
-			question: str(qRec.question) ?? str(qRec.prompt) ?? `Domanda ${idx + 1}`,
+			question: str(qRec.question) ?? str(qRec.prompt) ?? msg.chat_v2_ask_question_n({ n: idx + 1 }),
 			header: str(qRec.header),
 			multi: bool(qRec.multi) ?? false,
 			options: recordList(qRec.options).map((opt) => {
@@ -125,7 +126,7 @@ export function parseAskToolCall(args: Record<string, unknown>, details: unknown
 					description = str(rawDetails[idx]?.description);
 				} else {
 					const optRec = asRecord(opt);
-					label = str(optRec?.label) ?? str(optRec?.text) ?? str(optRec?.name) ?? `Opzione ${idx + 1}`;
+					label = str(optRec?.label) ?? str(optRec?.text) ?? str(optRec?.name) ?? msg.chat_v2_ask_option_n({ n: idx + 1 });
 					description = str(optRec?.description);
 				}
 				const parsed = extractNoteFromLabel(label);
@@ -143,7 +144,7 @@ export function parseAskToolCall(args: Record<string, unknown>, details: unknown
 	return [
 		{
 			id: 'q1',
-			question: questionText || 'Domanda agente',
+			question: questionText || msg.chat_v2_ask_agent_question(),
 			header: firstArgQ ? str(firstArgQ.header) : undefined,
 			multi: bool(rec?.multi) ?? bool(args.multi) ?? false,
 			options,
@@ -156,7 +157,7 @@ export function parseAskToolCall(args: Record<string, unknown>, details: unknown
 
 /**
  * Riduce la risposta a quello che l'utente ha deciso. "Decidi tu" viaggia come
- * testo libero convenzionale (`DECIDE_FOR_ME_TEXT`) e la nota puo' arrivare
+ * testo libero convenzionale (`decideForMeText`) e la nota puo' arrivare
  * attaccata al testo come `(nota: …)`: qui tornano a essere delega e nota.
  * Le sentinelle tecniche (Other, fine selezione) non sono risposte.
  */
@@ -170,7 +171,7 @@ export function summarizeAskAnswer(q: AskResultQuestion): AskAnswerSummary {
 	}
 	note ??= q.options.find((o) => o.selected && o.note)?.note;
 
-	if (custom === DECIDE_FOR_ME_TEXT || q.selectedLabels.includes(DECIDE_FOR_ME_TEXT)) {
+	if (isDecideForMeText(custom) || q.selectedLabels.some(isDecideForMeText)) {
 		return { kind: 'decided', labels: [], note };
 	}
 

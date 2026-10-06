@@ -307,7 +307,8 @@ identifier = "allow-chat-attachments"
 description = "Salvataggio e pulizia degli allegati della chat confinati nella cartella locale dell'applicazione"
 commands.allow = [
     "stage_chat_attachment",
-    "cleanup_chat_attachments"
+    "cleanup_chat_attachments",
+    "chat_attachment_read_image"
 ]
 
 [[permission]]

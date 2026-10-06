@@ -357,8 +357,10 @@
 	let transcriptEl = $state<HTMLElement | null>(null);
 	let disableAnimations = $state(false);
 
-	let lastRenderedSessionId = $state<string | null>(null);
-	let prevEntriesCount = $state(0);
+	// Memoria dell'effetto, non stato: se fossero $state l'effetto che le
+	// scrive dipenderebbe anche da loro.
+	let lastRenderedSessionId: string | null = null;
+	let prevEntriesCount = 0;
 
 	/**
 	 * Disabilita le animazioni di ingresso (chatReveal) durante i caricamenti massivi:

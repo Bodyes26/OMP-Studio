@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { handOffPrewalk, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from '../src/lib/agent/prewalk.ts';
+import { handOffPrewalk, isPrewalkHandOff, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from '../src/lib/agent/prewalk.ts';
 
 const target = 'google-antigravity/gemini-3.8-flash';
 const off: PrewalkState = { state: 'off' };
@@ -64,5 +64,17 @@ describe('Prewalk: notice e passaggio una tantum', () => {
 		const text = `Prewalk: target ${target} already matches the active model and thinking level; nothing to switch.`;
 		assert.deepEqual(parsePrewalkNotice('prewalk', 'info', text), { kind: 'error', message: text });
 		assert.strictEqual(notice(off, text), off);
+	});
+});
+
+describe('Prewalk: cambio modello manuale con prewalk armato', () => {
+	it("e' un passaggio solo se il modello e' il bersaglio", () => {
+		const smol = { provider: 'google-antigravity', id: 'gemini-3.8-flash', name: 'Gemini Flash' };
+		const other = { provider: 'anthropic', id: 'claude-opus', name: 'Opus' };
+		assert.equal(isPrewalkHandOff(armed, smol as never), true);
+		assert.equal(isPrewalkHandOff(armed, other as never), false);
+		assert.equal(isPrewalkHandOff({ state: 'armed', target: 'gemini-3.8-flash' }, smol as never), true);
+		assert.equal(isPrewalkHandOff({ state: 'armed' }, smol as never), false, 'senza bersaglio noto non si indovina');
+		assert.equal(isPrewalkHandOff(off, smol as never), false);
 	});
 });

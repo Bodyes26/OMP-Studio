@@ -13,7 +13,7 @@
 	// parte prima della richiesta di omp: l'invio richiede domande davvero
 	// compilate (`isQuestionAnswered`).
 
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { traceFocus } from '$lib/focusTracer';
 	import {
@@ -40,7 +40,7 @@
 		type AskQuestionOption
 	} from '../askAnswers';
 	import { parseAskTitle, sanitizeAskDetail } from '../askTitle';
-	import { shouldAutoFocusAskCard } from '../askFocus';
+	import { askConfirmKeyAction, isImeComposing, shouldAutoFocusAskCard } from '../askFocus';
 	import { promptBus } from '../promptBus';
 
 	let {
@@ -221,8 +221,23 @@
 		];
 	}
 
-	let questions = $state<WizardQuestion[]>(initWizardQuestions());
-	let activeStep = $state(0);
+	// Lo stato del wizard vive nella sessione, indicizzato per richiesta: la
+	// card ridotta nel vassoio viene smontata e senza questo le risposte gia'
+	// compilate andavano perse alla riapertura. Lo stesso proxy `$state`
+	// torna alla card rimontata, quindi le modifiche restano condivise.
+	const draft = untrack(() =>
+		session.askWizardDraft(
+			pending.requestId,
+			`${pending.questions?.length ?? 0}:${pending.questionIndex ?? 0}`,
+			() => ({ questions: initWizardQuestions(), activeStep: 0 })
+		)
+	) as { questions: WizardQuestion[]; activeStep: number };
+	let questions = $state<WizardQuestion[]>(draft.questions);
+	draft.questions = questions;
+	let activeStep = $state(draft.activeStep);
+	$effect(() => {
+		draft.activeStep = activeStep;
+	});
 	let isReviewStep = $derived(questions.length > 1 && activeStep === questions.length);
 	let currentQuestion = $derived<WizardQuestion | undefined>(questions[activeStep]);
 	const currentAnswered = $derived(currentQuestion ? isQuestionAnswered(currentQuestion) : false);
@@ -243,7 +258,7 @@
 		if (!raw || raw.length === 0) return [];
 		return raw.slice(0, startIndex).map((q: AskQuestion, idx: number) => ({
 			number: idx + 1,
-			label: q.header || `Domanda ${idx + 1}`,
+			label: q.header || m.chat_v2_ask_question_n({ n: idx + 1 }),
 			question: q.question
 		}));
 	});
@@ -261,12 +276,24 @@
 	let submitting = $state(false);
 	let hoverIdx = $state<number | null>(null);
 
+	// Solo una richiesta nuova azzera i campi: dipendere anche da `visible` o
+	// dagli elementi cancellava il testo gia' scritto quando la card tornava visibile.
 	$effect(() => {
-		const _id = pending.requestId;
-		plainInputValue = pending.prefill ?? '';
-		plainEditorValue = pending.prefill ?? '';
-		submitting = false;
+		void pending.requestId;
+		untrack(() => {
+			plainInputValue = pending.prefill ?? '';
+			plainEditorValue = pending.prefill ?? '';
+			submitting = false;
+		});
+	});
 
+	$effect(() => {
+		void pending.requestId;
+		void visible;
+		untrack(() => focusCardOnOpen());
+	});
+
+	function focusCardOnOpen() {
 		// Mai rubare il fuoco: la card di un progetto in background e'
 		// montata ma invisibile, e l'utente potrebbe stare scrivendo altrove.
 		const active = document.activeElement as HTMLElement | null;
@@ -293,7 +320,7 @@
 		} else {
 			cardEl?.focus();
 		}
-	});
+	}
 
 	// Opzioni visibili: fuori le sentinelle tecniche di fine selezione.
 	const visibleOptions = $derived.by<WizardOption[]>(() => {
@@ -472,20 +499,34 @@
 		await session.submitAskWizard(plan);
 	}
 
+	// `submitting` evita il doppio invio (doppio clic, Invio ripetuto): la
+	// seconda risposta finirebbe sulla domanda successiva della sequenza.
 	async function submitSelect(value: string) {
-		if (pending.requestId && promptBus.hasPending(pending.requestId)) {
-			const handled = await promptBus.resolveRequest(pending.requestId, { action: 'select', value });
-			if (handled) return;
+		if (submitting) return;
+		submitting = true;
+		try {
+			if (pending.requestId && promptBus.hasPending(pending.requestId)) {
+				const handled = await promptBus.resolveRequest(pending.requestId, { action: 'select', value });
+				if (handled) return;
+			}
+			await session.answerSelect(value);
+		} finally {
+			submitting = false;
 		}
-		await session.answerSelect(value);
 	}
 
 	async function submitConfirm(confirmed: boolean) {
-		if (pending.requestId && promptBus.hasPending(pending.requestId)) {
-			const handled = await promptBus.resolveRequest(pending.requestId, { action: 'confirm', confirmed });
-			if (handled) return;
+		if (submitting) return;
+		submitting = true;
+		try {
+			if (pending.requestId && promptBus.hasPending(pending.requestId)) {
+				const handled = await promptBus.resolveRequest(pending.requestId, { action: 'confirm', confirmed });
+				if (handled) return;
+			}
+			await session.answerConfirm(confirmed);
+		} finally {
+			submitting = false;
 		}
-		await session.answerConfirm(confirmed);
 	}
 
 	async function cancelUi() {
@@ -502,11 +543,19 @@
 	}
 
 	function handleCardKeydown(e: KeyboardEvent) {
+		if (isImeComposing(e)) return;
+		const target = e.target as HTMLElement | null;
+		// Su un pulsante lasciano agire il pulsante: intercettare Invio o
+		// Spazio qui significherebbe eseguire l'azione due volte (una dal
+		// gestore, una dal clic di default) o, nella conferma, rispondere «Si'»
+		// con il fuoco su «No». Frecce, cifre, N ed Esc restano attivi.
+		const inButton = Boolean(target?.closest('button'));
 		if (pending.method === 'confirm') {
-			if (e.key === 'Enter') {
+			const action = askConfirmKeyAction(e.key, inButton);
+			if (action === 'yes') {
 				e.preventDefault();
 				void submitConfirm(true);
-			} else if (e.key === 'Escape') {
+			} else if (action === 'escape') {
 				e.preventDefault();
 				if (onMinimize) onMinimize();
 				else void submitConfirm(false);
@@ -522,12 +571,7 @@
 			return;
 		}
 
-		const target = e.target as HTMLElement | null;
-		// Su un pulsante lasciano agire il pulsante: intercettare Invio o
-		// Spazio qui significherebbe eseguire l'azione due volte (una dal
-		// gestore, una dal clic di default). Frecce, cifre, N ed Esc restano
-		// attivi anche dai pulsanti.
-		if (target?.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
+		if (inButton && (e.key === 'Enter' || e.key === ' ')) return;
 		const typing =
 			target !== null &&
 			(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
@@ -960,6 +1004,7 @@
 				bind:value={plainInputValue}
 				bind:this={plainInputEl}
 				onkeydown={(e) => {
+					if (isImeComposing(e)) return;
 					if (e.key === 'Enter') {
 						e.preventDefault();
 						void submitSelect(plainInputValue);
@@ -992,6 +1037,7 @@
 			bind:this={plainEditorEl}
 			rows="4"
 			onkeydown={(e) => {
+				if (isImeComposing(e)) return;
 				if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 					e.preventDefault();
 					void submitSelect(plainEditorValue);

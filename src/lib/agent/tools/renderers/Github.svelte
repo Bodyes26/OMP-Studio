@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
 	import { openExternalUrl } from '$lib/utils/openExternal';
+	import { m } from '$lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import { IconExternalLink } from '$lib/icons';
@@ -87,9 +88,9 @@
 							type="button"
 							class="item-link"
 							onclick={() => openLink(itemUrl)}
-							title="Apri nel browser"
+							title={m.chat_v2_tool_open_in_browser()}
 						>
-							apri <span class="link-icon"><IconExternalLink /></span>
+							{m.chat_v2_tool_open_short()} <span class="link-icon"><IconExternalLink /></span>
 						</button>
 					{/if}
 				</div>

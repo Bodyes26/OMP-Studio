@@ -14,6 +14,9 @@
 		type ComposerTrigger,
 		type ComposerTriggerKind
 	} from '$lib/agent/composerDoc';
+	import { isImeComposing } from '$lib/agent/askFocus';
+	import { choosePasteContent } from '$lib/agent/composerSubmit';
+	import { m } from '$lib/paraglide/messages.js';
 
 	// Testo prima del caret che apre ciascuna palette: il carattere a inizio
 	// testo o dopo uno spazio, cosi' un / dentro un percorso o un # dentro una
@@ -27,7 +30,7 @@
 
 	let {
 		placeholder = '',
-		ariaLabel = "Messaggio per l'agente",
+		ariaLabel = m.chat_v2_composer_editor_aria(),
 		submitWithModifier = false,
 		disabled = false,
 		triggers = ['@', '/'],
@@ -158,6 +161,68 @@
 		sync();
 	}
 
+	/**
+	 * Inserisce testo semplice alla posizione del cursore (in fondo se il
+	 * cursore non e' nell'editor) senza toccare il resto della bozza. Le
+	 * menzioni `@percorso` e un `/comando` iniziale diventano badge.
+	 */
+	export function insertPlainText(text: string, isSkill?: (name: string) => boolean): void {
+		if (!editorEl || !text) return;
+		const segs = parsePlainTextToSegments(text, isSkill);
+		if (segs.length === 0) return;
+		editorEl.focus();
+		const sel = window.getSelection();
+		if (!sel || !sel.rangeCount || !editorEl.contains(sel.anchorNode)) {
+			caretAfter(editorEl, editorEl.childNodes.length);
+		}
+		const range = window.getSelection()?.getRangeAt(0);
+		if (!range) return;
+		range.deleteContents();
+		const scratch = document.createElement('div');
+		renderSegmentsToDom(segs, scratch);
+		const last = scratch.lastChild;
+		const frag = document.createDocumentFragment();
+		frag.append(...Array.from(scratch.childNodes));
+		range.insertNode(frag);
+		if (last) {
+			if (last.nodeType === Node.TEXT_NODE) caretAfter(last, (last.textContent ?? '').length);
+			else caretAfter(editorEl, Array.from(editorEl.childNodes).indexOf(last as ChildNode) + 1);
+		}
+		sync();
+	}
+
+	/**
+	 * Inserisce dei badge alla posizione del cursore (in fondo se il cursore
+	 * non e' nell'editor), ciascuno seguito da uno spazio: e' il percorso dei
+	 * file trascinati o scelti dal selettore, che non passano da un trigger.
+	 */
+	export function insertBadges(badges: HTMLElement[]): void {
+		if (!editorEl || badges.length === 0) return;
+		editorEl.focus();
+		const sel = window.getSelection();
+		if (!sel || !sel.rangeCount || !editorEl.contains(sel.anchorNode)) {
+			caretAfter(editorEl, editorEl.childNodes.length);
+		}
+		const range = window.getSelection()?.getRangeAt(0);
+		if (!range) return;
+		range.deleteContents();
+		// Staccato dalla parola precedente, come una menzione scritta a mano.
+		const before = range.startContainer.nodeType === Node.TEXT_NODE
+			? (range.startContainer.textContent ?? '')[range.startOffset - 1]
+			: undefined;
+		let anchor: Node | null = null;
+		const frag = document.createDocumentFragment();
+		if (before && !/[\s ]/.test(before)) frag.appendChild(document.createTextNode(NBSP));
+		for (const badge of badges) {
+			frag.appendChild(badge);
+			anchor = document.createTextNode(NBSP);
+			frag.appendChild(anchor);
+		}
+		range.insertNode(frag);
+		if (anchor) caretAfter(anchor, 1);
+		sync();
+	}
+
 	export function dismissCurrentTrigger(trigger: { node: Text; start: number }): void {
 		dismissedTrigger = { node: trigger.node, start: trigger.start };
 		onTriggerChange?.(null);
@@ -227,31 +292,26 @@
 		const clipboard = e.clipboardData;
 		if (!clipboard) return;
 
-		// Se la clipboard contiene file (es. screenshot incollati, file trascinati)
-		if (clipboard.files && clipboard.files.length > 0) {
+		const text = clipboard.getData('text/plain') ?? '';
+		const content = choosePasteContent(text, clipboard.files?.length ?? 0);
+		if (content === 'files') {
 			onFilesPaste?.(clipboard.files);
-			return;
-		}
-
-		// Incollaggio testo semplice per preservare l'undo nativo
-		const text = clipboard.getData('text/plain');
-		if (text) {
+		} else if (content === 'text') {
+			// Incollaggio testo semplice per preservare l'undo nativo
 			document.execCommand('insertText', false, text);
 			sync();
 		}
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		// Composizione IME (CJK, tasti morti): i tasti appartengono all'IME,
+		// anche quelli che la palette o il genitore intercetterebbero (Invio
+		// sceglieva un suggerimento mentre si confermava un ideogramma).
+		if (isImeComposing(e, isComposing)) return;
+
 		// Se la palette o il parent ha gestito il tasto (es. frecce, invio scelta, Esc)
 		if (onKeydownFilter && onKeydownFilter(e)) {
 			return;
-		}
-
-		// Sicurezza IME composition: durante la digitazione CJK / accenti Enter non invia
-		if (isComposing || e.isComposing) {
-			if (e.key === 'Enter') {
-				return;
-			}
 		}
 
 		if (e.key === 'Enter') {

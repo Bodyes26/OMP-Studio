@@ -198,7 +198,11 @@
 		errorText = null;
 
 		// Alza sottoscrizione a `events` durante l'ispezione
-		void session.client.send({ type: 'set_subagent_subscription', level: 'events' });
+		// La sottoscrizione e' un'ottimizzazione: un processo chiuso non deve
+		// lasciare una promessa rifiutata senza gestore.
+		void session.client
+			.send({ type: 'set_subagent_subscription', level: 'events' })
+			.catch((error: unknown) => console.warn('Sottoscrizione subagent:', error));
 
 		async function poll() {
 			if (destroyed || isPolling) return;
@@ -237,7 +241,9 @@
 			destroyed = true;
 			clearInterval(timer);
 			// Riporta a `progress` alla chiusura per risparmiare banda
-			void session.client.send({ type: 'set_subagent_subscription', level: 'progress' });
+			void session.client
+				.send({ type: 'set_subagent_subscription', level: 'progress' })
+				.catch((error: unknown) => console.warn('Sottoscrizione subagent:', error));
 		};
 	});
 

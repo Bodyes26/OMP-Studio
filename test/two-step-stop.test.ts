@@ -1,18 +1,18 @@
 /**
- * Test di unita' per la macchina a stati del pulsante di interruzione:
- * Two-Step Force Kill Escalation (SIGINT -> SIGKILL).
+ * Stop a due stadi della chat: il controllo reale usato dal composer
+ * (src/lib/agent/twoStepStop.ts), con timer finti.
  *
- * 1. Primo click (soft abort): invia abort / SIGINT e transita nello stato 'armed' per 2.0s.
- * 2. Secondo click entro 2.0s: attiva force kill immediato (SIGKILL/taskkill).
- * 3. Reset naturale: se l'agente termina entro 2.0s, lo stato 'armed' decade automaticamente.
- * 4. Timeout: se l'utente non clicca entro 2.0s, decade tornando allo stato iniziale.
- * 5. Doppio click rapido: esegue l'escalation immediata a force kill.
- * 6. Integrazione OmpRpcClient: rpc_abort e rpc_force_kill.
+ * 1. Primo clic: abort (SIGINT lato omp), il pulsante non e' ancora armato.
+ * 2. Se l'agente non si ferma entro GRACE_MS il pulsante si arma come «Forza arresto».
+ * 3. Armato, il secondo clic chiama forceKill (SIGKILL/taskkill).
+ * 4. agent_end prima dell'armamento: non si arma mai; dopo: disarma.
+ * 5. Integrazione OmpRpcClient: rpc_abort e rpc_force_kill.
  */
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { OmpRpcClient } from '../src/lib/agent/client.ts';
+import { TwoStepStop } from '../src/lib/agent/twoStepStop.ts';
 
 interface InvokeCall {
 	cmd: string;
@@ -41,188 +41,103 @@ function installTauriMock() {
 	(globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = internals;
 }
 
-/** Macchina a stati pura del pulsante Stop con supporto clock deterministico */
-class TwoStepStopButtonModel {
-	public armed = false;
-	private timer: NodeJS.Timeout | null = null;
-	public abortCalls = 0;
-	public forceKillCalls = 0;
-	private readonly onAbort: () => void;
-	private readonly onForceKill: () => void;
-	private readonly scheduler: (cb: () => void, ms: number) => NodeJS.Timeout;
-	private readonly cancelScheduler: (t: NodeJS.Timeout | null) => void;
-
-	constructor(
-		onAbort: () => void,
-		onForceKill: () => void,
-		scheduler: (cb: () => void, ms: number) => NodeJS.Timeout = setTimeout,
-		cancelScheduler: (t: NodeJS.Timeout | null) => void = clearTimeout
-	) {
-		this.onAbort = onAbort;
-		this.onForceKill = onForceKill;
-		this.scheduler = scheduler;
-		this.cancelScheduler = cancelScheduler;
-	}
-	public click() {
-		if (!this.armed) {
-			// Fase 1: Soft abort e armamento per 2.0 secondi
-			this.onAbort();
-			this.abortCalls++;
-			this.armed = true;
-			this.cancelScheduler(this.timer);
-			this.timer = this.scheduler(() => {
-				this.armed = false;
-				this.timer = null;
-			}, 2000);
-		} else {
-			// Fase 2: Secondo click entro 2.0 secondi -> Force Kill
-			this.clearArmed();
-			this.onForceKill();
-			this.forceKillCalls++;
+/** Timer finti: l'attesa si comanda dal test. */
+function fakeTimers() {
+	const timers = new Map<number, () => void>();
+	let next = 1;
+	return {
+		timers,
+		setTimer: (callback: () => void) => {
+			const id = next++;
+			timers.set(id, callback);
+			return id;
+		},
+		clearTimer: (handle: unknown) => {
+			timers.delete(handle as number);
+		},
+		elapse() {
+			const pending = [...timers.values()];
+			timers.clear();
+			for (const callback of pending) callback();
 		}
-	}
-
-	public onAgentSettled() {
-		// Reset Naturale
-		this.clearArmed();
-	}
-
-	public clearArmed() {
-		this.cancelScheduler(this.timer);
-		this.timer = null;
-		this.armed = false;
-	}
-
-	public destroy() {
-		this.clearArmed();
-	}
+	};
 }
 
-describe('Two-Step Force Kill Escalation: Macchina a Stati del Pulsante', () => {
-	beforeEach(() => {
-		installTauriMock();
+function makeStop() {
+	const clock = fakeTimers();
+	const counts = { abort: 0, forceKill: 0, changes: [] as boolean[] };
+	const stop = new TwoStepStop({
+		abort: () => {
+			counts.abort++;
+		},
+		forceKill: () => {
+			counts.forceKill++;
+		},
+		onChange: (armed) => counts.changes.push(armed),
+		setTimer: clock.setTimer,
+		clearTimer: clock.clearTimer
+	});
+	return { stop, counts, clock };
+}
+
+describe('Stop a due stadi della chat (TwoStepStop)', () => {
+	it('primo clic: abort, nessun arresto forzato, non ancora armato', () => {
+		const { stop, counts } = makeStop();
+		assert.equal(stop.press(), 'abort');
+		assert.equal(counts.abort, 1);
+		assert.equal(counts.forceKill, 0);
+		assert.equal(stop.armed, false);
+		assert.equal(stop.waiting, true);
 	});
 
-	it('Stato Iniziale: pulsante non armato, nessun abort inviato', () => {
-		let abortCalled = false;
-		let killCalled = false;
-		const button = new TwoStepStopButtonModel(
-			() => { abortCalled = true; },
-			() => { killCalled = true; }
-		);
-
-		assert.equal(button.armed, false, 'Il pulsante deve partire non armato');
-		assert.equal(abortCalled, false);
-		assert.equal(killCalled, false);
-		button.destroy();
+	it("se l'agente non si ferma entro l'attesa il pulsante si arma", () => {
+		const { stop, counts, clock } = makeStop();
+		stop.press();
+		clock.elapse();
+		assert.equal(stop.armed, true);
+		assert.deepEqual(counts.changes, [true]);
+		assert.ok(TwoStepStop.GRACE_MS < 2500, 'si arma prima della rete di sicurezza di 2,5 s della sessione');
 	});
 
-	it('Fase 1 (primo click): invia soft abort e transita in stato armed', () => {
-		let abortCalled = false;
-		let killCalled = false;
-		const button = new TwoStepStopButtonModel(
-			() => { abortCalled = true; },
-			() => { killCalled = true; }
-		);
-
-		button.click();
-
-		assert.equal(abortCalled, true, 'Il primo click deve inviare soft abort');
-		assert.equal(killCalled, false, 'Il primo click NON deve invocare force kill');
-		assert.equal(button.armed, true, 'Il pulsante deve essere armato dopo il primo click');
-		button.destroy();
+	it("armato, il secondo clic forza l'arresto e disarma", () => {
+		const { stop, counts, clock } = makeStop();
+		stop.press();
+		clock.elapse();
+		assert.equal(stop.press(), 'force');
+		assert.equal(counts.forceKill, 1);
+		assert.equal(counts.abort, 1);
+		assert.equal(stop.armed, false);
 	});
 
-	it('Fase 2 (secondo click entro 2.0s): invoca force kill immediato (SIGKILL)', () => {
-		let abortCount = 0;
-		let killCount = 0;
-		const button = new TwoStepStopButtonModel(
-			() => { abortCount++; },
-			() => { killCount++; }
-		);
-
-		// Click 1 -> Soft abort
-		button.click();
-		assert.equal(button.armed, true);
-		assert.equal(abortCount, 1);
-		assert.equal(killCount, 0);
-
-		// Click 2 (rapido) -> Force Kill
-		button.click();
-		assert.equal(button.armed, false, 'Dopo il force kill lo stato armed si disarma');
-		assert.equal(abortCount, 1, 'Non deve inviare un secondo soft abort');
-		assert.equal(killCount, 1, 'Deve invocare force kill');
-		button.destroy();
+	it("un secondo clic durante l'attesa non uccide il processo e non ripete l'abort", () => {
+		const { stop, counts } = makeStop();
+		stop.press();
+		assert.equal(stop.press(), 'waiting');
+		assert.equal(counts.abort, 1);
+		assert.equal(counts.forceKill, 0);
 	});
 
-	it('Reset Naturale: se l agente termina entro i 2.0s, lo stato armed decade automaticamente', () => {
-		let abortCount = 0;
-		let killCount = 0;
-		const button = new TwoStepStopButtonModel(
-			() => { abortCount++; },
-			() => { killCount++; }
-		);
-
-		button.click();
-		assert.equal(button.armed, true);
-
-		// L'agente risponde al soft abort (es. agent_end o isStreaming = false)
-		button.onAgentSettled();
-		assert.equal(button.armed, false, 'Lo stato armed deve decadere automaticamente al termine dell agente');
-		assert.equal(killCount, 0, 'Nessun force kill deve essere invocato');
-		button.destroy();
+	it("agent_end durante l'attesa: non si arma mai", () => {
+		const { stop, counts, clock } = makeStop();
+		stop.press();
+		stop.settle();
+		assert.equal(clock.timers.size, 0);
+		clock.elapse();
+		assert.equal(stop.armed, false);
+		assert.deepEqual(counts.changes, []);
+		// Il turno successivo riparte dal primo stadio.
+		assert.equal(stop.press(), 'abort');
+		assert.equal(counts.abort, 2);
 	});
 
-	it('Scadenza timeout 2.0s: lo stato armed decade tornando allo stato iniziale', () => {
-		let abortCount = 0;
-		let killCount = 0;
-		let scheduledCb: (() => void) | null = null;
-
-		const button = new TwoStepStopButtonModel(
-			() => { abortCount++; },
-			() => { killCount++; },
-			(cb) => {
-				scheduledCb = cb;
-				return 1 as unknown as NodeJS.Timeout;
-			},
-			() => {
-				scheduledCb = null;
-			}
-		);
-
-		button.click();
-		assert.equal(button.armed, true);
-
-		// Esecuzione deterministica dello scadere dei 2.0s senza attesa reale
-		assert.notEqual(scheduledCb, null);
-		scheduledCb!();
-
-		assert.equal(button.armed, false, 'Lo stato armed deve decadere dopo 2.0 secondi');
-		assert.equal(killCount, 0, 'La sola scadenza del timer non deve forzare il kill');
-
-		// Un nuovo click successivo riparte dalla Fase 1 (nuovo soft abort)
-		button.click();
-		assert.equal(abortCount, 2, 'Un nuovo click riparte dalla Fase 1');
-		assert.equal(button.armed, true);
-		button.destroy();
-	});
-
-	it('Doppio click rapido abbatte il processo in due step continui', () => {
-		let abortCount = 0;
-		let killCount = 0;
-		const button = new TwoStepStopButtonModel(
-			() => { abortCount++; },
-			() => { killCount++; }
-		);
-
-		// Doppio click veloce simulato
-		button.click();
-		button.click();
-
-		assert.equal(abortCount, 1);
-		assert.equal(killCount, 1);
-		assert.equal(button.armed, false);
-		button.destroy();
+	it('agent_end tardivo ad armamento avvenuto: disarma senza forzare', () => {
+		const { stop, counts, clock } = makeStop();
+		stop.press();
+		clock.elapse();
+		stop.settle();
+		assert.equal(stop.armed, false);
+		assert.equal(counts.forceKill, 0);
+		assert.deepEqual(counts.changes, [true, false]);
 	});
 });
 

@@ -210,6 +210,12 @@ export function parsePlainTextToSegments(
 	return merged;
 }
 
+/** Nome mostrato dal badge di una menzione: l'ultimo segmento del percorso. */
+export function fileBadgeLabel(path: string): string {
+	const parts = path.split(/[\\/]+/).filter(Boolean);
+	return parts.at(-1) ?? path;
+}
+
 /**
  * Crea l'elemento DOM badge per una menzione file.
  */
@@ -227,8 +233,9 @@ export function createFileBadgeElement(path: string): HTMLElement {
 
 	const nameSpan = document.createElement('span');
 	nameSpan.className = 'chat-badge-name';
-	const base = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path;
-	nameSpan.textContent = base;
+	// Anche `\`: i percorsi trascinati da Windows arrivano con i separatori
+	// nativi, e il badge deve mostrare il nome, non l'intero percorso.
+	nameSpan.textContent = fileBadgeLabel(path);
 	el.appendChild(nameSpan);
 
 	return el;

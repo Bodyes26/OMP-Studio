@@ -75,7 +75,7 @@
 					onclick={() => hooks.openImage(img.data, img.mimeType)}
 					title={m.user_message_open_image()}
 				>
-					<img src={`data:${img.mimeType};base64,${img.data}`} alt="Allegato utente" />
+					<img src={`data:${img.mimeType};base64,${img.data}`} alt={m.user_message_attachment_alt()} />
 				</button>
 			{/each}
 		</div>
@@ -107,17 +107,17 @@
 							<button
 								type="button"
 								class="file-chip"
-								title={`${file}${targetLine ? `:${targetLine}` : ''} • Clicca per aprire nell'editor`}
+								title={m.user_message_open_file_title({ file: `${file}${targetLine ? `:${targetLine}` : ''}` })}
 								onclick={() => hooks.openFile(file, targetLine)}
 							>
 								<span class="file-glyph"><IconFile aria-hidden="true" /></span>
 								<span class="file-name">{baseName(file)}</span>
 								{#if isSelected}
-									<span class="chip-badge selection-badge" title="Selezione attiva inclusa">
+									<span class="chip-badge selection-badge" title={m.user_message_selection_badge()}>
 										{parsed.context.selection?.lineRange}
 									</span>
 								{:else if isActive && parsed.context.cursor}
-									<span class="chip-badge cursor-badge" title={`Cursore riga ${parsed.context.cursor.line}`}>
+									<span class="chip-badge cursor-badge" title={m.user_message_cursor_badge({ line: parsed.context.cursor.line })}>
 										:{parsed.context.cursor.line}
 									</span>
 								{:else if isActive}
@@ -133,7 +133,7 @@
 									class="snippet-toggle-btn"
 									class:open={showSelectionCode}
 									onclick={() => (showSelectionCode = !showSelectionCode)}
-									title={showSelectionCode ? m.ui_usermessage_nascondi_codice_selezionato_f3bb() : 'Visualizza codice selezionato'}
+									title={showSelectionCode ? m.ui_usermessage_nascondi_codice_selezionato_f3bb() : m.user_message_show_selection()}
 									aria-expanded={showSelectionCode}
 									aria-label={m.ui_usermessage_mostra_o_nascondi_codice_selezionato_47d2()}
 								>
@@ -148,7 +148,7 @@
 				</div>
 
 				{#if parsed.context.selection && showSelectionCode}
-					<div class="snippet-preview" role="region" aria-label="Codice selezionato allegato">
+					<div class="snippet-preview" role="region" aria-label={m.user_message_selection_region()}>
 						<div class="snippet-header">
 							<span class="snippet-title">
 								<code>{parsed.context.selection.file}</code> ({parsed.context.selection.lineRange})

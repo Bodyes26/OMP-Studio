@@ -49,3 +49,27 @@ export function shouldAutoFocusAskCard(
 
 	return !typingElsewhere;
 }
+
+/**
+ * Composizione IME in corso (giapponese, cinese, accenti con tasti morti):
+ * Invio conferma il carattere composto e non deve inviare nulla. `keyCode
+ * 229` copre WebView2/Safari, che consegnano il keydown di conferma con
+ * `isComposing` gia' falso.
+ */
+export function isImeComposing(e: { isComposing?: boolean; keyCode?: number }, composing = false): boolean {
+	return composing || Boolean(e.isComposing) || e.keyCode === 229;
+}
+
+export type AskConfirmKeyAction = 'native' | 'yes' | 'escape' | 'ignore';
+
+/**
+ * Tasti della scheda di conferma. Su un pulsante Invio e Spazio restano al
+ * pulsante: con il fuoco su «No», Invio rispondeva «Si'» perche' il ramo della
+ * conferma veniva prima del controllo sul pulsante.
+ */
+export function askConfirmKeyAction(key: string, targetInButton: boolean): AskConfirmKeyAction {
+	if (targetInButton && (key === 'Enter' || key === ' ')) return 'native';
+	if (key === 'Enter') return 'yes';
+	if (key === 'Escape') return 'escape';
+	return 'ignore';
+}
