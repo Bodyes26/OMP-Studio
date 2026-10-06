@@ -39,7 +39,7 @@
 		type SuggestionChipItem
 	} from '$lib/stores/promptSuggestions';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-	import { splitModelSelector, resolveActiveRole } from '$lib/stores/modelSettingsHelpers';
+	import { splitModelSelector, resolveActiveRole, supportedThinkingLevels } from '$lib/stores/modelSettingsHelpers';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
 	import { isTypingSurface } from '$lib/agent/askFocus';
 	import { resolveContextWindow } from '$lib/agent/contextReport';
@@ -370,11 +370,16 @@
 		}
 	}
 
-	// Livelli offerti dalla sessione: «auto» esiste solo per task e ruoli.
+	// Livelli offerti dalla sessione: «auto» esiste solo per task e ruoli. Si
+	// mostrano solo gli sforzi che il modello attivo accetta; la scala intera
+	// resta per i modelli che non li dichiarano.
 	const CHAT_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+	const chatThinkingLevels = $derived<readonly ThinkingLevel[]>(
+		supportedThinkingLevels(session.model) ?? CHAT_THINKING_LEVELS
+	);
 
 	function cycleThinkingLevel() {
-		const levels: readonly ThinkingLevel[] = CHAT_THINKING_LEVELS;
+		const levels = chatThinkingLevels;
 		const current = session.thinkingLevel || 'off';
 		const next = levels[(levels.indexOf(current) + 1) % levels.length];
 		void session.client.send({
@@ -843,7 +848,7 @@
 						{#if modelSupportsReasoning(session.model)}
 							<ReasoningSlider
 								value={session.thinkingLevel || 'off'}
-								levels={CHAT_THINKING_LEVELS}
+								levels={chatThinkingLevels}
 								onChange={(level) => {
 									void session.client.send({
 										type: 'set_thinking_level',

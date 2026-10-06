@@ -172,7 +172,9 @@ silenzioso, preciso**.
   secondi.
 - Zero celebrazione. Nessun "Welcome back", nessuna animazione che si fa notare due
   volte, nessun vuoto illustrato. Unica eccezione: il banner di omp nella chat vuota
-  (lo stesso della TUI), animato solo la prima volta dopo l'avvio e poi fermo.
+  (lo stesso della TUI), animato solo la prima volta dopo l'avvio e poi fermo; mentre
+  omp si avvia o una sessione si ricarica lo stesso banner, in fil di ferro, fa da
+  stato di caricamento.
 - L'unico momento in cui l'app alza la voce è quando una quota sta finendo: è l'unica
   informazione che ha diritto di interrompere.
 

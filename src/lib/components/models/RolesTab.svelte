@@ -8,7 +8,7 @@
 		type RoleSuggestionsResponse,
 		type SuggestedModelItem
 	} from '$lib/stores/modelSettings.svelte';
-	import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
+	import { splitModelSelector, supportedThinkingLevels } from '$lib/stores/modelSettingsHelpers';
 	import {
 		IconClose,
 		IconWarning,
@@ -83,6 +83,11 @@
 	const selectedRoleModelRaw = $derived(getRoleModelRaw(selectedRole.id));
 	const selectedRoleModelDto = $derived(getModelDto(selectedRoleModelRaw));
 	const selectedRoleThinking = $derived(getRoleThinking(selectedRole.id));
+	// «Auto» lascia decidere a omp; gli altri passi sono quelli che il modello accetta.
+	const selectedRoleThinkingLevels = $derived.by(() => {
+		const supported = supportedThinkingLevels(selectedRoleModelDto);
+		return supported ? (['auto', ...supported] as const) : undefined;
+	});
 	const selectedRoleFallbacks = $derived(getFallbacks(selectedRole.id));
 	const selectedRolePrimaryFinding = $derived(
 		modelSettingsStore.findingFor(selectedRole.id, 'primary')
@@ -500,6 +505,7 @@
 
 				<ReasoningSlider
 					value={selectedRoleThinking}
+					levels={selectedRoleThinkingLevels}
 					disabled={!selectedRoleModelRaw}
 					onChange={(lvl) => handleThinkingChange(selectedRole.id, lvl)}
 				/>

@@ -124,6 +124,54 @@ export const THINKING_LEVELS = [
 
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
+/** Quanto basta di un modello per leggerne gli sforzi: `ModelInfo` di sessione o `ModelDto` di catalogo. */
+export interface ThinkingCapableModel {
+	reasoning?: boolean;
+	thinking?: boolean | string[] | ModelThinkingInfo;
+}
+
+/**
+ * Livelli di thinking che omp accetta per il modello, in ordine crescente con
+ * `off` in testa. Rispecchia `getAvailableThinkingLevels` di omp: senza
+ * `reasoning` resta solo `off`, altrimenti valgono gli sforzi dichiarati
+ * (`omp models --json` li pubblica come elenco piatto, `get_state` e la cache
+ * come `{ mode, efforts }`). `null` se il modello non e' noto o non dichiara
+ * sforzi: allora si offre la scala intera e omp riporta il livello al piu' vicino.
+ */
+export function supportedThinkingLevels(
+	model: ThinkingCapableModel | null | undefined
+): Exclude<ThinkingLevel, 'auto'>[] | null {
+	if (!model) return null;
+	if (model.reasoning === false) return ['off'];
+	const thinking = model.thinking;
+	const efforts = Array.isArray(thinking)
+		? thinking
+		: thinking && typeof thinking === 'object'
+			? thinking.efforts
+			: undefined;
+	if (!efforts || efforts.length === 0) return null;
+	return THINKING_LEVELS.filter(
+		(level): level is Exclude<ThinkingLevel, 'auto'> =>
+			level === 'off' || (level !== 'auto' && efforts.includes(level))
+	);
+}
+
+/**
+ * Livello che omp usa davvero quando `level` non e' tra quelli offerti: il piu'
+ * alto non superiore a quello chiesto, altrimenti il primo sforzo disponibile
+ * (stessa regola di omp al cambio di modello). `off` se il modello non ragiona,
+ * `null` se non c'e' un corrispondente. `offered` va in ordine crescente.
+ */
+export function clampThinkingLevel(level: string, offered: readonly string[]): string | null {
+	if (offered.includes(level)) return level;
+	const rank = (THINKING_LEVELS as readonly string[]).indexOf(level);
+	const offRank = THINKING_LEVELS.indexOf('off');
+	if (rank <= offRank) return null;
+	const efforts = offered.filter((candidate) => (THINKING_LEVELS as readonly string[]).indexOf(candidate) > offRank);
+	const below = efforts.filter((candidate) => (THINKING_LEVELS as readonly string[]).indexOf(candidate) <= rank);
+	return below.at(-1) ?? efforts[0] ?? (offered.includes('off') ? 'off' : null);
+}
+
 /**
  * Separa `provider/model[:livelloThinking]`.
  * `knownSelectors`: insieme opzionale dei selettori esistenti in catalogo (`provider/id`).

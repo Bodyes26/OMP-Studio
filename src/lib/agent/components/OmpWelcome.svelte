@@ -9,7 +9,7 @@
 	import { ompVersionStore } from '$lib/stores/ompVersion.svelte';
 	import { motionReduced } from '../motionState.svelte';
 
-	let { visible = true }: { visible?: boolean } = $props();
+	let { visible = true, loading = false }: { visible?: boolean; loading?: boolean } = $props();
 
 	const uid = $props.id();
 	const gradId = `${uid}-grad`;
@@ -23,10 +23,21 @@
 	const BODY = 'M0 0H12V2H9V10H7V2H5V6H3V2H0Z';
 
 	// 'pending' finche' la chat non e' davanti all'utente: una scheda in background
-	// non deve consumare l'unica intro della sessione di lavoro.
-	let phase = $state<'pending' | 'intro' | 'rest'>(introPlayed ? 'rest' : 'pending');
+	// non deve consumare l'unica intro della sessione di lavoro. 'loading' e' il
+	// lockup in fil di ferro mentre omp si avvia o la sessione si ricarica.
+	type Phase = 'pending' | 'loading' | 'intro' | 'rest';
+	// La fase iniziale non legge `loading`: l'effetto la allinea prima del primo disegno.
+	let phase = $state<Phase>(introPlayed ? 'rest' : 'pending');
+	// Dopo il caricamento il contorno e' gia' disegnato: l'intro riparte da li'.
+	let fromLoading = $state(false);
 
 	$effect(() => {
+		if (loading) {
+			phase = 'loading';
+			fromLoading = true;
+			return;
+		}
+		if (phase === 'loading') phase = introPlayed ? 'rest' : 'pending';
 		if (phase !== 'pending' || !visible) return;
 		if (introPlayed || motionReduced()) {
 			phase = 'rest';
@@ -44,11 +55,14 @@
 <div
 	class="omp-welcome"
 	class:is-pending={phase === 'pending'}
+	class:is-loading={phase === 'loading'}
 	class:is-intro={phase === 'intro'}
+	class:from-loading={fromLoading}
 	class:rv-blur={phase === 'rest'}
 	style:--dur={phase === 'rest' ? '400ms' : undefined}
+	aria-busy={phase === 'loading'}
 >
-	<div class="lockup">
+	<div class="lockup" class:shimmer={phase === 'loading' && !motionReduced()}>
 		<svg class="mark" viewBox="-0.2 -0.2 12.4 10.4" aria-hidden="true">
 			<defs>
 				<!-- Stessa palette e stessa diagonale del gradiente della TUI di omp. -->
@@ -92,7 +106,12 @@
 		</div>
 	</div>
 
-	<p class="hint">{m.chat_v2_empty_state()}</p>
+	<!-- Le due righe occupano la stessa cella: l'altezza resta quella della piu'
+	     lunga, cosi' il lockup non salta quando il caricamento finisce. -->
+	<div class="hint-slot" aria-live="polite">
+		<p class="hint" class:is-off={phase !== 'loading'}>{m.ui_transcript_caricamento_sessione_in_corso_d8f1()}</p>
+		<p class="hint" class:is-off={phase === 'loading'}>{m.chat_v2_empty_state()}</p>
+	</div>
 </div>
 
 <style>
@@ -178,6 +197,15 @@
 		color: var(--ink-muted);
 		margin: 0;
 	}
+	.hint-slot {
+		display: grid;
+	}
+	.hint-slot > .hint {
+		grid-area: 1 / 1;
+	}
+	.hint.is-off {
+		visibility: hidden;
+	}
 
 	/* Intro, tempi ricavati fotogramma per fotogramma dal banner di Tern:
 	   contorno disegnato (0-270ms), scritta (270-570ms), riempimento a
@@ -202,6 +230,56 @@
 	}
 	.is-intro .hint {
 		animation: welcome-text 400ms 1070ms var(--ease-out) backwards;
+	}
+
+	/* Caricamento: lockup in fil di ferro, senza riempimento. Con il movimento
+	   attivo una banda di luce lo attraversa in diagonale: la maschera porta
+	   tutto al 40% tranne la banda, cosi' pi e scritta brillano come un solo
+	   oggetto. Senza movimento resta il contorno fermo in --ink-muted. */
+	.is-loading .lockup {
+		--wire: var(--ink-muted);
+	}
+	.is-loading .lockup.shimmer {
+		--wire: var(--ink);
+		-webkit-mask-image: linear-gradient(110deg, rgb(0 0 0 / 0.4) 42%, #000 50%, rgb(0 0 0 / 0.4) 58%);
+		mask-image: linear-gradient(110deg, rgb(0 0 0 / 0.4) 42%, #000 50%, rgb(0 0 0 / 0.4) 58%);
+		-webkit-mask-size: 300% 100%;
+		mask-size: 300% 100%;
+		animation: welcome-shimmer 2400ms linear infinite;
+	}
+	.is-loading .ink {
+		opacity: 0;
+	}
+	.is-loading .outline {
+		opacity: 1;
+		stroke: var(--wire);
+	}
+	.is-loading .word {
+		color: transparent;
+		-webkit-text-stroke: 1px var(--wire);
+	}
+
+	/* Intro dopo il caricamento: il contorno e' gia' tracciato, quindi la
+	   sequenza salta i primi 270ms. Il contorno riprende il gradiente e si
+	   spegne mentre il riempimento lo raggiunge; la scritta si riempie. */
+	.is-intro.from-loading .outline {
+		animation: welcome-outline-out 400ms linear backwards;
+	}
+	.is-intro.from-loading .sweep {
+		animation-delay: 130ms;
+	}
+	.is-intro.from-loading .ink {
+		animation-delay: 1380ms;
+	}
+	.is-intro.from-loading .word {
+		-webkit-text-stroke: 1px transparent;
+		animation: welcome-ink 400ms var(--ease-out) backwards;
+	}
+	.is-intro.from-loading .version {
+		animation: none;
+	}
+	.is-intro.from-loading .hint {
+		animation-delay: 800ms;
 	}
 
 	@keyframes welcome-outline {
@@ -245,6 +323,34 @@
 		from {
 			opacity: 0;
 			filter: blur(3px);
+		}
+	}
+
+	@keyframes welcome-outline-out {
+		0%,
+		50% {
+			opacity: 1;
+		}
+	}
+
+	@keyframes welcome-ink {
+		from {
+			color: transparent;
+			-webkit-text-stroke-color: var(--ink-muted);
+		}
+	}
+
+	/* Con la maschera larga il triplo, da 100% a 0% la banda entra da sinistra
+	   ed esce a destra, con una pausa fuori campo a ogni giro. */
+	@keyframes welcome-shimmer {
+		from {
+			-webkit-mask-position: 100% 0;
+			mask-position: 100% 0;
+		}
+		70%,
+		to {
+			-webkit-mask-position: 0 0;
+			mask-position: 0 0;
 		}
 	}
 </style>

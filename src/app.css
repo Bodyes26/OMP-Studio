@@ -183,15 +183,6 @@
   }
 }
 
-@keyframes shimmer-pulse {
-  0%, 100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.8;
-  }
-}
-
 @keyframes slide-fade-in {
   from {
     opacity: 0;

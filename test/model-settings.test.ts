@@ -14,6 +14,8 @@ import {
 	resolveActiveRole,
 	nextCycleRole,
 	parseRoleSelector,
+	supportedThinkingLevels,
+	clampThinkingLevel,
 	type ModelDto,
 	type AuthAccount
 } from '../src/lib/stores/modelSettingsHelpers.ts';
@@ -218,5 +220,37 @@ describe('Ruoli: ruolo attivo con modelli condivisi', () => {
 			modelId: 'anthropic/claude-opus',
 			thinking: 'high'
 		});
+	});
+});
+
+describe('Thinking: livelli accettati dal modello', () => {
+	it('offre off piu gli sforzi dichiarati, in ordine di scala', () => {
+		const opus = { reasoning: true, thinking: { mode: 'anthropic-adaptive', efforts: ['max', 'low', 'high', 'medium'] } };
+		assert.deepEqual(supportedThinkingLevels(opus), ['off', 'low', 'medium', 'high', 'max']);
+		// `omp models --json` pubblica gli sforzi come elenco piatto.
+		assert.deepEqual(supportedThinkingLevels({ reasoning: true, thinking: ['minimal', 'xhigh'] }), ['off', 'minimal', 'xhigh']);
+	});
+
+	it('lascia solo off ai modelli che non ragionano', () => {
+		assert.deepEqual(supportedThinkingLevels({ reasoning: false, thinking: { efforts: ['high'] } }), ['off']);
+	});
+
+	it('non restringe la scala quando gli sforzi non sono noti', () => {
+		assert.equal(supportedThinkingLevels(null), null);
+		assert.equal(supportedThinkingLevels({ reasoning: true }), null);
+		assert.equal(supportedThinkingLevels({ reasoning: true, thinking: { mode: 'budget', efforts: [] } }), null);
+	});
+
+	it('riporta un livello fuori scala al piu alto non superiore, come omp', () => {
+		const offered = ['auto', 'off', 'low', 'medium', 'high'];
+		assert.equal(clampThinkingLevel('max', offered), 'high');
+		assert.equal(clampThinkingLevel('medium', offered), 'medium');
+		// Sotto il primo sforzo disponibile omp sale al primo sforzo, non spegne.
+		assert.equal(clampThinkingLevel('minimal', offered), 'low');
+	});
+
+	it('non inventa un livello per auto o off assenti dalla scala', () => {
+		assert.equal(clampThinkingLevel('auto', ['off', 'low']), null);
+		assert.equal(clampThinkingLevel('high', ['auto', 'off']), 'off');
 	});
 });

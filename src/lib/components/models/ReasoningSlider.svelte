@@ -3,9 +3,13 @@
 	// Studio (Task Editor, Ruoli, popover del composer della chat). Sopra la traccia
 	// solo il nome del livello, nell'accento per testo; la descrizione resta nel
 	// valore accessibile. Chi lo usa sceglie quali livelli offrire: la chat non ha
-	// «Auto», che vale solo per task e ruoli.
+	// «Auto», che vale solo per task e ruoli, e ogni superficie toglie gli sforzi
+	// che il modello scelto non accetta. Un valore salvato fuori scala si mostra
+	// sul livello a cui omp lo riporta, senza riscriverlo: tornando a un modello
+	// che lo accetta riappare com'era.
 	import { m } from '$lib/paraglide/messages.js';
 	import { THINKING_LEVELS } from '$lib/stores/modelSettings.svelte';
+	import { clampThinkingLevel } from '$lib/stores/modelSettingsHelpers';
 	import Slider from '$lib/ui/Slider.svelte';
 
 	type LevelId = (typeof THINKING_LEVELS)[number]['id'];
@@ -28,7 +32,11 @@
 	const lastIndex = $derived(offered.length - 1);
 
 	const currentIndex = $derived.by(() => {
-		const idx = offered.findIndex((level) => level.id === value);
+		const shown = clampThinkingLevel(
+			value,
+			offered.map((level) => level.id)
+		);
+		const idx = offered.findIndex((level) => level.id === shown);
 		return idx >= 0 ? idx : 0;
 	});
 

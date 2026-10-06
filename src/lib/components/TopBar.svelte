@@ -913,10 +913,6 @@
 						<span class="tab-reveal-inner"><span class="tab-name">{p.name}</span></span>
 					</span>
 
-					<span class="tab-reveal" class:show={isActive && aggState === 'working'}>
-						<span class="tab-reveal-inner"><span class="tab-spin" aria-hidden="true"></span></span>
-					</span>
-
 					{#if p.canonicalProjectPath && queueStyle !== 'off'}
 						<span class="tab-reveal" class:show={isActive && queued > 0}>
 							<span class="tab-reveal-inner">
@@ -1630,19 +1626,6 @@
 		transition: color var(--dur-calm) var(--ease-out);
 	}
 
-	/* "Sta lavorando" e' un arco che gira, e solo sulla tessera aperta: sulle
-	   altre lo dicono il punto pieno e il testo acceso. */
-	.tab-spin {
-		margin-left: var(--space-2);
-		width: 12px;
-		height: 12px;
-		flex: none;
-		border-radius: var(--radius-full);
-		border: 1.5px solid var(--line-strong);
-		border-top-color: var(--ink);
-		animation: spin 900ms linear infinite;
-	}
-
 	.tab-queue {
 		margin-left: var(--space-2);
 		font-family: var(--font-mono);
@@ -1724,14 +1707,7 @@
 	}
 
 
-	/* Senza movimento l'arco si fermerebbe in un punto qualsiasi e sembrerebbe
-	   un anello rotto: diventa un anello intero. */
 	@media (prefers-reduced-motion: reduce) {
-		.tab-spin {
-			animation: none;
-			border-color: var(--line-strong);
-			border-top-color: var(--ink);
-		}
 		.tab.attention::after {
 			animation: none;
 			opacity: 1;

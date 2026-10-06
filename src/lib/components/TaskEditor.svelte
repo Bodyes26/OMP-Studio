@@ -21,6 +21,7 @@
 	import { taskLabel } from '$lib/stores/taskTitle';
 	import { requestTaskTitle } from '$lib/stores/taskTitles';
 	import { modelSettingsStore, STANDARD_ROLES, THINKING_LEVELS } from '$lib/stores/modelSettings.svelte';
+	import { supportedThinkingLevels } from '$lib/stores/modelSettingsHelpers';
 	import { quotaStore, providersMatch, type ProviderHost } from '$lib/stores/quota.svelte';
 	import type { AgentSession } from '$lib/agent/session.svelte';
 	import type { AvailableCommand, ImageContent } from '$lib/agent/wire';
@@ -139,6 +140,11 @@
 		modelSettingsStore.assignableCatalog.find((model) => model.selector === options.modelSelector) ??
 		modelSettingsStore.catalog.find((model) => model.selector === options.modelSelector)
 	);
+	// «Auto» lascia decidere a omp; gli altri passi sono quelli che il modello accetta.
+	const offeredThinkingLevels = $derived.by(() => {
+		const supported = supportedThinkingLevels(selectedModel);
+		return supported ? (['auto', ...supported] as const) : undefined;
+	});
 	const frequentModelConfigurations = $derived.by(() => {
 		const ranked = rankFrequentTaskModelConfigurations(taskStore.originsFor(task.projectPath));
 		return ranked.flatMap((configuration) => {
@@ -827,6 +833,7 @@
 						<div class="thinking-field">
 							<ReasoningSlider
 								value={options.thinkingLevel || 'auto'}
+								levels={offeredThinkingLevels}
 								onChange={handleThinkingChange}
 							/>
 						</div>
