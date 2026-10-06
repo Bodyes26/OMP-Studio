@@ -8,7 +8,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-use super::auth::{find_gh_binary, get_saved_token};
+use super::auth::{find_gh_binary, get_saved_token, run_blocking};
 use super::repos::parse_github_url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +75,60 @@ fn get_project_github_slug(project_path: &Path) -> Option<(String, String)> {
     parse_github_url(&url)
 }
 
+fn actions_from_gh(slug: &str, branch: Option<&str>) -> Option<Vec<GithubActionRun>> {
+    let gh_path = find_gh_binary()?;
+    let mut cmd = Command::new(&gh_path);
+    let mut args = vec![
+        "run",
+        "list",
+        "--repo",
+        slug,
+        "--limit",
+        "5",
+        "--json",
+        "databaseId,name,status,conclusion,url,event,headSha,headBranch,createdAt",
+    ];
+    if let Some(b) = branch {
+        args.push("--branch");
+        args.push(b);
+    }
+    cmd.args(&args);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let items = serde_json::from_slice::<Vec<GhCliRun>>(&out.stdout).ok()?;
+    Some(
+        items
+            .into_iter()
+            .map(|r| GithubActionRun {
+                id: r.database_id,
+                name: r.name,
+                status: r.status,
+                conclusion: r.conclusion,
+                url: r.url,
+                event: r.event,
+                head_sha: r.head_sha,
+                head_branch: r.head_branch,
+                created_at: r.created_at,
+            })
+            .collect(),
+    )
+}
+
+/// Parametri della query Actions API. Il branch passa da `.query()`, che lo
+/// codifica: un nome con '&', '#' o '+' altrimenti spezzava l'URL.
+fn actions_api_query(branch: Option<&str>) -> Vec<(&'static str, String)> {
+    let mut query = vec![("per_page", "5".to_string())];
+    if let Some(b) = branch {
+        query.push(("branch", b.to_string()));
+    }
+    query
+}
+
 #[tauri::command]
 pub async fn github_get_actions_status(
     project_path: String,
@@ -84,56 +138,29 @@ pub async fn github_get_actions_status(
     if !path.exists() {
         return Err(format!("Percorso '{project_path}' non trovato"));
     }
+    let branch = branch
+        .map(|b| b.trim().to_string())
+        .filter(|b| !b.is_empty());
 
-    let Some((owner, repo)) = get_project_github_slug(&path) else {
+    // git e gh sono processi esterni: fuori dal runtime async.
+    let (slug, from_gh) = {
+        let branch = branch.clone();
+        run_blocking(move || {
+            let (owner, repo) = get_project_github_slug(&path)?;
+            let slug = format!("{owner}/{repo}");
+            let runs = actions_from_gh(&slug, branch.as_deref());
+            Some((slug, runs))
+        })
+        .await?
+        .unzip()
+    };
+    let Some(slug) = slug else {
         return Ok(Vec::new());
     };
-    let slug = format!("{owner}/{repo}");
 
-    // 1. Prova con gh CLI
-    if let Some(gh_path) = find_gh_binary() {
-        let mut cmd = Command::new(&gh_path);
-        let mut args = vec![
-            "run",
-            "list",
-            "--repo",
-            &slug,
-            "--limit",
-            "5",
-            "--json",
-            "databaseId,name,status,conclusion,url,event,headSha,headBranch,createdAt",
-        ];
-        if let Some(b) = &branch {
-            if !b.trim().is_empty() {
-                args.push("--branch");
-                args.push(b.trim());
-            }
-        }
-        cmd.args(&args);
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-
-        if let Ok(out) = cmd.output() {
-            if out.status.success() {
-                if let Ok(items) = serde_json::from_slice::<Vec<GhCliRun>>(&out.stdout) {
-                    let mapped = items
-                        .into_iter()
-                        .map(|r| GithubActionRun {
-                            id: r.database_id,
-                            name: r.name,
-                            status: r.status,
-                            conclusion: r.conclusion,
-                            url: r.url,
-                            event: r.event,
-                            head_sha: r.head_sha,
-                            head_branch: r.head_branch,
-                            created_at: r.created_at,
-                        })
-                        .collect();
-                    return Ok(mapped);
-                }
-            }
-        }
+    // 1. Risultato da gh CLI
+    if let Some(runs) = from_gh.flatten() {
+        return Ok(runs);
     }
 
     // 2. Prova con token PAT
@@ -143,15 +170,10 @@ pub async fn github_get_actions_status(
             .build()
             .map_err(|e| e.to_string())?;
 
-        let mut url = format!("https://api.github.com/repos/{slug}/actions/runs?per_page=5");
-        if let Some(b) = &branch {
-            if !b.trim().is_empty() {
-                url.push_str(&format!("&branch={}", b.trim()));
-            }
-        }
-
+        let url = format!("https://api.github.com/repos/{slug}/actions/runs");
         let res = client
             .get(&url)
+            .query(&actions_api_query(branch.as_deref()))
             .bearer_auth(token)
             .send()
             .await
@@ -180,4 +202,23 @@ pub async fn github_get_actions_status(
     }
 
     Ok(Vec::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn branch_codificato_nella_query() {
+        let client = reqwest::Client::new();
+        let req = client
+            .get("https://api.github.com/repos/o/r/actions/runs")
+            .query(&actions_api_query(Some("feat/a&b#c+d")))
+            .build()
+            .unwrap();
+        assert_eq!(
+            req.url().as_str(),
+            "https://api.github.com/repos/o/r/actions/runs?per_page=5&branch=feat%2Fa%26b%23c%2Bd"
+        );
+    }
 }
