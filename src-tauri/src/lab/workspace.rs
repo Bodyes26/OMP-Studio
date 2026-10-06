@@ -1,9 +1,7 @@
 //! Gestione dei workspace dei prototipi (template, creazione, snapshot, duplicazione, esportazione).
 
 use super::git::{git_init, git_initial_commit};
-use super::index::{
-    ensure_project_gitignore, read_index, resolve_index_path, write_index,
-};
+use super::index::{ensure_project_gitignore, read_index, resolve_index_path, write_index};
 use super::paths::prototype_workspace_path;
 use super::types::{LabFile, LabIndexEntry, LabPrototypeStatus};
 use super::util::{generate_prototype_id, now_iso8601};
@@ -62,6 +60,18 @@ fn instantiate_template(
     Ok(())
 }
 
+/// Esegue un passo della creazione di un workspace appena nato e, se fallisce,
+/// rimuove la cartella: un workspace a meta' che nessun indice conosce resterebbe
+/// sul disco per sempre.
+fn with_workspace_cleanup<T>(
+    ws_path: &Path,
+    step: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    step().inspect_err(|_| {
+        let _ = fs::remove_dir_all(ws_path);
+    })
+}
+
 /// Crea un nuovo prototipo dal template standard Vite + React + Tailwind v4.
 #[command]
 pub async fn lab_prototype_create(
@@ -87,12 +97,14 @@ pub async fn lab_prototype_create(
 
         let now = now_iso8601();
 
-        // 1. Scrivi i file del template nel workspace
-        instantiate_template(&ws_path, &prototype_id, &title, &now)?;
-
-        // 2. Inizializza git e registra il commit iniziale
-        git_init(&ws_path)?;
-        let initial_rev = git_initial_commit(&ws_path)?;
+        // 1-2. Template, git init e commit iniziale. La cartella e' appena nata (sopra
+        // si e' verificato che non esistesse): se un passo fallisce si rimuove, invece
+        // di lasciare un workspace a meta' che nessun indice conosce.
+        let initial_rev = with_workspace_cleanup(&ws_path, || {
+            instantiate_template(&ws_path, &prototype_id, &title, &now)?;
+            git_init(&ws_path)?;
+            git_initial_commit(&ws_path)
+        })?;
 
         // 3. Prepara la voce dell'indice
         let entry = LabIndexEntry {
@@ -110,10 +122,12 @@ pub async fn lab_prototype_create(
         };
 
         // 4. Salva la voce nell'indice appropriato (progetto o bozze)
-        let index_path = resolve_index_path(project_path.as_deref())?;
-        let mut index_file = read_index(&index_path)?;
-        index_file.prototypes.push(entry.clone());
-        write_index(&index_path, &index_file)?;
+        with_workspace_cleanup(&ws_path, || {
+            let index_path = resolve_index_path(project_path.as_deref())?;
+            let mut index_file = read_index(&index_path)?;
+            index_file.prototypes.push(entry.clone());
+            write_index(&index_path, &index_file)
+        })?;
 
         // 5. Se associato a un progetto git, assicurati che .omp/lab/ sia ignorato
         if let Some(p_str) = &project_path {
@@ -132,7 +146,10 @@ const SOURCE_EXTENSIONS: &[&str] = &["tsx", "ts", "jsx", "js", "mjs", "json", "c
 
 /// Decodifica un file dello snapshot. I file binari (immagini, font) non servono al
 /// compiler e restano fuori; un sorgente non UTF-8 invece e' un errore esplicito.
-pub(super) fn decode_snapshot_text(rel_path: &str, bytes: Vec<u8>) -> Result<Option<String>, String> {
+pub(super) fn decode_snapshot_text(
+    rel_path: &str,
+    bytes: Vec<u8>,
+) -> Result<Option<String>, String> {
     match String::from_utf8(bytes) {
         Ok(content) => Ok(Some(content)),
         Err(_) => {
@@ -384,7 +401,9 @@ pub async fn lab_export(workspace_path: String, destination: String) -> Result<(
         let dst = Path::new(&destination);
         if dst.exists() {
             if !dst.is_dir() {
-                return Err("La destinazione indicata esiste gia' e non e' una cartella".to_string());
+                return Err(
+                    "La destinazione indicata esiste gia' e non e' una cartella".to_string()
+                );
             }
             let is_empty = fs::read_dir(dst)
                 .map_err(|e| format!("Controllo cartella destinazione fallito: {e}"))?
@@ -405,6 +424,33 @@ pub async fn lab_export(workspace_path: String, destination: String) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creazione_fallita_rimuove_la_cartella() {
+        let ws = std::env::temp_dir().join(format!(
+            "omp-studio-lab-cleanup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let result: Result<(), String> = with_workspace_cleanup(&ws, || {
+            fs::create_dir_all(ws.join("src")).unwrap();
+            fs::write(ws.join("index.html"), "x").unwrap();
+            Err("git init fallito".to_string())
+        });
+        assert!(result.is_err());
+        assert!(!ws.exists(), "la cartella a meta' deve sparire");
+
+        let ok = with_workspace_cleanup(&ws, || {
+            fs::create_dir_all(&ws).unwrap();
+            Ok(7)
+        });
+        assert_eq!(ok, Ok(7));
+        assert!(ws.exists());
+        let _ = fs::remove_dir_all(&ws);
+    }
 
     /// Radice temporanea unica, scritta come la passa Studio su Windows: lettera di
     /// unita' e separatori misti (`C:\Users\...\Temp/lab-.../p-...`).
@@ -448,11 +494,19 @@ mod tests {
             "src/main.tsx",
             "src/components/ui/Button.tsx",
         ] {
-            assert!(paths.iter().any(|p| p == expected), "manca {expected} in {paths:?}");
+            assert!(
+                paths.iter().any(|p| p == expected),
+                "manca {expected} in {paths:?}"
+            );
         }
-        assert!(paths.iter().all(|p| !p.contains('\\')), "separatori non normalizzati: {paths:?}");
         assert!(
-            paths.iter().all(|p| !p.starts_with("node_modules") && !p.starts_with(".lab")),
+            paths.iter().all(|p| !p.contains('\\')),
+            "separatori non normalizzati: {paths:?}"
+        );
+        assert!(
+            paths
+                .iter()
+                .all(|p| !p.starts_with("node_modules") && !p.starts_with(".lab")),
             "cartelle escluse incluse: {paths:?}"
         );
     }
@@ -462,7 +516,11 @@ mod tests {
         let (dir, mixed_root) = temp_workspace("utf8");
         let root = Path::new(&mixed_root);
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("src/logo.png"), [0x89, b'P', b'N', b'G', 0xff, 0xfe]).unwrap();
+        fs::write(
+            root.join("src/logo.png"),
+            [0x89, b'P', b'N', b'G', 0xff, 0xfe],
+        )
+        .unwrap();
         let binary_ok = snapshot_workspace(root).unwrap();
         // "caffè" in Windows-1252: non e' UTF-8 valido
         fs::write(root.join("src/main.tsx"), b"const s = 'caff\xe8';").unwrap();
@@ -470,6 +528,9 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
 
         assert!(binary_ok.is_empty(), "asset binario incluso: {binary_ok:?}");
-        assert!(err.contains("src/main.tsx") && err.contains("UTF-8"), "{err}");
+        assert!(
+            err.contains("src/main.tsx") && err.contains("UTF-8"),
+            "{err}"
+        );
     }
 }

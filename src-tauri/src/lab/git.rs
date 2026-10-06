@@ -3,12 +3,14 @@
 //! Ogni richiesta all'agente o azione utente produce un commit nel repository
 //! interno al workspace (`<lab_root>/prototypes/<id>/.git`).
 //! I comandi girano sempre con finestra nascosta (`CREATE_NO_WINDOW`), nessun hook
-//! (`-c core.hooksPath=`) e autore fisso "OMP Studio Lab", senza toccare la configurazione globale.
+//! (`-c core.hooksPath=`), nessuna firma GPG e autore fisso "OMP Studio Lab", senza
+//! toccare la configurazione globale. La ricerca del repository non risale mai oltre
+//! il workspace (`GIT_CEILING_DIRECTORIES`).
 
 use super::types::{LabFile, LabRevision};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tauri::command;
 
@@ -19,10 +21,76 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 pub fn git_command(cwd: &Path) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(cwd);
+    // I file del workspace (compresa `.git/hooks`) li scrive l'agente: nessun hook
+    // deve essere eseguito. Con hooksPath vuoto git cerca gli hook in un percorso
+    // inesistente.
     cmd.arg("-c").arg("core.hooksPath=");
+    // Una firma GPG configurata globalmente farebbe fallire (o chiedere la passphrase
+    // a) ogni commit automatico del Lab.
+    cmd.arg("-c").arg("commit.gpgsign=false");
+    cmd.arg("-c").arg("tag.gpgsign=false");
+    // Variabili ereditate che punterebbero git a un altro repository.
+    for var in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+    ] {
+        cmd.env_remove(var);
+    }
+    // Se `<cwd>/.git` mancasse, git risalirebbe fino a un repository antenato
+    // (ad esempio una home versionata) e `add -A`/`clean`/`restore` agirebbero li'.
+    if let Some(parent) = cwd.parent().filter(|p| p.is_absolute()) {
+        cmd.env("GIT_CEILING_DIRECTORIES", parent);
+    }
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
+}
+
+/// Risolve il workspace di un comando `lab_git_*`: deve stare sotto
+/// `<lab_root>/prototypes` e avere il proprio `.git`. Il percorso arriva dal
+/// frontend: senza questo controllo `restore`/`clean` potevano girare su qualunque
+/// cartella, o su un repository antenato.
+fn resolve_lab_workspace(workspace_path: &str) -> Result<PathBuf, String> {
+    let cwd = Path::new(workspace_path);
+    if !cwd.exists() {
+        return Err(format!("Workspace non esistente: {}", cwd.display()));
+    }
+    let prototypes_dir = super::paths::lab_root()
+        .ok_or_else(|| "Radice del Laboratorio non disponibile".to_string())?
+        .join("prototypes");
+    let canonical = super::index::confined_prototype_workspace(&prototypes_dir, cwd)?;
+    ensure_own_git_dir(&canonical)?;
+    // Il percorso canonico serve solo al controllo: su Windows ha il prefisso `\\?\`,
+    // che non va passato come cartella di lavoro ne' a GIT_CEILING_DIRECTORIES.
+    if cwd.is_absolute() {
+        Ok(cwd.to_path_buf())
+    } else {
+        Ok(canonical)
+    }
+}
+
+fn ensure_own_git_dir(cwd: &Path) -> Result<(), String> {
+    if cwd.join(".git").exists() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Il workspace {} non ha un repository git proprio",
+            cwd.display()
+        ))
+    }
+}
+
+/// Una revisione arriva dal frontend e finisce come argomento di git: solo hash
+/// esadecimali, cosi' un valore come `--output=...` non diventa un'opzione.
+fn validate_revision(sha: &str) -> Result<(), String> {
+    let valid = (4..=64).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit());
+    if valid {
+        Ok(())
+    } else {
+        Err(format!("Revisione non valida: {sha}"))
+    }
 }
 
 /// Costruisce un comando Git con autore predefinito del Laboratorio.
@@ -98,13 +166,8 @@ pub async fn lab_git_commit(
     message: String,
 ) -> Result<Option<LabRevision>, String> {
     tokio::task::spawn_blocking(move || {
-        let cwd = Path::new(&workspace_path);
-        if !cwd.exists() {
-            return Err(format!(
-                "Workspace non esistente: {}",
-                cwd.display()
-            ));
-        }
+        let cwd_buf = resolve_lab_workspace(&workspace_path)?;
+        let cwd = cwd_buf.as_path();
 
         // git add -A
         let mut add_cmd = git_command(cwd);
@@ -149,13 +212,8 @@ pub async fn lab_git_log(
     limit: Option<usize>,
 ) -> Result<Vec<LabRevision>, String> {
     tokio::task::spawn_blocking(move || {
-        let cwd = Path::new(&workspace_path);
-        if !cwd.exists() {
-            return Err(format!(
-                "Workspace non esistente: {}",
-                cwd.display()
-            ));
-        }
+        let cwd_buf = resolve_lab_workspace(&workspace_path)?;
+        let cwd = cwd_buf.as_path();
 
         let max_commits = limit.unwrap_or(100).max(1);
         let mut cmd = git_command(cwd);
@@ -194,16 +252,12 @@ pub async fn lab_git_log(
 #[command]
 pub async fn lab_git_files_at(workspace_path: String, sha: String) -> Result<Vec<LabFile>, String> {
     tokio::task::spawn_blocking(move || {
-        let cwd = Path::new(&workspace_path);
-        if !cwd.exists() {
-            return Err(format!(
-                "Workspace non esistente: {}",
-                cwd.display()
-            ));
-        }
+        validate_revision(&sha)?;
+        let cwd_buf = resolve_lab_workspace(&workspace_path)?;
+        let cwd = cwd_buf.as_path();
 
         let mut cmd = git_command(cwd);
-        cmd.args(["ls-tree", "-r", "--name-only", &sha]);
+        cmd.args(["ls-tree", "-r", "--name-only", &sha, "--"]);
         let out = run_git_checked(&mut cmd, "ls-tree")?;
 
         let stdout = String::from_utf8_lossy(&out.stdout);
@@ -230,8 +284,9 @@ pub async fn lab_git_files_at(workspace_path: String, sha: String) -> Result<Vec
             }
 
             if files.len() >= 400 {
-                return Err("Il workspace alla revisione supera il limite massimo di 400 file"
-                    .to_string());
+                return Err(
+                    "Il workspace alla revisione supera il limite massimo di 400 file".to_string(),
+                );
             }
 
             // Verifica dimensione file prima della lettura completa
@@ -277,17 +332,13 @@ pub async fn lab_git_files_at(workspace_path: String, sha: String) -> Result<Vec
 #[command]
 pub async fn lab_git_restore(workspace_path: String, sha: String) -> Result<LabRevision, String> {
     tokio::task::spawn_blocking(move || {
-        let cwd = Path::new(&workspace_path);
-        if !cwd.exists() {
-            return Err(format!(
-                "Workspace non esistente: {}",
-                cwd.display()
-            ));
-        }
+        validate_revision(&sha)?;
+        let cwd_buf = resolve_lab_workspace(&workspace_path)?;
+        let cwd = cwd_buf.as_path();
 
         // Recupera il messaggio originale del commit da ripristinare
         let mut log_cmd = git_command(cwd);
-        log_cmd.args(["log", "-1", "--format=%s", &sha]);
+        log_cmd.args(["log", "-1", "--format=%s", &sha, "--"]);
         let log_out = run_git_checked(&mut log_cmd, "log messaggio commit")?;
         let subject = String::from_utf8_lossy(&log_out.stdout).trim().to_string();
 
@@ -332,4 +383,85 @@ pub async fn lab_git_restore(workspace_path: String, sha: String) -> Result<LabR
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn scratch(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "omp-studio-labgit-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn revisione_solo_esadecimale() {
+        assert!(validate_revision("0123abcdef").is_ok());
+        assert!(validate_revision(&"a".repeat(40)).is_ok());
+        assert!(validate_revision("--output=/tmp/x").is_err());
+        assert!(validate_revision("HEAD").is_err());
+        assert!(validate_revision("abc").is_err());
+    }
+
+    #[test]
+    fn senza_git_proprio_non_risale_al_repository_antenato() {
+        let root = scratch("ceiling");
+        // Repository antenato con un file da non toccare
+        let mut init = Command::new("git");
+        init.current_dir(&root).args(["init", "-q"]);
+        assert!(init.status().unwrap().success());
+        let ws = root.join("prototypes").join("p1");
+        fs::create_dir_all(&ws).unwrap();
+        fs::write(ws.join("file.txt"), "x").unwrap();
+
+        assert!(ensure_own_git_dir(&ws).is_err());
+        // Anche se si eseguisse git, il soffitto impedisce di trovare l'antenato.
+        let out = git_command(&ws)
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .unwrap();
+        assert!(
+            !out.status.success(),
+            "git ha trovato il repository antenato"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn commit_iniziale_ignora_firma_gpg_e_hook() {
+        let ws = scratch("gpg");
+        fs::write(ws.join("index.html"), "<p>ciao</p>").unwrap();
+        git_init(&ws).unwrap();
+        // Configurazione locale ostile: firma obbligatoria con un programma che fallisce
+        // e un hook pre-commit che fallisce.
+        for (key, value) in [
+            ("commit.gpgsign", "true"),
+            ("gpg.program", "false-gpg-inesistente"),
+        ] {
+            let mut cfg = Command::new("git");
+            cfg.current_dir(&ws).args(["config", key, value]);
+            assert!(cfg.status().unwrap().success());
+        }
+        let hook = ws.join(".git").join("hooks").join("pre-commit");
+        fs::create_dir_all(hook.parent().unwrap()).unwrap();
+        fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let rev = git_initial_commit(&ws);
+        let _ = fs::remove_dir_all(&ws);
+        assert!(rev.is_ok(), "{rev:?}");
+    }
 }

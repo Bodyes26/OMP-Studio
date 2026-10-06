@@ -8,7 +8,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-use super::auth::{find_gh_binary, get_saved_token};
+use super::auth::{find_gh_binary, get_saved_token, run_blocking};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -191,8 +191,9 @@ struct GhApiRepo {
 pub async fn github_list_remote_repos(limit: Option<u32>) -> Result<Vec<GithubRemoteRepo>, String> {
     let lim = limit.unwrap_or(100);
 
-    // 1. Prova con gh CLI se disponibile
-    if let Some(gh_path) = find_gh_binary() {
+    // 1. Prova con gh CLI se disponibile (processo esterno: fuori dal runtime async)
+    let from_gh = run_blocking(move || -> Option<Vec<GithubRemoteRepo>> {
+        let gh_path = find_gh_binary()?;
         let mut cmd = Command::new(&gh_path);
         cmd.args([
             "repo",
@@ -205,29 +206,33 @@ pub async fn github_list_remote_repos(limit: Option<u32>) -> Result<Vec<GithubRe
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
-        if let Ok(out) = cmd.output() {
-            if out.status.success() {
-                if let Ok(items) = serde_json::from_slice::<Vec<GhCliRepo>>(&out.stdout) {
-                    let mapped = items
-                        .into_iter()
-                        .map(|r| GithubRemoteRepo {
-                            name: r.name,
-                            full_name: r.name_with_owner,
-                            is_private: r.is_private,
-                            description: r.description,
-                            url: r.url,
-                            ssh_url: r.ssh_url,
-                            default_branch: r
-                                .default_branch_ref
-                                .map(|b| b.name)
-                                .unwrap_or_else(|| "main".to_string()),
-                            updated_at: r.updated_at.unwrap_or_default(),
-                        })
-                        .collect();
-                    return Ok(mapped);
-                }
-            }
+        let out = cmd.output().ok()?;
+        if !out.status.success() {
+            return None;
         }
+        let items = serde_json::from_slice::<Vec<GhCliRepo>>(&out.stdout).ok()?;
+        Some(
+            items
+                .into_iter()
+                .map(|r| GithubRemoteRepo {
+                    name: r.name,
+                    full_name: r.name_with_owner,
+                    is_private: r.is_private,
+                    description: r.description,
+                    url: r.url,
+                    ssh_url: r.ssh_url,
+                    default_branch: r
+                        .default_branch_ref
+                        .map(|b| b.name)
+                        .unwrap_or_else(|| "main".to_string()),
+                    updated_at: r.updated_at.unwrap_or_default(),
+                })
+                .collect(),
+        )
+    })
+    .await?;
+    if let Some(mapped) = from_gh {
+        return Ok(mapped);
     }
 
     // 2. Se gh CLI non ha risposto o non è presente, prova con token PAT salvato
@@ -290,7 +295,8 @@ pub async fn github_clone_repo(repo_url: String, target_path: String) -> Result<
         }
 
         let mut cmd = Command::new("git");
-        cmd.args(["clone", "--progress", &repo_url, &target_path]);
+        // `--` impedisce che un URL che inizia con '-' venga letto come opzione di git.
+        cmd.args(["clone", "--progress", "--", &repo_url, &target_path]);
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -309,6 +315,167 @@ pub async fn github_clone_repo(repo_url: String, target_path: String) -> Result<
     .map_err(|e| format!("Task clone repo: {e}"))?
 }
 
+/// Nome di repository accettato da GitHub. Il controllo sta anche qui, e non solo
+/// in `project_create_new`, perche' il comando e' invocabile direttamente: un nome
+/// che inizia con '-' finirebbe letto da gh come opzione.
+fn validate_github_repo_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Il nome del repository è obbligatorio.".to_string());
+    }
+    if name.len() > 100 {
+        return Err("Il nome del repository è troppo lungo (max 100 caratteri).".to_string());
+    }
+    if name.starts_with('-') {
+        return Err("Il nome del repository non può iniziare con un trattino.".to_string());
+    }
+    if name == "." || name == ".." {
+        return Err("Nome del repository non valido.".to_string());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(
+            "Il nome del repository può contenere solo lettere, numeri, trattino, underscore e punto."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Esito di `gh repo create`: il repository creato oppure lo stderr di gh.
+enum GhCreateOutcome {
+    Created(Result<GithubRemoteRepo, String>),
+    Failed(String),
+}
+
+/// Risposta costruita dai dati noti quando `gh repo view` non risponde: il repo
+/// esiste gia', ripiegare sul PAT tenterebbe di crearlo una seconda volta.
+fn repo_from_known_data(
+    owner: &str,
+    name: &str,
+    description: Option<String>,
+    is_private: bool,
+) -> GithubRemoteRepo {
+    GithubRemoteRepo {
+        name: name.to_string(),
+        full_name: format!("{owner}/{name}"),
+        is_private,
+        description: description.filter(|d| !d.trim().is_empty()),
+        url: format!("https://github.com/{owner}/{name}"),
+        ssh_url: Some(format!("git@github.com:{owner}/{name}.git")),
+        default_branch: "main".to_string(),
+        updated_at: String::new(),
+    }
+}
+
+/// Owner del repo appena creato: gh stampa l'URL su stdout; in mancanza si chiede
+/// il login dell'utente a gh.
+fn created_repo_owner(gh_path: &Path, create_stdout: &str) -> Option<String> {
+    if let Some((owner, _)) = create_stdout.split_whitespace().find_map(parse_github_url) {
+        return Some(owner);
+    }
+    let mut cmd = Command::new(gh_path);
+    cmd.args(["api", "user", "--jq", ".login"]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let login = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!login.is_empty()).then_some(login)
+}
+
+fn gh_create_repo(
+    gh_path: &Path,
+    name: &str,
+    description: Option<String>,
+    is_private: bool,
+    auto_init: bool,
+) -> GhCreateOutcome {
+    let mut cmd = Command::new(gh_path);
+    cmd.args(["repo", "create"]);
+    if is_private {
+        cmd.arg("--private");
+    } else {
+        cmd.arg("--public");
+    }
+    if let Some(desc) = &description {
+        if !desc.trim().is_empty() {
+            cmd.args(["--description", desc.trim()]);
+        }
+    }
+    if auto_init {
+        cmd.arg("--add-readme");
+    }
+    // Il nome dopo `--`: mai interpretabile come opzione.
+    cmd.args(["--", name]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let out = match cmd.output() {
+        Ok(out) => out,
+        Err(e) => return GhCreateOutcome::Failed(format!("Avvio gh repo create: {e}")),
+    };
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let detail = if stderr.is_empty() { stdout } else { stderr };
+        return GhCreateOutcome::Failed(if detail.is_empty() {
+            "gh repo create non riuscito".to_string()
+        } else {
+            detail
+        });
+    }
+
+    // Da qui il repo esiste: qualunque cosa succeda non si passa piu' al PAT.
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let owner = created_repo_owner(gh_path, &stdout);
+    let target = owner
+        .as_ref()
+        .map(|o| format!("{o}/{name}"))
+        .unwrap_or_else(|| name.to_string());
+
+    let mut info_cmd = Command::new(gh_path);
+    info_cmd.args([
+        "repo",
+        "view",
+        &target,
+        "--json",
+        "name,nameWithOwner,isPrivate,description,url,sshUrl,defaultBranchRef",
+    ]);
+    #[cfg(target_os = "windows")]
+    info_cmd.creation_flags(CREATE_NO_WINDOW);
+
+    if let Ok(info_out) = info_cmd.output() {
+        if info_out.status.success() {
+            if let Ok(r) = serde_json::from_slice::<GhCliRepo>(&info_out.stdout) {
+                return GhCreateOutcome::Created(Ok(GithubRemoteRepo {
+                    name: r.name,
+                    full_name: r.name_with_owner,
+                    is_private: r.is_private,
+                    description: r.description,
+                    url: r.url,
+                    ssh_url: r.ssh_url,
+                    default_branch: r
+                        .default_branch_ref
+                        .map(|b| b.name)
+                        .unwrap_or_else(|| "main".to_string()),
+                    updated_at: String::new(),
+                }));
+            }
+        }
+    }
+
+    GhCreateOutcome::Created(match owner {
+        Some(owner) => Ok(repo_from_known_data(&owner, name, description, is_private)),
+        None => Err(format!(
+            "Il repository '{name}' è stato creato su GitHub, ma non è stato possibile leggerne i dati. Collegalo manualmente."
+        )),
+    })
+}
+
 /// Crea un nuovo repository su GitHub.
 #[tauri::command]
 pub async fn github_create_repo(
@@ -317,108 +484,95 @@ pub async fn github_create_repo(
     is_private: bool,
     auto_init: bool,
 ) -> Result<GithubRemoteRepo, String> {
-    // Prova prima con gh CLI
-    if let Some(gh_path) = find_gh_binary() {
-        let mut cmd = Command::new(&gh_path);
-        cmd.args(["repo", "create", &name]);
-        if is_private {
-            cmd.arg("--private");
+    let name = name.trim().to_string();
+    validate_github_repo_name(&name)?;
+
+    // Prova prima con gh CLI (processi esterni: fuori dal runtime async)
+    let gh_outcome = {
+        let name = name.clone();
+        let description = description.clone();
+        run_blocking(move || {
+            find_gh_binary()
+                .map(|gh_path| gh_create_repo(&gh_path, &name, description, is_private, auto_init))
+        })
+        .await?
+    };
+    let gh_error = match gh_outcome {
+        Some(GhCreateOutcome::Created(result)) => return result,
+        Some(GhCreateOutcome::Failed(stderr)) => Some(stderr),
+        None => None,
+    };
+
+    // Fallback con token PAT (solo se gh manca o non ha creato nulla)
+    let Some(token) = get_saved_token() else {
+        return Err(match gh_error {
+            Some(stderr) => {
+                format!("Creazione del repository con GitHub CLI non riuscita: {stderr}")
+            }
+            None => {
+                "Impossibile creare il repository: nessun account GitHub collegato.".to_string()
+            }
+        });
+    };
+    let with_gh_error = |message: String| match &gh_error {
+        Some(stderr) => format!("{message}\nGitHub CLI: {stderr}"),
+        None => message,
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("OMP-Studio")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let body = serde_json::json!({
+        "name": name,
+        "description": description.unwrap_or_default(),
+        "private": is_private,
+        "auto_init": auto_init,
+    });
+
+    let res = client
+        .post("https://api.github.com/user/repos")
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| with_gh_error(format!("Richiesta creazione repo GitHub fallita: {e}")))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let detail = res
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|v| {
+                v.get("message")
+                    .and_then(|m| m.as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        return Err(with_gh_error(if detail.is_empty() {
+            format!("Creazione repo fallita (HTTP {status})")
         } else {
-            cmd.arg("--public");
-        }
-        if let Some(desc) = &description {
-            if !desc.trim().is_empty() {
-                cmd.args(["--description", desc.trim()]);
-            }
-        }
-        if auto_init {
-            cmd.arg("--add-readme");
-        }
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-
-        let out = cmd
-            .output()
-            .map_err(|e| format!("Avvio gh repo create: {e}"))?;
-        if out.status.success() {
-            // Recupera il repo appena creato
-            let mut info_cmd = Command::new(&gh_path);
-            info_cmd.args([
-                "repo",
-                "view",
-                &name,
-                "--json",
-                "name,nameWithOwner,isPrivate,description,url,sshUrl,defaultBranchRef",
-            ]);
-            #[cfg(target_os = "windows")]
-            info_cmd.creation_flags(CREATE_NO_WINDOW);
-
-            if let Ok(info_out) = info_cmd.output() {
-                if info_out.status.success() {
-                    if let Ok(r) = serde_json::from_slice::<GhCliRepo>(&info_out.stdout) {
-                        return Ok(GithubRemoteRepo {
-                            name: r.name,
-                            full_name: r.name_with_owner,
-                            is_private: r.is_private,
-                            description: r.description,
-                            url: r.url,
-                            ssh_url: r.ssh_url,
-                            default_branch: r
-                                .default_branch_ref
-                                .map(|b| b.name)
-                                .unwrap_or_else(|| "main".to_string()),
-                            updated_at: String::new(),
-                        });
-                    }
-                }
-            }
-        }
+            format!("Creazione repo fallita (HTTP {status}): {detail}")
+        }));
     }
 
-    // Fallback con token PAT
-    if let Some(token) = get_saved_token() {
-        let client = reqwest::Client::builder()
-            .user_agent("OMP-Studio")
-            .build()
-            .map_err(|e| e.to_string())?;
+    let r: GhApiRepo = res
+        .json()
+        .await
+        .map_err(|e| format!("Parsing risposta creazione: {e}"))?;
 
-        let body = serde_json::json!({
-            "name": name,
-            "description": description.unwrap_or_default(),
-            "private": is_private,
-            "auto_init": auto_init,
-        });
-
-        let res = client
-            .post("https://api.github.com/user/repos")
-            .bearer_auth(token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Richiesta creazione repo GitHub fallita: {e}"))?;
-
-        if !res.status().is_success() {
-            return Err(format!("Creazione repo fallita (HTTP {})", res.status()));
-        }
-
-        let r: GhApiRepo = res
-            .json()
-            .await
-            .map_err(|e| format!("Parsing risposta creazione: {e}"))?;
-
-        return Ok(GithubRemoteRepo {
-            name: r.name,
-            full_name: r.full_name,
-            is_private: r.private,
-            description: r.description,
-            url: r.html_url,
-            ssh_url: r.ssh_url,
-            default_branch: r.default_branch.unwrap_or_else(|| "main".to_string()),
-            updated_at: r.updated_at.unwrap_or_default(),
-        });
-    }
-
-    Err("Impossibile creare il repository: nessun account GitHub collegato.".to_string())
+    Ok(GithubRemoteRepo {
+        name: r.name,
+        full_name: r.full_name,
+        is_private: r.private,
+        description: r.description,
+        url: r.html_url,
+        ssh_url: r.ssh_url,
+        default_branch: r.default_branch.unwrap_or_else(|| "main".to_string()),
+        updated_at: r.updated_at.unwrap_or_default(),
+    })
 }
 
 /// Valida il nome di una nuova cartella progetto (e, se serve, di un repo GitHub).
@@ -435,11 +589,13 @@ fn validate_new_project_name(name: &str, for_github: bool) -> Result<(), String>
     if name.ends_with('.') || name.ends_with(' ') {
         return Err("Il nome non può finire con punto o spazio.".to_string());
     }
-    if name
-        .chars()
-        .any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
-    {
+    if name.chars().any(|c| {
+        matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+    }) {
         return Err("Il nome contiene caratteri non validi per una cartella.".to_string());
+    }
+    if for_github && name.starts_with('-') {
+        return Err("Per GitHub il nome non può iniziare con un trattino.".to_string());
     }
     if for_github
         && !name
@@ -475,7 +631,9 @@ pub async fn project_create_new(
 
     let parent = PathBuf::from(&parent_dir);
     if !parent.is_dir() {
-        return Err(format!("La cartella dei progetti '{parent_dir}' non esiste."));
+        return Err(format!(
+            "La cartella dei progetti '{parent_dir}' non esiste."
+        ));
     }
     let target = parent.join(&name);
     if target.exists() {
@@ -559,5 +717,108 @@ mod tests {
         assert!(validate_new_project_name(".nascosto", false).is_err());
         assert!(validate_new_project_name("a/b", false).is_err());
         assert!(validate_new_project_name("a\\b", false).is_err());
+        assert!(validate_new_project_name("-x", true).is_err());
+    }
+
+    #[test]
+    fn validates_github_repo_names() {
+        assert!(validate_github_repo_name("OMP-Studio").is_ok());
+        assert!(validate_github_repo_name("my_repo.v2").is_ok());
+        assert!(validate_github_repo_name("").is_err());
+        assert!(validate_github_repo_name("-help").is_err());
+        assert!(validate_github_repo_name("--public").is_err());
+        assert!(validate_github_repo_name("a b").is_err());
+        assert!(validate_github_repo_name("owner/repo").is_err());
+        assert!(validate_github_repo_name("..").is_err());
+        assert!(validate_github_repo_name("perché").is_err());
+    }
+
+    #[test]
+    fn known_data_repo_points_to_github() {
+        let repo = repo_from_known_data("octo", "nuovo", Some(" ".to_string()), true);
+        assert_eq!(repo.full_name, "octo/nuovo");
+        assert_eq!(repo.url, "https://github.com/octo/nuovo");
+        assert_eq!(
+            repo.ssh_url.as_deref(),
+            Some("git@github.com:octo/nuovo.git")
+        );
+        assert!(repo.is_private);
+        assert_eq!(repo.description, None);
+    }
+
+    #[test]
+    fn owner_from_gh_create_stdout() {
+        let stdout = "https://github.com/octo/nuovo\n";
+        let owner = stdout
+            .split_whitespace()
+            .find_map(parse_github_url)
+            .map(|(o, _)| o);
+        assert_eq!(owner.as_deref(), Some("octo"));
+    }
+
+    /// Un exec subito dopo la scrittura dello script puo' fallire con ETXTBSY se un
+    /// altro test fa fork nello stesso istante: si riprova qualche volta.
+    #[cfg(unix)]
+    fn create_with_fake(fake: &Path, name: &str, is_private: bool) -> GhCreateOutcome {
+        for _ in 0..10 {
+            match gh_create_repo(fake, name, None, is_private, false) {
+                GhCreateOutcome::Failed(e) if e.contains("busy") => {
+                    std::thread::sleep(std::time::Duration::from_millis(20))
+                }
+                other => return other,
+            }
+        }
+        gh_create_repo(fake, name, None, is_private, false)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gh_create_failure_returns_stderr() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("omp-studio-fake-gh-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("gh");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\necho 'GraphQL: Name already exists on this account' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let outcome = create_with_fake(&fake, "doppio", true);
+        let _ = std::fs::remove_dir_all(&dir);
+        match outcome {
+            GhCreateOutcome::Failed(stderr) => {
+                assert!(stderr.contains("Name already exists"), "{stderr}")
+            }
+            GhCreateOutcome::Created(_) => panic!("gh fallito non deve risultare creato"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gh_create_success_with_failing_view_uses_known_data() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("omp-studio-fake-gh-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("gh");
+        // create riesce e stampa l'URL; view fallisce.
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\nif [ \"$2\" = create ]; then echo https://github.com/octo/nuovo; exit 0; fi\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let outcome = create_with_fake(&fake, "nuovo", false);
+        let _ = std::fs::remove_dir_all(&dir);
+        match outcome {
+            GhCreateOutcome::Created(Ok(repo)) => {
+                assert_eq!(repo.full_name, "octo/nuovo");
+                assert_eq!(repo.url, "https://github.com/octo/nuovo");
+                assert!(!repo.is_private);
+            }
+            GhCreateOutcome::Created(Err(e)) => panic!("dati noti attesi: {e}"),
+            GhCreateOutcome::Failed(e) => panic!("create riuscito letto come fallito: {e}"),
+        }
     }
 }

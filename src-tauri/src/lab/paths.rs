@@ -17,27 +17,48 @@ pub fn init(app_local_data_dir: PathBuf) {
     let _ = LAB_ROOT.set(lab_dir);
 }
 
+/// Identificatore dell'app (`identifier` in tauri.conf.json): Tauri lo usa come nome
+/// della cartella di `app_local_data_dir`.
+const APP_IDENTIFIER: &str = "sh.omp.studio";
+
 /// Radice globale del Laboratorio (`<app_local_data_dir>/lab`).
-/// Se non ancora inizializzata da Tauri, tenta un fallback sulle variabili d'ambiente.
+/// Se non ancora inizializzata da Tauri, ricostruisce lo stesso percorso che
+/// restituirebbe `app_local_data_dir`: un fallback diverso (prima `omp-studio`)
+/// faceva finire i prototipi in una seconda cartella che l'app poi non vedeva.
 pub fn lab_root() -> Option<PathBuf> {
     if let Some(root) = LAB_ROOT.get() {
         return Some(root.clone());
     }
-    #[cfg(target_os = "windows")]
-    if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        return Some(PathBuf::from(local).join("omp-studio").join("lab"));
-    }
-    #[cfg(not(target_os = "windows"))]
-    if let Ok(home) = std::env::var("HOME") {
-        return Some(
-            PathBuf::from(home)
-                .join(".local")
-                .join("share")
-                .join("omp-studio")
-                .join("lab"),
-        );
-    }
-    None
+    fallback_local_data_dir().map(|dir| dir.join("lab"))
+}
+
+/// `%LOCALAPPDATA%\sh.omp.studio` su Windows.
+#[cfg(target_os = "windows")]
+fn fallback_local_data_dir() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|local| PathBuf::from(local).join(APP_IDENTIFIER))
+}
+
+/// `~/Library/Application Support/sh.omp.studio` su macOS.
+#[cfg(target_os = "macos")]
+fn fallback_local_data_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(APP_IDENTIFIER)
+    })
+}
+
+/// `$XDG_DATA_HOME/sh.omp.studio`, altrimenti `~/.local/share/sh.omp.studio`.
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn fallback_local_data_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("share"))
+        })
+        .map(|dir| dir.join(APP_IDENTIFIER))
 }
 
 /// Percorso dell'indice globale delle bozze (`<lab_root>/drafts/prototypes.json`).
@@ -69,10 +90,29 @@ pub fn prototype_workspace_path(id: &str) -> Option<PathBuf> {
 #[command]
 pub async fn lab_paths() -> Result<LabPaths, String> {
     let root = lab_root().ok_or_else(|| "Radice del Laboratorio non disponibile".to_string())?;
-    let drafts_index = drafts_index_path()
-        .ok_or_else(|| "Percorso indice bozze non disponibile".to_string())?;
+    let drafts_index =
+        drafts_index_path().ok_or_else(|| "Percorso indice bozze non disponibile".to_string())?;
     Ok(LabPaths {
         root: root.to_string_lossy().to_string(),
         drafts_index: drafts_index.to_string_lossy().to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identificatore_allineato_a_tauri_conf() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../../tauri.conf.json")).unwrap();
+        assert_eq!(conf["identifier"].as_str(), Some(APP_IDENTIFIER));
+    }
+
+    #[test]
+    fn fallback_usa_la_cartella_dell_identificatore() {
+        if let Some(dir) = fallback_local_data_dir() {
+            assert!(dir.ends_with(APP_IDENTIFIER), "{}", dir.display());
+        }
+    }
 }

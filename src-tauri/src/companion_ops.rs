@@ -16,7 +16,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{
     command, webview::PageLoadEvent, AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize,
@@ -28,6 +28,43 @@ use crate::directives_ops::{extract_json_payload, run_ephemeral_omp_raw};
 
 /// La finestra Companion e' stata mostrata almeno una volta in questa sessione.
 static COMPANION_SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// Richieste di chiusura animata inviate alla vista (`companion-dismiss`).
+static DISMISS_REQUESTED: AtomicU64 = AtomicU64::new(0);
+/// Ultima richiesta di chiusura gia' risolta: da `hide_companion_window` oppure
+/// annullata da una nuova apertura.
+static DISMISS_SETTLED: AtomicU64 = AtomicU64::new(0);
+
+/// Se la vista non risponde a `companion-dismiss` entro questo tempo (webview
+/// bloccata, evento perso, animazione mai conclusa) la finestra si nasconde da qui:
+/// altrimenti resterebbe sullo schermo, a fuoco, senza modo di chiuderla con la
+/// scorciatoia.
+const DISMISS_FALLBACK_MS: u64 = 500;
+
+/// Registra una nuova richiesta di chiusura e ne restituisce il numero.
+fn begin_dismiss() -> u64 {
+    DISMISS_REQUESTED.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+/// Segna come risolte tutte le richieste di chiusura fatte finora.
+fn settle_dismiss() {
+    DISMISS_SETTLED.fetch_max(DISMISS_REQUESTED.load(Ordering::SeqCst), Ordering::SeqCst);
+}
+
+/// Vero se la richiesta `request` non e' stata ne' completata ne' annullata.
+fn dismiss_still_pending(request: u64) -> bool {
+    DISMISS_SETTLED.load(Ordering::SeqCst) < request
+}
+
+fn hide_companion_now(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
+    settle_dismiss();
+    persist_companion_geometry(app);
+    window
+        .hide()
+        .map_err(|e| format!("Chiusura finestra companion fallita: {}", e))?;
+    let _ = app.emit("companion-hidden", ());
+    Ok(())
+}
 
 /// Stato di persistenza della finestra Companion (posizione, dimensioni e fissaggio).
 ///
@@ -311,6 +348,8 @@ fn companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
 }
 
 fn show_companion_window(window: &WebviewWindow) -> Result<(), String> {
+    // Una riapertura annulla la chiusura eventualmente ancora in attesa.
+    settle_dismiss();
     // Da qui in avanti la geometria della finestra e' quella che vede l'utente:
     // solo dopo la prima apertura ha senso salvarla.
     COMPANION_SHOWN.store(true, Ordering::Relaxed);
@@ -342,14 +381,27 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
             // chiude. L'uscita la anima la vista: riceve la richiesta, dissolve il
             // guscio e chiama `hide_companion_window`, che salva la geometria e
             // annuncia `companion-hidden` come ogni altro percorso di chiusura.
-            // Se l'evento non parte si nasconde subito, senza animazione.
+            // Se l'evento non parte si nasconde subito, senza animazione; se parte
+            // ma la vista non chiama `hide_companion_window` entro
+            // DISMISS_FALLBACK_MS, la nasconde il timer qui sotto.
+            let request = begin_dismiss();
             if window.emit("companion-dismiss", ()).is_err() {
-                persist_companion_geometry(app);
-                window
-                    .hide()
-                    .map_err(|e| format!("Chiusura finestra companion fallita: {}", e))?;
-                let _ = app.emit("companion-hidden", ());
+                return hide_companion_now(app, &window);
             }
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(DISMISS_FALLBACK_MS)).await;
+                if !dismiss_still_pending(request) {
+                    return;
+                }
+                if let Some(window) = app_handle.get_webview_window("companion") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = hide_companion_now(&app_handle, &window);
+                    } else {
+                        settle_dismiss();
+                    }
+                }
+            });
             return Ok(());
         }
         // Se visibile ma non a fuoco, o pinnata, la porta in primo piano
@@ -401,6 +453,8 @@ pub async fn toggle_companion_window(app: AppHandle) -> Result<(), String> {
 
 #[command]
 pub fn hide_companion_window(app: AppHandle) -> Result<(), String> {
+    // La vista ha completato la chiusura: il timer di riserva non deve intervenire.
+    settle_dismiss();
     // La dimensione va salvata mentre la finestra e' ancora quella che
     // l'utente ha ridimensionato: dopo `hide()` non c'e' altro momento utile.
     persist_companion_geometry(&app);
@@ -543,4 +597,22 @@ pub async fn parse_quick_task_ai(
     })?;
 
     Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chiusura_di_riserva_solo_se_la_vista_non_risponde() {
+        let first = begin_dismiss();
+        assert!(dismiss_still_pending(first));
+        settle_dismiss();
+        assert!(!dismiss_still_pending(first));
+        let second = begin_dismiss();
+        assert!(second > first);
+        assert!(dismiss_still_pending(second));
+        settle_dismiss();
+        assert!(!dismiss_still_pending(second));
+    }
 }

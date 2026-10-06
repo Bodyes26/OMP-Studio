@@ -594,7 +594,11 @@ async fn fetch_nightly_release(
     // al tag e puo' servire il manifest di una build precedente: il manifest
     // si scarica per id dall'API.
     let manifest_response = if manifest_asset.url.is_empty() {
-        github_get(client, &manifest_asset.browser_download_url, current_version)
+        github_get(
+            client,
+            &manifest_asset.browser_download_url,
+            current_version,
+        )
     } else {
         client
             .get(&manifest_asset.url)
@@ -1375,7 +1379,11 @@ fn run_checked(cmd: &mut std::process::Command, what: &str) -> Result<String, St
 /// Monta il DMG fuori dal Finder, copia il bundle in una cartella di staging e
 /// verifica che sia davvero OMP Studio prima di toccare l'installazione.
 #[cfg(target_os = "macos")]
-fn stage_app_from_dmg(dmg: &Path, work_dir: &Path, expected_bundle_id: &str) -> Result<PathBuf, String> {
+fn stage_app_from_dmg(
+    dmg: &Path,
+    work_dir: &Path,
+    expected_bundle_id: &str,
+) -> Result<PathBuf, String> {
     use std::process::Command;
 
     let mount_point = work_dir.join("mount");
@@ -1393,7 +1401,14 @@ fn stage_app_from_dmg(dmg: &Path, work_dir: &Path, expected_bundle_id: &str) -> 
     // -noverify: l'integrita' del file e' gia' garantita dallo SHA256 appena ricontrollato
     run_checked(
         Command::new("hdiutil")
-            .args(["attach", "-nobrowse", "-readonly", "-noautoopen", "-noverify", "-mountpoint"])
+            .args([
+                "attach",
+                "-nobrowse",
+                "-readonly",
+                "-noautoopen",
+                "-noverify",
+                "-mountpoint",
+            ])
             .arg(&mount_point)
             .arg(dmg),
         "Montaggio del DMG fallito",
@@ -1497,12 +1512,112 @@ while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); 
         .map_err(|e| e.to_string())
 }
 
+/// Esito di `install_studio_update_and_restart` per il frontend.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioInstallOutcome {
+    /// true quando Studio NON si chiude: l'installazione va completata dall'utente
+    /// (pacchetto .deb aperto nel gestore software) e poi Studio va riavviato a mano.
+    pub manual_completion_required: bool,
+    /// Spiegazione da mostrare all'utente, se c'e'.
+    pub message: Option<String>,
+}
+
+impl StudioInstallOutcome {
+    #[allow(dead_code)]
+    fn restarting() -> Self {
+        Self {
+            manual_completion_required: false,
+            message: None,
+        }
+    }
+}
+
+/// Sostituisce l'AppImage in esecuzione (`target`, da $APPIMAGE) con quella
+/// scaricata. La copia passa da `<nome>.new` nella stessa cartella, cosi' il
+/// `rename` finale e' atomico: chi apre Studio trova sempre o la versione vecchia
+/// o quella nuova completa, mai un file a meta'. Lo SHA256 si ricontrolla sulla
+/// copia, che e' il file che verra' eseguito.
+#[cfg(unix)]
+fn replace_appimage_atomically(
+    downloaded: &Path,
+    target: &Path,
+    expected_sha256: &str,
+) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let file_name = target
+        .file_name()
+        .ok_or_else(|| "Percorso dell'AppImage non valido".to_string())?;
+    let staged = target.with_file_name(format!("{}.new", file_name.to_string_lossy()));
+
+    let result = (|| -> Result<(), String> {
+        std::fs::copy(downloaded, &staged).map_err(|e| {
+            format!(
+                "Impossibile scrivere la nuova AppImage accanto a {}: {}",
+                target.display(),
+                e
+            )
+        })?;
+        let sha = compute_file_sha256(&staged)
+            .map_err(|e| format!("Impossibile verificare la nuova AppImage: {}", e))?;
+        if !sha.eq_ignore_ascii_case(expected_sha256) {
+            return Err(format!(
+                "Verifica di integrità della nuova AppImage fallita (atteso: {}, trovato: {})",
+                expected_sha256, sha
+            ));
+        }
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Impossibile rendere eseguibile la nuova AppImage: {}", e))?;
+        std::fs::rename(&staged, target)
+            .map_err(|e| format!("Impossibile sostituire l'AppImage: {}", e))
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&staged);
+    }
+    result
+}
+
+/// Rilancia `executable` dopo l'uscita di questa istanza (altrimenti il controllo
+/// single-instance girerebbe l'apertura all'istanza che sta per chiudersi) e
+/// rimuove i residui. Percorsi come argomenti posizionali, mai interpolati.
+#[cfg(target_os = "linux")]
+fn spawn_linux_relaunch_after_exit(executable: &Path, cleanup: &[&Path]) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    const SCRIPT: &str = r#"pid="$1"; app="$2"; shift 2
+i=0
+while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+rm -f "$@"
+exec "$app""#;
+
+    let mut cmd = Command::new("/bin/sh");
+    cmd.arg("-c")
+        .arg(SCRIPT)
+        .arg("omp-studio-relaunch")
+        .arg(std::process::id().to_string())
+        .arg(executable)
+        .args(cleanup)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+    // Variabili del runtime AppImage di questa istanza: la nuova le reimposta,
+    // ma quelle vecchie puntano a un mount che sta per sparire.
+    for var in ["APPDIR", "APPIMAGE", "ARGV0", "OWD"] {
+        cmd.env_remove(var);
+    }
+    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// Esegue l'installer dell'aggiornamento dopo averne validato rigorosamente l'integrità e il confinamento.
 #[tauri::command]
 pub async fn install_studio_update_and_restart(
     app: AppHandle,
     state: State<'_, StudioUpdaterState>,
-) -> Result<(), String> {
+) -> Result<StudioInstallOutcome, String> {
     let verified = {
         let guard = state.verified_installer.lock();
         match guard.as_ref() {
@@ -1628,7 +1743,7 @@ pub async fn install_studio_update_and_restart(
 
         // Chiude l'applicazione per rilasciare i file lock di OMP Studio.exe
         app.exit(0);
-        return Ok(());
+        return Ok(StudioInstallOutcome::restarting());
     }
 
     #[cfg(target_os = "macos")]
@@ -1642,7 +1757,7 @@ pub async fn install_studio_update_and_restart(
             match install_dmg_in_place(&canonical_installer, &app.config().identifier) {
                 Ok(()) => {
                     app.exit(0);
-                    return Ok(());
+                    return Ok(StudioInstallOutcome::restarting());
                 }
                 // Ripiego sul flusso manuale: meglio il trascinamento che nessun aggiornamento
                 Err(e) => {
@@ -1663,34 +1778,74 @@ pub async fn install_studio_update_and_restart(
 
         tokio::time::sleep(Duration::from_millis(300)).await;
         app.exit(0);
-        return Ok(());
+        return Ok(StudioInstallOutcome::restarting());
     }
 
     #[cfg(target_os = "linux")]
     {
+        use std::os::unix::fs::PermissionsExt;
         use std::process::Command;
-        let ext = installer_path
+        let ext = canonical_installer
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
         if ext.eq_ignore_ascii_case("appimage") {
-            let _ = Command::new("chmod")
-                .arg("+x")
-                .arg(&installer_path)
-                .status();
-            Command::new(&installer_path)
-                .spawn()
-                .map_err(|e| format!("Impossibile eseguire AppImage: {}", e))?;
-        } else {
-            Command::new("xdg-open")
-                .arg(&installer_path)
-                .spawn()
-                .map_err(|e| format!("Impossibile aprire il pacchetto: {}", e))?;
+            // $APPIMAGE e' impostata dal runtime AppImage: e' il file che l'utente apre.
+            let running_appimage = std::env::var_os("APPIMAGE")
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute() && p.is_file());
+            let message = match running_appimage {
+                Some(target) => {
+                    replace_appimage_atomically(&canonical_installer, &target, &verified.sha256)?;
+                    *state.verified_installer.lock() = None;
+                    if let Err(e) =
+                        spawn_linux_relaunch_after_exit(&target, &[canonical_installer.as_path()])
+                    {
+                        // La nuova versione e' gia' al suo posto: basta riaprirla a mano.
+                        eprintln!("Rilancio automatico di OMP Studio non avviato: {}", e);
+                    }
+                    None
+                }
+                None => {
+                    // Studio non gira da un'AppImage (es. installato da .deb): non c'e' un
+                    // file da sostituire, si avvia la nuova AppImage scaricata.
+                    std::fs::set_permissions(
+                        &canonical_installer,
+                        std::fs::Permissions::from_mode(0o755),
+                    )
+                    .map_err(|e| format!("Impossibile rendere eseguibile l'AppImage: {}", e))?;
+                    spawn_linux_relaunch_after_exit(&canonical_installer, &[])
+                        .map_err(|e| format!("Impossibile eseguire AppImage: {}", e))?;
+                    let msg = format!(
+                        "Studio non è in esecuzione da un'AppImage: la nuova versione viene avviata da {} e l'installazione esistente non è stata aggiornata.",
+                        canonical_installer.display()
+                    );
+                    eprintln!("{}", msg);
+                    Some(msg)
+                }
+            };
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            app.exit(0);
+            return Ok(StudioInstallOutcome {
+                manual_completion_required: false,
+                message,
+            });
         }
 
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        app.exit(0);
-        return Ok(());
+        // Pacchetto .deb: l'installazione la completa il gestore software (serve la
+        // password di amministratore). Studio resta aperto: chiuderlo adesso lascerebbe
+        // l'utente senza app se annulla l'installazione.
+        Command::new("xdg-open")
+            .arg(&canonical_installer)
+            .stdin(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Impossibile aprire il pacchetto: {}", e))?;
+        return Ok(StudioInstallOutcome {
+            manual_completion_required: true,
+            message: Some(
+                "Completa l'installazione nel gestore software, poi riavvia Studio.".to_string(),
+            ),
+        });
     }
 
     #[allow(unreachable_code)]
@@ -1703,6 +1858,50 @@ pub async fn install_studio_update_and_restart(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn appimage_sostituita_in_modo_atomico() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "omp-studio-appimage-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("download")).unwrap();
+        let target = dir.join("OMP-Studio.AppImage");
+        std::fs::write(&target, b"vecchia").unwrap();
+        let downloaded = dir.join("download").join("omp-studio_1.7.0_amd64.AppImage");
+        std::fs::write(&downloaded, b"nuova versione").unwrap();
+        let sha = compute_file_sha256(&downloaded).unwrap();
+
+        // Hash errato: il file in uso resta intatto e niente residui `.new`.
+        let err = replace_appimage_atomically(&downloaded, &target, &"0".repeat(64));
+        assert!(err.is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"vecchia");
+        assert!(!dir.join("OMP-Studio.AppImage.new").exists());
+
+        replace_appimage_atomically(&downloaded, &target, &sha).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"nuova versione");
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
+        assert!(!dir.join("OMP-Studio.AppImage.new").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn install_outcome_serializzato_in_camel_case() {
+        let json = serde_json::to_value(StudioInstallOutcome {
+            manual_completion_required: true,
+            message: Some("x".to_string()),
+        })
+        .unwrap();
+        assert_eq!(json["manualCompletionRequired"], true);
+        assert_eq!(json["message"], "x");
+    }
 
     #[test]
     fn test_normalize_version() {

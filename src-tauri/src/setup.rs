@@ -150,7 +150,7 @@ fn which_on_path(program: &str) -> Option<PathBuf> {
 }
 
 pub(crate) fn read_omp_version(binary: &Path) -> Option<String> {
-    if let Some(cached) = crate::omp_ops::get_cached_omp_version() {
+    if let Some(cached) = crate::omp_ops::get_cached_omp_version_for(binary) {
         return Some(cached);
     }
     let ext = binary.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -172,34 +172,35 @@ pub(crate) fn read_omp_version(binary: &Path) -> Option<String> {
         crate::perf_trace::command_label(binary.to_string_lossy().as_ref(), ["--version"]),
     );
     let output = cmd.output().ok()?;
-    let stdout_text = String::from_utf8_lossy(&output.stdout);
-    let raw = stdout_text.trim();
-    let text_to_parse = if raw.is_empty() {
-        let stderr_text = String::from_utf8_lossy(&output.stderr);
-        let err_trimmed = stderr_text.trim().to_string();
-        if err_trimmed.is_empty() {
-            return None;
-        }
-        err_trimmed
-    } else {
-        raw.to_string()
-    };
-    // `omp/18.0.4` -> `18.0.4`
-    let version_part = text_to_parse
-        .lines()
-        .next()?
+    // Con exit diverso da 0 lo stderr e' un messaggio d'errore, non una versione:
+    // leggerlo come tale (e metterlo in cache) mostrava l'errore al posto della versione.
+    if !output.status.success() {
+        return None;
+    }
+    let ver = parse_version_output(
+        &String::from_utf8_lossy(&output.stdout),
+        &String::from_utf8_lossy(&output.stderr),
+    )?;
+    crate::omp_ops::set_cached_omp_version_for(binary, ver.clone());
+    Some(ver)
+}
+
+/// Versione da `omp --version`: stdout, o stderr se stdout e' vuoto.
+/// `omp/18.0.4` -> `18.0.4`.
+fn parse_version_output(stdout: &str, stderr: &str) -> Option<String> {
+    let raw = stdout.trim();
+    let text_to_parse = if raw.is_empty() { stderr.trim() } else { raw };
+    if text_to_parse.is_empty() {
+        return None;
+    }
+    let first = text_to_parse.lines().next()?;
+    let version_part = first
         .rsplit('/')
         .next()
-        .unwrap_or(&text_to_parse)
+        .unwrap_or(first)
         .trim_start_matches(['v', 'V'])
         .trim();
-    if !version_part.is_empty() {
-        let ver = version_part.to_string();
-        crate::omp_ops::set_cached_omp_version(ver.clone());
-        Some(ver)
-    } else {
-        None
-    }
+    (!version_part.is_empty()).then(|| version_part.to_string())
 }
 
 fn config_yml_path_in(dir: &Path) -> Option<PathBuf> {
@@ -1400,6 +1401,46 @@ pub async fn detect_project_roots() -> Result<Vec<ProjectRootCandidate>, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_version_output_legge_stdout_o_stderr() {
+        assert_eq!(
+            parse_version_output("omp/18.0.4\n", "").as_deref(),
+            Some("18.0.4")
+        );
+        assert_eq!(
+            parse_version_output("", "v18.1.0\n").as_deref(),
+            Some("18.1.0")
+        );
+        assert_eq!(parse_version_output(" ", " "), None);
+    }
+
+    /// Un `omp --version` che fallisce non deve diventare una versione in cache.
+    #[cfg(unix)]
+    #[test]
+    fn read_omp_version_ignora_exit_non_zero() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "omp-studio-read-version-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("omp");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\necho 'error: libreria mancante' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(read_omp_version(&fake), None);
+        assert_eq!(crate::omp_ops::get_cached_omp_version_for(&fake), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn asset_name_is_known_for_supported_targets() {

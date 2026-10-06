@@ -1362,7 +1362,16 @@ fn session_folder_might_match(folder_name: &str, project_path: &str) -> bool {
         }
     }
 
-    false
+    // Si puo' escludere la cartella solo se il suo nome segue una codifica nota
+    // (relativa alla home/tmp o assoluta: inizia con '-'; legacy con hash). Un
+    // formato che nessuna regola riconosce (omp futuro, cartelle rinominate) non
+    // dice nulla sul progetto: nel dubbio true, per non nascondere sessioni.
+    let known_encoding = folder_lower.starts_with('-')
+        || ((folder_lower.starts_with("home-")
+            || folder_lower.starts_with("tmp-")
+            || folder_lower.starts_with("abs-"))
+            && folder_lower.len() > 64);
+    !known_encoding
 }
 
 fn scan_sessions_in(
@@ -1740,28 +1749,56 @@ pub async fn session_credential_pins(session_id: String) -> HashMap<String, Stri
         .unwrap_or_default()
 }
 
-static CACHED_OMP_VERSION: Mutex<Option<String>> = Mutex::new(None);
+/// Versioni di omp in cache, per binario e mtime. Una cache globale senza chiave
+/// restava valida anche dopo che omp era stato sostituito (aggiornamento esterno,
+/// altro percorso nel PATH) e mostrava la versione vecchia.
+type OmpVersionCache = HashMap<PathBuf, (Option<SystemTime>, String)>;
+static CACHED_OMP_VERSION: LazyLock<Mutex<OmpVersionCache>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn binary_mtime(binary: &Path) -> Option<SystemTime> {
+    std::fs::metadata(binary).and_then(|m| m.modified()).ok()
+}
 
 /// Invalida la versione omp memorizzata nella cache (es. dopo installazione o aggiornamento).
 pub fn invalidate_cached_omp_version() {
-    *CACHED_OMP_VERSION.lock() = None;
+    CACHED_OMP_VERSION.lock().clear();
 }
 
-/// Restituisce la versione omp memorizzata nella cache se presente.
-pub fn get_cached_omp_version() -> Option<String> {
-    CACHED_OMP_VERSION.lock().clone()
+/// Versione in cache per `binary`, solo se il file e' ancora quello (stesso mtime).
+pub fn get_cached_omp_version_for(binary: &Path) -> Option<String> {
+    let modified = binary_mtime(binary);
+    CACHED_OMP_VERSION
+        .lock()
+        .get(binary)
+        .filter(|(cached_mtime, _)| *cached_mtime == modified)
+        .map(|(_, version)| version.clone())
 }
 
-/// Salva la versione omp nella cache di processo.
-pub fn set_cached_omp_version(version: String) {
-    *CACHED_OMP_VERSION.lock() = Some(version);
+/// Salva la versione letta da `binary`. Da chiamare solo con un `--version`
+/// terminato con exit 0: un errore non deve restare in cache come versione.
+pub fn set_cached_omp_version_for(binary: &Path, version: String) {
+    CACHED_OMP_VERSION
+        .lock()
+        .insert(binary.to_path_buf(), (binary_mtime(binary), version));
+}
+
+/// Estrae la versione dall'output di `omp --version` ("omp/18.0.4", "v18.0.4").
+fn parse_omp_version_output(stdout: &str) -> Option<String> {
+    let ver = stdout
+        .trim()
+        .trim_start_matches("omp")
+        .trim_start_matches('/')
+        .trim_start_matches('v')
+        .trim();
+    (!ver.is_empty()).then(|| ver.to_string())
 }
 
 pub fn get_omp_version_sync() -> Result<String, String> {
-    if let Some(cached) = get_cached_omp_version() {
+    let omp_path = get_omp_binary();
+    if let Some(cached) = get_cached_omp_version_for(Path::new(&omp_path)) {
         return Ok(cached);
     }
-    let omp_path = get_omp_binary();
     let mut cmd = Command::new(&omp_path);
     cmd.arg("--version");
     #[cfg(target_os = "windows")]
@@ -1775,19 +1812,19 @@ pub fn get_omp_version_sync() -> Result<String, String> {
         crate::perf_trace::command_label(&omp_path, ["--version"]),
     );
     let output = omp_capture(cmd).map_err(|e| format!("Failed to run omp: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "omp --version terminato con errore ({})",
+            output.status
+        ));
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
-    let ver = trimmed
-        .trim_start_matches("omp")
-        .trim_start_matches('/')
-        .trim_start_matches('v')
-        .trim();
-    if ver.is_empty() {
-        Err("Unable to parse version".to_string())
-    } else {
-        let v = ver.to_string();
-        set_cached_omp_version(v.clone());
-        Ok(v)
+    match parse_omp_version_output(&stdout) {
+        Some(v) => {
+            set_cached_omp_version_for(Path::new(&omp_path), v.clone());
+            Ok(v)
+        }
+        None => Err("Unable to parse version".to_string()),
     }
 }
 
@@ -2584,5 +2621,51 @@ riga_non_json_che_viene_ignorata
         assert_eq!(find_session_file_in(&root, ""), None);
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cache_versione_legata_a_binario_e_mtime() {
+        let dir = std::env::temp_dir().join(format!(
+            "omp-studio-omp-version-cache-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("omp-finto");
+        std::fs::write(&bin, "v1").unwrap();
+
+        set_cached_omp_version_for(&bin, "1.0.0".to_string());
+        assert_eq!(get_cached_omp_version_for(&bin).as_deref(), Some("1.0.0"));
+        // Un altro binario non eredita la versione.
+        assert_eq!(get_cached_omp_version_for(&dir.join("altro-omp")), None);
+
+        // Binario sostituito (nuovo mtime): la cache non vale piu'.
+        std::fs::File::options()
+            .write(true)
+            .open(&bin)
+            .unwrap()
+            .set_modified(SystemTime::now() + Duration::from_secs(60))
+            .unwrap();
+        assert_eq!(get_cached_omp_version_for(&bin), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn session_folder_formato_ignoto_nel_dubbio_true() {
+        // Nessuna codifica nota: non si puo' escludere.
+        let progetto = "C:\\repos\\app";
+        assert!(session_folder_might_match("cartella-qualsiasi", progetto));
+        assert!(session_folder_might_match("home-corto", progetto));
+        // Codifiche note che non corrispondono: si esclude.
+        assert!(!session_folder_might_match("--D--altro--", progetto));
+        let legacy = format!("home-altro-{}", "a".repeat(64));
+        assert!(!session_folder_might_match(&legacy, progetto));
+    }
+
+    #[test]
+    fn parse_versione_omp() {
+        let parse = |raw: &str| parse_omp_version_output(raw);
+        assert_eq!(parse("omp/18.0.4\n").as_deref(), Some("18.0.4"));
+        assert_eq!(parse("v18.1.0").as_deref(), Some("18.1.0"));
+        assert_eq!(parse("  "), None);
     }
 }
