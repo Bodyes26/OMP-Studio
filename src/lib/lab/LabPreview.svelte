@@ -104,7 +104,7 @@
 		void loadRevisions();
 
 		return () => {
-			disposeLabRuntime(projectId, laneId);
+			void disposeLabRuntime(projectId, laneId);
 		};
 	});
 
@@ -267,9 +267,9 @@
 
 <div class="lab-preview-pane" class:is-hidden={!visible}>
 	<!-- Toolbar superiore -->
-	<header class="lab-toolbar" aria-label="Strumenti anteprima prototipo">
+	<header class="lab-toolbar" aria-label={m.lab_preview_toolbar_aria()}>
 		<!-- Selettore Viewport -->
-		<div class="toolbar-group" role="group" aria-label="Dimensioni viewport">
+		<div class="toolbar-group" role="group" aria-label={m.lab_preview_viewport_aria()}>
 			<Tooltip text={m.lab_view_viewport_desktop()} placement="bottom">
 				<button
 					type="button"
@@ -470,7 +470,7 @@
 				type="button"
 				class="toast-close"
 				onclick={() => (exportNotice = null)}
-				aria-label="Chiudi"
+				aria-label={m.common_close()}
 			>
 				<IconClose />
 			</button>
@@ -499,7 +499,7 @@
 						bind:this={iframeEl}
 						sandbox="allow-scripts allow-forms allow-modals allow-popups"
 						src={runtime.url}
-						title="Laboratorio Anteprima"
+						title={m.lab_preview_frame_title()}
 						class="preview-iframe"
 					></iframe>
 				{/key}
@@ -516,7 +516,7 @@
 
 	<!-- Barra errori di compilazione e runtime -->
 	{#if runtime.hasErrors}
-		<footer class="error-bar" role="region" aria-label="Errori anteprima">
+		<footer class="error-bar" role="region" aria-label={m.lab_preview_errors_aria()}>
 			<AlertBanner variant="error">
 				<div class="error-banner-header">
 					<button

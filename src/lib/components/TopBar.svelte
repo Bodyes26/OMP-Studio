@@ -344,15 +344,17 @@
 				p.lane.workspacePath &&
 				!bootedProjects.has(p.id)
 		);
-		for (const p of otherProjects) {
-			bootedProjects.add(p.id);
-		}
+		// Il progetto si segna come avviato solo quando il suo refresh parte
+		// davvero: segnarli tutti subito faceva saltare per sempre quelli
+		// rimasti in fila se l'effetto si rieseguiva (cancelled) a meta' giro.
 		if (otherProjects.length > 0) {
 			void (async () => {
 				for (const p of otherProjects) {
 					if (cancelled) break;
 					await new Promise((resolve) => setTimeout(resolve, 600));
 					if (cancelled) break;
+					if (bootedProjects.has(p.id)) continue;
+					bootedProjects.add(p.id);
 					await refreshTopBarProject(p, 'boot', true);
 				}
 			})();
@@ -1092,7 +1094,7 @@
 			class:active={companionStore.isPinned}
 			onclick={(e) => { e.stopPropagation(); void companionStore.toggleCompanion(); }}
 			title={m.topbar_companion_chip_title()}
-			aria-label="Finestra Companion (Alt+Spazio)"
+			aria-label={m.topbar_companion_chip_aria()}
 		>
 			<IconPin /> Companion
 		</button>

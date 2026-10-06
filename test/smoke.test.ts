@@ -18,6 +18,7 @@ import './lanes-stack.test.ts';
 import './lanes-processes.test.ts';
 import './lanes-review.test.ts';
 import './lanes-w07.test.ts';
+import './lanes-cleanup.test.ts';
 import './terminal-task-config.test.ts';
 import './wire-omp.test.ts';
 import './rpc-open-lifecycle.test.ts';

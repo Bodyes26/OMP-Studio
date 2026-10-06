@@ -274,7 +274,7 @@
 						{:else if gate.note}
 							<div class="gate-note" role="status">{gate.note}</div>
 						{/if}
-						<div class="task-list" class:queue-cards={isCardView} role="list" aria-label={`Task in coda per ${group.project.name}`}>
+						<div class="task-list" class:queue-cards={isCardView} role="list" aria-label={m.queue_drawer_project_tasks_aria({ project: group.project.name })}>
 							{#each group.tasks as task (task.id)}
 								<div class="task-row" role="listitem">
 									<QueueTaskItem
