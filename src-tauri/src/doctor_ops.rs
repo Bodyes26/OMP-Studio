@@ -133,12 +133,19 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
                 id: "omp_version".to_string(),
                 category: "omp".to_string(),
                 name: "Versione omp".to_string(),
-                status: if has_valid_version { "ok".to_string() } else { "warn".to_string() },
+                status: if has_valid_version {
+                    "ok".to_string()
+                } else {
+                    "warn".to_string()
+                },
                 value: version_label,
                 recommendation: if has_valid_version {
                     None
                 } else {
-                    Some("Verifica che il binario omp risponda correttamente a `omp --version`".to_string())
+                    Some(
+                        "Verifica che il binario omp risponda correttamente a `omp --version`"
+                            .to_string(),
+                    )
                 },
             });
 
@@ -149,12 +156,19 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
                 id: "omp_rpc".to_string(),
                 category: "omp".to_string(),
                 name: "Protocollo RPC-UI".to_string(),
-                status: if rpc_compat.0 { "ok".to_string() } else { "error".to_string() },
+                status: if rpc_compat.0 {
+                    "ok".to_string()
+                } else {
+                    "error".to_string()
+                },
                 value: rpc_compat.1,
                 recommendation: if rpc_compat.0 {
                     None
                 } else {
-                    Some("Aggiorna omp a una versione compatibile con la modalita' `--mode rpc-ui`".to_string())
+                    Some(
+                        "Aggiorna omp a una versione compatibile con la modalita' `--mode rpc-ui`"
+                            .to_string(),
+                    )
                 },
             });
         }
@@ -183,7 +197,9 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
                 name: "Protocollo RPC-UI".to_string(),
                 status: "error".to_string(),
                 value: "Non disponibile".to_string(),
-                recommendation: Some("Installare omp per abilitare il runtime delle sessioni".to_string()),
+                recommendation: Some(
+                    "Installare omp per abilitare il runtime delle sessioni".to_string(),
+                ),
             });
         }
     }
@@ -217,12 +233,79 @@ fn test_omp_rpc_support(binary: &Path) -> (bool, String) {
             );
             // omp espone --mode rpc-ui o la modalita rpc
             if combined.contains("--mode") || combined.contains("rpc") || out.status.success() {
-                (true, "Supportato (interfaccia stdio NDJSON conforme)".to_string())
+                (
+                    true,
+                    "Supportato (interfaccia stdio NDJSON conforme)".to_string(),
+                )
             } else {
-                (false, "Flag `--mode rpc-ui` non rilevato nell'output di aiuto".to_string())
+                (
+                    false,
+                    "Flag `--mode rpc-ui` non rilevato nell'output di aiuto".to_string(),
+                )
             }
         }
         Err(err) => (false, format!("Errore invocazione test RPC: {}", err)),
+    }
+}
+
+/// Versione minima di git per l'integrazione delle corsie: usa
+/// `git merge-tree --write-tree`, introdotto in Git 2.38.
+const LANES_MIN_GIT: (u32, u32) = (2, 38);
+
+/// Estrae (major, minor) da `git --version` ("git version 2.43.0.windows.1").
+fn parse_git_version(raw: &str) -> Option<(u32, u32)> {
+    let version = raw.trim().strip_prefix("git version ")?.trim();
+    let mut parts = version.split('.');
+    let major = parts.next()?.trim().parse().ok()?;
+    let minor_raw = parts.next()?;
+    let digits: String = minor_raw
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let minor = digits.parse().ok()?;
+    Some((major, minor))
+}
+
+/// Controllo "Integrazione corsie": senza Git 2.38+ l'integrazione di una corsia
+/// fallisce solo al momento del merge, meglio saperlo prima.
+fn lanes_git_item(git_version_output: Option<&str>) -> DoctorItemDto {
+    let required = format!("{}.{}", LANES_MIN_GIT.0, LANES_MIN_GIT.1);
+    let (status, value, recommendation) = match git_version_output {
+        None => (
+            "warn",
+            format!("Non disponibile: richiede Git {required}+"),
+            Some(format!("Installa Git {required} o successivo per integrare le corsie")),
+        ),
+        Some(raw) => match parse_git_version(raw) {
+            Some(found) if found >= LANES_MIN_GIT => (
+                "ok",
+                format!("Supportata (Git {}.{})", found.0, found.1),
+                None,
+            ),
+            Some(found) => (
+                "warn",
+                format!(
+                    "Richiede Git {required}+ (rilevato {}.{})",
+                    found.0, found.1
+                ),
+                Some(format!(
+                    "Aggiorna Git ad almeno la versione {required}: l'integrazione delle corsie usa `git merge-tree --write-tree`"
+                )),
+            ),
+            None => (
+                "warn",
+                format!("Versione di Git non riconosciuta: richiede Git {required}+"),
+                Some(format!("Verifica che `git --version` riporti almeno {required}")),
+            ),
+        },
+    };
+    DoctorItemDto {
+        id: "git_lanes_merge".to_string(),
+        category: "shell_git".to_string(),
+        name: "Integrazione corsie".to_string(),
+        status: status.to_string(),
+        value,
+        recommendation,
     }
 }
 
@@ -244,9 +327,10 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                 category: "shell_git".to_string(),
                 name: "Git CLI".to_string(),
                 status: "ok".to_string(),
-                value: ver,
+                value: ver.clone(),
                 recommendation: None,
             });
+            items.push(lanes_git_item(Some(&ver)));
         }
         Ok(_) | Err(_) => {
             items.push(DoctorItemDto {
@@ -255,8 +339,11 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                 name: "Git CLI".to_string(),
                 status: "error".to_string(),
                 value: "Non trovato o non funzionante".to_string(),
-                recommendation: Some("Installa Git e assicurati che sia disponibile nel PATH".to_string()),
+                recommendation: Some(
+                    "Installa Git e assicurati che sia disponibile nel PATH".to_string(),
+                ),
             });
+            items.push(lanes_git_item(None));
         }
     }
 
@@ -343,7 +430,9 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                     name: "Shell Bash".to_string(),
                     status: "warn".to_string(),
                     value: "bash non rilevata in PATH".to_string(),
-                    recommendation: Some("Verifica che /bin/bash sia installata e accessibile".to_string()),
+                    recommendation: Some(
+                        "Verifica che /bin/bash sia installata e accessibile".to_string(),
+                    ),
                 });
             }
         }
@@ -417,7 +506,10 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                         name: "Repository aperto".to_string(),
                         status: "warn".to_string(),
                         value: "La cartella attiva non è un repository Git".to_string(),
-                        recommendation: Some("Inizializza un repository con `git init` se desideri il tracciamento".to_string()),
+                        recommendation: Some(
+                            "Inizializza un repository con `git init` se desideri il tracciamento"
+                                .to_string(),
+                        ),
                     });
                 }
             }
@@ -464,7 +556,8 @@ fn check_pty_backend() -> DoctorItemDto {
         }
         Err(err) => {
             #[cfg(target_os = "windows")]
-            let rec = "Verifica che il sistema supporti ConPTY (Windows 10 versione 1809 o successiva)";
+            let rec =
+                "Verifica che il sistema supporti ConPTY (Windows 10 versione 1809 o successiva)";
             #[cfg(not(target_os = "windows"))]
             let rec = "Verifica i permessi sui descrittori pseudo-terminale (/dev/pts)";
 
@@ -506,7 +599,9 @@ fn test_sqlite_db_read(db_name: &str, title: &str) -> DoctorItemDto {
                     name: title.to_string(),
                     status: "warn".to_string(),
                     value: "Aperto ma PRAGMA query_only non attivo".to_string(),
-                    recommendation: Some("Assicurarsi che la connessione al DB imponga la sola lettura".to_string()),
+                    recommendation: Some(
+                        "Assicurarsi che la connessione al DB imponga la sola lettura".to_string(),
+                    ),
                 }
             } else {
                 let tables = table_count.unwrap_or(0);
@@ -515,7 +610,10 @@ fn test_sqlite_db_read(db_name: &str, title: &str) -> DoctorItemDto {
                     category: "sqlite".to_string(),
                     name: title.to_string(),
                     status: "ok".to_string(),
-                    value: format!("Integrità verificata · PRAGMA query_only = ON ({} tabelle)", tables),
+                    value: format!(
+                        "Integrità verificata · PRAGMA query_only = ON ({} tabelle)",
+                        tables
+                    ),
                     recommendation: None,
                 }
             }
@@ -528,7 +626,8 @@ fn test_sqlite_db_read(db_name: &str, title: &str) -> DoctorItemDto {
                     category: "sqlite".to_string(),
                     name: title.to_string(),
                     status: "ok".to_string(),
-                    value: "Non ancora creato (verrà inizializzato automaticamente da omp)".to_string(),
+                    value: "Non ancora creato (verrà inizializzato automaticamente da omp)"
+                        .to_string(),
                     recommendation: None,
                 }
             } else {
@@ -538,7 +637,10 @@ fn test_sqlite_db_read(db_name: &str, title: &str) -> DoctorItemDto {
                     name: title.to_string(),
                     status: "error".to_string(),
                     value: format!("Errore apertura: {}", anonymize_text(&err)),
-                    recommendation: Some(format!("Verifica i permessi o l'integrità del file {}", db_name)),
+                    recommendation: Some(format!(
+                        "Verifica i permessi o l'integrità del file {}",
+                        db_name
+                    )),
                 }
             }
         }
@@ -554,9 +656,11 @@ fn check_sqlite_items() -> Vec<DoctorItemDto> {
     ]
 }
 
-/// Endpoint e configurazione per il test rapido di connettivita' provider.
-fn provider_test_endpoint(provider_id: &str) -> &'static str {
-    match provider_id {
+/// Endpoint noto di un provider integrato per il test rapido di connettivita'.
+/// None per i provider sconosciuti: pingare un endpoint a caso (prima
+/// api.openai.com) diceva "raggiungibile" per provider che non lo erano affatto.
+fn known_provider_endpoint(provider_id: &str) -> Option<&'static str> {
+    Some(match provider_id {
         "anthropic" => "https://api.anthropic.com",
         "openai" | "openai-codex" => "https://api.openai.com",
         "google" | "google-antigravity" => "https://generativelanguage.googleapis.com",
@@ -571,29 +675,88 @@ fn provider_test_endpoint(provider_id: &str) -> &'static str {
         "ollama" => "http://127.0.0.1:11434",
         "llama.cpp" => "http://127.0.0.1:8080",
         "lm-studio" => "http://127.0.0.1:1234",
-        _ => "https://api.openai.com",
+        _ => return None,
+    })
+}
+
+/// Dove verificare la connettivita' di un provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProviderEndpoint {
+    /// URL da pingare.
+    Url(String),
+    /// Provider personalizzato senza `baseUrl` valida nella config modelli di omp.
+    MissingBaseUrl,
+    /// Provider integrato che Studio non sa dove raggiungere.
+    Unknown,
+}
+
+/// La `baseUrl` dichiarata in models.yml/models.json ha la precedenza (anche su un
+/// provider integrato ridefinito); poi l'endpoint noto; altrimenti non verificabile.
+fn resolve_provider_endpoint(
+    provider_id: &str,
+    custom: &std::collections::HashMap<String, crate::models_ops::CustomProviderDef>,
+) -> ProviderEndpoint {
+    if let Some(def) = custom.get(provider_id) {
+        let base = def.base_url.trim();
+        if base.starts_with("http://") || base.starts_with("https://") {
+            return ProviderEndpoint::Url(base.to_string());
+        }
+        if let Some(known) = known_provider_endpoint(provider_id) {
+            return ProviderEndpoint::Url(known.to_string());
+        }
+        return ProviderEndpoint::MissingBaseUrl;
+    }
+    match known_provider_endpoint(provider_id) {
+        Some(known) => ProviderEndpoint::Url(known.to_string()),
+        None => ProviderEndpoint::Unknown,
     }
 }
 
+/// Esito del ping: il Doctor non invia credenziali, quindi anche un 2xx dice solo
+/// che l'endpoint risponde. Un 401/403 in particolare NON e' un'autenticazione
+/// riuscita: e' il server che rifiuta una richiesta anonima.
+fn reachability_status_and_label(http_status: Option<u16>) -> (&'static str, &'static str) {
+    match http_status {
+        Some(code) if code >= 500 => ("warn", "Raggiungibile, ma il server risponde con un errore"),
+        _ => ("ok", "Raggiungibile"),
+    }
+}
+
+/// Esito di un ping: latenza e codice HTTP, oppure l'errore di rete.
+struct PingResult {
+    reachable: bool,
+    latency_ms: u128,
+    http_status: Option<u16>,
+    detail: String,
+}
+
 /// Esegue un ping HTTP rapido (HEAD o GET) con timeout stretto (1.5s).
-async fn ping_endpoint(client: &reqwest::Client, url: &str) -> (bool, u128, String) {
+async fn ping_endpoint(client: &reqwest::Client, url: &str) -> PingResult {
     let start = Instant::now();
     let head_res = client.head(url).send().await;
 
-    match head_res {
+    let response = match head_res {
+        Ok(resp) => Ok(resp),
+        // Riprova con un GET leggero se HEAD e' rifiutato da alcuni provider
+        Err(_) => client.get(url).send().await,
+    };
+    let latency_ms = start.elapsed().as_millis();
+    match response {
         Ok(resp) => {
-            let elapsed = start.elapsed().as_millis();
-            (true, elapsed, format!("HTTP {}", resp.status().as_u16()))
-        }
-        Err(_) => {
-            // Riprova con un GET leggero se HEAD e' rifiutato da alcuni provider
-            let get_res = client.get(url).send().await;
-            let elapsed = start.elapsed().as_millis();
-            match get_res {
-                Ok(resp) => (true, elapsed, format!("HTTP {}", resp.status().as_u16())),
-                Err(err) => (false, elapsed, err.to_string()),
+            let code = resp.status().as_u16();
+            PingResult {
+                reachable: true,
+                latency_ms,
+                http_status: Some(code),
+                detail: format!("HTTP {code}"),
             }
         }
+        Err(err) => PingResult {
+            reachable: false,
+            latency_ms,
+            http_status: None,
+            detail: err.to_string(),
+        },
     }
 }
 
@@ -624,10 +787,11 @@ async fn check_provider_items() -> Vec<DoctorItemDto> {
         }
     }
 
-    if let Ok(custom) = custom_providers_res {
-        for key in custom.providers.keys() {
-            configured_providers.insert(key.clone());
-        }
+    let custom_defs = custom_providers_res
+        .map(|custom| custom.providers)
+        .unwrap_or_default();
+    for key in custom_defs.keys() {
+        configured_providers.insert(key.clone());
     }
 
     if configured_providers.is_empty() {
@@ -657,47 +821,92 @@ async fn check_provider_items() -> Vec<DoctorItemDto> {
     sorted_providers.sort();
 
     for provider_id in &sorted_providers {
-        let endpoint = provider_test_endpoint(provider_id);
+        let endpoint = resolve_provider_endpoint(provider_id, &custom_defs);
         let client_clone = client.clone();
         let pid = provider_id.clone();
         tasks.push(async move {
-            let res = ping_endpoint(&client_clone, endpoint).await;
+            let res = match &endpoint {
+                ProviderEndpoint::Url(url) => Some(ping_endpoint(&client_clone, url).await),
+                _ => None,
+            };
             (pid, endpoint, res)
         });
     }
 
     let results = futures_util::future::join_all(tasks).await;
 
-    for (provider_id, endpoint, (reachable, latency_ms, detail)) in results {
+    for (provider_id, endpoint, ping) in results {
         let disabled_cause = disabled_causes.get(&provider_id);
-        let is_disabled = disabled_cause.is_some();
 
         let friendly_name = crate::models_ops::provider_display_name(&provider_id, false);
         let display_name = format!("Provider {}", friendly_name);
 
-        if is_disabled {
+        let Some(ping) = ping else {
+            // Nessun endpoint da verificare: lo si dice, invece di inventarne uno.
+            let (status, value, recommendation) = match endpoint {
+                ProviderEndpoint::MissingBaseUrl => (
+                    "warn",
+                    "Non verificabile: baseUrl mancante nella configurazione modelli".to_string(),
+                    Some(format!(
+                        "Indica la baseUrl del provider {provider_id} in models.yml (Impostazioni > Modelli)"
+                    )),
+                ),
+                _ => (
+                    "ok",
+                    "Configurato · connettività non verificabile (endpoint non noto a Studio)"
+                        .to_string(),
+                    None,
+                ),
+            };
+            items.push(DoctorItemDto {
+                id: format!("provider_{}", provider_id),
+                category: "providers".to_string(),
+                name: display_name,
+                status: if disabled_cause.is_some() {
+                    "warn"
+                } else {
+                    status
+                }
+                .to_string(),
+                value: match disabled_cause {
+                    Some(cause) => format!("Disabilitato: {cause}"),
+                    None => value,
+                },
+                recommendation,
+            });
+            continue;
+        };
+        let PingResult {
+            reachable,
+            latency_ms,
+            http_status,
+            detail,
+        } = ping;
+        let endpoint = match &endpoint {
+            ProviderEndpoint::Url(url) => url.as_str(),
+            _ => "",
+        };
+
+        if let Some(cause) = disabled_cause {
             items.push(DoctorItemDto {
                 id: format!("provider_{}", provider_id),
                 category: "providers".to_string(),
                 name: display_name,
                 status: "warn".to_string(),
-                value: format!(
-                    "Disabilitato: {} (endpoint: {} ms)",
-                    disabled_cause.unwrap(),
-                    latency_ms
-                ),
+                value: format!("Disabilitato: {} (endpoint: {} ms)", cause, latency_ms),
                 recommendation: Some(format!(
                     "Riconnetti o riabilita il provider {} nelle Impostazioni > Modelli",
                     provider_id
                 )),
             });
         } else if reachable {
+            let (status, label) = reachability_status_and_label(http_status);
             items.push(DoctorItemDto {
                 id: format!("provider_{}", provider_id),
                 category: "providers".to_string(),
                 name: display_name,
-                status: "ok".to_string(),
-                value: format!("Autenticato · Raggiungibile ({} ms, {})", latency_ms, detail),
+                status: status.to_string(),
+                value: format!("{label} ({} ms, {})", latency_ms, detail),
                 recommendation: None,
             });
         } else {
@@ -730,10 +939,7 @@ pub fn generate_markdown_report(report: &DoctorReportDto) -> String {
         "- **OS:** `{} ({})` — `{}`\n",
         report.system.os, report.system.arch, report.system.os_version
     ));
-    md.push_str(&format!(
-        "- **Timestamp:** `{}`\n",
-        report.system.timestamp
-    ));
+    md.push_str(&format!("- **Timestamp:** `{}`\n", report.system.timestamp));
     md.push_str(&format!(
         "- **Overall Status:** `{}` (eseguito in {} ms)\n\n",
         report.overall_status.to_uppercase(),
@@ -766,28 +972,36 @@ pub fn generate_markdown_report(report: &DoctorReportDto) -> String {
 pub async fn run_studio_doctor(project_path: Option<String>) -> Result<DoctorReportDto, String> {
     let start = Instant::now();
 
+    // I controlli locali lanciano processi (omp, git, bash) e aprono database:
+    // fuori dal runtime async, per non bloccare gli altri comandi di Studio.
+    let (os_version, mut items) = tokio::task::spawn_blocking(move || {
+        let os_version = get_os_version();
+        let mut items = Vec::new();
+
+        // 1. Eseguibile omp
+        items.extend(check_omp_items());
+
+        // 2. Shell e Git
+        items.extend(check_shell_and_git_items(project_path.as_deref()));
+
+        // 3. PTY
+        items.push(check_pty_backend());
+
+        // 4. SQLite
+        items.extend(check_sqlite_items());
+
+        (os_version, items)
+    })
+    .await
+    .map_err(|e| format!("Task diagnostica: {e}"))?;
+
     let sys_info = SystemInfoDto {
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
-        os_version: get_os_version(),
+        os_version,
         studio_version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: crate::lab::util::now_iso8601(),
     };
-
-    // Esegui i controlli locali in parallelo logico / rapido
-    let mut items = Vec::new();
-
-    // 1. Eseguibile omp
-    items.extend(check_omp_items());
-
-    // 2. Shell e Git
-    items.extend(check_shell_and_git_items(project_path.as_deref()));
-
-    // 3. PTY
-    items.push(check_pty_backend());
-
-    // 4. SQLite
-    items.extend(check_sqlite_items());
 
     // 5. Providers (con ping HTTP concorrenti)
     let provider_items = check_provider_items().await;
@@ -834,6 +1048,77 @@ mod tests {
             assert!(cleaned.starts_with('~'));
             assert!(!cleaned.contains(&home));
         }
+    }
+
+    #[test]
+    fn git_version_parsing_and_lanes_check() {
+        assert_eq!(parse_git_version("git version 2.43.0"), Some((2, 43)));
+        assert_eq!(
+            parse_git_version("git version 2.38.1.windows.1"),
+            Some((2, 38))
+        );
+        assert_eq!(
+            parse_git_version("git version 2.39.3 (Apple Git-146)"),
+            Some((2, 39))
+        );
+        assert_eq!(parse_git_version("qualcosa"), None);
+
+        assert_eq!(lanes_git_item(Some("git version 2.38.0")).status, "ok");
+        assert_eq!(lanes_git_item(Some("git version 3.0.0")).status, "ok");
+        let old = lanes_git_item(Some("git version 2.37.9"));
+        assert_eq!(old.status, "warn");
+        assert!(old.value.contains("2.38"));
+        assert_eq!(lanes_git_item(None).status, "warn");
+    }
+
+    #[test]
+    fn provider_endpoint_usa_baseurl_e_non_inventa_openai() {
+        let mut custom = std::collections::HashMap::new();
+        custom.insert(
+            "mio-llm".to_string(),
+            crate::models_ops::CustomProviderDef {
+                base_url: "https://llm.azienda.example/v1".to_string(),
+                api_key: None,
+                api: None,
+                models: Vec::new(),
+            },
+        );
+        custom.insert(
+            "senza-url".to_string(),
+            crate::models_ops::CustomProviderDef {
+                base_url: String::new(),
+                api_key: None,
+                api: None,
+                models: Vec::new(),
+            },
+        );
+        assert_eq!(
+            resolve_provider_endpoint("mio-llm", &custom),
+            ProviderEndpoint::Url("https://llm.azienda.example/v1".to_string())
+        );
+        assert_eq!(
+            resolve_provider_endpoint("senza-url", &custom),
+            ProviderEndpoint::MissingBaseUrl
+        );
+        assert_eq!(
+            resolve_provider_endpoint("provider-ignoto", &custom),
+            ProviderEndpoint::Unknown
+        );
+        assert_eq!(
+            resolve_provider_endpoint("anthropic", &custom),
+            ProviderEndpoint::Url("https://api.anthropic.com".to_string())
+        );
+    }
+
+    #[test]
+    fn risposta_401_e_raggiungibile_non_autenticato() {
+        for code in [200, 401, 403, 404] {
+            let (status, label) = reachability_status_and_label(Some(code));
+            assert_eq!(status, "ok");
+            assert_eq!(label, "Raggiungibile");
+            assert!(!label.contains("Autenticato"));
+        }
+        assert_eq!(reachability_status_and_label(Some(503)).0, "warn");
     }
 
     #[test]
@@ -884,6 +1169,9 @@ mod tests {
         assert!(report.items.iter().any(|i| i.category == "sqlite"));
         assert!(report.items.iter().any(|i| i.category == "providers"));
         assert!(!report.markdown_report.is_empty());
-        println!("\n=== Doctor Report ({} ms) ===\n{}", report.elapsed_ms, report.markdown_report);
+        println!(
+            "\n=== Doctor Report ({} ms) ===\n{}",
+            report.elapsed_ms, report.markdown_report
+        );
     }
 }
