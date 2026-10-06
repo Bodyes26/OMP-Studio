@@ -2471,11 +2471,11 @@ mod tests {
     fn test_session_folder_might_match_vari_percorsi() {
         assert!(session_folder_might_match(
             "-source-repos-omp-studio-app",
-            "C:\\Users\\maurizio.actisalesin\\source\\repos\\omp-studio-app"
+            "C:\\Users\\utente\\source\\repos\\omp-studio-app"
         ));
         assert!(!session_folder_might_match(
             "-source-repos-AreaIT",
-            "C:\\Users\\maurizio.actisalesin\\source\\repos\\omp-studio-app"
+            "C:\\Users\\utente\\source\\repos\\omp-studio-app"
         ));
         assert!(session_folder_might_match("--C--tmp--", "C:\\tmp"));
         assert!(session_folder_might_match("--C--tmp-omp-probe--", "C:\\tmp\\omp-probe"));
