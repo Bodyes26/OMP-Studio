@@ -13,6 +13,15 @@ const STORE_KEY: &str = "laneState";
 // scrittura passa da fs_atomic, senza finestre di troncamento del file canonico.
 static LANE_STORE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
+/// Un panic in un salvataggio precedente avvelena il mutex ma non il file (la
+/// scrittura e' atomica): si recupera il lock invece di rifiutare per sempre
+/// letture e scritture dello store fino al riavvio.
+fn lane_store_lock() -> std::sync::MutexGuard<'static, ()> {
+    LANE_STORE_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
@@ -37,9 +46,7 @@ fn read_document(app: &AppHandle) -> Result<Option<Value>, String> {
 #[command]
 pub async fn lanes_store_read(app: AppHandle) -> Result<Option<Value>, String> {
     tokio::task::spawn_blocking(move || {
-        let _guard = LANE_STORE_LOCK
-            .lock()
-            .map_err(|_| "Lock dello store corsie non disponibile".to_string())?;
+        let _guard = lane_store_lock();
         read_document(&app)
     })
     .await
@@ -49,9 +56,7 @@ pub async fn lanes_store_read(app: AppHandle) -> Result<Option<Value>, String> {
 #[command]
 pub async fn lanes_store_write_atomic(app: AppHandle, document: Value) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        let _guard = LANE_STORE_LOCK
-            .lock()
-            .map_err(|_| "Lock dello store corsie non disponibile".to_string())?;
+        let _guard = lane_store_lock();
         let path = store_path(&app)?;
         let parent = path
             .parent()

@@ -50,9 +50,11 @@ pub async fn session_title_save(
         return Err("Sessione o titolo mancanti".to_string());
     }
     tokio::task::spawn_blocking(move || {
+        // Un panic precedente avvelena il mutex ma non il file: la scrittura e'
+        // atomica, quindi il lock si recupera invece di bloccare ogni salvataggio.
         let _guard = STORE_LOCK
             .lock()
-            .map_err(|_| "Lock dei titoli sessioni non disponibile".to_string())?;
+            .unwrap_or_else(|poison| poison.into_inner());
         let path = store_path(&app)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
