@@ -101,7 +101,8 @@
 		IconRows2,
 		IconPanelLeft,
 		IconPanelLeftClose,
-		IconLab
+		IconLab,
+		IconPrewalk
 	} from '$lib/icons';
 
 	let { open = false, onClose }: { open: boolean; onClose: () => void } = $props();
@@ -136,6 +137,7 @@
 		{ name: 'IconContextWindow', glyph: 'scan-text', category: 'ai', component: IconContextWindow, description: 'Indicatore finestra di contesto del modello' },
 		{ name: 'IconSubagents', glyph: 'split', category: 'ai', component: IconSubagents, description: 'Scomposizione e subagenti concorrenti' },
 		{ name: 'IconDiamond', glyph: 'diamond', category: 'ai', component: IconDiamond, description: 'Simbolo di qualita o piano' },
+		{ name: 'IconPrewalk', glyph: 'footprints', category: 'ai', component: IconPrewalk, description: 'Prewalk esplorativo preliminare con @smol' },
 		// Affordance
 		{ name: 'IconClose', glyph: 'x', category: 'affordance', component: IconClose, description: 'Chiusura modali, schede e notifiche' },
 		{ name: 'IconCheck', glyph: 'check', category: 'affordance', component: IconCheck, description: 'Conferma, salvataggio e spunta completato' },

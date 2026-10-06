@@ -88,6 +88,7 @@ graph TB
 
 ### 2.2 Gestione dell'RPC (Superficie GUI)
 - **Comunicazione su stdio:** il processo `omp --mode rpc-ui` viene avviato direttamente tramite `std::process::Command` (senza shell intermedia).
+- **Overlay isolato per processo:** `--config` riceve `omp-studio-gui-overlay-<rpc_id>.yml` nella cartella temporanea, con `tools.approvalMode: yolo`, `read.defaultLimit: 1200` e `prewalk.enabled: false`. `RpcSession.config_path` ne conserva il percorso e `rpc_close` lo elimina. `rpc_set_prewalk` aggiorna atomicamente solo quell'overlay; le sessioni Lab usano una configurazione separata e rifiutano il comando.
 - **Riassemblaggio frame `rpc_chunk`:** i frame frammentati dal protocollo vengono riassemblati in memoria fino al tetto massimo dichiarato dal frame `ready` (64 MiB `MAX_REASSEMBLED_BYTES`).
 - **Coalescenza dei delta di streaming:** gli eventi `assistantMessageEvent` ad alta frequenza vengono coalesciati all'interno di una finestra temporale di **8 ms** (`DELTA_WINDOW`), evitando il costo $O(n^2)$ di passaggi IPC per risposte lunghe in streaming.
 - **Buffer circolare stderr:** conserva le ultime 200 righe di output stderr del processo per offrire diagnostica dettagliata ed immediata in caso di crash o errori di configurazione all'avvio.
@@ -389,7 +390,7 @@ Comandi IPC aggiunti: `worktree_inspect`, `worktree_create`, `worktree_list`, `w
 La seconda superficie nativa si interfaccia direttamente con il runtime di OMP senza dipendere da una shell PTY:
 
 ### 6.1 Handshake e Negoziazione del Protocollo
-1. Avvio del sub-processo `omp --mode rpc-ui --cwd <path>` con stdio in pipe e overlay temporaneo `tools.approvalMode: yolo`.
+1. Avvio del sub-processo `omp --mode rpc-ui --cwd <path> --config <overlay-per-processo>` con stdio in pipe; l'overlay GUI mantiene `tools.approvalMode: yolo`, `read.defaultLimit: 1200` e parte con `prewalk.enabled: false`.
 2. OMP emette un frame `ready` iniziale con `supportedProtocolVersions: [1, 2]`.
 3. Il backend Rust invia `{"type":"negotiate_protocol","protocolVersion":2}` e riceve conferma `success: true`.
 4. Viene interrogato lo stato iniziale tramite `get_state` per ottenere `sessionId`, `sessionFile`, `contextUsage` e `todoPhases`.
@@ -403,6 +404,16 @@ Quando l'agente o un tool (es. `ask`) richiede una scelta interattiva, OMP invia
 - Navigazione WAI-ARIA completa con tasti freccia e `roving tabindex`.
 - Convalida del fuoco per evitare invii accidentali tramite `Enter`.
 - Risposta tipizzata `extension_ui_response` inviata tramite `rpc_send`.
+
+### 6.4 Prewalk per chat e task
+
+- Il modello attivo pianifica; omp risolve `@smol` all'armo e passa una sola volta dopo la prima chiamata `edit`/`write` successiva a una chiamata `todo` riuscita. Studio non modifica `modelRoles.smol` né `fallbackChains.smol`.
+- `AgentSession.prewalk` distingue `off`, `armed` e `handedOff`; i notice di sorgente `prewalk` confermano armo, disarmo e modello effettivo. `model_changed` può arrivare senza payload: il notice `switched to …` e `get_state` aggiornano il modello, mentre `thinking_level_changed` aggiorna il thinking.
+- Il composer offre armo/disarmo e «Ripeti» (`/prewalk restart`, ritorno a `@default`). Le scritture dell'overlay sono serializzate; armo/disarmo attendono il notice entro cinque secondi. Il disarmo di un armo slash con overlay già falso attraversa `true` → `false`, con 400 ms tra le scritture perché `true` su una sessione già armata può essere silenzioso.
+- Dopo il passaggio l'overlay torna falso. Nuova chat e fork disarmano prima di `new_session`, per evitare il riarmo automatico con overlay vero; un nuovo processo, anche con `--resume`/`--continue`, parte spento. Lab e prewalk dei subagenti sono esclusi.
+- `StudioTaskOptions.prewalk` è un booleano opzionale in `.omp/tasks.json`. Il dispatch GUI arma dopo modello/thinking e prima del prompt: se l'armo fallisce, il task resta in coda. Il dispatch PTY invia `/prewalk` dopo `/new` e la conferma della nuova sessione, prima del prompt incollato.
+- `project_tasks` conserva l'opzione in add/update e `/tasks` la mostra con `[prewalk]`. Invio nell'overlay TUI non la applica: il prewalk del task viene applicato da Studio quando lo avvia.
+
 
 ---
 

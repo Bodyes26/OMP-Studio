@@ -32,6 +32,7 @@ export interface TaskOptions {
 	discussionMode?: boolean;
 	minimalMode?: boolean;
 	researchMode?: boolean;
+	prewalk?: boolean;
 }
 
 export interface ProjectTask {
@@ -158,14 +159,17 @@ export function normalizeTaskOptions(options?: TaskOptions): TaskOptions | undef
 			? rawOptions.thinkingLevel.trim()
 			: undefined;
 
-	if (!role && !thinkingLevel && directives.length === 0) {
+	const prewalk = rawOptions.prewalk === true ? true : undefined;
+
+	if (!role && !thinkingLevel && directives.length === 0 && !prewalk) {
 		return undefined;
 	}
 
 	return {
 		role,
 		thinkingLevel,
-		directives: directives.length > 0 ? directives : undefined
+		directives: directives.length > 0 ? directives : undefined,
+		prewalk
 	};
 }
 
@@ -427,8 +431,11 @@ class TasksTuiOverlay {
 				const num = c.fg("muted", `#${i + 1} `);
 				const glyphStr = c.fg(glyphColor, glyph) + " ";
 
-				// Dettagli opzioni speciali (ruolo, thinking)
+				// Dettagli opzioni speciali (ruolo, thinking, prewalk)
 				const optBadges: string[] = [];
+				if (task.options?.prewalk) {
+					optBadges.push("[prewalk]");
+				}
 				if (task.options?.role && task.options.role !== "default") {
 					optBadges.push(`[${task.options.role}]`);
 				}
@@ -603,6 +610,9 @@ class TasksTuiOverlay {
 		}
 
 		// Invio: avvia subito il task nella sessione corrente
+		// NOTA: l'avvio interattivo da TUI esegue il prompt direttamente nella sessione
+		// terminale già aperta e intenzionalmente NON arma il prewalk (orchestrato
+		// esclusivamente dai percorsi di dispatch di Studio su nuove sessioni).
 		if (data === "\r" || data === "\n") {
 			const task = this.tasks[this.selectedIndex];
 			if (task) {
@@ -714,6 +724,7 @@ interface TaskToolParams {
 	discussionMode?: boolean;
 	minimalMode?: boolean;
 	researchMode?: boolean;
+	prewalk?: boolean;
 	targetPosition?: number;
 }
 
@@ -738,8 +749,9 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 		description:
 			"Manage and track persistent project tasks in '.omp/tasks.json'. " +
 			"Use this tool to view the project queue, add new tasks discovered during planning/execution, " +
-			"update task status (queued, in_progress, completed, abandoned), reorder, or delete tasks. " +
-			"Changes are automatically saved to disk and synchronized with OMP Studio GUI and TUI in real time.",
+			"update task status (queued, in_progress, completed, abandoned), configure options (role, thinking, directives, prewalk), reorder, or delete tasks. " +
+			"Changes are automatically saved to disk and synchronized with OMP Studio GUI and TUI in real time. " +
+			"Note: The prewalk option is persisted and honored by Studio dispatches; pressing Enter in the interactive TUI /tasks overlay runs in the current session without arming prewalk.",
 		parameters: z.object({
 			action: z
 				.enum(["list", "add", "update", "delete", "reorder", "get"])
@@ -759,6 +771,12 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 			discussionMode: z.boolean().optional().describe("Enable discussion mode directive (/grill-me)."),
 			minimalMode: z.boolean().optional().describe("Enable minimal mode directive (/ponytail)."),
 			researchMode: z.boolean().optional().describe("Enable online research mode."),
+			prewalk: z
+				.boolean()
+				.optional()
+				.describe(
+					"Enable preliminary exploratory phase with @smol (persisted for Studio dispatch; direct TUI /tasks Enter does not arm)."
+				),
 			targetPosition: z.number().optional().describe("Target index position for reordering.")
 		}),
 		approval: "read",
@@ -804,7 +822,8 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 						planMode: params.planMode,
 						discussionMode: params.discussionMode,
 						minimalMode: params.minimalMode,
-						researchMode: params.researchMode
+						researchMode: params.researchMode,
+						prewalk: params.prewalk
 					});
 
 					const newTask: ProjectTask = {
@@ -841,7 +860,8 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 						params.planMode !== undefined ||
 						params.discussionMode !== undefined ||
 						params.minimalMode !== undefined ||
-						params.researchMode !== undefined
+						params.researchMode !== undefined ||
+						params.prewalk !== undefined
 					) {
 						const existingDirectives = (task.options?.directives || []).filter((d) => {
 							if (params.planMode === false && (d.factoryKey === "plan" || d.id === "dir_factory_plan")) return false;
@@ -851,6 +871,11 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 							return true;
 						});
 
+						const updatedPrewalk =
+							params.prewalk !== undefined
+								? params.prewalk === true
+								: task.options?.prewalk === true;
+
 						task.options = normalizeTaskOptions({
 							role: params.role !== undefined ? params.role : task.options?.role,
 							thinkingLevel: params.thinkingLevel !== undefined ? params.thinkingLevel : task.options?.thinkingLevel,
@@ -858,7 +883,8 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 							planMode: params.planMode === true,
 							discussionMode: params.discussionMode === true,
 							minimalMode: params.minimalMode === true,
-							researchMode: params.researchMode === true
+							researchMode: params.researchMode === true,
+							prewalk: updatedPrewalk
 						});
 					}
 					saveProjectTasks(cwd, tasks);

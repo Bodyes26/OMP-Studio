@@ -21,7 +21,8 @@ use pty::{
 mod rpc;
 use rpc::{
     force_kill_session, rpc_abort, rpc_close, rpc_diagnostics, rpc_force_kill, rpc_open,
-    rpc_open_lab, rpc_protocol, rpc_send, rpc_stderr, rpc_write_hang_report, RpcManager,
+    rpc_open_lab, rpc_protocol, rpc_send, rpc_set_prewalk, rpc_stderr, rpc_write_hang_report,
+    RpcManager,
 };
 mod projects;
 use projects::{
@@ -169,6 +170,7 @@ pub fn run() {
             rpc_open_lab,
             rpc_send,
             rpc_close,
+            rpc_set_prewalk,
             rpc_stderr,
             rpc_diagnostics,
             rpc_write_hang_report,

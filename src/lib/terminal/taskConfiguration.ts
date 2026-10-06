@@ -17,8 +17,9 @@ import { m as msg } from '$lib/paraglide/messages.js';/**
  */
 
 export interface TerminalTaskConfiguration {
-	modelSelector: string;
+	modelSelector?: string;
 	thinkingLevel?: string;
+	prewalk?: boolean;
 }
 
 export interface TerminalSessionConfiguration {
@@ -30,8 +31,7 @@ export function describeConfigurationMismatch(
 	session: TerminalSessionConfiguration,
 	configuration: TerminalTaskConfiguration
 ): string | null {
-	if (!session.modelSelector) return null;
-
+	if (!session.modelSelector || !configuration.modelSelector) return null;
 	if (session.modelSelector !== configuration.modelSelector) {
 		return msg.ui_ts_taskconfiguration_il_task_richiede_value1_il_terminale_usa_b103({ value1: configuration.modelSelector, value2: session.modelSelector });
 	}

@@ -23,6 +23,7 @@ import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { OmpRpcClient } from './client';
 import { isMissingSessionError } from './resumeErrors';
+import { handOffPrewalk, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from './prewalk';
 import {
 	matchQuestionIndex,
 	optionSignature,
@@ -432,6 +433,18 @@ export class AgentSession {
 
 	model = $state<ModelInfo | null>(null);
 	thinkingLevel = $state<ThinkingLevel | null>(null);
+	prewalk = $state<PrewalkState>({ state: 'off' });
+	overlayEnabled = $state(false);
+	prewalkBusy = $state(false);
+	private prewalkRestarting = false;
+	private prewalkGeneration = 0;
+	private prewalkConfirmation: {
+		expected: 'armed' | 'off';
+		resolve: () => void;
+		reject: (error: Error) => void;
+		timer: number;
+	} | null = null;
+	private prewalkOverlayWrite: Promise<void> = Promise.resolve();
 	/**
 	 * Ultimo ruolo scelto da Studio (menu, `/role`, Ctrl+P). omp non espone il ruolo
 	 * via RPC e piu' ruoli possono condividere lo stesso modello: senza ricordarlo
@@ -752,6 +765,7 @@ export class AgentSession {
 		const opening = (async () => {
 			this.exited = false;
 			this.requestedResume = requestedResume;
+			this.clearPrewalkState();
 			try {
 				if (this.labConfig) {
 					await this.client.openLab({
@@ -798,6 +812,7 @@ export class AgentSession {
 	}
 
 	async close() {
+		this.clearPrewalkState();
 		this.unsubscribeEvent?.();
 		this.unsubscribeEvent = null;
 		// Un'apertura ancora in volo non deve piu' fare da guardia: senza
@@ -1767,6 +1782,20 @@ export class AgentSession {
 				const text = typeof event.message === 'string' ? event.message : '';
 				if (!text) return;
 				const level = this.noticeLevel(event.level);
+				const prewalkNotice = parsePrewalkNotice(event.source, event.level, text);
+				if (prewalkNotice) {
+					this.prewalk = reducePrewalkNotice(this.prewalk, prewalkNotice);
+					if (prewalkNotice.kind === 'armed') this.prewalkRestarting = false;
+					if (prewalkNotice.kind === 'error') {
+						this.prewalkConfirmation?.reject(new Error(prewalkNotice.message));
+					} else if (
+						(prewalkNotice.kind === 'armed' && this.prewalkConfirmation?.expected === 'armed') ||
+						(prewalkNotice.kind === 'disarmed' && this.prewalkConfirmation?.expected === 'off')
+					) {
+						this.prewalkConfirmation?.resolve();
+					}
+				}
+				if (prewalkNotice?.kind === 'handedOff') this.resetHandedOffOverlay();
 				this.pushNotice(level, text, typeof event.source === 'string' ? event.source : undefined);
 				if (level === 'error') {
 					const hasRunningTools = Array.from(this.toolEntries.values()).some((t) => t.running);
@@ -1882,8 +1911,26 @@ export class AgentSession {
 				return;
 
 			case 'model_changed':
-				if (event.model && typeof event.model === 'object') this.model = event.model;
-				else void this.refreshState();
+				if (event.model && typeof event.model === 'object') {
+					this.model = event.model;
+					if (this.prewalk.state === 'armed' && !this.prewalkRestarting) {
+						this.prewalk = handOffPrewalk(this.prewalk, event.model);
+						this.resetHandedOffOverlay();
+					}
+				} else {
+					// omp 18.4.10 emette solo il tipo; il notice switched conferma
+					// il passaggio. get_state distingue anche un cambio manuale.
+					void this.refreshState().then(() => {
+						const selector = this.model?.provider && this.model?.id
+							? `${this.model.provider}/${this.model.id}` : this.model?.id;
+						if (this.prewalk.state === 'armed' && !this.prewalkRestarting && selector === this.prewalk.target) {
+							this.prewalk = handOffPrewalk(this.prewalk, this.model ?? undefined);
+							this.resetHandedOffOverlay();
+						} else if (this.prewalk.state === 'handedOff' && this.model) {
+							this.prewalk = { ...this.prewalk, handedOffTo: this.model.name ?? this.model.id };
+						}
+					}).catch((error) => console.warn('Aggiornamento modello prewalk:', error));
+				}
 				return;
 
 			case 'thinking_level_changed':
@@ -1980,6 +2027,7 @@ export class AgentSession {
 			}
 
 			case 'studio_exit': {
+				this.clearPrewalkState();
 				this.resetBrowserLive();
 				const code = typeof event.code === 'number' ? event.code : null;
 				const stderr = Array.isArray(event.stderr)
@@ -3303,6 +3351,7 @@ export class AgentSession {
 	 * Fase 2 dell'escalation: forza l'arresto immediato del processo e dell'albero dei figli (SIGKILL).
 	 */
 	async forceKill() {
+		this.clearPrewalkState();
 		this.localFollowUpsPaused = true;
 		this.localQueueEpoch++;
 		this.isAborting = false;
@@ -3359,7 +3408,137 @@ export class AgentSession {
 		}
 	}
 
+	private resetHandedOffOverlay(): void {
+		const generation = this.prewalkGeneration;
+		void this.writePrewalkOverlay(false, generation).catch((error) => {
+			if (generation === this.prewalkGeneration) this.pushNotice('error', String(error), 'prewalk');
+		});
+	}
+
+	private async settlePrewalkOverlay(): Promise<void> {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		window.setTimeout(resolve, 400);
+		await promise;
+	}
+
+	private clearPrewalkState(): void {
+		this.prewalkGeneration++;
+		this.prewalkConfirmation?.reject(new Error(messages.prewalk_session_changed()));
+		if (this.prewalkConfirmation) window.clearTimeout(this.prewalkConfirmation.timer);
+		this.prewalkConfirmation = null;
+		this.prewalk = { state: 'off' };
+		this.overlayEnabled = false;
+		this.prewalkBusy = false;
+		this.prewalkRestarting = false;
+	}
+
+	private writePrewalkOverlay(enabled: boolean, generation: number): Promise<void> {
+		const write = this.prewalkOverlayWrite.catch(() => {}).then(async () => {
+			if (generation !== this.prewalkGeneration) throw new Error(messages.prewalk_session_changed());
+			await this.client.setPrewalk(enabled);
+			if (generation !== this.prewalkGeneration) throw new Error(messages.prewalk_session_changed());
+			this.overlayEnabled = enabled;
+		});
+		this.prewalkOverlayWrite = write;
+		return write;
+	}
+
+	private async confirmPrewalk(expected: 'armed' | 'off', operation: () => Promise<void>): Promise<void> {
+		const { promise: confirmation, resolve, reject } = Promise.withResolvers<void>();
+		const timer = window.setTimeout(() => reject(new Error(messages.prewalk_confirmation_timeout({
+			action: expected === 'armed' ? messages.prewalk_arm() : messages.prewalk_disarm()
+		}))), 5_000);
+		const waiter = { expected, resolve, reject, timer };
+		this.prewalkConfirmation = waiter;
+		// Il notice puo' precedere la risposta IPC, incluso un errore del watcher.
+		void confirmation.catch(() => {});
+		try {
+			await operation();
+			await confirmation;
+		} finally {
+			window.clearTimeout(timer);
+			if (this.prewalkConfirmation === waiter) this.prewalkConfirmation = null;
+		}
+	}
+
+	private async runPrewalk(operation: (generation: number) => Promise<void>): Promise<void> {
+		if (this.labConfig || !this.client.isOpen || !this.isReady) throw new Error(messages.prewalk_unavailable());
+		if (this.prewalkBusy) throw new Error(messages.prewalk_operation_busy());
+		const generation = this.prewalkGeneration;
+		this.prewalkBusy = true;
+		try {
+			await operation(generation);
+		} finally {
+			if (generation === this.prewalkGeneration) {
+				this.prewalkBusy = false;
+				this.prewalkRestarting = false;
+			}
+		}
+	}
+
+	async armPrewalk(): Promise<void> {
+		await this.runPrewalk(async (generation) => {
+			// Il watcher reagisce al cambio, non alla riscrittura dello stesso valore.
+			if (this.prewalk.state === 'armed') {
+				if (!this.overlayEnabled) {
+					await this.writePrewalkOverlay(true, generation);
+					await this.settlePrewalkOverlay();
+				}
+				await this.confirmPrewalk('off', () => this.writePrewalkOverlay(false, generation));
+			} else if (this.overlayEnabled) {
+				await this.writePrewalkOverlay(false, generation);
+				await this.settlePrewalkOverlay();
+			}
+			await this.confirmPrewalk('armed', () => this.writePrewalkOverlay(true, generation));
+		});
+	}
+
+	async disarmPrewalk(): Promise<void> {
+		await this.runPrewalk(async (generation) => {
+			if (this.prewalk.state === 'armed') {
+				if (!this.overlayEnabled) {
+					await this.writePrewalkOverlay(true, generation);
+					// Gia' armato via slash: true e' un no-op senza notice. Lascia al
+					// watcher un intervallo prima di false, evitando eventi accorpati.
+					await this.settlePrewalkOverlay();
+				}
+				await this.confirmPrewalk('off', () => this.writePrewalkOverlay(false, generation));
+			} else {
+				await this.writePrewalkOverlay(false, generation);
+				await this.settlePrewalkOverlay();
+				this.prewalk = { state: 'off' };
+			}
+		});
+	}
+
+	async restartPrewalk(): Promise<void> {
+		await this.runPrewalk(async (generation) => {
+			if (this.prewalk.state === 'armed') {
+				if (!this.overlayEnabled) {
+					await this.writePrewalkOverlay(true, generation);
+					await this.settlePrewalkOverlay();
+				}
+				await this.confirmPrewalk('off', () => this.writePrewalkOverlay(false, generation));
+			} else {
+				await this.writePrewalkOverlay(false, generation);
+				await this.settlePrewalkOverlay();
+			}
+			this.prewalkRestarting = true;
+			await this.confirmPrewalk('armed', async () => {
+				await this.client.send({ type: 'prompt', message: '/prewalk restart' });
+			});
+			await this.refreshState();
+		});
+	}
+
+	private async resetPrewalk(): Promise<void> {
+		if (!this.isReady && !(await this.waitUntilReady())) throw new Error(messages.prewalk_unavailable());
+		if (!this.labConfig) await this.disarmPrewalk();
+		this.clearPrewalkState();
+	}
+
 	async newSession(): Promise<string | null> {
+		await this.resetPrewalk();
 		this.localQueueEpoch++;
 		this.localFollowUpsPaused = true;
 		this.pendingStartupPrompts = [];
@@ -3389,6 +3568,7 @@ export class AgentSession {
 		return this.sessionId;
 	}
 	async forkSession(): Promise<string | null> {
+		await this.resetPrewalk();
 		this.localFollowUpsPaused = true;
 		this.localQueueEpoch++;
 		this.pendingStartupPrompts = [];

@@ -30,6 +30,7 @@ export interface StudioTaskOptions {
 	thinkingLevel?: string;
 	includeEditorContext?: boolean;
 	directives?: TaskDirectiveSnapshot[];
+	prewalk?: boolean;
 }
 
 export interface StudioTask {
@@ -350,7 +351,8 @@ export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: st
 					modelSelector: typeof options.modelSelector === 'string' ? options.modelSelector : undefined,
 					thinkingLevel: typeof options.thinkingLevel === 'string' ? options.thinkingLevel : undefined,
 					includeEditorContext: options.includeEditorContext !== false,
-					directives: directives.length > 0 ? directives : undefined
+					directives: directives.length > 0 ? directives : undefined,
+					prewalk: rawOptions.prewalk === true ? true : undefined
 				};
 			}
 

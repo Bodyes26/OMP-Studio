@@ -2214,5 +2214,22 @@
   "shortcuts_item_middle_click_close": "Chiude la scheda dell'editor sotto il puntatore",
   "shortcuts_item_fit_diagram": "Adatta il diagramma alla vista",
   "shortcuts_key_right_click": "Clic destro",
-  "shortcuts_item_context_menu": "Apre il menu contestuale dell'elemento a fuoco"
+  "shortcuts_item_context_menu": "Apre il menu contestuale dell'elemento a fuoco",
+  "prewalk_unavailable": "Prewalk non disponibile per questa sessione.",
+  "prewalk_confirmation_timeout": "Timeout durante la conferma di {action} del prewalk.",
+  "prewalk_arm": "attivazione",
+  "prewalk_disarm": "disattivazione",
+  "prewalk_operation_busy": "Un'operazione di prewalk è già in corso.",
+  "prewalk_session_changed": "La sessione è cambiata durante l'operazione di prewalk.",
+  "task_editor_prewalk_title": "Prewalk",
+  "task_editor_prewalk_desc": "Pianifica con il modello attivo, poi passa una sola volta a @smol al primo edit/write dopo la lista todo.",
+  "chat_v2_composer_prewalk_title": "Prewalk",
+  "chat_v2_composer_prewalk_missing_smol": "Configura il ruolo @smol nella scheda Ruoli di Gestione Modelli.",
+  "chat_v2_composer_prewalk_tooltip": "Pianifica con il modello attivo, poi passa a @smol: {smol}",
+  "chat_v2_composer_prewalk_tooltip_with_fallbacks": "Pianifica con il modello attivo, poi passa a @smol: {smol}. Riserve: {fallbacks}",
+  "chat_v2_composer_prewalk_arm_aria": "Attiva prewalk con @smol",
+  "chat_v2_composer_prewalk_disarm_aria": "Disattiva prewalk",
+  "chat_v2_composer_prewalk_restart": "Ripeti",
+  "chat_v2_composer_prewalk_restart_aria": "Torna a @default e riarma il passaggio a @smol",
+  "chat_v2_composer_prewalk_busy": "Operazione prewalk in corso…"
 }

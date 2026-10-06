@@ -26,6 +26,7 @@ commands.allow = [
     "rpc_open_lab",
     "rpc_send",
     "rpc_close",
+    "rpc_set_prewalk",
     "rpc_stderr",
     "rpc_diagnostics",
     "rpc_write_hang_report",

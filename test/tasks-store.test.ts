@@ -433,6 +433,44 @@ describe('Store tasks.json: validazione e parsing', () => {
 			assert.deepEqual(parseProjectTasksFile('   '), []);
 			assert.deepEqual(parseProjectTasksFile('{ not json }'), []);
 		});
+
+		it('preserva opzione prewalk solo quando vera nel roundtrip di tasks.json', () => {
+			const tasksWithPrewalk: StudioTask[] = [
+				{
+					...validTask,
+					id: 't-prewalk-true',
+					options: { role: 'smol', prewalk: true }
+				},
+				{
+					...validTask,
+					id: 't-prewalk-false',
+					options: { role: 'smol', prewalk: false }
+				},
+				{
+					...validTask,
+					id: 't-no-prewalk',
+					options: { role: 'default' }
+				}
+			];
+
+			const serialized = serializeProjectTasksFile(tasksWithPrewalk);
+			const parsed = parseProjectTasksFile(serialized, 'C:\\Projects\\App');
+
+			assert.equal(parsed.length, 3);
+			assert.equal(parsed[0].options?.prewalk, true);
+			assert.equal(parsed[1].options?.prewalk, undefined);
+			assert.equal(parsed[2].options?.prewalk, undefined);
+
+			const reserialized = serializeProjectTasksFile(parsed);
+			const reParsed = parseProjectTasksFile(reserialized, 'C:\\Projects\\App');
+			assert.equal(reParsed[0].options?.prewalk, true);
+			assert.equal(reParsed[1].options?.prewalk, undefined);
+			assert.equal(reParsed[2].options?.prewalk, undefined);
+			const rawPayload = JSON.parse(reserialized) as { tasks: Array<{ options?: Record<string, unknown> }> };
+			assert.equal(rawPayload.tasks[0].options?.prewalk, true);
+			assert.equal(rawPayload.tasks[1].options?.prewalk, undefined);
+			assert.equal(rawPayload.tasks[2].options?.prewalk, undefined);
+		});
 	});
 
 	describe('ripristino e reinserimento task interrotto', () => {

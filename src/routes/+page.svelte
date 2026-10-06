@@ -1280,6 +1280,10 @@
 					});
 				}
 
+				if (task.options?.prewalk) {
+					await session.armPrewalk();
+				}
+
 				// Il task esce dalla coda solo a consegna avvenuta: `prompt()`
 				// riporta il rifiuto di omp senza sollevare, e senza sessione
 				// pubblicata non esiste nemmeno la riga di storico da cui
@@ -1302,10 +1306,11 @@
 				const term = terminalSessionFor(project, lane.laneId);
 				if (!term) throw new Error(m.ui__page_terminale_non_pronto_6be5());
 				const fullPrompt = formatTaskPrompt(task, queue.path);
-				const configuration = task.options?.modelSelector
+				const configuration = (task.options?.modelSelector || task.options?.prewalk)
 					? {
 							modelSelector: task.options.modelSelector,
-							thinkingLevel: task.options.thinkingLevel || 'auto'
+							thinkingLevel: task.options.thinkingLevel || 'auto',
+							prewalk: task.options.prewalk
 						}
 					: undefined;
 				const session = await term.startTask(fullPrompt, configuration);

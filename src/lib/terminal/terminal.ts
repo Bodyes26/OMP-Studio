@@ -384,6 +384,9 @@ export class TerminalSession {
 			(info) => info.sessionId !== previous.sessionId,
 			msg.ui_ts_terminal_omp_non_ha_confermato_la_nuova_sessione_6f27()
 		);
+		if (configuration?.prewalk) {
+			await this.sendCommand('/prewalk');
+		}
 		await this.writePty(`\x1b[200~${prompt}\x1b[201~\r`);
 		this.setInputPending(0);
 		return next;

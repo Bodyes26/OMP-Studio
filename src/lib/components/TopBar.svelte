@@ -1136,22 +1136,25 @@
 			     su macOS e Linux le decorazioni sono native per evitare doppie barre. -->
 			<div class="window-controls">
 				<button class="win-btn" onclick={handleMinimize} title={m.topbar_win_minimize()} aria-label={m.topbar_win_minimize()}>
-					<svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M3 8h10"/>
+					</svg>
 				</button>
 				<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? m.topbar_win_restore() : m.topbar_win_maximize()} aria-label={isMaximized ? m.ui_topbar_ripristina_finestra_a21a() : "Ingrandisci finestra"}>
 					{#if isMaximized}
-						<svg width="10" height="10" viewBox="0 0 10 10">
-							<path d="M2.5 1h6v6h-1v-5h-5v-1zm-1.5 2.5h6v6h-6v-6zm1 1v4h4v-4h-4z" fill="currentColor"/>
+						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<path d="M6 3h5a2 2 0 0 1 2 2v5"/>
+							<rect x="3" y="6" width="7" height="7" rx="2"/>
 						</svg>
 					{:else}
-						<svg width="10" height="10" viewBox="0 0 10 10">
-							<path d="M1 1h8v8h-8v-8zm1 1v6h6v-6h-6z" fill="currentColor"/>
+						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<rect x="3" y="3" width="10" height="10" rx="2.4"/>
 						</svg>
 					{/if}
 				</button>
 				<button class="win-btn close" onclick={handleClose} title={m.topbar_win_close()} aria-label={m.topbar_win_close_app_aria()}>
-					<svg width="10" height="10" viewBox="0 0 10 10">
-						<path d="M1 1l8 8m0-8l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="m4 4 8 8m0-8-8 8"/>
 					</svg>
 				</button>
 			</div>
@@ -1892,6 +1895,9 @@
 	}
 
 	.controls :global(.quota-chip) {
+		/* L'allineamento riguarda la barra principale, non la chip del Companion. */
+		height: 28px;
+		padding: 0 8px;
 		margin-right: var(--space-3);
 	}
 

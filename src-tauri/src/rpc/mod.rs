@@ -148,28 +148,32 @@ impl RpcManager {
     }
 }
 
-/// Overlay `--config` del percorso GUI. `tools.approvalMode: yolo`:
-/// permette l'esecuzione automatica e diretta di tutti i tool senza
-/// blocchi o prompt di autorizzazione, allineando la GUI alla TUI.
-/// `read.defaultLimit: 1200`: espande il limite di lettura mantenendo attivo summarize.
-/// Niente `tui.*` (non c'e' terminale) e niente `theme.*` (non c'e'
-/// rendering ANSI).
-pub(crate) fn write_gui_overlay() -> std::path::PathBuf {
-    const OVERLAY_CONTENT: &[u8] = b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\n";
-    let mut overlay_path = std::env::temp_dir();
-    overlay_path.push("omp-studio-gui-overlay.yml");
-    // Riscrive solo se il contenuto differisce: evita riscritture inutili
-    // e allarmi dell'antivirus a ogni apertura di sessione.
-    let stale = match std::fs::read(&overlay_path) {
-        Ok(existing) => existing != OVERLAY_CONTENT,
-        Err(_) => true,
-    };
-    if stale {
-        if let Ok(mut file) = std::fs::File::create(&overlay_path) {
-            let _ = file.write_all(OVERLAY_CONTENT);
-        }
+
+/// Riscrive in modo atomico il file di configurazione overlay GUI,
+/// preservando la base (`tools.approvalMode: yolo`, `read.defaultLimit: 1200`)
+/// e aggiornando il valore di `prewalk.enabled`.
+/// Rifiuta la riscrittura se il percorso appartiene a una configurazione del Laboratorio.
+pub(crate) fn set_gui_overlay_prewalk(
+    config_path: &std::path::Path,
+    enabled: bool,
+) -> Result<(), String> {
+    if config_path.to_string_lossy().contains("omp-studio-lab-") {
+        return Err("Rifiutata modifica prewalk su configurazione Laboratorio".to_string());
     }
-    overlay_path
+    let content: &[u8] = if enabled {
+        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\nprewalk:\n  enabled: true\n"
+    } else {
+        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\nprewalk:\n  enabled: false\n"
+    };
+    crate::fs_atomic::atomic_write(config_path, content)
+}
+
+/// Genera la configurazione overlay per-sessione per il percorso GUI con prewalk disabilitato di default.
+pub(crate) fn write_gui_overlay(rpc_id: u64) -> Result<std::path::PathBuf, String> {
+    let overlay_path =
+        std::env::temp_dir().join(format!("omp-studio-gui-overlay-{}.yml", rpc_id));
+    set_gui_overlay_prewalk(&overlay_path, false)?;
+    Ok(overlay_path)
 }
 
 /// Sorgente dell'estensione OMP per il Laboratorio prototipi (broker scrittura confinata).
@@ -770,21 +774,21 @@ pub async fn rpc_open(
     on_event: Channel<String>,
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
-    let omp_path = crate::omp_ops::get_omp_binary();
-    let overlay_path = write_gui_overlay();
-    let diagram_extension =
-        crate::pty::write_extension("studio-diagram.ts", crate::pty::DIAGRAM_EXTENSION_TS);
-    let tasks_extension =
-        crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
-    let lanes_extension =
-        crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
-
     let rpc_id = {
         let mut guard = manager.next_id.lock();
         let id = *guard;
         *guard += 1;
         id
     };
+
+    let omp_path = crate::omp_ops::get_omp_binary();
+    let overlay_path = write_gui_overlay(rpc_id)?;
+    let diagram_extension =
+        crate::pty::write_extension("studio-diagram.ts", crate::pty::DIAGRAM_EXTENSION_TS);
+    let tasks_extension =
+        crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
+    let lanes_extension =
+        crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -891,6 +895,7 @@ pub async fn rpc_open(
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(error) => {
+            let _ = std::fs::remove_file(&overlay_path);
             if bridge_creds.is_some() {
                 crate::lane_bridge::revoke_owner("agent", rpc_id);
             }
@@ -908,9 +913,30 @@ pub async fn rpc_open(
         }
     };
 
-    let stdin = child.stdin.take().ok_or("stdin di omp non disponibile")?;
-    let stdout = child.stdout.take().ok_or("stdout di omp non disponibile")?;
-    let stderr = child.stderr.take().ok_or("stderr di omp non disponibile")?;
+    let stdin = match child.stdin.take() {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::remove_file(&overlay_path);
+            let _ = child.kill();
+            return Err("stdin di omp non disponibile".to_string());
+        }
+    };
+    let stdout = match child.stdout.take() {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::remove_file(&overlay_path);
+            let _ = child.kill();
+            return Err("stdout di omp non disponibile".to_string());
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::remove_file(&overlay_path);
+            let _ = child.kill();
+            return Err("stderr di omp non disponibile".to_string());
+        }
+    };
 
     let stdin = Arc::new(Mutex::new(Some(stdin)));
     let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
@@ -928,7 +954,7 @@ pub async fn rpc_open(
             stderr_tail: stderr_tail.clone(),
             protocol: protocol.clone(),
             abort_signal: abort_signal.clone(),
-            config_path: None,
+            config_path: Some(overlay_path),
             pid: Some(pid),
             #[cfg(target_os = "windows")]
             job,
@@ -1337,6 +1363,29 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
     .map_err(|error| format!("Chiusura della sessione RPC {}: {}", rpc_id, error))
 }
 
+/// Abilita o disabilita il prewalk per una sessione RPC attiva, riscrivendo
+/// in modo atomico il file di configurazione overlay per-sessione e preservando
+/// i parametri base (tools.approvalMode: yolo, read.defaultLimit: 1200).
+/// Rifiuta l'operazione su sessioni del Laboratorio prototipi.
+#[tauri::command]
+pub async fn rpc_set_prewalk(
+    rpc_id: u64,
+    enabled: bool,
+    manager: State<'_, RpcManager>,
+) -> Result<(), String> {
+    let guard = manager.sessions.lock();
+    let session = guard
+        .get(&rpc_id)
+        .ok_or_else(|| format!("Sessione RPC {} non trovata", rpc_id))?;
+    if session.scope == "lab" || session.prototype_id.is_some() {
+        return Err("Prewalk non supportato per sessioni Laboratorio".to_string());
+    }
+    let config_path = session.config_path.as_ref()
+        .ok_or_else(|| format!("Nessun file di configurazione per la sessione RPC {}", rpc_id))?;
+    // La chiusura non puo' cancellare l'overlay fra lettura del percorso e scrittura.
+    set_gui_overlay_prewalk(config_path, enabled)
+}
+
 /// Interrompe la sessione RPC specificata in modo atomico, senza toccare le altre sessioni.
 #[tauri::command]
 pub async fn rpc_abort(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<(), String> {
@@ -1654,6 +1703,7 @@ mod tests {
         struct Overlay {
             tools: OverlayTools,
             read: OverlayRead,
+            prewalk: OverlayPrewalk,
         }
 
         #[derive(Deserialize)]
@@ -1669,13 +1719,123 @@ mod tests {
             summarize: Option<serde_yaml::Value>,
         }
 
-        let overlay_path = write_gui_overlay();
+        #[derive(Deserialize)]
+        struct OverlayPrewalk {
+            enabled: bool,
+        }
+
+        let rpc_id = 99001;
+        let overlay_path = write_gui_overlay(rpc_id).expect("overlay GUI generabile");
         let content = std::fs::read_to_string(&overlay_path).expect("overlay GUI leggibile");
         let overlay: Overlay = serde_yaml::from_str(&content).expect("overlay GUI YAML valido");
 
         assert_eq!(overlay.tools.approval_mode, "yolo");
         assert_eq!(overlay.read.default_limit, 1200);
         assert!(overlay.read.summarize.is_none());
+        assert_eq!(overlay.prewalk.enabled, false);
+
+        let _ = std::fs::remove_file(overlay_path);
+    }
+
+    #[test]
+    fn overlay_gui_isolamento_per_sessione() {
+        #[derive(Deserialize)]
+        struct OverlayPrewalkOnly {
+            prewalk: OverlayPrewalk,
+        }
+        #[derive(Deserialize)]
+        struct OverlayPrewalk {
+            enabled: bool,
+        }
+
+        let rpc_1 = 99002;
+        let rpc_2 = 99003;
+        let path_1 = write_gui_overlay(rpc_1).expect("overlay 1 generato");
+        let path_2 = write_gui_overlay(rpc_2).expect("overlay 2 generato");
+
+        assert_ne!(path_1, path_2);
+
+        // Modifica prewalk solo sulla prima sessione
+        set_gui_overlay_prewalk(&path_1, true).expect("modifica prewalk riuscita");
+
+        let content_1 = std::fs::read_to_string(&path_1).expect("overlay 1 leggibile");
+        let content_2 = std::fs::read_to_string(&path_2).expect("overlay 2 leggibile");
+
+        let parsed_1: OverlayPrewalkOnly =
+            serde_yaml::from_str(&content_1).expect("overlay 1 YAML valido");
+        let parsed_2: OverlayPrewalkOnly =
+            serde_yaml::from_str(&content_2).expect("overlay 2 YAML valido");
+
+        assert_eq!(parsed_1.prewalk.enabled, true);
+        assert_eq!(parsed_2.prewalk.enabled, false);
+
+        let _ = std::fs::remove_file(path_1);
+        let _ = std::fs::remove_file(path_2);
+    }
+
+    #[test]
+    fn overlay_gui_prewalk_attiva_disattiva_mantiene_base() {
+        #[derive(Deserialize)]
+        struct OverlayFull {
+            tools: OverlayTools,
+            read: OverlayRead,
+            prewalk: OverlayPrewalk,
+        }
+        #[derive(Deserialize)]
+        struct OverlayTools {
+            #[serde(rename = "approvalMode")]
+            approval_mode: String,
+        }
+        #[derive(Deserialize)]
+        struct OverlayRead {
+            #[serde(rename = "defaultLimit")]
+            default_limit: usize,
+            summarize: Option<serde_yaml::Value>,
+        }
+        #[derive(Deserialize)]
+        struct OverlayPrewalk {
+            enabled: bool,
+        }
+
+        let rpc_id = 99004;
+        let overlay_path = write_gui_overlay(rpc_id).expect("overlay GUI generato");
+
+        // 1. Attiva prewalk: verifica che i parametri base rimangano inalterati
+        set_gui_overlay_prewalk(&overlay_path, true).expect("abilitazione prewalk riuscita");
+        let content_enabled =
+            std::fs::read_to_string(&overlay_path).expect("overlay abilitato leggibile");
+        let overlay_enabled: OverlayFull =
+            serde_yaml::from_str(&content_enabled).expect("overlay abilitato YAML valido");
+        assert_eq!(overlay_enabled.tools.approval_mode, "yolo");
+        assert_eq!(overlay_enabled.read.default_limit, 1200);
+        assert!(overlay_enabled.read.summarize.is_none());
+        assert_eq!(overlay_enabled.prewalk.enabled, true);
+
+        // 2. Disattiva prewalk: verifica che i parametri base rimangano inalterati
+        set_gui_overlay_prewalk(&overlay_path, false).expect("disabilitazione prewalk riuscita");
+        let content_disabled =
+            std::fs::read_to_string(&overlay_path).expect("overlay disabilitato leggibile");
+        let overlay_disabled: OverlayFull =
+            serde_yaml::from_str(&content_disabled).expect("overlay disabilitato YAML valido");
+        assert_eq!(overlay_disabled.tools.approval_mode, "yolo");
+        assert_eq!(overlay_disabled.read.default_limit, 1200);
+        assert!(overlay_disabled.read.summarize.is_none());
+        assert_eq!(overlay_disabled.prewalk.enabled, false);
+
+        let _ = std::fs::remove_file(overlay_path);
+    }
+
+    #[test]
+    fn overlay_gui_rifiuta_configurazione_laboratorio() {
+        let lab_path = std::env::temp_dir().join("omp-studio-lab-99005-prototype.yml");
+        let result = set_gui_overlay_prewalk(&lab_path, true);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Laboratorio"),
+            "Atteso errore su Laboratorio, ottenuto: {}",
+            err
+        );
     }
 
     #[test]

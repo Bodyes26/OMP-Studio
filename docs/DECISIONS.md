@@ -1250,3 +1250,26 @@ La prima implementazione del Laboratorio (Gate R24, vista separata `LabView` da 
 - `filter: blur` costa sulla GPU integrata: solo le unita' in animazione lo portano, e il testo concluso torna statico.
 - La coda locale dei follow-up si perde se Studio si chiude prima di `agent_end`.
 - Rimuovere il cursore animato cambia la sensazione di scrittura per chi ci si era abituato.
+
+## Prewalk: overlay per sessione, destinazione solo `@smol`, nessun riavvio
+
+**Data:** 2026-10-06
+**Esito:** IMPLEMENTATO
+
+### Decisioni
+
+1. **Modello di partenza = modello attivo; destinazione = solo `@smol`.** Non si introduce un ruolo prewalk e non si riscrive `modelRoles.smol`. Qualità, thinking e riserve si configurano nella scheda Ruoli con `smol` e `fallbackChains.smol`; omp risolve il candidato effettivamente disponibile all'armo.
+2. **Overlay GUI dedicato al processo.** Ogni RPC possiede un file temporaneo `--config`, inizialmente spento, che conserva la base GUI (`yolo`, limite lettura 1200). Il comando Tauri `rpc_set_prewalk` usa la scrittura atomica già condivisa dal backend; la chiusura elimina il file. L'overlay condiviso avrebbe armato altre chat.
+3. **Armo/disarmo a caldo, senza riavvio.** Si sfrutta il watcher di omp, preservando processo e conversazione. Studio attende un notice di conferma, non deduce l'armo da `get_state`, che non lo espone. «Ripeti» torna a `@default` e riarma tramite `/prewalk restart`.
+4. **Transizioni reali del valore.** Dopo il passaggio l'overlay torna falso. Per disarmare un armo slash quando il file è già falso si scrive vero, si lasciano 400 ms al watcher e si scrive falso; il notice finale resta obbligatorio. Prima di nuova chat o fork si disarma: con overlay vero `new_session` riarma silenziosamente.
+5. **Opzione sul task, non sui subagenti.** La chat arma prima del prompt e mantiene il task in coda se l'armo fallisce; il terminale invia `/prewalk` dopo `/new`. L'overlay TUI `/tasks` mostra `[prewalk]` ma Invio non arma: l'opzione viene applicata dal dispatch di Studio. Lab e `task.prewalk`/`task.agentPrewalk` restano fuori perimetro.
+
+### Evidenza e limiti
+
+- Le decisioni partono dalle verifiche su omp 18.4.10; gli smoke di implementazione usano il binario disponibile, omp 18.6.1, in `rpc-ui` e ConPTY, senza avviare una seconda istanza desktop.
+- Un turno reale con `todo` e `write` emette `model_changed` senza payload, `thinking_level_changed: high` e `Prewalk: switched to google-antigravity/gemini-3.8-flash after first write call.` Il parser riconosce anche questo notice.
+- `true` su una sessione già armata è un no-op senza notice. Il ciclo «Ripeti» → `true` → `false` produce il disarmo; nuova chat e fork tornano spenti, così come la ripresa da processo nuovo.
+- Se modello e thinking coincidono già con il target, omp risponde `nothing to switch`: non è un armo riuscito e Studio restituisce quel motivo senza attendere il timeout.
+- Composer e `TerminalSession` sono esercitati in Vite con un bridge temporaneo verso processi omp reali, inclusi task chat/PTY e file di risultato. Il bridge sostituisce l'IPC fisico Tauri: lo smoke non equivale a una nuova esecuzione del binario desktop compilato.
+- Il watcher non fornisce una conferma per i no-op: l'intervallo intermedio è una misura empirica, mentre il notice finale entro cinque secondi è il criterio di successo. Un watcher rallentato causa un errore visibile, non un task avviato senza prewalk.
+

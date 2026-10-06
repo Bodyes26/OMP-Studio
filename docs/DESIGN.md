@@ -1092,9 +1092,11 @@ Compare quando l'utente risale: cerchio da 28 px, `--bg-overlay`, bordo `--line`
 `--radius-full`, `--shadow-overlay`, freccia da 16 px. Nessun testo: il nome accessibile
 e il `Tooltip` dicono «In fondo».
 
-### Quota, tutte le code e barra inferiore
+### Quota, tutte le code e barre superiore e inferiore
 
 - **Quota:** una sola chip ad anello, trigger `--radius-md` (6 px), didascalia e percentuale mono tabulare. Le righe di limite sono lineari e sobrie, con label sans e valori mono tabulari; niente menisco, onde, rigature decorative o varianti selezionabili.
+- **Barra superiore:** Impostazioni, Companion, Coda e Quota sono alti 28 px, con padding orizzontale da 8 px e contenuto centrato. L'allineamento di Quota è locale a `TopBar`: la chip del Companion conserva la propria altezza compatta e l'anello resta da 15 px.
+- **Controlli finestra Windows:** sagome Rounded da 16 px, tratto uniforme da 1,8 px con terminali e giunzioni arrotondati; quadrato Massimizza con raggio 2,4 px e finestre sovrapposte Ripristina con raggio 2 px. Sono SVG locali per riprodurre le sagome scelte, non nuove icone globali. Aree cliccabili da 44 × 48 px e hover Chiudi in `--danger` invariati; su macOS e Linux restano le decorazioni native.
 - **Colori:** quota sana neutra, oppure `--success` solo con l'opzione semaforo; quota bassa `--warn`, critica/esaurita `--danger`. Il segnale cromatico è accompagnato da testo o descrizione accessibile. Nessuna palette quota cablata nel layout.
 - **Popover quota e code:** superfici non modali nel top-layer nativo tramite `anchoredPopover`, `--bg-overlay`, bordo `--line-strong`, raggio 10 px e `--shadow-overlay`; ancoraggio `bottom-end` a 8 px dal trigger, larghezze 380 e 420 px, fallback in alto a destra per apertura da scorciatoia o Companion. Titoli 16/550 bilanciati; ingresso `rvLift` a 150 ms e blur 3 px.
 - **Tastiera:** niente velo, `aria-modal` o trap di Tab. Click esterno e Tab fuori chiudono senza rubare il nuovo focus; Escape e chiusura esplicita restituiscono il focus al trigger. I controlli iconici usano `Tooltip`; il caricamento usa `StatusMark`.

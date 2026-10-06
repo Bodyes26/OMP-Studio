@@ -66,7 +66,9 @@
 		IconStop,
 		IconWarning,
 		IconChevronUp,
-		IconSparkles
+		IconSparkles,
+		IconPrewalk,
+		IconRefresh
 	} from '$lib/icons';
 
 	let {
@@ -543,6 +545,57 @@
 	const showSuggestionChips = $derived(
 		visible && !session.isStreaming && !canSend && !currentTrigger && displayedSuggestions.length > 0
 	);
+
+	// Stato e controlli Prewalk
+	const isLab = $derived(Boolean(session.labConfig));
+	const smolConfigured = $derived(modelSettingsStore.config?.modelRoles?.smol?.trim() || '');
+	const smolEmpty = $derived(!smolConfigured);
+	const smolFallbacks = $derived(modelSettingsStore.config?.fallbackChains?.smol || []);
+	const prewalkState = $derived(session.prewalk?.state ?? 'off');
+	const prewalkTarget = $derived(session.prewalk.target || '');
+	const handedOffTo = $derived(session.prewalk?.handedOffTo || session.model?.name || session.model?.id || '');
+	const isPrewalkBusy = $derived(session.prewalkBusy || !session.isReady);
+
+	const prewalkTooltipText = $derived.by(() => {
+		if (smolEmpty) return m.chat_v2_composer_prewalk_missing_smol();
+		if (session.prewalkBusy) return m.chat_v2_composer_prewalk_busy();
+		if (smolFallbacks.length > 0) {
+			return m.chat_v2_composer_prewalk_tooltip_with_fallbacks({
+				smol: smolConfigured,
+				fallbacks: smolFallbacks.join(', ')
+			});
+		}
+		return m.chat_v2_composer_prewalk_tooltip({ smol: smolConfigured });
+	});
+
+	const prewalkAriaLabel = $derived.by(() => {
+		if (prewalkState === 'off') return m.chat_v2_composer_prewalk_arm_aria();
+		return m.chat_v2_composer_prewalk_disarm_aria();
+	});
+
+	async function handlePrewalkClick() {
+		if (prewalkState === 'off') {
+			try {
+				await session.armPrewalk();
+			} catch (err) {
+				session.pushNotice('error', err instanceof Error ? err.message : String(err), 'prewalk');
+			}
+		} else {
+			try {
+				await session.disarmPrewalk();
+			} catch (err) {
+				session.pushNotice('error', err instanceof Error ? err.message : String(err), 'prewalk');
+			}
+		}
+	}
+
+	async function handleRestartPrewalk() {
+		try {
+			await session.restartPrewalk();
+		} catch (err) {
+			session.pushNotice('error', err instanceof Error ? err.message : String(err), 'prewalk');
+		}
+	}
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -789,6 +842,47 @@
 					</div>
 				{/snippet}
 			</MenuButton>
+
+			<!-- Controlli Prewalk -->
+			{#if !isLab}
+				<div class="prewalk-controls">
+					<Tooltip text={prewalkTooltipText} placement="top" offset={6}>
+						<button
+							type="button"
+							class="prewalk-btn"
+							class:armed={prewalkState === 'armed'}
+							class:handed-off={prewalkState === 'handedOff'}
+							disabled={smolEmpty || isPrewalkBusy}
+							aria-pressed={prewalkState !== 'off'}
+							aria-label={prewalkAriaLabel}
+							onclick={handlePrewalkClick}
+						>
+							<span class="prewalk-icon"><IconPrewalk /></span>
+							<span class="prewalk-name font-mono">{m.chat_v2_composer_prewalk_title()}</span>
+							{#if prewalkState === 'armed'}
+								<span class="prewalk-target font-mono">→ {prewalkTarget || '…'}</span>
+							{:else if prewalkState === 'handedOff'}
+								<span class="prewalk-target font-mono">{handedOffTo || '…'}</span>
+							{/if}
+						</button>
+					</Tooltip>
+
+					{#if prewalkState === 'handedOff'}
+						<Tooltip text={m.chat_v2_composer_prewalk_restart_aria()} placement="top" offset={6}>
+							<button
+								type="button"
+								class="prewalk-repeat-btn"
+								disabled={smolEmpty || isPrewalkBusy}
+								aria-label={m.chat_v2_composer_prewalk_restart_aria()}
+								onclick={handleRestartPrewalk}
+							>
+								<span class="prewalk-icon"><IconRefresh /></span>
+								<span>{m.chat_v2_composer_prewalk_restart()}</span>
+							</button>
+						</Tooltip>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- Parte destra: Finestra di contesto e Pulsante Invio/Stop -->
 			<div class="toolbar-right">
@@ -1069,6 +1163,97 @@
 		font-size: var(--text-label);
 		line-height: 1.4;
 		color: var(--ink-muted);
+	}
+
+	.prewalk-controls {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.prewalk-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 28px;
+		padding: 0 8px;
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
+		cursor: pointer;
+		user-select: none;
+		white-space: nowrap;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.prewalk-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.prewalk-btn.armed,
+	.prewalk-btn.handed-off {
+		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line);
+	}
+
+	.prewalk-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.prewalk-icon {
+		display: inline-flex;
+		align-items: center;
+		--icon-size: 14px;
+	}
+
+	.prewalk-name {
+		font-size: var(--text-xs);
+	}
+
+	.prewalk-target {
+		color: var(--brand-ink);
+		font-size: var(--text-caption);
+		max-width: 120px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.prewalk-repeat-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: 28px;
+		padding: 0 6px;
+		font-family: var(--font-ui);
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
+		cursor: pointer;
+		user-select: none;
+		white-space: nowrap;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.prewalk-repeat-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.prewalk-repeat-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 
 	.toolbar-right {

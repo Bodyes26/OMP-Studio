@@ -138,6 +138,7 @@ export { default as IconPlug } from '@lucide/svelte/icons/plug';
 
 // Intelligenza e ragionamento (Thinking effort)
 export { default as IconBrain } from '@lucide/svelte/icons/brain';
+export { default as IconPrewalk } from '@lucide/svelte/icons/footprints';
 
 // Manipolazione e trascinamento
 export { default as IconGrip } from '@lucide/svelte/icons/grip-vertical';

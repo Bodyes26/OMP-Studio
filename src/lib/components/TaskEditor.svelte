@@ -837,6 +837,22 @@
 
 				<div class="switch-row">
 					<div class="switch-text">
+						<span class="switch-title" id="task-prewalk-label">{m.task_editor_prewalk_title()}</span>
+						<span class="field-help" id="task-prewalk-desc">{m.task_editor_prewalk_desc()}</span>
+					</div>
+					<Switch
+						checked={Boolean(options.prewalk)}
+						ariaLabelledBy="task-prewalk-label"
+						ariaDescribedBy="task-prewalk-desc"
+						onChange={(checked) => {
+							options.prewalk = checked ? true : undefined;
+							saveTask();
+						}}
+					/>
+				</div>
+
+				<div class="switch-row">
+					<div class="switch-text">
 						<span class="switch-title" id="task-context-label">{m.task_editor_context_editor_title()}</span>
 						<span class="field-help" id="task-context-desc">{m.task_editor_context_editor_desc()}</span>
 					</div>

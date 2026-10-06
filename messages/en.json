@@ -2214,5 +2214,22 @@
   "shortcuts_item_middle_click_close": "Close the editor tab under the pointer",
   "shortcuts_item_fit_diagram": "Fit the diagram to the view",
   "shortcuts_key_right_click": "Right click",
-  "shortcuts_item_context_menu": "Open the context menu of the focused element"
+  "shortcuts_item_context_menu": "Open the context menu of the focused element",
+  "prewalk_unavailable": "Prewalk is not available for this session.",
+  "prewalk_confirmation_timeout": "Timed out waiting for confirmation of prewalk {action}.",
+  "prewalk_arm": "arming",
+  "prewalk_disarm": "disarming",
+  "prewalk_operation_busy": "A prewalk operation is already in progress.",
+  "prewalk_session_changed": "Session changed during prewalk operation.",
+  "task_editor_prewalk_title": "Prewalk",
+  "task_editor_prewalk_desc": "Plan with the active model, then switch once to @smol at the first edit/write after the todo list.",
+  "chat_v2_composer_prewalk_title": "Prewalk",
+  "chat_v2_composer_prewalk_missing_smol": "Configure the @smol role in Model Settings → Roles.",
+  "chat_v2_composer_prewalk_tooltip": "Plan with the active model, then switch to @smol: {smol}",
+  "chat_v2_composer_prewalk_tooltip_with_fallbacks": "Plan with the active model, then switch to @smol: {smol}. Fallbacks: {fallbacks}",
+  "chat_v2_composer_prewalk_arm_aria": "Arm prewalk with @smol",
+  "chat_v2_composer_prewalk_disarm_aria": "Disarm prewalk",
+  "chat_v2_composer_prewalk_restart": "Repeat",
+  "chat_v2_composer_prewalk_restart_aria": "Return to @default and rearm the switch to @smol",
+  "chat_v2_composer_prewalk_busy": "Prewalk operation in progress…"
 }

@@ -206,6 +206,12 @@ export class OmpRpcClient {
 		return rpcId;
 	}
 
+	/** L'overlay appartiene al processo, non alla configurazione globale di omp. */
+	async setPrewalk(enabled: boolean): Promise<void> {
+		if (this.rpcId === null || this.closed) throw rpcError('Sessione RPC non aperta', 'prewalk');
+		await invoke('rpc_set_prewalk', { rpcId: this.rpcId, enabled });
+	}
+
 	/**
 	 * Manda un comando e risolve con il suo `data`. La correlazione e' per
 	 * `id`, mai per ordine: `bash` e' dispatchato in concorrenza e l'ordine di
