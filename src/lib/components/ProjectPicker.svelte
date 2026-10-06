@@ -190,7 +190,7 @@
 		if (isCreating) return;
 		const name = newName.trim();
 		if (!name) {
-			createError = 'Inserisci un nome per il progetto.';
+			createError = m.project_picker_name_required();
 			return;
 		}
 		isCreating = true;
@@ -243,7 +243,7 @@
 			await githubStore.cloneRepo(targetUrl);
 			onClose?.();
 		} catch (e) {
-			cloneError = `Clonazione non riuscita: ${String(e)}`;
+			cloneError = m.project_picker_clone_failed({ error: String(e) });
 		} finally {
 			isCloning = false;
 			cloningName = null;
@@ -322,21 +322,21 @@
 						class="back-btn"
 						onclick={() => (view = 'list')}
 						disabled={isCreating}
-						aria-label="Torna all'elenco dei progetti"
+						aria-label={m.project_picker_back_aria()}
 					>
 						<IconArrowLeft />
 					</button>
-					<span>Nuovo progetto</span>
+					<span>{m.project_picker_new_title()}</span>
 				</div>
 
-				<label class="field-label" for="new-project-name">Nome</label>
+				<label class="field-label" for="new-project-name">{m.project_picker_name_label()}</label>
 				<input
 					id="new-project-name"
 					class="name-input"
 					bind:this={newNameEl}
 					bind:value={newName}
 					onkeydown={onNewKeydown}
-					placeholder="nome-del-progetto"
+					placeholder={m.project_picker_name_placeholder()}
 					spellcheck="false"
 					autocomplete="off"
 					disabled={isCreating}
@@ -345,8 +345,8 @@
 					{joinProjectPath(projectStore.projectRoot, newName.trim() || '…')}
 				</div>
 
-				<div class="field-label">Repository</div>
-				<div class="seg" role="radiogroup" aria-label="Visibilità del repository">
+				<div class="field-label">{m.project_picker_repository_label()}</div>
+				<div class="seg" role="radiogroup" aria-label={m.project_picker_visibility_aria()}>
 					<button
 						type="button"
 						role="radio"
@@ -355,7 +355,7 @@
 						onclick={() => (newVisibility = 'local')}
 						disabled={isCreating}
 					>
-						<IconFolderOpen /> Solo locale
+						<IconFolderOpen /> {m.project_picker_visibility_local()}
 					</button>
 					<button
 						type="button"
@@ -365,7 +365,7 @@
 						onclick={() => (newVisibility = 'public')}
 						disabled={isCreating || !githubStore.status.authenticated}
 					>
-						<IconGlobe /> GitHub pubblico
+						<IconGlobe /> {m.project_picker_visibility_public()}
 					</button>
 					<button
 						type="button"
@@ -375,17 +375,17 @@
 						onclick={() => (newVisibility = 'private')}
 						disabled={isCreating || !githubStore.status.authenticated}
 					>
-						<IconLock /> GitHub privato
+						<IconLock /> {m.project_picker_visibility_private()}
 					</button>
 				</div>
 				{#if !githubStore.status.authenticated}
 					<div class="field-hint">
-						Per creare anche il repository su GitHub,
-						<button type="button" class="link-btn" onclick={openSettingsGithub}>collega il tuo account</button>.
+						{m.project_picker_github_connect_before()}
+						<button type="button" class="link-btn" onclick={openSettingsGithub}>{m.project_picker_github_connect_link()}</button>.
 					</div>
 				{:else if newVisibility !== 'local'}
 					<div class="field-hint">
-						Crea il repository vuoto su GitHub e lo collega come <code>origin</code>. Il primo push lo fai tu.
+						{m.project_picker_github_create_before()} <code>origin</code>{m.project_picker_github_create_after()}
 					</div>
 				{/if}
 
@@ -395,11 +395,11 @@
 
 				<div class="new-actions">
 					<button type="button" class="btn-secondary" onclick={() => (view = 'list')} disabled={isCreating}>
-						Annulla
+						{m.project_picker_cancel()}
 					</button>
 					<button type="button" class="btn-primary" onclick={createProject} disabled={isCreating || !newName.trim()}>
 						{#if isCreating}<span class="spinner" aria-hidden="true"></span>{/if}
-						{isCreating ? 'Creazione…' : 'Crea progetto'}
+						{isCreating ? m.project_picker_creating() : m.project_picker_create()}
 					</button>
 				</div>
 			</div>
@@ -409,7 +409,7 @@
 				bind:this={inputEl}
 				bind:value={query}
 				onkeydown={onKeydown}
-				placeholder="Cerca cartella locale o repository GitHub..."
+				placeholder={m.project_picker_search_all_placeholder()}
 				aria-label={m.project_picker_search_aria()}
 				spellcheck="false"
 				disabled={isCloning}
@@ -419,7 +419,7 @@
 		{#if isCloning}
 			<div class="cloning-banner" role="status">
 				<span class="spinner" aria-hidden="true"></span>
-				<span>Clonazione di <strong>{cloningName}</strong> in corso...</span>
+				<span>{m.project_picker_cloning_before()} <strong>{cloningName}</strong> {m.project_picker_cloning_after()}</span>
 			</div>
 		{/if}
 
@@ -429,7 +429,7 @@
 
 		<div class="rows" role="listbox" aria-label={m.project_picker_list_aria()}>
 			{#if error}
-				<div class="error" role="alert">Impossibile leggere {projectStore.projectRoot}: {error}</div>
+				<div class="error" role="alert">{m.project_picker_read_failed({ root: projectStore.projectRoot, error: String(error) })}</div>
 			{/if}
 
 			<button
@@ -443,19 +443,19 @@
 				disabled={isCloning}
 			>
 				<span class="row-icon"><IconPlus /></span>
-				<span class="name">{query.trim() ? `Crea progetto “${query.trim()}”` : 'Nuovo progetto…'}</span>
-				<span class="path">cartella vuota in {projectStore.projectRoot}</span>
+				<span class="name">{query.trim() ? m.project_picker_create_named({ name: query.trim() }) : m.project_picker_new_ellipsis()}</span>
+				<span class="path">{m.project_picker_empty_folder_in({ root: projectStore.projectRoot })}</span>
 			</button>
 			<div class="section-divider"></div>
 
 			<!-- SEZIONE 1: CARTELLE LOCALI -->
 			<div class="section-label">
-				<span>Cartelle locali ({filteredLocal.length})</span>
-				<span class="section-hint">in {projectStore.projectRoot}</span>
+				<span>{m.project_picker_local_section({ count: filteredLocal.length })}</span>
+				<span class="section-hint">{m.project_picker_in_root({ root: projectStore.projectRoot })}</span>
 			</div>
 
 			{#if filteredLocal.length === 0}
-				<div class="empty-row">Nessuna cartella locale trovata</div>
+				<div class="empty-row">{m.project_picker_local_empty()}</div>
 			{:else}
 				{#each filteredLocal as c, i (c.path)}
 					{@const itemIndex = i + 1}
@@ -485,7 +485,7 @@
 							</span>
 						{/if}
 						{#if c.githubRemote}
-							<span class="badge gh-badge" title={`Collegato a https://github.com/${c.githubRemote.fullName}`}>
+							<span class="badge gh-badge" title={m.project_picker_linked_to({ url: `https://github.com/${c.githubRemote.fullName}` })}>
 								<IconGithub /> {c.githubRemote.fullName}
 							</span>
 						{/if}
@@ -497,29 +497,29 @@
 			<!-- SEZIONE 2: REPOSITORY GITHUB -->
 			<div class="section-divider"></div>
 			<div class="section-label">
-				<span class="with-icon"><IconGithub /> I tuoi repository su GitHub</span>
+				<span class="with-icon"><IconGithub /> {m.project_picker_github_section()}</span>
 				{#if githubStore.status.authenticated}
-					<span class="section-hint">disponibili per il clone</span>
+					<span class="section-hint">{m.project_picker_github_section_hint()}</span>
 				{/if}
 			</div>
 
 			{#if !githubStore.status.authenticated}
 				<div class="gh-connect-prompt">
-					<span>Collega GitHub per vedere e clonare qui i tuoi repository remoti.</span>
+					<span>{m.project_picker_github_connect_prompt()}</span>
 					<button type="button" class="btn-connect-gh" onclick={openSettingsGithub}>
-						Configura GitHub
+						{m.project_picker_github_configure()}
 					</button>
 				</div>
 			{:else if githubStore.isLoadingRepos && availableRemoteRepos.length === 0}
 				<div class="loading-row">
 					<span class="spinner-small" aria-hidden="true"></span>
-					<span>Caricamento repository GitHub...</span>
+					<span>{m.project_picker_github_loading()}</span>
 				</div>
 			{:else if availableRemoteRepos.length === 0}
 				<div class="empty-row">
 					{query.trim()
-						? 'Nessun repository remoto corrisponde alla ricerca'
-						: 'Tutti i tuoi repository sono già presenti in locale'}
+						? m.project_picker_github_no_match()
+						: m.project_picker_github_all_local()}
 				</div>
 			{:else}
 				{#each availableRemoteRepos as r, j (r.fullName)}
@@ -531,7 +531,7 @@
 						class:sel={isSelected}
 						role="option"
 						aria-selected={isSelected}
-						aria-label={`Clona repository GitHub ${r.fullName}`}
+						aria-label={m.project_picker_clone_aria({ name: r.fullName })}
 						onmouseenter={() => (index = itemIndex)}
 						onclick={() => pickItem({ type: 'remote', repo: r, remoteIndex: j })}
 						disabled={isCloning}
@@ -539,7 +539,7 @@
 						<span class="row-icon gh-icon"><IconGithub /></span>
 						<span class="name font-mono">{@render highlight(r.name, query)}</span>
 						{#if r.isPrivate}
-							<span class="badge private-badge" title="Repository privato">Privato</span>
+							<span class="badge private-badge" title={m.project_picker_private_title()}>{m.project_picker_private_badge()}</span>
 						{/if}
 						{#if r.description}
 							<span class="repo-desc" title={r.description}>{@render highlight(r.description, query)}</span>

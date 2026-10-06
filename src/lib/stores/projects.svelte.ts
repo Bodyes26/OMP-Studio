@@ -681,7 +681,11 @@ class ProjectStore {
 			surface: target.surface,
 			ptyId: target.ptyId,
 			kind: target.kind,
-			labPrototypeId: target.labPrototypeId
+			labPrototypeId: target.labPrototypeId,
+			// Senza questo campo la corsia attiva risultava mai rinominata a mano
+			// dove manca il record in lanes.json (bozze Lab, snapshot di
+			// `saveLaneSnapshot`): il nome automatico poteva sovrascrivere il titolo.
+			titleLocked: target.titleLocked
 		};
 	}
 

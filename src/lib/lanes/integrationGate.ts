@@ -62,3 +62,12 @@ export function evaluateIntegrationGate(
 		reasons
 	};
 }
+
+/**
+ * Un agente che integra una corsia passata da conflitti deve attendere la
+ * conferma dell'utente. Il segno in memoria si perde al riavvio: lo stato
+ * 'conflict', persistito in lanes.json, mantiene l'obbligo.
+ */
+export function landingNeedsUserConfirm(flaggedInSession: boolean, laneStatus: LaneStatus): boolean {
+	return flaggedInSession || laneStatus === 'conflict';
+}

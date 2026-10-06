@@ -58,6 +58,7 @@ export class LabLaneRuntime {
 	private debounceTimer: number | null = null;
 	private unlistenFn: UnlistenFn | null = null;
 	private isStarted = false;
+	private startGeneration = 0;
 
 	constructor(config: LabLaneRuntimeConfig) {
 		this.projectId = config.projectId;
@@ -80,18 +81,35 @@ export class LabLaneRuntime {
 	async start(): Promise<void> {
 		if (this.isStarted) return;
 		this.isStarted = true;
+		const generation = ++this.startGeneration;
+		// `stop()` puo' arrivare durante uno qualsiasi degli await (corsia
+		// smontata mentre il runtime nasceva): da li' in poi cio' che questo
+		// avvio registra va smontato subito, o watcher e listener restano vivi.
+		const stopped = () => !this.isStarted || generation !== this.startGeneration;
 
 		try {
 			await ensureSharedVendorPublished();
+			if (stopped()) return;
 			await labApi.watchStart(this.workspacePath, this.watchKey);
+			if (stopped()) {
+				// Un avvio piu' recente usa la stessa chiave: il suo watcher non va toccato.
+				if (!this.isStarted) await labApi.watchStop(this.watchKey).catch(() => {});
+				return;
+			}
 
-			this.unlistenFn = await listen<LabChangedEvent>(LAB_CHANGED_EVENT, (event) => {
+			const unlisten = await listen<LabChangedEvent>(LAB_CHANGED_EVENT, (event) => {
 				if (event.payload.key === this.watchKey) {
 					this.scheduleRecompile();
 				}
 			});
+			if (stopped()) {
+				unlisten();
+				return;
+			}
+			this.unlistenFn = unlisten;
 
 			await this.recompileAndPublish();
+			if (stopped()) return;
 			// Recupera titolo e riepilogo di una fine richiesta persa (Studio
 			// chiuso o corsia smontata mentre l'agente lavorava).
 			await this.syncMeta(null);
@@ -100,9 +118,11 @@ export class LabLaneRuntime {
 		}
 	}
 
-	stop(): void {
+	/** Smonta timer, listener e watcher; la promessa si risolve a watcher fermo. */
+	async stop(): Promise<void> {
 		if (!this.isStarted) return;
 		this.isStarted = false;
+		this.startGeneration += 1;
 
 		if (this.debounceTimer !== null) {
 			window.clearTimeout(this.debounceTimer);
@@ -114,7 +134,7 @@ export class LabLaneRuntime {
 			this.unlistenFn = null;
 		}
 
-		void labApi.watchStop(this.watchKey).catch(() => {});
+		await labApi.watchStop(this.watchKey).catch(() => {});
 	}
 
 	scheduleRecompile(): void {
@@ -312,11 +332,12 @@ export function getOrCreateLabRuntime(config: LabLaneRuntimeConfig): LabLaneRunt
 	return runtime;
 }
 
-export function disposeLabRuntime(projectId: string, laneId: string): void {
+/** La promessa si risolve a watcher fermo: chi cancella il workspace la attende. */
+export async function disposeLabRuntime(projectId: string, laneId: string): Promise<void> {
 	const key = `${projectId}:${laneId}`;
 	const runtime = runtimes.get(key);
 	if (runtime) {
-		runtime.stop();
 		runtimes.delete(key);
+		await runtime.stop();
 	}
 }

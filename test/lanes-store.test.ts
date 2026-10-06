@@ -128,17 +128,37 @@ describe('lanes.json: parser versionato', () => {
 		assert.equal(parsed.profiles[0].confirmedAt, 99);
 	});
 
-	it('rifiuta versioni future, record corrotti e identita duplicate senza migrazioni implicite', () => {
+	it('rifiuta versioni future senza migrazioni implicite', () => {
 		const document = serializeLaneStoreDocument([mainLane()], [], 1);
 		assert.equal(parseLaneStoreDocument({ ...document, schemaVersion: 2 }), null);
-		assert.equal(
-			parseLaneStoreDocument({ ...document, lanes: [{ ...document.lanes[0], status: 'missing' }] }),
-			null
+		assert.equal(parseLaneStoreDocument({ ...document, lanes: 'nope' }), null);
+	});
+
+	it('scarta solo i record corrotti o duplicati e carica gli altri (D10)', () => {
+		const document = serializeLaneStoreDocument(
+			[mainLane(), secondaryLane('lane-a', '/repos/a'), secondaryLane('lane-b', '/repos/b')],
+			[],
+			4
 		);
-		assert.equal(
-			parseLaneStoreDocument({ ...document, lanes: [document.lanes[0], document.lanes[0]] }),
-			null
-		);
+		const corrupted = {
+			...document,
+			lanes: [
+				document.lanes[0],
+				{ ...document.lanes[1], status: 'missing' },
+				document.lanes[2],
+				document.lanes[2]
+			],
+			profiles: [{ projectId: 'x' }]
+		};
+		const parsed = parseLaneStoreDocument(corrupted);
+		assert.ok(parsed);
+		assert.deepEqual(parsed.lanes.map((lane) => lane.laneId), ['main', 'lane-b']);
+		assert.deepEqual(parsed.discarded, { lanes: 2, profiles: 1 });
+		assert.equal(parsed.revision, 4);
+
+		const clean = parseLaneStoreDocument(document);
+		assert.ok(clean);
+		assert.deepEqual(clean.discarded, { lanes: 0, profiles: 0 });
 	});
 });
 

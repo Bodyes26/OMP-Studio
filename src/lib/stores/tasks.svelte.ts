@@ -524,18 +524,6 @@ class TaskStore {
 		void emit('studio-task-origins-update', $state.snapshot(this.origins));
 	}
 
-	/** Storico dei lanci di un progetto proiettato sui `TaskRun` del Gate R27. */
-	taskRunsFor(projectPath: string): TaskRunRecord[] {
-		const key = projectKey(projectPath);
-		const owner = projectStore.projects.find(
-			(candidate) =>
-				candidate.canonicalProjectPath && projectKey(candidate.canonicalProjectPath) === key
-		);
-		return this.originsFor(projectPath).map((origin) =>
-			taskRunFromOrigin(origin, owner?.id ?? key)
-		);
-	}
-
 	/** Corsia che ha eseguito una sessione, se quella sessione nasce da un task. */
 	taskRunFor(projectPath: string, sessionId: string): TaskRunRecord | undefined {
 		const key = projectKey(projectPath);

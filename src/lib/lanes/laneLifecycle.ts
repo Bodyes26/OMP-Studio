@@ -6,6 +6,7 @@
 // 2. Riapertura (reopenLane): riporta lo status ad 'active', azzera closedAt e fa lo switch.
 // 3. Eliminazione (deleteWorktreeLane): rimuove worktree e branch; archivia solo
 //    se entrambi hanno successo, altrimenti lascia la corsia recuperabile (cleanup_pending).
+//    Commit mai integrati si cancellano solo col consenso esplicito (discardUnintegrated).
 // 4. Eliminazione prototipo (deleteLabPrototype): chiude la corsia o la tessera bozza,
 //    poi cancella workspace e voce d'indice; se il workspace resta bloccato la voce resta.
 
@@ -24,7 +25,15 @@ import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
 import { openLabEntry } from './laneActions';
 import { labApi } from '$lib/lab/api';
+import { disposeLabRuntime } from '$lib/lab/runtime.svelte';
 import { settingsStore } from '$lib/stores/settings.svelte';
+import { m } from '$lib/paraglide/messages.js';
+import {
+	fetchUnintegratedLoss,
+	laneBranchDeleteArgs,
+	worktreeErrorMessage,
+	type LaneUnintegratedLoss
+} from './laneCleanup';
 import {
 	classifyWorktreeRemovalError,
 	laneProcessesFor,
@@ -42,7 +51,11 @@ export type CloseLaneOutcome = { kind: 'closed' } | { kind: 'failed'; message: s
 export type DeleteLaneOutcome =
 	| { kind: 'deleted' }
 	| { kind: 'processes-active'; processes: LaneProcessInfo[] }
+	/** Il branch ha commit mai integrati e manca il consenso a perderli: nulla e' stato toccato. */
+	| { kind: 'unintegrated'; loss: LaneUnintegratedLoss }
 	| { kind: 'failed'; message: string };
+
+export type { LaneUnintegratedLoss };
 
 export type DeleteLabOutcome = { kind: 'deleted' } | { kind: 'failed'; message: string };
 
@@ -136,13 +149,13 @@ export async function closeLane(
 	targetLaneId: LaneId
 ): Promise<CloseLaneOutcome> {
 	if (targetLaneId === MAIN_LANE_ID) {
-		return { kind: 'failed', message: 'Impossibile chiudere la corsia Principale' };
+		return { kind: 'failed', message: m.lane_error_close_main() };
 	}
 
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	const lane = laneStore.lanesFor(projectId).find((l) => l.laneId === targetLaneId);
 	if (!lane) {
-		return { kind: 'failed', message: 'Corsia non trovata' };
+		return { kind: 'failed', message: m.lane_error_not_found() };
 	}
 
 	// 1. Dispone la sessione omp se presente
@@ -217,27 +230,57 @@ export async function reopenLane(project: Project, entry: ClosedLaneEntry): Prom
 }
 
 /**
+ * Lavoro che l'eliminazione della corsia cancellerebbe per sempre: commit del
+ * branch mai integrati. Il dialogo di conferma lo legge prima di chiedere,
+ * cosi' l'utente sa cosa perde. `null` = nulla da perdere o non verificabile.
+ */
+export async function inspectUnintegratedWork(
+	ownerProjectId: ProjectId,
+	targetLaneId: LaneId
+): Promise<LaneUnintegratedLoss | null> {
+	if (!isTauri() || targetLaneId === MAIN_LANE_ID) return null;
+	const project = projectStore.projects.find((p) => p.id === ownerProjectId);
+	if (!project?.canonicalProjectPath) return null;
+	return await fetchUnintegratedLoss(
+		(command, args) => invoke(command, args),
+		project.canonicalProjectPath,
+		targetLaneId
+	);
+}
+
+/**
  * Elimina definitivamente un worktree secondario (aperto o chiuso):
- * 1. Rimozione cartella worktree (fallisce se processi attivi);
- * 2. Rimozione branch associato (confirm: true);
+ * 0. Senza `discardUnintegrated`, se il branch ha commit mai integrati non
+ *    tocca nulla e restituisce `unintegrated`: il chiamante chiede il consenso;
+ * 1. Rimozione cartella worktree (fallisce se processi attivi; idempotente se gia' sparita);
+ * 2. Rimozione branch associato (confirm: true, discardUnintegrated se consentito);
  * 3. Archiviazione con reason 'rejected' solo al successo di entrambi;
- * Se uno dei passaggi fallisce, la corsia resta viva e recuperabile (cleanup_pending).
+ * Se uno dei passaggi fallisce, la corsia resta viva e recuperabile (cleanup_pending):
+ * un nuovo tentativo riparte dal punto 1.
  */
 export async function deleteWorktreeLane(
 	ownerProjectId: ProjectId,
 	targetLaneId: LaneId,
-	options: { stopProcesses?: boolean } = {}
+	options: { stopProcesses?: boolean; discardUnintegrated?: boolean } = {}
 ): Promise<DeleteLaneOutcome> {
 	if (targetLaneId === MAIN_LANE_ID) {
-		return { kind: 'failed', message: 'Impossibile eliminare la corsia Principale' };
+		return { kind: 'failed', message: m.lane_error_delete_main() };
 	}
 
 	const lane = laneStore.lanesFor(ownerProjectId).find((l) => l.laneId === targetLaneId);
 	if (!lane) {
-		return { kind: 'failed', message: 'Corsia non trovata' };
+		return { kind: 'failed', message: m.lane_error_not_found() };
 	}
 
 	const project = projectStore.projects.find((p) => p.id === ownerProjectId);
+	const discardUnintegrated = options.discardUnintegrated === true;
+
+	// 0. Il controllo precede la rimozione del worktree: rifiutare dopo,
+	//    al momento del branch, lascerebbe una corsia senza cartella.
+	if (!discardUnintegrated) {
+		const loss = await inspectUnintegratedWork(ownerProjectId, targetLaneId);
+		if (loss) return { kind: 'unintegrated', loss };
+	}
 
 	// 1. Rimuovi la cartella del worktree su disco
 	if (isTauri() && project?.canonicalProjectPath && lane.workspacePath) {
@@ -269,20 +312,12 @@ export async function deleteWorktreeLane(
 	// 2. Rimuovi il branch Git di corsia
 	if (isTauri() && project?.canonicalProjectPath) {
 		try {
-			await invoke('worktree_delete_lane_branch', {
-				args: {
-					projectPath: project.canonicalProjectPath,
-					laneId: targetLaneId,
-					confirm: true
-				}
-			});
+			await invoke(
+				'worktree_delete_lane_branch',
+				laneBranchDeleteArgs(project.canonicalProjectPath, targetLaneId, discardUnintegrated)
+			);
 		} catch (err) {
-			const errorMsg =
-				err instanceof Error
-					? err.message
-					: typeof err === 'string'
-						? err
-						: 'Cancellazione del branch fallita';
+			const errorMsg = worktreeErrorMessage(err, m.lane_error_branch_delete_failed());
 			if (lane.recoveryState !== 'cleanup_pending') {
 				await laneStore.updateLane(ownerProjectId, targetLaneId, {
 					recoveryState: 'cleanup_pending'
@@ -320,6 +355,16 @@ export async function deleteWorktreeLane(
 }
 
 /**
+ * Ferma runtime e watcher dell'anteprima di una corsia Lab e ne attende la
+ * fine. La chiave e' la stessa del runtime: lo stop diretto copre anche il
+ * caso in cui il runtime sia gia' stato smontato con lo stop ancora in volo.
+ */
+async function stopLabWatch(ownerProjectId: string, targetLaneId: string): Promise<void> {
+	await disposeLabRuntime(ownerProjectId, targetLaneId).catch(() => undefined);
+	await labApi.watchStop(`${ownerProjectId}:${targetLaneId}`).catch(() => undefined);
+}
+
+/**
  * Elimina definitivamente un prototipo Lab, aperto o chiuso:
  * 1. Progetto: chiude la corsia se aperta (sessione, processi, ritorno a Principale);
  *    bozza libera (ownerProjectId null): chiude la tessera se aperta.
@@ -336,7 +381,7 @@ export async function deleteLabPrototype(
 	if (ownerProjectId) {
 		const project = projectStore.projects.find((p) => p.id === ownerProjectId);
 		if (!project?.canonicalProjectPath) {
-			return { kind: 'failed', message: 'Progetto del prototipo non disponibile' };
+			return { kind: 'failed', message: m.lab_error_owner_unavailable() };
 		}
 		indexPath = project.canonicalProjectPath;
 		lane = laneStore
@@ -349,9 +394,17 @@ export async function deleteLabPrototype(
 			const closed = await closeLane(ownerProjectId, lane.laneId);
 			if (closed.kind === 'failed') return closed;
 		}
+		if (lane) await stopLabWatch(ownerProjectId, lane.laneId);
 	} else {
 		const draftTile = projectStore.projects.find((p) => p.labDraft?.prototypeId === prototypeId);
-		if (draftTile) projectStore.closeProject(draftTile.id);
+		if (draftTile) {
+			// La chiusura della tessera annuncia la dispose delle sessioni ma non
+			// la attende: il processo omp e il watcher terrebbero aperti file del
+			// workspace mentre removeFromIndex lo cancella (su Windows: lock).
+			await sessionRegistry.disposeProjectSessions(draftTile.id).catch(() => undefined);
+			await stopLabWatch(draftTile.id, draftTile.lane.laneId);
+			projectStore.closeProject(draftTile.id);
+		}
 	}
 
 	await labApi.unpublish(prototypeId).catch(() => undefined);

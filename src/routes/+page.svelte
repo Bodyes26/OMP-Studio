@@ -59,6 +59,8 @@
 	import { taskLabel } from '$lib/stores/taskTitle';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
+	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
+	import { laneBranchDeleteArgs } from '$lib/lanes/laneCleanup';
 	import {
 		buildConcurrencyWarning,
 		decideAutoDispatch,
@@ -119,6 +121,26 @@
 	let labCenterView = $state<'preview' | 'editor'>('preview');
 	const isLabLane = $derived(projectStore.activeProject?.lane.kind === 'lab');
 
+	/**
+	 * Con il Laboratorio spento la scorciatoia porta all'interruttore che lo
+	 * accende: un tasto che non fa nulla non dice all'utente cosa manca.
+	 */
+	function openLabFlagSetting() {
+		settingsStore.openSection('general');
+		let attempts = 0;
+		const focusSwitch = () => {
+			const target = document.getElementById('settings-lab-alpha');
+			if (target) {
+				target.scrollIntoView({ block: 'center' });
+				target.focus({ preventScroll: true });
+				return;
+			}
+			// La modale monta la sezione al frame successivo: pochi tentativi bastano.
+			if (++attempts < 20) requestAnimationFrame(focusSwitch);
+		};
+		requestAnimationFrame(focusSwitch);
+	}
+
 	async function handleNewFreeDraft() {
 		try {
 			const entry = await labApi.createPrototype(null);
@@ -160,13 +182,28 @@
 
 		const parts: string[] = [];
 		if (byState['attention']?.length) {
-			parts.push(`${byState['attention'].length} progetti richiedono attenzione: ${byState['attention'].join(', ')}`);
+			parts.push(
+				m.page_agent_announcement_many_attention({
+					count: byState['attention'].length,
+					names: byState['attention'].join(', ')
+				})
+			);
 		}
 		if (byState['finished']?.length) {
-			parts.push(`${byState['finished'].length} progetti hanno completato il lavoro: ${byState['finished'].join(', ')}`);
+			parts.push(
+				m.page_agent_announcement_many_finished({
+					count: byState['finished'].length,
+					names: byState['finished'].join(', ')
+				})
+			);
 		}
 		if (byState['working']?.length) {
-			parts.push(`${byState['working'].length} progetti in esecuzione: ${byState['working'].join(', ')}`);
+			parts.push(
+				m.page_agent_announcement_many_working({
+					count: byState['working'].length,
+					names: byState['working'].join(', ')
+				})
+			);
 		}
 
 		if (parts.length > 0) {
@@ -215,12 +252,15 @@
 			}
 			prevAgentStates.set(p.id, curr);
 		}
-		return () => {
-			if (announcementTimer) {
-				clearTimeout(announcementTimer);
-				announcementTimer = null;
-			}
-		};
+	});
+	// L'effetto sopra si riesegue a ogni cambio di stato di un progetto: il
+	// suo cleanup cancellava il timer appena accodato e gli annunci raggruppati
+	// non partivano mai. Il timer va annullato solo allo smontaggio.
+	onDestroy(() => {
+		if (announcementTimer) {
+			clearTimeout(announcementTimer);
+			announcementTimer = null;
+		}
 	});
 
 	function agentStateLabel(state?: string): string {
@@ -1191,15 +1231,58 @@
 			skipGate: true
 		});
 		if (!delivered) {
-			await laneOrchestrator
-				.archiveLane(project.id as ProjectId, created.laneId, 'rejected')
-				.catch(() => undefined);
+			await discardUndeliveredLane(project, created);
 			return;
 		}
 		if (options.follow) {
 			if (projectStore.activeId !== project.id) projectStore.setActive(project.id);
 			await laneOrchestrator.switchLane(project.id as ProjectId, created.laneId);
 		}
+	}
+
+	/**
+	 * Corsia nata per un task che non e' partito: la sessione GUI aperta per la
+	 * consegna terrebbe vivo omp dentro il worktree (e su Windows bloccherebbe
+	 * la rimozione), quindi va chiusa prima. Se il worktree resta su disco la
+	 * corsia passa in `cleanup_pending` e l'utente lo vede, invece di trovarsi
+	 * uno slot dell'auto-dispatch occupato senza spiegazione.
+	 */
+	async function discardUndeliveredLane(project: Project, lane: LaneRecord) {
+		const ownerProjectId = project.id as ProjectId;
+		const session = sessionRegistry.getLaneSession(project.id, lane.laneId);
+		if (session) await sessionRegistry.disposeSession(session).catch(() => undefined);
+		let failure: string | null = null;
+		try {
+			const outcome = await laneOrchestrator.archiveLane(ownerProjectId, lane.laneId, 'rejected', {
+				stopProcesses: true
+			});
+			if (outcome.kind !== 'archived') {
+				failure =
+					outcome.kind === 'processes-active'
+						? outcome.processes.map(describeLaneProcess).join(', ') || outcome.diagnosis.message
+						: outcome.diagnosis.message;
+			} else if (project.canonicalProjectPath) {
+				// Branch appena creato e senza lavoro: senza consenso esplicito il
+				// backend rifiuta comunque di cancellare commit mai integrati.
+				await invoke(
+					'worktree_delete_lane_branch',
+					laneBranchDeleteArgs(project.canonicalProjectPath, lane.laneId, false)
+				).catch((error) => console.warn('Branch della corsia non consegnata non eliminato:', error));
+			}
+		} catch (error) {
+			failure = error instanceof Error ? error.message : String(error);
+		}
+		if (failure === null) return;
+		const record = laneStore.lanesFor(ownerProjectId).find((l) => l.laneId === lane.laneId);
+		if (record && record.recoveryState !== 'cleanup_pending') {
+			await laneStore
+				.updateLane(ownerProjectId, lane.laneId, { recoveryState: 'cleanup_pending' })
+				.catch(() => undefined);
+		}
+		agentErrors[runtimeKey(project)] = m.lane_dispatch_cleanup_failed({
+			name: lane.title,
+			reason: failure
+		});
 	}
 
 	/**
@@ -1853,25 +1936,25 @@
 
 	function guiHelpText(session: AgentSession): string {
 		const lines = [
-			'Comandi disponibili nella superficie GUI:',
+			m.page_gui_help_title(),
 			m.ui__page_new_clear_avvia_una_nuova_sessione_f67b(),
 			m.ui__page_resume_id_riprende_una_sessione_o_apre_97fd(),
-			'/compact [istruzioni] — compatta il contesto',
+			m.page_gui_help_compact(),
 			m.ui__page_handoff_istruzioni_passa_il_testimone_a_una_1f1b(),
 			'/thinking <off|minimal|low|medium|high|xhigh|max>',
 			m.ui__page_model_next_apre_le_impostazioni_modelli_o_70f9(),
 			m.ui__page_name_titolo_rinomina_la_sessione_0a14(),
 			m.ui__page_cost_stats_status_riepilogo_della_sessione_9df5(),
-			'/git, /settings, /usage, /switch, /terminal — pannelli del guscio',
+			m.page_gui_help_panels(),
 			'',
-			'Scorciatoie principali (Alt+H per la guida completa):',
+			m.page_gui_help_shortcuts_title(),
 			m.ui__page_alt_p_cambia_modello_rapido_ctrl_p_66d1(),
-			'Alt+M: menu thinking • Alt+T: cicla thinking',
+			m.page_gui_help_thinking_keys(),
 			m.ui__page_alt_invio_invia_con_la_modalita_alternativa_4b23(),
 			m.ui__page_alt_c_interrompi_cancella_alt_e_fuoco_0496()
 		];
 		if (session.availableCommands.length > 0) {
-			lines.push('', `Altri ${session.availableCommands.length} comandi registrati da omp ed estensioni.`);
+			lines.push('', m.page_gui_help_more_commands({ count: session.availableCommands.length }));
 		}
 		return lines.join('\n');
 	}
@@ -1884,7 +1967,9 @@
 	onMount(() => {
 		const onProjectClosed = (event: Event) => {
 			const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
-			if (projectId) disposeAgentSession(projectId);
+			if (!projectId) return;
+			disposeAgentSession(projectId);
+			void laneStore.removeDraftLanes(projectId as ProjectId).catch(() => undefined);
 		};
 		window.addEventListener('studio-project-closed', onProjectClosed);
 		return () => window.removeEventListener('studio-project-closed', onProjectClosed);
@@ -1922,6 +2007,10 @@
 				);
 			}
 		}
+		// Il salvataggio dei progetti e' ritardato di 500 ms e `beforeunload`
+		// non attende promesse: senza questa attesa l'ultima modifica (layout,
+		// progetto attivo, tessera chiusa) poteva perdersi alla chiusura.
+		await Promise.allSettled([projectStore.flushSave(), laneStore.flush()]);
 	}
 
 	function handleRequestCloseProject(projectId: string) {
@@ -1955,7 +2044,7 @@
 			open: true,
 			project: {
 				id: project.id,
-				name: project.label?.trim() || project.name || 'Progetto',
+				name: project.label?.trim() || project.name || m.page_project_fallback_name(),
 				path: project.canonicalProjectPath ?? '',
 				queuedCount,
 				isWorking
@@ -2072,6 +2161,26 @@
 	let showRestartModal = $state(false);
 	let lastSeenLoadError = $state<string | null>(null);
 	let loadErrorDismissed = $state(false);
+
+	/**
+	 * Problemi del registro corsie da far vedere: prima erano solo in console.
+	 * Il testo fa anche da chiave di chiusura: un problema nuovo riappare.
+	 */
+	const laneStoreNotice = $derived.by(() => {
+		if (laneStore.loadError) return m.lanes_store_notice_load_error({ reason: laneStore.loadError });
+		if (laneStore.saveError) return m.lanes_store_notice_save_error({ reason: laneStore.saveError });
+		const discarded = laneStore.loadDiscarded;
+		if (!discarded) return null;
+		const count = discarded.lanes + discarded.profiles;
+		if (laneStore.backupError) {
+			return m.lanes_store_notice_discarded_backup_failed({ count, error: laneStore.backupError });
+		}
+		if (laneStore.backupPath) {
+			return m.lanes_store_notice_discarded_backup({ count, path: laneStore.backupPath });
+		}
+		return m.lanes_store_notice_discarded({ count });
+	});
+	let dismissedLaneStoreNotice = $state<string | null>(null);
 
 	$effect(() => {
 		const currentErr = projectStore.loadError;
@@ -2579,6 +2688,8 @@
 			e.preventDefault();
 			if (settingsStore.general.labAlphaEnabled) {
 				void handleNewFreeDraft();
+			} else {
+				openLabFlagSetting();
 			}
 		} else if (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'r') {
 			e.preventDefault();
@@ -2691,6 +2802,25 @@
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 		{agentAnnouncement}
 	</div>
+	{#if laneStoreNotice && laneStoreNotice !== dismissedLaneStoreNotice}
+		<div
+			class="floating-error-toast lane-store-toast"
+			class:with-sibling={projectStore.loadError && !loadErrorDismissed}
+			role="alert"
+			in:rvLift={{ duration: 150 }}
+		>
+			<span class="floating-error-icon"><IconCircleAlert /></span>
+			<span class="floating-error-text">{laneStoreNotice}</span>
+			<button
+				type="button"
+				class="floating-error-close"
+				onclick={() => (dismissedLaneStoreNotice = laneStoreNotice)}
+				aria-label={m.common_close()}
+			>
+				<IconClose />
+			</button>
+		</div>
+	{/if}
 	{#if projectStore.loadError && !loadErrorDismissed}
 		<div
 			class="floating-error-toast"
@@ -3555,6 +3685,11 @@
 		box-shadow: var(--shadow-overlay);
 		color: var(--ink);
 		font-size: var(--text-label);
+	}
+
+	/* Con l'avviso dei progetti gia' a schermo quello delle corsie sale sopra. */
+	.lane-store-toast.with-sibling {
+		bottom: calc(var(--space-3) + 44px);
 	}
 
 	.floating-error-icon {

@@ -38,7 +38,11 @@
 	import { laneStore } from '$lib/stores/lanes.svelte';
 	import { sessionRegistry } from '$lib/agent/sessionRegistry';
 	import { laneLanding } from '$lib/lanes/laneLanding.svelte';
-	import { deleteWorktreeLane } from '$lib/lanes/laneLifecycle';
+	import {
+		deleteWorktreeLane,
+		inspectUnintegratedWork,
+		type LaneUnintegratedLoss
+	} from '$lib/lanes/laneLifecycle';
 	import {
 		listLaneProcesses,
 		laneProcessesFor,
@@ -127,6 +131,8 @@
 	let confirmStopReject = $state(false);
 	let isRejecting = $state(false);
 	let rejectError = $state<string | null>(null);
+	/** Commit mai integrati che il rifiuto cancellerebbe: mostrati prima della conferma. */
+	let rejectLoss = $state<LaneUnintegratedLoss | null>(null);
 	let integrateMessage = $state('');
 	let isIntegrating = $state(false);
 	let integrateError = $state<string | null>(null);
@@ -217,6 +223,7 @@
 			integrateMessage = '';
 			integrateError = null;
 			rejectError = null;
+			rejectLoss = null;
 			processCheckFailed = false;
 		}
 	});
@@ -388,16 +395,32 @@
 		}
 	}
 
+	async function requestReject() {
+		confirmReject = true;
+		rejectLoss = null;
+		const target = lane;
+		if (!target) return;
+		const loss = await inspectUnintegratedWork(project.id as ProjectId, target.laneId);
+		if (lane?.laneId === target.laneId) rejectLoss = loss;
+	}
+
 	async function handleRejectLane() {
 		if (!lane || isRejecting) return;
 		isRejecting = true;
 		rejectError = null;
 		try {
 			const outcome = await deleteWorktreeLane(project.id as ProjectId, lane.laneId, {
-				stopProcesses: false
+				stopProcesses: false,
+				discardUnintegrated: rejectLoss !== null
 			});
 			if (outcome.kind === 'deleted') {
 				onClose();
+				return;
+			}
+			if (outcome.kind === 'unintegrated') {
+				// Commit comparsi dopo la richiesta: la conferma va ridata col conto aggiornato.
+				rejectLoss = outcome.loss;
+				confirmReject = true;
 				return;
 			}
 			if (outcome.kind === 'processes-active') {
@@ -418,10 +441,17 @@
 		rejectError = null;
 		try {
 			const outcome = await deleteWorktreeLane(project.id as ProjectId, lane.laneId, {
-				stopProcesses: true
+				stopProcesses: true,
+				discardUnintegrated: rejectLoss !== null
 			});
 			if (outcome.kind === 'deleted') {
 				onClose();
+				return;
+			}
+			if (outcome.kind === 'unintegrated') {
+				rejectLoss = outcome.loss;
+				confirmStopReject = false;
+				confirmReject = true;
 				return;
 			}
 			if (outcome.kind === 'processes-active') {
@@ -820,6 +850,18 @@
 						</div>
 					{/if}
 
+					{#if (confirmReject || confirmStopReject) && rejectLoss}
+						<div class="update-outcome error" role="alert">
+							<IconWarning />
+							<span>
+								{m.lane_delete_unintegrated_warning({
+									commits: rejectLoss.commits,
+									files: rejectLoss.files
+								})}
+							</span>
+						</div>
+					{/if}
+
 					{#if rejectError}
 						<div class="update-outcome error" role="alert">
 							<IconWarning />
@@ -884,7 +926,7 @@
 							<button
 								type="button"
 								class="ui-button ui-button-ghost btn-reject-ghost"
-								onclick={() => (confirmReject = true)}
+								onclick={() => void requestReject()}
 							>
 								{m.lanereview_action_reject()}
 							</button>

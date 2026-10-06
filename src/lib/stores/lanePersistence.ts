@@ -92,6 +92,16 @@ export interface ParsedLaneStore {
 	revision: number;
 	lanes: LaneRecord[];
 	profiles: ProjectWorktreeProfile[];
+	/**
+	 * Record scartati perche' non validi o duplicati. Gli altri restano
+	 * caricati: un solo record illeggibile non deve far sparire tutte le corsie.
+	 */
+	discarded: LaneStoreDiscarded;
+}
+
+export interface LaneStoreDiscarded {
+	lanes: number;
+	profiles: number;
 }
 
 /** DTO restituito dal comando Rust `worktree_list`. */
@@ -365,6 +375,11 @@ function parseStoredProfile(value: unknown): ProjectWorktreeProfile | null {
  * Legge esclusivamente la versione corrente. Una migrazione futura dovra'
  * convertire una versione precedente qui e verra' poi riscritta subito come
  * versione corrente: nessun doppio formato resta nel runtime.
+ *
+ * Il documento e' rifiutato in blocco solo se la sua struttura non e'
+ * riconoscibile (versione, revisione, elenchi). Un record invalido o con
+ * identita' duplicata viene scartato da solo e contato in `discarded`: chi
+ * carica decide di salvarne una copia prima di riscrivere il file.
  */
 export function parseLaneStoreDocument(value: unknown): ParsedLaneStore | null {
 	const source = object(value);
@@ -372,29 +387,64 @@ export function parseLaneStoreDocument(value: unknown): ParsedLaneStore | null {
 	if (!Number.isInteger(source.revision) || (source.revision as number) < 0) return null;
 	if (!Array.isArray(source.lanes) || !Array.isArray(source.profiles)) return null;
 
-	const lanes = source.lanes.map(parseStoredLane);
-	const profiles = source.profiles.map(parseStoredProfile);
-	if (lanes.some((lane) => lane === null) || profiles.some((profile) => profile === null)) {
-		return null;
-	}
-
+	const discarded: LaneStoreDiscarded = { lanes: 0, profiles: 0 };
+	const lanes: LaneRecord[] = [];
 	const laneKeys = new Set<string>();
-	for (const lane of lanes as LaneRecord[]) {
-		const key = `${lane.projectId}\u0000${lane.laneId}`;
-		if (laneKeys.has(key)) return null;
+	for (const raw of source.lanes) {
+		const lane = parseStoredLane(raw);
+		const key = lane ? `${lane.projectId}\u0000${lane.laneId}` : null;
+		if (!lane || !key || laneKeys.has(key)) {
+			discarded.lanes += 1;
+			continue;
+		}
 		laneKeys.add(key);
+		lanes.push(lane);
 	}
+	const profiles: ProjectWorktreeProfile[] = [];
 	const profileKeys = new Set<string>();
-	for (const profile of profiles as ProjectWorktreeProfile[]) {
-		if (profileKeys.has(profile.projectId)) return null;
+	for (const raw of source.profiles) {
+		const profile = parseStoredProfile(raw);
+		if (!profile || profileKeys.has(profile.projectId)) {
+			discarded.profiles += 1;
+			continue;
+		}
 		profileKeys.add(profile.projectId);
+		profiles.push(profile);
 	}
 
-	return {
-		revision: source.revision as number,
-		lanes: lanes as LaneRecord[],
-		profiles: profiles as ProjectWorktreeProfile[]
-	};
+	return { revision: source.revision as number, lanes, profiles, discarded };
+}
+
+/**
+ * Campi di `LaneRecord` che non finiscono in `lanes.json`: stato runtime
+ * dell'agente e PTY. Una patch fatta solo di questi aggiorna la memoria e non
+ * deve riscrivere il file a ogni cambio di stato dell'agente.
+ */
+const RUNTIME_ONLY_LANE_FIELDS: ReadonlySet<string> = new Set(['agentState', 'ptyId']);
+
+export function lanePatchTouchesPersistedFields(patch: object): boolean {
+	return Object.keys(patch).some((key) => !RUNTIME_ONLY_LANE_FIELDS.has(key));
+}
+
+/**
+ * Toglie i record delle bozze Lab libere la cui tessera non e' aperta. Solo
+ * una bozza ha la corsia principale di tipo 'lab': quel record identifica il
+ * progetto, e tutti i suoi record vanno via insieme.
+ */
+export function pruneClosedDraftLanes(
+	lanes: readonly LaneRecord[],
+	isProjectOpen: (projectId: string) => boolean
+): { lanes: LaneRecord[]; changed: boolean } {
+	const drafts = new Set(
+		lanes
+			.filter(
+				(lane) =>
+					lane.laneId === MAIN_LANE_ID && lane.kind === 'lab' && !isProjectOpen(lane.projectId)
+			)
+			.map((lane) => lane.projectId as string)
+	);
+	if (drafts.size === 0) return { lanes: [...lanes], changed: false };
+	return { lanes: lanes.filter((lane) => !drafts.has(lane.projectId)), changed: true };
 }
 
 export function serializeLaneStoreDocument(

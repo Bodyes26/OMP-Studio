@@ -60,15 +60,20 @@
 		associateDraftToProject,
 		startCreateWorktreeFlow,
 		formatRelativeDate,
-		reportLabDeleteFailure
+		reportLabDeleteFailure,
+		reportLaneDeleteFailure
 	} from '$lib/lanes/laneActions';
 	import {
 		listClosedLanes,
 		reopenLane,
 		deleteWorktreeLane,
 		deleteLabPrototype,
-		type ClosedLaneEntry
+		inspectUnintegratedWork,
+		type ClosedLaneEntry,
+		type LaneUnintegratedLoss
 	} from '$lib/lanes/laneLifecycle';
+	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
+	import { untrack } from 'svelte';
 	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
 	import { invoke } from '@tauri-apps/api/core';
 	import { gitDiffStore, hasGitChanges, notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
@@ -245,19 +250,37 @@
 
 	let closedLanes = $state<ClosedLaneEntry[]>([]);
 	let deleteConfirmTarget = $state<ClosedLaneEntry | null>(null);
+	/** Commit mai integrati della corsia da eliminare, letti prima di chiedere conferma. */
+	let deleteLoss = $state<LaneUnintegratedLoss | null>(null);
+
+	// Firma delle sole proprieta' che cambiano l'elenco delle corsie chiuse.
+	// L'effetto dipendeva da ogni campo di ogni corsia (stato dell'agente
+	// compreso) e rileggeva l'indice Lab dal disco a ogni cambio.
+	const closedLanesKey = $derived(
+		laneStore
+			.lanesFor(project.id as ProjectId)
+			.map((lane) => `${lane.laneId}|${lane.status}|${lane.closedAt ?? ''}|${lane.title}`)
+			.join('\n')
+	);
+	let closedLanesRequest = 0;
 
 	$effect(() => {
-		if (project.canonicalProjectPath && !project.labDraft) {
-			void listClosedLanes(project)
-				.then((list) => {
-					closedLanes = list;
-				})
-				.catch(() => {
-					closedLanes = [];
-				});
-		} else {
+		const canList = Boolean(project.canonicalProjectPath) && !project.labDraft;
+		void closedLanesKey;
+		void settingsStore.general.labAlphaEnabled;
+		const request = ++closedLanesRequest;
+		if (!canList) {
 			closedLanes = [];
+			return;
 		}
+		const target = untrack(() => project);
+		void untrack(() => listClosedLanes(target))
+			.then((list) => {
+				if (request === closedLanesRequest) closedLanes = list;
+			})
+			.catch(() => {
+				if (request === closedLanesRequest) closedLanes = [];
+			});
 	});
 
 	// Il popover si chiude appena il puntatore esce o si clicca altrove: dopo un
@@ -329,16 +352,22 @@
 		onClose();
 	}
 
-	function requestDeleteClosedLane(entry: ClosedLaneEntry) {
-		deleteConfirmTarget = entry;
+	async function requestDeleteClosedLane(entry: ClosedLaneEntry) {
 		protoMenuOpen = false;
+		deleteLoss =
+			entry.kind === 'git'
+				? await inspectUnintegratedWork(entry.projectId, entry.laneId)
+				: null;
+		deleteConfirmTarget = entry;
 		view = 'delete-worktree';
 	}
 
 	async function executeDeleteClosedLane() {
 		const target = deleteConfirmTarget;
+		const loss = deleteLoss;
 		const owner = project;
 		deleteConfirmTarget = null;
+		deleteLoss = null;
 		view = 'default';
 		if (!target) return;
 		try {
@@ -346,7 +375,24 @@
 				const outcome = await deleteLabPrototype(owner.id as ProjectId, target.prototypeId);
 				if (outcome.kind === 'failed') await reportLabDeleteFailure(outcome.message);
 			} else {
-				await deleteWorktreeLane(owner.id as ProjectId, target.laneId);
+				const outcome = await deleteWorktreeLane(owner.id as ProjectId, target.laneId, {
+					discardUnintegrated: loss !== null
+				});
+				if (outcome.kind === 'unintegrated') {
+					// Commit comparsi dopo la richiesta: la conferma va ridata col conto aggiornato.
+					deleteLoss = outcome.loss;
+					deleteConfirmTarget = target;
+					view = 'delete-worktree';
+					return;
+				}
+				if (outcome.kind === 'processes-active') {
+					await reportLaneDeleteFailure(
+						outcome.processes.map(describeLaneProcess).join(', ') ||
+							m.lanestrip_cleanup_pending()
+					);
+				} else if (outcome.kind === 'failed') {
+					await reportLaneDeleteFailure(outcome.message);
+				}
 			}
 			closedLanes = await listClosedLanes(owner).catch(() => []);
 		} catch (err) {
@@ -589,7 +635,7 @@
 			</label>
 			{#if !isScratchpad}
 				<label>
-					<span>Sigla</span>
+					<span>{m.project_popover_code_field()}</span>
 					<input
 						bind:value={labelDraft}
 						aria-label={m.project_popover_code_aria()}
@@ -719,17 +765,23 @@
 					? m.lab_delete_dialog_message({ name: deleteConfirmTarget.title })
 					: m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
 			</p>
+			{#if deleteConfirmTarget.kind === 'git' && deleteLoss}
+				<p class="hint danger-hint" role="alert">
+					<IconWarning />
+					<span>{m.lane_delete_unintegrated_warning({ commits: deleteLoss.commits, files: deleteLoss.files })}</span>
+				</p>
+			{/if}
 			<button type="button" class="row danger" onclick={() => void executeDeleteClosedLane()}>
 				<IconTrash /> <span class="row-label">{m.lanestrip_delete_dialog_confirm()}</span>
 			</button>
-			<button type="button" class="row" onclick={() => { view = 'default'; deleteConfirmTarget = null; }}>
+			<button type="button" class="row" onclick={() => { view = 'default'; deleteConfirmTarget = null; deleteLoss = null; }}>
 				<span class="row-label indent">{m.lanestrip_delete_dialog_cancel()}</span>
 			</button>
 		</div>
 	{:else if view === 'default'}
 		{#if settingsStore.projectBar.showQueuePeek && !isScratchpad && queueTasks.length > 0}
 			<section class="block">
-				<h4>Coda ({queueTasks.length})</h4>
+				<h4>{m.project_popover_queue_header({ count: queueTasks.length })}</h4>
 				{#if !ready && reason}
 					<p class="hint"><IconWarning /> <span>{reason}</span></p>
 				{/if}
@@ -982,7 +1034,7 @@
 											: m.lanestrip_action_delete_worktree()}
 										onclick={(e) => {
 											e.stopPropagation();
-											requestDeleteClosedLane(entry);
+											void requestDeleteClosedLane(entry);
 										}}
 									>
 										<IconTrash />
@@ -1044,7 +1096,7 @@
 							type="button"
 							class="icon-btn"
 							onclick={() => shift(-1)}
-							aria-label="Sposta la tessera a sinistra"
+							aria-label={m.project_popover_shift_left_aria()}
 							title={m.project_popover_shift_left()}
 						>
 							<IconArrowLeft />
@@ -1053,7 +1105,7 @@
 							type="button"
 							class="icon-btn"
 							onclick={() => shift(1)}
-							aria-label="Sposta la tessera a destra"
+							aria-label={m.project_popover_shift_right_aria()}
 							title={m.project_popover_shift_right()}
 						>
 							<IconArrowRight />
@@ -1527,6 +1579,12 @@
 	.hint span {
 		min-width: 0;
 		overflow-wrap: anywhere;
+	}
+
+	.danger-hint {
+		align-items: flex-start;
+		margin: var(--space-1) 0 var(--space-2);
+		color: var(--danger);
 	}
 
 	.confirm {

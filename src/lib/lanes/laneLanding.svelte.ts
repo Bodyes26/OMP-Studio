@@ -17,6 +17,9 @@ import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
 import type { ProjectId, LaneId } from '$lib/types/lanes';
 import type { AgentSession } from '$lib/agent/session.svelte';
+import { m } from '$lib/paraglide/messages.js';
+import { laneBranchDeleteArgs, worktreeErrorMessage } from './laneCleanup';
+import { landingNeedsUserConfirm } from './integrationGate';
 
 export type LandCaller =
 	| { kind: 'gui' }
@@ -448,9 +451,7 @@ export class LaneLandingService {
 			const errPayload: WorktreeErrorPayload = {
 				code: 'lane_not_supported',
 				message:
-					lane?.kind === 'lab'
-						? 'Le corsie Lab non supportano il landing Git.'
-						: 'Corsia non trovata o priva di percorso worktree.'
+					lane?.kind === 'lab' ? m.lane_landing_lab_unsupported() : m.lane_landing_lane_missing()
 			};
 			return {
 				kind: 'error',
@@ -462,8 +463,12 @@ export class LaneLandingService {
 		const targetBranch = lane.targetBranch ?? 'main';
 		const commitMessage = (opts.message?.trim() || lane.title).trim() || `Merge lane ${laneId}`;
 
-		// 1. Controllo conferma conflitti pregressi
-		const needsConfirm = this.isLaneNeedingConfirm(project.id, laneId);
+		// 1. Controllo conferma conflitti pregressi. Il Set vive solo in memoria:
+		//    lo stato 'conflict' persistito mantiene l'obbligo anche dopo un riavvio.
+		const needsConfirm = landingNeedsUserConfirm(
+			this.isLaneNeedingConfirm(project.id, laneId),
+			lane.status
+		);
 		if (needsConfirm && !opts.confirmed && opts.caller.kind !== 'gui') {
 			this.createCard({
 				projectId: project.id,
@@ -510,7 +515,7 @@ export class LaneLandingService {
 				if (laneSession.isStreaming) {
 					const errPayload: WorktreeErrorPayload = {
 						code: 'agent_busy',
-						message: "L'agente della corsia sta lavorando."
+						message: m.lane_landing_agent_busy()
 					};
 					return {
 						kind: 'error',
@@ -732,8 +737,8 @@ export class LaneLandingService {
 				if (outcome.kind !== 'archived') {
 					const errorMsg =
 						outcome.kind === 'processes-active'
-							? 'Impossibile rimuovere il worktree: processi ancora attivi.'
-							: (outcome.diagnosis.message || 'Rimozione worktree post-integrazione fallita.');
+							? m.lane_landing_cleanup_processes_active()
+							: outcome.diagnosis.message || m.lane_landing_cleanup_remove_failed();
 					this.createCard({
 						projectId: project.id,
 						laneId,
@@ -748,20 +753,12 @@ export class LaneLandingService {
 				}
 				if (project.canonicalProjectPath) {
 					try {
-						await invoke('worktree_delete_lane_branch', {
-							args: {
-								projectPath: project.canonicalProjectPath,
-								laneId,
-								confirm: true
-							}
-						});
+						await invoke(
+							'worktree_delete_lane_branch',
+							laneBranchDeleteArgs(project.canonicalProjectPath, laneId, false)
+						);
 					} catch (branchErr) {
-						const errorMsg =
-							branchErr instanceof Error
-								? branchErr.message
-								: typeof branchErr === 'string'
-									? branchErr
-									: 'Cancellazione del branch di corsia fallita.';
+						const errorMsg = worktreeErrorMessage(branchErr, m.lane_error_branch_delete_failed());
 						if (laneRecord && laneRecord.recoveryState !== 'cleanup_pending') {
 							await laneStore.updateLane(project.id as ProjectId, laneId, {
 								recoveryState: 'cleanup_pending'
@@ -773,10 +770,14 @@ export class LaneLandingService {
 							laneTitle,
 							targetBranch,
 							kind: 'error',
-							message: `Branch non eliminato: ${errorMsg}`
+							message: m.lane_landing_branch_not_deleted({ error: errorMsg })
 						});
 						const targetSession = this.findTargetSession(project.id);
-						targetSession?.pushNotice('warning', `Branch non eliminato: ${errorMsg}`, 'studio');
+						targetSession?.pushNotice(
+							'warning',
+							m.lane_landing_branch_not_deleted({ error: errorMsg }),
+							'studio'
+						);
 					}
 				}
 			} catch (err) {
@@ -784,9 +785,7 @@ export class LaneLandingService {
 				const errorMsg =
 					err instanceof Error
 						? err.message
-						: typeof err === 'string'
-							? err
-							: 'Pulizia post-integrazione fallita.';
+						: worktreeErrorMessage(err, m.lane_landing_cleanup_failed());
 				this.createCard({
 					projectId: project.id,
 					laneId,
@@ -835,7 +834,7 @@ export class LaneLandingService {
 
 		const project = projectStore.projects.find((p) => p.id === record.projectId);
 		if (!project?.canonicalProjectPath) {
-			record.undoError = 'Percorso del progetto non disponibile.';
+			record.undoError = m.lane_landing_project_path_missing();
 			return false;
 		}
 
@@ -955,7 +954,15 @@ export class LaneLandingService {
 					// Chiamante principale senza laneId
 					const openLanes = laneStore
 						.lanesFor(project.id as ProjectId)
-						.filter((l) => l.laneId !== 'main' && l.status !== 'archived' && l.status !== 'closed');
+						// Le corsie Lab non si integrano con Git: contarle rendeva ambigua
+						// la scelta anche con un solo worktree aperto.
+						.filter(
+							(l) =>
+								l.laneId !== 'main' &&
+								l.kind !== 'lab' &&
+								l.status !== 'archived' &&
+								l.status !== 'closed'
+						);
 
 					if (openLanes.length === 1) {
 						targetLaneId = openLanes[0].laneId;

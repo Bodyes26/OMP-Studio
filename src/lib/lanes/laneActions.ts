@@ -253,6 +253,13 @@ export async function reportLabDeleteFailure(error: string): Promise<void> {
 	});
 }
 
+/** Come sopra, per l'eliminazione di un worktree avviata da un popover gia' chiuso. */
+export async function reportLaneDeleteFailure(error: string): Promise<void> {
+	await message(m.lane_lifecycle_delete_failed({ error }), { kind: 'error' }).catch(() => {
+		console.error('Eliminazione worktree fallita:', error);
+	});
+}
+
 /**
  * Restituisce le azioni corsia mostrate nel popover di progetto e nel menu `+ ▾`
  * della LaneStrip (contratto §7).

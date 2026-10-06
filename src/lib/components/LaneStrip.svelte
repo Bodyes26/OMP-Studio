@@ -23,7 +23,13 @@
 	} from '$lib/icons';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import { projectLaneActions, reportLabDeleteFailure } from '$lib/lanes/laneActions';
-	import { closeLane, deleteLabPrototype, deleteWorktreeLane } from '$lib/lanes/laneLifecycle';
+	import {
+		closeLane,
+		deleteLabPrototype,
+		deleteWorktreeLane,
+		inspectUnintegratedWork,
+		type LaneUnintegratedLoss
+	} from '$lib/lanes/laneLifecycle';
 	import { renameLane, LANE_TITLE_MAX } from '$lib/lanes/laneNaming';
 	import {
 		activeLanes,
@@ -59,16 +65,27 @@
 	let concurrencyWarning = $state<ConcurrencyWarning | null>(null);
 	/** Profilo tecnico in attesa del consenso una tantum sui file locali (W10). */
 	let profileReview = $state<ProjectProfileReview | null>(null);
-	/** Corsia il cui cleanup e' bloccato da processi ancora vivi. */
-	let processBlock = $state<{ laneId: LaneId; title: string; processes: LaneProcessInfo[] } | null>(
-		null
-	);
-	/** Bersaglio del dialogo di conferma eliminazione definitiva: worktree, o prototipo Lab se c'e' prototypeId. */
+	/**
+	 * Corsia il cui cleanup e' bloccato da processi ancora vivi. `discardUnintegrated`
+	 * conserva il consenso gia' dato alla perdita dei commit per il nuovo tentativo.
+	 */
+	let processBlock = $state<{
+		laneId: LaneId;
+		title: string;
+		processes: LaneProcessInfo[];
+		discardUnintegrated: boolean;
+	} | null>(null);
+	/**
+	 * Bersaglio del dialogo di conferma eliminazione definitiva: worktree, o
+	 * prototipo Lab se c'e' prototypeId. `loss` e' il lavoro mai integrato che
+	 * andrebbe perso: col dialogo che lo dice, la conferma vale come consenso.
+	 */
 	let deleteConfirmTarget = $state<{
 		laneId: LaneId;
 		title: string;
 		branch?: string;
 		prototypeId?: string;
+		loss?: LaneUnintegratedLoss | null;
 	} | null>(null);
 	/** Ultimo cleanup fallito per lock o rifiuto di Git, per corsia. */
 	let cleanupPending = $state<Record<string, string>>({});
@@ -152,8 +169,9 @@
 		}
 	}
 
-	function requestDeleteWorktree(targetLaneId: LaneId, title: string, branch?: string) {
-		deleteConfirmTarget = { laneId: targetLaneId, title, branch };
+	async function requestDeleteWorktree(targetLaneId: LaneId, title: string, branch?: string) {
+		const loss = await inspectUnintegratedWork(project.id as ProjectId, targetLaneId);
+		deleteConfirmTarget = { laneId: targetLaneId, title, branch, loss };
 	}
 
 	function requestDeletePrototype(targetLaneId: LaneId, title: string, prototypeId: string) {
@@ -171,12 +189,21 @@
 			return;
 		}
 
-		const outcome = await deleteWorktreeLane(project.id as ProjectId, target.laneId);
+		const discardUnintegrated = Boolean(target.loss);
+		const outcome = await deleteWorktreeLane(project.id as ProjectId, target.laneId, {
+			discardUnintegrated
+		});
+		if (outcome.kind === 'unintegrated') {
+			// Commit arrivati dopo l'apertura del dialogo: si richiede la conferma col conto giusto.
+			deleteConfirmTarget = { ...target, loss: outcome.loss };
+			return;
+		}
 		if (outcome.kind === 'processes-active') {
 			processBlock = {
 				laneId: target.laneId,
 				title: target.title,
-				processes: outcome.processes
+				processes: outcome.processes,
+				discardUnintegrated
 			};
 			return;
 		}
@@ -194,8 +221,13 @@
 		if (!pending) return;
 
 		const outcome = await deleteWorktreeLane(project.id as ProjectId, pending.laneId, {
-			stopProcesses: true
+			stopProcesses: true,
+			discardUnintegrated: pending.discardUnintegrated
 		});
+		if (outcome.kind === 'unintegrated') {
+			deleteConfirmTarget = { laneId: pending.laneId, title: pending.title, loss: outcome.loss };
+			return;
+		}
 		if (outcome.kind === 'failed') {
 			cleanupPending = { ...cleanupPending, [pending.laneId]: outcome.message };
 			return;
@@ -286,7 +318,7 @@
 				icon: IconTrash,
 				danger: true,
 				run: () => {
-					requestDeleteWorktree(lane.laneId, lane.title, lane.branch ?? undefined);
+					void requestDeleteWorktree(lane.laneId, lane.title, lane.branch ?? undefined);
 				}
 			});
 		}
@@ -307,7 +339,7 @@
 				if (entry.kind === 'lab') {
 					requestDeletePrototype(entry.laneId, entry.title, entry.prototypeId);
 				} else {
-					requestDeleteWorktree(entry.laneId, entry.title);
+					void requestDeleteWorktree(entry.laneId, entry.title);
 				}
 			},
 			onProfileReview: (review) => {
@@ -520,7 +552,7 @@
 						{/if}
 
 						{#if pendingCleanup}
-							<span class="lane-cleanup-warn">
+							<span class="lane-cleanup-warn" title={pendingCleanup} role="img" aria-label={pendingCleanup}>
 								<IconWarning />
 							</span>
 						{/if}
@@ -618,6 +650,17 @@
 					? m.lab_delete_dialog_message({ name: deleteConfirmTarget.title })
 					: m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
 			</p>
+			{#if !deleteConfirmTarget.prototypeId && deleteConfirmTarget.loss}
+				<p class="lane-dialog-desc lane-dialog-loss" role="alert">
+					<IconWarning />
+					<span>
+						{m.lane_delete_unintegrated_warning({
+							commits: deleteConfirmTarget.loss.commits,
+							files: deleteConfirmTarget.loss.files
+						})}
+					</span>
+				</p>
+			{/if}
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -985,6 +1028,18 @@
 		font-size: var(--text-body);
 		color: var(--ink-muted);
 		line-height: 1.45;
+	}
+	.lane-dialog-loss {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+		color: var(--danger);
+		--icon-size: 14px;
+	}
+	.lane-dialog-loss :global(svg) {
+		flex-shrink: 0;
+		margin-top: 2px;
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.lane-tab-item,

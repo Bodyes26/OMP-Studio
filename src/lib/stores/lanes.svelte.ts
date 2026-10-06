@@ -12,14 +12,24 @@ import {
 } from '$lib/types/lanes';
 import { projectStore, type Project } from './projects.svelte';
 import {
+	lanePatchTouchesPersistedFields,
 	laneRecordFromAgentLane,
 	parseLaneStoreDocument,
+	pruneClosedDraftLanes,
 	reconcileProjectLanes,
 	serializeLaneStoreDocument,
 	type LaneArchiveReason,
 	type LaneRecord,
+	type LaneStoreDiscarded,
 	type WorktreeInfo
 } from './lanePersistence';
+import {
+	laneBranchDeleteArgs,
+	recoverInterruptedIntegrations,
+	worktreeErrorMessage,
+	type InterruptedIntegration
+} from '$lib/lanes/laneCleanup';
+import { m } from '$lib/paraglide/messages.js';
 import { labApi } from '$lib/lab/api';
 import {
 	classifyWorktreeRemovalError,
@@ -63,9 +73,20 @@ class LaneStore {
 	ready = $state(false);
 	loadError = $state<string | null>(null);
 	saveError = $state<string | null>(null);
+	/** Record di `lanes.json` scartati al caricamento perche' illeggibili. */
+	loadDiscarded = $state<LaneStoreDiscarded | null>(null);
+	/** Copia di `lanes.json` salvata prima di riscriverlo senza i record scartati. */
+	backupPath = $state<string | null>(null);
+	backupError = $state<string | null>(null);
 	reconciliationErrors = $state<Record<string, string>>({});
 
 	private initialized = false;
+	/**
+	 * Vero dopo un caricamento parziale: la prima scrittura deve prima salvare
+	 * il file originale, perche' riscriverlo cancella i record scartati.
+	 */
+	private backupBeforeWrite = false;
+	private interruptedIntegrations: InterruptedIntegration[] = [];
 	private initPromise: Promise<void> | null = null;
 	private mutationGeneration = 0;
 	private persistedGeneration = 0;
@@ -87,6 +108,9 @@ class LaneStore {
 				this.loadError = message;
 				this.ready = true;
 			});
+			// Fuori dalla promessa di init: l'archiviazione la attende, e
+			// incatenarla qui dentro la farebbe aspettare se stessa.
+			void this.initPromise.then(() => this.finishInterruptedIntegrations());
 		}
 		return this.initPromise;
 	}
@@ -108,15 +132,28 @@ class LaneStore {
 		if (rawDocument !== null) {
 			const parsed = parseLaneStoreDocument(rawDocument);
 			if (!parsed) {
-				throw new Error('lanes.json usa uno schema non valido o non supportato');
+				throw new Error(m.lanes_store_invalid_schema());
 			}
 			this.revision = parsed.revision;
 			this.lanes = parsed.lanes;
 			this.profiles = parsed.profiles;
+			if (parsed.discarded.lanes > 0 || parsed.discarded.profiles > 0) {
+				console.warn('lanes.json: record non validi scartati', parsed.discarded);
+				this.loadDiscarded = parsed.discarded;
+				this.backupBeforeWrite = true;
+			}
 		}
 		this.initialized = true;
 
-		let changed = this.ensureMainLanes();
+		// Le bozze chiuse nelle versioni precedenti hanno lasciato i loro record.
+		// Con i progetti non caricati non si sa quali tessere siano aperte.
+		const drafts = projectStore.loadError
+			? { lanes: this.lanes, changed: false }
+			: pruneClosedDraftLanes(this.lanes, (candidate) =>
+					projectStore.projects.some((project) => project.id === candidate)
+				);
+		if (drafts.changed) this.lanes = drafts.lanes;
+		let changed = this.ensureMainLanes() || drafts.changed;
 		const projects = projectStore.projects.filter((project) => project.canonicalProjectPath);
 		const results = await Promise.allSettled(
 			projects.map(async (project) => ({
@@ -166,8 +203,60 @@ class LaneStore {
 			}
 		}
 
+		// Una corsia rimasta in `integrating` (Studio chiuso durante
+		// `worktree_land` o pulizia fallita) non lo resta per sempre.
+		const recovery = await recoverInterruptedIntegrations(
+			this.lanes,
+			(ownerProjectId) =>
+				projectStore.projects.find((project) => project.id === ownerProjectId)
+					?.canonicalProjectPath ?? null,
+			(command, args) => invoke(command, args)
+		);
+		if (recovery.changed) {
+			this.lanes = recovery.lanes;
+			this.interruptedIntegrations = recovery.integrated;
+			changed = true;
+		}
+
 		if (changed) await this.persistMutation();
 		this.ready = true;
+	}
+
+	/**
+	 * Chiude le corsie che Git da' per integrate come farebbe la pulizia dopo
+	 * un'integrazione riuscita: archiviazione 'integrated' (che rimuove il
+	 * worktree) e cancellazione del branch. Se il worktree non si rimuove la
+	 * corsia resta `review_ready` in `cleanup_pending`, recuperabile.
+	 */
+	private async finishInterruptedIntegrations(): Promise<void> {
+		const pending = this.interruptedIntegrations;
+		this.interruptedIntegrations = [];
+		for (const entry of pending) {
+			const ownerProjectId = entry.projectId as ProjectId;
+			const targetLaneId = entry.laneId as LaneId;
+			try {
+				const outcome = await this.archiveLane(ownerProjectId, targetLaneId, 'integrated', {
+					stopProcesses: true
+				});
+				if (outcome.kind !== 'archived') continue;
+				const project = projectStore.projects.find((p) => p.id === ownerProjectId);
+				if (!project?.canonicalProjectPath) continue;
+				await invoke(
+					'worktree_delete_lane_branch',
+					laneBranchDeleteArgs(project.canonicalProjectPath, targetLaneId, false)
+				).catch(async (error) => {
+					console.warn(
+						'Branch di corsia integrata non eliminato:',
+						worktreeErrorMessage(error, String(error))
+					);
+					await this.updateLane(ownerProjectId, targetLaneId, {
+						recoveryState: 'cleanup_pending'
+					});
+				});
+			} catch (error) {
+				console.warn('Chiusura di una corsia gia integrata fallita:', error);
+			}
+		}
 	}
 
 	private ensureMainLanes(): boolean {
@@ -189,9 +278,9 @@ class LaneStore {
 
 	private assertWritable(): void {
 		if (this.loadError) {
-			throw new Error(`Salvataggio corsie bloccato: ${this.loadError}`);
+			throw new Error(m.lanes_store_save_blocked({ reason: this.loadError }));
 		}
-		if (!this.initialized) throw new Error('Store corsie non inizializzato');
+		if (!this.initialized) throw new Error(m.lanes_store_not_ready());
 	}
 
 	private persistMutation(): Promise<void> {
@@ -215,6 +304,20 @@ class LaneStore {
 	}
 
 	private async drainSaves(): Promise<void> {
+		if (this.backupBeforeWrite) {
+			this.backupBeforeWrite = false;
+			// La copia va fatta una volta sola e prima della riscrittura: e'
+			// l'unico posto in cui i record scartati sopravvivono. Se non
+			// riesce si scrive comunque (bloccare tutte le corsie era il
+			// difetto da evitare) e l'utente lo vede nell'avviso.
+			try {
+				this.backupPath = await invoke<string>('lanes_store_backup');
+				this.backupError = null;
+			} catch (error) {
+				this.backupError = error instanceof Error ? error.message : String(error);
+				console.error('Copia di lanes.json non riuscita:', error);
+			}
+		}
 		while (this.persistedGeneration < this.mutationGeneration) {
 			const targetGeneration = this.mutationGeneration;
 			const document = serializeLaneStoreDocument(
@@ -255,13 +358,37 @@ class LaneStore {
 
 	async updateLane(ownerProjectId: ProjectId, targetLaneId: LaneId, patch: LanePatch): Promise<void> {
 		await this.init();
-		this.assertWritable();
+		// Lo stato dell'agente non e' su disco: riscrivere lanes.json a ogni
+		// cambio di stato era solo I/O sprecato, e uno store in sola lettura
+		// non deve impedire di aggiornarlo in memoria.
+		const persisted = lanePatchTouchesPersistedFields(patch);
+		if (persisted) this.assertWritable();
 		const lane = this.lanes.find(
 			(candidate) => candidate.projectId === ownerProjectId && candidate.laneId === targetLaneId
 		);
-		if (!lane) throw new Error(`Corsia non trovata: ${targetLaneId}`);
+		if (!lane) throw new Error(m.lane_error_not_found_id({ id: targetLaneId }));
 		Object.assign(lane, patch);
 		if (patch.openFiles) lane.openFiles = [...patch.openFiles];
+		if (!persisted) return;
+		await this.persistMutation();
+	}
+
+	/**
+	 * Toglie dal registro i record di una bozza Lab libera chiusa. La sua
+	 * corsia principale vive solo finche' la tessera e' aperta: riaprendola
+	 * viene ricreata, mentre lasciarla in lanes.json la accumulava per sempre.
+	 */
+	async removeDraftLanes(ownerProjectId: ProjectId): Promise<void> {
+		await this.init();
+		if (this.loadError || !this.initialized) return;
+		const pruned = pruneClosedDraftLanes(
+			this.lanes,
+			(candidate) =>
+				candidate !== ownerProjectId ||
+				projectStore.projects.some((project) => project.id === ownerProjectId)
+		);
+		if (!pruned.changed) return;
+		this.lanes = pruned.lanes;
 		await this.persistMutation();
 	}
 
@@ -324,7 +451,7 @@ class LaneStore {
 		await this.init();
 		this.assertWritable();
 		if (!project.canonicalProjectPath) {
-			throw new Error('Impossibile creare una corsia su un progetto senza percorso canonico');
+			throw new Error(m.lane_error_create_without_path());
 		}
 
 		// Calcola il prossimo numero disponibile per il titolo provvisorio "Worktree N"
