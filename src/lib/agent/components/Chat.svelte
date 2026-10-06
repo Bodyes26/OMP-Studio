@@ -309,7 +309,7 @@
 			class="chat-content-container"
 			class:readable={settingsStore.general.chatWidth === 'readable'}
 		>
-			<Transcript {session} />
+			<Transcript {session} {visible} />
 
 			{#if session.streamAsk && !session.pendingUi && session.streamAsk.state.questions.length > 0}
 				<div class="pending-ui-slot" transition:chatReveal={{ duration: 220, blur: 4, distance: 3 }}>

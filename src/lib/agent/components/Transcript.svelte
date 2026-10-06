@@ -17,6 +17,7 @@
 		TranscriptEntry
 	} from '../session.svelte';
 	import { chatReveal } from '../motion';
+	import OmpWelcome from './OmpWelcome.svelte';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
 	import { groupsInExecution } from '../tools/registry';
 	import { categoryForTool } from '../tools/categories';
@@ -39,7 +40,7 @@
 	import ActivityIndicator from './ActivityIndicator.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 
-	let { session } = $props<{ session: AgentSession }>();
+	let { session, visible = true } = $props<{ session: AgentSession; visible?: boolean }>();
 
 
 	const projectName = $derived(
@@ -464,9 +465,7 @@
 			</div>
 		</div>
 	{:else if session.visibleEntries.length === 0}
-		<div class="empty-state rv-blur" style="--dur: 400ms;">
-			<p class="empty-state-text">{m.chat_v2_empty_state()}</p>
-		</div>
+		<OmpWelcome {visible} />
 	{:else}
 		{#each displayItems as item, i (item.kind === 'single' ? item.entry.id : `${item.kind}-${item.id}`)}
 			{@const kind = entryKind(item)}
@@ -674,25 +673,6 @@
 	.w-85 { width: 85%; }
 	.w-90 { width: 90%; }
 
-
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		max-width: 520px;
-		margin: 0 auto;
-		width: 100%;
-		padding: var(--space-6) var(--space-4);
-		text-align: center;
-	}
-
-	.empty-state-text {
-		font-size: var(--text-chat);
-		line-height: 24px;
-		color: var(--ink-muted);
-		margin: 0;
-	}
 
 	.earlier-bar {
 		display: flex;

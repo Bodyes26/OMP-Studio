@@ -171,7 +171,8 @@ silenzioso, preciso**.
 - Densità alta senza affollamento: è uno strumento da otto ore, non una demo da trenta
   secondi.
 - Zero celebrazione. Nessun "Welcome back", nessuna animazione che si fa notare due
-  volte, nessun vuoto illustrato.
+  volte, nessun vuoto illustrato. Unica eccezione: il banner di omp nella chat vuota
+  (lo stesso della TUI), animato solo la prima volta dopo l'avvio e poi fermo.
 - L'unico momento in cui l'app alza la voce è quando una quota sta finendo: è l'unica
   informazione che ha diritto di interrompere.
 

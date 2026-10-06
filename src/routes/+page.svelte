@@ -41,6 +41,7 @@
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { studioUpdaterStore, formatVersion } from '$lib/stores/studioUpdater.svelte';
+	import { ompVersionStore } from '$lib/stores/ompVersion.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { parseRoleSelector, resolveActiveRole, nextCycleRole } from '$lib/stores/modelSettingsHelpers';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -2070,7 +2071,6 @@
 		closeActiveSurface();
 	}
 
-	let ompVersion = $state<string | null>(null);
 	let isCheckingUpdate = $state(false);
 	let updateMessage = $state<string | null>(null);
 	let ompBadgeType = $state<'warn' | 'success' | 'error' | null>(null);
@@ -2093,15 +2093,6 @@
 		message: string;
 	} | null>(null);
 	let isInstallingUpdate = $state(false);
-
-	async function fetchOmpVersion() {
-		try {
-			const ver: string = await invoke('get_omp_version');
-			ompVersion = ver;
-		} catch (e) {
-			console.error("Failed to fetch OMP version", e);
-		}
-	}
 
 	/**
 	 * Verifica del contratto con `omp` all'avvio (docs/PLAN.md Fase 8). Il
@@ -2144,7 +2135,7 @@
 		// trappola.
 		const wasIncomplete = setupIncomplete;
 		await refreshSetupChip();
-		if (wasIncomplete) await fetchOmpVersion();
+		if (wasIncomplete) await ompVersionStore.refresh();
 	}
 
 	/** Aggiorna il solo indicatore, senza decidere di aprire niente. */
@@ -2166,7 +2157,7 @@
 				message: string;
 			} = await invoke('check_omp_update');
 			if (res.current_version && res.current_version !== 'unknown') {
-				ompVersion = res.current_version;
+				ompVersionStore.set(res.current_version);
 			}
 			if (res.has_update) {
 				pendingUpdateCheck = res;
@@ -2203,7 +2194,7 @@
 
 	onMount(() => {
 		perfMark('boot', 'app start');
-		fetchOmpVersion();
+		void ompVersionStore.refresh();
 		scheduleDeferredBootTask(() => void checkOmpUpdateSilently());
 		void checkSetupContract();
 		studioUpdaterStore.init();
@@ -2231,7 +2222,7 @@
 				message: string;
 			} = await invoke('check_omp_update');
 			if (res.current_version && res.current_version !== 'unknown') {
-				ompVersion = res.current_version;
+				ompVersionStore.set(res.current_version);
 			}
 			if (res.has_update) {
 				pendingUpdateCheck = res;
@@ -2271,7 +2262,7 @@
 		ompBadgeType = null;
 		try {
 			await invoke('run_omp_update');
-			await fetchOmpVersion();
+			await ompVersionStore.refresh();
 			pendingUpdateCheck = null;
 			updateMessage = m.page_omp_update_status_installed();
 			ompBadgeType = 'success';
@@ -3102,7 +3093,7 @@
 				{#if isCheckingUpdate || isInstallingUpdate}
 					<StatusMark status="running" />
 				{/if}
-				{ompVersion ? `OMP v${ompVersion}` : 'OMP'}
+				{ompVersionStore.current ? `OMP v${ompVersionStore.current}` : 'OMP'}
 				{#if updateMessage}
 					<span
 						class="update-chip"
@@ -3139,8 +3130,8 @@
 	>
 		<p>{m.page_modal_update_desc()}</p>
 		<p class="modal-sub">
-			{ompVersion
-				? m.page_modal_update_current_version({ version: ompVersion })
+			{ompVersionStore.current
+				? m.page_modal_update_current_version({ version: ompVersionStore.current })
 				: m.page_modal_update_current_version_unknown()}
 		</p>
 		{#if pendingUpdateCheck?.latest_version}
