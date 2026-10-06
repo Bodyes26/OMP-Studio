@@ -78,20 +78,56 @@ impl RpcSession {
         }
         self.abort_signal.store(true, Ordering::SeqCst);
         self.stdin.lock().take();
+        self.remove_config_file();
 
-        if let Some(config_file) = self.config_path.as_ref() {
-            let _ = std::fs::remove_file(config_file);
-        }
-
+        // Figlio gia' raccolto (`try_wait` del registro corsie o di
+        // `rpc_close`): il PID puo' essere stato riusato, niente segnali per PID.
+        let pid = if self.child.lock().try_wait().ok().flatten().is_some() {
+            None
+        } else {
+            self.pid
+        };
         #[cfg(target_os = "windows")]
-        crate::process_tree::kill_process_tree(self.pid, self.job.as_deref());
+        crate::process_tree::kill_process_tree(pid, self.job.as_deref());
         #[cfg(not(target_os = "windows"))]
-        crate::process_tree::kill_process_tree(self.pid);
+        crate::process_tree::kill_process_tree(pid);
 
         let mut child = self.child.lock();
         let _ = child.kill();
         let _ = child.wait();
     }
+
+    /// Vero quando l'albero della sessione non ha piu' processi attivi.
+    fn tree_drained(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            crate::process_tree::job_drained(self.job.as_deref())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // `process_group(0)` all'avvio: il PID di omp e' il PGID dell'albero.
+            self.pid
+                .is_none_or(|pid| !crate::process_tree::process_group_alive(pid))
+        }
+    }
+
+    /// Cancella il file di configurazione temporaneo della sessione.
+    fn remove_config_file(&self) {
+        if let Some(config_file) = self.config_path.as_ref() {
+            let _ = std::fs::remove_file(config_file);
+        }
+    }
+}
+
+/// Mette omp a capo di un process group proprio: `kill_process_tree` puo'
+/// abbattere anche i nipoti (tool, server avviati dall'agente) con un solo
+/// segnale a `-pgid`. Effetto collaterale voluto: i figli non ricevono piu' il
+/// SIGHUP del terminale da cui e' partito Studio, quindi la chiusura delle
+/// sessioni all'uscita dell'app (lib.rs, `RpcManager::close_all`) e' esplicita.
+#[cfg(unix)]
+fn own_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
 }
 
 /// Proprieta' della corsia per la sessione agente (Gate R27 / PLAN W11). Il
@@ -120,6 +156,10 @@ impl crate::process_tree::LaneProcessControl for LaneAgentProcess {
         );
         crate::lane_bridge::revoke_owner("agent", self.rpc_id);
     }
+
+    fn tree_drained(&self) -> bool {
+        self.session.tree_drained()
+    }
 }
 
 pub struct RpcManager {
@@ -142,8 +182,14 @@ impl RpcManager {
             guard.drain().map(|(_, session)| session).collect()
         };
 
-        for session in sessions {
-            session.kill_tree();
+        // In parallelo: ogni albero ha fino a 1.5 s per uscire con SIGTERM e
+        // all'uscita dell'app le attese non devono sommarsi.
+        let handles: Vec<_> = sessions
+            .into_iter()
+            .map(|session| thread::spawn(move || session.kill_tree()))
+            .collect();
+        for handle in handles {
+            let _ = handle.join();
         }
     }
 }
@@ -502,7 +548,13 @@ fn reader_loop(args: ReaderLoopArgs) {
         .flatten()
         .and_then(|s| s.code());
     let tail: Vec<String> = stderr_tail.lock().iter().cloned().collect();
-    sessions.lock().remove(&rpc_id);
+    // omp uscito da solo: nessuno chiamera' piu' `rpc_close` o `kill_tree` su
+    // questa sessione, quindi l'overlay/config temporaneo va tolto qui o resta
+    // in %TEMP% per sempre.
+    let removed = sessions.lock().remove(&rpc_id);
+    if let Some(session) = removed {
+        session.remove_config_file();
+    }
     crate::lane_bridge::revoke_owner("agent", rpc_id);
     let _ = stats.send(
         &on_event,
@@ -887,6 +939,8 @@ pub async fn rpc_open(
             );
         }
     }
+    #[cfg(unix)]
+    own_process_group(&mut command);
 
     let _spawn_span = crate::perf_trace::span(
         "boot",
@@ -1170,6 +1224,8 @@ pub async fn rpc_open_lab(
             );
         }
     }
+    #[cfg(unix)]
+    own_process_group(&mut command);
 
     let mut child = match command.spawn() {
         Ok(child) => child,
@@ -1355,9 +1411,9 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
             }
             thread::sleep(Duration::from_millis(50));
         }
-        let mut child = session.child.lock();
-        let _ = child.kill();
-        let _ = child.wait();
+        // Con il process group proprio i figli di omp non ricevono piu' segnali
+        // dal terminale di Studio: si abbatte l'albero intero, non solo omp.
+        session.kill_tree();
     })
     .await
     .map_err(|error| format!("Chiusura della sessione RPC {}: {}", rpc_id, error))
@@ -1695,6 +1751,74 @@ mod tests {
             stats: Arc::new(RpcStats::default()),
         };
         let _ = session_main; // structure compiles and initializes correctly
+    }
+
+    /// omp che esce da solo (stdout chiuso): la sessione lascia la mappa e il
+    /// suo overlay temporaneo non resta in %TEMP%.
+    #[test]
+    fn uscita_spontanea_di_omp_cancella_la_config_temporanea() {
+        let config = std::env::temp_dir().join(format!(
+            "omp-studio-gui-overlay-uscita-{}.yml",
+            std::process::id()
+        ));
+        std::fs::write(&config, "tools:\n  approvalMode: yolo\n").unwrap();
+
+        // Un processo qualsiasi che scrive una riga ed esce fa da omp.
+        let mut child = Command::new("git")
+            .arg("--version")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("git disponibile nei test");
+        let stdout = child.stdout.take().unwrap();
+        let stdin = Arc::new(Mutex::new(child.stdin.take()));
+        let child = Arc::new(Mutex::new(child));
+        let stderr_tail = Arc::new(Mutex::new(VecDeque::new()));
+        let protocol = Arc::new(AtomicU8::new(1));
+        let abort_signal = Arc::new(AtomicBool::new(false));
+        let session_id = Arc::new(Mutex::new(None));
+        let stats = Arc::new(RpcStats::default());
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        sessions.lock().insert(
+            77,
+            RpcSession {
+                child: child.clone(),
+                stdin: stdin.clone(),
+                stderr_tail: stderr_tail.clone(),
+                protocol: protocol.clone(),
+                abort_signal: abort_signal.clone(),
+                config_path: Some(config.clone()),
+                pid: None,
+                #[cfg(target_os = "windows")]
+                job: None,
+                killed: Arc::new(AtomicBool::new(false)),
+                cwd: String::new(),
+                scope: "main".to_string(),
+                prototype_id: None,
+                project_key: None,
+                session_id: session_id.clone(),
+                stats: stats.clone(),
+            },
+        );
+
+        reader_loop(ReaderLoopArgs {
+            stdout,
+            on_event: Channel::new(|_| Ok(())),
+            stdin,
+            protocol,
+            child: child.clone(),
+            stderr_tail,
+            sessions: sessions.clone(),
+            rpc_id: 77,
+            abort_signal,
+            session_id,
+            stats,
+        });
+
+        assert!(sessions.lock().is_empty());
+        assert!(!config.exists(), "overlay temporaneo rimasto su disco");
+        let _ = child.lock().wait();
     }
 
     #[test]
