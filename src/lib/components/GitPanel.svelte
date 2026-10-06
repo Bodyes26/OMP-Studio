@@ -109,7 +109,7 @@
 		try {
 			const res = await githubStore.syncRepo(projectPath, action);
 			syncMessage = res;
-			await refresh();
+			await refresh('manual', true);
 			notifyGitStatusRefresh(projectPath);
 		} catch (e) {
 			actionError = String(e);
@@ -137,9 +137,18 @@
 	}
 
 	let lastRefreshedAt = 0;
+	let panelEl = $state<HTMLDivElement | null>(null);
+
+	// La barra laterale chiusa resta montata con `visibility: hidden`: il
+	// pannello esiste ma nessuno ne legge lo stato CI.
+	function isPanelVisible(el: HTMLElement | null): boolean {
+		if (!el || document.visibilityState === 'hidden') return false;
+		if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+		return getComputedStyle(el).visibility !== 'hidden';
+	}
 
 	async function refresh(
-		reason: 'interval' | 'focus' | 'visible' | 'event' | 'boot' = 'boot',
+		reason: 'interval' | 'focus' | 'visible' | 'event' | 'boot' | 'manual' = 'boot',
 		force = false
 	) {
 		const targetPath = projectPath;
@@ -202,7 +211,11 @@
 			lastCommit = last;
 			commits = rec;
 			void githubStore.loadUpstreamStatus(targetPath, force);
-			void githubStore.loadActionsStatus(targetPath, b || undefined);
+			// La CI passa dall'API di GitHub: solo a pannello visibile e con la
+			// cadenza del cancello (60 s), tranne quando l'utente la chiede.
+			if (reason === 'manual' || isPanelVisible(panelEl)) {
+				void githubStore.loadActionsStatus(targetPath, b || undefined, { force: reason === 'manual' });
+			}
 		} catch (e) {
 			if (projectPath !== targetPath) return;
 			const msg = String(e);
@@ -331,13 +344,13 @@
 	}
 </script>
 
-<div class="git-panel">
+<div class="git-panel" bind:this={panelEl}>
 	{#if notRepo}
 		<div class="empty">{m.git_no_repo()}</div>
 	{:else if refreshError}
 		<div class="git-error" role="alert">
 			<span class="git-error-text" title={refreshError}>{m.ui_gitpanel_errore_git_dc97()} {refreshError}</span>
-			<button type="button" class="retry-btn" onclick={() => void refresh()}>{m.git_btn_retry()}</button>
+			<button type="button" class="retry-btn" onclick={() => void refresh('manual', true)}>{m.git_btn_retry()}</button>
 		</div>
 	{:else}
 		<div class="branch-row">

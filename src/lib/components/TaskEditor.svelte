@@ -53,6 +53,7 @@
 	import Switch from '$lib/ui/Switch.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { roleConfigFromSelector } from './taskRoleConfig';
 	import {
 		IconAttach,
 		IconAt,
@@ -390,11 +391,7 @@
 	/** Modello e thinking configurati per un ruolo, letti dalla configurazione dei modelli. */
 	function resolveRoleConfig(roleId: string): { model: string; thinking: string } {
 		const rolesMap = modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {};
-		const roleSelector = rolesMap[roleId] || '';
-		return {
-			model: roleSelector.split(':')[0] || '',
-			thinking: roleSelector.includes(':') ? roleSelector.split(':')[1] : 'auto'
-		};
+		return roleConfigFromSelector(rolesMap[roleId] || '', modelSettingsStore.knownSelectors);
 	}
 
 	function syncRoleToConfiguration(modelSelector: string, thinkingLevel: string) {

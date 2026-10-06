@@ -260,6 +260,10 @@
 		// processo: si rilegge lo stato a intervalli invece di osservare due
 		// file scritti con lock e debounce.
 		pollTimer = window.setInterval(() => void refreshStatus(), 1500);
+		// `listen` risolve in modo asincrono: se il wizard si chiude prima, la
+		// pulizia trova `unlisten` ancora vuoto e il listener resterebbe attivo
+		// per sempre (e a ogni riapertura se ne aggiungerebbe un altro).
+		let disposed = false;
 		void listen<InstallProgress>('setup://install-progress', (event) => {
 			progress = event.payload;
 			if (event.payload.status === 'error') {
@@ -267,10 +271,12 @@
 				installDiagnostic = event.payload.diagnostic ?? null;
 			}
 		}).then((fn) => {
-			unlisten = fn;
+			if (disposed) fn();
+			else unlisten = fn;
 		});
 
 		return () => {
+			disposed = true;
 			if (pollTimer !== null) window.clearInterval(pollTimer);
 			pollTimer = null;
 			unlisten?.();

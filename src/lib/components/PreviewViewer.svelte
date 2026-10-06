@@ -8,6 +8,7 @@
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import { IconCheck, IconClose, IconCopy } from '$lib/icons';
+	import { loadPreview } from './previewLoad';
 	let {
 		projectPath,
 		filePath,
@@ -81,45 +82,66 @@
 		};
 	});
 
+	// Contatore dei caricamenti e chiave pubblicata a video: un caricamento
+	// superato (altro file, «Ricarica» ripetuto, componente smontato) non tocca
+	// lo stato e non ripubblica la chiave vecchia (vedi previewLoad.ts).
+	let loadSeq = 0;
+	let activeKey = '';
+
 	async function load() {
+		const seq = ++loadSeq;
+		const isCurrent = () => seq === loadSeq;
+		const targetProject = projectPath;
+		const targetFile = filePath;
+		const key = `studio-preview:${targetProject}:${targetFile}`;
 		loading = true;
 		missing = false;
 		loadError = null;
-		const key = `studio-preview:${projectPath}:${filePath}`;
 		try {
-			const res: { content: string; exists: boolean } = await invoke('preview_file', {
-				projectPath,
-				rel: filePath
+			const result = await loadPreview({
+				key,
+				isCurrent,
+				currentKey: () => activeKey,
+				readFile: () => invoke('preview_file', { projectPath: targetProject, rel: targetFile }),
+				isSvg: (content) => isSvgFileName(targetFile) || isSvgContent(content),
+				publish: async (publishKey, content) => {
+					const title =
+						targetFile.split('/').pop()?.replace(/\.[^/.]+$/, '') || m.preview_default_doc_title();
+					const { url } = await invoke<{ url: string }>('studio_preview_publish', {
+						key: publishKey,
+						html: wrapPrototypeCode(title, content)
+					});
+					return url;
+				},
+				unpublish: (staleKey) => {
+					void invoke('lab_preview_unpublish', { key: staleKey }).catch(() => {});
+				}
 			});
-			if (!res.exists) {
+			if (!result) return;
+			if (result.kind === 'missing') {
 				missing = true;
 				rawContent = '';
 				htmlDoc = '';
 				frameUrl = '';
+			} else if (result.kind === 'svg') {
+				rawContent = result.content;
+				htmlDoc = buildSandboxedSvgDocument(result.content);
+				frameUrl = '';
 			} else {
-				rawContent = res.content;
-				const title = filePath.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Prototipo';
-				if (isSvgFileName(filePath) || isSvgContent(res.content)) {
-					htmlDoc = buildSandboxedSvgDocument(res.content);
-					frameUrl = '';
-				} else {
-					htmlDoc = '';
-					const { url } = await invoke<{ url: string }>('studio_preview_publish', {
-						key,
-						html: wrapPrototypeCode(title, res.content)
-					});
-					frameUrl = url;
-					publishSeq += 1;
-				}
+				rawContent = result.content;
+				htmlDoc = '';
+				frameUrl = result.url;
+				publishSeq += 1;
 			}
 		} catch (e) {
+			if (!isCurrent()) return;
 			// Conserviamo l'errore reale per non confondere errori di I/O con file mancante
 			loadError = m.ui_previewviewer_errore_durante_il_caricamento_del_file_value1_71d5({ value1: String(e) });
 			rawContent = '';
 			htmlDoc = '';
 			frameUrl = '';
 		} finally {
-			loading = false;
+			if (isCurrent()) loading = false;
 		}
 	}
 
@@ -148,8 +170,12 @@
 	$effect(() => {
 		if (!projectPath || !filePath) return;
 		const key = `studio-preview:${projectPath}:${filePath}`;
+		activeKey = key;
 		void load();
 		return () => {
+			// Il caricamento in volo diventa superato: non ripubblica `key`.
+			loadSeq++;
+			activeKey = '';
 			void invoke('lab_preview_unpublish', { key }).catch(() => {});
 		};
 	});
