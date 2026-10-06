@@ -143,6 +143,14 @@ const AUTOSTASH_IN_STASH: &str = "Pull completato, ma le tue modifiche locali no
 /// riapplicarlo, lo lascia nello stash. Un rebase rimasto a meta' viene annullato,
 /// cosi' il repository torna esattamente com'era prima del pull.
 fn pull_rebase_autostash(dir: &Path) -> Result<String, String> {
+    // Un rebase gia' in corso e' dell'utente: annullarlo dopo il pull fallito
+    // butterebbe via i conflitti che sta risolvendo.
+    if rebase_in_progress(dir) {
+        return Err(
+            "Pull non eseguito: nel repository c'è già un rebase in corso. Completalo o annullalo prima di sincronizzare."
+                .to_string(),
+        );
+    }
     let stash_before = stash_top(dir);
     let pull = run_git_raw(dir, &["pull", "--rebase", "--autostash"])?;
     let pull_text = pull.combined();
@@ -993,6 +1001,37 @@ mod tests {
         assert_eq!(
             remote_after, remote_head,
             "sync non deve fare push dopo un pull fallito"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pull_does_not_abort_user_rebase() {
+        let setup = setup_test_repos();
+        let path_b_str = setup.work_b.to_str().unwrap().to_string();
+
+        // Rebase dell'utente fermo su un conflitto
+        push_remote_change(&setup, "initial.txt", "versione remota\n", "remote edit");
+        fs::write(setup.work_b.join("initial.txt"), "versione locale\n").unwrap();
+        run_git_test_cmd(&setup.work_b, &["commit", "-am", "local edit"]);
+        run_git_test_cmd(&setup.work_b, &["fetch"]);
+        let rebase = Command::new("git")
+            .current_dir(&setup.work_b)
+            .args(["rebase", "origin/main"])
+            .output()
+            .unwrap();
+        assert!(
+            !rebase.status.success(),
+            "il rebase deve fermarsi sul conflitto"
+        );
+        assert!(rebase_in_progress(&setup.work_b));
+
+        let err = git_sync_repo(path_b_str, "pull".to_string())
+            .await
+            .expect_err("il pull deve rifiutarsi");
+        assert!(err.contains("rebase in corso"), "{err}");
+        assert!(
+            rebase_in_progress(&setup.work_b),
+            "il rebase dell'utente non va annullato"
         );
     }
 
