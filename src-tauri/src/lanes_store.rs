@@ -73,3 +73,76 @@ pub async fn lanes_store_write_atomic(app: AppHandle, document: Value) -> Result
     .await
     .map_err(|error| format!("Salvataggio store corsie interrotto: {error}"))?
 }
+
+/// Copia `lanes.json` accanto a se' prima che il frontend lo riscriva dopo aver
+/// scartato record non validi: e' l'unico posto in cui quei record restano
+/// recuperabili. Restituisce il percorso della copia.
+fn backup_store_file(path: &std::path::Path, stamp_ms: u128) -> Result<PathBuf, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Percorso store corsie senza directory".to_string())?;
+    let mut target = parent.join(format!("{STORE_FILE_NAME}.bak-{stamp_ms}"));
+    let mut suffix = 1;
+    // Due copie nello stesso millisecondo non devono sovrascriversi.
+    while target.exists() {
+        target = parent.join(format!("{STORE_FILE_NAME}.bak-{stamp_ms}-{suffix}"));
+        suffix += 1;
+    }
+    let bytes = fs::read(path).map_err(|error| format!("Lettura {}: {error}", path.display()))?;
+    atomic_write(&target, &bytes)?;
+    Ok(target)
+}
+
+#[command]
+pub async fn lanes_store_backup(app: AppHandle) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let _guard = lane_store_lock();
+        let path = store_path(&app)?;
+        if !path.exists() {
+            return Err(format!(
+                "{} non esiste: nessuna copia da fare",
+                path.display()
+            ));
+        }
+        let stamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis())
+            .unwrap_or(0);
+        backup_store_file(&path, stamp_ms).map(|target| target.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|error| format!("Copia store corsie interrotta: {error}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backup_copia_il_file_senza_sovrascrivere_copie_precedenti() {
+        let dir = std::env::temp_dir().join(format!(
+            "omp-lanes-backup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let store = dir.join(STORE_FILE_NAME);
+        fs::write(&store, br#"{"laneState":{"lanes":[]}}"#).unwrap();
+
+        let first = backup_store_file(&store, 42).unwrap();
+        let second = backup_store_file(&store, 42).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(&first).unwrap(), fs::read(&store).unwrap());
+        assert_eq!(fs::read(&second).unwrap(), fs::read(&store).unwrap());
+        assert!(first
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("lanes.json.bak-42"));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+}

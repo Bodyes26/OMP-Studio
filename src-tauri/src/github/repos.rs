@@ -8,7 +8,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-use super::auth::{find_gh_binary, get_saved_token, run_blocking};
+use super::auth::{find_authorized_gh_binary, get_saved_token, run_blocking};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -193,7 +193,7 @@ pub async fn github_list_remote_repos(limit: Option<u32>) -> Result<Vec<GithubRe
 
     // 1. Prova con gh CLI se disponibile (processo esterno: fuori dal runtime async)
     let from_gh = run_blocking(move || -> Option<Vec<GithubRemoteRepo>> {
-        let gh_path = find_gh_binary()?;
+        let gh_path = find_authorized_gh_binary()?;
         let mut cmd = Command::new(&gh_path);
         cmd.args([
             "repo",
@@ -492,7 +492,7 @@ pub async fn github_create_repo(
         let name = name.clone();
         let description = description.clone();
         run_blocking(move || {
-            find_gh_binary()
+            find_authorized_gh_binary()
                 .map(|gh_path| gh_create_repo(&gh_path, &name, description, is_private, auto_init))
         })
         .await?

@@ -27,6 +27,12 @@ pub struct GithubAuthStatus {
 struct SavedGithubConfig {
     pub token: Option<String>,
     pub protocol: Option<String>,
+    /// L'utente ha scelto «Disconnetti solo Studio» mentre era collegato via gh:
+    /// Studio non usa la GitHub CLI finche' non la ricollega esplicitamente.
+    /// Senza questo flag il login di gh, ancora valido, riconnetterebbe Studio
+    /// al controllo successivo e la disconnessione non avrebbe effetto.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gh_cli_disabled: Option<bool>,
 }
 
 fn github_config_path() -> Option<PathBuf> {
@@ -43,6 +49,35 @@ pub fn get_saved_token() -> Option<String> {
     cfg.token.filter(|t| !t.trim().is_empty())
 }
 
+fn read_saved_config() -> SavedGithubConfig {
+    github_config_path()
+        .filter(|path| path.exists())
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|content| serde_json::from_str(&content).ok())
+        .unwrap_or_default()
+}
+
+/// Vero se l'utente ha scollegato Studio dalla GitHub CLI (vedi SavedGithubConfig).
+pub fn gh_cli_disabled() -> bool {
+    read_saved_config().gh_cli_disabled.unwrap_or(false)
+}
+
+/// gh da usare per le operazioni autenticate (elenco repo, creazione, Actions):
+/// nessuno se l'utente ha scollegato Studio dalla GitHub CLI.
+pub fn find_authorized_gh_binary() -> Option<PathBuf> {
+    if gh_cli_disabled() {
+        return None;
+    }
+    find_gh_binary()
+}
+
+fn set_gh_cli_disabled(disabled: bool) -> Result<(), String> {
+    let path = github_config_path().ok_or_else(|| "Cartella agent_dir non trovata".to_string())?;
+    update_config_at(&path, |cfg| {
+        cfg.gh_cli_disabled = if disabled { Some(true) } else { None };
+    })
+}
+
 pub fn save_token(token: Option<String>, protocol: Option<String>) -> Result<(), String> {
     let path = github_config_path().ok_or_else(|| "Cartella agent_dir non trovata".to_string())?;
     save_token_at(&path, token, protocol)
@@ -57,6 +92,18 @@ fn save_token_at(
     token: Option<String>,
     protocol: Option<String>,
 ) -> Result<(), String> {
+    update_config_at(path, |cfg| {
+        cfg.token = token;
+        if protocol.is_some() {
+            cfg.protocol = protocol;
+        }
+    })
+}
+
+fn update_config_at(
+    path: &Path,
+    change: impl FnOnce(&mut SavedGithubConfig),
+) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -66,10 +113,7 @@ fn save_token_at(
     } else {
         SavedGithubConfig::default()
     };
-    cfg.token = token;
-    if protocol.is_some() {
-        cfg.protocol = protocol;
-    }
+    change(&mut cfg);
     let json = serde_json::to_string_pretty(&cfg)
         .map_err(|e| format!("Serializzazione config GitHub: {e}"))?;
     restrict_token_file_permissions(path)?;
@@ -370,7 +414,20 @@ pub async fn github_get_status() -> Result<GithubAuthStatus, String> {
         }
     }
 
-    // 2. Controllo gh CLI (processi esterni: fuori dal runtime async)
+    // 2. Controllo gh CLI (processi esterni: fuori dal runtime async), salvo
+    //    che l'utente abbia scollegato Studio dalla CLI.
+    if gh_cli_disabled() {
+        return Ok(GithubAuthStatus {
+            installed: run_blocking(find_gh_binary).await?.is_some(),
+            authenticated: false,
+            username: None,
+            name: None,
+            avatar_url: None,
+            method: "none".to_string(),
+            protocol: "https".to_string(),
+            error: None,
+        });
+    }
     if let Some(status) = run_blocking(github_status_from_gh_cli).await? {
         return Ok(status);
     }
@@ -437,6 +494,13 @@ fn github_status_from_gh_cli() -> Option<GithubAuthStatus> {
     })
 }
 
+/// Ricollega Studio alla GitHub CLI dopo un «Disconnetti solo Studio».
+#[tauri::command]
+pub async fn github_use_gh_cli() -> Result<GithubAuthStatus, String> {
+    set_gh_cli_disabled(false)?;
+    github_get_status().await
+}
+
 #[tauri::command]
 pub async fn github_set_token(token: String) -> Result<GithubAuthStatus, String> {
     let trimmed = token.trim();
@@ -467,8 +531,12 @@ pub async fn github_set_token(token: String) -> Result<GithubAuthStatus, String>
 #[tauri::command]
 pub async fn github_logout(also_gh_cli: Option<bool>) -> Result<(), String> {
     save_token(None, None)?;
+    let also_gh_cli = also_gh_cli.unwrap_or(false);
+    // «Solo Studio»: gh resta collegato per il terminale ma Studio smette di usarlo.
+    // Con gh disconnesso il flag non serve: un nuovo `gh auth login` vale di nuovo.
+    set_gh_cli_disabled(!also_gh_cli)?;
 
-    if also_gh_cli.unwrap_or(false) {
+    if also_gh_cli {
         run_blocking(|| -> Result<(), String> {
             let Some(gh_path) = find_gh_binary() else {
                 return Ok(());
@@ -638,6 +706,32 @@ mod tests {
                 "{key}: {img_src}"
             );
         }
+    }
+
+    #[test]
+    fn flag_gh_disabilitato_si_conserva_con_il_token() {
+        let dir = std::env::temp_dir().join(format!(
+            "omp-studio-gh-flag-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("github.json");
+
+        update_config_at(&path, |cfg| cfg.gh_cli_disabled = Some(true)).unwrap();
+        save_token_at(&path, None, None).unwrap();
+        let saved: SavedGithubConfig =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.gh_cli_disabled, Some(true));
+
+        update_config_at(&path, |cfg| cfg.gh_cli_disabled = None).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("gh_cli_disabled"));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[cfg(unix)]

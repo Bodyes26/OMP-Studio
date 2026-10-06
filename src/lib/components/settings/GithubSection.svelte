@@ -201,7 +201,7 @@
 								<button
 									type="button"
 									class="ui-button ui-button-primary"
-									onclick={() => githubStore.loadStatus()}
+									onclick={() => githubStore.useGhCli()}
 									disabled={githubStore.isLoadingStatus}
 								>
 									{m.settings_github_cli_verify_login()}

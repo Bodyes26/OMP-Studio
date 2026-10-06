@@ -104,7 +104,8 @@ commands.allow = [
     "lane_processes_stop",
     "lane_bridge_respond",
     "lanes_store_read",
-    "lanes_store_write_atomic"
+    "lanes_store_write_atomic",
+    "lanes_store_backup"
 ]
 
 [[permission]]
@@ -261,6 +262,7 @@ commands.allow = [
     "github_get_status",
     "github_set_token",
     "github_logout",
+    "github_use_gh_cli",
     "github_install_cli",
     "project_detect_github_remotes",
     "github_list_remote_repos",

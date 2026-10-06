@@ -1,29 +1,40 @@
 /**
  * Esito di `install_studio_update_and_restart` letto dal frontend.
  *
- * Su Windows, macOS e AppImage il comando avvia l'installer e chiude Studio:
- * la promessa risolve (se risolve) a valore vuoto. Con un pacchetto `.deb`
- * l'installazione passa dal gestore pacchetti del sistema e Studio resta
- * aperto: il backend restituisce allora un messaggio da mostrare all'utente.
- * Il formato e' tollerante (stringa, oppure oggetto con `message`) perche'
- * non deve rompersi se il comando si arricchisce di altri campi.
+ * Il backend restituisce `{ manualCompletionRequired, message }`. Su Windows,
+ * macOS e AppImage avvia l'installer e chiude Studio (`manualCompletionRequired`
+ * falso): la promessa puo' anche non risolvere mai. Con un pacchetto `.deb`
+ * l'installazione passa dal gestore pacchetti del sistema e Studio resta aperto
+ * (`manualCompletionRequired` vero).
  */
-export function installOutcomeNotice(outcome: unknown): string | null {
-	if (typeof outcome === 'string') return outcome.trim() || null;
-	if (outcome && typeof outcome === 'object') {
-		const record = outcome as Record<string, unknown>;
-		for (const field of ['message', 'notice', 'detail']) {
-			const value = record[field];
-			if (typeof value === 'string' && value.trim()) return value.trim();
-		}
-	}
-	return null;
+interface InstallOutcomeRecord {
+	manualCompletionRequired?: unknown;
+	message?: unknown;
+}
+
+function asRecord(outcome: unknown): InstallOutcomeRecord | null {
+	return outcome && typeof outcome === 'object' ? (outcome as InstallOutcomeRecord) : null;
 }
 
 /**
- * Vero quando il comando ha risposto con un esito invece di chiudere l'app:
+ * Vero quando Studio resta aperto e l'utente deve completare l'installazione:
  * il pulsante non deve restare per sempre su «Avvio installazione…».
  */
 export function installOutcomeKeepsRunning(outcome: unknown): boolean {
-	return outcome !== null && outcome !== undefined && outcome !== '';
+	const record = asRecord(outcome);
+	if (record && typeof record.manualCompletionRequired === 'boolean') {
+		return record.manualCompletionRequired;
+	}
+	// Formato precedente: una stringa non vuota era il messaggio da mostrare.
+	return typeof outcome === 'string' && outcome.trim() !== '';
+}
+
+/**
+ * Testo da mostrare quando Studio resta aperto. Per il caso noto (.deb) il
+ * frontend usa il proprio messaggio tradotto: il backend scrive in italiano.
+ * `null` = usare il messaggio predefinito localizzato.
+ */
+export function installOutcomeNotice(outcome: unknown): string | null {
+	if (typeof outcome === 'string') return outcome.trim() || null;
+	return null;
 }

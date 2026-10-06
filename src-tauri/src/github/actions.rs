@@ -8,7 +8,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-use super::auth::{find_gh_binary, get_saved_token, run_blocking};
+use super::auth::{find_authorized_gh_binary, get_saved_token, run_blocking};
 use super::repos::parse_github_url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,7 +76,7 @@ fn get_project_github_slug(project_path: &Path) -> Option<(String, String)> {
 }
 
 fn actions_from_gh(slug: &str, branch: Option<&str>) -> Option<Vec<GithubActionRun>> {
-    let gh_path = find_gh_binary()?;
+    let gh_path = find_authorized_gh_binary()?;
     let mut cmd = Command::new(&gh_path);
     let mut args = vec![
         "run",

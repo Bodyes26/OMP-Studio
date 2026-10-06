@@ -145,23 +145,27 @@ describe('Caricamento anteprima superato (loadPreview)', () => {
 });
 
 describe('Esito installazione aggiornamento Studio', () => {
-	it('riconosce la chiusura dell\'app (nessun esito)', () => {
+	it('riconosce la chiusura dell\'app', () => {
 		assert.equal(installOutcomeKeepsRunning(undefined), false);
 		assert.equal(installOutcomeKeepsRunning(null), false);
+		assert.equal(installOutcomeKeepsRunning({ manualCompletionRequired: false, message: null }), false);
+		// AppImage senza $APPIMAGE: c'e' un messaggio ma Studio si chiude comunque.
+		assert.equal(
+			installOutcomeKeepsRunning({ manualCompletionRequired: false, message: 'Avviata la nuova AppImage' }),
+			false
+		);
 		assert.equal(installOutcomeNotice(undefined), null);
 	});
 
-	it('mostra il messaggio quando Studio resta aperto (.deb)', () => {
+	it('resta aperto per il .deb e usa il messaggio localizzato', () => {
+		const outcome = { manualCompletionRequired: true, message: 'Completa l\'installazione nel gestore software, poi riavvia Studio.' };
+		assert.equal(installOutcomeKeepsRunning(outcome), true);
+		assert.equal(installOutcomeNotice(outcome), null);
+	});
+
+	it('accetta ancora il formato a stringa', () => {
 		const text = 'Completa con: sudo apt install ./omp-studio.deb';
 		assert.equal(installOutcomeKeepsRunning(text), true);
 		assert.equal(installOutcomeNotice(text), text);
-		const obj = { status: 'pending', message: text };
-		assert.equal(installOutcomeKeepsRunning(obj), true);
-		assert.equal(installOutcomeNotice(obj), text);
-	});
-
-	it('segnala un esito senza testo per usare il messaggio predefinito', () => {
-		assert.equal(installOutcomeKeepsRunning({ status: 'pending' }), true);
-		assert.equal(installOutcomeNotice({ status: 'pending' }), null);
 	});
 });

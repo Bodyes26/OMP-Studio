@@ -1,7 +1,7 @@
 mod diagrams;
 mod fs_atomic;
 mod lanes_store;
-use lanes_store::{lanes_store_read, lanes_store_write_atomic};
+use lanes_store::{lanes_store_backup, lanes_store_read, lanes_store_write_atomic};
 pub mod lane_bridge;
 use lane_bridge::lane_bridge_respond;
 mod github;
@@ -9,7 +9,7 @@ use github::{
     git_sync_repo, git_upstream_status, github_clone_repo, github_create_repo,
     project_create_new,
     github_get_actions_status, github_get_status, github_install_cli, github_list_remote_repos,
-    github_logout, github_set_token, project_detect_github_remotes,
+    github_logout, github_set_token, github_use_gh_cli, project_detect_github_remotes,
 };
 pub mod process_tree;
 use process_tree::{lane_processes_list, lane_processes_stop};
@@ -230,6 +230,7 @@ pub fn run() {
             lane_processes_stop,
             lanes_store_read,
             lanes_store_write_atomic,
+            lanes_store_backup,
             usage_snapshot,
             sessions_list,
             sessions_search,
@@ -287,6 +288,7 @@ pub fn run() {
             github_get_status,
             github_set_token,
             github_logout,
+            github_use_gh_cli,
             github_install_cli,
             project_detect_github_remotes,
             github_list_remote_repos,

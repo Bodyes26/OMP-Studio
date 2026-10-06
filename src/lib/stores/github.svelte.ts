@@ -139,6 +139,27 @@ class GithubStore {
 		}
 	}
 
+	/**
+	 * Collega Studio alla GitHub CLI: annulla un precedente «Disconnetti solo
+	 * Studio», dopo il quale il backend ignora gh, e rilegge lo stato.
+	 */
+	async useGhCli(): Promise<GithubAuthStatus> {
+		this.isLoadingStatus = true;
+		try {
+			const res = await invoke<GithubAuthStatus>('github_use_gh_cli');
+			this.status = res;
+			if (res.authenticated) {
+				void this.loadRemoteRepos(true);
+			}
+			return res;
+		} catch (e) {
+			console.error('github_use_gh_cli', e);
+			return await this.loadStatus();
+		} finally {
+			this.isLoadingStatus = false;
+		}
+	}
+
 	async setToken(token: string): Promise<GithubAuthStatus> {
 		this.isLoadingStatus = true;
 		try {
