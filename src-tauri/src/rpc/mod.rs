@@ -1732,7 +1732,7 @@ mod tests {
         assert_eq!(overlay.tools.approval_mode, "yolo");
         assert_eq!(overlay.read.default_limit, 1200);
         assert!(overlay.read.summarize.is_none());
-        assert_eq!(overlay.prewalk.enabled, false);
+        assert!(!overlay.prewalk.enabled);
 
         let _ = std::fs::remove_file(overlay_path);
     }
@@ -1766,8 +1766,8 @@ mod tests {
         let parsed_2: OverlayPrewalkOnly =
             serde_yaml::from_str(&content_2).expect("overlay 2 YAML valido");
 
-        assert_eq!(parsed_1.prewalk.enabled, true);
-        assert_eq!(parsed_2.prewalk.enabled, false);
+        assert!(parsed_1.prewalk.enabled);
+        assert!(!parsed_2.prewalk.enabled);
 
         let _ = std::fs::remove_file(path_1);
         let _ = std::fs::remove_file(path_2);
@@ -1809,7 +1809,7 @@ mod tests {
         assert_eq!(overlay_enabled.tools.approval_mode, "yolo");
         assert_eq!(overlay_enabled.read.default_limit, 1200);
         assert!(overlay_enabled.read.summarize.is_none());
-        assert_eq!(overlay_enabled.prewalk.enabled, true);
+        assert!(overlay_enabled.prewalk.enabled);
 
         // 2. Disattiva prewalk: verifica che i parametri base rimangano inalterati
         set_gui_overlay_prewalk(&overlay_path, false).expect("disabilitazione prewalk riuscita");
@@ -1820,7 +1820,7 @@ mod tests {
         assert_eq!(overlay_disabled.tools.approval_mode, "yolo");
         assert_eq!(overlay_disabled.read.default_limit, 1200);
         assert!(overlay_disabled.read.summarize.is_none());
-        assert_eq!(overlay_disabled.prewalk.enabled, false);
+        assert!(!overlay_disabled.prewalk.enabled);
 
         let _ = std::fs::remove_file(overlay_path);
     }
