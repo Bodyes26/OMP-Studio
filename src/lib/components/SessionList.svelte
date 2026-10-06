@@ -207,7 +207,7 @@
 			}
 		} catch (error) {
 			if (token !== requestToken || target !== projectPath) return;
-			loadError = `Storico non disponibile: ${String(error)}`;
+			loadError = m.session_list_history_unavailable({ error: String(error) });
 		} finally {
 			if (token === requestToken) loading = false;
 		}
@@ -343,7 +343,7 @@
 										: session.optimistic
 											? m.ui_sessionlist_la_sessione_si_sta_sincronizzando_con_lo_82e6()
 											: canAutomate
-												? `Riprendi: ${primary}`
+												? m.session_list_resume_title({ title: primary })
 												: automationReason}
 									aria-label={isCurrent ? m.ui_sessionlist_sessione_attiva_value1_dd4e({ value1: primary }) : m.session_list_resume_aria({ title: primary, age: formatRelative(session.created_at) })}
 									onclick={() => onResume(session.id)}

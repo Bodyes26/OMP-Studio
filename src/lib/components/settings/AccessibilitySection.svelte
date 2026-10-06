@@ -7,16 +7,16 @@
 <div class="settings-section">
 	<div class="section-header">
 		<h4>{m.ui_accessibilitysection_accessibilita_e_movimento_1c87()}</h4>
-		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('accessibility')}>Ripristina</button>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('accessibility')}>{m.settings_section_reset()}</button>
 	</div>
 
 	<div class="section-block">
-		<span class="block-title">Movimento e Animazioni</span>
+		<span class="block-title">{m.settings_accessibility_motion_title()}</span>
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-accel-anim-label" class="form-row-label">Animazioni e transizioni dell'interfaccia</span>
-					<span id="settings-accel-anim-desc" class="form-row-desc">Abilita animazioni fluide, caricamenti graduali (staggered) e transizioni di reveal. Disattiva per una risposta visiva istantanea o per ridurre l'impegno della GPU.</span>
+					<span id="settings-accel-anim-label" class="form-row-label">{m.settings_accessibility_animations()}</span>
+					<span id="settings-accel-anim-desc" class="form-row-desc">{m.settings_accessibility_animations_desc()}</span>
 				</div>
 				<div class="form-row-control">
 					<Switch

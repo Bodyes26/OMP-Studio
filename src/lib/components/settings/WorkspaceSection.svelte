@@ -24,16 +24,16 @@
 <div class="settings-section">
 	<div class="section-header">
 		<h4>{m.ui_settingsmodal_editor_terminale_8f5d()}</h4>
-		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('workspace')}>Ripristina</button>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('workspace')}>{m.settings_section_reset()}</button>
 	</div>
 
 	<div class="section-block">
-		<span class="block-title">Editor</span>
+		<span class="block-title">{m.settings_workspace_editor_title()}</span>
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="settings-editor-fontsize" id="settings-editor-fontsize-label" class="form-row-label">Dimensione carattere</label>
-					<span id="settings-editor-fontsize-desc" class="form-row-desc">In punti, da {EDITOR_FONT_SIZE_RANGE.min} a {EDITOR_FONT_SIZE_RANGE.max}.</span>
+					<label for="settings-editor-fontsize" id="settings-editor-fontsize-label" class="form-row-label">{m.settings_workspace_font_size()}</label>
+					<span id="settings-editor-fontsize-desc" class="form-row-desc">{m.settings_workspace_font_size_desc({ min: EDITOR_FONT_SIZE_RANGE.min, max: EDITOR_FONT_SIZE_RANGE.max })}</span>
 				</div>
 				<div class="form-row-control">
 					<input
@@ -51,15 +51,15 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="settings-editor-fontfamily" id="settings-editor-fontfamily-label" class="form-row-label">Famiglia carattere</label>
-					<span id="settings-editor-fontfamily-desc" class="form-row-desc">Va in testa allo stack predefinito, che resta come riserva per le glifi Nerd Font.</span>
+					<label for="settings-editor-fontfamily" id="settings-editor-fontfamily-label" class="form-row-label">{m.settings_workspace_font_family()}</label>
+					<span id="settings-editor-fontfamily-desc" class="form-row-desc">{m.settings_workspace_font_family_desc()}</span>
 				</div>
 				<div class="form-row-control">
 					<input
 						id="settings-editor-fontfamily"
 						type="text"
 						class="ui-input input-text"
-						placeholder="Predefinito (Nerd Font)"
+						placeholder={m.settings_workspace_font_family_placeholder()}
 						value={settingsStore.editor.fontFamily}
 						aria-labelledby="settings-editor-fontfamily-label"
 						aria-describedby="settings-editor-fontfamily-desc"
@@ -69,7 +69,7 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-editor-minimap-label" class="form-row-label">Minimappa</span>
+					<span id="settings-editor-minimap-label" class="form-row-label">{m.settings_workspace_minimap()}</span>
 					<span id="settings-editor-minimap-desc" class="form-row-desc">{m.ui_workspacesection_mostra_la_mappa_in_miniatura_del_file_256f()}</span>
 				</div>
 				<div class="form-row-control">
@@ -84,8 +84,8 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-editor-wordwrap-label" class="form-row-label">A capo automatico</span>
-					<span id="settings-editor-wordwrap-desc" class="form-row-desc">Le righe troppo lunghe vanno a capo invece di scorrere in orizzontale.</span>
+					<span id="settings-editor-wordwrap-label" class="form-row-label">{m.settings_workspace_word_wrap()}</span>
+					<span id="settings-editor-wordwrap-desc" class="form-row-desc">{m.settings_workspace_word_wrap_desc()}</span>
 				</div>
 				<div class="form-row-control">
 					<Switch
@@ -99,8 +99,8 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="settings-editor-tabsize" id="settings-editor-tabsize-label" class="form-row-label">Larghezza tab</label>
-					<span id="settings-editor-tabsize-desc" class="form-row-desc">Spazi equivalenti a un tab, da {TAB_SIZE_RANGE.min} a {TAB_SIZE_RANGE.max}.</span>
+					<label for="settings-editor-tabsize" id="settings-editor-tabsize-label" class="form-row-label">{m.settings_workspace_tab_size()}</label>
+					<span id="settings-editor-tabsize-desc" class="form-row-desc">{m.settings_workspace_tab_size_desc({ min: TAB_SIZE_RANGE.min, max: TAB_SIZE_RANGE.max })}</span>
 				</div>
 				<div class="form-row-control">
 					<input
@@ -118,7 +118,7 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-editor-linenumbers-label" class="form-row-label">Numeri di riga</span>
+					<span id="settings-editor-linenumbers-label" class="form-row-label">{m.settings_workspace_line_numbers()}</span>
 					<span id="settings-editor-linenumbers-desc" class="form-row-desc">{m.ui_workspacesection_mostra_la_numerazione_delle_righe_sul_bordo_7bb2()}</span>
 				</div>
 				<div class="form-row-control">
@@ -139,8 +139,8 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="settings-terminal-fontsize" id="settings-terminal-fontsize-label" class="form-row-label">Dimensione carattere</label>
-					<span id="settings-terminal-fontsize-desc" class="form-row-desc">In punti, da {TERMINAL_FONT_SIZE_RANGE.min} a {TERMINAL_FONT_SIZE_RANGE.max}.</span>
+					<label for="settings-terminal-fontsize" id="settings-terminal-fontsize-label" class="form-row-label">{m.settings_workspace_font_size()}</label>
+					<span id="settings-terminal-fontsize-desc" class="form-row-desc">{m.settings_workspace_font_size_desc({ min: TERMINAL_FONT_SIZE_RANGE.min, max: TERMINAL_FONT_SIZE_RANGE.max })}</span>
 				</div>
 				<div class="form-row-control">
 					<input
@@ -158,15 +158,15 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="settings-terminal-fontfamily" id="settings-terminal-fontfamily-label" class="form-row-label">Famiglia carattere</label>
-					<span id="settings-terminal-fontfamily-desc" class="form-row-desc">Va in testa allo stack predefinito, che resta come riserva per le glifi Nerd Font.</span>
+					<label for="settings-terminal-fontfamily" id="settings-terminal-fontfamily-label" class="form-row-label">{m.settings_workspace_font_family()}</label>
+					<span id="settings-terminal-fontfamily-desc" class="form-row-desc">{m.settings_workspace_font_family_desc()}</span>
 				</div>
 				<div class="form-row-control">
 					<input
 						id="settings-terminal-fontfamily"
 						type="text"
 						class="ui-input input-text"
-						placeholder="Predefinito (Nerd Font)"
+						placeholder={m.settings_workspace_font_family_placeholder()}
 						value={settingsStore.terminal.fontFamily}
 						aria-labelledby="settings-terminal-fontfamily-label"
 						aria-describedby="settings-terminal-fontfamily-desc"
@@ -176,8 +176,8 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="settings-terminal-scrollback" id="settings-terminal-scrollback-label" class="form-row-label">Scrollback</label>
-					<span id="settings-terminal-scrollback-desc" class="form-row-desc">Righe di cronologia tenute in memoria, da {i18n.formatNumber(SCROLLBACK_RANGE.min)} a {i18n.formatNumber(SCROLLBACK_RANGE.max)}.</span>
+					<label for="settings-terminal-scrollback" id="settings-terminal-scrollback-label" class="form-row-label">{m.settings_workspace_scrollback()}</label>
+					<span id="settings-terminal-scrollback-desc" class="form-row-desc">{m.settings_workspace_scrollback_desc({ min: i18n.formatNumber(SCROLLBACK_RANGE.min), max: i18n.formatNumber(SCROLLBACK_RANGE.max) })}</span>
 				</div>
 				<div class="form-row-control">
 					<input
@@ -196,8 +196,8 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-terminal-bell-label" class="form-row-label">Campanello</span>
-					<span id="settings-terminal-bell-desc" class="form-row-desc">Fa suonare il campanello sonoro quando `omp` lo emette.</span>
+					<span id="settings-terminal-bell-label" class="form-row-label">{m.settings_workspace_bell()}</span>
+					<span id="settings-terminal-bell-desc" class="form-row-desc">{m.settings_workspace_bell_desc()}</span>
 				</div>
 				<div class="form-row-control">
 					<Switch
@@ -211,7 +211,7 @@
 			</div>
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-terminal-cursorblink-label" class="form-row-label">Cursore lampeggiante</span>
+					<span id="settings-terminal-cursorblink-label" class="form-row-label">{m.settings_workspace_cursor_blink()}</span>
 					<span id="settings-terminal-cursorblink-desc" class="form-row-desc">{m.ui_workspacesection_il_cursore_del_terminale_lampeggia_invece_di_0335()}</span>
 				</div>
 				<div class="form-row-control">
@@ -229,16 +229,16 @@
 
 	<!-- Origini Browser autorizzate (S43) -->
 	<div class="section-block">
-		<span class="block-title">Origini Browser autorizzate</span>
+		<span class="block-title">{m.settings_workspace_origins_title()}</span>
 		<div class="section-group">
 			{#if activeProject}
 				{@const allowedOrigins = projectStore.getBrowserAllowedOrigins(activeProject.id)}
 				{#if allowedOrigins.length === 0}
 					<div class="form-row">
 						<div class="form-row-copy">
-							<span class="form-row-label">Nessuna origine remota autorizzata</span>
+							<span class="form-row-label">{m.settings_workspace_origins_none()}</span>
 							<span class="form-row-desc">
-								Le origini locali (<code>localhost</code>, <code>127.0.0.1</code>) sono consentite automaticamente. Le origini remote richiedono consenso preventivo.
+								{m.settings_workspace_origins_local_before()}<code>localhost</code>, <code>127.0.0.1</code>{m.settings_workspace_origins_local_after()}
 							</span>
 						</div>
 					</div>
@@ -247,7 +247,7 @@
 						<div class="form-row">
 							<div class="form-row-copy">
 								<span class="form-row-label"><code>{origin}</code></span>
-								<span class="form-row-desc">Origine remota autorizzata per il progetto {activeProject.name}.</span>
+								<span class="form-row-desc">{m.settings_workspace_origin_allowed_for({ name: activeProject.name })}</span>
 							</div>
 							<div class="form-row-control">
 								<button
@@ -255,7 +255,7 @@
 									class="ui-button ui-button-ghost btn-revoke-origin"
 									onclick={() => projectStore.revokeBrowserOrigin(activeProject.id, origin)}
 								>
-									Revoca
+									{m.settings_workspace_origin_revoke()}
 								</button>
 							</div>
 						</div>
@@ -264,7 +264,7 @@
 			{:else}
 				<div class="form-row">
 					<div class="form-row-copy">
-						<span class="form-row-label">Nessun progetto attivo</span>
+						<span class="form-row-label">{m.settings_workspace_no_active_project()}</span>
 						<span class="form-row-desc">{m.ui_workspacesection_seleziona_un_progetto_per_visualizzare_e_gestire_6b13()}</span>
 					</div>
 				</div>

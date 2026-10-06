@@ -1,4 +1,5 @@
 import { matchesLooseQuery } from '../../looseSearch.ts';
+import { m } from '$lib/paraglide/messages.js';
 
 /**
  * Rappresentazione unificata di un modello usata da tutti i selettori
@@ -75,8 +76,8 @@ export function thinkingTitle(model: SharedModelItem): string {
 		}
 	}
 	return efforts && efforts.length > 0
-		? `Thinking: ${efforts.join(' · ')}`
-		: 'Thinking: supporta il ragionamento esteso';
+		? m.model_picker_thinking_efforts({ efforts: efforts.join(' · ') })
+		: m.model_picker_thinking_supported();
 }
 
 export function formatContextTokens(tokens?: number): string {

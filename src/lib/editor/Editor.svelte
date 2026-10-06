@@ -894,10 +894,10 @@
 			},
 			{
 				kind: 'item',
-				label: 'Confronta con HEAD',
+				label: m.editor_compare_head(),
 				icon: IconDiff,
 				disabled: isTabImage || isTabError,
-				hint: isTabImage ? 'Diff non disponibile per le immagini' : undefined,
+				hint: isTabImage ? m.editor_diff_no_images() : undefined,
 				run: () => openDiff(tabPath)
 			},
 			{ kind: 'separator' },
@@ -976,7 +976,7 @@
 		const selection = ed.getSelection?.();
 		const hasSelection = selection ? !selection.isEmpty() : false;
 		const isDiffOriginal = isReadOnly && showDiff;
-		const readOnlyHint = isDiffOriginal ? 'Originale non modificabile' : m.ui_editor_file_in_sola_lettura_63b0();
+		const readOnlyHint = isDiffOriginal ? m.editor_original_read_only() : m.ui_editor_file_in_sola_lettura_63b0();
 
 		const items: ContextMenuEntry[] = [
 			{
@@ -1010,7 +1010,7 @@
 				icon: IconCut,
 				shortcut: IS_MAC ? 'Cmd+X' : 'Ctrl+X',
 				disabled: isReadOnly || !hasSelection,
-				hint: isReadOnly ? readOnlyHint : !hasSelection ? 'Nessun testo selezionato' : undefined,
+				hint: isReadOnly ? readOnlyHint : !hasSelection ? m.editor_no_selection() : undefined,
 				run: async () => {
 					ed.focus();
 					const sel = ed.getSelection();
@@ -1034,7 +1034,7 @@
 				icon: IconCopy,
 				shortcut: IS_MAC ? 'Cmd+C' : 'Ctrl+C',
 				disabled: !hasSelection,
-				hint: !hasSelection ? 'Nessun testo selezionato' : undefined,
+				hint: !hasSelection ? m.editor_no_selection() : undefined,
 				run: async () => {
 					ed.focus();
 					const sel = ed.getSelection();
@@ -1096,7 +1096,7 @@
 				shortcut: IS_MAC ? 'Cmd+S' : 'Ctrl+S',
 				disabled: !isMainEditor || isReadOnly || !isDirty,
 				hint: !isMainEditor
-					? 'Salvataggio disponibile nell’editor principale'
+					? m.editor_save_main_only()
 					: isReadOnly
 						? readOnlyHint
 						: !isDirty
@@ -1108,17 +1108,17 @@
 			},
 			{
 				kind: 'item',
-				label: showDiff ? m.ui_editor_chiudi_confronto_2e83() : 'Confronta con HEAD',
+				label: showDiff ? m.ui_editor_chiudi_confronto_2e83() : m.editor_compare_head(),
 				icon: IconDiff,
 				disabled: isImage,
-				hint: isImage ? 'Diff non disponibile per le immagini' : undefined,
+				hint: isImage ? m.editor_diff_no_images() : undefined,
 				run: () => {
 					toggleGitDiff();
 				}
 			},
 			{
 				kind: 'item',
-				label: 'Cambia vista',
+				label: m.editor_switch_view(),
 				icon: IconViewPreview,
 				shortcut: IS_MAC ? 'Cmd+Shift+V' : 'Ctrl+Shift+V',
 				disabled: !previewCapable,

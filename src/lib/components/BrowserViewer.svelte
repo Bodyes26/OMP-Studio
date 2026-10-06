@@ -279,7 +279,7 @@
 			const count = await session.pickUploadFiles(activeTab, chooser.chooserId, chooser.mode === 'multiple');
 			showNotice(count > 0 ? m.ui_browserviewer_value1_file_autorizzati_per_il_caricamento_1e76({ value1: count }) : m.ui_browserviewer_selezione_file_annullata_5351());
 		} catch (err) {
-			showNotice(`Selettore file non disponibile: ${String(err)}`);
+			showNotice(m.browser_notice_file_picker_unavailable({ error: String(err) }));
 		} finally {
 			uploadBusy = false;
 		}
@@ -510,7 +510,7 @@
 						} else if (event.type === 'error') {
 							streamError = event.message;
 						} else if (event.type === 'disconnected') {
-							scheduleReconnect(streamError || 'Canale live interrotto');
+							scheduleReconnect(streamError || m.browser_stream_channel_interrupted());
 						}
 					}
 				);
@@ -519,7 +519,7 @@
 					return;
 				}
 				if (!handle) {
-					scheduleReconnect('Canale live non disponibile');
+					scheduleReconnect(m.browser_stream_channel_unavailable());
 					return;
 				}
 				liveHandle = handle;
@@ -709,7 +709,10 @@
 				id: `inspect-${Date.now()}`,
 				timestamp: Date.now(),
 				kind: 'agent_action',
-				label: `Elemento selezionato: <${inspectedElement?.tag || 'elemento'}> ${inspectedElement?.selector || ''}`.trim()
+				label: m.browser_action_element_selected({
+					tag: inspectedElement?.tag || 'element',
+					selector: inspectedElement?.selector || ''
+				}).trim()
 			});
 			actionEntries = [...actionBuffer.items];
 			return;
@@ -896,7 +899,7 @@
 	}
 
 	function formatTabLabel(tab: BrowserTabState): string {
-		if (tab.mode === 'chrome-relay') return 'Chrome personale';
+		if (tab.mode === 'chrome-relay') return m.browser_tab_personal_chrome();
 		const parts = tab.tabId.split('::');
 		return parts[1] || parts[0] || 'main';
 	}
@@ -925,8 +928,8 @@
 			const detail = String(error);
 			showNotice(
 				/unknown|not supported|sconosciut/i.test(detail)
-					? 'Il runtime omp in uso non applica le decisioni sulle origini: aggiornalo'
-					: `Decisione sull'origine non applicata: ${detail}`
+						? m.browser_notice_origin_unsupported()
+						: m.browser_notice_origin_failed({ detail })
 			);
 		} finally {
 			originBusy = false;
@@ -993,7 +996,7 @@
 		}
 
 		if (!formattedText.trim() && images.length === 0) {
-			showNotice('Nessun dato da allegare');
+			showNotice(m.browser_notice_nothing_to_attach());
 			return;
 		}
 
@@ -1003,7 +1006,7 @@
 				detail: { text: formattedText, images }
 			})
 		);
-		showNotice('Contesto allegato al prompt!');
+		showNotice(m.browser_notice_context_attached());
 	}
 
 	function handleClearBuffer(target: 'console' | 'network' | 'actions' | 'all') {
@@ -1040,19 +1043,27 @@
 	const inspectorTabs = $derived<ColumnTabItem[]>([
 		{
 			id: 'elements',
-			label: inspectedElement ? 'Elementi · 1' : 'Elementi'
+			label: inspectedElement ? m.browser_tab_elements_count({ count: 1 }) : m.browser_tab_elements()
 		},
 		{
 			id: 'console',
-			label: errorCount > 0 ? `Console (${errorCount})` : consoleEntries.length > 0 ? `Console (${consoleEntries.length})` : m.browser_tab_console()
+			label: errorCount > 0
+				? m.browser_tab_console_count({ count: errorCount })
+				: consoleEntries.length > 0
+					? m.browser_tab_console_count({ count: consoleEntries.length })
+					: m.browser_tab_console()
 		},
 		{
 			id: 'network',
-			label: failedNetworkCount > 0 ? `Rete (${failedNetworkCount})` : networkEntries.length > 0 ? `Rete (${networkEntries.length})` : m.browser_tab_network()
+			label: failedNetworkCount > 0
+				? m.browser_tab_network_count({ count: failedNetworkCount })
+				: networkEntries.length > 0
+					? m.browser_tab_network_count({ count: networkEntries.length })
+					: m.browser_tab_network()
 		},
 		{
 			id: 'actions',
-			label: actionEntries.length > 0 ? `Azioni (${actionEntries.length})` : m.browser_tab_actions()
+			label: actionEntries.length > 0 ? m.browser_tab_actions_count({ count: actionEntries.length }) : m.browser_tab_actions()
 		}
 	]);
 	// Filtri Console
@@ -1129,7 +1140,7 @@
 	<div class="browser-toolbar">
 		<!-- Navigazione: Back, Forward, Reload -->
 		<div class="nav-group" role="group" aria-label={m.browser_nav_aria()}>
-			<Tooltip text="Indietro (Alt+Freccia Sinistra)" placement="bottom">
+			<Tooltip text={m.browser_back_tooltip()} placement="bottom">
 				<button
 					type="button"
 					class="tool-btn icon-btn"
@@ -1140,7 +1151,7 @@
 					<IconArrowLeft />
 				</button>
 			</Tooltip>
-			<Tooltip text="Avanti (Alt+Freccia Destra)" placement="bottom">
+			<Tooltip text={m.browser_forward_tooltip()} placement="bottom">
 				<button
 					type="button"
 					class="tool-btn icon-btn"
@@ -1151,7 +1162,7 @@
 					<IconArrowRight />
 				</button>
 			</Tooltip>
-			<Tooltip text="Ricarica pagina (F5)" placement="bottom">
+			<Tooltip text={m.browser_reload_tooltip()} placement="bottom">
 				<button
 					type="button"
 					class="tool-btn icon-btn"
@@ -1197,22 +1208,22 @@
 					class:pending={activeTab.originPermission === 'pending'}
 					class:denied={activeTab.originPermission === 'denied'}
 					title={activeTab.originPermission === 'local'
-						? 'Origine locale autorizzata automaticamente'
+							? m.browser_origin_local_title()
 						: activeTab.originPermission === 'granted'
 							? m.ui_browserviewer_origine_remota_autorizzata_per_questo_progetto_0481()
 							: activeTab.originPermission === 'pending'
 								? m.ui_browserviewer_in_attesa_di_consenso_per_origine_remota_41de()
-								: 'Origine bloccata o revocata'}
+									: m.browser_origin_denied_title()}
 				>
 					{#if activeTab.originPermission === 'local'}
-						Locale
+						{m.browser_origin_local()}
 					{:else if activeTab.originPermission === 'granted'}
-						Consentita
+						{m.browser_origin_granted()}
 					{:else if activeTab.originPermission === 'pending'}
 						<StatusMark status="pending" label={m.ui_browserviewer_in_attesa_di_consenso_per_origine_remota_41de()} />
 						{m.page_agent_state_idle()}
 					{:else}
-						Bloccata
+						{m.browser_origin_denied()}
 					{/if}
 				</span>
 				{#if activeTab.originPermission === 'granted'}
@@ -1270,27 +1281,27 @@
 				class="device-btn"
 				class:active={device === 'desktop'}
 				onclick={() => (device = 'desktop')}
-				title="Desktop (100%)"
+				title={m.preview_device_desktop_aria()}
 			>
-				Desktop
+				{m.preview_device_desktop()}
 			</button>
 			<button
 				type="button"
 				class="device-btn"
 				class:active={device === 'tablet'}
 				onclick={() => (device = 'tablet')}
-				title="Tablet (768px)"
+				title={m.preview_device_tablet_aria()}
 			>
-				Tablet
+				{m.preview_device_tablet()}
 			</button>
 			<button
 				type="button"
 				class="device-btn"
 				class:active={device === 'mobile'}
 				onclick={() => (device = 'mobile')}
-				title="Mobile (390px)"
+				title={m.preview_device_mobile_aria()}
 			>
-				Mobile
+				{m.preview_device_mobile()}
 			</button>
 		</div>
 
@@ -1306,7 +1317,7 @@
 			{#if activeTab?.controller === 'private-user'}
 				<IconLock /> {m.browser_controller_private()}
 			{:else if activeTab?.controller === 'user'}
-				Utente
+				{m.browser_controller_user()}
 			{:else}
 				{m.project_popover_speaker_agent()}
 			{/if}
@@ -1339,13 +1350,13 @@
 		{/if}
 
 		<!-- Controlli Inspector mirato (S44) -->
-		<Tooltip text="Ispeziona elemento (Alt+I)" placement="bottom">
+		<Tooltip text={m.browser_inspect_tooltip()} placement="bottom">
 			<button
 				type="button"
 				class="tool-btn picker-btn"
 				class:active={isPickerActive}
 				onclick={togglePicker}
-				aria-label="Ispeziona elemento"
+				aria-label={m.browser_inspect_aria()}
 			>
 				<IconInspect /> {m.browser_inspect_element_btn()}
 			</button>
@@ -1357,13 +1368,13 @@
 				class="tool-btn inspector-btn"
 				class:active={isInspectorOpen}
 				onclick={toggleInspector}
-				aria-label="Inspector mirato"
+				aria-label={m.browser_inspector_aria()}
 			>
 				<IconTerminal /> {m.browser_inspector_btn()}
 				{#if errorCount > 0}
-					<span class="inspector-err-badge" title="{errorCount} errori console">{errorCount}</span>
+					<span class="inspector-err-badge" title={m.browser_console_errors_badge({ count: errorCount })}>{errorCount}</span>
 				{:else if failedNetworkCount > 0}
-					<span class="inspector-warn-badge" title="{failedNetworkCount} richieste fallite">{failedNetworkCount}</span>
+					<span class="inspector-warn-badge" title={m.browser_network_failed_badge({ count: failedNetworkCount })}>{failedNetworkCount}</span>
 				{/if}
 			</button>
 		</Tooltip>
@@ -1372,7 +1383,7 @@
 		{#if activeTab}
 			<MenuButton
 				open={isCapabilityMenuOpen}
-				title="Permessi della pagina: appunti, geolocalizzazione, notifiche"
+				title={m.browser_permissions_menu_title()}
 				ariaLabel={m.browser_permissions_menu_aria()}
 				hasPopup="menu"
 				width="300px"
@@ -1403,22 +1414,22 @@
 				</div>
 			</MenuButton>
 
-			<Tooltip text={isRecording ? m.ui_browserviewer_interrompi_la_registrazione_locale_della_scheda_9af8() : 'Registra la scheda in un artifact video locale'} placement="bottom">
+			<Tooltip text={isRecording ? m.ui_browserviewer_interrompi_la_registrazione_locale_della_scheda_9af8() : m.browser_record_tooltip()} placement="bottom">
 				<button
 					type="button"
 					class="tool-btn recording-btn"
 					class:active={isRecording}
 					onclick={toggleRecording}
 					disabled={recording?.status === 'stopping'}
-					aria-label={isRecording ? 'Interrompi registrazione' : 'Registra scheda'}
+					aria-label={isRecording ? m.browser_record_stop_aria() : m.browser_record_start_aria()}
 				>
 					<span bind:this={recordingDotEl} class="recording-dot" class:recording={isRecording} class:live={isRecordingLive} aria-hidden="true"></span>
 					{#if recording?.status === 'stopping'}
 						{m.browser_recording_stopping()}
 					{:else if isRecording}
-						Stop ({recording?.frameCount ?? 0} fotogrammi)
+						{m.browser_record_stop({ count: recording?.frameCount ?? 0 })}
 					{:else}
-						Registra
+						{m.browser_record_start()}
 					{/if}
 				</button>
 			</Tooltip>
@@ -1436,7 +1447,7 @@
 				{#if copiedScreenshot}
 					<IconCheck /> {m.browser_copied()}
 				{:else}
-					<IconCamera /> Cattura
+					<IconCamera /> {m.browser_capture()}
 				{/if}
 			</button>
 		</Tooltip>
@@ -1497,13 +1508,13 @@
 					<span class="origin-consent-icon danger" aria-hidden="true"><IconLock /></span>
 					<div class="origin-consent-text">
 						<p class="origin-consent-title">{m.browser_controller_private()}</p>
-						<p class="origin-consent-desc">Modalità privata attiva: screenshot, frame e testo della pagina non sono visibili all'agente.</p>
+						<p class="origin-consent-desc">{m.browser_private_active_desc()}</p>
 					</div>
 				</div>
 				{#if activeTab}
 					<div class="origin-consent-actions">
 						<button type="button" class="btn-consent-deny" onclick={handleTogglePrivacy}>
-							Disattiva
+							{m.browser_private_disable()}
 						</button>
 					</div>
 				{/if}
@@ -1535,7 +1546,7 @@
 						onclick={() => decideOrigin('revoke')}
 						disabled={originBusy}
 					>
-						Rifiuta
+						{m.browser_origin_deny()}
 					</button>
 				</div>
 			</div>
@@ -1547,7 +1558,7 @@
 					<span class="origin-consent-icon" aria-hidden="true"><IconWarning /></span>
 					<div class="origin-consent-text">
 						<p class="origin-consent-title">
-							La pagina chiede {pendingChooser.mode === 'multiple' ? m.ui_browserviewer_dei_file_33d3() : m.ui_browserviewer_un_file_1251()}
+							{pendingChooser.mode === 'multiple' ? m.browser_consent_file_multiple() : m.browser_consent_file_single()}
 						</p>
 						<p class="origin-consent-desc">
 							{m.browser_consent_file_desc()}
@@ -1571,7 +1582,7 @@
 					<div class="origin-consent-text">
 						<p class="origin-consent-title">{m.browser_consent_download_title()}</p>
 						<p class="origin-consent-desc">
-							<strong>{download.suggestedFilename}</strong> ({formatBytes(download.receivedBytes)}) da
+							<strong>{download.suggestedFilename}</strong> ({formatBytes(download.receivedBytes)}) {m.browser_download_from()}
 							<strong>{download.origin || download.url}</strong>{m.ui_browserviewer_il_file_e_in_quarantena_e_non_34e1()}
 						</p>
 					</div>
@@ -1595,8 +1606,8 @@
 					: openDialog.kind === 'confirm'
 						? m.ui_browserviewer_conferma_richiesta_dalla_pagina_1c4b()
 						: openDialog.kind === 'prompt'
-							? 'Richiesta di inserimento dalla pagina'
-							: 'Avviso della pagina'}
+							? m.browser_dialog_prompt_title()
+							: m.browser_dialog_alert_title()}
 				onClose={() => respondDialog(openDialog.kind === 'alert')}
 				ariaLabel={m.browser_dialog_page_title()}
 			>
@@ -1664,7 +1675,7 @@
 						onclick={() => revealArtifact(recording?.path as string)}
 						title={recording.path}
 					>
-						Registrazione · {recording.frameCount} fotogrammi · {formatBytes(recording.bytes)}
+						{m.browser_recording_chip({ count: recording.frameCount, size: formatBytes(recording.bytes) })}
 					</button>
 				{:else if recording && recording.status === 'failed'}
 					<span class="artifact-chip rejected" title={recording.error ?? ''}>{m.ui_browserviewer_registrazione_fallita_d34b()}</span>
@@ -1676,7 +1687,7 @@
 				<span class="note-icon"><IconGlobe /></span>
 				<p class="note-title">{m.browser_empty_title()}</p>
 				<p class="note-desc">
-					{m.ui_browserviewer_avvia_un_comando_o_task_che_utilizza_f0ce()} <code>browser</code> per visualizzare lo stream live della pagina.
+					{m.ui_browserviewer_avvia_un_comando_o_task_che_utilizza_f0ce()} <code>browser</code> {m.browser_empty_desc_after()}
 				</p>
 			</div>
 		{:else if currentFrame}
@@ -1705,7 +1716,7 @@
 				<img
 					bind:this={imageEl}
 					src="data:{currentFrame.meta.mimeType};base64,{currentFrame.imageBase64}"
-					alt="Live Browser Viewport"
+					alt={m.browser_live_viewport_alt()}
 					class="live-image"
 					draggable="false"
 				/>
@@ -1777,15 +1788,15 @@
 			<div class="center-note error" role="alert">
 				<span class="note-icon error"><IconWarning /></span>
 				<p class="note-title">{m.browser_stream_err_title()}</p>
-				<p class="note-desc">{streamError || 'Impossibile connettersi al WebSocket live'}</p>
+				<p class="note-desc">{streamError || m.browser_stream_connect_failed()}</p>
 				<button type="button" class="tool-btn" onclick={retryStream} style="margin-top: var(--space-3);">
 					<IconRefresh /> {m.browser_stream_retry_conn()}
 				</button>
 			</div>
 		{:else if streamStatus === 'disconnected'}
 			<div class="center-note" role="status">
-				<StatusMark status="running" label="Stream live disconnesso" />
-				<p class="note-title">Stream live disconnesso</p>
+				<StatusMark status="running" label={m.browser_stream_disconnected()} />
+				<p class="note-title">{m.browser_stream_disconnected()}</p>
 				<p class="note-desc">{streamError || m.ui_browserviewer_riconnessione_automatica_in_corso_f7ab()}</p>
 				<button type="button" class="tool-btn" onclick={retryStream} style="margin-top: var(--space-3);">
 					<IconRefresh /> {m.browser_stream_retry_btn()}
@@ -1795,21 +1806,21 @@
 			<div class="center-note">
 				<StatusMark status="running" label={m.ui_browserviewer_connessione_allo_stream_live_in_corso_3962()} />
 				<p class="note-title">{m.ui_browserviewer_connessione_allo_stream_live_in_corso_3962()}</p>
-				<p class="note-desc">Aggancio al canale loopback autenticato di Chromium gestito.</p>
+				<p class="note-desc">{m.browser_stream_connecting_desc()}</p>
 			</div>
 		{/if}
 	</div>
 
 	<!-- Dock Inspector mirato retrattile (S44) -->
 	{#if isInspectorOpen}
-		<div class="inspector-dock" role="region" aria-label="Inspector mirato" transition:rvLift>
+		<div class="inspector-dock" role="region" aria-label={m.browser_inspector_aria()} transition:rvLift>
 			<div class="inspector-tabbar">
 				<div class="tabbar-left">
 					<ColumnTabs
 						tabs={inspectorTabs}
 						selected={activeInspectorTab}
 						onChange={(id) => (activeInspectorTab = id as InspectorTab)}
-						ariaLabel="Sezioni inspector"
+						ariaLabel={m.browser_inspector_sections_aria()}
 						tabIdPrefix={`${inspectorId}-tab-`}
 						panelIdPrefix={`${inspectorId}-panel-`}
 					/>
@@ -1828,54 +1839,54 @@
 							</button>
 						</Tooltip>
 					{:else if activeInspectorTab === 'console' && consoleEntries.length > 0}
-						<Tooltip text="Allega errori e avvisi console al prompt" placement="top">
+						<Tooltip text={m.browser_attach_console_tooltip()} placement="top">
 							<button
 								type="button"
 								class="inspector-action-btn attach-btn"
 								disabled={errorCount === 0}
 								onclick={() => attachContextToPrompt('console')}
 							>
-								<IconSend /> Allega errori ({errorCount})
+								<IconSend /> {m.browser_btn_attach_errors({ count: errorCount })}
 							</button>
 						</Tooltip>
-						<Tooltip text="Cancella log console" placement="top">
+						<Tooltip text={m.browser_clear_console()} placement="top">
 							<button
 								type="button"
 								class="inspector-action-btn"
 								onclick={() => handleClearBuffer('console')}
-								aria-label="Cancella log console"
+								aria-label={m.browser_clear_console()}
 							>
 								<IconClear /> {m.browser_btn_clear()}
 							</button>
 						</Tooltip>
 					{:else if activeInspectorTab === 'network' && networkEntries.length > 0}
-						<Tooltip text="Allega richieste di rete fallite al prompt" placement="top">
+						<Tooltip text={m.browser_attach_network_tooltip()} placement="top">
 							<button
 								type="button"
 								class="inspector-action-btn attach-btn"
 								disabled={failedNetworkCount === 0}
 								onclick={() => attachContextToPrompt('network')}
 							>
-								<IconSend /> Allega fallite ({failedNetworkCount})
+								<IconSend /> {m.browser_btn_attach_failed_network({ count: failedNetworkCount })}
 							</button>
 						</Tooltip>
-						<Tooltip text="Cancella log di rete" placement="top">
+						<Tooltip text={m.browser_clear_network()} placement="top">
 							<button
 								type="button"
 								class="inspector-action-btn"
 								onclick={() => handleClearBuffer('network')}
-								aria-label="Cancella log di rete"
+								aria-label={m.browser_clear_network()}
 							>
 								<IconClear /> {m.browser_btn_clear()}
 							</button>
 						</Tooltip>
 					{:else if activeInspectorTab === 'actions' && actionEntries.length > 0}
-						<Tooltip text="Cancella timeline azioni" placement="top">
+						<Tooltip text={m.browser_clear_actions()} placement="top">
 							<button
 								type="button"
 								class="inspector-action-btn"
 								onclick={() => handleClearBuffer('actions')}
-								aria-label="Cancella timeline azioni"
+								aria-label={m.browser_clear_actions()}
 							>
 								<IconClear /> {m.browser_btn_clear()}
 							</button>
@@ -1926,8 +1937,8 @@
 									</button>
 								</div>
 								{#if inspectedCropBase64}
-									<div class="elem-crop-preview" title="Ritaglio elemento">
-										<img src="data:image/png;base64,{inspectedCropBase64}" alt="Element crop" />
+									<div class="elem-crop-preview" title={m.browser_element_crop()}>
+										<img src="data:image/png;base64,{inspectedCropBase64}" alt={m.browser_element_crop()} />
 									</div>
 								{/if}
 							</div>
@@ -1944,7 +1955,12 @@
 								<div class="meta-field">
 									<span class="field-label">Bounding Box</span>
 									<span class="field-val">
-										{Math.round(inspectedElement.boundingBox.width)}&times;{Math.round(inspectedElement.boundingBox.height)} a ({Math.round(inspectedElement.boundingBox.x)}, {Math.round(inspectedElement.boundingBox.y)})
+										{m.browser_bounding_box_value({
+										width: Math.round(inspectedElement.boundingBox.width),
+										height: Math.round(inspectedElement.boundingBox.height),
+										x: Math.round(inspectedElement.boundingBox.x),
+										y: Math.round(inspectedElement.boundingBox.y)
+									})}
 									</span>
 								</div>
 								<div class="meta-field">
@@ -1971,7 +1987,7 @@
 							<span class="empty-icon"><IconInspect /></span>
 							<p class="empty-text">{m.browser_no_element_selected()}</p>
 							<p class="empty-hint">
-								Attiva <strong>{m.browser_inspect_element_btn()}</strong> (Alt+I) nella barra superiore o clicca su qualsiasi punto della pagina live.
+								{m.browser_inspect_hint_before()} <strong>{m.browser_inspect_element_btn()}</strong> {m.browser_inspect_hint_after()}
 							</p>
 						</div>
 					{/if}
@@ -1979,14 +1995,14 @@
 				{:else if activeInspectorTab === 'console'}
 					<!-- Console Tab -->
 					<div class="tab-filter-bar">
-						<div class="filter-pills" role="group" aria-label="Filtro livello console">
+						<div class="filter-pills" role="group" aria-label={m.browser_console_filter_aria()}>
 							<button
 								type="button"
 								class="filter-pill"
 								class:active={consoleFilterLevel === 'all'}
 								onclick={() => (consoleFilterLevel = 'all')}
 							>
-								Tutti ({consoleEntries.length})
+								{m.browser_filter_all({ count: consoleEntries.length })}
 							</button>
 							<button
 								type="button"
@@ -1994,7 +2010,7 @@
 								class:active={consoleFilterLevel === 'error'}
 								onclick={() => (consoleFilterLevel = 'error')}
 							>
-								Errori ({errorCount})
+								{m.browser_filter_errors({ count: errorCount })}
 							</button>
 							<button
 								type="button"
@@ -2002,7 +2018,7 @@
 								class:active={consoleFilterLevel === 'warn'}
 								onclick={() => (consoleFilterLevel = 'warn')}
 							>
-								Avvisi ({consoleEntries.filter((e) => e.level === 'warn').length})
+								{m.browser_filter_warnings({ count: consoleEntries.filter((e) => e.level === 'warn').length })}
 							</button>
 							<button
 								type="button"
@@ -2050,14 +2066,14 @@
 				{:else if activeInspectorTab === 'network'}
 					<!-- Network Tab -->
 					<div class="tab-filter-bar">
-						<div class="filter-pills" role="group" aria-label="Filtro rete">
+						<div class="filter-pills" role="group" aria-label={m.browser_network_filter_aria()}>
 							<button
 								type="button"
 								class="filter-pill"
 								class:active={networkFilter === 'all'}
 								onclick={() => (networkFilter = 'all')}
 							>
-								Tutti ({networkEntries.length})
+								{m.browser_filter_all({ count: networkEntries.length })}
 							</button>
 							<button
 								type="button"
@@ -2065,7 +2081,7 @@
 								class:active={networkFilter === 'failed'}
 								onclick={() => (networkFilter = 'failed')}
 							>
-								Fallite ({failedNetworkCount})
+								{m.browser_filter_failed({ count: failedNetworkCount })}
 							</button>
 							<button
 								type="button"
@@ -2073,7 +2089,7 @@
 								class:active={networkFilter === 'slow'}
 								onclick={() => (networkFilter = 'slow')}
 							>
-								Lente &gt;1s ({networkEntries.filter((e) => e.durationMs >= 1000).length})
+								{m.browser_filter_slow({ count: networkEntries.filter((e) => e.durationMs >= 1000).length })}
 							</button>
 							<button
 								type="button"

@@ -89,15 +89,15 @@
 		const prompt = editPrompt.trim();
 
 		if (!label) {
-			editFormError = 'L\'etichetta del suggerimento non puo\' essere vuota.';
+			editFormError = m.settings_suggestions_err_label_empty();
 			return;
 		}
 		if (label.length > 28) {
-			editFormError = 'L\'etichetta non puo\' superare i 28 caratteri.';
+			editFormError = m.settings_suggestions_err_label_long();
 			return;
 		}
 		if (!prompt) {
-			editFormError = 'Il testo del prompt non puo\' essere vuoto.';
+			editFormError = m.settings_suggestions_err_prompt_empty();
 			return;
 		}
 
@@ -172,14 +172,14 @@
 <div class="settings-section">
 	<!-- Blocco A: Suggerimenti dinamici (AI) -->
 	<div class="section-block">
-		<span class="block-title">Suggerimenti dinamici (AI)</span>
+		<span class="block-title">{m.settings_suggestions_dynamic_title()}</span>
 		<div class="section-group">
 			<!-- Toggle abilitazione dinamica -->
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="switch-dynamic-suggestions-label" class="form-row-label">Abilita suggerimenti dinamici</span>
+					<span id="switch-dynamic-suggestions-label" class="form-row-label">{m.settings_suggestions_dynamic_enable()}</span>
 					<span id="switch-dynamic-suggestions-desc" class="form-row-desc">
-						Genera automaticamente opzioni di prompt contestuali al termine di ogni risposta dell'agente.
+						{m.settings_suggestions_dynamic_desc()}
 					</span>
 					<span class="form-row-warning">
 						{m.ui_suggestionssection_costo_e_privacy_alla_fine_di_ogni_f94a()}
@@ -208,7 +208,7 @@
 						{m.ui_suggestionssection_modello_leggero_delegato_alla_formulazione_dei_suggerimenti_dd58()}
 					</span>
 					<span class="form-row-help">
-						Un suffisso come <code>:minimal</code> o <code>:low</code> riduce la latenza di generazione.
+						{m.settings_suggestions_suffix_before()} <code>:minimal</code> {m.settings_suggestions_suffix_or()} <code>:low</code> {m.settings_suggestions_suffix_after()}
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -263,9 +263,9 @@
 			<!-- Numero massimo di suggerimenti dinamici -->
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="suggestion-max-dynamic" id="suggestion-max-dynamic-label" class="form-row-label">Numero massimo di suggerimenti dinamici</label>
+					<label for="suggestion-max-dynamic" id="suggestion-max-dynamic-label" class="form-row-label">{m.settings_suggestions_max_label()}</label>
 					<span id="suggestion-max-dynamic-desc" class="form-row-desc">
-						Quante chip generate dall'AI mostrare al massimo nel composer.
+						{m.settings_suggestions_max_desc()}
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -282,9 +282,9 @@
 							})
 						}
 					>
-						<option value={1}>1 suggerimento</option>
-						<option value={2}>2 suggerimenti</option>
-						<option value={3}>3 suggerimenti</option>
+						<option value={1}>{m.settings_suggestions_count_option({ count: 1 })}</option>
+						<option value={2}>{m.settings_suggestions_count_option({ count: 2 })}</option>
+						<option value={3}>{m.settings_suggestions_count_option({ count: 3 })}</option>
 					</select>
 				</div>
 			</div>
@@ -292,7 +292,7 @@
 			<!-- Timeout di generazione in secondi -->
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="suggestion-timeout" id="suggestion-timeout-label" class="form-row-label">Timeout di generazione (secondi)</label>
+					<label for="suggestion-timeout" id="suggestion-timeout-label" class="form-row-label">{m.settings_suggestions_timeout_label()}</label>
 					<span id="suggestion-timeout-desc" class="form-row-desc">
 						{m.ui_suggestionssection_tempo_limite_di_attesa_per_la_risposta_a885()}
 					</span>
@@ -324,9 +324,9 @@
 	<div class="section-block">
 		<div class="suggestions-header">
 			<div class="header-left">
-				<span class="block-title">Suggerimenti fissi</span>
+				<span class="block-title">{m.settings_suggestions_fixed_title()}</span>
 				<p class="section-subtitle">
-					Prompt predefiniti configurabili visualizzati come chip cliccabili sopra il composer.
+					{m.settings_suggestions_fixed_desc()}
 				</p>
 			</div>
 			<div class="header-actions">
@@ -337,7 +337,7 @@
 					disabled={editingSuggestionId !== null}
 				>
 					<IconPlus />
-					<span>Nuovo suggerimento</span>
+					<span>{m.settings_suggestions_new()}</span>
 				</button>
 			</div>
 		</div>
@@ -345,7 +345,7 @@
 		<!-- Nota informativa slot composer -->
 		<div class="info-banner">
 			<span class="info-banner-text">
-				Nel composer vengono mostrati al massimo i primi 3 suggerimenti non nascosti, in quest'ordine, raggiungibili con le scorciatoie Alt+1, Alt+2 e Alt+3.
+				{m.settings_suggestions_slots_info()}
 			</span>
 		</div>
 
@@ -355,7 +355,7 @@
 				class="inline-editor-card"
 				transition:trayFold
 				role="region"
-				aria-label="Editor suggerimento"
+				aria-label={m.settings_suggestions_editor_aria()}
 				use:escapeDismiss={cancelEdit}
 			>
 				<div class="editor-header">
@@ -375,7 +375,7 @@
 				<div class="form-fields">
 					<div class="form-field full">
 						<div class="field-label-row">
-							<label for="edit-sug-label" class="field-label">Etichetta sulla chip (max 28 caratteri)</label>
+							<label for="edit-sug-label" class="field-label">{m.settings_suggestions_label_field()}</label>
 							<span class="char-counter" class:warn={editLabel.length > 24} class:limit={editLabel.length >= 28}>
 								{editLabel.length}/28
 							</span>
@@ -391,12 +391,12 @@
 					</div>
 
 					<div class="form-field full">
-						<span class="field-label">Testo del prompt inserito nel composer</span>
+						<span class="field-label">{m.settings_suggestions_prompt_field()}</span>
 						<PromptField
 							bind:this={suggestionPromptField}
 							bind:value={editPrompt}
-							placeholder="Testo completo che verra' precompilato nel composer..."
-							ariaLabel="Testo del prompt inserito nel composer"
+							placeholder={m.settings_suggestions_prompt_placeholder()}
+							ariaLabel={m.settings_suggestions_prompt_field()}
 							onSubmit={saveSuggestionForm}
 							onCancel={cancelEdit}
 						/>
@@ -411,7 +411,7 @@
 					<div class="footer-left">
 						<button type="button" class="ui-button ui-button-primary" onclick={saveSuggestionForm}>
 							<IconCheck />
-							<span>Salva suggerimento</span>
+							<span>{m.settings_suggestions_save()}</span>
 						</button>
 						<button type="button" class="ui-button ui-button-secondary" onclick={cancelEdit}>
 							{m.common_cancel()}
@@ -427,7 +427,7 @@
 								onclick={() => handleResetFactory(currentSug)}
 							>
 								<IconRefresh />
-								<span>Ripristina originale di fabbrica</span>
+								<span>{m.settings_factory_reset()}</span>
 							</button>
 						{/if}
 					{/if}
@@ -436,9 +436,9 @@
 		{/if}
 
 		<!-- Elenco Suggerimenti a Righe Dense -->
-		<div class="suggestions-list" role="list" aria-label="Elenco suggerimenti configurati">
+		<div class="suggestions-list" role="list" aria-label={m.settings_suggestions_list_aria()}>
 			{#if (settingsStore.promptSuggestions || []).length === 0}
-				<div class="empty-note">Nessun suggerimento fisso configurato.</div>
+				<div class="empty-note">{m.settings_suggestions_empty_note()}</div>
 			{:else}
 				{@const nonHiddenSuggestions = (settingsStore.promptSuggestions || []).filter((s) => !s.hidden)}
 				{#each settingsStore.promptSuggestions || [] as s, idx (s.id)}
@@ -452,13 +452,13 @@
 					>
 						<!-- Riordino -->
 						<div class="col-order">
-							<Tooltip text="Sposta su">
+							<Tooltip text={m.settings_move_up()}>
 								<button
 									type="button"
 									class="order-btn"
 									disabled={idx === 0}
 									onclick={() => handleMove(s.id, -1)}
-									aria-label="Sposta su"
+									aria-label={m.settings_move_up()}
 								>
 									<IconChevronUp />
 								</button>
@@ -481,17 +481,17 @@
 							<div class="row-top">
 								<span class="sug-name">{s.label}</span>
 								{#if composerSlot !== null}
-									<Tooltip text={`Visibile nel composer come chip ${composerSlot}`}>
+									<Tooltip text={m.settings_suggestions_slot_tooltip({ slot: composerSlot })}>
 										<span class="slot-pill">
 											Alt+{composerSlot}
 										</span>
 									</Tooltip>
 								{/if}
 								{#if s.factoryKey}
-									<span class="factory-pill">Preset</span>
+									<span class="factory-pill">{m.settings_preset_pill()}</span>
 								{/if}
 								{#if s.hidden}
-									<span class="hidden-pill">Nascosto</span>
+									<span class="hidden-pill">{m.settings_suggestions_hidden_pill()}</span>
 								{/if}
 							</div>
 							<p class="sug-prompt">{s.prompt}</p>
@@ -509,12 +509,12 @@
 									<IconRename />
 								</button>
 							</Tooltip>
-							<Tooltip text="Duplica suggerimento">
+							<Tooltip text={m.settings_suggestions_duplicate()}>
 								<button
 									type="button"
 									class="btn-row-action"
 									onclick={() => handleDuplicate(s.id)}
-									aria-label={`Duplica ${s.label}`}
+									aria-label={m.settings_suggestions_duplicate_aria({ label: s.label })}
 								>
 									<IconCopy />
 								</button>
@@ -531,12 +531,12 @@
 								</button>
 							</Tooltip>
 							{#if s.factoryKey}
-								<Tooltip text="Ripristina testo e configurazione originale di fabbrica">
+								<Tooltip text={m.settings_suggestions_reset_factory()}>
 									<button
 										type="button"
 										class="btn-row-action"
 										onclick={() => handleResetFactory(s)}
-										aria-label={`Ripristina ${s.label} di fabbrica`}
+										aria-label={m.settings_suggestions_reset_aria({ label: s.label })}
 									>
 										<IconRefresh />
 									</button>
@@ -552,7 +552,7 @@
 										aria-label={deleteArmedId === s.id ? m.ui_suggestionssection_conferma_eliminazione_7049() : m.ui_suggestionssection_elimina_value1_ac11({ value1: s.label })}
 									>
 										{#if deleteArmedId === s.id}
-											<span>Sicuro?</span>
+											<span>{m.settings_delete_armed()}</span>
 										{:else}
 											<IconTrash />
 										{/if}

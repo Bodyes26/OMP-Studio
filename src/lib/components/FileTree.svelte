@@ -440,7 +440,7 @@
 			case 'U': return m.ui_filetree_non_tracciato_in_attesa_di_commit_36ca();
 			case 'D': return m.ui_filetree_rimosso_in_attesa_di_commit_e3cf();
 			case 'R': return m.ui_filetree_rinominato_in_attesa_di_commit_f9b2();
-			case 'C': return 'Conflitto git';
+			case 'C': return m.file_tree_git_conflict();
 			default: return m.ui_filetree_modificato_in_attesa_di_commit_45d7();
 		}
 	}
@@ -516,13 +516,13 @@
 	async function commitCreation() {
 		const trimmed = creationName.trim();
 		if (!trimmed) {
-			creationError = 'Il nome non puo essere vuoto';
+			creationError = m.file_tree_name_empty();
 			await tick();
 			creationInputRef?.focus();
 			return;
 		}
 		if (trimmed.includes('/') || trimmed.includes('\\')) {
-			creationError = 'Il nome non puo contenere barre';
+			creationError = m.file_tree_name_slashes();
 			await tick();
 			creationInputRef?.focus();
 			return;
@@ -601,7 +601,7 @@
 	async function commitRename() {
 		const trimmed = renameValue.trim();
 		if (!trimmed) {
-			renameError = 'Il nome non puo essere vuoto';
+			renameError = m.file_tree_name_empty();
 			await tick();
 			renameInputRef?.focus();
 			return;
@@ -611,7 +611,7 @@
 			return;
 		}
 		if (trimmed.includes('/') || trimmed.includes('\\')) {
-			renameError = 'Il nome non puo contenere barre';
+			renameError = m.file_tree_name_slashes();
 			await tick();
 			renameInputRef?.focus();
 			return;
@@ -739,7 +739,7 @@
 		);
 
 		contextMenu.open(event, {
-			label: `File: ${name}`,
+			label: m.file_tree_menu_file_label({ name }),
 			items,
 			invoker: event.currentTarget as HTMLElement
 		});
@@ -865,7 +865,7 @@
 		];
 
 		contextMenu.open(event, {
-			label: `Progetto: ${name}`,
+			label: m.file_tree_menu_project_label({ name }),
 			items,
 			invoker: event.currentTarget as HTMLElement
 		});
@@ -1296,7 +1296,7 @@
 						<span class="meta-label error">{searchError}</span>
 					{:else}
 						<span class="meta-label">
-							{searchResults.length === 1 ? m.ui_filetree_1_file_trovato_d26d() : `${searchResults.length} file trovati`}
+							{m.file_tree_found_count({ count: searchResults.length })}
 						</span>
 					{/if}
 				</div>
@@ -1502,7 +1502,7 @@
 							<button type="button" class="retry-btn" onclick={() => void loadEntries(true)}>{m.file_tree_retry()}</button>
 						</div>
 					{:else}
-						<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">Loading...</div>
+						<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">{m.common_loading()}</div>
 					{/if}
 				</div>
 			</div>

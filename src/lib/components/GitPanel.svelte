@@ -416,7 +416,7 @@
 								{upstream.upstream}
 							</span>
 						{:else}
-							<span class="upstream-none">Nessun upstream</span>
+							<span class="upstream-none">{m.git_no_upstream()}</span>
 						{/if}
 						{#if upstream.ahead > 0 || upstream.behind > 0}
 							<div class="divergence-pills">
@@ -449,7 +449,7 @@
 								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('pull')}
 								disabled={isSyncing}
-								title="Scarica i commit da GitHub (pull rebase)"
+								title={m.git_pull_title()}
 							>
 								{isSyncing ? '…' : 'Pull'}
 							</button>
@@ -459,7 +459,7 @@
 								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('push')}
 								disabled={isSyncing}
-								title="Invia i commit a GitHub (push)"
+								title={m.git_push_title()}
 							>
 								{isSyncing ? '…' : 'Push'}
 							</button>
@@ -469,7 +469,7 @@
 								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('sync')}
 								disabled={isSyncing}
-								title="Pull e push combinati"
+								title={m.git_sync_title()}
 							>
 								{isSyncing ? '…' : 'Sync'}
 							</button>
@@ -479,7 +479,7 @@
 								class="ui-button ui-button-secondary btn-sync"
 								onclick={() => handleSync('fetch')}
 								disabled={isSyncing}
-								title="Controlla nuovi commit su GitHub (fetch)"
+								title={m.git_fetch_title()}
 							>
 								{isSyncing ? '…' : 'Fetch'}
 							</button>
@@ -525,11 +525,11 @@
 							{/if}
 						</span>
 						<span class="ci-name" title={latestAction.name}>{latestAction.name}</span>
-						<Tooltip text="Apri su GitHub">
+						<Tooltip text={m.git_open_on_github()}>
 							<button
 								type="button"
 								class="ci-link"
-								aria-label="Apri su GitHub"
+								aria-label={m.git_open_on_github()}
 								onclick={() => void openUrl(latestAction!.url)}
 							>
 								<IconExternalLink />

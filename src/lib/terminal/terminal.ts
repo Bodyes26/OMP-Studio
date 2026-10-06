@@ -510,9 +510,9 @@ export class TerminalSession {
 	/** Il testo dice cosa sta davvero partendo: riprendere una sessione
 	 *  rilegge il transcript da disco ed e' l'attesa piu' lunga delle tre. */
 	private bootHintText(): string {
-		if (this.launchArgs?.includes('setup')) return 'preparazione della configurazione guidata';
+		if (this.launchArgs?.includes('setup')) return msg.terminal_boot_setup();
 		if (this.pendingResume) return msg.ui_ts_terminal_ripresa_della_sessione_80e3();
-		return 'avvio ambiente';
+		return msg.terminal_boot_env();
 	}
 
 	/** Va chiamata prima che `startPty` consumi `pendingResume`, altrimenti il
@@ -536,7 +536,7 @@ export class TerminalSession {
 			// bocca, e va detto insieme a cosa fare (docs/PRODUCT.md §3.4).
 			this.endBootHint();
 			this.term.write(
-				"\x1b[33mL'ambiente non ha risposto entro 10 secondi.\x1b[0m\r\n" +
+				`\x1b[33m${msg.terminal_boot_timeout()}\x1b[0m\r\n` +
 					msg.ui_ts_terminal_2mverifica_che_omp_sia_installato_e_raggiungibile_cdb3()
 			);
 		}, TerminalSession.BOOT_TIMEOUT_MS);
@@ -639,7 +639,7 @@ export class TerminalSession {
 		} catch (e) {
 			console.error("Failed to open PTY", e);
 			this.endBootHint();
-			this.term.write(`\r\n\x1b[31mFailed to start terminal: ${e}\x1b[0m\r\n`);
+			this.term.write(`\r\n\x1b[31m${msg.terminal_start_failed({ error: String(e) })}\x1b[0m\r\n`);
 		}
 	}
 

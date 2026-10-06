@@ -2,6 +2,7 @@
 	// Modale di ispezione e controllo qualita' delle icone Lucide (Design v2).
 	// Usa la primitiva accessibile Dialog (APG modal con focus trap e rvLift)
 	// e i controlli Segmented per categorie e scale.
+	import { m } from '$lib/paraglide/messages.js';
 	import Dialog from '$lib/ui/Dialog.svelte';
 	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
 	import {
@@ -125,105 +126,105 @@
 
 	const ICONS_CATALOG: IconEntry[] = [
 		// Intelligenza & Ruoli
-		{ name: 'IconBrain', glyph: 'brain', category: 'ai', component: IconBrain, description: 'Thinking effort e reasoning slider' },
-		{ name: 'IconRoleDefault', glyph: 'message-circle', category: 'ai', component: IconRoleDefault, description: 'Ruolo default per chat generica' },
-		{ name: 'IconRolePlan', glyph: 'diamond', category: 'ai', component: IconRolePlan, description: 'Ruolo plan per architettura e scomposizione' },
-		{ name: 'IconRoleSmol', glyph: 'zap', category: 'ai', component: IconRoleSmol, description: 'Ruolo smol per task rapidi o meccanici' },
-		{ name: 'IconRoleSlow', glyph: 'infinity', category: 'ai', component: IconRoleSlow, description: 'Ruolo slow per modelli ad alto ragionamento' },
-		{ name: 'IconRoleVision', glyph: 'eye', category: 'ai', component: IconRoleVision, description: 'Ruolo vision per modelli multimodali' },
-		{ name: 'IconRoleAdvisor', glyph: 'shield-check', category: 'ai', component: IconRoleAdvisor, description: 'Ruolo advisor per revisioni e sicurezza' },
-		{ name: 'IconRoleTask', glyph: 'split', category: 'ai', component: IconRoleTask, description: 'Ruolo task per deleghe operative' },
-		{ name: 'IconRoleCommit', glyph: 'git-commit-horizontal', category: 'ai', component: IconRoleCommit, description: 'Ruolo commit per messaggi git' },
-		{ name: 'IconContextWindow', glyph: 'scan-text', category: 'ai', component: IconContextWindow, description: 'Indicatore finestra di contesto del modello' },
-		{ name: 'IconSubagents', glyph: 'split', category: 'ai', component: IconSubagents, description: 'Scomposizione e subagenti concorrenti' },
-		{ name: 'IconDiamond', glyph: 'diamond', category: 'ai', component: IconDiamond, description: 'Simbolo di qualita o piano' },
-		{ name: 'IconPrewalk', glyph: 'footprints', category: 'ai', component: IconPrewalk, description: 'Prewalk esplorativo preliminare con @smol' },
+		{ name: 'IconBrain', glyph: 'brain', category: 'ai', component: IconBrain, description: m.icon_inspector_desc_brain() },
+		{ name: 'IconRoleDefault', glyph: 'message-circle', category: 'ai', component: IconRoleDefault, description: m.icon_inspector_desc_role_default() },
+		{ name: 'IconRolePlan', glyph: 'diamond', category: 'ai', component: IconRolePlan, description: m.icon_inspector_desc_role_plan() },
+		{ name: 'IconRoleSmol', glyph: 'zap', category: 'ai', component: IconRoleSmol, description: m.icon_inspector_desc_role_smol() },
+		{ name: 'IconRoleSlow', glyph: 'infinity', category: 'ai', component: IconRoleSlow, description: m.icon_inspector_desc_role_slow() },
+		{ name: 'IconRoleVision', glyph: 'eye', category: 'ai', component: IconRoleVision, description: m.icon_inspector_desc_role_vision() },
+		{ name: 'IconRoleAdvisor', glyph: 'shield-check', category: 'ai', component: IconRoleAdvisor, description: m.icon_inspector_desc_role_advisor() },
+		{ name: 'IconRoleTask', glyph: 'split', category: 'ai', component: IconRoleTask, description: m.icon_inspector_desc_role_task() },
+		{ name: 'IconRoleCommit', glyph: 'git-commit-horizontal', category: 'ai', component: IconRoleCommit, description: m.icon_inspector_desc_role_commit() },
+		{ name: 'IconContextWindow', glyph: 'scan-text', category: 'ai', component: IconContextWindow, description: m.icon_inspector_desc_context_window() },
+		{ name: 'IconSubagents', glyph: 'split', category: 'ai', component: IconSubagents, description: m.icon_inspector_desc_subagents() },
+		{ name: 'IconDiamond', glyph: 'diamond', category: 'ai', component: IconDiamond, description: m.icon_inspector_desc_diamond() },
+		{ name: 'IconPrewalk', glyph: 'footprints', category: 'ai', component: IconPrewalk, description: m.icon_inspector_desc_prewalk() },
 		// Affordance
-		{ name: 'IconClose', glyph: 'x', category: 'affordance', component: IconClose, description: 'Chiusura modali, schede e notifiche' },
-		{ name: 'IconCheck', glyph: 'check', category: 'affordance', component: IconCheck, description: 'Conferma, salvataggio e spunta completato' },
-		{ name: 'IconPlus', glyph: 'plus', category: 'affordance', component: IconPlus, description: 'Nuovo elemento, nuovo task, nuovo file' },
-		{ name: 'IconChevronRight', glyph: 'chevron-right', category: 'affordance', component: IconChevronRight, description: 'Freccia espansione verso destra' },
-		{ name: 'IconChevronLeft', glyph: 'chevron-left', category: 'affordance', component: IconChevronLeft, description: 'Freccia collasso verso sinistra' },
-		{ name: 'IconChevronDown', glyph: 'chevron-down', category: 'affordance', component: IconChevronDown, description: 'Menu a tendina o accordion aperto' },
-		{ name: 'IconArrowRight', glyph: 'arrow-right', category: 'affordance', component: IconArrowRight, description: 'Avanzamento o navigazione avanti' },
-		{ name: 'IconArrowLeft', glyph: 'arrow-left', category: 'affordance', component: IconArrowLeft, description: 'Ritorno o navigazione indietro' },
-		{ name: 'IconArrowDown', glyph: 'arrow-down', category: 'affordance', component: IconArrowDown, description: 'Download o scorrimento verso il basso' },
-		{ name: 'IconArrowUp', glyph: 'arrow-up', category: 'affordance', component: IconArrowUp, description: 'Invio rapido o scorrimento verso l alto' },
-		{ name: 'IconExternalLink', glyph: 'external-link', category: 'affordance', component: IconExternalLink, description: 'Apertura link esterno nel browser' },
-		{ name: 'IconRefresh', glyph: 'refresh-cw', category: 'affordance', component: IconRefresh, description: 'Ricaricamento o sincronizzazione' },
-		{ name: 'IconLoop', glyph: 'rotate-ccw', category: 'affordance', component: IconLoop, description: 'Ripristino o esecuzione ciclica' },
-		{ name: 'IconZoomIn', glyph: 'zoom-in', category: 'affordance', component: IconZoomIn, description: 'Ingrandimento o zoom avanti' },
-		{ name: 'IconZoomOut', glyph: 'zoom-out', category: 'affordance', component: IconZoomOut, description: 'Riduzione o zoom indietro' },
-		{ name: 'IconSearch', glyph: 'search', category: 'affordance', component: IconSearch, description: 'Ricerca in file, comandi o modelli' },
-		{ name: 'IconGlobe', glyph: 'globe', category: 'affordance', component: IconGlobe, description: 'Web, origini remote o rete' },
-		{ name: 'IconLock', glyph: 'lock', category: 'affordance', component: IconLock, description: 'Sicurezza, permessi o lock' },
-		{ name: 'IconCamera', glyph: 'camera', category: 'affordance', component: IconCamera, description: 'Cattura schermata o snapshot visivo' },
-		{ name: 'IconAttach', glyph: 'paperclip', category: 'affordance', component: IconAttach, description: 'Allegato immagini o file nel task' },
-		{ name: 'IconPin', glyph: 'pin', category: 'affordance', component: IconPin, description: 'Fissa in cima o barra' },
-		{ name: 'IconPinned', glyph: 'pin-off', category: 'affordance', component: IconPinned, description: 'Sblocca elemento fissato' },
-		{ name: 'IconSparkles', glyph: 'sparkles', category: 'affordance', component: IconSparkles, description: 'Funzionalita AI o suggerimenti' },
-		{ name: 'IconGrip', glyph: 'grip-vertical', category: 'affordance', component: IconGrip, description: 'Maniglia di trascinamento e riordino D&D' },
+		{ name: 'IconClose', glyph: 'x', category: 'affordance', component: IconClose, description: m.icon_inspector_desc_close() },
+		{ name: 'IconCheck', glyph: 'check', category: 'affordance', component: IconCheck, description: m.icon_inspector_desc_check() },
+		{ name: 'IconPlus', glyph: 'plus', category: 'affordance', component: IconPlus, description: m.icon_inspector_desc_plus() },
+		{ name: 'IconChevronRight', glyph: 'chevron-right', category: 'affordance', component: IconChevronRight, description: m.icon_inspector_desc_chevron_right() },
+		{ name: 'IconChevronLeft', glyph: 'chevron-left', category: 'affordance', component: IconChevronLeft, description: m.icon_inspector_desc_chevron_left() },
+		{ name: 'IconChevronDown', glyph: 'chevron-down', category: 'affordance', component: IconChevronDown, description: m.icon_inspector_desc_chevron_down() },
+		{ name: 'IconArrowRight', glyph: 'arrow-right', category: 'affordance', component: IconArrowRight, description: m.icon_inspector_desc_arrow_right() },
+		{ name: 'IconArrowLeft', glyph: 'arrow-left', category: 'affordance', component: IconArrowLeft, description: m.icon_inspector_desc_arrow_left() },
+		{ name: 'IconArrowDown', glyph: 'arrow-down', category: 'affordance', component: IconArrowDown, description: m.icon_inspector_desc_arrow_down() },
+		{ name: 'IconArrowUp', glyph: 'arrow-up', category: 'affordance', component: IconArrowUp, description: m.icon_inspector_desc_arrow_up() },
+		{ name: 'IconExternalLink', glyph: 'external-link', category: 'affordance', component: IconExternalLink, description: m.icon_inspector_desc_external_link() },
+		{ name: 'IconRefresh', glyph: 'refresh-cw', category: 'affordance', component: IconRefresh, description: m.icon_inspector_desc_refresh() },
+		{ name: 'IconLoop', glyph: 'rotate-ccw', category: 'affordance', component: IconLoop, description: m.icon_inspector_desc_loop() },
+		{ name: 'IconZoomIn', glyph: 'zoom-in', category: 'affordance', component: IconZoomIn, description: m.icon_inspector_desc_zoom_in() },
+		{ name: 'IconZoomOut', glyph: 'zoom-out', category: 'affordance', component: IconZoomOut, description: m.icon_inspector_desc_zoom_out() },
+		{ name: 'IconSearch', glyph: 'search', category: 'affordance', component: IconSearch, description: m.icon_inspector_desc_search() },
+		{ name: 'IconGlobe', glyph: 'globe', category: 'affordance', component: IconGlobe, description: m.icon_inspector_desc_globe() },
+		{ name: 'IconLock', glyph: 'lock', category: 'affordance', component: IconLock, description: m.icon_inspector_desc_lock() },
+		{ name: 'IconCamera', glyph: 'camera', category: 'affordance', component: IconCamera, description: m.icon_inspector_desc_camera() },
+		{ name: 'IconAttach', glyph: 'paperclip', category: 'affordance', component: IconAttach, description: m.icon_inspector_desc_attach() },
+		{ name: 'IconPin', glyph: 'pin', category: 'affordance', component: IconPin, description: m.icon_inspector_desc_pin() },
+		{ name: 'IconPinned', glyph: 'pin-off', category: 'affordance', component: IconPinned, description: m.icon_inspector_desc_pinned() },
+		{ name: 'IconSparkles', glyph: 'sparkles', category: 'affordance', component: IconSparkles, description: m.icon_inspector_desc_sparkles() },
+		{ name: 'IconGrip', glyph: 'grip-vertical', category: 'affordance', component: IconGrip, description: m.icon_inspector_desc_grip() },
 		// Azioni
-		{ name: 'IconFolderOpen', glyph: 'folder-open', category: 'actions', component: IconFolderOpen, description: 'Apertura cartella o progetto' },
-		{ name: 'IconFile', glyph: 'file', category: 'actions', component: IconFile, description: 'File generico' },
-		{ name: 'IconCopy', glyph: 'copy', category: 'actions', component: IconCopy, description: 'Copia negli appunti' },
-		{ name: 'IconTerminal', glyph: 'square-terminal', category: 'actions', component: IconTerminal, description: 'Terminale integrato OMP' },
-		{ name: 'IconEditor', glyph: 'code', category: 'actions', component: IconEditor, description: 'Editor di codice Monaco' },
-		{ name: 'IconRename', glyph: 'square-pen', category: 'actions', component: IconRename, description: 'Rinomina file o progetto' },
-		{ name: 'IconPencil', glyph: 'pencil', category: 'actions', component: IconPencil, description: 'Modifica testuale o disegno' },
-		{ name: 'IconPlay', glyph: 'play', category: 'actions', component: IconPlay, description: 'Avvia task o esegui comando' },
-		{ name: 'IconQueue', glyph: 'list', category: 'actions', component: IconQueue, description: 'Coda task del progetto' },
-		{ name: 'IconAuto', glyph: 'zap', category: 'actions', component: IconAuto, description: 'Esecuzione automatica' },
-		{ name: 'IconCloseOthers', glyph: 'square-x', category: 'actions', component: IconCloseOthers, description: 'Chiudi altre schede' },
-		{ name: 'IconGitBranch', glyph: 'git-branch', category: 'actions', component: IconGitBranch, description: 'Ramo Git corrente' },
-		{ name: 'IconRule', glyph: 'scroll-text', category: 'actions', component: IconRule, description: 'Regola di contesto o guida' },
-		{ name: 'IconSkill', glyph: 'wand-sparkles', category: 'actions', component: IconSkill, description: 'Skill dell agente' },
-		{ name: 'IconDownload', glyph: 'download', category: 'actions', component: IconDownload, description: 'Scarica aggiornamento o installer' },
+		{ name: 'IconFolderOpen', glyph: 'folder-open', category: 'actions', component: IconFolderOpen, description: m.icon_inspector_desc_folder_open() },
+		{ name: 'IconFile', glyph: 'file', category: 'actions', component: IconFile, description: m.icon_inspector_desc_file() },
+		{ name: 'IconCopy', glyph: 'copy', category: 'actions', component: IconCopy, description: m.icon_inspector_desc_copy() },
+		{ name: 'IconTerminal', glyph: 'square-terminal', category: 'actions', component: IconTerminal, description: m.icon_inspector_desc_terminal() },
+		{ name: 'IconEditor', glyph: 'code', category: 'actions', component: IconEditor, description: m.icon_inspector_desc_editor() },
+		{ name: 'IconRename', glyph: 'square-pen', category: 'actions', component: IconRename, description: m.icon_inspector_desc_rename() },
+		{ name: 'IconPencil', glyph: 'pencil', category: 'actions', component: IconPencil, description: m.icon_inspector_desc_pencil() },
+		{ name: 'IconPlay', glyph: 'play', category: 'actions', component: IconPlay, description: m.icon_inspector_desc_play() },
+		{ name: 'IconQueue', glyph: 'list', category: 'actions', component: IconQueue, description: m.icon_inspector_desc_queue() },
+		{ name: 'IconAuto', glyph: 'zap', category: 'actions', component: IconAuto, description: m.icon_inspector_desc_auto() },
+		{ name: 'IconCloseOthers', glyph: 'square-x', category: 'actions', component: IconCloseOthers, description: m.icon_inspector_desc_close_others() },
+		{ name: 'IconGitBranch', glyph: 'git-branch', category: 'actions', component: IconGitBranch, description: m.icon_inspector_desc_git_branch() },
+		{ name: 'IconRule', glyph: 'scroll-text', category: 'actions', component: IconRule, description: m.icon_inspector_desc_rule() },
+		{ name: 'IconSkill', glyph: 'wand-sparkles', category: 'actions', component: IconSkill, description: m.icon_inspector_desc_skill() },
+		{ name: 'IconDownload', glyph: 'download', category: 'actions', component: IconDownload, description: m.icon_inspector_desc_download() },
 		// Editor & Modifica
-		{ name: 'IconViewCode', glyph: 'code', category: 'editor', component: IconViewCode, description: 'Vista codice sorgente' },
-		{ name: 'IconViewSplit', glyph: 'columns-2', category: 'editor', component: IconViewSplit, description: 'Vista affiancata split' },
-		{ name: 'IconViewPreview', glyph: 'eye', category: 'editor', component: IconViewPreview, description: 'Anteprima visiva' },
-		{ name: 'IconDiff', glyph: 'file-diff', category: 'editor', component: IconDiff, description: 'Diff delle modifiche Git' },
-		{ name: 'IconUndo', glyph: 'undo', category: 'editor', component: IconUndo, description: 'Annulla ultima operazione' },
-		{ name: 'IconRedo', glyph: 'redo', category: 'editor', component: IconRedo, description: 'Ripristina operazione annullata' },
-		{ name: 'IconCut', glyph: 'scissors', category: 'editor', component: IconCut, description: 'Taglia selezione' },
-		{ name: 'IconPaste', glyph: 'clipboard-paste', category: 'editor', component: IconPaste, description: 'Incolla dagli appunti' },
-		{ name: 'IconSelectAll', glyph: 'text-select', category: 'editor', component: IconSelectAll, description: 'Seleziona tutto il testo' },
-		{ name: 'IconTrash', glyph: 'trash-2', category: 'editor', component: IconTrash, description: 'Elimina task, file o sessione' },
-		{ name: 'IconNewFile', glyph: 'file-plus', category: 'editor', component: IconNewFile, description: 'Crea nuovo file' },
-		{ name: 'IconNewFolder', glyph: 'folder-plus', category: 'editor', component: IconNewFolder, description: 'Crea nuova cartella' },
-		{ name: 'IconSave', glyph: 'save', category: 'editor', component: IconSave, description: 'Salva file su disco' },
-		{ name: 'IconClear', glyph: 'eraser', category: 'editor', component: IconClear, description: 'Pulisci terminale o storico' },
+		{ name: 'IconViewCode', glyph: 'code', category: 'editor', component: IconViewCode, description: m.icon_inspector_desc_view_code() },
+		{ name: 'IconViewSplit', glyph: 'columns-2', category: 'editor', component: IconViewSplit, description: m.icon_inspector_desc_view_split() },
+		{ name: 'IconViewPreview', glyph: 'eye', category: 'editor', component: IconViewPreview, description: m.icon_inspector_desc_view_preview() },
+		{ name: 'IconDiff', glyph: 'file-diff', category: 'editor', component: IconDiff, description: m.icon_inspector_desc_diff() },
+		{ name: 'IconUndo', glyph: 'undo', category: 'editor', component: IconUndo, description: m.icon_inspector_desc_undo() },
+		{ name: 'IconRedo', glyph: 'redo', category: 'editor', component: IconRedo, description: m.icon_inspector_desc_redo() },
+		{ name: 'IconCut', glyph: 'scissors', category: 'editor', component: IconCut, description: m.icon_inspector_desc_cut() },
+		{ name: 'IconPaste', glyph: 'clipboard-paste', category: 'editor', component: IconPaste, description: m.icon_inspector_desc_paste() },
+		{ name: 'IconSelectAll', glyph: 'text-select', category: 'editor', component: IconSelectAll, description: m.icon_inspector_desc_select_all() },
+		{ name: 'IconTrash', glyph: 'trash-2', category: 'editor', component: IconTrash, description: m.icon_inspector_desc_trash() },
+		{ name: 'IconNewFile', glyph: 'file-plus', category: 'editor', component: IconNewFile, description: m.icon_inspector_desc_new_file() },
+		{ name: 'IconNewFolder', glyph: 'folder-plus', category: 'editor', component: IconNewFolder, description: m.icon_inspector_desc_new_folder() },
+		{ name: 'IconSave', glyph: 'save', category: 'editor', component: IconSave, description: m.icon_inspector_desc_save() },
+		{ name: 'IconClear', glyph: 'eraser', category: 'editor', component: IconClear, description: m.icon_inspector_desc_clear() },
 		// Stato
-		{ name: 'IconStatusPending', glyph: 'circle', category: 'status', component: IconStatusPending, description: 'Task o job in attesa' },
-		{ name: 'IconStatusRunning', glyph: 'circle-dot', category: 'status', component: IconStatusRunning, description: 'Task o job in esecuzione' },
-		{ name: 'IconStatusDone', glyph: 'check', category: 'status', component: IconStatusDone, description: 'Task completato con successo' },
-		{ name: 'IconStatusFailed', glyph: 'circle-x', category: 'status', component: IconStatusFailed, description: 'Task o job fallito o interrotto' },
-		{ name: 'IconCheckbox', glyph: 'square', category: 'status', component: IconCheckbox, description: 'Casella non spuntata' },
-		{ name: 'IconCheckboxChecked', glyph: 'square-check', category: 'status', component: IconCheckboxChecked, description: 'Casella spuntata' },
-		{ name: 'IconRadio', glyph: 'circle', category: 'status', component: IconRadio, description: 'Opzione radio non selezionata' },
-		{ name: 'IconRadioChecked', glyph: 'circle-dot', category: 'status', component: IconRadioChecked, description: 'Opzione radio attiva' },
-		{ name: 'IconNote', glyph: 'notebook-pen', category: 'status', component: IconNote, description: 'Note o promemoria' }
+		{ name: 'IconStatusPending', glyph: 'circle', category: 'status', component: IconStatusPending, description: m.icon_inspector_desc_status_pending() },
+		{ name: 'IconStatusRunning', glyph: 'circle-dot', category: 'status', component: IconStatusRunning, description: m.icon_inspector_desc_status_running() },
+		{ name: 'IconStatusDone', glyph: 'check', category: 'status', component: IconStatusDone, description: m.icon_inspector_desc_status_done() },
+		{ name: 'IconStatusFailed', glyph: 'circle-x', category: 'status', component: IconStatusFailed, description: m.icon_inspector_desc_status_failed() },
+		{ name: 'IconCheckbox', glyph: 'square', category: 'status', component: IconCheckbox, description: m.icon_inspector_desc_checkbox() },
+		{ name: 'IconCheckboxChecked', glyph: 'square-check', category: 'status', component: IconCheckboxChecked, description: m.icon_inspector_desc_checkbox_checked() },
+		{ name: 'IconRadio', glyph: 'circle', category: 'status', component: IconRadio, description: m.icon_inspector_desc_radio() },
+		{ name: 'IconRadioChecked', glyph: 'circle-dot', category: 'status', component: IconRadioChecked, description: m.icon_inspector_desc_radio_checked() },
+		{ name: 'IconNote', glyph: 'notebook-pen', category: 'status', component: IconNote, description: m.icon_inspector_desc_note() }
 	];
 
 	// Elenco candidati raw inline SVG rilevati
 	const RAW_SVG_CANDIDATES = [
-		{ file: 'src/lib/components/TaskEditor.svelte', lines: [579, 596, 611, 628, 722], icons: ['IconTrash', 'IconPlay', 'IconCheck', 'IconClose', 'IconAttach'], note: 'Pulsanti Elimina, Avvia, Salva, Chiudi e Allega usavano SVG inline.' },
-		{ file: 'src/lib/components/AgentPanel.svelte', lines: [156, 227, 282], icons: ['IconPlus', 'IconGrip', 'IconPencil'], note: 'Pulsanti Nuovo task, Maniglia D&D e Modifica task.' },
-		{ file: 'src/lib/components/models/ReasoningSlider.svelte', lines: [131], icons: ['IconBrain'], note: 'AGGIORNATO: L icona cervello grezza e stata sostituita con IconBrain da Lucide.' },
-		{ file: 'src/lib/components/models/RolesTab.svelte', lines: [187, 297, 417, 540, 571], icons: ['IconSearch', 'IconRefresh', 'IconChevronUp', 'IconWarning'], note: 'Campi ricerca e pulsanti azione.' },
-		{ file: 'src/lib/components/models/CatalogTab.svelte', lines: [189, 332], icons: ['IconSearch', 'IconChevronDown'], note: 'Filtro catalogo modelli e dropdown.' }
+		{ file: 'src/lib/components/TaskEditor.svelte', lines: [579, 596, 611, 628, 722], icons: ['IconTrash', 'IconPlay', 'IconCheck', 'IconClose', 'IconAttach'], note: m.icon_inspector_audit_note_task_editor() },
+		{ file: 'src/lib/components/AgentPanel.svelte', lines: [156, 227, 282], icons: ['IconPlus', 'IconGrip', 'IconPencil'], note: m.icon_inspector_audit_note_agent_panel() },
+		{ file: 'src/lib/components/models/ReasoningSlider.svelte', lines: [131], icons: ['IconBrain'], note: m.icon_inspector_audit_note_reasoning() },
+		{ file: 'src/lib/components/models/RolesTab.svelte', lines: [187, 297, 417, 540, 571], icons: ['IconSearch', 'IconRefresh', 'IconChevronUp', 'IconWarning'], note: m.icon_inspector_audit_note_roles() },
+		{ file: 'src/lib/components/models/CatalogTab.svelte', lines: [189, 332], icons: ['IconSearch', 'IconChevronDown'], note: m.icon_inspector_audit_note_catalog() }
 	];
 
-	const categoryOptions: SegmentedOption<CategoryType>[] = [
-		{ value: 'all', label: 'Tutte', count: ICONS_CATALOG.length },
-		{ value: 'ai', label: 'AI & Ruoli' },
+	const categoryOptions = $derived<SegmentedOption<CategoryType>[]>([
+		{ value: 'all', label: m.icon_inspector_cat_all(), count: ICONS_CATALOG.length },
+		{ value: 'ai', label: m.icon_inspector_cat_ai() },
 		{ value: 'affordance', label: 'Affordance' },
-		{ value: 'actions', label: 'Azioni' },
-		{ value: 'editor', label: 'Editor' },
-		{ value: 'status', label: 'Stato' },
-		{ value: 'audit', label: 'Audit Inline SVG', count: RAW_SVG_CANDIDATES.length, countTone: 'attention' }
-	];
+		{ value: 'actions', label: m.icon_inspector_cat_actions() },
+		{ value: 'editor', label: m.icon_inspector_cat_editor() },
+		{ value: 'status', label: m.icon_inspector_cat_status() },
+		{ value: 'audit', label: m.icon_inspector_cat_audit(), count: RAW_SVG_CANDIDATES.length, countTone: 'attention' }
+	]);
 
 	const sizeOptions: SegmentedOption<SizeType>[] = [
 		{ value: '14px', label: '14px' },
@@ -254,21 +255,21 @@
 <Dialog
 	{open}
 	{onClose}
-	title="Registro & Controllo Qualità Icone Studio"
+	title={m.icon_inspector_title()}
 	size="wide"
 	flush
 >
 	{#snippet actions()}
 		<span class="header-badge">
 			<IconSparkles />
-			<span>Standard Qualità Icone</span>
+			<span>{m.icon_inspector_badge()}</span>
 		</span>
 	{/snippet}
 
 	<div class="modal-layout">
 		<div class="modal-subhead">
 			<p class="header-desc">
-				Controllo visivo di coerenza, rendering a tutte le scale e conformita agli standard Lucide (<code>src/lib/icons.ts</code>).
+				{m.icon_inspector_desc_before()}<code>src/lib/icons.ts</code>).
 			</p>
 		</div>
 
@@ -279,15 +280,15 @@
 					type="search"
 					class="ui-input search-input"
 					bind:value={searchQuery}
-					placeholder="Cerca per nome, glifo o utilizzo (es. brain, check, play)..."
-					aria-label="Cerca icone"
+					placeholder={m.icon_inspector_search_placeholder()}
+					aria-label={m.icon_inspector_search_aria()}
 				/>
 				{#if searchQuery}
 					<button
 						type="button"
 						class="clear-search"
 						onclick={() => (searchQuery = '')}
-						aria-label="Cancella ricerca"
+						aria-label={m.icon_inspector_clear_search()}
 					>
 						<IconClose />
 					</button>
@@ -299,16 +300,16 @@
 					options={categoryOptions}
 					value={selectedCategory}
 					onChange={(v) => (selectedCategory = v)}
-					ariaLabel="Filtra categoria icone"
+					ariaLabel={m.icon_inspector_category_aria()}
 				/>
 
 				<div class="size-selector-wrap">
-					<span class="size-label">Scala:</span>
+					<span class="size-label">{m.icon_inspector_scale_label()}</span>
 					<Segmented
 						options={sizeOptions}
 						value={previewSize}
 						onChange={(v) => (previewSize = v)}
-						ariaLabel="Scala anteprima icone"
+						ariaLabel={m.icon_inspector_scale_aria()}
 					/>
 				</div>
 			</div>
@@ -318,9 +319,9 @@
 			{#if selectedCategory === 'audit'}
 				<div class="audit-section">
 					<div class="audit-banner">
-						<h4>Rapporto Audit: SVG Inline da Migrare</h4>
+						<h4>{m.icon_inspector_audit_title()}</h4>
 						<p>
-							Per mantenere la massima coerenza visiva e rispettare la regola architetturale di Studio, ogni affordance o icona d'azione deve provenire dal registro centrale <code>$lib/icons</code> invece di usare SVG inline codificati a mano con spessori disallineati.
+							{m.icon_inspector_audit_desc_before()} <code>$lib/icons</code> {m.icon_inspector_audit_desc_after()}
 						</p>
 					</div>
 
@@ -333,7 +334,7 @@
 								</div>
 								<p class="audit-note">{item.note}</p>
 								<div class="audit-recs">
-									<strong>Soluzione consigliata:</strong> importa dal registro:
+									<strong>{m.icon_inspector_audit_fix()}</strong> {m.icon_inspector_audit_fix_import()}
 									<code>import &#123; {item.icons.join(', ')} &#125; from '$lib/icons';</code>
 								</div>
 							</div>
@@ -356,10 +357,10 @@
 								<div class="icon-name-row">
 									<strong class="icon-name">{icon.name}</strong>
 									{#if icon.name === 'IconBrain'}
-										<span class="badge-updated">Aggiornata</span>
+										<span class="badge-updated">{m.icon_inspector_updated()}</span>
 									{/if}
 								</div>
-								<span class="icon-glyph">glifo: <code>{icon.glyph}</code></span>
+								<span class="icon-glyph">{m.icon_inspector_glyph()} <code>{icon.glyph}</code></span>
 								<span class="icon-desc">{icon.description}</span>
 							</div>
 
@@ -367,11 +368,11 @@
 								type="button"
 								class="ui-button ui-button-secondary btn-copy-import"
 								onclick={() => copyImport(icon.name)}
-								aria-label={`Copia import per ${icon.name}`}
+								aria-label={m.icon_inspector_copy_import_aria({ name: icon.name })}
 							>
 								{#if copiedName === icon.name}
 									<IconCheck />
-									<span>Copiato!</span>
+									<span>{m.icon_inspector_copied()}</span>
 								{:else}
 									<IconCopy />
 									<span>Import</span>
@@ -386,13 +387,13 @@
 
 	{#snippet footer()}
 		<div class="footer-stats">
-			<span><strong>{ICONS_CATALOG.length}</strong> icone registrate</span>
+			<span><strong>{ICONS_CATALOG.length}</strong> {m.icon_inspector_registered()}</span>
 			<span>·</span>
-			<span><strong>100%</strong> Lucide compatibili</span>
+			<span><strong>100%</strong> {m.icon_inspector_lucide()}</span>
 			<span>·</span>
-			<span>Audit automatico: <code>npm run check:icons</code></span>
+			<span>{m.icon_inspector_auto_audit()} <code>npm run check:icons</code></span>
 		</div>
-		<button type="button" class="ui-button ui-button-primary" onclick={onClose}>Chiudi</button>
+		<button type="button" class="ui-button ui-button-primary" onclick={onClose}>{m.common_close()}</button>
 	{/snippet}
 </Dialog>
 

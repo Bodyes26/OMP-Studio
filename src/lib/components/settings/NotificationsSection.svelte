@@ -13,8 +13,8 @@
 	const STYLE_OPTIONS: { id: NotificationStyle; label: string; desc: string }[] = [
 		{
 			id: 'brief',
-			label: 'Sintetica',
-			desc: 'OMP ha bisogno di te su [Nome Progetto]'
+			label: m.settings_notifications_style_brief(),
+			desc: m.settings_notifications_style_brief_desc()
 		},
 		{
 			id: 'detailed',
@@ -46,7 +46,7 @@
 			} else {
 				testResult = {
 					ok: false,
-					message: 'Impossibile recapitare la notifica di sistema.',
+					message: m.settings_notifications_test_undelivered(),
 					diagnostic: res.error ?? m.ui_notificationssection_errore_sconosciuto_nel_canale_notifiche_247a()
 				};
 			}
@@ -95,15 +95,15 @@
 
 <div class="settings-section">
 	<div class="section-header">
-		<h4>Notifiche e Alert</h4>
-		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('notifications')}>Ripristina</button>
+		<h4>{m.settings_notifications_title()}</h4>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('notifications')}>{m.settings_section_reset()}</button>
 	</div>
 
 	{#if permissionStatus === 'denied'}
 		<AlertBanner
 			variant="warning"
-			title="Notifiche disabilitate dal sistema operativo"
-			message="Il sistema operativo sta bloccando le notifiche per OMP Studio."
+			title={m.settings_notifications_os_blocked_title()}
+			message={m.settings_notifications_os_blocked_desc()}
 			diagnostic={m.ui_notificationssection_su_windows_11_apri_impostazioni_sistema_notifiche_acaa()}
 		/>
 	{/if}
@@ -117,13 +117,13 @@
 			dismissible={true}
 			onDismiss={() => (testResult = null)}
 			onRetry={!testResult.ok ? runTestNotification : undefined}
-			retryLabel="Riprova test"
+			retryLabel={m.settings_notifications_btn_retry_test()}
 		/>
 	{/if}
 
 	<div class="section-block">
 		<div class="block-head-row">
-			<span class="block-title">Notifiche di sistema</span>
+			<span class="block-title">{m.settings_notifications_system_title()}</span>
 			<button
 				type="button"
 				class="ui-button ui-button-secondary"
@@ -136,7 +136,7 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-notif-os-label" class="form-row-label">Banner di notifica del sistema operativo</span>
+					<span id="settings-notif-os-label" class="form-row-label">{m.settings_notifications_os_banner()}</span>
 					<span id="settings-notif-os-desc" class="form-row-desc">{m.ui_notificationssection_mostra_un_banner_toast_di_windows_o_bcfb()}</span>
 					{#if permissionStatus === 'denied'}
 						<span class="perm-warning">{m.ui_notificationssection_permesso_notifiche_negato_nelle_impostazioni_di_sistema_01bd()}</span>
@@ -155,8 +155,8 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="settings-notif-style" id="settings-notif-style-label" class="form-row-label">Contenuto della notifica</label>
-					<span id="settings-notif-style-desc" class="form-row-desc">Scegli se mostrare solo il nome del progetto o l'anteprima completa della domanda.</span>
+					<label for="settings-notif-style" id="settings-notif-style-label" class="form-row-label">{m.settings_notifications_content_label()}</label>
+					<span id="settings-notif-style-desc" class="form-row-desc">{m.settings_notifications_content_desc()}</span>
 				</div>
 				<div class="form-row-control">
 					<select
@@ -177,8 +177,8 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-notif-sound-label" class="form-row-label">Segnale sonoro</span>
-					<span id="settings-notif-sound-desc" class="form-row-desc">Riproduce il suono di sistema all'arrivo dell'avviso.</span>
+					<span id="settings-notif-sound-label" class="form-row-label">{m.settings_notifications_sound()}</span>
+					<span id="settings-notif-sound-desc" class="form-row-desc">{m.settings_notifications_sound_desc()}</span>
 				</div>
 				<div class="form-row-control">
 					<Switch
@@ -194,11 +194,11 @@
 		</div>
 	</div>
 	<div class="section-block">
-		<span class="block-title">Icona applicazione (Dock & Barra delle applicazioni)</span>
+		<span class="block-title">{m.settings_notifications_app_icon_title()}</span>
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-notif-appbadge-label" class="form-row-label">Avviso visivo sull'icona</span>
+					<span id="settings-notif-appbadge-label" class="form-row-label">{m.settings_notifications_app_badge()}</span>
 					<span id="settings-notif-appbadge-desc" class="form-row-desc">{m.ui_notificationssection_su_windows_aggiunge_il_dot_rosso_stile_856b()}</span>
 				</div>
 				<div class="form-row-control">

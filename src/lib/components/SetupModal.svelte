@@ -188,7 +188,7 @@
 			downloadedBytes: 0,
 			totalBytes: 0,
 			percentage: 0,
-			message: "Cerco l'ultima release di omp",
+			message: m.setup_progress_resolving(),
 			error: null,
 			diagnostic: null,
 			retryable: false
@@ -356,11 +356,11 @@
 			{#if step === 'install'}
 				<div class="card">
 					<p class="lead">
-						Studio installa il binario delle release ufficiali di <code>oh-my-pi</code> {m.ui_setupmodal_solo_dopo_averne_verificato_l_impronta_sha_9763()}
+						{m.setup_install_lead()}
 					</p>
 					{#if status?.installDir}
 						<p class="lead">
-							Destinazione: <code>{status.installDir}</code>
+							{m.setup_install_dest_label()} <code>{status.installDir}</code>
 						</p>
 					{/if}
 					{#if progress && installing}
@@ -373,7 +373,7 @@
 							</div>
 							<p class="progress-line">
 								{#if progress.status === 'downloading'}
-									{formatBytes(progress.downloadedBytes)} di {formatBytes(progress.totalBytes)} ({progress.percentage.toFixed(0)}%)
+									{m.setup_progress_bytes({ done: formatBytes(progress.downloadedBytes), total: formatBytes(progress.totalBytes), pct: progress.percentage.toFixed(0) })}
 								{:else}
 									{progress.message ?? progress.status}
 								{/if}
