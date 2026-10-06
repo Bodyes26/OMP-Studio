@@ -86,13 +86,13 @@
 			label: 'Claude 5 Hour',
 			remainingPercent: 78,
 			tone: 'ok',
-			resetCountdown: 'tra 3h 21m'
+			resetCountdown: m.quota_reset_in_hours({ hours: 3, min: 21 })
 		},
 		{
 			label: 'Claude 7 Day',
 			remainingPercent: 8,
 			tone: 'bad',
-			resetCountdown: 'tra 4g 2h'
+			resetCountdown: m.quota_reset_in_days({ days: 4, hours: 2 })
 		}
 	];
 
@@ -114,15 +114,15 @@
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
-				<h4>Disposizione Finestra</h4>
+				<h4>{m.settings_appearance_layout_title()}</h4>
 				<span class="block-desc">
-					Configurazione dei pannelli dell'interfaccia: 3 colonne affiancate, vista a stack per monitor verticali o adattamento automatico (modificabile al volo con Ctrl+Alt+L).
+					{m.settings_appearance_layout_desc()}
 				</span>
 			</div>
 		</div>
 
 		<!-- Selettore layout (cards con preview live) -->
-		<div class="layout-variant-grid" role="radiogroup" aria-label="Disposizione finestra">
+		<div class="layout-variant-grid" role="radiogroup" aria-label={m.settings_appearance_layout_radiogroup()}>
 			<!-- Card 1: Automatico -->
 			<label class="ui-choice">
 				<div class="card-radio-head">
@@ -133,16 +133,16 @@
 						checked={settingsStore.general.layoutMode === 'auto'}
 						onchange={() => setLayoutMode('auto')}
 					/>
-					<span class="variant-title">Automatico</span>
+					<span class="variant-title">{m.settings_appearance_layout_auto()}</span>
 				</div>
 				<p class="variant-desc">
-					Rileva le dimensioni della finestra: 3 colonne su schermi larghi, stack verticale se l'altezza supera la larghezza o sotto i 1100px.
+					{m.settings_appearance_layout_auto_desc()}
 				</p>
 				<div class="variant-preview">
 					<div class="layout-mini-preview" aria-hidden="true">
 						<div class="mini-col side"></div>
 						<div class="mini-auto-body">
-							<span>Auto</span>
+							<span>{m.settings_appearance_layout_auto_short()}</span>
 						</div>
 					</div>
 				</div>
@@ -158,7 +158,7 @@
 						checked={settingsStore.general.layoutMode === 'horizontal'}
 						onchange={() => setLayoutMode('horizontal')}
 					/>
-					<span class="variant-title">Orizzontale</span>
+					<span class="variant-title">{m.settings_appearance_layout_horizontal()}</span>
 				</div>
 				<p class="variant-desc">
 					{m.ui_appearancesection_3_colonne_affiancate_albero_dei_file_git_f8d1()}
@@ -182,7 +182,7 @@
 						checked={settingsStore.general.layoutMode === 'vertical'}
 						onchange={() => setLayoutMode('vertical')}
 					/>
-					<span class="variant-title">Verticale</span>
+					<span class="variant-title">{m.settings_appearance_layout_vertical()}</span>
 				</div>
 				<p class="variant-desc">
 					{m.ui_appearancesection_vista_a_stack_albero_a_sinistra_editor_7c6e()}
@@ -203,13 +203,13 @@
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
-				<h4>Vista Coda Task</h4>
+				<h4>{m.settings_appearance_queue_title()}</h4>
 				<span class="block-desc">
-					Come vengono mostrate le righe dei task nella scheda Coda e nel cassetto globale: compatte su tre piani o card ariose.
+					{m.settings_appearance_queue_desc()}
 				</span>
 			</div>
 		</div>
-		<div class="layout-variant-grid queue-view-grid" role="radiogroup" aria-label="Vista coda task">
+		<div class="layout-variant-grid queue-view-grid" role="radiogroup" aria-label={m.settings_appearance_queue_aria()}>
 			<label class="ui-choice">
 				<div class="card-radio-head">
 					<input
@@ -219,10 +219,10 @@
 						checked={settingsStore.appearance.queueView === 'compact'}
 						onchange={() => setQueueView('compact')}
 					/>
-					<span class="variant-title">Compatta</span>
+					<span class="variant-title">{m.settings_appearance_queue_compact()}</span>
 				</div>
 				<p class="variant-desc">
-					Titolo ed estratto a tutta larghezza su tre piani, badge tutti sotto il testo. Ideale con pochi task.
+					{m.settings_appearance_queue_compact_desc()}
 				</p>
 				<div class="variant-preview">
 					<div class="queue-mini-preview" aria-hidden="true">
@@ -241,10 +241,10 @@
 						checked={settingsStore.appearance.queueView === 'cards'}
 						onchange={() => setQueueView('cards')}
 					/>
-					<span class="variant-title">Card</span>
+					<span class="variant-title">{m.settings_appearance_queue_cards()}</span>
 				</div>
 				<p class="variant-desc">
-					Ogni task respira come card separata con estratto su tre righe e badge su piu righe.
+					{m.settings_appearance_queue_cards_desc()}
 				</p>
 				<div class="variant-preview">
 					<div class="queue-mini-preview card" aria-hidden="true">
@@ -265,16 +265,16 @@
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
-				<h4>Chip Quota (Barra Superiore)</h4>
+				<h4>{m.settings_appearance_quota_chip_title()}</h4>
 				<span class="block-desc">
-					Scegli le informazioni mostrate nella chip delle quote in alto a destra.
+					{m.settings_appearance_quota_chip_desc()}
 				</span>
 			</div>
 		</div>
 
 		<!-- Anteprima densa chip -->
 		<div class="quota-preview-card">
-			<span class="quota-preview-title">Anteprima</span>
+			<span class="quota-preview-title">{m.settings_appearance_preview()}</span>
 			<div class="chip-preview-host">
 				<QuotaChip
 					showProvider={settingsStore.appearance.quotaChip.showProvider}
@@ -295,7 +295,7 @@
 				<div class="form-row-copy">
 					<span id="settings-quota-always-pct-label" class="form-row-label">{m.ui_appearancesection_mostra_sempre_la_percentuale_2958()}</span>
 					<span id="settings-quota-always-pct-desc" class="form-row-desc">
-						Se disattivata, la percentuale numerica viene mostrata solo quando la quota scende al 30% o meno (avviso o critico).
+						{m.settings_appearance_always_pct_desc()}
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -313,7 +313,7 @@
 				<div class="form-row-copy">
 					<span id="settings-quota-show-provider-label" class="form-row-label">{m.ui_appearancesection_mostra_nome_del_provider_b467()}</span>
 					<span id="settings-quota-show-provider-desc" class="form-row-desc">
-						Visualizza il provider AI in uso dal progetto attivo (es. · Google, · Anthropic).
+						{m.settings_appearance_show_provider_desc()}
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -329,9 +329,9 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-quota-chip-semantic-label" class="form-row-label">Colori semaforo per la quota</span>
+					<span id="settings-quota-chip-semantic-label" class="form-row-label">{m.settings_appearance_chip_semantic_label()}</span>
 					<span id="settings-quota-chip-semantic-desc" class="form-row-desc">
-						Attiva il verde del tema (--success) quando la quota è normale. I livelli di avviso (--warn) e critico/esaurito (--danger) usano sempre i rispettivi colori semantici ad alto contrasto.
+						{m.settings_appearance_chip_semantic_desc()}
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -354,16 +354,16 @@
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
-				<h4>Popover Quota (Limiti di Utilizzo)</h4>
+				<h4>{m.settings_appearance_popover_title()}</h4>
 				<span class="block-desc">
-					Visualizzazione dei limiti di utilizzo nel popover delle quote per entrambe le finestre (principale e Companion).
+					{m.settings_appearance_popover_desc()}
 				</span>
 			</div>
 		</div>
 
 		<!-- Anteprima densa popover -->
 		<div class="quota-preview-card">
-			<span class="quota-preview-title">Anteprima</span>
+			<span class="quota-preview-title">{m.settings_appearance_preview()}</span>
 			<div class="popover-mini-container">
 				<div
 					class="popover-miniature"
@@ -394,9 +394,9 @@
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="settings-quota-popover-semantic-label" class="form-row-label">Colori semaforo</span>
+					<span id="settings-quota-popover-semantic-label" class="form-row-label">{m.settings_appearance_popover_semantic_label()}</span>
 					<span id="settings-quota-popover-semantic-desc" class="form-row-desc">
-						Attiva il verde del tema (--success) per gli indicatori normali nel popover delle quote.
+						{m.settings_appearance_popover_semantic_desc()}
 					</span>
 				</div>
 				<div class="form-row-control">
@@ -420,13 +420,13 @@
 		<div class="block-head-row">
 			<div class="block-titles">
 				<div class="header-with-pill">
-					<h4>Tema Interfaccia</h4>
-					<span class="current-theme-pill" title="Tema attualmente selezionato">
-						Attivo: <strong>{themeStore.current}</strong>
+					<h4>{m.settings_appearance_theme_title()}</h4>
+					<span class="current-theme-pill" title={m.settings_appearance_theme_current_title()}>
+						{m.settings_appearance_theme_active_label()} <strong>{themeStore.current}</strong>
 					</span>
 				</div>
 				<span class="block-desc">
-					Combinazione cromatica applicata a Studio e sincronizzata con le sessioni OMP.
+					{m.settings_appearance_theme_desc()}
 				</span>
 			</div>
 		</div>
@@ -446,7 +446,7 @@
 				<input
 					type="text"
 					class="ui-input filter-input"
-					placeholder="Cerca tra i {activeGroup.names.length} temi..."
+					placeholder={m.settings_appearance_theme_search_placeholder({ count: activeGroup.names.length })}
 					bind:value={filterQuery}
 					aria-label={m.ui_appearancesection_cerca_e_filtra_temi_b7aa()}
 				/>
@@ -455,7 +455,7 @@
 						type="button"
 						class="clear-filter-btn"
 						onclick={() => (filterQuery = '')}
-						aria-label="Cancella filtro"
+						aria-label={m.settings_appearance_clear_filter()}
 					>
 						<IconClose />
 					</button>
@@ -463,7 +463,7 @@
 			</div>
 		</div>
 
-		<div class="theme-grid" role="listbox" aria-label="Galleria temi">
+		<div class="theme-grid" role="listbox" aria-label={m.settings_appearance_theme_gallery_aria()}>
 			{#each filteredThemes as theme (theme.name)}
 				{@const isSelected = theme.name === themeStore.current}
 				<button
@@ -486,9 +486,9 @@
 							</div>
 						</div>
 						<div class="preview-palette">
-							<span class="swatch-bg" title="Sfondo" style="background-color: {theme.bg};"></span>
-							<span class="swatch-accent" title="Accento" style="background-color: {theme.accent};"></span>
-							<span class="swatch-text" title="Testo" style="background-color: {theme.text};"></span>
+							<span class="swatch-bg" title={m.settings_appearance_swatch_bg()} style="background-color: {theme.bg};"></span>
+							<span class="swatch-accent" title={m.settings_appearance_swatch_accent()} style="background-color: {theme.accent};"></span>
+							<span class="swatch-text" title={m.settings_appearance_swatch_text()} style="background-color: {theme.text};"></span>
 						</div>
 					</div>
 
@@ -497,16 +497,16 @@
 						{#if isSelected}
 							<span class="active-badge">
 								<IconCheck />
-								<span>Attivo</span>
+								<span>{m.settings_appearance_theme_active_badge()}</span>
 							</span>
 						{/if}
 					</div>
 				</button>
 			{:else}
 				<div class="empty-state">
-					<p>{m.ui_appearancesection_nessun_tema_trovato_per_19d9()}<strong>{filterQuery}</strong>" nella categoria {activeGroup.label.toLowerCase()}.</p>
+					<p>{m.ui_appearancesection_nessun_tema_trovato_per_19d9()}<strong>{filterQuery}</strong>{m.settings_appearance_theme_not_found_category({ category: activeGroup.label.toLowerCase() })}</p>
 					<button type="button" class="ui-button ui-button-secondary" onclick={() => (filterQuery = '')}>
-						Azzera ricerca
+						{m.settings_appearance_clear_search()}
 					</button>
 				</div>
 			{/each}
@@ -520,9 +520,9 @@
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
-				<h4>Icone & Qualità Visiva</h4>
+				<h4>{m.settings_appearance_icons_title()}</h4>
 				<span class="block-desc">
-					Controllo qualità, ispezione visiva e scalatura di tutte le icone dell'interfaccia (src/lib/icons.ts) per verificare coerenza dello stroke, contrasto e glifi Lucide.
+					{m.settings_appearance_icons_desc()}
 				</span>
 			</div>
 			<button
@@ -531,7 +531,7 @@
 				onclick={() => (isIconInspectorOpen = true)}
 			>
 				<IconSparkles />
-				<span>Ispeziona Registro Icone</span>
+				<span>{m.settings_appearance_icons_open()}</span>
 			</button>
 		</div>
 	</div>

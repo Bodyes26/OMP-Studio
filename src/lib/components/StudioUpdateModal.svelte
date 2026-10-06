@@ -178,7 +178,12 @@
 							<span class="asset-size">{formatBytes(studioUpdaterStore.updateInfo.asset.size)}</span>
 						</div>
 						{#if studioUpdaterStore.updateInfo.asset.sha256}
-							<Tooltip text={`SHA-256 verificato: ${studioUpdaterStore.updateInfo.asset.sha256}`}>
+							<!-- «Verificato» solo dopo il download: prima l'hash e' quello atteso dalla release. -->
+							<Tooltip
+								text={studioUpdaterStore.downloadProgress?.status === 'finished'
+									? m.studio_update_sha_verified_tooltip({ sha: studioUpdaterStore.updateInfo.asset.sha256 })
+									: m.studio_update_sha_expected_tooltip({ sha: studioUpdaterStore.updateInfo.asset.sha256 })}
+							>
 								<div class="sha-badge">
 									<span class="sha-label">SHA-256</span>
 									<code class="sha-code">{studioUpdaterStore.updateInfo.asset.sha256.slice(0, 10)}…</code>
@@ -228,6 +233,12 @@
 					<strong>{m.studio_update_finished_title()}</strong>
 					<span class="finished-desc">{m.studio_update_finished_desc()}</span>
 				</div>
+			</div>
+		{/if}
+
+		{#if studioUpdaterStore.installNotice}
+			<div class="install-notice" role="status" aria-live="polite">
+				{studioUpdaterStore.installNotice}
 			</div>
 		{/if}
 
@@ -505,7 +516,8 @@
 		--icon-size: 14px;
 	}
 
-	.channel-waiting {
+	.channel-waiting,
+	.install-notice {
 		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		background: var(--bg-raised);
@@ -513,6 +525,12 @@
 		padding: var(--space-2) var(--space-3);
 		border-radius: var(--radius-md);
 		line-height: 1.4;
+	}
+
+	/* Il messaggio del backend puo' contenere il comando da eseguire su piu' righe. */
+	.install-notice {
+		color: var(--ink);
+		white-space: pre-wrap;
 	}
 
 	.release-meta {

@@ -42,9 +42,9 @@
 	]);
 
 	const MODEL_TABS = $derived([
-		{ id: 'roles', label: 'Ruoli & Fallback' },
-		{ id: 'catalog', label: `Catalogo (${modelSettingsStore.catalog.length})` },
-		{ id: 'providers', label: 'Provider & Custom' }
+		{ id: 'roles', label: m.settings_models_tab_roles() },
+		{ id: 'catalog', label: m.settings_models_tab_catalog({ count: modelSettingsStore.catalog.length }) },
+		{ id: 'providers', label: m.settings_models_tab_providers() }
 	]);
 
 	// Stato di una sezione letto da un numero, non da un puntino colorato: gli
@@ -59,14 +59,14 @@
 			counts.models = {
 				value: warn ? modelSettingsStore.blockingFindings.length : modelSettingsStore.upgradeFindings.length,
 				attention: warn,
-				detail: modelSettingsStore.attentionTooltip || 'Avvisi sui modelli'
+				detail: modelSettingsStore.attentionTooltip || m.settings_models_attention_fallback()
 			};
 		}
 		if (doctorStore.issuesCount > 0) {
 			counts.doctor = {
 				value: doctorStore.issuesCount,
 				attention: true,
-				detail: `${doctorStore.issuesCount} anomalie rilevate`
+				detail: m.settings_doctor_issues_detected({ count: doctorStore.issuesCount })
 			};
 		}
 		return counts;
@@ -156,10 +156,10 @@
 				</button>
 			</Tooltip>
 
-			<Tooltip text="Riavvia le sessioni OMP aperte per applicare le configurazioni" placement="bottom">
+			<Tooltip text={m.settings_models_restart_omp_tooltip()} placement="bottom">
 				<button type="button" class="ui-button ui-button-secondary header-action" onclick={handleRestart}>
 					<IconRefresh />
-					<span>Riavvia OMP</span>
+					<span>{m.settings_models_restart_omp()}</span>
 				</button>
 			</Tooltip>
 		{/if}
@@ -231,7 +231,7 @@
 						{:else if modelSettingsStore.hasUnsavedChanges}
 							<span class="unsaved-badge">
 								<span class="unsaved-dot"></span>
-								<span>Modifiche non salvate</span>
+								<span>{m.settings_models_unsaved_changes()}</span>
 							</span>
 						{/if}
 					</div>
@@ -244,7 +244,7 @@
 								disabled={modelSettingsStore.saving}
 								onclick={() => modelSettingsStore.resetDraft()}
 							>
-								Reimposta
+								{m.settings_models_reset_draft()}
 							</button>
 						{/if}
 						<button type="button" class="ui-button ui-button-secondary" onclick={requestClose}>{m.page_modal_restart_btn_close()}</button>
@@ -255,7 +255,7 @@
 							onclick={handleSave}
 						>
 							{#if modelSettingsStore.saving}
-								Salvataggio...
+								{m.companion_status_saving()}
 							{:else}
 								{m.ui_settingsmodal_salva_modifiche_891d()}
 							{/if}
@@ -298,13 +298,13 @@
 
 		<Dialog
 			open={showDiscardConfirm}
-			title="Scartare le modifiche non salvate?"
+			title={m.settings_models_discard_title()}
 			onClose={cancelDiscard}
 			initialFocus=".discard-keep"
 		>
 			<p class="discard-text">{m.ui_settingsmodal_hai_apportato_modifiche_alla_configurazione_dei_modelli_171d()}</p>
 			{#snippet footer()}
-				<button type="button" class="ui-button ui-button-secondary discard-keep" onclick={cancelDiscard}>Continua a modificare</button>
+				<button type="button" class="ui-button ui-button-secondary discard-keep" onclick={cancelDiscard}>{m.settings_models_keep_editing()}</button>
 				<button type="button" class="ui-button ui-button-danger" onclick={forceClose}>{m.ui_settingsmodal_scarta_e_chiudi_3a7c()}</button>
 			{/snippet}
 		</Dialog>

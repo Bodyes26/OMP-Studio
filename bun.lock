@@ -14,7 +14,6 @@
         "@tauri-apps/plugin-opener": "^2",
         "@tauri-apps/plugin-store": "~2",
         "@tauri-apps/plugin-window-state": "~2",
-        "@xterm/addon-canvas": "^0.7.0",
         "@xterm/addon-clipboard": "^0.2.0",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/addon-ligatures": "^0.10.0",
@@ -404,8 +403,6 @@
     "@types/trusted-types": ["@types/trusted-types@2.0.7", "http://registry.npmjs.org/@types/trusted-types/-/trusted-types-2.0.7.tgz", {}, "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw=="],
 
     "@upsetjs/venn.js": ["@upsetjs/venn.js@2.0.0", "http://registry.npmjs.org/@upsetjs/venn.js/-/venn.js-2.0.0.tgz", { "optionalDependencies": { "d3-selection": "^3.0.0", "d3-transition": "^3.0.1" } }, "sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw=="],
-
-    "@xterm/addon-canvas": ["@xterm/addon-canvas@0.7.0", "http://registry.npmjs.org/@xterm/addon-canvas/-/addon-canvas-0.7.0.tgz", { "peerDependencies": { "@xterm/xterm": "^5.0.0" } }, "sha512-LF5LYcfvefJuJ7QotNRdRSPc9YASAVDeoT5uyXS/nZshZXjYplGXRECBGiznwvhNL2I8bq1Lf5MzRwstsYQ2Iw=="],
 
     "@xterm/addon-clipboard": ["@xterm/addon-clipboard@0.2.0", "http://registry.npmjs.org/@xterm/addon-clipboard/-/addon-clipboard-0.2.0.tgz", { "dependencies": { "js-base64": "^3.7.5" } }, "sha512-Dl31BCtBhLaUEECUbEiVcCLvLBbaeGYdT7NofB8OJkGTD3MWgBsaLjXvfGAD4tQNHhm6mbKyYkR7XD8kiZsdNg=="],
 

@@ -2,6 +2,7 @@
 	import type { QuotaSemanticStatus, QuotaLongWindowAlert } from '$lib/quota/projectQuota';
 	import { IconWarning, IconQuota } from '$lib/icons';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { m } from '$lib/paraglide/messages.js';
 	import { motionReduced } from '$lib/agent/motionState.svelte';
 
 	let {
@@ -75,12 +76,14 @@
 	// Etichetta accessibile descrittiva conforme a WCAG
 	const computedAriaLabel = $derived.by(() => {
 		if (ariaLabel) return ariaLabel;
-		if (status === 'exhausted') return 'Quota esaurita';
-		if (status === 'offline') return 'Quota offline';
-		if (status === 'unconfigured') return 'Quota: non configurata';
-		let text = `Quota ${shortName ? `${shortName} ` : ''}${remainingPct !== null ? `${remainingPct}%` : ''}`.trim();
+		if (status === 'exhausted') return m.quota_chip_exhausted();
+		if (status === 'offline') return m.quota_chip_offline_aria();
+		if (status === 'unconfigured') return m.quota_chip_unconfigured_aria();
+		// Provider e percentuale possono mancare: gli spazi doppi si richiudono.
+		const pct = remainingPct !== null ? `${remainingPct}%` : '';
+		let text = m.quota_chip_aria({ provider: shortName ?? '', pct }).replace(/\s+/g, ' ').trim();
 		if (longWindowAlert) {
-			text += ` (Attenzione: ${longWindowAlert.label} ${longWindowAlert.remainingPct}%)`;
+			text += m.quota_chip_long_window_aria({ label: longWindowAlert.label, pct: longWindowAlert.remainingPct });
 		}
 		return text;
 	});
@@ -90,7 +93,7 @@
 		if (title) return title;
 		let t = computedAriaLabel;
 		if (longWindowAlert && !title) {
-			t += ` · Finestra ${longWindowAlert.label}: ${longWindowAlert.remainingPct}% residuo`;
+			t += m.quota_chip_long_window_tooltip({ label: longWindowAlert.label, pct: longWindowAlert.remainingPct });
 		}
 		return t;
 	});
@@ -111,13 +114,13 @@
 	>
 		{#if status === 'exhausted'}
 			<IconWarning />
-			<span class="chip-label">Quota esaurita</span>
+			<span class="chip-label">{m.quota_chip_exhausted()}</span>
 		{:else if status === 'offline'}
 			<IconQuota />
-			<span class="chip-label">Offline</span>
+			<span class="chip-label">{m.quota_chip_offline()}</span>
 		{:else if status === 'unconfigured'}
 			<IconQuota />
-			<span class="chip-label">Quota: non config.</span>
+			<span class="chip-label">{m.quota_chip_unconfigured()}</span>
 		{:else}
 			{#if hasLimits}
 				<svg class="ring-svg" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
@@ -143,7 +146,7 @@
 			{:else}
 				<IconQuota />
 			{/if}
-			<span class="chip-label">Quota</span>
+			<span class="chip-label">{m.quota_chip_label()}</span>
 		{/if}
 
 		{#if showProvider && shortName && status !== 'unconfigured'}
@@ -159,7 +162,7 @@
 				class="secondary-alert-dot alert-{longWindowAlert.status}"
 				aria-hidden="true"
 			></span>
-			<span class="sr-only">Attenzione finestra lunga: {longWindowAlert.label} {longWindowAlert.remainingPct}%</span>
+			<span class="sr-only">{m.quota_chip_long_window_sr({ label: longWindowAlert.label, pct: longWindowAlert.remainingPct })}</span>
 		{/if}
 	</button>
 </Tooltip>

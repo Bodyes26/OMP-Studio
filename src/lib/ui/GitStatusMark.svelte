@@ -8,6 +8,8 @@
   - Accessibile con classe globale .sr-only e aria-hidden sul glifo visivo
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
+
 	export type GitStatusCode = 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?' | '!' | string;
 
 	export interface GitStatusMarkProps {
@@ -27,31 +29,31 @@
 			case 'A':
 				return {
 					abbr: 'A',
-					description: 'File aggiunto',
+					description: m.git_status_added(),
 					color: 'var(--success)'
 				};
 			case 'M':
 				return {
 					abbr: 'M',
-					description: 'File modificato',
+					description: m.git_status_modified(),
 					color: 'var(--warn)'
 				};
 			case 'D':
 				return {
 					abbr: 'D',
-					description: 'File eliminato',
+					description: m.git_status_deleted(),
 					color: 'var(--danger)'
 				};
 			case 'C':
 				return {
 					abbr: 'C',
-					description: 'Conflitto o file copiato',
+					description: m.git_status_conflict(),
 					color: 'var(--danger)'
 				};
 			case 'R':
 				return {
 					abbr: 'R',
-					description: 'File rinominato',
+					description: m.git_status_renamed(),
 					color: 'var(--ink-muted)'
 				};
 			case 'U':
@@ -59,19 +61,19 @@
 			case '??':
 				return {
 					abbr: 'U',
-					description: 'File non tracciato',
+					description: m.git_status_untracked(),
 					color: 'var(--success)'
 				};
 			case '!':
 				return {
 					abbr: '!',
-					description: 'File ignorato',
+					description: m.git_status_ignored(),
 					color: 'var(--ink-faint)'
 				};
 			default:
 				return {
 					abbr: raw.slice(0, 1) || '?',
-					description: `Stato Git non riconosciuto: ${raw || '?'}`,
+					description: m.git_status_unknown({ status: raw || '?' }),
 					color: 'var(--warn)'
 				};
 		}

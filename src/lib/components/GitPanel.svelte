@@ -109,7 +109,7 @@
 		try {
 			const res = await githubStore.syncRepo(projectPath, action);
 			syncMessage = res;
-			await refresh();
+			await refresh('manual', true);
 			notifyGitStatusRefresh(projectPath);
 		} catch (e) {
 			actionError = String(e);
@@ -137,9 +137,18 @@
 	}
 
 	let lastRefreshedAt = 0;
+	let panelEl = $state<HTMLDivElement | null>(null);
+
+	// La barra laterale chiusa resta montata con `visibility: hidden`: il
+	// pannello esiste ma nessuno ne legge lo stato CI.
+	function isPanelVisible(el: HTMLElement | null): boolean {
+		if (!el || document.visibilityState === 'hidden') return false;
+		if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+		return getComputedStyle(el).visibility !== 'hidden';
+	}
 
 	async function refresh(
-		reason: 'interval' | 'focus' | 'visible' | 'event' | 'boot' = 'boot',
+		reason: 'interval' | 'focus' | 'visible' | 'event' | 'boot' | 'manual' = 'boot',
 		force = false
 	) {
 		const targetPath = projectPath;
@@ -202,7 +211,11 @@
 			lastCommit = last;
 			commits = rec;
 			void githubStore.loadUpstreamStatus(targetPath, force);
-			void githubStore.loadActionsStatus(targetPath, b || undefined);
+			// La CI passa dall'API di GitHub: solo a pannello visibile e con la
+			// cadenza del cancello (60 s), tranne quando l'utente la chiede.
+			if (reason === 'manual' || isPanelVisible(panelEl)) {
+				void githubStore.loadActionsStatus(targetPath, b || undefined, { force: reason === 'manual' });
+			}
 		} catch (e) {
 			if (projectPath !== targetPath) return;
 			const msg = String(e);
@@ -331,13 +344,13 @@
 	}
 </script>
 
-<div class="git-panel">
+<div class="git-panel" bind:this={panelEl}>
 	{#if notRepo}
 		<div class="empty">{m.git_no_repo()}</div>
 	{:else if refreshError}
 		<div class="git-error" role="alert">
 			<span class="git-error-text" title={refreshError}>{m.ui_gitpanel_errore_git_dc97()} {refreshError}</span>
-			<button type="button" class="retry-btn" onclick={() => void refresh()}>{m.git_btn_retry()}</button>
+			<button type="button" class="retry-btn" onclick={() => void refresh('manual', true)}>{m.git_btn_retry()}</button>
 		</div>
 	{:else}
 		<div class="branch-row">
@@ -403,7 +416,7 @@
 								{upstream.upstream}
 							</span>
 						{:else}
-							<span class="upstream-none">Nessun upstream</span>
+							<span class="upstream-none">{m.git_no_upstream()}</span>
 						{/if}
 						{#if upstream.ahead > 0 || upstream.behind > 0}
 							<div class="divergence-pills">
@@ -436,7 +449,7 @@
 								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('pull')}
 								disabled={isSyncing}
-								title="Scarica i commit da GitHub (pull rebase)"
+								title={m.git_pull_title()}
 							>
 								{isSyncing ? '…' : 'Pull'}
 							</button>
@@ -446,7 +459,7 @@
 								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('push')}
 								disabled={isSyncing}
-								title="Invia i commit a GitHub (push)"
+								title={m.git_push_title()}
 							>
 								{isSyncing ? '…' : 'Push'}
 							</button>
@@ -456,7 +469,7 @@
 								class="ui-button ui-button-primary btn-sync"
 								onclick={() => handleSync('sync')}
 								disabled={isSyncing}
-								title="Pull e push combinati"
+								title={m.git_sync_title()}
 							>
 								{isSyncing ? '…' : 'Sync'}
 							</button>
@@ -466,7 +479,7 @@
 								class="ui-button ui-button-secondary btn-sync"
 								onclick={() => handleSync('fetch')}
 								disabled={isSyncing}
-								title="Controlla nuovi commit su GitHub (fetch)"
+								title={m.git_fetch_title()}
 							>
 								{isSyncing ? '…' : 'Fetch'}
 							</button>
@@ -512,11 +525,11 @@
 							{/if}
 						</span>
 						<span class="ci-name" title={latestAction.name}>{latestAction.name}</span>
-						<Tooltip text="Apri su GitHub">
+						<Tooltip text={m.git_open_on_github()}>
 							<button
 								type="button"
 								class="ci-link"
-								aria-label="Apri su GitHub"
+								aria-label={m.git_open_on_github()}
 								onclick={() => void openUrl(latestAction!.url)}
 							>
 								<IconExternalLink />

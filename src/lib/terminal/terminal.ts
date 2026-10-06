@@ -1,5 +1,4 @@
 import { Terminal, type ILinkProvider, type ILink } from '@xterm/xterm';
-import { CanvasAddon } from '@xterm/addon-canvas';
 import { FitAddon } from '@xterm/addon-fit';
 import { LigaturesAddon } from '@xterm/addon-ligatures';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -59,6 +58,8 @@ export class TerminalSession {
 	private resizeObserver: ResizeObserver;
 	private resizeTimeout: number | null = null;
 	private disposed = false;
+	/** Cresce a ogni rilascio o riavvio: un pty_open partito prima e' superato. */
+	private ptyEpoch = 0;
 	private unsubscribeTheme: () => void;
 	private currentState: TerminalAgentState = 'unknown';
 	private pendingInputLength = 0;
@@ -165,11 +166,6 @@ export class TerminalSession {
 
 		this.fitAddon = new FitAddon();
 		this.term.loadAddon(this.fitAddon);
-		try {
-			this.term.loadAddon(new CanvasAddon());
-		} catch (e) {
-			console.warn('CanvasAddon non caricato:', e);
-		}
 		this.term.loadAddon(new Unicode11Addon());
 		this.term.unicode.activeVersion = '11';
 		this.term.loadAddon(new WebLinksAddon((_event, uri) => {
@@ -514,9 +510,9 @@ export class TerminalSession {
 	/** Il testo dice cosa sta davvero partendo: riprendere una sessione
 	 *  rilegge il transcript da disco ed e' l'attesa piu' lunga delle tre. */
 	private bootHintText(): string {
-		if (this.launchArgs?.includes('setup')) return 'preparazione della configurazione guidata';
+		if (this.launchArgs?.includes('setup')) return msg.terminal_boot_setup();
 		if (this.pendingResume) return msg.ui_ts_terminal_ripresa_della_sessione_80e3();
-		return 'avvio ambiente';
+		return msg.terminal_boot_env();
 	}
 
 	/** Va chiamata prima che `startPty` consumi `pendingResume`, altrimenti il
@@ -540,7 +536,7 @@ export class TerminalSession {
 			// bocca, e va detto insieme a cosa fare (docs/PRODUCT.md §3.4).
 			this.endBootHint();
 			this.term.write(
-				"\x1b[33mL'ambiente non ha risposto entro 10 secondi.\x1b[0m\r\n" +
+				`\x1b[33m${msg.terminal_boot_timeout()}\x1b[0m\r\n` +
 					msg.ui_ts_terminal_2mverifica_che_omp_sia_installato_e_raggiungibile_cdb3()
 			);
 		}, TerminalSession.BOOT_TIMEOUT_MS);
@@ -614,7 +610,8 @@ export class TerminalSession {
 			const cols = this.term.cols || 80;
 			const rows = this.term.rows || 24;
 
-			this.ptyId = await invoke<number>('pty_open', {
+			const epoch = this.ptyEpoch;
+			const ptyId = await invoke<number>('pty_open', {
 				cwd: launchCwd,
 				args,
 				cols,
@@ -623,6 +620,14 @@ export class TerminalSession {
 				projectId: this.projectId ?? null,
 				onOutput
 			});
+			// Chiusura, rilascio o riavvio arrivati mentre pty_open era in volo
+			// hanno trovato ptyId ancora null: senza questa chiusura il processo
+			// omp appena nato resterebbe vivo senza nessuno che lo possieda.
+			if (this.disposed || epoch !== this.ptyEpoch) {
+				void invoke('pty_close', { ptyId }).catch(() => {});
+				return;
+			}
+			this.ptyId = ptyId;
 
 			// Il fit puo' essere cambiato mentre pty_open era in volo: allora
 			// onResize e' scattato con ptyId ancora null e il pty sarebbe
@@ -634,7 +639,7 @@ export class TerminalSession {
 		} catch (e) {
 			console.error("Failed to open PTY", e);
 			this.endBootHint();
-			this.term.write(`\r\n\x1b[31mFailed to start terminal: ${e}\x1b[0m\r\n`);
+			this.term.write(`\r\n\x1b[31m${msg.terminal_start_failed({ error: String(e) })}\x1b[0m\r\n`);
 		}
 	}
 
@@ -746,6 +751,7 @@ export class TerminalSession {
 	public async restart() {
 		if (this.disposed) return;
 		this.clearTerminalOutputBuffer();
+		this.ptyEpoch++;
 		if (this.ptyId !== null) {
 			try {
 				await invoke('pty_close', { ptyId: this.ptyId });
@@ -781,9 +787,7 @@ export class TerminalSession {
 		if (this.disposed || this.ptyId === null) return;
 		const ptyId = this.ptyId;
 		try {
-			await invoke('pty_force_kill', { ptyId }).catch(() =>
-				invoke('force_kill_session', { ptyId })
-			);
+			await invoke('pty_force_kill', { ptyId });
 		} catch (error) {
 			console.warn('Errore invocazione force kill su PTY:', error);
 		}
@@ -796,6 +800,7 @@ export class TerminalSession {
 	 */
 	public async release() {
 		if (this.disposed) return;
+		this.ptyEpoch++;
 		const ptyId = this.ptyId;
 		this.ptyId = null;
 		if (ptyId === null) return;

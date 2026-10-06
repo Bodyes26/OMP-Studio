@@ -20,22 +20,22 @@
 	// Il contatore vive dentro la tessera del progetto aperto: le tessere degli
 	// altri progetti restano mute per scelta, e il conto complessivo sta nel
 	// chip "Coda" della barra.
-	const QUEUE_BADGE_OPTIONS: { id: QueueBadgeStyle; label: string; desc: string }[] = [
-		{ id: 'count-state', label: m.ui_projectbarsection_numero_e_stato_1099(), desc: 'Quanti task attendono nel progetto aperto, tinti quando sono pronti a partire.' },
-		{ id: 'count', label: 'Solo numero', desc: 'Quanti task attendono nel progetto aperto, senza indicazione di prontezza.' },
-		{ id: 'dot', label: 'Puntino', desc: m.ui_projectbarsection_un_puntino_se_c_e_almeno_un_4aff() },
-		{ id: 'off', label: 'Nessuno', desc: 'Nessun indicatore di coda sulla tessera.' }
-	];
+	const QUEUE_BADGE_OPTIONS = $derived<{ id: QueueBadgeStyle; label: string; desc: string }[]>([
+		{ id: 'count-state', label: m.ui_projectbarsection_numero_e_stato_1099(), desc: m.settings_project_bar_badge_count_state_desc() },
+		{ id: 'count', label: m.settings_project_bar_badge_count(), desc: m.settings_project_bar_badge_count_desc() },
+		{ id: 'dot', label: m.settings_project_bar_badge_dot(), desc: m.ui_projectbarsection_un_puntino_se_c_e_almeno_un_4aff() },
+		{ id: 'off', label: m.settings_project_bar_badge_off(), desc: m.settings_project_bar_badge_off_desc() }
+	]);
 </script>
 
 <div class="settings-section">
 	<div class="section-header">
-		<h4>Barra progetti</h4>
-		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('projectBar')}>Ripristina</button>
+		<h4>{m.settings_project_bar_title()}</h4>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('projectBar')}>{m.settings_section_reset()}</button>
 	</div>
 
 	<div class="section-block">
-		<span class="block-title">Ordinamento</span>
+		<span class="block-title">{m.settings_project_bar_order_title()}</span>
 		<div class="option-list">
 			{#each ORDER_OPTIONS as opt (opt.id)}
 				<label class="option-row" class:active={settingsStore.projectBar.order === opt.id}>
@@ -55,7 +55,7 @@
 	</div>
 
 	<div class="section-block">
-		<span class="block-title">Badge dei task in coda</span>
+		<span class="block-title">{m.settings_project_bar_badge_title()}</span>
 		<div class="badge-option-grid">
 			{#each QUEUE_BADGE_OPTIONS as opt (opt.id)}
 				<button
@@ -87,7 +87,7 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span id="label-project-bar-name" class="form-row-label">Nome sulle tessere</span>
+				<span id="label-project-bar-name" class="form-row-label">{m.settings_project_bar_name_label()}</span>
 				<span id="desc-project-bar-name" class="form-row-desc">{m.ui_projectbarsection_la_sigla_c_e_sempre_il_nome_839b()}</span>
 			</div>
 			<div class="form-row-control">
@@ -96,8 +96,8 @@
 					ariaLabelledBy="label-project-bar-name"
 					ariaDescribedBy="desc-project-bar-name"
 					options={[
-						{ value: 'initials', label: 'Solo aperta' },
-						{ value: 'name', label: 'Tutte' }
+						{ value: 'initials', label: m.settings_project_bar_name_open_only() },
+						{ value: 'name', label: m.settings_project_bar_name_all() }
 					]}
 					onChange={(val) => settingsStore.patchProjectBar({ label: val as 'initials' | 'name' })}
 				/>
@@ -107,7 +107,7 @@
 		<div class="form-row">
 			<div class="form-row-copy">
 				<span id="label-show-agent-dot" class="form-row-label">{m.ui_projectbarsection_segno_di_stato_agente_b812()}</span>
-				<span id="desc-show-agent-dot" class="form-row-desc">Anello ambra che pulsa quando l'agente attende una risposta, anello fermo quando ha finito il lavoro.</span>
+				<span id="desc-show-agent-dot" class="form-row-desc">{m.settings_project_bar_agent_dot_desc()}</span>
 			</div>
 			<div class="form-row-control">
 				<Switch
@@ -122,7 +122,7 @@
 
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span id="label-show-queue-peek" class="form-row-label">Anteprima coda al passaggio</span>
+				<span id="label-show-queue-peek" class="form-row-label">{m.settings_project_bar_queue_peek()}</span>
 				<span id="desc-show-queue-peek" class="form-row-desc">{m.ui_projectbarsection_mostra_l_elenco_dei_task_in_coda_cd99()}</span>
 			</div>
 			<div class="form-row-control">

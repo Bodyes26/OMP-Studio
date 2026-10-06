@@ -17,12 +17,21 @@
 	import Switch from '$lib/ui/Switch.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { IS_MAC } from '$lib/utils/platform';
+	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+	import { IS_MAC, IS_WINDOWS } from '$lib/utils/platform';
 
 	let tokenInput = $state('');
 	let tokenError = $state<string | null>(null);
 	let isSavingToken = $state(false);
 	let installMessage = $state<string | null>(null);
+	// L'URL dell'avatar puo' non caricarsi (rete, CSP): si ripiega sull'icona
+	// invece di lasciare l'immagine rotta. Si azzera quando cambia l'URL.
+	let avatarFailedUrl = $state<string | null>(null);
+	let confirmLogoutOpen = $state(false);
+	let isLoggingOut = $state(false);
+	// winget e Homebrew coprono Windows e macOS; su Linux l'installazione
+	// passa dal gestore pacchetti della distribuzione, che Studio non guida.
+	const canInstallCli = IS_WINDOWS || IS_MAC;
 
 	onMount(() => {
 		void githubStore.loadStatus();
@@ -47,8 +56,24 @@
 		}
 	}
 
-	async function handleLogout() {
-		await githubStore.logout();
+	function requestLogout() {
+		// Con gh la sessione e' condivisa con terminale e altri strumenti:
+		// si chiede se uscire anche da li'. Con il PAT basta scollegare Studio.
+		if (githubStore.status.method === 'gh_cli') {
+			confirmLogoutOpen = true;
+		} else {
+			void handleLogout(false);
+		}
+	}
+
+	async function handleLogout(alsoGhCli: boolean) {
+		isLoggingOut = true;
+		try {
+			await githubStore.logout({ alsoGhCli });
+		} finally {
+			isLoggingOut = false;
+			confirmLogoutOpen = false;
+		}
 		tokenError = null;
 		tokenInput = '';
 	}
@@ -59,7 +84,7 @@
 			const res = await githubStore.installCli();
 			installMessage = res;
 		} catch (e) {
-			installMessage = `Errore: ${String(e)}`;
+			installMessage = m.settings_github_install_error({ error: String(e) });
 		}
 	}
 
@@ -73,21 +98,19 @@
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
-				<h4>Account GitHub</h4>
-				<span class="block-desc">
-					Sincronizza repository, monitora la CI delle build e clona i tuoi progetti con un clic.
-				</span>
+				<h4>{m.settings_github_account_title()}</h4>
+				<span class="block-desc">{m.settings_github_account_desc()}</span>
 			</div>
-			<Tooltip text="Ricarica stato GitHub" placement="bottom">
+			<Tooltip text={m.setup_github_refresh_tooltip()} placement="bottom">
 				<button
 					type="button"
 					class="ui-button ui-button-secondary btn-icon-only"
 					onclick={() => { void githubStore.loadStatus(); void githubStore.detectLocalRemotes(); }}
 					disabled={githubStore.isLoadingStatus}
-					aria-label="Ricarica stato GitHub"
+					aria-label={m.setup_github_refresh_tooltip()}
 				>
 					{#if githubStore.isLoadingStatus}
-						<StatusMark status="running" label="Ricarica stato in corso" />
+						<StatusMark status="running" label={m.settings_github_refreshing()} />
 					{:else}
 						<IconRefresh />
 					{/if}
@@ -98,8 +121,12 @@
 		{#if githubStore.status.authenticated}
 			<div class="account-card">
 				<div class="account-avatar">
-					{#if githubStore.status.avatarUrl}
-						<img src={githubStore.status.avatarUrl} alt={githubStore.status.username ?? 'Avatar'} />
+					{#if githubStore.status.avatarUrl && avatarFailedUrl !== githubStore.status.avatarUrl}
+						<img
+							src={githubStore.status.avatarUrl}
+							alt={githubStore.status.username ?? m.settings_github_avatar_alt()}
+							onerror={() => (avatarFailedUrl = githubStore.status.avatarUrl)}
+						/>
 					{:else}
 						<div class="avatar-fallback"><IconGithub /></div>
 					{/if}
@@ -115,11 +142,11 @@
 							<span>{m.settings_github_status_connected()}</span>
 						</span>
 						<span class="method-pill" class:cli={githubStore.status.method === 'gh_cli'}>
-							{githubStore.status.method === 'gh_cli' ? 'GitHub CLI' : 'Personal Token'}
+							{githubStore.status.method === 'gh_cli' ? m.settings_github_method_cli() : m.settings_github_method_token()}
 						</span>
 					</div>
 					<div class="account-meta">
-						<span>Protocollo attivo: <strong>{githubStore.status.protocol.toUpperCase()}</strong></span>
+						<span>{m.settings_github_active_protocol()} <strong>{githubStore.status.protocol.toUpperCase()}</strong></span>
 					</div>
 				</div>
 				<div class="account-actions">
@@ -128,15 +155,16 @@
 						class="ui-button ui-button-secondary"
 						onclick={() => openExternal(`https://github.com/${githubStore.status.username}`)}
 					>
-						<span>Apri profilo</span>
+						<span>{m.settings_github_open_profile()}</span>
 						<IconExternalLink />
 					</button>
 					<button
 						type="button"
 						class="ui-button ui-button-ghost btn-danger-action"
-						onclick={handleLogout}
+						onclick={requestLogout}
+						disabled={isLoggingOut}
 					>
-						Disconnetti
+						{m.settings_github_disconnect()}
 					</button>
 				</div>
 			</div>
@@ -145,10 +173,8 @@
 				<div class="unconnected-head">
 					<div class="unconnected-icon"><IconGithub /></div>
 					<div class="unconnected-copy">
-						<h5>Nessun account GitHub collegato</h5>
-						<p class="unconnected-desc">
-							Collega GitHub tramite GitHub CLI (consigliato per sviluppo locale) oppure incollando un Personal Access Token.
-						</p>
+						<h5>{m.settings_github_unconnected_title()}</h5>
+						<p class="unconnected-desc">{m.settings_github_unconnected_desc()}</p>
 					</div>
 				</div>
 
@@ -156,18 +182,18 @@
 					<!-- Metodo 1: GitHub CLI -->
 					<div class="method-box">
 						<div class="method-box-header">
-							<h6>Metodo 1 — GitHub CLI (gh)</h6>
+							<h6>{m.settings_github_method1_title()}</h6>
 							{#if githubStore.status.installed}
-								<span class="badge-tag present">Installata</span>
+								<span class="badge-tag present">{m.settings_github_cli_installed()}</span>
 							{:else}
-								<span class="badge-tag missing">Non trovata</span>
+								<span class="badge-tag missing">{m.settings_github_cli_missing()}</span>
 							{/if}
 						</div>
 						<p class="method-box-desc">
 							{#if githubStore.status.installed}
-								La CLI <code>gh</code> è presente. Apri il terminale ed esegui <code>gh auth login</code>, poi clicca Ricarica.
+								{m.settings_github_cli_present_before()} <code>gh</code> {m.settings_github_cli_present_middle()} <code>gh auth login</code>{m.settings_github_cli_present_after()}
 							{:else}
-								Installa GitHub CLI sul computer per gestire login, credenziali e clone in modo trasparente.
+								{m.settings_github_cli_install_desc()}
 							{/if}
 						</p>
 						<div class="method-box-actions">
@@ -178,9 +204,9 @@
 									onclick={() => githubStore.loadStatus()}
 									disabled={githubStore.isLoadingStatus}
 								>
-									Verifica login CLI
+									{m.settings_github_cli_verify_login()}
 								</button>
-							{:else}
+							{:else if canInstallCli}
 								<button
 									type="button"
 									class="ui-button ui-button-primary"
@@ -188,11 +214,20 @@
 									disabled={githubStore.isInstallingCli}
 								>
 									{#if githubStore.isInstallingCli}
-										<StatusMark status="running" label="Installazione in corso" />
-										<span>Installazione in corso...</span>
+										<StatusMark status="running" label={m.setup_btn_installing()} />
+										<span>{m.setup_btn_installing()}</span>
 									{:else}
-										<span>{IS_MAC ? 'Installa con Homebrew (1-click)' : 'Installa con winget (1-click)'}</span>
+										<span>{IS_MAC ? m.settings_github_cli_install_brew() : m.settings_github_cli_install_winget()}</span>
 									{/if}
+								</button>
+							{:else}
+								<button
+									type="button"
+									class="btn-link"
+									onclick={() => openExternal('https://cli.github.com')}
+								>
+									<span>{m.settings_github_cli_install_link()}</span>
+									<IconExternalLink />
 								</button>
 							{/if}
 						</div>
@@ -204,20 +239,20 @@
 					<!-- Metodo 2: Personal Access Token -->
 					<div class="method-box">
 						<div class="method-box-header">
-							<h6>Metodo 2 — Personal Access Token</h6>
-							<span class="badge-tag">Senza installazioni</span>
+							<h6>{m.settings_github_method2_title()}</h6>
+							<span class="badge-tag">{m.settings_github_no_install_badge()}</span>
 						</div>
 						<p class="method-box-desc">
-							Genera un token su GitHub con permessi <code>repo</code> e incollalo qui per collegare Studio istantaneamente.
+							{m.settings_github_token_desc_before()} <code>repo</code> {m.settings_github_token_desc_after()}
 						</p>
 						<div class="token-input-row">
 							<input
 								type="password"
 								class="ui-input token-input"
-								placeholder="ghp_... o github_pat_..."
+								placeholder={m.settings_github_token_placeholder()}
 								bind:value={tokenInput}
 								onkeydown={(e) => { if (e.key === 'Enter') void handleSaveToken(); }}
-								aria-label="GitHub Personal Access Token"
+								aria-label={m.settings_github_token_aria()}
 							/>
 							<button
 								type="button"
@@ -226,10 +261,10 @@
 								disabled={isSavingToken || !tokenInput.trim()}
 							>
 								{#if isSavingToken}
-									<StatusMark status="running" label="Verifica token" />
-									<span>Verifica...</span>
+									<StatusMark status="running" label={m.settings_github_token_verifying_label()} />
+									<span>{m.settings_github_token_verifying()}</span>
 								{:else}
-									<span>Collega</span>
+									<span>{m.settings_github_token_connect()}</span>
 								{/if}
 							</button>
 						</div>
@@ -242,7 +277,7 @@
 								class="btn-link"
 								onclick={() => openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org,workflow&description=OMP+Studio')}
 							>
-								<span>Genera token con permessi corretti</span>
+								<span>{m.settings_github_token_generate()}</span>
 								<IconExternalLink />
 							</button>
 						</div>
@@ -256,25 +291,23 @@
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
-				<h4>Preferenze e Sincronizzazione</h4>
-				<span class="block-desc">
-					Comportamento di clonazione, controllo automatico aggiornamenti e badge.
-				</span>
+				<h4>{m.settings_github_prefs_title()}</h4>
+				<span class="block-desc">{m.settings_github_prefs_desc()}</span>
 			</div>
 		</div>
 
 		<div class="options-list">
 			<div class="option-row">
 				<div class="option-info">
-					<span class="option-title">Protocollo di clonazione predefinito</span>
-					<span class="option-desc">Scegli tra HTTPS (semplice con token/CLI) o SSH (con chiave SSH configurata).</span>
+					<span class="option-title">{m.settings_github_clone_protocol_title()}</span>
+					<span class="option-desc">{m.settings_github_clone_protocol_desc()}</span>
 				</div>
 				<div class="option-control">
 					<select
 						class="ui-select protocol-select"
 						value={settingsStore.github.cloneProtocol}
 						onchange={(e) => settingsStore.patchGithub({ cloneProtocol: (e.target as HTMLSelectElement).value as 'https' | 'ssh' })}
-						aria-label="Protocollo di clonazione predefinito"
+						aria-label={m.settings_github_clone_protocol_title()}
 					>
 						<option value="https">HTTPS</option>
 						<option value="ssh">SSH</option>
@@ -300,8 +333,8 @@
 
 			<div class="option-row">
 				<div class="option-info">
-					<span id="github-upstream-badges-title" class="option-title">Badge commit nella barra dei progetti (↑/↓)</span>
-					<span id="github-upstream-badges-desc" class="option-desc">Mostra quanti commit sono in attesa di essere inviati o scaricati da GitHub.</span>
+					<span id="github-upstream-badges-title" class="option-title">{m.settings_github_upstream_badges_title()}</span>
+					<span id="github-upstream-badges-desc" class="option-desc">{m.settings_github_upstream_badges_desc()}</span>
 				</div>
 				<div class="option-control">
 					<Switch
@@ -316,8 +349,8 @@
 
 			<div class="option-row">
 				<div class="option-info">
-					<span id="github-actions-notify-title" class="option-title">Notifiche per build fallite (GitHub Actions)</span>
-					<span id="github-actions-notify-desc" class="option-desc">Mostra un avviso toast di sistema se la CI su GitHub fallisce dopo un push.</span>
+					<span id="github-actions-notify-title" class="option-title">{m.settings_github_actions_notify_title()}</span>
+					<span id="github-actions-notify-desc" class="option-desc">{m.settings_github_actions_notify_desc()}</span>
 				</div>
 				<div class="option-control">
 					<Switch
@@ -337,10 +370,8 @@
 		<div class="section-block">
 			<div class="block-head-row">
 				<div class="block-titles">
-					<h4>Progetti locali collegati a GitHub <span class="count-badge">({githubStore.localRemotes.length})</span></h4>
-					<span class="block-desc">
-						Cartelle trovate in {projectStore.projectRoot} associate a un repository GitHub remoto.
-					</span>
+					<h4>{m.settings_github_local_title()} <span class="count-badge">({githubStore.localRemotes.length})</span></h4>
+					<span class="block-desc">{m.settings_github_local_desc({ root: projectStore.projectRoot })}</span>
 				</div>
 			</div>
 
@@ -358,25 +389,25 @@
 							</span>
 						</div>
 						<div class="remote-actions">
-							<Tooltip text="Apri repository su GitHub" placement="top">
+							<Tooltip text={m.settings_github_open_repo_tooltip()} placement="top">
 								<button
 									type="button"
 									class="ui-button ui-button-secondary btn-subtle"
 									onclick={() => openExternal(`https://github.com/${remote.fullName}`)}
-									aria-label={`Apri ${remote.fullName} su GitHub`}
+									aria-label={m.settings_github_open_repo_aria({ name: remote.fullName })}
 								>
 									<span>GitHub</span>
 									<IconExternalLink />
 								</button>
 							</Tooltip>
-							<Tooltip text="Apri progetto in Studio" placement="top">
+							<Tooltip text={m.settings_github_open_in_studio_tooltip()} placement="top">
 								<button
 									type="button"
 									class="ui-button ui-button-secondary btn-subtle btn-open"
 									onclick={() => projectStore.openProject(remote.path)}
-									aria-label={`Apri ${remote.folderName} in Studio`}
+									aria-label={m.settings_github_open_in_studio_aria({ name: remote.folderName })}
 								>
-									<span>Apri in Studio</span>
+									<span>{m.settings_github_open_in_studio()}</span>
 								</button>
 							</Tooltip>
 						</div>
@@ -386,6 +417,20 @@
 		</div>
 	{/if}
 </div>
+
+<ConfirmDialog
+	open={confirmLogoutOpen}
+	title={m.settings_github_logout_cli_title()}
+	message={m.settings_github_logout_cli_message()}
+	cancelLabel={m.common_cancel()}
+	secondaryLabel={m.settings_github_logout_studio_only()}
+	confirmLabel={m.settings_github_logout_also_cli()}
+	tone="danger"
+	confirmDisabled={isLoggingOut}
+	onSecondary={() => void handleLogout(false)}
+	onConfirm={() => void handleLogout(true)}
+	onCancel={() => (confirmLogoutOpen = false)}
+/>
 
 <style>
 	.github-settings {

@@ -5,6 +5,8 @@
   pericolo. Il fuoco iniziale va sulla conferma, come nelle finestre di sistema;
   Esc e il velo annullano. Il corpo puo' essere un testo (`message`) o uno
   snippet quando serve contenuto ricco (versioni, nomi in mono).
+  Un'azione secondaria facoltativa (`secondaryLabel` + `onSecondary`) copre le
+  scelte a due esiti piu' l'annullamento, senza che Esc o il velo ne scelgano una.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -21,6 +23,8 @@
 		cancelLabel,
 		tone = 'primary',
 		confirmDisabled = false,
+		secondaryLabel,
+		onSecondary,
 		onConfirm,
 		onCancel
 	}: {
@@ -34,6 +38,9 @@
 		/** `danger` per le azioni che distruggono o interrompono. */
 		tone?: 'primary' | 'danger';
 		confirmDisabled?: boolean;
+		/** Seconda scelta, mostrata tra annulla e conferma. */
+		secondaryLabel?: string;
+		onSecondary?: () => void;
 		onConfirm: () => void;
 		onCancel: () => void;
 	} = $props();
@@ -50,6 +57,16 @@
 		<button type="button" class="ui-button ui-button-ghost" onclick={onCancel}>
 			{cancelLabel ?? m.common_cancel()}
 		</button>
+		{#if secondaryLabel && onSecondary}
+			<button
+				type="button"
+				class="ui-button ui-button-secondary"
+				disabled={confirmDisabled}
+				onclick={onSecondary}
+			>
+				{secondaryLabel}
+			</button>
+		{/if}
 		<button
 			type="button"
 			class="ui-button confirm-dialog-action"

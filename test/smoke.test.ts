@@ -35,6 +35,7 @@ import './platform.test.ts';
 import './resume-errors.test.ts';
 import './omp-contract.test.ts';
 import './studio-updater.test.ts';
+import './ui-fixes-170.test.ts';
 import './tool-errors.test.ts';
 import './prompt-suggestions.test.ts';
 import './agent-interaction.test.ts';

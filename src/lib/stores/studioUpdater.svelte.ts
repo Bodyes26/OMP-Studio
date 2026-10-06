@@ -4,6 +4,7 @@ import { load, type Store } from '@tauri-apps/plugin-store';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { formatVersion, type FormatVersionOptions } from '$lib/utils/version';
 import { m as msg } from '$lib/paraglide/messages.js';
+import { installOutcomeKeepsRunning, installOutcomeNotice } from './studioInstallOutcome';
 
 export { formatVersion, type FormatVersionOptions };
 
@@ -75,6 +76,8 @@ class StudioUpdaterStore {
 	badgeType = $state<'info' | 'success' | 'warn' | 'error'>('info');
 	downloadProgress = $state<StudioDownloadProgress | null>(null);
 	errorMessage = $state<string | null>(null);
+	/** Esito informativo dell'installazione quando Studio resta aperto (pacchetti .deb). */
+	installNotice = $state<string | null>(null);
 
 	private unlistenProgress: UnlistenFn | null = null;
 	private initialized = false;
@@ -113,7 +116,7 @@ class StudioUpdaterStore {
 				} else if (data.status === 'finished') {
 					this.isDownloading = false;
 					this.errorMessage = null;
-					this.setBadge('Scaricato', 'success', 6000);
+					this.setBadge(msg.studio_update_badge_downloaded(), 'success', 6000);
 				} else if (data.status === 'error') {
 					this.isDownloading = false;
 					this.errorMessage = data.error || msg.ui_ts_studioupdater_errore_sconosciuto_durante_il_download_dc0e();
@@ -197,7 +200,7 @@ class StudioUpdaterStore {
 				}
 			} else {
 				if (manual) {
-					this.setBadge('Aggiornato', 'success', 3500);
+					this.setBadge(msg.studio_update_badge_up_to_date(), 'success', 3500);
 					this.showModal = true;
 				} else {
 					this.updateBadge = null;
@@ -223,8 +226,8 @@ class StudioUpdaterStore {
 		}
 
 		if (!this.updateInfo.asset.sha256) {
-			this.errorMessage = 'Checksum SHA256 non disponibile per questa release: installazione non sicura rifiutata.';
-			this.setBadge('Non verificato', 'error', 4000);
+			this.errorMessage = msg.studio_update_sha_missing_error();
+			this.setBadge(msg.studio_update_badge_unverified(), 'error', 4000);
 			return;
 		}
 
@@ -267,8 +270,21 @@ class StudioUpdaterStore {
 	async installAndRestart() {
 		this.isInstalling = true;
 		this.errorMessage = null;
+		this.installNotice = null;
 		try {
-			await invoke('install_studio_update_and_restart');
+			const outcome = await invoke<unknown>('install_studio_update_and_restart');
+			if (installOutcomeKeepsRunning(outcome)) {
+				// Studio resta aperto (es. .deb affidato al gestore pacchetti):
+				// si mostra cosa resta da fare invece di attendere una chiusura.
+				this.isInstalling = false;
+				this.installNotice = installOutcomeNotice(outcome) ?? msg.studio_update_install_pending_default();
+			} else {
+				// Normalmente l'app si chiude subito dopo; se cosi' non e',
+				// il pulsante torna utilizzabile invece di restare bloccato.
+				window.setTimeout(() => {
+					this.isInstalling = false;
+				}, 10_000);
+			}
 		} catch (e: unknown) {
 			this.isInstalling = false;
 			const errStr = extractErrorMessage(e);

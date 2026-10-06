@@ -67,10 +67,10 @@
 				{#if doctorStore.report}
 					<div class="doctor-status-summary">
 						{#if doctorStore.report.overallStatus === 'ok'}
-							<StatusMark status="completed" label="Tutti i controlli superati" />
+							<StatusMark status="completed" label={m.settings_doctor_mark_all_passed()} />
 							<span class="status-summary-text">{m.settings_doctor_status_ok()}</span>
 						{:else if doctorStore.report.overallStatus === 'warn'}
-							<StatusMark status="attention" active={false} label="Avvisi riscontrati" />
+							<StatusMark status="attention" active={false} label={m.settings_doctor_mark_warnings()} />
 							<span class="status-summary-text">
 								{#if doctorStore.warningsCount > 0}
 									<span class="status-count">{doctorStore.warningsCount}</span>
@@ -78,7 +78,7 @@
 								{m.settings_doctor_status_warn()}
 							</span>
 						{:else}
-							<StatusMark status="failed" label="Errori critici riscontrati" />
+							<StatusMark status="failed" label={m.settings_doctor_mark_errors()} />
 							<span class="status-summary-text">
 								{#if doctorStore.errorsCount > 0}
 									<span class="status-count">{doctorStore.errorsCount}</span>
@@ -113,7 +113,7 @@
 				aria-label={m.settings_doctor_run()}
 			>
 				{#if doctorStore.loading}
-					<StatusMark status="running" label="Esecuzione in corso" />
+					<StatusMark status="running" label={m.settings_doctor_mark_running()} />
 				{:else}
 					<IconRefresh />
 				{/if}
@@ -141,7 +141,7 @@
 				]}
 				value={doctorStore.filter}
 				onChange={(val) => (doctorStore.filter = val as 'all' | 'issues')}
-				ariaLabel="Filtra controlli diagnostici"
+				ariaLabel={m.settings_doctor_filter_aria()}
 			/>
 
 			<div class="sys-summary">
@@ -155,22 +155,22 @@
 	<!-- Corpo principale: tabella o stato caricamento -->
 	{#if doctorStore.loading && !doctorStore.report}
 		<div class="loading-box">
-			<StatusMark status="running" label="Caricamento diagnostica" />
-			<span>Esecuzione checkup diagnostico dell'ambiente in corso...</span>
+			<StatusMark status="running" label={m.settings_doctor_loading_label()} />
+			<span>{m.settings_doctor_loading_text()}</span>
 		</div>
 	{:else if doctorStore.error}
 		<div class="error-banner">
 			<IconWarning />
 			<div class="error-text">
-				<strong>Errore durante l'autodiagnostica:</strong>
+				<strong>{m.settings_doctor_run_error()}</strong>
 				<span>{doctorStore.error}</span>
 			</div>
-			<button type="button" class="ui-button ui-button-danger btn-retry" onclick={handleRefresh}>Riprova</button>
+			<button type="button" class="ui-button ui-button-danger btn-retry" onclick={handleRefresh}>{m.git_btn_retry()}</button>
 		</div>
 	{:else if doctorStore.report}
 		{#if doctorStore.filteredItems.length === 0}
 			<div class="empty-state">
-				<StatusMark status="completed" label="Nessuna anomalia" />
+				<StatusMark status="completed" label={m.settings_doctor_mark_no_issues()} />
 				<p>{m.settings_doctor_empty_issues()}</p>
 			</div>
 		{:else}

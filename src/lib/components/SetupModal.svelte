@@ -188,7 +188,7 @@
 			downloadedBytes: 0,
 			totalBytes: 0,
 			percentage: 0,
-			message: "Cerco l'ultima release di omp",
+			message: m.setup_progress_resolving(),
 			error: null,
 			diagnostic: null,
 			retryable: false
@@ -260,6 +260,10 @@
 		// processo: si rilegge lo stato a intervalli invece di osservare due
 		// file scritti con lock e debounce.
 		pollTimer = window.setInterval(() => void refreshStatus(), 1500);
+		// `listen` risolve in modo asincrono: se il wizard si chiude prima, la
+		// pulizia trova `unlisten` ancora vuoto e il listener resterebbe attivo
+		// per sempre (e a ogni riapertura se ne aggiungerebbe un altro).
+		let disposed = false;
 		void listen<InstallProgress>('setup://install-progress', (event) => {
 			progress = event.payload;
 			if (event.payload.status === 'error') {
@@ -267,10 +271,12 @@
 				installDiagnostic = event.payload.diagnostic ?? null;
 			}
 		}).then((fn) => {
-			unlisten = fn;
+			if (disposed) fn();
+			else unlisten = fn;
 		});
 
 		return () => {
+			disposed = true;
 			if (pollTimer !== null) window.clearInterval(pollTimer);
 			pollTimer = null;
 			unlisten?.();
@@ -350,11 +356,11 @@
 			{#if step === 'install'}
 				<div class="card">
 					<p class="lead">
-						Studio installa il binario delle release ufficiali di <code>oh-my-pi</code> {m.ui_setupmodal_solo_dopo_averne_verificato_l_impronta_sha_9763()}
+						{m.setup_install_lead()}
 					</p>
 					{#if status?.installDir}
 						<p class="lead">
-							Destinazione: <code>{status.installDir}</code>
+							{m.setup_install_dest_label()} <code>{status.installDir}</code>
 						</p>
 					{/if}
 					{#if progress && installing}
@@ -367,7 +373,7 @@
 							</div>
 							<p class="progress-line">
 								{#if progress.status === 'downloading'}
-									{formatBytes(progress.downloadedBytes)} di {formatBytes(progress.totalBytes)} ({progress.percentage.toFixed(0)}%)
+									{m.setup_progress_bytes({ done: formatBytes(progress.downloadedBytes), total: formatBytes(progress.totalBytes), pct: progress.percentage.toFixed(0) })}
 								{:else}
 									{progress.message ?? progress.status}
 								{/if}

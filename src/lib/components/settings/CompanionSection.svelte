@@ -5,17 +5,17 @@
 	const SPOTLIGHT_OPTIONS: {
 		id: CompanionSpotlightDismiss;
 		label: () => string;
-		desc: string;
+		desc: () => string;
 	}[] = [
 		{
 			id: 'esc-only',
 			label: () => m.settings_companion_spotlight_esc_only(),
-			desc: 'Chiudi la Companion solo con il tasto Esc.'
+			desc: () => m.settings_companion_spotlight_esc_only_desc()
 		},
 		{
 			id: 'esc-and-blur',
 			label: () => m.settings_companion_spotlight_esc_blur(),
-			desc: 'Chiudi anche quando la finestra perde il fuoco (click fuori).'
+			desc: () => m.settings_companion_spotlight_esc_blur_desc()
 		}
 	];
 
@@ -31,7 +31,7 @@
 			<div class="block-titles">
 				<h4>{m.settings_companion_spotlight_title()}</h4>
 				<span class="block-desc">
-					In modalita Spotlight la finestra e' una superficie di comando: scegli quando nasconderla.
+					{m.settings_companion_spotlight_desc()}
 				</span>
 			</div>
 		</div>
@@ -49,7 +49,7 @@
 						/>
 						<span class="variant-title">{opt.label()}</span>
 					</div>
-					<p class="variant-desc">{opt.desc}</p>
+					<p class="variant-desc">{opt.desc()}</p>
 					<div class="variant-preview">
 						<div class="spotlight-mini-preview {opt.id}" aria-hidden="true">
 							{#if opt.id === 'esc-only'}

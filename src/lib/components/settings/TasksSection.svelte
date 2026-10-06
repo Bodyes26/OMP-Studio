@@ -302,7 +302,7 @@
 	// --- Azioni AI ---
 	async function runGenerateAi() {
 		if (!aiPromptInput.trim()) {
-			aiError = 'Descrivi lo scopo della direttiva da generare.';
+			aiError = m.settings_tasks_err_describe();
 			return;
 		}
 		aiLoading = true;
@@ -316,7 +316,7 @@
 			});
 			currentAiProposal = res;
 		} catch (err) {
-			aiError = `Generazione AI non riuscita: ${String(err)}`;
+			aiError = m.settings_tasks_err_generate({ error: String(err) });
 		} finally {
 			aiLoading = false;
 		}
@@ -344,7 +344,7 @@
 			});
 			currentAiProposal = res;
 		} catch (err) {
-			aiError = `Miglioramento AI non riuscito: ${String(err)}`;
+			aiError = m.settings_tasks_err_refine({ error: String(err) });
 		} finally {
 			aiLoading = false;
 		}
@@ -353,7 +353,7 @@
 	async function runAnalyzeFriction() {
 		const targetProject = currentProject ?? openProjects[0];
 		if (!targetProject || !targetProject.canonicalProjectPath) {
-			aiError = 'Nessun progetto aperto disponibile per analizzare i prompt recenti.';
+			aiError = m.settings_tasks_err_no_project();
 			return;
 		}
 		aiMode = 'friction';
@@ -368,10 +368,10 @@
 			});
 			frictionProposals = res;
 			if (frictionProposals.length === 0) {
-				aiError = 'Nessuno schema di attrito ricorrente rilevato nei prompt recenti.';
+				aiError = m.settings_tasks_err_no_friction();
 			}
 		} catch (err) {
-			aiError = `Analisi attrito non riuscita: ${String(err)}`;
+			aiError = m.settings_tasks_err_friction({ error: String(err) });
 		} finally {
 			aiLoading = false;
 		}
@@ -436,10 +436,10 @@
 	<!-- Blocco 1: Ambito e Valori Predefiniti dei Nuovi Task -->
 	<div class="section-block">
 		<div class="block-header-row">
-			<span class="block-title">Ambito & Configurazione di avvio dei task</span>
+			<span class="block-title">{m.settings_tasks_scope_title()}</span>
 			{#if isProjectScope}
 				<div class="scope-indicator-row">
-					<span class="scope-pill project">Progetto: {currentProject?.name}</span>
+					<span class="scope-pill project">{m.settings_tasks_scope_project_pill({ name: currentProject?.name ?? '' })}</span>
 					{#if effectiveDefaults.hasOverride}
 						<button type="button" class="btn-reset-scope" onclick={resetProjectScopeDefaults}>
 							{m.ui_taskssection_ripristina_ereditarieta_312c()}
@@ -447,14 +447,14 @@
 					{/if}
 				</div>
 			{:else}
-				<span class="scope-pill global">Default Globali</span>
+				<span class="scope-pill global">{m.settings_tasks_scope_global_pill()}</span>
 			{/if}
 		</div>
 
 		<div class="section-group">
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="tasks-scope-select" id="tasks-scope-label" class="form-row-label">Ambito di configurazione</label>
+					<label for="tasks-scope-select" id="tasks-scope-label" class="form-row-label">{m.settings_tasks_scope_label()}</label>
 					<span id="tasks-scope-desc" class="form-row-desc">{m.ui_taskssection_modifica_i_valori_globali_di_default_o_8c48()}</span>
 				</div>
 				<div class="form-row-control">
@@ -466,9 +466,9 @@
 						aria-describedby="tasks-scope-desc"
 						onchange={(e) => (selectedScopeId = (e.currentTarget as HTMLSelectElement).value)}
 					>
-						<option value="global">Default globali (tutti i progetti)</option>
+						<option value="global">{m.settings_tasks_scope_global_option()}</option>
 						{#if openProjects.length > 0}
-							<optgroup label="Progetti aperti">
+							<optgroup label={m.settings_tasks_scope_open_projects()}>
 								{#each openProjects as p (p.id)}
 									<option value={p.id}>{p.label || p.name}</option>
 								{/each}
@@ -480,7 +480,7 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="tasks-initial-role-select" id="tasks-initial-role-label" class="form-row-label">Ruolo iniziale</label>
+					<label for="tasks-initial-role-select" id="tasks-initial-role-label" class="form-row-label">{m.settings_tasks_initial_role()}</label>
 					<span id="tasks-initial-role-desc" class="form-row-desc">{m.ui_taskssection_profilo_e_modello_assegnato_ai_nuovi_task_13f1()}</span>
 				</div>
 				<div class="form-row-control">
@@ -501,7 +501,7 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<label for="tasks-thinking-select" id="tasks-thinking-label" class="form-row-label">Livello di ragionamento (Thinking)</label>
+					<label for="tasks-thinking-select" id="tasks-thinking-label" class="form-row-label">{m.settings_tasks_thinking_label()}</label>
 					<span id="tasks-thinking-desc" class="form-row-desc">{m.ui_taskssection_sforzo_di_pensiero_predefinito_inviato_al_modello_c8f1()}</span>
 				</div>
 				<div class="form-row-control">
@@ -522,8 +522,8 @@
 
 			<div class="form-row">
 				<div class="form-row-copy">
-					<span id="tasks-editor-ctx-label" class="form-row-label">Includi contesto editor</span>
-					<span id="tasks-editor-ctx-desc" class="form-row-desc">Allega l'elenco dei file correntemente aperti e la selezione attiva nell'editor Monaco.</span>
+					<span id="tasks-editor-ctx-label" class="form-row-label">{m.settings_tasks_editor_ctx_label()}</span>
+					<span id="tasks-editor-ctx-desc" class="form-row-desc">{m.settings_tasks_editor_ctx_desc()}</span>
 				</div>
 				<div class="form-row-control">
 					<Switch
@@ -568,15 +568,15 @@
 			<div class="header-left">
 				<span class="block-title">{m.ui_taskssection_libreria_direttive_modalita_del_task_0c5a()}</span>
 				<p class="section-subtitle">
-					Regole e vincoli operativi applicati al prompt. La spunta indica le direttive attive di default per l'ambito corrente ({isProjectScope ? currentProject?.name : 'Globale'}).
+					{m.settings_tasks_directives_subtitle({ scope: (isProjectScope ? currentProject?.name : undefined) ?? m.settings_tasks_scope_global_name() })}
 				</p>
 			</div>
 			<div class="header-actions">
 				<button type="button" class="ui-button ui-button-primary" onclick={() => openCreateForm(true)} disabled={editingDirectiveId !== null}>
 					<IconPlus />
-					<span>Nuova direttiva</span>
+					<span>{m.settings_tasks_new_directive()}</span>
 				</button>
-				<Tooltip text="Genera una direttiva a partire da una descrizione in linguaggio naturale">
+				<Tooltip text={m.settings_tasks_generate_tooltip()}>
 					<button
 						type="button"
 						class="ui-button ui-button-secondary"
@@ -584,11 +584,11 @@
 						disabled={editingDirectiveId !== null}
 					>
 						<IconSkill />
-						<span>Genera con AI</span>
+						<span>{m.settings_tasks_generate_ai_btn()}</span>
 					</button>
 				</Tooltip>
 				{#if openProjects.length > 0}
-					<Tooltip text="Analizza i prompt recenti del progetto per suggerire nuove direttive ricorrenti">
+					<Tooltip text={m.settings_tasks_analyze_tooltip()}>
 						<button
 							type="button"
 							class="ui-button ui-button-secondary"
@@ -596,7 +596,7 @@
 							disabled={aiLoading}
 						>
 							<IconWarning />
-							<span>Analizza ricorrenze</span>
+							<span>{m.settings_tasks_analyze_recurrences_btn()}</span>
 						</button>
 					</Tooltip>
 				{/if}
@@ -605,11 +605,11 @@
 
 		<!-- Pannello Risultati Analisi Ricorrenze (Friction) -->
 		{#if aiMode === 'friction'}
-			<div class="ai-friction-panel" transition:trayFold role="region" aria-label="Proposte direttive da analisi attrito">
+			<div class="ai-friction-panel" transition:trayFold role="region" aria-label={m.settings_tasks_friction_aria()}>
 				<div class="panel-top">
 					<div class="panel-title-wrap">
-						<StatusMark status="attention" active={false} label="Attenzione" />
-						<span class="panel-title">Proposte AI da prompt e richieste recenti</span>
+						<StatusMark status="attention" active={false} label={m.settings_tasks_friction_mark()} />
+						<span class="panel-title">{m.settings_tasks_friction_title()}</span>
 					</div>
 					<button type="button" class="btn-icon-close" onclick={() => (aiMode = 'idle')} aria-label={m.common_close()}>
 						<IconClose />
@@ -629,7 +629,7 @@
 								<div class="proposal-head">
 									<span class="proposal-name">{proposal.name}</span>
 									<span class="proposal-tag">{proposal.tag}</span>
-									<span class="proposal-placement">{proposal.placement === 'before' ? 'Prima del prompt' : 'Dopo il prompt'}</span>
+									<span class="proposal-placement">{proposal.placement === 'before' ? m.settings_tasks_placement_before_short() : m.settings_tasks_placement_after_short()}</span>
 								</div>
 								{#if proposal.reason}
 									<p class="proposal-reason">{proposal.reason}</p>
@@ -638,7 +638,7 @@
 								<div class="proposal-actions">
 									<button type="button" class="ui-button ui-button-primary" onclick={() => applyProposalAsNewDirective(proposal)}>
 										<IconCheck />
-										<span>Aggiungi alla libreria</span>
+										<span>{m.settings_tasks_add_to_library()}</span>
 									</button>
 									<button type="button" class="ui-button ui-button-ghost" onclick={() => { openCreateForm(); applyAiProposalToForm(proposal); }}>
 										<IconRename />
@@ -646,7 +646,7 @@
 									</button>
 									<button type="button" class="ui-button ui-button-ghost" onclick={() => dismissFrictionProposal(proposal)}>
 										<IconClose />
-										<span>Ignora</span>
+										<span>{m.settings_tasks_ignore()}</span>
 									</button>
 								</div>
 							</div>
@@ -662,7 +662,7 @@
 				class="inline-editor-card"
 				transition:trayFold
 				role="region"
-				aria-label="Editor direttiva"
+				aria-label={m.settings_tasks_editor_aria()}
 				use:escapeDismiss={cancelEdit}
 			>
 				<div class="editor-header">
@@ -676,7 +676,7 @@
 					<div class="ai-assistant-box" transition:trayFold>
 						<div class="assistant-head">
 							<IconSkill />
-							<span>{aiMode === 'generating' ? 'Assistente AI: Genera nuova direttiva' : 'Assistente AI: Migliora con AI'}</span>
+							<span>{aiMode === 'generating' ? m.settings_tasks_ai_generate_head() : m.settings_tasks_ai_refine_head()}</span>
 						</div>
 						<div class="assistant-body">
 							<div class="form-field">
@@ -686,7 +686,7 @@
 								<PromptField
 									bind:this={aiPromptField}
 									bind:value={aiPromptInput}
-									placeholder={aiMode === 'generating' ? 'Es. Forza sempre l\'esecuzione dei test prima di dichiarare finito il task...' : m.ui_taskssection_es_rendi_il_prompt_piu_sintetico_ed_bc8e()}
+									placeholder={aiMode === 'generating' ? m.settings_tasks_ai_generate_placeholder() : m.ui_taskssection_es_rendi_il_prompt_piu_sintetico_ed_bc8e()}
 									ariaLabel={aiMode === 'generating' ? m.ui_taskssection_descrivi_cosa_deve_fare_o_imporre_questa_9573() : m.ui_taskssection_istruzioni_opzionali_per_il_miglioramento_es_rendilo_0a16()}
 									onSubmit={aiMode === 'generating' ? runGenerateAi : runRefineAi}
 									onCancel={() => { aiMode = 'idle'; currentAiProposal = null; }}
@@ -695,13 +695,13 @@
 
 							{#if aiMode === 'generating'}
 								<div class="form-field">
-									<label for="ai-context-input" class="field-label">Contesto aggiuntivo o regole speciali (opzionale):</label>
+									<label for="ai-context-input" class="field-label">{m.settings_tasks_ai_context_label()}</label>
 									<input
 										id="ai-context-input"
 										type="text"
 										class="ui-input"
 										bind:value={aiContextInput}
-										placeholder="Es. Stack: Svelte 5 + Rust Tauri, no test end-to-end cloud..."
+										placeholder={m.settings_tasks_ai_context_placeholder()}
 									/>
 								</div>
 							{/if}
@@ -715,10 +715,10 @@
 								>
 									{#if aiLoading}
 										<StatusMark status="running" />
-										<span>Elaborazione...</span>
+										<span>{m.settings_processing()}</span>
 									{:else}
 										<IconSkill />
-										<span>{aiMode === 'generating' ? 'Genera bozza' : 'Migliora prompt'}</span>
+										<span>{aiMode === 'generating' ? m.settings_tasks_ai_generate_btn() : m.settings_tasks_ai_refine_btn()}</span>
 									{/if}
 								</button>
 								<button type="button" class="ui-button ui-button-secondary" onclick={() => { aiMode = 'idle'; currentAiProposal = null; }}>
@@ -733,14 +733,14 @@
 							{#if currentAiProposal}
 								<div class="ai-proposal-preview">
 									<div class="preview-head">
-										<span class="preview-title">Proposta dell'AI</span>
+										<span class="preview-title">{m.settings_tasks_ai_proposal_title()}</span>
 										{#if currentAiProposal.reason}
 											<span class="preview-reason">{currentAiProposal.reason}</span>
 										{/if}
 									</div>
 									<div class="preview-fields">
-										<div class="preview-field"><strong>Nome:</strong> {currentAiProposal.name} · <strong>Tag:</strong> {currentAiProposal.tag} · <strong>Posizione:</strong> {currentAiProposal.placement === 'before' ? 'Prima' : 'Dopo'}</div>
-										<div class="preview-field"><strong>Descrizione:</strong> {currentAiProposal.description}</div>
+										<div class="preview-field"><strong>{m.settings_tasks_ai_proposal_name()}</strong> {currentAiProposal.name} · <strong>{m.settings_tasks_ai_proposal_tag()}</strong> {currentAiProposal.tag} · <strong>{m.settings_tasks_ai_proposal_placement()}</strong> {currentAiProposal.placement === 'before' ? m.settings_tasks_ai_proposal_before() : m.settings_tasks_ai_proposal_after()}</div>
+										<div class="preview-field"><strong>{m.settings_tasks_ai_proposal_description()}</strong> {currentAiProposal.description}</div>
 										<div class="preview-prompt-box">
 											<pre>{currentAiProposal.prompt}</pre>
 										</div>
@@ -748,7 +748,7 @@
 									<div class="preview-actions">
 										<button type="button" class="ui-button ui-button-primary" onclick={() => applyAiProposalToForm(currentAiProposal!)}>
 											<IconCheck />
-											<span>Applica al modulo</span>
+											<span>{m.settings_tasks_apply_to_form()}</span>
 										</button>
 									</div>
 								</div>
@@ -759,7 +759,7 @@
 
 				<div class="editor-fields-grid">
 					<div class="form-field">
-						<label for="edit-directive-name" class="field-label">Nome visualizzato</label>
+						<label for="edit-directive-name" class="field-label">{m.settings_tasks_field_name()}</label>
 						<input
 							id="edit-directive-name"
 							type="text"
@@ -770,18 +770,18 @@
 					</div>
 
 					<div class="form-field">
-						<label for="edit-directive-tag" class="field-label">Tag / Etichetta compatta</label>
+						<label for="edit-directive-tag" class="field-label">{m.settings_tasks_field_tag()}</label>
 						<input
 							id="edit-directive-tag"
 							type="text"
 							class="ui-input"
 							bind:value={editTag}
-							placeholder="Es. /audit o Test"
+							placeholder={m.settings_tasks_field_tag_placeholder()}
 						/>
 					</div>
 
 					<div class="form-field full">
-						<label for="edit-directive-desc" class="field-label">Descrizione breve (interfaccia)</label>
+						<label for="edit-directive-desc" class="field-label">{m.settings_tasks_field_desc()}</label>
 						<input
 							id="edit-directive-desc"
 							type="text"
@@ -792,31 +792,31 @@
 					</div>
 
 					<div class="form-field full">
-						<span class="field-label">Posizione rispetto al prompt del task</span>
+						<span class="field-label">{m.settings_tasks_field_placement()}</span>
 						<div class="placement-radios">
 							<label class="radio-label">
 								<input type="radio" name="placement" value="before" bind:group={editPlacement} />
-								<span>Prima del prompt principale (istruzioni e vincoli preliminari)</span>
+								<span>{m.settings_tasks_placement_before_long()}</span>
 							</label>
 							<label class="radio-label">
 								<input type="radio" name="placement" value="after" bind:group={editPlacement} />
-								<span>Dopo il prompt principale (direttive finali o post-condizioni)</span>
+								<span>{m.settings_tasks_placement_after_long()}</span>
 							</label>
 						</div>
 					</div>
 
 					<div class="form-field full">
 						<div class="field-label-row">
-							<span class="field-label">Testo della direttiva inviato all'agente</span>
+							<span class="field-label">{m.settings_tasks_field_prompt()}</span>
 							{#if aiMode === 'idle'}
-								<Tooltip text="Fai ottimizzare o affinare questo prompt dall'AI">
+								<Tooltip text={m.settings_tasks_refine_tooltip()}>
 									<button
 										type="button"
 										class="ui-button ui-button-ghost"
 										onclick={startRefiningAi}
 									>
 										<IconSkill />
-										<span>Migliora con AI</span>
+										<span>{m.settings_tasks_improve_ai_btn()}</span>
 									</button>
 								</Tooltip>
 							{/if}
@@ -824,8 +824,8 @@
 						<PromptField
 							bind:this={directivePromptField}
 							bind:value={editPrompt}
-							placeholder="[Direttiva: Istruzioni operative precise da inviare nel prompt...]"
-							ariaLabel="Testo della direttiva inviato all'agente"
+							placeholder={m.settings_tasks_prompt_placeholder()}
+							ariaLabel={m.settings_tasks_field_prompt()}
 							onSubmit={saveDirectiveForm}
 							onCancel={cancelEdit}
 						/>
@@ -840,7 +840,7 @@
 					<div class="footer-left">
 						<button type="button" class="ui-button ui-button-primary" onclick={saveDirectiveForm}>
 							<IconCheck />
-							<span>Salva direttiva</span>
+							<span>{m.settings_tasks_save_directive()}</span>
 						</button>
 						<button type="button" class="ui-button ui-button-secondary" onclick={cancelEdit}>
 							{m.common_cancel()}
@@ -852,7 +852,7 @@
 						{#if currentDir?.factoryKey}
 							<button type="button" class="ui-button ui-button-ghost text-warn" onclick={() => resetDirectiveToFactory(currentDir)}>
 								<IconRefresh />
-								<span>Ripristina originale di fabbrica</span>
+								<span>{m.settings_factory_reset()}</span>
 							</button>
 						{/if}
 					{/if}
@@ -861,7 +861,7 @@
 		{/if}
 
 		<!-- Elenco Direttive a Righe Dense -->
-		<div class="directives-list" role="list" aria-label="Elenco direttive configurate">
+		<div class="directives-list" role="list" aria-label={m.settings_tasks_list_aria()}>
 			{#each settingsStore.taskDirectives as d, idx (d.id)}
 				{@const isDefault = effectiveDefaults.selectedDirectiveIds.includes(d.id)}
 				<div
@@ -872,25 +872,25 @@
 				>
 					<!-- Switch di attivazione default -->
 					<div class="col-checkbox">
-						<Tooltip text={`Attiva di default per ${isProjectScope ? currentProject?.name : 'Globale'}`}>
+						<Tooltip text={m.settings_tasks_default_for_tooltip({ scope: (isProjectScope ? currentProject?.name : undefined) ?? m.settings_tasks_scope_global_name() })}>
 							<Switch
 								id={`dir-default-${d.id}`}
 								checked={isDefault}
 								onChange={() => toggleDefaultDirective(d.id)}
-								ariaLabel={`Attiva ${d.name} di default per ${isProjectScope ? currentProject?.name : 'Globale'}`}
+								ariaLabel={m.settings_tasks_default_for_aria({ name: d.name, scope: (isProjectScope ? currentProject?.name : undefined) ?? m.settings_tasks_scope_global_name() })}
 							/>
 						</Tooltip>
 					</div>
 
 					<!-- Riordino -->
 					<div class="col-order">
-						<Tooltip text="Sposta su">
+						<Tooltip text={m.settings_move_up()}>
 							<button
 								type="button"
 								class="order-btn"
 								disabled={idx === 0}
 								onclick={() => moveDirective(d.id, -1)}
-								aria-label="Sposta su"
+								aria-label={m.settings_move_up()}
 							>
 								<IconChevronUp />
 							</button>
@@ -913,18 +913,18 @@
 						<div class="row-top">
 							<span class="dir-name">{d.name}</span>
 							{#if d.factoryKey}
-								<span class="factory-pill">Preset</span>
+								<span class="factory-pill">{m.settings_preset_pill()}</span>
 							{/if}
 							{#if d.placement === 'after'}
-								<span class="placement-pill after">dopo</span>
+								<span class="placement-pill after">{m.settings_tasks_pill_after()}</span>
 							{:else}
-								<span class="placement-pill before">prima</span>
+								<span class="placement-pill before">{m.settings_tasks_pill_before()}</span>
 							{/if}
 							{#if d.tag}
 								<span class="tag-pill">{d.tag}</span>
 							{/if}
 							{#if d.hidden}
-								<span class="hidden-pill">Nascosta nei task</span>
+								<span class="hidden-pill">{m.settings_tasks_hidden_pill()}</span>
 							{/if}
 						</div>
 						<p class="dir-desc">{d.description || d.prompt}</p>
@@ -942,12 +942,12 @@
 								<IconRename />
 							</button>
 						</Tooltip>
-						<Tooltip text="Duplica direttiva">
+						<Tooltip text={m.settings_tasks_duplicate()}>
 							<button
 								type="button"
 								class="btn-row-action"
 								onclick={() => duplicateDirective(d)}
-								aria-label="Duplica direttiva"
+								aria-label={m.settings_tasks_duplicate()}
 							>
 								<IconCopy />
 							</button>
@@ -964,28 +964,28 @@
 							</button>
 						</Tooltip>
 						{#if d.factoryKey}
-							<Tooltip text="Ripristina testo e configurazione originale di fabbrica">
+							<Tooltip text={m.settings_factory_reset_tooltip()}>
 								<button
 									type="button"
 									class="btn-row-action"
 									onclick={() => resetDirectiveToFactory(d)}
-									aria-label="Ripristina testo e configurazione originale di fabbrica"
+									aria-label={m.settings_factory_reset_tooltip()}
 								>
 									<IconRefresh />
 								</button>
 							</Tooltip>
 						{:else}
-							<Tooltip text={deleteArmedId === d.id ? 'Clicca di nuovo per confermare eliminazione' : m.ui_taskssection_elimina_direttiva_ca0d()}>
+							<Tooltip text={deleteArmedId === d.id ? m.settings_delete_click_again() : m.ui_taskssection_elimina_direttiva_ca0d()}>
 								<button
 									type="button"
 									class="btn-row-action danger"
 									class:ui-button-danger={deleteArmedId === d.id}
 									class:armed={deleteArmedId === d.id}
 									onclick={() => handleDelete(d.id)}
-									aria-label={deleteArmedId === d.id ? 'Conferma eliminazione' : m.ui_taskssection_elimina_direttiva_ca0d()}
+									aria-label={deleteArmedId === d.id ? m.ui_suggestionssection_conferma_eliminazione_7049() : m.ui_taskssection_elimina_direttiva_ca0d()}
 								>
 									{#if deleteArmedId === d.id}
-										<span>Sicuro?</span>
+										<span>{m.settings_delete_armed()}</span>
 									{:else}
 										<IconTrash />
 									{/if}
@@ -1000,9 +1000,9 @@
 
 	<!-- Blocco 3: Progetti Aperti & Auto-Dispatch (invariante preservato) -->
 	<div class="section-block">
-		<span class="block-title">Auto-avvio per progetto</span>
+		<span class="block-title">{m.settings_tasks_autodispatch_title()}</span>
 		{#if openProjects.length === 0}
-			<p class="empty-note">Nessun progetto aperto.</p>
+			<p class="empty-note">{m.settings_tasks_no_open_projects()}</p>
 		{:else}
 			<div class="section-group">
 				{#each openProjects as p (p.id)}

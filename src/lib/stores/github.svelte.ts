@@ -3,6 +3,7 @@ import { projectStore, normalizeProjectPath, joinProjectPath } from './projects.
 import { settingsStore } from './settings.svelte';
 import { notificationManager } from './notifications.svelte';
 import { m } from '$lib/paraglide/messages.js';
+import { ActionsPollGate } from './actionsPollGate';
 
 export interface GithubAuthStatus {
 	installed: boolean;
@@ -105,6 +106,8 @@ class GithubStore {
 	private notifiedIncoming = new Map<string, string>();
 	private REMOTE_CHECK_INTERVAL_MS = 5 * 60_000;
 
+	private actionsGate = new ActionsPollGate();
+
 	private lastReposFetch = 0;
 	private REPOS_CACHE_TTL_MS = 60_000;
 
@@ -150,9 +153,14 @@ class GithubStore {
 		}
 	}
 
-	async logout(): Promise<void> {
+	/**
+	 * Scollega Studio da GitHub. `alsoGhCli` esegue anche `gh auth logout`:
+	 * l'account di gh e' condiviso con terminale e altri strumenti, quindi lo si
+	 * tocca solo su richiesta esplicita.
+	 */
+	async logout(opts: { alsoGhCli?: boolean } = {}): Promise<void> {
 		try {
-			await invoke('github_logout');
+			await invoke('github_logout', { alsoGhCli: opts.alsoGhCli ?? false });
 			this.status = {
 				installed: this.status.installed,
 				authenticated: false,
@@ -374,8 +382,19 @@ class GithubStore {
 		}
 	}
 
-	async loadActionsStatus(projectPath: string, branch?: string): Promise<GithubActionRun[]> {
+	/**
+	 * Legge le ultime esecuzioni di GitHub Actions. Senza `force` rispetta la
+	 * cadenza di `ActionsPollGate` e restituisce i dati gia' in memoria.
+	 */
+	async loadActionsStatus(
+		projectPath: string,
+		branch?: string,
+		opts: { force?: boolean } = {}
+	): Promise<GithubActionRun[]> {
 		const key = normalizeProjectPath(projectPath).toLowerCase();
+		if (!this.actionsGate.tryAcquire(`${key}\n${branch ?? ''}`, Date.now(), opts.force ?? false)) {
+			return this.actionsByPath[key] ?? [];
+		}
 		this.isLoadingActionsByPath[key] = true;
 		try {
 			const runs = await invoke<GithubActionRun[]>('github_get_actions_status', {
