@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { STUDIO_SLASH_COMMANDS } from '../src/lib/agent/commands.ts';
 import { choosePasteContent, findSlashCommand, remainingAfterSend, routeComposerSubmit } from '../src/lib/agent/composerSubmit.ts';
 import { segmentsToWireText } from '../src/lib/agent/composerDoc.ts';
-import { composerChord, letterChordLabel } from '../src/lib/agent/composerShortcuts.ts';
+import { composerChord, letterChordLabel, yieldsToShellShortcut } from '../src/lib/agent/composerShortcuts.ts';
 
 describe('Composer: instradamento dei comandi /', () => {
 	it('ogni comando e alias del catalogo di Studio passa dal guscio', () => {
@@ -69,6 +69,19 @@ describe('Composer: modificatori delle scorciatoie', () => {
 		assert.equal(composerChord(keys({ altKey: true, ctrlKey: true, metaKey: true }), true), null);
 		assert.equal(composerChord(keys({ metaKey: true }), true), 'command');
 		assert.equal(letterChordLabel(true), '⌃+⌥');
+	});
+});
+
+describe('Composer: scorciatoie del guscio su Mac', () => {
+	it('fuori dal composer Ctrl+Opzione+N resta al guscio (nuovo progetto)', () => {
+		assert.equal(yieldsToShellShortcut('n', true, false), true);
+		assert.equal(yieldsToShellShortcut('n', true, true), false);
+	});
+	it('le lettere senza scorciatoia globale restano al composer', () => {
+		assert.equal(yieldsToShellShortcut('e', true, false), false);
+	});
+	it('su Windows e Linux non ci sono sovrapposizioni', () => {
+		assert.equal(yieldsToShellShortcut('n', false, false), false);
 	});
 });
 

@@ -60,7 +60,7 @@
 	import { untrack } from 'svelte';
 	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
 	import { TwoStepStop } from '$lib/agent/twoStepStop';
-	import { composerChord } from '$lib/agent/composerShortcuts';
+	import { composerChord, yieldsToShellShortcut } from '$lib/agent/composerShortcuts';
 	import { IS_MAC } from '$lib/utils/platform';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -575,6 +575,7 @@
 		const ctrlOnly = chord === 'command';
 		// e.code prima di e.key: con Alt alcuni layout producono caratteri speciali.
 		const key = e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
+		if (chord === 'letter' && yieldsToShellShortcut(key, IS_MAC, insideComposer)) return;
 
 		if (ctrlOnly) {
 			if (key === 'p') {

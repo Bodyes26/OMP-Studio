@@ -6,12 +6,14 @@ OMP Studio passes standard keys and conventional shortcuts (including those with
 
 Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modifier, tab switching **`Ctrl+Tab`**, and the **`Alt+H` / `Alt+K` / `F1`** help cheat sheet, avoiding conflicts with primary `omp` key combinations.
 
+**On macOS** the GUI surface shortcuts listed as `Alt+…` are used with **`Control+Option`** (`⌃⌥R`, `⌃⌥N`, `⌃⌥1`…): Option alone types characters such as `€`, `ç` and `ñ`, and Studio does not intercept it. Since global shortcuts also use `Control+Option`, the two families are told apart by focus: with the cursor in the composer the composer shortcut applies (`⌃⌥N` = new chat), elsewhere the global one does (`⌃⌥N` = new project).
+
 | Shortcut | Context | Action |
 |---|---|---|
 | `Alt+H` / `Alt+K` / `F1` | Global | Opens the keyboard shortcuts cheat sheet with 2-column layout and search filter |
 | `Ctrl+Alt+N` | Global | New project (opens folder picker) |
 | `Ctrl+Alt+S` | Global | Open a Scratchpad chat (temporary, `--no-session`) |
-| `Ctrl+Alt+P` | Global | New free-idea Lab prototype (when alpha flag is enabled) |
+| `Ctrl+Alt+P` | Global | New free-idea Lab prototype; with the Lab disabled, opens the setting that enables it |
 | `Ctrl+Alt+U` | Global | Toggle quota & token usage panel |
 | `Ctrl+Alt+,` | Global | Open Studio Settings (General, Project Bar, Editor & Terminal, Tasks & Agents, Models) |
 | `Ctrl+Alt+M` | Global | Open Settings directly to the Models section (Roles, Catalog, Providers) |
@@ -20,6 +22,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+Alt+A` | Global | Switch between TERMINAL and GUI surfaces preserving the session |
 | `Ctrl+Alt+B` | Global | Toggle left sidebar (Files, Git, Agent) |
 | `Ctrl+Alt+L` | Global | Cycle window layout mode (`Auto` → `Horizontal` → `Vertical`) |
+| `Ctrl+Alt+C` / `Ctrl+Alt+R` | Global | Open and close the Companion window |
 | `Ctrl+Tab` | Global | Switch to next open project, in project bar order |
 | `Ctrl+Shift+Tab` | Global | Switch to previous open project, in project bar order |
 | `Ctrl+Alt+Arrow Right` | Global | If the active project has secondary lanes, switch to the next lane; otherwise switch to the next open project |
@@ -30,8 +33,8 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Alt+P` | GUI Surface | Open model catalog with quick filter and keyboard navigation |
 | `Alt+M` | GUI Surface | Open thinking (reasoning) level selector menu |
 | `Alt+T` | GUI Surface | Directly cycle thinking level (`off` → `max`) |
-| `Alt+C` | GUI Surface | Stop response in progress or clear typed text |
-| `Ctrl+C` | GUI Surface | Interrupt streaming response (when no text is selected) |
+| `Alt+C` | GUI Surface | Stop response in progress or clear typed text; if the agent does not stop, pressing again forces it to stop |
+| `Ctrl+C` | GUI Surface | Interrupt streaming response (when no text is selected); if the agent does not stop, pressing again forces it to stop |
 | `Alt+E` | GUI Surface | Focus Composer input field |
 | `Alt+N` | GUI Surface | Open new chat in active project |
 | `/` | GUI Composer | Open available slash command palette |

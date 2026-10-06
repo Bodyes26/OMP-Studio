@@ -6,12 +6,14 @@ OMP Studio delega l'intero blocco di tasti e scorciatoie convenzionali (incluse 
 
 Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+Alt`**, la navigazione schede **`Ctrl+Tab`** e la guida di aiuto **`Alt+H` / `Alt+K` / `F1`**, che non collidono con le combinazioni primarie di `omp`.
 
+**Su macOS** le scorciatoie della superficie GUI indicate con `Alt+…` si usano con **`Ctrl+Opzione`** (`⌃⌥R`, `⌃⌥N`, `⌃⌥1`…): Opzione da sola scrive caratteri come `€`, `ç` e `ñ` e Studio non la intercetta. Siccome anche le scorciatoie globali usano `Ctrl+Opzione`, le due famiglie si separano per fuoco: col cursore nel composer vale la scorciatoia del composer (`⌃⌥N` = nuova chat), fuori vale quella globale (`⌃⌥N` = nuovo progetto).
+
 | Scorciatoia | Contesto | Azione |
 |---|---|---|
 | `Alt+H` / `Alt+K` / `F1` | Globale | Apre la guida alle scorciatoie da tastiera con layout a 2 colonne e filtro |
 | `Ctrl+Alt+N` | Globale | Nuovo progetto (apre selettore cartella) |
 | `Ctrl+Alt+S` | Globale | Apre una chat Scratchpad (temporanea, `--no-session`) |
-| `Ctrl+Alt+P` | Globale | Nuovo prototipo libero nel Laboratorio (con flag alpha) |
+| `Ctrl+Alt+P` | Globale | Nuovo prototipo libero nel Laboratorio; con il Laboratorio disattivato apre l'impostazione per attivarlo |
 | `Ctrl+Alt+U` | Globale | Apre e chiude il pannello consumi (quote) |
 | `Ctrl+Alt+,` | Globale | Apre le impostazioni di Studio (Generale, Barra progetti, Editor & Terminale, Task & Agenti, Modelli) |
 | `Ctrl+Alt+M` | Globale | Apre le impostazioni direttamente sulla sezione Modelli (Ruoli, Catalogo, Provider) |
@@ -20,6 +22,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+Alt+A` | Globale | Passa tra la superficie TERMINAL e la superficie GUI conservando la sessione |
 | `Ctrl+Alt+B` | Globale | Mostra o nasconde la barra laterale sinistra (File, Git, Agente) |
 | `Ctrl+Alt+L` | Globale | Cicla la modalita di layout della finestra (`Auto` → `Orizzontale` → `Verticale`) |
+| `Ctrl+Alt+C` / `Ctrl+Alt+R` | Globale | Apre e chiude la finestra Companion |
 | `Ctrl+Tab` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra |
 | `Ctrl+Shift+Tab` | Globale | Passa al progetto aperto precedente, nell'ordine mostrato in barra |
 | `Ctrl+Alt+Freccia Destra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia successiva; altrimenti al progetto aperto successivo |
@@ -30,8 +33,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+P` | Superficie GUI | Apre il catalogo modelli con filtro rapido e navigazione tastiera |
 | `Alt+M` | Superficie GUI | Apre il menu di selezione del livello di thinking (ragionamento) |
 | `Alt+T` | Superficie GUI | Cicla direttamente il livello di thinking (`off` → `max`) |
-| `Alt+C` | Superficie GUI | Interrompe la risposta in corso o cancella il testo scritto |
-| `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato) |
+| `Alt+C` | Superficie GUI | Interrompe la risposta in corso o cancella il testo scritto; se l'agente non si ferma, una seconda pressione forza l'arresto |
+| `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato); se l'agente non si ferma, una seconda pressione forza l'arresto |
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
 | `Alt+N` | Superficie GUI | Apre una nuova chat nel progetto attivo |
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
