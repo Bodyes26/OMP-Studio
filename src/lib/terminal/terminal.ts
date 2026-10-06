@@ -1,5 +1,4 @@
 import { Terminal, type ILinkProvider, type ILink } from '@xterm/xterm';
-import { CanvasAddon } from '@xterm/addon-canvas';
 import { FitAddon } from '@xterm/addon-fit';
 import { LigaturesAddon } from '@xterm/addon-ligatures';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -59,6 +58,8 @@ export class TerminalSession {
 	private resizeObserver: ResizeObserver;
 	private resizeTimeout: number | null = null;
 	private disposed = false;
+	/** Cresce a ogni rilascio o riavvio: un pty_open partito prima e' superato. */
+	private ptyEpoch = 0;
 	private unsubscribeTheme: () => void;
 	private currentState: TerminalAgentState = 'unknown';
 	private pendingInputLength = 0;
@@ -165,11 +166,6 @@ export class TerminalSession {
 
 		this.fitAddon = new FitAddon();
 		this.term.loadAddon(this.fitAddon);
-		try {
-			this.term.loadAddon(new CanvasAddon());
-		} catch (e) {
-			console.warn('CanvasAddon non caricato:', e);
-		}
 		this.term.loadAddon(new Unicode11Addon());
 		this.term.unicode.activeVersion = '11';
 		this.term.loadAddon(new WebLinksAddon((_event, uri) => {
@@ -614,7 +610,8 @@ export class TerminalSession {
 			const cols = this.term.cols || 80;
 			const rows = this.term.rows || 24;
 
-			this.ptyId = await invoke<number>('pty_open', {
+			const epoch = this.ptyEpoch;
+			const ptyId = await invoke<number>('pty_open', {
 				cwd: launchCwd,
 				args,
 				cols,
@@ -623,6 +620,14 @@ export class TerminalSession {
 				projectId: this.projectId ?? null,
 				onOutput
 			});
+			// Chiusura, rilascio o riavvio arrivati mentre pty_open era in volo
+			// hanno trovato ptyId ancora null: senza questa chiusura il processo
+			// omp appena nato resterebbe vivo senza nessuno che lo possieda.
+			if (this.disposed || epoch !== this.ptyEpoch) {
+				void invoke('pty_close', { ptyId }).catch(() => {});
+				return;
+			}
+			this.ptyId = ptyId;
 
 			// Il fit puo' essere cambiato mentre pty_open era in volo: allora
 			// onResize e' scattato con ptyId ancora null e il pty sarebbe
@@ -746,6 +751,7 @@ export class TerminalSession {
 	public async restart() {
 		if (this.disposed) return;
 		this.clearTerminalOutputBuffer();
+		this.ptyEpoch++;
 		if (this.ptyId !== null) {
 			try {
 				await invoke('pty_close', { ptyId: this.ptyId });
@@ -781,9 +787,7 @@ export class TerminalSession {
 		if (this.disposed || this.ptyId === null) return;
 		const ptyId = this.ptyId;
 		try {
-			await invoke('pty_force_kill', { ptyId }).catch(() =>
-				invoke('force_kill_session', { ptyId })
-			);
+			await invoke('pty_force_kill', { ptyId });
 		} catch (error) {
 			console.warn('Errore invocazione force kill su PTY:', error);
 		}
@@ -796,6 +800,7 @@ export class TerminalSession {
 	 */
 	public async release() {
 		if (this.disposed) return;
+		this.ptyEpoch++;
 		const ptyId = this.ptyId;
 		this.ptyId = null;
 		if (ptyId === null) return;
