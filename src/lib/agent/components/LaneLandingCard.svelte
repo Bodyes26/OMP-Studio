@@ -67,7 +67,7 @@
 		class:kind-awaiting={record.kind === 'awaiting_confirm'}
 		class:kind-error={record.kind === 'error'}
 		role="region"
-		aria-label="Lane Landing"
+		aria-label={m.lanelanding_card_aria()}
 	>
 		<!-- Header -->
 		<div class="card-header">
@@ -112,12 +112,12 @@
 			</div>
 
 			<div class="header-right">
-				<span class="badge badge-lane" title={`Corsia: ${record.laneTitle}`}>
+				<span class="badge badge-lane" title={m.lanelanding_card_lane_title({ lane: record.laneTitle })}>
 					<IconGitBranch />
 					<span>{record.laneTitle}</span>
 				</span>
 				{#if record.targetBranch}
-					<span class="badge badge-target" title={`Target: ${record.targetBranch}`}>
+					<span class="badge badge-target" title={m.lanelanding_card_target_title({ branch: record.targetBranch })}>
 						<span>&rarr; {record.targetBranch}</span>
 					</span>
 				{/if}
@@ -230,7 +230,7 @@
 			{:else if record.kind === 'awaiting_confirm'}
 				<div class="awaiting-content">
 					<p class="awaiting-text">
-						La corsia ha avuto conflitti in precedenza ed e' in attesa di conferma utente per completare l'integrazione.
+						{m.lanelanding_card_awaiting_text()}
 					</p>
 					<div class="card-actions">
 						<button
@@ -270,7 +270,7 @@
 
 			{:else if record.kind === 'error'}
 				<div class="error-content" role="alert">
-					<p class="error-msg">{record.error?.message ?? 'Errore sconosciuto'}</p>
+					<p class="error-msg">{record.error?.message ?? m.lanelanding_card_unknown_error()}</p>
 					{#if record.error?.detail}
 						<pre class="error-detail-block">{record.error.detail}</pre>
 					{/if}

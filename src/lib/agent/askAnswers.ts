@@ -9,6 +9,8 @@
  *    non esiste nessun ripiego silenzioso.
  */
 
+import { m as msg } from '$lib/paraglide/messages.js';
+
 /**
  * Domanda come l'ha dichiarata l'agente negli argomenti del tool `ask`. Vive
  * qui e non nella sessione perche' il piano di consegna si costruisce da
@@ -163,9 +165,18 @@ export const OTHER_LABEL = 'Other (type your own)';
 export const DONE_SENTINEL = '✔ Done selecting';
 /**
  * Testo convenzionale con cui "Decidi tu" viaggia sul filo: la risposta
- * libera deve essere distinguibile da una scelta tra le opzioni.
+ * libera deve essere distinguibile da una scelta tra le opzioni. Va al
+ * modello, quindi segue la lingua dell'interfaccia come il resto dei
+ * messaggi dell'utente.
  */
-export const DECIDE_FOR_ME_TEXT = 'Decidi tu: scegli la soluzione migliore';
+export function decideForMeText(): string {
+	return msg.chat_v2_ask_decide_for_me_wire();
+}
+
+/** Riconosce il testo in entrambe le lingue: lo storico puo' venire da una sessione nell'altra lingua. */
+export function isDecideForMeText(text: string): boolean {
+	return (['it', 'en'] as const).some((locale) => text === msg.chat_v2_ask_decide_for_me_wire({}, { locale }));
+}
 
 /**
  * Un passo del piano di consegna: una richiesta di omp, una risposta. Il
@@ -272,7 +283,8 @@ export function buildQuestionSteps(question: AnswerableQuestion): AskFlushStep[]
 	// una stringa libera eviterebbe di registrare selezioni spurie nel set:
 	// il testo convenzionale chiude la domanda in un solo passo.
 	if (question.decideForMe) {
-		return [{ method: 'select', value: note ? `${DECIDE_FOR_ME_TEXT} (nota: ${note})` : DECIDE_FOR_ME_TEXT, signature }];
+		const decide = decideForMeText();
+		return [{ method: 'select', value: note ? `${decide} (nota: ${note})` : decide, signature }];
 	}
 
 	if (question.multi) {

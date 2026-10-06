@@ -101,7 +101,7 @@
 								type="button"
 								class="title-link"
 								onclick={() => openLink(source.url)}
-								title="Apri nel browser"
+								title={m.chat_v2_tool_open_in_browser()}
 							>
 								{source.title}
 							</button>

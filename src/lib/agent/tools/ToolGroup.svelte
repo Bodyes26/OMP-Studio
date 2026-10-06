@@ -216,26 +216,26 @@
 	const totalCallsCount = $derived(rowItems.length);
 	const callsCountText = $derived(
 		totalCallsCount === 1
-			? (m.chat_v2_tools_calls_one?.() ?? '1 chiamata')
-			: (m.chat_v2_tools_calls_many?.({ count: totalCallsCount }) ?? `${totalCallsCount} chiamate`)
+			? m.chat_v2_tools_calls_one()
+			: m.chat_v2_tools_calls_many({ count: totalCallsCount })
 	);
 
 	function categoryTooltip(cat: ToolCategory, count: number): string {
 		switch (cat) {
 			case 'read':
-				return count === 1 ? (m.chat_v2_tools_cat_read_one?.() ?? 'lettura') : (m.chat_v2_tools_cat_read_many?.() ?? 'letture');
+				return count === 1 ? m.chat_v2_tools_cat_read_one() : m.chat_v2_tools_cat_read_many();
 			case 'search':
-				return count === 1 ? (m.chat_v2_tools_cat_search_one?.() ?? 'ricerca') : (m.chat_v2_tools_cat_search_many?.() ?? 'ricerche');
+				return count === 1 ? m.chat_v2_tools_cat_search_one() : m.chat_v2_tools_cat_search_many();
 			case 'run':
-				return count === 1 ? (m.chat_v2_tools_cat_run_one?.() ?? 'comando') : (m.chat_v2_tools_cat_run_many?.() ?? 'comandi');
+				return count === 1 ? m.chat_v2_tools_cat_run_one() : m.chat_v2_tools_cat_run_many();
 			case 'edit':
-				return count === 1 ? (m.chat_v2_tools_cat_edit_one?.() ?? 'modifica') : (m.chat_v2_tools_cat_edit_many?.() ?? 'modifiche');
+				return count === 1 ? m.chat_v2_tools_cat_edit_one() : m.chat_v2_tools_cat_edit_many();
 			case 'web':
-				return count === 1 ? (m.chat_v2_tools_cat_web_one?.() ?? 'pagina web') : (m.chat_v2_tools_cat_web_many?.() ?? 'pagine web');
+				return count === 1 ? m.chat_v2_tools_cat_web_one() : m.chat_v2_tools_cat_web_many();
 			case 'think':
-				return count === 1 ? (m.chat_v2_tools_cat_think_one?.() ?? 'ragionamento') : (m.chat_v2_tools_cat_think_many?.() ?? 'ragionamenti');
+				return count === 1 ? m.chat_v2_tools_cat_think_one() : m.chat_v2_tools_cat_think_many();
 			default:
-				return count === 1 ? (m.chat_v2_tools_cat_other_one?.() ?? 'operazione') : (m.chat_v2_tools_cat_other_many?.() ?? 'operazioni');
+				return count === 1 ? m.chat_v2_tools_cat_other_one() : m.chat_v2_tools_cat_other_many();
 		}
 	}
 
@@ -314,7 +314,7 @@
 		>
 			<span class="row-icon-slot">
 				{#if item.running}
-					<span class="spinner" aria-label="In esecuzione"></span>
+					<span class="spinner" aria-label={m.chat_v2_tools_running_aria()}></span>
 				{:else if item.fail}
 					<span class="fail-icon"><IconClose /></span>
 				{:else}
@@ -366,7 +366,7 @@
 {#snippet renderBatches(batches: RowItem[][])}
 	{#each batches as batch (batch[0].id)}
 		{#if batch.length > 1}
-			<div class="parallel-batch" title={m.chat_v2_tools_parallel_title?.() ?? 'Chiamate parallele'}>
+			<div class="parallel-batch" title={m.chat_v2_tools_parallel_title()}>
 				{#each batch as item (item.id)}
 					{@render renderRow(item)}
 				{/each}
@@ -385,12 +385,12 @@
 		aria-expanded={isFullListOpen}
 		onclick={toggleOpen}
 		title={isFullListOpen
-			? (m.chat_v2_tools_collapse?.() ?? 'Comprimi passaggi')
-			: (m.chat_v2_tools_expand?.() ?? 'Espandi passaggi')}
+			? m.chat_v2_tools_collapse()
+			: m.chat_v2_tools_expand()}
 	>
 		{#if isLive}
 			<span class="summary-lead">
-				<span class="live-status text-shimmer">{m.chat_v2_tools_working?.() ?? 'Al lavoro'}</span>
+				<span class="live-status text-shimmer">{m.chat_v2_tools_working()}</span>
 				<span class="summary-text tabular-nums">{callsCountText} · {durationLabel}</span>
 			</span>
 		{:else}
@@ -418,7 +418,7 @@
 
 				{#if summaryStats.failedCount > 0}
 					<span class="summary-failed">
-						{m.chat_v2_tools_failed_count?.({ count: summaryStats.failedCount }) ?? `${summaryStats.failedCount} con errori`}
+						{m.chat_v2_tools_failed_count({ count: summaryStats.failedCount })}
 					</span>
 				{/if}
 			</span>

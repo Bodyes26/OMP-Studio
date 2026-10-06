@@ -1,13 +1,19 @@
-import { describe, it } from 'node:test';
+import { beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
 	categorizeTool,
 	categoryForTool,
 	parseDiffStats,
-	formatDurationSecs
+	formatDurationSecs,
+	summarizeThinking
 } from '../src/lib/agent/tools/categories.ts';
+import { useLocale } from './locale.ts';
 
 describe('Categorie e sintesi dei tool (Gate R32 - C09)', () => {
+	// Etichette e numeri seguono la lingua dell'interfaccia: i casi qui sotto
+	// sono scritti sull'italiano.
+	beforeEach(() => useLocale('it'));
+
 	it('conta +/- da testo diff reale di omp (EditToolDetails.diff)', () => {
 		// Esempio reale da ricerca/TOOL-DETAILS.md (catturato dal filo RPC di omp)
 		const realOmpDiff =
@@ -137,9 +143,21 @@ describe('Categorie e sintesi dei tool (Gate R32 - C09)', () => {
 	});
 
 	it('formatta correttamente i secondi conformemente al prototipo', () => {
+		useLocale('it');
 		assert.equal(formatDurationSecs(0), '0,1 s');
 		assert.equal(formatDurationSecs(500), '0,5 s');
 		assert.equal(formatDurationSecs(1449), '1,4 s');
 		assert.equal(formatDurationSecs(12800), '12,8 s');
+	});
+
+	it('usa il separatore decimale e le etichette della lingua dell\'interfaccia', () => {
+		useLocale('en');
+		assert.equal(formatDurationSecs(1449), '1.4 s');
+		assert.equal(formatDurationSecs(12800), '12.8 s');
+		assert.equal(categorizeTool({ toolName: 'read', args: { path: 'a.ts' } }).label, 'Read');
+		assert.equal(summarizeThinking('pensiero').label, 'Thinking');
+		useLocale('it');
+		assert.equal(categorizeTool({ toolName: 'read', args: { path: 'a.ts' } }).label, 'Lettura');
+		assert.equal(summarizeThinking('pensiero').label, 'Ragionamento');
 	});
 });

@@ -4,7 +4,8 @@ import {
 	buildFlushPlan,
 	buildQuestionSteps,
 	cleanOptionLabel,
-	DECIDE_FOR_ME_TEXT,
+	decideForMeText,
+	isDecideForMeText,
 	DONE_SENTINEL,
 	extractNoteFromLabel,
 	firstUnansweredIndex,
@@ -22,6 +23,7 @@ import {
 	type AskQuestion
 } from '../src/lib/agent/askAnswers.ts';
 import { parseAskToolCall, summarizeAskAnswer } from '../src/lib/agent/askResult.ts';
+import { useLocale } from './locale.ts';
 
 function option(label: string): AnswerableOption {
 	return {
@@ -248,6 +250,7 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 		});
 
 		it('invia il testo convenzionale quando l utente sceglie "Decidi tu"', () => {
+			useLocale('it');
 			const q = question({ decideForMe: true });
 			assert.equal(isQuestionAnswered(q), true);
 			const steps = buildQuestionSteps(q);
@@ -261,6 +264,7 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 		});
 
 		it('allega la nota al testo convenzionale di "Decidi tu"', () => {
+			useLocale('it');
 			const q = question({ decideForMe: true, multi: true, touched: true, note: 'budget limitato' });
 			assert.equal(isQuestionAnswered(q), true);
 			const steps = buildQuestionSteps(q);
@@ -271,6 +275,16 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
 				}
 			]);
+		});
+
+		it('"Decidi tu" arriva al modello nella lingua dell\'interfaccia e si riconosce in entrambe', () => {
+			useLocale('en');
+			const steps = buildQuestionSteps(question({ decideForMe: true }));
+			assert.equal(steps[0].value, 'You decide: choose the best solution');
+			assert.equal(isDecideForMeText('You decide: choose the best solution'), true);
+			assert.equal(isDecideForMeText('Decidi tu: scegli la soluzione migliore'), true);
+			assert.equal(isDecideForMeText('SQLite'), false);
+			useLocale('it');
 		});
 
 		it('concatena i passi di tutte le domande nel piano del wizard', () => {
@@ -468,7 +482,7 @@ describe('Ask tool: riepilogo delle risposte inviate', () => {
 
 	it('riconosce "Decidi tu" anche con la nota attaccata al testo', () => {
 		const [fruit] = parseAskToolCall(args, {
-			results: [{ id: 'fruit', question: 'Frutta preferita?', options: ['Apple'], selectedOptions: [], customInput: `${DECIDE_FOR_ME_TEXT} (nota: niente agrumi)` }]
+			results: [{ id: 'fruit', question: 'Frutta preferita?', options: ['Apple'], selectedOptions: [], customInput: `${decideForMeText()} (nota: niente agrumi)` }]
 		});
 		assert.deepEqual(summarizeAskAnswer(fruit), { kind: 'decided', labels: [], note: 'niente agrumi' });
 	});

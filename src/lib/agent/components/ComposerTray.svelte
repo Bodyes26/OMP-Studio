@@ -363,7 +363,7 @@
 										<span
 											class="tray-badge-reminder"
 											class:stalled={reminder.attempt >= reminder.max}
-											title={`Todo aperti: risvegliato ${reminder.attempt} volte su ${reminder.max}`}
+											title={m.chat_v2_tray_reminder_title({ attempt: reminder.attempt, max: reminder.max })}
 										>
 											<span class="tray-reminder-icon" aria-hidden="true"><IconLoop /></span>
 											{reminder.attempt}/{reminder.max}
@@ -476,7 +476,7 @@
 														<span class="agent-intent">{sub.lastIntent}</span>
 													{:else}
 														<span class="agent-idle">
-															{sub.status === 'pending' ? 'In coda' : 'Avvio…'}
+															{sub.status === 'pending' ? m.chat_v2_tray_subagent_queued() : m.chat_v2_tray_subagent_starting()}
 														</span>
 													{/if}
 												</span>
@@ -536,7 +536,7 @@
 							>
 								<StatusMark status="attention" active={!askLinger.leaving && !allLeaving} />
 								<span class="ask-text">
-									<strong>{askLinger.shown.from ?? 'L’agente'}</strong>
+									<strong>{askLinger.shown.from ?? m.chat_v2_tray_ask_from_agent()}</strong>
 									{(askLinger.shown.count ?? 1) > 1
 										? m.chat_v2_tray_ask_attention_plural()
 										: m.chat_v2_tray_ask_attention_singular()}
