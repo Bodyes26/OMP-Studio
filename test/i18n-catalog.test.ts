@@ -125,12 +125,12 @@ describe('Messaggi compilati Paraglide', () => {
 		overwriteGetLocale(() => 'en');
 		assert.equal(m.topbar_queue_count_label({ count: 1 }), '1 task queued');
 		assert.equal(m.topbar_queue_count_label({ count: 4 }), '4 tasks queued');
-		assert.equal(m.page_statusbar_agent_status_text({ state: 'Running' }), 'Status: Running');
+		assert.equal(m.page_slash_cmd_active_model({ model: 'opus' }), 'Active model: opus');
 
 		overwriteGetLocale(() => 'it');
 		assert.equal(m.topbar_queue_count_label({ count: 1 }), '1 task in coda');
 		assert.equal(m.topbar_queue_count_label({ count: 4 }), '4 task in coda');
-		assert.equal(m.page_statusbar_agent_status_text({ state: 'In esecuzione' }), 'Stato: In esecuzione');
+		assert.equal(m.page_slash_cmd_active_model({ model: 'opus' }), 'Modello attivo: opus');
 	});
 });
 
