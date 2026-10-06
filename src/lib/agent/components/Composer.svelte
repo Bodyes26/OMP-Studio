@@ -59,6 +59,7 @@
 	import AttachmentThumb, { type ComposerAttachment } from './AttachmentThumb.svelte';
 	import SuggestPanel, { type SuggestionItem } from './SuggestPanel.svelte';
 	import SuggestionChips from './SuggestionChips.svelte';
+	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
 
 	import {
 		IconAttach,
@@ -296,7 +297,7 @@
 						}
 					];
 				} else {
-					session.pushNotice('warning', prep.error, 'studio');
+					session.flashNotice('warning', prep.error);
 				}
 			} else {
 				const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv)$/i.test(file.name);
@@ -322,7 +323,7 @@
 						}
 					];
 				} catch (err) {
-					session.pushNotice('error', `Impossibile salvare l'allegato: ${err instanceof Error ? err.message : String(err)}`, 'studio');
+					session.flashNotice('error', `Impossibile salvare l'allegato: ${err instanceof Error ? err.message : String(err)}`);
 				}
 			}
 		}
@@ -497,6 +498,8 @@
 	async function handleSubmit(isAlt = false) {
 		if (!editorRef || submitting || isDraftEmpty()) return;
 		submitting = true;
+		// Un nuovo invio chiude l'esito precedente, errori compresi.
+		session.dismissComposerNotice();
 		try {
 			let wireText = editorRef.getWireText(isSkillCommand);
 			const stagedNonImages = attachments.filter((a) => a.path && a.kind !== 'image');
@@ -512,7 +515,7 @@
 			const result = await session.prompt(wireText, imagesToSend, behavior);
 			if (result === 'sent' || result === 'deferred') clear();
 		} catch (error) {
-			session.pushNotice('error', `Prompt non accettato: ${error instanceof Error ? error.message : String(error)}`, 'studio');
+			session.flashNotice('error', `Prompt non accettato: ${error instanceof Error ? error.message : String(error)}`);
 		} finally {
 			submitting = false;
 		}
@@ -644,6 +647,8 @@
 		}
 	}}
 >
+	<ComposerNoticeStrip {session} />
+
 	<!-- Suggerimenti prompt (visibili solo quando l'agente è fermo) -->
 	{#if showSuggestionChips}
 		<SuggestionChips

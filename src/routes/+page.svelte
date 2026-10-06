@@ -1598,9 +1598,9 @@
 			void (async () => {
 				try {
 					const newId = await session.forkSession();
-					session.pushNotice('info', m.page_slash_cmd_fork_success({ id: newId ?? '' }), 'studio');
+					session.flashNotice('info', m.page_slash_cmd_fork_success({ id: newId ?? '' }));
 				} catch (error) {
-					session.pushNotice('error', m.page_slash_cmd_fork_error({ error: error instanceof Error ? error.message : String(error) }), 'studio');
+					session.flashNotice('error', m.page_slash_cmd_fork_error({ error: error instanceof Error ? error.message : String(error) }));
 				}
 			})();
 			return true;
@@ -1608,18 +1608,18 @@
 		if (lowerCmd === '/drop') {
 			const targetLane = laneOf(project, laneId);
 			if (targetLane?.kind === 'lab') {
-				session.pushNotice('info', m.lane_lifecycle_lab_no_sessions(), 'studio');
+				session.flashNotice('info', m.lane_lifecycle_lab_no_sessions());
 				return true;
 			}
 			leftSection = 'agent';
 			taskStore.setView(project.canonicalProjectPath, 'sessions');
-			session.pushNotice('info', m.page_slash_cmd_drop_hint(), 'studio');
+			session.flashNotice('info', m.page_slash_cmd_drop_hint());
 			return true;
 		}
 		if (lowerCmd === '/quit' || lowerCmd === '/exit') {
 			const targetLane = laneOf(project, laneId);
 			if (targetLane?.kind === 'lab') {
-				session.pushNotice('info', m.lane_lifecycle_lab_single_chat(), 'studio');
+				session.flashNotice('info', m.lane_lifecycle_lab_single_chat());
 				return true;
 			}
 			void session.newSession();
@@ -1643,9 +1643,9 @@
 				.join('\n\n');
 			if (transcriptText) {
 				void navigator.clipboard.writeText(transcriptText);
-				session.pushNotice('info', m.page_slash_cmd_copy_success(), 'studio');
+				session.flashNotice('info', m.page_slash_cmd_copy_success());
 			} else {
-				session.pushNotice('warning', m.page_slash_cmd_copy_empty(), 'studio');
+				session.flashNotice('warning', m.page_slash_cmd_copy_empty());
 			}
 			return true;
 		}
@@ -1694,7 +1694,7 @@
 		if (lowerCmd === '/thinking' || lowerCmd === '/reasoning') {
 			const level = argument.toLowerCase();
 			if (!THINKING_LEVELS.includes(level as ThinkingLevel)) {
-				session.pushNotice('warning', m.page_slash_cmd_thinking_levels({ levels: THINKING_LEVELS.join(', ') }), 'studio');
+				session.flashNotice('warning', m.page_slash_cmd_thinking_levels({ levels: THINKING_LEVELS.join(', ') }));
 				return true;
 			}
 			void runSessionCommand(session, m.page_slash_cmd_thinking_set({ level: level }), {
@@ -1720,7 +1720,7 @@
 					const current = resolveActiveRole(rolesMap, session.model, session.thinkingLevel, session.lastPickedRole, known);
 					const next = nextCycleRole(cfg?.cycleOrder ?? [], rolesMap, current);
 					if (!next) {
-						session.pushNotice('warning', m.page_slash_cmd_no_configured_roles(), 'studio');
+						session.flashNotice('warning', m.page_slash_cmd_no_configured_roles());
 						return;
 					}
 					role = next;
@@ -1728,7 +1728,7 @@
 
 				const full = rolesMap[role];
 				if (!full) {
-					session.pushNotice('warning', m.page_slash_cmd_unconfigured_role({ role }), 'studio');
+					session.flashNotice('warning', m.page_slash_cmd_unconfigured_role({ role }));
 					return;
 				}
 				const { provider, modelId, thinking } = parseRoleSelector(full, known);
@@ -1739,9 +1739,9 @@
 					}
 					session.lastPickedRole = role;
 					await session.refreshState();
-					session.pushNotice('info', m.page_slash_cmd_active_role({ role, model: session.model?.name || modelId }), 'studio');
+					session.flashNotice('info', m.page_slash_cmd_active_role({ role, model: session.model?.name || modelId }));
 				} catch (err) {
-					session.pushNotice('warning', `/role ${role}: ${err instanceof Error ? err.message : String(err)}`, 'studio');
+					session.flashNotice('warning', `/role ${role}: ${err instanceof Error ? err.message : String(err)}`);
 				}
 			})();
 			return true;
@@ -1778,26 +1778,22 @@
 							await session.client.send({ type: 'set_thinking_level', level: thinking as any });
 						}
 						await session.refreshState();
-						session.pushNotice('info', m.page_slash_cmd_active_role({ role: nextRole, model: session.model?.name || mId }), 'studio');
+						session.flashNotice('info', m.page_slash_cmd_active_role({ role: nextRole, model: session.model?.name || mId }));
 					} else {
 						await session.client.send({ type: 'cycle_model' });
 						await session.refreshState();
 						const current = session.model?.name || session.model?.id || 'default';
-						session.pushNotice('info', m.page_slash_cmd_active_model({ model: current }), 'studio');
+						session.flashNotice('info', m.page_slash_cmd_active_model({ model: current }));
 					}
 				})();
 				return true;
 			}
-			session.pushNotice(
-				'info',
-				m.page_slash_cmd_model_hint(),
-				'studio'
-			);
+			session.flashNotice('info', m.page_slash_cmd_model_hint());
 			return true;
 		}
 		if (lowerCmd === '/name' || lowerCmd === '/rename') {
 			if (!argument) {
-				session.pushNotice('warning', m.page_slash_cmd_name_usage(), 'studio');
+				session.flashNotice('warning', m.page_slash_cmd_name_usage());
 				return true;
 			}
 			void runSessionCommand(session, m.page_slash_cmd_name_set({ name: argument }), {
@@ -1822,17 +1818,16 @@
 
 	const THINKING_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
-	/** Manda una RPC e riporta l'esito nel transcript, buono o cattivo. */
+	/** Manda una RPC e riporta l'esito sopra il composer, buono o cattivo. */
 	async function runSessionCommand(session: AgentSession, done: string, command: RpcCommand) {
 		try {
 			await session.client.send(command);
 			await session.refreshState();
-			session.pushNotice('info', done, 'studio');
+			session.flashNotice('info', done);
 		} catch (error) {
-			session.pushNotice(
+			session.flashNotice(
 				'error',
-				m.page_slash_cmd_command_failed({ error: error instanceof Error ? error.message : String(error) }),
-				'studio'
+				m.page_slash_cmd_command_failed({ error: error instanceof Error ? error.message : String(error) })
 			);
 		}
 	}
@@ -1849,10 +1844,9 @@
 				'studio'
 			);
 		} catch (error) {
-			session.pushNotice(
+			session.flashNotice(
 				'error',
-				m.page_slash_cmd_stats_unavailable({ error: error instanceof Error ? error.message : String(error) }),
-				'studio'
+				m.page_slash_cmd_stats_unavailable({ error: error instanceof Error ? error.message : String(error) })
 			);
 		}
 	}

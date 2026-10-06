@@ -172,6 +172,17 @@ export interface NoticeEntry {
 	offerTerminal?: boolean;
 }
 
+/**
+ * Esito effimero di un comando di Studio: vive sopra il composer e non entra nel
+ * transcript, cosi' una conferma (ruolo, thinking, copia) non cancella l'hero
+ * di una chat vuota e non resta nello storico della sessione.
+ */
+export interface ComposerNotice {
+	id: number;
+	level: 'info' | 'warning' | 'error';
+	message: string;
+}
+
 export interface CompactionEntry {
 	id: number;
 	kind: 'compaction';
@@ -463,6 +474,9 @@ export class AgentSession {
 	 * pannello non la mostra se i token non coincidono piu' con `contextUsage`.
 	 */
 	contextReport = $state<ContextReport | null>(null);
+	/** Ultimo esito di un comando di Studio, mostrato sopra il composer. */
+	composerNotice = $state<ComposerNotice | null>(null);
+	private composerNoticeSeq = 0;
 	private contextReportStamp = '';
 	private contextReportWanted = '';
 	private contextReportInflight: Promise<void> | null = null;
@@ -1014,7 +1028,7 @@ export class AgentSession {
 			});
 			if (this.sessionId !== sessionId) return;
 			if (data?.agentInvoked === true) {
-				this.pushNotice('warning', messages.chat_v2_composer_context_probe_sent(), 'studio');
+				this.flashNotice('warning', messages.chat_v2_composer_context_probe_sent());
 				return;
 			}
 			const parsed = this.contextReportCapture ? parseContextReport(this.contextReportCapture) : null;
@@ -3863,6 +3877,16 @@ export class AgentSession {
 
 	pushNotice(level: 'info' | 'warning' | 'error', message: string, source?: string, offerTerminal = false) {
 		this.push({ id: this.nextEntryId++, kind: 'notice', level, message, source, offerTerminal });
+	}
+
+	/** Esito di un comando di Studio: sostituisce quello precedente sopra il composer. */
+	flashNotice(level: ComposerNotice['level'], message: string) {
+		this.composerNotice = { id: ++this.composerNoticeSeq, level, message };
+	}
+
+	/** Chiude l'esito indicato, oppure quello corrente se `id` manca. */
+	dismissComposerNotice(id?: number) {
+		if (id === undefined || this.composerNotice?.id === id) this.composerNotice = null;
 	}
 
 	/**
